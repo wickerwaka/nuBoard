@@ -1,0 +1,11 @@
+.DS_Store
+*.kicad_prl
+*.lck
+~*
+_autosave-*
+*.bak
+*-backups/
+backups/
+/bin/konnect
+/build/
+__pycache__/

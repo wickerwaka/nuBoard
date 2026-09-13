@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "konnect": {
+      "command": "sh",
+      "args": ["scripts/konnect.sh"],
+      "env": { "RUST_LOG": "info" }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+<html>
+  <head>
+    <title>nuDaughter Mezzanine Board</title>
+  </head>
+  <body>
+    <h1>nuDaughter Mezzanine Board</h1>
+
+    <p>
+      Starting point for a daughterboard that plugs into the <b>nuBoard</b> 68020 FPGA
+      host board. It gives you a 100&nbsp;&times;&nbsp;100&nbsp;mm outline and the full
+      4&nbsp;&times;&nbsp;34 mezzanine interface, already placed, footprinted and labelled.
+      Everything inside the connector ring is yours.
+    </p>
+
+    <p><img src="brd.png" width="480"></p>
+
+    <h3>What's in the template</h3>
+    <ul>
+      <li><b>J1</b> &mdash; <tt>nuMezzanine_4x34</tt>, a 5-unit symbol covering all 136
+          through-hole pins, mapped to the <tt>nuMezzanine_4x34_P2.54mm</tt> footprint
+          (2.54&nbsp;mm pitch, pins numbered 1&ndash;136 clockwise from the top-left).</li>
+      <li>Board outline on Edge.Cuts, and TOP / BOTTOM / LEFT / RIGHT silkscreen so the
+          board orientation is unambiguous when it is mated to the host.</li>
+      <li>All 108 signal pins broken out to net labels in the schematic, ready to wire.</li>
+      <li>A 2-layer FR4 stackup and the net class / DRC settings used by the nuBoard family.</li>
+    </ul>
+
+    <h3>Pin naming</h3>
+    <p>
+      Each of the four connector rows carries 34 pins: 27 signals and 7 grounds. Signal
+      labels are <tt>&lt;side&gt;&lt;bank&gt;&lt;bit&gt;</tt>, where side is <tt>T</tt>,
+      <tt>B</tt>, <tt>L</tt> or <tt>R</tt> &mdash; for example <tt>T00</tt>&hellip;<tt>T07</tt>,
+      <tt>T10</tt>&hellip;<tt>T17</tt>, <tt>T20</tt>&hellip;<tt>T27</tt>. Each side also has a
+      dedicated clock <tt>TCLK</tt>/<tt>BCLK</tt>/<tt>LCLK</tt>/<tt>RCLK</tt> and two spares
+      <tt>TX</tt>,&nbsp;<tt>TY</tt> (and the equivalents on the other sides).
+    </p>
+
+    <h3>Standalone</h3>
+    <p>
+      The mezzanine symbol and footprint ship with the template as a project-local
+      <tt>nuBoard</tt> library (<tt>nuBoard.kicad_sym</tt> and <tt>nuBoard.pretty</tt>,
+      registered through the project's own <tt>sym-lib-table</tt> and <tt>fp-lib-table</tt>
+      via <tt>${KIPRJMOD}</tt>). Nothing outside the new project directory is required.
+    </p>
+
+    <h3>Expect ERC violations until you wire something up</h3>
+    <p>
+      Out of the box the schematic reports <i>isolated pin label</i> for every mezzanine
+      signal, because each label reaches only J1 so far. Those clear as you connect the
+      signals you actually use; delete the labels you don't.
+    </p>
+  </body>
+</html>

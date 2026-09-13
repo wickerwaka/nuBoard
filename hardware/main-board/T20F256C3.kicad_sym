@@ -1,0 +1,2114 @@
+
+(kicad_symbol_lib (version 20211014) (generator kicad_symbol_editor)
+  (symbol "T20F256C3" (pin_names (offset 1.016)) (in_bom yes) (on_board yes)
+    (property "Reference" "U" (id 0) (at -25.4 19.05 0)
+      (effects (font (size 1.27 1.27)) (justify bottom left))
+    )
+    (property "Value" "T20F256C3" (id 1) (at -25.4 -125.73 0)
+      (effects (font (size 1.27 1.27)) (justify top left))
+    )
+    (property "Footprint" "T20F256C3:BGA256C80P16X16_1300X1300X120N" (id 2) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) (justify bottom) hide)
+    )
+    (property "PARTREV" "v3.7" (id 4) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) (justify bottom) hide)
+    )
+    (property "STANDARD" "IPC 7351B" (id 5) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) (justify bottom) hide)
+    )
+    (property "MAXIMUM_PACKAGE_HEIGHT" "1.2mm" (id 6) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) (justify bottom) hide)
+    )
+    (property "MANUFACTURER" "Efinix" (id 7) (at 0 0 0)
+      (effects (font (size 1.27 1.27)) (justify bottom) hide)
+    )
+    (symbol "T20F256C3_1_0"
+      (rectangle (start -25.4 -124.46) (end 25.4 17.78)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin power_in line (at 30.48 15.24 180.0) (length 5.08)
+        (name "VCC"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 0.0 180.0) (length 5.08)
+        (name "VCCA_BR"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -2.54 180.0) (length 5.08)
+        (name "VCCA_TL"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -5.08 180.0) (length 5.08)
+        (name "VCCA_TR"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -7.62 180.0) (length 5.08)
+        (name "VCCIO1A"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -10.16 180.0) (length 5.08)
+        (name "VCCIO1B_1C"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -15.24 180.0) (length 5.08)
+        (name "VCCIO1D_1E"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -20.32 180.0) (length 5.08)
+        (name "VCCIO3A_3B_3C"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -27.94 180.0) (length 5.08)
+        (name "VCCIO3D_3E"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -33.02 180.0) (length 5.08)
+        (name "VCCIO4A"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -38.1 180.0) (length 5.08)
+        (name "VCCIO4B"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -45.72 180.0) (length 5.08)
+        (name "GND"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 12.7 180.0) (length 5.08)
+        (name "VCC__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 10.16 180.0) (length 5.08)
+        (name "VCC__2"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 7.62 180.0) (length 5.08)
+        (name "VCC__3"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 5.08 180.0) (length 5.08)
+        (name "VCC__4"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 2.54 180.0) (length 5.08)
+        (name "VCC__5"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -12.7 180.0) (length 5.08)
+        (name "VCCIO1B_1C__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -17.78 180.0) (length 5.08)
+        (name "VCCIO1D_1E__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -22.86 180.0) (length 5.08)
+        (name "VCCIO3A_3B_3C__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -25.4 180.0) (length 5.08)
+        (name "VCCIO3A_3B_3C__2"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -30.48 180.0) (length 5.08)
+        (name "VCCIO3D_3E__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -35.56 180.0) (length 5.08)
+        (name "VCCIO4A__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -40.64 180.0) (length 5.08)
+        (name "VCCIO4B__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -48.26 180.0) (length 5.08)
+        (name "GND__1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -50.8 180.0) (length 5.08)
+        (name "GND__2"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -53.34 180.0) (length 5.08)
+        (name "GND__3"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -55.88 180.0) (length 5.08)
+        (name "GND__4"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -58.42 180.0) (length 5.08)
+        (name "GND__5"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -60.96 180.0) (length 5.08)
+        (name "GND__6"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -63.5 180.0) (length 5.08)
+        (name "GND__7"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -66.04 180.0) (length 5.08)
+        (name "GND__8"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -68.58 180.0) (length 5.08)
+        (name "GND__9"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -71.12 180.0) (length 5.08)
+        (name "GND__10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -73.66 180.0) (length 5.08)
+        (name "GND__11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -76.2 180.0) (length 5.08)
+        (name "GND__12"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -78.74 180.0) (length 5.08)
+        (name "GND__13"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -81.28 180.0) (length 5.08)
+        (name "GND__14"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -83.82 180.0) (length 5.08)
+        (name "GND__15"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -86.36 180.0) (length 5.08)
+        (name "GND__16"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -88.9 180.0) (length 5.08)
+        (name "GND__17"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -91.44 180.0) (length 5.08)
+        (name "GND__18"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -93.98 180.0) (length 5.08)
+        (name "GND__19"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -96.52 180.0) (length 5.08)
+        (name "GND__20"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -99.06 180.0) (length 5.08)
+        (name "GND__21"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -101.6 180.0) (length 5.08)
+        (name "GND__22"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -104.14 180.0) (length 5.08)
+        (name "GND__23"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -106.68 180.0) (length 5.08)
+        (name "GND__24"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -109.22 180.0) (length 5.08)
+        (name "GND__25"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -111.76 180.0) (length 5.08)
+        (name "GND__26"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -114.3 180.0) (length 5.08)
+        (name "GND__27"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -116.84 180.0) (length 5.08)
+        (name "GND__28"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -119.38 180.0) (length 5.08)
+        (name "GND__29"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin power_in line (at 30.48 -121.92 180.0) (length 5.08)
+        (name "GND__30"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+    (symbol "T20F256C3_2_0"
+      (rectangle (start -25.4 -12.7) (end 25.4 12.7)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin output line (at 30.48 10.16 180.0) (length 5.08)
+        (name "CDONE"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin input line (at -30.48 10.16 0) (length 5.08)
+        (name "~{CRESET}"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -30.48 5.08 0) (length 5.08)
+        (name "GPIOL_00_SS_N"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -30.48 2.54 0) (length 5.08)
+        (name "GPIOL_01_CCK"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -30.48 0.0 0) (length 5.08)
+        (name "GPIOL_02"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -30.48 -2.54 0) (length 5.08)
+        (name "GPIOL_04_CSI"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -30.48 -5.08 0) (length 5.08)
+        (name "GPIOL_05_CSO"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -30.48 -7.62 0) (length 5.08)
+        (name "GPIOL_08_CDI0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -30.48 -10.16 0) (length 5.08)
+        (name "GPIOL_09_CDI1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin input clock (at 30.48 5.08 180.0) (length 5.08)
+        (name "TCK"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin input line (at 30.48 2.54 180.0) (length 5.08)
+        (name "TDI"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin output line (at 30.48 0.0 180.0) (length 5.08)
+        (name "TDO"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin input line (at 30.48 -2.54 180.0) (length 5.08)
+        (name "TMS"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+    (symbol "T20F256C3_3_0"
+      (rectangle (start -35.56 -22.86) (end 35.56 20.32)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin bidirectional line (at -40.64 17.78 0) (length 5.08)
+        (name "GPIOL_11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 15.24 0) (length 5.08)
+        (name "GPIOL_12_CDI2"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 12.7 0) (length 5.08)
+        (name "GPIOL_13_CDI3"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 10.16 0) (length 5.08)
+        (name "GPIOL_14"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 7.62 0) (length 5.08)
+        (name "GPIOL_15"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 5.08 0) (length 5.08)
+        (name "GPIOL_16"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 2.54 0) (length 5.08)
+        (name "GPIOL_18"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 0.0 0) (length 5.08)
+        (name "GPIOL_19"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -2.54 0) (length 5.08)
+        (name "GPIOL_20_CTRL0_CDI4"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -5.08 0) (length 5.08)
+        (name "GPIOL_21_CTRL1_CDI5"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -7.62 0) (length 5.08)
+        (name "GPIOL_22_CTRL2"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -10.16 0) (length 5.08)
+        (name "GPIOL_23_CTRL3"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -12.7 0) (length 5.08)
+        (name "GPIOL_24_CLK0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -15.24 0) (length 5.08)
+        (name "GPIOL_25_CLK1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -17.78 0) (length 5.08)
+        (name "GPIOL_26_CLK2"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -20.32 0) (length 5.08)
+        (name "GPIOL_27_CLK3"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 17.78 180.0) (length 5.08)
+        (name "GPIOL_28_CLK4"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 15.24 180.0) (length 5.08)
+        (name "GPIOL_29_CLK5"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 12.7 180.0) (length 5.08)
+        (name "GPIOL_30_CLK6"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 10.16 180.0) (length 5.08)
+        (name "GPIOL_31_CLK7_CDI6"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 7.62 180.0) (length 5.08)
+        (name "GPIOL_32_CTRL4_CDI7"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 5.08 180.0) (length 5.08)
+        (name "GPIOL_33_CTRL5"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 2.54 180.0) (length 5.08)
+        (name "GPIOL_34_CTRL6"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 0.0 180.0) (length 5.08)
+        (name "GPIOL_35_CTRL7"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -2.54 180.0) (length 5.08)
+        (name "GPIOL_36"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -5.08 180.0) (length 5.08)
+        (name "GPIOL_37"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -7.62 180.0) (length 5.08)
+        (name "GPIOL_39"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -10.16 180.0) (length 5.08)
+        (name "GPIOL_40_CDI8"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -12.7 180.0) (length 5.08)
+        (name "GPIOL_41_CDI9"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -15.24 180.0) (length 5.08)
+        (name "GPIOL_42"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -17.78 180.0) (length 5.08)
+        (name "GPIOL_43"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+    (symbol "T20F256C3_4_0"
+      (rectangle (start -40.64 -22.86) (end 40.64 20.32)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin bidirectional line (at -45.72 17.78 0) (length 5.08)
+        (name "GPIOL_44"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B1"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 15.24 0) (length 5.08)
+        (name "GPIOL_45"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 12.7 0) (length 5.08)
+        (name "GPIOL_46"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 10.16 0) (length 5.08)
+        (name "GPIOL_47"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 7.62 0) (length 5.08)
+        (name "GPIOL_48"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 5.08 0) (length 5.08)
+        (name "GPIOL_49"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 2.54 0) (length 5.08)
+        (name "GPIOL_50"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 0.0 0) (length 5.08)
+        (name "GPIOL_51"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -2.54 0) (length 5.08)
+        (name "GPIOL_52"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -5.08 0) (length 5.08)
+        (name "GPIOL_53_CDI10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -7.62 0) (length 5.08)
+        (name "GPIOL_54_CDI11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -10.16 0) (length 5.08)
+        (name "GPIOL_55"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -12.7 0) (length 5.08)
+        (name "GPIOL_56"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -15.24 0) (length 5.08)
+        (name "GPIOL_57"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -17.78 0) (length 5.08)
+        (name "GPIOL_58"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -20.32 0) (length 5.08)
+        (name "GPIOL_59"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 17.78 180.0) (length 5.08)
+        (name "GPIOL_60"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 15.24 180.0) (length 5.08)
+        (name "GPIOL_61"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 12.7 180.0) (length 5.08)
+        (name "GPIOL_62"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 10.16 180.0) (length 5.08)
+        (name "GPIOL_63"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 7.62 180.0) (length 5.08)
+        (name "GPIOL_64"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 5.08 180.0) (length 5.08)
+        (name "GPIOL_65"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 2.54 180.0) (length 5.08)
+        (name "GPIOL_66_CDI12"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 0.0 180.0) (length 5.08)
+        (name "GPIOL_67_CDI13"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -2.54 180.0) (length 5.08)
+        (name "GPIOL_68"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -5.08 180.0) (length 5.08)
+        (name "GPIOL_69_CBSEL1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -7.62 180.0) (length 5.08)
+        (name "GPIOL_70_CBSEL0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -10.16 180.0) (length 5.08)
+        (name "GPIOL_71_NSTATUS"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -12.7 180.0) (length 5.08)
+        (name "GPIOL_72_EXTFB0_CDI14"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -15.24 180.0) (length 5.08)
+        (name "GPIOL_73_EXTFB1_CDI15"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -17.78 180.0) (length 5.08)
+        (name "GPIOL_74_PLLIN0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -20.32 180.0) (length 5.08)
+        (name "GPIOL_75_PLLIN1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+    (symbol "T20F256C3_5_0"
+      (rectangle (start -40.64 -27.94) (end 40.64 27.94)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin bidirectional line (at 45.72 20.32 180.0) (length 5.08)
+        (name "GPIOR_102"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 17.78 180.0) (length 5.08)
+        (name "GPIOR_103"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 15.24 180.0) (length 5.08)
+        (name "GPIOR_104_CDI25"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 12.7 180.0) (length 5.08)
+        (name "GPIOR_105_CDI24"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 10.16 180.0) (length 5.08)
+        (name "GPIOR_106"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 7.62 180.0) (length 5.08)
+        (name "GPIOR_108"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 5.08 180.0) (length 5.08)
+        (name "GPIOR_110"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 2.54 180.0) (length 5.08)
+        (name "GPIOR_111"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 0.0 180.0) (length 5.08)
+        (name "GPIOR_112_CDI23"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -2.54 180.0) (length 5.08)
+        (name "GPIOR_113_CDI22"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -5.08 180.0) (length 5.08)
+        (name "GPIOR_116_CTRL15"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -7.62 180.0) (length 5.08)
+        (name "GPIOR_117_CTRL14"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -10.16 180.0) (length 5.08)
+        (name "GPIOR_118_CTRL13"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -12.7 180.0) (length 5.08)
+        (name "GPIOR_119_CTRL12"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -15.24 180.0) (length 5.08)
+        (name "GPIOR_120_CLK15"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -17.78 180.0) (length 5.08)
+        (name "GPIOR_121_CLK14"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -20.32 180.0) (length 5.08)
+        (name "GPIOR_122_CLK13_CDI21"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 -22.86 180.0) (length 5.08)
+        (name "GPIOR_123_CLK12_CDI20"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "F16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 25.4 0) (length 5.08)
+        (name "GPIOR_76_PLLIN0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 22.86 0) (length 5.08)
+        (name "GPIOR_77_PLLIN1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 20.32 0) (length 5.08)
+        (name "GPIOR_78_EXTFB0_CDI31"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 17.78 0) (length 5.08)
+        (name "GPIOR_79_EXTFB1_CDI30"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 15.24 0) (length 5.08)
+        (name "GPIOR_80"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 12.7 0) (length 5.08)
+        (name "GPIOR_81_MREFCLK"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 10.16 0) (length 5.08)
+        (name "GPIOR_82"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 7.62 0) (length 5.08)
+        (name "GPIOR_83"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 5.08 0) (length 5.08)
+        (name "GPIOR_84"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 2.54 0) (length 5.08)
+        (name "GPIOR_85"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 0.0 0) (length 5.08)
+        (name "GPIOR_86"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -2.54 0) (length 5.08)
+        (name "GPIOR_87_CDI29"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -5.08 0) (length 5.08)
+        (name "GPIOR_88_CDI28"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -7.62 0) (length 5.08)
+        (name "GPIOR_89"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "D12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -10.16 0) (length 5.08)
+        (name "GPIOR_90"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -12.7 0) (length 5.08)
+        (name "GPIOR_91"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "E12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -15.24 0) (length 5.08)
+        (name "GPIOR_92"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -17.78 0) (length 5.08)
+        (name "GPIOR_93"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -20.32 0) (length 5.08)
+        (name "GPIOR_94_CDI27"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -22.86 0) (length 5.08)
+        (name "GPIOR_95_CDI26"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "A13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -45.72 -25.4 0) (length 5.08)
+        (name "GPIOR_97"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 25.4 180.0) (length 5.08)
+        (name "GPIOR_98"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "B15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 45.72 22.86 180.0) (length 5.08)
+        (name "GPIOR_99"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "C13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+    (symbol "T20F256C3_6_0"
+      (rectangle (start -30.48 -20.32) (end 30.48 20.32)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin bidirectional line (at -35.56 17.78 0) (length 5.08)
+        (name "GPIOR_124_CLK11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 15.24 0) (length 5.08)
+        (name "GPIOR_125_CLK10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 12.7 0) (length 5.08)
+        (name "GPIOR_126_CLK9"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 10.16 0) (length 5.08)
+        (name "GPIOR_127_CLK8"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "G14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 7.62 0) (length 5.08)
+        (name "GPIOR_128_CTRL11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 5.08 0) (length 5.08)
+        (name "GPIOR_129_CTRL10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 2.54 0) (length 5.08)
+        (name "GPIOR_130_CTRL9"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 0.0 0) (length 5.08)
+        (name "GPIOR_131_CTRL8"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 -2.54 0) (length 5.08)
+        (name "GPIOR_132_CDI19"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 -5.08 0) (length 5.08)
+        (name "GPIOR_133_CDI18"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 -7.62 0) (length 5.08)
+        (name "GPIOR_135_CDI17"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 -10.16 0) (length 5.08)
+        (name "GPIOR_136_CDI16"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 -12.7 0) (length 5.08)
+        (name "GPIOR_138"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 -15.24 0) (length 5.08)
+        (name "GPIOR_139"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "H12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -35.56 -17.78 0) (length 5.08)
+        (name "GPIOR_141"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "J12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 17.78 180.0) (length 5.08)
+        (name "GPIOR_143"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 15.24 180.0) (length 5.08)
+        (name "GPIOR_144"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 12.7 180.0) (length 5.08)
+        (name "GPIOR_145"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 10.16 180.0) (length 5.08)
+        (name "GPIOR_146"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 7.62 180.0) (length 5.08)
+        (name "GPIOR_147"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 5.08 180.0) (length 5.08)
+        (name "GPIOR_148"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 2.54 180.0) (length 5.08)
+        (name "GPIOR_149_CBUS2"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 0.0 180.0) (length 5.08)
+        (name "GPIOR_150_CBUS1"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 -2.54 180.0) (length 5.08)
+        (name "GPIOR_151_CBUS0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "K13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 -5.08 180.0) (length 5.08)
+        (name "GPIOR_153"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 -7.62 180.0) (length 5.08)
+        (name "GPIOR_154"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N16"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 -10.16 180.0) (length 5.08)
+        (name "GPIOR_155"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 -12.7 180.0) (length 5.08)
+        (name "GPIOR_156"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 -15.24 180.0) (length 5.08)
+        (name "GPIOR_157_PLLIN"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 35.56 -17.78 180.0) (length 5.08)
+        (name "GPIOR_158_TEST_N"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "L12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+    (symbol "T20F256C3_7_0"
+      (rectangle (start -35.56 -20.32) (end 35.56 17.78)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin bidirectional line (at -40.64 15.24 0) (length 5.08)
+        (name "GPIOB_CLKN0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 12.7 0) (length 5.08)
+        (name "GPIOB_CLKP0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 10.16 0) (length 5.08)
+        (name "GPIOB_RXN00"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 5.08 0) (length 5.08)
+        (name "GPIOB_RXN01"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 0.0 0) (length 5.08)
+        (name "GPIOB_RXN02"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -5.08 0) (length 5.08)
+        (name "GPIOB_RXN03"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -10.16 0) (length 5.08)
+        (name "GPIOB_RXN04"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -15.24 0) (length 5.08)
+        (name "GPIOB_RXN05"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 7.62 180.0) (length 5.08)
+        (name "GPIOB_RXN06"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 2.54 180.0) (length 5.08)
+        (name "GPIOB_RXN07"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -2.54 180.0) (length 5.08)
+        (name "GPIOB_RXN08"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -7.62 180.0) (length 5.08)
+        (name "GPIOB_RXN09"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -12.7 180.0) (length 5.08)
+        (name "GPIOB_RXN10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -17.78 180.0) (length 5.08)
+        (name "GPIOB_RXN11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 15.24 180.0) (length 5.08)
+        (name "GPIOB_RXN12_EXTFB0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 7.62 0) (length 5.08)
+        (name "GPIOB_RXP00"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 2.54 0) (length 5.08)
+        (name "GPIOB_RXP01"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -2.54 0) (length 5.08)
+        (name "GPIOB_RXP02"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T9"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -7.62 0) (length 5.08)
+        (name "GPIOB_RXP03"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -12.7 0) (length 5.08)
+        (name "GPIOB_RXP04"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -40.64 -17.78 0) (length 5.08)
+        (name "GPIOB_RXP05"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M10"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 10.16 180.0) (length 5.08)
+        (name "GPIOB_RXP06"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N11"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 5.08 180.0) (length 5.08)
+        (name "GPIOB_RXP07"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 0.0 180.0) (length 5.08)
+        (name "GPIOB_RXP08"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R13"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -5.08 180.0) (length 5.08)
+        (name "GPIOB_RXP09"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -10.16 180.0) (length 5.08)
+        (name "GPIOB_RXP10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P12"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 -15.24 180.0) (length 5.08)
+        (name "GPIOB_RXP11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T15"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 40.64 12.7 180.0) (length 5.08)
+        (name "GPIOB_RXP12_EXTFB0"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P14"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+    (symbol "T20F256C3_8_0"
+      (rectangle (start -20.32 -20.32) (end 20.32 17.78)
+        (stroke (width 0.254)) (fill (type background))
+      )
+      (pin bidirectional line (at -25.4 15.24 0) (length 5.08)
+        (name "GPIOB_TXN00"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 10.16 0) (length 5.08)
+        (name "GPIOB_TXN01"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 5.08 0) (length 5.08)
+        (name "GPIOB_TXN02"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 0.0 0) (length 5.08)
+        (name "GPIOB_TXN03"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 -5.08 0) (length 5.08)
+        (name "GPIOB_TXN04"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 -10.16 0) (length 5.08)
+        (name "GPIOB_TXN05"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 -15.24 0) (length 5.08)
+        (name "GPIOB_TXN06"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 12.7 180.0) (length 5.08)
+        (name "GPIOB_TXN07"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 7.62 180.0) (length 5.08)
+        (name "GPIOB_TXN08"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 2.54 180.0) (length 5.08)
+        (name "GPIOB_TXN09"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 -2.54 180.0) (length 5.08)
+        (name "GPIOB_TXN10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 -7.62 180.0) (length 5.08)
+        (name "GPIOB_TXN11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 -12.7 180.0) (length 5.08)
+        (name "GPIOB_TXN12"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "P8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 12.7 0) (length 5.08)
+        (name "GPIOB_TXP00"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 7.62 0) (length 5.08)
+        (name "GPIOB_TXP01"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N4"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 2.54 0) (length 5.08)
+        (name "GPIOB_TXP02"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R3"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 -2.54 0) (length 5.08)
+        (name "GPIOB_TXP03"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 -7.62 0) (length 5.08)
+        (name "GPIOB_TXP04"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 -12.7 0) (length 5.08)
+        (name "GPIOB_TXP05"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at -25.4 -17.78 0) (length 5.08)
+        (name "GPIOB_TXP06"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 15.24 180.0) (length 5.08)
+        (name "GPIOB_TXP07"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R5"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 10.16 180.0) (length 5.08)
+        (name "GPIOB_TXP08"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R6"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 5.08 180.0) (length 5.08)
+        (name "GPIOB_TXP09"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "N7"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 0.0 180.0) (length 5.08)
+        (name "GPIOB_TXP10"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "T8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 -5.08 180.0) (length 5.08)
+        (name "GPIOB_TXP11"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "M8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin bidirectional line (at 25.4 -10.16 180.0) (length 5.08)
+        (name "GPIOB_TXP12"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R8"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+      (pin passive line (at 25.4 -17.78 180.0) (length 5.08)
+        (name "REF_RES"
+          (effects (font (size 1.016 1.016)))
+        )
+        (number "R2"
+          (effects (font (size 1.016 1.016)))
+        )
+      )
+    )
+  )
+)

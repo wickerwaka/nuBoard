@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "nuBoard") (type "KiCad") (uri "${KIPRJMOD}/nuBoard.pretty") (options "") (descr ""))
+)

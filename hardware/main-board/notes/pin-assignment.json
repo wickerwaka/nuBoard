@@ -1,0 +1,3253 @@
+{
+  "device": "T120F484",
+  "centre": [
+    108.5,
+    76.2
+  ],
+  "metrics": {
+    "before": {
+      "signals": 145,
+      "total_mm": 3860.9,
+      "mean_mm": 26.63,
+      "max_mm": 73.55,
+      "crossings": 303,
+      "crossings_within_bundle": 165,
+      "rings": {
+        "0": 33,
+        "1": 26,
+        "2": 17,
+        "3": 14,
+        "4": 14,
+        "5": 19,
+        "6": 13,
+        "7": 9
+      },
+      "ring0_1": 59,
+      "ring5plus": 41,
+      "per_group": {
+        "B0": {
+          "n": 10,
+          "mean_mm": 21.32,
+          "max_mm": 24.59
+        },
+        "B1": {
+          "n": 10,
+          "mean_mm": 21.65,
+          "max_mm": 25.22
+        },
+        "B2": {
+          "n": 10,
+          "mean_mm": 32.34,
+          "max_mm": 36.8
+        },
+        "BCLK": {
+          "n": 2,
+          "mean_mm": 23.19,
+          "max_mm": 23.53
+        },
+        "DUT": {
+          "n": 2,
+          "mean_mm": 72.87,
+          "max_mm": 73.55
+        },
+        "L0": {
+          "n": 10,
+          "mean_mm": 29.05,
+          "max_mm": 31.53
+        },
+        "L1": {
+          "n": 10,
+          "mean_mm": 21.79,
+          "max_mm": 25.35
+        },
+        "L2": {
+          "n": 10,
+          "mean_mm": 23.74,
+          "max_mm": 27.67
+        },
+        "LCLK": {
+          "n": 2,
+          "mean_mm": 34.05,
+          "max_mm": 36.75
+        },
+        "PSRAM": {
+          "n": 6,
+          "mean_mm": 10.57,
+          "max_mm": 11.15
+        },
+        "R0": {
+          "n": 10,
+          "mean_mm": 28.16,
+          "max_mm": 30.83
+        },
+        "R1": {
+          "n": 10,
+          "mean_mm": 22.35,
+          "max_mm": 24.9
+        },
+        "R2": {
+          "n": 10,
+          "mean_mm": 30.7,
+          "max_mm": 35.18
+        },
+        "RCLK": {
+          "n": 2,
+          "mean_mm": 33.87,
+          "max_mm": 34.93
+        },
+        "T0": {
+          "n": 10,
+          "mean_mm": 32.0,
+          "max_mm": 35.58
+        },
+        "T1": {
+          "n": 10,
+          "mean_mm": 25.26,
+          "max_mm": 29.58
+        },
+        "T2": {
+          "n": 10,
+          "mean_mm": 27.3,
+          "max_mm": 30.71
+        },
+        "TCLK": {
+          "n": 2,
+          "mean_mm": 34.92,
+          "max_mm": 36.21
+        },
+        "XY": {
+          "n": 9,
+          "mean_mm": 27.0,
+          "max_mm": 31.79
+        }
+      },
+      "banks": [
+        {
+          "bank": "BANK1A",
+          "lvds": false,
+          "cap": 9,
+          "held": 9,
+          "used": 0,
+          "budget": 0,
+          "free": 0
+        },
+        {
+          "bank": "BANK1B",
+          "lvds": false,
+          "cap": 12,
+          "held": 2,
+          "used": 0,
+          "budget": 10,
+          "free": 10
+        },
+        {
+          "bank": "BANK1C",
+          "lvds": false,
+          "cap": 16,
+          "held": 0,
+          "used": 6,
+          "budget": 16,
+          "free": 10
+        },
+        {
+          "bank": "BANK1D",
+          "lvds": false,
+          "cap": 15,
+          "held": 0,
+          "used": 4,
+          "budget": 15,
+          "free": 11
+        },
+        {
+          "bank": "BANK1E",
+          "lvds": false,
+          "cap": 3,
+          "held": 0,
+          "used": 2,
+          "budget": 3,
+          "free": 1
+        },
+        {
+          "bank": "BANK1F",
+          "lvds": false,
+          "cap": 11,
+          "held": 0,
+          "used": 10,
+          "budget": 11,
+          "free": 1
+        },
+        {
+          "bank": "BANK1G",
+          "lvds": false,
+          "cap": 7,
+          "held": 4,
+          "used": 2,
+          "budget": 3,
+          "free": 1
+        },
+        {
+          "bank": "BANK2A",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 10,
+          "budget": 14,
+          "free": 4
+        },
+        {
+          "bank": "BANK2B",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 10,
+          "budget": 14,
+          "free": 4
+        },
+        {
+          "bank": "BANK2C",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 12,
+          "budget": 14,
+          "free": 2
+        },
+        {
+          "bank": "BANK2D",
+          "lvds": true,
+          "cap": 12,
+          "held": 0,
+          "used": 10,
+          "budget": 12,
+          "free": 2
+        },
+        {
+          "bank": "BANK2E",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 10,
+          "budget": 14,
+          "free": 4
+        },
+        {
+          "bank": "BANK2F",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 12,
+          "budget": 14,
+          "free": 2
+        },
+        {
+          "bank": "BANK3D",
+          "lvds": false,
+          "cap": 16,
+          "held": 1,
+          "used": 0,
+          "budget": 15,
+          "free": 15
+        },
+        {
+          "bank": "BANK4A",
+          "lvds": true,
+          "cap": 8,
+          "held": 0,
+          "used": 6,
+          "budget": 8,
+          "free": 2
+        },
+        {
+          "bank": "BANK4B",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 10,
+          "budget": 14,
+          "free": 4
+        },
+        {
+          "bank": "BANK4C",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 9,
+          "budget": 14,
+          "free": 5
+        },
+        {
+          "bank": "BANK4D",
+          "lvds": true,
+          "cap": 10,
+          "held": 0,
+          "used": 10,
+          "budget": 10,
+          "free": 0
+        },
+        {
+          "bank": "BANK4E",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 10,
+          "budget": 14,
+          "free": 4
+        },
+        {
+          "bank": "BANK4F",
+          "lvds": true,
+          "cap": 12,
+          "held": 0,
+          "used": 12,
+          "budget": 12,
+          "free": 0
+        },
+        {
+          "bank": "BR",
+          "lvds": false,
+          "cap": 3,
+          "held": 0,
+          "used": 0,
+          "budget": 3,
+          "free": 3
+        },
+        {
+          "bank": "TR",
+          "lvds": false,
+          "cap": 4,
+          "held": 1,
+          "used": 0,
+          "budget": 3,
+          "free": 3
+        }
+      ]
+    },
+    "after": {
+      "signals": 145,
+      "total_mm": 3637.8,
+      "mean_mm": 25.09,
+      "max_mm": 72.4,
+      "crossings": 0,
+      "crossings_within_bundle": 0,
+      "rings": {
+        "0": 53,
+        "1": 41,
+        "2": 26,
+        "3": 17,
+        "4": 7,
+        "5": 1
+      },
+      "ring0_1": 94,
+      "ring5plus": 1,
+      "per_group": {
+        "B0": {
+          "n": 10,
+          "mean_mm": 21.16,
+          "max_mm": 23.84
+        },
+        "B1": {
+          "n": 10,
+          "mean_mm": 20.93,
+          "max_mm": 26.64
+        },
+        "B2": {
+          "n": 10,
+          "mean_mm": 31.26,
+          "max_mm": 36.6
+        },
+        "BCLK": {
+          "n": 2,
+          "mean_mm": 23.15,
+          "max_mm": 23.46
+        },
+        "DUT": {
+          "n": 2,
+          "mean_mm": 71.65,
+          "max_mm": 72.4
+        },
+        "L0": {
+          "n": 10,
+          "mean_mm": 28.95,
+          "max_mm": 31.13
+        },
+        "L1": {
+          "n": 10,
+          "mean_mm": 20.66,
+          "max_mm": 23.79
+        },
+        "L2": {
+          "n": 10,
+          "mean_mm": 21.71,
+          "max_mm": 25.39
+        },
+        "LCLK": {
+          "n": 2,
+          "mean_mm": 30.8,
+          "max_mm": 30.98
+        },
+        "PSRAM": {
+          "n": 6,
+          "mean_mm": 10.53,
+          "max_mm": 11.99
+        },
+        "R0": {
+          "n": 10,
+          "mean_mm": 27.25,
+          "max_mm": 29.14
+        },
+        "R1": {
+          "n": 10,
+          "mean_mm": 18.6,
+          "max_mm": 23.46
+        },
+        "R2": {
+          "n": 10,
+          "mean_mm": 27.8,
+          "max_mm": 32.78
+        },
+        "RCLK": {
+          "n": 2,
+          "mean_mm": 32.09,
+          "max_mm": 32.21
+        },
+        "T0": {
+          "n": 10,
+          "mean_mm": 29.32,
+          "max_mm": 30.89
+        },
+        "T1": {
+          "n": 10,
+          "mean_mm": 22.34,
+          "max_mm": 24.78
+        },
+        "T2": {
+          "n": 10,
+          "mean_mm": 25.07,
+          "max_mm": 28.12
+        },
+        "TCLK": {
+          "n": 2,
+          "mean_mm": 34.63,
+          "max_mm": 34.83
+        },
+        "XY": {
+          "n": 9,
+          "mean_mm": 26.61,
+          "max_mm": 29.41
+        }
+      },
+      "banks": [
+        {
+          "bank": "BANK1A",
+          "lvds": false,
+          "cap": 9,
+          "held": 9,
+          "used": 0,
+          "budget": 0,
+          "free": 0
+        },
+        {
+          "bank": "BANK1B",
+          "lvds": false,
+          "cap": 12,
+          "held": 2,
+          "used": 3,
+          "budget": 10,
+          "free": 7
+        },
+        {
+          "bank": "BANK1C",
+          "lvds": false,
+          "cap": 16,
+          "held": 0,
+          "used": 10,
+          "budget": 16,
+          "free": 6
+        },
+        {
+          "bank": "BANK1D",
+          "lvds": false,
+          "cap": 15,
+          "held": 0,
+          "used": 4,
+          "budget": 15,
+          "free": 11
+        },
+        {
+          "bank": "BANK1E",
+          "lvds": false,
+          "cap": 3,
+          "held": 0,
+          "used": 1,
+          "budget": 3,
+          "free": 2
+        },
+        {
+          "bank": "BANK1F",
+          "lvds": false,
+          "cap": 11,
+          "held": 0,
+          "used": 6,
+          "budget": 11,
+          "free": 5
+        },
+        {
+          "bank": "BANK1G",
+          "lvds": false,
+          "cap": 7,
+          "held": 4,
+          "used": 2,
+          "budget": 3,
+          "free": 1
+        },
+        {
+          "bank": "BANK2A",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 14,
+          "budget": 14,
+          "free": 0
+        },
+        {
+          "bank": "BANK2B",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 8,
+          "budget": 14,
+          "free": 6
+        },
+        {
+          "bank": "BANK2C",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 5,
+          "budget": 14,
+          "free": 9
+        },
+        {
+          "bank": "BANK2D",
+          "lvds": true,
+          "cap": 12,
+          "held": 0,
+          "used": 5,
+          "budget": 12,
+          "free": 7
+        },
+        {
+          "bank": "BANK2E",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 9,
+          "budget": 14,
+          "free": 5
+        },
+        {
+          "bank": "BANK2F",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 7,
+          "budget": 14,
+          "free": 7
+        },
+        {
+          "bank": "BANK3D",
+          "lvds": false,
+          "cap": 16,
+          "held": 1,
+          "used": 15,
+          "budget": 15,
+          "free": 0
+        },
+        {
+          "bank": "BANK4A",
+          "lvds": true,
+          "cap": 8,
+          "held": 0,
+          "used": 6,
+          "budget": 8,
+          "free": 2
+        },
+        {
+          "bank": "BANK4B",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 9,
+          "budget": 14,
+          "free": 5
+        },
+        {
+          "bank": "BANK4C",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 8,
+          "budget": 14,
+          "free": 6
+        },
+        {
+          "bank": "BANK4D",
+          "lvds": true,
+          "cap": 10,
+          "held": 0,
+          "used": 8,
+          "budget": 10,
+          "free": 2
+        },
+        {
+          "bank": "BANK4E",
+          "lvds": true,
+          "cap": 14,
+          "held": 0,
+          "used": 10,
+          "budget": 14,
+          "free": 4
+        },
+        {
+          "bank": "BANK4F",
+          "lvds": true,
+          "cap": 12,
+          "held": 0,
+          "used": 12,
+          "budget": 12,
+          "free": 0
+        },
+        {
+          "bank": "BR",
+          "lvds": false,
+          "cap": 3,
+          "held": 0,
+          "used": 0,
+          "budget": 3,
+          "free": 3
+        },
+        {
+          "bank": "TR",
+          "lvds": false,
+          "cap": 4,
+          "held": 1,
+          "used": 3,
+          "budget": 3,
+          "free": 0
+        }
+      ]
+    }
+  },
+  "assignment": {
+    "/F_L00": {
+      "label": "F_L00",
+      "group": "L0",
+      "ball": "A3",
+      "gpio": "GPIOT_TXN06",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 29.81,
+      "was": "C4",
+      "target": [
+        81.343,
+        46.025
+      ],
+      "ball_xy": [
+        101.7,
+        67.8
+      ]
+    },
+    "/F_L01": {
+      "label": "F_L01",
+      "group": "L0",
+      "ball": "A2",
+      "gpio": "GPIOT_TXP05",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 28.84,
+      "was": "B1",
+      "target": [
+        81.343,
+        46.6
+      ],
+      "ball_xy": [
+        100.9,
+        67.8
+      ]
+    },
+    "/F_L02": {
+      "label": "F_L02",
+      "group": "L0",
+      "ball": "B2",
+      "gpio": "GPIOT_TXN05",
+      "bank": "BANK2A",
+      "ring": 1,
+      "mm": 29.06,
+      "was": "B2",
+      "target": [
+        81.343,
+        47.1
+      ],
+      "ball_xy": [
+        100.9,
+        68.6
+      ]
+    },
+    "/F_L03": {
+      "label": "F_L03",
+      "group": "L0",
+      "ball": "B1",
+      "gpio": "GPIOT_TXN04",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 28.16,
+      "was": "A3",
+      "target": [
+        81.343,
+        47.6
+      ],
+      "ball_xy": [
+        100.1,
+        68.6
+      ]
+    },
+    "/F_L04": {
+      "label": "F_L04",
+      "group": "L0",
+      "ball": "C2",
+      "gpio": "GPIOT_TXN02",
+      "bank": "BANK2A",
+      "ring": 1,
+      "mm": 28.92,
+      "was": "B5",
+      "target": [
+        81.343,
+        48.1
+      ],
+      "ball_xy": [
+        100.9,
+        69.4
+      ]
+    },
+    "/F_L05": {
+      "label": "F_L05",
+      "group": "L0",
+      "ball": "C1",
+      "gpio": "GPIOT_TXP04",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 28.01,
+      "was": "D1",
+      "target": [
+        81.343,
+        48.6
+      ],
+      "ball_xy": [
+        100.1,
+        69.4
+      ]
+    },
+    "/F_L06": {
+      "label": "F_L06",
+      "group": "L0",
+      "ball": "D2",
+      "gpio": "GPIOT_TXP02",
+      "bank": "BANK2A",
+      "ring": 1,
+      "mm": 28.77,
+      "was": "D2",
+      "target": [
+        81.343,
+        49.1
+      ],
+      "ball_xy": [
+        100.9,
+        70.2
+      ]
+    },
+    "/F_L07": {
+      "label": "F_L07",
+      "group": "L0",
+      "ball": "D1",
+      "gpio": "GPIOT_TXP01",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 27.8,
+      "was": "C3",
+      "target": [
+        81.343,
+        49.675
+      ],
+      "ball_xy": [
+        100.1,
+        70.2
+      ]
+    },
+    "/F_L0_DIR": {
+      "label": "F_L0_DIR",
+      "group": "L0",
+      "ball": "E3",
+      "gpio": "GPIOL_160_PLLIN1",
+      "bank": "BANK1G",
+      "ring": 2,
+      "mm": 31.13,
+      "was": "E1",
+      "target": [
+        77.575,
+        51.325
+      ],
+      "ball_xy": [
+        101.7,
+        71.0
+      ]
+    },
+    "/~{F_L0_OE}": {
+      "label": "~{F_L0_OE}",
+      "group": "L0",
+      "ball": "E4",
+      "gpio": "GPIOL_164_PLLIN0",
+      "bank": "BANK1G",
+      "ring": 3,
+      "mm": 28.95,
+      "was": "C2",
+      "target": [
+        80.302,
+        52.42
+      ],
+      "ball_xy": [
+        102.5,
+        71.0
+      ]
+    },
+    "/F_L10": {
+      "label": "F_L10",
+      "group": "L1",
+      "ball": "H3",
+      "gpio": "GPIOL_131",
+      "bank": "BANK1F",
+      "ring": 2,
+      "mm": 21.26,
+      "was": "H3",
+      "target": [
+        80.933,
+        68.828
+      ],
+      "ball_xy": [
+        101.7,
+        73.4
+      ]
+    },
+    "/F_L11": {
+      "label": "F_L11",
+      "group": "L1",
+      "ball": "H1",
+      "gpio": "GPIOL_133",
+      "bank": "BANK1F",
+      "ring": 0,
+      "mm": 19.58,
+      "was": "H1",
+      "target": [
+        80.933,
+        69.403
+      ],
+      "ball_xy": [
+        100.1,
+        73.4
+      ]
+    },
+    "/F_L12": {
+      "label": "F_L12",
+      "group": "L1",
+      "ball": "J3",
+      "gpio": "GPIOL_91",
+      "bank": "BANK1D",
+      "ring": 2,
+      "mm": 21.21,
+      "was": "G6",
+      "target": [
+        80.933,
+        69.903
+      ],
+      "ball_xy": [
+        101.7,
+        74.2
+      ]
+    },
+    "/F_L13": {
+      "label": "F_L13",
+      "group": "L1",
+      "ball": "J2",
+      "gpio": "GPIOL_117",
+      "bank": "BANK1E",
+      "ring": 1,
+      "mm": 20.33,
+      "was": "G1",
+      "target": [
+        80.933,
+        70.403
+      ],
+      "ball_xy": [
+        100.9,
+        74.2
+      ]
+    },
+    "/F_L14": {
+      "label": "F_L14",
+      "group": "L1",
+      "ball": "J1",
+      "gpio": "GPIOL_119",
+      "bank": "BANK1F",
+      "ring": 0,
+      "mm": 19.45,
+      "was": "G4",
+      "target": [
+        80.933,
+        70.903
+      ],
+      "ball_xy": [
+        100.1,
+        74.2
+      ]
+    },
+    "/F_L15": {
+      "label": "F_L15",
+      "group": "L1",
+      "ball": "K2",
+      "gpio": "GPIOL_89",
+      "bank": "BANK1D",
+      "ring": 1,
+      "mm": 20.29,
+      "was": "G3",
+      "target": [
+        80.933,
+        71.403
+      ],
+      "ball_xy": [
+        100.9,
+        75.0
+      ]
+    },
+    "/F_L16": {
+      "label": "F_L16",
+      "group": "L1",
+      "ball": "K1",
+      "gpio": "GPIOL_87",
+      "bank": "BANK1D",
+      "ring": 0,
+      "mm": 19.42,
+      "was": "G2",
+      "target": [
+        80.933,
+        71.903
+      ],
+      "ball_xy": [
+        100.1,
+        75.0
+      ]
+    },
+    "/F_L17": {
+      "label": "F_L17",
+      "group": "L1",
+      "ball": "L3",
+      "gpio": "GPIOL_73_CLK7",
+      "bank": "BANK1D",
+      "ring": 2,
+      "mm": 21.03,
+      "was": "G5",
+      "target": [
+        80.933,
+        72.478
+      ],
+      "ball_xy": [
+        101.7,
+        75.8
+      ]
+    },
+    "/F_L1_DIR": {
+      "label": "F_L1_DIR",
+      "group": "L1",
+      "ball": "L2",
+      "gpio": "GPIOL_69_CLK3",
+      "bank": "BANK1C",
+      "ring": 1,
+      "mm": 23.79,
+      "was": "H4",
+      "target": [
+        77.165,
+        74.127
+      ],
+      "ball_xy": [
+        100.9,
+        75.8
+      ]
+    },
+    "/~{F_L1_OE}": {
+      "label": "~{F_L1_OE}",
+      "group": "L1",
+      "ball": "L1",
+      "gpio": "GPIOL_68_CLK2",
+      "bank": "BANK1C",
+      "ring": 0,
+      "mm": 20.22,
+      "was": "H6",
+      "target": [
+        79.893,
+        75.222
+      ],
+      "ball_xy": [
+        100.1,
+        75.8
+      ]
+    },
+    "/F_L20": {
+      "label": "F_L20",
+      "group": "L2",
+      "ball": "M1",
+      "gpio": "GPIOL_65_CTRL3",
+      "bank": "BANK1C",
+      "ring": 0,
+      "mm": 20.24,
+      "was": "M6",
+      "target": [
+        80.33,
+        80.925
+      ],
+      "ball_xy": [
+        100.1,
+        76.6
+      ]
+    },
+    "/F_L21": {
+      "label": "F_L21",
+      "group": "L2",
+      "ball": "M3",
+      "gpio": "GPIOL_67_CLK1",
+      "bank": "BANK1C",
+      "ring": 2,
+      "mm": 21.92,
+      "was": "M3",
+      "target": [
+        80.33,
+        81.5
+      ],
+      "ball_xy": [
+        101.7,
+        76.6
+      ]
+    },
+    "/F_L22": {
+      "label": "F_L22",
+      "group": "L2",
+      "ball": "N1",
+      "gpio": "GPIOL_62_CTRL0",
+      "bank": "BANK1C",
+      "ring": 0,
+      "mm": 20.3,
+      "was": "L1",
+      "target": [
+        80.33,
+        82.0
+      ],
+      "ball_xy": [
+        100.1,
+        77.4
+      ]
+    },
+    "/F_L23": {
+      "label": "F_L23",
+      "group": "L2",
+      "ball": "N2",
+      "gpio": "GPIOL_63_CTRL1",
+      "bank": "BANK1C",
+      "ring": 1,
+      "mm": 21.19,
+      "was": "L2",
+      "target": [
+        80.33,
+        82.5
+      ],
+      "ball_xy": [
+        100.9,
+        77.4
+      ]
+    },
+    "/F_L24": {
+      "label": "F_L24",
+      "group": "L2",
+      "ball": "P1",
+      "gpio": "GPIOL_52",
+      "bank": "BANK1C",
+      "ring": 0,
+      "mm": 20.34,
+      "was": "L7",
+      "target": [
+        80.33,
+        83.0
+      ],
+      "ball_xy": [
+        100.1,
+        78.2
+      ]
+    },
+    "/F_L25": {
+      "label": "F_L25",
+      "group": "L2",
+      "ball": "P2",
+      "gpio": "GPIOL_50",
+      "bank": "BANK1C",
+      "ring": 1,
+      "mm": 21.24,
+      "was": "L5",
+      "target": [
+        80.33,
+        83.5
+      ],
+      "ball_xy": [
+        100.9,
+        78.2
+      ]
+    },
+    "/F_L26": {
+      "label": "F_L26",
+      "group": "L2",
+      "ball": "P3",
+      "gpio": "GPIOL_51",
+      "bank": "BANK1C",
+      "ring": 2,
+      "mm": 22.14,
+      "was": "L6",
+      "target": [
+        80.33,
+        84.0
+      ],
+      "ball_xy": [
+        101.7,
+        78.2
+      ]
+    },
+    "/F_L27": {
+      "label": "F_L27",
+      "group": "L2",
+      "ball": "R1",
+      "gpio": "GPIOL_49",
+      "bank": "BANK1C",
+      "ring": 0,
+      "mm": 20.54,
+      "was": "L3",
+      "target": [
+        80.33,
+        84.575
+      ],
+      "ball_xy": [
+        100.1,
+        79.0
+      ]
+    },
+    "/F_L2_DIR": {
+      "label": "F_L2_DIR",
+      "group": "L2",
+      "ball": "R2",
+      "gpio": "GPIOL_15_PLLIN0",
+      "bank": "BANK1B",
+      "ring": 1,
+      "mm": 25.39,
+      "was": "M4",
+      "target": [
+        76.562,
+        86.225
+      ],
+      "ball_xy": [
+        100.9,
+        79.0
+      ]
+    },
+    "/~{F_L2_OE}": {
+      "label": "~{F_L2_OE}",
+      "group": "L2",
+      "ball": "R3",
+      "gpio": "GPIOL_17_EXTFB0",
+      "bank": "BANK1B",
+      "ring": 2,
+      "mm": 23.8,
+      "was": "M1",
+      "target": [
+        79.29,
+        87.0
+      ],
+      "ball_xy": [
+        101.7,
+        79.0
+      ]
+    },
+    "/F_T20": {
+      "label": "F_T20",
+      "group": "T2",
+      "ball": "A7",
+      "gpio": "GPIOT_TXP14",
+      "bank": "BANK2B",
+      "ring": 0,
+      "mm": 23.42,
+      "was": "B6",
+      "target": [
+        94.075,
+        47.03
+      ],
+      "ball_xy": [
+        104.9,
+        67.8
+      ]
+    },
+    "/F_T21": {
+      "label": "F_T21",
+      "group": "T2",
+      "ball": "B7",
+      "gpio": "GPIOT_TXN14",
+      "bank": "BANK2B",
+      "ring": 1,
+      "mm": 24.4,
+      "was": "F7",
+      "target": [
+        93.5,
+        47.03
+      ],
+      "ball_xy": [
+        104.9,
+        68.6
+      ]
+    },
+    "/F_T22": {
+      "label": "F_T22",
+      "group": "T2",
+      "ball": "A6",
+      "gpio": "GPIOT_TXP12",
+      "bank": "BANK2B",
+      "ring": 0,
+      "mm": 23.55,
+      "was": "B7",
+      "target": [
+        93.0,
+        47.03
+      ],
+      "ball_xy": [
+        104.1,
+        67.8
+      ]
+    },
+    "/F_T23": {
+      "label": "F_T23",
+      "group": "T2",
+      "ball": "B6",
+      "gpio": "GPIOT_TXN12",
+      "bank": "BANK2B",
+      "ring": 1,
+      "mm": 24.49,
+      "was": "H7",
+      "target": [
+        92.5,
+        47.03
+      ],
+      "ball_xy": [
+        104.1,
+        68.6
+      ]
+    },
+    "/F_T24": {
+      "label": "F_T24",
+      "group": "T2",
+      "ball": "C6",
+      "gpio": "GPIOT_TXP10",
+      "bank": "BANK2B",
+      "ring": 2,
+      "mm": 25.43,
+      "was": "F8",
+      "target": [
+        92.0,
+        47.03
+      ],
+      "ball_xy": [
+        104.1,
+        69.4
+      ]
+    },
+    "/F_T25": {
+      "label": "F_T25",
+      "group": "T2",
+      "ball": "A5",
+      "gpio": "GPIOT_TXP07",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 23.89,
+      "was": "A8",
+      "target": [
+        91.5,
+        47.03
+      ],
+      "ball_xy": [
+        103.3,
+        67.8
+      ]
+    },
+    "/F_T26": {
+      "label": "F_T26",
+      "group": "T2",
+      "ball": "B5",
+      "gpio": "GPIOT_TXN07",
+      "bank": "BANK2A",
+      "ring": 1,
+      "mm": 24.83,
+      "was": "C6",
+      "target": [
+        91.0,
+        47.03
+      ],
+      "ball_xy": [
+        103.3,
+        68.6
+      ]
+    },
+    "/F_T27": {
+      "label": "F_T27",
+      "group": "T2",
+      "ball": "C4",
+      "gpio": "GPIOT_TXN03",
+      "bank": "BANK2A",
+      "ring": 2,
+      "mm": 25.42,
+      "was": "F6",
+      "target": [
+        90.425,
+        47.03
+      ],
+      "ball_xy": [
+        102.5,
+        69.4
+      ]
+    },
+    "/F_T2_DIR": {
+      "label": "F_T2_DIR",
+      "group": "T2",
+      "ball": "A4",
+      "gpio": "GPIOT_TXP06",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 28.12,
+      "was": "C7",
+      "target": [
+        88.775,
+        43.262
+      ],
+      "ball_xy": [
+        102.5,
+        67.8
+      ]
+    },
+    "/~{F_T2_OE}": {
+      "label": "~{F_T2_OE}",
+      "group": "T2",
+      "ball": "C3",
+      "gpio": "GPIOT_TXP03",
+      "bank": "BANK2A",
+      "ring": 2,
+      "mm": 27.12,
+      "was": "E6",
+      "target": [
+        88.0,
+        45.99
+      ],
+      "ball_xy": [
+        101.7,
+        69.4
+      ]
+    },
+    "/F_T10": {
+      "label": "F_T10",
+      "group": "T1",
+      "ball": "B11",
+      "gpio": "GPIOT_RXN01",
+      "bank": "BANK2D",
+      "ring": 1,
+      "mm": 22.08,
+      "was": "H9",
+      "target": [
+        111.55,
+        46.793
+      ],
+      "ball_xy": [
+        108.1,
+        68.6
+      ]
+    },
+    "/F_T11": {
+      "label": "F_T11",
+      "group": "T1",
+      "ball": "A11",
+      "gpio": "GPIOT_RXP01",
+      "bank": "BANK2D",
+      "ring": 0,
+      "mm": 21.2,
+      "was": "B9",
+      "target": [
+        110.975,
+        46.793
+      ],
+      "ball_xy": [
+        108.1,
+        67.8
+      ]
+    },
+    "/F_T12": {
+      "label": "F_T12",
+      "group": "T1",
+      "ball": "D10",
+      "gpio": "GPIOT_TXP24",
+      "bank": "BANK2C",
+      "ring": 3,
+      "mm": 23.62,
+      "was": "E10",
+      "target": [
+        110.475,
+        46.793
+      ],
+      "ball_xy": [
+        107.3,
+        70.2
+      ]
+    },
+    "/F_T13": {
+      "label": "F_T13",
+      "group": "T1",
+      "ball": "B10",
+      "gpio": "GPIOT_TXN25",
+      "bank": "BANK2C",
+      "ring": 1,
+      "mm": 21.97,
+      "was": "B10",
+      "target": [
+        109.975,
+        46.793
+      ],
+      "ball_xy": [
+        107.3,
+        68.6
+      ]
+    },
+    "/F_T14": {
+      "label": "F_T14",
+      "group": "T1",
+      "ball": "A10",
+      "gpio": "GPIOT_TXP25",
+      "bank": "BANK2C",
+      "ring": 0,
+      "mm": 21.12,
+      "was": "G10",
+      "target": [
+        109.475,
+        46.793
+      ],
+      "ball_xy": [
+        107.3,
+        67.8
+      ]
+    },
+    "/F_T15": {
+      "label": "F_T15",
+      "group": "T1",
+      "ball": "B9",
+      "gpio": "GPIOT_TXN23",
+      "bank": "BANK2C",
+      "ring": 1,
+      "mm": 21.95,
+      "was": "H8",
+      "target": [
+        108.975,
+        46.793
+      ],
+      "ball_xy": [
+        106.5,
+        68.6
+      ]
+    },
+    "/F_T16": {
+      "label": "F_T16",
+      "group": "T1",
+      "ball": "A9",
+      "gpio": "GPIOT_TXP23",
+      "bank": "BANK2C",
+      "ring": 0,
+      "mm": 21.1,
+      "was": "E9",
+      "target": [
+        108.475,
+        46.793
+      ],
+      "ball_xy": [
+        106.5,
+        67.8
+      ]
+    },
+    "/F_T17": {
+      "label": "F_T17",
+      "group": "T1",
+      "ball": "B8",
+      "gpio": "GPIOT_TXP18",
+      "bank": "BANK2B",
+      "ring": 1,
+      "mm": 21.92,
+      "was": "G9",
+      "target": [
+        107.9,
+        46.793
+      ],
+      "ball_xy": [
+        105.7,
+        68.6
+      ]
+    },
+    "/F_T1_DIR": {
+      "label": "F_T1_DIR",
+      "group": "T1",
+      "ball": "A8",
+      "gpio": "GPIOT_TXN18",
+      "bank": "BANK2B",
+      "ring": 0,
+      "mm": 24.78,
+      "was": "G8",
+      "target": [
+        106.25,
+        43.025
+      ],
+      "ball_xy": [
+        105.7,
+        67.8
+      ]
+    },
+    "/~{F_T1_OE}": {
+      "label": "~{F_T1_OE}",
+      "group": "T1",
+      "ball": "C7",
+      "gpio": "GPIOT_TXN10",
+      "bank": "BANK2B",
+      "ring": 2,
+      "mm": 23.65,
+      "was": "D9",
+      "target": [
+        105.475,
+        45.752
+      ],
+      "ball_xy": [
+        104.9,
+        69.4
+      ]
+    },
+    "/F_T00": {
+      "label": "F_T00",
+      "group": "T0",
+      "ball": "B15",
+      "gpio": "GPIOT_RXP18_EXTFB1",
+      "bank": "BANK2E",
+      "ring": 1,
+      "mm": 29.88,
+      "was": "H11",
+      "target": [
+        131.7,
+        46.768
+      ],
+      "ball_xy": [
+        111.3,
+        68.6
+      ]
+    },
+    "/F_T01": {
+      "label": "F_T01",
+      "group": "T0",
+      "ball": "A15",
+      "gpio": "GPIOT_RXN18_EXTFB1",
+      "bank": "BANK2E",
+      "ring": 0,
+      "mm": 28.9,
+      "was": "C12",
+      "target": [
+        131.125,
+        46.768
+      ],
+      "ball_xy": [
+        111.3,
+        67.8
+      ]
+    },
+    "/F_T02": {
+      "label": "F_T02",
+      "group": "T0",
+      "ball": "D14",
+      "gpio": "GPIOT_RXN19_CLKN1",
+      "bank": "BANK2E",
+      "ring": 3,
+      "mm": 30.89,
+      "was": "G12",
+      "target": [
+        130.625,
+        46.768
+      ],
+      "ball_xy": [
+        110.5,
+        70.2
+      ]
+    },
+    "/F_T03": {
+      "label": "F_T03",
+      "group": "T0",
+      "ball": "B14",
+      "gpio": "GPIOT_RXP15",
+      "bank": "BANK2E",
+      "ring": 1,
+      "mm": 29.36,
+      "was": "E12",
+      "target": [
+        130.125,
+        46.768
+      ],
+      "ball_xy": [
+        110.5,
+        68.6
+      ]
+    },
+    "/F_T04": {
+      "label": "F_T04",
+      "group": "T0",
+      "ball": "A14",
+      "gpio": "GPIOT_RXN15",
+      "bank": "BANK2E",
+      "ring": 0,
+      "mm": 28.43,
+      "was": "A11",
+      "target": [
+        129.625,
+        46.768
+      ],
+      "ball_xy": [
+        110.5,
+        67.8
+      ]
+    },
+    "/F_T05": {
+      "label": "F_T05",
+      "group": "T0",
+      "ball": "C13",
+      "gpio": "GPIOT_RXN13",
+      "bank": "BANK2E",
+      "ring": 2,
+      "mm": 29.83,
+      "was": "E11",
+      "target": [
+        129.125,
+        46.768
+      ],
+      "ball_xy": [
+        109.7,
+        69.4
+      ]
+    },
+    "/F_T06": {
+      "label": "F_T06",
+      "group": "T0",
+      "ball": "B13",
+      "gpio": "GPIOT_RXP13",
+      "bank": "BANK2E",
+      "ring": 1,
+      "mm": 28.89,
+      "was": "G11",
+      "target": [
+        128.625,
+        46.768
+      ],
+      "ball_xy": [
+        109.7,
+        68.6
+      ]
+    },
+    "/F_T07": {
+      "label": "F_T07",
+      "group": "T0",
+      "ball": "A13",
+      "gpio": "GPIOT_RXN11",
+      "bank": "BANK2E",
+      "ring": 0,
+      "mm": 27.91,
+      "was": "C11",
+      "target": [
+        128.05,
+        46.768
+      ],
+      "ball_xy": [
+        109.7,
+        67.8
+      ]
+    },
+    "/F_T0_DIR": {
+      "label": "F_T0_DIR",
+      "group": "T0",
+      "ball": "A12",
+      "gpio": "GPIOT_RXP11",
+      "bank": "BANK2E",
+      "ring": 0,
+      "mm": 30.35,
+      "was": "B11",
+      "target": [
+        126.4,
+        43.0
+      ],
+      "ball_xy": [
+        108.9,
+        67.8
+      ]
+    },
+    "/~{F_T0_OE}": {
+      "label": "~{F_T0_OE}",
+      "group": "T0",
+      "ball": "C12",
+      "gpio": "GPIOT_RXN04",
+      "bank": "BANK2D",
+      "ring": 2,
+      "mm": 28.8,
+      "was": "D11",
+      "target": [
+        125.305,
+        45.727
+      ],
+      "ball_xy": [
+        108.9,
+        69.4
+      ]
+    },
+    "/F_R20": {
+      "label": "F_R20",
+      "group": "R2",
+      "ball": "A19",
+      "gpio": "GPIOR_169_MREFCLK",
+      "bank": "TR",
+      "ring": 0,
+      "mm": 23.69,
+      "was": "C13",
+      "target": [
+        133.832,
+        54.1
+      ],
+      "ball_xy": [
+        114.5,
+        67.8
+      ]
+    },
+    "/F_R21": {
+      "label": "F_R21",
+      "group": "R2",
+      "ball": "D18",
+      "gpio": "GPIOR_168_PLLIN2",
+      "bank": "TR",
+      "ring": 3,
+      "mm": 26.14,
+      "was": "E13",
+      "target": [
+        133.832,
+        53.525
+      ],
+      "ball_xy": [
+        113.7,
+        70.2
+      ]
+    },
+    "/F_R22": {
+      "label": "F_R22",
+      "group": "R2",
+      "ball": "C18",
+      "gpio": "GPIOR_166_PLLIN0",
+      "bank": "TR",
+      "ring": 2,
+      "mm": 25.95,
+      "was": "A14",
+      "target": [
+        133.832,
+        53.025
+      ],
+      "ball_xy": [
+        113.7,
+        69.4
+      ]
+    },
+    "/F_R23": {
+      "label": "F_R23",
+      "group": "R2",
+      "ball": "B17",
+      "gpio": "GPIOT_RXN21",
+      "bank": "BANK2F",
+      "ring": 1,
+      "mm": 26.39,
+      "was": "H14",
+      "target": [
+        133.832,
+        52.525
+      ],
+      "ball_xy": [
+        112.9,
+        68.6
+      ]
+    },
+    "/F_R24": {
+      "label": "F_R24",
+      "group": "R2",
+      "ball": "A17",
+      "gpio": "GPIOT_RXP21",
+      "bank": "BANK2F",
+      "ring": 0,
+      "mm": 26.21,
+      "was": "A15",
+      "target": [
+        133.832,
+        52.025
+      ],
+      "ball_xy": [
+        112.9,
+        67.8
+      ]
+    },
+    "/F_R25": {
+      "label": "F_R25",
+      "group": "R2",
+      "ball": "B16",
+      "gpio": "GPIOT_RXN20",
+      "bank": "BANK2F",
+      "ring": 1,
+      "mm": 27.64,
+      "was": "D14",
+      "target": [
+        133.832,
+        51.525
+      ],
+      "ball_xy": [
+        112.1,
+        68.6
+      ]
+    },
+    "/F_R26": {
+      "label": "F_R26",
+      "group": "R2",
+      "ball": "A16",
+      "gpio": "GPIOT_RXP20",
+      "bank": "BANK2F",
+      "ring": 0,
+      "mm": 27.45,
+      "was": "A12",
+      "target": [
+        133.832,
+        51.025
+      ],
+      "ball_xy": [
+        112.1,
+        67.8
+      ]
+    },
+    "/F_R27": {
+      "label": "F_R27",
+      "group": "R2",
+      "ball": "D15",
+      "gpio": "GPIOT_RXN22",
+      "bank": "BANK2F",
+      "ring": 3,
+      "mm": 29.96,
+      "was": "H13",
+      "target": [
+        133.832,
+        50.45
+      ],
+      "ball_xy": [
+        111.3,
+        70.2
+      ]
+    },
+    "/F_R2_DIR": {
+      "label": "F_R2_DIR",
+      "group": "R2",
+      "ball": "C16",
+      "gpio": "GPIOT_RXP23",
+      "bank": "BANK2F",
+      "ring": 2,
+      "mm": 32.78,
+      "was": "A13",
+      "target": [
+        137.6,
+        48.8
+      ],
+      "ball_xy": [
+        112.1,
+        69.4
+      ]
+    },
+    "/~{F_R2_OE}": {
+      "label": "~{F_R2_OE}",
+      "group": "R2",
+      "ball": "C15",
+      "gpio": "GPIOT_RXN23",
+      "bank": "BANK2F",
+      "ring": 2,
+      "mm": 31.82,
+      "was": "G13",
+      "target": [
+        134.873,
+        48.025
+      ],
+      "ball_xy": [
+        111.3,
+        69.4
+      ]
+    },
+    "/F_R10": {
+      "label": "F_R10",
+      "group": "R1",
+      "ball": "D22",
+      "gpio": "GPIOR_183_CTRL10",
+      "bank": "BANK3D",
+      "ring": 0,
+      "mm": 16.87,
+      "was": "D15",
+      "target": [
+        133.77,
+        70.275
+      ],
+      "ball_xy": [
+        116.9,
+        70.2
+      ]
+    },
+    "/F_R11": {
+      "label": "F_R11",
+      "group": "R1",
+      "ball": "C21",
+      "gpio": "GPIOR_178_CLK11",
+      "bank": "BANK3D",
+      "ring": 1,
+      "mm": 17.67,
+      "was": "C15",
+      "target": [
+        133.77,
+        69.7
+      ],
+      "ball_xy": [
+        116.1,
+        69.4
+      ]
+    },
+    "/F_R12": {
+      "label": "F_R12",
+      "group": "R1",
+      "ball": "C22",
+      "gpio": "GPIOR_182_CTRL11",
+      "bank": "BANK3D",
+      "ring": 0,
+      "mm": 16.87,
+      "was": "F15",
+      "target": [
+        133.77,
+        69.2
+      ],
+      "ball_xy": [
+        116.9,
+        69.4
+      ]
+    },
+    "/F_R13": {
+      "label": "F_R13",
+      "group": "R1",
+      "ball": "B22",
+      "gpio": "GPIOR_180_CLK9",
+      "bank": "BANK3D",
+      "ring": 0,
+      "mm": 16.87,
+      "was": "H16",
+      "target": [
+        133.77,
+        68.7
+      ],
+      "ball_xy": [
+        116.9,
+        68.6
+      ]
+    },
+    "/F_R14": {
+      "label": "F_R14",
+      "group": "R1",
+      "ball": "B21",
+      "gpio": "GPIOR_177_CLK12",
+      "bank": "BANK3D",
+      "ring": 1,
+      "mm": 17.67,
+      "was": "E16",
+      "target": [
+        133.77,
+        68.2
+      ],
+      "ball_xy": [
+        116.1,
+        68.6
+      ]
+    },
+    "/F_R15": {
+      "label": "F_R15",
+      "group": "R1",
+      "ball": "A21",
+      "gpio": "GPIOR_176_CLK13",
+      "bank": "BANK3D",
+      "ring": 0,
+      "mm": 17.67,
+      "was": "F17",
+      "target": [
+        133.77,
+        67.7
+      ],
+      "ball_xy": [
+        116.1,
+        67.8
+      ]
+    },
+    "/F_R16": {
+      "label": "F_R16",
+      "group": "R1",
+      "ball": "B20",
+      "gpio": "GPIOR_175_CLK14",
+      "bank": "BANK3D",
+      "ring": 1,
+      "mm": 18.52,
+      "was": "A16",
+      "target": [
+        133.77,
+        67.2
+      ],
+      "ball_xy": [
+        115.3,
+        68.6
+      ]
+    },
+    "/F_R17": {
+      "label": "F_R17",
+      "group": "R1",
+      "ball": "D19",
+      "gpio": "GPIOR_173_CTRL12",
+      "bank": "BANK3D",
+      "ring": 3,
+      "mm": 19.6,
+      "was": "A17",
+      "target": [
+        133.77,
+        66.625
+      ],
+      "ball_xy": [
+        114.5,
+        70.2
+      ]
+    },
+    "/F_R1_DIR": {
+      "label": "F_R1_DIR",
+      "group": "R1",
+      "ball": "C19",
+      "gpio": "GPIOR_171_CTRL14",
+      "bank": "BANK3D",
+      "ring": 2,
+      "mm": 23.46,
+      "was": "B17",
+      "target": [
+        137.537,
+        64.975
+      ],
+      "ball_xy": [
+        114.5,
+        69.4
+      ]
+    },
+    "/~{F_R1_OE}": {
+      "label": "~{F_R1_OE}",
+      "group": "R1",
+      "ball": "B19",
+      "gpio": "GPIOR_172_CTRL13",
+      "bank": "BANK3D",
+      "ring": 1,
+      "mm": 20.78,
+      "was": "B16",
+      "target": [
+        134.81,
+        64.2
+      ],
+      "ball_xy": [
+        114.5,
+        68.6
+      ]
+    },
+    "/F_R00": {
+      "label": "F_R00",
+      "group": "R0",
+      "ball": "AB13",
+      "gpio": "GPIOB_RXP10",
+      "bank": "BANK4B",
+      "ring": 0,
+      "mm": 28.1,
+      "was": "AB14",
+      "target": [
+        134.357,
+        98.075
+      ],
+      "ball_xy": [
+        109.7,
+        84.6
+      ]
+    },
+    "/F_R01": {
+      "label": "F_R01",
+      "group": "R0",
+      "ball": "AB14",
+      "gpio": "GPIOB_RXN14",
+      "bank": "BANK4B",
+      "ring": 0,
+      "mm": 27.12,
+      "was": "R13",
+      "target": [
+        134.357,
+        97.5
+      ],
+      "ball_xy": [
+        110.5,
+        84.6
+      ]
+    },
+    "/F_R02": {
+      "label": "F_R02",
+      "group": "R0",
+      "ball": "Y14",
+      "gpio": "GPIOB_RXP16",
+      "bank": "BANK4B",
+      "ring": 2,
+      "mm": 27.66,
+      "was": "Y13",
+      "target": [
+        134.357,
+        97.0
+      ],
+      "ball_xy": [
+        110.5,
+        83.0
+      ]
+    },
+    "/F_R03": {
+      "label": "F_R03",
+      "group": "R0",
+      "ball": "W14",
+      "gpio": "GPIOB_RXN19_CLKN1",
+      "bank": "BANK4B",
+      "ring": 3,
+      "mm": 27.81,
+      "was": "U14",
+      "target": [
+        134.357,
+        96.5
+      ],
+      "ball_xy": [
+        110.5,
+        82.2
+      ]
+    },
+    "/F_R04": {
+      "label": "F_R04",
+      "group": "R0",
+      "ball": "V14",
+      "gpio": "GPIOB_RXP19_CLKP1",
+      "bank": "BANK4B",
+      "ring": 4,
+      "mm": 27.97,
+      "was": "W14",
+      "target": [
+        134.357,
+        96.0
+      ],
+      "ball_xy": [
+        110.5,
+        81.4
+      ]
+    },
+    "/F_R05": {
+      "label": "F_R05",
+      "group": "R0",
+      "ball": "U14",
+      "gpio": "GPIOB_RXN18_EXTFB1",
+      "bank": "BANK4B",
+      "ring": 5,
+      "mm": 28.13,
+      "was": "AB13",
+      "target": [
+        134.357,
+        95.5
+      ],
+      "ball_xy": [
+        110.5,
+        80.6
+      ]
+    },
+    "/F_R06": {
+      "label": "F_R06",
+      "group": "R0",
+      "ball": "AB15",
+      "gpio": "GPIOB_RXP14",
+      "bank": "BANK4B",
+      "ring": 0,
+      "mm": 25.29,
+      "was": "T13",
+      "target": [
+        134.357,
+        95.0
+      ],
+      "ball_xy": [
+        111.3,
+        84.6
+      ]
+    },
+    "/F_R07": {
+      "label": "F_R07",
+      "group": "R0",
+      "ball": "AA15",
+      "gpio": "GPIOB_RXN20",
+      "bank": "BANK4A",
+      "ring": 1,
+      "mm": 25.39,
+      "was": "AB15",
+      "target": [
+        134.357,
+        94.425
+      ],
+      "ball_xy": [
+        111.3,
+        83.8
+      ]
+    },
+    "/F_R0_DIR": {
+      "label": "F_R0_DIR",
+      "group": "R0",
+      "ball": "V15",
+      "gpio": "GPIOB_RXP29_CLKP2",
+      "bank": "BANK4A",
+      "ring": 4,
+      "mm": 29.14,
+      "was": "AA13",
+      "target": [
+        138.125,
+        92.775
+      ],
+      "ball_xy": [
+        111.3,
+        81.4
+      ]
+    },
+    "/~{F_R0_OE}": {
+      "label": "~{F_R0_OE}",
+      "group": "R0",
+      "ball": "W15",
+      "gpio": "GPIOB_RXN29_CLKN2",
+      "bank": "BANK4A",
+      "ring": 3,
+      "mm": 25.9,
+      "was": "U13",
+      "target": [
+        135.398,
+        91.68
+      ],
+      "ball_xy": [
+        111.3,
+        82.2
+      ]
+    },
+    "/F_B20": {
+      "label": "F_B20",
+      "group": "B2",
+      "ball": "AB11",
+      "gpio": "GPIOB_RXP00",
+      "bank": "BANK4C",
+      "ring": 0,
+      "mm": 27.89,
+      "was": "AA9",
+      "target": [
+        130.325,
+        101.457
+      ],
+      "ball_xy": [
+        108.1,
+        84.6
+      ]
+    },
+    "/F_B21": {
+      "label": "F_B21",
+      "group": "B2",
+      "ball": "AA11",
+      "gpio": "GPIOB_RXN00",
+      "bank": "BANK4C",
+      "ring": 1,
+      "mm": 28.84,
+      "was": "V10",
+      "target": [
+        130.9,
+        101.457
+      ],
+      "ball_xy": [
+        108.1,
+        83.8
+      ]
+    },
+    "/F_B22": {
+      "label": "F_B22",
+      "group": "B2",
+      "ball": "R4",
+      "gpio": "GPIOL_19_PLLIN1",
+      "bank": "BANK1B",
+      "ring": 3,
+      "mm": 36.6,
+      "was": "AA10",
+      "target": [
+        131.4,
+        101.457
+      ],
+      "ball_xy": [
+        102.5,
+        79.0
+      ]
+    },
+    "/F_B23": {
+      "label": "F_B23",
+      "group": "B2",
+      "ball": "AB12",
+      "gpio": "GPIOB_RXN05",
+      "bank": "BANK4C",
+      "ring": 0,
+      "mm": 28.52,
+      "was": "AB8",
+      "target": [
+        131.9,
+        101.457
+      ],
+      "ball_xy": [
+        108.9,
+        84.6
+      ]
+    },
+    "/F_B24": {
+      "label": "F_B24",
+      "group": "B2",
+      "ball": "AA12",
+      "gpio": "GPIOB_RXP05",
+      "bank": "BANK4C",
+      "ring": 1,
+      "mm": 29.39,
+      "was": "U9",
+      "target": [
+        132.4,
+        101.457
+      ],
+      "ball_xy": [
+        108.9,
+        83.8
+      ]
+    },
+    "/F_B25": {
+      "label": "F_B25",
+      "group": "B2",
+      "ball": "W12",
+      "gpio": "GPIOB_RXN08_EXTFB0",
+      "bank": "BANK4C",
+      "ring": 3,
+      "mm": 30.77,
+      "was": "AB9",
+      "target": [
+        132.9,
+        101.457
+      ],
+      "ball_xy": [
+        108.9,
+        82.2
+      ]
+    },
+    "/F_B26": {
+      "label": "F_B26",
+      "group": "B2",
+      "ball": "V12",
+      "gpio": "GPIOB_RXP08_EXTFB0",
+      "bank": "BANK4C",
+      "ring": 4,
+      "mm": 31.66,
+      "was": "W10",
+      "target": [
+        133.4,
+        101.457
+      ],
+      "ball_xy": [
+        108.9,
+        81.4
+      ]
+    },
+    "/F_B27": {
+      "label": "F_B27",
+      "group": "B2",
+      "ball": "AA13",
+      "gpio": "GPIOB_RXN10",
+      "bank": "BANK4B",
+      "ring": 1,
+      "mm": 30.02,
+      "was": "AB10",
+      "target": [
+        133.975,
+        101.457
+      ],
+      "ball_xy": [
+        109.7,
+        83.8
+      ]
+    },
+    "/F_B2_DIR": {
+      "label": "F_B2_DIR",
+      "group": "B2",
+      "ball": "W11",
+      "gpio": "GPIOB_RXP03",
+      "bank": "BANK4C",
+      "ring": 3,
+      "mm": 35.89,
+      "was": "AA8",
+      "target": [
+        135.625,
+        105.225
+      ],
+      "ball_xy": [
+        108.1,
+        82.2
+      ]
+    },
+    "/~{F_B2_OE}": {
+      "label": "~{F_B2_OE}",
+      "group": "B2",
+      "ball": "Y13",
+      "gpio": "GPIOB_RXN16",
+      "bank": "BANK4B",
+      "ring": 2,
+      "mm": 33.06,
+      "was": "U10",
+      "target": [
+        136.4,
+        102.497
+      ],
+      "ball_xy": [
+        109.7,
+        83.0
+      ]
+    },
+    "/F_B10": {
+      "label": "F_B10",
+      "group": "B1",
+      "ball": "AB6",
+      "gpio": "GPIOB_TXP14_CDI17",
+      "bank": "BANK4E",
+      "ring": 0,
+      "mm": 18.42,
+      "was": "U7",
+      "target": [
+        111.525,
+        101.457
+      ],
+      "ball_xy": [
+        104.1,
+        84.6
+      ]
+    },
+    "/F_B11": {
+      "label": "F_B11",
+      "group": "B1",
+      "ball": "AA6",
+      "gpio": "GPIOB_TXN14_CDI16",
+      "bank": "BANK4E",
+      "ring": 1,
+      "mm": 19.39,
+      "was": "AA7",
+      "target": [
+        112.1,
+        101.457
+      ],
+      "ball_xy": [
+        104.1,
+        83.8
+      ]
+    },
+    "/F_B12": {
+      "label": "F_B12",
+      "group": "B1",
+      "ball": "Y6",
+      "gpio": "GPIOB_TXP13_CDI19",
+      "bank": "BANK4E",
+      "ring": 2,
+      "mm": 20.32,
+      "was": "V8",
+      "target": [
+        112.6,
+        101.457
+      ],
+      "ball_xy": [
+        104.1,
+        83.0
+      ]
+    },
+    "/F_B13": {
+      "label": "F_B13",
+      "group": "B1",
+      "ball": "AB7",
+      "gpio": "GPIOB_TXP16_CDI13",
+      "bank": "BANK4E",
+      "ring": 0,
+      "mm": 18.75,
+      "was": "U8",
+      "target": [
+        113.1,
+        101.457
+      ],
+      "ball_xy": [
+        104.9,
+        84.6
+      ]
+    },
+    "/F_B14": {
+      "label": "F_B14",
+      "group": "B1",
+      "ball": "AA7",
+      "gpio": "GPIOB_TXN16_CDI12",
+      "bank": "BANK4E",
+      "ring": 1,
+      "mm": 19.68,
+      "was": "W9",
+      "target": [
+        113.6,
+        101.457
+      ],
+      "ball_xy": [
+        104.9,
+        83.8
+      ]
+    },
+    "/F_B15": {
+      "label": "F_B15",
+      "group": "B1",
+      "ball": "Y7",
+      "gpio": "GPIOB_TXN13_CDI18",
+      "bank": "BANK4E",
+      "ring": 2,
+      "mm": 20.62,
+      "was": "Y6",
+      "target": [
+        114.1,
+        101.457
+      ],
+      "ball_xy": [
+        104.9,
+        83.0
+      ]
+    },
+    "/F_B16": {
+      "label": "F_B16",
+      "group": "B1",
+      "ball": "AA8",
+      "gpio": "GPIOB_TXN22",
+      "bank": "BANK4D",
+      "ring": 1,
+      "mm": 19.77,
+      "was": "AB6",
+      "target": [
+        114.6,
+        101.457
+      ],
+      "ball_xy": [
+        105.7,
+        83.8
+      ]
+    },
+    "/F_B17": {
+      "label": "F_B17",
+      "group": "B1",
+      "ball": "W8",
+      "gpio": "GPIOB_TXP17_CDI11",
+      "bank": "BANK4E",
+      "ring": 3,
+      "mm": 21.46,
+      "was": "V7",
+      "target": [
+        115.175,
+        101.457
+      ],
+      "ball_xy": [
+        105.7,
+        82.2
+      ]
+    },
+    "/F_B1_DIR": {
+      "label": "F_B1_DIR",
+      "group": "B1",
+      "ball": "V7",
+      "gpio": "GPIOB_TXP15_CDI15",
+      "bank": "BANK4E",
+      "ring": 4,
+      "mm": 26.64,
+      "was": "Y7",
+      "target": [
+        116.825,
+        105.225
+      ],
+      "ball_xy": [
+        104.9,
+        81.4
+      ]
+    },
+    "/~{F_B1_OE}": {
+      "label": "~{F_B1_OE}",
+      "group": "B1",
+      "ball": "V8",
+      "gpio": "GPIOB_TXN17_CDI10",
+      "bank": "BANK4E",
+      "ring": 4,
+      "mm": 24.22,
+      "was": "AA6",
+      "target": [
+        117.6,
+        102.497
+      ],
+      "ball_xy": [
+        105.7,
+        81.4
+      ]
+    },
+    "/F_B00": {
+      "label": "F_B00",
+      "group": "B0",
+      "ball": "W2",
+      "gpio": "GPIOB_TXP04_CDI29",
+      "bank": "BANK4F",
+      "ring": 1,
+      "mm": 22.81,
+      "was": "Y1",
+      "target": [
+        88.825,
+        101.557
+      ],
+      "ball_xy": [
+        100.9,
+        82.2
+      ]
+    },
+    "/F_B01": {
+      "label": "F_B01",
+      "group": "B0",
+      "ball": "W3",
+      "gpio": "GPIOB_TXN04_CDI28",
+      "bank": "BANK4F",
+      "ring": 2,
+      "mm": 22.93,
+      "was": "AA2",
+      "target": [
+        89.4,
+        101.557
+      ],
+      "ball_xy": [
+        101.7,
+        82.2
+      ]
+    },
+    "/F_B02": {
+      "label": "F_B02",
+      "group": "B0",
+      "ball": "Y1",
+      "gpio": "GPIOB_TXN05_CDI26",
+      "bank": "BANK4F",
+      "ring": 0,
+      "mm": 21.18,
+      "was": "AB4",
+      "target": [
+        89.9,
+        101.557
+      ],
+      "ball_xy": [
+        100.1,
+        83.0
+      ]
+    },
+    "/F_B03": {
+      "label": "F_B03",
+      "group": "B0",
+      "ball": "AA1",
+      "gpio": "GPIOB_TXP05_CDI27",
+      "bank": "BANK4F",
+      "ring": 0,
+      "mm": 20.23,
+      "was": "AB5",
+      "target": [
+        90.4,
+        101.557
+      ],
+      "ball_xy": [
+        100.1,
+        83.8
+      ]
+    },
+    "/F_B04": {
+      "label": "F_B04",
+      "group": "B0",
+      "ball": "AA2",
+      "gpio": "GPIOB_TXN06_CDI24",
+      "bank": "BANK4F",
+      "ring": 1,
+      "mm": 20.38,
+      "was": "Y4",
+      "target": [
+        90.9,
+        101.557
+      ],
+      "ball_xy": [
+        100.9,
+        83.8
+      ]
+    },
+    "/F_B05": {
+      "label": "F_B05",
+      "group": "B0",
+      "ball": "AB2",
+      "gpio": "GPIOB_TXP06_CDI25",
+      "bank": "BANK4F",
+      "ring": 0,
+      "mm": 19.44,
+      "was": "W2",
+      "target": [
+        91.4,
+        101.557
+      ],
+      "ball_xy": [
+        100.9,
+        84.6
+      ]
+    },
+    "/F_B06": {
+      "label": "F_B06",
+      "group": "B0",
+      "ball": "AB3",
+      "gpio": "GPIOB_TXP07_CDI23",
+      "bank": "BANK4F",
+      "ring": 0,
+      "mm": 19.59,
+      "was": "AA1",
+      "target": [
+        91.9,
+        101.557
+      ],
+      "ball_xy": [
+        101.7,
+        84.6
+      ]
+    },
+    "/F_B07": {
+      "label": "F_B07",
+      "group": "B0",
+      "ball": "W4",
+      "gpio": "GPIOB_TXN03_CDI30",
+      "bank": "BANK4F",
+      "ring": 3,
+      "mm": 21.8,
+      "was": "AB2",
+      "target": [
+        92.475,
+        101.557
+      ],
+      "ball_xy": [
+        102.5,
+        82.2
+      ]
+    },
+    "/F_B0_DIR": {
+      "label": "F_B0_DIR",
+      "group": "B0",
+      "ball": "Y4",
+      "gpio": "GPIOB_TXP03_CDI31",
+      "bank": "BANK4F",
+      "ring": 2,
+      "mm": 23.84,
+      "was": "W4",
+      "target": [
+        94.125,
+        105.325
+      ],
+      "ball_xy": [
+        102.5,
+        83.0
+      ]
+    },
+    "/~{F_B0_OE}": {
+      "label": "~{F_B0_OE}",
+      "group": "B0",
+      "ball": "AB4",
+      "gpio": "GPIOB_TXN07_CDI22",
+      "bank": "BANK4F",
+      "ring": 0,
+      "mm": 19.41,
+      "was": "W3",
+      "target": [
+        95.22,
+        102.597
+      ],
+      "ball_xy": [
+        102.5,
+        84.6
+      ]
+    },
+    "/PSRAM_SCLK": {
+      "label": "PSRAM_SCLK",
+      "group": "PSRAM",
+      "ball": "E21",
+      "gpio": "GPIOR_181_CLK8",
+      "bank": "BANK3D",
+      "ring": 1,
+      "mm": 11.35,
+      "was": "R15",
+      "target": [
+        122.35,
+        80.475
+      ],
+      "ball_xy": [
+        116.1,
+        71.0
+      ]
+    },
+    "/PSRAM_SI": {
+      "label": "PSRAM_SI",
+      "group": "PSRAM",
+      "ball": "E22",
+      "gpio": "GPIOR_185_CTRL8",
+      "bank": "BANK3D",
+      "ring": 0,
+      "mm": 11.19,
+      "was": "AB17",
+      "target": [
+        122.85,
+        80.475
+      ],
+      "ball_xy": [
+        116.9,
+        71.0
+      ]
+    },
+    "/PSRAM_SIO2": {
+      "label": "PSRAM_SIO2",
+      "group": "PSRAM",
+      "ball": "AB17",
+      "gpio": "GPIOB_RXN28_EXTFB2",
+      "bank": "BANK4A",
+      "ring": 0,
+      "mm": 9.54,
+      "was": "AA16",
+      "target": [
+        122.35,
+        83.325
+      ],
+      "ball_xy": [
+        112.9,
+        84.6
+      ]
+    },
+    "/PSRAM_SIO3": {
+      "label": "PSRAM_SIO3",
+      "group": "PSRAM",
+      "ball": "E19",
+      "gpio": "GPIOR_170_CTRL15",
+      "bank": "BANK3D",
+      "ring": 3,
+      "mm": 11.99,
+      "was": "T15",
+      "target": [
+        121.85,
+        80.475
+      ],
+      "ball_xy": [
+        114.5,
+        71.0
+      ]
+    },
+    "/PSRAM_SO": {
+      "label": "PSRAM_SO",
+      "group": "PSRAM",
+      "ball": "AB16",
+      "gpio": "GPIOB_RXP28_EXTFB2",
+      "bank": "BANK4A",
+      "ring": 0,
+      "mm": 9.83,
+      "was": "W15",
+      "target": [
+        121.85,
+        83.325
+      ],
+      "ball_xy": [
+        112.1,
+        84.6
+      ]
+    },
+    "/~{PSRAM_CE}": {
+      "label": "~{PSRAM_CE}",
+      "group": "PSRAM",
+      "ball": "AA16",
+      "gpio": "GPIOB_RXP20",
+      "bank": "BANK4A",
+      "ring": 1,
+      "mm": 9.26,
+      "was": "AA15",
+      "target": [
+        121.35,
+        83.325
+      ],
+      "ball_xy": [
+        112.1,
+        83.8
+      ]
+    },
+    "/F_BX": {
+      "label": "F_BX",
+      "group": "XY",
+      "ball": "AB10",
+      "gpio": "GPIOB_TXP26",
+      "bank": "BANK4D",
+      "ring": 0,
+      "mm": 25.38,
+      "was": "W12",
+      "target": [
+        123.375,
+        104.237
+      ],
+      "ball_xy": [
+        107.3,
+        84.6
+      ]
+    },
+    "/F_BY": {
+      "label": "F_BY",
+      "group": "XY",
+      "ball": "W9",
+      "gpio": "GPIOB_TXN19",
+      "bank": "BANK4E",
+      "ring": 3,
+      "mm": 27.37,
+      "was": "T12",
+      "target": [
+        122.725,
+        104.237
+      ],
+      "ball_xy": [
+        106.5,
+        82.2
+      ]
+    },
+    "/F_LX": {
+      "label": "F_LX",
+      "group": "XY",
+      "ball": "AA9",
+      "gpio": "GPIOB_TXN24",
+      "bank": "BANK4D",
+      "ring": 1,
+      "mm": 25.7,
+      "was": "AB11",
+      "target": [
+        122.075,
+        104.237
+      ],
+      "ball_xy": [
+        106.5,
+        83.8
+      ]
+    },
+    "/F_LY": {
+      "label": "F_LY",
+      "group": "XY",
+      "ball": "AB8",
+      "gpio": "GPIOB_TXP22",
+      "bank": "BANK4D",
+      "ring": 0,
+      "mm": 25.16,
+      "was": "T10",
+      "target": [
+        121.425,
+        104.237
+      ],
+      "ball_xy": [
+        105.7,
+        84.6
+      ]
+    },
+    "/F_RX": {
+      "label": "F_RX",
+      "group": "XY",
+      "ball": "V11",
+      "gpio": "GPIOB_RXN03",
+      "bank": "BANK4C",
+      "ring": 4,
+      "mm": 29.41,
+      "was": "R10",
+      "target": [
+        126.625,
+        104.237
+      ],
+      "ball_xy": [
+        108.1,
+        81.4
+      ]
+    },
+    "/F_RY": {
+      "label": "F_RY",
+      "group": "XY",
+      "ball": "V10",
+      "gpio": "GPIOB_TXN25",
+      "bank": "BANK4D",
+      "ring": 4,
+      "mm": 29.09,
+      "was": "V11",
+      "target": [
+        125.325,
+        104.237
+      ],
+      "ball_xy": [
+        107.3,
+        81.4
+      ]
+    },
+    "/F_TX": {
+      "label": "F_TX",
+      "group": "XY",
+      "ball": "W10",
+      "gpio": "GPIOB_TXP25",
+      "bank": "BANK4D",
+      "ring": 3,
+      "mm": 28.06,
+      "was": "AB12",
+      "target": [
+        124.675,
+        104.237
+      ],
+      "ball_xy": [
+        107.3,
+        82.2
+      ]
+    },
+    "/F_TY": {
+      "label": "F_TY",
+      "group": "XY",
+      "ball": "AA10",
+      "gpio": "GPIOB_TXN26",
+      "bank": "BANK4D",
+      "ring": 1,
+      "mm": 26.41,
+      "was": "U12",
+      "target": [
+        124.025,
+        104.237
+      ],
+      "ball_xy": [
+        107.3,
+        83.8
+      ]
+    },
+    "/~{F_XY_OE}": {
+      "label": "~{F_XY_OE}",
+      "group": "XY",
+      "ball": "AB9",
+      "gpio": "GPIOB_TXP24",
+      "bank": "BANK4D",
+      "ring": 0,
+      "mm": 22.9,
+      "was": "AA11",
+      "target": [
+        120.735,
+        102.537
+      ],
+      "ball_xy": [
+        106.5,
+        84.6
+      ]
+    },
+    "/F_LCLK": {
+      "label": "F_LCLK",
+      "group": "LCLK",
+      "ball": "G2",
+      "gpio": "GPIOL_142",
+      "bank": "BANK1F",
+      "ring": 1,
+      "mm": 30.63,
+      "was": "J2",
+      "target": [
+        73.312,
+        59.3
+      ],
+      "ball_xy": [
+        100.9,
+        72.6
+      ]
+    },
+    "/F_LCLK_EN": {
+      "label": "F_LCLK_EN",
+      "group": "LCLK",
+      "ball": "G1",
+      "gpio": "GPIOL_136",
+      "bank": "BANK1F",
+      "ring": 0,
+      "mm": 30.98,
+      "was": "J8",
+      "target": [
+        71.888,
+        59.8
+      ],
+      "ball_xy": [
+        100.1,
+        72.6
+      ]
+    },
+    "/F_TCLK": {
+      "label": "F_TCLK",
+      "group": "TCLK",
+      "ball": "D11",
+      "gpio": "GPIOT_RXN02",
+      "bank": "BANK2D",
+      "ring": 3,
+      "mm": 34.42,
+      "was": "F10",
+      "target": [
+        120.6,
+        38.125
+      ],
+      "ball_xy": [
+        108.1,
+        70.2
+      ]
+    },
+    "/F_TCLK_EN": {
+      "label": "F_TCLK_EN",
+      "group": "TCLK",
+      "ball": "C11",
+      "gpio": "GPIOT_RXP04",
+      "bank": "BANK2D",
+      "ring": 2,
+      "mm": 34.83,
+      "was": "A10",
+      "target": [
+        120.1,
+        36.7
+      ],
+      "ball_xy": [
+        108.1,
+        69.4
+      ]
+    },
+    "/F_BCLK": {
+      "label": "F_BCLK",
+      "group": "BCLK",
+      "ball": "AA5",
+      "gpio": "GPIOB_TXP08_CDI21",
+      "bank": "BANK4F",
+      "ring": 1,
+      "mm": 22.84,
+      "was": "AA5",
+      "target": [
+        103.025,
+        106.637
+      ],
+      "ball_xy": [
+        103.3,
+        83.8
+      ]
+    },
+    "/F_BCLK_EN": {
+      "label": "F_BCLK_EN",
+      "group": "BCLK",
+      "ball": "AB5",
+      "gpio": "GPIOB_TXN08_CDI20",
+      "bank": "BANK4F",
+      "ring": 0,
+      "mm": 23.46,
+      "was": "AB3",
+      "target": [
+        103.525,
+        108.062
+      ],
+      "ball_xy": [
+        103.3,
+        84.6
+      ]
+    },
+    "/F_RCLK": {
+      "label": "F_RCLK",
+      "group": "RCLK",
+      "ball": "D20",
+      "gpio": "GPIOR_179_CLK10",
+      "bank": "BANK3D",
+      "ring": 2,
+      "mm": 31.96,
+      "was": "G17",
+      "target": [
+        141.975,
+        87.8
+      ],
+      "ball_xy": [
+        115.3,
+        70.2
+      ]
+    },
+    "/R_RCLK_EN": {
+      "label": "R_RCLK_EN",
+      "group": "RCLK",
+      "ball": "D21",
+      "gpio": "GPIOR_184_CTRL9",
+      "bank": "BANK3D",
+      "ring": 1,
+      "mm": 32.21,
+      "was": "F16",
+      "target": [
+        143.4,
+        87.3
+      ],
+      "ball_xy": [
+        116.1,
+        70.2
+      ]
+    },
+    "/DUT_CROWBAR": {
+      "label": "DUT_CROWBAR",
+      "group": "DUT",
+      "ball": "E1",
+      "gpio": "GPIOT_TXN01",
+      "bank": "BANK2A",
+      "ring": 0,
+      "mm": 70.89,
+      "was": "E5",
+      "target": [
+        41.639,
+        30.903
+      ],
+      "ball_xy": [
+        100.1,
+        71.0
+      ]
+    },
+    "/DUT_ISOLATE": {
+      "label": "DUT_ISOLATE",
+      "group": "DUT",
+      "ball": "G3",
+      "gpio": "GPIOL_141",
+      "bank": "BANK1F",
+      "ring": 2,
+      "mm": 72.4,
+      "was": "E4",
+      "target": [
+        41.639,
+        32.173
+      ],
+      "ball_xy": [
+        101.7,
+        72.6
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+(sym_lib_table
+  (version 7)
+
+  (lib (name "T120F484") (type "KiCad") (uri "${KIPRJMOD}/T120F484.kicad_sym") (options "") (descr ""))
+  (lib (name "TPS2111APWR") (type "KiCad") (uri "${KIPRJMOD}/TPS2111APWR.kicad_sym") (options "") (descr ""))
+  (lib (name "JLCImport")(type "KiCad")(uri "${KIPRJMOD}/JLCImport.kicad_sym")(options "")(descr ""))
+
+  (lib (name "nuBoard") (type "KiCad") (uri "${KIPRJMOD}/nuBoard.kicad_sym") (options "") (descr ""))
+)
