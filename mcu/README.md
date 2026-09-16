@@ -1,9 +1,34 @@
 # nuBoard RP2040 firmware
 
 This directory contains the firmware for the RP2040 on the nuBoard main board.
-The initial firmware blinks `MCU_LED1` on GPIO 29 and `MCU_LED2` on GPIO 28
-together at 1 Hz. Both LEDs are active low. USB CDC stdio is enabled and the
-UART stdio backend is disabled.
+It provides a USB CDC serial console for controlling the two LEDs, FPGA power
+rails, and the VCCB rail selector. UART stdio is disabled.
+
+All outputs start off: both LEDs are dark, both FPGA regulator enables are low,
+and the VCCB selector is set to `D0=1, D1=1`. FPGA `CRESET_N` on GPIO7 is
+driven low at startup and held low at all times.
+
+## Console
+
+Open the board's USB serial device at any baud rate. The console accepts:
+
+```text
+led1 [on|off]
+led2 [on|off]
+1v2_fpga [on|off]
+3v3_fpga [on|off]
+vccb [off|3v3|5v]
+help
+```
+
+Commands with no argument report the current state. Commands that change an
+output print the resulting state. The VCCB settings drive its mux as follows:
+
+| State | D0 / GPIO19 | D1 / GPIO18 |
+|---|---:|---:|
+| `off` | 1 | 1 |
+| `3v3` | 0 | 1 |
+| `5v` | 0 | 0 |
 
 ## Clone
 

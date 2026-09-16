@@ -18,6 +18,13 @@ pico_board_cmake_set(PICO_PLATFORM, rp2040)
 #define NUBOARD_LED_1_PIN 29
 #define NUBOARD_LED_2_PIN 28
 
+// --- Power control ---
+#define NUBOARD_FPGA_CRESET_N_PIN 7
+#define NUBOARD_FPGA_1V2_EN_PIN 24
+#define NUBOARD_FPGA_3V3_EN_PIN 25
+#define NUBOARD_VCCB_MUX_D0_PIN 19
+#define NUBOARD_VCCB_MUX_D1_PIN 18
+
 // --- Flash: Winbond W25Q128JV, 16 MiB ---
 #define PICO_BOOT_STAGE2_CHOOSE_W25Q080 1
 
@@ -35,4 +42,3 @@ pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, (16 * 1024 * 1024))
 #endif
 
 #endif
-
