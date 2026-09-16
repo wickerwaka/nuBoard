@@ -1,0 +1,7 @@
+References,Quantity,Value / part,Package,Notes
+U1,1,Motorola MC68030RC25B,CPGA128 CASE789C-01,Direct CPU pin mounting; no socket qualified
+C1 C2 C3 C4 C5 C6 C7 C8 C9 C10,10,100nF X7R ceramic >=50V,"THT disc, 5mm pitch",Body <=5mm diameter and <=2.5mm thickness; one per VCC pin
+C11 C12 C13 C14 C15,5,330pF C0G ceramic >=50V,"THT disc, 5mm pitch",Supplementary high-frequency bypass; body fits footprint
+C16,1,10uF aluminum electrolytic >=25V,"Radial 5mm diameter, 2mm pitch",Observe positive pin; confirm host height clearance
+R1 R2,2,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,One shared unused-bit pull-down per partially used bank
+J1,1,nuBoard mating contact set,"Four 34-position rows, 2.54mm pitch",Match host mating geometry and height

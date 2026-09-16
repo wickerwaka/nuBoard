@@ -1,0 +1,9 @@
+References,Quantity,Part / specification,Assembly note
+U1,1,NEC uPD70136L-16,68-pin PLCC; user-supplied DUT
+U1 socket,1,Assmann A-CCS 068-Z-T,Through-hole PLCC-68 socket; pin 1 toward TOP
+C1 C2 C3 C4,4,"100 nF ceramic 50 V, 5 mm lead spacing",Through-hole; body must fit assigned footprint
+J1,1,Template nuMezzanine_4x34 edge interface,Populate mating hardware to match existing host/template
+R1,1,"47k 1% >=0.25W, DIN0207 axial THT 7.62mm pitch",B0 shared unused-bit pull-down to GND
+R2,1,"47k 1% >=0.25W, DIN0207 axial THT 7.62mm pitch",B1 shared unused-bit pull-down to GND
+R3,1,"47k 1% >=0.25W, DIN0207 axial THT 7.62mm pitch",R0 shared unused-bit pull-down to GND
+R4,1,"47k 1% >=0.25W, DIN0207 axial THT 7.62mm pitch",R1 shared unused-bit pull-down to GND

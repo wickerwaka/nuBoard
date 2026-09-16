@@ -1,0 +1,119 @@
+{
+  "topology_verified": true,
+  "host_firmware_verified": false,
+  "bench_tested": false,
+  "banks": [
+    {
+      "bank": "B0",
+      "resistor": "R3",
+      "resistance_ohms": 47000,
+      "shared_net": "/B0_UNUSED",
+      "unused_signals": [
+        "B00",
+        "B01"
+      ],
+      "connector_pads": [
+        "100",
+        "99"
+      ],
+      "host_output_zero_mask": "0x03"
+    },
+    {
+      "bank": "B2",
+      "resistor": "R4",
+      "resistance_ohms": 47000,
+      "shared_net": "/B2_UNUSED",
+      "unused_signals": [
+        "B23",
+        "B24",
+        "B25",
+        "B26",
+        "B27"
+      ],
+      "connector_pads": [
+        "70",
+        "71",
+        "72",
+        "73",
+        "74"
+      ],
+      "host_output_zero_mask": "0xF8"
+    },
+    {
+      "bank": "R0",
+      "resistor": "R5",
+      "resistance_ohms": 47000,
+      "shared_net": "/R0_UNUSED",
+      "unused_signals": [
+        "R00",
+        "R01",
+        "R02"
+      ],
+      "connector_pads": [
+        "64",
+        "65",
+        "66"
+      ],
+      "host_output_zero_mask": "0x07"
+    },
+    {
+      "bank": "R2",
+      "resistor": "R6",
+      "resistance_ohms": 47000,
+      "shared_net": "/R2_UNUSED",
+      "unused_signals": [
+        "R24",
+        "R25",
+        "R26",
+        "R27"
+      ],
+      "connector_pads": [
+        "36",
+        "37",
+        "38",
+        "39"
+      ],
+      "host_output_zero_mask": "0xF0"
+    },
+    {
+      "bank": "T0",
+      "resistor": "R7",
+      "resistance_ohms": 47000,
+      "shared_net": "/T0_UNUSED",
+      "unused_signals": [
+        "T00",
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05"
+      ],
+      "connector_pads": [
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32"
+      ],
+      "host_output_zero_mask": "0x3F"
+    },
+    {
+      "bank": "T1",
+      "resistor": "R8",
+      "resistance_ohms": 47000,
+      "shared_net": "/T1_UNUSED",
+      "unused_signals": [
+        "T10",
+        "T11",
+        "T17"
+      ],
+      "connector_pads": [
+        "14",
+        "20",
+        "21"
+      ],
+      "host_output_zero_mask": "0x83"
+    }
+  ]
+}

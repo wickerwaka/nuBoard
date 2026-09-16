@@ -1,0 +1,5 @@
+Bank,Unused connector signals,J1 pads,Shared net,Resistor,Value,Host drive requirement
+B0,B00 B01 B02 B07,100 99 98 93,B0_UNUSED,R1,47k,LOW on all tied unused bits
+B1,B15 B16 B17,84 83 82,B1_UNUSED,R2,47k,LOW on all tied unused bits
+R0,R00 R01 R02 R03 R07,66 65 64 63 59,R0_UNUSED,R3,47k,LOW on all tied unused bits
+R1,R17,48,R1_UNUSED,R4,47k,LOW on all tied unused bits

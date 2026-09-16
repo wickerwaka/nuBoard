@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Daughter Board"
+  short_description: "Design a nuBoard DUT daughter PCB from its template"
+  default_prompt: "Use $create-daughter-board to create a nuBoard daughter PCB for my component using hardware/daughter-template."

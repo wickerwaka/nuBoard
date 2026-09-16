@@ -1,0 +1,154 @@
+{
+  "status": "layout_verified_bench_test_pending",
+  "dut": "NEC uPD70337L-8-xxx, PLCC84; factory table suffix unknown",
+  "supply_v": 5,
+  "socket": "Assmann A-CCS 084-Z-T",
+  "kicad_version": "10.0.6-rc2",
+  "dut_pins_verified": 84,
+  "connector_pads_unchanged": 136,
+  "mechanical_outline_unchanged": true,
+  "schematic_netlist_matches_pcb": true,
+  "voltage_select": {
+    "5V_SELECT": "direct GND",
+    "3V3_SELECT": "floating and unrouted"
+  },
+  "copper_layers": 2,
+  "track_segments": 306,
+  "track_width_mm": 0.2,
+  "vias": 5,
+  "via_diameter_mm": 0.5,
+  "via_drill_mm": 0.3,
+  "ground_stitch_vias": 3,
+  "ground_pours": {
+    "F.Cu": 1,
+    "B.Cu": 3
+  },
+  "ground_connectivity": "All ground pads connected; B.Cu subregions joined through F.Cu, plated pads and stitching; unconnected islands removed",
+  "clock_track_lengths_mm": {
+    "/RCLK": 53.182,
+    "/TCLK": 35.432
+  },
+  "bank_profiles_checked": 35,
+  "erc_violations": 0,
+  "drc_violations": 0,
+  "unrouted_connections": 0,
+  "schematic_parity_issues": 0,
+  "hardware_tested": false,
+  "timing_qualified": false,
+  "bus_keeper_margin": "Not guaranteed; direct experimental interface selected by user",
+  "security_translation_table": "Unknown until physical suffix/table is identified",
+  "unused_bank_pulls": [
+    {
+      "bank": "B0",
+      "resistor": "R3",
+      "resistance_ohms": 47000,
+      "shared_net": "/B0_UNUSED",
+      "unused_signals": [
+        "B00",
+        "B01"
+      ],
+      "connector_pads": [
+        "100",
+        "99"
+      ],
+      "host_output_zero_mask": "0x03"
+    },
+    {
+      "bank": "B2",
+      "resistor": "R4",
+      "resistance_ohms": 47000,
+      "shared_net": "/B2_UNUSED",
+      "unused_signals": [
+        "B23",
+        "B24",
+        "B25",
+        "B26",
+        "B27"
+      ],
+      "connector_pads": [
+        "70",
+        "71",
+        "72",
+        "73",
+        "74"
+      ],
+      "host_output_zero_mask": "0xF8"
+    },
+    {
+      "bank": "R0",
+      "resistor": "R5",
+      "resistance_ohms": 47000,
+      "shared_net": "/R0_UNUSED",
+      "unused_signals": [
+        "R00",
+        "R01",
+        "R02"
+      ],
+      "connector_pads": [
+        "64",
+        "65",
+        "66"
+      ],
+      "host_output_zero_mask": "0x07"
+    },
+    {
+      "bank": "R2",
+      "resistor": "R6",
+      "resistance_ohms": 47000,
+      "shared_net": "/R2_UNUSED",
+      "unused_signals": [
+        "R24",
+        "R25",
+        "R26",
+        "R27"
+      ],
+      "connector_pads": [
+        "36",
+        "37",
+        "38",
+        "39"
+      ],
+      "host_output_zero_mask": "0xF0"
+    },
+    {
+      "bank": "T0",
+      "resistor": "R7",
+      "resistance_ohms": 47000,
+      "shared_net": "/T0_UNUSED",
+      "unused_signals": [
+        "T00",
+        "T01",
+        "T02",
+        "T03",
+        "T04",
+        "T05"
+      ],
+      "connector_pads": [
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32"
+      ],
+      "host_output_zero_mask": "0x3F"
+    },
+    {
+      "bank": "T1",
+      "resistor": "R8",
+      "resistance_ohms": 47000,
+      "shared_net": "/T1_UNUSED",
+      "unused_signals": [
+        "T10",
+        "T11",
+        "T17"
+      ],
+      "connector_pads": [
+        "14",
+        "20",
+        "21"
+      ],
+      "host_output_zero_mask": "0x83"
+    }
+  ]
+}

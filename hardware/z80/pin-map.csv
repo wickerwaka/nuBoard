@@ -1,0 +1,41 @@
+DUT pin,Function,Electrical type,Connector signal,J1 pad,Bank,Pull
+1,A_{11},tri_state,L03,131,L0,-
+2,A_{12},tri_state,L04,130,L0,-
+3,A_{13},tri_state,L05,129,L0,-
+4,A_{14},tri_state,L06,128,L0,-
+5,A_{15},tri_state,L07,127,L0,-
+6,CLK,input,LCLK,125,-,-
+7,D_{4},bidirectional,L10,123,L1,-
+8,D_{3},bidirectional,L11,122,L1,-
+9,D_{5},bidirectional,L12,121,L1,-
+10,D_{6},bidirectional,L13,120,L1,-
+11,V_{CC},power_in,VCC_TL,1,-,-
+12,D_{2},bidirectional,L14,119,L1,-
+13,D_{7},bidirectional,L15,118,L1,-
+14,D_{0},bidirectional,L16,117,L1,-
+15,D_{1},bidirectional,L17,116,L1,-
+16,~{INT},input,LX,114,-,10k to VCC_TL
+17,~{NMI},input,LY,113,-,10k to VCC_TL
+18,~{HALT},output,R00,66,R0,-
+19,~{MREQ},tri_state,B10,89,B1,-
+20,~{IORQ},tri_state,B11,88,B1,-
+21,~{RD},tri_state,B12,87,B1,-
+22,~{WR},tri_state,B13,86,B1,-
+23,~{BUSACK},output,R03,63,R0,-
+24,~{WAIT},input,B20,77,B2,Host drives high before DUT power-on; no pull
+25,~{BUSREQ},input,BY,79,-,10k to VCC_TL
+26,~{RESET},input,RX,46,-,10k to VCC_TL
+27,~{M1},output,R05,61,R0,-
+28,~{RFSH},output,R06,60,R0,-
+29,GND,power_in,GND,all ground pads,-,-
+30,A_{0},tri_state,R14,51,R1,-
+31,A_{1},tri_state,R15,50,R1,-
+32,A_{2},tri_state,R16,49,R1,-
+33,A_{3},tri_state,R17,48,R1,-
+34,A_{4},tri_state,R21,42,R2,-
+35,A_{5},tri_state,R22,41,R2,-
+36,A_{6},tri_state,R23,40,R2,-
+37,A_{7},tri_state,R24,39,R2,-
+38,A_{8},tri_state,R25,38,R2,-
+39,A_{9},tri_state,R26,37,R2,-
+40,A_{10},tri_state,R27,36,R2,-

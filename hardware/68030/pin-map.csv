@@ -1,0 +1,129 @@
+PGA pin,Function,Electrical type,Connector signal,J1 pad,Bank,Net label,Handling
+N1,D31,bidirectional,B00,100,B0,B00,See bank-modes.md; no DUT-input default pull
+N2,D28,bidirectional,B01,99,B0,B01,See bank-modes.md; no DUT-input default pull
+N3,D26,bidirectional,B03,97,B0,B03,See bank-modes.md; no DUT-input default pull
+N4,D25,bidirectional,B06,94,B0,B06,See bank-modes.md; no DUT-input default pull
+N5,D23,bidirectional,B10,89,B1,B10,See bank-modes.md; no DUT-input default pull
+N6,D21,bidirectional,B11,88,B1,B11,See bank-modes.md; no DUT-input default pull
+N7,D19,bidirectional,B13,86,B1,B13,See bank-modes.md; no DUT-input default pull
+N8,D18,bidirectional,B15,84,B1,B15,See bank-modes.md; no DUT-input default pull
+N9,D16,bidirectional,B17,82,B1,B17,See bank-modes.md; no DUT-input default pull
+N10,D15,bidirectional,B21,76,B2,B21,See bank-modes.md; no DUT-input default pull
+N11,D13,bidirectional,B23,74,B2,B23,See bank-modes.md; no DUT-input default pull
+N12,D11,bidirectional,B26,71,B2,B26,See bank-modes.md; no DUT-input default pull
+N13,D8,bidirectional,B27,70,B2,B27,See bank-modes.md; no DUT-input default pull
+M1,~{DBEN},tri_state,L26,105,L2,L26,See bank-modes.md; no DUT-input default pull
+M2,~{ECS},output,R10,55,R1,R10,See bank-modes.md; no DUT-input default pull
+M3,D29,bidirectional,B02,98,B0,B02,See bank-modes.md; no DUT-input default pull
+M4,D27,bidirectional,B05,95,B0,B05,See bank-modes.md; no DUT-input default pull
+M5,D24,bidirectional,B07,93,B0,B07,See bank-modes.md; no DUT-input default pull
+M6,D22,bidirectional,B12,87,B1,B12,See bank-modes.md; no DUT-input default pull
+M7,D20,bidirectional,B14,85,B1,B14,See bank-modes.md; no DUT-input default pull
+M8,D17,bidirectional,B16,83,B1,B16,See bank-modes.md; no DUT-input default pull
+M9,D14,bidirectional,B20,77,B2,B20,See bank-modes.md; no DUT-input default pull
+M10,D12,bidirectional,B22,75,B2,B22,See bank-modes.md; no DUT-input default pull
+M11,D9,bidirectional,B25,72,B2,B25,See bank-modes.md; no DUT-input default pull
+M12,D6,bidirectional,R00,66,R0,R00,See bank-modes.md; no DUT-input default pull
+M13,D3,bidirectional,R02,64,R0,R02,See bank-modes.md; no DUT-input default pull
+L1,~{CIIN},input,L17,116,L1,L17,See bank-modes.md; no DUT-input default pull
+L2,SIZ0,tri_state,L25,106,L2,L25,See bank-modes.md; no DUT-input default pull
+L3,R/~{W},tri_state,L27,104,L2,L27,See bank-modes.md; no DUT-input default pull
+L4,D30,bidirectional,B04,96,B0,B04,See bank-modes.md; no DUT-input default pull
+L5,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+L6,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C1
+L7,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+L8,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+L9,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+L10,D10,bidirectional,B24,73,B2,B24,See bank-modes.md; no DUT-input default pull
+L11,D7,bidirectional,R01,65,R0,R01,See bank-modes.md; no DUT-input default pull
+L12,D4,bidirectional,R03,63,R0,R03,See bank-modes.md; no DUT-input default pull
+L13,D2,bidirectional,R04,62,R0,R04,See bank-modes.md; no DUT-input default pull
+K1,~{CBREQ},tri_state,L22,109,L2,L22,See bank-modes.md; no DUT-input default pull
+K2,~{DS},tri_state,L23,108,L2,L23,See bank-modes.md; no DUT-input default pull
+K3,SIZ1,tri_state,L24,107,L2,L24,See bank-modes.md; no DUT-input default pull
+K4,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C2
+K5,NC,no_connect,-,-,-,-,Manufacturer NC: leave physically unconnected
+K10,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C3
+K11,D5,bidirectional,R05,61,R0,R05,See bank-modes.md; no DUT-input default pull
+K12,D1,bidirectional,R06,60,R0,R06,See bank-modes.md; no DUT-input default pull
+K13,D0,bidirectional,R07,59,R0,R07,See bank-modes.md; no DUT-input default pull
+J1,~{CBACK},input,L16,117,L1,L16,See bank-modes.md; no DUT-input default pull
+J2,~{AS},tri_state,L21,110,L2,L21,See bank-modes.md; no DUT-input default pull
+J3,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+J11,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+J12,~{STATUS},output,R12,53,R1,R12,See bank-modes.md; no DUT-input default pull
+J13,~{REFILL},output,R11,54,R1,R11,See bank-modes.md; no DUT-input default pull
+H1,~{BERR},input,L15,118,L1,L15,See bank-modes.md; no DUT-input default pull
+H2,~{HALT},input,L14,119,L1,L14,See bank-modes.md; no DUT-input default pull
+H3,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C4
+H11,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C5
+H12,~{CDIS},input,BX,80,-,BX,Open-drain host drive; internal TXS pulls; see bank-modes.md
+H13,~{IPL0},input,BY,79,-,BY,Open-drain host drive; internal TXS pulls; see bank-modes.md
+G1,~{STERM},input,L13,120,L1,L13,See bank-modes.md; no DUT-input default pull
+G2,~{DSACK1},input,L12,121,L1,L12,See bank-modes.md; no DUT-input default pull
+G3,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+G11,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+G12,~{IPL2},input,LY,113,-,LY,Open-drain host drive; internal TXS pulls; see bank-modes.md
+G13,~{IPL1},input,RX,46,-,RX,Open-drain host drive; internal TXS pulls; see bank-modes.md
+F1,~{DSACK0},input,L11,122,L1,L11,See bank-modes.md; no DUT-input default pull
+F2,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C6
+F3,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+F4,NC,no_connect,-,-,-,-,Manufacturer NC: leave physically unconnected
+F10,NC,no_connect,-,-,-,-,Manufacturer NC: leave physically unconnected
+F11,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C7
+F12,~{RESET},open_collector,TX,12,-,TX,Open-drain host drive; internal TXS pulls; see bank-modes.md
+F13,~{MMUDIS},input,RY,45,-,RY,Open-drain host drive; internal TXS pulls; see bank-modes.md
+E1,CLK,input,LCLK,125,-,LCLK,See bank-modes.md; no DUT-input default pull
+E2,~{AVEC},input,L10,123,L1,L10,See bank-modes.md; no DUT-input default pull
+E3,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+E11,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+E12,NC,no_connect,-,-,-,-,Manufacturer NC: leave physically unconnected
+E13,~{IPEND},output,R15,50,R1,R15,See bank-modes.md; no DUT-input default pull
+D1,FC2,tri_state,L07,127,L0,L07,See bank-modes.md; no DUT-input default pull
+D2,FC0,tri_state,L06,128,L0,L06,See bank-modes.md; no DUT-input default pull
+D3,~{OCS},output,R16,49,R1,R16,See bank-modes.md; no DUT-input default pull
+D4,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C8
+D5,NC,no_connect,-,-,-,-,Manufacturer NC: leave physically unconnected
+D10,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C9
+D11,A6,tri_state,R23,40,R2,R23,See bank-modes.md; no DUT-input default pull
+D12,A3,tri_state,R21,42,R2,R21,See bank-modes.md; no DUT-input default pull
+D13,A2,tri_state,R20,43,R2,R20,See bank-modes.md; no DUT-input default pull
+C1,FC1,tri_state,L05,129,L0,L05,See bank-modes.md; no DUT-input default pull
+C2,~{CIOUT},tri_state,L20,111,L2,L20,See bank-modes.md; no DUT-input default pull
+C3,~{BGACK},input,LX,114,-,LX,Open-drain host drive; internal TXS pulls; see bank-modes.md
+C4,A1,tri_state,R26,37,R2,R26,See bank-modes.md; no DUT-input default pull
+C5,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+C6,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C10
+C7,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+C8,A18,tri_state,T15,16,T1,T15,See bank-modes.md; no DUT-input default pull
+C9,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
+C10,A11,tri_state,T06,26,T0,T06,See bank-modes.md; no DUT-input default pull
+C11,A9,tri_state,T02,30,T0,T02,See bank-modes.md; no DUT-input default pull
+C12,A5,tri_state,R24,39,R2,R24,See bank-modes.md; no DUT-input default pull
+C13,A4,tri_state,R22,41,R2,R22,See bank-modes.md; no DUT-input default pull
+B1,~{RMC},tri_state,L04,130,L0,L04,See bank-modes.md; no DUT-input default pull
+B2,~{BG},output,R17,48,R1,R17,See bank-modes.md; no DUT-input default pull
+B3,A31,tri_state,T27,2,T2,T27,See bank-modes.md; no DUT-input default pull
+B4,A29,tri_state,T25,4,T2,T25,See bank-modes.md; no DUT-input default pull
+B5,A27,tri_state,T23,6,T2,T23,See bank-modes.md; no DUT-input default pull
+B6,A25,tri_state,T21,8,T2,T21,See bank-modes.md; no DUT-input default pull
+B7,A22,tri_state,T17,14,T1,T17,See bank-modes.md; no DUT-input default pull
+B8,A20,tri_state,T13,18,T1,T13,See bank-modes.md; no DUT-input default pull
+B9,A16,tri_state,T11,20,T1,T11,See bank-modes.md; no DUT-input default pull
+B10,A14,tri_state,T07,25,T0,T07,See bank-modes.md; no DUT-input default pull
+B11,A12,tri_state,T04,28,T0,T04,See bank-modes.md; no DUT-input default pull
+B12,A8,tri_state,T01,31,T0,T01,See bank-modes.md; no DUT-input default pull
+B13,A7,tri_state,R25,38,R2,R25,See bank-modes.md; no DUT-input default pull
+A1,~{BR},input,TY,11,-,TY,Open-drain host drive; internal TXS pulls; see bank-modes.md
+A2,A0,tri_state,R27,36,R2,R27,See bank-modes.md; no DUT-input default pull
+A3,A30,tri_state,T26,3,T2,T26,See bank-modes.md; no DUT-input default pull
+A4,A28,tri_state,T24,5,T2,T24,See bank-modes.md; no DUT-input default pull
+A5,A26,tri_state,T22,7,T2,T22,See bank-modes.md; no DUT-input default pull
+A6,A24,tri_state,T20,9,T2,T20,See bank-modes.md; no DUT-input default pull
+A7,A23,tri_state,T16,15,T1,T16,See bank-modes.md; no DUT-input default pull
+A8,A21,tri_state,T14,17,T1,T14,See bank-modes.md; no DUT-input default pull
+A9,A19,tri_state,T12,19,T1,T12,See bank-modes.md; no DUT-input default pull
+A10,A17,tri_state,T10,21,T1,T10,See bank-modes.md; no DUT-input default pull
+A11,A15,tri_state,T05,27,T0,T05,See bank-modes.md; no DUT-input default pull
+A12,A13,tri_state,T03,29,T0,T03,See bank-modes.md; no DUT-input default pull
+A13,A10,tri_state,T00,32,T0,T00,See bank-modes.md; no DUT-input default pull

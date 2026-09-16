@@ -1,0 +1,38 @@
+[
+  {
+    "file": "MC68030-1991.pdf",
+    "url": "https://ftpmirror.your.org/pub/misc/bitsavers/components/motorola/68000/68030_Data_Sheet_1991.pdf",
+    "sha256": "87534e555998a5fb48cbcc03dc1db7ec04ca8392980b2252b5b16a6002b9f287",
+    "saved_date": "2026-09-13"
+  },
+  {
+    "file": "MC68030UM.pdf",
+    "url": "https://www.nxp.com/docs/en/reference-manual/MC68030UM.pdf",
+    "sha256": "07a676828a5e476b96f24a8b963fd06b79b5860dac35166a182205ecbb9c7f95",
+    "saved_date": "2026-09-13"
+  },
+  {
+    "file": "MC68030RC.pdf",
+    "url": "https://www.nxp.com/docs/en/package-information/MC68030RC.pdf",
+    "sha256": "079be7078a943a5d33255c8d3df68444e05c4c39d1e17dd5b9e6dba133b7b406",
+    "saved_date": "2026-09-13"
+  },
+  {
+    "file": "TI-TXS0108E.pdf",
+    "url": "https://www.ti.com/lit/ds/symlink/txs0108e.pdf",
+    "sha256": "a6ddbe03088d291d1a1f8012189086b4b9962d1c878a462a8393c59fe225c883",
+    "saved_date": "2026-09-13"
+  },
+  {
+    "file": "TI-SN74LVCH8T245.pdf",
+    "url": "https://www.ti.com/lit/ds/symlink/sn74lvch8t245.pdf",
+    "sha256": "30d0c1c87773bd7ac7213d38ac7f56fbab266f9626b2a8387e2344905dc523c4",
+    "saved_date": "2026-09-13"
+  },
+  {
+    "file": "TI-SN74LVC1T45.pdf",
+    "url": "https://www.ti.com/lit/ds/symlink/sn74lvc1t45.pdf",
+    "sha256": "e6fbd8400161399554fe905326e73236e74bb3af0b546ea1942deed14310536e",
+    "saved_date": "2026-09-13"
+  }
+]

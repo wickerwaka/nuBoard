@@ -1,0 +1,7 @@
+{
+  "existing_footprint_geometry_preserved": true,
+  "existing_pad_nets_preserved_except_intended_unused_bank_pins": true,
+  "unchanged_pad_nets_checked": 163,
+  "connector_pads_reassigned_to_shared_pull_nets": 23,
+  "new_resistors": 6
+}

@@ -1,0 +1,41 @@
+{
+  "topology_verified": true,
+  "host_firmware_verified": false,
+  "bench_tested": false,
+  "banks": [
+    {
+      "bank": "L0",
+      "resistor": "R1",
+      "resistance_ohms": 47000,
+      "shared_net": "/L0_UNUSED",
+      "unused_signals": [
+        "L00",
+        "L01",
+        "L02",
+        "L03"
+      ],
+      "connector_pads": [
+        "131",
+        "132",
+        "133",
+        "134"
+      ],
+      "host_output_zero_mask": "0x0F"
+    },
+    {
+      "bank": "R1",
+      "resistor": "R2",
+      "resistance_ohms": 47000,
+      "shared_net": "/R1_UNUSED",
+      "unused_signals": [
+        "R13",
+        "R14"
+      ],
+      "connector_pads": [
+        "51",
+        "52"
+      ],
+      "host_output_zero_mask": "0x18"
+    }
+  ]
+}

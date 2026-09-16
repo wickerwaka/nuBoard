@@ -7,6 +7,8 @@ KiCad 10 hardware projects copied from the working `nu68020/nuBoard` directory.
 | Main board | `hardware/main-board/nuBoard.kicad_pro` |
 | Daughter board template | `hardware/daughter-template/nuDaughter.kicad_pro` |
 | 68000 daughter board | `hardware/68000/68000.kicad_pro` |
+| Motorola 68030 daughter board | `hardware/68030/68030.kicad_pro` |
+| NEC V35S daughter board | `hardware/v35s/v35s.kicad_pro` |
 
 Each daughter project has its own `nuBoard.kicad_sym`, `nuBoard.pretty`, and
 project-relative library tables. Either directory can be copied independently;

@@ -1,0 +1,119 @@
+{
+  "topology_verified": true,
+  "host_firmware_verified": false,
+  "bench_tested": false,
+  "banks": [
+    {
+      "bank": "B1",
+      "resistor": "R6",
+      "resistance_ohms": 47000,
+      "shared_net": "/B1_UNUSED",
+      "unused_signals": [
+        "B14",
+        "B15",
+        "B16",
+        "B17"
+      ],
+      "connector_pads": [
+        "82",
+        "83",
+        "84",
+        "85"
+      ],
+      "host_output_zero_mask": "0xF0"
+    },
+    {
+      "bank": "B2",
+      "resistor": "R7",
+      "resistance_ohms": 47000,
+      "shared_net": "/B2_UNUSED",
+      "unused_signals": [
+        "B21",
+        "B22",
+        "B23",
+        "B24",
+        "B25",
+        "B26",
+        "B27"
+      ],
+      "connector_pads": [
+        "70",
+        "71",
+        "72",
+        "73",
+        "74",
+        "75",
+        "76"
+      ],
+      "host_output_zero_mask": "0xFE"
+    },
+    {
+      "bank": "L0",
+      "resistor": "R8",
+      "resistance_ohms": 47000,
+      "shared_net": "/L0_UNUSED",
+      "unused_signals": [
+        "L00",
+        "L01",
+        "L02"
+      ],
+      "connector_pads": [
+        "132",
+        "133",
+        "134"
+      ],
+      "host_output_zero_mask": "0x07"
+    },
+    {
+      "bank": "R0",
+      "resistor": "R9",
+      "resistance_ohms": 47000,
+      "shared_net": "/R0_UNUSED",
+      "unused_signals": [
+        "R01",
+        "R02",
+        "R04",
+        "R07"
+      ],
+      "connector_pads": [
+        "59",
+        "62",
+        "64",
+        "65"
+      ],
+      "host_output_zero_mask": "0x96"
+    },
+    {
+      "bank": "R1",
+      "resistor": "R10",
+      "resistance_ohms": 47000,
+      "shared_net": "/R1_UNUSED",
+      "unused_signals": [
+        "R10",
+        "R11",
+        "R12",
+        "R13"
+      ],
+      "connector_pads": [
+        "52",
+        "53",
+        "54",
+        "55"
+      ],
+      "host_output_zero_mask": "0x0F"
+    },
+    {
+      "bank": "R2",
+      "resistor": "R11",
+      "resistance_ohms": 47000,
+      "shared_net": "/R2_UNUSED",
+      "unused_signals": [
+        "R20"
+      ],
+      "connector_pads": [
+        "43"
+      ],
+      "host_output_zero_mask": "0x01"
+    }
+  ]
+}

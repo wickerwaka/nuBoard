@@ -1,0 +1,69 @@
+PLCC pin,Function,Electrical type,Connector signal,J1 pad,Bank,Startup handling
+1,VDD,power_in,VCC_TL,1,-,-
+2,GND,power_in,GND,all GND pads,-,-
+3,A15,tri_state,T17,14,T1,-
+4,A16,tri_state,T20,9,T2,-
+5,A17,tri_state,T21,8,T2,-
+6,A18,tri_state,T22,7,T2,-
+7,A19,tri_state,T23,6,T2,-
+8,A20,tri_state,T24,5,T2,-
+9,A21,tri_state,T25,4,T2,-
+10,A22,tri_state,T26,3,T2,-
+11,A23,tri_state,T27,2,T2,-
+12,D0,bidirectional,L10,123,L1,-
+13,D1,bidirectional,L11,122,L1,-
+14,D2,bidirectional,L12,121,L1,-
+15,D3,bidirectional,L13,120,L1,-
+16,D4,bidirectional,L14,119,L1,-
+17,D5,bidirectional,L15,118,L1,-
+18,GND,power_in,GND,all GND pads,-,-
+19,VDD,power_in,VCC_TL,1,-,-
+20,D6,bidirectional,L16,117,L1,-
+21,D7,bidirectional,L17,116,L1,-
+22,D8,bidirectional,L20,111,L2,-
+23,D9,bidirectional,L21,110,L2,-
+24,D10,bidirectional,L22,109,L2,-
+25,D11,bidirectional,L23,108,L2,-
+26,D12,bidirectional,L24,107,L2,-
+27,D13,bidirectional,L25,106,L2,-
+28,D14,bidirectional,L26,105,L2,-
+29,D15,bidirectional,L27,104,L2,-
+30,CLK,input,BCLK,91,-,-
+31,INT,input,B03,97,B0,Host drives low before DUT power-on; no pull
+32,~{NMI},input,B04,96,B0,Host drives high before DUT power-on; no pull
+33,~{CPBUSY},input,B05,95,B0,Host drives high before DUT power-on; no pull
+34,~{CPERR},input,B06,94,B0,Host drives high before DUT power-on; no pull
+35,VDD,power_in,VCC_TL,1,-,-
+36,GND,power_in,GND,all GND pads,-,-
+37,CPREQ,input,B10,89,B1,Host drives low before DUT power-on; no pull
+38,RESET,input,B11,88,B1,Host drives high before DUT power-on; no pull
+39,~{READY},input,B12,87,B1,Host drives high before DUT power-on; no pull
+40,HLDRQ,input,B13,86,B1,Host drives low before DUT power-on; no pull
+41,HLDAK,output,R04,62,R0,-
+42,~{BS8}/BS16,input,B14,85,B1,Host drives high before DUT power-on; no pull
+43,AEX,output,R05,61,R0,-
+44,~{BUSLOCK},output,R06,60,R0,-
+45,~{BCYST},tri_state,R10,55,R1,-
+46,~{UBE},tri_state,R11,54,R1,-
+47,BUSST1,tri_state,R12,53,R1,-
+48,BUSST0,tri_state,R13,52,R1,-
+49,R/~{W},tri_state,R14,51,R1,-
+50,M/~{IO},tri_state,R15,50,R1,-
+51,~{DSTB},tri_state,R16,49,R1,-
+52,GND,power_in,GND,all GND pads,-,-
+53,VDD,power_in,VCC_TL,1,-,-
+54,A0,tri_state,T00,32,T0,-
+55,A1,tri_state,T01,31,T0,-
+56,A2,tri_state,T02,30,T0,-
+57,A3,tri_state,T03,29,T0,-
+58,A4,tri_state,T04,28,T0,-
+59,A5,tri_state,T05,27,T0,-
+60,A6,tri_state,T06,26,T0,-
+61,A7,tri_state,T07,25,T0,-
+62,A8,tri_state,T10,21,T1,-
+63,A9,tri_state,T11,20,T1,-
+64,A10,tri_state,T12,19,T1,-
+65,A11,tri_state,T13,18,T1,-
+66,A12,tri_state,T14,17,T1,-
+67,A13,tri_state,T15,16,T1,-
+68,A14,tri_state,T16,15,T1,-

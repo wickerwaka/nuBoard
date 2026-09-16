@@ -1,0 +1,85 @@
+PLCC pin,Function,Electrical type,Connector signal,J1 pad,Bank,Net label,Handling
+1,~{IOSTB},tri_state,T15,16,T1,T15,See bank-modes.md; no signal pull
+2,~{MREQ},tri_state,T16,15,T1,T16,See bank-modes.md; no signal pull
+3,IC,passive,-,-,-,IC_BIAS,Tied IC group; 15k to VCC_TL
+4,P00,bidirectional,T20,9,T2,T20,See bank-modes.md; no signal pull
+5,P01,bidirectional,T21,8,T2,T21,See bank-modes.md; no signal pull
+6,P02,bidirectional,T22,7,T2,T22,See bank-modes.md; no signal pull
+7,P03,bidirectional,T23,6,T2,T23,See bank-modes.md; no signal pull
+8,P04,bidirectional,T24,5,T2,T24,See bank-modes.md; no signal pull
+9,RESERVED,passive,-,-,-,RESERVED_PD,6.8k to GND; do not drive
+10,P05,bidirectional,T25,4,T2,T25,See bank-modes.md; no signal pull
+11,P06,bidirectional,T26,3,T2,T26,See bank-modes.md; no signal pull
+12,P07/CLKOUT,bidirectional,T27,2,T2,T27,See bank-modes.md; no signal pull
+13,D0,bidirectional,L00,134,L0,L00,See bank-modes.md; no signal pull
+14,D1,bidirectional,L02,132,L0,L02,See bank-modes.md; no signal pull
+15,D2,bidirectional,L01,133,L0,L01,See bank-modes.md; no signal pull
+16,D3,bidirectional,L04,130,L0,L04,See bank-modes.md; no signal pull
+17,D4,bidirectional,L03,131,L0,L03,See bank-modes.md; no signal pull
+18,D5,bidirectional,L06,128,L0,L06,See bank-modes.md; no signal pull
+19,D6,bidirectional,L05,129,L0,L05,See bank-modes.md; no signal pull
+20,D7,bidirectional,L07,127,L0,L07,See bank-modes.md; no signal pull
+21,D8,bidirectional,L10,123,L1,L10,See bank-modes.md; no signal pull
+22,D9,bidirectional,L12,121,L1,L12,See bank-modes.md; no signal pull
+23,D10,bidirectional,L11,122,L1,L11,See bank-modes.md; no signal pull
+24,D11,bidirectional,L14,119,L1,L14,See bank-modes.md; no signal pull
+25,D12,bidirectional,L13,120,L1,L13,See bank-modes.md; no signal pull
+26,D13,bidirectional,L16,117,L1,L16,See bank-modes.md; no signal pull
+27,D14,bidirectional,L15,118,L1,L15,See bank-modes.md; no signal pull
+28,D15,bidirectional,L17,116,L1,L17,See bank-modes.md; no signal pull
+29,A0,tri_state,L20,111,L2,L20,See bank-modes.md; no signal pull
+30,A9/A1,tri_state,L21,110,L2,L21,See bank-modes.md; no signal pull
+31,A10/A2,tri_state,L22,109,L2,L22,See bank-modes.md; no signal pull
+32,A11/A3,tri_state,L23,108,L2,L23,See bank-modes.md; no signal pull
+33,A12/A4,tri_state,L26,105,L2,L26,See bank-modes.md; no signal pull
+34,A13/A5,tri_state,L24,107,L2,L24,See bank-modes.md; no signal pull
+35,A14/A6,tri_state,L27,104,L2,L27,See bank-modes.md; no signal pull
+36,A15/A7,tri_state,L25,106,L2,L25,See bank-modes.md; no signal pull
+37,A16/A8,tri_state,B03,97,B0,B03,See bank-modes.md; no signal pull
+38,A17/A9,tri_state,B02,98,B0,B02,See bank-modes.md; no signal pull
+39,A19,tri_state,B05,95,B0,B05,See bank-modes.md; no signal pull
+40,A18/~{UBE},tri_state,B04,96,B0,B04,See bank-modes.md; no signal pull
+41,RxD0,input,B10,89,B1,B10,See bank-modes.md; no signal pull
+42,GND,power_in,GND,all ground pads including 68,-,GND,See bank-modes.md; no signal pull
+43,~{CTS0}/RSCK,bidirectional,R20,43,R2,R20,See bank-modes.md; no signal pull
+44,TxD0,output,B06,94,B0,B06,See bank-modes.md; no signal pull
+45,RxD1,input,B13,86,B1,B13,See bank-modes.md; no signal pull
+46,~{CTS1},input,B12,87,B1,B12,See bank-modes.md; no signal pull
+47,TxD1,output,B07,93,B0,B07,See bank-modes.md; no signal pull
+48,P20/DMARQ0,bidirectional,B20,77,B2,B20,See bank-modes.md; no signal pull
+49,IC,passive,-,-,-,IC_BIAS,Tied IC group; 15k to VCC_TL
+50,VDD,power_in,VCC_TL,1,-,VCC_TL,C2 100nF to GND
+51,P21/~{DMAAK0},bidirectional,R03,63,R0,R03,See bank-modes.md; no signal pull
+52,P22/~{TC0},bidirectional,R04,62,R0,R04,See bank-modes.md; no signal pull
+53,N/~{S},input,B16,83,B1,B16,Host HIGH normal / LOW security; stable at reset and interrupts
+54,P23/DMARQ1,bidirectional,B21,76,B2,B21,See bank-modes.md; no signal pull
+55,P24/~{DMAAK1},bidirectional,R05,61,R0,R05,See bank-modes.md; no signal pull
+56,P25/~{TC1},bidirectional,R07,59,R0,R07,See bank-modes.md; no signal pull
+57,P26/~{HLDAK},bidirectional,R06,60,R0,R06,See bank-modes.md; no signal pull
+58,P27/HLDRQ,bidirectional,B22,75,B2,B22,See bank-modes.md; no signal pull
+59,P10/NMI,input,B15,84,B1,B15,See bank-modes.md; no signal pull
+60,P11/~{INTP0},input,B17,82,B1,B17,See bank-modes.md; no signal pull
+61,P12/~{INTP1},input,B14,85,B1,B14,See bank-modes.md; no signal pull
+62,P13/~{INTP2}/~{INTAK},bidirectional,R21,42,R2,R21,See bank-modes.md; no signal pull
+63,P14/INT/~{POLL},bidirectional,T07,25,T0,T07,See bank-modes.md; no signal pull
+64,P15/TOUT,bidirectional,R22,41,R2,R22,See bank-modes.md; no signal pull
+65,P16/~{SCK0},bidirectional,R23,40,R2,R23,See bank-modes.md; no signal pull
+66,P17/READY,bidirectional,T06,26,T0,T06,See bank-modes.md; no signal pull
+67,PT0,input,R10,55,R1,R10,See bank-modes.md; no signal pull
+68,PT1,input,R12,53,R1,R12,See bank-modes.md; no signal pull
+69,PT2,input,R11,54,R1,R11,See bank-modes.md; no signal pull
+70,PT3,input,R14,51,R1,R14,See bank-modes.md; no signal pull
+71,PT4,input,R13,52,R1,R13,See bank-modes.md; no signal pull
+72,PT5,input,R16,49,R1,R16,See bank-modes.md; no signal pull
+73,PT6,input,R15,50,R1,R15,See bank-modes.md; no signal pull
+74,PT7,input,R17,48,R1,R17,See bank-modes.md; no signal pull
+75,IC,passive,-,-,-,IC_BIAS,Tied IC group; 15k to VCC_TL
+76,VTH,input,VCC_TL,1,-,VCC_TL,Reference fixed at VDD; C3 100nF to GND
+77,GND,power_in,GND,all ground pads including 68,-,GND,See bank-modes.md; no signal pull
+78,X1,input,RCLK,57,-,RCLK,Positive clock phase
+79,X2,input,TCLK,23,-,TCLK,Negative clock phase
+80,VDD,power_in,VCC_TL,1,-,VCC_TL,C1 100nF to GND
+81,~{RESET},input,B11,88,B1,B11,Host LOW at power-on; release HIGH after 30ms
+82,~{REFRQ},tri_state,T12,19,T1,T12,See bank-modes.md; no signal pull
+83,R/~{W},tri_state,T13,18,T1,T13,See bank-modes.md; no signal pull
+84,~{MSTB},tri_state,T14,17,T1,T14,See bank-modes.md; no signal pull

@@ -1,0 +1,146 @@
+{
+  "status": "passed",
+  "kicad_version": "10.0.6-rc2",
+  "dut": "Z84C0008PEG",
+  "supply_v": 5,
+  "clock_mhz": 8,
+  "dut_pins_verified": 40,
+  "connector_pads_unchanged": 136,
+  "outline_unchanged": true,
+  "voltage_select": {
+    "5V_SELECT": "direct GND",
+    "3V3_SELECT": "unconnected on daughter board"
+  },
+  "schematic_netlist_matches_pcb": true,
+  "copper_layers": 2,
+  "track_segments": 148,
+  "track_width_mm": 0.2,
+  "vias": 1,
+  "via_preset_mm": {
+    "diameter": 0.5,
+    "drill": 0.3
+  },
+  "ground_plane_layer": "B.Cu",
+  "ground_plane_connected_polygons": 1,
+  "erc_violations": 0,
+  "drc_violations": 0,
+  "unrouted_connections": 0,
+  "schematic_parity_issues": 0,
+  "hardware_tested": false,
+  "bus_hold_drive_margin": "Not guaranteed; direct connection retained by user instruction",
+  "voltage_select_firmware": "Required 5V interpretation documented; host firmware not available",
+  "unused_bank_pulls": [
+    {
+      "bank": "B1",
+      "resistor": "R6",
+      "resistance_ohms": 47000,
+      "shared_net": "/B1_UNUSED",
+      "unused_signals": [
+        "B14",
+        "B15",
+        "B16",
+        "B17"
+      ],
+      "connector_pads": [
+        "82",
+        "83",
+        "84",
+        "85"
+      ],
+      "host_output_zero_mask": "0xF0"
+    },
+    {
+      "bank": "B2",
+      "resistor": "R7",
+      "resistance_ohms": 47000,
+      "shared_net": "/B2_UNUSED",
+      "unused_signals": [
+        "B21",
+        "B22",
+        "B23",
+        "B24",
+        "B25",
+        "B26",
+        "B27"
+      ],
+      "connector_pads": [
+        "70",
+        "71",
+        "72",
+        "73",
+        "74",
+        "75",
+        "76"
+      ],
+      "host_output_zero_mask": "0xFE"
+    },
+    {
+      "bank": "L0",
+      "resistor": "R8",
+      "resistance_ohms": 47000,
+      "shared_net": "/L0_UNUSED",
+      "unused_signals": [
+        "L00",
+        "L01",
+        "L02"
+      ],
+      "connector_pads": [
+        "132",
+        "133",
+        "134"
+      ],
+      "host_output_zero_mask": "0x07"
+    },
+    {
+      "bank": "R0",
+      "resistor": "R9",
+      "resistance_ohms": 47000,
+      "shared_net": "/R0_UNUSED",
+      "unused_signals": [
+        "R01",
+        "R02",
+        "R04",
+        "R07"
+      ],
+      "connector_pads": [
+        "59",
+        "62",
+        "64",
+        "65"
+      ],
+      "host_output_zero_mask": "0x96"
+    },
+    {
+      "bank": "R1",
+      "resistor": "R10",
+      "resistance_ohms": 47000,
+      "shared_net": "/R1_UNUSED",
+      "unused_signals": [
+        "R10",
+        "R11",
+        "R12",
+        "R13"
+      ],
+      "connector_pads": [
+        "52",
+        "53",
+        "54",
+        "55"
+      ],
+      "host_output_zero_mask": "0x0F"
+    },
+    {
+      "bank": "R2",
+      "resistor": "R11",
+      "resistance_ohms": 47000,
+      "shared_net": "/R2_UNUSED",
+      "unused_signals": [
+        "R20"
+      ],
+      "connector_pads": [
+        "43"
+      ],
+      "host_output_zero_mask": "0x01"
+    }
+  ]
+}

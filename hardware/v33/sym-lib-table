@@ -1,0 +1,14 @@
+(sym_lib_table 
+  (version 7) 
+  (lib 
+    (name "nuBoard") 
+    (type "KiCad") 
+    (uri "${KIPRJMOD}/nuBoard.kicad_sym") 
+    (options "") 
+    (descr "")) 
+  (lib 
+    (name "v33") 
+    (type "KiCad") 
+    (uri "${KIPRJMOD}/v33.kicad_sym") 
+    (options "") 
+    (descr "V33 daughter board local assets")))

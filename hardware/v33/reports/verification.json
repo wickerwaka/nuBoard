@@ -1,0 +1,107 @@
+{
+  "status": "layout_checks_passed_clock_qualification_pending",
+  "kicad_version": "10.0.6-rc2",
+  "dut": "uPD70136L-16, PLCC68 socket",
+  "supply_v": 5,
+  "clock_mhz": null,
+  "speed_suffix": "L-16",
+  "cpu_rated_max_mhz": 16,
+  "dut_pins_verified": 68,
+  "connector_pads_unchanged": 136,
+  "outline_unchanged": true,
+  "voltage_select": {
+    "5V_SELECT": "direct GND",
+    "3V3_SELECT": "unconnected on daughter board"
+  },
+  "schematic_netlist_matches_pcb": true,
+  "copper_layers": 2,
+  "track_segments": 215,
+  "track_width_mm": 0.2,
+  "vias": 0,
+  "via_preset_mm": {
+    "diameter": 0.5,
+    "drill": 0.3
+  },
+  "ground_plane_layer": "B.Cu",
+  "ground_plane_fill_polygons": 2,
+  "ground_plane_connectivity": "DRC verified; regions joined through C1 ground pad",
+  "erc_violations": 0,
+  "drc_violations": 0,
+  "unrouted_connections": 0,
+  "schematic_parity_issues": 0,
+  "hardware_tested": false,
+  "bus_hold_drive_margin": "Not guaranteed; direct connection retained by user instruction",
+  "voltage_select_firmware": "Required 5V interpretation documented; host firmware not available",
+  "unused_bank_pulls": [
+    {
+      "bank": "B0",
+      "resistor": "R1",
+      "resistance_ohms": 47000,
+      "shared_net": "/B0_UNUSED",
+      "unused_signals": [
+        "B00",
+        "B01",
+        "B02",
+        "B07"
+      ],
+      "connector_pads": [
+        "100",
+        "93",
+        "98",
+        "99"
+      ],
+      "host_output_zero_mask": "0x87"
+    },
+    {
+      "bank": "B1",
+      "resistor": "R2",
+      "resistance_ohms": 47000,
+      "shared_net": "/B1_UNUSED",
+      "unused_signals": [
+        "B15",
+        "B16",
+        "B17"
+      ],
+      "connector_pads": [
+        "82",
+        "83",
+        "84"
+      ],
+      "host_output_zero_mask": "0xE0"
+    },
+    {
+      "bank": "R0",
+      "resistor": "R3",
+      "resistance_ohms": 47000,
+      "shared_net": "/R0_UNUSED",
+      "unused_signals": [
+        "R00",
+        "R01",
+        "R02",
+        "R03",
+        "R07"
+      ],
+      "connector_pads": [
+        "59",
+        "63",
+        "64",
+        "65",
+        "66"
+      ],
+      "host_output_zero_mask": "0x8F"
+    },
+    {
+      "bank": "R1",
+      "resistor": "R4",
+      "resistance_ohms": 47000,
+      "shared_net": "/R1_UNUSED",
+      "unused_signals": [
+        "R17"
+      ],
+      "connector_pads": [
+        "48"
+      ],
+      "host_output_zero_mask": "0x80"
+    }
+  ]
+}
