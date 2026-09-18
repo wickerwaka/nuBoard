@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nuboard"
+version = "1.0.0"
+description = "USB control client for nuBoard"
+requires-python = ">=3.11"
+dependencies = ["pyusb>=1.2.1"]
+
+[project.scripts]
+nuboard = "nuboard.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

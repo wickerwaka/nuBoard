@@ -14,14 +14,47 @@ pico_sdk_init()
 
 add_executable(nuboard_mcu
     src/main.c
+    src/fpga_config.c
+    src/nub_protocol.c
+    src/nub_stream.c
+    src/runtime_link.c
+    src/runtime_crc.c
+    src/sha256.c
+    src/usb_descriptors.c
+    src/usb_stack.c
+)
+
+pico_generate_pio_header(nuboard_mcu
+    "${CMAKE_CURRENT_LIST_DIR}/src/fpga_spi.pio")
+
+target_include_directories(nuboard_mcu PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/src"
+)
+
+target_compile_options(nuboard_mcu PRIVATE
+    -Wall
+    -Wextra
 )
 
 target_link_libraries(nuboard_mcu
     pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_spi
+    pico_unique_id
+    pico_usb_reset
+    tinyusb_device
+)
+
+target_compile_definitions(nuboard_mcu PRIVATE
+    PICO_ENABLE_USB_RESET_VIA_VENDOR_INTERFACE=1
+    PICO_USB_RESET_INCLUDE_DEFAULT_APP_DRIVER_CB=0
+    PICO_USB_RESET_SUPPORT_MS_OS_20_DESCRIPTOR=0
 )
 
 # Expose stdio over USB CDC without reserving GPIOs for a UART console.
 pico_enable_stdio_uart(nuboard_mcu 0)
-pico_enable_stdio_usb(nuboard_mcu 1)
+pico_enable_stdio_usb(nuboard_mcu 0)
 
 pico_add_extra_outputs(nuboard_mcu)

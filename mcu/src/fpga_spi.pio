@@ -1,0 +1,14 @@
+; Passive SPI x4 transmitter for Efinix Trion configuration.
+;
+; CCK is a mandatory side-set pin and CDI[3:0] are four consecutive OUT pins.
+; The state machine shifts each byte's high nibble and then low nibble, with
+; CDI3 carrying the most-significant bit of each nibble.  If the TX FIFO
+; becomes empty, the OUT instruction stalls before applying its side-set
+; value, so CCK remains high and no data or clock edge is emitted.
+.program fpga_spi
+.side_set 1
+
+.wrap_target
+    out pins, 4 side 0
+    nop         side 1
+.wrap

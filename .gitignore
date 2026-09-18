@@ -9,3 +9,5 @@ backups/
 /bin/konnect
 /build/
 __pycache__/
+host/build/
+*.egg-info/

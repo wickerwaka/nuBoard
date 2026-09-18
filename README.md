@@ -1,5 +1,10 @@
 # nuBoard
 
+The repository includes board hardware, RP2040 firmware, an Efinix runtime
+template, and Linux host tools. See [`mcu/README.md`](mcu/README.md),
+[`fpga/template/README.md`](fpga/template/README.md),
+[`host/README.md`](host/README.md), and [`docs/protocol.md`](docs/protocol.md).
+
 KiCad 10 hardware projects copied from the working `nu68020/nuBoard` directory.
 
 | Project | Open this file |
