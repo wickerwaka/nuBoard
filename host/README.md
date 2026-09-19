@@ -23,6 +23,13 @@ nuboard power off
 Place `--json` before the subcommand for machine-readable output. `events` uses
 a blocking interrupt-endpoint reader thread rather than status polling.
 
+Library users can use `NuBoard.fpga_exchange(channel, payload)` for one tagged
+request/reply packet with interrupt-driven completion. It owns the event
+consumer for that exchange; do not run `events()` concurrently on the same
+instance. `nuboard.debug.DebugClient` adds the CPU-independent NDB1 read/write
+and FPGA-local WAIT16 protocol used by the
+[68000 harness](../docs/m68000-harness.md).
+
 Run the fake-transport tests with:
 
 ```sh

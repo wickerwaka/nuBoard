@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1030" viewBox="0 0 1500 1030">
+<style>text{font-family:DejaVu Sans,sans-serif;fill:#172b43}.mono{font-family:DejaVu Sans Mono,monospace}</style>
+<rect width="1500" height="1030" fill="#f6f8fc"/>
+<text x="42" y="48" font-size="29" text-anchor="start" font-weight="bold" style="fill:#172b43">One extra 5 MHz clock per reset-vector read</text>
+<text x="42" y="79" font-size="18" text-anchor="start" font-weight="normal" style="fill:#172b43">Actual FPGA-sampled signals · fx68k versus socketed MC68000P12 · 20 ns resolution</text>
+<text x="42" y="106" font-size="17" text-anchor="start" font-weight="normal" style="fill:#172b43">3 / 3 repeated runs match · identical program and memory · wait_ticks = 8</text>
+<text x="42" y="133" font-size="16" text-anchor="start" font-weight="normal" style="fill:#172b43">Each panel is aligned to its own first AS falling edge; this removes reset-exit phase offset.</text>
+<rect x="28" y="156" width="1444" height="361" rx="12" fill="white"/>
+<text x="48" y="184" font-size="22" text-anchor="start" font-weight="bold" style="fill:#1764ad">fx68k (on the FPGA)</text>
+<text x="1440" y="184" font-size="19" text-anchor="end" font-weight="bold" style="fill:#1764ad">AS low: 500 ns    |    next read: +800 ns</text>
+<line x1="262.34" y1="219" x2="262.34" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="262.3404255319149" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">0</text>
+<line x1="393.19" y1="219" x2="393.19" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="393.1914893617021" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">200</text>
+<line x1="524.04" y1="219" x2="524.04" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="524.0425531914893" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">400</text>
+<line x1="654.89" y1="219" x2="654.89" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="654.8936170212767" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">600</text>
+<line x1="785.74" y1="219" x2="785.74" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="785.7446808510638" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">800</text>
+<line x1="916.60" y1="219" x2="916.60" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="916.5957446808511" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1000</text>
+<line x1="1047.45" y1="219" x2="1047.45" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1047.4468085106382" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1200</text>
+<line x1="1178.30" y1="219" x2="1178.30" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1178.2978723404256" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1400</text>
+<line x1="1309.15" y1="219" x2="1309.15" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1309.1489361702127" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1600</text>
+<line x1="1440.00" y1="219" x2="1440.00" y2="505" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1440.0" y="210" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1800</text>
+<text x="190" y="210" font-size="13" text-anchor="end" font-weight="normal" style="fill:#607289">ns</text>
+<text x="190" y="240" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">CLK  (5 MHz)</text>
+<path d="M 210.00 244 H 262.34 V 224 H 327.77 V 244 H 393.19 V 224 H 458.62 V 244 H 524.04 V 224 H 589.47 V 244 H 654.89 V 224 H 720.32 V 244 H 785.74 V 224 H 851.17 V 244 H 916.60 V 224 H 982.02 V 244 H 1047.45 V 224 H 1112.87 V 244 H 1178.30 V 224 H 1243.72 V 244 H 1309.15 V 224 H 1374.57 V 244 H 1440.00 V 224 H 1440.00" fill="none" stroke="#1764ad" stroke-width="2.5"/>
+<text x="190" y="276" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">AS_N</text>
+<path d="M 210.00 260 H 262.34 V 280 H 589.47 V 260 H 785.74 V 280 H 1112.87 V 260 H 1309.15 V 280 H 1440.00" fill="none" stroke="#1764ad" stroke-width="2.5"/>
+<text x="190" y="312" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">UDS_N</text>
+<path d="M 210.00 296 H 262.34 V 316 H 589.47 V 296 H 785.74 V 316 H 1112.87 V 296 H 1309.15 V 316 H 1440.00" fill="none" stroke="#1764ad" stroke-width="2.5"/>
+<text x="190" y="348" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">LDS_N</text>
+<path d="M 210.00 332 H 262.34 V 352 H 589.47 V 332 H 785.74 V 352 H 1112.87 V 332 H 1309.15 V 352 H 1440.00" fill="none" stroke="#1764ad" stroke-width="2.5"/>
+<text x="190" y="384" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">DTACK_N *</text>
+<path d="M 210.00 368 H 432.45 V 388 H 628.72 V 368 H 955.85 V 388 H 1152.13 V 368 H 1440.00" fill="none" stroke="#1764ad" stroke-width="2.5"/>
+<text x="190" y="420" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">R/W  (1 = read)</text>
+<path d="M 210.00 404 H 1440.00" fill="none" stroke="#1764ad" stroke-width="2.5"/>
+<text x="190" y="456" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">A[23:0]</text>
+<line x1="210.00" y1="450" x2="1440.00" y2="450" stroke="#a8b3c4" stroke-width="1" stroke-dasharray="4 4"/>
+<polygon points="262.34,450 267.34,438 584.47,438 589.47,450 584.47,462 267.34,462" fill="white" stroke="#1764ad" stroke-width="1.5"/>
+<text x="425.90425531914894" y="456" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#1764ad">$000000</text>
+<polygon points="785.74,450 790.74,438 1107.87,438 1112.87,450 1107.87,462 790.74,462" fill="white" stroke="#1764ad" stroke-width="1.5"/>
+<text x="949.3085106382979" y="456" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#1764ad">$000002</text>
+<polygon points="1309.15,450 1314.15,438 1435.00,438 1440.00,450 1435.00,462 1314.15,462" fill="white" stroke="#1764ad" stroke-width="1.5"/>
+<text x="1374.5744680851062" y="456" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#1764ad">$000004</text>
+<text x="190" y="492" font-size="16" text-anchor="end" font-weight="normal" style="fill:#1764ad">D[15:0]</text>
+<line x1="210.00" y1="486" x2="1440.00" y2="486" stroke="#a8b3c4" stroke-width="1" stroke-dasharray="4 4"/>
+<polygon points="432.45,486 437.45,474 584.47,474 589.47,486 584.47,498 437.45,498" fill="white" stroke="#1764ad" stroke-width="1.5"/>
+<text x="510.95744680851067" y="492" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#1764ad">$0000</text>
+<polygon points="955.85,486 960.85,474 1107.87,474 1112.87,486 1107.87,498 960.85,498" fill="white" stroke="#1764ad" stroke-width="1.5"/>
+<text x="1034.3617021276596" y="492" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#1764ad">$03F0</text>
+<text x="425.90425531914894" y="271" font-size="14" text-anchor="middle" font-weight="bold" style="fill:#1764ad">500 ns</text>
+<rect x="28" y="538" width="1444" height="361" rx="12" fill="white"/>
+<text x="48" y="566" font-size="22" text-anchor="start" font-weight="bold" style="fill:#ba4c12">MC68000P12 (physical CPU)</text>
+<text x="1440" y="566" font-size="19" text-anchor="end" font-weight="bold" style="fill:#ba4c12">AS low: 700 ns    |    next read: +1000 ns</text>
+<line x1="262.34" y1="601" x2="262.34" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="262.3404255319149" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">0</text>
+<line x1="393.19" y1="601" x2="393.19" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="393.1914893617021" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">200</text>
+<line x1="524.04" y1="601" x2="524.04" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="524.0425531914893" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">400</text>
+<line x1="654.89" y1="601" x2="654.89" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="654.8936170212767" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">600</text>
+<line x1="785.74" y1="601" x2="785.74" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="785.7446808510638" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">800</text>
+<line x1="916.60" y1="601" x2="916.60" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="916.5957446808511" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1000</text>
+<line x1="1047.45" y1="601" x2="1047.45" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1047.4468085106382" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1200</text>
+<line x1="1178.30" y1="601" x2="1178.30" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1178.2978723404256" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1400</text>
+<line x1="1309.15" y1="601" x2="1309.15" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1309.1489361702127" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1600</text>
+<line x1="1440.00" y1="601" x2="1440.00" y2="887" stroke="#dfe6f0" stroke-width="1" stroke-dasharray=""/>
+<text x="1440.0" y="592" font-size="13" text-anchor="middle" font-weight="normal" style="fill:#607289">1800</text>
+<text x="190" y="592" font-size="13" text-anchor="end" font-weight="normal" style="fill:#607289">ns</text>
+<rect x="589.47" y="640" width="130.85" height="25" fill="#ffe0bd"/>
+<text x="190" y="622" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">CLK  (5 MHz)</text>
+<path d="M 210.00 626 H 249.26 V 606 H 314.68 V 626 H 380.11 V 606 H 445.53 V 626 H 510.96 V 606 H 576.38 V 626 H 641.81 V 606 H 707.23 V 626 H 772.66 V 606 H 838.09 V 626 H 903.51 V 606 H 968.94 V 626 H 1034.36 V 606 H 1099.79 V 626 H 1165.21 V 606 H 1230.64 V 626 H 1296.06 V 606 H 1361.49 V 626 H 1426.91 V 606 H 1440.00" fill="none" stroke="#ba4c12" stroke-width="2.5"/>
+<text x="190" y="658" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">AS_N</text>
+<path d="M 210.00 642 H 262.34 V 662 H 720.32 V 642 H 916.60 V 662 H 1374.57 V 642 H 1440.00" fill="none" stroke="#ba4c12" stroke-width="2.5"/>
+<text x="190" y="694" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">UDS_N</text>
+<path d="M 210.00 678 H 262.34 V 698 H 720.32 V 678 H 916.60 V 698 H 1374.57 V 678 H 1440.00" fill="none" stroke="#ba4c12" stroke-width="2.5"/>
+<text x="190" y="730" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">LDS_N</text>
+<path d="M 210.00 714 H 262.34 V 734 H 720.32 V 714 H 916.60 V 734 H 1374.57 V 714 H 1440.00" fill="none" stroke="#ba4c12" stroke-width="2.5"/>
+<text x="190" y="766" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">DTACK_N *</text>
+<path d="M 210.00 750 H 432.45 V 770 H 759.57 V 750 H 1086.70 V 770 H 1413.83 V 750 H 1440.00" fill="none" stroke="#ba4c12" stroke-width="2.5"/>
+<text x="190" y="802" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">R/W  (1 = read)</text>
+<path d="M 210.00 786 H 1440.00" fill="none" stroke="#ba4c12" stroke-width="2.5"/>
+<text x="190" y="838" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">A[23:0]</text>
+<line x1="210.00" y1="832" x2="1440.00" y2="832" stroke="#a8b3c4" stroke-width="1" stroke-dasharray="4 4"/>
+<polygon points="262.34,832 267.34,820 715.32,820 720.32,832 715.32,844 267.34,844" fill="white" stroke="#ba4c12" stroke-width="1.5"/>
+<text x="491.32978723404256" y="838" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#ba4c12">$000000</text>
+<polygon points="916.60,832 921.60,820 1369.57,820 1374.57,832 1369.57,844 921.60,844" fill="white" stroke="#ba4c12" stroke-width="1.5"/>
+<text x="1145.5851063829787" y="838" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#ba4c12">$000002</text>
+<text x="190" y="874" font-size="16" text-anchor="end" font-weight="normal" style="fill:#ba4c12">D[15:0]</text>
+<line x1="210.00" y1="868" x2="1440.00" y2="868" stroke="#a8b3c4" stroke-width="1" stroke-dasharray="4 4"/>
+<polygon points="432.45,868 437.45,856 715.32,856 720.32,868 715.32,880 437.45,880" fill="white" stroke="#ba4c12" stroke-width="1.5"/>
+<text x="576.3829787234042" y="874" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#ba4c12">$0000</text>
+<polygon points="1086.70,868 1091.70,856 1369.57,856 1374.57,868 1369.57,880 1091.70,880" fill="white" stroke="#ba4c12" stroke-width="1.5"/>
+<text x="1230.6382978723404" y="874" font-size="16" text-anchor="middle" font-weight="normal" style="fill:#ba4c12">$03F0</text>
+<text x="491.32978723404256" y="653" font-size="14" text-anchor="middle" font-weight="bold" style="fill:#ba4c12">700 ns</text>
+<text x="42" y="944" font-size="18" text-anchor="start" font-weight="bold" style="fill:#172b43">Difference: AS / UDS / LDS stay asserted 200 ns longer; the next read starts 200 ns later.</text>
+<text x="42" y="971" font-size="15" text-anchor="start" font-weight="normal" style="fill:#172b43">* DTACK is measured at the FPGA responder output, not at the CPU pin. Data is shown only after ACK.</text>
+<text x="42" y="995" font-size="15" text-anchor="start" font-weight="normal" style="fill:#172b43">Digital capture after level translation; not an analog timing signoff or proof of an fx68k defect.</text>
+<text x="42" y="1018" font-size="11" text-anchor="start" font-weight="normal" style="fill:#607289">Raw capture SHA-256: cd78ed45cb2d3aaf00104ba1d373a8e823eebe578448b112914e1b6f569ac122</text>
+</svg>

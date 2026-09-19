@@ -3,6 +3,7 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from nuboard.device import (
     EP_BULK_IN,
@@ -87,6 +88,45 @@ class FakeUSBUtil:
 
 
 class DeviceTests(unittest.TestCase):
+    def test_zero_length_packet_after_exact_usb_packet_does_not_retry(self):
+        transport = FakeTransport()
+        packets = []
+
+        def write(endpoint, data, timeout=None):
+            self.assertEqual(endpoint, EP_BULK_OUT)
+            request = Message.unpack(bytes(data))
+            transport.requests.append(request)
+            # A 20-byte NUB1 header plus 44 payload bytes is exactly 64.
+            packets.append(Message(request.opcode, request.sequence,
+                                   bytes(44), Kind.RESPONSE).pack())
+            packets.append(b"")
+
+        transport.write = write
+        transport.read = lambda endpoint, size, timeout=None: packets.pop(0)
+        board = NuBoard(transport)
+        self.assertEqual(board.info(), bytes(44))
+        self.assertEqual(board.info(), bytes(44))
+        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual([request.sequence for request in transport.requests], [1, 2])
+
+    def test_zero_length_packets_between_split_frame_bytes(self):
+        response = Message(Opcode.GET_INFO, 1, b"payload", Kind.RESPONSE).pack()
+        packets = [b"", response[:9], b"", response[9:22], b"", response[22:]]
+        transport = FakeTransport()
+        transport.write = lambda *args, **kwargs: None
+        transport.read = lambda endpoint, size, timeout=None: packets.pop(0)
+        self.assertEqual(NuBoard(transport).info(), b"payload")
+
+    def test_empty_usb_transfers_do_not_extend_response_deadline(self):
+        transport = FakeTransport()
+        transport.read = lambda *args, **kwargs: b""
+        board = NuBoard(transport, timeout_ms=100)
+        with patch("nuboard.device.time.monotonic", side_effect=[0.0, 0.01, 0.11]):
+            with self.assertRaises(NuBoardError) as error:
+                board.info()
+        self.assertEqual(error.exception.status, Status.TIMEOUT)
+        self.assertEqual(len(transport.requests), 1)
+
     def test_usb_transport_reuses_active_configuration(self):
         device = FakeUSBDevice(configured=True)
         usb_util = FakeUSBUtil()

@@ -11,3 +11,7 @@ backups/
 __pycache__/
 host/build/
 *.egg-info/
+/fpga/m68000/microrom.mem
+/fpga/m68000/nanorom.mem
+/fpga/m68000/m68000.peri.xml
+/fpga/m68000/outflow/

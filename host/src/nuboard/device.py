@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable, Iterator, Protocol
 
-from .protocol import EVENT, HEADER, MAX_PAYLOAD, EventRecord, Kind, Message, Opcode, Status
+from .protocol import EVENT, HEADER, MAX_PAYLOAD, EventRecord, EventType, Kind, Message, Opcode, Status
 
 VID = 0x2E8A
 PID = 0x000A
@@ -69,6 +69,8 @@ class NuBoard:
         self._event_queue: queue.Queue[EventRecord | BaseException] = queue.Queue()
         self._event_stop = threading.Event()
         self._event_thread: threading.Thread | None = None
+        self._packet_lock = threading.Lock()
+        self._packet_tag = 0
 
     @staticmethod
     def _open_usb():
@@ -87,7 +89,12 @@ class NuBoard:
         timeout: int | None = None,
     ) -> bytes:
         buffered = self._read_buffers.setdefault(endpoint, bytearray())
+        timeout_ms = self.timeout_ms if timeout is None else timeout
+        deadline = time.monotonic() + timeout_ms / 1000.0
         while len(buffered) < length:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise NuBoardError(Status.TIMEOUT, "USB response deadline expired")
             # Bulk endpoint 0x83 has 64-byte USB packets. Supplying a shorter
             # libusb buffer causes an overflow when header and payload share a
             # packet, so retain any bytes beyond the caller's immediate need.
@@ -96,11 +103,15 @@ class NuBoard:
                 self.transport.read(
                     endpoint,
                     transfer_size,
-                    timeout=timeout or self.timeout_ms,
+                    timeout=max(1, int(remaining * 1000)),
                 )
             )
             if not chunk:
-                raise NuBoardError(Status.LINK, "short USB read")
+                # TinyUSB terminates exact packet-size transfers with a ZLP.
+                # It may arrive after the complete previous NUB1 frame, so it
+                # is a transport boundary, not EOF or a failed command. Keep
+                # reading under the same deadline without resending anything.
+                continue
             buffered.extend(chunk)
 
         result = bytes(buffered[:length])
@@ -252,6 +263,49 @@ class NuBoard:
     def link_status(self) -> bytes:
         return self.command(Opcode.LINK_STATUS)
 
+    def fpga_exchange(self, channel: int, data: bytes, timeout: float = 5.0) -> bytes:
+        """Exchange one application packet, waiting on interrupt-IN for its reply.
+
+        This owns the event consumer until the reply arrives. Applications must
+        not concurrently consume ``events()`` on the same device instance.
+        """
+        if len(data) > 4080:
+            raise ValueError("a packet exchange is limited to 4080 bytes")
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        with self._packet_lock:
+            self._start_events()
+            self._packet_tag = (self._packet_tag + 1) & 0xFFFFFFFF
+            tag = self._packet_tag
+            self.fpga_send(channel, data, tag)
+            deadline = time.monotonic() + timeout
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise NuBoardError(Status.TIMEOUT, "FPGA reply timed out")
+                try:
+                    event = self._event_queue.get(timeout=remaining)
+                except queue.Empty as exc:
+                    raise NuBoardError(Status.TIMEOUT, "FPGA reply timed out") from exc
+                if isinstance(event, BaseException):
+                    raise event
+                if event.lost or event.event_type == EventType.OVERFLOW:
+                    raise NuBoardError(Status.LINK, "FPGA event stream overflow")
+                if event.event_type in (EventType.LINK_FAULT, EventType.CONFIG_FAILURE,
+                                        EventType.VCCB_SHUTDOWN):
+                    raise NuBoardError(Status.LINK, f"board event: {event.event_type.name}")
+                if event.event_type != EventType.FPGA_IRQ:
+                    continue
+                try:
+                    reply_channel, flags, reply_tag, reply = self.fpga_recv()
+                except NuBoardError as exc:
+                    if exc.status == Status.BUSY:
+                        continue  # A previously queued IRQ whose slot was read.
+                    raise
+                if (reply_channel, flags, reply_tag) != (channel, 3, tag):
+                    raise NuBoardError(Status.LINK, "FPGA reply channel, flags, or tag mismatch")
+                return reply
+
     def vccb_enable(self) -> None:
         self.command(Opcode.VCCB_ENABLE)
 
@@ -272,7 +326,7 @@ class NuBoard:
                     self._event_queue.put(exc)
                     return
 
-    def events(self) -> Iterator[EventRecord]:
+    def _start_events(self) -> None:
         if self._event_thread is None:
             self._event_thread = threading.Thread(
                 target=self._event_worker,
@@ -280,6 +334,9 @@ class NuBoard:
                 daemon=True,
             )
             self._event_thread.start()
+
+    def events(self) -> Iterator[EventRecord]:
+        self._start_events()
         while True:
             item = self._event_queue.get()
             if isinstance(item, BaseException):

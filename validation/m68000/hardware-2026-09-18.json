@@ -1,0 +1,362 @@
+{
+  "date": "2026-09-18",
+  "timezone": "America/Los_Angeles",
+  "hardware": {
+    "cpu_marking": "MC68000P12",
+    "daughterboard_fitted": true,
+    "nuboard_usb_present": true,
+    "selector_raw": 1,
+    "selector_mv": 5000,
+    "cpu_clock_hz": 5000000,
+    "clock_divider": 5,
+    "wait_ticks": 8
+  },
+  "regressions": {
+    "host_unit_tests_passed": 16,
+    "harness_tests_passed": 8,
+    "reset_strobe_regression_failed_before_fix": true,
+    "reset_strobe_regression_passed_after_fix": true,
+    "musashi_simulation_passed": 56,
+    "musashi_simulation_failed": [
+      "abcd",
+      "sbcd",
+      "divs",
+      "divu"
+    ],
+    "musashi_all_60_traces_unchanged_by_reset_fix": true,
+    "moveq_simulation_vectors_passed": 1000
+  },
+  "core_build": 2,
+  "build_receipt_path": "build/fpga/m68000/receipt.json",
+  "build_receipt_sha256": "5c02d1079124b6495e4b1a5aef32f380581383487a01e2c674fce0ec33936beb",
+  "build": {
+    "bitstream_sha256": "9ae525acd25950172487084f881aac10a394f10015cea398294ddddb053bb574",
+    "bitstream_bytes": 3550770,
+    "timing_report_sha256": "7f76ada6875ef4f80a5dd2278547f5e69d0e6d7a5e6cdae809ba5aeb0bbe891e",
+    "constrained_slacks_ns": [
+      0.949,
+      83.395,
+      37.316,
+      24.061,
+      94.502,
+      86.889,
+      0.116,
+      0.307,
+      50.453,
+      47.678,
+      1.194,
+      0.307
+    ],
+    "checked_package_assignments": 153,
+    "source_sha256": {
+      "fpga/m68000/nuboard_mailbox.v": "c62b19cf3fed099d53a17bfe1b07a34670415f21cd1613d640c31172205f61c1",
+      "fpga/m68000/nuboard_debug_bridge.sv": "fad18e4ea5e82f2f14a14b255c0471d84ed44d873efc8cff89f8afe5bb53c34a",
+      "fpga/m68000/m68000_lane.sv": "fc9adf691548e20c0db880cde5eedd921efeb1814b29562e13cec1f50334bc85",
+      "fpga/m68000/m68000_harness.sv": "e79dc8ef01972c89c628dedf14d29ffaeff8f2bd3e7b66b4b840618ba532f704",
+      "build/deps/fx68k/hdl/verilator/fx68k.sv": "a3129f3b47d95ed427ec7173fa76313c219e69f680785b097e09c39806f98bc1",
+      "build/deps/fx68k/hdl/verilator/fx68kAlu.sv": "a4fe67e178c0f9aae7668cc13695dc78fd8c653925a03b7d382beb2c977186a4",
+      "build/deps/fx68k/hdl/verilator/uaddrPla.sv": "238ccb64e6768cae529889a2022ff7b250706e06a84911d28f644df315f5f263",
+      "fpga/m68000/nuboard_m68000.v": "c4d41394d76ef105b8b01701819bd60ae937ecb2542aa2747bfceefab3f92778",
+      "fpga/m68000/m68000.xml": "15e65ef91a45915909a3903b1b3b0d0a7544dd677cc9a07d47234451e1aaef14",
+      "fpga/m68000/m68000.isf": "3592dd43bfe222523b7a76b3612d81319c1515ede442e7e30a5cfaea005133d8",
+      "fpga/m68000/m68000.sdc": "e9111e3f9e480b707056fa2049aa35a33b81694e4a90493913aff2b7a6287587",
+      "build/deps/fx68k/hdl/microrom.mem": "9d13082be0cf4b04bff887e6da23de84f9f2ee4321f3a2576b4f9540615dece6",
+      "build/deps/fx68k/hdl/nanorom.mem": "b3998009fb10605e8468cddf22fdd799a9792ba86f449de2e30615cfcefbeece"
+    },
+    "socket_electrical_timing_qualified": false
+  },
+  "host_source_sha256": {
+    "host/src/nuboard/device.py": "fb2e8240328b70448c47f3e20260e4dd8d9f64b3433bf6ec493d1c622fc13383",
+    "host/src/nuboard/debug.py": "750f158d8cbbb0b58c7794dc54501f2b52933de701dbf0195e4d706534dc2f44",
+    "validation/m68000/runner.py": "d4eb0279991d8799c858a305b7f0d31846922013418791eca2ac91db5ba28e79",
+    "validation/m68000/singlestep.py": "ae380b3ef166be21d8cb0622284f722a5fbfbcd9e1d97b52e6eceffb583ced0d"
+  },
+  "reports": [
+    {
+      "path": "build/validation/m68000/board-model-2026-09-18.json",
+      "sha256": "156c10748f0d1c522b933b0ea9d0bd2879bd56538b93fa042e71e3bad904c450",
+      "mode": "model",
+      "core_build": 1,
+      "completed": false,
+      "error": "NuBoardError: short USB read",
+      "cleanup_error": "power-off failed: response opcode or sequence mismatch",
+      "cases_recorded": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "complete_trace_cases": 1,
+      "model_transfers": 68,
+      "socket_transfers": 0,
+      "tests": [
+        {
+          "name": "lea_tas",
+          "passed": true,
+          "status": 6,
+          "model_result": 1,
+          "socket_result": 0,
+          "model_total": 68,
+          "socket_total": 0,
+          "model_signature": 2341666426,
+          "socket_signature": 4294967295,
+          "trace_complete": true,
+          "stimulus_sha256": "612d7d8b0768d2f3c7e5fdcb43b9d0707ff36be92722b1c79769a0256aceb755"
+        }
+      ]
+    },
+    {
+      "path": "build/validation/m68000/board-model-zlp-fixed-2026-09-18.json",
+      "sha256": "84cf218b33271d98a35f19522cd2c433a6d8ff628d213a1ab36d4ce8653f87db",
+      "mode": "model",
+      "core_build": 1,
+      "completed": true,
+      "error": null,
+      "cleanup_error": null,
+      "cases_recorded": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "complete_trace_cases": 3,
+      "model_transfers": 882,
+      "socket_transfers": 0,
+      "tests": [
+        {
+          "name": "lea_tas",
+          "passed": true,
+          "status": 6,
+          "model_result": 1,
+          "socket_result": 0,
+          "model_total": 68,
+          "socket_total": 0,
+          "model_signature": 2341666426,
+          "socket_signature": 4294967295,
+          "trace_complete": true,
+          "stimulus_sha256": "612d7d8b0768d2f3c7e5fdcb43b9d0707ff36be92722b1c79769a0256aceb755"
+        },
+        {
+          "name": "movem",
+          "passed": true,
+          "status": 6,
+          "model_result": 1,
+          "socket_result": 0,
+          "model_total": 762,
+          "socket_total": 0,
+          "model_signature": 2456806051,
+          "socket_signature": 4294967295,
+          "trace_complete": true,
+          "stimulus_sha256": "b90eeabb79c0a5bbfe3e269e04a5123889a60af28d30960e10877391ea227021"
+        },
+        {
+          "name": "moveq",
+          "passed": true,
+          "status": 6,
+          "model_result": 1,
+          "socket_result": 0,
+          "model_total": 52,
+          "socket_total": 0,
+          "model_signature": 544590585,
+          "socket_signature": 4294967295,
+          "trace_complete": true,
+          "stimulus_sha256": "b50977297352a376438bb83ad3306e7dea7fad4837ebdd8d7c3e23527fa0a973"
+        }
+      ]
+    },
+    {
+      "path": "build/validation/m68000/board-paired-moveq-2026-09-18.json",
+      "sha256": "b46d9ecd0af7b0d14c662df5a67c28d088fb4752c6fa52b2baee0be8d8afd262",
+      "mode": "both",
+      "core_build": 1,
+      "completed": true,
+      "error": null,
+      "cleanup_error": null,
+      "cases_recorded": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "complete_trace_cases": 1,
+      "model_transfers": 52,
+      "socket_transfers": 52,
+      "tests": [
+        {
+          "name": "moveq",
+          "passed": true,
+          "status": 22,
+          "model_result": 1,
+          "socket_result": 1,
+          "model_total": 52,
+          "socket_total": 52,
+          "model_signature": 544590585,
+          "socket_signature": 544590585,
+          "trace_complete": true,
+          "stimulus_sha256": "b50977297352a376438bb83ad3306e7dea7fad4837ebdd8d7c3e23527fa0a973"
+        }
+      ],
+      "captured_functional_match_cases": 1,
+      "captured_timing_difference_count": 52
+    },
+    {
+      "path": "build/validation/m68000/board-paired-bus-2026-09-18.json",
+      "sha256": "2e27e31cc4937fb870280952e0d1bb5eb98451c09ab7ce5e8de3968be504f087",
+      "mode": "both",
+      "core_build": 1,
+      "completed": false,
+      "error": null,
+      "cleanup_error": null,
+      "cases_recorded": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "complete_trace_cases": 1,
+      "model_transfers": 68,
+      "socket_transfers": 69,
+      "tests": [
+        {
+          "name": "lea_tas",
+          "passed": false,
+          "status": 22,
+          "model_result": 1,
+          "socket_result": 1,
+          "model_total": 68,
+          "socket_total": 69,
+          "model_signature": 2341666426,
+          "socket_signature": 447944651,
+          "trace_complete": true,
+          "stimulus_sha256": "612d7d8b0768d2f3c7e5fdcb43b9d0707ff36be92722b1c79769a0256aceb755"
+        }
+      ],
+      "captured_functional_match_cases": 0,
+      "captured_timing_difference_count": 68
+    },
+    {
+      "path": "build/validation/m68000/board-paired-reset-qualified-2026-09-18.json",
+      "sha256": "0756ea4c6704ae9e36fbbfd542087859cdfc6fc05fda497372adcc83f2647769",
+      "mode": "both",
+      "core_build": 2,
+      "completed": true,
+      "error": null,
+      "cleanup_error": null,
+      "cases_recorded": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "complete_trace_cases": 3,
+      "model_transfers": 882,
+      "socket_transfers": 882,
+      "tests": [
+        {
+          "name": "lea_tas",
+          "passed": true,
+          "status": 22,
+          "model_result": 1,
+          "socket_result": 1,
+          "model_total": 68,
+          "socket_total": 68,
+          "model_signature": 2341666426,
+          "socket_signature": 2341666426,
+          "trace_complete": true,
+          "stimulus_sha256": "612d7d8b0768d2f3c7e5fdcb43b9d0707ff36be92722b1c79769a0256aceb755"
+        },
+        {
+          "name": "movem",
+          "passed": true,
+          "status": 22,
+          "model_result": 1,
+          "socket_result": 1,
+          "model_total": 762,
+          "socket_total": 762,
+          "model_signature": 2456806051,
+          "socket_signature": 2456806051,
+          "trace_complete": true,
+          "stimulus_sha256": "b90eeabb79c0a5bbfe3e269e04a5123889a60af28d30960e10877391ea227021"
+        },
+        {
+          "name": "moveq",
+          "passed": true,
+          "status": 22,
+          "model_result": 1,
+          "socket_result": 1,
+          "model_total": 52,
+          "socket_total": 52,
+          "model_signature": 544590585,
+          "socket_signature": 544590585,
+          "trace_complete": true,
+          "stimulus_sha256": "b50977297352a376438bb83ad3306e7dea7fad4837ebdd8d7c3e23527fa0a973"
+        }
+      ],
+      "captured_functional_match_cases": 3,
+      "captured_timing_difference_count": 882
+    },
+    {
+      "path": "build/validation/m68000/board-paired-moveq-vectors-2026-09-18.json",
+      "sha256": "96df598d64c710ea92273818708b1639e653d5ba9b659867be70a4ee7b8e1524",
+      "mode": "both",
+      "core_build": 2,
+      "completed": true,
+      "error": null,
+      "cleanup_error": null,
+      "cases_recorded": 100,
+      "passed": 100,
+      "failed": 0,
+      "skipped": 0,
+      "complete_trace_cases": 100,
+      "model_transfers": 12200,
+      "socket_transfers": 12200,
+      "captured_functional_match_cases": 100,
+      "captured_timing_difference_count": 12200,
+      "vector_file_sha256": "39ffa468138c19e7cd02a916a9203c8efd2a323d5b132d1c1101e9fb140e769f",
+      "architectural_checks_passed": {
+        "model": 100,
+        "socket": 100
+      }
+    },
+    {
+      "path": "build/validation/m68000/board-paired-divu-2026-09-18.json",
+      "sha256": "134fbda0d92ae5f660ca42b343b9a0e42a677555e731e0af67093574f603c6ab",
+      "mode": "both",
+      "core_build": 2,
+      "completed": true,
+      "error": null,
+      "cleanup_error": null,
+      "cases_recorded": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "complete_trace_cases": 0,
+      "model_transfers": 4982,
+      "socket_transfers": 4982,
+      "tests": [
+        {
+          "name": "divu",
+          "passed": false,
+          "status": 42,
+          "model_result": 2,
+          "socket_result": 2,
+          "model_total": 4982,
+          "socket_total": 4982,
+          "model_signature": 2727533410,
+          "socket_signature": 2727533410,
+          "trace_complete": false,
+          "stimulus_sha256": "e323ed42a1b68c5516ecf33c2e67cd87df87ab024341ac72b3fb7cb34db0f7f0"
+        }
+      ],
+      "captured_functional_match_cases": 1,
+      "captured_timing_difference_count": 2048
+    }
+  ],
+  "final_power_state": {
+    "observed_after": "board-paired-divu-2026-09-18.json",
+    "phase": 0,
+    "vccb": false,
+    "rail_3v3": false,
+    "rail_1v2": false,
+    "failure": 0
+  },
+  "limits": [
+    "Functional matching does not establish cycle-exact timing.",
+    "Socket electrical timing has not been measured or signed off.",
+    "MOVE.q adapter does not check final prefetch or source-suite bus timing.",
+    "DIVU fails on both CPUs; only the first 2048 of 4982 transfers were captured.",
+    "Equal DIVU fingerprints are not proof of complete trace equality.",
+    "ABCD, SBCD, and DIVS have not been tested on the physical CPU.",
+    "Earlier failed attempts are retained; neither is a passing differential test."
+  ]
+}

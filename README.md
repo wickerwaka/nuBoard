@@ -5,6 +5,10 @@ template, and Linux host tools. See [`mcu/README.md`](mcu/README.md),
 [`fpga/template/README.md`](fpga/template/README.md),
 [`host/README.md`](host/README.md), and [`docs/protocol.md`](docs/protocol.md).
 
+The [68000 differential harness](docs/m68000-harness.md) runs reset-executable
+tests against fx68k in Verilator or the FPGA, and supports an explicitly armed
+MC68000 daughterboard lane. MCU firmware stays CPU-independent.
+
 KiCad 10 hardware projects copied from the working `nu68020/nuBoard` directory.
 
 | Project | Open this file |

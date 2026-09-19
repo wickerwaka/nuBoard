@@ -38,6 +38,12 @@ values are `0 OK`, `1 VERSION`, `2 LENGTH`, `3 STATE`, `4 ARGUMENT`, `5 BUSY`,
 `6 TIMEOUT`, `7 CHECKSUM`, `8 LINK`, `9 CONFIGURATION`, `10 SELECTOR`, and
 `11 INTERNAL`.
 
+USB transfer boundaries are not message boundaries. Frames may be split or
+coalesced, and an exact multiple of the endpoint's 64-byte packet size may be
+followed by a zero-length packet. The host ignores that transport terminator
+and assembles the next frame under a fixed read deadline; it does not retry the
+request or treat the zero-length packet as end-of-stream.
+
 | Opcode | Value | Request payload |
 | --- | ---: | --- |
 | `GET_INFO` | `0x0001` | empty |

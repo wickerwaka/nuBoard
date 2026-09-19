@@ -1,0 +1,575 @@
+{
+  "date": "2026-09-18",
+  "hardware": {
+    "cpu_marking": "MC68000P12",
+    "daughterboard_fitted": false,
+    "nuboard_usb_present_at_preflight": false,
+    "real_cpu_tested": false,
+    "on_board_model_tested": false
+  },
+  "host_unit_tests": 13,
+  "harness_regressions": 8,
+  "dual_model_full_trace_regression_transactions": 79843,
+  "musashi": {
+    "fx68k_revision": "1217ab8dc600de070c6adb71ea6fe69de8855362",
+    "musashi_revision": "313ebf1bd9f4d0d93341eb5ce21fd8a119e9dbdd",
+    "completed": true,
+    "tests": [
+      {
+        "name": "abcd",
+        "passed": false,
+        "status": 10,
+        "model_total": 736172,
+        "model_signature": 2314681265,
+        "stimulus_sha256": "db51b04fb8ce16eaf0096e99305f8cf0c31400b1fae7924539c5b888d3e0b492"
+      },
+      {
+        "name": "add",
+        "passed": true,
+        "status": 6,
+        "model_total": 79843,
+        "model_signature": 151164147,
+        "stimulus_sha256": "5a06357872ee0e59dea72db0817225358441f3c914afb3004a80f84e81b8e2c7"
+      },
+      {
+        "name": "add_i",
+        "passed": true,
+        "status": 6,
+        "model_total": 344,
+        "model_signature": 2232812768,
+        "stimulus_sha256": "3e86e484454b242c63f615d66eead82c957982e157c3651f76f47ead91909fe5"
+      },
+      {
+        "name": "adda",
+        "passed": true,
+        "status": 6,
+        "model_total": 9947,
+        "model_signature": 3639452228,
+        "stimulus_sha256": "b20e3ac781c1a9dfd2f59dabdf126ca60fa03156cc13cf607ae215b473c1bebc"
+      },
+      {
+        "name": "addq",
+        "passed": true,
+        "status": 6,
+        "model_total": 7021,
+        "model_signature": 3910342308,
+        "stimulus_sha256": "c94d14361ed22cb4b7c620e1600d5e6d516992a0ade729e3949408027008440a"
+      },
+      {
+        "name": "addx",
+        "passed": true,
+        "status": 6,
+        "model_total": 26712,
+        "model_signature": 2466975502,
+        "stimulus_sha256": "8065a4cb161e744c5db6fdaa99e3d0d300c520d2158f1568261e938b2a15f346"
+      },
+      {
+        "name": "and",
+        "passed": true,
+        "status": 6,
+        "model_total": 79843,
+        "model_signature": 2422509260,
+        "stimulus_sha256": "3dab98e2c9a623319e5f34e614448a4d2e0cf962298d8540d03bf1bca7c0f298"
+      },
+      {
+        "name": "andi_to_ccr",
+        "passed": true,
+        "status": 6,
+        "model_total": 63,
+        "model_signature": 3155438382,
+        "stimulus_sha256": "e8dcedb567c6d60862ddc38527bc48b4d90a128650adc22e362403399f78cfde"
+      },
+      {
+        "name": "andi_to_sr",
+        "passed": true,
+        "status": 6,
+        "model_total": 63,
+        "model_signature": 1387113728,
+        "stimulus_sha256": "0a59f68382fd9911919a60f5a6228b76e2b0e660d654a7bd01729d2da70baf60"
+      },
+      {
+        "name": "bcc",
+        "passed": true,
+        "status": 6,
+        "model_total": 102,
+        "model_signature": 3909483632,
+        "stimulus_sha256": "c83e5e3a86260a4e2b239b550bb0aa98cc2ce53b81b8b6eed262e3e684ae908a"
+      },
+      {
+        "name": "bchg",
+        "passed": true,
+        "status": 6,
+        "model_total": 793,
+        "model_signature": 1112422696,
+        "stimulus_sha256": "1e5982d6ecefc1d308ecd9f8122217d5deedc9fb72101383c3ffbe62c7866b72"
+      },
+      {
+        "name": "bclr",
+        "passed": true,
+        "status": 6,
+        "model_total": 764,
+        "model_signature": 3187406,
+        "stimulus_sha256": "e0ce8b9311ea2a052445e36a6eb8ce2d9b8e0abcd9c0cb7df2ea2927d00e1b7f"
+      },
+      {
+        "name": "bool_i",
+        "passed": true,
+        "status": 6,
+        "model_total": 425,
+        "model_signature": 1360216689,
+        "stimulus_sha256": "72ea35243a742688cddbe794267f045372eccb8a1bab420e3df7a632d2438edf"
+      },
+      {
+        "name": "bset",
+        "passed": true,
+        "status": 6,
+        "model_total": 808,
+        "model_signature": 2204541389,
+        "stimulus_sha256": "09278c873600f2a15e1322c45da955e4917623cf0471106cab0147108e32bf73"
+      },
+      {
+        "name": "bsr",
+        "passed": true,
+        "status": 6,
+        "model_total": 98,
+        "model_signature": 2462942081,
+        "stimulus_sha256": "206f310c54af907bcec8a61c017673a0b93d6fe3e1418c4ca0f583137ef969f8"
+      },
+      {
+        "name": "btst",
+        "passed": true,
+        "status": 6,
+        "model_total": 747,
+        "model_signature": 2695995865,
+        "stimulus_sha256": "65433a4b9d396d5f9c61552163723dce8b2676e23b04214edf4ad99a705cff8f"
+      },
+      {
+        "name": "chk",
+        "passed": true,
+        "status": 6,
+        "model_total": 90,
+        "model_signature": 882891040,
+        "stimulus_sha256": "a5672c31ec547d98a20d4b42c17645c137bfb03477ad65c6612cffb68b17a3dd"
+      },
+      {
+        "name": "cmp",
+        "passed": true,
+        "status": 6,
+        "model_total": 35865,
+        "model_signature": 3137626390,
+        "stimulus_sha256": "34a1e117b38b7d8e5892b413d31b5959556e637e59b60b1a892f2519bc23a5a1"
+      },
+      {
+        "name": "cmpa",
+        "passed": true,
+        "status": 6,
+        "model_total": 25294,
+        "model_signature": 2212940551,
+        "stimulus_sha256": "322715837690787b1b218f60420786a200b6b395426782b4a1ba387d3ec4908d"
+      },
+      {
+        "name": "cmpm",
+        "passed": true,
+        "status": 6,
+        "model_total": 408,
+        "model_signature": 2011603106,
+        "stimulus_sha256": "8ba9eb82cc071360f7eb8624a5c23f79e5b9c9c0f95632c3016849d6353dae6a"
+      },
+      {
+        "name": "dbcc",
+        "passed": true,
+        "status": 6,
+        "model_total": 68,
+        "model_signature": 1225118019,
+        "stimulus_sha256": "19b0548aa86990bbd9e2dd530954a9027de6575feb62f8fc04d847fc093de5ba"
+      },
+      {
+        "name": "divs",
+        "passed": false,
+        "status": 10,
+        "model_total": 4982,
+        "model_signature": 2186142291,
+        "stimulus_sha256": "9e48723e64a0ffca242b1e55add2896b3ec9093bd886b25211a82919d59350d9"
+      },
+      {
+        "name": "divu",
+        "passed": false,
+        "status": 10,
+        "model_total": 4982,
+        "model_signature": 2727533410,
+        "stimulus_sha256": "e323ed42a1b68c5516ecf33c2e67cd87df87ab024341ac72b3fb7cb34db0f7f0"
+      },
+      {
+        "name": "eor",
+        "passed": true,
+        "status": 6,
+        "model_total": 44010,
+        "model_signature": 2195630102,
+        "stimulus_sha256": "8ea292413ed9cbee7aa408c40d7f97e98b250a8dd944c02df871572b87b3d215"
+      },
+      {
+        "name": "eori_to_ccr",
+        "passed": true,
+        "status": 6,
+        "model_total": 63,
+        "model_signature": 3367418827,
+        "stimulus_sha256": "4334bca77e76006b141a87eabdd757b53dd51dc4c551656638eef4f84fe564c3"
+      },
+      {
+        "name": "eori_to_sr",
+        "passed": true,
+        "status": 6,
+        "model_total": 63,
+        "model_signature": 1495322138,
+        "stimulus_sha256": "5aa905370931b930d3d8b66e30acfa509b2374a098b54aca8aaeee2ab2b9c1f7"
+      },
+      {
+        "name": "exg",
+        "passed": true,
+        "status": 6,
+        "model_total": 86,
+        "model_signature": 3350847046,
+        "stimulus_sha256": "e319d8cb69337c9b441bd75153b6f7b4c9b2d31cf6bd1396c80433db33e53687"
+      },
+      {
+        "name": "ext",
+        "passed": true,
+        "status": 6,
+        "model_total": 60,
+        "model_signature": 1873694373,
+        "stimulus_sha256": "4ac22193d93cd01133e34f4dde4879e0892e19ae9ee64189eecbfcf330a32f49"
+      },
+      {
+        "name": "lea_pea",
+        "passed": true,
+        "status": 6,
+        "model_total": 154,
+        "model_signature": 1425493352,
+        "stimulus_sha256": "c95ccaacbfaf7458d7a12f62884c098def6e519afd72815c240a3c4546ac5dd2"
+      },
+      {
+        "name": "lea_tas",
+        "passed": true,
+        "status": 6,
+        "model_total": 68,
+        "model_signature": 2341666426,
+        "stimulus_sha256": "612d7d8b0768d2f3c7e5fdcb43b9d0707ff36be92722b1c79769a0256aceb755"
+      },
+      {
+        "name": "lea_tst",
+        "passed": true,
+        "status": 6,
+        "model_total": 95,
+        "model_signature": 274101361,
+        "stimulus_sha256": "47671d2365b235e2a0e59ef443f3e9b4922698a4724bac92e7d34b9ac5ecd043"
+      },
+      {
+        "name": "links",
+        "passed": true,
+        "status": 6,
+        "model_total": 53,
+        "model_signature": 183202445,
+        "stimulus_sha256": "f21ed92f386b719205ad74ea0ba3aadb474a3278f075d40ea99425a0c4363236"
+      },
+      {
+        "name": "move",
+        "passed": true,
+        "status": 6,
+        "model_total": 400,
+        "model_signature": 489208233,
+        "stimulus_sha256": "1cbe9e28aa22be4ecf9e846a5c2bc15c7d6f18a3cb50cf9abd67bb28e170f053"
+      },
+      {
+        "name": "move_usp",
+        "passed": true,
+        "status": 6,
+        "model_total": 40,
+        "model_signature": 2291093187,
+        "stimulus_sha256": "934517598ff5823c33df338bd24a9a7d0be817410e3164f2187a0725b182cb17"
+      },
+      {
+        "name": "move_xxx_flags",
+        "passed": true,
+        "status": 6,
+        "model_total": 468,
+        "model_signature": 674419318,
+        "stimulus_sha256": "a0283ea39d6288018ca3874929d446746bfec71878ade4980632893d95eba02d"
+      },
+      {
+        "name": "movem",
+        "passed": true,
+        "status": 6,
+        "model_total": 762,
+        "model_signature": 2456806051,
+        "stimulus_sha256": "b90eeabb79c0a5bbfe3e269e04a5123889a60af28d30960e10877391ea227021"
+      },
+      {
+        "name": "movep",
+        "passed": true,
+        "status": 6,
+        "model_total": 147,
+        "model_signature": 99625183,
+        "stimulus_sha256": "9cee91ed33323fe14071125616fd431c05691f882bfd11de040a931787f020c4"
+      },
+      {
+        "name": "moveq",
+        "passed": true,
+        "status": 6,
+        "model_total": 52,
+        "model_signature": 544590585,
+        "stimulus_sha256": "b50977297352a376438bb83ad3306e7dea7fad4837ebdd8d7c3e23527fa0a973"
+      },
+      {
+        "name": "muls",
+        "passed": true,
+        "status": 6,
+        "model_total": 2397,
+        "model_signature": 1414444426,
+        "stimulus_sha256": "b3a5070e3f7ba7ea3eb4b542c9b9d720b5ac52266b4c404f12c00fcc05ee6311"
+      },
+      {
+        "name": "mulu",
+        "passed": true,
+        "status": 6,
+        "model_total": 2397,
+        "model_signature": 3301105902,
+        "stimulus_sha256": "bd9cccd3f965df93558de7313ef3e0af3a3bf785911cd36ba326547d157fcb84"
+      },
+      {
+        "name": "nbcd",
+        "passed": true,
+        "status": 6,
+        "model_total": 5171,
+        "model_signature": 2881112114,
+        "stimulus_sha256": "02d711a669e830c3dcd50cad39263221c3dda09e19083ea1abc374c3a10a8414"
+      },
+      {
+        "name": "negs",
+        "passed": true,
+        "status": 6,
+        "model_total": 835,
+        "model_signature": 1499083745,
+        "stimulus_sha256": "91bdfeb23b4cae7c112fd8a2b7d112603d3bd83a3a630e0ba6f9882b615755b0"
+      },
+      {
+        "name": "op_cmp_i",
+        "passed": true,
+        "status": 6,
+        "model_total": 428,
+        "model_signature": 1479926083,
+        "stimulus_sha256": "d96e93c002c362809219972c73cd4c5ab75789c367a86fcc70b7ed79880f7a73"
+      },
+      {
+        "name": "or",
+        "passed": true,
+        "status": 6,
+        "model_total": 79843,
+        "model_signature": 3203825569,
+        "stimulus_sha256": "fb6911d389695e535e2f10bc67fbe4d4087f31a4dccfb59eff53839ce7fe9463"
+      },
+      {
+        "name": "ori_to_ccr",
+        "passed": true,
+        "status": 6,
+        "model_total": 60,
+        "model_signature": 408361051,
+        "stimulus_sha256": "1399c3709f88db9a620d57fdb0a21af3dcf4873b34ce9ce495d7010425c867cb"
+      },
+      {
+        "name": "ori_to_sr",
+        "passed": true,
+        "status": 6,
+        "model_total": 60,
+        "model_signature": 1021447049,
+        "stimulus_sha256": "60bebeac693aa25197b8f13f12c804ac73e6c6d4abba56a782818dc7013e6873"
+      },
+      {
+        "name": "rox",
+        "passed": true,
+        "status": 6,
+        "model_total": 2844,
+        "model_signature": 1006817065,
+        "stimulus_sha256": "190df89bd58bd5600f9cd5f016a9203477a6095cbde2877d11a5e3a990903fd3"
+      },
+      {
+        "name": "roxx",
+        "passed": true,
+        "status": 6,
+        "model_total": 2844,
+        "model_signature": 3500345011,
+        "stimulus_sha256": "1f35f90b0b38b7a6626fb208f7eca4bea48bad2d30fc2a0a8bc24b77e20ab09f"
+      },
+      {
+        "name": "rtr",
+        "passed": true,
+        "status": 6,
+        "model_total": 52,
+        "model_signature": 1421695035,
+        "stimulus_sha256": "a358cd1f6bae9fe0ffd8b4042eeeec890b77e41b8f01954db26cf6075075ec4e"
+      },
+      {
+        "name": "sbcd",
+        "passed": false,
+        "status": 10,
+        "model_total": 736447,
+        "model_signature": 3808627821,
+        "stimulus_sha256": "03ec08cdef205741a4f7307ebd22a3e1872e1850d844fed026ac87dfebacb695"
+      },
+      {
+        "name": "scc",
+        "passed": true,
+        "status": 6,
+        "model_total": 62,
+        "model_signature": 2766162575,
+        "stimulus_sha256": "f051bb5af1945be99d0fb8e070eff16e652324bf24d4a5a876bcfb7bd79ad25e"
+      },
+      {
+        "name": "shifts",
+        "passed": true,
+        "status": 6,
+        "model_total": 1010,
+        "model_signature": 3328089237,
+        "stimulus_sha256": "d1b24fb27a8cf573fb0cbf16be79825de0881f84c735b2a62d0e406a0ceb826e"
+      },
+      {
+        "name": "shifts2",
+        "passed": true,
+        "status": 6,
+        "model_total": 1010,
+        "model_signature": 4100380976,
+        "stimulus_sha256": "2dae35e94fe8f2ca3559d705c953aa919ae0f2b3fb1419b098aaa68bfdcb85e1"
+      },
+      {
+        "name": "sub",
+        "passed": true,
+        "status": 6,
+        "model_total": 79843,
+        "model_signature": 1428670450,
+        "stimulus_sha256": "ec12c2ca02adbeff6a52a76be193d197e6c14b62d6100fe8a0afe21fab3aa0f4"
+      },
+      {
+        "name": "sub_i",
+        "passed": true,
+        "status": 6,
+        "model_total": 344,
+        "model_signature": 3905254206,
+        "stimulus_sha256": "6acf610f244d1158150abba7f3b247df0977b27d985091a75ebf5230ee066abd"
+      },
+      {
+        "name": "suba",
+        "passed": true,
+        "status": 6,
+        "model_total": 9947,
+        "model_signature": 3057139280,
+        "stimulus_sha256": "53fb2d43091e6e3fc3fec1b1a2c1577a10eab71ec028268ffba819b283e7df31"
+      },
+      {
+        "name": "subq",
+        "passed": true,
+        "status": 6,
+        "model_total": 7021,
+        "model_signature": 2438753070,
+        "stimulus_sha256": "9f6183e719a8321480c4fbdc2e55e35e8cb16b919dee9c2a1d94b90d3daa34cf"
+      },
+      {
+        "name": "subx",
+        "passed": true,
+        "status": 6,
+        "model_total": 26712,
+        "model_signature": 1233811588,
+        "stimulus_sha256": "a839eddd0edce5c2701f9684bbaab4dea23eaa24ffe8fadf3b613e413fae9941"
+      },
+      {
+        "name": "swap",
+        "passed": true,
+        "status": 6,
+        "model_total": 45,
+        "model_signature": 1566531582,
+        "stimulus_sha256": "4d83b201ac9d6c11e1d6dc19728b84fec67c3ece8e0cf90c4d8356997072d9c7"
+      },
+      {
+        "name": "trapv",
+        "passed": true,
+        "status": 6,
+        "model_total": 66,
+        "model_signature": 2035917673,
+        "stimulus_sha256": "fdf426abb70e24ac649695c29aa87cac9c0b0cdff1fda33c7e29e20503f84fb8"
+      }
+    ]
+  },
+  "single_step": {
+    "completed": true,
+    "vector_file_sha256": "39ffa468138c19e7cd02a916a9203c8efd2a323d5b132d1c1101e9fb140e769f",
+    "cases": 1000,
+    "passed": 1000,
+    "skipped": 0
+  },
+  "spi": {
+    "tests": [
+      {
+        "name": "divu",
+        "passed": false,
+        "status": 10,
+        "model_total": 4982,
+        "model_signature": 2727533410
+      },
+      {
+        "name": "lea_tas",
+        "passed": true,
+        "status": 6,
+        "model_total": 68,
+        "model_signature": 2341666426
+      },
+      {
+        "name": "movem",
+        "passed": true,
+        "status": 6,
+        "model_total": 762,
+        "model_signature": 2456806051
+      },
+      {
+        "name": "moveq",
+        "passed": true,
+        "status": 6,
+        "model_total": 52,
+        "model_signature": 544590585
+      }
+    ]
+  },
+  "build": {
+    "bitstream_sha256": "80b5dc0b1a50b0998bc69e8ea404a60aa7a7c1e0b05145d346246428ca63249d",
+    "bitstream_bytes": 3550770,
+    "timing_report_sha256": "bceb30ad2a32cb1766ea566115b89b0cd7c3b26fbea98c5c3f5f69004d6b9570",
+    "constrained_slacks_ns": [
+      1.714,
+      84.269,
+      37.847,
+      25.023,
+      93.339,
+      88.291,
+      0.086,
+      0.307,
+      50.648,
+      47.513,
+      1.081,
+      0.307
+    ],
+    "checked_package_assignments": 153,
+    "source_sha256": {
+      "fpga/m68000/nuboard_mailbox.v": "b7aa01adac963fdb4856182febb7f81b787c82e733303026cf6cd598a84ae74e",
+      "fpga/m68000/nuboard_debug_bridge.sv": "fad18e4ea5e82f2f14a14b255c0471d84ed44d873efc8cff89f8afe5bb53c34a",
+      "fpga/m68000/m68000_lane.sv": "220ec44507e82c35e2bf17fb3ccc4aafff3b827ae9f04a3b39599a6c96a53212",
+      "fpga/m68000/m68000_harness.sv": "e79dc8ef01972c89c628dedf14d29ffaeff8f2bd3e7b66b4b840618ba532f704",
+      "build/deps/fx68k/hdl/verilator/fx68k.sv": "a3129f3b47d95ed427ec7173fa76313c219e69f680785b097e09c39806f98bc1",
+      "build/deps/fx68k/hdl/verilator/fx68kAlu.sv": "a4fe67e178c0f9aae7668cc13695dc78fd8c653925a03b7d382beb2c977186a4",
+      "build/deps/fx68k/hdl/verilator/uaddrPla.sv": "238ccb64e6768cae529889a2022ff7b250706e06a84911d28f644df315f5f263",
+      "fpga/m68000/nuboard_m68000.v": "c4d41394d76ef105b8b01701819bd60ae937ecb2542aa2747bfceefab3f92778",
+      "fpga/m68000/m68000.xml": "15e65ef91a45915909a3903b1b3b0d0a7544dd677cc9a07d47234451e1aaef14",
+      "fpga/m68000/m68000.isf": "3592dd43bfe222523b7a76b3612d81319c1515ede442e7e30a5cfaea005133d8",
+      "fpga/m68000/m68000.sdc": "e9111e3f9e480b707056fa2049aa35a33b81694e4a90493913aff2b7a6287587",
+      "build/deps/fx68k/hdl/microrom.mem": "9d13082be0cf4b04bff887e6da23de84f9f2ee4321f3a2576b4f9540615dece6",
+      "build/deps/fx68k/hdl/nanorom.mem": "b3998009fb10605e8468cddf22fdd799a9792ba86f449de2e30615cfcefbeece"
+    },
+    "socket_electrical_timing_qualified": false
+  }
+}
