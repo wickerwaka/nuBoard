@@ -15,6 +15,7 @@ from nuboard.device import NuBoard
 
 ROOT = Path(__file__).resolve().parents[2]
 CORE_REVISION = "1217ab8dc600de070c6adb71ea6fe69de8855362"
+CORE_BUILD = 14
 MUSASHI_REVISION = "313ebf1bd9f4d0d93341eb5ce21fd8a119e9dbdd"
 MODES = {"model": 1, "socket": 2, "both": 3}
 
@@ -88,7 +89,7 @@ def compare_traces(reference, candidate):
 class Harness:
     def __init__(self, debug: DebugClient):
         self.debug = debug
-        if (debug.read16(0), debug.read16(2)) != (0x6830, 1):
+        if struct.unpack("<HH", debug.read(0, 4)) != (0x6830, 1):
             raise RuntimeError("unexpected 68000 harness identity or ABI")
 
     def load(self, segments: dict[int, bytes], extra_pages=()):
@@ -97,8 +98,12 @@ class Harness:
         for address, data in segments.items():
             if address < 0 or address + len(data) > 0x1000000:
                 raise ValueError("program segment outside the 68000 address space")
+            if not data:
+                continue
             pages.update(range(address >> 12, ((address + len(data) - 1) >> 12) + 1))
         ordered = sorted(pages)
+        if any(not 0 <= page < 4096 for page in ordered):
+            raise ValueError("page outside the 68000 address space")
         if len(ordered) > 16:
             raise ValueError("image exceeds the sixteen independently mapped 4 KiB pages")
         images = {page: bytearray(4096) for page in ordered}
@@ -106,15 +111,25 @@ class Harness:
             for offset, value in enumerate(data):
                 target = address + offset
                 images[target >> 12][target & 4095] = value
-        for slot in range(16):
-            self.debug.write16(0x40 + slot * 2, (0x8000 | ordered[slot]) if slot < len(ordered) else 0)
+        mapping = [(0x8000 | ordered[slot]) if slot < len(ordered) else 0
+                   for slot in range(16)]
+        self.debug.write(0x40, struct.pack("<16H", *mapping))
+        # The host-write port initializes both independent lane memories.
+        # Clear every mapped byte, including stack/results and segment holes,
+        # before uploading only the nonzero span of each page.
+        if ordered:
+            self.debug.fill(0x10000, len(ordered) * 4096)
         for slot, page in enumerate(ordered):
             # Debug words are little endian; the CPU memory is big endian.
             words = images[page]
             encoded = bytearray(len(words))
             encoded[0::2] = words[1::2]
             encoded[1::2] = words[0::2]
-            self.debug.write(0x10000 + slot * 4096, encoded)
+            nonzero = [index for index, value in enumerate(encoded) if value]
+            if nonzero:
+                first = nonzero[0] & ~1
+                end = (nonzero[-1] + 2) & ~1
+                self.debug.write(0x10000 + slot * 4096 + first, encoded[first:end])
         self.pages = ordered
 
     def trace(self, lane: str):
@@ -147,27 +162,33 @@ class Harness:
 
     def run(self, mode="model", limit=50_000_000, capture_start=0):
         self.debug.write(0x2A, struct.pack("<I", capture_start))
-        self.debug.write16(0x0C, limit & 65535)
-        self.debug.write16(0x0E, limit >> 16)
+        self.debug.write(0x0C, struct.pack("<I", limit))
         self.debug.write16(4, (MODES[mode] << 8) | 2)
         status = self.debug.wait16(6, 2, 2, limit + 100_000)
         model = self.trace("model") if MODES[mode] & 1 else []
         socket = self.trace("socket") if MODES[mode] & 2 else []
+        # These registers are contiguous and stable after completion. Read
+        # them in one exchange, without crossing into unrelated scope/control.
+        registers = self.debug.read(0x08, 0x22)
+
+        def register(address, format):
+            return struct.unpack_from(format, registers, address - 0x08)[0]
+
         result = {
             "status": status,
             "model_result": (status >> 2) & 3,
             "socket_result": (status >> 4) & 3,
             "timeout": bool(status & 128),
             "overflow": bool(status & 64),
-            "clock_divider": self.debug.read16(0x08),
-            "wait_ticks": self.debug.read16(0x0A),
-            "elapsed_ticks": struct.unpack("<I", self.debug.read(0x10, 4))[0],
-            "socket_pins_after_run": self.debug.read16(0x18),
+            "clock_divider": register(0x08, "<H"),
+            "wait_ticks": register(0x0A, "<H"),
+            "elapsed_ticks": register(0x10, "<I"),
+            "socket_pins_after_run": register(0x18, "<H"),
             "capture_start": capture_start,
-            "model_total": struct.unpack("<I", self.debug.read(0x1A, 4))[0],
-            "socket_total": struct.unpack("<I", self.debug.read(0x1E, 4))[0],
-            "model_signature": struct.unpack("<I", self.debug.read(0x22, 4))[0],
-            "socket_signature": struct.unpack("<I", self.debug.read(0x26, 4))[0],
+            "model_total": register(0x1A, "<I"),
+            "socket_total": register(0x1E, "<I"),
+            "model_signature": register(0x22, "<I"),
+            "socket_signature": register(0x26, "<I"),
             "model_trace": [asdict(t) for t in model],
             "socket_trace": [asdict(t) for t in socket],
         }
@@ -271,6 +292,8 @@ def main():
                 raise RuntimeError("configure the m68000 harness bitstream first")
             if state["core_uuid"] != b"nuBoard-68000-v1".hex():
                 raise RuntimeError("configured core is not the 68000 harness")
+            if state["core_build"] != CORE_BUILD:
+                raise RuntimeError(f"optimized debug access requires build {CORE_BUILD}")
             if state["vccb"]:
                 raise RuntimeError("start from a freshly configured harness with VCCB off")
             exchange = lambda data: transport.fpga_exchange(CHANNEL, data)

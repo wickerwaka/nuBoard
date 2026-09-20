@@ -12,7 +12,7 @@ import time
 from nuboard.debug import CHANNEL, DebugClient
 from nuboard.device import NuBoard
 
-from .runner import ROOT, Harness, SimulationTransport, Transaction, compare_traces
+from .runner import CORE_BUILD, ROOT, Harness, SimulationTransport, Transaction, compare_traces
 from .scope import CAPACITY, Scope
 from .timing import memory_moves_image
 from .read_sequence import SOURCE_WORDS, sequence_image, measure_lane
@@ -49,9 +49,9 @@ def main():
             transport = NuBoard()
             state = json.loads(transport.state())
             report["board_state"] = state
-            if (not state["link"] or state["vccb"] or state["core_build"] != 8 or
+            if (not state["link"] or state["vccb"] or state["core_build"] != CORE_BUILD or
                     state["core_uuid"] != b"nuBoard-68000-v1".hex()):
-                raise RuntimeError("configure the qualified build-8 harness with VCCB off first")
+                raise RuntimeError(f"configure the qualified build-{CORE_BUILD} harness with VCCB off first")
             receipt = json.loads((ROOT / "build/fpga/m68000/receipt.json").read_text())
             if state["sha256"] != receipt["bitstream_sha256"]:
                 raise RuntimeError("configured bitstream differs from the checked receipt")

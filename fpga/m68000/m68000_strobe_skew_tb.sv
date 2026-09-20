@@ -19,6 +19,7 @@ module m68000_strobe_skew_tb;
     m68000_lane dut (
         .clock(clock), .clear(clear), .running(running), .timestamp(32'd0),
         .wait_ticks(8'd8), .capture_start(32'd0), .page_map(256'h8000),
+        .fuzz_enabled(1'b0), .fuzz_pc(16'd8), .fuzz_started(),
         .address(24'd0), .data_out(data_out), .as_n(as_n),
         .uds_n(uds_n), .lds_n(lds_n), .read_cycle(read_cycle), .function_code(3'd5),
         .data_in(), .data_drive(), .dtack_n(dtack_n), .berr_n(),

@@ -17,6 +17,7 @@ module m68000_dual_sim (
     wire as_n, uds_n, lds_n, read_cycle;
     wire [2:0] fc;
     wire dtack_n, berr_n, armed, reset_pull, halt_pull, cpu_clock;
+    wire br_n, bg_n;
     reg previous_clock = 1'b0;
 
     always @(posedge clock)
@@ -40,6 +41,9 @@ module m68000_dual_sim (
         .socket_fc(fc),
         .socket_reset_n(!reset_pull),
         .socket_halt_n(!halt_pull),
+        .socket_bg_n(bg_n),
+        .socket_br_sense_n(br_n),
+        .socket_br_n(br_n),
         .socket_data_in(data_in),
         .socket_data_drive(),
         .socket_dtack_n(dtack_n),
@@ -68,13 +72,13 @@ module m68000_dual_sim (
         .FC0(fc[0]),
         .FC1(fc[1]),
         .FC2(fc[2]),
-        .BGn(),
+        .BGn(bg_n),
         .oRESETn(),
         .oHALTEDn(),
         .DTACKn(dtack_n),
         .VPAn(1'b1),
         .BERRn(berr_n),
-        .BRn(1'b1),
+        .BRn(br_n),
         .BGACKn(1'b1),
         .IPL0n(1'b1),
         .IPL1n(1'b1),

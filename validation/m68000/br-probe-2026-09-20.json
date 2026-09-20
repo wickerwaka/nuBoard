@@ -1,0 +1,74 @@
+{
+  "experiment": "Source-directed BR input-latching comparison",
+  "date": "2026-09-20",
+  "cpu": "MC68000P12",
+  "cpu_hz": 5000000,
+  "capture_tick_ns": 20,
+  "core_build": 14,
+  "fx68k_revision": "1217ab8dc600de070c6adb71ea6fe69de8855362",
+  "upstream_cpu_modified": false,
+  "bitstream_sha256": "1a86c5dd45db25d9f2cd3dfd52fc737ed2a9608bd446b0401a160dbcca3eecc0",
+  "hypothesis": "Omitted falling-edge BR input stage causes grants one CPU clock early for requests after the falling edge",
+  "result": "Reproduced physically; diagnostic external falling-edge register removes the cycle difference",
+  "physical_sweep": {
+    "paired_trials": 200,
+    "delays_ticks": [60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79],
+    "width_ticks": 80,
+    "stage_settings": [0, 1],
+    "repeats_per_setting": 5,
+    "original_core_cycle_matches": 50,
+    "original_core_one_clock_early": 50,
+    "extra_stage_cycle_matches": 100,
+    "repeat_disagreements": 0,
+    "fpga_model_vs_direct_simulation_disagreements": 0,
+    "completed_cpu_executions": 400,
+    "correct_multiply_products": 400,
+    "bus_idle_handshakes": 400,
+    "physical_bg_residual_capture_ticks": 1
+  },
+  "small_reproducer": {
+    "br_assertion_relative_to_falling_edge_ns": 40,
+    "original_model_bg_observed_ns": 300,
+    "physical_bg_observed_ns": 520,
+    "extra_stage_model_bg_observed_ns": 500,
+    "original_artifact": "build/validation/m68000/br-probe/board-controls/s0-d067-r000.json",
+    "extra_stage_artifact": "build/validation/m68000/br-probe/board-controls/s1-d067-r000.json"
+  },
+  "evidence": [
+    {
+      "path": "build/validation/m68000/br-probe/sim-phases.json",
+      "cases": 40,
+      "sha256": "b76037013623b94a3a0db834bbd35e9b6599ade2e0286b754c598672fc42177d"
+    },
+    {
+      "path": "build/validation/m68000/br-probe/spi-phases.json",
+      "cases": 4,
+      "sha256": "6ef0b0ac15a8e2d81566d3b89f415d6ddabfded6068154d44abe58291ee36bb9"
+    },
+    {
+      "path": "build/validation/m68000/br-probe/board-controls.json",
+      "paired_trials": 12,
+      "sha256": "94d48d6fecc8f94426505bf61755ec6f0de5433f6ad3b1b733ebdfeef45b23fd"
+    },
+    {
+      "path": "build/validation/m68000/br-probe/board-phases.json",
+      "paired_trials": 200,
+      "sha256": "387759b275a554d7e2ea40417604cdc63c13ffffd6e7f79408fcd1072c85bcc4"
+    }
+  ],
+  "verification": {
+    "routed_timing_and_pin_gates": "passed",
+    "validation_unit_tests_passed": 66,
+    "unit_test_log": "build/fpga/m68000/build-14-tests-final.log",
+    "all_rails_off_after_cleanup": true,
+    "independent_usb_status_confirms_rails_off": true
+  },
+  "scope_limits": [
+    "Only BR tested; not HALT or generic data/DTACK early latching",
+    "BGACK held high; no external master or address bus drive",
+    "Functional check is multiply product and successful completion, not full architectural state",
+    "20 ns capture resolution; physical propagation not measured precisely",
+    "Diagnostic extra stage is outside fx68k and is not a qualified fix",
+    "Earlier probe-disabled native timing failure remains retained"
+  ]
+}

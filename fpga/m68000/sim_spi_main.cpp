@@ -135,7 +135,7 @@ public:
         for (unsigned i = 0; i < 16; ++i)
             response.push_back(byte(0));
         const auto length = get32(response, 8);
-        if (length > 260)
+        if (length > 4072)
             throw std::runtime_error("invalid mailbox response length");
         for (unsigned i = 0; i < length; ++i)
             response.push_back(byte(0));

@@ -2,7 +2,7 @@ import struct
 import unittest
 from unittest.mock import patch
 
-from nuboard.debug import DebugClient, HEADER
+from nuboard.debug import DebugClient, HEADER, MAX_FILL, MAX_TRANSFER
 from nuboard.device import NuBoard, NuBoardError
 from nuboard.protocol import EventRecord, EventType, Status
 
@@ -18,12 +18,52 @@ class DebugTests(unittest.TestCase):
             return bytes(4) + (bytes(length) if operation == 0 else b"")
 
         client = DebugClient(exchange)
-        client.write(0x10000, bytes(514))
+        length = MAX_TRANSFER * 2 + 2
+        client.write(0x10000, bytes(length))
         self.assertEqual([row[1:3] for row in commands],
-                         [(256, 0x10000), (256, 0x10100), (2, 0x10200)])
+                         [(MAX_TRANSFER, 0x10000),
+                          (MAX_TRANSFER, 0x10000 + MAX_TRANSFER),
+                          (2, 0x10000 + MAX_TRANSFER * 2)])
         client.write16(4, 0x0302)
         self.assertEqual(commands[-1][-1], b"\x02\x03")
-        self.assertEqual(client.read(0x10000, 514), bytes(514))
+        self.assertEqual(client.read(0x10000, length), bytes(length))
+        self.assertEqual([row[1] for row in commands[-3:]], [MAX_TRANSFER, MAX_TRANSFER, 2])
+
+    def test_maximum_write_fits_exactly_one_mailbox_packet(self):
+        commands = []
+        client = DebugClient(lambda raw: commands.append(raw) or bytes(4))
+        client.write(0x10000, bytes(MAX_TRANSFER))
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(len(commands[0]) + 16, 4096)
+
+    def test_fill_is_chunked_by_range_not_packet_payload(self):
+        commands = []
+        client = DebugClient(lambda raw: commands.append(raw) or bytes(4))
+        client.fill(0x10000, 65536, 0xABCD)
+        self.assertEqual([HEADER.unpack_from(raw)[1:] for raw in commands],
+                         [(3, 0, MAX_FILL, 0x10000), (3, 0, 2, 0x1FFFE)])
+        self.assertTrue(all(raw[12:] == b"\xCD\xAB" for raw in commands))
+
+    def test_ranges_are_rejected_before_any_partial_write(self):
+        commands = []
+        client = DebugClient(lambda raw: commands.append(raw) or bytes(4))
+        for operation in (
+            lambda: client.write(0xFFFF0, bytes(MAX_TRANSFER + 2)),
+            lambda: client.fill(0xFFFF0, 65536),
+            lambda: client.fill(0, 3),
+            lambda: client.fill(1, 2),
+            lambda: client.fill(0, 2, 65536),
+        ):
+            with self.assertRaises((ValueError, struct.error)):
+                operation()
+        self.assertEqual(commands, [])
+
+    def test_fill_error_aborts_without_sending_the_next_chunk(self):
+        commands = []
+        client = DebugClient(lambda raw: commands.append(raw) or b"\x01\x00\x00\x00")
+        with self.assertRaisesRegex(RuntimeError, "status=1"):
+            client.fill(0x10000, 65536)
+        self.assertEqual(len(commands), 1)
 
     def test_wait_is_one_command(self):
         commands = []

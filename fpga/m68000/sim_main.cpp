@@ -34,6 +34,8 @@ public:
         dut.socket_read = 1;
         dut.socket_reset_n = 1;
         dut.socket_halt_n = 1;
+        dut.socket_bg_n = 1;
+        dut.socket_br_sense_n = 1;
 #endif
         for (unsigned i = 0; i < 20; ++i)
             tick();
@@ -82,10 +84,10 @@ public:
             const unsigned op = request[4];
             const unsigned length = get16(request, 6);
             const uint32_t address = get32(request, 8);
-            if (length == 0 || length > 256 || (length & 1) || (address & 1) ||
-                address >= 0x100000 || address + length > 0x100000 || op > 2)
+            if (length == 0 || (op != 3 && length > 4068) || (length & 1) || (address & 1) ||
+                address >= 0x100000 || address + length > 0x100000 || op > 3)
                 throw std::runtime_error("invalid debug range");
-            if (request.size() != 12 + (op == 1 ? length : op == 2 ? 8 : 0))
+            if (request.size() != 12 + (op == 1 ? length : op == 2 ? 8 : op == 3 ? 2 : 0))
                 throw std::runtime_error("invalid debug length");
 
             if (op == 2) {
@@ -114,8 +116,9 @@ public:
                 reply.push_back(value >> 8);
             } else {
                 for (unsigned i = 0; i < length; i += 2) {
-                    const auto value = access(op == 1, address + i,
-                                              op == 1 ? get16(request, 12 + i) : 0);
+                    const uint16_t write_value = op == 1 ? get16(request, 12 + i) :
+                                                 op == 3 ? get16(request, 12) : 0;
+                    const auto value = access(op == 1 || op == 3, address + i, write_value);
                     if (op == 0) {
                         reply.push_back(value & 255);
                         reply.push_back(value >> 8);

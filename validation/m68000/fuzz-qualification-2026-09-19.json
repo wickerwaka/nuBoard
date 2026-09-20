@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "core_build": 10,
+  "bitstream_sha256": "013ad7ecaee5bea7567e3fd9a3b3f2bb959ad0c4de2707b0098929774e248dda",
+  "seed_range_inclusive": [0, 15],
+  "cpu_cycles_per_case": 2000,
+  "image_bytes": 1024,
+  "physical_paired_cases_passed": 16,
+  "ordinary_directed_physical_regressions_passed": 180,
+  "physical_vs_direct_simulation_cases_passed": 16,
+  "direct_vs_spi_simulation_cases_passed": 4,
+  "capture_record_range": [4724, 8064],
+  "capture_capacity_records": 32768,
+  "random_region_transaction_range": [14, 393],
+  "physical_elapsed_seconds": 15.846677282010205,
+  "shutdown_rails_off": true,
+  "unit_tests": {
+    "validation": 59,
+    "host": 20,
+    "build_checker": 6
+  },
+  "rtl_gates_passed": ["lane", "pins", "strobe_skew", "scope"],
+  "routed_pin_assignments_checked": 153,
+  "timing_gates_passed": true,
+  "ram_blocks_used": 931,
+  "ram_blocks_available": 1056,
+  "evidence": [
+    "build/validation/m68000/fuzz/board-build10-01.json",
+    "build/validation/m68000/fuzz/direct-build10-01.json",
+    "build/validation/m68000/fuzz/spi-build10-01.json"
+  ],
+  "evidence_sha256": {
+    "board-build10-01.json": "8f3821a4e588b017eadf7f4d8c7a80438fe4d3f1c650ab844f159cc5a5fd681d",
+    "direct-build10-01.json": "1078af6e97b273decabe18594dfdee986624737d801775f8d59a06a099f8337c",
+    "spi-build10-01.json": "bde702c328feea0ef0110b2d59086fb3273ba567ae710e6dc3919d212462eb29"
+  },
+  "limitations": [
+    "First-pass final state is RAM and observable bus signals, not architectural register readback.",
+    "Random programs may halt early; a completed clock budget is not instruction coverage.",
+    "Only the initial 16-seed corpus has physical qualification."
+  ]
+}

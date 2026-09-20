@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "cpu": "MC68000P12",
+  "cpu_clock_hz": 5000000,
+  "stimulus_step_ns": 20,
+  "paired_trials": 1096,
+  "operand_word_byte_and_instruction_fetch_tested": true,
+  "early_dtack_tested": true,
+  "model_vs_verilator_differences": 0,
+  "data_changed_before_sampling_edge_trials": 618,
+  "data_changed_after_sampling_edge_trials": 385,
+  "off_edge_data_differences": 0,
+  "on_edge_trials": 93,
+  "on_edge_data_differences": 44,
+  "finding": "No matched-stimulus early-data-latch defect reproduced at 20 ns resolution. On-edge mixed physical data is consistent with setup/hold aperture effects.",
+  "repeatable_boundary_case": {
+    "transition": "a55a -> 5aa5",
+    "offset_ns": 0,
+    "model": "a55a",
+    "socket": "a5df",
+    "repetitions": 30,
+    "ack_settings": [0, 5, 64]
+  },
+  "probe_disabled_regression": {
+    "passed_cases": 2,
+    "failed_case": "move.w.indirect.read",
+    "architectural_state_match": true,
+    "strict_timing_match": false,
+    "real_extra_cpu_clocks": 1,
+    "dtack_before_relevant_falling_edge_ns": {"model": 40, "socket": 0},
+    "remaining_cases_not_run": 7,
+    "failure_waived": false
+  },
+  "general_build_qualification": false,
+  "fx68k_source_modified": false,
+  "normal_ack_scheduler_modified": false,
+  "final_shutdown_rails_off": true,
+  "evidence": [
+    {
+      "path": "build/validation/m68000/read-probe/summary.json",
+      "sha256": "4c354e651e3079caa9280c9131404e2b3c806da88b9ec66e977b616103b9beeb"
+    },
+    {
+      "path": "build/validation/m68000/read-probe/disabled-regressions.json",
+      "sha256": "30a289b9893a28497c179fceb15e9c13a3e5d4f65f0c8afe95d8a2d9268cc9a4"
+    }
+  ]
+}

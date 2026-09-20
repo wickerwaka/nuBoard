@@ -170,19 +170,64 @@ reset run. A failed or interrupted run never produces a passing report.
 
 Channel 0x44 carries one `NDB1` request per mailbox packet. Integers are little
 endian. Header `<4sBBHI>`: magic, operation, reserved zero, byte length, 20-bit
-byte address. Transfers are aligned, even, nonzero, at most 256 bytes, and cannot
-cross the 1 MiB debug-address boundary. Operations:
+byte address. Transfers are aligned, even, nonzero, and cannot cross the 1 MiB
+debug-address boundary. Build 9 raises READ/WRITE from 256 to 4068 bytes:
+4096 minus the 16-byte mailbox header and the 12-byte NDB1 request header.
+Operations:
 
 - 0 READ: no body; return bytes.
 - 1 WRITE: body contains exactly `length` bytes; no reply data.
 - 2 WAIT16: length 2; body `<HHI>` mask, expected value, maximum 50 MHz ticks
   (1..100,000,000). Repeat local reads until `(value & mask) == expected`.
+- 3 FILL16 (build 9): body `<H>` repeated word; length is the destination byte
+  count, up to 65534, not the body size. No reply data. A 64 KiB fill requires
+  two commands. It uses the same sequential debug-bus writes and access checks
+  as WRITE; this is not a CPU-specific RAM backdoor.
 
 Reply `<HH>` status/reserved-zero followed by read data. Status 0 success,
 1 invalid request/access, 3 timeout. On errors, no read data is returned.
 WAIT16 completion produces the ordinary mailbox IRQ and USB interrupt record.
 The host blocks on that event; it does not poll GET_STATE or debug registers.
 The same device instance must not have another concurrent event consumer.
+
+WRITE/FILL stop at the first bus error. Earlier writes are not rolled back;
+failed initialization must abort the case, never continue into CPU execution.
+The host validates the entire address range before sending the first chunk.
+Old builds do not support the new maximum or FILL; hardware runners require
+build 9 rather than retrying or silently falling back to the old protocol.
+
+The bridge keeps request/reply headers in small register arrays and payloads in
+a synchronous-read 2048-by-16 RAM. CRC and transmit prefetch states account for
+RAM latency; output backpressure holds the byte and packet position stable.
+Mailbox framing, CRC32C, IRQ/ACK ownership and MCU firmware remain unchanged.
+
+Initialization batches the sixteen page-map registers, fills all mapped memory
+with zero, and uploads each page's nonzero span with word-aligned boundaries.
+This preserves zero-filled holes, empty stack/results pages, byte order and
+overlapping-segment semantics. The host memory-write port broadcasts to both
+independent CPU RAMs. The comparison campaign initializes once per repetition,
+then runs/captures the model and socket separately without reloading in between.
+CPU reset/trace clear does not clear RAM; each new repetition still initializes
+both memories. CPU clocks, ACK timing, continuous drive and buffer direction
+are unchanged.
+
+Build-9 qualification (2026-09-19): 20 host, 53 validation and 6 build-checker
+tests pass, together with pin-safety, strobe-skew and BRAM-capture RTL gates.
+All 231 directed physical cases pass defined-state and sampled-phase comparison;
+the on-board model also matches simulation. Five SPI simulation cases match the
+direct model. Physical full-size transfers and 64 KiB fills/readback pass with
+VCCB disabled. The directed paired run took 138.46 seconds (0.60 seconds/case),
+versus roughly 3.7 seconds/case in the previous seeded run; case mixes differ.
+
+The first synthesis attempt exposed incompatible inferred RAM write ports.
+Explicitly muxing the receive/readback producers before one RAM write port fixed
+that inference. The routed image uses 931/1056 RAM blocks, checks all 153 package
+assignments, and has +2.013 ns 50 MHz setup slack and +0.086 ns minimum constrained
+hold slack. Its SHA-256 is
+`400e281fbc80a681164b89c271ecf8dd3dbaf4301cb76dbe00c54b40e1774f36`.
+Evidence: `build/fpga/m68000/receipt.json`,
+`build/fpga/m68000/build-9-debug-board.json`, and
+`build/validation/m68000/campaign-extended/build9-board.json`.
 
 ## Harness register map
 

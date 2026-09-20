@@ -49,7 +49,7 @@ class StressTests(unittest.TestCase):
             stress.capture_metrics(capture, 100)
 
     def test_failed_geometry_never_powers_socket_and_saves_failure(self):
-        state = {"link": True, "vccb": False, "core_build": 8,
+        state = {"link": True, "vccb": False, "core_build": 14,
                  "core_uuid": b"nuBoard-68000-v1".hex(), "sha256": "checked"}
         off = {"vccb": False, "rail_1v2": False, "rail_3v3": False}
         board = Mock()

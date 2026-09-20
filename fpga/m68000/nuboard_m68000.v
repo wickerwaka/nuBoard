@@ -94,6 +94,7 @@ module nuboard_m68000 (
     wire armed, cpu_clock, reset_pull, halt_pull;
     wire [15:0] cpu_data_in;
     wire dtack_n, berr_n;
+    wire br_n;
     // Capture uses only BRAM. Keep the external memory deselected and quiet.
     assign psram_ce_n = 1'b1;
     assign psram_sclk = 1'b0;
@@ -168,10 +169,13 @@ module nuboard_m68000 (
         .socket_fc({l2[0], l2[1], l2[2]}),
         .socket_reset_n(ly),
         .socket_halt_n(lx),
+        .socket_bg_n(l0[4]),
+        .socket_br_sense_n(l1[2]),
         .socket_data_in(cpu_data_in),
         .socket_data_drive(),
         .socket_dtack_n(dtack_n),
         .socket_berr_n(berr_n),
+        .socket_br_n(br_n),
         .socket_armed(armed),
         .socket_reset_pull(reset_pull),
         .socket_halt_pull(halt_pull),
@@ -213,7 +217,7 @@ module nuboard_m68000 (
     assign l2_oe_n = !armed;
     // Use the same responder acknowledgement as the internal CPU. There is
     // no socket-only read gate between the scope tap and this output.
-    assign l1 = armed ? {4'b1111, berr_n, 2'b11, dtack_n} : 8'hzz;
+    assign l1 = armed ? {4'b1111, berr_n, br_n, 1'b1, dtack_n} : 8'hzz;
 
     assign lx = halt_pull ? 1'b0 : 1'bz;
     assign ly = reset_pull ? 1'b0 : 1'bz;

@@ -10,6 +10,9 @@ module m68000_lane (
     input  wire [7:0]   wait_ticks,
     input  wire [31:0]  capture_start,
     input  wire [255:0] page_map,
+    input  wire         fuzz_enabled,
+    input  wire [15:0]  fuzz_pc,
+    output reg          fuzz_started = 1'b0,
     input  wire [23:0]  address,
     input  wire [15:0]  data_out,
     input  wire         as_n,
@@ -55,6 +58,7 @@ module m68000_lane (
     // FC is kept separately so the complete three-bit code is captured.
     reg [2:0] fc_meta;
     reg [2:0] fc_sync;
+    reg boot_active = 1'b0;
     always @(posedge clock) begin
         fc_meta <= function_code;
         fc_sync <= fc_meta;
@@ -83,7 +87,10 @@ module m68000_lane (
         end
     end
 
-    wire mmio = sampled_address[23:8] == 16'h1000;
+    // Fuzz RAM aliases across the entire 24-bit bus, including old MMIO.
+    // Only the deterministic prelude sees the private boot page at FF0000.
+    wire boot_page = boot_active && sampled_address[23:10] == 14'h3fc0;
+    wire mmio = !fuzz_enabled && sampled_address[23:8] == 16'h1000;
     reg [14:0] bus_word = 15'd0;
     reg [15:0] write_data = 16'd0;
     reg write_high = 1'b0;
@@ -117,6 +124,9 @@ module m68000_lane (
     reg [7:0] transaction_flags = 8'd0;
     reg transaction_mapped = 1'b0;
     reg transaction_mmio = 1'b0;
+    reg vector_override = 1'b0;
+    reg [15:0] vector_data = 16'd0;
+    wire [15:0] response_data = vector_override ? vector_data : host_read_data;
 
     // A complete-run fingerprint detects nondeterministic window replays.
     // Exact comparisons still use the records, never the fingerprint alone.
@@ -162,6 +172,8 @@ module m68000_lane (
         write_low <= 1'b0;
 
         if (clear) begin
+            boot_active <= fuzz_enabled;
+            fuzz_started <= 1'b0;
             state <= 3'd0;
             bus_qualified <= 1'b0;
             idle_sample_seen <= 1'b0;
@@ -194,14 +206,26 @@ module m68000_lane (
             case (state)
                 3'd0: begin
                     if (bus_qualified && selected && result == 0) begin
-                        bus_word <= {page, sampled_address[11:1]};
+                        bus_word <= fuzz_enabled
+                            ? (boot_page ? 15'h4000 : 15'd0) | {6'd0, sampled_address[9:1]}
+                            : {page, sampled_address[11:1]};
+                        // Keep the actual random reset vectors in RAM. Only
+                        // the initial PC fetch is redirected to the prelude.
+                        vector_override <= boot_active && sampled_read &&
+                                           (sampled_address == 4 || sampled_address == 6);
+                        vector_data <= sampled_address == 4 ? 16'h00ff : 16'h0000;
+                        if (fuzz_enabled && boot_active && sampled_read &&
+                            fc_sync == 6 && sampled_address == {8'd0, fuzz_pc}) begin
+                            boot_active <= 1'b0;
+                            fuzz_started <= 1'b1;
+                        end
                         start_time <= timestamp;
                         transaction_address <= sampled_address;
                         transaction_flags <= {
-                            1'b0, !mapped && !mmio, fc_sync,
+                            1'b0, !fuzz_enabled && !mapped && !mmio, fc_sync,
                             sampled_read, !sampled_uds_n, !sampled_lds_n
                         };
-                        transaction_mapped <= mapped;
+                        transaction_mapped <= fuzz_enabled || mapped;
                         transaction_mmio <= mmio;
                         transaction_data <= sampled_data;
                         delay_count <= wait_ticks;
@@ -220,10 +244,10 @@ module m68000_lane (
                         transaction_flags[1:0] <= {
                             !sampled_uds_n, !sampled_lds_n
                         };
-                        data_in <= transaction_mapped ? host_read_data : 16'd0;
+                        data_in <= transaction_mapped ? response_data : 16'd0;
                         if (transaction_flags[2])
                             transaction_data <= transaction_mapped
-                                ? host_read_data : 16'd0;
+                                ? response_data : 16'd0;
                         else
                             transaction_data <= sampled_data;
                         state <= 3'd2;

@@ -1,0 +1,61 @@
+{
+  "date": "2026-09-19",
+  "core_build": 9,
+  "bitstream_sha256": "400e281fbc80a681164b89c271ecf8dd3dbaf4301cb76dbe00c54b40e1774f36",
+  "unit_tests": {
+    "host": 20,
+    "validation": 53,
+    "build_checker": 6
+  },
+  "directed_physical_cases": 231,
+  "directed_physical_mismatches": 0,
+  "hour_chunk": {
+    "started_utc": "2026-09-19T17:22:06Z",
+    "finished_utc": "2026-09-19T18:22:06Z",
+    "elapsed_seconds": 3600.505662182928,
+    "start_index": 268,
+    "finished_cases": 5890,
+    "mismatching_cases": 0,
+    "next_case_index": 6158,
+    "next_case_name": "not.w.absolute_w.05",
+    "chunk_completed": true,
+    "stop_reason": "time budget",
+    "error": null,
+    "cleanup_error": null
+  },
+  "shutdown_rails_off": true,
+  "seconds_per_paired_case": 0.6112912839020251,
+  "prior_seconds_per_paired_case": 3.784036966559821,
+  "throughput_ratio_vs_prior_chunk": 6.190235434742937,
+  "comparison_caveat": "Case mixes differ; earlier build-8 timing mismatch is retained and was not retested in this chunk. Full seeded campaign is not yet complete.",
+  "evidence": [
+    {
+      "path": "build/fpga/m68000/receipt.json",
+      "sha256": "2f8d35982d971946ed5f16b1d37cfe14b8ccaf421128e0f841da531833f7e2d5"
+    },
+    {
+      "path": "build/fpga/m68000/build-9-debug-board.json",
+      "sha256": "100bd7c8a5d1e7957ba6a8e525c7d6006a9515ae503e9ec56ad3789c3f6a3196"
+    },
+    {
+      "path": "build/validation/m68000/campaign-extended/build9-board.json",
+      "sha256": "7f138b20cf8d62834bc03265a61094469d07427b4d42c0f01e816aa8e65889e4"
+    },
+    {
+      "path": "build/validation/m68000/campaign-extended/build9-sim.json",
+      "sha256": "590087b66af05b3d007aa6892020a408d812c183d14829ed3b49292b0d29291d"
+    },
+    {
+      "path": "build/validation/m68000/campaign-extended/build9-vs-build8-sim.json",
+      "sha256": "3e9f479caffd49e3ddda73bf9a00d8a5a7a7e6b5030de82580a93c1503a561e7"
+    },
+    {
+      "path": "build/validation/m68000/campaign/build9-spi.json",
+      "sha256": "181062ed2eaf7dcbdad77c6d4ff3652ed9fee89afc3351d6cd78a7279d155a0b"
+    },
+    {
+      "path": "build/validation/m68000/campaign-full-v2/board-hour-02-build9.json",
+      "sha256": "39b289c33b3fec4898bf382f530127ee88de1139a282a3ef9b221155dfe1397e"
+    }
+  ]
+}

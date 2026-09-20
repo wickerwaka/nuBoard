@@ -17,7 +17,7 @@ class CaptureSafetyTests(unittest.TestCase):
             "rail_1v2": True,
             "rail_3v3": True,
             "selector_mv": 5000,
-            "core_build": 8,
+            "core_build": 14,
             "core_uuid": b"nuBoard-68000-v1".hex(),
             "sha256": "qualified-image",
         }

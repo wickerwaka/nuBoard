@@ -1,4 +1,4 @@
-"""Reset-executable adapter for SingleStepTests/m68000 MOVE.q vectors.
+"""Reset-executable adapter for a qualified register-only single-step subset.
 
 This is intentionally a qualified subset, not a claim of general single-step
 support. Trace exceptions perturb SR.T and prefetch; neither suite bus timing
@@ -19,6 +19,20 @@ class UnsupportedVector(ValueError):
     pass
 
 
+def register_instruction(opcode):
+    """Only two-byte, non-faulting, non-SR-writing operations qualify here.
+
+    Do not extend this by mnemonic alone: ADD/SUB files also contain address
+    register and memory forms, which need separate wrapper qualification.
+    """
+    if opcode & 0xF100 == 0x7000:
+        return True  # MOVEQ
+    group = opcode >> 12
+    opmode = (opcode >> 6) & 7
+    register_ea = opcode & 0x38 == 0
+    return register_ea and group in (0x8, 0x9, 0xB, 0xC, 0xD) and opmode <= 2
+
+
 def words(*values):
     return struct.pack(">" + "H" * len(values), *values)
 
@@ -31,8 +45,8 @@ def make_image(test):
     initial = test["initial"]
     pc = initial["pc"] - 4
     prefetch = initial["prefetch"]
-    if (prefetch[0] & 0xF100) != 0x7000:
-        raise UnsupportedVector("only MOVEQ is qualified in the single-step adapter")
+    if not register_instruction(prefetch[0]):
+        raise UnsupportedVector("only MOVEQ and register-source ADD/SUB/AND/OR/CMP qualify")
     if initial["ssp"] & 1 or pc & 1:
         raise UnsupportedVector("odd stack/PC is not supported")
     memory = dict(initial["ram"])

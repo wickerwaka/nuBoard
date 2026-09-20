@@ -148,7 +148,7 @@ module nuboard_mailbox (
                 17: identity_byte = 8'h00;
                 18: identity_byte = 8'h00;
                 19: identity_byte = 8'h00;
-                20: identity_byte = 8'h08; // build 8: single-lane BRAM change capture
+                20: identity_byte = 8'h0e; // build 14: source-directed BR/BG timing probe
                 21: identity_byte = 8'h00;
                 22: identity_byte = 8'h00;
                 23: identity_byte = 8'h00;

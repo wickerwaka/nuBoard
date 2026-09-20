@@ -1,0 +1,132 @@
+{
+  "date": "2026-09-19",
+  "profile": "full",
+  "manifest": "build/validation/m68000/campaign-full-v2/manifest.json",
+  "manifest_sha256": "a3061c92ea98df37a22b1be92fca8f2bc24608d677861dc497f99fc66d426fdf",
+  "coverage_complete": true,
+  "total_completed_cases": 13215,
+  "strict_passes": 13214,
+  "strict_failures": 1,
+  "defined_state_failures": 0,
+  "remainder": {
+    "completed": true,
+    "started_utc": "2026-09-19T18:33:22Z",
+    "finished_utc": "2026-09-19T19:42:55Z",
+    "elapsed_seconds": 4172.7925858050585,
+    "start_index": 6158,
+    "finished_cases": 7057,
+    "mismatching_cases": 0,
+    "next_case_index": 13215,
+    "next_case_name": null,
+    "error": null,
+    "cleanup_error": null,
+    "shutdown_state": {
+      "phase": 0,
+      "selector_raw": 1,
+      "selector_mv": 5000,
+      "vccb": false,
+      "rail_1v2": false,
+      "rail_3v3": false,
+      "cdone": true,
+      "heartbeat_us": 100000,
+      "link": false,
+      "received": 3550770,
+      "size": 3550770,
+      "filename": "m68000.hex.bin",
+      "sha256": "400e281fbc80a681164b89c271ecf8dd3dbaf4301cb76dbe00c54b40e1774f36",
+      "failure": 0,
+      "core_uuid": "6e75426f6172642d36383030302d7631",
+      "core_version": 1,
+      "core_build": 9,
+      "mailbox_abi": "1.0"
+    }
+  },
+  "sources": [
+    {
+      "path": "build/validation/m68000/campaign-full-v2/board-hour-01.json",
+      "sha256": "d7d44d9a07c4e6c5cb64ec1ba14dd34fc37621d47e8e8023c7af6847669e46f5",
+      "core_build": 8,
+      "start_index": 0,
+      "finished_cases": 268,
+      "ignored_incomplete_tail_entries": 1,
+      "elapsed_seconds": 1014.1219070380321,
+      "error": "KeyboardInterrupt: ",
+      "cleanup_error": null,
+      "rails_off": true
+    },
+    {
+      "path": "build/validation/m68000/campaign-full-v2/board-hour-02-build9.json",
+      "sha256": "39b289c33b3fec4898bf382f530127ee88de1139a282a3ef9b221155dfe1397e",
+      "core_build": 9,
+      "start_index": 268,
+      "finished_cases": 5890,
+      "ignored_incomplete_tail_entries": 0,
+      "elapsed_seconds": 3600.505662182928,
+      "error": null,
+      "cleanup_error": null,
+      "rails_off": true
+    },
+    {
+      "path": "build/validation/m68000/campaign-full-v2/board-remainder-build9.json",
+      "sha256": "cf5fbfe5d268e2bfa98727d98e96f3eb016fa7d83547c81cc44cac7f7c0ad1ee",
+      "core_build": 9,
+      "start_index": 6158,
+      "finished_cases": 7057,
+      "ignored_incomplete_tail_entries": 0,
+      "elapsed_seconds": 4172.7925858050585,
+      "error": null,
+      "cleanup_error": null,
+      "rails_off": true
+    }
+  ],
+  "failures": [
+    {
+      "index": 179,
+      "name": "add.b.predecrement.read.11",
+      "artifact": "build/validation/m68000/campaign-full-v2/board-hour-01/cases/add.b.predecrement.read.11.json",
+      "artifact_sha256": "bd8cc050f374b9b63672cac34773769fd259a0b6e40c295bffab9416c091dfc0",
+      "comparisons": [
+        {
+          "state": {
+            "defined": "pass",
+            "chip_compatibility": "pass",
+            "defined_differences": [],
+            "chip_differences": [],
+            "sr_defined_mask": 65535,
+            "flags_policy_version": 2
+          },
+          "timing_verdict": "fail",
+          "timing_differences": [
+            {
+              "kind": "phase",
+              "phase": 49,
+              "signals": {
+                "data": [
+                  null,
+                  63
+                ],
+                "dtack_n": [
+                  1,
+                  0
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "state": {
+            "defined": "pass",
+            "chip_compatibility": "pass",
+            "defined_differences": [],
+            "chip_differences": [],
+            "sr_defined_mask": 65535,
+            "flags_policy_version": 2
+          },
+          "timing_verdict": "pass",
+          "timing_differences": []
+        }
+      ]
+    }
+  ],
+  "interpretation": "One original build-8 strict ACK-phase mismatch is retained, not waived. Saved analysis found no marked-region execution-time difference or state difference. Builds 8 and 9 use the same fx68k CPU implementation; build 9 changes debug transport and initialization. This completes the selected seeded corpus, not exhaustive 68000 validation."
+}

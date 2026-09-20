@@ -31,6 +31,7 @@ module m68000_lane_tb;
         .wait_ticks(8'd8),
         .capture_start(32'd0),
         .page_map(page_map),
+        .fuzz_enabled(1'b0), .fuzz_pc(16'd8), .fuzz_started(),
         .address(24'd0),
         .data_out(16'd0),
         .as_n(as_n),

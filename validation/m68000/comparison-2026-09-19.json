@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "date": "2026-09-19",
+  "cpu_marking": "MC68000P12",
+  "cpu_frequency_hz": 5000000,
+  "wait_ticks": 8,
+  "sample_period_ns": 20,
+  "scope_abi": 4,
+  "core_build": 8,
+  "bitstream_sha256": "4a04355e0b5461148399dd13fcd6b39ea6a3f260f8834a6d434ba8cf3cf7c860",
+  "fx68k_revision": "1217ab8dc600de070c6adb71ea6fe69de8855362",
+  "physical": {
+    "unique_cases": 231,
+    "defined_state_passes": 231,
+    "phase_timing_passes": 231,
+    "chip_compatibility_differences": 0,
+    "board_model_vs_verilator_passes": 231,
+    "directed_cases_with_three_repeats": 9,
+    "repeat_lane_timing_comparisons": 36,
+    "capture_storage": "bram",
+    "simultaneous_lane_capture": false,
+    "all_rails_off_confirmed": true,
+    "full_seeded_physical_campaign_executed": false
+  },
+  "simulation": {
+    "native_seed": 68000,
+    "native_cases_completed": 13215,
+    "qualification": "wrapper completion and expected exception; not physical equivalence",
+    "imported_register_vectors_passed": 600,
+    "imported_vectors_per_file": 100,
+    "imported_files": ["MOVE.q", "ADD.w", "SUB.w", "AND.w", "OR.w", "CMP.w"],
+    "imported_prefetch_or_timing_qualified": false,
+    "musashi_passed": 56,
+    "musashi_total": 60,
+    "musashi_failures": ["abcd", "divs", "divu", "sbcd"],
+    "musashi_expectations_modified": false
+  },
+  "evidence": [
+    {
+      "path": "build/validation/m68000/campaign/smoke-board.json",
+      "sha256": "9c847dfad4f5d885fc296601a679c870c4f65e3be06d536c2e3cfae565f92f5e"
+    },
+    {
+      "path": "build/validation/m68000/campaign-extended/boundaries-board.json",
+      "sha256": "181470b8886c8b58e7ccb75213af3a8d86f9c19efe5685d8cd89914929024745"
+    },
+    {
+      "path": "build/validation/m68000/campaign/directed-board-v2.json",
+      "sha256": "5c79c4bf746736c3a31a68492a2e39ca2903e0922928897e639ae32197fc5773"
+    },
+    {
+      "path": "build/validation/m68000/campaign/physical-final-comparison.json",
+      "sha256": "78a29a3eb5e3a77f1b903391af7cc2f620351feba202e2f69728bdd8cbca1d3b"
+    },
+    {
+      "path": "build/validation/m68000/campaign-full-v2/full-sim.json",
+      "sha256": "8944ea018a3524fdf6c86c659e291f5a10454e2f4a85b10ce18ab3c6faed9a13"
+    },
+    {
+      "path": "build/validation/m68000/campaign/imported-register-qualified.json",
+      "sha256": "597cb3259570e714a9814ee6cd26614daae17bdc22d2db15aff0e8b93f75b89b"
+    },
+    {
+      "path": "build/validation/m68000/campaign/musashi-sim.json",
+      "sha256": "cfdaa44d3f62e4db33151dc90a49b3a2c356b5ec01e6326c1e08ce0af4b4990e"
+    }
+  ],
+  "limitations": [
+    "One MC68000P12 specimen at one clock and ACK setting",
+    "Digital FPGA observations, not analog electrical timing qualification",
+    "Full seeded physical campaign remains unexecuted",
+    "External interrupts, arbitration, injected bus faults and VPA deferred",
+    "Supervisor STOP and RESET not qualified",
+    "Arbitrary imported prefetch state and exhaustive opcode permutations not qualified"
+  ]
+}

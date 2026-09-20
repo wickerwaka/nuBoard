@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "core_build": 11,
+  "bitstream_sha256": "d659229698ee7b992a4d855956258e01386cebfeac861e1cb6f29f957db8f144",
+  "seed_range_inclusive": [0, 999],
+  "cpu_cycles_per_case": 4000,
+  "image_bytes": 1024,
+  "physical_paired_cases_passed": 1000,
+  "simulation_acquisitions_passed": 1000,
+  "physical_vs_verilator_cases_passed": 1000,
+  "timing_or_state_mismatches": 0,
+  "acquisition_failures": 0,
+  "capture_record_range": [8714, 15695],
+  "capture_capacity_records": 32768,
+  "random_region_transaction_range": [11, 855],
+  "physical_elapsed_seconds": 1706.4659025199944,
+  "shutdown_rails_off": true,
+  "validation_unit_tests_passed": 60,
+  "routed_timing_and_pin_gates_passed": true,
+  "evidence": [
+    {
+      "path": "build/validation/m68000/fuzz/board-build11-4000-1000.json",
+      "sha256": "c59c0ab0f70ecd5860582eb2580f16bf16fbb78cc29f8a6fd4b0a5e2a935dc69"
+    },
+    {
+      "path": "build/validation/m68000/fuzz/direct-build11-4000-1000.json",
+      "sha256": "7af0a308e00fea3d2c1850fc8d693d21434da6c479c2c1a16c29808392003d1c"
+    },
+    {
+      "path": "build/validation/m68000/fuzz/build11-crosscheck-000-599.log",
+      "sha256": "db90b3b082a562a4598c39d17f3d8d3f24ecdcb7fd15ca084f4fbe587d5315fc"
+    },
+    {
+      "path": "build/validation/m68000/fuzz/build11-crosscheck-600-999.log",
+      "sha256": "00fef3697daddf518c0dc1a451d3a8b62097f23a90838dadaaa5f9450e411900"
+    }
+  ],
+  "limitations": [
+    "Final state comparison covers RAM and observable bus signals, not architectural register readback.",
+    "Random programs can halt early; 4000 elapsed clocks do not imply 4000 clocks of useful execution.",
+    "4000-clock capture depends on change compression and is not a worst-case BRAM capacity guarantee."
+  ]
+}

@@ -12,7 +12,7 @@ import time
 from nuboard.debug import CHANNEL, DebugClient
 from nuboard.device import NuBoard
 
-from .runner import ROOT, Harness, SimulationTransport, Transaction, compare_traces
+from .runner import CORE_BUILD, ROOT, Harness, SimulationTransport, Transaction, compare_traces
 from .scope import CAPACITY, Scope, events
 
 DEFAULT_COUNTS = (64, 256, 512, 768, 1024, 1280, 1536, 2048, 4096, 8192, 16384)
@@ -156,7 +156,7 @@ def main():
             state = json.loads(transport.state())
             receipt = json.loads((ROOT / "build/fpga/m68000/receipt.json").read_text())
             report.update(board_state=state, build_receipt=receipt)
-            if (not state["link"] or state["vccb"] or state["core_build"] != 8 or
+            if (not state["link"] or state["vccb"] or state["core_build"] != CORE_BUILD or
                     state["core_uuid"] != b"nuBoard-68000-v1".hex() or
                     state["sha256"] != receipt["bitstream_sha256"] or
                     receipt["capture_storage"] != "bram"):
