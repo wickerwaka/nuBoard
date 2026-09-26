@@ -1,6 +1,8 @@
 # nuBoard T120F484 interface assignment.  Balls come from
 # hardware/main-board/nuBoard.kicad_pcb and fpga_pin_map.csv.
 # Configuration mode: passive SPI x4; timing model: C3.
+# Displaced controls reflect the promoted HyperRAM layout. psram_ce_n remains
+# a legacy output on the now-unused old PSRAM ball, not HyperRAM CS#.
 
 design.set_device_property("1A", "VOLTAGE", "3.3", "IOBANK")
 design.set_device_property("1B_1C", "VOLTAGE", "3.3", "IOBANK")
@@ -38,18 +40,18 @@ design.assign_pkg_pin("clk_50mhz", "A20")
 design.assign_pkg_pin("clk_50mhz_alias", "A18")
 design.assign_pkg_pin("heartbeat_out", "U5")
 design.assign_pkg_pin("nstatus_user", "F5")
-design.assign_pkg_pin("dut_isolate", "G3")
+design.assign_pkg_pin("dut_isolate", "E5")
 design.assign_pkg_pin("dut_crowbar", "E1")
 design.assign_pkg_pin("psram_ce_n", "AA16")
 design.assign_pkg_pin("xy_oe", "AB9")
-design.assign_pkg_pin("f_lclk_en", "G1")
+design.assign_pkg_pin("f_lclk_en", "G4")
 design.assign_pkg_pin("f_tclk_en", "C11")
 design.assign_pkg_pin("f_bclk_en", "AB5")
 design.assign_pkg_pin("f_rclk_en", "D21")
 
 # Bundle order: L0, L1, L2, T2, T1, T0, R2, R1, R0, B2, B1, B0.
 design.assign_pkg_pin("parallel_dir[0]", "E3")
-design.assign_pkg_pin("parallel_dir[1]", "L2")
+design.assign_pkg_pin("parallel_dir[1]", "L5")
 design.assign_pkg_pin("parallel_dir[2]", "R2")
 design.assign_pkg_pin("parallel_dir[3]", "A4")
 design.assign_pkg_pin("parallel_dir[4]", "A8")
@@ -62,7 +64,7 @@ design.assign_pkg_pin("parallel_dir[10]", "V7")
 design.assign_pkg_pin("parallel_dir[11]", "Y4")
 
 design.assign_pkg_pin("parallel_oe_n[0]", "E4")
-design.assign_pkg_pin("parallel_oe_n[1]", "L1")
+design.assign_pkg_pin("parallel_oe_n[1]", "L4")
 design.assign_pkg_pin("parallel_oe_n[2]", "R3")
 design.assign_pkg_pin("parallel_oe_n[3]", "C3")
 design.assign_pkg_pin("parallel_oe_n[4]", "C7")

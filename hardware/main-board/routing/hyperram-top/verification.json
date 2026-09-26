@@ -1,0 +1,123 @@
+{
+  "status": "pass",
+  "scope": "Ten fast nets: complete simple paths, F.Cu only, no vias, PCB-only spread <=0.381 mm; displaced nets checked against DRC",
+  "board": "hardware/main-board/routing/hyperram-top/nuBoard.kicad_pcb",
+  "board_sha256": "acdae7bf5679f9f770ef3b1b1180eb328a4996148247f960b007a06c4bd3dc97",
+  "drc": "hardware/main-board/routing/hyperram-top/drc.json",
+  "drc_sha256": "301683ff58512d0363c9a1538b6d0e7bffb5077b612dac934acc6c8dc6f8e58b",
+  "signals": {
+    "HR_DQ0": {
+      "fpga_ball": "K1",
+      "ram_ball": "D3",
+      "length_mm": 10.99999782451173,
+      "segments": 77,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_DQ1": {
+      "fpga_ball": "L1",
+      "ram_ball": "D2",
+      "length_mm": 10.999991112037112,
+      "segments": 77,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_DQ2": {
+      "fpga_ball": "H1",
+      "ram_ball": "C4",
+      "length_mm": 11.00000067080996,
+      "segments": 21,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_DQ3": {
+      "fpga_ball": "J1",
+      "ram_ball": "D4",
+      "length_mm": 11.000009282016796,
+      "segments": 109,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_DQ4": {
+      "fpga_ball": "G1",
+      "ram_ball": "D5",
+      "length_mm": 11.000002500830265,
+      "segments": 28,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_DQ5": {
+      "fpga_ball": "K2",
+      "ram_ball": "E3",
+      "length_mm": 11.000000162670993,
+      "segments": 57,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_DQ6": {
+      "fpga_ball": "L2",
+      "ram_ball": "E2",
+      "length_mm": 10.999998298294727,
+      "segments": 85,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_DQ7": {
+      "fpga_ball": "M3",
+      "ram_ball": "E1",
+      "length_mm": 10.999998298294711,
+      "segments": 84,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_CK": {
+      "fpga_ball": "M1",
+      "ram_ball": "B2",
+      "length_mm": 11.000000128315033,
+      "segments": 13,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    },
+    "HR_RWDS": {
+      "fpga_ball": "L3",
+      "ram_ball": "C3",
+      "length_mm": 11.214798298294735,
+      "segments": 6,
+      "layers": [
+        "F.Cu"
+      ],
+      "vias": 0
+    }
+  },
+  "spread_mm": 0.21480718625762307,
+  "u2_locked": true,
+  "hyperram_signal_segments": 585,
+  "hyperram_signal_segments_locked": 585,
+  "spread_mils": 8.456975836914294,
+  "limit_mm": 0.381,
+  "drc_violation_counts": {
+    "track_dangling": 6
+  },
+  "remaining_board_unconnected_items": 27,
+  "full_board_signoff": false,
+  "fpga_timing_verified": false,
+  "errors": []
+}

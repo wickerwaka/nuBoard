@@ -1,0 +1,11 @@
+signal,fpga_ball,fpga_pad_to_die_mm,source
+HR_DQ0,N4,,
+HR_DQ1,M4,,
+HR_DQ2,L4,,
+HR_DQ3,K8,,
+HR_DQ4,K7,,
+HR_DQ5,L7,,
+HR_DQ6,M7,,
+HR_DQ7,L6,,
+HR_CK,L5,,
+HR_RWDS,M6,,

@@ -158,7 +158,7 @@
         "min_silk_clearance": 0.0,
         "min_text_height": 0.8,
         "min_text_thickness": 0.08,
-        "min_through_hole_diameter": 0.2,
+        "min_through_hole_diameter": 0.15,
         "min_track_width": 0.0762,
         "min_via_annular_width": 0.05,
         "min_via_diameter": 0.2,
@@ -822,7 +822,7 @@
         "uuid": "c39984f9-2ea5-471b-a7a7-69d3c17228c4"
       }
     ],
-    "used_designators": "J1-9,J1001-1008,JP1,R1-76,R1001-1076,H1-8,H1001-1006,L1-4,L1001-1002,#FLG1-6,#FLG1001-1006,U1-40,U1001-1040,FB1,FB1001,C1-216,C1001-1190,SW1-4,SW1001-1002,Y1-2,Y1001-1002,#PWR1-224,#PWR229-273,#PWR1001-1273,D1-28,D1001-1028,RN1-30,RN1001-1024,Q1-2,Q1001-1002,F1,TP1-5,TP1001-1005",
+    "used_designators": "J1-9,J1001-1008,JP1,R1-76,R1001-1076,H1-8,H1001-1006,L1-4,L1001-1002,#FLG1-6,#FLG1001-1006,C1-216,C1001-1190,FB1,FB1001,SW1-4,SW1001-1002,U1-40,U1001-1040,F1,TP1-5,TP1001-1005,RN1-30,RN1001-1024,#PWR1-224,#PWR229-273,#PWR1001-1273,D1-28,D1001-1028,Y1-2,Y1001-1002,Q1-2,Q1001-1002",
     "variants": []
   },
   "sheets": [

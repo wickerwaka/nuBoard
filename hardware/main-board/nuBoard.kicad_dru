@@ -1,4 +1,11 @@
 (version 1)
+# User-approved PCB-only matching: total spread <= 15 mil (0.381 mm).
+# Include board traces and via travel; exclude IC package interconnect.
+# Leave pad-to-die compensation unset for this matching basis.
+(rule "HyperRAM fast-group skew"
+  (condition "A.NetName == '/HR_CK' || A.NetName == '/HR_RWDS' || A.NetName == '/HR_DQ0' || A.NetName == '/HR_DQ1' || A.NetName == '/HR_DQ2' || A.NetName == '/HR_DQ3' || A.NetName == '/HR_DQ4' || A.NetName == '/HR_DQ5' || A.NetName == '/HR_DQ6' || A.NetName == '/HR_DQ7'")
+  (constraint skew (max 0.381mm))
+)
 (rule clearance_U1
 	( constraint clearance (min 0.1mm))
 	( condition "A.insideArea('BGA') && A.Type == 'Via'")

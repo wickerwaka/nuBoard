@@ -1,0 +1,95 @@
+{
+  "date": "2026-09-21",
+  "status": "provisional_allocation_and_placement_not_routed_or_timing_signed_off",
+  "before": {
+    "erc": {
+      "power_pin_not_driven": 1
+    },
+    "drc": {
+      "violations_by_type": {
+        "track_dangling": 167
+      },
+      "unconnected_items": 0,
+      "kicad_version": "10.0.6"
+    }
+  },
+  "after": {
+    "erc": {
+      "power_pin_not_driven": 1
+    },
+    "drc": {
+      "violations_by_type": {
+        "track_dangling": 167
+      },
+      "unconnected_items": 30,
+      "kicad_version": "10.0.6"
+    }
+  },
+  "unexpected_changed_connected_nets": [],
+  "allocation_audit_exit_code": 0,
+  "signoff_gate_exit_code": 2,
+  "signoff_gate_expected_exit_code": 2,
+  "baseline_unused_ddio": {
+    "left": 32,
+    "BR": 3,
+    "total": 35
+  },
+  "changed_existing_footprints": [
+    "U1",
+    "U2",
+    "C3",
+    "C4"
+  ],
+  "added_footprints": [
+    "C191",
+    "C192",
+    "R77",
+    "R78"
+  ],
+  "removed_copper": {
+    "segments": 75,
+    "vias": 4,
+    "scope": "Old PSRAM signal copper and ten old U2/C3/C4 power-stub segments only"
+  },
+  "fpga_pad_changes": {
+    "released": [
+      "AA16",
+      "AB16",
+      "AB17",
+      "E19",
+      "E21",
+      "E22"
+    ],
+    "allocated": [
+      "K7",
+      "K8",
+      "L4",
+      "L5",
+      "L6",
+      "L7",
+      "M4",
+      "M6",
+      "M7",
+      "N4",
+      "N5",
+      "P5"
+    ]
+  },
+  "routing_feasibility": "Not established: limited single-layer search did not find simultaneous escape for all ten fast signals",
+  "matching_basis": "User approved PCB-only routing on 2026-09-21: maximum length spread 0.381 mm across DQ[7:0], CK and RWDS, including board via travel and excluding IC package interconnect.",
+  "package_lengths": "User reports no F484 lengths exist. Supplied T55-T85-T120-F324-package-netlength.xlsx covers F324 only; its values were not transferred to F484. CSV intentionally blank. Package-length evidence is no longer a signoff prerequisite under the approved PCB-only criterion.",
+  "limitations": [
+    "KiCad project existing ignored DRC checks were preserved",
+    "No Efinity implementation or timing closure",
+    "No board-wide zone refill or fabrication regeneration",
+    "New power, bypass and signal connections remain unrouted"
+  ],
+  "sha256": {
+    "nuBoard.kicad_sch": "de845265226e819f197c569c01b60e89989877c51ec6b1692c466ab8096a0c4e",
+    "nuBoard.kicad_pcb": "c866ca0d953f44b9c1256886d2b62dab8ac9598bb20166d3862b79bab3c0f89d",
+    "nuBoard.kicad_dru": "9c56ca00af46f14e4f70dcac9d71a013ba5988ff75f61178c06b07d77393c332",
+    "HyperRAM.kicad_sym": "e7452d2efdee3cdaf461584e9959f0f1d737311dfffac8e0621a5d02c4a0093f",
+    "nuBoard.pretty/ISSI_TFBGA-24_6x8mm_P1.0mm.kicad_mod": "b1faf9907927c4509b74e5e7cff7d4f2e09120e5d94605388049a8ba2b1d4977",
+    "fpga_pin_map.csv": "86552ccb5a46fe2ec1cf0c9cdb210cef8082061ab142afed02328c03a5f0b5fe"
+  }
+}
