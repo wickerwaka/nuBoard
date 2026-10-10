@@ -1,13 +1,13 @@
 Reference,Quantity,Value/part,Package,Notes
 U1,1,NEC uPD70337L-8-xxx,84-pin PLCC,Factory opcode-table suffix unknown; user-selected package
 U1 socket,1,Assmann A-CCS 084-Z-T,84-pin through-hole PLCC socket,ASS0981CO rev11; 2.54mm grid; 0.8mm holes
-C1 C2 C3,3,100nF ceramic >=50V,Radial THT 5.00mm pitch,Prefer X7R; body <=5.0mm diameter and <=2.5mm width
-R1,1,6.8k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,NEC required reserved-pin pull-down
-R2,1,15k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,NEC required shared IC-pin pull-up
+C1 C2 C3,3,100nF ceramic >=50V,0805 SMD HandSolder,Prefer X7R; enlarged hand-solder pads
+R1,1,6.8k 1% >=0.25W,0805 SMD HandSolder,NEC required reserved-pin pull-down
+R2,1,15k 1% >=0.25W,0805 SMD HandSolder,NEC required shared IC-pin pull-up
 J1,1,nuBoard mezzanine mating contact set,Four 34-position rows 2.54mm pitch,Use mating connector height and gender matching the existing host; template geometry retained
-R3,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,B0 shared unused-bit pull-down to GND
-R4,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,B2 shared unused-bit pull-down to GND
-R5,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,R0 shared unused-bit pull-down to GND
-R6,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,R2 shared unused-bit pull-down to GND
-R7,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,T0 shared unused-bit pull-down to GND
-R8,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,T1 shared unused-bit pull-down to GND
+R3,1,47k 1% >=0.25W,0805 SMD HandSolder,B0 shared unused-bit pull-down to GND
+R4,1,47k 1% >=0.25W,0805 SMD HandSolder,B2 shared unused-bit pull-down to GND
+R5,1,47k 1% >=0.25W,0805 SMD HandSolder,R0 shared unused-bit pull-down to GND
+R6,1,47k 1% >=0.25W,0805 SMD HandSolder,R2 shared unused-bit pull-down to GND
+R7,1,47k 1% >=0.25W,0805 SMD HandSolder,T0 shared unused-bit pull-down to GND
+R8,1,47k 1% >=0.25W,0805 SMD HandSolder,T1 shared unused-bit pull-down to GND

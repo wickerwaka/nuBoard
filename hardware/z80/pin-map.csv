@@ -14,8 +14,8 @@ DUT pin,Function,Electrical type,Connector signal,J1 pad,Bank,Pull
 13,D_{7},bidirectional,L15,118,L1,-
 14,D_{0},bidirectional,L16,117,L1,-
 15,D_{1},bidirectional,L17,116,L1,-
-16,~{INT},input,LX,114,-,10k to VCC_TL
-17,~{NMI},input,LY,113,-,10k to VCC_TL
+16,~{INT},input,LX1,114,-,10k to VCC_TL
+17,~{NMI},input,LX2,113,-,10k to VCC_TL
 18,~{HALT},output,R00,66,R0,-
 19,~{MREQ},tri_state,B10,89,B1,-
 20,~{IORQ},tri_state,B11,88,B1,-
@@ -23,8 +23,8 @@ DUT pin,Function,Electrical type,Connector signal,J1 pad,Bank,Pull
 22,~{WR},tri_state,B13,86,B1,-
 23,~{BUSACK},output,R03,63,R0,-
 24,~{WAIT},input,B20,77,B2,Host drives high before DUT power-on; no pull
-25,~{BUSREQ},input,BY,79,-,10k to VCC_TL
-26,~{RESET},input,RX,46,-,10k to VCC_TL
+25,~{BUSREQ},input,BX2,79,-,10k to VCC_TL
+26,~{RESET},input,RX1,46,-,10k to VCC_TL
 27,~{M1},output,R05,61,R0,-
 28,~{RFSH},output,R06,60,R0,-
 29,GND,power_in,GND,all ground pads,-,-

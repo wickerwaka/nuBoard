@@ -156,7 +156,7 @@
         "min_track_width": 0.2,
         "min_via_annular_width": 0.1,
         "min_via_diameter": 0.5,
-        "solder_mask_to_copper_clearance": 0.0,
+        "solder_mask_to_copper_clearance": 0.005,
         "use_height_for_length_calcs": true
       },
       "teardrop_options": [
@@ -311,7 +311,13 @@
     "bus_aliases": {},
     "legacy_lib_dir": "",
     "legacy_lib_list": [],
-    "top_level_sheets": []
+    "top_level_sheets": [
+      {
+        "filename": "v35s.kicad_sch",
+        "name": "v35s",
+        "uuid": "00000000-0000-0000-0000-000000000000"
+      }
+    ]
   },
   "sheets": [],
   "text_variables": {},

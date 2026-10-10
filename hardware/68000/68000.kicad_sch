@@ -1617,7 +1617,7 @@
 			(symbol "nuMezzanine_4x34_1_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -1773,7 +1773,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "TY"
+					(name "TX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1791,7 +1791,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "TX"
+					(name "TX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2112,11 +2112,48 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "TX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "13"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "TX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "10"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_2_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -2272,7 +2309,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "LY"
+					(name "LX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2290,7 +2327,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "LX"
+					(name "LX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2611,11 +2648,48 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "LX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "115"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "LX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "112"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_3_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -2771,7 +2845,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "BY"
+					(name "BX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2789,7 +2863,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "BX"
+					(name "BX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3110,11 +3184,48 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "BX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "81"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "BX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "78"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_4_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -3270,7 +3381,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "RY"
+					(name "RX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3288,7 +3399,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "RX"
+					(name "RX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -3609,7 +3720,44 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "RX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "47"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "RX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "44"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_5_1"
 				(rectangle
 					(start -6.35 16.51)
@@ -3640,44 +3788,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "10"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "13"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -3770,44 +3882,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "44"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "47"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -3901,44 +3977,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "78"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "81"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -3996,11 +4036,11 @@
 						)
 					)
 				)
-				(pin no_connect line
-					(at -10.16 -11.43 0)
+				(pin power_in line
+					(at 3.81 -20.32 90)
 					(length 3.81)
 					(hide yes)
-					(name "NC"
+					(name "GND"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -4033,44 +4073,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "112"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "115"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -4128,11 +4132,11 @@
 						)
 					)
 				)
-				(pin no_connect line
-					(at -10.16 -13.97 0)
+				(pin power_in line
+					(at 3.81 -20.32 90)
 					(length 3.81)
 					(hide yes)
-					(name "NC"
+					(name "GND"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -4727,7 +4731,7 @@
 		)
 		(uuid "0b9f8dcb-dc52-4afb-8415-7a33386463df")
 	)
-	(label "TX"
+	(label "TX1"
 		(at 36.83 97.79 0)
 		(effects
 			(font
@@ -4807,7 +4811,7 @@
 		)
 		(uuid "1832eb9f-899f-4a1b-8368-a83c90953a9c")
 	)
-	(label "LY"
+	(label "LX2"
 		(at 36.83 191.77 0)
 		(effects
 			(font
@@ -4897,7 +4901,7 @@
 		)
 		(uuid "1ecaa85b-8951-49c6-a59f-24752589feb7")
 	)
-	(label "BY"
+	(label "BX2"
 		(at 72.39 100.33 0)
 		(effects
 			(font
@@ -4967,7 +4971,7 @@
 		)
 		(uuid "2a397015-b9b5-4ffc-b363-c5afa4062ab3")
 	)
-	(label "RX"
+	(label "RX1"
 		(at 72.39 189.23 0)
 		(effects
 			(font
@@ -4977,7 +4981,7 @@
 		)
 		(uuid "2cc3f2e0-1a04-48b0-acc6-36ec80273c3f")
 	)
-	(label "LY"
+	(label "LX2"
 		(at 148.59 139.7 180)
 		(effects
 			(font
@@ -5127,7 +5131,7 @@
 		)
 		(uuid "468635f6-04c1-4e74-a5bc-d4587d67e201")
 	)
-	(label "LX"
+	(label "LX1"
 		(at 148.59 121.92 180)
 		(effects
 			(font
@@ -5167,7 +5171,7 @@
 		)
 		(uuid "515fab06-048d-44d1-aebd-cc5bb4defa53")
 	)
-	(label "BX"
+	(label "BX1"
 		(at 72.39 97.79 0)
 		(effects
 			(font
@@ -5547,7 +5551,7 @@
 		)
 		(uuid "839c2ada-bac0-4da4-a624-2cbfd45ed31f")
 	)
-	(label "TY"
+	(label "TX2"
 		(at 36.83 100.33 0)
 		(effects
 			(font
@@ -5617,7 +5621,7 @@
 		)
 		(uuid "95cadafe-1e58-43fa-a4f4-b7243c8ff27a")
 	)
-	(label "RY"
+	(label "RX2"
 		(at 72.39 191.77 0)
 		(effects
 			(font
@@ -5977,7 +5981,7 @@
 		)
 		(uuid "d17936cd-eca9-4bc0-962c-189365c7e2a9")
 	)
-	(label "LX"
+	(label "LX1"
 		(at 36.83 189.23 0)
 		(effects
 			(font
@@ -6819,7 +6823,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 149.352 118.11 90)
 			(hide yes)
 			(show_name no)
@@ -7651,7 +7655,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+		(property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
 			(at 159.512 135.89 90)
 			(hide yes)
 			(show_name no)
@@ -8215,7 +8219,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:C_Disc_D4.7mm_W2.5mm_P5.00mm"
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
 			(at 211.7852 30.48 0)
 			(hide yes)
 			(show_name no)
@@ -9821,7 +9825,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:C_Disc_D4.7mm_W2.5mm_P5.00mm"
+		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
 			(at 221.9452 30.48 0)
 			(hide yes)
 			(show_name no)
@@ -9875,4 +9879,12 @@
 		)
 	)
 	(embedded_fonts no)
+(no_connect (at 36.83 186.69) (uuid "f42363ae-a087-4c2e-a272-aa0c82c154c2"))
+(no_connect (at 36.83 194.31) (uuid "c4147edc-e017-4c15-adaa-eab1777024b4"))
+(no_connect (at 36.83 95.25) (uuid "4f4b6edc-777e-4b2c-9db2-8b5855f270cf"))
+(no_connect (at 36.83 102.87) (uuid "6a23ab7b-e69b-484e-a091-7064d8d5286c"))
+(no_connect (at 72.39 186.69) (uuid "08a03022-c352-463e-b1f1-553ceee66b34"))
+(no_connect (at 72.39 194.31) (uuid "61d7dca1-c7dd-41a3-a23d-553347c3904e"))
+(no_connect (at 72.39 95.25) (uuid "cf650915-c10b-4430-b8c8-8d8ec818edea"))
+(no_connect (at 72.39 102.87) (uuid "6f545b2e-7d76-46cc-8ccd-cb21c0eb36a5"))
 )

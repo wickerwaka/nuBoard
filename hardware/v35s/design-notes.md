@@ -21,8 +21,8 @@ Open `v35s.kicad_pro`. Keep the local `nuBoard.*`, `v35s.kicad_sym`, `v35s.prett
 | Unrouted connections | Zero |
 | Schematic/PCB parity | Zero issues; node-by-node comparison also passes |
 | Mechanical preservation | All 136 connector pad locations/orientations/sizes/drills and Edge.Cuts unchanged |
-| Routed object dimensions | 306 segments, all 0.20 mm; five through-vias, all 0.50 mm diameter / 0.30 mm drill |
-| Ground copper | F.Cu and B.Cu; all required ground pads connected; three stitching vias |
+| Routed object dimensions | 336 segments, all 0.20 mm; 21 through-vias, all 0.50 mm diameter / 0.30 mm drill |
+| Ground copper | F.Cu and B.Cu; all required ground pads connected; 13 ground vias |
 | Bank profiles | 35 checked profiles covering reset, CPU, byte lanes, DMA, hold, standby, GPIO and transitions |
 | Visual review | Final schematic, front/back copper, silkscreen, pin-1 orientation, socket/connector/capacitor clearance, ground pours |
 | Summary and netlist | `reports/verification.json`, `reports/netlist.xml` |
@@ -63,9 +63,9 @@ The chosen supply is **5 V**, justified by NEC's DC and AC operating specificati
 
 - U1 VDD pins 50 and 80 connect to VCC_TL. GND pins 42 and 77 connect to GND.
 - VTH pin 76 connects to VCC_TL, making comparator thresholds programmable fractions of VDD. R1-bank inputs are digital stimuli, not an external analog test source.
-- C1 bypasses pin 80; C2 bypasses pin 50; C3 bypasses VTH pin 76. Each is a 100 nF, ≥50 V ceramic through-hole capacitor with 5.00 mm lead spacing and body fitting the D5.0 × W2.5 mm footprint. X7R is preferred. The 100 nF local bypass value is a design choice, not a quoted NEC component value. Short local power routes were placed before autorouting.
-- R1 is 6.8 kΩ from reserved pin 9 to GND, within NEC's 5–10 kΩ requirement. R2 is 15 kΩ from the tied IC pins 3/49/75 to VCC_TL, within NEC's shared 10–20 kΩ requirement. Both use through-hole DIN0207 axial footprints at 7.62 mm pitch. The user explicitly authorized these required reserved-pin resistors as an exception to the skill's X/Y-only pull policy. They are not bank-input defaults.
-- No DUT-input default pull resistors, selection header or shunt is fitted. Unused bits in used banks have shared 47 kΩ pull-downs as listed below. Every X/Y pin is unused and has no daughter-board pull resistor.
+- C1 bypasses pin 80; C2 bypasses pin 50; C3 bypasses VTH pin 76. Each is a 100 nF, ≥50 V 0805 ceramic SMD capacitor with enlarged HandSolder pads. X7R is preferred. The 100 nF local bypass value is a design choice, not a quoted NEC component value. Short local power routes were placed before autorouting.
+- R1 is 6.8 kΩ from reserved pin 9 to GND, within NEC's 5–10 kΩ requirement. R2 is 15 kΩ from the tied IC pins 3/49/75 to VCC_TL, within NEC's shared 10–20 kΩ requirement. Both use 0805 SMD HandSolder footprints; select parts rated ≥0.25 W. The user explicitly authorized these required reserved-pin resistors as an exception to the skill's X0–X3-only pull policy. They are not bank-input defaults.
+- No DUT-input default pull resistors, selection header or shunt is fitted. Unused bits in used banks have shared 47 kΩ pull-downs as listed below. Every X0–X3 pin is unused and has no daughter-board pull resistor.
 - **5V_SELECT, J1 pad 68, is connected directly to GND. 3V3_SELECT, J1 pad 34, has a schematic no-connect and an unrouted PCB pad.** No other voltage-select connection is grounded.
 
 The authoritative host netlist shows J5/J6/J7/J8 pin 34 on the common switched VCC_DUT rail. Only the daughter VCC_TL feed (J1 pad 1) is used. The other three VCC inputs are no-connect. Host R39/R40 are 10 kΩ pull-ups to +3.3V_MCU; the 5 V identification pulls RP2040 GPIO20 low and leaves GPIO21 high. Firmware must interpret that pattern and select the supply; grounding the identification pin does not itself regulate voltage.
@@ -86,7 +86,7 @@ The V35S description and the referenced 1991 external-clock diagram use opposite
 
 RCLK route length is 53.182 mm and TCLK is 35.432 mm. They are not a matched differential pair. The unequal board flight time is small relative to the inverter-delay clock scheme shown by NEC, but translator skew and real waveforms still require measurement. No full-speed timing qualification or firmware timing implementation was performed.
 
-Exactly two copper layers are used, F.Cu and B.Cu. Every actual routed segment is 0.20 mm wide and all five vias are 0.50/0.30 mm through-vias. Three vias stitch GND; two route signals. F.Cu has one connected GND fill region. B.Cu has three local fill regions joined through plated pads, the F.Cu ground network and stitching; unconnected copper islands are removed. All ground pads pass the connectivity check. U1 pin 77 uses a solid zone connection plus a short F.Cu return to C1 ground because neighbouring power/clock escapes leave insufficient space for useful thermal spokes at that pin. This local connection was corrected rather than suppressing thermal checks.
+Exactly two copper layers are used, F.Cu and B.Cu. Every actual routed segment is 0.20 mm wide and all 21 vias are 0.50/0.30 mm through-vias. Thirteen vias connect GND; eight carry other nets, including passive transitions replacing plated component holes. F.Cu has one connected GND fill region. B.Cu has three local fill regions joined through plated pads, the F.Cu ground network and stitching; unconnected copper islands are removed. All ground pads pass the connectivity check. U1 pin 77 retains its solid zone connection and local F.Cu ground return because neighbouring power/clock escapes leave insufficient space for useful thermal spokes at that pin. Thermal checks remain enabled.
 
 The output-only L2/B0/T1 banks remain DUT→host during arbitration. B0 includes TxD0/TxD1, which must not be driven by the host when address outputs float. This supports observing the bus handoff; per-pin physical high-impedance characterization requires the bench procedure. Data banks L0/L1 can be disabled and then driven under a valid read or explicitly granted/released bus interval. Full DMA fly-by ownership and GPIO transition rules are in `bank-modes.md`.
 
@@ -107,8 +107,11 @@ Each partially used bank has one 47 kΩ pull-down to GND shared by all of its un
 | T0 | T00, T01, T02, T03, T04, T05 | T0_UNUSED | R7 = 47 kΩ |
 | T1 | T10, T11, T17 | T1_UNUSED | R8 = 47 kΩ |
 
-Use 47 kΩ, 1%, ≥0.25 W axial DIN0207 resistors with 7.62 mm lead spacing. **Preload all tied unused bits LOW before enabling host → DUT, and keep them LOW in every host-driven phase**, including startup, reset, GPIO tests and bus takeover. Test patterns must mask these bits to zero. Opposite output levels on tied bits would short host output drivers together; the shared resistor does not limit that inter-output current. Set direction/data with the bank disabled and enable only after the prior driver releases. This is a host firmware requirement; no firmware was changed or bench-tested.
+Use 47 kΩ, 1%, ≥0.25 W 0805 SMD resistors on enlarged HandSolder pads. **Preload all tied unused bits LOW before enabling host → DUT, and keep them LOW in every host-driven phase**, including startup, reset, GPIO tests and bus takeover. Test patterns must mask these bits to zero. Opposite output levels on tied bits would short host output drivers together; the shared resistor does not limit that inter-output current. Set direction/data with the bank disabled and enable only after the prior driver releases. This is a host firmware requirement; no firmware was changed or bench-tested.
 
 With the board disconnected from the host and unpowered, verify continuity among each listed group, approximately 47 kΩ from each group to GND, and isolation from other groups and used signal pins. On the host, verify that the tied bits are driven LOW together before power-up and through every direction transition. These measurements remain pending.
 
 The updated layout passes ERC, DRC after ground refill, zero-unrouted checks and schematic/PCB parity. `validation/verify.py` also verifies exact shared-net membership and per-bank resistor values; `reports/unused-bank-pins.json` includes host output zero masks. `reports/pull-down-change-audit.json` confirms the existing component geometry and all other pad nets were preserved. Updated schematic and both copper-layer PDFs were visually reviewed.
+
+Passive assembly was converted to top-side 0805 HandSolder footprints; see
+`../daughter-template/passive-assembly.md` for assembly and part-selection notes.

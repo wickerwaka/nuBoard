@@ -178,15 +178,16 @@ design.assign_pkg_pin("r2[7]", "A17")
 design.assign_pkg_pin("r2_dir", "B17")
 design.assign_pkg_pin("r2_oe_n", "A16")
 
-# XY sideband signals. Each name maps directly to its F_* schematic net.
-design.assign_pkg_pin("tx", "W10")
-design.assign_pkg_pin("ty", "AA10")
-design.assign_pkg_pin("bx", "AB10")
+# Legacy x/y ports map to X1/X2 on each socket. X0/X3 are assigned in
+# fpga_pin_map.csv but require additional RTL ports before use.
+design.assign_pkg_pin("tx", "F6")
+design.assign_pkg_pin("ty", "P5")
+design.assign_pkg_pin("bx", "AA9")
 design.assign_pkg_pin("by", "W9")
-design.assign_pkg_pin("lx", "AA9")
-design.assign_pkg_pin("ly", "AB8")
-design.assign_pkg_pin("rx", "V11")
-design.assign_pkg_pin("ry", "V10")
+design.assign_pkg_pin("lx", "E10")
+design.assign_pkg_pin("ly", "E12")
+design.assign_pkg_pin("rx", "V10")
+design.assign_pkg_pin("ry", "W10")
 design.assign_pkg_pin("xy_oe_n", "AB9")
 
 # Edge clock signals and their external-buffer enables.

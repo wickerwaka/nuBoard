@@ -21,18 +21,19 @@
           (2.54&nbsp;mm pitch, pins numbered 1&ndash;136 clockwise from the top-left).</li>
       <li>Board outline on Edge.Cuts, and TOP / BOTTOM / LEFT / RIGHT silkscreen so the
           board orientation is unambiguous when it is mated to the host.</li>
-      <li>All 108 signal pins broken out to net labels in the schematic, ready to wire.</li>
+      <li>All 116 signal pins broken out to net labels in the schematic, ready to wire.</li>
       <li>A 2-layer FR4 stackup and the net class / DRC settings used by the nuBoard family.</li>
     </ul>
 
     <h3>Pin naming</h3>
     <p>
-      Each of the four connector rows carries 34 pins: 27 signals and 7 grounds. Signal
+      Each of the four connector rows carries 34 pins: 29 signals, three grounds, a supply pin, and an end pin
+      used for voltage selection or ground. Signal
       labels are <tt>&lt;side&gt;&lt;bank&gt;&lt;bit&gt;</tt>, where side is <tt>T</tt>,
       <tt>B</tt>, <tt>L</tt> or <tt>R</tt> &mdash; for example <tt>T00</tt>&hellip;<tt>T07</tt>,
       <tt>T10</tt>&hellip;<tt>T17</tt>, <tt>T20</tt>&hellip;<tt>T27</tt>. Each side also has a
-      dedicated clock <tt>TCLK</tt>/<tt>BCLK</tt>/<tt>LCLK</tt>/<tt>RCLK</tt> and two spares
-      <tt>TX</tt>,&nbsp;<tt>TY</tt> (and the equivalents on the other sides).
+      dedicated clock <tt>TCLK</tt>/<tt>BCLK</tt>/<tt>LCLK</tt>/<tt>RCLK</tt> and four bidirectional sideband signals
+      <tt>TX0</tt>&ndash;<tt>TX3</tt> (and the equivalents on the other sides).
     </p>
 
     <h3>Standalone</h3>

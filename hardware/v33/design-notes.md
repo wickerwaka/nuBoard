@@ -37,7 +37,7 @@ TOP edge and is marked on silkscreen. Align the CPU pin-1 marking with it.
 
 NEC specifies 5 V ±10%. VDD pins 1, 19, 35 and 53 connect to VCC_TL; GND pins
 2, 18, 36 and 52 connect to GND. C1–C4 respectively bypass those four VDD
-pins: 100 nF ceramic, 50 V, through-hole, 5.00 mm lead spacing. This is a
+pins: 100 nF ceramic, 50 V, 0805 SMD with enlarged HandSolder pads. This is a
 chosen local bypass value, not a quoted NEC application requirement.
 
 Only J1's VCC_TL power contact is used on the daughter board. The host schematic
@@ -49,7 +49,7 @@ firmware implementing that behavior was not available for verification.
 The select connection identifies the voltage; it does not itself set the regulator.
 
 The host guarantees valid input states before powering on the DUT, so no
-DUT-input default pull-up or pull-down resistors are fitted. All X/Y signals are unused.
+DUT-input default pull-up or pull-down resistors are fitted. All X0–X3 signals are unused.
 Unused connector bits in used banks have the shared 47 kΩ pull-downs listed below. Establish these levels through the
 host's B0/B1 banks before enabling DUT power and maintain valid levels while powered:
 
@@ -93,7 +93,7 @@ signals have no-connect markers. Prefix `/` below means active low.
 | R1 | R10 /BCYST, R11 /UBE, R12 BUSST1, R13 BUSST0, R14 R-/W, R15 M-/IO, R16 /DSTB | DUT → host normally; released in hold/reset |
 | BCLK | CLK, pin 30 | Host → DUT |
 | L0, R2, B2 | Unused | Disabled |
-| All X/Y; TCLK, LCLK, RCLK | Unused | Disabled where controllable |
+| All X0–X3; TCLK, LCLK, RCLK | Unused | Disabled where controllable |
 
 Bank direction/enable applies to all eight bits. Drive all tied unused bits LOW whenever the bank drives host → DUT,
 including takeover and startup. Host transceivers have A=FPGA, B=DUT: DIR=0 means
@@ -149,7 +149,7 @@ about its specified falling edge. Address/control and data output delays extend
 to 40 ns. Include FPGA logic, bank-transceiver propagation, PCB/socket delay,
 clock skew and DUT setup/hold in the timing budget. At 16 MHz a half-cycle is
 only 31.25 ns, so same-half-cycle host reaction cannot be assumed to meet timing.
-Use wait states and a qualified host schedule. X/Y are not used for clocks or
+Use wait states and a qualified host schedule. X0–X3 are not used for clocks or
 handshakes; their TXS0108E open-drain path is unsuitable for this timing role.
 
 ## PCB and verification
@@ -159,9 +159,10 @@ outline are preserved. Placement puts address pins toward the top banks, data
 pins toward the left banks, controls toward the bottom/right and a bypass
 capacitor beside each supply group. Copper uses two layers, 0.20 mm routed
 tracks and the specified 0.50 mm diameter / 0.30 mm drill via rule.
-B.Cu has a filled GND zone with isolated-island removal. Two filled polygons
-are electrically joined through C1's plated ground pad; DRC reports no isolated
-required ground connection. The plane is interrupted by signal clearances;
+B.Cu has one continuous filled GND region with isolated-island removal after
+the 0805 conversion. External vias connect the SMD ground pads to that plane;
+DRC reports no isolated required ground connection. Signal clearances affect
+the plane geometry;
 clock edges and return-path performance require hardware qualification.
 
 Validation artifacts are in `reports/`: ERC/DRC JSON, schematic and PCB PDFs,
@@ -183,8 +184,11 @@ Each partially used bank has one 47 kΩ pull-down to GND shared by all of its un
 | R0 | R00, R01, R02, R03, R07 | R0_UNUSED | R3 = 47 kΩ |
 | R1 | R17 | R1_UNUSED | R4 = 47 kΩ |
 
-Use 47 kΩ, 1%, ≥0.25 W axial DIN0207 resistors with 7.62 mm lead spacing. **Preload all tied unused bits LOW before enabling host → DUT, and keep them LOW in every host-driven phase**, including startup, reset, GPIO tests and bus takeover. Test patterns must mask these bits to zero. Opposite output levels on tied bits would short host output drivers together; the shared resistor does not limit that inter-output current. Set direction/data with the bank disabled and enable only after the prior driver releases. This is a host firmware requirement; no firmware was changed or bench-tested.
+Use 47 kΩ, 1%, ≥0.25 W 0805 SMD resistors on enlarged HandSolder pads. **Preload all tied unused bits LOW before enabling host → DUT, and keep them LOW in every host-driven phase**, including startup, reset, GPIO tests and bus takeover. Test patterns must mask these bits to zero. Opposite output levels on tied bits would short host output drivers together; the shared resistor does not limit that inter-output current. Set direction/data with the bank disabled and enable only after the prior driver releases. This is a host firmware requirement; no firmware was changed or bench-tested.
 
 With the board disconnected from the host and unpowered, verify continuity among each listed group, approximately 47 kΩ from each group to GND, and isolation from other groups and used signal pins. On the host, verify that the tied bits are driven LOW together before power-up and through every direction transition. These measurements remain pending.
 
 The updated layout passes ERC, DRC after ground refill, zero-unrouted checks and schematic/PCB parity. `validation/verify.py` also verifies exact shared-net membership and per-bank resistor values; `reports/unused-bank-pins.json` includes host output zero masks. `reports/pull-down-change-audit.json` confirms the existing component geometry and all other pad nets were preserved. Updated schematic and both copper-layer PDFs were visually reviewed.
+
+Passive assembly was converted to top-side 0805 HandSolder footprints; see
+`../daughter-template/passive-assembly.md` for assembly and part-selection notes.

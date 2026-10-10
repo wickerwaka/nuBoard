@@ -70,7 +70,7 @@
 			(symbol "nuMezzanine_4x34_1_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -226,7 +226,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "TY"
+					(name "TX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -244,7 +244,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "TX"
+					(name "TX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -565,11 +565,48 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "TX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "13"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "TX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "10"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_2_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -725,7 +762,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "LY"
+					(name "LX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -743,7 +780,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "LX"
+					(name "LX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1064,11 +1101,48 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "LX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "115"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "LX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "112"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_3_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -1224,7 +1298,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "BY"
+					(name "BX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1242,7 +1316,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "BX"
+					(name "BX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1563,11 +1637,48 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "BX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "81"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "BX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "78"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_4_1"
 				(rectangle
 					(start -6.35 40.64)
-					(end 7.62 -40.64)
+					(end 7.62 -43.18)
 					(stroke
 						(width 0.254)
 						(type default)
@@ -1723,7 +1834,7 @@
 				(pin passive line
 					(at 11.43 -38.1 180)
 					(length 3.81)
-					(name "RY"
+					(name "RX2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1741,7 +1852,7 @@
 				(pin passive line
 					(at 11.43 -35.56 180)
 					(length 3.81)
-					(name "RX"
+					(name "RX1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2062,7 +2173,44 @@
 						)
 					)
 				)
-			)
+
+(pin passive line
+					(at 11.43 -33.02 180)
+					(length 3.81)
+					(name "RX0"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "47"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+(pin passive line
+					(at 11.43 -40.64 180)
+					(length 3.81)
+					(name "RX3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "44"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+)
 			(symbol "nuMezzanine_4x34_5_1"
 				(rectangle
 					(start -6.35 16.51)
@@ -2093,44 +2241,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "10"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "13"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -2223,44 +2335,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "44"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "47"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -2354,44 +2430,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "78"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "81"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -2449,11 +2489,11 @@
 						)
 					)
 				)
-				(pin no_connect line
-					(at -10.16 -11.43 0)
+				(pin power_in line
+					(at 3.81 -20.32 90)
 					(length 3.81)
 					(hide yes)
-					(name "NC"
+					(name "GND"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2486,44 +2526,8 @@
 						)
 					)
 				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "112"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
-				(pin power_in line
-					(at 3.81 -20.32 90)
-					(length 3.81)
-					(hide yes)
-					(name "GND"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-					(number "115"
-						(effects
-							(font
-								(size 1.27 1.27)
-							)
-						)
-					)
-				)
+
+
 				(pin power_in line
 					(at 3.81 -20.32 90)
 					(length 3.81)
@@ -2581,11 +2585,11 @@
 						)
 					)
 				)
-				(pin no_connect line
-					(at -10.16 -13.97 0)
+				(pin power_in line
+					(at 3.81 -20.32 90)
 					(length 3.81)
 					(hide yes)
-					(name "NC"
+					(name "GND"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -2769,7 +2773,7 @@
 		)
 		(uuid "09787e18-a871-4627-b95b-07fd1afd5a3b")
 	)
-	(label "TX"
+	(label "TX1"
 		(at 36.83 97.79 0)
 		(effects
 			(font
@@ -2819,7 +2823,7 @@
 		)
 		(uuid "16363511-fcae-4202-82b6-5bc6b0fd0478")
 	)
-	(label "LY"
+	(label "LX2"
 		(at 36.83 191.77 0)
 		(effects
 			(font
@@ -2889,7 +2893,7 @@
 		)
 		(uuid "1ecaa85b-8951-49c6-a59f-24752589feb7")
 	)
-	(label "BY"
+	(label "BX2"
 		(at 72.39 100.33 0)
 		(effects
 			(font
@@ -2949,7 +2953,7 @@
 		)
 		(uuid "2a397015-b9b5-4ffc-b363-c5afa4062ab3")
 	)
-	(label "RX"
+	(label "RX1"
 		(at 72.39 189.23 0)
 		(effects
 			(font
@@ -3069,7 +3073,7 @@
 		)
 		(uuid "515fab06-048d-44d1-aebd-cc5bb4defa53")
 	)
-	(label "BX"
+	(label "BX1"
 		(at 72.39 97.79 0)
 		(effects
 			(font
@@ -3299,7 +3303,7 @@
 		)
 		(uuid "837b4f1a-22f8-4787-bb56-72318c9c96b6")
 	)
-	(label "TY"
+	(label "TX2"
 		(at 36.83 100.33 0)
 		(effects
 			(font
@@ -3349,7 +3353,7 @@
 		)
 		(uuid "95cadafe-1e58-43fa-a4f4-b7243c8ff27a")
 	)
-	(label "RY"
+	(label "RX2"
 		(at 72.39 191.77 0)
 		(effects
 			(font
@@ -3529,7 +3533,7 @@
 		)
 		(uuid "d17936cd-eca9-4bc0-962c-189365c7e2a9")
 	)
-	(label "LX"
+	(label "LX1"
 		(at 36.83 189.23 0)
 		(effects
 			(font
@@ -6293,4 +6297,12 @@
 		)
 	)
 	(embedded_fonts no)
+(label "LX0" (at 36.83 186.69 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "f53b9067-000a-4dc2-b0a5-689633bc61bc"))
+(label "LX3" (at 36.83 194.31 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "0b687d48-a8eb-4f38-8b57-bd0395d7b8cf"))
+(label "TX0" (at 36.83 95.25 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "b9051b8d-c3cc-4dd4-a182-2ac3efbbbe53"))
+(label "TX3" (at 36.83 102.87 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "7da5dbeb-c2de-439c-8ad5-027cbaafd22b"))
+(label "RX0" (at 72.39 186.69 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "0a327e20-129e-49cf-9d51-cd91368389e0"))
+(label "RX3" (at 72.39 194.31 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "b1132b2e-85dc-4816-8889-88cfb2b42479"))
+(label "BX0" (at 72.39 95.25 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "8920d56f-f741-41b2-b967-baae1af98c8a"))
+(label "BX3" (at 72.39 102.87 0) (effects (font (size 1.27 1.27)) (justify left bottom)) (uuid "e2a59594-e9bc-4c49-8131-e8267c4fbe9c"))
 )

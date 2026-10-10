@@ -2,7 +2,7 @@
 <export version="E">
   <design>
     <source>/Users/akawaka/Source/nuBoard/hardware/68030/68030.kicad_sch</source>
-    <date>2026-09-13T20:34:54</date>
+    <date>2026-09-26T16:04:54</date>
     <tool>Eeschema 10.0.6-rc2</tool>
     <sheet number="1" name="/" tstamps="/">
       <title_block>
@@ -26,11 +26,11 @@
   <components>
     <comp ref="C1">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -54,11 +54,11 @@
     </comp>
     <comp ref="C2">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -82,11 +82,11 @@
     </comp>
     <comp ref="C3">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -110,11 +110,11 @@
     </comp>
     <comp ref="C4">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -138,11 +138,11 @@
     </comp>
     <comp ref="C5">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -166,11 +166,11 @@
     </comp>
     <comp ref="C6">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -194,11 +194,11 @@
     </comp>
     <comp ref="C7">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -222,11 +222,11 @@
     </comp>
     <comp ref="C8">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -250,11 +250,11 @@
     </comp>
     <comp ref="C9">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -278,11 +278,11 @@
     </comp>
     <comp ref="C10">
       <value>100nF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">X7R</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -306,11 +306,11 @@
     </comp>
     <comp ref="C11">
       <value>330pF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">C0G</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -334,11 +334,11 @@
     </comp>
     <comp ref="C12">
       <value>330pF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">C0G</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -362,11 +362,11 @@
     </comp>
     <comp ref="C13">
       <value>330pF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">C0G</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -390,11 +390,11 @@
     </comp>
     <comp ref="C14">
       <value>330pF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">C0G</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -418,11 +418,11 @@
     </comp>
     <comp ref="C15">
       <value>330pF</value>
-      <footprint>Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">50V</field>
         <field name="Dielectric">C0G</field>
-        <field name="Footprint">Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -446,21 +446,21 @@
     </comp>
     <comp ref="C16">
       <value>10uF</value>
-      <footprint>Capacitor_THT:CP_Radial_D5.0mm_P2.00mm</footprint>
+      <footprint>Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</footprint>
       <fields>
         <field name="Voltage">25V</field>
-        <field name="Dielectric">aluminum electrolytic</field>
-        <field name="Footprint">Capacitor_THT:CP_Radial_D5.0mm_P2.00mm</field>
+        <field name="Dielectric">X7R/X5R MLCC</field>
+        <field name="Footprint">Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
-      <libsource lib="Device" part="C_Polarized" description="Polarized capacitor"/>
+      <libsource lib="Device" part="C" description="Unpolarized capacitor"/>
       <property name="Voltage" value="25V"/>
-      <property name="Dielectric" value="aluminum electrolytic"/>
+      <property name="Dielectric" value="X7R/X5R MLCC"/>
       <property name="Sheetname" value="68030"/>
       <property name="Sheetfile" value="68030.kicad_sch"/>
       <property name="ki_keywords" value="cap capacitor"/>
-      <property name="ki_fp_filters" value="CP_*"/>
+      <property name="ki_fp_filters" value="C_*"/>
       <sheetpath names="/" tstamps="/"/>
       <tstamps>8c66a3e7-8c57-4edd-9dc0-4cea63fce366</tstamps>
       <units>
@@ -484,7 +484,7 @@
       <property name="Sheetname" value="68030"/>
       <property name="Sheetfile" value="68030.kicad_sch"/>
       <sheetpath names="/" tstamps="/"/>
-      <tstamps>e7ffa79b-b82e-4c27-a138-57fd89d1b201 a622b0a1-f7d0-44a8-9943-865e29798b38 f67546d6-df3b-4c32-917a-7b3f96fa96cb e65b68a6-cd97-43f1-9da9-cc304ac295e7 87753ff8-b61f-4463-b30b-93ee26a6b56f</tstamps>
+      <tstamps>f67546d6-df3b-4c32-917a-7b3f96fa96cb e65b68a6-cd97-43f1-9da9-cc304ac295e7 e7ffa79b-b82e-4c27-a138-57fd89d1b201 a622b0a1-f7d0-44a8-9943-865e29798b38 87753ff8-b61f-4463-b30b-93ee26a6b56f</tstamps>
       <units>
         <unit name="A">
           <pins>
@@ -513,8 +513,10 @@
             <pin num="4"/>
             <pin num="3"/>
             <pin num="2"/>
+            <pin num="13"/>
             <pin num="12"/>
             <pin num="11"/>
+            <pin num="10"/>
           </pins>
         </unit>
         <unit name="B">
@@ -544,8 +546,10 @@
             <pin num="106"/>
             <pin num="105"/>
             <pin num="104"/>
+            <pin num="115"/>
             <pin num="114"/>
             <pin num="113"/>
+            <pin num="112"/>
           </pins>
         </unit>
         <unit name="C">
@@ -575,8 +579,10 @@
             <pin num="72"/>
             <pin num="71"/>
             <pin num="70"/>
+            <pin num="81"/>
             <pin num="80"/>
             <pin num="79"/>
+            <pin num="78"/>
           </pins>
         </unit>
         <unit name="D">
@@ -606,34 +612,28 @@
             <pin num="38"/>
             <pin num="37"/>
             <pin num="36"/>
+            <pin num="47"/>
             <pin num="46"/>
             <pin num="45"/>
+            <pin num="44"/>
           </pins>
         </unit>
         <unit name="E">
           <pins>
-            <pin num="102"/>
-            <pin num="136"/>
-            <pin num="112"/>
-            <pin num="10"/>
-            <pin num="13"/>
             <pin num="22"/>
             <pin num="24"/>
             <pin num="33"/>
-            <pin num="135"/>
-            <pin num="126"/>
-            <pin num="44"/>
-            <pin num="47"/>
             <pin num="56"/>
             <pin num="58"/>
             <pin num="67"/>
-            <pin num="124"/>
-            <pin num="78"/>
-            <pin num="81"/>
             <pin num="90"/>
             <pin num="92"/>
             <pin num="101"/>
-            <pin num="115"/>
+            <pin num="102"/>
+            <pin num="124"/>
+            <pin num="126"/>
+            <pin num="135"/>
+            <pin num="136"/>
             <pin num="1"/>
             <pin num="103"/>
             <pin num="69"/>
@@ -646,9 +646,9 @@
     </comp>
     <comp ref="R1">
       <value>47k</value>
-      <footprint>Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal</footprint>
+      <footprint>Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder</footprint>
       <fields>
-        <field name="Footprint">Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal</field>
+        <field name="Footprint">Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -670,9 +670,9 @@
     </comp>
     <comp ref="R2">
       <value>47k</value>
-      <footprint>Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal</footprint>
+      <footprint>Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder</footprint>
       <fields>
-        <field name="Footprint">Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal</field>
+        <field name="Footprint">Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder</field>
         <field name="Datasheet"/>
         <field name="Description"/>
       </fields>
@@ -1029,23 +1029,6 @@
         <pin num="2" name="" type="passive"/>
       </pins>
     </libpart>
-    <libpart lib="Device" part="C_Polarized">
-      <description>Polarized capacitor</description>
-      <footprints>
-        <fp>CP_*</fp>
-      </footprints>
-      <fields>
-        <field name="Reference">C</field>
-        <field name="Value">C_Polarized</field>
-        <field name="Footprint"/>
-        <field name="Datasheet"/>
-        <field name="Description">Polarized capacitor</field>
-      </fields>
-      <pins>
-        <pin num="1" name="" type="passive"/>
-        <pin num="2" name="" type="passive"/>
-      </pins>
-    </libpart>
     <libpart lib="Device" part="R">
       <description>Resistor</description>
       <footprints>
@@ -1081,10 +1064,10 @@
         <pin num="7" name="T22" type="passive"/>
         <pin num="8" name="T21" type="passive"/>
         <pin num="9" name="T20" type="passive"/>
-        <pin num="10" name="GND" type="power_in"/>
-        <pin num="11" name="TY" type="passive"/>
-        <pin num="12" name="TX" type="passive"/>
-        <pin num="13" name="GND" type="power_in"/>
+        <pin num="10" name="TX3" type="passive"/>
+        <pin num="11" name="TX2" type="passive"/>
+        <pin num="12" name="TX1" type="passive"/>
+        <pin num="13" name="TX0" type="passive"/>
         <pin num="14" name="T17" type="passive"/>
         <pin num="15" name="T16" type="passive"/>
         <pin num="16" name="T15" type="passive"/>
@@ -1115,10 +1098,10 @@
         <pin num="41" name="R22" type="passive"/>
         <pin num="42" name="R21" type="passive"/>
         <pin num="43" name="R20" type="passive"/>
-        <pin num="44" name="GND" type="power_in"/>
-        <pin num="45" name="RY" type="passive"/>
-        <pin num="46" name="RX" type="passive"/>
-        <pin num="47" name="GND" type="power_in"/>
+        <pin num="44" name="RX3" type="passive"/>
+        <pin num="45" name="RX2" type="passive"/>
+        <pin num="46" name="RX1" type="passive"/>
+        <pin num="47" name="RX0" type="passive"/>
         <pin num="48" name="R17" type="passive"/>
         <pin num="49" name="R16" type="passive"/>
         <pin num="50" name="R15" type="passive"/>
@@ -1149,10 +1132,10 @@
         <pin num="75" name="B22" type="passive"/>
         <pin num="76" name="B21" type="passive"/>
         <pin num="77" name="B20" type="passive"/>
-        <pin num="78" name="GND" type="power_in"/>
-        <pin num="79" name="BY" type="passive"/>
-        <pin num="80" name="BX" type="passive"/>
-        <pin num="81" name="GND" type="power_in"/>
+        <pin num="78" name="BX3" type="passive"/>
+        <pin num="79" name="BX2" type="passive"/>
+        <pin num="80" name="BX1" type="passive"/>
+        <pin num="81" name="BX0" type="passive"/>
         <pin num="82" name="B17" type="passive"/>
         <pin num="83" name="B16" type="passive"/>
         <pin num="84" name="B15" type="passive"/>
@@ -1173,7 +1156,7 @@
         <pin num="99" name="B01" type="passive"/>
         <pin num="100" name="B00" type="passive"/>
         <pin num="101" name="GND" type="power_in"/>
-        <pin num="102" name="NC" type="no_connect"/>
+        <pin num="102" name="GND" type="power_in"/>
         <pin num="103" name="VCC_BL" type="power_out"/>
         <pin num="104" name="L27" type="passive"/>
         <pin num="105" name="L26" type="passive"/>
@@ -1183,10 +1166,10 @@
         <pin num="109" name="L22" type="passive"/>
         <pin num="110" name="L21" type="passive"/>
         <pin num="111" name="L20" type="passive"/>
-        <pin num="112" name="GND" type="power_in"/>
-        <pin num="113" name="LY" type="passive"/>
-        <pin num="114" name="LX" type="passive"/>
-        <pin num="115" name="GND" type="power_in"/>
+        <pin num="112" name="LX3" type="passive"/>
+        <pin num="113" name="LX2" type="passive"/>
+        <pin num="114" name="LX1" type="passive"/>
+        <pin num="115" name="LX0" type="passive"/>
         <pin num="116" name="L17" type="passive"/>
         <pin num="117" name="L16" type="passive"/>
         <pin num="118" name="L15" type="passive"/>
@@ -1207,7 +1190,7 @@
         <pin num="133" name="L01" type="passive"/>
         <pin num="134" name="L00" type="passive"/>
         <pin num="135" name="GND" type="power_in"/>
-        <pin num="136" name="NC" type="no_connect"/>
+        <pin num="136" name="GND" type="power_in"/>
       </pins>
     </libpart>
   </libparts>
@@ -1319,12 +1302,12 @@
       <node ref="J1" pin="70" pinfunction="B27_70" pintype="passive"/>
       <node ref="U1" pin="N13" pinfunction="D8_N13" pintype="bidirectional"/>
     </net>
-    <net code="25" name="/BX" class="Default">
-      <node ref="J1" pin="80" pinfunction="BX_80" pintype="passive"/>
+    <net code="25" name="/BX1" class="Default">
+      <node ref="J1" pin="80" pinfunction="BX1_80" pintype="passive"/>
       <node ref="U1" pin="H12" pinfunction="~{CDIS}_H12" pintype="input"/>
     </net>
-    <net code="26" name="/BY" class="Default">
-      <node ref="J1" pin="79" pinfunction="BY_79" pintype="passive"/>
+    <net code="26" name="/BX2" class="Default">
+      <node ref="J1" pin="79" pinfunction="BX2_79" pintype="passive"/>
       <node ref="U1" pin="H13" pinfunction="~{IPL0}_H13" pintype="input"/>
     </net>
     <net code="27" name="/L0_UNUSED" class="Default">
@@ -1418,12 +1401,12 @@
       <node ref="J1" pin="125" pinfunction="LCLK_125" pintype="output"/>
       <node ref="U1" pin="E1" pinfunction="CLK_E1" pintype="input"/>
     </net>
-    <net code="49" name="/LX" class="Default">
-      <node ref="J1" pin="114" pinfunction="LX_114" pintype="passive"/>
+    <net code="49" name="/LX1" class="Default">
+      <node ref="J1" pin="114" pinfunction="LX1_114" pintype="passive"/>
       <node ref="U1" pin="C3" pinfunction="~{BGACK}_C3" pintype="input"/>
     </net>
-    <net code="50" name="/LY" class="Default">
-      <node ref="J1" pin="113" pinfunction="LY_113" pintype="passive"/>
+    <net code="50" name="/LX2" class="Default">
+      <node ref="J1" pin="113" pinfunction="LX2_113" pintype="passive"/>
       <node ref="U1" pin="G12" pinfunction="~{IPL2}_G12" pintype="input"/>
     </net>
     <net code="51" name="/R00" class="Default">
@@ -1519,12 +1502,12 @@
       <node ref="J1" pin="36" pinfunction="R27_36" pintype="passive"/>
       <node ref="U1" pin="A2" pinfunction="A0_A2" pintype="tri_state"/>
     </net>
-    <net code="74" name="/RX" class="Default">
-      <node ref="J1" pin="46" pinfunction="RX_46" pintype="passive"/>
+    <net code="74" name="/RX1" class="Default">
+      <node ref="J1" pin="46" pinfunction="RX1_46" pintype="passive"/>
       <node ref="U1" pin="G13" pinfunction="~{IPL1}_G13" pintype="input"/>
     </net>
-    <net code="75" name="/RY" class="Default">
-      <node ref="J1" pin="45" pinfunction="RY_45" pintype="passive"/>
+    <net code="75" name="/RX2" class="Default">
+      <node ref="J1" pin="45" pinfunction="RX2_45" pintype="passive"/>
       <node ref="U1" pin="F13" pinfunction="~{MMUDIS}_F13" pintype="input"/>
     </net>
     <net code="76" name="/T00" class="Default">
@@ -1623,12 +1606,12 @@
       <node ref="J1" pin="2" pinfunction="T27_2" pintype="passive"/>
       <node ref="U1" pin="B3" pinfunction="A31_B3" pintype="tri_state"/>
     </net>
-    <net code="100" name="/TX" class="Default">
-      <node ref="J1" pin="12" pinfunction="TX_12" pintype="passive"/>
+    <net code="100" name="/TX1" class="Default">
+      <node ref="J1" pin="12" pinfunction="TX1_12" pintype="passive"/>
       <node ref="U1" pin="F12" pinfunction="~{RESET}_F12" pintype="open_collector"/>
     </net>
-    <net code="101" name="/TY" class="Default">
-      <node ref="J1" pin="11" pinfunction="TY_11" pintype="passive"/>
+    <net code="101" name="/TX2" class="Default">
+      <node ref="J1" pin="11" pinfunction="TX2_11" pintype="passive"/>
       <node ref="U1" pin="A1" pinfunction="~{BR}_A1" pintype="input"/>
     </net>
     <net code="102" name="/VCC_TL" class="Default">
@@ -1677,25 +1660,19 @@
       <node ref="C7" pin="2" pintype="passive"/>
       <node ref="C8" pin="2" pintype="passive"/>
       <node ref="C9" pin="2" pintype="passive"/>
-      <node ref="J1" pin="10" pinfunction="GND_10" pintype="power_in"/>
       <node ref="J1" pin="101" pinfunction="GND_101" pintype="power_in"/>
-      <node ref="J1" pin="112" pinfunction="GND_112" pintype="power_in"/>
-      <node ref="J1" pin="115" pinfunction="GND_115" pintype="power_in"/>
+      <node ref="J1" pin="102" pinfunction="GND_102" pintype="power_in"/>
       <node ref="J1" pin="124" pinfunction="GND_124" pintype="power_in"/>
       <node ref="J1" pin="126" pinfunction="GND_126" pintype="power_in"/>
-      <node ref="J1" pin="13" pinfunction="GND_13" pintype="power_in"/>
       <node ref="J1" pin="135" pinfunction="GND_135" pintype="power_in"/>
+      <node ref="J1" pin="136" pinfunction="GND_136" pintype="power_in"/>
       <node ref="J1" pin="22" pinfunction="GND_22" pintype="power_in"/>
       <node ref="J1" pin="24" pinfunction="GND_24" pintype="power_in"/>
       <node ref="J1" pin="33" pinfunction="GND_33" pintype="power_in"/>
-      <node ref="J1" pin="44" pinfunction="GND_44" pintype="power_in"/>
-      <node ref="J1" pin="47" pinfunction="GND_47" pintype="power_in"/>
       <node ref="J1" pin="56" pinfunction="GND_56" pintype="power_in"/>
       <node ref="J1" pin="58" pinfunction="GND_58" pintype="power_in"/>
       <node ref="J1" pin="67" pinfunction="GND_67" pintype="power_in"/>
       <node ref="J1" pin="68" pinfunction="5V_SELECT_68" pintype="input"/>
-      <node ref="J1" pin="78" pinfunction="GND_78" pintype="power_in"/>
-      <node ref="J1" pin="81" pinfunction="GND_81" pintype="power_in"/>
       <node ref="J1" pin="90" pinfunction="GND_90" pintype="power_in"/>
       <node ref="J1" pin="92" pinfunction="GND_92" pintype="power_in"/>
       <node ref="R1" pin="2" pintype="passive"/>
@@ -1718,43 +1695,61 @@
     <net code="104" name="unconnected-(J1A-TCLK-Pad23)" class="Default">
       <node ref="J1" pin="23" pinfunction="TCLK_23" pintype="output+no_connect"/>
     </net>
-    <net code="105" name="unconnected-(J1C-BCLK-Pad91)" class="Default">
+    <net code="105" name="unconnected-(J1A-TX0-Pad13)" class="Default">
+      <node ref="J1" pin="13" pinfunction="TX0_13" pintype="passive+no_connect"/>
+    </net>
+    <net code="106" name="unconnected-(J1A-TX3-Pad10)" class="Default">
+      <node ref="J1" pin="10" pinfunction="TX3_10" pintype="passive+no_connect"/>
+    </net>
+    <net code="107" name="unconnected-(J1B-LX0-Pad115)" class="Default">
+      <node ref="J1" pin="115" pinfunction="LX0_115" pintype="passive+no_connect"/>
+    </net>
+    <net code="108" name="unconnected-(J1B-LX3-Pad112)" class="Default">
+      <node ref="J1" pin="112" pinfunction="LX3_112" pintype="passive+no_connect"/>
+    </net>
+    <net code="109" name="unconnected-(J1C-BCLK-Pad91)" class="Default">
       <node ref="J1" pin="91" pinfunction="BCLK_91" pintype="output+no_connect"/>
     </net>
-    <net code="106" name="unconnected-(J1D-RCLK-Pad57)" class="Default">
+    <net code="110" name="unconnected-(J1C-BX0-Pad81)" class="Default">
+      <node ref="J1" pin="81" pinfunction="BX0_81" pintype="passive+no_connect"/>
+    </net>
+    <net code="111" name="unconnected-(J1C-BX3-Pad78)" class="Default">
+      <node ref="J1" pin="78" pinfunction="BX3_78" pintype="passive+no_connect"/>
+    </net>
+    <net code="112" name="unconnected-(J1D-RCLK-Pad57)" class="Default">
       <node ref="J1" pin="57" pinfunction="RCLK_57" pintype="output+no_connect"/>
     </net>
-    <net code="107" name="unconnected-(J1E-3V3_SELECT-Pad34)" class="Default">
+    <net code="113" name="unconnected-(J1D-RX0-Pad47)" class="Default">
+      <node ref="J1" pin="47" pinfunction="RX0_47" pintype="passive+no_connect"/>
+    </net>
+    <net code="114" name="unconnected-(J1D-RX3-Pad44)" class="Default">
+      <node ref="J1" pin="44" pinfunction="RX3_44" pintype="passive+no_connect"/>
+    </net>
+    <net code="115" name="unconnected-(J1E-3V3_SELECT-Pad34)" class="Default">
       <node ref="J1" pin="34" pinfunction="3V3_SELECT_34" pintype="input+no_connect"/>
     </net>
-    <net code="108" name="unconnected-(J1E-NC-Pad102)" class="Default">
-      <node ref="J1" pin="102" pinfunction="NC_102" pintype="no_connect"/>
-    </net>
-    <net code="109" name="unconnected-(J1E-NC-Pad136)" class="Default">
-      <node ref="J1" pin="136" pinfunction="NC_136" pintype="no_connect"/>
-    </net>
-    <net code="110" name="unconnected-(J1E-VCC_BL-Pad103)" class="Default">
+    <net code="116" name="unconnected-(J1E-VCC_BL-Pad103)" class="Default">
       <node ref="J1" pin="103" pinfunction="VCC_BL_103" pintype="power_out+no_connect"/>
     </net>
-    <net code="111" name="unconnected-(J1E-VCC_BR-Pad69)" class="Default">
+    <net code="117" name="unconnected-(J1E-VCC_BR-Pad69)" class="Default">
       <node ref="J1" pin="69" pinfunction="VCC_BR_69" pintype="power_out+no_connect"/>
     </net>
-    <net code="112" name="unconnected-(J1E-VCC_TR-Pad35)" class="Default">
+    <net code="118" name="unconnected-(J1E-VCC_TR-Pad35)" class="Default">
       <node ref="J1" pin="35" pinfunction="VCC_TR_35" pintype="power_out+no_connect"/>
     </net>
-    <net code="113" name="unconnected-(U1H-NC-PadD5)" class="Default">
+    <net code="119" name="unconnected-(U1H-NC-PadD5)" class="Default">
       <node ref="U1" pin="D5" pinfunction="NC_D5" pintype="no_connect"/>
     </net>
-    <net code="114" name="unconnected-(U1H-NC-PadE12)" class="Default">
+    <net code="120" name="unconnected-(U1H-NC-PadE12)" class="Default">
       <node ref="U1" pin="E12" pinfunction="NC_E12" pintype="no_connect"/>
     </net>
-    <net code="115" name="unconnected-(U1H-NC-PadF4)" class="Default">
+    <net code="121" name="unconnected-(U1H-NC-PadF4)" class="Default">
       <node ref="U1" pin="F4" pinfunction="NC_F4" pintype="no_connect"/>
     </net>
-    <net code="116" name="unconnected-(U1H-NC-PadF10)" class="Default">
+    <net code="122" name="unconnected-(U1H-NC-PadF10)" class="Default">
       <node ref="U1" pin="F10" pinfunction="NC_F10" pintype="no_connect"/>
     </net>
-    <net code="117" name="unconnected-(U1H-NC-PadK5)" class="Default">
+    <net code="123" name="unconnected-(U1H-NC-PadK5)" class="Default">
       <node ref="U1" pin="K5" pinfunction="NC_K5" pintype="no_connect"/>
     </net>
   </nets>

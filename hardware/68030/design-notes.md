@@ -13,7 +13,7 @@ Open `68030.kicad_pro`. The project includes its schematic, PCB, local CPU symbo
 | `MC68030RC.pdf` | [NXP RC package extract](https://www.nxp.com/docs/en/package-information/MC68030RC.pdf), manual pp.14-2 and 14-4, CASE789C-01 | Exact sparse grid, power pins and mechanical dimensions |
 | `TI-SN74LVCH8T245.pdf` | Texas Instruments SCES637D, May2026; [manufacturer datasheet](https://www.ti.com/lit/ds/symlink/sn74lvch8t245.pdf) | Host bank CMOS thresholds and keeper loading |
 | `TI-SN74LVC1T45.pdf` | Texas Instruments SCES515N, June2024; [manufacturer datasheet](https://www.ti.com/lit/ds/symlink/sn74lvc1t45.pdf) | Host clock translation |
-| `TI-TXS0108E.pdf` | Texas Instruments SCES642L, November2024; [manufacturer datasheet](https://www.ti.com/lit/ds/symlink/txs0108e.pdf) | X/Y internal pulls, open-drain operation and rate limit |
+| `TI-TXS0108E.pdf` | Texas Instruments SCES642L, November2024; [manufacturer datasheet](https://www.ti.com/lit/ds/symlink/txs0108e.pdf) | X0–X3 internal pulls, open-drain operation and rate limit |
 
 URLs and SHA-256 hashes are recorded in `datasheets/sources.json`. The supplied marking is preserved exactly. Motorola's ordering table identifies RC as the ceramic PGA and 25 as the 25 MHz grade; the saved documents do not separately decode the trailing B into a verified silicon mask/errata identity. No different package or speed grade has been substituted. Record the physical mask marking during bench work if mask-specific errata are needed.
 
@@ -25,7 +25,7 @@ The RC drawing is a **bottom view**. The footprint mirrors its columns to obtain
 
 CASE789C-01 specifies 2.54 mm pitch, 34.04–35.05 mm body dimensions and 0.44–0.56 mm pin diameter. The footprint uses 1.50 mm pads and 0.80 mm finished holes, leaving nominal 0.35 mm annular rings and 0.12 mm radial clearance around a maximum-size CPU pin. Its body envelope allows the maximum package size. The design is for **direct through-hole mounting of the CPU package**. No socket has been selected or mechanically qualified; a socket option must independently match this sparse grid, tail dimensions, body clearance and host mating height. The CPU pin fit does not verify a socket's tails.
 
-Keep components outside the CPU body area. C1–C15 are ceramic through-hole disc footprints, 5.00 mm lead spacing, body ≤5.0 mm diameter and ≤2.5 mm thickness; use ≥50 V parts. C16 is a 10 µF, ≥25 V aluminum electrolytic, 5 mm diameter, 2 mm lead spacing; observe its marked positive pin and confirm actual component height against the host assembly. R1/R2 are 47 kΩ, 1%, ≥0.25 W axial DIN0207, 7.62 mm lead spacing.
+Keep components outside the CPU body area. All resistors and capacitors use top-side 0805 SMD HandSolder footprints. C1–C15 remain ceramic, rated ≥50 V; C11–C15 require C0G dielectric. C16 is now a nonpolar 10 µF, ≥25 V X7R/X5R MLCC instead of an electrolytic. Check its effective capacitance at 5 V DC bias when choosing a part. R1/R2 remain 47 kΩ, 1%, ≥0.25 W; select 0805 parts meeting that rating.
 
 ## Supply, decoupling and signal pulls
 
@@ -47,13 +47,13 @@ C1–C10 provide 100 nF ceramic bypassing at L6, K4, K10, H3, H11, F2, F11, D4, 
 
 The five reserved pins D5, E12, F4, F10 and K5 are physically unconnected. No daughter pull establishes a default on a bank-connected CPU input; the host provides valid startup levels. The only daughter resistors are the required shared **47 kΩ pull-downs**: R1 on L00–L03 and R2 on R13–R14. `unused-bank-pins.csv` gives exact connector pads. These groups must never contain used signals or be driven to conflicting levels.
 
-All eight X/Y channels are used. The host TXS0108E provides the pull-ups: its current datasheet specifies approximately 4 kΩ in HIGH and 40 kΩ in LOW, disabled when OE is LOW. At a 4.75 V rail, even the CPU /RESET's 20 µA input leakage causes only about 0.08 V loss with a nominal 4 kΩ high-state pull, comfortably above the CPU's 2.0 V VIH. Low-state pull currents from both rails are modest compared with the CPU's 10.7 mA reset sink test load. These nominal calculations establish why no additional X/Y pull is fitted; actual translator/FPGA sink levels and rise times must still be measured. The 1.2 Mbps open-drain ceiling and capacitance make these suitable for slow mode/arbitration/interrupt controls, not cycle acknowledgements.
+All eight X1/X2 channels are used; the eight additional X0/X3 channels are left unconnected. The host TXS0108E translators provide the pull-ups: their datasheet specifies approximately 4 kΩ in HIGH and 40 kΩ in LOW, disabled when OE is LOW. At a 4.75 V rail, even the CPU /RESET's 20 µA input leakage causes only about 0.08 V loss with a nominal 4 kΩ high-state pull, comfortably above the CPU's 2.0 V VIH. Low-state pull currents from both rails are modest compared with the CPU's 10.7 mA reset sink test load. These nominal calculations establish why no additional sideband pull is fitted; actual translator/FPGA sink levels and rise times must still be measured. The 1.2 Mbps open-drain ceiling and capacitance make these suitable for slow mode/arbitration/interrupt controls, not cycle acknowledgements.
 
 ## Electrical and timing limitations
 
 The direct bank interface has **no guaranteed HIGH margin**: Motorola guarantees VOH≥2.4 V at IOH=400 µA, while the host SN74LVCH8T245 uses CMOS input thresholds around 0.7×VCCB (3.5 V at 5 V). The host's keeper can also require up to 0.9 mA overdrive, exceeding that CPU source-current guarantee. This limitation is stronger than a missing timing estimate: the datasheet DC bounds themselves do not establish compatibility. No corrective buffer or signal pull has been added. Passing ERC/DRC or a successful sample test does not create a worst-case guarantee.
 
-CPU ordinary inputs accept VIH≥2.0 V and VIL≤0.8 V. Drive bank inputs with the host's correctly selected 5 V-side levels. X/Y remains sink-or-release only; all eight internal pull-ups must be available while relied on. /RESET must be observable when asserted by the CPU itself.
+CPU ordinary inputs accept VIH≥2.0 V and VIL≤0.8 V. Drive bank inputs with the host's correctly selected 5 V-side levels. X0–X3 remains sink-or-release only; all eight internal pull-ups must be available while relied on. /RESET must be observable when asserted by the CPU itself.
 
 The 25 MHz grade is specified for **12.5–25 MHz**, not DC. LCLK alone drives E1. At the CPU pin, the clock period is 40–80 ns, high/low pulse widths use the datasheet's 19–61 ns limits at the stated measurement levels, and rise/fall must be ≤4 ns. The routed clock is 36.484 mm; no complete host/socket/board timing budget is claimed. Start at 12.5 MHz with asynchronous waits; do not assume a sub-12.5 MHz slow clock is valid.
 
@@ -63,7 +63,7 @@ For the 25 MHz column, address/data output delays can reach 20 ns, bus float del
 
 The actual template outline is 99.06×99.06 mm. All 136 connector pad locations, orientations, sizes and drills, connector origin, and Edge.Cuts are preserved. U1 is centered at (150.99,96.00) mm, orientation180°.
 
-Exactly two copper layers are used. All **600 routed segments are 0.20 mm**; all **nine through-vias are 0.50 mm diameter / 0.30 mm drill**. F.Cu carries the VCC_TL pour, B.Cu the GND plane. Five supply fill regions and eight ground fill regions are connected through routed copper, plated pads and vias; unconnected islands are removed. Every required power and ground pad passes connectivity checking. A local F.Cu path joins J11 ground to L8 around the existing control routes. Solid zone connections are used at C5/C7 supply pads, C8 ground, U1 D10 supply and U1 J11 ground where thermal geometry was unsuitable; these are explicit physical connections, not disabled DRC rules.
+Exactly two copper layers are used. After the 0805 conversion, all **619 routed segments are 0.20 mm**; all **50 through-vias are 0.50 mm diameter / 0.30 mm drill**. F.Cu carries the VCC_TL pour, B.Cu the GND plane. Four supply fill regions and four ground fill regions are connected through routed copper, plated pads and vias; unconnected islands are removed. Every required power and ground pad passes connectivity checking. A local F.Cu path joins J11 ground to L8 around the existing control routes. The SMD capacitors use thermal reliefs and external return vias; existing solid connections at U1 D10 supply and U1 J11 ground remain where thermal geometry was unsuitable. DRC rules have not been disabled.
 
 The project used installed KiCad10 and Freerouting1.9.0, with placement/assignment optimization over four CPU rotations. Local route and plane corrections followed the initial route. Konnect0.2.0 and available CLI capabilities were checked; board work used the explicit new project path without live edits to other open projects. The CLI identifies 10.0.6; its embedded pcbnew reports 10.0.6-rc2.
 
@@ -81,3 +81,6 @@ The project used installed KiCad10 and Freerouting1.9.0, with placement/assignme
 | Hardware/firmware/timing | Not tested; pending |
 
 Review exports are `reports/schematic.pdf` and `reports/pcb.pdf`. Machine-readable results are `reports/erc.json`, `drc.json`, `verification.json`, `bank-profiles.json`, `unused-bank-pins.json` and `netlist.xml`. Run `validation/verify.py` with KiCad's Python after regenerating the netlist and checks; it uses the repository template for preservation checks. `bench-test.md` supplies the pending qualification procedure. Fabrication ordering and firmware implementation are outside this deliverable.
+
+Passive assembly was converted to top-side 0805 HandSolder footprints; see
+`../daughter-template/passive-assembly.md` for assembly and part-selection notes.

@@ -23,24 +23,24 @@ All twelve banks are used. Physical bank-bit permutations are in `pin-map.csv`; 
 
 L00–L03 are tied together and pulled to GND through R1=47 kΩ. R13–R14 are tied together and pulled to GND through R2=47 kΩ. These groups are separate nets. Mask L0 output bits with `~0x0F` before any H enable. R1 stays D, but its unused bits must also be LOW if a future mode ever enables host drive; the present design forbids R1 H because its used outputs remain driven. Conflicting levels on tied unused bits short host drivers together; the resistor is only between the shared node and GND. See `unused-bank-pins.csv` and `reports/unused-bank-pins.json`.
 
-## X/Y and clock allocation
+## X0–X3 and clock allocation
 
 | Resource | CPU function | Startup / ordinary inactive state |
 | --- | --- | --- |
-| TX | /RESET, bidirectional open-drain | Host asserts LOW during reset, then releases |
-| TY | /BR | Released HIGH |
-| LX | /BGACK | Released HIGH |
-| LY | /IPL2 | Released HIGH |
-| RX | /IPL1 | Released HIGH |
-| BY | /IPL0 | Released HIGH |
-| BX | /CDIS | Assert LOW during initial uncached testing; release for cache tests |
-| RY | /MMUDIS | Assert LOW during initial untranslated testing; release for MMU tests |
+| TX1 | /RESET, bidirectional open-drain | Host asserts LOW during reset, then releases |
+| TX2 | /BR | Released HIGH |
+| LX1 | /BGACK | Released HIGH |
+| LX2 | /IPL2 | Released HIGH |
+| RX1 | /IPL1 | Released HIGH |
+| BX2 | /IPL0 | Released HIGH |
+| BX1 | /CDIS | Assert LOW during initial uncached testing; release for cache tests |
+| RX2 | /MMUDIS | Assert LOW during initial untranslated testing; release for MMU tests |
 | LCLK | CLK | Continuous qualified 12.5–25 MHz |
 | TCLK, BCLK, RCLK | Unused | No-connect |
 
-The seven non-reset X/Y signals are CPU inputs and are driven as open-drain by the host. /RESET is the CPU's only bidirectional open-drain control; /HALT is an input, not a 68000-style bidirectional halt output. The host must assert LOW or release, never actively drive HIGH on X/Y. Keep the TXS0108E enabled whenever its pulls are needed. Its internal pull-ups are the fitted pull-up source; no extra daughter X/Y pulls are required by the DC leakage budget. Do not use X/Y for cycle-rate acknowledgements.
+The seven non-reset X0–X3 signals are CPU inputs and are driven as open-drain by the host. /RESET is the CPU's only bidirectional open-drain control; /HALT is an input, not a 68000-style bidirectional halt output. The host must assert LOW or release, never actively drive HIGH on X0–X3. Keep the TXS0108E enabled whenever its pulls are needed. Its internal pull-ups are the fitted pull-up source; no extra daughter X0–X3 pulls are required by the DC leakage budget. Do not use X0–X3 for cycle-rate acknowledgements.
 
-Limit X/Y changes to slow control events. For initial qualification, allow at least 10 µs for released signals to settle before relying on their sampled HIGH, and verify the actual socket waveform. This is a conservative host scheduling allowance, not a replacement for measurements or CPU timing requirements. The TXS0108E's specified open-drain rate is at most 1.2 Mbps. Change interrupt codes deliberately; transition through inactive 111 between requested levels to avoid transient priority codes. Sample and synchronize external status as required by the host design.
+Limit X0–X3 changes to slow control events. For initial qualification, allow at least 10 µs for released signals to settle before relying on their sampled HIGH, and verify the actual socket waveform. This is a conservative host scheduling allowance, not a replacement for measurements or CPU timing requirements. The TXS0108E's specified open-drain rate is at most 1.2 Mbps. Change interrupt codes deliberately; transition through inactive 111 between requested levels to avoid transient priority codes. Sample and synchronize external status as required by the host design.
 
 ## Reset and power transitions
 
@@ -76,10 +76,10 @@ Interrupt acknowledge is a distinct CPU-space cycle. Support either /AVEC autove
 
 ## Arbitration and takeover
 
-For normal three-wire arbitration, assert /BR through TY while completing the current CPU cycle. Observe /BG LOW through R1, /AS HIGH, inactive termination signals and /BGACK HIGH. Allow the specified CPU bus float interval before assuming ownership: the 25 MHz grade permits up to 40 ns after the relevant rising edge for address/data/function and bus-control release (specifications 7 and 16). Add host translator disable/enable delays, synchronization and board timing; /BG alone is insufficient.
+For normal three-wire arbitration, assert /BR through TX2 while completing the current CPU cycle. Observe /BG LOW through R1, /AS HIGH, inactive termination signals and /BGACK HIGH. Allow the specified CPU bus float interval before assuming ownership: the 25 MHz grade permits up to 40 ns after the relevant rising edge for address/data/function and bus-control release (specifications 7 and 16). Add host translator disable/enable delays, synchronization and board timing; /BG alone is insufficient.
 
-Assert /BGACK through LX and hold it LOW for the entire takeover. Release /BR only after ownership is established. Switch only the released address, data and tri-state control banks to H for conductor tests, with all tied unused bits LOW. Keep R1 receiving throughout. A stable held voltage does not prove the CPU is still driving; the host bus keepers retain released levels.
+Assert /BGACK through LX1 and hold it LOW for the entire takeover. Release /BR only after ownership is established. Switch only the released address, data and tri-state control banks to H for conductor tests, with all tied unused bits LOW. Keep R1 receiving throughout. A stable held voltage does not prove the CPU is still driving; the host bus keepers retain released levels.
 
-Before releasing /BGACK, disable every takeover-driving bank and wait for its outputs to reach high impedance. Return the address/control banks to D and leave data Z. Release /BGACK, qualify its actual HIGH through the slow X/Y path, then serve subsequent CPU cycles. Never resume a host-drive test merely because a timer expired.
+Before releasing /BGACK, disable every takeover-driving bank and wait for its outputs to reach high impedance. Return the address/control banks to D and leave data Z. Release /BGACK, qualify its actual HIGH through the slow X0–X3 path, then serve subsequent CPU cycles. Never resume a host-drive test merely because a timer expired.
 
 For explicit single-wire arbitration tests, /BGACK may force release without /BR. Motorola requires observing /AS HIGH on **two consecutive rising clock edges after /BGACK is recognized LOW**, plus the bus float/translator margins, before driving. Preserve the integrity of read-modify-write operands; ordinary /BR grants are deferred while /RMC is active. /HALT alone leaves control outputs driven inactive and is not a takeover grant. Follow manual §7.7 for arbitration overlapping retries, lock sequences or cache execution.

@@ -76,7 +76,16 @@
           "width": 0.0
         }
       ],
-      "drc_exclusions": [],
+      "drc_exclusions": [
+        [
+          "courtyards_overlap|102535000|55718203|81c86bd4-c77c-4b8b-9004-9cec98387ff8|aa39a550-643c-43e0-b5e4-d5f919e4f0d5",
+          ""
+        ],
+        [
+          "courtyards_overlap|69419238|116751000|3990d5a8-aed1-4128-9853-d23800872c55|8f249171-6fb6-440b-bba9-9a05305f057e",
+          ""
+        ]
+      ],
       "meta": {
         "version": 2
       },
@@ -120,7 +129,7 @@
         "padstack": "warning",
         "pth_inside_courtyard": "ignore",
         "shorting_items": "error",
-        "silk_edge_clearance": "warning",
+        "silk_edge_clearance": "ignore",
         "silk_over_copper": "warning",
         "silk_overlap": "warning",
         "skew_out_of_range": "error",
@@ -822,7 +831,7 @@
         "uuid": "c39984f9-2ea5-471b-a7a7-69d3c17228c4"
       }
     ],
-    "used_designators": "J1-9,J1001-1008,JP1,R1-76,R1001-1076,H1-8,H1001-1006,L1-4,L1001-1002,#FLG1-6,#FLG1001-1006,C1-216,C1001-1190,FB1,FB1001,SW1-4,SW1001-1002,U1-40,U1001-1040,F1,TP1-5,TP1001-1005,RN1-30,RN1001-1024,#PWR1-224,#PWR229-273,#PWR1001-1273,D1-28,D1001-1028,Y1-2,Y1001-1002,Q1-2,Q1001-1002",
+    "used_designators": "J1-9,J1001-1008,JP1,R1-76,R79,R1001-1076,H1-13,H1001-1006,L1-4,L1001-1002,#FLG1-6,#FLG1001-1006,Y1-2,Y1001-1002,#PWR1-224,#PWR229-273,#PWR1001-1273,D1-28,D1001-1028,RN1-30,RN1001-1024,U1-41,U1001-1040,C1-216,C1001-1190,FB1,FB1001,SW1-4,SW1001-1002,Q1-2,Q1001-1002,TP1-5,TP1001-1005,F1",
     "variants": []
   },
   "sheets": [

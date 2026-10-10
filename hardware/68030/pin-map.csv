@@ -57,22 +57,22 @@ H1,~{BERR},input,L15,118,L1,L15,See bank-modes.md; no DUT-input default pull
 H2,~{HALT},input,L14,119,L1,L14,See bank-modes.md; no DUT-input default pull
 H3,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C4
 H11,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C5
-H12,~{CDIS},input,BX,80,-,BX,Open-drain host drive; internal TXS pulls; see bank-modes.md
-H13,~{IPL0},input,BY,79,-,BY,Open-drain host drive; internal TXS pulls; see bank-modes.md
+H12,~{CDIS},input,BX1,80,-,BX1,Open-drain host drive; internal TXS pulls; see bank-modes.md
+H13,~{IPL0},input,BX2,79,-,BX2,Open-drain host drive; internal TXS pulls; see bank-modes.md
 G1,~{STERM},input,L13,120,L1,L13,See bank-modes.md; no DUT-input default pull
 G2,~{DSACK1},input,L12,121,L1,L12,See bank-modes.md; no DUT-input default pull
 G3,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
 G11,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
-G12,~{IPL2},input,LY,113,-,LY,Open-drain host drive; internal TXS pulls; see bank-modes.md
-G13,~{IPL1},input,RX,46,-,RX,Open-drain host drive; internal TXS pulls; see bank-modes.md
+G12,~{IPL2},input,LX2,113,-,LX2,Open-drain host drive; internal TXS pulls; see bank-modes.md
+G13,~{IPL1},input,RX1,46,-,RX1,Open-drain host drive; internal TXS pulls; see bank-modes.md
 F1,~{DSACK0},input,L11,122,L1,L11,See bank-modes.md; no DUT-input default pull
 F2,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C6
 F3,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
 F4,NC,no_connect,-,-,-,-,Manufacturer NC: leave physically unconnected
 F10,NC,no_connect,-,-,-,-,Manufacturer NC: leave physically unconnected
 F11,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C7
-F12,~{RESET},open_collector,TX,12,-,TX,Open-drain host drive; internal TXS pulls; see bank-modes.md
-F13,~{MMUDIS},input,RY,45,-,RY,Open-drain host drive; internal TXS pulls; see bank-modes.md
+F12,~{RESET},open_collector,TX1,12,-,TX1,Open-drain host drive; internal TXS pulls; see bank-modes.md
+F13,~{MMUDIS},input,RX2,45,-,RX2,Open-drain host drive; internal TXS pulls; see bank-modes.md
 E1,CLK,input,LCLK,125,-,LCLK,See bank-modes.md; no DUT-input default pull
 E2,~{AVEC},input,L10,123,L1,L10,See bank-modes.md; no DUT-input default pull
 E3,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
@@ -90,7 +90,7 @@ D12,A3,tri_state,R21,42,R2,R21,See bank-modes.md; no DUT-input default pull
 D13,A2,tri_state,R20,43,R2,R20,See bank-modes.md; no DUT-input default pull
 C1,FC1,tri_state,L05,129,L0,L05,See bank-modes.md; no DUT-input default pull
 C2,~{CIOUT},tri_state,L20,111,L2,L20,See bank-modes.md; no DUT-input default pull
-C3,~{BGACK},input,LX,114,-,LX,Open-drain host drive; internal TXS pulls; see bank-modes.md
+C3,~{BGACK},input,LX1,114,-,LX1,Open-drain host drive; internal TXS pulls; see bank-modes.md
 C4,A1,tri_state,R26,37,R2,R26,See bank-modes.md; no DUT-input default pull
 C5,GND,power_in,GND,135,-,GND,See bank-modes.md; no DUT-input default pull
 C6,VCC,power_in,VCC_TL,1,-,VCC_TL,100nF local bypass C10
@@ -114,7 +114,7 @@ B10,A14,tri_state,T07,25,T0,T07,See bank-modes.md; no DUT-input default pull
 B11,A12,tri_state,T04,28,T0,T04,See bank-modes.md; no DUT-input default pull
 B12,A8,tri_state,T01,31,T0,T01,See bank-modes.md; no DUT-input default pull
 B13,A7,tri_state,R25,38,R2,R25,See bank-modes.md; no DUT-input default pull
-A1,~{BR},input,TY,11,-,TY,Open-drain host drive; internal TXS pulls; see bank-modes.md
+A1,~{BR},input,TX2,11,-,TX2,Open-drain host drive; internal TXS pulls; see bank-modes.md
 A2,A0,tri_state,R27,36,R2,R27,See bank-modes.md; no DUT-input default pull
 A3,A30,tri_state,T26,3,T2,T26,See bank-modes.md; no DUT-input default pull
 A4,A28,tri_state,T24,5,T2,T24,See bank-modes.md; no DUT-input default pull

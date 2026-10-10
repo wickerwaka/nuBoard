@@ -1,11 +1,11 @@
 Reference,Quantity,Value/part,Package,Notes
 U1,1,Z84C0008PEG,"DIP-40, 15.24mm rows",Use matching through-hole socket
-C1,1,100nF ceramic 50V,Radial THT 5mm pitch,Local supply bypass
-R1 R2 R4 R5,4,10k >=0.25W,DIN0207 axial THT 7.62mm pitch,X/Y input pull-ups
+C1,1,100nF ceramic 50V,0805 SMD HandSolder,Local supply bypass
+R1 R2 R4 R5,4,10k >=0.25W,0805 SMD HandSolder,X0–X3 input pull-ups
 J1,1,nuBoard mezzanine mating contact set,Four 34-position rows 2.54mm pitch,Match existing host
-R6,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,B1 shared unused-bit pull-down to GND
-R7,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,B2 shared unused-bit pull-down to GND
-R8,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,L0 shared unused-bit pull-down to GND
-R9,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,R0 shared unused-bit pull-down to GND
-R10,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,R1 shared unused-bit pull-down to GND
-R11,1,47k 1% >=0.25W,DIN0207 axial THT 7.62mm pitch,R2 shared unused-bit pull-down to GND
+R6,1,47k 1% >=0.25W,0805 SMD HandSolder,B1 shared unused-bit pull-down to GND
+R7,1,47k 1% >=0.25W,0805 SMD HandSolder,B2 shared unused-bit pull-down to GND
+R8,1,47k 1% >=0.25W,0805 SMD HandSolder,L0 shared unused-bit pull-down to GND
+R9,1,47k 1% >=0.25W,0805 SMD HandSolder,R0 shared unused-bit pull-down to GND
+R10,1,47k 1% >=0.25W,0805 SMD HandSolder,R1 shared unused-bit pull-down to GND
+R11,1,47k 1% >=0.25W,0805 SMD HandSolder,R2 shared unused-bit pull-down to GND

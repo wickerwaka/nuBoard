@@ -37,7 +37,7 @@ assert all(x.GetWidth(p.F_Cu)==p.FromMM(.5) and x.GetDrillValue()==p.FromMM(.3) 
 assert all(x.GetLayer() in (p.F_Cu,p.B_Cu) for x in tracks)
 zones=list(b.Zones());assert len(zones)==1 and zones[0].GetNetname()=='GND' and zones[0].GetLayer()==p.B_Cu
 assert zones[0].GetIslandRemovalMode()==p.ISLAND_REMOVAL_MODE_ALWAYS
-assert zones[0].GetFilledPolysList(p.B_Cu).OutlineCount()==2
+assert zones[0].GetFilledPolysList(p.B_Cu).OutlineCount()==1
 # Physical library correspondence and actual package dimensions.
 assert len(up)==68
 assert all(pad.GetDrillSize()==p.VECTOR2I(p.FromMM(.8),p.FromMM(.8)) for pad in up.values())
@@ -51,7 +51,7 @@ assert all(up[str(n)].GetNetname()=='GND' for n in (2,18,36,52))
 e=json.load((P/'reports/erc.json').open());d=json.load((P/'reports/drc.json').open())
 assert not any(s['violations'] for s in e['sheets'])
 assert not d['violations'] and not d['unconnected_items'] and not d['schematic_parity']
-summary={'status':'layout_checks_passed_clock_qualification_pending','kicad_version':p.Version(),'dut':'uPD70136L-16, PLCC68 socket','supply_v':5,'clock_mhz':None,'speed_suffix':'L-16','cpu_rated_max_mhz':16,'dut_pins_verified':68,'connector_pads_unchanged':len(j),'outline_unchanged':True,'voltage_select':{'5V_SELECT':'direct GND','3V3_SELECT':'unconnected on daughter board'},'schematic_netlist_matches_pcb':True,'copper_layers':2,'track_segments':len(tracks),'track_width_mm':.2,'vias':len(vias),'via_preset_mm':{'diameter':.5,'drill':.3},'ground_plane_layer':'B.Cu','ground_plane_fill_polygons':2,'ground_plane_connectivity':'DRC verified; regions joined through C1 ground pad','erc_violations':0,'drc_violations':0,'unrouted_connections':0,'schematic_parity_issues':0,'hardware_tested':False,'bus_hold_drive_margin':'Not guaranteed; direct connection retained by user instruction','voltage_select_firmware':'Required 5V interpretation documented; host firmware not available'}
+summary={'status':'layout_checks_passed_clock_qualification_pending','kicad_version':p.Version(),'dut':'uPD70136L-16, PLCC68 socket','supply_v':5,'clock_mhz':None,'speed_suffix':'L-16','cpu_rated_max_mhz':16,'dut_pins_verified':68,'connector_pads_unchanged':len(j),'outline_unchanged':True,'voltage_select':{'5V_SELECT':'direct GND','3V3_SELECT':'unconnected on daughter board'},'schematic_netlist_matches_pcb':True,'copper_layers':2,'track_segments':len(tracks),'track_width_mm':.2,'vias':len(vias),'via_preset_mm':{'diameter':.5,'drill':.3},'ground_plane_layer':'B.Cu','ground_plane_fill_polygons':1,'ground_plane_connectivity':'DRC verified; one continuous B.Cu ground region with external passive return vias','erc_violations':0,'drc_violations':0,'unrouted_connections':0,'schematic_parity_issues':0,'hardware_tested':False,'bus_hold_drive_margin':'Not guaranteed; direct connection retained by user instruction','voltage_select_firmware':'Required 5V interpretation documented; host firmware not available'}
 from bank_pulls import verify_bank_pulls
 summary['unused_bank_pulls']=verify_bank_pulls(P,b)
 (P/'reports/verification.json').write_text(json.dumps(summary,indent=2)+'\n');print(json.dumps(summary,indent=2))

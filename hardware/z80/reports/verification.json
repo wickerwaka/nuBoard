@@ -13,9 +13,9 @@
   },
   "schematic_netlist_matches_pcb": true,
   "copper_layers": 2,
-  "track_segments": 148,
+  "track_segments": 227,
   "track_width_mm": 0.2,
-  "vias": 1,
+  "vias": 17,
   "via_preset_mm": {
     "diameter": 0.5,
     "drill": 0.3

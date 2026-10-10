@@ -51,7 +51,7 @@ assert {pin for pin in up if up[pin].GetNetname()=='/VCC_TL'}=={'50','76','80'}
 assert {pin for pin in up if up[pin].GetNetname()=='GND'}=={'42','77'}
 for ref in ['C1','C2','C3']:
  assert byref[ref].GetValue()=='100nF' and expected[ref,'1']=='/VCC_TL' and expected[ref,'2']=='GND'
- cp=pads(byref[ref]);assert abs(p.ToMM((cp['1'].GetPosition()-cp['2'].GetPosition()).EuclideanNorm())-5)<1e-6
+ cp=pads(byref[ref]);assert abs(p.ToMM((cp['1'].GetPosition()-cp['2'].GetPosition()).EuclideanNorm())-2.075)<1e-6
 # Independent Assmann 84-way socket grid derivation. NEC numbering: top 75..84,1..11; left 12..32; bottom33..53; right54..74.
 assert byref['U1'].GetOrientationDegrees()==0
 for key,pa in up.items():
@@ -73,7 +73,7 @@ assert all(x.GetWidth(p.F_Cu)==p.FromMM(.5) and x.GetDrillValue()==p.FromMM(.3) 
 zones=list(b.Zones());assert len(zones)==2 and {z.GetLayer() for z in zones}=={p.F_Cu,p.B_Cu}
 assert all(z.GetNetname()=='GND' and z.GetIslandRemovalMode()==p.ISLAND_REMOVAL_MODE_ALWAYS for z in zones)
 assert next(z for z in zones if z.GetLayer()==p.F_Cu).GetFilledPolysList(p.F_Cu).OutlineCount()==1
-assert sum(x.GetNetname()=='GND' for x in vias)==3
+assert sum(x.GetNetname()=='GND' for x in vias)==13
 assert up['77'].GetLocalZoneConnection()==p.ZONE_CONNECTION_FULL
 # Compatible physical drive direction in all documented operating profiles.
 bankpins=collections.defaultdict(list)
@@ -112,7 +112,7 @@ profile('GPIO_transition_disabled',{'T2':'Z','T0':'Z','R2':'Z','B2':'Z','R0':'Z'
 e=json.loads((P/'reports/erc.json').read_text());d=json.loads((P/'reports/drc.json').read_text())
 assert not any(s['violations'] for s in e['sheets']);assert not d['violations'] and not d['unconnected_items'] and not d['schematic_parity']
 lengths={net:round(sum(p.ToMM(x.GetLength()) for x in tracks if x.GetNetname()==net),3) for net in ['/RCLK','/TCLK']}
-summary={'status':'layout_verified_bench_test_pending','dut':'NEC uPD70337L-8-xxx, PLCC84; factory table suffix unknown','supply_v':5,'socket':'Assmann A-CCS 084-Z-T','kicad_version':p.Version(),'dut_pins_verified':84,'connector_pads_unchanged':136,'mechanical_outline_unchanged':True,'schematic_netlist_matches_pcb':True,'voltage_select':{'5V_SELECT':'direct GND','3V3_SELECT':'floating and unrouted'},'copper_layers':2,'track_segments':len(tracks),'track_width_mm':.2,'vias':len(vias),'via_diameter_mm':.5,'via_drill_mm':.3,'ground_stitch_vias':3,'ground_pours':{'F.Cu':1,'B.Cu':3},'ground_connectivity':'All ground pads connected; B.Cu subregions joined through F.Cu, plated pads and stitching; unconnected islands removed','clock_track_lengths_mm':lengths,'bank_profiles_checked':len(profiles),'erc_violations':0,'drc_violations':0,'unrouted_connections':0,'schematic_parity_issues':0,'hardware_tested':False,'timing_qualified':False,'bus_keeper_margin':'Not guaranteed; direct experimental interface selected by user','security_translation_table':'Unknown until physical suffix/table is identified'}
+summary={'status':'layout_verified_bench_test_pending','dut':'NEC uPD70337L-8-xxx, PLCC84; factory table suffix unknown','supply_v':5,'socket':'Assmann A-CCS 084-Z-T','kicad_version':p.Version(),'dut_pins_verified':84,'connector_pads_unchanged':136,'mechanical_outline_unchanged':True,'schematic_netlist_matches_pcb':True,'voltage_select':{'5V_SELECT':'direct GND','3V3_SELECT':'floating and unrouted'},'copper_layers':2,'track_segments':len(tracks),'track_width_mm':.2,'vias':len(vias),'via_diameter_mm':.5,'via_drill_mm':.3,'ground_stitch_vias':13,'ground_pours':{'F.Cu':1,'B.Cu':3},'ground_connectivity':'All ground pads connected; B.Cu subregions joined through F.Cu, plated pads and stitching; unconnected islands removed','clock_track_lengths_mm':lengths,'bank_profiles_checked':len(profiles),'erc_violations':0,'drc_violations':0,'unrouted_connections':0,'schematic_parity_issues':0,'hardware_tested':False,'timing_qualified':False,'bus_keeper_margin':'Not guaranteed; direct experimental interface selected by user','security_translation_table':'Unknown until physical suffix/table is identified'}
 from bank_pulls import verify_bank_pulls
 summary['unused_bank_pulls']=verify_bank_pulls(P,b)
 (P/'reports/verification.json').write_text(json.dumps(summary,indent=2)+'\n');(P/'reports/bank-profiles.json').write_text(json.dumps(profiles,indent=2)+'\n');print(json.dumps(summary,indent=2))

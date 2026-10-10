@@ -21,7 +21,7 @@ The interface is direct. Bank direction/enable is shared by all eight bits; unus
 | R1 | PT0–PT7 | H, digital low/high stimulation of comparator inputs |
 | B1 | RxD0, RxD1, /CTS1, N//S, P10/NMI, P11//INTP0, P12//INTP1, /RESET | H throughout operation; every pin is an input |
 
-No entire bank is unused. Unused bank bits are tied together within each bank and share a 47 kΩ pull-down. All eight X/Y pins are marked no-connect. LCLK/BCLK are unused. The exact bit permutation and connector pad numbers are in `pin-map.csv`; the bank bit number is not generally the CPU data/address bit number.
+No entire bank is unused. Unused bank bits are tied together within each bank and share a 47 kΩ pull-down. All sixteen X0–X3 pins are marked no-connect. LCLK/BCLK are unused. The exact bit permutation and connector pad numbers are in `pin-map.csv`; the bank bit number is not generally the CPU data/address bit number.
 
 ## Initial host levels
 
@@ -96,7 +96,7 @@ To change a group from input to output: disable its host bank first, wait for tr
 
 X1 pin 78 = RCLK, X2 pin 79 = TCLK. Drive complementary phases of one source, never unrelated clocks. NEC's illustrated external-clock circuit adds one inverter delay in the X2 path; qualify both waveforms at the CPU pins. Meet X1's 20 ns maximum rise/fall time and minimum 20 ns high/low widths. Use a 4–16 MHz source; PRC selects division by 2, 4 or 8, with CPU clock no faster than 8 MHz. Begin at 4 MHz input and a slow documented division for bench bring-up. This is not evidence that arbitrary single-stepping or a stopped external clock during normal execution is supported.
 
-5V_SELECT is grounded, 3V3_SELECT is floating. Host control must select a 5 V DUT rail. All X/Y channels are unused; their pull configuration is immaterial to this design.
+5V_SELECT is grounded, 3V3_SELECT is floating. Host control must select a 5 V DUT rail. All X0–X3 channels are unused; their pull configuration is immaterial to this design.
 
 ## Unused-bit drive rule for every profile
 

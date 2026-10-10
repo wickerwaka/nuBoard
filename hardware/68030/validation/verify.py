@@ -60,7 +60,7 @@ for pin in ['34','35','69','103']:
 for i in range(1,17):
  ref=f'C{i}';want='100nF' if i<=10 else '330pF' if i<=15 else '10uF'
  assert fs[ref].GetValue()==want and expected[ref,'1']=='/VCC_TL' and expected[ref,'2']=='GND'
- pp=pads(fs[ref]);spacing=2 if i==16 else 5;assert abs(p.ToMM((pp['1'].GetPosition()-pp['2'].GetPosition()).EuclideanNorm())-spacing)<1e-6
+ pp=pads(fs[ref]);spacing=2.075;assert abs(p.ToMM((pp['1'].GetPosition()-pp['2'].GetPosition()).EuclideanNorm())-spacing)<1e-6
 track=[x for x in b.GetTracks() if not isinstance(x,p.PCB_VIA)];vias=[x for x in b.GetTracks() if isinstance(x,p.PCB_VIA)]
 assert b.GetCopperLayerCount()==2
 assert all(x.GetLayer() in [p.F_Cu,p.B_Cu] and x.GetWidth()==p.FromMM(.2) for x in track)

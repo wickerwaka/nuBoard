@@ -54,7 +54,7 @@
       (symbol "nuMezzanine_4x34_1_1" 
         (rectangle 
           (start -6.35 40.64) 
-          (end 7.62 -40.64) 
+          (end 7.62 -43.18)
           (stroke 
             (width 0.254) 
             (type default)) 
@@ -151,7 +151,7 @@
         (pin passive line 
           (at 11.43 -38.1 180) 
           (length 3.81) 
-          (name "TY" 
+          (name "TX2"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -162,7 +162,7 @@
         (pin passive line 
           (at 11.43 -35.56 180) 
           (length 3.81) 
-          (name "TX" 
+          (name "TX1"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -356,11 +356,34 @@
           (number "32" 
             (effects 
               (font 
-                (size 1.27 1.27)))))) 
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -33.02 180)
+          (length 3.81)
+          (name "TX0"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "13"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -40.64 180)
+          (length 3.81)
+          (name "TX3"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "10"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+)
       (symbol "nuMezzanine_4x34_2_1" 
         (rectangle 
           (start -6.35 40.64) 
-          (end 7.62 -40.64) 
+          (end 7.62 -43.18)
           (stroke 
             (width 0.254) 
             (type default)) 
@@ -457,7 +480,7 @@
         (pin passive line 
           (at 11.43 -38.1 180) 
           (length 3.81) 
-          (name "LY" 
+          (name "LX2"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -468,7 +491,7 @@
         (pin passive line 
           (at 11.43 -35.56 180) 
           (length 3.81) 
-          (name "LX" 
+          (name "LX1"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -662,11 +685,34 @@
           (number "134" 
             (effects 
               (font 
-                (size 1.27 1.27)))))) 
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -33.02 180)
+          (length 3.81)
+          (name "LX0"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "115"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -40.64 180)
+          (length 3.81)
+          (name "LX3"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "112"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+)
       (symbol "nuMezzanine_4x34_3_1" 
         (rectangle 
           (start -6.35 40.64) 
-          (end 7.62 -40.64) 
+          (end 7.62 -43.18)
           (stroke 
             (width 0.254) 
             (type default)) 
@@ -763,7 +809,7 @@
         (pin passive line 
           (at 11.43 -38.1 180) 
           (length 3.81) 
-          (name "BY" 
+          (name "BX2"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -774,7 +820,7 @@
         (pin passive line 
           (at 11.43 -35.56 180) 
           (length 3.81) 
-          (name "BX" 
+          (name "BX1"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -968,11 +1014,34 @@
           (number "100" 
             (effects 
               (font 
-                (size 1.27 1.27)))))) 
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -33.02 180)
+          (length 3.81)
+          (name "BX0"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "81"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -40.64 180)
+          (length 3.81)
+          (name "BX3"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "78"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+)
       (symbol "nuMezzanine_4x34_4_1" 
         (rectangle 
           (start -6.35 40.64) 
-          (end 7.62 -40.64) 
+          (end 7.62 -43.18)
           (stroke 
             (width 0.254) 
             (type default)) 
@@ -1069,7 +1138,7 @@
         (pin passive line 
           (at 11.43 -38.1 180) 
           (length 3.81) 
-          (name "RY" 
+          (name "RX2"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -1080,7 +1149,7 @@
         (pin passive line 
           (at 11.43 -35.56 180) 
           (length 3.81) 
-          (name "RX" 
+          (name "RX1"
             (effects 
               (font 
                 (size 1.27 1.27)))) 
@@ -1274,347 +1343,282 @@
           (number "66" 
             (effects 
               (font 
-                (size 1.27 1.27)))))) 
-      (symbol "nuMezzanine_4x34_5_1" 
-        (rectangle 
-          (start -6.35 16.51) 
-          (end 7.62 -16.51) 
-          (stroke 
-            (width 0.254) 
-            (type default)) 
-          (fill 
-            (type background))) 
-        (pin power_out line 
-          (at 11.43 13.97 180) 
-          (length 3.81) 
-          (name "VCC_TL" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "1" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "10" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "13" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "22" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "24" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "33" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin input line 
-          (at 11.43 0 180) 
-          (length 3.81) 
-          (name "3V3_SELECT" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "34" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_out line 
-          (at 11.43 6.35 180) 
-          (length 3.81) 
-          (name "VCC_TR" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "35" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "44" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "47" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "56" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "58" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "67" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin input line 
-          (at 11.43 -2.54 180) 
-          (length 3.81) 
-          (name "5V_SELECT" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "68" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_out line 
-          (at 11.43 8.89 180) 
-          (length 3.81) 
-          (name "VCC_BR" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "69" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "78" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "81" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "90" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "92" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "101" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin no_connect line 
-          (at -10.16 -11.43 0) 
-          (length 3.81) 
-          (hide yes) 
-          (name "NC" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "102" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_out line 
-          (at 11.43 11.43 180) 
-          (length 3.81) 
-          (name "VCC_BL" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "103" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "112" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "115" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "124" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "126" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin power_in line 
-          (at 3.81 -20.32 90) 
-          (length 3.81) 
-          (hide yes) 
-          (name "GND" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "135" 
-            (effects 
-              (font 
-                (size 1.27 1.27))))) 
-        (pin no_connect line 
-          (at -10.16 -13.97 0) 
-          (length 3.81) 
-          (hide yes) 
-          (name "NC" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))) 
-          (number "136" 
-            (effects 
-              (font 
-                (size 1.27 1.27)))))) 
-      (embedded_fonts no)) 
-    (symbol "power:GND" 
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -33.02 180)
+          (length 3.81)
+          (name "RX0"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "47"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+(pin passive line
+          (at 11.43 -40.64 180)
+          (length 3.81)
+          (name "RX3"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "44"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+)
+      (symbol "nuMezzanine_4x34_5_1"
+        (rectangle
+          (start -6.35 16.51)
+          (end 7.62 -16.51)
+          (stroke
+            (width 0.254)
+            (type default))
+          (fill
+            (type background)))
+        (pin power_out line
+          (at 11.43 13.97 180)
+          (length 3.81)
+          (name "VCC_TL"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+
+
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "22"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "24"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "33"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin input line
+          (at 11.43 0 180)
+          (length 3.81)
+          (name "3V3_SELECT"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "34"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_out line
+          (at 11.43 6.35 180)
+          (length 3.81)
+          (name "VCC_TR"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "35"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+
+
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "56"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "58"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "67"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin input line
+          (at 11.43 -2.54 180)
+          (length 3.81)
+          (name "5V_SELECT"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "68"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_out line
+          (at 11.43 8.89 180)
+          (length 3.81)
+          (name "VCC_BR"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "69"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+
+
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "90"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "92"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "101"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "102"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_out line
+          (at 11.43 11.43 180)
+          (length 3.81)
+          (name "VCC_BL"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "103"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+
+
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "124"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "126"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "135"
+            (effects
+              (font
+                (size 1.27 1.27)))))
+        (pin power_in line
+          (at 3.81 -20.32 90)
+          (length 3.81)
+          (hide yes)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27))))
+          (number "136"
+            (effects
+              (font
+                (size 1.27 1.27))))))
+      (embedded_fonts no))
+    (symbol "power:GND"
       (power global) 
       (pin_numbers 
         (hide yes)) 
@@ -6849,7 +6853,7 @@
         (font 
           (size 1.27 1.27)) 
         (justify left))) 
-    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm" 
+    (property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
       (at 218.44 116.84 0) 
       (hide yes) 
       (effects 
@@ -6934,7 +6938,7 @@
         (font 
           (size 1.27 1.27)) 
         (justify left))) 
-    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm" 
+    (property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
       (at 243.84 116.84 0) 
       (hide yes) 
       (effects 
@@ -7019,7 +7023,7 @@
         (font 
           (size 1.27 1.27)) 
         (justify left))) 
-    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm" 
+    (property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
       (at 269.24 116.84 0) 
       (hide yes) 
       (effects 
@@ -7104,7 +7108,7 @@
         (font 
           (size 1.27 1.27)) 
         (justify left))) 
-    (property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm" 
+    (property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
       (at 294.64 116.84 0) 
       (hide yes) 
       (effects 
@@ -7446,7 +7450,7 @@
         (font 
           (size 1.0 1.0)) 
         (justify left))) 
-    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal" 
+    (property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
       (at 129.54 224.79 0) 
       (effects 
         (font 
@@ -7519,7 +7523,7 @@
         (font 
           (size 1.0 1.0)) 
         (justify left))) 
-    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal" 
+    (property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
       (at 170.18 224.79 0) 
       (effects 
         (font 
@@ -7592,7 +7596,7 @@
         (font 
           (size 1.0 1.0)) 
         (justify left))) 
-    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal" 
+    (property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
       (at 210.82 224.79 0) 
       (effects 
         (font 
@@ -7665,7 +7669,7 @@
         (font 
           (size 1.0 1.0)) 
         (justify left))) 
-    (property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal" 
+    (property "Footprint" "Resistor_SMD:R_0805_2012Metric_Pad1.20x1.40mm_HandSolder"
       (at 251.46 224.79 0) 
       (effects 
         (font 
@@ -7723,4 +7727,12 @@
     (effects 
       (font 
         (size 1.1 1.1))) 
-    (uuid "735be3ad-2e7a-4164-a1b0-5d2c6518ea4e")))
+    (uuid "735be3ad-2e7a-4164-a1b0-5d2c6518ea4e"))(no_connect (at 36.83 186.69) (uuid "5610d4ba-2b1d-40a3-b0ff-77c88884e2f6"))
+(no_connect (at 36.83 194.31) (uuid "d4c0f48e-1022-44d1-9c19-cf486191848d"))
+(no_connect (at 36.83 95.25) (uuid "fae7d4fe-c791-470d-ac2c-f86759b2347e"))
+(no_connect (at 36.83 102.87) (uuid "36c0135c-b36c-4619-ada8-6314de6f2d65"))
+(no_connect (at 72.39 186.69) (uuid "52d146c0-f9eb-4496-85a9-f83c3dafaf44"))
+(no_connect (at 72.39 194.31) (uuid "760f4fac-accc-4254-9d97-a7dc7e79e471"))
+(no_connect (at 72.39 95.25) (uuid "c26c77a0-7d8c-4a4a-82df-4adb9a5bca03"))
+(no_connect (at 72.39 102.87) (uuid "c6ea8b7f-9475-490e-866f-4e2fc3b2ed48"))
+)
