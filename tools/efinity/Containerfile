@@ -1,0 +1,61 @@
+# Efinity command-line toolchain for Apple Container (or any OCI runtime).
+#
+# Built by tools/efinity/setup-container.sh, which stages the Efinix base
+# release as efinity.tar.bz2 and the update patch as patch.zip in the build
+# context.  Efinity ships only x86-64 Linux binaries, so the image is always
+# linux/amd64; on Apple silicon it runs under Rosetta.
+
+FROM --platform=linux/amd64 ubuntu:22.04 AS install
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends bzip2 ca-certificates unzip \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY efinity.tar.bz2 patch.zip /tmp/efinity/
+RUN mkdir -p /opt \
+ && tar -xjf /tmp/efinity/efinity.tar.bz2 -C /opt \
+ && rm /tmp/efinity/efinity.tar.bz2
+# The patch installer validates the release manifest with Efinity's bundled
+# Python before overlaying files, so it must run after setup.sh.
+# An empty patch.zip means the base release is installed unpatched.
+RUN cd /tmp/efinity \
+ && if [ -s patch.zip ]; then \
+        unzip -q patch.zip \
+     && bash -c 'set -e; \
+            home=$(ls -d /opt/efinity/*/ | head -n1); \
+            source "$home/bin/setup.sh"; \
+            cd /tmp/efinity/efinity-*-patch; \
+            ./run.sh --silent'; \
+    fi \
+ && rm -rf /tmp/efinity \
+ && ln -s "$(ls -d /opt/efinity/*/ | head -n1)" /opt/efinity/current
+
+FROM --platform=linux/amd64 ubuntu:22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+# Efinity bundles its own Python, Qt and libstdc++.  The packages below cover
+# the system libraries those bundles still expect (Interface Designer loads
+# PyQt6 even in batch mode, hence EGL and sqlite), plus the utilities used by
+# the fpga/*/build.sh wrappers (strings, sha256sum, make).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        binutils ca-certificates coreutils file git locales make perl procps \
+        libdbus-1-3 libegl1 libfontconfig1 libfreetype6 libgl1 libglib2.0-0 libgomp1 \
+        libice6 libsm6 libx11-6 libx11-xcb1 libxext6 libxkbcommon0 \
+        libsqlite3-0 libxft2 libxrender1 libusb-1.0-0 \
+ && sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen \
+ && locale-gen \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=install /opt/efinity /opt/efinity
+COPY efinity-env /usr/local/bin/efinity-env
+
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    EFINITY_HOME=/opt/efinity/current \
+    EFINITY_IN_CONTAINER=1 \
+    QT_QPA_PLATFORM=offscreen
+
+ENTRYPOINT ["/usr/local/bin/efinity-env"]
+CMD ["/bin/bash"]

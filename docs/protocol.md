@@ -93,7 +93,7 @@ and holds IRQ low until a matching ACK. The template applies backpressure
 rather than overwriting either 4 KiB slot.
 
 The template presents each packet to its application as byte-wide
-valid/ready streams with a `last` marker. `aps1604m_psram_echo` demonstrates
+valid/ready streams with a `last` marker. `nuboard_stream_echo` demonstrates
 the interface and can be replaced without modifying the SPI mailbox.
 
 ## Power and recovery

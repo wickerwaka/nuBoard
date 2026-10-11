@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Container entrypoint: load the Efinity environment, then run the command.
+set -e
+source "$EFINITY_HOME/bin/setup.sh"
+exec "$@"

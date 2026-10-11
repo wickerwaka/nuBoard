@@ -6,7 +6,7 @@
     </efx:device_info>
     <efx:design_info def_veri_version="verilog_2k" def_vhdl_version="vhdl_2008" unified_flow="true">
         <efx:top_module name="nuboard_template" />
-        <efx:design_file name="aps1604m_psram.v" version="default" library="default" />
+        <efx:design_file name="nuboard_stream_echo.v" version="default" library="default" />
         <efx:design_file name="nuboard_template.v" version="default" library="default" />
         <efx:top_vhdl_arch name="" />
     </efx:design_info>

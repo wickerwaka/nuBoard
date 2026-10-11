@@ -1,8 +1,8 @@
 # nuBoard T120F484 interface assignment.  Balls come from
 # hardware/main-board/nuBoard.kicad_pcb and fpga_pin_map.csv.
 # Configuration mode: passive SPI x4; timing model: C3.
-# Displaced controls reflect the promoted HyperRAM layout. psram_ce_n remains
-# a legacy output on the now-unused old PSRAM ball, not HyperRAM CS#.
+# Pin assignments match nuBoard revision 2. HyperRAM CS# and RESET# are driven
+# inactive; its CK, RWDS and DQ pins are left unassigned.
 
 design.set_device_property("1A", "VOLTAGE", "3.3", "IOBANK")
 design.set_device_property("1B_1C", "VOLTAGE", "3.3", "IOBANK")
@@ -27,7 +27,8 @@ design.create_output_gpio("heartbeat_out")
 design.create_output_gpio("nstatus_user")
 design.create_output_gpio("dut_isolate")
 design.create_output_gpio("dut_crowbar")
-design.create_output_gpio("psram_ce_n")
+design.create_output_gpio("hr_cs_n")
+design.create_output_gpio("hr_reset_n")
 design.create_output_gpio("xy_oe")
 design.create_output_gpio("f_lclk_en")
 design.create_output_gpio("f_tclk_en")
@@ -42,7 +43,8 @@ design.assign_pkg_pin("heartbeat_out", "U5")
 design.assign_pkg_pin("nstatus_user", "F5")
 design.assign_pkg_pin("dut_isolate", "E5")
 design.assign_pkg_pin("dut_crowbar", "E1")
-design.assign_pkg_pin("psram_ce_n", "AA16")
+design.assign_pkg_pin("hr_cs_n", "G3")
+design.assign_pkg_pin("hr_reset_n", "G2")
 design.assign_pkg_pin("xy_oe", "AB9")
 design.assign_pkg_pin("f_lclk_en", "G4")
 design.assign_pkg_pin("f_tclk_en", "C11")
@@ -56,7 +58,7 @@ design.assign_pkg_pin("parallel_dir[2]", "R2")
 design.assign_pkg_pin("parallel_dir[3]", "A4")
 design.assign_pkg_pin("parallel_dir[4]", "A8")
 design.assign_pkg_pin("parallel_dir[5]", "A12")
-design.assign_pkg_pin("parallel_dir[6]", "C16")
+design.assign_pkg_pin("parallel_dir[6]", "B17")
 design.assign_pkg_pin("parallel_dir[7]", "B19")
 design.assign_pkg_pin("parallel_dir[8]", "V15")
 design.assign_pkg_pin("parallel_dir[9]", "W11")

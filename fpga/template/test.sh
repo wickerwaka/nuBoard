@@ -7,7 +7,7 @@ mkdir -p "$output_dir"
 
 verilator --binary --timing -j 0 --top-module template_tb \
     --Mdir "$output_dir" \
-    "$repo_root/fpga/template/aps1604m_psram.v" \
+    "$repo_root/fpga/template/nuboard_stream_echo.v" \
     "$repo_root/fpga/template/nuboard_template.v" \
     "$repo_root/fpga/template/template_tb.sv"
 "$output_dir/Vtemplate_tb"

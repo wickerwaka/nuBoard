@@ -38,12 +38,12 @@ module nuboard_template (
 
     output wire        dut_isolate,
     output wire        dut_crowbar,
-    output wire        psram_ce_n,
-    output wire        psram_sclk,
-    output wire        psram_si,
-    input  wire        psram_so,
-    output wire        psram_sio2,
-    output wire        psram_sio3,
+
+    // Revision 2 carries a HyperRAM (U2). This template does not use it, so
+    // CS# is held deasserted and RESET# is held inactive. CK, RWDS and DQ0-7
+    // are intentionally not instantiated; the deselected device ignores them.
+    output wire        hr_cs_n,
+    output wire        hr_reset_n,
 
     // Each edge has three independent eight-bit bidirectional banks. The
     // group and bit indices match the board net names: t2[3] is F_T23.
@@ -87,16 +87,13 @@ module nuboard_template (
     output wire        r1_oe_n,
     output wire        r2_oe_n,
 
-    // The TXS0108 provides automatic direction sensing for these sideband
-    // signals, so the eight lines share one enable and have no DIR pins.
-    inout  wire        tx,
-    inout  wire        ty,
-    inout  wire        bx,
-    inout  wire        by,
-    inout  wire        lx,
-    inout  wire        ly,
-    inout  wire        rx,
-    inout  wire        ry,
+    // The TXS0108E translators provide automatic direction sensing for these
+    // sideband signals, so the sixteen lines share one enable and have no DIR
+    // pins. Bit indices match the board nets: tx[2] is F_TX2.
+    inout  wire [3:0]  tx,
+    inout  wire [3:0]  bx,
+    inout  wire [3:0]  lx,
+    inout  wire [3:0]  rx,
     output wire        xy_oe_n,
 
     // Each edge clock has a dedicated signal and external-buffer enable.
@@ -119,8 +116,6 @@ module nuboard_template (
     localparam integer SLOT_BYTES = 4096;
     localparam integer MAX_PAYLOAD = SLOT_BYTES - 16;
 
-    wire psram_initialized;
-
     reg write_toggle = 1'b0;
     reg write_error = 1'b0;
     reg app_seen_write = 1'b0;
@@ -138,8 +133,6 @@ module nuboard_template (
     reg output_sync_2 = 1'b0;
     reg ack_sync_1 = 1'b0;
     reg ack_sync_2 = 1'b0;
-    reg psram_ready_sync_1 = 1'b0;
-    reg psram_ready_sync_2 = 1'b0;
 
     reg [31:0] inbound_length = 32'd0;
     reg [31:0] inbound_tag = 32'd0;
@@ -160,8 +153,6 @@ module nuboard_template (
         app_seen_sync_2 <= app_seen_sync_1;
         output_sync_1 <= output_toggle;
         output_sync_2 <= output_sync_1;
-        psram_ready_sync_1 <= psram_initialized;
-        psram_ready_sync_2 <= psram_ready_sync_1;
     end
 
     always @(posedge clk_50mhz) begin
@@ -212,7 +203,7 @@ module nuboard_template (
                 17: identity_byte = 8'h00;
                 18: identity_byte = 8'h00;
                 19: identity_byte = 8'h00;
-                20: identity_byte = 8'h02; // build 2: PSRAM-backed echo
+                20: identity_byte = 8'h03; // build 3: HyperRAM-era pinout, PSRAM removed
                 21: identity_byte = 8'h00;
                 22: identity_byte = 8'h00;
                 23: identity_byte = 8'h00;
@@ -220,7 +211,7 @@ module nuboard_template (
                 25: identity_byte = 8'h00;
                 26: identity_byte = 8'h00; // ABI minor 0
                 27: identity_byte = 8'h00;
-                28: identity_byte = 8'h03; // echo and PSRAM-backed features
+                28: identity_byte = 8'h01; // echo feature
                 default: identity_byte = 8'h00;
             endcase
         end
@@ -234,8 +225,7 @@ module nuboard_template (
                 CMD_STATUS: begin
                     case (index)
                         0: response_byte = {
-                            3'b000,
-                            psram_ready_sync_2,
+                            4'b0000,
                             inbound_pending_spi,
                             write_error,
                             outbound_pending_spi,
@@ -271,6 +261,7 @@ module nuboard_template (
     reg [12:0] output_index = 13'd0;
     reg application_busy = 1'b0;
     reg copy_data_valid = 1'b0;
+    reg input_finished = 1'b0;
 
     wire application_input_valid;
     wire application_input_ready;
@@ -327,10 +318,9 @@ module nuboard_template (
         copy_index == committed_length[12:0] + 13'd15;
     assign application_output_ready = application_busy;
 
-    // Every accepted byte is written to external PSRAM and read back before
-    // it enters the outbound slot. The echo test therefore checks the memory
-    // command path, address path, data path, and stream backpressure.
-    aps1604m_psram_echo demo_application (
+    // Replace this module with a core-specific application. The streams carry
+    // one mailbox packet at a time and use valid/ready backpressure.
+    nuboard_stream_echo demo_application (
         .clock(clk_50mhz),
         .input_valid(application_input_valid),
         .input_ready(application_input_ready),
@@ -339,14 +329,7 @@ module nuboard_template (
         .output_valid(application_output_valid),
         .output_ready(application_output_ready),
         .output_data(application_output_data),
-        .output_last(application_output_last),
-        .initialized(psram_initialized),
-        .psram_ce_n(psram_ce_n),
-        .psram_sclk(psram_sclk),
-        .psram_si(psram_si),
-        .psram_so(psram_so),
-        .psram_sio2(psram_sio2),
-        .psram_sio3(psram_sio3)
+        .output_last(application_output_last)
     );
 
     // SPI mode 0: sample MOSI on rising edges. CS release leaves the captured
@@ -453,8 +436,10 @@ module nuboard_template (
         end
     end
 
-    // PSRAM-backed echo demonstration application. The pending flags provide
-    // backpressure; neither mailbox slot is overwritten.
+    // Packet sequencing for the application streams. The pending flags provide
+    // backpressure; neither mailbox slot is overwritten. The input and output
+    // sides are independent: an application may finish its output before, at,
+    // or after the cycle in which the last input byte is consumed.
     always @(posedge clk_50mhz) begin
         if (!application_busy && inbound_pending_app &&
             !outbound_pending_app) begin
@@ -463,21 +448,25 @@ module nuboard_template (
             copy_index <= 13'd0;
             output_index <= 13'd0;
             copy_data_valid <= 1'b0;
-        end else if (application_busy && delay_count != 0) begin
-            delay_count <= delay_count - 1'b1;
-        end else if (application_busy && !copy_data_valid) begin
-            // Prime the synchronous inbound RAM read before writing byte zero.
-            copy_data_valid <= 1'b1;
+            input_finished <= 1'b0;
         end else if (application_busy) begin
-            if (application_input_valid && application_input_ready) begin
+            // Input side.
+            if (delay_count != 0) begin
+                delay_count <= delay_count - 1'b1;
+            end else if (!copy_data_valid && !input_finished) begin
+                // Prime the synchronous inbound RAM read before byte zero.
+                copy_data_valid <= 1'b1;
+            end else if (application_input_valid && application_input_ready) begin
                 if (application_input_last) begin
                     copy_data_valid <= 1'b0;
+                    input_finished <= 1'b1;
                     app_seen_write <= write_sync_2;
                 end else begin
                     copy_index <= copy_index + 1'b1;
                 end
             end
 
+            // Output side.
             if (application_output_valid && application_output_ready) begin
                 if (application_output_last) begin
                     application_busy <= 1'b0;
@@ -508,7 +497,7 @@ module nuboard_template (
     // Retaining the sampled input path prevents synthesis from deleting these
     // application-extension ports before package-pin assignment.
     (* syn_keep = "true" *)
-    wire [103:0] dut_input_sample = {
+    wire [111:0] dut_input_sample = {
         t0,
         t1,
         t2,
@@ -522,13 +511,9 @@ module nuboard_template (
         r1,
         r2,
         tx,
-        ty,
         bx,
-        by,
         lx,
-        ly,
-        rx,
-        ry
+        rx
     };
 
     // Disable all twelve parallel translators. DIR is held low only to give
@@ -572,6 +557,11 @@ module nuboard_template (
     assign lclk_en = 1'b0;
     assign rclk = 1'b0;
     assign rclk_en = 1'b0;
+
+    // Keep the HyperRAM deselected and out of reset until an application
+    // drives it.
+    assign hr_cs_n = 1'b1;
+    assign hr_reset_n = 1'b1;
 
     // Safe board-level controls inherited from the heartbeat proof of concept.
     assign dut_isolate = 1'b1;

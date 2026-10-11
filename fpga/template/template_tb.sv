@@ -1,85 +1,5 @@
 `timescale 1ns/1ps
 
-// SPI-only behavioral model for the command subset used by the template.
-// Keeping the model independent of the controller ensures the echo test fails
-// if command bits, address bits, write data, or read sampling are incorrect.
-module aps1604m_spi_model (
-    input  wire ce_n,
-    input  wire sclk,
-    input  wire si,
-    output reg  so
-);
-    reg [7:0] memory [0:255];
-    reg [7:0] command;
-    reg [20:0] address;
-    reg [7:0] write_shift;
-    integer bit_count;
-    integer read_bit;
-
-    integer reset_enable_count = 0;
-    integer reset_count = 0;
-    integer write_count = 0;
-    integer read_count = 0;
-    reg reset_enabled = 1'b0;
-
-    initial begin
-        so = 1'b0;
-        command = 8'd0;
-        address = 21'd0;
-        write_shift = 8'd0;
-        bit_count = 0;
-        read_bit = 0;
-    end
-
-    always @(negedge ce_n) begin
-        command = 8'd0;
-        address = 21'd0;
-        write_shift = 8'd0;
-        bit_count = 0;
-        read_bit = 0;
-        so = 1'b0;
-    end
-
-    always @(posedge sclk) begin
-        if (!ce_n) begin
-            if (bit_count < 8) begin
-                command = {command[6:0], si};
-            end else if (bit_count < 32) begin
-                address = {address[19:0], si};
-            end else if (command == 8'h02) begin
-                write_shift = {write_shift[6:0], si};
-
-                if (bit_count == 39)
-                    memory[address[7:0]] = write_shift;
-            end
-
-            bit_count = bit_count + 1;
-        end
-    end
-
-    always @(negedge sclk) begin
-        if (!ce_n && command == 8'h03 &&
-            bit_count >= 32 && read_bit < 8) begin
-            so = memory[address[7:0]][7 - read_bit];
-            read_bit = read_bit + 1;
-        end
-    end
-
-    always @(posedge ce_n) begin
-        if (command == 8'h66) begin
-            reset_enabled = 1'b1;
-            reset_enable_count = reset_enable_count + 1;
-        end else if (command == 8'h99 && reset_enabled) begin
-            reset_enabled = 1'b0;
-            reset_count = reset_count + 1;
-        end else if (command == 8'h02 && bit_count == 40) begin
-            write_count = write_count + 1;
-        end else if (command == 8'h03 && bit_count == 40) begin
-            read_count = read_count + 1;
-        end
-    end
-endmodule
-
 module template_tb;
     reg clk = 0;
     reg spi_cs_n = 1;
@@ -90,12 +10,8 @@ module template_tb;
     wire fpga_irq_n;
     wire dut_isolate;
     wire dut_crowbar;
-    wire psram_ce_n;
-    wire psram_sclk;
-    wire psram_si;
-    wire psram_so;
-    wire psram_sio2;
-    wire psram_sio3;
+    wire hr_cs_n;
+    wire hr_reset_n;
 
     wire [7:0] t0;
     wire [7:0] t1;
@@ -137,14 +53,10 @@ module template_tb;
     wire r1_oe_n;
     wire r2_oe_n;
 
-    wire tx;
-    wire ty;
-    wire bx;
-    wire by;
-    wire lx;
-    wire ly;
-    wire rx;
-    wire ry;
+    wire [3:0] tx;
+    wire [3:0] bx;
+    wire [3:0] lx;
+    wire [3:0] rx;
     wire xy_oe_n;
 
     wire tclk;
@@ -169,12 +81,8 @@ module template_tb;
         .fpga_irq_n(fpga_irq_n),
         .dut_isolate(dut_isolate),
         .dut_crowbar(dut_crowbar),
-        .psram_ce_n(psram_ce_n),
-        .psram_sclk(psram_sclk),
-        .psram_si(psram_si),
-        .psram_so(psram_so),
-        .psram_sio2(psram_sio2),
-        .psram_sio3(psram_sio3),
+        .hr_cs_n(hr_cs_n),
+        .hr_reset_n(hr_reset_n),
 
         .t0(t0),
         .t1(t1),
@@ -217,13 +125,9 @@ module template_tb;
         .r2_oe_n(r2_oe_n),
 
         .tx(tx),
-        .ty(ty),
         .bx(bx),
-        .by(by),
         .lx(lx),
-        .ly(ly),
         .rx(rx),
-        .ry(ry),
         .xy_oe_n(xy_oe_n),
 
         .tclk(tclk),
@@ -234,13 +138,6 @@ module template_tb;
         .lclk_en(lclk_en),
         .rclk(rclk),
         .rclk_en(rclk_en)
-    );
-
-    aps1604m_spi_model psram (
-        .ce_n(psram_ce_n),
-        .sclk(psram_sclk),
-        .si(psram_si),
-        .so(psram_so)
     );
 
     task automatic spi_byte(input [7:0] tx, output [7:0] rx);
@@ -276,11 +173,12 @@ module template_tb;
 
     initial begin
         #1;
-        if ({dut_isolate, dut_crowbar, psram_ce_n, xy_oe_n} !== 4'b1010)
+        if ({dut_isolate, dut_crowbar, xy_oe_n} !== 3'b100)
             $fatal(1, "unsafe scalar output state");
 
-        if ({psram_sclk, psram_si, psram_sio2, psram_sio3} !== 4'b0000)
-            $fatal(1, "unsafe PSRAM startup state");
+        // The HyperRAM must stay deselected and out of reset.
+        if ({hr_cs_n, hr_reset_n} !== 2'b11)
+            $fatal(1, "HyperRAM is not deselected");
 
         if ({t0_dir, t1_dir, t2_dir,
              b0_dir, b1_dir, b2_dir,
@@ -357,25 +255,18 @@ module template_tb;
             spi_byte(packet[index], received);
         end_transaction();
 
-        // Controller initialization plus nineteen write/read-back operations
-        // complete well within this 300 us bound at 25 MHz SCLK.
-        repeat (15000) @(posedge clk);
+        // The echo needs the start-up delay plus one cycle per byte.
+        repeat (2000) @(posedge clk);
         #1;
         if (fpga_irq_n !== 1'b0)
-            $fatal(1, "PSRAM-backed completion did not assert IRQ");
-
-        if (psram.reset_enable_count != 1 || psram.reset_count != 1)
-            $fatal(1, "PSRAM reset sequence was not observed exactly once");
-
-        if (psram.write_count != 19 || psram.read_count != 19)
-            $fatal(1, "echo did not perform one PSRAM round trip per byte");
+            $fatal(1, "echo completion did not assert IRQ");
 
         start_transaction();
         spi_byte(8'h01, received);
         spi_byte(8'h00, received);
         end_transaction();
-        if (received[4] !== 1'b1)
-            $fatal(1, "mailbox status did not report initialized PSRAM");
+        if (received[7:4] !== 4'b0000)
+            $fatal(1, "reserved mailbox status bits are not zero");
 
         // READ_PACKET is non-destructive before ACK.
         start_transaction();
@@ -383,15 +274,8 @@ module template_tb;
         for (index = 0; index < 19; index = index + 1) begin
             spi_byte(8'h00, received);
             if (received !== packet[index]) begin
-                $display(
-                    "echo[%0d]: expected=%02x received=%02x psram=%02x,%02x,%02x,%02x",
-                    index,
-                    packet[index],
-                    received,
-                    psram.memory[0],
-                    psram.memory[1],
-                    psram.memory[2],
-                    psram.memory[3]);
+                $display("echo[%0d]: expected=%02x received=%02x",
+                         index, packet[index], received);
                 $fatal(1, "echo mismatch at byte %0d", index);
             end
         end
@@ -436,7 +320,7 @@ module template_tb;
             $fatal(1, "heartbeat did not toggle");
 
         $display(
-            "PASS: SPI, CRC, backpressure, PSRAM echo, ACK, IRQ, heartbeat");
+            "PASS: SPI, CRC, backpressure, echo, ACK, IRQ, heartbeat, HyperRAM deselected");
         $finish;
     end
 endmodule

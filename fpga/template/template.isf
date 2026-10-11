@@ -1,7 +1,7 @@
 # nuBoard T120F484 runtime template. Configuration pins are reused as user I/O
 # after entering user mode, as supported by Efinix AN006.
-# Daughter-interface pins reflect the promoted HyperRAM board. The psram_*
-# ports below still belong to the legacy APS1604M controller, not U2 HyperRAM.
+# Pin assignments match nuBoard revision 2 (hardware/main-board/fpga_pin_map.csv
+# and the nuBoard.kicad_pcb netlist). Revision 2 has no PSRAM or LEDs.
 design.set_device_property("1A", "VOLTAGE", "3.3", "IOBANK")
 design.set_device_property("1B_1C", "VOLTAGE", "3.3", "IOBANK")
 design.set_device_property("1D_1E", "VOLTAGE", "3.3", "IOBANK")
@@ -35,12 +35,12 @@ design.assign_pkg_pin("spi_mosi", "R8")
 design.assign_pkg_pin("fpga_irq_n", "F5")
 design.assign_pkg_pin("dut_isolate", "E5")
 design.assign_pkg_pin("dut_crowbar", "E1")
-design.assign_pkg_pin("psram_ce_n", "AA16")
-design.assign_pkg_pin("psram_sclk", "E21")
-design.assign_pkg_pin("psram_si", "E22")
-design.assign_pkg_pin("psram_so", "AB16")
-design.assign_pkg_pin("psram_sio2", "AB17")
-design.assign_pkg_pin("psram_sio3", "E19")
+
+# HyperRAM U2 is not used by this template. Only CS# and RESET# are driven, to
+# keep the device deselected; CK, RWDS and DQ0-7 (M1, L3, K1 L1 H1 J1 G1 K2 L2
+# M3) are left unassigned.
+design.assign_pkg_pin("hr_cs_n", "G3")
+design.assign_pkg_pin("hr_reset_n", "G2")
 
 # Top edge: F_T00 through F_T27 and their three translator controls.
 design.assign_pkg_pin("t0[0]", "B15")
@@ -178,16 +178,23 @@ design.assign_pkg_pin("r2[7]", "A17")
 design.assign_pkg_pin("r2_dir", "B17")
 design.assign_pkg_pin("r2_oe_n", "A16")
 
-# Legacy x/y ports map to X1/X2 on each socket. X0/X3 are assigned in
-# fpga_pin_map.csv but require additional RTL ports before use.
-design.assign_pkg_pin("tx", "F6")
-design.assign_pkg_pin("ty", "P5")
-design.assign_pkg_pin("bx", "AA9")
-design.assign_pkg_pin("by", "W9")
-design.assign_pkg_pin("lx", "E10")
-design.assign_pkg_pin("ly", "E12")
-design.assign_pkg_pin("rx", "V10")
-design.assign_pkg_pin("ry", "W10")
+# Sideband X0-X3 on each socket (F_TX0..F_TX3, F_BX0.., F_LX0.., F_RX0..).
+design.assign_pkg_pin("tx[0]", "E6")
+design.assign_pkg_pin("tx[1]", "F6")
+design.assign_pkg_pin("tx[2]", "P5")
+design.assign_pkg_pin("tx[3]", "E8")
+design.assign_pkg_pin("bx[0]", "AB8")
+design.assign_pkg_pin("bx[1]", "AA9")
+design.assign_pkg_pin("bx[2]", "W9")
+design.assign_pkg_pin("bx[3]", "AB10")
+design.assign_pkg_pin("lx[0]", "D9")
+design.assign_pkg_pin("lx[1]", "E10")
+design.assign_pkg_pin("lx[2]", "E12")
+design.assign_pkg_pin("lx[3]", "F10")
+design.assign_pkg_pin("rx[0]", "V11")
+design.assign_pkg_pin("rx[1]", "V10")
+design.assign_pkg_pin("rx[2]", "W10")
+design.assign_pkg_pin("rx[3]", "AA10")
 design.assign_pkg_pin("xy_oe_n", "AB9")
 
 # Edge clock signals and their external-buffer enables.

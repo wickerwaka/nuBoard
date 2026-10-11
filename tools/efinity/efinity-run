@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Run a command with the Efinity toolchain.
+#
+#   tools/efinity/efinity-run efx_run --prj -f compile heartbeat ...
+#   tools/efinity/efinity-run              # interactive shell
+#
+# On Linux with a native install (EFINITY_HOME/bin/setup.sh present) the
+# command runs directly.  Otherwise it runs in the Apple Container image built
+# by setup-container.sh.  The repository is mounted at the same path inside the
+# container and the current directory is preserved, so absolute and relative
+# paths behave identically either way.
+#
+# Environment:
+#   EFINITY_IMAGE              image to use        (nuboard-efinity:latest)
+#   EFINITY_CONTAINER_MEMORY   container memory    (8G)
+#   EFINITY_CONTAINER_CPUS     container CPUs      (all host CPUs)
+#   EFINITY_USE_CONTAINER=1    use the container even with a native install
+set -euo pipefail
+
+[[ $# -gt 0 ]] || set -- bash
+
+# Already inside the container: nothing to wrap.
+if [[ -n "${EFINITY_IN_CONTAINER:-}" ]]; then
+    exec "$@"
+fi
+
+if [[ "$(uname -s)" == Linux && -z "${EFINITY_USE_CONTAINER:-}" \
+      && -n "${EFINITY_HOME:-}" && -f "$EFINITY_HOME/bin/setup.sh" ]]; then
+    source "$EFINITY_HOME/bin/setup.sh"
+    exec "$@"
+fi
+
+if ! command -v container >/dev/null; then
+    echo "error: no native Efinity install (set EFINITY_HOME) and the Apple" \
+         "'container' CLI is not available" >&2
+    exit 1
+fi
+
+image=${EFINITY_IMAGE:-nuboard-efinity:latest}
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd "$script_dir/../.." && pwd)
+
+container system status >/dev/null 2>&1 || container system start
+if ! container image inspect "$image" >/dev/null 2>&1; then
+    echo "error: container image $image not found; build it with" >&2
+    echo "  $script_dir/setup-container.sh <efinity-linux-x64.tar.bz2> <patch.zip>" >&2
+    exit 1
+fi
+
+if [[ "$(uname -s)" == Darwin ]]; then
+    host_cpus=$(sysctl -n hw.ncpu)
+else
+    host_cpus=$(nproc)
+fi
+
+args=(
+    --rm
+    --platform linux/amd64
+    --memory "${EFINITY_CONTAINER_MEMORY:-8G}"
+    --cpus "${EFINITY_CONTAINER_CPUS:-$host_cpus}"
+    --volume "$repo_root:$repo_root"
+)
+# Mount the working directory too when it lies outside the repository.
+case "$PWD/" in
+    "$repo_root"/*) ;;
+    *) args+=(--volume "$PWD:$PWD") ;;
+esac
+args+=(--workdir "$PWD")
+[[ -t 0 && -t 1 ]] && args+=(--interactive --tty)
+
+exec container run "${args[@]}" "$image" "$@"
