@@ -14,8 +14,9 @@ the 0.381 mm limit. CS#/RESET# FPGA-to-RAM routes are also F.Cu-only.
 
 **The board is not fabrication-ready.** HyperRAM power/bypass and
 CS#/RESET# pull-up connections remain unfinished, along with existing
-unrelated open connections. The FPGA template still has a legacy APS1604M
-QSPI controller; no HyperRAM controller or FPGA timing closure is included.
+unrelated open connections. The FPGA template and heartbeat no longer have any
+PSRAM logic; they drive only HR_CS_N and HR_RESET_N (inactive) to keep U2
+deselected. No HyperRAM controller or FPGA timing closure is included.
 
 ## Current pin allocation
 

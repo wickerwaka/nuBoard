@@ -82832,7 +82832,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Inductor_SMD:L_0805_2012Metric"
+		(property "Footprint" "Inductor_SMD:L_1008_2520Metric"
 			(at 593.09 111.76 0)
 			(hide yes)
 			(show_name no)
@@ -82920,7 +82920,7 @@
 				)
 			)
 		)
-		(property "JLCPCB Part" "C16903"
+		(property "JLCPCB Part" "C964122"
 			(at 593.09 111.76 90)
 			(hide yes)
 			(show_name no)
@@ -119629,7 +119629,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Inductor_SMD:L_0805_2012Metric"
+		(property "Footprint" "Inductor_SMD:L_1008_2520Metric"
 			(at 593.09 154.94 0)
 			(hide yes)
 			(show_name no)
@@ -119717,7 +119717,7 @@
 				)
 			)
 		)
-		(property "JLCPCB Part" "C16903"
+		(property "JLCPCB Part" "C964122"
 			(at 593.09 154.94 90)
 			(hide yes)
 			(show_name no)
