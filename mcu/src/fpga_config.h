@@ -48,6 +48,14 @@ nub_status_t fpga_config_data(uint32_t offset, const uint8_t *data,
                               size_t length);
 nub_status_t fpga_config_end(void);
 void fpga_off(void);
+
+#ifdef NUBOARD_RAIL_TEST
+// Bench diagnostic: run the normal power-up sequence up to the requested rail
+// and stay there with CRESET_N low. with_3v3 false holds 1.2 V only (shared
+// pins parked); true also sets passive-x4 levels and enables 3.3 V after the
+// usual 5 ms. fpga_off() still shuts down normally.
+void fpga_rail_test(bool with_3v3);
+#endif
 void fpga_get_state(fpga_state_t *state);
 bool fpga_is_configured(void);
 void fpga_set_event_callback(

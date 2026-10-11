@@ -40,6 +40,9 @@ int main(void) {
     // the bank itself must remain enabled for the later runtime handoff.
     irq_set_enabled(IO_IRQ_BANK0, true);
     usb_stack_init();
+#ifdef NUBOARD_RAIL_TEST
+    fpga_rail_test(NUBOARD_RAIL_TEST == 2);
+#endif
 
     while (true) {
         usb_stack_task();

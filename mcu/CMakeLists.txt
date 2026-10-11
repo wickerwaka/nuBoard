@@ -47,6 +47,18 @@ target_link_libraries(nuboard_mcu
     tinyusb_device
 )
 
+# Bench diagnostic: firmware that powers FPGA rails at boot and holds them with
+# the FPGA in reset. -DNUBOARD_RAIL_TEST=1v2 enables only 1.2 V; =both follows
+# the normal sequence to 1.2 V plus 3.3 V. Never use it for normal operation.
+set(NUBOARD_RAIL_TEST "" CACHE STRING "Bench rail test (empty, 1v2 or both)")
+if(NUBOARD_RAIL_TEST STREQUAL "1v2")
+    target_compile_definitions(nuboard_mcu PRIVATE NUBOARD_RAIL_TEST=1)
+elseif(NUBOARD_RAIL_TEST STREQUAL "both")
+    target_compile_definitions(nuboard_mcu PRIVATE NUBOARD_RAIL_TEST=2)
+elseif(NOT NUBOARD_RAIL_TEST STREQUAL "")
+    message(FATAL_ERROR "NUBOARD_RAIL_TEST must be empty, 1v2 or both")
+endif()
+
 target_compile_definitions(nuboard_mcu PRIVATE
     PICO_ENABLE_USB_RESET_VIA_VENDOR_INTERFACE=1
     PICO_USB_RESET_INCLUDE_DEFAULT_APP_DRIVER_CB=0

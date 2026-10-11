@@ -335,6 +335,24 @@ nub_status_t fpga_config_end(void) {
     return NUB_STATUS_OK;
 }
 
+#ifdef NUBOARD_RAIL_TEST
+void fpga_rail_test(bool with_3v3) {
+    gpio_put(NUBOARD_FPGA_3V3_EN_PIN, false);
+    gpio_put(NUBOARD_FPGA_CRESET_N_PIN, false);
+    park_shared_pins();
+    gpio_put(NUBOARD_FPGA_1V2_EN_PIN, true);
+    state.rail_1v2 = true;
+    state.rail_3v3 = false;
+    if (with_3v3) {
+        sleep_us(RAIL_DELAY_US);
+        establish_config_levels();
+        gpio_put(NUBOARD_FPGA_CRESET_N_PIN, false);
+        gpio_put(NUBOARD_FPGA_3V3_EN_PIN, true);
+        state.rail_3v3 = true;
+    }
+}
+#endif
+
 void fpga_off(void) {
     begin_shutdown(0);
 }
