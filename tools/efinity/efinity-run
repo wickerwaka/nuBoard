@@ -26,6 +26,8 @@ fi
 
 if [[ "$(uname -s)" == Linux && -z "${EFINITY_USE_CONTAINER:-}" \
       && -n "${EFINITY_HOME:-}" && -f "$EFINITY_HOME/bin/setup.sh" ]]; then
+    # setup.sh appends to PYTHONPATH, which is often unset; keep set -u happy.
+    export PYTHONPATH=${PYTHONPATH:-}
     source "$EFINITY_HOME/bin/setup.sh"
     exec "$@"
 fi

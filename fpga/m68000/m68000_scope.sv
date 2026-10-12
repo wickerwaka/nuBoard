@@ -3,7 +3,10 @@
 // Scope ABI 4: a single-clock, append-only 256 KiB BRAM capture buffer.
 // Filling the buffer stops only recording. Host reads never consume records.
 module m68000_scope #(
-    parameter integer ADDRESS_BITS = 15
+    parameter integer ADDRESS_BITS = 15,
+    // Reported at 7Eh: the sample period, 20 meaning 20 ns. The V35S harness
+    // reports 3000, its 30 ns tick in units of 10 ps.
+    parameter [15:0] TICK_REPORT = 16'd20
 ) (
     input wire clock,
     input wire clear,
@@ -163,7 +166,7 @@ module m68000_scope #(
                     8'h74: debug_data <= missed_tick[15:0];
                     8'h76: debug_data <= missed_tick[31:16];
                     8'h7c: debug_data <= ADDRESS_BITS;
-                    8'h7e: debug_data <= 20;
+                    8'h7e: debug_data <= TICK_REPORT;
                     default: debug_error <= 1;
                 endcase
             end

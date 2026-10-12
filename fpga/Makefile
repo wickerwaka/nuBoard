@@ -15,8 +15,8 @@ REPO_ROOT := $(abspath $(CURDIR)/..)
 BUILD     := $(REPO_ROOT)/build/fpga
 EFX_RUN   := $(REPO_ROOT)/tools/efinity/efinity-run
 
-PROJECTS  := heartbeat template
-TESTS     := heartbeat template
+PROJECTS  := heartbeat template v35s
+TESTS     := heartbeat template v35s
 
 TEMPLATE_SRCS := $(wildcard template/*.v template/*.vh template/*.sdc template/*.isf)
 
@@ -38,6 +38,7 @@ $(foreach p,$(PROJECTS),$(eval $(p): $(call image,$(p))))
 # Each image depends on its own project files.
 $(BUILD)/heartbeat/outflow/heartbeat.hex.bin: $(wildcard heartbeat/*.v heartbeat/*.sdc heartbeat/*.isf heartbeat/*.xml heartbeat/build.sh)
 $(BUILD)/template/outflow/template.hex.bin:   $(TEMPLATE_SRCS) template/template.xml template/build.sh
+$(BUILD)/v35s/outflow/v35s.hex.bin:           $(wildcard v35s/*.v v35s/*.sv v35s/*.vh v35s/*.isf v35s/*.sdc v35s/*.xml v35s/build.sh v35s/core/*.sv v35s/core/ucore/*)
 
 hyperram-sweep: $(SWEEP_IMAGES)
 
