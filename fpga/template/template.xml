@@ -6,7 +6,13 @@
     </efx:device_info>
     <efx:design_info def_veri_version="verilog_2k" def_vhdl_version="vhdl_2008" unified_flow="true">
         <efx:top_module name="nuboard_template" />
-        <efx:design_file name="nuboard_stream_echo.v" version="default" library="default" />
+        <efx:design_file name="hyperram_phy.v" version="default" library="default" />
+        <efx:design_file name="hyperram_fifo.v" version="default" library="default" />
+        <efx:design_file name="hyperram_ctrl.v" version="default" library="default" />
+        <efx:design_file name="hyperram_buffers.v" version="default" library="default" />
+        <efx:design_file name="hyperram_trace_core.v" version="default" library="default" />
+        <efx:design_file name="hyperram_tester.v" version="default" library="default" />
+        <efx:design_file name="nuboard_app.v" version="default" library="default" />
         <efx:design_file name="nuboard_template.v" version="default" library="default" />
         <efx:top_vhdl_arch name="" />
     </efx:design_info>
@@ -30,7 +36,8 @@
     <efx:place_and_route tool_name="efx_pnr">
         <efx:param name="work_dir" value="work_pnr" value_type="e_string" />
         <efx:param name="seed" value="1" value_type="e_integer" />
-        <efx:param name="placer_effort_level" value="2" value_type="e_option" />
+        <efx:param name="placer_effort_level" value="5" value_type="e_option" />
+        <efx:param name="optimization_level" value="TIMING_3" value_type="e_option" />
         <efx:param name="max_threads" value="-1" value_type="e_integer" />
         <efx:param name="print_critical_path" value="10" value_type="e_integer" />
     </efx:place_and_route>

@@ -1,5 +1,10 @@
 `timescale 1ns/1ps
 
+// HR_MHZ and HR_CAL_PHASE describe the HyperRAM PLL configuration in
+// template.isf, and HR_BURST_WORDS the HyperRAM burst length. build.sh
+// regenerates this file for each configuration.
+`include "hyperram_build.vh"
+
 // Efinity recognizes this shape as a true dual-port block RAM. Keeping the
 // storage in a small, dedicated module also makes the two clock domains clear:
 // one port writes, while the other independently performs synchronous reads.
@@ -27,7 +32,13 @@ endmodule
 
 module nuboard_template (
     input  wire        clk_50mhz,
-    input  wire        clk_50mhz_alias,
+
+    // HyperRAM PLL (PLL_TR1, referenced to the 50 MHz oscillator on A18).
+    // These come from the Interface Designer, not from package pins.
+    (* syn_peri_port = 0 *) input wire clk_hr,
+    (* syn_peri_port = 0 *) input wire clk_hr90,
+    (* syn_peri_port = 0 *) input wire clk_hr_cal,
+    (* syn_peri_port = 0 *) input wire hr_pll_locked,
     output wire        heartbeat_out,
 
     output reg         spi_miso,
@@ -39,11 +50,12 @@ module nuboard_template (
     output wire        dut_isolate,
     output wire        dut_crowbar,
 
-    // Revision 2 carries a HyperRAM (U2). This template does not use it, so
-    // CS# is held deasserted and RESET# is held inactive. CK, RWDS and DQ0-7
-    // are intentionally not instantiated; the deselected device ignores them.
+    // HyperRAM U2, driven by the HyperRAM test core.
+    output wire        hr_ck,
     output wire        hr_cs_n,
     output wire        hr_reset_n,
+    inout  wire        hr_rwds,
+    inout  wire [7:0]  hr_dq,
 
     // Each edge has three independent eight-bit bidirectional banks. The
     // group and bit indices match the board net names: t2[3] is F_T23.
@@ -203,7 +215,7 @@ module nuboard_template (
                 17: identity_byte = 8'h00;
                 18: identity_byte = 8'h00;
                 19: identity_byte = 8'h00;
-                20: identity_byte = 8'h03; // build 3: HyperRAM-era pinout, PSRAM removed
+                20: identity_byte = 8'h05; // build 5: buffered HyperRAM
                 21: identity_byte = 8'h00;
                 22: identity_byte = 8'h00;
                 23: identity_byte = 8'h00;
@@ -211,7 +223,7 @@ module nuboard_template (
                 25: identity_byte = 8'h00;
                 26: identity_byte = 8'h00; // ABI minor 0
                 27: identity_byte = 8'h00;
-                28: identity_byte = 8'h01; // echo feature
+                28: identity_byte = 8'h03; // echo and HyperRAM test
                 default: identity_byte = 8'h00;
             endcase
         end
@@ -318,9 +330,42 @@ module nuboard_template (
         copy_index == committed_length[12:0] + 13'd15;
     assign application_output_ready = application_busy;
 
+    // HyperRAM trace buffer. The test harness inside the application is
+    // its producer, on clk_50mhz with 64-bit words.
+    localparam integer HR_BUFFER_BITS = 2;
+    localparam integer HR_USER_WIDTH = 64;
+    localparam integer HR_USER_ADDRESS_BITS =
+        HR_BUFFER_BITS + $clog2(`HR_BURST_WORDS * 16 / HR_USER_WIDTH);
+    localparam integer HR_BURST_BITS = 22 - $clog2(`HR_BURST_WORDS);
+
+    wire                            hr_user_write_enable;
+    wire [HR_USER_ADDRESS_BITS-1:0] hr_user_write_address;
+    wire [HR_USER_WIDTH-1:0]        hr_user_write_data;
+    wire [HR_USER_ADDRESS_BITS-1:0] hr_user_read_address;
+    wire [HR_USER_WIDTH-1:0]        hr_user_read_data;
+    wire                            hr_command_valid;
+    wire                            hr_command_ready;
+    wire                            hr_command_write;
+    wire [HR_BUFFER_BITS-1:0]       hr_command_buffer;
+    wire [HR_BURST_BITS-1:0]        hr_command_burst;
+    wire                            hr_done_valid;
+    wire                            hr_done_ready;
+    wire                            hr_done_write;
+    wire [HR_BUFFER_BITS-1:0]       hr_done_buffer;
+    wire [$clog2(`HR_BURST_WORDS):0] hr_done_short;
+    wire                            hr_init_done;
+    wire [15:0]                     hr_id0;
+    wire [15:0]                     hr_id1;
+
     // Replace this module with a core-specific application. The streams carry
     // one mailbox packet at a time and use valid/ready backpressure.
-    nuboard_stream_echo demo_application (
+    nuboard_app #(
+        .HR_MHZ(`HR_MHZ),
+        .HR_CAL_PHASE(`HR_CAL_PHASE),
+        .BURST_WORDS(`HR_BURST_WORDS),
+        .BUFFER_BITS(HR_BUFFER_BITS),
+        .USER_WIDTH(HR_USER_WIDTH)
+    ) application (
         .clock(clk_50mhz),
         .input_valid(application_input_valid),
         .input_ready(application_input_ready),
@@ -329,7 +374,62 @@ module nuboard_template (
         .output_valid(application_output_valid),
         .output_ready(application_output_ready),
         .output_data(application_output_data),
-        .output_last(application_output_last)
+        .output_last(application_output_last),
+        .user_write_enable(hr_user_write_enable),
+        .user_write_address(hr_user_write_address),
+        .user_write_data(hr_user_write_data),
+        .user_read_address(hr_user_read_address),
+        .user_read_data(hr_user_read_data),
+        .command_valid(hr_command_valid),
+        .command_ready(hr_command_ready),
+        .command_write(hr_command_write),
+        .command_buffer(hr_command_buffer),
+        .command_burst(hr_command_burst),
+        .done_valid(hr_done_valid),
+        .done_ready(hr_done_ready),
+        .done_write(hr_done_write),
+        .done_buffer(hr_done_buffer),
+        .done_short(hr_done_short),
+        .pll_locked(hr_pll_locked),
+        .init_done(hr_init_done),
+        .id0(hr_id0),
+        .id1(hr_id1)
+    );
+
+    hyperram_trace_core #(
+        .HR_MHZ(`HR_MHZ),
+        .BURST_WORDS(`HR_BURST_WORDS),
+        .BUFFER_BITS(HR_BUFFER_BITS),
+        .USER_WIDTH(HR_USER_WIDTH)
+    ) hyperram (
+        .clk_hr(clk_hr),
+        .clk_hr90(clk_hr90),
+        .clk_hr_cal(clk_hr_cal),
+        .pll_locked(hr_pll_locked),
+        .user_clock(clk_50mhz),
+        .user_write_enable(hr_user_write_enable),
+        .user_write_address(hr_user_write_address),
+        .user_write_data(hr_user_write_data),
+        .user_read_address(hr_user_read_address),
+        .user_read_data(hr_user_read_data),
+        .command_valid(hr_command_valid),
+        .command_ready(hr_command_ready),
+        .command_write(hr_command_write),
+        .command_buffer(hr_command_buffer),
+        .command_burst(hr_command_burst),
+        .done_valid(hr_done_valid),
+        .done_ready(hr_done_ready),
+        .done_write(hr_done_write),
+        .done_buffer(hr_done_buffer),
+        .done_short(hr_done_short),
+        .init_done(hr_init_done),
+        .id0(hr_id0),
+        .id1(hr_id1),
+        .hr_ck(hr_ck),
+        .hr_cs_n(hr_cs_n),
+        .hr_reset_n(hr_reset_n),
+        .hr_rwds(hr_rwds),
+        .hr_dq(hr_dq)
     );
 
     // SPI mode 0: sample MOSI on rising edges. CS release leaves the captured
@@ -558,14 +658,7 @@ module nuboard_template (
     assign rclk = 1'b0;
     assign rclk_en = 1'b0;
 
-    // Keep the HyperRAM deselected and out of reset until an application
-    // drives it.
-    assign hr_cs_n = 1'b1;
-    assign hr_reset_n = 1'b1;
-
     // Safe board-level controls inherited from the heartbeat proof of concept.
     assign dut_isolate = 1'b1;
     assign dut_crowbar = 1'b0;
-
-    wire unused_clk_alias = clk_50mhz_alias;
 endmodule

@@ -20,13 +20,33 @@ design.set_device_property("4D", "VOLTAGE", "3.3", "IOBANK")
 design.set_device_property("4E", "VOLTAGE", "3.3", "IOBANK")
 design.set_device_property("4F", "VOLTAGE", "3.3", "IOBANK")
 
-# Unified flow infers the GPIO instances from the top-level ports. This file
-# supplies only board-specific voltage and package-pin assignments.
+# Unified flow infers most GPIO instances from the top-level ports and from
+# EFX_GPIO_V2 primitives in the RTL. This file supplies board voltages,
+# package-pin assignments and the HyperRAM PLL.
+#
+# Efinity runs this file one line at a time, so every statement must fit on a
+# single line. build.sh copies it into the build directory and replaces
+# @HR_MHZ@ and @HR_CAL_PHASE@.
 design.set_property("spi_cs_n", "CONN_TYPE", "NORMAL", "GPIO")
 design.set_property("spi_sck", "CONN_TYPE", "NORMAL", "GPIO")
 
 design.assign_pkg_pin("clk_50mhz", "A20")
-design.assign_pkg_pin("clk_50mhz_alias", "A18")
+
+# HyperRAM PLL. The 50 MHz oscillator also reaches A18 (GPIOR_167_PLLIN1),
+# which is external reference 0 of PLL_TR1. Outputs: clk_hr at 0 degrees for
+# DQ/RWDS out, clk_hr90 at 90 degrees for CK, and clk_hr_cal at the swept
+# capture phase for DQ/RWDS in.
+design.create_pll_input_clock_gpio("hr_pll_refclk")
+design.assign_pkg_pin("hr_pll_refclk", "A18")
+design.create_block("hr_pll", "PLL")
+design.assign_resource("hr_pll", "PLL_TR1", "PLL")
+design.set_property("hr_pll", {"REFCLK_SOURCE": "EXTERNAL", "EXT_CLK": "EXT_CLK0", "REFCLK_FREQ": "50.0", "LOCKED_PIN": "hr_pll_locked", "FEEDBACK_MODE": "LOCAL", "FEEDBACK_CLK": "CLK0"}, None, "PLL")
+design.set_property("hr_pll", {"CLKOUT0_EN": "1", "CLKOUT1_EN": "1", "CLKOUT2_EN": "1", "CLKOUT0_PIN": "clk_hr", "CLKOUT1_PIN": "clk_hr90", "CLKOUT2_PIN": "clk_hr_cal", "CLKOUT0_CONN_TYPE": "gclk"}, None, "PLL")
+design.auto_calc_pll_clock("hr_pll", {"CLKOUT0_FREQ": "@HR_MHZ@", "CLKOUT1_FREQ": "@HR_MHZ@", "CLKOUT2_FREQ": "@HR_MHZ@", "CLKOUT0_PHASE": "0", "CLKOUT1_PHASE": "90", "CLKOUT2_PHASE": "@HR_CAL_PHASE@"})
+print("HR_PLL", design.calc_pll_clock("hr_pll"), design.get_property("hr_pll", ["M", "N", "O", "CLKOUT0_DIV", "CLKOUT1_DIV", "CLKOUT2_DIV", "CLKOUT1_PHASE", "CLKOUT2_PHASE"], "PLL"))
+hr_pll_freq = design.calc_pll_clock("hr_pll")
+assert abs(float(hr_pll_freq["CLKOUT0_FREQ"]) - @HR_MHZ@) < @HR_MHZ@ * 0.005 and hr_pll_freq["CLKOUT0_FREQ"] == hr_pll_freq["CLKOUT1_FREQ"] == hr_pll_freq["CLKOUT2_FREQ"], "HyperRAM PLL cannot make @HR_MHZ@ MHz within 0.5%"
+assert design.get_property("hr_pll", "CLKOUT2_PHASE", "PLL")["CLKOUT2_PHASE"] == "@HR_CAL_PHASE@", "HyperRAM PLL capture phase not applied"
 design.assign_pkg_pin("heartbeat_out", "U5")
 design.assign_pkg_pin("spi_miso", "V2")
 design.assign_pkg_pin("spi_cs_n", "V1")
@@ -36,11 +56,20 @@ design.assign_pkg_pin("fpga_irq_n", "F5")
 design.assign_pkg_pin("dut_isolate", "E5")
 design.assign_pkg_pin("dut_crowbar", "E1")
 
-# HyperRAM U2 is not used by this template. Only CS# and RESET# are driven, to
-# keep the device deselected; CK, RWDS and DQ0-7 (M1, L3, K1 L1 H1 J1 G1 K2 L2
-# M3) are left unassigned.
+# HyperRAM U2. CK, RWDS and DQ are EFX_GPIO_V2 blocks in hyperram_phy.v and
+# take their instance paths as names; CS# and RESET# are inferred ports.
 design.assign_pkg_pin("hr_cs_n", "G3")
 design.assign_pkg_pin("hr_reset_n", "G2")
+design.assign_pkg_pin("hyperram/phy/ck_gpio", "M1")
+design.assign_pkg_pin("hyperram/phy/rwds_gpio", "L3")
+design.assign_pkg_pin("hyperram/phy/dq[0].gpio", "K1")
+design.assign_pkg_pin("hyperram/phy/dq[1].gpio", "L1")
+design.assign_pkg_pin("hyperram/phy/dq[2].gpio", "H1")
+design.assign_pkg_pin("hyperram/phy/dq[3].gpio", "J1")
+design.assign_pkg_pin("hyperram/phy/dq[4].gpio", "G1")
+design.assign_pkg_pin("hyperram/phy/dq[5].gpio", "K2")
+design.assign_pkg_pin("hyperram/phy/dq[6].gpio", "L2")
+design.assign_pkg_pin("hyperram/phy/dq[7].gpio", "M3")
 
 # Top edge: F_T00 through F_T27 and their three translator controls.
 design.assign_pkg_pin("t0[0]", "B15")

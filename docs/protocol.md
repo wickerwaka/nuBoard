@@ -93,8 +93,10 @@ and holds IRQ low until a matching ACK. The template applies backpressure
 rather than overwriting either 4 KiB slot.
 
 The template presents each packet to its application as byte-wide
-valid/ready streams with a `last` marker. `nuboard_stream_echo` demonstrates
-the interface and can be replaced without modifying the SPI mailbox.
+valid/ready streams with a `last` marker. `nuboard_app` demonstrates the
+interface and can be replaced without modifying the SPI mailbox: it answers
+channel 1 with HyperRAM test results (`nuboard hyperram ...`) and echoes every
+other channel.
 
 ## Power and recovery
 

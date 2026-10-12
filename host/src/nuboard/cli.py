@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from . import hyperram
 from .device import NuBoard, NuBoardError
 
 
@@ -47,6 +48,25 @@ def parser() -> argparse.ArgumentParser:
     fpga.add_parser("recv")
     fpga.add_parser("status")
     commands.add_parser("events")
+    ram = commands.add_parser("hyperram").add_subparsers(
+        dest="hyperram_command", required=True
+    )
+    ram.add_parser("id")
+    ram.add_parser("result")
+    for name in ("test", "write", "read"):
+        ram_test = ram.add_parser(
+            name, help={"test": "write a pattern, then read it back",
+                        "write": "write a pattern only",
+                        "read": "read back and check a pattern only"}[name])
+        ram_test.add_argument("--pattern", choices=sorted(hyperram.PATTERNS),
+                              default="prbs")
+        ram_test.add_argument("--seed", type=lambda text: int(text, 0),
+                              default=1)
+        ram_test.add_argument("--start-burst", type=lambda text: int(text, 0),
+                              default=0)
+        ram_test.add_argument("--bursts", type=lambda text: int(text, 0),
+                              default=None,
+                              help="bursts to cover (default: whole device)")
     vccb = commands.add_parser("vccb").add_subparsers(
         dest="vccb_command",
         required=True,
@@ -88,6 +108,23 @@ def main(argv: list[str] | None = None) -> int:
                     board.vccb_disable()
             elif args.command == "power":
                 board.power_off()
+            elif args.command == "hyperram":
+                if args.hyperram_command == "id":
+                    result = hyperram.wait_ready(board)
+                elif args.hyperram_command == "result":
+                    result = hyperram.command(
+                        board, hyperram.pack_command(hyperram.OP_GET_RESULT))
+                else:
+                    operation = {"test": hyperram.OP_TEST,
+                                 "write": hyperram.OP_WRITE,
+                                 "read": hyperram.OP_READ}[args.hyperram_command]
+                    result = hyperram.test(
+                        board, hyperram.PATTERNS[args.pattern], args.seed,
+                        args.start_burst, args.bursts, operation)
+                _print(result.as_dict(), args.json)
+                if args.hyperram_command in ("test", "write", "read") \
+                        and not result.ok:
+                    return 1
             elif args.fpga_command == "send":
                 board.fpga_send(args.channel, bytes.fromhex(args.data), args.tag)
             elif args.fpga_command == "recv":
