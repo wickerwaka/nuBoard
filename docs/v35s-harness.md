@@ -75,6 +75,8 @@ References:
 | `validation/v35s/probes.py` | Phase-1 case suites for the timing window (registers, EA, data-dependent, internal RAM, PSW, undefined) |
 | `validation/v35s/timing_compare.py` | Two timing runs side by side |
 | `validation/v35s/corpus.py` | The frozen silicon corpus in `build/validation/v35s/corpus/` |
+| `validation/v35s/model/`, `fit.py` | Python cycle model of the V35S and its comparison with the corpus ([`v35s-core-model.md`](v35s-core-model.md)) |
+| `validation/v35s/stop_probe.py` | CLKOUT and refresh after HALT, STOP and other opcodes |
 | `validation/v35s/programs/` | Directed programs |
 | `tools/fetch_v35s.py` | Pinned nuV30 checkout (assembler and fork base) |
 
