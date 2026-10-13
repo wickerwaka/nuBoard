@@ -3,7 +3,7 @@
     python -m validation.v35s.fit_steps [--entry a6-timing] [--passes 2] [--range 4]
 
 Coordinate descent: for each step name in costs.COSTS that the target
-instructions spend, try the current value plus or minus up to --range clocks
+instructions or the baseline spend, try the current value plus or minus up to --range clocks
 and keep the value with the smallest total |model - silicon| cost over the
 forms that use it (both placements). Bus-unit parameters are not touched.
 Prints the changed values as a costs.py fragment.
@@ -66,12 +66,16 @@ def main():
     users = defaultdict(list)
     for i, (case, _) in enumerate(forms):
         _, used = run(case, costs, True)
-        for name in used - base_steps:
+        for name in used:
             users[name].append(i)
+    for name in base_steps:
+        users[name] = list(range(len(forms)))
 
     def error(costs, idx):
+        # A step the baseline spends shifts every window: it may move only
+        # while the baseline windows stay exact.
         mb = {odd: run(case, costs)[0] for odd, (case, _) in base.items()}
-        total = 0
+        total = sum(1000 for odd, (_, si) in base.items() if mb[odd] != si)
         for i in idx:
             case, si = forms[i]
             mo = run(case, costs)[0]

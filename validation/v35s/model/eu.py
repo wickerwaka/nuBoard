@@ -779,6 +779,10 @@ class EU:
         name = "shift_r" if mod == 3 else "shift_m"
         if op in (0xD2, 0xD3) and mod != 3:
             name = "shift_m_cl"
+        elif mod == 3 and op in (0xC0, 0xC1):
+            name = "shift_r_imm"
+        elif mod == 3 and op in (0xD0, 0xD1):
+            name = "shift_r_1"
         yield from self.step(name, (self.costs["shift_per_bit"] * count + self.costs["shift_nonzero"])
                              if count else 0)
         r = self.shift(kind, value, count, width)

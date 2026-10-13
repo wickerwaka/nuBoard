@@ -520,6 +520,25 @@ def held_cases():
     return cases
 
 
+def tail_cases():
+    """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
+    its cost cancels out of target costs. Shifts with long counts, by
+    immediate and by CL, and the count-1 form, as targets."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for n in (8, 12, 15, 16, 17, 24, 31):
+        cases += form("tail", f"SHL AW,{n} (C1)", [0xC1, 0xE0, n], regs, both=True)
+    for cl in (8, 16, 31):
+        cases += form("tail", f"SHL AW,CL={cl}", [0xD3, 0xE0], dict(regs, CW=cl), both=True)
+    cases += form("tail", "SHL AW,1 (D1)", [0xD1, 0xE0], regs, both=True)
+    cases += form("tail", "SHL AW,1 (D1) x2", [0xD1, 0xE0] * 2, regs, both=True)
+    cases += form("tail", "OUT 0x40,AL", [0xE6, 0x40], regs, both=True)
+    cases += form("tail", "OUT 0x40,AL x2", [0xE6, 0x40] * 2, regs, both=True)
+    cases += form("tail", "SHL AW,16 (C1); NOP", [0xC1, 0xE0, 16, 0x90], regs, both=True)
+    return cases
+
+
 SUITES = {
     "regs": regs_cases,
     "ea": ea_cases,
@@ -533,4 +552,5 @@ SUITES = {
     "undefined2": undefined2_cases,
     "release": release_cases,
     "held": held_cases,
+    "tail": tail_cases,
 }

@@ -341,6 +341,48 @@ A directed board probe would separate them. It would put 1-byte instructions
 of different lengths after a saturated runway, at both parities, with the
 next word's contents varied.
 
+### Baseline steps and the tail probe, 2026-10-13
+
+`fit_steps.py` used to skip every step that the baseline window spends
+(MOV r16,imm16, MOV reg,reg, the shifts, OUT, the prelude's far jump). Some of
+those steps were 2 to 6 clocks off as targets: MOV AW,imm16 cost 9 against
+silicon's 6, SHL AW,1 16 against 10. The 16-NOP runway hid the error in the
+window head, and the SHL AW,16 that ends every window hid it in the tail.
+
+The `tail` suite (`probes.py`, corpus `p2-tail`, 30 cases) measures
+SHL AW,n by immediate up to 31, SHL AW,CL up to 31, the count-1 form, and
+OUT 0x40,AL once and twice (even placement):
+
+| Form | Silicon cost | Model before |
+| --- | --- | --- |
+| SHL AW,n (C1) | 11 + 2n (9 for n = 0), linear to 31 | 3 more |
+| SHL AW,CL | 12 + 2n (10 for n = 0) | 1 more |
+| SHL AW,1 (D1) | 10 | 16 |
+| OUT 0x40,AL | 10 | 9 |
+| OUT 0x40,AL twice | 22 | 18 |
+
+The shift step is now split by form (`shift_r_imm`, `shift_r_1`, `shift_r`).
+The window's closing SHL AW,16 is 3 clocks cheaper than the model had it, and
+those 3 clocks sit before the closing OUT's write: `out_imm` 9. With that, a
+second OUT back to back costs 12, as on silicon. A single OUT costs 12 where
+silicon has 10, so 2 clocks of a lone OUT overlap whatever precedes it. Those
+4 runs are still open.
+
+`fit_steps.py` now also fits baseline steps, as long as both baseline windows
+stay exact. 14 values moved, `mov_rr` 3 to 1 and `br_far` 12 to 19 among them.
+
+| Measure (iwr) | Before | After |
+| --- | --- | --- |
+| window length exact | 68% | 80% |
+| cycles in place | 72% | 77% |
+| placement costs exact | 68% | 81% |
+| release probe cycles in place | 61% | 79% |
+| held fetch lists exact | 12% | 18% |
+
+The request rule on top of these costs, with iwr's hide bits and no refit:
+release fetch lists 27%, held fetch lists 54%, but the window head is still
+out of phase (7% cycles in place).
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
@@ -361,19 +403,20 @@ next word's contents varied.
 
 ## Status
 
-On `a6-timing`, 558 runs, 2026-10-12: word-register model, fitted hide bits,
-step values refitted by `fit_steps.py` (87 values changed):
+On `a6-timing`, 558 runs, 2026-10-13: word-register model, fitted hide bits,
+step values refitted by `fit_steps.py` with baseline steps included:
 
 | Measure | Result |
 | --- | --- |
-| Exact windows | 44 |
-| Window length exact | 379 runs (68%) |
-| Cycles matching in place | 72% (48% before the step refit, 32% at the previous checkpoint) |
-| Window errors | mostly −1 to +3 clocks |
+| Exact windows | 61 |
+| Window length exact | 449 runs (80%) |
+| Cycles matching in place | 77% (72% before the baseline-step fit) |
+| Placement costs exact | 447 of 552 (81%) |
 
 Window misses concentrate in:
 - flow forms (branch and refill timing);
 - the ±1 placement residue;
 - traps.
 
-The next step: fit the request model's marker phase and tail (see the held-fetch probe section).
+The next step: refit the request rule's hide bits on these costs, and find
+where its window head loses phase (see the held-fetch probe section).

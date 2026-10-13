@@ -47,8 +47,8 @@ COSTS = {
     "alu_r_imm1": 4, "alu_r_imm2": 3, "alu_m_imm": 5, "cmp_m_imm": 9,
     "test_rr": 4, "test_mr": 7, "test_r_imm": 8, "test_m_imm": 5,
     "xch_rr": 1, "xch_mr": 5, "xch_aw": 3,
-    "mov_rr": 3, "mov_load": 4, "mov_store": 1, "mov_store_imm": 2,
-    "mov_r8_imm": 4, "mov_r16_imm": 7,
+    "mov_rr": 1, "mov_load": 4, "mov_store": 1, "mov_store_imm": 2,
+    "mov_r8_imm": 4, "mov_r16_imm": 4,             # MOV DW,imm16 train: 7 clocks each
     "ldea": 2, "load_far": 4,
     "incdec_r16": 2, "incdec_rm": 4, "incdec_m": 6,
     "unary_r": 4, "unary_m": 6,
@@ -61,28 +61,29 @@ COSTS = {
     "divu8_m": 33, "divu16_m": 41, "div8_m": 52, "div16_m": 60,
     "div_negate_dividend": 7, "div_negate_quotient": 2,
 
-    # Shifts: 10 for a count of 0, 12 + 2n otherwise.
-    "shift_r": 10, "shift_m": 7, "shift_m_cl": 11,
+    # Shifts (p2-held, p2-tail, linear to count 31): by CL 10 for a count of 0,
+    # 12 + 2n otherwise; by immediate 9, 11 + 2n; the count-1 form 10.
+    "shift_r": 9, "shift_r_imm": 7, "shift_r_1": 4, "shift_m": 7, "shift_m_cl": 11,
     "shift_per_bit": 2, "shift_nonzero": 2,
 
     # Stack.
-    "push_r": 3, "pop_r": 7, "push_seg": 5, "pop_seg": 8, "push_imm": 8,
+    "push_r": 3, "pop_r": 7, "push_seg": 5, "pop_seg": 8, "push_imm": 6,
     "push_rm": 9, "pop_rm": 7, "push_psw": 4, "pop_psw": 9,
-    "push_all": 18, "pop_all": 18, "prepare": 24, "prepare_level": 14, "dispose": 7,
+    "push_all": 26, "pop_all": 26, "prepare": 24, "prepare_level": 14, "dispose": 7,
 
     # Control transfer (EU part; the refill is the bus unit's).
-    "bcond": 10, "branch_taken": 9, "bcwz": 8, "dbnz": 11, "dbnz_cond": 8,
-    "br_short": 15, "br_near": 15, "br_far": 12, "br_indirect": 17, "br_far_indirect": 10,
-    "call_near": 20, "call_far": 24, "call_indirect": 20, "call_far_indirect": 14,
-    "ret": 18, "ret_far": 14, "reti": 28, "brkv": 6, "chkind": 18,
-    "trap_entry": 25, "trap_exit": 12,
+    "bcond": 9, "branch_taken": 10, "bcwz": 8, "dbnz": 11, "dbnz_cond": 8,
+    "br_short": 15, "br_near": 15, "br_far": 19, "br_indirect": 17, "br_far_indirect": 10,
+    "call_near": 21, "call_far": 28, "call_indirect": 23, "call_far_indirect": 14,
+    "ret": 18, "ret_far": 14, "reti": 36, "brkv": 6, "chkind": 19,
+    "trap_entry": 25, "trap_exit": 11,
 
     # Strings.
     "string_single": 6, "movbk": 10, "stm": 2, "ldm": 4, "cmpbk": 13, "cmpm": 8,
     "inm": 6, "outm": 6, "rep_start": 10, "rep_iteration": 4, "rep_end": 2,
 
     # I/O.
-    "in_imm": 11, "in_dw": 8, "out_imm": 6, "out_imm_post": 1, "out_dw": 2,
+    "in_imm": 11, "in_dw": 8, "out_imm": 9, "out_imm_post": 1, "out_dw": 5,
 
     # Misc.
     "flag_op": 2, "sahf": 3, "lahf": 3, "cvtbw": 2, "cvtwl": 9,
