@@ -39,6 +39,16 @@ def score():
         si, mo = window(silicon_trace), window(machine.trace)
         stats["runs"] += 1
         if si and mo:
+            # Aligned on the runway fetch of word 10058h, so the opening
+            # marker's phase does not count: the target and tail only.
+            def aligned(rows):
+                start = next((r[0] for r in rows if r[2] == 0x10058), None)
+                return None if start is None else [(r[0] - start,) + r[1:] for r in rows if r[0] >= start]
+            sa, ma = aligned(si), aligned(mo)
+            if sa and ma:
+                stats["aligned"] += len(sa)
+                stats["aligned_in_place"] += sum(1 for a, b in zip(sa, ma) if a == b)
+                stats["aligned_exact"] += sa == ma
             stats["exact"] += si == mo
             stats["length_exact"] += si[-1][0] == mo[-1][0]
             stats["cycles"] += len(si)
@@ -64,6 +74,19 @@ def score():
         if len(places) == 2:
             stats["diff_forms"] += 1
             stats["diff_exact"] += (places[True][0] - places[False][0]) == (places[True][1] - places[False][1])
+    release = load("p2-release")
+    for run in release["runs"]:
+        case = case_from_json(run["case"])
+        si = window([Transaction(**t) for t in run["socket_trace"]])
+        mo = window(run_model(case, release["settings"]).trace)
+        stats["release_runs"] += 1
+        if si and mo:
+            start = lambda rows: next((r[0] for r in rows if r[2] == 0x10058), 0)
+            sa = [(r[0] - start(si),) + r[1:] for r in si if r[0] >= start(si)]
+            ma = [(r[0] - start(mo),) + r[1:] for r in mo if r[0] >= start(mo)]
+            stats["release_exact"] += sa == ma
+            stats["release_cycles"] += len(sa)
+            stats["release_in_place"] += sum(1 for a, b in zip(sa, ma) if a == b)
     tally = fit_prefetch("m-prefetch-w0", show=False)
     stats["prefetch_exact"] = tally.get("match", 0)
     stats["prefetch_scenarios"] = sum(tally.values())
@@ -75,24 +98,36 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--profiles", nargs="*", default=["iwr", "consume"])
     parser.add_argument("--costs", default="{}", help="extra V35S_COSTS overrides for every profile")
+    parser.add_argument("--variant", nargs="*", default=[],
+                        help="NAME=costs.json: score the iwr profile with these overrides as NAME")
     parser.add_argument("--score", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.score:
         score()
         return
     results = {}
-    for profile in args.profiles:
-        env = dict(os.environ, V35S_PROFILE=profile, V35S_COSTS=args.costs)
+    runs = [(p, p, args.costs) for p in args.profiles]
+    for spec in args.variant:
+        name, path = spec.split("=", 1)
+        with open(path) as f:
+            runs.append((name, "iwr", f.read()))
+    args.profiles = [name for name, _, _ in runs]
+    for name, profile, costs in runs:
+        env = dict(os.environ, V35S_PROFILE=profile, V35S_COSTS=costs)
         out = subprocess.run([sys.executable, "-m", "validation.v35s.compare_models", "--score"],
                              env=env, capture_output=True, text=True, check=True).stdout
-        results[profile] = json.loads(out.strip().splitlines()[-1])
+        results[name] = json.loads(out.strip().splitlines()[-1])
     rows = [
         ("windows exact", "exact", "runs"),
         ("window length exact", "length_exact", "runs"),
         ("cycles in place", "cycles_in_place", "cycles"),
+        ("aligned windows exact", "aligned_exact", "runs"),
+        ("aligned cycles in place", "aligned_in_place", "aligned"),
         ("placement costs exact", "cost_exact", "cost_runs"),
         ("odd-minus-even exact", "diff_exact", "diff_forms"),
         ("refill fetch exact", "refill_exact", "refill_runs"),
+        ("release probe exact", "release_exact", "release_runs"),
+        ("release cycles in place", "release_in_place", "release_cycles"),
         ("prefetch scenarios exact", "prefetch_exact", "prefetch_scenarios"),
     ]
     print(f"{'':<26}" + "".join(f"{p:>20}" for p in args.profiles))

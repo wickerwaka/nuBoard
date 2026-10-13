@@ -113,6 +113,41 @@ The consumption model is worse on every measure:
 So operand consumption at fixed micro-steps is not the release rule. The word
 register stays the default.
 
+### Release probe and consumption variants, 2026-10-13
+
+The `release` probe suite (`probes.py`, corpus entry `p2-release`, 172 cases)
+puts 1-byte and longer targets at both parities after a saturated runway,
+with varied followers and back-to-back pairs. Behind a target at 5Ah, the
+fetch of word 60h comes:
+- 64 after INC, NOP or MULU CL;
+- 67 after MOV CL,imm8;
+- 71 after CVTWL and 79 after ADJBA;
+- for `SHL AW,4` (even), word 60h at 64 and word 62h at 67, so the next
+  opcode, sharing a word with the count, is taken early.
+
+That suggested adding a decode lookahead to the consumption model: an
+instruction's last L execution clocks are spent after the next opcode is
+taken (`costs.lookahead`). With `lookahead_after_operands`, an instruction
+that ends on an operand byte takes the next opcode right after that byte.
+Five variants were fitted (hide bits, then steps) and scored with
+`compare_models --variant`:
+
+| Measure | iwr | consume | L=1 | L=2 | L=3 | L=2, no word load | L=2, after operands |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| window length exact | **68%** | 4% | 3% | 23% | 31% | 0% | 28% |
+| cycles in place | **72%** | 9% | 9% | 11% | 36% | 7% | 12% |
+| aligned cycles in place | **64%** | 45% | 48% | 48% | 53% | 6% | 48% |
+| placement costs exact | **68%** | 45% | 46% | 47% | 62% | 44% | 47% |
+| odd-minus-even exact | **92%** | 47% | 58% | 56% | 76% | 36% | 56% |
+| refill fetch exact | **68%** | 52% | 50% | 54% | 50% | 0% | 54% |
+| release cycles in place | **61%** | 48% | 48% | 42% | 44% | 6% | 44% |
+
+Lookahead helps the consumption model steadily but never catches the word
+register, even on the refill and release rows. Without the 2-clock word
+load nothing fits, so the load is real. The consumption variants also
+mis-time the NOP runway: their aligned scores are far above their unaligned
+ones.
+
 The refill table is still the word-register model's main miss: 68% exact.
 The refill behind a 1-byte target waits until near its end, and nothing in
 either model produces that. Candidates for the next round:
@@ -159,4 +194,4 @@ Window misses concentrate in:
 - the ±1 placement residue;
 - traps.
 
-The next step is unchanged: the consumption queue model.
+The next step: the two-word register candidate.

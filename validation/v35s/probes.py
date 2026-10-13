@@ -453,6 +453,42 @@ def undefined2_cases():
     return cases
 
 
+# --- Queue word release (docs/v35s-core-model.md) -------------------------
+
+RELEASE_TARGETS = (
+    ("CLR1 CY", [0xF8]), ("INC AW", [0x40]), ("NOP", [0x90]), ("XCH AW,CW", [0x91]),
+    ("CVTBW", [0x98]), ("CVTWL", [0x99]), ("ADJ4A", [0x27]), ("ADJBA", [0x37]),
+    ("PUSH AW", [0x50]), ("POP CW", [0x59]), ("LDMB", [0xAC]), ("STMB", [0xAA]),
+    ("MOVBKB", [0xA4]), ("TRANS", [0xD7]),
+    # 2- and 3-byte forms of similar length, for contrast
+    ("SHL AW,1", [0xD1, 0xE0]), ("MULU CL", [0xF6, 0xE1]), ("ADD AW,CW", [0x03, 0xC1]),
+    ("MOV CL,imm8", [0xB1, 0x12]), ("MOV CW,imm16", [0xB9, 0x34, 0x12]),
+    ("SHL AW,imm 4", [0xC1, 0xE0, 0x04]),
+)
+RELEASE_FOLLOWERS = (
+    ("then NOPs", []),
+    ("then ADD AW,CW", [0x03, 0xC1]),
+    ("then MOV DW,imm16", [0xBA, 0x34, 0x12]),
+    ("then CVTWL", [0x99]),
+)
+
+
+def release_cases():
+    """When does each queue word free? Targets after a saturated runway,
+    at both placements, followed by different next instructions."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, code in RELEASE_TARGETS:
+        for follow, tail in RELEASE_FOLLOWERS:
+            cases += form("release", f"{name} {follow}", code + tail, regs, both=True)
+    for first, second in (("CVTWL", "CVTWL"), ("ADJBA", "ADJBA"), ("CVTWL", "NOP"),
+                          ("NOP", "CVTWL"), ("INC AW", "CVTWL"), ("CVTWL", "INC AW")):
+        code = dict(RELEASE_TARGETS)[first] + dict(RELEASE_TARGETS)[second]
+        cases += form("release", f"pair {first}; {second}", code, regs, both=True)
+    return cases
+
+
 SUITES = {
     "regs": regs_cases,
     "ea": ea_cases,
@@ -464,4 +500,5 @@ SUITES = {
     "mul": mul_cases,
     "banks": bank_cases,
     "undefined2": undefined2_cases,
+    "release": release_cases,
 }

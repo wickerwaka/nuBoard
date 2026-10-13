@@ -46,6 +46,7 @@ class EU:
         self.routine = None
         self.opcode_clock = 0
         self.operands = 0
+        self.carry = 0
 
     # -- registers --------------------------------------------------------
 
@@ -325,6 +326,11 @@ class EU:
                 self.opcode_clock = self.m.clock
                 self.operands = 0
                 yield ("boundary",)
+                if self.carry:
+                    # The previous instruction's last clocks, overlapped by
+                    # this opcode's decode (decode lookahead).
+                    carry, self.carry = self.carry, 0
+                    yield ("clocks", carry)
                 if self.m.log is not None:
                     self.m.log.append((self.m.clock, (self.pc - 1) & 0xFFFF, op))
                 if op in (0x26, 0x2E, 0x36, 0x3E):
@@ -341,13 +347,51 @@ class EU:
                 break
             self.routine = op
             self.m.routine = self
-            yield from self.execute(op)
+            lookahead = self.costs.get("lookahead", 0)
+            if lookahead:
+                yield from self._lookahead(self.execute(op), lookahead)
+            else:
+                yield from self.execute(op)
             # A routine whose last step overlaps the next opcode's word load.
             self.m.end_discount = 1 if self.routine_key() in self.costs["end_hide"] else 0
             if self.m.keys is not None:
                 self.m.keys.setdefault(start_pc, self.routine_key())
         except Trap as trap:
             yield from self.interrupt(trap.vector, start_pc)
+
+    def _lookahead(self, gen, lookahead):
+        """Run an instruction, holding back up to `lookahead` of its final
+        execution clocks: they are spent after the next opcode is taken.
+        With costs.lookahead_after_operands, an instruction whose last
+        non-execution step was taking an operand byte takes the next opcode
+        right after it, and all of its remaining execution clocks carry."""
+        held = []
+        last = None
+        value = None
+        while True:
+            try:
+                request = gen.send(value)
+            except StopIteration:
+                break
+            value = None
+            if request[0] == "clocks":
+                held.append(request[1])
+                continue
+            for n in held:
+                yield ("clocks", n)
+            held = []
+            last = request
+            value = yield request
+        total = sum(held)
+        if not total:
+            return
+        if (self.costs.get("lookahead_after_operands") and last is not None
+                and last[0] == "byte" and len(last) > 1 and last[1]):
+            self.carry = total
+            return
+        if total > lookahead:
+            yield ("clocks", total - lookahead)
+        self.carry = min(lookahead, total)
 
     def routine_key(self):
         """The microcode routine an instruction runs: opcode (0F xx as 0x0Fxx),
