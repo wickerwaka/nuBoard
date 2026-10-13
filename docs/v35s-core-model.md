@@ -456,6 +456,75 @@ The latched decision added nothing on iwr (`fetch_latch`):
 
 The bursts still come down to EU load timing.
 
+### The next-opcode pre-pop, 2026-10-13
+
+The V30's EU pops the next opcode on its last micro-row while that row
+runs. The held probe shows the V35S does the same. Its "phase INC xN"
+cases put 0 to 3 INC AW in front of a 1-byte target:
+- An INC at the first byte of a word (x1 even, x2 odd) turns the next
+  fetch into a back-to-back pair (62h at 67, not 72).
+- NOP and XCH never do this.
+- With CVTWL or ADJBA at the first byte of word 5Ah, silicon fetches 60h
+  about 3 clocks before the instruction ends (71 and 79), not at its
+  opcode take (64).
+
+The model now does this:
+- A routine in `prepop` pops the next opcode `prepop_end` (2) clocks
+  before its end. Those last clocks run during the pop and during any
+  word load the pop needs.
+- If the pop empties the word register, the next word loads at once,
+  freeing its slot. That is what makes the pairs.
+- Taking the first byte of a word loaded this way costs
+  `preload_penalty` (1) clock.
+- `fit_hide.py --prepop` chooses, for each routine, between the
+  pre-pop, the end hide and neither. On the A6 odd-minus-even costs the
+  pre-pop and the end hide tie for almost every routine, so the fit
+  prefers the pre-pop on a tie.
+- The pre-pop replaces all of the old `end_hide` set except POP ALL and
+  the IN/OUT forms, whose last step is a bus cycle.
+- INC r16 and the flag operations, which the old set partly covered, are
+  pre-pop routines too.
+
+Timing the pop from the routine's end matters. Counting it from the start
+(one clock in) matched INC but not CVTWL.
+
+Results (`compare_models`; iwr before, the default model after):
+
+| Measure | Before | After |
+| --- | --- | --- |
+| A6 windows exact | 61 | 85 |
+| A6 window length exact | 449 | 450 |
+| A6 cycles in place | 77% | 78% |
+| Placement costs exact | 447 | 446 |
+| Release probe exact | 13 / 174 | 28 / 174 |
+| Release fetch lists exact | 24 / 174 | 44 / 174 |
+| Held fetch lists exact | 17 / 96 | 46 / 96 |
+
+Step values refitted with it (`fit_steps.py`):
+- most pre-pop routines gained a clock: INC r16 3, flag operations 3,
+  CVTWL 10, ADJ4 11, ADJB 18 and others;
+- PUSH ALL and POP ALL, which only the A6 CALL forms' stubs spend, are now
+  41 and 42.
+
+Rejected on the way:
+- **A latched fetch decision with an idle bus that waits for an EU
+  request at a word load** (`fetch_latch`, `fetch_request: "load"`):
+  no gain.
+- **Every routine pre-pops:** it breaks the transfers and I/O.
+- **The consume model with pre-pops:** it gets CVTWL's late fetch but
+  not the pair after it.
+
+The `consume` profile has not been refitted since the baseline-step fit and
+no longer runs the windows (10% cycles in place); it is kept only as a
+record.
+
+Still open:
+- **MOV CL,imm8 at even placement:** silicon leaves the bus idle for 11
+  clocks after the runway, then fetches three words back to back. That
+  puts at least four words beyond the word register, more than the
+  runway allows.
+- **MOV DW,imm16 trains** keep part of their bursts.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
@@ -476,20 +545,25 @@ The bursts still come down to EU load timing.
 
 ## Status
 
-On `a6-timing`, 558 runs, 2026-10-13: word-register model, fitted hide bits,
-step values refitted by `fit_steps.py` with baseline steps included:
+On `a6-timing`, 558 runs, 2026-10-13: word-register model with the
+next-opcode pre-pop, fitted hide and pre-pop sets, step values refitted by
+`fit_steps.py` with baseline steps included:
 
 | Measure | Result |
 | --- | --- |
-| Exact windows | 61 |
-| Window length exact | 449 runs (80%) |
-| Cycles matching in place | 77% (72% before the baseline-step fit) |
-| Placement costs exact | 447 of 552 (81%) |
+| Exact windows | 85 |
+| Window length exact | 450 runs (81%) |
+| Cycles matching in place | 78% |
+| Placement costs exact | 446 of 552 (81%) |
+| Held / release fetch lists exact | 46 of 96 / 44 of 174 |
 
 Window misses concentrate in:
 - flow forms (branch and refill timing);
 - the ±1 placement residue;
 - traps.
 
-The next step: model when the EU loads words (see "Bursts are word-load
-timing"). The fetch rule stays iwr's.
+Next steps:
+- the MOV CL,imm8 even triples, which point to a deeper queue under some
+  condition;
+- the remaining held and release fetch-list misses;
+- branch and refill timing.

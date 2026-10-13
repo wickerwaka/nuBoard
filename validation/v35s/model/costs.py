@@ -15,14 +15,22 @@ COSTS = {
     "word_load": 2,                     # EU clocks to move the head queue word into its word register
     "fetch_data_delay": 0,              # clocks from the end of B3 until the EU can take the bytes
     # Microcode routines (opcode, 0F xx as 0x0Fxx, "r"/"m" for register or
-    # memory ModR/M forms) whose word loads hide one clock: at the end, the
-    # load of the next opcode's word overlaps the routine's last clock; in the
-    # middle, an operand word's load starts a clock before the byte is read.
-    # Derived from the A6 odd-minus-even costs (validation/v35s/fit_hide.py).
-    "end_hide": {'23m', '2Bm', '2m', '39m', '3Bm', '3m', '62m', '69r', '83m', '8Am', '8Bm', 'D2r',
-                 'D3r', 'F12r', 'F13r', 'F28r', 'F2Ar', 0x27, 0x2F, 0x37, 0x3F, 0x40, 0x48,
-                 0x61, 0x99, 0xA4, 0xA5, 0xA6, 0xA7, 0xAC, 0xAD, 0xCE, 0xE4, 0xE5, 0xE6, 0xE7,
-                 0xEC, 0xED, 0xEF, 0xF5, 0xF8, 0xF9, 0xFC, 0xFD},
+    # memory ModR/M forms). prepop: the routine pops the next opcode
+    # prepop_end clocks before its end, its remaining clocks running
+    # meanwhile, as the V30 pops on its last micro-row; if that pop empties
+    # the word register the next word loads at once, and taking that word's
+    # first byte costs preload_penalty. end_hide: the next opcode's word load
+    # overlaps the routine's last clock (the I/O and POP ALL routines, whose
+    # last step is a bus cycle). mid_hide: an operand word's load starts a
+    # clock before the byte is read. Fitted by validation/v35s/fit_hide.py
+    # --prepop on the A6 odd-minus-even costs; ties go to the pre-pop, which
+    # the held probe's fetch pairs after INC and CLR1 call for.
+    "prepop": {'23m', '2Bm', '2m', '39m', '3Bm', '3m', '62m', '69r', '83m', '8Am', '8Bm', 'D2r',
+               'D3r', 'F12r', 'F13r', 'F28r', 'F2Ar', 0x27, 0x2F, 0x37, 0x3F, *range(0x40, 0x50),
+               0x99, 0xA4, 0xA5, 0xA6, 0xA7, 0xAC, 0xAD, 0xCE, 0xF5, 0xF8, 0xF9, 0xFC, 0xFD},
+    "prepop_end": 2,
+    "preload_penalty": 1,
+    "end_hide": {0x61, 0xE4, 0xE5, 0xE6, 0xE7, 0xEC, 0xED, 0xEF},
     "mid_hide": {'83m', '83r', 0x85, 0xD5},
     "io_recovery": 1,                   # idle clocks after an I/O cycle before the next cycle
     "write_posted": 1,                  # 1: the EU hands a write to the bus unit and continues
@@ -42,15 +50,15 @@ COSTS = {
     "ea": 0,
 
     # ALU and moves (register forms are the measured totals).
-    "alu_rr": 1, "alu_rm": 5, "alu_mr": 3, "cmp_mr": 7,
+    "alu_rr": 1, "alu_rm": 6, "alu_mr": 3, "cmp_mr": 8,
     "alu_acc_imm1": 4, "alu_acc_imm2": 4,
-    "alu_r_imm1": 4, "alu_r_imm2": 3, "alu_m_imm": 5, "cmp_m_imm": 9,
+    "alu_r_imm1": 4, "alu_r_imm2": 3, "alu_m_imm": 6, "cmp_m_imm": 10,
     "test_rr": 4, "test_mr": 7, "test_r_imm": 8, "test_m_imm": 5,
     "xch_rr": 1, "xch_mr": 5, "xch_aw": 3,
-    "mov_rr": 1, "mov_load": 4, "mov_store": 1, "mov_store_imm": 2,
+    "mov_rr": 1, "mov_load": 5, "mov_store": 1, "mov_store_imm": 2,
     "mov_r8_imm": 4, "mov_r16_imm": 4,             # MOV DW,imm16 train: 7 clocks each
     "ldea": 2, "load_far": 4,
-    "incdec_r16": 2, "incdec_rm": 4, "incdec_m": 6,
+    "incdec_r16": 3, "incdec_rm": 4, "incdec_m": 6,
     "unary_r": 4, "unary_m": 6,
 
     # Multiply and divide (see docs/v35s-eu-timing.md).
@@ -63,40 +71,40 @@ COSTS = {
 
     # Shifts (p2-held, p2-tail, linear to count 31): by CL 10 for a count of 0,
     # 12 + 2n otherwise; by immediate 9, 11 + 2n; the count-1 form 10.
-    "shift_r": 9, "shift_r_imm": 7, "shift_r_1": 4, "shift_m": 7, "shift_m_cl": 11,
+    "shift_r": 10, "shift_r_imm": 7, "shift_r_1": 4, "shift_m": 7, "shift_m_cl": 11,
     "shift_per_bit": 2, "shift_nonzero": 2,
 
     # Stack.
     "push_r": 3, "pop_r": 7, "push_seg": 5, "pop_seg": 8, "push_imm": 6,
     "push_rm": 9, "pop_rm": 7, "push_psw": 4, "pop_psw": 9,
-    "push_all": 26, "pop_all": 26, "prepare": 24, "prepare_level": 14, "dispose": 7,
+    "push_all": 41, "pop_all": 42, "prepare": 24, "prepare_level": 14, "dispose": 7,
 
     # Control transfer (EU part; the refill is the bus unit's).
     "bcond": 9, "branch_taken": 10, "bcwz": 8, "dbnz": 11, "dbnz_cond": 8,
     "br_short": 15, "br_near": 15, "br_far": 19, "br_indirect": 17, "br_far_indirect": 10,
     "call_near": 21, "call_far": 28, "call_indirect": 23, "call_far_indirect": 14,
-    "ret": 18, "ret_far": 14, "reti": 36, "brkv": 6, "chkind": 19,
-    "trap_entry": 25, "trap_exit": 11,
+    "ret": 18, "ret_far": 14, "reti": 37, "brkv": 7, "chkind": 20,
+    "trap_entry": 28, "trap_exit": 11,
 
     # Strings.
-    "string_single": 6, "movbk": 10, "stm": 2, "ldm": 4, "cmpbk": 13, "cmpm": 8,
+    "string_single": 7, "movbk": 10, "stm": 1, "ldm": 4, "cmpbk": 13, "cmpm": 8,
     "inm": 6, "outm": 6, "rep_start": 10, "rep_iteration": 4, "rep_end": 2,
 
     # I/O.
     "in_imm": 11, "in_dw": 8, "out_imm": 9, "out_imm_post": 1, "out_dw": 5,
 
     # Misc.
-    "flag_op": 2, "sahf": 3, "lahf": 3, "cvtbw": 2, "cvtwl": 9,
+    "flag_op": 3, "sahf": 3, "lahf": 3, "cvtbw": 2, "cvtwl": 10,
     "nop": 3, "halt": 2, "trans": 7,
-    "adj4": 10, "adjb": 17, "cvtbd": 20, "cvtdb": 19,
+    "adj4": 11, "adjb": 18, "cvtbd": 20, "cvtdb": 19,
 
     # 0F page.
-    "test1_r_cl": 5, "test1_r_imm": 5, "clr1_r_cl": 6, "clr1_r_imm": 5,
+    "test1_r_cl": 5, "test1_r_imm": 5, "clr1_r_cl": 7, "clr1_r_imm": 5,
     "set1_r_cl": 5, "set1_r_imm": 5, "not1_r_cl": 5, "not1_r_imm": 5,
     "test1_m_cl": 8, "test1_m_imm": 4, "clr1_m_cl": 8, "clr1_m_imm": 3,
     "set1_m_cl": 7, "set1_m_imm": 2, "not1_m_cl": 7, "not1_m_imm": 2,
     "bcd4s_start": 15, "bcd4s_digit_pair": 23,
-    "rol4_r": 16, "ror4_r": 20, "rol4_m": 13, "ror4_m": 17,
+    "rol4_r": 17, "ror4_r": 21, "rol4_m": 13, "ror4_m": 17,
     "ext_base": 107, "ext_full": 43, "ext_cross": 61,
     "ins_base": 94, "ins_boundary": 86, "ins_cross": 128,
     "bitfield_cl_adjust": -1,
@@ -134,10 +142,11 @@ COSTS["fetch_latch"] = 0                    # 1: the latched decision above on a
 # Per-model fitted values: the active profile overrides COSTS.
 PROFILES = {
     "iwr": {},
-    "byte": {"queue_model": "byte", "end_hide": set(), "mid_hide": set()},
+    "byte": {"queue_model": "byte", "end_hide": set(), "mid_hide": set(), "prepop": set()},
     "two_word": {"queue_model": "two_word", "queue_words": 4},
     "consume": {
         "queue_model": "consume",
+        "prepop": set(),
         "queue_words": 3,
         "word_load": 2,
         "operand_at": [4, 7, 10, 13, 16],

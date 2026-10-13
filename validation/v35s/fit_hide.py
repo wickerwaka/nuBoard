@@ -4,6 +4,8 @@
 
 A word load costs costs.word_load clocks. A routine may hide one of them:
   end_hide  - the load of the next opcode's word overlaps its last step
+  prepop    - (with --prepop) instead of hiding, it pops the next opcode
+              costs.prepop_at clocks into its last steps (the V30's E-row pop)
   mid_hide  - an operand word's load starts a clock early. Before the ModR/M
               byte is read the key is the opcode (int); after, the routine
               key ("8Bm", "F1Cr", ...).
@@ -59,10 +61,14 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--entry", default="a6-timing")
     parser.add_argument("--passes", type=int, default=2)
+    parser.add_argument("--prepop", action="store_true",
+                        help="also try the next-opcode pre-pop for each routine")
     args = parser.parse_args()
     data = load(args.entry)
     runner = Runner(data["settings"])
-    costs = dict(COSTS, end_hide=set(), mid_hide=set())
+    costs = dict(COSTS, end_hide=set(), mid_hide=set(), prepop=set(COSTS.get("prepop", ())))
+    # On a tie the pre-pop wins over hiding: the held probe tells them apart.
+    states = (0, 2, 1) if args.prepop else (0, 1)
     forms = defaultdict(dict)
     base_cases = {}
     for run in data["runs"]:
@@ -98,16 +104,18 @@ def main():
         for opcode, names in sorted(by_opcode.items()):
             keys = sorted({key_of[n] for n in names}, key=str)
             options = []
-            for bits in itertools.product((0, 1), repeat=2 * len(keys) + 1):
-                end = {k for k, b in zip(keys, bits[:len(keys)]) if b and k != opcode}
-                end |= {k for k, b in zip(keys, bits[:len(keys)]) if b and k == opcode}
-                mid = {k for k, b in zip(keys, bits[len(keys):2 * len(keys)]) if b}
-                if bits[-1]:
-                    mid.add(opcode)
-                options.append((end, mid))
+            for ends in itertools.product(states, repeat=len(keys)):
+                for bits in itertools.product((0, 1), repeat=len(keys) + 1):
+                    end = {k for k, b in zip(keys, ends) if b == 1}
+                    pre = {k for k, b in zip(keys, ends) if b == 2}
+                    mid = {k for k, b in zip(keys, bits[:len(keys)]) if b}
+                    if bits[-1]:
+                        mid.add(opcode)
+                    options.append((end, pre, mid))
             best = None
-            for end, mid in options:
+            for end, pre, mid in options:
                 trial = dict(costs, end_hide=(costs["end_hide"] - set(keys)) | end,
+                             prepop=(costs["prepop"] - set(keys)) | pre,
                              mid_hide=(costs["mid_hide"] - set(keys) - {opcode}) | mid)
                 err = error(trial, names)
                 if best is None or err < best[0]:
@@ -118,6 +126,8 @@ def main():
                                              for k in keys)) + "}"
     print(f'"end_hide": {fmt(costs["end_hide"])},')
     print(f'"mid_hide": {fmt(costs["mid_hide"])},')
+    if args.prepop:
+        print(f'"prepop": {fmt(costs["prepop"])},')
     print("total error", error(costs, list(forms)))
 
 

@@ -23,7 +23,7 @@ from .model.machine import Machine
 from .runner import Transaction
 from .timing import build
 
-BUS_KEYS = {"queue_bytes", "ripe_delay", "fetch_sample", "idle_fetch_delay", "opcode_pop",
+BUS_KEYS = {"prepop", "prepop_end", "preload_penalty", "queue_bytes", "ripe_delay", "fetch_sample", "idle_fetch_delay", "opcode_pop",
             "queue_words", "word_load", "fetch_data_delay", "end_hide", "mid_hide",
             "io_recovery", "write_posted", "write_post_clocks", "eu_after_read",
             "eu_after_write", "reset_first_fetch_states", "reset_first_refresh_states",

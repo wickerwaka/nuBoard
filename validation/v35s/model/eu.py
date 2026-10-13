@@ -47,6 +47,7 @@ class EU:
         self.opcode_clock = 0
         self.operands = 0
         self.carry = 0
+        self.prepopped = False
 
     # -- registers --------------------------------------------------------
 
@@ -322,6 +323,7 @@ class EU:
         try:
             while True:
                 yield ("opcode",)
+                asked = self.m.clock
                 op = yield from self.byte(operand=False)
                 self.opcode_clock = self.m.clock
                 self.operands = 0
@@ -333,7 +335,15 @@ class EU:
                     # The previous instruction's last clocks, overlapped by
                     # this opcode's decode (decode lookahead).
                     carry, self.carry = self.carry, 0
-                    yield ("clocks", carry)
+                    if self.prepopped:
+                        # The carried clocks run while the pre-popped opcode
+                        # waits for its word; if the pop emptied the word
+                        # register, the next word loads at once.
+                        carry -= self.m.clock - asked
+                        yield ("preload",)
+                    if carry > 0:
+                        yield ("clocks", carry)
+                self.prepopped = False
                 if self.m.log is not None:
                     self.m.log.append((self.m.clock, (self.pc - 1) & 0xFFFF, op))
                 if op in (0x26, 0x2E, 0x36, 0x3E):
@@ -351,7 +361,12 @@ class EU:
             self.routine = op
             self.m.routine = self
             lookahead = self.costs.get("lookahead", 0)
-            if lookahead:
+            if self.costs.get("prepop"):
+                # A routine in costs.prepop pops the next opcode prepop_end
+                # clocks before its end (the V30's last-row pop); those
+                # clocks run after the pop.
+                yield from self._lookahead(self.execute(op), lookahead, self._prepop_carry)
+            elif lookahead:
                 yield from self._lookahead(self.execute(op), lookahead)
             else:
                 yield from self.execute(op)
@@ -362,7 +377,14 @@ class EU:
         except Trap as trap:
             yield from self.interrupt(trap.vector, start_pc)
 
-    def _lookahead(self, gen, lookahead):
+    def _prepop_carry(self, total):
+        """Clocks of a pre-popping routine carried past its pre-pop."""
+        if self.routine_key() not in self.costs["prepop"]:
+            return None
+        self.prepopped = True
+        return min(self.costs["prepop_end"], total)
+
+    def _lookahead(self, gen, lookahead, carry=None):
         """Run an instruction, holding back up to `lookahead` of its final
         execution clocks: they are spent after the next opcode is taken.
         With costs.lookahead_after_operands, an instruction whose last
@@ -392,6 +414,9 @@ class EU:
                 and last[0] == "byte" and len(last) > 1 and last[1]):
             self.carry = total
             return
+        carry = carry(total) if carry is not None else None
+        if carry is not None:
+            lookahead = carry
         if total > lookahead:
             yield ("clocks", total - lookahead)
         self.carry = min(lookahead, total)

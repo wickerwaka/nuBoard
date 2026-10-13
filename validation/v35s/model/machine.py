@@ -65,6 +65,7 @@ class Machine:
         self.queue = []                # (linear address, byte, clock it reaches the EU)
         self.iwr = []                  # the EU's instruction word register: (linear, byte) left
         self.iwr_ready = 0             # clock its current word can be read
+        self.preloaded = False         # the register's word was loaded ahead (pre-pop)
         self._last_was_boundary = True # the next byte the EU takes is an opcode
         self.routine = None            # the EU, for its current routine key
         self.end_discount = 0          # clocks the last routine hides of the next opcode load
@@ -238,6 +239,10 @@ class Machine:
         a fetch is sampled once, fetch_sample clocks before its last clock,
         and latched; an idle bus unit checks for room every clock and starts
         a fetch idle_fetch_delay clocks after it first finds it."""
+        if (self.fetch_grant_at is not None and self.clock >= self.fetch_grant_at
+                and self.costs["fetch_grant"] == "idle" and (self.cycle is not None
+                                                             or self.clock < self.bus_idle_until)):
+            self.fetch_grant_at = None     # a request that finds the bus busy is lost
         if self.cycle is not None:
             last = self.cycle.start + self.cycle.length - 1
             if self.clock == last - self.costs["fetch_sample"]:
@@ -273,6 +278,11 @@ class Machine:
                 self.idle_eligible = self.clock
             if self.clock - self.idle_eligible < self.costs["idle_fetch_delay"]:
                 return
+            if self.costs["fetch_request"] and (self.queue or self.iwr):
+                # An idle bus unit starts fetching only on an EU request.
+                if self.fetch_grant_at is None or self.clock < self.fetch_grant_at:
+                    return
+        self.fetch_grant_at = None
         self.idle_eligible = None
         linear = self.fetch_linear
         width = 1 if linear & 1 else 2
@@ -405,7 +415,7 @@ class Machine:
                 self._eu_value = value
                 self._eu_request = None
                 continue
-            if op == "preload" and self.costs["queue_model"] == "byte":
+            if op == "preload" and self.costs["queue_model"] in ("byte", "consume"):
                 self._eu_request = None
                 continue
             if op in ("byte", "preload"):
@@ -435,11 +445,20 @@ class Machine:
                     self.iwr_ready = self.clock + load
                     if self.loads is not None:
                         self.loads.append((self.clock, (word << 1) & 0xFFFF))
+                    if self.costs["fetch_request"] == "load":
+                        self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
+                    self.preloaded = op == "preload"
                 if op == "preload":
                     self._eu_request = None
                     continue
                 if self.clock < self.iwr_ready:
                     return
+                if self.preloaded and not self.iwr[0][0] & 1 and self.costs["preload_penalty"]:
+                    # The first byte of a word loaded ahead costs the EU a clock.
+                    self.preloaded = False
+                    self.iwr_ready = self.clock + self.costs["preload_penalty"]
+                    return
+                self.preloaded = False
                 linear, value = self.iwr.pop(0)
                 mode = self.costs["fetch_request"]
                 if (mode == "take" or (mode == "opcode" and self._last_was_boundary)
