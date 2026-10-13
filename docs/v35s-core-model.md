@@ -196,6 +196,69 @@ quick checks (not fitted) did not reproduce this:
 The next candidate is a fetch request that the EU issues at particular
 micro-steps, rather than one the bus unit makes whenever a slot is free.
 
+### EU-issued fetch requests, 2026-10-13
+
+The bus unit fetches only on a request from the EU. The options are in
+`costs.py`:
+- `fetch_request`: "opcode", "take" (any queue byte) or "ask" (when the EU
+  asks for an opcode, before the byte arrives);
+- `fetch_grant`: "free" grants every free slot, "one" a single fetch,
+  "until_full" fetches freely until the queue fills and then waits for a
+  request;
+- `fetch_request_delay`.
+
+The screen used the release probe, unfitted. It counts runs whose post-target
+fetch list matches silicon exactly, aligned on the 58h fetch, from a grid of
+192 combinations: release on load or on consumption, depth 3 or 4, the
+request kinds, both grants, lookahead 0 to 3, delay 0 to 2.
+
+| Rule | Exact fetch lists |
+| --- | --- |
+| iwr (no requests) | 20 / 174 |
+| request on each opcode or byte take, grant free slots | **42 to 44 / 174** |
+| request when the EU asks for an opcode | 20 / 174 |
+| fill freely, then wait for a request (hysteresis) | 20 / 174 |
+| two-word release with any request kind | ≤ 41 / 174 |
+| depth 4, any rule | ≤ 15 / 174 |
+
+The gain is not real. A request on the opcode take works because it lands
+2 clocks after the EU asks, and that delays the whole NOP runway by 2 clocks
+from the marker on. Fitted (hide bits and steps), it scores below iwr:
+
+| Measure | iwr | opcode-take request |
+| --- | --- | --- |
+| window length exact | 68% | 67% |
+| cycles in place | 72% | 9% (runway 2 clocks late) |
+| aligned cycles in place | 64% | 57% |
+| placement costs exact | 68% | 68% |
+| odd-minus-even exact | 92% | 83% |
+| release cycles in place | 61% | 56% |
+
+The runway can only be put back at the right time by a request at the ask
+or by the hysteresis rule. Both reproduce iwr exactly, because the slot
+freed by the target's own word load is seen at once.
+
+**What the release data needs.** Behind every 1-byte target at an even
+address, the fetch of word 60h comes at the target's end, and word 62h
+follows 3 clocks later:
+
+| Target | 60h fetch, relative to the NOP baseline |
+| --- | --- |
+| INC, CVTBW, CLR1 | +0 |
+| CVTWL | +7 |
+| ADJ4A | +8 |
+| ADJBA | +15 |
+
+The slot freed when the target's word loads goes unused until the target
+finishes, and then two fetches go out. Two-clock targets (INC, CVTBW, CLR1)
+burst, but three-clock ones (NOP, XCH AW,CW) do not. Every rule tried that
+holds the first fetch back far enough also shifts the runway. The next step
+is probes rather than rule guessing:
+- vary the instruction before the target and the number of NOPs after it,
+  to find which event releases the held fetch;
+- check whether the 2-clock against 3-clock difference follows the
+  instruction's length or its phase against the bus.
+
 The refill table is still the word-register model's main miss: 68% exact.
 The refill behind a 1-byte target waits until near its end, and nothing in
 either model produces that. Candidates for the next round:
@@ -242,4 +305,4 @@ Window misses concentrate in:
 - the ±1 placement residue;
 - traps.
 
-The next step: EU-issued fetch requests (see the two-word section).
+The next step: probes for what releases a held fetch (see the EU-issued fetch request section).

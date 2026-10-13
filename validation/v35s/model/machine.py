@@ -68,6 +68,9 @@ class Machine:
         self.routine = None            # the EU, for its current routine key
         self.end_discount = 0          # clocks the last routine hides of the next opcode load
         self.suspended = False         # prefetch stopped by a decided transfer until its flush
+        self.fetch_grant_at = None     # EU-issued fetch request: clock it reaches the bus unit
+        self.fetch_credits = self.costs["queue_words"]  # fetches the bus unit may still start
+        self.fetch_asked = None        # "ask": the opcode request already signalled
         self.last_word = None          # consumption model: word of the last byte taken
         self._penalty_paid = False
         self.fetch_linear = 0xFFFF0    # next prefetch address
@@ -80,6 +83,7 @@ class Machine:
         self.eu = EU(self)
         self.result = None             # pass / fail from the result port
         self.log = None                # set to [] to record (clock, pc, opcode) per instruction
+        self.loads = None              # set to [] to record (clock, word address) per word load
         self.keys = None               # set to {} to record pc -> routine key
         self.steps_used = None         # set to set() to record the step names spent
         self.halted = False
@@ -236,6 +240,34 @@ class Machine:
             return
         linear = self.fetch_linear
         width = 1 if linear & 1 else 2
+        if self.costs["fetch_request"]:
+            # The bus unit fetches only on an EU request: each one grants as
+            # many fetches as there are free slots when it arrives.
+            if self.fetch_grant_at is not None and self.clock >= self.fetch_grant_at:
+                self.fetch_grant_at = None
+                if self.costs["fetch_grant"] == "until_full":
+                    self.fetch_credits = 1
+                elif self.costs["fetch_grant"] == "one":
+                    self.fetch_credits = max(self.fetch_credits, 1)
+                else:
+                    self.fetch_credits = self.costs["queue_words"] - self._queue_words()
+            if not self.queue and not self.iwr:
+                # An empty queue: the EU is waiting on it (reset, a flush).
+                self.fetch_credits = max(self.fetch_credits, 1)
+            if self.fetch_credits <= 0:
+                return
+            if self._queue_words() < self.costs["queue_words"]:
+                if self.costs["fetch_grant"] == "until_full":
+                    # Fetch freely until the queue fills; then wait for a request.
+                    if self._queue_words() + 1 >= self.costs["queue_words"]:
+                        self.fetch_credits = 0
+                    self._start(Cycle("fetch", "mem", linear, width))
+                    self.fetch_linear = (linear + width) & 0xFFFFF
+                    return
+                self.fetch_credits -= 1
+                self._start(Cycle("fetch", "mem", linear, width))
+                self.fetch_linear = (linear + width) & 0xFFFFF
+            return
         if self._queue_words() < self.costs["queue_words"]:
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
@@ -291,6 +323,11 @@ class Machine:
                 self._eu_request = None
                 continue
             if op in ("byte", "preload"):
+                if (op == "byte" and self._last_was_boundary and self.costs["fetch_request"] == "ask"
+                        and self.fetch_asked is not request):
+                    # The EU asks for its next opcode.
+                    self.fetch_asked = request
+                    self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
                 if not self.iwr:
                     # Load the queue's head word into the instruction word
                     # register: its slot frees now, its bytes can be read
@@ -310,12 +347,17 @@ class Machine:
                     elif self.routine is not None and self.routine.hides_mid_load():
                         load -= 1
                     self.iwr_ready = self.clock + load
+                    if self.loads is not None:
+                        self.loads.append((self.clock, (word << 1) & 0xFFFF))
                 if op == "preload":
                     self._eu_request = None
                     continue
                 if self.clock < self.iwr_ready:
                     return
                 linear, value = self.iwr.pop(0)
+                mode = self.costs["fetch_request"]
+                if mode == "take" or (mode == "opcode" and self._last_was_boundary):
+                    self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
                 self._eu_value = value
                 self._eu_request = None
                 continue

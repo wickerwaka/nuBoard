@@ -106,6 +106,11 @@ COSTS = {
 # frees when all its bytes have been consumed, and operand bytes are consumed
 # at their micro-step (operand_at clocks after the opcode).
 COSTS["queue_model"] = "iwr"
+COSTS["fetch_request"] = ""                  # "": fetch whenever a slot is free; "take" / "opcode":
+                                             # only on a request the EU issues as it takes a queue byte / an opcode;
+                                             # "ask": as it asks for an opcode, before the byte arrives
+COSTS["fetch_grant"] = "free"                # a request grants every free slot ("free") or one fetch ("one")
+COSTS["fetch_request_delay"] = 0             # clocks from the EU's request to the bus unit seeing it
 COSTS["operand_at"] = [3, 6, 9, 12, 15]       # k-th operand byte, byte reads
 COSTS["operand_word_at"] = [4, 7, 10, 13, 16]  # k-th operand byte, word reads
 
