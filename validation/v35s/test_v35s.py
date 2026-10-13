@@ -117,5 +117,29 @@ class AssemblerTests(unittest.TestCase):
         self.assertIn("MOV AW, 1", _expand("    MOV AW, 1\n"))
 
 
+class ProbeTests(unittest.TestCase):
+    def test_every_suite_builds(self):
+        from validation.v35s.probes import SUITES
+        from validation.v35s.timing import build
+        for name, suite in SUITES.items():
+            for case in suite():
+                with self.subTest(suite=name, case=case.name, odd=case.odd):
+                    _, target, _, _ = build(case)
+                    self.assertEqual(target & 1, int(case.odd))
+
+    def test_trap_stubs(self):
+        from validation.v35s.timing import CODE_SEGMENT, STUB_SIZE, TRAP_PORT, Case, build
+        image, _, next_offset, code = build(Case(name="t", target="    NOP\n", stubs=True))
+        vectors = image[0x00000]
+        for vector in (0, 7, 19, 31):
+            offset, segment = struct.unpack_from("<HH", vectors, vector * 4)
+            self.assertEqual(segment, CODE_SEGMENT)
+            stub = code[offset:offset + STUB_SIZE]
+            self.assertEqual(stub[:8], bytes([0x68, 0x02, 0xF0, 0x9D, 0xB0, vector,
+                                              0xE6, TRAP_PORT]))
+            rel = struct.unpack_from("<h", stub, 9)[0]
+            self.assertEqual((offset + 11 + rel) & 0xFFFF, next_offset)
+
+
 if __name__ == "__main__":
     unittest.main()

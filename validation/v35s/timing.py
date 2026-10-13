@@ -21,6 +21,11 @@ target, so it is the target's retirement-to-retirement time including any
 queue refill it forces. Control-transfer cases branch to the next instruction,
 so taken and not-taken paths run the same bytes.
 
+Other suites (validation/v35s/probes.py) reuse the same window: register
+access, EA modes, data-dependent forms, internal RAM, PSW and undefined
+opcodes. --prc, --wtc, --rfm and --ready-ticks change the settings the
+prelude loads, so the same cases run with waits, refresh or RAMEN = 0.
+
 Results: build/validation/v35s/timing.json, with both lanes' full traces.
 """
 
@@ -50,6 +55,13 @@ TICKS_PER_CLOCK = 4 * X_HALF
 PRC_FX2 = 0x4C       # fX/2, RAMEN and the reset time-base setting
 WTC_ZERO = 0x0000    # no waits for memory or I/O
 RFM_OFF = 0xEC       # refresh disabled
+DEFAULT_SETTINGS = {"prc": PRC_FX2, "wtc": WTC_ZERO, "rfm": RFM_OFF}
+
+# With Case.stubs, every vector from 0 to 31 enters a stub that loads PSW
+# F002h (so BRKI = 1 and its own OUT cannot trap), reports the vector number on
+# this port and jumps to the instruction after the target.
+TRAP_PORT = 0x24
+STUB_SIZE = 16
 
 REGS16 = ("BW", "CW", "DW", "SP", "BP", "IX", "IY")
 SEGMENTS = ("DS0", "DS1", "SS")
@@ -67,6 +79,8 @@ class Case:
     v30_doc: list = field(default_factory=list)
     form: str = ""
     group: str = ""              # cases that differ only in placement
+    stubs: bool = False          # hook vectors 0-31 to reporting stubs
+    suite: str = ""
 
 
 def _hex(value: str) -> int:
@@ -172,14 +186,16 @@ def baseline_cases() -> list[Case]:
             Case(name="(baseline, odd)", target="", odd=True)]
 
 
-def _setup(case: Case, next_value: int) -> str:
+def _setup(case: Case, next_value: int, settings: dict) -> str:
     regs = {k: (next_value if v == "next" else v) for k, v in case.regs.items()}
     lines = [
         "    MOV AW, 0F000h",
         "    MOV DS0, AW",
-        f"    MOV word [0FFE8h], {WTC_ZERO:04X}h",
-        f"    MOV byte [0FFE1h], {RFM_OFF:02X}h",
-        f"    MOV byte [0FFEBh], {PRC_FX2:02X}h",
+        f"    MOV word [0FFE8h], {settings['wtc']:04X}h",
+        f"    MOV byte [0FFE1h], {settings['rfm']:02X}h",
+        f"    MOV byte [0FFEBh], {settings['prc']:02X}h",
+    ] + ([f"    MOV byte [0FF0Ah], {settings['pmc1']:02X}h"]    # PMC1 bit 7: READY
+         if settings.get("pmc1") is not None else []) + [
         "    MOV AW, 0",
         "    MOV SS, AW",
         "    MOV SP, 0F00h",
@@ -210,16 +226,16 @@ TAIL = ("    NOP\n" * RUNWAY + "    SHL AW, 16\n"
         "    MOV DW, 0FF00h\n    OUT DW, AL\n    HALT\nspin:\n    BR spin\n")
 
 
-def build(case: Case):
-    """Assemble a case. Returns (code, target_offset, next_offset, ram)."""
-    head_probe = assemble(_setup(case, 0x1234) + _window_head(False), org=0)
+def build(case: Case, settings: dict = DEFAULT_SETTINGS):
+    """Assemble a case. Returns (image, target_offset, next_offset, code)."""
+    head_probe = assemble(_setup(case, 0x1234, settings) + _window_head(False), org=0)
     target_offset = len(head_probe)
     pad = (target_offset & 1) != case.odd
     target_offset += pad
     probe = case.target.format(seg=f"{CODE_SEGMENT:04X}", next="1234")
     target_length = len(assemble(probe, org=target_offset)) if case.target else 0
     next_offset = target_offset + target_length
-    head = assemble(_setup(case, next_offset) + _window_head(pad), org=0)
+    head = assemble(_setup(case, next_offset, settings) + _window_head(pad), org=0)
     if len(head) != target_offset:
         raise RuntimeError(f"{case.name}: head length moved")
     target = assemble(case.target.format(seg=f"{CODE_SEGMENT:04X}", next=f"{next_offset:04X}"),
@@ -228,6 +244,15 @@ def build(case: Case):
         raise RuntimeError(f"{case.name}: target length moved")
     tail = assemble(TAIL, org=next_offset)
     code = head + target + tail
+    stub_base = None
+    if case.stubs:
+        code += b"\x90" * (-len(code) % STUB_SIZE)
+        stub_base = len(code)
+        for vector in range(32):
+            here = stub_base + vector * STUB_SIZE
+            rel = (next_offset - (here + 11)) & 0xFFFF
+            code += (bytes([0x68, 0x02, 0xF0, 0x9D, 0xB0, vector, 0xE6, TRAP_PORT, 0xE9])
+                     + rel.to_bytes(2, "little") + b"\x90" * 5)
 
     memory = bytearray(b"\x90" * 0x800)          # 0x0800-0x0FFF, nuV30's fill
     vectors = bytearray(0x400)
@@ -241,6 +266,12 @@ def build(case: Case):
     if case.vector is not None:
         vectors[case.vector * 4:case.vector * 4 + 4] = (
             next_offset.to_bytes(2, "little") + CODE_SEGMENT.to_bytes(2, "little"))
+    if stub_base is not None:
+        for vector in range(32):
+            if vector != case.vector:
+                vectors[vector * 4:vector * 4 + 4] = (
+                    (stub_base + vector * STUB_SIZE).to_bytes(2, "little")
+                    + CODE_SEGMENT.to_bytes(2, "little"))
     image = reset_image(code, origin=CODE_BASE, segment=CODE_SEGMENT)
     image[0x00000] = bytes(vectors)
     image[0x00800] = bytes(memory)
@@ -263,11 +294,21 @@ def mode_lanes(mode):
     return {"model": ("model",), "socket": ("socket",), "both": ("model", "socket")}[mode]
 
 
-def run_cases(harness, cases, mode="both"):
+def io_writes(trace):
+    """I/O writes between the markers, other than the markers: the dumps."""
+    found = markers(trace)
+    if len(found) != 2:
+        return None
+    return [(t.address, t.data) for t in trace
+            if found[0].start < t.start < found[1].start and t.flags & FLAG_STROBE
+            and t.flags & FLAG_IO and not t.flags & FLAG_READ]
+
+
+def run_cases(harness, cases, mode="both", settings=DEFAULT_SETTINGS, ready_ticks=0):
     results = []
     for case in cases:
-        image, target_offset, next_offset, code = build(case)
-        harness.configure(x_half=X_HALF)
+        image, target_offset, next_offset, code = build(case, settings)
+        harness.configure(x_half=X_HALF, ready_ticks=ready_ticks)
         harness.load(image)
         result = harness.run(mode, 2_000_000)
         row = {"case": asdict(case), "target_offset": target_offset,
@@ -280,9 +321,12 @@ def run_cases(harness, cases, mode="both"):
             trace = [Transaction(**r) for r in result[f"{lane}_trace"]]
             row[f"{lane}_trace"] = result[f"{lane}_trace"]
             row[f"{lane}_window"] = window(trace) if trace else None
+            row[f"{lane}_io"] = io_writes(trace) if trace else None
         results.append(row)
+        dumps = row["socket_io"] or row["model_io"]
         print(f"  {case.name:<44} socket={row['socket_window']} model={row['model_window']}"
-              f"{'' if row['passed'] else ' FAIL'}", flush=True)
+              + (" io=" + " ".join(f"{a:x}:{d:04x}" for a, d in dumps) if dumps else "")
+              + ("" if row["passed"] else " FAIL"), flush=True)
     return results
 
 
@@ -332,16 +376,29 @@ def analyse(results):
 
 
 def main():
+    from .probes import SUITES
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--socket-fitted", action="store_true")
     parser.add_argument("--backend", choices=("board", "sim"), default="board",
                         help="sim runs the model lane alone in Verilator")
     parser.add_argument("--case", nargs="*", help="run cases whose name contains any of these")
+    parser.add_argument("--suite", default="a6",
+                        help="comma-separated: a6 (the nuV30 forms and flow), or a "
+                             "suite from probes.py: " + ", ".join(SUITES))
+    parser.add_argument("--lanes", choices=("both", "socket", "model"), default="both")
+    parser.add_argument("--prc", type=_hex, default=PRC_FX2)
+    parser.add_argument("--wtc", type=_hex, default=WTC_ZERO)
+    parser.add_argument("--rfm", type=_hex, default=RFM_OFF)
+    parser.add_argument("--pmc1", type=_hex, help="PMC1 value; 80 selects READY on P17")
+    parser.add_argument("--ready-ticks", type=int, default=0)
     parser.add_argument("--output", type=Path, default=ROOT / "build/validation/v35s/timing.json")
     args = parser.parse_args()
+    settings = {"prc": args.prc, "wtc": args.wtc, "rfm": args.rfm, "pmc1": args.pmc1}
 
-    cases = baseline_cases() + facts_cases() + flow_cases()
+    cases = baseline_cases()
+    for suite in args.suite.split(","):
+        cases += facts_cases() + flow_cases() if suite == "a6" else SUITES[suite]()
     if args.case:
         cases = baseline_cases() + [c for c in cases[2:]
                                     if any(s.lower() in c.name.lower() for s in args.case)]
@@ -353,7 +410,8 @@ def main():
             transport = SimulationTransport("direct")
             try:
                 results = run_cases(Harness(DebugClient(transport.exchange)), cases,
-                                    mode="model")
+                                    mode="model", settings=settings,
+                                    ready_ticks=args.ready_ticks)
             finally:
                 transport.close()
         else:
@@ -364,7 +422,7 @@ def main():
                 transport.vccb_enable()
                 harness.arm()
                 time.sleep(0.05)
-                results = run_cases(harness, cases)
+                results = run_cases(harness, cases, args.lanes, settings, args.ready_ticks)
             finally:
                 try:
                     harness.arm(False)
@@ -377,7 +435,7 @@ def main():
         args.output.write_text(json.dumps({
             "backend": args.backend, "board_state": state, "x_half": X_HALF,
             "ticks_per_clock": TICKS_PER_CLOCK,
-            "settings": {"prc": PRC_FX2, "wtc": WTC_ZERO, "rfm": RFM_OFF},
+            "suite": args.suite, "settings": settings, "ready_ticks": args.ready_ticks,
             "summary": rows, "runs": results}, indent=1) + "\n")
     def show(value):
         return "-" if value is None else f"{value:g}"

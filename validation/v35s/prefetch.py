@@ -13,6 +13,14 @@ The reset probe runs the smoke program at several reset lengths and X1 rates
 and records when the first refresh and the first fetch begin after /RESET
 rises, in X1 periods.
 
+--wtc, --rfm and --ready-ticks rerun the scenarios with waits, refresh or a
+held READY (READY only counts when WTC selects it and PMC1 bit 7 makes P17
+READY: --wtc FFFF --pmc1 80).
+
+--refresh runs the refresh probe instead (M7): for each RFM value and clock
+rate, a stretch with no bus cycles of its own, then HALT, and reports the
+refresh intervals in each.
+
 Results: build/validation/v35s/prefetch.json.
 """
 
@@ -26,7 +34,7 @@ from pathlib import Path
 from .asm import assemble
 from .runner import (FLAG_IO, FLAG_READ, FLAG_REFRESH, FLAG_STROBE, ROOT, Transaction,
                      open_board, reset_image)
-from .timing import TICKS_PER_CLOCK, X_HALF, Case, build, markers
+from .timing import DEFAULT_SETTINGS, TICKS_PER_CLOCK, X_HALF, Case, build, markers
 
 LONG = "    SHL AW, 16\n"          # 3 bytes, no bus cycle, fixed duration
 
@@ -49,6 +57,17 @@ SCENARIOS = {
     "branch-odd-target": ("    " + LONG.strip() + "\n    BR t\n" + "    NOP\n" * 5 + "t:\n" + LONG
                           + "    NOP\n" * 8, False),
 }
+# A taken branch to each byte alignment of a 4-byte group, from both parities.
+for _skip in range(4, 8):
+    for _odd in (False, True):
+        SCENARIOS[f"branch-skip{_skip}{'-odd' if _odd else ''}"] = (
+            "    " + LONG.strip() + "\n    BR t\n" + "    NOP\n" * _skip + "t:\n" + LONG
+            + "    NOP\n" * 8, _odd)
+# Long stretches with no bus cycles: where fetches and refreshes land.
+SCENARIOS["idle-long"] = ("    BR t\nt:\n" + LONG * 12 + "    NOP\n" * 8, False)
+
+REFRESH_RFM = (0xFC, 0xFD, 0xFE, 0xFF, 0xF0, 0xF4, 0xF8)
+REFRESH_PRC = (0x4C, 0x4D, 0x4E)
 
 RESET_SWEEP = [(reset, x_half) for x_half in (2, 3, 4) for reset in (167, 1_667, 16_667)]
 
@@ -71,13 +90,13 @@ def describe(trace, origin, code_base):
     return rows
 
 
-def run_scenarios(harness):
+def run_scenarios(harness, settings=DEFAULT_SETTINGS, ready_ticks=0):
     report = {}
     for name, (body, odd) in SCENARIOS.items():
         case = Case(name=name, target=body, odd=odd,
                     regs={"BW": 0x0800, "IX": 0x0801, "CW": 5, "AW": 7, "DW": 0x1234})
-        image, target_offset, next_offset, code = build(case)
-        harness.configure(x_half=X_HALF)
+        image, target_offset, next_offset, code = build(case, settings)
+        harness.configure(x_half=X_HALF, ready_ticks=ready_ticks)
         harness.load(image)
         result = harness.run("both", 2_000_000)
         entry = {"target_offset": target_offset, "code_hex": code.hex(),
@@ -100,6 +119,42 @@ def run_scenarios(harness):
             rows = entry[lane] or []
             print(f"  {lane:<6} " + " ".join(
                 f"{r['clock']:g}:{r['kind'][0]}{r['address']:x}" for r in rows if r["clock"] >= -2))
+    return report
+
+
+def _intervals(starts):
+    return [b - a for a, b in zip(starts, starts[1:])]
+
+
+def run_refresh(harness):
+    """Refresh intervals while the EU runs without bus cycles, and in HALT."""
+    report = []
+    running = "    BR t\nt:\n" + LONG * 24 + "    NOP\n" * 4
+    for prc in REFRESH_PRC:
+        for rfm in REFRESH_RFM if prc == 0x4C else (0xFC,):
+            settings = dict(DEFAULT_SETTINGS, prc=prc, rfm=rfm)
+            entry = {"prc": prc, "rfm": rfm}
+            for label, body in (("running", running), ("halt", "    HALT\n")):
+                image, _, _, _ = build(Case(name=label, target=body), settings)
+                harness.configure(x_half=X_HALF)
+                harness.load(image)
+                result = harness.run("socket", 400_000)
+                trace = [Transaction(**r) for r in result["socket_trace"]]
+                first = markers(trace)[:1]
+                start = first[0].start if first else 0
+                refresh = [t.start for t in trace if t.flags & FLAG_REFRESH and t.start > start]
+                fetches = [t.start for t in trace if t.flags & FLAG_STROBE
+                           and not t.flags & FLAG_REFRESH and t.start > start]
+                if label == "halt" and fetches:
+                    refresh = [r for r in refresh if r > fetches[-1]]
+                widths = sorted({(t.end - t.start) for t in trace if t.flags & FLAG_REFRESH})
+                entry[label] = {"status": result["status"], "refresh_ticks": refresh[:64],
+                                "intervals_ticks": _intervals(refresh[:64]),
+                                "refresh_length_ticks": widths}
+            report.append(entry)
+            print(f"prc={prc:02X} rfm={rfm:02X}: " + "  ".join(
+                f"{label} {sorted(set(entry[label]['intervals_ticks']))[:6]} ticks"
+                for label in ("running", "halt")), flush=True)
     return report
 
 
@@ -136,17 +191,26 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--socket-fitted", action="store_true", required=True)
     parser.add_argument("--skip-reset", action="store_true")
+    parser.add_argument("--refresh", action="store_true", help="run the refresh probe only")
+    parser.add_argument("--wtc", type=lambda v: int(v, 16), default=DEFAULT_SETTINGS["wtc"])
+    parser.add_argument("--rfm", type=lambda v: int(v, 16), default=DEFAULT_SETTINGS["rfm"])
+    parser.add_argument("--pmc1", type=lambda v: int(v, 16), help="80 selects READY on P17")
+    parser.add_argument("--ready-ticks", type=int, default=0)
     parser.add_argument("--output", type=Path, default=ROOT / "build/validation/v35s/prefetch.json")
     args = parser.parse_args()
     transport, harness, state = open_board(True)
-    report = {"board_state": state}
+    settings = dict(DEFAULT_SETTINGS, wtc=args.wtc, rfm=args.rfm, pmc1=args.pmc1)
+    report = {"board_state": state, "settings": settings, "ready_ticks": args.ready_ticks}
     try:
         transport.vccb_enable()
         harness.arm()
         time.sleep(0.05)
-        report["scenarios"] = run_scenarios(harness)
-        if not args.skip_reset:
-            report["reset"] = run_reset(harness)
+        if args.refresh:
+            report["refresh"] = run_refresh(harness)
+        else:
+            report["scenarios"] = run_scenarios(harness, settings, args.ready_ticks)
+            if not args.skip_reset:
+                report["reset"] = run_reset(harness)
     finally:
         try:
             harness.arm(False)

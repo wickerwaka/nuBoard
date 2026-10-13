@@ -100,11 +100,11 @@ has no microcode ROM or PLA tables.
 
 ### Phase 0: close step 1
 
-- [ ] Commit the step-1 probes and docs (`timing.py`, `timing_report.py`,
+- [x] Commit the step-1 probes and docs (`timing.py`, `timing_report.py`,
   `prefetch.py`, the differences and decision docs).
-- [ ] **A1:** rerun `characterize` on build 2 (30 ns tick) and replace the
+- [x] **A1:** rerun `characterize` on build 2 (30 ns tick) and replace the
   build-1 receipt in `v35s-bus-timing.md`.
-- [ ] Make `timing.json`, `prefetch.json` and the characterize receipt the
+- [x] Make `timing.json`, `prefetch.json` and the characterize receipt the
   first **silicon corpus**. Store them in `build/validation/v35s/corpus/`
   with a manifest of harness build hash, settings and date. Everything
   offline checks against it.
@@ -128,6 +128,15 @@ and a short section in `v35s-bus-timing.md`.
 
 The A6 sweep took about 7 minutes. M1 to M5 together are about 3,000 runs,
 or roughly an hour of board time.
+
+**Status (2026-10-12):** done except the follow-ups listed at the end of
+[`v35s-eu-timing.md`](v35s-eu-timing.md). M1 to M5, M8 and M9 are in that
+doc; M6 and M7, plus READY (A7), are in
+[`v35s-bus-timing.md`](v35s-bus-timing.md). Every run is in the corpus.
+The board time was about 15 minutes, not an hour.
+- **M3 result:** register access is through the internal RAM. A register
+  read-modify-write costs 6, and register moves and ALU operations 3.
+- **M2 result:** RAMEN = 1 adds 3 clocks to every data write.
 
 ### Phase 2: Python cycle model
 

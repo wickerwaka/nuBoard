@@ -53,14 +53,16 @@ The V35S shares its core with the V25S (L162577–162579).
 | PSW 5 / 3 | fixed 0 | F1 / F0, mirrored in the FLAG SFR (xxFEA) | [DB] L109371–109375 |
 | PSW 1 | fixed 1 | BRKI: 0 makes every IN/OUT trap to vector 19 | [DB] L104979–104985 |
 | PSW reset | F002 | F002 (MD 1, RB 7, BRKI 1) | [DB] L104254 |
-| POP PSW | full | upper 4 bits (MD, RB) unchanged | [DB] L163952–163954 |
+| POP PSW | full | upper 4 bits (MD, RB) unchanged; bits 11–0 all written, BRKI and F0/F1 included | [DB] L163952–163954; [Si] |
 | MOV to PSW byte | — | only the low 8 bits | [DB] L163952–163954 |
-| RETI | pops PSW | restores RB and MD too | [DB] L104253, L162556–162571 |
+| RETI | pops PSW | restores RB and MD too | [DB] L104253, L162556–162571; [Si] |
 | Reset registers | PS FFFF, others 0 | PS FFFF, PC 0, DS0 DS1 SS 0; GPRs undefined (RAM) | [DB] L104215–104223; [Si] AW read 0060 |
 | 8080 mode | BRKEM, RETEM, CALLN | removed; behaviour of 0F FF undefined | [DB] L104607–104609 |
 
 MAME disagrees on two points: its POP PSW restores MD, and its RETI does not
-restore RB.
+restore RB. Silicon confirms the data book on both
+([`v35s-eu-timing.md`](v35s-eu-timing.md#psw-m9)). SAHF writes BRKI and
+F0/F1 as well.
 
 ## 2. Instructions
 
@@ -90,8 +92,7 @@ V35 meaning in the decode tables.
 
 - **FPO escapes (D8–DF, and 66/67):** trap to vector 7 (55+5W) instead of
   executing as no-ops. [DB] pdf p573, p551
-- **IN/OUT with BRKI = 0:** trap to vector 19. Whether INM/OUTM trap too is
-  [?].
+- **IN/OUT with BRKI = 0:** trap to vector 19, and OUTM does too. [Si]
 - **HALT:** any unmasked interrupt releases it. With IE = 0 execution resumes
   after the HALT; on the V30 INT with IE = 0 does not wake it. [DB] L108474–108480
 - **POLL:** tests P14 every 5 clocks; reads low unless P14 is an input. [DB] L163404–163419
@@ -161,9 +162,9 @@ The model implements PRC, WTC, RFM and IDB; all other SFRs are plain storage.
 | Status | S0–S2, QS0/QS1, BUSLOCK | none; MREQ, MSTB, IOSTB, R/W, REFRQ | [DB] L103440–103520 |
 | Cycle | T1–T4 | B1 B2 (waits) B3 | [DB]; [Si] |
 | Waits | READY only | WTC per 128 KB block plus I/O, 0/1/2/2+READY; reset FFFF | [DB] L108419–108571; [Si] |
-| READY | sampled in T3 | sampled mid-BAW2; at least 2 waits when used | [DB] L163436–163440, L163674–163678 |
+| READY | sampled in T3 | needs PMC1 bit 7; 2 programmed waits, then sampled once per state | [DB] L163436–163440, L163674–163678; [Si] |
 | Refresh | none | RFM: period 16–128 clocks, 0–2 waits, 9-bit row counter, also in HALT/hold per HLTRF/HLDRF | [DB] L106832–107016; [Si] |
-| Queue | 6 bytes, fetch when 2 free | 6 bytes; refill policy [?] | [DB] L103067 |
+| Queue | 6 bytes, fetch when 2 free | 6 bytes; back-to-back refill to the word boundary | [DB] L103067; [Si] |
 | Odd word | 2 cycles | 2 cycles, odd byte first | [DB]; [Si] |
 | Hold | HOLD/HLDA | HLDRQ/HLDAK on P27/P26, 4.7 kΩ pull-ups while held | [DB] L103560–103566 |
 | Interrupt acknowledge | two INTA cycles | INT/INTAK on P14/P13, otherwise internal vectors | [DB] L103567–103585 |
@@ -197,7 +198,7 @@ five before the first data cycle; the model fetches four in both places.
 
 - **PRC:** PCK fX/2, /4, /8 (reset /8); TB time-base period; RAMEN. Reset 4Eh. [DB]; [Si]
 - **HALT:** clocks and peripherals run; see wake rules above. Refresh
-  interval in HALT measured at 60 states at fX/2. [Si, unexplained]
+  continues in HALT at the RFT period. [Si]
 - **STOP:** oscillator stops; STBC.SBF survives reset to mark a STOP return.
 
 ## 7. Software Guard
@@ -231,7 +232,7 @@ changes that depend on it.
 | A1 | Re-run `characterize` on build 2 (30 ns tick) and replace the build-1 receipt | baseline for everything below |
 | A2 | Prefetch policy: queue depth, refill threshold, behaviour on branch, around data cycles and around refresh, at 0 and 2 waits | the V35 bus unit (C1) |
 | A3 | Reset exit: time from /RESET to first refresh and first fetch, across x_half and reset length | C2 |
-| A4 | Refresh placement while running and in HALT; explain the 60-state HALT interval | C3 |
+| A4 | Refresh placement while running and in HALT (done: period 16 × 2^RFT clocks in both, see the bus-timing doc) | C3 |
 | A5 | Internal RAM and SFR data access: cost in clocks, RAMEN on/off, what xxE00–xxEFF does with RAMEN = 0, IDB relocation | B2, C4 |
 | A6 | Per-instruction clock counts: a directed corpus timing each opcode form against the data-book table (registers, memory, EA modes, waits 0/2, RAMEN 0/1) | D1 |
 | A7 | READY: sampling point and minimum waits | C1 |

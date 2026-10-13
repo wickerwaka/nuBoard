@@ -15,7 +15,8 @@ Measured bus timing is in [`v35s-bus-timing.md`](v35s-bus-timing.md). Difference
 the V30 and the work list are in [`v35s-differences.md`](v35s-differences.md);
 the step-1 measurements and the core decision are in
 [`v35s-core-decision.md`](v35s-core-decision.md), and the plan for the new core
-is [`v35s-core-plan.md`](v35s-core-plan.md).
+is [`v35s-core-plan.md`](v35s-core-plan.md). Instruction-level timing is in
+[`v35s-eu-timing.md`](v35s-eu-timing.md).
 
 ## Clock
 
@@ -70,7 +71,10 @@ References:
 | `validation/v35s/capture.py` | One program with the scope armed; prints a text waveform |
 | `validation/v35s/characterize.py` | PRC/WTC/RFM sweep with per-cycle edge timing |
 | `validation/v35s/timing.py`, `timing_report.py` | Per-instruction timing of the 306 nuV30 V30 forms, against V30 silicon and the V35 data book |
-| `validation/v35s/prefetch.py` | Prefetch-queue scenarios and the reset-exit sweep |
+| `validation/v35s/prefetch.py` | Prefetch-queue scenarios, the reset-exit sweep, READY and refresh probes |
+| `validation/v35s/probes.py` | Phase-1 case suites for the timing window (registers, EA, data-dependent, internal RAM, PSW, undefined) |
+| `validation/v35s/timing_compare.py` | Two timing runs side by side |
+| `validation/v35s/corpus.py` | The frozen silicon corpus in `build/validation/v35s/corpus/` |
 | `validation/v35s/programs/` | Directed programs |
 | `tools/fetch_v35s.py` | Pinned nuV30 checkout (assembler and fork base) |
 

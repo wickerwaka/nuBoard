@@ -79,13 +79,72 @@ only /REFRQ.
 
 ## Refresh (RFM)
 
-- **Interval while running:** with RFM.RFT = 00 a refresh starts every 15–16
-  states. Its position is deferred to a bus-cycle boundary, so it usually
-  lands after every second cycle at reset waits.
-- **Interval in HALT at fX/2:** 60 states (14.4 µs), against 15–16 states
-  when running. Not yet explained. The same 14.4 µs is 15 states of fX/8,
-  so the refresh timer may count a fixed clock. Open item.
+Measured by `python -m validation.v35s.prefetch --refresh` (corpus entry
+`m-refresh`). Each case is a stretch with no bus cycles of its own, then
+HALT.
+
+- **Period (RFM.RFT, bits 1–0):** 16, 32, 64 or 128 CPU clocks for
+  RFT = 0–3. It counts CPU clocks, not a fixed clock: at fX/2, fX/4 and fX/8
+  the RFT = 0 period is 16 clocks each time.
+- **Jitter:** in HALT, successive intervals alternate 15 and 17 clocks
+  (31/33, 63/65, 127/129 for the longer periods). While running, a refresh
+  waits for the current bus cycle to finish, so intervals of 13–18 clocks
+  appear, still averaging the period.
+- **Length (RFM.RFW, bits 3–2):** RFW = 0, 1 and 2 give refresh cycles of 2,
+  3 and 4 states (0, 1 and 2 waits). RFW = 3 behaves as 2.
+- **HALT:** refresh continues in HALT at the same period. The earlier note of
+  a 60-state HALT interval came from a build-1 trace that ends at the pass
+  write and holds no HALT refreshes; it is withdrawn.
+- **Placement against memory cycles:** at fX/2 a refresh cycle starts 1 tick
+  (⅛ state) earlier in the state than memory cycles do.
 - **Disabling refresh:** RFM.RFEN = 0 (ECh) removes refresh cycles completely.
+
+## Prefetch
+
+Measured by `python -m validation.v35s.prefetch` (corpus entries
+`a2a3-prefetch`, `m-prefetch-w0`, `-w2` and `-refresh`). Reruns reproduce
+every scenario cycle for cycle.
+
+- **Queue:** 6 bytes, filled a word at a time.
+  - After a flush the BIU fetches back to back: every 3 clocks at 0 waits,
+    every 5 at 2 waits.
+  - It fills to the word boundary that the 6-byte budget allows past the
+    instruction being executed: 9–10 bytes past a branch target that starts
+    a 3-byte instruction.
+- **Odd targets:** a byte fetch at the odd address first, then words.
+  Checked for targets at each byte alignment.
+- **Refill:** with the queue draining one byte at a time (NOPs), one word is
+  fetched per two bytes consumed.
+- **Data cycles:** a load, store or read-modify-write goes out at the next
+  bus slot after the EU asks, between fetches. The read and write of a
+  read-modify-write are 5 clocks apart at 0 waits and 7 at 2 waits.
+- **Refresh:** takes the next free slot and delays the next fetch by its
+  length.
+
+## READY
+
+Measured by `prefetch.py --wtc FFFF --pmc1 80 --ready-ticks N` (corpus
+entries `m-ready-pmc*`).
+
+- **Enabling READY:** P17 must be switched to READY with PMC1 bit 7 (PMC1 at
+  xxF0Ah). Without it, a held READY input is ignored and WTC = FFFFh gives
+  plain 2-wait cycles.
+- **Sampling:** with READY selected, the cycle keeps its 2 programmed waits.
+  After that READY is sampled once per state.
+  - With READY held low for N ticks after the column strobe falls, the
+    cycle gains one wait for N = 2–9 and two for N = 10–16.
+  - Each further 8 ticks (one state) adds one wait, up to the 6-state hold
+    tested.
+  - Allowing for the lane's synchronizer delay, the first sample falls about
+    1.2 states after /MSTB or /IOSTB falls.
+- **I/O cycles** extend the same way as memory cycles.
+
+## Internal RAM and SFRs
+
+Data accesses to IDB:E00–EFF (with RAMEN = 1), the SFRs IDB:F00–FFF, and
+FFFFF never appear on the bus. Their timing equals a zero-wait external
+access. With RAMEN = 0 the RAM range goes out on the bus and the SFRs stay
+internal. Details are in [`v35s-eu-timing.md`](v35s-eu-timing.md).
 
 ## Reset
 
@@ -122,5 +181,5 @@ These are the first targets for a V35 bus unit.
 | zero-wait cycle | B1 B2 B3 | B1 B2 B3 (3 states) | no bus model |
 | write /MSTB | "data valid" while low | falls 1 state before end | none |
 | WTC reset | FFFFh | FFFFh, 2 waits with READY high | not modelled |
-| refresh | 16 × 2^RFT clocks | 15–16 states running, 60 in HALT at fX/2 | not modelled |
+| refresh | 16 × 2^RFT clocks | 16 × 2^RFT clocks running and in HALT, at every PCK | not modelled |
 | PRC reset | 4Eh (fX/8) | 4Eh, CLKOUT = fX/8 | stored only |
