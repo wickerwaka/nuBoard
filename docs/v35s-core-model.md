@@ -148,6 +148,54 @@ load nothing fits, so the load is real. The consumption variants also
 mis-time the NOP runway: their aligned scores are far above their unaligned
 ones.
 
+### Two-word register, 2026-10-13
+
+`queue_model = "two_word"` (profile `two_word`): the register holds the
+current word and the next, so a word holds its slot until its last byte is
+consumed. `queue_words` counts both register words. It explains odd-placed
+`MULU CL`: there the ModR/M byte shares word 5Ch with the next opcode, and
+silicon holds off fetching word 60h until MULU is nearly done (87 against 64
+at even). Fitted and scored like the consumption variants:
+
+| Measure | iwr | depth 4 | depth 4, L=2 | depth 3 | depth 3, L=2 |
+| --- | --- | --- | --- | --- | --- |
+| window length exact | **68%** | 35% | 33% | 35% | 33% |
+| cycles in place | **72%** | 8% | 8% | 9% | 11% |
+| aligned cycles in place | **64%** | 53% | 52% | 50% | 51% |
+| placement costs exact | **68%** | 64% | 64% | 64% | 64% |
+| odd-minus-even exact | **92%** | 73% | 80% | 73% | 80% |
+| refill fetch exact | **68%** | 0% | 0% | 46% | 54% |
+| release cycles in place | **61%** | 44% | 43% | 42% | 44% |
+
+It loses too. At depth 4 the NOP runway runs about 5 clocks ahead, and at
+depth 3 about 3 behind: releasing on a word's last byte puts the runway
+fetches at the wrong phase, where iwr's release on loading the word puts
+them right.
+
+**The pattern no model makes yet.** After a 1-byte target, or one whose last
+byte shares a word with the next opcode, silicon fetches two words back to
+back (3 clocks apart). The baseline keeps a steady 8-clock cadence:
+
+| Target (word 5Ah) | Silicon: 60h, 62h | iwr |
+| --- | --- | --- |
+| INC AW, even | 64, 67 | 64, 71 |
+| CVTWL, even | 71, 74 | 64, 78 |
+| ADJBA, even | 79, 82 | 64, 86 |
+| MOV CL,imm8, even | 67, 70 | 64, 70 |
+| MULU CL, odd | 87, 90 | 65, 94 |
+| MULU CL, even | 64, 90 | 64, 90 |
+
+iwr usually places the later fetch close to silicon (within 4 clocks), but
+issues the first one too early. In silicon a slot is free, yet the fetch
+waits for a point in the instruction, and then both go out together. Two
+quick checks (not fitted) did not reproduce this:
+- a byte queue that fetches when 2 bytes are free, as the V30's does (6 to 9
+  bytes);
+- blocking fetch starts during EU execution clocks.
+
+The next candidate is a fetch request that the EU issues at particular
+micro-steps, rather than one the bus unit makes whenever a slot is free.
+
 The refill table is still the word-register model's main miss: 68% exact.
 The refill behind a 1-byte target waits until near its end, and nothing in
 either model produces that. Candidates for the next round:
@@ -194,4 +242,4 @@ Window misses concentrate in:
 - the ±1 placement residue;
 - traps.
 
-The next step: the two-word register candidate.
+The next step: EU-issued fetch requests (see the two-word section).

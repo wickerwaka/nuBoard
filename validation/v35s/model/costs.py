@@ -109,9 +109,13 @@ COSTS["queue_model"] = "iwr"
 COSTS["operand_at"] = [3, 6, 9, 12, 15]       # k-th operand byte, byte reads
 COSTS["operand_word_at"] = [4, 7, 10, 13, 16]  # k-th operand byte, word reads
 
+# "two_word": as "iwr", but the register holds the current word and the
+# next, so a slot frees when the current word's last byte is consumed;
+# queue_words counts both register words.
 # Per-model fitted values: the active profile overrides COSTS.
 PROFILES = {
     "iwr": {},
+    "two_word": {"queue_model": "two_word", "queue_words": 4},
     "consume": {
         "queue_model": "consume",
         "queue_words": 3,

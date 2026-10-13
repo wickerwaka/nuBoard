@@ -124,8 +124,12 @@ class Machine:
     def _queue_words(self):
         """Word slots in use: queued words plus a fetch in flight. In the
         consumption model a word stays while any of its bytes is unconsumed;
-        in the word-register model it leaves when moved to the register."""
+        in the word-register model it leaves when moved to the register. In
+        the two-word model the register holds the current word and the next,
+        so a word holds its slot until its last byte is consumed."""
         words = {q[0] >> 1 for q in self.queue}
+        if self.costs["queue_model"] == "two_word":
+            words.update(b[0] >> 1 for b in self.iwr)
         if self.cycle is not None and self.cycle.kind == "fetch":
             words.add(self.cycle.address >> 1)
         return len(words)
