@@ -119,9 +119,22 @@ COSTS["operand_word_at"] = [4, 7, 10, 13, 16]  # k-th operand byte, word reads
 # "two_word": as "iwr", but the register holds the current word and the
 # next, so a slot frees when the current word's last byte is consumed;
 # queue_words counts both register words.
+# "byte": the V30's queue (nuV30 ucore): queue_bytes bytes and no word
+# register; a byte can be popped ripe_delay clocks after its fetch's last
+# clock; whether the next bus cycle is a fetch is sampled fetch_sample
+# clocks before a running cycle's last clock (room for a word), and an idle
+# bus unit fetches idle_fetch_delay clocks after it finds room. Ruled out by
+# the odd baseline tail (docs/v35s-core-model.md, "The V30's byte queue").
+COSTS["queue_bytes"] = 6
+COSTS["ripe_delay"] = 2
+COSTS["fetch_sample"] = 1
+COSTS["idle_fetch_delay"] = 0
+COSTS["opcode_pop"] = 1
+COSTS["fetch_latch"] = 0                    # 1: the latched decision above on a word-slot queue
 # Per-model fitted values: the active profile overrides COSTS.
 PROFILES = {
     "iwr": {},
+    "byte": {"queue_model": "byte", "end_hide": set(), "mid_hide": set()},
     "two_word": {"queue_model": "two_word", "queue_words": 4},
     "consume": {
         "queue_model": "consume",

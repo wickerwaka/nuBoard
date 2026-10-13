@@ -75,6 +75,8 @@ class Machine:
         self.last_word = None          # consumption model: word of the last byte taken
         self._penalty_paid = False
         self.fetch_linear = 0xFFFF0    # next prefetch address
+        self.fetch_latch = False       # byte model: fetch eligibility sampled in the running cycle
+        self.idle_eligible = None      # byte model: clock the idle bus unit found room for a fetch
         self.cycle: Cycle | None = None
         self.bus_idle_until = 0
         self.pending: Cycle | None = None     # EU request not yet on the bus
@@ -201,6 +203,8 @@ class Machine:
         self.trace.append(Transaction(begin, address, flags, data, 0, end))
         if cycle.kind == "fetch":
             ready = self.clock + self.costs["fetch_data_delay"]
+            if self.costs["queue_model"] == "byte":
+                ready = self.clock + self.costs["ripe_delay"]
             if cycle.width == 2:
                 self.queue.append((cycle.address, data & 0xFF, ready))
                 self.queue.append((cycle.address + 1, data >> 8, ready))
@@ -217,7 +221,68 @@ class Machine:
             self._eu_wait = self.costs["eu_after_read" if cycle.kind == "read"
                                        else "eu_after_write"]
 
+    def _queue_bytes(self):
+        """Byte model: bytes queued plus the bytes of a fetch in flight."""
+        n = len(self.queue)
+        if self.cycle is not None and self.cycle.kind == "fetch":
+            n += self.cycle.width
+        return n
+
+    def _fetch_room(self):
+        if self.costs["queue_model"] == "byte":
+            return self._queue_bytes() <= self.costs["queue_bytes"] - 2
+        return self._queue_words() < self.costs["queue_words"]
+
+    def _bus_byte(self):
+        """V30-style bus unit: while a cycle runs, whether the next cycle is
+        a fetch is sampled once, fetch_sample clocks before its last clock,
+        and latched; an idle bus unit checks for room every clock and starts
+        a fetch idle_fetch_delay clocks after it first finds it."""
+        if self.cycle is not None:
+            last = self.cycle.start + self.cycle.length - 1
+            if self.clock == last - self.costs["fetch_sample"]:
+                self.fetch_latch = self._fetch_room() and not self.halted and not self.suspended
+            if self.clock >= last:
+                cycle, self.cycle = self.cycle, None
+                if cycle.space == "io":
+                    self.bus_idle_until = self.clock + 1 + self.costs["io_recovery"]
+                self._finish(cycle)
+            return
+        if self.clock < self.bus_idle_until:
+            self.idle_eligible = None
+            return
+        latch, self.fetch_latch = self.fetch_latch, False
+        if self.pending is not None:
+            if self.clock < self.pending.not_before:
+                return
+            cycle, self.pending = self.pending, None
+            self._start(cycle)
+            return
+        if self._refresh_wanted():
+            self._start(Cycle("refresh", "mem", 0, 2, owner="refresh"))
+            self.refresh_due = self.clock + self._refresh_period()
+            return
+        if self._reset_hold > 0 or self.halted or self.suspended:
+            self.idle_eligible = None
+            return
+        if not latch:
+            if not self._fetch_room():
+                self.idle_eligible = None
+                return
+            if self.idle_eligible is None:
+                self.idle_eligible = self.clock
+            if self.clock - self.idle_eligible < self.costs["idle_fetch_delay"]:
+                return
+        self.idle_eligible = None
+        linear = self.fetch_linear
+        width = 1 if linear & 1 else 2
+        self._start(Cycle("fetch", "mem", linear, width))
+        self.fetch_linear = (linear + width) & 0xFFFFF
+
     def _bus(self):
+        if self.costs["queue_model"] == "byte" or self.costs.get("fetch_latch"):
+            self._bus_byte()
+            return
         if (self.fetch_grant_at is not None and self.clock >= self.fetch_grant_at
                 and self.costs["fetch_grant"] == "idle" and self.cycle is not None):
             self.fetch_grant_at = None     # a request that finds the bus busy is lost
@@ -328,6 +393,19 @@ class Machine:
                 self.last_word = linear >> 1
                 self._penalty_paid = False
                 self._eu_value = value
+                self._eu_request = None
+                continue
+            if op == "byte" and self.costs["queue_model"] == "byte":
+                # Pop one byte once it is ripe.
+                if not self.queue or self.queue[0][2] > self.clock:
+                    return
+                linear, value, _ = self.queue.pop(0)
+                if self.loads is not None and not linear & 1:
+                    self.loads.append((self.clock, linear & 0xFFFF))
+                self._eu_value = value
+                self._eu_request = None
+                continue
+            if op == "preload" and self.costs["queue_model"] == "byte":
                 self._eu_request = None
                 continue
             if op in ("byte", "preload"):

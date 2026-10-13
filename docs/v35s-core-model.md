@@ -415,6 +415,47 @@ then consumes them. Next: an EU load schedule that can load ahead, for
 example a register that holds more than one word and refills when it
 empties, fitted with `load_times` on the held trains.
 
+### The V30's byte queue, 2026-10-13
+
+nuV30's microcoded V30 (`build/deps/nuV30/hdl/rtl/ucore`) uses a
+different queue:
+- a 6-byte queue with no word register, popped one byte at a time;
+- a byte becomes poppable a fixed delay after its fetch;
+- the next opcode is popped on the last micro-row;
+- whether the next bus cycle is a fetch is decided once per running cycle,
+  at T3, and latched: fetch when 2 bytes are free;
+- an idle bus unit re-evaluates every clock.
+
+The `byte` profile models this with five parameters: queue_bytes,
+ripe_delay, fetch_sample, idle_fetch_delay and opcode_pop.
+For each bus configuration, a coordinate-descent search fitted the
+baseline-window steps (NOP, OUT, MOV imm16, SHL imm, opcode pop) (queue 6 to 9 bytes, ripe delay 1 to 3, idle delay
+0 to 2).
+
+| Queue | Best baseline-window rows | What happens |
+| --- | --- | --- |
+| 8 bytes | 36 of 41 | Runway exact; the odd-placement tail misses |
+| 7 bytes | 22 of 41 | Fixes the tail; breaks the runway |
+| 6 or 9 bytes | lower | — |
+
+The tail rules the byte queue out:
+- In the odd baseline, SHL AW,16 takes its count byte, 6Bh, which is the
+  second byte of word 6Ah. 6 bytes are then queued, so the byte rule fetches
+  word 72h at clock 135.
+- Silicon fetches it at 177, as the OUT opcode at 6Ch is taken. That is the
+  first byte of the next word.
+- In the even baseline, the count byte at 6Ch is the first byte of its word.
+  Silicon fetches 72h at once, back to back with 70h.
+
+A word slot frees when the EU takes the word's first byte. That is iwr's
+rule, so the V35S queue is word-slotted.
+
+The latched decision added nothing on iwr (`fetch_latch`):
+- With no idle delay it scores the same as iwr.
+- Any idle delay breaks the runway (35% to 38% cycles in place, against 77%).
+
+The bursts still come down to EU load timing.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

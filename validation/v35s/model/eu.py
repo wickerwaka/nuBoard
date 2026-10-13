@@ -325,6 +325,9 @@ class EU:
                 op = yield from self.byte(operand=False)
                 self.opcode_clock = self.m.clock
                 self.operands = 0
+                if self.costs["queue_model"] == "byte":
+                    # Byte queue: the opcode pop's decode clock.
+                    yield from self.step("opcode_pop")
                 yield ("boundary",)
                 if self.carry:
                     # The previous instruction's last clocks, overlapped by
