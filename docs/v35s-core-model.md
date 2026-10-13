@@ -383,6 +383,38 @@ The request rule on top of these costs, with iwr's hide bits and no refit:
 release fetch lists 27%, held fetch lists 54%, but the window head is still
 out of phase (7% cycles in place).
 
+### Bursts are word-load timing, not a fetch rule, 2026-10-13
+
+On the corrected costs, every request rule still loses the window
+(cycles in place 7% to 46%, against iwr's 77%). On the NOP runway silicon
+fetches exactly 2 clocks after the model's word load, which is iwr's rule;
+a rule that fetches on the opcode take is 2 clocks late on every window.
+Two more variants failed:
+- a request only when an opcode take empties the word register, latched
+  through its delay;
+- the two-word register on the new costs (14% cycles in place at best).
+
+Counted against the model's word loads, nearly every silicon fetch on the
+held trains starts when 2 words are waiting, which is iwr's slot rule. The
+bursts come from when silicon's EU loads words.
+`python -m validation.v35s.load_times` prints the load clocks implied by
+the fetches (fetch minus 2) next to the model's:
+
+| Train | Silicon loads | Model loads |
+| --- | --- | --- |
+| NOP, XCH (even and odd) | every 8 | identical |
+| ADD AW,CW (even) | every 3 | identical |
+| INC AW, CLR1 CY | pairs 3 apart, every 10: 62 65, 72 75, 82 85 | every 5: 62 68 73 78 83 |
+| MOV CL,imm8, even | triples 3 apart, every 17: 65 68 71, 82 85 88 | every 6 |
+| MOV CL,imm8, odd | every 6, 2 clocks after the model | every 6 |
+
+The train costs match silicon, so the EU's total time is right. What is
+wrong is where its word loads fall: after 2-clock 1-byte instructions, and
+in the even MOV CL train, silicon loads two or three words back to back and
+then consumes them. Next: an EU load schedule that can load ahead, for
+example a register that holds more than one word and refills when it
+empties, fitted with `load_times` on the held trains.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
@@ -418,5 +450,5 @@ Window misses concentrate in:
 - the ±1 placement residue;
 - traps.
 
-The next step: refit the request rule's hide bits on these costs, and find
-where its window head loses phase (see the held-fetch probe section).
+The next step: model when the EU loads words (see "Bursts are word-load
+timing"). The fetch rule stays iwr's.
