@@ -6,9 +6,9 @@ marked V35S) on nuBoard revision 2. They were taken with the harness in
 [`validation/v35s/characterize-2026-10-12.json`](../validation/v35s/characterize-2026-10-12.json),
 produced by `python -m validation.v35s.characterize --socket-fitted`.
 
-These measurements come from harness build 1, whose fabric clock was 50 MHz.
-All times are scope ticks of 20 ns. From build 2 the fabric runs at 33.33 MHz
-and a tick is 30 ns. Each sample goes through the FPGA's two-flop
+The receipt is from harness build 2, whose fabric runs at 33.33 MHz: one
+scope tick is 30 ns. Build 1 (50 MHz, 20 ns ticks) gave the same cycles,
+kinds and counts in every case; only its edge quantization differed. Each sample goes through the FPGA's two-flop
 synchronizer, so every edge carries up to one tick of uncertainty. The CPU's
 X1 ran at 25 MHz / 3 = 8.33 MHz, the same as the build 2 default.
 
@@ -16,9 +16,9 @@ X1 ran at 25 MHz / 3 = 8.33 MHz, the same as the build 2 default.
 
 | PRC.PCK | CLKOUT period | Note |
 | --- | --- | --- |
-| 10 (reset, fX/8) | 48 ticks = 0.96 µs | PRC resets to 4Eh |
-| 01 (fX/4) | 24 ticks | |
-| 00 (fX/2) | 12 ticks = 240 ns | |
+| 10 (reset, fX/8) | 32 ticks = 0.96 µs | PRC resets to 4Eh |
+| 01 (fX/4) | 16 ticks = 480 ns | |
+| 00 (fX/2) | 8 ticks = 240 ns | |
 
 - P07 becomes CLKOUT after PMC0 bit 7 is set. The data book's PMC0 figure is
   unreadable in the converted text; the bit position is confirmed on silicon.
@@ -28,9 +28,10 @@ X1 ran at 25 MHz / 3 = 8.33 MHz, the same as the build 2 default.
 ## Bus cycle shape
 
 One bus state is one CLKOUT period. Times are in states, relative to the
-CLKOUT rising edge at or before /MREQ (or /REFRQ) falls. At fX/2 the scope
-places edges about ¼ state later than at fX/8; that is CLKOUT output delay
-against X1, not a different shape.
+CLKOUT rising edge at or before /MREQ (or /REFRQ) falls. Build 1 placed
+fX/2 edges about ¼ state late (3 of 12 ticks); build 2 places them on the
+half state at every rate, so that offset was synchronizer quantization, not
+CLKOUT delay.
 
 | Cycle | /MREQ ↓ | strobe ↓ | strobe ↑, /MREQ ↑ | /MREQ low |
 | --- | --- | --- | --- | --- |
@@ -81,17 +82,19 @@ only /REFRQ.
 - **Interval while running:** with RFM.RFT = 00 a refresh starts every 15–16
   states. Its position is deferred to a bus-cycle boundary, so it usually
   lands after every second cycle at reset waits.
-- **Interval in HALT at fX/2:** 60 states (720 ticks), against 15–16 states
-  when running. Not yet explained. The same 720 ticks is 15 states of fX/8,
+- **Interval in HALT at fX/2:** 60 states (14.4 µs), against 15–16 states
+  when running. Not yet explained. The same 14.4 µs is 15 states of fX/8,
   so the refresh timer may count a fixed clock. Open item.
 - **Disabling refresh:** RFM.RFEN = 0 (ECh) removes refresh cycles completely.
 
 ## Reset
 
-- **Reset to first bus activity:** with the default 2,500-tick /RESET hold
-  (plus the 30 ms cold wait after power-on), the first bus activity is a
-  refresh at about 742 ticks. The first fetch, from FFFF0, follows at about
-  1,223 ticks: roughly 25 states of fX/8.
+- **Reset to first bus activity:** the first bus activity is a refresh
+  118–128 X1 periods after /RESET rises (about 15.5 states of fX/8). The
+  first fetch, from FFFF0, follows at 198–208 X1 periods (about 25.5
+  states). Both are independent of the /RESET hold time; the spread is the
+  phase of the fX/8 divider at release. See
+  [`v35s-core-decision.md`](v35s-core-decision.md#reset-exit-a3).
 - **Reset prefetch:** before the reset far jump executes, the CPU fetches six
   words, FFFF0 to FFFFA. After the jump it fetches five words before the
   first data cycle.
@@ -106,7 +109,7 @@ reset-exit timing are V30's, and they differ:
 
 | | silicon | model |
 | --- | --- | --- |
-| first bus cycle | refresh at ~742 ticks | fetch FFFF0 at ~503 ticks |
+| first bus cycle | refresh at 118–128 X1 periods | fetch FFFF0 at 78–84 X1 periods |
 | fetches before the reset jump executes | 6 words | 4 words |
 | fetches after the jump, before the I/O write | 5 words | 4 words |
 
