@@ -68,6 +68,8 @@ class Machine:
         self.routine = None            # the EU, for its current routine key
         self.end_discount = 0          # clocks the last routine hides of the next opcode load
         self.suspended = False         # prefetch stopped by a decided transfer until its flush
+        self.last_word = None          # consumption model: word of the last byte taken
+        self._penalty_paid = False
         self.fetch_linear = 0xFFFF0    # next prefetch address
         self.cycle: Cycle | None = None
         self.bus_idle_until = 0
@@ -120,7 +122,9 @@ class Machine:
     # -- bus unit ---------------------------------------------------------
 
     def _queue_words(self):
-        """Word slots in use: queued words plus a fetch in flight."""
+        """Word slots in use: queued words plus a fetch in flight. In the
+        consumption model a word stays while any of its bytes is unconsumed;
+        in the word-register model it leaves when moved to the register."""
         words = {q[0] >> 1 for q in self.queue}
         if self.cycle is not None and self.cycle.kind == "fetch":
             words.add(self.cycle.address >> 1)
@@ -261,6 +265,27 @@ class Machine:
                     self._eu_wait = request[1] - 1
                     return
                 continue
+            if op == "byte" and self.costs["queue_model"] == "consume":
+                if not self.queue or self.queue[0][2] > self.clock:
+                    return
+                linear = self.queue[0][0]
+                if self.costs["word_load"] and linear >> 1 != self.last_word and not self._penalty_paid:
+                    # Reading into a new word costs a decode stall.
+                    load = self.costs["word_load"]
+                    if self._last_was_boundary:
+                        load -= self.end_discount
+                    elif self.routine is not None and self.routine.hides_mid_load():
+                        load -= 1
+                    self._penalty_paid = True
+                    if load > 0:
+                        self._eu_wait = load - 1
+                        return
+                linear, value, _ = self.queue.pop(0)
+                self.last_word = linear >> 1
+                self._penalty_paid = False
+                self._eu_value = value
+                self._eu_request = None
+                continue
             if op in ("byte", "preload"):
                 if not self.iwr:
                     # Load the queue's head word into the instruction word
@@ -312,6 +337,7 @@ class Machine:
                 self.queue.clear()
                 self.iwr.clear()
                 self.suspended = False
+                self.last_word = None
                 self.fetch_linear = request[1]
                 self._eu_request = None
                 if self.cycle is not None and self.cycle.kind == "fetch":

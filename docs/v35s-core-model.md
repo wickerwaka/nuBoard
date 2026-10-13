@@ -89,10 +89,40 @@ Two queue models compete:
    - It fails only depth-even, where silicon fills one word further while
      `SHL AW,16` runs.
 
-The next step is to implement (2) as a queue mode, with operand reads placed
-at their micro-steps. Then score both models on `fit.py`, `fit_costs.py` and
-the prefetch scenarios. If neither closes depth-even, a directed board probe
-should vary the bytes after a long instruction.
+**Compared, 2026-10-12.** Both models are implemented (`costs.PROFILES`,
+selected with `V35S_PROFILE=iwr|consume`). Each was given its own hide-bit
+and step-value fit. `python -m validation.v35s.compare_models` scores them:
+
+| Measure (a6-timing, m-prefetch-w0) | Word register | Consumption |
+| --- | --- | --- |
+| windows exact | 44 / 558 | 0 / 558 |
+| window length exact | 379 / 558 | 24 / 558 |
+| cycles in place | 72 % | 9 % |
+| placement costs exact | 377 / 552 | 247 / 552 |
+| odd-minus-even exact (independent of step values) | 237 / 259 | 122 / 259 |
+| refill fetch exact | 198 / 293 | 152 / 293 |
+| prefetch scenarios exact | 0 / 19 | 0 / 19 |
+
+The consumption model is worse on every measure:
+- **The step-independent row:** it is worse on odd-minus-even (47% against
+  92%).
+- **The refill row:** it is also worse on the observation that motivated it.
+- **Its hide-bit fit:** error 201 clocks against 19, leaning on mid-hide bits
+  for every imm16 form.
+
+So operand consumption at fixed micro-steps is not the release rule. The word
+register stays the default.
+
+The refill table is still the word-register model's main miss: 68% exact.
+The refill behind a 1-byte target waits until near its end, and nothing in
+either model produces that. Candidates for the next round:
+- the word register holding two words (current plus next), with a slot
+  freeing when the register advances past one;
+- a fetch-start rule that depends on the EU's state.
+
+A directed board probe would separate them. It would put 1-byte instructions
+of different lengths after a saturated runway, at both parities, with the
+next word's contents varied.
 
 ### Branches
 

@@ -6,6 +6,9 @@ named after the instruction class that spends them; the bus unit adds its
 own cycles, so a step is what the EU spends beyond waiting for the bus.
 """
 
+import json
+import os
+
 COSTS = {
     # Bus unit and queue.
     "queue_words": 3,                   # prefetch queue word slots, a fetch in flight included
@@ -97,3 +100,59 @@ COSTS = {
     "bitfield_cl_adjust": -1,
     "stop": 2, "fint": 2,
 }
+
+# The queue models (docs/v35s-core-model.md). "iwr": the EU moves the head
+# queue word into a word register, freeing its slot. "consume": a word slot
+# frees when all its bytes have been consumed, and operand bytes are consumed
+# at their micro-step (operand_at clocks after the opcode).
+COSTS["queue_model"] = "iwr"
+COSTS["operand_at"] = [3, 6, 9, 12, 15]       # k-th operand byte, byte reads
+COSTS["operand_word_at"] = [4, 7, 10, 13, 16]  # k-th operand byte, word reads
+
+# Per-model fitted values: the active profile overrides COSTS.
+PROFILES = {
+    "iwr": {},
+    "consume": {
+        "queue_model": "consume",
+        "queue_words": 3,
+        "word_load": 2,
+        "operand_at": [4, 7, 10, 13, 16],
+        "operand_word_at": [4, 7, 10, 13, 16],
+        # Fitted for this model by fit_hide.py and fit_steps.py.
+        "end_hide": {'69r', 'C1r', 'D2r', 'D3r', 'F10m', 'F10r', 'F11m', 'F11r', 'F12m', 'F12r', 'F13m', 'F13r', 'F14m', 'F14r', 'F15m', 'F15r', 'F16m', 'F16r', 'F17m', 'F17r', 'F28m', 'F28r', 'F2Am', 'F2Ar', 'F31r', 'F33r', 0x27, 0x2F, 0x37, 0x3F, 0x40, 0x48, 0x5B, 0x61, 0x99, 0x9D, 0xA0, 0xA1, 0xA4, 0xA5, 0xA6, 0xA7, 0xAC, 0xAD, 0xC9, 0xCE, 0xD7, 0xE4, 0xE5, 0xE6, 0xE7, 0xEC, 0xED, 0xEF, 0xF5, 0xF8, 0xF9, 0xFC, 0xFD},
+        "mid_hide": {'6Br', '83m', '83r', 'F18r', 'F19r', 'F1Ar', 'F1Cr', 'F1Dr', 'F1Er', 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D, 0x5, 0x68, 0x85, 0xA3, 0xA9, 0xB8, 0xBB, 0xD, 0xD5},
+        "alu_acc_imm1": 0,
+        "alu_acc_imm2": 0,
+        "alu_m_imm": 2,
+        "alu_r_imm1": 0,
+        "alu_r_imm2": 0,
+        "bcond": 9,
+        "br_near": 11,
+        "br_short": 11,
+        "branch_taken": 6,
+        "brkv": 5,
+        "call_far": 18,
+        "call_indirect": 23,
+        "call_near": 15,
+        "chkind": 19,
+        "clr1_r_imm": 3,
+        "cmp_m_imm": 6,
+        "cvtbd": 16,
+        "cvtdb": 15,
+        "in_imm": 7,
+        "mov_load": 5,
+        "mov_r8_imm": 0,
+        "mul_imm": 35,
+        "not1_r_imm": 3,
+        "pop_all": 26,
+        "prepare": 20,
+        "prepare_level": 10,
+        "push_all": 26,
+        "reti": 36,
+        "set1_r_imm": 3,
+        "test1_r_imm": 3,
+    },
+}
+COSTS.update(PROFILES[os.environ.get("V35S_PROFILE", "iwr")])
+# V35S_COSTS='{"key": value}' overrides single values, for sweeps.
+COSTS.update(json.loads(os.environ.get("V35S_COSTS", "{}")))

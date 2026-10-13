@@ -44,6 +44,8 @@ class EU:
         self.rep = None
         self.halted = False
         self.routine = None
+        self.opcode_clock = 0
+        self.operands = 0
 
     # -- registers --------------------------------------------------------
 
@@ -97,17 +99,25 @@ class EU:
         if n > 0:
             yield ("clocks", n)
 
-    def byte(self, operand=True):
-        """Take the next instruction byte. Operand bytes (immediates and
-        displacements) keep their queue space until the instruction ends;
-        decode bytes (opcode, prefixes, ModR/M) free it at once."""
+    def byte(self, operand=True, word=False):
+        """Take the next instruction byte. Decode bytes (opcode, prefixes,
+        ModR/M) are taken at once. In the consumption model an operand byte
+        (immediate or displacement) is consumed at its micro-step: the k-th
+        operand byte not before operand_at[k] clocks after the opcode."""
+        if operand and self.costs["queue_model"] == "consume":
+            table = self.costs["operand_word_at" if word else "operand_at"]
+            k = min(self.operands, len(table) - 1)
+            wait = self.opcode_clock + table[k] - self.m.clock
+            if wait > 0:
+                yield ("clocks", wait)
+            self.operands += 1
         value = yield ("byte", operand)
         self.pc = (self.pc + 1) & 0xFFFF
         return value
 
     def word(self):
-        low = yield from self.byte()
-        high = yield from self.byte()
+        low = yield from self.byte(word=True)
+        high = yield from self.byte(word=True)
         return low | (high << 8)
 
     def linear(self, segment, offset):
@@ -312,6 +322,8 @@ class EU:
             while True:
                 yield ("opcode",)
                 op = yield from self.byte(operand=False)
+                self.opcode_clock = self.m.clock
+                self.operands = 0
                 yield ("boundary",)
                 if self.m.log is not None:
                     self.m.log.append((self.m.clock, (self.pc - 1) & 0xFFFF, op))
