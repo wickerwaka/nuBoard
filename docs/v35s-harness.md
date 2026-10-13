@@ -11,7 +11,11 @@ gets its own memory image and bus trace. It follows the method of the
   separately.
 - A change-encoded scope captures every pin at 30 ns.
 
-Measured bus timing is in [`v35s-bus-timing.md`](v35s-bus-timing.md).
+Measured bus timing is in [`v35s-bus-timing.md`](v35s-bus-timing.md). Differences from
+the V30 and the work list are in [`v35s-differences.md`](v35s-differences.md);
+the step-1 measurements and the core decision are in
+[`v35s-core-decision.md`](v35s-core-decision.md), and the plan for the new core
+is [`v35s-core-plan.md`](v35s-core-plan.md).
 
 ## Clock
 
@@ -65,6 +69,8 @@ References:
 | `validation/v35s/scope.py` | V35S signal layout for the shared ABI-4 scope |
 | `validation/v35s/capture.py` | One program with the scope armed; prints a text waveform |
 | `validation/v35s/characterize.py` | PRC/WTC/RFM sweep with per-cycle edge timing |
+| `validation/v35s/timing.py`, `timing_report.py` | Per-instruction timing of the 306 nuV30 V30 forms, against V30 silicon and the V35 data book |
+| `validation/v35s/prefetch.py` | Prefetch-queue scenarios and the reset-exit sweep |
 | `validation/v35s/programs/` | Directed programs |
 | `tools/fetch_v35s.py` | Pinned nuV30 checkout (assembler and fork base) |
 
