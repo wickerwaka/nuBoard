@@ -43,6 +43,7 @@ class EU:
         self.seg_override = None
         self.rep = None
         self.halted = False
+        self.routine = None
 
     # -- registers --------------------------------------------------------
 
@@ -86,6 +87,8 @@ class EU:
     # -- timing and bus primitives -----------------------------------------
 
     def step(self, name, extra=0):
+        if self.m.steps_used is not None:
+            self.m.steps_used.add(name)
         n = self.costs.get(name, 0) + extra
         if n:
             yield ("clocks", n)
@@ -197,6 +200,10 @@ class EU:
         self.w16(SP, sp + 2)
         return value
 
+    def suspend(self):
+        """Stop prefetching: a taken transfer has been decided (V20 SUSP)."""
+        yield ("suspend",)
+
     def jump(self, pc, ps=None):
         if ps is not None:
             self.set_seg(PS, ps)
@@ -209,6 +216,10 @@ class EU:
         """Decode a ModR/M byte. Returns (mod, reg, rm, segment, offset)."""
         value = yield from self.byte(operand=False)
         mod, reg, rm = value >> 6, (value >> 3) & 7, value & 7
+        if mod == 3 and isinstance(self.routine, int):
+            self.routine = f"{self.routine:X}r"
+        elif isinstance(self.routine, int):
+            self.routine = f"{self.routine:X}m"
         if mod == 3:
             return mod, reg, rm, None, None
         disp = 0
@@ -299,6 +310,7 @@ class EU:
         start_pc = self.pc
         try:
             while True:
+                yield ("opcode",)
                 op = yield from self.byte(operand=False)
                 yield ("boundary",)
                 if self.m.log is not None:
@@ -315,9 +327,30 @@ class EU:
                     yield from self.step("prefix_buslock")
                     continue
                 break
+            self.routine = op
+            self.m.routine = self
             yield from self.execute(op)
+            # A routine whose last step overlaps the next opcode's word load.
+            self.m.end_discount = 1 if self.routine_key() in self.costs["end_hide"] else 0
+            if self.m.keys is not None:
+                self.m.keys.setdefault(start_pc, self.routine_key())
         except Trap as trap:
             yield from self.interrupt(trap.vector, start_pc)
+
+    def routine_key(self):
+        """The microcode routine an instruction runs: opcode (0F xx as 0x0Fxx),
+        as a string with 'r' or 'm' appended once a ModR/M byte has been read."""
+        return self.routine
+
+    def hides_mid_load(self):
+        """Does this routine start its operand-word loads a clock early? Before
+        the ModR/M byte is read, either of its forms counts."""
+        key = self.routine
+        hide = self.costs["mid_hide"]
+        if isinstance(key, int):
+            text = f"{key:X}"
+            return key in hide or text + "r" in hide or text + "m" in hide
+        return key in hide
 
     def interrupt(self, vector, return_pc=None):
         yield from self.step("trap_entry")
@@ -832,6 +865,8 @@ class EU:
         disp = yield from self.byte()
         disp = disp - 0x100 if disp & 0x80 else disp
         cond = self.condition(op & 0xF)
+        if cond:
+            yield from self.suspend()
         yield from self.step("bcond")
         if cond:
             yield from self.step("branch_taken")
@@ -862,23 +897,27 @@ class EU:
                 taken = taken and not self.flag(Z)
             yield from self.step("dbnz" if op == 0xE2 else "dbnz_cond")
         if taken:
+            yield from self.suspend()
             yield from self.step("branch_taken")
             yield from self.jump(self.pc + disp)
 
     def op_br_short(self, op):
         disp = yield from self.byte()
         disp = disp - 0x100 if disp & 0x80 else disp
+        yield from self.suspend()
         yield from self.step("br_short")
         yield from self.jump(self.pc + disp)
 
     def op_br_near(self, op):
         disp = yield from self.word()
+        yield from self.suspend()
         yield from self.step("br_near")
         yield from self.jump(self.pc + disp)
 
     def op_br_far(self, op):
         pc = yield from self.word()
         ps = yield from self.word()
+        yield from self.suspend()
         yield from self.step("br_far")
         yield from self.jump(pc, ps)
 
@@ -1137,6 +1176,7 @@ class EU:
 
     def op_0f(self):
         second = yield from self.byte(operand=False)
+        self.routine = 0x0F00 | second
         if 0x10 <= second <= 0x1F:
             yield from self.op_bit(second)
         elif second in (0x20, 0x22, 0x26):

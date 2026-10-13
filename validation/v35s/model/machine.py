@@ -62,9 +62,12 @@ class Machine:
         self.sfr[0xE1] = 0xFC          # RFM: refresh on, RFW 2? (reset FCh), RFT 0
         self.sfr[0xFF] = 0xFF          # IDB
         self.queue = []                # (linear address, byte, clock it reaches the EU)
-        self.releases = []             # (clock, linear) of taken bytes not yet freed
-        self.held = []                 # linear addresses of the current instruction's bytes
-        self.read_words = []           # (until clock, word) the EU's read pointer still holds
+        self.iwr = []                  # the EU's instruction word register: (linear, byte) left
+        self.iwr_ready = 0             # clock its current word can be read
+        self._last_was_boundary = True # the next byte the EU takes is an opcode
+        self.routine = None            # the EU, for its current routine key
+        self.end_discount = 0          # clocks the last routine hides of the next opcode load
+        self.suspended = False         # prefetch stopped by a decided transfer until its flush
         self.fetch_linear = 0xFFFF0    # next prefetch address
         self.cycle: Cycle | None = None
         self.bus_idle_until = 0
@@ -75,6 +78,8 @@ class Machine:
         self.eu = EU(self)
         self.result = None             # pass / fail from the result port
         self.log = None                # set to [] to record (clock, pc, opcode) per instruction
+        self.keys = None               # set to {} to record pc -> routine key
+        self.steps_used = None         # set to set() to record the step names spent
         self.halted = False
         self._eu_wait = 0
         self._eu_request = None
@@ -114,26 +119,12 @@ class Machine:
 
     # -- bus unit ---------------------------------------------------------
 
-    def _queue_space(self):
-        """Bytes the queue can still accept, counting a fetch in flight."""
-        self.releases = [r for r in self.releases if r[0] > self.clock]
-        addresses = [q[0] for q in self.queue] + [r[1] for r in self.releases] + self.held
+    def _queue_words(self):
+        """Word slots in use: queued words plus a fetch in flight."""
+        words = {q[0] >> 1 for q in self.queue}
         if self.cycle is not None and self.cycle.kind == "fetch":
-            addresses += [self.cycle.address + i for i in range(self.cycle.width)]
-        if self.costs["release_words"] == 3:
-            used = 2 * len({a >> 1 for a in addresses})
-        elif self.costs["release_words"] == 2:
-            # Word slots: every word with bytes queued or in flight, plus the
-            # word holding the byte the EU took last (until it moves past it).
-            words = {a >> 1 for a in addresses}
-            self.read_words = [r for r in self.read_words if r[0] > self.clock]
-            words.update(w for _, w in self.read_words)
-            used = 2 * len(words)
-        elif self.costs["release_words"]:
-            used = 2 * len({a >> 1 for a in addresses})
-        else:
-            used = len(addresses)
-        return self.costs["queue_bytes"] - used
+            words.add(self.cycle.address >> 1)
+        return len(words)
 
     def _start(self, cycle: Cycle):
         waits = 0 if cycle.kind == "refresh" else self.wait_states(cycle.space, cycle.address)
@@ -233,11 +224,11 @@ class Machine:
             return
         if self._reset_hold > 0:
             return
-        if self.halted:
+        if self.halted or self.suspended:
             return
         linear = self.fetch_linear
         width = 1 if linear & 1 else 2
-        if self._queue_space() >= self.costs["fetch_threshold"] + (width - 2):
+        if self._queue_words() < self.costs["queue_words"]:
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
 
@@ -270,28 +261,32 @@ class Machine:
                     self._eu_wait = request[1] - 1
                     return
                 continue
-            if op == "byte":
-                if not self.queue or self.queue[0][2] > self.clock:
+            if op in ("byte", "preload"):
+                if not self.iwr:
+                    # Load the queue's head word into the instruction word
+                    # register: its slot frees now, its bytes can be read
+                    # word_load clocks later.
+                    if not self.queue or self.queue[0][2] > self.clock:
+                        if op == "preload":
+                            self._eu_request = None
+                            continue
+                        return
+                    word = self.queue[0][0] >> 1
+                    while self.queue and self.queue[0][0] >> 1 == word:
+                        linear, value, _ = self.queue.pop(0)
+                        self.iwr.append((linear, value))
+                    load = self.costs["word_load"]
+                    if self._last_was_boundary:
+                        load -= self.end_discount
+                    elif self.routine is not None and self.routine.hides_mid_load():
+                        load -= 1
+                    self.iwr_ready = self.clock + load
+                if op == "preload":
+                    self._eu_request = None
+                    continue
+                if self.clock < self.iwr_ready:
                     return
-                linear, value, _ = self.queue.pop(0)
-                deferred = len(request) > 1 and request[1]
-                if self.costs["release_words"] == 3:
-                    # Operand bytes stay in their queue word until the
-                    # instruction completes; decode bytes free at once.
-                    if deferred:
-                        self.held.append(linear)
-                    elif self.costs["free_latency"]:
-                        self.releases.append((self.clock + self.costs["free_latency"], linear))
-                elif self.costs["release_words"] == 2:
-                    word = linear >> 1
-                    keep = [r for r in self.read_words if r[1] != word]
-                    # The previous word stays held for release_delay clocks.
-                    self.read_words = [(min(c, self.clock + self.costs["release_delay"]), w)
-                                       for c, w in keep] + [(1 << 60, word)]
-                elif self.costs["release_at_boundary"]:
-                    self.held.append(linear)
-                elif self.costs["release_delay"]:
-                    self.releases.append((self.clock + self.costs["release_delay"], linear))
+                linear, value = self.iwr.pop(0)
                 self._eu_value = value
                 self._eu_request = None
                 continue
@@ -315,25 +310,23 @@ class Machine:
                 return
             if op == "flush":
                 self.queue.clear()
-                self.releases.clear()
-                self.held.clear()
-                self.read_words.clear()
+                self.iwr.clear()
+                self.suspended = False
                 self.fetch_linear = request[1]
                 self._eu_request = None
                 if self.cycle is not None and self.cycle.kind == "fetch":
                     self.cycle.kind = "fetch-discard"
                 continue
+            if op == "suspend":
+                self.suspended = True
+                self._eu_request = None
+                continue
+            if op == "opcode":
+                self._last_was_boundary = True
+                self._eu_request = None
+                continue
             if op == "boundary":
-                if self.costs["release_words"] == 3:
-                    lat = self.costs["free_latency"]
-                    if lat:
-                        self.releases += [(self.clock + lat, a) for a in self.held]
-                    self.held = []
-                    self._eu_request = None
-                    continue
-                delay = self.costs["release_delay"]
-                self.releases += [(self.clock + delay, a) for a in self.held]
-                self.held = []
+                self._last_was_boundary = False
                 self._eu_request = None
                 continue
             if op == "halt":
