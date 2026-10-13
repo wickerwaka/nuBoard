@@ -24,6 +24,8 @@ silicon corpus (`python -m validation.v35s.corpus list`):
 | `m3-m9-probes` | suites `regs`, `ea`, `data`, `iram`, `psw`, `undefined` from `validation/v35s/probes.py` |
 | `m8-iram-ramen0` | the `iram` suite with RAMEN = 0 |
 | `m-psw-fixed`, `m-undefined-refresh` | the `psw` suite with a corrected RETI case; `undefined` with refresh on |
+| `f-banks`, `f-mul`, `f-ext`, `f-undefined2`, `f-undefined2-refresh` | the follow-up suites (registers per bank, signed-multiply grid, EXT/INS offset × width, the undefined 0F read-modify-write) |
+| `f-stop-probe` | CLKOUT and refresh after HALT, STOP and the bus-locking opcodes (`stop_probe.py`) |
 
 `python -m validation.v35s.timing_compare A.json B.json` sets two runs side by
 side.
@@ -63,7 +65,10 @@ same operation can differ:
   them is 3.
 - **Read-modify-write of a register costs 6:** INC/DEC through ModR/M, NOT,
   NEG, and TEST reg,reg, which is 6 although it writes nothing.
-- **Bank, not measured:** every case ran in bank 7.
+- **Bank makes no difference:** eleven forms (register, stack, memory and
+  segment) cost the same in all eight banks. Each case enters its bank with
+  RETI (`Case.bank` in `timing.py`). A read of that bank's AW slot returns
+  the live AW, which confirms the switch.
 
 ## Effective address (M4)
 
@@ -95,13 +100,17 @@ Every mod/rm, for word loads, byte loads, stores, `ADD reg,mem`,
 | MULU r16 | 34, any operands |
 | MUL r8 | 37 with operand signs equal |
 | MUL r16 | 44 with operand signs equal |
-| MUL r8 / r16, signs differ | +8 |
-| MUL r8 / r16, signs differ and one operand zero | +10 |
-| MUL AW,reg,imm8 | 41; 49 when signs differ |
+| MUL AW,reg,imm8 | 41 with operand signs equal |
 
-Exceptions to the table:
-- MUL r8 80h × 02h costs 46, not 45.
-- "Sign" is the operand's top bit, so 0 × 80h counts as differing.
+When the operand signs differ (by top bit, so 0 × 80h counts), MUL negates
+the product:
+- +8 for the negation;
+- +1 more if the product's low half (AL, AW, or the low word for the imm8
+  form) is zero;
+- +1 more again if the high half is zero too.
+
+So 01h × 80h costs 45, 02h × 80h (FF00h) 46, and 00h × 80h 47. The rule
+holds on all 121 r8 and 100 r16 pairs of the follow-up grid.
 
 **Divide.**
 
@@ -153,9 +162,17 @@ Exceptions to the table:
 | CVTBW | 3 |
 | CLR1 / NOT1 CY | 2.5 |
 
-**EXT and INS are strongly data dependent.** EXT AL,w from bit offset 0
-costs 107 − 4w for w ≤ 8, but 43 at w = 15, and 71–85 from offset 12. INS is 84–172. It
-needs an offset × width sweep before the model can take it (open item).
+**EXT and INS** depend only on the bit offset o (AL) and the width field w
+(imm4, w + 1 bits), not on the data. They were swept over all 256 pairs.
+
+| Case | EXT | INS |
+| --- | --- | --- |
+| field within one word, o + w ≤ 14 | 107 − 2o − 4w | 94 (92 at o = 0) |
+| field ends at the word boundary, o + w = 15 | 107 − 2o − 4w (43 at o = 0) | 86 (84 at o = 0) |
+| field crosses into the next word, o + w ≥ 16 | 61 + 2o (−1 when w = 15) | 128 + 4(o + w − 16) |
+
+The register-count forms (EXT/INS reg8,reg8) cost 1.5 less than the imm4
+forms with the same operands.
 
 ## Settings: waits, refresh, RAMEN (M1, M2)
 
@@ -176,7 +193,15 @@ multi-write forms save more: PUSH R −22.5, POP R −18, BRK and RETI −5,
 PREPARE 2 −8. Reads are unaffected.
 
 So with internal RAM enabled each data write costs 3 extra clocks after its
-bus cycle. External writes pay it too, which suggests the write is checked
+bus cycle. The traces show where they fall:
+- In 66 of the 131 runs that write memory, the write issues at the same time
+  with RAMEN = 1 and the instruction retires 3 clocks later.
+- In 38 more (mainly plain stores), the write issues 1 clock earlier and the
+  instruction retires 2 clocks later.
+- The remaining 27 are multi-write and control-transfer forms.
+
+Either way the EU spends about 3 clocks after the write before it moves on.
+Multi-write forms pay it per write: PUSH R about 3 × 8, PREPARE 4 per level. External writes pay it too, which suggests the write is checked
 against or mirrored to the internal RAM. The data book's bracketed RAMEN = 0
 counts show the same thing.
 
@@ -214,10 +239,10 @@ counts show the same thing.
 | --- | --- |
 | D8–DF (any ModR/M), 66, 67 | vector 7 (FPO); 128 clocks to the stub |
 | 63 ib (BRKN) | vector ib; the same cost as INT ib (CD) |
-| 0F 21, 0F 24, 0F 30, 0F 93, 0F 96, 0F FF | all bus activity stops, refresh included (STOP-like); the run times out |
-| 0F 80 | stopped once with refresh off, completed with refresh on: unstable, recheck |
+| 0F 21, 0F 24, 0F 30, 0F 93, 0F 96, 0F FF | the bus locks: no fetch and no refresh again, but CLKOUT keeps running, so it is not STOP (STOP, 0F 9E, stops CLKOUT within 25 edges); the run times out |
+| 0F 80 | reads one byte at an address that rises by one on every run (20425h, 20426h, …; 60425h… with refresh on), so internal state survives reset; then the 0F 00 read-modify-write. The earlier hang was one value of that state |
 | 0F E0 | reads SS:SP, then runs from 1909:0 (a far transfer through the stack) |
-| 0F 00, 0F 01, 0F 0F, 0F 27, 0F 40, 0F 90, 0F A0 | a read-modify-write of 098D0 with about 300 clocks between read and write; no trap |
+| 0F 00, 0F 01, 0F 0F, 0F 27, 0F 40, 0F 90, 0F A0 | a read-modify-write of DS0:[BW+IX+disp16], with disp16 taken from the two bytes after the opcode and about 300 clocks between read and write; no trap. The ModR/M byte changes it: `07` reads SS:SP, `06` writes the stack, `C7` writes only, `FF` loops |
 | 0F 34 | 18 clocks, no visible effect |
 | FE /7 | 14 clocks, no visible effect |
 | 8F /1 | behaves as POP |
@@ -226,11 +251,12 @@ F1 (BRKS) was not probed: it enters secure mode with an unknown table.
 
 ## Open items from Phase 1
 
-- **EXT/INS:** an offset × width sweep.
-- **MUL r8 80h × 02h = 46:** more signed-multiply operands, to find the rule.
-- **Register access by bank:** confirm costs are bank-independent once
-  bank-switch code exists (Phase 5).
-- **The undefined 0F group:** decode the 098D0 read-modify-write and the
-  STOP-like opcodes.
-- **The RAMEN write penalty:** where the 3 clocks fall relative to the next
-  bus cycle (from the traces, in the Phase 2 fit).
+All closed by the follow-up runs:
+- **EXT/INS:** swept.
+- **MUL 80h × 02h:** the zero-half rule.
+- **Register access by bank:** independent of bank.
+- **The undefined 0F group:** decoded far enough to model or to trap on.
+- **The RAMEN write penalty:** placed.
+
+Left for later: the internal state that 0F 80 reads, and what 0F 00 computes
+between its read and write. Neither matters for documented code.

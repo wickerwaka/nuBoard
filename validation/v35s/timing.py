@@ -80,6 +80,7 @@ class Case:
     form: str = ""
     group: str = ""              # cases that differ only in placement
     stubs: bool = False          # hook vectors 0-31 to reporting stubs
+    bank: int | None = None      # run the case in this register bank
     suite: str = ""
 
 
@@ -186,9 +187,28 @@ def baseline_cases() -> list[Case]:
             Case(name="(baseline, odd)", target="", odd=True)]
 
 
+def _bank_switch(bank: int) -> list[str]:
+    """RETI into another register bank (RB in the popped PSW), MD kept 1.
+
+    CALL pushes the address of the BR that follows and jumps to the RETI
+    after it; RETI returns to the BR with the new bank selected, and the BR
+    skips the RETI. Everything after this runs in the new bank, whose
+    registers the rest of the prelude loads.
+    """
+    psw = 0x8002 | (bank << 12)
+    return [
+        "    MOV AW, 0", "    MOV SS, AW", "    MOV SP, 0F00h",
+        f"    DB 0x68, 0x{psw & 0xFF:02X}, 0x{psw >> 8:02X}",      # PUSH PSW image
+        "    DB 0x0E",                                            # PUSH PS
+        "    DB 0xE8, 0x02, 0x00",                                # CALL +2
+        "    DB 0xEB, 0x01",                                      # BR over the RETI
+        "    DB 0xCF",                                            # RETI
+    ]
+
+
 def _setup(case: Case, next_value: int, settings: dict) -> str:
     regs = {k: (next_value if v == "next" else v) for k, v in case.regs.items()}
-    lines = [
+    lines = (_bank_switch(case.bank) if case.bank is not None else []) + [
         "    MOV AW, 0F000h",
         "    MOV DS0, AW",
         f"    MOV word [0FFE8h], {settings['wtc']:04X}h",

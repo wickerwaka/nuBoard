@@ -129,8 +129,8 @@ and a short section in `v35s-bus-timing.md`.
 The A6 sweep took about 7 minutes. M1 to M5 together are about 3,000 runs,
 or roughly an hour of board time.
 
-**Status (2026-10-12):** done except the follow-ups listed at the end of
-[`v35s-eu-timing.md`](v35s-eu-timing.md). M1 to M5, M8 and M9 are in that
+**Status (2026-10-12):** done, including the follow-ups (EXT/INS, the
+signed-multiply rule, banks, undefined 0F, the RAMEN write penalty). M1 to M5, M8 and M9 are in that
 doc; M6 and M7, plus READY (A7), are in
 [`v35s-bus-timing.md`](v35s-bus-timing.md). Every run is in the corpus.
 The board time was about 15 minutes, not an hour.

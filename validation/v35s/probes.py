@@ -12,6 +12,9 @@ even-length form reads exactly at one placement, so it runs once.
                    RAM, IDB relocation (run again with --prc 0C for RAMEN = 0)
     psw        M9  PSW masks, BRKI trap, LAHF/SAHF, RETI with RB
     undefined  M9  0F holes, FPO escapes, BRKN; every vector reports itself
+    ext, mul, banks, undefined2   Phase 1 follow-ups: EXT/INS offset x width,
+               a denser signed-multiply grid, forms in every register bank,
+               and what drives the undefined 0F read-modify-write
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -353,6 +356,103 @@ def undefined_cases():
     return cases
 
 
+# --- Phase 1 follow-ups ---------------------------------------------------
+
+def ext_cases():
+    """EXT/INS over every bit offset (AL) and width (imm4), plus field data."""
+    field = {"IX": 0x0800, "IY": 0x0A00, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, second in (("EXT", 0x3B), ("INS", 0x39)):
+        for offset in range(16):
+            for width in range(16):
+                cases += form("ext", f"{name} AL,{width} [AL={offset}]",
+                              [0x0F, second, 0xC0, width], dict(field, AW=0x5500 | offset))
+    for data in (0x0000, 0xFFFF, 0x8001):
+        ram = {"word:0x0800": data, "word:0x0802": data, "word:0x0A00": data, "word:0x0A02": data}
+        for width in (0, 7, 15):
+            for offset in (0, 9):
+                cases += form("ext", f"EXT AL,{width} [AL={offset} data={data:04X}]",
+                              [0x0F, 0x3B, 0xC0, width], dict(field, AW=offset), ram)
+                cases += form("ext", f"INS AL,{width} [AL={offset} data={data:04X}]",
+                              [0x0F, 0x39, 0xC0, width], dict(field, AW=0x5500 | offset), ram)
+    for offset, width in ((0, 0), (0, 15), (12, 7)):
+        cases += form("ext", f"EXT AL,CL [AL={offset} CL={width}]", [0x0F, 0x33, 0xC1],
+                      dict(field, AW=offset, CW=width))
+        cases += form("ext", f"INS AL,CL [AL={offset} CL={width}]", [0x0F, 0x31, 0xC1],
+                      dict(field, AW=0x5500 | offset, CW=width))
+    return cases
+
+
+def mul_cases():
+    """Signed multiply on a denser grid around the sign and zero cases."""
+    cases = []
+    byte_values = (0x00, 0x01, 0x02, 0x03, 0x40, 0x7F, 0x80, 0x81, 0xC0, 0xFE, 0xFF)
+    for a in byte_values:
+        for b in byte_values:
+            cases += form("mul", f"MUL CL [AL={a:02X} CL={b:02X}]", [0xF6, 0xE9],
+                          {"AW": a, "CW": b})
+    word_values = (0x0000, 0x0001, 0x0002, 0x4000, 0x7FFF, 0x8000, 0x8001, 0xC000, 0xFFFE, 0xFFFF)
+    for a in word_values:
+        for b in word_values:
+            cases += form("mul", f"MUL CW [AW={a:04X} CW={b:04X}]", [0xF7, 0xE9],
+                          {"AW": a, "CW": b})
+    for a, b in ((0x80, 0x02), (0x02, 0x80), (0x80, 0x04), (0x40, 0xFE)):
+        for imm in (0x02, 0x80, 0xFE):
+            cases += form("mul", f"MUL AW,CW,imm8 [CW={a:04X} imm={imm:02X}]",
+                          [0x6B, 0xC1, imm], {"CW": a if a < 0x80 else 0xFF00 | a})
+    return cases
+
+
+BANK_FORMS = (
+    ("INC AW (40)", [0x40]), ("INC AW (FF /0)", [0xFF, 0xC0]), ("MOV AW,CW", [0x8B, 0xC1]),
+    ("ADD AW,CW", [0x03, 0xC1]), ("TEST AW,CW", [0x85, 0xC1]), ("XCH AW,CW (91)", [0x91]),
+    ("PUSH AW", [0x50]), ("POP AW", [0x58]), ("MOV AW,[BW]", [0x8B, 0x07]),
+    ("MOV store [BW],AW", [0x89, 0x07]), ("MOV AW,DS0", [0x8C, 0xD8]),
+)
+
+
+def bank_cases():
+    """The same forms in every register bank, plus a check of which bank runs."""
+    regs = {"AW": 0x1234, "CW": 0x0034, "BW": 0x0840, "SP": 0x0F00}
+    cases = []
+    for bank in range(8):
+        for name, code in BANK_FORMS:
+            for case in form("banks", f"{name} [bank {bank}]", code, regs):
+                case.bank = bank
+                cases.append(case)
+        # MOV DS0,F000h; MOV DW,[bank AW slot]; MOV AW,DW; OUT 22h,AW
+        slot = 0xFE00 + bank * 0x20 + 0x1E
+        check = ([0xB8, 0x00, 0xF0, 0x8E, 0xD8, 0x8B, 0x16, slot & 0xFF, slot >> 8, 0x8B, 0xC2]
+                 + DUMP)
+        for case in form("banks", f"read own AW slot [bank {bank}]", check, regs):
+            case.bank = bank
+            cases.append(case)
+    return cases
+
+
+def undefined2_cases():
+    """What forms the 0F 00 read-modify-write address; 0F 80 repeated."""
+    base = {"SS": 0, "SP": 0x0F00, "DS0": 0, "DS1": 0, "BW": 0x0840}
+    cases = []
+    variants = [("base", {})] + [(f"{reg}={value:04X}", {reg: value}) for reg, value in (
+        ("AW", 0x1111), ("CW", 0x2222), ("DW", 0x3333), ("BW", 0x0444), ("BP", 0x0555),
+        ("IX", 0x0666), ("IY", 0x0777), ("SP", 0x0E00), ("DS0", 0x0100), ("DS1", 0x0200),
+        ("SS", 0x0010))]
+    for label, regs in variants:
+        cases += form("undefined2", f"0F 00 C0 [{label}]", [0x0F, 0x00, 0xC0, 0x90, 0x90, 0x90],
+                      dict(base, **regs), stubs=True)
+    for modrm in (0x00, 0x07, 0x06, 0xC7, 0xFF):
+        cases += form("undefined2", f"0F 00 {modrm:02X}", [0x0F, 0x00, modrm, 0x90, 0x90, 0x90],
+                      base, stubs=True)
+    for second in (0x01, 0x27, 0x40, 0xA0):
+        cases += form("undefined2", f"0F {second:02X} C0 [DW=3333]",
+                      [0x0F, second, 0xC0, 0x90, 0x90, 0x90], dict(base, DW=0x3333), stubs=True)
+    for attempt in range(6):
+        cases += form("undefined2", f"0F 80 C0 (run {attempt})",
+                      [0x0F, 0x80, 0xC0, 0x90, 0x90, 0x90], base, stubs=True)
+    return cases
+
+
 SUITES = {
     "regs": regs_cases,
     "ea": ea_cases,
@@ -360,4 +460,8 @@ SUITES = {
     "iram": iram_cases,
     "psw": psw_cases,
     "undefined": undefined_cases,
+    "ext": ext_cases,
+    "mul": mul_cases,
+    "banks": bank_cases,
+    "undefined2": undefined2_cases,
 }
