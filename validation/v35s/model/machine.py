@@ -43,6 +43,7 @@ class Cycle:
     data: int = 0
     owner: str = "biu"        # biu (fetch), eu, refresh
     start_tick: int = 0
+    not_before: int = 0       # clock the bus unit may start it
 
 
 @dataclass
@@ -217,6 +218,9 @@ class Machine:
                                        else "eu_after_write"]
 
     def _bus(self):
+        if (self.fetch_grant_at is not None and self.clock >= self.fetch_grant_at
+                and self.costs["fetch_grant"] == "idle" and self.cycle is not None):
+            self.fetch_grant_at = None     # a request that finds the bus busy is lost
         if self.cycle is not None:
             if self.clock - self.cycle.start + 1 >= self.cycle.length:
                 cycle, self.cycle = self.cycle, None
@@ -227,6 +231,8 @@ class Machine:
         if self.clock < self.bus_idle_until:
             return
         if self.pending is not None:
+            if self.clock < self.pending.not_before:
+                return
             cycle, self.pending = self.pending, None
             self._start(cycle)
             return
@@ -245,7 +251,9 @@ class Machine:
             # many fetches as there are free slots when it arrives.
             if self.fetch_grant_at is not None and self.clock >= self.fetch_grant_at:
                 self.fetch_grant_at = None
-                if self.costs["fetch_grant"] == "until_full":
+                if self.costs["fetch_grant"] in ("idle", "free"):
+                    self.fetch_credits = self.costs["queue_words"] - self._queue_words()
+                elif self.costs["fetch_grant"] == "until_full":
                     self.fetch_credits = 1
                 elif self.costs["fetch_grant"] == "one":
                     self.fetch_credits = max(self.fetch_credits, 1)
@@ -356,7 +364,8 @@ class Machine:
                     return
                 linear, value = self.iwr.pop(0)
                 mode = self.costs["fetch_request"]
-                if mode == "take" or (mode == "opcode" and self._last_was_boundary):
+                if (mode == "take" or (mode == "opcode" and self._last_was_boundary)
+                        or (mode == "word_end" and not self.iwr)):
                     self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
                 self._eu_value = value
                 self._eu_request = None
@@ -369,6 +378,7 @@ class Machine:
                                          owner="eu")
                     if op == "write" and self.costs["write_posted"]:
                         self.pending.owner = "posted"
+                        self.pending.not_before = self.clock + self.costs["post_start_delay"]
                         self._eu_request = None
                         self._eu_wait = self.costs["write_post_clocks"]
                         if self._eu_wait:

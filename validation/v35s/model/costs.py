@@ -27,6 +27,7 @@ COSTS = {
     "io_recovery": 1,                   # idle clocks after an I/O cycle before the next cycle
     "write_posted": 1,                  # 1: the EU hands a write to the bus unit and continues
     "write_post_clocks": 1,             # EU clocks spent handing over a posted write
+    "post_start_delay": 0,              # clocks from the handover to the bus unit starting it
     "eu_after_read": 0,
     "eu_after_write": 0,
     "reset_first_fetch_states": 25,     # fX/8 states after /RESET rises

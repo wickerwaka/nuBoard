@@ -8,6 +8,8 @@ process and is scored on:
   costs     - per-placement instruction costs exact; odd-minus-even exact
   refill    - the first fetch of the word after the target's word (A6, even
               placement): the observation that separates the two models
+  probes    - p2-release whole windows; p2-release and p2-held prefetch lists
+              (word 58h to past the target, aligned on the 58h fetch) exact
   prefetch  - m-prefetch-w0 scenarios exact, and rows in place
 """
 
@@ -87,6 +89,22 @@ def score():
             stats["release_exact"] += sa == ma
             stats["release_cycles"] += len(sa)
             stats["release_in_place"] += sum(1 for a, b in zip(sa, ma) if a == b)
+    # Probe fetch lists: the prefetches from word 58h to just past the
+    # target, aligned on the 58h fetch, exact.
+    def fetch_list(trace, hi):
+        found = markers(trace)
+        rows = [(t.start // 8, t.address - 0x10000) for t in trace
+                if found[0].start <= t.start <= found[1].start and t.kind == "mem-read"
+                and 0x58 <= t.address - 0x10000 <= hi]
+        return [(c - rows[0][0], a) for c, a in rows] if rows else None
+    for entry, key in (("p2-release", "release_fetch"), ("p2-held", "held_fetch")):
+        probe = load(entry)
+        for run in probe["runs"]:
+            hi = run["next_offset"] + 8
+            si = fetch_list([Transaction(**t) for t in run["socket_trace"]], hi)
+            mo = fetch_list(run_model(case_from_json(run["case"]), probe["settings"]).trace, hi)
+            stats[key + "_runs"] += 1
+            stats[key + "_exact"] += si == mo
     tally = fit_prefetch("m-prefetch-w0", show=False)
     stats["prefetch_exact"] = tally.get("match", 0)
     stats["prefetch_scenarios"] = sum(tally.values())
@@ -128,6 +146,8 @@ def main():
         ("refill fetch exact", "refill_exact", "refill_runs"),
         ("release probe exact", "release_exact", "release_runs"),
         ("release cycles in place", "release_in_place", "release_cycles"),
+        ("release fetch lists exact", "release_fetch_exact", "release_fetch_runs"),
+        ("held fetch lists exact", "held_fetch_exact", "held_fetch_runs"),
         ("prefetch scenarios exact", "prefetch_exact", "prefetch_scenarios"),
     ]
     print(f"{'':<26}" + "".join(f"{p:>20}" for p in args.profiles))

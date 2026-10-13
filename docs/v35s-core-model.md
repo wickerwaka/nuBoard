@@ -259,6 +259,77 @@ is probes rather than rule guessing:
 - check whether the 2-clock against 3-clock difference follows the
   instruction's length or its phase against the bus.
 
+### Held-fetch probe, 2026-10-13
+
+The `held` suite (`probes.py`, corpus `p2-held`, 94 cases, both placements)
+has three parts:
+- trains of one instruction at a steady consumption rate;
+- 1-byte targets behind 0 to 3 `INC AW` (2 clocks each, which moves the EU's
+  phase against the bus);
+- `SHL AW,CL` and `SHL AW,imm` of graded length.
+
+The trains show that silicon prefetches in bursts (clocks from the opening
+marker, even placement):
+
+| Train | Fetches after the runway |
+| --- | --- |
+| NOP, XCH AW,CW (3 clocks) | one word every 8 clocks |
+| INC AW, CLR1 CY (2 clocks) | two back to back every 10 clocks: 64 67, 74 77, 84 87 |
+| MOV CL,imm8 | three back to back every 17 clocks: 67 70 73, 84 87 90 |
+| MOV DW,imm16 | runs of 2 to 5 |
+| SHL AW,imm (3 bytes) | alternately 2 and 1 per instruction |
+| CVTWL, ADJBA, SHL AW,CL, MULU CL (even) | one word per word consumed, at the instruction's end |
+| SHL AW,CL, MULU CL (odd) | two back to back per two instructions, at the end of the instruction that consumes the word |
+
+A burst is the bus unit filling every free slot at once. Slots free up
+between bursts without being used, so a fetch starts only at a discrete
+event. The slot-free rule of every earlier model cannot produce this.
+
+**The request model reproduces the shape.** Settings: `fetch_request =
+"opcode"`, `fetch_grant = "free"`, `fetch_request_delay = 2`, `lookahead = 1`.
+The EU's opcode take sends a request; 2 clocks later the bus unit fetches
+every free slot. A grid of 288 combinations scored on both probes' fetch
+lists (word 58h to past the target, aligned on the 58h fetch) picked this:
+
+| Rule | Release lists exact | Held lists exact |
+| --- | --- | --- |
+| iwr | 21 / 174 | 12 / 96 |
+| opcode request, delay 0 | 43 / 174 | 22 / 96 |
+| **opcode request, delay 2, lookahead 1** | **43 / 174** | **40 / 96** |
+| a request that finds the bus busy is lost | no change | no change |
+| two-word release, or depth 4 | lower | lower |
+
+The 2-clock delay matters in itself. Shifting the EU phase instead does not
+reproduce it: `post_start_delay` holds a posted write's bus cycle for N
+clocks after the EU hands it over.
+
+**Fitted, it does not yet beat iwr on whole windows:**
+
+| Measure | iwr | request, delay 2 | request, delay 2, post_start_delay 3 |
+| --- | --- | --- | --- |
+| window length exact | 68% | 67% | 68% |
+| cycles in place | **72%** | 7% | 38% |
+| aligned cycles in place | **64%** | 56% | 59% |
+| placement costs exact | 68% | 68% | 68% |
+| odd-minus-even exact | **92%** | 83% | 83% |
+| refill fetch exact | **68%** | 0% | 52% |
+| release fetch lists exact | 12% | **24%** | **24%** |
+| held fetch lists exact | 12% | **42%** | **42%** |
+
+The request rule is the first to reproduce the bursts, and it nearly
+quadruples the held-probe fetch lists. What it costs is outside the probes:
+- the window head: the EU's phase against the OUT marker;
+- the tail: silicon fetches one more word before `SHL AW,16`'s marker;
+- odd-minus-even 83% against 92%, as the hide bits were fitted for iwr's
+  release.
+
+Next steps:
+- fit the marker phase and the tail as part of the model, not leave them
+  as residue;
+- refit the hide bits under the request rule with more passes;
+- look at the held cases the rule still misses (MOV CL,imm8 and the odd MULU
+  trains).
+
 The refill table is still the word-register model's main miss: 68% exact.
 The refill behind a 1-byte target waits until near its end, and nothing in
 either model produces that. Candidates for the next round:
@@ -305,4 +376,4 @@ Window misses concentrate in:
 - the ±1 placement residue;
 - traps.
 
-The next step: probes for what releases a held fetch (see the EU-issued fetch request section).
+The next step: fit the request model's marker phase and tail (see the held-fetch probe section).

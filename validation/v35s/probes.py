@@ -489,6 +489,37 @@ def release_cases():
     return cases
 
 
+HELD_TRAINS = (
+    # name, bytes of one instruction, count
+    ("NOP", [0x90], 12), ("INC AW", [0x40], 12), ("XCH AW,CW", [0x91], 12),
+    ("CLR1 CY", [0xF8], 12), ("CVTWL", [0x99], 8), ("ADJBA", [0x37], 6),
+    ("ADD AW,CW", [0x03, 0xC1], 8), ("MOV CL,imm8", [0xB1, 0x03], 8),
+    ("SHL AW,CL", [0xD3, 0xE0], 6), ("MULU CL", [0xF6, 0xE1], 6),
+    ("MOV DW,imm16", [0xBA, 0x34, 0x12], 6), ("SHL AW,imm 2", [0xC1, 0xE0, 0x02], 6),
+)
+HELD_PHASE_TARGETS = (("NOP", [0x90]), ("XCH AW,CW", [0x91]), ("INC AW", [0x40]),
+                      ("CLR1 CY", [0xF8]), ("CVTWL", [0x99]), ("ADJBA", [0x37]))
+
+
+def held_cases():
+    """What releases a held fetch? Trains of one instruction at a steady
+    consumption rate; 1-byte targets behind 0-3 INC AW (2 clocks each, so
+    the EU's phase against the bus moves); shifts of graded length."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, code, count in HELD_TRAINS:
+        cases += form("held", f"train {name} x{count}", code * count, regs, both=True)
+    for name, code in HELD_PHASE_TARGETS:
+        for k in range(4):
+            cases += form("held", f"phase INC x{k}; {name}", [0x40] * k + code, regs, both=True)
+    for cl in (0, 1, 2, 3, 5, 8):
+        cases += form("held", f"SHL AW,CL={cl}", [0xD3, 0xE0], dict(regs, CW=cl), both=True)
+    for n in (0, 1, 2, 4, 8):
+        cases += form("held", f"SHL AW,{n} (C1)", [0xC1, 0xE0, n], regs, both=True)
+    return cases
+
+
 SUITES = {
     "regs": regs_cases,
     "ea": ea_cases,
@@ -501,4 +532,5 @@ SUITES = {
     "banks": bank_cases,
     "undefined2": undefined2_cases,
     "release": release_cases,
+    "held": held_cases,
 }
