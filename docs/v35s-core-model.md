@@ -617,6 +617,33 @@ Tried and rejected: a per-opcode prefetch hold from the opcode take (MOV
 CL hold 2-5 clocks). It moves the odd case but cannot reach the even
 case's first fetch, which the bus unit starts before the opcode is taken.
 
+### Decoder read-ahead, 2026-10-13
+
+Tried: when the EU waits for an opcode's word, the decoder keeps loading
+words until `readahead_count` whole instructions past the one it waited
+for are in the register (instruction lengths from a V30 length table).
+Opcodes 90h-97h (NOP, XCH) do not read ahead, which keeps the runway at
+one word per 8 clocks.
+
+- With MOV r8,imm, INC, the flag ops, the shifts and the 2-byte register
+  forms reading ahead 2 instructions, the even MOV CL train fetches in
+  triples. It does so 3 clocks early (64, 67, 70 against 67, 70, 73) and
+  with a 16-clock period against 17. The odd train stays steady, as on
+  silicon, provided only an opcode wait starts a read-ahead.
+- Unfitted, it scores below the model: 68.6% cycles in place, 234 lengths
+  exact, 24 release and 32 held lists.
+- A coordinate-descent fit of the read-ahead set and the step values over
+  all five corpora (sum of per-transaction timing errors) turned the
+  read-ahead off for nearly every opcode. The step changes it kept bought
+  timing error at the cost of the closing marker (233 lengths exact), so
+  that error measure is not usable as it stands.
+
+The 3-clock offset is the follow probe's: the MOV word's slot frees when
+its immediate is read, not when the word is loaded. A read-ahead model
+therefore also needs a slot to free when the decoder has taken the word's
+last byte. That puts operand reads in a decode stage ahead of execution,
+a restructuring of the EU, not a parameter of it.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
