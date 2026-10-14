@@ -15,6 +15,8 @@ even-length form reads exactly at one placement, so it runs once.
     ext, mul, banks, undefined2   Phase 1 follow-ups: EXT/INS offset x width,
                a denser signed-multiply grid, forms in every register bank,
                and what drives the undefined 0F read-modify-write
+    release, held, tail, eu   Phase 2 queue probes; eu times the EU with
+               an OUT after k instructions of a train
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -520,6 +522,28 @@ def held_cases():
     return cases
 
 
+EU_TRAINS = (("NOP", [0x90], 6), ("INC AW", [0x40], 8), ("MOV CL,imm8", [0xB1, 0x03], 6),
+             ("CVTWL", [0x99], 4))
+BURST_TRAINS = (("MOV AL,imm8", [0xB0, 0x03]), ("ADD AL,imm8", [0x04, 0x01]),
+                ("MOV CW,AW", [0x8B, 0xC8]), ("MOV CL,imm8; NOP", [0xB1, 0x03, 0x90]))
+
+
+def eu_cases():
+    """Where is the EU after each instruction of a train? k instructions
+    then OUT 40h,AL: the I/O cycle timestamps the EU next to the fetches.
+    And trains of other one-word instructions, to see whether the even
+    MOV CL,imm8 train's fetch triples are particular to it."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, code, most in EU_TRAINS:
+        for k in range(1, most + 1):
+            cases += form("eu", f"{name} x{k}; OUT", code * k + [0xE6, 0x40], regs, both=True)
+    for name, code in BURST_TRAINS:
+        cases += form("eu", f"train {name} x8", code * 8, regs, both=True)
+    return cases
+
+
 def tail_cases():
     """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
     its cost cancels out of target costs. Shifts with long counts, by
@@ -553,4 +577,5 @@ SUITES = {
     "release": release_cases,
     "held": held_cases,
     "tail": tail_cases,
+    "eu": eu_cases,
 }

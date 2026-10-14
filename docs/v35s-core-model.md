@@ -520,10 +520,65 @@ record.
 
 Still open:
 - **MOV CL,imm8 at even placement:** silicon leaves the bus idle for 11
-  clocks after the runway, then fetches three words back to back. That
-  puts at least four words beyond the word register, more than the
-  runway allows.
+  clocks after the runway, then fetches three words back to back. A
+  deeper queue does not explain it (see "EU timeline probe").
 - **MOV DW,imm16 trains** keep part of their bursts.
+
+### EU timeline probe, 2026-10-13
+
+The `eu` suite (`probes.py`, corpus `p2-eu`, 56 cases, both placements)
+puts an `OUT 40h,AL` after k instructions of a train, so its I/O cycle
+marks the EU's position next to the fetches. Trains are NOP (k = 1-6),
+INC AW (1-8), MOV CL,imm8 (1-6) and CVTWL (1-4). Four more trains of
+one-word instructions check whether the even MOV CL triples are particular
+to it.
+
+The current model matches 1 of 56 fetch-and-OUT lists (`MOV CW,AW` x8,
+even, which is bus-limited).
+
+What it shows:
+- **The triples belong to every one-word imm8 instruction.** `MOV AL,imm8`
+  and `ADD AL,imm8` trains fetch exactly as `MOV CL,imm8` does: triples
+  every 17 clocks at even placement, every 6 at odd.
+- **The even MOV CL train runs 6, 6, 5 clocks** per instruction (OUT at
+  81, 87, 93, 98, 104, 110 for k = 1 to 6), the triples' period.
+- **INC AW runs 2.5 clocks on average in a two-word rhythm:** from k to
+  k + 2 the OUT moves 5 clocks when it starts a word, and 6 and 4
+  alternately when it does not. The model's INC costs 3 (fitted on single
+  INCs), so its trains run 6 clocks long.
+- **What follows changes the fetches before it runs.** MOV CL x1 and x2 at
+  even placement run the same EU path up to the second word, yet x1 fetches
+  62h at 74 and x2 at 70 (the triple). The second word is OUT's in x1 and
+  the second MOV's in x2. Under the word-register rule, x2's triple needs
+  the second and third words loaded at 68 and 71. That fits if reading
+  MOV's immediate empties the register and the next word loads at once
+  (the pre-pop's preload). It does not fit x1, where that load would fetch
+  62h at 70.
+- **After an OUT opcode whose port byte is in the same word,** the next
+  fetch comes 5 clocks after the opcode (NOP x1 odd, MOV CL x1 even) with
+  a slot free earlier, as if decoding OUT held the bus unit.
+- **A mid-train OUT whose port byte needs a word load** starts its I/O 2
+  clocks before the model's (NOP x1 even, NOP x2 odd, INC x1 even). A port
+  read at the opcode + 7, with the load overlapping the routine's last
+  clocks, matches these. It moves the closing marker (OUT after SHL AW,16)
+  2 clocks early at odd placement, though, where silicon keeps the model's
+  timing (window lengths exact falls from 450 to 233). The difference is
+  in when OUT's opcode is taken after a short instruction, not in OUT
+  itself.
+
+Rejected, by `screen.py` over a6, release and held:
+
+| Variant | Cycles in place | Window length exact | Held lists |
+| --- | --- | --- | --- |
+| model | 77.6% | 450 | 46 |
+| 4 or 5 queue words, fetch once 2-4 slots are free, then fill | 4.8-40.9% | 278-448 | 0-10 |
+| fetch decision latched in each cycle, idle bus waits 1-3 clocks | 5.7-38.8% | 172-339 | 11-46 |
+| word register refills whenever it empties | 6.5-37.8% | 0-214 | 0-10 |
+| NOP in the pre-pop set (nop 3, 4 or 5) | runway rate or phase wrong | | |
+
+The runway fixes the queue at 3 words, the fetch in flight included. The
+triples and pairs therefore come from when the EU empties its word
+register, and that turns on the next instruction's kind.
 
 ### Branches
 
@@ -563,7 +618,9 @@ Window misses concentrate in:
 - traps.
 
 Next steps:
-- the MOV CL,imm8 even triples, which point to a deeper queue under some
-  condition;
+- the one-word imm8 triples and the INC two-word rhythm, against `p2-eu`
+  (see "EU timeline probe"); the next word appears to load early when it
+  holds another simple instruction;
+- OUT's opcode take after a short instruction;
 - the remaining held and release fetch-list misses;
 - branch and refill timing.
