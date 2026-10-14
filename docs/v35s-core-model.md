@@ -714,6 +714,36 @@ held anywhere further down the pipeline. Two possibilities remain:
 - the fetch timing is not slot-driven in these trains at all, for example
   a bus-unit request that the EU sends at certain decode events.
 
+### EU fetch requests on the current model, 2026-10-13
+
+The request model's existing rules, on top of the word-register model
+with the pre-pop and scored on all five corpora (60 combinations): the
+trigger is a byte take, an opcode take, an opcode ask, a word load or a
+word end; the grant is every free slot, one fetch, or until full; the
+delay is 0-3 clocks.
+
+- **On the 3-word queue** no rule beats the slot rule. The best ties it
+  (77.6% cycles in place, 450 lengths, 44 / 46 / 3 / 5 lists): a request
+  at each word load, or at each take with until-full grants, is the slot
+  rule. A 2-clock delay costs held lists (30). A 3-word queue cannot make
+  a triple, since only one word has been loaded when it would start.
+- **On a 4- or 5-word queue** that fetches only on requests, the best is
+  15.7% unrefitted. After `fit_window.py`, 3 passes:
+
+| Queue, request, grant, delay | Fit error | Cycles in place | Lengths exact | Release / held / eu / follow |
+| --- | --- | --- | --- | --- |
+| current model | 7344 | 77.6% | 450 | 44 / 46 / 3 / 5 |
+| 4 words, word end, free slots, 2 | 11248 | 61.3% | 361 | 10 / 10 / 2 / 2 |
+| 4 words, opcode, free slots, 2 | 22741 | 9.0% | 398 | 9 / 10 / 2 / 2 |
+
+  The word-end variant keeps the NOP runway exact. It turns the MOV CL and
+  INC trains into long back-to-back runs, though, not triples and pairs:
+  with a deeper queue each request grants every slot the EU has freed
+  since the last one.
+
+A request rule alone does not produce the bursts. On the 3-word queue
+the slots are not free; on a deeper one, too many are.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
