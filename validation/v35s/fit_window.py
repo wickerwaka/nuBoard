@@ -1,6 +1,6 @@
 """Fit integer costs to whole-window exactness over every timing corpus.
 
-    python -m validation.v35s.fit_window START.json OUT.json [--passes 3] [--skip-set]
+    python -m validation.v35s.fit_window START.json OUT.json [--passes 3] [--toggle-set NAME]
 
 Coordinate descent over the EU step values and a few bus-unit values,
 starting from COSTS updated by START.json, against a6-timing, p2-release,
@@ -9,7 +9,8 @@ transactions that differ from silicon's (time, kind, address or data), plus
 3 if the window length differs. Unlike fit_steps.py, which fits per-form
 costs, this also scores where the fetches fall, so it can refit a model whose
 structure moves them. A value change reruns only the runs that spend it.
---skip-set also toggles opcodes in and out of decode_skip. Writes the fitted
+--toggle-set NAME also toggles each executed opcode in and out of the cost
+set NAME (decode_skip, decode_simple, prepop, ...). Writes the fitted
 values to OUT.json after each pass.
 """
 
@@ -28,11 +29,12 @@ from .runner import Transaction
 from .timing import build
 
 ENTRIES = ("a6-timing", "p2-release", "p2-held", "p2-eu", "p2-follow")
-TUNE_BUS = ["word_load", "preload_penalty", "prepop_end", "io_recovery", "write_post_clocks"]
+TUNE_BUS = ["word_load", "preload_penalty", "prepop_end", "io_recovery", "write_post_clocks",
+            "decode_cap", "decode_finish_cap"]
 FIXED = {"queue_words", "reset_first_fetch_states", "reset_first_refresh_states", "refresh_tick_offset",
          "internal_access", "ramen_write", "write_posted", "fetch_data_delay", "queue_bytes", "ripe_delay",
          "fetch_sample", "idle_fetch_delay", "opcode_pop", "fetch_latch", "fetch_request_delay"}
-SETS = ("prepop", "end_hide", "mid_hide", "decode_skip")
+SETS = ("prepop", "end_hide", "mid_hide", "decode_skip", "decode_simple", "decode_io")
 RUNS = []
 
 
@@ -75,7 +77,7 @@ def main():
     parser.add_argument("start")
     parser.add_argument("out")
     parser.add_argument("--passes", type=int, default=3)
-    parser.add_argument("--skip-set", action="store_true")
+    parser.add_argument("--toggle-set", action="append", default=[])
     args = parser.parse_args()
     params = json.load(open(args.start))
     _init()
@@ -95,17 +97,29 @@ def main():
             errs[i], used[i] = o
 
     for npass in range(args.passes):
-        if args.skip_set:
+        common = {u for u in set().union(*used) if isinstance(u, str)
+                  and sum(u in st for st in used) > n // 3}
+        for set_name in args.toggle_set:
             for op in sorted({u[1] for st in used for u in st if isinstance(u, tuple)}):
                 idx = [i for i in range(n) if ("op", op) in used[i]]
-                current = set(params.get("decode_skip", COSTS["decode_skip"]))
-                p = dict(params, decode_skip=sorted(current ^ {op}))
-                d, out = trial(p, idx)
-                if d < 0:
-                    params = p
-                    accept(idx, out)
-                    print(f"decode_skip {op:#04x} {'on' if op not in current else 'off'}: {d}  total {sum(errs)}",
-                          flush=True)
+                current = set(params.get(set_name, COSTS[set_name]))
+                p = dict(params, **{set_name: sorted(current ^ {op}, key=str)})
+                # A toggle may need a step of the same runs to move with it.
+                steps = sorted({u for i in idx for u in used[i] if isinstance(u, str)} - common - FIXED)
+                trials = [p] + [dict(p, **{s: params.get(s, COSTS[s]) + k}) for s in steps
+                                for k in (-2, -1, 1, 2)
+                                if isinstance(COSTS.get(s), int) and params.get(s, COSTS[s]) + k >= 0]
+                best = None
+                for t in trials:
+                    d, out = trial(t, idx)
+                    if d < 0 and (best is None or d < best[0]):
+                        best = (d, t, out)
+                if best:
+                    params = best[1]
+                    accept(idx, best[2])
+                    moved = {k: v for k, v in params.items() if k in steps}
+                    print(f"{set_name} {op} {'on' if op not in current else 'off'}: {best[0]}  {moved}  "
+                          f"total {sum(errs)}", flush=True)
         names = sorted({u for st in used for u in st if isinstance(u, str)} - FIXED) + TUNE_BUS
         for name in names:
             base = params.get(name, COSTS.get(name))
@@ -123,7 +137,8 @@ def main():
                 params = dict(params, **{name: best[1]})
                 accept(idx, best[2])
                 print(f"{name} {base} -> {best[1]}: {best[0]}  total {sum(errs)}", flush=True)
-        json.dump(params, open(args.out, "w"))
+        json.dump({k: sorted(v, key=str) if isinstance(v, set) else v for k, v in params.items()},
+                  open(args.out, "w"))
         print(f"pass {npass} total {sum(errs)}", flush=True)
 
 

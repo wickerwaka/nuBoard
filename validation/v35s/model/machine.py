@@ -71,6 +71,12 @@ class Machine:
         self.decode_filling = False    # decode stage: refilling up to decode_bytes
         self.insn_start = None         # linear address of the current instruction's opcode
         self.decode_to = None          # decode_mode "ahead": decode bytes below this address
+        self.burst = False             # classed decoder: taking words ahead
+        self.dec_next = 0xFFFF0        # classed decoder: next instruction start it has not begun
+        self.dec_open = 0xFFFF0        # end of the last instruction it began
+        self.dec_open_class = "simple"
+        self.dec_cur_end = None        # end of the instruction executing (or waited for)
+        self.dec_waited = None         # start of the instruction the EU last waited for
         self._last_was_boundary = True # the next byte the EU takes is an opcode
         self.routine = None            # the EU, for its current routine key
         self.end_discount = 0          # clocks the last routine hides of the next opcode load
@@ -417,6 +423,82 @@ class Machine:
         if len(self.decoded) >= self.costs["decode_bytes"]:
             self.decode_filling = False
 
+    # -- classed decoder (decode_mode "classed") -------------------------
+
+    def _insn_class(self, start):
+        """'io', 'simple' or 'complex' for the instruction at a linear address."""
+        n, op = 0, self.mem_read8(start)
+        while op in (0x26, 0x2E, 0x36, 0x3E, 0xF0, 0xF2, 0xF3, 0x64, 0x65) and n < 15:
+            n += 1
+            op = self.mem_read8(start + n)
+        if op in self.costs["decode_io"]:
+            return "io"
+        key = op
+        if op == 0x0F:
+            key = 0x0F00 | self.mem_read8(start + n + 1)
+        if key in self.costs["decode_simple"]:
+            from .length import _TABLE
+            modrm = _TABLE.get(op, (False, 0))[0] if op != 0x0F else True
+            if not modrm or self.mem_read8(start + n + (2 if op == 0x0F else 1)) >= 0xC0:
+                return "simple"
+        return "complex"
+
+    def _take_word(self, load=None):
+        """Move the queue's head word to the decoded store: its slot frees
+        now, its bytes are usable word_load clocks later."""
+        word = self.queue[0][0] >> 1
+        ready = self.clock + (self.costs["word_load"] if load is None else load)
+        while self.queue and self.queue[0][0] >> 1 == word:
+            linear, value, _ = self.queue.pop(0)
+            self.decoded.append((linear, value, ready))
+        if self.loads is not None:
+            self.loads.append((self.clock, (word << 1) & 0xFFFF))
+        end = self.decoded[-1][0] + 1
+        # Instructions the new bytes begin.
+        while self.dec_next < end:
+            start = self.dec_next
+            self.dec_open = start + length(self.mem_read8, start)
+            self.dec_open_class = self._insn_class(start)
+            self.dec_next = self.dec_open
+            if self.dec_open_class != "simple" and start != self.dec_waited:
+                self.burst = False
+
+    def _decode_classed(self, demand=False):
+        """One clock of the classed decoder. It takes a word when the EU
+        waits for a byte it does not hold (demand), to finish an instruction
+        whose opcode it holds, or in a burst: an opcode wait for a simple
+        instruction starts one, which takes words until decode_cap bytes
+        past the executing instruction are held or a non-simple instruction
+        is taken. An I/O instruction is taken only on demand."""
+        if not self.queue or self.queue[0][2] > self.clock or self.halted:
+            return
+        head = self.queue[0][0]
+        held_end = self.decoded[-1][0] + 1 if self.decoded else head
+        if demand:
+            # As the word register's load: the routine may hide a clock of it.
+            load = self.costs["word_load"]
+            if self._last_was_boundary:
+                load -= self.end_discount
+            elif self.routine is not None and self.routine.hides_mid_load():
+                load -= 1
+            self._take_word(load)
+            self.preloaded = False
+            return
+        current_end = self.dec_cur_end if self.dec_cur_end is not None else head
+        if (current_end <= head < self.dec_open and self.dec_open_class != "io"
+                and held_end - current_end < self.costs["decode_finish_cap"]):
+            self._take_word()                      # finish an instruction already begun
+            return
+        if not self.burst:
+            return
+        if head >= self.dec_next and self._insn_class(self.dec_next) == "io":
+            self.burst = False
+            return
+        if held_end - current_end >= self.costs["decode_cap"]:
+            self.burst = False
+            return
+        self._take_word()
+
     def _decode_request(self):
         """The EU waits for a byte the decode stage does not hold: it decodes
         up to it, and on an opcode wait decode_ahead whole instructions
@@ -435,7 +517,9 @@ class Machine:
         self._decode()
 
     def _eu(self):
-        if self.costs.get("decode_bytes"):
+        if self.costs.get("decode_mode") == "classed":
+            self._decode_classed()
+        elif self.costs.get("decode_bytes"):
             self._decode()
         if self._eu_wait:
             self._eu_wait -= 1
@@ -489,6 +573,40 @@ class Machine:
                 self._eu_request = None
                 continue
             if op == "preload" and self.costs["queue_model"] in ("byte", "consume"):
+                self._eu_request = None
+                continue
+            if op in ("byte", "preload") and self.costs.get("decode_mode") == "classed":
+                if op == "preload":
+                    # A pre-pop emptied the store: the next word loads at once.
+                    if not self.decoded and self.queue and self.queue[0][2] <= self.clock:
+                        start = self.queue[0][0]
+                        self._take_word()
+                        self.preloaded = True
+                        if self.costs.get("decode_preload_burst") and start >= (self.dec_cur_end or 0):
+                            self.dec_waited = start
+                            self.burst = self._insn_class(start) == "simple"
+                if op == "byte":
+                    if not self.decoded:
+                        if self._last_was_boundary and self.queue:
+                            start = self.queue[0][0]
+                            self.dec_waited = start
+                            self.dec_cur_end = start + length(self.mem_read8, start)
+                            self.burst = self._insn_class(start) == "simple"
+                        self._decode_classed(demand=True)
+                        return
+                    if self.decoded[0][2] > self.clock:
+                        return
+                    if self.preloaded and not self.decoded[0][0] & 1 and self.costs["preload_penalty"]:
+                        # The first byte of a word loaded ahead costs the EU a clock.
+                        self.preloaded = False
+                        self.decoded[0] = self.decoded[0][:2] + (self.clock + self.costs["preload_penalty"],)
+                        return
+                    self.preloaded = False
+                    linear, value, _ = self.decoded.pop(0)
+                    if self._last_was_boundary:
+                        self.insn_start = linear
+                        self.dec_cur_end = linear + length(self.mem_read8, linear)
+                    self._eu_value = value
                 self._eu_request = None
                 continue
             if op in ("byte", "preload") and self.costs.get("decode_bytes"):
@@ -576,6 +694,9 @@ class Machine:
                 self.iwr.clear()
                 self.decoded.clear()
                 self.decode_to = None
+                self.burst = False
+                self.dec_next = self.dec_open = request[1]
+                self.dec_cur_end = None
                 self.suspended = False
                 self.last_word = None
                 self.fetch_linear = request[1]

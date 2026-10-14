@@ -744,6 +744,42 @@ delay is 0-3 clocks.
 A request rule alone does not produce the bursts. On the 3-word queue
 the slots are not free; on a deeper one, too many are.
 
+### Classed read-ahead, 2026-10-14
+
+The stall probe (corpus `p2-stall`) shows that after an EU stall the
+fetch restarts in triples, and that the decoder reads ahead past a memory
+operand or MULU but then stops. It never reads IN or OUT ahead; those hold
+the fetch. `decode_mode = "classed"` models this. Words go from the queue
+straight into a decoded store, which frees each slot at the take. An opcode
+wait for a `decode_simple` instruction starts a burst, which takes words
+until `decode_cap` bytes are held past the executing instruction. A
+non-simple take or a `decode_io` instruction ends it. With `decode_simple`
+empty it reproduces the current model exactly.
+
+Unfitted, it gets the shapes right: the MOV CL triples, the INC and CLR1
+pairs, and SHL CL at the even placement. It does not reproduce the
+odd-placement SHL CL and MULU CL pairs. Refitted by `fit_window.py`,
+toggling each opcode's set membership jointly with ±1/±2 on its steps:
+
+| Variant | Fit error | Cycles in place | Lengths exact | Release / held / eu / follow / stall |
+| --- | --- | --- | --- | --- |
+| current model | — | 77.6% | 450 | 44 / 46 / 3 / 5 / 2 |
+| current model, refitted | 6846 | 78.8% | 460 | 46 / 46 / 3 / 3 / 2 |
+| classed, unfitted | — | 75.4% | 423 | 28 / 45 / 3 / 7 / 2 |
+| classed, `decode_simple` fitted | 6838 | 76.2% | 427 | 28 / 45 / 3 / 3 / 2 |
+| classed, `decode_simple` + `prepop` fitted (2 passes) | 6815 | 77.4% | 442 | 42 / 46 / 3 / 3 / 2 |
+
+It does not beat the refitted current model, so it stays an option. Two
+caveats:
+- **The fit error misleads.** It counts mismatched transactions, so the
+  classed fits score a lower error while fewer windows are exact.
+- **The fit undoes the evidence.** The `decode_simple`-only fit drops MOV
+  CL (0xB1) from the set, though its triples are the clearest burst in the
+  data. The fit with `prepop` restores it.
+
+The bursts are real and this structure produces them, but its timing
+elsewhere costs more than the trains gain.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

@@ -149,6 +149,16 @@ COSTS["slot_release"] = "load"
 COSTS["decode_mode"] = "fill"                  # "ahead": decode on the EU's waits, decode_ahead instructions on
 COSTS["decode_ahead"] = 2                      # an opcode wait, except for the decode_skip opcodes
 COSTS["decode_skip"] = set(range(0x90, 0x98))
+# decode_mode "classed": see Machine._decode_classed.
+COSTS["decode_cap"] = 3                        # a burst stops with this many bytes held past the executing instruction
+COSTS["decode_finish_cap"] = 0                 # finishing a begun instruction stops at this many (0: off)
+COSTS["decode_preload_burst"] = 1              # a pre-pop's preload of a simple instruction starts a burst
+COSTS["decode_io"] = {0xE4, 0xE5, 0xE6, 0xE7, 0xEC, 0xED, 0xEE, 0xEF, 0x6C, 0x6D, 0x6E, 0x6F}
+COSTS["decode_simple"] = (set(range(0xB0, 0xC0)) | set(range(0x40, 0x50)) | {0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD}
+                          | {0x04, 0x05, 0x0C, 0x0D, 0x14, 0x15, 0x1C, 0x1D, 0x24, 0x25, 0x2C, 0x2D, 0x34,
+                             0x35, 0x3C, 0x3D} | {0x00, 0x01, 0x02, 0x03, 0x08, 0x09, 0x0A, 0x0B, 0x10, 0x11,
+                             0x12, 0x13, 0x18, 0x19, 0x1A, 0x1B, 0x20, 0x21, 0x22, 0x23, 0x28, 0x29, 0x2A,
+                             0x2B, 0x30, 0x31, 0x32, 0x33, 0x38, 0x39, 0x3A, 0x3B, 0x88, 0x89, 0x8A, 0x8B})
 COSTS["shared_store"] = 0                      # 1: register and decoded words count against queue_words
 COSTS["decode_rate"] = 1                       # "ahead": bytes taken a clock within the register's word
 # Per-model fitted values: the active profile overrides COSTS.
