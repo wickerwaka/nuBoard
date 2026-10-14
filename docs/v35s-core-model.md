@@ -754,6 +754,19 @@ the slots are not free; on a deeper one, too many are.
   clocks after the target fetch. Both are pending the queue-model decision,
   since both turn on when the jump's word is released.
 
+## Data cycles
+
+`python -m validation.v35s.data_check` compares each window's non-fetch
+bus cycles with silicon's, timing aside: kind, address, data, byte enables
+and order. Since 2026-10-13 every run of a6-timing, release, held, eu,
+follow and stall matches. Three fixes got it there:
+- **ADD4S, SUB4S, CMP4S:** read the source byte (IX) before the
+  destination (IY).
+- **CMPBK:** reads IY before IX.
+- **Trap entry:** reads the vector offset, pushes PSW, reads the vector
+  segment, then pushes PS and PC. CHKIND's trap pushes the next
+  instruction's address, not its own.
+
 ## Bus-unit rules (stable under both queue models)
 
 - **I/O recovery:** after an I/O cycle the bus stays idle one clock.

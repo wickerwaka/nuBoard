@@ -26,8 +26,9 @@ PARITY = [bin(i).count("1") % 2 == 0 for i in range(256)]
 
 
 class Trap(Exception):
-    def __init__(self, vector):
+    def __init__(self, vector, return_pc=None):
         self.vector = vector
+        self.return_pc = return_pc      # None: the trapping instruction's own address
 
 
 class EU:
@@ -375,7 +376,8 @@ class EU:
             if self.m.keys is not None:
                 self.m.keys.setdefault(start_pc, self.routine_key())
         except Trap as trap:
-            yield from self.interrupt(trap.vector, start_pc)
+            yield from self.interrupt(trap.vector,
+                                      start_pc if trap.return_pc is None else trap.return_pc)
 
     def _prepop_carry(self, total):
         """Clocks of a pre-popping routine carried past its pre-pop."""
@@ -437,15 +439,17 @@ class EU:
         return key in hide
 
     def interrupt(self, vector, return_pc=None):
+        # Silicon interleaves the vector reads with the pushes: offset, PSW,
+        # segment, PS, PC (a6-timing, BRK 3, BRKV and CHKIND traps).
         yield from self.step("trap_entry")
         psw = self.psw
+        pc = yield from self.read(0, vector * 4, 2)
         yield from self.push(psw)
         self.set_flag(IE, 0)
         self.set_flag(BRK, 0)
+        ps = yield from self.read(0, vector * 4 + 2, 2)
         yield from self.push(self.seg(PS))
         yield from self.push(self.pc if return_pc is None else return_pc)
-        pc = yield from self.read(0, vector * 4, 2)
-        ps = yield from self.read(0, vector * 4 + 2, 2)
         yield from self.step("trap_exit")
         yield from self.jump(pc, ps)
 
@@ -1070,7 +1074,7 @@ class EU:
         value = self.r16(reg)
         signed = lambda x: x - 0x10000 if x & 0x8000 else x
         if not signed(low) <= signed(value) <= signed(high):
-            raise Trap(5)
+            raise Trap(5, self.pc)          # silicon pushes the next instruction's address
 
     # -- strings -----------------------------------------------------------
 
@@ -1093,8 +1097,8 @@ class EU:
             self.reg_write(AW, width, value)
             self.w16(IX, self.r16(IX) + dirn)
         elif op in (0xA6, 0xA7):
+            b = yield from self.read(self.seg(DS1), self.r16(IY), width)    # silicon: IY first
             a = yield from self.read(src_seg, self.r16(IX), width)
-            b = yield from self.read(self.seg(DS1), self.r16(IY), width)
             yield from self.step("cmpbk")
             self.alu(7, a, b, width)
             self.w16(IX, self.r16(IX) + dirn)
@@ -1315,8 +1319,8 @@ class EU:
         zero = True
         yield from self.step("bcd4s_start")
         for i in range(count):
+            b = yield from self.read(src_seg, self.r16(IX) + i, 1)          # silicon: source first
             a = yield from self.read(self.seg(DS1), self.r16(IY) + i, 1)
-            b = yield from self.read(src_seg, self.r16(IX) + i, 1)
             if second == 0x20:
                 lo = (a & 0xF) + (b & 0xF) + carry
                 c1 = lo > 9

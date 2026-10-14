@@ -17,7 +17,8 @@ even-length form reads exactly at one placement, so it runs once.
                and what drives the undefined 0F read-modify-write
     release, held, tail, eu, follow   Phase 2 queue probes; eu times the
                EU with an OUT after k instructions of a train, follow puts
-               each follower after a one-word leader
+               each follower after a one-word leader, stall puts a bus
+               cycle or a long instruction into a train
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -570,6 +571,29 @@ def follow_cases():
     return cases
 
 
+STALLS = (("MOV AL,[BW]", [0x8A, 0x07]), ("MOV [BW],AL", [0x88, 0x07]),
+          ("IN AL,40h", [0xE4, 0x40]), ("MULU CL", [0xF6, 0xE1]))
+
+
+def stall_cases():
+    """Do the even MOV CL triples and INC pairs restart from a stall? A
+    memory read, a memory write, an I/O read or a long register-only
+    instruction after k instructions of a train; both placements."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    mov, inc = [0xB1, 0x03], [0x40]
+    cases = form("stall", "MOV CL x6", mov * 6, regs, both=True)
+    cases += form("stall", "INC AW x8", inc * 8, regs, both=True)
+    for name, code in STALLS:
+        for k in range(5):
+            cases += form("stall", f"MOV CL x{k}; {name}; MOV CL x{6 - k}",
+                          mov * k + code + mov * (6 - k), regs, both=True)
+        for k in (0, 1, 2, 3):
+            cases += form("stall", f"INC AW x{k}; {name}; INC AW x{8 - k}",
+                          inc * k + code + inc * (8 - k), regs, both=True)
+    return cases
+
+
 def tail_cases():
     """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
     its cost cancels out of target costs. Shifts with long counts, by
@@ -605,4 +629,5 @@ SUITES = {
     "tail": tail_cases,
     "eu": eu_cases,
     "follow": follow_cases,
+    "stall": stall_cases,
 }
