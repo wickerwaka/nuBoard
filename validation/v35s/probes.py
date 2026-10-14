@@ -15,8 +15,9 @@ even-length form reads exactly at one placement, so it runs once.
     ext, mul, banks, undefined2   Phase 1 follow-ups: EXT/INS offset x width,
                a denser signed-multiply grid, forms in every register bank,
                and what drives the undefined 0F read-modify-write
-    release, held, tail, eu   Phase 2 queue probes; eu times the EU with
-               an OUT after k instructions of a train
+    release, held, tail, eu, follow   Phase 2 queue probes; eu times the
+               EU with an OUT after k instructions of a train, follow puts
+               each follower after a one-word leader
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -544,6 +545,31 @@ def eu_cases():
     return cases
 
 
+FOLLOWERS = (("MOV CL,imm8", [0xB1, 0x03]), ("MOV AL,imm8", [0xB0, 0x03]),
+             ("ADD AL,imm8", [0x04, 0x01]), ("MOV CW,AW", [0x8B, 0xC8]),
+             ("ADD AW,CW", [0x03, 0xC1]), ("SHL AW,1", [0xD1, 0xE0]),
+             ("NOP NOP", [0x90, 0x90]), ("INC INC", [0x40, 0x40]),
+             ("CVTWL CVTWL", [0x99, 0x99]), ("OUT 40h", [0xE6, 0x40]),
+             ("IN AL,40h", [0xE4, 0x40]), ("MOV AW,imm16", [0xB8, 0x34, 0x12]),
+             ("XCH AW,CW", [0x91]), ("MOV CL,[BW]", [0x8A, 0x0F]),
+             ("PUSH AW", [0x50]), ("BR short", [0xEB, 0x00]))
+LEADERS = (("MOV CL,imm8", [0xB1, 0x03]), ("NOP NOP", [0x90, 0x90]),
+           ("INC INC", [0x40, 0x40]), ("MOV CW,AW", [0x8B, 0xC8]))
+
+
+def follow_cases():
+    """Which next word does the EU load early? A one-word leader, then each
+    follower, then OUT 40h,AL to time the EU; both placements."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for lead, first in LEADERS:
+        for name, code in FOLLOWERS:
+            cases += form("follow", f"{lead}; {name}; OUT", first + code + [0xE6, 0x40],
+                          regs, both=True)
+    return cases
+
+
 def tail_cases():
     """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
     its cost cancels out of target costs. Shifts with long counts, by
@@ -578,4 +604,5 @@ SUITES = {
     "held": held_cases,
     "tail": tail_cases,
     "eu": eu_cases,
+    "follow": follow_cases,
 }

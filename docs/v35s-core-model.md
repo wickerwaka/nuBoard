@@ -580,6 +580,43 @@ The runway fixes the queue at 3 words, the fetch in flight included. The
 triples and pairs therefore come from when the EU empties its word
 register, and that turns on the next instruction's kind.
 
+### Follow probe, 2026-10-13
+
+The `follow` suite (corpus `p2-follow`, 128 cases) puts each of 16
+followers after a one-word leader (MOV CL,imm8; NOP NOP; INC INC; MOV
+CW,AW), then OUT 40h. Clocks are from the opening marker; a silicon load
+is the fetch 2 clocks later.
+
+- **After a MOV CL leader at even placement, the second word loads at 68**
+  (62h fetched at 70) for every follower except OUT and IN, where the
+  fetch comes at 74. Whatever the second word holds, it loads at the same
+  time; OUT and IN then hold the next fetch until about 5 clocks after
+  their opcode. That accounts for the x1/x2 difference in the EU probe.
+- **The leader's own word loads 3 clocks late when it is a MOV CL:** 60h is
+  fetched at 67 after MOV CL, and at 64 after NOP NOP, INC INC and MOV
+  CW,AW. At odd placement, MOV CL's immediate word (5Ah) loads at 65,
+  against 63 in the model. Both fit an immediate read about 3 clocks after
+  the opcode, with the word's slot held until then. That is the consume
+  rule for the immediate; it is not iwr's slot release at the opcode.
+- **The third word's load depends on the follower:** at 71 after another
+  imm8 instruction or INC INC, 75 after MOV CW,AW or ADD AW,CW, 79 after
+  NOP NOP, 83 after SHL AW,1 or MOV CL,[BW], and 92 after CVTWL CVTWL.
+- **The current model matches 1 of the 128 lists** to clock 125. In the
+  MOV CL-leader rows it misses mostly by loading the first word at 62
+  instead of 65.
+
+Taken with the EU probe, the MOV CL train looks like a front end that
+reads instructions ahead of execution: three words 3 clocks apart, then a
+wait until execution needs the next one. Execution takes 6, 6 and 5 clocks
+per MOV, and the I/O of a following OUT keeps that pace. That would need
+a decoded-instruction buffer between the word register and execution,
+refilled in bursts. The NOP runway's steady one word per 8 clocks argues
+against a plain refill-when-empty rule, so the refill condition is open.
+
+Tried and rejected: a per-opcode prefetch hold from the opcode take (MOV
+CL hold 2-5 clocks). It moves the odd case but cannot reach the even
+case's first fetch, which the bus unit starts before the opcode is taken.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
