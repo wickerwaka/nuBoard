@@ -149,6 +149,7 @@ COSTS["slot_release"] = "load"
 COSTS["decode_mode"] = "fill"                  # "ahead": decode on the EU's waits, decode_ahead instructions on
 COSTS["decode_ahead"] = 2                      # an opcode wait, except for the decode_skip opcodes
 COSTS["decode_skip"] = set(range(0x90, 0x98))
+COSTS["shared_store"] = 0                      # 1: register and decoded words count against queue_words
 COSTS["decode_rate"] = 1                       # "ahead": bytes taken a clock within the register's word
 # Per-model fitted values: the active profile overrides COSTS.
 PROFILES = {

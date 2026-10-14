@@ -144,6 +144,10 @@ class Machine:
         if self.costs["queue_model"] == "two_word" or (
                 self.costs.get("decode_bytes") and self.costs.get("slot_release") == "taken"):
             words.update(b[0] >> 1 for b in self.iwr)
+        if self.costs.get("shared_store"):
+            # The register and the decoded bytes share the queue's word slots.
+            words.update(b[0] >> 1 for b in self.iwr)
+            words.update(b[0] >> 1 for b in self.decoded)
         if self.cycle is not None and self.cycle.kind == "fetch":
             words.add(self.cycle.address >> 1)
         return len(words)

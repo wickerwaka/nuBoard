@@ -687,9 +687,32 @@ coordinate descent on whole-window exactness over all five corpora. Result:
 - **With decode-ahead held on,** it puts MOV CL itself in the skip set.
 
 So the read-ahead that the MOV CL trains show is not a decode stage that
-holds extra bytes. Whatever reads ahead in silicon does so without
-deepening the store. One candidate: the register and the decoded buffer
-are one 3-word structure with the queue, not added to it.
+holds extra bytes.
+
+**Shared store (tried next).** The register's word and the decoded bytes'
+words count against `queue_words` (`shared_store` 1), so reading ahead
+cannot deepen storage. Refitted with `fit_window.py --skip-set`, 3 passes:
+
+| Shared slots | Fit error | Cycles in place | Lengths exact | Release / held lists |
+| --- | --- | --- | --- | --- |
+| 3 | 23428 | 13.7% | 17 | 0 / 0 |
+| 4 | 14897 | 48.9% | 314 | 10 / 10 |
+
+With 4 slots the NOP runway is exact. But the MOV CL train no longer
+bursts, even with MOV CL decoding ahead (it is not in the fitted skip
+set): a word decoded ahead keeps its slot until execution takes it, so
+reading ahead frees nothing and the bus has no reason to fetch three
+words at once.
+
+That closes the decode-stage question both ways. Freeing a slot when a
+word is decoded makes storage deeper, which silicon does not show. Holding
+the slot until execution makes no bursts, which silicon does show. The
+triples need slots that free in a burst without the freed words being
+held anywhere further down the pipeline. Two possibilities remain:
+- the words go into a structure that holds whole decoded instructions,
+  not bytes, and the probes so far have not seen its depth;
+- the fetch timing is not slot-driven in these trains at all, for example
+  a bus-unit request that the EU sends at certain decode events.
 
 ### Branches
 
