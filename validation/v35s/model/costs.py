@@ -139,6 +139,17 @@ COSTS["fetch_sample"] = 1
 COSTS["idle_fetch_delay"] = 0
 COSTS["opcode_pop"] = 1
 COSTS["fetch_latch"] = 0                    # 1: the latched decision above on a word-slot queue
+# Decode stage (0 = none): it takes bytes from the word register ahead of
+# execution, refilling once it holds decode_refill bytes or fewer, up to
+# decode_bytes; slot_release "taken" keeps a register word's queue slot
+# until its last byte is taken, "load" frees it when the word is loaded.
+COSTS["decode_bytes"] = 0
+COSTS["decode_refill"] = 0
+COSTS["slot_release"] = "load"
+COSTS["decode_mode"] = "fill"                  # "ahead": decode on the EU's waits, decode_ahead instructions on
+COSTS["decode_ahead"] = 2                      # an opcode wait, except for the decode_skip opcodes
+COSTS["decode_skip"] = set(range(0x90, 0x98))
+COSTS["decode_rate"] = 1                       # "ahead": bytes taken a clock within the register's word
 # Per-model fitted values: the active profile overrides COSTS.
 PROFILES = {
     "iwr": {},

@@ -25,6 +25,7 @@ from ..runner import (FLAG_IO, FLAG_READ, FLAG_REFRESH, FLAG_STROBE, FLAG_UBE_N,
                       FLAG_MARKER, Transaction)
 from .costs import COSTS
 from .eu import EU
+from .length import length
 
 MARKER_PORT = 0x20
 PASS_PORT = 0xFF00
@@ -66,6 +67,10 @@ class Machine:
         self.iwr = []                  # the EU's instruction word register: (linear, byte) left
         self.iwr_ready = 0             # clock its current word can be read
         self.preloaded = False         # the register's word was loaded ahead (pre-pop)
+        self.decoded = []              # decode stage: (linear, byte, clock usable) taken ahead of execution
+        self.decode_filling = False    # decode stage: refilling up to decode_bytes
+        self.insn_start = None         # linear address of the current instruction's opcode
+        self.decode_to = None          # decode_mode "ahead": decode bytes below this address
         self._last_was_boundary = True # the next byte the EU takes is an opcode
         self.routine = None            # the EU, for its current routine key
         self.end_discount = 0          # clocks the last routine hides of the next opcode load
@@ -136,7 +141,8 @@ class Machine:
         the two-word model the register holds the current word and the next,
         so a word holds its slot until its last byte is consumed."""
         words = {q[0] >> 1 for q in self.queue}
-        if self.costs["queue_model"] == "two_word":
+        if self.costs["queue_model"] == "two_word" or (
+                self.costs.get("decode_bytes") and self.costs.get("slot_release") == "taken"):
             words.update(b[0] >> 1 for b in self.iwr)
         if self.cycle is not None and self.cycle.kind == "fetch":
             words.add(self.cycle.address >> 1)
@@ -363,7 +369,70 @@ class Machine:
 
     # -- execution unit ---------------------------------------------------
 
+    def _decode(self):
+        """The decode stage takes instruction bytes from the word register
+        ahead of execution, one per clock: it starts refilling when it holds
+        decode_refill bytes or fewer and stops at decode_bytes. In
+        decode_mode "ahead" it instead takes bytes up to decode_to, which the
+        EU's requests set (see _decode_request)."""
+        if self.costs.get("decode_mode") == "ahead":
+            nxt = self.iwr[0][0] if self.iwr else (self.queue[0][0] if self.queue else None)
+            if nxt is None or self.decode_to is None or nxt >= self.decode_to:
+                return
+        else:
+            if len(self.decoded) <= self.costs["decode_refill"]:
+                self.decode_filling = True
+            if not self.decode_filling or self.halted:
+                return
+            if len(self.decoded) >= self.costs["decode_bytes"]:
+                self.decode_filling = False
+                return
+        if not self.iwr:
+            if not self.queue or self.queue[0][2] > self.clock:
+                return
+            word = self.queue[0][0] >> 1
+            while self.queue and self.queue[0][0] >> 1 == word:
+                linear, value, _ = self.queue.pop(0)
+                self.iwr.append((linear, value))
+            self.iwr_ready = self.clock + self.costs["word_load"]
+            if self.loads is not None:
+                self.loads.append((self.clock, (word << 1) & 0xFFFF))
+            return
+        if self.clock < self.iwr_ready:
+            return
+        linear, value = self.iwr.pop(0)
+        self.decoded.append((linear, value, self.clock))
+        if self.costs.get("decode_mode") == "ahead":
+            # decode_rate bytes a clock, within the register's word.
+            for _ in range(self.costs.get("decode_rate", 1) - 1):
+                if not self.iwr or self.iwr[0][0] >= self.decode_to:
+                    break
+                linear, value = self.iwr.pop(0)
+                self.decoded.append((linear, value, self.clock))
+            return
+        if len(self.decoded) >= self.costs["decode_bytes"]:
+            self.decode_filling = False
+
+    def _decode_request(self):
+        """The EU waits for a byte the decode stage does not hold: it decodes
+        up to it, and on an opcode wait decode_ahead whole instructions
+        further unless the opcode is in decode_skip."""
+        nxt = self.iwr[0][0] if self.iwr else (self.queue[0][0] if self.queue else None)
+        if nxt is None:
+            return
+        end = nxt + 1
+        if (self._last_was_boundary and not self.iwr
+                and self.mem_read8(nxt) not in self.costs["decode_skip"]):
+            end = nxt
+            for _ in range(1 + self.costs["decode_ahead"]):
+                end += length(self.mem_read8, end)
+        if self.decode_to is None or end > self.decode_to or nxt >= self.decode_to:
+            self.decode_to = end
+        self._decode()
+
     def _eu(self):
+        if self.costs.get("decode_bytes"):
+            self._decode()
         if self._eu_wait:
             self._eu_wait -= 1
             return
@@ -416,6 +485,18 @@ class Machine:
                 self._eu_request = None
                 continue
             if op == "preload" and self.costs["queue_model"] in ("byte", "consume"):
+                self._eu_request = None
+                continue
+            if op in ("byte", "preload") and self.costs.get("decode_bytes"):
+                if op == "byte" and not self.decoded and self.costs.get("decode_mode") == "ahead":
+                    self._decode_request()
+                if op == "byte":
+                    if not self.decoded or self.decoded[0][2] > self.clock:
+                        return
+                    linear, value, _ = self.decoded.pop(0)
+                    if self._last_was_boundary:
+                        self.insn_start = linear
+                    self._eu_value = value
                 self._eu_request = None
                 continue
             if op in ("byte", "preload"):
@@ -489,6 +570,8 @@ class Machine:
             if op == "flush":
                 self.queue.clear()
                 self.iwr.clear()
+                self.decoded.clear()
+                self.decode_to = None
                 self.suspended = False
                 self.last_word = None
                 self.fetch_linear = request[1]

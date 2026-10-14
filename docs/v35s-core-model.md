@@ -31,6 +31,7 @@ The engine resolves them clock by clock against the bus unit.
 | `fit_costs.py` | per-placement instruction costs (window minus empty window), model against silicon |
 | `fit_hide.py` | which routines hide a clock of a word load, from the odd-minus-even costs |
 | `fit_steps.py` | EU step values, coordinate descent against `fit_costs`' measure |
+| `fit_window.py` | integer costs (and optionally `decode_skip`) against whole-window exactness over all five corpora |
 
 The odd-minus-even cost of a form is independent of its step values, so it
 scores the queue and decode structure on its own. Fit the structure with it
@@ -643,6 +644,52 @@ its immediate is read, not when the word is loaded. A read-ahead model
 therefore also needs a slot to free when the decoder has taken the word's
 last byte. That puts operand reads in a decode stage ahead of execution,
 a restructuring of the EU, not a parameter of it.
+
+### Decode stage, 2026-10-13
+
+The EU now has an optional decode stage (`decode_bytes` > 0 in costs.py,
+off by default). It takes instruction bytes out of the word register
+ahead of execution into a decoded-byte buffer, and the routines take their
+bytes from that buffer. `model/length.py` gives it instruction lengths.
+
+Variants:
+- **fill:** refill when the buffer holds `decode_refill` bytes or fewer,
+  up to `decode_bytes`.
+- **ahead:** decode on demand. On an opcode wait for a word not yet
+  loaded, also decode `decode_ahead` more whole instructions, unless the
+  opcode is in `decode_skip`, at `decode_rate` bytes a clock.
+- **slot release:** `slot_release` "taken" holds a register word's queue
+  slot until its last byte is decoded; "load" frees it at the load.
+
+With "ahead", 2 instructions, 2 bytes a clock and NOP/XCH skipped, the
+even MOV CL train fetches its triples 3 clocks apart, as on silicon, and
+the odd train stays steady.
+
+Every variant was refitted before scoring. Fill variants had their
+in-window baseline steps set so both baseline windows came out exact, then
+`fit_steps.py`; ahead variants went through `fit_window.py` (new),
+coordinate descent on whole-window exactness over all five corpora. Result:
+
+| Model | Fit error | Cycles in place | Lengths exact | Release / held / eu / follow lists |
+| --- | --- | --- | --- | --- |
+| current model | 7344 | 77.6% | 450 | 44 / 46 / 3 / 5 |
+| current model, `fit_window` refit | 6846 | 78.8% | 460 | 46 / 46 / 3 / 3 |
+| fill, 4 or 6 bytes from empty | | 5.1% | 211-262 | 0 / 0 / 0 / 0 |
+| fill, 1 byte | | 8.6% (48.9% refitted) | 189-287 | |
+| ahead, slot freed at load, skip set fitted | 13912 | 50.9% | 333 | 33 / 33 / 3 / 3 |
+| ahead, slot freed when taken | 22653 | | | |
+
+- **Fill from empty** bursts the NOP runway, three words at a time.
+- **Every decode-ahead variant** stores more than silicon does. The queue
+  runs a word ahead at the opening marker, and the runway phase moves.
+- **Given the choice, the fitter switches the decode stage off.** It
+  returns to the current model's error.
+- **With decode-ahead held on,** it puts MOV CL itself in the skip set.
+
+So the read-ahead that the MOV CL trains show is not a decode stage that
+holds extra bytes. Whatever reads ahead in silicon does so without
+deepening the store. One candidate: the register and the decoded buffer
+are one 3-word structure with the queue, not added to it.
 
 ### Branches
 
