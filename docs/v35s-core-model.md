@@ -780,6 +780,37 @@ caveats:
 The bursts are real and this structure produces them, but its timing
 elsewhere costs more than the trains gain.
 
+### Operand hold, 2026-10-15
+
+At odd placement `SHL AW,CL` fetches word 60h at 74 + 2n for a count of
+n: the fetch tracks the instruction's end, not its ModR/M read near 63.
+So the ModR/M's word keeps its queue slot until its last byte (the next
+opcode) is taken. `operand_hold` makes a word loaded into the register
+for a non-opcode byte hold its slot until that last byte is taken:
+- **1:** any non-opcode byte. This delays the marker OUT's port byte
+  past its I/O cycle and shifts every window.
+- **"modrm":** ModR/M bytes only. Memory forms then end 1 clock early
+  (odd) or 2 early (even 0F bit ops): silicon reads ahead past a memory
+  form.
+- **"modrm_r":** register-form ModR/M bytes only (mod = 3).
+
+`preload_alternate` skips a pre-pop's pre-load when the register's last
+load was itself a pre-load. With it, odd `train SHL AW,CL x6` fetches in
+pairs after SHL 1, 3 and 5 as silicon does (83/86, 122/125, 161/164 against
+80/83, 117/120, 154/157; the residual is the step value). It does not move
+the corpus scores. Unrefitted:
+
+| Variant | Cycles in place | Lengths exact | Release / held / eu / follow / stall |
+| --- | --- | --- | --- | --- |
+| current model | 77.6% | 450 | 44 / 46 / 3 / 5 / 2 |
+| + `modrm` hold | 73.9% | 385 | 46 / 53 / 3 / 6 / 2 |
+| + `modrm_r` hold, alternation | 79.1% | 450 | 46 / 53 / 3 / 6 / 2 |
+| refitted current model | 78.8% | 460 | 46 / 46 / 3 / 3 / 2 |
+| refitted values + `modrm_r` hold | 80.3% | 460 | 48 / 53 / 3 / 3 / 2 |
+
+The `MULU CL` train at odd placement still fetches singly (silicon: pairs
+at 87/90, 139/142, 191/194).
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

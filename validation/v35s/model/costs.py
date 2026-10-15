@@ -120,6 +120,10 @@ COSTS["fetch_request"] = ""                  # "": fetch whenever a slot is free
                                              # only on a request the EU issues as it takes a queue byte / an opcode;
                                              # "ask": as it asks for an opcode, before the byte arrives
 COSTS["fetch_grant"] = "free"                # a request grants every free slot ("free") or one fetch ("one")
+COSTS["operand_hold"] = 0                    # 1 / "modrm" / "modrm_r": a word loaded for a non-opcode
+                                             # (ModR/M; register-form ModR/M) byte
+                                             # keeps its slot until its last byte is taken
+COSTS["preload_alternate"] = 0               # 1: no pre-load right after a pre-load
 COSTS["fetch_request_delay"] = 0             # clocks from the EU's request to the bus unit seeing it
 COSTS["operand_at"] = [3, 6, 9, 12, 15]       # k-th operand byte, byte reads
 COSTS["operand_word_at"] = [4, 7, 10, 13, 16]  # k-th operand byte, word reads

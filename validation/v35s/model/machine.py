@@ -67,6 +67,8 @@ class Machine:
         self.iwr = []                  # the EU's instruction word register: (linear, byte) left
         self.iwr_ready = 0             # clock its current word can be read
         self.preloaded = False         # the register's word was loaded ahead (pre-pop)
+        self.iwr_held = False          # operand_hold: the register's word keeps its queue slot
+        self.last_load_preload = False # the register's last load was a pre-load
         self.decoded = []              # decode stage: (linear, byte, clock usable) taken ahead of execution
         self.decode_filling = False    # decode stage: refilling up to decode_bytes
         self.insn_start = None         # linear address of the current instruction's opcode
@@ -154,6 +156,10 @@ class Machine:
             # The register and the decoded bytes share the queue's word slots.
             words.update(b[0] >> 1 for b in self.iwr)
             words.update(b[0] >> 1 for b in self.decoded)
+        if self.iwr_held and self.iwr:
+            # A word loaded for an operand byte frees its slot only when its
+            # last byte is taken.
+            words.update(b[0] >> 1 for b in self.iwr)
         if self.cycle is not None and self.cycle.kind == "fetch":
             words.add(self.cycle.address >> 1)
         return len(words)
@@ -627,6 +633,11 @@ class Machine:
                     # The EU asks for its next opcode.
                     self.fetch_asked = request
                     self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
+                if (op == "preload" and not self.iwr and self.last_load_preload
+                        and self.costs.get("preload_alternate")):
+                    # A pre-load does not follow another: the next word waits for a demand.
+                    self._eu_request = None
+                    continue
                 if not self.iwr:
                     # Load the queue's head word into the instruction word
                     # register: its slot frees now, its bytes can be read
@@ -646,6 +657,11 @@ class Machine:
                     elif self.routine is not None and self.routine.hides_mid_load():
                         load -= 1
                     self.iwr_ready = self.clock + load
+                    hold = self.costs.get("operand_hold")
+                    self.iwr_held = (op == "byte" and not self._last_was_boundary and bool(hold)
+                                     and (hold == 1 or not request[1])
+                                     and (hold != "modrm_r" or self.iwr[0][1] >> 6 == 3))
+                    self.last_load_preload = op == "preload"
                     if self.loads is not None:
                         self.loads.append((self.clock, (word << 1) & 0xFFFF))
                     if self.costs["fetch_request"] == "load":
@@ -692,6 +708,7 @@ class Machine:
             if op == "flush":
                 self.queue.clear()
                 self.iwr.clear()
+                self.last_load_preload = False
                 self.decoded.clear()
                 self.decode_to = None
                 self.burst = False
