@@ -811,6 +811,49 @@ the corpus scores. Unrefitted:
 The `MULU CL` train at odd placement still fetches singly (silicon: pairs
 at 87/90, 139/142, 191/194).
 
+### Two waits, register forms and the release table, 2026-10-15
+
+**At 2 waits** (corpora `p2-held-w2`, `p2-eu-w2`, `p2-follow-w2`, WTC AAAAh)
+every train fetches in bursts, including those that are steady at 0
+waits:
+
+| Train (even) | 0 waits | 2 waits |
+| --- | --- | --- |
+| NOP, XCH AW,CW | one every 8 clocks | pairs 5 apart, every 18 |
+| INC AW, CLR1 CY | pairs 3 apart, every 10 | pairs 5 apart, every 14 |
+| MOV CL,imm8 | triples 3 apart, every 17 | triples 5 apart, every 23 |
+
+A burst is a general bus-unit behaviour that slower fetches expose. In
+the eu probe the OUT after k MOV CL slips about 2 clocks per instruction
+against 0 waits, so the EU does wait on read-ahead words. The model has
+not been fitted at 2 waits; it scores about 4% cycles in place there.
+
+**Register forms** (corpus `p2-regform`, `--suite regform`): 68 register
+ModR/M forms then four NOPs, both placements. At odd placement word 60h
+is fetched at 64 for the ALU r,r, MOV and XCH forms; 66 for TEST and the
+0F bit ops; 67 for NOT/NEG, INC/DEC and the r,imm forms; 71 for shifts by
+1; 73 POP, 77 PUSH, 80 shifts by CL; 87 to 122 for MULU, MUL, DIVU and
+DIV. That measures the pre-pop and end of each form directly.
+
+**Release table.** A fetch that starts after an idle bus clock dates the
+release of the word three slots back. Silicon against the model, with the
+`modrm_r` hold, by what the released word held:
+- **ModR/M (register) + next opcode:** silicon releases about 4 clocks
+  earlier (60 cases in a6, 38 in regform). The hold is right in kind but
+  ends too late.
+- **Opcode + immediate:** silicon about 5 clocks later. Almost all of it
+  is one word, the closing marker `OUT 20h,AL` after the `SHL AW,16`
+  tail. A trial that held opcode + immediate words (all, or IN/OUT only)
+  until the immediate was taken broke the opening marker, whose word
+  silicon frees 14 clocks before its I/O cycle: cycles in place fell to
+  about 41%. Dropped.
+- **Opcode pairs and immediate + opcode:** 73 to 85% exact in the queue
+  probes, 1 to 2 clocks early in eu, follow and stall.
+
+A model run takes 3.9 ms (about 500 clocks), so a fetch-only simulator
+would gain 2 to 3 times at most; scoring a variant on every corpus takes
+about 5 seconds. Fitting is slow because of its trial count.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

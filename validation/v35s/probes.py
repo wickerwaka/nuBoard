@@ -18,7 +18,8 @@ even-length form reads exactly at one placement, so it runs once.
     release, held, tail, eu, follow   Phase 2 queue probes; eu times the
                EU with an OUT after k instructions of a train, follow puts
                each follower after a one-word leader, stall puts a bus
-               cycle or a long instruction into a train
+               cycle or a long instruction into a train; regform runs
+               every register-form ModR/M instruction at both placements
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -594,6 +595,49 @@ def stall_cases():
     return cases
 
 
+REGFORMS = (
+    [(f"{op} AW,CW ({code:02X})", [code, 0xC1]) for op, code in
+     (("ADD", 0x03), ("OR", 0x0B), ("ADDC", 0x13), ("SUBC", 0x1B), ("AND", 0x23), ("SUB", 0x2B),
+      ("XOR", 0x33), ("CMP", 0x3B), ("TEST", 0x85), ("XCH", 0x87), ("MOV", 0x8B))]
+    + [("ADD CW,AW (01)", [0x01, 0xC1]), ("ADD AL,CL (02)", [0x02, 0xC1]), ("MOV CW,AW (89)", [0x89, 0xC1]),
+       ("MOV AL,CL (8A)", [0x8A, 0xC1]), ("XCH AL,CL (86)", [0x86, 0xC1]), ("TEST AL,CL (84)", [0x84, 0xC1]),
+       ("MOV AW,DS0 (8C)", [0x8C, 0xD8]), ("MOV DS1,AW (8E)", [0x8E, 0xC0]), ("INC AW (FF /0)", [0xFF, 0xC0]),
+       ("DEC AL (FE /1)", [0xFE, 0xC8]), ("PUSH AW (FF /6)", [0xFF, 0xF0]), ("POP AW (8F /0)", [0x8F, 0xC0])]
+    + [(f"{op} AW,1 (D1 /{r})", [0xD1, 0xC0 | r << 3]) for r, op in
+       ((0, "ROL"), (1, "ROR"), (2, "ROLC"), (3, "RORC"), (4, "SHL"), (5, "SHR"), (7, "SHRA"))]
+    + [("SHL AL,1 (D0)", [0xD0, 0xE0]), ("SHL AL,CL (D2)", [0xD2, 0xE0]), ("SHR AW,CL (D3)", [0xD3, 0xE8]),
+       ("SHL AW,3 (C1)", [0xC1, 0xE0, 3]), ("SHL AL,3 (C0)", [0xC0, 0xE0, 3])]
+    + [(f"{op} AW (F7 /{r})", [0xF7, 0xC0 | r << 3 | 1]) for r, op in
+       ((2, "NOT CW"), (3, "NEG CW"), (4, "MULU CW"), (5, "MUL CW"), (6, "DIVU CW"), (7, "DIV CW"))]
+    + [(f"{op} (F6 /{r})", [0xF6, 0xC0 | r << 3 | 1]) for r, op in
+       ((2, "NOT CL"), (3, "NEG CL"), (4, "MULU CL"), (5, "MUL CL"), (6, "DIVU CL"), (7, "DIV CL"))]
+    + [("TEST AW,imm16 (F7 /0)", [0xF7, 0xC0, 0x34, 0x12]), ("TEST AL,imm8 (F6 /0)", [0xF6, 0xC0, 0x12]),
+       ("ADD AW,imm16 (81)", [0x81, 0xC0, 0x34, 0x12]), ("ADD AW,imm8 (83)", [0x83, 0xC0, 0x12]),
+       ("ADD AL,imm8 (80)", [0x80, 0xC0, 0x12]), ("CMP AW,imm8 (83 /7)", [0x83, 0xF8, 0x12]),
+       ("MOV AW,imm16 (C7)", [0xC7, 0xC0, 0x34, 0x12]), ("MOV AL,imm8 (C6)", [0xC6, 0xC0, 0x12]),
+       ("MUL AW,CW,imm8 (6B)", [0x6B, 0xC1, 0x03]), ("MUL AW,CW,imm16 (69)", [0x69, 0xC1, 0x03, 0x00])]
+    + [(f"{op} AW,CL (0F {code:02X})", [0x0F, code, 0xC0]) for op, code in
+       (("TEST1", 0x11), ("CLR1", 0x13), ("SET1", 0x15), ("NOT1", 0x17))]
+    + [(f"{op} AW,3 (0F {code:02X})", [0x0F, code, 0xC0, 3]) for op, code in
+       (("TEST1", 0x19), ("CLR1", 0x1B), ("SET1", 0x1D), ("NOT1", 0x1F))]
+    + [("ROL4 AL (0F 28)", [0x0F, 0x28, 0xC0]), ("EXT AL,CL (0F 33)", [0x0F, 0x33, 0xC1]),
+       ("INS AL,CL (0F 31)", [0x0F, 0x31, 0xC1])]
+)
+
+
+def regform_cases():
+    """Where does each register-form ModR/M instruction release its words?
+    Every form at both placements, then four NOPs: at odd placement the
+    ModR/M shares a word with the next opcode, so the next fetch dates when
+    that word's slot frees."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "DW": 0x0000, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, code in REGFORMS:
+        cases += form("regform", name, code + [0x90] * 4, regs, both=True)
+    return cases
+
+
 def tail_cases():
     """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
     its cost cancels out of target costs. Shifts with long counts, by
@@ -630,4 +674,5 @@ SUITES = {
     "eu": eu_cases,
     "follow": follow_cases,
     "stall": stall_cases,
+    "regform": regform_cases,
 }
