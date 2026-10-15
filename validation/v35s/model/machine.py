@@ -354,6 +354,8 @@ class Machine:
                     self.fetch_credits = 1
                 elif self.costs["fetch_grant"] == "one":
                     self.fetch_credits = max(self.fetch_credits, 1)
+                elif isinstance(self.costs["fetch_grant"], int):
+                    self.fetch_credits = max(self.fetch_credits, self.costs["fetch_grant"])
                 else:
                     self.fetch_credits = self.costs["queue_words"] - self._queue_words()
             if not self.queue and not self.iwr:
@@ -376,6 +378,30 @@ class Machine:
         if self._queue_words() < self.costs["queue_words"]:
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
+
+    def _load_blocked(self):
+        """load_block: the EU cannot load a word while a fetch with wait states
+        runs: "cycle" through the whole cycle, "waits" during its wait states,
+        "wait1" on its first wait state only. (The cycle has ended by the EU's
+        turn on its last clock.)"""
+        mode = self.costs.get("load_block")
+        cycle = self.cycle
+        if not mode or cycle is None or cycle.kind != "fetch" or cycle.length <= 3:
+            return False
+        k = self.clock - cycle.start
+        if mode == "cycle":
+            return True
+        if mode == "waits":
+            return k >= 2
+        return k == 2
+
+    def _request_fetch(self):
+        """The EU asks the bus unit for fetches. With fetch_dry_words set it asks
+        only when the queue holds that many words or fewer (in flight included)."""
+        dry = self.costs.get("fetch_dry_words")
+        if dry is not None and self._queue_words() > dry:
+            return
+        self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
 
     def _refresh_period(self):
         return 16 << (self.sfr[0xE1] & 3)
@@ -632,7 +658,7 @@ class Machine:
                         and self.fetch_asked is not request):
                     # The EU asks for its next opcode.
                     self.fetch_asked = request
-                    self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
+                    self._request_fetch()
                 if (op == "preload" and not self.iwr and self.last_load_preload
                         and self.costs.get("preload_alternate")):
                     # A pre-load does not follow another: the next word waits for a demand.
@@ -642,6 +668,11 @@ class Machine:
                     # Load the queue's head word into the instruction word
                     # register: its slot frees now, its bytes can be read
                     # word_load clocks later.
+                    if self._load_blocked():
+                        if op == "preload":
+                            self._eu_request = None
+                            continue
+                        return
                     if not self.queue or self.queue[0][2] > self.clock:
                         if op == "preload":
                             self._eu_request = None
@@ -665,7 +696,7 @@ class Machine:
                     if self.loads is not None:
                         self.loads.append((self.clock, (word << 1) & 0xFFFF))
                     if self.costs["fetch_request"] == "load":
-                        self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
+                        self._request_fetch()
                     self.preloaded = op == "preload"
                 if op == "preload":
                     self._eu_request = None
@@ -682,7 +713,7 @@ class Machine:
                 mode = self.costs["fetch_request"]
                 if (mode == "take" or (mode == "opcode" and self._last_was_boundary)
                         or (mode == "word_end" and not self.iwr)):
-                    self.fetch_grant_at = self.clock + self.costs["fetch_request_delay"]
+                    self._request_fetch()
                 self._eu_value = value
                 self._eu_request = None
                 continue

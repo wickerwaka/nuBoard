@@ -854,6 +854,40 @@ A model run takes 3.9 ms (about 500 clocks), so a fetch-only simulator
 would gain 2 to 3 times at most; scoring a variant on every corpus takes
 about 5 seconds. Fitting is slow because of its trial count.
 
+### One wait, and fetch rules scored at 0, 1 and 2 waits, 2026-10-15
+
+**At 1 wait** (corpora `p2-held-w1`, `p2-eu-w1`, `p2-follow-w1`, WTC
+5555h) the NOP lead-in of the eu trains fetches in pairs 4 apart every 16
+clocks. At 0 waits it fetches one word every 8, at 2 waits pairs 5 apart
+every 18. The EU's rate is the same at 0 and 1 wait, so the pairing is a
+bus-unit rule that a longer fetch cycle exposes, not a slower EU. Only 2
+waits also costs the EU about a clock per word.
+
+**Model options added, all off by default:**
+- `fetch_dry_words`: the EU's fetch request counts only when the queue
+  holds that many words or fewer.
+- `fetch_grant` as an integer: a request grants that many fetches.
+- `load_block` (`cycle`, `waits`, `wait1`): no word load into the
+  instruction word register while a fetch with wait states runs, or during
+  its wait states, or its first one.
+
+**Sweep** (fetch lists from 58h, aligned on the first fetch; lists exact
+out of 674 / 284 / 284 runs, and the share of consecutive fetch gaps that
+match):
+
+| Rule | Exact w0 / w1 / w2 | Gaps w0 / w1 / w2 |
+| --- | --- | --- |
+| current (fetch whenever a slot is free), `modrm_r` hold | 149 / 0 / 0 | 70 / 12 / 11% |
+| request at word end, grant 2, dry 2, `load_block` waits | 0 / – / 30 | 10 / – / 65% |
+| request on opcode, grant free, delay 3, `modrm_r` hold | 104 / 24 / 0 | 61 / 60 / 40% |
+| same, `load_block` wait1 | 104 / 24 / 0 | 61 / 60 / 40% |
+
+The word-end rule with `load_block` gets the 2-wait NOP rhythm right
+(pairs every 18) but pairs at 0 waits too. The opcode request with a
+3-clock delay is the first rule that is fair at every wait setting; it
+loses 45 exact lists at 0 waits to the current rule. No rule tried fits
+all three.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
