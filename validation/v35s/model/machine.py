@@ -101,6 +101,7 @@ class Machine:
         self.result = None             # pass / fail from the result port
         self.log = None                # set to [] to record (clock, pc, opcode) per instruction
         self.loads = None              # set to [] to record (clock, word address) per word load
+        self.last_take = None          # (clock, was an opcode) of the last byte taken from the word register
         self.keys = None               # set to {} to record pc -> routine key
         self.steps_used = None         # set to set() to record the step names spent
         self.halted = False
@@ -251,10 +252,17 @@ class Machine:
             n += self.cycle.width
         return n
 
+    def _queue_limit(self):
+        """Word slots, one more (queue_words_waited) when code fetches have wait states."""
+        extra = self.costs.get("queue_words_waited", 0)
+        if extra and self.wait_states("mem", self.fetch_linear):
+            return self.costs["queue_words"] + extra
+        return self.costs["queue_words"]
+
     def _fetch_room(self):
         if self.costs["queue_model"] == "byte":
             return self._queue_bytes() <= self.costs["queue_bytes"] - 2
-        return self._queue_words() < self.costs["queue_words"]
+        return self._queue_words() < self._queue_limit()
 
     def _bus_byte(self):
         """V30-style bus unit: while a cycle runs, whether the next cycle is
@@ -361,9 +369,11 @@ class Machine:
             if not self.queue and not self.iwr:
                 # An empty queue: the EU is waiting on it (reset, a flush).
                 self.fetch_credits = max(self.fetch_credits, 1)
+                if self.costs.get("empty_grant") == "free":
+                    self.fetch_credits = self.costs["queue_words"] - self._queue_words()
             if self.fetch_credits <= 0:
                 return
-            if self._queue_words() < self.costs["queue_words"]:
+            if self._queue_words() < self._queue_limit():
                 if self.costs["fetch_grant"] == "until_full":
                     # Fetch freely until the queue fills; then wait for a request.
                     if self._queue_words() + 1 >= self.costs["queue_words"]:
@@ -375,7 +385,7 @@ class Machine:
                 self._start(Cycle("fetch", "mem", linear, width))
                 self.fetch_linear = (linear + width) & 0xFFFFF
             return
-        if self._queue_words() < self.costs["queue_words"]:
+        if self._queue_words() < self._queue_limit():
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
 
@@ -687,6 +697,11 @@ class Machine:
                         load -= self.end_discount
                     elif self.routine is not None and self.routine.hides_mid_load():
                         load -= 1
+                    extra = self.costs.get("load_wait_extra")
+                    if extra:
+                        # Waited code memory slows the word load past a wait-state threshold.
+                        load += extra * max(0, self.wait_states("mem", self.iwr[0][0])
+                                            - self.costs.get("load_wait_free", 1))
                     self.iwr_ready = self.clock + load
                     hold = self.costs.get("operand_hold")
                     self.iwr_held = (op == "byte" and not self._last_was_boundary and bool(hold)
@@ -695,7 +710,8 @@ class Machine:
                     self.last_load_preload = op == "preload"
                     if self.loads is not None:
                         self.loads.append((self.clock, (word << 1) & 0xFFFF))
-                    if self.costs["fetch_request"] == "load":
+                    if self.costs["fetch_request"] == "load" or (
+                            self.costs["fetch_request"] == "demand" and op == "byte"):
                         self._request_fetch()
                     self.preloaded = op == "preload"
                 if op == "preload":
@@ -710,9 +726,11 @@ class Machine:
                     return
                 self.preloaded = False
                 linear, value = self.iwr.pop(0)
+                self.last_take = (self.clock, self._last_was_boundary)
                 mode = self.costs["fetch_request"]
                 if (mode == "take" or (mode == "opcode" and self._last_was_boundary)
-                        or (mode == "word_end" and not self.iwr)):
+                        or (mode == "word_end" and not self.iwr)
+                        or (mode == "opcode_end" and self._last_was_boundary and not self.iwr)):
                     self._request_fetch()
                 self._eu_value = value
                 self._eu_request = None

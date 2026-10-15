@@ -119,8 +119,14 @@ COSTS["queue_model"] = "iwr"
 COSTS["fetch_request"] = ""                  # "": fetch whenever a slot is free; "take" / "opcode":
                                              # only on a request the EU issues as it takes a queue byte / an opcode;
                                              # "ask": as it asks for an opcode, before the byte arrives
+                                             # "load" / "demand": as it loads a word (on demand only, not a pre-load)
+                                             # "opcode_end": as it takes an opcode that ends its word
+COSTS["empty_grant"] = "one"                 # an empty queue grants one fetch ("one") or every free slot ("free")
 COSTS["fetch_grant"] = "free"                # a request grants every free slot ("free"), one fetch ("one") or n (int)
 COSTS["fetch_dry_words"] = None              # the EU requests only when the queue holds this many words or fewer
+COSTS["queue_words_waited"] = 0              # extra word slots when code fetches have wait states
+COSTS["load_wait_extra"] = 0                 # clocks added to a word load per code wait state over
+COSTS["load_wait_free"] = 1                  # this many
 COSTS["load_block"] = ""                     # "cycle" / "waits" / "wait1": no word load while a
                                              # fetch with wait states runs (that part of it)
 COSTS["operand_hold"] = 0                    # 1 / "modrm" / "modrm_r": a word loaded for a non-opcode

@@ -888,6 +888,47 @@ The word-end rule with `load_block` gets the 2-wait NOP rhythm right
 loses 45 exact lists at 0 waits to the current rule. No rule tried fits
 all three.
 
+### Fetches forced to silicon's times, 2026-10-15
+
+`python -m validation.v35s.forced_fetch` runs the model with every code
+fetch and refresh started when silicon started it, re-anchored at each
+data cycle, so the EU is measured on its own. Marker-to-marker time
+against silicon:
+
+| | 0 waits (1230 runs) | 1 wait (284) | 2 waits (284) |
+| --- | --- | --- | --- |
+| current model: exact / mean error | 705 / +0.06 | 65 / −0.31 | 0 / −24.8 |
+| + `load_wait_extra` 1 | 705 / +0.06 | 65 / −0.31 | 30 / −2.2 |
+
+- **The EU costs carry fetch error.** Fed silicon's real fetches, the
+  model's EU gets the window time right in 57% of runs at 0 waits. The
+  free-running model reaches 78–80% cycles in place because its step
+  values were fitted against its own (wrong) fetch timing. EU and bus unit
+  should be fitted apart: the EU under forced fetches, then the bus rule
+  with the EU fixed.
+- **2 waits costs the EU a clock per word, 1 wait does not.** Every 2-wait
+  window was about 13 clocks short per 16 NOPs, whatever the instruction
+  under test; a later data arrival (`fetch_data_delay` up to 6) changes
+  nothing, so the EU is not starved. `load_wait_extra` 1 adds a clock to
+  each word load per code wait state over `load_wait_free` (1). With it,
+  the latched rule (`fetch_latch`, sample 0, idle delay 5) scores 133 / 15
+  / 15 exact fetch lists at 0 / 1 / 2 waits, and the opcode request with
+  delay 3 scores 104 / 22 / 13. These are the first rules to score at all
+  three settings.
+- **Where silicon starts a fetch** (`--table`, model state at each free
+  bus clock). At 0 waits silicon starts almost every fetch when the model
+  holds two queued words besides the word register: the third slot, as
+  modelled. At 1 and 2 waits about 40% start when the model's queue is
+  already full. A queue one word deeper when code has wait states
+  (`queue_words_waited`) only runs further ahead; it does not make pairs.
+  An idle bus restarts 6 clocks after its last cycle at 0 waits and 8 to 9
+  at 1 and 2.
+
+Other options added, off by default: `fetch_request` "demand" (on a
+demand load only; same as "load" in every train) and "opcode_end" (on
+taking an opcode that ends its word; gives the even `MOV AL,imm8` triples
+but loses the 1-wait pairs), and `empty_grant` "free".
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
