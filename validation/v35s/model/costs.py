@@ -33,6 +33,7 @@ COSTS = {
     "end_hide": {0x61, 0xE4, 0xE5, 0xE6, 0xE7, 0xEC, 0xED, 0xEF},
     "mid_hide": {'83m', '83r', 0x85, 0xD5},
     "io_recovery": 1,                   # idle clocks after an I/O cycle before the next cycle
+    "io_recovery_waited": None,         # the same after an I/O cycle with wait states (None: as above)
     "write_posted": 1,                  # 1: the EU hands a write to the bus unit and continues
     "write_post_clocks": 1,             # EU clocks spent handing over a posted write
     "post_start_delay": 0,              # clocks from the handover to the bus unit starting it
@@ -126,8 +127,12 @@ COSTS["fetch_grant"] = "free"                # a request grants every free slot 
 COSTS["fetch_dry_words"] = None              # the EU requests only when the queue holds this many words or fewer
 COSTS["queue_words_waited"] = 0              # extra word slots when code fetches have wait states
 COSTS["load_wait_extra"] = 0                 # clocks added to a word load per code wait state over
-COSTS["load_wait_free"] = 1                  # this many
-COSTS["load_block"] = ""                     # "cycle" / "waits" / "wait1": no word load while a
+COSTS["load_busy_extra"] = 0                 # clocks added to a word load made while a waited fetch
+                                             # runs (or {"1": n, "2": n} by its wait states)
+COSTS["load_wait_demand"] = 0                # 1: only a demand load pays load_wait_extra
+COSTS["load_wait_free"] = 1                  # this many ({"1": n, "2": n} above: n clocks at that setting)
+COSTS["load_block"] = ""                     # "cycle" / "waits" / "wait1" / [a, b] (or {"1": .., "2": ..}
+                                             # per fetch wait states): no word load while a
                                              # fetch with wait states runs (that part of it)
 COSTS["fetch_start_free"] = 0                # n (or [n at 0, 1, 2 waits]): an idle bus unit starts
                                              # fetching only with n slots free, then runs back to back
@@ -187,6 +192,19 @@ PROFILES = {
     "iwr": {},
     "byte": {"queue_model": "byte", "end_hide": set(), "mid_hide": set(), "prepop": set()},
     "two_word": {"queue_model": "two_word", "queue_words": 4},
+    # The burst bus rule (docs/v35s-core-model.md, "The EU refitted under
+    # forced fetches, and a burst rule"): EU values from fit_forced.py, then
+    # refitted free-running by fit_window.py --exact-weight 5.
+    "burst": {
+        "operand_hold": "modrm_r", "load_wait_extra": 1, "load_block": "wait1",
+        "fetch_start_free": [1, 2], "fetch_burst": "count", "queue_words_waited": 1,
+        "io_recovery_waited": 0,
+        "alu_acc_imm1": 3, "bcond": 7, "bcwz": 7, "br_short": 14, "branch_taken": 12, "call_far": 21,
+        "dbnz": 10, "dbnz_cond": 7, "div16": 59, "div8": 51, "divu8": 32, "ldea": 1, "pop_all": 50,
+        "push_r": 4, "test_r_imm": 5, "trap_entry": 31, "trap_exit": 8, "clr1_m_imm": 4, "mov_load": 6,
+        "mov_r8_imm": 3, "mov_store": 2, "not1_m_imm": 3, "prefix": 1, "prepare": 22,
+        "prepare_level": 16, "push_rm": 10, "set1_m_imm": 3,
+    },
     "consume": {
         "queue_model": "consume",
         "prepop": set(),

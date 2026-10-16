@@ -283,7 +283,7 @@ class Machine:
             if self.clock >= last:
                 cycle, self.cycle = self.cycle, None
                 if cycle.space == "io":
-                    self.bus_idle_until = self.clock + 1 + self.costs["io_recovery"]
+                    self.bus_idle_until = self.clock + 1 + self._io_recovery(cycle)
                 self._finish(cycle)
             return
         if self.clock < self.bus_idle_until:
@@ -337,7 +337,7 @@ class Machine:
             if self.clock - self.cycle.start + 1 >= self.cycle.length:
                 cycle, self.cycle = self.cycle, None
                 if cycle.space == "io":
-                    self.bus_idle_until = self.clock + 1 + self.costs["io_recovery"]
+                    self.bus_idle_until = self.clock + 1 + self._io_recovery(cycle)
                 if cycle.kind == "fetch":
                     self.fetch_end = self.clock
                 self._finish(cycle)
@@ -414,13 +414,28 @@ class Machine:
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
 
+    def _io_recovery(self, cycle):
+        """Idle clocks after an I/O cycle; io_recovery_waited, when set, if it had wait states."""
+        waited = self.costs.get("io_recovery_waited")
+        if waited is not None and self.wait_states("io", cycle.address):
+            return waited
+        return self.costs["io_recovery"]
+
+    def _per_wait(self, value):
+        """A {"1": ..., "2": ...} value: the entry for the running code fetch's wait states."""
+        if isinstance(value, dict):
+            cycle = self.cycle
+            waits = cycle.length - 3 if cycle is not None and cycle.kind == "fetch" else 0
+            return value.get(str(waits), value.get(waits))
+        return value
+
     def _load_blocked(self):
         """load_block: the EU cannot load a word while a fetch with wait states
         runs: "cycle" through the whole cycle, "waits" during its wait states,
         "wait1" on its first wait state only; [a, b] from its clock a to b
         clocks before its end. (The cycle has ended by the EU's turn on its
         last clock.)"""
-        mode = self.costs.get("load_block")
+        mode = self._per_wait(self.costs.get("load_block"))
         cycle = self.cycle
         if not mode or cycle is None or cycle.kind != "fetch" or cycle.length <= 3:
             return False
@@ -435,7 +450,7 @@ class Machine:
 
     def _load_unblock(self):
         """The first clock load_block lets the EU load during the running fetch."""
-        mode, cycle = self.costs.get("load_block"), self.cycle
+        mode, cycle = self._per_wait(self.costs.get("load_block")), self.cycle
         if isinstance(mode, (list, tuple)):
             return cycle.start + cycle.length - mode[1]
         return cycle.start + (3 if mode == "wait1" else cycle.length - 1)
@@ -738,7 +753,16 @@ class Machine:
                     elif self.routine is not None and self.routine.hides_mid_load():
                         load -= 1
                     extra = self.costs.get("load_wait_extra")
-                    if extra:
+                    busy = self._per_wait(self.costs.get("load_busy_extra"))
+                    if busy and self.cycle is not None and self.cycle.kind == "fetch" and self.cycle.length > 3:
+                        load += busy               # a load made while a waited fetch runs
+                    if op == "preload" and self.costs.get("load_wait_demand"):
+                        extra = 0                  # load_wait_demand: a pre-load does not pay it
+                    if isinstance(extra, dict):
+                        # Clocks added to a word load per code wait setting.
+                        waits = self.wait_states("mem", self.iwr[0][0])
+                        load += extra.get(str(waits), extra.get(waits, 0)) if waits else 0
+                    elif extra:
                         # Waited code memory slows the word load past a wait-state threshold.
                         load += extra * max(0, self.wait_states("mem", self.iwr[0][0])
                                             - self.costs.get("load_wait_free", 1))

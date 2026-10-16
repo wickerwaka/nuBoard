@@ -1006,6 +1006,50 @@ not yet been fitted together. The configuration, over the default costs:
  "xch_mr": 4}
 ```
 
+### The burst rule refitted free-running, 2026-10-15
+
+`fit_window.py` now takes `--waited` (also fit the 1- and 2-wait corpora),
+`--bus-only` and `--names`, and reports exact runs per wait setting. The
+result is the cost profile `burst` (`V35S_PROFILE=burst`):
+
+| | A6 cycles in place | Exact lengths | Exact fetch lists at 0 / 1 / 2 waits | Gaps at 1 / 2 |
+| --- | --- | --- | --- | --- |
+| default + `operand_hold` "modrm_r" | 79.1% | 450 | 149 / 0 / 0 | 0.10 / 0.09 |
+| `burst` | 80.8% | 465 | 153 / 33 / 36 | 0.69 / 0.69 |
+
+How it was reached, and what each step showed:
+- **I/O recovery depends on waits.** A free fit over all wait settings
+  first took `io_recovery` from 1 to 0, at a cost of 95 exact 0-wait
+  runs. `io_recovery_waited` 0 (no idle clock after an I/O cycle that has
+  wait states) takes the same gain and keeps every 0-wait exact run.
+- **Branch steps belong to the free-running refill.** Fitted free-running,
+  `br_short`, `bcond` and `dbnz` go back up to 14, 7 and 10. Under forced
+  fetches they only had to bring the model's flush ahead of silicon's
+  target fetch, or the forced target words were discarded, so the forced
+  values are a bound, not a measurement.
+- **The other EU values** were then refitted free-running at 0 waits
+  (`--exact-weight 5`). The burst options stay as set.
+- **Whole-window error is a poor guide at waits.** No waited window is
+  exact under any rule, because the code before the opening marker
+  already diverges (below), and one early slip mismatches every later
+  transaction. The bus-only fit dropped `load_wait_extra` to 0 on
+  whole-window error, while the fetch lists at 2 waits fall from 34 exact
+  to 0 without it. The fetch lists decide.
+
+**The 1-wait EU residual.** Under forced fetches at 1 wait, trains of
+instructions with immediates (`MOV DW,imm16`, `SHL AW,imm`, even
+`MOV AL,imm8`) run about one clock per word fast, while the NOP lead-in
+runs at the 0-wait rate. The same gap shows free-running in the code
+before the opening marker (`MOV reg,imm16` loads), where silicon fetches
+in bursts of 3 to 5 with idle gaps and the model fetches continuously.
+None of these fit both:
+- a load block span per wait setting (`load_block` {"1": ..., "2": ...});
+- a per-load cost at 1 wait (`load_wait_extra` {"1": 1}): +21 clocks on
+  the windows, the lead-in pays it too;
+- the cost on demand loads only (`load_wait_demand`): the same;
+- the cost on loads made while a waited fetch runs (`load_busy_extra`):
+  +7.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

@@ -4,7 +4,8 @@
 
 Coordinate descent over the EU step values and a few bus-unit values,
 starting from COSTS updated by START.json, against a6-timing, p2-release,
-p2-held, p2-eu and p2-follow at once. A run's error is the number of window
+p2-held, p2-eu and p2-follow at once (with --waited, also the 1- and 2-wait
+held, eu and follow corpora). A run's error is the number of window
 transactions that differ from silicon's (time, kind, address or data), plus
 3 if the window length differs, plus --exact-weight unless the whole window
 matches (so the fit cannot trade exact runs for fewer stray mismatches). Unlike fit_steps.py, which fits per-form
@@ -32,25 +33,28 @@ from .runner import Transaction
 from .timing import build
 
 ENTRIES = ("a6-timing", "p2-release", "p2-held", "p2-eu", "p2-follow")
+WAITED = ("p2-held-w1", "p2-eu-w1", "p2-follow-w1", "p2-held-w2", "p2-eu-w2", "p2-follow-w2")
 TUNE_BUS = ["word_load", "preload_penalty", "prepop_end", "io_recovery", "write_post_clocks",
-            "decode_cap", "decode_finish_cap"]
+            "decode_cap", "decode_finish_cap", "load_wait_extra", "load_wait_free", "queue_words_waited", "io_recovery_waited"]
 FIXED = {"queue_words", "reset_first_fetch_states", "reset_first_refresh_states", "refresh_tick_offset",
          "internal_access", "ramen_write", "write_posted", "fetch_data_delay", "queue_bytes", "ripe_delay",
          "fetch_sample", "idle_fetch_delay", "opcode_pop", "fetch_latch", "fetch_request_delay"}
 SETS = ("prepop", "end_hide", "mid_hide", "decode_skip", "decode_simple", "decode_io")
 RUNS = []
+GROUPS = []                            # the wait setting of each run
 EXACT_WEIGHT = 0
 
 
-def _init(exact_weight=0):
+def _init(exact_weight=0, waited=False):
     global EXACT_WEIGHT
     EXACT_WEIGHT = exact_weight
-    for entry in ENTRIES:
+    for entry in ENTRIES + (WAITED if waited else ()):
         data = load(entry)
         for r in data["runs"]:
             case = case_from_json(r["case"])
             RUNS.append((pages(build(case, data["settings"])[0]),
                          window([Transaction(**t) for t in r["socket_trace"]])))
+            GROUPS.append(int(entry[-1]) if entry in WAITED else 0)
 
 
 def _error(si, mo):
@@ -86,17 +90,24 @@ def main():
     parser.add_argument("--toggle-set", action="append", default=[])
     parser.add_argument("--keep", action="append", default=[], help="NAME:OP, e.g. decode_simple:0xB1")
     parser.add_argument("--exact-weight", type=int, default=0)
+    parser.add_argument("--names", help="tune only these values (comma-separated)")
+    parser.add_argument("--bus-only", action="store_true", help="tune only the bus-unit values")
+    parser.add_argument("--waited", action="store_true", help="also fit the 1- and 2-wait corpora")
     parser.add_argument("--minutes", type=float, default=0, help="cap on each pass (0: none)")
     args = parser.parse_args()
     params = json.load(open(args.start))
     keep = {(k, int(v, 0)) for k, v in (a.split(":") for a in args.keep)}
-    _init(args.exact_weight)
-    pool = Pool(initializer=_init, initargs=(args.exact_weight,))
+    _init(args.exact_weight, args.waited)
+    pool = Pool(initializer=_init, initargs=(args.exact_weight, args.waited))
     n = len(RUNS)
     res = pool.map(_run, [(i, _costs(params)) for i in range(n)], chunksize=8)
     errs = [r[0] for r in res]
     used = [r[1] for r in res]
-    print("start error", sum(errs), "exact", sum(e == 0 for e in errs), flush=True)
+    def exact():
+        return " / ".join(str(sum(e == 0 for e, g in zip(errs, GROUPS) if g == w))
+                          for w in sorted(set(GROUPS)))
+
+    print("start error", sum(errs), "exact", exact(), flush=True)
 
     def trial(p, idx):
         out = pool.map(_run, [(i, _costs(p)) for i in idx], chunksize=4)
@@ -133,9 +144,12 @@ def main():
                     moved = {k: v for k, v in params.items() if k in steps}
                     print(f"{set_name} {op} {'on' if op not in current else 'off'}: {best[0]}  {moved}  "
                           f"total {sum(errs)}", flush=True)
-        names = sorted({u for st in used for u in st if isinstance(u, str)} - FIXED) + TUNE_BUS
+        names = (args.names.split(",") if args.names else TUNE_BUS if args.bus_only else
+                 sorted({u for st in used for u in st if isinstance(u, str)} - FIXED) + TUNE_BUS)
         for name in names:
             base = params.get(name, COSTS.get(name))
+            if base is None and name == "io_recovery_waited":
+                base = params.get("io_recovery", COSTS["io_recovery"])
             if not isinstance(base, int) or isinstance(base, bool) or time.monotonic() > deadline:
                 continue
             spenders = [i for i in range(n) if name in used[i]]
@@ -152,7 +166,7 @@ def main():
                 print(f"{name} {base} -> {best[1]}: {best[0]}  total {sum(errs)}", flush=True)
         json.dump({k: sorted(v, key=str) if isinstance(v, set) else v for k, v in params.items()},
                   open(args.out, "w"))
-        print(f"pass {npass} total {sum(errs)} exact {sum(e == 0 for e in errs)}"
+        print(f"pass {npass} total {sum(errs)} exact {exact()}"
               f"{' (time cap)' if time.monotonic() > deadline else ''}", flush=True)
 
 
