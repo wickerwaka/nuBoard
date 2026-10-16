@@ -35,7 +35,7 @@ from .timing import build, markers
 
 ENTRIES = {"a6-timing": 0, "p2-release": 0, "p2-held": 0, "p2-eu": 0, "p2-follow": 0, "p2-stall": 0,
            "p2-regform": 0, "p2-held-w1": 1, "p2-eu-w1": 1, "p2-follow-w1": 1,
-           "p2-held-w2": 2, "p2-eu-w2": 2, "p2-follow-w2": 2}
+           "p2-held-w2": 2, "p2-eu-w2": 2, "p2-follow-w2": 2, "p2-imm": 0, "p2-imm-w1": 1, "p2-imm-w2": 2}
 CODE = (0x10000, 0x20000)
 
 

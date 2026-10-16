@@ -178,6 +178,8 @@ class Machine:
         self.cycle = cycle
 
     def _finish(self, cycle: Cycle):
+        if cycle.kind == "fetch":
+            self.fetch_end = self.clock
         tpc = self.ticks_per_clock
         flags = FLAG_STROBE
         address = cycle.address
@@ -441,9 +443,13 @@ class Machine:
         last clock.)"""
         mode = self._per_wait(self.costs.get("load_block"))
         cycle = self.cycle
-        if not mode or cycle is None or cycle.kind != "fetch" or cycle.length <= 3:
+        if not mode or cycle is None or cycle.kind != "fetch":
             return False
         k = self.clock - cycle.start
+        if isinstance(mode, (list, tuple)):         # a span can block a 0-wait fetch too
+            return mode[0] <= k <= cycle.length - 1 - mode[1]
+        if cycle.length <= 3:
+            return False
         if isinstance(mode, (list, tuple)):
             return mode[0] <= k <= cycle.length - 1 - mode[1]
         if mode == "cycle":
@@ -458,6 +464,18 @@ class Machine:
         if isinstance(mode, (list, tuple)):
             return cycle.start + cycle.length - mode[1]
         return cycle.start + (3 if mode == "wait1" else cycle.length - 1)
+
+    def _end_blocked(self, what):
+        """fetch_end_block {"load"/"take"/"operand": [offsets]}: the EU cannot
+        load a word, take an opcode or take another byte on the clocks those
+        offsets after a code fetch ends. Keyed "0"/"1"/"2" per code wait
+        setting."""
+        block = self.costs.get("fetch_end_block") or {}
+        if any(k in block for k in ("0", "1", "2")):
+            # Per wait setting of code memory.
+            block = block.get(str(self.wait_states("mem", self.fetch_linear))) or {}
+        offsets = block.get(what)
+        return bool(offsets) and self.fetch_end is not None and self.clock - self.fetch_end in offsets
 
     def _request_fetch(self):
         """The EU asks the bus unit for fetches. With fetch_dry_words set it asks
@@ -543,7 +561,14 @@ class Machine:
         """Move the queue's head word to the decoded store: its slot frees
         now, its bytes are usable word_load clocks later."""
         word = self.queue[0][0] >> 1
-        ready = self.clock + (self.costs["word_load"] if load is None else load)
+        load = self.costs["word_load"] if load is None else load
+        extra = self.costs.get("load_wait_extra")
+        if isinstance(extra, dict):
+            waits = self.wait_states("mem", self.queue[0][0])
+            load += extra.get(str(waits), extra.get(waits, 0)) if waits else 0
+        elif extra:
+            load += extra * max(0, self.wait_states("mem", self.queue[0][0]) - self.costs.get("load_wait_free", 1))
+        ready = self.clock + load
         while self.queue and self.queue[0][0] >> 1 == word:
             linear, value, _ = self.queue.pop(0)
             self.decoded.append((linear, value, ready))
@@ -566,7 +591,7 @@ class Machine:
         instruction starts one, which takes words until decode_cap bytes
         past the executing instruction are held or a non-simple instruction
         is taken. An I/O instruction is taken only on demand."""
-        if not self.queue or self.queue[0][2] > self.clock or self.halted:
+        if not self.queue or self.queue[0][2] > self.clock or self.halted or self._load_blocked():
             return
         head = self.queue[0][0]
         held_end = self.decoded[-1][0] + 1 if self.decoded else head
@@ -735,6 +760,11 @@ class Machine:
                     # register: its slot frees now, its bytes can be read
                     # word_load clocks later.
                     unblock = None
+                    if self._end_blocked("load"):
+                        if op == "preload":
+                            self._eu_request = None
+                            continue
+                        return
                     if self._load_blocked():
                         if self.costs.get("load_defer"):
                             # The word leaves its slot now; its bytes wait out the block.
@@ -792,6 +822,8 @@ class Machine:
                     self._eu_request = None
                     continue
                 if self.clock < self.iwr_ready:
+                    return
+                if op == "byte" and self._end_blocked("take" if self._last_was_boundary else "operand"):
                     return
                 take = self.costs.get("take_block")
                 if take and op == "byte" and (take == "all" or not self._last_was_boundary) and self._load_blocked():

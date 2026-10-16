@@ -1105,6 +1105,43 @@ Two rules were tried, both off by default:
 Scores now include the `imm` corpora: 160 / 35 / 38 exact fetch lists at
 0 / 1 / 2 waits for `burst`.
 
+### The 0-wait imm8 triples, 2026-10-16
+
+Under forced fetches (`forced_fetch.py` now includes the `imm` corpora),
+the model's EU runs `MOV AL,imm8` and `MOV CL,imm8` trains 0.6 (even) to
+1 (odd) clocks per instruction fast at 0 waits, while NOP, register and
+`SHL AW,imm` trains keep silicon's rate. So at 0 waits the imm8 trains
+are EU-bound at 6 (odd) and 6, 6, 5 (even) clocks per instruction, and
+the even triples are a slot-release pattern, not a fetch-rate limit.
+
+**`fetch_end_block`** (off by default; {"load"/"take"/"operand":
+[offsets]}, optionally keyed per code wait setting): the EU cannot load a
+word, take an opcode or take another byte that many clocks after a code
+fetch ends. Under forced fetches, {"take": [0], "operand": [2]} at 0 waits
+raises exact windows from 774 to 824 of 1326 and flattens every train's
+slope. Free-running it changes nothing for the imm8 trains, and it breaks
+`MOV CW,AW`: the model's fetches settle at a phase that misses the block.
+The forced gain was the forced phase, not a mechanism.
+
+**Classed read-ahead on the burst bus rules.** `decode_mode` "classed"
+(see "Classed read-ahead") now honours `load_block` and `load_wait_extra`,
+which it ignored: without them it ran 25 clocks fast on every 2-wait
+window. It gives the even triples' shape. With `mov_r8_imm` 5 the even
+triples come 16 apart (silicon 17), and with `word_load` 1 the odd rhythm
+is 6 (silicon 6). But `word_load` 1 puts every window 18 clocks fast, so
+the refit started from classed with `mov_r8_imm` 5:
+
+| | Forced error | Forced exact at 0 / 1 / 2 waits | Free-running exact fetch lists at 0 / 1 / 2 waits |
+| --- | --- | --- | --- |
+| `burst` (default) | 5765 | 774 / 82 / 62 | 160 / 35 / 38 |
+| classed, `fit_forced.py` 2 passes | 5315 | 776 / 60 / 71 | 110 / 32 / 18 |
+| the same, branch values and `io_recovery` left at `burst`'s | — | — | 115 / 32 / 18 |
+
+The forced fit took `io_recovery` from 1 to 4 (−312), against the
+measured 1 idle clock. Free-running, classed loses on `p2-release` (48 to
+27), `p2-regform` (44 to 30), `p2-held` at 2 waits (24 to 13) and even on
+`p2-imm` (7 to 3). It stays an option. The triples are still open.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
