@@ -75,6 +75,8 @@ class Machine:
         self.insn_start = None         # linear address of the current instruction's opcode
         self.decode_to = None          # decode_mode "ahead": decode bytes below this address
         self.burst = False             # classed decoder: taking words ahead
+        self.burst_words = None        # decode_burst_words: words this burst may still take
+        self.burst_after = 0           # decode_burst_delay: the clock this burst's takes may begin
         self.dec_next = 0xFFFF0        # classed decoder: next instruction start it has not begun
         self.dec_open = 0xFFFF0        # end of the last instruction it began
         self.dec_open_class = "simple"
@@ -162,8 +164,9 @@ class Machine:
             words.update(b[0] >> 1 for b in self.iwr)
             words.update(b[0] >> 1 for b in self.decoded)
         if self.dec_held is not None:
-            # classed_hold: a word taken for a register-form ModR/M byte keeps
-            # its slot until its last byte is taken.
+            # classed_hold: a word taken for a register-form ModR/M byte
+            # ("all": any word taken on demand) keeps its slot until its
+            # last byte is taken.
             if any(b[0] >> 1 == self.dec_held for b in self.decoded):
                 words.add(self.dec_held)
             else:
@@ -613,8 +616,8 @@ class Machine:
             word = head >> 1
             self._take_word(load)
             self.preloaded = False
-            if (self.costs.get("classed_hold") and not self._last_was_boundary
-                    and self.mem_read8(head) >= 0xC0):
+            hold = self.costs.get("classed_hold")
+            if hold == "all" or (hold and not self._last_was_boundary and self.mem_read8(head) >= 0xC0):
                 self.dec_held = word
             return
         current_end = self.dec_cur_end if self.dec_cur_end is not None else head
@@ -630,7 +633,24 @@ class Machine:
         if held_end - current_end >= self.costs["decode_cap"]:
             self.burst = False
             return
+        if self.clock < self.burst_after:
+            return
+        if self.burst_words is not None:
+            if self.burst_words <= 0:
+                self.burst = False
+                return
+            self.burst_words -= 1
         self._take_word()
+
+    def _burst_begin(self):
+        """decode_burst_words caps the words a burst takes after the one
+        demanded: a number, or "queue" for the words queued when it begins.
+        decode_burst_delay holds its takes off that many clocks."""
+        self.burst_after = self.clock + self.costs.get("decode_burst_delay", 0)
+        cap = self._per_wait(self.costs.get("decode_burst_words"), "mem", self.fetch_linear)
+        if cap == "queue":
+            cap = len({q[0] >> 1 for q in self.queue})
+        self.burst_words = cap
 
     def _decode_request(self):
         """The EU waits for a byte the decode stage does not hold: it decodes
@@ -720,6 +740,7 @@ class Machine:
                         if self.costs.get("decode_preload_burst") and start >= (self.dec_cur_end or 0):
                             self.dec_waited = start
                             self.burst = self._insn_class(start) == "simple"
+                            self._burst_begin()
                 if op == "byte":
                     if not self.decoded:
                         if self._last_was_boundary and self.queue:
@@ -727,6 +748,7 @@ class Machine:
                             self.dec_waited = start
                             self.dec_cur_end = start + length(self.mem_read8, start)
                             self.burst = self._insn_class(start) == "simple"
+                            self._burst_begin()
                         self._decode_classed(demand=True)
                         return
                     if self.decoded[0][2] > self.clock:

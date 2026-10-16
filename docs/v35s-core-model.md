@@ -1185,6 +1185,42 @@ At 0 waits classed nearly matches the default, and its gaps are better. At
 (silicon: threes every 17), and odd trains run 7 clocks an instruction
 (silicon 6). The default stays.
 
+### A word cap on the classed read-ahead, 2026-10-16
+
+`decode_burst_words` caps the words a classed burst takes after the word
+demanded at the opcode wait (a number, "queue" for the words queued when
+the burst begins, or per code wait setting as {"0": ..}).
+`decode_burst_delay` holds a burst's takes off for that many clocks.
+`classed_hold` "all" holds the slot of every word taken on demand until
+its last byte is taken. All are off by default.
+
+- **A cap of 2 gives silicon's triples.** On top of the refitted classed
+  values, even `MOV AL,imm8` trains fetch three back to back every 17
+  clocks, as silicon does. After `DIVU CL` they fetch at 42/45/48,
+  59/62/65 (silicon 45/48/51, 62/65/68). Each triple starts 3 clocks
+  early. A cap of 3 gives fours.
+- **The 3 clocks are not a burst delay.** `decode_burst_delay` moves only
+  the 2nd and 3rd fetch: the 1st is freed by the demanded word itself.
+  `classed_hold` "all" delays that word's slot, but also moves the NOP
+  lead-in 4 clocks early, so it was dropped.
+- **Odd trains stay at 7 clocks an instruction** (silicon 6).
+- **The cap behaves like a parity effect.** It changes the code before
+  the opening marker (`MOV reg,imm16`, a simple class), which sets the
+  lead-in's fetch phase. 1 wait scores 34 exact fetch lists with a cap of
+  1 or 3 and 18 with 2 or 4. 2 waits scores 36 with 2 and 20 with 3.
+
+| | Exact fetch lists at 0 / 1 / 2 waits | Gap match at 0 / 1 / 2 |
+| --- | --- | --- |
+| `burst` (default) | 162 / 37 / 40 | 0.66 / 0.66 / 0.65 |
+| classed refitted, cap {"0": 2, "1": 3, "2": 2} | 159 / 34 / 36 | 0.70 / 0.66 / 0.67 |
+| the same, refitted free-running again | 159 / 34 / 20 | 0.70 / 0.66 / 0.39 |
+
+The second refit took `mov_r16_imm` from 4 to 5 for 771 window points,
+which flips the 2-wait parity and loses 16 exact fetch lists there. The
+capped read-ahead gets the triples and is level with the default at 0
+waits. But it holds only at a cap tuned per wait setting, and a refit
+undoes it, so the default stays.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
