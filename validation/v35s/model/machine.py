@@ -827,8 +827,10 @@ class Machine:
                     if busy and self.cycle is not None and self.cycle.kind == "fetch" and self.cycle.length > 3:
                         load += busy               # a load made while a waited fetch runs
                     operand = self._per_wait(self.costs.get("load_wait_operand"), "mem", self.iwr[0][0])
-                    if operand and (not self._last_was_boundary or (
-                            len(self.iwr) > 1 and length(self.mem_read8, self.iwr[0][0]) > 1)):
+                    at = self.costs.get("load_wait_operand_at", "both")
+                    if operand and ((at != "boundary" and not self._last_was_boundary) or (
+                            at != "mid" and self._last_was_boundary
+                            and len(self.iwr) > 1 and length(self.mem_read8, self.iwr[0][0]) > 1)):
                         load += operand            # a word holding operand bytes, from waited memory
                     if op == "preload" and self.costs.get("load_wait_demand"):
                         extra = 0                  # load_wait_demand: a pre-load does not pay it

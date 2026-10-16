@@ -1221,6 +1221,61 @@ capped read-ahead gets the triples and is level with the default at 0
 waits. But it holds only at a cap tuned per wait setting, and a refit
 undoes it, so the default stays.
 
+### The prelude's register loads timed, 2026-10-16
+
+Every window inherits the fetch phase set by the prelude's register loads
+(`timing._setup` after its SFR writes: `MOV SS,AW`, `PUSH imm`,
+`POP PSW`, four `MOV AW,imm` / `MOV seg,AW` pairs, seven
+`MOV r16,imm16`). At 1 wait silicon fetches that code in runs of 3 to 5
+with 8-clock gaps, where the model fetches one word every 4 clocks. That
+is the read-ahead pattern of the imm8 triples, since `MOV r16,imm16` is
+in the simple class.
+
+Probe suite `setup` (corpora `p2-setup`, `-w1`, `-w2`, 40 runs each): the
+same 19 instructions inside the window, then `OUT 40h,AL` after k of them.
+Silicon's clocks per instruction:
+
+| Instruction | 0 waits | 1 wait | 2 waits |
+| --- | --- | --- | --- |
+| `MOV r16,imm16` (alternating) | 6, 8 | 7, 9 | 8, 11 |
+| `MOV seg,AW` | 3 | 4 | 5 |
+| `PUSH imm` | 12 | 14 | 16 |
+| `POP PSW` | 15 | 17 | 19 |
+
+- **0 waits:** the model matches at every k (a constant −2 from the OUT).
+- **1 and 2 waits:** the model keeps its 0-wait rates. By k = 19 it is 17
+  to 20 clocks early at 1 wait and 16 to 18 at 2 waits.
+- **The rates are bus time plus a fixed EU time.** `MOV seg,AW` takes one
+  fetch cycle, 3 + w. `MOV r16,imm16` takes the bus time of 1.5 words
+  plus about 2.
+
+`load_wait_operand` (above) adds a clock to every load of a word with
+operand bytes. That is two loads per `MOV r16,imm16`, so it overshoots
+(+18 at k = 19). `load_wait_operand_at` now picks the loads it applies to:
+"mid" (loaded mid-instruction), "boundary" (loaded at an opcode), or
+"both". On the setup runs at k = 19:
+
+| | 1 wait (even / odd) | 2 waits (even / odd) |
+| --- | --- | --- |
+| none | −17 / −20 | −16 / −18 |
+| "both" | +18 / — | +15 / — |
+| "mid" | +6 / +2 | +7 / +6 |
+| "boundary" | −5 / −6 | −8 / −11 |
+
+Over every corpus (`fit_window.py`, which now also fits the setup
+corpora, `--exact-weight 5 --waited`):
+
+| | Fit error | Exact windows at 0 / 1 / 2 waits | Exact fetch lists at 0 / 1 / 2 waits |
+| --- | --- | --- | --- |
+| `burst` before | 45055 | 201 / 0 / 0 | 164 / 39 / 42 |
+| + `load_wait_operand` {"1": 1}, "mid" | 45092 | 201 / 0 / 0 | 164 / 41 / 42 |
+| + `load_wait_operand` {"1": 1, "2": 1}, "mid" | 42970 | 201 / 0 / 6 | 164 / 41 / 41 |
+
+The last row is now in the `burst` profile. These are the first exact
+2-wait windows. 0-wait results are unchanged. `MOV AW,imm16` trains now
+run 0.4 to 0.8 clocks an instruction slow at waits (they were 1 fast),
+and `SHL AW,imm` trains 0.25 to 0.75 fast (they were 1.5 to 1.75 fast).
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

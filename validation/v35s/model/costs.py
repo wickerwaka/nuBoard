@@ -199,6 +199,9 @@ PROFILES = {
         "operand_hold": "modrm_r", "load_wait_extra": 1, "load_block": "wait1",
         "fetch_start_free": [1, 2], "fetch_burst": "count", "queue_words_waited": 1,
         "io_recovery_waited": 0,
+        # A word loaded mid-instruction from waited memory costs a clock more
+        # (docs/v35s-core-model.md, "The prelude's register loads timed").
+        "load_wait_operand": {"1": 1, "2": 1}, "load_wait_operand_at": "mid",
         "alu_acc_imm1": 3, "bcond": 7, "bcwz": 7, "br_short": 14, "branch_taken": 12, "call_far": 21,
         "dbnz": 10, "dbnz_cond": 7, "div16": 59, "div8": 51, "divu8": 32, "ldea": 1, "pop_all": 50,
         "push_r": 4, "test_r_imm": 5, "trap_entry": 31, "trap_exit": 8, "clr1_m_imm": 4, "mov_load": 6,

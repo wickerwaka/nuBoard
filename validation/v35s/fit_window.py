@@ -33,9 +33,9 @@ from .model.machine import Machine
 from .runner import Transaction
 from .timing import build
 
-ENTRIES = ("a6-timing", "p2-release", "p2-held", "p2-eu", "p2-follow", "p2-stall", "p2-regform", "p2-imm", "p2-depth")
-WAITED = ("p2-held-w1", "p2-eu-w1", "p2-follow-w1", "p2-imm-w1", "p2-depth-w1",
-          "p2-held-w2", "p2-eu-w2", "p2-follow-w2", "p2-imm-w2", "p2-depth-w2")
+ENTRIES = ("a6-timing", "p2-release", "p2-held", "p2-eu", "p2-follow", "p2-stall", "p2-regform", "p2-imm", "p2-depth", "p2-setup")
+WAITED = ("p2-held-w1", "p2-eu-w1", "p2-follow-w1", "p2-imm-w1", "p2-depth-w1", "p2-setup-w1",
+          "p2-held-w2", "p2-eu-w2", "p2-follow-w2", "p2-imm-w2", "p2-depth-w2", "p2-setup-w2")
 TUNE_BUS = ["word_load", "preload_penalty", "prepop_end", "io_recovery", "write_post_clocks",
             "decode_cap", "decode_finish_cap", "load_wait_extra", "load_wait_free", "queue_words_waited", "io_recovery_waited"]
 FIXED = {"queue_words", "reset_first_fetch_states", "reset_first_refresh_states", "refresh_tick_offset",

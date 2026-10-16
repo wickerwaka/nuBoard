@@ -22,7 +22,8 @@ even-length form reads exactly at one placement, so it runs once.
                every register-form ModR/M instruction at both placements;
                imm times immediate-operand trains after k instructions,
                with register-only and NOP controls, and after a NOP phase;
-               depth counts the words fetched during a long instruction
+               depth counts the words fetched during a long instruction;
+               setup times the prelude's own instruction sequence
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -685,6 +686,26 @@ def depth_cases():
     return cases
 
 
+SETUP_SEQUENCE = (
+    ["MOV AW, 0", "MOV SS, AW", "MOV SP, 0F00h", "PUSH 0002h", "POP PSW"]
+    + [line for seg in ("DS0", "DS1", "SS") for line in ("MOV AW, 0000h", f"MOV {seg}, AW")]
+    + [f"MOV {r}, {'0F00h' if r == 'SP' else '0000h'}" for r in ("BW", "CW", "DW", "SP", "BP", "IX", "IY")]
+    + ["MOV AW, 0012h"])
+
+
+def setup_cases():
+    """Where is the EU in the prelude's register loads? The same instruction
+    sequence as timing._setup after its SFR writes, then OUT 40h,AL after k
+    of its instructions; with waits these set the fetch phase every window
+    starts from."""
+    regs = {"AW": 0x0012, "SP": 0x0F00, "DS0": 0, "DS1": 0, "SS": 0}
+    cases = []
+    for k in range(len(SETUP_SEQUENCE) + 1):
+        text = "".join(f"    {line}\n" for line in SETUP_SEQUENCE[:k]) + "    OUT 40h, AL\n"
+        cases += form("setup", f"setup x{k}; OUT", text, regs, both=True)
+    return cases
+
+
 def tail_cases():
     """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
     its cost cancels out of target costs. Shifts with long counts, by
@@ -724,4 +745,5 @@ SUITES = {
     "regform": regform_cases,
     "imm": imm_cases,
     "depth": depth_cases,
+    "setup": setup_cases,
 }
