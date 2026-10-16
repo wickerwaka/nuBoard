@@ -100,6 +100,9 @@ class Machine:
         self.eu = EU(self)
         self.result = None             # pass / fail from the result port
         self.log = None                # set to [] to record (clock, pc, opcode) per instruction
+        self.fetch_end = None          # clock the latest code fetch ended
+        self.burst_left = 0            # fetch_burst "count": fetches left in this burst
+        self.burst_go = False          # fetch_burst "latch": the running fetch's sample found room
         self.loads = None              # set to [] to record (clock, word address) per word load
         self.last_take = None          # (clock, was an opcode) of the last byte taken from the word register
         self.keys = None               # set to {} to record pc -> routine key
@@ -327,10 +330,16 @@ class Machine:
                 and self.costs["fetch_grant"] == "idle" and self.cycle is not None):
             self.fetch_grant_at = None     # a request that finds the bus busy is lost
         if self.cycle is not None:
+            if (self.cycle.kind == "fetch" and self.clock - self.cycle.start + 1
+                    == self.cycle.length - self.costs.get("burst_sample", 0)):
+                # fetch_burst "latch": whether a burst goes on is sampled here.
+                self.burst_go = self._queue_words() < self._queue_limit()
             if self.clock - self.cycle.start + 1 >= self.cycle.length:
                 cycle, self.cycle = self.cycle, None
                 if cycle.space == "io":
                     self.bus_idle_until = self.clock + 1 + self.costs["io_recovery"]
+                if cycle.kind == "fetch":
+                    self.fetch_end = self.clock
                 self._finish(cycle)
             return
         if self.clock < self.bus_idle_until:
@@ -385,25 +394,51 @@ class Machine:
                 self._start(Cycle("fetch", "mem", linear, width))
                 self.fetch_linear = (linear + width) & 0xFFFFF
             return
-        if self._queue_words() < self._queue_limit():
+        free = self._queue_limit() - self._queue_words()
+        start = self.costs.get("fetch_start_free")
+        if start and free > 0:
+            # An idle bus unit waits for this many free slots, then fetches
+            # back to back while any slot is free (fetch_burst "run") or as
+            # many as were free when it started ("count").
+            if isinstance(start, (list, tuple)):
+                start = start[min(len(start) - 1, self.wait_states("mem", linear))]
+            burst = self.costs.get("fetch_burst")
+            if self.fetch_end == self.clock - 1 and (burst == "run" or (burst == "count" and self.burst_left > 0)
+                                                      or (burst == "latch" and self.burst_go)):
+                self.burst_left -= 1
+            elif free < start:
+                return
+            else:
+                self.burst_left = free - 1
+        if free > 0:
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
 
     def _load_blocked(self):
         """load_block: the EU cannot load a word while a fetch with wait states
         runs: "cycle" through the whole cycle, "waits" during its wait states,
-        "wait1" on its first wait state only. (The cycle has ended by the EU's
-        turn on its last clock.)"""
+        "wait1" on its first wait state only; [a, b] from its clock a to b
+        clocks before its end. (The cycle has ended by the EU's turn on its
+        last clock.)"""
         mode = self.costs.get("load_block")
         cycle = self.cycle
         if not mode or cycle is None or cycle.kind != "fetch" or cycle.length <= 3:
             return False
         k = self.clock - cycle.start
+        if isinstance(mode, (list, tuple)):
+            return mode[0] <= k <= cycle.length - 1 - mode[1]
         if mode == "cycle":
             return True
         if mode == "waits":
             return k >= 2
         return k == 2
+
+    def _load_unblock(self):
+        """The first clock load_block lets the EU load during the running fetch."""
+        mode, cycle = self.costs.get("load_block"), self.cycle
+        if isinstance(mode, (list, tuple)):
+            return cycle.start + cycle.length - mode[1]
+        return cycle.start + (3 if mode == "wait1" else cycle.length - 1)
 
     def _request_fetch(self):
         """The EU asks the bus unit for fetches. With fetch_dry_words set it asks
@@ -678,7 +713,12 @@ class Machine:
                     # Load the queue's head word into the instruction word
                     # register: its slot frees now, its bytes can be read
                     # word_load clocks later.
+                    unblock = None
                     if self._load_blocked():
+                        if self.costs.get("load_defer"):
+                            # The word leaves its slot now; its bytes wait out the block.
+                            unblock = self._load_unblock()
+                    if unblock is None and self._load_blocked():
                         if op == "preload":
                             self._eu_request = None
                             continue
@@ -702,7 +742,7 @@ class Machine:
                         # Waited code memory slows the word load past a wait-state threshold.
                         load += extra * max(0, self.wait_states("mem", self.iwr[0][0])
                                             - self.costs.get("load_wait_free", 1))
-                    self.iwr_ready = self.clock + load
+                    self.iwr_ready = (unblock if unblock is not None else self.clock) + load
                     hold = self.costs.get("operand_hold")
                     self.iwr_held = (op == "byte" and not self._last_was_boundary and bool(hold)
                                      and (hold == 1 or not request[1])
@@ -718,6 +758,9 @@ class Machine:
                     self._eu_request = None
                     continue
                 if self.clock < self.iwr_ready:
+                    return
+                take = self.costs.get("take_block")
+                if take and op == "byte" and (take == "all" or not self._last_was_boundary) and self._load_blocked():
                     return
                 if self.preloaded and not self.iwr[0][0] & 1 and self.costs["preload_penalty"]:
                     # The first byte of a word loaded ahead costs the EU a clock.

@@ -15,7 +15,8 @@ silicon's, and the mean error. --table also logs the model's state at every
 free bus clock inside the window, labelled with whether silicon started a
 fetch there, for reading the bus unit's rule off the data. A row is "sync"
 when the gap between the model's last two data cycles matched silicon's
-and the next one is not overdue.
+and the next one is not overdue; window_error is its run's marker-window
+error (0: the EU kept time over the whole window).
 """
 
 from __future__ import annotations
@@ -160,7 +161,7 @@ def run(job):
     a, b = idx[:2]
     error = (m.eu_mo[b] - m.eu_mo[a]) - round((m.eu_ticks[b] - m.eu_ticks[a]) / 8)
     lo, hi = m.eu_mo[a], m.eu_mo[b]
-    rows = [dict(row, entry=entry, w=waits, run=index, name=case.name, odd=int(case.odd))
+    rows = [dict(row, entry=entry, w=waits, run=index, name=case.name, odd=int(case.odd), window_error=error)
             for row in m.rows if lo <= row["clock"] <= hi]
     return entry, waits, case.name, case.odd, error, rows
 

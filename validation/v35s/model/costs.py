@@ -129,6 +129,14 @@ COSTS["load_wait_extra"] = 0                 # clocks added to a word load per c
 COSTS["load_wait_free"] = 1                  # this many
 COSTS["load_block"] = ""                     # "cycle" / "waits" / "wait1": no word load while a
                                              # fetch with wait states runs (that part of it)
+COSTS["fetch_start_free"] = 0                # n (or [n at 0, 1, 2 waits]): an idle bus unit starts
+                                             # fetching only with n slots free, then runs back to back
+COSTS["fetch_burst"] = "run"                 # "latch": go on if a slot was free burst_sample clocks
+COSTS["burst_sample"] = 0                    # before the running fetch's last clock
+COSTS["load_defer"] = 0                      # 1: a load_block load frees its slot at once, its bytes
+                                             # readable word_load clocks after the block ends
+COSTS["take_block"] = ""                     # "all" / "operand": load_block also stops the EU taking
+                                             # any byte / an operand byte
 COSTS["operand_hold"] = 0                    # 1 / "modrm" / "modrm_r": a word loaded for a non-opcode
                                              # (ModR/M; register-form ModR/M) byte
                                              # keeps its slot until its last byte is taken

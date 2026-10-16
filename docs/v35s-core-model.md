@@ -929,6 +929,83 @@ demand load only; same as "load" in every train) and "opcode_end" (on
 taking an opcode that ends its word; gives the even `MOV AL,imm8` triples
 but loses the 1-wait pairs), and `empty_grant` "free".
 
+### The EU refitted under forced fetches, and a burst rule, 2026-10-15
+
+`python -m validation.v35s.fit_forced START.json OUT.json` fits the EU's
+integer values with fetches forced, over every corpus at all three wait
+settings. A run's error is the number of data cycles in the window whose
+gap from the one before differs from silicon's, plus the window error
+(capped at 10).
+
+- **Branch steps were absorbing a late refill.** `br_short` (15 → 11),
+  `branch_taken` (10 → 7), `bcond` (9 → 5) and `dbnz` (11 → 8) all
+  drop by 3 or 4 once the fetches are silicon's. The free-running model
+  starts the branch-target refill late, and the EU values covered for it.
+  Other moves: `ea` 0 → 1, `push_r` 3 → 4, `alu_acc_imm1` stays at 4.
+- **Waited fetches slow the EU's word load.** In the `MOV AL,imm8`
+  odd-placement trains, silicon loads a word one clock after the running
+  fetch ends: every 6, 7 and 8 clocks at 0, 1 and 2 waits. The model with
+  forced fetches never starves there, so the extra time is the EU's own.
+  `load_block` "waits" (no word load during a fetch's wait states) with
+  `load_wait_extra` 1 gives 2 waits 95/284 exact windows, mean +0.24,
+  against 30, −2.2 before. 1 wait stays at 73/284, mean −0.94, and no
+  block span, take block or wait cost fixes it.
+- **The window-exact runs are the trustworthy rows.** The per-row "sync"
+  test compares the gap before the opening marker, which spans the
+  prelude, so only 4% of 0-wait rows passed it. Each `--table` row now
+  carries its run's `window_error`. Over exact windows, at 1 and 2 waits
+  silicon starts a fetch the clock after a fetch ends 45% of the time
+  while the model's queue is full; at 0 waits, 2%.
+- **A burst rule reproduces the waited lead-in.** At 1 wait the NOP
+  lead-in fetches in pairs 4 apart every 16 clocks, at an EU rate equal to
+  0 waits. That needs a deeper queue and a refill that waits for two free
+  slots:
+  - `queue_words_waited` 1: one more word slot when code has wait states.
+  - `fetch_start_free` [1, 2]: an idle bus unit starts fetching with 1
+    free slot at 0 waits, 2 with waits.
+  - `fetch_burst` "count": a burst fetches as many words as were free
+    when it started. "run" (on while any slot is free) makes triples;
+    "latch" (on if a slot was free `burst_sample` clocks before the end)
+    scores worse at every sample point.
+
+  Exact fetch lists at 0 / 1 / 2 waits (674 / 284 / 284) and gap match:
+
+  | Rule, on the forced-fit EU | Exact lists | Gaps at 1 / 2 waits |
+  | --- | --- | --- |
+  | slot-free fetch (current rule) | 147 / 0 / 0 | 0.10 / 0.09 |
+  | latched decision, idle delay 1 | 149 / 0 / 0 | 0.12 / 0.11 |
+  | opcode request, delay 3 | 109 / 24 / 0 | 0.60 / 0.22 |
+  | burst rule, `load_block` "wait1", `load_wait_extra` 1 | 148 / 30 / 30 | 0.66 / 0.66 |
+  | before this round: latched rule on the old EU | 133 / 15 / 15 | 0.39 / 0.38 |
+
+  The 1-wait lead-in now matches exactly (24, 28, 40, 44, 56, 60).
+- **The load block and the bus rule go together.** Under the slot-free
+  rule a fetch is nearly always running, so a load block starves the EU
+  and every waited list fails. `load_defer` (the word leaves its slot at
+  once, its bytes usable after the block) times the EU the same in forced
+  mode and does not rescue the slot-free rule. The burst rule leaves idle
+  gaps, and there the "wait1" block (no load on a fetch's first wait
+  clock) scores best.
+
+Still wrong, at 1 wait: the even `MOV AL,imm8` trains fetch triples every
+20 clocks in silicon and pairs in the model; `MOV CW,AW` runs fetches back
+to back from 64 in silicon, 3 clocks later in the model. Free-running,
+the burst configuration scores 76.7% A6 cycles in place against 79.1% for
+the current default, because the 0-wait bus values and the EU values have
+not yet been fitted together. The configuration, over the default costs:
+
+```json
+{"operand_hold": "modrm_r", "load_wait_extra": 1, "load_block": "wait1",
+ "queue_words_waited": 1, "fetch_start_free": [1, 2], "fetch_burst": "count",
+ "alu_mr": 2, "bcond": 5, "bcwz": 5, "br_short": 11, "branch_taken": 7,
+ "call_far": 21, "call_indirect": 25, "chkind": 19, "clr1_r_imm": 4, "dbnz": 8,
+ "dbnz_cond": 5, "dispose": 8, "div16": 59, "div8": 51, "divu8": 32, "ea": 1,
+ "ldea": 1, "mov_store_imm": 1, "not1_r_imm": 4, "out_dw": 6, "pop_all": 50,
+ "pop_r": 8, "push_r": 4, "set1_r_imm": 4, "test1_m_cl": 6, "test1_r_imm": 4,
+ "test_mr": 8, "test_r_imm": 5, "trans": 8, "trap_entry": 31, "trap_exit": 8,
+ "xch_mr": 4}
+```
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
