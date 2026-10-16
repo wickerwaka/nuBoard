@@ -15,7 +15,8 @@ structure moves them. A value change reruns only the runs that spend it.
 --toggle-set NAME also toggles each executed opcode in and out of the cost
 set NAME (decode_skip, decode_simple, prepop, ...); --keep NAME:OP pins an
 opcode's membership as the start file has it. --minutes caps each pass.
---fetch-weight W adds W per code fetch whose gap from the previous fetch
+--suffix picks other recordings of the same corpora (-rs: the resync
+prelude). --fetch-weight W adds W per code fetch whose gap from the previous fetch
 (clocks and address) differs from silicon's inside the marker window, so a
 fit cannot buy window error by moving the fetches off silicon's rhythm.
 Writes the fitted values to OUT.json after each pass.
@@ -63,11 +64,11 @@ def _fetch_gaps(trace, hi):
     return [(b[0] - a[0], b[1]) for a, b in zip(rows, rows[1:])]
 
 
-def _init(exact_weight=0, waited=False, fetch_weight=0):
+def _init(exact_weight=0, waited=False, fetch_weight=0, suffix=""):
     global EXACT_WEIGHT, FETCH_WEIGHT
     EXACT_WEIGHT, FETCH_WEIGHT = exact_weight, fetch_weight
     for entry in ENTRIES + (WAITED if waited else ()):
-        data = load(entry)
+        data = load(entry + suffix)
         for r in data["runs"]:
             case = case_from_json(r["case"])
             trace = [Transaction(**t) for t in r["socket_trace"]]
@@ -119,13 +120,15 @@ def main():
     parser.add_argument("--bus-only", action="store_true", help="tune only the bus-unit values")
     parser.add_argument("--waited", action="store_true", help="also fit the 1- and 2-wait corpora")
     parser.add_argument("--minutes", type=float, default=0, help="cap on each pass (0: none)")
+    parser.add_argument("--suffix", default="",
+                        help="corpus name suffix, e.g. -rs for the resync recordings")
     parser.add_argument("--fetch-weight", type=int, default=0,
                         help="error per code fetch gap that differs from silicon's")
     args = parser.parse_args()
     params = json.load(open(args.start))
     keep = {(k, int(v, 0)) for k, v in (a.split(":") for a in args.keep)}
-    _init(args.exact_weight, args.waited, args.fetch_weight)
-    pool = Pool(initializer=_init, initargs=(args.exact_weight, args.waited, args.fetch_weight))
+    _init(args.exact_weight, args.waited, args.fetch_weight, args.suffix)
+    pool = Pool(initializer=_init, initargs=(args.exact_weight, args.waited, args.fetch_weight, args.suffix))
     n = len(RUNS)
     res = pool.map(_run, [(i, _costs(params)) for i in range(n)], chunksize=8)
     errs = [r[0] for r in res]

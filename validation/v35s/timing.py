@@ -229,6 +229,15 @@ def _setup(case: Case, next_value: int, settings: dict) -> str:
         default = 0x0F00 if name == "SP" else 0
         lines.append(f"    MOV {name}, {regs.get(name, default):04X}h")
     lines.append(f"    MOV AW, {regs.get('AW', 0):04X}h")
+    if settings.get("resync") == 2:
+        # ROL AW,16 leaves AW, runs long enough with no bus cycle of its own for
+        # the queue to fill and the bus to idle, and costs what the tail's
+        # SHL AW,16 does. It changes CY and V, so the case's PSW is pushed
+        # before it and popped after.
+        lines += [f"    PUSH {(regs.get('PSW', 0) | 0x0002):04X}h", "    ROL AW, 16", "    POP PSW"]
+    elif settings.get("resync"):
+        # Three ROL4 CL (0F 28 C1) restore AL and CL and leave the flags.
+        lines += ["    DB 0x0F, 0x28, 0xC1"] * 3
     return "\n".join(lines) + "\n"
 
 
@@ -412,9 +421,13 @@ def main():
     parser.add_argument("--rfm", type=_hex, default=RFM_OFF)
     parser.add_argument("--pmc1", type=_hex, help="PMC1 value; 80 selects READY on P17")
     parser.add_argument("--ready-ticks", type=int, default=0)
+    parser.add_argument("--resync", type=int, default=0,
+                        help="1: end the prelude with three ROL4 CL; 2: with PUSH PSW, ROL AW,16, POP PSW")
     parser.add_argument("--output", type=Path, default=ROOT / "build/validation/v35s/timing.json")
     args = parser.parse_args()
     settings = {"prc": args.prc, "wtc": args.wtc, "rfm": args.rfm, "pmc1": args.pmc1}
+    if args.resync:
+        settings["resync"] = args.resync
 
     cases = baseline_cases()
     for suite in args.suite.split(","):

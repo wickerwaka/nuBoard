@@ -1310,6 +1310,58 @@ not from tuning a prelude-only cost to cancel the prelude's drift at
 waits. While waited windows inherit that drift, any free fit at waits
 will find such a cost.
 
+### A resync before the opening marker, 2026-10-16
+
+`timing.py --resync N` ends the prelude with a resync, recorded in the
+run's settings so replays rebuild the same code:
+- **1:** three `ROL4 CL` (restore AL and CL, flags untouched; checked on
+  silicon: the `psw` suite's register and PSW dumps are identical).
+- **2:** `PUSH` the case's PSW, `ROL AW,16`, `POP PSW`.
+
+Every fitted corpus was re-recorded with resync 1 as `NAME-rs` (22
+corpora, about 9 minutes). At 0 waits nothing moves (`a6-timing`: all 554
+window lengths identical). At waits the resync does not help. Default
+scores with `--fetch-weight 1`: 49449 on the old corpora, 51717 on the
+`-rs` ones, exact windows 201 / 0 / 6 on both, exact fetch lists at 1 and
+2 waits 41 / 41 old, 23 / 21 `-rs`. The `ROL4`s are fetched through the
+queue themselves and run only about 17 clocks each, so the queue is never
+full and idle: silicon fetches a word every 20 clocks through them, the
+last 8 clocks before the marker, and the model's `ROL4` releases differ.
+
+`p2-eu` was recorded at 1 and 2 waits with resync 2 (`p2-eu-w1-rs2`,
+`p2-eu-w2-rs2`). Measured as the first window transaction that differs:
+
+| Corpus | Median first mismatch | Runs with the first 8 matching |
+| --- | --- | --- |
+| `p2-eu` (0 waits) | 9.5 | 58 / 58 |
+| `p2-eu-w1`, `-w2` (no resync) | 5 | 29 / 58 |
+| `p2-eu-w1-rs`, `-w2-rs` (resync 1) | 6 | 29 / 58 |
+| `p2-eu-w1-rs2`, `-w2-rs2` (resync 2) | 5 | 29 / 58 |
+
+**Waited windows do not inherit the prelude's drift.** Whatever the
+prelude, they go wrong at the 5th transaction, in the NOP runway after
+the marker, and only at even placement. At odd placement the baseline
+window matches silicon for its first 12 transactions under resync 2. At
+even placement the model makes one extra fetch just before the marker
+(56h at −8; silicon fetches it at +4), and every transaction after it
+lines up again, one fetch shifted. The diagnosis in "The burst rule
+refitted free-running" was wrong: the drift before the marker is real,
+but the windows lose it in the runway.
+
+Under resync 2 the extra fetch traces to `POP PSW`. The model loads its
+word at −33, finds 2 of its 4 waited slots free (`queue_words_waited` 1,
+`fetch_start_free` 2) and fetches 52h at −32, before the stack read at
+−28. Silicon reads at −24, then fetches 52h and 54h at −18 and −14, and
+then nothing until the marker. A 3-word queue at waits reproduces that,
+and the depth probe holds 3 words at waits. But it breaks the runway's
+fetch pairs: the first mismatch moves to the 1st transaction in every
+waited corpus. An I/O fetch hold (no fetch from an IN/OUT's opcode, or its
+port byte, to its I/O cycle) changed nothing and was dropped.
+
+So the waited-window problem is the fetch rule itself, at the boundary
+between a stack or I/O instruction and a NOP run. The 4-slot, start-at-2
+rule fits the runway's pairs but not what precedes them.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
