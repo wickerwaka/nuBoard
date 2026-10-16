@@ -1290,6 +1290,26 @@ own, worse than none. Nothing is taken. Whole-window error rewards
 matching the prelude's drift, so a refit needs the fetch lists in its
 objective before it can be trusted at waits.
 
+### A fetch-gap term in the fit objective, 2026-10-16
+
+`fit_window.py --fetch-weight W` adds W per code fetch whose gap from the
+previous fetch (clocks and address) differs from silicon's inside the
+marker window. At W = 1 the default scores 49449, and the refit above
+that took `mov_r16_imm` to 2 scores 50773: the term rejects it.
+
+Refitted with it (2 passes, `--exact-weight 5 --waited --fetch-weight 1`):
+49449 to 48942, exact windows 201 / 0 / 6 to 199 / 0 / 6, exact fetch
+lists 164 / 41 / 41 to 163 / 40 / 39. Almost all of the gain is
+`pop_psw` 9 to 11 (−394), another instruction that runs once in the
+prelude and nowhere else in most windows. The setup probe times
+`POP PSW` directly. At 0 waits, even placement, the model is right at 9
+and 2 clocks slow at 11. Nothing is taken.
+
+So the term stops a fit from trading fetch rhythm for window error, but
+not from tuning a prelude-only cost to cancel the prelude's drift at
+waits. While waited windows inherit that drift, any free fit at waits
+will find such a cost.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

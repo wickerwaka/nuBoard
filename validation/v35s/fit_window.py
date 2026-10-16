@@ -15,6 +15,9 @@ structure moves them. A value change reruns only the runs that spend it.
 --toggle-set NAME also toggles each executed opcode in and out of the cost
 set NAME (decode_skip, decode_simple, prepop, ...); --keep NAME:OP pins an
 opcode's membership as the start file has it. --minutes caps each pass.
+--fetch-weight W adds W per code fetch whose gap from the previous fetch
+(clocks and address) differs from silicon's inside the marker window, so a
+fit cannot buy window error by moving the fetches off silicon's rhythm.
 Writes the fitted values to OUT.json after each pass.
 """
 
@@ -31,7 +34,7 @@ from .fit import case_from_json, pages, window
 from .model.costs import COSTS
 from .model.machine import Machine
 from .runner import Transaction
-from .timing import build
+from .timing import build, markers
 
 ENTRIES = ("a6-timing", "p2-release", "p2-held", "p2-eu", "p2-follow", "p2-stall", "p2-regform", "p2-imm", "p2-depth", "p2-setup")
 WAITED = ("p2-held-w1", "p2-eu-w1", "p2-follow-w1", "p2-imm-w1", "p2-depth-w1", "p2-setup-w1",
@@ -45,17 +48,32 @@ SETS = ("prepop", "end_hide", "mid_hide", "decode_skip", "decode_simple", "decod
 RUNS = []
 GROUPS = []                            # the wait setting of each run
 EXACT_WEIGHT = 0
+FETCH_WEIGHT = 0
 
 
-def _init(exact_weight=0, waited=False):
-    global EXACT_WEIGHT
-    EXACT_WEIGHT = exact_weight
+def _fetch_gaps(trace, hi):
+    """(clocks since the previous fetch, offset) of each code fetch from 58h
+    to hi inside the marker window."""
+    found = markers(trace)
+    if len(found) < 2:
+        return None
+    rows = [(t.start // 8, t.address - 0x10000) for t in trace
+            if found[0].start <= t.start <= found[1].start and t.kind == "mem-read"
+            and 0x58 <= t.address - 0x10000 <= hi]
+    return [(b[0] - a[0], b[1]) for a, b in zip(rows, rows[1:])]
+
+
+def _init(exact_weight=0, waited=False, fetch_weight=0):
+    global EXACT_WEIGHT, FETCH_WEIGHT
+    EXACT_WEIGHT, FETCH_WEIGHT = exact_weight, fetch_weight
     for entry in ENTRIES + (WAITED if waited else ()):
         data = load(entry)
         for r in data["runs"]:
             case = case_from_json(r["case"])
-            RUNS.append((pages(build(case, data["settings"])[0]),
-                         window([Transaction(**t) for t in r["socket_trace"]])))
+            trace = [Transaction(**t) for t in r["socket_trace"]]
+            hi = r.get("next_offset", 0x90) + 8
+            RUNS.append((pages(build(case, data["settings"])[0]), window(trace),
+                         _fetch_gaps(trace, hi) if fetch_weight else None, hi))
             GROUPS.append(int(entry[-1]) if entry in WAITED else 0)
 
 
@@ -68,11 +86,16 @@ def _error(si, mo):
 
 def _run(args):
     i, costs = args
-    image, si = RUNS[i]
+    image, si, si_gaps, hi = RUNS[i]
     m = Machine(copy.deepcopy(image), costs=costs)
     m.steps_used, m.log = set(), []
     m.run(60_000)
-    return _error(si, window(m.trace)), m.steps_used | {("op", op) for _, _, op in m.log}
+    err = _error(si, window(m.trace))
+    if FETCH_WEIGHT and si_gaps is not None:
+        mo_gaps = _fetch_gaps(m.trace, hi) or []
+        err += FETCH_WEIGHT * (sum(a != b for a, b in zip(si_gaps, mo_gaps))
+                               + abs(len(si_gaps) - len(mo_gaps)))
+    return err, m.steps_used | {("op", op) for _, _, op in m.log}
 
 
 def _costs(params):
@@ -96,11 +119,13 @@ def main():
     parser.add_argument("--bus-only", action="store_true", help="tune only the bus-unit values")
     parser.add_argument("--waited", action="store_true", help="also fit the 1- and 2-wait corpora")
     parser.add_argument("--minutes", type=float, default=0, help="cap on each pass (0: none)")
+    parser.add_argument("--fetch-weight", type=int, default=0,
+                        help="error per code fetch gap that differs from silicon's")
     args = parser.parse_args()
     params = json.load(open(args.start))
     keep = {(k, int(v, 0)) for k, v in (a.split(":") for a in args.keep)}
-    _init(args.exact_weight, args.waited)
-    pool = Pool(initializer=_init, initargs=(args.exact_weight, args.waited))
+    _init(args.exact_weight, args.waited, args.fetch_weight)
+    pool = Pool(initializer=_init, initargs=(args.exact_weight, args.waited, args.fetch_weight))
     n = len(RUNS)
     res = pool.map(_run, [(i, _costs(params)) for i in range(n)], chunksize=8)
     errs = [r[0] for r in res]
