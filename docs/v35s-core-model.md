@@ -1276,6 +1276,20 @@ The last row is now in the `burst` profile. These are the first exact
 run 0.4 to 0.8 clocks an instruction slow at waits (they were 1 fast),
 and `SHL AW,imm` trains 0.25 to 0.75 fast (they were 1.5 to 1.75 fast).
 
+### The default refitted free-running with the waited-load rule, 2026-10-16
+
+`fit_window.py` over all corpora and wait settings (2 passes,
+`--exact-weight 5 --waited`), starting from the `burst` profile with
+`load_wait_operand`. Error 42970 to 42425, exact windows 201 / 0 / 6 to
+200 / 0 / 6. Almost all the gain is `mov_r16_imm` 4 to 2 (−435), which
+shifts the prelude's `MOV r16,imm16` loads in every window. It halves the
+waited fetch lists (exact 164 / 41 / 41 to 164 / 23 / 21, gap match 0.64
+to 0.39), so it is a fit to the prelude's offset, not a cost. The other
+changes (`mov_r8_imm` 4, `push_r` 3, `push_rm` 8) score 43046 on their
+own, worse than none. Nothing is taken. Whole-window error rewards
+matching the prelude's drift, so a refit needs the fetch lists in its
+objective before it can be trusted at waits.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
