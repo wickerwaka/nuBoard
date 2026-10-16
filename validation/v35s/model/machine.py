@@ -68,6 +68,7 @@ class Machine:
         self.iwr_ready = 0             # clock its current word can be read
         self.preloaded = False         # the register's word was loaded ahead (pre-pop)
         self.iwr_held = False          # operand_hold: the register's word keeps its queue slot
+        self.dec_held = None           # classed_hold: the decoded word that keeps its queue slot
         self.last_load_preload = False # the register's last load was a pre-load
         self.decoded = []              # decode stage: (linear, byte, clock usable) taken ahead of execution
         self.decode_filling = False    # decode stage: refilling up to decode_bytes
@@ -160,6 +161,13 @@ class Machine:
             # The register and the decoded bytes share the queue's word slots.
             words.update(b[0] >> 1 for b in self.iwr)
             words.update(b[0] >> 1 for b in self.decoded)
+        if self.dec_held is not None:
+            # classed_hold: a word taken for a register-form ModR/M byte keeps
+            # its slot until its last byte is taken.
+            if any(b[0] >> 1 == self.dec_held for b in self.decoded):
+                words.add(self.dec_held)
+            else:
+                self.dec_held = None
         if self.iwr_held and self.iwr:
             # A word loaded for an operand byte frees its slot only when its
             # last byte is taken.
@@ -602,8 +610,12 @@ class Machine:
                 load -= self.end_discount
             elif self.routine is not None and self.routine.hides_mid_load():
                 load -= 1
+            word = head >> 1
             self._take_word(load)
             self.preloaded = False
+            if (self.costs.get("classed_hold") and not self._last_was_boundary
+                    and self.mem_read8(head) >= 0xC0):
+                self.dec_held = word
             return
         current_end = self.dec_cur_end if self.dec_cur_end is not None else head
         if (current_end <= head < self.dec_open and self.dec_open_class != "io"

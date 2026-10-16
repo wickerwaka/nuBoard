@@ -3,9 +3,10 @@
     python -m validation.v35s.fit_window START.json OUT.json [--passes 3] [--toggle-set NAME]
 
 Coordinate descent over the EU step values and a few bus-unit values,
-starting from COSTS updated by START.json, against a6-timing, p2-release,
-p2-held, p2-eu and p2-follow at once (with --waited, also the 1- and 2-wait
-held, eu and follow corpora). A run's error is the number of window
+starting from COSTS updated by START.json, against a6-timing and the
+0-wait release, held, eu, follow, stall, regform, imm and depth corpora at
+once (with --waited, also the 1- and 2-wait held, eu, follow, imm and
+depth corpora). A run's error is the number of window
 transactions that differ from silicon's (time, kind, address or data), plus
 3 if the window length differs, plus --exact-weight unless the whole window
 matches (so the fit cannot trade exact runs for fewer stray mismatches). Unlike fit_steps.py, which fits per-form
@@ -32,8 +33,9 @@ from .model.machine import Machine
 from .runner import Transaction
 from .timing import build
 
-ENTRIES = ("a6-timing", "p2-release", "p2-held", "p2-eu", "p2-follow")
-WAITED = ("p2-held-w1", "p2-eu-w1", "p2-follow-w1", "p2-held-w2", "p2-eu-w2", "p2-follow-w2")
+ENTRIES = ("a6-timing", "p2-release", "p2-held", "p2-eu", "p2-follow", "p2-stall", "p2-regform", "p2-imm", "p2-depth")
+WAITED = ("p2-held-w1", "p2-eu-w1", "p2-follow-w1", "p2-imm-w1", "p2-depth-w1",
+          "p2-held-w2", "p2-eu-w2", "p2-follow-w2", "p2-imm-w2", "p2-depth-w2")
 TUNE_BUS = ["word_load", "preload_penalty", "prepop_end", "io_recovery", "write_post_clocks",
             "decode_cap", "decode_finish_cap", "load_wait_extra", "load_wait_free", "queue_words_waited", "io_recovery_waited"]
 FIXED = {"queue_words", "reset_first_fetch_states", "reset_first_refresh_states", "refresh_tick_offset",

@@ -21,7 +21,8 @@ even-length form reads exactly at one placement, so it runs once.
                cycle or a long instruction into a train; regform runs
                every register-form ModR/M instruction at both placements;
                imm times immediate-operand trains after k instructions,
-               with register-only and NOP controls, and after a NOP phase
+               with register-only and NOP controls, and after a NOP phase;
+               depth counts the words fetched during a long instruction
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -663,6 +664,27 @@ def imm_cases():
     return cases
 
 
+DEPTH_LONGS = (("SHL AW,16", [0xC1, 0xE0, 0x10], {}), ("SHL AW,CL=31", [0xD3, 0xE0], {"CW": 31}),
+               ("DIVU CL", [0xF6, 0xF1], {}))
+DEPTH_FOLLOWERS = (("NOP", [0x90], 16), ("INC AW", [0x40], 16), ("MOV AL,imm8", [0xB0, 0x03], 8),
+                   ("MOV CW,AW", [0x8B, 0xC8], 8), ("MOV AW,imm16", [0xB8, 0x34, 0x12], 6))
+
+
+def depth_cases():
+    """How deep is the queue? A long register-only instruction, then a train
+    and OUT 40h,AL: the words fetched while it runs, with nothing taken,
+    fill the queue. The followers differ in whether a word holds whole
+    instructions, to see whether a read-ahead takes words out of it."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "DW": 0x0000, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for lname, lcode, lregs in DEPTH_LONGS:
+        for fname, fcode, n in DEPTH_FOLLOWERS:
+            cases += form("depth", f"{lname}; {fname} x{n}; OUT", lcode + fcode * n + [0xE6, 0x40],
+                          dict(regs, **lregs), both=True)
+    return cases
+
+
 def tail_cases():
     """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
     its cost cancels out of target costs. Shifts with long counts, by
@@ -701,4 +723,5 @@ SUITES = {
     "stall": stall_cases,
     "regform": regform_cases,
     "imm": imm_cases,
+    "depth": depth_cases,
 }

@@ -1142,6 +1142,49 @@ measured 1 idle clock. Free-running, classed loses on `p2-release` (48 to
 27), `p2-regform` (44 to 30), `p2-held` at 2 waits (24 to 13) and even on
 `p2-imm` (7 to 3). It stays an option. The triples are still open.
 
+### Queue depth, and classed read-ahead refitted free-running, 2026-10-16
+
+Probe suite `depth` (corpora `p2-depth`, `-w1`, `-w2`, 32 runs each): a
+long register-only instruction (`SHL AW,16`, `SHL AW,CL` with CL = 31,
+`DIVU CL`), then a train and `OUT 40h,AL`.
+- **The queue holds 3 words, as modelled.** While the long instruction
+  runs, silicon has fetched exactly the 3 words after its own (even
+  placement), or 2 plus the held ModR/M word (odd), and then stops. The
+  model matches to the clock. The imm8 trains are not a deeper queue.
+- **After the long instruction, the next fetch waits for an immediate.**
+  At even placement the first fetch comes at the instruction's end for NOP,
+  INC and `MOV CW,AW` followers (138, model 138). It comes 3 clocks later
+  for `MOV AL,imm8` (141) and 4 later for `MOV AW,imm16` (142). The
+  `MOV AL,imm8` follower then fetches three back to back (141, 144, 147),
+  and again 17 clocks later. Three whole simple instructions leave the
+  queue at once, the classed read-ahead's pattern.
+- **At odd placement the held ModR/M word frees 3 to 4 clocks early.**
+  Silicon fetches at 136 (`SHL AW,CL`) and 95 (`DIVU`) for every follower.
+  The model fetches at 139 and 99, at the next opcode's take.
+
+Classed changes, both off by default:
+- `classed_hold`: a word taken for a register-form ModR/M byte keeps its
+  slot until its last byte is taken, as `operand_hold` "modrm_r" does for
+  the word register. Without it the classed decoder freed that word at
+  once and fetched 30 clocks early at odd placement. With it, `p2-held` and
+  `p2-imm` return to the default's exact counts (52 and 7).
+- `fit_window.py` now also fits the stall, regform, imm and depth corpora.
+
+Classed with `classed_hold`, refitted free-running by `fit_window.py`
+(2 passes, `--exact-weight 5 --waited`):
+
+| | Fit error | Exact windows at 0 waits | Exact fetch lists at 0 / 1 / 2 waits | Gap match at 0 / 1 / 2 |
+| --- | --- | --- | --- | --- |
+| `burst` (default) | 40398 | 200 | 162 / 37 / 40 | 0.66 / 0.66 / 0.65 |
+| classed + `classed_hold`, refitted | 38780 | 192 | 160 / 18 / 20 | 0.69 / 0.39 / 0.40 |
+
+At 0 waits classed nearly matches the default, and its gaps are better. At
+1 and 2 waits it loses half the exact fetch lists, mostly in `p2-held`
+(26 to 13, 24 to 13). Its imm8 trains are still wrong: the fit took
+`decode_cap` to 5, so even trains fetch in fours every 22 clocks
+(silicon: threes every 17), and odd trains run 7 clocks an instruction
+(silicon 6). The default stays.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
