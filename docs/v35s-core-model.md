@@ -1362,6 +1362,74 @@ So the waited-window problem is the fetch rule itself, at the boundary
 between a stack or I/O instruction and a NOP run. The 4-slot, start-at-2
 rule fits the runway's pairs but not what precedes them.
 
+### The runway's fetches: a latched burst and a stack-opcode hold
+
+Silicon's fetches through the 16-NOP runway were printed against the
+model's at both placements, at 1 and 2 waits, with and without the resync
+(scratch `rw.py`: every bus cycle relative to the opening marker).
+
+**A 3-slot queue at waits does not fit.** A grid over
+`queue_words_waited` 0 / 1, the waited `fetch_start_free` 1–4 and
+`fetch_burst` "count" / "run" leaves only the default (4 slots, start
+at 2, "count") getting past the 2nd window transaction.
+
+**The runway needs a latched burst.** At even placement silicon fetches
+56h, 58h and 5Ah at +4, +8 and +12 (`p2-eu-w1-rs2`), then pairs every 16
+clocks. The model fetched the pair and stopped, because its burst only
+counted the slots free when it began. The slot silicon used at +12 freed
+during the burst (the word load at +7). The one that frees at +15, on the
+running fetch's last clock, does not extend it. That is the existing
+`fetch_burst` "latch" with `burst_sample` 1 (go on if a slot is free one
+clock before the running fetch's last clock). With it, every waited
+baseline's runway matches silicon fetch for fetch at both placements.
+Sample points 0 and 2 do worse at 2 and 1 waits respectively.
+
+**Stack opcodes hold fetches.** In every prelude, at 0, 1 and 2 waits,
+silicon makes the code fetch the model makes just before `PUSH imm`'s
+write only after it, back to back with the write. Under resync 2 it
+likewise fetches 52h after `POP PSW`'s read, not before. The new option
+`data_hold` (opcode set) with `data_hold_at` "register" holds code
+fetches while such an opcode is next in the word register, and from its
+take until its first data cycle starts. Holding only from the take
+changes nothing: the model loads `POP PSW`'s word, and starts the fetch,
+a clock before it takes the opcode. Tried with the PUSH / POP opcodes
+(06, 0E, 16, 1E, 07, 17, 1F, 50–5F, 68, 6A, 9C, 9D).
+`data_hold_waited` 1 limits it to waited code.
+
+**I/O does not fit the hold yet.** At waits silicon often fetches nothing
+before an `OUT` and then three words after it, and holding on IN / OUT
+reproduces that on some runs (`INC AW x3; OUT` odd, `p2-eu-w1`, becomes
+exact up to the tail). At 0 waits it removes every exact window. Waited
+only, it starts too early in the follow corpora: silicon still fetches a
+word after the `OUT`'s word is loaded. Net it scores worse (45169).
+
+| Spec (on the default) | Error | Exact windows | Exact fetch lists |
+| --- | --- | --- | --- |
+| default | 49449 | 201 / 0 / 6 | 164 / 41 / 41 |
+| latch, sample 1 | 44543 | 201 / 0 / 0 | 164 / 38 / 35 |
+| latch, sample 2 | 44435 | 201 / 0 / 0 | 164 / 41 / 35 |
+| latch 1 + stack hold | 44366 | 201 / 0 / 0 | 165 / 38 / 35 |
+| stack hold alone | 49267 | 201 / 0 / 6 | 165 / 41 / 41 |
+| latch 1 + stack and I/O hold, waited | 45169 | 201 / 0 / 0 | 164 / 39 / 35 |
+
+(`fit_window.py --exact-weight 5 --waited --fetch-weight 1`, error and
+exact windows at 0 / 1 / 2 waits; fetch lists from scratch `one12.py`.)
+The median first mismatch on `p2-eu-w1`, `-w2`, `p2-held-w1` and `-w2`
+moves from transaction 5 to 10 under the latch, and every waited run
+matches its first 8 window transactions (half did). The exact 2-wait
+windows and the few fetch lists lost are in the follow corpora, where
+the target hands over to the closing marker. There, too, silicon fetches
+three words after an `OUT` rather than one before it.
+
+One pass of `fit_window.py` from "latch 1 + stack hold" moved
+`mov_r8_imm` 3→4, `br_short` 14→15, `divu8` 32→31 and `push_rm` 10→8, for
+44143 and exact windows 199 / 0 / 0. That gain is too small to adopt, so
+the default is unchanged. The runway is no longer where waited windows
+fail. They now fail at the target and the closing marker: the fetch rule
+around I/O instructions, and the `SHL AW,16` tail, which at waits
+silicon runs with the queue full (no fetch for 45 clocks in the
+`p2-eu-w1` baseline) and the model does not.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

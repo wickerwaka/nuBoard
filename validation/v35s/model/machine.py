@@ -111,6 +111,7 @@ class Machine:
         self.keys = None               # set to {} to record pc -> routine key
         self.steps_used = None         # set to set() to record the step names spent
         self.halted = False
+        self.data_hold = False         # data_hold: a data-cycle opcode holds code fetches
         self._eu_wait = 0
         self._eu_request = None
         self._eu_value = None
@@ -187,6 +188,8 @@ class Machine:
         cycle.start = self.clock
         cycle.start_tick = self.tick
         self.cycle = cycle
+        if cycle.owner in ("eu", "posted"):
+            self.data_hold = False
 
     def _finish(self, cycle: Cycle):
         if cycle.kind == "fetch":
@@ -370,6 +373,10 @@ class Machine:
         if self._reset_hold > 0:
             return
         if self.halted or self.suspended:
+            return
+        if (self.data_hold or (self.costs.get("data_hold_at") == "register" and self._last_was_boundary
+                               and self.iwr and self.iwr[0][1] in self.costs.get("data_hold", ()))) and (
+                self.costs.get("data_hold_waited") is None or self.wait_states("mem", self.fetch_linear)):
             return
         linear = self.fetch_linear
         width = 1 if linear & 1 else 2

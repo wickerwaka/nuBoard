@@ -138,6 +138,11 @@ COSTS["fetch_start_free"] = 0                # n (or [n at 0, 1, 2 waits]): an i
                                              # fetching only with n slots free, then runs back to back
 COSTS["fetch_burst"] = "run"                 # "latch": go on if a slot was free burst_sample clocks
 COSTS["burst_sample"] = 0                    # before the running fetch's last clock
+COSTS["data_hold"] = set()                   # opcodes that hold code fetches from when the EU takes
+                                             # them (data_hold_at "register": from when one waits
+                                             # next in the word register) until their first data cycle
+COSTS["data_hold_at"] = ""
+COSTS["data_hold_waited"] = None             # 1: only when code fetches have wait states
 COSTS["load_defer"] = 0                      # 1: a load_block load frees its slot at once, its bytes
                                              # readable word_load clocks after the block ends
 COSTS["take_block"] = ""                     # "all" / "operand": load_block also stops the EU taking
