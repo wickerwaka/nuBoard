@@ -421,11 +421,15 @@ class Machine:
             return waited
         return self.costs["io_recovery"]
 
-    def _per_wait(self, value):
-        """A {"1": ..., "2": ...} value: the entry for the running code fetch's wait states."""
+    def _per_wait(self, value, space=None, address=None):
+        """A {"1": ..., "2": ...} value: the entry for the running code fetch's
+        wait states, or for the wait states of space and address if given."""
         if isinstance(value, dict):
             cycle = self.cycle
-            waits = cycle.length - 3 if cycle is not None and cycle.kind == "fetch" else 0
+            if space is not None:
+                waits = self.wait_states(space, address)
+            else:
+                waits = cycle.length - 3 if cycle is not None and cycle.kind == "fetch" else 0
             return value.get(str(waits), value.get(waits))
         return value
 
@@ -614,6 +618,8 @@ class Machine:
         elif self.costs.get("decode_bytes"):
             self._decode()
         if self._eu_wait:
+            if self._eu_frozen() and self.costs.get("eu_freeze_mode") == "clocks":
+                return
             self._eu_wait -= 1
             return
         while True:
@@ -756,6 +762,10 @@ class Machine:
                     busy = self._per_wait(self.costs.get("load_busy_extra"))
                     if busy and self.cycle is not None and self.cycle.kind == "fetch" and self.cycle.length > 3:
                         load += busy               # a load made while a waited fetch runs
+                    operand = self._per_wait(self.costs.get("load_wait_operand"), "mem", self.iwr[0][0])
+                    if operand and (not self._last_was_boundary or (
+                            len(self.iwr) > 1 and length(self.mem_read8, self.iwr[0][0]) > 1)):
+                        load += operand            # a word holding operand bytes, from waited memory
                     if op == "preload" and self.costs.get("load_wait_demand"):
                         extra = 0                  # load_wait_demand: a pre-load does not pay it
                     if isinstance(extra, dict):
@@ -854,13 +864,23 @@ class Machine:
                 return
             raise ValueError(f"unknown EU request {request}")
 
+    def _eu_frozen(self):
+        """eu_freeze: the EU stands still on the first n wait clocks of a code
+        fetch (n per wait setting); eu_freeze_mode "clocks" stops only its
+        internal clock count, not its byte and word handling."""
+        n = self._per_wait(self.costs.get("eu_freeze"))
+        cycle = self.cycle
+        if not n or cycle is None or cycle.kind != "fetch":
+            return False
+        return 2 <= self.clock - cycle.start < 2 + n
+
     def step(self):
         self.clock += 1
         self.tick += self.ticks_per_clock
         if self._reset_hold > 0:
             self._reset_hold -= 1
         self._bus()
-        if not self.halted:
+        if not self.halted and not (self.costs.get("eu_freeze_mode", "all") == "all" and self._eu_frozen()):
             self._eu()
 
     def run(self, max_clocks=200_000):

@@ -247,6 +247,6 @@ PROFILES = {
         "test1_r_imm": 3,
     },
 }
-COSTS.update(PROFILES[os.environ.get("V35S_PROFILE", "iwr")])
+COSTS.update(PROFILES[os.environ.get("V35S_PROFILE", "burst")])
 # V35S_COSTS='{"key": value}' overrides single values, for sweeps.
 COSTS.update(json.loads(os.environ.get("V35S_COSTS", "{}")))

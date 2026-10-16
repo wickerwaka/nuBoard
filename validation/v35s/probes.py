@@ -19,7 +19,9 @@ even-length form reads exactly at one placement, so it runs once.
                EU with an OUT after k instructions of a train, follow puts
                each follower after a one-word leader, stall puts a bus
                cycle or a long instruction into a train; regform runs
-               every register-form ModR/M instruction at both placements
+               every register-form ModR/M instruction at both placements;
+               imm times immediate-operand trains after k instructions,
+               with register-only and NOP controls, and after a NOP phase
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -638,6 +640,29 @@ def regform_cases():
     return cases
 
 
+IMM_TRAINS = (("MOV AW,imm16", [0xB8, 0x34, 0x12], 6), ("MOV DW,imm16", [0xBA, 0x34, 0x12], 6),
+              ("MOV AL,imm8", [0xB0, 0x03], 8), ("SHL AW,imm", [0xC1, 0xE0, 0x01], 5),
+              ("MOV CW,AW", [0x8B, 0xC8], 8), ("NOP NOP", [0x90, 0x90], 8))
+
+
+def imm_cases():
+    """Where does an immediate-operand train lose time once fetches wait?
+    k instructions of each train then OUT 40h,AL, as in eu, with a
+    register-only and a NOP train of the same lengths as controls; then
+    n NOPs before the train, to move the immediates against the fetches."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "DW": 0x0000, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, code, most in IMM_TRAINS:
+        for k in range(1, most + 1):
+            cases += form("imm", f"{name} x{k}; OUT", code * k + [0xE6, 0x40], regs, both=True)
+    for name, code, k in (("MOV AW,imm16", [0xB8, 0x34, 0x12], 3), ("MOV AL,imm8", [0xB0, 0x03], 4)):
+        for n in range(1, 4):
+            cases += form("imm", f"NOP x{n}; {name} x{k}; OUT", [0x90] * n + code * k + [0xE6, 0x40],
+                          regs, both=True)
+    return cases
+
+
 def tail_cases():
     """Calibrate the window tail: SHL AW,16 (C1 E0 10) ends every window, so
     its cost cancels out of target costs. Shifts with long counts, by
@@ -675,4 +700,5 @@ SUITES = {
     "follow": follow_cases,
     "stall": stall_cases,
     "regform": regform_cases,
+    "imm": imm_cases,
 }

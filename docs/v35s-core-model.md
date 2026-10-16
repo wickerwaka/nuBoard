@@ -1050,6 +1050,61 @@ None of these fit both:
 - the cost on loads made while a waited fetch runs (`load_busy_extra`):
   +7.
 
+### Immediate-operand trains timed at 0, 1 and 2 waits, 2026-10-16
+
+`burst` is now the default profile (`V35S_PROFILE=iwr` gives the old
+one). Probe suite `imm` (corpora `p2-imm`, `p2-imm-w1`, `p2-imm-w2`, 94
+runs each): k instructions of a train then `OUT 40h,AL`, as in `eu`, for
+`MOV AW,imm16`, `MOV DW,imm16`, `MOV AL,imm8` and `SHL AW,imm`, with
+`MOV CW,AW` and NOP-pair trains as controls; then 1 to 3 NOPs ahead of a
+train, to move its immediates against the fetches. Every run is
+EU-bound except `MOV CW,AW`: the OUT's word is fetched 20 or more clocks
+before the OUT.
+
+Clocks per instruction from the OUT times (silicon / `burst` model), even
+and odd placement:
+
+| Train | 0 waits | 1 wait | 2 waits |
+| --- | --- | --- | --- |
+| `MOV AL,imm8` e | 5.71 / 5.00 | 6.43 / 5.00 | 7.43 / 6.00 |
+| `MOV AL,imm8` o | 6.00 / 5.00 | 7.00 / 5.14 | 8.00 / 6.14 |
+| `MOV AW,imm16` e | 7.00 / 6.80 | 7.80 / 6.80 | 9.20 / 8.40 |
+| `MOV AW,imm16` o | 7.20 / 7.20 | 8.20 / 7.20 | 9.80 / 9.00 |
+| `SHL AW,imm` e | 14.00 / 14.00 | 15.75 / 14.00 | 17.25 / 15.75 |
+| `SHL AW,imm` o | 14.00 / 14.00 | 15.50 / 14.00 | 17.00 / 15.75 |
+| `MOV CW,AW` (bus-bound) | 3 / 3 | 4 / 4 | 5 / 4.86 |
+| NOP pair | 8 / 8 | 7.86 / 8 | 8.86 / 9 |
+
+What it shows:
+- **Not only a wait-state effect.** `MOV AL,imm8` is already slow at 0
+  waits: 6 clocks at odd placement, and 6, 6, 5 repeating at even.
+- **Immediates pay a clock per wait state per word.** `MOV AL,imm8` (one
+  word per instruction) adds 1 clock per wait state, `SHL AW,imm` (1.5
+  words) adds 1.5. NOP pairs add nothing at 1 wait and about 1 at 2 (the
+  model's `load_wait_extra` already gives that). `MOV AW,imm16` adds less
+  than a clock per word (0.8 and 2.2 per instruction).
+- **Silicon's fetches follow a "bus time plus fixed EU time" rhythm.**
+  Odd `MOV AL,imm8` fetches one word every 6 + w clocks. Even
+  `MOV AL,imm8` fetches back-to-back triples every 17 + 3w clocks (three
+  fetch cycles of 3 + w, then 8 idle). The model fetches one word every 5
+  clocks at either placement.
+
+Two rules were tried, both off by default:
+- **`eu_freeze`** (per wait setting: the EU stands still on the first n
+  wait clocks of every code fetch; `eu_freeze_mode` "clocks" stops only
+  its internal clock count). It slows NOP pairs and `MOV AW,imm16` too.
+  The exact fetch lists at 1 and 2 waits fall from 35 and 38 to 0.
+- **`load_wait_operand`** (per wait setting: clocks added to a load of a
+  word that holds operand bytes: one loaded mid-instruction, or loaded at
+  an opcode whose next byte is in the same word). At {"1": 1, "2": 1}
+  `SHL AW,imm` matches at both wait settings, and NOP and `MOV CW,AW`
+  trains are unchanged. But `MOV AW,imm16` overshoots by 1.2 and 1.0
+  clocks per instruction. Exact fetch lists at 1 and 2 waits fall from
+  35 and 38 to 28 and 27.
+
+Scores now include the `imm` corpora: 160 / 35 / 38 exact fetch lists at
+0 / 1 / 2 waits for `burst`.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops
