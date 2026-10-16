@@ -1430,6 +1430,66 @@ around I/O instructions, and the `SHL AW,16` tail, which at waits
 silicon runs with the queue full (no fetch for 45 clocks in the
 `p2-eu-w1` baseline) and the model does not.
 
+### An I/O fetch hold
+
+Silicon's fetches were tabulated against the model's around the target's
+`OUT 40h` in `p2-eu`, `-w1` and `-w2` (scratch `io2.py`: fetch starts
+relative to the I/O cycle, with the model's load of the `OUT`'s word, its
+take of the opcode and its I/O cycle). The model runs "latch 1 + stack
+hold" from "The runway's fetches".
+
+The split is by placement:
+
+- **Opcode and port byte in one word.** Silicon makes one fetch, at −7,
+  −8 and −9 at 0, 1 and 2 waits, so it always ends 4 clocks before the
+  I/O cycle. It then fetches three words after the cycle (+4, +8, +12 at
+  1 wait). The model fetched as soon as the `OUT`'s word loaded (−12 or
+  −13), a pair at waits. Measured from the model's opcode take, silicon's
+  fetch starts 4, 3 and 2 clocks later.
+- **Port byte in the next word.** Silicon fetches nothing from the
+  opcode's take until the port byte's word loads, then once (−4 at 1
+  wait), and a pair after the I/O cycle.
+
+`io_hold` (the IN / OUT opcodes) holds code fetches from when the EU asks
+for such an opcode until its I/O cycle. The exception is one fetch, made
+`io_hold_release` clocks after the take (4 / 3 / 2 at 0 / 1 / 2 waits)
+and once the port byte is in the register. Two variants did worse:
+
+- **`io_hold_at` "register"**, which holds from when the opcode is in the
+  word register as the next instruction's, wherever the EU is in the
+  current one. It holds through the closing `SHL AW,16`, which silicon
+  fetches through at 0 waits: 64176, 38 exact 0-wait windows. At waits
+  only, 50774.
+- **`io_hold_burst`** (a running burst goes on through the hold): 43443,
+  but it loses every exact waited window.
+
+| Spec | Error | Exact windows | Exact fetch lists |
+| --- | --- | --- | --- |
+| old default | 49449 | 201 / 0 / 6 | 164 / 41 / 41 |
+| latch 1 + stack hold | 44366 | 201 / 0 / 0 | 165 / 38 / 35 |
+| + I/O hold, release 4 / 3 / 2 | 43961 | 280 / 4 / 2 | 179 / 41 / 36 |
+| I/O hold alone on the old default | 50236 | 274 / 4 / 8 | 178 / 23 / 21 |
+| one refit pass from the third row | 43735 | 276 / 4 / 2 | |
+
+The third row is now the `burst` profile: `fetch_burst` "latch" with
+`burst_sample` 1, `data_hold` on PUSH / POP with `data_hold_at`
+"register", and `io_hold` with release 4 / 3 / 2. The refit moved
+`mov_r8_imm` 3→4 and three small values, and lost four 0-wait windows,
+so its values were not taken.
+
+What is left at waits:
+
+- **The straddled `OUT`'s EU.** The model's I/O cycle comes 2 clocks
+  late at every wait setting, so the opcode's execution is 2 clocks long
+  in the model.
+- **The closing `SHL AW,16`.** At waits silicon makes one fetch while
+  the shift runs, then none for about 45 clocks. The model makes two:
+  the ModR/M word's slot frees when its last byte is taken, which leaves
+  2 free, and the latched burst goes on. `operand_hold_end` (the held word
+  keeps its slot until the instruction ends) gives none (43985). Telling
+  these apart needs a probe of fetches during long register-form
+  instructions at waits.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

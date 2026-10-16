@@ -349,6 +349,9 @@ class EU:
                     self.m.log.append((self.m.clock, (self.pc - 1) & 0xFFFF, op))
                 if op in self.m.costs.get("data_hold", ()):
                     self.m.data_hold = True
+                if op in self.m.costs.get("io_hold", ()):
+                    self.m.io_hold = self.m.io_hold or "held"
+                    self.m.io_take, self.m.io_op = self.m.clock, op
                 if op in (0x26, 0x2E, 0x36, 0x3E):
                     self.seg_override = (op >> 3) & 3
                     yield from self.step("prefix")

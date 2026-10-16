@@ -143,6 +143,19 @@ COSTS["data_hold"] = set()                   # opcodes that hold code fetches fr
                                              # next in the word register) until their first data cycle
 COSTS["data_hold_at"] = ""
 COSTS["data_hold_waited"] = None             # 1: only when code fetches have wait states
+COSTS["io_hold"] = set()                     # IN / OUT opcodes that hold code fetches from when the
+                                             # EU asks for them (io_hold_at "register" or
+                                             # {"1": "register", ..}: from when one is the next
+                                             # instruction's opcode in the word register) to their
+                                             # I/O cycle, except one fetch io_hold_release clocks
+                                             # (or {"0": n, ..} per code wait states) after the
+                                             # opcode is taken, once the port byte is in the register
+COSTS["io_hold_at"] = ""
+COSTS["io_hold_release"] = 0
+COSTS["io_hold_waited"] = None               # 1: only when code fetches have wait states
+COSTS["io_hold_burst"] = 0                   # 1: a running fetch burst goes on through the hold
+COSTS["operand_hold_end"] = 0                # 1 (or {"1": 1, ..}): an operand_hold word keeps its slot
+                                             # until its instruction ends, not its last byte's take
 COSTS["load_defer"] = 0                      # 1: a load_block load frees its slot at once, its bytes
                                              # readable word_load clocks after the block ends
 COSTS["take_block"] = ""                     # "all" / "operand": load_block also stops the EU taking
@@ -207,6 +220,13 @@ PROFILES = {
         # A word loaded mid-instruction from waited memory costs a clock more
         # (docs/v35s-core-model.md, "The prelude's register loads timed").
         "load_wait_operand": {"1": 1, "2": 1}, "load_wait_operand_at": "mid",
+        # A burst goes on while a slot is free a clock before its fetch's last
+        # clock; PUSH / POP and IN / OUT hold fetches until their data cycle
+        # (docs/v35s-core-model.md, "The runway's fetches" and "An I/O fetch hold").
+        "fetch_burst": "latch", "burst_sample": 1,
+        "data_hold": {0x06, 0x0E, 0x16, 0x1E, 0x07, 0x17, 0x1F, 0x68, 0x6A, 0x9C, 0x9D} | set(range(0x50, 0x60)),
+        "data_hold_at": "register",
+        "io_hold": {0xE4, 0xE5, 0xE6, 0xE7, 0xEC, 0xED, 0xEE, 0xEF}, "io_hold_release": {"0": 4, "1": 3, "2": 2},
         "alu_acc_imm1": 3, "bcond": 7, "bcwz": 7, "br_short": 14, "branch_taken": 12, "call_far": 21,
         "dbnz": 10, "dbnz_cond": 7, "div16": 59, "div8": 51, "divu8": 32, "ldea": 1, "pop_all": 50,
         "push_r": 4, "test_r_imm": 5, "trap_entry": 31, "trap_exit": 8, "clr1_m_imm": 4, "mov_load": 6,

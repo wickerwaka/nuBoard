@@ -68,6 +68,7 @@ class Machine:
         self.iwr_ready = 0             # clock its current word can be read
         self.preloaded = False         # the register's word was loaded ahead (pre-pop)
         self.iwr_held = False          # operand_hold: the register's word keeps its queue slot
+        self.held_word = None          # operand_hold_end: a held word's slot, kept to the instruction's end
         self.dec_held = None           # classed_hold: the decoded word that keeps its queue slot
         self.last_load_preload = False # the register's last load was a pre-load
         self.decoded = []              # decode stage: (linear, byte, clock usable) taken ahead of execution
@@ -112,6 +113,9 @@ class Machine:
         self.steps_used = None         # set to set() to record the step names spent
         self.halted = False
         self.data_hold = False         # data_hold: a data-cycle opcode holds code fetches
+        self.io_hold = None            # io_hold: None, "held" or "spent" (its one fetch made)
+        self.io_take = None            # clock the held I/O opcode was taken
+        self.next_opcode = None        # io_hold: linear address of the next instruction's opcode
         self._eu_wait = 0
         self._eu_request = None
         self._eu_value = None
@@ -176,6 +180,10 @@ class Machine:
             # A word loaded for an operand byte frees its slot only when its
             # last byte is taken.
             words.update(b[0] >> 1 for b in self.iwr)
+        if self.held_word is not None:
+            # operand_hold_end: the held word keeps its slot until the
+            # instruction ends (the EU asks for the next opcode).
+            words.add(self.held_word)
         if self.cycle is not None and self.cycle.kind == "fetch":
             words.add(self.cycle.address >> 1)
         return len(words)
@@ -190,6 +198,10 @@ class Machine:
         self.cycle = cycle
         if cycle.owner in ("eu", "posted"):
             self.data_hold = False
+            if cycle.space == "io":
+                self.io_hold = None
+        elif cycle.kind == "fetch" and self.io_hold == "held":
+            self.io_hold = "spent"
 
     def _finish(self, cycle: Cycle):
         if cycle.kind == "fetch":
@@ -374,6 +386,8 @@ class Machine:
             return
         if self.halted or self.suspended:
             return
+        if self._io_held():
+            return
         if (self.data_hold or (self.costs.get("data_hold_at") == "register" and self._last_was_boundary
                                and self.iwr and self.iwr[0][1] in self.costs.get("data_hold", ()))) and (
                 self.costs.get("data_hold_waited") is None or self.wait_states("mem", self.fetch_linear)):
@@ -433,6 +447,32 @@ class Machine:
         if free > 0:
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
+
+    def _io_held(self):
+        """io_hold: an IN / OUT holds code fetches from when its opcode is in
+        the word register as the next instruction's until its I/O cycle, except for one fetch,
+        io_hold_release clocks after its opcode is taken and once its port
+        byte is in the register (or taken)."""
+        ops = self.costs.get("io_hold")
+        if not ops or (self.costs.get("io_hold_waited") and not self.wait_states("mem", self.fetch_linear)):
+            return False
+        if self.io_hold is None:
+            if self._per_wait(self.costs.get("io_hold_at"), "mem", self.fetch_linear) == "register":
+                if not any(a == self.next_opcode and b in ops for a, b in self.iwr):
+                    return False
+            elif not (self._last_was_boundary and self.iwr and self.iwr[0][1] in ops):
+                return False
+            self.io_hold, self.io_take = "held", None
+        if (self.costs.get("io_hold_burst") and self.fetch_end == self.clock - 1
+                and (self.burst_left > 0 or self.burst_go)):
+            return False                # a running burst goes on
+        if self.io_hold == "spent" or self.io_take is None:
+            return True
+        release = self._per_wait(self.costs.get("io_hold_release", 0), "mem", self.fetch_linear)
+        if self.clock < self.io_take + (release or 0):
+            return True
+        port = self.io_op in (0xE4, 0xE5, 0xE6, 0xE7)
+        return port and not self.iwr and (self.last_take is None or self.last_take[0] <= self.io_take)
 
     def _io_recovery(self, cycle):
         """Idle clocks after an I/O cycle; io_recovery_waited, when set, if it had wait states."""
@@ -854,6 +894,9 @@ class Machine:
                     self.iwr_held = (op == "byte" and not self._last_was_boundary and bool(hold)
                                      and (hold == 1 or not request[1])
                                      and (hold != "modrm_r" or self.iwr[0][1] >> 6 == 3))
+                    if self.iwr_held and self._per_wait(self.costs.get("operand_hold_end"), "mem",
+                                                        self.iwr[0][0]):
+                        self.held_word = self.iwr[0][0] >> 1
                     self.last_load_preload = op == "preload"
                     if self.loads is not None:
                         self.loads.append((self.clock, (word << 1) & 0xFFFF))
@@ -879,6 +922,8 @@ class Machine:
                 self.preloaded = False
                 linear, value = self.iwr.pop(0)
                 self.last_take = (self.clock, self._last_was_boundary)
+                if self._last_was_boundary and self.costs.get("io_hold"):
+                    self.next_opcode = (linear + length(self.mem_read8, linear)) & 0xFFFFF
                 mode = self.costs["fetch_request"]
                 if (mode == "take" or (mode == "opcode" and self._last_was_boundary)
                         or (mode == "word_end" and not self.iwr)
@@ -927,6 +972,7 @@ class Machine:
                 self._eu_request = None
                 continue
             if op == "opcode":
+                self.held_word = None
                 self._last_was_boundary = True
                 self._eu_request = None
                 continue
