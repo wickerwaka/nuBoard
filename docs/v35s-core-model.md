@@ -1490,6 +1490,84 @@ What is left at waits:
   these apart needs a probe of fetches during long register-form
   instructions at waits.
 
+#### Fetches during a long register-form instruction (2026-10-16)
+
+Two new suites, both recorded with the resync prelude at 0, 1 and 2
+waits (`p2-tail-rs`, `p2-tail-w1-rs`, `p2-tail-w2-rs`, `p2-shift-rs`, ...):
+
+- **`tail`:** `SHL AW,n` by immediate (n 8–31) and by CL.
+- **`shift` (new):** `SHL AW,n` (C1, n 0/2/8/16), `SHL AW,CL=n`, `SHL AL,8`,
+  `SHL AW,1`, `MULU CL` and `DIVU CL`, each followed by 0, 1, 2 or 4
+  NOPs and `OUT 40h,AL`, so the I/O cycle timestamps the end.
+
+`fit_window` now scores both suites. They exist only as `-rs` recordings,
+so a run without `--suffix=-rs` skips them.
+
+The closing-shift problem is not specific to the tail. The same thing
+happens with a `SHL AW,16` target in the middle of a window, and the
+`depth` corpora show it too. Below, the shift is at 0x62 (even) or 0x63
+(odd). The table gives the last word fetched while it runs:
+
+| Form | 0 waits | 1 wait | 2 waits | Model at waits |
+| --- | --- | --- | --- | --- |
+| C1 even (count at 64, NOP at 65) | 6a | 68 | 68 | 6c |
+| C1 odd (E0 and count fill word 64) | 6a | 6a | 6a | 6c |
+| CL even | 68 | 68 | 68 | 68 |
+| CL odd (E0 at 64, NOP at 65) | 68 | 68 | 68 | 68 |
+
+At waits, silicon keeps its words to 0x68 in three of the four layouts,
+whatever the count. The model went two words further whenever the word
+holding the shift count had loaded. The register-form ModR/M word already
+held its slot (`operand_hold` "modrm_r"); the count byte's word did not.
+
+- **C1 even.** Word 64 holds the count and the next opcode. It frees its
+  slot only when the next opcode is taken, so it counts as a held operand
+  word.
+- **C1 odd.** Silicon makes one fetch (0x6a), 2 clocks before the
+  model's pair, and none until the end. This is still not modelled.
+
+When the fetches start again also tells us something. In the CL odd
+case, silicon fetches 3, 4 and 5 clocks before the model at 0, 1 and 2
+waits. The model releases the held ModR/M word when the next opcode is
+taken; silicon frees it a few clocks before the instruction ends.
+
+Two options cover this:
+
+- **`operand_hold_waited`:** the `operand_hold` mode for words from waited
+  code memory. The new mode "modrm_r_imm" also holds the word of a
+  register-form instruction's immediate.
+- **`operand_hold_lead`:** per wait setting. A held word frees once the
+  EU's clock wait has fewer than n clocks left.
+
+`operand_hold_release` "end" (the hold ends with the instruction whatever
+bytes are left) was also tried. It changed nothing.
+
+The table scores the old corpora without and with the resync prelude. The
+-rs column adds tail and shift. The cells give error, then exact windows at
+0 / 1 / 2 waits.
+
+| Spec | Original recordings | -rs, with tail and shift | Exact fetch lists |
+| --- | --- | --- | --- |
+| old default | 43961, 280 / 4 / 2 | 51826, 322 / 4 / 2 | 179 / 41 / 36 |
+| `modrm_r_imm` at waits | | 52178, 322 / 4 / 17 | |
+| + lead 3 / 5 / 6 | 43651, 322 / 9 / 19 | 50931, 341 / 17 / 30 | 187 / 48 / 43 |
+| lead 3 / 5 / 6 without `modrm_r_imm` | | 51518, 341 / 5 / 3 | |
+
+A grid over the leads put the best at 3 / 5 / 6. That last row is now in
+the `burst` profile.
+
+The `shift` suite shows one more effect, an EU one, at every wait setting
+including 0. Each form followed directly by `OUT` matches silicon. With
+NOPs in between, the model's I/O cycle comes 2 clocks late. Silicon's
+fetches after the shift still match the model, so the slot frees at the
+same time, but the instruction after a long one finishes 2 clocks sooner.
+That holds for shifts by immediate and by CL and for `MULU CL`, and not
+for an `OUT`.
+
+Taking 2 off the shift costs fixes every NOP case but moves the direct
+`OUT` and the post-shift fetches 2 clocks early. The overlap therefore
+belongs to the next instruction, not the shift. It is not modelled yet.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

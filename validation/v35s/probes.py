@@ -23,7 +23,9 @@ even-length form reads exactly at one placement, so it runs once.
                imm times immediate-operand trains after k instructions,
                with register-only and NOP controls, and after a NOP phase;
                depth counts the words fetched during a long instruction;
-               setup times the prelude's own instruction sequence
+               setup times the prelude's own instruction sequence;
+               shift times long register-form instructions' ends with
+               an OUT after 0-4 NOPs
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -725,6 +727,28 @@ def tail_cases():
     return cases
 
 
+SHIFT_FORMS = ([(f"SHL AW,{n} (C1)", [0xC1, 0xE0, n], {}) for n in (0, 2, 8, 16)]
+               + [(f"SHL AW,CL={n}", [0xD3, 0xE0], {"CW": n}) for n in (0, 2, 8, 16)]
+               + [("SHL AL,8 (C0)", [0xC0, 0xE0, 8], {}), ("SHL AW,1 (D1)", [0xD1, 0xE0], {}),
+                  ("MULU CL", [0xF6, 0xE1], {}), ("DIVU CL", [0xF6, 0xF1], {})])
+
+
+def shift_cases():
+    """When does a long register-form instruction end, and what does it
+    fetch while it runs, at each wait setting? Each form then OUT 40h,AL
+    (the I/O cycle timestamps its end), and then k NOPs before the OUT to
+    see the fetches restart; both placements."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "DW": 0x0000, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, code, extra in SHIFT_FORMS:
+        for k in (0, 1, 2, 4):
+            nops = f"; NOP x{k}" if k else ""
+            cases += form("shift", f"{name}{nops}; OUT", code + [0x90] * k + [0xE6, 0x40],
+                          dict(regs, **extra), both=True)
+    return cases
+
+
 SUITES = {
     "regs": regs_cases,
     "ea": ea_cases,
@@ -746,4 +770,5 @@ SUITES = {
     "imm": imm_cases,
     "depth": depth_cases,
     "setup": setup_cases,
+    "shift": shift_cases,
 }

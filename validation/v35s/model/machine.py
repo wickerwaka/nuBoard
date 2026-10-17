@@ -68,6 +68,7 @@ class Machine:
         self.iwr_ready = 0             # clock its current word can be read
         self.preloaded = False         # the register's word was loaded ahead (pre-pop)
         self.iwr_held = False          # operand_hold: the register's word keeps its queue slot
+        self.modrm_r = False           # the running instruction's ModR/M is register-form
         self.held_word = None          # operand_hold_end: a held word's slot, kept to the instruction's end
         self.dec_held = None           # classed_hold: the decoded word that keeps its queue slot
         self.last_load_preload = False # the register's last load was a pre-load
@@ -725,6 +726,9 @@ class Machine:
             if self._eu_frozen() and self.costs.get("eu_freeze_mode") == "clocks":
                 return
             self._eu_wait -= 1
+            if self.iwr_held and self._eu_wait < (self._per_wait(self.costs.get("operand_hold_lead"), "mem",
+                                                                  self.fetch_linear) or 0):
+                self.iwr_held = False           # operand_hold_lead: freed this close to the end
             return
         while True:
             request = self._eu_request
@@ -891,9 +895,16 @@ class Machine:
                                             - self.costs.get("load_wait_free", 1))
                     self.iwr_ready = (unblock if unblock is not None else self.clock) + load
                     hold = self.costs.get("operand_hold")
-                    self.iwr_held = (op == "byte" and not self._last_was_boundary and bool(hold)
-                                     and (hold == 1 or not request[1])
-                                     and (hold != "modrm_r" or self.iwr[0][1] >> 6 == 3))
+                    if "operand_hold_waited" in self.costs and self.wait_states("mem", self.iwr[0][0]):
+                        hold = self.costs["operand_hold_waited"]
+                    if hold == "modrm_r_imm":
+                        # Also the word of a register-form instruction's immediate.
+                        self.iwr_held = (op == "byte" and not self._last_was_boundary
+                                         and (self.modrm_r if request[1] else self.iwr[0][1] >> 6 == 3))
+                    else:
+                        self.iwr_held = (op == "byte" and not self._last_was_boundary and bool(hold)
+                                         and (hold == 1 or not request[1])
+                                         and (hold != "modrm_r" or self.iwr[0][1] >> 6 == 3))
                     if self.iwr_held and self._per_wait(self.costs.get("operand_hold_end"), "mem",
                                                         self.iwr[0][0]):
                         self.held_word = self.iwr[0][0] >> 1
@@ -922,6 +933,10 @@ class Machine:
                 self.preloaded = False
                 linear, value = self.iwr.pop(0)
                 self.last_take = (self.clock, self._last_was_boundary)
+                if self._last_was_boundary:
+                    self.modrm_r = False
+                elif not request[1]:
+                    self.modrm_r = value >> 6 == 3      # the instruction's last decode byte
                 if self._last_was_boundary and self.costs.get("io_hold"):
                     self.next_opcode = (linear + length(self.mem_read8, linear)) & 0xFFFFF
                 mode = self.costs["fetch_request"]
@@ -973,6 +988,9 @@ class Machine:
                 continue
             if op == "opcode":
                 self.held_word = None
+                if self.iwr_held and self._per_wait(self.costs.get("operand_hold_release"), "mem",
+                                                    self.fetch_linear) == "end":
+                    self.iwr_held = False       # the hold ends with its instruction
                 self._last_was_boundary = True
                 self._eu_request = None
                 continue

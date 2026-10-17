@@ -162,7 +162,13 @@ COSTS["take_block"] = ""                     # "all" / "operand": load_block als
                                              # any byte / an operand byte
 COSTS["operand_hold"] = 0                    # 1 / "modrm" / "modrm_r": a word loaded for a non-opcode
                                              # (ModR/M; register-form ModR/M) byte
-                                             # keeps its slot until its last byte is taken
+                                             # keeps its slot until its last byte is taken;
+                                             # "modrm_r_imm": also a register-form instruction's immediate
+# operand_hold_waited: the operand_hold mode for a word from waited code memory.
+COSTS["operand_hold_lead"] = 0               # n (or {"0": n, ..}): a held word frees once the EU's
+                                             # clock wait has fewer than n clocks left
+COSTS["operand_hold_release"] = ""           # "end" (or {"1": "end", ..}): the hold ends with its
+                                             # instruction, whatever bytes are left
 COSTS["preload_alternate"] = 0               # 1: no pre-load right after a pre-load
 COSTS["fetch_request_delay"] = 0             # clocks from the EU's request to the bus unit seeing it
 COSTS["operand_at"] = [3, 6, 9, 12, 15]       # k-th operand byte, byte reads
@@ -227,6 +233,10 @@ PROFILES = {
         "data_hold": {0x06, 0x0E, 0x16, 0x1E, 0x07, 0x17, 0x1F, 0x68, 0x6A, 0x9C, 0x9D} | set(range(0x50, 0x60)),
         "data_hold_at": "register",
         "io_hold": {0xE4, 0xE5, 0xE6, 0xE7, 0xEC, 0xED, 0xEE, 0xEF}, "io_hold_release": {"0": 4, "1": 3, "2": 2},
+        # At waits a register-form instruction's immediate word holds its slot too, and a
+        # held word frees 3 / 5 / 6 clocks before a long instruction's end
+        # (docs/v35s-core-model.md, "Fetches during a long register-form instruction").
+        "operand_hold_waited": "modrm_r_imm", "operand_hold_lead": {"0": 3, "1": 5, "2": 6},
         "alu_acc_imm1": 3, "bcond": 7, "bcwz": 7, "br_short": 14, "branch_taken": 12, "call_far": 21,
         "dbnz": 10, "dbnz_cond": 7, "div16": 59, "div8": 51, "divu8": 32, "ldea": 1, "pop_all": 50,
         "push_r": 4, "test_r_imm": 5, "trap_entry": 31, "trap_exit": 8, "clr1_m_imm": 4, "mov_load": 6,
