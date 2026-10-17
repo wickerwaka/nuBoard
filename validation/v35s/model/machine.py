@@ -70,6 +70,7 @@ class Machine:
         self.iwr_held = False          # operand_hold: the register's word keeps its queue slot
         self.modrm_r = False           # the running instruction's ModR/M is register-form
         self.held_word = None          # operand_hold_end: a held word's slot, kept to the instruction's end
+        self.empty_grant = False       # operand_hold_empty: one fetch granted by emptying a held word
         self.dec_held = None           # classed_hold: the decoded word that keeps its queue slot
         self.last_load_preload = False # the register's last load was a pre-load
         self.decoded = []              # decode stage: (linear, byte, clock usable) taken ahead of execution
@@ -441,10 +442,11 @@ class Machine:
             if self.fetch_end == self.clock - 1 and (burst == "run" or (burst == "count" and self.burst_left > 0)
                                                       or (burst == "latch" and self.burst_go)):
                 self.burst_left -= 1
-            elif free < start:
+            elif free < start and not self.empty_grant:
                 return
             else:
                 self.burst_left = free - 1
+            self.empty_grant = False
         if free > 0:
             self._start(Cycle("fetch", "mem", linear, width))
             self.fetch_linear = (linear + width) & 0xFFFFF
@@ -729,6 +731,14 @@ class Machine:
             if self.iwr_held and self._eu_wait < (self._per_wait(self.costs.get("operand_hold_lead"), "mem",
                                                                   self.fetch_linear) or 0):
                 self.iwr_held = False           # operand_hold_lead: freed this close to the end
+                if self.costs.get("operand_hold_empty"):
+                    self.held_word = None
+                    self.empty_grant = False    # an unused grant ends with the hold
+            elif (self.held_word is not None and self.costs.get("operand_hold_empty")
+                  and self._eu_wait < (self._per_wait(self.costs.get("operand_hold_lead"), "mem",
+                                                      self.fetch_linear) or 0)):
+                self.held_word = None
+                self.empty_grant = False        # an unused grant ends with the hold
             return
         while True:
             request = self._eu_request
@@ -933,6 +943,12 @@ class Machine:
                 self.preloaded = False
                 linear, value = self.iwr.pop(0)
                 self.last_take = (self.clock, self._last_was_boundary)
+                if (self.iwr_held and not self.iwr and not self._last_was_boundary
+                        and self._per_wait(self.costs.get("operand_hold_empty"), "mem", linear)):
+                    # operand_hold_empty: the emptied held word keeps its slot to the
+                    # operand_hold_lead release, but grants one fetch.
+                    self.held_word = linear >> 1
+                    self.empty_grant = True
                 if self._last_was_boundary:
                     self.modrm_r = False
                 elif not request[1]:
@@ -988,6 +1004,7 @@ class Machine:
                 continue
             if op == "opcode":
                 self.held_word = None
+                self.empty_grant = False
                 if self.iwr_held and self._per_wait(self.costs.get("operand_hold_release"), "mem",
                                                     self.fetch_linear) == "end":
                     self.iwr_held = False       # the hold ends with its instruction

@@ -167,6 +167,11 @@ COSTS["operand_hold"] = 0                    # 1 / "modrm" / "modrm_r": a word l
 # operand_hold_waited: the operand_hold mode for a word from waited code memory.
 COSTS["operand_hold_lead"] = 0               # n (or {"0": n, ..}): a held word frees once the EU's
                                              # clock wait has fewer than n clocks left
+COSTS["operand_hold_empty"] = 0              # 1 (or {"1": 1, ..}): a held word the EU empties mid-
+                                             # instruction keeps its slot until operand_hold_lead
+                                             # frees it, and lets one fetch start with one slot free
+COSTS["out_after_short"] = 0                 # clocks an OUT imm8 saves after a one-byte instruction
+                                             # ({"1": n, "2": m}: by the last instruction's length)
 COSTS["operand_hold_release"] = ""           # "end" (or {"1": "end", ..}): the hold ends with its
                                              # instruction, whatever bytes are left
 COSTS["preload_alternate"] = 0               # 1: no pre-load right after a pre-load
@@ -237,6 +242,9 @@ PROFILES = {
         # held word frees 3 / 5 / 6 clocks before a long instruction's end
         # (docs/v35s-core-model.md, "Fetches during a long register-form instruction").
         "operand_hold_waited": "modrm_r_imm", "operand_hold_lead": {"0": 3, "1": 5, "2": 6},
+        # At waits a held word the EU empties keeps its slot but lets one fetch start; an OUT
+        # after a one-byte instruction runs 2 clocks sooner (same section).
+        "operand_hold_empty": {"1": 1, "2": 1}, "out_after_short": 2,
         "alu_acc_imm1": 3, "bcond": 7, "bcwz": 7, "br_short": 14, "branch_taken": 12, "call_far": 21,
         "dbnz": 10, "dbnz_cond": 7, "div16": 59, "div8": 51, "divu8": 32, "ldea": 1, "pop_all": 50,
         "push_r": 4, "test_r_imm": 5, "trap_entry": 31, "trap_exit": 8, "clr1_m_imm": 4, "mov_load": 6,

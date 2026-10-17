@@ -1568,6 +1568,69 @@ Taking 2 off the shift costs fixes every NOP case but moves the direct
 `OUT` and the post-shift fetches 2 clocks early. The overlap therefore
 belongs to the next instruction, not the shift. It is not modelled yet.
 
+#### An OUT after a one-byte instruction, and the emptied held word (2026-10-16)
+
+**The overlap is about the instruction before the OUT.** The previous
+section blamed the long instruction. I tabulated the model's I/O cycle
+minus silicon's over the eu, follow, imm and shift corpora, grouped by
+the instruction just before the `OUT`. At 0 waits:
+
+| Before the OUT | Model − silicon |
+| --- | --- |
+| NOP | +2 (all 84 runs) |
+| NOP NOP | +2 (22 of 24) |
+| XCH AW,CW | +2 / +1 |
+| INC AW, CVTWL, PUSH AW | mostly +1 to +3 |
+| MOV CW,AW, MOV AW,imm16, ADD AW,CW | +1 |
+| every shift, MULU CL, DIVU CL | 0 |
+
+So the model was 2 clocks slow on an `OUT` that follows a one-byte
+instruction. That includes the `NOP x k; OUT` pattern the probes use to
+timestamp the EU. It was right after the long ModR/M instructions, and
+so right for the closing `SHL AW,16; OUT` that every window ends with.
+The `shift` suite's "+2 after NOPs" is the same effect: NOP→OUT, not
+shift→NOP.
+
+`out_after_short` takes that many clocks off `out_imm` when the previous
+instruction was one byte long. A dict keyed by length gives per-length
+values. The best value is 2. Also applying 1 to 3-byte instructions
+moves the closing `SHL AW,16; OUT` and loses every exact window. Under
+the new default, NOP→OUT is centred on 0 at every wait setting. At 1 and
+2 waits the `OUT` now comes early after `INC AW` and `CVTWL` (−1 to −5).
+
+**The single fetch in the odd immediate shift.** At odd placement the
+ModR/M and the count fill word 64. Taking the count empties the held word.
+The model then saw 2 free slots and the latched burst made a pair. Silicon
+makes one fetch and then nothing until the end. In the closing tail,
+where the queue is fuller, silicon makes no fetch at all.
+
+`operand_hold_empty` (per wait) covers both cases:
+
+- **The emptied word keeps its slot.** A held word that the EU empties
+  mid-instruction stays counted until the `operand_hold_lead` release.
+- **One fetch is granted.** Emptying the word lets one fetch start with
+  only one slot free, against `fetch_start_free`'s two at waits.
+- **An unused grant lapses.** If no fetch starts before the hold ends,
+  the grant ends with it.
+
+The odd `SHL AW,n (C1)` targets at 1 and 2 waits now match silicon apart
+from the single fetch itself, which comes 1–2 clocks late. That is the
+EU's count take, not the queue. At 0 waits the option hurts (214 exact
+0-wait windows), so it applies only at waits.
+
+| Spec (-rs, with tail and shift) | Error | Exact windows |
+| --- | --- | --- |
+| previous default | 50931 | 341 / 17 / 30 |
+| + `out_after_short` 2 | 46954 | 399 / 17 / 30 |
+| + `operand_hold_empty` at waits | 46375 | 399 / 17 / 30 |
+| the same at all waits | 48007 | 214 / 17 / 30 |
+
+On the original recordings the new default scores 41786 (exact windows
+346 / 9 / 19; exact fetch lists 208 / 66 / 61, up from 187 / 48 / 43).
+Both options are now in the `burst` profile. A refit pass makes the same
+moves as before (`mov_r8_imm` 3→4, `br_short`, `push_rm`): 46024, but
+396 exact 0-wait windows. The fitted costs were kept.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

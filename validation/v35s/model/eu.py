@@ -46,6 +46,7 @@ class EU:
         self.halted = False
         self.routine = None
         self.opcode_clock = 0
+        self.prev_length = 0           # bytes in the last instruction run
         self.operands = 0
         self.carry = 0
         self.prepopped = False
@@ -376,6 +377,7 @@ class EU:
                 yield from self._lookahead(self.execute(op), lookahead)
             else:
                 yield from self.execute(op)
+            self.prev_length = (self.pc - start_pc) & 0xFFFF
             # A routine whose last step overlaps the next opcode's word load.
             self.m.end_discount = 1 if self.routine_key() in self.costs["end_hide"] else 0
             if self.m.keys is not None:
@@ -1169,7 +1171,14 @@ class EU:
     def op_out(self, op):
         width = 2 if op & 1 else 1
         if op in (0xE6, 0xE7):
-            yield from self.step("out_imm")
+            # out_after_short: an OUT after a one-byte instruction runs this many clocks
+            # sooner ({"1": n, "3": m}: by the last instruction's length).
+            short = self.costs.get("out_after_short", 0)
+            if isinstance(short, dict):
+                short = short.get(str(self.prev_length), 0)
+            elif self.prev_length != 1:
+                short = 0
+            yield from self.step("out_imm", -short)
             port = yield from self.byte()
             yield from self.step("out_imm_post")
         else:
