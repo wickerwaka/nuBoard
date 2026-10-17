@@ -47,6 +47,7 @@ class EU:
         self.routine = None
         self.opcode_clock = 0
         self.prev_length = 0           # bytes in the last instruction run
+        self.prev_routine = None       # the last instruction's routine key
         self.operands = 0
         self.carry = 0
         self.prepopped = False
@@ -379,6 +380,7 @@ class EU:
             else:
                 yield from self.execute(op)
             self.prev_length = (self.pc - start_pc) & 0xFFFF
+            self.prev_routine = self.routine_key()
             # A routine whose last step overlaps the next opcode's word load.
             self.m.end_discount = 1 if self.routine_key() in self.costs["end_hide"] else 0
             if self.m.keys is not None:
@@ -1184,6 +1186,15 @@ class EU:
                 short = short.get(str(self.prev_length), 0)
             elif self.prev_length != 1:
                 short = 0
+            # out_after_rr: the same, by code wait states, after a register-form
+            # ALU, MOV, XCH or group 3 / 5 routine (out_after_rr_set).
+            if self.prev_routine in self.costs.get("out_after_rr_set", ()):
+                short = self.m._per_wait(self.costs.get("out_after_rr", 0), "mem",
+                                         self.linear(self.seg(PS), self.pc)) or 0
+            # out_short_take: the speed-up is the last instruction ending sooner, so
+            # the OUT's opcode counts as taken that much earlier for the I/O hold.
+            if self.costs.get("out_short_take") and self.m.io_take is not None:
+                self.m.io_take -= short
             yield from self.step("out_imm", -short)
             port = yield from self.byte()
             yield from self.step("out_imm_post")

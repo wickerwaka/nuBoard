@@ -106,9 +106,12 @@ but make different numbers of register reads and writes:
   isolated 6. The model gives it a pattern that varies by placement
   (+0 to +8 at 0 waits).
 
-The model already times each group as one, but it is 1 clock late on the
-move group and 0.5 clocks per instruction slow on the read-modify-write
-group at 0 waits. Fitting that is left for the model work.
+The model already times each group as one. The 1 clock it was late on
+the move group (and on every group's first `OUT`) is now fitted:
+`out_after_rr` (`docs/v35s-core-model.md`, "The OUT after a
+register-form instruction"). It is still 0.5 clocks per instruction slow
+on the read-modify-write group, and 1 per instruction on `TEST` at the
+even placement, at 0 waits.
 
 **Shifts read and write their operand once.** For `SHL word [BW],CL` and
 the other memory shifts the bus shows one read and one write whatever the

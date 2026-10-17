@@ -1692,6 +1692,79 @@ recordings the error goes from 41786 to 41519, exact windows from
   Neither was kept. This is the straddled-OUT EU cost noted under
   "An I/O fetch hold".
 
+#### The OUT after a register-form instruction (2026-10-17)
+
+The `regport` trains (`docs/v35s-eu-timing.md`, "Register traffic and
+the queue") put an `OUT` after 1–8 register-form instructions. At
+0 waits the model's I/O cycle was 1 clock late after every move/ALU and
+read-modify-write train, at every length and both placements. It was
+also late on `NOP NOP; MOV CW,AW; OUT`, `INC INC; ADD AW,CW; OUT` and the
+`p2-imm` `MOV CW,AW xN; OUT` runs. The fetch the I/O hold releases was
+1 clock late as well, so the `OUT`'s opcode is taken a clock sooner; the
+`OUT` itself is not shorter.
+
+- **`out_after_rr`** (per code wait setting) takes clocks off the `OUT`
+  when the previous routine is in `out_after_rr_set`. The set holds the
+  register forms of the ALU ops (00–3B, low bits 0–3), TEST, XCHG and MOV
+  (84–8B), and groups 3 and 5 for words (F7, FE, FF). F6 is left out
+  because `MULU CL` and `DIVU CL` lose 22 each with it.
+- **`out_short_take`** 1 moves the `OUT`'s opcode take, and with it the
+  I/O hold's release fetch, back by every `OUT` speed-up:
+  `out_after_short`, `out_after_prepop` and `out_after_rr`. This turned
+  out to be worth more than the new rule itself.
+
+| Spec (-rs, with tail, shift and regport) | Error | Exact windows | regport |
+| --- | --- | --- | --- |
+| previous default | 51304 | 409 / 17 / 30 | 5196 |
+| `out_after_short` 2 / 1 by length | 50594 | 402 / 17 / 30 | 4452 |
+| `prepop` + MOV/CMP/ADD/XCH | 50980 | 409 / 17 / 30 | 4728 |
+| `out_after_rr` 1 / 1 / 0 | 49728 | 411 / 17 / 30 | 4346 |
+| **+ `out_short_take`** | **48918** | **500 / 17 / 30** | **4172** |
+
+The regport corpora are now part of `fit_window`'s set, so the previous
+default's 46108 reads 51304 here. On the original recordings the error
+goes from 41519 to 40423. Exact windows go from 350 / 9 / 19 to
+392 / 9 / 19, and exact fetch lists from 213 / 69 / 61 to 254 / 69 / 61.
+
+**Rejected:**
+
+- **Speed-up by length** (2 after a one-byte instruction, 1 after a
+  two-byte one) loses on `MOV CL,imm8; OUT`, the `SHL AW,1; OUT` runs and
+  `MULU CL; OUT`.
+- **Pre-popping the move group** moves the right `OUT`, but drifts the
+  even trains by up to 10 clocks over 8 instructions.
+- **Taking the clock off the register-form instruction after a one-byte
+  one** breaks every isolated register-form case of `a6-timing`,
+  `p2-regform` and `p2-release`. The clock belongs to an instruction
+  followed by an `OUT`.
+- **Grid around the default.** None of these beat 1 / 1 / 0 with
+  `out_after_short` 2 and `out_after_prepop` 1 / 0 / 0: 2 at 0 waits,
+  2 at 1 wait, 1 at 2 waits, `out_after_short` 3, `out_after_prepop`
+  2 / 0 / 0 or 1 / 1 / 0.
+- **Changing the set.** Dropping TEST (84/85), dropping F7/FE/FF, or
+  adding D0–D3, F6 or C0/C1/C6/C7 all lose.
+
+One exception is left: `MOV CL,imm8; MOV CW,AW; OUT` and
+`MOV CL,imm8; ADD AW,CW; OUT` were exact without the rule and are now
+1 clock early.
+
+**What regport still shows (0 waits):**
+
+- **The read-modify-write trains.** `NOT`, `NEG` and `INC` (FF) run at
+  5.5 clocks each against the model's 6: the I/O cycle is 3 clocks late
+  after 8. Silicon fetches in back-to-back pairs every 11 clocks, as if
+  two word slots free together every other instruction. The model frees
+  one slot per instruction. Pre-popping the group, with or without
+  `preload_alternate`, does worse.
+- **`TEST AW,AW` at the even placement** runs at 6 clocks each against
+  silicon's 5 (+7 after 8). It fetches in pairs every 10 clocks.
+  `test_rr` 3 without `mid_hide` 85 times it right, but costs as much
+  elsewhere once `out_after_rr` is in. Not kept.
+- **The odd placement** misses one fetch in the move trains, as in
+  "Fetches during a long register-form instruction".
+- **At waits** the move group is still 1 to 2 clocks late at the odd
+  placement.
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

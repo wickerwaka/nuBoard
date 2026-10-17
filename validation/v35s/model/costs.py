@@ -174,6 +174,10 @@ COSTS["out_after_short"] = 0                 # clocks an OUT imm8 saves after a 
                                              # ({"1": n, "2": m}: by the last instruction's length)
 COSTS["out_after_prepop"] = None             # the same when that instruction pre-popped the OUT's
                                              # opcode ({"0": n, ..} per code wait states; None: as above)
+COSTS["out_after_rr"] = 0                    # the same after a routine in out_after_rr_set
+COSTS["out_after_rr_set"] = set()            # ({"0": n, ..} per code wait states)
+COSTS["out_short_take"] = 0                  # 1: the speed-ups above also move the OUT's opcode
+                                             # take, and so its I/O hold release, that much earlier
 COSTS["operand_hold_release"] = ""           # "end" (or {"1": "end", ..}): the hold ends with its
                                              # instruction, whatever bytes are left
 COSTS["preload_alternate"] = 0               # 1: no pre-load right after a pre-load
@@ -249,6 +253,12 @@ PROFILES = {
         # none at waits when that instruction pre-popped it ("The OUT after INC and CVTWL").
         "operand_hold_empty": {"1": 1, "2": 1}, "out_after_short": 2,
         "out_after_prepop": {"0": 1, "1": 0, "2": 0},
+        # The same 1 clock at 0 and 1 waits after a register-form ALU, MOV, XCH, TEST or
+        # group 3 / 5 instruction (not group 2's F6, which holds MULU / DIVU), and every
+        # speed-up moves the OUT's take with it ("Register traffic and the queue").
+        "out_after_rr": {"0": 1, "1": 1, "2": 0}, "out_short_take": 1,
+        "out_after_rr_set": {f"{op:X}r" for op in [*(op for op in range(0x40) if op & 7 < 4),
+                                                   *range(0x84, 0x8C), 0xF7, 0xFE, 0xFF]},
         "alu_acc_imm1": 3, "bcond": 7, "bcwz": 7, "br_short": 14, "branch_taken": 12, "call_far": 21,
         "dbnz": 10, "dbnz_cond": 7, "div16": 59, "div8": 51, "divu8": 32, "ldea": 1, "pop_all": 50,
         "push_r": 4, "test_r_imm": 5, "trap_entry": 31, "trap_exit": 8, "clr1_m_imm": 4, "mov_load": 6,
