@@ -1631,6 +1631,67 @@ Both options are now in the `burst` profile. A refit pass makes the same
 moves as before (`mov_r8_imm` 3→4, `br_short`, `push_rm`): 46024, but
 396 exact 0-wait windows. The fitted costs were kept.
 
+#### The OUT after INC and CVTWL (2026-10-17)
+
+`INC AW` and `CVTWL` are both in `prepop`, so the model already starts
+the `OUT`'s opcode inside their last clocks. `out_after_short` 2 on top
+of that over-counts the overlap. The `X xN; OUT` runs of `p2-eu` (model
+I/O cycle minus silicon's, sum of |offset| at 0 / 1 / 2 waits, scratch
+`dsum.py`):
+
+| Spec | INC AW x1–8 | CVTWL x1–4 | NOP x1–6 |
+| --- | --- | --- | --- |
+| `out_after_short` 2 (the last default) | 16 / 24 / 60 | 6 / 14 / 24 | 0 / 4 / 4 |
+| 0 after a pre-pop | 32 / 20 / 30 | 10 / 6 / 8 | 0 / 4 / 4 |
+| 1 / 0 / 0 after a pre-pop | 18 / 20 / 30 | 4 / 6 / 8 | 0 / 4 / 4 |
+
+`out_after_prepop` (per code wait setting) replaces `out_after_short`
+when the instruction before the `OUT` pre-popped its opcode. With
+1 / 0 / 0, CVTWL is centred at every wait setting.
+
+| Spec (-rs, with tail and shift) | Error | Exact windows |
+| --- | --- | --- |
+| previous default | 46375 | 399 / 17 / 30 |
+| `out_after_prepop` 0 | 46324 | 401 / 17 / 30 |
+| `out_after_prepop` 1 | 46161 | 403 / 17 / 30 |
+| **`out_after_prepop` 1 / 0 / 0** | **46108** | **403 / 17 / 30** |
+| `out_after_prepop` 1 / 0 / −1 | 46087 | 403 / 17 / 30 |
+
+1 / 0 / 0 is the new default. The −1 at 2 waits gains 21, which is too
+little to justify a pre-pop that slows the `OUT`. On the original
+recordings the error goes from 41786 to 41519, exact windows from
+346 / 9 / 19 to 350 / 9 / 19, and exact fetch lists from 208 / 66 / 61 to
+213 / 69 / 61.
+
+**What INC still gets wrong.**
+
+- **The INC chain at 0 waits.** Silicon's I/O times step by 2, 4, 1, 3
+  per added INC, so 10 clocks per 4 INCs (2.5 each). The model steps by
+  2, 4, 2, 4 (3 each), so its error goes from 0 at x1 to +2 or +3 at x8.
+  The pattern repeats every two words, as if silicon pays a 2-clock word
+  load on alternate words. The model hides that load in the pre-pop's
+  carried clocks (`carry -= clock - asked`).
+- **Not keeping the load wait.** Keeping that wait out of the carry, with
+  `incdec_r16` 2, fits the INC runs (12 / 16 / 20) but scores 49532 for
+  every pre-pop routine and 46661 for INC/DEC alone, against 46108. The pre-pop set and
+  the other costs were fitted with the wait absorbed.
+- **Dropping INC from `prepop`** with `incdec_r16` 2 gives 16 / 16 / 16
+  but 47310 against 46375 (both without `out_after_prepop`). The held
+  and release probes' INC phases need the pre-pop.
+- **The straddled OUT at waits.** At 1 wait the error is periodic (0 to
+  −4 by placement), not a drift. In the worst runs silicon withholds a
+  fetch until 4 clocks before the I/O cycle, and that fetch then delays
+  the cycle. The model releases its hold 3 clocks after the take: the
+  INC's pre-pop has already loaded the port byte's word. Two variants were
+  tried:
+  - **Holding while the instruction before the OUT finishes**
+    (`io_hold_at` "late"): 49894 against 46375; at waits only, 46804.
+  - **Releasing a straddled port byte only at its take**: 72063; at waits
+    only, 55616.
+
+  Neither was kept. This is the straddled-OUT EU cost noted under
+  "An I/O fetch hold".
+
 ### Branches
 
 - **Prefetch suspend (implemented, nuV30's SUSP):** a decided transfer stops

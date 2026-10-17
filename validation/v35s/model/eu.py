@@ -50,6 +50,7 @@ class EU:
         self.operands = 0
         self.carry = 0
         self.prepopped = False
+        self.after_prepop = False      # this instruction's opcode was pre-popped by the last one
 
     # -- registers --------------------------------------------------------
 
@@ -345,7 +346,7 @@ class EU:
                         yield ("preload",)
                     if carry > 0:
                         yield ("clocks", carry)
-                self.prepopped = False
+                self.after_prepop, self.prepopped = self.prepopped, False
                 if self.m.log is not None:
                     self.m.log.append((self.m.clock, (self.pc - 1) & 0xFFFF, op))
                 if op in self.m.costs.get("data_hold", ()):
@@ -1173,7 +1174,12 @@ class EU:
         if op in (0xE6, 0xE7):
             # out_after_short: an OUT after a one-byte instruction runs this many clocks
             # sooner ({"1": n, "3": m}: by the last instruction's length).
+            # out_after_prepop: the same, by code wait states ({"0": n, ..}), when that
+            # instruction pre-popped the OUT's opcode.
             short = self.costs.get("out_after_short", 0)
+            if self.after_prepop and self.costs.get("out_after_prepop") is not None:
+                short = self.m._per_wait(self.costs["out_after_prepop"], "mem",
+                                         self.linear(self.seg(PS), self.pc)) or 0
             if isinstance(short, dict):
                 short = short.get(str(self.prev_length), 0)
             elif self.prev_length != 1:
