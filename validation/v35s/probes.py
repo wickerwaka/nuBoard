@@ -25,7 +25,8 @@ even-length form reads exactly at one placement, so it runs once.
                depth counts the words fetched during a long instruction;
                setup times the prelude's own instruction sequence;
                shift times long register-form instructions' ends with
-               an OUT after 0-4 NOPs
+               an OUT after 0-4 NOPs; regport runs trains of two-byte
+               register forms of equal cost but different register traffic
 
 Functional cases dump values with OUT 22h,AW; trap stubs report on port 24h
 (timing.TRAP_PORT). Both show up in each run's io list.
@@ -749,6 +750,27 @@ def shift_cases():
     return cases
 
 
+# Two-byte register forms grouped by EU cost, with different register-port
+# traffic within a group (M3: a move is 3, a read-modify-write 6).
+REGPORT_FORMS = [("MOV CW,AW", [0x89, 0xC1]), ("CMP AW,CW", [0x39, 0xC8]), ("ADD AW,CW", [0x01, 0xC8]),
+                 ("XCH CW,AW", [0x87, 0xC1]), ("NOT AW", [0xF7, 0xD0]), ("NEG AW", [0xF7, 0xD8]),
+                 ("TEST AW,AW", [0x85, 0xC0]), ("INC AW (FF)", [0xFF, 0xC0]), ("NOP NOP", [0x90, 0x90])]
+
+
+def regport_cases():
+    """Does register access compete with the queue? Trains of k two-byte
+    register forms, then OUT 40h,AL; forms of equal cost differ in how many
+    register reads and writes they make. Both placements. Run with --prc 0C
+    as well for RAMEN = 0."""
+    regs = {"AW": 0x0012, "CW": 0x0003, "DW": 0x0000, "SP": 0x0F00, "IX": 0x0800, "IY": 0x0A00,
+            "BW": 0x0800, "DS0": 0, "DS1": 0}
+    cases = []
+    for name, code in REGPORT_FORMS:
+        for k in (1, 2, 4, 8):
+            cases += form("regport", f"{name} x{k}; OUT", code * k + [0xE6, 0x40], regs, both=True)
+    return cases
+
+
 SUITES = {
     "regs": regs_cases,
     "ea": ea_cases,
@@ -771,4 +793,5 @@ SUITES = {
     "depth": depth_cases,
     "setup": setup_cases,
     "shift": shift_cases,
+    "regport": regport_cases,
 }

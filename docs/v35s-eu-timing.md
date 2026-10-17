@@ -70,6 +70,68 @@ same operation can differ:
   RETI (`Case.bank` in `timing.py`). A read of that bank's AW slot returns
   the live AW, which confirms the switch.
 
+### Register traffic and the queue (`regport`, 2026-10-17)
+
+The suite runs trains of k two-byte register forms (k = 1, 2, 4, 8), then
+`OUT 40h,AL`, at both placements. It was recorded at 0, 1 and 2 waits,
+each with RAMEN = 1 (PRC 4C) and RAMEN = 0 (PRC 0C), with the resync
+prelude. The corpora are `p2-regport[-w1|-w2]-rs` and
+`p2-regport-ramen0[-w1|-w2]-rs`. The forms within a group cost the same
+but make different numbers of register reads and writes:
+
+| Group | Forms | Register accesses |
+| --- | --- | --- |
+| move / ALU | `MOV CW,AW`, `CMP AW,CW`, `ADD AW,CW`, `XCH CW,AW` | 1r 1w, 2r, 2r 1w, 2r 2w |
+| read-modify-write | `NOT AW`, `NEG AW`, `INC AW` (FF /0) | 1r 1w each |
+| — | `TEST AW,AW` | 2r (or 1r) |
+| control | `NOP NOP` | none |
+
+- **Within a group, every run is identical** at every wait setting: the
+  `OUT`'s cycle and every code fetch fall on the same clock. `XCH`, with
+  four register accesses, times exactly like `CMP`, with two reads.
+- **RAMEN makes no difference:** all 216 runs are identical between
+  RAMEN = 1 and RAMEN = 0.
+- **Fetches are not slowed by register traffic.** Fetches run back to back
+  during move trains (3 clocks apart at 0 waits) whatever the form. If
+  register accesses used a port shared with the queue's writes or its
+  word loads, the fetch times would differ within a group.
+- **The read-modify-write cost is not a port count.** M3's 6 against 3
+  cannot come from serialized reads and writes on one port: `XCH` makes
+  more accesses than `NOT` and costs 3. The extra clocks belong to the
+  unary micro-routine (group 3, F6 / F7 and FE / FF), not to the register
+  file.
+- **`TEST AW,AW` costs half a clock less per instruction** than the
+  read-modify-write forms: 116 against 120 after 8 at 0 waits, and 96
+  against 98 after 4. That puts it at about 5.5 in a train, against M3's
+  isolated 6. The model gives it a pattern that varies by placement
+  (+0 to +8 at 0 waits).
+
+The model already times each group as one, but it is 1 clock late on the
+move group and 0.5 clocks per instruction slow on the read-modify-write
+group at 0 waits. Fitting that is left for the model work.
+
+**Shifts read and write their operand once.** For `SHL word [BW],CL` and
+the other memory shifts the bus shows one read and one write whatever the
+count, and the write carries the final value. The per-count cost is
+2 clocks in both the memory and the register forms (12 + 2n, and 23 + 2n
+for memory with CL). So the loop runs on an internal temporary, not on
+the operand. For the register form this is inferred: internal-RAM
+accesses are not visible on the bus.
+
+**Reads that write nothing pay the RAMEN penalty.** Comparing `a6-timing`
+with `m2-a6-ramen0` case by case:
+
+| Kind | Cases | RAMEN = 1 − RAMEN = 0 |
+| --- | --- | --- |
+| no data cycles | 313 | 0, with identical fetches |
+| reads that write a register | 97 | 0 |
+| `CMP mem`, `CHKIND`, `CMPBKB` / `CMPBKW` | 10 | +2 to +3 |
+| `POP R`, `RETI` | 4 / 1 | +18 / +5 |
+
+`CMP`, `CHKIND` and `CMPBK` write neither memory nor a register, yet pay
+most of the write penalty. They probably run the memory form's write-back
+step with the write suppressed. That is not modelled yet.
+
 ## Effective address (M4)
 
 Every mod/rm, for word loads, byte loads, stores, `ADD reg,mem`,
