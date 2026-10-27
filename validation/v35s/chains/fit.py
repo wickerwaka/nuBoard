@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .derive import variant_of
+from .families import FAMILIES
 from .score import aligned
 from .sim.config import DEFAULT, OPTIONS, Config
 
@@ -733,9 +734,14 @@ def diff_cfg(a: Config, b: Config) -> dict:
 # count over every recorded family (TIE_FAMILIES, not only the stage's), then on the events
 # matched before the first miss there, then on the residual; every tie is recorded in the
 # stage JSON as a finding.
+#
+# TIE_FAMILIES is derived from families.FAMILIES (in its order) so a new family cannot be
+# left out. Since 2026-10-27 the refresh-on families F13, F17 and F18 are in, so a tie is a
+# tie on every family; before that the explicit list lacked them, and a tie that differed
+# only on refresh-on runs was decided by enumeration order (see docs "The fitter's stage 6
+# under the family guard").
 
-TIE_FAMILIES = ["F0", "F0w", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10",
-                "F11", "F12", "F14", "F15", "F16", "F19", "F20", "F21", "F22"]
+TIE_FAMILIES = list(FAMILIES)
 TIE_IDS = None                # run ids of the tie-break (None: every run of TIE_FAMILIES)
 _TB: dict = {}
 
@@ -822,7 +828,6 @@ _CORPUS_MEMO: dict = {}
 
 def corpus_guard_ids(families=None) -> list[str]:
     """The run ids of every family with recorded data (or of families)."""
-    from .families import FAMILIES
     ids = []
     for fam in families or FAMILIES:
         try:

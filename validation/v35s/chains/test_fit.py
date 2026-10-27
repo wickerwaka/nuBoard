@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 from validation.v35s.chains import fit
-from validation.v35s.chains.families import generate
+from validation.v35s.chains.families import FAMILIES, generate
 from validation.v35s.chains.score import aligned
 from validation.v35s.chains.sim.config import DEFAULT
 from validation.v35s.chains.sim.machine import simulate_normalized
@@ -140,6 +140,11 @@ class JointMoves(unittest.TestCase):
         self.assertEqual(best.cfg.refresh_mul, "plain")
         self.assertEqual([t["value"] for t in rec["ties"]], ["loop"])
         self.assertTrue(rec["ties"][0]["inert"])
+
+    def test_tie_families_are_every_family(self):
+        # the tie-break counts exact runs over every family, in FAMILIES order (F13, F17
+        # and F18, the refresh-on families, were once left out of an explicit list)
+        self.assertEqual(fit.TIE_FAMILIES, list(FAMILIES))
 
     def test_pick_breaks_a_tie_on_every_family(self):
         a = fit.score_many([self.truth], self.ids[:4])[0]

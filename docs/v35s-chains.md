@@ -5990,9 +5990,17 @@ The thirty-second fit's files are in `wp43b/`, the thirty-third's in
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");
 stage 4 and a whole-corpus descent of `REG_INTS` re-run with the corrected
-key moved nothing (same section; `stage4.json` is that re-run's). Open on the fitter: `TIE_FAMILIES` leave out F13, F17 and
-F18, so a tie there can hide a refresh-on difference and the grid's
-order then picks; adding them makes every tie a tie on every family.
+key moved nothing (same section; `stage4.json` is that re-run's). Since
+2026-10-27 `TIE_FAMILIES` is `families.FAMILIES` (a test pins it), so the
+refresh-on families F13, F17 and F18 are in the tie-break and a tie is a
+tie on every family; before, a tie that differed only there was decided
+by the grid's order. Under the full set the thirty-third fit's tie-break
+count is 18,961 exact / 261,277 matched; of the stage-4 re-run's seven
+recorded ties two flips (`abort_latched=any`, `room_ir_ready=False`)
+stay exact ties on every family and the other four (`io_take_nx=False`
+−64, `modrm_port=False` −10, `nop_hold=none` −8, `nop_hold=io` −2) lose
+exactly what they lost on the old set, so for those the refresh-on
+families change nothing.
 
 Dropped with evidence in the fourth fit: `mem_order` lead/lead_ea and EA
 clocks as setup (held the back-to-back fetch), a run-aware b2b arbiter
@@ -7247,9 +7255,10 @@ chose nothing. Stage 6 then ran every grid from the hand fit under the
 family guard and gained nothing; its ties, scored one by one as flips
 of the hand fit over every family, gave the thirty-third fit's one rule
 (the I/O setup counted from the post, +2 −0) and showed that the
-fitter's tie-break families, which leave out the refresh-on ones, let
-it pick by enumeration order among alternatives that are not equal on
-the whole corpus; the hand fit, not the fitter's output, is the fit.
+fitter's tie-break families, which then left out the refresh-on ones,
+let it pick by enumeration order among alternatives that are not equal
+on the whole corpus (every family is in the tie-break since 2026-10-27);
+the hand fit, not the fitter's output, is the fit.
 F13 (462 runs) settled the refresh facts (the RFM fields, the
 length − 2 stall, the loop-boundary acceptance, MULU) in one family, but
 its rule search ended in a per-run alignment, which this record keeps
@@ -7279,8 +7288,6 @@ the thirtieth fit's open states and the cells under 20 runs), read to
 their states with no rule, when a state separates one of them; the
 six F22 runs of `TEST [BW+200h],imm16` after the OUT marker (item 1)
 when a state separates them from the chains' cells; the fitter's
-tie-break families (F13, F17 and F18 added to `TIE_FAMILIES`, so that a
-tie is a tie on every family) and its stage objectives
-(the seeded pipeline's start file, its stage-3 `request_eval` choice
+stage objectives (the seeded pipeline's start file, its stage-3 `request_eval` choice
 and its stage-5 basin, stage 6 and 7 under the corpus guard) when it is
 next touched.
