@@ -1,0 +1,489 @@
+"""Offline tests of the staged fitter (fit.py)."""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import unittest
+from unittest import mock
+
+from validation.v35s.chains import fit
+from validation.v35s.chains.families import generate
+from validation.v35s.chains.score import aligned
+from validation.v35s.chains.sim.config import DEFAULT
+from validation.v35s.chains.sim.machine import simulate_normalized
+
+
+def _synthetic_runs(truth, families=("F1",), prefix="syn-"):
+    """Runs whose 'silicon' is the model under `truth` (ids prefixed to stay apart)."""
+    runs = []
+    for chain in generate(list(families), waits=(0, 1), parities=("even", "odd")):
+        n = simulate_normalized(chain, truth)
+        runs.append(fit.Run(prefix + chain.id, chain.family, chain.parity, chain.waits,
+                            chain.marker_kind, chain.id, chain.knobs.get("k"), chain, n.chain_base,
+                            aligned(n), n.t_fill))
+    fit.synthetic(runs)
+    return [r.run_id for r in runs]
+
+
+class StageMachinery(unittest.TestCase):
+    """Grid enumeration, scoring and descent recover a known synthetic truth."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = fit.JOBS
+        fit.JOBS = 1
+        cls.truth = DEFAULT.replace(**{"push.setup": 8, "store.pre": 1})
+        cls.ids = _synthetic_runs(cls.truth)
+        fit.TIE_IDS = cls.ids
+
+    @classmethod
+    def tearDownClass(cls):
+        fit.JOBS = cls.jobs
+        fit.TIE_IDS = None
+
+    def test_truth_is_exact(self):
+        s = fit.score_many([self.truth], self.ids)[0]
+        self.assertEqual(s.exact, len(self.ids))
+        self.assertEqual(s.resid, 0)
+
+    def test_grid_enumerates_and_filters(self):
+        cfgs = fit.grid(DEFAULT, {"room_ir": (False, True), "opcode_take": ("prefetch", "start"),
+                                  "opcode_overlap": (0, 1)})
+        # overlap=1 only with opcode_take=start: 2 x (1 + 2) combinations
+        self.assertEqual(len(cfgs), 6)
+
+    def test_descent_recovers_integers(self):
+        start = fit.score_many([DEFAULT], self.ids)[0]
+        self.assertLess(start.exact, len(self.ids))
+        best = fit.descend(start, ["push.setup", "store.pre"], self.ids)
+        self.assertEqual(best.exact, len(self.ids))
+        self.assertEqual(fit.getp(best.cfg, "push.setup"), 8)
+        self.assertEqual(fit.getp(best.cfg, "store.pre"), 1)
+
+    def test_search_keeps_the_true_structure(self):
+        wrong = self.truth.replace(hold_fetch=False)
+        best, finals, _ = fit._search([wrong], {"hold_fetch": (True, False)}, ["push.setup"],
+                                   self.ids, [], lambda *a: None, top_k=2, label="t")
+        self.assertEqual(best.exact, len(self.ids))
+        self.assertIs(best.cfg.hold_fetch, True)
+
+    def test_knob_dependence_flags_a_per_knob_value(self):
+        # 'silicon' whose push.setup is 8 at waits 0 and 9 at waits 1: the
+        # diagnostic must report push.setup as waits-dependent.
+        ids = []
+        for w, v in ((0, 8), (1, 9)):
+            t = DEFAULT.replace(**{"push.setup": v})
+            for chain in generate(["F1"], waits=(w,), parities=("even",)):
+                if chain.marker_kind != "push":
+                    continue
+                n = simulate_normalized(chain, t)
+                rid = f"kd-{chain.id}"
+                fit.synthetic([fit.Run(rid, chain.family, chain.parity, chain.waits,
+                                       chain.marker_kind, chain.id, None, chain, n.chain_base,
+                                       aligned(n), n.t_fill)])
+                ids.append(rid)
+        found = fit.knob_dependence(DEFAULT.replace(**{"push.setup": 8}), ["push.setup"], ids,
+                                    log=lambda *a: None)
+        self.assertIn("push.setup", found)
+        self.assertEqual({k: v[0] for k, v in found["push.setup"]["waits"].items()},
+                         {"0": 8, "1": 9})
+
+    def test_diff_cfg(self):
+        b = DEFAULT.replace(room_ir=True, **{"out.nx": 4})
+        self.assertEqual(fit.diff_cfg(DEFAULT, b), {"room_ir": True, "out.nx": 4})
+
+
+class JointMoves(unittest.TestCase):
+    """The enum sweep (integers descended inside every enum move) and the tie-break."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = fit.JOBS
+        fit.JOBS = 1
+        cls.truth = DEFAULT.replace(write_wait="end", **{"push.setup": 8, "store.pre": 1})
+        cls.ids = _synthetic_runs(cls.truth, prefix="joint-")
+        fit.TIE_IDS = cls.ids
+
+    @classmethod
+    def tearDownClass(cls):
+        fit.JOBS = cls.jobs
+        fit.TIE_IDS = None
+
+    def test_sweep_moves_an_enum_with_its_integers(self):
+        start = fit.score_many([DEFAULT], self.ids)[0]
+        best, rec = fit.enum_sweep(start, {"write_wait": ("issue", "end", "mem_end")},
+                                   ["push.setup", "store.pre"], self.ids, [],
+                                   log=lambda *a: None)
+        self.assertEqual(best.exact, len(self.ids))
+        self.assertEqual(best.cfg.write_wait, "end")
+        self.assertEqual(fit.getp(best.cfg, "push.setup"), 8)
+        self.assertEqual(rec["moves"][0]["enum"], "write_wait")
+
+    def test_group_grid_moves_coupled_values_with_integers(self):
+        # no single alternative (enums {}): the group's grid, descended inside, finds it
+        start = fit.score_many([DEFAULT], self.ids)[0]
+        best, rec = fit.enum_sweep(start, {}, ["push.setup", "store.pre"], self.ids, [],
+                                   log=lambda *a: None,
+                                   groups={"g": {"write_wait": ("issue", "end", "mem_end"),
+                                                 "hold_run": (False, True)}})
+        self.assertEqual(best.exact, len(self.ids))
+        self.assertEqual(best.cfg.write_wait, "end")
+        self.assertEqual(rec["moves"][0]["enum"], "g")
+
+    def test_inert_enum_is_recorded_as_a_tie(self):
+        # no F1 chain reads a refresh option with refresh off: a tie, not a move
+        start = fit.score_many([self.truth], self.ids)[0]
+        best, rec = fit.enum_sweep(start, {"refresh_mul": ("plain", "loop")}, ["push.setup"],
+                                   self.ids, [], log=lambda *a: None)
+        self.assertEqual(best.cfg.refresh_mul, "plain")
+        self.assertEqual([t["value"] for t in rec["ties"]], ["loop"])
+        self.assertTrue(rec["ties"][0]["inert"])
+
+    def test_pick_breaks_a_tie_on_every_family(self):
+        a = fit.score_many([self.truth], self.ids[:4])[0]
+        b = fit.score_many([self.truth.replace(**{"push.setup": 6})], self.ids[:4])[0]
+        a.guard = b.guard = 0
+        a.exact = b.exact = 1          # forced tie on the stage's exact runs
+        best, ties = fit.pick([b, a])
+        self.assertIs(best, a)         # the truth gets every recorded run
+        self.assertEqual(len(ties), 1)
+        self.assertEqual(ties[0]["chosen_all_exact"], len(self.ids))
+
+
+class CorpusGuard(unittest.TestCase):
+    """(WP26) The whole-corpus guard: a move of the descent, the enum sweep or the stage grid
+    is accepted only if no family of the guard corpus loses an exact run."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = fit.JOBS
+        fit.JOBS = 1
+        # a stage family whose 'silicon' wants push.setup 8, one that wants write_wait=end,
+        # and a family outside the stage recorded with the defaults
+        cls.goal = DEFAULT.replace(**{"push.setup": 8})
+        cls.goal_enum = DEFAULT.replace(write_wait="end")
+        cls.stage = cls._runs(cls.goal, "SYNA", "cga-")
+        cls.stage_enum = cls._runs(cls.goal_enum, "SYNC", "cgc-")
+        cls.other = cls._runs(DEFAULT, "SYNB", "cgb-")
+        fit.TIE_IDS = cls.stage
+
+    @staticmethod
+    def _runs(truth, family, prefix):
+        runs = []
+        for chain in generate(["F1"], waits=(0,), parities=("even", "odd")):
+            if chain.marker_kind != "push":
+                continue
+            n = simulate_normalized(chain, truth)
+            runs.append(fit.Run(prefix + chain.id, family, chain.parity, chain.waits,
+                                chain.marker_kind, chain.id, chain.knobs.get("k"), chain,
+                                n.chain_base, aligned(n), n.t_fill))
+        fit.synthetic(runs)
+        return [r.run_id for r in runs]
+
+    @classmethod
+    def tearDownClass(cls):
+        fit.JOBS = cls.jobs
+        fit.TIE_IDS = None
+        fit.CORPUS_GUARD = None
+        fit.CORPUS_MODE = "family"
+        fit.CORPUS_REF = None
+
+    def tearDown(self):
+        fit.CORPUS_GUARD = None
+        fit.CORPUS_MODE = "family"
+        fit.CORPUS_REF = None
+
+    def test_a_family_may_recover_up_to_the_stage_input(self):
+        # the stage input is the goal; a seed moved the start to the default, where SYNB is
+        # exact and SYNA is not: moving back loses SYNB against the start, but SYNB stays at
+        # its count in the input (0), so the move is admissible; below the input it is not
+        fit.CORPUS_GUARD = self.stage + self.other
+        self.assertFalse(fit.corpus_ok(DEFAULT, self.goal))
+        fit.CORPUS_REF = self.goal
+        self.assertTrue(fit.corpus_ok(DEFAULT, self.goal))
+        fit.CORPUS_REF = DEFAULT
+        self.assertFalse(fit.corpus_ok(DEFAULT, self.goal))
+        fit.CORPUS_MODE = "run"
+        fit.CORPUS_REF = self.goal
+        self.assertTrue(fit.corpus_ok(DEFAULT, self.goal))
+
+    def test_losses_are_counted_per_family(self):
+        fit.CORPUS_GUARD = self.stage + self.other
+        lost = fit.corpus_losses(DEFAULT, self.goal)
+        self.assertEqual(lost, {"SYNB": len(self.other)})
+        self.assertFalse(fit.corpus_ok(DEFAULT, self.goal))
+        self.assertTrue(fit.corpus_ok(DEFAULT, DEFAULT))
+        self.assertEqual(fit.corpus_losses(self.goal, DEFAULT), {"SYNA": len(self.stage)})
+
+    def test_descent_without_guard_trades_the_other_family(self):
+        start = fit.score_many([DEFAULT], self.stage)[0]
+        best = fit.descend(start, ["push.setup"], self.stage)
+        self.assertEqual(fit.getp(best.cfg, "push.setup"), 8)
+        self.assertEqual(best.exact, len(self.stage))
+
+    def test_descent_refuses_a_move_that_loses_a_family(self):
+        fit.CORPUS_GUARD = self.stage + self.other
+        start = fit.score_many([DEFAULT], self.stage)[0]
+        best = fit.descend(start, ["push.setup"], self.stage)
+        self.assertNotEqual(fit.getp(best.cfg, "push.setup"), 8)
+        self.assertFalse(fit.corpus_losses(start.cfg, best.cfg))
+
+    def test_enum_sweep_refuses_an_enum_that_loses_a_family(self):
+        start = fit.score_many([DEFAULT], self.stage_enum)[0]
+        enums = {"write_wait": ("issue", "end", "mem_end")}
+        free, _ = fit.enum_sweep(start, enums, ["push.setup"], self.stage_enum, [],
+                                 log=lambda *a: None)
+        self.assertEqual(free.cfg.write_wait, "end")
+        fit.CORPUS_GUARD = self.stage_enum + self.other
+        held, rec = fit.enum_sweep(start, enums, ["push.setup"], self.stage_enum, [],
+                                   log=lambda *a: None)
+        self.assertFalse(fit.corpus_losses(DEFAULT, held.cfg))
+        self.assertEqual(held.cfg.write_wait, DEFAULT.write_wait)
+        self.assertEqual(rec["moves"], [])
+
+    def test_search_refuses_a_grid_start_that_loses_a_family(self):
+        fit.CORPUS_GUARD = self.stage_enum + self.other
+        best, finals, _ = fit._search([DEFAULT], {"write_wait": ("issue", "end")}, [],
+                                      self.stage_enum, [], lambda *a: None, top_k=2,
+                                      label="t")
+        self.assertEqual(best.cfg.write_wait, DEFAULT.write_wait)
+        self.assertTrue(all(f.cfg.write_wait == DEFAULT.write_wait for f in finals))
+
+    def test_family_mode_allows_a_trade_inside_a_family_run_mode_does_not(self):
+        # one family label over both halves: the move to the goal gains as many runs of
+        # it as it loses
+        fit.CORPUS_GUARD = self.stage + self.other
+        for i in self.stage + self.other:
+            fit._DATA[i].family = "SYNX"
+        fit.cache_clear()
+        try:
+            self.assertTrue(fit.corpus_ok(DEFAULT, self.goal))
+            fit.CORPUS_MODE = "run"
+            self.assertFalse(fit.corpus_ok(DEFAULT, self.goal))
+        finally:
+            for i in self.stage:
+                fit._DATA[i].family = "SYNA"
+            for i in self.other:
+                fit._DATA[i].family = "SYNB"
+            fit.cache_clear()
+
+
+class Seeds(unittest.TestCase):
+    """Seeds are data files (fit/seeds/stageN.json) that every stage records."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = fit.OUT_DIR
+        fit.OUT_DIR = Path(self.tmp.name)
+
+    def tearDown(self):
+        fit.OUT_DIR = self.out
+        self.tmp.cleanup()
+
+    def test_missing_seed_is_no_seed(self):
+        # from scratch: without a seed file a stage starts from the previous stage's output
+        for stage in (2, 3, 5, 8):
+            values, record = fit.load_seed(stage)
+            self.assertEqual(values, {})
+            self.assertIsNone(record["file"])
+        self.assertFalse(fit.seeds_dir().exists())
+
+    def test_write_seeds_is_opt_in(self):
+        fit.write_seeds()
+        values, record = fit.load_seed(3)
+        self.assertEqual(values, json.loads(json.dumps(fit.STAGE3_SEED)))
+        self.assertEqual(fit.load_seed(8)[0], fit.REFRESH_SEED)
+        self.assertEqual(record["values"], values)
+
+    def test_seed_file_overrides_the_defaults(self):
+        fit.seeds_dir().mkdir(parents=True)
+        (fit.seeds_dir() / "stage2.json").write_text(json.dumps({"word_latch": "byte"}))
+        values, record = fit.load_seed(2)
+        self.assertEqual(values, {"word_latch": "byte"})
+        self.assertTrue(record["file"].endswith("stage2.json"))
+
+    def test_stage2_records_its_seed(self):
+        # a one-structure grid: the payload carries the seed it was built on
+        jobs, fit.JOBS = fit.JOBS, 1
+        try:
+            ids = fit.load(["F0"])
+        except FileNotFoundError:
+            raise unittest.SkipTest("no F0 corpus entries")
+        finally:
+            fit.JOBS = jobs
+        jobs, fit.JOBS = fit.JOBS, 1
+        try:
+            out = fit.stage2(DEFAULT, log=lambda *a: None,
+                             options={"room_ir": ("arrival_idle",)}, seed=fit.STAGE2_SEED)
+        finally:
+            fit.JOBS = jobs
+        self.assertEqual(out["seed"]["values"], fit.STAGE2_SEED)
+        self.assertEqual(fit.Config.from_json(out["base"]).word_latch, "byte_d")
+
+    def test_release_criterion_selects_f2_f9_push(self):
+        truth = DEFAULT
+        ids = _synthetic_runs(truth, families=("F2", "F1"), prefix="crit-")
+        crit = fit._criterion_ids(ids)
+        self.assertTrue(crit)
+        self.assertTrue(all(fit._DATA[i].family == "F2" and fit._DATA[i].marker == "push"
+                            for i in crit))
+
+
+class CacheAndGrids(unittest.TestCase):
+    """The result cache's limit and per-grid reset, and stage 6's resumable grid sequence."""
+
+    NAMES = ["ARB_ENUMS", "QUEUE_REVISIT", "STORAGE_REVISIT", "IO_REVISIT",
+             "IO_FOLLOWER_REVISIT", "OUT_REVISIT", "OUT_REVISIT2", "F20_REVISIT",
+             "WP32_REVISIT", "WP33_STAGE6", "LATCH_REVISIT"]
+
+    def setUp(self):
+        self.saved = (fit.CACHE_LIMIT, fit.USE_CACHE, fit.JOBS, fit.CORPUS_GUARD)
+
+    def tearDown(self):
+        fit.CACHE_LIMIT, fit.USE_CACHE, fit.JOBS, fit.CORPUS_GUARD = self.saved
+
+    def _args(self, *argv):
+        import argparse
+        return fit.add_arguments(argparse.ArgumentParser()).parse_args(list(argv))
+
+    def test_grid_sequence_order(self):
+        self.assertEqual(fit.STAGE6_GRID_NAMES, self.NAMES)
+        self.assertIs({n: e for n, e, _ in fit.STAGE6_GRIDS}["STORAGE_REVISIT"], fit.STORAGE_REVISIT)
+        kw = fit.STAGE6_GRIDS[-1][2]
+        self.assertIs(kw["sweep"], fit.STAGE6_SWEEP)
+        self.assertEqual(kw["sweep_kw"], fit.SWEEP_BUDGET[6])
+        self.assertTrue(all(not g[2] for g in fit.STAGE6_GRIDS[:-1]))
+
+    def test_grid_option_selects_from_storage_revisit(self):
+        args = self._args("--stage", "6", "--grid", "STORAGE_REVISIT")
+        self.assertEqual(args.grid, "STORAGE_REVISIT")
+        grids = fit.stage6_grids(args.grid)
+        self.assertEqual(grids, fit.STAGE6_GRIDS[2:])
+        self.assertEqual([g[0] for g in grids], self.NAMES[2:])
+        self.assertEqual(fit.stage6_grids(None), fit.STAGE6_GRIDS)
+        with self.assertRaises(ValueError):
+            fit.stage6_grids("NOPE")
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            self._args("--stage", "6", "--grid", "NOPE")
+
+    def test_grid_resume_calls_stage_n_as_the_full_run(self):
+        calls = []
+
+        def fake_stage_n(stage, prev, enums, ints, log=None, **kw):
+            calls.append((stage, prev["config"], enums, ints, kw))
+            return {"config": prev["config"]}
+
+        cfg = DEFAULT.to_json()
+        with mock.patch.object(fit, "stage_n", fake_stage_n), \
+             mock.patch.object(fit, "polish", lambda out, log: dict(out)), \
+             mock.patch.object(fit, "save", lambda stage, out: "x"):
+            fit.run_stage(6, {"config": cfg}, log=lambda *a: None)
+            full = list(calls)
+            calls.clear()
+            fit.run_stage(6, {"config": cfg}, log=lambda *a: None, grid="STORAGE_REVISIT")
+        self.assertEqual(len(full), 11)
+        self.assertEqual(calls, full[2:])
+
+    def test_grid_with_another_stage_is_refused(self):
+        args = self._args("--stage", "5", "--grid", "IO_REVISIT", "--corpus-guard", "off")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(fit.fit_main(args), 2)
+
+    def test_cache_limit_option(self):
+        self.assertEqual(self._args().cache_limit, 3_000_000)
+        args = self._args("--stage", "7", "--grid", "IO_REVISIT", "--corpus-guard", "off",
+                          "--cache-limit", "12345")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            fit.fit_main(args)              # refused (--grid with stage 7) after the limit
+        self.assertEqual(fit.CACHE_LIMIT, 12345)
+        self.assertTrue(fit.USE_CACHE)
+        args = self._args("--stage", "7", "--grid", "IO_REVISIT", "--corpus-guard", "off",
+                          "--cache-limit", "0")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            fit.fit_main(args)
+        self.assertFalse(fit.USE_CACHE)
+
+    def test_cache_holds_at_most_twice_the_limit(self):
+        # one entry per signature grows in place across structures (fixed integers): the
+        # flush keeps both generations together within 2 * CACHE_LIMIT results
+        fit.JOBS = 1
+        ids = _synthetic_runs(DEFAULT, prefix="bound-")
+        cfgs = [DEFAULT.replace(**{"push.setup": v}) for v in range(2, 10)]
+        fit.cache_clear()
+        fit.CACHE_LIMIT = 10 ** 9
+        first = fit.evaluate(cfgs, ids)
+        total = fit.cache_size()
+        fit.cache_clear()
+        fit.CACHE_LIMIT = total // 6
+        self.assertEqual(fit.evaluate(cfgs, ids), first)
+        self.assertLessEqual(fit.cache_size(), 2 * fit.CACHE_LIMIT)
+        self.assertEqual(fit.cache_size(), fit._CACHE_COUNT + fit._CACHE_OLD_COUNT)
+        self.assertGreater(fit._CACHE_FLUSHES, 0)
+
+    def test_cache_reset_and_clear_empty_both_generations(self):
+        fit.JOBS = 1
+        ids = _synthetic_runs(DEFAULT, prefix="cache-")
+        fit.cache_clear()
+        fit.CACHE_LIMIT = len(ids) // 2 + 1  # rotates once: both generations fill, no flush
+        fit.evaluate([DEFAULT], ids)
+        self.assertTrue(fit._CACHE_NEW and fit._CACHE_OLD)
+        self.assertEqual(fit._CACHE_FLUSHES, 0)
+        self.assertGreater(fit.cache_size(), 0)
+        fit._CORPUS_MEMO["x"] = frozenset()
+        fit._TB["x"] = (0, 0)
+        self.assertTrue(fit._RESULTS)
+        stats = dict(fit.CACHE_STATS)
+        fit.cache_reset()
+        self.assertEqual((fit._CACHE_NEW, fit._CACHE_OLD, fit._CACHE_COUNT,
+                          fit._CACHE_OLD_COUNT), ({}, {}, 0, 0))
+        self.assertEqual((fit._CORPUS_MEMO, fit._TB, fit._RESULTS), ({}, {}, {}))
+        self.assertEqual(fit.CACHE_STATS, stats)     # a stage's totals span its grids
+        self.assertEqual(fit.cache_size(), 0)
+        fit.evaluate([DEFAULT], ids)
+        fit.cache_clear()
+        self.assertEqual((fit._CACHE_NEW, fit._CACHE_OLD, fit._CACHE_COUNT,
+                          fit._CACHE_OLD_COUNT), ({}, {}, 0, 0))
+        self.assertEqual(fit.CACHE_STATS, {"lookups": 0, "hits": 0})
+
+
+class FittedConfig(unittest.TestCase):
+    """Regression: the fitted config keeps every F0 run exact."""
+
+    def test_fit_json_keeps_f0(self):
+        path = fit.OUT_DIR / "fit.json"
+        if not path.exists():
+            raise unittest.SkipTest("no fit.json yet (run: python -m validation.v35s.chains fit --all)")
+        try:
+            ids = fit.load(["F0"])
+        except FileNotFoundError:
+            raise unittest.SkipTest("no F0 corpus entries")
+        cfg = fit.Config.from_json(json.loads(path.read_text()))
+        jobs, fit.JOBS = fit.JOBS, 1
+        try:
+            s = fit.score_many([cfg], ids)[0]
+        finally:
+            fit.JOBS = jobs
+        self.assertEqual(s.exact, 18)
+
+    def test_fit_json_never_overfills(self):
+        # The fitted request rule keeps the queue within its six bytes on every chain.
+        from validation.v35s.chains.sim.machine import Machine
+        from validation.v35s.chains.sim.queue import QUEUE_BYTES
+        path = fit.OUT_DIR / "fit.json"
+        if not path.exists():
+            raise unittest.SkipTest("no fit.json yet")
+        cfg = fit.Config.from_json(json.loads(path.read_text()))
+        peak = 0
+        for chain in generate(waits=(0, 2)):
+            m = Machine(chain, cfg)
+            m.run()                      # raises sim.queue.QueueOverflow on an over-fill
+            peak = max(peak, m.queue.peak)
+        self.assertLessEqual(peak, QUEUE_BYTES)
+
+
+if __name__ == "__main__":
+    unittest.main()

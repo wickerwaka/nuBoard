@@ -16,7 +16,8 @@ the V30 and the work list are in [`v35s-differences.md`](v35s-differences.md);
 the step-1 measurements and the core decision are in
 [`v35s-core-decision.md`](v35s-core-decision.md), and the plan for the new core
 is [`v35s-core-plan.md`](v35s-core-plan.md). Instruction-level timing is in
-[`v35s-eu-timing.md`](v35s-eu-timing.md).
+[`v35s-eu-timing.md`](v35s-eu-timing.md). The chain-timing suite and its
+machine model are in [`v35s-chains.md`](v35s-chains.md).
 
 ## Clock
 

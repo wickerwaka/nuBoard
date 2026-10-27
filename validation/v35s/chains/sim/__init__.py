@@ -1,0 +1,10 @@
+"""Clocked reference model of the V35S bus unit, queue, decoder and EU (plan, "Model").
+
+`machine.simulate(chain, config)` runs one chain and returns the bus cycles as
+normalize.Event objects; `machine.simulate_normalized` feeds them through the
+same normaliser the silicon traces go through, so derive/report/score work
+unchanged on model output.
+"""
+
+from .config import DEFAULT, Config  # noqa: F401
+from .machine import simulate, simulate_normalized  # noqa: F401

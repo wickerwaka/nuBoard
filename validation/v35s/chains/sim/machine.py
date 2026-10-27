@@ -1,0 +1,550 @@
+"""Clock loop: BusUnit + Queue + Decoder + EU + Arbiter -> Event list.
+
+One step per CPU clock, in this order: deliver the cycle that ended on the
+previous clock (fetched word into the queue, read data to the EU); EU micro-
+step (may take bytes, post a data request); decoder IR load; arbitration
+(may start a bus cycle this clock). The run stops when the END block's
+OUT DW,AL write (port FF00h) has finished, or on HALT with the bus idle.
+
+Start state (NOT silicon's): the prelude is not modelled. The simulation
+starts at the chain's first LS with an empty queue, an idle bus and the EU
+about to take the LS opcode; fetching starts at clock 0 from the word holding
+the chain's first byte (chain_base & ~1), so the normaliser finds its clock 0
+exactly as on silicon, and bytes before the first LS (PAD, prelude tail) are
+dropped as they arrive. The EU holds the first LS until the queue is full
+and quiescent (no fetch wanted or in flight, no word landing that clock),
+standing in for the prelude's last instruction, so that the fill ends the way it does on silicon: with the room
+the LS itself makes. The fetch pattern up to the first fill still differs from
+silicon; compare only from t_fill on (score.py does).
+
+(WP40) prelude_anchor=pop (with prelude_tail=segs): the run starts instead at the prelude's
+POP PSW stack read, issued on the simulation's first clock with the queue full behind it; the
+segment loads start pop_exit clocks after the read's delivery, the refresh counter holds
+refresh.POP_COUNTER there, and the model's trace before its clock 0 (from that read) is
+normalize's pre list, compared with silicon's by score.pre_aligned.
+
+Output goes through normalize.normalize on synthetic trace rows (8 ticks per
+clock, phase 0), so classification, t_fill, markers and derive's facts come
+out of the same code path as for silicon.
+"""
+
+from __future__ import annotations
+
+from collections import deque
+
+from ..normalize import (FLAG_IO, FLAG_NUBE, FLAG_READ, FLAG_REFRESH, REFRESH_EARLY_TICKS,
+                         Normalized, normalize)
+from ..types import (TICKS_PER_CLOCK, Chain, refresh_any, refresh_length, refresh_on,
+                     refresh_rft, rfm_writes)
+from .bus import BusUnit
+from .config import DEFAULT, Config
+from .decoder import Decoder
+from .eu import END_PORT, EU, SFR_PAGE
+from .queue import Queue
+from .arbiter import Request, arbitrate
+from .bus import Cycle
+from .refresh import POP_COUNTER, PRELUDE_COUNTER, Refresh, model_counter, prelude_key
+
+MAX_CLOCKS = 20000
+STALL_CLOCKS = 2000          # no bus cycle for this long: the structure has stalled (the LS idle is ~80)
+DEFAULT_BASE = 0x10047
+# Quiet-clock fast-forward (a speed-up, no change in results). On a clock whose state
+# equals the previous clock's (eu.since_start aside, which only grows), every rule
+# compares the clock with stored clocks only; while no stored clock is within an offset
+# of the clock, the next clocks repeat it exactly, so the loop jumps to the last such
+# clock (adding since_start's growth). Probed only once the bus has been idle for
+# PROBE_IDLE clocks (past the long-shift idle): a stalled structure then reaches the
+# stall guard at once instead of after STALL_CLOCKS clocks. (Probing every quiet clock
+# skips ~40% of the clocks, but those are the cheapest ones and the probes cost more.)
+FAST_FORWARD = True
+MIN_SKIP = 4                 # skip only windows of at least this many clocks
+PROBE_IDLE = frozenset((64, 128, 256, 512, 1024))
+
+def waits_of(chain: Chain) -> tuple[int, int]:
+    """(memory, I/O) waits from the WTC: field 0 governs block-0 memory, field 7 I/O."""
+    return chain.wtc & 3, (chain.wtc >> 14) & 3
+
+
+class Machine:
+    def __init__(self, chain: Chain, cfg: Config = DEFAULT, chain_base: int = DEFAULT_BASE,
+                 refresh_phase: int | None = None, refresh_from: int = 0,
+                 ls_shift: int = 0):
+        """refresh_phase: with refresh on (RFM FCh), the clock of one refresh request (the
+        timer's phase, a per-run alignment: simulate_normalized finds it)."""
+        self.chain, self.cfg, self.base = chain, cfg, chain_base
+        # (WP24) prelude_tail=regs: the prelude's last instructions run before the chain
+        # (image.prelude_tail), from an empty queue, fetching from their first word on
+        self.tail = b""
+        if cfg.prelude_tail != "standin":
+            from ..image import prelude_tail
+            self.tail = prelude_tail(chain, cfg.prelude_tail == "segs")
+        code = self.tail + chain.code
+        base = chain_base - len(self.tail)
+        start = 0 if self.tail else next(i.offset for i in chain.instrs if i.role == "ls")
+        mem, io = waits_of(chain)
+        self.bus = BusUnit(mem, io, cfg.min_gap, refresh_length(chain.rfm))
+        self.queue = Queue(cfg, code, base, start)
+        self.queue.fetch_len = self.bus.length("fetch")   # room_ir_ready
+        self.decoder = Decoder(cfg, self.queue)
+        self.eu = EU(cfg, code, base, chain.regs, self.decoder, self.bus, start)
+        self.queue.eu = self.eu              # (WP39) refresh_io_run: the posted I/O request
+        if self.tail:
+            self.eu.started = True           # no stand-in hold: the prelude's tail runs
+            if cfg.prelude_tail == "segs":
+                self.queue.preload(3)        # the slow POP PSW before leaves the queue full
+            if cfg.prelude_anchor == "pop":
+                # (WP40) the run starts at the prelude's POP PSW stack read (0EFEh), the
+                # queue full behind it; the segment loads start pop_exit clocks after its
+                # delivery
+                if cfg.prelude_tail != "segs":
+                    raise ValueError("prelude_anchor=pop needs prelude_tail=segs")
+                from ..image import PRELUDE_MARKER_STACK, PSW
+                pop = self.bus.start(0, "read", PRELUDE_MARKER_STACK, "word", PSW)
+                self.eu.start_at = pop.end + 1 + cfg.pop_exit
+            self.eu.origin = len(self.tail)  # eu.trace offsets stay chain offsets
+        self.eu.ls_shift = ls_shift          # refresh_align=phase_eu: the first LS's exec offset
+        self.refresh = None
+        if rfm_writes(chain):
+            self.bus.sfr_cycle = cfg.sfr_cycle   # (WP23) read only by a chain with an RFM store
+        if refresh_any(chain):
+            # (WP23) F17: the chain turns refresh on itself with an RFM store (eu.py); the
+            # timer exists from clock 0 either way
+            self.bus.refresh_whole = cfg.refresh_io == "all"
+            self.refresh = Refresh(cfg, refresh_phase or 0, refresh_from, refresh_rft(chain.rfm),
+                                   on=refresh_on(chain.rfm), bus=self.bus,
+                                   phase_interval=phase_interval(chain, cfg))
+            self.eu.refresh = self.refresh
+        self.clock_log: list | None = None   # per-clock state rows (sim --trace); None: off
+
+    def run(self) -> list:
+        bus, queue, eu, cfg = self.bus, self.queue, self.eu, self.cfg
+        end = None
+        probe = None                         # (clock, state, since_start) of a quiet probe
+        offset = cfg.io_recover + cfg.min_gap + 4
+        fast = FAST_FORWARD and self.clock_log is None and self.refresh is None
+        refresh = self.refresh
+        completed, begin_clock, tick = bus.completed, queue.begin_clock, eu.tick
+        load_ir, end_clock = self.decoder.load_ir, queue.end_clock
+        before_take = cfg.request_sample == "before_take"
+        t = -1
+        while t < MAX_CLOCKS - 1:
+            t += 1
+            c = completed(t)
+            if c is not None:
+                if c.kind == "fetch":
+                    queue.arrive(c.addr, t + cfg.data_ready, t)
+                elif c.owner is eu:
+                    eu.complete(c, t)
+                if c.kind != "fetch":
+                    queue.retry_after(t, c.kind)   # abort_fetch=retry
+                if c is end:
+                    return bus.cycles
+            if queue.abort_end is not None and queue.abort_end == t - 1:
+                queue.abort_done()           # abort_fetch: the aborted cycle ends
+            if before_take:
+                begin_clock(t)               # request_sample=before_take
+            tick(t)
+            load_ir(t)
+            if refresh is not None:
+                refresh.raise_(t)
+            c = arbitrate(t, cfg, bus, queue, eu)
+            if c is not None and c.owner is eu and self.decoder.ir_hold:
+                self.decoder.ir_hold = False # (WP28) ir_load: the data cycle issued
+                load_ir(t)
+                if queue.ir_t == t:
+                    queue.flag = queue.room(t) >= 2   # the IR load is a queue change
+            if c is not None and c.owner is eu and (
+                    eu.retick or eu.req is not None and eu.req.done_at == t):
+                eu.retick = False
+                raised = queue.flag
+                tick(t)                      # released on the issue clock (write_wait=mem_end, I/O)
+                load_ir(t)
+                if (cfg.io_ir_hold and c.kind.startswith("io") and not raised
+                        and queue.ir_t == t and queue.take_t != t and not queue.inflight
+                        and queue.requesting(t)):
+                    queue.requested_at = t   # (WP19) raised by the IR load on the I/O's issue
+                    queue.io_held = t        # clock: no fetch before the next instruction starts
+            if (c is not None and c.kind.startswith("io") and cfg.io_take == "unit"
+                    and queue.flag and queue.arrived_t == t and queue.latched
+                    and getattr(eu, "unit", False) and eu.cls in ("mul", "div")
+                    and not queue.inflight and not queue.retry):
+                # (WP22) io_take=unit: a request first raised on an I/O cycle's issue clock by
+                # a word's delivery (its second byte latched) while a memory multiply or
+                # divide runs: dropped, raised again at its loop's exit
+                queue.flag = False
+                queue.requested_at = None
+                queue.retry = queue.retry_loop = True
+                queue.abort_t = eu.start_clock
+            if (c is not None and c.kind == "fetch" and cfg.port_issue and eu.port_t == t
+                    and eu.port_held):
+                # (WP32) port_issue: the port byte taken on this fetch's issue clock reaches
+                # the port latch a clock later: the waiting I/O it relatched a clock later too
+                for r in eu.port_held:
+                    if r.cycles and not r.issued:
+                        r.not_before = max(r.not_before, t + 1 + cfg.c(r.cls, "relatch"))
+            if (c is not None and c.kind == "fetch" and cfg.nop_hold != "none"
+                    and eu.start_clock == t and queue.flag and queue.ir_t == t
+                    and queue.take_t != t and eu.op_len == 1
+                    and eu._interlocked(eu.cls, "reg_pfx")
+                    and (cfg.nop_hold == "any" or bus.last_io_end == t - 1)):
+                # (WP32) nop_hold: the request the reissue kept raised on the fetch's issue
+                # clock, where a register-only form without operand bytes started and the IR
+                # loaded, goes no earlier than the next instruction's start
+                queue.nop_held = t
+            if c is not None and c.kind == "io_write" and c.addr == END_PORT:
+                end = c
+            end_clock(t, bus)                # 6-byte storage check; back-to-back decision (queue.py)
+            if (cfg.latch_start and queue.latch_in_t == t and eu.start_clock == t
+                    and eu.k == 1 and eu.steps and eu.steps[0][0] == "clocks"
+                    and eu.steps[0][1] and eu.resume > t):
+                # (WP32) latch_start: the byte latched behind a full queue went in on the
+                # clock this instruction started: its first clocks begin a clock later
+                eu.resume += 1
+            if eu.sync == "pending_end":
+                eu.end_clock(t)              # take_sync=pending_end
+            if self.clock_log is not None:
+                self.clock_log.append(self._clock_row(t))
+            cur = bus.current                # io_post=start: the running instruction's clocks
+            if not (cur is not None and not cur.kind.startswith("io")
+                    and not (cur.kind == "refresh" and cfg.refresh_io_pre == "count"
+                             and cur.start < eu.since_t)
+                    and cur.start + 2 <= t < cur.end):
+                eu.since_start += 1
+            if eu.halted and not bus.busy(t) and end is None and eu.req is None:
+                return bus.cycles
+            if t - bus.last_cpu_end > STALL_CLOCKS:
+                raise self._stalled(t)
+            if probe is not None:
+                if probe[0] == t - 1 and bus.current is None:
+                    last = self._window(t, offset)
+                    if last is not None and self._state() == probe[1]:
+                        # clocks t+1 .. last repeat clock t: jump to the end of clock last
+                        eu.since_start += (eu.since_start - probe[2]) * (last - t)
+                        if queue.snap is not None and queue.snap[0] == t:
+                            queue.snap = (last,) + queue.snap[1:]
+                        t = last
+                probe = None
+            elif (t - bus.last_end in PROBE_IDLE and fast and end is None
+                    and bus.current is None and self._window(t, offset) is not None):
+                probe = (t, self._state(), eu.since_start)
+        raise self._no_end()
+
+    def _clock_row(self, t: int) -> dict:
+        """The state at the end of clock t, for sim --trace (read only)."""
+        eu, q, d, bus = self.eu, self.queue, self.decoder, self.bus
+        cur = bus.current
+        busy = cur is not None and cur.start <= t <= cur.end
+        step = eu.steps[eu.k] if eu.k < len(eu.steps) else None
+        req = eu.req
+        return {"t": t, "bus": (bus.state(t) + ":" + cur.kind) if busy else "idle",
+                "queued": len(q.bytes), "occ": q.occupancy(), "room": q.room(t),
+                "inflight": q.inflight, "flag": q.flag, "requested_at": q.requested_at,
+                "latched": q.latched, "ir": None if d.ir is None else d.ir - self.base,
+                "need": d.need, "pc": eu.pc, "cls": getattr(eu, "cls", None), "k": eu.k,
+                "step": step, "resume": eu.resume, "sync": eu.sync,
+                "started_now": eu.start_clock == t, "clk_tag": eu.clk_tag,
+                "clk_start": eu.clk_start, "clk_end": eu.clk_end, "took": q.take_t == t,
+                "ir_load": q.ir_t == t, "b2b": q.b2b_at == t + 1,
+                "req": None if req is None else (req.cycles[0][0] if req.cycles else "issued",
+                                                 req.count, req.setup)}
+
+    def _stalled(self, t: int) -> RuntimeError:
+        return RuntimeError(f"{self.chain.id}: no bus cycle for {STALL_CLOCKS} clocks "
+                            f"(stalled at {t})")
+
+    def _no_end(self) -> RuntimeError:
+        return RuntimeError(f"{self.chain.id}: no END write within {MAX_CLOCKS} clocks")
+
+    # Quiet-clock fast-forward ------------------------------------------------------
+
+    def _state(self) -> tuple:
+        """Everything the next clock reads, frozen (every attribute of the EU, queue,
+        decoder and bus unit); except eu.since_start (read only when a request is posted,
+        which changes eu.k), the clock of the queue's sample (always this clock's) and the
+        logs (eu.trace, bus.cycles: only appended to, by their length)."""
+        eu, q, d, bus = self.eu, self.queue, self.decoder, self.bus
+        return (_attrs(eu, _EU_SKIP), len(eu.trace), _attrs(q, _Q_SKIP),
+                None if q.snap is None else q.snap[1:], _attrs(d, _D_SKIP),
+                _attrs(bus, _BUS_SKIP), len(bus.cycles))
+
+    def _window(self, t: int, offset: int) -> int | None:
+        """The last clock up to which clock t's comparisons repeat, or None when that is
+        under MIN_SKIP clocks away. Every rule compares the clock with a stored clock
+        plus at most `offset` (io_recover, min_gap, 2); a stored clock more than offset
+        in the past stays past, one more than offset ahead ends the window there. The
+        stall guard ends it at the clock before it fires (it fires on the next one)."""
+        eu, q, d, bus = self.eu, self.queue, self.decoder, self.bus
+        times = [eu.resume, eu.latch_until, eu.wb_until, eu.done_t, eu.latch_wait,
+                 eu.wlatch_until, q.requested_at, q.arrived_t, q.removed_t, q.b2b_at,
+                 q.read_t, q.ir_t, q.take_t, q.start_t, q.abort_end, d.ready_at,
+                 q.shift_until, q.retry_at, q.io_run_at,
+                 bus.last_fetch_end, bus.last_io_end]
+        times += [u for _, u in q.bytes]
+        for r in [eu.req, eu.own] + eu.queued:
+            if r is not None:
+                times += [r.posted, r.done_at, r.ready_since, r.not_before, r.lift_t]
+                times += [c.end for c in r.issued]
+        last = min(bus.last_end + STALL_CLOCKS, MAX_CLOCKS - 1)
+        if t - bus.last_end <= offset:
+            return None
+        for v in times:
+            if v is None or v < t - offset:
+                continue
+            if v <= t + offset + MIN_SKIP:
+                return None
+            if v != float("inf"):
+                last = min(last, v - offset - 1)
+        return last if last - t >= MIN_SKIP else None
+
+
+_SCALARS = (int, bool, str, float, bytes, type(None))
+_EU_SKIP = frozenset(("cfg", "code", "decoder", "bus", "since_start", "trace"))
+_Q_SKIP = frozenset(("cfg", "code", "decoder", "snap", "eu"))   # (WP39) eu: refresh_io_run only
+_D_SKIP = frozenset(("cfg", "queue"))
+_BUS_SKIP = frozenset(("cycles",))
+
+
+def _attrs(obj, skip) -> tuple:
+    return tuple((k, v if type(v) in _SCALARS else _freeze(v))
+                 for k, v in vars(obj).items() if k not in skip)
+
+
+def _plain(v) -> bool:
+    """A tuple of scalars and such tuples (a value: nothing in it can change)."""
+    return all(type(x) in _SCALARS or type(x) is tuple and _plain(x) for x in v)
+
+
+def _freeze(v):
+    t = type(v)
+    if t in _SCALARS:
+        return v
+    if t is tuple and _plain(v):
+        return v
+    if t in (list, tuple, deque):
+        return tuple(_freeze(x) for x in v)
+    if t is dict:
+        return tuple((k, _freeze(x)) for k, x in v.items())
+    if t is Request:
+        return ("R", id(v), _attrs(v, ()))
+    if t is Cycle:
+        return ("C", id(v), v.kind, v.addr, v.width, v.start, v.length, v.data)
+    return ("?", id(v), object())          # unknown: never equal (no repeat claimed)
+
+
+def phase_interval(chain: Chain, cfg) -> int:
+    """(WP23) the longest refresh interval the chain runs with (its prelude's RFM or any RFM
+    it writes): the alignment's phase is one request on that grid."""
+    rfts = [refresh_rft(chain.rfm)] + [refresh_rft(v) for _, v in rfm_writes(chain)]
+    if cfg.refresh_align == "prelude":
+        return 128                       # the counter's value at clock 0, modulo 128
+    return cfg.refresh_interval << max(rfts)
+
+
+def trace_rows(cycles) -> list[dict]:
+    rows = []
+    for c in cycles:
+        if c.kind == "write" and c.addr >= SFR_PAGE:
+            continue                     # (WP23) an on-chip SFR store: nothing on the pins
+        flags = 0 if c.kind in ("write", "io_write") else FLAG_READ
+        if c.kind.startswith("io"):
+            flags |= FLAG_IO
+        if c.width == "lo":
+            flags |= FLAG_NUBE
+        start = c.start * TICKS_PER_CLOCK
+        end = start + (c.length - 1) * TICKS_PER_CLOCK
+        if c.kind == "refresh":
+            flags |= FLAG_REFRESH
+            start -= REFRESH_EARLY_TICKS         # as silicon records it (normalize.py)
+        rows.append({"start": start, "end": end,
+                     "address": c.addr, "flags": flags, "data": c.data & 0xFFFF, "strobe": 0})
+    return rows
+
+
+def run_record(chain: Chain, cfg: Config = DEFAULT, chain_base: int = DEFAULT_BASE,
+               clock_log: list | None = None, refresh_phase: int | None = None,
+               refresh_from: int = 0, ls_shift: int = 0) -> dict:
+    """A run record shaped like acquire.py's, with the model's cycles as its trace.
+    clock_log: a list to receive the per-clock state rows (sim --trace)."""
+    m = Machine(chain, cfg, chain_base, refresh_phase, refresh_from, ls_shift)
+    m.clock_log = clock_log
+    cycles = m.run()
+    rec = {"chain": chain.to_json(), "chain_base": chain_base, "complete": True,
+           "socket_trace": trace_rows(cycles)}
+    if m.refresh is not None:
+        rec["refresh_served"] = m.refresh.served
+    return rec
+
+
+ALIGN_SHIFTS = (0, -1, 1, -2, 2, -3, 3, -4, 4)   # refresh_align=phase_eu: first-LS exec offsets
+REFRESH_ROW_STEP = 0x200     # the refresh row address advances by 200h per refresh (F8)
+
+
+def refresh_anchor(n: Normalized, events: bool = True) -> tuple | None:
+    """The per-run alignment of the refresh timer (refresh.py): (clock relative to t_fill,
+    row address) of the run's first refresh at or after t_fill, and (events) the run's
+    aligned events (score.aligned) for the tie-break. None without one."""
+    if n.t_fill is None:
+        return None
+    e = next((e for e in n.events if e.kind == "refresh" and e.clock >= n.t_fill), None)
+    if e is None:
+        return None
+    if not events:
+        return (e.clock - n.t_fill, e.addr)
+    from ..score import aligned
+    return (e.clock - n.t_fill, e.addr, aligned(n))
+
+
+def _refresh_run(chain, cfg, chain_base, strict, clock_log, anchor) -> Normalized:
+    """Refresh on. The model's prelude is a stand-in (Start state, above), so refresh
+    requests raised before the model's own fill fetch starts (found by a run without
+    refresh) belong to the prelude and are dropped. The timer's phase (one of
+    refresh_interval) is the one that puts the model's first refresh at or after its
+    t_fill on the anchor's clock (relative to t_fill). Several phases can: a request
+    raised while the fill fetch is on the bus waits for its end, so the first refresh
+    alone fixes the phase only to within that fetch; among them the phase whose run
+    agrees with silicon longest from t_fill (anchor[2]; without it, the one whose request
+    waited least). With none on the anchor's clock, the nearest. The model's refreshes
+    carry the anchor's row address counted from that refresh. The phase is a per-run
+    alignment like t_fill: it places the timer, every other event (the other refreshes
+    among them) must follow from the structure."""
+    from ..score import aligned
+    if cfg.refresh_align == "prelude":
+        return _prelude_run(chain, cfg, chain_base, strict, clock_log, anchor)
+    rel, addr = anchor[:2] if anchor is not None else (None, 0)
+    sil = anchor[2] if anchor is not None and len(anchor) > 2 else None
+    off = normalize(run_record(chain, cfg, chain_base, None, None, 1 << 30), strict=strict)
+    since = off.events[off.fill_index].clock if off.t_fill is not None else 0
+    if cfg.refresh_enable == "start":
+        since = 0          # (WP17) the model's refreshes run from its first chain fetch on
+    # (WP17) refresh_align=phase_eu: the first LS's exec offset is aligned as well, by the
+    # agreement up to its end (the restart fetch after the fill's idle gap)
+    shifts = (0,) if cfg.refresh_align != "phase_eu" or sil is None else ALIGN_SHIFTS
+    upto = None
+    if sil is not None and len(shifts) > 1:
+        upto = next((i for i, x in enumerate(sil) if x[1] == "fetch" and x[0] > 30), len(sil))
+    best, stalled = None, False
+    for shift in shifts:
+        phases = range(phase_interval(chain, cfg))
+        for phase in phases:
+            try:
+                rec = run_record(chain, cfg, chain_base, None, phase, since, shift)
+            except RuntimeError:
+                if len(shifts) == 1 and rel is None:
+                    raise
+                stalled = True           # this alignment stalls the structure: not a candidate
+                continue
+            n = normalize(rec, strict=strict)
+            if n.t_fill is None:
+                continue
+            refs = [k for k, e in enumerate(n.events) if e.kind == "refresh"]
+            first = next((k for k in refs if n.events[k].clock >= n.t_fill), None)
+            if first is None:
+                continue
+            for j, k in enumerate(refs):
+                n.events[k].addr = addr + REFRESH_ROW_STEP * (j - refs.index(first))
+            start = n.events[first].clock
+            ls_tie = 0
+            if sil is not None:
+                b = aligned(n)
+                agree = next((i for i, (x, y) in enumerate(zip(sil, b)) if x != y),
+                             min(len(sil), len(b)))
+                tie = -agree
+                if upto is not None:
+                    ls_tie = -min(agree, upto + 1)
+            else:
+                tie = next((s - r for r, s in rec["refresh_served"] if s == start), 0)
+            key = (abs(start - n.t_fill - rel) if rel is not None else 0, ls_tie, abs(shift),
+                   tie, phase)
+            if best is None or key < best[0]:
+                best = (key, phase, shift, n)
+            if rel is None:
+                break
+    if best is None:
+        return simulate_normalized(chain, cfg, chain_base, strict, clock_log, _phase=0)
+    del stalled
+    _, phase, shift, n = best
+    if clock_log is not None:
+        run_record(chain, cfg, chain_base, clock_log, phase, since, shift)
+    n.refresh_phase, n.refresh_from, n.ls_shift = phase, since, shift
+    return n
+
+
+def chain_clock0(rec: dict) -> int:
+    """(WP24) the model's absolute clock of its clock 0: the start of its fetch of the word
+    holding the chain's first byte (normalize's clock 0)."""
+    first = rec["chain_base"] & ~1
+    return next(r["start"] for r in rec["socket_trace"] if r["address"] == first
+                and r["flags"] & FLAG_READ and not r["flags"] & (FLAG_IO | FLAG_REFRESH)
+                ) // TICKS_PER_CLOCK
+
+
+def _prelude_run(chain, cfg, chain_base, strict, clock_log, anchor) -> Normalized:
+    """(WP23) refresh_align=prelude: one run, the timer's counter at clock 0 the prelude's
+    (refresh.PRELUDE_COUNTER), requests before the model's fill fetch dropped as in
+    _refresh_run (the prelude's own refreshes), the rows numbered from the anchor's address
+    at the model's first refresh at or after its t_fill (row addresses label, never time).
+    (WP24) prelude_tail=regs: the model runs the prelude's last instructions itself, so its
+    clock 0 is its own fetch of the chain's first word, at an absolute clock the refreshes
+    in the tail move; the counter is placed so that it holds the prelude's value there (a
+    fixed point: re-run until that clock no longer moves) and every request is served.
+    (WP40) prelude_anchor=pop: one run, the counter at the POP PSW read (the simulation's first
+    clock) refresh.POP_COUNTER, every request served; the pre list's refreshes are numbered
+    with the rest."""
+    if cfg.prelude_tail != "standin" and cfg.prelude_anchor == "pop":
+        # (WP40) the counter's value at the POP PSW read (the simulation's clock 0)
+        phase = (64 - POP_COUNTER[(chain.rfm, chain.wtc)]) % 128
+        rec = run_record(chain, cfg, chain_base, clock_log, phase, 0)
+        n = normalize(rec, strict=strict)
+        since = 0
+    elif cfg.prelude_tail != "standin":
+        c0 = PRELUDE_COUNTER[prelude_key(chain)]
+        anchor_at = chain_clock0
+        t0 = anchor_at(run_record(chain, cfg, chain_base, None, None, 1 << 30))
+        seen = set()
+        while True:
+            phase = (64 - (c0 - t0)) % 128
+            rec = run_record(chain, cfg, chain_base, None if clock_log is None else [],
+                             phase, 0)
+            t1 = anchor_at(rec)
+            if t1 == t0 or t1 in seen:
+                break
+            seen.add(t0)
+            t0 = t1
+        if clock_log is not None:
+            rec = run_record(chain, cfg, chain_base, clock_log, phase, 0)
+        n = normalize(rec, strict=strict)
+        since = 0
+    else:
+        off = normalize(run_record(chain, cfg, chain_base, None, None, 1 << 30),
+                        strict=strict)
+        since = off.events[off.fill_index].clock if off.t_fill is not None else 0
+        if cfg.refresh_enable == "start":
+            since = 0
+        phase = (64 - model_counter(chain, off.t_fill)) % 128
+        n = normalize(run_record(chain, cfg, chain_base, clock_log, phase, since),
+                      strict=strict)
+    addr = anchor[1] if anchor is not None else 0
+    evs = n.pre + n.events                   # (WP40) the pre list's refreshes numbered too
+    refs = [k for k, e in enumerate(evs) if e.kind == "refresh"]
+    first = next((k for k in refs if n.t_fill is not None and evs[k].clock >= n.t_fill
+                  and k >= len(n.pre)), None)
+    if first is not None:
+        for j, k in enumerate(refs):
+            evs[k].addr = addr + REFRESH_ROW_STEP * (j - refs.index(first))
+    n.refresh_phase, n.refresh_from, n.ls_shift = phase, since, 0
+    return n
+
+
+def simulate_normalized(chain: Chain, cfg: Config = DEFAULT, chain_base: int = DEFAULT_BASE,
+                        strict: bool = False, clock_log: list | None = None,
+                        refresh: tuple | None = None, _phase: int | None = None) -> Normalized:
+    """refresh: for a chain with refresh on, the silicon run's refresh_anchor (None: phase 0
+    and row 0, e.g. for a generated chain)."""
+    if refresh_any(chain) and _phase is None:
+        return _refresh_run(chain, cfg, chain_base, strict, clock_log, refresh)
+    return normalize(run_record(chain, cfg, chain_base, clock_log, _phase), strict=strict)
+
+
+def simulate(chain: Chain, cfg: Config = DEFAULT, chain_base: int = DEFAULT_BASE,
+             refresh: tuple | None = None) -> list:
+    return simulate_normalized(chain, cfg, chain_base, refresh=refresh).events

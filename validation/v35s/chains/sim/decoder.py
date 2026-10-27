@@ -1,0 +1,102 @@
+"""Decoder / loader: serves the EU's take(n) steps from the queue and loads the IR.
+
+`take(t, n)` moves up to bytes_per_clock (and at most n) usable bytes out of
+the queue this clock and returns how many it moved; zero means the EU stalls.
+With opcode_take=prefetch the decoder also loads the next opcode into an
+instruction register once the current instruction has taken all its bytes
+(`need` == 0), the IR is empty and the class's `nx` clocks have passed; the EU starts an instruction from the
+IR. With opcode_take=start there is no IR: the EU takes the opcode itself.
+
+The IR is one byte of storage outside the six-byte queue (queue.py): loading
+it takes the byte out of the queue, and an EU start empties it. The request
+rule may count it as a seventh slot (room_ir).
+
+ir_port=True: the queue has one read port, so the IR does not load on a clock
+the EU takes an operand byte; it loads on the next clock it may.
+
+modrm_mate (WP26): the decoder notes the clock it takes the second byte of the word whose
+first byte was the running instruction's ModR/M byte (a register form's immediate, with
+imm), operand bytes still to come; the queue counts that word's slot on that clock when it
+is a delivery clock (queue.room).
+
+modrm_commit=byte: a ModR/M latch. The first operand byte of a ModR/M form
+leaves the queue's occupancy on the clock it is taken, even when the take
+step goes on to take displacement or immediate bytes (which commit at the
+step's end as before). Structural, not per opcode: every ModR/M form.
+"""
+
+from __future__ import annotations
+
+
+class Decoder:
+    def __init__(self, cfg, queue):
+        self.cfg = cfg
+        self.queue = queue
+        queue.decoder = self            # the request rule may count the IR (room_ir)
+        self.ir: int | None = None      # linear address of the opcode held
+        self.need = 0                   # bytes the current instruction still has to take
+        self.stopped = False
+        self.nx = 0                     # class integer: clocks from the last take to the IR load
+        self.ready_at = 0               # first clock the next opcode may be loaded
+        self.modrm_next = False         # the next operand byte taken is a ModR/M byte
+        self.modrm_addr = None          # (WP26) address of the running instruction's ModR/M
+        self.imm_reg = False            # (WP26) it is a register form with an immediate
+        self.ir_hold = False            # (WP28) ir_load=disp_data: no IR load before the data cycle
+        self.ea_end: int | None = None  # (WP30) ea_ir_room: a displaced form's EA clocks end before this
+
+    def take(self, t: int, n: int, wide: bool = False) -> int:
+        """wide (WP27, disp16=word): a two-byte displacement, up to two bytes this clock."""
+        k = min(n, 2 if wide else self.cfg.bytes_per_clock, self.queue.available(t))
+        for _ in range(k):
+            addr = self.queue.take(t)
+            self.queue.take_t = t
+            if (self.cfg.modrm_mate and addr & 1 and addr - 1 == self.modrm_addr
+                    and self.need - k > 0 and (self.cfg.modrm_mate == "any" or self.imm_reg)):
+                self.queue.mate_t = t           # (WP26) modrm_mate: the ModR/M's word-mate
+            if self.modrm_next:
+                self.modrm_addr = addr
+                self.modrm_next = False
+                if self.cfg.modrm_commit == "byte":
+                    self.queue.commit_one(addr, t)   # the ModR/M latch: out of the queue now
+        self.need -= k
+        if k and self.need == 0:
+            self.ready_at = t + self.nx
+        return k
+
+    def commit(self, t: int | None = None):
+        self.queue.commit(t)
+
+    def loads_after(self, t: int, n: int) -> bool:
+        """Whether taking n more operand bytes on t would let the IR load on t too (the
+        conditions of load_ir after the take; late_read)."""
+        return (self.cfg.opcode_take == "prefetch" and self.ir is None and self.need == n
+                and self.nx == 0 and not self.ir_hold and not self.stopped
+                and self.queue.available(t) > n
+                and not self.cfg.ir_port)
+
+    def load_ir(self, t: int):
+        if (self.cfg.opcode_take == "prefetch" and self.ir is None and self.need == 0
+                and t >= self.ready_at and not self.stopped and self.queue.available(t)
+                and not self.ir_hold
+                and not (self.cfg.ir_port and self.queue.take_t == t)):
+            self.ir = self.queue.take(t)
+            self.queue.ir_t = t
+            self.queue.commit(t)
+
+    def start(self, length: int, t: int = 0, nx: int = 0, modrm: bool = False,
+              imm_reg: bool = False) -> int | None:
+        """The EU starts an instruction of `length` bytes; returns the IR it consumed.
+
+        With opcode_take=prefetch the next opcode may be loaded `nx` clocks after the
+        clock the instruction's last operand byte is taken (the loader is busy that
+        long); an instruction without operand bytes lets it load at its start.
+        """
+        ir, self.ir = self.ir, None
+        self.modrm_next = modrm
+        self.modrm_addr = None
+        self.imm_reg = imm_reg
+        self.ea_end = None
+        self.need = length - 1 if self.cfg.opcode_take == "prefetch" else length
+        self.nx = nx
+        self.ready_at = t               # no operand bytes: the next opcode may load at once
+        return ir

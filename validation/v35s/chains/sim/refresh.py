@@ -1,0 +1,240 @@
+"""Refresh controller (WP14, F8): the fifth machine.
+
+With RFM = FCh the µPD70337's refresh controller raises a request every
+`refresh_interval` CPU clocks; the bus unit answers it with a refresh cycle
+of REFRESH_LENGTH clocks (bus.py; 5 at every WTC setting). Refresh is off
+(RFM = ECh) in every family but F8, and then this machine does not exist:
+nothing here is read, so no other family's result can change.
+
+The timer's phase is not modelled: the chain prelude sets RFM long before
+the chain runs, so where the timer stands at the fill is unknown. It is a
+per-run alignment, like t_fill, found from the run's first refresh at or after
+t_fill (machine._refresh_run): `phase` is the clock of one request, the others
+follow every `interval` clocks (refresh_timer=grid) from clock 0 on. Requests
+raised before `enable_at` (the start of the model's fill fetch) belong to the
+prelude, which the model does not reproduce, and are dropped. The refresh row
+address is the counter's, +200h per refresh; the model numbers its refreshes
+from the anchor's address.
+
+Structural options (config.py): refresh_timer (the period runs from the
+previous request, or from the previous refresh cycle's start or end),
+refresh_fetch / refresh_data / refresh_b2b (who gets a free bus when a
+refresh request and a fetch or data request are both pending), refresh_drop
+(a fetch request raised on the clock a refresh takes the bus is lost),
+refresh_eu with refresh_stall / refresh_stall_exec (what a refresh costs the
+EU: the shift unit's count loop and exec clocks are stalled), refresh_accept
+(on which clocks the EU lets a request through: the count loop's 2-clock
+iterations, 2-clock microcycles while it waits, at once when the bus unit
+would start another cycle). arbiter.py starts the refresh cycle; eu.py holds
+the EU side.
+
+WP17 (F13): RFM.RFT (bits 1-0) sets the interval to refresh_interval << RFT and RFM.RFW
+(bits 3-2) the cycle to 3 + RFW clocks, RFW 3 as 2 (types.refresh_length; bus.py); any
+RFM with RFEN (bit 4) set turns the machine on. The EU side is refresh_eu=hold: the EU
+grants a pending request on its micro-boundaries (refresh_accept=boundary_bus) and, at
+its first boundary after the cycle starts, waits until the cycle has ended (eu.py).
+"""
+
+from __future__ import annotations
+
+# (WP23) refresh_align=prelude: the refresh timer's counter value at clock 0 (the start of
+# the fetch of the word holding the chain's first byte), modulo 128, per prelude: the
+# prelude's RFM and WTC (the chain prelude, image.py, is otherwise the same bytes in every
+# chain; its length does not depend on the register values). A request comes when the
+# counter's bit (RFT + 3) rises, (c0 + t) % interval == interval / 2. Read off the idle
+# grids (F17 S/E/D/W/C for the refresh-off prelude ECh; F8, F13 and F17 P for FCh; F13 R
+# for the others) and checked against every run that shares the prelude, at both parities
+# and whatever the chain holds; it is not a per-run alignment. Filled in below.
+PRELUDE_COUNTER: dict = {
+    (0xEC, 0): 16, (0xEC, 1): 6, (0xEC, 2): 3,      # F17 S/D/W/C: the 16-grid at clock 8 /
+                                                    # 2 / 5 (mod 16), the 32-grid at 0 / 10 / 13
+    (0xFC, 0): 0, (0xFC, 1): 13, (0xFC, 2): 2,      # F8, F13, F17 P: 8 / 11 / 6
+    (0xF8, 0): 0, (0xF8, 1): 13, (0xF8, 2): 2,      # F13 R: as FCh (RFW 3 = RFW 2)
+    (0xF4, 0): 5, (0xF4, 1): 13, (0xF4, 2): 2,      # F13 R (2 runs per wait each, below)
+    (0xF0, 0): 5, (0xF0, 1): 12, (0xF0, 2): 4,
+    (0xFD, 0): 0, (0xFD, 1): 30, (0xFD, 2): 0,
+    (0xFE, 0): 26, (0xFE, 1): 45, (0xFE, 2): 12,
+    (0xFF, 0): 21, (0xFF, 1): 44, (0xFF, 2): 74,
+    # (WP24) F18: the prelude ending in a marker (Chain.prelude_marker), the same for PUSH AW
+    # and OUT 20h,AL (both put the chain's first byte in the word at 10048h, so clock 0 is
+    # the same fetch). ECh (AC: 1 run per cell, the 16-grid only): requests at 1 / 10 / 12
+    # mod 16; FCh (A: 48 runs per wait): 4 / 7 / 1 mod 16; FDh (A: 48 runs per wait): 9 /
+    # 10 / 7 mod 32
+    (0xEC, 0, "push"): 7, (0xEC, 1, "push"): 14, (0xEC, 2, "push"): 12,
+    (0xEC, 0, "out"): 7, (0xEC, 1, "out"): 14, (0xEC, 2, "out"): 12,
+    (0xFC, 0, "push"): 4, (0xFC, 1, "push"): 1, (0xFC, 2, "push"): 7,
+    (0xFC, 0, "out"): 4, (0xFC, 1, "out"): 1, (0xFC, 2, "out"): 7,
+    (0xFD, 0, "push"): 7, (0xFD, 1, "push"): 6, (0xFD, 2, "push"): 9,
+    (0xFD, 0, "out"): 7, (0xFD, 1, "out"): 6, (0xFD, 2, "out"): 9,
+}
+# (WP40) prelude_anchor=pop: the counter's value at the prelude's POP PSW stack read (the
+# model's first clock), modulo 128, per prelude RFM and WTC: PRELUDE_COUNTER plus silicon's
+# POP PSW read clock rel clock 0 (normalize.Normalized.pre[0]; single-valued per prelude
+# and the same at both parities: ECh -79 / -92 / -109 at w0 / w1 / w2, FCh and F8h -98 /
+# -111 / -133, F4h -89 / -102 / -123, F0h -80 / -92 / -115, FDh -88 / -103 / -125, FEh
+# -84 / -94 / -113, FFh -79 / -92 / -114). The marker preludes (F18: their read 7-9 clocks
+# earlier against clock 0, the train after it the same plus the marker's word) give the
+# same value modulo the interval in every cell (ECh 1 / 10 / 6 mod 16, FCh 14 / 14 / 13 mod
+# 16, FDh 8 / 23 / 3 mod 32), so no marker key: the counter at the read is the prelude's
+# up to the POP, which the marker does not change. (WP41) FFh at 1 wait has no refresh in its
+# window (R..R+92 lies between two requests 128 apart), so its entry is read off the first
+# refreshes after clock 0 instead: F13-r-rfm-f3-pE-w1 X24 X149, -pO-w1 X23 X150 (rel clock 0)
+# put the requests on 21 and 149, the counter 79 at the read; PRELUDE_COUNTER's 44 carried
+# over (80) put them on 20 and 148, where silicon runs the fetch the chain's first start
+# raises before the refresh (the one exception of 269 prefix-matched rows in that state).
+POP_COUNTER: dict = {
+    (0xEC, 0): 65, (0xEC, 1): 42, (0xEC, 2): 22,
+    (0xFC, 0): 30, (0xFC, 1): 30, (0xFC, 2): 125,
+    (0xF8, 0): 30, (0xF8, 1): 30, (0xF8, 2): 125,
+    (0xF4, 0): 44, (0xF4, 1): 39, (0xF4, 2): 7,
+    (0xF0, 0): 53, (0xF0, 1): 48, (0xF0, 2): 17,
+    (0xFD, 0): 40, (0xFD, 1): 55, (0xFD, 2): 3,
+    (0xFE, 0): 70, (0xFE, 1): 79, (0xFE, 2): 27,
+    (0xFF, 0): 70, (0xFF, 1): 79, (0xFF, 2): 88,
+}
+# The prelude's fill clock: silicon's t_fill (clocks from clock 0) per prelude RFM, WTC and
+# parity, single-valued over every run of the corpus (F0-F17). The model's stand-in fill
+# ends elsewhere (21 / 27 / 33 at both parities, machine.py "Start state"); everything is
+# compared from t_fill, so the model's clock t is silicon's t + SILICON_FILL - its own
+# t_fill, and the counter's value at the model's clock 0 is c0 + SILICON_FILL - t_fill.
+SILICON_FILL = {
+    (0xEC, 0, "even"): 28, (0xEC, 0, "odd"): 25, (0xEC, 1, "even"): 32, (0xEC, 1, "odd"): 30,
+    (0xEC, 2, "even"): 38, (0xEC, 2, "odd"): 36,
+    (0xF0, 0, "even"): 28, (0xF0, 0, "odd"): 28, (0xF0, 1, "even"): 26, (0xF0, 1, "odd"): 26,
+    (0xF0, 2, "even"): 39, (0xF0, 2, "odd"): 35,
+    (0xF4, 0, "even"): 28, (0xF4, 0, "odd"): 20, (0xF4, 1, "even"): 27, (0xF4, 1, "odd"): 27,
+    (0xF4, 2, "even"): 37, (0xF4, 2, "odd"): 37,
+    (0xF8, 0, "even"): 33, (0xF8, 0, "odd"): 24, (0xF8, 1, "even"): 28, (0xF8, 1, "odd"): 28,
+    (0xF8, 2, "even"): 39, (0xF8, 2, "odd"): 39,
+    (0xFC, 0, "even"): 33, (0xFC, 0, "odd"): 24, (0xFC, 1, "even"): 28, (0xFC, 1, "odd"): 28,
+    (0xFC, 2, "even"): 39, (0xFC, 2, "odd"): 39,
+    (0xFD, 0, "even"): 30, (0xFD, 0, "odd"): 27, (0xFD, 1, "even"): 35, (0xFD, 1, "odd"): 32,
+    (0xFD, 2, "even"): 38, (0xFD, 2, "odd"): 38,
+    (0xFE, 0, "even"): 31, (0xFE, 0, "odd"): 27, (0xFE, 1, "even"): 32, (0xFE, 1, "odd"): 30,
+    (0xFE, 2, "even"): 41, (0xFE, 2, "odd"): 38,
+    (0xFF, 0, "even"): 28, (0xFF, 0, "odd"): 25, (0xFF, 1, "even"): 34, (0xFF, 1, "odd"): 35,
+    (0xFF, 2, "even"): 34, (0xFF, 2, "odd"): 32,
+    # (WP24) F18 A/AC, the prelude ending in a marker: 8 or 9 runs per entry, single-valued
+    (0xEC, 0, "even", "push"): 27, (0xEC, 0, "odd", "push"): 31,
+    (0xEC, 1, "even", "push"): 32, (0xEC, 1, "odd", "push"): 36,
+    (0xEC, 2, "even", "push"): 38, (0xEC, 2, "odd", "push"): 43,
+    (0xFC, 0, "even", "push"): 31, (0xFC, 0, "odd", "push"): 34,
+    (0xFC, 1, "even", "push"): 35, (0xFC, 1, "odd", "push"): 39,
+    (0xFC, 2, "even", "push"): 47, (0xFC, 2, "odd", "push"): 49,
+    (0xFD, 0, "even", "push"): 28, (0xFD, 0, "odd", "push"): 32,
+    (0xFD, 1, "even", "push"): 33, (0xFD, 1, "odd", "push"): 37,
+    (0xFD, 2, "even", "push"): 39, (0xFD, 2, "odd", "push"): 39,
+    (0xEC, 0, "even", "out"): 34, (0xEC, 0, "odd", "out"): 30,
+    (0xEC, 1, "even", "out"): 38, (0xEC, 1, "odd", "out"): 34,
+    (0xEC, 2, "even", "out"): 44, (0xEC, 2, "odd", "out"): 40,
+    (0xFC, 0, "even", "out"): 37, (0xFC, 0, "odd", "out"): 33,
+    (0xFC, 1, "even", "out"): 47, (0xFC, 1, "odd", "out"): 38,
+    (0xFC, 2, "even", "out"): 50, (0xFC, 2, "odd", "out"): 49,
+    (0xFD, 0, "even", "out"): 36, (0xFD, 0, "odd", "out"): 32,
+    (0xFD, 1, "even", "out"): 40, (0xFD, 1, "odd", "out"): 36,
+    (0xFD, 2, "even", "out"): 50, (0xFD, 2, "odd", "out"): 41,
+}
+
+
+def model_counter(chain, model_fill: int) -> int:
+    """(WP23) the counter's value at the model's clock 0 (see SILICON_FILL)."""
+    key = prelude_key(chain)
+    rfm, wtc = key[:2]
+    return (PRELUDE_COUNTER[key] + SILICON_FILL[(rfm, wtc & 3, chain.parity) + key[2:]]
+            - model_fill) % 128
+
+
+def prelude_key(chain) -> tuple:
+    """The prelude a chain runs (image.prelude_source): its RFM and WTC values, and (WP24,
+    F18) its last instruction when it ends in a marker (Chain.prelude_marker)."""
+    marker = getattr(chain, "prelude_marker", None)
+    return (chain.rfm, chain.wtc) + ((marker,) if marker is not None else ())
+
+
+class Refresh:
+    def __init__(self, cfg, phase: int, enable_at: int = 0, rft: int = 0, on: bool = True,
+                 bus=None, phase_interval: int | None = None):
+        self.cfg = cfg
+        self.enable_at = enable_at            # requests raised before this clock are the prelude's
+        # RFM.RFT (bits 1-0) doubles the interval per step: 16, 32, 64, 128 (F13 series R)
+        self.interval = cfg.refresh_interval << rft
+        self.rft = rft
+        self.prev_bit = None                  # (WP23) refresh_counter=edge: last clock's bit
+        self.timer = cfg.refresh_timer
+        # (WP23) the timer is a free-running counter: a request when its bit (RFT + 3) rises,
+        # (c0 + t) % interval == interval / 2, c0 its value at clock 0. phase is the clock of
+        # one request on the phase_interval grid (the chain's longest interval; by default
+        # this one), which fixes c0 modulo it
+        pi = phase_interval or self.interval
+        self.c0 = (pi // 2 - phase) % pi
+        # first request at the earliest clock >= 0 on the anchor's grid
+        self.due = (self.interval // 2 - self.c0) % self.interval
+        self.pending: int | None = None       # clock the waiting request was raised
+        self.served: list = []                # (request clock, start clock) per refresh
+        self.on = on                          # (WP23) RFEN: off until an RFM write sets it (F17)
+        self.bus = bus
+        self.write_at: tuple | None = None    # (WP23) (clock, RFM value) a write takes effect
+        self.writes: list = []                # (WP23) (issue clock, effect clock, value)
+
+    def write(self, value: int, t: int, cycle):
+        """(WP23) the EU's RFM store issued on t (an on-chip cycle, eu.py): RFEN, RFW and RFT
+        take effect rfm_delay clocks after the issue clock (refresh_on_write)."""
+        at = t + self.cfg.rfm_delay
+        self.write_at = (at, value)
+        self.writes.append((t, at, value))
+
+    def _apply(self, t: int, value: int):
+        from ..types import refresh_length, refresh_on, refresh_rft
+        was = self.on
+        self.on = refresh_on(value)
+        interval = self.cfg.refresh_interval << refresh_rft(value)
+        if self.bus is not None:
+            self.bus.refresh_length = refresh_length(value)
+        if self.cfg.refresh_restart == "write" and self.on:
+            self.due = t + interval               # the timer restarts on the write
+            self.c0 = (-t) % 128                  # (edge: the counter is cleared there)
+        elif interval != self.interval or not was:
+            # (WP23) refresh_restart=free: the counter ran on while RFEN was clear; its bit
+            # (RFT + 3) rises every interval clocks (F17 D: the 32-clock grid 8 clocks off
+            # the 16-clock one, as bit 4 of the counter against bit 3)
+            self.due = t + (interval // 2 - self.c0 - t) % interval
+        self.interval = interval
+        self.rft = refresh_rft(value)
+        if not self.on:
+            self.pending = None
+
+    def raise_(self, t: int):
+        """Raise the request when its period has elapsed (a request still waiting is kept;
+        a period elapsing meanwhile is not counted twice)."""
+        if self.write_at is not None and t >= self.write_at[0]:
+            self._apply(t, self.write_at[1])
+            self.write_at = None
+        if self.cfg.refresh_counter == "edge":
+            # (WP23) the request is the rising edge of the counter bit RFT selects, sampled
+            # every clock against the previous clock's selected bit: a write of RFT that
+            # selects a bit already high while the old one was low raises a request at once
+            bit = ((self.c0 + t) >> (self.cfg.refresh_interval.bit_length() - 2 + self.rft)) & 1
+            rise = bit == 1 and self.prev_bit == 0
+            self.prev_bit = bit
+            if rise and self.on and t >= self.enable_at and self.pending is None:
+                self.pending = t
+            return
+        if not self.on:
+            while self.due is not None and self.due < t:
+                self.due += self.interval         # (WP23) RFEN clear: the timer runs, no request
+            return
+        if self.due is not None and t >= self.due and self.due < self.enable_at:
+            self.due += self.interval         # served in the prelude (not modelled)
+            return
+        if self.due is not None and t >= self.due and self.pending is None:
+            self.pending = self.due
+            self.due = self.due + self.interval if self.timer == "grid" else None
+
+    def start(self, t: int, length: int):
+        """The bus unit runs the refresh cycle from t."""
+        self.served.append((self.pending, t))
+        self.pending = None
+        if self.timer == "start":
+            self.due = t + self.interval
+        elif self.timer == "end":
+            self.due = t + length - 1 + self.interval
