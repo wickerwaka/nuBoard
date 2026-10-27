@@ -4259,6 +4259,28 @@ the configuration does not read costs cache hits, not correctness);
 distinct signatures fall from 298 to 197, and `test_perf`'s projection
 tests run against the tracked fit.
 
+The register-class descent re-run with the corrected key (2026-10-26,
+scratchpad wp47/), from the thirty-third fit: `fit --stage 4` under the
+family guard (288 structures, two descended starts, the 15-enum sweep;
+4,744 s, 38.3 % of 10.5 million run results reused against 68 % with the
+old key) moved no integer and no enum: F3 840/840, the guard 1,742/1,742,
+286 of 287 enum moves refused by the guard, the one admitted the known
+inert tie `abort_latched=any`/`full`, seven inert ties recorded (the
+stage-4 sweep's, as before). Then a coordinate descent of the 32
+register-class integers (`REG_INTS`) by ±1 and ±2 clocks on every one of
+the 19,142 runs at once, refresh-on families included, under the family
+guard (wp47/regdesc.py, 730 s): no integer changes the exact count
+(18,961); one, `shift_imm.hphase` 1 → 3, lowers the summed
+first-divergence residual by 2 (644 → 642) by turning five F18 B
+refresh-on shift runs (`b-n5-shli4-pE-w0`, `b-n6-shli4-pO-w0`,
+`b-p-n7-shli4-pE-w0` a clock early → a clock late; `b-n6-shl1-pE-w0`,
+`b-n7-shl1-pO-w0` +2 → +1) while ten more paired events leave zero, so
+it is not adopted. It is a small fact against `unit_hold`'s note that
+only `hphase`'s parity matters: with a refresh-on fetch starting on a
+D1/C1 shift's first or second exec clock, a first boundary at exec clock
+3 instead of 1 moves those five runs by two clocks. No held register
+integer was a stale-cache artefact.
+
 ### The I/O setup counted from the post, not the start: `io_post` start → take (thirty-third fit, 2026-10-26, from the stage-6 ties)
 
 Configs: start = build/validation/v35s/chains/fit/fit.json (= fit-wp43-hand.json);
@@ -5966,7 +5988,9 @@ The thirty-second fit's files are in `wp43b/`, the thirty-third's in
 `validation/v35s/chains/fit.json` (`adopt PATH` writes it; `score` and
 `sim` default to it) so a checkout rescores without `build/`; the same
 change fixed `run_classes` leaving the prelude tail's classes out of the
-result cache's key (Facts, "The fitter's stage 6 under the family guard"). Open on the fitter: `TIE_FAMILIES` leave out F13, F17 and
+result cache's key (Facts, "The fitter's stage 6 under the family guard");
+stage 4 and a whole-corpus descent of `REG_INTS` re-run with the corrected
+key moved nothing (same section; `stage4.json` is that re-run's). Open on the fitter: `TIE_FAMILIES` leave out F13, F17 and
 F18, so a tie there can hide a refresh-on difference and the grid's
 order then picks; adding them makes every tie a tie on every family.
 
