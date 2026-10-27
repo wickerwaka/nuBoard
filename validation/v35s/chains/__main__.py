@@ -1,4 +1,4 @@
-"""python -m validation.v35s.chains gen | acquire | report | facts | score | sim | fit [...]"""
+"""python -m validation.v35s.chains gen | acquire | report | facts | score | sim | fit | adopt [...]"""
 
 from __future__ import annotations
 
@@ -68,11 +68,14 @@ def main(argv=None) -> int:
     facts = add_arguments(sub.add_parser("facts", help="derived per-run facts"), json_flag=True)
     facts.set_defaults(func=facts_main)
 
-    from .score import add_score_arguments, add_sim_arguments, score_main, sim_main
+    from .score import add_score_arguments, add_sim_arguments, adopt_main, score_main, sim_main
     score = add_score_arguments(sub.add_parser("score", help="model vs silicon exact match"))
     score.set_defaults(func=score_main)
     sim = add_sim_arguments(sub.add_parser("sim", help="model event list of one chain"))
     sim.set_defaults(func=sim_main)
+    adopt = sub.add_parser("adopt", help="make a fit JSON the tracked fit (sim.config.FIT_PATH)")
+    adopt.add_argument("path", help="config JSON, e.g. build/validation/v35s/chains/fit/fit.json")
+    adopt.set_defaults(func=adopt_main)
 
     from .fit import add_arguments as fit_arguments, fit_main
     fit = fit_arguments(sub.add_parser("fit", help="staged fit of the cycle model"))

@@ -4392,3 +4392,52 @@ class IoPostFromTake(unittest.TestCase):
     def test_default_is_take(self):
         self.assertEqual(DEFAULT.io_post, "take")
         self.assertEqual(OPTIONS["io_post"][0], "take")
+
+
+class TrackedFit(unittest.TestCase):
+    """The adopted fit is tracked (sim.config.FIT_PATH) so a fresh checkout scores the
+    model; it must be canonical and name every Config field, so no field silently takes
+    DEFAULT's value, and `adopt` is the only way to change it."""
+
+    def setUp(self):
+        import json
+        from dataclasses import fields
+
+        from validation.v35s.chains.sim import config
+        self.json, self.config = json, config
+        self.names = {f.name for f in fields(Config)}
+
+    def test_loads(self):
+        self.assertTrue(self.config.FIT_PATH.is_file())
+        self.assertIsInstance(Config.fitted(), Config)
+
+    def test_canonical(self):
+        text = self.config.FIT_PATH.read_text()
+        dumped = self.json.dumps(Config.fitted().to_json(), indent=1, sort_keys=True)
+        self.assertIn(text, (dumped, dumped + "\n"))
+
+    def test_every_field(self):
+        self.assertEqual(set(self.json.loads(self.config.FIT_PATH.read_text())), self.names)
+
+    def test_adopt(self):
+        import argparse
+        import contextlib
+        import io
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from validation.v35s.chains.score import adopt_main
+        text = self.config.FIT_PATH.read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "src.json", Path(tmp) / "fit.json"
+            src.write_text(text)
+            with mock.patch.object(self.config, "FIT_PATH", dst), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(adopt_main(argparse.Namespace(path=str(src))), 0)
+                self.assertEqual(dst.read_text(), text)
+                bad = {**self.json.loads(text), "no_such_field": 1}
+                src.write_text(self.json.dumps(bad))
+                dst.write_text("untouched")
+                self.assertEqual(adopt_main(argparse.Namespace(path=str(src))), 2)
+                self.assertEqual(dst.read_text(), "untouched")

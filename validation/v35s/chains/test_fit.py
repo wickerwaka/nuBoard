@@ -450,18 +450,40 @@ class CacheAndGrids(unittest.TestCase):
         self.assertEqual(fit.CACHE_STATS, {"lookups": 0, "hits": 0})
 
 
+class RunClassesPreludeTail(unittest.TestCase):
+    """run_classes decodes from the prelude's tail, which the machine runs before the
+    chain (prelude_tail != standin): its MOV r16,imm16 (imm), MOV sreg,AW (reg) and the
+    prelude marker are in the projection key."""
+
+    def test_f0_has_tail_classes(self):
+        chain = next(c for c in generate(["F0"]) if c.parity == "even")
+        classes, _ = fit.run_classes(chain)
+        self.assertIn("reg", classes)
+        self.assertIn("imm", classes)
+
+    def test_f18_has_marker_class(self):
+        from validation.v35s.chains.image import PRELUDE_MARKERS
+        from validation.v35s.chains.sim.templates import decode
+        seen = set()
+        for chain in generate(["F18"]):
+            marker = getattr(chain, "prelude_marker", None)
+            if marker is None or marker in seen:
+                continue
+            seen.add(marker)
+            cls = decode(PRELUDE_MARKERS[marker][1], 0, dict(chain.regs)).cls
+            self.assertIn(cls, fit.run_classes(chain)[0], (chain.id, marker))
+        self.assertEqual(seen, set(PRELUDE_MARKERS))
+
+
 class FittedConfig(unittest.TestCase):
     """Regression: the fitted config keeps every F0 run exact."""
 
     def test_fit_json_keeps_f0(self):
-        path = fit.OUT_DIR / "fit.json"
-        if not path.exists():
-            raise unittest.SkipTest("no fit.json yet (run: python -m validation.v35s.chains fit --all)")
         try:
             ids = fit.load(["F0"])
         except FileNotFoundError:
             raise unittest.SkipTest("no F0 corpus entries")
-        cfg = fit.Config.from_json(json.loads(path.read_text()))
+        cfg = fit.Config.fitted()
         jobs, fit.JOBS = fit.JOBS, 1
         try:
             s = fit.score_many([cfg], ids)[0]
@@ -473,10 +495,7 @@ class FittedConfig(unittest.TestCase):
         # The fitted request rule keeps the queue within its six bytes on every chain.
         from validation.v35s.chains.sim.machine import Machine
         from validation.v35s.chains.sim.queue import QUEUE_BYTES
-        path = fit.OUT_DIR / "fit.json"
-        if not path.exists():
-            raise unittest.SkipTest("no fit.json yet")
-        cfg = fit.Config.from_json(json.loads(path.read_text()))
+        cfg = fit.Config.fitted()
         peak = 0
         for chain in generate(waits=(0, 2)):
             m = Machine(chain, cfg)

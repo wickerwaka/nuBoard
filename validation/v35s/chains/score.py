@@ -7,8 +7,13 @@ prelude (see sim/machine.py, "Start state"). (WP40) The prelude's tail before
 clock 0 (Normalized.pre, from its POP PSW read) is a secondary comparison
 (pre_aligned, pre_score; `score --pre`), never part of Score.exact.
 
-    python -m validation.v35s.chains score --family F0 F1 [--waits ..] [--config cfg.json] [--show N]
-    python -m validation.v35s.chains sim --id CHAIN_ID [--config cfg.json] [--strip]
+    python -m validation.v35s.chains score --family F0 F1 [--waits ..] [--config cfg.json | --defaults] [--show N]
+    python -m validation.v35s.chains sim --id CHAIN_ID [--config cfg.json | --defaults] [--strip]
+    python -m validation.v35s.chains adopt cfg.json
+
+Both default to the tracked fit (sim.config.FIT_PATH); --defaults is the unfitted
+structural baseline (sim.config.DEFAULT). `adopt` is the one way a fit (the fitter's
+build/ output or a hand fit) becomes the tracked one: the fitter never writes FIT_PATH.
 """
 
 from __future__ import annotations
@@ -163,15 +168,46 @@ def side_by_side(s: Normalized, m: Normalized | None, sc: Score) -> str:
 
 # CLI -------------------------------------------------------------------------
 
-def _config(path):
+def _config(args):
     from .sim.config import DEFAULT, Config
-    return Config.load(path) if path else DEFAULT
+    return DEFAULT if args.defaults else Config.fitted(args.config)
+
+
+def _add_config_arguments(p):
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--config", metavar="PATH",
+                   help="model config JSON (default: the tracked fit, sim.config.FIT_PATH)")
+    g.add_argument("--defaults", action="store_true",
+                   help="use the unfitted structural baseline sim.config.DEFAULT")
+
+
+def adopt_main(args) -> int:
+    """Write the config at args.path to FIT_PATH, canonical (sorted keys, indent 1).
+
+    Stricter than Config.load, which drops unknown keys and fills missing ones from
+    DEFAULT: the file must round-trip exactly, so a renamed or missing field cannot be
+    adopted silently."""
+    import json
+
+    from .sim import config
+    try:
+        d = json.loads(open(args.path).read())
+        cfg = config.Config.from_json(d)
+    except (OSError, ValueError, TypeError) as e:
+        print(f"adopt: cannot load {args.path}: {e}")
+        return 2
+    if cfg.to_json() != d:
+        print(f"adopt: {args.path} is not exactly a Config (unknown or missing keys)")
+        return 2
+    config.FIT_PATH.write_text(json.dumps(cfg.to_json(), indent=1, sort_keys=True))
+    print(config.FIT_PATH)
+    return 0
 
 
 def add_score_arguments(p):
     p.add_argument("--family", nargs="+", required=True)
     p.add_argument("--waits", nargs="+", type=int, choices=(0, 1, 2), default=[0, 1, 2])
-    p.add_argument("--config", help="model config JSON (default: sim.config.DEFAULT)")
+    _add_config_arguments(p)
     p.add_argument("--show", type=int, default=0, help="print the first N diverging runs")
     p.add_argument("--pre", action="store_true",
                    help="(WP40) also report the pre window (POP PSW read to clock 0) "
@@ -180,7 +216,7 @@ def add_score_arguments(p):
 
 
 def score_main(args) -> int:
-    cfg = _config(args.config)
+    cfg = _config(args)
     for family in args.family:
         results = score_family(load_runs(family, tuple(args.waits)), cfg)
         print(f"== {family}")
@@ -198,7 +234,7 @@ def score_main(args) -> int:
 
 def add_sim_arguments(p):
     p.add_argument("--id", required=True, help="chain id, e.g. F0-ls-pE-w0")
-    p.add_argument("--config", help="model config JSON")
+    _add_config_arguments(p)
     p.add_argument("--strip", action="store_true", help="ASCII clock strip (report.py)")
     p.add_argument("--silicon", action="store_true",
                    help="simulate the recorded run (its chain and base, from the corpus or "
@@ -235,7 +271,7 @@ def sim_main(args) -> int:
     from .families import generate
     from .sim.machine import refresh_anchor, simulate_normalized
 
-    cfg = _config(args.config)
+    cfg = _config(args)
     log = [] if args.trace is not None else None
     if args.silicon:
         family = args.id.split("-", 1)[0]

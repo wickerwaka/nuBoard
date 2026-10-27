@@ -275,13 +275,24 @@ def run_result_reads(cfg: Config, run: Run) -> tuple[tuple, tuple]:
 
 def run_classes(chain) -> tuple[tuple, tuple]:
     """(cost classes, EA mode classes) the model can read for a chain: the class of every
-    instruction from the first LS on (the EU runs them in order; decode with the register
-    effects the EU applies), shift_imm for a memory shift (rmw_shift=shift reads its exec),
-    and the mode class of every memory operand."""
+    instruction the EU can run (it runs them in order; decode with the register effects the
+    EU applies), shift_imm for a memory shift (rmw_shift=shift reads its exec), and the mode
+    class of every memory operand.
+
+    Decoding starts at the prelude's tail, not the first LS: with prelude_tail != standin the
+    machine (sim/machine.py) runs image.prelude_tail before the chain, so the EU also runs
+    its MOV r16,imm16 (imm), MOV sreg,AW (reg), the prelude marker and the PAD NOP (reg).
+    From the first LS only, the projection key omitted those classes, and a cached result
+    was reused across a reg/imm move (test_perf ProjectionKey
+    test_model_reads_only_the_projected_classes and
+    test_irrelevant_class_does_not_change_results, on F0-ls-pE-w0). The segs tail is a
+    superset of the regs tail; a class the config never reads costs only cache hits, never
+    correctness, so the signature stays independent of the config."""
+    from .image import prelude_tail
     from .sim.templates import decode, execute
 
-    code, regs = chain.code, dict(chain.regs)
-    pc = next(i.offset for i in chain.instrs if i.role == "ls")
+    code, regs = prelude_tail(chain, True) + chain.code, dict(chain.regs)
+    pc = 0
     classes, modes = set(), set()
     while True:
         op = decode(code, pc, regs)

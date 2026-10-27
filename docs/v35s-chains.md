@@ -4241,6 +4241,24 @@ peaked at 20.1 GB with the eight workers, the cache's sawtooth
 visible in a five-minute memory log; 59.3 % of its 224 million run
 results came from the cache.
 
+A flaw in that cache's key, found on 2026-10-26 when the regression tests
+were pointed at the current fit instead of the 2026-10-19 hand fit: the
+class part of a run's key (`run_classes`) decoded the chain from its first
+LS, while since the twenty-fourth fit the machine runs the prelude's tail
+before it (`MOV sreg,AW` is a `reg` form, the F18 prelude marker a `push`
+or `out`, the PAD NOP a `reg`). The key therefore left `reg` out on the
+8,384 runs with no register form after the first LS (every F4, F5, F6 run,
+450 of F13's, 12 of F0's) and `push` out on F18's 150 push-marker runs, so
+inside a descent a move of a `reg` integer was scored against those runs'
+cached results from before the move. Every adopted fit was scored without
+the cache, so no scorecard is affected; what is weakened is the fitter's
+own verdict on `reg` integers in every stage since the twenty-fourth fit,
+stage 6's included. `run_classes` now decodes the segment-load tail and the
+chain from offset 0 (a superset at every `prelude_tail` setting; a class
+the configuration does not read costs cache hits, not correctness);
+distinct signatures fall from 298 to 197, and `test_perf`'s projection
+tests run against the tracked fit.
+
 ### The I/O setup counted from the post, not the start: `io_post` start → take (thirty-third fit, 2026-10-26, from the stage-6 ties)
 
 Configs: start = build/validation/v35s/chains/fit/fit.json (= fit-wp43-hand.json);
@@ -4355,12 +4373,20 @@ enumeration of the queue options on F0, then per stage an enumeration of the
 newly free enums with integer coordinate descent, scored lexicographically
 (exact runs of the earlier stages' families first, then this stage's, then
 the summed first-divergence residual). Each stage writes
-`build/validation/v35s/chains/fit/stageN.json`; the final configuration is
-`fit.json` there, and
+`build/validation/v35s/chains/fit/stageN.json` and the final configuration
+`fit.json` there, under the ignored `build/`. The adopted fit is tracked in
+the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
+`sim.config.FIT_PATH`, the thirty-third fit): `score` and `sim` read it by
+default (`--config PATH` for another file, `--defaults` for the unfitted
+baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
+`test_perf.py` run against it, and
 
-    python -m validation.v35s.chains score --config build/validation/v35s/chains/fit/fit.json --family F0 ... F9
+    python -m validation.v35s.chains score --family F0 ... F22
 
-reproduces every number below. The fitter also reports, per integer, the
+reproduces every number below. The fitter never writes the tracked file:
+`python -m validation.v35s.chains adopt PATH` does, after the file round-trips
+exactly through `Config` (an unknown or missing field is refused), so a fit
+becomes the model's by a reviewed step. The fitter also reports, per integer, the
 best value within each parity, wait setting, k, marker kind and family; a
 value that moves with a knob is reported as a structural finding, never
 encoded.
@@ -5936,7 +5962,11 @@ the hand fit over every family, gave the thirty-third fit
 (`io_post=take`, +2 −0); the fitter's own output scores the same as
 that hand fit. `STAGE3_SEED` and `seeds/stage3.json` carry `take`.
 The thirty-second fit's files are in `wp43b/`, the thirty-third's in
-`wp45b/`. Open on the fitter: `TIE_FAMILIES` leave out F13, F17 and
+`wp45b/`. Since 2026-10-26 the adopted fit is tracked as
+`validation/v35s/chains/fit.json` (`adopt PATH` writes it; `score` and
+`sim` default to it) so a checkout rescores without `build/`; the same
+change fixed `run_classes` leaving the prelude tail's classes out of the
+result cache's key (Facts, "The fitter's stage 6 under the family guard"). Open on the fitter: `TIE_FAMILIES` leave out F13, F17 and
 F18, so a tie there can hide a refresh-on difference and the grid's
 order then picks; adding them makes every tie a tie on every family.
 

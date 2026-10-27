@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 
 # Structural options and their allowed values (first = the plan's first option).
 OPTIONS = {
@@ -560,8 +561,19 @@ class Config:
 
     @classmethod
     def load(cls, path) -> "Config":
-        from pathlib import Path
         return cls.from_json(json.loads(Path(path).read_text()))
 
+    @classmethod
+    def fitted(cls, path=None) -> "Config":
+        """The adopted fit (FIT_PATH), or the config at `path`.
 
+        The fit is tracked so a fresh checkout can rescore the model; build/ holds only
+        the fitter's own outputs, which are adopted into FIT_PATH by hand (`adopt`)."""
+        return cls.load(FIT_PATH if path is None else path)
+
+
+# The structural baseline the fitter seeds from, not the fitted model (Config.fitted()).
 DEFAULT = Config()
+
+# The tracked, adopted fit: the default config of `score`, `sim` and the regression tests.
+FIT_PATH = Path(__file__).resolve().parent.parent / "fit.json"

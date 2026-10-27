@@ -3,7 +3,6 @@ cache keyed on a projected configuration; sim/machine.py's quiet-clock fast-forw
 
 from __future__ import annotations
 
-import json
 import unittest
 from collections import defaultdict
 
@@ -35,14 +34,8 @@ def _sample(per_cell=2) -> list[str]:
 
 
 def _configs() -> list[Config]:
-    cfgs = [DEFAULT, DEFAULT.replace(**fit.STAGE2_SEED, **STALLS),
-            DEFAULT.replace(**fit.STAGE2_SEED, **OVERFLOWS)]
-    for name in ("fit-hand.json", "fit.json"):
-        path = fit.OUT_DIR / name
-        if path.exists():
-            cfgs.append(Config.from_json(json.loads(path.read_text())))
-            break
-    return cfgs
+    return [DEFAULT, DEFAULT.replace(**fit.STAGE2_SEED, **STALLS),
+            DEFAULT.replace(**fit.STAGE2_SEED, **OVERFLOWS), Config.fitted()]
 
 
 def _full(cfg, run, fast: bool):
