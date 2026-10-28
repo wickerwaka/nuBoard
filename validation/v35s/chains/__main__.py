@@ -1,4 +1,4 @@
-"""python -m validation.v35s.chains gen | acquire | report | facts | score | sim | fit | adopt [...]"""
+"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt [...]"""
 
 from __future__ import annotations
 
@@ -61,6 +61,11 @@ def main(argv=None) -> int:
     if acquire_main is not None:
         acquire = acquire_parser(sub.add_parser("acquire", help="run chains on the board"))
         acquire.set_defaults(func=lambda args: acquire_main(args=args))
+
+    from .replay import build_parser as replay_parser, main as replay_main
+    replay = replay_parser(sub.add_parser(
+        "replay", help="run chains through the Verilator RTL model lane (HDL plan, Phase B)"))
+    replay.set_defaults(func=lambda args: replay_main(args=args))
 
     from .report import add_arguments, facts_main, report_main
     report = add_arguments(sub.add_parser("report", help="tables and strips of recorded runs"))

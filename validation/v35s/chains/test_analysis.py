@@ -186,6 +186,77 @@ class BaselineTests(unittest.TestCase):
         self.assertEqual(apply_costs("F2", f2), {"out-nop": {"pO-w2": -3}})
 
 
+class BalancedPushMarkerTests(unittest.TestCase):
+    """(WP51) A PUSH-frame body that pushes and pops the same words writes M1's stack
+    address first: M1 is the marker instruction's own write (its program-order match),
+    not the body's first push, so dM tracks the OUT-frame twin."""
+
+    CASES = (("F25", "pushr_popr"), ("F23", "callret"))
+
+    @staticmethod
+    def corpus_run(family, run_id):
+        try:
+            return next(r for r in load_runs(family, (0,)) if r["chain"]["id"] == run_id)
+        except (FileNotFoundError, StopIteration):
+            raise unittest.SkipTest(f"no corpus run {run_id}")
+
+    def test_marker_is_own_stack_write(self):
+        for family, x in self.CASES:
+            with self.subTest(family=family, x=x):
+                n = normalize(self.corpus_run(family, f"{family}-push-{x}-pE-w0"))
+                self.assertIsNone(n.access_mismatch)
+                k = next(i for i, ins in enumerate(n.chain.instrs)
+                         if ins.role == "marker" and ins.marker_id == 1)
+                m1 = next(e for e in n.events if e.marker_id == 1)
+                self.assertEqual(m1.instr_index, k)
+                self.assertEqual((m1.kind, m1.addr),
+                                 (n.expected_accesses[k][0].kind, n.expected_accesses[k][0].addr))
+                self.assertEqual(n.t_markers[1], m1.clock)
+                # The body writes the same stack address earlier: the old first-match rule
+                # took that write.
+                body = [e for e in n.events if e.kind == m1.kind and e.addr == m1.addr
+                        and n.t_markers[0] < e.clock < m1.clock]
+                self.assertTrue(body)
+                self.assertTrue(all(e.instr_index != k for e in body))
+
+    def test_dm_matches_out_twin(self):
+        for family, x in self.CASES:
+            for col in ("pE-w0", "pO-w0"):
+                with self.subTest(family=family, x=x, col=col):
+                    push = normalize(self.corpus_run(family, f"{family}-push-{x}-{col}"))
+                    out = normalize(self.corpus_run(family, f"{family}-out-{x}-{col}"))
+                    dm_push = push.t_markers[1] - push.t_markers[0]
+                    dm_out = out.t_markers[1] - out.t_markers[0]
+                    self.assertGreater(dm_push, 40)
+                    self.assertLessEqual(abs(dm_push - dm_out), 6)
+
+
+class F23F25BaselineTests(unittest.TestCase):
+    def test_empty_baselines(self):
+        f = BaselineTests.fake
+        for family in ("F23", "F25"):
+            with self.subTest(family=family):
+                facts = [f(family, "push", "empty", "pE-w0", dM=9),
+                         f(family, "out", "empty", "pE-w0", dM=10),
+                         f(family, "push", "callret", "pE-w0", dM=88),
+                         f(family, "out", "callret", "pE-w0", dM=93)]
+                self.assertEqual(apply_costs(family, facts),
+                                 {"push-callret": {"pE-w0": 79}, "out-callret": {"pE-w0": 83}})
+                self.assertEqual(facts[2]["baseline"], f"{family}-push-empty-pE-w0")
+
+    def test_cost_table_fills(self):
+        for family in ("F23", "F25"):
+            with self.subTest(family=family):
+                try:
+                    ff = _facts(family)
+                except FileNotFoundError:
+                    raise unittest.SkipTest(f"no corpus entries for {family}")
+                for variant, cols in ff["rows"].items():
+                    if variant.endswith("-empty"):
+                        continue
+                    self.assertEqual(set(cols), set(ff["cost"].get(variant, {})), variant)
+
+
 class F9Facts(unittest.TestCase):
     """The release series (chains-F9-w<N>): marker-less chains go through the same
     path, the restart is wait-independent and the refill counts the bytes consumed."""

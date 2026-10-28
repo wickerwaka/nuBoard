@@ -40,13 +40,15 @@ not start while it is busy; `latch_wait` tells the arbiter it is waiting
 
 from __future__ import annotations
 
-from .arbiter import Request
+from .arbiter import Request, io_step, io_stepped
 from .templates import _dest_route, decode, ea_class, execute, grp_class, refresh_hold_steps, steps
 from .queue import QUEUE_BYTES
 
 END_PORT = 0xFF00
 SFR_PAGE = 0xFFF00          # (WP23) the on-chip SFR page (IDB FFh): no external bus cycle
 SHIFT_CLASSES = ("shift_cl", "shift_imm")   # the shift unit's classes (refresh_eu)
+# (WP55) the control-transfer classes (F23): branch_reg treats them as register-only forms
+TRANSFER_CLASSES = ("branch_short", "branch_near", "dbnz", "call", "ret")
 # io_interlock: register-only classes that do not start while an OUT's I/O waits in the slot
 INTERLOCK = {"none": (), "reg": ("reg", "imm", "shift_imm", "shift_cl", "mul"),
              "reg_pfx": ("reg", "imm", "shift_imm", "shift_cl", "mul", "prefix")}
@@ -111,6 +113,7 @@ class EU:
         self.sfr = None                 # (WP23) the running instruction's SFR store value
         self.port_t = None              # (WP32) port_issue: the last port take's clock ...
         self.port_held = []             # ... and the waiting I/O requests it relatched
+        self.refill = False             # (WP55) refill_start: a flush's refill gates the next start
 
     def _start(self, t: int) -> bool:
         cfg = self.cfg
@@ -130,6 +133,18 @@ class EU:
             if q.inflight or q.arrived_t == t or q.wants_fetch(t):
                 return False             # quiescent: nothing in flight or landing (machine.py)
             self.started = True
+        if self.refill:
+            q = self.decoder.queue
+            if cfg.refill_start == "full" and (q.inflight or q.arrived_t == t
+                                               or q.wants_fetch(t)):
+                return False             # (WP55) refill_start=full: the refill fills the queue
+            if cfg.refill_start in ("full_d", "full_io") and (q.inflight or q.wants_fetch(t)):
+                return False             # (WP55) full_d: ... and may start on the delivery clock
+            if (cfg.refill_start == "full_io" and q.arrived_t == t
+                    and self.bus.length("fetch") == 3 and self.decoder.ir is not None
+                    and decode(self.code, self.pc, self.regs).cls in ("in", "out")):
+                return False             # (WP55) full_io: an IN / OUT not on a 3-clock fetch's
+            self.refill = False          # delivery clock
         if cfg.start_sync != "none" and self.bus.fetch_inflight(t) and not self._early(t):
             return False
         e = self.bus.early
@@ -141,6 +156,8 @@ class EU:
         if cfg.opcode_take == "prefetch" and self.decoder.ir is None:
             return False
         op = decode(self.code, self.pc, self.regs)
+        if op.cl_count and cfg.shift_count_mask == "cl5":
+            op.count &= 0x1F                 # (WP57) shift_count_mask: CL masked to 5 bits
         if (cfg.dest_route == "slot" and op.dbit == 0 and op.cls == "load_alu"
                 and op.ea is not None):
             op.nowrite = True            # (WP19) CMP r/m,reg: the d = 0 template, no write
@@ -158,13 +175,14 @@ class EU:
         if (op.modrm and self.bus.fetch_inflight(t) and self._early(t)
                 and cfg.refresh_run_modrm == "wait"):
             return False                 # (WP40) refresh_run_modrm: a ModR/M form waits it out
+        regonly = op.ea is None or (not op.bus and cfg.lea_form == "reg")   # (WP52) lea_form
         if (cfg.io_interlock != "none" and self._interlocked(op.cls, cfg.io_interlock)
-                and op.ea is None and self.req is not None and self.req.detached
+                and regonly and self.req is not None and self.req.detached
                 and self.req.cycles and self.req.cycles[0][0] == "io_write"):
             return False                 # the ALU passes the waiting OUT's data at its issue
         cur = self.bus.current
         if (cfg.io_busy_start == "issue" and self._interlocked(op.cls, cfg.io_interlock)
-                and op.ea is None and cur is not None and cur.kind == "io_write"
+                and regonly and cur is not None and cur.kind == "io_write"
                 and cur.start < t <= cur.end):
             return False                 # (WP20) only on the OUT's issue clock, not after it
         # the instruction that just ended keeps writing back, from this start or (wb_from=end)
@@ -239,7 +257,7 @@ class EU:
         self.reg_early = False          # (WP22) abort_reg: the exec began on the aborted cycle
         self.shift_latched = False      # (WP21) count_latch: this shift holds the queue port
         self.modrm = op.modrm
-        self.mem = op.ea is not None
+        self.mem = op.ea is not None and not (not op.bus and cfg.lea_form == "reg")
         self.op_len, self.imm_bytes, self.taken = op.length, op.imm_bytes, 0
         self.disp = op.disp             # (WP27) displacement bytes (sync_req=disp)
         self.dfloor_at = None           # (WP28) disp_floor
@@ -275,7 +293,7 @@ class EU:
         # successor's opcode in the queue until its first data cycle issues (machine.py
         # clears the hold on the issue clock, the displacement's take on a delivery clock)
         self.decoder.ir_hold = (cfg.ir_load == "disp_data" and op.ea is not None
-                                and op.modrm and bool(op.disp))
+                                and op.modrm and bool(op.disp) and op.bus)
         self.decoder.queue.start_t = t
         self.decoder.queue.starts += 1
         lead = [] if cfg.opcode_take == "prefetch" else [("take", 1, "opcode")]
@@ -287,6 +305,10 @@ class EU:
         if self.refresh is not None and cfg.refresh_eu == "hold":
             seq = refresh_hold_steps(op, cfg, seq)   # read only with refresh on
         self.steps = lead + seq
+        if op.target is not None and cfg.flush_hold == "start":
+            # (WP55) flush_hold=start: no fetch request from hold clocks after a taken
+            # transfer's start to its flush (queue.wants_fetch)
+            self.decoder.queue.flush_held = t + cfg.c(op.cls, "hold")
         execute(op, self.code, self.regs)
         self.k = 0
         self.trace.append((t, op.offset - self.origin, op.cls))
@@ -300,6 +322,10 @@ class EU:
         register divide is one of them as the register multiply is."""
         if cls in INTERLOCK[mode]:
             return True
+        if cls == "lea" and mode != "none" and self.cfg.lea_form == "reg":
+            return True                 # (WP52) lea_form=reg: LDEA is a register-only form
+        if (cls in TRANSFER_CLASSES and mode != "none" and self.cfg.branch_reg == "reg"):
+            return True                 # (WP55) branch_reg=reg: a transfer is a register-only form
         return cls == "div" and mode != "none" and self.cfg.reg_div
 
     def _unit_hold(self, t: int) -> bool:
@@ -741,6 +767,13 @@ class EU:
                 self.k += 1
                 self.resume = max(t, int(self.latch_until))
                 continue
+            if kind == "sent":                   # (WP52) burst_wait=issue: the posted word is
+                if self.own is not None:         # on the bus: the EU lets it go and goes on
+                    if not self.own.issued:
+                        return
+                    self._retire()
+                self.k += 1
+                continue
             if kind == "issued":                 # wait until the posted request is on the bus
                 if self.own is not None and not self.own.issued:
                     return
@@ -761,6 +794,17 @@ class EU:
                 self.since_t = t                 # (WP38) refresh_io_pre
                 self.k += 1
                 continue
+            if kind in ("flush", "decide"):      # (WP55) a taken transfer: the queue discarded,
+                if self.cfg.flush_inflight == "wait" and (
+                        self.bus.fetch_inflight(t)
+                        or t <= self.bus.last_fetch_end + self.cfg.c(
+                            self.cls, "fgap" if kind == "flush" else "nfgap")):
+                    return                       # (flush_inflight=wait: fgap clocks after the
+                                                 # last fetch's end)
+                if kind == "flush":              # (untaken=wait: a transfer not taken waits as
+                    self._flush(t, step[1])      # its flush would, "decide")
+                self.k += 1
+                continue
             if kind == "halt":
                 self.halt_t = t
                 self.halted = True
@@ -769,6 +813,16 @@ class EU:
                 self.decoder.stopped = True
                 return
             raise ValueError(kind)
+
+    def _flush(self, t: int, target: int):
+        """(WP55) the flush of a taken branch, CALL or RET: the queue and the IR emptied, the
+        fetch pointer at the target (queue.flush), the EU's next instruction the target's;
+        refill_start decides when that instruction may start."""
+        q = self.decoder.queue
+        q.flush(t, q.base + target)
+        self.decoder.ir = None
+        self.pc = target
+        self.refill = True
 
     def _early(self, t: int) -> bool:
         """(WP34) refresh_sync=run: t is one of the last two clocks of a fetch of the run that
@@ -944,9 +998,12 @@ class EU:
                 need = r.setup if r.free_need is None else min(r.free_need, r.setup)
                 if r.grpcl and r.setup - r.count == r.grpcl - 1:
                     return True          # (WP37) refresh_grpcl: the CL clocks' first
-                if (self.cfg.refresh_post == "post" and r.posted == t
+                if (self.cfg.refresh_post in ("post", "post_beat") and r.posted == t
                         and r.cycles[0][0] in ("read", "write")):
                     return True          # (WP37) refresh_post: the post's first clock
+                if (self.cfg.refresh_io_step in ("step", "own") and io_stepped(r, self)
+                        and io_step(r, self.bus, t)):
+                    return True          # (WP58) refresh_io_step: the IN's I/O on a step
                 return r.count == r.setup - need + 1
             return True
         if mode == "boundary_micro":             # clocks steps by their boundaries; while the
@@ -997,8 +1054,8 @@ class EU:
             b = r.grpcl - 1 if d > r.grpcl - 1 else 0
             r.setup += max(0, length - (d - b))
             return
-        if (self.cfg.refresh_post == "post" and r is not None and r.cycles and not r.issued
-                and not r.detached and r.cycles[0][0] in ("read", "write")
+        if (self.cfg.refresh_post in ("post", "post_beat") and r is not None and r.cycles
+                and not r.issued and not r.detached and r.cycles[0][0] in ("read", "write")
                 and 0 < r.setup - r.count
                 and not (t < self.resume and self.resume == self.clk_end)):
             # (WP37) refresh_post: the setup counts through the cycle; the EU holds at the
@@ -1008,6 +1065,11 @@ class EU:
             b = need - 1 if d > need - 1 else 0
             if not getattr(self, "refresh_beat", False):
                 r.setup += max(0, length - (d - b))
+            elif self.cfg.refresh_post == "post_beat":
+                # (WP58) refresh_post=post_beat: the hold as without a beaten fetch, given back
+                # if the beaten fetch runs ahead of the request after the refresh (arbiter.py)
+                r.beat_ext = max(0, length - (d - b))
+                r.setup += r.beat_ext
         if mode == "hold":
             self.hold_from, self.hold_end = t, t + length - 1
             if (self.cfg.refresh_loop_entry == "hold" and t < self.resume
@@ -1162,6 +1224,9 @@ class EU:
             late = int(self.cfg.port_landed and q.arrived_t == t and bool(q.latched))
             held = []
             for r in [self.req] + self.queued:
+                if (self.cfg.port_ready == "issue" and r is not None and r.ready()
+                        and r.not_before <= t and not self.bus.busy(t)):
+                    continue                    # (WP58) port_ready: it issues on this clock
                 if r is not None and r.detached and r.cycles and not r.issued:
                     r.not_before = max(r.not_before, t + late + self.cfg.c(r.cls, "relatch"))
                     held.append(r)
@@ -1201,6 +1266,8 @@ class EU:
                     nowait=io and self.cfg.io_count == "nowait", cls=cls,
                     free_bus=grp and self.cfg.grp_free_bus,
                     recover=self.cfg.io_recover, whole=whole)
+        # (WP58) refresh_io_stall (read with refresh on only)
+        r.io_stall = io and self.refresh is not None and self.cfg.refresh_io_stall == "step"
         if (self.cfg.sfr_setup == "count" and kind == "write" and self.sfr is not None
                 and self.cfg.sfr_cycle == "io" and addr >= SFR_PAGE):
             r.free_need = 0                      # (WP38) sfr_setup: no fetch-free clocks

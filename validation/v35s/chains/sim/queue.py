@@ -159,6 +159,9 @@ class Queue:
         self.eu = None                          # (WP39) refresh_io_run (machine.py sets it)
         self.io_run_at: int | None = None       # (WP39) refresh_io_run: the committed fetch's clock
         self.t4_at: int | None = None           # (WP41) refresh_beat_t4: the committed fetch's clock
+        self.discard = False                    # (WP55) the fetch in flight at a flush: its word is dropped
+        self.flush_t: int | None = None         # (WP55) the clock of the last flush
+        self.flush_held: int | None = None      # (WP55) flush_hold: no fetch request from this clock to the flush
         # options read on every clock, looked up once
         self._byte_release = cfg.release == "byte"
         self._ported = cfg.word_latch in ("port", "byte", "byte_d")
@@ -305,11 +308,21 @@ class Queue:
         if c is not None and c.kind == "fetch" and c.end == t and self._raised(t):
             self.b2b_at = t + 1
         elif (c is not None and c.kind == "fetch" and c.end == t
-              and self.after_refresh == c.start and self.cfg.refresh_io_run == "pair"
-              and self._io_form() and self.latched == 0 and self.room(t) >= 0):
+              and self.after_refresh == c.start and self.cfg.refresh_io_run != "none"
+              and self._io_form() and self.latched == 0
+              and (self.room(t) >= 0 if self.cfg.refresh_io_run == "pair"
+                   else self.eu.cls == "out" and self.room(t) + self._taking() >= 1)):
             # (WP39) refresh_io_run=pair: while an IN or OUT waits for its I/O, the fetch a
-            # refresh beat is followed by a second one the bus unit commits to back to back
+            # refresh beat is followed by a second one the bus unit commits to back to back;
+            # (WP58) pair_out: beside an OUT only, with a byte of room left counting the byte
+            # the decoder still takes
             self.b2b_at = self.io_run_at = t + 1
+
+    def _taking(self) -> int:
+        """(WP58) refresh_io_run=pair_out: 1 while the decoder still has a byte to take from
+        the queue (an empty IR, or operand bytes outstanding), else 0."""
+        d = self.decoder
+        return int(d is not None and (d.ir is None or d.need > 0))
 
     def _io_form(self) -> bool:
         """(WP39) the EU runs an IN or OUT whose I/O cycle has not issued."""
@@ -383,6 +396,10 @@ class Queue:
 
     def wants_fetch(self, t: int) -> bool:
         raised = self.requesting(t)          # evaluated even while a fetch is on the bus
+        if (self.flush_held is not None and t >= self.flush_held
+                and self.decoder is not None and self.decoder.need == 0):
+            raised = False                   # (WP55) flush_hold: a taken transfer runs (its
+                                             # operand bytes all taken)
         if raised and self._nop_held():
             raised = False
         want = (raised and not self.inflight and not self.latch_blocks(t)
@@ -417,7 +434,7 @@ class Queue:
             # issue after the refresh when the clock the refresh took the bus evaluated it
             self.flag = self.room(t) >= WORD
         self.requested_at = None
-        self.fetch_addr += 2
+        self.fetch_addr = (addr | 1) + 1         # (WP55) after an odd target: the next word
         return addr, "word", self.byte_at(addr) | (self.byte_at(addr + 1) << 8)
 
     def triple(self, t: int) -> bool:
@@ -465,12 +482,35 @@ class Queue:
         words = room // WORD if room >= WORD else 0
         return self.completed + self.inflight + words
 
+    def flush(self, t: int, addr: int):
+        """(WP55) a taken transfer: the queue's bytes (and a latched byte) are discarded, the
+        fetch pointer is the target's address (an odd target: a fetch at that address, its
+        one byte), the word of a fetch still in flight is dropped when it arrives. A queue
+        change: the request is evaluated on t (request_eval)."""
+        self.bytes.clear()
+        self.words.clear()
+        self.uncommitted.clear()
+        self.latched = 0
+        self.latch_full = False
+        self.discard = self.inflight and self.abort_end is None
+        self.fetch_addr = addr
+        self.flag = False
+        self.held = False
+        self.requested_at = None
+        self.removed_t = t
+        self.flush_t = t
+        self.flush_held = None
+
     def arrive(self, addr: int, usable: int, t: int | None = None):
         self.inflight = False
         self.slot_word, self.slot_fetch = self.slot_fetch, False
-        self.arrived_t = t
         self.completed += 1
-        kept = [a for a in (addr, addr + 1) if a >= self.skip_before]
+        if self.discard:
+            self.discard = False                # (WP55) fetched before a flush: dropped, no
+            return                              # queue change
+        self.arrived_t = t
+        # (WP55) a fetch at an odd address (a transfer's odd target) brings its one byte
+        kept = [a for a in ((addr,) if addr & 1 else (addr, addr + 1)) if a >= self.skip_before]
         if self.cfg.word_latch != "none" and kept:
             if self.latched:
                 raise QueueOverflow(f"word {addr:05X} delivered into a full latch at clock {t}")
@@ -478,7 +518,7 @@ class Queue:
         for a in kept:
             self.bytes.append((a, usable))
         if kept:
-            self.words[addr] = [len(kept), len(kept) < 2 and self.cfg.release == "first"]
+            self.words[addr & ~1] = [len(kept), len(kept) < 2 and self.cfg.release == "first"]
 
     # Decoder side ----------------------------------------------------------
 

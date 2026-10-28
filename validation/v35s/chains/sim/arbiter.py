@@ -76,12 +76,20 @@ class Request:
                                     # fetch in flight (an RMW write's ALU clocks)
     xeu: set | None = None          # (WP35) dw_view=eu: the setup clocks not counted, as the EU sees them
     grpcl: int = 0                  # (WP37) refresh_grpcl=step: a memory shift's read: its CL clocks
+    io_stall: bool = False          # (WP58) refresh_io_stall=step: an I/O request
+    eu_halted: bool = False         # (WP58) the EU is in HALT (arbitrate sets it every clock)
+    beat_ext: int = 0               # (WP58) refresh_post=post_beat: the hold's clocks
     imm1: bool = False              # (WP43) imm1_first: the first data request of a memory form
                                     # with a one-byte immediate (83 /x, C6 /0)
 
     def counts(self, fetch_inflight: bool, mode: str, bus=None, t: int | None = None) -> bool:
         """Whether this clock counts toward setup (data_while_fetch mode; io_count=nowait)."""
         if self.nowait:
+            if (self.io_stall and not self.eu_halted and bus is not None
+                    and bus.current is not None and bus.current.kind == "refresh"
+                    and t == bus.current.end and (self.setup - self.count - 1) % 2 == 0):
+                return False            # (WP58) refresh_io_stall=step: nor its last clock when
+                                        # that would end on one of the I/O's steps
             return bus is None or not bus.in_wait(t)
         need = self.setup if self.free_need is None else min(self.free_need, self.setup)
         if self.free_bus and bus is not None and t is not None:
@@ -115,6 +123,8 @@ def arbitrate(t: int, cfg, bus, queue, eu):
     starting this clock does not stop the count); wait and queue count after it.
     """
     req = eu.req
+    if req is not None:
+        req.eu_halted = eu.halted       # (WP58) refresh_io_stall
     # halt_status: the clock HALT starts is the bus unit's (the halt status); no setup counts
     halting = (eu.halt_t == t or eu.halt_defer == t) and cfg.halt_status
     base = req.count if req is not None else 0
@@ -184,6 +194,36 @@ def _eu_view(t: int, bus, r, base: int, halting: bool):
     r.count += 1 - added
 
 
+def io_stepped(r, eu) -> bool:
+    """(WP58) an I/O request still to issue, posted while the EU runs (not in HALT): the
+    requests the I/O's steps (io_step) apply to."""
+    return (r is not None and bool(r.cycles) and not r.issued
+            and r.cycles[0][0].startswith("io") and not eu.halted)
+
+
+def io_step(r, bus, t: int, issue: bool = False) -> bool:
+    """(WP58) the I/O's steps: whether t is one of the clocks a posted I/O request's sequencer
+    is at a step on, every second clock back from the issue its setup gives: from the clock
+    setup - 5 after the post (four clocks before an unhindered issue: the third after a port
+    form's post, the second after a DW form's), restarted on the clock after any bus cycle
+    that ran during the setup (a fetch, a refresh); the post clock is one as well.
+    refresh_io_step: a pending refresh starts only on a step; io_step_issue (issue): after a
+    refresh in the setup, the instruction waiting for its I/O sees it issue only on a step."""
+    p = r.posted
+    if t == p and not issue:
+        return True
+    if issue and not any(c.kind == "refresh" and c.end >= p for c in bus.cycles[-3:]):
+        return True                     # no refresh in the setup: the count alone
+    s = p + max(0, r.setup - 5)
+    for c in reversed(bus.cycles):
+        if c.start < t and c.end >= p:
+            s = max(s, c.end + 1)
+            break
+        if c.end < p:
+            break
+    return t >= s and (t - s) % 2 == 0
+
+
 def _winner(t: int, cfg, bus, queue, req, fetch_want) -> str | None:
     """Which of an issuable data request and a fetch request _choose would start on t."""
     if req is not None and fetch_want:
@@ -207,10 +247,16 @@ def _refresh(t: int, cfg, bus, queue, eu, req, fetch_want):
         return None                      # (WP34) refresh_lead: committed to the I/O; (WP41)
                                          # refresh_lead_port: a port form's on its last clock only
                                          # (on its first unless an older fetch runs there)
+    if (cfg.refresh_io_step in ("step", "own") and io_stepped(r, eu) and r.count < r.setup
+            and not io_step(r, bus, t)):
+        return None                      # (WP58) refresh_io_step: on the I/O's steps only
     if cfg.refresh_wlatch == "hold" and eu.latch_wait == t:
         return None                      # (WP41) refresh_wlatch: as a fetch, while the I/O form
                                          # waits at its start for the data latch
-    if not eu.refresh_ok(t, w):
+    # (WP58) refresh_io_step=own: beside an OUT (its request detached) the I/O's step takes the
+    # refresh whatever the EU's own state (refresh_ok)
+    if not (cfg.refresh_io_step == "own" and io_stepped(r, eu) and r.count < r.setup
+            and r.detached) and not eu.refresh_ok(t, w):
         return None
     if w == "data" and cfg.refresh_data == "data":
         return None
@@ -445,6 +491,10 @@ def _choose(t: int, cfg, bus, queue, eu):
             req = None
     if req is not None and not req.issued and (not req.ready() or t < req.not_before):
         req = None
+    # (WP58) io_step_issue: an IN's I/O after a refresh in its setup issues on one of its steps
+    if (cfg.io_step_issue == "step" and io_stepped(req, eu) and not req.detached
+            and not io_step(req, bus, t, issue=True)):
+        req = None
     if recovering:
         req = None                      # I/O recovery: no data cycle right after an I/O cycle
     if req is not None and req.ready_since is None:
@@ -518,6 +568,9 @@ def _choose(t: int, cfg, bus, queue, eu):
         fresh = queue.requested_at == t and bus.last_fetch_end == t - 1
         # (WP33) free_idle_b2b: a fetch the bus unit committed to back to back
         b2b = cfg.free_idle_b2b and queue.b2b_at == t
+        if mem and r.beat_ext and queue.after_refresh == t:
+            r.setup -= r.beat_ext           # (WP58) refresh_post=post_beat: the beaten fetch
+            r.beat_ext = 0                  # runs first, the hold is the window's (as post)
         addr, width, data = queue.issue(t, mem_waiting=mem)   # (WP26) request_reissue
         c = bus.start(t, "fetch", addr, width, data, owner=queue)
         if eu.refresh is not None and cfg.refresh_sync == "run":

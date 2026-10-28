@@ -66,6 +66,10 @@ IX=0100h, IY=0180h, DS0=DS1=SS=0, SP=0F00h, AW=1234h, DW=5678h.
 | F20 | R: a lead-in of none, `NOP`, `NOP NOP` or `ES: NOP`, then a register form P of 1–4 bytes whose last byte is its opcode, a ModR/M or an immediate (none, `NOP`, `XCH AW,DW`, `MOV AW,DW`, `MOV DW,AW`, `MOV AW,imm16`, `ADD AW,imm16`, `ADD DW,0`, `ES: NOP`, `ES: MOV AW,DW`, `ES: MOV AW,imm16`), then X ∈ {`MOV AW,[BW]`, `MOV [BW],AW`, `ADD [BW],AW`, `OUT DW,AL` (EE), `OUT 40h,AL`, `MOV AW,DW`}; the OUT frame with every X and lead, PUSH at three leads without the RMW, marker-less at two; N: the F6 drain frame `M0 D^n P X M1` for five P and four X, OUT n = 1, 2 and PUSH n = 1; AW = DW = 0040h | finding 4 of the sixteenth fit: the state separating the 4-byte form's extra fetch, the 2-byte forms on the I/O issue clock, the F6 `n1` drains and the `MOV AW,DW` pairs from F4's loads (P's length and last byte against X's ModR/M, the frame, the alignment, the stored count at X's start) |
 | F21 | the EA path: five consumers of a ModR/M memory operand, `MOV AW,r/m` (8B), `MOV r/m,AW` (89), `MOV r/m,imm16` (C7 /0), `ADD r/m,AW` (01) and `POP r/m` (8F /0), in seven modes [BW], [BW+10h], [BW+200h], [BW+IX], [BW+IX+10h], [BW+IX+200h] and [0C00h] (mod 00 rm 110), behind a lead-in of none, `NOP`, `NOP NOP`, `NOP NOP NOP` or `ES: NOP`; PUSH and OUT frames at every lead, marker-less at none, NOP, NOP NOP and ES: NOP; k = 2 with no lead for the five displaced modes in both frames; the load in [IX+10h], [IX+200h], [BP+IY+10h] and [BP+IY+200h] as controls | the EA cost structure the seventeenth fit's one-value table could not carry: the mode class against the displacement width, the d16's second byte against its alignment (the ModR/M's word-mate or a straddle), the immediate forms' displacement order, and the consumer |
 | F22 | the immediate forms' post against the fetch run: the immediate RMW `ADD r/m,imm16` (81 /0) at [BW+200h], [BW+10h], [BW] and [0C00h], `ADD [BW+200h],imm8` (83 /0), the left-out write `CMP [BW+200h],imm16` (81 /7), `TEST [BW+200h],imm16` (F7 /0) and the immediate store `MOV r/m,imm16` (C7 /0) in the same four modes as the controls, behind the F21 lead-ins (none, `NOP`, `NOP NOP`, `NOP NOP NOP`, `ES: NOP`); PUSH, OUT and marker-less frames at every lead; k = 1 and 2; 0 and 1 waits only | item 1's three runs: whether the read of an immediate RMW and the write of an immediate store differ in the same counted state, the one-byte immediate's group setup against the delivery clock, and TEST imm with a displacement, which the corpus had never held |
+| F23 | control flow inside the chain (acquired 2026-10-27; modelled and fitted 2026-10-28, the thirty-fifth fit, 255/360): the cost frame under PUSH and OUT with flags made known by `CMP AW,AW` (3B C0); taken `BE +n ; NOP^n` (74 n) and `BR short +n ; NOP^n` (EB n) for n = 0..7 (the NOPs are chain bytes that never run, knob `skipped`), `BR near +n` (E9 n 00) for n = 0..3; not-taken `BNE +n` (75 n) at n = 0 (k = 1, 2) and 2; `MOV CW,1 ; DBNZ +0` (not taken), `MOV CW,2 ; DBNZ +n` for n = 0, 2 (taken once); `CALL +0` (E8 00 00) and the pair `CALL +2 ; BR +1 ; RET` (run in the order 0, 2, 1); controls the empty frame and `CMP AW,AW` alone; 60 variants, 360 runs | the queue flush and the fetch of a branch target: bytes discarded, the restart word and its alignment (both target parities appear over n and the pad), the bytes the decoder needs before the EU resumes, the near CALL's stack write against the flush, the not-taken cost |
+| F25 | EA without a bus cycle and the stack frame (acquired 2026-10-27; modelled and fitted the same day, the thirty-fourth fit, 446/588): `LDEA AW,r/m` (8D /0) in all 24 modes, k = 2 for [BW], [BW+10h], [BW+200h], [BW+IX], [BW+IX+10h] and [0C00h]; `XLAT` (D7, a byte read at BW+AL = 0800h since the fence leaves AW = 0); `PUSH imm16` (68) and `PUSH imm8` (6A) at k = 1, 2; `PUSH R` (60), `PUSH R ; POP R` (61, eight stack words each); `PREPARE 0,0` (C8 00 00 00) and `PREPARE 0,0 ; DISPOSE` (C9); `PUSH DS1`/`PUSH DS1 ; POP DS1` (06, 07), `PUSH DS0`/`PUSH DS0 ; POP DS0` (1E, 1F), `PUSH PS` (0E), `MOV DS1,AW` (8E C0), `MOV AW,DS1` (8C C0), `MOV DS1,[BW]` (8E 07) and `MOV [BW],DS0` (8C 1F); DS0, SS and PS are never loaded from memory or with an unknown value; the empty frame as control; 98 variants, 588 runs | the EA table on its own, separated from the read it has always been bundled with; stack bursts of eight words through the arbiter; the segment write-back; the immediate push |
+| F26 | the refresh-off probe family (generator WP56, acquired 2026-10-28; 906/906 under the thirty-fifth fit; 151 variants, 906 runs; ids `F26-<push|out>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>`): the cost frame `M0 NOP^n X^k M1` for five rules the rule register (docs/v35s-chain-rtl-spec.md) found pinned by one or two cells, each as a ladder that puts the deciding state in many cells: `pi` (`port_issue`: `M0 OUT 40h,AL NOP^n X OUT 40h,AL M1`, X ∈ {∅, XCH AW,DW, MOV AW,DW, ADD AW,DW, MOV CL,imm8}, n = 0..3, and `M0 NOP^n X OUT 40h,AL M1`), `fib` (`free_idle_b2b`: `MOV [BW+IX+200h],imm16` at k = 1..3, NOP^1..2 before the k = 2 pair, the k = 2 comparison forms [BW+200h], [BW+IX], [BW+IX+10h]), `gih` (`grp_io_hold`: INC, NOT, SHL ,1, NEG, DEC [BW] and the controls TEST [0C00h],AW, TEST [BW],AW after NOP^0..2 under OUT, PUSH at n = 0), `dio` (`disp_io`: six load modes after NOP^0..3 under OUT), `lks` (`lookup_start`: TEST [0C00h],AW at k = 1, 2 after NOP^0..2 and k = 3, controls TEST [BW],AW and TEST [BW+200h],AW), `cnt` (the C0/C1 count mask: `SHL AW,n` for n = 31, 32, 33, 255 and `MOV CL,n ; SHL AW,CL` for n = 32, 255); the empty frame per marker | which alternative of each rule silicon takes, in cells the corpus never had; whether the shift count byte is masked |
+| F27 | the refresh-on probe family (WP56, acquired 2026-10-28; 646/1,072 read under the thirty-fourth fit, modelled and fitted the same day, the thirty-sixth fit, 778/1,072; RFM FCh at every wait with an ECh twin of every variant at 0 waits; 134 variants per RFM, 804 + 268 = 1,072 runs; ids `F27-<push|out>-<fc|ec>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>`): `room` (`room_ir_imm`: `MOV AW,imm16`^k and `MOV DW,imm16`^k, k = 1..4, against `MOV CL,imm8`^k, k = 1..4, and `ADD DW,imm16`^k, k = 1..3), `unit` (`refresh_drop_unit`: `SHL AW,CL` by 4, 8, 16, `MULU DW`, `SHL AW,8`, each after NOP^0..2), `port` (`refresh_drop_post`, `refresh_lead_port`: `OUT 40h,AL`, `OUT 40h,AW`, `IN AL,40h` after NOP^0..5, `OUT DW,AL` and `IN AL,DW` at n = 0, 2, 4), `beat` (`refresh_beat_t4`: `MOV DS1,AW ; MOV AW,imm16` and `MOV AW,DW ; MOV DW,imm16` after NOP^0..5); the empty frame per marker and RFM | the five refresh-side rules' alternatives in the chain body; the refresh-on model's coverage outside the corpus's cells |
 
 Each chain runs at 0, 1 and 2 memory waits (WTC 0000h, 0001h, 0002h; I/O
 stays at 0 waits) and at both parities. F2–F8 are generated twice, with
@@ -81,8 +85,10 @@ of which reproduce F3 and F11 traces exactly) brings it to 4,352. F13
 (798 runs, 150 of them refresh-off controls, 2026-10-21) to 8,198 and
 F18 (1,164 runs, 96 of them refresh-off controls, 2026-10-21) to 9,362
 F19 (1,290 runs, 2026-10-21) to 10,652, F20 (3,594 runs,
-2026-10-21) to 14,246, F21 (3,576 runs, 2026-10-21) to 17,822 and F22
-(1,320 runs, 2026-10-23) to 19,142.
+2026-10-21) to 14,246, F21 (3,576 runs, 2026-10-21) to 17,822, F22
+(1,320 runs, 2026-10-23) to 19,142, F23 (360 runs, 2026-10-27) to 19,502,
+F25 (588 runs, 2026-10-27) to 20,090, F26 (906 runs, 2026-10-28) to 20,996 and
+F27 (1,072 runs, 268 of them refresh-off controls, 2026-10-28) to 22,068.
 Parity is that of the first body byte after the fence; with the 1-byte PUSH
 marker the instruction after M0 therefore sits at the other parity, and each
 PUSH lowers SP by 2, so stack forms behind a PUSH marker use 0EFEh downward.
@@ -4379,6 +4385,428 @@ score over F0 F0w F1..F22 (scratchpad sc35-all.txt vs scratchpad sc34v.txt, 19,1
 refresh-off END mismatches none, END mismatches 173 (fit.json: 175; F13-c 66->65,
 F13-u 12->11).
 
+### Control flow and the EA alone: the branch's flush and refill, PUSH R's cadence, LDEA by mode (F23, F25, 2026-10-27; no fit)
+
+Read 2026-10-27 from the recorded runs with the thirty-third fit untouched, before either family had a template
+(`families.UNMODELLED`; F25's model and fit follow in the next section, F23's two sections on). Costs are `ΔM − ΔM(empty)` at the same frame, parity and
+waits, written PUSH/OUT; pE w0 unless said otherwise. Both families ran with RFM ECh, every run `complete` and
+`passed`, 12 (F23) and 20 (F25) repeats per wait setting all identical to their first trace up to a constant tick
+shift; the normaliser's expected-access list matched every data, stack and I/O cycle of all 948 runs, the eight-word
+bursts of PUSH R and POP R and the CALL's and RET's stack cycles included, which confirms POP R reads eight words.
+Ids `F23-<push|out>-<variant>-p<E|O>-w<0|1|2>` and `F25-<push|out>-<variant>[-k2]-p<E|O>-w<0|1|2>`; the corpus
+entries are chains-F23-w0..2 and chains-F25-w0..2. [chains-F23-w0..w2, chains-F25-w0..w2]
+
+**The PUSH marker and a balanced body (normaliser fix, 2026-10-27).** The marker matcher took the first stack write at
+M1's address after M0. A body that pushes and pops the same number of words puts its first push at that address, so
+M1 was read off the body's first write and the PUSH-frame ΔM of `callret`, `pushr_popr`, `prepare_dispose`,
+`push_ds1_pop_ds1` and `push_ds0_pop_ds0` came out at the empty frame's 9. The matcher now takes the event the
+program-order access match assigned to the marker's own instruction (the old rule remains the fallback when that
+match fails). Over the whole corpus 36 runs changed their M1: the 30 above and F15's `p-push-push_pop` cells (PUSH-frame
+ΔM 20 → 46 at w0 against the OUT twin's 48); nothing else moved, and the scorer never read the marker clocks, so no
+scorecard changed. After the fix every balanced PUSH-frame variant is within −4..+2 clocks of its OUT twin.
+
+**F23 (chains-F23-w0..2; `f23`; 60 variants, 360 runs).** Flags are made known by `CMP AW,AW` (3B C0) before every
+conditional form; the skipped NOPs after a taken branch are chain bytes that never execute (knob `skipped`).
+
+| Form | Cost pE w0 (PUSH/OUT) | Reading |
+| --- | --- | --- |
+| `CMP AW,AW` | 3/4 | a 2-byte register form (F3: 3) |
+| `BE +n` taken, n = 0..7 | even target 27/28, odd target 30/32 | identical for n = 0, 2, 4, 6 and for n = 1, 3, 5, 7: the skipped bytes cost nothing, only the target's parity counts (3–4 more when odd at w0, 4–6 at w1, 4–7 at w2) |
+| `BR +n` short, n = 0..7 | even 20/21, odd 23/25 | 7 under BE taken; the same parity rule |
+| `BR +n` near (E9 n 00), n = 0..3 | even 21/23, odd 24/27 | one more than the short form (its third byte) |
+| `BNE +0` not taken (after CMP) | 11/13 with the CMP, so 8/9 alone | k = 2 (two CMP; BNE pairs) 23/25: linear |
+| `BNE +2` not taken then NOP NOP | 19/20 | the two executed NOPs add 8/7 (F3: 4 per NOP) |
+| `MOV CW,1 ; DBNZ +0` not taken | 17/20, so 10/13 after the 7 of MOV CW,imm16 | |
+| `MOV CW,2 ; DBNZ +n` taken once, n = 0, 2 | 33/38, so DBNZ taken 26 (even target) / 31 (odd) | the same for n = 0 and 2 |
+| `CALL +0` | 30 (even target) / 35 (odd) | the return address's stack write 10 clocks after M0's I/O cycle, then 8 idle clocks, then the target's fetches |
+| `CALL +2 ; BR +1 ; RET` (run 0, 2, 1) | 79/83 | with CALL 30/35 and BR 23/21 by target parity, RET is about 26–27 |
+
+Which target parity a cell sees follows from the frame: under PUSH (M0 one byte) the branch sits at an odd offset at
+pE and an even n gives an odd target; under OUT (two bytes) the reverse, and pO flips both. Read that way the two
+frames agree within 1–2 clocks on every form, as they do elsewhere.
+
+The strip of a taken branch (OUT, pE w0, even target: `F23-out-be-n0-pE-w0`, aligned at M0's I/O cycle, OUT = 10
+clocks): M0 I at 0, the refill fetches F at 3 and 6, then nine idle clocks, then the target's fetches F at 18, 21 and 24
+back to back, four idle clocks, F at 31, four idle, M1's I at 38. The first target fetch starts 8 clocks after the
+branch's start (BE at 10). The EU does not resume on the first target word: M1 (the first instruction at the target)
+starts about 28, one clock after the third back-to-back fetch ends, so the refill delivers three words before anything
+executes. With an odd target (`be-n1`) the refill is four fetches back to back (18, 21, 24, 27; the first carries one
+useful byte), M1 starts about 32 (two clocks after the fourth ends) and its I/O cycle is at 42. The same shape, with its
+own lead, serves BR short, BR near, DBNZ taken and CALL (`out-call`: w at 10, eight idle clocks, F at 21, 24, 27, 30, nine idle,
+F at 42, I at 45) and the RET of `callret` (r at 39, eight idle clocks, F at 50, 53, 56, 59, then the BR's own flush and
+refill). Not-taken
+BNE and DBNZ make no flush: their strips are fetch-paced like a register train (`out-bne-n0-k1`: F at 3, 6, 9 back to
+back, eleven idle clocks, I at 23).
+
+**F25 (chains-F25-w0..2; `f25`; 98 variants, 588 runs).**
+
+| Form | Cost pE w0 (PUSH/OUT) | Reading |
+| --- | --- | --- |
+| `LDEA AW,[BW]`, `[BW+IX]`, `[BW+IY]`, `[BP+IX]`, `[BP+IY]`, `[IX]`, `[IY]` | 6/7 | one cost for every mod 00 register mode: base and base+index are not told apart |
+| the eight d8 modes | 6/7 (pO 6/6) | the displacement byte costs nothing at k = 1 |
+| `[BW+IX+200h]`, `[BW+IY+200h]`, `[BP+IX+200h]`, `[BP+IY+200h]` | 7/8 (pO 7/7) | |
+| `[IX+200h]`, `[IY+200h]`, `[BP+200h]`, `[BW+200h]`, `[0C00h]` | 9/7 (pO 6/6) | parity-dependent under PUSH only; base+d16 reads 2 above base+index+d16 at pE, the reverse of the EA table's order (fitted: every mod 00 and d8 mode 2, base+index+d16 3, base+d16 and direct 2; the 3/4 of `DEFAULT_EA` are the unfitted start). The fit below shows the inversion is confined to the PUSH pE cells where the d16's high byte sits in a word not yet fetched when the EA step reaches it: the load shows the same +3 there (`F21-push-l0-ld-bw_d16-pE-w0` reads at +12 against [BW]'s +9, +9 at pO), so it is the d16's fetch, not the table |
+| LDEA at k = 2 | `[BW]` 11/13, `[BW+IX]` 11/13, `[BW+10h]` 12/16, `[BW+IX+10h]` 12/16, `[BW+200h]` 15/16, `[0C00h]` 15/16 | the second instance costs 5/6 for the 2-byte forms and 6/9 for the displaced ones: fetch-paced |
+| `XLAT` | 11/14 | the byte read at 0800h |
+| `PUSH imm16` | 13/14; k = 2 26/27 | 13 each (PUSH AW 9) |
+| `PUSH imm8` | 12/13; k = 2 24/25 | 12 each |
+| `PUSH R` | 75/76 | eight stack writes, the first 9 clocks after M0's I/O cycle, then issue to issue every 9 / 10 / 11 clocks at 0 / 1 / 2 waits: the 3+w-clock write cycle and six idle clocks, so the burst is bus-bound, the EU waiting for each write's end (`F25-push-pushr-pE-w2` s16 27 38 ...; the totals 84/84, 92/93 at 1 and 2 waits grow with the frame on top). At pO w2 one fetch gets through before the eighth write (173 between 168 and 180). The first reading here, a 9-clock cadence at every wait, was wrong |
+| `PUSH R ; POP R` | 150/151 | POP R about 75, eight reads at the same 9-clock cadence, the first 9 after the last write |
+| `PREPARE 0,0` | 30/32 | one stack write (BP) 6 clocks after M0's I/O cycle, then two fetches and some twenty idle clocks |
+| `PREPARE 0,0 ; DISPOSE` | 41/44 | DISPOSE 11/12 with one stack read |
+| `PUSH DS1`, `PUSH DS0`, `PUSH PS` | 10/11 | one above PUSH AW |
+| `PUSH DS1 ; POP DS1`, `PUSH DS0 ; POP DS0` | 22/23 | POP sreg 12/12 (POP AW 11) |
+| `MOV DS1,AW`, `MOV AW,DS1` | 3/4 | 2-byte register forms |
+| `MOV DS1,[BW]` | 12/13 | the load's 11 plus one |
+| `MOV [BW],DS0` | 9/10 | the store's 9 |
+
+What the model needs from these two families, in the order the HDL plan lists them (Phase E): a `branch` class with a
+flush, a target fetch 8 clocks after the start, a refill of three words before the EU resumes and a not-taken path
+that is a plain register form; a `call` class adding the return-address write before the flush and RET's read; an EA
+step that costs the same for every mod 00 and d8 mode (the fitted table already does; the d16 inversion is the
+straddling word's fetch, above); a stack burst of eight words for PUSH R and POP R, each waited for as a write; the
+immediate push; and the segment forms as register forms with a write-back. Both are fitted below.
+
+### The EA alone and the stack frame in the model: ten classes, three enums, the thirty-fourth fit (F25, 2026-10-27)
+
+**Decode and classes** (`sim/templates.py`, WP52, Opus). 8D with a memory operand is `lea` (`Op.bus=False`: the
+memory form's head, so the EA table's clocks, and no bus cycle; the offset is written to the register); D7 is `xlat`
+(a byte read at BW+AL, no ModR/M); 68 / 6A are `push_imm` (a 2- or 1-byte immediate); 60 / 61 are `push_r` / `pop_r`
+(eight words AW CW DW BW SP BP IX IY from SP−2 down / SP up, SP's word read and discarded, the registers kept as POP
+AW keeps them); C8 is `prepare` (level 0 only; BP's write, BP := SP, SP −= imm16); C9 is `dispose` (SP := BP, the read
+at BP, BP := the data fill); 06 0E 16 1E are `push_seg`, 07 17 1F `pop_seg`; 8E with a memory operand is `load_seg`
+(the load's template), 8C is `store` with a memory operand and `reg` with a register one; segment registers themselves
+are not modelled (nothing in F25 reads one). Templates: `lea` the memory head then exec; `xlat` pre, the byte read with
+setup / setup_free, exec; `push_imm` pre, the immediate's take, the write with its setup, post; `push_seg` / `pop_seg`
+PUSH AW's / POP AW's templates with their own integers (one clock above PUSH AW and POP AW, so PUSH AW's integers
+do not fit them); `dispose` POP's template with an optional pre; `prepare` the write and the 3-byte take in
+`prepare_order`, then exec; `push_r` / `pop_r` eight data steps, the first with `setup` and the rest with `wsetup`,
+`gap` clocks between, then post / exec. Three enums (`sim/config.py`, DEFAULT the old behaviour):
+
+| Enum | Options, chosen in bold | Reading |
+| --- | --- | --- |
+| `lea_form` | mem / **reg** | LDEA is a register-only form for the I/O interlocks (`io_interlock`, `io_busy_start`, the latch rules: as MOV AW,DW it does not start while an OUT's I/O waits in the slot) and `self.mem` is off for it; its template still runs the EA table's clocks. Stage 9's grid: 276 of the 360 LDEA runs against 192 |
+| `burst_wait` | **data** / issue | each of the eight words is a data step the EU waits for as for any write or read / posted and left on the bus, the EU going on after its issue (a cadence that would not stretch with the waits). The data variant is what the corrected PUSH R reading says; issue was refuted |
+| `prepare_order` | **write_first** / take_first | BP's write posted before the three operand bytes are taken / after |
+
+The IR-hold rule (`ir_load=disp_data`) now requires `op.bus`: without it a displaced LDEA never let the IR load.
+`forms.STACK_CLASSES` carries the push and pop classes for the normaliser's expected-access lists (all 948 F23/F25
+lists identical before and after). `fit.py` gained stage 9 (`STAGE_FAMILIES[9] = ["F25"]`, `F25_ENUMS`, 51 integers
+in `F25_INTS`), run with the corpus guard over all 19,730 modelled runs rather than the stage guard: under the stage
+guard every descent round scored about 200 candidates over the other 19,142 runs and was killed twice at the 40G
+memory cap, even at `--cache-limit 1000000`; no other family's run reads the new classes, so only an enum move could
+change one, and the corpus guard checks every move ("0 of 4 moves refused"). `families.UNMODELLED` is `("F23",)`.
+
+**Integers** (stage 9 from hand read-offs now in `DEFAULT_COST`; the descent moved only `dispose.setup` 7 → 6 on a
+tie, 446 → 446):
+
+| Class | Integers |
+| --- | --- |
+| lea | pre 0, exec 0, nx 2 |
+| xlat | pre 0, setup 7, setup_free 3, exec 2 (POP AW's) |
+| load_seg | pre 0, pre0 2, dfloor 2 (the load's), exec 3 (the load's 2 plus one) |
+| push_imm | pre 3, setup 7, setup_free 3, post 0 (PUSH AW's setup) |
+| push_seg | setup 8, setup_free 4, post 0 (PUSH AW plus one) |
+| pop_seg | setup 7, setup_free 3, exec 3 (POP AW plus one) |
+| dispose | pre 0, setup 6, setup_free 3, exec 2 |
+| prepare | pre 2, setup 7, setup_free 3, exec 16 |
+| push_r | pre 0, setup 10, setup_free 7, wsetup 7, gap 0, post 0 |
+| pop_r | pre 0, setup 7, setup_free 3, wsetup 7, gap 0, exec 2 |
+
+**Scorecard** (`score --family F25`, scratchpad wp52/score-F25.txt and wp54/fit-34/F25.txt, identical): 446/588;
+even 226/294, odd 220/294; 0 waits 140/196, 1 wait 152/196, 2 waits 154/196.
+
+| Frame | pE w0 | pE w1 | pE w2 | pO w0 | pO w1 | pO w2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| PUSH | 38/49 | 39/49 | 39/49 | 35/49 | 34/49 | 36/49 |
+| OUT | 33/49 | 38/49 | 39/49 | 34/49 | 41/49 | 40/49 |
+
+Exact in all 12 runs: XLAT; PUSH DS1, PUSH DS0, PUSH PS and both push/pop pairs; MOV AW,DS1; PUSH R and
+PUSH R ; POP R under OUT; PUSH imm16 and imm8 at k = 1 and 2 under PUSH; every LDEA d8 mode at k = 1; every OUT
+d16 mode, direct included, and their k = 2 forms; the PUSH frame's k = 2 d16 and direct forms; every PUSH mod 00
+mode at pE. The 142 misses, by cause (clocks from t_fill, silicon against model):
+
+| Group | Runs | Where | First divergence and reading |
+| --- | --- | --- | --- |
+| A. LDEA under PUSH at pO, mod 00 | 29 | 7 modes × 3 waits, [BW] and [BW+IX] at k = 2 at every wait, [BW+10h] and [BW+IX+10h] at k = 2 at w1 | after fetch 81 silicon fetches back to back at 84 (86 / 88 at w1 / w2); the model has no fetch there and posts M1's write first (st92 against st93); at k = 2 the model's fetch is 86 against 84. In silicon the queue has room for a word while LDEA runs its EA clocks; in the model the room is still 1 (the IR loads nx = 2 clocks after the ModR/M take) so the room/IR rule does not raise the request. MOV DS1,AW (8E C0), a 2-byte register form in the same cell, is exact |
+| B. LDEA with a d16 straddling a word, PUSH pE | 27 | base+d16 and direct (5 modes) −3 / −4 / −4 at w0 / w1 / w2; base+index+d16 (4 modes) −1 / −4 / −4 | M1's write st96 / 100 / 104 against st93 / 96 / 100: silicon ends LDEA 3–4 clocks later once the word holding the d16's high byte has arrived; the load does the same (F21 above). Refuted: the memory forms' displacement rules (`late_disp`, the take latch, `ea_ir_room`) applied to LDEA's displacement, 268 against 276; a floor of N clocks from the displacement's take, N = 6 fixes pE w0 and w1 and breaks w2 and the aligned cells (126/360). The extra time is fetch-state dependent, not a constant |
+| C. LDEA under OUT | 28 | mod 00 at w0 (14): silicon's next fetch 94 (pE) / 100 (pO) against 90 / 99, a fetch held 7 clocks after fetch 87; k = 2 mod 00 (12): pE +5 (fetch 93 against 98), pO −2 (106 against 104); d8 k = 2 at pE w1 (2): +6 | the w1 / w2 k = 1 mod 00 cells are exact |
+| D. PUSH imm under OUT | 24 | imm16 and imm8, k = 1 and 2 | the fetch after M0's I/O: imm16 silicon I+4 against I+3; imm8 at pE I+3 against I+4; imm8 at pO the stack write 9 clocks after the I/O against 6. The PUSH frame is exact: a frame-state finding (the marker dependence of `push_imm.pre` / `setup` below) |
+| E. Segment forms | 12 | MOV DS1,AW and MOV DS1,[BW] under OUT at pE (6): the M0 marker's own I/O is a clock later in silicon (85 against 84 at w0) when 8E follows it; pO exact, MOV AW,DS1 exact. MOV [BW],DS0 at pO in both frames (6): the store a clock later (da87 against da86 under PUSH, da91 against da90 under OUT); pE exact | both parity-dependent; left as misses rather than giving 8E / 8C their own classes |
+| F. PREPARE / DISPOSE | 16 | PREPARE's M1 grows about 2 clocks less across w0 → w2 than the model's under PUSH (+2, +1, 0) and about 2 more under OUT (0, −1, −2); prepare_dispose the same spread | the wait dependence of `prepare.exec` and `dispose.setup` below |
+| G. PUSH R under PUSH at pO | 6 | pushr and pushr_popr | the first write at M0's end + 9 in silicon (89 / 90 / 91) against 90 / 91 / 92; pE exact (the first write at the intervening fetch's end + 7) and OUT exact. PUSH R's first write sits 2–4 clocks after PUSH AW's by cell, so no one setup fits all |
+
+**Knob dependence** (rule 5, reported by the fitter and not encoded; each is a structural finding for a later
+state read): `lea.nx` 2 / 1 / 2 by waits and 2 under OUT, 0 under PUSH; `push_imm.pre` 4 under OUT, 3 under PUSH;
+`push_imm.setup` 10 under OUT, 7 under PUSH; `dispose.pre` 0 / 0 / 1 and `dispose.setup` 5 / 6 / 7 by waits;
+`prepare.exec` 15 / 16 / 17 by waits; `push_r.setup` 10 under OUT, 9 under PUSH.
+
+**LDEA and the EA table.** The fitted EA table applies to LDEA as an "ea" step with exec 0: all 96 d8 k = 1 runs
+exact, OUT d16 24/24 per wait and parity, PUSH pO d16 exact, the base+index+d16 extra clock present. LDEA needs no EA
+cost of its own; the facts table's inversion is group B's straddling fetch.
+
+**The thirty-fourth fit** (`fit.json`, 2026-10-27; scratchpad wp54/fit-34.json) is the F25 fit above with the
+rule register's six inert rules and the `sync_io` tie dropped, as docs/v35s-chain-rtl-spec.md's decisions record:
+`room_ir_ready=False`, `ea_floor=False`, `wlatch_ir=False` (`wlatch_ir_at=busy`), `wlatch_mul=take`,
+`sfr_setup=fetch_free`, `sync_io=issue`. Scored over F0, F0w, F1–F22 and F25 (wp54/fit-34/) its output is byte for byte
+the wp53 verification's (18,961/19,142; the six F22 runs, the 175 refresh-on runs, END 173 unchanged) plus F25's
+446/588: 19,407/19,730 over the 24 scored families. No existing class integer or EA entry changed. The frozen
+package was regenerated from it (`freeze`, `freeze --check` clean) and `freeze --verify --jobs 8` is bit-identical over
+all 19,730 runs (52 s); 422 tests pass.
+
+### Control flow in the model: five transfer classes, six enums, the flush and the refill (F23, 2026-10-28)
+
+**Decode and classes** (`sim/templates.py`, WP55, Opus; classes by encoding format). 74 / 75 / EB are `branch_short`
+(a 1-byte displacement; `Op.cond`, the 70–7F row's condition field, is a format property), E9 `branch_near`, E2 `dbnz`,
+E8 `call` (the stack write at SP−2), C3 `ret` (the stack read at SP); `Op.target` is the taken transfer's code offset.
+Taken or not is semantics: BE taken iff Z, BNE iff not Z, BR always, DBNZ iff CW−1 ≠ 0; `execute` sets Z on
+CMP r16,r16, decrements CW on DBNZ, lowers SP and keeps the return offset on CALL, raises SP on RET, so `callret` runs
+0, 2, 1 and `io_ports` follows targets. Templates: pre, the take, `cond` clocks for a form with a condition field, then
+either exec, a flush step and post (taken) or an optional decide step and `nexec` (not taken); CALL runs its write and
+the exec + flush in `call_order`; RET pre, the read, exec, the flush, post. The queue (`sim/queue.py`) gained
+`flush()`: bytes, latched byte and uncommitted bytes discarded, the word of a fetch still in flight dropped when it
+arrives, the fetch pointer at the target (an odd target is fetched at its odd address and brings one byte; the next
+fetch takes the following even word), a queue change for the request rule; `flush_held` blocks fetch requests once the
+transfer's operand bytes are all taken. The EU (`sim/eu.py`) gained the flush and decide steps, `_flush` (IR emptied,
+pc at the target) and a refill gate in `_start`. Six enums (`sim/config.py`, DEFAULT the old behaviour; the flip score
+is F23 exact out of 360 with that one enum flipped at the fitted integers):
+
+| Enum | Options, chosen in bold | Flipped | Mechanism |
+| --- | --- | --- | --- |
+| `refill_start` | ir / full / full_d / **full_io** | 128 / 83 / 216 | the target instruction starts only once the refill has filled the queue (nothing in flight, no fetch wanted), on the last delivery clock itself, except an IN / OUT on the delivery clock of a 3-clock fetch (0 waits), a clock later. Three words for an even target and four for an odd one fall out of the request rule, with the IR loading during the refill: no word count |
+| `flush_hold` | none / **start** | 241 | no fetch request from `hold` clocks after a taken transfer's start until the flush |
+| `flush_inflight` | discard / **wait** | 190 | the flush waits until no fetch is in flight and `fgap` clocks have passed since the last fetch's end |
+| `untaken` | reg / **wait** | 246 | a not-taken branch is not a plain register form: its end waits the same way (`nfgap` after the last fetch's end), then `nexec` |
+| `call_order` | **write_first** / flush_first | 237 | CALL posts its stack write before the flush |
+| `branch_reg` | none / **reg** | 198 | the transfer classes are register-only forms for the I/O interlocks |
+
+Stage 10 (`fit.py`: `STAGE_FAMILIES[10] = ["F23"]`, `F23_ENUMS` with 128 combinations, 39 integers in `F23_INTS`,
+the corpus guard as stage 9) started from strip read-offs settled by F23-only descents in scratch and moved nothing
+(255 → 255; 0 of 3 moves refused by the guard; 74 s). The only listed alternative is `untaken=reg` with `dbnz.nexec` 7
+at 249. `branch_short.nx` 6 scores the same 255 but overfills the queue in `F23-out-bne-n0-k2-pE-w0` under the DEFAULT
+enums, so it is 0. `forms.STACK_CLASSES` gained `ret`; the normaliser's access lists are unchanged; `families.UNMODELLED`
+lost F23.
+
+| Class | Integers |
+| --- | --- |
+| branch_short | pre 0, cond 4, exec 8, post 0, fgap 5, hold 6, nexec 1, nfgap 1, nx 0 |
+| branch_near | pre 3, exec 5, post 0, fgap 3, hold 10, nexec 4 (unused) |
+| dbnz | pre 0, exec 14, post 0, fgap 5, hold 2, nexec 6, nfgap 1 |
+| call | pre 3, setup 7, setup_free 3, exec 8, post 0, fgap 5, hold 10 |
+| ret | pre 0, setup 7, setup_free 3, exec 8, post 0, fgap 5, hold 6 |
+
+**Scorecard** (scratchpad wp55/score-F23.txt, wp57/fit-35/F23.txt identical): 255/360; even 146/180, odd 109/180;
+0 waits 93/120, 1 wait 93/120, 2 waits 69/120.
+
+| Frame | pE w0 | pE w1 | pE w2 | pO w0 | pO w1 | pO w2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| PUSH | 29/30 | 29/30 | 21/30 | 20/30 | 20/30 | 20/30 |
+| OUT | 25/30 | 25/30 | 17/30 | 19/30 | 19/30 | 11/30 |
+
+Exact in every cell: the controls, BR near (24/24 per frame), CALL, DBNZ taken, the PUSH frame's BNE at k = 1 and
+n = 2. The 105 misses (wp55/final-div.txt; clocks from t_fill, silicon against model):
+
+| Group | Runs | Reading |
+| --- | --- | --- |
+| A. BR short at pO | 48 | PUSH frame (24): the sequential fetch after M0's write is 3 clocks late in silicon (F52 at 84 against 81 at w0), the shape of an aborted cycle at the BR's start, take and IR load; the model's room there is 3, not 2, so `abort_fetch` does not fire. OUT frame (24): the model makes an extra sequential fetch after the marker's I/O (I20 at 85, then F54 at 88; silicon has none and its target fetch is at 96) |
+| B. BE at 2 waits | 24 | PUSH pE 8, OUT pE 8, OUT pO 8: the target fetch a clock early (`out-be-n0-pE-w2` F52 at 107 against 106); the per-knob table wants `cond` or `exec` one higher at w2 |
+| C. BNE not taken | 18 | OUT 15, PUSH bne-k2 pE 3: the back-to-back fetches and M1's I/O off by −6 to +5 by cell (`out-bne-n0-k1-pE-w0` I at 107 against 108; PUSH k2 pE F5A at 101 against 95): the latch and room around the not-taken resolution do not match |
+| D. DBNZ not taken | 9 | OUT 6, PUSH pO 3: `out-dbnz-c1-n0-pE-w0` F58 at 99 against 94; `nexec` / `nfgap` depend on marker and parity |
+| E. callret | 6 | PUSH pO, OUT pE: after the RET's refill the BR's pre-flush gets an extra model fetch (silicon F52 137, F54 140, F52 154; the model adds F56 at 143): the BR's hold of 6 comes too late there |
+
+**Knob dependence** (reported, not encoded): `branch_short.cond` 4 / 4 / 5 and `.exec` 8 / 8 / 9 by waits;
+`branch_short.fgap` 5 even, 8 odd and 5 / 5 / 8 by waits; `branch_short.hold` 6 even, 3 odd; `dbnz.nexec` 6 even, 8
+odd and 6 under PUSH, 8 under OUT; `dbnz.nfgap` 1 even, 3 odd and 1 under PUSH, 3 under OUT. Groups A, C and D are
+the states behind these: the transfer's interaction with the fetch in flight and the latch at its start, by parity.
+
+**Corrections to the facts section.** An odd target is fetched at the odd address itself (`F23-out-be-n1-pE-w0`: the
+fetch at 10053 at 102), not at the even word holding it; that fetch carries one byte and the next is at 10054. "The
+first target fetch starts 8 clocks after the branch's start" assumed BE starts at M0 + 10; in the model CMP AW,AW
+starts on M0's I/O clock and BE at +3, and the target fetch is set by the take, 4 `cond` clocks, 8 `exec` clocks and
+the flush's wait of `fgap` = 5 past the last pre-flush fetch's end, which is what makes it scale with the wait states
+(for BR short the target fetch is always 6 clocks after the last pre-flush fetch). Prefetch keeps going for a few clocks
+after a taken transfer starts (fetches up to start + 3 still go in every frame: `out-be-n0-pE-w0` 87 and 90, the
+latter back to back, none at 93). The EU resumes on the refill's last delivery clock, except an OUT at 0 waits, one
+clock later (w0: the third fetch ends 110, M1 starts 112; w1: delivered 116, starts 116). BE taken costs 4 more than
+BR short, put in `cond`; the data cannot tell a flag test from an interlock with the preceding CMP, since every
+conditional form follows CMP AW,AW. Not-taken BNE and DBNZ are not purely register forms (`untaken=wait`, 255 against
+246).
+
+**The thirty-fifth fit** (`fit.json`, 2026-10-28; scratchpad wp57/fit-35.json) is the thirty-fourth with F23's six
+enums and five classes above and `shift_count_mask=cl8` (the F26 count-mask finding: the CL count is the full byte, as
+the C0/C1 immediate count already was; `Op.cl_count` marks a D2/D3 count and the EU masks it under `cl5`, the old
+behaviour and DEFAULT). Scored over every family (wp57/fit-35/) it is byte for byte the thirty-fourth's on F0–F22 and
+F25 (18,961/19,142 and 446/588), F23 255/360, F26 906/906: 20,568/20,996 over the 26 scored families (F27 is read
+above and unmodelled until its fit). The frozen package was regenerated from it and `freeze --verify --jobs 8` is
+bit-identical over all 20,996 runs (56 s); 434 tests pass. The freezer needed one fix on the way: a condition
+`A and (B\n or C)` whose `A` folds to the fitted True is rendered as the multi-line operand alone, and its grouping
+parentheses, which belonged to the outer expression, are now put back (`freeze.py` `_repls`).
+
+### The probe families under the thirty-fourth fit: five rules confirmed, the shift count unmasked, the refresh-on body (F26, F27, 2026-10-28; no fit)
+
+Acquired 2026-10-28 from the WP56 generator (built in a git worktree while the F23 model was being written, run on the
+board from there, frozen as chains-F26-w0..2 and chains-F27-w0..2): 1,978 runs, 0 failed or incomplete, every F26 repeat
+and every F27 repeat at 1 and 2 waits identical up to a constant tick shift; three F27 repeats at 0 waits
+(`push-fc-unit-shlcl8-n1-pE`, `push-fc-beat-movr-n4-pE`, `push-ec-port-outw-n4-pE`) differ in one fetch cycle's
+`strobe` sample count only (7 against 8), with the same start, end, address and data, a field the normaliser never
+reads. Scored with the thirty-fourth fit and no free parameter (scratchpad wp56/score-F26.txt, score-F27.txt, the flips
+in wp56/flips/). [chains-F26-w0..w2, chains-F27-w0..w2]
+
+**F26: 882/906.** Every cell of the five probes is exact; the 24 misses are the two `MOV CL,n ; SHL AW,CL` cells at
+n = 32 and 255 in both frames, at every parity and wait. Flipping each probed rule to its alternative and rescoring F26
+tells which cells decide it:
+
+| Rule (fitted value) | Flipped | F26 exact | Cells lost | Reading |
+| --- | --- | --- | --- | --- |
+| `lookup_start=True` | False | 774 | 108: every TEST [0C00h],AW and TEST [BW+200h],AW cell with a start-clock fetch, both frames, k = 1..3, the NOP ladder moving the fetch on and off the start clock (+2 with, −1 without) | the lookup pays the clock, in 108 cells across both frames and every wait: P |
+| `disp_io=extend` | none | 840 | 42: the base+index+d16 forms only (`fib` at every k, `dio` at n = 0, the `gih`/`lks` TEST [0C00h] and [BW+200h] pO cells) | confirmed where it was seen; the d8, base+d16 and direct ladders are exact under both values, so either their displacement take never lands on the I/O's issue clock in these ladders or only the base+index form extends: a state read on `dio` decides which (open) |
+| `grp_io_hold=True` | False | 864 | 42: TEST [0C00h],AW and TEST [BW+200h],AW under OUT at pO only; INC, NOT, SHL, NEG and DEC [BW] exact under both | the hold is seen with TEST's fixed lookup only; whether the plain group forms never make the state or do not hold is a state read (open) |
+| `free_idle_b2b=True` | False | 874 | 32: the base+index+d16 immediate store at k = 2 and 3 under both markers, every n, at 0 waits (and the pO w0 pair) | P |
+| `port_issue=True` | False | 881 | 1: `out-pi-oo-none-n0` pO w0, the same cell shape as the one F7 run | the ladder did not make a second deciding cell: the rule stays pinned by one cell; a longer ladder, or a port form after a fetch run, is the next probe |
+
+The count mask (`cnt`): `SHL AW,n` costs 74 / 76 / 78 / 522 clocks at n = 31 / 32 / 33 / 255 under PUSH at pE w0
+(+2 per count beyond 31, 522 = 74 + 224 × 2), and `MOV CL,n ; SHL AW,CL` 82 / 528 at 32 / 255 (the MOV CL plus the same
+line). Silicon uses the full 8-bit count in both forms. The model does for the immediate form (those cells are exact)
+and masks CL to 5 bits in `templates.py` (`regs["CW"] & 0x1F`), so the two CL cells miss by −66 and −448 (the model
+early by 33 and 224 counts): the mask is the enum `shift_count_mask` (cl5 / cl8, the old value DEFAULT) since the
+thirty-fifth fit, under which F26 is 906/906. The RTL spec's count-loop width (9 bits for a 255 count)
+stands.
+
+**F27: 646/1,072; the ECh controls 265/268, the FCh runs 381/804** (pE w0 68/134, pE w1 67, pE w2 59, pO w0 70, pO w1 71,
+pO w2 46; by series `port` 125/288, `unit` 107/180, `room` 78/180, `beat` 66/144, the empty frame 5/12). Sixteen FCh
+runs overfill the model's queue (`!`): `IN AL,40h` and `IN AL,DW` cells at every wait, a refresh-on IN the corpus never
+had (F8, F13, F17, F18 have no IN). The flips:
+
+| Rule (fitted) | Flipped | F27 exact | Gained / lost | Reading |
+| --- | --- | --- | --- | --- |
+| `room_ir_imm=none` | idle | 506 | +0 −140, the empty frame and every `room` ladder cell among them | not a prelude artefact: P |
+| `refresh_drop_post=hold` | drop | 630 | +0 −16: `port-outb/outw/inb-n0` under PUSH and `room` cells | P |
+| `refresh_lead_port=last` | lead | 640 | +0 −6: `port-outb/outw-n3` under PUSH, `room-movcl` under OUT | P |
+| `refresh_drop_unit=unit` | odd | 643 | +0 −3: `unit-mulu-n0`, `-n2` and `room-movcl-k4` under PUSH | weakly confirmed |
+| `refresh_beat_t4=t4` | none | 645 | +1 −2 (`room-movcl-k3` pE w0 gained; `room-movawi-k3`, `-movdwi-k3` pO w0 lost) | undecided: the `beat` ladder's own cells score the same either way |
+
+The three refresh-off misses (the first new refresh-off misses since F22's six), read with `sim --silicon`:
+`out-ec-beat-ds1-n0-pE-w0`, the M0 marker's own I/O a clock later in silicon (85 against 84) when `MOV DS1,AW` (8E C0)
+follows it, the F25 group E finding again (MOV DS1,AW and MOV DS1,[BW] under OUT at pE); `out-ec-beat-movr-n0-pE-w0`,
+`MOV AW,DW ; MOV DW,imm16` after the OUT marker at pE: the second fetch after the I/O a clock late (91 against 90), the
+rest in step; `push-ec-room-movcl-n0-k3-pO-w0`, three `MOV CL,imm8` under PUSH at pO: M1's write a clock late (104
+against 103), k = 1, 2, 4 exact. The refresh-on empty frame under OUT misses in five of six cells: at pE w1 silicon
+issues the marker's I/O at 110 and the refresh after it at 113, the model refreshes at 111 and holds the I/O to 116, so
+a pending refresh does not beat an OUT whose I/O is about to issue there; the `refresh_lead` rules were read on F18's
+prelude-side cells and the chain body puts the OUT in states they never saw. The F27 FCh misses were the thirty-sixth
+fit's material (the next section): the overfill's mechanism, the empty frame's and the ECh misses' readings there
+correct the ones given here.
+
+### The I/O sequencer's steps under a refresh: four enums, two new values, the thirty-sixth fit (F27, 2026-10-28)
+
+The eleventh fitter stage (WP58; `fit.py` `stage11`, `F27_ENUMS`, `F27_SWEEP`, `F27_INTS`, the corpus guard as in
+stages 9 and 10) fitted F27 from the thirty-fifth fit: a grid over the six enums below (216 candidates, the top two
+descended over `in.lead`, `out.lead` and `refresh_stall`), then the sweep over those and the six refresh rules F27
+probes, the three integers descended inside every move. **F27 goes from 646 to 778/1,072** (ECh 265/268 unchanged,
+FCh 381 → 513/804), no F27 run overfills the queue any more (every generated F27 chain runs within the six bytes
+under DEFAULT and under the fit), and the fit changes no integer. The grid's 216 candidates were scored at the
+input's integers; the sweep at the final config moved nothing (778 with 0 moves, 0 of 2 corpus-guard moves
+refused).
+
+**What the model lacked.** The overfill was not a fetch into a full queue during the IN's lead or read. With a
+refresh pending while an IN counted its setup, the model held the refresh to the IN's ready clock, where it beat the
+fetch the IN's I/O had been holding; `refresh_after` then ran that fetch ahead of the IN and `refresh_io_run=pair`
+committed a second word with the queue full, and the queue overflowed later (clock 251 of
+`F27-push-fc-port-inb-n1-pO-w0`, in the END block). In silicon the refresh goes earlier, on one of the IN's setup
+clocks, no pair follows, and the I/O issues 5 to 7 clocks after the refresh starts. The readings are one mechanism:
+**a posted I/O request's sequencer has steps**, every second clock back from the issue its setup gives (from the
+clock `setup − 5` after the post: the third clock after a port form's post, the second after a DW form's, four
+clocks before an unhindered issue), restarted on the clock after any bus cycle that runs during the setup, the post
+clock itself a step. A pending refresh beside such a request (port or DW form, the EU not in HALT) starts only on a
+step; after a refresh in its setup an IN's I/O issues only on a step; and a refresh's last clock does not count toward
+the setup when that would end the count on a step. Beside an OUT, whose request is detached from the EU, the step
+takes the refresh whatever the EU's own boundary rules say. Two existing rules got a value each: the beaten fetch's
+back-to-back pair runs beside an OUT only and only with a byte of room counting the byte the decoder is still about to
+take, and the post-clock hold applies beside a beaten fetch too, given back when that fetch runs ahead of the request
+on the clock after the refresh. One port rule got a value: an I/O already counted out and waiting only for the bus
+that frees on a port take's clock issues there instead of being relatched (no refresh-off run has this state).
+
+| Field (`sim/config.py`) | Options (fitted in bold) | Mechanism | Flipped at the final fit |
+| --- | --- | --- | --- |
+| `refresh_io_step` | any / step / **own** | the pending refresh starts on the I/O's steps only; `own`: beside an OUT whatever the EU's state | any −59 F27, −3 F8, −2 F13, −1 F17; step −4 F27 |
+| `refresh_io_stall` | waits / **step** | the refresh's last clock does not count toward the setup when the count would end on a step | waits −53 +6 F27, −11 F13, −2 F17, −1 F8 |
+| `io_step_issue` | count / **step** | after a refresh in its setup an IN's I/O issues on a step | count −7 F27 |
+| `port_ready` | relatch / **issue** | an I/O counted out, waiting only for the bus freed on a port take's clock, issues there | relatch −16 F27, −3 F8 |
+| `refresh_io_run` | none / pair / **pair_out** | the beaten fetch's committed pair beside an OUT only, with a byte of room counting the decoder's pending take | pair −7 F27 and 6 overflows; none −115 +4 F27, −9 F8, −19 F13 |
+| `refresh_post` | free / post / **post_beat** | the post-clock hold beside a beaten fetch too, given back when that fetch runs ahead of the request | post −14 F27; free −60 F27, −7 F8, −15 F13, −6 F17, −32 F18 |
+
+Deciding runs (clocks from t_fill, silicon against the model without the value): `F27-push-fc-port-inb-n1-pO-w0`,
+the IN posts at 111 and the refresh request comes at 112, silicon R114 I121 F124, the old model R118 F123 F126 and
+the overfill at 251; `F27-push-fc-port-inb-n0-pO-w0`, silicon R113 I118, `any` R115 I120;
+`F27-out-fc-port-outb-n0-pO-w0`, silicon R113 F118 I122, `step` F115 R118 I123; `F27-push-fc-port-inb-n1-pE-w0`,
+silicon R104 F109 I114, `count` I113, `pair` F109 F112 I115; `F27-out-fc-empty-pE-w1`, silicon I110 R113 I122,
+`relatch` R111 I116 I126 (the empty frame's reading in the previous section was wrong: the request is raised only at
+111, and the model held M0's I/O, counted out since 105, to 113 behind M1's port relatch at 110, so the refresh took
+the free bus; the `refresh_lead` rules play no part); `F27-push-fc-room-movawi-n0-k1-pE-w0`, PUSH posts its write
+at 104 with the refresh 104–108 beating a fetch the write's setup then holds, silicon W111 F114, `post` W110 F113.
+The port-form refreshes in the F27 port ladders all sit on a step; an OUT posted mid-fetch
+(`F13-c-out-shlcl8-pO-w1`) takes its refresh at count 5, which the restart after a bus cycle gives, so the step is
+a clock rule, not an even count.
+
+**The probed rules at the final fit** (each flipped and rescored): `room_ir_imm` idle −171 F27; `refresh_drop_post`
+drop −16 F27 and −15 F18; `refresh_lead_port` lead −18 F27 and −31 F18; `refresh_drop_unit` odd −6 F27;
+`refresh_lead` open −77 +2 F27; `refresh_beat_t4` none +2 −2 F27 and −4 F13. The last is a tie on F27 alone and
+decided by F13 (the fitter's tie-break over every family: 21,368 against 21,364 corpus-exact), so the previous
+section's "undecided" becomes t4 confirmed, and `refresh_drop_unit` moves from weakly confirmed to confirmed.
+
+**Scorecard** (scratchpad wp58/score-F27-wp58.txt): 778/1,072, ECh 265/268, FCh 513/804; FCh pE 278/402, pO
+235/402; FCh w0 171/268, w1 197/268, w2 145/268; by series `port` 206/288 (125 before), `unit` 120/180 (107), `room`
+98/180 (78), `beat` 80/144 (66), the empty frame 9/12 (5). FCh by frame and cell:
+
+| Frame | pE w0 | pE w1 | pE w2 | pO w0 | pO w1 | pO w2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| PUSH | 57/67 | 56/67 | 46/67 | 53/67 | 45/67 | 55/67 |
+| OUT | 28/67 | 47/67 | 44/67 | 33/67 | 49/67 | 0/67 |
+
+**The 294 misses** (wp58/miss-final.txt), by cause: (1) **the M0 marker OUT at pO w2 under FCh, all 67 OUT-frame
+runs** of that cell, and the same state in 4 F8 and 15 F13 runs: silicon R81 F94 R99 I104, model F96 R101 I106; the
+refresh 81–85 lies inside `SHL AW,CL`'s tail and over the OUT's start, the model holds the EU from 83 to 86, and
+silicon's first fetch after the marker's post comes two clocks earlier, which fits a port take at 89 against the
+model's 91 (the OUT starting at 84 against 86). Two rules were tried and rejected: the instruction start as a seam
+when `wbsync` follows (−14 F27, −1 F8, +5 F13: the take then starts a clock early) and t4 for back-to-back fetches
+(−272 corpus). One state, 86 runs, left as a finding: a probe of the shift's tail under a refresh before the OUT is
+the read. (2) **The END block, 30 runs**, the corpus's END shapes (R129 against 131 after the closing LS's fetch run;
+the pO w1/w2 single-fetch differences). (3) **The body, 197 runs** including the three ECh: the fetch after a 3-clock
+beaten fetch a clock late in silicon (19 runs; R103 F108 F112, model F111: t4 for back-to-back fetches loses 272
+corpus runs, so this state needs a distinguishing read), PUSH's write a clock early (12; W126 against 127), the I/O
+against the fetch order after refresh plus fetch (12; OUT frame w1: silicon I140, model F136 I141), a refresh a clock
+late after two fetches (11), the shift-exit fetch two clocks early (11; R137 F145, model F147), the rest in groups of
+2 to 8. The three ECh misses are unchanged and kept as findings (no rule tried for them keeps the other families
+identical): `out-ec-beat-ds1-n0-pE-w0` is F25's group E again; in `out-ec-beat-movr-n0-pE-w0` the fetch is issued
+on `MOV DW,imm16`'s first take, a delivery clock (silicon F91, model F90); in `push-ec-room-movcl-n0-k3-pO-w0` the
+third `MOV CL` starts with a byte latched behind a full queue and PUSH posts on the clock before that byte enters,
+which `latch_start` covers only for a clocks-step start (W104 against 103). Knob dependence: no integer's best value
+differs by parity, waits, k, marker, family or n; the new rules carry no per-knob value.
+
+**The nothing-lost gate, run twice** (the agent's wp58/gate/ and the overseer's wp58r/gate.txt, `score --show 5000`
+per family under the tracked and the new fit, `cmp` and a run-by-run set difference): F0, F0w, F1–F7, F9–F12,
+F14–F16, F18–F23, F25 and F26 byte-identical; F8 29 → 35/48, F13 386 → 399/462, F17 749 → 752/798, each gains-only
+run by run; F27 646 → 778 with 122 runs gained outright, the 16 overflow runs now scored (10 of them exact) and no
+run lost (the six runs that appear as new misses in the set difference are overflow runs of the old fit, which the
+listing cannot show as misses). F0–F22 18,961 → 18,983/19,142; the six F22 misses stand; the refresh-on misses in
+F8/F13/F17/F18 go from 175 to 153; END and every refresh-off run untouched; no per-run alignment.
+
+**The thirty-sixth fit** (`fit.json`, 2026-10-28; scratchpad wp58r/fit-36.json, the fitter's own stage-11 output,
+md5 016de626) is the thirty-fifth with the four new fields and the two new values (`refresh_io_step=own`,
+`refresh_io_stall=step`, `io_step_issue=step`, `port_ready=issue`, `refresh_io_run=pair_out`,
+`refresh_post=post_beat`), 224 fields, no integer changed: **21,368/22,068 over the 27 scored families**
+(F0–F22 18,983/19,142, F23 255/360, F25 446/588, F26 906/906, F27 778/1,072). `families.UNMODELLED` is empty. The
+frozen package was regenerated from it and `freeze --verify --jobs 8` is bit-identical over all 22,068 runs (60 s);
+447 tests pass (`test_sim.RefreshOnProbesF27`, 12 tests: every F27 chain within six bytes under DEFAULT and the fit,
+the IN under a refresh exact, one test per new value against its alternative on a named run, the END's `OUT DW` in
+HALT not stepped, refresh-off runs never seeing the rules, the defaults the old model;
+`test_chains.test_f26_and_f27_are_modelled`). The code: `arbiter.py` `io_stepped()` and `io_step()` (the steps, with
+a three-cycle look-back for a refresh in the setup on the issue test), the request fields `io_stall`, `eu_halted`
+and `beat_ext`, the refresh's last clock under a step in `counts()`, the step gate and `own` in `_refresh`, the IN's
+issue gate in `_choose` and the `post_beat` give-back on the fetch issue; `eu.py` `refresh_ok` (an IN's wait takes a
+refresh on its steps), `refresh_cost` (`post_beat`), `_port_take` (`port_ready`), `io_stall` set in `_post` and read
+with refresh on only; `queue.py` the `pair_out` condition and `_taking()`.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -4398,12 +4826,12 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`, the thirty-third fit): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the thirty-sixth fit since 2026-10-28): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
 
-    python -m validation.v35s.chains score --family F0 ... F22
+    python -m validation.v35s.chains score --family F0 ... F23 F25 F26 F27
 
 reproduces every number below. The fitter never writes the tracked file:
 `python -m validation.v35s.chains adopt PATH` does, after the file round-trips
@@ -4444,9 +4872,9 @@ taking the opcode only when the EU starts, or committing takes per byte
 fails F0 outright. 108 combinations of the remaining queue options survive
 F0; the later stages choose among them.
 
-### Fitted structure (thirty-third fit, 2026-10-26)
+### Fitted structure (thirty-sixth fit, 2026-10-28)
 
-Thirty-three fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+Thirty-six fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -4739,7 +5167,27 @@ after `SHL AW,CL` (CL 8) and after `MULU`, odd parity, 1 wait, where a
 refresh has pushed a fetch onto the OUT's start clock and its wait
 state falls inside the pre; counted from the start the pre needs 3
 countable clocks and gets 2, and the I/O lands a clock late. +2 −0
-over the 19,142 runs, 18961/19142.
+over the 19,142 runs, 18961/19142. The thirty-fourth (`fit.json`,
+2026-10-27) adds F25's ten classes and three enums (`lea_form=reg`,
+`burst_wait=data`, `prepare_order=write_first`; 446/588, the fitter's
+stage 9 under the corpus guard) and drops the six rules the rule register
+found inert and the `sync_io` tie (`room_ir_ready=False`, `ea_floor=False`,
+`wlatch_ir=False`, `wlatch_ir_at=busy`, `wlatch_mul=take`,
+`sfr_setup=fetch_free`, `sync_io=issue`): byte-identical over F0–F22,
+19407/19730 over the 24 scored families. The thirty-fifth (`fit.json`,
+2026-10-28) adds F23's five transfer classes and six enums
+(`refill_start=full_io`, `flush_hold=start`, `flush_inflight=wait`,
+`untaken=wait`, `call_order=write_first`, `branch_reg=reg`; 255/360, the
+fitter's stage 10 under the corpus guard) and `shift_count_mask=cl8` (the
+CL shift count unmasked, F26 906/906): byte-identical elsewhere,
+20568/20996 over the 26 scored families. The thirty-sixth (`fit.json`,
+2026-10-28) adds the I/O sequencer's steps under a refresh, four fields
+and two values (`refresh_io_step=own`, `refresh_io_stall=step`,
+`io_step_issue=step`, `port_ready=issue`, `refresh_io_run=pair_out`,
+`refresh_post=post_beat`; F27 778/1072, the fitter's stage 11 under the
+corpus guard), no integer changed: byte-identical on every refresh-off
+run, gains-only on F8 (35/48), F13 (399/462) and F17 (752/798),
+21368/22068 over the 27 scored families.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
@@ -5335,7 +5783,7 @@ no refresh-off run moves under any of them):
 | a memory form's fetch request aborted while a refresh takes the bus is raised again when the next bus cycle after the refresh ends, as an aborted cycle's on a free bus (the form's own data cycle; behind a memory shift's read the posted write's setup then holds it) (`refresh_abort_retry=next`) | `F18-b-n3-shlmcl-pE-w1`: `SHL [BW],CL` starts at 99 on the refresh 99–103 with room 2; silicon R99 D112 … W201 F205, no fetch before the write (refresh: F104 R114 D119); `F17-s-n3-ld-pE-w1` and `-st-pE-w1` the same for a load and a store; the 64 refresh-off memory shifts started on an aborted cycle retry after the read. −11 | the retry when the refresh ends (twenty-seventh fit) |
 | the clocks the EU's take sync waits for an aborted cycle are the EU's own, not waits: no micro-boundary, the next step (or the exec `abort_reg` starts on the cycle's last clock) the first (`refresh_abort_wait=run`) | `F18-b-n4-shlmcl-pE-w2`: the memory shift starts at E on an aborted cycle, the request at E+1; silicon R E+3 (wait: R E+1); `F18-b-n7-divu-pO-w1`: DIVU IX started so at 114, silicon R116 on the cycle's last clock. Every prefix-matched request raised during such a sync (10: RMW at E+1 and E+2, a store at E+2) goes on E+3 in silicon; the ten multiply and divide runs off at 1 wait were this state. −20 | each wait clock a boundary |
 | the clocks an instruction waits for the previous one's write-back (`wbsync`: an OUT or PUSH after a shift or multiply) are not micro-boundaries: the EU runs into the instruction's next step as the write-back ends (`refresh_wbsync=seam`) | `F8-out-empty-pE-w0`: the marker OUT after the first LS starts at 87 with the refresh 87–91, wbsync 87–88, pre 89–91; silicon F92 I101 (wait: held to 91, the port take at 95, F95 R103 I108); the 19 runs of that cell (pE, 0 waits, every X) first diverge later, at the second OUT. No exact run gained: kept on matched events and the first divergence alone (−0 exact; 19 runs diverge earlier and 22 matched events fewer on a flip back; a tie in stage 8) | the wait a hold point |
-| while the EU waits on a posted memory request a pending refresh is also taken on the post's first clock; the setup counts through the cycle and the EU holds at the next boundary (the first fetch-free clock, the issue) until the cycle's last clock has passed, unless the refresh beat a fetch request, whose fetch after the refresh keeps the window from counting instead (`refresh_post=post`) | `F13-c-push-shlcl2-pO-w0`: the marker PUSH AW starts and posts its stack write at 129 (setup 7, 3 fetch-free) with the request of 128 pending; silicon R129 W136 (free: R133 W138); `F17-c-push-empty-pE-w0`: the refresh 93–97 on the PUSH's post beats a fetch (98–100), silicon W101 with no hold. 19 marker-PUSH runs. −13 | the refresh taken at the first fetch-free clock or a bus start only (`boundary_bus`) |
+| while the EU waits on a posted memory request a pending refresh is also taken on the post's first clock; the setup counts through the cycle and the EU holds at the next boundary (the first fetch-free clock, the issue) until the cycle's last clock has passed, unless the refresh beat a fetch request, whose fetch after the refresh keeps the window from counting instead (`refresh_post=post`; `post_beat` since the thirty-sixth fit: the hold stays beside a beaten fetch too, given back when that fetch runs ahead of the request on the clock after the refresh, `F27-push-fc-room-movawi-n0-k1-pE-w0` W111 F114) | `F13-c-push-shlcl2-pO-w0`: the marker PUSH AW starts and posts its stack write at 129 (setup 7, 3 fetch-free) with the request of 128 pending; silicon R129 W136 (free: R133 W138); `F17-c-push-empty-pE-w0`: the refresh 93–97 on the PUSH's post beats a fetch (98–100), silicon W101 with no hold. 19 marker-PUSH runs. −13 | the refresh taken at the first fetch-free clock or a bus start only (`boundary_bus`) |
 | a clocks step lying between two operand takes of one instruction (the count-byte shift's `cpre` clocks between its ModR/M and count bytes; the RFMON store's), due on the clock after the first take, is no hold point for a refresh already on the bus: the EU runs into it and takes the next byte while the refresh runs (`refresh_take_seam=seam`) | `F18-b-n3-shli4-pE-w1`: `SHL AW,4` starts at 99 on the refresh 99–103 and takes its ModR/M byte there; silicon fetches at 104, the count byte taken under the refresh (hold: the cpre clocks held to 104, the count byte at 106, F106). Extended to every clocks step after a take −356 (the exec's first clock after a ModR/M or immediate take is a hold point, F13 S). −18 | the step's first clock a hold point |
 
 Refuted on the re-read (all removed from the code): the aborted cycle
@@ -5386,7 +5834,11 @@ no refresh-off run moves):
 
 | Rule chosen | Evidence (clocks from t_fill) | Alternative replaced |
 | --- | --- | --- |
-| while the EU runs an IN or OUT whose I/O cycle has not issued, the fetch a refresh beat is followed by a second fetch the bus unit commits to back to back on its last clock, whatever room the request rule counts then (the word's second byte waits in the latch if the queue is still full on its delivery), and that fetch goes ahead of the I/O even in its lead (`refresh_io_run=pair`) | `F13-c-out-shlcl2-pE-w2`: the marker OUT after the first LS takes its port byte and posts its I/O at 95 with 3 bytes stored, the refresh 95–99 beats the fetch; silicon F100 F105 I110 (none: F100 I106 F109); `F13-c-out-shlcl2-pO-w0`: the second OUT starts at 133 on the fetch the refresh beat, F133 F136 (none: F133 F143). Every prefix-matched beaten fetch under an IN or OUT has the second fetch in silicon (477 of 477, every wait); the model had it in 446, missing it wherever its rule counted room 0 or 1; for every other class the rule already gives silicon's answer (1,558 of 1,560), and the 28 room-3 starts of MULU, DIVU and `SHL AW,imm` have no second fetch, nor the refresh-off twins. The second fetch for every beaten fetch +32 −421. −7 | the request rule alone deciding the back-to-back fetch after a beaten one |
+| while the EU runs an IN or OUT whose I/O cycle has not issued, the fetch a refresh beat is followed by a second fetch the bus unit commits to back to back on its last clock, whatever room the request rule counts then (the word's second byte waits in the latch if the queue is still full on its delivery), and that fetch goes ahead of the I/O even in its lead (`refresh_io_run=pair`; `pair_out` since the thirty-sixth fit: beside an OUT only, with a byte of room left counting the byte the decoder is still about to take, F27's IN cells) | `F13-c-out-shlcl2-pE-w2`: the marker OUT after the first LS takes its port byte and posts its I/O at 95 with 3 bytes stored, the refresh 95–99 beats the fetch; silicon F100 F105 I110 (none: F100 I106 F109); `F13-c-out-shlcl2-pO-w0`: the second OUT starts at 133 on the fetch the refresh beat, F133 F136 (none: F133 F143). Every prefix-matched beaten fetch under an IN or OUT has the second fetch in silicon (477 of 477, every wait); the model had it in 446, missing it wherever its rule counted room 0 or 1; for every other class the rule already gives silicon's answer (1,558 of 1,560), and the 28 room-3 starts of MULU, DIVU and `SHL AW,imm` have no second fetch, nor the refresh-off twins. The second fetch for every beaten fetch +32 −421. −7 | the request rule alone deciding the back-to-back fetch after a beaten one |
+| a posted I/O request (port or DW form, the EU not in HALT) has steps: every second clock back from the issue its setup gives, from the clock `setup − 5` after the post, restarted on the clock after any bus cycle in the setup, the post clock one as well; a pending refresh starts on a step only, and beside an OUT the step takes it whatever the EU's own boundaries (`refresh_io_step=own`) | `F27-push-fc-port-inb-n0-pO-w0` R113 I118 (any: R115 I120); `F27-out-fc-port-outb-n0-pO-w0` R113 F118 I122 (step: F115 R118 I123) | any (−59 F27, −3 F8, −2 F13, −1 F17), step (−4 F27) |
+| the refresh's last clock does not count toward an I/O setup when it would end the count on a step (`refresh_io_stall=step`) | F27 port ladders | waits (−53 +6 F27, −11 F13, −2 F17, −1 F8) |
+| after a refresh in its setup an IN's I/O issues on a step only (`io_step_issue=step`) | `F27-push-fc-port-inb-n1-pE-w0` R104 F109 I114 (count: I113) | count (−7 F27) |
+| an I/O counted out and waiting only for the bus freed on a port take's clock issues there and is not relatched (`port_ready=issue`; no refresh-off run has the state) | `F27-out-fc-empty-pE-w1` I110 R113 I122 (relatch: R111 I116 I126) | relatch (−16 F27, −3 F8) |
 | an operand take while a delivered word's second byte waits latched behind a full queue (6 stored) waits for the queue's port with the EU, so a refresh on the bus holds it to the clock after its last (`refresh_take_latch=hold`) | `F13-n-none-nop8-pE-w2`: the closing LS's `MOV CL,31` starts after the NOP train at 129 on the refresh 129–133 and fetch 124–128's delivery, 6 stored and one latched, its immediate take at 132; silicon F136 (free: the shift starting at 134 on the refresh's end, F134). The 8 such starts (F13 N, F17 S, F18 A and B at 2 waits) are 2 clocks late in silicon; of the other 3,293 prefix-matched starts on a refresh's first clock 3,286 are right. −8 | an operand take no hold point unless a port byte's (`refresh_hold_take=port`) |
 
 Refuted on the re-read (all removed from the code): the second fetch
@@ -5986,7 +6438,22 @@ that hand fit. `STAGE3_SEED` and `seeds/stage3.json` carry `take`.
 The thirty-second fit's files are in `wp43b/`, the thirty-third's in
 `wp45b/`. Since 2026-10-26 the adopted fit is tracked as
 `validation/v35s/chains/fit.json` (`adopt PATH` writes it; `score` and
-`sim` default to it) so a checkout rescores without `build/`; the same
+`sim` default to it) so a checkout rescores without `build/`. F23 and F25
+were generated and acquired on 2026-10-27 (chains-F23-w0..2, chains-F25-w0..2,
+948 runs, read in the facts section above) and are not yet modelled:
+`families.UNMODELLED` names them, the simulator has no template for their
+forms, the tests that simulate every family skip them, the tie-break and
+corpus guard leave them out, and the normaliser's expected-access walk
+pushes `writes` and pops `reads` words per push, pop and call form (PUSH R,
+POP R, CALL and RET) and matches a marker to its own instruction's cycle
+(the balanced-body fix above); F24 is reserved for the string forms. The
+RTL conversion's first tools landed the same day: `replay` runs chains
+through the Verilator model lane and `score --rtl` scores silicon, model
+and RTL three ways (docs/v35s-hdl-plan.md, Phase B); `freeze` generates
+`sim/frozen/`, the simulator with every structural choice resolved to the
+tracked fit (identical on all 19,142 runs, `freeze --verify`), and
+`statestats` reduces the per-clock state over the corpus for the RTL spec
+(docs/v35s-chain-rtl-spec.md, Phase A). The same
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");
 stage 4 and a whole-corpus descent of `REG_INTS` re-run with the corrected
@@ -7283,11 +7750,26 @@ reachable by stage 8. The stage seeds
 and the counter at the POP read per RFM and WTC (`refresh.POP_COUNTER`)
 are kept as declared inputs (storage, the I/O integers, the END-block
 pair, the timer's state at the prelude's read) rather than searched for. Next:
-the 175 refresh-on runs left (152 in the middle, 23 in the END block:
-the thirtieth fit's open states and the cells under 20 runs), read to
+the 153 refresh-on runs left in F8, F13, F17 and F18 (175 before the
+thirty-sixth fit; the thirtieth fit's open states and the cells under 20 runs), read to
 their states with no rule, when a state separates one of them; the
 six F22 runs of `TEST [BW+200h],imm16` after the OUT marker (item 1)
 when a state separates them from the chains' cells; the fitter's
 stage objectives (the seeded pipeline's start file, its stage-3 `request_eval` choice
 and its stage-5 basin, stage 6 and 7 under the corpus guard) when it is
-next touched.
+next touched. From 2026-10-27 (the F25 forms and the thirty-fourth fit,
+with the inert rules dropped, landed that day): F23's flush and refill in
+the model as classes and templates fitted with the corpus guard; F25's 142
+misses as state reads, the frame-state ones first (LDEA's queue room at pO
+and its straddling d16, the immediate push under OUT, PUSH R's first write
+at pO, the segment forms' parity clock, PREPARE's wait slope); F27's
+294 misses as state reads after the thirty-sixth fit (the M0 marker OUT at
+pO w2 under FCh first, 86 runs over F27, F8 and F13, with a probe of the
+shift's tail under a refresh before the OUT; the clock-late fetch after a
+beaten 3-clock fetch, 19 runs, needing a read that separates it from the
+272 corpus runs t4 would lose; the three refresh-off controls); the `dio`/`gih` state reads and a longer `port_issue`
+ladder; F23's 105 and F25's 142 misses as state reads (the transfer's
+fetch in flight and latch at its start by parity first); and the
+cleaner-mechanism experiments in
+the order the RTL phases need them (the latched byte's port and the
+reissue, `alu_busy` and `unit_hold`, the posted request's window).

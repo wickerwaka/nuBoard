@@ -8,8 +8,54 @@
  "arbiter": "b2b",
  "arbiter_q": 2,
  "arrive_partial": false,
+ "branch_reg": "reg",
+ "burst_wait": "data",
  "bytes_per_clock": 1,
+ "call_order": "write_first",
  "cost": {
+  "branch_near": {
+   "exec": 5,
+   "fgap": 3,
+   "hold": 10,
+   "nexec": 4,
+   "post": 0,
+   "pre": 3
+  },
+  "branch_short": {
+   "cond": 4,
+   "exec": 8,
+   "fgap": 5,
+   "hold": 6,
+   "nexec": 1,
+   "nfgap": 1,
+   "nx": 0,
+   "post": 0,
+   "pre": 0
+  },
+  "call": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 10,
+   "post": 0,
+   "pre": 3,
+   "setup": 7,
+   "setup_free": 3
+  },
+  "dbnz": {
+   "exec": 14,
+   "fgap": 5,
+   "hold": 2,
+   "nexec": 6,
+   "nfgap": 1,
+   "post": 0,
+   "pre": 0
+  },
+  "dispose": {
+   "exec": 2,
+   "pre": 0,
+   "setup": 6,
+   "setup_free": 3
+  },
   "div": {
    "exec": 39,
    "grp": 4,
@@ -41,6 +87,11 @@
    "wb": 0,
    "wbsync": 0
   },
+  "lea": {
+   "exec": 0,
+   "nx": 2,
+   "pre": 0
+  },
   "load": {
    "dfloor": 2,
    "exec": 2,
@@ -59,6 +110,12 @@
    "grp_free": 3,
    "pre": 0,
    "wb": 0
+  },
+  "load_seg": {
+   "dfloor": 2,
+   "exec": 3,
+   "pre": 0,
+   "pre0": 2
   },
   "mul": {
    "bmexec": 21,
@@ -105,11 +162,36 @@
    "setup": 4,
    "setup_free": 0
   },
+  "pop_r": {
+   "exec": 2,
+   "gap": 0,
+   "pre": 0,
+   "setup": 7,
+   "setup_free": 3,
+   "wsetup": 7
+  },
+  "pop_seg": {
+   "exec": 3,
+   "setup": 7,
+   "setup_free": 3
+  },
   "prefix": {
    "exec": 2
   },
+  "prepare": {
+   "exec": 16,
+   "pre": 2,
+   "setup": 7,
+   "setup_free": 3
+  },
   "push": {
    "post": 0,
+   "setup": 7,
+   "setup_free": 3
+  },
+  "push_imm": {
+   "post": 0,
+   "pre": 3,
    "setup": 7,
    "setup_free": 3
   },
@@ -122,11 +204,33 @@
    "pre": 0,
    "setup": 1
   },
+  "push_r": {
+   "gap": 0,
+   "post": 0,
+   "pre": 0,
+   "setup": 10,
+   "setup_free": 7,
+   "wsetup": 7
+  },
+  "push_seg": {
+   "post": 0,
+   "setup": 8,
+   "setup_free": 4
+  },
   "reg": {
    "exec": 0,
    "nx": 1,
    "pre": 0,
    "pre0": 4
+  },
+  "ret": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 6,
+   "post": 0,
+   "pre": 0,
+   "setup": 7,
+   "setup_free": 3
   },
   "rmw": {
    "alu": 3,
@@ -188,6 +292,12 @@
    "post": 0,
    "pre": 0,
    "setup": 0
+  },
+  "xlat": {
+   "exec": 2,
+   "pre": 0,
+   "setup": 7,
+   "setup_free": 3
   }
  },
  "count_latch": true,
@@ -215,12 +325,14 @@
  "ea_b2b": true,
  "ea_direct": "base_disp",
  "ea_disp16": "own",
- "ea_floor": true,
+ "ea_floor": false,
  "ea_ir_room": true,
  "ea_post": "clocks",
  "fixed_floor": true,
  "fixed_lookup": "decoder_nowait",
  "fixed_lookup_grp": "group",
+ "flush_hold": "start",
+ "flush_inflight": "wait",
  "free_hold": "delivery",
  "free_idle": true,
  "free_idle_b2b": true,
@@ -257,6 +369,7 @@
  "io_post": "take",
  "io_recover": 2,
  "io_release": "post",
+ "io_step_issue": "step",
  "io_take": "unit",
  "io_take_nx": true,
  "ir_load": "disp_data",
@@ -268,6 +381,7 @@
  "latch_start": true,
  "late_disp": "all",
  "late_read": true,
+ "lea_form": "reg",
  "lookup_start": true,
  "mem_order": "split",
  "min_gap": 0,
@@ -286,12 +400,15 @@
  "port_issue": true,
  "port_landed": true,
  "port_latch": "relatch",
+ "port_ready": "issue",
  "port_sync": "none",
  "post_on_take": "nomodrm",
  "prelude_anchor": "pop",
  "prelude_tail": "segs",
+ "prepare_order": "write_first",
  "push_mem_write": "at_data",
  "read_use_latency": 0,
+ "refill_start": "full_io",
  "refresh_abort": "abort",
  "refresh_abort_retry": "next",
  "refresh_abort_wait": "run",
@@ -319,7 +436,9 @@
  "refresh_interval": 16,
  "refresh_io": "waits",
  "refresh_io_pre": "count",
- "refresh_io_run": "pair",
+ "refresh_io_run": "pair_out",
+ "refresh_io_stall": "step",
+ "refresh_io_step": "own",
  "refresh_lead": "closed",
  "refresh_lead_port": "last",
  "refresh_lift": "free",
@@ -328,7 +447,7 @@
  "refresh_lost": "start",
  "refresh_mul": "loop_odd",
  "refresh_mul_exit": "exit",
- "refresh_post": "post",
+ "refresh_post": "post_beat",
  "refresh_recent": 18,
  "refresh_recent_by": "fetch",
  "refresh_reissue": "keep",
@@ -369,11 +488,12 @@
  "rmw_write_issue": "immediate",
  "room_ir": "arrival_idle",
  "room_ir_imm": "none",
- "room_ir_ready": true,
+ "room_ir_ready": false,
  "sfr_cycle": "io",
- "sfr_setup": "count",
+ "sfr_setup": "fetch_free",
  "shift_cl_mem": "count",
  "shift_count": "late",
+ "shift_count_mask": "cl8",
  "shift_exit0": "exit",
  "shift_tail": 3,
  "slot_fetch": "slot",
@@ -381,19 +501,20 @@
  "slot_latch": true,
  "slot_room": "word",
  "start_sync": "b2b_modrm",
- "sync_io": "unit",
+ "sync_io": "issue",
  "sync_req": "disp",
  "take_commit": "at_end",
  "take_sync": "pending",
  "unit_hold": true,
+ "untaken": "wait",
  "wb_from": "end",
  "wlatch": 4,
  "wlatch_cls": "port",
  "wlatch_hold": true,
  "wlatch_imm": "reg_last",
- "wlatch_ir": true,
- "wlatch_ir_at": "start",
- "wlatch_mul": "none",
+ "wlatch_ir": false,
+ "wlatch_ir_at": "busy",
+ "wlatch_mul": "take",
  "wlatch_src": "write_imm_read",
  "word_latch": "byte_d",
  "write_wait": "mem_end"

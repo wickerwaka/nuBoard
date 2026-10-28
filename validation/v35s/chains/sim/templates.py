@@ -70,8 +70,15 @@ class Op:
     signed: bool = False         # (WP21) F6/F7 /5 MUL, /7 DIV: the signed operation
     sfr: int | None = None       # (WP23) an on-chip SFR store (eu.py sets it: a DS1-prefixed
                                  # address in the SFR page): the RFM value it writes
+    cl_count: bool = False       # (WP57) the count is CL (D2/D3): the EU masks it by shift_count_mask
     disp: int = 0                # (WP27) displacement bytes after the ModR/M byte (mod 01: 1,
                                  # mod 10 and the direct mod 00 rm 110: 2)
+    bus: bool = True             # (WP52) the memory operand has a bus cycle (False: LDEA, the
+                                 # EA computed and written to a register)
+    target: int | None = None    # (WP55) a control transfer that is taken: the code offset the
+                                 # EU goes on at (None: not taken, or no transfer)
+    cond: bool = False           # (WP55) a transfer with a condition field (the 70-7F row's low
+                                 # nibble names the flag test: BE, BNE), a format property
 
 
 def _modrm(code: bytes, k: int, regs: dict):
@@ -119,6 +126,55 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         return Op(k, 2, "in" if op < 0xE6 else "out", op, width=1 + (op & 1), port=code[k + 1])
     if op in (0xEC, 0xED, 0xEE, 0xEF):
         return Op(k, 1, "in" if op < 0xEE else "out", op, width=1 + (op & 1), port=regs["DW"])
+    sp = regs["SP"]
+    if op in (0x74, 0x75, 0xEB, 0xE2):
+        # (WP55, F23) the short transfers, a 1-byte displacement from the next instruction:
+        # BE (taken with Z), BNE (without Z), BR short (always) and DBNZ (CW counted down,
+        # taken while it is not 0); the decision is the semantics' (execute sets Z and CW)
+        disp = int.from_bytes(code[k + 1:k + 2], "little", signed=True)
+        if op == 0xE2:
+            taken = (regs["CW"] - 1) & 0xFFFF != 0
+        elif op == 0xEB:
+            taken = True
+        else:
+            if regs.get("Z") is None:
+                raise ValueError(f"opcode {op:02X} at chain offset {k}: the flags are not known")
+            taken = bool(regs["Z"]) == (op == 0x74)
+        return Op(k, 2, "dbnz" if op == 0xE2 else "branch_short", op,
+                  target=k + 2 + disp if taken else None, cond=0x70 <= op <= 0x7F)
+    if op in (0xE9, 0xE8):
+        # (WP55, F23) BR near / CALL near: a 2-byte displacement; CALL writes the return
+        # address (the next instruction's) below SP
+        disp = int.from_bytes(code[k + 1:k + 3], "little", signed=True)
+        if op == 0xE9:
+            return Op(k, 3, "branch_near", op, target=k + 3 + disp)
+        return Op(k, 3, "call", op, target=k + 3 + disp, stack=(None, (sp - 2) & 0xFFFF))
+    if op == 0xC3:
+        # (WP55, F23) RET: the return address read at SP (the CALL that wrote it, execute)
+        ret = regs.get(f"ret{sp:04X}")
+        if ret is None:
+            raise ValueError(f"RET at chain offset {k}: no return address at {sp:04X}")
+        return Op(k, 1, "ret", op, target=ret, stack=(sp, None))
+    if op in (0x68, 0x6A):                  # (WP52) PUSH imm16 / PUSH imm8 (sign-extended)
+        n = 2 if op == 0x68 else 1
+        return Op(k, 1 + n, "push_imm", op, imm_bytes=n, stack=(None, (sp - 2) & 0xFFFF))
+    if op == 0x60:                          # (WP52) PUSH R: eight words from SP - 2 down
+        return Op(k, 1, "push_r", op, stack=(None, (sp - 2) & 0xFFFF))
+    if op == 0x61:                          # (WP52) POP R: eight words from SP up
+        return Op(k, 1, "pop_r", op, stack=(sp, None))
+    if op == 0xC8:                          # (WP52) PREPARE imm16,imm8: BP pushed (level 0)
+        if code[k + 3] != 0:
+            raise ValueError(f"PREPARE level {code[k + 3]} at chain offset {k} is not modelled")
+        return Op(k, 4, "prepare", op, imm_bytes=3, stack=(None, (sp - 2) & 0xFFFF))
+    if op == 0xC9:                          # (WP52) DISPOSE: SP := BP, BP popped
+        return Op(k, 1, "dispose", op, stack=(regs["BP"], None))
+    if op in (0x06, 0x0E, 0x16, 0x1E):      # (WP52) PUSH DS1 / PS / SS / DS0
+        return Op(k, 1, "push_seg", op, stack=(None, (sp - 2) & 0xFFFF))
+    if op in (0x07, 0x17, 0x1F):            # (WP52) POP DS1 / SS / DS0
+        return Op(k, 1, "pop_seg", op, stack=(sp, None))
+    if op == 0xD7:                          # (WP52) XLAT: the byte at BW + AL, no ModR/M
+        return Op(k, 1, "xlat", op, width=1,
+                  ea=(regs["BW"] + (regs["AW"] & 0xFF)) & 0xFFFF)
     mod, reg, rm, ea, mc, n = _modrm(code, k + 1, regs)
     mem = mod != 3
     # the w bit (bit 0) of the ALU, TEST, XCH and MOV ModR/M opcodes: 0 = byte operand
@@ -172,9 +228,10 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         base["shift"] = True
     elif op == 0xD3:
         if not mem:
-            return Op(length=length, cls="shift_cl", count=regs["CW"] & 0x1F, **base)
+            return Op(length=length, cls="shift_cl", count=regs["CW"] & 0xFF, cl_count=True, **base)
         cls = "rmw"                         # (WP19) SHL [BW],CL: a shift by CL on memory
-        base["count"] = regs["CW"] & 0x1F
+        base["count"] = regs["CW"] & 0xFF   # (WP57) the full byte; the EU masks it by shift_count_mask
+        base["cl_count"] = True
         base["shift"] = True
     elif op in (0xF6, 0xF7):            # (WP21) F6: the byte form (F16 uses /4 only)
         if reg == 0 and op == 0xF6:
@@ -197,6 +254,15 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         base["stack"] = (regs["SP"], None)
     elif op == 0x8E and not mem:
         cls = "reg"                     # (WP24) MOV sreg,r16: the prelude's segment loads
+    elif op == 0x8E:
+        cls = "load_seg"                # (WP52) MOV sreg,r/m16: a load into a segment register
+    elif op == 0x8C:
+        cls = "store" if mem else "reg"     # (WP52) MOV r/m16,sreg
+    elif op == 0x8D:
+        if not mem:
+            raise ValueError(f"LDEA with a register operand at chain offset {k}")
+        cls = "lea"                     # (WP52) LDEA r16,m: the EA, no bus cycle, to the reg
+        base["bus"] = False
     else:
         raise ValueError(f"opcode {op:02X} at chain offset {k} is not in the catalog")
     return Op(length=length, cls=cls, **base)
@@ -288,7 +354,7 @@ def execute(op: Op, code: bytes, regs: dict):
         elif o == 0x81 and mod == 3 and reg == 0:
             regs[REG16[rm]] = (regs[REG16[rm]] + imm16(k + 2)) & 0xFFFF
         elif o in (0xD1, 0xD3, 0xC1) and mod == 3 and reg == 4:
-            n = 1 if o == 0xD1 else (regs["CW"] & 0x1F if o == 0xD3 else code[k + 2])
+            n = 1 if o == 0xD1 else (regs["CW"] & 0xFF if o == 0xD3 else code[k + 2])   # (WP57) silicon: the full count
             regs[REG16[rm]] = (regs[REG16[rm]] << n) & 0xFFFF
         elif o == 0xF7 and reg == 4:
             p = regs["AW"] * src
@@ -298,10 +364,39 @@ def execute(op: Op, code: bytes, regs: dict):
             regs["AW"], regs["DW"] = q & 0xFFFF, r & 0xFFFF
         elif o == 0x86:
             _set8(regs, reg, FILL_WORD & 0xFF if mod != 3 else 0)
-    if op.cls in ("push", "push_mem"):
+        elif o == 0x8D:
+            regs[REG16[reg]] = op.ea            # (WP52) LDEA: the offset itself
+        elif o in (0x3B, 0x39) and mod == 3:
+            regs["Z"] = int(regs[REG16[reg]] == regs[REG16[rm]])   # (WP55) CMP r16,r16: Z
+    if o == 0xD7:
+        _set8(regs, 0, FILL_WORD & 0xFF)        # (WP52) XLAT: AL from the data fill
+    if op.cls in ("push", "push_mem", "push_imm", "push_seg", "prepare"):
         regs["SP"] = (regs["SP"] - 2) & 0xFFFF
-    if op.cls in ("pop", "pop_mem"):
+    if op.cls == "prepare":
+        # (WP52) PREPARE imm16,0: BP := SP after BP's push, then SP -= imm16
+        regs["BP"] = regs["SP"]
+        regs["SP"] = (regs["SP"] - imm16(k + 1)) & 0xFFFF
+    if op.cls in ("pop", "pop_mem", "pop_seg"):
         regs["SP"] = (regs["SP"] + 2) & 0xFFFF
+    if op.cls == "push_r":
+        regs["SP"] = (regs["SP"] - 16) & 0xFFFF     # (WP52) eight words
+    if op.cls == "pop_r":
+        # (WP52) eight words; the registers keep their values (as POP AW's: a stack read
+        # after the matching push returns what it pushed; SP's slot is discarded)
+        regs["SP"] = (regs["SP"] + 16) & 0xFFFF
+    if op.cls == "dispose":
+        # (WP52) SP := BP, then BP popped (the data fill, as every other memory read)
+        regs["SP"] = (regs["BP"] + 2) & 0xFFFF
+        regs["BP"] = FILL_WORD
+    if op.cls == "dbnz":
+        regs["CW"] = (regs["CW"] - 1) & 0xFFFF      # (WP55) DBNZ
+    if op.cls == "call":
+        # (WP55) CALL: the return address (its code offset; the trace's data word is not
+        # compared) at SP - 2, read back by the RET that pops it
+        regs["SP"] = (regs["SP"] - 2) & 0xFFFF
+        regs[f"ret{regs['SP']:04X}"] = k + op.length
+    if op.cls == "ret":
+        regs["SP"] = (regs["SP"] + 2) & 0xFFFF      # (WP55) RET
 
 
 def io_ports(code: bytes, regs: dict, start: int = 0) -> dict:
@@ -316,7 +411,7 @@ def io_ports(code: bytes, regs: dict, start: int = 0) -> dict:
         if op.cls == "halt":
             break
         execute(op, code, regs)
-        k += op.length
+        k = op.target if op.target is not None else k + op.length   # (WP55) taken transfers
     return out
 
 
@@ -614,7 +709,16 @@ def _steps(op: Op, cfg) -> list[tuple]:
             write = [("data", "write", op.ea, op.width, setup)]
         return (_head(op, cfg, c("pre"), ea) + _imm_read(op, cfg, c)
                 + [("clocks", alu)] + write + [("clocks", c("post"))])
-    if cls in ("load", "load_alu"):
+    if cls == "lea":
+        # (WP52) LDEA: the memory form's head (the EA table's clocks), no bus cycle, then the
+        # exec clocks that write the offset to the register
+        return _head(op, cfg, c("pre"), ea) + [("clocks", c("exec"))]
+    if cls == "xlat":
+        # (WP52) XLAT: no operand byte; pre clocks, the byte read at BW + AL posted with its
+        # setup clocks (the last setup_free of them fetch-free, as a stack read's), exec clocks
+        return [("clocks", c("pre")), ("data", "read", op.ea, 1, c("setup")),
+                ("clocks", c("exec"))]
+    if cls in ("load", "load_alu", "load_seg"):
         return _head(op, cfg, c("pre"), ea) + [("data", "read", op.ea, op.width, 0),
                                                 ("clocks", cfg.read_use_latency),
                                                 ("clocks", c("exec") + _dest_route(op, cfg))]
@@ -685,10 +789,66 @@ def _steps(op: Op, cfg) -> list[tuple]:
         return _head(op, cfg, c("pre")) + [("data", "read", op.stack[0], 2, 0),
                 ("clocks", c("exec")), ea, ("data", "write", op.ea, 2, c("setup")),
                 ("clocks", c("post"))]
-    if cls == "push":
+    if cls in ("push", "push_seg"):
         return [("data", "write", op.stack[1], 2, c("setup")), ("clocks", c("post"))]
-    if cls == "pop":
-        return [("data", "read", op.stack[0], 2, c("setup")), ("clocks", c("exec"))]
+    if cls in ("pop", "pop_seg", "dispose"):
+        # (WP52) DISPOSE: its one stack read at BP (SP := BP first), pre clocks before it
+        pre = [("clocks", c("pre"))] if c("pre") else []
+        return pre + [("data", "read", op.stack[0], 2, c("setup")), ("clocks", c("exec"))]
+    if cls == "push_imm":
+        # (WP52) PUSH imm16 / imm8: the immediate taken, then the stack write
+        return [("clocks", c("pre")), ("take", op.imm_bytes),
+                ("data", "write", op.stack[1], 2, c("setup")), ("clocks", c("post"))]
+    if cls == "prepare":
+        # (WP52) PREPARE imm16,0: prepare_order puts BP's stack write before the three
+        # operand bytes' take (write_first) or after it (take_first); exec clocks after both
+        write = [("data", "write", op.stack[1], 2, c("setup"))]
+        take = [("clocks", c("pre")), ("take", op.imm_bytes)]
+        body = write + take if cfg.prepare_order == "write_first" else take + write
+        return body + [("clocks", c("exec"))]
+    if cls in ("push_r", "pop_r"):
+        # (WP52) PUSH R / POP R: eight stack words, AW CW DW BW SP BP IX IY written from
+        # SP - 2 down / read from SP up (SP's word read and discarded). burst_wait=data: each
+        # word a data step (the EU waits as for any write / read); issue: each word posted and
+        # the EU goes on once it is issued, gap clocks before the next is posted (a cadence
+        # that does not stretch with the waits); the last word waits as a data step
+        write = cls == "push_r"
+        kind = "write" if write else "read"
+        out = [("clocks", c("pre"))] if c("pre") else []
+        for i in range(8):
+            addr = (op.stack[1] - 2 * i if write else op.stack[0] + 2 * i) & 0xFFFF
+            setup = c("setup") if i == 0 else c("wsetup")
+            if cfg.burst_wait == "issue" and i < 7:
+                out += [("post", kind, addr, 2, setup), ("sent",)]
+            else:
+                out += [("data", kind, addr, 2, setup)]
+            if i < 7 and c("gap"):
+                out.append(("clocks", c("gap")))
+        return out + [("clocks", c("post" if write else "exec"))]
+    if cls in ("branch_short", "branch_near", "dbnz"):
+        # (WP55, F23) pre clocks, the displacement's take, a form with a condition field its
+        # cond clocks (the flag test); taken: exec clocks, the flush (eu.py: the queue
+        # discarded, fetching from the target on), post clocks; not taken: nexec clocks, a
+        # register form
+        head = [("clocks", c("pre")), ("take", rest)]
+        if op.cond and c("cond"):
+            head.append(("clocks", c("cond")))
+        if op.target is None:
+            decide = [("decide",)] if cfg.untaken == "wait" else []
+            return head + decide + [("clocks", c("nexec"))]
+        return head + [("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
+    if cls == "call":
+        # (WP55, F23) CALL: pre clocks, the displacement's take, then (call_order) the return
+        # address's stack write and the exec clocks with the flush, post clocks
+        write = [("data", "write", op.stack[1], 2, c("setup"))]
+        flush = [("clocks", c("exec")), ("flush", op.target)]
+        body = write + flush if cfg.call_order == "write_first" else flush + write
+        return [("clocks", c("pre")), ("take", rest)] + body + [("clocks", c("post"))]
+    if cls == "ret":
+        # (WP55, F23) RET: pre clocks, the stack read of the return address, exec clocks,
+        # the flush, post clocks
+        return [("clocks", c("pre")), ("data", "read", op.stack[0], 2, c("setup")),
+                ("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
     if cls in ("out", "in"):
         kind = "io_write" if cls == "out" else "io_read"
         pre = c("pre") if rest else c("pre0")  # no port byte (DW forms): pre0 (default 0)

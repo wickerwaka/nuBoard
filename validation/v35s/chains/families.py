@@ -1097,11 +1097,118 @@ def f22(waits=WAITS, parities=PARITIES):
             for c in _sweep("F22", by_kind[kind], waits, parities, marker_kind=kind)]
 
 
+# F23 (WP49: control flow inside the chain), refresh off. The cost frame
+# PAD LS M0 [CMP AW,AW] X M1 LS END under PUSH and OUT markers; CMP AW,AW (3B C0) sets Z = 1.
+# Controls: the empty frame and CMP AW,AW alone (a branch's cost is the frame's less the
+# control's). Taken: CMP ; BE +n ; NOP^n (74 n) and BR short +n ; NOP^n (EB n) for n = 0..7,
+# BR near +n ; NOP^n (E9 n 00) for n = 0..3: the n NOPs are chain bytes that never execute
+# (knob skipped = n), so the target's alignment moves with n and the parity pad. Not taken:
+# CMP ; BNE +n ; NOP^n (75 n) for n = 0, 2 (the NOPs execute) and the pair CMP ; BNE +0
+# twice. DBNZ (E2 n) after MOV CW,1 (not taken: CW becomes 0) or MOV CW,2 (taken once, n = 0
+# and 2). CALL +0 (E8 00 00: the stack write and the flush, falling through) and the pair
+# CALL +2 ; BR +1 ; RET (E8 02 00 EB 01 C3: CALL to the RET, RET back to the BR, the BR
+# over the RET); BR +1 ; NOP, the third control, is the taken series' br-n1. Knobs: x the
+# form names in chain order, exec the X indices in execution order, skipped the X bytes
+# that never execute (NOPs), taken whether the branch transfers.
+F23_CMP = "cmp_aw_aw"
+
+
+def f23(waits=WAITS, parities=PARITIES):
+    """Control flow inside the chain (see the comment above)."""
+    from .forms import F23_BE_N, F23_BNE_N, F23_BR_N, F23_BR_NEAR_N
+    variants = []
+
+    def add(name, group, names, exec_order, taken=None, n=None, k=1):
+        knobs = {"group": group, "x": list(names), "k": k, "n": n, "taken": taken,
+                 "skipped": len(names) - len(exec_order), "exec": list(exec_order)}
+        variants.append((name, knobs, cost_frame(xs(names)), {}))
+
+    add("empty", "control", [], [])
+    add("cmp", "control", [F23_CMP], [0])
+    for n in F23_BE_N:
+        add(f"be-n{n}", "be", [F23_CMP, f"be_n{n}"] + ["nop"] * n, [0, 1], True, n)
+    for n in F23_BR_N:
+        add(f"br-n{n}", "br", [f"br_n{n}"] + ["nop"] * n, [0], True, n)
+    for n in F23_BR_NEAR_N:
+        add(f"brnear-n{n}", "br_near", [f"br_near_n{n}"] + ["nop"] * n, [0], True, n)
+    for n in F23_BNE_N:
+        names = [F23_CMP, f"bne_n{n}"] + ["nop"] * n
+        add(f"bne-n{n}" + ("-k1" if n == 0 else ""), "bne", names, range(len(names)), False, n)
+    add("bne-n0-k2", "bne", [F23_CMP, "bne_n0"] * 2, range(4), False, 0, 2)
+    add("dbnz-c1-n0", "dbnz", ["mov_cw_imm1", "dbnz_n0"], [0, 1], False, 0)
+    for n in (0, 2):
+        add(f"dbnz-c2-n{n}", "dbnz", ["mov_cw_imm2", f"dbnz_n{n}"] + ["nop"] * n, [0, 1],
+            True, n)
+    add("call", "call", ["call_n0"], [0], True, 0)
+    add("callret", "callret", ["call_n2", "br_n1", "ret"], [0, 2, 1], True)
+    return _sweep_markers("F23", variants, waits, parities)
+
+
+# F25 (WP49: EA alone, and the stack frame), refresh off. The cost frame PAD LS M0 X^k M1 LS
+# END under PUSH and OUT markers. LDEA AW,r/m (8D /0) in all 24 memory modes at k = 1 and,
+# for [BW], [BW+10h], [BW+200h], [BW+IX], [BW+IX+10h] and [0C00h], k = 2 (no memory cycle:
+# the EA path alone). XLAT (D7, a byte read at BW + AL = 0800h). PUSH imm16 (68) and PUSH
+# imm8 (6A) at k = 1, 2. PUSH R (60) alone and PUSH R ; POP R (61) (POP R only after PUSH R:
+# it loads BW, BP, IX and IY). PREPARE 0,0 (C8 00 00 00) alone and PREPARE 0,0 ; DISPOSE
+# (C9) (DISPOSE only after PREPARE: it loads SP from BP). The segment registers: PUSH DS1,
+# PUSH DS1 ; POP DS1, PUSH DS0, PUSH DS0 ; POP DS0, PUSH PS, MOV DS1,AW, MOV AW,DS1,
+# MOV DS1,[BW] and MOV [BW],DS0 (DS0, SS and PS are never loaded with an unknown value).
+# The empty frame is the control.
+F25_LDEA_K2 = ("bw", "bw_d8", "bw_d16", "bw_ix", "bw_ix_d8", "dir")
+F25_STACK = {"xlat": ("xlat", ["xlat"]),
+             "push_imm16": ("push_imm", ["push_imm16"]),
+             "push_imm16-k2": ("push_imm", ["push_imm16"] * 2),
+             "push_imm8": ("push_imm", ["push_imm8"]),
+             "push_imm8-k2": ("push_imm", ["push_imm8"] * 2),
+             "pushr": ("push_r", ["push_r"]),
+             "pushr_popr": ("push_r", ["push_r", "pop_r"]),
+             "prepare": ("frame", ["prepare_00"]),
+             "prepare_dispose": ("frame", ["prepare_00", "dispose"]),
+             "push_ds1": ("seg", ["push_ds1"]),
+             "push_ds1_pop_ds1": ("seg", ["push_ds1", "pop_ds1"]),
+             "push_ds0": ("seg", ["push_ds0"]),
+             "push_ds0_pop_ds0": ("seg", ["push_ds0", "pop_ds0"]),
+             "push_ps": ("seg", ["push_ps"]),
+             "mov_ds1_aw": ("seg", ["mov_ds1_aw"]),
+             "mov_aw_ds1": ("seg", ["mov_aw_ds1"]),
+             "mov_ds1_m": ("seg", ["mov_ds1_m"]),
+             "mov_m_ds0": ("seg", ["mov_m_ds0"])}
+
+
+def f25(waits=WAITS, parities=PARITIES):
+    """EA alone and the stack frame (see the comment above)."""
+    from .forms import F25_LDEA, MODE, MODES
+    variants = [("empty", {"group": "control", "x": [], "k": 0}, cost_frame([]), {})]
+    for m in MODES:
+        for k in (1, 2) if m.name in F25_LDEA_K2 else (1,):
+            x = F25_LDEA[m.name]
+            knobs = {"group": "lea", "x": [x] * k, "k": k, "mode": m.name,
+                     "mode_class": m.mode_class, "disp": len(MODE[m.name].disp)}
+            variants.append((f"ldea-{m.name}" + (f"-k{k}" if k > 1 else ""), knobs,
+                             cost_frame(xs([x] * k)), {}))
+    for name, (group, names) in F25_STACK.items():
+        knobs = {"group": group, "x": list(names),
+                 "k": len(names) if len(set(names)) == 1 else 1}
+        variants.append((name, knobs, cost_frame(xs(names)), {}))
+    return _sweep_markers("F25", variants, waits, parities)
+
+
 FAMILIES = {"F0": f0, "F0w": f0w, "F1": f1, "F2": f2, "F3": f3, "F4": f4, "F5": f5,
             "F6": f6, "F7": f7, "F8": f8,
             "F9": f9, "F10": f10, "F11": f11, "F12": f12, "F13": f13, "F14": f14,
             "F15": f15, "F16": f16, "F17": f17, "F18": f18, "F19": f19, "F20": f20, "F21": f21,
-            "F22": f22}
+            "F22": f22, "F23": f23, "F25": f25}
+
+# Families the simulator cannot run yet (WP49): their forms (forms.UNMODELLED_FORMS: the
+# control-flow forms, LDEA, XLAT, the stack-frame and segment-register forms) have no
+# template in sim/templates.py, so sim.templates.decode raises on them. Generator-only until
+# the simulator learns them: the tests that simulate every generated chain skip these, and
+# the fitter loads only families with corpus data. (WP52) F25 and (WP55) F23 are modelled.
+# (WP58) F27, the refresh-on probes, is modelled: under the thirty-fourth fit 16 FCh IN cells
+# overfilled the queue (a refresh beating the fetch held by the IN's I/O, then that fetch's
+# back-to-back pair); the I/O steps' enums (sim/config.py, WP58) run every F27 chain within
+# the six bytes, and the fit that sets them is the one test_fit's overfill test reads.
+UNMODELLED = ()
 
 
 def generate(families=None, waits=WAITS, parities=PARITIES) -> list[Chain]:
@@ -1114,3 +1221,255 @@ def generate(families=None, waits=WAITS, parities=PARITIES) -> list[Chain]:
         dup = sorted({i for i in ids if ids.count(i) > 1})
         raise AssertionError(f"duplicate chain ids: {dup[:5]}")
     return chains
+
+
+# F26 and F27 (WP56; spec "Decisions (overseer, 2026-10-27)", "M, 10 fields: two probe
+# families, then decide"). Ten rules of the model are pinned by one or two cells each; every
+# probe below puts the rule's deciding state in many cells so the fit can tell the candidate
+# mechanisms (the rule's OPTIONS in sim/config.py) apart. Every probe is the cost frame
+# PAD LS M0 NOP^n X^k M1 LS END unless stated: n NOPs (one byte, a decode slot and about 4
+# clocks each from a full queue) between M0 and X move X's operand takes one byte and a few
+# clocks at a time across the fetch cadence and against M0's cycle; k repeats X. The fence
+# before M0 leaves AW = 0 and CW = 001Fh; the other registers keep the prelude's values (BW
+# 0800h, DW 5678h, SP 0F00h, BP 0A00h, IX 0100h, IY 0180h; DW 0040h for the DW I/O forms).
+# Knobs on every chain: probe (the rule), series (the id's short tag), marker, n, k, form (the
+# probed X form, None for the empty frame), x (every form between M0 and M1, in order), rfm
+# (the prelude's RFM) and refresh_on; shape for port_issue. The empty frame of each marker
+# (and, in F27, of each RFM) is the dM baseline (derive.BASELINES).
+#
+# F26, refresh off (RFM ECh), run ids F26-<marker>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>.
+# pi (port_issue: a port byte taken on a fetch's issue clock holds the waiting I/O a clock
+#   longer, the relatch, against taking it on time; pinned by F7-out-out_imm_al-out_imm_al-pO-w0
+#   alone). Shape oo, M0 OUT 40h,AL NOP^n X OUT 40h,AL M1 under both markers: the first OUT's
+#   I/O is the waiting one, and X ∈ {none, XCH AW,DW (92), MOV AW,DW (8B C2), ADD AW,DW
+#   (03 C2), MOV CL,imm8 (B1 04)} with n = 0..3 (n = 0..1 for ADD AW,DW and MOV CL,imm8)
+#   moves the second OUT's port take across a fetch's issue clock, the 1- and 2-byte forms
+#   in between differing in length (the byte the port takes is the word's first or second)
+#   and clocks (the phase): the cells where the take lands on an issue clock with the I/O
+#   still waiting are the rule's state, the rest (take on an idle bus or with an older fetch
+#   in flight) its control. Shape o, M0 NOP^n X OUT 40h,AL M1, X ∈ {NOP, XCH, MOV AW,DW,
+#   ADD AW,DW, MOV CL,imm8}: under the OUT marker (n = 0, 1) the marker's I/O is the waiting
+#   one; the PUSH twin (n = 0) has no I/O waiting at the take (the relatch cannot matter).
+# fib (free_idle_b2b: the idle clock after a fetch the bus unit committed back to back at the
+#   free clocks' eve of a request; pinned by two k = 2 F21 base+index+d16 immediate stores).
+#   MOV [BW+IX+200h],imm16 (C7 80 00 02 34 12) at k = 1, 2, 3 under both markers (each further
+#   store posts its write beside the fetch run the previous one left: k = 3 makes the state a
+#   second time in one frame), NOP^n for n = 1, 2 before the k = 2 pair (the pair's d16 take
+#   against the run's delivery clock), and at k = 2 the comparison forms MOV [BW+200h],imm16,
+#   MOV [BW+IX],imm16, MOV [BW+IX+10h],imm16 (no index clock, no displacement, d8): which EA
+#   shapes put a back-to-back fetch on the write's eve, at every wait (the rule claims 1 and
+#   2 waits as well).
+# gih (grp_io_hold: a group form's request whose next setup clock is a bus-free group clock
+#   holds a fetch first requested on or after an I/O cycle's issue until the recovery's end,
+#   against letting it run as any request does; pinned by six F14 TEST [0C00h],AW cells under
+#   OUT at pO). Under the OUT marker, NOP^n (n = 0..2) then a group memory form with a
+#   bus-free group clock at M0's I/O recovery: INC [BW] (FF 07), NOT [BW] (F7 17), SHL [BW],1
+#   (D1 27), NEG [BW] (F7 1F), DEC [BW] (FF 0F), the controls TEST [0C00h],AW (85 06 00 0C,
+#   the pinned form) and TEST [BW],AW (85 07, not a group form); the ladder moves the fetch's
+#   request before, on and after the I/O's issue clock (the rule's older-fetch exception
+#   against its hold). The PUSH twin at n = 0: no I/O recovery to hold through.
+# dio (disp_io: a displacement taken on the clock an I/O cycle issues holds that I/O a clock
+#   longer, against no effect; only base+index+d16 took on the issue clock in the corpus).
+#   Under the OUT marker, NOP^n for n = 0..3 then X ∈ {MOV AW,[BW+10h] (8B 47 10), MOV
+#   AW,[BW+200h] (8B 87 00 02), MOV AW,[BW+IX+10h] (8B 40 10), MOV AW,[BW+IX+200h] (8B 80 00
+#   02), MOV AW,[0C00h] (8B 06 00 0C), MOV AW,[BW] (8B 07, no displacement: the control)}:
+#   the ladder times the displacement's take against the marker I/O's issue clock for every
+#   displacement width and mode class, so d8, base+d16 and direct takes land on the issue
+#   clock too (the rule says any displacement; the corpus only had the base+index one).
+# lks (lookup_start: TEST 84/85's lookup runs one clock more when a fetch issued on its start
+#   clock, against a fixed lookup; pinned by TEST [0C00h],AW k = 2 pE/pO under PUSH).
+#   TEST [0C00h],AW at k = 1, 2 with NOP^n for n = 0..2 before it and at k = 3 (n = 0), both
+#   markers: each instance's start clock with and without a fetch issuing on it, the second
+#   and third instances in the state the first leaves; controls TEST [BW],AW (85 07, no
+#   displacement) and TEST [BW+200h],AW (85 87 00 02, base+d16) at k = 1, 2.
+# cnt (the C0/C1 count mask, spec Open items: the model takes a C0/C1 count byte unmasked, so
+#   a count of 255 runs 510 clocks, where silicon may mask it to 5 bits). SHL AW,n (C1 E0 nn)
+#   for n = 31, 32, 33, 255: masked, 32 is a zero count (no loop) and 33 is 1, 255 is 31, the
+#   same as n = 31; unmasked they run 2n clocks of loop. MOV CL,n ; SHL AW,CL (B1 nn D3 E0)
+#   for n = 32, 255: the CL path, which the model masks already (the control). PUSH marker
+#   primary, the OUT frame for every one as well (a 255-count unmasked shift is ~510 clocks,
+#   inside the harness's 2,000,000-tick budget; the closing LS and END follow as usual).
+F26_RFM = RFM_OFF
+F26_PI_X = {"none": [], "nop": ["nop"], "xch": ["xch_aw_dw"], "movr": ["mov_aw_dw"],
+            "addr": ["add_aw_dw"], "movcl": ["mov_cl_imm"]}
+F26_PI_PORT = "out_imm_al"                    # OUT 40h,AL (not a marker's 20h+i, not END's)
+F26_PI_OO_N = {"none": range(4), "xch": range(4), "movr": range(4), "addr": range(2),
+               "movcl": range(2)}
+F26_PI_O_X = ("nop", "xch", "movr", "addr", "movcl")
+F26_PI_O_N = {"out": (0, 1), "push": (0,)}
+F26_FIB_X = {"bixd16": "st_imm_bw_ix_d16", "bd16": "st_imm_bw_d16", "bix": "st_imm_bw_ix",
+             "bixd8": "st_imm_bw_ix_d8"}
+F26_FIB_K = (1, 2, 3)                         # bixd16 at n = 0
+F26_FIB_N = (1, 2)                            # bixd16 at k = 2
+F26_FIB_CMP = ("bd16", "bix", "bixd8")        # k = 2, n = 0
+F26_GIH_X = {"inc": "inc_m", "not": "not_m", "shl1": "shl_m1", "neg": "neg_m", "dec": "dec_m",
+             "testdir": "test_dir_aw", "testbw": "test_m_aw"}
+F26_GIH_N = {"out": (0, 1, 2), "push": (0,)}
+F26_DIO_X = {"bwd8": "ld_bw_d8", "bwd16": "ld_bw_d16", "bixd8": "ld_bw_ix_d8",
+             "bixd16": "ld_bw_ix_d16", "dir": "ld_dir", "bw": "ld_bw"}
+F26_DIO_N = range(4)                          # OUT marker only
+F26_LKS_X = {"testdir": "test_dir_aw", "testbw": "test_m_aw", "testbwd16": "test_m_aw_bw_d16"}
+F26_LKS_KN = {"testdir": {1: (0, 1, 2), 2: (0, 1, 2), 3: (0,)},
+              "testbw": {1: (0,), 2: (0,)}, "testbwd16": {1: (0,), 2: (0,)}}
+F26_CNT_X = {"shli31": "shl_imm31", "shli32": "shl_imm32", "shli33": "shl_imm33",
+             "shli255": "shl_imm255", "shlcl32": "shl_cl32", "shlcl255": "shl_cl255"}
+
+
+def _probe_frame(kind, names):
+    """PAD LS M0 <names> M1 LS END (PAD added by make_chain)."""
+    return [LS(), M(0, kind)] + xs(names) + [M(1, kind), LS(), END()]
+
+
+def _probe_knobs(probe, series, kind, n, k, form, names, rfm, **extra):
+    return {"probe": probe, "series": series, "marker": kind, "n": n, "k": k, "form": form,
+            "x": list(names), "rfm": rfm, "refresh_on": rfm != RFM_OFF, **extra}
+
+
+def f26(waits=WAITS, parities=PARITIES):
+    """The refresh-off probes pi, fib, gih, dio, lks, cnt (see the comment above)."""
+    by_kind = {"push": [], "out": []}
+    rfm = F26_RFM
+
+    def add(kind, probe, series, label, n, k, form, names, **extra):
+        name = f"{kind}-{series}-{label}-n{n}" + (f"-k{k}" if series in ("fib", "lks") else "")
+        by_kind[kind].append((name, _probe_knobs(probe, series, kind, n, k, form, names, rfm,
+                                                 **extra), _probe_frame(kind, names), {}))
+
+    for kind in COST_MARKERS:
+        by_kind[kind].append((f"{kind}-empty", _probe_knobs("empty", "empty", kind, 0, 0, None,
+                                                            [], rfm), _probe_frame(kind, []), {}))
+    for kind in COST_MARKERS:
+        for label, ns in F26_PI_OO_N.items():
+            x = F26_PI_X[label]
+            for n in ns:
+                add(kind, "port_issue", "pi", f"oo-{label}", n, 1, F26_PI_PORT,
+                    [F26_PI_PORT] + ["nop"] * n + x + [F26_PI_PORT], shape="oo")
+        for label in F26_PI_O_X:
+            x = F26_PI_X[label]
+            for n in F26_PI_O_N[kind]:
+                add(kind, "port_issue", "pi", f"o-{label}", n, 1, F26_PI_PORT,
+                    ["nop"] * n + x + [F26_PI_PORT], shape="o")
+    for kind in COST_MARKERS:
+        x = F26_FIB_X["bixd16"]
+        for k in F26_FIB_K:
+            add(kind, "free_idle_b2b", "fib", "bixd16", 0, k, x, [x] * k)
+        for n in F26_FIB_N:
+            add(kind, "free_idle_b2b", "fib", "bixd16", n, 2, x, ["nop"] * n + [x] * 2)
+        for label in F26_FIB_CMP:
+            x = F26_FIB_X[label]
+            add(kind, "free_idle_b2b", "fib", label, 0, 2, x, [x] * 2)
+    for kind in ("out", "push"):
+        for label, x in F26_GIH_X.items():
+            for n in F26_GIH_N[kind]:
+                add(kind, "grp_io_hold", "gih", label, n, 1, x, ["nop"] * n + [x])
+    for label, x in F26_DIO_X.items():
+        for n in F26_DIO_N:
+            add("out", "disp_io", "dio", label, n, 1, x, ["nop"] * n + [x])
+    for kind in COST_MARKERS:
+        for label, kn in F26_LKS_KN.items():
+            x = F26_LKS_X[label]
+            for k, ns in kn.items():
+                for n in ns:
+                    add(kind, "lookup_start", "lks", label, n, k, x, ["nop"] * n + [x] * k)
+    for kind in COST_MARKERS:
+        for label, x in F26_CNT_X.items():
+            add(kind, "count_mask", "cnt", label, 0, 1, x, [x])
+    return [c for kind in COST_MARKERS
+            for c in _sweep("F26", by_kind[kind], waits, parities, marker_kind=kind, rfm=rfm)]
+
+
+# F27, refresh on from the prelude (RFM FCh, as F8 and F13), every variant at every wait, with
+# a refresh-off twin (RFM ECh) of every variant at 0 waits as the control (as F18 A's ECh
+# prelude); run ids F27-<marker>-<fc|ec>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>. Both
+# markers throughout. The refresh timer runs free from the prelude, so the chain's offset to
+# the refresh grid is the prelude's length plus the parity pad plus the body, fixed per cell:
+# the ladders move the body's state across the grid a few clocks a step.
+# room (room_ir_imm: the IR counts as a seventh queue slot whenever the decoder is not
+#   mid-take, for every class, against not while a MOV r16,imm16 runs; keyed on class imm and
+#   seen only in the prelude's MOV r16,imm16 train). In the chain body: MOV AW,imm16^k (B8 34
+#   12) and MOV DW,imm16^k (BA 40 00) for k = 1..4 (the train: each takes its last immediate
+#   byte and loads the IR with the queue one byte short of a word, a refresh request standing
+#   on some of those clocks), against MOV CL,imm8^k (B1 04, class imm with one immediate byte)
+#   k = 1..4 and ADD DW,imm16^k (81 C2 34 12, ModR/M + imm16) k = 1..3: which forms' last
+#   immediate take raises a request on the IR's slot alone.
+# unit (refresh_drop_unit: a fetch request raised on a delivery clock with room for exactly a
+#   word is lost to a refresh taking the bus there while the EU is inside a register unit's
+#   clocks, against only with odd room; pinned by nine F17 runs at 2 waits). NOP^n (n = 0..2)
+#   then MOV CL,n ; SHL AW,CL for n = 4, 8, 16, MULU DW (F7 E2), SHL AW,8 (C1 E0 08), k = 1:
+#   the unit's exec and count-loop clocks cover more refresh slots as the count grows, the
+#   NOPs move the delivery clocks against the grid, so refreshes on room-2 delivery clocks
+#   fall inside the unit (the rule) and outside it (the control) in the same chain.
+# port (refresh_drop_post: a fetch request a refresh takes the bus from on the port byte's take
+#   of a port-form IN/OUT stays raised and runs on the I/O lead's first clock, against lost;
+#   refresh_lead_port: for the port form a refresh may start on the lead's first clock and the
+#   I/O follows it, against no refresh in the whole lead). NOP^n for n = 0..5 then OUT 40h,AL
+#   (E6 40), OUT 40h,AW (E7 40), IN AL,40h (E4 40): port 40h, not a marker's 20h+i nor END's
+#   FF00h; the ladder moves the port byte's take and the lead's two clocks across the refresh
+#   grid so a refresh lands on the take, the lead's first clock and its last. DW-form controls
+#   OUT DW,AW (EF, the catalog's out_dw_al) and IN AL,DW (EC) at n = 0, 2, 4 with DW = 0040h
+#   (the rules keep both lead clocks closed for the DW form and the post on its own start).
+# beat (refresh_beat_t4: a 3-clock fetch run right after a refresh beat it keeps the bus unit
+#   busy on its delivery clock, so the next instruction's fetch requested there starts a clock
+#   later, against free on delivery; pinned by F13's prelude cells at 0 waits, the prelude's
+#   MOV DS1,AW ; MOV AW,imm16). NOP^n for n = 0..5 then MOV DS1,AW (8E C0, the prelude's own
+#   form: DS1 := 0, unchanged) ; MOV AW,imm16, and NOP^n then MOV AW,DW ; MOV DW,imm16 (BA 40
+#   00), the same 2-byte-ModR/M-then-3-byte-immediate shape with register forms: the ladder
+#   moves the beaten fetch over the refresh grid so the MOV r16,imm16 starts on a beaten 3-clock
+#   fetch's delivery in some cells; the rule needs 0 waits, the 1- and 2-wait cells (4- and
+#   5-clock fetches) are the control, as are the ECh twins.
+F27_RFM = (RFM_ON, RFM_OFF)
+F27_OFF_WAITS = (0,)                          # the ECh twins
+F27_ROOM_X = {"movawi": ("mov_aw_imm", range(1, 5)), "movdwi": ("mov_dw_imm", range(1, 5)),
+              "movcl": ("mov_cl_imm", range(1, 5)), "adddwi": ("add_dw_imm", range(1, 4))}
+F27_UNIT_X = {"shlcl4": "shl_cl4", "shlcl8": "shl_cl8", "shlcl16": "shl_cl16",
+              "mulu": "mulu_dw", "shli8": "shl_imm8"}
+F27_UNIT_N = range(3)
+F27_PORT_X = {"outb": "out_imm_al", "outw": "out_imm_aw", "inb": "in_al_imm"}
+F27_PORT_N = range(6)
+F27_PORT_DW_X = {"outdw": "out_dw_al", "indw": "in_al_dw"}
+F27_PORT_DW_N = (0, 2, 4)
+F27_PORT_PROBE = "refresh_drop_post/refresh_lead_port"
+F27_BEAT_X = {"ds1": ["mov_ds1_aw", "mov_aw_imm"], "movr": ["mov_aw_dw", "mov_dw_imm"]}
+F27_BEAT_N = range(6)
+
+
+def f27(waits=WAITS, parities=PARITIES):
+    """The refresh-on probes room, unit, port, beat (see the comment above)."""
+    chains = []
+    for rfm in F27_RFM:
+        ws = tuple(w for w in waits if rfm == RFM_ON or w in F27_OFF_WAITS)
+        by_kind = {"push": [], "out": []}
+
+        def add(kind, probe, series, label, n, k, form, names):
+            name = (f"{kind}-{rfm:02x}-{series}-{label}-n{n}"
+                    + (f"-k{k}" if series == "room" else ""))
+            by_kind[kind].append((name, _probe_knobs(probe, series, kind, n, k, form, names,
+                                                     rfm), _probe_frame(kind, names),
+                                  {"rfm": rfm}))
+
+        for kind in COST_MARKERS:
+            by_kind[kind].append((f"{kind}-{rfm:02x}-empty",
+                                  _probe_knobs("empty", "empty", kind, 0, 0, None, [], rfm),
+                                  _probe_frame(kind, []), {"rfm": rfm}))
+            for label, (x, ks) in F27_ROOM_X.items():
+                for k in ks:
+                    add(kind, "room_ir_imm", "room", label, 0, k, x, [x] * k)
+            for label, x in F27_UNIT_X.items():
+                for n in F27_UNIT_N:
+                    add(kind, "refresh_drop_unit", "unit", label, n, 1, x, ["nop"] * n + [x])
+            for label, x in F27_PORT_X.items():
+                for n in F27_PORT_N:
+                    add(kind, F27_PORT_PROBE, "port", label, n, 1, x, ["nop"] * n + [x])
+            for label, x in F27_PORT_DW_X.items():
+                for n in F27_PORT_DW_N:
+                    add(kind, F27_PORT_PROBE, "port", label, n, 1, x, ["nop"] * n + [x])
+            for label, pair in F27_BEAT_X.items():
+                for n in F27_BEAT_N:
+                    add(kind, "refresh_beat_t4", "beat", label, n, 1, pair[-1],
+                        ["nop"] * n + pair)
+        chains += [c for kind in COST_MARKERS
+                   for c in _sweep("F27", by_kind[kind], ws, parities, marker_kind=kind)]
+    return chains
+
+
+FAMILIES.update({"F26": f26, "F27": f27})

@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 from validation.v35s.chains import fit
-from validation.v35s.chains.families import FAMILIES, generate
+from validation.v35s.chains.families import FAMILIES, UNMODELLED, generate
 from validation.v35s.chains.score import aligned
 from validation.v35s.chains.sim.config import DEFAULT
 from validation.v35s.chains.sim.machine import simulate_normalized
@@ -502,7 +502,7 @@ class FittedConfig(unittest.TestCase):
         from validation.v35s.chains.sim.queue import QUEUE_BYTES
         cfg = fit.Config.fitted()
         peak = 0
-        for chain in generate(waits=(0, 2)):
+        for chain in generate([f for f in FAMILIES if f not in UNMODELLED], waits=(0, 2)):
             m = Machine(chain, cfg)
             m.run()                      # raises sim.queue.QueueOverflow on an over-fill
             peak = max(peak, m.queue.peak)

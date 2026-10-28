@@ -5,15 +5,18 @@ from __future__ import annotations
 import copy
 import unittest
 
-from validation.v35s.chains.families import generate
+from validation.v35s.chains.families import FAMILIES, UNMODELLED, generate
 from validation.v35s.chains.forms import DEFAULT_REGS as FORMS_REGS
-from validation.v35s.chains.forms import FORMS
+from validation.v35s.chains.forms import FORMS, UNMODELLED_FORMS
 from validation.v35s.chains.normalize import load_runs, normalize
 from validation.v35s.chains.score import aligned, score, score_family
 from validation.v35s.chains.sim.config import DEFAULT, OPTIONS, Config
 from validation.v35s.chains.sim.machine import Machine, simulate, simulate_normalized
 from validation.v35s.chains.sim.queue import QUEUE_BYTES, Queue, QueueOverflow
 from validation.v35s.chains.sim.templates import decode
+
+# (WP49) the families the simulator can run: F23 is generator-only (WP52: F25 is modelled)
+MODELLED = [f for f in FAMILIES if f not in UNMODELLED]
 
 
 def _runs(family):
@@ -84,16 +87,20 @@ class ModelRuns(unittest.TestCase):
                     self.assertEqual(m.checks, [])
 
     def test_every_generated_chain(self):
-        for chain in generate(parities=("even",), waits=(0, 2)):
+        for chain in generate(MODELLED, parities=("even",), waits=(0, 2)):
             with self.subTest(chain=chain.id):
                 events = simulate(chain)
                 self.assertEqual(events[-1].kind, "io_write")
                 self.assertEqual(events[-1].addr, 0xFF00)
 
     def test_decoded_lengths_cover_forms(self):
+        # (WP55) the F23 forms decode with their context: Z known (CMP AW,AW), a return
+        # address at SP (a CALL before the RET)
         regs = {"AW": 0, "BW": 0x800, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
-                "IX": 0x100, "IY": 0x180}
+                "IX": 0x100, "IY": 0x180, "Z": 1, "ret0F00": 0}
         for form in FORMS.values():
+            if form.name in UNMODELLED_FORMS:
+                continue                 # (WP49) generator-only forms (none since WP55)
             k = 0
             while k < form.length:
                 k += decode(form.code, k, regs).length
@@ -175,7 +182,7 @@ class QueueStorage(unittest.TestCase):
 
     def test_never_more_than_six_bytes(self):
         # Every chain of the catalog under DEFAULT: the queue fills to six and no further.
-        self.assertEqual(self._peak(DEFAULT, generate(parities=("even", "odd"), waits=(0, 2))),
+        self.assertEqual(self._peak(DEFAULT, generate(MODELLED, parities=("even", "odd"), waits=(0, 2))),
                          QUEUE_BYTES)
 
     def test_ir_load_leaves_the_queue(self):
@@ -4441,3 +4448,411 @@ class TrackedFit(unittest.TestCase):
                 dst.write_text("untouched")
                 self.assertEqual(adopt_main(argparse.Namespace(path=str(src))), 2)
                 self.assertEqual(dst.read_text(), "untouched")
+
+
+class EaAloneAndStackFrame(unittest.TestCase):
+    """(WP52, F25) decode / execute / templates of LDEA, XLAT, the immediate, segment and
+    burst pushes and pops, PREPARE and DISPOSE, and the F25 chains simulate."""
+
+    REGS = {"AW": 0x0034, "BW": 0x0800, "CW": 0, "DW": 0x40, "SP": 0x0F00, "BP": 0x0A00,
+            "IX": 0x0100, "IY": 0x0180, "Z": 1, "ret0F00": 0}   # (WP55) the F23 forms' context
+
+    def _op(self, form):
+        from validation.v35s.chains.sim.templates import execute
+        regs = dict(self.REGS)
+        code = FORMS[form].code
+        op = decode(code, 0, regs)
+        self.assertEqual(op.length, len(code), form)
+        self.assertEqual(op.cls, FORMS[form].cls, form)
+        execute(op, code, regs)
+        return op, regs
+
+    def test_classes_have_templates(self):
+        from validation.v35s.chains.forms import CLASSES, F25_LDEA_FORMS, F25_STACK_FORMS
+        from validation.v35s.chains.sim.config import DEFAULT_COST
+        from validation.v35s.chains.sim.templates import steps
+        for form in FORMS.values():
+            if form.name in UNMODELLED_FORMS:
+                continue
+            self.assertIn(form.cls, CLASSES, form.name)
+            if form.name in F25_LDEA_FORMS + F25_STACK_FORMS:
+                self.assertIn(form.cls, DEFAULT_COST, form.name)   # the new classes' own dicts
+            op = decode(form.code, 0, dict(self.REGS))
+            self.assertTrue(steps(op, DEFAULT), form.name)
+
+    def test_push_r_eight_addresses(self):
+        from validation.v35s.chains.sim.templates import steps
+        op, regs = self._op("push_r")
+        self.assertEqual(regs["SP"], 0x0EF0)
+        for burst in OPTIONS["burst_wait"]:
+            seq = steps(op, DEFAULT.replace(burst_wait=burst))
+            writes = [s[2] for s in seq if s[0] in ("data", "post") and s[1] == "write"]
+            self.assertEqual(writes, [0x0F00 - 2 * (i + 1) for i in range(8)], burst)
+        op, regs = self._op("pop_r")
+        self.assertEqual(regs["SP"], 0x0F10)
+        reads = [s[2] for s in steps(op, DEFAULT) if s[0] in ("data", "post")]
+        self.assertEqual(reads, [0x0F00 + 2 * i for i in range(8)])
+
+    def test_push_r_matches_the_normaliser(self):
+        from validation.v35s.chains.normalize import expected_accesses
+        from validation.v35s.chains.sim.templates import steps
+        chain = next(c for c in generate(["F25"], waits=(0,), parities=("even",))
+                     if c.id == "F25-out-pushr_popr-pE-w0")
+        x = [k for k, i in enumerate(chain.instrs) if i.role == "x"]
+        exp = expected_accesses(chain)
+        regs = dict(self.REGS)
+        for k, name in zip(x, ("push_r", "pop_r")):
+            op = decode(FORMS[name].code, 0, regs)
+            got = [s[2] for s in steps(op, DEFAULT) if s[0] in ("data", "post")]
+            self.assertEqual(got, [a.addr for a in exp[k]], name)
+            from validation.v35s.chains.sim.templates import execute
+            execute(op, FORMS[name].code, regs)
+
+    def test_prepare_dispose_sp_bp(self):
+        from validation.v35s.chains.sim.templates import execute
+        regs = dict(self.REGS)
+        code = FORMS["prepare_00"].code + FORMS["dispose"].code
+        op = decode(code, 0, regs)
+        self.assertEqual((op.cls, op.length, op.stack), ("prepare", 4, (None, 0x0EFE)))
+        execute(op, code, regs)
+        self.assertEqual((regs["SP"], regs["BP"]), (0x0EFE, 0x0EFE))
+        op = decode(code, 4, regs)
+        self.assertEqual((op.cls, op.stack), ("dispose", (0x0EFE, None)))
+        execute(op, code, regs)
+        self.assertEqual(regs["SP"], 0x0F00)
+        self.assertRaises(ValueError, decode, bytes([0xC8, 0, 0, 1]), 0, dict(self.REGS))
+
+    def test_xlat_address(self):
+        op, regs = self._op("xlat")
+        self.assertEqual((op.ea, op.width), (0x0834, 1))
+        self.assertEqual(regs["AW"] & 0xFF, 0x90)
+
+    def test_ldea_writes_the_offset(self):
+        for name, ea in (("ldea_bw", 0x0800), ("ldea_bw_ix_d8", 0x0910),
+                         ("ldea_bp_iy_d16", 0x0D80), ("ldea_dir", 0x0C00)):
+            op, regs = self._op(name)
+            self.assertEqual((op.cls, op.ea, op.bus), ("lea", ea, False), name)
+            self.assertEqual(regs["AW"], ea, name)
+            self.assertEqual(regs["SP"], 0x0F00, name)
+
+    def test_segment_forms(self):
+        for name, cls, sp in (("push_ds1", "push_seg", 0x0EFE), ("pop_ds0", "pop_seg", 0x0F02),
+                              ("push_imm16", "push_imm", 0x0EFE),
+                              ("push_imm8", "push_imm", 0x0EFE),
+                              ("mov_ds1_aw", "reg", 0x0F00), ("mov_aw_ds1", "reg", 0x0F00),
+                              ("mov_ds1_m", "load_seg", 0x0F00), ("mov_m_ds0", "store", 0x0F00)):
+            op, regs = self._op(name)
+            self.assertEqual((op.cls, regs["SP"]), (cls, sp), name)
+
+    def test_f25_simulates(self):
+        for chain in generate(["F25"], waits=(0, 1, 2)):
+            with self.subTest(chain=chain.id):
+                for cfg in (DEFAULT, Config.fitted()):
+                    events = simulate(chain, cfg)
+                    self.assertEqual(events[-1].kind, "io_write")
+                    self.assertEqual(events[-1].addr, 0xFF00)
+
+
+class ControlFlow(unittest.TestCase):
+    """(WP55, F23) decode / execute / templates of the control transfers (BE, BNE, BR short
+    and near, DBNZ, CALL, RET): the target, the flush and the refill from it, CALL's and RET's
+    stack word and SP, DBNZ's count, and the F23 chains simulate."""
+
+    REGS = {"AW": 0, "BW": 0x0800, "CW": 0, "DW": 0x40, "SP": 0x0F00, "BP": 0x0A00,
+            "IX": 0x0100, "IY": 0x0180, "Z": 1}
+    CLASSES = ("branch_short", "branch_near", "dbnz", "call", "ret")
+
+    def _chain(self, cid):
+        return next(c for c in generate(["F23"], waits=(int(cid[-1]),),
+                                        parities=("even" if "-pE-" in cid else "odd",))
+                    if c.id == cid)
+
+    def test_classes_have_templates_and_costs(self):
+        from validation.v35s.chains.forms import F23_FORMS
+        from validation.v35s.chains.sim.config import DEFAULT_COST
+        from validation.v35s.chains.sim.templates import steps
+        for name in F23_FORMS:
+            form = FORMS[name]
+            regs = {**self.REGS, "CW": 2, "ret0F00": 0}
+            op = decode(form.code, 0, regs)
+            self.assertEqual((op.cls, op.length), (form.cls, len(form.code)), name)
+            self.assertTrue(steps(op, DEFAULT), name)
+            if op.cls in self.CLASSES:
+                self.assertIn(op.cls, DEFAULT_COST, name)
+
+    def test_targets(self):
+        from validation.v35s.chains.sim.templates import execute
+        for name, target in (("be_n3", 5), ("br_n7", 9), ("br_near_n2", 5), ("bne_n2", None),
+                             ("call_n2", 5), ("dbnz_n2", 4)):
+            regs = {**self.REGS, "CW": 2}
+            op = decode(FORMS[name].code, 0, regs)
+            self.assertEqual(op.target, target, name)
+            self.assertEqual(op.cond, name.startswith(("be_", "bne_")), name)
+        regs = {**self.REGS, "Z": 0}
+        self.assertEqual(decode(FORMS["bne_n0"].code, 0, regs).target, 2)
+        self.assertIsNone(decode(FORMS["be_n0"].code, 0, regs).target)
+        self.assertRaises(ValueError, decode, FORMS["be_n0"].code, 0, {**self.REGS, "Z": None})
+        # DBNZ: CW counted down, taken while it is not 0
+        regs = {**self.REGS, "CW": 1}
+        op = decode(FORMS["dbnz_n0"].code, 0, regs)
+        self.assertIsNone(op.target)
+        execute(op, FORMS["dbnz_n0"].code, regs)
+        self.assertEqual(regs["CW"], 0)
+        # CMP AW,AW sets Z
+        regs = {**self.REGS, "Z": None}
+        execute(decode(FORMS["cmp_aw_aw"].code, 0, regs), FORMS["cmp_aw_aw"].code, regs)
+        self.assertEqual(regs["Z"], 1)
+
+    def test_call_ret_stack(self):
+        from validation.v35s.chains.sim.templates import execute, steps
+        code = FORMS["call_n2"].code + FORMS["br_n1"].code + FORMS["ret"].code
+        regs = dict(self.REGS)
+        call = decode(code, 0, regs)
+        self.assertEqual((call.cls, call.target, call.stack), ("call", 5, (None, 0x0EFE)))
+        writes = [s for s in steps(call, DEFAULT) if s[0] == "data"]
+        self.assertEqual([(s[1], s[2]) for s in writes], [("write", 0x0EFE)])
+        execute(call, code, regs)
+        self.assertEqual((regs["SP"], regs["ret0EFE"]), (0x0EFE, 3))
+        ret = decode(code, 5, regs)
+        self.assertEqual((ret.cls, ret.target, ret.stack), ("ret", 3, (0x0EFE, None)))
+        execute(ret, code, regs)
+        self.assertEqual(regs["SP"], 0x0F00)
+        self.assertRaises(ValueError, decode, code, 5, dict(self.REGS))   # no CALL before
+
+    def test_run_order_and_refill(self):
+        for cfg in (DEFAULT, Config.fitted()):
+            # callret runs CALL, RET, BR (X indices 0, 2, 1)
+            chain = self._chain("F23-out-callret-pE-w0")
+            m = Machine(chain, cfg)
+            m.run()
+            x = {i.offset: i.index for i in chain.instrs if i.role == "x"}
+            self.assertEqual([x[o] for _, o, _ in m.eu.trace if o in x], [0, 2, 1])
+            # after a taken branch the fetches restart at the target: an odd target's first
+            # fetch at the odd address itself (its one byte), then the next words
+            for cid, odd in (("F23-out-be-n0-pE-w0", False), ("F23-out-be-n1-pE-w0", True)):
+                chain = self._chain(cid)
+                be = next(i for i in chain.instrs if i.form.startswith("be_"))
+                target = 0x10047 + be.offset + 2 + be.code[1]
+                self.assertEqual(target & 1, int(odd))
+                m = Machine(chain, cfg)
+                cycles = m.run()
+                fetches = [c.addr for c in cycles if c.kind == "fetch"]
+                k = fetches.index(target)
+                self.assertEqual(fetches[k + 1:k + 3], [(target | 1) + 1, (target | 1) + 3])
+                self.assertNotIn(target - 1 if odd else target + 1, fetches[k:k + 4])
+
+    def test_not_taken_is_fetch_only(self):
+        for cid in ("F23-out-bne-n0-k1-pE-w0", "F23-out-bne-n0-k2-pO-w1",
+                    "F23-push-dbnz-c1-n0-pE-w2"):
+            chain = self._chain(cid)
+            n = simulate_normalized(chain, Config.fitted())
+            m0, m1 = sorted(n.t_markers.values())
+            mid = [e.kind for e in n.events if m0 < e.clock < m1]
+            self.assertEqual(set(mid), {"fetch"}, cid)
+
+    def test_f23_simulates(self):
+        for chain in generate(["F23"], waits=(0, 1, 2)):
+            with self.subTest(chain=chain.id):
+                for cfg in (DEFAULT, Config.fitted()):
+                    events = simulate(chain, cfg)
+                    self.assertEqual(events[-1].kind, "io_write")
+                    self.assertEqual(events[-1].addr, 0xFF00)
+
+    def test_every_option_runs(self):
+        from validation.v35s.chains.fit import F23_ENUMS
+        chains = [self._chain(c) for c in ("F23-out-callret-pO-w2", "F23-push-be-n3-pE-w1",
+                                           "F23-out-dbnz-c2-n2-pE-w0")]
+        for name, values in F23_ENUMS.items():
+            for v in values:
+                for chain in chains:
+                    with self.subTest(option=name, value=v, chain=chain.id):
+                        events = simulate(chain, Config.fitted().replace(**{name: v}))
+                        self.assertEqual(events[-1].addr, 0xFF00)
+
+
+_TRACKED = []
+WP58 = {"refresh_io_step": "own", "refresh_io_stall": "step", "io_step_issue": "step",
+        "refresh_io_run": "pair_out", "port_ready": "issue", "refresh_post": "post_beat"}
+
+
+# the thirty-fourth fit's values of the WP58 fields (refresh_io_run=pair from WP39)
+FIT34 = {"refresh_io_step": "any", "refresh_io_stall": "waits", "io_step_issue": "count",
+         "refresh_io_run": "pair", "port_ready": "relatch", "refresh_post": "post"}
+
+
+def _fit58(**kw):
+    """The tracked fit with the WP58 values (+ kw): the stage-11 fit's enums, whichever fit is
+    adopted."""
+    if not _TRACKED:
+        _TRACKED.append(Config.fitted())
+    return _TRACKED[0].replace(**{**WP58, **kw})
+
+
+def _events58(cid, **kw):
+    """(clock, kind) from the fill of a recorded run under the tracked fit with the WP58 values
+    (+ kw), the fill fetch dropped, and the silicon list the same way; the model's list is None
+    when it raises (sim.queue.QueueOverflow)."""
+    from validation.v35s.chains.sim.machine import refresh_anchor
+
+    family = cid.split("-")[0]
+    if family not in _RUNS23:
+        _RUNS23[family] = {r["chain"]["id"]: r for r in _runs(family)}
+    s = normalize(_RUNS23[family][cid])
+    sil = [(e[0], e[1]) for e in aligned(s)][1:]
+    try:
+        m = simulate_normalized(s.chain, _fit58(**kw), s.chain_base, refresh=refresh_anchor(s))
+    except QueueOverflow:
+        return None, sil
+    return [(e[0], e[1]) for e in aligned(m)][1:], sil
+
+
+class RefreshOnProbesF27(unittest.TestCase):
+    """(WP58, F27) the refresh-on probe family: every F27 chain runs within the queue's six
+    bytes, the IN under a refresh, and the I/O steps' enums each against the alternative it
+    replaced on a named run, silicon clocks from t_fill quoted from chains-F27-w<N>."""
+
+    def test_every_f27_chain_runs_within_the_queue(self):
+        # under DEFAULT and under the fit, at the timer phase the generated chains run with
+        # (machine.Machine without an anchor), every wait and parity
+        chains = generate(["F27"])
+        self.assertEqual(len(chains), 1072)
+        for cfg in (DEFAULT, _fit58()):
+            peak = 0
+            for chain in chains:
+                m = Machine(chain, cfg)
+                m.run()                  # raises QueueOverflow on an over-fill
+                peak = max(peak, m.queue.peak)
+            self.assertLessEqual(peak, QUEUE_BYTES)
+
+    def test_in_under_a_refresh(self):
+        # F27-push-fc-port-inb-n1-pO-w0: IN AL,40h after a NOP under PUSH; its I/O posted on the
+        # port byte's take at 111, the refresh request at 112. Silicon R114 (the I/O's step, its
+        # count 4) I121 F124 R131 W136. The old model held the refresh to the I/O's last clock
+        # (R118), let the fetch the refresh beat run ahead of the IN with a second one back to
+        # back (F123 F126) and over-filled the queue at clock 251 in the END block
+        m, s = _events58("F27-push-fc-port-inb-n1-pO-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 110, 136), [(114, "refresh"), (121, "io_read"),
+                                              (124, "fetch"), (131, "refresh"),
+                                              (136, "stack_write")])
+        m, _ = _events58("F27-push-fc-port-inb-n1-pO-w0", **FIT34)
+        self.assertIsNone(m)
+
+    def test_refresh_on_the_io_steps(self):
+        # refresh_io_step: F27-push-fc-port-inb-n0-pO-w0, the IN's I/O posted at 108, the
+        # request at 112 (count 5): silicon R113 (count 6) I118 (any: R115 at the count's end,
+        # I120); F27-push-fc-port-indw-n4-pE-w2, IN AL,DW (setup 7, its steps a clock earlier
+        # against the post): R128 I135 (any: R132 I137)
+        m, s = _events58("F27-push-fc-port-inb-n0-pO-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 109, 125), [(113, "refresh"), (118, "io_read")])
+        m, _ = _events58("F27-push-fc-port-inb-n0-pO-w0", refresh_io_step="any")
+        self.assertEqual(_span(m, 109, 125), [(115, "refresh"), (120, "io_read")])
+        m, s = _events58("F27-push-fc-port-indw-n4-pE-w2")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 122, 140), [(128, "refresh"), (135, "io_read")])
+        m, _ = _events58("F27-push-fc-port-indw-n4-pE-w2", refresh_io_step="any")
+        self.assertEqual(_span(m, 122, 140), [(132, "refresh"), (137, "io_read")])
+
+    def test_the_steps_own_the_refresh_beside_an_out(self):
+        # refresh_io_step=own: F27-out-fc-port-outb-n0-pO-w0, X = OUT 40h,AL posts at 110, the
+        # closing OUT starts at 112 and takes its port byte on 115; the request at 112:
+        # silicon R113 on X's step, the closing OUT mid-take (step: the EU holds it to the
+        # take, F115 R118 I123)
+        m, s = _events58("F27-out-fc-port-outb-n0-pO-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 108, 123), [(113, "refresh"), (118, "fetch"),
+                                              (122, "io_write")])
+        m, _ = _events58("F27-out-fc-port-outb-n0-pO-w0", refresh_io_step="step")
+        self.assertEqual(_span(m, 108, 123), [(115, "fetch"), (118, "refresh"),
+                                              (123, "io_write")])
+
+    def test_the_refresh_last_clock_under_a_step(self):
+        # refresh_io_stall=step: F27-push-fc-port-inb-n1-pO-w0, the refresh 114-118 taken at
+        # the I/O's count 4: its last clock would complete count 6, a step, and does not count;
+        # silicon I121 (waits: I123 behind a fetch at 120)
+        m, _ = _events58("F27-push-fc-port-inb-n1-pO-w0", refresh_io_stall="waits")
+        self.assertEqual(_span(m, 110, 136), [(114, "refresh"), (120, "fetch"),
+                                              (123, "io_read"), (128, "refresh"),
+                                              (135, "stack_write")])
+
+    def test_an_in_issues_on_a_step_after_a_refresh(self):
+        # io_step_issue: F27-push-fc-port-inb-n1-pE-w0, the refresh on the IN's post clock 104
+        # beats a fetch, which runs 109-111; the I/O's count is done at 113, its step after
+        # the fetch at 114: silicon I114 (count: I113)
+        m, s = _events58("F27-push-fc-port-inb-n1-pE-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 100, 116), [(104, "refresh"), (109, "fetch"),
+                                              (114, "io_read")])
+        m, _ = _events58("F27-push-fc-port-inb-n1-pE-w0", io_step_issue="count")
+        self.assertEqual(_span(m, 100, 116), [(104, "refresh"), (109, "fetch"),
+                                              (113, "io_read")])
+
+    def test_no_pair_beside_an_in(self):
+        # refresh_io_run=pair_out: the same run, the fetch the refresh beat beside the IN is
+        # one word (pair: F109 F112 I115); beside an OUT the pair stays (RefreshIoRunAndTakeLatch)
+        m, _ = _events58("F27-push-fc-port-inb-n1-pE-w0", refresh_io_run="pair")
+        self.assertEqual(_span(m, 100, 116), [(104, "refresh"), (109, "fetch"),
+                                              (112, "fetch"), (115, "io_read")])
+        m, s = _events58("F13-c-out-shlcl2-pE-w2")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 95, 113), [(95, "refresh"), (100, "fetch"), (105, "fetch"),
+                                             (110, "io_write"), (113, "refresh")])
+
+    def test_a_ready_io_issues_on_the_take_clock(self):
+        # port_ready=issue: F27-out-fc-empty-pE-w1, the marker OUT's I/O counted out at 105
+        # behind the fetches 102 and 106; the closing OUT takes its port byte on 110, the clock
+        # the bus frees: silicon I110 R113 I122 (relatch: held to 113, R111 I116 I126)
+        m, s = _events58("F27-out-fc-empty-pE-w1")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 100, 126), [(102, "fetch"), (106, "fetch"), (110, "io_write"),
+                                              (113, "refresh"), (122, "io_write"),
+                                              (125, "fetch")])
+        m, _ = _events58("F27-out-fc-empty-pE-w1", port_ready="relatch")
+        self.assertEqual(_span(m, 100, 126), [(102, "fetch"), (106, "fetch"), (111, "refresh"),
+                                              (116, "io_write"), (126, "io_write")])
+
+    def test_the_post_clock_hold_beside_a_beaten_fetch(self):
+        # refresh_post=post_beat: F27-push-fc-room-movawi-n0-k1-pE-w0, PUSH AW starts and posts
+        # its write at 104 with the refresh 104-108 beating a fetch the write's setup then holds:
+        # silicon W111 F114 (post: no hold beside a beaten fetch, W110 F113); F17-c-push-empty-
+        # pE-w0, the beaten fetch run ahead of the write (98-100): W101 either way
+        m, s = _events58("F27-push-fc-room-movawi-n0-k1-pE-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 102, 117), [(104, "refresh"), (111, "stack_write"),
+                                              (114, "fetch"), (117, "fetch")])
+        m, _ = _events58("F27-push-fc-room-movawi-n0-k1-pE-w0", refresh_post="post")
+        self.assertEqual(_span(m, 102, 117), [(104, "refresh"), (110, "stack_write"),
+                                              (113, "fetch"), (116, "fetch")])
+        for kw in ({}, {"refresh_post": "post"}):
+            m, s = _events58("F17-c-push-empty-pE-w0", **kw)
+            self.assertEqual(m, s)
+            self.assertEqual(_span(s, 90, 101), [(90, "stack_write"), (93, "refresh"),
+                                                 (98, "fetch"), (101, "stack_write")])
+
+    def test_the_end_dw_out_in_halt_is_not_stepped(self):
+        # the steps apply while the EU runs: the END's OUT DW,AL, posted with the EU going into
+        # HALT, keeps the old rules (F13-s-shlcl1-pE-w0 exact; stepping it loses 103 refresh-on
+        # corpus runs)
+        from validation.v35s.chains.sim.arbiter import Request, io_stepped
+
+        class _Eu:
+            halted = True
+        r = Request([("io_write", 0xFF00, "lo")], 7, 0)
+        self.assertFalse(io_stepped(r, _Eu()))
+        _Eu.halted = False
+        self.assertTrue(io_stepped(r, _Eu()))
+        m, s = _events58("F13-s-shlcl1-pE-w0")
+        self.assertEqual(m, s)
+
+    def test_refresh_off_runs_never_see_the_steps(self):
+        for cid in ("F3-out-shl_cl2-k1-pE-w2", "F27-out-ec-port-inb-n1-pO-w0",
+                    "F19-d-out-pair-outb-pE-w0"):
+            a, s = _events58(cid)
+            b, _ = _events58(cid, **FIT34)
+            self.assertEqual(a, b, cid)
+            self.assertEqual(a, s, cid)
+
+    def test_wp58_defaults_are_the_old_model(self):
+        for name in WP58:
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)

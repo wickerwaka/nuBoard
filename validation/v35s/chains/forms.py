@@ -11,7 +11,16 @@ from dataclasses import dataclass
 
 CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rmw",
            "rmw_imm", "push_mem", "pop_mem", "push", "pop", "out", "in", "shift_cl",
-           "shift_imm", "mul", "div")
+           "shift_imm", "mul", "div",
+           "branch", "call", "lea",    # (WP49) F23 control flow, F25 EA without a bus cycle
+           # (WP55) F23 by encoding format: a 1-byte / 2-byte displacement, the count, the return
+           "branch_short", "branch_near", "dbnz", "ret",
+           # (WP52) F25 the stack frame and the segment registers
+           "xlat", "load_seg", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r", "prepare",
+           "dispose")
+# Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
+STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
+                 "prepare", "dispose", "ret")
 MODE_CLASSES = ("base", "base_index", "disp", "base_disp", "base_index_disp", "direct")
 
 # Register and EA knob values (plan, "Registers from the prelude").
@@ -483,3 +492,100 @@ for _label, (_cls, _op, _reg, _mn, _tail, _counts) in F22_FORMS.items():
                             mode_class=_mode.mode_class, ea=_mode.ea,
                             align_ok=_mode.uses_bw, **_counts)
     F22_FORM[_label] = _name
+
+
+# F23 and F25 (WP49): control flow inside the chain, EA without a bus cycle and the stack
+# frame. Generator-only: the simulator does not decode these forms yet (UNMODELLED_FORMS;
+# families.UNMODELLED). Added after the lists above so no earlier family picks them up. The
+# fence before M0 leaves AW = 0 (SHL AW,31) and CW = 001Fh (MOV CL,31), so every value
+# below that depends on AW or CW is the in-frame one, not the prelude's.
+def _register(forms) -> tuple:
+    for f in forms:
+        if f.name in FORMS:
+            raise RuntimeError(f"duplicate form {f.name}")
+        if f.cls not in CLASSES:
+            raise RuntimeError(f"{f.name}: unknown class {f.cls}")
+        FORMS[f.name] = f
+    return tuple(f.name for f in forms)
+
+
+_SP = DEFAULT_REGS["SP"]
+_STACK_W = dict(writes=1, width=2, ea=_SP - 2)     # nominal: the frame's SP moves it
+_STACK_R = dict(reads=1, width=2, ea=_SP)
+
+# F23 control flow. CMP AW,AW (3B C0: Z = 1) makes the flags known. Short branches carry the
+# displacement in their second byte: BE +n (74 n, taken with Z = 1), BNE +n (75 n, not
+# taken), BR short +n (EB n); BR near +n (E9 n 00); DBNZ +n (E2 n: CW -= 1, taken while
+# CW != 0) after MOV CW,1 / MOV CW,2 (B9 01 00 / B9 02 00: CW must be set in the frame, the
+# fence's MOV CL,31 overwrites a preset); CALL +n (E8 n 00: the return address to the stack,
+# a flush) and RET (C3: the return address from the stack).
+F23_BE_N = range(8)
+F23_BR_N = range(8)
+F23_BR_NEAR_N = (0, 1, 2, 3)
+F23_BNE_N = (0, 2)
+F23_DBNZ_N = (0, 2)
+F23_FORMS = _register(
+    [Form("cmp_aw_aw", "reg", bytes([0x3B, 0xC0]))]
+    + [Form(f"be_n{n}", "branch_short", bytes([0x74, n])) for n in F23_BE_N]
+    + [Form(f"bne_n{n}", "branch_short", bytes([0x75, n])) for n in F23_BNE_N]
+    + [Form(f"br_n{n}", "branch_short", bytes([0xEB, n])) for n in F23_BR_N]
+    + [Form(f"br_near_n{n}", "branch_near", bytes([0xE9, n, 0x00])) for n in F23_BR_NEAR_N]
+    + [Form(f"dbnz_n{n}", "dbnz", bytes([0xE2, n])) for n in F23_DBNZ_N]
+    + [Form("mov_cw_imm1", "imm", bytes([0xB9, 0x01, 0x00])),
+       Form("mov_cw_imm2", "imm", bytes([0xB9, 0x02, 0x00])),
+       Form("call_n0", "call", bytes([0xE8, 0x00, 0x00]), **_STACK_W),
+       Form("call_n2", "call", bytes([0xE8, 0x02, 0x00]), **_STACK_W),
+       Form("ret", "ret", bytes([0xC3]), **_STACK_R)])
+
+# F25 EA alone: LDEA AW,r/m (8D /0) in all 24 memory modes; no memory cycle (reads = writes =
+# 0), the mode's EA computed and written to AW.
+F25_LDEA = {m.name: f"ldea_{m.name}" for m in MODES}
+F25_LDEA_FORMS = _register(
+    [Form(F25_LDEA[m.name], "lea", bytes([0x8D]) + modrm(m, 0), mode=m.name,
+          mode_class=m.mode_class, ea=m.ea) for m in MODES])
+
+# F25 the stack frame and the segment registers. XLAT (D7): a byte read at BW + AL = 0800h
+# (AL = 0 after the fence). PUSH imm16 (68 34 12), PUSH imm8 (6A 12, sign-extended).
+# PUSH R (60: AW CW DW BW SP BP IX IY, eight stack writes) and POP R (61: eight stack reads,
+# the SP word discarded). PREPARE 0,0 (C8 00 00 00: PUSH BP ; BP := SP) and DISPOSE (C9:
+# SP := BP ; POP BP). Segment pushes and pops: PUSH DS1 (06), POP DS1 (07), PUSH DS0 (1E),
+# POP DS0 (1F), PUSH PS (0E). MOV DS1,AW (8E C0: DS1 := 0), MOV AW,DS1 (8C C0), MOV DS1,[BW]
+# (8E 07: DS1 := 9090h, nothing after it uses DS1) and MOV [BW],DS0 (8C 1F).
+F25_XLAT_EA = DEFAULT_REGS["BW"]
+_BW_MEM = dict(width=2, mode="bw", mode_class="base", ea=DEFAULT_REGS["BW"])
+F25_STACK_FORMS = _register([
+    Form("xlat", "xlat", bytes([0xD7]), reads=1, width=1, ea=F25_XLAT_EA),
+    Form("push_imm16", "push_imm", bytes([0x68]) + IMM, **_STACK_W),
+    Form("push_imm8", "push_imm", bytes([0x6A, 0x12]), **_STACK_W),
+    Form("push_r", "push_r", bytes([0x60]), writes=8, width=2, ea=_SP - 2),
+    Form("pop_r", "pop_r", bytes([0x61]), reads=8, width=2, ea=_SP),
+    Form("prepare_00", "prepare", bytes([0xC8, 0x00, 0x00, 0x00]), **_STACK_W),
+    Form("dispose", "dispose", bytes([0xC9]), **_STACK_R),
+    Form("push_ds1", "push_seg", bytes([0x06]), **_STACK_W),
+    Form("pop_ds1", "pop_seg", bytes([0x07]), **_STACK_R),
+    Form("push_ds0", "push_seg", bytes([0x1E]), **_STACK_W),
+    Form("pop_ds0", "pop_seg", bytes([0x1F]), **_STACK_R),
+    Form("push_ps", "push_seg", bytes([0x0E]), **_STACK_W),
+    Form("mov_ds1_aw", "reg", bytes([0x8E, 0xC0])),
+    Form("mov_aw_ds1", "reg", bytes([0x8C, 0xC0])),
+    Form("mov_ds1_m", "load_seg", bytes([0x8E, 0x07]), reads=1, **_BW_MEM),
+    Form("mov_m_ds0", "store", bytes([0x8C, 0x1F]), writes=1, **_BW_MEM)])
+
+# Forms the simulator does not decode yet (test_sim skips them); (WP55) none since F23's.
+UNMODELLED_FORMS = frozenset()
+
+# F26 and F27 (WP56: the probes of the ten rules pinned by one or two cells). Every other
+# form the two families use is in the catalog above. TEST [BW+200h],AW (85 87 00 02: TEST
+# 85's lookup with a two-byte displacement, the control of TEST [0C00h],AW for lookup_start);
+# the C0/C1 count mask: SHL AW,n (C1 E0 nn) at n = 31, 32, 33, 255 (the model takes the count
+# byte unmasked: 255 is 510 clocks of count loop; masked to 5 bits it is 31) and MOV CL,n ;
+# SHL AW,CL (B1 nn D3 E0) at n = 32, 255 (CL masked to 5 bits: 0 and 31; the CL path's
+# control). Added after the lists above so no earlier family picks them up.
+F26_SHL_IMM_N = (31, 32, 33, 255)
+F26_SHL_CL_N = (32, 255)
+F26_FORMS = _register(
+    [Form("test_m_aw_bw_d16", "load_alu", bytes([0x85, 0x87]) + D16.to_bytes(2, "little"),
+          reads=1, width=2, mode="bw_d16", mode_class="base_disp",
+          ea=DEFAULT_REGS["BW"] + D16)]
+    + [Form(f"shl_imm{n}", "shift_imm", bytes([0xC1, 0xE0, n])) for n in F26_SHL_IMM_N]
+    + [Form(f"shl_cl{n}", "shift_cl", bytes([0xB1, n, 0xD3, 0xE0])) for n in F26_SHL_CL_N])

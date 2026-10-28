@@ -17,7 +17,12 @@ the step-1 measurements and the core decision are in
 [`v35s-core-decision.md`](v35s-core-decision.md), and the plan for the new core
 is [`v35s-core-plan.md`](v35s-core-plan.md). Instruction-level timing is in
 [`v35s-eu-timing.md`](v35s-eu-timing.md). The chain-timing suite and its
-machine model are in [`v35s-chains.md`](v35s-chains.md).
+machine model are in [`v35s-chains.md`](v35s-chains.md), and the plan for
+turning that model into RTL in [`v35s-hdl-plan.md`](v35s-hdl-plan.md), with the
+signal-level specification its Phase A produced in
+[`v35s-chain-rtl-spec.md`](v35s-chain-rtl-spec.md). `python -m validation.v35s.chains
+replay --family F0` runs chains through the Verilator model lane and `score --rtl`
+scores silicon, model and RTL three ways.
 
 ## Clock
 

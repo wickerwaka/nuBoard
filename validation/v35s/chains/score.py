@@ -10,6 +10,11 @@ clock 0 (Normalized.pre, from its POP PSW read) is a secondary comparison
     python -m validation.v35s.chains score --family F0 F1 [--waits ..] [--config cfg.json | --defaults] [--show N]
     python -m validation.v35s.chains sim --id CHAIN_ID [--config cfg.json | --defaults] [--strip]
     python -m validation.v35s.chains adopt cfg.json
+    python -m validation.v35s.chains score --rtl --family F0 [--rtl-dir DIR] [--show N]
+
+(Phase B) `score --rtl` adds the RTL replays (replay.py) per family: a three-mark table
+(silicon=model, silicon=RTL, RTL=model), their counts and the gate RTL-exact >= model-exact
+(see "RTL" below).
 
 Both default to the tracked fit (sim.config.FIT_PATH); --defaults is the unfitted
 structural baseline (sim.config.DEFAULT). `adopt` is the one way a fit (the fitter's
@@ -89,19 +94,19 @@ def knob_of(chain) -> tuple:
 
 def score_family(runs: list[dict], config) -> list[tuple]:
     """[(silicon Normalized, model Normalized, Score)] for run records."""
+    return [model_one(normalize(r), config) for r in runs]
+
+
+def model_one(s: Normalized, config) -> tuple:
+    """(silicon, model Normalized or None, Score) for one normalised silicon run."""
     from .sim.machine import refresh_anchor, simulate_normalized
 
-    out = []
-    for r in runs:
-        s = normalize(r)
-        try:
-            m = simulate_normalized(s.chain, config, s.chain_base, refresh=refresh_anchor(s))
-        except Exception as e:      # e.g. sim.queue.QueueOverflow: the structure cannot run it
-            out.append((s, None, Score(s.run_id, False, len(aligned(s)), 0, 0,
-                                       (0, None, f"model error: {e}"))))
-            continue
-        out.append((s, m, score(s, m)))
-    return out
+    try:
+        m = simulate_normalized(s.chain, config, s.chain_base, refresh=refresh_anchor(s))
+    except Exception as e:      # e.g. sim.queue.QueueOverflow: the structure cannot run it
+        return (s, None, Score(s.run_id, False, len(aligned(s)), 0, 0,
+                               (0, None, f"model error: {e}")))
+    return (s, m, score(s, m))
 
 
 def table(results) -> str:
@@ -166,6 +171,242 @@ def side_by_side(s: Normalized, m: Normalized | None, sc: Score) -> str:
     return "\n".join(lines)
 
 
+# RTL (HDL plan, Phase B) ---------------------------------------------------------
+#
+# score --rtl: each silicon run against the model (as above) and against its RTL replay
+# (replay.py: the run record of the same chain id through the Verilator model lane), and
+# the RTL against the model. The RTL trace is normalised non-strict (normalize(strict=
+# False)): its soft check failures are counted by category and the run is still scored;
+# a hard normalisation error (no fetch of the first chain word, an unclassifiable cycle)
+# scores the run as an RTL miss marked '!'. A run with no replay, or a replay of another
+# image (image_sha256 or chain_base differs), is "no RTL": never exact. The RTL's
+# refresh rows are numbered from the silicon run's anchor (its first refresh at or after
+# t_fill), as the model's are (sim.machine): row addresses are a label, the refresh
+# counter carries over from run to run on the board.
+
+@dataclass
+class ThreeWay:
+    silicon: Normalized
+    model: Normalized | None
+    model_score: Score | None       # silicon vs model; None: model n/a (UNMODELLED)
+    rtl: Normalized | None
+    rtl_score: Score | None         # silicon vs RTL; None: no RTL run
+    rtl_model: Score | None         # model (reference) vs RTL; None: either missing
+    rtl_status: str = "ok"          # ok | no RTL | image differs | error: <category>
+    rtl_checks: list = field(default_factory=list)  # the RTL trace's soft check failures
+    stale: bool = False             # replayed with another RTL build than the current one
+
+    @property
+    def model_exact(self) -> bool:
+        return self.model_score is not None and self.model_score.exact
+
+    @property
+    def rtl_exact(self) -> bool:
+        return self.rtl_score is not None and self.rtl_score.exact
+
+    @property
+    def rtl_model_exact(self) -> bool:
+        return self.rtl_model is not None and self.rtl_model.exact
+
+    @property
+    def has_rtl(self) -> bool:
+        return self.rtl_status not in ("no RTL", "image differs")
+
+
+def check_category(message: str) -> str:
+    """A normalisation message without its run id, addresses and counts."""
+    import re
+    message = re.sub(r"^F\d+w?-\S+: ", "", message)
+    message = message.split(": expected", 1)[0]
+    message = re.sub(r"\b[0-9A-F]{4,5}\b", "#", message)
+    return re.sub(r"\d+", "#", message)
+
+
+def relabel_refresh(n: Normalized, addr: int):
+    """Number n's refresh rows (pre list included) from `addr` at its first refresh at or
+    after t_fill, REFRESH_ROW_STEP apart, as the model's (sim.machine._prelude_run)."""
+    from .sim.machine import REFRESH_ROW_STEP
+    evs = n.pre + n.events
+    refs = [k for k, e in enumerate(evs) if e.kind == "refresh"]
+    first = next((k for k in refs if n.t_fill is not None and k >= len(n.pre)
+                  and evs[k].clock >= n.t_fill), None)
+    if first is None:
+        return
+    for j, k in enumerate(refs):
+        evs[k].addr = addr + REFRESH_ROW_STEP * (j - refs.index(first))
+
+
+def rtl_one(s: Normalized, run: dict, rec: dict | None, m: Normalized | None,
+            current_key: str | None = None) -> tuple:
+    """(rtl Normalized or None, silicon-vs-RTL Score or None, model-vs-RTL Score or None,
+    status, soft checks, stale) for one silicon run and its replay record."""
+    from .normalize import NormalizeError
+    if rec is None:
+        return None, None, None, "no RTL", [], False
+    stale = current_key is not None and rec.get("rtl_key") != current_key
+    if (rec.get("chain_base") != run.get("chain_base")
+            or run.get("image_sha256") and rec.get("image_sha256")
+            and rec["image_sha256"] != run["image_sha256"]):
+        return None, None, None, "image differs", [], stale
+    try:
+        n = normalize(rec, strict=False)
+    except (NormalizeError, KeyError, ValueError, StopIteration) as e:
+        cat = check_category(str(e))
+        sc = Score(s.run_id, False, len(aligned(s)), 0, 0, (0, None, f"RTL error: {e}"))
+        return None, sc, None, f"error: {cat}", [], stale
+    from .sim.machine import refresh_anchor
+    anchor = refresh_anchor(s, events=False)
+    relabel_refresh(n, anchor[1] if anchor is not None else 0)
+    return (n, score(s, n), score(m, n) if m is not None else None, "ok", list(n.checks),
+            stale)
+
+
+def three_way(runs: list[dict], config, rtl_runs: dict, current_key: str | None = None,
+              model: bool = True) -> list[ThreeWay]:
+    """One ThreeWay per silicon run record; rtl_runs {chain id: replay record}; model=False
+    (an UNMODELLED family): silicon against RTL only."""
+    out = []
+    for r in runs:
+        s = normalize(r)
+        m = msc = None
+        if model:
+            _, m, msc = model_one(s, config)
+        rtl, rsc, rm, status, checks, stale = rtl_one(s, r, rtl_runs.get(s.run_id), m,
+                                                       current_key)
+        out.append(ThreeWay(s, m, msc, rtl, rsc, rm, status, checks, stale))
+    return out
+
+
+def _column(chain) -> str:
+    return f"{'pE' if chain.parity == 'even' else 'pO'}" + (
+        f"-w{chain.waits}" if chain.waits >= 0 else "")
+
+
+def marks(t: ThreeWay) -> str:
+    """Three marks: silicon=model, silicon=RTL, RTL=model."""
+    if t.model_score is None:
+        a = "-"
+    else:
+        a = "=" if t.model_exact else ("!" if t.model is None else "x")
+    if not t.has_rtl:
+        b = "?"
+    else:
+        b = "=" if t.rtl_exact else ("!" if t.rtl is None else "x")
+    c = "-" if t.model is None or t.rtl is None else ("=" if t.rtl_model_exact else "x")
+    return a + b + c
+
+
+def table3(results: list[ThreeWay]) -> str:
+    rows: dict = defaultdict(dict)
+    for t in results:
+        rows[variant_of(t.silicon.chain)][_column(t.silicon.chain)] = marks(t)
+    from .report import table as render
+    return render("three marks: silicon=model, silicon=RTL, RTL=model; '=' exact, 'x' miss, "
+                  "'!' error (model raised / RTL trace not normalisable), '?' no RTL run, "
+                  "'-' n/a", dict(rows), str)
+
+
+def summary3(results: list[ThreeWay], modelled: bool = True) -> str:
+    n = len(results)
+    me = sum(t.model_exact for t in results)
+    re_ = sum(t.rtl_exact for t in results)
+    rm = sum(t.rtl_model_exact for t in results)
+    no_rtl = sum(not t.has_rtl for t in results)
+    errors = Counter(t.rtl_status for t in results if t.rtl_status.startswith("error"))
+    stale = sum(t.stale for t in results)
+    head = (f"model-exact {me}/{n}" if modelled else "model-exact n/a") + (
+        f"  RTL-exact {re_}/{n}  RTL=model " + (f"{rm}/{n}" if modelled else "n/a")
+        + f"  no RTL {no_rtl}  RTL errors {sum(errors.values())}")
+    lines = [head]
+    by = defaultdict(lambda: [0, 0, 0, 0])
+    for t in results:
+        c = t.silicon.chain
+        for k in (f"parity {c.parity}", f"waits {c.waits}"):
+            by[k][0] += t.model_exact
+            by[k][1] += t.rtl_exact
+            by[k][2] += t.rtl_model_exact
+            by[k][3] += 1
+    for k, (a, b, c, d) in sorted(by.items()):
+        lines.append(f"  {k:<14} model {a if modelled else '-'}/{d}  RTL {b}/{d}  "
+                     f"RTL=model {c if modelled else '-'}/{d}")
+    soft = Counter(check_category(x) for t in results for x in t.rtl_checks)
+    if errors or soft:
+        lines.append("RTL normalisation failures by category (runs; errors are scored '!'):")
+        lines += [f"  {v:5d}  {k}" for k, v in errors.most_common()]
+        lines += [f"  {v:5d}  soft: {k}" for k, v in soft.most_common()]
+    if stale:
+        lines.append(f"warning: {stale} RTL runs were replayed with another RTL build than "
+                     f"the current one (replay --resume re-runs them)")
+    if modelled:
+        lines.append(f"gate RTL-exact >= model-exact: {'yes' if re_ >= me else 'no'} "
+                     f"({re_} vs {me})")
+    else:
+        lines.append(f"gate (model n/a, RTL-exact alone, every run): "
+                     f"{'yes' if n and re_ == n else 'no'} ({re_}/{n})")
+    return "\n".join(lines)
+
+
+def side_by_side3(t: ThreeWay) -> str:
+    """silicon | model | RTL from t_fill on; '*' where silicon and RTL differ."""
+    s, m, r = t.silicon, t.model, t.rtl
+    if r is None:
+        why = (t.rtl_score.first_divergence[2] if t.rtl_score is not None
+               and t.rtl_score.first_divergence else t.rtl_status)
+        return f"{s.run_id}: {why}"
+    a, b, c = aligned(s), aligned(m) if m is not None else [], aligned(r)
+    head = f"{s.run_id}: silicon | model | RTL, first silicon/RTL divergence at " \
+           f"{t.rtl_score.matched_prefix}"
+    if t.rtl_checks:
+        head += "\n  RTL checks: " + "; ".join(t.rtl_checks)
+    lines = [head]
+    fmt = lambda e: f"{e[0]:5d} {e[1]:<11} {e[2]:05X} {e[3]:<4} {e[4]}" if e else ""
+    for k in range(max(len(a), len(b), len(c))):
+        x = a[k] if k < len(a) else None
+        y = b[k] if k < len(b) else None
+        z = c[k] if k < len(c) else None
+        lines.append(f"  {' ' if x == z else '*'} {fmt(x):<32} | {fmt(y):<32} | {fmt(z)}")
+    return "\n".join(lines)
+
+
+def rtl_score_main(args, cfg) -> int:
+    from .families import UNMODELLED
+    from .replay import load_rtl_runs, rtl_identity, rtl_key
+
+    current = rtl_identity()
+    key = rtl_key(current)
+    print(f"RTL now: {current['binary']} built {current['binary_mtime_iso']}, fpga/v35s tree "
+          f"{(current['fpga_tree'] or '?')[:12]}{' +dirty' if current['fpga_dirty'] else ''}")
+    for family in args.family:
+        print(f"== {family}")
+        try:
+            runs = load_runs(family, tuple(args.waits))
+        except FileNotFoundError as e:
+            print(f"no silicon runs: {e}\n")
+            continue
+        rtl_runs, headers = load_rtl_runs(family, tuple(args.waits), args.rtl_dir)
+        for path, h in headers.items():
+            ident = h.get("rtl") or {}
+            print(f"RTL file {path}: {ident.get('binary', 'no RTL identity (acquire --backend sim?)')}"
+                  f" {ident.get('binary_mtime_iso') or ''} tree {(ident.get('fpga_tree') or '?')[:12]}")
+        modelled = family not in UNMODELLED
+        results = three_way(runs, cfg, rtl_runs, key, model=modelled)
+        if modelled:
+            legacy = [(t.silicon, t.model, t.model_score) for t in results]
+            print(table(legacy))
+            print(summary(legacy))
+            if getattr(args, "pre", False):
+                print(pre_summary(legacy))
+        else:
+            print(f"{family} is UNMODELLED: silicon against RTL only")
+        print(table3(results))
+        print(summary3(results, modelled))
+        for t in [t for t in results if not t.rtl_exact][:args.show]:
+            print()
+            print(side_by_side3(t))
+        print()
+    return 0
+
+
 # CLI -------------------------------------------------------------------------
 
 def _config(args):
@@ -212,11 +453,18 @@ def add_score_arguments(p):
     p.add_argument("--pre", action="store_true",
                    help="(WP40) also report the pre window (POP PSW read to clock 0) "
                         "exact per family and cell, after the family's summary")
+    p.add_argument("--rtl", action="store_true",
+                   help="(Phase B) also score the RTL replays (replay.py): three-way table, "
+                        "summary and gate; --show then prints the first N RTL misses")
+    p.add_argument("--rtl-dir", metavar="DIR",
+                   help="with --rtl: the replay files (default build/validation/v35s/chains-sim)")
     return p
 
 
 def score_main(args) -> int:
     cfg = _config(args)
+    if getattr(args, "rtl", False):
+        return rtl_score_main(args, cfg)
     for family in args.family:
         results = score_family(load_runs(family, tuple(args.waits)), cfg)
         print(f"== {family}")

@@ -365,7 +365,20 @@ BASELINES = {
     "F3": ("dM", _empty_baseline), "F4": ("dM", _empty_baseline),
     "F5": ("dM", _empty_baseline), "F8": ("dM", _empty_baseline),
     "F6": ("dM", _n0_baseline), "F7": ("dM", _f7_baseline),
+    "F23": ("dM", _empty_baseline), "F25": ("dM", _empty_baseline),
 }
+
+
+def _f27_baseline(f, index, extra):
+    """(WP56) F27: the empty frame of the same marker, RFM and column (x_variant
+    "<rfm>-empty": the FCh runs against the FCh empty, the ECh twins against the ECh one)."""
+    knobs = f.get("knobs", {})
+    if knobs.get("series") == "empty" or knobs.get("rfm") is None:
+        return None
+    return index.get((f["marker"], f"{knobs['rfm']:02x}-empty", f["column"]))
+
+
+BASELINES.update({"F26": ("dM", _empty_baseline), "F27": ("dM", _f27_baseline)})
 
 
 def apply_costs(family, facts, extra=None) -> dict:

@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .derive import variant_of
-from .families import FAMILIES
+from .families import FAMILIES, UNMODELLED
 from .score import aligned
 from .sim.config import DEFAULT, OPTIONS, Config
 
@@ -304,7 +304,7 @@ def run_classes(chain) -> tuple[tuple, tuple]:
             classes.add("rmw_imm")           # grp_read=rmw runs it under rmw_imm
         if op.dbit == 0 and op.cls == "load_alu" and op.ea is not None:
             classes.add("rmw")               # (WP19) dest_route=slot runs it under rmw
-        if op.ea is not None:
+        if op.ea is not None and op.mode_class is not None:   # (WP52) XLAT has none
             modes.add(op.mode_class)
             if op.mode_class == "base_index_disp" and op.disp == 2:
                 modes.add("base_index_disp16")   # (WP27) ea_disp16=own reads it
@@ -313,7 +313,7 @@ def run_classes(chain) -> tuple[tuple, tuple]:
         if op.cls == "halt" or pc >= len(code):
             break
         execute(op, code, regs)
-        pc += op.length
+        pc = op.target if op.target is not None else pc + op.length   # (WP55) taken transfers
     return tuple(sorted(classes)), tuple(sorted(modes))
 
 
@@ -751,7 +751,10 @@ def tiebreak(cfg: Config) -> tuple[int, int]:
     k = json.dumps(cfg.to_json(), sort_keys=True)
     v = _TB.get(k)
     if v is None:
-        ids = TIE_IDS if TIE_IDS is not None else load(TIE_FAMILIES)
+        # (WP49) only the families with corpus data that the simulator can run: a family
+        # not yet acquired has no runs, and an UNMODELLED one would make the model raise
+        ids = TIE_IDS if TIE_IDS is not None else corpus_guard_ids(
+            [f for f in TIE_FAMILIES if f not in UNMODELLED])
         res = evaluate([cfg], ids)[0]
         v = (sum(r[0] for r in res), sum(r[3] for r in res))
         _TB[k] = v
@@ -827,9 +830,10 @@ _CORPUS_MEMO: dict = {}
 
 
 def corpus_guard_ids(families=None) -> list[str]:
-    """The run ids of every family with recorded data (or of families)."""
+    """The run ids of every family with recorded data (or of families); by default the
+    families the simulator can run (not families.UNMODELLED)."""
     ids = []
-    for fam in families or FAMILIES:
+    for fam in families or [f for f in FAMILIES if f not in UNMODELLED]:
         try:
             ids += load([fam])
         except FileNotFoundError:
@@ -1696,7 +1700,63 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                                  "F16P", "F19I", "F21", "F22"],
                   6: ["F6", "F10", "F12A", "F14O", "F15O", "F16L", "F19D", "F20"],
                   7: ["F7", "F8"],
-                  8: ["F8", "F13", "F17", "F18"]}
+                  8: ["F8", "F13", "F17", "F18"],
+                  9: ["F25"],
+                  10: ["F23"],
+                  11: ["F27"]}
+
+# Stage 11 (WP58, F27): the refresh-on probe family. From the previous stage's output (the
+# tracked fit), the I/O steps' enums (F27_ENUMS: a pending refresh on the posted I/O's steps,
+# the refresh's last clock under a step, an IN's issue on a step after a refresh, the beaten
+# fetch's pair for an OUT only, a ready I/O not relatched by a take on its issue clock) as a
+# grid with refresh_post (its post_beat: the hold kept beside a beaten fetch that does not run
+# first), then the sweep over them and the refresh rules F27 probes (F27_SWEEP), F27_INTS
+# descended inside every move; the corpus guard over every modelled run is the guard, as in
+# stages 9 and 10 (the in/out integers are every family's: the guard refuses any loss).
+F27_ENUMS = {n: OPTIONS[n] for n in ("refresh_io_step", "refresh_io_stall", "io_step_issue",
+                                     "refresh_io_run", "port_ready", "refresh_post")}
+F27_SWEEP = dict(F27_ENUMS, **{n: OPTIONS[n] for n in (
+    "room_ir_imm", "refresh_drop_post", "refresh_lead_port", "refresh_drop_unit",
+    "refresh_beat_t4", "refresh_lead")})
+F27_INTS = ["in.lead", "out.lead", "refresh_stall"]
+
+# Stage 10 (WP55, F23): control flow inside the chain. From the previous stage's output (the
+# tracked fit), the transfer classes' integers (F23_INTS: branch_short, branch_near, dbnz,
+# call, ret) are descended and the new enums (F23_ENUMS: the refill's gate, the hold before
+# the flush, the fetch in flight at it, CALL's order, the transfers as register-only forms)
+# enumerated on F23, with the corpus guard over every modelled run as stage 9's (no run outside
+# F23 reads the new classes, so only an enum move could change one).
+F23_ENUMS = {n: OPTIONS[n] for n in ("refill_start", "flush_hold", "flush_inflight",
+                                     "untaken", "call_order", "branch_reg")}
+F23_INTS = ["branch_short.pre", "branch_short.cond", "branch_short.exec", "branch_short.post",
+            "branch_short.nexec", "branch_short.nx", "branch_short.fgap", "branch_short.nfgap", "branch_short.hold",
+            "branch_near.pre", "branch_near.exec", "branch_near.post", "branch_near.nexec",
+            "branch_near.nx", "branch_near.fgap", "branch_near.hold",
+            "dbnz.pre", "dbnz.exec", "dbnz.post", "dbnz.nexec", "dbnz.nx", "dbnz.fgap", "dbnz.nfgap", "dbnz.hold",
+            "call.pre", "call.setup", "call.setup_free", "call.exec", "call.post", "call.nx",
+            "call.fgap", "call.hold",
+            "ret.pre", "ret.setup", "ret.setup_free", "ret.exec", "ret.post", "ret.fgap", "ret.hold"]
+
+# Stage 9 (WP52, F25): the EA alone and the stack frame. From the previous stage's output
+# (the tracked fit), the new classes' integers (F25_INTS: LDEA, XLAT, MOV sreg,m16, the
+# immediate, segment and burst pushes and pops, PREPARE and DISPOSE) are descended and the
+# new enums (F25_ENUMS) enumerated on F25, every other family as the guard (and the corpus
+# guard); the earlier classes' integers and every earlier enum stay as they are (no run
+# outside F25 reads the new classes, so the guard can only move through the enums).
+F25_ENUMS = {n: OPTIONS[n] for n in ("lea_form", "burst_wait", "prepare_order")}
+F25_INTS = ["lea.pre", "lea.exec", "lea.nx", "lea.wb", "lea.dadd",
+            "xlat.pre", "xlat.setup", "xlat.setup_free", "xlat.exec", "xlat.nx",
+            "load_seg.pre", "load_seg.exec", "load_seg.wb", "load_seg.nx",
+            "push_imm.pre", "push_imm.setup", "push_imm.setup_free", "push_imm.post",
+            "push_imm.nx",
+            "push_seg.setup", "push_seg.setup_free", "push_seg.post", "push_seg.nx",
+            "pop_seg.setup", "pop_seg.setup_free", "pop_seg.exec", "pop_seg.nx",
+            "dispose.pre", "dispose.setup", "dispose.setup_free", "dispose.exec", "dispose.nx",
+            "prepare.pre", "prepare.setup", "prepare.setup_free", "prepare.exec", "prepare.nx",
+            "push_r.pre", "push_r.setup", "push_r.setup_free", "push_r.wsetup", "push_r.gap",
+            "push_r.post", "push_r.nx",
+            "pop_r.pre", "pop_r.setup", "pop_r.setup_free", "pop_r.wsetup", "pop_r.gap",
+            "pop_r.exec", "pop_r.nx"]
 
 # Stage 8 (WP14): the refresh controller, F8 only (RFM FCh), every other family as the
 # guard. The refresh enums and integers are read only by a chain with refresh on, so no
@@ -2142,12 +2202,13 @@ def stage6_grids(start: str | None = None) -> list:
 
 
 def stage_n(stage: int, prev: dict, enums: dict, ints: list, log=say, top_k=4,
-            pairs_k=1, sweep=None, sweep_ints=None, sweep_kw=None) -> dict:
+            pairs_k=1, sweep=None, sweep_ints=None, sweep_kw=None, guard=True) -> dict:
     """The stage's grid (enums at the current integers, the top_k descended), then, with
     sweep, the enum sweep (enum_sweep) over those enums with sweep_ints (default ints)
-    descended inside every move."""
+    descended inside every move. guard=False: no guard runs in the stage key (the corpus
+    guard, CORPUS_GUARD, still checks every move over every family)."""
     cache_reset()                      # each grid starts with an empty result cache
-    ids, guard = _ids(stage), _guard(stage)
+    ids, guard = _ids(stage), (_guard(stage) if guard else [])
     base = Config.from_json(prev["config"])
     best, finals, ties = _search([base], enums, ints, ids, guard, log, top_k,
                                  f"stage {stage}", pairs_k=pairs_k)
@@ -2281,6 +2342,39 @@ def stage8(prev: dict, log=say) -> dict:
     return out
 
 
+def stage9(prev: dict, log=say) -> dict:
+    """(WP52) F25: the new enums as a grid at the input's integers (the top 2 descended over
+    F25_INTS), then the enum sweep with F25_INTS descended inside every move; tie-break and
+    corpus guard as every stage (the corpus guard is the guard: see below)."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 9 needs the corpus guard (--corpus-guard family or run)")
+    # the guard is the corpus guard alone: the stage key's guard runs (every other family)
+    # would be scored for every candidate of every descent round, which no move on the new
+    # classes can change, and the enum moves are checked over every family by corpus_ok
+    return stage_n(9, prev, F25_ENUMS, F25_INTS, log, top_k=2, pairs_k=1, sweep=F25_ENUMS,
+                   guard=False)
+
+
+def stage10(prev: dict, log=say) -> dict:
+    """(WP55) F23: the new enums as a grid at the input's integers (the top 2 descended over
+    F23_INTS), then the enum sweep with F23_INTS descended inside every move; the corpus guard
+    is the guard, as in stage 9."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 10 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(10, prev, F23_ENUMS, F23_INTS, log, top_k=2, pairs_k=1, sweep=F23_ENUMS,
+                   guard=False)
+
+
+def stage11(prev: dict, log=say) -> dict:
+    """(WP58) F27: the I/O steps' enums as a grid at the input's integers (the top 2
+    descended over F27_INTS), then the sweep over F27_SWEEP with F27_INTS descended inside
+    every move; the corpus guard is the guard, as in stages 9 and 10."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 11 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(11, prev, F27_ENUMS, F27_INTS, log, top_k=2, pairs_k=1, sweep=F27_SWEEP,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -2332,8 +2426,14 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
             out["resumed_at"] = grid
     elif stage == 7:
         out = stage7(prev, log)
-    else:
+    elif stage == 8:
         out = stage8(prev, log)
+    elif stage == 9:
+        out = stage9(prev, log)
+    elif stage == 10:
+        out = stage10(prev, log)
+    else:
+        out = stage11(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -2351,9 +2451,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 9), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 9), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-8 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 12), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 12), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-11 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -2391,7 +2491,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 9) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 12) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")

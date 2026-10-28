@@ -38,7 +38,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .blocks import MARKER_PORT_BASE
-from .forms import DEFAULT_REGS, DIRECT, FORMS, IO_PORT
+from .forms import DEFAULT_REGS, DIRECT, FORMS, IO_PORT, STACK_CLASSES
 from .types import CODE_BASE, TICKS_PER_CLOCK, Chain, refresh_any
 
 FLAG_READ = 1 << 0
@@ -255,10 +255,13 @@ def expected_accesses(chain: Chain) -> dict[int, list[Access]]:
         elif instr.role == "x":
             form = FORMS[instr.form]
             cls = form.cls
-            if cls == "push":
-                push(acc)
-            elif cls == "pop":
-                pop(acc)
+            if cls in STACK_CLASSES:
+                # (WP49) PUSH R / POP R move eight words; CALL pushes, RET pops (F23, F25);
+                # (WP52) the F25 stack classes: a form's writes are pushes, its reads pops
+                for _ in range(form.writes):
+                    push(acc)
+                for _ in range(form.reads):
+                    pop(acc)
             elif cls == "push_mem":
                 acc += _cycles("data_read", _form_ea(form, chain.regs), form.width)
                 push(acc)
@@ -460,7 +463,11 @@ def normalize(run: dict, trace_key: str = "socket_trace", strict: bool = True) -
                         f"observed {access_mismatch['observed']}")
 
     # Markers: each marker instr's expected cycle (kind and address; for a PUSH
-    # marker the tracked SP), matched in chain order.
+    # marker the tracked SP). When the program-order access match succeeded, the
+    # marker's cycle is the event that match gave its instruction index (a body that
+    # pushes then pops the same words writes the marker's own stack address first, so
+    # matching on kind and address would take the body's push). Otherwise the first
+    # unclaimed event of that kind and address after the previous marker, in chain order.
     t_markers = {}
     claimed = set()
     last_clock = -1
@@ -469,9 +476,14 @@ def normalize(run: dict, trace_key: str = "socket_trace", strict: bool = True) -
             continue
         mid = instr.marker_id
         first = expected[k][0]
-        hit = next((j for j, e in enumerate(events) if j not in claimed
-                    and e.clock > last_clock and e.kind == first.kind
-                    and e.addr == first.addr), None)
+        if access_mismatch is None:
+            hit = next((j for j, e in enumerate(events) if e.instr_index == k
+                        and e.kind not in ("fetch", "refresh")
+                        and e.marker_id != PRE_MARKER), None)
+        else:
+            hit = next((j for j, e in enumerate(events) if j not in claimed
+                        and e.clock > last_clock and e.kind == first.kind
+                        and e.addr == first.addr), None)
         if hit is None:
             problems.append(f"marker {mid} ({chain.marker_kind}, {first.kind} at "
                             f"{first.addr:04X}) not found")
