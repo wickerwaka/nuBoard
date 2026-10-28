@@ -86,8 +86,6 @@ def _row(t: int, row: dict, m) -> dict:
             out["row.req.setup"] = None if v is None else v[2]
         elif k == "sync":
             out[name] = _sync(v, m)
-        elif k == "pc":
-            out[name] = v - m.eu.origin if isinstance(v, int) else v
         elif k == "bus":
             out[name] = v
         else:

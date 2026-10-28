@@ -26,8 +26,9 @@ plus the arbiter (`arbiter.py`), which is a function of the four machines'
 state on each clock.
 
 The fitted configuration (`validation/v35s/chains/fit.json`, the
-thirty-third fit) has 208 structural fields, 140 class integers over 20
-classes and 7 EA entries. The structural fields are the enums the fitter
+thirty-seventh fit; the thirty-third had 208 fields, 140 integers and 20
+classes when this plan was written) has 232 structural fields, 217 class
+integers over 35 classes and 7 EA entries. The structural fields are the enums the fitter
 enumerated; in the RTL only the chosen value of each exists. The integers
 and the EA table are parameters. The EU's templates (`templates.steps`) are
 per-class step lists built from the configuration; they are the microcode.
@@ -150,12 +151,83 @@ families that pinned it before the next machine can hide its errors.
 | C6 prelude and start | the SFR store's internal cycle, the prelude tail from the POP PSW read, the F18 prelude marker, the fetch train before the first LS | the `--pre` window on every family; F18 A |
 
 The generated include, `fpga/v35s/core/v35_chain_params.svh`, holds the
-140 integers, the EA table and the per-class step lists as localparams and
+217 integers, the EA table and the per-class step lists as localparams and
 case tables, produced by `python -m validation.v35s.chains rtlgen` from
-`fit.json`. `test_chains` (or a new `test_rtlgen`) regenerates and diffs.
+`fit.json`; `test_rtlgen` regenerates and diffs. Done 2026-10-28 (WP60):
+the integer-valued structural fields as `FIT_*` (213 of the 222 fields are
+read under the fit; the enum fields appear as comments, the structure being
+ported by hand), the 217 class integers with `v35_cost`/`v35_cost_has`, the
+EA table, 204 templates enumerated by running every opcode and ModR/M byte
+through the frozen decoder under both flag states and DBNZ outcomes (one
+38-bit packed word per step, operand addresses symbolic, a shift's clocks a
+per-count coefficient, `v35_tmpl_sel` from a 31-bit format word over 606
+formats), the bus-unit constants and the spec's A2 widths as `V35_W_*`
+(test_rtlgen parses the spec's tables and compares). The spec's one width the
+code contradicts is `last_fetch_end` (1 bit in A2; F23's flush reads
+`t <= last_fetch_end + fgap` with fgap up to 5, so a 3-bit since-counter).
 
-**Gate for Phase C:** whole-corpus RTL-exact equals model-exact (18,961 of
-19,142 today) with the state rows identical on every clock of every run.
+**C1 done 2026-10-28 (WP60):** `fpga/v35s/core/v35_biu.sv` (349 lines),
+written from `frozen/bus.py` and the spec, with the model-lane wrapper's
+strobe placement; `fpga/v35s/v35_biu_tb.sv` + `v35_biu_tb.cpp` built by
+`fpga/v35s/build_biu_tb.sh` into `build/fpga/v35s/biu-tb/`; the request
+stream comes from `validation/v35s/chains/rtl_vectors.py`, which runs the
+frozen Machine with a wrapped clock log (the model untouched) and writes
+per clock the start, the latch fills, the expected before- and after-choice
+signals, the delivery and the end-of-clock state bundle. Gate: F0 and F0w
+38/38 runs exact against the model, 1,095/1,095 cycles on start, length,
+kind, address, width and data, 1,095/1,095 deliveries, 10,928 clocks with
+no signal, state-bundle or pin failure; and the same over the whole corpus,
+22,068 runs over 28 families, the RTL's model-exact count equal to the
+model's in every family (re-run by the overseer, scratchpad wp60r/). Not
+exercised by the corpus: an RFM write mid-run (`rfm_load`), WTC mode 3,
+`min_gap` > 0. The bus unit is not yet wired into `v35s_model.sv`.
+
+**C2 done 2026-10-28 (WP62):** `fpga/v35s/core/v35_queue.sv` (721 lines,
+lint-clean under `-Wall`), written from `frozen/queue.py` and the queue's
+store sites in the other frozen machines. The state is one packed struct in
+the A2 representations (177 bits: storage count and 8 bytes, the
+uncommitted count, the latch flags, the request flag and age, in-flight and
+the 20-bit fetch pointer, the aborted cycle and retry, the holds, the
+refresh flags and offsets, the next-clock commits, the this-clock flags
+and the saturating start count); one model clock is a combinational chain
+`q_begin` (stamps move, flags clear), phase C (`q_arrive`, or the retry
+after another cycle) and phase A (the abort's end), then 16 op stages in
+model order, then `q_end_clock` (the storage check and the back-to-back
+decision). Every queue method is a function of the same name (`q_room`,
+`q_port_busy`, `q_evaluates`, `q_requesting`, `q_latch_blocks`,
+`q_triple`), every constant from the include (`V35_QUEUE_BYTES`,
+`V35_QUEUE_WORD` and seven new `V35_W_Q_*` widths are new there). The ops
+are the 34 sites at which the decoder, EU, arbiter and machine phase P
+touch the queue (take with its ModR/M commit, commit, IR load, start,
+flush, the EU's retry and shift stamps, the reads `wants_fetch` / `asked`
+/ `requesting` / room / triple / stored / available, issue, abort, the
+refresh drop, beat and lost rules, redate, `io_held`, `t4`, `nop_hold`),
+each carrying the decoder/EU state it reads; the corpus needs at most 13
+in a clock. `rtl_vectors.py --queue` records those sites by swapping the
+frozen Queue's class for a logging subclass (the model untouched; it
+raises on an event sequence it cannot classify, none over the corpus) and
+checks the RTL state after phases C and A, after every op, at the end of
+the clock and after the registered edge, plus every read. `--joint` runs
+the RTL queue and the RTL bus unit together: the queue's issues are the bus
+unit's fetch starts, gated by the RTL's own last `wants_fetch`, and the bus
+unit's deliveries feed the queue (data cycles scripted as in C1). Bench
+`fpga/v35s/v35_queue_tb.sv` + `.cpp`, built by `fpga/v35s/build_queue_tb.sh`
+into `build/fpga/v35s/queue-tb/`. Gate: F0, F2, F9 and F11 678/678 runs
+exact (214,100 clocks, 512,980 ops, no state, read or storage failure) in
+both modes, the joint mode 20,826/20,826 bus cycles with no ungated fetch;
+the whole corpus 23,612/23,612 runs exact in both modes (joint: 895,225
+cycles), re-run by the overseer on the four families and the whole joint
+corpus (scratchpad wp62r/). Twelve places where the frozen code and the
+spec disagreed are in the spec's Decisions ("C2, the queue in RTL"); the
+largest: the storage holds 8 bytes inside a clock (4-bit count), the
+latched byte is uncounted on its delivery clock only with the port held,
+and `abort_t`, `after_refresh`, `io_held`, `retry_at` and `shift_until`
+need more than A2's bits. C3 drives the decoder and EU from the Python side
+still; the queue's `rd` outputs are what they will read.
+
+**Gate for Phase C:** whole-corpus RTL-exact equals model-exact (22,771 of
+23,612 under the thirty-seventh fit) with the state rows identical on every
+clock of every run.
 
 ### Phase D: function
 
@@ -187,6 +259,10 @@ then the RTL. In the order the generator gains them:
    decisions were acquired the same day, F26 exact under that fit and F27
    fitted that evening (the thirty-sixth fit, 778/1,072: the I/O sequencer's
    steps under a refresh, four fields and two values, F8/F13/F17 gaining).
+   F28 and F29, probing that fit's open states, were acquired and fitted the
+   same day (the thirty-seventh fit, WP61: eight enums, F28 820/1,088, F29
+   427/456, 22,771/23,612, no integer changed); one of them, `grp_disp`,
+   adds queue state the C2 RTL lacks (`gdisp_until`), a follow-up in WP63.
 2. F25 LDEA, XLAT, PUSH imm, PUSH R and POP R, PREPARE and DISPOSE, the
    segment pushes and moves: the EA step alone, stack bursts, the segment
    write-back. Done 2026-10-27 (ten classes, three enums, 446/588; the

@@ -589,3 +589,17 @@ F26_FORMS = _register(
           ea=DEFAULT_REGS["BW"] + D16)]
     + [Form(f"shl_imm{n}", "shift_imm", bytes([0xC1, 0xE0, n])) for n in F26_SHL_IMM_N]
     + [Form(f"shl_cl{n}", "shift_cl", bytes([0xB1, n, 0xD3, 0xE0])) for n in F26_SHL_CL_N])
+
+
+# F28 and F29 (WP59: the open states of the thirty-sixth fit). Every other form the two
+# families use is in the catalog above. The group memory forms of F26's gih ladder at
+# [BW+200h] (mod 10 rm 111, d16 0200h, EA 0A00h in the data page): INC (FF /0), NOT (F7 /2),
+# SHL ,1 (D1 /4), NEG (F7 /3), DEC (FF /1), each a read and a write of the word at 0A00h.
+# Added after the lists above so no earlier family picks them up.
+F29_GIH_D16 = (("inc_m_bw_d16", 0xFF, 0), ("not_m_bw_d16", 0xF7, 2),
+               ("shl_m1_bw_d16", 0xD1, 4), ("neg_m_bw_d16", 0xF7, 3),
+               ("dec_m_bw_d16", 0xFF, 1))
+F29_FORMS = _register(
+    [Form(name, "rmw", bytes([op]) + modrm(MODE["bw_d16"], reg), reads=1, writes=1, width=2,
+          mode="bw_d16", mode_class="base_disp", ea=MODE["bw_d16"].ea)
+     for name, op, reg in F29_GIH_D16])

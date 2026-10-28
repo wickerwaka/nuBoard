@@ -158,6 +158,7 @@ class Queue:
         self.qport_t: int | None = None         # (WP32) modrm_port: last clock a commit held the port
         self.eu = None                          # (WP39) refresh_io_run (machine.py sets it)
         self.io_run_at: int | None = None       # (WP39) refresh_io_run: the committed fetch's clock
+        self.gdisp_until: int | None = None     # (WP61) grp_disp: no fetch before this clock
         self.t4_at: int | None = None           # (WP41) refresh_beat_t4: the committed fetch's clock
         self.discard = False                    # (WP55) the fetch in flight at a flush: its word is dropped
         self.flush_t: int | None = None         # (WP55) the clock of the last flush

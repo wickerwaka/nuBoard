@@ -85,6 +85,10 @@ RUN_RANGES = {"F0": (18, 18), "F0w": (16, 20), "F1": (54, 54), "F2": (120, 120),
 LENGTHS.update({"test_m_aw_bw_d16": 4, "shl_imm31": 3, "shl_imm32": 3, "shl_imm33": 3,
                 "shl_imm255": 3, "shl_cl32": 4, "shl_cl255": 4})
 RUN_RANGES.update({"F26": (906, 906), "F27": (1072, 1072)})
+# (WP59) F28 / F29: the [BW+200h] group forms and the two families' run counts.
+LENGTHS.update({f"{n}_m{'1' if n == 'shl' else ''}_bw_d16": 4
+                for n in ("inc", "not", "shl", "neg", "dec")})
+RUN_RANGES.update({"F28": (1088, 1088), "F29": (456, 456)})
 
 
 def _synthetic_run(chain):
@@ -422,8 +426,8 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(FORMS[name].code.hex(), hexcode, name)
         new = set(code) - {"test_m_aw", "xch_m_aw", "add_m_aw"}
         for c in self.chains:
-            # F15, F16, F18 reuse F14's forms, and (WP56) F26, F27
-            if c.family not in ("F14", "F15", "F16", "F18", "F26", "F27"):
+            # F15, F16, F18 reuse F14's forms, and (WP56) F26, F27, (WP59) F28, F29
+            if c.family not in ("F14", "F15", "F16", "F18", "F26", "F27", "F28", "F29"):
                 self.assertFalse(new & {i.form for i in c.instrs}, c.id)
         for c in f14:
             build_image(c)
@@ -1142,6 +1146,193 @@ class F26F27Tests(unittest.TestCase):
     def test_baselines(self):
         from validation.v35s.chains.derive import BASELINES, index_facts, variant_of
         for family, chains in (("F26", self.f26), ("F27", self.f27)):
+            metric, base = BASELINES[family]
+            self.assertEqual(metric, "dM")
+            facts = []
+            for c in chains:
+                variant = variant_of(c)
+                facts.append({"id": c.id, "marker": c.marker_kind, "knobs": c.knobs,
+                              "x_variant": variant[len(c.marker_kind) + 1:],
+                              "column": f"p{c.parity[0].upper()}-w{c.waits}"})
+            index = index_facts(facts)
+            for f in facts:
+                b = base(f, index, None)
+                if f["knobs"]["series"] == "empty":
+                    self.assertIsNone(b, f["id"])
+                    continue
+                self.assertIsNotNone(b, f["id"])
+                self.assertEqual(b["knobs"]["series"], "empty", f["id"])
+                self.assertEqual((b["marker"], b["column"], b["knobs"]["rfm"]),
+                                 (f["marker"], f["column"], f["knobs"]["rfm"]), f["id"])
+
+
+class F28F29Tests(unittest.TestCase):
+    """(WP59) the probes of the thirty-sixth fit's open states: catalog bytes, counts,
+    placement, the fence count, parity, the knobs and the baselines."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f28 = generate(["F28"])
+        cls.f29 = generate(["F29"])
+
+    BYTES = {"inc_m_bw_d16": "ff870002", "not_m_bw_d16": "f7970002",
+             "shl_m1_bw_d16": "d1a70002", "neg_m_bw_d16": "f79f0002",
+             "dec_m_bw_d16": "ff8f0002", "st_bw_d8": "894710", "st_bw_d16": "89870002",
+             "st_dir": "8906000c", "st_bw_ix_d16": "89800002", "ld_bw_d8": "8b4710",
+             "ld_bw_d16": "8b870002", "ld_dir": "8b06000c", "ld_bw_ix_d16": "8b800002",
+             "test_dir_aw": "8506000c", "test_m_aw_bw_d16": "85870002", "out_dw_b": "ee",
+             "out_imm_al": "e640", "out_imm_aw": "e740", "mov_aw_imm": "b83412",
+             "mov_dw_imm": "ba4000", "add_dw_imm": "81c23412", "nop": "90",
+             "shl_cl8": "b108d3e0", "shl_cl16": "b110d3e0", "shl_cl24": "b118d3e0",
+             "shl_cl31": "b11fd3e0", "shl_imm8": "c1e008", "mulu_dw": "f7e2"}
+
+    def test_catalog_bytes(self):
+        for name, code in self.BYTES.items():
+            self.assertEqual(FORMS[name].code, bytes.fromhex(code), name)
+        used = {i.form for c in self.f28 + self.f29 for i in c.instrs if i.role == "x"}
+        self.assertEqual(used, set(self.BYTES))
+        for name in ("inc_m_bw_d16", "not_m_bw_d16", "shl_m1_bw_d16", "neg_m_bw_d16",
+                     "dec_m_bw_d16"):
+            f = FORMS[name]
+            self.assertEqual((f.cls, f.reads, f.writes, f.width, f.mode, f.ea),
+                             ("rmw", 1, 1, 2, "bw_d16", 0x0A00), name)
+
+    def test_f28_and_f29_are_modelled(self):
+        from validation.v35s.chains.families import UNMODELLED
+        self.assertNotIn("F28", UNMODELLED)
+        self.assertNotIn("F29", UNMODELLED)
+
+    def test_counts(self):
+        from collections import Counter
+        self.assertEqual(len(self.f28), 136 * 6 + 136 * 2)
+        self.assertEqual(len(self.f29), 76 * 6)
+        variants = lambda chains: Counter(
+            (c.knobs["series"], c.marker_kind) for c in chains
+            if c.parity == "even" and c.waits == 0)
+        for rfm in (0xFC, 0xEC):
+            self.assertEqual(variants([c for c in self.f28 if c.rfm == rfm]), {
+                ("empty", "push"): 1, ("empty", "out"): 1, ("fence", "push"): 7,
+                ("fence", "out"): 7, ("tail", "push"): 36, ("tail", "out"): 36,
+                ("beat", "out"): 48})
+        self.assertEqual(variants(self.f29), {
+            ("empty", "push"): 1, ("empty", "out"): 1, ("dio", "out"): 16 + 8,
+            ("gih", "out"): 15 + 7, ("pi", "push"): 14, ("pi", "out"): 14})
+        self.assertEqual({c.waits for c in self.f28 if c.rfm == 0xFC}, {0, 1, 2})
+        self.assertEqual({c.waits for c in self.f28 if c.rfm == 0xEC}, {0})
+        self.assertEqual({c.waits for c in self.f29}, {0, 1, 2})
+        self.assertEqual({c.rfm for c in self.f29}, {0xEC})
+        ids = {c.id for c in self.f28}
+        for c in self.f28:
+            if c.rfm == 0xFC and c.waits == 0:
+                self.assertIn(c.id.replace("-fc-", "-ec-", 1), ids)
+
+    def test_placement(self):
+        from validation.v35s.chains.types import refresh_any, rfm_writes
+        for c in self.f28 + self.f29:
+            k = c.knobs
+            self.assertRegex(c.id, r"^F2[89]-(push|out)-(fc|ec)-[a-z]+(-[a-z0-9]+)*-p[EO]-w[012]$"
+                             if k["series"] != "empty" else r"^F2[89]-(push|out)-(fc|ec)-empty-",
+                             c.id)
+            if k["series"] != "empty":
+                self.assertRegex(c.id, r"-n\d(-k\d)?-p", c.id)
+                self.assertEqual("-k" in c.id, k["series"] == "beat", c.id)
+            self.assertEqual(k["marker"], c.marker_kind, c.id)
+            self.assertEqual(c.rfm, k["rfm"], c.id)
+            self.assertEqual(c.rfm, int(c.id.split("-")[2], 16), c.id)
+            self.assertEqual(refresh_any(c), c.rfm == 0xFC, c.id)
+            self.assertFalse(rfm_writes(c), c.id)
+            self.assertIsNone(c.prelude_marker, c.id)
+            roles = [i.role for i in c.instrs if i.role != "pad"]
+            x = [i for i in c.instrs if i.role == "x"]
+            self.assertEqual(roles, ["ls", "marker"] + ["x"] * len(x)
+                             + ["marker", "ls", "end"], c.id)
+            self.assertEqual([i.form for i in x], k["x"], c.id)
+            self.assertEqual([i.index for i in x], list(range(len(x))), c.id)
+            for m in (i for i in c.instrs if i.role == "marker"):
+                self.assertEqual(m.code, blocks.marker(c.marker_kind, m.marker_id), c.id)
+            # the fence: B1 cl D3 E0, cl = 31 but in the fence cells; the closing LS is LS
+            fence, close = [i for i in c.instrs if i.role == "ls"]
+            cl = k.get("fence_cl", 31)
+            self.assertEqual(fence.code, bytes([0xB1, cl, 0xD3, 0xE0]), c.id)
+            self.assertEqual(close.code, blocks.LS, c.id)
+            self.assertEqual(k["series"] == "fence", cl != 31, c.id)
+            built = build_image(c)
+            at = built.chain_base - CODE_BASE
+            for i in c.instrs:
+                self.assertEqual(built.code[at + i.offset:at + i.offset + len(i.code)],
+                                 FORMS[i.form].code if i.role == "x" else i.code, c.id)
+            m0 = next(i for i in c.instrs if i.role == "marker")
+            self.assertEqual((built.chain_base + m0.offset) & 1, c.parity == "odd", c.id)
+            names = k["x"]
+            if k["series"] in ("empty", "fence"):
+                self.assertEqual((names, k["form"], k["k"]), ([], None, 0), c.id)
+                continue
+            shape = k.get("shape")
+            lead = names[1:] if shape == "oo" else names
+            self.assertEqual(lead[:k["n"]], ["nop"] * k["n"], c.id)
+            if k["series"] == "tail":
+                self.assertEqual(names[k["n"]:], [k["unit"], k["form"]], c.id)
+            elif k["series"] == "pi":
+                self.assertEqual(names[-1], "out_imm_al", c.id)
+                self.assertEqual(names.count("out_imm_al"), 2, c.id)
+            elif shape == "dw":
+                self.assertEqual((k["n"], names), (0, ["out_dw_b", k["form"]]), c.id)
+            else:
+                self.assertEqual(names[k["n"]:], [k["form"]] * k["k"], c.id)
+            dw = "out_dw_b" in names
+            self.assertEqual(c.regs["DW"], 0x0040 if dw else 0x5678, c.id)
+            self.assertEqual({r: c.regs[r] for r in ("AW", "BW", "CW", "SP", "BP", "IX", "IY")},
+                             {"AW": 0x1234, "BW": 0x0800, "CW": 0, "SP": 0x0F00, "BP": 0x0A00,
+                              "IX": 0x0100, "IY": 0x0180}, c.id)
+
+    def test_knob_coverage(self):
+        cells = lambda chains, series: {
+            (c.marker_kind, c.knobs.get("shape"), c.knobs["form"], c.knobs["n"], c.knobs["k"],
+             tuple(c.knobs["x"])) for c in chains if c.knobs["series"] == series}
+        for rfm in (0xFC, 0xEC):
+            chains = [c for c in self.f28 if c.rfm == rfm]
+            fence = {(c.marker_kind, c.knobs["fence_cl"]) for c in chains
+                     if c.knobs["series"] == "fence"}
+            self.assertEqual(fence, {(m, cl) for m in ("push", "out") for cl in range(24, 31)})
+            tail = {(m, x) for m, s, f, n, k, x in cells(chains, "tail")}
+            want = {(m, ("nop",) * n + (u, "out_imm_al")) for m in ("push", "out")
+                    for u, ns in (("shl_cl8", range(6)), ("shl_cl16", range(6)),
+                                  ("shl_cl24", range(6)), ("shl_cl31", range(6)),
+                                  ("shl_imm8", (0, 2, 4)), ("mulu_dw", (0, 2, 4)))
+                    for n in ns}
+            want |= {(m, ("nop",) * n + ("shl_cl31", p)) for m in ("push", "out")
+                     for p in ("out_imm_aw", "out_dw_b") for n in (0, 2, 4)}
+            self.assertEqual(tail, want)
+            beat = {(m, f, n, k) for m, s, f, n, k, x in cells(chains, "beat")}
+            self.assertEqual(beat, {("out", f, n, k) for f in
+                                    ("mov_aw_imm", "mov_dw_imm", "add_dw_imm")
+                                    for n in range(4) for k in range(1, 5)})
+        dio = {(s, f, n) for m, s, f, n, k, x in cells(self.f29, "dio")}
+        self.assertEqual(dio, {(None, f, n) for n in range(4) for f in
+                               ("st_bw_d8", "st_bw_d16", "st_dir", "st_bw_ix_d16")}
+                         | {("dw", f, 0) for f in ("st_bw_d8", "st_bw_d16", "st_dir",
+                                                    "st_bw_ix_d16", "ld_bw_d8", "ld_bw_d16",
+                                                    "ld_dir", "ld_bw_ix_d16")})
+        g16 = ("inc_m_bw_d16", "not_m_bw_d16", "shl_m1_bw_d16", "neg_m_bw_d16",
+               "dec_m_bw_d16")
+        gih = {(s, f, n) for m, s, f, n, k, x in cells(self.f29, "gih")}
+        self.assertEqual(gih, {(None, f, n) for n in range(3) for f in g16}
+                         | {("dw", f, 0) for f in g16 + ("test_dir_aw", "test_m_aw_bw_d16")})
+        out = ("out_imm_al",)
+        pi = {(m, s, x) for m, s, f, n, k, x in cells(self.f29, "pi")}
+        self.assertEqual(pi, {(m, "oo", out + ("nop",) * n + (x,) + out)
+                              for m in ("push", "out") for n in range(4)
+                              for x in ("mov_aw_imm", "add_dw_imm")}
+                         | {(m, "noo", ("nop",) * n + out + out) for m in ("push", "out")
+                            for n in range(6)})
+        self.assertEqual({c.knobs["probe"] for c in self.f28},
+                         {"empty", "fence_out", "tail_out", "refresh_beat_t4/b2b"})
+        self.assertEqual({c.knobs["probe"] for c in self.f29},
+                         {"empty", "disp_io", "grp_io_hold", "port_issue"})
+
+    def test_baselines(self):
+        from validation.v35s.chains.derive import BASELINES, index_facts, variant_of
+        for family, chains in (("F28", self.f28), ("F29", self.f29)):
             metric, base = BASELINES[family]
             self.assertEqual(metric, "dM")
             facts = []

@@ -120,6 +120,10 @@ kinds, a fetch run, the I/O recovery) lives in the bus unit and the queue, as li
 
 ### Queue (`queue.py`, `Queue`)
 
+C2 (2026-10-28) found the widths below short in five places (the count, `abort_t`,
+`after_refresh`, `io_held`, `retry_at`/`shift_until`) and two meanings narrower than the code
+(`latched`, the uncounted latched byte): see Decisions, "C2, the queue in RTL".
+
 | Variable | Meaning, RTL form | Type, range | Observed | Bound | Bits | Start | Phase |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `bytes` (length) | **the storage count**: bytes stored plus the latched byte (`stored() = len - latched`) | 0 .. 7 | 0 .. 7 (7 on 39,910 rows) | 6 stored + 1 latched; `check` raises above 6 stored | 3 count + 6 x 8 storage + 1 x 8 latch | 6 (three words preloaded) | C adds, T and L remove, E (latch enters) |
@@ -575,10 +579,76 @@ decision differs it is said here.
   −171, `refresh_drop_post` −16 F27 −15 F18, `refresh_lead_port` −18 F27 −31 F18, `refresh_drop_unit`
   −6 (confirmed), `refresh_lead` −77 +2, and `refresh_beat_t4` +2 −2 on F27 but −4 on F13: decided,
   t4 stands (P). `port_issue` is the one still-undecided row.
+  **Under the thirty-seventh fit (F28 and F29 fitted, 2026-10-28, WP61; docs/v35s-chains.md, "The refresh at a
+  unit's exit before an OUT")** eight enums are added, rows below marked "2026-10-28, WP61": `refresh_wb`,
+  `refresh_relatch`, `refresh_window`, `refresh_start_seam`, `refresh_step_lead`, `refresh_beat_b2b`, `grp_disp`,
+  `dw_lift`; no integer changed; byte-identical on every refresh-off family but F29, gains-only elsewhere (F8 37,
+  F13 440, F17 754, F27 889, F28 820, F29 427; 22,771/23,612). Every earlier value re-flipped is confirmed
+  (`refresh_beat_t4=none` −4 F13, `port_issue=False` −6 F29, `disp_io=none` −6 F29, `grp_io_hold=False` −18 F26);
+  `refresh_wbsync` is inert now. For the RTL: `grp_disp` adds queue state (`gdisp_until`, an offset) that the C2
+  queue lacks, and the eu's `done_t`, `prev_cls`, `grp_form` and the request's `gdisp` flag (with the
+  arbiter's new reads of `dw_moved` and `free_orig`) join A2 for C3/C4.
 - **Dead state and unread fields:** `freeze.py` drops what nothing reads under the fit and
   `rtlgen` emits none of it (`since_start` and `refresh_io_pre` included).
 - **`_clock_row`'s `pc` and `ir` frames:** fixed in the model (both relative to the chain
-  base) rather than corrected in every consumer; B3 compares the fixed row.
+  base) rather than corrected in every consumer; B3 compares the fixed row. Done
+  2026-10-28 (WP60): `pc` is `eu.pc - eu.origin`; statestats no longer corrects it;
+  `freeze --verify` (events and rows) identical over 22,068 runs.
+- **C1, the bus unit in RTL (2026-10-28, WP60; docs/v35s-hdl-plan.md):** `v35_biu.sv` from
+  `frozen/bus.py`; gate exact on F0/F0w and over the whole corpus. Where the frozen code,
+  this spec and the existing model-lane wrapper disagreed, the frozen code was followed:
+  (1) `last_fetch_end` needs a 3-bit since-counter, not A2's 1 bit (F23's flush reads
+  `t <= last_fetch_end + fgap`, fgap up to 5); (2) `last_end` needs one more bit (`gap`)
+  because `disp_io` moves it a clock past the cycle's end; `last_io_end`'s countdown needs
+  2 bits (0..3), A2 says 3; (3) the frozen model applies `sfr_cycle=io` only when the chain
+  writes RFM (`rfm_writes`), the RTL always treats an SFR-page write as internal, equivalent
+  on the corpus whose only on-chip stores are RFM stores; (4) WTC mode 3 is 3 waits with no
+  READY in the frozen `waits_of`, 2 waits plus READY in the wrapper: the RTL follows the
+  model and has no READY input; (5) the wrapper makes IDB-page (xxE00–xxFFF) and FFFFF data
+  accesses internal, reads included; the model makes only writes at FFF00h and up internal,
+  as a 3 + I/O-waits cycle: the RTL follows the model; (6) the wrapper asserts /MREQ on I/O
+  cycles and the RTL ports that as is, the model saying nothing; (7) the prelude's POP PSW
+  read (owner None in `Machine.__init__`) does not fill the data latch on delivery while
+  every EU read does, reproduced with `req_latch`, for C6 to revisit since in RTL that read
+  is a real EU read; (8) only memory writes (`kind == "write"`) fill the latch, not an
+  `io_write`: `wlatch_src`'s row below should read so. The state bundle (`ifdef
+  V35S_STATE_DUMP`, 64 bits) carries the A2 representations only: c_valid, c_kind, c_pos,
+  c_len, c_ext, c_internal, c_latch, c_addr, c_width, c_data, gap, f_since, io_tail, wl,
+  refresh_len. Left for C4/C5: the bus history flags (`_fetch_run`, `grp_io_hold`'s last
+  I/O start, `refresh_beat_t4`) and `early`/`early_ok`/`early_n`. The plan's field counts
+  are now 222 fields, 217 integers, 35 classes.
+- **C2, the queue in RTL (2026-10-28, WP62; docs/v35s-hdl-plan.md):** `v35_queue.sv` from
+  `frozen/queue.py` and the queue's store sites in the other frozen machines; gate exact on
+  F0/F2/F9/F11 and over the whole corpus (23,612 runs), alone and together with the RTL bus
+  unit. The state is the A2 representations (177 bits); each queue method is a function of
+  the same name; the other machines' touches are 34 op codes in a per-clock chain of 16
+  stages. Where the frozen code and this spec disagreed, the frozen code was followed:
+  (1) the storage holds 8 bytes inside a clock (a word delivered into 6 stored bytes that the
+  decoder takes from on the same clock, `F13-c-out-shlcl16-pO-w0`), so the count is 4 bits and
+  the array 8 entries, 7 at most at a clock's end; the room inside a clock goes below A2's -4
+  and is computed 5 bits wide; (2) under `word_latch=byte_d` an odd-address one-byte fetch is
+  latched too (`latched` on every arrival), not only a word's second byte; (3) the latched
+  byte is uncounted on its delivery clock only when the decoder holds the port on that clock
+  (`removed_t == t`) and the word is not a slot fetch's (`_latched_now`), otherwise it counts;
+  (4) `abort_t` needs a second bit, `abort_t == t`: a start in P after an abort in X on the
+  same clock makes `abort_t == start_clock`, and `io_take` sets it to `eu.start_clock`, an
+  earlier clock; (5) `after_refresh` needs its offset (3 bits) and a flag "the last issued
+  fetch started on `after_refresh`", because `end_clock` compares it with the ending fetch's
+  start and `refresh_beat_t4` with the last cycle's start; (6) `io_held` needs "a start since
+  it was set" (the release tests `start_clock > io_held`); (7) `retry_at` and `shift_until`
+  are set at or before t inside a clock (`retry_first` sets `resume - 2` and clears it at
+  once), so the offsets are signed, 10 bits, never negative at a clock's end; (8) `asked`,
+  `requesting` and `wants_fetch` are reads that also write `flag` and `requested_at` (A3 lists
+  them as combinational): in RTL they are ops in the chain; (9) A3's `wants_fetch` row omits
+  the forced request (`io_run_at` / `t4_at == t`), `dropped && drop_hold` and F23's
+  `flush_held`; (10) `refresh_io_run=pair_out` also requires no latched byte after the check,
+  that the ending fetch is the beaten one (`after_refresh == c.start`) and that `_raised` is
+  false; (11) the fetch pointer is the model's 20-bit linear address, not 16 bits plus a
+  segment; (12) the A4 rows for `room_ir_ready` and `room_ir_imm` still name the values of the
+  register's fit (True, none / M); the fit and the Decisions above say False and P. In joint
+  mode the queue takes the bus unit's mid-B3 `done_data` at the end of the delivery clock, so
+  its chain is compared after `ce_mid`. Not built, being dead under the fit: `words`, `held`,
+  `io_abort`, `snap`, `peak`, `read_t`, `flush_t`, the per-byte usable clocks and `completed`.
 - **F25 in the register (2026-10-27, the thirty-fourth fit):** three new structural
   fields, read by F25's classes only. `lea_form=reg` (LDEA is a register-only form for the
   I/O interlocks and the latch rules; the EU's `mem` flag is off for it; the IR-hold rule
@@ -711,7 +781,7 @@ A datum occupies the data latch for `wlatch` clocks; a port-form IN/OUT does not
 | Rule | What it does | Code | RTL | Kind | Pinned by | Reads | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `wlatch_cls=port` | the IN/OUT forms with a port byte do not start while the data latch is busy; the DW forms start at once | eu.py:181 | EU | core | F5 PUSH then IN AL,imm; holding the DW forms too −882 (doc 4801) | 19,142 | P |
-| `wlatch_src=write_imm_read` | read data (memory or I/O) occupies the data latch from its delivery clock, as a write from its issue | eu.py:1270 | bus | core | F5 `MOV [BW],AW` then OUT (doc 4800) | 19,142 | P |
+| `wlatch_src=write_imm_read` | read data (memory or I/O) occupies the data latch from its delivery clock, as a memory write from its issue (an I/O write does not fill it; C1) | eu.py:1270 | bus | core | F5 `MOV [BW],AW` then OUT (doc 4800) | 19,142 | P |
 | `wlatch_imm=reg_last` | a register-only form's last operand byte (ModR/M, immediate) enters the data latch on its take | eu.py:628 | EU | special | `F12-a-out-n2-movr-pE-w0`, +28 −0 (doc 4878) | 19,142 | P |
 | `wlatch_hold=True` | while an I/O instruction waits at its start for the data latch, no fetch starts | arbiter.py:416 | arbiter | core | F7 load then PUSH under the OUT marker (doc 4802) | 19,142 | P |
 | `refresh_wlatch=hold` | nor does a refresh | arbiter.py:210 | arbiter | special | `F18-a-out-fd-empty-pE-w0`, 17 rows (doc 5459) | 2,142 | P: as `wlatch_hold` |
@@ -735,6 +805,7 @@ A posted memory request holds fetches during its setup (`hold_fetch=le_q`), and 
 | `slot_fetch=slot` | a request that moved into the slot behind an I/O holds an older fetch until its fetch-free clocks start, then lets it run through them | arbiter.py:383 | arbiter | special | `F15-p-out-pop_bw-pE-w0`; −42 (F5 9, F14 G 6, F15 P 24, F16 P 3; doc 4980) | 19,142 | C: window machine |
 | `imm1_first=hold` | a one-byte-immediate memory form's first request issuable on a non-run delivery clock goes before the fetch requested there while the queue counts more than `hold_q` | arbiter.py:288 | arbiter | special | `F22-none-l0-add8_d16-pO-w0`, 34 of 34; −34 (F22; doc 4190) | 7,506 | C: window machine |
 | `grp_io_hold=True` | while an I/O cycle or its recovery keeps a group request's bus-free clock from counting, a fetch requested on or after the I/O's issue waits | arbiter.py:368 | arbiter | special | the six `F14-t-out-test_dir_aw` cells; −6 (doc 1787) | 19,142 | M: six cells of one form: group memory forms with a bus-free group clock behind the OUT marker at pO (INC [BW], NOT [BW], SHL [BW],1) settle whether it is the group clock or TEST's lookup |
+| `grp_disp=hold` | a group RMW form without an immediate with a d16 displacement: no fetch on the displacement take clock and the `grp_free` clocks after it (a committed back-to-back one goes; on the take clock one with room for two words), the take sync waits only for a fetch on the bus, a fetch no older than the read waits for the read's fetch-free clocks to start, which count through a fetch but not an I/O | eu.py:719, arbiter.py | EU, arbiter, queue (`gdisp_until`) | micro | `F29-out-ec-gih-incd16-n1-pO-w0`, n0-pO, n1-pE; none −79 F29 | | P (2026-10-28, WP61); the queue's `gdisp_until` is a C2 follow-up (WP63) |
 | `rmw_alu=through` | an RMW write's ALU clocks count through a fetch in flight; its routing clocks and its last need a fetch-free bus | eu.py:1211 | arbiter | special | `F21-out-l0-add-bw_d16-pE-w0` (doc 5144) | 2,100 | P |
 | `grp_free_bus=True` | a group form's setup clocks count on no clock of an I/O cycle or its recovery, and its free clocks only on an idle bus | eu.py:1202 | arbiter | core | F5 OUT then INC [BW], +67 (doc 4804) | 5,526 | P |
 
@@ -752,6 +823,7 @@ The OUT posts its I/O into the slot and goes on; the request counts its setup on
 | `dw_count=bus` | a DW-form I/O does not count a setup clock on which a bus cycle starts, on its post or move-in clock | arbiter.py:143 | arbiter | special | `F5-push-in_al_dw-k1-pO-w0`, +10 (doc 4843) | 19,142 | P |
 | `dw_count_b2b=True` | nor, when posted at its own start, a clock a back-to-back fetch starts on | arbiter.py:150 | arbiter | special | `F19-d-out-movawdw-inb-pE-w0`; −12 (doc 5033) | 19,142 | C: fold into `dw_count` as one rule |
 | `dw_slot=behind` | a DW-form I/O moved into the slot runs before the lead's fetch when another request is posted behind it and the queue counts more than `hold_q` | eu.py:1150 | arbiter | special | `F19-d-push-pair-outb-pO-w0`; −21 (doc 5011) | 114 | P |
+| `dw_lift=moved` | a DW request that moved into the slot on the issue of the I/O ahead does not let a fetch first requested on that clock run on its lead's first clock | arbiter.py:524 | arbiter | micro | `F29-out-ec-dio-dw-stbwd8-n0-pO-w0` (G1, every pO dw cell); posted −39 F29 | | P (2026-10-28, WP61) |
 | `disp_io=extend` | a displacement taken on an I/O cycle's issue clock extends that cycle a clock (nothing starts after its last; its recovery counts from there) | arbiter.py:137 | bus | special | base+index+d16 only, 78 takes in the OUT frame; `F21-out-l0-ld-bw_ix_d16-pE-w1` (doc 5142) | 19,142 | M: one EA mode in one frame: d8 and base+d16 forms timed to take on the I/O's issue clock (a leading NOP count ladder under the OUT marker) settle whether it is the take or the base+index adder |
 | `halt_status=True` | the clock HALT starts is the bus unit's: a request in the slot does not count it | arbiter.py:119 | bus | special | F10 84 → 174/204 (doc 4862) | 19,142 | P |
 
@@ -832,7 +904,7 @@ With refresh on, the EU takes a pending refresh and holds for one only on its mi
 | `refresh_take0=none` | the empty take that ends a form without operand bytes is no step: that clock is the next start | eu.py:822 | EU | special | `F17-s-n0-nop8-pE-w0`, 771 NOP rows; −190 (doc 2643) | 2,085 | C: boundary bits |
 | `refresh_take_seam=seam` | a clocks step between two takes, due on the clock after the first, is no hold point | eu.py:840 | EU | special | `F18-b-n3-shli4-pE-w1` (doc 5341) | 1,966 | C: boundary bits |
 | `refresh_take_latch=hold` | a take while a delivered byte waits latched behind a full queue is a hold point | eu.py:848 | EU | special | `F13-n-none-nop8-pE-w2`, 8 rows; −8 (doc 3379) | 1,966 | C: boundary bits (and the latched-byte port) |
-| `refresh_wbsync=seam` | the write-back sync's clocks are no hold point | eu.py:828 | EU | special | `F8-out-empty-pE-w0` (doc 5339) | 2,047 | C: boundary bits |
+| `refresh_wbsync=seam` | the write-back sync's clocks are no hold point | eu.py:828 | EU | special | `F8-out-empty-pE-w0` (doc 5339) | 2,047 | C: boundary bits; inert since the thirty-seventh fit (`refresh_wb=free_wait` subsumes it: `wait` is an exact tie) |
 | `refresh_disp=free` | the clocks step after a displacement's take and the post after it are no hold point | eu.py:846 | EU | special | `F17-p-n1-shlcl31-pO-w1`; −6 (doc 2285) | 1,966 | C: boundary bits |
 | `refresh_loop_entry=open` | a count loop's first clock takes a pending refresh | eu.py:937 | EU | special | `F13-s-shlcl3-pE-w0` (cfg) | 2,142 | C: boundary bits |
 | `refresh_loop_hold=entry` | the loop's eve is no boundary; the loop's first clock is the hold point | eu.py:833 | EU | special | 310 refreshes on the exec's L−4 boundary; −202 (doc 3193) | 2,118 | C: boundary bits |
@@ -846,6 +918,11 @@ With refresh on, the EU takes a pending refresh and holds for one only on its mi
 | `refresh_rmw_shape=shift` | with the register shift's shape end-aligned to the write's issue | eu.py:905 | EU | special | 96 silicon memory shifts (doc 5335) | 96 | C: boundary bits |
 | `refresh_grpcl=step` | a memory shift by CL's read takes a refresh on the first `grpcl` clock; its setup counts through the refresh | eu.py:1094 | EU | special | `F18-b-n4-shlmcl-pE-w0` (doc 5336) | 96 | C: boundary bits |
 | `refresh_post=post_beat` | a posted memory request takes a refresh on its post's first clock, its setup counting through it, the EU holding at the next boundary; beside a beaten fetch the hold stays unless that fetch runs ahead of the request on the clock after the refresh (thirty-sixth fit; `post` before) | eu.py:947 | EU | special | `F13-c-push-shlcl2-pO-w0`, `F17-c-push-empty-pE-w0` (doc 5340) | 2,142 | C: boundary bits |
+| `refresh_wb=free_wait` | an instruction held at its end by a refresh is dated from the clock its steps ended, its write-back running under the refresh; a port-form OUT's wbsync clocks take no refresh (the OUT's third clock) | eu.py:427 | EU | special | `F28-out-fc-fence-cl27-n0-pE-w0` (A), `-cl26-` (B); hold −2 F8 −41 F13 −78 F27 −194 F28, free −14 F13 −17 F27 −77 F28 (doc, the thirty-seventh fit) | | P (2026-10-28, WP61) |
+| `refresh_relatch=issue` | a pending refresh beside a counted-out I/O held by a port take's relatch goes on the relatched issue clock | arbiter.py:262 | arbiter | special | `F28-out-fc-fence-cl27-n0-pE-w0`; free −7 F27 −53 F28 | | P (2026-10-28) |
+| `refresh_window=posted` | `refresh_post`'s window-start boundary uses the window as posted (`free_orig`) after `free_run` cleared it | eu.py:1019 | EU | special | `F28-push-fc-tail-shlcl8-outb-n0-pO-w0`; need −5 F27 −30 F28 | | P (2026-10-28) |
+| `refresh_start_seam=start` | a clocks step beginning on the start clock after a ModR/M taken there keeps the start's boundary | eu.py:527 | EU | special | `F28-out-fc-beat-adddwi-n1-k1-pE-w0`; seam −6 F27 −22 F28 | | P (2026-10-28) |
+| `refresh_step_lead=step` | with `refresh_io_step=own` a step on a port lead's first clock takes the refresh over the older fetch, which becomes the lead's and waits for the issue | arbiter.py:249 | arbiter | special | `F28-out-fc-fence-cl24-n0-pO-w0`; lead −1 F8 −2 F17 −4 F27 −22 F28 | | P (2026-10-28) |
 
 ### Refresh: the beaten and lost fetch request
 
@@ -862,6 +939,7 @@ A refresh that takes the bus from a fetch request either lets it run next (`refr
 | `refresh_reraise=unit` | a request lost while a count loop runs is raised again as its last iteration starts | eu.py:400 | EU | special | F17 (cfg) | 955 | C: loop exit as an evaluation clock |
 | `refresh_io_run=pair_out` | while an OUT waits for its I/O, the fetch a refresh beat is followed by a committed back-to-back fetch when a byte of room remains counting the decoder's pending take (thirty-sixth fit; `pair`, any IN/OUT and the room rule alone, before) | queue.py:308 | queue | special | `F13-c-out-shlcl2-pE-w2`, 477 rows; −7 (doc 3379) | 1,522 | P |
 | `refresh_beat_t4=t4` | on the delivery clock of a 3-clock beaten fetch, a fetch requested there is committed and starts a clock later | arbiter.py:504 | arbiter | special | 4 rows at 0 waits, prelude only (`F13-r-rfm-f2-pE-w0`; doc 5460) | 2,142 | P since 2026-10-28 (F27 ties +2 −2 flipped, F13 loses 4; was M: four prelude rows: a beaten 3-clock fetch in the chain body at 0 waits followed by a latched delivery settles it |
+| `refresh_beat_b2b=imm` | the back-to-back fetch committed on a beaten 3-clock fetch's last clock is a clock late when on the delivery clock (no IR load) the decoder takes an operand, an imm form runs with bytes outstanding without starting there, or a non-imm form starts there right after an imm form | arbiter.py:352 | arbiter | special | `F28-out-fc-beat-movawi-n0-k2-pE-w0`, `F27-out-fc-room-movawi-n0-k2-pO-w0`; none and take −15 F27 −16 F28 | | P (2026-10-28, WP61) |
 
 ### Refresh: the EU's early fetch run
 

@@ -114,6 +114,8 @@ class EU:
         self.port_t = None              # (WP32) port_issue: the last port take's clock ...
         self.port_held = []             # ... and the waiting I/O requests it relatched
         self.refill = False             # (WP55) refill_start: a flush's refill gates the next start
+        self.prev_cls = None            # (WP61) refresh_beat_b2b: the class of the instruction before
+        self.grp_form = False           # (WP61) grp_disp: the running form is a group opcode's
 
     def _start(self, t: int) -> bool:
         cfg = self.cfg
@@ -232,7 +234,9 @@ class EU:
                         else "wb")
         self.route = _dest_route(op, cfg)   # (WP19) dest_route clocks of this instruction
         self.ro = op.cls in ("load", "load_alu")
+        self.prev_cls = getattr(self, "cls", None)   # (WP61) refresh_beat_b2b
         self.cls = op.cls
+        self.grp_form = bool(op.group)   # (WP61) grp_disp: a group opcode's form
         # (WP21) a memory form whose operation runs after the read in a unit other than the
         # ALU (the shift unit, the multiplier/divider, the stack write of PUSH r/m)
         self.unit = op.ea is not None and (op.shift or op.cls in ("mul", "div", "push_mem"))
@@ -420,6 +424,9 @@ class EU:
                             and q.retry_at > t and self.k == len(self.steps)):
                         q.retry_at += 1      # (WP36) refresh_retry: the end moved, the retry too
                 else:
+                    if (self.cfg.refresh_wb != "hold" and self.k >= len(self.steps)
+                            and self.done_t is None and t >= self.resume):
+                        self.done_t = t         # (WP61) refresh_wb: the steps ended on t
                     self.resume = t + 1
                 self.stalled += 1
                 return
@@ -516,7 +523,9 @@ class EU:
                                          # a take (no wait between)
                                          or prev == "take" and self.cfg.refresh_clk_start
                                          == "after_wait" and self.decoder.queue.take_t is not None
-                                         and self.decoder.queue.take_t >= t - 1)
+                                         and self.decoder.queue.take_t >= t - 1
+                                         and not (self.cfg.refresh_start_seam == "start"
+                                                  and t == self.start_clock))
                         self.clk_start = t
                     self.resume = t + step[1]
                     if len(step) > 2 and step[2] == "ea" and self.mem and self.disp:
@@ -707,6 +716,14 @@ class EU:
                     if self.cfg.sync_req == "either" and self.imm_bytes and self.mem:
                         asked = asked and not q.inflight     # the fetch in flight, else the asked one
                     self.sync = q.completed + q.inflight + int(asked and not held)
+                    if (self.cfg.grp_disp == "hold" and self.grp_form and self.mem
+                            and self.disp == 2 and self.cls == "rmw" and not self.imm_bytes
+                            and self.taken == self.op_len - 1):
+                        # (WP61) grp_disp=hold: a group RMW form's two-byte displacement: the
+                        # take sync waits only for a fetch on the bus, a fetch is held for
+                        # the take clock and the grp_free clocks after it (arbiter.py)
+                        self.sync = q.completed + q.inflight
+                        q.gdisp_until = t + self.cfg.c(self.cls, "grp_free")
                     if self.cfg.sync_req == "none" and self.imm_bytes and self.mem:
                         self.sync = None    # (WP27) the group setup counts through the fetch
                     elif self.cfg.sync_req == "disp" and self.imm_bytes and self.mem and self.disp:
@@ -967,6 +984,9 @@ class EU:
         """refresh_accept: whether a pending refresh request may be taken on t (bus free);
         other: the cycle the bus unit would otherwise start on t ("data", "fetch", None)."""
         mode = self.cfg.refresh_accept
+        if (self.cfg.refresh_wb == "free_wait" and self.k < len(self.steps)
+                and self.steps[self.k][0] == "wbsync" and t < self.wb_until):
+            return False                         # (WP61) refresh_wb: waiting for the write-back
         if mode == "bus":
             return True
         if mode == "boundary":
@@ -996,6 +1016,8 @@ class EU:
             r = self.req
             if r is not None and r.cycles and not r.issued and not r.detached:
                 need = r.setup if r.free_need is None else min(r.free_need, r.setup)
+                if self.cfg.refresh_window == "posted" and r.free_orig:
+                    need = r.free_orig           # (WP61) refresh_window: the window as posted
                 if r.grpcl and r.setup - r.count == r.grpcl - 1:
                     return True          # (WP37) refresh_grpcl: the CL clocks' first
                 if (self.cfg.refresh_post in ("post", "post_beat") and r.posted == t
@@ -1173,6 +1195,9 @@ class EU:
             r.setup -= 1
             self.unit_early = True
         r.detached = detached
+        if (self.cfg.grp_disp == "hold" and r.free_bus and self.mem and self.disp == 2
+                and self.cls == "rmw" and not self.imm_bytes and args[0] in ("read", "nowrite")):
+            r.gdisp = True               # (WP61) grp_disp=hold
         if detached and args[0] == "io_write":
             self.latch_until = float("inf")     # released when its I/O cycle ends
         if self.req is None:

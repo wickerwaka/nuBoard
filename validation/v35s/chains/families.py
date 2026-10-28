@@ -1473,3 +1473,190 @@ def f27(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F26": f26, "F27": f27})
+
+
+# F28 and F29 (WP59; the open states the thirty-sixth fit left, docs "The I/O sequencer's
+# steps under a refresh", the 294 misses). Both are the probe frame PAD LS M0 <x> M1 LS END
+# with the F26/F27 knobs (probe, series, marker, n, k, form, x, rfm, refresh_on), the empty
+# frame of each marker and RFM the dM baseline. F28 is refresh on from the prelude (RFM FCh,
+# every wait) with a refresh-off twin (ECh) of every variant at 0 waits, as F27; F29 is
+# refresh off (ECh) at every wait, as F26. Run ids
+# F28-<push|out>-<fc|ec>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N> and
+# F29-<push|out>-ec-<series>-<label>-n<n>-p<E|O>-w<N>.
+#
+# F28, refresh on.
+# fence (the M0 marker OUT at pO w2 under FCh: every F27 OUT-frame run of that cell, 67, and
+#   the same state in 4 F8 and 15 F13 runs, silicon R81 F94 R99 I104 from t_fill, the model
+#   F96 R101 I106; the refresh 81-85 lies inside the fence's SHL AW,CL tail and over the
+#   OUT's start, the model holds the EU 83-86, silicon's first fetch after the marker's post
+#   two clocks earlier, a port take at 89 against the model's 91). The empty frame with the
+#   fence's count CL = 24..30 (B1 nn D3 E0; 31 is the empty frame itself): each count moves
+#   the fence's end, and with it M0's OUT, two clocks against the refresh timer, which runs
+#   free from the prelude, so the marker OUT starts at every offset to the refresh within
+#   seven counts (14 clocks, about a refresh interval). Both markers (PUSH: the same fence
+#   tail before a PUSH, the control). Deciding runs: F27-out-fc-empty-pO-w2 (count 31).
+# tail (the same state in the chain body: an OUT that follows a register unit's tail with a
+#   refresh in the tail or over the OUT's start). NOP^n then a unit then OUT 40h,AL (E6 40)
+#   at once: MOV CL,c ; SHL AW,CL for c = 8, 16, 24, 31 (B1 cc D3 E0) at n = 0..5, SHL AW,8
+#   (C1 E0 08) and MULU DW (F7 E2) at n = 0, 2, 4; the count moves the tail's end 16 clocks
+#   a step (about a refresh interval, so the counts repeat the phase with a longer unit
+#   before it), the NOPs a few clocks a step; OUT 40h,AW (E7 40) and OUT DW,AL (EE, DW =
+#   0040h) behind the count-31 shift (the fence's own unit) at n = 0, 2, 4: the word port
+#   form and the DW form, whose lead has no port take. Both markers: under OUT the
+#   marker's I/O is in flight before the unit, under PUSH a write.
+# beat (refresh_beat_t4 for back-to-back fetches: the fetch after a 3-clock beaten fetch a
+#   clock late in silicon, 19 F27 runs, e.g. F27-out-fc-room-movawi-n0-k2-pE-w0, silicon r103
+#   f108 f112 f115, the model f111; t4 for back-to-back fetches loses 272 corpus runs). Under
+#   the OUT marker, NOP^n (n = 0..3) then MOV AW,imm16^k (B8 34 12), MOV DW,imm16^k (BA 40 00)
+#   or ADD DW,imm16^k (81 C2 34 12) for k = 1..4: the train's immediate takes leave the queue
+#   at different occupancies when the refresh beats a fetch, the NOPs move the refresh against
+#   the train, so the second fetch's lateness can be read against the beaten fetch's room and
+#   the running instruction's take on its delivery clock. Every wait (the 1- and 2-wait
+#   cells, 4- and 5-clock fetches, and the ECh twins are the control).
+F28_RFM = (RFM_ON, RFM_OFF)
+F28_OFF_WAITS = (0,)                          # the ECh twins
+F28_FENCE_CL = range(24, 31)                  # 31: the empty frame
+F28_TAIL_UNIT = {"shlcl8": "shl_cl8", "shlcl16": "shl_cl16", "shlcl24": "shl_cl24",
+                 "shlcl31": "shl_cl31", "shli8": "shl_imm8", "mulu": "mulu_dw"}
+F28_TAIL_N = {"shlcl8": range(6), "shlcl16": range(6), "shlcl24": range(6),
+              "shlcl31": range(6), "shli8": (0, 2, 4), "mulu": (0, 2, 4)}
+F28_TAIL_OUT = "out_imm_al"                   # OUT 40h,AL behind every unit
+F28_TAIL_PORT = {"outw": "out_imm_aw", "outdwb": "out_dw_b"}   # behind shlcl31
+F28_TAIL_PORT_N = (0, 2, 4)
+F28_TAIL_PROBE = "tail_out"
+F28_BEAT_X = {"movawi": "mov_aw_imm", "movdwi": "mov_dw_imm", "adddwi": "add_dw_imm"}
+F28_BEAT_K = range(1, 5)
+F28_BEAT_N = range(4)
+F28_BEAT_PROBE = "refresh_beat_t4/b2b"
+
+
+def _fence(cl):
+    """The first LS with the shift count cl (B1 cl D3 E0), the same four bytes' shape."""
+    return Instr(0, bytes([0xB1, cl, 0xD3, 0xE0]), "LS", "ls")
+
+
+def f28(waits=WAITS, parities=PARITIES):
+    """The refresh-on probes fence, tail, beat (see the comment above)."""
+    chains = []
+    for rfm in F28_RFM:
+        ws = tuple(w for w in waits if rfm == RFM_ON or w in F28_OFF_WAITS)
+        by_kind = {"push": [], "out": []}
+
+        def add(kind, probe, series, label, n, k, form, names, frame=None, **extra):
+            name = (f"{kind}-{rfm:02x}-{series}-{label}-n{n}"
+                    + (f"-k{k}" if series == "beat" else ""))
+            by_kind[kind].append((name, _probe_knobs(probe, series, kind, n, k, form, names,
+                                                     rfm, **extra),
+                                  frame or _probe_frame(kind, names), {"rfm": rfm}))
+
+        for kind in COST_MARKERS:
+            by_kind[kind].append((f"{kind}-{rfm:02x}-empty",
+                                  _probe_knobs("empty", "empty", kind, 0, 0, None, [], rfm),
+                                  _probe_frame(kind, []), {"rfm": rfm}))
+            for cl in F28_FENCE_CL:
+                frame = [_fence(cl)] + _probe_frame(kind, [])[1:]
+                add(kind, "fence_out", "fence", f"cl{cl}", 0, 0, None, [], frame=frame,
+                    fence_cl=cl)
+            for label, unit in F28_TAIL_UNIT.items():
+                for n in F28_TAIL_N[label]:
+                    add(kind, F28_TAIL_PROBE, "tail", f"{label}-outb", n, 1, F28_TAIL_OUT,
+                        ["nop"] * n + [unit, F28_TAIL_OUT], unit=unit)
+            for label, port in F28_TAIL_PORT.items():
+                for n in F28_TAIL_PORT_N:
+                    add(kind, F28_TAIL_PROBE, "tail", f"shlcl31-{label}", n, 1, port,
+                        ["nop"] * n + ["shl_cl31", port], unit="shl_cl31")
+        for label, x in F28_BEAT_X.items():
+            for k in F28_BEAT_K:
+                for n in F28_BEAT_N:
+                    add("out", F28_BEAT_PROBE, "beat", label, n, k, x, ["nop"] * n + [x] * k)
+        chains += [c for kind in COST_MARKERS
+                   for c in _sweep("F28", by_kind[kind], ws, parities, marker_kind=kind)]
+    return chains
+
+
+# F29, refresh off (RFM ECh), every wait: the F26 reads "confirmed where seen; the other modes
+# and forms as a state read".
+# dio (disp_io: a displacement taken on the clock an I/O cycle issues holds that I/O a clock
+#   longer; F26 decided it on base+index+d16 alone, 42 cells, the d8, base+d16 and direct
+#   loads exact under both values). Under the OUT marker, NOP^n (n = 0..3) then the stores
+#   MOV [BW+10h],AW (89 47 10), MOV [BW+200h],AW (89 87 00 02), MOV [0C00h],AW (89 06 00 0C)
+#   and the control MOV [BW+IX+200h],AW (89 80 00 02): the store's displacement take against
+#   the marker I/O's issue clock for each width and mode class, the loads' ladder being
+#   F26's. In the model these takes land a clock or two before the issue (base+index+d16 on
+#   it, the index's EA clock), so the dw cells put them on a later issue clock: OUT DW,AL
+#   (EE, DW = 0040h) right after M0, then X for the four stores and the loads MOV AW,[BW+10h],
+#   MOV AW,[BW+200h], MOV AW,[0C00h], MOV AW,[BW+IX+200h] (n = 0): the take on the DW OUT's
+#   issue clock at pO, a clock after it at pE, every wait (in the model the hold changes no
+#   later cycle in these cells: the read is whether silicon's does).
+# gih (grp_io_hold: a group form's request whose next setup clock is a bus-free group clock
+#   holds a fetch first requested on or after an I/O's issue until the recovery's end; F26
+#   saw it with TEST's fixed lookup only, INC, NOT, SHL, NEG, DEC [BW] exact under both).
+#   Under the OUT marker, NOP^n (n = 0..2) then INC, NOT, SHL ,1, NEG, DEC [BW+200h] (FF 87,
+#   F7 97, D1 A7, F7 9F, FF 8F, d16 0200h): the group forms with a two-byte displacement,
+#   whose take moves the request against M0's I/O as TEST [0C00h]'s does ([BW] at n = 0..2
+#   is F26's). The dw cells: OUT DW,AL (EE) right after M0, then the five [BW+200h] forms and
+#   the controls TEST [0C00h],AW and TEST [BW+200h],AW (n = 0): the TEST take three clocks
+#   after the DW OUT's issue, where in the model the hold decides at both parities and every
+#   wait (TEST under M0 alone decides at pO only); the model never holds for the RMW forms.
+# pi (port_issue: a port byte taken on a fetch's issue clock holds the waiting I/O a clock
+#   longer; pinned by F7-out-out_imm_al-out_imm_al-pO-w0 and F26-out-pi-oo-none-n0-pO-w0).
+#   Shape oo, OUT 40h,AL NOP^n X OUT 40h,AL with the 3- and 4-byte register forms X = MOV
+#   AW,imm16 (B8 34 12) and ADD DW,imm16 (81 C2 34 12) at n = 0..3 (a longer X moves the
+#   second OUT's port take by a byte and its clocks); shape noo, NOP^n OUT 40h,AL OUT 40h,AL
+#   at n = 0..5 (the pair after a NOP run: the fetch run's issue clocks against the second
+#   port take). Both markers.
+F29_RFM = RFM_OFF
+F29_DIO_X = {"stbwd8": "st_bw_d8", "stbwd16": "st_bw_d16", "stdir": "st_dir",
+             "stbixd16": "st_bw_ix_d16"}
+F29_DIO_N = range(4)                          # OUT marker only
+F29_GIH_X = {"incd16": "inc_m_bw_d16", "notd16": "not_m_bw_d16", "shl1d16": "shl_m1_bw_d16",
+             "negd16": "neg_m_bw_d16", "decd16": "dec_m_bw_d16"}
+F29_GIH_N = range(3)                          # OUT marker only
+F29_DW = "out_dw_b"                           # OUT DW,AL before the dw cells' X
+F29_DIO_DW_X = dict(F29_DIO_X, ldbwd8="ld_bw_d8", ldbwd16="ld_bw_d16", lddir="ld_dir",
+                    ldbixd16="ld_bw_ix_d16")
+F29_GIH_DW_X = dict(F29_GIH_X, testdir="test_dir_aw", testbwd16="test_m_aw_bw_d16")
+F29_PI_PORT = F26_PI_PORT
+F29_PI_OO_X = {"movawi": "mov_aw_imm", "adddwi": "add_dw_imm"}
+F29_PI_OO_N = range(4)
+F29_PI_NOO_N = range(6)
+
+
+def f29(waits=WAITS, parities=PARITIES):
+    """The refresh-off probes dio, gih, pi (see the comment above)."""
+    by_kind = {"push": [], "out": []}
+    rfm = F29_RFM
+
+    def add(kind, probe, series, label, n, k, form, names, **extra):
+        name = f"{kind}-{rfm:02x}-{series}-{label}-n{n}"
+        by_kind[kind].append((name, _probe_knobs(probe, series, kind, n, k, form, names, rfm,
+                                                 **extra), _probe_frame(kind, names), {}))
+
+    for kind in COST_MARKERS:
+        by_kind[kind].append((f"{kind}-{rfm:02x}-empty",
+                              _probe_knobs("empty", "empty", kind, 0, 0, None, [], rfm),
+                              _probe_frame(kind, []), {}))
+    for label, x in F29_DIO_X.items():
+        for n in F29_DIO_N:
+            add("out", "disp_io", "dio", label, n, 1, x, ["nop"] * n + [x])
+    for label, x in F29_DIO_DW_X.items():
+        add("out", "disp_io", "dio", f"dw-{label}", 0, 1, x, [F29_DW, x], shape="dw")
+    for label, x in F29_GIH_X.items():
+        for n in F29_GIH_N:
+            add("out", "grp_io_hold", "gih", label, n, 1, x, ["nop"] * n + [x])
+    for label, x in F29_GIH_DW_X.items():
+        add("out", "grp_io_hold", "gih", f"dw-{label}", 0, 1, x, [F29_DW, x], shape="dw")
+    port = F29_PI_PORT
+    for kind in COST_MARKERS:
+        for label, x in F29_PI_OO_X.items():
+            for n in F29_PI_OO_N:
+                add(kind, "port_issue", "pi", f"oo-{label}", n, 1, port,
+                    [port] + ["nop"] * n + [x, port], shape="oo")
+        for n in F29_PI_NOO_N:
+            add(kind, "port_issue", "pi", "noo", n, 1, port, ["nop"] * n + [port, port],
+                shape="noo")
+    return [c for kind in COST_MARKERS
+            for c in _sweep("F29", by_kind[kind], waits, parities, marker_kind=kind, rfm=rfm)]
+
+
+FAMILIES.update({"F28": f28, "F29": f29})

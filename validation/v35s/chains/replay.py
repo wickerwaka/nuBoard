@@ -34,7 +34,9 @@ are visible: `score --rtl` flags runs whose key is not the current build's, and
 B3, the state-row comparison (Python side). A state dump is JSON Lines, one object per
 CPU clock, in clock order, holding the model's per-clock state (sim.machine.Machine.
 _clock_row) under the same keys and in the same JSON shape (tuples as lists, None as
-null; `ir` relative to the chain base, `pc` a chain offset). An optional first line
+null; `ir` and `pc` both chain offsets, relative to the chain base, the prelude tail
+excluded: _clock_row gives them in that frame, so neither side is corrected here, and an
+RTL dump must give them so too). An optional first line
 without "t" is a header: {"format": STATE_FORMAT, "chain": id, "t0": N}; "t0" is the
 absolute clock of the model's clock 0 (the start of the prelude's POP PSW read,
 prelude_anchor=pop) and is subtracted from every row's "t". Keys:

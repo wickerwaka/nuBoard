@@ -79,6 +79,8 @@ class Request:
     io_stall: bool = False          # (WP58) refresh_io_stall=step: an I/O request
     eu_halted: bool = False         # (WP58) the EU is in HALT (arbitrate sets it every clock)
     beat_ext: int = 0               # (WP58) refresh_post=post_beat: the hold's clocks
+    gdisp: bool = False             # (WP61) grp_disp=hold: a group RMW form's read after its
+                                    # two-byte displacement
     imm1: bool = False              # (WP43) imm1_first: the first data request of a memory form
                                     # with a one-byte immediate (83 /x, C6 /0)
 
@@ -93,6 +95,11 @@ class Request:
             return bus is None or not bus.in_wait(t)
         need = self.setup if self.free_need is None else min(self.free_need, self.setup)
         if self.free_bus and bus is not None and t is not None:
+            if self.gdisp:
+                # (WP61) grp_disp=hold: its group clocks count through a fetch (an I/O cycle
+                # and its recovery still stop them)
+                return not ((bus.busy(t) and bus.current.kind.startswith("io"))
+                            or t <= bus.last_io_end + self.recover)
             # a group form's clocks: none during an I/O cycle or its recovery; the free
             # ones on an idle bus only
             io = (bus.busy(t) and bus.current.kind.startswith("io")) or (
@@ -239,14 +246,22 @@ def _refresh(t: int, cfg, bus, queue, eu, req, fetch_want):
             and t == eu.halt_t + 1 and eu.halt_defer is None):
         return None                      # (WP34) refresh_halt: the halt status's second clock
     r = eu.req
+    step_lead = (cfg.refresh_step_lead == "step" and cfg.refresh_io_step == "own"
+                 and cfg.refresh_lead == "closed" and r is not None and r.port and r.detached
+                 and r.lead and r.count == r.setup - r.lead and fetch_want
+                 and io_stepped(r, eu) and io_step(r, bus, t))
     if (cfg.refresh_lead == "closed" and r is not None and r.cycles and not r.issued
             and r.cycles[0][0].startswith("io") and r.lead
             and r.setup - r.lead <= r.count < r.setup
             and not (cfg.refresh_lead_port == "last" and r.port and r.count < r.setup - 1
-                     and not fetch_want)):
+                     and not fetch_want)
+            and not step_lead):
         return None                      # (WP34) refresh_lead: committed to the I/O; (WP41)
                                          # refresh_lead_port: a port form's on its last clock only
                                          # (on its first unless an older fetch runs there)
+    if (cfg.refresh_relatch == "issue" and r is not None and r.cycles and not r.issued
+            and r.cycles[0][0].startswith("io") and r.ready() and t < r.not_before):
+        return None                      # (WP61) refresh_relatch: on the relatched I/O's issue
     if (cfg.refresh_io_step in ("step", "own") and io_stepped(r, eu) and r.count < r.setup
             and not io_step(r, bus, t)):
         return None                      # (WP58) refresh_io_step: on the I/O's steps only
@@ -258,6 +273,8 @@ def _refresh(t: int, cfg, bus, queue, eu, req, fetch_want):
     if not (cfg.refresh_io_step == "own" and io_stepped(r, eu) and r.count < r.setup
             and r.detached) and not eu.refresh_ok(t, w):
         return None
+    if step_lead:
+        fetch_want = False               # (WP61) refresh_step_lead: the fetch is the lead's
     if w == "data" and cfg.refresh_data == "data":
         return None
     if w == "fetch" and (cfg.refresh_fetch == "fetch"
@@ -322,6 +339,22 @@ def _refresh(t: int, cfg, bus, queue, eu, req, fetch_want):
     if cfg.refresh_halt == "status" and eu.halted and eu.halt_t == t:
         eu.halt_defer = c.end + 1            # (WP34) the halt status follows the refresh
     return c
+
+
+def _beat_late(t: int, cfg, queue, eu) -> bool:
+    """(WP61) refresh_beat_b2b: the decoder's state on the beaten fetch's delivery clock t (no
+    IR load on t) that delays the fetch committed back to back: an operand take (take, imm);
+    (imm) an immediate form (class imm, a register form with an immediate) running with operand
+    bytes outstanding that did not start on t, or a form of another class starting on t right
+    after one."""
+    if queue.take_t == t:
+        return True
+    if cfg.refresh_beat_b2b != "imm":
+        return False
+    cls = getattr(eu, "cls", None)
+    if eu.start_clock == t:
+        return eu.prev_cls == "imm" and cls != "imm"
+    return cls == "imm" and queue.decoder.need > 0
 
 
 def _fetch_first(t: int, cfg, bus, queue, req) -> bool:
@@ -436,6 +469,18 @@ def _choose(t: int, cfg, bus, queue, eu):
             fetch_want = False
         else:
             req.free_need = 0
+    if (fetch_want and queue.b2b_at != t and queue.gdisp_until is not None
+            and t < queue.gdisp_until and (queue.take_t != t or queue.room(t) < 4)):
+        # (WP61) grp_disp=hold: no fetch on the group RMW form's displacement take clock or the
+        # grp_free clocks after it (one committed back to back goes; on the take clock itself
+        # one with room for two words left by the take goes)
+        fetch_want = False
+    if (req is not None and req.gdisp and not req.issued and fetch_want and queue.b2b_at != t
+            and req.count <= req.setup - req.free_orig
+            and (queue.requested_at is None or queue.requested_at >= req.posted)):
+        # (WP61) grp_disp=hold: a fetch no older than the read waits until the read's fetch-free
+        # group clocks have begun to count
+        fetch_want = False
     dec = queue.decoder
     if (cfg.ea_b2b and fetch_want and queue.b2b_at == t and getattr(eu, "mem", False)
             and getattr(eu, "disp", 0) and dec is not None and dec.ea_end is not None
@@ -475,7 +520,9 @@ def _choose(t: int, cfg, bus, queue, eu):
         elif queue.io_run_at == t:
             pass                        # (WP39) refresh_io_run: the committed fetch goes
         elif t != req.lift_t or (cfg.io_hold != "hold_fetch" and (
-                queue.requested_at is None or queue.requested_at > req.posted)):
+                queue.requested_at is None or queue.requested_at > req.posted
+                or cfg.dw_lift == "moved" and req.dw_moved
+                and queue.requested_at == req.posted)):
             fetch_want = False          # io_hold=posted: only a fetch no younger than the I/O
         elif req.dw_moved and eu.queued and queue.counted(t) > cfg.hold_q:
             # (WP25) dw_slot=behind: with another request posted behind it, the bus unit runs
@@ -559,6 +606,17 @@ def _choose(t: int, cfg, bus, queue, eu):
             and queue.after_refresh == bus.cycles[-1].start):
         # (WP41) refresh_beat_t4: on the delivery clock of a 3-clock fetch a refresh beat the bus
         # unit is still in that fetch: the fetch requested there is committed and starts on t+1
+        queue.t4_at = t + 1
+        return None
+    if (fetch_want and eu.refresh is not None and cfg.refresh_beat_b2b != "none"
+            and queue.b2b_at == t and queue.arrived_t == t and queue.ir_t != t
+            and len(bus.cycles) >= 2 and bus.cycles[-1].kind == "fetch"
+            and bus.cycles[-1].end == t - 1 and bus.cycles[-1].end - bus.cycles[-1].start == 2
+            and bus.cycles[-2].kind == "refresh" and bus.cycles[-2].end == bus.cycles[-1].start - 1
+            and queue.after_refresh == bus.cycles[-1].start and _beat_late(t, cfg, queue, eu)):
+        # (WP61) refresh_beat_b2b: the fetch committed back to back on a beaten 3-clock fetch's
+        # last clock waits a clock when on its delivery clock the IR does not load and the
+        # decoder is in one of _beat_late's states
         queue.t4_at = t + 1
         return None
     if fetch_want:

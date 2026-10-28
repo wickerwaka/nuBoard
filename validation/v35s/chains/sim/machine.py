@@ -230,7 +230,9 @@ class Machine:
         raise self._no_end()
 
     def _clock_row(self, t: int) -> dict:
-        """The state at the end of clock t, for sim --trace (read only)."""
+        """The state at the end of clock t, for sim --trace (read only). `ir` and `pc` are
+        both chain offsets (relative to the chain base; `pc` less the prelude tail's
+        length, eu.origin), so the row is in one frame (spec, decisions)."""
         eu, q, d, bus = self.eu, self.queue, self.decoder, self.bus
         cur = bus.current
         busy = cur is not None and cur.start <= t <= cur.end
@@ -240,7 +242,7 @@ class Machine:
                 "queued": len(q.bytes), "occ": q.occupancy(), "room": q.room(t),
                 "inflight": q.inflight, "flag": q.flag, "requested_at": q.requested_at,
                 "latched": q.latched, "ir": None if d.ir is None else d.ir - self.base,
-                "need": d.need, "pc": eu.pc, "cls": getattr(eu, "cls", None), "k": eu.k,
+                "need": d.need, "pc": eu.pc - eu.origin, "cls": getattr(eu, "cls", None), "k": eu.k,
                 "step": step, "resume": eu.resume, "sync": eu.sync,
                 "started_now": eu.start_clock == t, "clk_tag": eu.clk_tag,
                 "clk_start": eu.clk_start, "clk_end": eu.clk_end, "took": q.take_t == t,
@@ -277,7 +279,7 @@ class Machine:
         times = [eu.resume, eu.latch_until, eu.wb_until, eu.done_t, eu.latch_wait,
                  eu.wlatch_until, q.requested_at, q.arrived_t, q.removed_t, q.b2b_at,
                  q.read_t, q.ir_t, q.take_t, q.start_t, q.abort_end, d.ready_at,
-                 q.shift_until, q.retry_at, q.io_run_at,
+                 q.shift_until, q.retry_at, q.io_run_at, q.gdisp_until,
                  bus.last_fetch_end, bus.last_io_end]
         times += [u for _, u in q.bytes]
         for r in [eu.req, eu.own] + eu.queued:

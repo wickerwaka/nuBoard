@@ -1,0 +1,1783 @@
+`timescale 1ns/1ps
+
+// V35S execution unit and decoder (HDL plan, Phase C3), written from the frozen chain model
+// (validation/v35s/chains/sim/frozen/eu.py, the EU; decoder.py, the Decoder, whose state and
+// bookkeeping are v35_decoder.sv's; templates.py for the decode and the step lists;
+// machine.py for the clock's phases and the post-issue pass) and the spec
+// (docs/v35s-chain-rtl-spec.md, A2 "Decoder", "EU", "The request record", A3 "From the
+// decoder", "From the EU", A4).
+//
+// Clocking. `ce` marks the END of a model clock: `r` holds the decoder's and the EU's state
+// at the end of the last model clock (Machine._clock_row's moment) in the A2 representations
+// (v35_st_t). One model clock is a combinational chain in Machine.run's order: the clock's
+// start (eu_begin: the offsets move on a clock), phase C (an EU read's delivery,
+// eu_complete; a delivered fetch counts against the take sync), phase T (eu_tick), phase L
+// (dec_load_ir), phase X (the arbiter's touches on the EU: v35_eu_xop), phase P (the
+// post-issue pass: mach_post, with the second tick and IR load), phase E's latch_start.
+//
+// The queue. Every queue method the EU and the decoder call, and every store they make into
+// the queue, is one op of v35_queue.sv's chain (its V35_QOP_* codes, here V35_EQ_*), emitted
+// in the model's order with the decoder's snapshot (v35_qsnap_t): `op_tl` for phases T and L,
+// `op_p` for phase P. What the EU reads of the queue between its ops is the queue's state
+// before the next op (`qv_tl[n]`, `qv_p[n]`: v35_qview_t, the fields of v35_qstate_t the EU
+// reads) and an op's read (`rd_*`). The bench connects these to the RTL queue (the joint
+// bench, the queue's chain T+L, the arbiter's X ops, P) or to the model's recording.
+//
+// The arbiter (C4) is not here: its decisions arrive as the touches it makes (`xop`: a data
+// cycle issued from the slot, a left-out write's slot, the fetch on a start clock, the abort's
+// take sync, a request's free_need and not_before), the cycle it started (`x_*`) and the
+// requests' setup counts (`counts_*`, read by port_ready). The register file (Phase D) gives
+// each instruction's operands (`opnd_a` for the clock's first start, `opnd_b` for a second):
+// the effective address, the port, the stack addresses, the shift count, a transfer's
+// target; the RTL decodes the format from the instruction's bytes (eu_decode, templates.decode)
+// and selects the template (v35_tmpl_sel). The data latch is the bus unit's (C1): `bus_*.wl`
+// reads it, `wl_fill_*` fills it.
+//
+// Not built (dead under the fit or another phase's): since_start, since_t, io_pre, stalled,
+// trace, origin, reg_latch_t (wlatch_ir=False), ro, prev_cls (read by refresh_beat_b2b only),
+// seg_prefix and sfr (the SFR store's address and value come with the operands), ls_shift
+// (refresh_align=prelude), started (always True under prelude_tail=segs), and with refresh on: hold_from/hold_end, clk_tag/clk_start/clk_end/clk_seam,
+// rmw_loop/rmw_top/rmw_cl, pop_ref, refresh_beat, halt_defer, the boundary map (C5).
+module v35_eu
+    import v35_decoder_pkg::*;
+#(
+    parameter int NQ = 16,                  // queue ops per phase (T and L; P)
+    parameter int NXOP = 4,                 // the arbiter's touches per clock
+    parameter int STATE_W = 516             // $bits(v35_st_t), checked below
+) (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce,                  // end of a model clock
+    input  wire [STATE_W-1:0] init_state,   // the state at the end of the model's clock -1
+    input  wire [19:0] code_base,           // the code's linear base (queue.base: a target's)
+
+    // phase C
+    input  wire        c_eu,                // an EU cycle was delivered (eu.complete) ...
+    input  wire        c_read,              // ... a read
+    input  wire        fetch_done,          // queue.completed counted one (C or A)
+
+    // the bus unit before the choice (T) and after it (P)
+    input  wire [17:0] bus_t,
+    input  wire [17:0] bus_p,
+
+    // the operands of the clock's first and second instruction start (the register file)
+    input  wire [212:0] opnd_a,
+    input  wire [212:0] opnd_b,
+
+    // the queue: its state before each op of a phase (and after the last), and each op's read
+    input  wire [NQ:0][51:0] qv_tl,
+    input  wire [NQ-1:0][7:0] rd_tl,
+    input  wire [NQ:0][51:0] qv_p,
+    input  wire [NQ-1:0][7:0] rd_p,
+
+    // phase X: the arbiter's cycle and touches, the requests' setup counts at T and at P
+    input  wire        x_valid,
+    input  wire [2:0]  x_kind,
+    input  wire        x_eu,                // the cycle is the EU's
+    input  wire [NXOP-1:0][10:0] xop,       // {code (V35_XOP_*), val}
+    input  wire [2:0][6:0] counts_t,
+    input  wire [2:0][6:0] counts_p,
+
+    // phase E: queue.latch_in_t == t after its end_clock
+    input  wire        q_latch_in,
+
+    // the ops
+    output logic [NQ-1:0][32:0] op_tl,
+    output logic [4:0]  n_tl,               // ops in T and L ...
+    output logic [4:0]  n_t,                // ... of which T's
+    output logic [NQ-1:0][32:0] op_p,
+    output logic [4:0]  n_p,
+    output logic [1:0]  n_start,            // instructions started this clock
+    // the data latch fills (the bus unit's wlatch_fill): T, X (the left-out write's slot), P
+    output logic        wl_fill_t,
+    output logic        wl_fill_x,
+    output logic        wl_fill_p,
+    // the data cycle the slot issued in X (its kind V35_K_*, address, width V35_BW_*)
+    output logic        x_cyc,
+    output logic [2:0]  x_cyc_kind,
+    output logic [19:0] x_cyc_addr,
+    output logic [1:0]  x_cyc_width,
+    // the queue's inputs from the decoder and the EU: phase C's snapshot (retry_after), E's
+    output logic [4:0]  qsnap_c,
+    output logic [4:0]  qsnap_e,
+    output logic        e_io,               // the EU runs an IN or OUT whose I/O is to come
+    output logic        e_out,
+    output reg          error,              // sticky: a case the RTL does not cover
+    output logic [7:0]  err_code            // this clock's (0: none)
+`ifdef V35S_STATE_DUMP
+    ,
+    output wire [STATE_W-1:0] state_c,
+    output wire [STATE_W-1:0] state_t,
+    output wire [STATE_W-1:0] state_l,
+    output wire [STATE_W-1:0] state_x,
+    output wire [STATE_W-1:0] state_p,
+    output wire [STATE_W-1:0] state_e,
+    output wire [STATE_W-1:0] state_dump
+`endif
+);
+
+    // ---- the queue's op codes (v35_queue.sv V35_QOP_*, rtl_vectors.QOPS)
+    localparam logic [5:0] V35_EQ_TAKE = 6'd1;
+    localparam logic [5:0] V35_EQ_COMMIT = 6'd2;
+    localparam logic [5:0] V35_EQ_IRLOAD = 6'd3;
+    localparam logic [5:0] V35_EQ_START = 6'd4;
+    localparam logic [5:0] V35_EQ_FLUSH = 6'd5;
+    localparam logic [5:0] V35_EQ_DISP = 6'd6;
+    localparam logic [5:0] V35_EQ_EVAL = 6'd8;
+    localparam logic [5:0] V35_EQ_SHIFT_END = 6'd9;
+    localparam logic [5:0] V35_EQ_RETRY_END = 6'd10;
+    localparam logic [5:0] V35_EQ_RETRY_SET = 6'd11;
+    localparam logic [5:0] V35_EQ_RERAISE = 6'd12;
+    localparam logic [5:0] V35_EQ_SHIFT_SET = 6'd13;
+    localparam logic [5:0] V35_EQ_SHIFT_HOLD = 6'd14;
+    localparam logic [5:0] V35_EQ_DROP_RETRY = 6'd15;
+    localparam logic [5:0] V35_EQ_WANT = 6'd16;
+    localparam logic [5:0] V35_EQ_ASKED = 6'd17;
+    localparam logic [5:0] V35_EQ_REQUESTING = 6'd18;
+    localparam logic [5:0] V35_EQ_ROOM = 6'd19;
+    localparam logic [5:0] V35_EQ_STORED = 6'd21;
+    localparam logic [5:0] V35_EQ_AVAIL = 6'd22;
+    localparam logic [5:0] V35_EQ_IO_HELD_SET = 6'd32;
+    localparam logic [5:0] V35_EQ_NOP_HOLD = 6'd34;
+    localparam logic [5:0] V35_EQ_GDISP = 6'd35;
+
+    // ---- the arbiter's touches (rtl_vectors.XOPS)
+    localparam logic [2:0] V35_XOP_ISSUE = 3'd1;       // eu.issue: the slot's next cycle (val: its length)
+    localparam logic [2:0] V35_XOP_NOWRITE = 3'd2;     // eu.issue_nowrite (val: the slot fetch's length, 0: none)
+    localparam logic [2:0] V35_XOP_FETCH_START = 3'd3; // eu.fetch_start = t
+    localparam logic [2:0] V35_XOP_SYNC_ONE = 3'd4;    // abort_latched: eu.sync = completed + 1
+    localparam logic [2:0] V35_XOP_FREE0 = 3'd5;       // the slot's free_need = 0
+    localparam logic [2:0] V35_XOP_NOT_BEFORE = 3'd6;  // the slot's not_before = t + val
+
+    // ---- error codes (err_code)
+    localparam logic [7:0] V35_EE_OPS = 8'd1;          // more than NQ queue ops in a phase
+    localparam logic [7:0] V35_EE_LOOP = 8'd2;         // the tick's step loop did not settle
+    localparam logic [7:0] V35_EE_DECODE = 8'd3;       // an opcode outside the catalog
+    localparam logic [7:0] V35_EE_TMPL = 8'd4;         // no template for the format
+    localparam logic [7:0] V35_EE_FMT = 8'd5;          // the format is not the operand record's
+    localparam logic [7:0] V35_EE_PC = 8'd6;           // the operand record is not at pc
+    localparam logic [7:0] V35_EE_STEP = 8'd7;         // a step C3 does not build (flush, decide)
+    localparam logic [7:0] V35_EE_SLOT = 8'd8;         // a request slot error
+    localparam logic [7:0] V35_EE_XOP = 8'd9;          // an arbiter touch on an empty slot
+
+    // the take sync's modes
+    localparam logic [1:0] SYNC_NONE = 2'd0, SYNC_COUNT = 2'd1, SYNC_DEFER = 2'd2;
+    localparam logic [5:0] CLS_NONE = 6'd63;
+
+    // ---- the EU's state (rtl_vectors.EUFIELDS, MSB first)
+    typedef struct packed {
+        logic [15:0] pc;
+        logic [5:0]  cls;
+        logic [7:0]  tmpl;
+        logic        wbs;
+        logic [8:0]  count;
+        logic        ins;           // a port relatch inserted ("slot",) and the post ...
+        logic [3:0]  ins_at;        // ... at this step
+        logic [3:0]  k;
+        logic [9:0]  res;           // resume - t (clipped at 0)
+        logic [2:0]  left;
+        logic        nw_v;
+        logic [2:0]  nw;
+        logic [2:0]  taken;
+        logic [2:0]  op_len;
+        logic [1:0]  imm_bytes;
+        logic [1:0]  disp;
+        logic        modrm;
+        logic        mem;
+        logic        unit;
+        logic        fixed;
+        logic        grp_form;
+        logic        refill;        // refill_start: a flush's refill gates the next start
+        logic [1:0]  route;
+        logic [3:0]  floor_n;
+        logic        df_v;
+        logic [2:0]  df_off;
+        logic [1:0]  wb;
+        logic [1:0]  wbu;
+        logic        done_v;
+        logic [1:0]  done_age;
+        logic [1:0]  sync;
+        logic [1:0]  owed;
+        logic [3:0]  start_age;     // t - start_clock (saturating at 15)
+        logic        fs_now;
+        logic        fs_this;
+        logic        halted;
+        logic        halt_now;
+        logic [3:0]  sa_off;
+        logic        exec_v;
+        logic [1:0]  exec_age;
+        logic        exec_par;
+        logic        hd_fetch;
+        logic        unit_early;
+        logic        reg_early;
+        logic        shift_latched;
+        logic        lu_held;
+        logic [2:0]  lu_off;
+        logic        latch_wait_now;
+        logic        port_now;
+        logic [2:0]  port_held;
+        logic [1:0]  own;           // 0 none, 1 the slot, 2 queued 0, 3 queued 1
+        logic [19:0] ea;
+        logic [15:0] port;
+        logic [15:0] sr;
+        logic [15:0] sw;
+        logic [15:0] tgt;           // a taken transfer's target (a code offset)
+    } v35_eus_t;
+
+    // ---- a request record, the EU's fields (rtl_vectors.RFIELDS, MSB first); the arbiter's
+    // own (count, ready_since, lift_t, free_held, grp_held, xeu, posted) are C4's
+    typedef struct packed {
+        logic        valid;
+        logic [2:0]  kind;          // V35_RK_*
+        logic        w2;
+        logic [1:0]  ncyc;
+        logic [1:0]  issued;
+        logic [19:0] addr;
+        logic [6:0]  setup;
+        logic        free_v;
+        logic [4:0]  free;
+        logic [1:0]  lead;
+        logic        nowait;
+        logic [5:0]  cls;
+        logic        free_bus;
+        logic        whole;
+        logic [6:0]  through;
+        logic [4:0]  free_orig;
+        logic        imm1;
+        logic        detached;
+        logic        port;
+        logic        moved;
+        logic        dw_moved;
+        logic        floor_hold;
+        logic        gdisp;
+        logic [3:0]  nb_off;        // not_before - t
+        logic        da_v;          // done_at is set ...
+        logic [2:0]  da_off;        // ... done_at - t (clipped) ...
+        logic        da_past;       // ... done_at < t
+    } v35_req_t;
+
+    typedef struct packed {
+        v35_dec_t           d;
+        v35_eus_t           e;
+        v35_req_t [2:0]     r;      // r[0] the slot, r[1] and r[2] queued behind it
+    } v35_st_t;
+
+    if ($bits(v35_st_t) != STATE_W) begin : g_state_width
+        $error("v35_eu: the state is %0d bits, STATE_W %0d", $bits(v35_st_t), STATE_W);
+    end
+    if ($bits(v35_qview_t) != 52 || $bits(v35_bview_t) != 18 || V35_TMPL_W != 8
+            || V35_FMT_W != 31 || V35_STEP_W != 38) begin : g_port_widths
+        $error("v35_eu: the port widths no longer match the include");
+    end
+
+    // a decoded step (v35_step's word, a count's clocks applied)
+    typedef struct packed {
+        logic [3:0] op;
+        logic [9:0] n;
+        logic [3:0] tag;
+        logic [2:0] kind;
+        logic [2:0] src;
+        logic [2:0] src_i;
+        logic [1:0] width;
+        logic       has_free;
+        logic [4:0] free;
+        logic       grp;
+        logic       whole;
+        logic       detached;
+    } v35_stp_t;
+
+    // the instruction as decoded (templates.decode's Op, the format part)
+    typedef struct packed {
+        logic       ok;
+        logic [5:0] cls;
+        logic [2:0] length;
+        logic [7:0] opcode;
+        logic [1:0] imm_bytes;
+        logic       modrm;
+        logic       group;
+        logic       shift;
+        logic       nowrite;
+        logic       dbit_v;
+        logic       dbit;
+        logic       fixed_alu;
+        logic       swap;
+        logic       signed_;
+        logic       cond;
+        logic [1:0] disp;
+        logic       ea_v;           // op.ea is not None
+        logic [2:0] mode;           // mode_class (V35_EAC_*)
+        logic [1:0] width;
+        logic       bus;            // the memory operand has a bus cycle (False: LDEA)
+    } v35_op_t;
+
+    // the operand record (rtl_vectors.OpRec, MSB first)
+    typedef struct packed {
+        logic [15:0] offset;
+        logic [47:0] code;          // the instruction's bytes, the opcode in [47:40]
+        logic [19:0] ea;
+        logic [15:0] port;
+        logic [15:0] sr;
+        logic [15:0] sw;
+        logic [8:0]  count;
+        logic        taken;
+        logic [15:0] target;
+        logic [30:0] fmt;
+        logic [7:0]  tmpl;
+    } v35_opnd_t;
+
+    // the clock's context: the ops, the phase, what happened this clock
+    typedef struct packed {
+        logic [NQ-1:0][32:0] ops_tl;
+        logic [NQ-1:0][32:0] ops_p;
+        logic [4:0]  n_tl;
+        logic [4:0]  n_p;
+        logic        p;             // in phase P
+        logic [1:0]  starts;
+        logic        wl_t;          // the EU filled the data latch in T ...
+        logic        wl_x;          // ... in X (the slot) ...
+        logic        wl_p;          // ... in P
+        logic        retick;
+        logic        held_abort;    // unit_hold held on the aborted cycle's end this clock
+        logic [2:0]  fresh;         // requests posted this clock (their setup count is 0)
+        logic        x_cyc;
+        logic [2:0]  x_kind;
+        logic [19:0] x_addr;
+        logic [1:0]  x_width;
+        logic [7:0]  err;
+    } v35_ctx_t;
+
+    // ------------------------------------------------ helpers
+
+    function automatic logic is_cls(input logic [5:0] cls, input int c);
+        is_cls = int'(cls) == c;
+    endfunction
+
+    function automatic logic [9:0] cost(input logic [5:0] cls, input int name);
+        cost = 10'(v35_cost(int'(cls), name));
+    endfunction
+
+    function automatic logic has(input logic [5:0] cls, input int name);
+        has = v35_cost_has(int'(cls), name);
+    endfunction
+
+    function automatic logic is_io(input logic [2:0] rk);
+        is_io = int'(rk) == V35_RK_IO_READ || int'(rk) == V35_RK_IO_WRITE;
+    endfunction
+
+    function automatic logic bus_io(input v35_bview_t b);
+        bus_io = b.kind == V35_K_IO_READ || b.kind == V35_K_IO_WRITE;
+    endfunction
+
+    function automatic void fail(inout v35_ctx_t c, input logic [7:0] code);
+        if (c.err == 8'd0)
+            c.err = code;
+    endfunction
+
+    function automatic logic imm16(input v35_st_t s);
+        imm16 = is_cls(s.e.cls, V35_CLS_IMM) && s.e.imm_bytes == 2'd2;
+    endfunction
+
+    // the queue's state now (before the phase's next op)
+    function automatic v35_qview_t qv(input v35_ctx_t c);
+        if (c.p)
+            qv = v35_qview_t'(qv_p[c.n_p]);
+        else
+            qv = v35_qview_t'(qv_tl[c.n_tl]);
+    endfunction
+
+    // one queue op; returns its read
+    function automatic logic [7:0] q_op(inout v35_ctx_t c, input v35_st_t s,
+                                        input logic [5:0] code, input logic a, input logic b,
+                                        input logic [19:0] val);
+        logic [32:0] w;
+        w = {code, a, b, val, dec_snap(s.d, imm16(s))};
+        q_op = 8'd0;
+        if (!c.p) begin
+            if (int'(c.n_tl) >= NQ) begin
+                fail(c, V35_EE_OPS);
+            end else begin
+                c.ops_tl[c.n_tl] = w;
+                q_op = rd_tl[c.n_tl];
+                c.n_tl = c.n_tl + 5'd1;
+            end
+        end else begin
+            if (int'(c.n_p) >= NQ) begin
+                fail(c, V35_EE_OPS);
+            end else begin
+                c.ops_p[c.n_p] = w;
+                q_op = rd_p[c.n_p];
+                c.n_p = c.n_p + 5'd1;
+            end
+        end
+    endfunction
+
+    function automatic logic [19:0] off20(input int v);   // a signed offset in the op's val
+        off20 = 20'(v);
+    endfunction
+
+    // ------------------------------------------------ the step list (eu.steps)
+
+    function automatic int eu_nsteps(input v35_eus_t e);
+        if (e.cls == CLS_NONE)
+            eu_nsteps = 0;                      // no instruction yet: eu.steps = []
+        else
+            eu_nsteps = int'(e.wbs) + v35_tmpl_len(int'(e.tmpl)) + (e.ins ? 2 : 0);
+    endfunction
+
+    // the template's j-th step (wbsync before it), the count applied
+    function automatic v35_stp_t eu_base_step(input v35_eus_t e, input int j);
+        logic [V35_STEP_W-1:0] w;
+        v35_stp_t s;
+        int n;
+        s = '0;
+        if (e.wbs && j == 0) begin
+            s.op = 4'(V35_SOP_WBSYNC);
+        end else begin
+            w = v35_step(int'(e.tmpl), j - int'(e.wbs));
+            s.op = w[V35_SF_OP +: V35_SF_OP_W];
+            n = int'(w[V35_SF_N +: V35_SF_N_W])
+                + int'(w[V35_SF_PER_COUNT +: V35_SF_PER_COUNT_W]) * int'(e.count);
+            s.n = 10'(n);
+            s.tag = w[V35_SF_TAG +: V35_SF_TAG_W];
+            s.kind = w[V35_SF_KIND +: V35_SF_KIND_W];
+            s.src = w[V35_SF_SRC +: V35_SF_SRC_W];
+            s.src_i = w[V35_SF_SRC_I +: V35_SF_SRC_I_W];
+            s.width = w[V35_SF_WIDTH +: V35_SF_WIDTH_W];
+            s.has_free = w[V35_SF_HAS_FREE];
+            s.free = w[V35_SF_FREE +: V35_SF_FREE_W];
+            s.grp = w[V35_SF_GRP];
+            s.whole = w[V35_SF_WHOLE];
+            s.detached = w[V35_SF_DETACHED];
+        end
+        eu_base_step = s;
+    endfunction
+
+    // eu.steps[k]: _port_take's insertion of ("slot",) and the post at ins_at
+    function automatic v35_stp_t eu_step(input v35_eus_t e, input int k);
+        v35_stp_t s;
+        int p;
+        p = int'(e.ins_at);
+        if (e.ins && k == p) begin
+            s = '0;
+            s.op = 4'(V35_SOP_SLOT);
+        end else if (e.ins && k == p + 1) begin
+            s = eu_base_step(e, p - 1);         // the port take's request
+            s.op = 4'(s.detached ? V35_SOP_POST_IO : V35_SOP_POST);
+            s.tag = 4'd0;
+        end else if (e.ins && k > p + 1) begin
+            s = eu_base_step(e, k - 2);
+        end else begin
+            s = eu_base_step(e, k);
+        end
+        eu_step = s;
+    endfunction
+
+    // a request step's address (symbolic sources, rtlgen.ADDR_SRC)
+    function automatic logic [19:0] eu_addr(input v35_eus_t e, input v35_stp_t s);
+        case (int'(s.src))
+            V35_SRC_EA: eu_addr = e.ea;
+            V35_SRC_STACK_READ: eu_addr = {4'd0, e.sr + 16'(2 * int'(s.src_i))};
+            V35_SRC_STACK_WRITE: eu_addr = {4'd0, e.sw - 16'(2 * int'(s.src_i))};
+            V35_SRC_PORT: eu_addr = {4'd0, e.port};
+            default: eu_addr = 20'd0;
+        endcase
+    endfunction
+
+    // ------------------------------------------------ templates.decode (the format)
+
+    function automatic v35_op_t eu_decode(input logic [47:0] code);
+        v35_op_t op;
+        logic [7:0] o, m;
+        logic [1:0] mod;
+        logic [2:0] reg_, rm;
+        logic mem;
+        int n, mc;
+        op = '0;
+        o = code[47:40];
+        m = code[39:32];
+        op.ok = 1'b1;
+        op.opcode = o;
+        op.width = 2'd2;
+        op.bus = 1'b1;
+        op.length = 3'd1;
+        if (o == 8'h26 || o == 8'h2E || o == 8'h36 || o == 8'h3E) begin
+            op.cls = 6'(V35_CLS_PREFIX);
+        end else if (o == 8'h90 || o == 8'h92) begin
+            op.cls = 6'(V35_CLS_REG);
+        end else if (o == 8'hF4) begin
+            op.cls = 6'(V35_CLS_HALT);
+        end else if (o == 8'h50) begin
+            op.cls = 6'(V35_CLS_PUSH);
+        end else if (o == 8'h58 || o == 8'h59) begin
+            op.cls = 6'(V35_CLS_POP);
+        end else if (o >= 8'hB0 && o <= 8'hB7) begin
+            op.cls = 6'(V35_CLS_IMM); op.length = 3'd2; op.imm_bytes = 2'd1;
+        end else if ((o >= 8'hB8 && o <= 8'hBF) || o == 8'h05 || o == 8'hA9) begin
+            op.cls = 6'(V35_CLS_IMM); op.length = 3'd3; op.imm_bytes = 2'd2;
+        end else if (o == 8'hA8) begin
+            op.cls = 6'(V35_CLS_IMM); op.length = 3'd2; op.imm_bytes = 2'd1;
+        end else if (o == 8'hA1 || o == 8'hA3) begin
+            op.cls = 6'(o == 8'hA1 ? V35_CLS_LOAD : V35_CLS_STORE);
+            op.length = 3'd3; op.ea_v = 1'b1; op.mode = 3'(V35_EAC_DIRECT);
+        end else if (o >= 8'hE4 && o <= 8'hE7) begin
+            op.cls = 6'(o < 8'hE6 ? V35_CLS_IN : V35_CLS_OUT);
+            op.length = 3'd2; op.width = 2'd1 + {1'b0, o[0]};
+        end else if (o >= 8'hEC && o <= 8'hEF) begin
+            op.cls = 6'(o < 8'hEE ? V35_CLS_IN : V35_CLS_OUT);
+            op.width = 2'd1 + {1'b0, o[0]};
+        end else if (o == 8'h74 || o == 8'h75 || o == 8'hEB || o == 8'hE2) begin
+            op.cls = 6'(o == 8'hE2 ? V35_CLS_DBNZ : V35_CLS_BRANCH_SHORT);
+            op.length = 3'd2; op.cond = o >= 8'h70 && o <= 8'h7F;
+        end else if (o == 8'hE9) begin
+            op.cls = 6'(V35_CLS_BRANCH_NEAR); op.length = 3'd3;
+        end else if (o == 8'hE8) begin
+            op.cls = 6'(V35_CLS_CALL); op.length = 3'd3;
+        end else if (o == 8'hC3) begin
+            op.cls = 6'(V35_CLS_RET);
+        end else if (o == 8'h68 || o == 8'h6A) begin
+            op.cls = 6'(V35_CLS_PUSH_IMM);
+            op.imm_bytes = o == 8'h68 ? 2'd2 : 2'd1;
+            op.length = 3'd1 + {1'b0, op.imm_bytes};
+        end else if (o == 8'h60) begin
+            op.cls = 6'(V35_CLS_PUSH_R);
+        end else if (o == 8'h61) begin
+            op.cls = 6'(V35_CLS_POP_R);
+        end else if (o == 8'hC8) begin
+            op.cls = 6'(V35_CLS_PREPARE); op.length = 3'd4; op.imm_bytes = 2'd3;
+        end else if (o == 8'hC9) begin
+            op.cls = 6'(V35_CLS_DISPOSE);
+        end else if (o == 8'h06 || o == 8'h0E || o == 8'h16 || o == 8'h1E) begin
+            op.cls = 6'(V35_CLS_PUSH_SEG);
+        end else if (o == 8'h07 || o == 8'h17 || o == 8'h1F) begin
+            op.cls = 6'(V35_CLS_POP_SEG);
+        end else if (o == 8'hD7) begin
+            op.cls = 6'(V35_CLS_XLAT); op.width = 2'd1; op.ea_v = 1'b1;
+            op.mode = 3'(V35_EAC_NONE);
+        end else begin
+            // a ModR/M form (_modrm)
+            mod = m[7:6];
+            reg_ = m[5:3];
+            rm = m[2:0];
+            mem = mod != 2'd3;
+            mc = V35_EAC_NONE;
+            if (!mem) begin
+                n = 1;
+            end else if (mod == 2'd0 && rm == 3'd6) begin
+                n = 3;
+                mc = V35_EAC_DIRECT;
+            end else begin
+                mc = rm[2] ? V35_EAC_BASE : V35_EAC_BASE_INDEX;
+                if (mod != 2'd0)
+                    mc = rm[2] ? V35_EAC_BASE_DISP : V35_EAC_BASE_INDEX_DISP;
+                n = 1 + int'(mod);
+            end
+            op.ea_v = mem;
+            op.mode = 3'(mc);
+            op.modrm = 1'b1;
+            op.width = ((o < 8'h40 || (o >= 8'h84 && o <= 8'h8B)) && !o[0]) ? 2'd1 : 2'd2;
+            if (o == 8'hD0 || o == 8'hF6)
+                op.width = 2'd1;
+            op.group = o inside {8'h80, 8'h81, 8'h82, 8'h83, 8'h8F, 8'hC0, 8'hC1, 8'hC6, 8'hC7,
+                                 8'hD0, 8'hD1, 8'hD2, 8'hD3, 8'hF6, 8'hF7, 8'hFE, 8'hFF};
+            op.disp = mem ? 2'(n - 1) : 2'd0;
+            if ((o < 8'h40 && !o[2]) || (o >= 8'h88 && o <= 8'h8B)) begin
+                op.dbit_v = 1'b1;
+                op.dbit = o[1];
+            end
+            op.fixed_alu = o == 8'h84 || o == 8'h85;
+            op.swap = mem && (o == 8'h86 || o == 8'h87);
+            op.length = 3'(1 + n);
+            if (o < 8'h40 && o[2:0] < 3'd4) begin
+                op.cls = 6'(!mem ? V35_CLS_REG
+                            : (!o[1] && o[5:3] != 3'd7) ? V35_CLS_RMW : V35_CLS_LOAD_ALU);
+            end else if (o == 8'h8B || o == 8'h8A || o == 8'h85 || o == 8'h89 || o == 8'h88
+                         || o == 8'h87 || o == 8'h84 || o == 8'h86) begin
+                if (!mem)
+                    op.cls = 6'(V35_CLS_REG);
+                else if (o == 8'h8B || o == 8'h8A)
+                    op.cls = 6'(V35_CLS_LOAD);
+                else if (o == 8'h89 || o == 8'h88)
+                    op.cls = 6'(V35_CLS_STORE);
+                else if (o == 8'h87 || o == 8'h86)
+                    op.cls = 6'(V35_CLS_RMW);
+                else
+                    op.cls = 6'(V35_CLS_LOAD_ALU);
+            end else if (o == 8'h81 || o == 8'h83) begin
+                op.imm_bytes = o == 8'h81 ? 2'd2 : 2'd1;
+                op.length = op.length + {1'b0, op.imm_bytes};
+                op.cls = 6'(!mem ? V35_CLS_IMM : reg_ == 3'd7 ? V35_CLS_LOAD_ALU
+                                                               : V35_CLS_RMW_IMM);
+                op.nowrite = mem && reg_ == 3'd7;
+            end else if (o == 8'hC7) begin
+                op.length = op.length + 3'd2;
+                op.imm_bytes = 2'd2;
+                op.cls = 6'(V35_CLS_STORE_IMM);
+            end else if (o == 8'hC6) begin
+                op.length = op.length + 3'd1;
+                op.imm_bytes = 2'd1;
+                op.width = 2'd1;
+                op.cls = 6'(V35_CLS_STORE_IMM);
+            end else if (o == 8'hC1) begin
+                op.length = op.length + 3'd1;
+                op.imm_bytes = 2'd1;
+                op.cls = 6'(V35_CLS_SHIFT_IMM);
+            end else if (o == 8'hD0 || o == 8'hD1) begin
+                if (!mem) begin
+                    op.cls = 6'(V35_CLS_SHIFT_IMM);
+                end else begin
+                    op.cls = 6'(V35_CLS_RMW);
+                    op.shift = 1'b1;
+                end
+            end else if (o == 8'hD3) begin
+                op.cls = 6'(!mem ? V35_CLS_SHIFT_CL : V35_CLS_RMW);
+                op.shift = mem;
+            end else if (o == 8'hF6 || o == 8'hF7) begin
+                if (reg_ == 3'd0 && o == 8'hF6) begin
+                    op.ok = 1'b0;
+                end else if (reg_ == 3'd0) begin
+                    op.length = op.length + 3'd2;
+                    op.imm_bytes = 2'd2;
+                    op.fixed_alu = 1'b1;
+                    op.cls = 6'(mem ? V35_CLS_LOAD_ALU : V35_CLS_IMM);
+                    op.nowrite = mem;
+                end else begin
+                    op.cls = 6'(reg_ == 3'd4 || reg_ == 3'd5 ? V35_CLS_MUL
+                                : reg_ == 3'd6 || reg_ == 3'd7 ? V35_CLS_DIV : V35_CLS_RMW);
+                    op.signed_ = reg_ == 3'd5 || reg_ == 3'd7;
+                end
+            end else if (o == 8'hFF) begin
+                op.cls = 6'(reg_ == 3'd6 ? V35_CLS_PUSH_MEM : V35_CLS_RMW);
+            end else if (o == 8'h8F) begin
+                op.cls = 6'(V35_CLS_POP_MEM);
+            end else if (o == 8'h8E) begin
+                op.cls = 6'(!mem ? V35_CLS_REG : V35_CLS_LOAD_SEG);
+            end else if (o == 8'h8C) begin
+                op.cls = 6'(mem ? V35_CLS_STORE : V35_CLS_REG);
+            end else if (o == 8'h8D) begin
+                op.ok = mem;
+                op.cls = 6'(V35_CLS_LEA);
+                op.bus = 1'b0;
+            end else begin
+                op.ok = 1'b0;
+            end
+        end
+        eu_decode = op;
+    endfunction
+
+    // templates.ea_class, has_count, and the format word (rtlgen.FMT_FIELDS)
+    function automatic logic [30:0] eu_fmt(input v35_op_t op, input logic [8:0] count,
+                                           input logic taken);
+        logic [30:0] f;
+        int mc;
+        logic cnt;
+        mc = int'(op.mode);
+        if (mc == V35_EAC_BASE_INDEX_DISP && op.disp == 2'd2)
+            mc = V35_EAC_BASE_INDEX_DISP16;         // ea_disp16=own
+        if (mc == V35_EAC_DIRECT && op.modrm)
+            mc = V35_EAC_BASE_DISP;                 // ea_direct=base_disp
+        if (!op.ea_v)
+            mc = V35_EAC_NONE;
+        cnt = is_cls(op.cls, V35_CLS_SHIFT_IMM) || is_cls(op.cls, V35_CLS_SHIFT_CL) || op.shift;
+        f = '0;
+        f[V35_FF_CLS +: V35_FF_CLS_W] = op.cls;
+        f[V35_FF_LENGTH +: V35_FF_LENGTH_W] = op.length;
+        f[V35_FF_IMM_BYTES +: V35_FF_IMM_BYTES_W] = op.imm_bytes;
+        f[V35_FF_HAS_EA] = op.ea_v;
+        f[V35_FF_MODRM] = op.modrm;
+        f[V35_FF_DISP +: V35_FF_DISP_W] = op.disp;
+        f[V35_FF_WIDTH +: V35_FF_WIDTH_W] = op.width;
+        f[V35_FF_EA_CLASS +: V35_FF_EA_CLASS_W] = 3'(mc);
+        f[V35_FF_SIGNED] = op.signed_;
+        f[V35_FF_GROUP] = op.group;
+        f[V35_FF_FIXED_ALU] = op.fixed_alu;
+        f[V35_FF_SHIFT] = op.shift;
+        f[V35_FF_CL] = op.opcode == 8'hD2 || op.opcode == 8'hD3;
+        f[V35_FF_NOWRITE] = op.nowrite;
+        f[V35_FF_SWAP] = op.swap;
+        f[V35_FF_COND] = op.cond;
+        f[V35_FF_TAKEN] = taken;
+        f[V35_FF_COUNT_ZERO] = cnt && count == 9'd0;
+        f[V35_FF_REFRESH] = 1'b0;                   // refresh on: C5
+        eu_fmt = f;
+    endfunction
+
+    // ------------------------------------------------ EU methods
+
+    // _interlocked: cls is one of the register-only classes of the mode (INTERLOCK; lea_form,
+    // branch_reg, reg_div)
+    function automatic logic eu_interlocked(input logic [5:0] cls, input logic pfx);
+        int c;
+        c = int'(cls);
+        eu_interlocked = c == V35_CLS_REG || c == V35_CLS_IMM || c == V35_CLS_SHIFT_IMM
+                         || c == V35_CLS_SHIFT_CL || c == V35_CLS_MUL
+                         || (pfx && c == V35_CLS_PREFIX) || c == V35_CLS_LEA
+                         || c == V35_CLS_BRANCH_SHORT || c == V35_CLS_BRANCH_NEAR
+                         || c == V35_CLS_DBNZ || c == V35_CLS_CALL || c == V35_CLS_RET
+                         || c == V35_CLS_DIV;
+    endfunction
+
+    // a request still to issue: an I/O one not a port form's (dw_port)
+    function automatic logic dw_req(input v35_req_t r);
+        dw_req = r.valid && r.ncyc != 2'd0 && r.issued == 2'd0 && is_io(r.kind) && !r.port;
+    endfunction
+
+    // the clock's start: the offsets and ages move on a clock
+    function automatic v35_st_t eu_begin(input v35_st_t r, input v35_bview_t b,
+                                         input logic fdone);
+        v35_st_t s;
+        s = r;
+        s.d = dec_begin(r.d);
+        if (s.e.res != '0) s.e.res = s.e.res - 1'b1;
+        if (s.e.df_off != '0) s.e.df_off = s.e.df_off - 1'b1;
+        if (s.e.wbu != '0) s.e.wbu = s.e.wbu - 1'b1;
+        if (s.e.done_v && s.e.done_age != 2'd3) s.e.done_age = s.e.done_age + 1'b1;
+        if (s.e.start_age != 4'd15) s.e.start_age = s.e.start_age + 1'b1;
+        s.e.fs_now = 1'b0;
+        s.e.halt_now = 1'b0;
+        if (s.e.sa_off != '0) s.e.sa_off = s.e.sa_off - 1'b1;
+        if (s.e.exec_v) begin
+            if (s.e.exec_age != 2'd3) s.e.exec_age = s.e.exec_age + 1'b1;
+            s.e.exec_par = !s.e.exec_par;
+        end
+        if (b.kind != V35_K_FETCH)
+            s.e.hd_fetch = 1'b0;                // the fetch that held it has left the bus
+        if (!s.e.lu_held && s.e.lu_off != '0) s.e.lu_off = s.e.lu_off - 1'b1;
+        s.e.latch_wait_now = 1'b0;
+        s.e.port_now = 1'b0;
+        s.e.port_held = 3'd0;
+        for (int i = 0; i < 3; i++) begin
+            if (s.r[i].nb_off != '0) s.r[i].nb_off = s.r[i].nb_off - 1'b1;
+            if (s.r[i].da_v) begin
+                if (s.r[i].da_off == '0)
+                    s.r[i].da_past = 1'b1;
+                else
+                    s.r[i].da_off = s.r[i].da_off - 1'b1;
+            end
+        end
+        // queue.completed counted a fetch: the take sync owes one fewer
+        if (fdone && s.e.sync == SYNC_COUNT && s.e.owed != 2'd0)
+            s.e.owed = s.e.owed - 2'd1;
+        eu_begin = s;
+    endfunction
+
+    // complete: a read cycle of the current request ended at t-1 (data_ready=0)
+    function automatic void eu_complete(inout v35_st_t s);
+        int i;
+        i = s.e.own != 2'd0 ? int'(s.e.own) - 1 : 0;
+        if (s.r[i].valid && s.r[i].ncyc == 2'd0 && s.r[i].issued != 2'd0) begin
+            s.r[i].da_v = 1'b1;
+            s.r[i].da_off = 3'd0;
+            s.r[i].da_past = 1'b0;
+        end
+    endfunction
+
+    // _retire
+    function automatic void eu_retire(inout v35_st_t s);
+        if (s.e.own == 2'd1)
+            s.r[0] = '0;                        // the slot was the instruction's own
+        s.e.own = 2'd0;
+    endfunction
+
+    // _promote: the detached request in the slot has been issued; the next one moves in
+    function automatic void eu_promote(inout v35_st_t s, inout v35_ctx_t c);
+        s.r[0] = s.r[1];
+        s.r[1] = s.r[2];
+        s.r[2] = '0;
+        if (s.r[0].valid) begin
+            if (!is_io(s.r[0].kind))
+                s.r[0].moved = 1'b1;            // slot_fetch
+            else if (!s.r[0].port)
+                s.r[0].dw_moved = 1'b1;         // dw_slot=behind
+        end
+        if (s.e.own != 2'd0)
+            s.e.own = s.e.own - 2'd1;           // own is never the issued detached request
+        s.e.port_held = s.e.port_held >> 1;
+        c.fresh = c.fresh >> 1;
+    endfunction
+
+    // _post: the request record of a data step
+    function automatic v35_req_t eu_post(input v35_st_t s, input v35_stp_t st);
+        v35_req_t r;
+        logic io;
+        int setup, fr;
+        r = '0;
+        io = is_io(st.kind);
+        setup = int'(st.n);
+        r.valid = 1'b1;
+        r.kind = st.kind;
+        r.addr = eu_addr(s.e, st);
+        r.w2 = st.width == 2'd2;
+        r.ncyc = (int'(st.kind) == V35_RK_NOWRITE) ? 2'd1
+                 : (r.w2 && r.addr[0] && !io) ? 2'd2 : 2'd1;   // odd_split=atomic
+        r.setup = 7'(setup);
+        if (st.has_free) begin
+            r.free_v = 1'b1;
+            r.free = st.free;
+        end else if (has(s.e.cls, V35_CN_SETUP_FREE)) begin
+            r.free_v = 1'b1;
+            r.free = 5'(cost(s.e.cls, V35_CN_SETUP_FREE));
+        end
+        r.lead = io ? 2'(cost(s.e.cls, V35_CN_LEAD)) : 2'd0;
+        r.nowait = io;                          // io_count=nowait
+        r.cls = s.e.cls;
+        r.free_bus = st.grp;                    // grp_free_bus
+        r.whole = st.whole;
+        fr = int'(r.free);
+        r.free_orig = (r.free_v && r.free != '0) ? 5'(fr < setup ? fr : setup) : 5'd0;
+        r.imm1 = (int'(st.kind) == V35_RK_READ || int'(st.kind) == V35_RK_WRITE)
+                 && s.e.imm_bytes == 2'd1 && s.e.mem && s.e.floor_n != '0;
+        if ((int'(st.kind) == V35_RK_WRITE || int'(st.kind) == V35_RK_NOWRITE)
+                && is_cls(s.e.cls, V35_CLS_RMW) && !st.grp)   // rmw_alu=through
+            r.through = 7'(setup - int'(s.e.route) - 1 > 0 ? setup - int'(s.e.route) - 1 : 0);
+        eu_post = r;
+    endfunction
+
+    // _submit: post a request into the slot, or behind a detached one waiting there; returns
+    // the position + 1 (the `own` encoding), 0 when the slot and its queue are full
+    function automatic logic [1:0] eu_submit(inout v35_st_t s, inout v35_ctx_t c,
+                                             input v35_stp_t st, input logic detached);
+        v35_req_t r;
+        v35_qview_t q;
+        int nb;
+        r = eu_post(s, st);
+        if (s.e.df_v && !is_io(st.kind)) begin  // disp_floor
+            if (s.e.df_off > 3'(r.nb_off)) r.nb_off = {1'b0, s.e.df_off};
+            s.e.df_v = 1'b0;
+            s.e.df_off = '0;
+        end
+        if (s.e.floor_n != '0 && !is_io(st.kind)) begin   // imm_count=start
+            nb = int'(s.e.floor_n) - int'(s.e.start_age);
+            if (nb > int'(r.nb_off)) r.nb_off = 4'(nb);
+            s.e.floor_n = '0;
+        end
+        q = qv(c);
+        if ((s.e.unit || s.e.fixed) && q.ab_this && !s.e.unit_early && r.setup != '0
+                && st.grp && r.free_v && 7'(r.free) < r.setup) begin   // abort_unit, abort_fixed
+            r.setup = r.setup - 1'b1;
+            s.e.unit_early = 1'b1;
+        end
+        r.detached = detached;
+        if (r.free_bus && s.e.mem && s.e.disp == 2'd2 && is_cls(s.e.cls, V35_CLS_RMW)
+                && s.e.imm_bytes == '0
+                && (int'(st.kind) == V35_RK_READ || int'(st.kind) == V35_RK_NOWRITE))
+            r.gdisp = 1'b1;                     // grp_disp=hold
+        if (detached && int'(st.kind) == V35_RK_IO_WRITE)
+            s.e.lu_held = 1'b1;                 // latch_until = inf
+        eu_submit = 2'd0;
+        if (!s.r[0].valid) begin
+            s.r[0] = r;
+            c.fresh[0] = 1'b1;
+            eu_submit = 2'd1;
+        end else if (s.r[0].detached || s.r[1].valid) begin
+            if (!s.r[1].valid) begin
+                s.r[1] = r;
+                c.fresh[1] = 1'b1;
+                eu_submit = 2'd2;
+            end else if (!s.r[2].valid) begin
+                s.r[2] = r;
+                c.fresh[2] = 1'b1;
+                eu_submit = 2'd3;
+            end else begin
+                fail(c, V35_EE_SLOT);
+            end
+        end
+    endfunction
+
+    // _floor (disp_floor=posted): the next data request no earlier than t + at
+    function automatic void eu_floor(inout v35_st_t s, input logic [2:0] at);
+        s.e.df_v = 1'b1;
+        s.e.df_off = at;
+        if (s.r[0].valid && s.r[0].ncyc != '0 && s.r[0].issued == '0 && !s.r[0].detached
+                && !is_io(s.r[0].kind)) begin
+            if ({1'b0, at} > s.r[0].nb_off) s.r[0].nb_off = {1'b0, at};
+            s.r[0].floor_hold = 1'b1;
+            s.e.df_v = 1'b0;
+            s.e.df_off = '0;
+        end
+    endfunction
+
+    // _data_next (post_on_take=nomodrm)
+    function automatic logic eu_data_next(input v35_st_t s);
+        v35_stp_t st;
+        int n;
+        eu_data_next = 1'b0;
+        if (!s.e.modrm) begin
+            n = eu_nsteps(s.e);
+            for (int j = 0; j < 16; j++) begin
+                if (int'(s.e.k) + j < n) begin
+                    st = eu_step(s.e, int'(s.e.k) + j);
+                    if (!(int'(st.op) == V35_SOP_CLOCKS && st.n == '0)) begin
+                        eu_data_next = int'(st.op) == V35_SOP_DATA;
+                        break;
+                    end
+                end
+            end
+        end
+    endfunction
+
+    // _late_fetch: a fetch past its second clock
+    function automatic logic eu_late_fetch(input v35_bview_t b);
+        eu_late_fetch = b.kind == V35_K_FETCH && b.pos >= 3'd2;
+    endfunction
+
+    // ------------------------------------------------ decoder methods with the queue port
+
+    // Decoder.take (bytes_per_clock=1; wide: disp16=word, two bytes on a clock)
+    function automatic logic [2:0] dec_take(inout v35_st_t s, inout v35_ctx_t c,
+                                            input logic [2:0] n, input logic wide);
+        logic [7:0] avail;
+        logic [2:0] k;
+        logic mate, one;
+        avail = q_op(c, s, V35_EQ_AVAIL, 1'b0, 1'b0, 20'd0);
+        k = n;
+        if (!wide && k > 3'd1) k = 3'd1;
+        if (wide && k > 3'd2) k = 3'd2;
+        if ({5'd0, k} > avail) k = avail[2:0];
+        for (int i = 0; i < 2; i++) begin
+            if (i < int'(k)) begin
+                s.d = dec_take_byte(s.d, k, mate, one);
+                void'(q_op(c, s, V35_EQ_TAKE, one, mate, 20'd0));
+            end
+        end
+        s.d = dec_take_end(s.d, k);
+        dec_take = k;
+    endfunction
+
+    function automatic void dec_commit(inout v35_st_t s, inout v35_ctx_t c);
+        void'(q_op(c, s, V35_EQ_COMMIT, 1'b0, 1'b0, 20'd0));
+    endfunction
+
+    function automatic logic dec_loads_after(inout v35_st_t s, inout v35_ctx_t c,
+                                             input logic [2:0] n);
+        logic [7:0] avail;
+        dec_loads_after = 1'b0;
+        if (dec_loads_after_cond(s.d, n)) begin
+            avail = q_op(c, s, V35_EQ_AVAIL, 1'b0, 1'b0, 20'd0);
+            dec_loads_after = avail > {5'd0, n};
+        end
+    endfunction
+
+    function automatic void dec_load_ir(inout v35_st_t s, inout v35_ctx_t c);
+        logic [7:0] avail;
+        if (dec_load_cond(s.d)) begin
+            avail = q_op(c, s, V35_EQ_AVAIL, 1'b0, 1'b0, 20'd0);
+            if (avail != 8'd0 && !s.d.ir_hold) begin
+                void'(q_op(c, s, V35_EQ_IRLOAD, 1'b0, 1'b0, 20'd0));
+                s.d = dec_load(s.d);
+            end
+        end
+    endfunction
+
+    // _late_read: the take is the last operand byte with the IR loading on t too
+    function automatic logic eu_late_read(inout v35_st_t s, inout v35_ctx_t c,
+                                          input v35_bview_t b);
+        eu_late_read = 1'b0;
+        if (eu_late_fetch(b) && s.e.left == 3'd1)
+            eu_late_read = dec_loads_after(s, c, 3'd1);
+    endfunction
+
+    // ------------------------------------------------ _start
+
+    function automatic logic eu_start(inout v35_st_t s, inout v35_ctx_t c,
+                                      input v35_bview_t b);
+        v35_opnd_t opr;
+        v35_op_t op;
+        v35_qview_t q;
+        v35_st_t s2;
+        logic regonly, ilk, portf, dw0, dw1, dw2;
+        logic [7:0] st, room;
+        logic [30:0] fmt;
+        int tm, wbu, fl;
+        eu_start = 1'b0;
+        opr = v35_opnd_t'(c.starts == 2'd0 ? opnd_a : opnd_b);
+        if (s.e.sa_off != '0)
+            return 1'b0;                        // prelude_anchor=pop: POP PSW still runs
+        if (s.e.refill) begin                   // refill_start=full_io
+            q = qv(c);
+            if (q.inflight)
+                return 1'b0;
+            st = q_op(c, s, V35_EQ_WANT, 1'b0, 1'b0, 20'd0);
+            if (st[0])
+                return 1'b0;
+            q = qv(c);
+            op = eu_decode(opr.code);
+            if (q.arrived_now && b.flen3 && s.d.ir_v
+                    && (is_cls(op.cls, V35_CLS_IN) || is_cls(op.cls, V35_CLS_OUT)))
+                return 1'b0;                    // an IN / OUT not on a 3-clock fetch's delivery
+            s.e.refill = 1'b0;
+        end
+        if (b.finf)
+            return 1'b0;                        // start_sync=b2b_modrm (no early run: C5)
+        if (!s.d.ir_v)
+            return 1'b0;
+        op = eu_decode(opr.code);
+        if (!op.ok) begin
+            fail(c, V35_EE_DECODE);
+            return 1'b0;
+        end
+        if (opr.offset != s.e.pc)
+            fail(c, V35_EE_PC);
+        if (op.dbit_v && !op.dbit && is_cls(op.cls, V35_CLS_LOAD_ALU) && op.ea_v)
+            op.nowrite = 1'b1;                  // dest_route=slot: CMP r/m,reg
+        if (op.nowrite)                         // grp_read: the group's RMW class
+            op.cls = 6'(op.imm_bytes != '0 ? V35_CLS_RMW_IMM : V35_CLS_RMW);
+        q = qv(c);
+        if (op.modrm && q.b2b_now)
+            return 1'b0;                        // a ModR/M form waits out the b2b fetch
+        regonly = !op.ea_v || !op.bus;          // lea_form=reg
+        ilk = eu_interlocked(op.cls, 1'b1);     // io_interlock=reg_pfx
+        if (ilk && regonly && s.r[0].valid && s.r[0].detached && s.r[0].ncyc != '0
+                && int'(s.r[0].kind) == V35_RK_IO_WRITE)
+            return 1'b0;
+        if (ilk && regonly && b.kind == V35_K_IO_WRITE && b.pos != 3'd0)
+            return 1'b0;                        // io_busy_start=issue
+        portf = (is_cls(op.cls, V35_CLS_OUT) || is_cls(op.cls, V35_CLS_IN)) && op.length > 3'd1;
+        if (portf) begin                        // dw_port=hold
+            dw0 = dw_req(s.r[0]);
+            dw1 = dw_req(s.r[1]);
+            dw2 = dw_req(s.r[2]);
+            if ((dw0 || dw1 || dw2) && (dw1 || dw2 || bus_io(b)))
+                return 1'b0;
+            if (b.wl || (c.p ? c.wl_p : c.wl_t)) begin   // wlatch_cls=port
+                s.e.latch_wait_now = 1'b1;
+                return 1'b0;
+            end
+        end
+        if ((portf || op.modrm) && q.rq_valid && q.rq_age != '0 && !q.inflight && b.free) begin
+            st = q_op(c, s, V35_EQ_STORED, 1'b0, 1'b0, 20'd0);   // io_older=io_modrm
+            if (st < 8'(FIT_IO_B2B_Q))
+                return 1'b0;
+        end
+        q = qv(c);
+        if (op.ea_v && op.modrm && op.imm_bytes != '0 && b.free && !q.inflight && b.fprev) begin
+            st = q_op(c, s, V35_EQ_STORED, 1'b0, 1'b0, 20'd0);   // imm_start=wait
+            if (st <= 8'(FIT_IO_B2B_Q)) begin
+                s2 = s;
+                s2.d.ir_v = 1'b0;               // the IR it empties counted as room
+                room = q_op(c, s2, V35_EQ_ROOM, 1'b0, 1'b0, 20'd0);
+                if ($signed(room) >= 8'sd2)
+                    return 1'b0;
+            end
+        end
+        q = qv(c);
+        if (!op.modrm && q.b2b_now) begin       // io_b2b=all
+            st = q_op(c, s, V35_EQ_STORED, 1'b0, 1'b0, 20'd0);
+            if (st < 8'(FIT_IO_B2B_Q))
+                return 1'b0;
+        end
+        // the start
+        wbu = int'(s.e.wb) - (s.e.done_v ? int'(s.e.done_age) : 0);   // wb_from=end
+        s.e.wbu = 2'(wbu > 0 ? wbu : 0);
+        s.e.done_v = 1'b0;
+        s.e.done_age = '0;
+        s.e.wb = 2'((op.ea_v && has(op.cls, V35_CN_MWB)) ? cost(op.cls, V35_CN_MWB)
+                                                          : cost(op.cls, V35_CN_WB));
+        s.e.route = (op.ea_v && op.swap) ? 2'(cost(op.cls, V35_CN_DCLK)) : 2'd0;   // dest_route=slot
+        s.e.cls = op.cls;
+        s.e.grp_form = op.group;
+        s.e.unit = op.ea_v && (op.shift || is_cls(op.cls, V35_CLS_MUL)
+                               || is_cls(op.cls, V35_CLS_DIV) || is_cls(op.cls, V35_CLS_PUSH_MEM));
+        s.e.unit_early = 1'b0;
+        s.e.exec_v = 1'b0;
+        s.e.exec_age = '0;
+        s.e.exec_par = 1'b0;
+        s.e.reg_early = 1'b0;
+        s.e.shift_latched = 1'b0;
+        s.e.modrm = op.modrm;
+        s.e.mem = op.ea_v && op.bus;
+        s.e.op_len = op.length;
+        s.e.imm_bytes = op.imm_bytes;
+        s.e.taken = '0;
+        s.e.disp = op.disp;
+        s.e.df_v = 1'b0;
+        s.e.df_off = '0;
+        fl = 0;
+        if (op.ea_v && op.imm_bytes != '0 && has(op.cls, V35_CN_ISTART))
+            fl = int'(cost(op.cls, V35_CN_ISTART)) + int'(op.imm_bytes);   // imm_count=start
+        s.e.fixed = op.fixed_alu && op.ea_v;    // abort_fixed
+        if (fl != 0 && op.group && op.fixed_alu)
+            fl = fl + int'(cost(6'(V35_CLS_LOAD_ALU), V35_CN_FGRP));   // fixed_floor
+        s.e.floor_n = 4'(fl);
+        s.e.start_age = '0;
+        s.e.fs_this = s.e.fs_now;
+        s.d = dec_start(s.d, op.length, 2'(cost(op.cls, V35_CN_NX)), op.modrm,
+                        op.imm_bytes != '0 && !op.ea_v);
+        s.d.ir_hold = op.ea_v && op.modrm && op.disp != '0 && op.bus;   // ir_load=disp_data
+        void'(q_op(c, s, V35_EQ_START, opr.taken, 1'b0,
+                   opr.taken ? 20'(cost(op.cls, V35_CN_HOLD)) : 20'd0));   // flush_hold=start
+        s.e.wbs = v35_wbsync(int'(op.cls), op.length == 3'd1);
+        fmt = eu_fmt(op, opr.count, opr.taken);
+        if (fmt != opr.fmt)
+            fail(c, V35_EE_FMT);
+        tm = v35_tmpl_sel(fmt);
+        if (tm < 0) begin
+            fail(c, V35_EE_TMPL);
+            tm = 0;
+        end
+        s.e.tmpl = 8'(tm);
+        s.e.count = opr.count;
+        s.e.ins = 1'b0;
+        s.e.ins_at = '0;
+        s.e.k = '0;
+        s.e.ea = opr.ea;
+        s.e.port = opr.port;
+        s.e.sr = opr.sr;
+        s.e.sw = opr.sw;
+        s.e.tgt = opr.target;
+        s.e.pc = s.e.pc + {13'd0, op.length};
+        c.starts = c.starts + 2'd1;
+        return 1'b1;
+    endfunction
+
+    // _flush: the queue and the IR emptied, the fetch pointer at the target, the EU's next
+    // instruction the target's
+    function automatic void eu_flush(inout v35_st_t s, inout v35_ctx_t c);
+        logic [19:0] a;
+        a = code_base + {4'd0, s.e.tgt};
+        void'(q_op(c, s, V35_EQ_FLUSH, 1'b0, 1'b0, a));
+        s.d.ir_v = 1'b0;
+        s.d.ir_addr = 20'd0;
+        s.d.taddr = a;
+        s.d.mate_next = 1'b0;
+        s.e.pc = s.e.tgt;
+        s.e.refill = 1'b1;
+    endfunction
+
+    // _unit_hold: a register shift, multiply or divide in its exec clocks waits at a
+    // micro-boundary while a fetch, or an aborted cycle, is past its second clock
+    function automatic logic eu_unit_hold(inout v35_st_t s, inout v35_ctx_t c,
+                                          input v35_bview_t b);
+        v35_qview_t q;
+        int hp, left;
+        logic fetch;
+        eu_unit_hold = 1'b0;
+        hp = int'(cost(s.e.cls, V35_CN_HPHASE));
+        if (int'(s.e.exec_age) < hp || (s.e.exec_par ^ hp[0]))
+            return 1'b0;
+        q = qv(c);
+        fetch = b.kind == V35_K_FETCH && b.pos >= 3'd2;
+        if (fetch) begin
+            if (s.e.hd_fetch)
+                return 1'b0;                    // this cycle held it already
+            left = int'(b.len) - 1 - int'(b.pos);
+            s.e.hd_fetch = 1'b1;
+        end else if (q.ab_valid && q.ab_left == '0) begin
+            if (c.held_abort)
+                return 1'b0;
+            left = 0;
+            c.held_abort = 1'b1;
+            s.e.hd_fetch = 1'b0;
+        end else begin
+            return 1'b0;
+        end
+        s.e.res = s.e.res + 10'(left + 1);      // end + 1 - t
+        return 1'b1;
+    endfunction
+
+    // _io_drop (io_take=unit)
+    function automatic logic eu_io_drop(inout v35_st_t s, inout v35_ctx_t c,
+                                        input v35_bview_t b);
+        v35_qview_t q;
+        logic loop;
+        eu_io_drop = 1'b0;
+        if (s.d.need != '0 || s.e.taken == '0)
+            return 1'b0;
+        if (s.e.mem && !(s.e.unit && (is_cls(s.e.cls, V35_CLS_MUL) || is_cls(s.e.cls, V35_CLS_DIV))))
+            return 1'b0;
+        q = qv(c);
+        if (!(s.e.start_age == '0 && bus_io(b) && b.pos == 3'd0 && q.arrived_now && q.latched
+              && eu_interlocked(s.e.cls, 1'b0)))
+            return 1'b0;
+        loop = is_cls(s.e.cls, V35_CLS_SHIFT_CL) || is_cls(s.e.cls, V35_CLS_SHIFT_IMM)
+               || is_cls(s.e.cls, V35_CLS_MUL) || is_cls(s.e.cls, V35_CLS_DIV);
+        void'(q_op(c, s, V35_EQ_DROP_RETRY, loop, 1'b1, 20'd0));   // abort_unit=loop
+        return 1'b1;
+    endfunction
+
+    // the ready test of _port_take's port_ready=issue (count >= setup: the arbiter's count)
+    function automatic logic eu_ready(input v35_st_t s, input v35_ctx_t c, input int i);
+        logic [6:0] n;
+        n = c.fresh[i] ? 7'd0 : (c.p ? counts_p[i] : counts_t[i]);
+        eu_ready = n >= s.r[i].setup;
+    endfunction
+
+    // _port_take: a port byte taken (port_latch=relatch, port_landed, port_ready=issue)
+    function automatic void eu_port_take(inout v35_st_t s, inout v35_ctx_t c,
+                                         input v35_stp_t st, input v35_bview_t b);
+        v35_qview_t q;
+        logic [2:0] held;
+        logic late;
+        logic [1:0] idx;
+        int nb;
+        q = qv(c);
+        late = q.arrived_now && q.latched;
+        held = 3'd0;
+        for (int i = 0; i < 3; i++) begin
+            if (s.r[i].valid && eu_ready(s, c, i) && s.r[i].nb_off == '0
+                    && b.kind == V35_K_NONE) begin
+                // it issues on this clock
+            end else if (s.r[i].valid && s.r[i].detached && s.r[i].ncyc != '0
+                         && s.r[i].issued == '0) begin
+                nb = int'(late) + int'(cost(s.r[i].cls, V35_CN_RELATCH));
+                if (nb > int'(s.r[i].nb_off)) s.r[i].nb_off = 4'(nb);
+                held[i] = 1'b1;
+            end
+        end
+        s.e.port_now = 1'b1;
+        s.e.port_held = held;
+        if (s.r[0].valid && s.r[0].detached && s.r[0].ncyc != '0) begin
+            s.e.ins = 1'b1;                     // the slot, then the relatched post
+            s.e.ins_at = s.e.k;
+            return;
+        end
+        idx = eu_submit(s, c, st, st.detached);
+        if (idx != 2'd0)
+            s.r[int'(idx) - 1].port = 1'b1;
+        if (!st.detached)
+            s.e.own = idx;
+    endfunction
+
+    // ------------------------------------------------ tick
+
+    function automatic void eu_tick(inout v35_st_t s, inout v35_ctx_t c, input v35_bview_t b);
+        v35_qview_t q;
+        v35_stp_t st, pst;
+        logic [7:0] a, room;
+        logic [2:0] n, bytes;
+        logic last, wide, io_drop, asked, held, lapse;
+        int ns, nb;
+        q = qv(c);
+        if (q.sh_valid && $signed(q.sh_off) <= 0)
+            void'(q_op(c, s, V35_EQ_SHIFT_END, 1'b0, 1'b0, 20'd0));   // count_latch's end
+        q = qv(c);
+        if (q.rt_valid && $signed(q.rt_off) <= 0)
+            void'(q_op(c, s, V35_EQ_RETRY_END, 1'b0, 1'b0, 20'd0));   // abort_unit=loop's exit
+        // refresh_eu=hold, refresh_reraise, shift_exit0: refresh on (C5)
+        if (s.e.exec_v && s.e.res != '0 && eu_unit_hold(s, c, b))
+            return;
+        for (int it = 0; it < 24; it++) begin
+            if (s.e.halted)
+                return;
+            if (s.e.res != '0)
+                return;
+            ns = eu_nsteps(s.e);
+            if (int'(s.e.k) >= ns && !s.e.done_v) begin
+                s.e.done_v = 1'b1;              // the running instruction's steps are done
+                s.e.done_age = '0;
+            end
+            if (int'(s.e.k) >= ns && !eu_start(s, c, b))
+                return;
+            if (s.e.sync == SYNC_DEFER) begin   // imm_landed
+                q = qv(c);
+                a = q_op(c, s, V35_EQ_ASKED, 1'b0, 1'b0, 20'd0);
+                s.e.sync = SYNC_COUNT;
+                s.e.owed = 2'(int'(q.inflight) + int'(a[0]));
+            end
+            if (s.e.sync == SYNC_COUNT && s.e.owed != '0) begin
+                q = qv(c);
+                lapse = 1'b0;                   // refresh_sync=run: no early run (C5)
+                if (!q.inflight && !q.ab_valid) begin
+                    room = q_op(c, s, V35_EQ_ROOM, 1'b0, 1'b0, 20'd0);
+                    lapse = $signed(room) < 8'sd2 || q.dropped;   // wlatch_ir=False
+                end
+                if (lapse) begin
+                    // the request the sync counted has lapsed
+                end else if (q.ab_valid && q.ab_left == '0 && q.ab_this && !s.e.mem
+                             && (is_cls(s.e.cls, V35_CLS_SHIFT_IMM) || is_cls(s.e.cls, V35_CLS_MUL)
+                                 || is_cls(s.e.cls, V35_CLS_DIV))
+                             && s.e.owed == 2'd1) begin
+                    s.e.reg_early = 1'b1;       // abort_reg
+                end else begin
+                    return;
+                end
+            end
+            s.e.sync = SYNC_NONE;
+            s.e.owed = '0;
+            st = eu_step(s.e, int'(s.e.k));
+            case (int'(st.op))
+                V35_SOP_CLOCKS: begin
+                    if (st.n != '0 && s.e.taken != '0 && !s.e.mem && s.d.need == '0
+                            && eu_interlocked(s.e.cls, 1'b1) && bus_io(b)
+                            && {1'b0, b.pos} == s.e.start_age) begin
+                        s.e.res = 10'(int'(b.len) - int'(b.pos));   // io_exec=after_io
+                        return;
+                    end
+                    s.e.k = s.e.k + 1'b1;
+                    if (st.n != '0 && !s.e.exec_v && !s.e.mem && s.e.taken != '0
+                            && s.d.need == '0
+                            && (is_cls(s.e.cls, V35_CLS_SHIFT_IMM) || is_cls(s.e.cls, V35_CLS_SHIFT_CL)
+                                || is_cls(s.e.cls, V35_CLS_MUL) || is_cls(s.e.cls, V35_CLS_DIV))) begin
+                        s.e.exec_v = 1'b1;      // unit_hold: the exec's first clock
+                        s.e.exec_age = '0;
+                        s.e.exec_par = 1'b0;
+                    end
+                    if (st.n != '0) begin
+                        s.e.res = st.n;
+                        if (int'(st.tag) == V35_STAG_EA && s.e.mem && s.e.disp != '0)
+                            s.d.ea_off = 2'(st.n);  // ea_ir_room
+                        last = int'(s.e.k) == eu_nsteps(s.e);
+                        q = qv(c);
+                        if ((is_cls(s.e.cls, V35_CLS_SHIFT_CL) || is_cls(s.e.cls, V35_CLS_SHIFT_IMM))
+                                && !s.e.mem && last && q.retry && q.retry_loop && q.ab_this)
+                            void'(q_op(c, s, V35_EQ_RETRY_SET, 1'b0, 1'b0,
+                                       off20(int'(s.e.res) - FIT_PER_SHIFT_COUNT)));
+                        q = qv(c);
+                        if ((is_cls(s.e.cls, V35_CLS_MUL) || is_cls(s.e.cls, V35_CLS_DIV))
+                                && !s.e.mem && last && q.retry && q.retry_loop && q.ab_this)
+                            void'(q_op(c, s, V35_EQ_RETRY_SET, 1'b0, 1'b0,
+                                       off20(int'(s.e.res) - int'(cost(s.e.cls, V35_CN_MTAIL)))));
+                        q = qv(c);
+                        if (q.rt_valid && $signed(q.rt_off) <= 0)   // retry_first
+                            void'(q_op(c, s, V35_EQ_RETRY_END, 1'b0, 1'b0, 20'd0));
+                        q = qv(c);
+                        if (q.shift_held && last)   // count_latch: its last clock
+                            void'(q_op(c, s, V35_EQ_SHIFT_SET, 1'b0, 1'b0,
+                                       off20(int'(s.e.res) - 1)));
+                        q = qv(c);
+                        if (int'(st.tag) == V35_STAG_MEXEC && !s.e.unit_early && q.retry
+                                && q.retry_loop && q.ab_this)   // io_take=unit
+                            void'(q_op(c, s, V35_EQ_RETRY_SET, 1'b0, 1'b0,
+                                       off20(int'(s.e.res) - int'(cost(s.e.cls, V35_CN_MTAIL)))));
+                        if (int'(st.tag) == V35_STAG_MEXEC && s.e.unit_early) begin   // abort_unit=loop
+                            q = qv(c);
+                            if (q.retry && q.retry_loop)
+                                void'(q_op(c, s, V35_EQ_RETRY_SET, 1'b0, 1'b0,
+                                           off20(int'(s.e.res) - int'(cost(s.e.cls, V35_CN_MTAIL)))));
+                            s.e.res = s.e.res + 1'b1;
+                        end
+                    end
+                end
+                V35_SOP_NOWAIT: begin           // fixed_lookup=decoder_nowait
+                    if (!s.e.nw_v) begin
+                        s.e.nw_v = 1'b1;
+                        s.e.nw = 3'(st.n);
+                        if (s.e.start_age == 4'd1 && s.e.fs_this)
+                            s.e.nw = s.e.nw + 1'b1;     // lookup_start
+                    end
+                    if (s.e.nw != '0 && !b.in_wait)
+                        s.e.nw = s.e.nw - 1'b1;
+                    if (s.e.nw != '0) begin
+                        s.e.res = 10'd1;
+                        return;
+                    end
+                    s.e.nw_v = 1'b0;
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_TAKE: begin
+                    // a port take's word carries its request's setup in n: its bytes are the
+                    // form's operand bytes (E4..E7: one)
+                    bytes = int'(st.tag) == V35_STAG_PORT ? s.e.op_len - 3'd1 : 3'(st.n);
+                    if (bytes == '0) begin
+                        s.e.k = s.e.k + 1'b1;
+                    end else begin
+                        if (s.e.left == '0)
+                            s.e.left = bytes;
+                        if (eu_late_read(s, c, b))
+                            return;             // late_read
+                        if (s.e.mem && s.e.disp != '0 && s.e.taken == 3'd1 && eu_late_fetch(b))
+                            return;             // late_disp=all
+                        wide = int'(st.tag) == V35_STAG_WORD || int'(st.tag) == V35_STAG_CHAIN_WORD;
+                        n = dec_take(s, c, s.e.left, wide);
+                        q = qv(c);
+                        if (n == '0 && q.dropped)
+                            void'(q_op(c, s, V35_EQ_RERAISE, 1'b0, 1'b0, 20'd0));
+                        s.e.taken = s.e.taken + n;
+                        s.e.left = s.e.left - n;
+                        if (n != '0 && s.d.need == '0 && is_cls(s.e.cls, V35_CLS_REG) && bus_io(b)
+                                && b.pos == 3'd0)
+                            s.d.ra_off = s.d.ra_off + 2'd1;   // io_take_nx
+                        if (n != '0 && s.e.mem && s.e.disp != '0
+                                && s.e.taken == s.e.op_len - 3'd1 - {1'b0, s.e.imm_bytes}) begin
+                            void'(q_op(c, s, V35_EQ_DISP, 1'b0, 1'b0, 20'd0));   // latch_disp
+                            q = qv(c);
+                            if (q.arrived_now)
+                                s.d.ir_hold = 1'b0;     // ir_load: on a word's delivery clock
+                            if (cost(s.e.cls, V35_CN_DFLOOR) != '0)
+                                eu_floor(s, 3'(cost(s.e.cls, V35_CN_DFLOOR)));
+                        end
+                        if (n != '0 && s.e.taken >= s.e.op_len - 3'd1
+                                && ((s.e.imm_bytes != '0 && !s.e.mem)
+                                    || (!s.e.mem && eu_interlocked(s.e.cls, 1'b0)))) begin
+                            if (c.p) c.wl_p = 1'b1;     // wlatch_imm=reg_last: the data latch
+                            else c.wl_t = 1'b1;
+                        end
+                        if (s.e.left != '0)
+                            return;             // stalled or more to take
+                        dec_commit(s, c);
+                        q = qv(c);
+                        if (is_cls(s.e.cls, V35_CLS_SHIFT_IMM) && s.e.imm_bytes != '0
+                                && q.arrived_now && q.latched) begin   // count_latch
+                            room = q_op(c, s, V35_EQ_ROOM, 1'b0, 1'b0, 20'd0);
+                            if (int'($signed(room)) - ((s.d.need == '0) ? int'(q.latched) : 0) < 2) begin
+                                s.e.shift_latched = 1'b1;
+                                void'(q_op(c, s, V35_EQ_SHIFT_HOLD, 1'b0, 1'b0, 20'd0));
+                            end
+                        end
+                        io_drop = eu_io_drop(s, c, b);
+                        s.e.k = s.e.k + 1'b1;
+                        if (int'(st.tag) == V35_STAG_PORT) begin
+                            eu_port_take(s, c, st, b);
+                            s.e.res = 10'd1;    // port_sync=none
+                            return;
+                        end
+                        if (int'(st.tag) == V35_STAG_LEAD) begin
+                            // alongside the next step's clocks
+                        end else if (int'(st.tag) == V35_STAG_CHAIN
+                                     || int'(st.tag) == V35_STAG_CHAIN_WORD) begin
+                            s.e.res = 10'd1;    // more operand bytes follow: no sync
+                            return;
+                        end else if (eu_data_next(s)) begin
+                            // post_on_take=nomodrm: post the request on the take clock
+                        end else begin          // take_sync=pending
+                            held = s.r[0].valid && s.r[0].detached && s.r[0].ncyc != '0;
+                            asked = 1'b0;
+                            if (!io_drop) begin
+                                a = q_op(c, s, V35_EQ_ASKED, 1'b0, 1'b0, 20'd0);
+                                asked = a[0];
+                            end
+                            if (asked && bus_io(b) && b.pos == 3'd0)
+                                asked = 1'b0;   // sync_io=issue
+                            q = qv(c);
+                            s.e.sync = SYNC_COUNT;
+                            s.e.owed = 2'(int'(q.inflight) + int'(asked && !held));
+                            if (s.e.grp_form && s.e.mem && s.e.disp == 2'd2
+                                    && is_cls(s.e.cls, V35_CLS_RMW) && s.e.imm_bytes == '0
+                                    && s.e.taken == s.e.op_len - 3'd1) begin   // grp_disp=hold
+                                s.e.owed = {1'b0, q.inflight};
+                                void'(q_op(c, s, V35_EQ_GDISP, 1'b0, 1'b0,
+                                           20'(cost(s.e.cls, V35_CN_GRP_FREE))));
+                            end
+                            if (s.e.imm_bytes != '0 && s.e.mem && s.e.disp != '0) begin
+                                s.e.sync = SYNC_NONE;   // sync_req=disp
+                                s.e.owed = '0;
+                            end
+                            q = qv(c);
+                            if (s.e.imm_bytes != '0 && !s.e.mem && q.arrived_now && q.latched) begin
+                                s.e.sync = SYNC_DEFER;  // imm_landed
+                                s.e.owed = '0;
+                            end
+                            if (s.e.shift_latched) begin   // count_latch
+                                s.e.sync = SYNC_COUNT;
+                                s.e.owed = {1'b0, q.inflight};
+                                s.e.res = q.arrived_now ? 10'd2 : 10'd1;
+                                return;
+                            end
+                            s.e.res = 10'd1;
+                            return;
+                        end
+                    end
+                end
+                V35_SOP_DATA: begin
+                    if (s.e.own == '0) begin
+                        s.e.own = eu_submit(s, c, st, 1'b0);
+                        if (s.e.own == '0)
+                            return;             // the slot and its queue are full
+                    end
+                    nb = int'(s.e.own) - 1;
+                    if (!s.r[nb].da_v || (s.r[nb].da_off != '0))
+                        return;
+                    eu_retire(s);
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_POST: begin             // post and go on
+                    if (s.e.own == '0) begin
+                        s.e.own = eu_submit(s, c, st, 1'b0);
+                        if (s.e.own == '0)
+                            return;
+                        pst = s.e.k != '0 ? eu_step(s.e, int'(s.e.k) - 1) : '0;
+                        if (is_io(st.kind) && s.e.k != '0 && int'(pst.op) == V35_SOP_SLOT)
+                            s.r[int'(s.e.own) - 1].port = 1'b1;   // a port form relatching
+                    end
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_POST_IO: begin          // io_release=post
+                    nb = int'(eu_submit(s, c, st, 1'b1));
+                    if (nb == 0)
+                        return;
+                    pst = s.e.k != '0 ? eu_step(s.e, int'(s.e.k) - 1) : '0;
+                    if (s.e.k != '0 && int'(pst.op) == V35_SOP_SLOT)
+                        s.r[nb - 1].port = 1'b1;
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_SLOT: begin             // the I/O ahead has released the latch
+                    if (s.r[0].valid && s.r[0].ncyc != '0)
+                        return;
+                    if (s.e.lu_held)
+                        fail(c, V35_EE_SLOT);
+                    s.e.k = s.e.k + 1'b1;
+                    s.e.res = {7'd0, s.e.lu_off};
+                end
+                V35_SOP_ISSUED: begin
+                    if (s.e.own != '0 && s.r[int'(s.e.own) - 1].issued == '0)
+                        return;
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_WAIT: begin
+                    if (s.e.own != '0) begin
+                        nb = int'(s.e.own) - 1;
+                        if (!s.r[nb].da_v || s.r[nb].da_off != '0)
+                            return;
+                        eu_retire(s);
+                    end
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_WBSYNC: begin           // the previous write-back (wb_from=end)
+                    if (s.e.wbu != '0) begin
+                        s.e.res = {8'd0, s.e.wbu};
+                        return;
+                    end
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_HALT: begin
+                    s.e.halt_now = 1'b1;
+                    s.e.halted = 1'b1;          // halt_refresh's queue.halted: refresh on (C5)
+                    s.d.stopped = 1'b1;
+                    return;
+                end
+                V35_SOP_FLUSH, V35_SOP_DECIDE: begin   // a transfer (flush_inflight=wait, untaken=wait)
+                    nb = int'(cost(s.e.cls, int'(st.op) == V35_SOP_FLUSH ? V35_CN_FGAP : V35_CN_NFGAP));
+                    if (b.finf || int'(b.fsince) <= nb)
+                        return;                 // fgap clocks after the last fetch's end
+                    if (int'(st.op) == V35_SOP_FLUSH)
+                        eu_flush(s, c);
+                    s.e.k = s.e.k + 1'b1;
+                end
+                default: begin
+                    fail(c, V35_EE_STEP);
+                    return;
+                end
+            endcase
+        end
+        fail(c, V35_EE_LOOP);
+    endfunction
+
+    // ------------------------------------------------ phase X: the arbiter's touches
+
+    // the slot's next cycle (eu.issue's pop): kind, address, width
+    function automatic void eu_cycle(input v35_req_t r, output logic [2:0] kind,
+                                     output logic [19:0] addr, output logic [1:0] width);
+        case (int'(r.kind))
+            V35_RK_READ: kind = V35_K_READ;
+            V35_RK_WRITE: kind = V35_K_WRITE;
+            V35_RK_IO_READ: kind = V35_K_IO_READ;
+            V35_RK_IO_WRITE: kind = V35_K_IO_WRITE;
+            default: kind = V35_K_NONE;
+        endcase
+        addr = r.addr;
+        if (r.w2 && r.addr[0] && !is_io(r.kind)) begin   // odd_split=atomic
+            if (r.ncyc == 2'd2) begin
+                width = V35_BW_HI;
+            end else begin
+                addr = r.addr + 20'd1;
+                width = V35_BW_LO;
+            end
+        end else if (r.w2) begin
+            width = V35_BW_WORD;
+        end else begin
+            width = r.addr[0] ? V35_BW_HI : V35_BW_LO;
+        end
+    endfunction
+
+    function automatic void eu_issue(inout v35_st_t s, inout v35_ctx_t c,
+                                     input logic [2:0] len);
+        logic [2:0] kind;
+        logic [19:0] addr;
+        logic [1:0] width;
+        if (!s.r[0].valid || s.r[0].ncyc == '0) begin
+            fail(c, V35_EE_XOP);
+            return;
+        end
+        eu_cycle(s.r[0], kind, addr, width);
+        if (!c.x_cyc) begin
+            c.x_cyc = 1'b1;
+            c.x_kind = kind;
+            c.x_addr = addr;
+            c.x_width = width;
+        end
+        s.r[0].ncyc = s.r[0].ncyc - 1'b1;
+        s.r[0].issued = s.r[0].issued + 1'b1;
+        if (s.r[0].ncyc == '0 && s.r[0].detached) begin
+            if (int'(s.r[0].kind) == V35_RK_IO_WRITE) begin
+                s.e.lu_held = 1'b0;             // the latches free once the cycle ends
+                s.e.lu_off = len;
+            end
+            c.retick = 1'b1;
+            eu_promote(s, c);
+            return;
+        end
+        if (s.r[0].ncyc == '0 && int'(s.r[0].kind) != V35_RK_READ
+                && int'(s.r[0].kind) != V35_RK_IO_READ) begin   // write_wait=mem_end
+            s.r[0].da_v = 1'b1;
+            s.r[0].da_past = 1'b0;
+            s.r[0].da_off = is_io(s.r[0].kind) ? 3'd0 : len;
+        end
+    endfunction
+
+    // issue_nowrite (grp_read=rmw_slot_any, slot_latch, slot_idle=eu): len, the fetch's
+    function automatic void eu_issue_nowrite(inout v35_st_t s, inout v35_ctx_t c,
+                                             input logic [2:0] len);
+        if (!s.r[0].valid || s.r[0].ncyc == '0) begin
+            fail(c, V35_EE_XOP);
+            return;
+        end
+        s.r[0].ncyc = s.r[0].ncyc - 1'b1;
+        c.wl_x = 1'b1;
+        s.r[0].da_v = 1'b1;
+        s.r[0].da_past = 1'b0;
+        s.r[0].da_off = len != '0 ? len : 3'(cost(s.e.cls, V35_CN_SIDLE));
+    endfunction
+
+    function automatic void eu_xop(inout v35_st_t s, inout v35_ctx_t c, input logic [10:0] w);
+        logic [2:0] code;
+        logic [7:0] val;
+        {code, val} = w;
+        case (code)
+            V35_XOP_ISSUE: eu_issue(s, c, val[2:0]);
+            V35_XOP_NOWRITE: eu_issue_nowrite(s, c, val[2:0]);
+            V35_XOP_FETCH_START: begin
+                s.e.fs_now = 1'b1;
+                s.e.fs_this = 1'b1;             // the arbiter's test: start_clock == t
+            end
+            V35_XOP_SYNC_ONE: begin             // abort_latched
+                s.e.sync = SYNC_COUNT;
+                s.e.owed = 2'd1;
+            end
+            V35_XOP_FREE0: begin
+                if (!s.r[0].valid) fail(c, V35_EE_XOP);
+                s.r[0].free_v = 1'b1;
+                s.r[0].free = '0;
+            end
+            V35_XOP_NOT_BEFORE: begin
+                if (!s.r[0].valid) fail(c, V35_EE_XOP);
+                s.r[0].nb_off = val[3:0];
+            end
+            default: ;
+        endcase
+    endfunction
+
+    // ------------------------------------------------ phase P: Machine.run's post-issue pass
+
+    function automatic void mach_post(inout v35_st_t s, inout v35_ctx_t c);
+        v35_qview_t q;
+        v35_bview_t b;
+        logic raised, xio, xfetch;
+        logic [7:0] a;
+        int nb;
+        b = v35_bview_t'(bus_p);
+        xio = x_kind == V35_K_IO_READ || x_kind == V35_K_IO_WRITE;
+        xfetch = x_kind == V35_K_FETCH;
+        if (x_valid && x_eu && s.d.ir_hold) begin   // ir_load: the data cycle issued
+            s.d.ir_hold = 1'b0;
+            dec_load_ir(s, c);
+            q = qv(c);
+            if (q.ir_now)
+                void'(q_op(c, s, V35_EQ_EVAL, 1'b0, 1'b0, 20'd0));   // the IR load: a change
+        end
+        if (x_valid && x_eu && (c.retick || (s.r[0].valid && s.r[0].da_v && !s.r[0].da_past
+                                             && s.r[0].da_off == '0))) begin
+            c.retick = 1'b0;
+            q = qv(c);
+            raised = q.flag;
+            eu_tick(s, c, b);                   // released on the issue clock
+            dec_load_ir(s, c);
+            q = qv(c);
+            if (xio && !raised && q.ir_now && !q.take_now && !q.inflight) begin   // io_ir_hold
+                a = q_op(c, s, V35_EQ_REQUESTING, 1'b0, 1'b0, 20'd0);
+                if (a[0])
+                    void'(q_op(c, s, V35_EQ_IO_HELD_SET, 1'b0, 1'b0, 20'd0));
+            end
+        end
+        q = qv(c);
+        if (x_valid && xio && q.flag && q.arrived_now && q.latched && s.e.unit
+                && (is_cls(s.e.cls, V35_CLS_MUL) || is_cls(s.e.cls, V35_CLS_DIV))
+                && !q.inflight && !q.retry)     // io_take=unit
+            void'(q_op(c, s, V35_EQ_DROP_RETRY, 1'b1, s.e.start_age == '0, 20'd0));
+        if (x_valid && xfetch && s.e.port_now && s.e.port_held != '0) begin   // port_issue
+            for (int i = 0; i < 3; i++) begin
+                if (s.e.port_held[i] && s.r[i].ncyc != '0 && s.r[i].issued == '0) begin
+                    nb = 1 + int'(cost(s.r[i].cls, V35_CN_RELATCH));
+                    if (nb > int'(s.r[i].nb_off)) s.r[i].nb_off = 4'(nb);
+                end
+            end
+        end
+        q = qv(c);
+        if (x_valid && xfetch && s.e.start_age == '0 && q.flag && q.ir_now && !q.take_now
+                && s.e.op_len == 3'd1 && eu_interlocked(s.e.cls, 1'b1))   // nop_hold=any
+            void'(q_op(c, s, V35_EQ_NOP_HOLD, 1'b0, 1'b0, 20'd0));
+    endfunction
+
+    // ------------------------------------------------ the clock's chain
+    v35_st_t r;
+    v35_st_t s_c, s_t, s_l, s_x, s_p, s_e;
+    v35_ctx_t cx;
+
+    always_comb begin
+        v35_st_t s;
+        v35_ctx_t c;
+        v35_stp_t st0;
+        c = '0;
+        s = eu_begin(r, v35_bview_t'(bus_t), fetch_done);
+        if (c_eu && c_read)
+            eu_complete(s);
+        s_c = s;
+        qsnap_c = dec_snap(s.d, imm16(s));
+        eu_tick(s, c, v35_bview_t'(bus_t));
+        s_t = s;
+        n_t = c.n_tl;
+        dec_load_ir(s, c);
+        s_l = s;
+        for (int i = 0; i < NXOP; i++)
+            eu_xop(s, c, xop[i]);
+        s_x = s;
+        c.p = 1'b1;
+        mach_post(s, c);
+        s_p = s;
+        // phase E's latch_start: the byte latched behind a full queue went in on the start
+        st0 = eu_step(s.e, 0);
+        if (q_latch_in && s.e.start_age == '0 && s.e.k == 4'd1
+                && int'(st0.op) == V35_SOP_CLOCKS && st0.n != '0 && s.e.res != '0)
+            s.e.res = s.e.res + 1'b1;
+        s_e = s;
+        qsnap_e = dec_snap(s.d, imm16(s));
+        e_io = !s.e.halted && (is_cls(s.e.cls, V35_CLS_OUT) || is_cls(s.e.cls, V35_CLS_IN))
+               && !(s.r[0].valid && s.r[0].ncyc != '0 && s.r[0].issued != '0)
+               && !(s.r[0].valid && s.r[0].ncyc == '0);
+        e_out = is_cls(s.e.cls, V35_CLS_OUT);
+        cx = c;
+    end
+
+    assign op_tl = cx.ops_tl;
+    assign n_tl = cx.n_tl;
+    assign op_p = cx.ops_p;
+    assign n_p = cx.n_p;
+    assign n_start = cx.starts;
+    assign wl_fill_t = cx.wl_t;
+    assign wl_fill_x = cx.wl_x;
+    assign wl_fill_p = cx.wl_p;
+    assign x_cyc = cx.x_cyc;
+    assign x_cyc_kind = cx.x_kind;
+    assign x_cyc_addr = cx.x_addr;
+    assign x_cyc_width = cx.x_width;
+    assign err_code = cx.err;
+
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            r <= v35_st_t'(init_state);
+            error <= 1'b0;
+        end else if (ce) begin
+            r <= s_e;
+            if (cx.err != 8'd0)
+                error <= 1'b1;
+        end
+    end
+
+`ifdef V35S_STATE_DUMP
+    assign state_c = s_c;
+    assign state_t = s_t;
+    assign state_l = s_l;
+    assign state_x = s_x;
+    assign state_p = s_p;
+    assign state_e = s_e;
+    assign state_dump = r;
+`endif
+endmodule

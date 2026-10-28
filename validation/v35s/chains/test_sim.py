@@ -4763,7 +4763,8 @@ class RefreshOnProbesF27(unittest.TestCase):
         self.assertEqual(m, s)
         self.assertEqual(_span(s, 108, 123), [(113, "refresh"), (118, "fetch"),
                                               (122, "io_write")])
-        m, _ = _events58("F27-out-fc-port-outb-n0-pO-w0", refresh_io_step="step")
+        # (WP61) the stage-12 fields at their old values: the alternative as WP58 measured it
+        m, _ = _events58("F27-out-fc-port-outb-n0-pO-w0", refresh_io_step="step", **_OLD61)
         self.assertEqual(_span(m, 108, 123), [(115, "fetch"), (118, "refresh"),
                                               (123, "io_write")])
 
@@ -4808,7 +4809,7 @@ class RefreshOnProbesF27(unittest.TestCase):
         self.assertEqual(_span(s, 100, 126), [(102, "fetch"), (106, "fetch"), (110, "io_write"),
                                               (113, "refresh"), (122, "io_write"),
                                               (125, "fetch")])
-        m, _ = _events58("F27-out-fc-empty-pE-w1", port_ready="relatch")
+        m, _ = _events58("F27-out-fc-empty-pE-w1", port_ready="relatch", **_OLD61)
         self.assertEqual(_span(m, 100, 126), [(102, "fetch"), (106, "fetch"), (111, "refresh"),
                                               (116, "io_write"), (126, "io_write")])
 
@@ -4856,3 +4857,186 @@ class RefreshOnProbesF27(unittest.TestCase):
     def test_wp58_defaults_are_the_old_model(self):
         for name in WP58:
             self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+
+
+# (WP61) the stage-12 fields and the values the read found (F28, F29)
+WP61 = {"refresh_wb": "free_wait", "refresh_relatch": "issue", "refresh_window": "posted",
+        "refresh_start_seam": "start", "refresh_step_lead": "step", "refresh_beat_b2b": "imm",
+        "grp_disp": "hold", "dw_lift": "moved"}
+_OLD61 = {n: OPTIONS[n][0] for n in WP61}
+WP61_REFRESH = ("refresh_wb", "refresh_relatch", "refresh_window", "refresh_start_seam",
+                "refresh_step_lead", "refresh_beat_b2b")
+
+
+def _events61(cid, **kw):
+    """_events58 under the tracked fit with the WP58 and WP61 values (+ kw)."""
+    return _events58(cid, **{**WP61, **kw})
+
+
+class RefreshExitBeatGroupF28F29(unittest.TestCase):
+    """(WP61, F28, F29) a unit's exit before an OUT under a refresh, the beaten fetch's committed
+    successor, the group forms' displacement hold and the moved DW request's lift: each value
+    against the one it replaced on a named run, silicon clocks from t_fill quoted from
+    chains-F27/F28/F29-w<N>."""
+
+    def test_every_f28_f29_chain_runs_within_the_queue(self):
+        chains = generate(["F28", "F29"])
+        self.assertEqual(len(chains), 1088 + 456)
+        for cfg in (DEFAULT, _fit58(**WP61)):
+            peak = 0
+            for chain in chains:
+                m = Machine(chain, cfg)
+                m.run()                  # raises QueueOverflow on an over-fill
+                peak = max(peak, m.queue.peak)
+            self.assertLessEqual(peak, QUEUE_BYTES)
+
+    def test_the_write_back_runs_under_the_refresh_hold(self):
+        # refresh_wb (state A): F28-out-fc-fence-cl27-n0-pE-w0, the refresh 72-76 over SHL
+        # AW,CL's exit and M0's start: silicon F80 R89 I94 (hold: the OUT starts at 77 and
+        # waits out the write-back to 79, F82 R87 I95)
+        m, s = _events61("F28-out-fc-fence-cl27-n0-pE-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 76, 98), [(80, "fetch"), (89, "refresh"), (94, "io_write"),
+                                            (97, "fetch")])
+        m, _ = _events61("F28-out-fc-fence-cl27-n0-pE-w0", refresh_wb="hold")
+        self.assertEqual(_span(m, 76, 98), [(82, "fetch"), (87, "refresh"), (95, "io_write"),
+                                            (98, "fetch")])
+
+    def test_no_refresh_while_the_out_waits_for_the_write_back(self):
+        # refresh_wb=free_wait (state B): F28-out-fc-fence-cl26-n0-pE-w0, the request on M0's
+        # start 72, its wbsync 72-73: silicon R74 F79 R88 I93 (free: R72 F77 I86 R89)
+        m, s = _events61("F28-out-fc-fence-cl26-n0-pE-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 70, 96), [(74, "refresh"), (79, "fetch"), (88, "refresh"),
+                                            (93, "io_write"), (96, "fetch")])
+        m, _ = _events61("F28-out-fc-fence-cl26-n0-pE-w0", refresh_wb="free")
+        self.assertEqual(_span(m, 70, 96), [(72, "refresh"), (77, "fetch"), (86, "io_write"),
+                                            (89, "refresh"), (94, "fetch")])
+
+    def test_the_refresh_waits_for_a_relatched_issue(self):
+        # refresh_relatch=issue: the same cl27 run, M0's I/O counted out at 87 and relatched to
+        # 89 by the closing OUT's port take at 86, the request at 88: silicon R89 I94 (free:
+        # R87 I92)
+        m, _ = _events61("F28-out-fc-fence-cl27-n0-pE-w0", refresh_relatch="free")
+        self.assertEqual(_span(m, 76, 98), [(80, "fetch"), (87, "refresh"), (92, "io_write"),
+                                            (95, "fetch")])
+
+    def test_the_fetch_free_window_as_posted(self):
+        # refresh_window=posted: F28-push-fc-tail-shlcl8-outb-n0-pO-w0, M1's PUSH write moved in
+        # on the X OUT's issue 158, the request at 160: silicon R162 S167 (need: R164 S169)
+        m, s = _events61("F28-push-fc-tail-shlcl8-outb-n0-pO-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 156, 175), [(158, "io_write"), (162, "refresh"),
+                                              (167, "stack_write"), (170, "fetch"),
+                                              (173, "fetch")])
+        m, _ = _events61("F28-push-fc-tail-shlcl8-outb-n0-pO-w0", refresh_window="need")
+        self.assertEqual(_span(m, 156, 175), [(158, "io_write"), (164, "refresh"),
+                                              (169, "stack_write"), (172, "fetch"),
+                                              (175, "fetch")])
+
+    def test_the_start_clock_keeps_its_boundary(self):
+        # refresh_start_seam=start: F28-out-fc-beat-adddwi-n1-k1-pE-w0, ADD DW,imm16 starts at
+        # 103 taking its ModR/M, the request at 103: silicon R103 F108 (seam: F103 R107)
+        m, s = _events61("F28-out-fc-beat-adddwi-n1-k1-pE-w0")
+        self.assertEqual(_span(m, 99, 115), _span(s, 99, 115))
+        self.assertEqual(_span(s, 99, 109), [(99, "io_write"), (103, "refresh"), (108, "fetch")])
+        m, _ = _events61("F28-out-fc-beat-adddwi-n1-k1-pE-w0", refresh_start_seam="seam")
+        self.assertEqual(_span(m, 99, 109), [(99, "io_write"), (103, "fetch"), (107, "refresh")])
+
+    def test_the_step_takes_the_refresh_on_the_lead(self):
+        # refresh_step_lead=step: F28-out-fc-fence-cl24-n0-pO-w0, the closing OUT's I/O posted
+        # at 92 (steps 95, 97), the request at 96: silicon R97 I102 F105 (lead: F97 R100 I105)
+        m, s = _events61("F28-out-fc-fence-cl24-n0-pO-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 89, 108), [(89, "io_write"), (97, "refresh"),
+                                             (102, "io_write"), (105, "fetch"), (108, "fetch")])
+        m, _ = _events61("F28-out-fc-fence-cl24-n0-pO-w0", refresh_step_lead="lead")
+        self.assertEqual(_span(m, 89, 108), [(89, "io_write"), (97, "fetch"), (100, "refresh"),
+                                             (105, "io_write"), (108, "fetch")])
+
+    def test_the_beaten_fetch_successor(self):
+        # refresh_beat_b2b=imm: F28-out-fc-beat-movawi-n0-k2-pE-w0, R103 F108, the second MOV
+        # AW,imm16 in its pre clocks on the delivery clock 111: silicon F112 (none, take: F111);
+        # F27-out-fc-room-movawi-n0-k2-pO-w0, the closing OUT starting on 121 right after MOV
+        # DW,imm16: silicon F122 (none: F121); F27-push-fc-room-movawi-n0-k3-pE-w0, a MOV
+        # starting on the delivery clock: F112 on time under both
+        for kw, f in (({}, 112), ({"refresh_beat_b2b": "none"}, 111),
+                      ({"refresh_beat_b2b": "take"}, 111)):
+            m, s = _events61("F28-out-fc-beat-movawi-n0-k2-pE-w0", **kw)
+            self.assertEqual(_span(m, 100, 112)[-1], (f, "fetch"), kw)
+        self.assertEqual(_span(s, 100, 116), [(103, "refresh"), (108, "fetch"), (112, "fetch"),
+                                              (115, "fetch")])
+        m, s = _events61("F27-out-fc-room-movawi-n0-k2-pO-w0")
+        self.assertEqual(m, s)
+        m, _ = _events61("F27-out-fc-room-movawi-n0-k2-pO-w0", refresh_beat_b2b="none")
+        self.assertEqual(_span(m, 113, 122), [(113, "refresh"), (118, "fetch"), (121, "fetch")])
+        for kw in ({}, {"refresh_beat_b2b": "none"}):
+            m, s = _events61("F27-push-fc-room-movawi-n0-k3-pE-w0", **kw)
+            self.assertEqual(m, s)
+
+    def test_an_operand_take_delays_the_successor(self):
+        # refresh_beat_b2b=take: F28-out-fc-beat-adddwi-n2-k1-pE-w0, ADD DW,imm16 takes an
+        # immediate byte on the delivery clock 111 (no IR load): silicon F112 (none: F111)
+        m, s = _events61("F28-out-fc-beat-adddwi-n2-k1-pE-w0", refresh_beat_b2b="take")
+        self.assertIn((112, "fetch"), _span(s, 108, 113))
+        self.assertIn((112, "fetch"), _span(m, 108, 113))
+        m, _ = _events61("F28-out-fc-beat-adddwi-n2-k1-pE-w0", refresh_beat_b2b="none")
+        self.assertIn((111, "fetch"), _span(m, 108, 113))
+
+    def test_the_group_displacement_hold(self):
+        # grp_disp=hold: INC [BW+200h] under the OUT marker (F29, refresh off). n1 pO: the
+        # displacement taken at 92: silicon F95 D98 (none: F92 D98); n0 pO, the take at 83 and
+        # M0's I/O 85-87: F91 D94 (none: F88 F91 D94); n1 pE, the take at 91 empties a word:
+        # F91 F94 D97 (none: F91 D97)
+        cases = (("F29-out-ec-gih-incd16-n1-pO-w0", 85, 99, [(85, "io_write"), (89, "fetch"),
+                                                              (92, "fetch"), (98, "data_read")]),
+                 ("F29-out-ec-gih-incd16-n0-pO-w0", 85, 95, [(85, "io_write"), (88, "fetch"),
+                                                              (91, "fetch"), (94, "data_read")]),
+                 ("F29-out-ec-gih-incd16-n1-pE-w0", 84, 98, [(84, "io_write"), (88, "fetch"),
+                                                              (91, "fetch"), (97, "data_read")]))
+        for cid, lo, hi, old in cases:
+            m, s = _events61(cid)
+            self.assertEqual(m, s, cid)
+            m, _ = _events61(cid, grp_disp="none")
+            self.assertEqual(_span(m, lo, hi), old, cid)
+        m, s = _events61("F29-out-ec-gih-incd16-n1-pO-w0")
+        self.assertEqual(_span(s, 85, 99), [(85, "io_write"), (89, "fetch"), (95, "fetch"),
+                                            (98, "data_read")])
+
+    def test_the_moved_dw_request_runs_first(self):
+        # dw_lift=moved: F29-out-ec-dio-dw-stbwd8-n0-pO-w0, OUT DW,AL right after M0, moved in
+        # on M0's issue 85 where the IR load raises the fetch: silicon I85 I92 F95 (posted:
+        # I85 F90 I93)
+        m, s = _events61("F29-out-ec-dio-dw-stbwd8-n0-pO-w0")
+        self.assertEqual(m, s)
+        self.assertEqual(_span(s, 85, 98), [(85, "io_write"), (92, "io_write"), (95, "fetch"),
+                                            (98, "data_write")])
+        m, _ = _events61("F29-out-ec-dio-dw-stbwd8-n0-pO-w0", dw_lift="posted")
+        self.assertEqual(_span(m, 85, 98), [(85, "io_write"), (90, "fetch"), (93, "io_write"),
+                                            (98, "data_write")])
+
+    def test_refresh_off_runs_read_no_refresh_field(self):
+        # the six refresh enums at their old values change no refresh-off run (they are read
+        # only with the refresh machine)
+        old = {n: OPTIONS[n][0] for n in WP61_REFRESH}
+        for cid in ("F3-out-shl_cl2-k1-pE-w2", "F28-out-ec-fence-cl27-n0-pE-w0",
+                    "F28-out-ec-beat-movawi-n0-k2-pE-w0", "F29-out-ec-gih-incd16-n1-pO-w0",
+                    "F16-l-out-shli4-pE-w1"):
+            a, s = _events61(cid)
+            b, _ = _events61(cid, **old)
+            self.assertEqual(a, b, cid)
+            self.assertEqual(a, s, cid)
+
+    def test_the_group_hold_leaves_other_forms(self):
+        # grp_disp: the [BW] forms (F26) and the immediate forms with a displacement keep
+        # their timing
+        for cid in ("F26-out-gih-inc-n1-pE-w0", "F26-out-gih-inc-n2-pO-w0"):
+            a, s = _events61(cid)
+            b, _ = _events61(cid, grp_disp="none")
+            self.assertEqual(a, b, cid)
+            self.assertEqual(a, s, cid)
+
+    def test_wp61_defaults_are_the_old_model(self):
+        for name in WP61:
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+            self.assertIn(WP61[name], OPTIONS[name], name)

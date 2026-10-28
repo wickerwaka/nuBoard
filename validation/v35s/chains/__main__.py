@@ -1,4 +1,4 @@
-"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt [...]"""
+"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt | rtlgen [...]"""
 
 from __future__ import annotations
 
@@ -85,6 +85,11 @@ def main(argv=None) -> int:
     from .fit import add_arguments as fit_arguments, fit_main
     fit = fit_arguments(sub.add_parser("fit", help="staged fit of the cycle model"))
     fit.set_defaults(func=fit_main)
+
+    from .rtlgen import build_parser as rtlgen_parser, main as rtlgen_main
+    rtlgen = rtlgen_parser(sub.add_parser(
+        "rtlgen", help="generate fpga/v35s/core/v35_chain_params.svh from the fit (HDL plan, C)"))
+    rtlgen.set_defaults(func=lambda args: rtlgen_main(args=args))
 
     args = parser.parse_args(argv)
     return args.func(args) or 0

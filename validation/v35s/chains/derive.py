@@ -379,6 +379,9 @@ def _f27_baseline(f, index, extra):
 
 
 BASELINES.update({"F26": ("dM", _empty_baseline), "F27": ("dM", _f27_baseline)})
+# (WP59) F28 (FCh with ECh twins) and F29 (ECh) carry the RFM in the id as F27 does: the empty
+# frame of the same marker, RFM and column (the fence cells against the count-31 empty frame)
+BASELINES.update({"F28": ("dM", _f27_baseline), "F29": ("dM", _f27_baseline)})
 
 
 def apply_costs(family, facts, extra=None) -> dict:
