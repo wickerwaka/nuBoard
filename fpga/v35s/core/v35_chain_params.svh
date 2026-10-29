@@ -252,6 +252,9 @@ function automatic logic [2:0] v35_refresh_length(input logic [7:0] value);
         2'd3: v35_refresh_length = 3'd5;
     endcase
 endfunction
+// the prelude's POP PSW stack read, issued on the model's clock 0 (prelude_anchor=pop)
+localparam logic [19:0] V35_PRELUDE_POP_ADDR = 20'h00EFE;
+localparam logic [15:0] V35_PRELUDE_PSW = 16'h0002;
 localparam logic [2:0] V35_K_NONE = 3'd0;
 localparam logic [2:0] V35_K_FETCH = 3'd1;
 localparam logic [2:0] V35_K_READ = 3'd2;

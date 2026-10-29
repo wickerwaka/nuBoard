@@ -100,6 +100,8 @@ other options and is not built.
 The arbiter (`arbiter.py`) holds no state of its own: it is a function of the other
 machines' state and of the request records, and the history it needs (the last cycles'
 kinds, a fetch run, the I/O recovery) lives in the bus unit and the queue, as listed in A3.
+(The RTL arbiter does hold the request record's arbiter-written fields and the fetch-run and
+I/O-start history, 69 bits: see Decisions, "C4, the arbiter in RTL".)
 
 ### Bus unit (`bus.py`, `BusUnit`)
 
@@ -620,7 +622,7 @@ decision differs it is said here.
 - **C2, the queue in RTL (2026-10-28, WP62; docs/v35s-hdl-plan.md):** `v35_queue.sv` from
   `frozen/queue.py` and the queue's store sites in the other frozen machines; gate exact on
   F0/F2/F9/F11 and over the whole corpus (23,612 runs), alone and together with the RTL bus
-  unit. The state is the A2 representations (177 bits); each queue method is a function of
+  unit. The state is the A2 representations (177 bits, 180 since the follow-up below); each queue method is a function of
   the same name; the other machines' touches are 34 op codes in a per-clock chain of 16
   stages. Where the frozen code and this spec disagreed, the frozen code was followed:
   (1) the storage holds 8 bytes inside a clock (a word delivered into 6 stored bytes that the
@@ -649,6 +651,86 @@ decision differs it is said here.
   mode the queue takes the bus unit's mid-B3 `done_data` at the end of the delivery clock, so
   its chain is compared after `ce_mid`. Not built, being dead under the fit: `words`, `held`,
   `io_abort`, `snap`, `peak`, `read_t`, `flush_t`, the per-byte usable clocks and `completed`.
+  Follow-up (WP63): `grp_disp=hold` (the thirty-seventh fit) adds `gdisp_until`, built as
+  `gd_valid` + `gd_off` (2 bits, `rmw.grp_free` is 3) and the op `V35_QOP_GDISP`; 180 bits now.
+- **C3, the decoder and the EU in RTL (2026-10-28, WP63; docs/v35s-hdl-plan.md):**
+  `v35_decoder.sv` and `v35_eu.sv` from `frozen/decoder.py`, `eu.py`, `templates.py` and
+  `machine.py`; gate exact on F1/F2/F3/F9/F11/F12/F20 (5,352 runs) and every refresh-off run of
+  the corpus, alone and with the RTL queue and bus unit. The arbiter, the register file and the
+  refresh are scripted or not modelled (C4, D, C5). Where the frozen code and this spec
+  disagreed, the frozen code was followed: (1) the model decodes the instruction at `pc` from
+  the chain image at its start, before the ModR/M and operand bytes are taken; the RTL decodes
+  the format from the bytes of the operand record, checks the record is at `pc`, and takes the
+  operand values from the register file as an input (A3 has the start reading only the IR's
+  opcode); (2) rtlgen gaps: the port take's step word carries the request's setup in `n`, so
+  the RTL takes `op_len - 1` bytes; and the templates were enumerated from `decode()` without
+  `_start`'s class changes (CMP r/m,reg to nowrite, nowrite to `grp_class`), so the memory
+  nowrite formats (81 /7, 39/38, F7 /0) had none: `rtlgen.started()` fixes it, 212 templates
+  over 630 formats; (3) `done_at` needs a "past" bit, machine P compares `req.done_at == t`;
+  (4) `start_clock` needs a 4-bit saturating age, not A2's 1 bit plus flags (`floor_n`'s
+  `not_before`, `io_exec`'s `cur.start == start_clock`, `lookup_start`'s `t == start_clock +
+  1`); (5) `hold_done`'s aborted-cycle key is compared again only within the clock, so a
+  per-clock flag, and its fetch key a bit cleared when the fetch leaves the bus; (6) the
+  decoder keeps its own next-byte address (`taddr`, 20 bits) for the IR's address and the
+  ModR/M mate's parity (A2's `modrm_addr` 1 bit is `mate_next`); the IR's address is 0 when
+  the IR is empty; (7) the requests are logical positions (slot, q0, q1) that shift on
+  `_promote`, `own` a 2-bit index and `port_held` a 3-bit mask shifting with them (A2: 2); the
+  slot may be empty while q0 is valid after `_retire`; (8) `wb`, `wb_until` and `done_t` need
+  `wb`, `wbu`, `done_v` and `done_age`, not one countdown: `done_t` is stamped when the steps
+  end, before the next start computes `wb_until`; (9) `resume` is a 10-bit offset (A2: 6 or
+  9) for 510 count-loop clocks plus exec and holds; `start_at` 4 bits; (10) the data latch is
+  the bus unit's (C1): the EU reads its busy flag before and after X, ORs in its own same-clock
+  fill and outputs fills (T, the X slot, P); (11) the order inside the model's `and` chains
+  decides the op stream: `load_ir` reads `available()` before testing `ir_hold`, `imm_start`'s
+  room is read with the IR emptied, machine P's EVAL after a held IR load tests `queue.ir_t ==
+  t`; (12) WP61 state not in A2: `grp_form`, the request's `gdisp`, the queue's `gdisp_until`;
+  (13) dead under the fit and not built: `since_start`/`since_t`/`io_pre`, `stalled`,
+  `reg_latch_t`, `ro`, `prev_cls` (refresh only), `seg_prefix` and `sfr` (they arrive with the
+  operands), `ls_shift`, `started`, the refresh-only fields; (14) the queue module exposes its
+  per-op state only under `V35S_STATE_DUMP` and the joint bench reads the EU's queue views from
+  there; a synthesizable core must export them (C4). Bundle widths: `v35_dec_t` 55 (`ir_v`,
+  `ir_addr` 20, `taddr` 20, `need` 3, `nx` 2, `ra_off` 2, `ir_hold`, `ea_off` 2, `modrm_next`,
+  `mate_next`, `imm_reg`, `stopped`), `v35_eus_t` 218, `v35_req_t` 81 x 3, 516 in all.
+- **C4, the arbiter in RTL (2026-10-28, WP64; docs/v35s-hdl-plan.md):** `v35_arbiter.sv`
+  from `frozen/arbiter.py` (`arbitrate`, `_choose`, `_fetch_first`, `_fetch_run`, the
+  request's `counts`/`ready`/`holding`) and `v35_chain_core.sv`, the five machines with the
+  phase chain and its fixpoint in RTL; gate exact on F4/F5/F6/F7/F10/F14/F15/F16/F19/F21/F22/
+  F26/F29 (12,642 runs) and every refresh-off run of the corpus (19,850). Where the frozen
+  code and this spec disagreed, the frozen code was followed: (1) A2 says the arbiter holds
+  no state of its own; the RTL arbiter owns 69 bits (`v35_ast_t`): the request record's
+  arbiter-written fields by request position and the bus history C1 left to it; (2) `posted`
+  is an 8-bit saturating age (t - posted), not A2's 1 bit plus order flags: `_choose` compares
+  `requested_at` with `posted` in four orders and `posted` with t, against the queue's 7-bit
+  `rq_age`; a comparison that saturation leaves open raises an error, none on the corpus;
+  (3) `_fetch_run` reads the last three or four cycles; the RTL keeps one flag, set at a
+  fetch's start when the cycle that ended on t-1 was a fetch, combined with the bus unit's
+  `fetch_end_prev` (C5 must leave it unchanged on a refresh start); (4) `grp_io_hold`'s last
+  I/O start is a 4-bit saturating age, and its window is exactly the bus unit's `io_win`
+  (`recover` is always `io_recover`, 2); (5) `abort_latched` compares the sync's absolute
+  target with `queue.completed`; the C3 EU keeps only the fetches still owed, so the RTL tests
+  `owed == 0`, the two differing only if the sync is below the completed count, which the
+  recorder raises on and never saw; (6) the count of the request handed the slot reads the bus
+  after the start (the new cycle's B1, its I/O window): the arbiter computes that view itself
+  rather than reading the bus unit's `_x` outputs, to avoid a path back through the bus unit;
+  (7) the touch's cycle length (`bus.length`, with C1's SFR-write I/O waits) is computed in
+  the arbiter from the WTC and checked by the core against the bus unit's `start_len`; (8)
+  `Machine.__init__` starts the POP PSW read before clock 0's phases: the core shows the EU and
+  the arbiter a busy "before the choice" view (a read at position 0) on clock 0 and starts it
+  on the request port with no data-latch fill (C1 decision 7), where C3's joint bench showed an
+  idle bus; C6 should make it a real EU read; (9) the arbiter's own stores of `free_need`
+  (`free_run`, `free_hold`, `slot_fetch`) are read by later rules in the same `_choose`, so it
+  keeps a working copy of the slot's record within X (A3 lists `free_need` as written only);
+  (10) the request record holds `eu_halted`, stored every clock with a request, which A2's
+  table lacks; only `refresh_io_stall` reads it, so it is not built; (11) not built because
+  they need refresh: `xeu` (`dw_view=eu` runs only with `eu.refresh`), `halt_defer` (halting is
+  `halt_now` only), `halt_refresh`'s branches, `after_refresh`/`lost_*`, `io_step_issue`
+  (always passes refresh-off), `refresh_lift` (`lift_t` is always set on the lead's first
+  clock); (12) a latent C3 point not reached on the corpus: the EU's P-phase `port_ready` reads
+  0 for a request posted in T even after the arbiter counted it in X, where the model reads
+  the real count. The queue and the EU now export their per-op and per-phase state through
+  ports (`v35_queue_pkg`, `v35_eu_pkg`), closing C2's and C3's dump-only notes above. The
+  corpus needs at most 6 settle iterations per model clock; the arbiter's queue ops per clock
+  peak at 6 of the 8 it holds.
 - **F25 in the register (2026-10-27, the thirty-fourth fit):** three new structural
   fields, read by F25's classes only. `lea_form=reg` (LDEA is a register-only form for the
   I/O interlocks and the latch rules; the EU's `mem` flag is off for it; the IR-hold rule

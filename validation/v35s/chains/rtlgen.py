@@ -457,6 +457,13 @@ def bus_constants() -> dict:
             "REFRESH_LENGTHS": lengths}
 
 
+def prelude_constants() -> dict:
+    """(C4) the prelude's POP PSW stack read that Machine.__init__ issues on the model's clock 0
+    (prelude_anchor=pop): its address and datum (image.py), for the core's start."""
+    from .image import PRELUDE_MARKER_STACK, PSW
+    return {"POP_ADDR": PRELUDE_MARKER_STACK, "PSW": PSW}
+
+
 def queue_constants() -> dict:
     """The frozen queue's constants (queue.py): its storage and the request rule's word."""
     from .sim.frozen import queue
@@ -551,6 +558,10 @@ def render(fit_path: Path | None = None) -> str:
         w(f"        2'd{rfw}: v35_refresh_length = 3'd{n};")
     w("    endcase")
     w("endfunction")
+    pc = prelude_constants()
+    w("// the prelude's POP PSW stack read, issued on the model's clock 0 (prelude_anchor=pop)")
+    w(f"localparam logic [19:0] V35_PRELUDE_POP_ADDR = 20'h{pc['POP_ADDR']:05X};")
+    w(f"localparam logic [15:0] V35_PRELUDE_PSW = 16'h{pc['PSW']:04X};")
     for i, k in enumerate(KINDS):
         w(f"localparam logic [2:0] V35_K_{_ident(k)} = 3'd{i};")
     for i, k in enumerate(BWIDTHS):

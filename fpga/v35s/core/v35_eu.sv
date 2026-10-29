@@ -38,127 +38,11 @@
 // seg_prefix and sfr (the SFR store's address and value come with the operands), ls_shift
 // (refresh_align=prelude), started (always True under prelude_tail=segs), and with refresh on: hold_from/hold_end, clk_tag/clk_start/clk_end/clk_seam,
 // rmw_loop/rmw_top/rmw_cl, pop_ref, refresh_beat, halt_defer, the boundary map (C5).
-module v35_eu
+// The EU's state types (v35_eus_t, the request record v35_req_t, the bundle v35_st_t), a
+// package so that the arbiter (C4) reads the state the module exports after phase L and at
+// the end of the clock (state_l, state_e).
+package v35_eu_pkg;
     import v35_decoder_pkg::*;
-#(
-    parameter int NQ = 16,                  // queue ops per phase (T and L; P)
-    parameter int NXOP = 4,                 // the arbiter's touches per clock
-    parameter int STATE_W = 516             // $bits(v35_st_t), checked below
-) (
-    input  wire        clock,
-    input  wire        reset_n,
-    input  wire        ce,                  // end of a model clock
-    input  wire [STATE_W-1:0] init_state,   // the state at the end of the model's clock -1
-    input  wire [19:0] code_base,           // the code's linear base (queue.base: a target's)
-
-    // phase C
-    input  wire        c_eu,                // an EU cycle was delivered (eu.complete) ...
-    input  wire        c_read,              // ... a read
-    input  wire        fetch_done,          // queue.completed counted one (C or A)
-
-    // the bus unit before the choice (T) and after it (P)
-    input  wire [17:0] bus_t,
-    input  wire [17:0] bus_p,
-
-    // the operands of the clock's first and second instruction start (the register file)
-    input  wire [212:0] opnd_a,
-    input  wire [212:0] opnd_b,
-
-    // the queue: its state before each op of a phase (and after the last), and each op's read
-    input  wire [NQ:0][51:0] qv_tl,
-    input  wire [NQ-1:0][7:0] rd_tl,
-    input  wire [NQ:0][51:0] qv_p,
-    input  wire [NQ-1:0][7:0] rd_p,
-
-    // phase X: the arbiter's cycle and touches, the requests' setup counts at T and at P
-    input  wire        x_valid,
-    input  wire [2:0]  x_kind,
-    input  wire        x_eu,                // the cycle is the EU's
-    input  wire [NXOP-1:0][10:0] xop,       // {code (V35_XOP_*), val}
-    input  wire [2:0][6:0] counts_t,
-    input  wire [2:0][6:0] counts_p,
-
-    // phase E: queue.latch_in_t == t after its end_clock
-    input  wire        q_latch_in,
-
-    // the ops
-    output logic [NQ-1:0][32:0] op_tl,
-    output logic [4:0]  n_tl,               // ops in T and L ...
-    output logic [4:0]  n_t,                // ... of which T's
-    output logic [NQ-1:0][32:0] op_p,
-    output logic [4:0]  n_p,
-    output logic [1:0]  n_start,            // instructions started this clock
-    // the data latch fills (the bus unit's wlatch_fill): T, X (the left-out write's slot), P
-    output logic        wl_fill_t,
-    output logic        wl_fill_x,
-    output logic        wl_fill_p,
-    // the data cycle the slot issued in X (its kind V35_K_*, address, width V35_BW_*)
-    output logic        x_cyc,
-    output logic [2:0]  x_cyc_kind,
-    output logic [19:0] x_cyc_addr,
-    output logic [1:0]  x_cyc_width,
-    // the queue's inputs from the decoder and the EU: phase C's snapshot (retry_after), E's
-    output logic [4:0]  qsnap_c,
-    output logic [4:0]  qsnap_e,
-    output logic        e_io,               // the EU runs an IN or OUT whose I/O is to come
-    output logic        e_out,
-    output reg          error,              // sticky: a case the RTL does not cover
-    output logic [7:0]  err_code            // this clock's (0: none)
-`ifdef V35S_STATE_DUMP
-    ,
-    output wire [STATE_W-1:0] state_c,
-    output wire [STATE_W-1:0] state_t,
-    output wire [STATE_W-1:0] state_l,
-    output wire [STATE_W-1:0] state_x,
-    output wire [STATE_W-1:0] state_p,
-    output wire [STATE_W-1:0] state_e,
-    output wire [STATE_W-1:0] state_dump
-`endif
-);
-
-    // ---- the queue's op codes (v35_queue.sv V35_QOP_*, rtl_vectors.QOPS)
-    localparam logic [5:0] V35_EQ_TAKE = 6'd1;
-    localparam logic [5:0] V35_EQ_COMMIT = 6'd2;
-    localparam logic [5:0] V35_EQ_IRLOAD = 6'd3;
-    localparam logic [5:0] V35_EQ_START = 6'd4;
-    localparam logic [5:0] V35_EQ_FLUSH = 6'd5;
-    localparam logic [5:0] V35_EQ_DISP = 6'd6;
-    localparam logic [5:0] V35_EQ_EVAL = 6'd8;
-    localparam logic [5:0] V35_EQ_SHIFT_END = 6'd9;
-    localparam logic [5:0] V35_EQ_RETRY_END = 6'd10;
-    localparam logic [5:0] V35_EQ_RETRY_SET = 6'd11;
-    localparam logic [5:0] V35_EQ_RERAISE = 6'd12;
-    localparam logic [5:0] V35_EQ_SHIFT_SET = 6'd13;
-    localparam logic [5:0] V35_EQ_SHIFT_HOLD = 6'd14;
-    localparam logic [5:0] V35_EQ_DROP_RETRY = 6'd15;
-    localparam logic [5:0] V35_EQ_WANT = 6'd16;
-    localparam logic [5:0] V35_EQ_ASKED = 6'd17;
-    localparam logic [5:0] V35_EQ_REQUESTING = 6'd18;
-    localparam logic [5:0] V35_EQ_ROOM = 6'd19;
-    localparam logic [5:0] V35_EQ_STORED = 6'd21;
-    localparam logic [5:0] V35_EQ_AVAIL = 6'd22;
-    localparam logic [5:0] V35_EQ_IO_HELD_SET = 6'd32;
-    localparam logic [5:0] V35_EQ_NOP_HOLD = 6'd34;
-    localparam logic [5:0] V35_EQ_GDISP = 6'd35;
-
-    // ---- the arbiter's touches (rtl_vectors.XOPS)
-    localparam logic [2:0] V35_XOP_ISSUE = 3'd1;       // eu.issue: the slot's next cycle (val: its length)
-    localparam logic [2:0] V35_XOP_NOWRITE = 3'd2;     // eu.issue_nowrite (val: the slot fetch's length, 0: none)
-    localparam logic [2:0] V35_XOP_FETCH_START = 3'd3; // eu.fetch_start = t
-    localparam logic [2:0] V35_XOP_SYNC_ONE = 3'd4;    // abort_latched: eu.sync = completed + 1
-    localparam logic [2:0] V35_XOP_FREE0 = 3'd5;       // the slot's free_need = 0
-    localparam logic [2:0] V35_XOP_NOT_BEFORE = 3'd6;  // the slot's not_before = t + val
-
-    // ---- error codes (err_code)
-    localparam logic [7:0] V35_EE_OPS = 8'd1;          // more than NQ queue ops in a phase
-    localparam logic [7:0] V35_EE_LOOP = 8'd2;         // the tick's step loop did not settle
-    localparam logic [7:0] V35_EE_DECODE = 8'd3;       // an opcode outside the catalog
-    localparam logic [7:0] V35_EE_TMPL = 8'd4;         // no template for the format
-    localparam logic [7:0] V35_EE_FMT = 8'd5;          // the format is not the operand record's
-    localparam logic [7:0] V35_EE_PC = 8'd6;           // the operand record is not at pc
-    localparam logic [7:0] V35_EE_STEP = 8'd7;         // a step C3 does not build (flush, decide)
-    localparam logic [7:0] V35_EE_SLOT = 8'd8;         // a request slot error
-    localparam logic [7:0] V35_EE_XOP = 8'd9;          // an arbiter touch on an empty slot
 
     // the take sync's modes
     localparam logic [1:0] SYNC_NONE = 2'd0, SYNC_COUNT = 2'd1, SYNC_DEFER = 2'd2;
@@ -225,7 +109,8 @@ module v35_eu
     } v35_eus_t;
 
     // ---- a request record, the EU's fields (rtl_vectors.RFIELDS, MSB first); the arbiter's
-    // own (count, ready_since, lift_t, free_held, grp_held, xeu, posted) are C4's
+    // own (count, ready_since, lift_t, free_held, grp_held, posted) are
+    // v35_arbiter.sv's (C4)
     typedef struct packed {
         logic        valid;
         logic [2:0]  kind;          // V35_RK_*
@@ -261,6 +146,136 @@ module v35_eu
         v35_eus_t           e;
         v35_req_t [2:0]     r;      // r[0] the slot, r[1] and r[2] queued behind it
     } v35_st_t;
+endpackage
+
+module v35_eu
+    import v35_decoder_pkg::*;
+    import v35_eu_pkg::*;
+#(
+    parameter int NQ = 16,                  // queue ops per phase (T and L; P)
+    parameter int NXOP = 4,                 // the arbiter's touches per clock
+    parameter int STATE_W = 516             // $bits(v35_st_t), checked below
+) (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce,                  // end of a model clock
+    input  wire [STATE_W-1:0] init_state,   // the state at the end of the model's clock -1
+    input  wire [19:0] code_base,           // the code's linear base (queue.base: a target's)
+
+    // phase C
+    input  wire        c_eu,                // an EU cycle was delivered (eu.complete) ...
+    input  wire        c_read,              // ... a read
+    input  wire        fetch_done,          // queue.completed counted one (C or A)
+
+    // the bus unit before the choice (T) and after it (P)
+    input  wire [17:0] bus_t,
+    input  wire [17:0] bus_p,
+
+    // the operands of the clock's first and second instruction start (the register file)
+    input  wire [212:0] opnd_a,
+    input  wire [212:0] opnd_b,
+
+    // the queue: its state before each op of a phase (and after the last), and each op's read
+    input  wire [NQ:0][51:0] qv_tl,
+    input  wire [NQ-1:0][7:0] rd_tl,
+    input  wire [NQ:0][51:0] qv_p,
+    input  wire [NQ-1:0][7:0] rd_p,
+
+    // phase X: the arbiter's cycle and touches, the requests' setup counts at T and at P
+    input  wire        x_valid,
+    input  wire [2:0]  x_kind,
+    input  wire        x_eu,                // the cycle is the EU's
+    input  wire [NXOP-1:0][10:0] xop,       // {code (V35_XOP_*), val}
+    input  wire [2:0][6:0] counts_t,
+    input  wire [2:0][6:0] counts_p,
+
+    // phase E: queue.latch_in_t == t after its end_clock
+    input  wire        q_latch_in,
+
+    // the ops
+    output logic [NQ-1:0][32:0] op_tl,
+    output logic [4:0]  n_tl,               // ops in T and L ...
+    output logic [4:0]  n_t,                // ... of which T's
+    output logic [NQ-1:0][32:0] op_p,
+    output logic [4:0]  n_p,
+    output logic [1:0]  n_start,            // instructions started this clock
+    // the data latch fills (the bus unit's wlatch_fill): T, X (the left-out write's slot), P
+    output logic        wl_fill_t,
+    output logic        wl_fill_x,
+    output logic        wl_fill_p,
+    // the data cycle the slot issued in X (its kind V35_K_*, address, width V35_BW_*)
+    output logic        x_cyc,
+    output logic [2:0]  x_cyc_kind,
+    output logic [19:0] x_cyc_addr,
+    output logic [1:0]  x_cyc_width,
+    // the queue's inputs from the decoder and the EU: phase C's snapshot (retry_after), E's
+    output logic [4:0]  qsnap_c,
+    output logic [4:0]  qsnap_e,
+    output logic        e_io,               // the EU runs an IN or OUT whose I/O is to come
+    output logic        e_out,
+    output reg          error,              // sticky: a case the RTL does not cover
+    output logic [7:0]  err_code,           // this clock's (0: none)
+    // for the arbiter (C4): the state after phase L and at the end of the clock (v35_st_t,
+    // v35_eu_pkg), and the requests posted this clock in T/L (positions after L) and in P
+    // (positions at the end): their setup counts start at 0
+    output wire [STATE_W-1:0] state_l,
+    output wire [STATE_W-1:0] state_e,
+    output wire [2:0]   fresh_l,
+    output wire [2:0]   fresh_p
+`ifdef V35S_STATE_DUMP
+    ,
+    output wire [STATE_W-1:0] state_c,
+    output wire [STATE_W-1:0] state_t,
+    output wire [STATE_W-1:0] state_x,
+    output wire [STATE_W-1:0] state_p,
+    output wire [STATE_W-1:0] state_dump
+`endif
+);
+
+    // ---- the queue's op codes (v35_queue.sv V35_QOP_*, rtl_vectors.QOPS)
+    localparam logic [5:0] V35_EQ_TAKE = 6'd1;
+    localparam logic [5:0] V35_EQ_COMMIT = 6'd2;
+    localparam logic [5:0] V35_EQ_IRLOAD = 6'd3;
+    localparam logic [5:0] V35_EQ_START = 6'd4;
+    localparam logic [5:0] V35_EQ_FLUSH = 6'd5;
+    localparam logic [5:0] V35_EQ_DISP = 6'd6;
+    localparam logic [5:0] V35_EQ_EVAL = 6'd8;
+    localparam logic [5:0] V35_EQ_SHIFT_END = 6'd9;
+    localparam logic [5:0] V35_EQ_RETRY_END = 6'd10;
+    localparam logic [5:0] V35_EQ_RETRY_SET = 6'd11;
+    localparam logic [5:0] V35_EQ_RERAISE = 6'd12;
+    localparam logic [5:0] V35_EQ_SHIFT_SET = 6'd13;
+    localparam logic [5:0] V35_EQ_SHIFT_HOLD = 6'd14;
+    localparam logic [5:0] V35_EQ_DROP_RETRY = 6'd15;
+    localparam logic [5:0] V35_EQ_WANT = 6'd16;
+    localparam logic [5:0] V35_EQ_ASKED = 6'd17;
+    localparam logic [5:0] V35_EQ_REQUESTING = 6'd18;
+    localparam logic [5:0] V35_EQ_ROOM = 6'd19;
+    localparam logic [5:0] V35_EQ_STORED = 6'd21;
+    localparam logic [5:0] V35_EQ_AVAIL = 6'd22;
+    localparam logic [5:0] V35_EQ_IO_HELD_SET = 6'd32;
+    localparam logic [5:0] V35_EQ_NOP_HOLD = 6'd34;
+    localparam logic [5:0] V35_EQ_GDISP = 6'd35;
+
+    // ---- the arbiter's touches (rtl_vectors.XOPS)
+    localparam logic [2:0] V35_XOP_ISSUE = 3'd1;       // eu.issue: the slot's next cycle (val: its length)
+    localparam logic [2:0] V35_XOP_NOWRITE = 3'd2;     // eu.issue_nowrite (val: the slot fetch's length, 0: none)
+    localparam logic [2:0] V35_XOP_FETCH_START = 3'd3; // eu.fetch_start = t
+    localparam logic [2:0] V35_XOP_SYNC_ONE = 3'd4;    // abort_latched: eu.sync = completed + 1
+    localparam logic [2:0] V35_XOP_FREE0 = 3'd5;       // the slot's free_need = 0
+    localparam logic [2:0] V35_XOP_NOT_BEFORE = 3'd6;  // the slot's not_before = t + val
+
+    // ---- error codes (err_code)
+    localparam logic [7:0] V35_EE_OPS = 8'd1;          // more than NQ queue ops in a phase
+    localparam logic [7:0] V35_EE_LOOP = 8'd2;         // the tick's step loop did not settle
+    localparam logic [7:0] V35_EE_DECODE = 8'd3;       // an opcode outside the catalog
+    localparam logic [7:0] V35_EE_TMPL = 8'd4;         // no template for the format
+    localparam logic [7:0] V35_EE_FMT = 8'd5;          // the format is not the operand record's
+    localparam logic [7:0] V35_EE_PC = 8'd6;           // the operand record is not at pc
+    localparam logic [7:0] V35_EE_STEP = 8'd7;         // a step C3 does not build (flush, decide)
+    localparam logic [7:0] V35_EE_SLOT = 8'd8;         // a request slot error
+    localparam logic [7:0] V35_EE_XOP = 8'd9;          // an arbiter touch on an empty slot
+
 
     if ($bits(v35_st_t) != STATE_W) begin : g_state_width
         $error("v35_eu: the state is %0d bits, STATE_W %0d", $bits(v35_st_t), STATE_W);
@@ -339,6 +354,7 @@ module v35_eu
         logic        retick;
         logic        held_abort;    // unit_hold held on the aborted cycle's end this clock
         logic [2:0]  fresh;         // requests posted this clock (their setup count is 0)
+        logic [2:0]  fresh_p;       // ... of them, posted in phase P (C4: the arbiter's)
         logic        x_cyc;
         logic [2:0]  x_kind;
         logic [19:0] x_addr;
@@ -793,6 +809,7 @@ module v35_eu
             s.e.own = s.e.own - 2'd1;           // own is never the issued detached request
         s.e.port_held = s.e.port_held >> 1;
         c.fresh = c.fresh >> 1;
+        c.fresh_p = c.fresh_p >> 1;
     endfunction
 
     // _post: the request record of a data step
@@ -867,15 +884,18 @@ module v35_eu
         if (!s.r[0].valid) begin
             s.r[0] = r;
             c.fresh[0] = 1'b1;
+            c.fresh_p[0] = c.p;
             eu_submit = 2'd1;
         end else if (s.r[0].detached || s.r[1].valid) begin
             if (!s.r[1].valid) begin
                 s.r[1] = r;
                 c.fresh[1] = 1'b1;
+                c.fresh_p[1] = c.p;
                 eu_submit = 2'd2;
             end else if (!s.r[2].valid) begin
                 s.r[2] = r;
                 c.fresh[2] = 1'b1;
+                c.fresh_p[2] = c.p;
                 eu_submit = 2'd3;
             end else begin
                 fail(c, V35_EE_SLOT);
@@ -1710,6 +1730,7 @@ module v35_eu
     v35_st_t r;
     v35_st_t s_c, s_t, s_l, s_x, s_p, s_e;
     v35_ctx_t cx;
+    logic [2:0] fr_l;
 
     always_comb begin
         v35_st_t s;
@@ -1726,6 +1747,7 @@ module v35_eu
         n_t = c.n_tl;
         dec_load_ir(s, c);
         s_l = s;
+        fr_l = c.fresh;
         for (int i = 0; i < NXOP; i++)
             eu_xop(s, c, xop[i]);
         s_x = s;
@@ -1771,13 +1793,15 @@ module v35_eu
         end
     end
 
+    assign state_l = s_l;
+    assign state_e = s_e;
+    assign fresh_l = fr_l;
+    assign fresh_p = cx.fresh_p;
 `ifdef V35S_STATE_DUMP
     assign state_c = s_c;
     assign state_t = s_t;
-    assign state_l = s_l;
     assign state_x = s_x;
     assign state_p = s_p;
-    assign state_e = s_e;
     assign state_dump = r;
 `endif
 endmodule

@@ -135,12 +135,13 @@ module v35_eu_tb #(
 );
 `include "v35_chain_params.svh"
 
+    wire [2:0] fresh_l, fresh_p;            // the arbiter's (C4); unread here
     v35_eu #(.NQ(NQ), .NXOP(NXOP), .STATE_W(STATE_W)) eu (
         .clock, .reset_n, .ce, .init_state, .code_base, .c_eu, .c_read, .fetch_done, .bus_t, .bus_p,
         .opnd_a, .opnd_b, .qv_tl, .rd_tl, .qv_p, .rd_p, .x_valid, .x_kind, .x_eu, .xop,
         .counts_t, .counts_p, .q_latch_in, .op_tl, .n_tl, .n_t, .op_p, .n_p, .n_start,
         .wl_fill_t, .wl_fill_x, .wl_fill_p, .x_cyc, .x_cyc_kind, .x_cyc_addr, .x_cyc_width,
-        .qsnap_c, .qsnap_e, .e_io, .e_out, .error(eu_error), .err_code,
+        .qsnap_c, .qsnap_e, .e_io, .e_out, .error(eu_error), .err_code, .fresh_l, .fresh_p,
         .state_c, .state_t, .state_l, .state_x, .state_p, .state_e, .state_dump);
 
     // the queue: its delivery the bus unit's, its phase E the bus unit's fetch end and the EU's
@@ -163,7 +164,7 @@ module v35_eu_tb #(
     wire [19:0] b_addr = q_fetch ? fetch_issue_addr : e_data ? x_cyc_addr : req_addr;
     wire [1:0]  b_width = q_fetch ? V35_BW_WORD : e_data ? x_cyc_width : req_width;
     wire [15:0] b_data = q_fetch ? fetch_data : e_data ? data_data : req_data;
-    wire        b_ext = (q_fetch || e_data) ? 1'b0 : req_ext;
+    wire        b_ext = q_fetch ? 1'b0 : req_ext;   // disp_io=extend: the arbiter's (scripted)
     wire        b_latch = q_fetch ? 1'b0 : e_data ? (x_cyc_kind == V35_K_READ
                                                      || x_cyc_kind == V35_K_IO_READ) : req_latch;
 

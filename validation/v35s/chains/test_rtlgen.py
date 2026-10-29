@@ -121,6 +121,15 @@ class Generated(unittest.TestCase):
         self.assertEqual(c["REFRESH_LENGTHS"], [3, 4, 5, 5])
         self.assertIn("localparam logic [19:0] V35_SFR_PAGE = 20'hFFF00;", self.text)
 
+    def test_prelude_constants(self):
+        """(C4) the POP PSW read Machine.__init__ issues on clock 0, for the core's start."""
+        from validation.v35s.chains.image import PRELUDE_MARKER_STACK, PSW
+        c = rtlgen.prelude_constants()
+        self.assertEqual((c["POP_ADDR"], c["PSW"]), (PRELUDE_MARKER_STACK, PSW))
+        self.assertIn(f"localparam logic [19:0] V35_PRELUDE_POP_ADDR = 20'h{PRELUDE_MARKER_STACK:05X};",
+                      self.text)
+        self.assertIn(f"localparam logic [15:0] V35_PRELUDE_PSW = 16'h{PSW:04X};", self.text)
+
     def test_packed_steps_round_trip(self):
         off = {}
         o = 0

@@ -49,93 +49,12 @@
 // io_take=abort, the release-by-word table, the usable clocks, read_t, flush_t, the peak).
 // `completed` (the delivered-fetch count the EU's take sync targets) is the `fetch_done`
 // strobe; the sync's relative count is the EU's (C3).
-module v35_queue #(
-    parameter int NSLOT = 16,               // op stages per clock
-    parameter int STATE_W = 180             // $bits(v35_qstate_t), checked below
-) (
-    input  wire        clock,
-    input  wire        reset_n,
-    input  wire        ce,                  // end of a model clock
-
-    // the state at the model's clock 0 (prelude_tail=segs: three words preloaded)
-    input  wire [3:0]  init_count,          // V35_W_Q_COUNT (checked below)
-    input  wire [63:0] init_data,
-    input  wire [19:0] init_fetch_addr,
-
-    // phase C: the cycle whose last clock was the previous one (the bus unit's done)
-    input  wire        c_done,
-    input  wire        c_fetch,             // ... a fetch: its word to the queue
-    input  wire        c_refresh,           // ... a refresh (retry_after's kind)
-    input  wire        c_odd,               // the fetch's address is odd: one byte
-    input  wire [15:0] c_data,
-    input  wire [4:0]  c_snap,              // the decoder's state then (retry_after's room)
-
-    // the clock's ops, in order (V35_QOP_*; v35_qop: code, a, b, val, snap)
-    input  wire [NSLOT-1:0][32:0] op,
-
-    // phase E
-    input  wire        e_fetch_end,         // bus.current is a fetch whose last clock is this
-    input  wire        e_io,                // the EU runs an IN or OUT whose I/O is to come
-    input  wire        e_out,               // ... an OUT (refresh_io_run=pair_out)
-    input  wire [4:0]  e_snap,              // the decoder's state at the end of the clock
-
-    output wire [NSLOT-1:0][7:0] rd,        // each op's read (or the byte it took)
-    output wire        fetch_issue,         // a fetch issued this clock (an issue op)
-    output logic [19:0] fetch_issue_addr,    // ... at this address (the bus unit's request)
-    output wire        fetch_done,          // `completed` counts one this clock (C or A)
-    output reg         error                // the storage check (QueueOverflow), sticky
-`ifdef V35S_STATE_DUMP
-    ,
-    // B3 state bundle: v35_qstate_t (the declaration order below, MSB first), after
-    // phases C and A, after each op stage, at the end of the clock (combinational) and
-    // as registered at the last ce
-    output wire [STATE_W-1:0] state_c,
-    output wire [NSLOT-1:0][STATE_W-1:0] state_op,
-    output wire [STATE_W-1:0] state_e,
-    output wire [STATE_W-1:0] state_dump
-`endif
-);
+// The queue's state and snapshot types, a package so that the arbiter and the core (C4) read
+// the per-op states the module exports (state_c, state_op, state_e).
+package v35_queue_pkg;
 `include "v35_chain_params.svh"
 
-    localparam int STORE = V35_QUEUE_BYTES + V35_QUEUE_WORD;   // bytes inside a clock
-
-    // ---- ops (rtl_vectors.QOPS) and the sites in the frozen model they stand for
-    localparam logic [5:0] V35_QOP_NOP = 6'd0;
-    localparam logic [5:0] V35_QOP_TAKE = 6'd1;         // decoder.take: a=ModR/M (commit_one), b=mate_t
-    localparam logic [5:0] V35_QOP_COMMIT = 6'd2;       // decoder.commit (take_commit=at_end)
-    localparam logic [5:0] V35_QOP_IRLOAD = 6'd3;       // decoder.load_ir: take, ir_t, commit
-    localparam logic [5:0] V35_QOP_START = 6'd4;        // eu._start: start_t, starts; a: flush_held = t + val
-    localparam logic [5:0] V35_QOP_FLUSH = 6'd5;        // eu._flush: queue.flush(val)
-    localparam logic [5:0] V35_QOP_DISP = 6'd6;         // eu: disp_t (latch_disp)
-    localparam logic [5:0] V35_QOP_HALT = 6'd7;         // eu halt step: queue.halted (halt_refresh)
-    localparam logic [5:0] V35_QOP_EVAL = 6'd8;         // flag = room >= 2 (machine P: the IR load)
-    localparam logic [5:0] V35_QOP_SHIFT_END = 6'd9;    // eu.tick: count_latch's shift_until reached
-    localparam logic [5:0] V35_QOP_RETRY_END = 6'd10;   // eu: retry_at reached (abort_unit=loop, retry_first)
-    localparam logic [5:0] V35_QOP_RETRY_SET = 6'd11;   // eu: retry_at = t + val (refresh_retry's += 1 too)
-    localparam logic [5:0] V35_QOP_RERAISE = 6'd12;     // eu: dropped = False, flag = room >= 2 (refresh_reraise)
-    localparam logic [5:0] V35_QOP_SHIFT_SET = 6'd13;   // eu: shift_until = t + val (count_latch)
-    localparam logic [5:0] V35_QOP_SHIFT_HOLD = 6'd14;  // eu: shift_held (count_latch)
-    localparam logic [5:0] V35_QOP_DROP_RETRY = 6'd15;  // eu._io_drop, machine io_take=unit: a=retry_loop, b=abort_t == t
-    localparam logic [5:0] V35_QOP_WANT = 6'd16;        // wants_fetch (rd)
-    localparam logic [5:0] V35_QOP_ASKED = 6'd17;       // asked (rd; take_sync=pending)
-    localparam logic [5:0] V35_QOP_REQUESTING = 6'd18;  // requesting (rd; machine P io_ir_hold)
-    localparam logic [5:0] V35_QOP_ROOM = 6'd19;        // room / counted / free (rd: room)
-    localparam logic [5:0] V35_QOP_TRIPLE = 6'd20;      // triple (rd)
-    localparam logic [5:0] V35_QOP_STORED = 6'd21;      // stored (rd)
-    localparam logic [5:0] V35_QOP_AVAIL = 6'd22;       // available (rd; data_ready=0: every byte)
-    localparam logic [5:0] V35_QOP_ISSUE = 6'd23;       // queue.issue: a=mem_waiting, b=slot_fetch (grp_read)
-    localparam logic [5:0] V35_QOP_ABORT = 6'd24;       // queue.abort: a=retry_loop, b=abort_ref
-    localparam logic [5:0] V35_QOP_DROP = 6'd25;        // arbiter refresh_drop: a=drop_hold
-    localparam logic [5:0] V35_QOP_BEAT = 6'd26;        // arbiter _refresh: after_refresh = t + val; a: in HALT
-    localparam logic [5:0] V35_QOP_LOST_EVAL = 6'd27;   // arbiter refresh_lost: evaluated on this start
-    localparam logic [5:0] V35_QOP_LOST_HALT = 6'd28;   // ... at HALT's start: lost_after = t + val
-    localparam logic [5:0] V35_QOP_LOST_AFTER = 6'd29;  // ... lost_after reached
-    localparam logic [5:0] V35_QOP_REDATE = 6'd30;      // arbiter free_hold, grp_io_hold: requested_at = t
-    localparam logic [5:0] V35_QOP_IO_HELD_CLR = 6'd31; // arbiter io_ir_hold's release
-    localparam logic [5:0] V35_QOP_IO_HELD_SET = 6'd32; // machine P io_ir_hold: requested_at = io_held = t
-    localparam logic [5:0] V35_QOP_T4 = 6'd33;          // arbiter refresh_beat_t4: t4_at = t + 1
-    localparam logic [5:0] V35_QOP_NOP_HOLD = 6'd34;    // machine P nop_hold: nop_held = t
-    localparam logic [5:0] V35_QOP_GDISP = 6'd35;       // eu grp_disp=hold: gdisp_until = t + val
+    localparam int V35_Q_STORE = V35_QUEUE_BYTES + V35_QUEUE_WORD;   // bytes inside a clock
 
     // the decoder's (and the EU's) state an op reads
     typedef struct packed {
@@ -149,7 +68,7 @@ module v35_queue #(
     // the queue's state, in the A2 representations (rtl_vectors.QFIELDS, in this order)
     typedef struct packed {
         logic [V35_W_Q_COUNT-1:0]   count;      // len(bytes): stored + the latched byte
-        logic [8*STORE-1:0]         data;       // the bytes, head in the low byte
+        logic [8*V35_Q_STORE-1:0]         data;       // the bytes, head in the low byte
         logic [1:0]                 unc;        // len(uncommitted)
         logic                       latched;
         logic                       latch_full;
@@ -210,6 +129,99 @@ module v35_queue #(
         logic                       latch_in_now;
         logic [1:0]                 starts;     // saturating at 3 (triple: starts > 2)
     } v35_qstate_t;
+
+    // ---- ops (rtl_vectors.QOPS) and the sites in the frozen model they stand for
+    localparam logic [5:0] V35_QOP_NOP = 6'd0;
+    localparam logic [5:0] V35_QOP_TAKE = 6'd1;         // decoder.take: a=ModR/M (commit_one), b=mate_t
+    localparam logic [5:0] V35_QOP_COMMIT = 6'd2;       // decoder.commit (take_commit=at_end)
+    localparam logic [5:0] V35_QOP_IRLOAD = 6'd3;       // decoder.load_ir: take, ir_t, commit
+    localparam logic [5:0] V35_QOP_START = 6'd4;        // eu._start: start_t, starts; a: flush_held = t + val
+    localparam logic [5:0] V35_QOP_FLUSH = 6'd5;        // eu._flush: queue.flush(val)
+    localparam logic [5:0] V35_QOP_DISP = 6'd6;         // eu: disp_t (latch_disp)
+    localparam logic [5:0] V35_QOP_HALT = 6'd7;         // eu halt step: queue.halted (halt_refresh)
+    localparam logic [5:0] V35_QOP_EVAL = 6'd8;         // flag = room >= 2 (machine P: the IR load)
+    localparam logic [5:0] V35_QOP_SHIFT_END = 6'd9;    // eu.tick: count_latch's shift_until reached
+    localparam logic [5:0] V35_QOP_RETRY_END = 6'd10;   // eu: retry_at reached (abort_unit=loop, retry_first)
+    localparam logic [5:0] V35_QOP_RETRY_SET = 6'd11;   // eu: retry_at = t + val (refresh_retry's += 1 too)
+    localparam logic [5:0] V35_QOP_RERAISE = 6'd12;     // eu: dropped = False, flag = room >= 2 (refresh_reraise)
+    localparam logic [5:0] V35_QOP_SHIFT_SET = 6'd13;   // eu: shift_until = t + val (count_latch)
+    localparam logic [5:0] V35_QOP_SHIFT_HOLD = 6'd14;  // eu: shift_held (count_latch)
+    localparam logic [5:0] V35_QOP_DROP_RETRY = 6'd15;  // eu._io_drop, machine io_take=unit: a=retry_loop, b=abort_t == t
+    localparam logic [5:0] V35_QOP_WANT = 6'd16;        // wants_fetch (rd)
+    localparam logic [5:0] V35_QOP_ASKED = 6'd17;       // asked (rd; take_sync=pending)
+    localparam logic [5:0] V35_QOP_REQUESTING = 6'd18;  // requesting (rd; machine P io_ir_hold)
+    localparam logic [5:0] V35_QOP_ROOM = 6'd19;        // room / counted / free (rd: room)
+    localparam logic [5:0] V35_QOP_TRIPLE = 6'd20;      // triple (rd)
+    localparam logic [5:0] V35_QOP_STORED = 6'd21;      // stored (rd)
+    localparam logic [5:0] V35_QOP_AVAIL = 6'd22;       // available (rd; data_ready=0: every byte)
+    localparam logic [5:0] V35_QOP_ISSUE = 6'd23;       // queue.issue: a=mem_waiting, b=slot_fetch (grp_read)
+    localparam logic [5:0] V35_QOP_ABORT = 6'd24;       // queue.abort: a=retry_loop, b=abort_ref
+    localparam logic [5:0] V35_QOP_DROP = 6'd25;        // arbiter refresh_drop: a=drop_hold
+    localparam logic [5:0] V35_QOP_BEAT = 6'd26;        // arbiter _refresh: after_refresh = t + val; a: in HALT
+    localparam logic [5:0] V35_QOP_LOST_EVAL = 6'd27;   // arbiter refresh_lost: evaluated on this start
+    localparam logic [5:0] V35_QOP_LOST_HALT = 6'd28;   // ... at HALT's start: lost_after = t + val
+    localparam logic [5:0] V35_QOP_LOST_AFTER = 6'd29;  // ... lost_after reached
+    localparam logic [5:0] V35_QOP_REDATE = 6'd30;      // arbiter free_hold, grp_io_hold: requested_at = t
+    localparam logic [5:0] V35_QOP_IO_HELD_CLR = 6'd31; // arbiter io_ir_hold's release
+    localparam logic [5:0] V35_QOP_IO_HELD_SET = 6'd32; // machine P io_ir_hold: requested_at = io_held = t
+    localparam logic [5:0] V35_QOP_T4 = 6'd33;          // arbiter refresh_beat_t4: t4_at = t + 1
+    localparam logic [5:0] V35_QOP_NOP_HOLD = 6'd34;    // machine P nop_hold: nop_held = t
+    localparam logic [5:0] V35_QOP_GDISP = 6'd35;       // eu grp_disp=hold: gdisp_until = t + val
+endpackage
+
+module v35_queue
+    import v35_queue_pkg::*;
+#(
+    parameter int NSLOT = 16,               // op stages per clock
+    parameter int STATE_W = 180             // $bits(v35_qstate_t), checked below
+) (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce,                  // end of a model clock
+
+    // the state at the model's clock 0 (prelude_tail=segs: three words preloaded)
+    input  wire [3:0]  init_count,          // V35_W_Q_COUNT (checked below)
+    input  wire [63:0] init_data,
+    input  wire [19:0] init_fetch_addr,
+
+    // phase C: the cycle whose last clock was the previous one (the bus unit's done)
+    input  wire        c_done,
+    input  wire        c_fetch,             // ... a fetch: its word to the queue
+    input  wire        c_refresh,           // ... a refresh (retry_after's kind)
+    input  wire        c_odd,               // the fetch's address is odd: one byte
+    input  wire [15:0] c_data,
+    input  wire [4:0]  c_snap,              // the decoder's state then (retry_after's room)
+
+    // the clock's ops, in order (V35_QOP_*; v35_qop: code, a, b, val, snap)
+    input  wire [NSLOT-1:0][32:0] op,
+
+    // phase E
+    input  wire        e_fetch_end,         // bus.current is a fetch whose last clock is this
+    input  wire        e_io,                // the EU runs an IN or OUT whose I/O is to come
+    input  wire        e_out,               // ... an OUT (refresh_io_run=pair_out)
+    input  wire [4:0]  e_snap,              // the decoder's state at the end of the clock
+
+    output wire [NSLOT-1:0][7:0] rd,        // each op's read (or the byte it took)
+    output wire        fetch_issue,         // a fetch issued this clock (an issue op)
+    output logic [19:0] fetch_issue_addr,    // ... at this address (the bus unit's request)
+    output wire        fetch_done,          // `completed` counts one this clock (C or A)
+    output reg         error,               // the storage check (QueueOverflow), sticky
+    // the state (v35_qstate_t, v35_queue_pkg, MSB first) after phases C and A, after each
+    // op stage and at the end of the clock (combinational): the EU's and the arbiter's views
+    // of the queue between their ops (C4: the core's ports; B3's bundle as well)
+    output wire [STATE_W-1:0] state_c,
+    output wire [NSLOT-1:0][STATE_W-1:0] state_op,
+    output wire [STATE_W-1:0] state_e
+`ifdef V35S_STATE_DUMP
+    ,
+    // B3 state bundle: the state as registered at the last ce
+    output wire [STATE_W-1:0] state_dump
+`endif
+);
+
+    localparam int STORE = V35_Q_STORE;     // bytes inside a clock
+
+
 
     if ($bits(v35_qstate_t) != STATE_W) begin : g_state_width
         $error("v35_queue: the state is %0d bits, STATE_W %0d", $bits(v35_qstate_t), STATE_W);
@@ -659,8 +671,13 @@ module v35_queue #(
     logic [NSLOT-1:0][19:0] issue_at;
     logic e_err, c_err;
 
+    // abort_done's clock in its own process: fetch_done reaches the EU (its take sync) before
+    // the EU's snapshot reaches phase C here (C4's core, no circular process)
+    always_comb abort_due = r.ab_valid && r.ab_left == '0;
+
     always_comb begin
-        s_begin = q_begin(r, abort_due);
+        logic due;
+        s_begin = q_begin(r, due);
         s_c = s_begin;
         c_err = 1'b0;
         if (c_done && c_fetch) begin
@@ -721,12 +738,12 @@ module v35_queue #(
         end
     end
 
-`ifdef V35S_STATE_DUMP
     assign state_c = s_c;
-    for (genvar i = 0; i < NSLOT; i++) begin : g_dump
+    for (genvar i = 0; i < NSLOT; i++) begin : g_state
         assign state_op[i] = g_op[i].s_out;
     end
     assign state_e = s_e;
+`ifdef V35S_STATE_DUMP
     assign state_dump = r;
 `endif
 endmodule

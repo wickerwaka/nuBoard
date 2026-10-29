@@ -6617,14 +6617,25 @@ tracked fit (identical on all 19,142 runs, `freeze --verify`), and
 `statestats` reduces the per-clock state over the corpus for the RTL spec
 (docs/v35s-chain-rtl-spec.md, Phase A). On 2026-10-28 `rtlgen`
 generates `fpga/v35s/core/v35_chain_params.svh` from the tracked fit (the
-integers, the EA table and 204 templates; `rtlgen --check` and
+integers, the EA table and 204 templates, 212 since C3; `rtlgen --check` and
 `test_rtlgen` diff it), and the first RTL machine, the bus unit
 `fpga/v35s/core/v35_biu.sv`, replays the frozen model's request stream
 (`rtl_vectors.py`) exactly over all 22,068 runs (HDL plan, Phase C1), and
 the second, the queue `fpga/v35s/core/v35_queue.sv`, reproduces the frozen
 queue's state after every touch by the other machines over all 23,612 runs,
 alone and together with the bus unit (`rtl_vectors.py --queue`, `--joint`;
-Phase C2). The
+Phase C2), and the third and fourth, the decoder and the EU
+(`fpga/v35s/core/v35_decoder.sv`, `v35_eu.sv`), reproduce the frozen
+decoder's and EU's state after every phase of every clock on every
+refresh-off run (19,850; the arbiter and the register file scripted,
+refresh on not modelled), alone and with the queue and bus unit
+(`--eu`, `--joint3`; Phase C3; the queue gained the thirty-seventh fit's
+`grp_disp` stamp the same day), and the fifth, the arbiter
+(`fpga/v35s/core/v35_arbiter.sv`), runs with the other four as one core
+(`v35_chain_core.sv`: the clock's phase chain and its fixpoint in RTL,
+through settle registers) exact on the same 19,850 runs, with only the
+operand records, the write data and the memory supplied from outside
+(`--core`; Phase C4). The
 state row's `pc` is a chain offset like `ir` since the same day. The same
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");

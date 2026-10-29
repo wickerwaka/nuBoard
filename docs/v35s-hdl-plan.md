@@ -157,7 +157,7 @@ case tables, produced by `python -m validation.v35s.chains rtlgen` from
 the integer-valued structural fields as `FIT_*` (213 of the 222 fields are
 read under the fit; the enum fields appear as comments, the structure being
 ported by hand), the 217 class integers with `v35_cost`/`v35_cost_has`, the
-EA table, 204 templates enumerated by running every opcode and ModR/M byte
+EA table, 204 templates (212 since C3, see below) enumerated by running every opcode and ModR/M byte
 through the frozen decoder under both flag states and DBNZ outcomes (one
 38-bit packed word per step, operand addresses symbolic, a shift's clocks a
 per-count coefficient, `v35_tmpl_sel` from a 31-bit format word over 606
@@ -185,7 +185,7 @@ exercised by the corpus: an RFM write mid-run (`rfm_load`), WTC mode 3,
 **C2 done 2026-10-28 (WP62):** `fpga/v35s/core/v35_queue.sv` (721 lines,
 lint-clean under `-Wall`), written from `frozen/queue.py` and the queue's
 store sites in the other frozen machines. The state is one packed struct in
-the A2 representations (177 bits: storage count and 8 bytes, the
+the A2 representations (177 bits, 180 with `grp_disp`'s stamp: storage count and 8 bytes, the
 uncommitted count, the latch flags, the request flag and age, in-flight and
 the 20-bit fetch pointer, the aborted cycle and retry, the holds, the
 refresh flags and offsets, the next-clock commits, the this-clock flags
@@ -224,6 +224,121 @@ latched byte is uncounted on its delivery clock only with the port held,
 and `abort_t`, `after_refresh`, `io_held`, `retry_at` and `shift_until`
 need more than A2's bits. C3 drives the decoder and EU from the Python side
 still; the queue's `rd` outputs are what they will read.
+
+**C2 follow-up (2026-10-28, WP63):** the thirty-seventh fit's `grp_disp=hold`
+gives the queue a stamp the C2 RTL lacked, `gdisp_until`; `v35_queue.sv`
+gained `gd_valid` + `gd_off` (the state is 180 bits now), the op
+`V35_QOP_GDISP` (the EU's store), the width `V35_W_Q_GD_OFF`, and the
+recorder classifies the store; the arbiter's read is state only, as for
+the other arbiter-read stamps. Queue and joint gates again exact over the
+whole corpus (23,612/23,612, joint 895,194 cycles). Under this fit no run
+holds 8 bytes inside a clock any more (the peak is 7); the RTL keeps its 8
+entries.
+
+**C3 done 2026-10-28 (WP63):** `fpga/v35s/core/v35_decoder.sv` (package
+`v35_decoder_pkg`, 155 lines: the decoder's state `v35_dec_t`, 55 bits,
+the queue view the EU reads, the bus view, and the decoder's bookkeeping
+as functions) and `fpga/v35s/core/v35_eu.sv` (module `v35_eu`, 1,783
+lines, lint-clean; state 516 bits = decoder + EU `v35_eus_t` 218 bits +
+three request records of 81 bits, the slot and two queued, in the A2
+representations). One clock is `eu_begin`, phase C (the fetch-done
+count), T (`eu_tick`), L (`dec_load_ir`), X (the arbiter's touches,
+`V35_XOP_*`: issue, nowrite, fetch_start, sync_one, free0, not_before), P
+(`mach_post`: the second tick and IR load) and E (`latch_start`), the
+bundle exposed after each phase and registered. Every EU and decoder
+method is a function of the same name; the templates come from
+`v35_tmpl_sel` and the step words of the include; the queue ops the EU
+emits are C2's codes (`V35_EQ_*`). The register file and the EA adder are
+Phase D: the bench supplies per start an operand record (EA, port, stack
+addresses, shift count, bytes taken and target) and AW as write data; the
+arbiter's choice, its EU touches, the requests' setup counts and
+`disp_io`'s extension are scripted from the Python side (C4); refresh-on
+runs raise NotModelled (C5). `rtl_vectors.py --eu` runs the frozen Machine
+with the EU, Decoder and each Request's class swapped for recording
+subclasses and the arbiter and `eu.execute` wrapped (the model untouched;
+any unclassified touch raises, none over the refresh-off corpus); `--joint3`
+runs the RTL EU, queue (NSLOT 40) and bus unit together, the C++ chaining
+T/L ops, the scripted X ops and P ops into the RTL queue, feeding its
+per-op states back into the EU to a fixpoint, the bus unit running the
+queue's fetches and the EU's data cycles. Bench `fpga/v35s/v35_eu_tb.sv` +
+`.cpp`, `fpga/v35s/build_eu_tb.sh`, binary in `build/fpga/v35s/eu-tb/`.
+Gate (re-run by the overseer, scratchpad wp63r/): F1, F2, F3, F9, F11,
+F12 and F20, 5,352/5,352 runs exact against the model in both modes
+(1,820,123 clocks, 140,460 starts, 1,052,684 queue ops, no state, op,
+data-cycle, queue, bus-unit or ungated-fetch failure; joint 182,412/182,412
+bus cycles), RTL-exact = model-exact in every family. Stretch: every
+refresh-off run of the corpus exact, 19,850 runs (the overseer's `--eu`
+run over all 30 family lists: 6,783,501 clocks, 509,753 starts, no
+failure, model-exact 19,565 = RTL-exact 19,565; the agent's `--joint3` run
+the same 19,850 exact), F22 1,314, F23 255 and F25 446 among them and the
+refresh-off parts of F13/F17/F18/F27/F28; the 3,762 refresh-on runs not
+modelled. `rtlgen` gained `started()`: the templates
+are enumerated after `_start`'s own class changes (CMP r/m,reg and the
+nowrite forms to `grp_class`), 212 templates over 630 formats now (204 /
+606 before; three memory nowrite formats had no template). Fourteen places
+where the frozen code and the spec disagree are in the spec's Decisions
+("C3, the decoder and the EU in RTL"); the largest: the start decodes the
+format from the operand bytes (the model reads the image), `start_clock`
+and `resume` need wider offsets, the requests are logical positions that
+shift on promote, and `done_t`/`wb_until` need four fields. The queue
+module exposes its per-op state only under `V35S_STATE_DUMP`; a
+synthesizable core needs it exported to the EU (C4).
+
+**C4 done 2026-10-28 (WP64):** `fpga/v35s/core/v35_arbiter.sv` (module
+`v35_arbiter`, 742 lines, lint-clean; `arbitrate`, `_choose`,
+`_fetch_first`, `_fetch_run` and the request's `counts`/`ready`/`holding`
+as functions of the same names) and the core top
+`fpga/v35s/core/v35_chain_core.sv` (476 lines), which instantiates the bus
+unit, the queue (NSLOT 40), the EU with the decoder and the arbiter and
+chains the clock's phases in RTL: the EU's T/L queue ops, the arbiter's X
+ops and the EU's P ops are one op chain in the queue, and what one machine
+reads of another that is computed later in the same clock (the queue's
+state before each op and each read, the arbiter's touches, cycle and
+counts, the bus unit after the choice, the queue's phase-E `latch_in`)
+passes through settle registers that every fast-clock edge re-evaluates;
+`settled` is "next equals current", `run && settled` is the machines'
+`ce`. The corpus needs at most 6 settle edges per model clock (mean 1.25).
+The memory, immediate, push, pop and I/O templates, the EA table and the
+group and free-clock holds the table above lists under C4 were already in
+C3's EU; C4 adds the arbiter's decisions, the setup counting and
+`disp_io`'s extension, so nothing timing-related is scripted any more.
+The arbiter owns 69 bits of state (`v35_ast_t`): per request position
+(slot, two queued, shifting on a promotion) the setup count, an 8-bit
+saturating post age, and `ready_since`, `lift_t`, `free_held`, `grp_held`
+as "== t" flags; plus the fetch-run flag and a 4-bit age of the last I/O
+start. Interface-only changes to C2/C3: `v35_queue_pkg` and `v35_eu_pkg`
+packages; the queue's `state_c`/`state_op`/`state_e` and the EU's
+`state_l`/`state_e`/`fresh_l`/`fresh_p` are ports always (only the dumps
+stay under `V35S_STATE_DUMP`); `rtlgen` adds `V35_PRELUDE_POP_ADDR` and
+`V35_PRELUDE_PSW` for the POP PSW read the core starts on clock 0. On the
+Python side `rtl_vectors.py --core` wraps `arbitrate` around the EU
+recorder (`ArbiterRecorder`: classifies the arbiter's stores, raises on
+any other and on a take sync below the completed count; none over the
+refresh-off corpus), writes format V35ARB-1, and the bench checks the EU
+after every phase, every op in the chain word by word, the queue's state
+after every op, the arbiter's touches and state, the bus unit's signals
+and the core's error codes and settle count; four built-in mutations
+(the `arbiter=b2b` choice, the `hold_q` comparison, the `disp_io`
+extension, `dw_count`'s give-back) are each caught by the bench
+(`test_rtl_vectors.CoreBench`). Bench `fpga/v35s/v35_core_tb.sv` + `.cpp`,
+`fpga/v35s/build_core_tb.sh` (`LINT=1` lints the core alone), binary in
+`build/fpga/v35s/core-tb/`. Gate (re-run by the overseer, scratchpad
+wp64r/): F4, F5, F6, F7, F10, F14, F15, F16, F19, F21, F22, F26 and F29,
+12,642/12,642 runs exact against the model (4,333,778 clocks, 443,384
+bus cycles, no failed check), RTL-exact = model-exact in every family
+(12,607). Stretch: the whole refresh-off corpus, 19,850 runs exact over all
+30 family lists (6,783,501 clocks, 689,895 bus cycles, model-exact 19,565 =
+RTL-exact 19,565); the 3,762 refresh-on runs not modelled (C5). The C1,
+C2 (`--queue`, `--joint`) and C3 (`--eu`, `--joint3`) gates re-run exact
+after the interface changes. Twelve places where the frozen code and the
+spec disagree are in the spec's Decisions ("C4, the arbiter in RTL"); the
+largest: the arbiter holds state A2 put in the other machines, `posted`
+needs a saturating age rather than order flags, the fetch run is one flag
+over the bus unit's `fetch_end_prev`, and the abort compares the fetches
+still owed rather than the absolute sync. Still scripted (Phase D): the
+operand record per start, the EU's write data and the memory. Not
+modelled: refresh (C5), the prelude tail before the POP PSW read and the
+reset (C6).
 
 **Gate for Phase C:** whole-corpus RTL-exact equals model-exact (22,771 of
 23,612 under the thirty-seventh fit) with the state rows identical on every

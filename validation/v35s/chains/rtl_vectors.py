@@ -31,6 +31,13 @@ beside v35_biu.sv with the fetches the RTL queue's own and checks the bus unit a
 
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --queue --family F0 F2 F9 F11
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --joint --family F0 F2 F9 F11
+
+C3, the decoder and the EU (--eu; --joint3 with the RTL queue and bus unit, the arbiter
+scripted); C4, the whole core with the arbiter in RTL (--core: v35_chain_core.sv, its bench
+fpga/v35s/v35_core_tb.sv and .cpp, fpga/v35s/build_core_tb.sh, binary in build/fpga/v35s/core-tb/):
+see "C3" and "C4" below.
+
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --core --family F4 F5 F6 F7 F10
 """
 
 from __future__ import annotations
@@ -77,11 +84,12 @@ class _Log(list):
     unit's state and the EU's data latch at that moment (and the queue recorder's end of
     the clock, C2)."""
 
-    def __init__(self, machine, queue_rec=None, eu_rec=None):
+    def __init__(self, machine, queue_rec=None, eu_rec=None, arb_rec=None):
         super().__init__()
         self.m = machine
         self.rec = queue_rec
         self.eu_rec = eu_rec        # (C3) the decoder/EU recorder, after the queue's
+        self.arb_rec = arb_rec      # (C4) the arbiter's recorder, after the EU's
         self.snaps: list[Snap] = []
 
     def append(self, row):
@@ -93,6 +101,8 @@ class _Log(list):
             self.rec.row()
         if self.eu_rec is not None:
             self.eu_rec.row()
+        if self.arb_rec is not None:
+            self.arb_rec.row()
 
 
 def run_model(chain, cfg, chain_base: int):
@@ -1191,6 +1201,7 @@ class EURecorder:
         self.taddr = m.queue.bytes[0][0]
         self.completed = m.queue.completed
         self.x_cycle = None
+        self.arb = None             # (C4) the ArbiterRecorder: classifies the arbiter's own stores
         qrec.phase_of = lambda: self.phase
         qrec.on_call = self._queue_call
         qrec.on_end = self._end_ops
@@ -1296,6 +1307,8 @@ class EURecorder:
                 return
             if who == "req" and k in ("count", "ready_since", "lift_t", "free_held", "grp_held",
                                       "xeu", "eu_halted"):
+                if self.arb is not None:
+                    self.arb.store(k, v, t)     # (C4) the arbiter's own, classified there
                 return                          # the arbiter's own (C4)
         raise NotModelled(f"{f} writes {who}.{k} = {v!r} in phase {self.phase} at {t}")
 
@@ -1591,10 +1604,11 @@ def estate_text(s: dict) -> str:
     return " ".join(str(s[k]) for k, _ in EFIELDS)
 
 
-def run_eu_model(chain, cfg, chain_base: int):
+def run_eu_model(chain, cfg, chain_base: int, arb: bool = False):
     """(Machine, _Log, QueueRecorder (unmerged), EURecorder, cycles, the queue's start): the
     frozen model as run_model builds it with the queue's, the decoder's and the EU's run
-    recorded; its trace checked against run_record's."""
+    recorded; its trace checked against run_record's. arb (C4): the arbiter's run recorded too
+    (ArbiterRecorder, as the EURecorder's .arb)."""
     from .sim.frozen import eu as feu
     from .sim.frozen import machine as fm
     from .types import refresh_any
@@ -1605,10 +1619,14 @@ def run_eu_model(chain, cfg, chain_base: int):
             m.queue.fetch_addr)
     qrec = QueueRecorder(m, merge=False)
     erec = EURecorder(m, qrec)
-    log = _Log(m, qrec, erec)
+    arec = ArbiterRecorder(m, erec) if arb else None
+    log = _Log(m, qrec, erec, arec)
     m.clock_log = log
     orig_arb, orig_exec = fm.arbitrate, feu.execute
-    fm.arbitrate = lambda *a: erec.arbitrate(orig_arb, *a)
+    if arec is None:
+        fm.arbitrate = lambda *a: erec.arbitrate(orig_arb, *a)
+    else:
+        fm.arbitrate = lambda *a: arec.arbitrate(lambda *b: erec.arbitrate(orig_arb, *b), *a)
 
     def execute(op, code, regs):
         erec.started(op)
@@ -1628,10 +1646,12 @@ def _bv_text(v: tuple) -> str:
     return " ".join(str(x) for x in v)
 
 
-def eu_vectors(chain, cfg, chain_base: int, joint: bool = False):
+def eu_vectors(chain, cfg, chain_base: int, joint: bool = False, run=None):
     """(the EU bench's vector file, the model's cycles, the EU recorder; with joint also the
-    queue's (unmerged, JSLOT ops) and the bus unit's vector files of the same run)."""
-    run = run_eu_model(chain, cfg, chain_base)
+    queue's (unmerged, JSLOT ops) and the bus unit's vector files of the same run). run:
+    run_eu_model's result (C4: with the arbiter recorded)."""
+    if run is None:
+        run = run_eu_model(chain, cfg, chain_base)
     m, log, qrec, erec, cycles, init = run
     lines = [f"{EFORMAT} {chain.id} {len(erec.clocks)} {NQ} {NXOP} {len(erec.opnds)} "
              f"{m.queue.base}",
@@ -1827,6 +1847,296 @@ def _report_eu(f, rs, show, joint) -> int:
     return len(bad)
 
 
+# C4: the arbiter and the core ---------------------------------------------------------------
+#
+# The arbiter (v35_arbiter.sv) is a function of the four machines' state on each clock plus the
+# request records' fields it owns: the setup count, the post's clock, ready_since, lift_t,
+# free_held, grp_held (the record's other fields are the EU's, C3's RFIELDS), and the bus history
+# it reads (_fetch_run's last two cycles, grp_io_hold's last I/O start). ArbiterRecorder wraps the
+# frozen machine module's `arbitrate` (around the EU recorder's wrap; the model is not changed):
+# after the choice and at the end of every clock it takes those fields in the RTL's
+# representation (ARFIELDS: flags for "== t", an age for the post, by the EU's request
+# positions), and every store the arbiter makes into a request is classified here (the EU
+# recorder hands them over): a count, a stamp set to the clock, the refresh-only eu_halted; any
+# other raises (NotModelled), as does a take sync below the completed count at a choice (the RTL
+# keeps only the fetches still owed). The core bench (fpga/v35s/v35_core_tb.sv and .cpp,
+# fpga/v35s/build_core_tb.sh, binary in build/fpga/v35s/core-tb/) runs v35_chain_core.sv from the
+# start state, the operand records and the EU's write data (Phase D) with its memory served from
+# the image, and checks every machine after every phase of every clock against the model (the
+# EU's, the queue's, the bus unit's and the arbiter's vectors of the same run) and the cycles.
+
+CBENCH = ROOT / "build" / "fpga" / "v35s" / "core-tb" / "Vv35_core_tb"
+AFORMAT = "V35ARB-1"
+NXQ = 8                      # the arbiter's queue ops per clock (v35_arbiter.sv NXQ)
+
+# the arbiter's state (v35_arbiter.sv v35_ast_t: q[2..0], then the bus history; MSB first)
+ARQFIELDS = (
+    ("count", 7),            # setup clocks counted
+    ("p_age", 8),            # t - posted (saturating at 255)
+    ("rs_v", 1),             # ready_since is set ...
+    ("rs_now", 1),           # ... == t
+    ("lift_v", 1),           # lift_t is set ...
+    ("lift_now", 1),         # ... == t
+    ("fh_now", 1),           # free_held == t
+    ("gh_now", 1),           # grp_held == t
+)
+ARFIELDS = (tuple((f"q{i}_{n}", w) for i in (2, 1, 0) for n, w in ARQFIELDS)
+            + (("run", 1), ("io_v", 1), ("io_age", 4)))
+ASTATE_W = sum(w for _, w in ARFIELDS)
+
+
+def astate(m, t: int) -> dict:
+    """The arbiter's state on clock t in the RTL's representation (ARFIELDS)."""
+    eu, bus = m.eu, m.bus
+    slots = ([eu.req] + list(eu.queued) + [None, None])[:3]
+    s = {}
+    for i, r in enumerate(slots):
+        p = f"q{i}_"
+        if r is None:
+            for n, _ in ARQFIELDS:
+                s[p + n] = 0
+            continue
+        if not 0 <= r.count < 128:
+            raise NotModelled(f"a setup count of {r.count} at {t}")
+        s[p + "count"] = r.count
+        s[p + "p_age"] = min(255, t - r.posted)
+        s[p + "rs_v"] = int(r.ready_since is not None)
+        s[p + "rs_now"] = int(r.ready_since == t)
+        s[p + "lift_v"] = int(r.lift_t is not None)
+        s[p + "lift_now"] = int(r.lift_t == t)
+        s[p + "fh_now"] = int(r.free_held == t)
+        s[p + "gh_now"] = int(r.grp_held == t)
+    cs = [c for c in bus.cycles if c.kind != "refresh"]
+    s["run"] = int(len(cs) >= 2 and cs[-1].kind == "fetch" and cs[-2].kind == "fetch"
+                   and cs[-2].end == cs[-1].start - 1)
+    ios = [c for c in bus.cycles if c.kind.startswith("io")]
+    s["io_v"] = int(bool(ios))
+    s["io_age"] = min(15, t - ios[-1].start) if ios else 0
+    for k, w in ARFIELDS:
+        if not 0 <= s[k] < (1 << w):
+            raise RuntimeError(f"{m.chain.id}: arbiter {k}={s[k]} at {t} does not fit {w} bits")
+    return s
+
+
+def astate_text(s: dict) -> str:
+    return " ".join(str(s[k]) for k, _ in ARFIELDS)
+
+
+@dataclass
+class AClock:
+    t: int
+    ext: int = 0                # disp_io=extend on this clock's cycle
+    s_x: dict | None = None     # after the choice (X)
+    s_e: dict | None = None     # at the end of the clock
+
+
+class ArbiterRecorder:
+    """Records the arbiter's own state per clock and classifies its stores (the section comment
+    above)."""
+
+    def __init__(self, m, erec):
+        self.m, self.erec = m, erec
+        erec.arb = self
+        self.clocks: list[AClock] = []
+        self.cur: AClock | None = None
+        self.stores: dict = {}      # the classified stores, by kind (for the report and tests)
+
+    def arbitrate(self, inner, t, cfg, bus, queue, eu):
+        if isinstance(eu.sync, int) and eu.sync < queue.completed:
+            raise NotModelled(f"the take sync {eu.sync} below the completed count "
+                              f"{queue.completed} at {t}")
+        c = inner(t, cfg, bus, queue, eu)
+        ext = int(c is not None and bus.last_end == c.end + 1)
+        self.cur = AClock(t, ext, astate(self.m, t))
+        return c
+
+    def store(self, k, v, t):
+        """A store of the arbiter's into a request (phase X): its own fields only."""
+        m = self.m
+        if k == "count":
+            if not (isinstance(v, int) and 0 <= v < 128):
+                raise NotModelled(f"the arbiter sets a count of {v!r} at {t}")
+        elif k in ("ready_since", "lift_t", "free_held", "grp_held"):
+            if v != t:
+                raise NotModelled(f"the arbiter sets {k} = {v!r} at {t}")
+        elif k == "eu_halted":
+            if v != m.eu.halted:
+                raise NotModelled(f"eu_halted = {v!r} at {t}")
+            # read by refresh_io_stall only (refresh on, C5): not built
+        else:
+            raise NotModelled(f"the arbiter writes req.{k} = {v!r} at {t} (C5)")
+        self.stores[k] = self.stores.get(k, 0) + 1
+
+    def row(self):
+        t = self.erec.t - 1         # the EU recorder's row has moved on
+        if self.cur is None or self.cur.t != t:
+            raise NotModelled(f"no arbitration recorded for clock {t}")
+        self.cur.s_e = astate(self.m, t)
+        self.clocks.append(self.cur)
+        self.cur = None
+
+
+def core_vectors(chain, cfg, chain_base: int):
+    """(the EU's, the queue's (JSLOT ops), the bus unit's and the arbiter's vector files of one
+    run, the model's cycles, the EU recorder, the arbiter recorder)."""
+    run = run_eu_model(chain, cfg, chain_base, arb=True)
+    m, log, qrec, erec, cycles, init = run
+    arec = erec.arb
+    etext, _, _, qtext, btext = eu_vectors(chain, cfg, chain_base, joint=True, run=run)
+    if len(arec.clocks) != len(erec.clocks):
+        raise RuntimeError(f"{chain.id}: {len(arec.clocks)} arbiter clocks, "
+                           f"{len(erec.clocks)} EU clocks")
+    for ck in qrec.clocks:
+        nx = sum(1 for o in ck.ops if o.phase == "X")
+        if nx > NXQ:
+            raise NotModelled(f"{nx} arbiter queue ops at {ck.t} (the RTL holds {NXQ})")
+    data = [c.data & 0xFFFF for c in cycles if c.owner is m.eu]
+    lines = [f"{AFORMAT} {chain.id} {len(arec.clocks)} {len(data)}",
+             "F " + " ".join(f"{k}:{w}" for k, w in ARFIELDS)]
+    for ac in arec.clocks:
+        lines.append(f"K {ac.t} {ac.ext}")
+        lines.append("S " + astate_text(ac.s_x))
+        lines.append("S " + astate_text(ac.s_e))
+    lines.append("W " + " ".join(map(str, data)))
+    atext = "\n".join(lines) + "\n"
+    return etext, qtext, btext, atext, cycles, erec, arec
+
+
+@dataclass
+class CResult:
+    run_id: str
+    clocks: int = 0
+    ops: int = 0
+    starts: int = 0
+    state_bad: int = 0              # the EU's states
+    op_bad: int = 0                 # the chain's ops (the EU's, the arbiter's) and their counts
+    err_bad: int = 0                # the core's or a machine's error
+    dcyc_bad: int = 0               # the EU's data cycles
+    q_state_bad: int = 0            # the queue's states
+    q_rd_bad: int = 0               # the queue's reads
+    x_bad: int = 0                  # the arbiter's touches on the EU
+    a_state_bad: int = 0            # the arbiter's state
+    signal_bad: int = 0             # the bus unit's signals
+    biu_state_bad: int = 0          # the bus unit's state
+    settle_bad: int = 0             # a clock that did not settle
+    iter_total: int = 0             # settle edges over the run's clocks ...
+    iter_max: int = 0               # ... the most in one clock
+    iters: dict | None = None       # ... per clock: edges -> clocks
+    cycles: int = 0                 # the model's cycles ...
+    rtl_cycles: int = 0             # ... the core's ...
+    exact_cycles: int = 0           # ... equal (start, length, kind, address, width, data)
+    rtl_exact: bool | None = None
+    model_exact: bool | None = None
+    rtl_model_exact: bool | None = None
+    first: str = ""
+    error: str = ""
+    not_modelled: str = ""
+
+    BAD = ("state_bad", "op_bad", "err_bad", "dcyc_bad", "q_state_bad", "q_rd_bad", "x_bad",
+           "a_state_bad", "signal_bad", "biu_state_bad", "settle_bad")
+
+    @property
+    def fails(self) -> int:
+        return sum(getattr(self, k) for k in self.BAD)
+
+    @property
+    def ok(self) -> bool:
+        return (not self.error and not self.not_modelled and not self.fails and self.clocks > 0
+                and self.cycles == self.rtl_cycles == self.exact_cycles)
+
+
+def check_core_run(rec: dict, cfg, keep: Path | None = None, mutate: int = 0) -> CResult:
+    from .normalize import normalize
+    from .score import model_one, relabel_refresh, score
+    from .sim.frozen.machine import refresh_anchor
+    s = normalize(rec)
+    res = CResult(s.run_id)
+    try:
+        etext, qtext, btext, atext, cycles, erec, arec = core_vectors(s.chain, cfg, s.chain_base)
+    except NotModelled as e:
+        res.not_modelled = str(e)
+        return res
+    except Exception as e:      # noqa: BLE001
+        res.error = f"vectors: {type(e).__name__}: {e}"
+        return res
+    with tempfile.TemporaryDirectory() as tmp:
+        d = keep if keep is not None else Path(tmp)
+        paths = [d / f"{s.run_id}.c.{x}" for x in ("evec", "qvec", "vec", "avec")]
+        for path, text in zip(paths, (etext, qtext, btext, atext)):
+            path.write_text(text)
+        args = [str(CBENCH)] + [str(x) for x in paths] + ([str(mutate)] if mutate else [])
+        p = subprocess.run(args, capture_output=True, text=True, cwd=ROOT)
+    if keep is not None:
+        (keep / f"{s.run_id}.core.out").write_text(p.stdout + p.stderr)
+    sm, cyc, fails, iters = {}, [], [], {}
+    for line in p.stdout.splitlines():
+        f = line.split()
+        if not f:
+            continue
+        if f[0] == "SUMMARY":
+            sm = {k: int(v) for k, v in (x.split("=") for x in f[1:])}
+        elif f[0] == "CYC":
+            cyc.append(tuple(int(x) for x in f[1:]))
+        elif f[0] == "ITER":
+            iters[int(f[1])] = int(f[2])
+        elif f[0] == "FAIL":
+            fails.append(line)
+    if p.returncode not in (0, 1) or not sm:
+        res.error = f"bench exit {p.returncode}: {(p.stderr or p.stdout)[-300:]}"
+        return res
+    for k in ("clocks", "ops", "starts", "iter_total", "iter_max") + CResult.BAD:
+        setattr(res, k, sm.get(k, 0))
+    res.iters = iters
+    res.first = fails[0] if fails else ""
+    model = [(c.start, c.length, KINDS.index(c.kind), c.addr, BWIDTHS.index(c.width),
+              c.data & 0xFFFF) for c in cycles]
+    res.cycles, res.rtl_cycles = len(model), len(cyc)
+    res.exact_cycles = sum(1 for x, y in zip(model, cyc) if x == y)
+    try:
+        rrec = {"chain": rec["chain"], "chain_base": s.chain_base, "complete": True,
+                "socket_trace": rtl_trace(cyc)}
+        n = normalize(rrec, strict=False)
+        anchor = refresh_anchor(s, events=False)
+        relabel_refresh(n, anchor[1] if anchor is not None else 0)
+        _, mn, msc = model_one(s, cfg)
+        res.model_exact = msc.exact
+        res.rtl_exact = score(s, n).exact
+        res.rtl_model_exact = score(mn, n).exact if mn is not None else False
+    except Exception as e:      # noqa: BLE001
+        res.error = f"score: {type(e).__name__}: {e}"
+    return res
+
+
+def _report_core(f, rs, show) -> int:
+    nm = [r for r in rs if r.not_modelled]
+    run = [r for r in rs if not r.not_modelled]
+    ok = sum(r.ok for r in run)
+    tot = {k: sum(getattr(r, k) for r in run) for k in (
+        "clocks", "ops", "starts", "cycles", "exact_cycles", "iter_total") + CResult.BAD}
+    fails = sum(tot[k] for k in CResult.BAD)
+    me = sum(bool(r.model_exact) for r in run)
+    re_ = sum(bool(r.rtl_exact) for r in run)
+    rm = sum(bool(r.rtl_model_exact) for r in run)
+    imax = max((r.iter_max for r in run), default=0)
+    imean = tot["iter_total"] / tot["clocks"] if tot["clocks"] else 0.0
+    detail = ", ".join(f"{k[:-4]} {tot[k]}" for k in CResult.BAD if tot[k])
+    print(f"{f:<5} {len(rs):>5} runs  {ok} exact against the model ({len(nm)} not modelled)  "
+          f"clocks {tot['clocks']} starts {tot['starts']} ops {tot['ops']}  fails {fails}"
+          f"{' (' + detail + ')' if detail else ''}  bus cycles {tot['exact_cycles']}/"
+          f"{tot['cycles']}  settle edges/clock max {imax} mean {imean:.2f}  vs silicon: "
+          f"model-exact {me}, RTL-exact {re_}, RTL = model {rm}")
+    bad = [r for r in run if not r.ok]
+    for r in bad[:show]:
+        print(f"    {r.run_id}: {r.error or r.first or 'cycles differ'}")
+    reasons: dict = {}
+    for r in nm:
+        k = r.not_modelled.split(" at ")[0][:90]
+        reasons[k] = reasons.get(k, 0) + 1
+    for k, n in sorted(reasons.items(), key=lambda kv: -kv[1])[:show]:
+        print(f"    not modelled ({n}): {k}")
+    return len(bad)
+
+
 # The command ------------------------------------------------------------------------------
 
 def _work(args):
@@ -1836,6 +2146,8 @@ def _work(args):
         return family, check_run(rec, Config.fitted(), keep)
     if mode in ("eu", "joint3"):
         return family, check_eu_run(rec, Config.fitted(), keep, joint=mode == "joint3")
+    if mode == "core":
+        return family, check_core_run(rec, Config.fitted(), keep)
     return family, check_queue_run(rec, Config.fitted(), keep, joint=mode == "joint")
 
 
@@ -1894,16 +2206,19 @@ def main(argv=None) -> int:
                    help="C3: the decoder/EU bench (v35_eu.sv), its views the model's")
     p.add_argument("--joint3", action="store_true",
                    help="C3: the EU with the RTL queue and bus unit (the arbiter scripted)")
+    p.add_argument("--core", action="store_true",
+                   help="C4: the whole core (v35_chain_core.sv), the arbiter in RTL")
     p.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
     p.add_argument("--keep", type=Path, help="keep the vector files and bench outputs here")
     p.add_argument("--show", type=int, default=5, help="failing runs to show per family")
     args = p.parse_args(argv)
-    mode = ("joint3" if args.joint3 else "eu" if args.eu else "joint" if args.joint
-            else "queue" if args.queue else "biu")
-    bench = {"biu": BENCH, "eu": EBENCH, "joint3": EBENCH}.get(mode, QBENCH)
+    mode = ("core" if args.core else "joint3" if args.joint3 else "eu" if args.eu
+            else "joint" if args.joint else "queue" if args.queue else "biu")
+    bench = {"biu": BENCH, "eu": EBENCH, "joint3": EBENCH, "core": CBENCH}.get(mode, QBENCH)
     if not bench.exists():
         script = {"biu": "build_biu_tb.sh", "eu": "build_eu_tb.sh",
-                  "joint3": "build_eu_tb.sh"}.get(mode, "build_queue_tb.sh")
+                  "joint3": "build_eu_tb.sh", "core": "build_core_tb.sh"}.get(
+                      mode, "build_queue_tb.sh")
         print(f"error: {bench} is missing (fpga/v35s/{script})", file=sys.stderr)
         return 2
     from multiprocessing import get_context
@@ -1929,12 +2244,16 @@ def main(argv=None) -> int:
             bad_total += _report_biu(f, rs, args.show)
         elif mode in ("eu", "joint3"):
             bad_total += _report_eu(f, rs, args.show, mode == "joint3")
+        elif mode == "core":
+            bad_total += _report_core(f, rs, args.show)
         else:
             bad_total += _report_queue(f, rs, args.show, mode == "joint")
     if len(args.family) > 1:
         allr = [r for f in args.family for r in results[f]]
         if mode in ("eu", "joint3"):
             _report_eu("all", allr, 0, mode == "joint3")
+        elif mode == "core":
+            _report_core("all", allr, 0)
         elif mode != "biu":
             _report_queue("all", allr, 0, mode == "joint")
     return 1 if bad_total else 0

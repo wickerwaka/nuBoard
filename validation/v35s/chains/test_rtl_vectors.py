@@ -7,9 +7,12 @@ every clock's window signals and state bundle, and the pins. C2: v35_queue.sv, t
 after the delivery, after each op the other machines make and at the end of every clock, and
 every read; then the queue and the bus unit together (the fetches the RTL queue's), the
 cycles as the model's. C3: v35_eu.sv (the decoder and the EU), the state after every phase
-and every queue op it makes, alone and with the RTL queue and bus unit. The gates' full runs:
+and every queue op it makes, alone and with the RTL queue and bus unit. C4: v35_arbiter.sv and
+the core v35_chain_core.sv (the five machines together, the arbiter's decisions in RTL), every
+machine's state after every phase of every clock and the cycles. The gates' full runs:
 python -m validation.v35s.chains.rtl_vectors --family F0 F0w, --queue --family F0 F2 F9 F11,
---joint --family F0 F2 F9 F11, --eu / --joint3 --family F1 F2 F3 F9 F11 F12 F20."""
+--joint --family F0 F2 F9 F11, --eu / --joint3 --family F1 F2 F3 F9 F11 F12 F20, --core
+--family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29."""
 
 from __future__ import annotations
 
@@ -435,6 +438,132 @@ class EUBench(unittest.TestCase):
         p = self._bench(bad)
         self.assertEqual(p.returncode, 1)
         self.assertRegex(p.stdout, r"FAIL clock \d+ \w+(?: \w)? e_(count|res|fmt)")
+
+
+# C4 ------------------------------------------------------------------------------------------
+
+ARB_SV = rtl_vectors.ROOT / "fpga" / "v35s" / "core" / "v35_arbiter.sv"
+CORE_SV = rtl_vectors.ROOT / "fpga" / "v35s" / "core" / "v35_chain_core.sv"
+
+# runs that reach the arbiter's edges (rtl_vectors' C4 recorder): free_hold's held fetch,
+# grp_io_hold's, the I/O lead's lift, a request moved into the slot behind a detached OUT, the
+# left-out write's slot, the aborted cycle and its take sync, free_idle's not_before, disp_io
+CSAMPLE = (("F14", "F14-g-out-pop_bw-k2-pO-w0"), ("F14", "F14-g-out-shl_bw_cl-pO-w0"),
+           ("F14", "F14-t-none-cmp_bw_aw-pE-w0"), ("F14", "F14-t-out-test_dir_aw-pO-w0"),
+           ("F16", "F16-s-none-cl1-n1-shlcl-pO-w0"), ("F11", "F11-none-n0-addi-pE-w0"),
+           ("F10", "F10-push-addawi-outdw-pE-w0"), ("F19", "F19-i-out-l0-stimmd16-k2-pE-w0"),
+           ("F12", "F12-a-out-n1-imm-pE-w0"))
+
+
+class ArbiterVectors(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.cfg = Config.fitted()
+
+    def test_fields_and_codes_are_the_rtls(self):
+        """ARFIELDS is v35_ast_t's declaration order (q[2..0] of v35_arq_t, then the history),
+        the widths the parameters', the touches the EU's XOPS, the queue op codes the
+        package's, and the core's view of the queue every QVIEW field."""
+        sv, core = ARB_SV.read_text(), CORE_SV.read_text()
+        self.assertEqual(_sv_fields(sv, "v35_arq_t"), [n for n, _ in rtl_vectors.ARQFIELDS])
+        self.assertEqual(_sv_fields(sv, "v35_ast_t"), ["q", "run", "io_v", "io_age"])
+        self.assertIn("v35_arq_t [2:0] q;", sv)
+        self.assertEqual([n for n, _ in rtl_vectors.ARFIELDS][-3:], ["run", "io_v", "io_age"])
+        self.assertIn(f"parameter int STATE_W = {rtl_vectors.ASTATE_W}", sv)
+        self.assertIn(f"parameter int ASTATE_W = {rtl_vectors.ASTATE_W}", core)
+        self.assertIn(f"parameter int NXQ = {rtl_vectors.NXQ}", sv)
+        self.assertIn(f"parameter int NXQ = {rtl_vectors.NXQ}", core)
+        self.assertIn(f"parameter int JSLOT = {rtl_vectors.JSLOT}", core)
+        self.assertIn(f"parameter int STATE_W = {rtl_vectors.ESTATE_W}", core)
+        self.assertIn(f"parameter int QSTATE_W = {rtl_vectors.QSTATE_W}", core)
+        x = dict((n.lower(), int(v)) for n, v in
+                 re.findall(r"localparam logic \[2:0\] V35_XOP_(\w+) = 3'd(\d+);", sv))
+        self.assertEqual(x, {n: i for i, n in enumerate(rtl_vectors.XOPS) if i})
+        used = set(re.findall(r"V35_QOP_(\w+)", sv))
+        self.assertTrue(used <= {n.upper() for n in rtl_vectors.QOPS}, used)
+        self.assertEqual(used, {"WANT", "ROOM", "TRIPLE", "ISSUE", "ABORT", "REDATE", "IO_HELD_CLR"})
+        self.assertEqual(sorted(re.findall(r"^\s*v\.(\w+) = s\.\1;", core, re.M)),
+                         sorted(rtl_vectors.QVIEW))
+
+    def test_vectors_reach_the_edges(self):
+        """The samples reach the arbiter's rules (its own fields, its touches, its queue ops),
+        every clock's X ops fit NXQ, and every store the arbiter makes into a request is one the
+        recorder classified (any other raises)."""
+        seen = set()
+        for family, part in CSAMPLE:
+            s = normalize(_run(family, part))
+            et, qt, bt, at, cycles, erec, arec = rtl_vectors.core_vectors(s.chain, self.cfg,
+                                                                          s.chain_base)
+            self.assertEqual(at.splitlines()[0].split()[0], rtl_vectors.AFORMAT)
+            self.assertEqual(len(arec.clocks), len(erec.clocks))
+            for ac, ck in zip(arec.clocks, erec.clocks):
+                for k in ("q0_fh_now", "q0_gh_now", "q0_lift_now", "q0_rs_now", "run", "io_v"):
+                    if ac.s_x[k]:
+                        seen.add(k)
+                if ac.ext:
+                    seen.add("ext")
+                seen.update(x for x, _ in ck.xops)
+                seen.update("q:" + o.code for o in ck.xq)
+                self.assertLessEqual(len(ck.xq), rtl_vectors.NXQ)
+                if ck.states["l"]["r0_dw_moved"] or ck.states["l"]["r0_moved"]:
+                    seen.add("moved")
+            seen.update("st:" + k for k in arec.stores)
+        want = {"q0_fh_now", "q0_gh_now", "q0_lift_now", "q0_rs_now", "run", "io_v", "ext",
+                "issue", "nowrite", "fetch_start", "sync_one", "free0", "not_before", "moved",
+                "q:want", "q:room", "q:triple", "q:issue", "q:abort", "q:redate", "q:io_held_clr",
+                "st:count", "st:ready_since", "st:lift_t", "st:free_held", "st:grp_held",
+                "st:eu_halted"}
+        self.assertTrue(want <= seen, want - seen)
+
+    def test_refresh_on_is_c5s(self):
+        s = normalize(_run("F13", "F13-r-"))
+        with self.assertRaises(rtl_vectors.NotModelled):
+            rtl_vectors.core_vectors(s.chain, self.cfg, s.chain_base)
+
+    def test_an_unclassified_store_raises(self):
+        """The recorder's classification: a store of the arbiter's it does not know raises."""
+        s = normalize(_run("F4", None))
+        run = rtl_vectors.run_eu_model(s.chain, self.cfg, s.chain_base, arb=True)
+        arec = run[3].arb
+        with self.assertRaises(rtl_vectors.NotModelled):
+            arec.store("xeu", {1}, 5)
+        with self.assertRaises(rtl_vectors.NotModelled):
+            arec.store("ready_since", 4, 5)
+        with self.assertRaises(rtl_vectors.NotModelled):
+            arec.store("setup", 3, 5)
+
+
+@unittest.skipUnless(rtl_vectors.CBENCH.exists(), "bench not built: fpga/v35s/build_core_tb.sh")
+class CoreBench(unittest.TestCase):
+    def test_sample_runs_exact(self):
+        cfg = Config.fitted()
+        for family, part in CSAMPLE:
+            rec = _run(family, part)
+            with self.subTest(run=rec["chain"]["id"]):
+                r = rtl_vectors.check_core_run(rec, cfg)
+                self.assertEqual((r.error, r.not_modelled), ("", ""))
+                self.assertTrue(r.ok, f"{r.first} cycles {r.exact_cycles}/{r.cycles}")
+                self.assertTrue(r.rtl_model_exact)
+                self.assertEqual(r.rtl_exact, r.model_exact)
+                self.assertLessEqual(r.iter_max, 16)
+
+    def test_bench_catches_mutations(self):
+        """Each of the arbiter's mutations (v35_arbiter.sv `mutate`) flips one decision: the
+        fetch first or the data (arbiter=b2b), the hold's queue count (hold_q), the disp_io
+        extension, a DW form's post clock given back (dw_count=bus); the bench fails each."""
+        cfg = Config.fitted()
+        for mut, (family, part) in ((1, ("F21", "F21-push-l0-ld-bw-pE-w0")),
+                                    (2, ("F21", "F21-push-l0-ld-bw_ix_d8-pE-w0")),
+                                    (3, ("F21", "F21-out-l0-ld-bw_ix_d16-pE-w0")),
+                                    (4, ("F21", "F21-push-l0-ld-bw-pE-w0"))):
+            rec = _run(family, part)
+            with self.subTest(mutate=mut):
+                r = rtl_vectors.check_core_run(rec, cfg)
+                self.assertTrue(r.ok, r.first)
+                r = rtl_vectors.check_core_run(rec, cfg, mutate=mut)
+                self.assertEqual(r.error, "")
+                self.assertFalse(r.ok)
+                self.assertRegex(r.first, r"^FAIL clock \d+ ")
 
 
 if __name__ == "__main__":
