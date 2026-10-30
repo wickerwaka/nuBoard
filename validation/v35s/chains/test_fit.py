@@ -591,3 +591,42 @@ class TransferFrameStage(unittest.TestCase):
         import argparse
         args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "14"])
         self.assertEqual(args.stage, 14)
+
+
+class ProbeShapesStage(unittest.TestCase):
+    """(WP76) stage 15: F30's and F31's readings as mechanisms (with F24, F23, F25), the corpus
+    guard as its guard."""
+
+    def test_stage_15_families_and_enums(self):
+        from validation.v35s.chains.sim.config import OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[15], ["F30", "F31", "F24", "F23", "F25"])
+        self.assertEqual(set(fit.F41_ENUMS), {"xfer_odd", "str_exit", "str_split",
+                                              "str_io_setup", "str_start", "str_fetch",
+                                              "sreg_io", "sreg_store", "lea_disp"})
+        for name, values in fit.F41_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            self.assertEqual(getattr(DEFAULT, name), values[0], name)
+        for p in ("str_move.xwb", "str_cmp.xsplit", "str_store.xfetch", "str_out.zfetch",
+                  "str_out.nx", "branch_short.hold", "lea.nx"):
+            self.assertIn(p, fit.F41_INTS)
+
+    def test_stage_15_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage15({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_15_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage15({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 15)
+        self.assertEqual(args[2], fit.F41_ENUMS)
+        self.assertEqual(args[3], fit.F41_INTS)
+        self.assertEqual(kw["sweep"], fit.F41_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_15(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "15"])
+        self.assertEqual(args.stage, 15)

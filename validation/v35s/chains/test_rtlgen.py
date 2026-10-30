@@ -39,31 +39,68 @@ class Generated(unittest.TestCase):
         self.assertIn(f'V35_FIT_MD5 = "{md5}"', self.text)
 
     def test_every_class_present(self):
+        """Every class but halt's has a format word selecting a template. (WP75) A class's
+        templates are found through the format words, not the templates' examples: a template
+        two classes build is listed under the first (fit 40: DISPOSE's, setup 7, is POP's)."""
         self.assertEqual(len(self.cfg.cost), 42)        # fit 38: the seven string classes
-        with_tmpl = {self.example[i][0] for i in range(len(self.tmpls))}
+        names = [n for n, _ in rtlgen.FMT_FIELDS]
+        with_tmpl = {k[names.index("cls")] for k in self.sel}
         for k, cls in enumerate(sorted(self.cfg.cost)):
             with self.subTest(cls=cls):
                 # the class ids are Config's sorted order (rtl_vectors' numbering)
                 self.assertIn(f"localparam int V35_CLS_{rtlgen._ident(cls)} = {k};", self.text)
-                self.assertEqual(cls in with_tmpl, cls not in rtlgen.string_classes())
+                self.assertTrue(cls in with_tmpl)
                 for name, value in self.cfg.cost[cls].items():
                     self.assertIn(f"localparam int V35_C_{rtlgen._ident(cls)}_"
                                   f"{rtlgen._ident(name)} = {value};", self.text)
         n = sum(len(d) for d in self.cfg.cost.values())
         self.assertEqual(len(re.findall(r"^localparam int V35_C_", self.text, re.M)), n)
 
-    def test_string_classes_skipped(self):
-        """(WP68, F24) the string forms (Phase E3) have no template: no format word of a
-        string class selects one, while their class ids and integers are in the include."""
+    def test_string_templates(self):
+        """(E3) the string forms' templates: every string opcode, byte and word, with and
+        without REP / REPNE, selects one; a REP form's compact template expands to frozen
+        _string_steps' list (string_template checks n = 0 .. 6 and both exits; here again at
+        n = 16 and a large count's head and tail); its shape is in v35_str_shape."""
+        from validation.v35s.chains.sim.frozen.templates import STRING_OPS, decode
         sc = rtlgen.string_classes()
         self.assertEqual(sc, {"str_move", "str_cmp", "str_store", "str_load", "str_scan",
                               "str_in", "str_out"})
         self.assertTrue(sc <= set(self.cfg.cost))
-        names = [n for n, _ in rtlgen.FMT_FIELDS]
-        self.assertFalse([k for k in self.sel if k[names.index("cls")] in sc])
-        self.assertFalse([e for e in self.example.values() if e[0] in sc])
-        for cls in sc:
-            self.assertIn(f"localparam int V35_CLS_{rtlgen._ident(cls)} = ", self.text)
+        for even, cls in STRING_OPS.items():
+            for o in (even, even | 1):
+                for pre in (b"", b"\xf3", b"\xf2"):
+                    op = decode(pre + bytes([o, 0x90]), 0, rtlgen._regs(0, 3))
+                    self.assertEqual(op.cls, cls)
+                    key = tuple(rtlgen.fmt_of(op, self.cfg, False, False)[n]
+                                for n, _ in rtlgen.FMT_FIELDS)
+                    with self.subTest(code=(pre + bytes([o])).hex()):
+                        self.assertIn(key, self.sel)
+                        tm = self.tmpls[self.sel[key]]
+                        self.assertEqual(tm, rtlgen.string_template(op, self.cfg))
+                        if not pre:
+                            continue
+                        m, c = rtlgen.string_shape(tm, cls)
+                        self.assertIn(f"{self.sel[key]}: v35_str_shape = {{2'd{m}, 2'd{c}}};",
+                                      self.text)
+                        for n in (16, 300):
+                            for cond in (False, True) if rtlgen.is_compare(cls) else (False,):
+                                want = [(rtlgen._row(d), i) for d, i in
+                                        rtlgen._str_raw(op, self.cfg, n, cond)]
+                                got = rtlgen.expand_string(tm, cls, self.cfg.c(cls, "last"),
+                                                           n, cond)
+                                got = [(r, i if dict(r)["src" if "src" in dict(r) else "op"]
+                                        in ("ix", "iy") else None) for r, i in got]
+                                self.assertEqual(want, got)
+
+    def test_flush_cfgap(self):
+        """(WP72) cond_gap=own: a taken BE / BNE's flush waits the class's cfgap (the step's
+        tag), BR short's fgap."""
+        from validation.v35s.chains.sim.frozen.templates import decode
+        for code, tag in ((b"\x74\x02", "cfgap"), (b"\xeb\x02", None)):
+            op = decode(code + b"\x90" * 6, 0, rtlgen._regs(1, 3))
+            tm = rtlgen.template(op, self.cfg, False, False)
+            fl = [dict(r) for r in tm if dict(r)["op"] == "flush"]
+            self.assertEqual([d.get("tag") for d in fl], [tag])
 
     def test_ea_table(self):
         self.assertEqual(len(self.cfg.ea), 7)
@@ -163,9 +200,10 @@ class Generated(unittest.TestCase):
                     self.assertEqual(rtlgen.ADDR_SRC[get("src")], d["src"])
 
     def test_corpus_instructions_have_templates(self):
-        """Every instruction of every generated chain but a string form (WP68, Phase E3)
-        decodes to a format the selection table holds, in both refresh forms (and the count-0 form of a shift), with the EU's
-        own changes at its start (a CMP r/m,reg or 81 /7 form: nowrite, its group's class)."""
+        """Every instruction of every generated chain (E3: the string forms too) decodes to a
+        format the selection table holds, in both refresh forms (and the count-0 form of a
+        shift), with the EU's own changes at its start (a CMP r/m,reg or 81 /7 form: nowrite,
+        its group's class)."""
         from validation.v35s.chains.families import generate
         from validation.v35s.chains.sim.frozen.templates import decode
         codes = sorted({bytes(i.code) for c in generate(None) for i in c.instrs})
@@ -179,7 +217,12 @@ class Generated(unittest.TestCase):
                     break
                 op = rtlgen.started(op, self.cfg)   # as the EU's _start selects it
                 if op.cls in rtlgen.string_classes():
-                    k += op.length                  # (WP68) Phase E3: no template
+                    key = tuple(rtlgen.fmt_of(op, self.cfg, False, False)[n]
+                                for n, _ in rtlgen.FMT_FIELDS)
+                    with self.subTest(code=code.hex(" "), k=k):
+                        self.assertIn(key, self.sel)   # (E3) string_template's
+                    seen += 1
+                    k += op.length
                     continue
                 for refresh in (False, True):
                     cz = rtlgen.has_count(op) and op.count == 0

@@ -12,8 +12,8 @@ module v35_core_tb #(
     parameter int NXOP = 6,
     parameter int NXQ = 8,
     parameter int JSLOT = 40,
-    parameter int STATE_W = 879,
-    parameter int QSTATE_W = 180,
+    parameter int STATE_W = 958,
+    parameter int QSTATE_W = 187,
     parameter int ASTATE_W = 103,
     parameter int RSTATE_W = 24
 ) (
@@ -63,7 +63,7 @@ module v35_core_tb #(
     output wire        refrq_n
 `ifdef V35S_STATE_DUMP
     ,
-    input  wire [3:0]  mutate,              // the mutation tests (1..7 the arbiter's, 8..10 the EU's)
+    input  wire [4:0]  mutate,              // the mutation tests (1..7, 20 the arbiter's, 8..19, 21..23 the EU's)
     // (D1) the operand record of the clock's first and second start and the register file
     // before each one's execute; (D2) the EU cycle's datum (the EU's)
     output wire [196:0] opr_a,
@@ -90,7 +90,7 @@ module v35_core_tb #(
     output wire [RSTATE_W-1:0] r_r,
     output wire [RSTATE_W-1:0] r_e,
     output wire [RSTATE_W-1:0] r_dump,
-    output wire [63:0] biu_dump,
+    output wire [64:0] biu_dump,
     output wire [JSLOT-1:0][32:0] slots,    // the clock's queue ops, in chain order
     output wire [JSLOT-1:0][7:0] slot_rd,
     output wire [4:0]  n_tl,

@@ -22,7 +22,8 @@ return FFh per byte (the suite's rig had no device: FFFFh as a word).
 Expected differences (not failures, counted apart): a divide error (the trap sequence is a
 later item: the reference and the RTL raise the trap condition; the test must show the trap,
 IP at the divide vector's target); a REP prefix before a non-string instruction and the string
-forms (the RTL leaves them out, Phase E3); PREPARE with a level (the corpus's level is 0, the
+forms (E3 builds them in the EU's element loop, which the unit bench does not run: the corpus's
+--core runs check them); PREPARE with a level (the corpus's level is 0, the
 RTL builds that); FF /2-/5 and /7 (transfers) and, in the RTL, F6/F7 /1 (TEST's alias) and the
 register forms of F6/F7 /2 /3, FF /0 /1 /6, 8F and C6/C7 (the decoder gives them a memory or
 read-modify-write template their semantics do not have: the RTL raises V35_EE_FUNC, which the

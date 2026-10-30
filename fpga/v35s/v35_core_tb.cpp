@@ -1,6 +1,6 @@
 // Chain-model core bench (HDL plan, C4; C5: refresh): runs v35_chain_core on a chain and checks it against the
 // frozen model on every model clock. Vectors: validation/v35s/chains/rtl_vectors.py --core, four
-// files of one run: the EU's (V35EU-3: the start state with the register file's presets, the code,
+// files of one run: the EU's (V35EU-4: the start state with the register file's presets, the code,
 // (D2) the memory's image, the operand record of every instruction start and the register file
 // before it (the functional reference's, funcref.py), per clock the EU's state after every phase
 // (its functional fields f_ and x_ not compared), its queue ops and the arbiter's touches),
@@ -48,7 +48,7 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 879, QSTATE_W = 180,
+constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 958, QSTATE_W = 187,
               ASTATE_W = 103, RSTATE_W = 24, XOPW = 12;
 constexpr int OPW = 33, QVW = 52, OPNDW = 197, RFW = 211;
 constexpr int K_FETCH = 1, K_READ = 2, K_WRITE = 3, K_IO_READ = 4;
@@ -287,8 +287,8 @@ int main(int argc, char** argv) {
     std::ifstream in(argv[1]);
     long nclocks = 0, nq = 0, nxop = 0, nopnd = 0, base = 0, org = 0;
     in >> format >> id >> nclocks >> nq >> nxop >> nopnd >> base >> org;
-    if (format != "V35EU-3" || nq != NQ || nxop != NXOP) {
-        std::fprintf(stderr, "not a V35EU-3 vector file for %d ops, %d touches\n", NQ, NXOP);
+    if (format != "V35EU-4" || nq != NQ || nxop != NXOP) {
+        std::fprintf(stderr, "not a V35EU-4 vector file for %d ops, %d touches\n", NQ, NXOP);
         return 2;
     }
     std::getline(in, line);
@@ -308,6 +308,21 @@ int main(int argc, char** argv) {
         return 2;
     }
     const size_t nf = b.fields.size(), nqv = qview_fields.size();
+    int x_sn_lsb = -1, x_sc_lsb = -1;           // (E3) the string form's elements and cond
+    {
+        int off = STATE_W;
+        for (const auto& f : b.fields) {
+            off -= f.width;
+            if (f.name == "x_sn")
+                x_sn_lsb = off;
+            if (f.name == "x_sc")
+                x_sc_lsb = off;
+        }
+        if (x_sn_lsb < 0 || x_sc_lsb < 0) {
+            std::fprintf(stderr, "no x_sn / x_sc field\n");
+            return 2;
+        }
+    }
     Vals init;
     if (!read_vals(in, "I", nf, init)) {
         std::fprintf(stderr, "no init line\n");
@@ -343,7 +358,7 @@ int main(int argc, char** argv) {
     }
     // the operand records and (D2) the register file before each start (the functional
     // reference's)
-    std::vector<Vals> opnds(nopnd), rfs(nopnd);
+    std::vector<Vals> opnds(nopnd), rfs(nopnd), strs(nopnd);
     for (long i = 0; i < nopnd; ++i) {
         auto& o = opnds[i];
         std::string hex;
@@ -362,6 +377,9 @@ int main(int argc, char** argv) {
         }
         rfs[i].resize(NRF);
         for (auto& x : rfs[i])
+            in >> x;
+        strs[i].resize(3);                      // (E3) a string form: 1, its elements, cond
+        for (auto& x : strs[i])
             in >> x;
     }
     std::vector<Clock> clocks(nclocks);
@@ -729,6 +747,15 @@ int main(int argc, char** argv) {
             std::snprintf(where, sizeof where, "start %ld registers", i);
             bad = (j == 0 ? b.check_packed(t, where, RF_N, RF_W, NRF, rfs[i], d.rfx_a)
                           : b.check_packed(t, where, RF_N, RF_W, NRF, rfs[i], d.rfx_b)) || bad;
+            // (E3) the string form before it: the elements it ran and whether a compare's
+            // condition ended it (the RTL's, from its data) against the walk's, after C
+            if (j == 0 && i >= 1 && strs[i - 1][0]) {
+                std::snprintf(where, sizeof where, "start %ld string", i - 1);
+                b.check(b.opnd_bad, t, std::string(where) + " elements", long(strs[i - 1][1]),
+                        long(get_bits(d.eu_c, x_sn_lsb, 16)));
+                b.check(b.opnd_bad, t, std::string(where) + " cond", long(strs[i - 1][2]),
+                        long(get_bits(d.eu_c, x_sc_lsb, 1)));
+            }
             if (bad)
                 ++b.opnd_bad;
         }
@@ -745,16 +772,18 @@ int main(int argc, char** argv) {
             b.check_state(b.r_state_bad, t, "refresh registered", b.rfields, RSTATE_W, ac.r_e,
                           d.r_dump, 0);
         if (col("has_row")) {
-            uint64_t s = d.biu_dump;
+            const auto& sw_ = d.biu_dump;        // (WP75) 65 bits: fetch_since is 4
+            int s_at = 0;
             auto take = [&](int bits) {
-                const long v = long(s & ((uint64_t(1) << bits) - 1));
-                s >>= bits;
+                long v = 0;
+                for (int i = 0; i < bits; ++i, ++s_at)
+                    v |= long((sw_[s_at / 32] >> (s_at % 32)) & 1u) << i;
                 return v;
             };
             const long valid = take(1), kind = take(3), pos = take(3), len = take(3);
             const long ext = take(1), internal = take(1), latch = take(1), addr = take(20);
             const long wid = take(2), data = take(16);
-            const long gap = take(1), fsince = take(3), io_tail = take(3), wl = take(3),
+            const long gap = take(1), fsince = take(4), io_tail = take(3), wl = take(3),
                        rlen = take(3);
             b.check(b.biu_state_bad, t, "biu.valid", col("valid"), valid);
             if (col("valid") && valid) {

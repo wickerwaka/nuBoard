@@ -6,6 +6,7 @@
 #
 #   fpga/v35s/build_core_tb.sh
 #   PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --core --family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29
+#   the whole corpus (33 lists): --core --family F0 F0w F1 F2 ... F29 F30 F31
 #
 # The parameter include (core/v35_chain_params.svh) is generated: python -m
 # validation.v35s.chains rtlgen (the build checks it first). LINT=1: lint the core alone (the

@@ -214,7 +214,7 @@ int main(int argc, char** argv) {
             b.fields.push_back({f.substr(0, c), std::stoi(f.substr(c + 1))});
             b.width += b.fields.back().width;
         }
-        if (tag != "F" || b.width != 180) {
+        if (tag != "F" || b.width != 187) {
             std::fprintf(stderr, "bad field line (%d bits)\n", b.width);
             return 2;
         }
@@ -400,16 +400,18 @@ int main(int argc, char** argv) {
             const auto& r = *br;
             b.check(b.signal_bad, t, "bus unit error", 0, d.biu_error);
             if (r[bcol("has_row")]) {
-                uint64_t s = d.biu_state;
+                const auto& sw_ = d.biu_state;        // (WP75) 65 bits: fetch_since is 4
+                int s_at = 0;
                 auto take = [&](int bits) {
-                    const long v = long(s & ((uint64_t(1) << bits) - 1));
-                    s >>= bits;
+                    long v = 0;
+                    for (int i = 0; i < bits; ++i, ++s_at)
+                        v |= long((sw_[s_at / 32] >> (s_at % 32)) & 1u) << i;
                     return v;
                 };
                 const long valid = take(1), kind = take(3), pos = take(3), len = take(3);
                 const long ext = take(1), internal = take(1), latch = take(1), addr = take(20);
                 const long width = take(2), data = take(16);
-                const long gap = take(1), fsince = take(3), io_tail = take(3), wl = take(3),
+                const long gap = take(1), fsince = take(4), io_tail = take(3), wl = take(3),
                            rlen = take(3);
                 const auto col = [&](const char* n) { return r[bcol(n)]; };
                 b.check(b.biu_state_bad, t, "biu.valid", col("valid"), valid);

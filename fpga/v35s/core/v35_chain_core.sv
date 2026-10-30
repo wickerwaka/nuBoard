@@ -48,8 +48,8 @@ module v35_chain_core
     parameter int NXOP = 6,                 // the arbiter's touches on the EU per clock
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
     parameter int JSLOT = 40,               // the queue's op stages (T, L, X and P ops)
-    parameter int STATE_W = 879,            // v35_eu.sv
-    parameter int QSTATE_W = 180,           // v35_queue.sv
+    parameter int STATE_W = 958,            // v35_eu.sv
+    parameter int QSTATE_W = 187,           // v35_queue.sv
     parameter int ASTATE_W = 103,           // v35_arbiter.sv
     parameter int RSTATE_W = 24             // v35_refresh.sv
 ) (
@@ -100,7 +100,7 @@ module v35_chain_core
     output wire        refrq_n
 `ifdef V35S_STATE_DUMP
     ,
-    input  wire [3:0]  mutate,              // the mutation tests (1..7 the arbiter's, 8..10 the EU's)
+    input  wire [4:0]  mutate,              // the mutation tests (1..7, 20 the arbiter's, 8..19, 21..23 the EU's)
     // (D1) the operand record of the clock's first and second start and the register file
     // before each one's execute; (D2) the EU cycle's datum (the EU's)
     output wire [196:0] opr_a,
@@ -127,7 +127,7 @@ module v35_chain_core
     output wire [RSTATE_W-1:0] r_r,         // the refresh controller after R, at the end, registered
     output wire [RSTATE_W-1:0] r_e,
     output wire [RSTATE_W-1:0] r_dump,
-    output wire [63:0] biu_dump,
+    output wire [64:0] biu_dump,
     output wire [JSLOT-1:0][32:0] slots,    // the clock's queue ops, in chain order
     output wire [JSLOT-1:0][7:0] slot_rd,
     output wire [4:0]  n_tl,
@@ -224,8 +224,8 @@ module v35_chain_core
     wire        busy, free, fetch_inflight, in_wait, fetch_end_prev, io_win, wlatch_busy;
     wire        busy_x, free_x, fetch_inflight_x, in_wait_x, fetch_end_prev_x, io_win_x,
                 wlatch_busy_x;
-    wire [2:0]  fetch_since, fetch_since_x, cur_kind, cur_pos, cur_len, cur_kind_x, cur_pos_x,
-                cur_len_x, start_len, fetch_len;
+    wire [3:0]  fetch_since, fetch_since_x;
+    wire [2:0]  cur_kind, cur_pos, cur_len, cur_kind_x, cur_pos_x, cur_len_x, start_len, fetch_len;
     wire [1:0]  done_width;
     wire [15:0] done_data;
     wire        biu_error;
@@ -233,7 +233,7 @@ module v35_chain_core
     wire        rf_load;
     wire [7:0]  rf_value;
 `ifdef V35S_STATE_DUMP
-    wire [63:0] biu_state;
+    wire [64:0] biu_state;
 `endif
     v35_biu biu (
         .clock, .reset_n, .ce(commit), .ce_mid, .wtc, .rfm, .rfm_load(rf_load), .rfm_value(rf_value),

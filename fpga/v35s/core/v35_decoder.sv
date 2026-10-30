@@ -61,7 +61,7 @@ package v35_decoder_pkg;
         logic       in_wait;        // a memory cycle in a wait state
         logic       fprev;          // last_fetch_end == t - 1
         logic       wl;             // t < the data latch's busy end (wlatch)
-        logic [2:0] fsince;         // t - last_fetch_end (0: a fetch runs, 7: 7 or more)
+        logic [3:0] fsince;         // t - last_fetch_end (0: a fetch runs, 15: 15 or more)
         logic       flen3;          // bus.length("fetch") == 3 (no memory waits)
     } v35_bview_t;
 

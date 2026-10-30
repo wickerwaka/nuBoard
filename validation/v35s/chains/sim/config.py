@@ -365,6 +365,82 @@ OPTIONS = {
     # (SP and BP, out.wbsync), M1's PUSH does not; DISPOSE's read keeps setup 7. Flip at the
     # fit (2026-10-29, wp72): take -24 F25, nothing else
     "prepare_sync": ("take", "run"),  # (WP72, F25)
+    # (WP76, F30) xfer_odd: a taken transfer raises fetch requests as flush_hold allows (its
+    # hold clocks after the start) (hold) / a taken short jump (branch_short, dbnz: a one-byte
+    # displacement, no stack cycle) whose opcode is at an odd address (the displacement the
+    # even half of the next word) raises none after its start clock, its operand bytes taken,
+    # unless a fetch was on the bus on that clock (in flight or issued there) (idle).
+    # F30-out-br-short-n0-pad1-pE-w0, rel t_fill: BR short at 1004F starts on M0's I/O issue
+    # 87 with no fetch on the bus; silicon's next fetch is the target's at 98 (hold: F90 at
+    # 10056, a word the flush drops). Every even-address BR short is exact either way, and so
+    # is an odd-address one starting on a fetch's issue; the callret BR, at the RET's odd
+    # target, is the same rule. BR near and CALL at an odd address fetch (F23-out-brnear-n0-pO,
+    # -call-pO: F89): not the rule's classes.
+    "xfer_odd": ("hold", "idle"),  # (WP76, F30)
+    # (WP76, F31) str_exit: a REP form's exit (rexit, cexit) is EU clocks before the next
+    # instruction may start (eu) / its last xwb clocks are a write-back running past the
+    # instruction's end, which only a form that waits for one (wbsync: the port-form OUT)
+    # sees (wb). F31-out-alf-stm-n1-nop-pE-w0, rel t_fill: REP STM's write 112-114, silicon's
+    # next fetch 132 and M1's I/O 139 (eu: the NOP at 127, F134, I141); F31-out-alf-stm-n1-end
+    # (M1 straight after): I/O 133 in both. xwb 2 in every class.
+    "str_exit": ("eu", "wb"),  # (WP76, F31)
+    # (WP76, F30) str_split: a REP form's exit counts from its last cycle's end (none) / when
+    # that cycle was split (an odd word), from no earlier than xsplit clocks after the second
+    # half's issue, unless the element is a single read (LDM, CMPM: the EU waits for its data)
+    # (floor). F30-out-odd-stm-iy-n1-end-pE-w0, rel t_fill: the split write 112-114 and
+    # 115-117, silicon's next fetch 139 and M1's I/O 142 (none: F138, I141); at w1 and w2 the
+    # end + 1 bound holds (the second half 4 + w clocks long). The same in every split-write
+    # form (STM, MOVBK, INM with IY odd) and CMPBK with IX odd (its overrun's second read);
+    # LDM IX odd and CMPM IY odd exact under none. xsplit 4 in every class.
+    "str_split": ("none", "floor"),  # (WP76, F30)
+    # (WP76, F30, F31) str_io_setup: a REP form's nowait setup (rpre, str_setup=nowait) counts
+    # no wait clock of a memory cycle (nowait) / a REP INM or OUTM's (str_in, str_out) counts
+    # the first wait clock of a fetch that issued on the setup's first clock back to back after
+    # another fetch: the post-marker refill still running back to back, its third fetch on the
+    # clock after the second (run). F30-out-str-inm-w-n1-l0-pE-w1, rel t_fill: the refill
+    # 89, 93, 97 back to back, the setup from 97; silicon's I/O 115 (nowait: 116), STM's write
+    # at 116 either way. F31 lone (one refill fetch inside the setup, not back to back, or a
+    # back-to-back pair late in it): INM = STM to the clock in all 72 runs.
+    "str_io_setup": ("nowait", "run"),  # (WP76, F30)
+    # (WP76, F30) str_start: a REP form's string opcode take sync (str_take=sync) counts the
+    # aborted cycle (abort_fetch) that answered the request of its start clock as a fetch
+    # (count) / does not wait for it (skip). F30-out-str-stm-w-n1-sep-pO-w0, rel t_fill: REP
+    # STM starts at 120 after SHL AW,8 with no fetch since 97, its take and IR load leaving
+    # 2 bytes of room: the aborted cycle 120-122; silicon's write 140 (count: W141).
+    "str_start": ("count", "skip"),  # (WP76, F30)
+    # (WP76, F30) str_fetch: a REP form raises fetch requests as the queue's room allows
+    # (room) / raises none from its start (CW not 0) until xfetch clocks after the stream's
+    # last cycle has ended (hold): with room in the queue (the start's request answered by an
+    # aborted cycle, str_start) the fetch goes inside the exit. F30-out-str-stm-w-n1-sep-pO-w0,
+    # rel t_fill: the write 140-142, silicon's fetch 151 (the last cycle's end + 9 at every
+    # wait, n = 1 and 2, STM and INM; OUTM's I/O end + 7); xfetch 8, str_out 9 (its I/O
+    # write's step ends on its issue). With CW = 0 the aborted start's request is raised again
+    # zfetch clocks into the exit (zexit - 4): -stm-w-n0-sep-pO-w0 silicon F132 (room: F139).
+    # str_out.nx 0 in the hand start: OUTM's IR load on its start clock (the aborted cycle, as
+    # STM's): -outm-w-n1-sep-pO-w0 silicon has no fetch at 120 (nx 1: F120).
+    "str_fetch": ("room", "hold"),  # (WP76, F30)
+    # (WP76, F30) sreg_io: a form starting while an OUT's I/O waits in the slot leaves its
+    # issue to the bus unit (free) / a MOV sreg,r/m (8E, the segment register the destination:
+    # Op.sreg) holds it off its start clock (hold). F30-out-seg-8e-ds1-aw-n0-pE-w0, rel t_fill:
+    # 8E starts on 84, where M0's I/O would issue; silicon I85 (free: I84); every sreg field
+    # and operand kind, k = 1 and 2; behind a NOP and every 8C form exact either way.
+    "sreg_io": ("free", "hold"),  # (WP76, F30)
+    # (WP76, F30) sreg_store: MOV r/m,sreg (8C to memory, Op.sreg "store") posts its write as
+    # any store (store) / its write issues only after one clock on which it was issuable but
+    # for a fetch on the bus (ready, past its floor and an I/O's recovery): the segment
+    # register's datum reaches the bus unit a clock after a general register's (own).
+    # F30-out-seg-8c-bw-ds1-n0-pO-w0, rel t_fill: M0's I/O 85-87, silicon's write 91, MOV
+    # [BW],AW's (F21-out-l0-st-bw-pO-w0) 90 (store: 90); push-...-pO-w0: posted on 86 with an
+    # idle bus, silicon 87 (store: 86); push-...-pE-w0: posted on the fetch 84-86's last
+    # clock, 87 either way. No integer.
+    "sreg_store": ("store", "own"),  # (WP76, F30)
+    # (WP76, F30, F25) lea_disp: LDEA's successor starts as any instruction (none) / after an
+    # LDEA with a two-byte displacement whose last byte is the even (low) half of a word (the
+    # displacement split across two words), not on the issue clock of a fetch committed back to
+    # back (split). F30-push-lea-bw_d16-k1-pE-w1, rel t_fill: LDEA [BW+200h] at 1004D, the
+    # refill 82, 86, 90 back to back; silicon's PUSH write 100, the third fetch's end + 7 at
+    # every wait (none: the PUSH starts on 90, W96); pO (the d16 in one word) exact either way.
+    "lea_disp": ("none", "split"),  # (WP76, F30)
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -414,6 +490,11 @@ OPTIONS = {
 # loop 23 + exit 8; F17-s-n2-mulu-pE-w0 R126, 6 gives R125), div 6 (exec 39: loop 33 + exit
 # 6; 4: 28 fewer runs, 8: 23 fewer, 11 lost); the loop's part keeps its odd length, so its
 # boundaries stay the clocks they were.
+# (WP76) the string classes' str_exit=wb write-back (xwb: the exit's last clocks, past the
+# instruction's end), str_split=floor's bound (xsplit: clocks after a split last cycle's second
+# half's issue), str_fetch=hold's release (xfetch: clocks after the stream's last cycle;
+# zfetch: with CW = 0, clocks into the exit at which the aborted start's request is raised
+# again); 0 and unread under the old enums.
 DEFAULT_COST = {
     "reg": {"pre": 0, "exec": 4},
     "prefix": {"exec": 2},
@@ -499,19 +580,19 @@ DEFAULT_COST = {
 # str_take=sync, str_setup=nowait, str_overrun=read, str_hold=hold); the stage-13 descent
 # starts from them, the fit's own are in fit.json.
     "str_move": {"pre": 0, "setup": 10, "mid": 7, "exec": 4, "nx": 1, "rpre": 5, "zexit": 10,
-                 "first": 15, "loop": 7, "rexit": 12},
+                 "first": 15, "loop": 7, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
     "str_cmp": {"pre": 0, "setup": 10, "mid": 7, "exec": 6, "nx": 2, "rpre": 5, "zexit": 10,
-                "first": 14, "loop": 7, "rexit": 20, "cexit": 19, "chold": 2},
+                "first": 14, "loop": 7, "rexit": 20, "cexit": 19, "chold": 2, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
     "str_store": {"pre": 0, "setup": 12, "exec": 0, "rpre": 5, "zexit": 10, "first": 15,
-                  "loop": 7, "rexit": 12},
+                  "loop": 7, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
     "str_load": {"pre": 0, "setup": 10, "exec": 1, "rpre": 6, "zexit": 9, "first": 14,
-                 "loop": 9, "rexit": 15},
+                 "loop": 9, "rexit": 15, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
     "str_scan": {"pre": 0, "setup": 11, "exec": 7, "nx": 1, "rpre": 5, "zexit": 10,
-                 "first": 15, "loop": 10, "loop1": 8, "rexit": 20, "cexit": 19, "chold": 3},
+                 "first": 15, "loop": 10, "loop1": 8, "rexit": 20, "cexit": 19, "chold": 3, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
     "str_in": {"pre": 0, "setup": 9, "mid": 4, "exec": 4, "rpre": 5, "zexit": 11, "first": 15,
-               "loop": 6, "rexit": 12},
+               "loop": 6, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
     "str_out": {"pre": 0, "setup": 11, "mid": 6, "exec": 3, "nx": 1, "rpre": 5, "zexit": 11,
-                "first": 16, "loop": 6, "last": 1, "rexit": 13},
+                "first": 16, "loop": 6, "last": 1, "rexit": 13, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
 }
 DEFAULT_EA = {"base": 2, "base_index": 3, "disp": 2, "base_disp": 3, "base_index_disp": 4,
               "direct": 0,
@@ -762,6 +843,15 @@ class Config:
     lea_room: str = "none"             # (WP72)
     prepare_sync: str = "take"         # (WP72)
     cond_gap: str = "fgap"             # (WP72)
+    xfer_odd: str = "hold"             # (WP76)
+    str_exit: str = "eu"               # (WP76)
+    str_split: str = "none"            # (WP76)
+    str_io_setup: str = "nowait"       # (WP76)
+    str_start: str = "count"           # (WP76)
+    str_fetch: str = "room"            # (WP76)
+    sreg_io: str = "free"              # (WP76)
+    sreg_store: str = "store"          # (WP76)
+    lea_disp: str = "none"             # (WP76)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

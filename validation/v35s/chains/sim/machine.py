@@ -32,9 +32,8 @@ from __future__ import annotations
 
 from collections import deque
 
-from ..forms import STRING_FORMS
 from ..normalize import (FLAG_IO, FLAG_NUBE, FLAG_READ, FLAG_REFRESH, REFRESH_EARLY_TICKS,
-                         Normalized, normalize, string_elements)
+                         WALK_STRING_FORMS, Normalized, normalize, string_elements)
 from ..types import (TICKS_PER_CLOCK, Chain, refresh_any, refresh_length, refresh_on,
                      refresh_rft, rfm_writes)
 from .bus import BusUnit
@@ -89,8 +88,9 @@ class Machine:
         self.decoder = Decoder(cfg, self.queue)
         self.eu = EU(cfg, code, base, chain.regs, self.decoder, self.bus, start)
         self.queue.eu = self.eu              # (WP39) refresh_io_run: the posted I/O request
-        if any(i.role == "x" and i.form in STRING_FORMS for i in chain.instrs):
-            # (WP67, F24) the string forms' element counts and exits from the chain walk
+        if any(i.role == "x" and i.form in WALK_STRING_FORMS for i in chain.instrs):
+            # (WP67, F24) the string forms' element counts and exits from the chain walk (WP76:
+            # with F33's REPC / REPNC, WALK_STRING_FORMS)
             # (normalize.string_elements: a compare's exit depends on the data, which the
             # model's register file does not hold)
             self.eu.strings = {chain.instrs[k].offset: (len(r.elements), r.cond)
@@ -286,7 +286,7 @@ class Machine:
         times = [eu.resume, eu.latch_until, eu.wb_until, eu.done_t, eu.latch_wait,
                  eu.wlatch_until, q.requested_at, q.arrived_t, q.removed_t, q.b2b_at,
                  q.read_t, q.ir_t, q.take_t, q.start_t, q.abort_end, d.ready_at,
-                 q.shift_until, q.retry_at, q.io_run_at, q.gdisp_until, q.str_held,
+                 q.shift_until, q.retry_at, q.io_run_at, q.gdisp_until, q.str_held, q.str_raise, q.odd_xfer,
                  bus.last_fetch_end, bus.last_io_end]
         times += [u for _, u in q.bytes]
         for r in [eu.req, eu.own] + eu.queued:

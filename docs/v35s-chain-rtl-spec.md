@@ -895,6 +895,34 @@ decision differs it is said here.
   `v35_fx_t` 86 (code48, wd, md, rk3, wk3), `v35_st_t` 879, `ESTATE_W` 879; ports `code_org`,
   `c_data`, `x_data`, `rfx_*[210:0]`. Still scripted: the code window, the memory image, the
   I/O read value, the initial register file. Not built: the trap sequence, the string forms.
+- **E3 and the fortieth fit's catch-up (2026-10-30, WP75; docs/v35s-hdl-plan.md):** the string forms
+  in RTL and the fortieth fit's seven mechanisms; the whole corpus 26,234 exact against the model, 0
+  not modelled. Decisions: (1) `fetch_since` is 4 bits saturating at 15 (reset 9), since `cond_gap=own`
+  flushes 8 clocks after the last fetch; rtlgen's width check includes `cfgap`, and the flush step's
+  third element is a tag (it had been dropped, BE flushing with `fgap`); (2) `xfer_abort`'s store rides
+  the ABORT op's val[0], the refresh-path abort storing nothing; (3) `lea_ea` and `str_held` are a valid
+  bit plus an offset (`V35_QOP_LEA_EA` 36, `V35_QOP_STR_HELD` 37); (4) `prepare_sync=run` sets one
+  fetch owed, assuming completed = sync (C4 decision 5); (5) C5 decision 15's `io_stall` requires an
+  I/O kind as well as nowait and refresh on, string and PUSH R requests being nowait (`dwlike`); (6)
+  `dw_count`'s "I/O or dwlike" is I/O kind or nowait; (7) a REP form's element count comes from CW and
+  a compare's exit from the RTL's own data at the deciding element's last read, so `x_sn`/`x_sc` are
+  checked at the next start against the walk's values; until a compare decides its step count is
+  bounded by CW; (8) string addresses are segment base + offset (DS0 or the prefix's segment for the
+  source, DS1 for the destination) and honour DIR, identical to the model's linear stepping on the
+  corpus; (9) IX, IY and CW update at the start for non-compares and unprefixed forms, at the decision
+  for REP compares; (10) `e.k` is the model's flat step index, the element (k − 2) / m, the compact
+  template holding rows for elements 0, 1 and ≥ 2 with the `last` clocks from `V35_C_*_LAST`; (11)
+  OUTM's I/O write fills the data latch from the EU (`wl_fill_x`); (12) `eu_decode` takes the string
+  opcode after REP as the op's opcode, as the frozen Op does; (13) the rf unit bench runs no string
+  element loops, so SST `--rtl` leaves the string files out and the corpus `--core` runs check them;
+  (14) `dispose` never left the step tables: its template equals POP's at `dispose.setup` 7 and the
+  table dedupes it; `test_rtlgen` reads classes from the format words. Widths: `v35_st_t` 958 (`e.k`
+  18, `v35_fx_t` 151: `sn` 16, `sc` 1, `six` 16, `siy` 16, `sseg` 16), queue state 187 (`xfer`,
+  `le_valid`, `le_off` 2, `sd_valid`, `sd_off` 2), bus bundle 65 and view 19 (`bus_t`/`bus_p`
+  [18:0]), `mutate` 5 bits; vector format V35EU-4 (a P line ends with string form, elements, cond),
+  rf bench context 151 bits; steps gain `fetch_hold`, the `cfgap` tag and the `ix`/`iy` sources,
+  `v35_str_shape`, `V35_STR_HEAD`, `V35_STR_SETS`, 239 templates. Not built: the trap sequence, the
+  0F page, REPC/REPNC, interrupts, the forty-first fit's mechanisms.
 
 ### The request rule and the queue's room
 

@@ -57,6 +57,10 @@ class Request:
     lead: int = 0                   # last setup clocks during which the request no longer holds fetches
     nowait: bool = False            # io_count=nowait: setup counts every clock but a memory wait state
     not_before: int = 0             # no issue before this clock (port_latch relatch)
+    sreg_held: bool = False         # (WP76) sreg_io=hold: a MOV sreg,r/m decoded behind it
+    sreg: bool = False              # (WP76) sreg_store=own: MOV r/m,sreg's write
+    sreg_ok: int | None = None      # (WP76) ... the first clock of its current issuable run
+    sreg_at: int | None = None      # (WP76) sreg_io: the clock its setup first counted out
     lift_t: int | None = None       # first clock of the lead (the hold lifted)
     detached: bool = False          # io_release=post: the instruction that posted it has gone on
     port: bool = False              # an I/O request of a form with a port byte
@@ -489,6 +493,21 @@ def _choose(t: int, cfg, bus, queue, eu):
             and getattr(eu, "disp", 0) and dec is not None and dec.ea_end is not None
             and t < dec.ea_end):
         fetch_want = False              # (WP33) ea_b2b: not on an EA clock before the take
+    sreg_wait = False
+    if req is not None and req.sreg and not req.issued:
+        # (WP76) sreg_store=own: MOV r/m,sreg's write issues only after a clock on which it
+        # was issuable but for a fetch on the bus (ready, past its floor and any I/O's
+        # recovery), holding fetches on that clock: the segment register's datum reaches the
+        # bus unit a clock after a general register's
+        if (req.ready() and t >= req.not_before and not recovering
+                and (bus.free(t) or bus.fetch_inflight(t))):
+            if req.sreg_ok is None:
+                req.sreg_ok = t
+        else:
+            req.sreg_ok = None
+        sreg_wait = req.sreg_ok is None or req.sreg_ok == t
+        if req.sreg_ok == t:
+            fetch_want = False
     if (req is not None and cfg.hold_fetch and not req.issued
             and (req.holding() or recovering or req.floor_hold and t < req.not_before)
             and not in_run and not free_run):
@@ -539,6 +558,15 @@ def _choose(t: int, cfg, bus, queue, eu):
         fetch_want = True
         if req is not None and not req.issued:
             req = None
+    if (cfg.sreg_io == "hold" and req is not None and req.sreg_at is None and not req.issued
+            and req.ready()):
+        # (WP76) sreg_io=hold: a MOV sreg,r/m decoded behind the OUT before its I/O's setup
+        # counted out holds the I/O one clock past that clock
+        req.sreg_at = t
+        if req.sreg_held:
+            req.not_before = max(req.not_before, t + 1)
+    if sreg_wait:
+        req = None
     if req is not None and not req.issued and (not req.ready() or t < req.not_before):
         req = None
     # (WP58) io_step_issue: an IN's I/O after a refresh in its setup issues on one of its steps

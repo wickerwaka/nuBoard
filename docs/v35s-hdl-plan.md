@@ -498,6 +498,48 @@ does, the V20 does not). Still scripted: the code window, the memory image
 (the bench's array, updated by the RTL's writes), the I/O read value and the
 initial register file. Not built: the trap sequence, the string forms (E3).
 
+**E3 and the fortieth fit's catch-up done 2026-10-30 (WP75):** the string
+forms run in RTL and the RTL has every mechanism of the fortieth fit. The
+whole corpus under `--core` (33 lists, 26,234 runs; the overseer's re-run,
+scratchpad wp76r/) is 26,234 exact against the model, 0 not modelled, 0
+differing, model-exact 24,710 = RTL-exact (the baseline at the adoption was
+24,183 exact, 1,692 not modelled, 359 differing); C1–C3 as before, `--regfile`
+58,508 vectors 0 bad, funcref over the 33 lists 679,829 starts agreeing and
+99,834 silicon cycles matching, SST 1,693,875 (funcref) and 1,651,237
+(`--rtl`) pass; mutations 14–23 (each fit-40 enum off, the string element's
+address step, the overrun read, the compare exit) caught on their deciding
+runs; 605 tests. The string forms: a REP form's element count comes from CW
+and a compare's exit from the RTL's own data at the deciding element's last
+read (the model takes both from the normaliser's walk at the start, so
+`x_sn`/`x_sc` are checked at the next start against the walk's values, not
+per phase); addresses are segment base + offset (DS0 or the prefix's segment
+for the source, DS1 for the destination) and honour DIR, identical to the
+model's linear upward stepping on the corpus; IX, IY and CW update at the
+start for the non-compares and at the decision for REP compares; `e.k` is the
+model's flat step index (18 bits), the compact template holding the rows for
+elements 0, 1 and ≥ 2 with the `last` clocks from `V35_C_*_LAST`; OUTM's I/O
+write fills the data latch from the EU (`wl_fill_x`). The fortieth fit's
+mechanisms: `cond_gap=own` needed the bus unit's `fetch_since` counter
+widened to 4 bits (it saturated at 7 where the flush waits 8 clocks after
+the last fetch; rtlgen's width check now includes `cfgap`, which it had
+also dropped from the flush step as a third element); `xfer_abort`'s store is
+folded into the queue's ABORT op; `lea_ea` and `str_held`, never cleared in
+the model, are a valid bit plus an offset in the queue (`V35_QOP_LEA_EA`,
+`V35_QOP_STR_HELD`); `prepare_sync=run` sets one fetch owed, assuming
+completed = sync (C4 decision 5, the recorder raising otherwise); C5
+decision 15's `io_stall` (nowait and refresh on) now also requires an I/O
+kind, since string and PUSH R requests are nowait too (`dwlike`). The
+`dispose` class had not left the step tables: with `dispose.setup` 7 its
+template equals POP's and the table dedupes it, so `test_rtlgen` now reads
+classes from the format words. Widths: `v35_st_t` 958 (`e.k` 18, `v35_fx_t`
+151 with `sn`, `sc`, `six`, `siy`, `sseg`), the queue's state 187, the bus
+unit's bundle 65 and view 19, `mutate` 5 bits, vector format V35EU-4 (each
+P line ends with string form, elements, cond), 239 templates. Still scripted:
+the code window, the memory image, the I/O read value, the initial register
+file. Not built: the trap sequence, the 0F page (F32), REPC/REPNC (F33),
+interrupts, and the forty-first fit's nine mechanisms (adopted the same
+evening, the next catch-up).
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
@@ -547,8 +589,8 @@ then the RTL. In the order the generator gains them:
    2026-10-30 after D2, the RTL catching up in WP75: at the adoption the
    `--core` gate differs from the model on 359 of 26,234 runs (F23 60, F25 153, F30 142, and 4 F0w runs in an internal latch field only; 24,183 exact, 1,692 not modelled); `rtlgen` leaves the
    `dispose` class out of the step tables and `test_rtlgen`'s class check
-   fails. That is the baseline WP75 clears (its whole-corpus run under the
-   adopted fit is in scratchpad wp72a/core-all-baseline.txt). The probe
+   fails. That was the baseline WP75 cleared the same day (its whole-corpus run under the
+   adopted fit is in scratchpad wp72a/core-all-baseline.txt; "E3 and the fortieth fit's catch-up done" above). The probe
    family F30
    and its controls F31 (WP73, 2026-10-30, 1,476 and 234 runs;
    docs/v35s-chains.md "Probes for the facts-only shapes") join the RTL
@@ -573,7 +615,8 @@ then the RTL. In the order the generator gains them:
    leaves the string classes out of its step tables (WP68) until this
    item is built: it needs element-indexed addresses from IX/IY/DW, the
    walk's count in the vector format, and the fetch hold after a compared
-   element.
+   element. Built 2026-10-30 (WP75, "E3 and the fortieth fit's catch-up done"
+   above): every string run exact against the model, 0 not modelled.
 4. The 0F page: a second opcode byte in the decoder. Acquired 2026-10-30
    (F32, WP74, 858 runs, generator-only; docs/v35s-chains.md "The 0F page
    and the register miscellany"): the bit ops are register, load_alu and

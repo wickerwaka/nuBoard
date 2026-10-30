@@ -14,9 +14,9 @@
 module v35_eu_tb #(
     parameter int NQ = 16,
     parameter int NXOP = 6,
-    parameter int STATE_W = 879,
+    parameter int STATE_W = 958,
     parameter int JSLOT = 40,
-    parameter int QSTATE_W = 180
+    parameter int QSTATE_W = 187
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -30,11 +30,11 @@ module v35_eu_tb #(
     input  wire [15:0] c_data_in,           // (D2) alone: the delivered word (joint: the bus
                                             // unit's)
     input  wire        fetch_done,
-    input  wire [17:0] bus_t,
-    input  wire [17:0] bus_p,
+    input  wire [18:0] bus_t,
+    input  wire [18:0] bus_p,
     output wire [19:0] code_addr,           // (D1) the code window: the twelve bytes from here
     input  wire [95:0] code_win,
-    input  wire [3:0]  mutate,
+    input  wire [4:0]  mutate,
     output wire [15:0] x_data,              // (D2) the EU cycle's datum (the EU's)
     output wire [196:0] opr_a,              // (D1) the starts' operand records and the
     output wire [196:0] opr_b,              // register file before each
@@ -118,7 +118,7 @@ module v35_eu_tb #(
     output wire        fetch_inflight,
     output wire        in_wait,
     output wire        fetch_end_prev,
-    output wire [2:0]  fetch_since,
+    output wire [3:0]  fetch_since,
     output wire        io_win,
     output wire        wlatch_busy,
     output wire [2:0]  cur_kind,
@@ -129,7 +129,7 @@ module v35_eu_tb #(
     output wire        fetch_inflight_x,
     output wire        in_wait_x,
     output wire        fetch_end_prev_x,
-    output wire [2:0]  fetch_since_x,
+    output wire [3:0]  fetch_since_x,
     output wire        io_win_x,
     output wire        wlatch_busy_x,
     output wire [2:0]  cur_kind_x,
@@ -138,7 +138,7 @@ module v35_eu_tb #(
     output wire [2:0]  fetch_len,
     output wire [2:0]  refresh_len_now,
     output wire        biu_error,
-    output wire [63:0] biu_state,
+    output wire [64:0] biu_state,
     // the queue's phase C and E inputs (joint): the bus unit's delivery, the EU's
     input  wire        q_joint
 );

@@ -164,8 +164,11 @@ class Queue:
         self.flush_t: int | None = None         # (WP55) the clock of the last flush
         self.flush_held: int | None = None      # (WP55) flush_hold: no fetch request from this clock to the flush
         self.str_held: int | None = None        # (WP67) str_hold: no fetch request before this clock
+        self.str_raise: int | None = None       # (WP76) str_fetch: raise a retried request on this clock
         self.xfer_abort = False                 # (WP72) xfer_abort: a transfer's aborted cycle runs
         self.lea_ea: tuple | None = None        # (WP72) lea_room: LDEA's EA clocks (first, end)
+        self.odd_xfer: int | None = None        # (WP76) xfer_odd: a taken transfer at an odd address started here
+        self.odd_fed: bool | None = None        # (WP76) ... a fetch was on the bus on that clock
         # options read on every clock, looked up once
         self._byte_release = cfg.release == "byte"
         self._ported = cfg.word_latch in ("port", "byte", "byte_d")
@@ -403,11 +406,18 @@ class Queue:
         return True
 
     def wants_fetch(self, t: int) -> bool:
+        if self.str_raise is not None and t >= self.str_raise:
+            self.str_raise = None            # (WP76) str_fetch=hold, CW = 0: the request an
+            if self.retry:                   # aborted cycle left is raised again in the exit
+                self.retry = False
+                self.flag = self.room(t) >= WORD
         raised = self.requesting(t)          # evaluated even while a fetch is on the bus
         if (self.flush_held is not None and t >= self.flush_held
                 and self.decoder is not None and self.decoder.need == 0):
             raised = False                   # (WP55) flush_hold: a taken transfer runs (its
                                              # operand bytes all taken)
+        if raised and self._odd_held(t):
+            raised = False                   # (WP76) xfer_odd=idle
         if raised and self.str_held is not None and t < self.str_held:
             raised = False                   # (WP67, F24) str_hold: a compare's result clocks
         if raised and self._nop_held():
@@ -424,7 +434,7 @@ class Queue:
         """A request raised on t that is not yet on the bus (take_sync=pending)."""
         if self.inflight:
             return self.room(t) >= WORD or (self.cfg.request_hold == "hold" and self.held)
-        return self.requesting(t)
+        return self.requesting(t) and not self._odd_held(t)
 
     def issue(self, t: int | None = None, mem_waiting: bool = False) -> tuple[int, str, int]:
         """A fetch goes on the bus on t. (WP26) request_reissue: on a clock the flag is
@@ -515,6 +525,22 @@ class Queue:
         self.removed_t = t
         self.flush_t = t
         self.flush_held = None
+        self.odd_xfer = self.odd_fed = None
+
+    def _odd_held(self, t: int) -> bool:
+        """(WP76) xfer_odd=idle: an odd-address jump that started with no fetch on the bus
+        raises no request from the clock after its start, once its operand bytes are taken."""
+        return (self.odd_xfer is not None and t > self.odd_xfer
+                and self.decoder.need == 0 and not self._odd_fed())
+
+    def _odd_fed(self) -> bool:
+        """(WP76) xfer_odd: whether a fetch was on the bus (in flight, or issued) on the clock
+        the odd-address transfer started (read from the clock after it on)."""
+        if self.odd_fed is None:
+            s = self.odd_xfer
+            self.odd_fed = any(c.kind == "fetch" and c.start <= s <= c.end
+                               for c in self.eu.bus.cycles[-3:])
+        return self.odd_fed
 
     def arrive(self, addr: int, usable: int, t: int | None = None):
         self.inflight = False

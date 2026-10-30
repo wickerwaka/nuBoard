@@ -78,7 +78,7 @@ module v35_biu (
     output wire        fetch_inflight,
     output wire        in_wait,
     output wire        fetch_end_prev,  // last_fetch_end == t-1 (a fetch's delivery clock)
-    output wire [2:0]  fetch_since,     // t - last_fetch_end (0: a fetch runs, 7: 7 or more)
+    output wire [3:0]  fetch_since,     // t - last_fetch_end (0: a fetch runs, 15: 15 or more)
     output wire        io_win,          // t <= last_io_end + io_recover
     output wire        wlatch_busy,     // the data latch busy (after this clock's delivery)
     output wire [2:0]  cur_kind,        // the cycle on the bus this clock (V35_K_NONE: idle)
@@ -90,7 +90,7 @@ module v35_biu (
     output wire        fetch_inflight_x,
     output wire        in_wait_x,
     output wire        fetch_end_prev_x,
-    output wire [2:0]  fetch_since_x,
+    output wire [3:0]  fetch_since_x,
     output wire        io_win_x,
     output wire        wlatch_busy_x,
     output wire [2:0]  cur_kind_x,
@@ -119,17 +119,17 @@ module v35_biu (
     // A2 representations (offsets and flags, no clock stamps); the layout is the
     // concatenation at the end of the module, LSB first: c_valid, c_kind, c_pos, c_len,
     // c_ext, c_internal, c_latch, c_addr, c_width, c_data, gap, f_since, io_tail, wl,
-    // refresh_len (64 bits under the fit's widths; checked below).
-    output wire [63:0] state_dump
+    // refresh_len (65 bits under the fit's widths; checked below).
+    output wire [64:0] state_dump
 `endif
 );
 `include "v35_chain_params.svh"
 
     localparam int V35_BIU_STATE_W = 1 + 3 + 3 + 3 + 1 + 1 + 1 + 20 + 2 + 16
-                                     + V35_W_GAP + 3 + V35_W_IO_TAIL + V35_W_WLATCH + 3;
+                                     + V35_W_GAP + V35_W_FETCH_SINCE + V35_W_IO_TAIL + V35_W_WLATCH + 3;
 `ifdef V35S_STATE_DUMP
-    if (V35_BIU_STATE_W != 64) begin : g_state_width
-        $error("v35_biu: the state bundle is %0d bits, the port 64", V35_BIU_STATE_W);
+    if (V35_BIU_STATE_W != 65) begin : g_state_width
+        $error("v35_biu: the state bundle is %0d bits, the port 65", V35_BIU_STATE_W);
     end
 `endif
 
@@ -154,7 +154,7 @@ module v35_biu (
     // max(0, last_end + min_gap - max(t, end)): free once the cycle is over and this is 0
     reg  [V35_W_GAP-1:0] gap = '0;
     // the last fetch: 0 while it runs, else min(7, t - last_fetch_end)
-    reg  [2:0]  f_since = 3'd7;
+    reg  [3:0]  f_since = 4'd9;
     // max(0, last_io_end + io_recover - max(t, end)) for the last I/O cycle
     reg  [V35_W_IO_TAIL-1:0] io_tail = '0;
     // max(0, wlatch_until - t): the data latch's clocks left
@@ -175,8 +175,8 @@ module v35_biu (
     assign in_wait = busy && !is_io(c_kind) && pos_now >= 3'd2 && pos_now < c_len - 3'd1;
     assign fetch_inflight = busy && c_kind == V35_K_FETCH;
     assign free = !busy && gap == '0;
-    assign fetch_since = fetch_inflight ? 3'd0 : (f_since == 3'd7 ? 3'd7 : f_since + 3'd1);
-    assign fetch_end_prev = fetch_since == 3'd1;
+    assign fetch_since = fetch_inflight ? 4'd0 : (f_since == 4'd15 ? 4'd15 : f_since + 4'd1);
+    assign fetch_end_prev = fetch_since == 4'd1;
     assign io_win = (busy && is_io(c_kind)) || io_tail != '0;
 
     // the data latch: a read's datum on its delivery clock, a write from its issue
@@ -205,8 +205,8 @@ module v35_biu (
     assign free_x = free && !req_start;
     assign fetch_inflight_x = req_start ? req_kind == V35_K_FETCH : fetch_inflight;
     assign in_wait_x = req_start ? 1'b0 : in_wait;            // a start's clock is its B1
-    assign fetch_since_x = req_start && req_kind == V35_K_FETCH ? 3'd0 : fetch_since;
-    assign fetch_end_prev_x = fetch_since_x == 3'd1;
+    assign fetch_since_x = req_start && req_kind == V35_K_FETCH ? 4'd0 : fetch_since;
+    assign fetch_end_prev_x = fetch_since_x == 4'd1;
     assign io_win_x = io_win || (req_start && is_io(req_kind));
     assign cur_kind_x = req_start ? req_kind : cur_kind;
     assign cur_pos_x = req_start ? 3'd0 : cur_pos;
@@ -223,7 +223,7 @@ module v35_biu (
             c_internal <= 1'b0;
             c_latch <= 1'b0;
             gap <= '0;
-            f_since <= 3'd7;        // last_fetch_end = -10: stale
+            f_since <= 4'd9;        // last_fetch_end = -10: at the end of clock -1, 9
             io_tail <= '0;
             wl <= '0;
             refresh_len <= v35_refresh_length(rfm);

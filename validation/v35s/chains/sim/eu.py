@@ -87,6 +87,12 @@ class EU:
         self.start_at = -1              # (WP40) prelude_anchor=pop: no start before this clock
         self.pop_ref = None             # (WP40) pop_refresh=stall: the refresh already counted
         self.wb_until = 0               # previous instruction's write-back ends before this clock
+        self.last_issued: list = []     # (WP76) str_split: the last data step's bus cycles
+        self.str_rep = False            # (WP76) a REP string form is running
+        self.sreg: str | None = None    # (WP76) the running form's Op.sreg
+        self.lea_split = False          # (WP76) lea_disp: the running LDEA's d16 is split
+        self.nw_t: int | None = None    # (WP76) str_io_setup: the nowait step's first clock
+        self.nw_run: int | None = None  # (WP76) ... the wait clock it counted
         self.wb = 0                     # write-back tail of the instruction now running
         self.done_t: int | None = None  # clock the last instruction's steps ended
         self.modrm = False              # the instruction now running has a ModR/M byte
@@ -158,6 +164,8 @@ class EU:
             return False                 # (WP34) refresh_sync=run: the run's next fetch
         if cfg.start_sync == "b2b" and self.decoder.queue.b2b_at == t:
             return False                 # the bus unit is committed to a back-to-back fetch
+        if self.lea_split and self.decoder.queue.b2b_at == t:
+            return False                 # (WP76) lea_disp=split: after LDEA's split d16
         if cfg.opcode_take == "prefetch" and self.decoder.ir is None:
             return False
         op = decode(self.code, self.pc, self.regs)
@@ -187,6 +195,7 @@ class EU:
         if (cfg.io_interlock != "none" and self._interlocked(op.cls, cfg.io_interlock)
                 and regonly and self.req is not None and self.req.detached
                 and self.req.cycles and self.req.cycles[0][0] == "io_write"):
+            self._sreg_hold(op)          # (WP76) sreg_io=hold
             return False                 # the ALU passes the waiting OUT's data at its issue
         cur = self.bus.current
         if (cfg.io_busy_start == "issue" and self._interlocked(op.cls, cfg.io_interlock)
@@ -238,6 +247,21 @@ class EU:
         # (WP19) a memory operand form may have its own write-back (mwb), as its own mexec
         self.wb = cfg.c(op.cls, "mwb" if op.ea is not None and "mwb" in cfg.cost.get(op.cls, {})
                         else "wb")
+        self.str_rep = op.cls in STRING_CLASSES and op.rep is not None   # (WP76)
+        self.sreg = op.sreg             # (WP76) sreg_store
+        # (WP76) lea_disp=split: LDEA with a two-byte displacement whose last byte is the even
+        # (low) half of a word: its successor does not start on a back-to-back fetch's issue
+        # (not one started on an I/O's issue clock: its EA clocks wait out the I/O, lea_io)
+        cur = self.bus.current
+        self.lea_split = (cfg.lea_disp == "split" and op.cls == "lea" and op.disp == 2
+                          and not (self.decoder.queue.base + op.offset + op.length - 1) & 1
+                          and not (cur is not None and cur.kind.startswith("io")
+                                   and cur.start == t))
+        self._sreg_hold(op)             # (WP76) sreg_io=hold
+        if cfg.str_exit == "wb" and op.cls in STRING_CLASSES and op.rep is not None and op.n:
+            # (WP76) str_exit=wb: a REP form's exit ends xwb clocks early, its last clocks a
+            # write-back that only a form waiting for one (wbsync: the port-form OUT) sees
+            self.wb = cfg.c(op.cls, "xwb")
         self.route = _dest_route(op, cfg)   # (WP19) dest_route clocks of this instruction
         self.ro = op.cls in ("load", "load_alu")
         self.prev_cls = getattr(self, "cls", None)   # (WP61) refresh_beat_b2b
@@ -319,12 +343,45 @@ class EU:
             # (WP55) flush_hold=start: no fetch request from hold clocks after a taken
             # transfer's start to its flush (queue.wants_fetch)
             self.decoder.queue.flush_held = t + cfg.c(op.cls, "hold")
+        if (op.target is not None and cfg.xfer_odd == "idle"
+                and op.cls in ("branch_short", "dbnz")
+                and (self.decoder.queue.base + op.offset) & 1):
+            # (WP76) xfer_odd=idle: a taken short jump (branch_short, dbnz: a one-byte
+            # displacement, no stack cycle) whose opcode is at an odd address (its displacement
+            # the even half of the next word) raises no fetch request after its start clock
+            # unless a fetch was on the bus on it
+            q = self.decoder.queue
+            q.odd_xfer, q.odd_fed = t, None
         execute(op, self.code, self.regs)
         self.k = 0
         self.trace.append((t, op.offset - self.origin, op.cls))
         self.pc += op.length
         self.seg_prefix = op.opcode if op.cls == "prefix" else None
         self.sfr = op.sfr
+        return True
+
+    def _sreg_hold(self, op):
+        """(WP76) sreg_io=hold: a MOV sreg,r/m (8E, Op.sreg "load") decoded (started, or
+        waiting at the I/O interlock) while an OUT's I/O waits in the slot holds that I/O one
+        clock past the clock its setup counts out (arbiter.py)."""
+        r = self.req
+        if (self.cfg.sreg_io == "hold" and op.sreg == "load" and r is not None and r.detached
+                and r.cycles and not r.issued and r.cycles[0][0] == "io_write"
+                and not r.sreg_held):
+            r.sreg_held = True
+
+    def _run_wait(self, t: int) -> bool:
+        """(WP76) str_io_setup=run: a REP I/O string form's (str_in, str_out) nowait setup
+        counts the first wait clock of a fetch that issued on the setup's first clock back to
+        back after another fetch (the post-marker refill still running back to back)."""
+        if (self.cfg.str_io_setup != "run" or self.cls not in ("str_in", "str_out")
+                or self.nw_run is not None):
+            return False
+        cur, cyc = self.bus.current, self.bus.cycles
+        if (cur is None or cur.kind != "fetch" or cur.start != self.nw_t or len(cyc) < 2
+                or cyc[-1] is not cur or cyc[-2].kind != "fetch" or cyc[-2].end + 1 != cur.start):
+            return False
+        self.nw_run = t
         return True
 
     def _interlocked(self, cls: str, mode: str) -> bool:
@@ -477,6 +534,13 @@ class EU:
                 self.sync = q.completed + q.inflight + int(q.asked(t))
             if self.sync == "room":             # measured on the clock after the take
                 self.sync = self.decoder.queue.refill_target()
+            if (isinstance(self.sync, int) and self.str_rep and self.cfg.str_start == "skip"
+                    and self.decoder.queue.abort_end is not None
+                    and self.decoder.queue.abort_t == self.start_clock
+                    and t >= self.decoder.queue.abort_end):
+                # (WP76) str_start=skip: a REP form's take sync is met on the last clock of the
+                # aborted cycle that answered the request of its start clock (no word comes)
+                self.sync = None
             if isinstance(self.sync, int) and self.decoder.queue.completed < self.sync:
                 q = self.decoder.queue
                 if q.completed + 1 == self.sync and self._early(t) and not (
@@ -627,7 +691,8 @@ class EU:
                         # (WP31) lookup_start: a fetch issued on the start clock costs the
                         # lookup a clock
                         self.left_nw += 1
-                if self.left_nw and not self.bus.in_wait(t):
+                    self.nw_t, self.nw_run = t, None
+                if self.left_nw and (not self.bus.in_wait(t) or self._run_wait(t)):
                     self.left_nw -= 1
                 if self.left_nw:
                     self.resume = t + 1
@@ -774,7 +839,15 @@ class EU:
                         return                          # the slot and its queue are full
                 if self.own.done_at is None or t < self.own.done_at:
                     return
+                self.last_issued = self.own.issued      # (WP76) str_split: the cycles it ran
                 self._retire()
+                self.k += 1
+                continue
+            if kind == "split_floor":            # (WP76) str_split=floor: a split last cycle's
+                cyc = self.last_issued           # second half issued no fewer than step[1]
+                if len(cyc) > 1 and t < cyc[-1].start + step[1]:   # clocks ago
+                    self.resume = cyc[-1].start + step[1]
+                    return
                 self.k += 1
                 continue
             if kind == "post":                   # post and go on (imm_order=after_post)
@@ -803,6 +876,15 @@ class EU:
                     return
                 self.k += 1
                 self.resume = max(t, int(self.latch_until))
+                continue
+            if kind == "fetch_release":          # (WP76) str_fetch=hold: no request from the
+                q = self.decoder.queue           # first element's post (step[1] None) / again
+                if len(step) > 2:                # CW = 0: a retried request raised step[1]
+                    q.str_raise = t + step[1]    # clocks into the exit
+                else:
+                    q.str_held = (float("inf") if step[1] is None   # step[1] clocks after
+                                  else t + step[1])  # the stream's last cycle
+                self.k += 1
                 continue
             if kind == "fetch_hold":             # (WP67, F24) str_hold=hold: no fetch request
                 q = self.decoder.queue           # for step[1] clocks from here
@@ -1227,6 +1309,8 @@ class EU:
             r.setup -= 1
             self.unit_early = True
         r.detached = detached
+        if self.cfg.sreg_store == "own" and self.sreg == "store" and args[0] == "write":
+            r.sreg = True                # (WP76) sreg_store=own: MOV r/m,sreg's write (arbiter)
         if (self.cfg.grp_disp == "hold" and r.free_bus and self.mem and self.disp == 2
                 and self.cls == "rmw" and not self.imm_bytes and args[0] in ("read", "nowrite")):
             r.gdisp = True               # (WP61) grp_disp=hold

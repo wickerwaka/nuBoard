@@ -5367,3 +5367,183 @@ class TransferAndFrameMisses(unittest.TestCase):
             self.assertIn(want, mod, cid)
         _, free = _ev72("F25-out-push_imm8-pO-w0", imm_latch="free")
         self.assertIn((91, "stack_write"), free)
+
+
+# (WP76, F30, F31) the facts-only shapes the probe families read: the new enums as the hand
+# start of the forty-first fit has them, with the integers they read
+WP76 = {"xfer_odd": "idle", "str_exit": "wb", "str_split": "floor", "str_io_setup": "run",
+        "str_start": "skip", "str_fetch": "hold", "sreg_io": "hold", "sreg_store": "own",
+        "lea_disp": "split"}
+WP76_INTS = {**{f"{c}.xwb": 2 for c in ("str_move", "str_cmp", "str_store", "str_load",
+                                         "str_scan", "str_in", "str_out")},
+             **{f"{c}.xsplit": 4 for c in ("str_move", "str_cmp", "str_store", "str_load",
+                                            "str_scan", "str_in", "str_out")},
+             **{f"{c}.xfetch": 8 for c in ("str_move", "str_cmp", "str_store", "str_load",
+                                            "str_scan", "str_in")},
+             "str_out.xfetch": 9, "str_out.nx": 0,
+             "str_move.zfetch": 6, "str_cmp.zfetch": 6, "str_store.zfetch": 6,
+             "str_load.zfetch": 5, "str_scan.zfetch": 6, "str_in.zfetch": 7, "str_out.zfetch": 7}
+
+
+def _ev76(cid, **over):
+    """(silicon, model) event lists from t_fill under the tracked fit with WP76 (+ over)."""
+    run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    cfg = Config.fitted().replace(**{**WP76, **WP76_INTS, **over})
+    m = simulate_normalized(s.chain, cfg, s.chain_base)
+    return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+
+class ProbeShapes(unittest.TestCase):
+    """(WP76) F30's and F31's readings as mechanisms: each new enum against its alternative on
+    its deciding run (clocks rel t_fill), and REPC / REPNC decoded as REP prefixes."""
+
+    def test_wp76_defaults_are_the_old_model(self):
+        for name in WP76:
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+            self.assertIn(WP76[name], OPTIONS[name], name)
+        for cls in ("str_move", "str_cmp", "str_store", "str_load", "str_scan", "str_in",
+                    "str_out"):
+            for name in ("xwb", "xsplit", "xfetch", "zfetch"):
+                self.assertEqual(DEFAULT.c(cls, name), 0, (cls, name))
+
+    def test_xfer_odd_short_jump_on_an_idle_bus(self):
+        # BR short at 1004F starts on M0's I/O issue 87, no fetch on the bus: the target's
+        # fetch at 98 is the next
+        sil, mod = _ev76("F30-out-br-short-n0-pad1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertNotIn((90, "fetch"), mod)
+        _, hold = _ev76("F30-out-br-short-n0-pad1-pE-w0", xfer_odd="hold")
+        self.assertIn((90, "fetch"), hold)
+        # an even-address BR short and BR near at an odd address are the same under both
+        for cid in ("F30-out-br-short-n0-nop-pE-w0", "F23-out-brnear-n0-pO-w0"):
+            sil, mod = _ev76(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertEqual(_ev76(cid, xfer_odd="hold")[1], mod, cid)
+
+    def test_str_exit_write_back(self):
+        # REP STM's write 112-114, a NOP after it: silicon's next fetch 132, M1's I/O 139
+        sil, mod = _ev76("F31-out-alf-stm-n1-nop-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((132, "fetch"), mod)
+        self.assertIn((139, "io_write"), mod)
+        _, eu = _ev76("F31-out-alf-stm-n1-nop-pE-w0", str_exit="eu")
+        self.assertIn((134, "fetch"), eu)
+        # M1 (a port-form OUT, wbsync) straight after: the same under both
+        sil, mod = _ev76("F31-out-alf-stm-n1-end-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertEqual(_ev76("F31-out-alf-stm-n1-end-pE-w0", str_exit="eu")[1], mod)
+
+    def test_str_split_floor(self):
+        # the split write 112-114, 115-117 at w0: silicon's next fetch 139, M1's I/O 142
+        sil, mod = _ev76("F30-out-odd-stm-iy-n1-end-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((139, "fetch"), mod)
+        _, none = _ev76("F30-out-odd-stm-iy-n1-end-pE-w0", str_split="none")
+        self.assertIn((138, "fetch"), none)
+        # at w1 the end + 1 bound holds: the same under both; LDM with IX odd (a single read)
+        for cid in ("F30-out-odd-stm-iy-n1-end-pE-w1", "F30-out-odd-ldm-ix-n1-end-pE-w0"):
+            sil, mod = _ev76(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertEqual(_ev76(cid, str_split="none")[1], mod, cid)
+
+    def test_str_io_setup_wait_clock_of_the_refill_run(self):
+        # the refill 89, 93, 97 back to back, REP INM's setup from 97: the I/O at 115
+        sil, mod = _ev76("F30-out-str-inm-w-n1-l0-pE-w1")
+        self.assertEqual(mod, sil)
+        self.assertIn((115, "io_read"), mod)
+        _, nowait = _ev76("F30-out-str-inm-w-n1-l0-pE-w1", str_io_setup="nowait")
+        self.assertIn((116, "io_read"), nowait)
+        # STM in the same frame counts no wait clock either way
+        sil, mod = _ev76("F30-out-str-stm-w-n1-l0-pE-w1")
+        self.assertEqual(mod, sil)
+        self.assertEqual(_ev76("F30-out-str-stm-w-n1-l0-pE-w1", str_io_setup="nowait")[1], mod)
+
+    def test_str_start_and_fetch_after_a_long_gap(self):
+        # REP STM starts at 120 after SHL AW,8 (the aborted cycle 120-122): the write at 140,
+        # the fetch the aborted cycle left at the write's end + 9 (151)
+        sil, mod = _ev76("F30-out-str-stm-w-n1-sep-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((140, "data_write"), mod)
+        self.assertIn((151, "fetch"), mod)
+        _, count = _ev76("F30-out-str-stm-w-n1-sep-pO-w0", str_start="count")
+        self.assertIn((141, "data_write"), count)
+        _, room = _ev76("F30-out-str-stm-w-n1-sep-pO-w0", str_fetch="room")
+        self.assertNotIn((151, "fetch"), room)
+        # CW = 0: the request raised zfetch clocks into the exit (132)
+        sil, mod = _ev76("F30-out-str-stm-w-n0-sep-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((132, "fetch"), mod)
+        self.assertNotIn((132, "fetch"), _ev76("F30-out-str-stm-w-n0-sep-pO-w0",
+                                               str_fetch="room")[1])
+
+    def test_sreg_io_8e_behind_the_out(self):
+        # 8E decoded behind M0 before its I/O counted out (84): the I/O at 85
+        sil, mod = _ev76("F30-out-seg-8e-ds1-aw-n0-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((85, "io_write"), mod)
+        _, free = _ev76("F30-out-seg-8e-ds1-aw-n0-pE-w0", sreg_io="free")
+        self.assertIn((84, "io_write"), free)
+        # pO: the I/O waits behind a fetch to 85 anyway; 8C after the OUT: no hold
+        for cid in ("F30-out-seg-8e-ds1-aw-n0-pO-w0", "F30-out-seg-8c-aw-ds1-n0-pE-w0"):
+            sil, mod = _ev76(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertEqual(_ev76(cid, sreg_io="free")[1], mod, cid)
+
+    def test_sreg_store_datum_a_clock_later(self):
+        # MOV [BW],DS1 behind M0's I/O 85-87: the write at 91 (MOV [BW],AW's 90)
+        sil, mod = _ev76("F30-out-seg-8c-bw-ds1-n0-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((91, "data_write"), mod)
+        _, store = _ev76("F30-out-seg-8c-bw-ds1-n0-pO-w0", sreg_store="store")
+        self.assertIn((90, "data_write"), store)
+        # behind a fetch (posted on its last clock) the same under both
+        sil, mod = _ev76("F30-push-seg-8c-bw-ds1-n0-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertEqual(_ev76("F30-push-seg-8c-bw-ds1-n0-pE-w0", sreg_store="store")[1], mod)
+
+    def test_lea_disp_split_displacement(self):
+        # LDEA [BW+200h] at 1004D (the d16 across two words), the refill 82, 86, 90 back to
+        # back: M1's PUSH write at the third fetch's end + 7 (100)
+        sil, mod = _ev76("F30-push-lea-bw_d16-k1-pE-w1")
+        self.assertEqual(mod, sil)
+        self.assertIn((100, "stack_write"), mod)
+        _, none = _ev76("F30-push-lea-bw_d16-k1-pE-w1", lea_disp="none")
+        self.assertIn((96, "stack_write"), none)
+        # pO: the d16 in one word, the same under both
+        sil, mod = _ev76("F30-push-lea-bw_d16-k1-pO-w1")
+        self.assertEqual(mod, sil)
+        self.assertEqual(_ev76("F30-push-lea-bw_d16-k1-pO-w1", lea_disp="none")[1], mod)
+
+    def test_repc_repnc_decode_as_rep_prefixes(self):
+        from validation.v35s.chains.sim.templates import REP_PREFIXES
+        for code, rep in ((bytes([0x65, 0xA7]), 0x65), (bytes([0x64, 0xAF]), 0x64)):
+            op = decode(code, 0, {"AW": 0, "BW": 0, "CW": 3, "DW": 0x40, "SP": 0xF00, "BP": 0,
+                                  "IX": 0xA40, "IY": 0xC40})
+            self.assertEqual((op.length, op.rep, op.n), (2, rep, 3))
+            self.assertIn(op.cls, ("str_cmp", "str_scan"))
+        self.assertIn(0x64, REP_PREFIXES)
+        self.assertIn(0x65, REP_PREFIXES)
+
+    def test_repc_repnc_carry_exit_through_the_simulator(self):
+        # F33 (generator-only: STC / CLC are not decoded) with its flag byte as a NOP: the
+        # model's data cycles are silicon's, the exit the carry's (the walk's), not Z's: REPC
+        # CMPBK on the fill stops after element 1 (no borrow), REPNC CMPBK runs CW out, REPNC
+        # CMPM stops after element 1 (0 - 9090h borrows)
+        import dataclasses
+        nop = bytes([0x90])
+        for cid, reads in (("F33-out-repc-cmpbk-w-n4-clc-pE-w0", 4),
+                           ("F33-out-repnc-cmpbk-w-n4-clc-pE-w0", 10),
+                           ("F33-out-repnc-cmpm-w-n4-stc-pE-w0", 2),
+                           ("F33-out-repc-cmpm-w-n4-clc-pat-pE-w0", 3)):
+            run = next(r for r in _runs("F33") if r["chain"]["id"] == cid)
+            s = normalize(run)
+            ch = dataclasses.replace(s.chain, instrs=[
+                dataclasses.replace(i, code=nop, form="nop") if i.form in ("stc", "clc") else i
+                for i in s.chain.instrs])
+            m = simulate_normalized(ch, Config.fitted().replace(**WP76, **WP76_INTS),
+                                    s.chain_base)
+            a = [e[1:4] for e in aligned(s) if e[1].startswith("data")]
+            b = [e[1:4] for e in aligned(m) if e[1].startswith("data")]
+            self.assertEqual(b, a, cid)
+            self.assertEqual(len(a), reads, cid)

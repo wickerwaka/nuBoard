@@ -75,6 +75,9 @@ class Op:
                                  # mod 10 and the direct mod 00 rm 110: 2)
     bus: bool = True             # (WP52) the memory operand has a bus cycle (False: LDEA, the
                                  # EA computed and written to a register)
+    sreg: str | None = None      # (WP76) a segment register is the operand moved, a format
+                                 # property: "load" (MOV sreg,r/m, 8E: the segment register
+                                 # the destination) or "store" (MOV r/m,sreg, 8C)
     target: int | None = None    # (WP55) a control transfer that is taken: the code offset the
                                  # EU goes on at (None: not taken, or no transfer)
     cond: bool = False           # (WP55) a transfer with a condition field (the 70-7F row's low
@@ -269,10 +272,13 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         base["stack"] = (regs["SP"], None)
     elif op == 0x8E and not mem:
         cls = "reg"                     # (WP24) MOV sreg,r16: the prelude's segment loads
+        base["sreg"] = "load"
     elif op == 0x8E:
         cls = "load_seg"                # (WP52) MOV sreg,r/m16: a load into a segment register
+        base["sreg"] = "load"
     elif op == 0x8C:
         cls = "store" if mem else "reg"     # (WP52) MOV r/m16,sreg
+        base["sreg"] = "store"
     elif op == 0x8D:
         if not mem:
             raise ValueError(f"LDEA with a register operand at chain offset {k}")
@@ -299,7 +305,10 @@ STRING_STEPS = {"str_move": (("read", "ix"), ("write", "iy")),
                 "str_out": (("read", "ix"), ("io_write", "port"))}
 STRING_CLASSES = tuple(STRING_STEPS)
 STRING_COMPARES = ("str_cmp", "str_scan")     # REPE / REPNE: the repeat tests the result
-REP_PREFIXES = (0xF2, 0xF3)
+# (WP76, F33) REPNC (64) and REPC (65) are REPNE / REPE with the carry in place of Z: the same
+# form, the compare's exit the walk's (normalize.string_elements, StringRun.cond: the carry for
+# 64 / 65, Z for F2 / F3); the template never reads which flag
+REP_PREFIXES = (0xF2, 0xF3, 0x64, 0x65)
 
 
 def _string_op(code: bytes, k: int, regs: dict):
@@ -987,10 +996,25 @@ def _string_steps(op: Op, cfg) -> list[tuple]:
         seq.append(("quiet",))
     seq.append(("nowait" if cfg.str_setup == "nowait" else "clocks", c("rpre")))
     if not op.n:
+        if cfg.str_fetch == "hold":     # (WP76) the aborted start's request, zfetch clocks in
+            seq.append(("fetch_release", c("zfetch"), "raise"))
         return seq + [("clocks", c("zexit"))]
+    if cfg.str_fetch == "hold":
+        seq.append(("fetch_release", None))     # (WP76) str_fetch=hold: none from here
     for i in range(op.n):
         seq += element(i, c("first") if i == 0 else loop(i),
                        last=i == op.n - 1 and not op.cond)
     if cfg.str_overrun == "read" and op.cls in STRING_COMPARES:
         seq += element(op.n, loop(op.n), kinds=("read",))
-    return seq + [("clocks", c("cexit" if op.cond else "rexit"))]
+    if cfg.str_fetch == "hold":
+        # (WP76) str_fetch=hold: fetch requests again xfetch clocks after the last cycle
+        seq.append(("fetch_release", c("xfetch")))
+    if cfg.str_split == "floor" and (len(cyc) > 1 or cyc[0][0] != "read"):
+        # (WP76) str_split=floor: when the stream's last cycle was split (an odd word), the exit
+        # starts no earlier than xsplit clocks after its second half's issue; not after an
+        # element whose one cycle is a read (LDM, CMPM: the EU waits for the data)
+        seq.append(("split_floor", c("xsplit")))
+    exit_ = c("cexit" if op.cond else "rexit")
+    if cfg.str_exit == "wb":
+        exit_ -= c("xwb")       # (WP76) str_exit=wb: the exit's last xwb clocks are a write-back
+    return seq + [("clocks", exit_)]

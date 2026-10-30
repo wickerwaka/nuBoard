@@ -59,8 +59,9 @@ WIDTHS = {
     "ADDR": 20,         # current.addr
     "BWIDTH": 2,        # current.width: word / lo / hi
     "DATA": 16,         # current.data
-    "FETCH_SINCE": 3,   # last_fetch_end as clocks since it (0: not yet ended, 7: 7 or more);
-                        # the spec's 1 bit is `== t-1`; F23's flush reads t <= end + fgap (5)
+    "FETCH_SINCE": 4,   # last_fetch_end as clocks since it (0: not yet ended, 15: 15 or more);
+                        # the spec's 1 bit is `== t-1`; F23's flush reads t <= end + fgap (5),
+                        # (WP72) cond_gap=own's t <= end + cfgap (8): 4 bits since fit 40
     "IO_TAIL": 3,       # last_io_end: the recovery countdown (io_recover 2 + the disp_io clock)
     "GAP": 1,           # last_end beyond the cycle's own end: the disp_io clock (+ min_gap 0)
     "REFRESH_LEN": 3,   # refresh_length: 3 .. 5
@@ -82,6 +83,8 @@ WIDTHS = {
     "Q_AB_LEFT": 2,     # abort_end - t: the aborted cycle's clocks after its first
     "Q_LA_OFF": 2,      # lost_after - t: HALT's two status clocks (arbiter, refresh_lost)
     "Q_GD_OFF": 2,      # gdisp_until - t: grp_disp=hold's clocks (rmw.grp_free)
+    "Q_LE_OFF": 2,      # (WP72) lea_ea's end - t: LDEA's EA clocks (lea_room=ir)
+    "Q_SD_OFF": 2,      # (E3) str_held - t: a compare's chold clocks (str_hold=hold)
 }
 
 # Bus-cycle kinds and widths as the bus unit encodes them.
@@ -91,11 +94,14 @@ BWIDTHS = ("word", "lo", "hi")
 # Step encoding --------------------------------------------------------------------------
 
 STEP_OPS = ("clocks", "take", "data", "post", "post_io", "issued", "wait", "nowait", "halt",
-            "decide", "flush", "wbsync", "slot")      # wbsync / slot: inserted by the EU
+            "decide", "flush", "wbsync", "slot",      # wbsync / slot: inserted by the EU
+            "fetch_hold")                             # (E3) str_hold=hold
 STEP_TAGS = ("none", "ea", "mexec", "exec", "loop", "tail", "loop_odd", "mexit",   # clocks
-             "lead", "chain", "word", "chain_word", "port")                         # take
+             "lead", "chain", "word", "chain_word", "port",                         # take
+             "cfgap")       # flush: (WP72) cond_gap=own, the class's cfgap (else fgap)
 REQ_KINDS = ("none", "read", "write", "io_read", "io_write", "nowrite")
-ADDR_SRC = ("none", "ea", "stack_read", "stack_write", "port", "target")
+ADDR_SRC = ("none", "ea", "stack_read", "stack_write", "port", "target",
+            "ix", "iy")     # (E3) a string element's source (DS0:IX) and destination (DS1:IY)
 
 # (name, bits): the packed step word, LSB first
 STEP_FIELDS = (("op", 4), ("n", 8), ("per_count", 2), ("tag", 4), ("kind", 3), ("src", 3),
@@ -104,7 +110,7 @@ STEP_FIELDS = (("op", 4), ("n", 8), ("per_count", 2), ("tag", 4), ("kind", 3), (
 
 # Symbolic operand values substituted into an Op before its template is built.
 SENT = {"ea": 0xA000, "stack_read": 0xB000, "stack_write": 0xC000, "port": 0xD000,
-        "target": 0xE000}
+        "target": 0xE000, "ix": 0x1000, "iy": 0x3000}
 
 EA_CLASSES = ("none", "base", "base_disp", "base_index", "base_index_disp",
               "base_index_disp16", "direct", "disp")
@@ -208,12 +214,135 @@ def started(op, cfg):
 
 
 def string_classes() -> frozenset:
-    """(WP68, F24) the string forms, Phase E3: element-indexed addresses, no symbolic source
-    (frozen templates._string_steps: IX / IY, a REP count), so no template in the step tables.
-    The classes keep their ids and class integers (V35_CLS_*, v35_cost) in Config's sorted
-    order, the numbering rtl_vectors uses; a run with a string form is NotModelled there."""
+    """(WP68, F24; E3) the string forms' classes (frozen templates.STRING_OPS). Their templates
+    are string_template's: the step list frozen templates._string_steps builds, with the
+    element-indexed addresses as symbolic sources (ix, iy, port) and, for a REP form, the
+    element loop in the compact form the EU expands (expand_string)."""
     from .sim.frozen.templates import STRING_OPS
     return frozenset(STRING_OPS.values())
+
+
+# (E3) The string forms. A form without a prefix builds its step list literally (one element,
+# index 0). A REP form's list depends on the element count n (CW at the start) and, for a
+# compare, on whether its condition ended the repeat (cond): frozen _string_steps is
+#     take 1, nowait rpre, then  n == 0: clocks zexit
+#                                n > 0: element 0 .. n-1, [the overrun: element n's reads],
+#                                       clocks rexit (cexit when cond)
+# with each element's cycles as data steps (the first with first / loop1 / loop by its index,
+# the others mid), a compare's element followed by fetch_hold, and the last cycle of the
+# element that runs CW out `last` clocks later. The compact template the include holds is
+#     0 take 1, 1 nowait rpre, 2 clocks zexit,
+#     3 ..: the element rows of element 0, of element 1 and of element 2 (m rows each: its
+#           cycles and the hold; element i >= 2 runs element 2's rows),
+#     then clocks rexit and, for a compare, clocks cexit;
+# the EU's step k (k flat, the model's index) is expand_string's: element i = (k - 2) // m,
+# the address of its cycles IX / IY + i * the width (by DIR), the `last` clocks the class's.
+
+STRING_HEAD = 2                     # take 1, nowait rpre
+STRING_SETS = 3                     # element rows: element 0, element 1, element >= 2
+
+
+def _str_abstract(raw: tuple, w: int) -> tuple[dict, int]:
+    """One step of frozen _string_steps on a symbolic Op -> (its field dict, element index;
+    None for a step with no element address)."""
+    k = raw[0]
+    if k == "data":
+        kind, addr, width, setup = raw[1:5]
+        if len(raw) > 5:
+            raise RtlgenError(f"string step {raw!r}")
+        if addr == SENT["port"]:
+            src, i = "port", None           # DW: the same port for every element
+        else:
+            src = next((n for n in ("ix", "iy") if 0 <= (addr - SENT[n]) % 0x10000 < 0x1000),
+                       None)
+            if src is None or ((addr - SENT[src]) % 0x10000) % w:
+                raise RtlgenError(f"string step {raw!r}: not an element address")
+            i = ((addr - SENT[src]) % 0x10000) // w
+        return ({"op": "data", "kind": kind, "src": src, "src_i": 0, "width": width,
+                 "n": (setup, 0)}, i)
+    if k in ("clocks", "nowait", "take", "fetch_hold") and len(raw) == 2:
+        return {"op": k, "n": (raw[1], 0)}, None
+    raise RtlgenError(f"string step {raw!r}: not a string template step")
+
+
+def _str_raw(op, cfg, n: int, cond: bool) -> list:
+    from .sim.frozen.templates import steps
+    o = dataclasses.replace(op, ix=SENT["ix"], iy=SENT["iy"],
+                            port=None if op.port is None else SENT["port"], n=n, cond=cond)
+    return [_str_abstract(st, op.width) for st in steps(o, cfg)]
+
+
+def _row(d: dict) -> tuple:
+    return tuple(sorted(d.items()))
+
+
+def is_compare(cls: str) -> bool:
+    from .sim.frozen.templates import STRING_COMPARES
+    return cls in STRING_COMPARES
+
+
+def string_template(op, cfg) -> tuple:
+    """(E3) the template of a string form: without a prefix its step list (element 0); with
+    one, the compact form above. Checked: expand_string gives frozen _string_steps' list for
+    every n up to 6 and both exits, element by element."""
+    if op.rep is None:
+        seq = _str_raw(op, cfg, 1, False)
+        if any(i for _, i in seq if i is not None):
+            raise RtlgenError(f"{op.cls}: an unprefixed form's element is not element 0")
+        return tuple(_row(d) for d, _ in seq)
+    zero = _str_raw(op, cfg, 0, False)
+    four = _str_raw(op, cfg, 4, False)
+    m = len(four) - len(_str_raw(op, cfg, 3, False))       # an element's rows
+    if len(zero) != STRING_HEAD + 1 or m < 1:
+        raise RtlgenError(f"{op.cls}: the REP form's list is not the string template's shape")
+    rows = [d for d, _ in four[:STRING_HEAD]] + [zero[-1][0]]
+    for i in range(STRING_SETS):
+        el = four[STRING_HEAD + i * m:STRING_HEAD + (i + 1) * m]
+        if any(j not in (i, None) for _, j in el):
+            raise RtlgenError(f"{op.cls}: element {i}'s rows are not element {i}'s")
+        rows += [d for d, _ in el]
+    rows.append(four[-1][0])                                    # rexit
+    if is_compare(op.cls):
+        rows.append(_str_raw(op, cfg, 4, True)[-1][0])          # cexit
+    tm = tuple(_row(d) for d in rows)
+    for n in range(7):
+        for cond in ((False, True) if is_compare(op.cls) and n else (False,)):
+            want = [(_row(d), i) for d, i in _str_raw(op, cfg, n, cond)]
+            got = expand_string(tm, op.cls, cfg.c(op.cls, "last"), n, cond)
+            got = [(r, i if dict(r)["op"] == "data" and dict(r)["src"] != "port" else None)
+                   for r, i in got]
+            if want != got:
+                raise RtlgenError(f"{op.cls}: the compact template does not expand to "
+                                  f"_string_steps at n={n} cond={cond}")
+    return tm
+
+
+def string_shape(tm: tuple, cls: str) -> tuple[int, int]:
+    """(rows per element m, data rows per element c) of a REP form's compact template."""
+    m = (len(tm) - STRING_HEAD - 1 - (2 if is_compare(cls) else 1)) // STRING_SETS
+    c = sum(1 for r in tm[STRING_HEAD + 1:STRING_HEAD + 1 + m] if dict(r)["op"] == "data")
+    return m, c
+
+
+def expand_string(tm: tuple, cls: str, last: int, n: int, cond: bool) -> list:
+    """(E3) a REP form's step list from its compact template, as the EU expands it (eu_step):
+    [(row, element index)]. The model's step k is the list's k-th."""
+    m, c = string_shape(tm, cls)
+    out = [(tm[0], 0), (tm[1], 0)]
+    if not n:
+        return out + [(tm[2], 0)]
+    base = STRING_HEAD + 1
+    for i in range(n):
+        for j in range(m):
+            d = dict(tm[base + min(i, STRING_SETS - 1) * m + j])
+            if j == c - 1 and i == n - 1 and not cond and last:
+                d["n"] = (d["n"][0] + last, 0)
+            out.append((_row(d), i))
+    if is_compare(cls):
+        for j in range(c):
+            out.append((tm[base + min(n, STRING_SETS - 1) * m + j], n))
+    x = base + STRING_SETS * m
+    return out + [(tm[x + (1 if cond else 0)], 0)]
 
 
 def has_count(op) -> bool:
@@ -228,7 +357,9 @@ def fmt_of(op, cfg, count_zero: bool, refresh: bool) -> dict:
             "ea_class": (ea_class(op, cfg) if op.ea is not None else None) or "none",
             "signed": op.signed, "group": op.group, "fixed_alu": op.fixed_alu,
             "shift": op.shift, "cl": op.opcode in (0xD2, 0xD3), "nowrite": op.nowrite,
-            "swap": op.swap, "cond": op.cond, "taken": op.target is not None,
+            "swap": op.swap, "taken": op.target is not None,
+            # (E3) a string form's cond is the walk's exit (Op.cond), not a format property
+            "cond": op.cond and op.cls not in string_classes(),
             "count_zero": count_zero, "refresh": refresh}
 
 
@@ -306,6 +437,10 @@ def abstract(raw: tuple) -> dict:
             raise RtlgenError(f"step {raw!r}")
     elif k == "flush":
         s["src"], s["src_i"] = _addr(raw[1])
+        if len(raw) > 2:
+            if raw[2] != "cfgap" or len(raw) > 3:
+                raise RtlgenError(f"step {raw!r}")
+            s["tag"] = "cfgap"          # (WP72) cond_gap=own: the flush waits cfgap
     elif len(raw) > 1:
         raise RtlgenError(f"step {raw!r}")
     return s
@@ -365,7 +500,17 @@ def templates(cfg) -> tuple[list, dict, dict]:
     for op, code in enumerate_ops():
         op = started(op, cfg)
         if op.cls in string_classes():
-            continue                    # (WP68, F24) not in the step tables: string_classes
+            tm = string_template(op, cfg)       # (E3) refresh_hold_steps leaves it as it is
+            for refresh in (False, True):
+                key = tuple(fmt_of(op, cfg, False, refresh)[n] for n, _ in FMT_FIELDS)
+                if tm not in ids:
+                    ids[tm] = len(order)
+                    order.append(tm)
+                    example[ids[tm]] = (op.cls, code.hex(" ") + (", refresh" if refresh else ""))
+                if key in sel and sel[key] != ids[tm]:
+                    raise RtlgenError(f"format {key} builds two templates ({code.hex(' ')})")
+                sel[key] = ids[tm]
+            continue
         for refresh in (False, True):
             zs = (False, True) if has_count(op) else (False,)
             for cz in zs:
@@ -502,7 +647,8 @@ def check_widths(cfg, structure, tmpls) -> list[str]:
     max_len = bc["BASE"] + 3                                  # WTC field value 3: 3 waits
     need = {"KIND": len(KINDS) - 1, "POS": max_len - 1, "LEN": max(max_len, *bc["REFRESH_LENGTHS"]),
             "BWIDTH": len(BWIDTHS) - 1, "ADDR": 0xFFFFF, "DATA": 0xFFFF,
-            "FETCH_SINCE": 1 + max(cfg.c(c, n) for c in cfg.cost for n in ("fgap", "nfgap")),
+            "FETCH_SINCE": 1 + max(cfg.c(c, n) for c in cfg.cost
+                                   for n in ("fgap", "nfgap", "cfgap")),
             "IO_TAIL": structure["io_recover"] + 1,
             "GAP": structure["min_gap"] + 1,
             "REFRESH_LEN": max(bc["REFRESH_LENGTHS"]), "WLATCH": structure["wlatch"],
@@ -510,7 +656,9 @@ def check_widths(cfg, structure, tmpls) -> list[str]:
             "Q_COUNT": queue_constants()["BYTES"] + queue_constants()["WORD"],
             "Q_AR_OFF": max(bc["REFRESH_LENGTHS"]),
             "Q_FH_OFF": max(cfg.c(c, "hold") for c in cfg.cost),
-            "Q_AB_LEFT": bc["BASE"] - 1, "Q_LA_OFF": 2, "Q_GD_OFF": cfg.c("rmw", "grp_free")}
+            "Q_AB_LEFT": bc["BASE"] - 1, "Q_LA_OFF": 2, "Q_GD_OFF": cfg.c("rmw", "grp_free"),
+            "Q_LE_OFF": max(cfg.ea.values()) + cfg.c("lea", "exec"),
+            "Q_SD_OFF": max(cfg.c(c, "chold") for c in cfg.cost)}
     for k, v in need.items():
         if v >= 1 << WIDTHS[k]:
             bad.append(f"V35_W_{k}={WIDTHS[k]} cannot hold {v}")
@@ -703,6 +851,23 @@ def render(fit_path: Path | None = None) -> str:
         w(f"            default: v35_step = {sw}'d0;")
         w("        endcase")
     w(f"        default: v35_step = {sw}'d0;")
+    w("    endcase")
+    w("endfunction")
+    w("")
+    # (E3) the REP string forms' compact templates (string_template, expand_string)
+    reps = [(i, string_shape(t, example[i][0])) for i, t in enumerate(tmpls)
+            if example[i][0] in string_classes() and len(t) > 5 and dict(t[0])["op"] == "take"]
+    w("// ---- (E3) The REP string forms' compact templates (rtlgen.string_template): rows 0-1")
+    w("// the head (take 1, nowait rpre), row 2 clocks zexit, then the element rows of element 0,")
+    w("// element 1 and element >= 2 (m rows each: c data rows, then a compare's fetch_hold),")
+    w("// then clocks rexit and a compare's clocks cexit; the EU expands them (expand_string) ----")
+    w(f"localparam int V35_STR_HEAD = {STRING_HEAD};")
+    w(f"localparam int V35_STR_SETS = {STRING_SETS};")
+    w("function automatic logic [3:0] v35_str_shape(input int tmpl);   // {m, c}; 0: not one")
+    w("    case (tmpl)")
+    for i, (m, c) in reps:
+        w(f"        {i}: v35_str_shape = {{2'd{m}, 2'd{c}}};   // {example[i][0]}: {example[i][1]}")
+    w("        default: v35_str_shape = 4'd0;")
     w("    endcase")
     w("endfunction")
     w("")

@@ -117,6 +117,11 @@ package v35_queue_pkg;
         logic [V35_W_Q_FH_OFF-1:0]  fh_off;     // ... max(0, flush_held - t)
         logic                       gd_valid;   // gdisp_until is set (grp_disp=hold) ...
         logic [V35_W_Q_GD_OFF-1:0]  gd_off;     // ... max(0, gdisp_until - t)
+        logic                       xfer;       // (WP72) xfer_abort: a transfer's aborted cycle
+        logic                       le_valid;   // (WP72) lea_room=ir: lea_ea is set ...
+        logic [V35_W_Q_LE_OFF-1:0]  le_off;     // ... max(0, lea_ea's end - t)
+        logic                       sd_valid;   // (E3) str_hold=hold: str_held is set ...
+        logic [V35_W_Q_SD_OFF-1:0]  sd_off;     // ... max(0, str_held - t)
         logic                       arrived_now;
         logic                       removed_now;
         logic                       ir_now;
@@ -155,7 +160,8 @@ package v35_queue_pkg;
     localparam logic [5:0] V35_QOP_STORED = 6'd21;      // stored (rd)
     localparam logic [5:0] V35_QOP_AVAIL = 6'd22;       // available (rd; data_ready=0: every byte)
     localparam logic [5:0] V35_QOP_ISSUE = 6'd23;       // queue.issue: a=mem_waiting, b=slot_fetch (grp_read)
-    localparam logic [5:0] V35_QOP_ABORT = 6'd24;       // queue.abort: a=retry_loop, b=abort_ref
+    localparam logic [5:0] V35_QOP_ABORT = 6'd24;       // queue.abort: a=retry_loop, b=abort_ref,
+                                                        // val[0]=xfer_abort (WP72)
     localparam logic [5:0] V35_QOP_DROP = 6'd25;        // arbiter refresh_drop: a=drop_hold
     localparam logic [5:0] V35_QOP_BEAT = 6'd26;        // arbiter _refresh: after_refresh = t + val; a: in HALT
     localparam logic [5:0] V35_QOP_LOST_EVAL = 6'd27;   // arbiter refresh_lost: evaluated on this start
@@ -167,13 +173,15 @@ package v35_queue_pkg;
     localparam logic [5:0] V35_QOP_T4 = 6'd33;          // arbiter refresh_beat_t4: t4_at = t + 1
     localparam logic [5:0] V35_QOP_NOP_HOLD = 6'd34;    // machine P nop_hold: nop_held = t
     localparam logic [5:0] V35_QOP_GDISP = 6'd35;       // eu grp_disp=hold: gdisp_until = t + val
+    localparam logic [5:0] V35_QOP_LEA_EA = 6'd36;      // (WP72) eu lea_room=ir: lea_ea = (t, t + val)
+    localparam logic [5:0] V35_QOP_STR_HELD = 6'd37;    // (E3) eu str_hold=hold: str_held = t + val
 endpackage
 
 module v35_queue
     import v35_queue_pkg::*;
 #(
     parameter int NSLOT = 16,               // op stages per clock
-    parameter int STATE_W = 180             // $bits(v35_qstate_t), checked below
+    parameter int STATE_W = 187             // $bits(v35_qstate_t), checked below
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -259,6 +267,10 @@ module v35_queue
                 used += int'(d.ir);
             end
         end
+        // (WP72) lea_room=ir: during LDEA's EA clocks after its last operand byte the IR's
+        // opcode is not counted (the IR as a slot only)
+        if (d.ir && size > V35_QUEUE_BYTES && s.le_valid && s.le_off != '0)
+            used -= 1;
         if (s.arrived_now && s.mate_now)
             used += 1;                      // modrm_mate: the ModR/M's word is not free yet
         q_room = (V35_W_ROOM + 1)'(size - used);
@@ -331,6 +343,8 @@ module v35_queue
         if (!s.la_valid) q_canon.la_off = '0;
         if (!s.fh_valid) q_canon.fh_off = '0;
         if (!s.gd_valid) q_canon.gd_off = '0;
+        if (!s.le_valid) q_canon.le_off = '0;
+        if (!s.sd_valid) q_canon.sd_off = '0;
     endfunction
 
     // ------------------------------------------------ the clock's start: stamps move on
@@ -366,6 +380,10 @@ module v35_queue
             s.fh_off = r.fh_off - 1'b1;
         if (r.gd_valid && r.gd_off != '0)
             s.gd_off = r.gd_off - 1'b1;         // grp_disp=hold: t < gdisp_until while > 0
+        if (r.le_valid && r.le_off != '0)
+            s.le_off = r.le_off - 1'b1;         // lea_room: t < lea_ea's end while > 0
+        if (r.sd_valid && r.sd_off != '0)
+            s.sd_off = r.sd_off - 1'b1;         // str_hold: t < str_held while > 0
         s.take_prev = r.take_now;
         s.arrived_now = 1'b0;
         s.removed_now = 1'b0;
@@ -517,6 +535,8 @@ module v35_queue
                 n.flag = raised;
                 if (s.fh_valid && s.fh_off == '0 && d.need0)
                     raised = 1'b0;          // flush_hold: a taken transfer runs
+                if (s.sd_valid && s.sd_off != '0)
+                    raised = 1'b0;          // (E3) str_hold: a compare's result clocks
                 if (s.nop_held)
                     raised = 1'b0;
                 want = raised && !s.inflight && !q_latch_blocks(s) && !s.shift_held;
@@ -572,6 +592,7 @@ module v35_queue
                 n.retry = 1'b1;
                 n.retry_loop = a;
                 n.abort_ref = b;
+                n.xfer = val[0];            // (WP72) xfer_abort=word
             end
             V35_QOP_DROP: begin             // refresh_drop
                 n.flag = 1'b0;
@@ -623,6 +644,14 @@ module v35_queue
             V35_QOP_GDISP: begin            // grp_disp=hold (the arbiter reads t < gdisp_until)
                 n.gd_valid = 1'b1;
                 n.gd_off = V35_W_Q_GD_OFF'(val);
+            end
+            V35_QOP_LEA_EA: begin           // (WP72) lea_room=ir: LDEA's EA clocks
+                n.le_valid = 1'b1;
+                n.le_off = V35_W_Q_LE_OFF'(val);
+            end
+            V35_QOP_STR_HELD: begin         // (E3) str_hold=hold: no request for val clocks
+                n.sd_valid = 1'b1;
+                n.sd_off = V35_W_Q_SD_OFF'(val);
             end
             default: ;
         endcase
@@ -689,6 +718,10 @@ module v35_queue
         if (abort_due) begin                // abort_done: the aborted cycle ends
             s_c.inflight = 1'b0;
             s_c.ab_valid = 1'b0;
+            if (s_c.xfer) begin             // (WP72) xfer_abort=word: a transfer's request is
+                s_c.xfer = 1'b0;            // raised again on the aborted cycle's end
+                s_c.flag = q_word(s_c, v35_qsnap_t'(c_snap));
+            end
         end
         s_c = q_canon(s_c);
     end

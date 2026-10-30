@@ -10,7 +10,7 @@
 // Build: fpga/v35s/build_queue_tb.sh (binary in build/fpga/v35s/queue-tb/).
 module v35_queue_tb #(
     parameter int NSLOT = 16,
-    parameter int STATE_W = 180
+    parameter int STATE_W = 187
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -66,7 +66,7 @@ module v35_queue_tb #(
     output wire        fetch_inflight,
     output wire        in_wait,
     output wire        fetch_end_prev,
-    output wire [2:0]  fetch_since,
+    output wire [3:0]  fetch_since,
     output wire        io_win,
     output wire        wlatch_busy,
     output wire        busy_x,
@@ -74,14 +74,14 @@ module v35_queue_tb #(
     output wire        fetch_inflight_x,
     output wire        in_wait_x,
     output wire        fetch_end_prev_x,
-    output wire [2:0]  fetch_since_x,
+    output wire [3:0]  fetch_since_x,
     output wire        io_win_x,
     output wire        wlatch_busy_x,
     output wire [2:0]  cur_kind_x,
     output wire [2:0]  cur_pos_x,
     output wire [2:0]  cur_len_x,
     output wire        biu_error,
-    output wire [63:0] biu_state
+    output wire [64:0] biu_state
 );
 `include "v35_chain_params.svh"
 

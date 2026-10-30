@@ -5307,8 +5307,8 @@ The corpus is 23,549/24,524 exact over the 30 scored families.
 
 **The fortieth fit** (`fit.json`, md5 23562d00; scratchpad wp72/fit-wp72.json, WP72, fitted and verified 2026-10-30,
 adopted the same day after HDL plan D2; until then the tracked file was the thirty-ninth fit in the fortieth's schema,
-the six new fields at their defaults, md5 bf77c277. The RTL has none of the new mechanisms until the catch-up package
-WP75: at the adoption the `--core` gate differs from the model on 359 of 26,234 runs (F23 60, F25 153, F30 142, and 4 F0w runs in an internal latch field only; 24,183 exact, 1,692 not modelled), and `rtlgen` leaves the `dispose` class out of
+the six new fields at their defaults, md5 bf77c277. The RTL had none of the new mechanisms until the catch-up package
+WP75, done the same day (HDL plan "E3 and the fortieth fit's catch-up done"; 26,234/26,234 exact against the model, 0 not modelled): at the adoption the `--core` gate differed from the model on 359 of 26,234 runs (F23 60, F25 153, F30 142, and 4 F0w runs in an internal latch field only; 24,183 exact, 1,692 not modelled), and `rtlgen` leaves the `dispose` class out of
 the step tables, so `test_rtlgen`'s class check fails until then) takes the
 F25 and F23 miss shapes by size. Six new enums, one existing enum flipped, two new class integers, four moved; F25
 446 → 534/588 and F23 255 → 303/360 with nothing lost in any family, 23,685/24,524 over the 30 scored families. Stage
@@ -6989,7 +6989,10 @@ nuV30's semantics, real read and write data and the segment registers,
 checked against a functional reference (`funcref.py`: every start's register
 file and every cycle's datum, 91,980 data cycles matching silicon on their
 lanes) and the SingleStepTests V20 suite (1,651,237 pass, 0 fail through the
-RTL), the timing gates unchanged. The
+RTL), the timing gates unchanged; and since the same evening the string forms run in RTL and
+the RTL has the fortieth fit's mechanisms (Phase E item 3 and the catch-up, WP75): the whole
+corpus of 26,234 runs over 33 lists exact against the model, 0 not modelled, model-exact
+24,710 = RTL-exact, a REP form's count from CW and a compare's exit from the RTL's own data. The
 state row's `pc` is a chain offset like `ir` since the same day. The same
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");

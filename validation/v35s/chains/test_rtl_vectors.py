@@ -18,7 +18,9 @@ gates' full runs:
 python -m validation.v35s.chains.rtl_vectors --family F0 F0w, --queue --family F0 F2 F9 F11,
 --joint --family F0 F2 F9 F11, --eu / --joint3 --family F1 F2 F3 F9 F11 F12 F20, --core
 --family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29, --core --family F8 F13 F17 F18,
---regfile and the corpus's --core over every family, funcref --silicon, sst and sst --rtl."""
+--regfile and the corpus's --core over every family (33 lists: F0, F0w, F1 .. F31; F32 and F33
+are generator-only), funcref --silicon, sst and sst --rtl. (WP75) The fortieth fit's seven
+mechanisms and (E3) the string forms are in the RTL: no run is outside it."""
 
 from __future__ import annotations
 
@@ -356,7 +358,7 @@ class EUVectors(unittest.TestCase):
         self.assertEqual(tags, {(t or "none"): i for i, t in enumerate(rtl_vectors.CLK_TAGS)})
         w = dict(rtl_vectors.QFIELDS)
         self.assertEqual(sum(w[k] for k in rtl_vectors.QVIEW), 52)
-        self.assertEqual(sum(b for _, b in rtl_vectors.BVIEW), 18)
+        self.assertEqual(sum(b for _, b in rtl_vectors.BVIEW), 19)   # (WP75) fsince 4 bits
 
     def test_vectors_reach_the_edges(self):
         """The sample runs reach the EU's edges (a port relatch, the count latch, abort_reg,
@@ -572,8 +574,24 @@ class ArbiterVectors(unittest.TestCase):
 # loop_odd and its exit), beside a posted I/O's lead, in HALT (the deferred status), in a memory
 # shift's write setup and by CL's read (refresh_grpcl), refresh_post's beat_ext, the lost request
 # in HALT (lost_after), refresh_beat_t4, and pop_refresh=stall in the prelude's POP PSW
-# (WP68) an F24 run with a string form (MOVBK): every mode raises NotModelled (Phase E3)
+# (E3) F24 runs with a string form: an unprefixed MOVBK, a REP MOVBK, REPE CMPBK ending on its
+# condition, REPNE CMPM running CW out (the overrun read), REP INM and OUTM, REP STM with CW = 0
 F24_STRING = "F24-out-s-movbk-b-k1-pE-w0"
+SSAMPLE = (("F24", F24_STRING), ("F24", "F24-out-r-rep-movbk-w-n2-pE-w0"),
+           ("F24", "F24-out-t-repe-cmpbk-w-n4-pat-pE-w0"),
+           ("F24", "F24-out-r-repne-cmpm-w-n4-pO-w0"), ("F24", "F24-out-r-rep-inm-w-n2-pE-w1"),
+           ("F24", "F24-out-r-rep-outm-b-n1-pO-w0"), ("F24", "F24-out-r-rep-stm-w-n0-pE-w0"),
+           ("F24", "F24-out-a-rep-movbk-w-n2-ix-pO-w0"), ("F30", "F30-out-str-inm-w-n1-l0-pE-w0"))
+# (WP75) the fortieth fit's mechanisms, each on its deciding run: (mutation, family, run,
+# what the bench sees first): imm_latch=wait, lea_io=recover, lea_room=ir, prepare_sync=run,
+# burst_count=dw, cond_gap=own (the EU's), xfer_abort=word (the arbiter's); the string
+# template's element address step, overrun read and compare exit (E3)
+MSAMPLE = ((14, "F25", "F25-out-push_imm8-pO-w0"), (15, "F25", "F25-out-ldea-bw-pE-w0"),
+           (16, "F25", "F25-push-ldea-bw-pO-w0"), (17, "F25", "F25-push-prepare-pE-w0"),
+           (18, "F25", "F25-push-pushr-pO-w0"), (19, "F23", "F23-out-be-n0-pE-w2"),
+           (20, "F23", "F23-push-br-n0-pO-w0"), (21, "F24", "F24-out-r-rep-movbk-w-n2-pE-w0"),
+           (22, "F24", "F24-out-r-repne-cmpm-w-n4-pO-w0"),
+           (23, "F24", "F24-out-t-repe-cmpbk-w-n4-pat-pE-w0"))
 RSAMPLE = (("F8", "F8-push-st_bw-k4-pE-w1"), ("F17", "F17-p-n1-mulu-pE-w1"),
            ("F18", "F18-b-n1-shlmcl-pE-w1"), ("F13", "F13-r-rfm-f2-pE-w0"),
            ("F13", "F13-r-rfm-f2-pE-w2"))
@@ -636,21 +654,28 @@ class RefreshVectors(unittest.TestCase):
                 "pending", "early", "pop_refresh"}
         self.assertTrue(want <= seen, want - seen)
 
-    def test_string_forms_are_not_modelled(self):
-        """(WP68, F24) a run with a string form raises NotModelled in every mode."""
-        s = normalize(_run("F24", F24_STRING))
-        for f in (lambda: rtl_vectors.vectors(s.chain, self.cfg, s.chain_base),
-                  lambda: rtl_vectors.queue_vectors(s.chain, self.cfg, s.chain_base),
-                  lambda: rtl_vectors.eu_vectors(s.chain, self.cfg, s.chain_base),
-                  lambda: rtl_vectors.core_vectors(s.chain, self.cfg, s.chain_base)):
-            with self.assertRaisesRegex(rtl_vectors.NotModelled, r"string forms \(E3\)"):
-                f()
-        r = rtl_vectors.check_core_run(_run("F24", F24_STRING), self.cfg)
-        self.assertEqual(r.not_modelled, "string forms (E3)")
-        self.assertEqual(rtl_vectors.check_run(_run("F24", F24_STRING), self.cfg).not_modelled,
-                         "string forms (E3)")
-        self.assertEqual(rtl_vectors.check_queue_run(_run("F24", F24_STRING), self.cfg).not_modelled,
-                         "string forms (E3)")
+    def test_string_forms_are_modelled(self):
+        """(E3) a run with a string form is an ordinary run in every mode: the vectors hold its
+        steps (the compare's fetch hold a queue op, the element count in the start's record,
+        the walk's), and the frozen model's flat step index is the RTL's k."""
+        from validation.v35s.chains.normalize import string_elements
+        for family, part in SSAMPLE:
+            s = normalize(_run(family, part))
+            with self.subTest(run=s.run_id):
+                rtl_vectors.vectors(s.chain, self.cfg, s.chain_base)
+                rtl_vectors.queue_vectors(s.chain, self.cfg, s.chain_base)
+                et, qt, bt, at, cycles, erec, arec = rtl_vectors.core_vectors(
+                    s.chain, self.cfg, s.chain_base)
+                strs = [o.string for o in erec.opnds if o.string[0]]
+                self.assertTrue(strs)
+                for (_, n, cond), (_, sr) in zip(strs, sorted(
+                        string_elements(s.chain).items())):
+                    self.assertEqual((n, cond), (len(sr.elements), int(sr.cond)))
+                held = any(o.code == "str_held" for ck in erec.clocks for o in ck.tl + ck.p)
+                self.assertEqual(held, "cmp" in part)
+                self.assertGreater(max(ck.states["e"]["e_k"] for ck in erec.clocks), 3)
+        r = rtl_vectors.check_queue_run(_run("F24", F24_STRING), self.cfg)
+        self.assertEqual(r.not_modelled, "")
 
     def test_an_unclassified_refresh_store_raises(self):
         """A store into the controller from a method that does not make it raises."""
@@ -724,6 +749,34 @@ class CoreBench(unittest.TestCase):
                 self.assertFalse(r.ok)
                 self.assertRegex(r.first, r"^FAIL clock \d+ ")
 
+    def test_string_runs_exact(self):
+        """(E3) the string samples run exact in the core: the element loop, the addresses from
+        IX / IY by the element, the compare's exit from the data, the elements checked against
+        the walk's at the next start."""
+        cfg = Config.fitted()
+        for family, part in SSAMPLE:
+            rec = _run(family, part)
+            with self.subTest(run=rec["chain"]["id"]):
+                r = rtl_vectors.check_core_run(rec, cfg)
+                self.assertEqual((r.error, r.not_modelled), ("", ""))
+                self.assertTrue(r.ok, f"{r.first} cycles {r.exact_cycles}/{r.cycles}")
+                self.assertTrue(r.rtl_model_exact)
+                self.assertEqual(r.rtl_exact, r.model_exact)
+
+    def test_bench_catches_fit40_and_string_mutations(self):
+        """(WP75) each of the fortieth fit's seven mechanisms turned off (mutations 14 .. 20) and
+        each string template mutation (21: an element's address step 0, 22: no overrun read,
+        23: the compare's condition ignored) fails its deciding run, which runs exact without."""
+        cfg = Config.fitted()
+        for mut, family, part in MSAMPLE:
+            rec = _run(family, part)
+            with self.subTest(mutate=mut):
+                self.assertTrue(rtl_vectors.check_core_run(rec, cfg).ok)
+                r = rtl_vectors.check_core_run(rec, cfg, mutate=mut)
+                self.assertEqual(r.error, "")
+                self.assertFalse(r.ok)
+                self.assertRegex(r.first, r"^FAIL clock \d+ ")
+
     def test_bench_catches_register_file_mutations(self):
         """(D1, D2) the register file's and the ALU's mutations (v35_eu.sv `mutate` 8..12):
         [BW+IX] computed without IX (an EA mode: the record), a push's SP step of 4 (the next
@@ -753,7 +806,8 @@ class CoreBench(unittest.TestCase):
 
 # D1, D2 --------------------------------------------------------------------------------------
 
-ALL_FAMILIES = ("F0", "F0w") + tuple(f"F{i}" for i in range(1, 30))
+# (WP75) the 33 lists of the whole corpus: F0, F0w, F1 .. F31 (F30 and F31 the probe families)
+ALL_FAMILIES = ("F0", "F0w") + tuple(f"F{i}" for i in range(1, 32))
 
 
 class FunctionalReference(unittest.TestCase):

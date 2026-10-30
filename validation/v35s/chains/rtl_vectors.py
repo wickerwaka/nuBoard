@@ -55,6 +55,19 @@ from a memory the EU's own writes update, and leave the state rows' functional f
 and every ALU form; sst.py --rtl runs SingleStepTests through it: see "D1, D2" below.
 
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --regfile --family F0 F23
+
+(WP75) The fortieth fit's mechanisms (xfer_abort=word: the abort op's val and the queue's xfer;
+cond_gap=own; burst_count=dw; lea_io=recover; lea_room=ir: the EU's lea_ea op; prepare_sync=run;
+imm_latch=wait) and, E3, the string forms: a REP form's step list is the frozen model's flat list
+(e_k), its element loop expanded by the EU from rtlgen's compact template, the addresses from
+IX / IY by the element, the element count from CW and a compare's exit from the RTL's own data
+(x_sn, x_sc: not in the state rows, checked at the next start against the walk's, the P line's
+last three fields); str_hold=hold is the EU's str_held op. No run is outside the RTL. The
+whole corpus, 33 lists (F32 and F33 are generator-only):
+
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --core --family F0 F0w \
+        F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 \
+        F25 F26 F27 F28 F29 F30 F31
 """
 
 from __future__ import annotations
@@ -125,24 +138,9 @@ class _Log(list):
             self.ref_rec.row()
 
 
-def check_strings(chain):
-    """(WP68, F24) the string forms (HDL plan Phase E3: element-indexed addresses, a REP count)
-    are outside the RTL (rtlgen.string_classes): every mode raises NotModelled on a chain with
-    one (an instruction whose opcode, after a REP prefix, is one of frozen STRING_OPS)."""
-    from .sim.frozen.templates import REP_PREFIXES, STRING_OPS
-    for ins in chain.instrs:
-        c = bytes(ins.code)
-        if not c:
-            continue
-        op = c[1] if c[0] in REP_PREFIXES and len(c) > 1 else c[0]
-        if op & 0xFE in STRING_OPS:
-            raise NotModelled("string forms (E3)")
-
-
 def run_model(chain, cfg, chain_base: int):
     """(Machine, _Log, cycles) of the frozen model on chain, built as frozen
     machine.run_record builds it (refresh on: _prelude_run's phase)."""
-    check_strings(chain)
     from .sim.frozen import machine as fm
     from .types import refresh_any
     phase = None
@@ -190,7 +188,7 @@ def vectors(chain, cfg, chain_base: int, run=None) -> tuple[str, list]:
         return int(c.owner is eu and c.kind in ("read", "io_read"))
 
     def since(b, t):
-        return 0 if b.fetch_inflight(t) else min(7, t - b.last_fetch_end)
+        return 0 if b.fetch_inflight(t) else min(15, t - b.last_fetch_end)   # (WP75) 4 bits
 
     lines = [f"{FORMAT} {chain.id} {chain.wtc:04x} {chain.rfm:02x} {T + 1} {len(cycles)}"]
     for t in range(T + 1):
@@ -390,7 +388,7 @@ QOPS = ("nop", "take", "commit", "irload", "start", "flush", "disp", "halt", "ev
         "shift_end", "retry_end", "retry_set", "reraise", "shift_set", "shift_hold",
         "drop_retry", "want", "asked", "requesting", "room", "triple", "stored", "avail",
         "issue", "abort", "drop", "beat", "lost_eval", "lost_halt", "lost_after", "redate",
-        "io_held_clr", "io_held_set", "t4", "nop_hold", "gdisp")
+        "io_held_clr", "io_held_set", "t4", "nop_hold", "gdisp", "lea_ea", "str_held")
 READ_OPS = frozenset(("want", "asked", "requesting", "room", "triple", "stored", "avail"))
 PURE_READS = frozenset(("room", "triple", "stored", "avail"))
 
@@ -449,6 +447,11 @@ QFIELDS = (
     ("fh_off", 4),           # max(0, flush_held - t)
     ("gd_valid", 1),         # gdisp_until is set (grp_disp=hold; the arbiter reads t < it)
     ("gd_off", 2),           # max(0, gdisp_until - t)
+    ("xfer", 1),             # (WP72) xfer_abort: a transfer's aborted cycle runs
+    ("le_valid", 1),         # (WP72) lea_room=ir: lea_ea is set ...
+    ("le_off", 2),           # ... max(0, lea_ea's end - t)
+    ("sd_valid", 1),         # (E3) str_hold=hold: str_held is set ...
+    ("sd_off", 2),           # ... max(0, str_held - t)
     ("arrived_now", 1),      # arrived_t == t
     ("removed_now", 1),      # removed_t == t
     ("ir_now", 1),           # ir_t == t
@@ -516,6 +519,11 @@ def qstate(m, t: int) -> dict:
         "fh_off": 0 if q.flush_held is None else max(0, q.flush_held - t),
         "gd_valid": int(q.gdisp_until is not None),
         "gd_off": 0 if q.gdisp_until is None else max(0, q.gdisp_until - t),
+        "xfer": int(bool(q.xfer_abort)),
+        "le_valid": int(q.lea_ea is not None),
+        "le_off": 0 if q.lea_ea is None else max(0, q.lea_ea[1] - t),
+        "sd_valid": int(q.str_held is not None),
+        "sd_off": 0 if q.str_held is None else max(0, q.str_held - t),
         "arrived_now": int(q.arrived_t == t), "removed_now": int(q.removed_t == t),
         "ir_now": int(q.ir_t == t), "qport_now": int(q.qport_t == t),
         "disp_now": int(q.disp_t == t), "mate_now": int(q.mate_t == t),
@@ -586,7 +594,9 @@ _READ_NAMES = {"wants_fetch": "want", "asked": "asked", "requesting": "requestin
                "stored": "stored", "available": "avail"}
 
 
-DEAD_QUEUE_STORES = frozenset(("xfer_abort", "lea_ea"))
+# (WP75) none since the fortieth fit's catch-up: xfer_abort is the abort op's val, lea_ea and
+# str_held are the EU's ops
+DEAD_QUEUE_STORES = frozenset()
 
 
 class QueueRecorder:
@@ -609,9 +619,6 @@ class QueueRecorder:
         rec = self
 
         def setattr_(obj, k, v):
-            # (WP72) dead under the fit, no op of the RTL queue's: xfer_abort (=none: the
-            # arbiter's store of False after every abort), lea_ea (lea_room=none: LDEA's EA
-            # clocks, stored by the EU and never read)
             if rec.depth == 0 and k not in DEAD_QUEUE_STORES:
                 rec._event(("set", k, v, sys._getframe(1).f_code.co_name))
             object.__setattr__(obj, k, v)
@@ -659,8 +666,7 @@ class QueueRecorder:
                 ck.c_fetch = 1
             elif ev[1] == "retry_after":
                 ck.c_refresh = int(ev[2][0][1:2] == ("refresh",) or ev[2][1].get("kind") == "refresh")
-            if ev[1] != "abort_done":
-                ck.c_snap = dsnap(m, t)
+            ck.c_snap = dsnap(m, t)     # (WP72) abort_done too: xfer_abort's room
             return
         if ck.c_state is None:
             ck.c_state = qstate(m, t)
@@ -730,6 +736,10 @@ class QueueRecorder:
             return QOp("beat", val=v - t)
         if attr == "gdisp_until" and caller == "tick" and v is not None:
             return QOp("gdisp", val=v - t)          # (WP61) grp_disp=hold
+        if attr == "lea_ea" and caller == "tick" and v is not None and v[0] == t:
+            return QOp("lea_ea", val=v[1] - t)      # (WP72) lea_room=ir
+        if attr == "str_held" and caller == "tick" and v is not None:
+            return QOp("str_held", val=v - t)       # (E3) str_hold=hold
         return None
 
     def _continues(self, op: QOp, ev) -> bool:
@@ -753,7 +763,8 @@ class QueueRecorder:
         if c == "issue":
             return key == ("set", "slot_fetch") and key not in names
         if c == "abort":
-            return key in (("set", "abort_ref"), ("set", "retry_loop")) and key not in names
+            return key in (("set", "abort_ref"), ("set", "retry_loop"),
+                           ("set", "xfer_abort")) and key not in names
         if c in ("drop_retry", "drop"):
             return key in (("set", "requested_at"), ("set", "retry"), ("set", "retry_loop"),
                            ("set", "abort_t"), ("set", "dropped"), ("set", "drop_hold"),
@@ -808,6 +819,7 @@ class QueueRecorder:
         elif op.code == "abort":
             op.a = int(bool(sets.get("retry_loop", False)))
             op.b = int(sets.get("abort_ref", False) is True)
+            op.val = int(sets.get("xfer_abort", False) is True)   # (WP72) xfer_abort=word
         elif op.code in ("drop_retry", "drop"):
             if "dropped" in sets:
                 op.code = "drop"
@@ -843,6 +855,8 @@ class QueueRecorder:
             bad = sets["disp_t"] != t
         elif op.code == "gdisp":
             bad = not 0 <= op.val < 4
+        elif op.code in ("lea_ea", "str_held"):
+            bad = not 0 < op.val < 4
         if bad:
             raise RuntimeError(f"{m.chain.id}: queue op {op.code} at {t}: unexpected events "
                                f"{[(e[0], e[1]) for e in ev]}")
@@ -888,7 +902,6 @@ def run_queue_model(chain, cfg, chain_base: int, merge: bool = True):
     the queue's calls recorded; its trace checked against run_record's."""
     from .sim.frozen import machine as fm
     from .types import refresh_any
-    check_strings(chain)
     phase = None
     if refresh_any(chain):
         phase = (64 - fm.POP_COUNTER[(chain.rfm, chain.wtc)]) % 128
@@ -1042,7 +1055,7 @@ def check_queue_run(rec: dict, cfg, keep: Path | None = None, joint: bool = Fals
 # from the bus unit, its state before and after the arbiter's choice.
 
 EBENCH = ROOT / "build" / "fpga" / "v35s" / "eu-tb" / "Vv35_eu_tb"
-EFORMAT = "V35EU-3"
+EFORMAT = "V35EU-4"           # (E3) the P lines carry the string form's elements
 NQ = 16                      # the EU's queue ops per phase (T and L; P) (v35_eu.sv NQ)
 NXOP = 6                     # the arbiter's touches on the EU per clock (v35_eu.sv NXOP)
 JSLOT = 40                   # the joint bench's queue op chain: T, L, X and P ops
@@ -1082,7 +1095,7 @@ EUFIELDS = (
     ("count", 9),            # its shift count (a template's per-count clocks)
     ("ins", 1),              # a port relatch inserted the slot and post steps ...
     ("ins_at", 4),           # ... at this step
-    ("k", 4),                # the step cursor
+    ("k", 18),               # the step cursor (E3: a REP string form's flat index)
     ("res", 10),             # resume - t
     ("left", 3),             # bytes left in the current take
     ("nw_v", 1),             # left_nw is set ...
@@ -1194,7 +1207,10 @@ FFIELDS = (
     ("pfx", 3),              # the segment prefix the next instruction carries: 4 + its sreg
 )
 # (D2) the running instruction's functional context (v35_fx_t)
-XFIELDS = (("code", 48), ("wd", 16), ("md", 16), ("rk", 3), ("wk", 3))
+XFIELDS = (("code", 48), ("wd", 16), ("md", 16), ("rk", 3), ("wk", 3),
+           # (E3) a string form: its elements (the RTL's, from its CW and its data), whether a
+           # compare's condition ended it, IX and IY at its start, the source's segment
+           ("sn", 16), ("sc", 1), ("six", 16), ("siy", 16), ("sseg", 16))
 EFIELDS = (tuple((f"d_{n}", w) for n, w in DFIELDS) + tuple((f"e_{n}", w) for n, w in EUFIELDS)
            + tuple((f"f_{n}", w) for n, w in FFIELDS) + tuple((f"x_{n}", w) for n, w in XFIELDS)
            + tuple((f"r{i}_{n}", w) for i in (2, 1, 0) for n, w in RFIELDS))
@@ -1212,7 +1228,7 @@ QVIEW = ("count", "latched", "flag", "rq_valid", "rq_age", "inflight", "ab_valid
          "ir_now", "latch_in_now")
 # the bus unit's state the EU reads (before and after the arbiter's choice; v35_bview_t)
 BVIEW = (("kind", 3), ("pos", 3), ("len", 3), ("free", 1), ("finf", 1), ("in_wait", 1),
-         ("fprev", 1), ("wl", 1), ("fsince", 3), ("flen3", 1))
+         ("fprev", 1), ("wl", 1), ("fsince", 4), ("flen3", 1))
 # an instruction's operand record (D1: the RTL's register file and EA adder compute it; the
 # bench compares), then (D2) the register file before the instruction (FFIELDS, the functional
 # reference's)
@@ -1269,11 +1285,14 @@ class OpRec:
     rf: dict | None = None          # (D2) the register file before it (FFIELDS, funcref's)
     tgt: int = 0                    # (D2) the transfer's target (RET's: the stack read's, which
                                     # the record leaves 0)
+    string: tuple = (0, 0, 0)       # (E3) a string form: (1, the elements it runs, whether a
+                                    # compare's condition ended it), the walk's (funcref's)
 
     def text(self) -> str:
         return (f"P {self.offset} {self.code.hex()} {self.ea} {self.port} {self.sr} {self.sw} "
                 f"{self.count} {self.taken} {self.target} {self.fmt} {self.tmpl} "
-                + " ".join(str(self.rf[n]) for n, _ in FFIELDS))
+                + " ".join(str(self.rf[n]) for n, _ in FFIELDS)
+                + " " + " ".join(str(v) for v in self.string))
 
 
 @dataclass
@@ -1577,7 +1596,8 @@ class EURecorder:
         ret = op.cls == "ret"
         r = OpRec(op.offset, code, st.ea, st.port, st.sr, st.sw, st.count, int(st.taken),
                   0 if ret else st.target, rtlgen.pack_fmt(key, self.classes), self.sel[key],
-                  rf_of(st.regs), st.target if st.taken else 0)
+                  rf_of(st.regs), st.target if st.taken else 0,
+                  (1, st.string[4], int(st.string[5])) if st.string is not None else (0, 0, 0))
         self.opnds.append(r)
         self.cur = r
         self.ret_pending = ret
@@ -1612,7 +1632,7 @@ def bview(m, t: int) -> tuple:
     the clocks since the last fetch's end (C1's fetch_since), a fetch of 3 clocks."""
     b = m.bus
     cur = b.current if b.busy(t) else None
-    since = 0 if b.fetch_inflight(t) else min(7, t - b.last_fetch_end)
+    since = 0 if b.fetch_inflight(t) else min(15, t - b.last_fetch_end)
     return (KINDS.index(cur.kind) if cur else 0, t - cur.start if cur else 0,
             cur.length if cur else 0, int(b.free(t)), int(b.fetch_inflight(t)),
             int(b.in_wait(t)), int(b.last_fetch_end == t - 1), int(t < m.eu.wlatch_until),
@@ -1814,7 +1834,6 @@ def run_eu_model(chain, cfg, chain_base: int, arb: bool = False):
     from .sim.frozen import eu as feu
     from .sim.frozen import machine as fm
     from .types import refresh_any
-    check_strings(chain)
     phase = None
     if refresh_any(chain):
         if not arb:

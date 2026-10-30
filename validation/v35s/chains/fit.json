@@ -309,7 +309,11 @@
    "rexit": 20,
    "rpre": 5,
    "setup": 9,
-   "zexit": 10
+   "xfetch": 0,
+   "xsplit": 0,
+   "xwb": 0,
+   "zexit": 10,
+   "zfetch": 0
   },
   "str_in": {
    "exec": 4,
@@ -320,7 +324,11 @@
    "rexit": 12,
    "rpre": 5,
    "setup": 9,
-   "zexit": 11
+   "xfetch": 0,
+   "xsplit": 0,
+   "xwb": 0,
+   "zexit": 11,
+   "zfetch": 0
   },
   "str_load": {
    "exec": 2,
@@ -330,7 +338,11 @@
    "rexit": 15,
    "rpre": 6,
    "setup": 9,
-   "zexit": 9
+   "xfetch": 0,
+   "xsplit": 0,
+   "xwb": 0,
+   "zexit": 9,
+   "zfetch": 0
   },
   "str_move": {
    "exec": 4,
@@ -342,7 +354,11 @@
    "rexit": 12,
    "rpre": 5,
    "setup": 9,
-   "zexit": 10
+   "xfetch": 0,
+   "xsplit": 0,
+   "xwb": 0,
+   "zexit": 10,
+   "zfetch": 0
   },
   "str_out": {
    "exec": 3,
@@ -355,7 +371,11 @@
    "rexit": 13,
    "rpre": 5,
    "setup": 10,
-   "zexit": 11
+   "xfetch": 0,
+   "xsplit": 0,
+   "xwb": 0,
+   "zexit": 11,
+   "zfetch": 0
   },
   "str_scan": {
    "cexit": 19,
@@ -369,7 +389,11 @@
    "rexit": 20,
    "rpre": 5,
    "setup": 10,
-   "zexit": 10
+   "xfetch": 0,
+   "xsplit": 0,
+   "xwb": 0,
+   "zexit": 10,
+   "zfetch": 0
   },
   "str_store": {
    "exec": 0,
@@ -379,7 +403,11 @@
    "rexit": 12,
    "rpre": 5,
    "setup": 11,
-   "zexit": 10
+   "xfetch": 0,
+   "xsplit": 0,
+   "xwb": 0,
+   "zexit": 10,
+   "zfetch": 0
   },
   "xlat": {
    "exec": 2,
@@ -471,6 +499,7 @@
  "latch_start": true,
  "late_disp": "all",
  "late_read": true,
+ "lea_disp": "none",
  "lea_form": "reg",
  "lea_io": "recover",
  "lea_room": "ir",
@@ -599,13 +628,20 @@
  "slot_idle": "eu",
  "slot_latch": true,
  "slot_room": "word",
+ "sreg_io": "free",
+ "sreg_store": "store",
  "start_sync": "b2b_modrm",
  "str_count": "dw",
+ "str_exit": "eu",
+ "str_fetch": "room",
  "str_hold": "hold",
  "str_io_latch": "write",
+ "str_io_setup": "nowait",
  "str_last": "all",
  "str_overrun": "read",
  "str_setup": "nowait",
+ "str_split": "none",
+ "str_start": "count",
  "str_take": "sync",
  "sync_io": "issue",
  "sync_req": "disp",
@@ -624,5 +660,6 @@
  "wlatch_src": "write_imm_read",
  "word_latch": "byte_d",
  "write_wait": "mem_end",
- "xfer_abort": "word"
+ "xfer_abort": "word",
+ "xfer_odd": "hold"
 }

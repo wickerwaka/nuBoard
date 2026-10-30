@@ -34,7 +34,7 @@ namespace {
 const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 3};
 const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ps", "ss", "ds0",
                             "ds1", "psw", "pfx"};
-constexpr int NRF = 14, RFW = 211, XW = 86;
+constexpr int NRF = 14, RFW = 211, XW = 151;
 // v35_opnd_t, MSB first: offset code ea port sr sw count taken target fmt tmpl
 const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
 const char* const OPND_N[] = {"offset", "code", "ea", "port", "sr", "sw", "count", "taken",
@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
             // the start
             bool tr = d.s_trap;
             VlWide<7> rf;
-            VlWide<3> x;
+            VlWide<5> x;
             copy_bits(rf, d.s_rf, RFW);
             copy_bits(x, d.s_x, XW);
             bool tgt_v = false;

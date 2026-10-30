@@ -258,15 +258,17 @@ int main(int argc, char** argv) {
         if (!has_row)
             continue;
         // the state bundle: the end of clock t
-        uint64_t s = d.state_dump;
+        const auto& sw_ = d.state_dump;        // (WP75) 65 bits: fetch_since is 4
+        int s_at = 0;
         auto take = [&](int bits) {
-            const long v = long(s & ((uint64_t(1) << bits) - 1));
-            s >>= bits;
+            long v = 0;
+            for (int i = 0; i < bits; ++i, ++s_at)
+                v |= long((sw_[s_at / 32] >> (s_at % 32)) & 1u) << i;
             return v;
         };
         const long valid = take(1), kind = take(3), pos = take(3), len = take(3), ext = take(1),
                    internal = take(1), latch = take(1), addr = take(20), width = take(2),
-                   data = take(16), gap = take(1), fsince = take(3), io_tail = take(3),
+                   data = take(16), gap = take(1), fsince = take(4), io_tail = take(3),
                    wl = take(3), rlen = take(3);
         b.check(b.state_bad, t, "state.valid", r["valid"], valid);
         if (r["valid"] && valid) {
