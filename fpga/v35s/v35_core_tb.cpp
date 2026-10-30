@@ -1,29 +1,32 @@
 // Chain-model core bench (HDL plan, C4; C5: refresh): runs v35_chain_core on a chain and checks it against the
 // frozen model on every model clock. Vectors: validation/v35s/chains/rtl_vectors.py --core, four
-// files of one run: the EU's (V35EU-2: the start state with the register file's presets, the code,
-// the operand record of every instruction start and the register file after its execute, per
-// clock the EU's state after every phase, its queue ops and the arbiter's touches),
+// files of one run: the EU's (V35EU-3: the start state with the register file's presets, the code,
+// (D2) the memory's image, the operand record of every instruction start and the register file
+// before it (the functional reference's, funcref.py), per clock the EU's state after every phase
+// (its functional fields f_ and x_ not compared), its queue ops and the arbiter's touches),
 // the queue's (V35QUEUE-1 with JSLOT ops: the image, the preload, per clock the queue's state
 // after the delivery, after every op of the chain and at the end), the bus unit's (V35BIU-1:
 // per clock the window signals, the delivery and the state bundle) and the arbiter's (V35ARB-2:
 // whether the chain runs the refresh controller and its counter at clock 0, per clock the
 // arbiter's state after X and at the end and the refresh controller's after R and at the end,
-// and the EU cycles' write data in order).
+// and (D2) the EU cycles' data in order, the functional reference's).
 //
 //   Vv35_core_tb EU_VECTORS QUEUE_VECTORS BIU_VECTORS ARB_VECTORS [MUTATE]
 //
 // The core makes every timing decision and (D1) computes every operand record, the register
 // file and the EU's write data: the bench gives it the start state and serves its memory from
-// the image (the code window at code_addr, a fetch's word at its address, the delivered word); per
+// the image (the code window at code_addr, a fetch's word at its address, the delivered word: D2,
+// the aligned word of a memory written by the core's own writes, an I/O read's 0000h); per
 // model clock it clocks the core's settle iterations until `settled`, checks, then ends the
 // clock (`run`). Checks: the EU's state after C, T, L, X, P and the end, its queue ops; the
 // queue's state after C, after every op of the chain and at the end, every read, the chain's ops
 // (the EU's, the arbiter's, the EU's in P) against the model's; the arbiter's touches on the EU,
 // its state after X and at the end; the bus unit's signals and state bundle; the core's and the
 // machines' errors; the refresh controller's state after R, at the end and registered; (D1) each
-// start's operand record and the register file after it, and every EU cycle's datum.
-// MUTATE (1..7) flips one of the arbiter's decisions (v35_arbiter.sv; 5..7 the refresh's), 8..10
-// one of the register file's (v35_eu.sv: an EA mode, a push's SP step, MOV r8,imm8's byte).
+// start's operand record and (D2) the register file before it, and every EU cycle's datum.
+// MUTATE (1..7) flips one of the arbiter's decisions (v35_arbiter.sv; 5..7 the refresh's), 8..13
+// one of the register file's or the ALU's (v35_eu.sv: an EA mode, a push's SP step, MOV r8,imm8's
+// byte; D2: ADD's AC, a write's datum, the BP-based modes' segment).
 //
 // Output: "FAIL ..." for the first failures, "CYC start length kind addr width data" for each
 // cycle the bus unit started, "DCYC t kind addr width" for each data cycle the EU issued, "ITER n
@@ -45,16 +48,20 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 762, QSTATE_W = 180,
+constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 879, QSTATE_W = 180,
               ASTATE_W = 103, RSTATE_W = 24, XOPW = 12;
-constexpr int OPW = 33, QVW = 52, OPNDW = 197, RFW = 180;
-constexpr int K_FETCH = 1;
+constexpr int OPW = 33, QVW = 52, OPNDW = 197, RFW = 211;
+constexpr int K_FETCH = 1, K_READ = 2, K_WRITE = 3, K_IO_READ = 4;
+constexpr int BW_WORD = 0, BW_LO = 1, BW_HI = 2;
+constexpr long SFR_PAGE = 0xFFF00;
+constexpr int IO_WORD = 0x0000;     // (D2) the board's I/O reads (funcref.IO_WORD)
 constexpr int X_ISSUE = 1;
 constexpr int MAX_ITER = 256;
 
 struct Field {
     std::string name;
     int width;
+    bool func = false;      // (D2) a functional field (f_, x_): not in the state comparison
 };
 
 using Vals = std::vector<uint64_t>;
@@ -98,10 +105,10 @@ const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
 const char* const OPND_N[] = {"offset", "code", "ea", "port", "sr", "sw", "count", "taken",
                               "target", "fmt", "tmpl"};
 constexpr int NOPND = 11;
-const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 1, 1, 1, 16, 16, 1};
-const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ds1", "z_v", "z",
-                            "ret_v", "ret_sp", "ret_pc", "pfx"};
-constexpr int NRF = 15;
+const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 3};
+const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ps", "ss", "ds0",
+                            "ds1", "psw", "pfx"};
+constexpr int NRF = 14;
 constexpr int NBV = 10;
 
 template <typename W>
@@ -248,6 +255,8 @@ struct Bench {
         bool bad = false;
         for (size_t k = 0; k < fs.size(); ++k) {
             off += fs[k].width;
+            if (fs[k].func)
+                continue;
             const uint64_t got = get_bits(w, lsb + width - off, fs[k].width);
             if (got != s[k]) {
                 if (!bad)
@@ -276,15 +285,17 @@ int main(int argc, char** argv) {
 
     // ---- the EU's vectors
     std::ifstream in(argv[1]);
-    long nclocks = 0, nq = 0, nxop = 0, nopnd = 0, base = 0;
-    in >> format >> id >> nclocks >> nq >> nxop >> nopnd >> base;
-    if (format != "V35EU-2" || nq != NQ || nxop != NXOP) {
-        std::fprintf(stderr, "not a V35EU-2 vector file for %d ops, %d touches\n", NQ, NXOP);
+    long nclocks = 0, nq = 0, nxop = 0, nopnd = 0, base = 0, org = 0;
+    in >> format >> id >> nclocks >> nq >> nxop >> nopnd >> base >> org;
+    if (format != "V35EU-3" || nq != NQ || nxop != NXOP) {
+        std::fprintf(stderr, "not a V35EU-3 vector file for %d ops, %d touches\n", NQ, NXOP);
         return 2;
     }
     std::getline(in, line);
     std::getline(in, line);
     b.fields = parse_fields(line, width);
+    for (auto& f : b.fields)
+        f.func = f.name.rfind("f_", 0) == 0 || f.name.rfind("x_", 0) == 0;
     if (width != STATE_W) {
         std::fprintf(stderr, "bad field line (%d bits)\n", width);
         return 2;
@@ -312,7 +323,26 @@ int main(int argc, char** argv) {
     std::vector<int> code(chex.size() / 2);
     for (size_t i = 0; i < code.size(); ++i)
         code[i] = std::stoi(chex.substr(2 * i, 2), nullptr, 16);
-    // the model's operand records and the register file after each start's execute
+    // (D2) the memory: 90h but for the functional reference's image runs; the core's writes
+    // go into it, its reads come from it
+    std::vector<uint8_t> memory(1 << 20, 0x90);
+    {
+        long nrun = 0;
+        in >> tag >> nrun;
+        if (tag != "N") {
+            std::fprintf(stderr, "no memory line\n");
+            return 2;
+        }
+        for (long r = 0; r < nrun; ++r) {
+            long a;
+            std::string mh;
+            in >> a >> mh;
+            for (size_t i = 0; i < mh.size() / 2; ++i)
+                memory[(a + long(i)) & 0xFFFFF] = std::stoi(mh.substr(2 * i, 2), nullptr, 16);
+        }
+    }
+    // the operand records and (D2) the register file before each start (the functional
+    // reference's)
     std::vector<Vals> opnds(nopnd), rfs(nopnd);
     for (long i = 0; i < nopnd; ++i) {
         auto& o = opnds[i];
@@ -380,12 +410,12 @@ int main(int argc, char** argv) {
         }
     }
     std::map<long, std::vector<long>> dcyc;     // the model's EU cycles: start -> kind addr width
-    while (in >> tag) {
+    while (in >> tag) {                         // (D2) data: the functional reference's datum
         if (tag != "D")
             break;
-        long s, k, a, w;
-        in >> s >> k >> a >> w;
-        dcyc[s] = {k, a, w};
+        long s, k, a, w, dd;
+        in >> s >> k >> a >> w >> dd;
+        dcyc[s] = {k, a, w, dd};
     }
 
     // ---- the queue's vectors (JSLOT ops)
@@ -504,11 +534,26 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    auto byte_at = [&](long a) {
-        const long k = a - mem_base;
-        return (k >= 0 && k < long(mem.size())) ? mem[k] : 0x90;
-    };
+    for (size_t i = 0; i < mem.size(); ++i)    // the queue's image (within the memory's)
+        memory[(mem_base + long(i)) & 0xFFFFF] = uint8_t(mem[i]);
+    auto byte_at = [&](long a) { return int(memory[a & 0xFFFFF]); };
     auto word_at = [&](long a) { return byte_at(a) | (byte_at(a + 1) << 8); };
+    // (D2) the word the bus delivers: an EU read's the aligned memory word, the I/O word; a
+    // fetch's the queue's (from its address, odd after a transfer to an odd target)
+    auto bus_word = [&](long kind, long a) {
+        return kind == K_IO_READ ? IO_WORD : kind == K_FETCH ? word_at(a) : word_at(a & ~1L);
+    };
+    // (D2) a write the core issued, on its lanes (the on-chip SFR page is not memory)
+    auto store = [&](long a, long w, long v) {
+        if (a >= SFR_PAGE)
+            return;
+        if (w == BW_WORD) {
+            memory[a & 0xFFFFF] = uint8_t(v);
+            memory[(a + 1) & 0xFFFFF] = uint8_t(v >> 8);
+        } else {
+            memory[a & 0xFFFFF] = uint8_t(w == BW_HI ? v >> 8 : v);
+        }
+    };
 
     Verilated::commandArgs(argc, argv);
     auto& d = b.dut;
@@ -526,7 +571,7 @@ int main(int argc, char** argv) {
             fw.push_back(f.width);
         pack(d.init_state, 0, init, fw);
     }
-    d.code_base = base;
+    d.code_org = org;
     d.init_count = q_init_count;
     d.init_data = q_init_data;
     d.init_fetch_addr = q_init_faddr;
@@ -556,7 +601,7 @@ int main(int argc, char** argv) {
         // (latched mid-B3), the fetch's word
         d.eval();
         code_window(d.code_addr);
-        d.data_in = d.done ? word_at(d.done_addr) : 0;
+        d.data_in = d.done ? bus_word(d.done_kind, d.done_addr) : 0;
         b.tick(false, true);
         int iters = 1;
         for (;;) {
@@ -645,9 +690,11 @@ int main(int argc, char** argv) {
                 b.check(b.dcyc_bad, t, "data cycle addr", it->second[1], d.x_cyc_addr);
                 b.check(b.dcyc_bad, t, "data cycle width", it->second[2], d.x_cyc_width);
             }
-            // (D1) its datum: the register file's AW, the model's
-            b.check(b.dcyc_bad, t, "data cycle datum (AW)",
+            // (D2) its datum: the EU's, the functional reference's; a write goes to memory
+            b.check(b.dcyc_bad, t, "data cycle datum",
                     ndcyc < long(edata.size()) ? edata[ndcyc] : -1, d.x_data);
+            if (d.x_cyc_kind == K_WRITE)
+                store(d.x_cyc_addr, d.x_cyc_width, d.x_data);
             std::printf("DCYC %ld %d %d %d\n", t, int(d.x_cyc_kind), int(d.x_cyc_addr),
                         int(d.x_cyc_width));
             ++ndcyc;
@@ -668,7 +715,7 @@ int main(int argc, char** argv) {
         }
         b.check_state(b.q_state_bad, t, "queue end", b.qfields, QSTATE_W, qc.e_state, d.q_e, 0);
 
-        // (D1) the operand record of each start and the register file after its execute
+        // (D1) the operand record of each start and (D2) the register file before it
         for (int j = 0; j < int(d.n_start) && j < 2; ++j) {
             const long i = nstarts + j;
             char where[64];

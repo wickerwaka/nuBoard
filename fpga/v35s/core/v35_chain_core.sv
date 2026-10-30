@@ -24,8 +24,9 @@
 // Inputs besides the configuration: the start state (Machine.__init__'s: the EU's, the register
 // file's presets among it, and the queue's; the prelude's POP PSW read on clock 0,
 // prelude_anchor=pop). (D1) The register file and the EA adder are the EU's (v35_eu.sv): it
-// computes each start's operand record and applies the instruction's register effects; an EU
-// cycle's datum is its AW (the model's). The memory is outside: `code_addr` / `code_win` for the
+// computes each start's operand record and applies the instruction's register effects; (D2) the
+// function is nuV30's: the delivered word reaches the EU (`c_data`, done_data), an EU cycle's
+// datum is the EU's (x_data), the code's base is PS's + code_org. The memory is outside: `code_addr` / `code_win` for the
 // bytes the EU decodes a start from (the model decodes from the image), `fetch_addr` /
 // `fetch_data` for a fetch's word, `data_in` for the delivered word (the bus unit latches it
 // mid-B3).
@@ -47,7 +48,7 @@ module v35_chain_core
     parameter int NXOP = 6,                 // the arbiter's touches on the EU per clock
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
     parameter int JSLOT = 40,               // the queue's op stages (T, L, X and P ops)
-    parameter int STATE_W = 762,            // v35_eu.sv
+    parameter int STATE_W = 879,            // v35_eu.sv
     parameter int QSTATE_W = 180,           // v35_queue.sv
     parameter int ASTATE_W = 103,           // v35_arbiter.sv
     parameter int RSTATE_W = 24             // v35_refresh.sv
@@ -59,7 +60,7 @@ module v35_chain_core
 
     // the start (Machine.__init__): the EU's state at the end of clock -1, the queue's preload
     input  wire [STATE_W-1:0] init_state,
-    input  wire [19:0] code_base,
+    input  wire [15:0] code_org,            // (D2) the IP of the code's offset 0 (PS: its base)
     input  wire [3:0]  init_count,
     input  wire [63:0] init_data,
     input  wire [19:0] init_fetch_addr,
@@ -101,11 +102,11 @@ module v35_chain_core
     ,
     input  wire [3:0]  mutate,              // the mutation tests (1..7 the arbiter's, 8..10 the EU's)
     // (D1) the operand record of the clock's first and second start and the register file
-    // after each one's execute; the EU cycle's datum (AW)
+    // before each one's execute; (D2) the EU cycle's datum (the EU's)
     output wire [196:0] opr_a,
     output wire [196:0] opr_b,
-    output wire [179:0] rfx_a,
-    output wire [179:0] rfx_b,
+    output wire [210:0] rfx_a,
+    output wire [210:0] rfx_b,
     output wire [15:0] x_data,
     // B3: every machine's state after every phase (the EU's, the queue's after each op stage,
     // the arbiter's after X and at the end), the registered ones, the clock's ops and cycle
@@ -288,9 +289,10 @@ module v35_chain_core
     wire        c_eu = done && eu_owner && !first;
     wire        c_read = c_eu && (done_kind == V35_K_READ || done_kind == V35_K_IO_READ);
     wire [4:0]  a_early_t, a_early_p;
-    wire [15:0] eu_aw;                      // (D1) the register file's AW at phase X
+    wire [15:0] eu_xd;                      // (D2) the EU cycle's datum (the EU's, at phase X)
     v35_eu #(.NQ(NQ), .NXOP(NXOP), .STATE_W(STATE_W)) eu (
-        .clock, .reset_n, .ce(commit), .init_state, .code_base, .refresh_on, .c_eu, .c_read,
+        .clock, .reset_n, .ce(commit), .init_state, .code_org, .refresh_on, .c_eu, .c_read,
+        .c_data(done_data),
         .fetch_done(q_fetch_done), .bus_t, .bus_p(v35_bview_t'(sr.bus_p)),
         .early_t(a_early_t), .early_p(sr.early_p), .code_addr, .code_win,
         .qv_tl(sr.qv_tl), .rd_tl(sr.rd_tl), .qv_p(sr.qv_p), .rd_p(sr.rd_p),
@@ -300,7 +302,7 @@ module v35_chain_core
         .wl_fill_t, .wl_fill_x, .wl_fill_p, .x_cyc(e_x_cyc), .x_cyc_kind(e_x_cyc_kind),
         .x_cyc_addr(e_x_cyc_addr), .x_cyc_width(e_x_cyc_width), .qsnap_c, .qsnap_e, .e_io, .e_out,
         .error(eu_error), .err_code(eu_err), .state_l(eu_state_l), .state_e(eu_state_e),
-        .fresh_l, .fresh_p, .aw_x(eu_aw)
+        .fresh_l, .fresh_p, .x_data(eu_xd)
 `ifdef V35S_STATE_DUMP
         , .mutate, .opr_a, .opr_b, .rfx_a, .rfx_b
         , .state_c(eu_c), .state_t(eu_t), .state_x(eu_x), .state_p(eu_p), .state_dump(eu_dump)
@@ -455,7 +457,7 @@ module v35_chain_core
     assign b_req_addr = first ? V35_PRELUDE_POP_ADDR : a_req_fetch ? q_fetch_issue_addr : a_req_addr;
     assign b_req_width = first ? V35_BW_WORD : a_req_width;
     assign b_req_data = first ? V35_PRELUDE_PSW : a_req_fetch ? fetch_data
-                        : a_req_eu ? eu_aw : 16'd0;     // (D1) AW; a refresh: no datum
+                        : a_req_eu ? eu_xd : 16'd0;     // (D2) the EU's; a refresh: none
     assign b_req_ext = !first && a_req_ext;
     assign b_req_latch = !first && a_req_latch;  // the POP PSW read's datum: no latch (C1, 7)
     assign fetch_addr = q_fetch_issue_addr;
@@ -521,6 +523,6 @@ module v35_chain_core
     assign b_busy_x = busy_x;
     assign b_free_x = free_x;
     assign b_wl_x = wlatch_busy_x;
-    assign x_data = eu_aw;
+    assign x_data = eu_xd;
 `endif
 endmodule

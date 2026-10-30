@@ -447,6 +447,57 @@ every ALU form, real read data into the registers and real write data per
 form, signed MUL/DIV and the divide traps, the segment registers. Still
 scripted: the code window, the fetch words and the delivered words (memory).
 
+**D2 done 2026-10-30 (WP71):** the EU computes. `v35_eu_pkg` gains the ALU
+(`v35_alu`, `v35_shift`, `v35_mul`, `v35_div`, `v35_szp`, `v35_cond`) with
+nuV30's semantics, the undefined-flag notes included, and the full V35 PSW
+in the register file (`v35_rf_t` 211 bits: the eight registers, PS SS DS0
+DS1, PSW, a 3-bit prefix; initialised to F002h, the POP PSW keeping bits
+15–12); every memory read's datum reaches the register file or the ALU at
+its delivery (`v35_deliver`, the new `v35_fx_t` in flight, 86 bits), every
+write's datum is the form's own (`v35_wdata`: the source register, the ALU
+result, the immediate, the segment register, CALL's real return address
+`code_org` + pc + 3); real segment arithmetic (segment base + offset for
+data, SS for the BP modes and the stack, the prefix's segment, PS's base +
+`code_org` for code; the frozen "DS1 store becomes linear only at or above
+the SFR page" rule is replaced and gives the same address on all 635,078
+starts); RET's target from the stack read, so the held return entry is
+gone; `eu_decode` accepts all sixteen Bcond; the divide error is `V35_EE_DIV`
+and a form whose function is not built `V35_EE_FUNC` (F6/F7 /1, FF /2–/5 and
+/7, the register forms of F6/F7 /2 /3, FF, 8F, C6/C7, 8F /1–7, MOV PS,
+PREPARE with a level). The checking reference is new: `funcref.py` executes
+the chain's instruction stream with real data (the image written by the
+chain's own stores, the prelude's push, I/O reads 0000h as the board
+answers) and asserts on every start that every quantity the timing depends
+on equals the frozen `execute`'s; over the whole corpus 635,078 starts agree,
+and every data cycle's datum matches the silicon record's on its lanes
+(91,980 of 91,980: an odd byte on D15–8, an odd word as two byte cycles, the
+low byte on the first's high lane). The benches compare the RTL's register
+file before every start, every EU cycle's datum and the final state against
+funcref. SingleStepTests (the V20 `v1_native` suite at revision 6b3748f9,
+fetched by `tools/fetch_sst_v20.py` into build/deps/sst-v20/, run by
+`sst.py`): funcref 1,693,875 pass, 0 fail; the RTL through the rf bench
+1,651,237 pass, 0 fail, the rest counted apart as expected differences (the
+divide traps, 24,387, every trap condition agreeing; the `V35_EE_FUNC` forms,
+92,647; the on-chip page FFE00–FFFFF, 448; a REP prefix on a non-string
+form, 1,340; PREPARE with a level, 1,941). Gates (the overseer's re-run,
+scratchpad wp71r/, over 33 lists with F30 and F31): 24,542 of 26,234 runs
+exact against the model and 1,692 not modelled (string forms), model-exact
+23,389 = RTL-exact, the 31 earlier lists as before (23,678, 846, 22,837);
+funcref over the 33 lists 679,829 starts agreeing and 99,834 data cycles
+matching silicon; C1–C5 unchanged; `--regfile` 58,508 vectors (walk 26,164,
+random 16,968, modes 912, alu 14,464), 0 bad; mutations 8–13 caught (an ALU flag, a write datum,
+a BP-mode segment among them); 587 tests OK. State: `v35_st_t` {d, e, f, x,
+r} 879 bits, the arbiter's `ESTATE_W` following; the core's `code_base`
+input becomes `code_org`. Twenty decisions in the spec ("D2, the EU
+computes"); among them the state rows leave the `f_*`/`x_*` fields out of the
+per-phase comparison (the RTL updates them at the delivery, not at the
+model's start), OUT's datum is AW at the issue, the SFR store drives its
+immediate, V20 behaviours adopted where the suite decides (C6/C7 ignore
+reg, 8C/8E use reg & 3, shift /6 is SHL), POP R reads SP's slot (the V35
+does, the V20 does not). Still scripted: the code window, the memory image
+(the bench's array, updated by the RTL's writes), the I/O read value and the
+initial register file. Not built: the trap sequence, the string forms (E3).
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
@@ -462,8 +513,11 @@ sequencer in place of a cost table.
   `v35_iram.sv` with the data RAM is decided with the SFR block (D3).
 - ALU and flags from nuV30 (`instructions.json`, flag notes), driven by the
   sequencer's `alu`/`exec` steps; the SingleStepTests adapter of the core
-  plan runs through the replay harness.
-- Segment arithmetic, the IDA routing and the SFR block for WTC, RFM, PRC.
+  plan runs through the replay harness. Done 2026-10-30 (D2 above): the
+  adapter runs through the rf bench as a function-only check, not the
+  replay harness.
+- Segment arithmetic (done with D2), the IDA routing and the SFR block for
+  WTC, RFM, PRC (D3, with the reset and the prelude of C6).
 - **Gate:** the chain corpus unchanged (Phase C's gate holds), the directed
   programs (`smoke`, `clocks`, `alu`) match on the board with `--mode both`.
 

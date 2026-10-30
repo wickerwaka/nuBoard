@@ -12,7 +12,7 @@ module v35_core_tb #(
     parameter int NXOP = 6,
     parameter int NXQ = 8,
     parameter int JSLOT = 40,
-    parameter int STATE_W = 762,
+    parameter int STATE_W = 879,
     parameter int QSTATE_W = 180,
     parameter int ASTATE_W = 103,
     parameter int RSTATE_W = 24
@@ -24,7 +24,7 @@ module v35_core_tb #(
 
     // the start (Machine.__init__): the EU's state at the end of clock -1, the queue's preload
     input  wire [STATE_W-1:0] init_state,
-    input  wire [19:0] code_base,
+    input  wire [15:0] code_org,            // (D2) the IP of the code's offset 0
     input  wire [3:0]  init_count,
     input  wire [63:0] init_data,
     input  wire [19:0] init_fetch_addr,
@@ -65,11 +65,11 @@ module v35_core_tb #(
     ,
     input  wire [3:0]  mutate,              // the mutation tests (1..7 the arbiter's, 8..10 the EU's)
     // (D1) the operand record of the clock's first and second start and the register file
-    // after each one's execute; the EU cycle's datum (AW)
+    // before each one's execute; (D2) the EU cycle's datum (the EU's)
     output wire [196:0] opr_a,
     output wire [196:0] opr_b,
-    output wire [179:0] rfx_a,
-    output wire [179:0] rfx_b,
+    output wire [210:0] rfx_a,
+    output wire [210:0] rfx_b,
     output wire [15:0] x_data,
     // B3: every machine's state after every phase (the EU's, the queue's after each op stage,
     // the arbiter's after X and at the end), the registered ones, the clock's ops and cycle

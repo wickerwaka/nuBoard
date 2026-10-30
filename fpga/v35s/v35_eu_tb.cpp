@@ -1,10 +1,15 @@
 // Decoder and EU bench (HDL plan, C3): feeds v35_eu the frozen model's EU vectors and checks
-// every model clock. Vectors: validation/v35s/chains/rtl_vectors.py (V35EU-2: the state at
-// the end of clock -1 with the register file's presets, the code, the operand record of every
-// instruction start and the register file after its execute (D1: the EU computes both, the
-// bench compares at every start; the code window at code_addr is served from the code), and per model clock
-// the delivery, the bus unit's views, the queue's state before each of the EU's ops and their
-// reads, the arbiter's touches, and the state after each phase).
+// every model clock. Vectors: validation/v35s/chains/rtl_vectors.py (V35EU-3: the state at
+// the end of clock -1 with the register file's presets, the code, (D2) the memory's image, the
+// operand record of every instruction start and the register file before it (D1: the EU
+// computes both, the bench compares at every start; the code window at code_addr is served from
+// the code; D2: the register file is the functional reference's, funcref.py), and per model
+// clock the delivery, the bus unit's views, the queue's state before each of the EU's ops and
+// their reads, the arbiter's touches, and the state after each phase (its functional fields f_
+// and x_ not compared: the register file changes where the RTL applies the data), then the
+// EU's cycles with the reference's datum, checked against the EU's at each issue. (D2) The
+// bench's memory is the image written by the EU's own writes; a read delivers its aligned word
+// (alone: to the EU's c_data; joint: into the bus unit), an I/O read 0000h.
 //
 //   Vv35_eu_tb EU_VECTORS                         the EU alone (--eu)
 //   Vv35_eu_tb EU_VECTORS QUEUE_VECTORS BIU_VECTORS   with the RTL queue and bus unit (--joint3)
@@ -39,15 +44,19 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 762, QSTATE_W = 180;
-constexpr int OPW = 33, QVW = 52, BVW = 18, NBV = 10, OPNDW = 197, RFW = 180;
-constexpr int K_FETCH = 1, K_READ = 2, K_IO_READ = 4, K_REFRESH = 6;
+constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 879, QSTATE_W = 180;
+constexpr int OPW = 33, QVW = 52, BVW = 18, NBV = 10, OPNDW = 197, RFW = 211;
+constexpr int K_FETCH = 1, K_READ = 2, K_WRITE = 3, K_IO_READ = 4, K_REFRESH = 6;
+constexpr int BW_WORD = 0, BW_HI = 2;
+constexpr long SFR_PAGE = 0xFFF00;
+constexpr int IO_WORD = 0x0000;     // (D2) the board's I/O reads (funcref.IO_WORD)
 constexpr int OP_WANT = 16, OP_ISSUE = 23;
 constexpr int X_ISSUE = 1, X_NOWRITE = 2;
 
 struct Field {
     std::string name;
     int width;
+    bool func = false;      // (D2) a functional field (f_, x_): not in the state comparison
 };
 
 using Vals = std::vector<uint64_t>;
@@ -74,7 +83,7 @@ struct Clock {
 
 struct OpRec {
     Vals v;                 // offset, code (48 bits), ea, port, sr, sw, count, taken, target, fmt, tmpl
-    Vals rf;                // (D1) the register file after its execute (v35_rf_t)
+    Vals rf;                // (D2) the register file before the start (v35_rf_t)
 };
 
 // (D1) the operand record (v35_opnd_t, MSB first) and the register file (v35_rf_t)
@@ -82,10 +91,10 @@ const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
 const char* const OPND_N[] = {"offset", "code", "ea", "port", "sr", "sw", "count", "taken",
                               "target", "fmt", "tmpl"};
 constexpr int NOPND = 11;
-const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 1, 1, 1, 16, 16, 1};
-const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ds1", "z_v", "z",
-                            "ret_v", "ret_sp", "ret_pc", "pfx"};
-constexpr int NRF = 15;
+const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 3};
+const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ps", "ss", "ds0",
+                            "ds1", "psw", "pfx"};
+constexpr int NRF = 14;
 const int BV_W[] = {3, 3, 3, 1, 1, 1, 1, 1, 3, 1};
 
 template <typename W>
@@ -201,6 +210,8 @@ struct Bench {
         bool bad = false;
         for (size_t k = 0; k < fs.size(); ++k) {
             off += fs[k].width;
+            if (fs[k].func)
+                continue;
             const uint64_t got = get_bits(w, lsb + width - off, fs[k].width);
             if (got != s[k]) {
                 if (!bad)
@@ -276,16 +287,18 @@ int main(int argc, char** argv) {
     Bench b;
     std::ifstream in(argv[1]);
     std::string format, id, line;
-    long nclocks = 0, nq = 0, nxop = 0, nopnd = 0, base = 0;
-    in >> format >> id >> nclocks >> nq >> nxop >> nopnd >> base;
-    if (format != "V35EU-2" || nq != NQ || nxop != NXOP) {
-        std::fprintf(stderr, "not a V35EU-2 vector file for %d ops, %d touches\n", NQ, NXOP);
+    long nclocks = 0, nq = 0, nxop = 0, nopnd = 0, base = 0, org = 0;
+    in >> format >> id >> nclocks >> nq >> nxop >> nopnd >> base >> org;
+    if (format != "V35EU-3" || nq != NQ || nxop != NXOP) {
+        std::fprintf(stderr, "not a V35EU-3 vector file for %d ops, %d touches\n", NQ, NXOP);
         return 2;
     }
     std::getline(in, line);
     std::getline(in, line);
     int width = 0;
     b.fields = parse_fields(line, width);
+    for (auto& f : b.fields)
+        f.func = f.name.rfind("f_", 0) == 0 || f.name.rfind("x_", 0) == 0;
     if (width != STATE_W) {
         std::fprintf(stderr, "bad field line (%d bits)\n", width);
         return 2;
@@ -316,6 +329,23 @@ int main(int argc, char** argv) {
         code.resize(chex.size() / 2);
         for (size_t i = 0; i < code.size(); ++i)
             code[i] = std::stoi(chex.substr(2 * i, 2), nullptr, 16);
+    }
+    // (D2) the memory: 90h but for the functional reference's image runs; the EU's writes go
+    // into it, its reads come from it
+    std::vector<uint8_t> memory(1 << 20, 0x90);
+    {
+        std::string tag, mh;
+        long nrun = 0, a = 0;
+        in >> tag >> nrun;
+        if (tag != "N") {
+            std::fprintf(stderr, "no memory line\n");
+            return 2;
+        }
+        for (long r = 0; r < nrun; ++r) {
+            in >> a >> mh;
+            for (size_t i = 0; i < mh.size() / 2; ++i)
+                memory[(a + long(i)) & 0xFFFFF] = std::stoi(mh.substr(2 * i, 2), nullptr, 16);
+        }
     }
     std::vector<OpRec> opnds(nopnd);
     for (auto& o : opnds) {
@@ -386,16 +416,16 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    // the model's EU cycles: start -> (kind, addr, width)
+    // the model's EU cycles: start -> (kind, addr, width, (D2) the functional reference's datum)
     std::map<long, std::vector<long>> dcyc;
     {
         std::string tag;
         while (in >> tag) {
             if (tag != "D")
                 break;
-            long s, k, a, w;
-            in >> s >> k >> a >> w;
-            dcyc[s] = {k, a, w};
+            long s, k, a, w, dd;
+            in >> s >> k >> a >> w >> dd;
+            dcyc[s] = {k, a, w, dd};
         }
     }
 
@@ -476,11 +506,28 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    auto byte_at = [&](long a) {
-        const long k = a - mem_base;
-        return (k >= 0 && k < long(mem.size())) ? mem[k] : 0x90;
-    };
+    for (size_t i = 0; i < mem.size(); ++i)    // the queue's image (within the memory's)
+        memory[(mem_base + long(i)) & 0xFFFFF] = uint8_t(mem[i]);
+    auto byte_at = [&](long a) { return int(memory[a & 0xFFFFF]); };
     auto word_at = [&](long a) { return byte_at(a) | (byte_at(a + 1) << 8); };
+    // (D2) the word the bus delivers: an EU read's the aligned memory word, the I/O word; a
+    // fetch's the queue's (from its address, odd after a transfer to an odd target)
+    auto bus_word = [&](long kind, long a) {
+        return kind == K_IO_READ ? IO_WORD : kind == K_FETCH ? word_at(a) : word_at(a & ~1L);
+    };
+    // (D2) a write the EU issued, on its lanes (the on-chip SFR page is not memory)
+    auto store = [&](long a, long w, long v) {
+        if (a >= SFR_PAGE)
+            return;
+        if (w == BW_WORD) {
+            memory[a & 0xFFFFF] = uint8_t(v);
+            memory[(a + 1) & 0xFFFFF] = uint8_t(v >> 8);
+        } else {
+            memory[a & 0xFFFFF] = uint8_t(w == BW_HI ? v >> 8 : v);
+        }
+    };
+    std::vector<std::pair<long, long>> eu_cycles;   // (D2) alone: the EU's cycles on the bus
+    size_t eu_next = 0;
 
     Verilated::commandArgs(argc, argv);
     auto& d = b.dut;
@@ -500,7 +547,7 @@ int main(int argc, char** argv) {
     };
     d.mutate = 0;
     d.q_joint = joint;
-    d.code_base = base;
+    d.code_org = org;
     d.init_count = q_init_count;
     d.init_data = q_init_data;
     d.init_fetch_addr = q_init_faddr;
@@ -539,6 +586,12 @@ int main(int argc, char** argv) {
         if (!joint) {
             d.c_eu = c.c_eu;
             d.c_read = c.c_read;
+            d.c_data_in = 0;
+            if (c.c_eu && eu_next < eu_cycles.size()) {   // (D2) the delivered word
+                const auto& ec = eu_cycles[eu_next++];
+                if (c.c_read)
+                    d.c_data_in = bus_word(ec.first, ec.second);
+            }
             d.fetch_done = c.fetch_done;
             {
                 Vals v(c.bus_t.begin(), c.bus_t.end());
@@ -594,15 +647,16 @@ int main(int argc, char** argv) {
             d.req_latch = col("latch");
             d.rfm_load = col("rfm_load");
             d.rfm_value = col("rfm_value");
-            d.data_gate = eu_issue;             // (D1) its datum the EU's AW
+            d.data_gate = eu_issue;             // (D2) its datum the EU's (x_data)
             d.fetch_gate = 0;
             // the EU's read deliveries: the bus unit's delivery of the EU's own cycle
             d.eval();
             const bool deliver = d.done != 0;
             d.c_eu = deliver && eu_cycle_on && eu_cycle_end == t - 1;
             d.c_read = d.c_eu && (d.done_kind == K_READ || d.done_kind == K_IO_READ);
-            d.data_in = (d.done && d.done_kind == K_FETCH) ? word_at(d.done_addr)
-                                                           : col("data_in");
+            // (D2) a fetch's and the EU's read's word from the memory, the rest scripted
+            d.data_in = (d.done && (d.done_kind == K_FETCH || d.c_read)) ?
+                        bus_word(d.done_kind, d.done_addr) : col("data_in");
             // settle: the EU's ops into the queue's chain, the queue's states back
             uint64_t last_sig = ~uint64_t(0);
             bool settled = false;
@@ -767,6 +821,12 @@ int main(int argc, char** argv) {
                 b.check(b.dcyc_bad, t, "data cycle addr", it->second[1], d.x_cyc_addr);
                 b.check(b.dcyc_bad, t, "data cycle width", it->second[2], d.x_cyc_width);
             }
+            // (D2) its datum: the EU's, the functional reference's; a write goes to memory
+            if (it != dcyc.end())
+                b.check(b.dcyc_bad, t, "data cycle datum", it->second[3], d.x_data);
+            if (d.x_cyc_kind == K_WRITE)
+                store(d.x_cyc_addr, d.x_cyc_width, d.x_data);
+            eu_cycles.push_back({d.x_cyc_kind, d.x_cyc_addr});
             std::printf("DCYC %ld %d %d %d\n", t, int(d.x_cyc_kind), int(d.x_cyc_addr),
                         int(d.x_cyc_width));
             break;
@@ -787,7 +847,7 @@ int main(int argc, char** argv) {
             b.check_state(b.q_state_bad, t, "queue end", b.qfields, QSTATE_W, qc->e_state,
                           d.q_state_e, 0);
         }
-        // (D1) the operand record of each start and the register file after its execute
+        // (D1) the operand record of each start and (D2) the register file before it
         for (int j = 0; j < int(d.n_start) && j < 2; ++j) {
             const long i = nstarts + j;
             char where[64];

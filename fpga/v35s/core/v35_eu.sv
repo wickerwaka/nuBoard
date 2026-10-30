@@ -30,18 +30,25 @@
 // instruction's bytes (eu_decode, templates.decode) and selects the template (v35_tmpl_sel).
 // The data latch is the bus unit's (C1): `bus_*.wl` reads it, `wl_fill_*` fills it.
 //
-// (D1) The register file is the EU's (eu.regs; v35_st_t's `f`, v35_rf_t): its word registers,
-// DS1, PSW's Z, a CALL's return address and the DS1 prefix ahead of the instruction, loaded
-// with the chain's presets through `init_state`. At a start (_start) the EU decodes the
-// instruction at pc from the code window (`code_win`, the twelve bytes at `code_addr`: the
-// model decodes from the image, C3 decision 1), computes its operand record from the register
-// file (v35_operands: the effective address of the 24 ModR/M memory modes, the direct and
-// XLAT forms and the DS1 SFR store; the port, DW or the byte; the stack addresses from SP or
-// BP; the shift count, CL or the byte; a transfer's decision from CW or Z and its target)
-// and then applies the instruction's register effects (v35_execute, templates.execute), so a
-// second start in the clock reads them. `aw_x` is AW at phase X: the model's datum of every
-// EU cycle (bus.start's regs["AW"]). `opr_*`/`rfx_*` (bench only) are each start's record
-// and the register file after it.
+// (D1) The register file is the EU's (v35_st_t's `f`, v35_rf_t), loaded with the chain's
+// presets through `init_state`. At a start (_start) the EU decodes the instruction at pc from
+// the code window (`code_win`, the twelve bytes at `code_addr`: the model decodes from the
+// image, C3 decision 1), computes its operand record from the register file (v35_operands: the
+// effective address of the 24 ModR/M memory modes, the direct and XLAT forms; the port, DW or
+// the byte; the stack offsets from SP or BP; the shift count, CL or the byte; a transfer's
+// decision and its target) and applies the instruction's start effects (v35_execute), so a
+// second start in the clock reads them. `opr_*`/`rfx_*` (bench only) are each start's record
+// and the register file before it.
+// (D2) The function is nuV30's (validation/v35s/chains/funcref.py the reference): the register
+// file holds the word, segment and PSW registers (the V35's layout) and the segment prefix
+// ahead of the instruction; addresses are the segment's base + the offset (DS0, SS for the
+// BP-based modes and the stack, a prefix's; the code PS's + code_org + pc). The instruction's
+// function is split where the template consumes its data: the start (the register forms: the
+// ALU, the shifter, the multiplier and divider, moves and exchanges; the stack pointer; the
+// write datum the start knows, into the context `x`, v35_fx_t), each read's delivery (phase
+// C: the bus word `c_data` into x.md and, on the request's last cycle, the read's effects:
+// v35_deliver, RET's target into tgt) and each write's issue (phase X: `x_data`, v35_wdata).
+// A form whose function is not built raises V35_EE_FUNC, a divide error V35_EE_DIV.
 //
 // (C5) With refresh on (`refresh_on`: the chain runs the refresh controller) the EU runs the
 // refresh templates (refresh_hold_steps' tags) and refresh_eu=hold: the micro-boundary map
@@ -52,8 +59,8 @@
 // the refresh's touches from the arbiter (V35_XOP_REFRESH, _SETUP, _BEAT, _HALT_DEFER: what
 // EU.refresh_cost and refresh_post's give-back write). eu.sfr is the RFM store's value.
 // Not built (dead under the fit or another phase's): since_start, since_t, io_pre, stalled,
-// trace, origin, reg_latch_t (wlatch_ir=False), ro, seg_prefix (D1: only its DS1 test, the
-// register file's `pfx`), ls_shift (refresh_align=prelude), started (always True under
+// trace, origin, reg_latch_t (wlatch_ir=False), ro, seg_prefix (the register file's `pfx`),
+// ls_shift (refresh_align=prelude), started (always True under
 // prelude_tail=segs), refresh_beat (refresh_cost's argument: the arbiter's).
 // The EU's state types (v35_eus_t, the request record v35_req_t, the bundle v35_st_t), a
 // package so that the arbiter (C4) reads the state the module exports after phase L and at
@@ -186,12 +193,13 @@ package v35_eu_pkg;
         logic [2:0]  beat_ext;      // (C5) refresh_post=post_beat: the hold's clocks
     } v35_req_t;
 
-    // ---- (D1) the register file: templates.execute's regs (eu.regs) and eu.seg_prefix's DS1
-    // test (rtl_vectors.FFIELDS, MSB first). The word registers in REG16 order (v35_rf_get's
-    // index: the ModR/M reg / rm field, B8+r); the one segment register the model reads (DS1:
-    // the SFR store's linear address; DS0 = SS = 0 make every other offset linear, PS is the
-    // queue's code base); PSW's Z (regs["Z"], set by CMP r16,r16, None before); one return
-    // address (regs["retSSSS"], CALL's, read by RET); the DS1 prefix ahead of the instruction.
+    // ---- (D2) the register file (rtl_vectors.FFIELDS, MSB first): the word registers in
+    // REG16 order (v35_rf_get's index: the ModR/M reg / rm field, B8+r), the segment registers
+    // (v35_sreg_get's index is the sreg field: 0 DS1, 1 PS, 2 SS, 3 DS0), the PSW in the V35's
+    // layout (15 MD, 14-12 RB, 11 V, 10 DIR, 9 IE, 8 BRK, 7 S, 6 Z, 5 F1, 4 AC, 3 F0, 2 P,
+    // 1 BRKI, 0 CY; the ALU writes CY P AC Z S V only) and the segment prefix the next
+    // instruction carries (bit 2: one is; 1-0 its sreg). Preset from the chain's registers
+    // (the EU's presets, PS the code segment, the PSW after the prelude's POP PSW: F002h).
     typedef struct packed {
         logic [15:0] aw;
         logic [15:0] cw;
@@ -201,19 +209,31 @@ package v35_eu_pkg;
         logic [15:0] bp;
         logic [15:0] ix;
         logic [15:0] iy;
+        logic [15:0] ps;
+        logic [15:0] ss;
+        logic [15:0] ds0;
         logic [15:0] ds1;
-        logic        z_v;           // Z is known ...
-        logic        z;             // ... and its value
-        logic        ret_v;         // a CALL's return address is held ...
-        logic [15:0] ret_sp;        // ... at this SP ...
-        logic [15:0] ret_pc;        // ... the code offset
-        logic        pfx;           // the instruction before was the DS1 prefix (26h)
+        logic [15:0] psw;
+        logic [2:0]  pfx;
     } v35_rf_t;
+
+    // ---- (D2) the running instruction's functional context (rtl_vectors.XFIELDS): set at its
+    // start (v35_execute), the read data in at each delivery (v35_deliver), the write data out
+    // at each issue (v35_wdata)
+    typedef struct packed {
+        logic [47:0] code;          // its bytes, the opcode in [47:40]
+        logic [15:0] wd;            // the write datum: a store's, a push's, CALL's return
+                                    // address, PREPARE's BP, XCH's register, an RMW's result
+        logic [15:0] md;            // the read datum (an odd word's low byte first)
+        logic [2:0]  rk;            // reads done (POP R's word)
+        logic [2:0]  wk;            // memory writes issued (PUSH R's word)
+    } v35_fx_t;
 
     typedef struct packed {
         v35_dec_t           d;
         v35_eus_t           e;
         v35_rf_t            f;      // (D1) the register file
+        v35_fx_t            x;      // (D2) the instruction's functional context
         v35_req_t [2:0]     r;      // r[0] the slot, r[1] and r[2] queued behind it
     } v35_st_t;
 
@@ -529,7 +549,7 @@ package v35_eu_pkg;
         end else if (o >= 8'hEC && o <= 8'hEF) begin
             op.cls = 6'(o < 8'hEE ? V35_CLS_IN : V35_CLS_OUT);
             op.width = 2'd1 + {1'b0, o[0]};
-        end else if (o == 8'h74 || o == 8'h75 || o == 8'hEB || o == 8'hE2) begin
+        end else if (o[7:4] == 4'h7 || o == 8'hEB || o == 8'hE2) begin   // (D2) 70-7F
             op.cls = 6'(o == 8'hE2 ? V35_CLS_DBNZ : V35_CLS_BRANCH_SHORT);
             op.length = 3'd2; op.cond = o >= 8'h70 && o <= 8'h7F;
         end else if (o == 8'hE9) begin
@@ -668,10 +688,18 @@ package v35_eu_pkg;
         eu_decode = op;
     endfunction
 
-    // ------------------------------------------------ (D1) the register file and the EA adder
-    // templates.decode's operands and templates.execute's register effects, from the register
-    // file (v35_rf_t) and the instruction's bytes. `mut` is the bench's mutation (0: none;
-    // 8: [BW+IX] without IX, 9: a push's SP step 4, 10: MOV r8,imm8 into the other half).
+    // ------------------------------------------------ (D1, D2) the register file, the EA adder
+    // and the ALU: templates.decode's operands, then the instruction's function with nuV30's
+    // semantics (validation/v35s/chains/funcref.py is the reference: instructions.json and
+    // undefined_flags.md's laws), split at the points the template consumes data: the start
+    // (v35_execute: the register forms, the stack pointer, the write data known there), each
+    // read's delivery (v35_deliver: the datum into md, the read's effects on the request's last
+    // cycle), each write's issue (v35_wdata). `mut` is the bench's mutation (0: none; 8: [BW+IX]
+    // without IX, 9: a push's SP step 4, 10: MOV r8,imm8 into the other half; 11: ADD's AC
+    // inverted, 12: a memory write's datum with bit 0 flipped, 13: the BP-based modes in DS0).
+
+    localparam int V35_PSW_CY = 0, V35_PSW_P = 2, V35_PSW_AC = 4, V35_PSW_Z = 6,
+                   V35_PSW_S = 7, V35_PSW_DIR = 10, V35_PSW_V = 11;
 
     // REG16[i]
     function automatic logic [15:0] v35_rf_get(input v35_rf_t f, input logic [2:0] i);
@@ -704,7 +732,13 @@ package v35_eu_pkg;
         v35_rf_set = f;
     endfunction
 
-    // _set8: REG8[k], the low (k < 4) or high byte of REG16[k & 3]
+    // REG8[k]: the low (k < 4) or high byte of REG16[k & 3]
+    function automatic logic [7:0] v35_rf_get8(input v35_rf_t f, input logic [2:0] k);
+        logic [15:0] w;
+        w = v35_rf_get(f, {1'b0, k[1:0]});
+        v35_rf_get8 = k[2] ? w[15:8] : w[7:0];
+    endfunction
+
     function automatic v35_rf_t v35_rf_set8(input v35_rf_t f, input logic [2:0] k,
                                             input logic [7:0] v);
         logic [15:0] w;
@@ -716,70 +750,406 @@ package v35_eu_pkg;
         v35_rf_set8 = v35_rf_set(f, {1'b0, k[1:0]}, w);
     endfunction
 
+    // a register operand of width w (1: word): REG16[k] or REG8[k] in the low byte
+    function automatic logic [15:0] v35_reg(input v35_rf_t f, input logic [2:0] k, input logic w);
+        v35_reg = w ? v35_rf_get(f, k) : {8'd0, v35_rf_get8(f, k)};
+    endfunction
+
+    function automatic v35_rf_t v35_set_reg(input v35_rf_t f, input logic [2:0] k,
+                                            input logic w, input logic [15:0] v);
+        v35_set_reg = w ? v35_rf_set(f, k, v) : v35_rf_set8(f, k, v[7:0]);
+    endfunction
+
+    // the segment registers by the sreg field (0 DS1, 1 PS, 2 SS, 3 DS0)
+    function automatic logic [15:0] v35_sreg_get(input v35_rf_t f, input logic [1:0] i);
+        case (i)
+            2'd0: v35_sreg_get = f.ds1;
+            2'd1: v35_sreg_get = f.ps;
+            2'd2: v35_sreg_get = f.ss;
+            default: v35_sreg_get = f.ds0;
+        endcase
+    endfunction
+
+    function automatic v35_rf_t v35_sreg_set(input v35_rf_t f0, input logic [1:0] i,
+                                             input logic [15:0] v);
+        v35_rf_t f;
+        f = f0;
+        case (i)
+            2'd0: f.ds1 = v;
+            2'd1: f.ps = v;
+            2'd2: f.ss = v;
+            default: f.ds0 = v;
+        endcase
+        v35_sreg_set = f;
+    endfunction
+
     // the instruction's byte i (byte 0 the opcode)
     function automatic logic [7:0] v35_code_byte(input logic [47:0] code, input int i);
         v35_code_byte = code[47 - 8 * i -: 8];
     endfunction
 
-    // templates.decode's operands (_modrm's effective address for the 24 memory modes and the
-    // direct one, A1/A3's and XLAT's; the port; the stack addresses; the shift count; a
-    // transfer's decision and target) from the register file before the instruction, and
-    // _start's SFR store (a DS1-prefixed store whose linear address is at or above the SFR
-    // page: that address). The format and the template are the start's. bad: what the
-    // register file cannot give (BE/BNE with Z unknown, RET without its return address).
-    function automatic v35_opnd_t v35_operands(input v35_rf_t f, input logic [47:0] code,
-                                               input logic [15:0] pc, input v35_op_t op,
-                                               input logic [3:0] mut, output logic bad);
-        v35_opnd_t r;
+    // the byte index of a ModR/M form's first byte after the displacement (its immediate)
+    function automatic int v35_imm_at(input logic [47:0] code);
+        logic [7:0] m;
+        m = code[39:32];
+        if (m[7:6] == 2'd1)
+            v35_imm_at = 3;
+        else if (m[7:6] == 2'd2 || (m[7:6] == 2'd0 && m[2:0] == 3'd6))
+            v35_imm_at = 4;
+        else
+            v35_imm_at = 2;
+    endfunction
+
+    // a ModR/M form's immediate: the 81 / C7 / F7 /0 word, 83's byte sign-extended, the byte
+    function automatic logic [15:0] v35_imm(input logic [47:0] code);
+        logic [7:0] o, lo, hi;
+        int k;
+        o = code[47:40];
+        k = v35_imm_at(code);
+        lo = v35_code_byte(code, k);
+        hi = v35_code_byte(code, k + 1);
+        if (o == 8'h83)
+            v35_imm = {{8{lo[7]}}, lo};
+        else if (o[0])
+            v35_imm = {hi, lo};
+        else
+            v35_imm = {8'd0, lo};
+    endfunction
+
+    // S Z P of a result of width w
+    function automatic logic [15:0] v35_szp(input logic [15:0] psw0, input logic [15:0] r,
+                                            input logic w);
+        logic [15:0] psw;
+        psw = psw0;
+        psw[V35_PSW_S] = w ? r[15] : r[7];
+        psw[V35_PSW_Z] = w ? r == 16'd0 : r[7:0] == 8'd0;
+        psw[V35_PSW_P] = ~^r[7:0];
+        v35_szp = psw;
+    endfunction
+
+    // the ALU: op the 00-3F block's / the 80-83 group's bits 5:3 (ADD OR ADC SBB AND SUB XOR
+    // CMP), w the word form; the result (CMP's: the difference) and the PSW: CY V AC S Z P
+    // written, the logic operations clearing CY V AC (undefined_flags.md: AC always 0)
+    function automatic logic [15:0] v35_alu(input logic [2:0] op, input logic w,
+                                            input logic [15:0] a0, input logic [15:0] b0,
+                                            input logic [15:0] psw0, input logic [3:0] mut,
+                                            output logic [15:0] psw);
+        logic [16:0] r;
+        logic [15:0] a, b, m, msb, res;
+        logic cin, cy, v, ac;
+        m = w ? 16'hFFFF : 16'h00FF;
+        msb = w ? 16'h8000 : 16'h0080;
+        a = a0 & m;
+        b = b0 & m;
+        cin = (op == 3'd2 || op == 3'd3) && psw0[V35_PSW_CY];
+        cy = 1'b0;
+        v = 1'b0;
+        ac = 1'b0;
+        case (op)
+            3'd0, 3'd2: begin
+                r = {1'b0, a} + {1'b0, b} + {16'd0, cin};
+                v = |((a ^ r[15:0]) & (b ^ r[15:0]) & msb);
+            end
+            3'd3, 3'd5, 3'd7: begin
+                r = {1'b0, a} - {1'b0, b} - {16'd0, cin};
+                v = |((a ^ b) & (a ^ r[15:0]) & msb);
+            end
+            3'd1: r = {1'b0, a | b};
+            3'd4: r = {1'b0, a & b};
+            default: r = {1'b0, a ^ b};
+        endcase
+        if (op != 3'd1 && op != 3'd4 && op != 3'd6) begin
+            cy = w ? r[16] : r[8];
+            ac = a[4] ^ b[4] ^ r[4];
+            if (mut == 4'd11 && op == 3'd0)
+                ac = !ac;
+        end
+        res = r[15:0] & m;
+        psw = v35_szp(psw0, res, w);
+        psw[V35_PSW_CY] = cy;
+        psw[V35_PSW_V] = v;
+        psw[V35_PSW_AC] = ac;
+        v35_alu = res;
+    endfunction
+
+    // the shift group (D0-D3, C0/C1; the reg field): ROL ROR ROLC RORC SHL SHR SHL (6, the
+    // undocumented alias) SHRA by n, the full count (shift_count_mask=cl8). A count of 0
+    // changes nothing; the rotates are periodic in the width (ROLC / RORC in the width + 1),
+    // the shifts settle after width + 1. CY the last bit out; V from the final state (the
+    // shift-V law: left ops MSB ^ CY, right ops the two top bits); the shifts write S Z P and
+    // clear AC, the rotates leave them.
+    function automatic logic [15:0] v35_shift(input logic [2:0] op, input logic w,
+                                              input logic [15:0] a0, input logic [8:0] n,
+                                              input logic [15:0] psw0, output logic [15:0] psw);
+        logic [15:0] a, m, msb, msb1;
+        logic cy, c;
+        int k, nb;
+        psw = psw0;
+        if (n == 9'd0)
+            return a0;
+        nb = w ? 16 : 8;
+        m = w ? 16'hFFFF : 16'h00FF;
+        msb = w ? 16'h8000 : 16'h0080;
+        msb1 = msb >> 1;
+        a = a0 & m;
+        cy = psw0[V35_PSW_CY];
+        case (op)
+            3'd0, 3'd1: k = int'(n) % nb;
+            3'd2, 3'd3: k = int'(n) % (nb + 1);
+            default: k = int'(n) > nb ? nb + 1 : int'(n);
+        endcase
+        for (int i = 0; i < 17; i++) begin
+            if (i < k) begin
+                case (op)
+                    3'd0: a = ((a << 1) | {15'd0, |(a & msb)}) & m;
+                    3'd1: a = (a >> 1) | (a[0] ? msb : 16'd0);
+                    3'd2: begin
+                        c = |(a & msb);
+                        a = ((a << 1) | {15'd0, cy}) & m;
+                        cy = c;
+                    end
+                    3'd3: begin
+                        c = a[0];
+                        a = (a >> 1) | (cy ? msb : 16'd0);
+                        cy = c;
+                    end
+                    3'd5: begin
+                        cy = a[0];
+                        a = a >> 1;
+                    end
+                    3'd7: begin
+                        cy = a[0];
+                        a = (a >> 1) | (a & msb);
+                    end
+                    default: begin
+                        cy = |(a & msb);
+                        a = (a << 1) & m;
+                    end
+                endcase
+            end
+        end
+        if (op == 3'd0)
+            cy = a[0];
+        else if (op == 3'd1)
+            cy = |(a & msb);
+        psw[V35_PSW_CY] = cy;
+        if (op == 3'd0 || op == 3'd2 || op == 3'd4 || op == 3'd6)
+            psw[V35_PSW_V] = |(a & msb) ^ cy;
+        else
+            psw[V35_PSW_V] = |(a & msb) ^ |(a & msb1);
+        if (op[2]) begin
+            psw = v35_szp(psw, a, w);
+            psw[V35_PSW_AC] = 1'b0;
+        end
+        v35_shift = a;
+    endfunction
+
+    // MULU / MUL: the double-width product ([15:0] for a byte form). CY = V = the high half is
+    // not the low half's extension; MULU leaves S Z AC P, MUL writes them as the flags of the
+    // low half added to itself (undefined_flags.md)
+    function automatic logic [31:0] v35_mul(input logic sgn, input logic w,
+                                            input logic [15:0] a, input logic [15:0] b,
+                                            input logic [15:0] psw0, output logic [15:0] psw);
+        logic [31:0] p, sa, sb;
+        logic [15:0] lo, f;
+        logic ext;
+        psw = psw0;
+        if (w) begin
+            sa = sgn ? {{16{a[15]}}, a} : {16'd0, a};
+            sb = sgn ? {{16{b[15]}}, b} : {16'd0, b};
+            p = sa * sb;
+            lo = p[15:0];
+            ext = sgn ? p[31:16] != {16{p[15]}} : p[31:16] != 16'd0;
+        end else begin
+            sa = sgn ? {{24{a[7]}}, a[7:0]} : {24'd0, a[7:0]};
+            sb = sgn ? {{24{b[7]}}, b[7:0]} : {24'd0, b[7:0]};
+            p = {16'd0, 16'(sa * sb)};
+            lo = {8'd0, p[7:0]};
+            ext = sgn ? p[15:8] != {8{p[7]}} : p[15:8] != 8'd0;
+        end
+        if (sgn) begin
+            void'(v35_alu(3'd0, w, lo, lo, psw0, 4'd0, f));
+            psw[V35_PSW_S] = f[V35_PSW_S];
+            psw[V35_PSW_Z] = f[V35_PSW_Z];
+            psw[V35_PSW_AC] = f[V35_PSW_AC];
+            psw[V35_PSW_P] = f[V35_PSW_P];
+        end
+        psw[V35_PSW_CY] = ext;
+        psw[V35_PSW_V] = ext;
+        v35_mul = p;
+    endfunction
+
+    // DIVU / DIV of num (DW:AW; a byte form AW) by d: {remainder, quotient} ([15:8] / [7:0]
+    // for a byte form). DIVU: the flags of the overflow pre-check SUB(num's high half, d), a
+    // trap when it does not borrow (d = 0 included). DIV: the magnitudes' pre-check
+    // SUB(|num|'s high half, |d|) traps with its flags; else the unsigned quotient's S Z P,
+    // CY AC V clear, a quotient beyond 2^(n-1) - 1 trapping (symmetric); truncation toward 0,
+    // the remainder the dividend's sign (undefined_flags.md, Campaign 3). trap: the divide
+    // error (its sequence is a later item: the registers are left)
+    function automatic logic [31:0] v35_div(input logic sgn, input logic w,
+                                            input logic [31:0] num, input logic [15:0] d0,
+                                            input logic [15:0] psw0, output logic [15:0] psw,
+                                            output logic trap);
+        logic [31:0] an, q, r;
+        logic [15:0] ad, hi;
+        logic nneg, dneg;
+        psw = psw0;
+        trap = 1'b0;
+        if (w) begin
+            nneg = sgn && num[31];
+            dneg = sgn && d0[15];
+            an = nneg ? 32'd0 - num : num;
+            ad = dneg ? 16'd0 - d0 : d0;
+            hi = an[31:16];
+        end else begin
+            nneg = sgn && num[15];
+            dneg = sgn && d0[7];
+            an = {16'd0, nneg ? 16'd0 - num[15:0] : num[15:0]};
+            ad = {8'd0, dneg ? 8'd0 - d0[7:0] : d0[7:0]};
+            hi = {8'd0, an[15:8]};
+        end
+        if (hi >= ad) begin                     // the pre-check (d = 0 included)
+            void'(v35_alu(3'd5, w, hi, ad, psw0, 4'd0, psw));
+            trap = 1'b1;
+            return 32'd0;
+        end
+        q = an / {16'd0, ad};
+        r = an % {16'd0, ad};
+        if (!sgn) begin
+            void'(v35_alu(3'd5, w, hi, ad, psw0, 4'd0, psw));
+        end else begin
+            psw = v35_szp(psw0, q[15:0], w);
+            psw[V35_PSW_CY] = 1'b0;
+            psw[V35_PSW_AC] = 1'b0;
+            psw[V35_PSW_V] = 1'b0;
+            if (w ? q > 32'h7FFF : q > 32'h7F) begin
+                trap = 1'b1;
+                return 32'd0;
+            end
+            if (nneg != dneg)
+                q = 32'd0 - q;
+            if (nneg)
+                r = 32'd0 - r;
+        end
+        v35_div = w ? {r[15:0], q[15:0]} : {16'd0, r[7:0], q[7:0]};
+    endfunction
+
+    // Bcond's 16 conditions (the 70-7F row's low nibble)
+    function automatic logic v35_cond(input logic [15:0] psw, input logic [3:0] cc);
+        logic t, cy, z, s, v, p;
+        cy = psw[V35_PSW_CY];
+        z = psw[V35_PSW_Z];
+        s = psw[V35_PSW_S];
+        v = psw[V35_PSW_V];
+        p = psw[V35_PSW_P];
+        case (cc[3:1])
+            3'd0: t = v;
+            3'd1: t = cy;
+            3'd2: t = z;
+            3'd3: t = cy || z;
+            3'd4: t = s;
+            3'd5: t = p;
+            3'd6: t = s ^ v;
+            default: t = (s ^ v) || z;
+        endcase
+        v35_cond = t ^ cc[0];
+    endfunction
+
+    // the memory operand's offset (templates.RM, the direct forms, XLAT's BW + AL) and its
+    // segment register's value: DS0, SS for the BP-based modes, a prefix's when one is ahead
+    function automatic logic [15:0] v35_ea_off(input v35_rf_t f, input logic [47:0] code,
+                                               input logic [3:0] mut, output logic [15:0] seg);
         logic [7:0] o, b1, b2, b3;
         logic [1:0] mod;
         logic [2:0] rm;
-        logic [15:0] ea, base, disp, tgt;
-        logic [19:0] lin;
-        logic tk;
-        int c;
-        r = '0;
-        bad = 1'b0;
+        logic [15:0] base, disp;
+        logic bp;
         o = code[47:40];
         b1 = code[39:32];
         b2 = code[31:24];
         b3 = code[23:16];
+        bp = 1'b0;
+        if (o >= 8'hA0 && o <= 8'hA3) begin
+            v35_ea_off = {b2, b1};              // direct, no ModR/M
+        end else if (o == 8'hD7) begin
+            v35_ea_off = f.bw + {8'd0, f.aw[7:0]};   // XLAT: BW + AL
+        end else begin
+            mod = b1[7:6];
+            rm = b1[2:0];
+            if (mod == 2'd0 && rm == 3'd6) begin
+                v35_ea_off = {b3, b2};          // direct
+            end else begin
+                case (rm)                       // templates.RM
+                    3'd0: base = f.bw + (mut == 4'd8 ? 16'd0 : f.ix);
+                    3'd1: base = f.bw + f.iy;
+                    3'd2: base = f.bp + f.ix;
+                    3'd3: base = f.bp + f.iy;
+                    3'd4: base = f.ix;
+                    3'd5: base = f.iy;
+                    3'd6: base = f.bp;
+                    default: base = f.bw;
+                endcase
+                bp = rm == 3'd2 || rm == 3'd3 || rm == 3'd6;
+                disp = mod == 2'd1 ? {{8{b2[7]}}, b2} : mod == 2'd2 ? {b3, b2} : 16'd0;
+                v35_ea_off = base + disp;
+            end
+        end
+        seg = f.pfx[2] ? v35_sreg_get(f, f.pfx[1:0]) : (bp && mut != 4'd13) ? f.ss : f.ds0;
+    endfunction
+
+    // the forms whose function the RTL builds: those the decoder knows whose template fits
+    // their semantics. Not built (V35_EE_FUNC): F6/F7 /1 (TEST's alias: the decoder gives it
+    // the RMW template), FF /2-/5 and /7 (transfers), the register forms of F6/F7 /2 /3 and
+    // FF /0 /1 /6, 8F and C6/C7 (the decoder gives them a memory template with no address),
+    // 8F /1-7, MOV PS,r/m (8E /1: the code segment changes under the queue) and PREPARE with
+    // a level (frozen templates.decode raises)
+    function automatic logic v35_func_ok(input logic [47:0] code);
+        logic [7:0] o;
+        logic [1:0] mod;
+        logic [2:0] reg_;
+        o = code[47:40];
+        mod = code[39:38];
+        reg_ = code[37:35];
+        v35_func_ok = 1'b1;
+        if ((o == 8'hF6 || o == 8'hF7) && (reg_ == 3'd1 || (mod == 2'd3 && (reg_ == 3'd2
+                                                                              || reg_ == 3'd3))))
+            v35_func_ok = 1'b0;
+        if (o == 8'hFF && (reg_ inside {3'd2, 3'd3, 3'd4, 3'd5, 3'd7} || mod == 2'd3))
+            v35_func_ok = 1'b0;
+        if (o == 8'h8F && (mod == 2'd3 || reg_ != 3'd0))
+            v35_func_ok = 1'b0;
+        if ((o == 8'hC6 || o == 8'hC7) && mod == 2'd3)
+            v35_func_ok = 1'b0;
+        if (o == 8'h8E && reg_[1:0] == 2'd1)
+            v35_func_ok = 1'b0;
+        if (o == 8'hC8 && code[23:16] != 8'd0)
+            v35_func_ok = 1'b0;
+    endfunction
+
+    // templates.decode's operands from the register file before the instruction: the memory
+    // operand's linear address (its segment's base + the offset: the SFR store's, DS1-prefixed,
+    // in the SFR page as any other), the port, the stack offsets (SS's base is added by the
+    // request: eu_addr), the shift count, a transfer's decision and target (RET's target is the
+    // stack read's: 0 here, the EU's tgt set at the delivery). The format and the template are
+    // the start's. bad: a form whose function the RTL does not build (v35_func_ok)
+    function automatic v35_opnd_t v35_operands(input v35_rf_t f, input logic [47:0] code,
+                                               input logic [15:0] pc, input v35_op_t op,
+                                               input logic [3:0] mut, output logic bad);
+        v35_opnd_t r;
+        logic [7:0] o, b1, b2;
+        logic [15:0] off, seg, tgt;
+        logic tk;
+        int c;
+        r = '0;
+        o = code[47:40];
+        b1 = code[39:32];
+        b2 = code[31:24];
         c = int'(op.cls);
         r.offset = pc;
         r.code = code;
-        // the effective address (DS0 = SS = 0: an offset is linear)
-        ea = 16'd0;
         if (op.ea_v) begin
-            if (o == 8'hA1 || o == 8'hA3) begin
-                ea = {b2, b1};                  // direct, no ModR/M
-            end else if (o == 8'hD7) begin
-                ea = f.bw + {8'd0, f.aw[7:0]};  // XLAT: BW + AL
-            end else begin
-                mod = b1[7:6];
-                rm = b1[2:0];
-                if (mod == 2'd0 && rm == 3'd6) begin
-                    ea = {b3, b2};              // direct
-                end else begin
-                    case (rm)                   // templates.RM
-                        3'd0: base = f.bw + (mut == 4'd8 ? 16'd0 : f.ix);
-                        3'd1: base = f.bw + f.iy;
-                        3'd2: base = f.bp + f.ix;
-                        3'd3: base = f.bp + f.iy;
-                        3'd4: base = f.ix;
-                        3'd5: base = f.iy;
-                        3'd6: base = f.bp;
-                        default: base = f.bw;
-                    endcase
-                    disp = mod == 2'd1 ? {{8{b2[7]}}, b2} : mod == 2'd2 ? {b3, b2} : 16'd0;
-                    ea = base + disp;
-                end
-            end
-        end
-        r.ea = {4'd0, ea};
-        if (op.ea_v && f.pfx && (c == V35_CLS_STORE || c == V35_CLS_STORE_IMM)) begin
-            lin = {f.ds1, 4'd0} + {4'd0, ea};   // (WP23) DS1: the SFR store
-            if (lin >= V35_SFR_PAGE)
-                r.ea = lin;
+            off = v35_ea_off(f, code, mut, seg);
+            r.ea = {seg, 4'd0} + {4'd0, off};
         end
         // the port: the byte, or DW
         if (o >= 8'hE4 && o <= 8'hE7)
@@ -803,141 +1173,355 @@ package v35_eu_pkg;
             r.count = 9'd1;
         else if (o == 8'hD3)
             r.count = {1'b0, f.cw[7:0]};
-        // (WP55, F23) a transfer: taken, and its target (a code offset)
+        // (WP55, F23; D2) a transfer: taken (Bcond from the PSW), and its target
         tk = 1'b0;
         tgt = 16'd0;
-        if (o == 8'h74 || o == 8'h75 || o == 8'hEB || o == 8'hE2) begin
+        if (o[7:4] == 4'h7 || o == 8'hEB || o == 8'hE2) begin
             tgt = pc + 16'd2 + {{8{b1[7]}}, b1};
-            if (o == 8'hE2) begin
+            if (o == 8'hE2)
                 tk = f.cw != 16'd1;             // DBNZ: CW - 1 != 0
-            end else if (o == 8'hEB) begin
+            else if (o == 8'hEB)
                 tk = 1'b1;
-            end else begin
-                bad = !f.z_v;                   // BE / BNE: the flags must be known
-                tk = f.z == (o == 8'h74);
-            end
+            else
+                tk = v35_cond(f.psw, o[3:0]);
         end else if (o == 8'hE9 || o == 8'hE8) begin
             tgt = pc + 16'd3 + {b2, b1};
             tk = 1'b1;
         end else if (o == 8'hC3) begin
-            tgt = f.ret_pc;                     // the CALL's at SP
-            tk = 1'b1;
-            bad = !(f.ret_v && f.ret_sp == f.sp);
+            tk = 1'b1;                          // RET: the target is the stack read's
         end
         r.taken = tk;
         r.target = tk ? tgt : 16'd0;
+        bad = !v35_func_ok(code);
         v35_operands = r;
     endfunction
 
-    // templates.execute: the register effects of the instruction now started (memory reads
-    // return the data fill, V35_FILL_WORD). bad: a second return address (one is held).
+    // the instruction's function at its start: the register forms (the ALU, the shifter, the
+    // multiplier and divider, the moves and exchanges, the segment moves), the stack pointer's
+    // and CW's steps, LDEA's offset, the segment prefix; the context for its data (the write
+    // datum the start knows). ret: the return address CALL pushes (code_org + the next
+    // instruction's offset); trap: a register divide's error
     function automatic v35_rf_t v35_execute(input v35_rf_t f0, input logic [47:0] code,
                                             input v35_op_t op, input v35_opnd_t r,
-                                            input logic [3:0] mut, output logic bad);
+                                            input logic [15:0] code_org, input logic [3:0] mut,
+                                            output v35_fx_t x, output logic trap);
         v35_rf_t f;
-        logic [7:0] o, b1, b2, b3, n;
+        logic [7:0] o, b1, b2;
         logic [1:0] mod;
         logic [2:0] reg_, rm;
-        logic [15:0] src, x, y;
-        logic [31:0] p, dv, q, rem;
+        logic [15:0] a, b, res, psw, seg, imm;
+        logic [31:0] p;
+        logic w, mem;
         int c;
         f = f0;
-        bad = 1'b0;
+        x = '0;
+        x.code = code;
+        trap = 1'b0;
         o = code[47:40];
         b1 = code[39:32];
         b2 = code[31:24];
-        b3 = code[23:16];
         mod = b1[7:6];
         reg_ = b1[5:3];
         rm = b1[2:0];
+        w = o[0];
+        mem = op.ea_v;
         c = int'(op.cls);
+        imm = v35_imm(code);
         if (o >= 8'hB0 && o <= 8'hB7) begin
             f = v35_rf_set8(f, mut == 4'd10 ? o[2:0] ^ 3'd4 : o[2:0], b1);
         end else if (o >= 8'hB8 && o <= 8'hBF) begin
             f = v35_rf_set(f, o[2:0], {b2, b1});
         end else if (o >= 8'h91 && o <= 8'h97) begin
-            x = v35_rf_get(f, o[2:0]);          // XCH AW,r16
+            a = v35_rf_get(f, o[2:0]);          // XCH AW,r16
             f = v35_rf_set(f, o[2:0], f.aw);
-            f.aw = x;
+            f.aw = a;
         end else if (o == 8'h05) begin
-            f.aw = f.aw + {b2, b1};
-        end else if (o == 8'hA1) begin
-            f.aw = V35_FILL_WORD;
+            f.aw = v35_alu(3'd0, 1'b1, f.aw, {b2, b1}, f.psw, mut, psw);
+            f.psw = psw;
+        end else if (o == 8'hA8 || o == 8'hA9) begin
+            void'(v35_alu(3'd4, w, f.aw, w ? {b2, b1} : {8'd0, b1}, f.psw, mut, psw));
+            f.psw = psw;
+        end else if (o == 8'hA2 || o == 8'hA3) begin
+            x.wd = v35_reg(f, 3'd0, w);         // MOV [disp16],acc
+        end else if (o >= 8'h50 && o <= 8'h57) begin
+            x.wd = o == 8'h54 ? f.sp - 16'd2 : v35_rf_get(f, o[2:0]);
+        end else if (o == 8'h06 || o == 8'h0E || o == 8'h16 || o == 8'h1E) begin
+            x.wd = v35_sreg_get(f, o[4:3]);
+        end else if (o == 8'h68 || o == 8'h6A) begin
+            x.wd = o == 8'h68 ? {b2, b1} : {{8{b1[7]}}, b1};
+        end else if (o == 8'hE8) begin
+            x.wd = code_org + r.offset + 16'd3; // CALL: the return address (its IP)
+        end else if (o == 8'hC8) begin
+            x.wd = f.bp;                        // PREPARE: BP pushed
         end else if (op.modrm) begin
-            src = mod == 2'd3 ? v35_rf_get(f, rm) : V35_FILL_WORD;
-            if (o == 8'h8B) begin
-                f = v35_rf_set(f, reg_, src);
-            end else if (o == 8'h03) begin
-                f = v35_rf_set(f, reg_, v35_rf_get(f, reg_) + src);
-            end else if (o == 8'h23) begin
-                f = v35_rf_set(f, reg_, v35_rf_get(f, reg_) & src);
-            end else if (o == 8'h33) begin
-                f = v35_rf_set(f, reg_, v35_rf_get(f, reg_) ^ src);
-            end else if (o == 8'h87 && mod == 2'd3) begin
-                x = v35_rf_get(f, reg_);
-                y = v35_rf_get(f, rm);
-                f = v35_rf_set(f, reg_, y);
-                f = v35_rf_set(f, rm, x);
-            end else if (o == 8'h87) begin
-                f = v35_rf_set(f, reg_, V35_FILL_WORD);
-            end else if (o == 8'h81 && mod == 2'd3 && reg_ == 3'd0) begin
-                f = v35_rf_set(f, rm, v35_rf_get(f, rm) + {b3, b2});
-            end else if ((o == 8'hD1 || o == 8'hD3 || o == 8'hC1) && mod == 2'd3
-                         && reg_ == 3'd4) begin
-                n = o == 8'hD1 ? 8'd1 : o == 8'hD3 ? f.cw[7:0] : b2;   // SHL: the full count
-                p = {16'd0, v35_rf_get(f, rm)} << n;
-                f = v35_rf_set(f, rm, p[15:0]);
-            end else if (o == 8'hF7 && reg_ == 3'd4) begin
-                p = {16'd0, f.aw} * {16'd0, src};   // MULU: DW:AW
-                f.aw = p[15:0];
-                f.dw = p[31:16];
-            end else if (o == 8'hF7 && reg_ == 3'd6 && src != 16'd0) begin
-                dv = {f.dw, f.aw};              // DIVU: AW the quotient, DW the remainder
-                q = dv / {16'd0, src};
-                rem = dv % {16'd0, src};
-                f.aw = q[15:0];
-                f.dw = rem[15:0];
-            end else if (o == 8'h86) begin
-                f = v35_rf_set8(f, reg_, mod != 2'd3 ? V35_FILL_WORD[7:0] : 8'd0);
+            a = v35_reg(f, reg_, w);            // the reg field's operand
+            b = v35_reg(f, rm, w);              // the rm field's register operand
+            if (o < 8'h40 && o[2:0] < 3'd4) begin
+                if (!mem) begin
+                    if (o[1]) begin
+                        res = v35_alu(o[5:3], w, a, b, f.psw, mut, psw);
+                        if (o[5:3] != 3'd7)
+                            f = v35_set_reg(f, reg_, w, res);
+                    end else begin
+                        res = v35_alu(o[5:3], w, b, a, f.psw, mut, psw);
+                        if (o[5:3] != 3'd7)
+                            f = v35_set_reg(f, rm, w, res);
+                    end
+                    f.psw = psw;
+                end
+            end else if (o == 8'h84 || o == 8'h85) begin
+                if (!mem) begin
+                    void'(v35_alu(3'd4, w, b, a, f.psw, mut, psw));
+                    f.psw = psw;
+                end
+            end else if (o == 8'h86 || o == 8'h87) begin
+                if (!mem) begin
+                    f = v35_set_reg(f, reg_, w, b);
+                    f = v35_set_reg(f, rm, w, a);
+                end else begin
+                    x.wd = a;                   // XCH r/m,reg: the register's value written
+                end
+            end else if (o >= 8'h88 && o <= 8'h8B) begin
+                if (!mem && o[1])
+                    f = v35_set_reg(f, reg_, w, b);
+                else if (!mem)
+                    f = v35_set_reg(f, rm, w, a);
+                else if (!o[1])
+                    x.wd = a;                   // MOV r/m,reg
+            end else if (o == 8'h8C) begin
+                if (!mem)
+                    f = v35_rf_set(f, rm, v35_sreg_get(f, reg_[1:0]));
+                else
+                    x.wd = v35_sreg_get(f, reg_[1:0]);
             end else if (o == 8'h8D) begin
-                f = v35_rf_set(f, reg_, r.ea[15:0]);   // LDEA: the offset
-            end else if ((o == 8'h3B || o == 8'h39) && mod == 2'd3) begin
-                f.z_v = 1'b1;                   // CMP r16,r16: Z
-                f.z = v35_rf_get(f, reg_) == v35_rf_get(f, rm);
+                f = v35_rf_set(f, reg_, v35_ea_off(f, code, mut, seg));   // LDEA: the offset
+            end else if (o == 8'h8E) begin
+                if (!mem)
+                    f = v35_sreg_set(f, reg_[1:0], v35_rf_get(f, rm));
+            end else if (o >= 8'h80 && o <= 8'h83) begin
+                if (!mem) begin
+                    res = v35_alu(reg_, w, b, imm, f.psw, mut, psw);
+                    if (reg_ != 3'd7)
+                        f = v35_set_reg(f, rm, w, res);
+                    f.psw = psw;
+                end
+            end else if (o == 8'hC6 || o == 8'hC7) begin
+                x.wd = imm;                     // MOV r/m,imm
+            end else if (o == 8'hC0 || o == 8'hC1 || (o >= 8'hD0 && o <= 8'hD3)) begin
+                if (!mem) begin
+                    res = v35_shift(reg_, w, b, r.count, f.psw, psw);
+                    f = v35_set_reg(f, rm, w, res);
+                    f.psw = psw;
+                end
+            end else if (o == 8'hF6 || o == 8'hF7) begin
+                if (!mem) begin
+                    if (reg_ == 3'd0) begin
+                        void'(v35_alu(3'd4, w, b, imm, f.psw, mut, psw));
+                        f.psw = psw;
+                    end else if (reg_ == 3'd4 || reg_ == 3'd5) begin
+                        p = v35_mul(reg_[0], w, f.aw, b, f.psw, psw);
+                        f.psw = psw;
+                        f.aw = p[15:0];
+                        if (w)
+                            f.dw = p[31:16];
+                    end else if (reg_ == 3'd6 || reg_ == 3'd7) begin
+                        p = v35_div(reg_[0], w, w ? {f.dw, f.aw} : {16'd0, f.aw}, b, f.psw, psw,
+                                    trap);
+                        f.psw = psw;
+                        if (!trap) begin
+                            f.aw = p[15:0];
+                            if (w)
+                                f.dw = p[31:16];
+                        end
+                    end
+                end
             end
         end
-        if (o == 8'hD7)
-            f = v35_rf_set8(f, 3'd0, V35_FILL_WORD[7:0]);   // XLAT: AL from the data fill
+        // the stack pointer and CW
         if (c == V35_CLS_PUSH || c == V35_CLS_PUSH_MEM || c == V35_CLS_PUSH_IMM
-                || c == V35_CLS_PUSH_SEG || c == V35_CLS_PREPARE)
+                || c == V35_CLS_PUSH_SEG || c == V35_CLS_PREPARE || c == V35_CLS_CALL)
             f.sp = f.sp - (mut == 4'd9 ? 16'd4 : 16'd2);
         if (c == V35_CLS_PREPARE) begin         // BP := SP after BP's push, SP -= imm16
             f.bp = f.sp;
             f.sp = f.sp - {b2, b1};
         end
-        if (c == V35_CLS_POP || c == V35_CLS_POP_MEM || c == V35_CLS_POP_SEG)
+        if (c == V35_CLS_POP || c == V35_CLS_POP_MEM || c == V35_CLS_POP_SEG || c == V35_CLS_RET)
             f.sp = f.sp + 16'd2;
         if (c == V35_CLS_PUSH_R)
             f.sp = f.sp - 16'd16;               // eight words
         if (c == V35_CLS_POP_R)
             f.sp = f.sp + 16'd16;
-        if (c == V35_CLS_DISPOSE) begin         // SP := BP, BP popped (the data fill)
+        if (c == V35_CLS_DISPOSE)               // SP := BP, BP popped (the delivery's)
             f.sp = f.bp + 16'd2;
-            f.bp = V35_FILL_WORD;
-        end
         if (c == V35_CLS_DBNZ)
             f.cw = f.cw - 16'd1;
-        if (c == V35_CLS_CALL) begin            // the return address below SP
-            f.sp = f.sp - 16'd2;
-            bad = f.ret_v && f.ret_sp != f.sp;
-            f.ret_v = 1'b1;
-            f.ret_sp = f.sp;
-            f.ret_pc = r.offset + {13'd0, op.length};
-        end
-        if (c == V35_CLS_RET)
-            f.sp = f.sp + 16'd2;
-        f.pfx = c == V35_CLS_PREFIX && o == 8'h26;   // eu.seg_prefix == 26h (DS1)
+        f.pfx = c == V35_CLS_PREFIX ? {1'b1, o[4:3]} : 3'd0;   // 26 DS1, 2E PS, 36 SS, 3E DS0
         v35_execute = f;
+    endfunction
+
+    // a delivered read cycle of the instruction's own request (the bus word; the byte lane
+    // by the request's address and the cycle's half: an odd word's first cycle carries its low
+    // byte on D15-8, the second its high byte on D7-0) into md; on the request's last cycle,
+    // the read's effects: the register a load, POP, IN or XLAT writes, the ALU's result and
+    // flags of a load-ALU, CMP / TEST, an RMW (its write datum), the multiplier and divider,
+    // a segment load, POP R's register (by the read's index), DISPOSE's BP, RET's target.
+    // count: the shift count; tgt_v / tgt: RET's target (a code offset, the stack's IP less
+    // code_org); trap: a memory divide's error
+    function automatic v35_rf_t v35_deliver(input v35_rf_t f0, input v35_fx_t x0,
+                                            input logic w2, input logic odd, input logic io,
+                                            input logic last, input logic [15:0] data,
+                                            input logic [8:0] count, input logic [15:0] code_org,
+                                            input logic [3:0] mut, output v35_fx_t x,
+                                            output logic tgt_v, output logic [15:0] tgt,
+                                            output logic trap);
+        v35_rf_t f;
+        logic [7:0] o, m;
+        logic [2:0] reg_;
+        logic [15:0] md, a, res, psw, imm;
+        logic [31:0] p;
+        logic w;
+        f = f0;
+        x = x0;
+        tgt_v = 1'b0;
+        tgt = 16'd0;
+        trap = 1'b0;
+        if (w2 && odd && !io) begin
+            if (!last)
+                x.md[7:0] = data[15:8];         // the first half: the low byte, odd
+            else
+                x.md[15:8] = data[7:0];
+        end else if (w2) begin
+            x.md = data;
+        end else begin
+            x.md = {8'd0, odd ? data[15:8] : data[7:0]};
+        end
+        if (!last)
+            return f;
+        md = x.md;
+        o = x.code[47:40];
+        m = x.code[39:32];
+        reg_ = m[5:3];
+        w = o[0];
+        imm = v35_imm(x.code);
+        a = v35_reg(f, reg_, w);
+        if (o < 8'h40 && o[2:0] < 3'd4) begin   // the ALU's memory forms
+            if (o[1]) begin
+                res = v35_alu(o[5:3], w, a, md, f.psw, mut, psw);
+                if (o[5:3] != 3'd7)
+                    f = v35_set_reg(f, reg_, w, res);
+            end else begin
+                res = v35_alu(o[5:3], w, md, a, f.psw, mut, psw);
+                x.wd = res;
+            end
+            f.psw = psw;
+        end else if (o == 8'h84 || o == 8'h85) begin
+            void'(v35_alu(3'd4, w, md, a, f.psw, mut, psw));
+            f.psw = psw;
+        end else if (o == 8'h86 || o == 8'h87 || o == 8'h8A || o == 8'h8B) begin
+            f = v35_set_reg(f, reg_, w, md);
+        end else if (o == 8'h8E) begin
+            f = v35_sreg_set(f, reg_[1:0], md);
+        end else if (o == 8'h8F) begin
+            x.wd = md;                          // POP r/m: the stack's word written
+        end else if (o >= 8'h80 && o <= 8'h83) begin
+            res = v35_alu(reg_, w, md, imm, f.psw, mut, psw);
+            x.wd = res;
+            f.psw = psw;
+        end else if (o == 8'hC0 || o == 8'hC1 || (o >= 8'hD0 && o <= 8'hD3)) begin
+            x.wd = v35_shift(reg_, w, md, count, f.psw, psw);
+            f.psw = psw;
+        end else if (o == 8'hF6 || o == 8'hF7) begin
+            case (reg_)
+                3'd0, 3'd1: begin
+                    void'(v35_alu(3'd4, w, md, imm, f.psw, mut, psw));
+                    f.psw = psw;
+                end
+                3'd2: x.wd = ~md;
+                3'd3: begin
+                    x.wd = v35_alu(3'd5, w, 16'd0, md, f.psw, mut, psw);
+                    f.psw = psw;
+                end
+                3'd4, 3'd5: begin
+                    p = v35_mul(reg_[0], w, f.aw, md, f.psw, psw);
+                    f.psw = psw;
+                    f.aw = p[15:0];
+                    if (w)
+                        f.dw = p[31:16];
+                end
+                default: begin
+                    p = v35_div(reg_[0], w, w ? {f.dw, f.aw} : {16'd0, f.aw}, md, f.psw, psw,
+                                trap);
+                    f.psw = psw;
+                    if (!trap) begin
+                        f.aw = p[15:0];
+                        if (w)
+                            f.dw = p[31:16];
+                    end
+                end
+            endcase
+        end else if (o == 8'hFE || o == 8'hFF) begin
+            if (reg_ == 3'd0 || reg_ == 3'd1) begin   // INC / DEC: CY kept
+                x.wd = v35_alu(reg_[0] ? 3'd5 : 3'd0, w, md, 16'd1, f.psw, mut, psw);
+                psw[V35_PSW_CY] = f.psw[V35_PSW_CY];
+                f.psw = psw;
+            end else begin
+                x.wd = md;                      // PUSH r/m: the operand's word pushed
+            end
+        end else if (o == 8'hA0 || o == 8'hA1 || o == 8'hE4 || o == 8'hE5 || o == 8'hEC
+                     || o == 8'hED) begin
+            f = v35_set_reg(f, 3'd0, w, md);    // MOV acc,[disp16]; IN
+        end else if (o >= 8'h58 && o <= 8'h5F) begin
+            f = v35_rf_set(f, o[2:0], md);
+        end else if (o == 8'h07 || o == 8'h17 || o == 8'h1F) begin
+            f = v35_sreg_set(f, o[4:3], md);
+        end else if (o == 8'h61) begin          // POP R: IY IX BP (SP's discarded) BW DW CW AW
+            if (x.rk != 3'd3)
+                f = v35_rf_set(f, 3'd7 - x.rk, md);
+        end else if (o == 8'hC9) begin
+            f.bp = md;                          // DISPOSE
+        end else if (o == 8'hC3) begin
+            tgt_v = 1'b1;                       // RET
+            tgt = md - code_org;
+        end else if (o == 8'hD7) begin
+            f = v35_rf_set8(f, 3'd0, md[7:0]);  // XLAT
+        end
+        x.rk = x.rk + 3'd1;
+        v35_deliver = f;
+    endfunction
+
+    // the datum of an EU cycle issued (kind V35_RK_*, a word request, its address odd, the
+    // first cycle of an odd word): an OUT's AW / AL at its issue (the model's: the ALU passes
+    // the waiting OUT's data at its issue, io_interlock), PUSH R's register by the write's
+    // index, else the context's write datum; on the cycle's lanes (an odd byte on D15-8, the
+    // other lane 0; an odd word's first cycle its low byte on D15-8, the second its high byte
+    // on D7-0). A read drives none (0)
+    function automatic logic [15:0] v35_wdata(input v35_rf_t f, input v35_fx_t x,
+                                              input logic [2:0] kind, input logic w2,
+                                              input logic odd, input logic first,
+                                              input logic [3:0] mut);
+        logic [15:0] d;
+        logic io;
+        io = int'(kind) == V35_RK_IO_WRITE;
+        if (!io && int'(kind) != V35_RK_WRITE)
+            return 16'd0;
+        if (io) begin
+            d = f.aw;
+        end else if (x.code[47:40] == 8'h60) begin
+            case (x.wk)                         // PUSH R: AW CW DW BW SP (before) BP IX IY
+                3'd4: d = f.sp + 16'd16;
+                default: d = v35_rf_get(f, x.wk);
+            endcase
+        end else begin
+            d = x.wd;
+        end
+        if (!io && mut == 4'd12)
+            d = d ^ 16'h0001;
+        if (w2 && odd && !io)
+            v35_wdata = first ? {d[7:0], 8'd0} : {8'd0, d[15:8]};
+        else if (w2)
+            v35_wdata = d;
+        else
+            v35_wdata = odd ? {d[7:0], 8'd0} : {8'd0, d[7:0]};
     endfunction
 endpackage
 
@@ -947,18 +1531,20 @@ module v35_eu
 #(
     parameter int NQ = 16,                  // queue ops per phase (T and L; P)
     parameter int NXOP = 6,                 // the arbiter's touches per clock
-    parameter int STATE_W = 762             // $bits(v35_st_t), checked below
+    parameter int STATE_W = 879             // $bits(v35_st_t), checked below
 ) (
     input  wire        clock,
     input  wire        reset_n,
     input  wire        ce,                  // end of a model clock
     input  wire [STATE_W-1:0] init_state,   // the state at the end of the model's clock -1
-    input  wire [19:0] code_base,           // the code's linear base (queue.base: a target's)
+    input  wire [15:0] code_org,            // (D2) the IP of the code's offset 0 (the code's
+                                            // linear base is PS's + it: a target's, code_addr)
     input  wire        refresh_on,          // (C5) the chain runs the refresh controller
 
     // phase C
     input  wire        c_eu,                // an EU cycle was delivered (eu.complete) ...
     input  wire        c_read,              // ... a read
+    input  wire [15:0] c_data,              // ... (D2) the word the bus delivered
     input  wire        fetch_done,          // queue.completed counted one (C or A)
 
     // the bus unit before the choice (T) and after it (P)
@@ -1021,7 +1607,7 @@ module v35_eu
     output wire [2:0]   fresh_l,
     output wire [2:0]   fresh_p,
     // (D1) the register file's AW after the starts before phase X: an EU cycle's datum
-    output wire [15:0]  aw_x
+    output wire [15:0]  x_data              // (D2) the datum of the EU cycle issued in X
 `ifdef V35S_STATE_DUMP
     ,
     input  wire [3:0]   mutate,             // the bench's mutation tests (v35_operands)
@@ -1029,8 +1615,8 @@ module v35_eu
     // after each one's execute
     output wire [196:0] opr_a,
     output wire [196:0] opr_b,
-    output wire [179:0] rfx_a,
-    output wire [179:0] rfx_b,
+    output wire [210:0] rfx_a,
+    output wire [210:0] rfx_b,
     output wire [STATE_W-1:0] state_c,
     output wire [STATE_W-1:0] state_t,
     output wire [STATE_W-1:0] state_x,
@@ -1075,7 +1661,10 @@ module v35_eu
     localparam logic [7:0] V35_EE_STEP = 8'd7;         // a step C3 does not build (flush, decide)
     localparam logic [7:0] V35_EE_SLOT = 8'd8;         // a request slot error
     localparam logic [7:0] V35_EE_XOP = 8'd9;          // an arbiter touch on an empty slot
-    localparam logic [7:0] V35_EE_RF = 8'd10;          // (D1) the register file cannot give it
+    localparam logic [7:0] V35_EE_RF = 8'd10;          // (D1) unused (D2: the PSW and the stack
+                                                       // read give BE / BNE and RET)
+    localparam logic [7:0] V35_EE_FUNC = 8'd11;        // (D2) a form whose function is not built
+    localparam logic [7:0] V35_EE_DIV = 8'd12;         // (D2) a divide error (its trap: later)
 
 
     if (FIT_RERAISE_OFF != 0) begin : g_reraise
@@ -1086,7 +1675,7 @@ module v35_eu
     end
     if ($bits(v35_qview_t) != 52 || $bits(v35_bview_t) != 18 || V35_TMPL_W != 8
             || V35_FMT_W != 31 || V35_STEP_W != 38 || $bits(v35_opnd_t) != 197
-            || $bits(v35_rf_t) != 180) begin : g_port_widths
+            || $bits(v35_rf_t) != 211) begin : g_port_widths
         $error("v35_eu: the port widths no longer match the include");
     end
 
@@ -1111,7 +1700,8 @@ module v35_eu
         logic [1:0]  x_width;
         logic [7:0]  err;
         v35_opnd_t [1:0] opr;       // (D1) the starts' operand records ...
-        v35_rf_t [1:0] rfx;         // ... and the register file after each one's execute
+        v35_rf_t [1:0] rfx;         // ... and the register file before each one's execute
+        logic [15:0] x_data;        // (D2) the datum of the cycle issued in X
     } v35_ctx_t;
 
     logic [15:0] pc_r;                      // (D1) pc at the end of the last model clock
@@ -1185,12 +1775,13 @@ module v35_eu
         off20 = 20'(v);
     endfunction
 
-    // a request step's address (symbolic sources, rtlgen.ADDR_SRC)
-    function automatic logic [19:0] eu_addr(input v35_eus_t e, input v35_stp_t s);
+    // a request step's address (symbolic sources, rtlgen.ADDR_SRC): (D2) the stack's in SS
+    function automatic logic [19:0] eu_addr(input v35_eus_t e, input v35_rf_t f,
+                                            input v35_stp_t s);
         case (int'(s.src))
             V35_SRC_EA: eu_addr = e.ea;
-            V35_SRC_STACK_READ: eu_addr = {4'd0, e.sr + 16'(2 * int'(s.src_i))};
-            V35_SRC_STACK_WRITE: eu_addr = {4'd0, e.sw - 16'(2 * int'(s.src_i))};
+            V35_SRC_STACK_READ: eu_addr = {f.ss, 4'd0} + {4'd0, e.sr + 16'(2 * int'(s.src_i))};
+            V35_SRC_STACK_WRITE: eu_addr = {f.ss, 4'd0} + {4'd0, e.sw - 16'(2 * int'(s.src_i))};
             V35_SRC_PORT: eu_addr = {4'd0, e.port};
             default: eu_addr = 20'd0;
         endcase
@@ -1307,10 +1898,25 @@ module v35_eu
         eu_begin = s;
     endfunction
 
-    // complete: a read cycle of the current request ended at t-1 (data_ready=0)
-    function automatic void eu_complete(inout v35_st_t s);
+    // complete: a read cycle of the current request ended at t-1 (data_ready=0); (D2) its
+    // datum into the instruction's context and, on the request's last cycle, the read's
+    // effects (v35_deliver; RET's target into tgt)
+    function automatic void eu_complete(inout v35_st_t s, inout v35_ctx_t c);
         int i;
+        logic tv, tr;
+        logic [15:0] tg;
+        v35_fx_t x;
         i = s.e.own != 2'd0 ? int'(s.e.own) - 1 : 0;
+        if (s.r[i].valid && s.r[i].issued != 2'd0) begin
+            s.f = v35_deliver(s.f, s.x, s.r[i].w2, s.r[i].addr[0], is_io(s.r[i].kind),
+                              s.r[i].ncyc == 2'd0, c_data, s.e.count, code_org, mut, x, tv, tg,
+                              tr);
+            s.x = x;
+            if (tv)
+                s.e.tgt = tg;
+            if (tr)
+                fail(c, V35_EE_DIV);
+        end
         if (s.r[i].valid && s.r[i].ncyc == 2'd0 && s.r[i].issued != 2'd0) begin
             s.r[i].da_v = 1'b1;
             s.r[i].da_off = 3'd0;
@@ -1353,7 +1959,7 @@ module v35_eu
         setup = int'(st.n);
         r.valid = 1'b1;
         r.kind = st.kind;
-        r.addr = eu_addr(s.e, st);
+        r.addr = eu_addr(s.e, s.f, st);
         r.w2 = st.width == 2'd2;
         r.ncyc = (int'(st.kind) == V35_RK_NOWRITE) ? 2'd1
                  : (r.w2 && r.addr[0] && !io) ? 2'd2 : 2'd1;   // odd_split=atomic
@@ -1658,7 +2264,7 @@ module v35_eu
         // the start: (D1) the operand record from the register file (templates.decode)
         opr = v35_operands(s.f, code, s.e.pc, op, mut, bad);
         if (bad)
-            fail(c, V35_EE_RF);
+            fail(c, V35_EE_FUNC);
         wbu = int'(s.e.wb) - (s.e.done_v ? int'(s.e.done_age) : 0);   // wb_from=end
         s.e.wbu = 2'(wbu > 0 ? wbu : 0);
         s.e.done_v = 1'b0;
@@ -1724,14 +2330,14 @@ module v35_eu
         s.e.sw = opr.sw;
         s.e.tgt = opr.target;
         s.e.pc = s.e.pc + {13'd0, op.length};
-        // (D1) templates.execute: the register effects, at the start as the model's
-        s.f = v35_execute(s.f, code, op, opr, mut, bad);
-        if (bad)
-            fail(c, V35_EE_RF);
+        // (D2) the instruction's function at its start (its data's: v35_deliver, v35_wdata)
         if (c.starts < 2'd2) begin
             c.opr[c.starts[0]] = opr;
             c.rfx[c.starts[0]] = s.f;
         end
+        s.f = v35_execute(s.f, code, op, opr, code_org, mut, s.x, bad);
+        if (bad)
+            fail(c, V35_EE_DIV);
         c.starts = c.starts + 2'd1;
         return 1'b1;
     endfunction
@@ -1740,7 +2346,7 @@ module v35_eu
     // instruction the target's
     function automatic void eu_flush(inout v35_st_t s, inout v35_ctx_t c);
         logic [19:0] a;
-        a = code_base + {4'd0, s.e.tgt};
+        a = {s.f.ps, 4'd0} + {4'd0, code_org + s.e.tgt};
         void'(q_op(c, s, V35_EQ_FLUSH, 1'b0, 1'b0, a));
         s.d.ir_v = 1'b0;
         s.d.ir_addr = 20'd0;
@@ -2307,9 +2913,13 @@ module v35_eu
             c.x_kind = kind;
             c.x_addr = addr;
             c.x_width = width;
+            c.x_data = v35_wdata(s.f, s.x, s.r[0].kind, s.r[0].w2, s.r[0].addr[0],
+                                 s.r[0].ncyc == 2'd2, mut);
         end
         s.r[0].ncyc = s.r[0].ncyc - 1'b1;
         s.r[0].issued = s.r[0].issued + 1'b1;
+        if (s.r[0].ncyc == '0 && int'(s.r[0].kind) == V35_RK_WRITE)
+            s.x.wk = s.x.wk + 3'd1;             // (D2) PUSH R's next word
         if (s.r[0].ncyc == '0 && s.r[0].detached) begin
             if (int'(s.r[0].kind) == V35_RK_IO_WRITE) begin
                 s.e.lu_held = 1'b0;             // the latches free once the cycle ends
@@ -2465,7 +3075,7 @@ module v35_eu
         c = '0;
         s = eu_begin(r, v35_bview_t'(bus_t), fetch_done);
         if (c_eu && c_read)
-            eu_complete(s);
+            eu_complete(s, c);
         s_c = s;
         qsnap_c = dec_snap(s.d, imm16(s));
         eu_tick(s, c, v35_bview_t'(bus_t));
@@ -2510,8 +3120,8 @@ module v35_eu
     assign x_cyc_width = cx.x_width;
     assign err_code = cx.err;
     assign pc_r = r.e.pc;
-    assign code_addr = code_base + {4'd0, pc_r};
-    assign aw_x = s_l.f.aw;                 // no start in L or X: the AW of phase X's issue
+    assign code_addr = {r.f.ps, 4'd0} + {4'd0, code_org + pc_r};
+    assign x_data = cx.x_data;
 
     always @(posedge clock) begin
         if (!reset_n) begin

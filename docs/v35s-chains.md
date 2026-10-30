@@ -6975,7 +6975,13 @@ classes out until HDL plan Phase E item 3), model-exact 22,837 = RTL-exact
 record and the write data are the RTL's own (`v35_operands`,
 `v35_execute` in `v35_eu.sv`; Phase D1), the same 23,678 runs exact under
 the thirty-ninth fit with every start's record, register file and datum
-checked, only the code window and the memory still served from outside. The
+checked, only the code window and the memory still served from outside; and
+since the same day the EU computes (Phase D2): the ALU and the full PSW with
+nuV30's semantics, real read and write data and the segment registers,
+checked against a functional reference (`funcref.py`: every start's register
+file and every cycle's datum, 91,980 data cycles matching silicon on their
+lanes) and the SingleStepTests V20 suite (1,651,237 pass, 0 fail through the
+RTL), the timing gates unchanged. The
 state row's `pc` is a chain offset like `ir` since the same day. The same
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");

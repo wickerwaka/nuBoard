@@ -847,6 +847,54 @@ decision differs it is said here.
   bits (`v35_rf_t` 180), the per-start dumps (2 × (197 + 180) bits) combinational. Left for
   D2: the full PSW from nuV30, real read and write data, signed MUL/DIV and the traps, the
   segment registers.
+- **D2, the EU computes (2026-10-30, WP71; docs/v35s-hdl-plan.md):** the ALU, the PSW, real
+  read and write data and the segment registers in `v35_eu.sv`, checked against the functional
+  reference `funcref.py` (every start's register file, every cycle's datum, the final state)
+  and the SingleStepTests V20 suite (`sst.py`). Timing gates unchanged. Decisions, the frozen
+  code followed for timing and nuV30 for function: (1) the state rows leave the `f_*` and
+  `x_*` fields out of the per-phase comparison, since the RTL updates them where the data
+  arrives, not at the model's start; the register file is checked before every start (the P
+  lines carry funcref's "before"), every EU cycle's datum (the D lines' fifth field and the W
+  line) and the final state through the HALT start; (2) RET's target comes from the stack
+  read at its delivery; the record shows target 0 for RET and the recorder's `e_tgt` is 0
+  until the read lands; `ret_*` leaves `v35_rf_t`; (3) the PSW is the full V35 layout,
+  initialised to F002h, Z no longer "unknown", Bcond on the real flags; (4) `eu_decode`
+  accepts all of 70–7F with the branch_short template where frozen `templates.decode` knows
+  74 and 75 alone; (5) real segment arithmetic: data address = segment base + offset (DS0, SS
+  for the BP modes, the prefix's segment), the stack adds SS's base inside `eu_addr` so the
+  request address is linear, the prefix is 3 bits; the frozen "DS1 store linear only at or
+  above the SFR page" rule is replaced, identical on all 635,078 starts; (6) `code_base`
+  becomes `code_org` (the IP of code offset 0), the code base PS's base + `code_org`; CALL
+  pushes the real IP where the frozen model pushed AW; (7) read data is real: the benches
+  serve an image the RTL's own writes update, the model's EU cycles are overlaid with
+  funcref's data (the write datum on its lanes, 0 driven on reads, the delivered word into
+  the BIU vectors), EU reads deliver the aligned word while fetches keep the queue's
+  unaligned convention; (8) OUT's datum is AW/AL at the issue, not latched at the start,
+  consistent with the io_interlock rationale (a form that may start while an OUT waits
+  changes AW only at a read delivery, after the issue); none differed; (9) lane conventions,
+  silicon-verified: an odd byte on D15–8 with the other lane 0, an odd word's first cycle
+  with its low byte on D15–8 and the second its high byte on D7–0, I/O reads 0000h (the SST
+  runs use FFFFh); (10) the SFR store drives its immediate (the RFM value), not AW, a
+  function-only choice (the cycle is internal and the refresh controller takes `eu.sfr`);
+  (11) funcref's memory is the image plus 0EFEh = 0002h (the prelude's push) plus a 90h
+  default, every silicon read in the corpus matching it; (12) functions not built raise
+  `V35_EE_FUNC` (11): F6/F7 /1, FF /2–/5 and /7, the register forms of F6/F7 /2 /3, FF and
+  8F, C6/C7 register forms, 8F /1–7, MOV PS (8E /1), PREPARE with a level, which the decoder
+  (frozen too) gives a memory or RMW template with no address; (13) divide errors raise
+  `V35_EE_DIV` (12) and leave the registers; DIVU traps when DW ≥ divisor where the frozen
+  code truncated; no corpus case; (14) V20 behaviours adopted where the suite decides: C6/C7
+  ignore the reg field, 8C/8E use reg & 3, the shift group's /6 is SHL, built because every
+  test passes that way; (15) POP R reads SP's slot on the V35 (model and silicon show eight
+  reads), the V20 does not; (16) an odd word at offset FFFFh splits at linear + 1 in the model
+  and the RTL where the V20/nuV30 wrap within the segment; not exercised, no corpus case;
+  (17) mutation 13 (BP modes in DS0) is caught by the unit bench alone, the corpus having
+  SS = DS0 = 0; (18) the regenerated frozen model writes two dead fields (`queue.xfer_abort`,
+  `queue.lea_ea` under the defaults), which `rtl_vectors` ignores (`DEAD_QUEUE_STORES`); (19)
+  the EU bench checks the datum too, formats V35EU-3 and V35RF-2; (20) the segment registers
+  are written by MOV sreg and POP sreg, PS excepted (not built). Widths: `v35_rf_t` 211,
+  `v35_fx_t` 86 (code48, wd, md, rk3, wk3), `v35_st_t` 879, `ESTATE_W` 879; ports `code_org`,
+  `c_data`, `x_data`, `rfx_*[210:0]`. Still scripted: the code window, the memory image, the
+  I/O read value, the initial register file. Not built: the trap sequence, the string forms.
 
 ### The request rule and the queue's room
 

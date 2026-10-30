@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Verilator build of the register file's unit bench (HDL plan, Phase D, D1): v35_eu_pkg's
-# eu_decode, v35_operands and v35_execute (fpga/v35s/core/v35_eu.sv) under fpga/v35s/v35_rf_tb.sv,
-# driven by v35_rf_tb.cpp with the vectors of validation/v35s/chains/rtl_vectors.py
-# (regfile_vectors). Binary: build/fpga/v35s/rf-tb/Vv35_rf_tb.
+# Verilator build of the register file's unit bench (HDL plan, Phase D, D1 and D2): v35_eu_pkg's
+# eu_decode, v35_operands, v35_execute, v35_deliver and v35_wdata (fpga/v35s/core/v35_eu.sv) under
+# fpga/v35s/v35_rf_tb.sv, driven by v35_rf_tb.cpp with the vectors of
+# validation/v35s/chains/rtl_vectors.py (regfile_vectors) and sst.py (--rtl). Binary:
+# build/fpga/v35s/rf-tb/Vv35_rf_tb.
 #
 #   fpga/v35s/build_rf_tb.sh
 #   PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --regfile --family F0
+#   PYTHONPATH=host/src:. python3 -m validation.v35s.chains.sst --rtl
 set -euo pipefail
 
 project_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

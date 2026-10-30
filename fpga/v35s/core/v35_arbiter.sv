@@ -56,7 +56,7 @@ module v35_arbiter
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
     parameter int NXOP = 6,                 // its touches on the EU per clock (v35_eu.sv)
     parameter int STATE_W = 103,            // $bits(v35_ast_t), checked below
-    parameter int ESTATE_W = 762,           // v35_eu.sv's STATE_W
+    parameter int ESTATE_W = 879,           // v35_eu.sv's STATE_W
     parameter int QSTATE_W = 180            // v35_queue.sv's STATE_W
 ) (
     input  wire        clock,

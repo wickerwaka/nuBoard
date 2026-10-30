@@ -11,10 +11,14 @@ and every queue op it makes, alone and with the RTL queue and bus unit. C4: v35_
 the core v35_chain_core.sv (the five machines together, the arbiter's decisions in RTL), every
 machine's state after every phase of every clock and the cycles; C5: the refresh controller
 (v35_refresh.sv) and the refresh's rules in the arbiter and the EU, on refresh-on runs (--core
-only). The gates' full runs:
+only); D1 and D2: the register file, the EA adder and the ALU (v35_eu_pkg) against the functional
+reference (funcref.py: nuV30's semantics, checked against the frozen model's timing quantities,
+silicon's data and SingleStepTests), in the benches and in the unit bench (v35_rf_tb). The
+gates' full runs:
 python -m validation.v35s.chains.rtl_vectors --family F0 F0w, --queue --family F0 F2 F9 F11,
 --joint --family F0 F2 F9 F11, --eu / --joint3 --family F1 F2 F3 F9 F11 F12 F20, --core
---family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29, --core --family F8 F13 F17 F18."""
+--family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29, --core --family F8 F13 F17 F18,
+--regfile and the corpus's --core over every family, funcref --silicon, sst and sst --rtl."""
 
 from __future__ import annotations
 
@@ -327,10 +331,12 @@ class EUVectors(unittest.TestCase):
         r = _sv_fields(sv, "v35_req_t")
         f = _sv_fields(sv, "v35_rf_t")
         self.assertEqual(f, [n for n, _ in rtl_vectors.FFIELDS])     # (D1) the register file
+        self.assertEqual(_sv_fields(sv, "v35_fx_t"),                 # (D2) the context
+                         [n for n, _ in rtl_vectors.XFIELDS])
         self.assertEqual(d, [n for n, _ in rtl_vectors.DFIELDS])
         self.assertEqual(e, [n for n, _ in rtl_vectors.EUFIELDS])
         self.assertEqual(r, [n for n, _ in rtl_vectors.RFIELDS])
-        self.assertEqual(_sv_fields(sv, "v35_st_t"), ["d", "e", "f", "r"])
+        self.assertEqual(_sv_fields(sv, "v35_st_t"), ["d", "e", "f", "x", "r"])
         self.assertIn("v35_req_t [2:0]     r;", sv)
         self.assertEqual(_sv_fields(dec, "v35_qview_t"), list(rtl_vectors.QVIEW))
         self.assertEqual(_sv_fields(dec, "v35_bview_t"), [n for n, _ in rtl_vectors.BVIEW])
@@ -719,73 +725,155 @@ class CoreBench(unittest.TestCase):
                 self.assertRegex(r.first, r"^FAIL clock \d+ ")
 
     def test_bench_catches_register_file_mutations(self):
-        """(D1) the register file's mutations (v35_eu.sv `mutate` 8..10): [BW+IX] computed
-        without IX (an EA mode), a push's SP step of 4, MOV r8,imm8 written to the other half
-        of its word (a write-back: CL into CH); the bench fails each at the start's record or
-        the register file after it (the EU's state rows carry both: the first failure is
-        the state's after the starting phase, or the start's own check)."""
+        """(D1, D2) the register file's and the ALU's mutations (v35_eu.sv `mutate` 8..12):
+        [BW+IX] computed without IX (an EA mode: the record), a push's SP step of 4 (the next
+        start's register file, or the record's stack offset), MOV r8,imm8 written to the other
+        half of its word (CL into CH: the shift's count, so its template, or the next start's
+        register file), ADD's AC inverted (the
+        next start's PSW), a memory write's datum with bit 0 flipped (the cycle's datum); the
+        bench fails each. (13, the BP-based modes in DS0, is the unit bench's: the corpus runs
+        with SS = DS0 = 0.)"""
         cfg = Config.fitted()
-        for mut, (family, part), state, what in (
-                (8, ("F21", "F21-out-l0-ld-bw_ix_d16-pE-w0"), "e_ea", "record ea"),
-                (9, ("F21", "F21-push-l0-ld-bw-pE-w0"), "f_sp", "registers sp"),
-                (10, ("F16", "F16-s-none-cl1-n1-shlcl-pO-w0"), "f_cw", "registers cw")):
+        for mut, (family, part), what in (
+                (8, ("F21", "F21-out-l0-ld-bw_ix_d16-pE-w0"), r"(after \w+ e_ea|start \d+ record ea)"),
+                (9, ("F21", "F21-push-l0-ld-bw-pE-w0"),
+                 r"(start \d+ registers sp|start \d+ record s[rw]|after \w+ e_s[rw])"),
+                (10, ("F16", "F16-s-none-cl1-n1-shlcl-pO-w0"),
+                 r"(start \d+ registers cw|start \d+ record count|after \w+ e_(tmpl|count))"),
+                (11, ("F14", "F14-t-push-add_bw_aw-pE-w0"), r"start \d+ registers psw"),
+                (12, ("F14", "F14-t-push-add_bw_aw-pE-w0"), r"data cycle datum")):
             rec = _run(family, part)
             with self.subTest(mutate=mut):
                 self.assertTrue(rtl_vectors.check_core_run(rec, cfg).ok)
                 r = rtl_vectors.check_core_run(rec, cfg, mutate=mut)
                 self.assertEqual(r.error, "")
                 self.assertFalse(r.ok)
-                self.assertGreater(r.opnd_bad, 0)
-                self.assertRegex(r.first,
-                                 rf"^FAIL clock \d+ (after \w+ {state}|start \d+ {what}) ")
+                self.assertRegex(r.first, rf"^FAIL clock \d+ {what} ")
 
 
-# D1 ------------------------------------------------------------------------------------------
+# D1, D2 --------------------------------------------------------------------------------------
 
-class RegfileVectors(unittest.TestCase):
-    def test_walk_is_the_models_starts(self):
-        """chain_walk's starts are the EU's (the operand records the recorder takes from the
-        running model, in order), and the walk's register file is the EU's after each."""
+ALL_FAMILIES = ("F0", "F0w") + tuple(f"F{i}" for i in range(1, 30))
+
+
+class FunctionalReference(unittest.TestCase):
+    """(D2) funcref.py: nuV30's semantics against the frozen model's timing quantities, silicon's
+    data and the ALU's laws."""
+
+    def test_agrees_with_the_frozen_execute_over_the_corpus(self):
+        """Every instruction start of the whole corpus (every family, the prelude's tail first,
+        the string forms included): the quantities the timing depends on (the memory operand's
+        address, the port, the stack offsets, the shift count, a transfer's decision and target,
+        a string form's start registers, element count and exit) are the frozen model's; and
+        every data cycle's datum (a write's, a read's delivered word, on the cycle's lanes) is
+        silicon's."""
+        from validation.v35s.chains import funcref
+        tot = funcref.agree_corpus(ALL_FAMILIES, silicon=True)
+        self.assertGreater(tot["runs"], 24000)
+        self.assertGreater(tot["starts"], 600000)
+        self.assertEqual((tot["bad"], tot["nm"], tot["trap"]), (0, 0, 0), tot["first"])
+        self.assertGreater(tot["scyc"], 90000)
+        self.assertEqual(tot["seq"], tot["scyc"], tot["first"])
+        self.assertEqual(tot["sbad"], 0, tot["first"])
+
+    def test_model_starts_are_the_references(self):
+        """The model's starts (the recorder's records) are the reference's, in order, with
+        its register file before each (the P lines), and the EU's cycles are its cycles."""
+        from validation.v35s.chains import funcref
         cfg = Config.fitted()
-        s = normalize(_run("F23", None))
-        _, _, erec = rtl_vectors.eu_vectors(s.chain, cfg, s.chain_base)
-        walk = rtl_vectors.chain_walk(s.chain)
-        self.assertEqual([o.offset for o in erec.opnds], [k for _, _, k in walk])
-        self.assertEqual([o.code for o in erec.opnds], [c for _, c, _ in walk])
-        self.assertEqual([o.rf for o in erec.opnds[:-1]], [rf for rf, _, _ in walk[1:]])
+        for family, part in (("F23", None), ("F25", "pushr_popr-pO"), ("F25", "prepare_dispose"),
+                             ("F25", "push_ds0_pop_ds0")):
+            s = normalize(_run(family, part))
+            _, cycles, erec = rtl_vectors.eu_vectors(s.chain, cfg, s.chain_base)
+            run = funcref.chain_run(s.chain, s.chain_base)
+            self.assertEqual([o.offset for o in erec.opnds], [st.pc for st in run.starts])
+            self.assertEqual([o.rf for o in erec.opnds],
+                             [rtl_vectors.rf_of(st.regs) for st in run.starts])
+            eu = [c for c in cycles if c.owner is erec.m.eu]
+            self.assertEqual([(c.kind, c.addr, c.width, c.data) for c in eu],
+                             [(c.kind, c.addr, c.width, c.data) for c in run.cycles])
+
+    def test_alu_laws(self):
+        """A few of nuV30's results by hand: ADD's carries and overflow, SUB's borrow, the
+        logic forms clearing CY V AC, INC keeping CY, ROLC through the carry, SHL's V, SHR by
+        more than the width, MULU leaving S Z AC P, MUL's S Z AC P of the low half's self-add,
+        DIVU's pre-check flags and trap, DIV's symmetric range trap."""
+        from validation.v35s.chains import funcref as fr
+        r, f = fr.alu(0, 0x7FFF, 1, 2, 0xF002)
+        self.assertEqual((r, f & fr.ARITH), (0x8000, (1 << fr.V) | (1 << fr.S) | (1 << fr.AC)
+                                              | (1 << fr.P)))
+        r, f = fr.alu(5, 0, 1, 1, 0)
+        self.assertEqual(r, 0xFF)
+        self.assertTrue(f & (1 << fr.CY) and f & (1 << fr.S) and f & (1 << fr.AC))
+        _, f = fr.alu(4, 0xFF, 0x0F, 1, 0xFFFF)
+        self.assertEqual(f & ((1 << fr.CY) | (1 << fr.V) | (1 << fr.AC)), 0)
+        _, f = fr.incdec(False, 0xFFFF, 2, 1 << fr.CY)
+        self.assertTrue(f & (1 << fr.CY) and f & (1 << fr.Z))
+        r, f = fr.shift(2, 0x80, 1, 1, 0)                       # ROLC 80h: CY 1, AL 0
+        self.assertEqual((r, f & 1), (0x00, 1))
+        r, f = fr.shift(4, 0x4000, 1, 2, 0)                     # SHL: V = MSB ^ CY
+        self.assertTrue(f & (1 << fr.V))
+        r, f = fr.shift(5, 0xFFFF, 17, 2, 0)
+        self.assertEqual((r, f & 1), (0, 0))
+        p, f = fr.mul(False, 0xFF, 0xFF, 1, 0x00D5)
+        self.assertEqual((p, f & 0x00D4, f & 0x0801), (0xFE01, 0x00D4, 0x0801))
+        p, f = fr.mul(True, 0x80, 0x7F, 1, 0)                   # C080h: lo 80h: Z 1, S 0
+        self.assertEqual(p, 0xC080)
+        self.assertTrue(f & (1 << fr.Z) and not f & (1 << fr.S))
+        q, rem, f, trap = fr.div(False, 0x0100, 0x01, 1, 0)    # AH 1 >= 1: the trap
+        self.assertTrue(trap)
+        q, rem, f, trap = fr.div(False, 0x1234, 0x56, 1, 0)
+        self.assertEqual((q, rem, trap), (0x1234 // 0x56, 0x1234 % 0x56, False))
+        self.assertTrue(f & (1 << fr.CY))                       # SUB(12h, 56h) borrows
+        self.assertTrue(fr.div(True, 0x3C15, 0x88, 1, 0)[3])   # quotient -128 traps
+        for cc in range(16):
+            self.assertNotEqual(fr.cond(cc, 0), fr.cond(cc ^ 1, 0))
+
+
+@unittest.skipUnless((rtl_vectors.ROOT / "build" / "deps" / "sst-v20" / "v1_native" / "00.json.gz")
+                     .exists(), "SingleStepTests not fetched: tools/fetch_sst_v20.py")
+class SingleStepTests(unittest.TestCase):
+    """(D2) the V20 suite: the reference (and, built, the unit bench) on a sample of files."""
+    FILES = ("01", "2B", "81.3", "C1.2", "D3.7", "F7.6", "F7.7", "F6.5", "8F", "61", "C3", "7C")
+
+    def test_reference_passes(self):
+        from validation.v35s.chains import sst
+        res = sst.check_funcref(self.FILES, show=0)
+        for stem, counts in res.items():
+            self.assertEqual(counts.get("fail", 0), 0, (stem, counts))
+            self.assertGreater(counts.get("pass", 0), 2000, (stem, counts))
+
+    @unittest.skipUnless(rtl_vectors.RFBENCH.exists(), "bench not built: fpga/v35s/build_rf_tb.sh")
+    def test_rtl_passes(self):
+        res = rtl_vectors.check_sst(self.FILES, show=0)
+        for stem, counts in res.items():
+            self.assertFalse([k for k in counts if k.startswith("rtl fail")], (stem, counts))
+            self.assertGreater(counts.get("pass", 0), 2000, (stem, counts))
 
 
 @unittest.skipUnless(rtl_vectors.RFBENCH.exists(), "bench not built: fpga/v35s/build_rf_tb.sh")
 class RegfileBench(unittest.TestCase):
-    FAMILIES = ("F0", "F0w") + tuple(f"F{i}" for i in range(1, 30))
-
-    def test_every_form_against_execute(self):
-        """eu_decode, v35_operands and v35_execute against templates.decode and execute on
-        every instruction start of the corpus's chains, every encoding on random register
-        files, and the 24 ModR/M memory modes on the address-computing forms."""
-        bad, counts, out = rtl_vectors.check_regfile(self.FAMILIES)
+    def test_every_form_against_the_reference(self):
+        """eu_decode, v35_operands, v35_execute, v35_deliver and v35_wdata against the
+        functional reference on every instruction start of the corpus's chains, every encoding
+        on random register files and memory, the 24 ModR/M memory modes on the
+        address-computing forms and random operands on every ALU form."""
+        bad, counts, out = rtl_vectors.check_regfile(ALL_FAMILIES)
         self.assertEqual(bad, 0, out[-1500:])
         self.assertGreater(counts["walk"], 1000)
         self.assertGreater(counts["modes"], 24 * 8)
+        self.assertGreater(counts["alu"], 3000)
 
     def test_mutations_are_caught(self):
-        """The unit bench fails each register-file mutation on the mode vectors."""
-        import subprocess
-        import tempfile
-        from pathlib import Path
-        text, _ = rtl_vectors.regfile_vectors(("F21",))
-        for mut, field in ((8, "ea"), (9, "sp"), (10, "")):
-            lines = text.splitlines()
-            bad = [lines[0]] + [" ".join(f[:18] + [str(mut)] + f[19:])
-                                for f in (ln.split() for ln in lines[1:])]
-            with tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "m.rfvec"
-                path.write_text("\n".join(bad) + "\n")
-                p = subprocess.run([str(rtl_vectors.RFBENCH), str(path)], capture_output=True,
-                                   text=True)
+        """The unit bench fails each register-file and ALU mutation: an EA mode (8), a push's SP
+        step (9), MOV r8,imm8's byte (10), ADD's AC (11), a write's datum (12), the BP-based
+        modes' segment (13: random segments)."""
+        for mut, field in ((8, "ea"), (9, "sp"), (10, ""), (11, "psw"), (12, "write datum"),
+                           (13, "ea")):
             with self.subTest(mutate=mut):
-                self.assertEqual(p.returncode, 1, p.stdout[-300:])
-                self.assertRegex(p.stdout, rf"FAIL vector \d+ code \w+ {field}")
+                bad, _, out = rtl_vectors.check_regfile(("F21",), mutate=mut)
+                self.assertGreater(bad, 0)
+                self.assertRegex(out, rf"FAIL vector \d+ code \w+ {field}")
 
 
 if __name__ == "__main__":
