@@ -5308,7 +5308,7 @@ The corpus is 23,549/24,524 exact over the 30 scored families.
 **The fortieth fit** (`fit.json`, md5 23562d00; scratchpad wp72/fit-wp72.json, WP72, fitted and verified 2026-10-30,
 adopted the same day after HDL plan D2; until then the tracked file was the thirty-ninth fit in the fortieth's schema,
 the six new fields at their defaults, md5 bf77c277. The RTL has none of the new mechanisms until the catch-up package
-WP75: at the adoption the `--core` gate differs from the model on 213 F23/F25 runs (F23 60, F25 153) and, in an internal latch field only, 4 F0w runs, among the families sampled at the adoption (F0–F7, F23, F25), and `rtlgen` leaves the `dispose` class out of
+WP75: at the adoption the `--core` gate differs from the model on 359 of 26,234 runs (F23 60, F25 153, F30 142, and 4 F0w runs in an internal latch field only; 24,183 exact, 1,692 not modelled), and `rtlgen` leaves the `dispose` class out of
 the step tables, so `test_rtlgen`'s class check fails until then) takes the
 F25 and F23 miss shapes by size. Six new enums, one existing enum flipped, two new class integers, four moved; F25
 446 → 534/588 and F23 255 → 303/360 with nothing lost in any family, 23,685/24,524 over the 30 scored families. Stage

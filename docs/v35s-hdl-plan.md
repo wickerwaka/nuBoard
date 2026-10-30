@@ -545,7 +545,7 @@ then the RTL. In the order the generator gains them:
    `prepare_sync=run` and `imm_latch=wait` (the EU's requests, EA clocks,
    take sync and the decoder's immediate against the latch); adopted
    2026-10-30 after D2, the RTL catching up in WP75: at the adoption the
-   `--core` gate differs from the model on 213 F23/F25 runs (F23 60, F25 153) and, in an internal latch field only, 4 F0w runs, among the families sampled at the adoption (F0–F7, F23, F25); `rtlgen` leaves the
+   `--core` gate differs from the model on 359 of 26,234 runs (F23 60, F25 153, F30 142, and 4 F0w runs in an internal latch field only; 24,183 exact, 1,692 not modelled); `rtlgen` leaves the
    `dispose` class out of the step tables and `test_rtlgen`'s class check
    fails. That is the baseline WP75 clears (its whole-corpus run under the
    adopted fit is in scratchpad wp72a/core-all-baseline.txt). The probe
