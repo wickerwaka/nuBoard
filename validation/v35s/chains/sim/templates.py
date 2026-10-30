@@ -79,6 +79,17 @@ class Op:
                                  # EU goes on at (None: not taken, or no transfer)
     cond: bool = False           # (WP55) a transfer with a condition field (the 70-7F row's low
                                  # nibble names the flag test: BE, BNE), a format property
+    # (WP67, F24) the string forms: rep is the repeat prefix byte (F3 REP / REPE, F2 REPNE) the
+    # form carries, None without one; ix / iy the element addresses' starting offsets (the
+    # source DS0:IX, the destination DS1:IY, linear: the model's segments are 0), port DW;
+    # n the elements the form runs (from the registers: CW with a prefix, else 1; the EU
+    # sets the chain walk's count, sim/machine.py) and cond whether a REP compare's repeat
+    # ended on its condition at the last element (the walk's; False: CW ran out)
+    rep: int | None = None
+    ix: int = 0
+    iy: int = 0
+    n: int = 0
+    cond: bool = False
 
 
 def _modrm(code: bytes, k: int, regs: dict):
@@ -105,6 +116,10 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
     op = code[k] if k < len(code) else 0x90
     if op in PREFIXES:
         return Op(k, 1, "prefix", op)
+    if op & 0xFE in STRING_OPS or op in REP_PREFIXES:
+        sop = _string_op(code, k, regs)        # (WP67, F24) the string forms
+        if sop is not None:
+            return sop
     if op in (0x90, 0x92):
         return Op(k, 1, "reg", op)
     if op == 0xF4:
@@ -268,6 +283,40 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
     return Op(length=length, cls=cls, **base)
 
 
+# (WP67, F24) the string forms by their even opcode (bit 0: the word form): the class, and one
+# element's bus cycles in order, (kind, operand) with operand ix (the source, DS0:IX), iy (the
+# destination, DS1:IY) or port (DW). CMPBK reads the destination first (F24 silicon). A REP
+# prefix (F3, F2) before one of them is part of the form (one instruction of two bytes), not a
+# pseudo-instruction as a segment prefix is.
+STRING_OPS = {0xA4: "str_move", 0xA6: "str_cmp", 0xAA: "str_store", 0xAC: "str_load",
+              0xAE: "str_scan", 0x6C: "str_in", 0x6E: "str_out"}
+STRING_STEPS = {"str_move": (("read", "ix"), ("write", "iy")),
+                "str_cmp": (("read", "iy"), ("read", "ix")),
+                "str_store": (("write", "iy"),),
+                "str_load": (("read", "ix"),),
+                "str_scan": (("read", "iy"),),
+                "str_in": (("io_read", "port"), ("write", "iy")),
+                "str_out": (("read", "ix"), ("io_write", "port"))}
+STRING_CLASSES = tuple(STRING_STEPS)
+STRING_COMPARES = ("str_cmp", "str_scan")     # REPE / REPNE: the repeat tests the result
+REP_PREFIXES = (0xF2, 0xF3)
+
+
+def _string_op(code: bytes, k: int, regs: dict):
+    """(WP67, F24) the string form at k (with its REP prefix), or None."""
+    op = code[k] if k < len(code) else 0x90
+    rep = None
+    if op in REP_PREFIXES and k + 1 < len(code) and code[k + 1] & 0xFE in STRING_OPS:
+        rep, op = op, code[k + 1]
+    cls = STRING_OPS.get(op & 0xFE)
+    if cls is None:
+        return None
+    port = regs["DW"] if cls in ("str_in", "str_out") else None
+    return Op(k, 2 if rep is not None else 1, cls, op, width=1 + (op & 1), port=port,
+              rep=rep, ix=regs["IX"], iy=regs["IY"],
+              n=regs["CW"] if rep is not None else 1)
+
+
 REG16 = ("AW", "CW", "DW", "BW", "SP", "BP", "IX", "IY")
 REG8 = (("AW", 0), ("CW", 0), ("DW", 0), ("BW", 0), ("AW", 8), ("CW", 8), ("DW", 8), ("BW", 8))
 FILL_WORD = 0x9090           # every data word reads the 0x90 fill (types.DATA_FILL)
@@ -397,6 +446,16 @@ def execute(op: Op, code: bytes, regs: dict):
         regs[f"ret{regs['SP']:04X}"] = k + op.length
     if op.cls == "ret":
         regs["SP"] = (regs["SP"] + 2) & 0xFFFF      # (WP55) RET
+    if op.cls in STRING_CLASSES:
+        # (WP67, F24) IX / IY stepped upward (DIR clear) by the elements run, CW counted down
+        used = {place for _, place in STRING_STEPS[op.cls]}
+        step = op.n * op.width
+        if "ix" in used:
+            regs["IX"] = (regs["IX"] + step) & 0xFFFF
+        if "iy" in used:
+            regs["IY"] = (regs["IY"] + step) & 0xFFFF
+        if op.rep is not None:
+            regs["CW"] = (regs["CW"] - op.n) & 0xFFFF
 
 
 def io_ports(code: bytes, regs: dict, start: int = 0) -> dict:
@@ -849,6 +908,8 @@ def _steps(op: Op, cfg) -> list[tuple]:
         # the flush, post clocks
         return [("clocks", c("pre")), ("data", "read", op.stack[0], 2, c("setup")),
                 ("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
+    if cls in STRING_CLASSES:
+        return _string_steps(op, cfg)
     if cls in ("out", "in"):
         kind = "io_write" if cls == "out" else "io_read"
         pre = c("pre") if rest else c("pre0")  # no port byte (DW forms): pre0 (default 0)
@@ -869,3 +930,62 @@ def _steps(op: Op, cfg) -> list[tuple]:
         return [("clocks", pre), ("take", rest), ("clocks", c("exec")),
                 ("data", kind, op.port, op.width, c("setup")), ("clocks", c("post"))]
     raise ValueError(cls)
+
+
+def _string_steps(op: Op, cfg) -> list[tuple]:
+    """(WP67, F24) a string form: each element's bus cycles in order (STRING_STEPS), each a
+    data step (the EU posts the request and waits: a read for its data, a write until it is
+    issued, write_wait), the element's first cycle with its own setup and every later one
+    with mid. The addresses step by the width from IX / IY (an odd word splits per
+    odd_split); an I/O cycle runs at the I/O waits.
+
+    Without a prefix: pre clocks, the one element (setup), exec clocks.
+    REP: the string opcode's take after the prefix (str_take: with the take sync; chained, none;
+    quiet: chained, then a wait until no fetch is on the bus or wanted, the refill done), rpre
+    clocks (str_setup=nowait: counted only on clocks no memory cycle is in a wait state); with no element (CW = 0) zexit clocks and the end; else the elements,
+    the first with first, element 1 (the second) with loop1 when the class has one, the rest
+    with loop; the last cycle of the element that runs CW out last more clocks; then, with
+    str_overrun=read, a REP compare issues the next element's reads (at the next IX / IY, as
+    a loop element: the read the loop posts before the element's termination test takes
+    effect, nothing compared with it; silicon's in every REP compare that ran an element);
+    then the exit: rexit clocks when CW ran out, cexit when a compare's condition ended it.
+    str_hold=hold: after each compared element a compare raises no fetch request for its
+    class's chold clocks (the result's clocks; F24: a single CMPM's or CMPBK's next fetch is 2
+    to 3 clocks after its read where LDM's follows the read at once)."""
+    c = lambda name: cfg.c(op.cls, name)
+    w, cyc = op.width, STRING_STEPS[op.cls]
+    has = cfg.cost.get(op.cls, {})
+
+    def element(i: int, setup: int, last: bool = False, kinds=None) -> list[tuple]:
+        out = []
+        for j, (kind, place) in enumerate(cyc):
+            if kinds is not None and kind not in kinds:
+                continue
+            addr = {"ix": (op.ix + i * w) & 0xFFFF, "iy": (op.iy + i * w) & 0xFFFF,
+                    "port": op.port}[place]
+            st = setup if not out else c("mid")
+            if last and j == len(cyc) - 1:
+                st += c("last")
+            out.append(("data", kind, addr, w, st))
+        if (out and kinds is None and cfg.str_hold == "hold" and op.cls in STRING_COMPARES
+                and c("chold")):
+            out.append(("fetch_hold", c("chold")))
+        return out
+
+    def loop(i: int) -> int:
+        return c("loop1") if i == 1 and "loop1" in has else c("loop")
+
+    if op.rep is None:
+        return [("clocks", c("pre"))] + element(0, c("setup")) + [("clocks", c("exec"))]
+    seq = [("take", 1) if cfg.str_take == "sync" else ("take", 1, "chain")]
+    if cfg.str_take == "quiet":
+        seq.append(("quiet",))
+    seq.append(("nowait" if cfg.str_setup == "nowait" else "clocks", c("rpre")))
+    if not op.n:
+        return seq + [("clocks", c("zexit"))]
+    for i in range(op.n):
+        seq += element(i, c("first") if i == 0 else loop(i),
+                       last=i == op.n - 1 and not op.cond)
+    if cfg.str_overrun == "read" and op.cls in STRING_COMPARES:
+        seq += element(op.n, loop(op.n), kinds=("read",))
+    return seq + [("clocks", c("cexit" if op.cond else "rexit"))]

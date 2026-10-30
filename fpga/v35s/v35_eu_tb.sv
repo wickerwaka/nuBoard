@@ -13,8 +13,8 @@
 // Build: fpga/v35s/build_eu_tb.sh (binary in build/fpga/v35s/eu-tb/).
 module v35_eu_tb #(
     parameter int NQ = 16,
-    parameter int NXOP = 4,
-    parameter int STATE_W = 516,
+    parameter int NXOP = 6,
+    parameter int STATE_W = 582,
     parameter int JSLOT = 40,
     parameter int QSTATE_W = 180
 ) (
@@ -39,7 +39,7 @@ module v35_eu_tb #(
     input  wire        x_valid,
     input  wire [2:0]  x_kind,
     input  wire        x_eu,
-    input  wire [NXOP-1:0][10:0] xop,
+    input  wire [NXOP-1:0][11:0] xop,
     input  wire [2:0][6:0] counts_t,
     input  wire [2:0][6:0] counts_p,
     input  wire        q_latch_in,
@@ -128,6 +128,7 @@ module v35_eu_tb #(
     output wire [2:0]  cur_pos_x,
     output wire [2:0]  cur_len_x,
     output wire [2:0]  fetch_len,
+    output wire [2:0]  refresh_len_now,
     output wire        biu_error,
     output wire [63:0] biu_state,
     // the queue's phase C and E inputs (joint): the bus unit's delivery, the EU's
@@ -136,8 +137,11 @@ module v35_eu_tb #(
 `include "v35_chain_params.svh"
 
     wire [2:0] fresh_l, fresh_p;            // the arbiter's (C4); unread here
+    // (C5) the refresh: this bench runs refresh-off chains only (rtl_vectors --eu/--joint3;
+    // --core models refresh): no controller, no early fetch run
     v35_eu #(.NQ(NQ), .NXOP(NXOP), .STATE_W(STATE_W)) eu (
-        .clock, .reset_n, .ce, .init_state, .code_base, .c_eu, .c_read, .fetch_done, .bus_t, .bus_p,
+        .clock, .reset_n, .ce, .init_state, .code_base, .refresh_on(1'b0), .c_eu, .c_read,
+        .fetch_done, .bus_t, .bus_p, .early_t(5'd0), .early_p(5'd0),
         .opnd_a, .opnd_b, .qv_tl, .rd_tl, .qv_p, .rd_p, .x_valid, .x_kind, .x_eu, .xop,
         .counts_t, .counts_p, .q_latch_in, .op_tl, .n_tl, .n_t, .op_p, .n_p, .n_start,
         .wl_fill_t, .wl_fill_x, .wl_fill_p, .x_cyc, .x_cyc_kind, .x_cyc_addr, .x_cyc_width,
@@ -181,7 +185,7 @@ module v35_eu_tb #(
         .busy, .free, .fetch_inflight, .in_wait, .fetch_end_prev, .fetch_since, .io_win,
         .wlatch_busy, .cur_kind, .cur_pos, .cur_len,
         .busy_x, .free_x, .fetch_inflight_x, .in_wait_x, .fetch_end_prev_x, .fetch_since_x,
-        .io_win_x, .wlatch_busy_x, .cur_kind_x, .cur_pos_x, .cur_len_x, .start_len, .fetch_len,
+        .io_win_x, .wlatch_busy_x, .cur_kind_x, .cur_pos_x, .cur_len_x, .start_len, .fetch_len, .refresh_len_now,
         .error(biu_error), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
         .iostb_n, .read_write, .refrq_n, .data_in, .state_dump(biu_state));
 endmodule

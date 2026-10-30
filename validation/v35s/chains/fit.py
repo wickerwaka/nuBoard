@@ -58,7 +58,7 @@ from pathlib import Path
 from .derive import variant_of
 from .families import FAMILIES, UNMODELLED
 from .score import aligned
-from .sim.config import DEFAULT, OPTIONS, Config
+from .sim.config import DEFAULT, DEFAULT_COST, OPTIONS, Config
 
 OUT_DIR = Path("build/validation/v35s/chains/fit")
 MISMATCH = 8                 # residual charged when the first differing events differ in kind
@@ -1704,7 +1704,22 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   9: ["F25"],
                   10: ["F23"],
                   11: ["F27"],
-                  12: ["F28", "F29"]}
+                  12: ["F28", "F29"],
+                  13: ["F24"]}
+
+# Stage 13 (WP67, F24): the string and block forms. From the previous stage's output (the
+# tracked fit), the string templates' enums (F24_ENUMS: the REP form's opcode take, the REP
+# compare's overrun read) as a grid at the input's integers (the top 2 descended over
+# F24_INTS, the seven str_* classes' integers), then the sweep over F24_ENUMS with F24_INTS
+# descended inside every move; the corpus guard over every modelled run is the guard, as in
+# stages 9 to 12 (no run outside F24 reads a str_* class or the new enums: a move can only
+# change F24).
+F24_ENUMS = {n: OPTIONS[n] for n in ("str_take", "str_setup", "str_overrun", "str_hold")}
+F24_INTS = [f"{cls}.{name}" for cls in ("str_move", "str_cmp", "str_store", "str_load",
+                                        "str_scan", "str_in", "str_out")
+            for name in ("pre", "setup", "mid", "exec", "rpre", "zexit", "first", "loop",
+                         "loop1", "last", "rexit", "cexit", "chold", "nx")
+            if name in DEFAULT_COST[cls] or name == "nx"]
 
 # Stage 12 (WP61, F28, F29): the refresh at a unit's exit before an OUT, the beaten fetch's
 # successor, the group forms' displacement hold and the DW form's lift. From the previous
@@ -2404,6 +2419,16 @@ def stage12(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage13(prev: dict, log=say) -> dict:
+    """(WP67) F24: the string templates' enums as a grid at the input's integers (the top 2
+    descended over F24_INTS), then the sweep over F24_ENUMS with F24_INTS descended inside
+    every move; the corpus guard is the guard, as in stages 9 to 12."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 13 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(13, prev, F24_ENUMS, F24_INTS, log, top_k=2, pairs_k=1, sweep=F24_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -2463,8 +2488,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage10(prev, log)
     elif stage == 11:
         out = stage11(prev, log)
-    else:
+    elif stage == 12:
         out = stage12(prev, log)
+    else:
+        out = stage13(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -2482,9 +2509,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 13), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 13), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-12 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 14), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 14), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-13 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -2522,7 +2549,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 13) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 14) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")

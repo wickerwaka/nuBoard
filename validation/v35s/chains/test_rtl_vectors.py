@@ -9,10 +9,12 @@ every read; then the queue and the bus unit together (the fetches the RTL queue'
 cycles as the model's. C3: v35_eu.sv (the decoder and the EU), the state after every phase
 and every queue op it makes, alone and with the RTL queue and bus unit. C4: v35_arbiter.sv and
 the core v35_chain_core.sv (the five machines together, the arbiter's decisions in RTL), every
-machine's state after every phase of every clock and the cycles. The gates' full runs:
+machine's state after every phase of every clock and the cycles; C5: the refresh controller
+(v35_refresh.sv) and the refresh's rules in the arbiter and the EU, on refresh-on runs (--core
+only). The gates' full runs:
 python -m validation.v35s.chains.rtl_vectors --family F0 F0w, --queue --family F0 F2 F9 F11,
 --joint --family F0 F2 F9 F11, --eu / --joint3 --family F1 F2 F3 F9 F11 F12 F20, --core
---family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29."""
+--family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29, --core --family F8 F13 F17 F18."""
 
 from __future__ import annotations
 
@@ -339,8 +341,11 @@ class EUVectors(unittest.TestCase):
         for n, v in codes.items():
             self.assertEqual(rtl_vectors.QOPS.index(n), v, n)
         x = dict((n.lower(), int(v)) for n, v in
-                 re.findall(r"localparam logic \[2:0\] V35_XOP_(\w+) = 3'd(\d+);", sv))
+                 re.findall(r"localparam logic \[3:0\] V35_XOP_(\w+) = 4'd(\d+);", sv))
         self.assertEqual(x, {n: i for i, n in enumerate(rtl_vectors.XOPS) if i})
+        self.assertIn(f"localparam int V35_XOP_W = {rtl_vectors.XOP_W};", sv)
+        tags = dict((n.lower(), int(v)) for n, v in re.findall(r"CT_(\w+) = 3'd(\d+)", sv))
+        self.assertEqual(tags, {(t or "none"): i for i, t in enumerate(rtl_vectors.CLK_TAGS)})
         w = dict(rtl_vectors.QFIELDS)
         self.assertEqual(sum(w[k] for k in rtl_vectors.QVIEW), 52)
         self.assertEqual(sum(b for _, b in rtl_vectors.BVIEW), 18)
@@ -370,7 +375,8 @@ class EUVectors(unittest.TestCase):
         self.assertTrue({"e_ins", "e_shift_latched", "e_reg_early", "r1_valid", "e_exec_v",
                          "defer", "issue", "fetch_start", "free0", "sync_one"} <= seen, seen)
 
-    def test_refresh_on_is_c5s(self):
+    def test_refresh_on_is_the_cores(self):
+        """The scripted-arbiter EU benches run refresh-off chains only (C5: --core)."""
         s = normalize(_run("F13", "F13-r-"))
         with self.assertRaises(rtl_vectors.NotModelled):
             rtl_vectors.eu_vectors(s.chain, self.cfg, s.chain_base)
@@ -443,6 +449,7 @@ class EUBench(unittest.TestCase):
 # C4 ------------------------------------------------------------------------------------------
 
 ARB_SV = rtl_vectors.ROOT / "fpga" / "v35s" / "core" / "v35_arbiter.sv"
+REF_SV = rtl_vectors.ROOT / "fpga" / "v35s" / "core" / "v35_refresh.sv"
 CORE_SV = rtl_vectors.ROOT / "fpga" / "v35s" / "core" / "v35_chain_core.sv"
 
 # runs that reach the arbiter's edges (rtl_vectors' C4 recorder): free_hold's held fetch,
@@ -466,9 +473,10 @@ class ArbiterVectors(unittest.TestCase):
         package's, and the core's view of the queue every QVIEW field."""
         sv, core = ARB_SV.read_text(), CORE_SV.read_text()
         self.assertEqual(_sv_fields(sv, "v35_arq_t"), [n for n, _ in rtl_vectors.ARQFIELDS])
-        self.assertEqual(_sv_fields(sv, "v35_ast_t"), ["q", "run", "io_v", "io_age"])
+        hist = [n for n, _ in rtl_vectors.ARFIELDS[3 * len(rtl_vectors.ARQFIELDS):]]
+        self.assertEqual(_sv_fields(sv, "v35_ast_t"), ["q"] + hist)
         self.assertIn("v35_arq_t [2:0] q;", sv)
-        self.assertEqual([n for n, _ in rtl_vectors.ARFIELDS][-3:], ["run", "io_v", "io_age"])
+        self.assertEqual(hist[:3], ["run", "io_v", "io_age"])
         self.assertIn(f"parameter int STATE_W = {rtl_vectors.ASTATE_W}", sv)
         self.assertIn(f"parameter int ASTATE_W = {rtl_vectors.ASTATE_W}", core)
         self.assertIn(f"parameter int NXQ = {rtl_vectors.NXQ}", sv)
@@ -476,12 +484,17 @@ class ArbiterVectors(unittest.TestCase):
         self.assertIn(f"parameter int JSLOT = {rtl_vectors.JSLOT}", core)
         self.assertIn(f"parameter int STATE_W = {rtl_vectors.ESTATE_W}", core)
         self.assertIn(f"parameter int QSTATE_W = {rtl_vectors.QSTATE_W}", core)
-        x = dict((n.lower(), int(v)) for n, v in
-                 re.findall(r"localparam logic \[2:0\] V35_XOP_(\w+) = 3'd(\d+);", sv))
-        self.assertEqual(x, {n: i for i, n in enumerate(rtl_vectors.XOPS) if i})
         used = set(re.findall(r"V35_QOP_(\w+)", sv))
         self.assertTrue(used <= {n.upper() for n in rtl_vectors.QOPS}, used)
-        self.assertEqual(used, {"WANT", "ROOM", "TRIPLE", "ISSUE", "ABORT", "REDATE", "IO_HELD_CLR"})
+        self.assertEqual(used, {"WANT", "ROOM", "TRIPLE", "ISSUE", "ABORT", "REDATE", "IO_HELD_CLR",
+                                "LOST_EVAL", "LOST_HALT", "LOST_AFTER", "DROP", "BEAT", "T4"})
+        self.assertIn(f"parameter int NXOP = {rtl_vectors.NXOP}", sv)
+        self.assertIn(f"parameter int NXOP = {rtl_vectors.NXOP}", core)
+        # (C5) the refresh controller's state and widths
+        rsv = REF_SV.read_text()
+        self.assertEqual(_sv_fields(rsv, "v35_rst_t"), [n for n, _ in rtl_vectors.RFFIELDS])
+        self.assertIn(f"parameter int STATE_W = {rtl_vectors.RSTATE_W}", rsv)
+        self.assertIn(f"parameter int RSTATE_W = {rtl_vectors.RSTATE_W}", core)
         self.assertEqual(sorted(re.findall(r"^\s*v\.(\w+) = s\.\1;", core, re.M)),
                          sorted(rtl_vectors.QVIEW))
 
@@ -515,10 +528,19 @@ class ArbiterVectors(unittest.TestCase):
                 "st:eu_halted"}
         self.assertTrue(want <= seen, want - seen)
 
-    def test_refresh_on_is_c5s(self):
+    def test_refresh_on_is_modelled(self):
+        """(C5) a refresh-on run is recorded for the core bench: the controller's state on every
+        clock, its counter at clock 0 POP_COUNTER's (the vector header)"""
+        from validation.v35s.chains.sim.frozen.refresh import POP_COUNTER
         s = normalize(_run("F13", "F13-r-"))
-        with self.assertRaises(rtl_vectors.NotModelled):
-            rtl_vectors.core_vectors(s.chain, self.cfg, s.chain_base)
+        et, qt, bt, at, cycles, erec, arec = rtl_vectors.core_vectors(s.chain, self.cfg,
+                                                                      s.chain_base)
+        head = at.splitlines()[0].split()
+        self.assertEqual(head[0], "V35ARB-2")
+        self.assertEqual(head[4:], ["1", str(POP_COUNTER[(s.chain.rfm, s.chain.wtc)])])
+        self.assertEqual(len(arec.ref.clocks), len(arec.clocks))
+        self.assertEqual(sum(1 for x in at.splitlines() if x.startswith("R ")),
+                         1 + 2 * len(arec.clocks))
 
     def test_an_unclassified_store_raises(self):
         """The recorder's classification: a store of the arbiter's it does not know raises."""
@@ -528,9 +550,108 @@ class ArbiterVectors(unittest.TestCase):
         with self.assertRaises(rtl_vectors.NotModelled):
             arec.store("xeu", {1}, 5)
         with self.assertRaises(rtl_vectors.NotModelled):
+            arec.store("beat_ext", 2, 5)
+        with self.assertRaises(rtl_vectors.NotModelled):
             arec.store("ready_since", 4, 5)
         with self.assertRaises(rtl_vectors.NotModelled):
             arec.store("setup", 3, 5)
+
+
+# (C5) refresh-on runs reaching the refresh's edges (a search over F8/F13/F17/F18): a beaten
+# fetch, a lost request raised again (refresh_lost=start and a count loop's re-raise), the RFM
+# store taking effect rfm_delay clocks after its issue, a refresh in a count loop (MULU's
+# loop_odd and its exit), beside a posted I/O's lead, in HALT (the deferred status), in a memory
+# shift's write setup and by CL's read (refresh_grpcl), refresh_post's beat_ext, the lost request
+# in HALT (lost_after), refresh_beat_t4, and pop_refresh=stall in the prelude's POP PSW
+# (WP68) an F24 run with a string form (MOVBK): every mode raises NotModelled (Phase E3)
+F24_STRING = "F24-out-s-movbk-b-k1-pE-w0"
+RSAMPLE = (("F8", "F8-push-st_bw-k4-pE-w1"), ("F17", "F17-p-n1-mulu-pE-w1"),
+           ("F18", "F18-b-n1-shlmcl-pE-w1"), ("F13", "F13-r-rfm-f2-pE-w0"),
+           ("F13", "F13-r-rfm-f2-pE-w2"))
+
+
+class RefreshVectors(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.cfg = Config.fitted()
+
+    def test_vectors_reach_the_edges(self):
+        """The refresh samples reach every refresh rule the gate needs, and every store the frozen
+        code makes into the controller, the EU and the requests under refresh is classified (the
+        recorders raise on any other)."""
+        seen = set()
+        for family, part in RSAMPLE:
+            s = normalize(_run(family, part))
+            et, qt, bt, at, cycles, erec, arec = rtl_vectors.core_vectors(s.chain, self.cfg,
+                                                                          s.chain_base)
+            rrec = arec.ref
+            self.assertIsNotNone(rrec)
+            if rrec.applies:
+                seen.add("rfm_apply")
+                # the store's issue and its effect rfm_delay (3) clocks later
+                ref = erec.m.refresh
+                self.assertTrue(all(at_ - t0 == self.cfg.rfm_delay for t0, at_, _ in ref.writes))
+            prev = None
+            for ac, ck, (rt, sr, se) in zip(arec.clocks, erec.clocks, rrec.clocks):
+                self.assertEqual(rt, ck.t)
+                self.assertLessEqual(len(ck.xops), rtl_vectors.NXOP)
+                self.assertLessEqual(len(ck.xq), rtl_vectors.NXQ)
+                ops = {o.code for o in ck.tl + ck.xq + ck.p}
+                seen |= {"q:" + c for c in ops & {"beat", "drop", "lost_eval", "lost_halt",
+                                                  "lost_after", "t4", "reraise", "halt"}}
+                xs = dict(ck.xops)
+                seen |= {"x:" + x for x in xs if x in ("refresh", "setup", "beat", "halt_defer")}
+                l = ck.states["l"]
+                if "refresh" in xs:
+                    tag = rtl_vectors.CLK_TAGS[l["e_clk_tag"]]
+                    if tag in ("loop", "loop_odd", "mexit") and l["e_res"]:
+                        seen.add("in_" + tag)
+                    if l["e_rmw"]:
+                        seen.add("rmw")
+                    if l["r0_grpcl"]:
+                        seen.add("grpcl")
+                    if l["r0_valid"] and l["r0_kind"] in (3, 4) and l["r0_lead"]:
+                        seen.add("io_lead")
+                    if l["e_halted"]:
+                        seen.add("halted")
+                if sr["pending"]:
+                    seen.add("pending")
+                if ac.s_x["early_on"]:
+                    seen.add("early")
+                if prev is not None and prev["e_pr_cand"] and not ck.states["t"]["e_pr_cand"]:
+                    seen.add("pop_refresh")
+                prev = ck.states["e"]
+        want = {"rfm_apply", "q:beat", "q:drop", "q:lost_eval", "q:lost_halt", "q:lost_after",
+                "q:t4", "q:reraise", "q:halt", "x:refresh", "x:setup", "x:beat", "x:halt_defer",
+                "in_loop", "in_loop_odd", "in_mexit", "rmw", "grpcl", "io_lead", "halted",
+                "pending", "early", "pop_refresh"}
+        self.assertTrue(want <= seen, want - seen)
+
+    def test_string_forms_are_not_modelled(self):
+        """(WP68, F24) a run with a string form raises NotModelled in every mode."""
+        s = normalize(_run("F24", F24_STRING))
+        for f in (lambda: rtl_vectors.vectors(s.chain, self.cfg, s.chain_base),
+                  lambda: rtl_vectors.queue_vectors(s.chain, self.cfg, s.chain_base),
+                  lambda: rtl_vectors.eu_vectors(s.chain, self.cfg, s.chain_base),
+                  lambda: rtl_vectors.core_vectors(s.chain, self.cfg, s.chain_base)):
+            with self.assertRaisesRegex(rtl_vectors.NotModelled, r"string forms \(E3\)"):
+                f()
+        r = rtl_vectors.check_core_run(_run("F24", F24_STRING), self.cfg)
+        self.assertEqual(r.not_modelled, "string forms (E3)")
+        self.assertEqual(rtl_vectors.check_run(_run("F24", F24_STRING), self.cfg).not_modelled,
+                         "string forms (E3)")
+        self.assertEqual(rtl_vectors.check_queue_run(_run("F24", F24_STRING), self.cfg).not_modelled,
+                         "string forms (E3)")
+
+    def test_an_unclassified_refresh_store_raises(self):
+        """A store into the controller from a method that does not make it raises."""
+        s = normalize(_run("F13", "F13-r-"))
+        run = rtl_vectors.run_eu_model(s.chain, self.cfg, s.chain_base, arb=True)
+        ref = run[0].refresh
+        with self.assertRaises(rtl_vectors.NotModelled):
+            ref.pending = 3
+        with self.assertRaises(rtl_vectors.NotModelled):
+            ref.on = False
 
 
 @unittest.skipUnless(rtl_vectors.CBENCH.exists(), "bench not built: fpga/v35s/build_core_tb.sh")
@@ -546,6 +667,35 @@ class CoreBench(unittest.TestCase):
                 self.assertTrue(r.rtl_model_exact)
                 self.assertEqual(r.rtl_exact, r.model_exact)
                 self.assertLessEqual(r.iter_max, 16)
+
+    def test_refresh_runs_exact(self):
+        """(C5) the refresh samples run exact in the core, the controller checked every clock."""
+        cfg = Config.fitted()
+        for family, part in RSAMPLE:
+            rec = _run(family, part)
+            with self.subTest(run=rec["chain"]["id"]):
+                r = rtl_vectors.check_core_run(rec, cfg)
+                self.assertEqual((r.error, r.not_modelled), ("", ""))
+                self.assertTrue(r.ok, f"{r.first} cycles {r.exact_cycles}/{r.cycles}")
+                self.assertTrue(r.rtl_model_exact)
+                self.assertEqual(r.rtl_exact, r.model_exact)
+
+    def test_bench_catches_refresh_mutations(self):
+        """(C5) the refresh's mutations (v35_arbiter.sv `mutate` 5..7): a refresh started in a
+        posted I/O's lead (refresh_lead=closed off), the beaten fetch not going next
+        (refresh_after=fetch_next off), dw_view=eu's clock 2 earlier not taken; the bench fails
+        each."""
+        cfg = Config.fitted()
+        for mut, (family, part) in ((5, ("F13", "F13-s-shlcl7-pO-w0")),
+                                    (6, ("F8", "F8-push-st_bw-k4-pE-w1")),
+                                    (7, ("F17", "F17-s-n2-out-pE-w0"))):
+            rec = _run(family, part)
+            with self.subTest(mutate=mut):
+                self.assertTrue(rtl_vectors.check_core_run(rec, cfg).ok)
+                r = rtl_vectors.check_core_run(rec, cfg, mutate=mut)
+                self.assertEqual(r.error, "")
+                self.assertFalse(r.ok)
+                self.assertRegex(r.first, r"^FAIL clock \d+ ")
 
     def test_bench_catches_mutations(self):
         """Each of the arbiter's mutations (v35_arbiter.sv `mutate`) flips one decision: the

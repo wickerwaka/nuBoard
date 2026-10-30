@@ -207,6 +207,15 @@ def started(op, cfg):
     return op
 
 
+def string_classes() -> frozenset:
+    """(WP68, F24) the string forms, Phase E3: element-indexed addresses, no symbolic source
+    (frozen templates._string_steps: IX / IY, a REP count), so no template in the step tables.
+    The classes keep their ids and class integers (V35_CLS_*, v35_cost) in Config's sorted
+    order, the numbering rtl_vectors uses; a run with a string form is NotModelled there."""
+    from .sim.frozen.templates import STRING_OPS
+    return frozenset(STRING_OPS.values())
+
+
 def has_count(op) -> bool:
     return op.cls in ("shift_imm", "shift_cl") or op.shift
 
@@ -355,6 +364,8 @@ def templates(cfg) -> tuple[list, dict, dict]:
     example: dict = {}
     for op, code in enumerate_ops():
         op = started(op, cfg)
+        if op.cls in string_classes():
+            continue                    # (WP68, F24) not in the step tables: string_classes
         for refresh in (False, True):
             zs = (False, True) if has_count(op) else (False,)
             for cz in zs:
@@ -453,8 +464,15 @@ def bus_constants() -> dict:
         for other in (0x00, 0x13, 0xF3):
             if refresh_length((rfw << 2) | other) != lengths[rfw]:
                 raise RtlgenError("types.refresh_length reads more than RFM.RFW")
+    # (C5) RFM.RFEN and RFM.RFT as types.refresh_on / refresh_rft read them
+    from .types import refresh_on, refresh_rft
+    rfen = [b for b in range(8) if refresh_on(1 << b)]
+    if len(rfen) != 1 or any(refresh_on(v) != bool(v >> rfen[0] & 1) for v in range(256)):
+        raise RtlgenError("types.refresh_on is not one RFM bit")
+    if any(refresh_rft(v) != v & 3 for v in range(256)):
+        raise RtlgenError("types.refresh_rft no longer reads RFM bits 1-0")
     return {"BASE": bus.BASE, "SFR_PAGE": bus.SFR_PAGE, "REFRESH_LENGTH": bus.REFRESH_LENGTH,
-            "REFRESH_LENGTHS": lengths}
+            "REFRESH_LENGTHS": lengths, "RFEN_BIT": rfen[0]}
 
 
 def prelude_constants() -> dict:
@@ -557,6 +575,10 @@ def render(fit_path: Path | None = None) -> str:
     for rfw, n in enumerate(bc["REFRESH_LENGTHS"]):
         w(f"        2'd{rfw}: v35_refresh_length = 3'd{n};")
     w("    endcase")
+    w("endfunction")
+    w("// (C5) RFM.RFEN (types.refresh_on); RFM.RFT is bits 1-0 (types.refresh_rft)")
+    w("function automatic logic v35_refresh_on(input logic [7:0] value);")
+    w(f"    v35_refresh_on = value[{bc['RFEN_BIT']}];")
     w("endfunction")
     pc = prelude_constants()
     w("// the prelude's POP PSW stack read, issued on the model's clock 0 (prelude_anchor=pop)")

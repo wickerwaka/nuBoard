@@ -24,7 +24,8 @@ mkdir -p "$output_dir"
 
 sources=("$project_dir/core/v35_decoder.sv" "$project_dir/core/v35_eu.sv"
          "$project_dir/core/v35_queue.sv" "$project_dir/core/v35_biu.sv"
-         "$project_dir/core/v35_arbiter.sv" "$project_dir/core/v35_chain_core.sv")
+         "$project_dir/core/v35_arbiter.sv" "$project_dir/core/v35_refresh.sv"
+         "$project_dir/core/v35_chain_core.sv")
 
 if [[ "${LINT:-0}" == 1 ]]; then
     verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSEDPARAM -Wno-UNUSEDSIGNAL \

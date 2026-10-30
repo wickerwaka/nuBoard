@@ -1,11 +1,13 @@
-// Chain-model core bench (HDL plan, C4): runs v35_chain_core on a chain and checks it against the
+// Chain-model core bench (HDL plan, C4; C5: refresh): runs v35_chain_core on a chain and checks it against the
 // frozen model on every model clock. Vectors: validation/v35s/chains/rtl_vectors.py --core, four
 // files of one run: the EU's (V35EU-1: the start state, the operand record of every instruction
 // start, per clock the EU's state after every phase, its queue ops and the arbiter's touches),
 // the queue's (V35QUEUE-1 with JSLOT ops: the image, the preload, per clock the queue's state
 // after the delivery, after every op of the chain and at the end), the bus unit's (V35BIU-1:
-// per clock the window signals, the delivery and the state bundle) and the arbiter's (V35ARB-1:
-// per clock its state after X and at the end, and the EU cycles' write data in order).
+// per clock the window signals, the delivery and the state bundle) and the arbiter's (V35ARB-2:
+// whether the chain runs the refresh controller and its counter at clock 0, per clock the
+// arbiter's state after X and at the end and the refresh controller's after R and at the end,
+// and the EU cycles' write data in order).
 //
 //   Vv35_core_tb EU_VECTORS QUEUE_VECTORS BIU_VECTORS ARB_VECTORS [MUTATE]
 //
@@ -17,7 +19,8 @@
 // queue's state after C, after every op of the chain and at the end, every read, the chain's ops
 // (the EU's, the arbiter's, the EU's in P) against the model's; the arbiter's touches on the EU,
 // its state after X and at the end; the bus unit's signals and state bundle; the core's and the
-// machines' errors. MUTATE (1..4) flips one of the arbiter's decisions (v35_arbiter.sv).
+// machines' errors; the refresh controller's state after R, at the end and registered.
+// MUTATE (1..7) flips one of the arbiter's decisions (v35_arbiter.sv; 5..7 the refresh's).
 //
 // Output: "FAIL ..." for the first failures, "CYC start length kind addr width data" for each
 // cycle the bus unit started, "DCYC t kind addr width" for each data cycle the EU issued, "ITER n
@@ -39,8 +42,8 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 4, NXQ = 8, JSLOT = 40, STATE_W = 516, QSTATE_W = 180,
-              ASTATE_W = 69;
+constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 582, QSTATE_W = 180,
+              ASTATE_W = 103, RSTATE_W = 24, XOPW = 12;
 constexpr int OPW = 33, QVW = 52, OPNDW = 213;
 constexpr int K_FETCH = 1;
 constexpr int X_ISSUE = 1;
@@ -84,6 +87,7 @@ struct AClock {
     long t = 0;
     int ext = 0;
     Vals s_x, s_e;
+    Vals r_r, r_e;          // (C5) the refresh controller after R and at the end
 };
 
 const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
@@ -181,10 +185,10 @@ int bcol(const char* name) {
 struct Bench {
     VerilatedContext context;
     Vv35_core_tb dut{&context};
-    std::vector<Field> fields, qfields, afields;
+    std::vector<Field> fields, qfields, afields, rfields;
     long state_bad = 0, op_bad = 0, err_bad = 0, dcyc_bad = 0, q_state_bad = 0, q_rd_bad = 0,
-         x_bad = 0, a_state_bad = 0, signal_bad = 0, biu_state_bad = 0, settle_bad = 0,
-         fails = 0;
+         x_bad = 0, a_state_bad = 0, r_state_bad = 0, signal_bad = 0, biu_state_bad = 0,
+         settle_bad = 0, fails = 0;
 
     void tick(bool run, bool mid) {
         dut.run = run;
@@ -408,10 +412,10 @@ int main(int argc, char** argv) {
     // ---- the arbiter's vectors
     std::ifstream ain(argv[4]);
     std::string aformat, aid;
-    long an = 0, ndata = 0;
-    ain >> aformat >> aid >> an >> ndata;
-    if (aformat != "V35ARB-1" || aid != id || an != nclocks) {
-        std::fprintf(stderr, "not the run's V35ARB-1 vector file\n");
+    long an = 0, ndata = 0, refresh_on = 0, init_counter = 0;
+    ain >> aformat >> aid >> an >> ndata >> refresh_on >> init_counter;
+    if (aformat != "V35ARB-2" || aid != id || an != nclocks) {
+        std::fprintf(stderr, "not the run's V35ARB-2 vector file\n");
         return 2;
     }
     std::getline(ain, line);
@@ -421,12 +425,22 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "bad arbiter field line (%d bits)\n", width);
         return 2;
     }
-    const size_t naf = b.afields.size();
+    std::getline(ain, line);
+    b.rfields = parse_fields(line, width);
+    if (width != RSTATE_W) {
+        std::fprintf(stderr, "bad refresh field line (%d bits)\n", width);
+        return 2;
+    }
+    const size_t naf = b.afields.size(), nrf = b.rfields.size();
     std::vector<AClock> aclocks(an);
     for (auto& c : aclocks) {
         ain >> tag >> c.t >> c.ext;
         if (tag != "K" || !read_vals(ain, "S", naf, c.s_x) || !read_vals(ain, "S", naf, c.s_e)) {
             std::fprintf(stderr, "bad arbiter clock\n");
+            return 2;
+        }
+        if (refresh_on && (!read_vals(ain, "R", nrf, c.r_r) || !read_vals(ain, "R", nrf, c.r_e))) {
+            std::fprintf(stderr, "bad refresh clock\n");
             return 2;
         }
     }
@@ -463,6 +477,8 @@ int main(int argc, char** argv) {
     d.init_fetch_addr = q_init_faddr;
     d.wtc = std::stoul(bwtc, nullptr, 16);
     d.rfm = std::stoul(brfm, nullptr, 16);
+    d.refresh_on = refresh_on;
+    d.init_counter = init_counter;
     d.mutate = argc == 6 ? std::atoi(argv[5]) : 0;
     d.reset_n = 0;
     for (int i = 0; i < 4; ++i)
@@ -559,11 +575,16 @@ int main(int argc, char** argv) {
                                               : 0;
             char where[48];
             std::snprintf(where, sizeof where, "touch %d", i);
-            b.check(b.x_bad, t, where, long(want), long(get_bits(d.xops, 11 * i, 11)));
+            b.check(b.x_bad, t, where, long(want), long(get_bits(d.xops, XOPW * i, XOPW)));
         }
         // the arbiter's state after X and at the end
         b.check_state(b.a_state_bad, t, "arbiter after X", b.afields, ASTATE_W, ac.s_x, d.a_x, 0);
         b.check_state(b.a_state_bad, t, "arbiter end", b.afields, ASTATE_W, ac.s_e, d.a_e, 0);
+        // the refresh controller after R and at the end
+        if (refresh_on) {
+            b.check_state(b.r_state_bad, t, "refresh after R", b.rfields, RSTATE_W, ac.r_r, d.r_r, 0);
+            b.check_state(b.r_state_bad, t, "refresh end", b.rfields, RSTATE_W, ac.r_e, d.r_e, 0);
+        }
         // the EU's data cycle
         if (d.x_cyc) {
             auto it = dcyc.find(t);
@@ -603,6 +624,9 @@ int main(int argc, char** argv) {
                       d.q_dump, 0);
         b.check_state(b.a_state_bad, t, "arbiter registered", b.afields, ASTATE_W, ac.s_e,
                       d.a_dump, 0);
+        if (refresh_on)
+            b.check_state(b.r_state_bad, t, "refresh registered", b.rfields, RSTATE_W, ac.r_e,
+                          d.r_dump, 0);
         if (col("has_row")) {
             uint64_t s = d.biu_dump;
             auto take = [&](int bits) {
@@ -640,9 +664,11 @@ int main(int argc, char** argv) {
         std::printf("ITER %d %ld\n", n, k);
     std::printf("SUMMARY clocks=%ld ops=%ld starts=%ld state_bad=%ld op_bad=%ld err_bad=%ld "
                 "dcyc_bad=%ld q_state_bad=%ld q_rd_bad=%ld x_bad=%ld a_state_bad=%ld "
-                "signal_bad=%ld biu_state_bad=%ld settle_bad=%ld iter_total=%ld iter_max=%ld\n",
+                "r_state_bad=%ld signal_bad=%ld biu_state_bad=%ld settle_bad=%ld iter_total=%ld "
+                "iter_max=%ld\n",
                 long(clocks.size()), nops_total, nstarts, b.state_bad, b.op_bad, b.err_bad,
-                b.dcyc_bad, b.q_state_bad, b.q_rd_bad, b.x_bad, b.a_state_bad, b.signal_bad,
+                b.dcyc_bad, b.q_state_bad, b.q_rd_bad, b.x_bad, b.a_state_bad, b.r_state_bad,
+                b.signal_bad,
                 b.biu_state_bad, b.settle_bad, iter_total, iter_max);
     return b.fails ? 1 : 0;
 }

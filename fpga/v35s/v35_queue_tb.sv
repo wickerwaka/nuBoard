@@ -113,7 +113,7 @@ module v35_queue_tb #(
     wire        b_latch = q_fetch ? 1'b0 : req_latch;
 
     wire [1:0] done_width;
-    wire [2:0] cur_kind, cur_pos, cur_len, start_len, fetch_len;
+    wire [2:0] cur_kind, cur_pos, cur_len, start_len, fetch_len, refresh_len_now;
     wire a0, a19, a18_ube, mreq_n, mstb_n, iostb_n, read_write, refrq_n;
     wire [8:0] mux_address;
     wire [15:0] data_out;
@@ -126,6 +126,7 @@ module v35_queue_tb #(
         .wlatch_busy, .cur_kind, .cur_pos, .cur_len,
         .busy_x, .free_x, .fetch_inflight_x, .in_wait_x, .fetch_end_prev_x, .fetch_since_x,
         .io_win_x, .wlatch_busy_x, .cur_kind_x, .cur_pos_x, .cur_len_x, .start_len, .fetch_len,
+        .refresh_len_now,
         .error(biu_error), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
         .iostb_n, .read_write, .refrq_n, .data_in, .state_dump(biu_state));
 endmodule

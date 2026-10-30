@@ -33,20 +33,30 @@
 // the choice, _choose, the count after it and the DW adjustments (arbitrate), then, for the
 // end of the clock, the requests posted in P and those the EU retired.
 //
-// Not built: everything read with refresh on only (C5: the refresh cycle and its rules,
-// _refresh, _winner, io_step, refresh_beat_*, the lost and beaten requests' turns, dw_view's
-// xeu, refresh_io_stall's eu_halted, refresh_post's beat_ext, refresh_grpcl, refresh_sync's
-// early run); halt_refresh's branches (they need a refresh that beat a fetch); io_step_issue
-// (a refresh in the setup only).
+// (C5) Refresh: with a refresh request pending (v35_refresh.sv, phase R) on a free bus,
+// _refresh starts the refresh cycle unless the cycle that would otherwise start goes first
+// (refresh_fetch=refresh, refresh_data=refresh: none does) or a rule keeps it off the bus: the
+// halt status's second clock (refresh_halt=status), a posted I/O's lead (refresh_lead=closed,
+// refresh_lead_port=last, refresh_step_lead=step), the relatched I/O's wait (refresh_relatch),
+// the I/O's steps (refresh_io_step=own: io_step), the latch wait (refresh_wlatch), the EU's
+// micro-boundaries (refresh_accept=boundary_bus: EU.refresh_ok, the boundary map of
+// v35_eu_pkg). Starting it, the fetch request it beats is aborted (refresh_abort), kept
+// (refresh_drop_post), lost (refresh_drop, refresh_drop_on=odd, refresh_drop_unit=unit,
+// refresh_lost=start) or goes next (refresh_after=fetch_next, halt_refresh=run_drop); the
+// EU's hold and the setup extensions (EU.refresh_cost: refresh_post=post_beat, refresh_grpcl,
+// refresh_rmw_loop/_shape) go to the EU as touches, as does the halt status's deferral. The
+// early fetch run (refresh_sync=run: bus.early, early_ok, early_n) is the arbiter's bus
+// history, as are the cycles io_step and refresh_beat_t4/_b2b look back at; dw_view=eu's xeu
+// is per request position. The C4 fetch-run flag is left unchanged on a refresh start.
 module v35_arbiter
     import v35_decoder_pkg::*;
     import v35_eu_pkg::*;
     import v35_queue_pkg::*;
 #(
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
-    parameter int NXOP = 4,                 // its touches on the EU per clock (v35_eu.sv)
-    parameter int STATE_W = 69,             // $bits(v35_ast_t), checked below
-    parameter int ESTATE_W = 516,           // v35_eu.sv's STATE_W
+    parameter int NXOP = 6,                 // its touches on the EU per clock (v35_eu.sv)
+    parameter int STATE_W = 103,            // $bits(v35_ast_t), checked below
+    parameter int ESTATE_W = 582,           // v35_eu.sv's STATE_W
     parameter int QSTATE_W = 180            // v35_queue.sv's STATE_W
 ) (
     input  wire        clock,
@@ -67,7 +77,9 @@ module v35_arbiter
     // the bus unit before the choice (the core shows the prelude's POP read on clock 0)
     input  wire        b_busy,
     input  wire        b_free,
-    input  wire [2:0]  b_kind,              // the cycle on the bus (V35_K_NONE: idle)
+    input  wire [2:0]  b_kind,              // the cycle on the bus (V35_K_NONE: idle) ...
+    input  wire [2:0]  b_pos,               // ... t - its start ...
+    input  wire [2:0]  b_len,               // ... its length
     input  wire        b_in_wait,
     input  wire        b_finf,
     input  wire        b_fprev,             // last_fetch_end == t-1
@@ -75,12 +87,16 @@ module v35_arbiter
     input  wire        b_done,              // the cycle that ended on t-1 ...
     input  wire [2:0]  b_done_kind,         // ... its kind
     input  wire [15:0] wtc,                 // the bus unit's waits (a cycle's length)
+    // (C5) the refresh controller after phase R
+    input  wire        refresh_on,          // the chain runs the controller (refresh_any)
+    input  wire        rf_pending,          // a refresh request is pending
+    input  wire [2:0]  rf_len,              // the refresh cycle's length (bus.refresh_length)
 
     // the queue ops of phase X (v35_qop words: code, a, b, val, snap), in order
     output logic [NXQ-1:0][32:0] qop,
     output logic [3:0]  n_q,
     // the touches on the EU ({V35_XOP_*, val}) and the cycle the EU's phase P reads
-    output logic [NXOP-1:0][10:0] xop,
+    output logic [NXOP-1:0][V35_XOP_W-1:0] xop,
     output logic        x_valid,
     output logic [2:0]  x_kind,
     output logic        x_eu,               // the cycle is the EU's (eu.issue)
@@ -97,6 +113,12 @@ module v35_arbiter
     output logic [2:0]  req_len,            // its length (the touch's val)
     output logic        req_ext,            // disp_io=extend
     output logic        req_latch,          // an EU read: its datum fills the data latch
+    // (C5) the RFM store issued (the controller's write) and the early fetch run the EU reads
+    // before the choice (T) and after it (P) (v35_early_t)
+    output logic        sfr_wr,
+    output logic [7:0]  sfr_value,
+    output logic [4:0]  early_t,
+    output logic [4:0]  early_p,
     output reg          error,              // sticky: a case the RTL does not cover
     output logic [7:0]  err_code,           // this clock's (0: none)
     output wire [STATE_W-1:0] state_x       // after X (the end of the clock: state_e)
@@ -107,14 +129,6 @@ module v35_arbiter
     input  wire [3:0]  mutate               // the bench's mutation tests (0: none)
 `endif
 );
-
-    // ---- the touches on the EU (v35_eu.sv V35_XOP_*, rtl_vectors.XOPS)
-    localparam logic [2:0] V35_XOP_ISSUE = 3'd1;
-    localparam logic [2:0] V35_XOP_NOWRITE = 3'd2;
-    localparam logic [2:0] V35_XOP_FETCH_START = 3'd3;
-    localparam logic [2:0] V35_XOP_SYNC_ONE = 3'd4;
-    localparam logic [2:0] V35_XOP_FREE0 = 3'd5;
-    localparam logic [2:0] V35_XOP_NOT_BEFORE = 3'd6;
 
     // ---- error codes (err_code)
     localparam logic [7:0] V35_AE_OPS = 8'd1;          // more than NXQ queue ops in a clock
@@ -131,6 +145,7 @@ module v35_arbiter
         logic       lift_now;       // ... == t
         logic       fh_now;         // free_held == t (free_hold)
         logic       gh_now;         // grp_held == t (grp_io_hold)
+        logic [2:0] xeu;            // (C5) dw_view=eu: t, t-1, t-2 in xeu (bit 0: t)
     } v35_arq_t;
 
     typedef struct packed {
@@ -138,6 +153,15 @@ module v35_arbiter
         logic       run;            // the last two cycles were fetches back to back
         logic       io_v;           // an I/O cycle has started ...
         logic [3:0] io_age;         // ... t - its start (saturating at 15)
+        // (C5) the bus history the refresh's rules read
+        logic       early_on;       // refresh_sync=run: the cycle last started is bus.early
+        logic       early_ok;       // the last refresh beat a fetch the take sync counted
+        logic [2:0] early_n;        // fetches in the early run (saturating at 7)
+        logic       after_ref;      // the cycle last started began right after a refresh's end
+        logic [7:0] lc_age;         // t - the last cycle's end (0 while it covers t; sat 255)
+        logic       rf_v;           // a refresh has started ...
+        logic [1:0] rf_n;           // ... cycles started after the last one (saturating at 3)
+        logic [7:0] rf_age;         // ... t - its end (0 while it covers t; saturating at 255)
     } v35_ast_t;
 
     if ($bits(v35_ast_t) != STATE_W) begin : g_state_width
@@ -151,8 +175,8 @@ module v35_arbiter
     typedef struct packed {
         logic [NXQ-1:0][32:0] ops;
         logic [3:0]  n;
-        logic [NXOP-1:0][10:0] xo;
-        logic [2:0]  nx;
+        logic [NXOP-1:0][V35_XOP_W-1:0] xo;
+        logic [3:0]  nx;
         logic        start;
         logic        fetch;
         logic        eu;
@@ -162,6 +186,8 @@ module v35_arbiter
         logic [2:0]  len;
         logic        ext;
         logic        promoted;      // the issue moved the next queued request into the slot
+        logic        early_set;     // (C5) the fetch started is bus.early
+        logic        sfr;           // (C5) the cycle is the RFM store
         logic [7:0]  err;
     } v35_actx_t;
 
@@ -169,6 +195,8 @@ module v35_arbiter
     typedef struct packed {
         logic       busy;
         logic [2:0] kind;
+        logic [2:0] pos;
+        logic [2:0] len;
         logic       in_wait;
         logic       finf;
         logic       io_win;
@@ -209,16 +237,22 @@ module v35_arbiter
     endfunction
 
     // one queue op (snap: the decoder's and the EU's state after L); returns its read
-    function automatic logic [7:0] q_op(inout v35_actx_t c, input logic [4:0] snap,
-                                        input logic [5:0] code, input logic a, input logic b);
-        q_op = 8'd0;
+    function automatic logic [7:0] q_opv(inout v35_actx_t c, input logic [4:0] snap,
+                                         input logic [5:0] code, input logic a, input logic b,
+                                         input int val);
+        q_opv = 8'd0;
         if (int'(c.n) >= NXQ) begin
             fail(c, V35_AE_OPS);
         end else begin
-            c.ops[c.n] = {code, a, b, 20'd0, snap};
-            q_op = qrd[c.n];
+            c.ops[c.n] = {code, a, b, 20'(val), snap};
+            q_opv = qrd[c.n];
             c.n = c.n + 4'd1;
         end
+    endfunction
+
+    function automatic logic [7:0] q_op(inout v35_actx_t c, input logic [4:0] snap,
+                                        input logic [5:0] code, input logic a, input logic b);
+        q_op = q_opv(c, snap, code, a, b, 0);
     endfunction
 
     // queue.counted(t): 6 - room (a room op)
@@ -226,12 +260,12 @@ module v35_arbiter
         q_counted = V35_QUEUE_BYTES - int'($signed(q_op(c, snap, V35_QOP_ROOM, 1'b0, 1'b0)));
     endfunction
 
-    function automatic void x_op(inout v35_actx_t c, input logic [2:0] code, input int val);
+    function automatic void x_op(inout v35_actx_t c, input logic [3:0] code, input int val);
         if (int'(c.nx) >= NXOP) begin
             fail(c, V35_AE_XOPS);
         end else begin
             c.xo[c.nx] = {code, 8'(val)};
-            c.nx = c.nx + 3'd1;
+            c.nx = c.nx + 4'd1;
         end
     endfunction
 
@@ -258,14 +292,22 @@ module v35_arbiter
         req_holding = int'(a.count) < int'(r.setup) - int'(r.lead);
     endfunction
 
-    // Request.counts(fetch_inflight, mode="wait", bus, t)
-    function automatic logic req_counts(input v35_req_t r, input v35_arq_t a, input v35_abus_t b);
+    // Request.counts(fetch_inflight, mode="wait", bus, t); eh: the record's eu_halted (the EU's
+    // HALT state for the slot's request, stored every clock; False for one just moved in)
+    function automatic logic req_counts(input v35_req_t r, input v35_arq_t a, input v35_abus_t b,
+                                        input logic eh);
         int need, setup, cnt, th;
         logic io;
         setup = int'(r.setup);
         cnt = int'(a.count);
-        if (r.nowait)                           // io_count=nowait (refresh_io_stall: C5)
+        if (r.nowait) begin                     // io_count=nowait
+            // refresh_io_stall=step (io_stall: an I/O request with refresh on): nor the
+            // refresh's last clock when that would end on one of the I/O's steps
+            if (refresh_on && !eh && b.busy && b.kind == V35_K_REFRESH && b.pos == b.len - 3'd1
+                    && (setup - cnt - 1) % 2 == 0)
+                return 1'b0;
             return !b.in_wait;
+        end
         need = setup;
         if (r.free_v && int'(r.free) < setup)
             need = int'(r.free);
@@ -275,7 +317,9 @@ module v35_arbiter
                 return !io;
             if (io)
                 return 1'b0;
-            return !b.busy || cnt < setup - need;   // refresh_grpcl: C5
+            if (r.grpcl != '0 && b.busy && b.kind == V35_K_REFRESH)
+                return {5'd0, b.pos} <= a.p_age;   // refresh_grpcl: a refresh is not a fetch
+            return !b.busy || cnt < setup - need;
         end
         if (!b.finf)
             return 1'b1;
@@ -287,6 +331,167 @@ module v35_arbiter
     // (with prev, the fetch just started on t not counted: the same history)
     function automatic logic fetch_run(input v35_ast_t a);
         fetch_run = b_fprev && a.run;
+    endfunction
+
+    // ------------------------------------------------ (C5) the refresh's helpers
+
+    // io_stepped: an I/O request still to issue, posted while the EU runs (not in HALT)
+    function automatic logic io_stepped(input v35_req_t r, input v35_st_t e);
+        io_stepped = r.valid && r.ncyc != '0 && r.issued == '0 && rk_io(r.kind) && !e.e.halted;
+    endfunction
+
+    // io_step (refresh_io_step=own, io_step_issue=step): t is one of the clocks a posted I/O
+    // request's sequencer is at a step on, every second clock back from the issue its setup
+    // gives (from setup - 5 after the post), restarted on the clock after a bus cycle that ran
+    // during the setup; the post clock is one (not with issue). With issue: only after a refresh
+    // in the setup (the model looks for one among the last three cycles, ended at or after the
+    // post: the history's rf_n, rf_age). Called before the clock's choice only (the last cycle
+    // started before t).
+    function automatic logic io_step(inout v35_actx_t c, input v35_req_t r, input v35_arq_t aq,
+                                     input v35_ast_t a, input logic issue);
+        int pa, base, d1, e_, d;
+        logic rs;
+        pa = int'(aq.p_age);
+        if (!issue && pa == 0)
+            return 1'b1;
+        if (pa == 255)
+            fail(c, V35_AE_SAT);
+        if (issue) begin
+            rs = a.rf_v && a.rf_n <= 2'd2 && ((a.rf_n == 2'd0 && b_busy) || int'(a.rf_age) <= pa);
+            if (a.rf_v && a.rf_n <= 2'd2 && !(a.rf_n == 2'd0 && b_busy) && a.rf_age == 8'd255)
+                fail(c, V35_AE_SAT);
+            if (!rs)
+                return 1'b1;                    // no refresh in the setup: the count alone
+        end
+        base = int'(r.setup) - 5 > 0 ? int'(r.setup) - 5 : 0;
+        d1 = pa - base;                         // t - (posted + max(0, setup - 5))
+        // the last cycle: t - its end (negative while it runs)
+        e_ = b_busy ? int'(b_pos) + 1 - int'(b_len) : int'(a.lc_age);
+        if (!b_busy && a.lc_age == 8'd255)
+            fail(c, V35_AE_SAT);
+        d = d1;
+        if (e_ <= pa && e_ - 1 < d1)            // it ended at or after the post: from its end + 1
+            d = e_ - 1;
+        return d >= 0 && d % 2 == 0;
+    endfunction
+
+    // the history's view of bus.early etc. as the EU reads it (v35_early_t)
+    function automatic logic [4:0] early_view(input logic cur, input logic ep, input logic [2:0] n);
+        early_view = {cur, ep, n};
+    endfunction
+
+    // EU.refresh_ok (refresh_accept=boundary_bus): whether a pending refresh may be taken on t;
+    // w: the cycle the bus unit would otherwise start (_winner) is not None
+    function automatic logic refresh_ok(inout v35_actx_t c, input v35_req_t r0, input v35_ast_t a,
+                                        input v35_st_t e, input logic w);
+        v35_qstate_t q;
+        v35_stp_t st;
+        int k, n, d, setup, cnt, need;
+        q = qs(c);
+        k = int'(e.e.k);
+        n = eu_nsteps(e.e);
+        st = k < n ? eu_step(e.e, k) : '0;
+        setup = int'(r0.setup);
+        cnt = int'(a.q[0].count);
+        d = setup - cnt;
+        if (k < n && int'(st.op) == V35_SOP_WBSYNC && e.e.wbu != '0)
+            return 1'b0;                        // refresh_wb=free_wait: waiting for the write-back
+        if (e.e.sync == SYNC_COUNT && q.ab_valid && k < n)
+            return 1'b0;                        // refresh_abort_wait=run: the EU runs
+        if (k < n && int'(st.op) == V35_SOP_TAKE && e.e.left != '0 && e.e.res == '0)
+            return 1'b0;                        // refresh_take=last: mid-take
+        if (eu_rmw_loop(e.e) != 0 && r0.valid && r0.ncyc != '0 && r0.issued == '0
+                && int'(r0.kind) == V35_RK_WRITE && d > 0 && d <= eu_rmw_loop(e.e))
+            return eu_rmw_bound(e.e, d, setup);  // refresh_rmw_loop=loop
+        if (eu_inside(e.e)) begin
+            if (e.e.clk_tag == CT_LOOP && e.e.cs_now)
+                return 1'b1;                    // refresh_loop_entry=open
+            return eu_boundary(e.e, q.take_now || q.take_prev,
+                               q.latched && int'(q.count) > V35_QUEUE_BYTES, 1'b0);
+        end
+        if (w)
+            return 1'b1;
+        if (r0.valid && r0.ncyc != '0 && r0.issued == '0 && !r0.detached) begin
+            need = (r0.free_v && int'(r0.free) < setup) ? int'(r0.free) : setup;
+            if (r0.free_orig != '0)
+                need = int'(r0.free_orig);      // refresh_window=posted
+            if (r0.grpcl != '0 && d == int'(r0.grpcl) - 1)
+                return 1'b1;                    // refresh_grpcl: the CL clocks' first
+            if (a.q[0].p_age == '0 && (int'(r0.kind) == V35_RK_READ
+                                       || int'(r0.kind) == V35_RK_WRITE))
+                return 1'b1;                    // refresh_post: the post's first clock
+            if (io_stepped(r0, e) && io_step(c, r0, a.q[0], a, 1'b0))
+                return 1'b1;                    // refresh_io_step: the IN's I/O on a step
+            return cnt == setup - need + 1;
+        end
+        return 1'b1;
+    endfunction
+
+    // EU.refresh_cost: a refresh of len clocks starts; the touches it makes (the setup
+    // extensions of a memory shift's write and read, refresh_post's hold and beat_ext, the
+    // EU's hold: V35_XOP_REFRESH's val[3])
+    function automatic void refresh_cost(inout v35_actx_t c, inout v35_req_t r0,
+                                         input v35_ast_t a, input v35_st_t e,
+                                         input logic [2:0] len, input logic beat);
+        int d, b, m, ext, need, setup;
+        logic hold;
+        setup = int'(r0.setup);
+        d = setup - int'(a.q[0].count);
+        hold = 1'b1;
+        if (eu_rmw_loop(e.e) != 0 && r0.valid && r0.ncyc != '0 && r0.issued == '0
+                && int'(r0.kind) == V35_RK_WRITE && d > 0 && d <= eu_rmw_loop(e.e)) begin
+            // refresh_rmw_shape=shift: the hold to the next boundary below d
+            b = 0;
+            if (d - 1 >= FIT_REFRESH_TAIL_BOUND) b = FIT_REFRESH_TAIL_BOUND;
+            m = d - 1 < eu_rmw_top(e.e) ? d - 1 : eu_rmw_top(e.e);
+            if (m >= FIT_SHIFT_TAIL + 2) begin
+                if ((m - FIT_SHIFT_TAIL) % 2 != 0) m = m - 1;
+                if (m >= FIT_SHIFT_TAIL + 2 && m > b) b = m;
+            end
+            if (setup - 1 <= d - 1 && setup - 1 >= 0 && setup - 1 > b) b = setup - 1;
+            ext = int'(len) - (d - b) > 0 ? int'(len) - (d - b) : 0;
+            if (ext != 0) begin
+                x_op(c, V35_XOP_SETUP, ext);
+                r0.setup = r0.setup + 7'(ext);
+            end
+            hold = 1'b0;
+        end else if (r0.valid && r0.grpcl != '0 && r0.ncyc != '0 && r0.issued == '0 && d > 0) begin
+            // refresh_grpcl: the read's setup counts through the cycle
+            b = d > int'(r0.grpcl) - 1 ? int'(r0.grpcl) - 1 : 0;
+            ext = int'(len) - (d - b) > 0 ? int'(len) - (d - b) : 0;
+            if (ext != 0) begin
+                x_op(c, V35_XOP_SETUP, ext);
+                r0.setup = r0.setup + 7'(ext);
+            end
+            hold = 1'b0;
+        end else if (r0.valid && r0.ncyc != '0 && r0.issued == '0 && !r0.detached
+                     && (int'(r0.kind) == V35_RK_READ || int'(r0.kind) == V35_RK_WRITE)
+                     && d > 0 && !eu_inside(e.e)) begin
+            // refresh_post=post_beat: the setup counts through the cycle; the EU holds at the
+            // next boundary; beside a beaten fetch the hold given back if it runs first
+            need = (r0.free_v && int'(r0.free) < setup) ? int'(r0.free) : setup;
+            b = d > need - 1 ? need - 1 : 0;
+            ext = int'(len) - (d - b) > 0 ? int'(len) - (d - b) : 0;
+            if (ext != 0) begin
+                x_op(c, V35_XOP_SETUP, ext);
+                r0.setup = r0.setup + 7'(ext);
+            end
+            if (beat && 3'(ext) != r0.beat_ext) begin
+                x_op(c, V35_XOP_BEAT, ext);
+                r0.beat_ext = 3'(ext);
+            end
+        end
+        x_op(c, V35_XOP_REFRESH, {28'd0, hold, len});
+    endfunction
+
+    // _beat_late (refresh_beat_b2b=imm): the decoder's state on the beaten fetch's delivery
+    // clock that delays the fetch committed back to back
+    function automatic logic beat_late(input v35_qstate_t q, input v35_st_t e);
+        if (q.take_now)
+            return 1'b1;
+        if (e.e.start_age == '0)
+            return is_cls(e.e.prev_cls, V35_CLS_IMM) && !is_cls(e.e.cls, V35_CLS_IMM);
+        return is_cls(e.e.cls, V35_CLS_IMM) && e.d.need != '0;
     endfunction
 
     // the slot's next cycle (eu.issue's pop; odd_split=atomic)
@@ -385,19 +590,38 @@ module v35_arbiter
         v35_abus_t bb;
         logic [4:0] snap;
         logic rq, want, io, recovering, free_run, slot_fetch, latched_abort, mem, fresh, b2b,
-              retry_loop, unit_md;
+              retry_loop, unit_md, go, step_lead, wr, drop_hold, odd;
         logic [7:0] rd;
         int setup, cnt, fr, room;
         snap = dec_snap(e.d, is_cls(e.e.cls, V35_CLS_IMM) && e.e.imm_bytes == 2'd2);
-        bb = '{busy: b_busy, kind: b_kind, in_wait: b_in_wait, finf: b_finf, io_win: b_io_win};
+        bb = '{busy: b_busy, kind: b_kind, pos: b_pos, len: b_len, in_wait: b_in_wait,
+               finf: b_finf, io_win: b_io_win};
         rq = r0.valid && r0.ncyc != 2'd0;      // req: the slot's request with cycles left
         io = rk_io(r0.kind);
         setup = int'(r0.setup);
         cnt = int'(a.q[0].count);
-        // refresh_lost=start, lost_after: a refresh's (C5)
+        // refresh_lost=start: a request lost to a refresh outside a count loop is evaluated again
+        // on the next instruction's start; HALT's start leaves it to the halt status's clocks
+        q = qs(c);
+        if (q.lost_start && e.e.start_age == '0) begin
+            if (e.e.halted && e.e.halt_now && !e.e.hd_v)
+                void'(q_opv(c, snap, V35_QOP_LOST_HALT, 1'b0, 1'b0, 2));
+            else
+                void'(q_op(c, snap, V35_QOP_LOST_EVAL, 1'b0, 1'b0));
+        end
+        q = qs(c);
+        if (q.la_valid && q.la_off == '0)
+            void'(q_op(c, snap, V35_QOP_LOST_AFTER, 1'b0, 1'b0));
         rd = q_op(c, snap, V35_QOP_WANT, 1'b0, 1'b0);
         want = rd[0] && !e.e.halted;           // no prefetch in the HALT state
-        // halt_refresh=run_drop: needs a refresh that beat a fetch (C5)
+        // halt_refresh=run_drop: the fetches a refresh held off the bus before HALT started still
+        // run once it has ended, as the queue requests them
+        q = qs(c);
+        if (e.e.halted && q.refresh_beaten) begin
+            rd = q_op(c, snap, V35_QOP_WANT, 1'b0, 1'b0);
+            if (rd[0])
+                want = 1'b1;
+        end
         recovering = rq && r0.issued == 2'd0 && !io && b_io_win;   // io_recover
         q = qs(c);
         free_run = rq && r0.issued == 2'd0 && !io && r0.free_v
@@ -493,15 +717,17 @@ module v35_arbiter
         if (e.e.latch_wait_now && want)
             want = 1'b0;
         // the lead: the bus unit committed to the I/O (io_hold=posted_b2b, dw_lift=moved,
-        // dw_slot=behind; refresh_lift=free: no refresh here)
+        // dw_slot=behind)
         if (rq && r0.issued == 2'd0 && r0.lead != '0 && !req_holding(r0, a.q[0])) begin
-            if (!a.q[0].lift_v) begin
-                a.q[0].lift_v = 1'b1;
+            if (!a.q[0].lift_v && !(b_busy && b_kind == V35_K_REFRESH)) begin
+                a.q[0].lift_v = 1'b1;           // refresh_lift=free: not on a refresh's clock
                 a.q[0].lift_now = 1'b1;
             end
             q = qs(c);
-            if (q.io_run_now) begin
-                // refresh_io_run's committed fetch goes (a refresh's pair: C5)
+            if (e.e.halted && q.refresh_beaten && q.b2b_now) begin
+                // halt_refresh=run_drop: the committed run goes on
+            end else if (q.io_run_now) begin
+                // refresh_io_run=pair_out: the committed fetch goes
             end else if (!a.q[0].lift_now || !q.rq_valid
                          || rq_vs_posted(c, q, a.q[0].p_age) > 0
                          || (r0.dw_moved && rq_vs_posted(c, q, a.q[0].p_age) == 0)) begin
@@ -510,10 +736,23 @@ module v35_arbiter
                 want = 1'b0;
             end
         end
-        // refresh_after=fetch_next: a refresh's (C5)
+        // refresh_after=fetch_next: a fetch request a refresh beat goes on the clock after the
+        // refresh, ahead of a posted I/O request and its hold (a memory request keeps its turn)
+        q = qs(c);
+        if (q.ar_pend && q.ar_off == '0 && mut != 4'd6) begin
+            rd = q_op(c, snap, V35_QOP_WANT, 1'b0, 1'b0);
+            if (rd[0] && (!rq || r0.issued != 2'd0 || io)) begin
+                want = 1'b1;
+                if (rq && r0.issued == 2'd0)
+                    rq = 1'b0;
+            end
+        end
         if (rq && r0.issued == 2'd0 && (!req_ready(r0, a.q[0]) || r0.nb_off != '0))
             rq = 1'b0;
-        // io_step_issue: after a refresh in the setup only (C5)
+        // io_step_issue=step: an IN's I/O after a refresh in its setup issues on one of its steps
+        if (rq && refresh_on && io_stepped(r0, e) && !r0.detached
+                && !io_step(c, r0, a.q[0], a, 1'b1))
+            rq = 1'b0;
         if (recovering)
             rq = 1'b0;                          // no data cycle right after an I/O cycle
         if (rq && !a.q[0].rs_v) begin
@@ -526,7 +765,96 @@ module v35_arbiter
             eu_issue(c, r0, a, e);
             return;
         end
-        // a pending refresh: C5
+        // a pending refresh (_refresh)
+        if (refresh_on && rf_pending) begin
+            // _winner: whether a cycle would otherwise start (its _fetch_first's ops)
+            if (rq && want)
+                void'(fetch_first(c, r0, a, snap, mut));
+            go = 1'b1;
+            if (e.e.halted && e.e.halt_prev && !e.e.hd_v)
+                go = 1'b0;                      // refresh_halt=status: the status's second clock
+            // refresh_step_lead=step: a port lead's step takes the refresh over the older fetch
+            step_lead = go && r0.valid && r0.port && r0.detached && r0.lead != '0
+                        && cnt == setup - int'(r0.lead) && want && io_stepped(r0, e)
+                        && io_step(c, r0, a.q[0], a, 1'b0);
+            if (go && r0.valid && r0.ncyc != '0 && r0.issued == '0 && io && r0.lead != '0
+                    && setup - int'(r0.lead) <= cnt && cnt < setup
+                    && !(r0.port && cnt < setup - 1 && !want) && !step_lead && mut != 4'd5)
+                go = 1'b0;                      // refresh_lead=closed, refresh_lead_port=last
+            if (go && r0.valid && r0.ncyc != '0 && r0.issued == '0 && io && cnt >= setup
+                    && r0.nb_off != '0)
+                go = 1'b0;                      // refresh_relatch=issue
+            if (go && io_stepped(r0, e) && cnt < setup && !io_step(c, r0, a.q[0], a, 1'b0))
+                go = 1'b0;                      // refresh_io_step=own
+            if (go && e.e.latch_wait_now)
+                go = 1'b0;                      // refresh_wlatch=hold
+            if (go && !(io_stepped(r0, e) && cnt < setup && r0.detached)
+                    && !refresh_ok(c, r0, a, e, rq || want))
+                go = 1'b0;                      // refresh_accept=boundary_bus
+            if (go) begin
+                wr = want && !step_lead;
+                if (wr) begin                   // refresh_abort=abort
+                    rd = q_op(c, snap, V35_QOP_TRIPLE, 1'b0, 1'b0);
+                    if (rd[0]) begin
+                        rd = q_op(c, snap, V35_QOP_ROOM, 1'b0, 1'b0);
+                        q = qs(c);
+                        if ($signed(rd) == 8'sd2 && !q.inflight) begin
+                            unit_md = is_cls(e.e.cls, V35_CLS_MUL) || is_cls(e.e.cls, V35_CLS_DIV);
+                            retry_loop = e.e.start_age == '0
+                                         && ((e.e.unit && unit_md)
+                                             || ((is_cls(e.e.cls, V35_CLS_SHIFT_CL)
+                                                  || is_cls(e.e.cls, V35_CLS_SHIFT_IMM))
+                                                 && !e.e.mem)
+                                             || (unit_md && !e.e.mem));
+                            void'(q_op(c, snap, V35_QOP_ABORT, retry_loop, 1'b1));
+                            wr = 1'b0;
+                        end
+                    end
+                end
+                q = qs(c);
+                if (wr && r0.valid && r0.ncyc != '0 && r0.issued == '0 && io
+                        && a.q[0].p_age == '0 && e.e.start_age != '0 && q.rq_valid
+                        && q.rq_age == '0 && q.latched) begin
+                    rd = q_op(c, snap, V35_QOP_ROOM, 1'b0, 1'b0);
+                    if (rd[0])
+                        wr = 1'b0;              // refresh_drop_post=hold
+                end
+                // refresh_drop, refresh_drop_on=odd, refresh_drop_unit=unit
+                q = qs(c);
+                if (wr && q.rq_valid && q.rq_age == '0 && q.arrived_now) begin
+                    odd = 1'b0;
+                    if (q.latched) begin
+                        rd = q_op(c, snap, V35_QOP_ROOM, 1'b0, 1'b0);
+                        odd = rd[0];
+                    end
+                    if (!odd) begin
+                        rd = q_op(c, snap, V35_QOP_ROOM, 1'b0, 1'b0);
+                        odd = $signed(rd) == 8'sd2 && eu_in_loop(e.e) && eu_inside(e.e);
+                    end
+                    if (odd) begin
+                        // refresh_reraise=unit: only a count loop holds it to its exit (not one
+                        // lost in a shift's exec); refresh_lost=start otherwise
+                        drop_hold = eu_in_loop(e.e) && !(e.e.clk_tag == CT_EXEC && eu_inside(e.e));
+                        void'(q_op(c, snap, V35_QOP_DROP, drop_hold, 1'b0));
+                    end
+                end
+                c.start = 1'b1;
+                c.kind = V35_K_REFRESH;
+                c.addr = 20'd0;
+                c.width = V35_BW_WORD;
+                c.len = rf_len;
+                q = qs(c);
+                // refresh_sync=run: the beaten fetch is the one the EU's take sync counts
+                a.early_ok = wr && !q.dropped && e.e.sync == SYNC_COUNT
+                             && int'(e.e.owed) > int'(q.inflight);
+                if (wr && !q.dropped)           // refresh_after=fetch_next, halt_refresh=run_drop
+                    void'(q_opv(c, snap, V35_QOP_BEAT, e.e.halted, 1'b0, int'(rf_len)));
+                refresh_cost(c, r0, a, e, rf_len, wr);   // refresh_post: eu.refresh_beat
+                if (e.e.halted && e.e.halt_now)
+                    x_op(c, V35_XOP_HALT_DEFER, int'(rf_len));   // refresh_halt=status
+                return;
+            end
+        end
         if (rq && want && fetch_first(c, r0, a, snap, mut))
             rq = 1'b0;
         if (rq) begin
@@ -577,14 +905,41 @@ module v35_arbiter
             void'(q_op(c, snap, V35_QOP_ABORT, retry_loop, 1'b0));
             return;
         end
-        // refresh_beat_t4, refresh_beat_b2b: a refresh's (C5)
+        // refresh_beat_t4=t4: on the delivery clock of a 3-clock fetch a refresh beat, the fetch
+        // requested there is committed and starts on t+1; refresh_beat_b2b=imm: the fetch
+        // committed back to back there waits a clock in _beat_late's states
+        q = qs(c);
+        if (want && refresh_on && q.arrived_now && !q.ir_now && b_done && b_done_kind == V35_K_FETCH
+                && flen == 3'd3 && a.after_ref && q.ar_fetch
+                && ((!q.b2b_now && q.latched && !q.take_now) || (q.b2b_now && beat_late(q, e)))) begin
+            void'(q_op(c, snap, V35_QOP_T4, 1'b0, 1'b0));
+            return;
+        end
         if (want) begin
             q = qs(c);
             mem = r0.valid && r0.ncyc != 2'd0 && r0.issued == 2'd0 && !io;
             fresh = q.rq_valid && q.rq_age == '0 && b_fprev;
             b2b = q.b2b_now;
+            if (mem && r0.beat_ext != '0 && q.ar_pend && q.ar_off == '0) begin
+                // refresh_post=post_beat: the beaten fetch runs first, the hold is the window's
+                x_op(c, V35_XOP_SETUP, -int'(r0.beat_ext));
+                x_op(c, V35_XOP_BEAT, 0);
+                r0.setup = r0.setup - 7'(r0.beat_ext);
+                r0.beat_ext = '0;
+                setup = int'(r0.setup);
+            end
             void'(q_op(c, snap, V35_QOP_ISSUE, mem, 1'b0));   // request_reissue=no_mem
             start_fetch(c, flen);
+            // refresh_sync=run: the beaten fetch the take sync counts, and the fetches back to
+            // back behind it, run 2 clocks earlier for the EU (bus.early)
+            q = qs(c);
+            if (refresh_on && q.ar_pend && q.ar_off == '0 && a.early_ok) begin
+                c.early_set = 1'b1;
+                a.early_n = 3'd1;
+            end else if (refresh_on && a.early_on && b_done) begin
+                c.early_set = 1'b1;
+                if (a.early_n != 3'd7) a.early_n = a.early_n + 3'd1;
+            end
             // free_idle, free_idle_b2b: an idle clock after a run's delivery-clock fetch
             if (mem && r0.free_orig != '0 && !fhp[0] && cnt == setup - int'(r0.free_orig)
                     && ((fresh && fetch_run(a)) || b2b))
@@ -613,13 +968,17 @@ module v35_arbiter
         v35_req_t r0, nw;
         v35_arq_t na;
         v35_abus_t bb, ba;
-        logic halting, counted, rq;
+        logic halting, counted, rq, run_;
         logic [1:0] fhp, ghp;
         logic [2:0] flen;
+        logic [6:0] base;
+        int added;
         v35_qstate_t q0;
         e = v35_st_t'(eu_l);
         ee = v35_st_t'(eu_e);
         c = '0;
+        run_ = 1'b0;
+        added = 0;
         flen = cyc_len(V35_K_FETCH, 20'd0);
         // the clock's start: ages move, the "== t" flags become "== t-1"
         a = ra;
@@ -631,8 +990,14 @@ module v35_arbiter
             a.q[i].lift_now = 1'b0;
             a.q[i].fh_now = 1'b0;
             a.q[i].gh_now = 1'b0;
+            a.q[i].xeu = {ra.q[i].xeu[1:0], 1'b0};   // t-1, t-2 from t, t-1
         end
         if (a.io_v && a.io_age != 4'd15) a.io_age = a.io_age + 4'd1;
+        // the last cycle's and the last refresh's end, as ages (0 while it covers t)
+        a.lc_age = b_busy ? 8'd0 : (ra.lc_age == 8'd255 ? 8'd255 : ra.lc_age + 8'd1);
+        if (ra.rf_v)
+            a.rf_age = (ra.rf_n == 2'd0 && b_busy) ? 8'd0
+                       : (ra.rf_age == 8'd255 ? 8'd255 : ra.rf_age + 8'd1);
         // the requests the EU posted in T/L start their records; retired ones are gone
         for (int i = 0; i < 3; i++) begin
             if (fresh_l[i]) begin
@@ -645,12 +1010,15 @@ module v35_arbiter
         end
         // arbitrate: the count before the choice (data_while_fetch=wait_before; halt_status)
         r0 = e.r[0];
-        bb = '{busy: b_busy, kind: b_kind, in_wait: b_in_wait, finf: b_finf, io_win: b_io_win};
-        halting = e.e.halt_now;
+        bb = '{busy: b_busy, kind: b_kind, pos: b_pos, len: b_len, in_wait: b_in_wait,
+               finf: b_finf, io_win: b_io_win};
+        // halt_status: HALT's clock (or the deferred status after a refresh, refresh_halt)
+        halting = e.e.halt_now || (e.e.hd_v && !e.e.hd_past && e.e.hd_off == '0);
         counted = 1'b0;
+        base = a.q[0].count;                    // dw_view's base: the count before this clock's
         rq = r0.valid && r0.ncyc != 2'd0;
         if (!halting && rq && r0.issued == 2'd0 && !req_ready(r0, a.q[0])
-                && req_counts(r0, a.q[0], bb)) begin
+                && req_counts(r0, a.q[0], bb, e.e.halted)) begin
             a.q[0].count = a.q[0].count + 7'd1;
             counted = 1'b1;
         end
@@ -659,10 +1027,10 @@ module v35_arbiter
         // before it (on the bus as the cycle starts: B1, its I/O recovery from the start)
         nw = r0;
         na = a.q[0];
-        ba = '{busy: 1'b1, kind: c.kind, in_wait: 1'b0, finf: 1'b0,
+        ba = '{busy: 1'b1, kind: c.kind, pos: 3'd0, len: c.len, in_wait: 1'b0, finf: 1'b0,
                io_win: b_io_win || k_io(c.kind)};
         if (!halting && c.promoted && nw.valid && nw.ncyc != 2'd0 && nw.issued == 2'd0
-                && !req_ready(nw, na) && req_counts(nw, na, ba)) begin
+                && !req_ready(nw, na) && req_counts(nw, na, ba, 1'b0)) begin
             na.count = na.count + 7'd1;
         end
         // disp_io=extend: the form took its displacement on this I/O issue clock
@@ -682,14 +1050,48 @@ module v35_arbiter
                 na.count = na.count - 7'd1;     // a back-to-back fetch starting
             end
         end
+        // dw_view=eu: refresh_sync=run's early fetch run is 2 clocks earlier for the EU, and so
+        // for the count of an I/O request it posted: a setup clock a fetch of the run keeps from
+        // counting is the clock 2 earlier as the EU counts (_eu_view)
+        if (refresh_on && nw.valid && nw.ncyc != 2'd0 && nw.issued == 2'd0 && rk_io(nw.kind)
+                && nw.nowait && !(na.count > (c.promoted ? 7'd0 : base) || na.count >= nw.setup)) begin
+            run_ = c.start ? (c.kind == V35_K_FETCH && c.early_set)
+                           : (ra.early_on && b_busy && b_kind == V35_K_FETCH && b_in_wait);
+            if (!run_) begin
+                na.xeu[0] = 1'b1;
+            end else begin
+                added = 0;
+                if (halting) begin
+                    na.xeu[0] = 1'b1;
+                    added = added + 1;
+                end
+                if (na.p_age >= 8'd2 && !na.xeu[2] && mut != 4'd7) begin
+                    na.xeu[2] = 1'b1;
+                    added = added + 1;
+                end
+                na.count = na.count + 7'(1 - added);
+            end
+        end
         a.q[0] = na;
-        // dw_view=eu: refresh on only (C5)
-        // the bus history: a fetch back to back behind a fetch; the last I/O cycle's start
+        // the bus history: a fetch back to back behind a fetch (C4: unchanged on a refresh
+        // start); the last I/O cycle's start; (C5) the early run, the last cycle's end, the
+        // last refresh, a cycle right after a refresh's end
         if (c.start) begin
-            a.run = c.kind == V35_K_FETCH && b_done && b_done_kind == V35_K_FETCH;
+            if (c.kind != V35_K_REFRESH)
+                a.run = c.kind == V35_K_FETCH && b_done && b_done_kind == V35_K_FETCH;
             if (k_io(c.kind)) begin
                 a.io_v = 1'b1;
                 a.io_age = 4'd0;
+            end
+            a.early_on = c.early_set;
+            a.after_ref = b_done && b_done_kind == V35_K_REFRESH;
+            a.lc_age = 8'd0;
+            if (c.kind == V35_K_REFRESH) begin
+                a.rf_v = 1'b1;
+                a.rf_n = 2'd0;
+                a.rf_age = 8'd0;
+            end else if (a.rf_v && a.rf_n != 2'd3) begin
+                a.rf_n = a.rf_n + 2'd1;
             end
         end
         a_x = a;
@@ -717,6 +1119,14 @@ module v35_arbiter
     assign req_len = cx.len;
     assign req_ext = cx.ext;
     assign req_latch = cx.eu && (cx.kind == V35_K_READ || cx.kind == V35_K_IO_READ);
+    assign sfr_wr = cx.eu && cx.kind == V35_K_WRITE && cx.addr >= V35_SFR_PAGE;
+    v35_st_t el;
+    assign el = v35_st_t'(eu_l);
+    assign sfr_value = el.e.sfr;
+    // the early run as the EU reads it: bus.early is the cycle last started (cur), it ended on
+    // t - 1 (ep: before the choice; after it, unless a fetch of the run started on t), early_n
+    assign early_t = early_view(ra.early_on, ra.early_on && b_done, ra.early_n);
+    assign early_p = early_view(a_x.early_on, ra.early_on && b_done && !cx.early_set, a_x.early_n);
     assign err_code = cx.err;
     for (genvar i = 0; i < 3; i++) begin : g_counts
         assign counts_t[i] = ra.q[i].count;

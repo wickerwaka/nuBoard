@@ -384,6 +384,77 @@ BASELINES.update({"F26": ("dM", _empty_baseline), "F27": ("dM", _f27_baseline)})
 BASELINES.update({"F28": ("dM", _f27_baseline), "F29": ("dM", _f27_baseline)})
 
 
+def _f24_baseline(f, index, extra):
+    """(WP66) F24: the chain the knob `baseline` names (its x_variant: the empty frame, or MOV
+    CW,n [D^d] alone), same marker and column; None for the controls."""
+    name = f.get("knobs", {}).get("baseline")
+    return index.get((f["marker"], name, f["column"])) if name else None
+
+
+BASELINES.update({"F24": ("dM", _f24_baseline)})
+
+
+def f24_apply(facts, normalized):
+    """(WP66) F24: per run, the string forms' elements on the bus (normalize.string_elements
+    groups each form's matched cycles by element; a REP compare's extra read after its last
+    element, the overrun, is kept apart). str_elements: elements seen (compared / moved, as
+    the iters knob); str_t: each element's first cycle rel t_M0; str_spacing: start-to-start
+    between elements; str_cycles: each element's cycles as kind char + clock rel t_M0;
+    str_overrun: the overrun's cycles the same way (None without one); str_overrun_gap: its
+    first cycle less the last element's first cycle (the spacing to the read nothing
+    compares); str_fetches: fetches starting between the first element's first cycle and the
+    stream's last cycle (the overrun's when there is one: what the stream lets in);
+    str_next_fetch: the first fetch after the stream's last cycle, clocks from that cycle's
+    start (None when there is none before M1); str_window: the bus cycles from the first
+    element's first cycle to M1, one char each. None throughout for the controls and a run
+    whose cycles did not match (normalize strict raises first)."""
+    from .normalize import string_elements
+    keys = ("str_elements", "str_t", "str_spacing", "str_cycles", "str_overrun",
+            "str_overrun_gap", "str_fetches", "str_next_fetch", "str_window")
+    for f in facts:
+        for key in keys:
+            f[key] = None
+        n = normalized[f["id"]]
+        t_m0 = n.t_markers.get(0)
+        if n.access_mismatch is not None or t_m0 is None:
+            continue
+        runs = string_elements(n.chain)
+        if not runs:
+            continue
+        groups, overruns = [], []
+        for k, run in sorted(runs.items()):
+            evs = [e for e in n.events if e.instr_index == k
+                   and e.kind not in ("fetch", "refresh")]
+            at = 0
+            for element in run.elements:
+                groups.append(evs[at:at + len(element)])
+                at += len(element)
+            if run.overrun:
+                overruns.append(evs[at:at + len(run.overrun)])
+        f["str_elements"] = len(groups)
+        if not groups:
+            continue
+        cyc = lambda g: " ".join(f"{e.char}{e.clock - t_m0}" for e in g)
+        starts = [g[0].clock for g in groups]
+        f["str_t"] = [t - t_m0 for t in starts]
+        f["str_spacing"] = [b - a for a, b in zip(starts, starts[1:])]
+        f["str_cycles"] = [cyc(g) for g in groups]
+        if overruns:
+            f["str_overrun"] = " | ".join(cyc(g) for g in overruns)
+            f["str_overrun_gap"] = overruns[-1][0].clock - groups[-1][0].clock
+        first = groups[0][0]
+        last = max([g[-1] for g in groups] + [g[-1] for g in overruns], key=lambda e: e.clock)
+        f["str_fetches"] = sum(1 for e in n.events if e.kind == "fetch"
+                               and first.clock < e.clock < last.clock)
+        t_m1 = n.t_markers.get(1)
+        nxt = next((e for e in n.events if e.kind == "fetch" and e.clock > last.clock
+                    and (t_m1 is None or e.clock < t_m1)), None)
+        f["str_next_fetch"] = nxt.clock - last.clock if nxt is not None else None
+        i0 = n.events.index(first)
+        i1 = next((i for i, e in enumerate(n.events) if e.marker_id == 1), len(n.events) - 1)
+        f["str_window"] = interleave(n.events, i0, i1 + 1)
+
+
 def apply_costs(family, facts, extra=None) -> dict:
     """Set f["cost"] against the family's same-kind baseline; {variant: {column: cost}}."""
     metric, base = BASELINES[family]
@@ -456,6 +527,8 @@ def family_facts(family: str, waits=(0, 1, 2), files=None, extra=None) -> dict:
         f17_apply(facts, out["normalized"])
     if family == "F18":
         f18_apply(facts, out["normalized"])
+    if family == "F24":
+        f24_apply(facts, out["normalized"])
     out["metric"] = metric
     out["odd_minus_even"] = odd_minus_even(rows, metric)
     out["k_differences"] = k_differences(rows, "cost" if "cost" in out else metric)

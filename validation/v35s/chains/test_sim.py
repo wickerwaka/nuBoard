@@ -5040,3 +5040,152 @@ class RefreshExitBeatGroupF28F29(unittest.TestCase):
         for name in WP61:
             self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
             self.assertIn(WP61[name], OPTIONS[name], name)
+
+
+class StringForms(unittest.TestCase):
+    """(WP67, F24) the string and block forms: decode (a REP prefix is part of the form, the
+    str_* class with the prefix byte), the template per class (the element's cycles in bus
+    order at the walk's addresses), the REP compare's overrun (str_overrun), CW = 0 (no
+    element: zexit), the odd word's split, REP against the single form, and the F24 chains
+    simulate."""
+
+    REGS = {**FORMS_REGS, "AW": 0, "CW": 3, "DW": 0x40, "IX": 0x0A40, "IY": 0x0C40}
+    CLASSES = ("str_move", "str_cmp", "str_store", "str_load", "str_scan", "str_in", "str_out")
+
+    def _chain(self, cid):
+        return next(c for c in generate(["F24"], waits=(int(cid[-1]),),
+                                        parities=("even" if "-pE-" in cid else "odd",))
+                    if c.id == cid)
+
+    def test_decode(self):
+        from validation.v35s.chains.forms import F24_STRING_FORMS, STRING_FORMS
+        for name in F24_STRING_FORMS:
+            form, sop = FORMS[name], STRING_FORMS[name]
+            op = decode(form.code, 0, dict(self.REGS))
+            self.assertEqual((op.cls, op.length, op.width), (form.cls, len(form.code), sop.width),
+                             name)
+            self.assertEqual(op.rep, form.code[0] if sop.rep else None, name)
+            self.assertEqual(op.n, 3 if sop.rep else 1, name)       # CW, or one element
+            self.assertEqual((op.ix, op.iy), (0x0A40, 0x0C40), name)
+            self.assertEqual(op.port, 0x40 if form.cls in ("str_in", "str_out") else None, name)
+        # a segment prefix stays its own pseudo-instruction; F2 / F3 only before a string opcode
+        self.assertEqual(decode(bytes([0x26, 0xA5]), 0, dict(self.REGS)).cls, "prefix")
+
+    def test_execute_steps_the_registers(self):
+        from validation.v35s.chains.sim.templates import execute
+        regs = dict(self.REGS)
+        code = FORMS["rep_movbk_w"].code
+        execute(decode(code, 0, regs), code, regs)
+        self.assertEqual((regs["IX"], regs["IY"], regs["CW"]), (0x0A46, 0x0C46, 0))
+        regs = dict(self.REGS)
+        code = FORMS["stm_b"].code
+        execute(decode(code, 0, regs), code, regs)
+        self.assertEqual((regs["IX"], regs["IY"], regs["CW"]), (0x0A40, 0x0C41, 3))
+
+    def _data(self, op, cfg=DEFAULT):
+        from validation.v35s.chains.sim.templates import steps
+        return [s[1:3] for s in steps(op, cfg) if s[0] == "data"]
+
+    def test_template_per_class_matches_the_walk(self):
+        """Every F24 r-series chain at n = 3: the template's data steps, in order, are the
+        normaliser's expected accesses of the form (the overrun included with
+        str_overrun=read)."""
+        from validation.v35s.chains.forms import STRING_FORMS
+        from validation.v35s.chains.normalize import string_elements
+        cfg = DEFAULT.replace(str_overrun="read")
+        kinds = {"read": "data_read", "write": "data_write", "io_read": "io_read",
+                 "io_write": "io_write"}
+        seen = set()
+        for chain in generate(["F24"], waits=(0,), parities=("even",)):
+            if "-r-" not in chain.id or not chain.id.endswith("-n3-pE-w0"):
+                continue
+            k = next((k for k, i in enumerate(chain.instrs) if i.role == "x"
+                      and i.form in STRING_FORMS), None)
+            if k is None:
+                continue                         # the MOV CW,n control
+            run = string_elements(chain)[k]
+            op = decode(FORMS[chain.instrs[k].form].code, 0, dict(self.REGS))
+            op.n, op.cond = len(run.elements), run.cond
+            got = [(kinds[kind], addr) for kind, addr in self._data(op, cfg)]
+            want = [(a.kind, a.addr) for e in run.elements for a in e] + [
+                (a.kind, a.addr) for a in run.overrun]
+            self.assertEqual(got, want, chain.id)
+            seen.add(op.cls)
+        self.assertEqual(seen, set(self.CLASSES))
+
+    def test_overrun_is_the_compares_and_off_by_default(self):
+        for name, compare in (("repe_cmpbk_w", True), ("repne_cmpm_b", True),
+                              ("rep_ldm_w", False), ("rep_movbk_b", False)):
+            op = decode(FORMS[name].code, 0, dict(self.REGS))
+            plain = self._data(op)
+            over = self._data(op, DEFAULT.replace(str_overrun="read"))
+            per = len(plain) // 3
+            self.assertEqual(len(over), len(plain) + (per if compare else 0), name)
+            if compare:
+                # the next element's reads at the next addresses, after the last element
+                w = op.width
+                self.assertEqual([a for _, a in over[-per:]],
+                                 [a + w for _, a in plain[-per:]], name)
+
+    def test_cw_zero_runs_no_element(self):
+        from validation.v35s.chains.sim.templates import steps
+        cfg = DEFAULT.replace(**{"str_store.zexit": 7})
+        op = decode(FORMS["rep_stm_w"].code, 0, {**self.REGS, "CW": 0})
+        seq = steps(op, cfg)
+        self.assertFalse([s for s in seq if s[0] == "data"])
+        self.assertEqual(seq[-1], ("clocks", 7))
+        chain = self._chain("F24-out-r-rep-movbk-w-n0-pE-w0")
+        self.assertFalse([e for e in simulate(chain) if e.kind.startswith("data")])
+
+    def test_rep_against_the_single_form(self):
+        from validation.v35s.chains.sim.templates import steps
+        single = steps(decode(FORMS["movbk_w"].code, 0, dict(self.REGS)), DEFAULT)
+        rep = steps(decode(FORMS["rep_movbk_w"].code, 0, dict(self.REGS)), DEFAULT)
+        self.assertFalse([s for s in single if s[0] == "take"])     # no operand byte
+        self.assertEqual(rep[0][:2], ("take", 1))                   # the opcode after F3
+        self.assertEqual(steps(decode(FORMS["rep_movbk_w"].code, 0, dict(self.REGS)),
+                               DEFAULT.replace(str_take="chain"))[0], ("take", 1, "chain"))
+        quiet = steps(decode(FORMS["rep_movbk_w"].code, 0, dict(self.REGS)),
+                      DEFAULT.replace(str_take="quiet", str_setup="nowait"))
+        self.assertEqual(quiet[:2], [("take", 1, "chain"), ("quiet",)])
+        self.assertEqual(quiet[2][0], "nowait")                    # rpre, not in wait states
+        self.assertEqual(rep[1][0], "clocks")
+        self.assertEqual(len([s for s in single if s[0] == "data"]), 2)
+        self.assertEqual(len([s for s in rep if s[0] == "data"]), 6)
+        # the exit: rexit when CW ran out, cexit when a compare's condition ended it
+        cfg = DEFAULT.replace(**{"str_scan.rexit": 5, "str_scan.cexit": 4})
+        op = decode(FORMS["repe_cmpm_w"].code, 0, dict(self.REGS))
+        self.assertEqual(steps(op, cfg)[-1], ("clocks", 5))
+        op.cond = True
+        self.assertEqual(steps(op, cfg)[-1], ("clocks", 4))
+
+    def test_walk_count_and_exit_reach_the_eu(self):
+        """The early exit on the condition comes from the chain walk: REPE CMPM on the fill
+        compares one element at CW = 4 (and with the overrun reads one more)."""
+        chain = self._chain("F24-out-t-repe-cmpm-w-n4-fill-pE-w0")
+        cfg = Config.fitted().replace(str_overrun="read")
+        reads = [e for e in simulate(chain, cfg) if e.kind == "data_read"]
+        self.assertEqual([e.addr for e in reads], [0x0C40, 0x0C42])
+        m = Machine(chain, cfg)
+        self.assertEqual(list(m.eu.strings.values()), [(1, True)])
+
+    def test_odd_word_split(self):
+        chain = self._chain("F24-out-a-rep-movbk-w-n1-ixiy-pE-w0")
+        data = [(e.kind, e.addr, e.width) for e in simulate(chain)
+                if e.kind.startswith("data")]
+        self.assertEqual(data, [("data_read", 0x0A41, "hi"), ("data_read", 0x0A42, "lo"),
+                                ("data_write", 0x0C41, "hi"), ("data_write", 0x0C42, "lo")])
+
+    def test_f24_simulates(self):
+        for chain in generate(["F24"], waits=(0, 1, 2)):
+            with self.subTest(chain=chain.id):
+                for cfg in (DEFAULT, Config.fitted()):
+                    events = simulate(chain, cfg)
+                    self.assertEqual(events[-1].kind, "io_write")
+                    self.assertEqual(events[-1].addr, 0xFF00)
+
+    def test_defaults_are_the_old_model(self):
+        for name in ("str_take", "str_setup", "str_overrun", "str_hold"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+        for cls in self.CLASSES:
+            self.assertIn(cls, DEFAULT.cost, cls)

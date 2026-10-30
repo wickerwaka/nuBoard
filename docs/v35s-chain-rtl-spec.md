@@ -772,6 +772,47 @@ decision differs it is said here.
   flag. No F27 run overfills; F8, F13 and F17 gain, nothing else changes. The 294 F27 misses (the
   M0 marker OUT at pO w2 under FCh is 67 of them, one state with 19 more in F8 and F13) are state
   reads for the model before any RTL rule.
+- **C5, refresh in RTL (2026-10-29, WP65; docs/v35s-hdl-plan.md):** `v35_refresh.sv` from
+  `frozen/refresh.py`, the arbiter's `_refresh` path and the EU's refresh rules from the frozen
+  code; gate exact on F8/F13/F17/F18 (2,472 runs), F27/F28 (2,160) and every run of the corpus
+  that has no string form (23,678 of 24,524; model-exact 22,837 = RTL-exact). Where the frozen
+  code and this spec disagreed, the frozen code was followed: (1) A2's refresh state needs a
+  valid bit on `prev_bit`, which is None on clock 0; (2) the model has two kinds of "refresh
+  off", no controller (`refresh_any` false) and a controller with RFEN clear, and the
+  templates, the boundary rules, `dw_view` and `io_stall` depend on which, so the RTL takes a
+  static `refresh_on` input that A2 and A3 lack; (3) `pop_refresh=stall` (marked C6 here)
+  fires in ten F13 runs in the POP PSW clocks and is built; its count can fall after
+  `start_at` has passed (the EU's hold delays the start attempt), so `sa_off` is 5 bits signed,
+  clipped at −16 (C3's 4-bit form failed four runs); (4) `EU.refresh_cost` and `refresh_ok`
+  are EU methods in the model; the RTL arbiter computes them from the EU's state through the
+  package functions and its own count and working copy of the slot record, and the effects
+  reach the EU as touches (REFRESH hold/len, SETUP, BEAT); (5) the touch word is a 4-bit code
+  plus an 8-bit value and NXOP is 6; (6) `bus.early`, `early_ok`, `early_n` (A3's bus-unit
+  fields) live in the arbiter's bus history, the EU reading early views before and after X;
+  (7) `io_step`'s three-cycle look-back is ported exactly with `rf_n` (cycles started since
+  the last refresh), `rf_age` and the last cycle's end age `lc_age`, 8-bit saturating ages
+  with a SAT error, not the spec's "refresh seen in this setup" flag; (8) `dw_view=eu`'s
+  `_eu_view` can lower a request's count (halting plus the t−2 clock) and the RTL does the
+  same; (9) `eu_halted` is not stored: the RTL reads the EU's `halted` for the slot's request
+  and 0 for one just promoted; (10) the EU stamps need more state than A2 gives: `clk_end` an
+  11-bit signed offset clipped at −1, `resume` a `res_past` flag, `clk_start` and `hold_from`
+  as "== t" flags, `hold_end` and `halt_defer` an offset plus a past flag, `halt_t` a t−1 flag;
+  (11) `sfr` is kept in EU state (8 bits), taken from the operand record's last byte when the
+  store's EA is at or above the SFR page, since the write is issued after the start; (12)
+  `prev_cls` (C3 "not built") is built, and `rmw_loop`/`rmw_top` are flags recomputed from the
+  costs and the count; (13) the bus unit gains `refresh_len_now` so the arbiter uses the
+  length after this clock's RFM write; (14) the refresh row advances by +200h per refresh
+  (`REFRESH_ROW_STEP`) from row 0, where the model's is a per-run anchor label; (15)
+  `io_stall` is not stored but derived as `nowait && refresh_on`; (16) `_winner`'s
+  `fetch_first` ROOM op is emitted even when `refresh_halt` then refuses the refresh, as in
+  the model; (17) `refresh_cost`'s "next rmw boundary below d" is computed in closed form;
+  (18) the HALT queue op (`queue.halted`) is emitted only with refresh on. The C4 fetch-run
+  flag is left unchanged on a refresh start (C4 decision 3). `--eu` and `--joint3` stay
+  refresh-off; refresh is modelled in `--core` only. None of the C5 SAT error codes fired on
+  the corpus. WP68 (the same day, fit 38 adopted): the seven `str_*` classes are left out of
+  the include's step tables (`rtlgen.string_classes`, Phase E item 3: element-indexed
+  addresses, no symbolic source) and every `rtl_vectors` mode reports a run with a string form
+  as not modelled.
 
 ### The request rule and the queue's room
 

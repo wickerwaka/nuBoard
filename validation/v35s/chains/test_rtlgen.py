@@ -39,17 +39,31 @@ class Generated(unittest.TestCase):
         self.assertIn(f'V35_FIT_MD5 = "{md5}"', self.text)
 
     def test_every_class_present(self):
-        self.assertEqual(len(self.cfg.cost), 35)
+        self.assertEqual(len(self.cfg.cost), 42)        # fit 38: the seven string classes
         with_tmpl = {self.example[i][0] for i in range(len(self.tmpls))}
-        for cls in self.cfg.cost:
+        for k, cls in enumerate(sorted(self.cfg.cost)):
             with self.subTest(cls=cls):
-                self.assertIn(f"localparam int V35_CLS_{rtlgen._ident(cls)} = ", self.text)
-                self.assertIn(cls, with_tmpl)
+                # the class ids are Config's sorted order (rtl_vectors' numbering)
+                self.assertIn(f"localparam int V35_CLS_{rtlgen._ident(cls)} = {k};", self.text)
+                self.assertEqual(cls in with_tmpl, cls not in rtlgen.string_classes())
                 for name, value in self.cfg.cost[cls].items():
                     self.assertIn(f"localparam int V35_C_{rtlgen._ident(cls)}_"
                                   f"{rtlgen._ident(name)} = {value};", self.text)
         n = sum(len(d) for d in self.cfg.cost.values())
         self.assertEqual(len(re.findall(r"^localparam int V35_C_", self.text, re.M)), n)
+
+    def test_string_classes_skipped(self):
+        """(WP68, F24) the string forms (Phase E3) have no template: no format word of a
+        string class selects one, while their class ids and integers are in the include."""
+        sc = rtlgen.string_classes()
+        self.assertEqual(sc, {"str_move", "str_cmp", "str_store", "str_load", "str_scan",
+                              "str_in", "str_out"})
+        self.assertTrue(sc <= set(self.cfg.cost))
+        names = [n for n, _ in rtlgen.FMT_FIELDS]
+        self.assertFalse([k for k in self.sel if k[names.index("cls")] in sc])
+        self.assertFalse([e for e in self.example.values() if e[0] in sc])
+        for cls in sc:
+            self.assertIn(f"localparam int V35_CLS_{rtlgen._ident(cls)} = ", self.text)
 
     def test_ea_table(self):
         self.assertEqual(len(self.cfg.ea), 7)
@@ -149,8 +163,8 @@ class Generated(unittest.TestCase):
                     self.assertEqual(rtlgen.ADDR_SRC[get("src")], d["src"])
 
     def test_corpus_instructions_have_templates(self):
-        """Every instruction of every generated chain decodes to a format the selection
-        table holds, in both refresh forms (and the count-0 form of a shift), with the EU's
+        """Every instruction of every generated chain but a string form (WP68, Phase E3)
+        decodes to a format the selection table holds, in both refresh forms (and the count-0 form of a shift), with the EU's
         own changes at its start (a CMP r/m,reg or 81 /7 form: nowrite, its group's class)."""
         from validation.v35s.chains.families import generate
         from validation.v35s.chains.sim.frozen.templates import decode
@@ -164,6 +178,9 @@ class Generated(unittest.TestCase):
                 except (ValueError, KeyError, IndexError):
                     break
                 op = rtlgen.started(op, self.cfg)   # as the EU's _start selects it
+                if op.cls in rtlgen.string_classes():
+                    k += op.length                  # (WP68) Phase E3: no template
+                    continue
                 for refresh in (False, True):
                     cz = rtlgen.has_count(op) and op.count == 0
                     key = tuple(rtlgen.fmt_of(op, self.cfg, cz, refresh)[n]

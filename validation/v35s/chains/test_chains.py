@@ -89,6 +89,14 @@ RUN_RANGES.update({"F26": (906, 906), "F27": (1072, 1072)})
 LENGTHS.update({f"{n}_m{'1' if n == 'shl' else ''}_bw_d16": 4
                 for n in ("inc", "not", "shl", "neg", "dec")})
 RUN_RANGES.update({"F28": (1088, 1088), "F29": (456, 456)})
+# (WP66) F24: the string forms (one byte, two with a REP prefix), MOV CW,n, the pattern store
+LENGTHS.update({f"{p}{op}_{w}": 1 + bool(p) for op in ("movbk", "stm", "ldm", "inm", "outm")
+                for p in ("", "rep_") for w in "bw"})
+LENGTHS.update({f"{p}{op}_{w}": 1 + bool(p) for op in ("cmpbk", "cmpm")
+                for p in ("", "repe_", "repne_") for w in "bw"})
+LENGTHS.update({f"mov_cw_imm{n}": 3 for n in (0, 3, 4, 8, 16)})
+LENGTHS.update({"st_imm0_dir_c42": 6})
+RUN_RANGES.update({"F24": (912, 912)})
 
 
 def _synthetic_run(chain):
@@ -1351,6 +1359,254 @@ class F28F29Tests(unittest.TestCase):
                 self.assertEqual(b["knobs"]["series"], "empty", f["id"])
                 self.assertEqual((b["marker"], b["column"], b["knobs"]["rfm"]),
                                  (f["marker"], f["column"], f["knobs"]["rfm"]), f["id"])
+
+
+class F24Tests(unittest.TestCase):
+    """(WP66) the string and block forms: catalog bytes, counts per series, placement, the
+    register presets, the expected accesses (REP, the compares' exit, odd splits, I/O) and the
+    baselines."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f24 = generate(["F24"])
+        cls.by_id = {c.id: c for c in cls.f24}
+
+    OPCODES = {"movbk": 0xA4, "cmpbk": 0xA6, "stm": 0xAA, "ldm": 0xAC, "cmpm": 0xAE,
+               "inm": 0x6C, "outm": 0x6E}
+    COUNTS = {"movbk": (1, 1, 0), "cmpbk": (2, 0, 0), "stm": (0, 1, 0), "ldm": (1, 0, 0),
+              "cmpm": (1, 0, 0), "inm": (0, 1, 1), "outm": (1, 0, 1)}
+
+    def _acc(self, cid):
+        from validation.v35s.chains.normalize import expected_accesses
+        acc = expected_accesses(self.by_id[cid])
+        return [(a.kind, a.addr, a.width) for k in sorted(acc) for a in acc[k]]
+
+    def test_catalog_bytes(self):
+        from validation.v35s.chains.forms import STRING_FORMS, UNMODELLED_FORMS
+        self.assertEqual(len(STRING_FORMS), 32)
+        for name, s in STRING_FORMS.items():
+            f = FORMS[name]
+            prefix = {None: b"", "rep": b"\xf3", "repe": b"\xf3", "repne": b"\xf2"}[s.rep]
+            self.assertEqual(f.code, prefix + bytes([self.OPCODES[s.op] | (s.width - 1)]), name)
+            self.assertEqual((f.reads, f.writes, f.io), self.COUNTS[s.op], name)
+            self.assertEqual(f.width, s.width, name)
+            self.assertTrue(f.cls.startswith("str_"), name)
+            self.assertEqual(dict(f.needs).get("DW"), 0x40 if f.io else None, name)
+            self.assertNotIn(name, UNMODELLED_FORMS)      # (WP67) the simulator decodes them
+            if s.rep:
+                self.assertEqual(s.rep != "rep", s.op in ("cmpbk", "cmpm"), name)
+        for name, code in (("rep_stm_w", "f3ab"), ("repne_cmpm_w", "f2af"),
+                           ("repe_cmpbk_b", "f3a6"), ("rep_inm_w", "f36d"), ("outm_b", "6e"),
+                           ("movbk_w", "a5"), ("mov_cw_imm0", "b90000"),
+                           ("mov_cw_imm16", "b91000"), ("st_imm0_dir_c42", "c706420c0000")):
+            self.assertEqual(FORMS[name].code.hex(), code, name)
+        # the MOV CW forms and the pattern store are modelled forms (the simulator decodes them)
+        self.assertNotIn("mov_cw_imm8", UNMODELLED_FORMS)
+        self.assertNotIn("st_imm0_dir_c42", UNMODELLED_FORMS)
+
+    def test_f24_is_modelled(self):
+        from validation.v35s.chains.families import UNMODELLED
+        # (WP67) the simulator runs the string forms: no family is generator-only
+        for f in ("F23", "F24", "F25", "F26", "F27", "F28", "F29"):
+            self.assertNotIn(f, UNMODELLED)
+
+    def test_counts(self):
+        from collections import Counter
+        self.assertEqual(len(self.f24), 152 * 6)
+        cells = [c for c in self.f24 if c.parity == "even" and c.waits == 0]
+        self.assertEqual(Counter(c.knobs["series"] for c in cells),
+                         {"empty": 1, "s": 28, "r": 75, "a": 27, "t": 13, "d": 8})
+        self.assertEqual(Counter(c.knobs["series"] for c in cells if c.knobs["form"] is None),
+                         {"empty": 1, "r": 7, "t": 1, "d": 2})
+        self.assertEqual({(c.waits, c.parity) for c in self.f24},
+                         {(w, p) for w in (0, 1, 2) for p in ("even", "odd")})
+        self.assertEqual({(c.marker_kind, c.rfm, c.prelude_marker) for c in self.f24},
+                         {("out", 0xEC, None)})
+        r = {(c.knobs["form"], c.knobs["n"]) for c in cells if c.knobs["series"] == "r"
+             and c.knobs["form"]}
+        self.assertEqual(len(r), 11 * 6 + 2)
+        self.assertIn(("rep_movbk_w", 16), r)
+        self.assertIn(("repne_cmpm_w", 0), r)
+
+    def test_placement_and_registers(self):
+        from validation.v35s.chains.forms import F24_IX, F24_IY
+        for c in self.f24:
+            k = c.knobs
+            self.assertRegex(c.id, r"^F24-out-(empty|[srtad]-[a-z0-9-]+)-p[EO]-w[012]$", c.id)
+            roles = [i.role for i in c.instrs if i.role != "pad"]
+            pre = ["x"] * len(k["pre"])
+            body = roles[len(pre) + 2:-3]
+            self.assertEqual(roles[:len(pre) + 2], pre + ["ls", "marker"], c.id)
+            self.assertEqual(roles[-3:], ["marker", "ls", "end"], c.id)
+            self.assertEqual(body.count("drain"), k["drain"], c.id)
+            x = [i for i in c.instrs if i.role == "x" and i.index is not None]
+            self.assertEqual([i.form for i in x], k["x"], c.id)
+            self.assertEqual([i.index for i in x], list(range(len(x))), c.id)
+            self.assertEqual([i.form for i in c.instrs if i.role == "x" and i.index is None],
+                             k["pre"], c.id)
+            self.assertEqual(k["pre"], ["st_imm0_dir_c42"] if k["pattern"] else [], c.id)
+            # the registers: IX / IY presets (odd per the align knob), DW the port, segments 0
+            odd = {"even": (0, 0), "ix": (1, 0), "iy": (0, 1), "ixiy": (1, 1)}[k["align"]]
+            self.assertEqual((c.regs["IX"], c.regs["IY"]), (F24_IX + odd[0], F24_IY + odd[1]),
+                             c.id)
+            self.assertEqual((k["ix"], k["iy"]), (c.regs["IX"], c.regs["IY"]), c.id)
+            self.assertEqual((c.regs["DW"], c.regs["DS0"], c.regs["DS1"], c.regs["SS"]),
+                             (0x0040, 0, 0, 0), c.id)
+            self.assertEqual({r: c.regs[r] for r in ("AW", "BW", "CW", "SP", "BP")},
+                             {"AW": 0x1234, "BW": 0x0800, "CW": 0, "SP": 0x0F00, "BP": 0x0A00},
+                             c.id)
+            if k["align"] != "even":
+                self.assertEqual((k["series"], k["width"]), ("a", 2), c.id)
+            # the REP count is set in the frame, directly before the string form or the drains
+            if k["n"] is not None:
+                self.assertEqual(k["x"][0], f"mov_cw_imm{k['n']}", c.id)
+            if k["form"]:
+                self.assertEqual(k["x"][-1], k["form"], c.id)
+                self.assertEqual(k["x"].count(k["form"]), k["k"], c.id)
+            built = build_image(c)
+            at = built.chain_base - CODE_BASE
+            for i in c.instrs:
+                self.assertEqual(built.code[at + i.offset:at + i.offset + len(i.code)],
+                                 FORMS[i.form].code if i.role == "x" else i.code, c.id)
+            m0 = next(i for i in c.instrs if i.role == "marker")
+            self.assertEqual((built.chain_base + m0.offset) & 1, c.parity == "odd", c.id)
+
+    def test_iterations_match_the_walk(self):
+        from validation.v35s.chains.normalize import expected_accesses, string_elements
+        for c in self.f24:
+            runs = string_elements(c).values()
+            got = sum(len(r.elements) for r in runs)
+            self.assertEqual(got, c.knobs["iters"] or 0, c.id)
+            # the overrun: one element's reads after a REP compare that ran an element
+            k = c.knobs
+            want = bool(k["rep"] and k["op"] in ("cmpbk", "cmpm") and k["iters"])
+            self.assertEqual([bool(r.overrun) for r in runs], [want] * len(runs), c.id)
+            for r in runs:
+                if r.overrun:
+                    self.assertEqual(len(r.overrun), len(r.elements[-1]), c.id)
+                    self.assertTrue(all(a.kind == "data_read" for a in r.overrun), c.id)
+            for accs in expected_accesses(c).values():
+                for a in accs:
+                    if a.kind.startswith("data"):
+                        in_src = 0x0A40 <= a.addr < 0x0A60
+                        in_dst = 0x0C40 <= a.addr < 0x0C60
+                        self.assertTrue(in_src or in_dst, (c.id, a))
+                    if a.kind.startswith("io") and a.addr not in (0x20, 0x21, 0xFF00):
+                        self.assertEqual(a.addr, 0x0040, c.id)
+        it = {c.id.rsplit("-p", 1)[0]: c.knobs["iters"] for c in self.f24}
+        self.assertEqual(it["F24-out-t-repe-cmpm-w-n4-fill"], 1)
+        self.assertEqual(it["F24-out-t-repne-cmpbk-w-n4-fill"], 1)
+        self.assertEqual(it["F24-out-t-repe-cmpbk-w-n4-pat"], 2)
+        self.assertEqual(it["F24-out-t-repne-cmpm-w-n4-pat"], 2)
+        self.assertEqual(it["F24-out-t-repne-cmpm-b-n4-pat"], 3)
+        self.assertEqual(it["F24-out-r-repe-cmpbk-w-n8"], 8)
+        self.assertEqual(it["F24-out-r-rep-stm-w-n0"], 0)
+        self.assertEqual(it["F24-out-s-movbk-w-k2"], 2)
+
+    def test_expected_accesses(self):
+        m0, m1, end = ("io_write", 0x20, "lo"), ("io_write", 0x21, "lo"), ("io_write", 0xFF00,
+                                                                           "word")
+        self.assertEqual(self._acc("F24-out-r-rep-stm-w-n4-pE-w0"),
+                         [m0] + [("data_write", 0x0C40 + 2 * j, "word") for j in range(4)]
+                         + [m1, end])
+        # REPE CMPM on the fill: 0000h against 9090h differs at once, one element, then the
+        # overrun read of the next one (F24 silicon)
+        self.assertEqual(self._acc("F24-out-t-repe-cmpm-w-n4-fill-pO-w1"),
+                         [m0, ("data_read", 0x0C40, "word"), ("data_read", 0x0C42, "word"),
+                          m1, end])
+        # REPNE CMPM over the pattern: the store before the first LS, then 9090h (differs,
+        # go on) and the zeroed word at 0C42h (equal, stop): two elements of four, the overrun
+        self.assertEqual(self._acc("F24-out-t-repne-cmpm-w-n4-pat-pE-w0"),
+                         [("data_write", 0x0C42, "word"), m0, ("data_read", 0x0C40, "word"),
+                          ("data_read", 0x0C42, "word"), ("data_read", 0x0C44, "word"), m1,
+                          end])
+        # REPE CMPBK over the pattern: destination then source per element, stop at 2, the
+        # overrun element's pair
+        self.assertEqual(self._acc("F24-out-t-repe-cmpbk-w-n4-pat-pE-w2"),
+                         [("data_write", 0x0C42, "word"), m0,
+                          ("data_read", 0x0C40, "word"), ("data_read", 0x0A40, "word"),
+                          ("data_read", 0x0C42, "word"), ("data_read", 0x0A42, "word"),
+                          ("data_read", 0x0C44, "word"), ("data_read", 0x0A44, "word"),
+                          m1, end])
+        # REPNE CMPM run out at n = 1: the element and the overrun; the single CMPBK: one pair
+        self.assertEqual(self._acc("F24-out-r-repne-cmpm-w-n1-pE-w0"),
+                         [m0, ("data_read", 0x0C40, "word"), ("data_read", 0x0C42, "word"),
+                          m1, end])
+        self.assertEqual(self._acc("F24-out-s-cmpbk-b-k1-pE-w0"),
+                         [m0, ("data_read", 0x0C40, "lo"), ("data_read", 0x0A40, "lo"), m1,
+                          end])
+        self.assertEqual(self._acc("F24-out-r-repe-cmpbk-w-n0-pE-w0"), [m0, m1, end])
+        # REP with CW = 0: no element
+        self.assertEqual(self._acc("F24-out-r-rep-movbk-w-n0-pE-w0"), [m0, m1, end])
+        # odd source and destination: each word splits, read then write per element
+        self.assertEqual(self._acc("F24-out-a-rep-movbk-w-n1-ixiy-pE-w0"),
+                         [m0, ("data_read", 0x0A41, "hi"), ("data_read", 0x0A42, "lo"),
+                          ("data_write", 0x0C41, "hi"), ("data_write", 0x0C42, "lo"), m1, end])
+        # INM / OUTM: the port DW = 0040h and the memory side per element
+        self.assertEqual(self._acc("F24-out-r-rep-inm-b-n2-pE-w0"),
+                         [m0, ("io_read", 0x40, "lo"), ("data_write", 0x0C40, "lo"),
+                          ("io_read", 0x40, "lo"), ("data_write", 0x0C41, "hi"), m1, end])
+        self.assertEqual(self._acc("F24-out-s-outm-w-k2-pO-w0"),
+                         [m0, ("data_read", 0x0A40, "word"), ("io_write", 0x40, "word"),
+                          ("data_read", 0x0A42, "word"), ("io_write", 0x40, "word"), m1, end])
+
+    def test_unknown_values_raise(self):
+        # a compare under REP after a form the walk does not follow cannot be predicted
+        from validation.v35s.chains.families import make_chain
+        from validation.v35s.chains.families import LS, M, X, END
+        from validation.v35s.chains.normalize import NormalizeError, expected_accesses
+        body = [LS(), M(0), X("mov_cw_imm4", 0), X("mulu_dw", 1), X("repe_cmpm_w", 2), M(1),
+                LS(), END()]
+        with self.assertRaises(NormalizeError):
+            expected_accesses(make_chain("F24", "x", {}, body, 0, "even"))
+
+    def test_synthetic_runs_normalize(self):
+        from validation.v35s.chains.derive import f24_apply, run_facts
+        from validation.v35s.chains.normalize import normalize
+        for cid in ("F24-out-r-rep-stm-w-n4-pE-w0", "F24-out-t-repne-cmpm-w-n4-pat-pO-w0",
+                    "F24-out-a-rep-movbk-w-n2-ixiy-pE-w0", "F24-out-d-rep-stm-w-n4-d2-pO-w0",
+                    "F24-out-r-rep-outm-b-n3-pE-w0", "F24-out-empty-pE-w0"):
+            n = normalize(_synthetic_run(self.by_id[cid]))
+            self.assertEqual(n.checks, [], cid)
+            self.assertEqual(sorted(n.t_markers), [0, 1], cid)
+            f = run_facts(n)
+            f24_apply([f], {cid: n})
+            self.assertEqual(f["str_elements"], n.chain.knobs["iters"], cid)
+            self.assertEqual(f["str_overrun"] is not None, "cmpm" in cid, cid)
+
+    def test_baselines(self):
+        from validation.v35s.chains.derive import BASELINES, index_facts, variant_of
+        metric, base = BASELINES["F24"]
+        self.assertEqual(metric, "dM")
+        facts = []
+        for c in self.f24:
+            variant = variant_of(c)
+            facts.append({"id": c.id, "marker": c.marker_kind, "knobs": c.knobs,
+                          "x_variant": variant[len(c.marker_kind) + 1:],
+                          "column": f"p{c.parity[0].upper()}-w{c.waits}"})
+        index = index_facts(facts)
+        for f in facts:
+            b = base(f, index, None)
+            k = f["knobs"]
+            if k["baseline"] is None:
+                self.assertIsNone(b, f["id"])
+                self.assertIsNone(k["form"], f["id"])
+                continue
+            self.assertIsNotNone(b, f["id"])
+            self.assertIsNone(b["knobs"]["form"], f["id"])
+            self.assertEqual(b["column"], f["column"], f["id"])
+            # the baseline's frame is X's less the string form (the controls hold no pattern
+            # store: it runs before the first LS)
+            self.assertEqual(b["knobs"]["x"], [x for x in k["x"] if x != k["form"]], f["id"])
+
+    def test_gen_check(self):
+        import contextlib
+        import io
+        from validation.v35s.chains.__main__ import main
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["gen", "--family", "F24", "--check"]), 0)
+        self.assertIn("checked 912 images", out.getvalue())
 
 
 if __name__ == "__main__":

@@ -163,6 +163,7 @@ class Queue:
         self.discard = False                    # (WP55) the fetch in flight at a flush: its word is dropped
         self.flush_t: int | None = None         # (WP55) the clock of the last flush
         self.flush_held: int | None = None      # (WP55) flush_hold: no fetch request from this clock to the flush
+        self.str_held: int | None = None        # (WP67) str_hold: no fetch request before this clock
         # options read on every clock, looked up once
         self._byte_release = cfg.release == "byte"
         self._ported = cfg.word_latch in ("port", "byte", "byte_d")
@@ -401,6 +402,8 @@ class Queue:
                 and self.decoder is not None and self.decoder.need == 0):
             raised = False                   # (WP55) flush_hold: a taken transfer runs (its
                                              # operand bytes all taken)
+        if raised and self.str_held is not None and t < self.str_held:
+            raised = False                   # (WP67, F24) str_hold: a compare's result clocks
         if raised and self._nop_held():
             raised = False
         want = (raised and not self.inflight and not self.latch_blocks(t)

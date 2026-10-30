@@ -38,6 +38,13 @@ fpga/v35s/v35_core_tb.sv and .cpp, fpga/v35s/build_core_tb.sh, binary in build/f
 see "C3" and "C4" below.
 
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --core --family F4 F5 F6 F7 F10
+
+C5, refresh (--core): the refresh controller (v35_refresh.sv) in the core and the refresh's rules
+in the arbiter and the EU; refresh-on runs record the controller's state after phase R and at the
+end of every clock (RefreshRecorder), the EU's refresh touches and the arbiter's bus history (format
+V35ARB-2). --eu and --joint3 (the scripted-arbiter benches) still run refresh-off chains only.
+
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --core --family F8 F13 F17 F18
 """
 
 from __future__ import annotations
@@ -84,12 +91,13 @@ class _Log(list):
     unit's state and the EU's data latch at that moment (and the queue recorder's end of
     the clock, C2)."""
 
-    def __init__(self, machine, queue_rec=None, eu_rec=None, arb_rec=None):
+    def __init__(self, machine, queue_rec=None, eu_rec=None, arb_rec=None, ref_rec=None):
         super().__init__()
         self.m = machine
         self.rec = queue_rec
         self.eu_rec = eu_rec        # (C3) the decoder/EU recorder, after the queue's
         self.arb_rec = arb_rec      # (C4) the arbiter's recorder, after the EU's
+        self.ref_rec = ref_rec      # (C5) the refresh controller's recorder, after the arbiter's
         self.snaps: list[Snap] = []
 
     def append(self, row):
@@ -103,11 +111,28 @@ class _Log(list):
             self.eu_rec.row()
         if self.arb_rec is not None:
             self.arb_rec.row()
+        if self.ref_rec is not None:
+            self.ref_rec.row()
+
+
+def check_strings(chain):
+    """(WP68, F24) the string forms (HDL plan Phase E3: element-indexed addresses, a REP count)
+    are outside the RTL (rtlgen.string_classes): every mode raises NotModelled on a chain with
+    one (an instruction whose opcode, after a REP prefix, is one of frozen STRING_OPS)."""
+    from .sim.frozen.templates import REP_PREFIXES, STRING_OPS
+    for ins in chain.instrs:
+        c = bytes(ins.code)
+        if not c:
+            continue
+        op = c[1] if c[0] in REP_PREFIXES and len(c) > 1 else c[0]
+        if op & 0xFE in STRING_OPS:
+            raise NotModelled("string forms (E3)")
 
 
 def run_model(chain, cfg, chain_base: int):
     """(Machine, _Log, cycles) of the frozen model on chain, built as frozen
     machine.run_record builds it (refresh on: _prelude_run's phase)."""
+    check_strings(chain)
     from .sim.frozen import machine as fm
     from .types import refresh_any
     phase = None
@@ -246,10 +271,11 @@ class Result:
     model_exact: bool | None = None  # the model against silicon
     rtl_model_exact: bool | None = None
     error: str = ""
+    not_modelled: str = ""          # (WP68) a run outside the RTL (string forms)
 
     @property
     def ok(self) -> bool:
-        return (not self.error and self.cycles == self.rtl_cycles == self.exact_cycles
+        return (not self.error and not self.not_modelled and self.cycles == self.rtl_cycles == self.exact_cycles
                 == self.deliveries and not (self.signal_bad or self.state_bad or self.pin_bad))
 
 
@@ -286,6 +312,9 @@ def check_run(rec: dict, cfg, keep: Path | None = None) -> Result:
     res = Result(s.run_id)
     try:
         text, cycles = vectors(s.chain, cfg, s.chain_base)
+    except NotModelled as e:
+        res.not_modelled = str(e)
+        return res
     except Exception as e:      # noqa: BLE001
         res.error = f"vectors: {type(e).__name__}: {e}"
         return res
@@ -842,6 +871,7 @@ def run_queue_model(chain, cfg, chain_base: int, merge: bool = True):
     the queue's calls recorded; its trace checked against run_record's."""
     from .sim.frozen import machine as fm
     from .types import refresh_any
+    check_strings(chain)
     phase = None
     if refresh_any(chain):
         phase = (64 - fm.POP_COUNTER[(chain.rfm, chain.wtc)]) % 128
@@ -920,13 +950,14 @@ class QResult:
     exact_cycles: int = 0           # ... equal (start, length, kind, address, width, data)
     first: str = ""
     error: str = ""
+    not_modelled: str = ""          # (WP68) a run outside the RTL (string forms)
 
     @property
     def ok(self) -> bool:
         bad = (self.state_bad or self.rd_bad or self.error_bad or self.gate_bad
                or self.signal_bad or self.biu_state_bad)
         cyc = not self.joint or self.cycles == self.rtl_cycles == self.exact_cycles
-        return not self.error and not bad and cyc and self.clocks > 0
+        return not self.error and not self.not_modelled and not bad and cyc and self.clocks > 0
 
 
 def check_queue_run(rec: dict, cfg, keep: Path | None = None, joint: bool = False) -> QResult:
@@ -935,6 +966,9 @@ def check_queue_run(rec: dict, cfg, keep: Path | None = None, joint: bool = Fals
     res = QResult(s.run_id, joint)
     try:
         out = queue_vectors(s.chain, cfg, s.chain_base, biu=joint)
+    except NotModelled as e:
+        res.not_modelled = str(e)
+        return res
     except Exception as e:      # noqa: BLE001
         res.error = f"vectors: {type(e).__name__}: {e}"
         return res
@@ -984,20 +1018,26 @@ def check_queue_run(rec: dict, cfg, keep: Path | None = None, joint: bool = Fals
 # read), and, per instruction start, the operands the register file gives (the effective
 # address, the port, the stack addresses, the shift count, a transfer's target: Phase D's
 # register file and EA adder; the RTL decodes the format from the instruction's bytes). A store
-# or call from outside that is none of these raises (NotModelled), as does a refresh-on run
-# (C5). What the EU and the decoder read from the queue between their ops is the queue's state
+# or call from outside that is none of these raises (NotModelled); with refresh on (--core only,
+# C5) also the refresh's touches (eu.refresh_cost's effects, the give-back, halt_defer). What the EU and the decoder read from the queue between their ops is the queue's state
 # before each op (the C2 representation), from the recording (--eu) or the RTL queue (--joint3);
 # from the bus unit, its state before and after the arbiter's choice.
 
 EBENCH = ROOT / "build" / "fpga" / "v35s" / "eu-tb" / "Vv35_eu_tb"
 EFORMAT = "V35EU-1"
 NQ = 16                      # the EU's queue ops per phase (T and L; P) (v35_eu.sv NQ)
-NXOP = 4                     # the arbiter's touches on the EU per clock (v35_eu.sv NXOP)
+NXOP = 6                     # the arbiter's touches on the EU per clock (v35_eu.sv NXOP)
 JSLOT = 40                   # the joint bench's queue op chain: T, L, X and P ops
 CLS_NONE = 63                # no instruction yet (eu.cls unset)
 
 # the arbiter's touches on the EU (v35_eu.sv V35_XOP_*), in this order
-XOPS = ("nop", "issue", "nowrite", "fetch_start", "sync_one", "free0", "not_before")
+XOPS = ("nop", "issue", "nowrite", "fetch_start", "sync_one", "free0", "not_before",
+        # (C5) the refresh's: a refresh cycle starts (val: its length | the EU's hold << 3), the
+        # slot's setup += val (refresh_cost's extensions, refresh_post's give-back), its
+        # beat_ext = val, eu.halt_defer = t + val
+        "refresh", "setup", "beat", "halt_defer")
+XOP_W = 12                   # a touch's word: 4-bit code, 8-bit val (v35_eu_pkg V35_XOP_W)
+CLK_TAGS = (None, "exec", "loop", "tail", "loop_odd", "mexit", "shift")   # eu.clk_tag (CT_*)
 
 # The state in the A2 representations (v35_eu.sv: v35_dec_t, v35_eus_t, v35_req_t; the bundle
 # v35_est_t is {d, e, r[2], r[1], r[0]}, MSB first). Offsets are clipped at 0 (a stamp at or
@@ -1054,7 +1094,7 @@ EUFIELDS = (
     ("fs_this", 1),          # fetch_start == start_clock
     ("halted", 1),
     ("halt_now", 1),         # halt_t == t
-    ("sa_off", 4),           # start_at - t (POP PSW's clocks)
+    ("sa_off", 5),           # start_at - t (POP PSW's clocks), signed, clipped at -16
     ("exec_v", 1),           # unit_hold: exec_t is set ...
     ("exec_age", 2),         # ... t - exec_t (saturating at 3)
     ("exec_par", 1),         # ... and its parity
@@ -1073,6 +1113,28 @@ EUFIELDS = (
     ("sr", 16),              # stack read address
     ("sw", 16),              # stack write address
     ("tgt", 16),             # a taken transfer's target (a code offset)
+    # (C5) the refresh's
+    ("prev_cls", 6),         # refresh_beat_b2b: the class of the instruction before
+    ("sfr", 8),              # eu.sfr: the SFR store's value (the RFM write)
+    ("rmw", 1),              # refresh_rmw_loop: rmw_loop is set (a memory shift RMW)
+    ("rmw_cl", 1),           # refresh_grpcl: rmw_cl is set (... by CL)
+    ("clk_tag", 3),          # CLK_TAGS
+    ("cs_now", 1),           # clk_start == t
+    ("clk_seam", 1),
+    ("ce_off", 11),          # clk_end - t, clipped at -1 (two's complement)
+    ("res_past", 1),         # resume < t
+    ("hv", 1),               # hold_end is set ...
+    ("h_off", 3),            # ... max(0, hold_end - t) ...
+    ("h_past", 1),           # ... hold_end < t
+    ("hf_now", 1),           # hold_from == t
+    ("hd_v", 1),             # halt_defer is set ...
+    ("hd_off", 3),           # ... max(0, halt_defer - t) ...
+    ("hd_past", 1),          # ... halt_defer < t
+    ("halt_prev", 1),        # halt_t == t - 1
+    ("pr_cand", 1),          # pop_refresh=stall: the last cycle a refresh started before
+                             # start_at, not pop_ref ...
+    ("pr_now", 1),           # ... the last cycle a refresh started on t ...
+    ("pr_len", 3),           # ... the last refresh's length
 )
 RFIELDS = (
     ("valid", 1),
@@ -1102,6 +1164,8 @@ RFIELDS = (
     ("da_v", 1),             # done_at is set ...
     ("da_off", 3),           # ... done_at - t ...
     ("da_past", 1),          # ... done_at < t
+    ("grpcl", 2),            # (C5) refresh_grpcl: a memory shift's read: its CL clocks
+    ("beat_ext", 3),         # (C5) refresh_post=post_beat: the hold's clocks
 )
 EFIELDS = (tuple((f"d_{n}", w) for n, w in DFIELDS) + tuple((f"e_{n}", w) for n, w in EUFIELDS)
            + tuple((f"r{i}_{n}", w) for i in (2, 1, 0) for n, w in RFIELDS))
@@ -1120,7 +1184,7 @@ OPFIELDS = ("offset", "code", "ea", "port", "sr", "sw", "count", "taken", "targe
 
 
 class NotModelled(RuntimeError):
-    """A run the C3 bench does not cover (refresh on, a touch C4/C5 owns)."""
+    """A run a bench does not cover (--eu/--joint3: refresh on; any: an unclassified store)."""
 
 
 _FROZEN_DIR = str(Path(__file__).resolve().parent / "sim" / "frozen") + "/"
@@ -1186,10 +1250,11 @@ class EClock:
 class EURecorder:
     """Records the decoder's and the EU's run per clock (the section comment above)."""
 
-    def __init__(self, m, qrec):
-        if m.refresh is not None:
-            raise NotModelled("refresh on (C5)")
+    def __init__(self, m, qrec, refresh: bool = False):
+        if m.refresh is not None and not refresh:
+            raise NotModelled("refresh on (the scripted-arbiter benches; --core models it)")
         self.m, self.qrec = m, qrec
+        self.refresh = m.refresh is not None    # (C5) the refresh templates and rules
         self.cfg = m.cfg
         self.tmpls, self.sel, self.classes = _templates(m.cfg)
         self.t = 0
@@ -1259,14 +1324,25 @@ class EURecorder:
             object.__setattr__(r, "_w2", width == 2)
             return r
 
-        def refused(name):
-            def f(obj, *a, **k):
-                raise NotModelled(f"eu.{name} (C5)")
-            return f
+        def refresh_cost(obj, t, length=5):
+            # (C5) the arbiter's call into the EU when a refresh starts: its effects are touches
+            # (the slot's setup extension and beat_ext, the EU's hold), in this order
+            if rec.phase != "X":
+                raise NotModelled(f"eu.refresh_cost outside phase X at {t}")
+            r = obj.req
+            before = (r.setup, r.beat_ext) if r is not None else None
+            out = eu_base.refresh_cost(obj, t, length)
+            if r is not None:
+                if r.setup != before[0]:
+                    rec.clock.xops.append(("setup", r.setup - before[0]))
+                if r.beat_ext != before[1]:
+                    rec.clock.xops.append(("beat", r.beat_ext))
+            hold = obj.hold_from == t and obj.hold_end == t + length - 1
+            rec.clock.xops.append(("refresh", length | (int(hold) << 3)))
+            return out
 
         ns = {"__setattr__": eu_setattr, "tick": tick, "complete": complete, "issue": issue,
-              "issue_nowrite": issue_nowrite, "_post": post,
-              "refresh_cost": refused("refresh_cost")}
+              "issue_nowrite": issue_nowrite, "_post": post, "refresh_cost": refresh_cost}
         m.eu.__class__ = type("RecordedEU", (eu_base,), ns)
 
         def d_setattr(obj, k, v):
@@ -1305,6 +1381,13 @@ class EURecorder:
                     raise NotModelled(f"eu.sync = {v} at {t}")
                 self.clock.xops.append(("sync_one", 0))
                 return
+            if who == "eu" and k == "refresh_beat":
+                return                          # (C5) refresh_cost's argument (eu.refresh_beat)
+            if who == "eu" and k == "halt_defer":
+                if v is None or not 0 < v - t < 8:
+                    raise NotModelled(f"eu.halt_defer = {v} at {t}")
+                self.clock.xops.append(("halt_defer", v - t))   # (C5) refresh_halt=status
+                return
             if who == "req" and k in ("count", "ready_since", "lift_t", "free_held", "grp_held",
                                       "xeu", "eu_halted"):
                 if self.arb is not None:
@@ -1317,15 +1400,22 @@ class EURecorder:
         if f in ("eu.py", "decoder.py"):
             return
         t, eu = self.t, self.m.eu
-        if f == "arbiter.py" and self.phase == "X" and k in ("free_need", "not_before"):
+        if f == "arbiter.py" and self.phase == "X" and k in ("free_need", "not_before", "setup",
+                                                             "beat_ext"):
             if r is not eu.req:
                 raise NotModelled(f"the arbiter writes a queued request's {k} at {t}")
             if k == "free_need":
                 if v != 0:
                     raise NotModelled(f"free_need = {v} at {t}")
                 self.clock.xops.append(("free0", 0))
-            else:
+            elif k == "not_before":
                 self.clock.xops.append(("not_before", v - t))
+            elif k == "setup":                  # (C5) refresh_post=post_beat's give-back
+                self.clock.xops.append(("setup", v - r.setup))
+            else:
+                if v != 0:
+                    raise NotModelled(f"the arbiter sets beat_ext = {v} at {t}")
+                self.clock.xops.append(("beat", 0))
             return
         self._external("req", k, v, f)
 
@@ -1408,7 +1498,7 @@ class EURecorder:
         from . import rtlgen
         m = self.m
         cz = rtlgen.has_count(op) and op.count == 0
-        key = tuple(rtlgen.fmt_of(op, self.cfg, cz, False)[n] for n, _ in rtlgen.FMT_FIELDS)
+        key = tuple(rtlgen.fmt_of(op, self.cfg, cz, self.refresh)[n] for n, _ in rtlgen.FMT_FIELDS)
         if key not in self.sel:
             raise NotModelled(f"no template in the include for {op.cls} at {op.offset}")
         code = bytes(m.eu.code[op.offset:op.offset + 6]).ljust(6, b"\x90")
@@ -1530,7 +1620,7 @@ def estate(m, t: int, rec) -> dict:
     s["e_fs_this"] = int(eu.fetch_start is not None and eu.fetch_start == eu.start_clock)
     s["e_halted"] = int(eu.halted)
     s["e_halt_now"] = int(eu.halt_t == t)
-    s["e_sa_off"] = max(0, eu.start_at - t)
+    s["e_sa_off"] = _bits(max(-16, eu.start_at - t), 5)
     s["e_exec_v"] = int(eu.exec_t is not None)
     s["e_exec_age"] = min(3, t - eu.exec_t) if eu.exec_t is not None else 0
     s["e_exec_par"] = (t - eu.exec_t) & 1 if eu.exec_t is not None else 0
@@ -1559,6 +1649,35 @@ def estate(m, t: int, rec) -> dict:
     s["e_sr"] = op.sr if op else 0
     s["e_sw"] = op.sw if op else 0
     s["e_tgt"] = op.target if op else 0
+    # (C5) the refresh's
+    pc = getattr(eu, "prev_cls", None)
+    s["e_prev_cls"] = rec.classes.index(pc) if pc is not None else CLS_NONE
+    s["e_sfr"] = eu.sfr or 0
+    s["e_rmw"] = int(bool(eu.rmw_loop))
+    s["e_rmw_cl"] = int(bool(getattr(eu, "rmw_cl", 0)))
+    if eu.clk_tag not in CLK_TAGS:
+        raise NotModelled(f"clk_tag {eu.clk_tag!r} at {t}")
+    s["e_clk_tag"] = CLK_TAGS.index(eu.clk_tag)
+    s["e_cs_now"] = int(eu.clk_start == t)
+    s["e_clk_seam"] = int(bool(eu.clk_seam))
+    s["e_ce_off"] = _bits(max(-1, eu.clk_end - t), 11)
+    s["e_res_past"] = int(eu.resume < t)
+    he = eu.hold_end
+    s["e_hv"] = int(he is not None)
+    s["e_h_off"] = max(0, he - t) if he is not None else 0
+    s["e_h_past"] = int(he is not None and he < t)
+    s["e_hf_now"] = int(eu.hold_from == t)
+    hd = eu.halt_defer
+    s["e_hd_v"] = int(hd is not None)
+    s["e_hd_off"] = max(0, hd - t) if hd is not None else 0
+    s["e_hd_past"] = int(hd is not None and hd < t)
+    s["e_halt_prev"] = int(eu.halt_t is not None and eu.halt_t == t - 1)
+    last = bus.cycles[-1] if bus.cycles else None
+    lref = next((c for c in reversed(bus.cycles) if c.kind == "refresh"), None)
+    s["e_pr_cand"] = int(last is not None and last.kind == "refresh" and last.start < eu.start_at
+                         and last is not eu.pop_ref)
+    s["e_pr_now"] = int(last is not None and last.kind == "refresh" and last.start == t)
+    s["e_pr_len"] = lref.length if lref is not None else 0
     from .rtlgen import REQ_KINDS
     for i, r in enumerate(slots):
         p = f"r{i}_"
@@ -1593,6 +1712,8 @@ def estate(m, t: int, rec) -> dict:
         s[p + "da_v"] = int(r.done_at is not None)
         s[p + "da_off"] = max(0, r.done_at - t) if r.done_at is not None else 0
         s[p + "da_past"] = int(r.done_at is not None and r.done_at < t)
+        s[p + "grpcl"] = r.grpcl
+        s[p + "beat_ext"] = r.beat_ext
     for k, w in EFIELDS:
         v = s[k]
         if not 0 <= v < (1 << w):
@@ -1612,15 +1733,22 @@ def run_eu_model(chain, cfg, chain_base: int, arb: bool = False):
     from .sim.frozen import eu as feu
     from .sim.frozen import machine as fm
     from .types import refresh_any
+    check_strings(chain)
+    phase = None
     if refresh_any(chain):
-        raise NotModelled("refresh on (C5)")
-    m = fm.Machine(chain, cfg, chain_base, None, 0)
+        if not arb:
+            raise NotModelled("refresh on (the scripted-arbiter benches; --core models it)")
+        phase = (64 - fm.POP_COUNTER[(chain.rfm, chain.wtc)]) % 128   # machine._prelude_run
+    m = fm.Machine(chain, cfg, chain_base, phase, 0)
     init = (len(m.queue.bytes), [m.queue.byte_at(a) for a, _ in m.queue.bytes],
             m.queue.fetch_addr)
     qrec = QueueRecorder(m, merge=False)
-    erec = EURecorder(m, qrec)
+    erec = EURecorder(m, qrec, refresh=arb)
     arec = ArbiterRecorder(m, erec) if arb else None
-    log = _Log(m, qrec, erec, arec)
+    rrec = RefreshRecorder(m, erec) if arb and m.refresh is not None else None
+    if arec is not None:
+        arec.ref = rrec
+    log = _Log(m, qrec, erec, arec, rrec)
     m.clock_log = log
     orig_arb, orig_exec = fm.arbitrate, feu.execute
     if arec is None:
@@ -1636,7 +1764,7 @@ def run_eu_model(chain, cfg, chain_base: int, arb: bool = False):
         cycles = m.run()
     finally:
         fm.arbitrate, feu.execute = orig_arb, orig_exec
-    ref = fm.run_record(chain, cfg, chain_base, None, None, 0)["socket_trace"]
+    ref = fm.run_record(chain, cfg, chain_base, None, phase, 0)["socket_trace"]
     if fm.trace_rows(cycles) != ref:
         raise RuntimeError(f"{chain.id}: the logged run differs from run_record's")
     return m, log, qrec, erec, cycles, init
@@ -1866,7 +1994,7 @@ def _report_eu(f, rs, show, joint) -> int:
 # EU's, the queue's, the bus unit's and the arbiter's vectors of the same run) and the cycles.
 
 CBENCH = ROOT / "build" / "fpga" / "v35s" / "core-tb" / "Vv35_core_tb"
-AFORMAT = "V35ARB-1"
+AFORMAT = "V35ARB-2"         # (C5) with the refresh controller's state and its start
 NXQ = 8                      # the arbiter's queue ops per clock (v35_arbiter.sv NXQ)
 
 # the arbiter's state (v35_arbiter.sv v35_ast_t: q[2..0], then the bus history; MSB first)
@@ -1879,9 +2007,19 @@ ARQFIELDS = (
     ("lift_now", 1),         # ... == t
     ("fh_now", 1),           # free_held == t
     ("gh_now", 1),           # grp_held == t
+    ("xeu", 3),              # (C5) dw_view=eu: t, t-1, t-2 in req.xeu (bit 0: t)
 )
 ARFIELDS = (tuple((f"q{i}_{n}", w) for i in (2, 1, 0) for n, w in ARQFIELDS)
-            + (("run", 1), ("io_v", 1), ("io_age", 4)))
+            + (("run", 1), ("io_v", 1), ("io_age", 4),
+               # (C5) the bus history the refresh's rules read
+               ("early_on", 1),      # refresh_sync=run: the cycle last started is bus.early
+               ("early_ok", 1),      # bus.early_ok
+               ("early_n", 3),       # bus.early_n (saturating at 7)
+               ("after_ref", 1),     # the cycle last started began right after a refresh's end
+               ("lc_age", 8),        # t - the last cycle's end (0 while it covers t; sat 255)
+               ("rf_v", 1),          # a refresh has started ...
+               ("rf_n", 2),          # ... cycles started after the last one (saturating at 3)
+               ("rf_age", 8)))       # ... t - its end (0 while it covers t; saturating at 255)
 ASTATE_W = sum(w for _, w in ARFIELDS)
 
 
@@ -1906,6 +2044,20 @@ def astate(m, t: int) -> dict:
         s[p + "lift_now"] = int(r.lift_t == t)
         s[p + "fh_now"] = int(r.free_held == t)
         s[p + "gh_now"] = int(r.grp_held == t)
+        x = r.xeu or set()
+        s[p + "xeu"] = sum(1 << i for i in range(3) if t - i in x)
+    cyc = bus.cycles
+    last = cyc[-1] if cyc else None
+    s["early_on"] = int(bus.early is not None and bus.early is last)
+    s["early_ok"] = int(bool(bus.early_ok))
+    s["early_n"] = min(7, bus.early_n)
+    s["after_ref"] = int(len(cyc) >= 2 and cyc[-2].kind == "refresh"
+                         and cyc[-2].end == cyc[-1].start - 1)
+    s["lc_age"] = max(0, min(255, t - last.end)) if last is not None else 0
+    k = next((i for i in range(len(cyc) - 1, -1, -1) if cyc[i].kind == "refresh"), None)
+    s["rf_v"] = int(k is not None)
+    s["rf_n"] = min(3, len(cyc) - 1 - k) if k is not None else 0
+    s["rf_age"] = max(0, min(255, t - cyc[k].end)) if k is not None else 0
     cs = [c for c in bus.cycles if c.kind != "refresh"]
     s["run"] = int(len(cs) >= 2 and cs[-1].kind == "fetch" and cs[-2].kind == "fetch"
                    and cs[-2].end == cs[-1].start - 1)
@@ -1940,6 +2092,7 @@ class ArbiterRecorder:
         self.clocks: list[AClock] = []
         self.cur: AClock | None = None
         self.stores: dict = {}      # the classified stores, by kind (for the report and tests)
+        self.ref = None             # (C5) the RefreshRecorder (refresh-on runs)
 
     def arbitrate(self, inner, t, cfg, bus, queue, eu):
         if isinstance(eu.sync, int) and eu.sync < queue.completed:
@@ -1962,9 +2115,14 @@ class ArbiterRecorder:
         elif k == "eu_halted":
             if v != m.eu.halted:
                 raise NotModelled(f"eu_halted = {v!r} at {t}")
-            # read by refresh_io_stall only (refresh on, C5): not built
+            # (C5) refresh_io_stall reads it: the RTL reads the EU's halted for the slot's
+            # request (stored every clock) and False for one just moved in (never stored)
+        elif k == "xeu":
+            if v != set():
+                raise NotModelled(f"the arbiter sets xeu = {v!r} at {t}")
+            # (C5) dw_view=eu: the set's adds are the arbiter's state (ARFIELDS' xeu)
         else:
-            raise NotModelled(f"the arbiter writes req.{k} = {v!r} at {t} (C5)")
+            raise NotModelled(f"the arbiter writes req.{k} = {v!r} at {t}")
         self.stores[k] = self.stores.get(k, 0) + 1
 
     def row(self):
@@ -1974,6 +2132,101 @@ class ArbiterRecorder:
         self.cur.s_e = astate(self.m, t)
         self.clocks.append(self.cur)
         self.cur = None
+
+
+# (C5) the refresh controller (v35_refresh.sv): its state per clock after phase R and at the end
+# (refresh.py's Refresh in the RTL's representation), and every store into it classified by the
+# method that makes it (an unclassified store raises NotModelled).
+RFFIELDS = (
+    ("counter", 7),          # (c0 + t) mod 128
+    ("prev_v", 1),           # prev_bit is set (not on clock 0) ...
+    ("prev_bit", 1),         # ... the selected counter bit on the last clock
+    ("rft", 2),              # RFM.RFT
+    ("on", 1),               # RFM.RFEN
+    ("pending", 1),          # a request is pending
+    ("wv", 1),               # an RFM write waits to take effect ...
+    ("w_off", 2),            # ... at t + w_off ...
+    ("w_value", 8),          # ... with this value
+)
+RSTATE_W = sum(w for _, w in RFFIELDS)
+# the Refresh's stores, by the method that makes them (refresh.py); `served` and `writes` are
+# logs (appended to, not stored), `due` and `interval` dead under refresh_counter=edge
+_REFRESH_STORES = {"raise_": {"write_at", "prev_bit", "pending"},
+                   "_apply": {"on", "due", "interval", "rft", "pending"},
+                   "start": {"pending"}, "write": {"write_at"}}
+
+
+def rstate(ref, t: int) -> dict:
+    w = ref.write_at
+    s = {"counter": (ref.c0 + t) % 128, "prev_v": int(ref.prev_bit is not None),
+         "prev_bit": ref.prev_bit or 0, "rft": ref.rft, "on": int(bool(ref.on)),
+         "pending": int(ref.pending is not None), "wv": int(w is not None),
+         "w_off": w[0] - t if w is not None else 0, "w_value": w[1] if w is not None else 0}
+    for k, wd in RFFIELDS:
+        if not 0 <= s[k] < (1 << wd):
+            raise NotModelled(f"refresh {k}={s[k]} at {t} does not fit {wd} bits")
+    return s
+
+
+def rstate_text(s: dict) -> str:
+    return " ".join(str(s[k]) for k, _ in RFFIELDS)
+
+
+class RefreshRecorder:
+    """(C5) Records the refresh controller per clock: its state after phase R (Refresh.raise_,
+    between the decoder's IR load and the arbiter) and at the end of the clock; checks that
+    raise_ runs in phase R, start in the arbiter's _refresh and write in the EU's issue (phase X),
+    and classifies every store (_REFRESH_STORES)."""
+
+    def __init__(self, m, erec):
+        self.m, self.erec = m, erec
+        ref = m.refresh
+        self.init_counter = ref.c0 % 128
+        self.t = 0
+        self.cur_r: dict | None = None
+        self.clocks: list = []          # (t, after R, end)
+        self.starts = self.writes = self.applies = 0
+        base = type(ref)
+        rec = self
+
+        def setattr_(obj, k, v):
+            fn = sys._getframe(1).f_code.co_name
+            if fn != "__init__" and k not in _REFRESH_STORES.get(fn, ()):
+                raise NotModelled(f"refresh.{k} = {v!r} from {fn} at {rec.t}")
+            object.__setattr__(obj, k, v)
+
+        def raise_(obj, t):
+            if rec.erec.phase != "L1" or t != rec.t:
+                raise NotModelled(f"refresh.raise_ in phase {rec.erec.phase} at {t}")
+            w = obj.write_at
+            out = base.raise_(obj, t)
+            if w is not None and obj.write_at is None:
+                rec.applies += 1
+            rec.cur_r = rstate(obj, t)
+            return out
+
+        def start(obj, t, length):
+            if rec.erec.phase != "X" or _caller_file() != "arbiter.py":
+                raise NotModelled(f"refresh.start outside the arbiter's X at {t}")
+            rec.starts += 1
+            return base.start(obj, t, length)
+
+        def write(obj, value, t, c):
+            if rec.erec.phase != "X" or sys._getframe(1).f_code.co_name != "issue":
+                raise NotModelled(f"refresh.write outside eu.issue at {t}")
+            rec.writes += 1
+            return base.write(obj, value, t, c)
+
+        ref.__class__ = type("RecordedRefresh", (base,), {
+            "__setattr__": setattr_, "raise_": raise_, "start": start, "write": write})
+
+    def row(self):
+        t = self.t
+        if self.cur_r is None:
+            raise NotModelled(f"no refresh phase R recorded for clock {t}")
+        self.clocks.append((t, self.cur_r, rstate(self.m.refresh, t)))
+        self.cur_r = None
+        self.t = t + 1
 
 
 def core_vectors(chain, cfg, chain_base: int):
@@ -1991,12 +2244,24 @@ def core_vectors(chain, cfg, chain_base: int):
         if nx > NXQ:
             raise NotModelled(f"{nx} arbiter queue ops at {ck.t} (the RTL holds {NXQ})")
     data = [c.data & 0xFFFF for c in cycles if c.owner is m.eu]
-    lines = [f"{AFORMAT} {chain.id} {len(arec.clocks)} {len(data)}",
-             "F " + " ".join(f"{k}:{w}" for k, w in ARFIELDS)]
-    for ac in arec.clocks:
+    rrec = arec.ref
+    if rrec is not None and len(rrec.clocks) != len(arec.clocks):
+        raise RuntimeError(f"{chain.id}: {len(rrec.clocks)} refresh clocks, "
+                           f"{len(arec.clocks)} arbiter clocks")
+    lines = [f"{AFORMAT} {chain.id} {len(arec.clocks)} {len(data)} {int(rrec is not None)} "
+             f"{rrec.init_counter if rrec is not None else 0}",
+             "F " + " ".join(f"{k}:{w}" for k, w in ARFIELDS),
+             "R " + " ".join(f"{k}:{w}" for k, w in RFFIELDS)]
+    for i, ac in enumerate(arec.clocks):
         lines.append(f"K {ac.t} {ac.ext}")
         lines.append("S " + astate_text(ac.s_x))
         lines.append("S " + astate_text(ac.s_e))
+        if rrec is not None:
+            rt, sr, se = rrec.clocks[i]
+            if rt != ac.t:
+                raise RuntimeError(f"{chain.id}: refresh clock {rt} beside arbiter clock {ac.t}")
+            lines.append("R " + rstate_text(sr))
+            lines.append("R " + rstate_text(se))
     lines.append("W " + " ".join(map(str, data)))
     atext = "\n".join(lines) + "\n"
     return etext, qtext, btext, atext, cycles, erec, arec
@@ -2016,6 +2281,7 @@ class CResult:
     q_rd_bad: int = 0               # the queue's reads
     x_bad: int = 0                  # the arbiter's touches on the EU
     a_state_bad: int = 0            # the arbiter's state
+    r_state_bad: int = 0            # (C5) the refresh controller's state
     signal_bad: int = 0             # the bus unit's signals
     biu_state_bad: int = 0          # the bus unit's state
     settle_bad: int = 0             # a clock that did not settle
@@ -2033,7 +2299,7 @@ class CResult:
     not_modelled: str = ""
 
     BAD = ("state_bad", "op_bad", "err_bad", "dcyc_bad", "q_state_bad", "q_rd_bad", "x_bad",
-           "a_state_bad", "signal_bad", "biu_state_bad", "settle_bad")
+           "a_state_bad", "r_state_bad", "signal_bad", "biu_state_bad", "settle_bad")
 
     @property
     def fails(self) -> int:
@@ -2152,6 +2418,8 @@ def _work(args):
 
 
 def _report_biu(f, rs, show) -> int:
+    nm = [r for r in rs if r.not_modelled]
+    rs = [r for r in rs if not r.not_modelled]
     ok = sum(r.ok for r in rs)
     cyc = sum(r.cycles for r in rs)
     ex = sum(r.exact_cycles for r in rs)
@@ -2163,7 +2431,8 @@ def _report_biu(f, rs, show) -> int:
     me = sum(bool(r.model_exact) for r in rs)
     re_ = sum(bool(r.rtl_exact) for r in rs)
     rm = sum(bool(r.rtl_model_exact) for r in rs)
-    print(f"{f:<5} {len(rs):>5} runs  {ok} exact against the model  cycles {ex}/{cyc} "
+    print(f"{f:<5} {len(rs) + len(nm):>5} runs  {ok} exact against the model ({len(nm)} not "
+          f"modelled)  cycles {ex}/{cyc} "
           f"deliveries {dl}/{cyc}  clocks {clk} (signal fails {sig}, state fails {st}, "
           f"pin fails {pin})  vs silicon: model-exact {me}, RTL-exact {re_}, "
           f"RTL = model {rm}")
@@ -2175,11 +2444,14 @@ def _report_biu(f, rs, show) -> int:
 
 
 def _report_queue(f, rs, show, joint) -> int:
+    nm = [r for r in rs if r.not_modelled]
+    rs = [r for r in rs if not r.not_modelled]
     ok = sum(r.ok for r in rs)
     tot = {k: sum(getattr(r, k) for r in rs) for k in (
         "clocks", "ops", "state_bad", "rd_bad", "error_bad", "gate_bad", "signal_bad",
         "biu_state_bad", "cycles", "exact_cycles")}
-    line = (f"{f:<5} {len(rs):>5} runs  {ok} exact against the model  clocks {tot['clocks']} "
+    line = (f"{f:<5} {len(rs) + len(nm):>5} runs  {ok} exact against the model ({len(nm)} not "
+            f"modelled)  clocks {tot['clocks']} "
             f"ops {tot['ops']} (state fails {tot['state_bad']}, read fails {tot['rd_bad']}, "
             f"storage errors {tot['error_bad']})")
     if joint:

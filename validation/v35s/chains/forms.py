@@ -17,7 +17,10 @@ CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rm
            "branch_short", "branch_near", "dbnz", "ret",
            # (WP52) F25 the stack frame and the segment registers
            "xlat", "load_seg", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r", "prepare",
-           "dispose")
+           "dispose",
+           # (WP66) F24 the string forms, one class per operation (block move, block compare,
+           # store, load, compare with AW, port to memory, memory to port)
+           "str_move", "str_cmp", "str_store", "str_load", "str_scan", "str_in", "str_out")
 # Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
 STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
                  "prepare", "dispose", "ret")
@@ -603,3 +606,85 @@ F29_FORMS = _register(
     [Form(name, "rmw", bytes([op]) + modrm(MODE["bw_d16"], reg), reads=1, writes=1, width=2,
           mode="bw_d16", mode_class="base_disp", ea=MODE["bw_d16"].ea)
      for name, op, reg in F29_GIH_D16])
+
+
+# F24 (WP66: the string and block forms, sustained data demand through the arbiter).
+# (WP67) modelled: the simulator decodes them (sim/templates.py, _string_steps).
+# NEC mnemonics and bytes: MOVBK (A4 byte, A5 word: [DS1:IY] := [DS0:IX]), CMPBK (A6/A7:
+# compare [DS0:IX] with [DS1:IY], reading [DS1:IY] first), STM (AA/AB: [DS1:IY] := AL/AW), LDM (AC/AD: AL/AW :=
+# [DS0:IX]), CMPM (AE/AF: compare AL/AW with [DS1:IY]), INM (6C/6D: [DS1:IY] := port DW), OUTM
+# (6E/6F: port DW := [DS0:IX]); each element steps IX and/or IY by the width, upward (PSW
+# 0002h: DIR clear). The prefixes: REP (F3; REPE/REPZ on CMPBK and CMPM) and REPNE/REPNZ (F2)
+# repeat while CW != 0, decrementing CW per element, the compares also stopping on Z = 0
+# (REPE) or Z = 1 (REPNE) after the element; REPC (65) and REPNC (64) are not used. Silicon
+# (F24, acquired 2026-10-28, all 912 runs): CMPBK reads the destination [DS1:IY] before the
+# source [DS0:IX] in every element, with and without a prefix; a REP compare (REPE / REPNE
+# CMPBK and CMPM) reads one more element at the next IX / IY after the element that ends the
+# repeat, whether CW reached 0 or the condition failed (none at CW = 0; the other REP forms
+# and the unprefixed compares run exactly their elements). A prefixed
+# form is one catalog form (prefix + opcode) as the pfx_* forms are. reads / writes / io
+# count one element's cycles (an odd word splits each in two). The data ranges are set by the
+# family's register presets (F24_IX / F24_IY: source at 0A40h, destination at 0C40h, both in
+# the data page and clear of every EA the other forms use, the store marker's 0C00h and the
+# stack); DS0 = DS1 = 0 (the prelude's), so the offsets are linear addresses. INM / OUTM use
+# DW = IO_PORT (40h), as the DW I/O forms do.
+@dataclass(frozen=True)
+class StringOp:
+    op: str                 # movbk cmpbk stm ldm cmpm inm outm
+    width: int              # 1 byte, 2 word
+    rep: str | None         # None (one element), "rep" (F3), "repe" (F3 on a compare), "repne" (F2)
+    steps: tuple            # one element's cycles in order: (kind, "ix" | "iy" | "port")
+
+
+F24_OPS = {  # op: (byte opcode, class, one element's cycles in bus order)
+    "movbk": (0xA4, "str_move", (("data_read", "ix"), ("data_write", "iy"))),
+    "cmpbk": (0xA6, "str_cmp", (("data_read", "iy"), ("data_read", "ix"))),   # IY first (F24)
+    "stm": (0xAA, "str_store", (("data_write", "iy"),)),
+    "ldm": (0xAC, "str_load", (("data_read", "ix"),)),
+    "cmpm": (0xAE, "str_scan", (("data_read", "iy"),)),
+    "inm": (0x6C, "str_in", (("io_read", "port"), ("data_write", "iy"))),
+    "outm": (0x6E, "str_out", (("data_read", "ix"), ("io_write", "port"))),
+}
+F24_COMPARES = ("cmpbk", "cmpm")
+F24_REP_PREFIX = {"rep": 0xF3, "repe": 0xF3, "repne": 0xF2}
+F24_WIDTH_TAG = {1: "b", 2: "w"}
+F24_IX = 0x0A40                 # source DS0:IX (0A40h-0A5Fh at most: 16 words)
+F24_IY = 0x0C40                 # destination DS1:IY (0C40h-0C5Fh at most)
+F24_PATTERN = 0x0C42            # the word the T series' pattern store zeroes (IY + 2)
+F24_MOV_CW_N = (0, 3, 4, 8, 16) # MOV CW,n (B9 nn nn) beside F23's mov_cw_imm1 / mov_cw_imm2
+STRING_FORMS: dict[str, StringOp] = {}
+
+
+def f24_form_name(op: str, width: int, rep: str | None = None) -> str:
+    return (f"{rep}_" if rep else "") + f"{op}_{F24_WIDTH_TAG[width]}"
+
+
+def _f24_forms() -> list:
+    forms = []
+    for op, (opcode, cls, steps) in F24_OPS.items():
+        reads = sum(1 for kind, _ in steps if kind == "data_read")
+        writes = sum(1 for kind, _ in steps if kind == "data_write")
+        io = sum(1 for kind, _ in steps if kind.startswith("io"))
+        needs = (("DW", IO_PORT),) if io else ()
+        reps = (None, "repe", "repne") if op in F24_COMPARES else (None, "rep")
+        for width in (1, 2):
+            for rep in reps:
+                name = f24_form_name(op, width, rep)
+                code = (bytes([F24_REP_PREFIX[rep]]) if rep else b"") + bytes([opcode | (width - 1)])
+                forms.append(Form(name, cls, code, reads=reads, writes=writes, io=io,
+                                  width=width, needs=needs))
+                STRING_FORMS[name] = StringOp(op, width, rep, steps)
+    return forms
+
+
+F24_STRING_FORMS = _register(_f24_forms())
+# MOV CW,n for the repeat counts, and the T series' pattern store before the first LS:
+# MOV word [0C42h],0 (C7 06 42 0C 00 00), so the destination word at IY + 2 reads 0000h
+F24_MOV_CW = {1: "mov_cw_imm1", 2: "mov_cw_imm2"}
+F24_MOV_CW.update(zip(F24_MOV_CW_N, _register(
+    [Form(f"mov_cw_imm{n}", "imm", bytes([0xB9]) + n.to_bytes(2, "little"))
+     for n in F24_MOV_CW_N])))
+F24_PATTERN_STORE = _register(
+    [Form("st_imm0_dir_c42", "store_imm", bytes([0xC7, 0x06]) + F24_PATTERN.to_bytes(2, "little")
+          + bytes(2), writes=1, width=2, mode="dir", mode_class="direct", ea=F24_PATTERN)])[0]
+# (WP67) the simulator decodes the string forms (sim/templates.py, _string_steps): none left

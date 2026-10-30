@@ -38,7 +38,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .blocks import MARKER_PORT_BASE
-from .forms import DEFAULT_REGS, DIRECT, FORMS, IO_PORT, STACK_CLASSES
+from .forms import (DEFAULT_REGS, DIRECT, F24_COMPARES, FORMS, IO_PORT, STACK_CLASSES,
+                    STRING_FORMS)
 from .types import CODE_BASE, TICKS_PER_CLOCK, Chain, refresh_any
 
 FLAG_READ = 1 << 0
@@ -216,12 +217,175 @@ def _form_ea(form, regs) -> int:
     return ea & 0xFFFF
 
 
-def expected_accesses(chain: Chain) -> dict[int, list[Access]]:
+class _StringState:
+    """(WP66, F24) the registers and data memory the string forms depend on, walked through
+    the chain in order: AW (CMPM's operand, STM's datum), CW (the REP count), DW (INM / OUTM's
+    port), IX and IY (the element addresses), DS0 / DS1 (the segments), and the bytes of data
+    memory (the image's: 90h fill at 0800h-0FFFh, the zeroed vector table below 0400h; written
+    by the chain's stores where the datum is known). None is unknown: a string form that needs
+    an unknown value (a REP count, a port, an address, a compared operand) raises, so the
+    expected accesses are never a guess. Effects of the other instructions: the fence (MOV
+    CL,n ; SHL AW,CL) sets CL and shifts AW; MOV r16,imm16 (B8 AW, B9 CW, BA DW, BE IX, BF IY)
+    loads; the drainers load AW / DW or add to DW; NOP and the markers change nothing; every
+    other form makes all five registers unknown (only F24 chains walk this)."""
+
+    LOADS = {0xB8: "AW", 0xB9: "CW", 0xBA: "DW", 0xBE: "IX", 0xBF: "IY"}
+
+    def __init__(self, chain: Chain):
+        regs = {**DEFAULT_REGS, **chain.regs}
+        self.id = chain.id
+        self.r = {n: regs[n] for n in ("AW", "CW", "DW", "IX", "IY", "DS0", "DS1")}
+        self.mem: dict[int, int | None] = {}
+
+    def byte(self, addr):
+        if addr in self.mem:
+            return self.mem[addr]
+        return 0x90 if 0x0800 <= addr < 0x1000 else 0 if addr < 0x0400 else None
+
+    def read(self, addr, width):
+        got = [self.byte(addr + j) for j in range(width)]
+        return None if None in got else sum(b << (8 * j) for j, b in enumerate(got))
+
+    def write(self, addr, width, value):
+        for j in range(width):
+            self.mem[addr + j] = None if value is None else (value >> (8 * j)) & 0xFF
+
+    def need(self, name, what):
+        v = self.r[name]
+        if v is None:
+            raise NormalizeError(f"{self.id}: {what} needs {name}, which is unknown here")
+        return v
+
+    def step(self, instr, acc):
+        """Apply a non-string instruction (its expected accesses acc already computed)."""
+        code, r = instr.code, self.r
+        if instr.role == "ls":
+            cl = code[1]
+            r["CW"] = None if r["CW"] is None else (r["CW"] & 0xFF00) | cl
+            r["AW"] = None if r["AW"] is None else 0 if cl >= 16 else (r["AW"] << cl) & 0xFFFF
+        elif instr.role in ("drain", "x") and code[0] in self.LOADS and len(code) == 3:
+            r[self.LOADS[code[0]]] = int.from_bytes(code[1:3], "little")
+        elif instr.role == "drain" and code[:2] == bytes([0x81, 0xC2]):
+            r["DW"] = None if r["DW"] is None else (r["DW"] + int.from_bytes(code[2:4], "little")) & 0xFFFF
+        elif instr.role == "x" and instr.form != "nop":
+            form = FORMS[instr.form]
+            if form.cls != "store_imm":
+                for name in ("AW", "CW", "DW", "IX", "IY"):
+                    r[name] = None
+            value = (int.from_bytes(code[-form.width:], "little")
+                     if form.cls == "store_imm" else None)
+            for a in acc:
+                if a.kind.endswith("write") and not a.kind.startswith("io"):
+                    self.write(a.addr, 1 if a.width != "word" else 2,
+                               None if a.split or value is None else value)
+            return
+        # markers, the PAD, the END: a PUSH marker writes AW
+        for a in acc:
+            if a.kind == "stack_write":
+                self.write(a.addr, 2, r["AW"])
+
+    def string(self, form_name) -> "StringRun":
+        """One string form's accesses: the elements it runs, [[Access, ...], ...], and for a
+        REP compare that ran at least one element the overrun read after the last one."""
+        s = STRING_FORMS[form_name]
+        r, w = self.r, s.width
+        what = f"{form_name} at"
+        count = self.need("CW", what) if s.rep else 1
+        port = self.need("DW", what) if any(p == "port" for _, p in s.steps) else None
+        elements = []
+        cond = False
+        while count:
+            ix = self.need("IX", what) if any(p == "ix" for _, p in s.steps) else None
+            iy = self.need("IY", what) if any(p == "iy" for _, p in s.steps) else None
+            lin_ix = ((self.need("DS0", what) << 4) + ix) & 0xFFFFF if ix is not None else None
+            lin_iy = ((self.need("DS1", what) << 4) + iy) & 0xFFFFF if iy is not None else None
+            acc = []
+            for kind, place in s.steps:
+                addr = {"ix": lin_ix, "iy": lin_iy, "port": port}[place]
+                acc += _cycles(kind, addr, w)
+            elements.append(acc)
+            mask = 0xFF if w == 1 else 0xFFFF
+            if s.op == "movbk":
+                self.write(lin_iy, w, self.read(lin_ix, w))
+            elif s.op == "stm":
+                self.write(lin_iy, w, None if r["AW"] is None else r["AW"] & mask)
+            elif s.op == "inm":
+                self.write(lin_iy, w, None)         # the port's datum is not tracked
+            elif s.op == "ldm":
+                v = self.read(lin_ix, w)
+                r["AW"] = (None if v is None or (w == 1 and r["AW"] is None)
+                           else v if w == 2 else (r["AW"] & 0xFF00) | v)
+            equal = None
+            if s.op in ("cmpbk", "cmpm"):
+                a = (self.read(lin_ix, w) if s.op == "cmpbk"
+                     else None if r["AW"] is None else r["AW"] & mask)
+                b = self.read(lin_iy, w)
+                if s.rep and (a is None or b is None):
+                    raise NormalizeError(f"{self.id}: {form_name} compares an unknown value "
+                                         f"(element {len(elements)})")
+                equal = a == b
+            if ix is not None:
+                r["IX"] = (ix + w) & 0xFFFF
+            if iy is not None:
+                r["IY"] = (iy + w) & 0xFFFF
+            if not s.rep:
+                break
+            count = (count - 1) & 0xFFFF
+            r["CW"] = count
+            if (s.rep == "repe" and not equal) or (s.rep == "repne" and equal):
+                cond = True
+                break
+        overrun = []
+        if s.rep and s.op in F24_COMPARES and elements:
+            # (F24 silicon) a REP compare reads one more element at the next IX / IY after the
+            # one that ends the repeat (CW reaching 0 or the condition failing), the same reads
+            # in the same order; nothing is compared with them, and the walk leaves IX, IY and
+            # CW where the last compared element put them (no later form of a chain reads them)
+            for kind, place in s.steps:
+                off = self.need(place.upper(), what)
+                seg = self.need("DS0" if place == "ix" else "DS1", what)
+                overrun += _cycles(kind, ((seg << 4) + off) & 0xFFFFF, w)
+        return StringRun(elements, overrun, cond)
+
+
+@dataclass(frozen=True)
+class StringRun:
+    """(WP66, F24) one string form's expected cycles: elements, [[Access, ...] per element
+    compared / moved (the iters knob counts these)], then overrun, the REP compare's extra
+    element read after the last one ([] for every other form and at CW = 0). (WP67) cond: a
+    REP compare's repeat ended on its condition (REPE unequal, REPNE equal) at the last
+    element, whether or not CW reached 0 there too (False: CW ran out, or no prefix)."""
+    elements: list
+    overrun: list
+    cond: bool = False
+
+
+def string_elements(chain: Chain) -> dict[int, StringRun]:
+    """(WP66, F24) {instr index: StringRun} for every string form of the chain
+    (expected_accesses' own walk)."""
+    out: dict = {}
+    expected_accesses(chain, out)
+    return out
+
+
+def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, list[Access]]:
     """{instr index: [Access, ...]} for every instruction of the chain, walking the
     chain in order with a tracked SP (from chain.regs, 0F00h by default):
     push / push_mem lower SP by 2 before their write; pop / pop_mem read at SP
     then raise it by 2; the PUSH marker is a push. Data addresses are linear
-    (DS0 = SS = 0). Instructions without data cycles map to []."""
+    (DS0 = SS = 0). Instructions without data cycles map to [].
+
+    (WP66) A string form (forms.STRING_FORMS, F24) expands to its elements' cycles in order,
+    each element its operation's reads, writes and I/O (forms.F24_OPS), at addresses from the
+    walked IX / IY (stepped upward by the width: DIR is clear) and the port DW: one element
+    without a prefix; with REP, CW elements (none at CW = 0), a compare under REPE / REPNE
+    stopping after the first element whose result ends the repeat, computed from the data
+    the walk knows (_StringState: the image's fill and the chain's own stores). CMPBK reads
+    the destination [IY] before the source [IX]; a REP compare that ran an element reads
+    one element more (the overrun, F24 silicon). `elements`, when given, receives
+    {instr index: StringRun} for the string forms."""
+    strings = (_StringState(chain) if any(i.role == "x" and i.form in STRING_FORMS
+                                          for i in chain.instrs) else None)
     sp = chain.regs.get("SP", DEFAULT_REGS["SP"])
     if getattr(chain, "prelude_marker", None) == "push":
         sp = (sp - 2) & 0xFFFF          # (WP24, F18) the prelude's last PUSH AW
@@ -252,6 +416,11 @@ def expected_accesses(chain: Chain) -> dict[int, list[Access]]:
                 raise NormalizeError(f"unknown marker kind {kind!r}")
         elif instr.role == "end":
             acc.append(Access("io_write", END_PORT, "word"))
+        elif instr.role == "x" and strings is not None and instr.form in STRING_FORMS:
+            run = strings.string(instr.form)
+            if elements is not None:
+                elements[k] = run
+            acc = [a for element in run.elements for a in element] + run.overrun
         elif instr.role == "x":
             form = FORMS[instr.form]
             cls = form.cls
@@ -284,6 +453,8 @@ def expected_accesses(chain: Chain) -> dict[int, list[Access]]:
                     acc += _cycles("data_read", ea, form.width)
                 for _ in range(form.writes):
                     acc += _cycles("data_write", ea, form.width)
+        if strings is not None and not (instr.role == "x" and instr.form in STRING_FORMS):
+            strings.step(instr, acc)
         out[k] = acc
     return out
 

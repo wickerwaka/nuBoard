@@ -38,7 +38,11 @@
 // 3 is 3 waits, as machine.waits_of reads it), no per-block WTC fields, no
 // internal RAM or IDB-relocated SFR page (only writes at FFF00h and up are
 // on-chip), no stall guard (last_cpu_end is a simulation guard). The early
-// fetch run of refresh_sync=run (early, early_ok, early_n) is C5's.
+// fetch run of refresh_sync=run (early, early_ok, early_n) is the arbiter's
+// bus history (C5, v35_arbiter.sv); rfm_load/rfm_value come from the refresh
+// controller (v35_refresh.sv). The refresh row (A17..A9) advances by one, +200h,
+// per refresh cycle, as the model numbers its rows (machine.REFRESH_ROW_STEP);
+// the row's start is a per-run label in the model (the anchor's), 0 here.
 module v35_biu (
     input  wire        clock,
     input  wire        reset_n,
@@ -94,6 +98,7 @@ module v35_biu (
     output wire [2:0]  cur_len_x,
     output wire [2:0]  start_len,       // the length a start of req_kind would have
     output wire [2:0]  fetch_len,       // bus.length("fetch")
+    output wire [2:0]  refresh_len_now, // (C5) bus.length("refresh"), this clock's rfm_load applied
     output reg         error,           // a start on a bus that was not free (sticky)
 
     // pins (as v35s_model.sv)
@@ -193,6 +198,7 @@ module v35_biu (
                        (is_io(req_kind) || req_sfr) ? 3'(V35_BUS_BASE) + waits_io :
                        3'(V35_BUS_BASE) + waits_mem;
     assign fetch_len = 3'(V35_BUS_BASE) + waits_mem;
+    assign refresh_len_now = rl_now;
 
     // ------------------------------------------------ after the choice
     assign busy_x = busy || req_start;

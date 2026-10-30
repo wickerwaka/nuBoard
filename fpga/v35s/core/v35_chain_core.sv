@@ -28,8 +28,14 @@
 // the instruction's bytes: v35_eu.sv's v35_opnd_t; `opnd_a` for the clock's first start, `opnd_b`
 // for a second) and the EU's write data (AW). The memory is outside: `fetch_addr` / `fetch_data`
 // for a fetch's word, `data_in` for the delivered word (the bus unit latches it mid-B3).
-// Not modelled here: refresh (C5: no refresh controller; a refresh-on chain is not run), the
-// prelude's tail before the POP PSW read and the reset (C6).
+// (C5) The refresh controller (v35_refresh.sv) runs in phase R, between L and X (Machine.run:
+// refresh.raise_ before arbitrate): its pending request goes to the arbiter, an RFM write taking
+// effect goes to the bus unit (rfm_load/rfm_value: the refresh cycle's length); in X the arbiter's
+// refresh start clears the request and the EU's RFM store (the arbiter's sfr_wr, eu.sfr) arms the
+// write. `refresh_on` is whether the chain runs the controller at all (frozen machine.py builds it
+// for refresh_any chains only: the EU then runs the refresh templates and rules), `init_counter`
+// the counter's value at clock 0 (refresh.POP_COUNTER for the run's prelude).
+// Not modelled here: the prelude's tail before the POP PSW read and the reset (C6).
 // Build: fpga/v35s/build_core_tb.sh (bench fpga/v35s/v35_core_tb.sv, .cpp).
 module v35_chain_core
     import v35_decoder_pkg::*;
@@ -37,12 +43,13 @@ module v35_chain_core
     import v35_queue_pkg::*;
 #(
     parameter int NQ = 16,                  // the EU's queue ops per phase (T/L; P)
-    parameter int NXOP = 4,                 // the arbiter's touches on the EU per clock
+    parameter int NXOP = 6,                 // the arbiter's touches on the EU per clock
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
     parameter int JSLOT = 40,               // the queue's op stages (T, L, X and P ops)
-    parameter int STATE_W = 516,            // v35_eu.sv
+    parameter int STATE_W = 582,            // v35_eu.sv
     parameter int QSTATE_W = 180,           // v35_queue.sv
-    parameter int ASTATE_W = 69             // v35_arbiter.sv
+    parameter int ASTATE_W = 103,           // v35_arbiter.sv
+    parameter int RSTATE_W = 24             // v35_refresh.sv
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -58,6 +65,9 @@ module v35_chain_core
     // the SFR block
     input  wire [15:0] wtc,
     input  wire [7:0]  rfm,
+    // (C5) the refresh controller: the chain runs it (refresh_any), its counter at clock 0
+    input  wire        refresh_on,
+    input  wire [6:0]  init_counter,
 
     // Phase D: the operand records of the clock's starts, the EU's write data
     input  wire [212:0] opnd_a,
@@ -107,6 +117,9 @@ module v35_chain_core
     output wire [ASTATE_W-1:0] a_x,
     output wire [ASTATE_W-1:0] a_e,
     output wire [ASTATE_W-1:0] a_dump,
+    output wire [RSTATE_W-1:0] r_r,         // the refresh controller after R, at the end, registered
+    output wire [RSTATE_W-1:0] r_e,
+    output wire [RSTATE_W-1:0] r_dump,
     output wire [63:0] biu_dump,
     output wire [JSLOT-1:0][32:0] slots,    // the clock's queue ops, in chain order
     output wire [JSLOT-1:0][7:0] slot_rd,
@@ -114,7 +127,7 @@ module v35_chain_core
     output wire [4:0]  n_t,
     output wire [3:0]  n_x,
     output wire [4:0]  n_p,
-    output wire [NXOP-1:0][10:0] xops,
+    output wire [NXOP-1:0][V35_XOP_W-1:0] xops,
     output wire        x_cyc,
     output wire [2:0]  x_cyc_kind,
     output wire [19:0] x_cyc_addr,
@@ -180,8 +193,9 @@ module v35_chain_core
         logic                      x_valid; // the arbiter's cycle, touches, counts after X
         logic [2:0]                x_kind;
         logic                      x_eu;
-        logic [NXOP-1:0][10:0]     xop;
+        logic [NXOP-1:0][V35_XOP_W-1:0] xop;
         logic [2:0][6:0]           counts_p;
+        logic [4:0]                early_p; // (C5) the early fetch run after X
         logic [BVW-1:0]            bus_p;   // the bus unit after the choice
         logic                      latch_in;// the queue's phase E: latch_in_t == t
     } v35_settle_t;
@@ -208,11 +222,14 @@ module v35_chain_core
     wire [1:0]  done_width;
     wire [15:0] done_data;
     wire        biu_error;
+    wire [2:0]  refresh_len_now;
+    wire        rf_load;
+    wire [7:0]  rf_value;
 `ifdef V35S_STATE_DUMP
     wire [63:0] biu_state;
 `endif
     v35_biu biu (
-        .clock, .reset_n, .ce(commit), .ce_mid, .wtc, .rfm, .rfm_load(1'b0), .rfm_value(8'd0),
+        .clock, .reset_n, .ce(commit), .ce_mid, .wtc, .rfm, .rfm_load(rf_load), .rfm_value(rf_value),
         .req_start(b_req_start), .req_kind(b_req_kind), .req_addr(b_req_addr),
         .req_width(b_req_width), .req_data(b_req_data), .req_ext(b_req_ext),
         .req_latch(b_req_latch), .wlatch_fill(wl_fill_t || wl_fill_x || wl_fill_p),
@@ -221,7 +238,7 @@ module v35_chain_core
         .wlatch_busy, .cur_kind, .cur_pos, .cur_len,
         .busy_x, .free_x, .fetch_inflight_x, .in_wait_x, .fetch_end_prev_x, .fetch_since_x,
         .io_win_x, .wlatch_busy_x, .cur_kind_x, .cur_pos_x, .cur_len_x, .start_len, .fetch_len,
-        .error(biu_error), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
+        .refresh_len_now, .error(biu_error), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
         .iostb_n, .read_write, .refrq_n, .data_in
 `ifdef V35S_STATE_DUMP
         , .state_dump(biu_state)
@@ -264,9 +281,11 @@ module v35_chain_core
     wire [2:0][6:0] counts_t;
     wire        c_eu = done && eu_owner && !first;
     wire        c_read = c_eu && (done_kind == V35_K_READ || done_kind == V35_K_IO_READ);
+    wire [4:0]  a_early_t, a_early_p;
     v35_eu #(.NQ(NQ), .NXOP(NXOP), .STATE_W(STATE_W)) eu (
-        .clock, .reset_n, .ce(commit), .init_state, .code_base, .c_eu, .c_read,
-        .fetch_done(q_fetch_done), .bus_t, .bus_p(v35_bview_t'(sr.bus_p)), .opnd_a, .opnd_b,
+        .clock, .reset_n, .ce(commit), .init_state, .code_base, .refresh_on, .c_eu, .c_read,
+        .fetch_done(q_fetch_done), .bus_t, .bus_p(v35_bview_t'(sr.bus_p)),
+        .early_t(a_early_t), .early_p(sr.early_p), .opnd_a, .opnd_b,
         .qv_tl(sr.qv_tl), .rd_tl(sr.rd_tl), .qv_p(sr.qv_p), .rd_p(sr.rd_p),
         .x_valid(sr.x_valid), .x_kind(sr.x_kind), .x_eu(sr.x_eu), .xop(sr.xop),
         .counts_t, .counts_p(sr.counts_p), .q_latch_in(sr.latch_in),
@@ -283,7 +302,7 @@ module v35_chain_core
     // ------------------------------------------------ the arbiter
     wire [NXQ-1:0][32:0] a_qop;
     wire [3:0]  a_n_q;
-    wire [NXOP-1:0][10:0] a_xop;
+    wire [NXOP-1:0][V35_XOP_W-1:0] a_xop;
     wire        a_x_valid, a_x_eu, a_req_start, a_req_fetch, a_req_eu, a_req_ext, a_req_latch;
     wire [2:0]  a_x_kind, a_req_kind, a_req_len;
     wire [19:0] a_req_addr;
@@ -292,20 +311,38 @@ module v35_chain_core
     wire        arb_error;
     wire [7:0]  arb_err;
     wire [ASTATE_W-1:0] a_state_x;
+    wire        a_sfr_wr, rf_pending;
+    wire [7:0]  a_sfr_value;
     v35_arbiter #(.NXQ(NXQ), .NXOP(NXOP), .STATE_W(ASTATE_W), .ESTATE_W(STATE_W),
                   .QSTATE_W(QSTATE_W)) arbiter (
         .clock, .reset_n, .ce(commit), .eu_l(eu_state_l), .fresh_l, .eu_e(eu_state_e), .fresh_p,
         .qv(sr.aqv), .qrd(sr.ard), .b_busy(v_busy), .b_free(v_free), .b_kind(v_kind),
+        .b_pos(v_pos), .b_len(v_len),
         .b_in_wait(in_wait), .b_finf(fetch_inflight), .b_fprev(fetch_end_prev),
         .b_io_win(io_win), .b_done(done), .b_done_kind(done_kind), .wtc,
+        .refresh_on, .rf_pending, .rf_len(refresh_len_now),
         .qop(a_qop), .n_q(a_n_q), .xop(a_xop), .x_valid(a_x_valid), .x_kind(a_x_kind),
         .x_eu(a_x_eu), .counts_t, .counts_p(a_counts_p), .req_start(a_req_start),
         .req_fetch(a_req_fetch), .req_eu(a_req_eu), .req_kind(a_req_kind),
         .req_addr(a_req_addr), .req_width(a_req_width), .req_len(a_req_len),
-        .req_ext(a_req_ext), .req_latch(a_req_latch), .error(arb_error), .err_code(arb_err),
+        .req_ext(a_req_ext), .req_latch(a_req_latch), .sfr_wr(a_sfr_wr), .sfr_value(a_sfr_value),
+        .early_t(a_early_t), .early_p(a_early_p), .error(arb_error), .err_code(arb_err),
         .state_x(a_state_x)
 `ifdef V35S_STATE_DUMP
         , .state_e(a_e), .state_dump(a_dump), .mutate
+`endif
+        );
+
+    // ------------------------------------------------ (C5) the refresh controller
+    wire [RSTATE_W-1:0] rf_state_r, rf_state_e;
+    v35_refresh #(.STATE_W(RSTATE_W)) refresh (
+        .clock, .reset_n, .ce(commit), .en(refresh_on), .rfm, .init_counter,
+        .start(!first && a_req_start && a_req_kind == V35_K_REFRESH),
+        .wr(!first && a_sfr_wr), .wr_value(a_sfr_value),
+        .pending(rf_pending), .rfm_load(rf_load), .rfm_value(rf_value),
+        .state_r(rf_state_r), .state_e(rf_state_e)
+`ifdef V35S_STATE_DUMP
+        , .state_dump(r_dump)
 `endif
         );
 
@@ -391,6 +428,7 @@ module v35_chain_core
         sn.x_eu = a_x_eu;
         sn.xop = a_xop;
         sn.counts_p = a_counts_p;
+        sn.early_p = a_early_p;
         sn.bus_p = bus_p;
         qe = v35_qstate_t'(q_state_e);
         sn.latch_in = qe.latch_in_now;
@@ -408,7 +446,8 @@ module v35_chain_core
     assign b_req_kind = first ? V35_K_READ : a_req_kind;
     assign b_req_addr = first ? V35_PRELUDE_POP_ADDR : a_req_fetch ? q_fetch_issue_addr : a_req_addr;
     assign b_req_width = first ? V35_BW_WORD : a_req_width;
-    assign b_req_data = first ? V35_PRELUDE_PSW : a_req_fetch ? fetch_data : eu_data;
+    assign b_req_data = first ? V35_PRELUDE_PSW : a_req_fetch ? fetch_data
+                        : a_req_eu ? eu_data : 16'd0;   // a refresh cycle: no datum
     assign b_req_ext = !first && a_req_ext;
     assign b_req_latch = !first && a_req_latch;  // the POP PSW read's datum: no latch (C1, 7)
     assign fetch_addr = q_fetch_issue_addr;
@@ -452,6 +491,8 @@ module v35_chain_core
     assign q_ops = q_state_op;
     assign q_e = q_state_e;
     assign a_x = a_state_x;
+    assign r_r = rf_state_r;
+    assign r_e = rf_state_e;
     assign biu_dump = biu_state;
     assign slots = qops;
     assign slot_rd = q_rd;

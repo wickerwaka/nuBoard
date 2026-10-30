@@ -511,3 +511,42 @@ class FittedConfig(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StringStage(unittest.TestCase):
+    """(WP67) stage 13: F24's string templates, the corpus guard as its guard."""
+
+    def test_stage_13_is_f24(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[13], ["F24"])
+        self.assertNotIn("F24", UNMODELLED)
+        self.assertEqual(set(fit.F24_ENUMS), {"str_take", "str_setup", "str_overrun", "str_hold"})
+        for name, values in fit.F24_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+        classes = {p.split(".")[0] for p in fit.F24_INTS}
+        self.assertEqual(classes, {"str_move", "str_cmp", "str_store", "str_load",
+                                   "str_scan", "str_in", "str_out"})
+        for p in fit.F24_INTS:
+            cls, name = p.split(".")
+            self.assertTrue(name in DEFAULT_COST[cls] or name == "nx", p)
+
+    def test_stage_13_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage13({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_13_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage13({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 13)
+        self.assertEqual(args[2], fit.F24_ENUMS)
+        self.assertEqual(args[3], fit.F24_INTS)
+        self.assertEqual(kw["sweep"], fit.F24_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_13(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "13"])
+        self.assertEqual(args.stage, 13)

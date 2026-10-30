@@ -340,6 +340,67 @@ operand record per start, the EU's write data and the memory. Not
 modelled: refresh (C5), the prelude tail before the POP PSW read and the
 reset (C6).
 
+**C5 done 2026-10-29 (WP65, WP68):** `fpga/v35s/core/v35_refresh.sv`
+(module `v35_refresh`, 154 lines: the edge counter on bit RFT+3 from
+`FIT_REFRESH_INTERVAL`, RFEN and RFT from the RFM value, `pending` set in
+R and cleared by the arbiter's start in X, the RFM store taking effect
+`FIT_RFM_DELAY` clocks after its issue through `rfm_load`/`rfm_value` into
+the bus unit; `en` and `init_counter` (the prelude's POP counter) are
+inputs; R and X are separate processes), the arbiter's whole `_refresh`
+path (`_winner` with `fetch_first`, `refresh_halt`, `step_lead`,
+`refresh_lead=closed` and `lead_port=last`, `refresh_relatch`,
+`refresh_io_step`, `refresh_wlatch`, `refresh_ok`, abort / drop_post /
+drop / lost, `early_ok`, the beat and `refresh_cost`, `halt_defer`,
+`lost_start`/`lost_after`, `halt_refresh=run_drop`, `refresh_lift=free`,
+`refresh_after=fetch_next`, `io_step_issue`, `refresh_beat_t4` and
+`_b2b`, `post_beat`'s give-back, `dw_view=eu`) and the EU's refresh rules
+(`refresh_eu=hold` with `refresh_retry` and `refresh_wb=free_wait`,
+`refresh_reraise=unit`, `shift_exit0`, `refresh_sync=run` with its
+`run=two` and `reg=delivery` limits, `clk_seam`/`clk_tag`/`clk_end` with
+`refresh_start_seam=start`, the HALT queue op under `halt_refresh`, the
+early start rules, `refresh_run_modrm`, `pop_refresh=stall`; the package
+holds the step functions and the boundary map `eu_boundary`, `eu_in_loop`,
+`eu_rmw_*`, `eu_inside`). The core instantiates the controller, drives the
+bus unit's RFM load from it, takes `refresh_on` and `init_counter` as
+inputs, and a refresh cycle's datum is 0. State: the controller 24 bits;
+the arbiter 69 → 103 (`xeu` per request position, the bus history
+`early_on`/`early_ok`/`early_n`, `after_ref`, `lc_age`, `rf_v`/`rf_n`/
+`rf_age`); the EU 516 → 582 (`prev_cls`, `sfr`, `rmw`/`rmw_cl`, the
+clock-tag and seam fields, `ce_off` 11 bits signed, the hold/halt
+offset-plus-past pairs; `sa_off` 5 bits signed, `v35_req_t` gains `grpcl`
+and `beat_ext`); the touch word is a 4-bit code plus 8-bit value and NXOP
+6. `rtl_vectors.py --core` models refresh (`--eu`/`--joint3` stay
+refresh-off and raise NotModelled on a refresh run); a `RefreshRecorder`
+classifies the controller's stores and raises on any other; format
+V35ARB-2 adds `refresh_on`, `init_counter` and the R lines; five refresh
+samples (F8, F17, F18, two F13 RFM runs) and three more mutations (lead
+closed off, `refresh_after` off, the `dw_view` t−2 add off) in
+`test_rtl_vectors`. Gate (re-run by the overseer on the live tree after
+fit 38, scratchpad wp65r/): F8, F13, F17, F18 2,472/2,472 exact against
+the model (961,646 clocks, 115,144 bus cycles, no failed check,
+model-exact 2,364 = RTL-exact); F27 and F28 2,160/2,160 (model-exact
+1,709 = RTL-exact); the whole corpus over all 31 family lists 23,678 of
+24,524 exact and the other 846 not modelled (the F24 runs with a string
+form, Phase E item 3; 8,359,539 clocks, 897,465 bus cycles, model-exact
+22,837 = RTL-exact 22,837, at most 6 settle edges per clock, mean 1.25);
+C1 38/38, C2 2,040/2,040 in both modes, C3 5,352/5,352 in both modes, C4
+12,642/12,642 unchanged; the eleven test modules 534 OK; `LINT=1`,
+`rtlgen --check` and `freeze --check` clean; `fit.json` and `sim/frozen`
+untouched by the RTL work. Eighteen places where the frozen code and the
+spec disagree are in the spec's Decisions ("C5, refresh in RTL"); the
+largest: the model's two kinds of "refresh off" need a static
+`refresh_on` input, `pop_refresh=stall` (marked C6) fires in ten F13 runs
+and makes `sa_off` signed, `refresh_cost`/`refresh_ok` are computed in
+the arbiter and reach the EU as touches, and `io_step`'s three-cycle
+look-back is kept as saturating ages. WP68 (the same day): with fit 38
+adopted, `rtlgen` leaves the seven `str_*` classes out of the step tables
+(`string_classes`; their class ids and costs stay in the include, XLAT
+moving from 34 to 41) and every `rtl_vectors` mode reports a run with a
+string form as not modelled, "string forms (E3)". Still scripted
+(Phase D): the operand record per start, the EU's write data and the
+memory. Not modelled: the prelude tail before the POP PSW read and the
+reset (C6), the string forms (E3).
+
 **Gate for Phase C:** whole-corpus RTL-exact equals model-exact (22,771 of
 23,612 under the thirty-seventh fit) with the state rows identical on every
 clock of every run.
@@ -383,7 +444,19 @@ then the RTL. In the order the generator gains them:
    write-back. Done 2026-10-27 (ten classes, three enums, 446/588; the
    thirty-fourth fit, docs/v35s-chains.md); item 1 follows it.
 3. F24 strings and REP, INM and OUTM: sustained data demand through the
-   arbiter.
+   arbiter. In the generator and acquired 2026-10-28 (WP66, 912 runs,
+   docs/v35s-chains.md "The string and block forms"): a string element
+   takes no queue bytes, so the stream never raises a fetch request; the
+   facts are the per-element cadence, the REP setup and exit, the
+   compares' destination-first read and one-element overrun. Modelled
+   and fitted 2026-10-29 (WP67, the thirty-eighth fit, 746/912; seven
+   str_* classes, four enums, docs/v35s-chains.md "The thirty-eighth
+   fit"): the element count and a compare's exit come from the
+   normaliser's walk, each element's bus cycles are data steps. The RTL
+   leaves the string classes out of its step tables (WP68) until this
+   item is built: it needs element-indexed addresses from IX/IY/DW, the
+   walk's count in the vector format, and the fetch hold after a compared
+   element.
 4. The 0F page: a second opcode byte in the decoder.
 5. The register miscellany (INC and DEC r16, flags, adjusts, CVTBD and
    CVTDB, signed multiply and divide, IMUL with an immediate).

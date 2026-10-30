@@ -1660,3 +1660,173 @@ def f29(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F28": f28, "F29": f29})
+
+
+# F24 (WP66; HDL plan Phase E item 3: the string and block forms, sustained data demand
+# through the arbiter), refresh off (RFM ECh), the OUT marker only (an I/O write at port 20h /
+# 21h, never a data or stack cycle, so every data cycle in the frame is the string form's),
+# every wait and parity. The cost frame PAD [P] LS M0 X M1 LS END; X's cost is
+# dM(X) - dM(baseline), the baseline named by the knob `baseline` (the x_variant of the chain
+# whose frame holds X less the string form: the empty frame, or MOV CW,n [D^d] alone), and the
+# trailing LS shows the queue occupancy at M1.
+#
+# Registers (presets, _f24_regs, every F24 chain, so the prelude is the same family-wide):
+# IX = 0A40h (the source, DS0:IX), IY = 0C40h (the destination, DS1:IY), DW = 0040h (INM /
+# OUTM's port, IO_PORT as the DW I/O forms); DS0 = DS1 = SS = 0 (the prelude's, so offsets
+# are linear), PSW 0002h (DIR clear: every element steps IX / IY upward by its width). The
+# fence (MOV CL,31 ; SHL AW,CL) leaves AW = 0 and CW = 001Fh, so CMPM compares 0000h / 00h
+# with the 90h fill (never equal) and the REP count is set in the frame by MOV CW,n (B9 nn nn,
+# a preset CW would be lost to the fence's MOV CL). The ranges: the source reads 0A40h-0A5Fh
+# at most, the destination 0C40h-0C5Fh, both in the data page (classified data, under 1000h),
+# clear of every EA the other forms use (0800h, 0810h, 0900h-0990h, 0A00h, 0A10h, 0B00h-0B90h,
+# 0C00h, 0D00h, 0D80h), of the store marker's 0C00h, the stack (0E00h-0F00h) and the code.
+#
+# s (singles, no prefix): MOVBK, CMPBK, STM, LDM, CMPM, INM, OUTM, byte and word, X^k for
+#   k = 1, 2: one element's cost, its read / write order and issue points, the back-to-back
+#   pair. Baseline: the empty frame.
+# r (repeat): M0 MOV CW,n ; REP X M1 for n = 0, 1, 2, 3, 4, 8: REP STM, REP MOVBK, REP INM, REP
+#   OUTM byte and word, REP LDM word, REPNE CMPM word and REPE CMPBK word (the compares that
+#   run CW out on the fill), and n = 16 for REP STM and REP MOVBK word (the long run): the
+#   per-element cadence, the first element's setup, n = 0's check, the fetches the stream
+#   lets in as the queue drains, where fetching restarts after the last element. Controls
+#   MOV CW,n alone for every n (the baseline of the r, a and t chains with that n).
+# a (alignment): REP forms over odd addresses, n = 1, 2, 4: MOVBK with IX odd (0A41h), IY odd
+#   (0C41h) and both; REPE CMPBK with both; REP STM and REPNE CMPM with IY odd; REP LDM and
+#   REP OUTM with IX odd; REP INM with IY odd: the odd word's split per element.
+# t (termination): the compares' early exit, word at n = 2, 4 and byte at n = 4. On the fill
+#   REPE CMPM stops after element 1 (0 != 9090h) and REPNE CMPBK after element 1 (fill =
+#   fill); with the pattern (P = MOV word [0C42h],0 before the first LS: the destination word
+#   at IY + 2 reads 0000h, the fence erases the store's cost) REPE CMPBK stops after element 2
+#   (9090h != 0000h; byte: element 3, 0C42h) and REPNE CMPM after element 2 (0 = 0000h; byte:
+#   element 3). At n = 2 the word pattern exits coincide with CW reaching 0. Control: the
+#   pattern store with the empty frame. (Acquired: CMPBK reads IY before IX, and every REP
+#   compare reads one element more after the one that ends it, the overrun; iters counts
+#   the compared elements, normalize.StringRun keeps the overrun apart.)
+# d (drain): M0 MOV CW,4 D^d REP X M1, d = 0, 2, 4 (the F6 drainers, MOV AW,1234h / MOV
+#   DW,5678h alternating: AW = 1234h for STM's datum after D0, DW changes but no I/O form
+#   follows), X = REP STM word and REP MOVBK word: the string form starting from an emptier
+#   queue. Controls MOV CW,4 D^d alone (d = 2, 4; d = 0 is r's MOV CW,4).
+# Knobs: series, marker, op, width (1 / 2), rep (None, rep, repe, repne), n (the REP count,
+# None for singles), k (instances), iters (the elements expected, _f24_iters; test_chains
+# checks it against normalize.string_elements), align (even, ix, iy, ixiy), pattern, drain, form (the string form, None
+# for a control), x (every form between M0 and M1 in order), pre (the forms before the first
+# LS), ix / iy (the presets), baseline. Run ids
+# F24-out-<series>-[<rep>-]<op>-<b|w>-(k<k>|n<n>)[-<align>|-<fill|pat>|-d<d>]-p<E|O>-w<N>, the
+# controls F24-out-empty, F24-out-r-movcw-n<n>, F24-out-t-pat-empty, F24-out-d-movcw-n4-d<d>.
+F24_RFM = RFM_OFF
+F24_KIND = "out"
+F24_S_K = (1, 2)
+F24_R_N = (0, 1, 2, 3, 4, 8)
+F24_R_X = (("rep", "stm", 2), ("rep", "stm", 1), ("rep", "movbk", 2), ("rep", "movbk", 1),
+           ("rep", "ldm", 2), ("repne", "cmpm", 2), ("repe", "cmpbk", 2), ("rep", "inm", 2),
+           ("rep", "inm", 1), ("rep", "outm", 2), ("rep", "outm", 1))
+F24_R_LONG = (16, (("rep", "stm", 2), ("rep", "movbk", 2)))
+F24_A_N = (1, 2, 4)
+F24_A_X = (("rep", "movbk", "ix"), ("rep", "movbk", "iy"), ("rep", "movbk", "ixiy"),
+           ("repe", "cmpbk", "ixiy"), ("rep", "stm", "iy"), ("repne", "cmpm", "iy"),
+           ("rep", "ldm", "ix"), ("rep", "outm", "ix"), ("rep", "inm", "iy"))
+F24_T_X = (("repe", "cmpm", False), ("repne", "cmpbk", False), ("repe", "cmpbk", True),
+           ("repne", "cmpm", True))
+F24_T_N = {2: (2, 4), 1: (4,)}                # width: n
+F24_D_N = (0, 2, 4)
+F24_D_CW = 4
+F24_D_X = (("rep", "stm", 2), ("rep", "movbk", 2))
+
+
+def _f24_regs(align="even"):
+    from .forms import F24_IX, F24_IY, IO_PORT
+    return {"IX": F24_IX + (align in ("ix", "ixiy")), "IY": F24_IY + (align in ("iy", "ixiy")),
+            "DW": IO_PORT}
+
+
+def _f24_iters(op, width, rep, n, pattern):
+    """The elements one REP form runs: n, or the compare's exit on the fill / the pattern."""
+    if rep is None:
+        return 1
+    if op not in ("cmpbk", "cmpm"):
+        return n
+    # on the fill: CMPM (0 vs 90h) differs at once, CMPBK (fill vs fill) never differs; the
+    # pattern zeroes the destination word at IY + 2 (element 2 of a word form, 3 of a byte form)
+    stop_on_diff, stop_on_same = rep == "repe", rep == "repne"
+    at = 2 if width == 2 else 3
+    for e in range(1, n + 1):
+        dst_zero = pattern and e == at
+        same = (not dst_zero) if op == "cmpbk" else dst_zero
+        if (stop_on_diff and not same) or (stop_on_same and same):
+            return e
+    return n
+
+
+def f24(waits=WAITS, parities=PARITIES):
+    """The string and block forms (see the comment above)."""
+    from .forms import F24_MOV_CW, F24_PATTERN_STORE, f24_form_name
+    variants = []
+    kind = F24_KIND
+
+    def add(name, series, x, baseline, op=None, width=None, rep=None, n=None, k=None,
+            align="even", pattern=False, drain=0, form=None):
+        regs = _f24_regs(align)
+        pre = [F24_PATTERN_STORE] if pattern else []
+        body = [Instr(0, FORMS[p].code, p, "x") for p in pre]
+        body += [LS(), M(0, kind)]
+        idx = 0
+        for name_x in x:
+            if name_x == "D":
+                body.append(D(len([i for i in body if i.role == "drain"])))
+                continue
+            body.append(X(name_x, idx))
+            idx += 1
+        body += [M(1, kind), LS(), END()]
+        iters = (None if form is None else
+                 (k or 1) * _f24_iters(op, width, rep, n, pattern))
+        knobs = {"series": series, "marker": kind, "op": op, "width": width, "rep": rep,
+                 "n": n, "k": k, "iters": iters, "align": align, "pattern": pattern,
+                 "drain": drain, "form": form, "x": [v for v in x if v != "D"], "pre": pre,
+                 "ix": regs["IX"], "iy": regs["IY"], "baseline": baseline}
+        variants.append((f"{kind}-{name}", knobs, body, {"regs": regs}))
+
+    add("empty", "empty", [], None)
+    w_tag = {1: "b", 2: "w"}
+    for op in ("movbk", "cmpbk", "stm", "ldm", "cmpm", "inm", "outm"):
+        for width in (1, 2):
+            form = f24_form_name(op, width)
+            for k in F24_S_K:
+                add(f"s-{op}-{w_tag[width]}-k{k}", "s", [form] * k, "empty", op, width,
+                    None, None, k, form=form)
+    r_n = {n: F24_R_X for n in F24_R_N}
+    r_n[F24_R_LONG[0]] = F24_R_LONG[1]
+    for n, xs_ in r_n.items():
+        cw = F24_MOV_CW[n]
+        add(f"r-movcw-n{n}", "r", [cw], None, n=n)
+        for rep, op, width in xs_:
+            form = f24_form_name(op, width, rep)
+            add(f"r-{rep}-{op}-{w_tag[width]}-n{n}", "r", [cw, form], f"r-movcw-n{n}", op,
+                width, rep, n, 1, form=form)
+    for rep, op, align in F24_A_X:
+        form = f24_form_name(op, 2, rep)
+        for n in F24_A_N:
+            add(f"a-{rep}-{op}-w-n{n}-{align}", "a", [F24_MOV_CW[n], form], f"r-movcw-n{n}",
+                op, 2, rep, n, 1, align=align, form=form)
+    add("t-pat-empty", "t", [], None, pattern=True)
+    for width, ns in F24_T_N.items():
+        for rep, op, pattern in F24_T_X:
+            form = f24_form_name(op, width, rep)
+            for n in ns:
+                add(f"t-{rep}-{op}-{w_tag[width]}-n{n}-{'pat' if pattern else 'fill'}", "t",
+                    [F24_MOV_CW[n], form], f"r-movcw-n{n}", op, width, rep, n, 1,
+                    pattern=pattern, form=form)
+    cw = F24_MOV_CW[F24_D_CW]
+    for d in F24_D_N:
+        if d:
+            add(f"d-movcw-n{F24_D_CW}-d{d}", "d", [cw] + ["D"] * d, None, n=F24_D_CW, drain=d)
+        for rep, op, width in F24_D_X:
+            form = f24_form_name(op, width, rep)
+            add(f"d-{rep}-{op}-{w_tag[width]}-n{F24_D_CW}-d{d}", "d", [cw] + ["D"] * d + [form],
+                f"d-movcw-n{F24_D_CW}-d{d}" if d else f"r-movcw-n{F24_D_CW}", op, width, rep,
+                F24_D_CW, 1, drain=d, form=form)
+    return _sweep("F24", variants, waits, parities, marker_kind=kind, rfm=F24_RFM)
+
+
+FAMILIES.update({"F24": f24})
+# (WP66) F24 was generator-only until the simulator learned the string forms; (WP67) the
+# simulator runs them (sim/templates.py, _string_steps): F24 is modelled.

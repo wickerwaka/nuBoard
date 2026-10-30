@@ -37,7 +37,7 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 4, JSLOT = 40, STATE_W = 516, QSTATE_W = 180;
+constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 582, QSTATE_W = 180;
 constexpr int OPW = 33, QVW = 52, BVW = 18, NBV = 10, OPNDW = 213;
 constexpr int K_FETCH = 1, K_READ = 2, K_IO_READ = 4, K_REFRESH = 6;
 constexpr int OP_WANT = 16, OP_ISSUE = 23;
@@ -469,7 +469,7 @@ int main(int argc, char** argv) {
             const uint64_t w = i < c.nxops ? (uint64_t(c.xops[i].first) << 8) |
                                                  uint64_t(c.xops[i].second & 0xFF)
                                            : 0;
-            set_bits(d.xop, 11 * i, 11, w);
+            set_bits(d.xop, 12 * i, 12, w);
         }
         for (int i = 0; i < 3; ++i) {
             set_bits(d.counts_t, 7 * i, 7, c.counts_t[i]);

@@ -41,7 +41,8 @@ not start while it is busy; `latch_wait` tells the arbiter it is waiting
 from __future__ import annotations
 
 from .arbiter import Request, io_step, io_stepped
-from .templates import _dest_route, decode, ea_class, execute, grp_class, refresh_hold_steps, steps
+from .templates import (STRING_CLASSES, _dest_route, decode, ea_class, execute, grp_class,
+                        refresh_hold_steps, steps)
 from .queue import QUEUE_BYTES
 
 END_PORT = 0xFF00
@@ -116,6 +117,8 @@ class EU:
         self.refill = False             # (WP55) refill_start: a flush's refill gates the next start
         self.prev_cls = None            # (WP61) refresh_beat_b2b: the class of the instruction before
         self.grp_form = False           # (WP61) grp_disp: the running form is a group opcode's
+        self.strings = {}               # (WP67, F24) {chain offset: (elements, cond)} of the
+                                        # string forms, from the chain walk (machine.py)
 
     def _start(self, t: int) -> bool:
         cfg = self.cfg
@@ -158,6 +161,9 @@ class EU:
         if cfg.opcode_take == "prefetch" and self.decoder.ir is None:
             return False
         op = decode(self.code, self.pc, self.regs)
+        if op.cls in STRING_CLASSES and op.offset - self.origin in self.strings:
+            # (WP67, F24) the elements the walk runs (a compare's exit depends on the data)
+            op.n, op.cond = self.strings[op.offset - self.origin]
         if op.cl_count and cfg.shift_count_mask == "cl5":
             op.count &= 0x1F                 # (WP57) shift_count_mask: CL masked to 5 bits
         if (cfg.dest_route == "slot" and op.dbit == 0 and op.cls == "load_alu"
@@ -783,6 +789,17 @@ class EU:
                     return
                 self.k += 1
                 self.resume = max(t, int(self.latch_until))
+                continue
+            if kind == "fetch_hold":             # (WP67, F24) str_hold=hold: no fetch request
+                q = self.decoder.queue           # for step[1] clocks from here
+                q.str_held = t + step[1]
+                self.k += 1
+                continue
+            if kind == "quiet":                  # (WP67, F24) str_take=quiet: wait for the
+                q = self.decoder.queue           # refill: no fetch on the bus or wanted
+                if self.bus.fetch_inflight(t) or q.wants_fetch(t):
+                    return
+                self.k += 1
                 continue
             if kind == "sent":                   # (WP52) burst_wait=issue: the posted word is
                 if self.own is not None:         # on the bus: the EU lets it go and goes on

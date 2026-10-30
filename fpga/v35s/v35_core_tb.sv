@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-// The Verilator bench top for the chain-model core (HDL plan, C4): v35_chain_core with its state
+// The Verilator bench top for the chain-model core (HDL plan, C4; C5: the refresh controller): v35_chain_core with its state
 // bundles (V35S_STATE_DUMP), driven and read by v35_core_tb.cpp from the frozen model's vectors
 // (validation/v35s/chains/rtl_vectors.py --core: the EU's, the queue's, the bus unit's and the
 // arbiter's of the same run). The bench serves the core's memory from the chain's image and
@@ -8,12 +8,13 @@
 // Build: fpga/v35s/build_core_tb.sh (binary in build/fpga/v35s/core-tb/).
 module v35_core_tb #(
     parameter int NQ = 16,
-    parameter int NXOP = 4,
+    parameter int NXOP = 6,
     parameter int NXQ = 8,
     parameter int JSLOT = 40,
-    parameter int STATE_W = 516,
+    parameter int STATE_W = 582,
     parameter int QSTATE_W = 180,
-    parameter int ASTATE_W = 69
+    parameter int ASTATE_W = 103,
+    parameter int RSTATE_W = 24
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -29,6 +30,8 @@ module v35_core_tb #(
     // the SFR block
     input  wire [15:0] wtc,
     input  wire [7:0]  rfm,
+    input  wire        refresh_on,
+    input  wire [6:0]  init_counter,
 
     // Phase D: the operand records of the clock's starts, the EU's write data
     input  wire [212:0] opnd_a,
@@ -78,6 +81,9 @@ module v35_core_tb #(
     output wire [ASTATE_W-1:0] a_x,
     output wire [ASTATE_W-1:0] a_e,
     output wire [ASTATE_W-1:0] a_dump,
+    output wire [RSTATE_W-1:0] r_r,
+    output wire [RSTATE_W-1:0] r_e,
+    output wire [RSTATE_W-1:0] r_dump,
     output wire [63:0] biu_dump,
     output wire [JSLOT-1:0][32:0] slots,    // the clock's queue ops, in chain order
     output wire [JSLOT-1:0][7:0] slot_rd,
@@ -85,7 +91,7 @@ module v35_core_tb #(
     output wire [4:0]  n_t,
     output wire [3:0]  n_x,
     output wire [4:0]  n_p,
-    output wire [NXOP-1:0][10:0] xops,
+    output wire [NXOP-1:0][11:0] xops,
     output wire        x_cyc,
     output wire [2:0]  x_cyc_kind,
     output wire [19:0] x_cyc_addr,
@@ -101,5 +107,5 @@ module v35_core_tb #(
 `endif
 );
     v35_chain_core #(.NQ(NQ), .NXOP(NXOP), .NXQ(NXQ), .JSLOT(JSLOT), .STATE_W(STATE_W),
-                     .QSTATE_W(QSTATE_W), .ASTATE_W(ASTATE_W)) core (.*);
+                     .QSTATE_W(QSTATE_W), .ASTATE_W(ASTATE_W), .RSTATE_W(RSTATE_W)) core (.*);
 endmodule

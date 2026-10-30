@@ -255,6 +255,24 @@ OPTIONS = {
     "refresh_beat_b2b": ("none", "take", "imm"),  # (WP61, F28) refresh_beat_t4's fetch committed back to back on a beaten 3-clock fetch's last clock starts on its delivery clock D / a clock later when on D the decoder takes an operand byte without loading the IR / imm: also when on D (no IR load) an immediate form (class imm: a register form with an immediate) runs with operand bytes outstanding without starting there, or a form of another class starts there right after one (an immediate form starting on D keeps the fetch on time). F28-out-fc-beat-movawi-n0-k2-pE-w0, rel t_fill: R103 F108, the second MOV AW,imm16 in its pre clocks on D 111: silicon F112 (none: F111); F27-out-fc-room-movawi-n0-k2-pO-w0, the closing OUT starting on D 121 after MOV DW,imm16: silicon F122 (none: F121); F27-push-fc-room-movawi-n0-k3-pE-w0, a MOV starting on D: on time in both. take and none -15 F27, -16 F28 (the take instances alone flip no run)
     "grp_disp": ("none", "hold"),  # (WP61, F29) a group RMW form without an immediate with a two-byte displacement (INC, NOT, SHL ,1, NEG, DEC [BW+200h]) as any memory form: the take sync waits for the fetch requested on the displacement's take, which runs at once (hold_run), and its read's group setup needs a bus free of fetches / hold: no fetch starts on the take clock (unless the take left room for two words) or the grp_free clocks after it (one committed back to back goes), the take sync waits only for a fetch on the bus, a fetch no older than the read waits until the read's fetch-free clocks have begun to count, and those clocks count through a fetch (not an I/O cycle or its recovery). F29-out-ec-gih-incd16-n1-pO-w0, rel t_fill: the displacement taken at 92: silicon F95 D98 (none: F92 D98); F29-out-ec-gih-incd16-n0-pO-w0, the take at 83, M0's I/O 85-87: silicon F91 D94 (none: F88 F91 D94); F29-out-ec-gih-incd16-n1-pE-w0 (the take at 91 empties a word): silicon F91 F94 D97 (none: F91 D97). The [BW] forms (F26) and the immediate forms (F5, F22) do not see it. none -79 F29, nothing else changes
     "dw_lift": ("posted", "moved"),  # (WP61, F29) io_hold=posted: on the clock a DW-form I/O request's lead lifts, a fetch requested no later than the clock it was posted runs first / moved: for a request that moved into the slot on the issue of the I/O ahead (dw_slot=behind), a fetch first requested on that same clock waits for its issue. F29-out-ec-dio-dw-stbwd8-n0-pO-w0, rel t_fill (OUT DW,AL right after the M0 OUT): M0's I/O at 85 moves the DW request in, the IR load raising the fetch there: silicon I85 I92 F95 (posted: I85 F90 I93); every pO dw cell of F29 (G1), at every wait. posted -39 F29, nothing else changes
+    # (WP67, F24) the string forms (templates._string_steps). str_take: a REP form's string
+    # opcode, the byte after the prefix, is an operand take with the take sync (sync) / a
+    # chained take with none (chain) / a chained take, then the EU waits until no fetch is on
+    # the bus or wanted (quiet: the refill done; F24's first element is a fixed count after
+    # the refill's last fetch, its start + 3 + waits per fetch). str_overrun: a REP compare (REPE / REPNE CMPBK, CMPM)
+    # runs exactly the elements it compares (none) / issues the next element's reads after
+    # the last one, as the loop posts them before the termination test takes effect (read:
+    # silicon's overrun, F24, 2026-10-28). Defaults: the forms the model did not decode before.
+    "str_take": ("sync", "chain", "quiet"),  # (WP67, F24)
+    "str_overrun": ("none", "read"),  # (WP67, F24)
+    # (WP67, F24) str_setup: a REP form's rpre clocks run as any clocks step (clocks) / count
+    # only on clocks on which no memory cycle is in a wait state (nowait, the "nowait" step of
+    # TEST's lookup: F24's first element is 28 clocks after M0 plus the waits of the fetches
+    # between, 3 fetches at even parity, 2 at odd)
+    "str_setup": ("clocks", "nowait"),  # (WP67, F24)
+    # (WP67, F24) str_hold: a compare's element ends with its last read (none) / then holds
+    # fetch requests for the class's chold clocks (hold: the compare's result)
+    "str_hold": ("none", "hold"),  # (WP67, F24)
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -371,6 +389,32 @@ DEFAULT_COST = {
     "call": {"pre": 3, "setup": 7, "setup_free": 3, "exec": 8, "post": 0, "fgap": 5,
              "hold": 10},
     "ret": {"pre": 0, "setup": 7, "setup_free": 3, "exec": 8, "post": 0, "fgap": 5, "hold": 6},
+# (WP67, F24) the string forms, one class per operation (templates._string_steps): without a
+# prefix pre clocks, the element's first cycle posted with setup, every later cycle of the
+# element with mid, exec clocks after it; with REP rpre clocks after the opcode's take, zexit
+# at CW = 0 (no element), the first element's first cycle with first, the second element's
+# with loop1 (str_scan only: its 1-to-2 spacing is 2 clocks shorter, F24), the others with
+# loop, the CW-ending element's last cycle last more clocks (str_out only: its I/O a clock
+# later), then rexit (CW ran out) or cexit (a compare's condition ended it); chold (the
+# compares, str_hold=hold): no fetch request for that many clocks after a compared element;
+# nx as every class's. A class without an integer has no use for it (mid: one cycle per
+# element). The start values are an F24-only scan descent's (WP67 scratch: 746/912 at
+# str_take=sync, str_setup=nowait, str_overrun=read, str_hold=hold); the stage-13 descent
+# starts from them, the fit's own are in fit.json.
+    "str_move": {"pre": 0, "setup": 10, "mid": 7, "exec": 4, "nx": 1, "rpre": 5, "zexit": 10,
+                 "first": 15, "loop": 7, "rexit": 12},
+    "str_cmp": {"pre": 0, "setup": 10, "mid": 7, "exec": 6, "nx": 2, "rpre": 5, "zexit": 10,
+                "first": 14, "loop": 7, "rexit": 20, "cexit": 19, "chold": 2},
+    "str_store": {"pre": 0, "setup": 12, "exec": 0, "rpre": 5, "zexit": 10, "first": 15,
+                  "loop": 7, "rexit": 12},
+    "str_load": {"pre": 0, "setup": 10, "exec": 1, "rpre": 6, "zexit": 9, "first": 14,
+                 "loop": 9, "rexit": 15},
+    "str_scan": {"pre": 0, "setup": 11, "exec": 7, "nx": 1, "rpre": 5, "zexit": 10,
+                 "first": 15, "loop": 10, "loop1": 8, "rexit": 20, "cexit": 19, "chold": 3},
+    "str_in": {"pre": 0, "setup": 9, "mid": 4, "exec": 4, "rpre": 5, "zexit": 11, "first": 15,
+               "loop": 6, "rexit": 12},
+    "str_out": {"pre": 0, "setup": 11, "mid": 6, "exec": 3, "nx": 1, "rpre": 5, "zexit": 11,
+                "first": 16, "loop": 6, "last": 1, "rexit": 13},
 }
 DEFAULT_EA = {"base": 2, "base_index": 3, "disp": 2, "base_disp": 3, "base_index_disp": 4,
               "direct": 0,
@@ -608,6 +652,10 @@ class Config:
     refresh_beat_b2b: str = "none"     # (WP61)
     grp_disp: str = "none"             # (WP61)
     dw_lift: str = "posted"            # (WP61)
+    str_take: str = "sync"             # (WP67)
+    str_overrun: str = "none"          # (WP67)
+    str_setup: str = "clocks"          # (WP67)
+    str_hold: str = "none"             # (WP67)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

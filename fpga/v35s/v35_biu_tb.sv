@@ -52,6 +52,7 @@ module v35_biu_tb (
     output wire [2:0]  cur_len_x,
     output wire [2:0]  start_len,
     output wire [2:0]  fetch_len,
+    output wire [2:0]  refresh_len_now,
     output wire        error,
     output wire        a0,
     output wire        a19,

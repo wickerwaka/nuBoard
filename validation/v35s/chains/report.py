@@ -305,6 +305,24 @@ COST_TABLES = [
 ]
 
 
+# (WP66) F24: the cost frame's tables, then the string forms' elements on the bus
+TABLES["F24"] = COST_TABLES + [
+    ("elements seen (knob iters) / element start-to-start spacing",
+     lambda f: (f"{_num(f.get('str_elements'))}({_num(f['knobs'].get('iters'))}) "
+                f"{_join(f.get('str_spacing') or [])}" if f["knobs"].get("form") else "-")),
+    ("REP compare overrun: its cycles rel t_M0 (clocks from the last element's start)",
+     lambda f: (f"{f['str_overrun']} ({_num(f.get('str_overrun_gap'))})"
+                if f.get("str_overrun") else "-")),
+    ("first element's first cycle rel t_M0 / fetches inside the stream / first fetch after "
+     "the stream's last cycle, the overrun's included (clocks)",
+     lambda f: (f"{_num((f.get('str_t') or [None])[0])}/{_num(f.get('str_fetches'))}/"
+                f"{_num(f.get('str_next_fetch'))}" if f.get("str_t") else "-")),
+    ("bus cycles from the first element to M1", lambda f: f.get("str_window") or "-"),
+    ("each element's cycles, clocks rel t_M0",
+     lambda f: " | ".join(f.get("str_cycles") or []) or "-"),
+]
+
+
 def columns_of(rows) -> list[str]:
     cols = {c for cells in rows.values() for c in cells}
     return sorted(cols, key=lambda c: (c[:2] != "pE", c))
