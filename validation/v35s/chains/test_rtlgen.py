@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from validation.v35s.chains import rtlgen
-from validation.v35s.chains.sim.config import FIT_PATH, Config
+from validation.v35s.chains.sim.config import FIT_PATH
 
 SPEC = rtlgen.ROOT / "docs" / "v35s-chain-rtl-spec.md"
 
@@ -20,7 +20,7 @@ class Generated(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = rtlgen.render()
-        cls.cfg = Config.fitted()
+        cls.cfg = rtlgen.fit_config()       # (WP77) the frozen package's fit
         cls.tmpls, cls.sel, cls.example = rtlgen.templates(cls.cfg)
 
     def test_checked_in_is_a_fresh_generation(self):
@@ -42,18 +42,21 @@ class Generated(unittest.TestCase):
         """Every class but halt's has a format word selecting a template. (WP75) A class's
         templates are found through the format words, not the templates' examples: a template
         two classes build is listed under the first (fit 40: DISPOSE's, setup 7, is POP's)."""
-        self.assertEqual(len(self.cfg.cost), 42)        # fit 38: the seven string classes
+        cost = rtlgen.rtl_cost(self.cfg)    # (WP77) the built classes
+        self.assertEqual(len(cost), 42)     # fit 38: the seven string classes
+        self.assertIn(f"localparam int V35_CLS_N = {len(cost)};", self.text)
         names = [n for n, _ in rtlgen.FMT_FIELDS]
         with_tmpl = {k[names.index("cls")] for k in self.sel}
-        for k, cls in enumerate(sorted(self.cfg.cost)):
+        self.assertFalse(with_tmpl & rtlgen.UNBUILT_CLASSES)
+        for k, cls in enumerate(rtlgen.rtl_classes(self.cfg)):
             with self.subTest(cls=cls):
-                # the class ids are Config's sorted order (rtl_vectors' numbering)
+                # the class ids are the built classes' sorted order (rtl_vectors' numbering)
                 self.assertIn(f"localparam int V35_CLS_{rtlgen._ident(cls)} = {k};", self.text)
                 self.assertTrue(cls in with_tmpl)
-                for name, value in self.cfg.cost[cls].items():
+                for name, value in cost[cls].items():
                     self.assertIn(f"localparam int V35_C_{rtlgen._ident(cls)}_"
                                   f"{rtlgen._ident(name)} = {value};", self.text)
-        n = sum(len(d) for d in self.cfg.cost.values())
+        n = sum(len(d) for d in cost.values())
         self.assertEqual(len(re.findall(r"^localparam int V35_C_", self.text, re.M)), n)
 
     def test_string_templates(self):
@@ -68,7 +71,7 @@ class Generated(unittest.TestCase):
         self.assertTrue(sc <= set(self.cfg.cost))
         for even, cls in STRING_OPS.items():
             for o in (even, even | 1):
-                for pre in (b"", b"\xf3", b"\xf2"):
+                for pre in (b"", b"\xf3", b"\xf2", b"\x65", b"\x64"):   # (WP77) REPC, REPNC
                     op = decode(pre + bytes([o, 0x90]), 0, rtlgen._regs(0, 3))
                     self.assertEqual(op.cls, cls)
                     key = tuple(rtlgen.fmt_of(op, self.cfg, False, False)[n]
@@ -79,9 +82,9 @@ class Generated(unittest.TestCase):
                         self.assertEqual(tm, rtlgen.string_template(op, self.cfg))
                         if not pre:
                             continue
-                        m, c = rtlgen.string_shape(tm, cls)
-                        self.assertIn(f"{self.sel[key]}: v35_str_shape = {{2'd{m}, 2'd{c}}};",
-                                      self.text)
+                        m, c, t = rtlgen.string_shape(tm, cls)
+                        self.assertIn(f"{self.sel[key]}: v35_str_shape = "
+                                      f"{{2'd{t}, 2'd{m}, 2'd{c}}};", self.text)
                         for n in (16, 300):
                             for cond in (False, True) if rtlgen.is_compare(cls) else (False,):
                                 want = [(rtlgen._row(d), i) for d, i in
@@ -91,6 +94,40 @@ class Generated(unittest.TestCase):
                                 got = [(r, i if dict(r)["src" if "src" in dict(r) else "op"]
                                         in ("ix", "iy") else None) for r, i in got]
                                 self.assertEqual(want, got)
+
+    def test_string_step_kinds(self):
+        """(WP77) the forty-first fit's string steps: a REP form's template holds the CW = 0
+        fetch_release (zfetch, raise), the fetch_release before element 0 (forever), the tail's
+        fetch_release (xfetch) and, but after a single read (LDM, CMPM), split_floor (xsplit);
+        the exits are less xwb. Every step kind the templates use packs and is in the include."""
+        from validation.v35s.chains.sim.frozen.templates import STRING_OPS, decode
+        kinds = set()
+        for tm in self.tmpls:
+            kinds |= {dict(r)["op"] for r in tm}
+        self.assertTrue(kinds <= set(rtlgen.STEP_OPS))
+        self.assertTrue({"fetch_release", "split_floor"} <= kinds)
+        for name in ("FETCH_RELEASE", "SPLIT_FLOOR"):
+            self.assertIn(f"localparam int V35_SOP_{name} = ", self.text)
+        for name in ("FOREVER", "RAISE"):
+            self.assertIn(f"localparam int V35_STAG_{name} = ", self.text)
+        c = self.cfg.c
+        for even, cls in STRING_OPS.items():
+            op = decode(bytes([0xF3, even, 0x90]), 0, rtlgen._regs(0, 3))
+            tm = [dict(r) for r in rtlgen.string_template(op, self.cfg)]
+            m, cc, t = rtlgen.string_shape(tuple(rtlgen._row(d) for d in tm), cls)
+            with self.subTest(cls=cls):
+                self.assertEqual(tm[2], {"op": "fetch_release", "tag": "raise",
+                                         "n": (c(cls, "zfetch"), 0)})
+                self.assertEqual(tm[3], {"op": "clocks", "n": (c(cls, "zexit"), 0)})
+                self.assertEqual(tm[4], {"op": "fetch_release", "tag": "forever", "n": (0, 0)})
+                base = rtlgen._str_base() + rtlgen.STRING_SETS * m
+                self.assertEqual(tm[base], {"op": "fetch_release", "n": (c(cls, "xfetch"), 0)})
+                single = cls in ("str_load", "str_scan")
+                self.assertEqual(t, 1 if single else 2)
+                if not single:
+                    self.assertEqual(tm[base + 1], {"op": "split_floor",
+                                                    "n": (c(cls, "xsplit"), 0)})
+                self.assertEqual(tm[base + t]["n"], (c(cls, "rexit") - c(cls, "xwb"), 0))
 
     def test_flush_cfgap(self):
         """(WP72) cond_gap=own: a taken BE / BNE's flush waits the class's cfgap (the step's
@@ -203,11 +240,13 @@ class Generated(unittest.TestCase):
         """Every instruction of every generated chain (E3: the string forms too) decodes to a
         format the selection table holds, in both refresh forms (and the count-0 form of a
         shift), with the EU's own changes at its start (a CMP r/m,reg or 81 /7 form: nowrite,
-        its group's class)."""
+        its group's class). An instruction of an UNBUILT_CLASSES class (WP77: the F32 / F33
+        classes the RTL does not build yet) has no template by design and is skipped."""
         from validation.v35s.chains.families import generate
         from validation.v35s.chains.sim.frozen.templates import decode
         codes = sorted({bytes(i.code) for c in generate(None) for i in c.instrs})
         seen = 0
+        unbuilt = 0
         for code in codes:
             k = 0
             while k < len(code):
@@ -216,6 +255,10 @@ class Generated(unittest.TestCase):
                 except (ValueError, KeyError, IndexError):
                     break
                 op = rtlgen.started(op, self.cfg)   # as the EU's _start selects it
+                if op.cls in rtlgen.UNBUILT_CLASSES:
+                    unbuilt += 1                    # (WP77) left out of the include
+                    k += op.length
+                    continue
                 if op.cls in rtlgen.string_classes():
                     key = tuple(rtlgen.fmt_of(op, self.cfg, False, False)[n]
                                 for n, _ in rtlgen.FMT_FIELDS)
@@ -235,6 +278,7 @@ class Generated(unittest.TestCase):
                 seen += 1
                 k += op.length
         self.assertGreater(seen, 300)
+        self.assertGreater(unbuilt, 0)              # F32 / F33 are in the corpus
 
     def test_shift_counts_are_coefficients(self):
         """SHL AW,CL: its count loop is 2 clocks per count (per_shift_count), not a literal."""

@@ -48,6 +48,11 @@
 // early fetch run (refresh_sync=run: bus.early, early_ok, early_n) is the arbiter's bus
 // history, as are the cycles io_step and refresh_beat_t4/_b2b look back at; dw_view=eu's xeu
 // is per request position. The C4 fetch-run flag is left unchanged on a refresh start.
+// (WP77) The forty-first fit: sreg_store=own (a MOV r/m,sreg write, the record's sreg, issues
+// only after a clock it was issuable but for a fetch, sreg_ok in so_v / so_now, holding fetches
+// on that clock) and sreg_io=hold (sreg_at in sa_v: the clock a request's setup first counts out,
+// not_before one past it when a MOV sreg,r/m was decoded behind it, the record's sreg_held); the
+// bus view's run (run_r, the EU's str_io_setup=run) is the registered fetch-run flag.
 module v35_arbiter
     import v35_decoder_pkg::*;
     import v35_eu_pkg::*;
@@ -55,9 +60,9 @@ module v35_arbiter
 #(
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
     parameter int NXOP = 6,                 // its touches on the EU per clock (v35_eu.sv)
-    parameter int STATE_W = 103,            // $bits(v35_ast_t), checked below
-    parameter int ESTATE_W = 958,           // v35_eu.sv's STATE_W
-    parameter int QSTATE_W = 187            // v35_queue.sv's STATE_W
+    parameter int STATE_W = 112,            // $bits(v35_ast_t), checked below
+    parameter int ESTATE_W = 985,           // v35_eu.sv's STATE_W
+    parameter int QSTATE_W = 197            // v35_queue.sv's STATE_W
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -119,6 +124,8 @@ module v35_arbiter
     output logic [7:0]  sfr_value,
     output logic [4:0]  early_t,
     output logic [4:0]  early_p,
+    output wire         run_r,              // (WP77) the last two cycles (not refreshes) were
+                                            // fetches back to back, at the clock's start
     output reg          error,              // sticky: a case the RTL does not cover
     output logic [7:0]  err_code,           // this clock's (0: none)
     output wire [STATE_W-1:0] state_x       // after X (the end of the clock: state_e)
@@ -126,7 +133,7 @@ module v35_arbiter
     ,
     output wire [STATE_W-1:0] state_e,
     output wire [STATE_W-1:0] state_dump,   // as registered at the last ce
-    input  wire [4:0]  mutate               // the bench's mutation tests (0: none)
+    input  wire [5:0]  mutate               // the bench's mutation tests (0: none)
 `endif
 );
 
@@ -146,6 +153,9 @@ module v35_arbiter
         logic       fh_now;         // free_held == t (free_hold)
         logic       gh_now;         // grp_held == t (grp_io_hold)
         logic [2:0] xeu;            // (C5) dw_view=eu: t, t-1, t-2 in xeu (bit 0: t)
+        logic       so_v;           // (WP77) sreg_store=own: sreg_ok is set ...
+        logic       so_now;         // ... == t
+        logic       sa_v;           // (WP77) sreg_io=hold: sreg_at is set
     } v35_arq_t;
 
     typedef struct packed {
@@ -573,7 +583,7 @@ module v35_arbiter
 
     function automatic logic fetch_first(inout v35_actx_t c, input v35_req_t r0,
                                          input v35_ast_t a, input logic [4:0] snap,
-                                         input logic [4:0] mut);
+                                         input logic [5:0] mut);
         v35_qstate_t q;
         logic ff;
         q = qs(c);
@@ -584,7 +594,7 @@ module v35_arbiter
             return 1'b0;
         ff = r0.issued == 2'd0
              && (q.b2b_now || (a.q[0].rs_now && q.rq_valid && q.rq_age == '0));   // arbiter=b2b
-        return mut == 5'd1 ? !ff : ff;
+        return mut == 6'd1 ? !ff : ff;
     endfunction
 
     // ------------------------------------------------ _choose
@@ -592,13 +602,13 @@ module v35_arbiter
     function automatic void choose(inout v35_actx_t c, inout v35_req_t r0, inout v35_ast_t a,
                                    input v35_st_t e, input logic [2:0] flen,
                                    input logic [1:0] fhp, input logic [1:0] ghp,
-                                   input logic [4:0] mut);
+                                   input logic [5:0] mut);
         // fhp/ghp: the slot's free_held / grp_held == t-1 (bit 0; bit 1 unused)
         v35_qstate_t q;
         v35_abus_t bb;
         logic [4:0] snap;
         logic rq, want, io, recovering, free_run, slot_fetch, latched_abort, mem, fresh, b2b,
-              retry_loop, unit_md, go, step_lead, wr, drop_hold, odd, xfer;
+              retry_loop, unit_md, go, step_lead, wr, drop_hold, odd, xfer, sreg_wait;
         logic [7:0] rd;
         int setup, cnt, fr, room;
         snap = dec_snap(e.d, is_cls(e.e.cls, V35_CLS_IMM) && e.e.imm_bytes == 2'd2);
@@ -698,6 +708,24 @@ module v35_arbiter
         q = qs(c);
         if (want && q.b2b_now && e.e.mem && e.e.disp != '0 && e.d.ea_off != '0)
             want = 1'b0;
+        // (WP77) sreg_store=own: MOV r/m,sreg's write issues only after a clock on which it was
+        // issuable but for a fetch on the bus (ready, past its floor and any I/O's recovery),
+        // holding fetches on that clock
+        sreg_wait = 1'b0;
+        if (rq && r0.sreg && r0.issued == 2'd0 && mut != 6'd31) begin
+            if (req_ready(r0, a.q[0]) && r0.nb_off == '0 && !recovering && (b_free || b_finf)) begin
+                if (!a.q[0].so_v) begin
+                    a.q[0].so_v = 1'b1;
+                    a.q[0].so_now = 1'b1;
+                end
+            end else begin
+                a.q[0].so_v = 1'b0;
+                a.q[0].so_now = 1'b0;
+            end
+            sreg_wait = !a.q[0].so_v || a.q[0].so_now;
+            if (a.q[0].so_now)
+                want = 1'b0;
+        end
         // hold_fetch=le_q (hold_count=ahead, hold_q, io_hold=posted_b2b, io_recover,
         // disp_floor=posted)
         if (rq && r0.issued == 2'd0
@@ -709,7 +737,7 @@ module v35_arbiter
             end else if (io && a.q[0].p_age != '0) begin
                 want = 1'b0;
             end else if (q_counted(c, snap) - (r0.whole ? 0 : int'(e.d.need))
-                         > (mut == 5'd2 ? FIT_HOLD_Q - 1 : FIT_HOLD_Q)) begin
+                         > (mut == 6'd2 ? FIT_HOLD_Q - 1 : FIT_HOLD_Q)) begin
                 want = 1'b0;
             end
         end
@@ -747,7 +775,7 @@ module v35_arbiter
         // refresh_after=fetch_next: a fetch request a refresh beat goes on the clock after the
         // refresh, ahead of a posted I/O request and its hold (a memory request keeps its turn)
         q = qs(c);
-        if (q.ar_pend && q.ar_off == '0 && mut != 5'd6) begin
+        if (q.ar_pend && q.ar_off == '0 && mut != 6'd6) begin
             rd = q_op(c, snap, V35_QOP_WANT, 1'b0, 1'b0);
             if (rd[0] && (!rq || r0.issued != 2'd0 || io)) begin
                 want = 1'b1;
@@ -755,6 +783,18 @@ module v35_arbiter
                     rq = 1'b0;
             end
         end
+        // (WP77) sreg_io=hold: a MOV sreg,r/m decoded behind the OUT before its I/O's setup
+        // counted out holds the I/O one clock past that clock
+        if (rq && !a.q[0].sa_v && r0.issued == 2'd0 && req_ready(r0, a.q[0])) begin
+            a.q[0].sa_v = 1'b1;
+            if (r0.sreg_held && mut != 6'd30) begin
+                x_op(c, V35_XOP_NOT_BEFORE, r0.nb_off > 4'd1 ? int'(r0.nb_off) : 1);
+                if (r0.nb_off < 4'd1)
+                    r0.nb_off = 4'd1;
+            end
+        end
+        if (sreg_wait)
+            rq = 1'b0;
         if (rq && r0.issued == 2'd0 && (!req_ready(r0, a.q[0]) || r0.nb_off != '0))
             rq = 1'b0;
         // io_step_issue=step: an IN's I/O after a refresh in its setup issues on one of its steps
@@ -787,7 +827,7 @@ module v35_arbiter
                         && io_step(c, r0, a.q[0], a, 1'b0);
             if (go && r0.valid && r0.ncyc != '0 && r0.issued == '0 && io && r0.lead != '0
                     && setup - int'(r0.lead) <= cnt && cnt < setup
-                    && !(r0.port && cnt < setup - 1 && !want) && !step_lead && mut != 5'd5)
+                    && !(r0.port && cnt < setup - 1 && !want) && !step_lead && mut != 6'd5)
                 go = 1'b0;                      // refresh_lead=closed, refresh_lead_port=last
             if (go && r0.valid && r0.ncyc != '0 && r0.issued == '0 && io && cnt >= setup
                     && r0.nb_off != '0)
@@ -895,7 +935,7 @@ module v35_arbiter
                                 + int'(q.latched) == 2 && !e.e.halted;
         end
         rd = 8'd0;
-        xfer = eu_transfer(e.e.cls) && mut != 5'd20;
+        xfer = eu_transfer(e.e.cls) && mut != 6'd20;
         if (want) begin
             rd = q_op(c, snap, V35_QOP_TRIPLE, 1'b0, 1'b0);
             if (rd[0]) begin            // _one_word; (WP72) xfer_abort=word: a transfer's 3 too
@@ -966,12 +1006,12 @@ module v35_arbiter
     v35_ast_t ra;                           // the end of the last model clock
     v35_ast_t a_x, a_e;
     v35_actx_t cx;
-    logic [4:0] mut;
+    logic [5:0] mut;
 
 `ifdef V35S_STATE_DUMP
     assign mut = mutate;
 `else
-    assign mut = 5'd0;
+    assign mut = 6'd0;
 `endif
 
     always_comb begin
@@ -1003,6 +1043,7 @@ module v35_arbiter
             a.q[i].lift_now = 1'b0;
             a.q[i].fh_now = 1'b0;
             a.q[i].gh_now = 1'b0;
+            a.q[i].so_now = 1'b0;
             a.q[i].xeu = {ra.q[i].xeu[1:0], 1'b0};   // t-1, t-2 from t, t-1
         end
         if (a.io_v && a.io_age != 4'd15) a.io_age = a.io_age + 4'd1;
@@ -1049,7 +1090,7 @@ module v35_arbiter
         // disp_io=extend: the form took its displacement on this I/O issue clock
         q0 = qs(c);
         c.ext = c.start && k_io(c.kind) && q0.disp_now && e.e.mem && e.e.disp != '0
-                && mut != 5'd3;
+                && mut != 6'd3;
         // dw_count=bus, dw_count_b2b
         if (c.start) begin
             if (c.kind == V35_K_FETCH && e.e.start_age == '0)
@@ -1057,7 +1098,7 @@ module v35_arbiter
             // (WP70, WP72) a dwlike request (nowait without being I/O: the string forms, PUSH R)
             // counts as a DW form's
             if (nw.valid && nw.ncyc != 2'd0 && (rk_io(nw.kind) || nw.nowait) && !nw.port
-                    && nw.issued == 2'd0 && na.p_age == 8'd0 && na.count != '0 && mut != 5'd4) begin
+                    && nw.issued == 2'd0 && na.p_age == 8'd0 && na.count != '0 && mut != 6'd4) begin
                 na.count = na.count - 7'd1;     // a DW form's first clock taken by the cycle
             end else if (c.kind == V35_K_FETCH && !c.promoted && nw.valid && nw.ncyc != 2'd0
                          && (rk_io(nw.kind) || nw.nowait) && !nw.port && nw.issued == 2'd0
@@ -1080,7 +1121,7 @@ module v35_arbiter
                     na.xeu[0] = 1'b1;
                     added = added + 1;
                 end
-                if (na.p_age >= 8'd2 && !na.xeu[2] && mut != 5'd7) begin
+                if (na.p_age >= 8'd2 && !na.xeu[2] && mut != 6'd7) begin
                     na.xeu[2] = 1'b1;
                     added = added + 1;
                 end
@@ -1148,6 +1189,7 @@ module v35_arbiter
         assign counts_p[i] = a_x.q[i].count;
     end
     assign state_x = a_x;
+    assign run_r = ra.run;                  // (WP77) the bus unit view's run (bview)
 
     always @(posedge clock) begin
         if (!reset_n) begin

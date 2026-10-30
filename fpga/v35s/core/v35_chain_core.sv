@@ -48,9 +48,9 @@ module v35_chain_core
     parameter int NXOP = 6,                 // the arbiter's touches on the EU per clock
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
     parameter int JSLOT = 40,               // the queue's op stages (T, L, X and P ops)
-    parameter int STATE_W = 958,            // v35_eu.sv
-    parameter int QSTATE_W = 187,           // v35_queue.sv
-    parameter int ASTATE_W = 103,           // v35_arbiter.sv
+    parameter int STATE_W = 985,            // v35_eu.sv
+    parameter int QSTATE_W = 197,           // v35_queue.sv
+    parameter int ASTATE_W = 112,           // v35_arbiter.sv
     parameter int RSTATE_W = 24             // v35_refresh.sv
 ) (
     input  wire        clock,
@@ -100,7 +100,7 @@ module v35_chain_core
     output wire        refrq_n
 `ifdef V35S_STATE_DUMP
     ,
-    input  wire [4:0]  mutate,              // the mutation tests (1..7, 20 the arbiter's, 8..19, 21..23 the EU's)
+    input  wire [5:0]  mutate,              // the mutation tests (1..7, 20 the arbiter's, 8..19, 21..32 the EU's)
     // (D1) the operand record of the clock's first and second start and the register file
     // before each one's execute; (D2) the EU cycle's datum (the EU's)
     output wire [196:0] opr_a,
@@ -261,16 +261,17 @@ module v35_chain_core
     wire [2:0]  v_pos = first ? 3'd0 : cur_pos;
     wire [2:0]  v_len = first ? pop_len : cur_len;
     wire        f3 = fetch_len == 3'd3;
+    wire        a_run;                      // (WP77) the arbiter's run (bview.run)
     // (two processes: bus_p depends on the arbiter's choice, which depends on the EU's T)
     v35_bview_t bus_t, bus_p;
     always_comb
         bus_t = '{kind: v_kind, pos: v_pos, len: v_len, free: v_free, finf: fetch_inflight,
                   in_wait: in_wait, fprev: fetch_end_prev, wl: wlatch_busy, fsince: fetch_since,
-                  flen3: f3};
+                  flen3: f3, run: a_run};
     always_comb
         bus_p = '{kind: cur_kind_x, pos: cur_pos_x, len: cur_len_x, free: free_x,
                   finf: fetch_inflight_x, in_wait: in_wait_x, fprev: fetch_end_prev_x,
-                  wl: wlatch_busy_x, fsince: fetch_since_x, flen3: f3};
+                  wl: wlatch_busy_x, fsince: fetch_since_x, flen3: f3, run: a_run};
 
     // ------------------------------------------------ the EU and the decoder
     wire [NQ-1:0][32:0] op_tl, op_p;
@@ -336,7 +337,7 @@ module v35_chain_core
         .req_fetch(a_req_fetch), .req_eu(a_req_eu), .req_kind(a_req_kind),
         .req_addr(a_req_addr), .req_width(a_req_width), .req_len(a_req_len),
         .req_ext(a_req_ext), .req_latch(a_req_latch), .sfr_wr(a_sfr_wr), .sfr_value(a_sfr_value),
-        .early_t(a_early_t), .early_p(a_early_p), .error(arb_error), .err_code(arb_err),
+        .early_t(a_early_t), .early_p(a_early_p), .run_r(a_run), .error(arb_error), .err_code(arb_err),
         .state_x(a_state_x)
 `ifdef V35S_STATE_DUMP
         , .state_e(a_e), .state_dump(a_dump), .mutate

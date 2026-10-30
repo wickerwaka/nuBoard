@@ -29,7 +29,7 @@ import unittest
 
 from validation.v35s.chains import rtl_vectors
 from validation.v35s.chains.normalize import load_runs, normalize
-from validation.v35s.chains.sim.config import Config
+from validation.v35s.chains.rtlgen import fit_config
 
 # (family, run id): F0 and F0w (the gate), a refresh-on run with the RFM store (F17),
 # refresh lengths 3 and 4 from the prelude's RFM (F13 series R), and disp_io's extension
@@ -45,7 +45,7 @@ def _run(family, part):
 class Vectors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cfg = Config.fitted()
+        cls.cfg = fit_config()
 
     def _vec(self, family, part):
         s = normalize(_run(family, part))
@@ -92,7 +92,7 @@ class Vectors(unittest.TestCase):
 @unittest.skipUnless(rtl_vectors.BENCH.exists(), "bench not built: fpga/v35s/build_biu_tb.sh")
 class Bench(unittest.TestCase):
     def test_sample_runs_exact(self):
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in SAMPLE:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -108,7 +108,7 @@ class Bench(unittest.TestCase):
         import tempfile
         from pathlib import Path
         s = normalize(_run("F0", "F0-ls-pO-w2"))
-        text, _ = rtl_vectors.vectors(s.chain, Config.fitted(), s.chain_base)
+        text, _ = rtl_vectors.vectors(s.chain, fit_config(), s.chain_base)
         lines = text.splitlines()
         i = rtl_vectors.COLUMNS.index("free")
         row = lines[5].split()
@@ -157,7 +157,7 @@ def _parse_qvec(text):
 class QueueVectors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cfg = Config.fitted()
+        cls.cfg = fit_config()
 
     def _qvec(self, family, part):
         s = normalize(_run(family, part))
@@ -240,7 +240,7 @@ class QueueVectors(unittest.TestCase):
 @unittest.skipUnless(rtl_vectors.QBENCH.exists(), "bench not built: fpga/v35s/build_queue_tb.sh")
 class QueueBench(unittest.TestCase):
     def test_sample_runs_exact(self):
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in QSAMPLE:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -251,7 +251,7 @@ class QueueBench(unittest.TestCase):
 
     def test_joint_runs_exact(self):
         """The RTL queue and bus unit together: the fetches the queue's, the cycles the model's."""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in QSAMPLE[:5]:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -274,7 +274,7 @@ class QueueBench(unittest.TestCase):
         """A ModR/M take without its commit (the op's argument flipped) leaves the byte
         uncommitted in the RTL: the state after it differs; a wrong expected read fails."""
         s = normalize(_run("F2", None))
-        text, _ = rtl_vectors.queue_vectors(s.chain, Config.fitted(), s.chain_base)
+        text, _ = rtl_vectors.queue_vectors(s.chain, fit_config(), s.chain_base)
         lines = text.splitlines()
         take = rtl_vectors.QOPS.index("take")
         i = next(k for k, ln in enumerate(lines)
@@ -322,7 +322,7 @@ def _sv_fields(text, name):
 class EUVectors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cfg = Config.fitted()
+        cls.cfg = fit_config()
 
     def test_fields_and_ops_are_the_rtls(self):
         """EFIELDS is v35_st_t's declaration order ({d, e, f, r[2..0]}), QVIEW and BVIEW the
@@ -358,7 +358,8 @@ class EUVectors(unittest.TestCase):
         self.assertEqual(tags, {(t or "none"): i for i, t in enumerate(rtl_vectors.CLK_TAGS)})
         w = dict(rtl_vectors.QFIELDS)
         self.assertEqual(sum(w[k] for k in rtl_vectors.QVIEW), 52)
-        self.assertEqual(sum(b for _, b in rtl_vectors.BVIEW), 19)   # (WP75) fsince 4 bits
+        self.assertEqual(sum(b for _, b in rtl_vectors.BVIEW), 20)   # (WP75) fsince 4 bits,
+                                                                     # (WP77) run
 
     def test_vectors_reach_the_edges(self):
         """The sample runs reach the EU's edges (a port relatch, the count latch, abort_reg,
@@ -395,7 +396,7 @@ class EUVectors(unittest.TestCase):
 @unittest.skipUnless(rtl_vectors.EBENCH.exists(), "bench not built: fpga/v35s/build_eu_tb.sh")
 class EUBench(unittest.TestCase):
     def test_sample_runs_exact(self):
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in ESAMPLE:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -407,7 +408,7 @@ class EUBench(unittest.TestCase):
 
     def test_joint3_runs_exact(self):
         """The RTL EU, queue and bus unit together (the arbiter scripted)."""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in ESAMPLE[:7]:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -432,7 +433,7 @@ class EUBench(unittest.TestCase):
         more in the model's record (D1: the RTL computes the count from CL or the byte, so the
         start's record differs in its count). The vectors as made pass."""
         s = normalize(_run("F12", "F12-b-none-n2-shli-pO-w1"))
-        text, _, _ = rtl_vectors.eu_vectors(s.chain, Config.fitted(), s.chain_base)
+        text, _, _ = rtl_vectors.eu_vectors(s.chain, fit_config(), s.chain_base)
         lines = text.splitlines()
         p = self._bench(lines)
         self.assertEqual(p.returncode, 0, p.stdout[-500:])
@@ -476,7 +477,7 @@ CSAMPLE = (("F14", "F14-g-out-pop_bw-k2-pO-w0"), ("F14", "F14-g-out-shl_bw_cl-pO
 class ArbiterVectors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cfg = Config.fitted()
+        cls.cfg = fit_config()
 
     def test_fields_and_codes_are_the_rtls(self):
         """ARFIELDS is v35_ast_t's declaration order (q[2..0] of v35_arq_t, then the history),
@@ -592,6 +593,24 @@ MSAMPLE = ((14, "F25", "F25-out-push_imm8-pO-w0"), (15, "F25", "F25-out-ldea-bw-
            (20, "F23", "F23-push-br-n0-pO-w0"), (21, "F24", "F24-out-r-rep-movbk-w-n2-pE-w0"),
            (22, "F24", "F24-out-r-repne-cmpm-w-n4-pO-w0"),
            (23, "F24", "F24-out-t-repe-cmpbk-w-n4-pat-pE-w0"))
+# (WP77) the forty-first fit's nine mechanisms, each turned off by its mutation, on its deciding
+# run (docs/v35s-chains.md "The forty-first fit"): xfer_odd=idle (24, the start's queue op),
+# str_exit=wb (25), str_split=floor (26), str_io_setup=run (27), str_start=skip (28),
+# str_fetch=hold (29: no fetch_release op), sreg_io=hold (30), sreg_store=own (31: the
+# request's sreg), lea_disp=split (32)
+M41SAMPLE = ((24, "F30", "F30-out-br-short-n0-pad1-pE-w0"),
+             (25, "F31", "F31-out-alf-stm-n1-nop-pE-w0"),
+             (26, "F30", "F30-out-odd-stm-iy-n1-end-pE-w0"),
+             (27, "F30", "F30-out-str-inm-w-n1-l0-pE-w1"),
+             (28, "F30", "F30-out-str-stm-w-n1-sep-pO-w0"),
+             (29, "F30", "F30-out-str-stm-w-n0-sep-pO-w0"),
+             (30, "F30", "F30-out-seg-8e-ds1-aw-n0-pE-w0"),
+             (31, "F30", "F30-out-seg-8c-bw-ds1-n0-pO-w0"),
+             (32, "F30", "F30-push-lea-bw_d16-k1-pE-w1"))
+# (WP77) F33's REPC / REPNC runs with the STC / CLC byte a NOP (the model does not decode them;
+# test_sim.ProbeShapes): the exit the carry's, the RTL's from its own data
+REPC_SAMPLE = ("F33-out-repc-cmpbk-w-n4-clc-pE-w0", "F33-out-repnc-cmpbk-w-n4-clc-pE-w0",
+               "F33-out-repnc-cmpm-w-n4-stc-pE-w0", "F33-out-repc-cmpm-w-n4-clc-pat-pE-w0")
 RSAMPLE = (("F8", "F8-push-st_bw-k4-pE-w1"), ("F17", "F17-p-n1-mulu-pE-w1"),
            ("F18", "F18-b-n1-shlmcl-pE-w1"), ("F13", "F13-r-rfm-f2-pE-w0"),
            ("F13", "F13-r-rfm-f2-pE-w2"))
@@ -600,7 +619,7 @@ RSAMPLE = (("F8", "F8-push-st_bw-k4-pE-w1"), ("F17", "F17-p-n1-mulu-pE-w1"),
 class RefreshVectors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cfg = Config.fitted()
+        cls.cfg = fit_config()
 
     def test_vectors_reach_the_edges(self):
         """The refresh samples reach every refresh rule the gate needs, and every store the frozen
@@ -671,8 +690,17 @@ class RefreshVectors(unittest.TestCase):
                 for (_, n, cond), (_, sr) in zip(strs, sorted(
                         string_elements(s.chain).items())):
                     self.assertEqual((n, cond), (len(sr.elements), int(sr.cond)))
-                held = any(o.code == "str_held" for ck in erec.clocks for o in ck.tl + ck.p)
-                self.assertEqual(held, "cmp" in part)
+                ops = [o for ck in erec.clocks for o in ck.tl + ck.p]
+                # (E3) a compare's fetch hold (chold clocks); (WP77) str_fetch=hold: a REP
+                # form's hold from its first element (forever), its release xfetch clocks after
+                # the stream (str_held) and, with CW = 0, the aborted start's request (str_raise)
+                hold = any(o.code == "str_held" and not o.a and o.val < 4 for o in ops)
+                forever = any(o.code == "str_held" and o.a for o in ops)
+                raise_ = any(o.code == "str_raise" for o in ops)
+                rep = "-rep" in part or "-str-" in part
+                self.assertEqual(hold, "cmp" in part)
+                self.assertEqual(forever, rep and "-n0-" not in part)
+                self.assertEqual(raise_, rep and "-n0-" in part)
                 self.assertGreater(max(ck.states["e"]["e_k"] for ck in erec.clocks), 3)
         r = rtl_vectors.check_queue_run(_run("F24", F24_STRING), self.cfg)
         self.assertEqual(r.not_modelled, "")
@@ -691,7 +719,7 @@ class RefreshVectors(unittest.TestCase):
 @unittest.skipUnless(rtl_vectors.CBENCH.exists(), "bench not built: fpga/v35s/build_core_tb.sh")
 class CoreBench(unittest.TestCase):
     def test_sample_runs_exact(self):
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in CSAMPLE:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -704,7 +732,7 @@ class CoreBench(unittest.TestCase):
 
     def test_refresh_runs_exact(self):
         """(C5) the refresh samples run exact in the core, the controller checked every clock."""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in RSAMPLE:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -719,7 +747,7 @@ class CoreBench(unittest.TestCase):
         posted I/O's lead (refresh_lead=closed off), the beaten fetch not going next
         (refresh_after=fetch_next off), dw_view=eu's clock 2 earlier not taken; the bench fails
         each."""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for mut, (family, part) in ((5, ("F13", "F13-s-shlcl7-pO-w0")),
                                     (6, ("F8", "F8-push-st_bw-k4-pE-w1")),
                                     (7, ("F17", "F17-s-n2-out-pE-w0"))):
@@ -735,7 +763,7 @@ class CoreBench(unittest.TestCase):
         """Each of the arbiter's mutations (v35_arbiter.sv `mutate`) flips one decision: the
         fetch first or the data (arbiter=b2b), the hold's queue count (hold_q), the disp_io
         extension, a DW form's post clock given back (dw_count=bus); the bench fails each."""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for mut, (family, part) in ((1, ("F21", "F21-push-l0-ld-bw-pE-w0")),
                                     (2, ("F21", "F21-push-l0-ld-bw_ix_d8-pE-w0")),
                                     (3, ("F21", "F21-out-l0-ld-bw_ix_d16-pE-w0")),
@@ -753,7 +781,7 @@ class CoreBench(unittest.TestCase):
         """(E3) the string samples run exact in the core: the element loop, the addresses from
         IX / IY by the element, the compare's exit from the data, the elements checked against
         the walk's at the next start."""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in SSAMPLE:
             rec = _run(family, part)
             with self.subTest(run=rec["chain"]["id"]):
@@ -767,7 +795,7 @@ class CoreBench(unittest.TestCase):
         """(WP75) each of the fortieth fit's seven mechanisms turned off (mutations 14 .. 20) and
         each string template mutation (21: an element's address step 0, 22: no overrun read,
         23: the compare's condition ignored) fails its deciding run, which runs exact without."""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for mut, family, part in MSAMPLE:
             rec = _run(family, part)
             with self.subTest(mutate=mut):
@@ -776,6 +804,43 @@ class CoreBench(unittest.TestCase):
                 self.assertEqual(r.error, "")
                 self.assertFalse(r.ok)
                 self.assertRegex(r.first, r"^FAIL clock \d+ ")
+
+    def test_bench_catches_fit41_mutations(self):
+        """(WP77) each of the forty-first fit's nine mechanisms turned off (mutations 24 .. 32)
+        fails its deciding run, which runs exact (and silicon-exact) without."""
+        cfg = fit_config()
+        for mut, family, part in M41SAMPLE:
+            rec = _run(family, part)
+            with self.subTest(mutate=mut, run=part):
+                r = rtl_vectors.check_core_run(rec, cfg)
+                self.assertTrue(r.ok, r.first)
+                self.assertTrue(r.rtl_exact)
+                r = rtl_vectors.check_core_run(rec, cfg, mutate=mut)
+                self.assertEqual(r.error, "")
+                self.assertFalse(r.ok)
+                self.assertRegex(r.first, r"^FAIL clock \d+ ")
+
+    def test_repc_repnc(self):
+        """(WP77) REPC (65) and REPNC (64) decode as REP prefixes and the RTL ends the compare
+        on the carry: F33's REPC / REPNC runs (STC / CLC as a NOP) run exact against the frozen
+        model, whose element counts are the walk's (the carry's), checked at the next start."""
+        import dataclasses
+        cfg = fit_config()
+        nop = bytes([0x90])
+        caught = 0
+        for cid in REPC_SAMPLE:
+            rec = _run("F33", cid)
+            s = normalize(rec)
+            ch = dataclasses.replace(s.chain, instrs=[
+                dataclasses.replace(i, code=nop, form="nop") if i.form in ("stc", "clc") else i
+                for i in s.chain.instrs])
+            with self.subTest(run=cid):
+                r = rtl_vectors.check_core_run(rec, cfg, chain=ch)
+                self.assertEqual((r.error, r.not_modelled), ("", ""))
+                self.assertTrue(r.ok, r.first)
+                caught += not rtl_vectors.check_core_run(rec, cfg, mutate=23, chain=ch).ok
+        self.assertEqual(caught, 3)     # the exit's condition ignored: all but REPNC CMPBK,
+                                        # which runs CW out
 
     def test_bench_catches_register_file_mutations(self):
         """(D1, D2) the register file's and the ALU's mutations (v35_eu.sv `mutate` 8..12):
@@ -786,7 +851,7 @@ class CoreBench(unittest.TestCase):
         next start's PSW), a memory write's datum with bit 0 flipped (the cycle's datum); the
         bench fails each. (13, the BP-based modes in DS0, is the unit bench's: the corpus runs
         with SS = DS0 = 0.)"""
-        cfg = Config.fitted()
+        cfg = fit_config()
         for mut, (family, part), what in (
                 (8, ("F21", "F21-out-l0-ld-bw_ix_d16-pE-w0"), r"(after \w+ e_ea|start \d+ record ea)"),
                 (9, ("F21", "F21-push-l0-ld-bw-pE-w0"),
@@ -834,7 +899,7 @@ class FunctionalReference(unittest.TestCase):
         """The model's starts (the recorder's records) are the reference's, in order, with
         its register file before each (the P lines), and the EU's cycles are its cycles."""
         from validation.v35s.chains import funcref
-        cfg = Config.fitted()
+        cfg = fit_config()
         for family, part in (("F23", None), ("F25", "pushr_popr-pO"), ("F25", "prepare_dispose"),
                              ("F25", "push_ds0_pop_ds0")):
             s = normalize(_run(family, part))

@@ -1707,7 +1707,24 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   12: ["F28", "F29"],
                   13: ["F24"],
                   14: ["F23", "F25"],
-                  15: ["F30", "F31", "F24", "F23", "F25"]}
+                  15: ["F30", "F31", "F24", "F23", "F25"],
+                  16: ["F32", "F33"]}
+
+# Stage 16 (WP78, F32, F33): the 0F page and the register miscellany. From a hand start (the
+# previous fit with the new classes' integers read off the facts, wp74/facts-F32.txt and
+# facts-F33.txt, and descended class by class on F32 and F33), the new enums (F42_ENUMS) as a grid
+# at the input's integers (the top 2 descended over F42_INTS: every integer of the new classes
+# and the signed register multiply's / divide's sexec), then the sweep over F42_ENUMS with
+# F42_INTS descended inside every move; the corpus guard over every modelled run is the guard,
+# as in stages 9 to 15 (no run outside F32 and F33 decodes a new class or a signed register
+# multiply or divide).
+F42_CLASSES = ("incdec", "flag", "flag_di", "flag_ei", "extend", "extend_w", "adjust",
+               "adjust_b", "convert", "convert_d", "rol4", "ror4", "bit1", "bit1_test",
+               "bit1_rmw", "bit1_clr", "rol4_mem", "ror4_mem", "mul_imm", "bcd4s", "bcd4s_cmp",
+               "bf_ext", "bf_ins")
+F42_ENUMS = {n: OPTIONS[n] for n in ("bf_count", "page_grp")}
+F42_INTS = ([f"{cls}.{name}" for cls in F42_CLASSES for name in DEFAULT_COST[cls]]
+            + ["mul.sexec", "div.sexec"])
 
 # Stage 15 (WP76, F30, F31): the facts-only shapes the probe families turned into mechanisms.
 # From a hand start (the previous fit with the new enums on and their integers read off), the
@@ -2489,6 +2506,16 @@ def stage15(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage16(prev: dict, log=say) -> dict:
+    """(WP78) F32, F33: the new enums as a grid at the input's integers (the top 2 descended
+    over F42_INTS), then the sweep over F42_ENUMS with F42_INTS descended inside every move; the
+    corpus guard is the guard, as in stages 9 to 15."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 16 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(16, prev, F42_ENUMS, F42_INTS, log, top_k=2, pairs_k=1,
+                   sweep=F42_ENUMS or None, guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -2554,8 +2581,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage13(prev, log)
     elif stage == 14:
         out = stage14(prev, log)
-    else:
+    elif stage == 15:
         out = stage15(prev, log)
+    else:
+        out = stage16(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -2573,9 +2602,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 16), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 16), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-15 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 17), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 17), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-16 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -2613,7 +2642,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 16) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 17) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")

@@ -38,7 +38,8 @@ REG16 = ("AW", "CW", "DW", "BW", "SP", "BP", "IX", "IY")
 REG8 = (("AW", 0), ("CW", 0), ("DW", 0), ("BW", 0), ("AW", 8), ("CW", 8), ("DW", 8), ("BW", 8))
 SREG = ("DS1", "PS", "SS", "DS0")             # the sreg field: 00 DS1, 01 PS, 10 SS, 11 DS0
 PREFIX_SREG = {0x26: 0, 0x2E: 1, 0x36: 2, 0x3E: 3}
-REP_PREFIXES = (0xF2, 0xF3)
+REP_PREFIXES = (0xF2, 0xF3, 0x64, 0x65)      # (WP77) 64 REPNC, 65 REPC (templates.REP_PREFIXES)
+CY_PREFIXES = (0x64, 0x65)                  # (WP77) ... the compare's exit from the carry
 SFR_PAGE = 0xFFF00
 IO_WORD = 0x0000                    # the board's I/O reads (silicon: IN from 40h reads 0000h)
 PSW_INIT = 0xF002                   # reset F002 (MD 1, RB 7, BRKI 1); POP PSW 0002h keeps 15-12
@@ -782,7 +783,10 @@ class Cpu:
                 element(n)
                 n += 1
                 r["CW"] = (r["CW"] - 1) & 0xFFFF
-                if cmp_ and bool(flag(self.psw, Z)) != (rep == 0xF3):
+                # REPE / REPNE: Z; (WP77) REPC / REPNC: the carry (V20 / V35: 65 repeats
+                # while CY is set, 64 while it is clear)
+                f = flag(self.psw, CY) if rep in CY_PREFIXES else flag(self.psw, Z)
+                if cmp_ and bool(f) != (rep in (0xF3, 0x65)):
                     ended = True
                     break
             if cmp_ and n:

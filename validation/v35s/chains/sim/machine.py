@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from collections import deque
 
+from ..forms import F32_BCD
 from ..normalize import (FLAG_IO, FLAG_NUBE, FLAG_READ, FLAG_REFRESH, REFRESH_EARLY_TICKS,
                          WALK_STRING_FORMS, Normalized, normalize, string_elements)
 from ..types import (TICKS_PER_CLOCK, Chain, refresh_any, refresh_length, refresh_on,
@@ -59,6 +60,16 @@ DEFAULT_BASE = 0x10047
 FAST_FORWARD = True
 MIN_SKIP = 4                 # skip only windows of at least this many clocks
 PROBE_IDLE = frozenset((64, 128, 256, 512, 1024))
+
+def _prefixes(code: bytes) -> int:
+    """(WP78) the segment prefix bytes a catalog form begins with (the simulator decodes each
+    as its own pseudo-instruction, templates.PREFIXES)."""
+    from .templates import PREFIXES
+    n = 0
+    while n < len(code) and code[n] in PREFIXES:
+        n += 1
+    return n
+
 
 def waits_of(chain: Chain) -> tuple[int, int]:
     """(memory, I/O) waits from the WTC: field 0 governs block-0 memory, field 7 I/O."""
@@ -88,12 +99,15 @@ class Machine:
         self.decoder = Decoder(cfg, self.queue)
         self.eu = EU(cfg, code, base, chain.regs, self.decoder, self.bus, start)
         self.queue.eu = self.eu              # (WP39) refresh_io_run: the posted I/O request
-        if any(i.role == "x" and i.form in WALK_STRING_FORMS for i in chain.instrs):
+        if any(i.role == "x" and (i.form in WALK_STRING_FORMS or i.form in F32_BCD)
+               for i in chain.instrs):
             # (WP67, F24) the string forms' element counts and exits from the chain walk (WP76:
             # with F33's REPC / REPNC, WALK_STRING_FORMS)
             # (normalize.string_elements: a compare's exit depends on the data, which the
-            # model's register file does not hold)
-            self.eu.strings = {chain.instrs[k].offset: (len(r.elements), r.cond)
+            # model's register file does not hold); (WP78, F32) the BCD strings' byte pairs,
+            # keyed by the 0F opcode's offset (after a segment prefix the form carries)
+            self.eu.strings = {chain.instrs[k].offset + _prefixes(chain.instrs[k].code):
+                               (len(r.elements), r.cond)
                                for k, r in string_elements(chain).items()}
         if self.tail:
             self.eu.started = True           # no stand-in hold: the prelude's tail runs

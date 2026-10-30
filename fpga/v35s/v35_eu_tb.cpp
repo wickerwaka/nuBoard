@@ -44,8 +44,8 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 958, QSTATE_W = 187;
-constexpr int OPW = 33, QVW = 52, BVW = 19, NBV = 10, OPNDW = 197, RFW = 211;
+constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 985, QSTATE_W = 197;
+constexpr int OPW = 33, QVW = 52, BVW = 20, NBV = 11, OPNDW = 197, RFW = 211;
 constexpr int K_FETCH = 1, K_READ = 2, K_WRITE = 3, K_IO_READ = 4, K_REFRESH = 6;
 constexpr int BW_WORD = 0, BW_HI = 2;
 constexpr long SFR_PAGE = 0xFFF00;
@@ -96,7 +96,7 @@ const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 3};
 const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ps", "ss", "ds0",
                             "ds1", "psw", "pfx"};
 constexpr int NRF = 14;
-const int BV_W[] = {3, 3, 3, 1, 1, 1, 1, 1, 4, 1};
+const int BV_W[] = {3, 3, 3, 1, 1, 1, 1, 1, 4, 1, 1};   // (WP77) run
 
 template <typename W>
 uint64_t get_bits(const W& w, int lsb, int n) {
@@ -688,10 +688,12 @@ int main(int argc, char** argv) {
                     const uint64_t f3 = d.fetch_len == 3;
                     const uint64_t vt[NBV] = {d.cur_kind, d.cur_pos, d.cur_len, d.free,
                                               d.fetch_inflight, d.in_wait, d.fetch_end_prev,
-                                              d.wlatch_busy, d.fetch_since, f3};
+                                              d.wlatch_busy, d.fetch_since, f3,
+                                              uint64_t(c.bus_t[10])};   // (WP77) run: scripted
                     const uint64_t vp[NBV] = {d.cur_kind_x, d.cur_pos_x, d.cur_len_x, d.free_x,
                                               d.fetch_inflight_x, d.in_wait_x, d.fetch_end_prev_x,
-                                              d.wlatch_busy_x, d.fetch_since_x, f3};
+                                              d.wlatch_busy_x, d.fetch_since_x, f3,
+                                              uint64_t(c.bus_p[10])};
                     int off = BVW;
                     for (int k = 0; k < NBV; ++k) {
                         off -= BV_W[k];

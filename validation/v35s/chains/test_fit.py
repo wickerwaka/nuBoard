@@ -630,3 +630,56 @@ class ProbeShapesStage(unittest.TestCase):
         import argparse
         args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "15"])
         self.assertEqual(args.stage, 15)
+
+
+class PageMiscStage(unittest.TestCase):
+    """(WP78) stage 16: F32's 0F page and F33's register miscellany, the corpus guard as its
+    guard."""
+
+    def test_stage_16_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
+        self.assertNotIn("F32", UNMODELLED)
+        self.assertNotIn("F33", UNMODELLED)
+        for name, values in fit.F42_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            self.assertEqual(getattr(DEFAULT, name), values[0], name)
+        for cls in fit.F42_CLASSES:
+            self.assertIn(cls, DEFAULT_COST, cls)
+            for name in DEFAULT_COST[cls]:
+                self.assertIn(f"{cls}.{name}", fit.F42_INTS)
+        for p in ("mul.sexec", "div.sexec", "incdec.nx0", "bf_ext.span", "bcd4s.wmid"):
+            self.assertIn(p, fit.F42_INTS)
+        # no integer of an existing class other than the signed register forms' sexec
+        old = {p.split(".")[0] for p in fit.F42_INTS} - set(fit.F42_CLASSES)
+        self.assertEqual(old, {"mul", "div"})
+
+    def test_stage_16_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage16({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_16_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage16({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 16)
+        self.assertEqual(args[2], fit.F42_ENUMS)
+        self.assertEqual(args[3], fit.F42_INTS)
+        self.assertEqual(kw["sweep"], fit.F42_ENUMS or None)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_16(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "16"])
+        self.assertEqual(args.stage, 16)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "15", "--to", "16"])
+        self.assertEqual(args.to, 16)
+
+    def test_corpus_guard_covers_f32_f33(self):
+        with mock.patch.object(fit, "load", side_effect=lambda fams: list(fams)):
+            ids = fit.corpus_guard_ids()
+        self.assertIn("F32", ids)
+        self.assertIn("F33", ids)

@@ -93,6 +93,13 @@ class Op:
     iy: int = 0
     n: int = 0
     cond: bool = False
+    # (WP78, F32) the 0F page: page is the opcode bytes after the first (the IR's) that come
+    # before the ModR/M byte (1 for every 0F form, 0 elsewhere), a format property of the
+    # encoding; bf a bit field's (offset, width field, crosses, cost) from the register file
+    # (EXT / INS: the offset and width registers used whole, as silicon does; cost the
+    # docs/v35s-eu-timing.md formula of (offset, width))
+    page: int = 0
+    bf: tuple | None = None
 
 
 def _modrm(code: bytes, k: int, regs: dict):
@@ -193,11 +200,21 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
     if op == 0xD7:                          # (WP52) XLAT: the byte at BW + AL, no ModR/M
         return Op(k, 1, "xlat", op, width=1,
                   ea=(regs["BW"] + (regs["AW"] & 0xFF)) & 0xFFFF)
+    if op == 0x0F:
+        return _page0f(code, k, regs)       # (WP78, F32) the 0F page
+    if op in ONE_BYTE or 0x40 <= op <= 0x4F:
+        # (WP78, F33) the one-byte register forms: INC / DEC r16, the adjusts, CVTBW / CVTWL,
+        # the flag forms; each class its own costs (ONE_BYTE)
+        return Op(k, 1, "incdec" if 0x40 <= op <= 0x4F else ONE_BYTE[op], op)
+    if op in (0xD4, 0xD5):
+        # (WP78, F33) CVTBD / CVTDB (D4 0A / D5 0A): the second byte a constant operand the form
+        # takes as an immediate byte
+        return Op(k, 2, "convert" if op == 0xD4 else "convert_d", op, imm_bytes=1)
     mod, reg, rm, ea, mc, n = _modrm(code, k + 1, regs)
     mem = mod != 3
     # the w bit (bit 0) of the ALU, TEST, XCH and MOV ModR/M opcodes: 0 = byte operand
     width = 1 if (op < 0x40 or 0x84 <= op <= 0x8B) and not op & 1 else 2
-    if op in (0xD0, 0xF6):              # (WP21) the byte groups' w bit
+    if op in (0xD0, 0xF6, 0xFE):        # (WP21) the byte groups' w bit; (WP78) FE
         width = 1
     # A group opcode: the operation is selected by the ModR/M reg field (a format
     # property of the encoding: 80-83, 8F, C0/C1, C6/C7, D0-D3, F6/F7, FE/FF).
@@ -263,6 +280,18 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         else:
             cls = "mul" if reg in (4, 5) else "div" if reg in (6, 7) else "rmw"
             base["signed"] = reg in (5, 7)
+    elif op == 0xFE:                    # (WP78, F33) INC / DEC r/m8 (FE /0, /1)
+        if reg not in (0, 1):
+            raise ValueError(f"opcode FE /{reg} at chain offset {k} is not in the catalog")
+        cls = "rmw" if mem else "incdec"    # a register operand: INC / DEC r8, its own class
+    elif op in (0x69, 0x6B):
+        # (WP78, F33) MUL r16,r/m16,imm16 / imm8 (sign-extended): the multiply with an
+        # immediate after the ModR/M operand
+        nimm = 2 if op == 0x69 else 1
+        length += nimm
+        base["imm_bytes"] = nimm
+        base["signed"] = True
+        cls = "mul_imm"
     elif op == 0xFF:
         cls = "push_mem" if reg == 6 else "rmw"
         if reg == 6:
@@ -324,6 +353,94 @@ def _string_op(code: bytes, k: int, regs: dict):
     return Op(k, 2 if rep is not None else 1, cls, op, width=1 + (op & 1), port=port,
               rep=rep, ix=regs["IX"], iy=regs["IY"],
               n=regs["CW"] if rep is not None else 1)
+
+
+# (WP78, F33) the one-byte register forms other than INC / DEC r16 (40-4F), by class: each class
+# its own costs (F33: CLC, STC, CMC, CLD, STD and CVTBW cost what INC r16 does; CLI, STI, CVTWL,
+# the decimal and the ASCII adjusts their own)
+ONE_BYTE = {0xF8: "flag", 0xF9: "flag", 0xF5: "flag", 0xFC: "flag", 0xFD: "flag",
+            0xFA: "flag_di", 0xFB: "flag_ei", 0x98: "extend", 0x99: "extend_w",
+            0x27: "adjust", 0x2F: "adjust", 0x37: "adjust_b", 0x3F: "adjust_b"}
+# (WP78, F32) the 0F page's second byte: the bit ops (10-1F: bits 2:1 the operation, TEST1 /
+# CLR1 / SET1 / NOT1, bit 0 the width, bit 3 an imm index after the operand where clear the
+# index is CL), the packed BCD strings (20 ADD4S, 22 SUB4S, 26 CMP4S), the digit rotates (28
+# ROL4, 2A ROR4), the bit fields (31 / 39 INS, 33 / 3B EXT: bit 3 the imm4 width)
+BIT1_MEM = ("bit1_test", "bit1_clr", "bit1_rmw", "bit1_rmw")     # by bits 2:1 of the second byte
+BCD_OPS = {0x20: "bcd4s", 0x22: "bcd4s", 0x26: "bcd4s_cmp"}
+ROT4_OPS = {0x28: "rol4", 0x2A: "ror4"}
+BF_OPS = {0x31: "bf_ins", 0x39: "bf_ins", 0x33: "bf_ext", 0x3B: "bf_ext"}
+BCD_CLASSES = ("bcd4s", "bcd4s_cmp")
+BF_CLASSES = ("bf_ext", "bf_ins")
+# (WP78) the classes of the 0F page and F33 whose structure (the queue's, the bus unit's and the
+# EU's rules that name a class: the I/O interlock, the register forms' and the unit forms'
+# rules, the read-modify-write's) is an existing class's: the costs are their own (Config.c
+# with the class itself), every structural rule sees the base class (eu.py)
+BASE_CLASS = {"bit1": "reg", "rol4": "reg", "ror4": "reg", "incdec": "reg", "adjust": "reg",
+              "adjust_b": "reg", "extend": "reg", "extend_w": "reg", "flag": "reg",
+              "flag_di": "reg", "flag_ei": "reg", "convert": "imm", "convert_d": "imm",
+              "bit1_test": "load_alu", "bit1_rmw": "rmw", "bit1_clr": "rmw",
+              "rol4_mem": "rmw", "ror4_mem": "rmw", "mul_imm": "mul"}
+
+
+def base_class(cls: str) -> str:
+    """(WP78) the existing class whose structure cls shares (BASE_CLASS), else cls."""
+    return BASE_CLASS.get(cls, cls)
+
+
+def bf_cost(op: str, offset: int, width: int) -> int:
+    """(WP78, F32) the bit field's EU cost as docs/v35s-eu-timing.md gives it, a function of the
+    offset o and the width field w (w + 1 bits) alone (swept over all 256 pairs there; F32's
+    seven cases equal it plus a class constant): EXT 107 - 2o - 4w within one word or ending at
+    the boundary (43 at o = 0, w = 15), 61 + 2o crossing (-1 at w = 15); INS 94 within (92 at
+    o = 0), 86 at the boundary (84 at o = 0), 128 + 4(o + w - 16) crossing. The registers are
+    used whole (WP74: silicon does not reduce them to 4 bits); outside 0-15 the formula is
+    extrapolated (no corpus run goes there)."""
+    o, w = offset, width
+    if op == "bf_ext":
+        if o + w >= 16:
+            return 61 + 2 * o - (1 if w == 15 else 0)
+        return 43 if (o, w) == (0, 15) else 107 - 2 * o - 4 * w
+    if o + w >= 16:
+        return 128 + 4 * (o + w - 16)
+    if o + w == 15:
+        return 84 if o == 0 else 86
+    return 92 if o == 0 else 94
+
+
+def _page0f(code: bytes, k: int, regs: dict) -> Op:
+    """(WP78, F32) a 0F-page form at k: the IR holds 0F, the second opcode byte is the first
+    operand byte (page = 1), then the ModR/M byte where the form has one."""
+    s = code[k + 1]
+    if s in BCD_OPS:
+        # the packed BCD strings: (CL + 1) / 2 byte pairs from the register file (the EU takes
+        # the walk's count, as a REP form's: machine.py), source DS0:IX, destination DS1:IY
+        cl = regs["CW"] & 0xFF
+        return Op(k, 2, BCD_OPS[s], 0x0F, width=1, ix=regs["IX"], iy=regs["IY"],
+                  n=(cl + 1) // 2, page=1)
+    if not (0x10 <= s <= 0x1F or s in ROT4_OPS or s in BF_OPS):
+        raise ValueError(f"opcode 0F {s:02X} at chain offset {k} is not in the catalog")
+    mod, reg, rm, ea, mc, n = _modrm(code, k + 2, regs)
+    mem = mod != 3
+    base = dict(offset=k, opcode=0x0F, modrm=True, page=1, ea=ea, mode_class=mc,
+                disp=n - 1 if mem else 0)
+    length = 2 + n
+    if 0x10 <= s <= 0x1F:
+        imm = 1 if s & 8 else 0
+        cls = BIT1_MEM[(s >> 1) & 3] if mem else "bit1"
+        return Op(length=length + imm, cls=cls, width=1 + (s & 1), imm_bytes=imm,
+                  cl_count=not imm, **base)
+    if s in ROT4_OPS:
+        return Op(length=length, cls=ROT4_OPS[s] + ("_mem" if mem else ""), width=1, **base)
+    if mem:
+        raise ValueError(f"0F {s:02X} with a memory operand at chain offset {k}")
+    cls = BF_OPS[s]
+    imm = 1 if s & 8 else 0
+    offset = (regs[REG8[rm][0]] >> REG8[rm][1]) & 0xFF
+    width = code[k + 3] if imm else (regs[REG8[reg][0]] >> REG8[reg][1]) & 0xFF
+    cross = offset + width >= 16
+    return Op(length=length + imm, cls=cls, width=2, imm_bytes=imm, ix=regs["IX"],
+              iy=regs["IY"], bf=(offset, width, cross, bf_cost(cls, offset, width)),
+              **{**base, "ea": None, "mode_class": None})
 
 
 REG16 = ("AW", "CW", "DW", "BW", "SP", "BP", "IX", "IY")
@@ -428,6 +545,7 @@ def execute(op: Op, code: bytes, regs: dict):
             regs["Z"] = int(regs[REG16[reg]] == regs[REG16[rm]])   # (WP55) CMP r16,r16: Z
     if o == 0xD7:
         _set8(regs, 0, FILL_WORD & 0xFF)        # (WP52) XLAT: AL from the data fill
+    _execute_wp78(op, code, regs)
     if op.cls in ("push", "push_mem", "push_imm", "push_seg", "prepare"):
         regs["SP"] = (regs["SP"] - 2) & 0xFFFF
     if op.cls == "prepare":
@@ -467,6 +585,65 @@ def execute(op: Op, code: bytes, regs: dict):
             regs["CW"] = (regs["CW"] - op.n) & 0xFFFF
 
 
+def _execute_wp78(op: Op, code: bytes, regs: dict):
+    """(WP78, F32, F33) the register effects of the 0F page and the register miscellany that a
+    later form's addresses, counts or ports can read: INC / DEC r16 and r8, CVTBW / CVTWL,
+    CVTBD / CVTDB, the signed register multiply and divide and the immediate multiply (DW:AW,
+    AW), the bit field's offset register and IX / IY (the walk's rule, normalize.py: offset
+    (o + w + 1) & 15, the pointer + 2 when o + w + 1 passes 15), EXT's AW. The adjusts and the
+    flag forms change nothing the timing reads; the bit ops and the rotates write AL / AW / DL
+    or memory, whose values no address, count or port depends on."""
+    o, k, cls = op.opcode, op.offset, op.cls
+    if cls == "incdec":
+        d = -1 if (o & 8 if o != 0xFE else (code[k + 1] >> 3) & 1) else 1
+        if o == 0xFE:
+            i = code[k + 1] & 7
+            name, sh = REG8[i]
+            _set8(regs, i, ((regs[name] >> sh) + d) & 0xFF)
+        else:
+            r = REG16[o & 7]
+            regs[r] = (regs[r] + d) & 0xFFFF
+    elif cls == "extend":
+        al = regs["AW"] & 0xFF
+        regs["AW"] = al | (0xFF00 if al & 0x80 else 0)
+    elif cls == "extend_w":
+        regs["DW"] = 0xFFFF if regs["AW"] & 0x8000 else 0
+    elif cls == "convert":
+        al = regs["AW"] & 0xFF
+        regs["AW"] = ((al // 10) << 8) | (al % 10)
+    elif cls == "convert_d":
+        regs["AW"] = ((regs["AW"] >> 8) * 10 + (regs["AW"] & 0xFF)) & 0xFF
+    elif cls in BF_CLASSES:
+        offset, width, _, _ = op.bf
+        rm = code[k + 2] & 7
+        new = (offset & 15) + (width & 15) + 1
+        _set8(regs, rm, new & 15)
+        if new >= 16:
+            p = "IX" if cls == "bf_ext" else "IY"
+            regs[p] = (regs[p] + 2) & 0xFFFF
+        if cls == "bf_ext":
+            regs["AW"] = 0                  # the field (its value is not tracked)
+    elif op.signed and op.modrm and cls in ("mul", "div", "mul_imm"):
+        m = code[k + 1]
+        mod, reg, rm = m >> 6, (m >> 3) & 7, m & 7
+        if mod != 3:
+            return                          # the memory forms as before (no effect modelled)
+        sx = lambda v: v - 0x10000 if v & 0x8000 else v
+        src = sx(regs[REG16[rm]])
+        if cls == "mul_imm":
+            imm = (int.from_bytes(code[k + 2:k + 4], "little", signed=True) if o == 0x69
+                   else int.from_bytes(code[k + 2:k + 3], "little", signed=True))
+            regs[REG16[reg]] = (src * imm) & 0xFFFF
+        elif cls == "mul":
+            p = sx(regs["AW"]) * src
+            regs["AW"], regs["DW"] = p & 0xFFFF, (p >> 16) & 0xFFFF
+        elif src:
+            n = (regs["DW"] << 16) | regs["AW"]
+            n = n - (1 << 32) if n & 0x80000000 else n
+            q = abs(n) // abs(src) * (1 if (n < 0) == (src < 0) else -1)
+            regs["AW"], regs["DW"] = q & 0xFFFF, (n - q * src) & 0xFFFF
+
+
 def io_ports(code: bytes, regs: dict, start: int = 0) -> dict:
     """{chain offset: port} of every IN/OUT in code from `start`, walking it with decode /
     execute from the register presets (the DW forms address the DW they find)."""
@@ -504,6 +681,11 @@ def _head(op: Op, cfg, pre: int, ea=None) -> list[tuple]:
     With imm_order other than with_addr the immediate bytes are not part of the
     head (the template takes them itself).
     """
+    if op.page:
+        # (WP78) a 0F-page form: its second opcode byte is taken first, chained to the head
+        # (the ModR/M byte and what follows it)
+        sub = Op(**{**op.__dict__, "length": op.length - op.page, "page": 0})
+        return [("take", op.page, "chain")] + _head(sub, cfg, pre, ea)
     rest = op.length - 1 - (op.imm_bytes if cfg.imm_order != "with_addr" else 0)
     tail = [ea] if ea is not None else []
     if cfg.mem_order == "split" and op.ea is not None:
@@ -587,6 +769,14 @@ def _group(seq: list[tuple], op: Op, cfg) -> list[tuple]:
         n += cl
     grp = op.group or fixed or (
         cfg.grp_ops == "nodir" and op.dbit is None and 0x84 <= op.opcode <= 0x87)
+    if cfg.page_grp == "group" and op.page and op.ea is not None:
+        # (WP78) page_grp=group: a 0F memory form (its operation named by the second opcode
+        # byte, as a group form's by the reg field) takes its class's group setup, and with
+        # the bit index in CL its cl clocks as part of it (as grpcl for SHL r/m,CL)
+        grp = True
+        if op.cl_count:
+            cl = cfg.c(gcls, "cl")
+            n += cl
     if not (grp and op.ea is not None and n):
         return seq
     k = next((i for i, s in enumerate(seq) if s[0] in ("data", "post")), None)
@@ -717,6 +907,8 @@ def _steps(op: Op, cfg) -> list[tuple]:
     rest = op.length - 1
     ea = ("clocks", cfg.ea.get(ea_class(op, cfg), 0) if op.ea is not None else 0, "ea")
     cls = op.cls
+    if cls in BASE_CLASS or cls in BCD_CLASSES or cls in BF_CLASSES:
+        return _wp78_steps(op, cfg, c, ea)
     if cls in ("reg", "prefix"):
         # a form without operand bytes runs pre0 clocks where an operand form runs pre
         pre = c("pre") if rest else c("pre0") if "pre0" in cfg.cost.get(cls, {}) else c("pre")
@@ -746,7 +938,10 @@ def _steps(op: Op, cfg) -> list[tuple]:
                 ("clocks", cfg.per_shift_count * op.count)]
     if cls in ("mul", "div"):
         if op.ea is None:
-            return [("clocks", c("pre")), ("take", rest), ("clocks", c("exec"))]
+            # (WP78, F33) the signed register form (F7 /5 MUL, /7 DIV) runs the class's sexec
+            # where it has one (a format property, as smexec for the memory form)
+            ex = c("sexec") if op.signed and "sexec" in cfg.cost.get(cls, {}) else c("exec")
+            return [("clocks", c("pre")), ("take", rest), ("clocks", ex)]
         # (WP19) a memory operand form may have its own mexec (a format property, as exec0)
         mex = c("mexec") if "mexec" in cfg.cost.get(cls, {}) else c("exec")
         if op.signed and "smexec" in cfg.cost.get(cls, {}):
@@ -943,6 +1138,96 @@ def _steps(op: Op, cfg) -> list[tuple]:
         return [("clocks", pre), ("take", rest), ("clocks", c("exec")),
                 ("data", kind, op.port, op.width, c("setup")), ("clocks", c("post"))]
     raise ValueError(cls)
+
+
+def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
+    """(WP78, F32, F33) the templates of the 0F page and the register miscellany, by class.
+
+    The register forms (BASE_CLASS reg): pre clocks (pre0 for a form without operand bytes:
+    INC / DEC r16, the adjusts, the extends, the flag forms), the operand take (a 0F form's
+    second opcode byte, ModR/M byte and any immediate), exec clocks; bit1, the bit ops on a
+    register, cl more exec clocks when the bit index is CL (the index from the register file;
+    the imm form takes one more byte instead). convert / convert_d (CVTBD / CVTDB, base imm):
+    the imm class's template, the constant second byte an immediate. bit1_test (TEST1 r/m,
+    base load_alu) and bit1_rmw / bit1_clr / rol4_mem / ror4_mem (base rmw): the load_alu and
+    rmw templates with the class's own integers, the CL index's cl clocks before the read.
+    mul_imm (MUL r16,r/m,imm, base mul): register: pre, the take, exec; memory: the memory
+    head, the read posted and the immediate taken once it is on the bus (as imm_order
+    after_issue), mexec clocks. The BCD strings (bcd4s ADD4S / SUB4S, bcd4s_cmp CMP4S): pre,
+    the second opcode byte's take, then per byte pair a byte read at IX + i (setup first, later
+    pairs loop), a byte read at IY + i (mid) and, bcd4s only, the result written back at IY + i
+    (wmid), each a data step the EU waits on; exec clocks after the last. The bit fields
+    (bf_ext EXT, bf_ins INS): pre, the take, the word read at IX (EXT) / IY (INS) with setup;
+    EXT: crossing into the next word, the next word's read (xsetup), then the cost formula's
+    clocks less span (xspan crossing); INS: within one word the formula's clocks less span,
+    then the write back (wsetup) and post; crossing, the first word written back (xwsetup), the
+    next word read (xrsetup), the formula's clocks less xspan, its write back (wsetup), post.
+    """
+    cls, rest = op.cls, op.length - 1
+    base = BASE_CLASS.get(cls)
+    if base == "reg":
+        pre = c("pre") if rest else (c("pre0") if "pre0" in cfg.cost.get(cls, {}) else c("pre"))
+        return [("clocks", pre), ("take", rest),
+                ("clocks", c("exec") + (c("cl") if op.cl_count else 0))]
+    if base == "imm":
+        return [("clocks", c("pre")), ("take", op.imm_bytes), ("clocks", c("exec"))]
+    cl = ([("clocks", c("cl"))] if op.cl_count and c("cl")
+          and not (cfg.page_grp == "group" and op.ea is not None) else [])
+    if base in ("load_alu", "rmw"):
+        head = _head(op, cfg, c("pre"), ea) + cl
+    if base == "load_alu":
+        if op.imm_bytes and cfg.imm_order != "with_addr":
+            return head + _imm_read(op, cfg, c) + [("clocks", c("exec"))]
+        return head + [("data", "read", op.ea, op.width, 0), ("clocks", cfg.read_use_latency),
+                       ("clocks", c("exec"))]
+    if base == "rmw":
+        if op.imm_bytes and cfg.imm_order != "with_addr":
+            read = head + _imm_read(op, cfg, c)
+        else:
+            read = head + [("data", "read", op.ea, op.width, 0),
+                           ("clocks", cfg.read_use_latency)]
+        if cfg.rmw_write_issue == "immediate":
+            return read + [("data", "write", op.ea, op.width, max(c("alu"), c("setup"))),
+                           ("clocks", c("post"))]
+        return read + [("clocks", c("alu")), ("data", "write", op.ea, op.width, c("setup")),
+                       ("clocks", c("post"))]
+    if base == "mul":
+        if op.ea is None:
+            return [("clocks", c("pre")), ("take", rest), ("clocks", c("exec"))]
+        return _head(op, cfg, c("pre"), ea) + _imm_read(op, cfg, c) + [("clocks", c("mexec"))]
+    if cls in BCD_CLASSES:
+        seq = [("clocks", c("pre")), ("take", rest)]
+        for i in range(op.n):
+            seq += [("data", "read", (op.ix + i) & 0xFFFF, 1, c("first") if i == 0 else c("loop")),
+                    ("data", "read", (op.iy + i) & 0xFFFF, 1, c("mid"))]
+            if cls == "bcd4s":
+                seq.append(("data", "write", (op.iy + i) & 0xFFFF, 1, c("wmid")))
+        return seq + [("clocks", c("exec"))]
+    offset, width, cross, cost = op.bf
+    first = op.ix if cls == "bf_ext" else op.iy
+    if op.imm_bytes:
+        # the imm4 width form: the word's read is posted after the ModR/M byte and the width
+        # byte taken while it waits (as a memory form's immediate under imm_order=after_post)
+        seq = [("clocks", c("pre")), ("take", rest - op.imm_bytes),
+               ("post", "read", first, 2, c("setup")), ("take", op.imm_bytes, "chain"),
+               ("wait",)]
+    else:
+        seq = [("clocks", c("pre")), ("take", rest), ("data", "read", first, 2, c("setup"))]
+    if cls == "bf_ext":
+        if cross:
+            seq.append(("data", "read", (op.ix + 2) & 0xFFFF, 2, c("xsetup")))
+        tail = max(0, cost - c("xspan" if cross else "span"))
+    else:
+        if cross:
+            seq += [("data", "write", op.iy, 2, c("xwsetup")),
+                    ("data", "read", (op.iy + 2) & 0xFFFF, 2, c("xrsetup")),
+                    ("clocks", max(0, cost - c("xspan"))),
+                    ("data", "write", (op.iy + 2) & 0xFFFF, 2, c("wsetup"))]
+        else:
+            seq += [("clocks", max(0, cost - c("span"))),
+                    ("data", "write", op.iy, 2, c("wsetup"))]
+        tail = c("post")
+    return seq + [("clocks", tail)]
 
 
 def _string_steps(op: Op, cfg) -> list[tuple]:

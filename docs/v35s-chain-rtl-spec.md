@@ -923,6 +923,45 @@ decision differs it is said here.
   rf bench context 151 bits; steps gain `fetch_hold`, the `cfgap` tag and the `ix`/`iy` sources,
   `v35_str_shape`, `V35_STR_HEAD`, `V35_STR_SETS`, 239 templates. Not built: the trap sequence, the
   0F page, REPC/REPNC, interrupts, the forty-first fit's mechanisms.
+- **The forty-first fit's catch-up (2026-10-30, WP77; docs/v35s-hdl-plan.md):** the nine F30/F31
+  mechanisms and REPC/REPNC in RTL; the whole corpus 26,234 exact against the model over the 33 lists,
+  model-exact 25,423 = RTL-exact. Decisions: (1) rtlgen and rtl_vectors take the fit from the frozen
+  package (`rtlgen.fit_config()`: STRUCTURE, COST, EA) and `load` raises when `fit.json`'s sha256 is
+  not the frozen `FIT_SHA256`, so the class numbering and template set follow the frozen model the
+  vectors run; `UNBUILT_CLASSES` (the F32/F33 classes) are left out of the include and their
+  instructions are not modelled; (2) `fetch_release` and `split_floor` are step ops (16 ops, 4 bits),
+  `forever` and `raise` step tags (16 tags); an untagged `fetch_release n` sets `str_held` = t + n as
+  `fetch_hold` does; (3) the compact REP template: head 2 rows | CW = 0 rows 2 (`fetch_release` raise,
+  zexit) | pre-element row (`fetch_release` forever) | 3 × m element rows | tail t rows
+  (`fetch_release` xfetch, `split_floor` except after LDM/CMPM) | rexit | cexit, every exit less `xwb`;
+  `v35_str_shape` 6 bits {t, m, c}; the STEP_K width check skips the REP compact templates; (4) an
+  infinite `str_held` is `sd_valid` + `sd_inf`, `sd_off` 4 bits (xfetch 8, 9 for `str_out`);
+  `str_raise` is `sr_valid` + `sr_off` (3 bits), processed inside the queue's WANT op as in
+  `wants_fetch`; (5) `odd_fed`, lazy in the frozen code (from `bus.cycles[-3:]` at its first read), is
+  fixed at the start of the clock after the transfer's start as "in flight and not an aborted cycle"
+  at the end of the start clock, equal on the whole corpus; `odd_xfer` rides the START op's b bit and
+  the flush clears it; (6) `last_issued` (str_split) is `ls_split` + `ls_age` (t − the second half's
+  start, saturating at 7), fed from a per-request `li_age` zeroed at each issue; (7) `_run_wait`'s
+  back-to-back test (the previous cycle a fetch ending the clock before the current fetch) is the
+  arbiter's registered `run` flag, a new bus-view bit (`bview.run`, `run_r`), equivalent whenever the
+  current cycle is a fetch in its wait state (the only case read); the EU-alone benches script it;
+  (8) `nw_t`/`nw_run` are `nw_tv`, `nw_age` (3 bits, saturating), `nw_ran`; "the fetch started on the
+  nowait step's first clock" is `b.pos == nw_age`; (9) `str_exit=wb` keys on CW ≠ 0 at the start
+  (`x.sn`) rather than the walk's `op.n`, equal since a REP form with CW > 0 runs at least one element;
+  (10) `str_rep` is derived (the template a REP compact one), `eu.sreg` kept (`e.sreg`, 2 bits) for the
+  denied-start path of `_sreg_hold`; (11) `sreg_ok` is `so_v`/`so_now`, `sreg_at` is `sa_v`, both
+  classified as arbiter stores; sreg_io's `not_before = max(not_before, t + 1)` is a NOT_BEFORE touch
+  with val `max(nb_off, 1)` (the frozen code stores even when unchanged); (12) `lea_split`'s address is
+  the decoder's IR address + length − 1; its "I/O started on t" test uses the bus view (io kind, pos
+  0); (13) `check_core_run` takes `chain=` for a variant chain (the REPC test), no silicon score in that
+  mode; REPC/REPNC: `eu_decode`/`v35_str_op` accept 64/65, `eu_str_read` ends the compare on CY (65
+  repeats while set, 64 while clear), funcref extended the same way. Widths: `v35_st_t` 985, queue
+  state 197, arbiter state 112, `v35_bview_t` 20 (`bus_t`/`bus_p` [19:0]), `mutate` 6 bits; queue op
+  `V35_QOP_STR_RAISE` 38; `v35_op_t` gains `sreg`; include `V35_SOP_FETCH_RELEASE` 14,
+  `V35_SOP_SPLIT_FLOOR` 15, `V35_STAG_FOREVER`/`RAISE`, `V35_STR_ZERO`/`PRE`, `V35_W_Q_SD_OFF` 4,
+  `V35_W_Q_SR_OFF` 3; 239 templates built (the forty-second fit adds the signed register MUL/DIV
+  `sexec` templates, 243, and the F32/F33 classes stay unbuilt). Not built: the trap sequence, the 0F
+  page and the register miscellany, interrupts.
 
 ### The request rule and the queue's room
 

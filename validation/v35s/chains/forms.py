@@ -24,12 +24,18 @@ CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rm
            # (WP74) F32 the 0F page: the bit ops on a register, a memory test, a memory
            # read-modify-write; the packed BCD strings (ADD4S / SUB4S, CMP4S); the digit
            # rotates on a register and in memory; the bit fields (EXT reads DS0:IX, INS writes
-           # DS1:IY)
-           "bit1", "bit1_test", "bit1_rmw", "bcd4s", "bcd4s_cmp", "rot4", "rot4_mem",
-           "bf_ext", "bf_ins",
+           # DS1:IY). (WP78) one class per cost the facts tell apart: CLR1 in memory (a clock
+           # longer than SET1 / NOT1 between its read and write), ROL4 / ROR4 (ROR4 4 clocks
+           # longer, in both forms)
+           "bit1", "bit1_test", "bit1_rmw", "bit1_clr", "bcd4s", "bcd4s_cmp", "rol4", "ror4",
+           "rol4_mem", "ror4_mem", "bf_ext", "bf_ins",
            # (WP74) F33 the register miscellany: INC / DEC on a register, the adjusts, the
-           # conversions, the sign extensions, the flag forms, the immediate multiply
-           "incdec", "adjust", "convert", "extend", "flag", "mul_imm")
+           # conversions, the sign extensions, the flag forms, the immediate multiply. (WP78)
+           # one class per cost: ADJ4A / ADJ4S (adjust) and ADJBA / ADJBS (adjust_b), CVTBD
+           # (convert) and CVTDB (convert_d), CVTBW (extend) and CVTWL (extend_w), CLC STC CMC
+           # CLD STD (flag), CLI (flag_di), STI (flag_ei)
+           "incdec", "adjust", "adjust_b", "convert", "convert_d", "extend", "extend_w", "flag",
+           "flag_di", "flag_ei", "mul_imm")
 # Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
 STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
                  "prepare", "dispose", "ret")
@@ -584,7 +590,7 @@ F25_STACK_FORMS = _register([
     Form("mov_m_ds0", "store", bytes([0x8C, 0x1F]), writes=1, **_BW_MEM)])
 
 # Forms the simulator does not decode yet (test_sim skips them); (WP55) none since F23's;
-# (WP74) the F32 and F33 forms join it at the end of the catalog.
+# (WP74) the F32 and F33 forms joined it, (WP78) and left it: none.
 UNMODELLED_FORMS = frozenset()
 
 # F26 and F27 (WP56: the probes of the ten rules pinned by one or two cells). Every other
@@ -723,8 +729,8 @@ F30_SEG_FORMS = _register(
 
 
 # F32 and F33 (WP74; HDL plan Phase E items 4 and 5): the 0F page and the register miscellany.
-# Generator-only: the simulator does not decode these forms (UNMODELLED_FORMS below;
-# families.UNMODELLED), so their runs are read as facts until it learns them. Every byte
+# Generator-only until WP78 (UNMODELLED_FORMS, families.UNMODELLED): their runs were read as
+# facts; (WP78) the simulator decodes them (sim/templates.py: decode, _page0f, ONE_BYTE). Every byte
 # string follows the V35 data book's encodings (the V20 manual's for the 0F page, which the
 # V35's eu-timing probes ran: 0F 10-1F, 20 / 22 / 26, 28 / 2A, 31 / 33 / 39 / 3B; the V35's own
 # 0F 25 MOVSPA and 0F 2D BRKCS sit between them and are not used). The fence leaves AW = 0,
@@ -757,7 +763,8 @@ def _f32_bit_forms() -> list:
                         forms.append(Form(name, "bit1", bytes([0x0F, second, 0xC0]) + tail))
                         continue
                     counts = dict(reads=1) if op == "test1" else dict(reads=1, writes=1)
-                    forms.append(Form(name, "bit1_test" if op == "test1" else "bit1_rmw",
+                    forms.append(Form(name, {"test1": "bit1_test", "clr1": "bit1_clr"}.get(
+                                          op, "bit1_rmw"),
                                       bytes([0x0F, second]) + modrm(MODE["bw"], 0) + tail,
                                       width=width, mode="bw", mode_class="base",
                                       ea=DEFAULT_REGS["BW"], **counts))
@@ -791,9 +798,9 @@ F32_BCD_FORMS = _register(
 # F32 the digit rotates: ROL4 (0F 28) and ROR4 (0F 2A) on DL (ModR/M C2: DL = 78h from DW's
 # preset) and on the byte at [BW] (07: a byte read and a byte write at 0800h).
 F32_ROT4_FORMS = _register(
-    [Form(f"{op}_dl", "rot4", bytes([0x0F, second, 0xC2]))
+    [Form(f"{op}_dl", op, bytes([0x0F, second, 0xC2]))
      for op, second in (("rol4", 0x28), ("ror4", 0x2A))]
-    + [Form(f"{op}_m", "rot4_mem", bytes([0x0F, second]) + modrm(MODE["bw"], 0), reads=1,
+    + [Form(f"{op}_m", f"{op}_mem", bytes([0x0F, second]) + modrm(MODE["bw"], 0), reads=1,
             writes=1, width=1, mode="bw", mode_class="base", ea=DEFAULT_REGS["BW"])
        for op, second in (("rol4", 0x28), ("ror4", 0x2A))])
 
@@ -877,6 +884,7 @@ F32_FORMS = F32_BIT_FORMS + F32_BCD_FORMS + F32_ROT4_FORMS + F32_BITFIELD_FORMS 
 _R16 = ("aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy")
 F33_FLAGS = {"clc": 0xF8, "stc": 0xF9, "cmc": 0xF5, "cli": 0xFA, "sti": 0xFB, "cld": 0xFC,
              "std": 0xFD}
+F33_FLAG_CLASS = {"cli": "flag_di", "sti": "flag_ei"}      # (WP78) their own costs
 F33_REG_FORMS = _register(
     [Form(f"inc_{r}", "incdec", bytes([0x40 + i])) for i, r in enumerate(_R16)]
     + [Form(f"dec_{r}", "incdec", bytes([0x48 + i])) for i, r in enumerate(_R16)]
@@ -885,17 +893,19 @@ F33_REG_FORMS = _register(
     + [Form(f"{op}b_m", "rmw", bytes([0xFE]) + modrm(MODE["bw"], sub), reads=1, writes=1,
             width=1, mode="bw", mode_class="base", ea=DEFAULT_REGS["BW"])
        for op, sub in (("inc", 0), ("dec", 1))]
-    + [Form(n, "adjust", bytes([op])) for n, op in (("adj4a", 0x27), ("adj4s", 0x2F),
-                                                     ("adjba", 0x37), ("adjbs", 0x3F))]
-    + [Form("cvtbd", "convert", bytes([0xD4, 0x0A])), Form("cvtdb", "convert", bytes([0xD5, 0x0A])),
-       Form("cvtbw", "extend", bytes([0x98])), Form("cvtwl", "extend", bytes([0x99]))]
+    + [Form(n, cls, bytes([op])) for n, cls, op in (("adj4a", "adjust", 0x27),
+                                                     ("adj4s", "adjust", 0x2F),
+                                                     ("adjba", "adjust_b", 0x37),
+                                                     ("adjbs", "adjust_b", 0x3F))]
+    + [Form("cvtbd", "convert", bytes([0xD4, 0x0A])), Form("cvtdb", "convert_d", bytes([0xD5, 0x0A])),
+       Form("cvtbw", "extend", bytes([0x98])), Form("cvtwl", "extend_w", bytes([0x99]))]
     + [Form("mul_cw", "mul", bytes([0xF7, 0xE9])), Form("div_cw", "div", bytes([0xF7, 0xF9])),
        Form("divu_cw", "div", bytes([0xF7, 0xF1]))]
     + [Form("mul_aw_cw_imm16", "mul_imm", bytes([0x69, 0xC1]) + IMM),
        Form("mul_aw_m_imm16", "mul_imm", bytes([0x69, 0x07]) + IMM, reads=1, **_BW_MEM),
        Form("mul_aw_cw_imm8", "mul_imm", bytes([0x6B, 0xC1, F15_IMM8])),
        Form("mul_aw_m_imm8", "mul_imm", bytes([0x6B, 0x07, F15_IMM8]), reads=1, **_BW_MEM)]
-    + [Form(n, "flag", bytes([op])) for n, op in F33_FLAGS.items()]
+    + [Form(n, F33_FLAG_CLASS.get(n, "flag"), bytes([op])) for n, op in F33_FLAGS.items()]
     + [Form("mov_dw_imm0", "imm", bytes([0xBA, 0x00, 0x00])),
        Form("mov_aw_8080", "imm", bytes([0xB8, 0x80, 0x80]))])
 
@@ -908,7 +918,8 @@ F33_REG_FORMS = _register(
 # word at IY + 2: CMPM's element 2 is 0 - 0, CY = 0, REPC stops there) and MOV word
 # [0A42h],0 (the source word at IX + 2: CMPBK's element 2 is 0 - 9090h, CY = 1, REPNC stops
 # there), both before the first LS. Kept out of STRING_FORMS (the simulator's string table,
-# F24's 32 forms); the normaliser walks them as string forms (UNMODELLED_STRING_FORMS).
+# F24's 32 forms); the normaliser walks them as string forms (UNMODELLED_STRING_FORMS, a name
+# kept from WP74: the simulator decodes them as REP compares since WP76).
 F33_REP_PREFIX = {"repc": 0x65, "repnc": 0x64}
 UNMODELLED_STRING_FORMS: dict[str, StringOp] = {}
 
@@ -933,5 +944,5 @@ F33_PATTERN_STORE = _register(
           + bytes(2), writes=1, width=2, mode="dir", mode_class="direct", ea=F33_PATTERN_SRC)])[0]
 F33_FORMS = F33_REG_FORMS + F33_REP_FORMS + (F33_PATTERN_STORE,)
 
-# (WP74) the F32 and F33 forms are generator-only (the simulator has no template for them)
-UNMODELLED_FORMS = UNMODELLED_FORMS | frozenset(F32_FORMS + F33_FORMS)
+# (WP74) the F32 and F33 forms were generator-only until (WP78) the simulator decoded them
+# (sim/templates.py: the 0F page, the one-byte forms, FE, 69 / 6B, D4 / D5): none left

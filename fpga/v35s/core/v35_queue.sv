@@ -49,6 +49,10 @@
 // io_take=abort, the release-by-word table, the usable clocks, read_t, flush_t, the peak).
 // `completed` (the delivered-fetch count the EU's take sync targets) is the `fetch_done`
 // strobe; the sync's relative count is the EU's (C3).
+// (WP77) The forty-first fit: str_fetch=hold (str_held's infinite form, the str_raise stamp that
+// re-raises an aborted start's request in wants_fetch), xfer_odd=idle (odd_xfer from the start
+// op's b, odd_fed from the end of that clock: a fetch in flight that is not an aborted cycle;
+// wants_fetch and asked hold the request past it once the operand bytes are taken).
 // The queue's state and snapshot types, a package so that the arbiter and the core (C4) read
 // the per-op states the module exports (state_c, state_op, state_e).
 package v35_queue_pkg;
@@ -121,7 +125,13 @@ package v35_queue_pkg;
         logic                       le_valid;   // (WP72) lea_room=ir: lea_ea is set ...
         logic [V35_W_Q_LE_OFF-1:0]  le_off;     // ... max(0, lea_ea's end - t)
         logic                       sd_valid;   // (E3) str_hold=hold: str_held is set ...
-        logic [V35_W_Q_SD_OFF-1:0]  sd_off;     // ... max(0, str_held - t)
+        logic [V35_W_Q_SD_OFF-1:0]  sd_off;     // ... max(0, str_held - t) ...
+        logic                       sd_inf;     // ... (WP77) str_fetch=hold: str_held infinite
+        logic                       sr_valid;   // (WP77) str_fetch=hold: str_raise is set ...
+        logic [V35_W_Q_SR_OFF-1:0]  sr_off;     // ... max(0, str_raise - t)
+        logic                       ox_valid;   // (WP77) xfer_odd=idle: odd_xfer is set ...
+        logic                       ox_now;     // ... == t
+        logic                       ox_fed;     // ... past it: a fetch was on the bus on it
         logic                       arrived_now;
         logic                       removed_now;
         logic                       ir_now;
@@ -174,14 +184,16 @@ package v35_queue_pkg;
     localparam logic [5:0] V35_QOP_NOP_HOLD = 6'd34;    // machine P nop_hold: nop_held = t
     localparam logic [5:0] V35_QOP_GDISP = 6'd35;       // eu grp_disp=hold: gdisp_until = t + val
     localparam logic [5:0] V35_QOP_LEA_EA = 6'd36;      // (WP72) eu lea_room=ir: lea_ea = (t, t + val)
-    localparam logic [5:0] V35_QOP_STR_HELD = 6'd37;    // (E3) eu str_hold=hold: str_held = t + val
+    localparam logic [5:0] V35_QOP_STR_HELD = 6'd37;    // (E3) eu str_hold=hold: str_held = t + val;
+                                                        // (WP77) str_fetch=hold: a: infinite
+    localparam logic [5:0] V35_QOP_STR_RAISE = 6'd38;   // (WP77) eu str_fetch=hold: str_raise = t + val
 endpackage
 
 module v35_queue
     import v35_queue_pkg::*;
 #(
     parameter int NSLOT = 16,               // op stages per clock
-    parameter int STATE_W = 187             // $bits(v35_qstate_t), checked below
+    parameter int STATE_W = 197             // $bits(v35_qstate_t), checked below
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -300,6 +312,12 @@ module v35_queue
             q_requesting = q_word(s, d);
     endfunction
 
+    // (WP77) _odd_held (xfer_odd=idle): an odd-address short jump that started with no fetch
+    // on the bus raises no request from the clock after its start, its operand bytes taken
+    function automatic logic q_odd_held(input v35_qstate_t s, input v35_qsnap_t d);
+        q_odd_held = s.ox_valid && !s.ox_now && d.need0 && !s.ox_fed;
+    endfunction
+
     // latch_hold: a byte delivered before t still latched, and it cannot go in on t
     function automatic logic q_latch_blocks(input v35_qstate_t s);
         q_latch_blocks = s.latched && !s.arrived_now
@@ -345,6 +363,12 @@ module v35_queue
         if (!s.gd_valid) q_canon.gd_off = '0;
         if (!s.le_valid) q_canon.le_off = '0;
         if (!s.sd_valid) q_canon.sd_off = '0;
+        if (!s.sd_valid) q_canon.sd_inf = 1'b0;
+        if (!s.sr_valid) q_canon.sr_off = '0;
+        if (!s.ox_valid) begin
+            q_canon.ox_now = 1'b0;
+            q_canon.ox_fed = 1'b0;
+        end
     endfunction
 
     // ------------------------------------------------ the clock's start: stamps move on
@@ -384,6 +408,15 @@ module v35_queue
             s.le_off = r.le_off - 1'b1;         // lea_room: t < lea_ea's end while > 0
         if (r.sd_valid && r.sd_off != '0)
             s.sd_off = r.sd_off - 1'b1;         // str_hold: t < str_held while > 0
+        if (r.sr_valid && r.sr_off != '0)
+            s.sr_off = r.sr_off - 1'b1;         // (WP77) str_fetch: t >= str_raise at 0
+        // (WP77) xfer_odd=idle: odd_fed, from the clock after the transfer's start: a fetch was
+        // on the bus on it (in flight at its end, not an aborted cycle: one issued on it or
+        // still running; one that ended the clock before was delivered in its phase C)
+        if (r.ox_valid && r.ox_now) begin
+            s.ox_now = 1'b0;
+            s.ox_fed = r.inflight && !r.ab_valid;
+        end
         s.take_prev = r.take_now;
         s.arrived_now = 1'b0;
         s.removed_now = 1'b0;
@@ -480,6 +513,11 @@ module v35_queue
                     n.fh_valid = 1'b1;
                     n.fh_off = V35_W_Q_FH_OFF'(val);
                 end
+                if (b) begin                // (WP77) xfer_odd=idle: odd_xfer = t
+                    n.ox_valid = 1'b1;
+                    n.ox_now = 1'b1;
+                    n.ox_fed = 1'b0;
+                end
             end
             V35_QOP_FLUSH: begin
                 n.count = '0;
@@ -493,6 +531,7 @@ module v35_queue
                 n.rq_valid = 1'b0;
                 n.removed_now = 1'b1;
                 n.fh_valid = 1'b0;
+                n.ox_valid = 1'b0;          // (WP77) xfer_odd: odd_xfer = odd_fed = None
             end
             V35_QOP_DISP: n.disp_now = 1'b1;
             V35_QOP_HALT: n.halted = 1'b1;
@@ -531,12 +570,22 @@ module v35_queue
                 n.ab_now = b;
             end
             V35_QOP_WANT: begin             // wants_fetch
-                raised = q_requesting(s, d, first);
+                if (s.sr_valid && s.sr_off == '0) begin
+                    n.sr_valid = 1'b0;      // (WP77) str_fetch=hold, CW = 0: the request an
+                    if (s.retry) begin      // aborted cycle left is raised again in the exit
+                        n.retry = 1'b0;
+                        n.flag = q_word(s, d);
+                    end
+                end
+                raised = q_requesting(n, d, first);
                 n.flag = raised;
                 if (s.fh_valid && s.fh_off == '0 && d.need0)
                     raised = 1'b0;          // flush_hold: a taken transfer runs
-                if (s.sd_valid && s.sd_off != '0)
-                    raised = 1'b0;          // (E3) str_hold: a compare's result clocks
+                if (raised && q_odd_held(s, d))
+                    raised = 1'b0;          // (WP77) xfer_odd=idle
+                if (s.sd_valid && (s.sd_inf || s.sd_off != '0))
+                    raised = 1'b0;          // (E3) str_hold: a compare's result clocks;
+                                            // (WP77) str_fetch=hold
                 if (s.nop_held)
                     raised = 1'b0;
                 want = raised && !s.inflight && !q_latch_blocks(s) && !s.shift_held;
@@ -554,7 +603,7 @@ module v35_queue
                 end else begin
                     raised = q_requesting(s, d, first);
                     n.flag = raised;
-                    rd_o = {7'd0, raised};
+                    rd_o = {7'd0, raised && !(q_odd_held(s, d))};   // (WP77)
                 end
             end
             V35_QOP_REQUESTING: begin
@@ -649,9 +698,14 @@ module v35_queue
                 n.le_valid = 1'b1;
                 n.le_off = V35_W_Q_LE_OFF'(val);
             end
-            V35_QOP_STR_HELD: begin         // (E3) str_hold=hold: no request for val clocks
-                n.sd_valid = 1'b1;
-                n.sd_off = V35_W_Q_SD_OFF'(val);
+            V35_QOP_STR_HELD: begin         // (E3) str_hold=hold: no request for val clocks;
+                n.sd_valid = 1'b1;          // (WP77) str_fetch=hold: a: none from here
+                n.sd_inf = a;
+                n.sd_off = a ? '0 : V35_W_Q_SD_OFF'(val);
+            end
+            V35_QOP_STR_RAISE: begin        // (WP77) str_fetch=hold, CW = 0: the retried
+                n.sr_valid = 1'b1;          // request raised again val clocks in
+                n.sr_off = V35_W_Q_SR_OFF'(val);
             end
             default: ;
         endcase

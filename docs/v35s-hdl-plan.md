@@ -540,6 +540,45 @@ file. Not built: the trap sequence, the 0F page (F32), REPC/REPNC (F33),
 interrupts, and the forty-first fit's nine mechanisms (adopted the same
 evening, the next catch-up).
 
+**The forty-first fit's catch-up done 2026-10-30 (WP77):** the RTL has the
+nine F30/F31 mechanisms (`xfer_odd`, `str_exit`, `str_split`, `str_io_setup`,
+`str_start`, `str_fetch`, `sreg_io`, `sreg_store`, `lea_disp`) and decodes
+REPC/REPNC (64/65) as REP prefixes, the compare ending on CY. Whole corpus
+`--core` over the 33 lists (the overseer's re-run, scratchpad wp78r/): 26,234
+exact against the model, 0 not modelled, model-exact 25,423 = RTL-exact;
+C1–C3, `--regfile` 58,508 vectors 0 bad, funcref and SST unchanged; mutations
+24–32 (one per enum) caught on their deciding runs, each silicon-exact
+unmutated; F33's four REPC/REPNC runs exact against the frozen model through
+the core bench with the STC/CLC replaced by a NOP (`test_repc_repnc`). Two
+structural changes: `rtlgen` now reads the structure, costs and EA table from
+the frozen package (`rtlgen.fit_config()`) and refuses to run when
+`fit.json`'s sha256 differs from the frozen `FIT_SHA256`, so live model edits
+(WP78's 23 classes broke the 6-bit class field) no longer disturb the RTL side
+mid-package; and `rtlgen.UNBUILT_CLASSES` leaves the F32/F33 classes'
+templates, ids and integers out of the include (a chain instruction of one is
+"not modelled") until they are built. The step encoding gains the ops
+`fetch_release` and `split_floor` (16 ops, still 4 bits) and the tags
+`forever` and `raise` (16 tags); the compact REP template is head (2 rows),
+CW = 0 rows (2), a pre-element row (`fetch_release` forever), 3 × m element
+rows, a tail (`fetch_release` xfetch, `split_floor` except after LDM/CMPM),
+`rexit`, `cexit`, every exit less `xwb`; `v35_str_shape` is 6 bits {t, m, c};
+the STEP_K width check leaves the REP compact templates out (their cursor is
+the 18-bit flat `e.k`). Widths: `v35_st_t` 985 (`v35_eus_t` gains `sreg` 2,
+`lea_split`, `nw_tv`, `nw_age` 3, `nw_ran`, `ls_split`, `ls_age` 3;
+`v35_req_t` gains `sreg_held`, `sreg`, `li_age` 3), queue state 197 (`sd_off`
+4, `sd_inf`, `sr_valid`, `sr_off` 3, `ox_valid`, `ox_now`, `ox_fed`), arbiter
+state 112 (`so_v`, `so_now`, `sa_v` per position), bus view 20 (`run`: the
+arbiter's registered back-to-back flag, a new `run_r` output), `mutate` 6
+bits; queue op `V35_QOP_STR_RAISE` 38, `STR_HELD`'s a bit = infinite,
+`START`'s b bit = odd_xfer. Thirteen decisions in the spec ("The forty-first
+fit's catch-up"). The baseline before the mechanisms could not be measured
+per run: the frozen arbiter's `sreg_at` store on every request becoming ready
+was unclassified by the recorder, so every run read "not modelled" until it
+was. Still scripted: the code window, the memory image, the I/O read value,
+the initial register file. Not built: the trap sequence, the 0F page and the
+register miscellany (F32/F33, `UNBUILT_CLASSES`; the forty-second fit,
+adopted the same day, changes nothing on the 33 gate lists), interrupts.
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
@@ -622,12 +661,21 @@ then the RTL. In the order the generator gains them:
    and the register miscellany"): the bit ops are register, load_alu and
    rmw shapes, the BCD strings and the bit fields need new templates, and
    silicon does not reduce the bit-field offset and width registers to 4
-   bits.
+   bits. Modelled 2026-10-30 (WP78, docs/v35s-chains.md "The forty-second
+   fit", adopted the same night: the 0F page decoded through `Op.page`, the BCD
+   byte-pair loop and the bit-field class, 379/858; the bit fields and the
+   CL-indexed bit ops mostly ±1 off). Not in RTL: the RTL needs the second
+   opcode byte in `eu_decode`, the two new template shapes and the
+   whole-register bit-field arithmetic.
 5. The register miscellany (INC and DEC r16, flags, adjusts, CVTBD and
    CVTDB, signed multiply and divide, IMUL with an immediate). Acquired
    2026-10-30 (F33, WP74, 1,050 runs, generator-only, with REPC/REPNC): the
    one-byte forms cost 3 clocks per instance, the compares' carry exits equal
    F24's Z exits, so REPC/REPNC are a flag choice in the string template.
+   Modelled 2026-10-30 (WP78, with item 4: 841/1,050, the register forms on
+   the reg and imm shapes with their own integers, `mul.sexec`/`div.sexec`
+   for the signed register forms; REPC/REPNC decoded as REP prefixes since
+   WP76). Not in RTL.
 6. Interrupts, the register banks and the V35 instructions: the core
    plan's Phases 5 and 6, each measured before coded.
 

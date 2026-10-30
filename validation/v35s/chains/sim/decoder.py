@@ -39,6 +39,7 @@ class Decoder:
         self.nx = 0                     # class integer: clocks from the last take to the IR load
         self.ready_at = 0               # first clock the next opcode may be loaded
         self.modrm_next = False         # the next operand byte taken is a ModR/M byte
+        self.modrm_skip = 0             # (WP78) opcode bytes taken before it (the 0F page's)
         self.modrm_addr = None          # (WP26) address of the running instruction's ModR/M
         self.imm_reg = False            # (WP26) it is a register form with an immediate
         self.ir_hold = False            # (WP28) ir_load=disp_data: no IR load before the data cycle
@@ -53,7 +54,9 @@ class Decoder:
             if (self.cfg.modrm_mate and addr & 1 and addr - 1 == self.modrm_addr
                     and self.need - k > 0 and (self.cfg.modrm_mate == "any" or self.imm_reg)):
                 self.queue.mate_t = t           # (WP26) modrm_mate: the ModR/M's word-mate
-            if self.modrm_next:
+            if self.modrm_next and self.modrm_skip:
+                self.modrm_skip -= 1            # (WP78) a 0F form's second opcode byte
+            elif self.modrm_next:
                 self.modrm_addr = addr
                 self.modrm_next = False
                 if self.cfg.modrm_commit == "byte":
@@ -84,7 +87,7 @@ class Decoder:
             self.queue.commit(t)
 
     def start(self, length: int, t: int = 0, nx: int = 0, modrm: bool = False,
-              imm_reg: bool = False) -> int | None:
+              imm_reg: bool = False, page: int = 0, nx0: int = 0) -> int | None:
         """The EU starts an instruction of `length` bytes; returns the IR it consumed.
 
         With opcode_take=prefetch the next opcode may be loaded `nx` clocks after the
@@ -93,10 +96,13 @@ class Decoder:
         """
         ir, self.ir = self.ir, None
         self.modrm_next = modrm
+        self.modrm_skip = page if modrm else 0   # (WP78) page: opcode bytes before the ModR/M
         self.modrm_addr = None
         self.imm_reg = imm_reg
         self.ea_end = None
         self.need = length - 1 if self.cfg.opcode_take == "prefetch" else length
         self.nx = nx
-        self.ready_at = t               # no operand bytes: the next opcode may load at once
+        # no operand bytes: the next opcode may load at once, or (WP78) nx0 clocks after the
+        # start (a class with nx0: the long one-byte forms, the loader busy as after a take)
+        self.ready_at = t + nx0
         return ir

@@ -2126,8 +2126,9 @@ FAMILIES.update({"F31": f31})
 
 
 # F32 and F33 (WP74; HDL plan Phase E items 4 and 5: the 0F page and the register miscellany),
-# refresh off (RFM ECh), every wait and parity. Generator-only (UNMODELLED: the simulator
-# decodes none of the new forms, forms.UNMODELLED_FORMS), acquired and read as facts. The
+# refresh off (RFM ECh), every wait and parity. Generator-only until WP78 (UNMODELLED: the
+# simulator decoded none of the new forms, forms.UNMODELLED_FORMS), acquired and read as facts;
+# (WP78) modelled (sim/templates.py, the 0F page and the register miscellany; fit stage 16). The
 # cost frame PAD [P] LS M0 [lead] X^k M1 LS END with the OUT marker for every variant and the
 # PUSH marker for a subset (the F5 cross-check, the same ids with push for out); X's cost is
 # dM(X) - dM(baseline), the baseline named by the knob `baseline` (the x_variant of the chain
@@ -2334,4 +2335,4 @@ def f33(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F33": f33})
-UNMODELLED = UNMODELLED + ("F32", "F33")      # (WP74) generator-only: facts, no model
+# (WP74) F32 and F33 were generator-only (facts, no model); (WP78) modelled: UNMODELLED stays ()

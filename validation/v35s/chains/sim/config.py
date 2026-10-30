@@ -441,6 +441,23 @@ OPTIONS = {
     # refill 82, 86, 90 back to back; silicon's PUSH write 100, the third fetch's end + 7 at
     # every wait (none: the PUSH starts on 90, W96); pO (the d16 in one word) exact either way.
     "lea_disp": ("none", "split"),  # (WP76, F30)
+    # (WP78, F32, 2026-10-30) a 0F memory form (TEST1 / CLR1 / SET1 / NOT1 r/m, ROL4 / ROR4 r/m:
+    # the operation named by the second opcode byte) runs no group setup (none: its class's cl
+    # clocks, with the index in CL, as EU clocks before the read) / its class's group setup as
+    # a group opcode's memory form (grp / grp_free, grp_mode), the cl clocks part of it (group).
+    # group in the forty-second fit's candidate (WP78, stage 16 sweep, +3 there, 18 runs over
+    # none at the fit's integers): F32-out-set1_mb_cl-k1-pE-w0, rel t_fill, the refill 87, 90
+    # back to back, silicon's read 95, write 100 (none: R96 W101). Flip: none -18 F32 (the
+    # CL-index memory forms at pE), nothing else
+    "page_grp": ("none", "group"),
+    # (WP78, F32, 2026-10-30) the bit fields' requests (EXT / INS: the word at IX / IY, no EA)
+    # count their setup as a memory form's (data: data_while_fetch, setup_free) / as a DW-form
+    # I/O request's, as the string forms' under str_count=dw (only a wait state stops the
+    # count). dw in the forty-second fit's candidate (WP78 hand start, kept by stage 16):
+    # F32-out-ext_bl_dh-k1-pO-w0, rel t_fill, M0's I/O 85, the refill fetch 88, silicon's read 97
+    # (data: R96: the read is start + 12 whatever the fetch). Flip: data -31 F32 (EXT / INS at
+    # pO), nothing else
+    "bf_count": ("data", "dw"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -501,7 +518,10 @@ DEFAULT_COST = {
     "imm": {"pre": 3, "exec": 0},
     "shift_imm": {"pre": 0, "exec": 4},
     "shift_cl": {"pre": 0, "exec": 9},
-    "mul": {"pre": 0, "exec": 20},
+    # (WP78, F33) sexec: the signed register multiply / divide (F7 /5, /7 with a register
+    # operand: MUL CW, DIV CW) in place of exec, as smexec for the memory form; absent = exec
+    "mul": {"pre": 0, "exec": 20, "sexec": 41},
+    "div": {"sexec": 58},
     "load": {"pre": 0, "exec": 2},
     "load_alu": {"pre": 0, "exec": 2},
     "store": {"pre": 2, "setup": 0, "post": 2},
@@ -593,6 +613,56 @@ DEFAULT_COST = {
                "loop": 6, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
     "str_out": {"pre": 0, "setup": 11, "mid": 6, "exec": 3, "nx": 1, "rpre": 5, "zexit": 11,
                 "first": 16, "loop": 6, "last": 1, "rexit": 13, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+# (WP78, F32, F33) the 0F page and the register miscellany (templates._wp78_steps; each class's
+# structure is its BASE_CLASS's, its integers its own; nx, wb as every class's; nx0: a form
+# without operand bytes holds its successor's IR load nx0 clocks from its start, absent = 0;
+# grp / grp_free: with
+# page_grp=group, a 0F memory form's group setup). The register forms (base reg: pre, pre0
+# for a form without operand bytes, exec, nx, wb as reg's): incdec (INC / DEC r16 and r8),
+# flag (CLC STC CMC CLD STD), flag_di (CLI), flag_ei (STI), extend (CVTBW), extend_w (CVTWL),
+# adjust (ADJ4A / ADJ4S), adjust_b (ADJBA / ADJBS), rol4 / ror4 (ROL4 / ROR4 on a register),
+# bit1 (TEST1 / CLR1 / SET1 / NOT1 on a register; cl: more exec clocks when the index is CL);
+# convert (CVTBD), convert_d (CVTDB) the imm class's pre / exec; bit1_test (TEST1 r/m, base
+# load_alu), bit1_rmw (SET1 / NOT1 r/m), bit1_clr (CLR1 r/m), rol4_mem, ror4_mem (base rmw):
+# the load_alu / rmw integers, cl clocks before the read for the CL index; mul_imm (MUL
+# r16,r/m,imm, base mul): pre, exec (register), mexec (memory), mul's hphase / mtail / wb / mwb;
+# the BCD strings bcd4s (ADD4S / SUB4S), bcd4s_cmp (CMP4S): pre, first (the first pair's
+# source read setup), mid (the destination read's), wmid (the write back's), loop (each later
+# pair's source read), exec (after the last pair); the bit fields bf_ext (EXT), bf_ins (INS):
+# pre, setup / setup_free (the first word's read, as any request's), xsetup (EXT: the next
+# word's read when the field crosses), span / xspan (the cost formula's clocks less these,
+# within one word / crossing),
+# wsetup (INS: the write back), xwsetup / xrsetup (INS crossing: the first word's write back,
+# the next word's read), post. The values are the hand start stage 16 descends from (WP78;
+# read off scratchpad wp74/facts-F32.txt and facts-F33.txt), the fit's own in fit.json.
+    "incdec": {"wb": 1, "nx0": 0, "pre": 3, "pre0": 3, "exec": 0, "nx": 1},
+    "flag": {"wb": 1, "nx0": 0, "pre": 0, "pre0": 3, "exec": 0, "nx": 1},
+    "flag_di": {"wb": 3, "nx0": 3, "pre": 0, "pre0": 4, "exec": 0, "nx": 1},
+    "flag_ei": {"wb": 3, "nx0": 12, "pre": 0, "pre0": 13, "exec": 0, "nx": 1},
+    "extend": {"wb": 1, "nx0": 0, "pre": 0, "pre0": 3, "exec": 0, "nx": 1},
+    "extend_w": {"wb": 3, "nx0": 8, "pre": 0, "pre0": 9, "exec": 0, "nx": 1},
+    "adjust": {"wb": 2, "nx0": 8, "pre": 0, "pre0": 10, "exec": 0, "nx": 1},
+    "adjust_b": {"wb": 3, "nx0": 16, "pre": 0, "pre0": 17, "exec": 0, "nx": 1},
+    "rol4": {"wb": 1, "pre": 0, "exec": 14, "nx": 0},
+    "ror4": {"wb": 2, "pre": 1, "exec": 17, "nx": 0},
+    "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1},
+    "convert": {"nx": 0, "wb": 2, "pre": 3, "exec": 16},
+    "convert_d": {"nx": 0, "wb": 0, "pre": 2, "exec": 16},
+    "bit1_test": {"grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3},
+    "bit1_rmw": {"grp": 0, "grp_free": 0, "nx": 1, "wb": 0, "pre": 7, "alu": 3, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+                 "sidle": 2, "cl": 3},
+    "bit1_clr": {"grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 7, "alu": 4, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+                 "sidle": 2, "cl": 3},
+    "rol4_mem": {"grp": 0, "grp_free": 0, "nx": 8, "wb": 0, "pre": 1, "alu": 12, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+                 "sidle": 2},
+    "ror4_mem": {"grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 6, "alu": 16, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+                 "sidle": 2},
+    "mul_imm": {"nx": 0, "pre": 0, "exec": 35, "mexec": 45, "hphase": 2, "mtail": 2, "wb": 2, "mwb": 2},
+    "bcd4s": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "wmid": 10, "loop": 7, "exec": 12},
+    "bcd4s_cmp": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "loop": 14, "exec": 20},
+    "bf_ext": {"nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "xsetup": 26, "span": 14, "xspan": 42},
+    "bf_ins": {"nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "span": 19, "wsetup": 2, "xwsetup": 68, "xrsetup": 11,
+               "xspan": 106, "post": 2},
 }
 DEFAULT_EA = {"base": 2, "base_index": 3, "disp": 2, "base_disp": 3, "base_index_disp": 4,
               "direct": 0,
@@ -852,6 +922,8 @@ class Config:
     sreg_io: str = "free"              # (WP76)
     sreg_store: str = "store"          # (WP76)
     lea_disp: str = "none"             # (WP76)
+    bf_count: str = "data"             # (WP78)
+    page_grp: str = "none"             # (WP78)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

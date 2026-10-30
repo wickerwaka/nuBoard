@@ -388,7 +388,8 @@ QOPS = ("nop", "take", "commit", "irload", "start", "flush", "disp", "halt", "ev
         "shift_end", "retry_end", "retry_set", "reraise", "shift_set", "shift_hold",
         "drop_retry", "want", "asked", "requesting", "room", "triple", "stored", "avail",
         "issue", "abort", "drop", "beat", "lost_eval", "lost_halt", "lost_after", "redate",
-        "io_held_clr", "io_held_set", "t4", "nop_hold", "gdisp", "lea_ea", "str_held")
+        "io_held_clr", "io_held_set", "t4", "nop_hold", "gdisp", "lea_ea", "str_held",
+        "str_raise")                                # (WP77) str_fetch=hold, CW = 0
 READ_OPS = frozenset(("want", "asked", "requesting", "room", "triple", "stored", "avail"))
 PURE_READS = frozenset(("room", "triple", "stored", "avail"))
 
@@ -451,7 +452,13 @@ QFIELDS = (
     ("le_valid", 1),         # (WP72) lea_room=ir: lea_ea is set ...
     ("le_off", 2),           # ... max(0, lea_ea's end - t)
     ("sd_valid", 1),         # (E3) str_hold=hold: str_held is set ...
-    ("sd_off", 2),           # ... max(0, str_held - t)
+    ("sd_off", 4),           # ... max(0, str_held - t) (WP77: xfetch clocks) ...
+    ("sd_inf", 1),           # ... (WP77) str_fetch=hold: str_held is infinite (none from here)
+    ("sr_valid", 1),         # (WP77) str_fetch=hold: str_raise is set ...
+    ("sr_off", 3),           # ... max(0, str_raise - t)
+    ("ox_valid", 1),         # (WP77) xfer_odd=idle: odd_xfer is set ...
+    ("ox_now", 1),           # ... == t
+    ("ox_fed", 1),           # ... past it: a fetch was on the bus on that clock (odd_fed)
     ("arrived_now", 1),      # arrived_t == t
     ("removed_now", 1),      # removed_t == t
     ("ir_now", 1),           # ir_t == t
@@ -523,7 +530,14 @@ def qstate(m, t: int) -> dict:
         "le_valid": int(q.lea_ea is not None),
         "le_off": 0 if q.lea_ea is None else max(0, q.lea_ea[1] - t),
         "sd_valid": int(q.str_held is not None),
-        "sd_off": 0 if q.str_held is None else max(0, q.str_held - t),
+        "sd_off": (0 if q.str_held is None or q.str_held == float("inf")
+                   else max(0, q.str_held - t)),
+        "sd_inf": int(q.str_held == float("inf")),
+        "sr_valid": int(q.str_raise is not None),
+        "sr_off": 0 if q.str_raise is None else max(0, q.str_raise - t),
+        "ox_valid": int(q.odd_xfer is not None),
+        "ox_now": int(q.odd_xfer == t),
+        "ox_fed": int(q.odd_xfer is not None and t > q.odd_xfer and _odd_fed(q, bus)),
         "arrived_now": int(q.arrived_t == t), "removed_now": int(q.removed_t == t),
         "ir_now": int(q.ir_t == t), "qport_now": int(q.qport_t == t),
         "disp_now": int(q.disp_t == t), "mate_now": int(q.mate_t == t),
@@ -538,6 +552,16 @@ def qstate(m, t: int) -> dict:
     if len(q.bytes) > 8 or q.latched > 1 or len(q.uncommitted) > 3:
         raise RuntimeError(f"{m.chain.id}: queue storage out of range at {t}")
     return s
+
+
+def _odd_fed(q, bus) -> bool:
+    """(WP77) xfer_odd=idle: queue._odd_fed's value, without computing it into the queue: a
+    fetch on the bus (in flight, or issued) on the odd-address transfer's start clock (the RTL
+    keeps it from the end of that clock: in flight, not an aborted cycle)."""
+    if q.odd_fed is not None:
+        return q.odd_fed
+    s = q.odd_xfer
+    return any(c.kind == "fetch" and c.start <= s <= c.end for c in bus.cycles[-3:])
 
 
 def qstate_text(s: dict) -> str:
@@ -738,8 +762,12 @@ class QueueRecorder:
             return QOp("gdisp", val=v - t)          # (WP61) grp_disp=hold
         if attr == "lea_ea" and caller == "tick" and v is not None and v[0] == t:
             return QOp("lea_ea", val=v[1] - t)      # (WP72) lea_room=ir
+        if attr == "str_held" and caller == "tick" and v == float("inf"):
+            return QOp("str_held", a=1)             # (WP77) str_fetch=hold: none from here
         if attr == "str_held" and caller == "tick" and v is not None:
-            return QOp("str_held", val=v - t)       # (E3) str_hold=hold
+            return QOp("str_held", val=v - t)       # (E3) str_hold=hold; (WP77) str_fetch
+        if attr == "str_raise" and caller == "tick" and v is not None:
+            return QOp("str_raise", val=v - t)      # (WP77) str_fetch=hold, CW = 0
         return None
 
     def _continues(self, op: QOp, ev) -> bool:
@@ -756,7 +784,8 @@ class QueueRecorder:
             return (key == ("set", "ir_t") and len(names) == 1) or (
                 key == ("call", "commit") and ev[3] == "load_ir" and len(names) == 2)
         if c == "start":
-            return key in (("set", "starts"), ("set", "flush_held")) and key not in names
+            return key in (("set", "starts"), ("set", "flush_held"), ("set", "odd_xfer"),
+                           ("set", "odd_fed")) and key not in names
         if c in ("shift_end", "retry_end", "reraise"):
             return key in (("set", "shift_held"), ("set", "retry"), ("call", "room"),
                            ("set", "flag")) and key not in names and ("set", "flag") not in names
@@ -809,6 +838,9 @@ class QueueRecorder:
             bad = "starts" not in sets
             if "flush_held" in sets:
                 op.a, op.val = 1, sets["flush_held"] - t
+            if "odd_xfer" in sets:              # (WP77) xfer_odd=idle: b
+                op.b = 1
+                bad = bad or sets["odd_xfer"] != t or sets.get("odd_fed", 0) is not None
         elif op.code in ("shift_end", "retry_end", "reraise"):
             need = {"shift_end": ("shift_held", "flag"), "retry_end": (),
                     "reraise": ("flag",)}[op.code]
@@ -855,8 +887,12 @@ class QueueRecorder:
             bad = sets["disp_t"] != t
         elif op.code == "gdisp":
             bad = not 0 <= op.val < 4
-        elif op.code in ("lea_ea", "str_held"):
+        elif op.code == "lea_ea":
             bad = not 0 < op.val < 4
+        elif op.code == "str_held":
+            bad = not (op.a or 0 < op.val < 16)
+        elif op.code == "str_raise":
+            bad = not 0 < op.val < 8
         if bad:
             raise RuntimeError(f"{m.chain.id}: queue op {op.code} at {t}: unexpected events "
                                f"{[(e[0], e[1]) for e in ev]}")
@@ -1166,6 +1202,14 @@ EUFIELDS = (
                              # start_at, not pop_ref ...
     ("pr_now", 1),           # ... the last cycle a refresh started on t ...
     ("pr_len", 3),           # ... the last refresh's length
+    # (WP77) the forty-first fit's
+    ("sreg", 2),             # sreg_store, sreg_io: the running form's Op.sreg (1 load, 2 store)
+    ("lea_split", 1),        # lea_disp=split: the running LDEA's d16 ends on a word's low half
+    ("nw_tv", 1),            # str_io_setup=run: nw_t is set ...
+    ("nw_age", 3),           # ... t - nw_t, the nowait step's first clock (saturating at 7)
+    ("nw_ran", 1),           # ... nw_run is set (the wait clock it counted)
+    ("ls_split", 1),         # str_split=floor: the last data step ran two cycles (last_issued)
+    ("ls_age", 3),           # ... t - its second's start (saturating at 7)
 )
 RFIELDS = (
     ("valid", 1),
@@ -1197,6 +1241,9 @@ RFIELDS = (
     ("da_past", 1),          # ... done_at < t
     ("grpcl", 2),            # (C5) refresh_grpcl: a memory shift's read: its CL clocks
     ("beat_ext", 3),         # (C5) refresh_post=post_beat: the hold's clocks
+    ("sreg_held", 1),        # (WP77) sreg_io=hold: a MOV sreg,r/m decoded behind it
+    ("sreg", 1),             # (WP77) sreg_store=own: MOV r/m,sreg's write
+    ("li_age", 3),           # (WP77) t - its last issued cycle's start (saturating at 7)
 )
 # (D1, D2) the register file (v35_eu.sv v35_rf_t), MSB first
 FFIELDS = (
@@ -1228,7 +1275,8 @@ QVIEW = ("count", "latched", "flag", "rq_valid", "rq_age", "inflight", "ab_valid
          "ir_now", "latch_in_now")
 # the bus unit's state the EU reads (before and after the arbiter's choice; v35_bview_t)
 BVIEW = (("kind", 3), ("pos", 3), ("len", 3), ("free", 1), ("finf", 1), ("in_wait", 1),
-         ("fprev", 1), ("wl", 1), ("fsince", 4), ("flen3", 1))
+         ("fprev", 1), ("wl", 1), ("fsince", 4), ("flen3", 1),
+         ("run", 1))         # (WP77) the last two cycles but refreshes fetches back to back
 # an instruction's operand record (D1: the RTL's register file and EA adder compute it; the
 # bench compares), then (D2) the register file before the instruction (FFIELDS, the functional
 # reference's)
@@ -1260,7 +1308,7 @@ def _templates(cfg):
         from . import rtlgen
         order, sel, _ = rtlgen.templates(cfg)
         _TMPL_CACHE.clear()
-        _TMPL_CACHE[key] = (order, sel, sorted(cfg.cost))
+        _TMPL_CACHE[key] = (order, sel, rtlgen.rtl_classes(cfg))   # (WP77) the built
     return _TMPL_CACHE[key]
 
 
@@ -1466,7 +1514,7 @@ class EURecorder:
                 self.clock.xops.append(("halt_defer", v - t))   # (C5) refresh_halt=status
                 return
             if who == "req" and k in ("count", "ready_since", "lift_t", "free_held", "grp_held",
-                                      "xeu", "eu_halted"):
+                                      "xeu", "eu_halted", "sreg_ok", "sreg_at"):
                 if self.arb is not None:
                     self.arb.store(k, v, t)     # (C4) the arbiter's own, classified there
                 return                          # the arbiter's own (C4)
@@ -1636,7 +1684,20 @@ def bview(m, t: int) -> tuple:
     return (KINDS.index(cur.kind) if cur else 0, t - cur.start if cur else 0,
             cur.length if cur else 0, int(b.free(t)), int(b.fetch_inflight(t)),
             int(b.in_wait(t)), int(b.last_fetch_end == t - 1), int(t < m.eu.wlatch_until),
-            since, int(b.length("fetch") == 3))
+            since, int(b.length("fetch") == 3), _fetch_run(b))
+
+
+def _fetch_run(b) -> int:
+    """(WP77) str_io_setup=run: the last two cycles that are not refreshes are fetches back to
+    back (the arbiter's ARFIELDS run): with the last a fetch, the model's _run_wait's cycles."""
+    cs = []
+    for c in reversed(b.cycles):
+        if c.kind != "refresh":
+            cs.insert(0, c)
+            if len(cs) == 2:
+                break
+    return int(len(cs) >= 2 and cs[-1].kind == "fetch" and cs[-2].kind == "fetch"
+               and cs[-2].end == cs[-1].start - 1)
 
 
 def qview(s: dict) -> tuple:
@@ -1776,6 +1837,15 @@ def estate(m, t: int, rec) -> dict:
                          and last is not eu.pop_ref)
     s["e_pr_now"] = int(last is not None and last.kind == "refresh" and last.start == t)
     s["e_pr_len"] = lref.length if lref is not None else 0
+    # (WP77)
+    s["e_sreg"] = {None: 0, "load": 1, "store": 2}[eu.sreg]
+    s["e_lea_split"] = int(bool(eu.lea_split))
+    s["e_nw_tv"] = int(eu.nw_t is not None)
+    s["e_nw_age"] = min(7, t - eu.nw_t) if eu.nw_t is not None else 0
+    s["e_nw_ran"] = int(eu.nw_run is not None)
+    li = eu.last_issued
+    s["e_ls_split"] = int(len(li) > 1)
+    s["e_ls_age"] = min(7, t - li[-1].start) if len(li) > 1 else 0
     from .rtlgen import REQ_KINDS
     for i, r in enumerate(slots):
         p = f"r{i}_"
@@ -1812,6 +1882,9 @@ def estate(m, t: int, rec) -> dict:
         s[p + "da_past"] = int(r.done_at is not None and r.done_at < t)
         s[p + "grpcl"] = r.grpcl
         s[p + "beat_ext"] = r.beat_ext
+        s[p + "sreg_held"] = int(r.sreg_held)
+        s[p + "sreg"] = int(r.sreg)
+        s[p + "li_age"] = min(7, t - r.issued[-1].start) if r.issued else 0
     for k, w in EFIELDS:
         v = s[k]
         if not 0 <= v < (1 << w):
@@ -2144,6 +2217,9 @@ ARQFIELDS = (
     ("fh_now", 1),           # free_held == t
     ("gh_now", 1),           # grp_held == t
     ("xeu", 3),              # (C5) dw_view=eu: t, t-1, t-2 in req.xeu (bit 0: t)
+    ("so_v", 1),             # (WP77) sreg_store=own: sreg_ok is set ...
+    ("so_now", 1),           # ... == t
+    ("sa_v", 1),             # (WP77) sreg_io=hold: sreg_at is set
 )
 ARFIELDS = (tuple((f"q{i}_{n}", w) for i in (2, 1, 0) for n, w in ARQFIELDS)
             + (("run", 1), ("io_v", 1), ("io_age", 4),
@@ -2182,6 +2258,9 @@ def astate(m, t: int) -> dict:
         s[p + "gh_now"] = int(r.grp_held == t)
         x = r.xeu or set()
         s[p + "xeu"] = sum(1 << i for i in range(3) if t - i in x)
+        s[p + "so_v"] = int(r.sreg_ok is not None)
+        s[p + "so_now"] = int(r.sreg_ok == t)
+        s[p + "sa_v"] = int(r.sreg_at is not None)
     cyc = bus.cycles
     last = cyc[-1] if cyc else None
     s["early_on"] = int(bus.early is not None and bus.early is last)
@@ -2245,9 +2324,12 @@ class ArbiterRecorder:
         if k == "count":
             if not (isinstance(v, int) and 0 <= v < 128):
                 raise NotModelled(f"the arbiter sets a count of {v!r} at {t}")
-        elif k in ("ready_since", "lift_t", "free_held", "grp_held"):
+        elif k in ("ready_since", "lift_t", "free_held", "grp_held", "sreg_at"):
             if v != t:
                 raise NotModelled(f"the arbiter sets {k} = {v!r} at {t}")
+        elif k == "sreg_ok":                # (WP77) sreg_store=own: set to t or cleared
+            if v is not None and v != t:
+                raise NotModelled(f"the arbiter sets sreg_ok = {v!r} at {t}")
         elif k == "eu_halted":
             if v != m.eu.halted:
                 raise NotModelled(f"eu_halted = {v!r} at {t}")
@@ -2448,14 +2530,18 @@ class CResult:
                 and self.cycles == self.rtl_cycles == self.exact_cycles)
 
 
-def check_core_run(rec: dict, cfg, keep: Path | None = None, mutate: int = 0) -> CResult:
+def check_core_run(rec: dict, cfg, keep: Path | None = None, mutate: int = 0,
+                   chain=None) -> CResult:
+    """One run through the core bench. chain (WP77): a variant of the run's chain to run in
+    its place (the RTL against the frozen model only, not scored against silicon)."""
     from .normalize import normalize
     from .score import model_one, relabel_refresh, score
     from .sim.frozen.machine import refresh_anchor
     s = normalize(rec)
     res = CResult(s.run_id)
     try:
-        etext, qtext, btext, atext, cycles, erec, arec = core_vectors(s.chain, cfg, s.chain_base)
+        etext, qtext, btext, atext, cycles, erec, arec = core_vectors(
+            s.chain if chain is None else chain, cfg, s.chain_base)
     except NotModelled as e:
         res.not_modelled = str(e)
         return res
@@ -2495,6 +2581,8 @@ def check_core_run(rec: dict, cfg, keep: Path | None = None, mutate: int = 0) ->
               c.data & 0xFFFF) for c in cycles]
     res.cycles, res.rtl_cycles = len(model), len(cyc)
     res.exact_cycles = sum(1 for x, y in zip(model, cyc) if x == y)
+    if chain is not None:
+        return res
     try:
         rrec = {"chain": rec["chain"], "chain_base": s.chain_base, "complete": True,
                 "socket_trace": rtl_trace(cyc)}
@@ -2948,14 +3036,14 @@ def check_sst(stems, keep: Path | None = None, jobs: int = 8, show: int = 3) -> 
 
 def _work(args):
     family, rec, keep, mode = args
-    from .sim.config import Config
+    from .rtlgen import fit_config
     if mode == "biu":
-        return family, check_run(rec, Config.fitted(), keep)
+        return family, check_run(rec, fit_config(), keep)
     if mode in ("eu", "joint3"):
-        return family, check_eu_run(rec, Config.fitted(), keep, joint=mode == "joint3")
+        return family, check_eu_run(rec, fit_config(), keep, joint=mode == "joint3")
     if mode == "core":
-        return family, check_core_run(rec, Config.fitted(), keep)
-    return family, check_queue_run(rec, Config.fitted(), keep, joint=mode == "joint")
+        return family, check_core_run(rec, fit_config(), keep)
+    return family, check_queue_run(rec, fit_config(), keep, joint=mode == "joint")
 
 
 def _report_biu(f, rs, show) -> int:

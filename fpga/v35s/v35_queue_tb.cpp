@@ -214,7 +214,7 @@ int main(int argc, char** argv) {
             b.fields.push_back({f.substr(0, c), std::stoi(f.substr(c + 1))});
             b.width += b.fields.back().width;
         }
-        if (tag != "F" || b.width != 187) {
+        if (tag != "F" || b.width != 197) {
             std::fprintf(stderr, "bad field line (%d bits)\n", b.width);
             return 2;
         }

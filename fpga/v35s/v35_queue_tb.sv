@@ -10,7 +10,7 @@
 // Build: fpga/v35s/build_queue_tb.sh (binary in build/fpga/v35s/queue-tb/).
 module v35_queue_tb #(
     parameter int NSLOT = 16,
-    parameter int STATE_W = 187
+    parameter int STATE_W = 197
 ) (
     input  wire        clock,
     input  wire        reset_n,

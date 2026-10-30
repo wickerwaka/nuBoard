@@ -17,7 +17,7 @@ module v35_rf_tb
     input  wire [47:0]  code,               // the instruction's bytes, the opcode in [47:40]
     input  wire [15:0]  pc,                 // its code offset
     input  wire [15:0]  code_org,           // the IP of offset 0
-    input  wire [4:0]   mutate,             // the package's mutations
+    input  wire [5:0]   mutate,             // the package's mutations
     // a read cycle delivered: its request's width, address parity, I/O, its last cycle, the
     // bus word; the shift count (the record's)
     input  wire         d_w2,

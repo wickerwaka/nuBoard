@@ -384,24 +384,26 @@ class _StringState:
                 overrun += _cycles(kind, ((seg << 4) + off) & 0xFFFFF, w)
         return StringRun(elements, overrun, cond)
 
-    def bcd(self, form_name) -> list:
+    def bcd(self, form_name) -> "StringRun":
         """(WP74, F32) ADD4S / SUB4S / CMP4S: (CL + 1) / 2 byte pairs, each the source byte at
         DS0:IX + i (DS1 behind the 26h prefix), the destination byte at DS1:IY + i, then (not
-        CMP4S) the result byte back at DS1:IY + i; IX, IY and CL unchanged."""
+        CMP4S) the result byte back at DS1:IY + i; IX, IY and CL unchanged. (WP78) As a
+        StringRun, one element per byte pair (the simulator's count, as a REP form's)."""
         code = FORMS[form_name].code
         what = f"{form_name} at"
         cl = self.r8(1, what)
         src_seg = self.need("DS1" if code[0] == 0x26 else "DS0", what)
         ix, iy, ds1 = self.need("IX", what), self.need("IY", what), self.need("DS1", what)
-        acc = []
+        elements = []
         for i in range((cl + 1) // 2):
             src = ((src_seg << 4) + ((ix + i) & 0xFFFF)) & 0xFFFFF
             dst = ((ds1 << 4) + ((iy + i) & 0xFFFF)) & 0xFFFFF
-            acc += _cycles("data_read", src, 1) + _cycles("data_read", dst, 1)
+            acc = _cycles("data_read", src, 1) + _cycles("data_read", dst, 1)
             if F32_BCD[form_name] != 0x26:
                 acc += _cycles("data_write", dst, 1)
                 self.write(dst, 1, None)
-        return acc
+            elements.append(acc)
+        return StringRun(elements, [])
 
     def bitfield(self, form_name) -> list:
         """(WP74, F32) EXT / INS: the offset (the offset register's low 4 bits) and the width
@@ -509,7 +511,10 @@ def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, l
                 elements[k] = run
             acc = [a for element in run.elements for a in element] + run.overrun
         elif instr.role == "x" and strings is not None and instr.form in F32_BCD:
-            acc = strings.bcd(instr.form)
+            run = strings.bcd(instr.form)
+            if elements is not None:
+                elements[k] = run           # (WP78) the BCD string's byte pairs
+            acc = [a for element in run.elements for a in element]
         elif instr.role == "x" and strings is not None and instr.form in F32_BITFIELD:
             acc = strings.bitfield(instr.form)
         elif instr.role == "x":

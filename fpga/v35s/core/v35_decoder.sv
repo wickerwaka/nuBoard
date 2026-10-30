@@ -63,6 +63,8 @@ package v35_decoder_pkg;
         logic       wl;             // t < the data latch's busy end (wlatch)
         logic [3:0] fsince;         // t - last_fetch_end (0: a fetch runs, 15: 15 or more)
         logic       flen3;          // bus.length("fetch") == 3 (no memory waits)
+        logic       run;            // (WP77) the last two cycles but refreshes are fetches back
+                                    // to back (the arbiter's run; str_io_setup=run)
     } v35_bview_t;
 
     // ---- the decoder's state (rtl_vectors.DFIELDS, MSB first)

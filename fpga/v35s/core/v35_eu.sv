@@ -71,6 +71,16 @@
 // cut by a compare's exit at the read that decides it, eu_str_read) and its exit (x.sc); the
 // element addresses are IX / IY at the start (x.six, x.siy, the source's segment x.sseg) plus
 // the element by DIR; fetch_hold is the str_held op; OUTM's I/O write fills the data latch.
+// (WP77) The forty-first fit: the REP forms' compact template gains rtlgen's new rows (the CW = 0
+// fetch_release raise, fetch_release forever before element 0, the tail's fetch_release xfetch
+// and split_floor; eu_str_step), str_fetch=hold (the str_held op's infinite form, the str_raise
+// op), str_split=floor (last_issued: ls_split / ls_age from the request's li_age), str_exit=wb
+// (the exit's xwb clocks a write-back), str_io_setup=run (the nowait step's _run_wait: nw_t as
+// nw_age, the bus view's run), str_start=skip (the take sync met on the aborted cycle's last
+// clock), xfer_odd=idle (the start op's b: the queue's odd_xfer), sreg_io=hold (eu_sreg_hold:
+// the slot's sreg_held, the arbiter's not_before), sreg_store=own (the write request's sreg, the
+// arbiter's sreg_ok), lea_disp=split (lea_split: no start on a back-to-back fetch's issue); Op.sreg
+// is eu_decode's; REPC (65) and REPNC (64) are REP prefixes, the compare's exit the carry.
 // The EU's state types (v35_eus_t, the request record v35_req_t, the bundle v35_st_t), a
 // package so that the arbiter (C4) reads the state the module exports after phase L and at
 // the end of the clock (state_l, state_e).
@@ -162,6 +172,15 @@ package v35_eu_pkg;
                                     // started before start_at, not yet counted ...
         logic        pr_now;        // ... it started on this clock ...
         logic [2:0]  pr_len;        // ... its length
+        // (WP77) the forty-first fit's
+        logic [1:0]  sreg;          // sreg_store, sreg_io: the running form's Op.sreg (1 load,
+                                    // 2 store)
+        logic        lea_split;     // lea_disp=split: the running LDEA's d16 ends on a low half
+        logic        nw_tv;         // str_io_setup=run: nw_t is set ...
+        logic [2:0]  nw_age;        // ... t - nw_t (saturating at 7)
+        logic        nw_ran;        // ... nw_run is set
+        logic        ls_split;      // str_split=floor: the last data step ran two cycles ...
+        logic [2:0]  ls_age;        // ... t - its second's start (saturating at 7)
     } v35_eus_t;
 
     // eu.clk_tag (refresh_eu=hold: the template's tags, a shift's own "loop" / "shift")
@@ -201,6 +220,9 @@ package v35_eu_pkg;
         logic        da_past;       // ... done_at < t
         logic [1:0]  grpcl;         // (C5) refresh_grpcl: a memory shift's read: its CL clocks
         logic [2:0]  beat_ext;      // (C5) refresh_post=post_beat: the hold's clocks
+        logic        sreg_held;     // (WP77) sreg_io=hold: a MOV sreg,r/m decoded behind it
+        logic        sreg;          // (WP77) sreg_store=own: MOV r/m,sreg's write
+        logic [2:0]  li_age;        // (WP77) t - its last issued cycle's start (saturating at 7)
     } v35_req_t;
 
     // ---- (D2) the register file (rtl_vectors.FFIELDS, MSB first): the word registers in
@@ -299,9 +321,10 @@ package v35_eu_pkg;
 
     // ------------------------------------------------ the step list (eu.steps)
 
-    // (E3) a REP string form's compact template (rtlgen.string_template): {m, c} (0: not one)
-    function automatic logic [3:0] eu_str_shape(input v35_eus_t e);
-        eu_str_shape = e.cls == CLS_NONE ? 4'd0 : v35_str_shape(int'(e.tmpl));
+    // (E3) a REP string form's compact template (rtlgen.string_template): {t, m, c} (0: not
+    // one); (WP77) t the tail's rows (fetch_release xfetch, split_floor xsplit)
+    function automatic logic [5:0] eu_str_shape(input v35_eus_t e);
+        eu_str_shape = e.cls == CLS_NONE ? 6'd0 : v35_str_shape(int'(e.tmpl));
     endfunction
 
     // (E3) a string compare (REPE / REPNE CMPBK, CMPM: the overrun read, cexit)
@@ -310,14 +333,16 @@ package v35_eu_pkg;
     endfunction
 
     function automatic int eu_nsteps(input v35_eus_t e, input v35_fx_t x);
-        int m, c;
+        int m, c, t;
+        t = int'(eu_str_shape(e)[5:4]);
         m = int'(eu_str_shape(e)[3:2]);
         c = int'(eu_str_shape(e)[1:0]);
         if (e.cls == CLS_NONE)
             eu_nsteps = 0;                      // no instruction yet: eu.steps = []
         else if (m != 0)                        // (E3) rtlgen.expand_string's length
-            eu_nsteps = x.sn == '0 ? V35_STR_HEAD + 1
-                        : V35_STR_HEAD + int'(x.sn) * m + (eu_str_cmp(e.cls) ? c : 0) + 1;
+            eu_nsteps = x.sn == '0 ? V35_STR_HEAD + V35_STR_ZERO
+                        : V35_STR_HEAD + V35_STR_PRE + int'(x.sn) * m
+                          + (eu_str_cmp(e.cls) ? c : 0) + t + 1;
         else
             eu_nsteps = int'(e.wbs) + v35_tmpl_len(int'(e.tmpl)) + (e.ins ? 2 : 0);
     endfunction
@@ -350,36 +375,44 @@ package v35_eu_pkg;
         eu_base_step = s;
     endfunction
 
-    // (E3) a REP string form's step k (rtlgen.expand_string): the head, zexit (no element),
-    // element i = (k - 2) / m's rows (element 0's, 1's, or 2's for i >= 2; the last data row
-    // of the element that runs CW out `last` clocks later), a compare's overrun (element sn's
-    // data rows), the exit (cexit when the condition ended the repeat); src_i: the element
+    // (E3) a REP string form's step k (rtlgen.expand_string): the head; with no element the
+    // CW = 0 rows (WP77: fetch_release raise, zexit); else the rows before element 0 (WP77:
+    // fetch_release forever), element i = (k - HEAD - PRE) / m's rows (element 0's, 1's, or
+    // 2's for i >= 2; the last data row of the element that runs CW out `last` clocks later),
+    // a compare's overrun (element sn's data rows), the tail (WP77: fetch_release xfetch,
+    // split_floor), the exit (cexit when the condition ended the repeat); src_i: the element
     function automatic v35_stp_t eu_str_step(input v35_eus_t e, input v35_fx_t x, input int k);
         v35_stp_t s;
-        int m, c, b, i, j, n;
+        int m, c, t, b, i, j, n, o, base;
+        t = int'(eu_str_shape(e)[5:4]);
         m = int'(eu_str_shape(e)[3:2]);
         c = int'(eu_str_shape(e)[1:0]);
         n = int'(x.sn);
+        o = eu_str_cmp(e.cls) ? c : 0;
+        base = V35_STR_HEAD + V35_STR_ZERO + V35_STR_PRE;
         i = 0;
         if (k < V35_STR_HEAD) begin
             s = eu_base_step(e, k);
         end else if (n == 0) begin
-            s = eu_base_step(e, V35_STR_HEAD);
+            s = eu_base_step(e, k);             // the CW = 0 rows follow the head
+        end else if (k < V35_STR_HEAD + V35_STR_PRE) begin
+            s = eu_base_step(e, k + V35_STR_ZERO);
         end else begin
-            b = k - V35_STR_HEAD;
+            b = k - V35_STR_HEAD - V35_STR_PRE;
             if (b < n * m) begin
                 i = b / m;
                 j = b % m;
-                s = eu_base_step(e, V35_STR_HEAD + 1 + (i < V35_STR_SETS ? i : V35_STR_SETS - 1) * m
-                                    + j);
+                s = eu_base_step(e, base + (i < V35_STR_SETS ? i : V35_STR_SETS - 1) * m + j);
                 if (j == c - 1 && i == n - 1 && !x.sc)
                     s.n = s.n + 10'(v35_cost(int'(e.cls), V35_CN_LAST));
-            end else if (eu_str_cmp(e.cls) && b < n * m + c) begin
+            end else if (b < n * m + o) begin
                 i = n;
-                s = eu_base_step(e, V35_STR_HEAD + 1 + (n < V35_STR_SETS ? n : V35_STR_SETS - 1) * m
+                s = eu_base_step(e, base + (n < V35_STR_SETS ? n : V35_STR_SETS - 1) * m
                                     + (b - n * m));
+            end else if (b < n * m + o + t) begin
+                s = eu_base_step(e, base + V35_STR_SETS * m + (b - n * m - o));
             end else begin
-                s = eu_base_step(e, V35_STR_HEAD + 1 + V35_STR_SETS * m + (x.sc ? 1 : 0));
+                s = eu_base_step(e, base + V35_STR_SETS * m + t + (x.sc ? 1 : 0));
             end
         end
         s.src_i = 3'd0;
@@ -564,6 +597,7 @@ package v35_eu_pkg;
         logic [2:0] mode;           // mode_class (V35_EAC_*)
         logic [1:0] width;
         logic       bus;            // the memory operand has a bus cycle (False: LDEA)
+        logic [1:0] sreg;           // (WP77) Op.sreg: 1 load (MOV sreg,r/m, 8E), 2 store (8C)
     } v35_op_t;
 
     // the operand record (rtl_vectors.OpRec, MSB first): (D1) the register file's and the EA
@@ -605,7 +639,8 @@ package v35_eu_pkg;
         m = code[39:32];
         if (v35_str_cls(o) != CLS_NONE)
             v35_str_op = o;
-        else if ((o == 8'hF2 || o == 8'hF3) && v35_str_cls(m) != CLS_NONE)
+        else if ((o == 8'hF2 || o == 8'hF3 || o == 8'h64 || o == 8'h65)
+                 && v35_str_cls(m) != CLS_NONE)  // (WP77) 64 REPNC, 65 REPC
             v35_str_op = m;
         else
             v35_str_op = 8'd0;
@@ -798,8 +833,10 @@ package v35_eu_pkg;
                 op.cls = 6'(V35_CLS_POP_MEM);
             end else if (o == 8'h8E) begin
                 op.cls = 6'(!mem ? V35_CLS_REG : V35_CLS_LOAD_SEG);
+                op.sreg = 2'd1;             // (WP77) a segment register the destination
             end else if (o == 8'h8C) begin
                 op.cls = 6'(mem ? V35_CLS_STORE : V35_CLS_REG);
+                op.sreg = 2'd2;             // (WP77) ... the source
             end else if (o == 8'h8D) begin
                 op.ok = mem;
                 op.cls = 6'(V35_CLS_LEA);
@@ -823,7 +860,9 @@ package v35_eu_pkg;
     // the module's, WP75: 14 imm_latch=wait off, 15 lea_io=recover off, 16 lea_room=ir's window
     // closed, 17 prepare_sync=run off, 18 burst_count=dw off, 19 cond_gap=own off, 21 a string
     // element's address step 0, 22 no overrun read, 23 the compare exit's condition ignored;
-    // 20 is the arbiter's: xfer_abort=word off).
+    // 20 is the arbiter's: xfer_abort=word off; WP77, the forty-first fit's off: 24 xfer_odd,
+    // 25 str_exit, 26 str_split, 27 str_io_setup, 28 str_start, 29 str_fetch, 30 sreg_io,
+    // 31 sreg_store, 32 lea_disp).
 
     localparam int V35_PSW_CY = 0, V35_PSW_P = 2, V35_PSW_AC = 4, V35_PSW_Z = 6,
                    V35_PSW_S = 7, V35_PSW_DIR = 10, V35_PSW_V = 11;
@@ -959,7 +998,7 @@ package v35_eu_pkg;
     // written, the logic operations clearing CY V AC (undefined_flags.md: AC always 0)
     function automatic logic [15:0] v35_alu(input logic [2:0] op, input logic w,
                                             input logic [15:0] a0, input logic [15:0] b0,
-                                            input logic [15:0] psw0, input logic [4:0] mut,
+                                            input logic [15:0] psw0, input logic [5:0] mut,
                                             output logic [15:0] psw);
         logic [16:0] r;
         logic [15:0] a, b, m, msb, res;
@@ -988,7 +1027,7 @@ package v35_eu_pkg;
         if (op != 3'd1 && op != 3'd4 && op != 3'd6) begin
             cy = w ? r[16] : r[8];
             ac = a[4] ^ b[4] ^ r[4];
-            if (mut == 5'd11 && op == 3'd0)
+            if (mut == 6'd11 && op == 3'd0)
                 ac = !ac;
         end
         res = r[15:0] & m;
@@ -1095,7 +1134,7 @@ package v35_eu_pkg;
             ext = sgn ? p[15:8] != {8{p[7]}} : p[15:8] != 8'd0;
         end
         if (sgn) begin
-            void'(v35_alu(3'd0, w, lo, lo, psw0, 5'd0, f));
+            void'(v35_alu(3'd0, w, lo, lo, psw0, 6'd0, f));
             psw[V35_PSW_S] = f[V35_PSW_S];
             psw[V35_PSW_Z] = f[V35_PSW_Z];
             psw[V35_PSW_AC] = f[V35_PSW_AC];
@@ -1136,14 +1175,14 @@ package v35_eu_pkg;
             hi = {8'd0, an[15:8]};
         end
         if (hi >= ad) begin                     // the pre-check (d = 0 included)
-            void'(v35_alu(3'd5, w, hi, ad, psw0, 5'd0, psw));
+            void'(v35_alu(3'd5, w, hi, ad, psw0, 6'd0, psw));
             trap = 1'b1;
             return 32'd0;
         end
         q = an / {16'd0, ad};
         r = an % {16'd0, ad};
         if (!sgn) begin
-            void'(v35_alu(3'd5, w, hi, ad, psw0, 5'd0, psw));
+            void'(v35_alu(3'd5, w, hi, ad, psw0, 6'd0, psw));
         end else begin
             psw = v35_szp(psw0, q[15:0], w);
             psw[V35_PSW_CY] = 1'b0;
@@ -1185,7 +1224,7 @@ package v35_eu_pkg;
     // the memory operand's offset (templates.RM, the direct forms, XLAT's BW + AL) and its
     // segment register's value: DS0, SS for the BP-based modes, a prefix's when one is ahead
     function automatic logic [15:0] v35_ea_off(input v35_rf_t f, input logic [47:0] code,
-                                               input logic [4:0] mut, output logic [15:0] seg);
+                                               input logic [5:0] mut, output logic [15:0] seg);
         logic [7:0] o, b1, b2, b3;
         logic [1:0] mod;
         logic [2:0] rm;
@@ -1207,7 +1246,7 @@ package v35_eu_pkg;
                 v35_ea_off = {b3, b2};          // direct
             end else begin
                 case (rm)                       // templates.RM
-                    3'd0: base = f.bw + (mut == 5'd8 ? 16'd0 : f.ix);
+                    3'd0: base = f.bw + (mut == 6'd8 ? 16'd0 : f.ix);
                     3'd1: base = f.bw + f.iy;
                     3'd2: base = f.bp + f.ix;
                     3'd3: base = f.bp + f.iy;
@@ -1221,7 +1260,7 @@ package v35_eu_pkg;
                 v35_ea_off = base + disp;
             end
         end
-        seg = f.pfx[2] ? v35_sreg_get(f, f.pfx[1:0]) : (bp && mut != 5'd13) ? f.ss : f.ds0;
+        seg = f.pfx[2] ? v35_sreg_get(f, f.pfx[1:0]) : (bp && mut != 6'd13) ? f.ss : f.ds0;
     endfunction
 
     // the forms whose function the RTL builds: those the decoder knows whose template fits
@@ -1261,7 +1300,7 @@ package v35_eu_pkg;
     // the start's. bad: a form whose function the RTL does not build (v35_func_ok)
     function automatic v35_opnd_t v35_operands(input v35_rf_t f, input logic [47:0] code,
                                                input logic [15:0] pc, input v35_op_t op,
-                                               input logic [4:0] mut, output logic bad);
+                                               input logic [5:0] mut, output logic bad);
         v35_opnd_t r;
         logic [7:0] o, b1, b2;
         logic [15:0] off, seg, tgt;
@@ -1349,7 +1388,7 @@ package v35_eu_pkg;
     // instruction's offset); trap: a register divide's error
     function automatic v35_rf_t v35_execute(input v35_rf_t f0, input logic [47:0] code,
                                             input v35_op_t op, input v35_opnd_t r,
-                                            input logic [15:0] code_org, input logic [4:0] mut,
+                                            input logic [15:0] code_org, input logic [5:0] mut,
                                             output v35_fx_t x, output logic trap);
         v35_rf_t f;
         logic [7:0] o, b1, b2;
@@ -1374,7 +1413,7 @@ package v35_eu_pkg;
         c = int'(op.cls);
         imm = v35_imm(code);
         if (o >= 8'hB0 && o <= 8'hB7) begin
-            f = v35_rf_set8(f, mut == 5'd10 ? o[2:0] ^ 3'd4 : o[2:0], b1);
+            f = v35_rf_set8(f, mut == 6'd10 ? o[2:0] ^ 3'd4 : o[2:0], b1);
         end else if (o >= 8'hB8 && o <= 8'hBF) begin
             f = v35_rf_set(f, o[2:0], {b2, b1});
         end else if (o >= 8'h91 && o <= 8'h97) begin
@@ -1497,7 +1536,7 @@ package v35_eu_pkg;
         // the stack pointer and CW
         if (c == V35_CLS_PUSH || c == V35_CLS_PUSH_MEM || c == V35_CLS_PUSH_IMM
                 || c == V35_CLS_PUSH_SEG || c == V35_CLS_PREPARE || c == V35_CLS_CALL)
-            f.sp = f.sp - (mut == 5'd9 ? 16'd4 : 16'd2);
+            f.sp = f.sp - (mut == 6'd9 ? 16'd4 : 16'd2);
         if (c == V35_CLS_PREPARE) begin         // BP := SP after BP's push, SP -= imm16
             f.bp = f.sp;
             f.sp = f.sp - {b2, b1};
@@ -1528,7 +1567,7 @@ package v35_eu_pkg;
                                             input logic w2, input logic odd, input logic io,
                                             input logic last, input logic [15:0] data,
                                             input logic [8:0] count, input logic [15:0] code_org,
-                                            input logic [4:0] mut, output v35_fx_t x,
+                                            input logic [5:0] mut, output v35_fx_t x,
                                             output logic tgt_v, output logic [15:0] tgt,
                                             output logic trap);
         v35_rf_t f;
@@ -1655,7 +1694,7 @@ package v35_eu_pkg;
     function automatic logic [15:0] v35_wdata(input v35_rf_t f, input v35_fx_t x,
                                               input logic [2:0] kind, input logic w2,
                                               input logic odd, input logic first,
-                                              input logic [4:0] mut);
+                                              input logic [5:0] mut);
         logic [15:0] d;
         logic [7:0] so;
         logic io;
@@ -1676,7 +1715,7 @@ package v35_eu_pkg;
         end else begin
             d = x.wd;
         end
-        if (!io && mut == 5'd12)
+        if (!io && mut == 6'd12)
             d = d ^ 16'h0001;
         if (w2 && odd && !io)
             v35_wdata = first ? {d[7:0], 8'd0} : {8'd0, d[15:8]};
@@ -1693,7 +1732,7 @@ module v35_eu
 #(
     parameter int NQ = 16,                  // queue ops per phase (T and L; P)
     parameter int NXOP = 6,                 // the arbiter's touches per clock
-    parameter int STATE_W = 958             // $bits(v35_st_t), checked below
+    parameter int STATE_W = 985             // $bits(v35_st_t), checked below
 ) (
     input  wire        clock,
     input  wire        reset_n,
@@ -1710,8 +1749,8 @@ module v35_eu
     input  wire        fetch_done,          // queue.completed counted one (C or A)
 
     // the bus unit before the choice (T) and after it (P)
-    input  wire [18:0] bus_t,
-    input  wire [18:0] bus_p,
+    input  wire [19:0] bus_t,
+    input  wire [19:0] bus_p,
     // (C5) the early fetch run before the choice (T) and after it (P) (v35_early_t)
     input  wire [4:0]  early_t,
     input  wire [4:0]  early_p,
@@ -1772,7 +1811,7 @@ module v35_eu
     output wire [15:0]  x_data              // (D2) the datum of the EU cycle issued in X
 `ifdef V35S_STATE_DUMP
     ,
-    input  wire [4:0]   mutate,             // the bench's mutation tests (v35_operands)
+    input  wire [5:0]   mutate,             // the bench's mutation tests (v35_operands)
     // (D1) the operand record of the clock's first and second start, and the register file
     // after each one's execute
     output wire [196:0] opr_a,
@@ -1814,6 +1853,7 @@ module v35_eu
     localparam logic [5:0] V35_EQ_GDISP = 6'd35;
     localparam logic [5:0] V35_EQ_LEA_EA = 6'd36;     // (WP72) lea_room=ir
     localparam logic [5:0] V35_EQ_STR_HELD = 6'd37;   // (E3) str_hold=hold
+    localparam logic [5:0] V35_EQ_STR_RAISE = 6'd38;  // (WP77) str_fetch=hold, CW = 0
 
     // ---- error codes (err_code)
     localparam logic [7:0] V35_EE_OPS = 8'd1;          // more than NQ queue ops in a phase
@@ -1837,7 +1877,7 @@ module v35_eu
     if ($bits(v35_st_t) != STATE_W) begin : g_state_width
         $error("v35_eu: the state is %0d bits, STATE_W %0d", $bits(v35_st_t), STATE_W);
     end
-    if ($bits(v35_qview_t) != 52 || $bits(v35_bview_t) != 19 || V35_TMPL_W != 8
+    if ($bits(v35_qview_t) != 52 || $bits(v35_bview_t) != 20 || V35_TMPL_W != 8
             || V35_FMT_W != 31 || V35_STEP_W != 38 || $bits(v35_opnd_t) != 197
             || $bits(v35_rf_t) != 211) begin : g_port_widths
         $error("v35_eu: the port widths no longer match the include");
@@ -2056,6 +2096,12 @@ module v35_eu
                     s.r[i].da_off = s.r[i].da_off - 1'b1;
             end
         end
+        // (WP77) the forty-first fit's ages
+        if (s.e.nw_tv && s.e.nw_age != 3'd7) s.e.nw_age = s.e.nw_age + 1'b1;
+        if (s.e.ls_split && s.e.ls_age != 3'd7) s.e.ls_age = s.e.ls_age + 1'b1;
+        for (int i = 0; i < 3; i++)
+            if (s.r[i].valid && s.r[i].issued != '0 && s.r[i].li_age != 3'd7)
+                s.r[i].li_age = s.r[i].li_age + 1'b1;
         // queue.completed counted a fetch: the take sync owes one fewer
         if (fdone && s.e.sync == SYNC_COUNT && s.e.owed != 2'd0)
             s.e.owed = s.e.owed - 2'd1;
@@ -2124,7 +2170,10 @@ module v35_eu
             default: ;
         endcase
         if (cmp && rep) begin
-            ended = s.f.psw[V35_PSW_Z] != (s.x.code[47:40] == 8'hF3) && mut != 5'd23;
+            // (WP77) REPC (65) / REPNC (64): the carry in place of Z (REPE / REPNE)
+            ended = s.f.psw[s.x.code[47:40] == 8'h64 || s.x.code[47:40] == 8'h65 ? V35_PSW_CY
+                            : V35_PSW_Z]
+                    != (s.x.code[47:40] == 8'hF3 || s.x.code[47:40] == 8'h65) && mut != 6'd23;
             if (ended || int'(st.ei) + 1 == int'(s.x.sn)) begin
                 s.x.sn = st.ei + 16'd1;
                 s.x.sc = ended;
@@ -2179,7 +2228,7 @@ module v35_eu
         r.valid = 1'b1;
         r.kind = st.kind;
         r.addr = eu_addr(s.e, s.f, st);
-        ed = mut == 5'd21 ? 16'd0 : st.ei * v35_str_step(v35_str_op(s.x.code), s.f.psw);
+        ed = mut == 6'd21 ? 16'd0 : st.ei * v35_str_step(v35_str_op(s.x.code), s.f.psw);
         if (int'(st.src) == V35_SRC_IX)         // (E3) element ei: DS0:IX (a prefix's segment)
             r.addr = {s.x.sseg, 4'd0} + {4'd0, s.x.six + ed};
         else if (int'(st.src) == V35_SRC_IY)    // ... DS1:IY
@@ -2198,8 +2247,10 @@ module v35_eu
         r.lead = io ? 2'(cost(s.e.cls, V35_CN_LEAD)) : 2'd0;
         // io_count=nowait; (WP70) str_count=dw and (WP72) burst_count=dw: a string form's and
         // PUSH R's requests count their setup as a DW-form I/O request's (dw_count, arbiter)
-        r.nowait = io || (eu_dwlike(s.e.cls) && !(mut == 5'd18 && is_cls(s.e.cls, V35_CLS_PUSH_R)));
+        r.nowait = io || (eu_dwlike(s.e.cls) && !(mut == 6'd18 && is_cls(s.e.cls, V35_CLS_PUSH_R)));
         r.cls = s.e.cls;
+        // (WP77) sreg_store=own: MOV r/m,sreg's write (the arbiter's sreg_ok)
+        r.sreg = s.e.sreg == 2'd2 && int'(st.kind) == V35_RK_WRITE;
         r.free_bus = st.grp;                    // grp_free_bus
         r.whole = st.whole;
         fr = int'(r.free);
@@ -2384,13 +2435,24 @@ module v35_eu
         eu_code = ok ? code_win[95 - 8 * int'(off[2:0]) -: 48] : 48'h909090909090;
     endfunction
 
+    // (WP77) _sreg_hold (sreg_io=hold): a MOV sreg,r/m decoded (started, or waiting at the I/O
+    // interlock) while an OUT's I/O waits in the slot holds that I/O a clock past the clock its
+    // setup counts out (the arbiter)
+    function automatic void eu_sreg_hold(inout v35_st_t s, input v35_op_t op);
+        if (op.sreg == 2'd1 && s.r[0].valid && s.r[0].detached && s.r[0].ncyc != '0
+                && s.r[0].issued == '0 && int'(s.r[0].kind) == V35_RK_IO_WRITE
+                && !s.r[0].sreg_held)
+            s.r[0].sreg_held = 1'b1;
+    endfunction
+
     function automatic logic eu_start(inout v35_st_t s, inout v35_ctx_t c,
                                       input v35_bview_t b);
         v35_opnd_t opr;
         v35_op_t op;
         v35_qview_t q;
         v35_st_t s2;
-        logic regonly, ilk, portf, dw0, dw1, dw2, cok, bad;
+        logic regonly, ilk, portf, dw0, dw1, dw2, cok, bad, odd;
+        logic [19:0] oa;
         logic [7:0] st, room;
         logic [30:0] fmt;
         logic [47:0] code;
@@ -2428,6 +2490,8 @@ module v35_eu
         q = qv(c);
         if (ev_now(c).ep && q.b2b_now)
             return 1'b0;                        // refresh_sync=run: the run's next fetch
+        if (s.e.lea_split && q.b2b_now && mut != 6'd32)
+            return 1'b0;                        // (WP77) lea_disp=split: after LDEA's split d16
         if (!s.d.ir_v)
             return 1'b0;
         op = eu_decode(code);
@@ -2449,8 +2513,10 @@ module v35_eu
         regonly = !op.ea_v || !op.bus;          // lea_form=reg
         ilk = eu_interlocked(op.cls, 1'b1);     // io_interlock=reg_pfx
         if (ilk && regonly && s.r[0].valid && s.r[0].detached && s.r[0].ncyc != '0
-                && int'(s.r[0].kind) == V35_RK_IO_WRITE)
+                && int'(s.r[0].kind) == V35_RK_IO_WRITE) begin
+            eu_sreg_hold(s, op);                // (WP77) sreg_io=hold
             return 1'b0;
+        end
         if (ilk && regonly && b.kind == V35_K_IO_WRITE && b.pos != 3'd0)
             return 1'b0;                        // io_busy_start=issue
         portf = (is_cls(op.cls, V35_CLS_OUT) || is_cls(op.cls, V35_CLS_IN)) && op.length > 3'd1;
@@ -2499,6 +2565,15 @@ module v35_eu
                                                           : cost(op.cls, V35_CN_WB));
         s.e.route = (op.ea_v && op.swap) ? 2'(cost(op.cls, V35_CN_DCLK)) : 2'd0;   // dest_route=slot
         s.e.prev_cls = s.e.cls;                 // refresh_beat_b2b
+        s.e.sreg = op.sreg;                     // (WP77) sreg_store, sreg_io
+        odd = s.d.ir_addr[0];                   // (WP77) xfer_odd: the opcode's address
+        // (WP77) lea_disp=split: LDEA with a two-byte displacement whose last byte is a word's
+        // low half; not one started on an I/O's issue clock (lea_io)
+        oa = s.d.ir_addr + 20'(op.length) - 20'd1;   // the instruction's last byte
+        s.e.lea_split = is_cls(op.cls, V35_CLS_LEA) && op.disp == 2'd2 && !oa[0];
+        if (bus_io(b) && b.pos == 3'd0)
+            s.e.lea_split = 1'b0;
+        eu_sreg_hold(s, op);                    // (WP77) sreg_io=hold
         s.e.cls = op.cls;
         s.e.grp_form = op.group;
         // the SFR store's value: DS1's MOV byte [0FFE1h],imm8, its last byte (eu.sfr)
@@ -2534,8 +2609,12 @@ module v35_eu
         s.d = dec_start(s.d, op.length, 2'(cost(op.cls, V35_CN_NX)), op.modrm,
                         op.imm_bytes != '0 && !op.ea_v);
         s.d.ir_hold = op.ea_v && op.modrm && op.disp != '0 && op.bus;   // ir_load=disp_data
-        void'(q_op(c, s, V35_EQ_START, opr.taken, 1'b0,
-                   opr.taken ? 20'(cost(op.cls, V35_CN_HOLD)) : 20'd0));   // flush_hold=start
+        // flush_hold=start; (WP77) xfer_odd=idle (b): a taken short jump (branch_short, dbnz)
+        // whose opcode is at an odd address
+        void'(q_op(c, s, V35_EQ_START, opr.taken,
+                   opr.taken && (is_cls(op.cls, V35_CLS_BRANCH_SHORT) || is_cls(op.cls, V35_CLS_DBNZ))
+                   && odd && mut != 6'd24,
+                   opr.taken ? 20'(cost(op.cls, V35_CN_HOLD)) : 20'd0));
         s.e.wbs = v35_wbsync(int'(op.cls), op.length == 3'd1);
         fmt = eu_fmt(op, opr.count, opr.taken, refresh_on);
         tm = v35_tmpl_sel(fmt);
@@ -2564,6 +2643,10 @@ module v35_eu
         s.f = v35_execute(s.f, code, op, opr, code_org, mut, s.x, bad);
         if (bad)
             fail(c, V35_EE_DIV);
+        // (WP77) str_exit=wb: a REP form's exit (CW not 0) ends xwb clocks early, those clocks a
+        // write-back only a wbsync form waits for
+        if (eu_str_shape(s.e) != '0 && s.x.sn != '0 && mut != 6'd25)
+            s.e.wb = 2'(cost(op.cls, V35_CN_XWB));
         c.starts = c.starts + 2'd1;
         return 1'b1;
     endfunction
@@ -2686,7 +2769,7 @@ module v35_eu
         v35_stp_t st, pst;
         logic [7:0] a, room;
         logic [2:0] n, bytes;
-        logic last, wide, io_drop, asked, held, lapse, early;
+        logic last, wide, io_drop, asked, held, lapse, early, run_w;
         int ns, nb;
         q = qv(c);
         if (q.sh_valid && $signed(q.sh_off) <= 0)
@@ -2768,6 +2851,14 @@ module v35_eu
                 s.e.sync = SYNC_COUNT;
                 s.e.owed = 2'(int'(q.inflight) + int'(a[0]));
             end
+            // (WP77) str_start=skip: a REP form's take sync is met on the last clock of the
+            // aborted cycle that answered the request of its start clock (no word comes)
+            q = qv(c);
+            if (s.e.sync == SYNC_COUNT && eu_str_shape(s.e) != '0 && q.ab_valid && q.ab_this
+                    && q.ab_left == '0 && mut != 6'd28) begin
+                s.e.sync = SYNC_NONE;
+                s.e.owed = '0;
+            end
             if (s.e.sync == SYNC_COUNT && s.e.owed != '0) begin
                 q = qv(c);
                 lapse = 1'b0;
@@ -2796,7 +2887,7 @@ module v35_eu
             // (WP72) prepare_sync=run: PREPARE's take sync waits for the fetch committed back
             // to back on the last clock of the one it waited for too (the run)
             if (s.e.sync == SYNC_COUNT && s.e.owed == '0 && is_cls(s.e.cls, V35_CLS_PREPARE)
-                    && mut != 5'd17) begin
+                    && mut != 6'd17) begin
                 q = qv(c);
                 if (q.b2b_now) begin
                     s.e.owed = 2'd1;
@@ -2812,7 +2903,7 @@ module v35_eu
                             && eu_interlocked(s.e.cls, 1'b1) && bus_io(b)
                             && {1'b0, b.pos} == s.e.start_age) begin
                         s.e.res = 10'(int'(b.len) - int'(b.pos));   // io_exec=after_io
-                        if (is_cls(s.e.cls, V35_CLS_LEA) && mut != 5'd15)
+                        if (is_cls(s.e.cls, V35_CLS_LEA) && mut != 6'd15)
                             s.e.res = s.e.res + 10'(FIT_IO_RECOVER);   // (WP72) lea_io=recover
                         s.e.res_past = 1'b0;
                         return;
@@ -2848,7 +2939,7 @@ module v35_eu
                         if (int'(st.tag) == V35_STAG_EA && is_cls(s.e.cls, V35_CLS_LEA)
                                 && s.d.need == '0)  // (WP72) lea_room=ir: queue.lea_ea
                             void'(q_op(c, s, V35_EQ_LEA_EA, 1'b0, 1'b0,
-                                       mut == 5'd16 ? 20'd0 : 20'(st.n)));
+                                       mut == 6'd16 ? 20'd0 : 20'(st.n)));
                         last = int'(s.e.k) == eu_nsteps(s.e, s.x);
                         q = qv(c);
                         if ((is_cls(s.e.cls, V35_CLS_SHIFT_CL) || is_cls(s.e.cls, V35_CLS_SHIFT_IMM))
@@ -2906,8 +2997,22 @@ module v35_eu
                         s.e.nw = 3'(st.n);
                         if (s.e.start_age == 4'd1 && s.e.fs_this)
                             s.e.nw = s.e.nw + 1'b1;     // lookup_start
+                        s.e.nw_tv = 1'b1;               // (WP77) nw_t = t, nw_run = None
+                        s.e.nw_age = '0;
+                        s.e.nw_ran = 1'b0;
                     end
-                    if (s.e.nw != '0 && !b.in_wait)
+                    // (WP77) str_io_setup=run (_run_wait): REP INM / OUTM's setup counts the
+                    // first wait clock of a fetch issued on its first clock back to back after
+                    // another fetch
+                    run_w = 1'b0;
+                    if (s.e.nw != '0 && b.in_wait && (is_cls(s.e.cls, V35_CLS_STR_IN)
+                                                      || is_cls(s.e.cls, V35_CLS_STR_OUT))
+                            && !s.e.nw_ran && b.kind == V35_K_FETCH && b.pos == s.e.nw_age
+                            && b.run && mut != 6'd27) begin
+                        s.e.nw_ran = 1'b1;
+                        run_w = 1'b1;
+                    end
+                    if (s.e.nw != '0 && (!b.in_wait || run_w))
                         s.e.nw = s.e.nw - 1'b1;
                     if (s.e.nw != '0) begin
                         s.e.res = 10'd1;
@@ -2931,7 +3036,7 @@ module v35_eu
                         if ((s.e.lu_held || s.e.lu_off != '0)
                                 && {1'b0, s.e.taken} >= {1'b0, s.e.op_len} - 4'd1
                                                          - {2'b0, s.e.imm_bytes}
-                                && mut != 5'd14)
+                                && mut != 6'd14)
                             return;
                         if (eu_late_read(s, c, b))
                             return;             // late_read
@@ -3033,7 +3138,7 @@ module v35_eu
                     end
                 end
                 V35_SOP_DATA: begin
-                    if (mut == 5'd22 && eu_str_cmp(s.e.cls) && st.ei >= s.x.sn
+                    if (mut == 6'd22 && eu_str_cmp(s.e.cls) && st.ei >= s.x.sn
                             && eu_str_shape(s.e) != '0) begin
                         s.e.k = s.e.k + 1'b1;   // mutation 22: no overrun read
                         continue;
@@ -3046,7 +3151,28 @@ module v35_eu
                     nb = int'(s.e.own) - 1;
                     if (!s.r[nb].da_v || (s.r[nb].da_off != '0))
                         return;
+                    // (WP77) str_split: last_issued, the cycles the step ran
+                    s.e.ls_split = s.r[nb].issued == 2'd2;
+                    s.e.ls_age = s.r[nb].issued == 2'd2 ? s.r[nb].li_age : 3'd0;
                     eu_retire(s);
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_SPLIT_FLOOR: begin      // (WP77) str_split=floor: a split last cycle's
+                    if (s.e.ls_split && int'(s.e.ls_age) < int'(st.n) && mut != 6'd26) begin
+                        s.e.res = 10'(int'(st.n) - int'(s.e.ls_age));   // second half issued
+                        s.e.res_past = 1'b0;    // no fewer than n clocks ago
+                        return;
+                    end
+                    s.e.k = s.e.k + 1'b1;
+                end
+                V35_SOP_FETCH_RELEASE: begin    // (WP77) str_fetch=hold: no request from the
+                    if (mut != 6'd29) begin     // first element's post (forever) / again n
+                        if (int'(st.tag) == V35_STAG_RAISE)   // clocks after the stream's last
+                            void'(q_op(c, s, V35_EQ_STR_RAISE, 1'b0, 1'b0, 20'(st.n)));
+                        else                    // cycle; CW = 0: the retried request raised
+                            void'(q_op(c, s, V35_EQ_STR_HELD,   // n clocks into the exit
+                                       int'(st.tag) == V35_STAG_FOREVER, 1'b0, 20'(st.n)));
+                    end
                     s.e.k = s.e.k + 1'b1;
                 end
                 V35_SOP_POST: begin             // post and go on
@@ -3116,7 +3242,7 @@ module v35_eu
                     // (WP72) cond_gap=own: a taken form with a condition field (the step's
                     // cfgap tag) waits its class's cfgap after the last fetch's end, not fgap
                     nb = int'(cost(s.e.cls, int'(st.op) == V35_SOP_DECIDE ? V35_CN_NFGAP
-                                            : int'(st.tag) == V35_STAG_CFGAP && mut != 5'd19
+                                            : int'(st.tag) == V35_STAG_CFGAP && mut != 6'd19
                                               ? V35_CN_CFGAP
                                             : V35_CN_FGAP));
                     if (b.finf || int'(b.fsince) <= nb)
@@ -3184,6 +3310,7 @@ module v35_eu
             c.wl_x = 1'b1;                      // (WP70) str_io_latch=write: OUTM's datum
         s.r[0].ncyc = s.r[0].ncyc - 1'b1;
         s.r[0].issued = s.r[0].issued + 1'b1;
+        s.r[0].li_age = '0;                     // (WP77) str_split: the cycle's start
         if (s.r[0].ncyc == '0 && int'(s.r[0].kind) == V35_RK_WRITE)
             s.x.wk = s.x.wk + 3'd1;             // (D2) PUSH R's next word
         if (s.r[0].ncyc == '0 && s.r[0].detached) begin
@@ -3325,11 +3452,11 @@ module v35_eu
     // ------------------------------------------------ the clock's chain
     v35_st_t r;
     v35_st_t s_c, s_t, s_l, s_x, s_p, s_e;
-    logic [4:0] mut;                        // the bench's mutation (v35_operands, v35_execute)
+    logic [5:0] mut;                        // the bench's mutation (v35_operands, v35_execute)
 `ifdef V35S_STATE_DUMP
     assign mut = mutate;
 `else
-    assign mut = 5'd0;
+    assign mut = 6'd0;
 `endif
     v35_ctx_t cx;
     logic [2:0] fr_l;

@@ -41,8 +41,8 @@ not start while it is busy; `latch_wait` tells the arbiter it is waiting
 from __future__ import annotations
 
 from .arbiter import Request, io_step, io_stepped
-from .templates import (STRING_CLASSES, _dest_route, decode, ea_class, execute, grp_class,
-                        refresh_hold_steps, steps)
+from .templates import (BCD_CLASSES, BF_CLASSES, STRING_CLASSES, _dest_route, base_class, decode,
+                        ea_class, execute, grp_class, refresh_hold_steps, steps)
 from .queue import QUEUE_BYTES
 
 END_PORT = 0xFF00
@@ -169,8 +169,9 @@ class EU:
         if cfg.opcode_take == "prefetch" and self.decoder.ir is None:
             return False
         op = decode(self.code, self.pc, self.regs)
-        if op.cls in STRING_CLASSES and op.offset - self.origin in self.strings:
-            # (WP67, F24) the elements the walk runs (a compare's exit depends on the data)
+        if (op.cls in STRING_CLASSES or op.cls in BCD_CLASSES) and op.offset - self.origin in self.strings:
+            # (WP67, F24) the elements the walk runs (a compare's exit depends on the data);
+            # (WP78, F32) a BCD string's byte pairs the same way
             op.n, op.cond = self.strings[op.offset - self.origin]
         if op.cl_count and cfg.shift_count_mask == "cl5":
             op.count &= 0x1F                 # (WP57) shift_count_mask: CL masked to 5 bits
@@ -192,13 +193,16 @@ class EU:
                 and cfg.refresh_run_modrm == "wait"):
             return False                 # (WP40) refresh_run_modrm: a ModR/M form waits it out
         regonly = op.ea is None or (not op.bus and cfg.lea_form == "reg")   # (WP52) lea_form
-        if (cfg.io_interlock != "none" and self._interlocked(op.cls, cfg.io_interlock)
+        # (WP78) the structure a class shares with an existing one (templates.BASE_CLASS): every
+        # rule that names a class sees bcls; the costs are op.cls's own (self.ccls)
+        bcls = base_class(op.cls)
+        if (cfg.io_interlock != "none" and self._interlocked(bcls, cfg.io_interlock)
                 and regonly and self.req is not None and self.req.detached
                 and self.req.cycles and self.req.cycles[0][0] == "io_write"):
             self._sreg_hold(op)          # (WP76) sreg_io=hold
             return False                 # the ALU passes the waiting OUT's data at its issue
         cur = self.bus.current
-        if (cfg.io_busy_start == "issue" and self._interlocked(op.cls, cfg.io_interlock)
+        if (cfg.io_busy_start == "issue" and self._interlocked(bcls, cfg.io_interlock)
                 and regonly and cur is not None and cur.kind == "io_write"
                 and cur.start < t <= cur.end):
             return False                 # (WP20) only on the OUT's issue clock, not after it
@@ -263,13 +267,14 @@ class EU:
             # write-back that only a form waiting for one (wbsync: the port-form OUT) sees
             self.wb = cfg.c(op.cls, "xwb")
         self.route = _dest_route(op, cfg)   # (WP19) dest_route clocks of this instruction
-        self.ro = op.cls in ("load", "load_alu")
+        self.ro = bcls in ("load", "load_alu")
         self.prev_cls = getattr(self, "cls", None)   # (WP61) refresh_beat_b2b
-        self.cls = op.cls
+        self.cls = bcls
+        self.ccls = op.cls              # (WP78) the class whose integers the EU reads
         self.grp_form = bool(op.group)   # (WP61) grp_disp: a group opcode's form
         # (WP21) a memory form whose operation runs after the read in a unit other than the
         # ALU (the shift unit, the multiplier/divider, the stack write of PUSH r/m)
-        self.unit = op.ea is not None and (op.shift or op.cls in ("mul", "div", "push_mem"))
+        self.unit = op.ea is not None and (op.shift or bcls in ("mul", "div", "push_mem"))
         # (WP24) refresh_rmw_loop: a memory shift's count loop (its write's setup covers it)
         self.rmw_loop = 0
         if op.ea is not None and op.shift and op.cls == "rmw":
@@ -322,7 +327,11 @@ class EU:
         # io_post=start: the clocks before an I/O form's post (its pre, or pre0 without a port byte)
         self.io_pre = cfg.c(op.cls, "pre" if op.length > 1 else "pre0")
         self.decoder.start(op.length, t, cfg.c(op.cls, "nx"), modrm=op.modrm,
-                           imm_reg=bool(op.imm_bytes) and op.ea is None)   # (WP26) modrm_mate
+                           imm_reg=bool(op.imm_bytes) and op.ea is None,   # (WP26) modrm_mate
+                           page=op.page,                                   # (WP78) the 0F page
+                           # (WP78) nx0: a form without operand bytes holds the IR load nx0
+                           # clocks from its start (a class integer; absent = 0, at once)
+                           nx0=cfg.c(op.cls, "nx0") if op.length == 1 else 0)
         # (WP28) ir_load=disp_data: a ModR/M memory form with a displacement keeps its
         # successor's opcode in the queue until its first data cycle issues (machine.py
         # clears the hold on the issue clock, the displacement's take on a delivery clock)
@@ -400,7 +409,7 @@ class EU:
         a micro-boundary (every second exec clock from the class's hphase-th) while a fetch,
         or an aborted fetch cycle, is past its second clock, until the clock after that
         cycle's last; the clocks still to run move on with it."""
-        n = t - self.exec_t - self.cfg.c(self.cls, "hphase")
+        n = t - self.exec_t - self.cfg.c(self.ccls, "hphase")
         if n < 0 or n % 2:
             return False
         q = self.decoder.queue
@@ -501,7 +510,7 @@ class EU:
             # the request rises (-per_shift_count: as its last iteration starts)
             off = self.cfg.reraise_off
             if self.clk_tag in ("loop_odd", "mexit"):
-                off = -self.cfg.c(self.cls, "mtail")
+                off = -self.cfg.c(self.ccls, "mtail")
             if (self.clk_tag in ("loop", "loop_odd", "mexit") and off < 0 and self.resume - t == -off
                     and (self.clk_tag != "loop_odd" or self.k == len(self.steps))
                     or self.clk_tag == "tail" and off >= 0 and t - self.clk_start >= off):
@@ -626,7 +635,7 @@ class EU:
                             and q.retry_loop and q.abort_t == self.start_clock):
                         # (WP22) io_take, abort_reg: a register multiply or divide raises the
                         # request dropped at its start mtail clocks before its end
-                        q.retry_at = self.resume - self.cfg.c(self.cls, "mtail")
+                        q.retry_at = self.resume - self.cfg.c(self.ccls, "mtail")
                     if (self.reg_early and self.cls in ("mul", "div")
                             and self.k == len(self.steps) and self.cfg.abort_reg_end == "keep"):
                         self.resume += 1    # (WP22) abort_reg: the early start keeps its end
@@ -645,7 +654,7 @@ class EU:
                             and q.abort_t == self.start_clock):
                         # (WP22) io_take=unit: a memory multiply or divide whose ModR/M take
                         # dropped the request raises it mtail clocks before its end
-                        q.retry_at = self.resume - self.cfg.c(self.cls, "mtail")
+                        q.retry_at = self.resume - self.cfg.c(self.ccls, "mtail")
                     if (len(step) > 2 and step[2] == "mexec" and self.unit_early
                             and self.cfg.abort_unit == "loop"):
                         # (WP21) abort_unit=loop: the early read does not move the multiply's
@@ -654,7 +663,7 @@ class EU:
                         # counted from that end, 2; the eleventh fit's 3 from the moved end)
                         q = self.decoder.queue
                         if q.retry and q.retry_loop:
-                            q.retry_at = self.resume - self.cfg.c(self.cls, "mtail")
+                            q.retry_at = self.resume - self.cfg.c(self.ccls, "mtail")
                         self.resume += 1
                     if self.ls_shift and self.cls == "shift_cl" and len(self.trace) == 2:
                         # refresh_align=phase_eu: the first LS's exec clocks, aligned
@@ -740,9 +749,9 @@ class EU:
                     q.disp_t = t                        # latch_disp
                     if q.arrived_t == t:
                         self.decoder.ir_hold = False    # ir_load: on a word's delivery clock
-                    if self.cfg.disp_floor != "none" and self.cfg.c(self.cls, "dfloor"):
+                    if self.cfg.disp_floor != "none" and self.cfg.c(self.ccls, "dfloor"):
                         # disp_floor: the first data cycle no earlier than dfloor clocks after
-                        self._floor(t + self.cfg.c(self.cls, "dfloor"))
+                        self._floor(t + self.cfg.c(self.ccls, "dfloor"))
                 if (n and self.cfg.wlatch and self.cfg.wlatch_src != "write"
                         and self.taken >= self.op_len - 1 and (
                             self.imm_bytes and not (self.cfg.wlatch_imm != "all" and self.mem)
@@ -808,7 +817,7 @@ class EU:
                         # take sync waits only for a fetch on the bus, a fetch is held for
                         # the take clock and the grp_free clocks after it (arbiter.py)
                         self.sync = q.completed + q.inflight
-                        q.gdisp_until = t + self.cfg.c(self.cls, "grp_free")
+                        q.gdisp_until = t + self.cfg.c(self.ccls, "grp_free")
                     if self.cfg.sync_req == "none" and self.imm_bytes and self.mem:
                         self.sync = None    # (WP27) the group setup counts through the fetch
                     elif self.cfg.sync_req == "disp" and self.imm_bytes and self.mem and self.disp:
@@ -929,7 +938,7 @@ class EU:
                        else "fgap")              # (WP72) cond_gap=own: cfgap
                 if self.cfg.flush_inflight == "wait" and (
                         self.bus.fetch_inflight(t)
-                        or t <= self.bus.last_fetch_end + self.cfg.c(self.cls, gap)):
+                        or t <= self.bus.last_fetch_end + self.cfg.c(self.ccls, gap)):
                     return                       # (flush_inflight=wait: fgap clocks after the
                                                  # last fetch's end)
                 if kind == "flush":              # (untaken=wait: a transfer not taken waits as
@@ -1399,11 +1408,13 @@ class EU:
         else:
             cycles = [(kind, addr, "hi" if addr & 1 else "lo")]
         cls = getattr(self, "cls", "")
-        cost = self.cfg.cost.get(cls, {})
+        cost = self.cfg.cost.get(getattr(self, "ccls", cls), {})   # (WP78) the class's own
         io = kind.startswith("io")
         # (WP70) str_count=dw: a string form's request counts as a DW-form I/O request's
         dwlike = (cls in STRING_CLASSES and self.cfg.str_count == "dw"
-                  or cls == "push_r" and self.cfg.burst_count == "dw")
+                  or cls == "push_r" and self.cfg.burst_count == "dw"
+                  # (WP78) bf_count=dw: the bit fields the same
+                  or cls in BF_CLASSES and self.cfg.bf_count == "dw")
         r = Request(cycles, setup, t, atomic=self.cfg.odd_split == "atomic",
                     free_need=cost.get("setup_free") if free is None else free,
                     lead=cost.get("lead", 0) if io else 0,
@@ -1444,7 +1455,7 @@ class EU:
         if c is None and self.cfg.slot_idle == "eu":
             # (WP31) slot_idle=eu: no cycle in the slot, no bus cycle: the EU goes on sidle
             # clocks after the slot clock, whatever the waits
-            req.done_at = t + self.cfg.c(self.cls, "sidle")
+            req.done_at = t + self.cfg.c(self.ccls, "sidle")
         elif ww in ("end", "mem_end"):
             # as after a memory write in this slot: the end of a cycle of the bus's length
             req.done_at = (c.end if c is not None else t + bus.length("write") - 1) + 1

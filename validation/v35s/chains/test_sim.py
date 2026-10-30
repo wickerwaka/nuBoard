@@ -5547,3 +5547,231 @@ class ProbeShapes(unittest.TestCase):
             b = [e[1:4] for e in aligned(m) if e[1].startswith("data")]
             self.assertEqual(b, a, cid)
             self.assertEqual(len(a), reads, cid)
+
+
+class PageAndMiscellanyDecode(unittest.TestCase):
+    """(WP78) F32's 0F page and F33's register miscellany: every form decodes to its catalog
+    class and length, runs a template, and changes the registers a later form reads."""
+
+    REGS = {"AW": 0x1234, "BW": 0x0800, "CW": 0x001F, "DW": 0x0608, "SP": 0x0F00, "BP": 0x0A00,
+            "IX": 0x0A40, "IY": 0x0C40, "DS0": 0, "DS1": 0, "SS": 0}
+
+    def test_every_form_decodes_to_its_class(self):
+        from validation.v35s.chains.forms import F32_FORMS, F33_FORMS
+        from validation.v35s.chains.sim.templates import steps
+        for name in F32_FORMS + F33_FORMS:
+            form = FORMS[name]
+            regs = dict(self.REGS)
+            k, ops = 0, []
+            while k < form.length:
+                op = decode(form.code, k, regs)
+                ops.append(op)
+                k += op.length
+            self.assertEqual(k, form.length, name)
+            op = ops[-1]                 # after a segment prefix (pfx_*: its own class)
+            self.assertEqual(op.cls, form.cls, name)
+            self.assertTrue(steps(op, DEFAULT), name)
+
+    def test_page_and_operands(self):
+        from validation.v35s.chains.sim.templates import BASE_CLASS, base_class
+        regs = dict(self.REGS)
+        op = decode(FORMS["set1_mw_cl_bw_d16"].code, 0, regs)
+        self.assertEqual((op.cls, op.page, op.modrm, op.ea, op.mode_class, op.disp, op.cl_count),
+                         ("bit1_rmw", 1, True, 0x0A00, "base_disp", 2, True))
+        op = decode(FORMS["not1_mb_imm"].code, 0, regs)
+        self.assertEqual((op.cls, op.width, op.imm_bytes, op.cl_count), ("bit1_rmw", 1, 1, False))
+        op = decode(FORMS["add4s"].code, 0, {**regs, "CW": 0x0008})
+        self.assertEqual((op.cls, op.n, op.ix, op.iy, op.width), ("bcd4s", 4, 0x0A40, 0x0C40, 1))
+        self.assertEqual(decode(FORMS["cmp4s"].code, 0, {**regs, "CW": 3}).n, 2)
+        op = decode(FORMS["mul_aw_m_imm8"].code, 0, regs)
+        self.assertEqual((op.cls, op.ea, op.imm_bytes, op.signed), ("mul_imm", 0x0800, 1, True))
+        self.assertEqual(decode(FORMS["mul_cw"].code, 0, regs).cls, "mul")
+        self.assertEqual((decode(FORMS["incb_m"].code, 0, regs).cls,
+                          decode(FORMS["incb_m"].code, 0, regs).width), ("rmw", 1))
+        # every class with a base runs the base's structure (eu.py)
+        self.assertEqual(base_class("adjust_b"), "reg")
+        self.assertEqual(base_class("convert"), "imm")
+        self.assertEqual(base_class("bit1_clr"), "rmw")
+        self.assertEqual(base_class("bcd4s"), "bcd4s")
+        self.assertEqual(set(BASE_CLASS.values()), {"reg", "imm", "load_alu", "rmw", "mul"})
+
+    def test_bit_field_cost_and_registers(self):
+        from validation.v35s.chains.sim.templates import bf_cost, execute
+        # docs/v35s-eu-timing.md's formula at F32's seven cases
+        for op, o, w, cost in (("bf_ext", 0, 6, 83), ("bf_ext", 8, 6, 67), ("bf_ext", 8, 8, 77),
+                               ("bf_ext", 8, 0, 91), ("bf_ext", 0, 7, 79), ("bf_ext", 8, 7, 63),
+                               ("bf_ext", 8, 11, 77), ("bf_ins", 0, 6, 92), ("bf_ins", 8, 6, 94),
+                               ("bf_ins", 8, 8, 128), ("bf_ins", 8, 7, 86),
+                               ("bf_ins", 8, 11, 140), ("bf_ins", 0, 15, 84)):
+            self.assertEqual(bf_cost(op, o, w), cost, (op, o, w))
+        # EXT DL,DH (0F 33 F2): offset DL = 8, width DH = 6; then DL = 15, IX unchanged; the
+        # second instance at offset 15 crosses into the next word, IX steps by 2
+        regs = dict(self.REGS)
+        code = FORMS["ext_dl_dh"].code
+        op = decode(code, 0, regs)
+        self.assertEqual(op.bf, (8, 6, False, 67))
+        execute(op, code, regs)
+        self.assertEqual((regs["DW"] & 0xFF, regs["IX"]), (15, 0x0A40))
+        op = decode(code, 0, regs)
+        self.assertEqual(op.bf[:3], (15, 6, True))
+        execute(op, code, regs)
+        self.assertEqual((regs["DW"] & 0xFF, regs["IX"]), (6, 0x0A42))
+        # the registers are used whole: DL = 78h is not reduced to 8
+        op = decode(code, 0, {**self.REGS, "DW": 0x5678})
+        self.assertEqual(op.bf[:3], (0x78, 0x56, True))
+        # INS BH,BL: the offset in ModR/M bits 2:0 (BH = 8), the width in bits 5:3 (BL = 0)
+        op = decode(FORMS["ins_bh_bl"].code, 0, dict(self.REGS))
+        self.assertEqual(op.bf[:3], (8, 0, False))
+
+    def test_register_effects(self):
+        from validation.v35s.chains.sim.templates import execute
+
+        def run(name, **regs):
+            r = {**self.REGS, **regs}
+            code = FORMS[name].code
+            execute(decode(code, 0, r), code, r)
+            return r
+        self.assertEqual(run("inc_sp")["SP"], 0x0F01)
+        self.assertEqual(run("dec_iy")["IY"], 0x0C3F)
+        self.assertEqual(run("dec_al", AW=0x1200)["AW"], 0x12FF)
+        self.assertEqual(run("inc_dh")["DW"], 0x0708)
+        self.assertEqual(run("cvtbw", AW=0x0080)["AW"], 0xFF80)
+        self.assertEqual(run("cvtwl", AW=0x8080)["DW"], 0xFFFF)
+        self.assertEqual(run("cvtbd", AW=0x0023)["AW"], 0x0305)
+        self.assertEqual(run("cvtdb", AW=0x0305)["AW"], 0x0023)
+        r = run("mul_cw", AW=0xFFFF, CW=2)
+        self.assertEqual((r["AW"], r["DW"]), (0xFFFE, 0xFFFF))
+        r = run("div_cw", AW=0xFFF6, DW=0xFFFF, CW=3)       # -10 / 3: -3 rem -1
+        self.assertEqual((r["AW"], r["DW"]), (0xFFFD, 0xFFFF))
+        self.assertEqual(run("mul_aw_cw_imm8", CW=0x0010)["AW"], 0x0050)
+        for name in ("clc", "stc", "cli", "sti", "adj4a"):
+            r = run(name)
+            self.assertEqual({k: r[k] for k in ("CW", "DW", "SP", "IX", "IY")},
+                             {k: self.REGS[k] for k in ("CW", "DW", "SP", "IX", "IY")}, name)
+
+    def test_bcd_pairs_from_the_walk(self):
+        # the EU takes a BCD string's byte pairs from the chain walk, keyed by its 0F opcode
+        # (after the DS1: prefix the pfx form carries)
+        from validation.v35s.chains.sim.machine import Machine
+        for cid, n in (("F32-out-add4s-n8-k1-pE-w0", 4), ("F32-out-pfx_add4s-n4-k1-pO-w0", 2),
+                       ("F32-out-cmp4s-n2-k2-pE-w0", 1)):
+            chain = next(c for c in generate(["F32"], waits=(0,)) if c.id == cid)
+            m = Machine(chain, DEFAULT)
+            self.assertEqual(sorted(v[0] for v in m.eu.strings.values()),
+                             [n] * (2 if "-k2-" in cid else 1), cid)
+            from validation.v35s.chains.forms import F32_BCD
+            x = next(i for i in chain.instrs if i.role == "x" and i.form in F32_BCD)
+            self.assertIn(x.offset + (1 if x.code[0] == 0x26 else 0), m.eu.strings, cid)
+
+
+# (WP78) the hand start of stage 16 (sim/config.py DEFAULT_COST) with the two adopted enums and
+# the integers the tests read (the candidate's where stage 16 moved them): the tests pin the
+# mechanisms at these values, independent of the tracked fit
+WP78 = {"bf_count": "dw", "page_grp": "group"}
+WP78_INTS = {"adjust.nx0": 8, "adjust.pre0": 10, "adjust.wb": 2, "mul.sexec": 41,
+             "div.sexec": 58, "bf_ext.setup": 12, "bf_ext.setup_free": 0, "bf_ext.span": 14,
+             "bcd4s.first": 16, "bcd4s.mid": 7, "bcd4s.wmid": 10, "bcd4s.loop": 7,
+             "bcd4s.exec": 12, "bcd4s.wb": 2, "bit1_rmw.cl": 1, "bit1_rmw.dfloor": 4,
+             "bit1_rmw.pre": 7, "bit1_rmw.grp": 0}
+
+
+def _ev78(cid, **over):
+    """(silicon, model) event lists from t_fill under the tracked fit with WP78 (+ over)."""
+    run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    cfg = Config.fitted().replace(**{**WP78, **WP78_INTS, **over})
+    m = simulate_normalized(s.chain, cfg, s.chain_base)
+    return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+
+class PageAndMiscellany(unittest.TestCase):
+    """(WP78) F32's and F33's forms as mechanisms: each new enum and format integer against its
+    alternative on a deciding run (clocks rel t_fill), each new template on a run."""
+
+    def test_wp78_defaults_are_the_old_model(self):
+        for name in ("bf_count", "page_grp"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+        for name, value in WP78.items():
+            self.assertIn(value, OPTIONS[name], name)
+        # the format integers absent from every existing class: nothing old reads them
+        from validation.v35s.chains.sim.config import DEFAULT_COST
+        for cls, d in DEFAULT_COST.items():
+            if cls.startswith("str_") or cls in ("reg", "imm", "load", "load_alu", "rmw",
+                                                  "rmw_imm", "store", "out", "in", "push"):
+                for name in ("nx0", "cl", "span"):
+                    self.assertNotIn(name, d, cls)
+
+    def test_bf_count_dw(self):
+        # EXT BL,DH at pO w0: the read 12 clocks after M0's I/O at 85 whatever the fetch at 88
+        # (counted as a DW-form request's setup: only wait states stop it): silicon R97
+        sil, mod = _ev78("F32-out-ext_bl_dh-k1-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((97, "data_read"), mod)
+        _, data = _ev78("F32-out-ext_bl_dh-k1-pO-w0", bf_count="data")
+        self.assertIn((96, "data_read"), data)
+
+    def test_page_grp_group_setup(self):
+        # SET1 [BW],CL byte at pE w0: the refill 87, 90 back to back, silicon's read 95 and
+        # write 100; the CL index's clocks in the group setup (fetch-free at its end) put the
+        # read on the fetch end + 3; as EU clocks before the read (none) it is a clock later
+        sil, mod = _ev78("F32-out-set1_mb_cl-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((95, "data_read"), mod)
+        _, none = _ev78("F32-out-set1_mb_cl-k1-pE-w0", page_grp="none")
+        self.assertIn((96, "data_read"), none)
+
+    def test_nx0_long_one_byte_form(self):
+        # ADJ4A after the OUT marker at pE: the loader busy 8 clocks from its start (84), the
+        # refill fetch at 92; at once (nx0 0) it goes at 94
+        sil, mod = _ev78("F33-out-adj4a-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((92, "fetch"), mod)
+        _, zero = _ev78("F33-out-adj4a-k1-pE-w0", **{"adjust.nx0": 0})
+        self.assertIn((94, "fetch"), zero)
+
+    def test_sexec_signed_register_multiply(self):
+        # MUL CW (F7 /5, signed) behind the lead: M1's fetch 147, I/O 154; at MULU's exec 137
+        sil, mod = _ev78("F33-out-mul_cw-ld-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((154, "io_write"), mod)
+        _, plain = _ev78("F33-out-mul_cw-ld-k1-pE-w0", **{"mul.sexec": 31})
+        self.assertIn((144, "io_write"), plain)
+        sil, mod = _ev78("F33-out-div_cw-ld-k1-pE-w0")
+        self.assertEqual(mod, sil)
+
+    def test_bcd_byte_pair_loop(self):
+        # ADD4S, CL = 4: two pairs, read IX + i, read IY + i 9 later, the write 12 after that
+        sil, mod = _ev78("F32-out-add4s-n4-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        data = [e for e in mod if e[1].startswith("data")]
+        self.assertEqual(data, [(107, "data_read"), (116, "data_read"), (128, "data_write"),
+                                (137, "data_read"), (146, "data_read"), (158, "data_write")])
+        # CMP4S writes nothing
+        sil, mod = _ev78("F32-out-cmp4s-n4-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertFalse([e for e in mod if e[1] == "data_write"])
+
+    def test_templates_simulate_their_cycles(self):
+        # every F32 / F33 form's data cycles are the walk's (the normaliser raises otherwise),
+        # and the bit field's crossing reads / writes two words
+        for cid in ("F32-out-ins_dl_bh-k1-pE-w0", "F32-out-ext_dl_i11-k1-pO-w0",
+                    "F32-out-clr1_mw_imm-k2-pE-w1", "F32-out-ror4_m-k1-pO-w2",
+                    "F33-out-mul_aw_m_imm8-k2-pE-w0", "F33-out-incb_m-k1-pO-w0"):
+            sil, mod = _ev78(cid)
+            self.assertEqual([k for _, k in mod if k.startswith("data")],
+                             [k for _, k in sil if k.startswith("data")], cid)
+        _, mod = _ev78("F32-out-ins_dl_bh-k1-pE-w0")
+        self.assertEqual([k for _, k in mod if k.startswith("data")],
+                         ["data_read", "data_write", "data_read", "data_write"])
+
+    def test_classes_run_their_base_structure(self):
+        # a long one-byte form behind the OUT marker obeys the register forms' I/O interlock
+        # as NOP does: it starts no earlier than the marker's I/O issue
+        from validation.v35s.chains.sim.machine import Machine
+        chain = next(c for c in generate(["F33"], waits=(0,), parities=("even",))
+                     if c.id == "F33-out-adj4a-k1-pE-w0")
+        m = Machine(chain, Config.fitted().replace(**WP78, **WP78_INTS))
+        cycles = m.run()
+        io = [c.start for c in cycles if c.kind == "io_write"]
+        starts = [t for t, off, cls in m.eu.trace if cls == "adjust"]
+        self.assertTrue(starts and starts[0] >= io[0], (starts, io))

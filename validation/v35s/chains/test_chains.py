@@ -2002,8 +2002,20 @@ class F32F33Tests(unittest.TestCase):
                            ("repnc_cmpbk_w", "64a7"), ("st_imm0_dir_a42", "c706420a0000")):
             self.assertEqual(FORMS[name].code.hex(), code, name)
         for name in F32_FORMS + F33_FORMS:
-            self.assertIn(name, UNMODELLED_FORMS)
+            self.assertNotIn(name, UNMODELLED_FORMS)     # (WP78) the simulator decodes them
             self.assertIn(FORMS[name].cls, CLASSES, name)
+        self.assertEqual(UNMODELLED_FORMS, frozenset())
+        # (WP78) one class per cost the facts tell apart
+        for name, cls in (("clr1_mb_cl", "bit1_clr"), ("set1_mw_imm", "bit1_rmw"),
+                          ("not1_mb_cl", "bit1_rmw"), ("test1_mw_imm", "bit1_test"),
+                          ("test1_rb_cl", "bit1"), ("rol4_dl", "rol4"), ("ror4_dl", "ror4"),
+                          ("rol4_m", "rol4_mem"), ("ror4_m", "ror4_mem"), ("adj4a", "adjust"),
+                          ("adjbs", "adjust_b"), ("cvtbd", "convert"), ("cvtdb", "convert_d"),
+                          ("cvtbw", "extend"), ("cvtwl", "extend_w"), ("clc", "flag"),
+                          ("cli", "flag_di"), ("sti", "flag_ei"), ("inc_dh", "incdec"),
+                          ("incb_m", "rmw"), ("mul_aw_m_imm8", "mul_imm"), ("cmp4s", "bcd4s_cmp"),
+                          ("pfx_add4s", "bcd4s"), ("ins_bl_i7", "bf_ins")):
+            self.assertEqual(FORMS[name].cls, cls, name)
         self.assertEqual(len(STRING_FORMS), 32)
         self.assertEqual(sorted(UNMODELLED_STRING_FORMS), ["repc_cmpbk_w", "repc_cmpm_w",
                                                            "repnc_cmpbk_w", "repnc_cmpm_w"])
@@ -2013,12 +2025,15 @@ class F32F33Tests(unittest.TestCase):
         self.assertEqual((FORMS["not1_mw_imm"].reads, FORMS["not1_mw_imm"].writes,
                           FORMS["not1_mw_imm"].width), (1, 1, 2))
 
-    def test_unmodelled(self):
+    def test_modelled(self):
+        # (WP78) F32 and F33 are modelled: score, fit, freeze and the corpus guard take them
         from validation.v35s.chains.families import UNMODELLED
         from validation.v35s.chains import fit
-        self.assertIn("F32", UNMODELLED)
-        self.assertIn("F33", UNMODELLED)
-        self.assertIn("F32", fit.TIE_FAMILIES)           # skipped by the tie-break's filter
+        self.assertNotIn("F32", UNMODELLED)
+        self.assertNotIn("F33", UNMODELLED)
+        self.assertEqual(UNMODELLED, ())
+        self.assertIn("F32", fit.TIE_FAMILIES)
+        self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
 
     def test_counts(self):
         from collections import Counter

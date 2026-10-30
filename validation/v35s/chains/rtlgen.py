@@ -84,7 +84,9 @@ WIDTHS = {
     "Q_LA_OFF": 2,      # lost_after - t: HALT's two status clocks (arbiter, refresh_lost)
     "Q_GD_OFF": 2,      # gdisp_until - t: grp_disp=hold's clocks (rmw.grp_free)
     "Q_LE_OFF": 2,      # (WP72) lea_ea's end - t: LDEA's EA clocks (lea_room=ir)
-    "Q_SD_OFF": 2,      # (E3) str_held - t: a compare's chold clocks (str_hold=hold)
+    "Q_SD_OFF": 4,      # (E3) str_held - t: a compare's chold clocks (str_hold=hold);
+                        # (WP77) str_fetch=hold's xfetch clocks after the stream's last cycle
+    "Q_SR_OFF": 3,      # (WP77) str_raise - t: str_fetch=hold's zfetch clocks (CW = 0)
 }
 
 # Bus-cycle kinds and widths as the bus unit encodes them.
@@ -95,10 +97,14 @@ BWIDTHS = ("word", "lo", "hi")
 
 STEP_OPS = ("clocks", "take", "data", "post", "post_io", "issued", "wait", "nowait", "halt",
             "decide", "flush", "wbsync", "slot",      # wbsync / slot: inserted by the EU
-            "fetch_hold")                             # (E3) str_hold=hold
+            "fetch_hold",                             # (E3) str_hold=hold
+            "fetch_release", "split_floor")           # (WP77) str_fetch=hold, str_split=floor
 STEP_TAGS = ("none", "ea", "mexec", "exec", "loop", "tail", "loop_odd", "mexit",   # clocks
              "lead", "chain", "word", "chain_word", "port",                         # take
-             "cfgap")       # flush: (WP72) cond_gap=own, the class's cfgap (else fgap)
+             "cfgap",       # flush: (WP72) cond_gap=own, the class's cfgap (else fgap)
+             "forever",     # fetch_release: (WP77) ("fetch_release", None): no request from here
+             "raise")       # fetch_release: (WP77) CW = 0: the aborted start's request raised
+                            # again n clocks in (queue.str_raise); untagged: str_held = t + n
 REQ_KINDS = ("none", "read", "write", "io_read", "io_write", "nowrite")
 ADDR_SRC = ("none", "ea", "stack_read", "stack_write", "port", "target",
             "ix", "iy")     # (E3) a string element's source (DS0:IX) and destination (DS1:IY)
@@ -142,14 +148,50 @@ def _ident(name: str) -> str:
 
 # The fit ---------------------------------------------------------------------------------
 
+# (WP77) Classes the RTL does not build yet (the HDL plan's Phase E items 4 and 5: the 0F page and
+# the register miscellany, F32 / F33, modelled in WP78): their templates are left out of the
+# include (as the string classes were before E3), and so are their class ids and integers, so
+# the RTL's class numbering is the built classes' sorted order; an instruction of one of them in
+# a chain is not modelled (rtl_vectors: no template in the include)
+UNBUILT_CLASSES = frozenset({
+    "incdec", "flag", "flag_di", "flag_ei", "extend", "extend_w", "adjust", "adjust_b", "rol4",
+    "ror4", "bit1", "convert", "convert_d", "bit1_test", "bit1_rmw", "bit1_clr", "rol4_mem",
+    "ror4_mem", "mul_imm", "bcd4s", "bcd4s_cmp", "bf_ext", "bf_ins"})
+
+
+def rtl_cost(cfg) -> dict:
+    """(WP77) the class integers of the classes the RTL builds (cfg.cost less UNBUILT_CLASSES)."""
+    return {c: d for c, d in cfg.cost.items() if c not in UNBUILT_CLASSES}
+
+
+def rtl_classes(cfg) -> list:
+    """(WP77) the RTL's class ids: the built classes in sorted order."""
+    return sorted(rtl_cost(cfg))
+
+
+def fit_config():
+    """(WP77) the fit as the frozen package holds it (sim/frozen/config.py: STRUCTURE, COST,
+    EA): the Config the frozen model, the include and the vectors are built from. Not
+    sim.config's merge of fit.json with its DEFAULT_COST, which the model side may extend
+    (classes, integers) ahead of a freeze; the frozen package is the fit's."""
+    import copy
+
+    from .sim.frozen import config as fc
+    return dataclasses.replace(fc.DEFAULT, cost=copy.deepcopy(fc.COST), ea=dict(fc.EA))
+
+
 def load(fit_path: Path | None = None):
-    """(md5 of fit.json, Config, {field: value} of the structural fields)."""
-    from .sim.config import FIT_PATH, Config
+    """(md5 of fit.json, Config, {field: value} of the structural fields): the frozen
+    package's fit (fit_config), checked to be fit.json's (the frozen package's sha256)."""
+    from .sim.config import FIT_PATH
+    from .sim.frozen import config as fc
     path = Path(fit_path) if fit_path is not None else FIT_PATH
     raw = path.read_bytes()
-    cfg = Config.load(path)
-    structure = {f.name: getattr(cfg, f.name) for f in dataclasses.fields(cfg)
-                 if f.name not in ("cost", "ea")}
+    if hashlib.sha256(raw).hexdigest() != fc.FIT_SHA256:
+        raise RtlgenError(f"{path} is not the fit the frozen package was generated from "
+                          f"(sha256 {fc.FIT_SHA256[:12]}): regenerate sim/frozen (freeze)")
+    cfg = fit_config()
+    structure = {k: getattr(cfg, k) for k in fc.STRUCTURE}
     return hashlib.md5(raw).hexdigest(), cfg, structure
 
 
@@ -225,20 +267,28 @@ def string_classes() -> frozenset:
 # (E3) The string forms. A form without a prefix builds its step list literally (one element,
 # index 0). A REP form's list depends on the element count n (CW at the start) and, for a
 # compare, on whether its condition ended the repeat (cond): frozen _string_steps is
-#     take 1, nowait rpre, then  n == 0: clocks zexit
-#                                n > 0: element 0 .. n-1, [the overrun: element n's reads],
-#                                       clocks rexit (cexit when cond)
+#     take 1, nowait rpre, then  n == 0: fetch_release zfetch raise, clocks zexit
+#                                n > 0: fetch_release (none from here), element 0 .. n-1,
+#                                       [the overrun: element n's reads], fetch_release xfetch,
+#                                       [split_floor xsplit], clocks rexit (cexit when cond)
+#                                       less xwb
 # with each element's cycles as data steps (the first with first / loop1 / loop by its index,
 # the others mid), a compare's element followed by fetch_hold, and the last cycle of the
-# element that runs CW out `last` clocks later. The compact template the include holds is
-#     0 take 1, 1 nowait rpre, 2 clocks zexit,
-#     3 ..: the element rows of element 0, of element 1 and of element 2 (m rows each: its
+# element that runs CW out `last` clocks later. (WP77) The compact template the include holds is
+#     0 take 1, 1 nowait rpre,                     (the head, STRING_HEAD rows)
+#     2 .. : the rows of n == 0 (STRING_ZERO: fetch_release raise, clocks zexit),
+#     then the rows before element 0 when n > 0 (STRING_PRE: fetch_release forever),
+#     then the element rows of element 0, of element 1 and of element 2 (m rows each: its
 #           cycles and the hold; element i >= 2 runs element 2's rows),
-#     then clocks rexit and, for a compare, clocks cexit;
-# the EU's step k (k flat, the model's index) is expand_string's: element i = (k - 2) // m,
-# the address of its cycles IX / IY + i * the width (by DIR), the `last` clocks the class's.
+#     then the tail (t rows: fetch_release xfetch and, but after a single-read element,
+#           split_floor), then clocks rexit and, for a compare, clocks cexit;
+# the EU's step k (k flat, the model's index) is expand_string's: element
+# i = (k - HEAD - PRE) // m, the address of its cycles IX / IY + i * the width (by DIR), the
+# `last` clocks the class's.
 
 STRING_HEAD = 2                     # take 1, nowait rpre
+STRING_ZERO = 2                     # (WP77) n == 0: fetch_release zfetch raise, clocks zexit
+STRING_PRE = 1                      # (WP77) n > 0, before element 0: fetch_release forever
 STRING_SETS = 3                     # element rows: element 0, element 1, element >= 2
 
 
@@ -260,8 +310,15 @@ def _str_abstract(raw: tuple, w: int) -> tuple[dict, int]:
             i = ((addr - SENT[src]) % 0x10000) // w
         return ({"op": "data", "kind": kind, "src": src, "src_i": 0, "width": width,
                  "n": (setup, 0)}, i)
-    if k in ("clocks", "nowait", "take", "fetch_hold") and len(raw) == 2:
+    if k in ("clocks", "nowait", "take", "fetch_hold", "split_floor") and len(raw) == 2:
         return {"op": k, "n": (raw[1], 0)}, None
+    if k == "fetch_release":                # (WP77) str_fetch=hold
+        if len(raw) == 2 and raw[1] is None:
+            return {"op": k, "tag": "forever", "n": (0, 0)}, None
+        if len(raw) == 2:
+            return {"op": k, "n": (raw[1], 0)}, None
+        if len(raw) == 3 and raw[2] == "raise" and raw[1] is not None:
+            return {"op": k, "tag": "raise", "n": (raw[1], 0)}, None
     raise RtlgenError(f"string step {raw!r}: not a string template step")
 
 
@@ -293,18 +350,29 @@ def string_template(op, cfg) -> tuple:
     zero = _str_raw(op, cfg, 0, False)
     four = _str_raw(op, cfg, 4, False)
     m = len(four) - len(_str_raw(op, cfg, 3, False))       # an element's rows
-    if len(zero) != STRING_HEAD + 1 or m < 1:
+    first = next((j for j, (d, _) in enumerate(four) if d["op"] == "data"), None)
+    if (len(zero) != STRING_HEAD + STRING_ZERO or m < 1 or first != STRING_HEAD + STRING_PRE
+            or [d for d, _ in zero[:STRING_HEAD]] != [d for d, _ in four[:STRING_HEAD]]):
         raise RtlgenError(f"{op.cls}: the REP form's list is not the string template's shape")
-    rows = [d for d, _ in four[:STRING_HEAD]] + [zero[-1][0]]
+    c = sum(1 for d, _ in four[first:first + m] if d["op"] == "data")
+    ovr = c if is_compare(op.cls) else 0
+    tail = len(four) - (first + 4 * m + ovr) - 1
+    if tail < 0:
+        raise RtlgenError(f"{op.cls}: the REP form's list is not the string template's shape")
+    rows = ([d for d, _ in four[:STRING_HEAD]] + [d for d, _ in zero[STRING_HEAD:]]
+            + [d for d, _ in four[STRING_HEAD:first]])
     for i in range(STRING_SETS):
-        el = four[STRING_HEAD + i * m:STRING_HEAD + (i + 1) * m]
+        el = four[first + i * m:first + (i + 1) * m]
         if any(j not in (i, None) for _, j in el):
             raise RtlgenError(f"{op.cls}: element {i}'s rows are not element {i}'s")
         rows += [d for d, _ in el]
+    rows += [d for d, _ in four[len(four) - 1 - tail:len(four) - 1]]   # the tail
     rows.append(four[-1][0])                                    # rexit
     if is_compare(op.cls):
         rows.append(_str_raw(op, cfg, 4, True)[-1][0])          # cexit
     tm = tuple(_row(d) for d in rows)
+    if string_shape(tm, op.cls) != (m, c, tail):
+        raise RtlgenError(f"{op.cls}: the compact template's shape does not read back")
     for n in range(7):
         for cond in ((False, True) if is_compare(op.cls) and n else (False,)):
             want = [(_row(d), i) for d, i in _str_raw(op, cfg, n, cond)]
@@ -317,21 +385,41 @@ def string_template(op, cfg) -> tuple:
     return tm
 
 
-def string_shape(tm: tuple, cls: str) -> tuple[int, int]:
-    """(rows per element m, data rows per element c) of a REP form's compact template."""
-    m = (len(tm) - STRING_HEAD - 1 - (2 if is_compare(cls) else 1)) // STRING_SETS
-    c = sum(1 for r in tm[STRING_HEAD + 1:STRING_HEAD + 1 + m] if dict(r)["op"] == "data")
-    return m, c
+def _str_base() -> int:
+    """(WP77) the compact template's first element row."""
+    return STRING_HEAD + STRING_ZERO + STRING_PRE
+
+
+def string_shape(tm: tuple, cls: str) -> tuple[int, int, int]:
+    """(rows per element m, data rows per element c, tail rows t) of a REP form's compact
+    template: the tail's rows follow the element rows, the first of them the tail's
+    fetch_release (a fetch_release row with no forever / raise tag)."""
+    base = _str_base()
+    ex = 2 if is_compare(cls) else 1
+    body = len(tm) - base - ex                  # STRING_SETS * m + t
+    for t in range(0, 3):
+        if (body - t) % STRING_SETS or body - t < STRING_SETS:
+            continue
+        m = (body - t) // STRING_SETS
+        tr = tm[base + STRING_SETS * m:base + STRING_SETS * m + t]
+        if t and (dict(tr[0])["op"] != "fetch_release" or dict(tr[0]).get("tag")):
+            continue
+        if not t and m and dict(tm[base + STRING_SETS * m - 1])["op"] == "fetch_release":
+            continue
+        c = sum(1 for r in tm[base:base + m] if dict(r)["op"] == "data")
+        return m, c, t
+    raise RtlgenError(f"{cls}: not a compact string template")
 
 
 def expand_string(tm: tuple, cls: str, last: int, n: int, cond: bool) -> list:
     """(E3) a REP form's step list from its compact template, as the EU expands it (eu_step):
     [(row, element index)]. The model's step k is the list's k-th."""
-    m, c = string_shape(tm, cls)
-    out = [(tm[0], 0), (tm[1], 0)]
+    m, c, t = string_shape(tm, cls)
+    out = [(tm[j], 0) for j in range(STRING_HEAD)]
     if not n:
-        return out + [(tm[2], 0)]
-    base = STRING_HEAD + 1
+        return out + [(tm[STRING_HEAD + j], 0) for j in range(STRING_ZERO)]
+    out += [(tm[STRING_HEAD + STRING_ZERO + j], 0) for j in range(STRING_PRE)]
+    base = _str_base()
     for i in range(n):
         for j in range(m):
             d = dict(tm[base + min(i, STRING_SETS - 1) * m + j])
@@ -342,7 +430,8 @@ def expand_string(tm: tuple, cls: str, last: int, n: int, cond: bool) -> list:
         for j in range(c):
             out.append((tm[base + min(n, STRING_SETS - 1) * m + j], n))
     x = base + STRING_SETS * m
-    return out + [(tm[x + (1 if cond else 0)], 0)]
+    out += [(tm[x + j], 0) for j in range(t)]
+    return out + [(tm[x + t + (1 if cond else 0)], 0)]
 
 
 def has_count(op) -> bool:
@@ -499,6 +588,8 @@ def templates(cfg) -> tuple[list, dict, dict]:
     example: dict = {}
     for op, code in enumerate_ops():
         op = started(op, cfg)
+        if op.cls in UNBUILT_CLASSES:
+            continue                            # (WP77) not built: no template
         if op.cls in string_classes():
             tm = string_template(op, cfg)       # (E3) refresh_hold_steps leaves it as it is
             for refresh in (False, True):
@@ -647,18 +738,22 @@ def check_widths(cfg, structure, tmpls) -> list[str]:
     max_len = bc["BASE"] + 3                                  # WTC field value 3: 3 waits
     need = {"KIND": len(KINDS) - 1, "POS": max_len - 1, "LEN": max(max_len, *bc["REFRESH_LENGTHS"]),
             "BWIDTH": len(BWIDTHS) - 1, "ADDR": 0xFFFFF, "DATA": 0xFFFF,
-            "FETCH_SINCE": 1 + max(cfg.c(c, n) for c in cfg.cost
+            "FETCH_SINCE": 1 + max(cfg.c(c, n) for c in rtl_cost(cfg)
                                    for n in ("fgap", "nfgap", "cfgap")),
             "IO_TAIL": structure["io_recover"] + 1,
             "GAP": structure["min_gap"] + 1,
             "REFRESH_LEN": max(bc["REFRESH_LENGTHS"]), "WLATCH": structure["wlatch"],
-            "STEP_K": max(len(t) for t in tmpls) + 1,         # + the EU's wbsync
+            # + the EU's wbsync; (WP77) not a REP string form's compact template, whose
+            # cursor is the flat index (eu.k 18 bits, E3) and whose rows reach 18
+            "STEP_K": max(len(t) for t in tmpls
+                          if not any(dict(r)["op"] == "fetch_release" for r in t)) + 1,
             "Q_COUNT": queue_constants()["BYTES"] + queue_constants()["WORD"],
             "Q_AR_OFF": max(bc["REFRESH_LENGTHS"]),
-            "Q_FH_OFF": max(cfg.c(c, "hold") for c in cfg.cost),
+            "Q_FH_OFF": max(cfg.c(c, "hold") for c in rtl_cost(cfg)),
             "Q_AB_LEFT": bc["BASE"] - 1, "Q_LA_OFF": 2, "Q_GD_OFF": cfg.c("rmw", "grp_free"),
             "Q_LE_OFF": max(cfg.ea.values()) + cfg.c("lea", "exec"),
-            "Q_SD_OFF": max(cfg.c(c, "chold") for c in cfg.cost)}
+            "Q_SD_OFF": max(cfg.c(c, n) for c in rtl_cost(cfg) for n in ("chold", "xfetch")),
+            "Q_SR_OFF": max(cfg.c(c, "zfetch") for c in rtl_cost(cfg))}
     for k, v in need.items():
         if v >= 1 << WIDTHS[k]:
             bad.append(f"V35_W_{k}={WIDTHS[k]} cannot hold {v}")
@@ -681,7 +776,8 @@ def render(fit_path: Path | None = None) -> str:
     sites = read_fields()
     read = {k for k in structure if k in sites and k not in DEAD_FIELDS}
     unread = sorted(set(structure) - read)
-    classes = sorted(cfg.cost)
+    classes = rtl_classes(cfg)
+    cost = rtl_cost(cfg)                    # (WP77) the built classes' integers
     tmpls, sel, example = templates(cfg)
     bad = check_widths(cfg, structure, tmpls)
     if bad:
@@ -757,9 +853,9 @@ def render(fit_path: Path | None = None) -> str:
         w(f"localparam int V35_W_{k} = {v};")
     w("")
     # classes and costs
-    names = sorted({n for d in cfg.cost.values() for n in d})
+    names = sorted({n for d in cost.values() for n in d})
     w(f"// ---- Classes ({len(classes)}) and class integers "
-      f"({sum(len(d) for d in cfg.cost.values())}; Config.cost) ----")
+      f"({sum(len(d) for d in cost.values())}; Config.cost) ----")
     for i, c in enumerate(classes):
         w(f"localparam int V35_CLS_{_ident(c)} = {i};")
     w(f"localparam int V35_CLS_N = {len(classes)};")
@@ -767,17 +863,17 @@ def render(fit_path: Path | None = None) -> str:
         w(f"localparam int V35_CN_{_ident(n)} = {i};")
     w(f"localparam int V35_CN_N = {len(names)};")
     for c in classes:
-        for n in sorted(cfg.cost[c]):
-            w(f"localparam int V35_C_{_ident(c)}_{_ident(n)} = {cfg.cost[c][n]};")
+        for n in sorted(cost[c]):
+            w(f"localparam int V35_C_{_ident(c)}_{_ident(n)} = {cost[c][n]};")
     w("function automatic int v35_cost(input int cls, input int name);")
     w("    v35_cost = 0;")
     w("    case (cls)")
     for c in classes:
-        if not cfg.cost[c]:
+        if not cost[c]:
             continue
         w(f"        V35_CLS_{_ident(c)}: case (name)")
-        for n in sorted(cfg.cost[c]):
-            w(f"            V35_CN_{_ident(n)}: v35_cost = {cfg.cost[c][n]};")
+        for n in sorted(cost[c]):
+            w(f"            V35_CN_{_ident(n)}: v35_cost = {cost[c][n]};")
         w("            default: v35_cost = 0;")
         w("        endcase")
     w("        default: v35_cost = 0;")
@@ -787,9 +883,9 @@ def render(fit_path: Path | None = None) -> str:
     w("    v35_cost_has = 1'b0;")
     w("    case (cls)")
     for c in classes:
-        if not cfg.cost[c]:
+        if not cost[c]:
             continue
-        items = ", ".join(f"V35_CN_{_ident(n)}" for n in sorted(cfg.cost[c]))
+        items = ", ".join(f"V35_CN_{_ident(n)}" for n in sorted(cost[c]))
         w(f"        V35_CLS_{_ident(c)}: v35_cost_has = name inside {{{items}}};")
     w("        default: v35_cost_has = 1'b0;")
     w("    endcase")
@@ -858,16 +954,21 @@ def render(fit_path: Path | None = None) -> str:
     reps = [(i, string_shape(t, example[i][0])) for i, t in enumerate(tmpls)
             if example[i][0] in string_classes() and len(t) > 5 and dict(t[0])["op"] == "take"]
     w("// ---- (E3) The REP string forms' compact templates (rtlgen.string_template): rows 0-1")
-    w("// the head (take 1, nowait rpre), row 2 clocks zexit, then the element rows of element 0,")
-    w("// element 1 and element >= 2 (m rows each: c data rows, then a compare's fetch_hold),")
+    w("// the head (take 1, nowait rpre), rows 2-3 the CW = 0 rows (fetch_release zfetch raise,")
+    w("// clocks zexit), row 4 the rows before element 0 (fetch_release forever), then the")
+    w("// element rows of element 0, element 1 and element >= 2 (m rows each: c data rows, then a")
+    w("// compare's fetch_hold), then the tail (t rows: fetch_release xfetch, split_floor xsplit),")
     w("// then clocks rexit and a compare's clocks cexit; the EU expands them (expand_string) ----")
     w(f"localparam int V35_STR_HEAD = {STRING_HEAD};")
+    w(f"localparam int V35_STR_ZERO = {STRING_ZERO};")
+    w(f"localparam int V35_STR_PRE = {STRING_PRE};")
     w(f"localparam int V35_STR_SETS = {STRING_SETS};")
-    w("function automatic logic [3:0] v35_str_shape(input int tmpl);   // {m, c}; 0: not one")
+    w("function automatic logic [5:0] v35_str_shape(input int tmpl);   // {t, m, c}; 0: not one")
     w("    case (tmpl)")
-    for i, (m, c) in reps:
-        w(f"        {i}: v35_str_shape = {{2'd{m}, 2'd{c}}};   // {example[i][0]}: {example[i][1]}")
-    w("        default: v35_str_shape = 4'd0;")
+    for i, (m, c, t) in reps:
+        w(f"        {i}: v35_str_shape = {{2'd{t}, 2'd{m}, 2'd{c}}};   "
+          f"// {example[i][0]}: {example[i][1]}")
+    w("        default: v35_str_shape = 6'd0;")
     w("    endcase")
     w("endfunction")
     w("")
@@ -892,7 +993,7 @@ def render(fit_path: Path | None = None) -> str:
     w("function automatic bit v35_wbsync(input int cls, input bit one_byte);")
     w("    case (cls)")
     for c in classes:
-        d = cfg.cost[c]
+        d = cost[c]
         long_ = bool(d.get("wbsync", 0))
         short = bool(d.get("wbsync0", 0)) if "wbsync0" in d else long_
         if long_ or short:

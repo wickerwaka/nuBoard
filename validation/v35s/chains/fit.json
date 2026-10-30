@@ -8,6 +8,7 @@
  "arbiter": "b2b",
  "arbiter_q": 2,
  "arrive_partial": false,
+ "bf_count": "dw",
  "branch_reg": "reg",
  "burst_count": "dw",
  "burst_wait": "data",
@@ -15,6 +16,109 @@
  "call_order": "write_first",
  "cond_gap": "own",
  "cost": {
+  "adjust": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 8,
+   "pre": 0,
+   "pre0": 10,
+   "wb": 2
+  },
+  "adjust_b": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 16,
+   "pre": 0,
+   "pre0": 17,
+   "wb": 3
+  },
+  "bcd4s": {
+   "exec": 12,
+   "first": 16,
+   "loop": 7,
+   "mid": 7,
+   "nx": 0,
+   "pre": 0,
+   "wb": 2,
+   "wmid": 10
+  },
+  "bcd4s_cmp": {
+   "exec": 20,
+   "first": 16,
+   "loop": 14,
+   "mid": 7,
+   "nx": 0,
+   "pre": 0,
+   "wb": 2
+  },
+  "bf_ext": {
+   "nx": 0,
+   "pre": 0,
+   "setup": 12,
+   "setup_free": 0,
+   "span": 14,
+   "wb": 0,
+   "xsetup": 27,
+   "xspan": 43
+  },
+  "bf_ins": {
+   "nx": 0,
+   "post": 0,
+   "pre": 0,
+   "setup": 12,
+   "setup_free": 0,
+   "span": 20,
+   "wb": 0,
+   "wsetup": 2,
+   "xrsetup": 11,
+   "xspan": 106,
+   "xwsetup": 68
+  },
+  "bit1": {
+   "cl": 0,
+   "exec": 4,
+   "nx": 1,
+   "pre": 0,
+   "wb": 0
+  },
+  "bit1_clr": {
+   "alu": 4,
+   "cl": 3,
+   "dfloor": 2,
+   "grp": 1,
+   "grp_free": 0,
+   "nx": 0,
+   "post": 0,
+   "pre": 7,
+   "setup": 0,
+   "setup_free": 3,
+   "sidle": 2,
+   "wb": 0
+  },
+  "bit1_rmw": {
+   "alu": 3,
+   "cl": 1,
+   "dfloor": 4,
+   "grp": 0,
+   "grp_free": 0,
+   "nx": 1,
+   "post": 0,
+   "pre": 7,
+   "setup": 0,
+   "setup_free": 3,
+   "sidle": 2,
+   "wb": 0
+  },
+  "bit1_test": {
+   "cl": 3,
+   "dfloor": 2,
+   "exec": 1,
+   "grp": 1,
+   "grp_free": 0,
+   "nx": 2,
+   "pre": 7,
+   "wb": 0
+  },
   "branch_near": {
    "exec": 5,
    "fgap": 3,
@@ -44,6 +148,18 @@
    "setup": 7,
    "setup_free": 3
   },
+  "convert": {
+   "exec": 16,
+   "nx": 0,
+   "pre": 3,
+   "wb": 2
+  },
+  "convert_d": {
+   "exec": 16,
+   "nx": 0,
+   "pre": 2,
+   "wb": 0
+  },
   "dbnz": {
    "exec": 14,
    "fgap": 5,
@@ -69,8 +185,49 @@
    "mwb": 2,
    "pre": 0,
    "rexit": 6,
+   "sexec": 58,
    "smexec": 58,
    "wb": 2
+  },
+  "extend": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 0,
+   "pre": 0,
+   "pre0": 3,
+   "wb": 1
+  },
+  "extend_w": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 8,
+   "pre": 0,
+   "pre0": 9,
+   "wb": 3
+  },
+  "flag": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 0,
+   "pre": 0,
+   "pre0": 3,
+   "wb": 1
+  },
+  "flag_di": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 3,
+   "pre": 0,
+   "pre0": 4,
+   "wb": 3
+  },
+  "flag_ei": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 12,
+   "pre": 0,
+   "pre0": 13,
+   "wb": 3
   },
   "halt": {},
   "imm": {
@@ -89,6 +246,14 @@
    "setup0": 7,
    "wb": 0,
    "wbsync": 0
+  },
+  "incdec": {
+   "exec": 0,
+   "nx": 1,
+   "nx0": 0,
+   "pre": 3,
+   "pre0": 3,
+   "wb": 1
   },
   "lea": {
    "exec": 0,
@@ -131,7 +296,18 @@
    "mwb": 2,
    "pre": 0,
    "rexit": 8,
+   "sexec": 41,
    "smexec": 49,
+   "wb": 2
+  },
+  "mul_imm": {
+   "exec": 35,
+   "hphase": 2,
+   "mexec": 45,
+   "mtail": 2,
+   "mwb": 2,
+   "nx": 0,
+   "pre": 0,
    "wb": 2
   },
   "out": {
@@ -263,6 +439,44 @@
    "setup_free": 0,
    "sidle": 2
   },
+  "rol4": {
+   "exec": 14,
+   "nx": 0,
+   "pre": 0,
+   "wb": 1
+  },
+  "rol4_mem": {
+   "alu": 12,
+   "dfloor": 2,
+   "grp": 0,
+   "grp_free": 0,
+   "nx": 7,
+   "post": 0,
+   "pre": 1,
+   "setup": 0,
+   "setup_free": 3,
+   "sidle": 2,
+   "wb": 0
+  },
+  "ror4": {
+   "exec": 17,
+   "nx": 0,
+   "pre": 1,
+   "wb": 2
+  },
+  "ror4_mem": {
+   "alu": 16,
+   "dfloor": 2,
+   "grp": 0,
+   "grp_free": 0,
+   "nx": 0,
+   "post": 0,
+   "pre": 6,
+   "setup": 0,
+   "setup_free": 3,
+   "sidle": 2,
+   "wb": 0
+  },
   "shift_cl": {
    "exec": 7,
    "hphase": 2,
@@ -309,11 +523,11 @@
    "rexit": 20,
    "rpre": 5,
    "setup": 9,
-   "xfetch": 0,
-   "xsplit": 0,
-   "xwb": 0,
+   "xfetch": 8,
+   "xsplit": 4,
+   "xwb": 2,
    "zexit": 10,
-   "zfetch": 0
+   "zfetch": 6
   },
   "str_in": {
    "exec": 4,
@@ -324,11 +538,11 @@
    "rexit": 12,
    "rpre": 5,
    "setup": 9,
-   "xfetch": 0,
-   "xsplit": 0,
-   "xwb": 0,
+   "xfetch": 8,
+   "xsplit": 4,
+   "xwb": 2,
    "zexit": 11,
-   "zfetch": 0
+   "zfetch": 7
   },
   "str_load": {
    "exec": 2,
@@ -338,11 +552,11 @@
    "rexit": 15,
    "rpre": 6,
    "setup": 9,
-   "xfetch": 0,
-   "xsplit": 0,
-   "xwb": 0,
+   "xfetch": 8,
+   "xsplit": 4,
+   "xwb": 2,
    "zexit": 9,
-   "zfetch": 0
+   "zfetch": 5
   },
   "str_move": {
    "exec": 4,
@@ -354,11 +568,11 @@
    "rexit": 12,
    "rpre": 5,
    "setup": 9,
-   "xfetch": 0,
-   "xsplit": 0,
-   "xwb": 0,
+   "xfetch": 8,
+   "xsplit": 4,
+   "xwb": 2,
    "zexit": 10,
-   "zfetch": 0
+   "zfetch": 6
   },
   "str_out": {
    "exec": 3,
@@ -366,16 +580,16 @@
    "last": 1,
    "loop": 6,
    "mid": 6,
-   "nx": 1,
+   "nx": 0,
    "pre": 0,
    "rexit": 13,
    "rpre": 5,
    "setup": 10,
-   "xfetch": 0,
-   "xsplit": 0,
-   "xwb": 0,
+   "xfetch": 9,
+   "xsplit": 4,
+   "xwb": 2,
    "zexit": 11,
-   "zfetch": 0
+   "zfetch": 7
   },
   "str_scan": {
    "cexit": 19,
@@ -389,11 +603,11 @@
    "rexit": 20,
    "rpre": 5,
    "setup": 10,
-   "xfetch": 0,
-   "xsplit": 0,
-   "xwb": 0,
+   "xfetch": 8,
+   "xsplit": 4,
+   "xwb": 2,
    "zexit": 10,
-   "zfetch": 0
+   "zfetch": 6
   },
   "str_store": {
    "exec": 0,
@@ -403,11 +617,11 @@
    "rexit": 12,
    "rpre": 5,
    "setup": 11,
-   "xfetch": 0,
-   "xsplit": 0,
-   "xwb": 0,
+   "xfetch": 8,
+   "xsplit": 4,
+   "xwb": 2,
    "zexit": 10,
-   "zfetch": 0
+   "zfetch": 6
   },
   "xlat": {
    "exec": 2,
@@ -499,7 +713,7 @@
  "latch_start": true,
  "late_disp": "all",
  "late_read": true,
- "lea_disp": "none",
+ "lea_disp": "split",
  "lea_form": "reg",
  "lea_io": "recover",
  "lea_room": "ir",
@@ -513,6 +727,7 @@
  "odd_split": "atomic",
  "opcode_overlap": 0,
  "opcode_take": "prefetch",
+ "page_grp": "group",
  "per_shift_count": 2,
  "pop_exit": 4,
  "pop_mem_order": "stack_post",
@@ -628,20 +843,20 @@
  "slot_idle": "eu",
  "slot_latch": true,
  "slot_room": "word",
- "sreg_io": "free",
- "sreg_store": "store",
+ "sreg_io": "hold",
+ "sreg_store": "own",
  "start_sync": "b2b_modrm",
  "str_count": "dw",
- "str_exit": "eu",
- "str_fetch": "room",
+ "str_exit": "wb",
+ "str_fetch": "hold",
  "str_hold": "hold",
  "str_io_latch": "write",
- "str_io_setup": "nowait",
+ "str_io_setup": "run",
  "str_last": "all",
  "str_overrun": "read",
  "str_setup": "nowait",
- "str_split": "none",
- "str_start": "count",
+ "str_split": "floor",
+ "str_start": "skip",
  "str_take": "sync",
  "sync_io": "issue",
  "sync_req": "disp",
@@ -661,5 +876,5 @@
  "word_latch": "byte_d",
  "write_wait": "mem_end",
  "xfer_abort": "word",
- "xfer_odd": "hold"
+ "xfer_odd": "idle"
 }

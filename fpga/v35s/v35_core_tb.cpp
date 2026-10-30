@@ -48,8 +48,8 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 958, QSTATE_W = 187,
-              ASTATE_W = 103, RSTATE_W = 24, XOPW = 12;
+constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 985, QSTATE_W = 197,
+              ASTATE_W = 112, RSTATE_W = 24, XOPW = 12;
 constexpr int OPW = 33, QVW = 52, OPNDW = 197, RFW = 211;
 constexpr int K_FETCH = 1, K_READ = 2, K_WRITE = 3, K_IO_READ = 4;
 constexpr int BW_WORD = 0, BW_LO = 1, BW_HI = 2;
@@ -109,7 +109,7 @@ const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 3};
 const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ps", "ss", "ds0",
                             "ds1", "psw", "pfx"};
 constexpr int NRF = 14;
-constexpr int NBV = 10;
+constexpr int NBV = 11;                 // (WP77) run
 
 template <typename W>
 uint64_t get_bits(const W& w, int lsb, int n) {
