@@ -9,11 +9,11 @@
  "arbiter_q": 2,
  "arrive_partial": false,
  "branch_reg": "reg",
- "burst_count": "data",
+ "burst_count": "dw",
  "burst_wait": "data",
  "bytes_per_clock": 1,
  "call_order": "write_first",
- "cond_gap": "fgap",
+ "cond_gap": "own",
  "cost": {
   "branch_near": {
    "exec": 5,
@@ -56,7 +56,7 @@
   "dispose": {
    "exec": 2,
    "pre": 0,
-   "setup": 6,
+   "setup": 7,
    "setup_free": 3
   },
   "div": {
@@ -92,7 +92,7 @@
   },
   "lea": {
    "exec": 0,
-   "nx": 2,
+   "nx": 0,
    "pre": 0
   },
   "load": {
@@ -182,10 +182,11 @@
    "exec": 2
   },
   "prepare": {
-   "exec": 16,
+   "exec": 11,
    "pre": 2,
    "setup": 7,
-   "setup_free": 3
+   "setup_free": 3,
+   "wb": 2
   },
   "push": {
    "post": 0,
@@ -211,7 +212,7 @@
    "gap": 0,
    "post": 0,
    "pre": 0,
-   "setup": 10,
+   "setup": 9,
    "setup_free": 7,
    "wsetup": 7
   },
@@ -443,7 +444,7 @@
  "imm_count": "start",
  "imm_head": "split",
  "imm_landed": true,
- "imm_latch": "free",
+ "imm_latch": "wait",
  "imm_order": "after_issue",
  "imm_start": "wait",
  "io_b2b": "all",
@@ -471,8 +472,8 @@
  "late_disp": "all",
  "late_read": true,
  "lea_form": "reg",
- "lea_io": "free",
- "lea_room": "none",
+ "lea_io": "recover",
+ "lea_room": "ir",
  "lookup_start": true,
  "mem_order": "split",
  "min_gap": 0,
@@ -497,7 +498,7 @@
  "prelude_anchor": "pop",
  "prelude_tail": "segs",
  "prepare_order": "write_first",
- "prepare_sync": "take",
+ "prepare_sync": "run",
  "push_mem_write": "at_data",
  "read_use_latency": 0,
  "refill_start": "full_io",
@@ -623,5 +624,5 @@
  "wlatch_src": "write_imm_read",
  "word_latch": "byte_d",
  "write_wait": "mem_end",
- "xfer_abort": "none"
+ "xfer_abort": "word"
 }

@@ -543,8 +543,13 @@ then the RTL. In the order the generator gains them:
    `xfer_abort=word` and `cond_gap=own` (the queue's abort and the EU's
    flush), `burst_count=dw`, `lea_io=recover`, `lea_room=ir`,
    `prepare_sync=run` and `imm_latch=wait` (the EU's requests, EA clocks,
-   take sync and the decoder's immediate against the latch); it is adopted
-   once an RTL catch-up package has them, after D2. The probe family F30
+   take sync and the decoder's immediate against the latch); adopted
+   2026-10-30 after D2, the RTL catching up in WP75: at the adoption the
+   `--core` gate differs from the model on 213 F23/F25 runs (F23 60, F25 153) and, in an internal latch field only, 4 F0w runs, among the families sampled at the adoption (F0–F7, F23, F25); `rtlgen` leaves the
+   `dispose` class out of the step tables and `test_rtlgen`'s class check
+   fails. That is the baseline WP75 clears (its whole-corpus run under the
+   adopted fit is in scratchpad wp72a/core-all-baseline.txt). The probe
+   family F30
    and its controls F31 (WP73, 2026-10-30, 1,476 and 234 runs;
    docs/v35s-chains.md "Probes for the facts-only shapes") join the RTL
    gate lists with that package: the whole-corpus `--core` list becomes 33
