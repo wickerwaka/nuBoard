@@ -147,7 +147,7 @@ class Machine:
                 if c is end:
                     return bus.cycles
             if queue.abort_end is not None and queue.abort_end == t - 1:
-                queue.abort_done()           # abort_fetch: the aborted cycle ends
+                queue.abort_done(t)          # abort_fetch: the aborted cycle ends
             if before_take:
                 begin_clock(t)               # request_sample=before_take
             tick(t)

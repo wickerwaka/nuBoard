@@ -484,6 +484,13 @@ then the RTL. In the order the generator gains them:
    same day (the thirty-seventh fit, WP61: eight enums, F28 820/1,088, F29
    427/456, 22,771/23,612, no integer changed); one of them, `grp_disp`,
    adds queue state the C2 RTL lacks (`gdisp_until`), a follow-up in WP63.
+   The fortieth fit (WP72, 2026-10-30, docs/v35s-chains.md "The fortieth
+   fit"; F23 303/360, F25 534/588) adds seven mechanisms the RTL lacks:
+   `xfer_abort=word` and `cond_gap=own` (the queue's abort and the EU's
+   flush), `burst_count=dw`, `lea_io=recover`, `lea_room=ir`,
+   `prepare_sync=run` and `imm_latch=wait` (the EU's requests, EA clocks,
+   take sync and the decoder's immediate against the latch); it is adopted
+   once an RTL catch-up package has them, after D2.
 2. F25 LDEA, XLAT, PUSH imm, PUSH R and POP R, PREPARE and DISPOSE, the
    segment pushes and moves: the EA step alone, stack bursts, the segment
    write-back. Done 2026-10-27 (ten classes, three enums, 446/588; the

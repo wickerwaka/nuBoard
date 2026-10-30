@@ -499,6 +499,12 @@ class EU:
                     self.reg_early = True
                 else:
                     return
+            if (isinstance(self.sync, int) and self.cfg.prepare_sync == "run"
+                    and self.cls == "prepare" and self.decoder.queue.b2b_at == t):
+                # (WP72) prepare_sync=run: the fetch committed back to back on the last clock
+                # of the one PREPARE's take sync waited for is waited for too (the run)
+                self.sync += 1
+                return
             self.sync = None
             step = self.steps[self.k]
             kind = step[0]
@@ -512,6 +518,11 @@ class EU:
                     # (WP21) io_exec: a register form started on an I/O cycle's issue clock
                     # runs its clocks after its operand take only once the cycle has ended
                     self.resume = cur.end + 1
+                    if self.cls == "lea" and self.cfg.lea_io == "recover":
+                        # (WP72) lea_io=recover: LDEA's EA clocks (its operation) use the bus
+                        # unit's address adder, which the I/O cycle holds through its
+                        # recovery: they run from io_recover clocks after its last
+                        self.resume += self.cfg.io_recover
                     return
                 self.k += 1
                 if (step[1] and self.exec_t is None and self.cfg.unit_hold and not self.mem
@@ -536,6 +547,9 @@ class EU:
                     self.resume = t + step[1]
                     if len(step) > 2 and step[2] == "ea" and self.mem and self.disp:
                         self.decoder.ea_end = self.resume   # (WP30) ea_ir_room
+                    if (len(step) > 2 and step[2] == "ea" and self.cls == "lea"
+                            and self.decoder.need == 0):
+                        self.decoder.queue.lea_ea = (t, self.resume)   # (WP72) lea_room
                     q = self.decoder.queue
                     if (self.cfg.abort_unit == "loop" and self.cls in SHIFT_CLASSES
                             and not self.mem and self.k == len(self.steps) and q.retry
@@ -829,10 +843,11 @@ class EU:
                 self.k += 1
                 continue
             if kind in ("flush", "decide"):      # (WP55) a taken transfer: the queue discarded,
+                gap = ("nfgap" if kind == "decide" else step[2] if len(step) > 2
+                       else "fgap")              # (WP72) cond_gap=own: cfgap
                 if self.cfg.flush_inflight == "wait" and (
                         self.bus.fetch_inflight(t)
-                        or t <= self.bus.last_fetch_end + self.cfg.c(
-                            self.cls, "fgap" if kind == "flush" else "nfgap")):
+                        or t <= self.bus.last_fetch_end + self.cfg.c(self.cls, gap)):
                     return                       # (flush_inflight=wait: fgap clocks after the
                                                  # last fetch's end)
                 if kind == "flush":              # (untaken=wait: a transfer not taken waits as
@@ -1303,7 +1318,8 @@ class EU:
         cost = self.cfg.cost.get(cls, {})
         io = kind.startswith("io")
         # (WP70) str_count=dw: a string form's request counts as a DW-form I/O request's
-        dwlike = cls in STRING_CLASSES and self.cfg.str_count == "dw"
+        dwlike = (cls in STRING_CLASSES and self.cfg.str_count == "dw"
+                  or cls == "push_r" and self.cfg.burst_count == "dw")
         r = Request(cycles, setup, t, atomic=self.cfg.odd_split == "atomic",
                     free_need=cost.get("setup_free") if free is None else free,
                     lead=cost.get("lead", 0) if io else 0,

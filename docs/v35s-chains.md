@@ -4984,7 +4984,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the thirty-ninth fit since 2026-10-30): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the thirty-ninth fit since 2026-10-30, re-tracked the same day in the fortieth's schema): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -5191,6 +5191,48 @@ The corpus is 23,549/24,524 exact over the 30 scored families.
   w1/w2 (+1), CMPM pE w1/w2 (+1), OUTM pE w1/w2 (−1) and pO (+1). In these classes the fetch runs inside the first
   instance's exec; INM's second I/O is at D1end + 12 at pO and D1end + 13 + w at pE, and one `setup` cannot serve the
   moved-in first instance and the second one.
+
+**The fortieth fit** (scratchpad wp72/fit-wp72.json, md5 23562d00, WP72, fitted and verified 2026-10-30; not yet
+adopted: the RTL has none of its mechanisms, so it is adopted once the RTL catches up, after HDL plan D2; meanwhile
+the tracked `fit.json` is the thirty-ninth fit in the fortieth's schema, the six new fields at their defaults, md5
+bf77c277, behaviour unchanged and `freeze --verify` identical) takes the
+F25 and F23 miss shapes by size. Six new enums, one existing enum flipped, two new class integers, four moved; F25
+446 → 534/588 and F23 255 → 303/360 with nothing lost in any family, 23,685/24,524 over the 30 scored families. Stage
+14 (`fit.py` `F40_ENUMS`, `F40_SWEEP`, `F40_INTS`) from a hand start (827 exact on F23 + F25) under the corpus guard,
+344 s: the descent moved `lea.nx` 2 → 0 (837), the sweep nothing. The enums, each in `sim/config.py` OPTIONS with the
+old behaviour as DEFAULT and a dated comment; `test_sim.TransferAndFrameMisses` pins each against its alternative on
+its deciding run and `test_fit.TransferFrameStage` the stage. Several are keyed on a class with one form (`lea`,
+`prepare`, `push_r`, the transfer classes): per-class template choices, none on an opcode byte, a parity, a wait count
+or a neighbour.
+
+| Enum (value) | Mechanism | Pinned by |
+| --- | --- | --- |
+| `imm_latch=wait` (free; existing, flipped) | a data immediate is not taken before a waiting OUT's I/O cycle has ended: the decoder's immediate bytes and the OUT's datum share the data latch | `out-push_imm8-pO-w0`: M0's I/O 85, the stack write 94 (I + 9 at every wait and parity, imm16 I + 10; free 91); flipped alone at the thirty-ninth fit it changes no run outside F25; free −24 F25 |
+| `xfer_abort=word` (none) | the aborted fetch cycle answers a request on a transfer's start/take/IR-load clock with 2 or 3 bytes of room (the displacement goes to the target adder and still counts on its take clock); with no data cycle to raise the request again it is raised on the aborted cycle's end | `push-br-n0-pO-w0`: BR short starts 81 with 3 bytes of room, silicon's aborted cycle 81–83 and fetch 84, target fetch 92 (none: F81); none −24 F23 |
+| `cond_gap=own` (fgap) | a taken form with a condition field (BE, BNE) flushes its class's `cfgap` clocks (8) after the last fetch's end, the flag test holding the quiet window open, where BR short waits `fgap` | `out-be-n0-pE-w2`: target fetch 107 = last fetch's end + 9 in every BE cell at 1 and 2 waits, BR short's at + 6 (fgap 106); fgap −24 F23 |
+| `burst_count=dw` (data) | PUSH R's stack writes count their setup as a DW-form I/O request's, as the strings' do (`str_count=dw`): no operand byte, addresses from SP, data from the register file; POP R keeps the data count | `push-pushr-pO-w0..w2`: start 81/82/83, first write 89/90/91 (setup 9, every clock counted); pE a fetch on the start clock, 90/92/94; under OUT the write 9 after the I/O issue; data needs setup 10 under PUSH and 9 under OUT; data −12 F25 |
+| `lea_io=recover` (free) | LDEA started on an I/O's issue clock runs its EA clocks only after the I/O's recovery (`io_recover`): the EA uses the bus unit's address adder, held through the recovery | `out-ldea-bw-pE-w0`: silicon F87 F94 I101 (free: EA 87–88, OUT at 90, I100); free −7 F25 |
+| `lea_room=ir` (none) | during LDEA's EA clocks after its last operand byte the IR byte is not counted by the request rule: LDEA's successor decodes while the adder works and the bus unit fetches as if the slot were free | `push-ldea-bw-pO-w0`: fetch 81–83, M1's opcode in the IR on 83, EA clocks 84–85 with 3 bytes queued and a word delivered on 84: silicon F84 W93 (none: W92 F95); every mod 00 mode at pO, OUT LDEA k = 2 at pE w1/w2; `lea.nx` 2 → 0 with it; none −24 F25 (+7 −31) |
+| `prepare_sync=run` (take) | PREPARE's take sync waits for a fetch the bus unit commits back to back on the last clock of the one it waits for, the whole refill run; `prepare.exec` 11 and `prepare.wb` 2, the closing OUT waiting for the write-back of SP and BP (`out.wbsync`), M1's PUSH not | `push-prepare-pE-w0..w2`: M1's write at the second refill fetch's end + 18 at every wait (117/121/126; take 119/122/126); `out-prepare`: the OUT's fetch at the run's end + 17; take −24 F25 |
+
+Integers moved: `push_r.setup` 10 → 9, `prepare.exec` 16 → 11 (new `prepare.wb` 2), `dispose.setup` 6 → 7, `lea.nx`
+2 → 0, new `branch_short.cfgap` 8. Won: F23 every BE cell at 2 waits but PUSH pO (24) and the PUSH-frame BR short at
+pO (24); F25 every PUSH imm cell under OUT (24), PREPARE and PREPARE/DISPOSE in both frames (16), PUSH R and PUSH R/POP
+R under PUSH at pO (6), LDEA mod 00 under PUSH at pO in seven modes (21) and the k = 2 cells (8), LDEA mod 00 under
+OUT at pO w0 (7) and k = 2 at pE w1/w2 (6). After: F23 162/180 at pE, 141/180 at pO, 101/120 at every wait; F25
+252/294 at pE, 282/294 at pO, 172/181/181 of 196 at w0/w1/w2. Nothing-lost gate (the overseer's re-run, scratchpad
+wp72r/, as for the thirty-eighth): byte-identical on all 29 other lists in both comparisons, F23 and F25 won only.
+
+**Facts left, none encoded** (wp72/): F25 B, LDEA base+d16 and direct under PUSH at pE (27): M1's write at the end of
+the third fetch after M0 + 7 at every wait (`bw_d16` 96/100/104, model 93/96/100), pO exact; F25 C, LDEA under OUT at
+pE w0 mod 00 (7: silicon F87 F94 I101, model F87 F90 I103, the cells `lea_room` gives back) and k = 2 (8); F25 E, the
+segment forms (12): the M0 marker's I/O a clock later at pE when 8E (MOV DS1,r/m) follows it, 8C and pO exact, and
+MOV [BW],DS0 at pO storing a clock late, where every statement found is keyed on the opcode; F23 A, the OUT-frame BR
+short at pO (24): the io_take drop on the I/O issue clock retried at the I/O's end gives the model a fetch at 88 that
+silicon lacks before its target fetch at 96, and excluding transfers from the drop changes nothing; F23 C/D/E, BNE and
+DBNZ not taken (27) and callret (6): `dbnz.nexec` and `dbnz.nfgap` still want to vary by parity and frame
+(`out-bne-n0-k1-pE-w0` silicon F93 I107, model F98 I105; `out-dbnz-c1-n0-pO-w0` silicon F107, model F105), and after
+the RET's refill the model adds a fetch silicon has none of (push pO F146).
 
 ### Fitted structure (thirty-ninth fit, 2026-10-30)
 

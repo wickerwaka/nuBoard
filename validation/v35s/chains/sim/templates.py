@@ -895,7 +895,11 @@ def _steps(op: Op, cfg) -> list[tuple]:
         if op.target is None:
             decide = [("decide",)] if cfg.untaken == "wait" else []
             return head + decide + [("clocks", c("nexec"))]
-        return head + [("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
+        # (WP72) cond_gap=own: a taken form with a condition field flushes cfgap clocks after
+        # the last fetch's end (its flag test keeps the flush's quiet window open), not fgap
+        flush = (("flush", op.target, "cfgap") if cfg.cond_gap == "own" and op.cond
+                 else ("flush", op.target))
+        return head + [("clocks", c("exec")), flush, ("clocks", c("post"))]
     if cls == "call":
         # (WP55, F23) CALL: pre clocks, the displacement's take, then (call_order) the return
         # address's stack write and the exec clocks with the flush, post clocks

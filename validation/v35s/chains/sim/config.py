@@ -61,7 +61,7 @@ OPTIONS = {
     "port_sync": ("sync", "none"),               # the take of a port byte is followed by the take sync (take_sync) / not (the byte goes to the port latch, not to the EU)
     "io_interlock": ("none", "reg", "reg_pfx"),  # while an OUT's I/O waits in the slot: any instruction may start / a register-only one (classes reg, imm, shift, mul without a memory operand) does not start before that I/O issues (it may start on the issue clock; the OUT's data passes the ALU then) / as reg, and a segment prefix too
     "wb_from": ("start", "end"),                 # a class's wb (write-back) clocks run from the next instruction's start / from the clock the instruction's own steps ended (a start held for another reason absorbs them)
-    "imm_latch": ("free", "wait"),               # a data immediate byte is taken regardless of a waiting OUT / not before that OUT's I/O cycle has ended (the decoder's immediate bytes and the OUT's write data share the data latch)
+    "imm_latch": ("free", "wait"),               # a data immediate byte is taken regardless of a waiting OUT / not before that OUT's I/O cycle has ended (the decoder's immediate bytes and the OUT's write data share the data latch). (WP72, F25, 2026-10-29) wait in the WP72 fit (the fortieth's candidate): flipped alone at the thirty-ninth fit it changes no run of the other 30 lists (as at the stage-6 flips) and wins 24 F25 runs, PUSH imm16 / imm8 behind the OUT marker deciding it, the immediate being the stack write's data: F25-out-push_imm8-pO-w0, rel t_fill, M0's I/O at 85, silicon's stack write 94 (I+9 at every wait and parity, imm16 I+10, the fetch after the I/O at I+3 / I+4); free: 91. Flip at the fit: free -24 F25 (every PUSH imm cell under OUT), nothing else
     "io_hold": ("hold_fetch", "posted", "posted_b2b"),       # a posted I/O request holds fetches as hold_fetch says / as hold_fetch on the clock it is posted, and on every later clock until it issues, whatever the queue holds, except a fetch requested no later than the I/O, which may go on the first clock of the I/O's lead; the take sync does not wait for a fetch held behind a waiting OUT / as posted, except a fetch the bus unit committed to back to back on the previous fetch's last clock (queue.py)
     "wlatch_cls": ("out", "io", "port"),         # wlatch: the instructions whose start waits for the data latch: OUT only / every I/O instruction (IN and OUT, both forms) / the I/O forms with a port byte (IN/OUT imm; the DW forms start at once)
     "wlatch_hold": (False, "le_q", True),        # an I/O instruction held at its start by the data latch: holds no fetch / holds fetches as a posted request in its setup does (hold_fetch, hold_q) / holds every fetch (the bus unit is reserved for it)
@@ -298,6 +298,73 @@ OPTIONS = {
     # on M0's I/O issue 84 and writes at 95 (+11 at every wait): data needs two setups.
     # Flip at the fit (setup one less in six classes, LDM exec one more): data -110 F24
     "str_count": ("data", "dw"),  # (WP70, F24)
+    # (WP72, F23) xfer_abort: abort_fetch's aborted cycle answers a request on the clock an
+    # instruction starts, takes an operand byte and loads the IR only with exactly 2 bytes of
+    # room (none) / for a transfer (branch_short, branch_near, dbnz, call, ret) with 2 or 3 bytes:
+    # the displacement byte goes to the bus unit's target adder and is still counted on its take
+    # clock; the transfer posts no data cycle whose end would raise the request again
+    # (abort_fetch=retry), so it is raised again on the aborted cycle's end (word).
+    # F23-push-br-n0-pO-w0, rel t_fill: M0's write 78-80, BR short starts on 81 with its
+    # displacement's take and the IR load, 3 bytes of room after them; silicon F84 (the aborted
+    # cycle 81-83, the fetch on the clock after it), the target fetch 92; none: F81. pE (4 bytes
+    # of room) fetches on 81 in both. Flip at the fit (2026-10-29, wp72): none -24 F23 (the
+    # PUSH-frame BR short at pO, every n and wait), nothing else. The callret BR after the RET's
+    # refill (an abort on its start too) is still a miss: silicon has no fetch after it
+    "xfer_abort": ("none", "word"),  # (WP72, F23)
+    # (WP72, F23) cond_gap: a taken transfer's flush waits fgap clocks past the last fetch's end
+    # (fgap) / a form with a condition field (BE, BNE) waits its class's cfgap instead, the flag
+    # test holding the flush's quiet window open (own). F23-out-be-n0-pE-w2, rel t_fill: the
+    # last pre-flush fetch 94-98, silicon's target fetch 107 (that end + 9 at 1 and 2 waits in
+    # every BE cell; BR short's is at end + 6 in every cell, out-br-n0-pE-w2 F89-93, F99); fgap:
+    # 106. cfgap 8. Flip at the fit (2026-10-29, wp72): fgap -24 F23 (every BE cell at 2 waits
+    # but PUSH pO, where the start bound holds), nothing else
+    "cond_gap": ("fgap", "own"),  # (WP72, F23)
+    # (WP72, F25) burst_count: PUSH R's stack writes count their setup as a memory data
+    # request's (data) / as a DW-form I/O request's, as the string forms' do (str_count=dw): the
+    # form has no operand byte, its addresses come from SP and its data from the register file
+    # (dw: io_count=nowait, and with dw_count=bus not the clock a bus cycle starts on its post or
+    # move-in clock). F25-push-pushr-pO-w0..w2, rel t_fill: PUSH R starts on M0's write end + 1
+    # (81, 82, 83), its first write at 89, 90, 91 (setup 9, every clock counted); -pE-w0..w2 a
+    # fetch issues on its start clock: 90, 92, 94 (the start clock and the fetch's wait states
+    # not counted); under OUT the write moves in on M0's I/O issue and goes 9 later. data with
+    # setup 10: 90, 91, 92 at pO, and with setup 9 the OUT cells' first write at I+8 (92 for
+    # 93): no one data setup serves both frames. POP R keeps the data count (dw loses its first
+    # read by a clock after the fetch on its start, 7 to 8 pushr_popr runs). Flip at the fit
+    # (2026-10-29, wp72): data -12 F25 (every OUT-frame pushr and pushr_popr cell), nothing else
+    "burst_count": ("data", "dw"),  # (WP72, F25)
+    # (WP72, F25) lea_io: LDEA started on an I/O cycle's issue clock runs its EA clocks once the
+    # cycle has ended (io_exec, as any register-only form: free) / once the cycle's recovery has
+    # passed too, io_recover clocks after its last (recover): the EA computation uses the bus
+    # unit's address adder, which the I/O holds through its recovery. F25-out-ldea-bw-pE-w0,
+    # rel t_fill: LDEA [BW] starts on M0's I/O issue 84 (the I/O 84-86); silicon F87 F94 I101,
+    # the closing OUT starting at 91 as after LDEA [BW+10h] (whose EA clocks run before its
+    # displacement's take, during the I/O); free: the EA clocks 87-88, the OUT at 90 with a
+    # fetch on its start, I100. Flip at the fit (2026-10-29, wp72): free -7 F25 (the mod 00
+    # forms at pO w0; the pE w0 cells need lea_io and are lost again by lea_room, below)
+    "lea_io": ("free", "recover"),  # (WP72, F25)
+    # (WP72, F25) lea_room: the request rule counts the IR byte as every clock (none) / not on
+    # the clocks LDEA runs its EA clocks after its last operand byte (ir): LDEA's own successor,
+    # loaded into the IR, is decoded while the address adder works, and the bus unit fetches as
+    # if its slot were free. F25-push-ldea-bw-pO-w0, rel t_fill: LDEA [BW] starts on 81 with a
+    # fetch 81-83, M1's PUSH opcode loads into the IR on 83, its EA clocks 84-85 with 3 bytes
+    # queued and 2 delivered on 84; silicon F84 (issued on the delivery clock), W93; none: W92
+    # F95 (the queue full, 1 byte of room). The same in every mod 00 mode at pO and every wait,
+    # and in OUT LDEA k = 2 at pE w1, w2 (the second LDEA's fetch back to back). Lost by it: the
+    # OUT-frame mod 00 cells at pE w0 that lea_io lands (the EA clocks right after the I/O's
+    # recovery, with the closing OUT in the IR: silicon has no fetch back to back there). The
+    # stage-14 fit moved lea.nx 2 -> 0 with it (the k = 2 cells' second LDEA). Flip at the fit
+    # (2026-10-29, wp72): none -24 F25 (+7 -31), nothing else
+    "lea_room": ("none", "ir"),  # (WP72, F25)
+    # (WP72, F25) prepare_sync: PREPARE's take sync waits for the fetches pending on its
+    # operand take (take) / and for a fetch the bus unit commits to back to back on the last
+    # clock of the one it waits for, the whole refill run (run). F25-push-prepare-pE-w0..w2,
+    # rel t_fill: the refill fetches 94/97, 96/100, 99/104; M1's PUSH write at the second
+    # fetch's end + 18 at every wait (117, 121, 126; take: 119, 122, 126, the exec counted from
+    # the first fetch's delivery); out-prepare: the closing OUT's fetch at the run's end + 17
+    # (119, 123, 127). prepare.exec 11 and prepare.wb 2: the OUT waits for PREPARE's write-back
+    # (SP and BP, out.wbsync), M1's PUSH does not; DISPOSE's read keeps setup 7. Flip at the
+    # fit (2026-10-29, wp72): take -24 F25, nothing else
+    "prepare_sync": ("take", "run"),  # (WP72, F25)
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -408,7 +475,12 @@ DEFAULT_COST = {
 # untaken=wait, branch_reg=reg; branch_short.nx 6 there scored the same but over-fills the
 # queue in F23-out-bne-n0-k2-pE-w0 under the default enums, so 0); the fit's own are in fit.json.
     "branch_short": {"pre": 0, "cond": 4, "exec": 8, "post": 0, "fgap": 5, "hold": 6,
-                     "nexec": 1, "nfgap": 1, "nx": 0},
+                     "nexec": 1, "nfgap": 1, "nx": 0,
+                     # (WP72) cfgap: with cond_gap=own, the quiet clocks a taken form with a
+                     # condition field (BE) waits after the last fetch's end before its flush
+                     # (read off F23's BE cells: the target fetch at the last pre-flush fetch's
+                     # end + 9 where BR short's is at + 6); unread under cond_gap=fgap
+                     "cfgap": 8},
     "branch_near": {"pre": 3, "exec": 5, "post": 0, "fgap": 3, "hold": 10, "nexec": 4},
     "dbnz": {"pre": 0, "exec": 14, "post": 0, "fgap": 5, "hold": 2, "nexec": 6, "nfgap": 1},
     "call": {"pre": 3, "setup": 7, "setup_free": 3, "exec": 8, "post": 0, "fgap": 5,
@@ -684,6 +756,12 @@ class Config:
     str_last: str = "rep"              # (WP70)
     str_io_latch: str = "none"         # (WP70)
     str_count: str = "data"            # (WP70)
+    xfer_abort: str = "none"           # (WP72)
+    burst_count: str = "data"          # (WP72)
+    lea_io: str = "free"               # (WP72)
+    lea_room: str = "none"             # (WP72)
+    prepare_sync: str = "take"         # (WP72)
+    cond_gap: str = "fgap"             # (WP72)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

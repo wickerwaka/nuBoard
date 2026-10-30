@@ -164,6 +164,8 @@ class Queue:
         self.flush_t: int | None = None         # (WP55) the clock of the last flush
         self.flush_held: int | None = None      # (WP55) flush_hold: no fetch request from this clock to the flush
         self.str_held: int | None = None        # (WP67) str_hold: no fetch request before this clock
+        self.xfer_abort = False                 # (WP72) xfer_abort: a transfer's aborted cycle runs
+        self.lea_ea: tuple | None = None        # (WP72) lea_room: LDEA's EA clocks (first, end)
         # options read on every clock, looked up once
         self._byte_release = cfg.release == "byte"
         self._ported = cfg.word_latch in ("port", "byte", "byte_d")
@@ -289,6 +291,10 @@ class Queue:
                     and self.decoder.ready_at > t + self.fetch_len):
                 size += 1                       # room_ir_ready: an IR that cannot load is no room
                 used += ir
+        if (cfg.lea_room == "ir" and ir and size > QUEUE_BYTES and t is not None
+                and self.lea_ea is not None and self.lea_ea[0] <= t < self.lea_ea[1]):
+            used -= 1           # (WP72) lea_room=ir: during LDEA's EA clocks after its last
+                                # operand byte, the IR's opcode is not counted (config.py)
         if cfg.modrm_mate and t is not None and t == self.arrived_t == self.mate_t:
             used += 1           # (WP26) modrm_mate: the ModR/M's word is not free yet
         if (self.cfg.arrive_partial and t is not None and t == self.arrived_t
@@ -475,10 +481,15 @@ class Queue:
             self.retry = False
             self.flag = self.room(t) >= WORD
 
-    def abort_done(self):
+    def abort_done(self, t: int | None = None):
         self.inflight = False
         self.abort_end = None
         self.completed += 1
+        if self.xfer_abort and t is not None:
+            # (WP72) xfer_abort=word: a transfer's request is raised again on the aborted
+            # cycle's end (no data cycle of its own follows to raise it, abort_fetch=retry)
+            self.xfer_abort = False
+            self.flag = self.room(t) >= WORD
 
     def refill_target(self) -> int:
         """Delivered-fetch count once the room present now has been refilled."""

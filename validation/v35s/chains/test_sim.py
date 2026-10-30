@@ -5250,3 +5250,120 @@ class StringForms(unittest.TestCase):
         # no fetch inside a REP stream: the REP series is the same under both counts
         for cid in ("F24-out-r-rep-stm-w-n4-pE-w1", "F24-out-r-rep-movbk-b-n2-pO-w2"):
             self.assertEqual(_f24(cid)[1], _f24(cid, str_count="data")[1], cid)
+
+
+# (WP72, F23, F25) the new enums at their found values, imm_latch's flip and the integers the
+# stage-14 fit moved with them; equal to Config.fitted() once the fit is adopted (replace is
+# then a no-op)
+WP72 = {"xfer_abort": "word", "cond_gap": "own", "burst_count": "dw", "lea_io": "recover",
+        "lea_room": "ir", "prepare_sync": "run"}
+WP72_FLIPS = {"imm_latch": "wait"}
+WP72_INTS = {"branch_short.cfgap": 8, "push_r.setup": 9, "prepare.exec": 11, "prepare.wb": 2,
+             "dispose.setup": 7, "lea.nx": 0}
+
+
+def _ev72(cid, **over):
+    """(silicon, model) event lists from t_fill under the tracked fit with WP72 (+ over)."""
+    run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    cfg = Config.fitted().replace(**{**WP72, **WP72_FLIPS, **WP72_INTS, **over})
+    m = simulate_normalized(s.chain, cfg, s.chain_base)
+    return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+
+class TransferAndFrameMisses(unittest.TestCase):
+    """(WP72) F23's and F25's misses of the thirty-ninth fit: each new enum against its
+    alternative on its deciding run (clocks rel t_fill)."""
+
+    def test_wp72_defaults_are_the_old_model(self):
+        for name in WP72:
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+            self.assertIn(WP72[name], OPTIONS[name], name)
+        self.assertEqual(OPTIONS["imm_latch"], ("free", "wait"))
+
+    def test_xfer_abort_br_short_at_odd_room(self):
+        # BR short starts on 81 with its displacement's take and the IR load, 3 bytes of room:
+        # the aborted cycle 81-83, the fetch on 84
+        sil, mod = _ev72("F23-push-br-n0-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((84, "fetch"), mod)
+        _, none = _ev72("F23-push-br-n0-pO-w0", xfer_abort="none")
+        self.assertIn((81, "fetch"), none)
+        self.assertNotIn((84, "fetch"), none)
+        # pE: 4 bytes of room, the fetch on the start clock either way
+        sil, mod = _ev72("F23-push-br-n0-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((81, "fetch"), mod)
+
+    def test_cond_gap_be_target_fetch(self):
+        # the last pre-flush fetch 94-98: BE's target fetch at its end + 9
+        sil, mod = _ev72("F23-out-be-n0-pE-w2")
+        self.assertEqual(mod, sil)
+        self.assertIn((107, "fetch"), mod)
+        _, fgap = _ev72("F23-out-be-n0-pE-w2", cond_gap="fgap")
+        self.assertIn((106, "fetch"), fgap)
+        # BR short (no condition field) is the same under both: its target at end + 6
+        a = _ev72("F23-out-br-n0-pE-w2")
+        self.assertEqual(a[1], a[0])
+        self.assertEqual(_ev72("F23-out-br-n0-pE-w2", cond_gap="fgap")[1], a[1])
+
+    def test_burst_count_push_r_first_write(self):
+        # PUSH R from M0's write end: the first write 9 counted clocks on (pO 89; pE w1 a fetch
+        # on the start clock, its start clock and wait state not counted: 92)
+        for cid, want in (("F25-push-pushr-pO-w0", (89, "stack_write")),
+                          ("F25-push-pushr-pE-w1", (92, "stack_write"))):
+            sil, mod = _ev72(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertIn(want, mod, cid)
+        # data needs setup 10 under OUT (the write moves in on M0's I/O issue 84 and goes at
+        # 93) and 9 under PUSH at pO: no one setup serves both
+        _, data = _ev72("F25-push-pushr-pO-w0", burst_count="data", **{"push_r.setup": 10})
+        self.assertIn((90, "stack_write"), data)
+        sil, mod = _ev72("F25-out-pushr-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((93, "stack_write"), mod)
+        _, data = _ev72("F25-out-pushr-pE-w0", burst_count="data")
+        self.assertIn((92, "stack_write"), data)
+
+    def test_lea_io_after_the_io_recovery(self):
+        # LDEA [BW] on M0's I/O issue 85 (pO): its EA clocks after the I/O and its recovery
+        sil, mod = _ev72("F25-out-ldea-bw-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((103, "io_write"), mod)
+        _, free = _ev72("F25-out-ldea-bw-pO-w0", lea_io="free")
+        self.assertIn((102, "io_write"), free)
+
+    def test_lea_room_ir_during_the_ea_clocks(self):
+        # LDEA [BW] at pO: the fetch on 84 with M1's PUSH in the IR, M1's write 93
+        sil, mod = _ev72("F25-push-ldea-bw-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((84, "fetch"), mod)
+        self.assertIn((93, "stack_write"), mod)
+        _, none = _ev72("F25-push-ldea-bw-pO-w0", lea_room="none")
+        self.assertIn((92, "stack_write"), none)
+        self.assertNotIn((84, "fetch"), none)
+
+    def test_prepare_sync_on_the_refill_run(self):
+        # M1's write at the second refill fetch's end + 18 at every wait
+        for cid, want in (("F25-push-prepare-pE-w0", (117, "stack_write")),
+                          ("F25-push-prepare-pE-w1", (121, "stack_write")),
+                          ("F25-push-prepare-pE-w2", (126, "stack_write"))):
+            sil, mod = _ev72(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertIn(want, mod, cid)
+        sil, take = _ev72("F25-push-prepare-pE-w0", prepare_sync="take")
+        self.assertNotEqual(take, sil)
+        # under OUT the closing OUT waits for PREPARE's write-back (prepare.wb)
+        sil, mod = _ev72("F25-out-prepare-pE-w1")
+        self.assertEqual(mod, sil)
+        self.assertNotEqual(_ev72("F25-out-prepare-pE-w1", **{"prepare.wb": 0})[1], sil)
+
+    def test_imm_latch_push_imm_behind_the_out(self):
+        # M0's I/O at 85: PUSH imm8's stack write at I+9, imm16's at I+10
+        for cid, want in (("F25-out-push_imm8-pO-w0", (94, "stack_write")),
+                          ("F25-out-push_imm16-pO-w0", (95, "stack_write"))):
+            sil, mod = _ev72(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertIn(want, mod, cid)
+        _, free = _ev72("F25-out-push_imm8-pO-w0", imm_latch="free")
+        self.assertIn((91, "stack_write"), free)

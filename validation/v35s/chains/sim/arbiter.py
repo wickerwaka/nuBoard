@@ -585,13 +585,16 @@ def _choose(t: int, cfg, bus, queue, eu):
                      and (cfg.abort_latched == "any" or queue.latch_full)
                      and not queue.inflight and queue.room(t) + queue.latched == 2
                      and not eu.halted)
-    if (fetch_want and cfg.abort_fetch and queue.triple(t) and queue.room(t) == 2
+    if (fetch_want and cfg.abort_fetch and queue.triple(t) and _one_word(queue.room(t), cfg, eu)
             or latched_abort):
         if latched_abort and isinstance(eu.sync, int) and eu.sync == queue.completed:
             # (WP32) abort_latched: the byte still latched behind the queue is room for the
             # abort test; the take's sync, which counted no request, waits for the cycle
             eu.sync = queue.completed + 1
         queue.abort(t)                       # aborted cycle: nothing on the bus
+        # (WP72) xfer_abort=word: a transfer's aborted cycle (no data cycle follows to raise the
+        # request again) has it raised again on the aborted cycle's end
+        queue.xfer_abort = cfg.xfer_abort == "word" and getattr(eu, "cls", None) in TRANSFERS
         # (WP21) abort_unit=loop: a memory multiply or divide, or a register shift, started
         # on it raises the request again at its count loop's exit (eu.py), not when the
         # next bus cycle ends
@@ -653,3 +656,14 @@ def _choose(t: int, cfg, bus, queue, eu):
             r.not_before = max(r.not_before, c.end + 2)
         return c
     return None
+
+
+TRANSFERS = ("branch_short", "branch_near", "dbnz", "call", "ret")   # eu.TRANSFER_CLASSES
+
+
+def _one_word(room: int, cfg, eu) -> bool:
+    """abort_fetch: the request sees room for exactly one word: 2 bytes; (WP72) xfer_abort=word:
+    on a transfer's start, displacement take and IR load, 2 or 3 bytes (the displacement byte,
+    read by the bus unit's target adder on its take clock, is still counted)."""
+    return room == 2 or (cfg.xfer_abort == "word" and room == 3
+                         and getattr(eu, "cls", None) in TRANSFERS)

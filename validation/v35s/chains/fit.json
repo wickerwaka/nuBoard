@@ -9,9 +9,11 @@
  "arbiter_q": 2,
  "arrive_partial": false,
  "branch_reg": "reg",
+ "burst_count": "data",
  "burst_wait": "data",
  "bytes_per_clock": 1,
  "call_order": "write_first",
+ "cond_gap": "fgap",
  "cost": {
   "branch_near": {
    "exec": 5,
@@ -22,6 +24,7 @@
    "pre": 3
   },
   "branch_short": {
+   "cfgap": 8,
    "cond": 4,
    "exec": 8,
    "fgap": 5,
@@ -468,6 +471,8 @@
  "late_disp": "all",
  "late_read": true,
  "lea_form": "reg",
+ "lea_io": "free",
+ "lea_room": "none",
  "lookup_start": true,
  "mem_order": "split",
  "min_gap": 0,
@@ -492,6 +497,7 @@
  "prelude_anchor": "pop",
  "prelude_tail": "segs",
  "prepare_order": "write_first",
+ "prepare_sync": "take",
  "push_mem_write": "at_data",
  "read_use_latency": 0,
  "refill_start": "full_io",
@@ -616,5 +622,6 @@
  "wlatch_mul": "take",
  "wlatch_src": "write_imm_read",
  "word_latch": "byte_d",
- "write_wait": "mem_end"
+ "write_wait": "mem_end",
+ "xfer_abort": "none"
 }
