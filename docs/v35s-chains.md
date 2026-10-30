@@ -72,6 +72,8 @@ IX=0100h, IY=0180h, DS0=DS1=SS=0, SP=0F00h, AW=1234h, DW=5678h.
 | F27 | the refresh-on probe family (WP56, acquired 2026-10-28; 646/1,072 read under the thirty-fourth fit, modelled and fitted the same day, the thirty-sixth fit, 778/1,072, then 889/1,072 under the thirty-seventh; RFM FCh at every wait with an ECh twin of every variant at 0 waits; 134 variants per RFM, 804 + 268 = 1,072 runs; ids `F27-<push|out>-<fc|ec>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>`): `room` (`room_ir_imm`: `MOV AW,imm16`^k and `MOV DW,imm16`^k, k = 1..4, against `MOV CL,imm8`^k, k = 1..4, and `ADD DW,imm16`^k, k = 1..3), `unit` (`refresh_drop_unit`: `SHL AW,CL` by 4, 8, 16, `MULU DW`, `SHL AW,8`, each after NOP^0..2), `port` (`refresh_drop_post`, `refresh_lead_port`: `OUT 40h,AL`, `OUT 40h,AW`, `IN AL,40h` after NOP^0..5, `OUT DW,AL` and `IN AL,DW` at n = 0, 2, 4), `beat` (`refresh_beat_t4`: `MOV DS1,AW ; MOV AW,imm16` and `MOV AW,DW ; MOV DW,imm16` after NOP^0..5); the empty frame per marker and RFM | the five refresh-side rules' alternatives in the chain body; the refresh-on model's coverage outside the corpus's cells |
 | F28 | the refresh-on probe family for the thirty-sixth fit's open states (WP59, acquired 2026-10-28; 573/1,088 under the thirty-sixth fit, 820/1,088 under the thirty-seventh, fitted the same day; RFM FCh at every wait with an ECh twin of every variant at 0 waits; 136 variants per RFM, 816 + 272 = 1,088 runs; ids `F28-<push|out>-<fc|ec>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>`): `fence` (the empty frame with the fence's count CL = 24..30, each count moving M0's OUT two clocks against the free-running refresh timer; 31 is the empty frame), `tail` (NOP^n then a register unit then `OUT 40h,AL` at once: `SHL AW,CL` by 8, 16, 24, 31 at n = 0..5, `SHL AW,8` and `MULU DW` at n = 0, 2, 4; `OUT 40h,AW` and `OUT DW,AL` (EE) behind the count-31 shift at n = 0, 2, 4), `beat` (OUT marker only: NOP^n, n = 0..3, then `MOV AW,imm16`^k, `MOV DW,imm16`^k or `ADD DW,imm16`^k, k = 1..4) | the M0 OUT at pO w2 state (the refresh at a unit's exit before an OUT) swept over the refresh phase; the beaten 3-clock fetch's successor against the decoder's state on its delivery clock |
 | F29 | the refresh-off probe family for F26's open reads (WP59, acquired 2026-10-28; 309/456 under the thirty-sixth fit, 427/456 under the thirty-seventh, fitted the same day; RFM ECh at every wait; 76 variants, 456 runs; ids `F29-<push|out>-ec-<series>-<label>-n<n>-p<E|O>-w<N>`): `dio` (OUT marker: NOP^n, n = 0..3, then the stores `MOV [BW+10h],AW`, `MOV [BW+200h],AW`, `MOV [0C00h],AW` and the control `MOV [BW+IX+200h],AW`; the `dw` cells `OUT DW,AL` right after M0 then those stores and the four loads, the displacement take on the DW OUT's issue clock at pO), `gih` (OUT marker: NOP^n, n = 0..2, then INC, NOT, SHL ,1, NEG, DEC `[BW+200h]`; the `dw` cells with those five and the controls `TEST [0C00h],AW`, `TEST [BW+200h],AW`), `pi` (both markers: `OUT 40h,AL NOP^n X OUT 40h,AL` with X = `MOV AW,imm16`, `ADD DW,imm16`, n = 0..3; `NOP^n OUT OUT`, n = 0..5) | `disp_io` in the other mode classes, `grp_io_hold` for the plain group forms, `port_issue` deciding cells |
+| F30 | the facts-only shapes' probe family (WP73, acquired 2026-10-30; 909/1,476 under the thirty-ninth fit, 959/1,476 under the fortieth's candidate; RFM ECh; 246 variants, 1,476 runs; ids `F30-<out|push|store>-<probe>-<label>-p<E|O>-w<N>`): `str` (OUT: `MOV CW,n ; REP INM/OUTM/STM` for n = 0, 1, 2 word and n = 1 byte, behind leads l0, a drainer `MOV AW,1234h` or `ADD DW,0` before `MOV CW,n`, one or two NOPs or `SHL AW,8` between `MOV CW,n` and the REP form), `odd` (OUT: every REP form with IX or IY odd alone, MOVBK/CMPBK both odd, n = 1, 2; STM-iy, INM-iy, MOVBK-iy, CMPBK-ixiy, LDM-ix, CMPM-iy followed by NOP, `MOV AW,DW`, `MOV AW,[BW]`, or `MOV CW,1` and the same REP form), `seg` (OUT and PUSH: 8E with DS1/SS/DS0 from AW and [IX], DS1 also from [BW]; 8C with DS1/PS/SS/DS0 to AW and to [BW]; a NOP before the 8E forms and `MOV [BW],DS1/DS0`; k = 2 for the 8E register forms; `PUSH SS ; POP SS`), `br` (OUT: BR short +0..3 and BR near +0/+1 behind a NOP, BR short +0/+1 with one or two NOPs before M0, BR short +0; MOV-direct marker: BR short +0..3 and +0 behind a NOP), `nt` (OUT and PUSH: `CMP AW,AW ; BNE +0` × k `; NOP^n`, `MOV CW,1 ; DBNZ +0 ; NOP^n` and the pair twice), `cr` (OUT and PUSH: `CALL +2 ; BR +(a+1) ; NOP^a ; RET ; NOP^b` for (a, b) = (0,0), (1,0), (2,0), (0,1), (0,2), and `SHL AW,8` in place of the NOPs), `lea` (OUT and PUSH: LDEA behind a NOP in six modes, followed by a NOP and alone in [BW], [BW+200h], [0C00h], k = 2 in [BP+200h] and [BW+IX+200h], [BW] behind D and D4) | the mechanism behind each facts-only shape of the thirty-ninth and fortieth fits: the fetch wait clock the INM/OUTM setup absorbs, the split last cycle's exit at w0, 8E behind the OUT and the sreg store, the odd-address BR short's fetch, BNE/DBNZ not taken, the RET's refill, LDEA's d16 |
+| F31 | F30's two controls (WP73 follow-up, acquired 2026-10-30; 66/234 under the thirty-ninth fit and the fortieth's candidate; RFM ECh; OUT marker, the F24 presets; 39 variants, 234 runs; ids `F31-out-<alf|lone>-<label>-p<E|O>-w<N>`): `alf` (REP STM, INM, MOVBK, REPE CMPBK, LDM, REPNE CMPM, word, IX and IY even, n = 1, followed by NOP, `MOV AW,DW`, `MOV AW,[BW]` or, for the non-compares, `MOV CW,1` and the same REP form; STM also n = 2 with NOP and the second REP form; STM and LDM with nothing after), `lone` (REP INM, OUTM, STM, word, n = 1, behind `NOP^b ; MOV CW,1 ; NOP^a` for (b, a) = (1, 4), (0, 5), (0, 4), (2, 4), leads that put one refill fetch, not back to back, inside the REP setup) | whether the string exit's late next fetch with a follower needs an odd operand (it does not), and whether any fetch in the REP setup gives INM/OUTM their one-clock gain (only the post-M0 back-to-back refill run does) |
 | F24 | the string and block forms (WP66, acquired 2026-10-28; modelled and fitted 2026-10-29, the thirty-eighth fit, 746/912; the thirty-ninth, 2026-10-30, 778/912): MOVBK (A4/A5), CMPBK (A6/A7), STM (AA/AB), LDM (AC/AD), CMPM (AE/AF), INM (6C/6D), OUTM (6E/6F), byte and word, under the OUT marker and the cost frame, with IX = 0A40h (source), IY = 0C40h (destination) and DW = 0040h (the port) as register presets, DS0 = DS1 = 0, DIR clear, AW = 0 after the fence; series `s` (unprefixed singles, k = 1, 2), `r` (`MOV CW,n` then REP STM/MOVBK/LDM/INM/OUTM, REPNE CMPM, REPE CMPBK for n = 0, 1, 2, 3, 4, 8, and 16 for STM w and MOVBK w; `MOV CW,n` alone as controls), `a` (IX and/or IY odd, n = 1, 2, 4), `t` (REPE/REPNE compares exiting on the fill after one element or over a stored pattern `MOV word [0C42h],0` after two (word) or three (byte) elements, n = 2, 4), `d` (drainers before `MOV CW,4 ; REP STM/MOVBK w`, d = 0, 2, 4); 152 variants, 912 runs; ids `F24-out-<series>-[<rep>-]<op>-<b|w>-(k<k>|n<n>)[-ix|iy|ixiy|-fill|-pat|-d<d>]-p<E|O>-w<N>` | the per-element cadence of a bus stream that takes no queue bytes, the REP setup and exit, the n = 0 check, the compares' termination, the odd split per element, the I/O-plus-memory element |
 
 Each chain runs at 0, 1 and 2 memory waits (WTC 0000h, 0001h, 0002h; I/O
@@ -4965,6 +4967,69 @@ thirty-ninth fit" under Model): the str_* classes as templates (setup, element, 
 check), the unprefixed form's element as the CW-ending one, the string I/O write through the data latch and the
 string requests counted as a DW form's, 778/912, fitted under the corpus guard with nothing lost elsewhere.
 
+### Probes for the facts-only shapes: the odd-address transfer, 8E behind the OUT, the INM/OUTM setup (F30, F31, 2026-10-30; no fit)
+
+F30 (WP73; 246 variants, 1,476 runs, w0/w1/w2 × pE/pO, refresh off; 150 repeats identical up to a constant tick shift,
+one strobe-only difference) varies one thing against a control for each shape the thirty-ninth and fortieth fits left as
+facts. Under the thirty-ninth fit 909/1,476 (`str` 263/342, `odd` 100/276, `seg` 264/336, `br` 54/96, `nt` 54/144, `cr`
+30/72, `lea` 126/192, the empty frames 18/18), under the fortieth's candidate 959 (`br` 78, `lea` 152, the rest
+unchanged). F31 (the same day; 39 variants, 234 runs, 24 repeats identical) adds the two controls the readings below
+asked for, 66/234 under both fits (the empty frame 6/6, `alf` 12/156, `lone` 48/72). The corpus is 26,234 runs over 33
+lists. Tables in scratchpad wp73/facts-F30.txt and wp73/f31/facts-F31.txt (clocks rel t_fill, silicon against both
+fits), `runs.json` every run's silicon and both models. Readings, in machine terms where the probes decide:
+
+- **The REP INM/OUTM setup absorbs one wait clock of a fetch in flight** (F24 shape 1). First string cycle minus the end
+  of the last fetch before it, n = 1 word: with the bare lead at pE, INM 16/15/15 at w0/w1/w2 (the model 16/16/16) and
+  STM 16/16/16; at pO, and behind every other lead (a drainer or `ADD DW,0` before `MOV CW,n`, one or two NOPs or
+  `SHL AW,8` between `MOV CW,n` and the REP form) all three classes start a constant 19 after it at every wait and both
+  parities (OUTM 20 at pO). The bare pE lead is the only cell where a refill fetch, the third and back to back, is still
+  on the bus during the REP setup: INM/OUTM's setup overlaps min(w, 1) wait clocks of a fetch in flight, STM's none.
+  F31 `lone` (leads that put exactly one refill fetch, not back to back, inside the setup, and one with a back-to-back
+  pair late in it): in all 72 runs INM = STM to the clock (OUTM one more, its read first), so a lone fetch with wait
+  states or a later pair is not enough: the gain needs the setup to start while M0's own refill run is still going back
+  to back, its third fetch issuing on the clock after the second. New miss, F30's separators and F31's long-gap leads
+  alike: where the setup contains no fetch and starts after a long gap both fits are +1 late for all three ops
+  (silicon last + 22 at w0, + 25 at w1/w2; model + 23/+26), and under OUTM the model adds a fetch silicon lacks.
+- **The split last cycle's extra clock is the stream's** (F24 shape 2). From the stream's last cycle end to the next
+  fetch at pE, w0/w1/w2: STM-iy, MOVBK-iy, MOVBK-ixiy and INM-iy 22/21/21 at M1 and the same +1 at w0 behind a NOP
+  (19/18/18), a register form (12/11/11) or a second REP form (16/15/15); CMPBK-ix and CMPBK-ixiy 30/29/29; CMPBK-iy,
+  CMPM-iy, LDM-ix, MOVBK-ix and OUTM-ix constant. The w0 clock belongs to the end of a stream whose last cycle is a split
+  write (or CMPBK's second read, through IX), not to a split single read or a split first cycle, and not to M1. New miss:
+  with any follower but M1 both fits put the next fetch +1 (w0) or +2 (w1, w2) late for every probed form, split reads
+  included. F31 `alf` (the same forms with IX and IY even, the same followers): both fits are +2 in every aligned
+  follower cell (all forms, waits and parities) and exact in every end cell, so the follower miss does not need an odd
+  operand: the stream's exit frees the decoder for the next instruction 2 clocks earlier than modelled before any
+  successor but the port-form OUT, whose own port take hides it when M1 follows. Shape 2 is a pure +1 on top of that
+  aligned exit (odd = aligned + 1 at w0 when the element's last cycle is a split write or CMPBK's split IX read), the
+  same across every follower.
+- **8E behind the OUT holds the OUT's I/O a clock** (F25 E). M0's I/O at pE is 84/85/86 for every 8C form, every form
+  behind a NOP and `PUSH SS ; POP SS`, and 85/86/87 whenever 8E (MOV sreg,r/m) directly follows, for every legal sreg
+  field, both operand kinds, k = 1 and 2; pO is 85/86/87 throughout and the PUSH marker never moves. Decoding 8E behind
+  the OUT holds its I/O issue one clock, independent of the sreg and the operand, visible only where the I/O would
+  otherwise issue a clock early. `MOV [BW],sreg` (8C to memory, every sreg alike) writes a clock after the model in OUT
+  pO, PUSH pO and PUSH pE behind a NOP, and is exact where the write issues on the clock after a fetch's end: the sreg
+  store's request is one setup clock later than `MOV [BW],AW`'s, hidden when the write waits behind a fetch. The 8C
+  register forms are exact everywhere.
+- **An odd-address BR short raises no prefetch before its flush unless a fetch is in flight** (F23 A, E). Under the
+  fortieth's candidate the model's extra fetch remains exactly where BR short sits at an odd address with no fetch in
+  flight at its start: the bare OUT frame at pO, pad1 at pE and pad2 at pO (started on the I/O issue clock), the
+  MOV-direct frame behind a NOP at pO (started on an idle bus); silicon fetches nothing between the start and the
+  target, the model 8 clocks early (F96 against F88). Every even-address BR short is exact, and so is an odd-address one
+  whose start lands on a fetch's issue. The callret residual is the same rule: after the RET's refill both fits add one
+  fetch silicon lacks exactly when the RET's target is at an odd address, independent of the NOPs before and after.
+  From a full queue (`SHL AW,8` in place of the NOPs) the RET's stack read is a clock later than the model in all 12
+  cells.
+- **BNE and DBNZ not taken differ in kind** (F23 C, D). BNE not taken under OUT at pE: silicon's third refill fetch is
+  back to back (F93) where the model's is at 98, or 95 with NOPs after, and M1 comes later in silicon (I107 against
+  105); each further BNE costs silicon 8 to 9 against the model's 8. DBNZ not taken holds the prefetch about 5 clocks
+  longer than the model (OUT pE F99 against 94, PUSH pO F96 against 91) and finishes 1 to 2 clocks earlier. BNE releases
+  the fetch at once and runs longer in the EU; DBNZ holds the bus unit through its CW test and ends sooner, which is why
+  one `nexec`/`nfgap` pair cannot serve both.
+- **LDEA's d16 residual follows its address parity** (F25 B, C). `[BW+200h]` and `[0C00h]` under PUSH at pE: M1's write
+  −3/−4 in the model alone and with a NOP after, exact with a NOP before; k = 2 `[BP+200h]` exact everywhere; under OUT
+  the d16 and direct modes behind a NOP (LDEA at the odd address) are −8 at pE w1/w2 in both fits. OUT pE w0 mod 00 alone
+  −4, −1 behind a NOP, pO fixed by the fortieth's candidate; a drainer before LDEA [BW] gives −2 at every wait.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -5223,7 +5288,7 @@ OUT at pO w0 (7) and k = 2 at pE w1/w2 (6). After: F23 162/180 at pE, 141/180 at
 252/294 at pE, 282/294 at pO, 172/181/181 of 196 at w0/w1/w2. Nothing-lost gate (the overseer's re-run, scratchpad
 wp72r/, as for the thirty-eighth): byte-identical on all 29 other lists in both comparisons, F23 and F25 won only.
 
-**Facts left, none encoded** (wp72/): F25 B, LDEA base+d16 and direct under PUSH at pE (27): M1's write at the end of
+**Facts left, none encoded** (wp72/; F30 probes each of them, Facts "Probes for the facts-only shapes"): F25 B, LDEA base+d16 and direct under PUSH at pE (27): M1's write at the end of
 the third fetch after M0 + 7 at every wait (`bw_d16` 96/100/104, model 93/96/100), pO exact; F25 C, LDEA under OUT at
 pE w0 mod 00 (7: silicon F87 F94 I101, model F87 F90 I103, the cells `lea_room` gives back) and k = 2 (8); F25 E, the
 segment forms (12): the M0 marker's I/O a clock later at pE when 8E (MOV DS1,r/m) follows it, 8C and pO exact, and

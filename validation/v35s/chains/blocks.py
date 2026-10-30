@@ -37,3 +37,9 @@ def drainer(i: int) -> bytes:
 def drainer4(i: int) -> bytes:
     """i-th 4-byte drainer D4: ADD DW,imm16 (81 C2 ii ii)."""
     return bytes([0x81, 0xC2]) + DRAIN_IMM[i % 2].to_bytes(2, "little")
+
+
+def drainer4_zero() -> bytes:
+    """(WP73, F30) a 4-byte drainer that leaves DW alone: ADD DW,0 (81 C2 00 00), the D4
+    shape before a DW-port string form (INM / OUTM keep port DW = 0040h)."""
+    return bytes([0x81, 0xC2, 0x00, 0x00])

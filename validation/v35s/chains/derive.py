@@ -392,6 +392,10 @@ def _f24_baseline(f, index, extra):
 
 
 BASELINES.update({"F24": ("dM", _f24_baseline)})
+# (WP73) F30: the empty frame of the same marker (out, push or store) and column
+BASELINES.update({"F30": ("dM", _empty_baseline)})
+# (WP73) F31 (OUT marker only): the empty frame of the same column
+BASELINES.update({"F31": ("dM", _empty_baseline)})
 
 
 def f24_apply(facts, normalized):

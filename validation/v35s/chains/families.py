@@ -1830,3 +1830,296 @@ def f24(waits=WAITS, parities=PARITIES):
 FAMILIES.update({"F24": f24})
 # (WP66) F24 was generator-only until the simulator learned the string forms; (WP67) the
 # simulator runs them (sim/templates.py, _string_steps): F24 is modelled.
+
+
+# F30 (WP73: the facts-only shapes the thirty-ninth and fortieth fits left, docs/v35s-chains.md
+# "The thirty-ninth fit" Misses left and "The fortieth fit" Facts left), refresh off (RFM ECh),
+# every wait and parity. Each probe varies one thing against a control in the frame
+# PAD LS [pre] M0 X M1 LS END; pre (NOPs between the first LS and M0) only in the br probe.
+# Run ids F30-<frame>-<probe>-<label>-p<E|O>-w<N>, frame out (OUT 20h+i,AL), push (PUSH AW) or
+# store (MOV [0C00h],AW, br only); the empty frame of each is the dM baseline.
+#
+# str (shape 1, REP INM / OUTM at pE w1/w2: one wait clock of the second, back-to-back refill
+#   fetch counts in the first element's position, STM's none). OUT marker, the F24 presets
+#   (IX 0A40h, IY 0C40h, DW 0040h). REP INM, REP OUTM, REP STM after MOV CW,n for n = 0, 1, 2
+#   (word) and n = 1 (byte, lead l0 only), each behind six leads that change the refill the
+#   form starts beside: l0 (M0 MOV CW,n REP X, F24's r cell), d (a drainer MOV AW,1234h
+#   before MOV CW,n), d4 (ADD DW,0, the 4-byte drainer that keeps the port, before it), nop1
+#   and nop2 (one and two NOPs between MOV CW,n and the REP form) and sep (SHL AW,8 between
+#   MOV CW,n and the REP form: the refill completes under the shift, so no refill fetch is
+#   back to back in the form's window). Ids out-str-<op>-<b|w>-n<n>-<lead>.
+# odd (shape 2, the odd last operand at w0: the fetch after a split last write a clock later
+#   at w0 only). OUT marker, F24 presets with IX and / or IY odd. Every REP form with IX odd
+#   alone and IY odd alone wherever it has that operand (MOVBK, CMPBK both, STM IY, CMPM IY,
+#   LDM IX, OUTM IX, INM IY) and MOVBK / CMPBK both odd, n = 1, 2, nothing after (end); then
+#   for STM-iy, INM-iy, MOVBK-iy, CMPBK-ixiy and the controls LDM-ix, CMPM-iy at n = 1 the
+#   form followed by NOP (nop), MOV AW,DW (reg), MOV AW,[BW] (ld), and for the non-compares
+#   MOV CW,1 then the same REP form again (rep: a second stream, still odd); STM-iy also at
+#   n = 2 with nop and rep. Ids out-odd-<op>-<align>-n<n>-<follower>.
+# seg (F25 E: the M0 OUT's I/O a clock later at pE when 8E follows it; MOV [BW],DS0 at pO
+#   storing a clock late). OUT and PUSH frames: 8E with every legal sreg field from AW
+#   (DS1, SS, DS0) and from memory ([IX] for all three, [BW] for DS1 as F25), 8C with every
+#   sreg to AW and to [BW]; n = 0, NOP between the marker and the form (n = 1) for the 8E
+#   forms and MOV [BW],DS1 / DS0, k = 2 for the three 8E register forms; PUSH SS ; POP SS.
+#   Ids <frame>-seg-<8e|8c>-<dst>-<src>-n<n>[-k2], <frame>-seg-pair-ss-n0.
+# br (F23 A, BR short under OUT at pO: the model's extra fetch at the I/O's end). OUT frame:
+#   BR short +n (the n NOPs skipped) for n = 0..3 behind a NOP (nop), BR near +0 / +1 behind
+#   a NOP, BR short +0 / +1 with one and two NOPs before the marker (pad1, pad2: M0 and BR one
+#   and two bytes later, so BR's address parity flips against l0 with the same frame; the
+#   model starts BR on the I/O's issue clock with room 3 in every pad cell), and BR short +0
+#   bare (l0,
+#   F23's cell); the MOV-direct frame: BR short +n, n = 0..3, and +0 behind a NOP. Ids
+#   <frame>-br-<short|near>-n<n>-<lead>.
+# nt (F23 C/D, BNE and DBNZ not taken). OUT and PUSH frames: CMP AW,AW then BNE +0 k times
+#   then n NOPs (k = 1: n = 0..3; k = 2: n = 0, 2; k = 3: n = 0); MOV CW,1 ; DBNZ +0 then n
+#   NOPs (n = 0..3) and the pair twice (k = 2). Ids <frame>-nt-<bne|dbnz>-k<k>-n<n>.
+# cr (F23 E, callret). OUT and PUSH frames: CALL +2 ; BR +(a+1) ; NOP^a ; RET ; NOP^b, run
+#   CALL, NOP^a, RET, BR, NOP^b: a NOPs between the CALL's target and the RET, b after the
+#   BR's target, (a, b) = (0, 0) (F23's callret), (1, 0), (2, 0), (0, 1), (0, 2); and shl8,
+#   SHL AW,8 in place of the NOPs (CALL +2 ; BR +4 ; SHL AW,8 ; RET), so the RET starts from
+#   a full queue, its return address pushed long before (a RET after a PUSH imm16 needs a
+#   per-parity absolute address, which breaks the pE / pO byte identity, and the model's RET
+#   takes its address from a CALL). Ids <frame>-cr-a<a>-b<b>, <frame>-cr-shl8.
+# lea (F25 B and C, LDEA). OUT and PUSH frames: LDEA AW,m behind a NOP (nopb: the parity
+#   flipped inside the frame) for [BW], [BW+IX], [BW+10h], [BW+200h], [BW+IX+200h], [0C00h];
+#   followed by a NOP (nopa) for [BW], [BW+200h], [0C00h]; alone (k1) for those three;
+#   k = 2 for [BP+200h] and [BW+IX+200h]; [BW] behind a drainer D (MOV AW,1234h) and D4
+#   (ADD DW,1234h). Ids <frame>-lea-<mode>-<shape>.
+# Knobs: probe, series (= probe), marker, n, k, form (the probed form, None for the empty
+# frame), x (every X form in chain order), exec (the X indices in execution order), rfm,
+# refresh_on, and per probe: str/odd op, width, rep, lead / follower, align, iters (the
+# elements the string forms run in all), ix, iy; seg opcode, sreg, operand; br branch, lead,
+# pre; nt branch; cr a, b; lea mode, shape.
+F30_RFM = RFM_OFF
+F30_STR_X = (("rep", "inm"), ("rep", "outm"), ("rep", "stm"))
+F30_STR_LEADS = ("l0", "d", "d4", "nop1", "nop2", "sep")
+F30_STR_CELLS = ((2, 0), (2, 1), (2, 2))      # (width, n) at every lead; byte n = 1 at l0
+F30_ODD_ALL = (("rep", "movbk", "ix"), ("rep", "movbk", "iy"), ("rep", "movbk", "ixiy"),
+               ("repe", "cmpbk", "ix"), ("repe", "cmpbk", "iy"), ("repe", "cmpbk", "ixiy"),
+               ("rep", "stm", "iy"), ("repne", "cmpm", "iy"), ("rep", "ldm", "ix"),
+               ("rep", "outm", "ix"), ("rep", "inm", "iy"))
+F30_ODD_N = (1, 2)
+F30_ODD_FOLLOW_X = (("rep", "stm", "iy"), ("rep", "inm", "iy"), ("rep", "movbk", "iy"),
+                    ("repe", "cmpbk", "ixiy"), ("rep", "ldm", "ix"), ("repne", "cmpm", "iy"))
+F30_ODD_FOLLOW = {"nop": ["nop"], "reg": ["mov_aw_dw"], "ld": ["ld_bw"]}
+F30_SEG_8E = {"8e-ds1-aw": "mov_ds1_aw", "8e-ss-aw": "mov_ss_aw", "8e-ds0-aw": "mov_ds0_aw",
+              "8e-ds1-bw": "mov_ds1_m", "8e-ds1-ix": "mov_ds1_ix", "8e-ss-ix": "mov_ss_ix",
+              "8e-ds0-ix": "mov_ds0_ix"}
+F30_SEG_8C = {"8c-aw-ds1": "mov_aw_ds1", "8c-aw-ps": "mov_aw_ps", "8c-aw-ss": "mov_aw_ss",
+              "8c-aw-ds0": "mov_aw_ds0", "8c-bw-ds1": "mov_m_ds1", "8c-bw-ps": "mov_m_ps",
+              "8c-bw-ss": "mov_m_ss", "8c-bw-ds0": "mov_m_ds0"}
+F30_SEG_N1 = tuple(F30_SEG_8E) + ("8c-bw-ds1", "8c-bw-ds0")
+F30_SEG_K2 = ("8e-ds1-aw", "8e-ss-aw", "8e-ds0-aw")
+F30_BR_OUT = (tuple(("short", n, "nop") for n in range(4)) + tuple(("near", n, "nop") for n in (0, 1))
+              + tuple(("short", n, f"pad{p}") for p in (1, 2) for n in (0, 1))
+              + (("short", 0, "l0"),))
+F30_BR_STORE = tuple(("short", n, "l0") for n in range(4)) + (("short", 0, "nop"),)
+F30_NT_BNE = {1: (0, 1, 2, 3), 2: (0, 2), 3: (0,)}
+F30_NT_DBNZ = {1: (0, 1, 2, 3), 2: (0,)}
+F30_CR_AB = ((0, 0), (1, 0), (2, 0), (0, 1), (0, 2))
+F30_LEA_NOPB = ("bw", "bw_ix", "bw_d8", "bw_d16", "bw_ix_d16", "dir")
+F30_LEA_NOPA = ("bw", "bw_d16", "dir")
+F30_LEA_K1 = ("bw", "bw_d16", "dir")
+F30_LEA_K2 = ("bp_d16", "bw_ix_d16")
+F30_LEA_DRAIN = ("d", "d4")
+
+
+def _f30_instrs(names, start=0):
+    """X / drainer instrs for a list of form names, "D" (MOV AW,1234h), "D4" (ADD DW,1234h)
+    and "D4z" (ADD DW,0); X indices from start in order."""
+    out, idx = [], start
+    for name in names:
+        if name == "D":
+            out.append(D(0))
+        elif name == "D4":
+            out.append(D4(0))
+        elif name == "D4z":
+            out.append(Instr(0, blocks.drainer4_zero(), "D4", "drain"))
+        else:
+            out.append(X(name, idx))
+            idx += 1
+    return out
+
+
+def f30(waits=WAITS, parities=PARITIES):
+    """The facts-only shapes' probes str, odd, seg, br, nt, cr, lea (see the comment above)."""
+    from .forms import F24_MOV_CW, F25_LDEA, f24_form_name
+    rfm = F30_RFM
+    by_kind = {"out": [], "push": [], "store": []}
+
+    def add(kind, probe, label, names, n=0, k=1, form=None, pre=(), regs=None, exec_=None,
+            **extra):
+        xnames = [v for v in names if not v.startswith("D")]
+        body = ([LS()] + _f30_instrs(pre) + [M(0, kind)]
+                + _f30_instrs(names, start=len(pre)) + [M(1, kind), LS(), END()])
+        knobs = {"probe": probe, "series": probe, "marker": kind, "n": n, "k": k,
+                 "form": form, "x": list(pre) + xnames, "rfm": rfm, "refresh_on": False,
+                 "exec": list(exec_ if exec_ is not None
+                              else range(len(pre) + len(xnames))), **extra}
+        name = f"{kind}-{probe}-{label}" if probe != "empty" else f"{kind}-empty"
+        by_kind[kind].append((name, knobs, body, {"regs": regs} if regs else {}))
+
+    for kind in by_kind:
+        add(kind, "empty", "", [], k=0)
+    wtag = {1: "b", 2: "w"}
+
+    # str
+    lead_names = {"l0": ([], []), "d": (["D"], []), "d4": (["D4z"], []),
+                  "nop1": ([], ["nop"]), "nop2": ([], ["nop", "nop"]),
+                  "sep": ([], ["shl_imm8"])}
+    for rep, op in F30_STR_X:
+        cells = [(lead, w, n) for lead in F30_STR_LEADS for w, n in F30_STR_CELLS]
+        cells.append(("l0", 1, 1))
+        for lead, width, n in cells:
+            form = f24_form_name(op, width, rep)
+            before, between = lead_names[lead]
+            names = before + [F24_MOV_CW[n]] + between + [form]
+            add("out", "str", f"{op}-{wtag[width]}-n{n}-{lead}", names, n=n, form=form,
+                regs=_f24_regs("even"), op=op, width=width, rep=rep, lead=lead,
+                align="even", iters=n, ix=_f24_regs()["IX"], iy=_f24_regs()["IY"])
+    # odd
+    for rep, op, align in F30_ODD_ALL:
+        form = f24_form_name(op, 2, rep)
+        for n in F30_ODD_N:
+            regs = _f24_regs(align)
+            add("out", "odd", f"{op}-{align}-n{n}-end", [F24_MOV_CW[n], form], n=n, form=form,
+                regs=regs, op=op, width=2, rep=rep, follower="end", align=align, iters=n,
+                ix=regs["IX"], iy=regs["IY"])
+    for rep, op, align in F30_ODD_FOLLOW_X:
+        form = f24_form_name(op, 2, rep)
+        regs = _f24_regs(align)
+        follows = dict(F30_ODD_FOLLOW)
+        if op not in ("cmpbk", "cmpm"):
+            follows["rep"] = [F24_MOV_CW[1], form]
+        for n in (1, 2) if op == "stm" else (1,):
+            for follower, after in follows.items():
+                if n == 2 and follower not in ("nop", "rep"):
+                    continue
+                add("out", "odd", f"{op}-{align}-n{n}-{follower}", [F24_MOV_CW[n], form] + after,
+                    n=n, form=form, regs=regs, op=op, width=2, rep=rep, follower=follower,
+                    align=align, iters=n + (follower == "rep"), ix=regs["IX"], iy=regs["IY"])
+    # seg
+    for kind in ("out", "push"):
+        for label, x in {**F30_SEG_8E, **F30_SEG_8C}.items():
+            opc, dst, src = label.split("-")
+            sreg, operand = (dst, src) if opc == "8e" else (src, dst)
+            seg = dict(opcode=opc, sreg=sreg, operand="reg" if operand == "aw" else operand)
+            add(kind, "seg", f"{label}-n0", [x], form=x, **seg)
+            if label in F30_SEG_N1:
+                add(kind, "seg", f"{label}-n1", ["nop", x], n=1, form=x, **seg)
+            if label in F30_SEG_K2:
+                add(kind, "seg", f"{label}-n0-k2", [x, x], k=2, form=x, **seg)
+        add(kind, "seg", "pair-ss-n0", ["push_ss", "pop_ss"], form="push_ss", opcode="pair",
+            sreg="ss", operand="stack")
+    # br
+    for kind, cells in (("out", F30_BR_OUT), ("store", F30_BR_STORE)):
+        for branch, n, lead in cells:
+            form = f"br_n{n}" if branch == "short" else f"br_near_n{n}"
+            pre = ["nop"] * int(lead[3:]) if lead.startswith("pad") else []
+            lead_x = ["nop"] if lead == "nop" else []
+            names = lead_x + [form] + ["nop"] * n
+            first = len(pre)
+            exec_ = list(range(first + len(lead_x) + 1))
+            add(kind, "br", f"{branch}-n{n}-{lead}", names, n=n, form=form, pre=pre,
+                exec_=exec_, branch=branch, lead=lead, skipped=n)
+    # nt
+    for kind in ("out", "push"):
+        for k, ns in F30_NT_BNE.items():
+            for n in ns:
+                add(kind, "nt", f"bne-k{k}-n{n}", [F23_CMP] + ["bne_n0"] * k + ["nop"] * n,
+                    n=n, k=k, form="bne_n0", branch="bne", skipped=0)
+        for k, ns in F30_NT_DBNZ.items():
+            for n in ns:
+                add(kind, "nt", f"dbnz-k{k}-n{n}", ["mov_cw_imm1", "dbnz_n0"] * k + ["nop"] * n,
+                    n=n, k=k, form="dbnz_n0", branch="dbnz", skipped=0)
+    # cr
+    for kind in ("out", "push"):
+        for a, b in F30_CR_AB:
+            names = ["call_n2", f"br_n{a + 1}"] + ["nop"] * a + ["ret"] + ["nop"] * b
+            exec_ = [0] + list(range(2, 3 + a)) + [1] + list(range(3 + a, 3 + a + b))
+            add(kind, "cr", f"a{a}-b{b}", names, form="ret", exec_=exec_, a=a, b=b, skipped=0)
+        add(kind, "cr", "shl8", ["call_n2", "br_n4", "shl_imm8", "ret"], form="ret",
+            exec_=[0, 2, 3, 1], a="shl8", b=0, skipped=0)
+    # lea
+    for kind in ("out", "push"):
+        def lea(mode, shape, names, k=1, n=0):
+            add(kind, "lea", f"{mode}-{shape}", names, n=n, k=k, form=F25_LDEA[mode], mode=mode,
+                shape=shape)
+        for mode in F30_LEA_NOPB:
+            lea(mode, "nopb", ["nop", F25_LDEA[mode]], n=1)
+        for mode in F30_LEA_NOPA:
+            lea(mode, "nopa", [F25_LDEA[mode], "nop"])
+        for mode in F30_LEA_K1:
+            lea(mode, "k1", [F25_LDEA[mode]])
+        for mode in F30_LEA_K2:
+            lea(mode, "k2", [F25_LDEA[mode]] * 2, k=2)
+        lea("bw", "d", ["D", F25_LDEA["bw"]])
+        lea("bw", "d4", ["D4", F25_LDEA["bw"]])
+    return [c for kind in by_kind
+            for c in _sweep("F30", by_kind[kind], waits, parities, marker_kind=kind, rfm=rfm)]
+
+
+FAMILIES.update({"F30": f30})
+
+
+# F31 (WP73 follow-up: the two controls F30's readings lacked), refresh off, the OUT marker, the
+# F24 presets, every wait and parity; ids F31-out-<probe>-<label>-p<E|O>-w<N>, the empty frame
+# the dM baseline; knobs as F30's.
+# alf (shape 2's aligned-follower control): REP STM, INM, MOVBK, CMPBK (REPE), LDM, CMPM
+#   (REPNE), word, IX and IY even, n = 1, followed by NOP (nop), MOV AW,DW (reg), MOV AW,[BW]
+#   (ld) and, for the non-compares, MOV CW,1 and the same REP form (rep); STM also at n = 2
+#   with nop and rep; STM and LDM at n = 1 with nothing after (end). Against F30's odd cells:
+#   whether the next fetch the models put late after any follower needs an odd operand.
+#   Ids out-alf-<op>-n<n>-<follower>.
+# lone (shape 1's lone-fetch control): REP INM, OUTM, STM, word, n = 1, behind leads that leave
+#   exactly one refill fetch, not back to back with another cycle, inside the REP form's setup
+#   (the fortieth candidate's clock log): b<b>a<a> = b NOPs before MOV CW,1 and a NOPs between
+#   it and the REP form; b1a4 (the lone fetch at pE, none at pO), b0a5 (lone at pE, back to
+#   back at pO), b0a4 (lone at pO, none at pE), b2a4 (lone at pO, back to back at pE), at
+#   w1 / w2 (w0 has no wait clock to absorb). Ids out-lone-<op>-w-n1-b<b>a<a>.
+F31_ALF_X = (("rep", "stm"), ("rep", "inm"), ("rep", "movbk"), ("repe", "cmpbk"), ("rep", "ldm"),
+             ("repne", "cmpm"))
+F31_LONE_X = (("rep", "inm"), ("rep", "outm"), ("rep", "stm"))
+F31_LONE_LEADS = ((1, 4), (0, 5), (0, 4), (2, 4))
+
+
+def f31(waits=WAITS, parities=PARITIES):
+    """F30's missing controls alf and lone (see the comment above)."""
+    from .forms import F24_MOV_CW, f24_form_name
+    kind, rfm, variants = "out", RFM_OFF, []
+    regs = _f24_regs("even")
+
+    def add(probe, label, names, n=0, form=None, **extra):
+        xnames = [v for v in names if not v.startswith("D")]
+        body = [LS(), M(0, kind)] + _f30_instrs(names) + [M(1, kind), LS(), END()]
+        knobs = {"probe": probe, "series": probe, "marker": kind, "n": n, "k": 1, "form": form,
+                 "x": xnames, "exec": list(range(len(xnames))), "rfm": rfm,
+                 "refresh_on": False, **extra}
+        name = f"{kind}-{probe}-{label}" if probe != "empty" else f"{kind}-empty"
+        variants.append((name, knobs, body, {"regs": regs} if form else {}))
+
+    add("empty", "", [])
+    strx = dict(width=2, align="even", ix=regs["IX"], iy=regs["IY"])
+    for rep, op in F31_ALF_X:
+        form = f24_form_name(op, 2, rep)
+        follows = dict(F30_ODD_FOLLOW)
+        if op not in ("cmpbk", "cmpm"):
+            follows["rep"] = [F24_MOV_CW[1], form]
+        cells = [(1, f) for f in follows]
+        if op == "stm":
+            cells += [(2, "nop"), (2, "rep")]
+        if op in ("stm", "ldm"):
+            cells.append((1, "end"))
+        for n, follower in cells:
+            after = [] if follower == "end" else follows[follower]
+            add("alf", f"{op}-n{n}-{follower}", [F24_MOV_CW[n], form] + after, n=n, form=form,
+                op=op, rep=rep, follower=follower, iters=n + (follower == "rep"), **strx)
+    for rep, op in F31_LONE_X:
+        form = f24_form_name(op, 2, rep)
+        for b, a in F31_LONE_LEADS:
+            add("lone", f"{op}-w-n1-b{b}a{a}", ["nop"] * b + [F24_MOV_CW[1]] + ["nop"] * a + [form],
+                n=1, form=form, op=op, rep=rep, lead=f"b{b}a{a}", iters=1, **strx)
+    return _sweep("F31", variants, waits, parities, marker_kind=kind, rfm=rfm)
+
+
+FAMILIES.update({"F31": f31})

@@ -688,3 +688,25 @@ F24_PATTERN_STORE = _register(
     [Form("st_imm0_dir_c42", "store_imm", bytes([0xC7, 0x06]) + F24_PATTERN.to_bytes(2, "little")
           + bytes(2), writes=1, width=2, mode="dir", mode_class="direct", ea=F24_PATTERN)])[0]
 # (WP67) the simulator decodes the string forms (sim/templates.py, _string_steps): none left
+
+
+# F30 (WP73: the facts-only shapes of the thirty-ninth and fortieth fits). Every other form the
+# family uses is in the catalog above. The segment register forms by sreg field (NEC: 0 DS1,
+# 1 PS, 2 SS, 3 DS0; 8E with PS is illegal and not used): MOV sreg,AW (8E C0 / D0 / D8: AW = 0
+# after the fence, so the sreg keeps its prelude value 0), MOV sreg,[IX] (8E 04 / 14 / 1C: the
+# word at IX = 0100h, in the zeroed vector table, so SS and DS0 load 0 and the stack and data
+# addresses do not move; the mode class of [BW], base), MOV AW,sreg (8C C0 / C8 / D0 / D8) and
+# MOV [BW],sreg (8C 07 / 0F / 17 / 1F, a word store at 0800h); PUSH SS (16) and POP SS (17).
+F30_SREG = {"ds1": 0, "ps": 1, "ss": 2, "ds0": 3}
+F30_SEG_FORMS = _register(
+    [Form(f"mov_{s}_aw", "reg", bytes([0x8E, 0xC0 | (r << 3)]))
+     for s, r in F30_SREG.items() if s not in ("ps", "ds1")]
+    + [Form(f"mov_{s}_ix", "load_seg", bytes([0x8E]) + modrm(MODE["ix"], r), reads=1, width=2,
+            mode="ix", mode_class=MODE["ix"].mode_class, ea=MODE["ix"].ea)
+       for s, r in F30_SREG.items() if s != "ps"]
+    + [Form(f"mov_aw_{s}", "reg", bytes([0x8C, 0xC0 | (r << 3)]))
+       for s, r in F30_SREG.items() if s != "ds1"]
+    + [Form(f"mov_m_{s}", "store", bytes([0x8C]) + modrm(MODE["bw"], r), writes=1, **_BW_MEM)
+       for s, r in F30_SREG.items() if s != "ds0"]
+    + [Form("push_ss", "push_seg", bytes([0x16]), **_STACK_W),
+       Form("pop_ss", "pop_seg", bytes([0x17]), **_STACK_R)])

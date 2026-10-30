@@ -267,6 +267,9 @@ class _StringState:
             r[self.LOADS[code[0]]] = int.from_bytes(code[1:3], "little")
         elif instr.role == "drain" and code[:2] == bytes([0x81, 0xC2]):
             r["DW"] = None if r["DW"] is None else (r["DW"] + int.from_bytes(code[2:4], "little")) & 0xFFFF
+        elif instr.role == "x" and code[:2] == bytes([0xC1, 0xE0]) and len(code) == 3:
+            # (WP73, F30 str sep) SHL AW,imm8: AW shifted, the other registers kept
+            r["AW"] = None if r["AW"] is None else (r["AW"] << code[2]) & 0xFFFF
         elif instr.role == "x" and instr.form != "nop":
             form = FORMS[instr.form]
             if form.cls != "store_imm":

@@ -490,7 +490,11 @@ then the RTL. In the order the generator gains them:
    flush), `burst_count=dw`, `lea_io=recover`, `lea_room=ir`,
    `prepare_sync=run` and `imm_latch=wait` (the EU's requests, EA clocks,
    take sync and the decoder's immediate against the latch); it is adopted
-   once an RTL catch-up package has them, after D2.
+   once an RTL catch-up package has them, after D2. The probe family F30
+   and its controls F31 (WP73, 2026-10-30, 1,476 and 234 runs;
+   docs/v35s-chains.md "Probes for the facts-only shapes") join the RTL
+   gate lists with that package: the whole-corpus `--core` list becomes 33
+   families, 26,234 runs.
 2. F25 LDEA, XLAT, PUSH imm, PUSH R and POP R, PREPARE and DISPOSE, the
    segment pushes and moves: the EA step alone, stack bursts, the segment
    write-back. Done 2026-10-27 (ten classes, three enums, 446/588; the
