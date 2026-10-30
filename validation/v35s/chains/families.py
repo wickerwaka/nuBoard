@@ -2123,3 +2123,215 @@ def f31(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F31": f31})
+
+
+# F32 and F33 (WP74; HDL plan Phase E items 4 and 5: the 0F page and the register miscellany),
+# refresh off (RFM ECh), every wait and parity. Generator-only (UNMODELLED: the simulator
+# decodes none of the new forms, forms.UNMODELLED_FORMS), acquired and read as facts. The
+# cost frame PAD [P] LS M0 [lead] X^k M1 LS END with the OUT marker for every variant and the
+# PUSH marker for a subset (the F5 cross-check, the same ids with push for out); X's cost is
+# dM(X) - dM(baseline), the baseline named by the knob `baseline` (the x_variant of the chain
+# whose frame holds X's lead alone: the empty frame, MOV CL,n, the multiply / divide lead,
+# STC / CLC ; MOV CW,n), k = 1, 2 (INC / DEC r16 also 4). P (before the first LS, erased by
+# the fence) only in F33's pattern cells. The fence leaves AW = 0 and CW = 001Fh; the presets
+# are the defaults (BW 0800h, DW 5678h, IX 0100h, IY 0180h) except where a form names IX /
+# IY (forms' needs: IX = 0A40h, IY = 0C40h, F24's), and F16's div_m (DW = 0100h, overwritten
+# by the lead). Memory operands are in the data page (the 90h fill, packed BCD 90).
+# Run ids F3x-<out|push>-<label>-p<E|O>-w<N>, the label the form name, its lead / count and
+# k (F32-out-set1_mw_cl-k2, F32-out-add4s-n8-k1, F33-out-divu_m-ld-k2,
+# F33-out-repc-cmpm-w-n4-stc). Knobs on every chain: group (= series), marker, form (the
+# measured X, None for a control), x (every form between M0 and M1 in order), k, lead (the
+# forms before X in the frame), pre (the forms before the first LS), baseline, and per group
+# the form's properties (op, operand, width, index / n / iters / rep / pattern / mode).
+#
+# F32 (the 0F page):
+# bit: TEST1 / CLR1 / SET1 / NOT1 on AL / AW and at [BW], byte and word, the index in CL (31,
+#   masked to bit 7 / 15) and as imm3 / imm4 (the same bit), k = 1, 2 (32 forms).
+# mode: SET1 [m],CL word at [BW+10h], [BW+200h], [BW+IX] (0900h) and [0C00h], k = 1 (the mode
+#   sweep's representative; [BW] is the bit group's).
+# bcd: MOV CL,n ; ADD4S / SUB4S / CMP4S for n = 2, 4, 8, 16 digits (1, 2, 4, 8 byte pairs),
+#   k = 1, and k = 2 at n = 2, 4; controls MOV CL,n alone. IX 0A40h, IY 0C40h.
+# rot4: ROL4 / ROR4 on DL and at [BW] (byte), k = 1, 2.
+# bitfield: EXT and INS, register width (0F 33 / 0F 31) and imm4 width (0F 3B / 0F 39), offset
+#   in BL (0), DL (8) or BH (8) with DW = 0608h, the seven (offset, width) cases of
+#   forms.F32_BITFIELD, k = 1, 2 (the second instance at the offset and IX / IY the first
+#   leaves). EXT reads DS0:IX (0A40h), INS reads and writes DS1:IY (0C40h).
+# pfx: DS1: (26h) before TEST1 [BW],CL word, SET1 [BW],7 byte, ROL4 [BW], and ADD4S after MOV
+#   CL,4, k = 1.
+# PUSH subset (k = 1): TEST1 / SET1 [BW],CL word, CLR1 AW,CL, NOT1 [BW],7 byte, MOV CL,4 and
+#   ADD4S / CMP4S at n = 4, ROL4 [BW], ROR4 DL, EXT DL,7 and INS DL,7, the empty frame.
+F32_RFM = RFM_OFF
+F32_BCD_K2_N = (2, 4)
+F32_PUSH = ("empty", "test1_mw_cl-k1", "set1_mw_cl-k1", "clr1_rw_cl-k1", "not1_mb_imm-k1",
+            "movcl-n4", "add4s-n4-k1", "cmp4s-n4-k1", "rol4_m-k1", "ror4_dl-k1", "ext_dl_i7-k1",
+            "ins_dl_i7-k1")
+
+
+def _f3x_variants(family, out_specs, push_labels, waits, parities, rfm):
+    """out_specs: [(label, group, names, pre, baseline, form, k, extra knobs)], every one under
+    the OUT marker and those in push_labels under PUSH as well."""
+    chains = []
+    for kind in ("out", "push"):
+        variants = []
+        for label, group, names, pre, baseline, form, k, extra in out_specs:
+            if kind == "push" and label not in push_labels:
+                continue
+            body = [Instr(0, FORMS[p].code, p, "x") for p in pre]
+            body += [LS(), M(0, kind)] + xs(names) + [M(1, kind), LS(), END()]
+            lead = list(names[:len(names) - k]) if form else list(names)
+            knobs = {"group": group, "series": group, "marker": kind, "form": form,
+                     "x": list(names), "k": k, "lead": lead, "pre": list(pre),
+                     "baseline": baseline, "rfm": rfm, "refresh_on": False, **extra}
+            variants.append((f"{kind}-{label}", knobs, body, {}))
+        missing = set(push_labels) - {v[0][len(kind) + 1:] for v in variants}
+        if kind == "push" and missing:
+            raise AssertionError(f"{family}: PUSH labels without an OUT twin: {sorted(missing)}")
+        chains += _sweep(family, variants, waits, parities, marker_kind=kind, rfm=rfm)
+    return chains
+
+
+def f32(waits=WAITS, parities=PARITIES):
+    """The 0F page (see the comment above)."""
+    from .forms import (F32_BCD, F32_BCD_N, F32_BIT, F32_BITFIELD, F32_MOV_CL, F32_PFX,
+                        F32_SET1_MODES)
+    specs = [("empty", "empty", [], (), None, None, 0, {})]
+    for name, (op, operand, width, index) in F32_BIT.items():
+        if name in F32_PFX or name.startswith("set1_mw_cl_"):
+            continue
+        for k in (1, 2):
+            specs.append((f"{name}-k{k}", "bit", [name] * k, (), "empty", name, k,
+                          dict(op=op, operand=operand, width=width, index=index)))
+    for m in F32_SET1_MODES:
+        name = f"set1_mw_cl_{m}"
+        specs.append((f"{name}-k1", "mode", [name], (), "empty", name, 1,
+                      dict(op="set1", operand="m", width=2, index="cl", mode=m)))
+    for n in F32_BCD_N:
+        cl = F32_MOV_CL[n]
+        specs.append((f"movcl-n{n}", "bcd", [cl], (), "empty", None, 0, dict(n=n)))
+        for op in ("add4s", "sub4s", "cmp4s"):
+            for k in (1, 2) if n in F32_BCD_K2_N else (1,):
+                specs.append((f"{op}-n{n}-k{k}", "bcd", [cl] + [op] * k, (), f"movcl-n{n}", op,
+                              k, dict(op=op, n=n, bytes=(n + 1) // 2)))
+    for name in ("rol4_dl", "ror4_dl", "rol4_m", "ror4_m"):
+        for k in (1, 2):
+            specs.append((f"{name}-k{k}", "rot4", [name] * k, (), "empty", name, k,
+                          dict(op=name[:4], operand="m" if name.endswith("_m") else "r")))
+    for name, (op, off, wid, imm) in F32_BITFIELD.items():
+        for k in (1, 2):
+            specs.append((f"{name}-k{k}", "bitfield", [name] * k, (), "empty", name, k,
+                          dict(op=op, offset_reg=off, width_reg=wid, imm=imm)))
+    for name in F32_PFX:
+        if name in F32_BCD:
+            specs.append((f"{name}-n4-k1", "pfx", [F32_MOV_CL[4], name], (), "movcl-n4", name,
+                          1, dict(op="add4s", n=4, bytes=2)))
+        else:
+            specs.append((f"{name}-k1", "pfx", [name], (), "empty", name, 1, {}))
+    return _f3x_variants("F32", specs, F32_PUSH, waits, parities, F32_RFM)
+
+
+FAMILIES.update({"F32": f32})
+
+
+# F33 (the register miscellany and REPC / REPNC):
+# incdec: INC / DEC r16 (40-4F) for every register, k = 1, 2, 4; INC / DEC AL and DH (FE /0,
+#   /1), INC / DEC byte and word [BW] (FE / FF /0 /1), k = 1, 2.
+# adjust: ADJ4A, ADJ4S, ADJBA, ADJBS (AL = 0 after the fence), k = 1, 2.
+# convert: CVTBD, CVTDB, k = 1, 2. extend: CVTBW (CBW), CVTWL (CWD) at AW = 0, k = 1, 2, and at
+#   AW = 8080h behind MOV AW,8080h (k = 1; the control MOV AW,8080h alone).
+# muldiv: behind the lead MOV AW,1234h ; MOV DW,0 (the control: the lead alone) MUL CW and MUL
+#   [BW] (signed: 1234h x 001Fh, 1234h x 9090h), DIV / DIVU CW (0000:1234h / 001Fh = 150 rem
+#   10; the second instance 000Ah:0096h / 001Fh = 21145) and DIV / DIVU [BW] (/ 9090h: 0 rem
+#   1234h, then 1234h:0000h / 9090h, -10705 signed, 8252 unsigned), k = 1, 2, no divide
+#   trap; MUL CW and MUL [BW] at AW = 0 (no lead), k = 1.
+# mulimm: MUL AW,CW,1234h, MUL AW,[BW],1234h, MUL AW,CW,5, MUL AW,[BW],5, k = 1, 2.
+# flag: CLC, STC, CMC, CLI, STI, CLD, STD, k = 1, 2.
+# rep: STC or CLC ; MOV CW,n ; REPC / REPNC CMPM / CMPBK word for n = 1, 2, 4 (IX 0A40h, IY
+#   0C40h): on the fill REPNC CMPM and REPC CMPBK stop after element 1 (the carry exit), REPC
+#   CMPM and REPNC CMPBK run CW out; the patterns (P before the first LS): REPC CMPM with
+#   [0C42h] = 0 and REPNC CMPBK with [0A42h] = 0 stop after element 2, n = 2 (with the count's
+#   end) and 4, after CLC; n = 0 for REPC / REPNC CMPM after CLC. Controls: STC / CLC ; MOV
+#   CW,n alone for every n, and each pattern store with the empty frame. iters counts the
+#   compared elements (_f33_iters; test_chains checks it against normalize.string_elements).
+# PUSH subset (k = 1): INC AW, DEC BW, INC AL, DEC [BW], ADJ4A, CVTBD, CVTWL, the muldiv lead,
+#   MUL CW and DIVU [BW] behind it, MUL AW,CW,1234h, STC, CLC ; MOV CW,2 and REPC CMPM n = 2
+#   after it, the empty frame.
+F33_RFM = RFM_OFF
+F33_R16_K = (1, 2, 4)
+F33_LEAD = ["mov_aw_imm", "mov_dw_imm0"]
+F33_REP_N = (1, 2, 4)
+F33_PAT_N = (2, 4)
+F33_PATTERN = {("repc", "cmpm"): ("dst", "st_imm0_dir_c42"), ("repnc", "cmpbk"): ("src", "st_imm0_dir_a42")}
+F33_PUSH = ("empty", "inc_aw-k1", "dec_bw-k1", "inc_al-k1", "dec_m-k1", "adj4a-k1", "cvtbd-k1",
+            "cvtwl-k1", "lead-muldiv", "mul_cw-ld-k1", "divu_m-ld-k1", "mul_aw_cw_imm16-k1",
+            "stc-k1", "clc-movcw-n2", "repc-cmpm-w-n2-clc")
+
+
+def _f33_iters(rep, op, n, pattern):
+    """The elements REPC / REPNC CMPM / CMPBK word compare: n, or the carry exit. CMPM is
+    AW (0) - [IY] (9090h fill, 0 at the dst pattern's element 2): CY = 1 except there; CMPBK
+    [IX] - [IY] (fill - fill, 0 - 9090h at the src pattern's element 2): CY = 0 except
+    there. REPC stops after an element with CY = 0, REPNC after one with CY = 1."""
+    for e in range(1, n + 1):
+        at_pattern = pattern and e == 2
+        cy = (not at_pattern) if op == "cmpm" else at_pattern
+        if (rep == "repc" and not cy) or (rep == "repnc" and cy):
+            return e
+    return n
+
+
+def f33(waits=WAITS, parities=PARITIES):
+    """The register miscellany and REPC / REPNC (see the comment above)."""
+    from .forms import _R16, F24_MOV_CW, F33_FLAGS, f24_form_name
+    specs = [("empty", "empty", [], (), None, None, 0, {})]
+
+    def ks(group, names, kk=(1, 2), **extra):
+        for name in names:
+            for k in kk:
+                specs.append((f"{name}-k{k}", group, [name] * k, (), "empty", name, k, extra))
+
+    ks("incdec", [f"{op}_{r}" for op in ("inc", "dec") for r in _R16], F33_R16_K, operand="r16")
+    ks("incdec", ["inc_al", "dec_al", "inc_dh", "dec_dh"], operand="r8")
+    ks("incdec", ["incb_m", "decb_m", "inc_m", "dec_m"], operand="m")
+    ks("adjust", ["adj4a", "adj4s", "adjba", "adjbs"])
+    ks("convert", ["cvtbd", "cvtdb"])
+    ks("extend", ["cvtbw", "cvtwl"], aw=0)
+    specs.append(("lead-aw8080", "extend", ["mov_aw_8080"], (), "empty", None, 0, dict(aw=0x8080)))
+    for name in ("cvtbw", "cvtwl"):
+        specs.append((f"{name}-a8080-k1", "extend", ["mov_aw_8080", name], (), "lead-aw8080",
+                      name, 1, dict(aw=0x8080)))
+    specs.append(("lead-muldiv", "muldiv", list(F33_LEAD), (), "empty", None, 0, dict(aw=0x1234)))
+    for name in ("mul_cw", "mul_m", "div_cw", "divu_cw", "div_m", "divu_m"):
+        for k in (1, 2):
+            specs.append((f"{name}-ld-k{k}", "muldiv", F33_LEAD + [name] * k, (), "lead-muldiv",
+                          name, k, dict(aw=0x1234)))
+    for name in ("mul_cw", "mul_m"):
+        specs.append((f"{name}-k1", "muldiv", [name], (), "empty", name, 1, dict(aw=0)))
+    ks("mulimm", ["mul_aw_cw_imm16", "mul_aw_m_imm16", "mul_aw_cw_imm8", "mul_aw_m_imm8"])
+    ks("flag", list(F33_FLAGS))
+    for lead in ("stc", "clc"):
+        for n in F33_REP_N + ((0,) if lead == "clc" else ()):
+            specs.append((f"{lead}-movcw-n{n}", "rep", [lead, F24_MOV_CW[n]], (), "empty", None,
+                          0, dict(n=n, carry_lead=lead)))
+    for rep in ("repc", "repnc"):
+        for op in ("cmpm", "cmpbk"):
+            form = f24_form_name(op, 2, rep)
+            cells = [(lead, n, False) for lead in ("stc", "clc") for n in F33_REP_N]
+            if op == "cmpm":
+                cells.append(("clc", 0, False))
+            if (rep, op) in F33_PATTERN:
+                cells += [("clc", n, True) for n in F33_PAT_N]
+            for lead, n, pattern in cells:
+                where, store = F33_PATTERN.get((rep, op), (None, None)) if pattern else (None, None)
+                specs.append((f"{rep}-{op}-w-n{n}-{lead}" + ("-pat" if pattern else ""), "rep",
+                              [lead, F24_MOV_CW[n], form], (store,) if pattern else (),
+                              f"{lead}-movcw-n{n}", form, 1,
+                              dict(op=op, width=2, rep=rep, n=n, carry_lead=lead,
+                                   pattern=where, iters=_f33_iters(rep, op, n, pattern))))
+    for where, store in (("dst", "st_imm0_dir_c42"), ("src", "st_imm0_dir_a42")):
+        specs.append((f"pat-{where}-empty", "rep", [], (store,), "empty", None, 0,
+                      dict(pattern=where)))
+    return _f3x_variants("F33", specs, F33_PUSH, waits, parities, F33_RFM)
+
+
+FAMILIES.update({"F33": f33})
+UNMODELLED = UNMODELLED + ("F32", "F33")      # (WP74) generator-only: facts, no model

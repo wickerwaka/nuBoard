@@ -323,6 +323,23 @@ TABLES["F24"] = COST_TABLES + [
 ]
 
 
+# (WP74) F32 / F33: the cost frame's tables, X's own cycles, the k series (slope and intercept
+# per form), and F33's REPC / REPNC elements as F24's
+F3X_TABLES = COST_TABLES + [
+    ("X's data cycles rel t_M0 [clocks after the last fetch's end]", _xc),
+]
+TABLES["F32"] = F3X_TABLES
+TABLES["F33"] = F3X_TABLES + TABLES["F24"][len(COST_TABLES):]
+
+
+def f3x_k_table(ff: dict) -> str:
+    """(WP74) per form stem: cost at k = 1, 2 (4), slope = c2 - c1, intercept = c1 - slope."""
+    ks = ff.get("k_series") or {}
+    cell = lambda t: f"{'/'.join(_num(v) for v in t[0].values())} s{_num(t[1])} i{_num(t[2])}"
+    return table(f"{ff['family']}: cost at k = 1/2[/4], slope s = c2 - c1, intercept i = c1 - s",
+                 ks, cell)
+
+
 def columns_of(rows) -> list[str]:
     cols = {c for cells in rows.values() for c in cells}
     return sorted(cols, key=lambda c: (c[:2] != "pE", c))
@@ -373,6 +390,8 @@ def family_tables(ff: dict) -> str:
         return f17_tables(ff)
     if family == "F18":
         return f18_tables(ff)
+    if family in ("F32", "F33"):
+        out.append(f3x_k_table(ff))
     if family == "F8":
         out.append(table("F8: refreshes from clock 0 to END / positions in the M0 window",
                          rows, lambda f: f"{f['refresh_count']} [{_join(f['refresh_positions_M'])}]"))

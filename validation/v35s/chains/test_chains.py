@@ -104,6 +104,29 @@ LENGTHS.update({n: 2 for n in ("mov_ss_aw", "mov_ds0_aw", "mov_ds1_ix", "mov_ss_
 LENGTHS.update({"push_ss": 1, "pop_ss": 1})
 RUN_RANGES.update({"F30": (1476, 1476)})
 RUN_RANGES.update({"F31": (234, 234)})        # (WP73) F30's two controls
+# (WP74) F32 / F33: the 0F page and the register miscellany (generator-only forms)
+LENGTHS.update({f"{op}_{o}{w}_{i}": 3 + (i == "imm")
+                for op in ("test1", "clr1", "set1", "not1") for o in "rm" for w in "bw"
+                for i in ("cl", "imm")})
+LENGTHS.update({"set1_mw_cl_bw_d8": 4, "set1_mw_cl_bw_d16": 5, "set1_mw_cl_bw_ix": 3,
+                "set1_mw_cl_dir": 5, "add4s": 2, "sub4s": 2, "cmp4s": 2, "rol4_dl": 3,
+                "ror4_dl": 3, "rol4_m": 3, "ror4_m": 3, "pfx_test1_mw_cl": 4,
+                "pfx_set1_mb_imm": 5, "pfx_rol4_m": 4, "pfx_add4s": 3})
+LENGTHS.update({f"{op}_{o}_{w}": 3 for op in ("ext", "ins") for o, w in
+                (("bl", "dh"), ("dl", "dh"), ("dl", "bh"), ("bh", "bl"))})
+LENGTHS.update({f"{op}_{o}_i{i}": 4 for op in ("ext", "ins") for o, i in
+                (("bl", 7), ("dl", 7), ("dl", 11))})
+LENGTHS.update({f"{op}_{r}": 1 for op in ("inc", "dec")
+                for r in ("aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy")})
+LENGTHS.update({"inc_al": 2, "dec_al": 2, "inc_dh": 2, "dec_dh": 2, "incb_m": 2, "decb_m": 2,
+                "adj4a": 1, "adj4s": 1, "adjba": 1, "adjbs": 1, "cvtbd": 2, "cvtdb": 2,
+                "cvtbw": 1, "cvtwl": 1, "mul_cw": 2, "div_cw": 2, "divu_cw": 2,
+                "mul_aw_cw_imm16": 4, "mul_aw_m_imm16": 4, "mul_aw_cw_imm8": 3,
+                "mul_aw_m_imm8": 3, "clc": 1, "stc": 1, "cmc": 1, "cli": 1, "sti": 1, "cld": 1,
+                "std": 1, "mov_dw_imm0": 3, "mov_aw_8080": 3, "repc_cmpm_w": 2,
+                "repnc_cmpm_w": 2, "repc_cmpbk_w": 2, "repnc_cmpbk_w": 2,
+                "st_imm0_dir_a42": 6})
+RUN_RANGES.update({"F32": (858, 858), "F33": (1050, 1050)})
 
 
 def _synthetic_run(chain):
@@ -444,8 +467,10 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(FORMS[name].code.hex(), hexcode, name)
         new = set(code) - {"test_m_aw", "xch_m_aw", "add_m_aw"}
         for c in self.chains:
-            # F15, F16, F18 reuse F14's forms, and (WP56) F26, F27, (WP59) F28, F29, (WP73) F30
-            if c.family not in ("F14", "F15", "F16", "F18", "F26", "F27", "F28", "F29", "F30"):
+            # F15, F16, F18 reuse F14's forms, and (WP56) F26, F27, (WP59) F28, F29, (WP73) F30,
+            # (WP74) F33 (DIVU [BW])
+            if c.family not in ("F14", "F15", "F16", "F18", "F26", "F27", "F28", "F29", "F30",
+                                "F33"):
                 self.assertFalse(new & {i.form for i in c.instrs}, c.id)
         for c in f14:
             build_image(c)
@@ -558,8 +583,9 @@ class ChainTests(unittest.TestCase):
                "dec_m", "shlb_m1", "mulub_m", "shl_aw_cl", "divu_ix", "shl_imm1", "shl_imm2",
                "mov_cl1", "mov_cl2", "mov_cl8", "mov_cl16"}
         for c in self.chains:
-            # F18 B reuses DIVU IX, (WP56) F26 DEC [BW]
-            if c.family not in ("F16", "F18", "F26"):
+            # F18 B reuses DIVU IX, (WP56) F26 DEC [BW], (WP74) F32 MOV CL,n and F33 MUL / DIV /
+            # DEC [BW]
+            if c.family not in ("F16", "F18", "F26", "F32", "F33"):
                 self.assertFalse(new & {i.form for i in c.instrs}, c.id)
         for c in f16:
             k = c.knobs
@@ -1926,6 +1952,264 @@ class F31Tests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             self.assertEqual(main(["gen", "--family", "F31", "--check"]), 0)
         self.assertIn("checked 234 images", out.getvalue())
+
+
+class F32F33Tests(unittest.TestCase):
+    """(WP74) the 0F page (F32) and the register miscellany with REPC / REPNC (F33): the forms'
+    bytes and generator-only status, counts per group, placement and presets, the walks (the
+    BCD strings, the bit fields, the REPC / REPNC carry exits), classification of synthetic and
+    recorded runs, baselines, the k series, gen --check."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f32 = generate(["F32"])
+        cls.f33 = generate(["F33"])
+        cls.cells = [c for c in cls.f32 + cls.f33 if c.parity == "even" and c.waits == 0]
+        cls.by = {c.id: c for c in cls.cells}
+
+    def _body(self, cid):
+        return b"".join(i.code for i in self.by[cid + "-pE-w0"].instrs if i.role == "x"
+                        and i.index is not None)
+
+    def _acc(self, cid):
+        from validation.v35s.chains.normalize import expected_accesses
+        c = self.by[cid + "-pE-w0"]
+        acc = expected_accesses(c)
+        return [(a.kind, a.addr, a.width) for k in sorted(acc) for a in acc[k]
+                if c.instrs[k].role == "x" and c.instrs[k].index is not None]
+
+    def test_catalog_bytes(self):
+        from validation.v35s.chains.forms import (CLASSES, F32_FORMS, F33_FORMS, STRING_FORMS,
+                                                  UNMODELLED_FORMS, UNMODELLED_STRING_FORMS)
+        for name, code in (("test1_rb_cl", "0f10c0"), ("test1_mw_cl", "0f1107"),
+                           ("clr1_mb_imm", "0f1a0707"), ("set1_rw_imm", "0f1dc00f"),
+                           ("not1_mw_imm", "0f1f070f"), ("set1_mw_cl_bw_d16", "0f15870002"),
+                           ("set1_mw_cl_dir", "0f1506000c"), ("add4s", "0f20"),
+                           ("sub4s", "0f22"), ("cmp4s", "0f26"), ("rol4_dl", "0f28c2"),
+                           ("ror4_m", "0f2a07"), ("ext_dl_bh", "0f33fa"), ("ext_bl_dh", "0f33f3"),
+                           ("ins_bh_bl", "0f31df"),
+                           ("ins_dl_i11", "0f39c20b"), ("ext_bl_i7", "0f3bc307"),
+                           ("pfx_add4s", "260f20"), ("pfx_set1_mb_imm", "260f1c0707"),
+                           ("inc_aw", "40"), ("dec_iy", "4f"), ("inc_dh", "fec6"),
+                           ("dec_al", "fec8"), ("incb_m", "fe07"), ("decb_m", "fe0f"),
+                           ("adj4s", "2f"), ("adjbs", "3f"), ("cvtbd", "d40a"), ("cvtdb", "d50a"),
+                           ("cvtbw", "98"), ("cvtwl", "99"), ("mul_cw", "f7e9"),
+                           ("div_cw", "f7f9"), ("divu_cw", "f7f1"),
+                           ("mul_aw_cw_imm16", "69c13412"), ("mul_aw_m_imm8", "6b0705"),
+                           ("clc", "f8"), ("stc", "f9"), ("cmc", "f5"), ("cli", "fa"),
+                           ("sti", "fb"), ("cld", "fc"), ("std", "fd"),
+                           ("mov_dw_imm0", "ba0000"), ("repc_cmpm_w", "65af"),
+                           ("repnc_cmpbk_w", "64a7"), ("st_imm0_dir_a42", "c706420a0000")):
+            self.assertEqual(FORMS[name].code.hex(), code, name)
+        for name in F32_FORMS + F33_FORMS:
+            self.assertIn(name, UNMODELLED_FORMS)
+            self.assertIn(FORMS[name].cls, CLASSES, name)
+        self.assertEqual(len(STRING_FORMS), 32)
+        self.assertEqual(sorted(UNMODELLED_STRING_FORMS), ["repc_cmpbk_w", "repc_cmpm_w",
+                                                           "repnc_cmpbk_w", "repnc_cmpm_w"])
+        self.assertFalse(set(UNMODELLED_STRING_FORMS) & set(STRING_FORMS))
+        # memory operands: the bit ops at [BW] read (TEST1) or read and write
+        self.assertEqual((FORMS["test1_mb_cl"].reads, FORMS["test1_mb_cl"].writes), (1, 0))
+        self.assertEqual((FORMS["not1_mw_imm"].reads, FORMS["not1_mw_imm"].writes,
+                          FORMS["not1_mw_imm"].width), (1, 1, 2))
+
+    def test_unmodelled(self):
+        from validation.v35s.chains.families import UNMODELLED
+        from validation.v35s.chains import fit
+        self.assertIn("F32", UNMODELLED)
+        self.assertIn("F33", UNMODELLED)
+        self.assertIn("F32", fit.TIE_FAMILIES)           # skipped by the tie-break's filter
+
+    def test_counts(self):
+        from collections import Counter
+        self.assertEqual(len(self.f32), 143 * 6)
+        self.assertEqual(len(self.f33), 175 * 6)
+        out32 = Counter(c.knobs["group"] for c in self.cells
+                        if c.family == "F32" and c.marker_kind == "out")
+        self.assertEqual(out32, {"empty": 1, "bit": 64, "mode": 4, "bcd": 22, "rot4": 8,
+                                 "bitfield": 28, "pfx": 4})
+        out33 = Counter(c.knobs["group"] for c in self.cells
+                        if c.family == "F33" and c.marker_kind == "out")
+        self.assertEqual(out33, {"empty": 1, "incdec": 64, "adjust": 8, "convert": 4,
+                                 "extend": 7, "muldiv": 15, "mulimm": 8, "flag": 14, "rep": 39})
+        self.assertEqual(sum(1 for c in self.cells if c.family == "F32"
+                             and c.marker_kind == "push"), 12)
+        self.assertEqual(sum(1 for c in self.cells if c.family == "F33"
+                             and c.marker_kind == "push"), 15)
+        for c in self.cells:
+            self.assertEqual(c.rfm, 0xEC, c.id)
+            if c.marker_kind == "push":
+                self.assertIn(c.id.replace("-push-", "-out-", 1), self.by)
+
+    def test_placement_and_presets(self):
+        self.assertEqual(self._body("F32-out-add4s-n8-k1"), bytes.fromhex("b1080f20"))
+        self.assertEqual(self._body("F32-out-cmp4s-n2-k2"), bytes.fromhex("b1020f260f26"))
+        self.assertEqual(self._body("F32-out-pfx_add4s-n4-k1"), bytes.fromhex("b104260f20"))
+        self.assertEqual(self._body("F32-out-set1_mw_cl-k2"), bytes.fromhex("0f15070f1507"))
+        self.assertEqual(self._body("F33-out-inc_sp-k4"), bytes.fromhex("44444444"))
+        self.assertEqual(self._body("F33-out-divu_m-ld-k2"), bytes.fromhex("b83412ba0000f737f737"))
+        self.assertEqual(self._body("F33-out-cvtwl-a8080-k1"), bytes.fromhex("b8808099"))
+        self.assertEqual(self._body("F33-out-repnc-cmpbk-w-n4-stc"), bytes.fromhex("f9b9040064a7"))
+        self.assertEqual(self._body("F33-out-repc-cmpm-w-n0-clc"), bytes.fromhex("f8b9000065af"))
+        pat = self.by["F33-out-repnc-cmpbk-w-n2-clc-pat-pE-w0"]
+        self.assertEqual([i.form for i in pat.instrs if i.role != "pad"][:3],
+                         ["st_imm0_dir_a42", "LS", "M"])
+        for c in self.cells:
+            build_image(c)
+            roles = [i.role for i in c.instrs if i.role in ("ls", "marker", "end")
+                     or i.index is not None]
+            self.assertEqual(roles[:2], ["ls", "marker"], c.id)
+            self.assertEqual(roles[-3:], ["marker", "ls", "end"], c.id)
+            k = c.knobs
+            self.assertEqual(k["x"], [i.form for i in c.instrs if i.role == "x"
+                                      and i.index is not None], c.id)
+            if k["form"]:
+                self.assertEqual(k["x"], k["lead"] + [k["form"]] * k["k"], c.id)
+            names = set(k["x"])
+            if names & {"add4s", "sub4s", "cmp4s", "pfx_add4s"} or k["group"] == "rep" and k["form"]:
+                self.assertEqual((c.regs["IX"], c.regs["IY"]), (0x0A40, 0x0C40), c.id)
+            if any(n.startswith("ext_") for n in names):
+                self.assertEqual((c.regs["IX"], c.regs["DW"]), (0x0A40, 0x0608), c.id)
+            if any(n.startswith("ins_") for n in names):
+                self.assertEqual((c.regs["IY"], c.regs["DW"]), (0x0C40, 0x0608), c.id)
+            if k["group"] in ("bit", "mode"):
+                self.assertEqual((c.regs["IX"], c.regs["IY"]), (0x0100, 0x0180), c.id)
+            self.assertEqual(c.regs["BW"], 0x0800, c.id)
+
+    def test_bcd_and_bitfield_walks(self):
+        r, w = "data_read", "data_write"
+        self.assertEqual(self._acc("F32-out-add4s-n4-k1"),
+                         [(r, 0xA40, "lo"), (r, 0xC40, "lo"), (w, 0xC40, "lo"),
+                          (r, 0xA41, "hi"), (r, 0xC41, "hi"), (w, 0xC41, "hi")])
+        self.assertEqual(self._acc("F32-out-cmp4s-n2-k1"), [(r, 0xA40, "lo"), (r, 0xC40, "lo")])
+        self.assertEqual(len(self._acc("F32-out-sub4s-n16-k1")), 24)
+        self.assertEqual(len(self._acc("F32-out-add4s-n2-k2")), 6)      # IX / IY unchanged
+        # EXT DL,BH: offset 8, width field 8: crosses (two words), then offset 1 at IX + 2
+        self.assertEqual(self._acc("F32-out-ext_dl_bh-k2"),
+                         [(r, 0xA40, "word"), (r, 0xA42, "word"), (r, 0xA42, "word")])
+        # EXT DL,DH: offset 8, width 6 within; the second at offset 15 crosses
+        self.assertEqual(self._acc("F32-out-ext_dl_dh-k2"),
+                         [(r, 0xA40, "word"), (r, 0xA40, "word"), (r, 0xA42, "word")])
+        # INS DL,7: offset 8 + width 7 = 15 ends at the boundary: one word, IY steps by 2
+        self.assertEqual(self._acc("F32-out-ins_dl_i7-k2"),
+                         [(r, 0xC40, "word"), (w, 0xC40, "word"), (r, 0xC42, "word"),
+                          (w, 0xC42, "word")])
+        # a crossing INS reads and writes each word in turn
+        self.assertEqual(self._acc("F32-out-ins_dl_i11-k1"),
+                         [(r, 0xC40, "word"), (w, 0xC40, "word"), (r, 0xC42, "word"),
+                          (w, 0xC42, "word")])
+        # BL offset 0, width 6 (DH): one word, the second at offset 7 still in it
+        self.assertEqual(self._acc("F32-out-ext_bl_dh-k2"), [(r, 0xA40, "word")] * 2)
+        # BH offset 8, BL width 0: one word each (swapped operands would cross the second)
+        self.assertEqual(self._acc("F32-out-ext_bh_bl-k2"), [(r, 0xA40, "word")] * 2)
+        self.assertEqual(self._acc("F32-out-rol4_m-k1"), [(r, 0x800, "lo"), (w, 0x800, "lo")])
+        self.assertEqual(self._acc("F32-out-test1_mw_imm-k2"), [(r, 0x800, "word")] * 2)
+        self.assertEqual(self._acc("F32-out-set1_mw_cl_bw_ix-k1"),
+                         [(r, 0x900, "word"), (w, 0x900, "word")])
+        self.assertEqual(self._acc("F32-out-clr1_rw_cl-k2"), [])
+        self.assertEqual(self._acc("F33-out-decb_m-k1"), [(r, 0x800, "lo"), (w, 0x800, "lo")])
+        self.assertEqual(self._acc("F33-out-mul_aw_m_imm16-k1"), [(r, 0x800, "word")])
+        self.assertEqual(self._acc("F33-out-adj4a-k2"), [])
+
+    def test_unknown_cl_raises(self):
+        from validation.v35s.chains.normalize import NormalizeError, expected_accesses
+        c = self.by["F32-out-add4s-n4-k1-pE-w0"]
+        broken = Chain.from_json(c.to_json())
+        at = next(i for i, x in enumerate(broken.instrs) if x.form == "mov_cl_imm")
+        broken.instrs[at] = Instr(broken.instrs[at].offset, FORMS["mov_aw_dw"].code, "mov_aw_dw",
+                                  "x", index=0)
+        broken.instrs[at + 1:at + 1] = []
+        with self.assertRaises(NormalizeError):
+            expected_accesses(broken)
+
+    def test_rep_carry_walks(self):
+        from validation.v35s.chains.normalize import string_elements
+        seen = {}
+        for c in self.cells:
+            k = c.knobs
+            if k["group"] != "rep" or not k["form"]:
+                continue
+            runs = string_elements(c)
+            self.assertEqual(sum(len(r.elements) for r in runs.values()), k["iters"], c.id)
+            run = next(iter(runs.values()))
+            # the overrun read after the last element (F24's REP compares), none at CW = 0
+            self.assertEqual(bool(run.overrun), k["n"] > 0, c.id)
+            seen[(k["rep"], k["op"], k["n"], k["pattern"])] = k["iters"]
+        self.assertEqual(seen[("repc", "cmpm", 4, None)], 4)
+        self.assertEqual(seen[("repnc", "cmpm", 4, None)], 1)
+        self.assertEqual(seen[("repc", "cmpbk", 4, None)], 1)
+        self.assertEqual(seen[("repnc", "cmpbk", 4, None)], 4)
+        self.assertEqual(seen[("repc", "cmpm", 4, "dst")], 2)
+        self.assertEqual(seen[("repnc", "cmpbk", 4, "src")], 2)
+        self.assertEqual(seen[("repc", "cmpm", 0, None)], 0)
+
+    def test_synthetic_runs_normalize(self):
+        from validation.v35s.chains.derive import f24_apply, run_facts
+        from validation.v35s.chains.normalize import normalize
+        for c in self.cells:
+            n = normalize(_synthetic_run(c))
+            self.assertIsNone(n.access_mismatch, c.id)
+            self.assertEqual(n.checks, [], c.id)
+            self.assertEqual(sorted(n.t_markers), [0, 1], c.id)
+            self.assertTrue(all(e.instr_index is not None for e in n.events
+                                if e.kind != "fetch"), c.id)
+            if c.family == "F33" and c.knobs["group"] == "rep" and c.knobs["form"]:
+                f = run_facts(n)
+                f24_apply([f], {c.id: n})
+                self.assertEqual(f["str_elements"], c.knobs["iters"], c.id)
+
+    def test_recorded_runs_classify(self):
+        from validation.v35s.chains.normalize import load_runs, normalize
+        for family in ("F32", "F33"):
+            try:
+                runs = load_runs(family, (0, 1, 2))
+            except (FileNotFoundError, ImportError):
+                continue
+            self.assertEqual(len(runs), {"F32": 858, "F33": 1050}[family])
+            for r in runs:
+                n = normalize(r)
+                self.assertEqual(n.checks, [], n.run_id)
+                self.assertTrue(all(e.instr_index is not None for e in n.events
+                                    if e.kind not in ("fetch", "refresh")), n.run_id)
+
+    def test_baselines(self):
+        from validation.v35s.chains.derive import BASELINES, index_facts, run_facts
+        from validation.v35s.chains.normalize import normalize
+        for family in ("F32", "F33"):
+            metric, base = BASELINES[family]
+            self.assertEqual(metric, "dM")
+            facts = [run_facts(normalize(_synthetic_run(c))) for c in self.cells
+                     if c.family == family]
+            index = index_facts(facts)
+            for f in facts:
+                b = base(f, index, None)
+                k = f["knobs"]
+                if k["group"] == "empty":
+                    self.assertIsNone(b, f["id"])
+                    continue
+                self.assertIsNotNone(b, f["id"])
+                self.assertEqual((b["marker"], b["column"]), (f["marker"], f["column"]))
+                self.assertIsNone(b["knobs"]["form"], f["id"])
+                self.assertEqual(b["knobs"]["x"], k["lead"] if k["form"] else [], f["id"])
+
+    def test_k_series(self):
+        from validation.v35s.chains.derive import k_series
+        cost = {"out-inc_aw-k1": {"pE-w0": 4}, "out-inc_aw-k2": {"pE-w0": 6},
+                "out-inc_aw-k4": {"pE-w0": 10}, "out-div_cw-ld-k1": {"pE-w0": 40},
+                "out-div_cw-ld-k2": {"pE-w0": 79}, "out-movcl-n4": {"pE-w0": 2}}
+        ks = k_series(cost)
+        self.assertEqual(ks["out-inc_aw"]["pE-w0"], ({1: 4, 2: 6, 4: 10}, 2, 2))
+        self.assertEqual(ks["out-div_cw-ld"]["pE-w0"], ({1: 40, 2: 79}, 39, 1))
+        self.assertNotIn("out-movcl-n4", ks)
+
+    def test_gen_check(self):
+        import contextlib
+        import io
+        from validation.v35s.chains.__main__ import main
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["gen", "--family", "F32", "F33", "--check"]), 0)
+        self.assertIn("checked 1908 images", out.getvalue())
 
 
 if __name__ == "__main__":

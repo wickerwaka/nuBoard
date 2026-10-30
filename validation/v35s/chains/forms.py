@@ -20,7 +20,16 @@ CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rm
            "dispose",
            # (WP66) F24 the string forms, one class per operation (block move, block compare,
            # store, load, compare with AW, port to memory, memory to port)
-           "str_move", "str_cmp", "str_store", "str_load", "str_scan", "str_in", "str_out")
+           "str_move", "str_cmp", "str_store", "str_load", "str_scan", "str_in", "str_out",
+           # (WP74) F32 the 0F page: the bit ops on a register, a memory test, a memory
+           # read-modify-write; the packed BCD strings (ADD4S / SUB4S, CMP4S); the digit
+           # rotates on a register and in memory; the bit fields (EXT reads DS0:IX, INS writes
+           # DS1:IY)
+           "bit1", "bit1_test", "bit1_rmw", "bcd4s", "bcd4s_cmp", "rot4", "rot4_mem",
+           "bf_ext", "bf_ins",
+           # (WP74) F33 the register miscellany: INC / DEC on a register, the adjusts, the
+           # conversions, the sign extensions, the flag forms, the immediate multiply
+           "incdec", "adjust", "convert", "extend", "flag", "mul_imm")
 # Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
 STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
                  "prepare", "dispose", "ret")
@@ -574,7 +583,8 @@ F25_STACK_FORMS = _register([
     Form("mov_ds1_m", "load_seg", bytes([0x8E, 0x07]), reads=1, **_BW_MEM),
     Form("mov_m_ds0", "store", bytes([0x8C, 0x1F]), writes=1, **_BW_MEM)])
 
-# Forms the simulator does not decode yet (test_sim skips them); (WP55) none since F23's.
+# Forms the simulator does not decode yet (test_sim skips them); (WP55) none since F23's;
+# (WP74) the F32 and F33 forms join it at the end of the catalog.
 UNMODELLED_FORMS = frozenset()
 
 # F26 and F27 (WP56: the probes of the ten rules pinned by one or two cells). Every other
@@ -710,3 +720,218 @@ F30_SEG_FORMS = _register(
        for s, r in F30_SREG.items() if s != "ds0"]
     + [Form("push_ss", "push_seg", bytes([0x16]), **_STACK_W),
        Form("pop_ss", "pop_seg", bytes([0x17]), **_STACK_R)])
+
+
+# F32 and F33 (WP74; HDL plan Phase E items 4 and 5): the 0F page and the register miscellany.
+# Generator-only: the simulator does not decode these forms (UNMODELLED_FORMS below;
+# families.UNMODELLED), so their runs are read as facts until it learns them. Every byte
+# string follows the V35 data book's encodings (the V20 manual's for the 0F page, which the
+# V35's eu-timing probes ran: 0F 10-1F, 20 / 22 / 26, 28 / 2A, 31 / 33 / 39 / 3B; the V35's own
+# 0F 25 MOVSPA and 0F 2D BRKCS sit between them and are not used). The fence leaves AW = 0,
+# CW = 001Fh (CL = 31) and the other registers at their presets.
+#
+# F32 the bit ops (TEST1 0F 10/11, CLR1 12/13, SET1 14/15, NOT1 16/17 with the bit index in CL,
+# +8 with an imm3 / imm4 byte after the operand): on AL / AW (ModR/M C0) and at [BW] (07, the
+# byte or word at 0800h), byte and word; CL = 31 is masked to bit 7 / bit 15, so the
+# immediate forms name the same bit (07h / 0Fh). TEST1 at [BW] reads, CLR1 / SET1 / NOT1 read
+# and write. SET1 [m],CL word in four more modes ([BW+10h], [BW+200h], [BW+IX] = 0900h with
+# the default IX, [0C00h]) for the mode sweep.
+F32_BIT_OPS = {"test1": 0x10, "clr1": 0x12, "set1": 0x14, "not1": 0x16}
+F32_BIT_IMM = {1: 0x07, 2: 0x0F}
+F32_WTAG = {1: "b", 2: "w"}
+F32_SET1_MODES = ("bw_d8", "bw_d16", "bw_ix", "dir")
+F32_BIT: dict[str, tuple] = {}      # name: (op, operand "r" | "m", width, index "cl" | "imm")
+
+
+def _f32_bit_forms() -> list:
+    forms = []
+    for op, base in F32_BIT_OPS.items():
+        for width in (1, 2):
+            for src in ("cl", "imm"):
+                second = base | (width - 1) | (8 if src == "imm" else 0)
+                tail = bytes([F32_BIT_IMM[width]]) if src == "imm" else b""
+                for operand in ("r", "m"):
+                    name = f"{op}_{operand}{F32_WTAG[width]}_{src}"
+                    F32_BIT[name] = (op, operand, width, src)
+                    if operand == "r":
+                        forms.append(Form(name, "bit1", bytes([0x0F, second, 0xC0]) + tail))
+                        continue
+                    counts = dict(reads=1) if op == "test1" else dict(reads=1, writes=1)
+                    forms.append(Form(name, "bit1_test" if op == "test1" else "bit1_rmw",
+                                      bytes([0x0F, second]) + modrm(MODE["bw"], 0) + tail,
+                                      width=width, mode="bw", mode_class="base",
+                                      ea=DEFAULT_REGS["BW"], **counts))
+    for m in F32_SET1_MODES:
+        mode = MODE[m]
+        name = f"set1_mw_cl_{m}"
+        F32_BIT[name] = ("set1", "m", 2, "cl")
+        forms.append(Form(name, "bit1_rmw", bytes([0x0F, 0x15]) + modrm(mode, 0), reads=1,
+                          writes=1, width=2, mode=m, mode_class=mode.mode_class, ea=mode.ea))
+    return forms
+
+
+F32_BIT_FORMS = _register(_f32_bit_forms())
+
+# F32 the packed BCD strings: ADD4S (0F 20) and SUB4S (0F 22) add / subtract the string at
+# DS0:IX into the one at DS1:IY, CMP4S (0F 26) compares them; CL digits, (CL + 1) / 2 bytes,
+# set in the frame by MOV CL,n (n = 2, 4, 8, 16). IX = F24_IX (0A40h) and IY = F24_IY (0C40h)
+# as presets, the bytes in the 90h fill (packed BCD 90). reads / writes count one byte pair
+# (the source byte, the destination byte, the result byte back; CMP4S writes nothing); the
+# normaliser walks the count (normalize._StringState.bcd). Silicon (V35 data check,
+# docs/v35s-eu-timing.md): the source byte before the destination byte.
+F32_BCD = {"add4s": 0x20, "sub4s": 0x22, "cmp4s": 0x26}
+F32_BCD_N = (2, 4, 8, 16)
+F32_MOV_CL = {2: "mov_cl2", 4: "mov_cl_imm", 8: "mov_cl8", 16: "mov_cl16"}   # B1 nn
+_F24_PRESETS = (("IX", 0x0A40), ("IY", 0x0C40))       # F24_IX / F24_IY (defined above)
+F32_BCD_FORMS = _register(
+    [Form(name, "bcd4s_cmp" if name == "cmp4s" else "bcd4s", bytes([0x0F, second]),
+          reads=2, writes=0 if name == "cmp4s" else 1, width=1, needs=_F24_PRESETS)
+     for name, second in F32_BCD.items()])
+
+# F32 the digit rotates: ROL4 (0F 28) and ROR4 (0F 2A) on DL (ModR/M C2: DL = 78h from DW's
+# preset) and on the byte at [BW] (07: a byte read and a byte write at 0800h).
+F32_ROT4_FORMS = _register(
+    [Form(f"{op}_dl", "rot4", bytes([0x0F, second, 0xC2]))
+     for op, second in (("rol4", 0x28), ("ror4", 0x2A))]
+    + [Form(f"{op}_m", "rot4_mem", bytes([0x0F, second]) + modrm(MODE["bw"], 0), reads=1,
+            writes=1, width=1, mode="bw", mode_class="base", ea=DEFAULT_REGS["BW"])
+       for op, second in (("rol4", 0x28), ("ror4", 0x2A))])
+
+# F32 the bit fields. EXT (0F 33 reg form, 0F 3B imm4) loads AW from the field at DS0:IX, INS
+# (0F 31, 0F 39) stores AW's low bits into the field at DS1:IY; the bit offset is the 8-bit
+# register in ModR/M bits 2:0, the width - 1 the register in bits 5:3 (reg form) or the imm4
+# byte (the data book: the low 4 bits of each); after the transfer the offset register holds
+# (offset + width + 1) & 15 and IX / IY steps by 2 when the sum passes 15. Silicon (WP74, the
+# first F32 acquisition, w0 / w1): an offset register with bits above bit 3 set (DL = 78h from
+# DW 5678h) is not reduced to its low 4 bits (the field crosses into the next word, INS writes
+# FFFFh there, the second instance crosses again), so every bit-field chain presets DW = 0608h:
+# the offsets BL = 0 (BW 0800h) and DL = 8, the widths DH = 6 (7 bits) and BH = 8 (9 bits), all
+# within 0-15. The cases (offset, width field): reg form (0, 6) and (8, 6) within one word (the
+# second instance of (8, 6) at offset 15 crosses), (8, 8) crossing, (8, 0) with the offset in BH
+# and the width in BL (the operand order's control: swapped, (0, 8) then (9, 8) crosses);
+# imm (0, 7) within, (8, 7) ending at the word boundary (one word, f-ext), (8, 11) crossing.
+# IX = 0A40h and IY = 0C40h as presets. reads / writes count the aligned single-word case;
+# the normaliser walks the offset, the crossing and the IX / IY step
+# (normalize._StringState.bitfield): EXT reads the word at IX (and IX + 2 when the field
+# crosses), INS reads and writes back the word at IY (then IY + 2 when it crosses).
+F32_BITFIELD: dict[str, tuple] = {}     # name: (op "ext" | "ins", offset reg, width reg | None, imm)
+F32_BITFIELD_DW = 0x0608
+_R8 = {"al": 0, "cl": 1, "dl": 2, "bl": 3, "ah": 4, "ch": 5, "dh": 6, "bh": 7}
+
+
+def _f32_bitfield_forms() -> list:
+    forms = []
+    for op, reg_op, imm_op in (("ext", 0x33, 0x3B), ("ins", 0x31, 0x39)):
+        presets = ((_F24_PRESETS[0] if op == "ext" else _F24_PRESETS[1]), ("DW", F32_BITFIELD_DW))
+        counts = (dict(reads=1, width=2, ea=0x0A40) if op == "ext"
+                  else dict(reads=1, writes=1, width=2, ea=0x0C40))
+        cls = f"bf_{op}"
+        for off, wid in (("bl", "dh"), ("dl", "dh"), ("dl", "bh"), ("bh", "bl")):
+            name = f"{op}_{off}_{wid}"
+            F32_BITFIELD[name] = (op, _R8[off], _R8[wid], None)
+            forms.append(Form(name, cls, bytes([0x0F, reg_op, 0xC0 | (_R8[wid] << 3) | _R8[off]]),
+                              needs=presets, **counts))
+        for off, imm in (("bl", 7), ("dl", 7), ("dl", 11)):
+            name = f"{op}_{off}_i{imm}"
+            F32_BITFIELD[name] = (op, _R8[off], None, imm)
+            forms.append(Form(name, cls, bytes([0x0F, imm_op, 0xC0 | _R8[off], imm]),
+                              needs=presets, **counts))
+    return forms
+
+
+F32_BITFIELD_FORMS = _register(_f32_bitfield_forms())
+
+# F32 four 0F forms behind the DS1 segment prefix (26h; DS1 = 0, so every address stays):
+# TEST1 [BW],CL word, SET1 [BW],7 byte, ROL4 [BW] and ADD4S (the prefix names ADD4S's source
+# segment).
+F32_PFX = {"pfx_test1_mw_cl": "test1_mw_cl", "pfx_set1_mb_imm": "set1_mb_imm",
+           "pfx_rol4_m": "rol4_m", "pfx_add4s": "add4s"}
+
+
+def _f32_pfx_forms() -> list:
+    out = []
+    for name, base in F32_PFX.items():
+        f = FORMS[base]
+        out.append(Form(name, f.cls, bytes([0x26]) + f.code, reads=f.reads, writes=f.writes,
+                        width=f.width, mode=f.mode, mode_class=f.mode_class, ea=f.ea,
+                        needs=f.needs))
+        if base in F32_BIT:
+            F32_BIT[name] = F32_BIT[base]
+    return out
+
+
+F32_PFX_FORMS = _register(_f32_pfx_forms())
+F32_BCD.update({"pfx_add4s": F32_BCD["add4s"]})
+F32_FORMS = F32_BIT_FORMS + F32_BCD_FORMS + F32_ROT4_FORMS + F32_BITFIELD_FORMS + F32_PFX_FORMS
+
+# F33 the register miscellany. INC r16 (40+r) and DEC r16 (48+r) for every register; INC / DEC
+# r8 (FE /0, FE /1) on AL (C0 / C8) and DH (C6 / CE); INC / DEC byte [BW] (FE 07 / FE 0F; the
+# word forms are F16's inc_m / dec_m); the adjusts ADJ4A (27), ADJ4S (2F), ADJBA (37), ADJBS
+# (3F); CVTBD (D4 0A), CVTDB (D5 0A); CVTBW (98, CBW) and CVTWL (99, CWD); MUL CW (F7 E9,
+# signed), DIV CW (F7 F9) and DIVU CW (F7 F1) beside F16's mul_m / div_m and F14's divu_m; the
+# immediate multiply MUL AW,r/m,imm16 (69 /0: 69 C1 34 12 with CW, 69 07 34 12 at [BW]) and
+# MUL AW,r/m,imm8 (6B C1 05, 6B 07 05); the flag forms CLR1 CY / SET1 CY / NOT1 CY (F8 / F9 /
+# F5: CLC STC CMC), DI / EI (FA / FB: CLI STI, no interrupt source is enabled), CLR1 DIR /
+# SET1 DIR (FC / FD: CLD STD, nothing after them steps IX / IY). The leads: MOV DW,0 (BA 00
+# 00, the dividend's high word), MOV AW,8080h (B8 80 80, CBW / CWD on a negative operand).
+_R16 = ("aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy")
+F33_FLAGS = {"clc": 0xF8, "stc": 0xF9, "cmc": 0xF5, "cli": 0xFA, "sti": 0xFB, "cld": 0xFC,
+             "std": 0xFD}
+F33_REG_FORMS = _register(
+    [Form(f"inc_{r}", "incdec", bytes([0x40 + i])) for i, r in enumerate(_R16)]
+    + [Form(f"dec_{r}", "incdec", bytes([0x48 + i])) for i, r in enumerate(_R16)]
+    + [Form(f"{op}_{r}", "incdec", bytes([0xFE, 0xC0 | (sub << 3) | _R8[r]]))
+       for r in ("al", "dh") for op, sub in (("inc", 0), ("dec", 1))]
+    + [Form(f"{op}b_m", "rmw", bytes([0xFE]) + modrm(MODE["bw"], sub), reads=1, writes=1,
+            width=1, mode="bw", mode_class="base", ea=DEFAULT_REGS["BW"])
+       for op, sub in (("inc", 0), ("dec", 1))]
+    + [Form(n, "adjust", bytes([op])) for n, op in (("adj4a", 0x27), ("adj4s", 0x2F),
+                                                     ("adjba", 0x37), ("adjbs", 0x3F))]
+    + [Form("cvtbd", "convert", bytes([0xD4, 0x0A])), Form("cvtdb", "convert", bytes([0xD5, 0x0A])),
+       Form("cvtbw", "extend", bytes([0x98])), Form("cvtwl", "extend", bytes([0x99]))]
+    + [Form("mul_cw", "mul", bytes([0xF7, 0xE9])), Form("div_cw", "div", bytes([0xF7, 0xF9])),
+       Form("divu_cw", "div", bytes([0xF7, 0xF1]))]
+    + [Form("mul_aw_cw_imm16", "mul_imm", bytes([0x69, 0xC1]) + IMM),
+       Form("mul_aw_m_imm16", "mul_imm", bytes([0x69, 0x07]) + IMM, reads=1, **_BW_MEM),
+       Form("mul_aw_cw_imm8", "mul_imm", bytes([0x6B, 0xC1, F15_IMM8])),
+       Form("mul_aw_m_imm8", "mul_imm", bytes([0x6B, 0x07, F15_IMM8]), reads=1, **_BW_MEM)]
+    + [Form(n, "flag", bytes([op])) for n, op in F33_FLAGS.items()]
+    + [Form("mov_dw_imm0", "imm", bytes([0xBA, 0x00, 0x00])),
+       Form("mov_aw_8080", "imm", bytes([0xB8, 0x80, 0x80]))])
+
+# F33 REPC (65) and REPNC (64) before CMPM / CMPBK word: repeat while CW != 0, decrementing CW
+# per element, REPC stopping after an element that leaves CY = 0, REPNC after one that leaves
+# CY = 1 (the data book: the comparison's carry). CMPM is AW - [DS1:IY], CMPBK [DS0:IX] -
+# [DS1:IY] (read IY first, as F24's CMPBK). On the fill: CMPM 0 - 9090h borrows (CY = 1: REPC
+# runs CW out, REPNC stops after element 1); CMPBK fill - fill does not (CY = 0: REPC stops
+# after element 1, REPNC runs out). The patterns: F24's MOV word [0C42h],0 (the destination
+# word at IY + 2: CMPM's element 2 is 0 - 0, CY = 0, REPC stops there) and MOV word
+# [0A42h],0 (the source word at IX + 2: CMPBK's element 2 is 0 - 9090h, CY = 1, REPNC stops
+# there), both before the first LS. Kept out of STRING_FORMS (the simulator's string table,
+# F24's 32 forms); the normaliser walks them as string forms (UNMODELLED_STRING_FORMS).
+F33_REP_PREFIX = {"repc": 0x65, "repnc": 0x64}
+UNMODELLED_STRING_FORMS: dict[str, StringOp] = {}
+
+
+def _f33_rep_forms() -> list:
+    forms = []
+    for rep, prefix in F33_REP_PREFIX.items():
+        for op in ("cmpm", "cmpbk"):
+            opcode, cls, steps = F24_OPS[op]
+            name = f24_form_name(op, 2, rep)
+            reads = sum(1 for kind, _ in steps if kind == "data_read")
+            forms.append(Form(name, cls, bytes([prefix, opcode | 1]), reads=reads, width=2,
+                              needs=_F24_PRESETS))
+            UNMODELLED_STRING_FORMS[name] = StringOp(op, 2, rep, steps)
+    return forms
+
+
+F33_REP_FORMS = _register(_f33_rep_forms())
+F33_PATTERN_SRC = 0x0A42            # the source word at IX + 2
+F33_PATTERN_STORE = _register(
+    [Form("st_imm0_dir_a42", "store_imm", bytes([0xC7, 0x06]) + F33_PATTERN_SRC.to_bytes(2, "little")
+          + bytes(2), writes=1, width=2, mode="dir", mode_class="direct", ea=F33_PATTERN_SRC)])[0]
+F33_FORMS = F33_REG_FORMS + F33_REP_FORMS + (F33_PATTERN_STORE,)
+
+# (WP74) the F32 and F33 forms are generator-only (the simulator has no template for them)
+UNMODELLED_FORMS = UNMODELLED_FORMS | frozenset(F32_FORMS + F33_FORMS)

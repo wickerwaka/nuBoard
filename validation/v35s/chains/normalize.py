@@ -38,8 +38,16 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .blocks import MARKER_PORT_BASE
-from .forms import (DEFAULT_REGS, DIRECT, F24_COMPARES, FORMS, IO_PORT, STACK_CLASSES,
-                    STRING_FORMS)
+from .forms import (DEFAULT_REGS, DIRECT, F24_COMPARES, F32_BCD, F32_BITFIELD, F33_FLAGS, FORMS,
+                    IO_PORT, STACK_CLASSES, STRING_FORMS, UNMODELLED_STRING_FORMS)
+
+# (WP74) every string form the walk expands: F24's (the simulator's) and F33's REPC / REPNC
+WALK_STRING_FORMS = {**STRING_FORMS, **UNMODELLED_STRING_FORMS}
+# (WP74) forms the walk (_StringState) expands itself: the string forms, F32's BCD strings and
+# bit fields (their addresses and counts come from the walked registers)
+WALK_FORMS = frozenset(WALK_STRING_FORMS) | frozenset(F32_BCD) | frozenset(F32_BITFIELD)
+# (WP74) forms that change none of the walked registers or memory: the flag forms
+WALK_NEUTRAL = frozenset(F33_FLAGS) | {"nop"}
 from .types import CODE_BASE, TICKS_PER_CLOCK, Chain, refresh_any
 
 FLAG_READ = 1 << 0
@@ -227,14 +235,20 @@ class _StringState:
     expected accesses are never a guess. Effects of the other instructions: the fence (MOV
     CL,n ; SHL AW,CL) sets CL and shifts AW; MOV r16,imm16 (B8 AW, B9 CW, BA DW, BE IX, BF IY)
     loads; the drainers load AW / DW or add to DW; NOP and the markers change nothing; every
-    other form makes all five registers unknown (only F24 chains walk this)."""
+    other form makes all five registers unknown (only F24 chains walk this).
+
+    (WP74) Also BW (BL, F32's bit-field offset register), MOV r8,imm8 (B0-B7: F32's MOV CL,n),
+    the flag forms (WALK_NEUTRAL: no register or memory changes, F33's STC / CLC before MOV
+    CW,n), F33's REPC / REPNC compares (string, by the carry) and F32's BCD strings (bcd) and
+    bit fields (bitfield), which read the walked CL, IX, IY and the 8-bit offset / width
+    registers."""
 
     LOADS = {0xB8: "AW", 0xB9: "CW", 0xBA: "DW", 0xBE: "IX", 0xBF: "IY"}
 
     def __init__(self, chain: Chain):
         regs = {**DEFAULT_REGS, **chain.regs}
         self.id = chain.id
-        self.r = {n: regs[n] for n in ("AW", "CW", "DW", "IX", "IY", "DS0", "DS1")}
+        self.r = {n: regs[n] for n in ("AW", "CW", "DW", "BW", "IX", "IY", "DS0", "DS1")}
         self.mem: dict[int, int | None] = {}
 
     def byte(self, addr):
@@ -256,9 +270,27 @@ class _StringState:
             raise NormalizeError(f"{self.id}: {what} needs {name}, which is unknown here")
         return v
 
+    R8 = ("AW", "CW", "DW", "BW")         # AL CL DL BL (index 0-3), AH CH DH BH (4-7)
+
+    def r8(self, i, what):
+        v = self.need(self.R8[i & 3], what)
+        return (v >> 8) & 0xFF if i & 4 else v & 0xFF
+
+    def set_r8(self, i, value):
+        name = self.R8[i & 3]
+        v = self.r[name]
+        if v is None:
+            return
+        self.r[name] = ((v & 0x00FF) | (value << 8)) if i & 4 else ((v & 0xFF00) | value)
+
     def step(self, instr, acc):
         """Apply a non-string instruction (its expected accesses acc already computed)."""
         code, r = instr.code, self.r
+        if instr.role == "x" and instr.form in WALK_NEUTRAL:
+            return
+        if instr.role == "x" and len(code) == 2 and 0xB0 <= code[0] <= 0xB7:
+            self.set_r8(code[0] & 7, code[1])            # (WP74) MOV r8,imm8
+            return
         if instr.role == "ls":
             cl = code[1]
             r["CW"] = None if r["CW"] is None else (r["CW"] & 0xFF00) | cl
@@ -273,7 +305,7 @@ class _StringState:
         elif instr.role == "x" and instr.form != "nop":
             form = FORMS[instr.form]
             if form.cls != "store_imm":
-                for name in ("AW", "CW", "DW", "IX", "IY"):
+                for name in ("AW", "CW", "DW", "BW", "IX", "IY"):
                     r[name] = None
             value = (int.from_bytes(code[-form.width:], "little")
                      if form.cls == "store_imm" else None)
@@ -290,7 +322,7 @@ class _StringState:
     def string(self, form_name) -> "StringRun":
         """One string form's accesses: the elements it runs, [[Access, ...], ...], and for a
         REP compare that ran at least one element the overrun read after the last one."""
-        s = STRING_FORMS[form_name]
+        s = WALK_STRING_FORMS[form_name]
         r, w = self.r, s.width
         what = f"{form_name} at"
         count = self.need("CW", what) if s.rep else 1
@@ -318,7 +350,7 @@ class _StringState:
                 v = self.read(lin_ix, w)
                 r["AW"] = (None if v is None or (w == 1 and r["AW"] is None)
                            else v if w == 2 else (r["AW"] & 0xFF00) | v)
-            equal = None
+            equal = carry = None
             if s.op in ("cmpbk", "cmpm"):
                 a = (self.read(lin_ix, w) if s.op == "cmpbk"
                      else None if r["AW"] is None else r["AW"] & mask)
@@ -327,6 +359,7 @@ class _StringState:
                     raise NormalizeError(f"{self.id}: {form_name} compares an unknown value "
                                          f"(element {len(elements)})")
                 equal = a == b
+                carry = None if a is None or b is None else a < b      # (WP74) a - b borrows
             if ix is not None:
                 r["IX"] = (ix + w) & 0xFFFF
             if iy is not None:
@@ -335,7 +368,8 @@ class _StringState:
                 break
             count = (count - 1) & 0xFFFF
             r["CW"] = count
-            if (s.rep == "repe" and not equal) or (s.rep == "repne" and equal):
+            if ((s.rep == "repe" and not equal) or (s.rep == "repne" and equal)
+                    or (s.rep == "repc" and not carry) or (s.rep == "repnc" and carry)):
                 cond = True
                 break
         overrun = []
@@ -349,6 +383,56 @@ class _StringState:
                 seg = self.need("DS0" if place == "ix" else "DS1", what)
                 overrun += _cycles(kind, ((seg << 4) + off) & 0xFFFFF, w)
         return StringRun(elements, overrun, cond)
+
+    def bcd(self, form_name) -> list:
+        """(WP74, F32) ADD4S / SUB4S / CMP4S: (CL + 1) / 2 byte pairs, each the source byte at
+        DS0:IX + i (DS1 behind the 26h prefix), the destination byte at DS1:IY + i, then (not
+        CMP4S) the result byte back at DS1:IY + i; IX, IY and CL unchanged."""
+        code = FORMS[form_name].code
+        what = f"{form_name} at"
+        cl = self.r8(1, what)
+        src_seg = self.need("DS1" if code[0] == 0x26 else "DS0", what)
+        ix, iy, ds1 = self.need("IX", what), self.need("IY", what), self.need("DS1", what)
+        acc = []
+        for i in range((cl + 1) // 2):
+            src = ((src_seg << 4) + ((ix + i) & 0xFFFF)) & 0xFFFFF
+            dst = ((ds1 << 4) + ((iy + i) & 0xFFFF)) & 0xFFFFF
+            acc += _cycles("data_read", src, 1) + _cycles("data_read", dst, 1)
+            if F32_BCD[form_name] != 0x26:
+                acc += _cycles("data_write", dst, 1)
+                self.write(dst, 1, None)
+        return acc
+
+    def bitfield(self, form_name) -> list:
+        """(WP74, F32) EXT / INS: the offset (the offset register's low 4 bits) and the width
+        field (the width register's or the imm4's) give the field; it crosses into the next
+        word when offset + width >= 16. EXT reads the word at DS0:IX (and IX + 2 when it
+        crosses), loads AW (unknown here) and then the offset register; INS reads the word at
+        DS1:IY and writes it back, then (when the field crosses) the word at IY + 2 (silicon,
+        F32: read, write, read, write). Afterwards the offset register holds
+        (offset + width + 1) & 15 and IX / IY steps by 2 when offset + width + 1 >= 16."""
+        op, off_reg, wid_reg, imm = F32_BITFIELD[form_name]
+        what = f"{form_name} at"
+        width = (imm if imm is not None else self.r8(wid_reg, what)) & 15
+        offset = self.r8(off_reg, what) & 15
+        cross = offset + width >= 16
+        place = "IX" if op == "ext" else "IY"
+        off = self.need(place, what)
+        seg = self.need("DS0" if op == "ext" else "DS1", what)
+        words = [((seg << 4) + ((off + 2 * j) & 0xFFFF)) & 0xFFFFF for j in range(1 + cross)]
+        acc = []
+        for w in words:
+            acc += _cycles("data_read", w, 2)
+            if op == "ins":
+                acc += _cycles("data_write", w, 2)
+                self.write(w, 2, None)
+        if op == "ext":
+            self.r["AW"] = None             # the field (not tracked; AL / AH offsets go unknown)
+        new = offset + width + 1
+        self.set_r8(off_reg, new & 15)
+        if new >= 16:
+            self.r[place] = (off + 2) & 0xFFFF
+        return acc
 
 
 @dataclass(frozen=True)
@@ -387,7 +471,7 @@ def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, l
     the destination [IY] before the source [IX]; a REP compare that ran an element reads
     one element more (the overrun, F24 silicon). `elements`, when given, receives
     {instr index: StringRun} for the string forms."""
-    strings = (_StringState(chain) if any(i.role == "x" and i.form in STRING_FORMS
+    strings = (_StringState(chain) if any(i.role == "x" and i.form in WALK_FORMS
                                           for i in chain.instrs) else None)
     sp = chain.regs.get("SP", DEFAULT_REGS["SP"])
     if getattr(chain, "prelude_marker", None) == "push":
@@ -419,11 +503,15 @@ def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, l
                 raise NormalizeError(f"unknown marker kind {kind!r}")
         elif instr.role == "end":
             acc.append(Access("io_write", END_PORT, "word"))
-        elif instr.role == "x" and strings is not None and instr.form in STRING_FORMS:
+        elif instr.role == "x" and strings is not None and instr.form in WALK_STRING_FORMS:
             run = strings.string(instr.form)
             if elements is not None:
                 elements[k] = run
             acc = [a for element in run.elements for a in element] + run.overrun
+        elif instr.role == "x" and strings is not None and instr.form in F32_BCD:
+            acc = strings.bcd(instr.form)
+        elif instr.role == "x" and strings is not None and instr.form in F32_BITFIELD:
+            acc = strings.bitfield(instr.form)
         elif instr.role == "x":
             form = FORMS[instr.form]
             cls = form.cls
@@ -456,7 +544,7 @@ def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, l
                     acc += _cycles("data_read", ea, form.width)
                 for _ in range(form.writes):
                     acc += _cycles("data_write", ea, form.width)
-        if strings is not None and not (instr.role == "x" and instr.form in STRING_FORMS):
+        if strings is not None and not (instr.role == "x" and instr.form in WALK_FORMS):
             strings.step(instr, acc)
         out[k] = acc
     return out

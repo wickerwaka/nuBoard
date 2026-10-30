@@ -515,9 +515,17 @@ then the RTL. In the order the generator gains them:
    item is built: it needs element-indexed addresses from IX/IY/DW, the
    walk's count in the vector format, and the fetch hold after a compared
    element.
-4. The 0F page: a second opcode byte in the decoder.
+4. The 0F page: a second opcode byte in the decoder. Acquired 2026-10-30
+   (F32, WP74, 858 runs, generator-only; docs/v35s-chains.md "The 0F page
+   and the register miscellany"): the bit ops are register, load_alu and
+   rmw shapes, the BCD strings and the bit fields need new templates, and
+   silicon does not reduce the bit-field offset and width registers to 4
+   bits.
 5. The register miscellany (INC and DEC r16, flags, adjusts, CVTBD and
-   CVTDB, signed multiply and divide, IMUL with an immediate).
+   CVTDB, signed multiply and divide, IMUL with an immediate). Acquired
+   2026-10-30 (F33, WP74, 1,050 runs, generator-only, with REPC/REPNC): the
+   one-byte forms cost 3 clocks per instance, the compares' carry exits equal
+   F24's Z exits, so REPC/REPNC are a flag choice in the string template.
 6. Interrupts, the register banks and the V35 instructions: the core
    plan's Phases 5 and 6, each measured before coded.
 

@@ -396,6 +396,31 @@ BASELINES.update({"F24": ("dM", _f24_baseline)})
 BASELINES.update({"F30": ("dM", _empty_baseline)})
 # (WP73) F31 (OUT marker only): the empty frame of the same column
 BASELINES.update({"F31": ("dM", _empty_baseline)})
+# (WP74) F32 / F33: the chain the knob `baseline` names (the empty frame or X's lead alone:
+# MOV CL,n, the multiply / divide lead, STC / CLC ; MOV CW,n), same marker and column
+BASELINES.update({"F32": ("dM", _f24_baseline), "F33": ("dM", _f24_baseline)})
+
+
+def k_series(cost: dict) -> dict:
+    """(WP74) {stem: {column: (costs by k, slope, intercept)}} for every variant stem with a
+    -k1 and a -k2 cell (the stem the variant less -k<k>): slope cost(k2) - cost(k1),
+    intercept cost(k1) - slope; costs by k as {k: cost} (k4 too where it exists)."""
+    import re
+    stems: dict = defaultdict(dict)
+    for variant, cols in cost.items():
+        m = re.match(r"^(.*)-k(\d+)(-.*)?$", variant)
+        if not m:
+            continue
+        stem = m.group(1) + (m.group(3) or "")
+        for column, c in cols.items():
+            stems[stem].setdefault(column, {})[int(m.group(2))] = c
+    out: dict = defaultdict(dict)
+    for stem, cols in stems.items():
+        for column, by_k in cols.items():
+            if 1 in by_k and 2 in by_k:
+                slope = by_k[2] - by_k[1]
+                out[stem][column] = (dict(sorted(by_k.items())), slope, by_k[1] - slope)
+    return dict(out)
 
 
 def f24_apply(facts, normalized):
@@ -531,8 +556,10 @@ def family_facts(family: str, waits=(0, 1, 2), files=None, extra=None) -> dict:
         f17_apply(facts, out["normalized"])
     if family == "F18":
         f18_apply(facts, out["normalized"])
-    if family == "F24":
-        f24_apply(facts, out["normalized"])
+    if family in ("F24", "F33"):
+        f24_apply(facts, out["normalized"])       # (WP74) F33's REPC / REPNC elements
+    if family in ("F32", "F33"):
+        out["k_series"] = k_series(out["cost"])
     out["metric"] = metric
     out["odd_minus_even"] = odd_minus_even(rows, metric)
     out["k_differences"] = k_differences(rows, "cost" if "cost" in out else metric)
