@@ -2336,3 +2336,206 @@ def f33(waits=WAITS, parities=PARITIES):
 
 FAMILIES.update({"F33": f33})
 # (WP74) F32 and F33 were generator-only (facts, no model); (WP78) modelled: UNMODELLED stays ()
+
+
+# F34 (WP80: probes for the forty-second fit's miss shapes, designed as F30 was: per shape one
+# probe that varies one thing against a control), refresh off (RFM ECh), every wait and parity,
+# the OUT marker with a PUSH subset; ids F34-<out|push>-<probe>-<label>-p<E|O>-w<N>. The frame is
+# PAD LS M0 <lead> X^k <follow> M1 LS END; the leads (forms between M0 and X, shared by every
+# probe): l0 none, nop / nop2 / nop3 one to three NOPs (X a byte later per NOP, a fetch in
+# flight at X's start), d / d2 / d3 one to three MOV AW,1234h (B8 34 12, the F6 drainer: the
+# queue drained by 3 bytes each), sep SHL AW,8 (C1 E0 08: a long EU form that lets the queue
+# fill before X), cl MOV CL,4 (B1 04: CL written just before a CL-index form). The controls in
+# every probe: the empty frame and each lead alone (probe lead, ids <marker>-lead-<lead>), the
+# baseline (knob baseline) of every chain whose X has that lead. Every byte string is one the
+# earlier families already run (forms.F34_FORMS adds CMP AW,DW, a reg form as CMP AW,AW).
+# bf (the bit fields' +-1: at pE the model's word read before silicon's back-to-back refill
+#   fetch, at pO the imm forms' late successor opcode). EXT BL,DH (0F 33, offset 0, width 6,
+#   within a word), EXT DL,BH (offset 8, width 8, crossing), EXT BL,7 (0F 3B, within), EXT
+#   DL,11 (crossing), and the same four INS (0F 31 / 0F 39); DW = 0608h, IX 0A40h, IY 0C40h
+#   (the F32 presets): behind every lead l0, nop, nop2, d, sep at k = 1, and k = 2 behind a NOP;
+#   for the within-word forms also followed by a NOP (fnop), MOV AW,DW (freg) or MOV AW,[0C00h]
+#   (fld: the direct load, as the bit field leaves BL, the offset register, at 7 or 8, so [BW]
+#   would read 0807h or 0808h). Ids <marker>-bf-<form>-<lead>-k<k>[-f<follow>].
+# rbit (the register bit ops: the CL index at pO, silicon's back-to-back fetch the room rule
+#   does not raise; the k = 2 second-instance offsets). SET1 AL,CL / AW,CL / AL,7 / AW,15 behind
+#   l0, nop, nop2, d, sep at k = 1; k = 2 behind l0 and nop; the pair with a NOP between (gap);
+#   the CL forms behind MOV CL,4 (cl); TEST1 AW,CL behind l0 and sep and at k = 2 (the op
+#   control). Ids <marker>-rbit-<form>-<lead>-k<k>[-gap].
+# mbit (the memory bit ops' parity- and wait-dependent misses). TEST1 / SET1 / CLR1 [BW],CL
+#   word, SET1 / CLR1 [BW],15 word: behind l0, nop, nop2, d, sep at k = 1, k = 2 and the pair with
+#   a NOP between; SET1 [m],CL word in [BW+10h], [BW+200h], [BW+IX], [0C00h] behind l0, nop, d
+#   (the mode against the lead); SET1 [BW],CL byte behind l0 and nop (the width control).
+# inc (INC / DEC r16 and the flag forms: -1 on the first fetch after the OUT at pE, -4 at
+#   k = 2). OUT ; INC AW^k ; NOP^n for k = 1..4, n = 0..2; behind a NOP for k = 1..4 (n = 0);
+#   CLC^k ; NOP^n for k = 1, 2, n = 0, 1. The NOP trains (lead nop..nop3) are the controls.
+#   Ids <marker>-inc-<form>-<lead>-k<k>-n<n>.
+# mul (MUL imm memory at pE: silicon fetches near the end). MUL AW,[BW],5 (6B 07 05) and MUL
+#   AW,[BW],1234h (69 07 34 12) behind l0, nop, nop2, d, sep at k = 1 and k = 2 behind l0, nop;
+#   the register form MUL AW,CW,5 behind l0 (the control without a read).
+# nt (BNE / DBNZ not taken, and BE). CMP AW,AW ; BNE +0 (bne), MOV CW,1 ; DBNZ +0 (dbnz), CMP
+#   AW,DW ; BE +0 (be, not taken: Z = 0), and the twin CMP AW,AW ; MOV AW,DW (twin: the same
+#   lengths, no branch) behind l0, the drainers d, d2, d3 (the queue at known fill levels) and
+#   the NOP trains nop, nop2, nop3 (a fetch in flight at the start); BE also twice (k = 2).
+#   Ids <marker>-nt-<branch>-<lead>-k<k>.
+# cr (the RET's refill from a full queue: F30 cr shl8 -1 at every cell). CALL +2 ; BR +(f+1) ;
+#   <filler of f bytes> ; RET behind l0 or a NOP (the RET's target, the BR after the CALL, at
+#   chain offset 3 or 4: both target parities in each chain parity), the filler none, NOP,
+#   SHL AW,8, SHL AW,8 ; NOP, NOP ; SHL AW,8, SHL AW,4 (the RET's own address and the queue's
+#   fill at its start varied against the target's). Ids <marker>-cr-<filler>-<lead>.
+# PUSH subset: the empty frame, lead nop; bf EXT BL,DH and EXT BL,7 behind l0 / nop; rbit SET1
+#   AW,CL and AW,15 behind l0 / nop; mbit TEST1 and SET1 [BW],CL behind l0 / nop; inc INC AW
+#   k = 1, 2 and behind a NOP; mul MUL AW,[BW],5 behind l0 / nop and AW,[BW],1234h behind l0;
+#   nt bne, dbnz, be behind l0 / nop and the twin behind l0; cr none, nop, shl8, shl8nop behind
+#   l0 / nop.
+# Knobs: probe, series (= probe), marker, form (the probed X, None for a control), x (every X
+#   form in chain order), k, lead and follow (form lists), lead_name, follow_name, baseline (the
+#   x_variant of the lead alone, or empty), exec (X indices in execution order), skipped, rfm,
+#   refresh_on, and per probe op / operand / width / index / mode (bit ops), op / cross / imm
+#   (bit fields), n (NOPs after INC), branch (nt), filler / target (cr: the RET target's chain
+#   offset).
+F34_RFM = RFM_OFF
+F34_LEADS = {"l0": [], "nop": ["nop"], "nop2": ["nop"] * 2, "nop3": ["nop"] * 3,
+             "d": ["mov_aw_imm"], "d2": ["mov_aw_imm"] * 2,
+             "d3": ["mov_aw_imm"] * 3, "sep": ["shl_imm8"], "cl": ["mov_cl_imm"]}
+F34_STD_LEADS = ("l0", "nop", "nop2", "d", "sep")
+F34_FOLLOW = {"nop": ["nop"], "reg": ["mov_aw_dw"], "ld": ["ld_dir"]}
+F34_BF = ("ext_bl_dh", "ext_dl_bh", "ext_bl_i7", "ext_dl_i11",
+          "ins_bl_dh", "ins_dl_bh", "ins_bl_i7", "ins_dl_i11")
+F34_BF_FOLLOW = ("ext_bl_dh", "ext_bl_i7", "ins_bl_dh", "ins_bl_i7")
+F34_RBIT = ("set1_rb_cl", "set1_rw_cl", "set1_rb_imm", "set1_rw_imm")
+F34_MBIT = ("test1_mw_cl", "set1_mw_cl", "clr1_mw_cl", "set1_mw_imm", "clr1_mw_imm")
+F34_MBIT_MODES = ("bw_d8", "bw_d16", "bw_ix", "dir")
+F34_MUL = ("mul_aw_m_imm8", "mul_aw_m_imm16")
+F34_NT = {"bne": ["cmp_aw_aw", "bne_n0"], "dbnz": ["mov_cw_imm1", "dbnz_n0"],
+          "be": ["cmp_aw_dw", "be_n0"], "twin": ["cmp_aw_aw", "mov_aw_dw"]}
+F34_NT_LEADS = ("l0", "d", "d2", "d3", "nop", "nop2", "nop3")
+F34_CR_FILL = {"none": [], "nop": ["nop"], "shl8": ["shl_imm8"], "shl8nop": ["shl_imm8", "nop"],
+               "nopshl8": ["nop", "shl_imm8"], "shl4": ["shl_imm4"]}
+F34_PUSH = {"lead-nop", "bf-ext_bl_dh-l0-k1", "bf-ext_bl_dh-nop-k1", "bf-ext_bl_i7-l0-k1",
+            "bf-ext_bl_i7-nop-k1", "rbit-set1_rw_cl-l0-k1", "rbit-set1_rw_cl-nop-k1",
+            "rbit-set1_rw_imm-l0-k1", "rbit-set1_rw_imm-nop-k1", "mbit-test1_mw_cl-l0-k1",
+            "mbit-test1_mw_cl-nop-k1", "mbit-set1_mw_cl-l0-k1", "mbit-set1_mw_cl-nop-k1",
+            "inc-inc_aw-l0-k1-n0", "inc-inc_aw-l0-k2-n0", "inc-inc_aw-nop-k1-n0",
+            "mul-mul_aw_m_imm8-l0-k1", "mul-mul_aw_m_imm8-nop-k1", "mul-mul_aw_m_imm16-l0-k1",
+            "nt-bne-l0-k1", "nt-bne-nop-k1", "nt-dbnz-l0-k1", "nt-dbnz-nop-k1", "nt-be-l0-k1",
+            "nt-be-nop-k1", "nt-twin-l0-k1", "cr-none-l0", "cr-none-nop", "cr-nop-l0",
+            "cr-nop-nop", "cr-shl8-l0", "cr-shl8-nop", "cr-shl8nop-l0", "cr-shl8nop-nop"}
+
+
+def _f34_specs():
+    """[(label, knobs-without-marker, x names)] for the OUT frame, in family order."""
+    from .forms import F32_BIT, F32_BITFIELD
+    specs = []
+
+    def add(probe, label, lead, xs_, k=1, form=None, follow=(), exec_=None, skipped=0, **extra):
+        lead_names, follow_names = F34_LEADS[lead], list(follow)
+        names = lead_names + list(xs_) + follow_names
+        knobs = {"probe": probe, "series": probe, "form": form, "x": names, "k": k,
+                 "lead": list(lead_names), "follow": follow_names, "lead_name": lead,
+                 "baseline": None if probe in ("empty", "lead") else
+                 ("empty" if lead == "l0" else f"lead-{lead}"),
+                 "exec": list(exec_ if exec_ is not None else range(len(names))),
+                 "skipped": skipped, "rfm": F34_RFM, "refresh_on": False, **extra}
+        specs.append((label if probe == "empty" else f"{probe}-{label}", knobs, names))
+
+    add("empty", "empty", "l0", [], k=0)
+    for lead in ("nop", "nop2", "nop3", "d", "d2", "d3", "sep", "cl"):
+        add("lead", lead, lead, [], k=0)
+    # bf
+    for form in F34_BF:
+        op, off, wid, imm = F32_BITFIELD[form]
+        bf = dict(op=op, imm=imm is not None, follow_name=None)
+        cells = [(lead, 1, None) for lead in F34_STD_LEADS] + [("nop", 2, None)]
+        if form in F34_BF_FOLLOW:
+            cells += [("l0", 1, f) for f in F34_FOLLOW]
+        for lead, k, f in cells:
+            add("bf", f"{form}-{lead}-k{k}" + (f"-f{f}" if f else ""), lead, [form] * k, k=k,
+                form=form, follow=F34_FOLLOW[f] if f else (), **{**bf, "follow_name": f})
+    # rbit
+    for form in F34_RBIT + ("test1_rw_cl",):
+        op, operand, width, index = F32_BIT[form]
+        bit = dict(op=op, operand=operand, width=width, index=index)
+        if form == "test1_rw_cl":
+            cells = [("l0", 1, False), ("sep", 1, False), ("l0", 2, False)]
+        else:
+            cells = ([(lead, 1, False) for lead in F34_STD_LEADS]
+                     + [("l0", 2, False), ("nop", 2, False), ("l0", 2, True)]
+                     + ([("cl", 1, False)] if index == "cl" else []))
+        for lead, k, gap in cells:
+            xs_ = [form, "nop", form] if gap else [form] * k
+            add("rbit", f"{form}-{lead}-k{k}" + ("-gap" if gap else ""), lead, xs_, k=k,
+                form=form, gap=gap, **bit)
+    # mbit
+    for form in F34_MBIT:
+        op, operand, width, index = F32_BIT[form]
+        bit = dict(op=op, operand=operand, width=width, index=index, mode="bw")
+        cells = ([(lead, 1, False) for lead in F34_STD_LEADS]
+                 + [("l0", 2, False), ("l0", 2, True)])
+        for lead, k, gap in cells:
+            xs_ = [form, "nop", form] if gap else [form] * k
+            add("mbit", f"{form}-{lead}-k{k}" + ("-gap" if gap else ""), lead, xs_, k=k,
+                form=form, gap=gap, **bit)
+    for m in F34_MBIT_MODES:
+        form = f"set1_mw_cl_{m}"
+        for lead in ("l0", "nop", "d"):
+            add("mbit", f"{form}-{lead}-k1", lead, [form], form=form, gap=False, op="set1",
+                operand="m", width=2, index="cl", mode=m)
+    for lead in ("l0", "nop"):
+        add("mbit", f"set1_mb_cl-{lead}-k1", lead, ["set1_mb_cl"], form="set1_mb_cl", gap=False,
+            op="set1", operand="m", width=1, index="cl", mode="bw")
+    # inc
+    cells = ([("inc_aw", "l0", k, n) for k in (1, 2, 3, 4) for n in (0, 1, 2)]
+             + [("inc_aw", "nop", k, 0) for k in (1, 2, 3, 4)]
+             + [("clc", "l0", k, n) for k in (1, 2) for n in (0, 1)])
+    for form, lead, k, n in cells:
+        add("inc", f"{form}-{lead}-k{k}-n{n}", lead, [form] * k, k=k, form=form,
+            follow=["nop"] * n, n=n)
+    # mul
+    for form in F34_MUL:
+        for lead, k in [(lead, 1) for lead in F34_STD_LEADS] + [("l0", 2), ("nop", 2)]:
+            add("mul", f"{form}-{lead}-k{k}", lead, [form] * k, k=k, form=form, operand="m")
+    add("mul", "mul_aw_cw_imm8-l0-k1", "l0", ["mul_aw_cw_imm8"], form="mul_aw_cw_imm8",
+        operand="r")
+    # nt
+    for branch, pair in F34_NT.items():
+        cells = [(lead, 1) for lead in F34_NT_LEADS]
+        if branch == "be":
+            cells.append(("l0", 2))
+        for lead, k in cells:
+            add("nt", f"{branch}-{lead}-k{k}", lead, pair * k, k=k, form=pair[1], branch=branch)
+    # cr
+    for filler, fill in F34_CR_FILL.items():
+        nbytes = sum(len(FORMS[f].code) for f in fill)
+        for lead in ("l0", "nop"):
+            lead_n = len(F34_LEADS[lead])
+            body = ["call_n2", f"br_n{nbytes + 1}"] + fill + ["ret"]
+            first = lead_n
+            exec_ = (list(range(lead_n)) + [first] + list(range(first + 2, first + 3 + len(fill)))
+                     + [first + 1])
+            add("cr", f"{filler}-{lead}", lead, body, form="ret", exec_=exec_, filler=filler,
+                target=lead_n + 3)
+    return specs
+
+
+def f34(waits=WAITS, parities=PARITIES):
+    """The forty-second fit's miss shapes' probes bf, rbit, mbit, inc, mul, nt, cr (see the
+    comment above)."""
+    specs = _f34_specs()
+    labels = {label for label, _, _ in specs}
+    missing = F34_PUSH - labels
+    if missing:
+        raise AssertionError(f"F34: PUSH labels without an OUT twin: {sorted(missing)}")
+    chains = []
+    for kind in ("out", "push"):
+        variants = []
+        for label, knobs, names in specs:
+            if kind == "push" and label not in F34_PUSH and label != "empty":
+                continue
+            body = [LS(), M(0, kind)] + xs(names) + [M(1, kind), LS(), END()]
+            variants.append((f"{kind}-{label}", {**knobs, "marker": kind}, body, {}))
+        chains += _sweep("F34", variants, waits, parities, marker_kind=kind, rfm=F34_RFM)
+    return chains
+
+
+FAMILIES.update({"F34": f34})

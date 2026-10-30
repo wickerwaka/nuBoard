@@ -399,6 +399,9 @@ BASELINES.update({"F31": ("dM", _empty_baseline)})
 # (WP74) F32 / F33: the chain the knob `baseline` names (the empty frame or X's lead alone:
 # MOV CL,n, the multiply / divide lead, STC / CLC ; MOV CW,n), same marker and column
 BASELINES.update({"F32": ("dM", _f24_baseline), "F33": ("dM", _f24_baseline)})
+# (WP80) F34: the chain the knob `baseline` names (the empty frame or the lead alone), same
+# marker and column
+BASELINES.update({"F34": ("dM", _f24_baseline)})
 
 
 def k_series(cost: dict) -> dict:
@@ -558,7 +561,7 @@ def family_facts(family: str, waits=(0, 1, 2), files=None, extra=None) -> dict:
         f18_apply(facts, out["normalized"])
     if family in ("F24", "F33"):
         f24_apply(facts, out["normalized"])       # (WP74) F33's REPC / REPNC elements
-    if family in ("F32", "F33"):
+    if family in ("F32", "F33", "F34"):
         out["k_series"] = k_series(out["cost"])
     out["metric"] = metric
     out["odd_minus_even"] = odd_minus_even(rows, metric)

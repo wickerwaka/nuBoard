@@ -330,6 +330,8 @@ F3X_TABLES = COST_TABLES + [
 ]
 TABLES["F32"] = F3X_TABLES
 TABLES["F33"] = F3X_TABLES + TABLES["F24"][len(COST_TABLES):]
+# (WP80) F34: the cost frame's tables and X's own cycles, as F32's
+TABLES["F34"] = F3X_TABLES
 
 
 def f3x_k_table(ff: dict) -> str:
@@ -390,7 +392,7 @@ def family_tables(ff: dict) -> str:
         return f17_tables(ff)
     if family == "F18":
         return f18_tables(ff)
-    if family in ("F32", "F33"):
+    if family in ("F32", "F33", "F34"):
         out.append(f3x_k_table(ff))
     if family == "F8":
         out.append(table("F8: refreshes from clock 0 to END / positions in the M0 window",

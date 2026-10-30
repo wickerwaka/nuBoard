@@ -76,6 +76,7 @@ IX=0100h, IY=0180h, DS0=DS1=SS=0, SP=0F00h, AW=1234h, DW=5678h.
 | F31 | F30's two controls (WP73 follow-up, acquired 2026-10-30; 66/234 under the thirty-ninth and fortieth fits; the forty-first, 2026-10-30, 234/234; RFM ECh; OUT marker, the F24 presets; 39 variants, 234 runs; ids `F31-out-<alf|lone>-<label>-p<E|O>-w<N>`): `alf` (REP STM, INM, MOVBK, REPE CMPBK, LDM, REPNE CMPM, word, IX and IY even, n = 1, followed by NOP, `MOV AW,DW`, `MOV AW,[BW]` or, for the non-compares, `MOV CW,1` and the same REP form; STM also n = 2 with NOP and the second REP form; STM and LDM with nothing after), `lone` (REP INM, OUTM, STM, word, n = 1, behind `NOP^b ; MOV CW,1 ; NOP^a` for (b, a) = (1, 4), (0, 5), (0, 4), (2, 4), leads that put one refill fetch, not back to back, inside the REP setup) | whether the string exit's late next fetch with a follower needs an odd operand (it does not), and whether any fetch in the REP setup gives INM/OUTM their one-clock gain (only the post-M0 back-to-back refill run does) |
 | F32 | the 0F page (WP74, acquired 2026-10-30, read as facts; modelled 2026-10-30, WP78, the forty-second fit, 379/858; RFM ECh; OUT marker, a PUSH subset; 143 variants, 858 runs; ids `F32-<out|push>-<form>[-n<n>]-k<k>-p<E|O>-w<N>`): `bit` (TEST1 / CLR1 / SET1 / NOT1, 0F 10-1F, on AL / AW and at [BW], byte and word, the index in CL (31, masked to bit 7 / 15) and as imm3 / imm4, k = 1, 2), `mode` (SET1 [m],CL word at [BW+10h], [BW+200h], [BW+IX], [0C00h]), `bcd` (MOV CL,n ; ADD4S / SUB4S / CMP4S, 0F 20 / 22 / 26, IX 0A40h to IY 0C40h, n = 2, 4, 8, 16 digits, k = 2 at n = 2, 4; MOV CL,n alone as controls), `rot4` (ROL4 / ROR4, 0F 28 / 2A, on DL and at [BW]), `bitfield` (EXT / INS, 0F 33 / 31 register width and 0F 3B / 39 imm4, offsets BL 0, DL 8, BH 8 and widths DH 6, BH 8, BL 0 with DW = 0608h, seven (offset, width) cases within, at the boundary and crossing, k = 1, 2), `pfx` (DS1: before TEST1 [BW],CL, SET1 [BW],7, ROL4 [BW], ADD4S) | the 0F page's costs and cycles before the decoder learns it: the bit ops as register / load_alu / rmw shapes (the CL forms ~2 clocks before the EA), the BCD strings' byte-element loop (30 / 25 per pair, every cycle's waits in it), the rotates' ALU span, the bit fields' (offset, width) span and IX / IY step, and the undocumented: offset / width registers with bits 4-7 set run hundreds of clocks longer |
 | F33 | the register miscellany and REPC / REPNC (WP74, acquired 2026-10-30, read as facts; modelled 2026-10-30, WP78, the forty-second fit, 841/1,050; RFM ECh; OUT marker, a PUSH subset; 175 variants, 1,050 runs; ids `F33-<out|push>-<label>-p<E|O>-w<N>`): `incdec` (INC / DEC r16 for every register, k = 1, 2, 4; INC / DEC AL, DH and byte / word [BW], k = 1, 2), `adjust` (ADJ4A, ADJ4S, ADJBA, ADJBS), `convert` (CVTBD, CVTDB), `extend` (CVTBW, CVTWL at AW = 0 and behind MOV AW,8080h), `muldiv` (MUL CW, MUL [BW], DIV / DIVU CW and [BW] behind MOV AW,1234h ; MOV DW,0, no trap; MUL CW / [BW] at AW = 0), `mulimm` (MUL AW,CW / [BW],imm16 (69) and imm8 (6B)), `flag` (CLC STC CMC CLI STI CLD STD), each k = 1, 2; `rep` (STC or CLC ; MOV CW,n ; REPC / REPNC CMPM / CMPBK word, n = 1, 2, 4, IX 0A40h, IY 0C40h: the carry exit after element 1 against CW running out; the patterns [0C42h] = 0 / [0A42h] = 0 for an exit after element 2, n = 2, 4; n = 0; controls) | the HDL plan's Phase E item 5 classes against the existing ones: INC / DEC r16, CVTBW and the flags at 3 clocks (one less than NOP), INC r8 = MOV r8,imm8, the adjust / convert / multiply / divide spans, EI's ~10 extra clocks; REPC / REPNC = REPE / REPNE with CY for Z, cell for cell against F24 |
+| F34 | the forty-second fit's miss shapes' probe family (WP80, acquired 2026-10-30, read as facts; 469/1,596 under the forty-second fit; RFM ECh; OUT marker, a PUSH subset; 266 variants, 1,596 runs; ids `F34-<out|push>-<probe>-<label>-p<E|O>-w<N>`): the leads l0, `nop`/`nop2`/`nop3` (NOP^1..3), `d`/`d2`/`d3` (`MOV AW,1234h`^1..3), `sep` (`SHL AW,8`), `cl` (`MOV CL,4`), each alone as a control; `bf` (EXT/INS BL,DH and DL,BH (register width, within and crossing) and BL,7 and DL,11 (imm4), DW = 0608h, behind l0, nop, nop2, d, sep at k = 1, k = 2 behind a NOP, the within-word forms followed by NOP, `MOV AW,DW` or `MOV AW,[0C00h]`), `rbit` (SET1 AL/AW by CL and imm behind l0, nop, nop2, d, sep, k = 2 behind l0 and nop, the pair with a NOP between, the CL forms behind `MOV CL,4`; TEST1 AW,CL as the op control), `mbit` (TEST1/SET1/CLR1 [BW],CL and SET1/CLR1 [BW],15 word behind the five leads, k = 2 and the pair with a NOP between; SET1 [m],CL in [BW+10h], [BW+200h], [BW+IX], [0C00h] behind l0, nop, d; SET1 [BW],CL byte), `inc` (`INC AW`^k `; NOP`^n, k = 1..4, n = 0..2, behind a NOP at n = 0; `CLC`^k `; NOP`^n, k = 1, 2, n = 0, 1), `mul` (MUL AW,[BW],5 and AW,[BW],1234h behind the five leads, k = 2 behind l0 and nop; MUL AW,CW,5), `nt` (`CMP AW,AW ; BNE +0`, `MOV CW,1 ; DBNZ +0`, `CMP AW,DW ; BE +0` (not taken; CMP AW,DW, 3B C2, the one new byte string) and the twin `CMP AW,AW ; MOV AW,DW` behind l0, d, d2, d3, nop, nop2, nop3; BE twice), `cr` (`CALL +2 ; BR +(f+1) ; <filler> ; RET` behind l0 or a NOP (the RET's target at either parity), the filler none, NOP, `SHL AW,8`, `SHL AW,8 ; NOP`, `NOP ; SHL AW,8`, `SHL AW,4`) | per miss shape one thing varied against a control: the bit fields' read is 6 (imm4 7) clocks after the last fetch's end behind every lead, EXT = INS, crossing = within; the register bit ops' +7 is a back-to-back fetch on a page form's word-ending last byte, and a 0F at an even address behind a lead takes its fetch a clock before the model; the memory bit ops read on one clock for every op (the model's classes split it by 3); INC/CLC's -1/-4 only with M1's OUT directly after; MUL imm memory's read a clock per immediate byte late, no fetch for the multiply when the immediate ends a word's first byte; BE not taken = BNE not taken, both 2 longer than modelled, DBNZ at an odd address holding prefetch 5 clocks; the RET's -1 is the shift before it, not its target's parity |
 | F24 | the string and block forms (WP66, acquired 2026-10-28; modelled and fitted 2026-10-29, the thirty-eighth fit, 746/912; the thirty-ninth, 2026-10-30, 778/912; the forty-first, 2026-10-30, 868/912): MOVBK (A4/A5), CMPBK (A6/A7), STM (AA/AB), LDM (AC/AD), CMPM (AE/AF), INM (6C/6D), OUTM (6E/6F), byte and word, under the OUT marker and the cost frame, with IX = 0A40h (source), IY = 0C40h (destination) and DW = 0040h (the port) as register presets, DS0 = DS1 = 0, DIR clear, AW = 0 after the fence; series `s` (unprefixed singles, k = 1, 2), `r` (`MOV CW,n` then REP STM/MOVBK/LDM/INM/OUTM, REPNE CMPM, REPE CMPBK for n = 0, 1, 2, 3, 4, 8, and 16 for STM w and MOVBK w; `MOV CW,n` alone as controls), `a` (IX and/or IY odd, n = 1, 2, 4), `t` (REPE/REPNE compares exiting on the fill after one element or over a stored pattern `MOV word [0C42h],0` after two (word) or three (byte) elements, n = 2, 4), `d` (drainers before `MOV CW,4 ; REP STM/MOVBK w`, d = 0, 2, 4); 152 variants, 912 runs; ids `F24-out-<series>-[<rep>-]<op>-<b|w>-(k<k>|n<n>)[-ix|iy|ixiy|-fill|-pat|-d<d>]-p<E|O>-w<N>` | the per-element cadence of a bus stream that takes no queue bytes, the REP setup and exit, the n = 0 check, the compares' termination, the odd split per element, the I/O-plus-memory element |
 
 Each chain runs at 0, 1 and 2 memory waits (WTC 0000h, 0001h, 0002h; I/O
@@ -5040,7 +5041,7 @@ F32 (WP74; 143 variants, 858 runs) and F33 (175 variants, 1,050 runs), both gene
 decoder gained the forms the same day, WP78, Model "The forty-second fit"; HDL plan Phase E items 4 and 5), the cost frame under the OUT marker with a PUSH subset, k = 1, 2, w0/w1/w2 × pE/pO, refresh
 off; 10 % repeats identical up to a constant tick shift. Tables in scratchpad wp74/facts-F32.txt and facts-F33.txt (cost
 at k = 1 and 2, slope and intercept per parity and wait, interleave strings, data cycles against M0 and the last fetch).
-The corpus is 28,142 runs over 35 lists. PUSH minus OUT stays within −4..+3 and the data cycles keep their offsets from
+The corpus was 28,142 runs over 35 lists (29,738 over 36 with F34, below). PUSH minus OUT stays within −4..+3 and the data cycles keep their offsets from
 the fetch end, as in every earlier family. Readings:
 
 - **Bit-field registers are not reduced to 4 bits.** With DL = 78h and DH = 56h (the default DW), EXT DL,7 cost 303
@@ -5078,6 +5079,73 @@ the fetch end, as in every earlier family. Readings:
   exit after element 1 52 and 68, the pattern exit after element 2 64 and 86, n = 0 16; a condition exit costs 1 less
   than CW running out at the same element; the overrun read is present in every n ≥ 1 cell; STC against CLC changes
   nothing. No new template: the compare's exit condition is a flag choice.
+
+### Probes for the forty-second fit's miss shapes: one thing varied against a control (F34, 2026-10-30; no fit)
+
+F34 (WP80; 266 variants, 1,596 runs, w0/w1/w2 × pE/pO, refresh off, the OUT marker with a PUSH subset; 164 repeats
+identical up to a constant tick shift) is the forty-second fit's probe family, designed as F30 was: for each of the
+seven miss shapes left by that fit one probe varies one thing against a control. The frame is `PAD LS M0 <lead> X^k
+<follow> M1 LS END`; the leads (none, NOP^1..3, the F6 drainer `MOV AW,1234h`^1..3, `SHL AW,8`, `MOV CL,4`) set the
+queue's state at X's start and each stands alone as a control; every byte string but `CMP AW,DW` (3B C2, the BE
+probe's flag setter) was already run by an earlier family. 469/1,596 under the forty-second fit (the empty frame and
+the leads 66/66, bf 30/384, rbit 53/246, mbit 46/318, inc 119/138, mul 7/108, nt 72/216, cr 76/120). Tables in
+scratchpad wp80/facts-F34.txt and readings.txt (per probe the first divergence of every run, the events after M0, X's
+first data cycle against the end of the last fetch before it, the next fetch and M1 after X's last data cycle).
+Clocks relative to t_fill; residual = model − silicon. Readings:
+
+- **Bit fields** (EXT/INS BL,DH and DL,BH, BL,7 and DL,11; DW = 0608h): the field's first word read is a constant 6
+  clocks (register-width forms) or 7 (imm4 forms) after the end of the last fetch before it, behind every lead and at
+  every wait (36 of 40 lead × column cells per form); the model's gap is 11 / 9. EXT = INS and crossing = within-word
+  at the first divergence. Exceptions: behind no lead at pE a refill fetch already committed runs back to back inside
+  the window (F87 F90 R96: the model reads at 96 too but drops F90); behind NOP NOP at pO w1/w2 the gap is 8 / 9.
+  The successor's fetch comes 72 (even start) or 77 (odd) clocks after the read for the register forms; the imm4 forms
+  at an odd address (the imm byte the first of its word, the next opcode its second) fetch 61 clocks after the read where
+  the model waits 16–25 more, at an even address 68 (model +2/+3). The follower (NOP, `MOV AW,DW`, `MOV AW,[0C00h]`)
+  does not move the read. Candidate: the field's read is posted at the form's start and issues a fixed setup after the
+  bus's last fetch ends, raising no fetch of its own in between; the imm4 forms release prefetch at a fixed clock into
+  the span when the queue holds the next opcode's byte.
+- **Register bit ops** (SET1/TEST1 AL/AW by CL and imm): TEST1 = SET1 and byte = word in every cell. The CL forms at an
+  odd address behind no lead or a NOP (the form's last byte the last of its word) are +7: silicon raises the next fetch
+  back to back (F88 F91 I105, model F98); behind `MOV CL,4` or a drainer +1, behind `SHL AW,8` −1. The imm forms show
+  the same +7 at an even address (their last byte again a word's last) behind a drainer and NOP NOP (w1/w2). Separately,
+  and the same in bf, mbit and mul: when an 0F form's first byte is at an even address behind a lead, silicon's fetch at
+  the 0F's take is a clock before the model's (F89 against F90), where the same lead before a one-byte or a non-0F
+  2-byte form is exact. The k = 2 second-instance offsets follow that +7 fetch. Candidates (decoder / room rule,
+  class-keyed on the page): the room rule raises a fetch on the clock a page form's word-ending last byte leaves the
+  queue, and the page take removes 0F and the second opcode byte on consecutive clocks (the model frees the room a
+  clock late).
+- **Memory bit ops** (TEST1/SET1/CLR1 [BW],CL and [BW],15 word, SET1 [BW],CL byte, four modes): TEST1, SET1 and CLR1
+  read on the same clock in all 84 op-comparable cells; SET1 = CLR1 with the imm index; byte = word; [BW+IX] = [BW]. With
+  the CL index silicon reads 5 clocks after the last fetch's end behind every lead (2 behind no lead at pE, 8 behind
+  NOP NOP at pO w1/w2), with the imm index 2 (0 at l0 pE); d16 and direct 0 or 5. The model splits one timing by class:
+  bit1_test / bit1_clr read 3 late at pE and are exact at pO, bit1_rmw (SET1/NOT1) exact at pE and 3 early at pO; behind
+  a lead the model raises a fetch silicon does not. The forty-second fit's parity and wait dependence here is the queue
+  state at the start, not a per-op cost. Candidate: one fixed setup after the last fetch's end for every page memory
+  op (CL 5, imm 2), no fetch raised once the form has started.
+- **INC AW / CLC after the OUT** (k = 1..4, n = 0..2 NOPs after): the −1 at pE and the −4 at k = 2 pE w0 appear only
+  when M1's OUT directly follows the one-byte form; with a NOP after it every cell is exact; INC = CLC cell for cell.
+  Candidate: M1's port byte, taken a clock earlier behind a 3-clock form, lands on the issue clock of the post-M0 fetch
+  and holds it (the `port_issue` family of rules); at k = 2 w0 it holds the second fetch until M1's setup.
+- **MUL AW,[BW],imm** (6B 07 05 and 69 07 34 12; `MUL AW,CW,5` the control): the read is 1 clock (imm8) or 2 (imm16)
+  later than the model in nearly every cell, the register form exact. When the immediate's last byte is the first byte
+  of a queue word (imm8 at an even address, imm16 at an odd one at w1/w2) silicon raises no fetch from the read until
+  near the multiply's end (R90 F134, model F93: the −41/−42); otherwise it fetches right after the read. Candidates
+  (mul_imm): the read is requested after the immediate is taken, a clock per immediate byte; a half-taken queue word
+  holding the next opcode keeps the room rule from raising a fetch over the multiply's span.
+- **BNE / BE / DBNZ not taken** (`CMP AW,AW ; BNE +0`, `CMP AW,DW ; BE +0`, `MOV CW,1 ; DBNZ +0`, the twin `CMP AW,AW ;
+  MOV AW,DW`): BE = BNE in every one of 108 OUT and 12 PUSH cells; the twin and every lead control are exact. The model
+  is 2 short on the first fetch after the branch and on M1 at every fill level and with a fetch in flight, 3 short at an
+  odd address behind a drainer or NOP^2..3; the one exception is no lead at an even address, where silicon's third refill
+  fetch is back to back (+5). DBNZ at an even address is BNE's −2; at an odd address silicon holds the prefetch 5 clocks
+  longer than the model and ends a clock earlier (F99 I114, model F94 I115) for every lead, wait and marker. Candidates
+  (transfer classes): a not-taken short conditional runs 2 EU clocks longer and releases its fetch request 2 later (one
+  nexec / nfgap pair for both); DBNZ at an odd address holds the prefetch as `xfer_odd=idle` does for a taken jump.
+- **The RET's refill** (`CALL +2 ; BR ; <filler> ; RET`, the target at either parity, fillers none, NOP, `SHL AW,8`,
+  `SHL AW,8 ; NOP`, `NOP ; SHL AW,8`, `SHL AW,4`): the −1 is set by the shift directly before the RET, not by the
+  target's parity: all 48 OUT and 12 PUSH shift cells read the return address a clock later than the model, a NOP between
+  the shift and the RET makes every cell exact; where the shift starts at an odd address the model also fetches 22 clocks
+  early during it. The fetch after the stack read is 8 clocks after its end in silicon and model alike. Candidate (EU):
+  a stack read requested on an immediate shift's exit clock is held a clock, as the string exit's `wbsync`.
 
 ## Model
 
@@ -5438,7 +5506,8 @@ until near the end); the register bit ops (about 36 %: at pO with the index in C
 room rule does not raise, ±1–7 second-instance offsets at k = 2); the memory bit ops' misses that move by parity and wait
 (`bit1_*.pre`/`cl` flagged by the knob dependence); INC/DEC r16 and the flag forms −1 on the first fetch after the OUT at
 pE and −4 at k = 2; CLI/STI/CVTWL/ADJBA small offsets; MUL imm memory at pE (silicon fetches near the end); BCD at pO
-k = 2 and behind the DS1: prefix −1; the ADJ4A k = 2 and the MUL/CVTWL data dependences, unprobed.
+k = 2 and behind the DS1: prefix −1; the ADJ4A k = 2 and the MUL/CVTWL data dependences, unprobed. F34 probed the first seven the same evening (Facts "Probes
+for the forty-second fit's miss shapes"); its readings are the forty-third fit's brief.
 
 ### Fitted structure (forty-second fit, 2026-10-30)
 

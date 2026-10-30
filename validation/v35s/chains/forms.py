@@ -946,3 +946,10 @@ F33_FORMS = F33_REG_FORMS + F33_REP_FORMS + (F33_PATTERN_STORE,)
 
 # (WP74) the F32 and F33 forms were generator-only until (WP78) the simulator decoded them
 # (sim/templates.py: the 0F page, the one-byte forms, FE, 69 / 6B, D4 / D5): none left
+
+# F34 (WP80: probes for the forty-second fit's miss shapes). Every other form the family uses is
+# in the catalog above, byte for byte. CMP AW,DW (3B C2) leaves Z = 0 (AW = 0 or 1234h against
+# DW = 5678h), so BE +0 after it is the second not-taken conditional form beside CMP AW,AW ;
+# BNE +0; the decoder takes it as CMP AW,AW (the reg class, CMP r16,r16 setting Z from the two
+# registers; the RTL's format key is cmp_aw_aw's).
+F34_FORMS = _register([Form("cmp_aw_dw", "reg", bytes([0x3B, 0xC2]))])
