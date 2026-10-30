@@ -81,6 +81,8 @@ class Request:
     beat_ext: int = 0               # (WP58) refresh_post=post_beat: the hold's clocks
     gdisp: bool = False             # (WP61) grp_disp=hold: a group RMW form's read after its
                                     # two-byte displacement
+    dwlike: bool = False            # (WP70) str_count=dw: a string form's request, counted as a
+                                    # DW-form I/O request's (nowait, dw_count)
     imm1: bool = False              # (WP43) imm1_first: the first data request of a memory form
                                     # with a one-byte immediate (83 /x, C6 /0)
 
@@ -160,12 +162,13 @@ def arbitrate(t: int, cfg, bus, queue, eu):
     if c is not None and cfg.dw_count != "all":
         if c.kind == "fetch" and eu.start_clock == t:
             eu.fetch_start = t
-        if (new is not None and new.cycles and new.cycles[0][0].startswith("io")
+        if (new is not None and new.cycles and (new.cycles[0][0].startswith("io") or new.dwlike)
                 and not new.port and not new.issued and new.posted == t and new.count
                 and (c.kind == "fetch" and eu.start_clock == t or cfg.dw_count == "bus")):
             new.count -= 1              # a DW form's first clock is taken by the cycle starting
         elif (cfg.dw_count_b2b and c.kind == "fetch" and new is req and new is not None
-              and new.cycles and new.cycles[0][0].startswith("io") and not new.port
+              and new.cycles and (new.cycles[0][0].startswith("io") or new.dwlike)
+              and not new.port
               and not new.issued and new.posted < t and counted and not new.dw_moved
               and queue.b2b_at == t):
             new.count -= 1              # (WP26) dw_count_b2b: a back-to-back fetch starting

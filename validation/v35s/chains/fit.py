@@ -1714,7 +1714,10 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
 # descended inside every move; the corpus guard over every modelled run is the guard, as in
 # stages 9 to 12 (no run outside F24 reads a str_* class or the new enums: a move can only
 # change F24).
-F24_ENUMS = {n: OPTIONS[n] for n in ("str_take", "str_setup", "str_overrun", "str_hold")}
+# (WP70) with the string forms' last cycle in the unprefixed form, the I/O write's datum in the
+# data latch, and the requests counted as a DW-form I/O request's.
+F24_ENUMS = {n: OPTIONS[n] for n in ("str_take", "str_setup", "str_overrun", "str_hold",
+                                     "str_last", "str_io_latch", "str_count")}
 F24_INTS = [f"{cls}.{name}" for cls in ("str_move", "str_cmp", "str_store", "str_load",
                                         "str_scan", "str_in", "str_out")
             for name in ("pre", "setup", "mid", "exec", "rpre", "zexit", "first", "loop",

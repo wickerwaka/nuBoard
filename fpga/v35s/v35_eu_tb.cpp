@@ -1,6 +1,8 @@
 // Decoder and EU bench (HDL plan, C3): feeds v35_eu the frozen model's EU vectors and checks
-// every model clock. Vectors: validation/v35s/chains/rtl_vectors.py (V35EU-1: the state at
-// the end of clock -1, the operand record of every instruction start, and per model clock
+// every model clock. Vectors: validation/v35s/chains/rtl_vectors.py (V35EU-2: the state at
+// the end of clock -1 with the register file's presets, the code, the operand record of every
+// instruction start and the register file after its execute (D1: the EU computes both, the
+// bench compares at every start; the code window at code_addr is served from the code), and per model clock
 // the delivery, the bus unit's views, the queue's state before each of the EU's ops and their
 // reads, the arbiter's touches, and the state after each phase).
 //
@@ -37,8 +39,8 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 582, QSTATE_W = 180;
-constexpr int OPW = 33, QVW = 52, BVW = 18, NBV = 10, OPNDW = 213;
+constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 762, QSTATE_W = 180;
+constexpr int OPW = 33, QVW = 52, BVW = 18, NBV = 10, OPNDW = 197, RFW = 180;
 constexpr int K_FETCH = 1, K_READ = 2, K_IO_READ = 4, K_REFRESH = 6;
 constexpr int OP_WANT = 16, OP_ISSUE = 23;
 constexpr int X_ISSUE = 1, X_NOWRITE = 2;
@@ -72,9 +74,18 @@ struct Clock {
 
 struct OpRec {
     Vals v;                 // offset, code (48 bits), ea, port, sr, sw, count, taken, target, fmt, tmpl
+    Vals rf;                // (D1) the register file after its execute (v35_rf_t)
 };
 
+// (D1) the operand record (v35_opnd_t, MSB first) and the register file (v35_rf_t)
 const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
+const char* const OPND_N[] = {"offset", "code", "ea", "port", "sr", "sw", "count", "taken",
+                              "target", "fmt", "tmpl"};
+constexpr int NOPND = 11;
+const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 1, 1, 1, 16, 16, 1};
+const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ds1", "z_v", "z",
+                            "ret_v", "ret_sp", "ret_pc", "pfx"};
+constexpr int NRF = 15;
 const int BV_W[] = {3, 3, 3, 1, 1, 1, 1, 1, 3, 1};
 
 template <typename W>
@@ -140,7 +151,8 @@ struct Bench {
     std::vector<int> qview_widths;
     std::map<std::string, int> qfield_at;   // the queue's state: field -> lsb
     long state_bad = 0, op_bad = 0, err_bad = 0, dcyc_bad = 0, q_state_bad = 0, q_rd_bad = 0,
-         gate_bad = 0, signal_bad = 0, biu_state_bad = 0, settle_bad = 0, fails = 0;
+         gate_bad = 0, signal_bad = 0, biu_state_bad = 0, settle_bad = 0, opnd_bad = 0,
+         fails = 0;
 
     void tick(bool ce, bool mid) {
         dut.ce = ce;
@@ -160,6 +172,27 @@ struct Bench {
     void check(long& counter, long t, const std::string& what, long want, long got) {
         if (want != got)
             fail(counter, t, what, want, got);
+    }
+    // (D1) a packed record (MSB first) against the model's values
+    template <typename W>
+    bool check_packed(long t, const std::string& where, const char* const* names,
+                      const int* widths, int n, const Vals& want, const W& w) {
+        int total = 0;
+        for (int k = 0; k < n; ++k)
+            total += widths[k];
+        int off = total;
+        bool bad = false;
+        for (int k = 0; k < n; ++k) {
+            off -= widths[k];
+            const uint64_t got = get_bits(w, off, widths[k]);
+            if (got != want[k]) {
+                bad = true;
+                if (++fails <= 20)
+                    std::printf("FAIL clock %ld %s %s model=%llu rtl=%llu\n", t, where.c_str(),
+                                names[k], (unsigned long long)want[k], (unsigned long long)got);
+            }
+        }
+        return bad;
     }
     template <typename W>
     void check_state(long& counter, long t, const std::string& where,
@@ -245,8 +278,8 @@ int main(int argc, char** argv) {
     std::string format, id, line;
     long nclocks = 0, nq = 0, nxop = 0, nopnd = 0, base = 0;
     in >> format >> id >> nclocks >> nq >> nxop >> nopnd >> base;
-    if (format != "V35EU-1" || nq != NQ || nxop != NXOP) {
-        std::fprintf(stderr, "not a V35EU-1 vector file for %d ops, %d touches\n", NQ, NXOP);
+    if (format != "V35EU-2" || nq != NQ || nxop != NXOP) {
+        std::fprintf(stderr, "not a V35EU-2 vector file for %d ops, %d touches\n", NQ, NXOP);
         return 2;
     }
     std::getline(in, line);
@@ -271,6 +304,19 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "no init line\n");
         return 2;
     }
+    // (D1) the code at the base: the code window's bytes
+    std::vector<int> code;
+    {
+        std::string tag, chex;
+        in >> tag >> chex;
+        if (tag != "C") {
+            std::fprintf(stderr, "no code line\n");
+            return 2;
+        }
+        code.resize(chex.size() / 2);
+        for (size_t i = 0; i < code.size(); ++i)
+            code[i] = std::stoi(chex.substr(2 * i, 2), nullptr, 16);
+    }
     std::vector<OpRec> opnds(nopnd);
     for (auto& o : opnds) {
         std::string tag, hex;
@@ -282,11 +328,14 @@ int main(int argc, char** argv) {
         }
         o.v.push_back(offset);
         o.v.push_back(std::stoull(hex, nullptr, 16));
-        for (int k = 0; k < 9; ++k) {
+        for (int k = 0; k < NOPND - 2; ++k) {
             uint64_t x;
             in >> x;
             o.v.push_back(x);
         }
+        o.rf.resize(NRF);
+        for (auto& x : o.rf)
+            in >> x;
     }
     std::vector<Clock> clocks(nclocks);
     auto read_op = [&](Op& o) {
@@ -441,6 +490,15 @@ int main(int argc, char** argv) {
             fw.push_back(f.width);
         pack(d.init_state, 0, init, fw);
     }
+    // (D1) the code window: twelve bytes from the EU's code_addr, the first in [95:88]
+    auto code_window = [&](long a) {
+        for (int i = 0; i < 12; ++i) {
+            const long k = a + i - base;
+            const int v = (k >= 0 && k < long(code.size())) ? code[k] : 0x90;
+            set_bits(d.code_win, 88 - 8 * i, 8, uint64_t(v));
+        }
+    };
+    d.mutate = 0;
     d.q_joint = joint;
     d.code_base = base;
     d.init_count = q_init_count;
@@ -453,18 +511,14 @@ int main(int argc, char** argv) {
         b.tick(false, false);
     d.reset_n = 1;
 
-    const std::vector<int> opw(OPND_W, OPND_W + 11);
     long nstarts = 0, nops_total = 0;
     bool eu_cycle_on = false;             // joint: the cycle on the bus is the EU's
     long eu_cycle_end = -1;
     for (const auto& c : clocks) {
         const long t = c.t;
-        // the operand records of this clock's starts
-        {
-            Vals z(11, 0);
-            pack(d.opnd_a, 0, nstarts < long(opnds.size()) ? opnds[nstarts].v : z, opw);
-            pack(d.opnd_b, 0, nstarts + 1 < long(opnds.size()) ? opnds[nstarts + 1].v : z, opw);
-        }
+        // (D1) the code window at the registered pc
+        d.eval();
+        code_window(d.code_addr);
         for (int i = 0; i < NXOP; ++i) {
             const uint64_t w = i < c.nxops ? (uint64_t(c.xops[i].first) << 8) |
                                                  uint64_t(c.xops[i].second & 0xFF)
@@ -540,8 +594,7 @@ int main(int argc, char** argv) {
             d.req_latch = col("latch");
             d.rfm_load = col("rfm_load");
             d.rfm_value = col("rfm_value");
-            d.data_gate = eu_issue;
-            d.data_data = col("data");
+            d.data_gate = eu_issue;             // (D1) its datum the EU's AW
             d.fetch_gate = 0;
             // the EU's read deliveries: the bus unit's delivery of the EU's own cycle
             d.eval();
@@ -734,6 +787,23 @@ int main(int argc, char** argv) {
             b.check_state(b.q_state_bad, t, "queue end", b.qfields, QSTATE_W, qc->e_state,
                           d.q_state_e, 0);
         }
+        // (D1) the operand record of each start and the register file after its execute
+        for (int j = 0; j < int(d.n_start) && j < 2; ++j) {
+            const long i = nstarts + j;
+            char where[64];
+            if (i >= long(opnds.size())) {
+                b.fail(b.opnd_bad, t, "a start past the model's", long(opnds.size()), i);
+                continue;
+            }
+            std::snprintf(where, sizeof where, "start %ld record", i);
+            bool bad = j == 0 ? b.check_packed(t, where, OPND_N, OPND_W, NOPND, opnds[i].v, d.opr_a)
+                              : b.check_packed(t, where, OPND_N, OPND_W, NOPND, opnds[i].v, d.opr_b);
+            std::snprintf(where, sizeof where, "start %ld registers", i);
+            bad = (j == 0 ? b.check_packed(t, where, RF_N, RF_W, NRF, opnds[i].rf, d.rfx_a)
+                          : b.check_packed(t, where, RF_N, RF_W, NRF, opnds[i].rf, d.rfx_b)) || bad;
+            if (bad)
+                ++b.opnd_bad;
+        }
         // the end of the model clock
         nstarts += d.n_start;
         b.tick(true, false);
@@ -780,9 +850,9 @@ int main(int argc, char** argv) {
     }
     std::printf("SUMMARY clocks=%ld ops=%ld state_bad=%ld op_bad=%ld err_bad=%ld dcyc_bad=%ld "
                 "q_state_bad=%ld q_rd_bad=%ld gate_bad=%ld signal_bad=%ld biu_state_bad=%ld "
-                "settle_bad=%ld\n",
+                "settle_bad=%ld opnd_bad=%ld\n",
                 long(clocks.size()), nops_total, b.state_bad, b.op_bad, b.err_bad, b.dcyc_bad,
                 b.q_state_bad, b.q_rd_bad, b.gate_bad, b.signal_bad, b.biu_state_bad,
-                b.settle_bad);
+                b.settle_bad, b.opnd_bad);
     return b.fails ? 1 : 0;
 }

@@ -45,6 +45,13 @@ end of every clock (RefreshRecorder), the EU's refresh touches and the arbiter's
 V35ARB-2). --eu and --joint3 (the scripted-arbiter benches) still run refresh-off chains only.
 
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --core --family F8 F13 F17 F18
+
+D1, the register file and the EA adder (in the EU; vectors V35EU-2): every start's operand record
+and register file are the RTL's, compared at every start; an EU cycle's datum is the RTL's AW.
+--regfile runs the register file's unit bench (fpga/v35s/build_rf_tb.sh) on the families' forms:
+see "D1" below.
+
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --regfile --family F0 F23
 """
 
 from __future__ import annotations
@@ -1015,16 +1022,16 @@ def check_queue_run(rec: dict, cfg, keep: Path | None = None, joint: bool = Fals
 # model's code is not changed): phase C's delivery of an EU read (eu.complete), the arbiter's
 # touches in X (eu.issue, issue_nowrite, fetch_start, the abort's sync, a request's free_need
 # and not_before; the request's setup count and the arbiter's own fields are C4's and only
-# read), and, per instruction start, the operands the register file gives (the effective
-# address, the port, the stack addresses, the shift count, a transfer's target: Phase D's
-# register file and EA adder; the RTL decodes the format from the instruction's bytes). A store
+# read), and, per instruction start, the operand record and the register file after its execute
+# (D1: the RTL computes both, from its own register file and the code; the benches compare; the
+# EU's state rows carry the register file, FFIELDS, from the chain's presets on). A store
 # or call from outside that is none of these raises (NotModelled); with refresh on (--core only,
 # C5) also the refresh's touches (eu.refresh_cost's effects, the give-back, halt_defer). What the EU and the decoder read from the queue between their ops is the queue's state
 # before each op (the C2 representation), from the recording (--eu) or the RTL queue (--joint3);
 # from the bus unit, its state before and after the arbiter's choice.
 
 EBENCH = ROOT / "build" / "fpga" / "v35s" / "eu-tb" / "Vv35_eu_tb"
-EFORMAT = "V35EU-1"
+EFORMAT = "V35EU-2"
 NQ = 16                      # the EU's queue ops per phase (T and L; P) (v35_eu.sv NQ)
 NXOP = 6                     # the arbiter's touches on the EU per clock (v35_eu.sv NXOP)
 JSLOT = 40                   # the joint bench's queue op chain: T, L, X and P ops
@@ -1167,7 +1174,21 @@ RFIELDS = (
     ("grpcl", 2),            # (C5) refresh_grpcl: a memory shift's read: its CL clocks
     ("beat_ext", 3),         # (C5) refresh_post=post_beat: the hold's clocks
 )
+# (D1) the register file (v35_eu.sv v35_rf_t: templates.execute's regs, eu.seg_prefix's DS1
+# test), MSB first
+FFIELDS = (
+    ("aw", 16), ("cw", 16), ("dw", 16), ("bw", 16), ("sp", 16), ("bp", 16), ("ix", 16),
+    ("iy", 16),              # the word registers (REG16 order)
+    ("ds1", 16),             # the one segment register the model reads (the SFR store)
+    ("z_v", 1),              # regs["Z"] is set (CMP r16,r16) ...
+    ("z", 1),                # ... its value
+    ("ret_v", 1),            # a CALL's return address, regs["retSSSS"] ...
+    ("ret_sp", 16),          # ... SSSS ...
+    ("ret_pc", 16),          # ... the code offset
+    ("pfx", 1),              # eu.seg_prefix == 26h (DS1)
+)
 EFIELDS = (tuple((f"d_{n}", w) for n, w in DFIELDS) + tuple((f"e_{n}", w) for n, w in EUFIELDS)
+           + tuple((f"f_{n}", w) for n, w in FFIELDS)
            + tuple((f"r{i}_{n}", w) for i in (2, 1, 0) for n, w in RFIELDS))
 ESTATE_W = sum(w for _, w in EFIELDS)
 # the queue's state the EU and the decoder read (QFIELDS names, v35_eu.sv v35_qview_t)
@@ -1178,9 +1199,28 @@ QVIEW = ("count", "latched", "flag", "rq_valid", "rq_age", "inflight", "ab_valid
 # the bus unit's state the EU reads (before and after the arbiter's choice; v35_bview_t)
 BVIEW = (("kind", 3), ("pos", 3), ("len", 3), ("free", 1), ("finf", 1), ("in_wait", 1),
          ("fprev", 1), ("wl", 1), ("fsince", 3), ("flen3", 1))
-# an instruction's operand record (the register file's values; the RTL decodes the bytes)
+# an instruction's operand record (D1: the RTL's register file and EA adder compute it; the
+# bench compares), then the register file after the instruction's execute (FFIELDS)
 OPFIELDS = ("offset", "code", "ea", "port", "sr", "sw", "count", "taken", "target", "fmt",
             "tmpl")
+
+
+def rf_fields(regs: dict, seg_prefix) -> dict:
+    """(D1) the register file in the RTL's representation (FFIELDS): the model's regs dict
+    (templates.execute's) and eu.seg_prefix."""
+    from .sim.frozen.templates import REG16
+    f = {n.lower(): regs[n] for n in REG16}
+    f["ds1"] = regs.get("DS1", 0)
+    f["z_v"] = int(regs.get("Z") is not None)
+    f["z"] = int(bool(regs.get("Z")))
+    rets = sorted(k for k in regs if k.startswith("ret"))
+    if len(rets) > 1:
+        raise NotModelled(f"{len(rets)} return addresses (the RTL holds one)")
+    f["ret_v"] = int(bool(rets))
+    f["ret_sp"] = int(rets[0][3:], 16) if rets else 0
+    f["ret_pc"] = regs[rets[0]] if rets else 0
+    f["pfx"] = int(seg_prefix == 0x26)
+    return f
 
 
 class NotModelled(RuntimeError):
@@ -1219,10 +1259,12 @@ class OpRec:
     target: int
     fmt: int
     tmpl: int
+    rf: dict | None = None          # (D1) the register file after its execute (FFIELDS)
 
     def text(self) -> str:
         return (f"P {self.offset} {self.code.hex()} {self.ea} {self.port} {self.sr} {self.sw} "
-                f"{self.count} {self.taken} {self.target} {self.fmt} {self.tmpl}")
+                f"{self.count} {self.taken} {self.target} {self.fmt} {self.tmpl} "
+                + " ".join(str(self.rf[n]) for n, _ in FFIELDS))
 
 
 @dataclass
@@ -1509,6 +1551,11 @@ class EURecorder:
         self.opnds.append(r)
         self.cur = r
 
+    def executed(self, op, regs):
+        """(D1) the register file after the start's execute (eu.seg_prefix is set after it:
+        this start's prefix)."""
+        self.cur.rf = rf_fields(regs, op.opcode if op.cls == "prefix" else None)
+
 
 _REQ_CLASS: list = []
 
@@ -1649,6 +1696,8 @@ def estate(m, t: int, rec) -> dict:
     s["e_sr"] = op.sr if op else 0
     s["e_sw"] = op.sw if op else 0
     s["e_tgt"] = op.target if op else 0
+    for k, v in rf_fields(eu.regs, eu.seg_prefix).items():
+        s["f_" + k] = v                 # (D1) the register file
     # (C5) the refresh's
     pc = getattr(eu, "prev_cls", None)
     s["e_prev_cls"] = rec.classes.index(pc) if pc is not None else CLS_NONE
@@ -1758,7 +1807,9 @@ def run_eu_model(chain, cfg, chain_base: int, arb: bool = False):
 
     def execute(op, code, regs):
         erec.started(op)
-        return orig_exec(op, code, regs)
+        r = orig_exec(op, code, regs)
+        erec.executed(op, regs)
+        return r
     feu.execute = execute
     try:
         cycles = m.run()
@@ -1785,7 +1836,8 @@ def eu_vectors(chain, cfg, chain_base: int, joint: bool = False, run=None):
              f"{m.queue.base}",
              "F " + " ".join(f"{k}:{w}" for k, w in EFIELDS),
              "Q " + " ".join(f"{k}:{dict(QFIELDS)[k]}" for k in QVIEW),
-             "I " + estate_text(erec.init)]
+             "I " + estate_text(erec.init),
+             "C " + bytes(m.eu.code).hex()]    # (D1) the code at the base: the code window's
     lines += [o.text() for o in erec.opnds]
     for ck in erec.clocks:
         lines.append(f"K {ck.t} {ck.c_eu} {ck.c_read} {ck.fetch_done} {' '.join(map(str, ck.x))} "
@@ -1841,6 +1893,7 @@ class EResult:
     signal_bad: int = 0             # joint: the bus unit's signals
     biu_state_bad: int = 0          # joint: the bus unit's state
     settle_bad: int = 0             # joint: a clock that did not settle
+    opnd_bad: int = 0               # (D1) a start's operand record or register file differing
     cycles: int = 0                 # the model's cycles ...
     rtl_cycles: int = 0             # ... the RTL's (joint: the bus unit's; --eu: the EU's data
     exact_cycles: int = 0           # cycles in the model's stream) ... equal
@@ -1856,7 +1909,7 @@ class EResult:
     def ok(self) -> bool:
         bad = (self.state_bad or self.op_bad or self.err_bad or self.dcyc_bad or self.q_state_bad
                or self.q_rd_bad or self.gate_bad or self.signal_bad or self.biu_state_bad
-               or self.settle_bad)
+               or self.settle_bad or self.opnd_bad)
         return (not self.error and not self.not_modelled and not bad and self.clocks > 0
                 and self.cycles == self.rtl_cycles == self.exact_cycles)
 
@@ -1907,7 +1960,7 @@ def check_eu_run(rec: dict, cfg, keep: Path | None = None, joint: bool = False) 
         res.error = f"bench exit {p.returncode}: {(p.stderr or p.stdout)[-300:]}"
         return res
     for k in ("clocks", "ops", "state_bad", "op_bad", "err_bad", "dcyc_bad", "q_state_bad",
-              "q_rd_bad", "gate_bad", "signal_bad", "biu_state_bad", "settle_bad"):
+              "q_rd_bad", "gate_bad", "signal_bad", "biu_state_bad", "settle_bad", "opnd_bad"):
         setattr(res, k, sm.get(k, 0))
     res.first = fails[0] if fails else ""
     model = [(c.start, c.length, KINDS.index(c.kind), c.addr, BWIDTHS.index(c.width),
@@ -1948,14 +2001,15 @@ def _report_eu(f, rs, show, joint) -> int:
     tot = {k: sum(getattr(r, k) for r in run) for k in (
         "clocks", "ops", "state_bad", "op_bad", "err_bad", "dcyc_bad", "q_state_bad",
         "q_rd_bad", "gate_bad", "signal_bad", "biu_state_bad", "settle_bad", "cycles",
-        "exact_cycles", "starts")}
+        "exact_cycles", "starts", "opnd_bad")}
     me = sum(bool(r.model_exact) for r in run)
     re_ = sum(bool(r.rtl_exact) for r in run)
     rm = sum(bool(r.rtl_model_exact) for r in run)
     line = (f"{f:<5} {len(rs):>5} runs  {ok} exact against the model ({len(nm)} not modelled)  "
             f"clocks {tot['clocks']} starts {tot['starts']} ops {tot['ops']} (state fails "
             f"{tot['state_bad']}, op fails {tot['op_bad']}, RTL errors {tot['err_bad']}, data "
-            f"cycle fails {tot['dcyc_bad']})  cycles {tot['exact_cycles']}/{tot['cycles']}")
+            f"cycle fails {tot['dcyc_bad']}, operand record fails {tot['opnd_bad']})  cycles "
+            f"{tot['exact_cycles']}/{tot['cycles']}")
     if joint:
         line += (f" (queue state fails {tot['q_state_bad']}, queue read fails {tot['q_rd_bad']}, "
                  f"ungated fetches {tot['gate_bad']}, "
@@ -2285,6 +2339,7 @@ class CResult:
     signal_bad: int = 0             # the bus unit's signals
     biu_state_bad: int = 0          # the bus unit's state
     settle_bad: int = 0             # a clock that did not settle
+    opnd_bad: int = 0               # (D1) a start's operand record or register file
     iter_total: int = 0             # settle edges over the run's clocks ...
     iter_max: int = 0               # ... the most in one clock
     iters: dict | None = None       # ... per clock: edges -> clocks
@@ -2299,7 +2354,7 @@ class CResult:
     not_modelled: str = ""
 
     BAD = ("state_bad", "op_bad", "err_bad", "dcyc_bad", "q_state_bad", "q_rd_bad", "x_bad",
-           "a_state_bad", "r_state_bad", "signal_bad", "biu_state_bad", "settle_bad")
+           "a_state_bad", "r_state_bad", "signal_bad", "biu_state_bad", "settle_bad", "opnd_bad")
 
     @property
     def fails(self) -> int:
@@ -2403,6 +2458,180 @@ def _report_core(f, rs, show) -> int:
     return len(bad)
 
 
+# D1: the register file and the EA adder ------------------------------------------------------
+#
+# The EU's register file (v35_eu.sv: v35_rf_t in the state, FFIELDS) and the functions that read
+# and write it at a start: eu_decode, v35_operands (templates.decode's operands, _start's SFR
+# store) and v35_execute (templates.execute). In --eu, --joint3 and --core the EU computes every
+# start's operand record and the register file after it, and the benches compare both with the
+# model's (the P lines: OpRec and its rf) at every start, the register file also in every state
+# row. The unit bench (fpga/v35s/v35_rf_tb.sv and .cpp, fpga/v35s/build_rf_tb.sh, binary in
+# build/fpga/v35s/rf-tb/) runs the three functions alone on regfile_vectors: every instruction
+# start of the families' chains as the EU's walk meets it (decode, execute and the taken
+# transfers from the chain's presets, the DS1 prefix tracked), every distinct encoding of those
+# again on random register files, and the 24 ModR/M memory modes on the forms that compute an
+# address (MOV load/store, LDEA, MOV imm store, ADD RMW, PUSH/POP r/m) on random ones; the
+# expected values are templates.decode's and templates.execute's (the frozen package).
+#
+#     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --regfile --family F0 ...
+
+RFBENCH = ROOT / "build" / "fpga" / "v35s" / "rf-tb" / "Vv35_rf_tb"
+RFFORMAT = "V35RF-1"
+
+
+def _rf_regs(rf: dict) -> tuple[dict, int | None]:
+    """(the model's regs dict, eu.seg_prefix) of a register file in FFIELDS form."""
+    from .sim.frozen.templates import REG16
+    regs = {n: rf[n.lower()] for n in REG16}
+    regs["DS1"] = rf["ds1"]
+    if rf["z_v"]:
+        regs["Z"] = rf["z"]
+    if rf["ret_v"]:
+        regs[f"ret{rf['ret_sp']:04X}"] = rf["ret_pc"]
+    return regs, (0x26 if rf["pfx"] else None)
+
+
+def regfile_case(rf: dict, code: bytes, pc: int, mutate: int = 0) -> str | None:
+    """One V35RF-1 line: the register file rf (FFIELDS), the instruction's six bytes at code
+    offset pc, and the model's record and register file after (templates.decode, _start's SFR
+    store, templates.execute). None: a case outside the RTL's decode (a string form, an opcode
+    outside the catalog, PREPARE with a level) or one it raises on (two return addresses)."""
+    from .sim.frozen import templates as T
+    from .sim.frozen.bus import SFR_PAGE
+    regs, pfx = _rf_regs(rf)
+    buf = bytes(pc) + code
+    op0 = code[0]
+    try:
+        op = T.decode(buf, pc, regs)
+    except ValueError:
+        if op0 in (0x74, 0x75, 0xC3):     # the flags or the return address unknown: bad
+            sr = rf["sp"] if op0 == 0xC3 else 0
+            want = [0, 0, sr, 0, 0, 0, 0, 1]
+            return (f"V {' '.join(str(rf[n]) for n, _ in FFIELDS)} {code.hex()} {pc} {mutate} "
+                    f"{' '.join(map(str, want))} {' '.join('0' for _ in FFIELDS)}")
+        return None
+    if op.cls in T.STRING_CLASSES:
+        return None
+    if pfx == 0x26 and op.ea is not None and op.cls in ("store", "store_imm"):
+        lin = ((regs.get("DS1", 0) << 4) + op.ea) & 0xFFFFF
+        if lin >= SFR_PAGE:
+            op.ea = lin                     # eu._start's SFR store
+    s0, s1 = op.stack if op.stack else (None, None)
+    want = [op.ea or 0, op.port or 0, s0 or 0, s1 or 0, op.count,
+            int(op.target is not None), (op.target or 0) & 0xFFFF, 0]
+    T.execute(op, buf, regs)
+    try:
+        after = rf_fields(regs, op.opcode if op.cls == "prefix" else None)
+    except NotModelled:
+        return None
+    return (f"V {' '.join(str(rf[n]) for n, _ in FFIELDS)} {code.hex()} {pc} {mutate} "
+            f"{' '.join(map(str, want))} {' '.join(str(after[n]) for n, _ in FFIELDS)}")
+
+
+def _random_rf(rnd, code: bytes) -> dict:
+    rf = {n: rnd.randrange(1 << w) for n, w in FFIELDS}
+    rf["ds1"] = rnd.choice((0, 0xF000, rf["ds1"]))
+    if code[0] == 0xC3 and rnd.random() < 0.75:
+        rf["ret_v"], rf["ret_sp"] = 1, rf["sp"]     # RET finds its CALL's address
+    if code[0] == 0xE8 and rnd.random() < 0.75:
+        rf["ret_v"] = 0
+    if not rf["z_v"]:
+        rf["z"] = 0                     # rf_fields' form: no value without the flag
+    if not rf["ret_v"]:
+        rf["ret_sp"] = rf["ret_pc"] = 0
+    return rf
+
+
+def chain_walk(chain) -> list[tuple[dict, bytes, int]]:
+    """Every instruction start of the chain as the EU meets it: (the register file before, the
+    six bytes, the code offset), from the chain's presets (the prelude's tail first, as
+    Machine), following the taken transfers, to the HALT or a string form."""
+    from .image import prelude_tail
+    from .sim.frozen import templates as T
+    code = prelude_tail(chain, True) + chain.code
+    regs, pfx, k, out = dict(chain.regs), None, 0, []
+    while k < len(code) and len(out) < 4096:
+        op = T.decode(code, k, regs)
+        if op.cls in T.STRING_CLASSES:
+            break
+        six = bytes(code[k:k + 6]).ljust(6, b"\x90")
+        out.append((rf_fields(regs, pfx), six, k))
+        if op.cls == "halt":
+            break
+        T.execute(op, code, regs)
+        pfx = op.opcode if op.cls == "prefix" else None
+        k = op.target if op.target is not None else k + op.length
+    return out
+
+
+EA_FORMS = (bytes([0x8B]), bytes([0x89]), bytes([0x8D]), bytes([0xC7]), bytes([0x01]),
+            bytes([0xFF]), bytes([0x8F]), bytes([0xF7]), bytes([0x81]))
+
+
+def regfile_vectors(families, seed: int = 69, per_code: int = 3) -> tuple[str, dict]:
+    """The V35RF-1 vector file over the families' chains (see the section comment) and its
+    counts (walk, random, modes)."""
+    import random
+
+    from .normalize import load_runs, normalize
+    rnd = random.Random(seed)
+    lines, seen, codes = [], set(), {}
+    counts = {"walk": 0, "random": 0, "modes": 0}
+
+    def add(line, kind):
+        if line is not None and line not in seen:
+            seen.add(line)
+            lines.append(line)
+            counts[kind] += 1
+
+    chains = set()
+    for f in families:
+        for rec in load_runs(f):
+            ch = normalize(rec).chain
+            key = (bytes(ch.code), tuple(sorted(ch.regs.items())),
+                   getattr(ch, "prelude_marker", None))
+            if key in chains:
+                continue
+            chains.add(key)
+            for rf, six, k in chain_walk(ch):
+                add(regfile_case(rf, six, k), "walk")
+                codes.setdefault(six, k)
+    for six, k in sorted(codes.items()):
+        for _ in range(per_code):
+            add(regfile_case(_random_rf(rnd, six), six, k), "random")
+    for head in EA_FORMS:
+        for mod in range(3):
+            for rm in range(8):
+                for reg in range(8):
+                    if head[0] in (0xC7, 0x8F, 0x81) and reg:
+                        continue                # /0 forms
+                    if head[0] == 0xFF and reg != 6 or head[0] == 0xF7 and reg not in (4, 6):
+                        continue                # PUSH r/m, MULU / DIVU
+                    tail = bytes(rnd.randrange(256) for _ in range(4))
+                    six = (head + bytes([mod << 6 | reg << 3 | rm]) + tail)[:6]
+                    pc = rnd.randrange(0x40, 0x800)
+                    add(regfile_case(_random_rf(rnd, six), six, pc), "modes")
+    return f"{RFFORMAT} {len(lines)}\n" + "\n".join(lines) + "\n", counts
+
+
+def check_regfile(families, keep: Path | None = None) -> tuple[int, dict, str]:
+    """(the bench's bad vectors, the counts, its output) of regfile_vectors on the bench."""
+    text, counts = regfile_vectors(families)
+    with tempfile.TemporaryDirectory() as tmp:
+        d = keep if keep is not None else Path(tmp)
+        path = d / "regfile.rfvec"
+        path.write_text(text)
+        p = subprocess.run([str(RFBENCH), str(path)], capture_output=True, text=True, cwd=ROOT)
+    sm = {}
+    for line in p.stdout.splitlines():
+        if line.startswith("SUMMARY"):
+            sm = {k: int(v) for k, v in (x.split("=") for x in line.split()[1:])}
+    if p.returncode not in (0, 1) or not sm:
+        raise RuntimeError(f"bench exit {p.returncode}: {(p.stderr or p.stdout)[-300:]}")
+    counts["vectors"] = sm["vectors"]
+    return sm["bad"], counts, p.stdout
+
+
 # The command ------------------------------------------------------------------------------
 
 def _work(args):
@@ -2480,10 +2709,25 @@ def main(argv=None) -> int:
                    help="C3: the EU with the RTL queue and bus unit (the arbiter scripted)")
     p.add_argument("--core", action="store_true",
                    help="C4: the whole core (v35_chain_core.sv), the arbiter in RTL")
+    p.add_argument("--regfile", action="store_true",
+                   help="D1: the register file's unit bench (v35_rf_tb.sv) on the families' forms")
     p.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
     p.add_argument("--keep", type=Path, help="keep the vector files and bench outputs here")
     p.add_argument("--show", type=int, default=5, help="failing runs to show per family")
     args = p.parse_args(argv)
+    if args.regfile:
+        if not RFBENCH.exists():
+            print(f"error: {RFBENCH} is missing (fpga/v35s/build_rf_tb.sh)", file=sys.stderr)
+            return 2
+        if args.keep:
+            args.keep.mkdir(parents=True, exist_ok=True)
+        bad, counts, out = check_regfile(args.family, args.keep)
+        for line in out.splitlines()[:args.show]:
+            if line.startswith("FAIL"):
+                print("    " + line)
+        print(f"regfile {' '.join(args.family)}: {counts['vectors']} vectors (walk "
+              f"{counts['walk']}, random {counts['random']}, modes {counts['modes']}), {bad} bad")
+        return 1 if bad else 0
     mode = ("core" if args.core else "joint3" if args.joint3 else "eu" if args.eu
             else "joint" if args.joint else "queue" if args.queue else "biu")
     bench = {"biu": BENCH, "eu": EBENCH, "joint3": EBENCH, "core": CBENCH}.get(mode, QBENCH)

@@ -520,7 +520,8 @@ class StringStage(unittest.TestCase):
         from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
         self.assertEqual(fit.STAGE_FAMILIES[13], ["F24"])
         self.assertNotIn("F24", UNMODELLED)
-        self.assertEqual(set(fit.F24_ENUMS), {"str_take", "str_setup", "str_overrun", "str_hold"})
+        self.assertEqual(set(fit.F24_ENUMS), {"str_take", "str_setup", "str_overrun", "str_hold",
+                                              "str_last", "str_io_latch", "str_count"})
         for name, values in fit.F24_ENUMS.items():
             self.assertEqual(values, OPTIONS[name])
         classes = {p.split(".")[0] for p in fit.F24_INTS}

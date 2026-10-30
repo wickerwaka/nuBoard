@@ -273,6 +273,31 @@ OPTIONS = {
     # (WP67, F24) str_hold: a compare's element ends with its last read (none) / then holds
     # fetch requests for the class's chold clocks (hold: the compare's result)
     "str_hold": ("none", "hold"),  # (WP67, F24)
+    # (WP70, F24) str_last: the CW-ending element's last cycle takes the class's last clocks
+    # under REP only (rep) / also the one element of an unprefixed form, which is the element
+    # that ends the instruction (all). F24-out-s-outm-b-k1-pE-w0, rel t_fill: the read 94, silicon
+    # I/O 103 (rep: 102); REP OUTM's CW-ending I/O is a clock later than the others' (last = 1).
+    # Flip at the fit (fit-wp70): rep -14 F24, nothing else
+    "str_last": ("rep", "all"),  # (WP70, F24)
+    # (WP70, F24) str_io_latch: a string form's I/O write leaves the data latch as it is (none)
+    # / takes its datum from the data latch (the element's read data) and holds it wlatch clocks
+    # from its issue, as a memory write does (write): an I/O form of wlatch_cls starting
+    # meanwhile waits for it and, wlatch_hold, holds fetches. F24-out-s-outm-b-k1-pE-w0, rel
+    # t_fill: the OUTM's I/O 103-105, the closing OUT (port form) after it: silicon F107 (none:
+    # F106); F24-out-s-outm-b-k2-pE-w0: a second OUTM after it (no port byte): silicon F106.
+    # Flip at the fit: none -14 F24, nothing else
+    "str_io_latch": ("none", "write"),  # (WP70, F24)
+    # (WP70, F24) str_count: a string form's bus requests count their setup as a memory data
+    # request's (data: data_while_fetch, no clock while a fetch is in flight) / as a DW-form I/O
+    # request's (dw: the form has no operand byte and takes its addresses from IX, IY and DW:
+    # every clock but a memory cycle's wait state, io_count=nowait, and with dw_count=bus not
+    # the clock a bus cycle starts on its post or move-in clock). Unprefixed pairs, rel t_fill:
+    # F24-out-s-stm-b-k2-pO-w0, the first STM's write ends 98, the second's at 109 (D1end+11 at
+    # every wait); -pE-w0..w2, the fetch at D1end+1 on the second's start: 109, 112, 115
+    # (D1end+12+w: the fetch's first clock and its wait states); the first instance moves in
+    # on M0's I/O issue 84 and writes at 95 (+11 at every wait): data needs two setups.
+    # Flip at the fit (setup one less in six classes, LDM exec one more): data -110 F24
+    "str_count": ("data", "dw"),  # (WP70, F24)
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -656,6 +681,9 @@ class Config:
     str_overrun: str = "none"          # (WP67)
     str_setup: str = "clocks"          # (WP67)
     str_hold: str = "none"             # (WP67)
+    str_last: str = "rep"              # (WP70)
+    str_io_latch: str = "none"         # (WP70)
+    str_count: str = "data"            # (WP70)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

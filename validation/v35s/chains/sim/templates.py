@@ -976,7 +976,8 @@ def _string_steps(op: Op, cfg) -> list[tuple]:
         return c("loop1") if i == 1 and "loop1" in has else c("loop")
 
     if op.rep is None:
-        return [("clocks", c("pre"))] + element(0, c("setup")) + [("clocks", c("exec"))]
+        return ([("clocks", c("pre"))] + element(0, c("setup"), last=cfg.str_last == "all")
+                + [("clocks", c("exec"))])
     seq = [("take", 1) if cfg.str_take == "sync" else ("take", 1, "chain")]
     if cfg.str_take == "quiet":
         seq.append(("quiet",))

@@ -3,15 +3,16 @@
 // The Verilator bench top for the chain-model core (HDL plan, C4; C5: the refresh controller): v35_chain_core with its state
 // bundles (V35S_STATE_DUMP), driven and read by v35_core_tb.cpp from the frozen model's vectors
 // (validation/v35s/chains/rtl_vectors.py --core: the EU's, the queue's, the bus unit's and the
-// arbiter's of the same run). The bench serves the core's memory from the chain's image and
-// Phase D's operand records and write data from the vectors; every timing decision is the core's.
+// arbiter's of the same run). The bench serves the core's memory from the chain's image (the code
+// window, the fetches, the delivered words); every timing decision is the core's, and (D1) the
+// operand records, the register file and the EU's write data are the core's too.
 // Build: fpga/v35s/build_core_tb.sh (binary in build/fpga/v35s/core-tb/).
 module v35_core_tb #(
     parameter int NQ = 16,
     parameter int NXOP = 6,
     parameter int NXQ = 8,
     parameter int JSLOT = 40,
-    parameter int STATE_W = 582,
+    parameter int STATE_W = 762,
     parameter int QSTATE_W = 180,
     parameter int ASTATE_W = 103,
     parameter int RSTATE_W = 24
@@ -33,12 +34,10 @@ module v35_core_tb #(
     input  wire        refresh_on,
     input  wire [6:0]  init_counter,
 
-    // Phase D: the operand records of the clock's starts, the EU's write data
-    input  wire [212:0] opnd_a,
-    input  wire [212:0] opnd_b,
-    input  wire [15:0] eu_data,
-
-    // memory
+    // memory: (D1) the code window the EU decodes its starts from (the twelve bytes from
+    // code_addr), a fetch's word, the delivered word
+    output wire [19:0] code_addr,
+    input  wire [95:0] code_win,
     output wire [19:0] fetch_addr,          // a fetch starting this clock: its address ...
     input  wire [15:0] fetch_data,          // ... and the word there
     input  wire [15:0] data_in,             // the bus's data (latched mid-B3)
@@ -64,7 +63,14 @@ module v35_core_tb #(
     output wire        refrq_n
 `ifdef V35S_STATE_DUMP
     ,
-    input  wire [3:0]  mutate,              // the arbiter's mutation tests
+    input  wire [3:0]  mutate,              // the mutation tests (1..7 the arbiter's, 8..10 the EU's)
+    // (D1) the operand record of the clock's first and second start and the register file
+    // after each one's execute; the EU cycle's datum (AW)
+    output wire [196:0] opr_a,
+    output wire [196:0] opr_b,
+    output wire [179:0] rfx_a,
+    output wire [179:0] rfx_b,
+    output wire [15:0] x_data,
     // B3: every machine's state after every phase (the EU's, the queue's after each op stage,
     // the arbiter's after X and at the end), the registered ones, the clock's ops and cycle
     output wire [STATE_W-1:0] eu_c,

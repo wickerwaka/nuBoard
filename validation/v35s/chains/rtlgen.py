@@ -482,6 +482,13 @@ def prelude_constants() -> dict:
     return {"POP_ADDR": PRELUDE_MARKER_STACK, "PSW": PSW}
 
 
+def regfile_constants() -> dict:
+    """(D1) the register file's constants from the frozen templates.execute: the word every
+    memory read returns (the data fill, types.DATA_FILL's bytes)."""
+    from .sim.frozen import templates
+    return {"FILL_WORD": templates.FILL_WORD}
+
+
 def queue_constants() -> dict:
     """The frozen queue's constants (queue.py): its storage and the request rule's word."""
     from .sim.frozen import queue
@@ -584,6 +591,9 @@ def render(fit_path: Path | None = None) -> str:
     w("// the prelude's POP PSW stack read, issued on the model's clock 0 (prelude_anchor=pop)")
     w(f"localparam logic [19:0] V35_PRELUDE_POP_ADDR = 20'h{pc['POP_ADDR']:05X};")
     w(f"localparam logic [15:0] V35_PRELUDE_PSW = 16'h{pc['PSW']:04X};")
+    rc = regfile_constants()
+    w("// (D1) the register file (frozen templates.execute): every memory read's word")
+    w(f"localparam logic [15:0] V35_FILL_WORD = 16'h{rc['FILL_WORD']:04X};")
     for i, k in enumerate(KINDS):
         w(f"localparam logic [2:0] V35_K_{_ident(k)} = 3'd{i};")
     for i, k in enumerate(BWIDTHS):

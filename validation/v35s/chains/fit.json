@@ -304,7 +304,7 @@
    "pre": 0,
    "rexit": 20,
    "rpre": 5,
-   "setup": 10,
+   "setup": 9,
    "zexit": 10
   },
   "str_in": {
@@ -319,13 +319,13 @@
    "zexit": 11
   },
   "str_load": {
-   "exec": 1,
+   "exec": 2,
    "first": 14,
    "loop": 9,
    "pre": 0,
    "rexit": 15,
    "rpre": 6,
-   "setup": 10,
+   "setup": 9,
    "zexit": 9
   },
   "str_move": {
@@ -337,7 +337,7 @@
    "pre": 0,
    "rexit": 12,
    "rpre": 5,
-   "setup": 10,
+   "setup": 9,
    "zexit": 10
   },
   "str_out": {
@@ -350,7 +350,7 @@
    "pre": 0,
    "rexit": 13,
    "rpre": 5,
-   "setup": 11,
+   "setup": 10,
    "zexit": 11
   },
   "str_scan": {
@@ -364,7 +364,7 @@
    "pre": 0,
    "rexit": 20,
    "rpre": 5,
-   "setup": 11,
+   "setup": 10,
    "zexit": 10
   },
   "str_store": {
@@ -374,7 +374,7 @@
    "pre": 0,
    "rexit": 12,
    "rpre": 5,
-   "setup": 12,
+   "setup": 11,
    "zexit": 10
   },
   "xlat": {
@@ -593,7 +593,10 @@
  "slot_latch": true,
  "slot_room": "word",
  "start_sync": "b2b_modrm",
+ "str_count": "dw",
  "str_hold": "hold",
+ "str_io_latch": "write",
+ "str_last": "all",
  "str_overrun": "read",
  "str_setup": "nowait",
  "str_take": "sync",

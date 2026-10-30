@@ -319,16 +319,18 @@ class EUVectors(unittest.TestCase):
         cls.cfg = Config.fitted()
 
     def test_fields_and_ops_are_the_rtls(self):
-        """EFIELDS is v35_st_t's declaration order ({d, e, r[2..0]}), QVIEW and BVIEW the
+        """EFIELDS is v35_st_t's declaration order ({d, e, f, r[2..0]}), QVIEW and BVIEW the
         views', the op codes the queue's and the arbiter's touches XOPS."""
         sv, dec = EU_SV.read_text(), DEC_SV.read_text()
         d = _sv_fields(dec, "v35_dec_t")
         e = _sv_fields(sv, "v35_eus_t")
         r = _sv_fields(sv, "v35_req_t")
+        f = _sv_fields(sv, "v35_rf_t")
+        self.assertEqual(f, [n for n, _ in rtl_vectors.FFIELDS])     # (D1) the register file
         self.assertEqual(d, [n for n, _ in rtl_vectors.DFIELDS])
         self.assertEqual(e, [n for n, _ in rtl_vectors.EUFIELDS])
         self.assertEqual(r, [n for n, _ in rtl_vectors.RFIELDS])
-        self.assertEqual(_sv_fields(sv, "v35_st_t"), ["d", "e", "r"])
+        self.assertEqual(_sv_fields(sv, "v35_st_t"), ["d", "e", "f", "r"])
         self.assertIn("v35_req_t [2:0]     r;", sv)
         self.assertEqual(_sv_fields(dec, "v35_qview_t"), list(rtl_vectors.QVIEW))
         self.assertEqual(_sv_fields(dec, "v35_bview_t"), [n for n, _ in rtl_vectors.BVIEW])
@@ -419,7 +421,8 @@ class EUBench(unittest.TestCase):
     def test_bench_catches_mutations(self):
         """The decoder: the queue's available() read as 0 on a take (the RTL decoder takes
         nothing: need and the take's state differ). The EU: an instruction's shift count one
-        more (its count loop one iteration longer: resume differs). The vectors as made pass."""
+        more in the model's record (D1: the RTL computes the count from CL or the byte, so the
+        start's record differs in its count). The vectors as made pass."""
         s = normalize(_run("F12", "F12-b-none-n2-shli-pO-w1"))
         text, _, _ = rtl_vectors.eu_vectors(s.chain, Config.fitted(), s.chain_base)
         lines = text.splitlines()
@@ -443,7 +446,7 @@ class EUBench(unittest.TestCase):
         bad[j] = " ".join(f)
         p = self._bench(bad)
         self.assertEqual(p.returncode, 1)
-        self.assertRegex(p.stdout, r"FAIL clock \d+ \w+(?: \w)? e_(count|res|fmt)")
+        self.assertRegex(p.stdout, r"FAIL clock \d+ start \d+ record count ")
 
 
 # C4 ------------------------------------------------------------------------------------------
@@ -714,6 +717,75 @@ class CoreBench(unittest.TestCase):
                 self.assertEqual(r.error, "")
                 self.assertFalse(r.ok)
                 self.assertRegex(r.first, r"^FAIL clock \d+ ")
+
+    def test_bench_catches_register_file_mutations(self):
+        """(D1) the register file's mutations (v35_eu.sv `mutate` 8..10): [BW+IX] computed
+        without IX (an EA mode), a push's SP step of 4, MOV r8,imm8 written to the other half
+        of its word (a write-back: CL into CH); the bench fails each at the start's record or
+        the register file after it (the EU's state rows carry both: the first failure is
+        the state's after the starting phase, or the start's own check)."""
+        cfg = Config.fitted()
+        for mut, (family, part), state, what in (
+                (8, ("F21", "F21-out-l0-ld-bw_ix_d16-pE-w0"), "e_ea", "record ea"),
+                (9, ("F21", "F21-push-l0-ld-bw-pE-w0"), "f_sp", "registers sp"),
+                (10, ("F16", "F16-s-none-cl1-n1-shlcl-pO-w0"), "f_cw", "registers cw")):
+            rec = _run(family, part)
+            with self.subTest(mutate=mut):
+                self.assertTrue(rtl_vectors.check_core_run(rec, cfg).ok)
+                r = rtl_vectors.check_core_run(rec, cfg, mutate=mut)
+                self.assertEqual(r.error, "")
+                self.assertFalse(r.ok)
+                self.assertGreater(r.opnd_bad, 0)
+                self.assertRegex(r.first,
+                                 rf"^FAIL clock \d+ (after \w+ {state}|start \d+ {what}) ")
+
+
+# D1 ------------------------------------------------------------------------------------------
+
+class RegfileVectors(unittest.TestCase):
+    def test_walk_is_the_models_starts(self):
+        """chain_walk's starts are the EU's (the operand records the recorder takes from the
+        running model, in order), and the walk's register file is the EU's after each."""
+        cfg = Config.fitted()
+        s = normalize(_run("F23", None))
+        _, _, erec = rtl_vectors.eu_vectors(s.chain, cfg, s.chain_base)
+        walk = rtl_vectors.chain_walk(s.chain)
+        self.assertEqual([o.offset for o in erec.opnds], [k for _, _, k in walk])
+        self.assertEqual([o.code for o in erec.opnds], [c for _, c, _ in walk])
+        self.assertEqual([o.rf for o in erec.opnds[:-1]], [rf for rf, _, _ in walk[1:]])
+
+
+@unittest.skipUnless(rtl_vectors.RFBENCH.exists(), "bench not built: fpga/v35s/build_rf_tb.sh")
+class RegfileBench(unittest.TestCase):
+    FAMILIES = ("F0", "F0w") + tuple(f"F{i}" for i in range(1, 30))
+
+    def test_every_form_against_execute(self):
+        """eu_decode, v35_operands and v35_execute against templates.decode and execute on
+        every instruction start of the corpus's chains, every encoding on random register
+        files, and the 24 ModR/M memory modes on the address-computing forms."""
+        bad, counts, out = rtl_vectors.check_regfile(self.FAMILIES)
+        self.assertEqual(bad, 0, out[-1500:])
+        self.assertGreater(counts["walk"], 1000)
+        self.assertGreater(counts["modes"], 24 * 8)
+
+    def test_mutations_are_caught(self):
+        """The unit bench fails each register-file mutation on the mode vectors."""
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        text, _ = rtl_vectors.regfile_vectors(("F21",))
+        for mut, field in ((8, "ea"), (9, "sp"), (10, "")):
+            lines = text.splitlines()
+            bad = [lines[0]] + [" ".join(f[:18] + [str(mut)] + f[19:])
+                                for f in (ln.split() for ln in lines[1:])]
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "m.rfvec"
+                path.write_text("\n".join(bad) + "\n")
+                p = subprocess.run([str(rtl_vectors.RFBENCH), str(path)], capture_output=True,
+                                   text=True)
+            with self.subTest(mutate=mut):
+                self.assertEqual(p.returncode, 1, p.stdout[-300:])
+                self.assertRegex(p.stdout, rf"FAIL vector \d+ code \w+ {field}")
 
 
 if __name__ == "__main__":

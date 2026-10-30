@@ -26,12 +26,22 @@
 // The arbiter (C4) is not here: its decisions arrive as the touches it makes (`xop`: a data
 // cycle issued from the slot, a left-out write's slot, the fetch on a start clock, the abort's
 // take sync, a request's free_need and not_before), the cycle it started (`x_*`) and the
-// requests' setup counts (`counts_*`, read by port_ready). The register file (Phase D) gives
-// each instruction's operands (`opnd_a` for the clock's first start, `opnd_b` for a second):
-// the effective address, the port, the stack addresses, the shift count, a transfer's
-// target; the RTL decodes the format from the instruction's bytes (eu_decode, templates.decode)
-// and selects the template (v35_tmpl_sel). The data latch is the bus unit's (C1): `bus_*.wl`
-// reads it, `wl_fill_*` fills it.
+// requests' setup counts (`counts_*`, read by port_ready). The RTL decodes the format from the
+// instruction's bytes (eu_decode, templates.decode) and selects the template (v35_tmpl_sel).
+// The data latch is the bus unit's (C1): `bus_*.wl` reads it, `wl_fill_*` fills it.
+//
+// (D1) The register file is the EU's (eu.regs; v35_st_t's `f`, v35_rf_t): its word registers,
+// DS1, PSW's Z, a CALL's return address and the DS1 prefix ahead of the instruction, loaded
+// with the chain's presets through `init_state`. At a start (_start) the EU decodes the
+// instruction at pc from the code window (`code_win`, the twelve bytes at `code_addr`: the
+// model decodes from the image, C3 decision 1), computes its operand record from the register
+// file (v35_operands: the effective address of the 24 ModR/M memory modes, the direct and
+// XLAT forms and the DS1 SFR store; the port, DW or the byte; the stack addresses from SP or
+// BP; the shift count, CL or the byte; a transfer's decision from CW or Z and its target)
+// and then applies the instruction's register effects (v35_execute, templates.execute), so a
+// second start in the clock reads them. `aw_x` is AW at phase X: the model's datum of every
+// EU cycle (bus.start's regs["AW"]). `opr_*`/`rfx_*` (bench only) are each start's record
+// and the register file after it.
 //
 // (C5) With refresh on (`refresh_on`: the chain runs the refresh controller) the EU runs the
 // refresh templates (refresh_hold_steps' tags) and refresh_eu=hold: the micro-boundary map
@@ -42,8 +52,8 @@
 // the refresh's touches from the arbiter (V35_XOP_REFRESH, _SETUP, _BEAT, _HALT_DEFER: what
 // EU.refresh_cost and refresh_post's give-back write). eu.sfr is the RFM store's value.
 // Not built (dead under the fit or another phase's): since_start, since_t, io_pre, stalled,
-// trace, origin, reg_latch_t (wlatch_ir=False), ro, seg_prefix (the SFR store's address comes
-// with the operands), ls_shift (refresh_align=prelude), started (always True under
+// trace, origin, reg_latch_t (wlatch_ir=False), ro, seg_prefix (D1: only its DS1 test, the
+// register file's `pfx`), ls_shift (refresh_align=prelude), started (always True under
 // prelude_tail=segs), refresh_beat (refresh_cost's argument: the arbiter's).
 // The EU's state types (v35_eus_t, the request record v35_req_t, the bundle v35_st_t), a
 // package so that the arbiter (C4) reads the state the module exports after phase L and at
@@ -176,9 +186,34 @@ package v35_eu_pkg;
         logic [2:0]  beat_ext;      // (C5) refresh_post=post_beat: the hold's clocks
     } v35_req_t;
 
+    // ---- (D1) the register file: templates.execute's regs (eu.regs) and eu.seg_prefix's DS1
+    // test (rtl_vectors.FFIELDS, MSB first). The word registers in REG16 order (v35_rf_get's
+    // index: the ModR/M reg / rm field, B8+r); the one segment register the model reads (DS1:
+    // the SFR store's linear address; DS0 = SS = 0 make every other offset linear, PS is the
+    // queue's code base); PSW's Z (regs["Z"], set by CMP r16,r16, None before); one return
+    // address (regs["retSSSS"], CALL's, read by RET); the DS1 prefix ahead of the instruction.
+    typedef struct packed {
+        logic [15:0] aw;
+        logic [15:0] cw;
+        logic [15:0] dw;
+        logic [15:0] bw;
+        logic [15:0] sp;
+        logic [15:0] bp;
+        logic [15:0] ix;
+        logic [15:0] iy;
+        logic [15:0] ds1;
+        logic        z_v;           // Z is known ...
+        logic        z;             // ... and its value
+        logic        ret_v;         // a CALL's return address is held ...
+        logic [15:0] ret_sp;        // ... at this SP ...
+        logic [15:0] ret_pc;        // ... the code offset
+        logic        pfx;           // the instruction before was the DS1 prefix (26h)
+    } v35_rf_t;
+
     typedef struct packed {
         v35_dec_t           d;
         v35_eus_t           e;
+        v35_rf_t            f;      // (D1) the register file
         v35_req_t [2:0]     r;      // r[0] the slot, r[1] and r[2] queued behind it
     } v35_st_t;
 
@@ -411,145 +446,6 @@ package v35_eu_pkg;
             return 1'b1;
         return FIT_SHIFT_TAIL + 2 <= d && d <= eu_rmw_top(e) && (d - FIT_SHIFT_TAIL) % 2 == 0;
     endfunction
-endpackage
-
-module v35_eu
-    import v35_decoder_pkg::*;
-    import v35_eu_pkg::*;
-#(
-    parameter int NQ = 16,                  // queue ops per phase (T and L; P)
-    parameter int NXOP = 6,                 // the arbiter's touches per clock
-    parameter int STATE_W = 582             // $bits(v35_st_t), checked below
-) (
-    input  wire        clock,
-    input  wire        reset_n,
-    input  wire        ce,                  // end of a model clock
-    input  wire [STATE_W-1:0] init_state,   // the state at the end of the model's clock -1
-    input  wire [19:0] code_base,           // the code's linear base (queue.base: a target's)
-    input  wire        refresh_on,          // (C5) the chain runs the refresh controller
-
-    // phase C
-    input  wire        c_eu,                // an EU cycle was delivered (eu.complete) ...
-    input  wire        c_read,              // ... a read
-    input  wire        fetch_done,          // queue.completed counted one (C or A)
-
-    // the bus unit before the choice (T) and after it (P)
-    input  wire [17:0] bus_t,
-    input  wire [17:0] bus_p,
-    // (C5) the early fetch run before the choice (T) and after it (P) (v35_early_t)
-    input  wire [4:0]  early_t,
-    input  wire [4:0]  early_p,
-
-    // the operands of the clock's first and second instruction start (the register file)
-    input  wire [212:0] opnd_a,
-    input  wire [212:0] opnd_b,
-
-    // the queue: its state before each op of a phase (and after the last), and each op's read
-    input  wire [NQ:0][51:0] qv_tl,
-    input  wire [NQ-1:0][7:0] rd_tl,
-    input  wire [NQ:0][51:0] qv_p,
-    input  wire [NQ-1:0][7:0] rd_p,
-
-    // phase X: the arbiter's cycle and touches, the requests' setup counts at T and at P
-    input  wire        x_valid,
-    input  wire [2:0]  x_kind,
-    input  wire        x_eu,                // the cycle is the EU's
-    input  wire [NXOP-1:0][V35_XOP_W-1:0] xop,   // {code (V35_XOP_*), val}
-    input  wire [2:0][6:0] counts_t,
-    input  wire [2:0][6:0] counts_p,
-
-    // phase E: queue.latch_in_t == t after its end_clock
-    input  wire        q_latch_in,
-
-    // the ops
-    output logic [NQ-1:0][32:0] op_tl,
-    output logic [4:0]  n_tl,               // ops in T and L ...
-    output logic [4:0]  n_t,                // ... of which T's
-    output logic [NQ-1:0][32:0] op_p,
-    output logic [4:0]  n_p,
-    output logic [1:0]  n_start,            // instructions started this clock
-    // the data latch fills (the bus unit's wlatch_fill): T, X (the left-out write's slot), P
-    output logic        wl_fill_t,
-    output logic        wl_fill_x,
-    output logic        wl_fill_p,
-    // the data cycle the slot issued in X (its kind V35_K_*, address, width V35_BW_*)
-    output logic        x_cyc,
-    output logic [2:0]  x_cyc_kind,
-    output logic [19:0] x_cyc_addr,
-    output logic [1:0]  x_cyc_width,
-    // the queue's inputs from the decoder and the EU: phase C's snapshot (retry_after), E's
-    output logic [4:0]  qsnap_c,
-    output logic [4:0]  qsnap_e,
-    output logic        e_io,               // the EU runs an IN or OUT whose I/O is to come
-    output logic        e_out,
-    output reg          error,              // sticky: a case the RTL does not cover
-    output logic [7:0]  err_code,           // this clock's (0: none)
-    // for the arbiter (C4): the state after phase L and at the end of the clock (v35_st_t,
-    // v35_eu_pkg), and the requests posted this clock in T/L (positions after L) and in P
-    // (positions at the end): their setup counts start at 0
-    output wire [STATE_W-1:0] state_l,
-    output wire [STATE_W-1:0] state_e,
-    output wire [2:0]   fresh_l,
-    output wire [2:0]   fresh_p
-`ifdef V35S_STATE_DUMP
-    ,
-    output wire [STATE_W-1:0] state_c,
-    output wire [STATE_W-1:0] state_t,
-    output wire [STATE_W-1:0] state_x,
-    output wire [STATE_W-1:0] state_p,
-    output wire [STATE_W-1:0] state_dump
-`endif
-);
-
-    // ---- the queue's op codes (v35_queue.sv V35_QOP_*, rtl_vectors.QOPS)
-    localparam logic [5:0] V35_EQ_TAKE = 6'd1;
-    localparam logic [5:0] V35_EQ_COMMIT = 6'd2;
-    localparam logic [5:0] V35_EQ_IRLOAD = 6'd3;
-    localparam logic [5:0] V35_EQ_START = 6'd4;
-    localparam logic [5:0] V35_EQ_FLUSH = 6'd5;
-    localparam logic [5:0] V35_EQ_DISP = 6'd6;
-    localparam logic [5:0] V35_EQ_HALT = 6'd7;
-    localparam logic [5:0] V35_EQ_EVAL = 6'd8;
-    localparam logic [5:0] V35_EQ_SHIFT_END = 6'd9;
-    localparam logic [5:0] V35_EQ_RETRY_END = 6'd10;
-    localparam logic [5:0] V35_EQ_RETRY_SET = 6'd11;
-    localparam logic [5:0] V35_EQ_RERAISE = 6'd12;
-    localparam logic [5:0] V35_EQ_SHIFT_SET = 6'd13;
-    localparam logic [5:0] V35_EQ_SHIFT_HOLD = 6'd14;
-    localparam logic [5:0] V35_EQ_DROP_RETRY = 6'd15;
-    localparam logic [5:0] V35_EQ_WANT = 6'd16;
-    localparam logic [5:0] V35_EQ_ASKED = 6'd17;
-    localparam logic [5:0] V35_EQ_REQUESTING = 6'd18;
-    localparam logic [5:0] V35_EQ_ROOM = 6'd19;
-    localparam logic [5:0] V35_EQ_STORED = 6'd21;
-    localparam logic [5:0] V35_EQ_AVAIL = 6'd22;
-    localparam logic [5:0] V35_EQ_IO_HELD_SET = 6'd32;
-    localparam logic [5:0] V35_EQ_NOP_HOLD = 6'd34;
-    localparam logic [5:0] V35_EQ_GDISP = 6'd35;
-
-    // ---- error codes (err_code)
-    localparam logic [7:0] V35_EE_OPS = 8'd1;          // more than NQ queue ops in a phase
-    localparam logic [7:0] V35_EE_LOOP = 8'd2;         // the tick's step loop did not settle
-    localparam logic [7:0] V35_EE_DECODE = 8'd3;       // an opcode outside the catalog
-    localparam logic [7:0] V35_EE_TMPL = 8'd4;         // no template for the format
-    localparam logic [7:0] V35_EE_FMT = 8'd5;          // the format is not the operand record's
-    localparam logic [7:0] V35_EE_PC = 8'd6;           // the operand record is not at pc
-    localparam logic [7:0] V35_EE_STEP = 8'd7;         // a step C3 does not build (flush, decide)
-    localparam logic [7:0] V35_EE_SLOT = 8'd8;         // a request slot error
-    localparam logic [7:0] V35_EE_XOP = 8'd9;          // an arbiter touch on an empty slot
-
-
-    if (FIT_RERAISE_OFF != 0) begin : g_reraise
-        $error("v35_eu: refresh_reraise's tail rule is built for reraise_off = 0");
-    end
-    if ($bits(v35_st_t) != STATE_W) begin : g_state_width
-        $error("v35_eu: the state is %0d bits, STATE_W %0d", $bits(v35_st_t), STATE_W);
-    end
-    if ($bits(v35_qview_t) != 52 || $bits(v35_bview_t) != 18 || V35_TMPL_W != 8
-            || V35_FMT_W != 31 || V35_STEP_W != 38) begin : g_port_widths
-        $error("v35_eu: the port widths no longer match the include");
-    end
-
     // the instruction as decoded (templates.decode's Op, the format part)
     typedef struct packed {
         logic       ok;
@@ -574,7 +470,8 @@ module v35_eu
         logic       bus;            // the memory operand has a bus cycle (False: LDEA)
     } v35_op_t;
 
-    // the operand record (rtl_vectors.OpRec, MSB first)
+    // the operand record (rtl_vectors.OpRec, MSB first): (D1) the register file's and the EA
+    // adder's (v35_operands) at the start, the format and template the start's
     typedef struct packed {
         logic [15:0] offset;
         logic [47:0] code;          // the instruction's bytes, the opcode in [47:40]
@@ -589,109 +486,8 @@ module v35_eu
         logic [7:0]  tmpl;
     } v35_opnd_t;
 
-    // the clock's context: the ops, the phase, what happened this clock
-    typedef struct packed {
-        logic [NQ-1:0][32:0] ops_tl;
-        logic [NQ-1:0][32:0] ops_p;
-        logic [4:0]  n_tl;
-        logic [4:0]  n_p;
-        logic        p;             // in phase P
-        logic [1:0]  starts;
-        logic        wl_t;          // the EU filled the data latch in T ...
-        logic        wl_x;          // ... in X (the slot) ...
-        logic        wl_p;          // ... in P
-        logic        retick;
-        logic        held_abort;    // unit_hold held on the aborted cycle's end this clock
-        logic [2:0]  fresh;         // requests posted this clock (their setup count is 0)
-        logic [2:0]  fresh_p;       // ... of them, posted in phase P (C4: the arbiter's)
-        logic        x_cyc;
-        logic [2:0]  x_kind;
-        logic [19:0] x_addr;
-        logic [1:0]  x_width;
-        logic [7:0]  err;
-    } v35_ctx_t;
-
-    // ------------------------------------------------ helpers
-
-    function automatic logic is_cls(input logic [5:0] cls, input int c);
-        is_cls = int'(cls) == c;
-    endfunction
-
-    function automatic logic [9:0] cost(input logic [5:0] cls, input int name);
-        cost = 10'(v35_cost(int'(cls), name));
-    endfunction
-
-    function automatic logic has(input logic [5:0] cls, input int name);
-        has = v35_cost_has(int'(cls), name);
-    endfunction
-
-    function automatic logic is_io(input logic [2:0] rk);
-        is_io = int'(rk) == V35_RK_IO_READ || int'(rk) == V35_RK_IO_WRITE;
-    endfunction
-
-    function automatic logic bus_io(input v35_bview_t b);
-        bus_io = b.kind == V35_K_IO_READ || b.kind == V35_K_IO_WRITE;
-    endfunction
-
-    function automatic void fail(inout v35_ctx_t c, input logic [7:0] code);
-        if (c.err == 8'd0)
-            c.err = code;
-    endfunction
-
-    function automatic logic imm16(input v35_st_t s);
-        imm16 = is_cls(s.e.cls, V35_CLS_IMM) && s.e.imm_bytes == 2'd2;
-    endfunction
-
-    // the queue's state now (before the phase's next op)
-    function automatic v35_qview_t qv(input v35_ctx_t c);
-        if (c.p)
-            qv = v35_qview_t'(qv_p[c.n_p]);
-        else
-            qv = v35_qview_t'(qv_tl[c.n_tl]);
-    endfunction
-
-    // one queue op; returns its read
-    function automatic logic [7:0] q_op(inout v35_ctx_t c, input v35_st_t s,
-                                        input logic [5:0] code, input logic a, input logic b,
-                                        input logic [19:0] val);
-        logic [32:0] w;
-        w = {code, a, b, val, dec_snap(s.d, imm16(s))};
-        q_op = 8'd0;
-        if (!c.p) begin
-            if (int'(c.n_tl) >= NQ) begin
-                fail(c, V35_EE_OPS);
-            end else begin
-                c.ops_tl[c.n_tl] = w;
-                q_op = rd_tl[c.n_tl];
-                c.n_tl = c.n_tl + 5'd1;
-            end
-        end else begin
-            if (int'(c.n_p) >= NQ) begin
-                fail(c, V35_EE_OPS);
-            end else begin
-                c.ops_p[c.n_p] = w;
-                q_op = rd_p[c.n_p];
-                c.n_p = c.n_p + 5'd1;
-            end
-        end
-    endfunction
-
-    function automatic logic [19:0] off20(input int v);   // a signed offset in the op's val
-        off20 = 20'(v);
-    endfunction
-
-    // a request step's address (symbolic sources, rtlgen.ADDR_SRC)
-    function automatic logic [19:0] eu_addr(input v35_eus_t e, input v35_stp_t s);
-        case (int'(s.src))
-            V35_SRC_EA: eu_addr = e.ea;
-            V35_SRC_STACK_READ: eu_addr = {4'd0, e.sr + 16'(2 * int'(s.src_i))};
-            V35_SRC_STACK_WRITE: eu_addr = {4'd0, e.sw - 16'(2 * int'(s.src_i))};
-            V35_SRC_PORT: eu_addr = {4'd0, e.port};
-            default: eu_addr = 20'd0;
-        endcase
-    endfunction
-
-    // ------------------------------------------------ templates.decode (the format)
+    // ------------------------------------------------ templates.decode (the format; D1: in the package, the
+    // register file's unit bench decodes with it too)
 
     function automatic v35_op_t eu_decode(input logic [47:0] code);
         v35_op_t op;
@@ -870,6 +666,534 @@ module v35_eu
             end
         end
         eu_decode = op;
+    endfunction
+
+    // ------------------------------------------------ (D1) the register file and the EA adder
+    // templates.decode's operands and templates.execute's register effects, from the register
+    // file (v35_rf_t) and the instruction's bytes. `mut` is the bench's mutation (0: none;
+    // 8: [BW+IX] without IX, 9: a push's SP step 4, 10: MOV r8,imm8 into the other half).
+
+    // REG16[i]
+    function automatic logic [15:0] v35_rf_get(input v35_rf_t f, input logic [2:0] i);
+        case (i)
+            3'd0: v35_rf_get = f.aw;
+            3'd1: v35_rf_get = f.cw;
+            3'd2: v35_rf_get = f.dw;
+            3'd3: v35_rf_get = f.bw;
+            3'd4: v35_rf_get = f.sp;
+            3'd5: v35_rf_get = f.bp;
+            3'd6: v35_rf_get = f.ix;
+            default: v35_rf_get = f.iy;
+        endcase
+    endfunction
+
+    function automatic v35_rf_t v35_rf_set(input v35_rf_t f0, input logic [2:0] i,
+                                           input logic [15:0] v);
+        v35_rf_t f;
+        f = f0;
+        case (i)
+            3'd0: f.aw = v;
+            3'd1: f.cw = v;
+            3'd2: f.dw = v;
+            3'd3: f.bw = v;
+            3'd4: f.sp = v;
+            3'd5: f.bp = v;
+            3'd6: f.ix = v;
+            default: f.iy = v;
+        endcase
+        v35_rf_set = f;
+    endfunction
+
+    // _set8: REG8[k], the low (k < 4) or high byte of REG16[k & 3]
+    function automatic v35_rf_t v35_rf_set8(input v35_rf_t f, input logic [2:0] k,
+                                            input logic [7:0] v);
+        logic [15:0] w;
+        w = v35_rf_get(f, {1'b0, k[1:0]});
+        if (k[2])
+            w[15:8] = v;
+        else
+            w[7:0] = v;
+        v35_rf_set8 = v35_rf_set(f, {1'b0, k[1:0]}, w);
+    endfunction
+
+    // the instruction's byte i (byte 0 the opcode)
+    function automatic logic [7:0] v35_code_byte(input logic [47:0] code, input int i);
+        v35_code_byte = code[47 - 8 * i -: 8];
+    endfunction
+
+    // templates.decode's operands (_modrm's effective address for the 24 memory modes and the
+    // direct one, A1/A3's and XLAT's; the port; the stack addresses; the shift count; a
+    // transfer's decision and target) from the register file before the instruction, and
+    // _start's SFR store (a DS1-prefixed store whose linear address is at or above the SFR
+    // page: that address). The format and the template are the start's. bad: what the
+    // register file cannot give (BE/BNE with Z unknown, RET without its return address).
+    function automatic v35_opnd_t v35_operands(input v35_rf_t f, input logic [47:0] code,
+                                               input logic [15:0] pc, input v35_op_t op,
+                                               input logic [3:0] mut, output logic bad);
+        v35_opnd_t r;
+        logic [7:0] o, b1, b2, b3;
+        logic [1:0] mod;
+        logic [2:0] rm;
+        logic [15:0] ea, base, disp, tgt;
+        logic [19:0] lin;
+        logic tk;
+        int c;
+        r = '0;
+        bad = 1'b0;
+        o = code[47:40];
+        b1 = code[39:32];
+        b2 = code[31:24];
+        b3 = code[23:16];
+        c = int'(op.cls);
+        r.offset = pc;
+        r.code = code;
+        // the effective address (DS0 = SS = 0: an offset is linear)
+        ea = 16'd0;
+        if (op.ea_v) begin
+            if (o == 8'hA1 || o == 8'hA3) begin
+                ea = {b2, b1};                  // direct, no ModR/M
+            end else if (o == 8'hD7) begin
+                ea = f.bw + {8'd0, f.aw[7:0]};  // XLAT: BW + AL
+            end else begin
+                mod = b1[7:6];
+                rm = b1[2:0];
+                if (mod == 2'd0 && rm == 3'd6) begin
+                    ea = {b3, b2};              // direct
+                end else begin
+                    case (rm)                   // templates.RM
+                        3'd0: base = f.bw + (mut == 4'd8 ? 16'd0 : f.ix);
+                        3'd1: base = f.bw + f.iy;
+                        3'd2: base = f.bp + f.ix;
+                        3'd3: base = f.bp + f.iy;
+                        3'd4: base = f.ix;
+                        3'd5: base = f.iy;
+                        3'd6: base = f.bp;
+                        default: base = f.bw;
+                    endcase
+                    disp = mod == 2'd1 ? {{8{b2[7]}}, b2} : mod == 2'd2 ? {b3, b2} : 16'd0;
+                    ea = base + disp;
+                end
+            end
+        end
+        r.ea = {4'd0, ea};
+        if (op.ea_v && f.pfx && (c == V35_CLS_STORE || c == V35_CLS_STORE_IMM)) begin
+            lin = {f.ds1, 4'd0} + {4'd0, ea};   // (WP23) DS1: the SFR store
+            if (lin >= V35_SFR_PAGE)
+                r.ea = lin;
+        end
+        // the port: the byte, or DW
+        if (o >= 8'hE4 && o <= 8'hE7)
+            r.port = {8'd0, b1};
+        else if (o >= 8'hEC && o <= 8'hEF)
+            r.port = f.dw;
+        // the stack: (read, write)
+        if (c == V35_CLS_PUSH || c == V35_CLS_PUSH_IMM || c == V35_CLS_PUSH_R
+                || c == V35_CLS_PREPARE || c == V35_CLS_PUSH_SEG || c == V35_CLS_CALL
+                || c == V35_CLS_PUSH_MEM)
+            r.sw = f.sp - 16'd2;
+        if (c == V35_CLS_POP || c == V35_CLS_POP_R || c == V35_CLS_POP_SEG || c == V35_CLS_RET
+                || c == V35_CLS_POP_MEM)
+            r.sr = f.sp;
+        if (c == V35_CLS_DISPOSE)
+            r.sr = f.bp;
+        // the shift count: C1's byte, D0/D1's 1, D3's CL (shift_count_mask=cl8: the byte)
+        if (o == 8'hC1)
+            r.count = {1'b0, v35_code_byte(code, int'(op.length) - 1)};
+        else if (o == 8'hD0 || o == 8'hD1)
+            r.count = 9'd1;
+        else if (o == 8'hD3)
+            r.count = {1'b0, f.cw[7:0]};
+        // (WP55, F23) a transfer: taken, and its target (a code offset)
+        tk = 1'b0;
+        tgt = 16'd0;
+        if (o == 8'h74 || o == 8'h75 || o == 8'hEB || o == 8'hE2) begin
+            tgt = pc + 16'd2 + {{8{b1[7]}}, b1};
+            if (o == 8'hE2) begin
+                tk = f.cw != 16'd1;             // DBNZ: CW - 1 != 0
+            end else if (o == 8'hEB) begin
+                tk = 1'b1;
+            end else begin
+                bad = !f.z_v;                   // BE / BNE: the flags must be known
+                tk = f.z == (o == 8'h74);
+            end
+        end else if (o == 8'hE9 || o == 8'hE8) begin
+            tgt = pc + 16'd3 + {b2, b1};
+            tk = 1'b1;
+        end else if (o == 8'hC3) begin
+            tgt = f.ret_pc;                     // the CALL's at SP
+            tk = 1'b1;
+            bad = !(f.ret_v && f.ret_sp == f.sp);
+        end
+        r.taken = tk;
+        r.target = tk ? tgt : 16'd0;
+        v35_operands = r;
+    endfunction
+
+    // templates.execute: the register effects of the instruction now started (memory reads
+    // return the data fill, V35_FILL_WORD). bad: a second return address (one is held).
+    function automatic v35_rf_t v35_execute(input v35_rf_t f0, input logic [47:0] code,
+                                            input v35_op_t op, input v35_opnd_t r,
+                                            input logic [3:0] mut, output logic bad);
+        v35_rf_t f;
+        logic [7:0] o, b1, b2, b3, n;
+        logic [1:0] mod;
+        logic [2:0] reg_, rm;
+        logic [15:0] src, x, y;
+        logic [31:0] p, dv, q, rem;
+        int c;
+        f = f0;
+        bad = 1'b0;
+        o = code[47:40];
+        b1 = code[39:32];
+        b2 = code[31:24];
+        b3 = code[23:16];
+        mod = b1[7:6];
+        reg_ = b1[5:3];
+        rm = b1[2:0];
+        c = int'(op.cls);
+        if (o >= 8'hB0 && o <= 8'hB7) begin
+            f = v35_rf_set8(f, mut == 4'd10 ? o[2:0] ^ 3'd4 : o[2:0], b1);
+        end else if (o >= 8'hB8 && o <= 8'hBF) begin
+            f = v35_rf_set(f, o[2:0], {b2, b1});
+        end else if (o >= 8'h91 && o <= 8'h97) begin
+            x = v35_rf_get(f, o[2:0]);          // XCH AW,r16
+            f = v35_rf_set(f, o[2:0], f.aw);
+            f.aw = x;
+        end else if (o == 8'h05) begin
+            f.aw = f.aw + {b2, b1};
+        end else if (o == 8'hA1) begin
+            f.aw = V35_FILL_WORD;
+        end else if (op.modrm) begin
+            src = mod == 2'd3 ? v35_rf_get(f, rm) : V35_FILL_WORD;
+            if (o == 8'h8B) begin
+                f = v35_rf_set(f, reg_, src);
+            end else if (o == 8'h03) begin
+                f = v35_rf_set(f, reg_, v35_rf_get(f, reg_) + src);
+            end else if (o == 8'h23) begin
+                f = v35_rf_set(f, reg_, v35_rf_get(f, reg_) & src);
+            end else if (o == 8'h33) begin
+                f = v35_rf_set(f, reg_, v35_rf_get(f, reg_) ^ src);
+            end else if (o == 8'h87 && mod == 2'd3) begin
+                x = v35_rf_get(f, reg_);
+                y = v35_rf_get(f, rm);
+                f = v35_rf_set(f, reg_, y);
+                f = v35_rf_set(f, rm, x);
+            end else if (o == 8'h87) begin
+                f = v35_rf_set(f, reg_, V35_FILL_WORD);
+            end else if (o == 8'h81 && mod == 2'd3 && reg_ == 3'd0) begin
+                f = v35_rf_set(f, rm, v35_rf_get(f, rm) + {b3, b2});
+            end else if ((o == 8'hD1 || o == 8'hD3 || o == 8'hC1) && mod == 2'd3
+                         && reg_ == 3'd4) begin
+                n = o == 8'hD1 ? 8'd1 : o == 8'hD3 ? f.cw[7:0] : b2;   // SHL: the full count
+                p = {16'd0, v35_rf_get(f, rm)} << n;
+                f = v35_rf_set(f, rm, p[15:0]);
+            end else if (o == 8'hF7 && reg_ == 3'd4) begin
+                p = {16'd0, f.aw} * {16'd0, src};   // MULU: DW:AW
+                f.aw = p[15:0];
+                f.dw = p[31:16];
+            end else if (o == 8'hF7 && reg_ == 3'd6 && src != 16'd0) begin
+                dv = {f.dw, f.aw};              // DIVU: AW the quotient, DW the remainder
+                q = dv / {16'd0, src};
+                rem = dv % {16'd0, src};
+                f.aw = q[15:0];
+                f.dw = rem[15:0];
+            end else if (o == 8'h86) begin
+                f = v35_rf_set8(f, reg_, mod != 2'd3 ? V35_FILL_WORD[7:0] : 8'd0);
+            end else if (o == 8'h8D) begin
+                f = v35_rf_set(f, reg_, r.ea[15:0]);   // LDEA: the offset
+            end else if ((o == 8'h3B || o == 8'h39) && mod == 2'd3) begin
+                f.z_v = 1'b1;                   // CMP r16,r16: Z
+                f.z = v35_rf_get(f, reg_) == v35_rf_get(f, rm);
+            end
+        end
+        if (o == 8'hD7)
+            f = v35_rf_set8(f, 3'd0, V35_FILL_WORD[7:0]);   // XLAT: AL from the data fill
+        if (c == V35_CLS_PUSH || c == V35_CLS_PUSH_MEM || c == V35_CLS_PUSH_IMM
+                || c == V35_CLS_PUSH_SEG || c == V35_CLS_PREPARE)
+            f.sp = f.sp - (mut == 4'd9 ? 16'd4 : 16'd2);
+        if (c == V35_CLS_PREPARE) begin         // BP := SP after BP's push, SP -= imm16
+            f.bp = f.sp;
+            f.sp = f.sp - {b2, b1};
+        end
+        if (c == V35_CLS_POP || c == V35_CLS_POP_MEM || c == V35_CLS_POP_SEG)
+            f.sp = f.sp + 16'd2;
+        if (c == V35_CLS_PUSH_R)
+            f.sp = f.sp - 16'd16;               // eight words
+        if (c == V35_CLS_POP_R)
+            f.sp = f.sp + 16'd16;
+        if (c == V35_CLS_DISPOSE) begin         // SP := BP, BP popped (the data fill)
+            f.sp = f.bp + 16'd2;
+            f.bp = V35_FILL_WORD;
+        end
+        if (c == V35_CLS_DBNZ)
+            f.cw = f.cw - 16'd1;
+        if (c == V35_CLS_CALL) begin            // the return address below SP
+            f.sp = f.sp - 16'd2;
+            bad = f.ret_v && f.ret_sp != f.sp;
+            f.ret_v = 1'b1;
+            f.ret_sp = f.sp;
+            f.ret_pc = r.offset + {13'd0, op.length};
+        end
+        if (c == V35_CLS_RET)
+            f.sp = f.sp + 16'd2;
+        f.pfx = c == V35_CLS_PREFIX && o == 8'h26;   // eu.seg_prefix == 26h (DS1)
+        v35_execute = f;
+    endfunction
+endpackage
+
+module v35_eu
+    import v35_decoder_pkg::*;
+    import v35_eu_pkg::*;
+#(
+    parameter int NQ = 16,                  // queue ops per phase (T and L; P)
+    parameter int NXOP = 6,                 // the arbiter's touches per clock
+    parameter int STATE_W = 762             // $bits(v35_st_t), checked below
+) (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce,                  // end of a model clock
+    input  wire [STATE_W-1:0] init_state,   // the state at the end of the model's clock -1
+    input  wire [19:0] code_base,           // the code's linear base (queue.base: a target's)
+    input  wire        refresh_on,          // (C5) the chain runs the refresh controller
+
+    // phase C
+    input  wire        c_eu,                // an EU cycle was delivered (eu.complete) ...
+    input  wire        c_read,              // ... a read
+    input  wire        fetch_done,          // queue.completed counted one (C or A)
+
+    // the bus unit before the choice (T) and after it (P)
+    input  wire [17:0] bus_t,
+    input  wire [17:0] bus_p,
+    // (C5) the early fetch run before the choice (T) and after it (P) (v35_early_t)
+    input  wire [4:0]  early_t,
+    input  wire [4:0]  early_p,
+
+    // (D1) the code: the twelve bytes from code_addr (the code base + pc at the end of the
+    // last clock, the byte there in [95:88]): the bytes of the clock's first and second start
+    output wire [19:0]  code_addr,
+    input  wire [95:0]  code_win,
+
+    // the queue: its state before each op of a phase (and after the last), and each op's read
+    input  wire [NQ:0][51:0] qv_tl,
+    input  wire [NQ-1:0][7:0] rd_tl,
+    input  wire [NQ:0][51:0] qv_p,
+    input  wire [NQ-1:0][7:0] rd_p,
+
+    // phase X: the arbiter's cycle and touches, the requests' setup counts at T and at P
+    input  wire        x_valid,
+    input  wire [2:0]  x_kind,
+    input  wire        x_eu,                // the cycle is the EU's
+    input  wire [NXOP-1:0][V35_XOP_W-1:0] xop,   // {code (V35_XOP_*), val}
+    input  wire [2:0][6:0] counts_t,
+    input  wire [2:0][6:0] counts_p,
+
+    // phase E: queue.latch_in_t == t after its end_clock
+    input  wire        q_latch_in,
+
+    // the ops
+    output logic [NQ-1:0][32:0] op_tl,
+    output logic [4:0]  n_tl,               // ops in T and L ...
+    output logic [4:0]  n_t,                // ... of which T's
+    output logic [NQ-1:0][32:0] op_p,
+    output logic [4:0]  n_p,
+    output logic [1:0]  n_start,            // instructions started this clock
+    // the data latch fills (the bus unit's wlatch_fill): T, X (the left-out write's slot), P
+    output logic        wl_fill_t,
+    output logic        wl_fill_x,
+    output logic        wl_fill_p,
+    // the data cycle the slot issued in X (its kind V35_K_*, address, width V35_BW_*)
+    output logic        x_cyc,
+    output logic [2:0]  x_cyc_kind,
+    output logic [19:0] x_cyc_addr,
+    output logic [1:0]  x_cyc_width,
+    // the queue's inputs from the decoder and the EU: phase C's snapshot (retry_after), E's
+    output logic [4:0]  qsnap_c,
+    output logic [4:0]  qsnap_e,
+    output logic        e_io,               // the EU runs an IN or OUT whose I/O is to come
+    output logic        e_out,
+    output reg          error,              // sticky: a case the RTL does not cover
+    output logic [7:0]  err_code,           // this clock's (0: none)
+    // for the arbiter (C4): the state after phase L and at the end of the clock (v35_st_t,
+    // v35_eu_pkg), and the requests posted this clock in T/L (positions after L) and in P
+    // (positions at the end): their setup counts start at 0
+    output wire [STATE_W-1:0] state_l,
+    output wire [STATE_W-1:0] state_e,
+    output wire [2:0]   fresh_l,
+    output wire [2:0]   fresh_p,
+    // (D1) the register file's AW after the starts before phase X: an EU cycle's datum
+    output wire [15:0]  aw_x
+`ifdef V35S_STATE_DUMP
+    ,
+    input  wire [3:0]   mutate,             // the bench's mutation tests (v35_operands)
+    // (D1) the operand record of the clock's first and second start, and the register file
+    // after each one's execute
+    output wire [196:0] opr_a,
+    output wire [196:0] opr_b,
+    output wire [179:0] rfx_a,
+    output wire [179:0] rfx_b,
+    output wire [STATE_W-1:0] state_c,
+    output wire [STATE_W-1:0] state_t,
+    output wire [STATE_W-1:0] state_x,
+    output wire [STATE_W-1:0] state_p,
+    output wire [STATE_W-1:0] state_dump
+`endif
+);
+
+    // ---- the queue's op codes (v35_queue.sv V35_QOP_*, rtl_vectors.QOPS)
+    localparam logic [5:0] V35_EQ_TAKE = 6'd1;
+    localparam logic [5:0] V35_EQ_COMMIT = 6'd2;
+    localparam logic [5:0] V35_EQ_IRLOAD = 6'd3;
+    localparam logic [5:0] V35_EQ_START = 6'd4;
+    localparam logic [5:0] V35_EQ_FLUSH = 6'd5;
+    localparam logic [5:0] V35_EQ_DISP = 6'd6;
+    localparam logic [5:0] V35_EQ_HALT = 6'd7;
+    localparam logic [5:0] V35_EQ_EVAL = 6'd8;
+    localparam logic [5:0] V35_EQ_SHIFT_END = 6'd9;
+    localparam logic [5:0] V35_EQ_RETRY_END = 6'd10;
+    localparam logic [5:0] V35_EQ_RETRY_SET = 6'd11;
+    localparam logic [5:0] V35_EQ_RERAISE = 6'd12;
+    localparam logic [5:0] V35_EQ_SHIFT_SET = 6'd13;
+    localparam logic [5:0] V35_EQ_SHIFT_HOLD = 6'd14;
+    localparam logic [5:0] V35_EQ_DROP_RETRY = 6'd15;
+    localparam logic [5:0] V35_EQ_WANT = 6'd16;
+    localparam logic [5:0] V35_EQ_ASKED = 6'd17;
+    localparam logic [5:0] V35_EQ_REQUESTING = 6'd18;
+    localparam logic [5:0] V35_EQ_ROOM = 6'd19;
+    localparam logic [5:0] V35_EQ_STORED = 6'd21;
+    localparam logic [5:0] V35_EQ_AVAIL = 6'd22;
+    localparam logic [5:0] V35_EQ_IO_HELD_SET = 6'd32;
+    localparam logic [5:0] V35_EQ_NOP_HOLD = 6'd34;
+    localparam logic [5:0] V35_EQ_GDISP = 6'd35;
+
+    // ---- error codes (err_code)
+    localparam logic [7:0] V35_EE_OPS = 8'd1;          // more than NQ queue ops in a phase
+    localparam logic [7:0] V35_EE_LOOP = 8'd2;         // the tick's step loop did not settle
+    localparam logic [7:0] V35_EE_DECODE = 8'd3;       // an opcode outside the catalog
+    localparam logic [7:0] V35_EE_TMPL = 8'd4;         // no template for the format
+    localparam logic [7:0] V35_EE_FMT = 8'd5;          // (C3; D1: the record is the RTL's) unused
+    localparam logic [7:0] V35_EE_PC = 8'd6;           // the operand record is not at pc
+    localparam logic [7:0] V35_EE_STEP = 8'd7;         // a step C3 does not build (flush, decide)
+    localparam logic [7:0] V35_EE_SLOT = 8'd8;         // a request slot error
+    localparam logic [7:0] V35_EE_XOP = 8'd9;          // an arbiter touch on an empty slot
+    localparam logic [7:0] V35_EE_RF = 8'd10;          // (D1) the register file cannot give it
+
+
+    if (FIT_RERAISE_OFF != 0) begin : g_reraise
+        $error("v35_eu: refresh_reraise's tail rule is built for reraise_off = 0");
+    end
+    if ($bits(v35_st_t) != STATE_W) begin : g_state_width
+        $error("v35_eu: the state is %0d bits, STATE_W %0d", $bits(v35_st_t), STATE_W);
+    end
+    if ($bits(v35_qview_t) != 52 || $bits(v35_bview_t) != 18 || V35_TMPL_W != 8
+            || V35_FMT_W != 31 || V35_STEP_W != 38 || $bits(v35_opnd_t) != 197
+            || $bits(v35_rf_t) != 180) begin : g_port_widths
+        $error("v35_eu: the port widths no longer match the include");
+    end
+
+    // the clock's context: the ops, the phase, what happened this clock
+    typedef struct packed {
+        logic [NQ-1:0][32:0] ops_tl;
+        logic [NQ-1:0][32:0] ops_p;
+        logic [4:0]  n_tl;
+        logic [4:0]  n_p;
+        logic        p;             // in phase P
+        logic [1:0]  starts;
+        logic        wl_t;          // the EU filled the data latch in T ...
+        logic        wl_x;          // ... in X (the slot) ...
+        logic        wl_p;          // ... in P
+        logic        retick;
+        logic        held_abort;    // unit_hold held on the aborted cycle's end this clock
+        logic [2:0]  fresh;         // requests posted this clock (their setup count is 0)
+        logic [2:0]  fresh_p;       // ... of them, posted in phase P (C4: the arbiter's)
+        logic        x_cyc;
+        logic [2:0]  x_kind;
+        logic [19:0] x_addr;
+        logic [1:0]  x_width;
+        logic [7:0]  err;
+        v35_opnd_t [1:0] opr;       // (D1) the starts' operand records ...
+        v35_rf_t [1:0] rfx;         // ... and the register file after each one's execute
+    } v35_ctx_t;
+
+    logic [15:0] pc_r;                      // (D1) pc at the end of the last model clock
+
+    // ------------------------------------------------ helpers
+
+    function automatic logic is_cls(input logic [5:0] cls, input int c);
+        is_cls = int'(cls) == c;
+    endfunction
+
+    function automatic logic [9:0] cost(input logic [5:0] cls, input int name);
+        cost = 10'(v35_cost(int'(cls), name));
+    endfunction
+
+    function automatic logic has(input logic [5:0] cls, input int name);
+        has = v35_cost_has(int'(cls), name);
+    endfunction
+
+    function automatic logic is_io(input logic [2:0] rk);
+        is_io = int'(rk) == V35_RK_IO_READ || int'(rk) == V35_RK_IO_WRITE;
+    endfunction
+
+    function automatic logic bus_io(input v35_bview_t b);
+        bus_io = b.kind == V35_K_IO_READ || b.kind == V35_K_IO_WRITE;
+    endfunction
+
+    function automatic void fail(inout v35_ctx_t c, input logic [7:0] code);
+        if (c.err == 8'd0)
+            c.err = code;
+    endfunction
+
+    function automatic logic imm16(input v35_st_t s);
+        imm16 = is_cls(s.e.cls, V35_CLS_IMM) && s.e.imm_bytes == 2'd2;
+    endfunction
+
+    // the queue's state now (before the phase's next op)
+    function automatic v35_qview_t qv(input v35_ctx_t c);
+        if (c.p)
+            qv = v35_qview_t'(qv_p[c.n_p]);
+        else
+            qv = v35_qview_t'(qv_tl[c.n_tl]);
+    endfunction
+
+    // one queue op; returns its read
+    function automatic logic [7:0] q_op(inout v35_ctx_t c, input v35_st_t s,
+                                        input logic [5:0] code, input logic a, input logic b,
+                                        input logic [19:0] val);
+        logic [32:0] w;
+        w = {code, a, b, val, dec_snap(s.d, imm16(s))};
+        q_op = 8'd0;
+        if (!c.p) begin
+            if (int'(c.n_tl) >= NQ) begin
+                fail(c, V35_EE_OPS);
+            end else begin
+                c.ops_tl[c.n_tl] = w;
+                q_op = rd_tl[c.n_tl];
+                c.n_tl = c.n_tl + 5'd1;
+            end
+        end else begin
+            if (int'(c.n_p) >= NQ) begin
+                fail(c, V35_EE_OPS);
+            end else begin
+                c.ops_p[c.n_p] = w;
+                q_op = rd_p[c.n_p];
+                c.n_p = c.n_p + 5'd1;
+            end
+        end
+    endfunction
+
+    function automatic logic [19:0] off20(input int v);   // a signed offset in the op's val
+        off20 = 20'(v);
+    endfunction
+
+    // a request step's address (symbolic sources, rtlgen.ADDR_SRC)
+    function automatic logic [19:0] eu_addr(input v35_eus_t e, input v35_stp_t s);
+        case (int'(s.src))
+            V35_SRC_EA: eu_addr = e.ea;
+            V35_SRC_STACK_READ: eu_addr = {4'd0, e.sr + 16'(2 * int'(s.src_i))};
+            V35_SRC_STACK_WRITE: eu_addr = {4'd0, e.sw - 16'(2 * int'(s.src_i))};
+            V35_SRC_PORT: eu_addr = {4'd0, e.port};
+            default: eu_addr = 20'd0;
+        endcase
     endfunction
 
     // templates.ea_class, has_count, and the format word (rtlgen.FMT_FIELDS)
@@ -1218,18 +1542,29 @@ module v35_eu
 
     // ------------------------------------------------ _start
 
+    // (D1) the instruction's bytes at pc: the code window's (code_addr: pc at the end of the
+    // last clock; a start in the clock moves pc by its length, at most 6, and a flush, which
+    // moves it anywhere, empties the IR, so no start follows it in the clock). ok: pc is in it
+    function automatic logic [47:0] eu_code(input v35_st_t s, output logic ok);
+        logic [15:0] off;
+        off = s.e.pc - pc_r;
+        ok = off <= 16'd6;
+        eu_code = ok ? code_win[95 - 8 * int'(off[2:0]) -: 48] : 48'h909090909090;
+    endfunction
+
     function automatic logic eu_start(inout v35_st_t s, inout v35_ctx_t c,
                                       input v35_bview_t b);
         v35_opnd_t opr;
         v35_op_t op;
         v35_qview_t q;
         v35_st_t s2;
-        logic regonly, ilk, portf, dw0, dw1, dw2;
+        logic regonly, ilk, portf, dw0, dw1, dw2, cok, bad;
         logic [7:0] st, room;
         logic [30:0] fmt;
+        logic [47:0] code;
         int tm, wbu, fl;
         eu_start = 1'b0;
-        opr = v35_opnd_t'(c.starts == 2'd0 ? opnd_a : opnd_b);
+        code = eu_code(s, cok);
         if (s.e.pr_cand && !s.e.pr_now) begin
             // pop_refresh=stall: a refresh started inside POP PSW's clocks after its read
             // stalls them by its length less 2
@@ -1248,7 +1583,9 @@ module v35_eu
             if (st[0])
                 return 1'b0;
             q = qv(c);
-            op = eu_decode(opr.code);
+            op = eu_decode(code);
+            if (s.d.ir_v && !cok)
+                fail(c, V35_EE_PC);             // the instruction is not in the code window
             if (q.arrived_now && b.flen3 && s.d.ir_v
                     && (is_cls(op.cls, V35_CLS_IN) || is_cls(op.cls, V35_CLS_OUT)))
                 return 1'b0;                    // an IN / OUT not on a 3-clock fetch's delivery
@@ -1261,13 +1598,13 @@ module v35_eu
             return 1'b0;                        // refresh_sync=run: the run's next fetch
         if (!s.d.ir_v)
             return 1'b0;
-        op = eu_decode(opr.code);
+        op = eu_decode(code);
         if (!op.ok) begin
             fail(c, V35_EE_DECODE);
             return 1'b0;
         end
-        if (opr.offset != s.e.pc)
-            fail(c, V35_EE_PC);
+        if (!cok)
+            fail(c, V35_EE_PC);                 // the instruction is not in the code window
         if (op.dbit_v && !op.dbit && is_cls(op.cls, V35_CLS_LOAD_ALU) && op.ea_v)
             op.nowrite = 1'b1;                  // dest_route=slot: CMP r/m,reg
         if (op.nowrite)                         // grp_read: the group's RMW class
@@ -1318,7 +1655,10 @@ module v35_eu
             if (st < 8'(FIT_IO_B2B_Q))
                 return 1'b0;
         end
-        // the start
+        // the start: (D1) the operand record from the register file (templates.decode)
+        opr = v35_operands(s.f, code, s.e.pc, op, mut, bad);
+        if (bad)
+            fail(c, V35_EE_RF);
         wbu = int'(s.e.wb) - (s.e.done_v ? int'(s.e.done_age) : 0);   // wb_from=end
         s.e.wbu = 2'(wbu > 0 ? wbu : 0);
         s.e.done_v = 1'b0;
@@ -1366,13 +1706,13 @@ module v35_eu
                    opr.taken ? 20'(cost(op.cls, V35_CN_HOLD)) : 20'd0));   // flush_hold=start
         s.e.wbs = v35_wbsync(int'(op.cls), op.length == 3'd1);
         fmt = eu_fmt(op, opr.count, opr.taken, refresh_on);
-        if (fmt != opr.fmt)
-            fail(c, V35_EE_FMT);
         tm = v35_tmpl_sel(fmt);
         if (tm < 0) begin
             fail(c, V35_EE_TMPL);
             tm = 0;
         end
+        opr.fmt = fmt;
+        opr.tmpl = 8'(tm);
         s.e.tmpl = 8'(tm);
         s.e.count = opr.count;
         s.e.ins = 1'b0;
@@ -1384,6 +1724,14 @@ module v35_eu
         s.e.sw = opr.sw;
         s.e.tgt = opr.target;
         s.e.pc = s.e.pc + {13'd0, op.length};
+        // (D1) templates.execute: the register effects, at the start as the model's
+        s.f = v35_execute(s.f, code, op, opr, mut, bad);
+        if (bad)
+            fail(c, V35_EE_RF);
+        if (c.starts < 2'd2) begin
+            c.opr[c.starts[0]] = opr;
+            c.rfx[c.starts[0]] = s.f;
+        end
         c.starts = c.starts + 2'd1;
         return 1'b1;
     endfunction
@@ -2101,6 +2449,12 @@ module v35_eu
     // ------------------------------------------------ the clock's chain
     v35_st_t r;
     v35_st_t s_c, s_t, s_l, s_x, s_p, s_e;
+    logic [3:0] mut;                        // the bench's mutation (v35_operands, v35_execute)
+`ifdef V35S_STATE_DUMP
+    assign mut = mutate;
+`else
+    assign mut = 4'd0;
+`endif
     v35_ctx_t cx;
     logic [2:0] fr_l;
 
@@ -2155,6 +2509,9 @@ module v35_eu
     assign x_cyc_addr = cx.x_addr;
     assign x_cyc_width = cx.x_width;
     assign err_code = cx.err;
+    assign pc_r = r.e.pc;
+    assign code_addr = code_base + {4'd0, pc_r};
+    assign aw_x = s_l.f.aw;                 // no start in L or X: the AW of phase X's issue
 
     always @(posedge clock) begin
         if (!reset_n) begin
@@ -2177,5 +2534,9 @@ module v35_eu
     assign state_x = s_x;
     assign state_p = s_p;
     assign state_dump = r;
+    assign opr_a = cx.opr[0];
+    assign opr_b = cx.opr[1];
+    assign rfx_a = cx.rfx[0];
+    assign rfx_b = cx.rfx[1];
 `endif
 endmodule

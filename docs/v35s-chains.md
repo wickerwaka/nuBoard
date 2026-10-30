@@ -72,7 +72,7 @@ IX=0100h, IY=0180h, DS0=DS1=SS=0, SP=0F00h, AW=1234h, DW=5678h.
 | F27 | the refresh-on probe family (WP56, acquired 2026-10-28; 646/1,072 read under the thirty-fourth fit, modelled and fitted the same day, the thirty-sixth fit, 778/1,072, then 889/1,072 under the thirty-seventh; RFM FCh at every wait with an ECh twin of every variant at 0 waits; 134 variants per RFM, 804 + 268 = 1,072 runs; ids `F27-<push|out>-<fc|ec>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>`): `room` (`room_ir_imm`: `MOV AW,imm16`^k and `MOV DW,imm16`^k, k = 1..4, against `MOV CL,imm8`^k, k = 1..4, and `ADD DW,imm16`^k, k = 1..3), `unit` (`refresh_drop_unit`: `SHL AW,CL` by 4, 8, 16, `MULU DW`, `SHL AW,8`, each after NOP^0..2), `port` (`refresh_drop_post`, `refresh_lead_port`: `OUT 40h,AL`, `OUT 40h,AW`, `IN AL,40h` after NOP^0..5, `OUT DW,AL` and `IN AL,DW` at n = 0, 2, 4), `beat` (`refresh_beat_t4`: `MOV DS1,AW ; MOV AW,imm16` and `MOV AW,DW ; MOV DW,imm16` after NOP^0..5); the empty frame per marker and RFM | the five refresh-side rules' alternatives in the chain body; the refresh-on model's coverage outside the corpus's cells |
 | F28 | the refresh-on probe family for the thirty-sixth fit's open states (WP59, acquired 2026-10-28; 573/1,088 under the thirty-sixth fit, 820/1,088 under the thirty-seventh, fitted the same day; RFM FCh at every wait with an ECh twin of every variant at 0 waits; 136 variants per RFM, 816 + 272 = 1,088 runs; ids `F28-<push|out>-<fc|ec>-<series>-<label>-n<n>[-k<k>]-p<E|O>-w<N>`): `fence` (the empty frame with the fence's count CL = 24..30, each count moving M0's OUT two clocks against the free-running refresh timer; 31 is the empty frame), `tail` (NOP^n then a register unit then `OUT 40h,AL` at once: `SHL AW,CL` by 8, 16, 24, 31 at n = 0..5, `SHL AW,8` and `MULU DW` at n = 0, 2, 4; `OUT 40h,AW` and `OUT DW,AL` (EE) behind the count-31 shift at n = 0, 2, 4), `beat` (OUT marker only: NOP^n, n = 0..3, then `MOV AW,imm16`^k, `MOV DW,imm16`^k or `ADD DW,imm16`^k, k = 1..4) | the M0 OUT at pO w2 state (the refresh at a unit's exit before an OUT) swept over the refresh phase; the beaten 3-clock fetch's successor against the decoder's state on its delivery clock |
 | F29 | the refresh-off probe family for F26's open reads (WP59, acquired 2026-10-28; 309/456 under the thirty-sixth fit, 427/456 under the thirty-seventh, fitted the same day; RFM ECh at every wait; 76 variants, 456 runs; ids `F29-<push|out>-ec-<series>-<label>-n<n>-p<E|O>-w<N>`): `dio` (OUT marker: NOP^n, n = 0..3, then the stores `MOV [BW+10h],AW`, `MOV [BW+200h],AW`, `MOV [0C00h],AW` and the control `MOV [BW+IX+200h],AW`; the `dw` cells `OUT DW,AL` right after M0 then those stores and the four loads, the displacement take on the DW OUT's issue clock at pO), `gih` (OUT marker: NOP^n, n = 0..2, then INC, NOT, SHL ,1, NEG, DEC `[BW+200h]`; the `dw` cells with those five and the controls `TEST [0C00h],AW`, `TEST [BW+200h],AW`), `pi` (both markers: `OUT 40h,AL NOP^n X OUT 40h,AL` with X = `MOV AW,imm16`, `ADD DW,imm16`, n = 0..3; `NOP^n OUT OUT`, n = 0..5) | `disp_io` in the other mode classes, `grp_io_hold` for the plain group forms, `port_issue` deciding cells |
-| F24 | the string and block forms (WP66, acquired 2026-10-28; modelled and fitted 2026-10-29, the thirty-eighth fit, 746/912): MOVBK (A4/A5), CMPBK (A6/A7), STM (AA/AB), LDM (AC/AD), CMPM (AE/AF), INM (6C/6D), OUTM (6E/6F), byte and word, under the OUT marker and the cost frame, with IX = 0A40h (source), IY = 0C40h (destination) and DW = 0040h (the port) as register presets, DS0 = DS1 = 0, DIR clear, AW = 0 after the fence; series `s` (unprefixed singles, k = 1, 2), `r` (`MOV CW,n` then REP STM/MOVBK/LDM/INM/OUTM, REPNE CMPM, REPE CMPBK for n = 0, 1, 2, 3, 4, 8, and 16 for STM w and MOVBK w; `MOV CW,n` alone as controls), `a` (IX and/or IY odd, n = 1, 2, 4), `t` (REPE/REPNE compares exiting on the fill after one element or over a stored pattern `MOV word [0C42h],0` after two (word) or three (byte) elements, n = 2, 4), `d` (drainers before `MOV CW,4 ; REP STM/MOVBK w`, d = 0, 2, 4); 152 variants, 912 runs; ids `F24-out-<series>-[<rep>-]<op>-<b|w>-(k<k>|n<n>)[-ix|iy|ixiy|-fill|-pat|-d<d>]-p<E|O>-w<N>` | the per-element cadence of a bus stream that takes no queue bytes, the REP setup and exit, the n = 0 check, the compares' termination, the odd split per element, the I/O-plus-memory element |
+| F24 | the string and block forms (WP66, acquired 2026-10-28; modelled and fitted 2026-10-29, the thirty-eighth fit, 746/912; the thirty-ninth, 2026-10-30, 778/912): MOVBK (A4/A5), CMPBK (A6/A7), STM (AA/AB), LDM (AC/AD), CMPM (AE/AF), INM (6C/6D), OUTM (6E/6F), byte and word, under the OUT marker and the cost frame, with IX = 0A40h (source), IY = 0C40h (destination) and DW = 0040h (the port) as register presets, DS0 = DS1 = 0, DIR clear, AW = 0 after the fence; series `s` (unprefixed singles, k = 1, 2), `r` (`MOV CW,n` then REP STM/MOVBK/LDM/INM/OUTM, REPNE CMPM, REPE CMPBK for n = 0, 1, 2, 3, 4, 8, and 16 for STM w and MOVBK w; `MOV CW,n` alone as controls), `a` (IX and/or IY odd, n = 1, 2, 4), `t` (REPE/REPNE compares exiting on the fill after one element or over a stored pattern `MOV word [0C42h],0` after two (word) or three (byte) elements, n = 2, 4), `d` (drainers before `MOV CW,4 ; REP STM/MOVBK w`, d = 0, 2, 4); 152 variants, 912 runs; ids `F24-out-<series>-[<rep>-]<op>-<b|w>-(k<k>|n<n>)[-ix|iy|ixiy|-fill|-pat|-d<d>]-p<E|O>-w<N>` | the per-element cadence of a bus stream that takes no queue bytes, the REP setup and exit, the n = 0 check, the compares' termination, the odd split per element, the I/O-plus-memory element |
 
 Each chain runs at 0, 1 and 2 memory waits (WTC 0000h, 0001h, 0002h; I/O
 stays at 0 waits) and at both parities. F2–F8 are generated twice, with
@@ -4907,7 +4907,7 @@ n = 0 pE is exact; the `dw` RMW cells at pE F98 D101 against F95 F98 D101 (15 ru
 group-form fetch hold rather than an I/O-recovery hold; no PUSH control was run, so whether an I/O is needed at all is
 open. The `[BW]` forms stay exact in F26.
 
-### The string and block forms: a bus stream that takes no bytes (F24, 2026-10-28; the thirty-eighth fit)
+### The string and block forms: a bus stream that takes no bytes (F24, 2026-10-28; the thirty-eighth and thirty-ninth fits)
 
 F24 (WP66, generator comment block in `families.py`, scratchpad wp66/) puts the seven string forms under the OUT
 marker's cost frame: 912 runs at 0.25 s each, every one of the 93 repeats identical up to a constant tick shift. The
@@ -4960,9 +4960,10 @@ two facts, now in the walk (912/912 match):
   pattern, where both conditions end the repeat on the same element, the cost equals the n = 4 pattern case.
 
 Open: the CMPM first-to-second spacing (10 + w against the steady 12 + w); REPC/REPNC (65/64) need a known carry
-after the fence and are left to a later family. The model is the thirty-eighth fit ("The thirty-eighth fit" under
-Model): the str_* classes as templates (setup, element, overrun as an enum, exit, the n = 0 check), 746/912, fitted
-under the corpus guard with nothing lost.
+after the fence and are left to a later family. The model is the thirty-ninth fit ("The thirty-eighth fit" and "The
+thirty-ninth fit" under Model): the str_* classes as templates (setup, element, overrun as an enum, exit, the n = 0
+check), the unprefixed form's element as the CW-ending one, the string I/O write through the data latch and the
+string requests counted as a DW form's, 778/912, fitted under the corpus guard with nothing lost elsewhere.
 
 ## Model
 
@@ -4983,7 +4984,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the thirty-eighth fit since 2026-10-29): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the thirty-ninth fit since 2026-10-30): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -5147,9 +5148,53 @@ a parameter that wanted to vary with a knob and so a structural finding, none sp
 - **A single OUTM** (24; I/O +1): the model's I/O a clock early; `mid` one higher lands the I/O but puts the next fetch a
   clock early, since silicon leaves an idle clock after the OUTM's I/O cycle that an I/O data step does not.
 
-### Fitted structure (thirty-eighth fit, 2026-10-29)
+**The thirty-ninth fit** (`fit.json`, 2026-10-30, md5 93e32c36; scratchpad wp70/fit-wp70.json, WP70) takes two of
+the thirty-eighth's four miss shapes as mechanisms and leaves the other two as facts. Three new enums, 239 fields; the
+only integer moves are in the string classes, where `setup` is one less in six of the seven (`str_move`, `str_cmp`,
+`str_load` 9, `str_scan`, `str_out` 10, `str_store` 11) and `str_load` `exec` is 2, the counterpart of `str_count=dw`
+below (the clock a bus cycle starts on no longer counts). Stage 13 again, from a hand configuration an F24-only
+per-class descent produced (the sweep from the tracked fit stopped at 764/912 with `str_count=data`: at the old
+integers the move scores 668 and the sweep screens it out before descending inside it); the fitter kept the hand
+configuration with no move. The enums, each in `sim/config.py` OPTIONS with the old behaviour as DEFAULT and a dated
+comment; `test_sim.StringForms` pins each against its alternative on a deciding run:
 
-Thirty-eight fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+| Enum (value) | Mechanism | Pinned by |
+| --- | --- | --- |
+| `str_last=all` (rep) | the one element of an unprefixed form is the element that ends the instruction, so its last cycle takes the class's `last` clocks as a REP form's CW-ending element does | `s-outm-b-k1-pE-w0`: read 94, I/O 103 (rep: 102), fetch 107; rep −14 F24 |
+| `str_io_latch=write` (none) | a string form's I/O write takes its datum from the data latch (the element's read data) and holds it `wlatch` clocks from its issue, as a memory write does; a port-form OUT starting meanwhile waits for it and (`wlatch_hold`) holds the fetch, a second OUTM (no port byte) does not | the single OUTM's closing OUT: fetch 107 after an idle clock, the k = 2 pair's second OUTM: fetch 106 with none; none −14 F24 |
+| `str_count=dw` (data) | a string form's requests count their setup as a DW-form I/O request's (`io_count=nowait`, and with `dw_count=bus` not the clock a cycle starts on its post or move-in clock), since the form has no operand byte and takes its addresses from IX, IY and DW; `Request.dwlike` through the existing `dw_count` path | unprefixed pairs: the second STM writes at D1end + 11 at pO at every wait, D1end + 12 + w at pE where the fetch at D1end + 1 costs its first clock and wait states; the first instance moves in on M0's I/O issue and writes 11 later at every wait; data −110 F24 |
+
+Tried and removed: `str_exec=dw` (the unprefixed form's exec clocks counted the same way) lands every INM second
+instance but makes the exec before the closing OUT pay a fetch silicon does not; it won nowhere in a setup × exec grid
+(F24 758), so the cost belongs to the next string form's count, not the exec clocks.
+
+**Result.** F24 778/912, by series with the `MOV CW,n` controls counted in theirs: `r` 402/450, `a` 120/162, `s`
+124/168, `t` 78/78, `d` 48/48, the six empty frames 6/6; by cell 137, 112, 112 of 152 at pE w0..w2 and 129, 144, 144 at pO. All 24 single OUTMs and
+every STM and LDM pair are exact. Nothing-lost gate (the overseer's re-run, scratchpad wp70r/, as for the
+thirty-eighth): byte-identical on all 30 other lists under both comparisons; F24 44 won (12 single OUTM, 2 OUTM pairs,
+12 STM, 6 LDM, 8 CMPM, 2 MOVBK and 2 CMPBK pairs) and 12 lost, the second instances of CMPBK, CMPM and MOVBK pairs at
+pE w1 and w2, where the fetch runs inside the first instance's exec and one `setup` still serves only one instance.
+The corpus is 23,549/24,524 exact over the 30 scored families.
+
+**Misses left** (wp70/miss-shapes-wp70.txt, ev-wp70.txt), 134, three shapes, each recorded as a fact and none encoded:
+
+- **REP INM and OUTM at pE w1 and w2** (60; −1). From the form's start the first cycle comes at a base (STM 21, OUTM
+  22) plus the wait states in the window; STM counts none of them (0/2/4 at pE, 0/1/2 at pO), INM and OUTM count 0/1/3
+  at pE against 0/1/2 at pO: exactly one wait clock of the second, back-to-back refill fetch, none of the first's. The
+  n = 0 exit shows the same pattern. No machine statement of that one-wait-clock rule was found.
+- **An odd last operand at w0** (30; fetch +1). The fetch after the stream is 21 clocks after the last cycle's end when
+  aligned at every wait; 22 at w0 only after a split last write (STM-iy, MOVBK-iy and ixiy, INM-iy) and after
+  CMPBK-ixiy, both parities, and still 21 after split reads (LDM-ix, CMPM-iy); the loop spacing after a split is the
+  unchanged 9 + w. "Done no earlier than the second half's issue + 4" fits the split writes but not CMPBK and would
+  move the n ≥ 2 loop.
+- **The second instance of an unprefixed pair** (44; −1 to +1 by parity): MOVBK, CMPBK and INM pairs at pO (−1) and pE
+  w1/w2 (+1), CMPM pE w1/w2 (+1), OUTM pE w1/w2 (−1) and pO (+1). In these classes the fetch runs inside the first
+  instance's exec; INM's second I/O is at D1end + 12 at pO and D1end + 13 + w at pE, and one `setup` cannot serve the
+  moved-in first instance and the second one.
+
+### Fitted structure (thirty-ninth fit, 2026-10-30)
+
+Thirty-nine fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -5474,7 +5519,12 @@ thirty-eighth (`fit.json`, 2026-10-29) adds the seven string classes and
 F24's four enums (`str_take=sync`, `str_setup=nowait`, `str_overrun=read`,
 `str_hold=hold`; F24 746/912, the fitter's stage 13 under the corpus
 guard), no existing field changed: byte-identical on every other family,
-23517/24524 over the 30 scored families.
+23517/24524 over the 30 scored families. The thirty-ninth (`fit.json`,
+2026-10-30) adds `str_last=all`, `str_io_latch=write` and `str_count=dw`
+with the string classes' `setup` one less and `str_load` `exec` 2 (F24
+778/912, stage 13 from a hand start), no field outside the string classes
+changed: byte-identical on every other family, 23549/24524 over the 30
+scored families.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
@@ -6766,7 +6816,11 @@ the EU's refresh rules in RTL, runs every run of the corpus that has no
 string form exact against the model, 23,678 of 24,524 (the 846 F24 runs
 with one are not modelled: the include's step tables leave the string
 classes out until HDL plan Phase E item 3), model-exact 22,837 = RTL-exact
-(`--core`; Phase C5). The
+(`--core`; Phase C5); and since 2026-10-30 the register file, the operand
+record and the write data are the RTL's own (`v35_operands`,
+`v35_execute` in `v35_eu.sv`; Phase D1), the same 23,678 runs exact under
+the thirty-ninth fit with every start's record, register file and datum
+checked, only the code window and the memory still served from outside. The
 state row's `pc` is a chain offset like `ir` since the same day. The same
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");

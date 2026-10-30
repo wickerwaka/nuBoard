@@ -813,6 +813,40 @@ decision differs it is said here.
   the include's step tables (`rtlgen.string_classes`, Phase E item 3: element-indexed
   addresses, no symbolic source) and every `rtl_vectors` mode reports a run with a string form
   as not modelled.
+- **D1, the register file in RTL (2026-10-30, WP69; docs/v35s-hdl-plan.md):** the register
+  file (`v35_rf_t` in the EU's state), `v35_operands` (the operand record from the register
+  file and a 12-byte code window) and `v35_execute` (`templates.execute`) in `v35_eu.sv`; the
+  core's scripted operand record and write datum are gone. Gate exact on every list, the
+  whole corpus 23,678 of 24,524 with each of 613,481 starts checked for its record, its
+  register file and every cycle's datum, and a `--regfile` bench of 39,188 vectors against
+  `execute`. Where the frozen code and this spec disagreed, the frozen code was followed:
+  (1) the datum of every EU cycle, reads, stores, pushes, RMW and the SFR store alike, is AW;
+  per-form write data is D2; (2) every memory read returns the data fill 0x9090
+  (`V35_FILL_WORD`): MOV r,m, XCH r,m, XLAT (AL = 90h), DISPOSE's BP, MULU/DIVU with a memory
+  source; POP r16, POP R and POP sreg leave registers unchanged and delivered data never
+  reaches the register file; (3) segment registers are never written (8E, POP sreg); the RTL
+  holds DS1 only, since offsets are linear and fetches use the queue's code base, and A2/A3
+  list no register file; (4) RET's target is the entry the CALL writes (`regs["retSSSS"]`),
+  not the stack read; one entry is held (the corpus maximum), `V35_EE_RF` on a second at
+  another SP or a RET with none; (5) Z is set by CMP r16,r16 (3B/39 mod 3) alone and unknown
+  before it; BE/BNE with Z unknown raise in the model and give `V35_EE_RF` here; (6)
+  `execute` gives no register effect to 8A, 83, 81 other than /0 or with a memory operand,
+  shifts other than SHL, F6/F7 /5 and /7, ALU forms other than 03, 23 and 33; XCH r8 with
+  mod 3 writes 0 into the reg8; DIVU by 0 leaves the registers and an overflowing quotient is
+  truncated, all ported as they are; (7) the model decodes the whole instruction from the
+  image at its start (C3 decision 1), so the RTL reads a code window at the end-of-clock pc
+  rather than the queue, valid because a start moves pc by at most 6 within a clock and a
+  flush empties the IR; `V35_EE_PC` guards the window; (8) `eu.seg_prefix` matters only as
+  "DS1 before a store or store_imm" and is one bit, `pfx`; 2E and 36 change no address; (9)
+  with the DS1 prefix the EA becomes linear only at or above the SFR page; (10) the shift
+  count is the full CL byte (`shift_count_mask=cl8`) and C1's byte counts for memory forms
+  too; (11) the record is no longer an EU input, so the EU's format check against it
+  (`V35_EE_FMT`) is gone and the bench compares the record's format and template at each
+  start instead; (12) the write datum is AW after phase T's starts, right because no start
+  happens in L or X and an issue in X sees T's `execute`, not P's. The EU's state is 762
+  bits (`v35_rf_t` 180), the per-start dumps (2 × (197 + 180) bits) combinational. Left for
+  D2: the full PSW from nuV30, real read and write data, signed MUL/DIV and the traps, the
+  segment registers.
 
 ### The request rule and the queue's room
 

@@ -2,7 +2,7 @@
 
 // The Verilator bench top for the decoder and the EU (HDL plan, C3): v35_eu with its state
 // bundle (V35S_STATE_DUMP), driven and read by v35_eu_tb.cpp from the frozen model's EU
-// vectors (validation/v35s/chains/rtl_vectors.py, V35EU-1). Beside it the RTL queue (C2,
+// vectors (validation/v35s/chains/rtl_vectors.py, V35EU-2). Beside it the RTL queue (C2,
 // JSLOT op stages: the EU's T and L ops, the arbiter's scripted X ops, the EU's P ops) and
 // the RTL bus unit (C1) for the joint bench (rtl_vectors --joint3): the bench connects them
 // through its ports (the EU's ops into the queue's chain, the queue's state before each op
@@ -14,7 +14,7 @@
 module v35_eu_tb #(
     parameter int NQ = 16,
     parameter int NXOP = 6,
-    parameter int STATE_W = 582,
+    parameter int STATE_W = 762,
     parameter int JSLOT = 40,
     parameter int QSTATE_W = 180
 ) (
@@ -30,8 +30,14 @@ module v35_eu_tb #(
     input  wire        fetch_done,
     input  wire [17:0] bus_t,
     input  wire [17:0] bus_p,
-    input  wire [212:0] opnd_a,
-    input  wire [212:0] opnd_b,
+    output wire [19:0] code_addr,           // (D1) the code window: the twelve bytes from here
+    input  wire [95:0] code_win,
+    input  wire [3:0]  mutate,
+    output wire [15:0] aw_x,                // (D1) the EU cycle's datum (AW)
+    output wire [196:0] opr_a,              // (D1) the starts' operand records and the
+    output wire [196:0] opr_b,              // register file after each
+    output wire [179:0] rfx_a,
+    output wire [179:0] rfx_b,
     input  wire [NQ:0][51:0] qv_tl,
     input  wire [NQ-1:0][7:0] rd_tl,
     input  wire [NQ:0][51:0] qv_p,
@@ -86,8 +92,8 @@ module v35_eu_tb #(
     // the bus unit (joint): the scripted cycles, the fetch's gate and data, the EU's cycle
     input  wire        fetch_gate,
     input  wire [15:0] fetch_data,
-    input  wire        data_gate,           // the EU's data cycle goes to the bus unit
-    input  wire [15:0] data_data,           // its write data (AW: the register file's)
+    input  wire        data_gate,           // the EU's data cycle goes to the bus unit (its
+                                            // datum the EU's AW, aw_x)
     input  wire [15:0] wtc,
     input  wire [7:0]  rfm,
     input  wire        rfm_load,
@@ -142,11 +148,11 @@ module v35_eu_tb #(
     v35_eu #(.NQ(NQ), .NXOP(NXOP), .STATE_W(STATE_W)) eu (
         .clock, .reset_n, .ce, .init_state, .code_base, .refresh_on(1'b0), .c_eu, .c_read,
         .fetch_done, .bus_t, .bus_p, .early_t(5'd0), .early_p(5'd0),
-        .opnd_a, .opnd_b, .qv_tl, .rd_tl, .qv_p, .rd_p, .x_valid, .x_kind, .x_eu, .xop,
+        .code_addr, .code_win, .qv_tl, .rd_tl, .qv_p, .rd_p, .x_valid, .x_kind, .x_eu, .xop,
         .counts_t, .counts_p, .q_latch_in, .op_tl, .n_tl, .n_t, .op_p, .n_p, .n_start,
         .wl_fill_t, .wl_fill_x, .wl_fill_p, .x_cyc, .x_cyc_kind, .x_cyc_addr, .x_cyc_width,
         .qsnap_c, .qsnap_e, .e_io, .e_out, .error(eu_error), .err_code, .fresh_l, .fresh_p,
-        .state_c, .state_t, .state_l, .state_x, .state_p, .state_e, .state_dump);
+        .aw_x, .mutate, .opr_a, .opr_b, .rfx_a, .rfx_b, .state_c, .state_t, .state_l, .state_x, .state_p, .state_e, .state_dump);
 
     // the queue: its delivery the bus unit's, its phase E the bus unit's fetch end and the EU's
     wire        qe_fetch_end = cur_kind_x == V35_K_FETCH && cur_pos_x == cur_len_x - 3'd1;
@@ -167,7 +173,7 @@ module v35_eu_tb #(
     wire [2:0]  b_kind = q_fetch ? V35_K_FETCH : e_data ? x_cyc_kind : req_kind;
     wire [19:0] b_addr = q_fetch ? fetch_issue_addr : e_data ? x_cyc_addr : req_addr;
     wire [1:0]  b_width = q_fetch ? V35_BW_WORD : e_data ? x_cyc_width : req_width;
-    wire [15:0] b_data = q_fetch ? fetch_data : e_data ? data_data : req_data;
+    wire [15:0] b_data = q_fetch ? fetch_data : e_data ? aw_x : req_data;
     wire        b_ext = q_fetch ? 1'b0 : req_ext;   // disp_io=extend: the arbiter's (scripted)
     wire        b_latch = q_fetch ? 1'b0 : e_data ? (x_cyc_kind == V35_K_READ
                                                      || x_cyc_kind == V35_K_IO_READ) : req_latch;

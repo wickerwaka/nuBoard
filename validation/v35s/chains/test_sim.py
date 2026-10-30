@@ -5042,6 +5042,22 @@ class RefreshExitBeatGroupF28F29(unittest.TestCase):
             self.assertIn(WP61[name], OPTIONS[name], name)
 
 
+# (WP70, F24) the new string enums at their found values and the integers the stage-13 fit moved
+# with them; equal to Config.fitted() once the fit is adopted (replace is then a no-op)
+WP70 = {"str_last": "all", "str_io_latch": "write", "str_count": "dw"}
+WP70_INTS = {"str_move.setup": 9, "str_cmp.setup": 9, "str_store.setup": 11, "str_load.setup": 9,
+             "str_load.exec": 2, "str_scan.setup": 10, "str_out.setup": 10}
+
+
+def _f24(cid, **over):
+    """(silicon, model) event lists from t_fill under the tracked fit with WP70 (+ over)."""
+    run = next(r for r in _runs("F24") if r["chain"]["id"] == cid)
+    s = normalize(run)
+    cfg = Config.fitted().replace(**{**WP70, **WP70_INTS, **over})
+    m = simulate_normalized(s.chain, cfg, s.chain_base)
+    return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+
 class StringForms(unittest.TestCase):
     """(WP67, F24) the string and block forms: decode (a REP prefix is part of the form, the
     str_* class with the prefix byte), the template per class (the element's cycles in bus
@@ -5189,3 +5205,48 @@ class StringForms(unittest.TestCase):
             self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
         for cls in self.CLASSES:
             self.assertIn(cls, DEFAULT.cost, cls)
+
+    def test_wp70_defaults_are_the_old_model(self):
+        """(WP70) the new enums' DEFAULT is the old model."""
+        for name in WP70:
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+            self.assertIn(WP70[name], OPTIONS[name], name)
+
+    def test_str_last_single_outm_io(self):
+        # the read at 94, the OUTM's I/O (its one element is the CW-ending one) at 103
+        sil, mod = _f24("F24-out-s-outm-b-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((103, "io_write"), mod)
+        _, rep = _f24("F24-out-s-outm-b-k1-pE-w0", str_last="rep")
+        self.assertIn((102, "io_write"), rep)
+        self.assertNotIn((103, "io_write"), rep)
+
+    def test_str_io_latch_holds_the_closing_outs_fetch(self):
+        # OUTM's I/O 103-105, then the closing OUT (a port form) waits for the data latch:
+        # the fetch at 107; a second OUTM after it (no port byte) lets it go at 106
+        sil, mod = _f24("F24-out-s-outm-b-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((107, "fetch"), mod)
+        _, none = _f24("F24-out-s-outm-b-k1-pE-w0", str_io_latch="none")
+        self.assertIn((106, "fetch"), none)
+        sil2, mod2 = _f24("F24-out-s-outm-b-k2-pE-w0")
+        self.assertEqual(mod2[:6], sil2[:6])
+        self.assertIn((106, "fetch"), sil2)
+
+    def test_str_count_pairs(self):
+        # STM pair: the first moves in on M0's I/O issue 84 and writes at 95; the second's
+        # write at D1end+11 (pO, 109) and D1end+12+w (pE, the fetch on its post clock: 109)
+        for cid, want in (("F24-out-s-stm-b-k2-pE-w0", (109, "data_write")),
+                          ("F24-out-s-stm-b-k2-pO-w0", (109, "data_write")),
+                          ("F24-out-s-stm-b-k2-pE-w2", (115, "data_write")),
+                          ("F24-out-s-ldm-b-k2-pE-w1", (110, "data_read"))):
+            sil, mod = _f24(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertIn(want, mod, cid)
+            _, data = _f24(cid, str_count="data")
+            self.assertNotEqual(data, sil, cid)
+
+    def test_str_count_leaves_the_rep_streams(self):
+        # no fetch inside a REP stream: the REP series is the same under both counts
+        for cid in ("F24-out-r-rep-stm-w-n4-pE-w1", "F24-out-r-rep-movbk-b-n2-pO-w2"):
+            self.assertEqual(_f24(cid)[1], _f24(cid, str_count="data")[1], cid)

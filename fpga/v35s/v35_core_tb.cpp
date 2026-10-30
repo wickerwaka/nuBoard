@@ -1,7 +1,8 @@
 // Chain-model core bench (HDL plan, C4; C5: refresh): runs v35_chain_core on a chain and checks it against the
 // frozen model on every model clock. Vectors: validation/v35s/chains/rtl_vectors.py --core, four
-// files of one run: the EU's (V35EU-1: the start state, the operand record of every instruction
-// start, per clock the EU's state after every phase, its queue ops and the arbiter's touches),
+// files of one run: the EU's (V35EU-2: the start state with the register file's presets, the code,
+// the operand record of every instruction start and the register file after its execute, per
+// clock the EU's state after every phase, its queue ops and the arbiter's touches),
 // the queue's (V35QUEUE-1 with JSLOT ops: the image, the preload, per clock the queue's state
 // after the delivery, after every op of the chain and at the end), the bus unit's (V35BIU-1:
 // per clock the window signals, the delivery and the state bundle) and the arbiter's (V35ARB-2:
@@ -11,16 +12,18 @@
 //
 //   Vv35_core_tb EU_VECTORS QUEUE_VECTORS BIU_VECTORS ARB_VECTORS [MUTATE]
 //
-// The core makes every timing decision: the bench gives it the start state, the operand record
-// of each instruction start and the EU's write data (Phase D's register file and EA adder), and
-// serves its memory from the image (a fetch's word at its address, the delivered word); per
+// The core makes every timing decision and (D1) computes every operand record, the register
+// file and the EU's write data: the bench gives it the start state and serves its memory from
+// the image (the code window at code_addr, a fetch's word at its address, the delivered word); per
 // model clock it clocks the core's settle iterations until `settled`, checks, then ends the
 // clock (`run`). Checks: the EU's state after C, T, L, X, P and the end, its queue ops; the
 // queue's state after C, after every op of the chain and at the end, every read, the chain's ops
 // (the EU's, the arbiter's, the EU's in P) against the model's; the arbiter's touches on the EU,
 // its state after X and at the end; the bus unit's signals and state bundle; the core's and the
-// machines' errors; the refresh controller's state after R, at the end and registered.
-// MUTATE (1..7) flips one of the arbiter's decisions (v35_arbiter.sv; 5..7 the refresh's).
+// machines' errors; the refresh controller's state after R, at the end and registered; (D1) each
+// start's operand record and the register file after it, and every EU cycle's datum.
+// MUTATE (1..7) flips one of the arbiter's decisions (v35_arbiter.sv; 5..7 the refresh's), 8..10
+// one of the register file's (v35_eu.sv: an EA mode, a push's SP step, MOV r8,imm8's byte).
 //
 // Output: "FAIL ..." for the first failures, "CYC start length kind addr width data" for each
 // cycle the bus unit started, "DCYC t kind addr width" for each data cycle the EU issued, "ITER n
@@ -42,9 +45,9 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 582, QSTATE_W = 180,
+constexpr int NQ = 16, NXOP = 6, NXQ = 8, JSLOT = 40, STATE_W = 762, QSTATE_W = 180,
               ASTATE_W = 103, RSTATE_W = 24, XOPW = 12;
-constexpr int OPW = 33, QVW = 52, OPNDW = 213;
+constexpr int OPW = 33, QVW = 52, OPNDW = 197, RFW = 180;
 constexpr int K_FETCH = 1;
 constexpr int X_ISSUE = 1;
 constexpr int MAX_ITER = 256;
@@ -90,7 +93,15 @@ struct AClock {
     Vals r_r, r_e;          // (C5) the refresh controller after R and at the end
 };
 
+// (D1) the operand record (v35_opnd_t, MSB first) and the register file (v35_rf_t)
 const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
+const char* const OPND_N[] = {"offset", "code", "ea", "port", "sr", "sw", "count", "taken",
+                              "target", "fmt", "tmpl"};
+constexpr int NOPND = 11;
+const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 1, 1, 1, 16, 16, 1};
+const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ds1", "z_v", "z",
+                            "ret_v", "ret_sp", "ret_pc", "pfx"};
+constexpr int NRF = 15;
 constexpr int NBV = 10;
 
 template <typename W>
@@ -188,7 +199,7 @@ struct Bench {
     std::vector<Field> fields, qfields, afields, rfields;
     long state_bad = 0, op_bad = 0, err_bad = 0, dcyc_bad = 0, q_state_bad = 0, q_rd_bad = 0,
          x_bad = 0, a_state_bad = 0, r_state_bad = 0, signal_bad = 0, biu_state_bad = 0,
-         settle_bad = 0, fails = 0;
+         settle_bad = 0, opnd_bad = 0, fails = 0;
 
     void tick(bool run, bool mid) {
         dut.run = run;
@@ -208,6 +219,27 @@ struct Bench {
     void check(long& counter, long t, const std::string& what, long want, long got) {
         if (want != got)
             fail(counter, t, what, want, got);
+    }
+        // (D1) a packed record (MSB first) against the model's values
+    template <typename W>
+    bool check_packed(long t, const std::string& where, const char* const* names,
+                      const int* widths, int n, const Vals& want, const W& w) {
+        int total = 0;
+        for (int k = 0; k < n; ++k)
+            total += widths[k];
+        int off = total;
+        bool bad = false;
+        for (int k = 0; k < n; ++k) {
+            off -= widths[k];
+            const uint64_t got = get_bits(w, off, widths[k]);
+            if (got != want[k]) {
+                bad = true;
+                if (++fails <= 20)
+                    std::printf("FAIL clock %ld %s %s model=%llu rtl=%llu\n", t, where.c_str(),
+                                names[k], (unsigned long long)want[k], (unsigned long long)got);
+            }
+        }
+        return bad;
     }
     template <typename W>
     void check_state(long& counter, long t, const std::string& where,
@@ -246,8 +278,8 @@ int main(int argc, char** argv) {
     std::ifstream in(argv[1]);
     long nclocks = 0, nq = 0, nxop = 0, nopnd = 0, base = 0;
     in >> format >> id >> nclocks >> nq >> nxop >> nopnd >> base;
-    if (format != "V35EU-1" || nq != NQ || nxop != NXOP) {
-        std::fprintf(stderr, "not a V35EU-1 vector file for %d ops, %d touches\n", NQ, NXOP);
+    if (format != "V35EU-2" || nq != NQ || nxop != NXOP) {
+        std::fprintf(stderr, "not a V35EU-2 vector file for %d ops, %d touches\n", NQ, NXOP);
         return 2;
     }
     std::getline(in, line);
@@ -270,8 +302,20 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "no init line\n");
         return 2;
     }
-    std::vector<Vals> opnds(nopnd);
-    for (auto& o : opnds) {
+    // (D1) the code at the base: the code window's bytes
+    std::string chex;
+    in >> tag >> chex;
+    if (tag != "C") {
+        std::fprintf(stderr, "no code line\n");
+        return 2;
+    }
+    std::vector<int> code(chex.size() / 2);
+    for (size_t i = 0; i < code.size(); ++i)
+        code[i] = std::stoi(chex.substr(2 * i, 2), nullptr, 16);
+    // the model's operand records and the register file after each start's execute
+    std::vector<Vals> opnds(nopnd), rfs(nopnd);
+    for (long i = 0; i < nopnd; ++i) {
+        auto& o = opnds[i];
         std::string hex;
         long offset;
         in >> tag >> offset >> hex;
@@ -281,11 +325,14 @@ int main(int argc, char** argv) {
         }
         o.push_back(offset);
         o.push_back(std::stoull(hex, nullptr, 16));
-        for (int k = 0; k < 9; ++k) {
+        for (int k = 0; k < NOPND - 2; ++k) {
             uint64_t x;
             in >> x;
             o.push_back(x);
         }
+        rfs[i].resize(NRF);
+        for (auto& x : rfs[i])
+            in >> x;
     }
     std::vector<Clock> clocks(nclocks);
     auto read_op = [&](Op& o) {
@@ -465,6 +512,14 @@ int main(int argc, char** argv) {
 
     Verilated::commandArgs(argc, argv);
     auto& d = b.dut;
+    // (D1) the code window: twelve bytes from the core's code_addr, the first in [95:88]
+    auto code_window = [&](long a) {
+        for (int i = 0; i < 12; ++i) {
+            const long k = a + i - base;
+            const int v = (k >= 0 && k < long(code.size())) ? code[k] : 0x90;
+            set_bits(d.code_win, 88 - 8 * i, 8, uint64_t(v));
+        }
+    };
     {
         std::vector<int> fw;
         for (auto& f : b.fields)
@@ -485,7 +540,6 @@ int main(int argc, char** argv) {
         b.tick(false, false);
     d.reset_n = 1;
 
-    const std::vector<int> opw(OPND_W, OPND_W + 11);
     long nstarts = 0, nops_total = 0, ndcyc = 0, iter_total = 0, iter_max = 0;
     std::map<int, long> iter_hist;
     for (const auto& c : clocks) {
@@ -498,20 +552,16 @@ int main(int argc, char** argv) {
         }
         const auto& r = brows[t];
         const auto col = [&](const char* n) { return r[bcol(n)]; };
-        // Phase D: the operand records of this clock's starts, the next EU cycle's write data
-        {
-            Vals z(11, 0);
-            pack(d.opnd_a, 0, nstarts < long(opnds.size()) ? opnds[nstarts] : z, opw);
-            pack(d.opnd_b, 0, nstarts + 1 < long(opnds.size()) ? opnds[nstarts + 1] : z, opw);
-        }
-        d.eu_data = ndcyc < long(edata.size()) ? edata[ndcyc] : 0;
-        // the memory: the delivered word (latched mid-B3), the fetch's word
+        // the memory: (D1) the code window (from the registered pc), the delivered word
+        // (latched mid-B3), the fetch's word
         d.eval();
+        code_window(d.code_addr);
         d.data_in = d.done ? word_at(d.done_addr) : 0;
         b.tick(false, true);
         int iters = 1;
         for (;;) {
             d.fetch_data = word_at(d.fetch_addr);
+            code_window(d.code_addr);
             d.eval();
             if (d.settled)
                 break;
@@ -595,6 +645,9 @@ int main(int argc, char** argv) {
                 b.check(b.dcyc_bad, t, "data cycle addr", it->second[1], d.x_cyc_addr);
                 b.check(b.dcyc_bad, t, "data cycle width", it->second[2], d.x_cyc_width);
             }
+            // (D1) its datum: the register file's AW, the model's
+            b.check(b.dcyc_bad, t, "data cycle datum (AW)",
+                    ndcyc < long(edata.size()) ? edata[ndcyc] : -1, d.x_data);
             std::printf("DCYC %ld %d %d %d\n", t, int(d.x_cyc_kind), int(d.x_cyc_addr),
                         int(d.x_cyc_width));
             ++ndcyc;
@@ -615,6 +668,23 @@ int main(int argc, char** argv) {
         }
         b.check_state(b.q_state_bad, t, "queue end", b.qfields, QSTATE_W, qc.e_state, d.q_e, 0);
 
+        // (D1) the operand record of each start and the register file after its execute
+        for (int j = 0; j < int(d.n_start) && j < 2; ++j) {
+            const long i = nstarts + j;
+            char where[64];
+            if (i >= long(opnds.size())) {
+                b.fail(b.opnd_bad, t, "a start past the model's", long(opnds.size()), i);
+                continue;
+            }
+            std::snprintf(where, sizeof where, "start %ld record", i);
+            bool bad = j == 0 ? b.check_packed(t, where, OPND_N, OPND_W, NOPND, opnds[i], d.opr_a)
+                              : b.check_packed(t, where, OPND_N, OPND_W, NOPND, opnds[i], d.opr_b);
+            std::snprintf(where, sizeof where, "start %ld registers", i);
+            bad = (j == 0 ? b.check_packed(t, where, RF_N, RF_W, NRF, rfs[i], d.rfx_a)
+                          : b.check_packed(t, where, RF_N, RF_W, NRF, rfs[i], d.rfx_b)) || bad;
+            if (bad)
+                ++b.opnd_bad;
+        }
         // the end of the model clock
         nstarts += d.n_start;
         b.tick(true, false);
@@ -664,11 +734,11 @@ int main(int argc, char** argv) {
         std::printf("ITER %d %ld\n", n, k);
     std::printf("SUMMARY clocks=%ld ops=%ld starts=%ld state_bad=%ld op_bad=%ld err_bad=%ld "
                 "dcyc_bad=%ld q_state_bad=%ld q_rd_bad=%ld x_bad=%ld a_state_bad=%ld "
-                "r_state_bad=%ld signal_bad=%ld biu_state_bad=%ld settle_bad=%ld iter_total=%ld "
-                "iter_max=%ld\n",
+                "r_state_bad=%ld signal_bad=%ld biu_state_bad=%ld settle_bad=%ld opnd_bad=%ld "
+                "iter_total=%ld iter_max=%ld\n",
                 long(clocks.size()), nops_total, nstarts, b.state_bad, b.op_bad, b.err_bad,
                 b.dcyc_bad, b.q_state_bad, b.q_rd_bad, b.x_bad, b.a_state_bad, b.r_state_bad,
                 b.signal_bad,
-                b.biu_state_bad, b.settle_bad, iter_total, iter_max);
+                b.biu_state_bad, b.settle_bad, b.opnd_bad, iter_total, iter_max);
     return b.fails ? 1 : 0;
 }

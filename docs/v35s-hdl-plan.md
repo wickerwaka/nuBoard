@@ -405,6 +405,48 @@ reset (C6), the string forms (E3).
 23,612 under the thirty-seventh fit) with the state rows identical on every
 clock of every run.
 
+**D1 done 2026-10-30 (WP69):** the register file, the operand record and the
+write data are the RTL's own. The register file lives in the EU
+(`v35_eu.sv`, `v35_rf_t`, 180 bits: AW CW DW BW SP BP IX IY DS1, Z with a
+valid bit, one held return address with its SP, the DS1-prefix bit), preset
+from the chain's registers as the model's is. At each start, inside
+`eu_start` as in the model's `_start`, the EU decodes the instruction from a
+12-byte code window at the end-of-clock pc (the bench serves it, since the
+model decodes from the image; a start moves pc by at most 6 in a clock and a
+flush empties the IR), computes the operand record with `v35_operands` (the
+EA of all 24 ModR/M modes, the direct forms, XLAT's BW + AL, the
+DS1-prefixed SFR store's linear address; the port byte or DW; the stack
+addresses of push, pop, call, ret, PUSH R/POP R, PREPARE, DISPOSE from BP,
+the segment pushes and PUSH/POP r/m; the shift count, C1's byte, 1, or the
+full CL; F23's taken flag and target from Z, CW, the displacement or the held
+return address) and applies the register effects with `v35_execute`, every
+case of `templates.execute`, so a second start in the same clock reads the
+updated registers. Every EU cycle's datum is the RTL's AW at phase X, the
+model's `regs["AW"]` at issue; nothing is scripted per class any more, and
+the core's `opnd_a/opnd_b` and `eu_data` inputs are gone (`code_addr` and
+`code_win` replace them; `opr_*`, `rfx_*` and `x_data` are dump outputs).
+EU state 582 → 762 bits, the arbiter's `ESTATE_W` following. Gates (the
+overseer's re-run under the thirty-ninth fit, scratchpad wp7069r/): the
+whole corpus 23,678 of 24,524 exact and 846 not modelled (string forms),
+with 613,481 starts each checked for its operand record, the register file
+after it and every EU cycle's datum, model-exact 22,837 = RTL-exact; C1
+38/38, C2 2,040 in both modes, C3 5,352 in both modes (140,460 starts, the
+`--eu` and `--joint3` benches computing the record too), C4 12,642, C5
+2,472 and 2,160; the new `--regfile` mode (`v35_rf_tb`, `build_rf_tb.sh`)
+runs 39,188 vectors against `execute`, 22,318 from walking the chains,
+15,958 random register files and 912 covering every memory mode, 0 bad;
+three register-file mutations (an EA without IX, a push's SP step of 4, a
+byte immediate into the high byte) each caught. Twelve places where the
+frozen code and the spec disagree are in the spec's Decisions ("D1, the
+register file in RTL"); the largest: the datum of every EU cycle is AW, every
+memory read returns the data fill (`V35_FILL_WORD`) and delivered data never
+reaches a register, the segment registers are never written, RET's target
+is the CALL's held entry (one, the corpus maximum; `V35_EE_RF` on a second),
+and Z is set by CMP r16,r16 alone. Left for D2: the full PSW from nuV30 for
+every ALU form, real read data into the registers and real write data per
+form, signed MUL/DIV and the divide traps, the segment registers. Still
+scripted: the code window, the fetch words and the delivered words (memory).
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
@@ -414,7 +456,10 @@ sequencer in place of a cost table.
 - Register file and PSW in internal RAM (`v35_iram.sv`), with the access
   cost the model's `wb` and `nx` integers imply; the core plan's open
   question (one port or two) is answered by the fitted `reg` and `imm`
-  templates, which have no separate register-access clock.
+  templates, which have no separate register-access clock. D1 (2026-10-30)
+  put the register file in the EU's state as flops (`v35_rf_t`), since the
+  fitted templates charge no access clock; whether it moves into
+  `v35_iram.sv` with the data RAM is decided with the SFR block (D3).
 - ALU and flags from nuV30 (`instructions.json`, flag notes), driven by the
   sequencer's `alu`/`exec` steps; the SingleStepTests adapter of the core
   plan runs through the replay harness.
@@ -451,7 +496,9 @@ then the RTL. In the order the generator gains them:
    compares' destination-first read and one-element overrun. Modelled
    and fitted 2026-10-29 (WP67, the thirty-eighth fit, 746/912; seven
    str_* classes, four enums, docs/v35s-chains.md "The thirty-eighth
-   fit"): the element count and a compare's exit come from the
+   fit"; the thirty-ninth, 2026-10-30, WP70, 778/912: three more enums,
+   the single OUTM and the STM/LDM pairs exact, two miss shapes left as
+   facts): the element count and a compare's exit come from the
    normaliser's walk, each element's bus cycles are data steps. The RTL
    leaves the string classes out of its step tables (WP68) until this
    item is built: it needs element-indexed addresses from IX/IY/DW, the

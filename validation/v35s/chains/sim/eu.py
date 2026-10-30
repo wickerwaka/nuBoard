@@ -1302,12 +1302,15 @@ class EU:
         cls = getattr(self, "cls", "")
         cost = self.cfg.cost.get(cls, {})
         io = kind.startswith("io")
+        # (WP70) str_count=dw: a string form's request counts as a DW-form I/O request's
+        dwlike = cls in STRING_CLASSES and self.cfg.str_count == "dw"
         r = Request(cycles, setup, t, atomic=self.cfg.odd_split == "atomic",
                     free_need=cost.get("setup_free") if free is None else free,
                     lead=cost.get("lead", 0) if io else 0,
-                    nowait=io and self.cfg.io_count == "nowait", cls=cls,
+                    nowait=(io or dwlike) and self.cfg.io_count == "nowait", cls=cls,
                     free_bus=grp and self.cfg.grp_free_bus,
                     recover=self.cfg.io_recover, whole=whole)
+        r.dwlike = dwlike
         # (WP58) refresh_io_stall (read with refresh on only)
         r.io_stall = io and self.refresh is not None and self.cfg.refresh_io_stall == "step"
         if (self.cfg.sfr_setup == "count" and kind == "write" and self.sfr is not None
@@ -1356,7 +1359,11 @@ class EU:
         req.issued.append(c)
         if addr >= SFR_PAGE and kind == "write" and self.refresh is not None:
             self.refresh.write(self.sfr, t, c)   # (WP23) the RFM store (refresh.py)
-        if kind == "write" and self.cfg.wlatch:
+        if self.cfg.wlatch and (kind == "write" or kind == "io_write"
+                                and self.cfg.str_io_latch == "write"
+                                and req.cls in STRING_CLASSES):
+            # (WP70) str_io_latch=write: a string form's I/O write's datum (the element's read
+            # data) is in the data latch, held from its issue as a memory write's
             self.wlatch_until = max(self.wlatch_until, t + self.cfg.wlatch)
         if not req.cycles and req.detached:
             if kind == "io_write":
