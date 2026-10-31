@@ -41,7 +41,7 @@ not start while it is busy; `latch_wait` tells the arbiter it is waiting
 from __future__ import annotations
 
 from .arbiter import Request, io_step, io_stepped
-from .templates import (BCD_CLASSES, BF_CLASSES, STRING_CLASSES, _dest_route, base_class, decode,
+from .templates import (BCD_CLASSES, BF_CLASSES, BF_TAKE_HOLD, STRING_CLASSES, _dest_route, base_class, decode,
                         ea_class, execute, grp_class, refresh_hold_steps, steps)
 from .queue import QUEUE_BYTES
 from ..types import CODE_BASE
@@ -302,6 +302,9 @@ class EU:
                          or cfg.page_run == "field" and self.page_fixed == "post")
         self.page_reg = (cfg.page_b2b == "reg" and bool(op.page) and op.ea is None
                          and bcls == "reg")
+        # (WP94) page_imm_run: a 0F memory form with an immediate bit index under page_mem=fixed
+        self.page_imm = (cfg.page_imm_run == "delivery" and self.page_fixed == "start"
+                         and bool(op.imm_bytes))
         self.ro = bcls in ("load", "load_alu")
         self.prev_cls = getattr(self, "cls", None)   # (WP61) refresh_beat_b2b
         self.cls = bcls
@@ -394,6 +397,9 @@ class EU:
             op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
         if cfg.ret_imm_hold == "word" and op.imm_bytes and bcls == "ret":
             # (WP88) ret_imm_hold: RET imm16's immediate ends on the even half of its word
+            op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
+        if cfg.bf_imm_hold == "word" and op.imm_bytes and op.cls in BF_CLASSES:
+            # (WP94) bf_imm_hold: an imm4 bit field's width byte the even half of its word
             op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
         seq = steps(op, cfg)
         if self.refresh is not None and cfg.refresh_eu == "hold":
@@ -982,7 +988,12 @@ class EU:
                 continue
             if kind == "fetch_hold":             # (WP67, F24) str_hold=hold: no fetch request
                 q = self.decoder.queue           # for step[1] clocks from here
-                q.str_held = t + step[1]
+                if step[1] == BF_TAKE_HOLD:      # (WP94) bf_imm_hold: armed, from the next take
+                    q.take_hold, q.hold_from = t, None
+                elif q.take_hold is not None:    # (WP94) lifted by the form's 0-clock hold
+                    q.take_hold = q.hold_from = None
+                else:
+                    q.str_held = t + step[1]
                 self.k += 1
                 continue
             if kind == "quiet":                  # (WP67, F24) str_take=quiet: wait for the

@@ -538,6 +538,10 @@ ROT4_OPS = {0x28: "rol4", 0x2A: "ror4"}
 BF_OPS = {0x31: "bf_ins", 0x39: "bf_ins", 0x33: "bf_ext", 0x3B: "bf_ext"}
 BCD_CLASSES = ("bcd4s", "bcd4s_cmp")
 BF_CLASSES = ("bf_ext", "bf_ins")
+# (WP94) bf_imm_hold: ("fetch_hold", BF_TAKE_HOLD) arms a hold that starts with the next operand
+# take (that clock included) and lasts until a ("fetch_hold", 0) lifts it; requests raised
+# (and back-to-back fetches committed) before that take still run (eu.py, queue.py)
+BF_TAKE_HOLD = -1
 # (WP78) the classes of the 0F page and F33 whose structure (the queue's, the bus unit's and the
 # EU's rules that name a class: the I/O interlock, the register forms' and the unit forms'
 # rules, the read-modify-write's) is an existing class's: the costs are their own (Config.c
@@ -1592,12 +1596,16 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
     # (WP81) bf_read=fixed: the first word's read is issued fsetup clocks (and one more per
     # immediate byte: the imm4 width) after the last fetch's end, every one fetch-free (eu.py)
     st = c("fsetup") + op.imm_bytes if cfg.bf_read == "fixed" else c("setup")
+    # (WP94) bf_imm_hold=word: the width byte the even half of its word (the next opcode the
+    # odd half): no fetch request from the width byte's take to hrel clocks before the end
+    hold = cfg.bf_imm_hold == "word" and op.imm_bytes and op.half_word
     if op.imm_bytes:
         # the imm4 width form: the word's read is posted after the ModR/M byte and the width
         # byte taken while it waits (as a memory form's immediate under imm_order=after_post)
         seq = [("clocks", c("pre")), ("take", rest - op.imm_bytes),
-               ("post", "read", first, 2, st), ("take", op.imm_bytes, "chain"),
-               ("wait",)]
+               ("post", "read", first, 2, st)]
+        seq += ([("fetch_hold", BF_TAKE_HOLD)] if hold else []) + [
+            ("take", op.imm_bytes, "chain"), ("wait",)]
     else:
         seq = [("clocks", c("pre")), ("take", rest), ("data", "read", first, 2, st)]
     if cls == "bf_ext":
@@ -1614,6 +1622,11 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
             seq += [("clocks", max(0, cost - c("span"))),
                     ("data", "write", op.iy, 2, c("wsetup"))]
         tail = c("post")
+    if hold:
+        # (WP94) the hold ends hrel clocks before the form's last clock (at the tail's start
+        # when the tail is shorter): a fetch_hold of 0 clocks lifts it
+        r = min(c("hrel"), tail)
+        return seq + [("clocks", tail - r), ("fetch_hold", 0), ("clocks", r)]
     return seq + [("clocks", tail)]
 
 

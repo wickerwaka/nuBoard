@@ -5652,6 +5652,57 @@ test_fit.LdeaDisplacementStage. Of the four earlier LDEA enums, `lea_form=reg` i
 `lea_io=recover` is consistent everywhere, `lea_room=ir` is right except S3, and `lea_disp=split` was the right hold
 with the wrong condition.
 
+### The 0F page's 899 misses read as 23 shapes: four mechanisms, nineteen facts with their reasons (WP94, 2026-10-31; a candidate)
+
+Under the forty-seventh fit the 0F page and the register miscellany held 899 refresh-off misses (F34 478, F32 298,
+F33 123). A per-miss state table over all of them (scratchpad wp94/facts.txt PART 3: the first divergence, the EU's
+class and step, the queue's bytes / room / fetch in flight / latch / IR / commitment, the word half of the form's
+first and last byte, the cycle on the start clock, k and the lead, the exact neighbours), grouped by the state at the
+miss (PART 2), gives 23 shapes. Four have a mechanism (308 runs); the other nineteen (591) stay facts, each with the
+thing a rule would have to key on:
+
+- **S01, 138 runs, the imm4 bit field with a half-taken width word** (EXT/INS reg8,imm4 whose width byte is the even
+  half of its word, the next opcode the odd half): in all 138 silicon runs no fetch between the width byte's take and
+  the field's read, then one fetch 4 clocks before the model's end of EXT and on INS's last clock; a request raised
+  before the take still runs; all 89 runs of the other alignment are exact. The half-taken word keeps the room rule
+  from asking, as MUL imm's and RET imm's do. Enum `bf_imm_hold` (none → word) with `bf_ext.hrel` / `bf_ins.hrel`
+  the release before the form's last clock (the template arms the hold with a `fetch_hold` step before the width
+  byte's take and lifts it with a 0-clock one). Deciding run `F34-out-bf-ext_bl_i7-nop-k1-pE-w0` (silicon F88 F91
+  D101 F165; none F94 D104). Alone: F32 +32, F34 +75, lost 0.
+- **S02, 84 runs, EXT's write-back:** whatever follows EXT except the port OUT (the k = 2 second EXT, the F34
+  followers, the PUSH) starts 2 clocks earlier in silicon than in the model, while the k = 1 cell with M1's OUT right
+  after is exact in every one of its 44 neighbours. EXT's last two clocks are a write-back only a form waiting for one
+  sees, which the class integer `wb` already models: `bf_ext.span` 14 → 16, `xspan` 43 → 45, `wb` 0 → 2, which move
+  only together (a single-integer descent cannot find them, as WP86's INS crossing integers). No enum. Alone: F32 +29,
+  F34 +55, lost 0.
+- **S03, 58 runs, the delivery-clock fetch inside an immediate-index memory bit op's read setup:** TEST1/CLR1/SET1/
+  NOT1 [BW],imm under M0's OUT, the refill F87 ending with room 1 (not committed), F90 raised on F87's delivery clock;
+  silicon reads the clock after F90 ends, the model restarts the fetch-free setup. The CL-index form in the same cell
+  (committed on F87's last clock) is exact, and so is every lead cell and the other parity, where the fetch F90
+  follows issued before the ModR/M byte was taken. A fetch issued on the delivery clock of a fetch that itself issued
+  after the form took its head runs inside the read's setup as a committed one does. Enum `page_imm_run` (none →
+  delivery), deciding run `F32-out-set1_mw_imm-k1-pE-w0` (silicon D93; none D95). Alone: F32 +44, F34 +14, lost 0.
+- **S06, 28 runs, the register 0F form's second back-to-back commitment:** when the last operand take falls on a
+  fetch's wait or last clock after its issue, silicon commits one more fetch back to back after the one the request
+  rule committed; at w0 (the take on the fetch's last clock) exact already; a take on the issue clock gets none. Enum
+  `page_b2b_win` (take → run), deciding run `F34-out-rbit-set1_rw_cl-nop-k1-pE-w1` (silicon F97; take F104). Alone:
+  F32 +10, F34 +18, lost 0.
+- **Facts, by size:** S08 MUL r16,[BW],imm's read offset (84; moves with the wait count behind a lead; `mul_imm_read=
+  imm` loses 29–42); S05 the k = 2 second instance of the register bit ops (72; keyed on k: no k = 1 instance ever
+  starts in that state); S04 a register bit op at an odd address starting on a fetch's issue (64; silicon runs no
+  back-to-back fetch, but the identical model state behind the MOV AW,1234h lead at pE does: the lead); S12 bit-field
+  reads at l0 pE w2 −1 and behind NOP NOP at pO w1/w2 −2 (58; the wait count); S09 TEST1 [m],CL (48; a within-class
+  trade: `bit1_test.nx` 0 with `pre` 1 wins 37 and loses 6); S10 the d16 and direct modes (46; displacement length and
+  wait count); S15 INC/DEC r8 (35; the cost of `wb_fetch`); S11 other 0F memory forms (32; k, the lead or the wait
+  count); S14 BCD k = 2 pO −1 (21); S21 F33's one-byte forms at k = 2 pE (20); S07b (19), S07 (18), S17 MUL/DIV [BW]
+  after a load (16), S20 CVTWL (13), S13 ROL4/ROR4 (12), S18 CVTBD/CVTDB pO (12), S16 (10), S19 (9), S22 the RET −22
+  (2).
+
+The four together (wp94/t-all2.json on the forty-seventh fit; wp94r/fit-wp94-on48.json on the forty-eighth): **F32 560
+→ 676/858, F34 1,118 → 1,285/1,596, F33 unchanged, won 283, lost 0**, every other list byte-identical; the S02 integers
+help only when all three move, so the fit stage needs that hand start. Tests test_sim.PageHoldsWP94 and
+PageB2bWindowWP94. The RTL implements none of this (RTL work is stopped).
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

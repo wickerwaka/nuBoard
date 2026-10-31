@@ -6812,3 +6812,125 @@ class CoverageF37Forms(unittest.TestCase):
         self.assertEqual(OPTIONS["xfer_mem_head"], ("split", "lead"))
         self.assertEqual(OPTIONS["xfer_mem_disp"], ("none", "grp"))
         self.assertEqual(OPTIONS["xfer_mem_ir"], ("none", "hold"))
+
+
+# (WP94) the 0F page's remaining misses read as shapes (scratchpad wp94/facts.txt): two enums,
+# each against its old value on its deciding run (clocks rel t_fill)
+WP94 = {"bf_imm_hold": "word", "page_imm_run": "delivery"}
+
+
+def _ev94(cid, **over):
+    """(silicon, model) (clock, kind) lists from t_fill under the tracked fit with WP94 (+ over)."""
+    run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP94, **over}), s.chain_base)
+    return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+
+class PageHoldsWP94(unittest.TestCase):
+    """(WP94, F32 F34) an imm4 bit field's half-taken width word holds the fetch requests
+    (bf_imm_hold), and a delivery-clock fetch runs inside a 0F memory form's immediate-index read
+    setup (page_imm_run)."""
+
+    def test_defaults_are_the_old_behaviour(self):
+        for name, new in WP94.items():
+            self.assertEqual(getattr(DEFAULT, name), "none", name)
+            self.assertEqual(OPTIONS[name], ("none", new), name)
+
+    def test_bf_imm_hold_deciding_run(self):
+        # EXT BL,7 at 10050 (the width byte 10052 even, the next opcode 10053) starts on F88's
+        # issue: silicon F88 F91 D101 F165, no fetch between F91 and the read (none: F94 and the
+        # read restarted to 104, the next fetch at 180)
+        cid = "F34-out-bf-ext_bl_i7-nop-k1-pE-w0"
+        sil, mod = _ev94(cid)
+        self.assertEqual(mod, sil)
+        self.assertIn((101, "data_read"), mod)
+        self.assertIn((165, "fetch"), mod)
+        _, none = _ev94(cid, bf_imm_hold="none")
+        self.assertIn((94, "fetch"), none)
+        self.assertIn((104, "data_read"), none)
+
+    def test_bf_imm_hold_request_before_the_take_runs(self):
+        # behind M0's I/O the refill F88, requested before the width byte's take on its issue
+        # clock, still runs; F91, committed after it, does not (none: F91 back to back)
+        cid = "F34-out-bf-ext_bl_i7-l0-k1-pO-w0"
+        sil, mod = _ev94(cid)
+        self.assertEqual(mod, sil)
+        self.assertIn((88, "fetch"), mod)
+        self.assertNotIn((91, "fetch"), mod)
+        _, none = _ev94(cid, bf_imm_hold="none")
+        self.assertIn((91, "fetch"), none)
+        # INS: the hold ends with the form (bf_ins.hrel 0): the next fetch on the next start
+        sil, mod = _ev94("F34-out-bf-ins_bl_i7-nop-k1-pE-w0")
+        self.assertEqual(mod, sil)
+
+    def test_bf_imm_hold_other_alignment_untouched(self):
+        # the width byte the odd (last) half of its word: no hold, the same events either way
+        for cid in ("F34-out-bf-ext_bl_i7-nop-k1-pO-w0", "F34-out-bf-ins_dl_i11-l0-k1-pE-w0"):
+            sil, mod = _ev94(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertEqual(_ev94(cid, bf_imm_hold="none")[1], mod, cid)
+
+    def test_page_imm_run_deciding_run(self):
+        # SET1 [BW],7 starts 80 under M0's OUT; the refill F87 is not committed (room 1 on its
+        # last clock) and F90 is raised on its delivery clock: silicon reads at 93, F90's end + 1
+        # (none: F90 restarts the fetch-free setup, D95)
+        cid = "F32-out-set1_mw_imm-k1-pE-w0"
+        sil, mod = _ev94(cid)
+        self.assertEqual(mod, sil)
+        self.assertIn((93, "data_read"), mod)
+        _, none = _ev94(cid, page_imm_run="none")
+        self.assertIn((95, "data_read"), none)
+
+    def test_page_imm_run_not_before_the_head(self):
+        # the fetch followed was issued on the form's start (behind a NOP) or before its ModR/M
+        # byte was taken (the DS1: prefix): silicon restarts the setup, as the old rule did
+        for cid in ("F34-out-mbit-set1_mw_imm-nop-k1-pO-w0", "F32-out-pfx_set1_mb_imm-k1-pO-w0"):
+            sil, mod = _ev94(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertEqual(_ev94(cid, page_imm_run="none")[1], mod, cid)
+
+    def test_other_families_do_not_read_the_rules(self):
+        for cid in ("F7-out-out_imm_al-ld_bw-pO-w0", "F33-out-inc_al-k1-pE-w1",
+                    "F30-out-nt-bne-k2-n2-pE-w2", "F34-out-mul-mul_aw_m_imm8-l0-k1-pE-w0"):
+            run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+            s = normalize(run)
+            new = simulate_normalized(s.chain, Config.fitted().replace(**WP94), s.chain_base)
+            old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
+            self.assertEqual(aligned(new), aligned(old), cid)
+
+
+class PageB2bWindowWP94(unittest.TestCase):
+    """(WP94, F32 F34) page_b2b_win: a register 0F form's back-to-back commitment also reaches the
+    fetch issued back to back after the one running at its last operand take, when the take came
+    after that fetch's issue clock (clocks rel t_fill)."""
+
+    def _ev(self, cid, win):
+        run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+        s = normalize(run)
+        m = simulate_normalized(s.chain, Config.fitted().replace(page_b2b_win=win), s.chain_base)
+        return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.page_b2b_win, "take")
+        self.assertEqual(OPTIONS["page_b2b_win"], ("take", "run"))
+
+    def test_deciding_run(self):
+        # SET1 AW,CL starts on F89's issue, its ModR/M taken on F89's wait clock (91), F93
+        # committed by the request rule: silicon F97 back to back after F93 (take: F104)
+        cid = "F34-out-rbit-set1_rw_cl-nop-k1-pE-w1"
+        sil, mod = self._ev(cid, "run")
+        self.assertEqual(mod, sil)
+        self.assertIn((97, "fetch"), mod)
+        _, take = self._ev(cid, "take")
+        self.assertNotIn((97, "fetch"), take)
+        self.assertIn((104, "fetch"), take)
+
+    def test_take_on_the_issue_clock_and_w0_untouched(self):
+        # the imm form at l0 pE takes its immediate on F87's issue clock: no second commitment;
+        # at w0 the take falls on the fetch's last clock: the old window already covers it
+        for cid in ("F32-out-set1_rw_imm-k1-pE-w0", "F34-out-rbit-set1_rw_cl-nop-k1-pE-w0",
+                    "F34-out-rbit-set1_rw_cl-l0-k1-pO-w0"):
+            sil, mod = self._ev(cid, "run")
+            self.assertEqual(mod, sil, cid)
+            self.assertEqual(self._ev(cid, "take")[1], mod, cid)

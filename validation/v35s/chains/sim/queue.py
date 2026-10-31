@@ -164,6 +164,8 @@ class Queue:
         self.flush_t: int | None = None         # (WP55) the clock of the last flush
         self.flush_held: int | None = None      # (WP55) flush_hold: no fetch request from this clock to the flush
         self.str_held: int | None = None        # (WP67) str_hold: no fetch request before this clock
+        self.take_hold: int | None = None       # (WP94) bf_imm_hold: armed on this clock
+        self.hold_from: int | None = None       # (WP94) the take that started it
         self.str_raise: int | None = None       # (WP76) str_fetch: raise a retried request on this clock
         self.xfer_abort = False                 # (WP72) xfer_abort: a transfer's aborted cycle runs
         self.lea_ea: tuple | None = None        # (WP72) lea_room: LDEA's EA clocks (first, end)
@@ -383,8 +385,12 @@ class Queue:
         if (not getattr(eu, "page_reg", False) or eu.halted or self.decoder is None
                 or self.decoder.need or self.pb_start == eu.start_clock):
             return False
-        if self.latched or self.room(t) < 1 or self.take_t is None or bus_start > self.take_t + 1:
+        if self.latched or self.room(t) < 1 or self.take_t is None:
             return False
+        if bus_start > self.take_t + 1 and not (
+                self.cfg.page_b2b_win == "run" and self._after_take_fetch(bus_start)):
+            return False                         # (WP94) page_b2b_win=run: or the fetch issued
+                                                 # back to back after the one running at the take
         if self.decoder.ir is not None and (self.ir_t is None or self.ir_t <= bus_start):
             return False
         if self.stored() + 2 * WORD > QUEUE_BYTES + 1 and not (
@@ -392,6 +398,16 @@ class Queue:
             return False
         self.pb_start = eu.start_clock
         return True
+
+    def _after_take_fetch(self, bus_start: int) -> bool:
+        """(WP94) page_b2b_win=run: the fetch issued on bus_start followed, back to back, a fetch
+        that was on the bus on the form's last operand take, the take after that fetch's issue
+        clock (its wait or last clock: a take on the issue clock leaves the window as it was)."""
+        bus = self.eu.bus if self.eu is not None else None
+        if bus is None:
+            return False
+        prev = [c for c in bus.cycles[-4:] if c.kind == "fetch" and c.end == bus_start - 1]
+        return bool(prev) and prev[-1].start < self.take_t <= prev[-1].end
 
     def _taking(self) -> int:
         """(WP58) refresh_io_run=pair_out: 1 while the decoder still has a byte to take from
@@ -484,6 +500,8 @@ class Queue:
             raised = False                   # (WP76) xfer_odd=idle
         if raised and self.str_held is not None and t < self.str_held:
             raised = False                   # (WP67, F24) str_hold: a compare's result clocks
+        if raised and self.take_hold is not None and self._take_held():
+            raised = False                   # (WP94) bf_imm_hold: a half-taken width word
         if raised and self._nop_held():
             raised = False
         want = (raised and not self.inflight and not self.latch_blocks(t)
@@ -493,6 +511,16 @@ class Queue:
         if not want and not self.inflight:
             self.requested_at = None
         return want
+
+    def _take_held(self) -> bool:
+        """(WP94) bf_imm_hold=word: from the first operand take after the hold was armed (that
+        clock included) no fetch request is raised, nor a back-to-back fetch committed after it
+        run; one requested before that take still runs."""
+        if self.hold_from is None:
+            if self.take_t is None or self.take_t < self.take_hold:
+                return False
+            self.hold_from = self.take_t
+        return not (self.requested_at is not None and self.requested_at < self.hold_from)
 
     def asked(self, t: int) -> bool:
         """A request raised on t that is not yet on the bus (take_sync=pending)."""
