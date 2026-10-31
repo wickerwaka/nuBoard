@@ -151,6 +151,15 @@ LENGTHS.update({f"{op}_aw_dw": 2 for op in ("or", "addc", "subc", "and", "sub", 
 LENGTHS.update({f"{op}_aw_imm16": 3 for op in ("or", "addc", "subc", "and", "sub", "xor", "cmp")})
 LENGTHS.update({f"{op}b_m_imm8_{g}": 3 for op in ("add", "cmp") for g in ("80", "82")})
 RUN_RANGES.update({"F35": (1044, 1044), "F36": (750, 750)})
+# (WP90) F37: the lead's target words, segment word, MOV BW,0C00h and stores, the memory-indirect
+# transfers, BRK 3 / BRK 5 and RETI
+LENGTHS.update({f"mov_aw_t{a:04x}": 3 for a in range(0x56, 0x62)})
+LENGTHS.update({"mov_aw_1000": 3, "mov_bw_c00": 3,
+                **{f"st_acc_{a:04x}": 3 for a in (0x0C02, 0x000C, 0x000E, 0x0014, 0x0016)},
+                "call_m_dir": 4, "call_m_bw": 2, "br_m_dir": 4, "br_m_bw": 2,
+                "callf_m_dir": 4, "callf_m_bw": 2, "brf_m_dir": 4, "brf_m_bw": 2,
+                "brk3": 1, "brk5": 2, "reti": 1})
+RUN_RANGES.update({"F37": (432, 432)})
 
 
 def _synthetic_run(chain):
@@ -246,11 +255,12 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(built.image[0x0800], b"\x90" * 0x800)
 
     def test_parity_pairs_differ_by_pad(self):
-        from validation.v35s.chains.forms import F35_ABS_FORMS
+        from validation.v35s.chains.forms import F35_ABS_FORMS, F37_ABS_FORMS
         by_id = {c.id: c for c in self.chains}
         # (WP87) F35's absolute targets (MOV BW,t, BR far, CALL far) move with the pad: the
-        # target less the pad is the same at both parities
-        absolute = {name for kind in F35_ABS_FORMS.values() for name in kind.values()}
+        # target less the pad is the same at both parities; (WP90) and F37's (MOV AW,t)
+        absolute = {name for forms_ in (F35_ABS_FORMS, F37_ABS_FORMS)
+                    for kind in forms_.values() for name in kind.values()}
 
         def strip(c):
             pad = int(c.instrs[0].role == "pad")
@@ -2039,9 +2049,10 @@ class F32F33Tests(unittest.TestCase):
         for name in F32_FORMS + F33_FORMS:
             self.assertNotIn(name, UNMODELLED_FORMS)     # (WP78) the simulator decodes them
             self.assertIn(FORMS[name].cls, CLASSES, name)
-        # (WP87) none of F32's or F33's: the generator-only forms are F35's and F36's
-        from validation.v35s.chains.forms import F35_FORMS, F36_FORMS
-        self.assertFalse(UNMODELLED_FORMS - set(F35_FORMS + F36_FORMS))
+        # (WP87) none of F32's or F33's: the generator-only forms were F35's and F36's; (WP90)
+        # they are F37's
+        from validation.v35s.chains.forms import F37_FORMS
+        self.assertFalse(UNMODELLED_FORMS - set(F37_FORMS))
         # (WP78) one class per cost the facts tell apart
         for name, cls in (("clr1_mb_cl", "bit1_clr"), ("set1_mw_imm", "bit1_rmw"),
                           ("not1_mb_cl", "bit1_rmw"), ("test1_mw_imm", "bit1_test"),
@@ -2068,7 +2079,8 @@ class F32F33Tests(unittest.TestCase):
         from validation.v35s.chains import fit
         self.assertNotIn("F32", UNMODELLED)
         self.assertNotIn("F33", UNMODELLED)
-        self.assertEqual(UNMODELLED, ())     # (WP87) F35 / F36 generator-only; (WP88) modelled
+        # (WP87) F35 / F36 generator-only; (WP88) modelled; (WP90) F37 generator-only
+        self.assertEqual(UNMODELLED, ("F37",))
         self.assertIn("F32", fit.TIE_FAMILIES)
         self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
 
@@ -2706,15 +2718,15 @@ class F35Tests(unittest.TestCase):
 
     def test_unmodelled_forms(self):
         # (WP88) every F35 / F36 form decodes, with its catalog class and length (a prefixed form
-        # walked: the prefix a pseudo-instruction of its own, then the form); UNMODELLED_FORMS is
-        # empty. The frozen decoder (sim/frozen) is the adopted fit's and learns the forms when the
-        # package is regenerated at adoption.
+        # walked: the prefix a pseudo-instruction of its own, then the form); UNMODELLED_FORMS
+        # holds none of them ((WP90) only F37's transfers). The frozen decoder (sim/frozen) is
+        # the adopted fit's and learns the forms when the package is regenerated at adoption.
         from validation.v35s.chains.forms import F35_FORMS, F36_FORMS, UNMODELLED_FORMS
         from validation.v35s.chains.sim.templates import LOCK_PREFIX, PREFIXES, decode
         regs = {"AW": 0, "BW": 0x800, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
                 "IX": 0x100, "IY": 0x180, "Z": 1, "CY": 0, "S": 0, "V": 0, "P": 1,
                 "ret0F00": 0}
-        self.assertEqual(UNMODELLED_FORMS, frozenset())
+        self.assertFalse(UNMODELLED_FORMS & set(F35_FORMS + F36_FORMS))
         for name in F35_FORMS + F36_FORMS:
             f = FORMS[name]
             k = 0
@@ -2794,9 +2806,11 @@ class F36Tests(unittest.TestCase):
             self.assertEqual((FORMS[name].code.hex(), FORMS[name].cls), (code, cls), name)
         for name in F36_FORMS:
             self.assertIn(FORMS[name].cls, CLASSES, name)
-        # the first bytes F35 and F36 add to the catalog
+        # the first bytes F35 and F36 add to the catalog (as it stood before them: (WP90) F37's
+        # later forms left out)
+        from validation.v35s.chains.forms import F37_FORMS
         new = set(F35_FORMS + F36_FORMS)
-        before = {f.code[0] for n, f in FORMS.items() if n not in new}
+        before = {f.code[0] for n, f in FORMS.items() if n not in new and n not in F37_FORMS}
         added = {FORMS[n].code[0] for n in new} - before
         self.assertEqual(added, {0x0B, 0x0D, 0x13, 0x15, 0x1B, 0x1D, 0x25, 0x2B, 0x2D, 0x35, 0x3D,
                                  0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x5A, 0x5B, 0x5C,
@@ -2849,6 +2863,340 @@ class F36Tests(unittest.TestCase):
                 continue
             self.assertIsNotNone(b, f["id"])
             self.assertEqual(b["knobs"]["x"], k["lead"], f["id"])
+
+
+def _f37_walk(chain):
+    """(WP90) run an F37 chain's X bytes as the CPU does, from the first X to M1, with page 0's
+    memory (the zeroed vector table, the 9090h fill) and the chain's own stores: MOV AW,imm16 /
+    MOV BW,imm16 load, MOV [d16],AW stores AW (AW = 0 after the fence), the near and far
+    memory-indirect transfers read their pointer at [0C00h] or [BW], BRK n its vector at 4n /
+    4n+2, the stack of return words (PSW, PS, PC), code offsets in PS 1000h from the built image.
+    Returns (X indices in execution order, the stack left, [(X index, code offset)] of every
+    transfer executed, the
+    [address, word] stores in order, the pointer / vector words read in order)."""
+    built = build_image(chain)
+    base = built.chain_base - CODE_BASE
+    seg = CODE_BASE >> 4
+    x = [i for i in chain.instrs if i.role == "x"]
+    at = {base + i.offset: i for i in x}
+    m1 = next(i for i in chain.instrs if i.role == "marker" and i.marker_id == 1)
+    end = base + m1.offset
+    pc = base + x[0].offset if x else end
+    mem, aw, bw = {}, 0, 0x0800
+    stack, done, targets, stores, reads = [], [], [], [], []
+
+    def word(addr):
+        reads.append(addr)
+        if addr in mem:
+            return mem[addr]
+        return 0 if addr < 0x400 else 0x9090 if 0x800 <= addr < 0x1000 else None
+
+    while pc != end:
+        if pc not in at or len(done) > 24:
+            raise AssertionError(f"{chain.id}: pc {pc:04X} is not an X boundary")
+        i = at[pc]
+        done.append(i.index)
+        code, nxt, op = i.code, pc + len(i.code), i.code[0]
+        imm = int.from_bytes(code[1:3], "little")
+        new = nxt
+        if op == 0xB8:
+            aw = imm
+        elif op == 0xBB:
+            bw = imm
+        elif op == 0xA3:
+            mem[imm] = aw
+            stores.append([imm, aw])
+        elif op == 0x90:
+            pass
+        elif op == 0xEB:
+            new = nxt + int.from_bytes(code[1:2], "little", signed=True)
+        elif op == 0xC3:
+            new = stack.pop()
+        elif op == 0xCB:
+            new = stack.pop()
+            if stack.pop() != seg:
+                raise AssertionError(f"{chain.id}: RETF pops another segment")
+        elif op == 0xCF:
+            new = stack.pop()
+            if stack.pop() != seg or stack.pop() != "PSW":
+                raise AssertionError(f"{chain.id}: RETI pops another frame")
+        elif op == 0xFF:
+            reg, rm = (code[1] >> 3) & 7, code[1] & 0xC7
+            ea = int.from_bytes(code[2:4], "little") if rm == 0x06 else bw if rm == 0x07 else None
+            if ea is None or reg not in (2, 3, 4, 5):
+                raise AssertionError(f"{chain.id}: FF {code[1]:02X}")
+            new = word(ea)
+            if reg in (3, 5) and word(ea + 2) != seg:
+                raise AssertionError(f"{chain.id}: far pointer segment")
+            if reg == 3:
+                stack += [seg, nxt]
+            elif reg == 2:
+                stack.append(nxt)
+        elif op in (0xCC, 0xCD):
+            n = 3 if op == 0xCC else code[1]
+            stack += ["PSW", seg, nxt]
+            new = word(4 * n)
+            if word(4 * n + 2) != seg:
+                raise AssertionError(f"{chain.id}: vector {n} segment")
+        else:
+            raise AssertionError(f"{chain.id}: opcode {op:02X} not walked")
+        if op in (0xEB, 0xC3, 0xCB, 0xCF, 0xFF, 0xCC, 0xCD):
+            targets.append((i.index, new))
+        pc = new
+    return done, stack, targets, stores, reads
+
+
+class F37Tests(unittest.TestCase):
+    """(WP90) the memory-indirect transfers, BRK and RETI through a word the chain's lead writes:
+    counts, bytes and classes, the walk of every chain against its exec / skipped / target /
+    stores / handler knobs, the pointer and vector words at both parities, the stack the
+    normaliser walks, the unmodelled transfers, baselines, synthetic runs, gen --check."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f37 = generate(["F37"])
+        cls.cells = [c for c in cls.f37 if c.waits == 0]
+        cls.by = {c.id[len("F37-"):-len("-w0")]: c for c in cls.cells}
+
+    def _body(self, label):
+        return " ".join(i.code.hex() for i in self.by[label].instrs if i.role == "x")
+
+    def test_counts(self):
+        from collections import Counter
+        from validation.v35s.chains.families import UNMODELLED
+        self.assertEqual(len(self.f37), 432)
+        self.assertIn("F37", UNMODELLED)            # generator-only until a template learns it
+        pe = [c for c in self.cells if c.parity == "even"]
+        self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in pe),
+                         {(m, s): n for m in ("out", "push")
+                          for s, n in (("empty", 1), ("ctl", 10), ("indm", 10), ("farm", 9),
+                                       ("brk", 6))})
+        for c in self.f37:
+            self.assertEqual(c.rfm, 0xEC, c.id)
+            self.assertFalse(c.knobs["refresh_on"], c.id)
+            self.assertTrue(c.id.startswith(f"F37-{c.marker_kind}-"), c.id)
+            self.assertEqual(c.knobs["marker"], c.marker_kind, c.id)
+            self.assertEqual(c.regs, self.f37[0].regs, c.id)
+            self.assertEqual((c.regs["DS0"], c.regs["SS"], c.regs["SP"]), (0, 0, 0x0F00), c.id)
+
+    def test_catalog(self):
+        from validation.v35s.chains.forms import (CLASSES, F35_FIRST_X, F37_ABS, F37_FORMS,
+                                                  F37_REL, F37_TRANSFER_CLASSES, STACK_CLASSES,
+                                                  UNMODELLED_FORMS)
+        self.assertEqual(F37_ABS, tuple(range(min(F35_FIRST_X) + F37_REL[0],
+                                              max(F35_FIRST_X) + F37_REL[1] + 1)))
+        for name, code, cls in (("mov_aw_t0056", "b85600", "imm"),
+                                ("mov_aw_t0061", "b86100", "imm"),
+                                ("mov_aw_1000", "b80010", "imm"), ("mov_bw_c00", "bb000c", "imm"),
+                                ("st_acc_0c02", "a3020c", "store"),
+                                ("st_acc_000c", "a30c00", "store"),
+                                ("st_acc_000e", "a30e00", "store"),
+                                ("st_acc_0014", "a31400", "store"),
+                                ("st_acc_0016", "a31600", "store"),
+                                ("call_m_dir", "ff16000c", "call_mem"),
+                                ("call_m_bw", "ff17", "call_mem"),
+                                ("br_m_dir", "ff26000c", "br_mem"), ("br_m_bw", "ff27", "br_mem"),
+                                ("callf_m_dir", "ff1e000c", "call_far_mem"),
+                                ("callf_m_bw", "ff1f", "call_far_mem"),
+                                ("brf_m_dir", "ff2e000c", "branch_far_mem"),
+                                ("brf_m_bw", "ff2f", "branch_far_mem"),
+                                ("brk3", "cc", "brk"), ("brk5", "cd05", "brk"),
+                                ("reti", "cf", "reti")):
+            self.assertEqual((FORMS[name].code.hex(), FORMS[name].cls), (code, cls), name)
+        for name in F37_FORMS:
+            self.assertIn(FORMS[name].cls, CLASSES, name)
+        # the stack words the normaliser walks: writes are pushes, reads pops, no SP adjust
+        for name, reads, writes, stack in (("call_m_dir", 0, 1, True), ("call_m_bw", 0, 1, True),
+                                           ("callf_m_dir", 0, 2, True),
+                                           ("callf_m_bw", 0, 2, True), ("brk3", 0, 3, True),
+                                           ("brk5", 0, 3, True), ("reti", 3, 0, True),
+                                           ("br_m_dir", 1, 0, False), ("br_m_bw", 1, 0, False),
+                                           ("brf_m_dir", 2, 0, False), ("brf_m_bw", 2, 0, False),
+                                           ("st_acc_000c", 0, 1, False)):
+            f = FORMS[name]
+            self.assertEqual((f.reads, f.writes, f.sp_adjust, f.width), (reads, writes, 0, 2),
+                             name)
+            self.assertEqual(f.cls in STACK_CLASSES, stack, name)
+        self.assertEqual((FORMS["brk3"].ea, FORMS["brk5"].ea, FORMS["call_m_bw"].ea,
+                          FORMS["brf_m_dir"].ea), (0x0C, 0x14, 0x0C00, 0x0C00))
+        self.assertEqual((FORMS["call_m_dir"].mode_class, FORMS["call_m_bw"].mode_class),
+                         ("direct", "base"))
+        # every transfer is unmodelled, every lead form is not
+        self.assertEqual(UNMODELLED_FORMS,
+                         {n for n in F37_FORMS if FORMS[n].cls in F37_TRANSFER_CLASSES})
+        self.assertEqual(len(UNMODELLED_FORMS), 11)
+
+    def test_placement(self):
+        for label, body in (("out-ctl-ptr-pE", "b83412 a3000c"),
+                            ("out-ctl-vec5-pO", "b83412 a31400 b80010 a31600"),
+                            ("out-indm-callm-n0-pE", "b85800 a3000c ff16000c"),
+                            ("out-indm-callm-n0-pO", "b85700 a3000c ff16000c"),
+                            ("push-indm-callm-n0-pE", "b85700 a3000c ff16000c"),
+                            ("out-indm-callm-sep-pE", "b85900 a3000c 90 ff16000c"),
+                            ("push-indm-brbw-n1-pO", "bb000c b85800 a3000c ff27 90"),
+                            ("out-farm-callfm-retf-pE",
+                             "b86000 a3000c b80010 a3020c ff1e000c eb01 cb"),
+                            ("out-farm-brfbw-n0-pO", "bb000c b85e00 a3000c b80010 a3020c ff2f"),
+                            ("out-brk-brk3-pE", "b85d00 a30c00 b80010 a30e00 cc eb01 cf"),
+                            ("push-brk-brk5-nop-pE",
+                             "b85d00 a31400 b80010 a31600 cd05 eb02 90 cf"),
+                            ("out-brk-brk5-sep-pO",
+                             "b85e00 a31400 b80010 a31600 90 cd05 eb01 cf")):
+            self.assertEqual(self._body(label), body, label)
+
+    def test_walk_matches_knobs(self):
+        from validation.v35s.chains.families import f35_first_x
+        from validation.v35s.chains.forms import F37_ABS
+        left = {"indm-callm-n0": 1, "indm-callm-sep": 1, "indm-callbw-n0": 1, "farm-callfm-n0": 2,
+                "farm-callfbw-n0": 2}       # the words X leaves on the stack
+        seen_targets = set()
+        for c in self.cells:
+            k = c.knobs
+            x = [i for i in c.instrs if i.role == "x"]
+            self.assertEqual([i.form for i in x], k["x"], c.id)
+            base = build_image(c).chain_base - CODE_BASE
+            if x:
+                self.assertEqual(base + x[0].offset, f35_first_x(c.marker_kind, c.parity), c.id)
+            done, stack, tgts, stores, reads = _f37_walk(c)
+            label = c.id[len(f"F37-{c.marker_kind}-"):].rsplit("-p", 1)[0]
+            self.assertEqual(done, k["exec"], c.id)
+            self.assertEqual(len(stack), left.get(label, 0), c.id)
+            self.assertEqual(stores, k["stores"], c.id)
+            never = [i for i in x if i.index not in done]
+            self.assertEqual(len(never), k["skipped"], c.id)
+            self.assertTrue(all(i.form == "nop" for i in never), c.id)
+            self.assertEqual(k["lead"], k["x"][:len(k["lead"])], c.id)
+            if k["series"] in ("empty", "ctl"):
+                self.assertEqual((k["form"], k["taken"], k["target"], tgts, reads),
+                                 (None, None, None, [], []), c.id)
+                continue
+            self.assertTrue(k["taken"], c.id)
+            # the pointer / vector the lead wrote is the transfer's target: the X at index
+            # target (M1 when target is len(x)), target_rel bytes from the first X
+            t = k["target"]
+            t_off = x[t].offset if t < len(x) else next(
+                i.offset for i in c.instrs if i.role == "marker" and i.marker_id == 1)
+            self.assertEqual(t_off - x[0].offset, k["target_rel"], c.id)
+            # the measured transfer (run once) lands on the target
+            form_at = k["x"].index(k["form"])
+            self.assertEqual([t for j, t in tgts if j == form_at], [base + t_off], c.id)
+            self.assertEqual(k["stores"][0][1], base + t_off, c.id)
+            self.assertIn(base + t_off, F37_ABS, c.id)
+            seen_targets.add((k["series"], (base + t_off) & 1))
+            # the transfer reads exactly the words the lead stored, offset first
+            self.assertEqual(reads, [a for a, _ in k["stores"]], c.id)
+            if k["series"] == "brk":
+                n = k["vector"]
+                self.assertEqual([a for a, _ in k["stores"]], [4 * n, 4 * n + 2], c.id)
+                self.assertEqual(k["stores"][1][1], CODE_BASE >> 4, c.id)
+                at = k["x"].index(f"brk{n}")
+                self.assertEqual(k["handler"], done[done.index(at) + 1:
+                                                    done.index(k["x"].index("reti")) + 1], c.id)
+                self.assertEqual(k["x"][k["handler"][-1]], "reti", c.id)
+                self.assertEqual(k["handler"][0], t, c.id)
+            else:
+                self.assertEqual(k["stores"][0][0], 0x0C00, c.id)
+                self.assertEqual(len(k["stores"]), 2 if k["series"] == "farm" else 1, c.id)
+        # both target parities in every series
+        self.assertEqual(seen_targets, {(s, p) for s in ("indm", "farm", "brk") for p in (0, 1)})
+
+    def test_controls_and_baselines(self):
+        for c in self.cells:
+            k = c.knobs
+            if k["series"] == "empty":
+                self.assertIsNone(k["baseline"], c.id)
+                continue
+            if k["series"] == "ctl":
+                self.assertEqual((k["baseline"], k["lead"]), ("empty", []), c.id)
+                continue
+            ctl = self.by[f"{c.marker_kind}-{k['baseline']}-p{c.id.split('-p')[-1][0]}"]
+            # the control is the lead alone: the same forms but the target word (MOV AW,1234h
+            # for MOV AW,t: the same opcode and length)
+            self.assertEqual(ctl.knobs["x"], ["mov_aw_imm" if n.startswith("mov_aw_t") else n
+                                              for n in k["lead"]], c.id)
+            self.assertEqual([a for a, _ in ctl.knobs["stores"]], [a for a, _ in k["stores"]],
+                             c.id)
+            self.assertEqual(ctl.knobs["stores"][0][1], 0x1234, c.id)
+
+    def test_expected_accesses(self):
+        from validation.v35s.chains.normalize import expected_accesses
+
+        def acc(label, kinds=("stack_write", "stack_read", "data_write")):
+            c = self.by[label]
+            a = expected_accesses(c)
+            return [(x.kind, x.addr) for j in sorted(a) for x in a[j] if x.kind in kinds]
+
+        sw, sr, dw = "stack_write", "stack_read", "data_write"
+        # BRK pushes PSW, PS, PC; RETI pops PC, PS, PSW; BR +2 jumps the handler
+        self.assertEqual(acc("push-brk-brk3-nop-pE"),
+                         [(sw, 0xEFE), (dw, 0x0C), (dw, 0x0E), (sw, 0xEFC), (sw, 0xEFA),
+                          (sw, 0xEF8), (sr, 0xEF8), (sr, 0xEFA), (sr, 0xEFC), (sw, 0xEFC)])
+        self.assertEqual(acc("out-brk-brk5-sep-pO"),
+                         [(dw, 0x14), (dw, 0x16), (sw, 0xEFE), (sw, 0xEFC), (sw, 0xEFA),
+                          (sr, 0xEFA), (sr, 0xEFC), (sr, 0xEFE)])
+        self.assertEqual(acc("push-indm-callm-ret-pE"),
+                         [(sw, 0xEFE), (dw, 0xC00), (sw, 0xEFC), (sr, 0xEFC), (sw, 0xEFC)])
+        self.assertEqual(acc("push-farm-callfm-retf-pO"),
+                         [(sw, 0xEFE), (dw, 0xC00), (dw, 0xC02), (sw, 0xEFC), (sw, 0xEFA),
+                          (sr, 0xEFA), (sr, 0xEFC), (sw, 0xEFC)])
+        self.assertEqual(acc("push-farm-callfbw-n0-pE"),
+                         [(sw, 0xEFE), (dw, 0xC00), (dw, 0xC02), (sw, 0xEFC), (sw, 0xEFA),
+                          (sw, 0xEF8)])
+        # BR near [mem]'s pointer read is expected at its EA ([BW] with BW = 0C00h)
+        self.assertEqual(acc("out-indm-brbw-n0-pE", ("data_read",)), [("data_read", 0xC00)])
+        self.assertEqual(acc("out-indm-brm-sep-pO", ("data_read",)), [("data_read", 0xC00)])
+
+    def test_synthetic_runs_and_baselines(self):
+        from validation.v35s.chains.derive import _f24_baseline, index_facts, run_facts
+        from validation.v35s.chains.normalize import normalize
+        facts = []
+        for c in self.cells:
+            n = normalize(_synthetic_run(c))
+            self.assertIsNone(n.access_mismatch, c.id)
+            self.assertEqual(n.checks, [], c.id)
+            self.assertEqual(sorted(n.t_markers), [0, 1], c.id)
+            facts.append(run_facts(n))
+        index = index_facts(facts)
+        for f in facts:
+            b, k = _f24_baseline(f, index, None), f["knobs"]
+            if k["baseline"] is None:
+                self.assertIsNone(b, f["id"])
+                continue
+            self.assertIsNotNone(b, f["id"])
+            self.assertEqual((b["marker"], b["column"]), (f["marker"], f["column"]))
+            self.assertEqual([FORMS[n].code[0] for n in b["knobs"]["x"]],
+                             [FORMS[n].code[0] for n in k["lead"]], f["id"])
+
+    def test_unmodelled_forms(self):
+        # the lead's forms decode with their catalog class and length; the transfers do not
+        # (FF /2 to /5 with a memory operand as the rmw group, CC / CD / CF not at all), so they
+        # are UNMODELLED_FORMS and F37 is UNMODELLED
+        from validation.v35s.chains.forms import F37_FORMS, UNMODELLED_FORMS
+        from validation.v35s.chains.sim.templates import decode
+        regs = {"AW": 0, "BW": 0xC00, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
+                "IX": 0x100, "IY": 0x180, "Z": 1, "CY": 0, "S": 0, "V": 0, "P": 1,
+                "ret0F00": 0}
+        for name in F37_FORMS:
+            f = FORMS[name]
+            if name not in UNMODELLED_FORMS:
+                op = decode(f.code, 0, dict(regs))
+                self.assertEqual((op.cls, op.length), (f.cls, f.length), name)
+            elif f.code[0] == 0xFF:
+                self.assertEqual(decode(f.code, 0, dict(regs)).cls, "rmw", name)
+            else:
+                with self.assertRaises(Exception):
+                    decode(f.code, 0, dict(regs))
+        used = {i.form for c in self.f37 for i in c.instrs if i.role == "x"}
+        self.assertEqual(used & UNMODELLED_FORMS, UNMODELLED_FORMS)
+
+    def test_gen_check(self):
+        import contextlib
+        import io
+        from validation.v35s.chains.__main__ import main
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["gen", "--family", "F37", "--check"]), 0)
+        self.assertIn("checked 432 images", out.getvalue())
 
 
 if __name__ == "__main__":

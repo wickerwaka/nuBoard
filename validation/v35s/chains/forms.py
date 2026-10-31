@@ -49,13 +49,20 @@ CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rm
            # (WP88) DBNZNE / DBNZE cost differently from DBNZ (the Z test first: F35 cw), their
            # own class; TEST r8,r8 / r16,r16 (84 / 85 with a register operand) from the other
            # two-byte register forms (F36 test: 3 clocks longer, MOV r8,imm8's cost)
-           "dbnz_z", "test_reg")
+           "dbnz_z", "test_reg",
+           # (WP90) F37 the memory-indirect transfers, near (FF /2, /4) and far (FF /3, /5)
+           # through [mem], BRK 3 / BRK imm8 (CC, CD) and RETI (CF): generator-only
+           # (UNMODELLED_FORMS), no template yet
+           "call_mem", "br_mem", "call_far_mem", "branch_far_mem", "brk", "reti")
 # Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
 STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
                  "prepare", "dispose", "ret",
                  # (WP87) F35 / F36: a form's writes are pushes, its reads pops, then SP raised
                  # by Form.sp_adjust
-                 "ret_imm", "call_reg", "call_far", "ret_far", "ret_far_imm", "pop_psw")
+                 "ret_imm", "call_reg", "call_far", "ret_far", "ret_far_imm", "pop_psw",
+                 # (WP90) F37: the pushes of CALL near / far [mem] and BRK, RETI's three pops
+                 # (the pointer and vector reads before the pushes are not walked: forms, F37)
+                 "call_mem", "call_far_mem", "brk", "reti")
 MODE_CLASSES = ("base", "base_index", "disp", "base_disp", "base_index_disp", "direct")
 
 # Register and EA knob values (plan, "Registers from the prelude").
@@ -1148,3 +1155,81 @@ F36_MOV16_FORM = {r: ("mov_bw_imm" if r == "bw" else f"mov_{r}_imm16") for r in 
 # 80 / 82 groups, the byte shifts by CL, A0 / A2, BUSLOCK, LES / LDS, PUSH / POP PSW, LAHF /
 # SAHF): none left
 UNMODELLED_FORMS = frozenset()
+
+
+# F37 (WP90: the memory-indirect transfers, BRK and RETI through a word the chain writes),
+# refresh off. F35 left two groups out because they need a word the image does not hold: the
+# pointer of a memory-indirect transfer (the data fill is 9090h) and BRK's vector (the vector
+# table is zeroed). DS0 = 0, so a lead store inside the chain writes any word of page 0: MOV
+# AW,imm16 (B8 lo hi; AW is 0 after the fence, so the lead reloads it) ; MOV [d16],AW (A3 lo hi,
+# st_acc_dir's format), into the data area at 0C00h / 0C02h or the vector table at 4n / 4n+2.
+# No image.py change: the image still holds the zeroed table and the 90h fill. NEC mnemonics:
+# - CALL near [mem] (FF /2) and BR near [mem] (FF /4): the word at the EA is the new PC. Direct
+#   (FF 16 00 0C, FF 26 00 0C: [0C00h]) and base (FF 17, FF 27: [BW], BW = 0C00h loaded in the
+#   chain by MOV BW,0C00h, BB 00 0C); the pointer is written direct (MOV [0C00h],AW) in both.
+# - CALL far [mem] (FF /3) and BR far [mem] (FF /5): the dword at the EA, offset then segment
+#   (PS = 1000h, written to 0C02h): FF 1E 00 0C, FF 2E 00 0C and through [BW] FF 1F, FF 2F.
+# - BRK 3 (CC) and BRK imm8 (CD 05): push PSW, PS, PC (three stack words), clear IE and BRK, PS:PC
+#   from the vector at 4n (offset) / 4n+2 (segment): 0Ch / 0Eh for BRK 3, 14h / 16h for BRK 5.
+#   The handler ends in RETI (CF): pop PC, PS, PSW. The harness's PSW (the prelude's POP PSW of
+#   0002h keeps MD and RB: F002h, MD 1, RB 7, BRKI 1, IE 0) is what BRK pushes and RETI pops
+#   back, so the return is to the same bank and mode; no handler holds an I/O form, and RETI
+#   restores the PSW before the markers.
+# The pointer and vector targets are absolute code offsets in PS 1000h (F35_PRELUDE_LEN,
+# families.f35_first_x): one MOV AW,t form per offset in F37_ABS, as F35's MOV BW,t.
+# Classes: the lead's MOV AW,imm16 / MOV BW,imm16 are the imm class and MOV [d16],AW the store
+# class (F5's st_acc_dir at other addresses), modelled already. The transfers are six new
+# classes (call_mem, br_mem, call_far_mem, branch_far_mem, brk, reti) with no template:
+# sim/templates.decode takes FF /2 to /5 with a memory operand into the rmw group (as FF /0 and
+# /1, INC / DEC [mem]: a read and a write of the operand, no transfer) and raises on CC, CD and
+# CF, so every one of them is in UNMODELLED_FORMS (and F37 in families.UNMODELLED) until a
+# template learns them.
+# Expected accesses (normalize.expected_accesses): the stack classes call_mem (one push, PC),
+# call_far_mem (two, PS then PC), brk (three, PSW then PS then PC) and reti (three pops, PC then
+# PS then PSW, sp_adjust 0) walk SP with writes = pushes and reads = pops, as F35's call_reg /
+# call_far. The pointer and vector reads (data reads before the pushes: one word for a near
+# pointer, two for a far pointer or a vector, at addr and addr + 2) are not among them:
+# normalize has no hook for a data read before a stack class's pushes. br_mem (reads = 1 at its
+# EA) is right as it stands; branch_far_mem (reads = 2) expects both reads at the EA, not at EA
+# and EA + 2. The ea of a transfer form is its pointer's or vector's address (not the stack's);
+# F37's knobs name every pointer / vector word (families.f37) for normalize to learn the reads.
+F37_FIRST_X = F35_FIRST_X
+F37_REL = (10, 19)                       # the targets' offsets from the first X (families.f37)
+F37_ABS = tuple(range(min(F37_FIRST_X) + F37_REL[0], max(F37_FIRST_X) + F37_REL[1] + 1))
+F37_PTR = DIRECT                         # the pointer: offset at 0C00h, segment at 0C02h
+F37_SEG = F35_CS                         # the segment word of a far pointer and a vector
+F37_BRK = {3: bytes([0xCC]), 5: bytes([0xCD, 0x05])}
+F37_VECTORS = {n: 4 * n for n in F37_BRK}           # the vector's offset word; segment at +2
+# MOV [a],AW by address: 0C00h is the catalog's st_acc_dir (A3 00 0C, F5)
+F37_STORE = {F37_PTR: "st_acc_dir", F37_PTR + 2: f"st_acc_{F37_PTR + 2:04x}",
+             **{v + j: f"st_acc_{v + j:04x}" for v in F37_VECTORS.values() for j in (0, 2)}}
+_BW_PTR = dict(mode="bw", mode_class="base", ea=F37_PTR)          # BW = 0C00h in the chain
+_DIR_PTR = dict(mode="dir", mode_class="direct", ea=F37_PTR)
+F37_FORMS = _register(
+    [Form(f"mov_aw_t{a:04x}", "imm", bytes([0xB8]) + _f35_abs(a)) for a in F37_ABS]
+    + [Form("mov_aw_1000", "imm", bytes([0xB8]) + F37_SEG.to_bytes(2, "little")),
+       Form("mov_bw_c00", "imm", bytes([0xBB]) + F37_PTR.to_bytes(2, "little"))]
+    + [Form(name, "store", bytes([0xA3]) + a.to_bytes(2, "little"), writes=1, width=2,
+            mode_class="direct", ea=a) for a, name in F37_STORE.items() if a != F37_PTR]
+    + [Form("call_m_dir", "call_mem", bytes([0xFF, 0x16]) + _DIR, writes=1, width=2,
+            **_DIR_PTR),
+       Form("call_m_bw", "call_mem", bytes([0xFF, 0x17]), writes=1, width=2, **_BW_PTR),
+       Form("br_m_dir", "br_mem", bytes([0xFF, 0x26]) + _DIR, reads=1, width=2, **_DIR_PTR),
+       Form("br_m_bw", "br_mem", bytes([0xFF, 0x27]), reads=1, width=2, **_BW_PTR),
+       Form("callf_m_dir", "call_far_mem", bytes([0xFF, 0x1E]) + _DIR, writes=2, width=2,
+            **_DIR_PTR),
+       Form("callf_m_bw", "call_far_mem", bytes([0xFF, 0x1F]), writes=2, width=2, **_BW_PTR),
+       Form("brf_m_dir", "branch_far_mem", bytes([0xFF, 0x2E]) + _DIR, reads=2, width=2,
+            **_DIR_PTR),
+       Form("brf_m_bw", "branch_far_mem", bytes([0xFF, 0x2F]), reads=2, width=2, **_BW_PTR)]
+    + [Form(f"brk{n}", "brk", code, writes=3, width=2, ea=F37_VECTORS[n])
+       for n, code in F37_BRK.items()]
+    + [Form("reti", "reti", bytes([0xCF]), reads=3, width=2, ea=_SP)])
+# the target forms by absolute offset (MOV AW,t: the pointer's or the vector's offset word)
+F37_ABS_FORMS = {"mov_aw": {a: f"mov_aw_t{a:04x}" for a in F37_ABS}}
+F37_TRANSFER_CLASSES = ("call_mem", "br_mem", "call_far_mem", "branch_far_mem", "brk", "reti")
+
+# (WP90) the F37 transfers (every form of a new class) have no template yet: the simulator
+# decodes FF /2 to /5 with a memory operand as the rmw group and raises on CC, CD and CF (the F37
+# comment above). The lead's forms (imm, store) decode with their classes and are modelled.
+UNMODELLED_FORMS = frozenset(n for n in F37_FORMS if FORMS[n].cls in F37_TRANSFER_CLASSES)

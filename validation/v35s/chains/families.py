@@ -2817,3 +2817,183 @@ FAMILIES.update({"F35": f35, "F36": f36})
 # (WP87) generator-only (forms.UNMODELLED_FORMS held the forms the simulator did not decode);
 # (WP88) read as facts and modelled: none
 UNMODELLED = ()
+
+
+# F37 (WP90: one refresh-off coverage family; precedents F23, F35). The two groups F35 left out:
+# the memory-indirect transfers (a pointer word) and BRK / RETI (a vector). The chain's lead
+# writes the word: DS0 = 0, so MOV AW,imm16 ; MOV [d16],AW stores anywhere in page 0 (AW is 0
+# after the fence and is reloaded by the lead, as F35's MOV BW,t): the pointer at 0C00h (the
+# segment at 0C02h) in the data area, the vector at 4n / 4n+2 in the zeroed vector table. No
+# image.py or blocks.py change. The cost frame PAD LS M0 X M1 LS END, refresh off (RFM ECh), every
+# wait and parity, the OUT and the PUSH marker on every variant; run ids
+# F37-<out|push>-<series>-<label>-p<E|O>-w<N>, the empty frame F37-<marker>-empty. Every
+# transfer's baseline is the frame with its lead alone (the ctl series: the lead stores, with
+# MOV AW,1234h for the target word); X's cost is dM(X) - dM(baseline). The pointer and vector
+# targets are absolute code offsets in PS 1000h (forms.F37_ABS: MOV AW,t built per parity from
+# f35_first_x, the prelude a constant 71 bytes checked at generation), so a variant's pE and pO
+# chains differ in that one form. Knobs as F35's (series = probe, marker, form, x, k, lead,
+# baseline, exec, skipped, taken, rfm, refresh_on) and: stores (the [address, word] pairs the
+# lead writes, in order), target (the X index the pointer / vector names; len(x) is M1),
+# target_rel (its offset from the first X), mode_class (direct or base: the transfer's EA),
+# ret (the return form a call or BRK reaches), vector (BRK's n) and handler (the X indices run
+# between BRK and its return, RETI last, from exec).
+# ctl: the empty frame; the lead stores alone: one word to 0C00h (ptr), the same after MOV
+#   BW,0C00h (ptrbw), two words to 0C00h / 0C02h (far, and farbw after MOV BW,0C00h), the vector
+#   pairs to 0Ch / 0Eh (vec3) and 14h / 16h (vec5); ptr, far, vec3 and vec5 again with a NOP
+#   after them (-sep, the baselines of the sep cells). MOV AW,imm16 ; MOV [0C00h],AW is F5's
+#   store class: the controls are modelled already.
+# indm: CALL near [0C00h] (FF 16 00 0C) to the next instruction, to a RET (CALL ; BR +1 ; RET,
+#   F23's callret: run 0 1 2 4 3) and after a NOP (sep: the store's write and the pointer's read
+#   one instruction apart); BR near [0C00h] (FF 26 00 0C) to the next instruction, over one NOP
+#   (the target's parity) and after a NOP; CALL and BR through [BW] (FF 17, FF 27; MOV BW,0C00h
+#   in the lead, the pointer written direct), to the next instruction, to a RET (CALL) and over
+#   a NOP (BR), so the mode class varies (direct, base).
+# farm: BR far [0C00h] (FF 2E 00 0C, offset at 0C00h, segment 1000h at 0C02h) to the next
+#   instruction, over one NOP and after a NOP; CALL far [0C00h] (FF 1E 00 0C) to the next
+#   instruction and to a RETF (CALL ; BR +1 ; RETF); through [BW] (FF 1F, FF 2F): CALL far to
+#   the next instruction and to a RETF, BR far to the next instruction and over a NOP.
+# brk: BRK 3 (CC) and BRK 5 (CD 05), the vector written by the lead to the chain offset of the
+#   handler: a RETI (CF) after BR +1 (BRK ; BR +1 ; RETI: RETI returns to the BR, the
+#   instruction after the BRK, and the BR jumps the RETI); NOP ; RETI (BRK ; BR +2 ; NOP ; RETI:
+#   the handler runs between BRK and the return, exec order marks it); each after a NOP (sep).
+#   BRK pushes PSW, PS, PC (three stack words: writes 3) and RETI pops PC, PS, PSW (reads 3),
+#   sp_adjust 0; the PSW is the harness's F002h both ways (forms, F37).
+# Left out: a handler directly after its BRK (BRK's return address is the next instruction, so
+#   the RETI would run twice, the second popping what the frame never pushed); a handler or a
+#   RET placed before its BRK / CALL (BR +1 ; RETI ; BRK, returning straight to M1):
+#   normalize.expected_accesses walks the stack cycles in chain order, and such a chain pops
+#   before it pushes in chain order; anything else that traps (CHKIND, FPO1, POLL, BRKV); RETI
+#   without a BRK before it; a handler with an I/O form; a pointer at an odd address.
+#   Generator-only (UNMODELLED): the transfers' classes have no template
+#   (forms.UNMODELLED_FORMS), and normalize.expected_accesses does not yet expect the pointer
+#   and vector reads (forms, F37).
+F37_RFM = RFM_OFF
+F37_IMM = 0x1234                # the controls' target word: MOV AW,1234h (mov_aw_imm)
+
+
+def _f37_specs(first_x):
+    """[(label, knobs-without-marker, x names, push)] for the frame whose first X sits at code
+    offset first_x (the absolute targets), in family order."""
+    from .forms import F37_ABS_FORMS, F37_PTR, F37_SEG, F37_STORE, F37_VECTORS
+    specs = []
+
+    def lead_of(kind, n=None):
+        """The lead's stores [(address, word)] in order, "T" the target's offset word."""
+        if kind == "ptr":
+            pairs = [(F37_PTR, "T")]
+        elif kind == "far":
+            pairs = [(F37_PTR, "T"), (F37_PTR + 2, F37_SEG)]
+        else:
+            pairs = [(F37_VECTORS[n], "T"), (F37_VECTORS[n] + 2, F37_SEG)]
+        return pairs
+
+    def add(series, label, names, lead=0, baseline="empty", exec_=None, taken=None, form=None,
+            pairs=(), target=None, **extra):
+        names = list(names)
+        rel = (sum(len(FORMS[n].code) if n != "T" else 3 for n in names[:target])
+               if target is not None else None)
+        word = first_x + rel if rel is not None else F37_IMM
+        names = [F37_ABS_FORMS["mov_aw"][word] if n == "T" else n for n in names]
+        ex = list(exec_ if exec_ is not None else range(len(names)))
+        knobs = {"probe": series, "series": series, "form": form, "x": names,
+                 "k": 1 if form else 0, "lead": names[:lead], "baseline": baseline,
+                 "exec": ex, "skipped": len(names) - len(set(ex)), "taken": taken,
+                 "rfm": F37_RFM, "refresh_on": False,
+                 "stores": [[a, word if w == "T" else w] for a, w in pairs],
+                 "target": target, "target_rel": rel, **extra}
+        specs.append((label if series == "empty" else f"{series}-{label}", knobs, names, True))
+
+    def stores(pairs):
+        """The lead's forms for pairs: MOV AW,t ("T") or MOV AW,1000h ; MOV [a],AW."""
+        out = []
+        for a, w in pairs:
+            out += ["T" if w == "T" else "mov_aw_1000", F37_STORE[a]]
+        return out
+
+    add("empty", "empty", [], baseline=None)
+    # ctl: the lead stores alone (the target word MOV AW,1234h)
+    ctl = {"ptr": (lead_of("ptr"), []), "ptrbw": (lead_of("ptr"), ["mov_bw_c00"]),
+           "far": (lead_of("far"), []), "farbw": (lead_of("far"), ["mov_bw_c00"]),
+           "vec3": (lead_of("vec", 3), []), "vec5": (lead_of("vec", 5), [])}
+    for label, (pairs, pre) in ctl.items():
+        names = pre + ["mov_aw_imm" if n == "T" else n for n in stores(pairs)]
+        add("ctl", label, names, pairs=pairs)
+        if label in ("ptr", "far", "vec3", "vec5"):
+            add("ctl", f"{label}-sep", names + ["nop"], pairs=pairs)
+
+    # indm: the near pointer at 0C00h
+    def indm(label, pre, body, target, exec_, form, mode_class, ret=None, sep=False,
+             base="ptr"):
+        lead = pre + stores(lead_of("ptr")) + (["nop"] if sep else [])
+        names = lead + body
+        add("indm", label, names, len(lead), f"ctl-{base}" + ("-sep" if sep else ""),
+            exec_, True, form, lead_of("ptr"), len(lead) + target, mode_class=mode_class,
+            ret=ret)
+
+    indm("callm-n0", [], ["call_m_dir"], 1, [0, 1, 2], "call_m_dir", "direct")
+    indm("callm-ret", [], ["call_m_dir", "br_n1", "ret"], 2, [0, 1, 2, 4, 3], "call_m_dir",
+         "direct", "ret")
+    indm("callm-sep", [], ["call_m_dir"], 1, [0, 1, 2, 3], "call_m_dir", "direct", sep=True)
+    indm("brm-n0", [], ["br_m_dir"], 1, [0, 1, 2], "br_m_dir", "direct")
+    indm("brm-n1", [], ["br_m_dir", "nop"], 2, [0, 1, 2], "br_m_dir", "direct")
+    indm("brm-sep", [], ["br_m_dir"], 1, [0, 1, 2, 3], "br_m_dir", "direct", sep=True)
+    bw = ["mov_bw_c00"]
+    indm("callbw-n0", bw, ["call_m_bw"], 1, [0, 1, 2, 3], "call_m_bw", "base", base="ptrbw")
+    indm("callbw-ret", bw, ["call_m_bw", "br_n1", "ret"], 2, [0, 1, 2, 3, 5, 4], "call_m_bw",
+         "base", "ret", base="ptrbw")
+    indm("brbw-n0", bw, ["br_m_bw"], 1, [0, 1, 2, 3], "br_m_bw", "base", base="ptrbw")
+    indm("brbw-n1", bw, ["br_m_bw", "nop"], 2, [0, 1, 2, 3], "br_m_bw", "base", base="ptrbw")
+
+    # farm: the far pointer at 0C00h / 0C02h
+    def farm(label, pre, body, target, exec_, form, mode_class, ret=None, sep=False,
+             base="far"):
+        lead = pre + stores(lead_of("far")) + (["nop"] if sep else [])
+        names = lead + body
+        add("farm", label, names, len(lead), f"ctl-{base}" + ("-sep" if sep else ""),
+            exec_, True, form, lead_of("far"), len(lead) + target, mode_class=mode_class,
+            ret=ret)
+
+    l4 = [0, 1, 2, 3]
+    farm("brfm-n0", [], ["brf_m_dir"], 1, l4 + [4], "brf_m_dir", "direct")
+    farm("brfm-n1", [], ["brf_m_dir", "nop"], 2, l4 + [4], "brf_m_dir", "direct")
+    farm("brfm-sep", [], ["brf_m_dir"], 1, l4 + [4, 5], "brf_m_dir", "direct", sep=True)
+    farm("callfm-n0", [], ["callf_m_dir"], 1, l4 + [4], "callf_m_dir", "direct")
+    farm("callfm-retf", [], ["callf_m_dir", "br_n1", "retf"], 2, l4 + [4, 6, 5],
+         "callf_m_dir", "direct", "retf")
+    farm("callfbw-n0", bw, ["callf_m_bw"], 1, l4 + [4, 5], "callf_m_bw", "base", base="farbw")
+    farm("callfbw-retf", bw, ["callf_m_bw", "br_n1", "retf"], 2, l4 + [4, 5, 7, 6],
+         "callf_m_bw", "base", "retf", base="farbw")
+    farm("brfbw-n0", bw, ["brf_m_bw"], 1, l4 + [4, 5], "brf_m_bw", "base", base="farbw")
+    farm("brfbw-n1", bw, ["brf_m_bw", "nop"], 2, l4 + [4, 5], "brf_m_bw", "base", base="farbw")
+
+    # brk: the vector at 4n / 4n+2 names the handler
+    def brk(label, n, body, target, exec_, sep=False):
+        lead = stores(lead_of("vec", n)) + (["nop"] if sep else [])
+        names = lead + body
+        exec_ = list(exec_)
+        at = names.index(f"brk{n}")
+        reti = names.index("reti")
+        handler = exec_[exec_.index(at) + 1:exec_.index(reti) + 1]
+        add("brk", label, names, len(lead), f"ctl-vec{n}" + ("-sep" if sep else ""), exec_,
+            True, f"brk{n}", lead_of("vec", n), len(lead) + target, vector=n, ret="reti",
+            handler=handler, mode_class=None)
+
+    for n in (3, 5):
+        b = f"brk{n}"
+        brk(f"brk{n}", n, [b, "br_n1", "reti"], 2, l4 + [4, 6, 5])
+        brk(f"brk{n}-nop", n, [b, "br_n2", "nop", "reti"], 2, l4 + [4, 6, 7, 5])
+        brk(f"brk{n}-sep", n, [b, "br_n1", "reti"], 2, l4 + [4, 5, 7, 6], sep=True)
+    return specs
+
+
+def f37(waits=WAITS, parities=PARITIES):
+    """Memory-indirect transfers, BRK and RETI through a word the chain writes (see the comment
+    above)."""
+    return _f3536_chains("F37", lambda kind, p: _f37_specs(f35_first_x(kind, p)), waits,
+                         parities, F37_RFM)
+
+
+FAMILIES.update({"F37": f37})
+# (WP90) F37 is generator-only: its transfers (forms.UNMODELLED_FORMS) have no template, and the
+# scorer, the fitter and freeze skip it until one is learned
+UNMODELLED = ("F37",)
