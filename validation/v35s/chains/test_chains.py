@@ -2050,9 +2050,8 @@ class F32F33Tests(unittest.TestCase):
             self.assertNotIn(name, UNMODELLED_FORMS)     # (WP78) the simulator decodes them
             self.assertIn(FORMS[name].cls, CLASSES, name)
         # (WP87) none of F32's or F33's: the generator-only forms were F35's and F36's; (WP90)
-        # they are F37's
-        from validation.v35s.chains.forms import F37_FORMS
-        self.assertFalse(UNMODELLED_FORMS - set(F37_FORMS))
+        # they were F37's; (WP91) modelled: none is left
+        self.assertEqual(UNMODELLED_FORMS, frozenset())
         # (WP78) one class per cost the facts tell apart
         for name, cls in (("clr1_mb_cl", "bit1_clr"), ("set1_mw_imm", "bit1_rmw"),
                           ("not1_mb_cl", "bit1_rmw"), ("test1_mw_imm", "bit1_test"),
@@ -2079,8 +2078,9 @@ class F32F33Tests(unittest.TestCase):
         from validation.v35s.chains import fit
         self.assertNotIn("F32", UNMODELLED)
         self.assertNotIn("F33", UNMODELLED)
-        # (WP87) F35 / F36 generator-only; (WP88) modelled; (WP90) F37 generator-only
-        self.assertEqual(UNMODELLED, ("F37",))
+        # (WP87) F35 / F36 generator-only; (WP88) modelled; (WP90) F37 generator-only; (WP91)
+        # modelled
+        self.assertEqual(UNMODELLED, ())
         self.assertIn("F32", fit.TIE_FAMILIES)
         self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
 
@@ -2719,7 +2719,7 @@ class F35Tests(unittest.TestCase):
     def test_unmodelled_forms(self):
         # (WP88) every F35 / F36 form decodes, with its catalog class and length (a prefixed form
         # walked: the prefix a pseudo-instruction of its own, then the form); UNMODELLED_FORMS
-        # holds none of them ((WP90) only F37's transfers). The frozen decoder (sim/frozen) is
+        # holds none of them ((WP90) only F37's transfers; (WP91) none). The frozen decoder (sim/frozen) is
         # the adopted fit's and learns the forms when the package is regenerated at adoption.
         from validation.v35s.chains.forms import F35_FORMS, F36_FORMS, UNMODELLED_FORMS
         from validation.v35s.chains.sim.templates import LOCK_PREFIX, PREFIXES, decode
@@ -2965,7 +2965,7 @@ class F37Tests(unittest.TestCase):
         from collections import Counter
         from validation.v35s.chains.families import UNMODELLED
         self.assertEqual(len(self.f37), 432)
-        self.assertIn("F37", UNMODELLED)            # generator-only until a template learns it
+        self.assertNotIn("F37", UNMODELLED)         # (WP90) generator-only; (WP91) modelled
         pe = [c for c in self.cells if c.parity == "even"]
         self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in pe),
                          {(m, s): n for m in ("out", "push")
@@ -3021,10 +3021,9 @@ class F37Tests(unittest.TestCase):
                           FORMS["brf_m_dir"].ea), (0x0C, 0x14, 0x0C00, 0x0C00))
         self.assertEqual((FORMS["call_m_dir"].mode_class, FORMS["call_m_bw"].mode_class),
                          ("direct", "base"))
-        # every transfer is unmodelled, every lead form is not
-        self.assertEqual(UNMODELLED_FORMS,
-                         {n for n in F37_FORMS if FORMS[n].cls in F37_TRANSFER_CLASSES})
-        self.assertEqual(len(UNMODELLED_FORMS), 11)
+        # (WP90) every transfer was unmodelled, every lead form not; (WP91) every one modelled
+        self.assertEqual(len({n for n in F37_FORMS if FORMS[n].cls in F37_TRANSFER_CLASSES}), 11)
+        self.assertFalse(UNMODELLED_FORMS & set(F37_FORMS))
 
     def test_placement(self):
         for label, body in (("out-ctl-ptr-pE", "b83412 a3000c"),
@@ -3181,26 +3180,23 @@ class F37Tests(unittest.TestCase):
                              [FORMS[n].code[0] for n in k["lead"]], f["id"])
 
     def test_unmodelled_forms(self):
-        # the lead's forms decode with their catalog class and length; the transfers do not
-        # (FF /2 to /5 with a memory operand as the rmw group, CC / CD / CF not at all), so they
-        # are UNMODELLED_FORMS and F37 is UNMODELLED
-        from validation.v35s.chains.forms import F37_FORMS, UNMODELLED_FORMS
+        # (WP90) the lead's forms decoded with their catalog class and length, the transfers did
+        # not (FF /2 to /5 with a memory operand as the rmw group, CC / CD / CF not at all).
+        # (WP91) every form decodes with its catalog class and length, the transfers' pointer
+        # and vector from the words the lead stored (the memory image execute keeps: a pointer
+        # word at 0C00h, PS at 0C02h and at each vector's segment word)
+        from validation.v35s.chains.forms import F37_FORMS, F37_VECTORS, UNMODELLED_FORMS
         from validation.v35s.chains.sim.templates import decode
         regs = {"AW": 0, "BW": 0xC00, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
                 "IX": 0x100, "IY": 0x180, "Z": 1, "CY": 0, "S": 0, "V": 0, "P": 1,
-                "ret0F00": 0}
+                "ret0F00": 0, "mem0C00": 0x58, "mem0C02": 0x1000,
+                **{f"mem{v:04X}": 0x58 for v in F37_VECTORS.values()},
+                **{f"mem{v + 2:04X}": 0x1000 for v in F37_VECTORS.values()}}
+        self.assertFalse(UNMODELLED_FORMS & set(F37_FORMS))
         for name in F37_FORMS:
             f = FORMS[name]
-            if name not in UNMODELLED_FORMS:
-                op = decode(f.code, 0, dict(regs))
-                self.assertEqual((op.cls, op.length), (f.cls, f.length), name)
-            elif f.code[0] == 0xFF:
-                self.assertEqual(decode(f.code, 0, dict(regs)).cls, "rmw", name)
-            else:
-                with self.assertRaises(Exception):
-                    decode(f.code, 0, dict(regs))
-        used = {i.form for c in self.f37 for i in c.instrs if i.role == "x"}
-        self.assertEqual(used & UNMODELLED_FORMS, UNMODELLED_FORMS)
+            op = decode(f.code, 0, dict(regs))
+            self.assertEqual((op.cls, op.length), (f.cls, f.length), name)
 
     def test_gen_check(self):
         import contextlib

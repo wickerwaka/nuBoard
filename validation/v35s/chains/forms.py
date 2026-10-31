@@ -52,7 +52,7 @@ CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rm
            "dbnz_z", "test_reg",
            # (WP90) F37 the memory-indirect transfers, near (FF /2, /4) and far (FF /3, /5)
            # through [mem], BRK 3 / BRK imm8 (CC, CD) and RETI (CF): generator-only
-           # (UNMODELLED_FORMS), no template yet
+           # (UNMODELLED_FORMS); (WP91) modelled (sim/templates.py, _wp91_steps)
            "call_mem", "br_mem", "call_far_mem", "branch_far_mem", "brk", "reti")
 # Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
 STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
@@ -1183,7 +1183,8 @@ UNMODELLED_FORMS = frozenset()
 # sim/templates.decode takes FF /2 to /5 with a memory operand into the rmw group (as FF /0 and
 # /1, INC / DEC [mem]: a read and a write of the operand, no transfer) and raises on CC, CD and
 # CF, so every one of them is in UNMODELLED_FORMS (and F37 in families.UNMODELLED) until a
-# template learns them.
+# template learns them. (WP91) modelled: decode reads the pointer and the vector from the words
+# the lead stored (templates._execute_wp91's memory image), _wp91_steps the templates.
 # Expected accesses (normalize.expected_accesses): the stack classes call_mem (one push, PC),
 # call_far_mem (two, PS then PC), brk (three, PSW then PS then PC) and reti (three pops, PC then
 # PS then PSW, sp_adjust 0) walk SP with writes = pushes and reads = pops, as F35's call_reg /
@@ -1229,7 +1230,8 @@ F37_FORMS = _register(
 F37_ABS_FORMS = {"mov_aw": {a: f"mov_aw_t{a:04x}" for a in F37_ABS}}
 F37_TRANSFER_CLASSES = ("call_mem", "br_mem", "call_far_mem", "branch_far_mem", "brk", "reti")
 
-# (WP90) the F37 transfers (every form of a new class) have no template yet: the simulator
-# decodes FF /2 to /5 with a memory operand as the rmw group and raises on CC, CD and CF (the F37
-# comment above). The lead's forms (imm, store) decode with their classes and are modelled.
-UNMODELLED_FORMS = frozenset(n for n in F37_FORMS if FORMS[n].cls in F37_TRANSFER_CLASSES)
+# (WP90) the F37 transfers (every form of a new class) had no template: the simulator decoded
+# FF /2 to /5 with a memory operand as the rmw group and raised on CC, CD and CF. (WP91)
+# modelled (sim/templates.py decode and _wp91_steps; the pointer and the vector read from the
+# words the lead stored, templates._execute_wp91): none is left.
+UNMODELLED_FORMS = frozenset()

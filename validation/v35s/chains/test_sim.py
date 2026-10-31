@@ -19,6 +19,13 @@ from validation.v35s.chains.sim.templates import decode
 MODELLED = [f for f in FAMILIES if f not in UNMODELLED]
 
 
+# (WP91) the words F37's leads store, as execute's memory image keeps them (templates
+# _execute_wp91): the pointer at 0C00h (PS at 0C02h; the same at 0800h for a [BW] form where BW
+# is 0800h) and BRK 3's / BRK 5's vectors, so the transfers decode standalone
+F37_WORDS = {"mem0C00": 0x58, "mem0C02": 0x1000, "mem0800": 0x58, "mem0802": 0x1000,
+             "mem000C": 0x58, "mem000E": 0x1000, "mem0014": 0x58, "mem0016": 0x1000}
+
+
 def _runs(family):
     try:
         return load_runs(family)
@@ -98,7 +105,8 @@ class ModelRuns(unittest.TestCase):
         # address at SP (a CALL before the RET)
         regs = {"AW": 0, "BW": 0x800, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
                 "IX": 0x100, "IY": 0x180, "Z": 1, "ret0F00": 0,
-                "CY": 0, "S": 0, "V": 0, "P": 1}   # (WP88) every 70-7F condition known
+                "CY": 0, "S": 0, "V": 0, "P": 1,   # (WP88) every 70-7F condition known
+                **F37_WORDS}                       # (WP91) F37's pointer and vectors
         for form in FORMS.values():
             if form.name in UNMODELLED_FORMS:
                 continue                 # (WP49) generator-only forms (none since WP55)
@@ -4457,7 +4465,8 @@ class EaAloneAndStackFrame(unittest.TestCase):
 
     REGS = {"AW": 0x0034, "BW": 0x0800, "CW": 0, "DW": 0x40, "SP": 0x0F00, "BP": 0x0A00,
             "IX": 0x0100, "IY": 0x0180, "Z": 1, "ret0F00": 0,   # (WP55) the F23 forms' context
-            "CY": 0, "S": 0, "V": 0, "P": 1}                     # (WP88) F35's conditions
+            "CY": 0, "S": 0, "V": 0, "P": 1,                     # (WP88) F35's conditions
+            **F37_WORDS}                                         # (WP91) F37's stored words
 
     def _op(self, form):
         from validation.v35s.chains.sim.templates import execute
@@ -6603,3 +6612,203 @@ class LdeaDisplacement(unittest.TestCase):
             _, new = _ev92(cid)
             _, old = _ev92(cid, lea_slot="none", lea_disp="split")
             self.assertEqual(new, old, cid)
+# (WP91) the candidate's moves over the tracked fit (the forty-fifth): the three enums; the six
+# classes' integers are DEFAULT_COST's (the hand start, read off F37 and tuned by scoring)
+WP91 = {"xfer_mem_head": "lead", "xfer_mem_disp": "grp", "xfer_mem_ir": "hold"}
+
+
+def _ev91(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP91 (+ over)."""
+    fam = cid.split("-", 1)[0]
+    w = int(cid.rsplit("-w", 1)[1])
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid and r["chain"]["waits"] == w)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP91, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class CoverageF37Decode(unittest.TestCase):
+    """(WP91, F37) the decoder and execute on F37's transfers: the memory image of the words the
+    chain stores, the pointer's and the vector's targets (absolute offsets in PS), the stack
+    words and the SP walk (CALL [m] 2, CALL far [m] 4, BRK 6 down; RETI 6 up)."""
+
+    REGS = {"AW": 0, "BW": 0x0C00, "CW": 0, "DW": 0x5678, "SP": 0x0F00, "BP": 0x0A00,
+            "IX": 0x0100, "IY": 0x0180, "code_at": 0x40}
+
+    def _run(self, names, regs=None):
+        """decode and execute the forms in order; [(op, regs after)]."""
+        from validation.v35s.chains.sim.templates import execute
+        regs = dict(regs or self.REGS)
+        code = b"".join(FORMS[n].code for n in names)
+        out, k = [], 0
+        for _ in names:
+            op = decode(code, k, regs)
+            execute(op, code, regs)
+            out.append((op, dict(regs)))
+            k += op.length
+        return out
+
+    def test_memory_image(self):
+        # MOV AW,58h ; MOV [0C00h],AW: the word kept at 0C00h
+        (_, _), (op, regs) = self._run(["mov_aw_t0058", "st_acc_dir"])
+        self.assertEqual((op.cls, op.ea, regs["mem0C00"]), ("store", 0x0C00, 0x58))
+        # an unwritten pointer is not modelled
+        with self.assertRaises(ValueError):
+            decode(FORMS["call_m_dir"].code, 0, dict(self.REGS))
+
+    def test_near_and_far_through_memory(self):
+        lead = ["mov_aw_t0058", "st_acc_dir"]
+        ops = self._run(lead + ["call_m_dir"])
+        op, regs = ops[-1]
+        self.assertEqual((op.cls, op.target, op.ea, op.mode_class, op.modrm, op.stack),
+                         ("call_mem", 0x58 - 0x40, 0x0C00, "direct", True, (None, 0x0EFE)))
+        self.assertEqual((regs["SP"], regs["ret0EFE"]), (0x0EFE, 6 + 4))
+        op, regs = self._run(lead + ["br_m_bw"])[-1]
+        self.assertEqual((op.cls, op.target, op.ea, op.mode_class, regs["SP"]),
+                         ("br_mem", 0x18, 0x0C00, "base", 0x0F00))
+        far = ["mov_aw_t0058", "st_acc_dir", "mov_aw_1000", "st_acc_0c02"]
+        op, regs = self._run(far + ["callf_m_dir"])[-1]
+        self.assertEqual((op.cls, op.target, op.stack), ("call_far_mem", 0x18, (None, 0x0EFE)))
+        self.assertEqual((regs["SP"], regs["ret0EFC"]), (0x0EFC, 12 + 4))
+        op, _ = self._run(far + ["brf_m_bw"])[-1]
+        self.assertEqual((op.cls, op.target, op.length), ("branch_far_mem", 0x18, 2))
+        # a far pointer whose segment is not PS (1234h), or never written, is not modelled
+        with self.assertRaises(ValueError):
+            self._run(lead + ["mov_aw_imm", "st_acc_0c02", "brf_m_dir"])
+        with self.assertRaises(ValueError):
+            self._run(lead + ["brf_m_dir"])
+
+    def test_brk_and_reti(self):
+        for n, name, store in ((3, "brk3", ("st_acc_000c", "st_acc_000e")),
+                               (5, "brk5", ("st_acc_0014", "st_acc_0016"))):
+            lead = ["mov_aw_t005d", store[0], "mov_aw_1000", store[1]]
+            ops = self._run(lead + [name])
+            op, regs = ops[-1]
+            self.assertEqual((op.cls, op.vec, op.target, op.length, op.stack, op.ea),
+                             ("brk", 4 * n, 0x1D, 1 if n == 3 else 2, (None, 0x0EFE), None))
+            self.assertEqual((regs["SP"], regs["ret0EFA"]), (0x0EFA, 12 + op.length))
+            code = FORMS["reti"].code
+            op = decode(code, 0, regs)
+            self.assertEqual((op.cls, op.target, op.stack), ("reti", 12 + 1 + (n == 5), (0x0EFA, None)))
+            from validation.v35s.chains.sim.templates import execute
+            execute(op, code, regs)
+            self.assertEqual(regs["SP"], 0x0F00)
+
+    def test_base_classes(self):
+        from validation.v35s.chains.sim.templates import BASE_CLASS
+        self.assertEqual({c: BASE_CLASS[c] for c in ("call_mem", "call_far_mem", "brk", "br_mem",
+                                                       "branch_far_mem", "reti")},
+                         {"call_mem": "call", "call_far_mem": "call", "brk": "call",
+                          "br_mem": "branch_near", "branch_far_mem": "branch_near",
+                          "reti": "ret"})
+
+
+class CoverageF37Forms(unittest.TestCase):
+    """(WP91, F37) each new class on its deciding runs (scratchpad wp91/facts.txt; clocks rel
+    t_fill), the three enums against their old values, and the earlier families untouched."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev91(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def _miss(self, cid, **over):
+        sil, mod = _ev91(cid, **over)
+        self.assertNotEqual(mod, sil, cid)
+        return mod
+
+    def test_call_mem(self):
+        # CALL near [0C00h]: the fetch held 3 clocks after the displacement (F106), the read
+        # right after it (R109), the push 7 after the read's end (w118), the target's fetch 9
+        # after the push's end (F10058 at 129)
+        mod = self._exact("F37-out-indm-callm-n0-pE-w0")
+        for e in ((106, "fetch", 0x1005C, "word", 3), (109, "data_read", 0x0C00, "word", 3),
+                  (118, "stack_write", 0x0EFE, "word", 3), (129, "fetch", 0x10058, "word", 3)):
+            self.assertIn(e, mod)
+        # CALL near [BW]: the read 6 fetch-free clocks after the start, no fetch before it (R114)
+        mod = self._exact("F37-out-indm-callbw-n0-pE-w0")
+        self.assertIn((114, "data_read", 0x0C00, "word", 3), mod)
+        for cid in ("F37-push-indm-callm-ret-pO-w2", "F37-out-indm-callbw-ret-pO-w1",
+                    "F37-out-indm-callm-sep-pO-w0"):
+            self._exact(cid)
+        self._miss("F37-out-indm-callm-n0-pE-w0", **{"call_mem.setup": 8})
+        self._miss("F37-out-indm-callbw-n0-pE-w0", **{"call_mem.grp": 5})
+
+    def test_br_mem(self):
+        mod = self._exact("F37-out-indm-brm-n0-pE-w0")
+        self.assertIn((109, "data_read", 0x0C00, "word", 3), mod)
+        self.assertIn((120, "fetch", 0x10058, "word", 3), mod)       # 9 after the read's end
+        for cid in ("F37-push-indm-brm-n1-pE-w1", "F37-out-indm-brbw-n1-pO-w2"):
+            self._exact(cid)
+        self._miss("F37-out-indm-brm-n0-pE-w0", **{"br_mem.exec": 7})
+
+    def test_far_through_memory(self):
+        # CALL far [0C00h]: the offset (R125), the segment 7 later (R132), PS then the return
+        # offset at 9 clocks issue to issue (w141, w150)
+        mod = self._exact("F37-out-farm-callfm-n0-pE-w0")
+        for e in ((125, "data_read", 0x0C00, "word", 3), (132, "data_read", 0x0C02, "word", 3),
+                  (141, "stack_write", 0x0EFE, "word", 3), (150, "stack_write", 0x0EFC, "word", 3)):
+            self.assertIn(e, mod)
+        # BR far [BW] at one wait: the reads 8 apart (R142, R150)
+        mod = self._exact("F37-out-farm-brfbw-n0-pO-w1")
+        self.assertIn((150, "data_read", 0x0C02, "word", 4), mod)
+        for cid in ("F37-push-farm-callfbw-retf-pE-w2", "F37-out-farm-brfm-n1-pO-w0"):
+            self._exact(cid)
+        self._miss("F37-out-farm-callfm-n0-pE-w0", **{"call_far_mem.rwsetup": 6})
+        self._miss("F37-out-farm-brfbw-n0-pO-w1", **{"branch_far_mem.rwsetup": 4})
+
+    def test_brk_and_reti(self):
+        # BRK 3: the vector's offset (R0C at 127), PSW (w133), its segment (R0E at 141), PS (w147)
+        # and the return offset (w156); the handler's fetch 9 after (F1005D at 167); RETI's pops
+        # at 9 clocks issue to issue (r185 r194 r203), the return's fetch 15 after (F1005B 220)
+        mod = self._exact("F37-out-brk-brk3-pE-w0")
+        for e in ((127, "data_read", 0x000C, "word", 3), (133, "stack_write", 0x0EFE, "word", 3),
+                  (141, "data_read", 0x000E, "word", 3), (147, "stack_write", 0x0EFC, "word", 3),
+                  (156, "stack_write", 0x0EFA, "word", 3), (167, "fetch", 0x1005D, "word", 3),
+                  (185, "stack_read", 0x0EFA, "word", 3), (203, "stack_read", 0x0EFE, "word", 3),
+                  (220, "fetch", 0x1005B, "word", 3)):
+            self.assertIn(e, mod)
+        # BRK 5: a fetch after its start (F119), the vector read 8 fetch-free clocks after it
+        mod = self._exact("F37-out-brk-brk5-pE-w0")
+        self.assertIn((129, "data_read", 0x0014, "word", 3), mod)
+        for cid in ("F37-push-brk-brk3-nop-pO-w2", "F37-out-brk-brk5-sep-pO-w1",
+                    "F37-push-brk-brk5-pE-w1"):
+            self._exact(cid)
+        self._miss("F37-out-brk-brk5-pE-w0", **{"brk.rfree": 9})
+        self._miss("F37-out-brk-brk3-pE-w0", **{"brk.rexec": 4})
+        self._miss("F37-out-brk-brk3-pE-w0", **{"reti.exec": 13})
+
+    def test_xfer_mem_head(self):
+        # the ModR/M byte on the start: CALL [0C00h] at pO, its fetch at 106 (split: 107)
+        self._exact("F37-out-indm-callm-n0-pO-w0")
+        self._miss("F37-out-indm-callm-n0-pO-w0", xfer_mem_head="split")
+        self._miss("F37-out-indm-callbw-n0-pE-w0", xfer_mem_head="split")
+
+    def test_xfer_mem_disp(self):
+        # the d16's fetch held dhold clocks after its take: F106, R109 (none: F103)
+        mod = self._miss("F37-out-indm-callm-n0-pE-w0", xfer_mem_disp="none")
+        self.assertIn((103, "fetch", 0x1005C, "word", 3), mod)
+        self._miss("F37-out-indm-brm-n0-pO-w0", xfer_mem_disp="none")
+
+    def test_xfer_mem_ir(self):
+        # CALL [BW] at pO: no aborted cycle on its start, the fetch at 108 (none: 111)
+        mod = self._exact("F37-out-indm-callbw-n0-pO-w0")
+        self.assertIn((108, "fetch", 0x1005C, "word", 3), mod)
+        mod = self._miss("F37-out-indm-callbw-n0-pO-w0", xfer_mem_ir="none")
+        self.assertIn((111, "fetch", 0x1005C, "word", 3), mod)
+
+    def test_earlier_families_untouched(self):
+        # no earlier class reads a WP91 rule (grp_disp and ir_load see the new classes only)
+        for fam in ("F14", "F19", "F21", "F23", "F35"):
+            for run in _runs(fam)[::40]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**WP91), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual((DEFAULT.xfer_mem_head, DEFAULT.xfer_mem_disp, DEFAULT.xfer_mem_ir),
+                         ("split", "none", "none"))
+        self.assertEqual(OPTIONS["xfer_mem_head"], ("split", "lead"))
+        self.assertEqual(OPTIONS["xfer_mem_disp"], ("none", "grp"))
+        self.assertEqual(OPTIONS["xfer_mem_ir"], ("none", "hold"))

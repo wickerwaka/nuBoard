@@ -705,6 +705,33 @@ OPTIONS = {
     # on 84 in both. With lea_disp=split the PUSH waits out fetch 88 (W97): lea_disp=run lands it.
     # Stage 23 (2026-10-31, wp92) chose ea; flip at the candidate: none -5 (F25 -4, F30 -1)
     "lea_slot": ("none", "ea"),  # (WP92, F25/F30)
+    # (WP91, F37, 2026-10-31) xfer_mem_head: CALL / BR near and far through [m] (call_mem,
+    # br_mem, call_far_mem, branch_far_mem) take their ModR/M byte as the memory forms under
+    # mem_order do (split: after the pre clocks, chained to the displacement) / on the start, by
+    # the decoder (lead: as mem_order=lead's), the pre clocks, EA and displacement after it.
+    # Deciding runs, rel t_fill: F37-out-indm-callm-n0-pO-w0, the fetch 1005A at 106 and the
+    # read at 109 (split: 107, 110); F37-out-indm-callbw-n0-pE-w0, the read at 114 with no fetch
+    # after the store's write (split: 115). Flip at the candidate: -150 (every [BW] cell at
+    # every wait, the [0C00h] cells at OUT pO / PUSH pE)
+    "xfer_mem_head": ("split", "lead"),
+    # (WP91, F37, 2026-10-31) xfer_mem_disp: CALL / BR near and far through [d16] (call_mem,
+    # br_mem, call_far_mem, branch_far_mem, group forms FF /2-/5) take their two-byte
+    # displacement as any operand (none) / as grp_disp=hold takes a group RMW form's (grp: the
+    # take sync waits only for a fetch on the bus, a fetch is held on the take clock and the
+    # class's dhold clocks after it, the read's group clocks counting through a fetch). Deciding
+    # run F37-out-indm-callm-n0-pE-w0: the fetch 1005C at 106, three clocks after the
+    # displacement left the queue, the pointer read right after it at 109 (none: the fetch at
+    # 103, the read 109 after six fetch-free clocks). Flip at the candidate: -120 (every
+    # [0C00h] cell)
+    "xfer_mem_disp": ("none", "grp"),
+    # (WP91, F37, 2026-10-31) xfer_mem_ir: a memory-indirect transfer's successor loads into
+    # the IR as any form's (none: ir_load's rule, held only behind a displacement) / stays in
+    # the queue until the pointer read issues, with or without a displacement (hold). Deciding
+    # run F37-out-indm-callbw-n0-pO-w0: CALL [BW] starts the clock after the store's write ends
+    # and silicon fetches 1005C on that clock (108); none: the start, the ModR/M take and the IR
+    # load on one clock answer the request with an aborted cycle (abort_fetch), the fetch at 111.
+    # Flip at the candidate: -48 (the [BW] cells at OUT pO / PUSH pE, every wait)
+    "xfer_mem_ir": ("none", "hold"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -875,6 +902,40 @@ DEFAULT_COST = {
                  "wb": 0},
     "pop_psw": {"setup": 7, "setup_free": 3, "exec": 4, "phold": 2, "wb": 0},
     "test_reg": {"pre": 3, "pre0": 4, "exec": 0, "nx": 1},
+# (WP91, F37) the memory-indirect transfers, BRK and RETI (templates._wp91_steps; each its
+# BASE_CLASS's structure with its own integers): call_mem (CALL near [m]), br_mem (BR near
+# [m]), call_far_mem (CALL far [m]), branch_far_mem (BR far [m]), brk (BRK 3 / BRK imm8), reti
+# (RETI). The memory forms: grp / grp_free, the pointer read's group setup (a group opcode's,
+# FF /2-/5: 6 clocks, all fetch-free on an idle bus: CALL [BW]'s read 7 clocks after its start
+# with no fetch, 6 after a fetch's end); dhold (xfer_mem_disp=grp): the clocks after the d16's
+# take a fetch is held, grp_disp's grp_free for an RMW (3: the fetch 3 clocks late, the read
+# right after it); rwsetup: a far pointer's segment word, issue to issue 7 / 8 / 9 after the
+# offset's at 0 / 1 / 2 waits (LES / LDS's wsetup); setup / wsetup: the first / second push, 7
+# clocks after the cycle before ends (issue to issue 9 / 10 / 11, CALL r16's and the bursts'
+# cadence). brk: rsetup / rfree, the vector offset's read 12 clocks after the post, the last 8
+# fetch-free (BRK 3 and BRK imm8 alike: the type byte's take chained); rexec, EU clocks from a
+# vector read's issue to the push after it (posted on the later of that and the read's data,
+# with setup: 6 / 6 / 7 issue to issue); vsetup, the segment's read after the PSW push (issue to
+# issue 8 / 9 / 10); wsetup, the return offset's push (9 / 10 / 11). reti: setup, then wsetup
+# for PS and PSW (9 / 10 / 11, RET far's). exec: the clocks from the last cycle's data (or a
+# write's end) to the flush: the target's fetch 9 clocks after the last cycle's end, RETI's 15.
+# hold: flush_hold=start's, 6 for BRK (no fetch from its start + 6 to the flush; BRK imm8's
+# fetch at start + 3 goes). The values are the hand start read off F37 (scratchpad
+# wp91/facts.txt) and tuned by scoring F37 alone (wp91/fit-wp91.json, 420/432); the fit's own
+# come from its stage.
+    "call_mem": {"pre": 0, "grp": 6, "grp_free": 6, "dhold": 3, "setup": 7, "setup_free": 7,
+                 "exec": 8, "post": 0, "fgap": 5, "hold": 10},
+    "br_mem": {"pre": 0, "grp": 6, "grp_free": 6, "dhold": 3, "exec": 8, "post": 0, "fgap": 5,
+               "hold": 10},
+    "call_far_mem": {"pre": 0, "grp": 6, "grp_free": 6, "dhold": 3, "rwsetup": 5, "setup": 7,
+                     "setup_free": 7, "wsetup": 7, "exec": 8, "post": 0, "fgap": 5,
+                     "hold": 16},
+    "branch_far_mem": {"pre": 0, "grp": 6, "grp_free": 6, "dhold": 3, "rwsetup": 5, "exec": 8,
+                       "post": 0, "fgap": 5, "hold": 16},
+    "brk": {"pre": 0, "rsetup": 12, "rfree": 8, "rexec": 3, "setup": 3, "setup_free": 3,
+            "vsetup": 6, "wsetup": 7, "exec": 8, "post": 0, "fgap": 5, "hold": 6},
+    "reti": {"pre": 0, "setup": 7, "setup_free": 3, "wsetup": 7, "exec": 14, "post": 0,
+             "fgap": 5, "hold": 6},
 # (WP67, F24) the string forms, one class per operation (templates._string_steps): without a
 # prefix pre clocks, the element's first cycle posted with setup, every later cycle of the
 # element with mid, exec clocks after it; with REP rpre clocks after the opcode's take, zexit
@@ -1233,6 +1294,9 @@ class Config:
     xfer_nt_b2b: str = "none"          # (WP89)
     decide_abort: str = "fetch"        # (WP89)
     lea_slot: str = "none"             # (WP92)
+    xfer_mem_head: str = "split"       # (WP91)
+    xfer_mem_disp: str = "none"        # (WP91)
+    xfer_mem_ir: str = "none"          # (WP91)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))
