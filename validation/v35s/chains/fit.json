@@ -136,6 +136,16 @@
    "pre": 4,
    "wb": 0
   },
+  "br_mem": {
+   "dhold": 3,
+   "exec": 8,
+   "fgap": 5,
+   "grp": 6,
+   "grp_free": 6,
+   "hold": 10,
+   "post": 0,
+   "pre": 0
+  },
   "br_reg": {
    "exec": 5,
    "fgap": 8,
@@ -150,6 +160,17 @@
    "post": 0,
    "pre": 3,
    "spre": 2
+  },
+  "branch_far_mem": {
+   "dhold": 3,
+   "exec": 8,
+   "fgap": 5,
+   "grp": 6,
+   "grp_free": 6,
+   "hold": 16,
+   "post": 0,
+   "pre": 0,
+   "rwsetup": 5
   },
   "branch_near": {
    "exec": 5,
@@ -173,6 +194,20 @@
    "pre": 0,
    "wb": 2
   },
+  "brk": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 6,
+   "post": 0,
+   "pre": 0,
+   "rexec": 3,
+   "rfree": 8,
+   "rsetup": 12,
+   "setup": 3,
+   "setup_free": 3,
+   "vsetup": 6,
+   "wsetup": 7
+  },
   "call": {
    "exec": 8,
    "fgap": 5,
@@ -193,6 +228,32 @@
    "spre": 2,
    "wpre": 1,
    "wsetup": 7
+  },
+  "call_far_mem": {
+   "dhold": 3,
+   "exec": 8,
+   "fgap": 5,
+   "grp": 6,
+   "grp_free": 6,
+   "hold": 16,
+   "post": 0,
+   "pre": 0,
+   "rwsetup": 5,
+   "setup": 7,
+   "setup_free": 7,
+   "wsetup": 7
+  },
+  "call_mem": {
+   "dhold": 3,
+   "exec": 8,
+   "fgap": 5,
+   "grp": 6,
+   "grp_free": 6,
+   "hold": 10,
+   "post": 0,
+   "pre": 0,
+   "setup": 7,
+   "setup_free": 7
   },
   "call_reg": {
    "exec": 8,
@@ -531,6 +592,16 @@
    "pre": 0,
    "setup": 8,
    "setup_free": 4
+  },
+  "reti": {
+   "exec": 14,
+   "fgap": 5,
+   "hold": 6,
+   "post": 0,
+   "pre": 0,
+   "setup": 7,
+   "setup_free": 3,
+   "wsetup": 7
   },
   "rmw": {
    "alu": 3,
@@ -1021,6 +1092,9 @@
  "word_latch": "byte_d",
  "write_wait": "mem_end",
  "xfer_abort": "word",
+ "xfer_mem_disp": "grp",
+ "xfer_mem_head": "lead",
+ "xfer_mem_ir": "hold",
  "xfer_nt": "odd",
  "xfer_nt_b2b": "decide",
  "xfer_odd": "idle"
