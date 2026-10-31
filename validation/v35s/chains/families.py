@@ -2865,8 +2865,9 @@ UNMODELLED = ()
 #   before it pushes in chain order; anything else that traps (CHKIND, FPO1, POLL, BRKV); RETI
 #   without a BRK before it; a handler with an I/O form; a pointer at an odd address.
 #   Generator-only (UNMODELLED): the transfers' classes have no template
-#   (forms.UNMODELLED_FORMS), and normalize.expected_accesses does not yet expect the pointer
-#   and vector reads (forms, F37).
+#   (forms.UNMODELLED_FORMS). (WP90) Acquired 2026-10-31 (432 runs); normalize expects the
+#   pointer and vector reads in silicon's order (normalize.VECTORED_ACCESSES) and derive costs
+#   every cell against the baseline its knob names.
 F37_RFM = RFM_OFF
 F37_IMM = 0x1234                # the controls' target word: MOV AW,1234h (mov_aw_imm)
 

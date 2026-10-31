@@ -405,6 +405,10 @@ BASELINES.update({"F34": ("dM", _f24_baseline)})
 # (WP87) F35 / F36: the chain the knob `baseline` names (the empty frame, a flag control, MOV
 # CW,n [; CMP], MOV CW,2 ; <body>, MOV BW,imm16, PUSH r, LAHF), same marker and column
 BASELINES.update({"F35": ("dM", _f24_baseline), "F36": ("dM", _f24_baseline)})
+# (WP90) F37: the chain the knob `baseline` names (the lead stores alone: ctl-ptr, ctl-ptrbw,
+# ctl-far, ctl-farbw, ctl-vec3, ctl-vec5 and their -sep twins; the controls against the empty
+# frame), same marker and column
+BASELINES.update({"F37": ("dM", _f24_baseline)})
 
 
 def k_series(cost: dict) -> dict:

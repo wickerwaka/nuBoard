@@ -432,6 +432,63 @@ class PreWindowTests(unittest.TestCase):
             self.assertEqual(len(v), 1, k)
 
 
+class F37Tests(unittest.TestCase):
+    """(WP90) the F37 silicon runs: every run and repeat normalises strictly (the pointer and
+    vector reads in silicon's order, normalize.VECTORED_ACCESSES), the cycles of one run per
+    transfer class, and the cost table against the lead-alone controls."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            cls.runs = {r["chain"]["id"]: r for r in load_runs("F37")}
+        except FileNotFoundError:
+            raise unittest.SkipTest("no corpus entries for F37")
+
+    def test_every_run_normalises(self):
+        self.assertEqual(len(self.runs), 432)
+        for rid, run in self.runs.items():
+            for key in ("socket_trace", "repeat_trace"):
+                if run.get(key):
+                    n = normalize(run, key)
+                    self.assertIsNone(n.access_mismatch, rid)
+                    self.assertEqual(sorted(n.t_markers), [0, 1], rid)
+
+    def cycles(self, rid):
+        n = normalize(self.runs[rid])
+        return [(e.kind, e.addr, e.data) for e in n.events
+                if e.kind not in ("fetch", "refresh", "io_write")]
+
+    def test_cycle_orders(self):
+        dr, dw, sr, sw = "data_read", "data_write", "stack_read", "stack_write"
+        # CALL near [0C00h]: the pointer read, then PC pushed (the target 0058h, return 0058h:
+        # the next instruction)
+        self.assertEqual(self.cycles("F37-out-indm-callm-n0-pE-w0"),
+                         [(dw, 0xC00, 0x58), (dr, 0xC00, 0x58), (sw, 0xEFE, 0x58)])
+        # CALL far [BW]: offset, segment, then PS and PC pushed
+        self.assertEqual(self.cycles("F37-out-farm-callfbw-n0-pE-w0"),
+                         [(dw, 0xC00, 0x5F), (dw, 0xC02, 0x1000), (dr, 0xC00, 0x5F),
+                          (dr, 0xC02, 0x1000), (sw, 0xEFE, 0x1000), (sw, 0xEFC, 0x5F)])
+        # BRK 3: the vector's offset, PSW (F046h) pushed, the segment, PS, PC; RETI pops PC, PS,
+        # PSW
+        self.assertEqual(self.cycles("F37-out-brk-brk3-pE-w0"),
+                         [(dw, 0x0C, 0x5D), (dw, 0x0E, 0x1000), (dr, 0x0C, 0x5D),
+                          (sw, 0xEFE, 0xF046), (dr, 0x0E, 0x1000), (sw, 0xEFC, 0x1000),
+                          (sw, 0xEFA, 0x5B), (sr, 0xEFA, 0x5B), (sr, 0xEFC, 0x1000),
+                          (sr, 0xEFE, 0xF046)])
+
+    def test_cost_table_fills(self):
+        ff = _facts("F37")
+        for variant, cols in ff["rows"].items():
+            if variant.endswith("-empty"):
+                continue
+            self.assertEqual(set(cols), set(ff["cost"].get(variant, {})), variant)
+        for f in ff["runs"]:
+            base = f["knobs"]["baseline"]
+            if base is not None:
+                self.assertEqual(f["baseline"],
+                                 f"F37-{f['marker']}-{base}-{f['column']}", f["id"])
+
+
 class ReportTests(unittest.TestCase):
     def test_tables_and_strips_render(self):
         for family in ("F0", "F0w", "F1"):

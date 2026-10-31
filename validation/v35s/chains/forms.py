@@ -61,7 +61,7 @@ STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push
                  # by Form.sp_adjust
                  "ret_imm", "call_reg", "call_far", "ret_far", "ret_far_imm", "pop_psw",
                  # (WP90) F37: the pushes of CALL near / far [mem] and BRK, RETI's three pops
-                 # (the pointer and vector reads before the pushes are not walked: forms, F37)
+                 # (their pointer and vector reads: normalize.VECTORED_ACCESSES)
                  "call_mem", "call_far_mem", "brk", "reti")
 MODE_CLASSES = ("base", "base_index", "disp", "base_disp", "base_index_disp", "direct")
 
@@ -1187,12 +1187,12 @@ UNMODELLED_FORMS = frozenset()
 # Expected accesses (normalize.expected_accesses): the stack classes call_mem (one push, PC),
 # call_far_mem (two, PS then PC), brk (three, PSW then PS then PC) and reti (three pops, PC then
 # PS then PSW, sp_adjust 0) walk SP with writes = pushes and reads = pops, as F35's call_reg /
-# call_far. The pointer and vector reads (data reads before the pushes: one word for a near
-# pointer, two for a far pointer or a vector, at addr and addr + 2) are not among them:
-# normalize has no hook for a data read before a stack class's pushes. br_mem (reads = 1 at its
-# EA) is right as it stands; branch_far_mem (reads = 2) expects both reads at the EA, not at EA
-# and EA + 2. The ea of a transfer form is its pointer's or vector's address (not the stack's);
-# F37's knobs name every pointer / vector word (families.f37) for normalize to learn the reads.
+# call_far. The ea of a transfer form is its pointer's or vector's address (not the stack's).
+# (WP90) The pointer and vector reads, in the bus order silicon ran them against the pushes
+# (F37, all 432 runs), are normalize.VECTORED_ACCESSES, keyed on the class: call_mem reads the
+# pointer then pushes; call_far_mem and branch_far_mem read offset (EA) then segment (EA + 2),
+# call_far_mem then pushing; brk reads the vector's offset (4n), pushes PSW, reads the segment
+# (4n+2), pushes PS and PC. br_mem (reads = 1 at its EA) takes the default path.
 F37_FIRST_X = F35_FIRST_X
 F37_REL = (10, 19)                       # the targets' offsets from the first X (families.f37)
 F37_ABS = tuple(range(min(F37_FIRST_X) + F37_REL[0], max(F37_FIRST_X) + F37_REL[1] + 1))

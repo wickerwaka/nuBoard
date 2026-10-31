@@ -48,6 +48,19 @@ WALK_STRING_FORMS = {**STRING_FORMS, **UNMODELLED_STRING_FORMS}
 WALK_FORMS = frozenset(WALK_STRING_FORMS) | frozenset(F32_BCD) | frozenset(F32_BITFIELD)
 # (WP74) forms that change none of the walked registers or memory: the flag forms
 WALK_NEUTRAL = frozenset(F33_FLAGS) | {"nop"}
+# (WP90, F37 silicon, all 432 runs) the transfers that read a pointer or a vector, by class: their
+# data and stack cycles in bus order, ("read", j) the word at EA + 2j (the pointer's offset then
+# segment; BRK's vector at 4n / 4n+2), ("push",) a stack write. CALL near [mem] reads the pointer,
+# then pushes PC; CALL far [mem] reads offset and segment, then pushes PS and PC; BR far [mem]
+# reads offset and segment; BRK reads the vector's offset, pushes PSW, reads the segment, then
+# pushes PS and PC (the vector reads interleave the pushes). BR near [mem] is the default path
+# (one read at its EA) and RETI the stack classes' (three pops: PC, PS, PSW).
+VECTORED_ACCESSES = {
+    "call_mem": (("read", 0), ("push",)),
+    "call_far_mem": (("read", 0), ("read", 1), ("push",), ("push",)),
+    "branch_far_mem": (("read", 0), ("read", 1)),
+    "brk": (("read", 0), ("push",), ("read", 1), ("push",), ("push",)),
+}
 from .types import CODE_BASE, TICKS_PER_CLOCK, Chain, refresh_any
 
 FLAG_READ = 1 << 0
@@ -520,7 +533,15 @@ def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, l
         elif instr.role == "x":
             form = FORMS[instr.form]
             cls = form.cls
-            if cls in STACK_CLASSES:
+            if cls in VECTORED_ACCESSES:
+                # (WP90, F37) the pointer / vector reads in their bus order against the pushes
+                ea = _form_ea(form, chain.regs)
+                for step in VECTORED_ACCESSES[cls]:
+                    if step[0] == "read":
+                        acc += _cycles("data_read", (ea + 2 * step[1]) & 0xFFFF, 2)
+                    else:
+                        push(acc)
+            elif cls in STACK_CLASSES:
                 # (WP49) PUSH R / POP R move eight words; CALL pushes, RET pops (F23, F25);
                 # (WP52) the F25 stack classes: a form's writes are pushes, its reads pops
                 for _ in range(form.writes):

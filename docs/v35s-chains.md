@@ -5508,6 +5508,32 @@ F23/F30/F34, left), far 34/60 (above). F36: everything exact except TEST DL,AL u
 right after the marker's write as a ModR/M form would, the model after the pre clocks; a lead-take template lost more
 than it won).
 
+### Memory-indirect transfers, BRK and RETI on the bus (F37, 2026-10-31; no fit)
+
+F37 (WP90; 72 variants, 432 runs, generator-only: `families.UNMODELLED`, six unmodelled classes) read strictly by the
+normaliser once it expected the pointer and vector reads (`normalize.VECTORED_ACCESSES`, keyed on the class: the bus
+order of the reads at EA + 2j and the pushes; `derive.BASELINES` F37 = the lead-alone control; scratchpad
+wp90/traces.txt, report-F37.txt). Every order below holds in all 432 runs at every wait, parity and marker, with no
+extra read and the expected SP walk:
+
+- **CALL near [m]** (FF /2, direct or [BW]): the pointer word read at the EA, then one push (the next instruction's
+  offset) 9 clocks after the read at 0 waits; the read 10–12 clocks after the lead's store. **BR near [m]**: the read
+  alone. **CALL far [m]**: the offset read, the segment read 7 clocks later, then PS pushed at SP−2 and the offset at
+  SP−4. **BR far [m]**: the two reads alone.
+- **BRK n interleaves its vector reads with its pushes**: the offset word at 4n, then PSW pushed (F046h: MD 1, RB 7,
+  BRKI kept), then the segment word at 4n+2, then PS, then the return offset; the same for n = 3 (CC) and n = 5 (CD 05).
+  **RETI** pops the offset, PS and PSW at SP, SP+2, SP+4.
+- **First costs** (X alone against its lead, OUT w0, pE/pO): CALL [0C00h] 38/40 against F35's CALL BW 36/32, BR [m]
+  29/31 against BR BW 27/22, BR far [m] 36/38 against BR far 31/25, CALL far [m] 54/56 against CALL far 48/43: the
+  pointer read(s) and the alignment the longer lead leaves. Direct and [BW] agree within a clock once the length swap
+  (the [BW] form 2 bytes shorter, its lead one MOV BW longer) is allowed for: no visible EA-mode cost. Reading the word
+  right after storing it costs nothing extra (the `-sep` cells only swap alignment). BRK 3 and BRK 5 cost the same
+  (`brk3` 136/133, `brk5` 136/136 including BR +1 and RETI). The controls (`ctl-ptr` 17/20/24 over w0/w1/w2, the
+  two-word stores 33/40/48) are F5's store class and modelled.
+
+Modelling these six classes (the pointer reads before CALL/BR's structure, BRK's read-push-read-push-push) is a model
+package of its own; until then score, fit and freeze skip F37.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

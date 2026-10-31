@@ -3121,30 +3121,43 @@ class F37Tests(unittest.TestCase):
     def test_expected_accesses(self):
         from validation.v35s.chains.normalize import expected_accesses
 
-        def acc(label, kinds=("stack_write", "stack_read", "data_write")):
+        def acc(label, kinds=("stack_write", "stack_read", "data_write", "data_read")):
             c = self.by[label]
             a = expected_accesses(c)
             return [(x.kind, x.addr) for j in sorted(a) for x in a[j] if x.kind in kinds]
 
-        sw, sr, dw = "stack_write", "stack_read", "data_write"
-        # BRK pushes PSW, PS, PC; RETI pops PC, PS, PSW; BR +2 jumps the handler
+        sw, sr, dw, dr = "stack_write", "stack_read", "data_write", "data_read"
+        # (WP90, silicon) BRK reads the vector's offset, pushes PSW, reads the segment, pushes PS
+        # and PC; RETI pops PC, PS, PSW; BR +2 jumps the handler
         self.assertEqual(acc("push-brk-brk3-nop-pE"),
-                         [(sw, 0xEFE), (dw, 0x0C), (dw, 0x0E), (sw, 0xEFC), (sw, 0xEFA),
-                          (sw, 0xEF8), (sr, 0xEF8), (sr, 0xEFA), (sr, 0xEFC), (sw, 0xEFC)])
+                         [(sw, 0xEFE), (dw, 0x0C), (dw, 0x0E), (dr, 0x0C), (sw, 0xEFC),
+                          (dr, 0x0E), (sw, 0xEFA), (sw, 0xEF8), (sr, 0xEF8), (sr, 0xEFA),
+                          (sr, 0xEFC), (sw, 0xEFC)])
         self.assertEqual(acc("out-brk-brk5-sep-pO"),
-                         [(dw, 0x14), (dw, 0x16), (sw, 0xEFE), (sw, 0xEFC), (sw, 0xEFA),
-                          (sr, 0xEFA), (sr, 0xEFC), (sr, 0xEFE)])
+                         [(dw, 0x14), (dw, 0x16), (dr, 0x14), (sw, 0xEFE), (dr, 0x16),
+                          (sw, 0xEFC), (sw, 0xEFA), (sr, 0xEFA), (sr, 0xEFC), (sr, 0xEFE)])
+        # CALL near [mem]: the pointer, then the push; CALL far [mem]: offset, segment, PS, PC
         self.assertEqual(acc("push-indm-callm-ret-pE"),
-                         [(sw, 0xEFE), (dw, 0xC00), (sw, 0xEFC), (sr, 0xEFC), (sw, 0xEFC)])
+                         [(sw, 0xEFE), (dw, 0xC00), (dr, 0xC00), (sw, 0xEFC), (sr, 0xEFC),
+                          (sw, 0xEFC)])
         self.assertEqual(acc("push-farm-callfm-retf-pO"),
-                         [(sw, 0xEFE), (dw, 0xC00), (dw, 0xC02), (sw, 0xEFC), (sw, 0xEFA),
-                          (sr, 0xEFA), (sr, 0xEFC), (sw, 0xEFC)])
+                         [(sw, 0xEFE), (dw, 0xC00), (dw, 0xC02), (dr, 0xC00), (dr, 0xC02),
+                          (sw, 0xEFC), (sw, 0xEFA), (sr, 0xEFA), (sr, 0xEFC), (sw, 0xEFC)])
         self.assertEqual(acc("push-farm-callfbw-n0-pE"),
-                         [(sw, 0xEFE), (dw, 0xC00), (dw, 0xC02), (sw, 0xEFC), (sw, 0xEFA),
-                          (sw, 0xEF8)])
-        # BR near [mem]'s pointer read is expected at its EA ([BW] with BW = 0C00h)
-        self.assertEqual(acc("out-indm-brbw-n0-pE", ("data_read",)), [("data_read", 0xC00)])
-        self.assertEqual(acc("out-indm-brm-sep-pO", ("data_read",)), [("data_read", 0xC00)])
+                         [(sw, 0xEFE), (dw, 0xC00), (dw, 0xC02), (dr, 0xC00), (dr, 0xC02),
+                          (sw, 0xEFC), (sw, 0xEFA), (sw, 0xEF8)])
+        # BR near [mem] reads its pointer at its EA ([BW] with BW = 0C00h), BR far offset and
+        # segment
+        self.assertEqual(acc("out-indm-brbw-n0-pE", (dr,)), [(dr, 0xC00)])
+        self.assertEqual(acc("out-indm-brm-sep-pO", (dr,)), [(dr, 0xC00)])
+        self.assertEqual(acc("out-farm-brfbw-n0-pE", (dr,)), [(dr, 0xC00), (dr, 0xC02)])
+        # the read / push steps agree with every form's counts
+        from validation.v35s.chains.forms import F37_FORMS
+        from validation.v35s.chains.normalize import VECTORED_ACCESSES
+        for name in F37_FORMS:
+            steps = VECTORED_ACCESSES.get(FORMS[name].cls)
+            if steps is not None:
+                self.assertEqual(sum(s[0] == "push" for s in steps), FORMS[name].writes, name)
 
     def test_synthetic_runs_and_baselines(self):
         from validation.v35s.chains.derive import _f24_baseline, index_facts, run_facts
