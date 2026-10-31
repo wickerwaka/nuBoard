@@ -5204,7 +5204,7 @@ that the model does not have:
   0 on silicon even with A9 = 1 (fetches carry A9); A17 is 0 in every such
   corpus cycle. Unprobed; the scorer does not compare it.
 
-### A causal refresh: the lookahead is unobservable (WP84, 2026-10-31; a tie, not adopted yet)
+### A causal refresh: the lookahead is unobservable (WP84, 2026-10-31; a tie, adopted in the forty-fourth fit)
 
 The model's `refresh_any` (types.py) decides from the whole chain whether the
 refresh controller and the EU's refresh templates run from clock 0, so a
@@ -5261,7 +5261,7 @@ model is the model's first refresh after the store, in all 1,416). The
 causal RTL is `live`'s: the controller always enabled, requests gated by
 its own `on`, the EU's refresh input `on || pending` (WP83 takes it).
 
-### The I/O sequencer beside a refresh: F27 and F28's misses read, five enums (WP85, 2026-10-31; a candidate, not adopted yet)
+### The I/O sequencer beside a refresh: F27 and F28's misses read, five enums (WP85, 2026-10-31; adopted in the forty-fourth fit)
 
 Under the forty-third fit F27 misses 183 of 1,072 and F28 268 of 1,088.
 Three of F27's are refresh-off (`out-ec-beat-ds1-n0-pE-w0`,
@@ -5346,7 +5346,7 @@ the facts file):
 The RTL does not implement the five rules yet; they are arbiter and queue
 conditions with no new template step kind, so `rtlgen` is unaffected.
 
-### The 0F page's fetch commitments: F32, F33 and F34's misses read, two enums (WP86, 2026-10-31; a candidate, not adopted yet)
+### The 0F page's fetch commitments: F32, F33 and F34's misses read, two enums (WP86, 2026-10-31; adopted in the forty-fourth fit)
 
 Under the forty-third fit F32 misses 418 of 858, F33 123 of 1,050 and F34
 638 of 1,596, the corpus's largest open area. Facts over all of them, with
@@ -5448,7 +5448,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the forty-third fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the forty-fourth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -5827,10 +5827,24 @@ ops' remaining `pre` split (4/1/1) and the d16/direct modes; MUL imm's read-befo
 at pO w0; the not-taken forms' l0 pE back-to-back third refill fetch (+7) and the k = 2 cells; the odd-address shift's
 22-clock early fetch before a RET; INC k = 4 at pO +1.
 
+**The forty-fourth fit** (`fit.json`, md5 5f73ebb97bff1097bf18d0c52654bfc3; scratchpad wp86/fit-wp86-pending-noloss.json, adopted
+2026-10-31 after the user stopped the RTL and refresh-on work) is the forty-third fit plus three verified candidates
+of the same day, each gated alone on all 36 lists and together: WP84's `refresh_scope=live` (a tie: the causal refresh,
+Facts "A causal refresh"), WP85's five I/O-sequencer enums beside a refresh (`port_ready_count=count`,
+`port_refresh=late`, `refresh_pair_post=before`, `io_step_restart=last`, `refresh_lead_step=step`; Facts "The I/O
+sequencer beside a refresh") and WP86's `page_b2b=reg` and `page_run=field` with `bf_ins.xwsetup` 69, `xrsetup` 12,
+`xspan` 105, `rol4_mem.fsetup` 3 and `ror4_mem.pre` 1 (Facts "The 0F page's fetch commitments"). 27,838 → 28,215 of
+29,738 over the 36 lists: F27 889 → 932/1,072, F28 820 → 898/1,088, F32 440 → 560/858, F34 958 → 1,094/1,596; the
+other 32 lists byte-identical except one already-missing F13 trace after its divergence; no run lost anywhere. Stages 18
+to 20 (`fit.py`). The refresh-off corpus stands at 24,021 of 25,106 (F34 502, F32 298, F33 123, F30 55, F24 44, F29 29,
+F25 19, F23 9, F22 6 missing) and is the focus from here; the refresh-on families (F8, F13, F17, F18, F27, F28) and the
+RTL mirror are not worked further (the RTL stays at the forty-second fit's structure; its catch-up to the forty-third,
+WP83, is parked on branch `wp83-rtl-catchup`; docs/v35s-hdl-plan.md "Synthesis trial").
 
-### Fitted structure (forty-third fit, 2026-10-31)
 
-Forty-three fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (forty-fourth fit, 2026-10-31)
+
+Forty-four fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6185,7 +6199,10 @@ readings as eight enums and ten class integers (`page_mem=fixed`, `bf_read=fixed
 `page_take=own`, `xfer_nt=odd`, `mul_imm_hold=word`, `wb_fetch=hold`, `stack_wb=ret`,
 `mul_imm_read=issue`; F32 440/858, F33 927/1050, F34 958/1596, F23 351/360, F30
 1421/1476, stage 17 from a hand start): byte-identical on 31 lists, 27838/29738
-over the 36 scored families.
+over the 36 scored families. The forty-fourth (`fit.json`, 2026-10-31) adopts
+the day's three candidates together (`refresh_scope=live`, WP85's five refresh
+enums, WP86's `page_b2b=reg` / `page_run=field` and five integers): 28215/29738,
+F27 932, F28 898, F32 560, F34 1094; byte-identical on 32 lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

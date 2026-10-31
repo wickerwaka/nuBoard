@@ -4764,7 +4764,8 @@ class RefreshOnProbesF27(unittest.TestCase):
         self.assertEqual(_span(s, 108, 123), [(113, "refresh"), (118, "fetch"),
                                               (122, "io_write")])
         # (WP61) the stage-12 fields at their old values: the alternative as WP58 measured it
-        m, _ = _events58("F27-out-fc-port-outb-n0-pO-w0", refresh_io_step="step", **_OLD61)
+        m, _ = _events58("F27-out-fc-port-outb-n0-pO-w0", refresh_io_step="step", **_OLD61,
+                         **_OLD85)
         self.assertEqual(_span(m, 108, 123), [(115, "fetch"), (118, "refresh"),
                                               (123, "io_write")])
 
@@ -4864,6 +4865,10 @@ WP61 = {"refresh_wb": "free_wait", "refresh_relatch": "issue", "refresh_window":
         "refresh_start_seam": "start", "refresh_step_lead": "step", "refresh_beat_b2b": "imm",
         "grp_disp": "hold", "dw_lift": "moved"}
 _OLD61 = {n: OPTIONS[n][0] for n in WP61}
+# (forty-fourth fit) WP85's I/O-sequencer enums at their old values: the WP58/WP61 alternative
+# checks below were measured before them
+_OLD85 = {n: OPTIONS[n][0] for n in ("port_ready_count", "port_refresh", "refresh_pair_post",
+                                      "io_step_restart", "refresh_lead_step")}
 WP61_REFRESH = ("refresh_wb", "refresh_relatch", "refresh_window", "refresh_start_seam",
                 "refresh_step_lead", "refresh_beat_b2b")
 
@@ -4898,7 +4903,7 @@ class RefreshExitBeatGroupF28F29(unittest.TestCase):
         self.assertEqual(m, s)
         self.assertEqual(_span(s, 76, 98), [(80, "fetch"), (89, "refresh"), (94, "io_write"),
                                             (97, "fetch")])
-        m, _ = _events61("F28-out-fc-fence-cl27-n0-pE-w0", refresh_wb="hold")
+        m, _ = _events61("F28-out-fc-fence-cl27-n0-pE-w0", refresh_wb="hold", **_OLD85)
         self.assertEqual(_span(m, 76, 98), [(82, "fetch"), (87, "refresh"), (95, "io_write"),
                                             (98, "fetch")])
 
@@ -4950,7 +4955,7 @@ class RefreshExitBeatGroupF28F29(unittest.TestCase):
         self.assertEqual(m, s)
         self.assertEqual(_span(s, 89, 108), [(89, "io_write"), (97, "refresh"),
                                              (102, "io_write"), (105, "fetch"), (108, "fetch")])
-        m, _ = _events61("F28-out-fc-fence-cl24-n0-pO-w0", refresh_step_lead="lead")
+        m, _ = _events61("F28-out-fc-fence-cl24-n0-pO-w0", refresh_step_lead="lead", **_OLD85)
         self.assertEqual(_span(m, 89, 108), [(89, "io_write"), (97, "fetch"), (100, "refresh"),
                                              (105, "io_write"), (108, "fetch")])
 
@@ -5933,7 +5938,7 @@ class RefreshScope(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.any = Config.fitted()
+        cls.any = Config.fitted().replace(refresh_scope="any")   # (forty-fourth fit: live)
         cls.live = cls.any.replace(refresh_scope="live")
 
     def test_default_is_the_old_behaviour(self):

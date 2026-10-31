@@ -727,6 +727,15 @@ fetch commitments (docs/v35s-chains.md Facts "The 0F page's fetch
 commitments"), with five class integers; F32 560/858 and F34 1,094/1,596
 at its candidate; queue-side rules, no new step kind.
 
+**RTL work stopped 2026-10-31.** After the synthesis trial below the user
+directed that no further RTL model work and no further refresh-corpus work
+be done; the no-refresh corpus is the focus. The forty-fourth fit (the three
+candidates above together, 28,215/29,738) was adopted model-side only: the
+include was regenerated for consistency, no bench was rebuilt or gated, and
+the RTL stays at the forty-second fit's structure. WP83's catch-up to the
+forty-third fit (the agent's full gate green, the overseer's rerun green
+through C3 when stopped) is parked on branch `wp83-rtl-catchup`.
+
 ### Synthesis trial on the T120F484 (2026-10-31)
 
 Asked whether the chain RTL is synthesizable rather than a port of the
