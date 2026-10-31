@@ -732,6 +732,31 @@ OPTIONS = {
     # load on one clock answer the request with an aborted cycle (abort_fetch), the fetch at 111.
     # Flip at the candidate: -48 (the [BW] cells at OUT pO / PUSH pE, every wait)
     "xfer_mem_ir": ("none", "hold"),
+    # (WP95, F24, 2026-10-31) str_single_wb: an unprefixed string form's exec clocks are EU
+    # clocks before the next instruction may start (none) / its last uwb exec clocks are a
+    # write-back running past the instruction's end, which only a form waiting for one (wbsync:
+    # the port-form OUT) sees, as str_exit=wb splits a REP form's exit (wb). The OUT after one
+    # MOVBK, INM or CMPBK (k1) starts where the exec ends, the second instance of an unprefixed
+    # pair (k2) a clock earlier, with no fetch between them, at every wait and width.
+    # F24-out-s-movbk-b-k2-pO-w0, rel t_fill: the first MOVBK's write 103-105, silicon's second
+    # read 117 (none: R118, the exec 106-109 and the read's 9-clock setup from 110); the k1 twin
+    # F24-out-s-movbk-b-k1-pO-w0 has M1's fetch 113 and I/O 120 under both. uwb 1 in str_move,
+    # str_in and str_cmp, 0 in the others (STM, LDM and CMPM pairs are exact either way).
+    # Stage 25 (2026-10-31, wp95) chose wb with the hand-start integers; flip at the candidate:
+    # none -18 (F24 only; F30, F31, F33 unchanged)
+    "str_single_wb": ("none", "wb"),  # (WP95, F24)
+    # (WP95, F24, 2026-10-31) str_single_start: an unprefixed string form starts as any
+    # instruction (any) / no earlier than its class's ugap clocks after a fetch's delivery (the
+    # clock after the fetch's last) (delivery). An unprefixed pair whose first instance's last
+    # cycle is followed by a fetch (OUT pE: the queue has a word's room) runs its second
+    # instance's first cycle a fixed distance after that fetch's end at every wait: MOVBK, INM
+    # and CMPBK 10 clocks, CMPM 11 (the instance a clock after the delivery), LDM 9 (on the
+    # delivery, ugap 0); at w0 the exec reaches that clock anyway, at w1 and w2 the fetch's wait
+    # clocks move it. F24-out-s-movbk-b-k2-pE-w1, rel t_fill: the write 104-107, the fetch
+    # 108-111 (delivered 112), silicon's second read 121 (any: the start on the delivery 112,
+    # R120); -pE-w2 F111-115, R125 (any: R124); -pE-w0 F105-107, R117 under both.
+    # Stage 25 (2026-10-31, wp95) chose delivery; flip at the candidate: any -22 (F24 only)
+    "str_single_start": ("any", "delivery"),  # (WP95, F24)
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -947,21 +972,31 @@ DEFAULT_COST = {
 # nx as every class's. A class without an integer has no use for it (mid: one cycle per
 # element). The start values are an F24-only scan descent's (WP67 scratch: 746/912 at
 # str_take=sync, str_setup=nowait, str_overrun=read, str_hold=hold); the stage-13 descent
-# starts from them, the fit's own are in fit.json.
+# starts from them, the fit's own are in fit.json. (WP95) uwb (str_single_wb=wb): the
+# unprefixed form's last exec clocks that are a write-back; ugap (str_single_start=delivery):
+# the clocks past a fetch's delivery before an unprefixed form may start (0: on the delivery);
+# both read off scratchpad wp95/facts.txt (F24 series s), unread under the old values.
     "str_move": {"pre": 0, "setup": 10, "mid": 7, "exec": 4, "nx": 1, "rpre": 5, "zexit": 10,
-                 "first": 15, "loop": 7, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+                 "first": 15, "loop": 7, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
+                 "uwb": 1, "ugap": 1},
     "str_cmp": {"pre": 0, "setup": 10, "mid": 7, "exec": 6, "nx": 2, "rpre": 5, "zexit": 10,
-                "first": 14, "loop": 7, "rexit": 20, "cexit": 19, "chold": 2, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+                "first": 14, "loop": 7, "rexit": 20, "cexit": 19, "chold": 2, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
+                "uwb": 1, "ugap": 1},
     "str_store": {"pre": 0, "setup": 12, "exec": 0, "rpre": 5, "zexit": 10, "first": 15,
-                  "loop": 7, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+                  "loop": 7, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
+                  "uwb": 0, "ugap": 0},
     "str_load": {"pre": 0, "setup": 10, "exec": 1, "rpre": 6, "zexit": 9, "first": 14,
-                 "loop": 9, "rexit": 15, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+                 "loop": 9, "rexit": 15, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
+                 "uwb": 0, "ugap": 0},
     "str_scan": {"pre": 0, "setup": 11, "exec": 7, "nx": 1, "rpre": 5, "zexit": 10,
-                 "first": 15, "loop": 10, "loop1": 8, "rexit": 20, "cexit": 19, "chold": 3, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+                 "first": 15, "loop": 10, "loop1": 8, "rexit": 20, "cexit": 19, "chold": 3, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
+                 "uwb": 0, "ugap": 1},
     "str_in": {"pre": 0, "setup": 9, "mid": 4, "exec": 4, "rpre": 5, "zexit": 11, "first": 15,
-               "loop": 6, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+               "loop": 6, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
+               "uwb": 1, "ugap": 1},
     "str_out": {"pre": 0, "setup": 11, "mid": 6, "exec": 3, "nx": 1, "rpre": 5, "zexit": 11,
-                "first": 16, "loop": 6, "last": 1, "rexit": 13, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0},
+                "first": 16, "loop": 6, "last": 1, "rexit": 13, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
+                "uwb": 0, "ugap": 0},
 # (WP78, F32, F33) the 0F page and the register miscellany (templates._wp78_steps; each class's
 # structure is its BASE_CLASS's, its integers its own; nx, wb as every class's; nx0: a form
 # without operand bytes holds its successor's IR load nx0 clocks from its start, absent = 0;
@@ -1297,6 +1332,8 @@ class Config:
     xfer_mem_head: str = "split"       # (WP91)
     xfer_mem_disp: str = "none"        # (WP91)
     xfer_mem_ir: str = "none"          # (WP91)
+    str_single_wb: str = "none"        # (WP95)
+    str_single_start: str = "any"      # (WP95)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

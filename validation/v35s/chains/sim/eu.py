@@ -210,6 +210,11 @@ class EU:
                 op.sfr = self.code[op.offset + op.length - 1]
         if cfg.start_sync == "b2b_modrm" and op.modrm and self.decoder.queue.b2b_at == t:
             return False                 # a ModR/M form waits out the back-to-back fetch
+        if (cfg.str_single_start == "delivery" and op.cls in STRING_CLASSES and op.rep is None
+                and t <= self.bus.last_fetch_end + cfg.c(op.cls, "ugap")):
+            # (WP95) str_single_start=delivery: an unprefixed string form starts no earlier
+            # than its class's ugap clocks after the last fetch's delivery
+            return False
         if (op.modrm and self.bus.fetch_inflight(t) and self._early(t)
                 and cfg.refresh_run_modrm == "wait"):
             return False                 # (WP40) refresh_run_modrm: a ModR/M form waits it out
@@ -284,6 +289,10 @@ class EU:
                           and not (cur is not None and cur.kind.startswith("io")
                                    and cur.start == t))
         self._sreg_hold(op)             # (WP76) sreg_io=hold
+        if cfg.str_single_wb == "wb" and op.cls in STRING_CLASSES and op.rep is None:
+            # (WP95) str_single_wb=wb: an unprefixed string form's last uwb exec clocks are a
+            # write-back that only a form waiting for one (wbsync) sees
+            self.wb = cfg.c(op.cls, "uwb")
         if cfg.str_exit == "wb" and op.cls in STRING_CLASSES and op.rep is not None and op.n:
             # (WP76) str_exit=wb: a REP form's exit ends xwb clocks early, its last clocks a
             # write-back that only a form waiting for one (wbsync: the port-form OUT) sees

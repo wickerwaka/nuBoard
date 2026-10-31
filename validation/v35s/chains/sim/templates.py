@@ -1682,8 +1682,10 @@ def _string_steps(op: Op, cfg) -> list[tuple]:
         return c("loop1") if i == 1 and "loop1" in has else c("loop")
 
     if op.rep is None:
+        # (WP95) str_single_wb=wb: the exec's last uwb clocks are a write-back (eu.py)
+        ex = c("exec") - (c("uwb") if cfg.str_single_wb == "wb" else 0)
         return ([("clocks", c("pre"))] + element(0, c("setup"), last=cfg.str_last == "all")
-                + [("clocks", c("exec"))])
+                + [("clocks", ex)])
     seq = [("take", 1) if cfg.str_take == "sync" else ("take", 1, "chain")]
     if cfg.str_take == "quiet":
         seq.append(("quiet",))

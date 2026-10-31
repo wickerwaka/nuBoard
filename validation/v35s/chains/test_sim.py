@@ -6812,3 +6812,87 @@ class CoverageF37Forms(unittest.TestCase):
         self.assertEqual(OPTIONS["xfer_mem_head"], ("split", "lead"))
         self.assertEqual(OPTIONS["xfer_mem_disp"], ("none", "grp"))
         self.assertEqual(OPTIONS["xfer_mem_ir"], ("none", "hold"))
+
+
+# (WP95) the candidate's moves over the tracked fit (the forty-eighth): the two enums; uwb and ugap
+# are DEFAULT_COST's (the hand start read off F24's series s)
+WP95 = {"str_single_wb": "wb", "str_single_start": "delivery"}
+
+
+def _ev95(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP95 (+ over)."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP95, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class StringPairSecondInstance(unittest.TestCase):
+    """(WP95, F24) the second instance of an unprefixed string pair: the first instance's exec
+    ends uwb clocks early for every successor but a wbsync form (str_single_wb), and an
+    unprefixed form starts no earlier than ugap clocks after a fetch's delivery
+    (str_single_start) (scratchpad wp95/facts.txt; clocks rel t_fill)."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev95(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.str_single_wb, "none")
+        self.assertEqual(OPTIONS["str_single_wb"], ("none", "wb"))
+        self.assertEqual(DEFAULT.str_single_start, "any")
+        self.assertEqual(OPTIONS["str_single_start"], ("any", "delivery"))
+
+    def test_str_single_wb_deciding_run(self):
+        # the first MOVBK's write 103-105, no fetch: silicon's second read 117 (none: 118)
+        mod = self._exact("F24-out-s-movbk-b-k2-pO-w0")
+        self.assertIn((117, "data_read", 0x0A41, "hi", 3), mod)
+        _, none = _ev95("F24-out-s-movbk-b-k2-pO-w0", str_single_wb="none")
+        self.assertIn((118, "data_read", 0x0A41, "hi", 3), none)
+        # the same write-back clock in INM and CMPBK, every wait and width at pO
+        for cid in ("F24-out-s-inm-w-k2-pO-w1", "F24-out-s-cmpbk-b-k2-pO-w2",
+                    "F24-out-s-movbk-w-k2-pO-w2"):
+            self._exact(cid)
+
+    def test_str_single_wb_leaves_the_out_after_one_instance(self):
+        # the OUT after one instance (k1) waits the write-back out (wbsync): exact either way
+        for cid in ("F24-out-s-movbk-b-k1-pO-w0", "F24-out-s-inm-w-k1-pO-w1",
+                    "F24-out-s-cmpbk-b-k1-pE-w0", "F24-out-s-movbk-w-k1-pE-w2"):
+            for over in ({}, {"str_single_wb": "none", "str_single_start": "any"}):
+                self._exact(cid, **over)
+
+    def test_str_single_start_deciding_run(self):
+        # write 104-107, fetch 108-111 delivered on 112: silicon's second read 121 (any: 120)
+        mod = self._exact("F24-out-s-movbk-b-k2-pE-w1")
+        self.assertIn((121, "data_read", 0x0A41, "hi", 4), mod)
+        _, anyw = _ev95("F24-out-s-movbk-b-k2-pE-w1", str_single_start="any")
+        self.assertIn((120, "data_read", 0x0A41, "hi", 4), anyw)
+        for cid in ("F24-out-s-cmpm-b-k2-pE-w2", "F24-out-s-cmpbk-w-k2-pE-w1",
+                    "F24-out-s-inm-b-k2-pE-w2", "F24-out-s-movbk-b-k2-pE-w0"):
+            self._exact(cid)
+
+    def test_one_cycle_pairs_exact_either_way(self):
+        # STM and LDM pairs (LDM's second instance on the delivery: ugap 0)
+        for cid in ("F24-out-s-stm-b-k2-pE-w1", "F24-out-s-ldm-w-k2-pE-w2",
+                    "F24-out-s-ldm-b-k2-pO-w0", "F24-out-s-stm-w-k2-pO-w2"):
+            for over in ({}, {"str_single_wb": "none", "str_single_start": "any"}):
+                self._exact(cid, **over)
+
+    def test_rep_forms_untouched(self):
+        # neither rule reads a REP form (str_exit=wb keeps its own xwb; CW = 0 included)
+        for cid in ("F24-out-r-rep-movbk-b-n0-pE-w0", "F24-out-r-rep-movbk-b-n2-pO-w0",
+                    "F24-out-r-rep-stm-w-n1-pE-w1"):
+            _, new = _ev95(cid)
+            _, old = _ev95(cid, str_single_wb="none", str_single_start="any")
+            self.assertEqual(new, old, cid)
+
+    def test_other_families_untouched(self):
+        # no run without an unprefixed string form reads either enum
+        for fam in ("F14", "F21", "F23", "F35"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**WP95), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)
