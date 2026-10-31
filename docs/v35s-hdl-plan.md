@@ -727,6 +727,46 @@ fetch commitments (docs/v35s-chains.md Facts "The 0F page's fetch
 commitments"), with five class integers; F32 560/858 and F34 1,094/1,596
 at its candidate; queue-side rules, no new step kind.
 
+### Synthesis trial on the T120F484 (2026-10-31)
+
+Asked whether the chain RTL is synthesizable rather than a port of the
+model, the overseer ran Efinity 2026.1 `efx_run -f map` on the committed
+RTL (5a9b362; scratchpad syn/build_chain_syn.sh for the harness with the
+chain lane as the model, syn/build_module_syn.sh for one module as the
+top; each inside a `systemd-run --scope -p MemoryMax` cap). Two front-end
+fixes were needed before elaboration (worktree only, not committed):
+`v35_chain_params.svh` is included in both `v35_decoder_pkg` and
+`v35_queue_pkg` and the arbiter imports both, which Efinity's parser
+rejects ("visible via multiple package imports"; the queue package and
+module importing `v35_decoder_pkg` instead resolves it), and the lane's
+`V35S_CHAIN_LANE` macro has to be defined in every file (the project's
+`verilog-macros` setting did not reach them). Results:
+
+| Top | Outcome | LUT4 | ADD | FF | Other |
+| --- | --- | --- | --- | --- | --- |
+| harness + chain lane (whole core) | killed: 52 GB RSS after 10 min, still compiling; under a 44 GB cap OOM at 5 m 44 s, in elaboration | — | — | — | — |
+| `v35_biu` | maps in 3 s | 209 | 8 | 122 | |
+| `v35_refresh` | maps in 1 s | 61 | 8 | 24 | |
+| `v35_sfr` | maps in 2 s | 136 | 0 | 40 | |
+| `v35_queue` (JSLOT 40) | maps in 63 s, 248 MB | 7,486 | 839 | 185 | |
+| `v35_arbiter` | maps in 127 s, 424 MB | 5,115 | 1,095 | 71 | 7 multipliers |
+| `v35_eu` | OOM at the 20 GB cap after 2 m 26 s, in elaboration | — | — | — | — |
+
+Reading: the bus unit, refresh controller and SFR block are hardware. The
+queue and the arbiter elaborate but as the model's op chain unrolled in
+space (40 queue op stages over a 205-bit state, 8 arbiter queue ops and 6
+EU touches over 117 bits: 7.5 k and 5.1 k LUTs for a 16-byte prefetch
+queue and a bus arbiter, with `int` arithmetic inferring multipliers). The
+EU (a 1,046-bit state record, 24 unrolled `eu_step` evaluations per tick
+reading the 6,867-line template include, 109 functions) does not
+elaborate on a 60 GB machine, and the settle-register fixpoint (up to 6
+re-evaluations of the whole chain per model clock) is a software
+evaluation loop, not a datapath. The chain RTL therefore stands as what
+Phases C and D made it: a cycle-exact executable specification of the
+frozen model, verified against the corpus through Verilator. A
+synthesizable core is a separate design from that specification, with the
+same gates (rtl_vectors, the lane), and is not planned here yet.
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
