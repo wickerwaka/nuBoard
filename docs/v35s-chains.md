@@ -5578,6 +5578,53 @@ transfers that neither rule touches); two F35 `loop` runs where silicon makes on
 first DBNZ's backward flush (a taken transfer's pre-flush fetch); F30's remaining 25 are all LDEA; F34's other 478
 are untouched (the bit fields, the register and memory bit ops, MUL imm memory).
 
+### LDEA's 44 remaining misses read: two shapes encoded, five left as facts with their reasons (WP92, 2026-10-31; the forty-seventh fit)
+
+Under the forty-sixth fit LDEA missed 44 refresh-off runs (F25 19, F30 `lea` 25) after four earlier enums (`lea_form`,
+`lea_io`, `lea_room`, `lea_disp`). Read run by run (scratchpad wp92/facts.txt, facts-raw-base.txt: the first divergence,
+LDEA's bytes with their word halves, the cycle running on its start clock, the EA window, the take clock and the
+queue / IR / latch state on the clock before the divergence, with the exact neighbours) they are seven shapes; two are
+mechanisms, five stay facts because every statement that fits them keys on the neighbour or on a rule every class
+shares:
+
+- **S1, encoded as `lea_slot` (none → ea), 5 runs.** A displaced LDEA (`[BW+IX+200h]` at pE under PUSH, and F30's
+  `bw_ix_d16-nopb-pE-w0`) starts on a fetch, runs its EA clocks and takes its d16 after the word's delivery; the model
+  counted the empty IR as a seventh slot on that delivery clock (F84 F87 W96), silicon does not (F85 F88 W94), exactly
+  as the load in the same cell is kept exact by `ea_ir_room`. LDEA had been kept out of that rule because
+  `lea_form=reg` makes it a register form and `ir_load=disp_data` needs a data cycle. The mechanism: while a displaced
+  ModR/M form runs its EA clocks before its displacement is taken, the successor's opcode cannot load, so the IR is no
+  room for a word; LDEA holds no IR load after it (no data cycle to end one). Deciding run
+  `F25-push-ldea-bw_ix_d16-pE-w0`; flip −5. Alone it wins nothing: `lea_disp=split` then blocks the PUSH (W97).
+- **S2, encoded as `lea_disp=run` (a third value), 3 runs and S1's four.** With the bus idle, a split d16 taken on the
+  clock its freed-room fetch issues (F30 `push-{bw_d16,bw_ix_d16,dir}-nopb-pO-w0`: LDEA starts 85, the take on 88 with
+  F88 issued there, F91 back to back) lets the successor start on F91's issue (silicon W97; `split` W100). Every exact
+  `split` cell takes its d16 inside a fetch run (a delivery clock at w0, a fetch's last clock at w1, a wait clock at
+  w2) and there silicon does wait for the third fetch's end. The hold was right with too wide a condition: it applies
+  only when the take happened while a fetch was on the bus past its issue clock, or on a delivery clock. Deciding run
+  `F30-push-lea-bw_d16-nopb-pO-w0`; flip split −8, none −41.
+- **S3 (8, facts):** OUT k = 1 mod 00 at pE w0 in seven modes and F30 `bw-k1`: LDEA starts on M0's I/O issue, `lea_io`
+  puts its EA clocks at 89–90, F87–89 ends on the first EA clock and `lea_room` counts room 2 there, so the model fetches
+  back to back at 90 where silicon has no fetch until 94; with a NOP or a second LDEA in the IR in the same state
+  silicon does fetch back to back. `lea_room` is right at 64 first differences and wrong at exactly these 8, and the
+  only thing that separates them is what the IR holds: the neighbour.
+- **S4 (6, facts):** OUT k = 2 at w0 and `nopa` at w0: silicon behaves as if the next instruction starts on LDEA's
+  last EA clock, inside a fetch, which `start_sync` forbids for every class; shortening the mod 00 EA by a clock won 2
+  and lost 30, and the closing OUT does not start early (S3), so an exception would again key on the neighbour.
+- **S5 (18, facts):** the closing OUT comes 1–2 clocks late after an LDEA that started on a fetch's issue clock (`nopb`
+  w0, the drainer leads, OUT k = 2 pO w1/w2); the PUSH after the same start is exact in every lead and parity, so the
+  delay belongs to the OUT; a flat `lea.wb` of 1/2/3 loses 74/163/190.
+- **S6 (2, facts):** the second base+index+d16 LDEA's d16 taken with a byte in the latch, `latch_hold` a clock late;
+  the latch rules are every class's. **S7 (2, facts):** F30 `push nopb pO w0`, LDEA started on an aborted cycle;
+  re-checking the request on the first EA clock won these 2 and lost 8 k = 2 cells.
+
+Fit stage 23 (`F49_ENUMS` the two enums, `F49_INTS` the lea integers; F25 F30, the only lists that run the class; the
+corpus guard the guard) chose both and moved no integer, 2,020 → 2,028 of 2,064. **F25 573/588, F30 1,455/1,476,
+30,041 → 30,049 of 31,532**, the other 36 lists byte-identical (the gate: a clean worktree and the work's tree under the
+tracked fit byte-identical on all 38 lists; the candidate won 8, lost 0). Tests test_sim.LdeaDisplacement,
+test_fit.LdeaDisplacementStage. Of the four earlier LDEA enums, `lea_form=reg` is what kept LDEA out of `ea_ir_room`,
+`lea_io=recover` is consistent everywhere, `lea_room=ir` is right except S3, and `lea_disp=split` was the right hold
+with the wrong condition.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -5597,7 +5644,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the forty-sixth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the forty-seventh fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6010,10 +6057,16 @@ other 34 lists byte-identical; nothing lost. Stage 22 (`fit.py`). The refresh-of
 (F34 478, F32 298, F33 123, F24 44, F29 29, F35 28, F30 25, F25 19, F22 6, F36 3 missing; F23 complete). F37 (432
 runs) is in the corpus but unmodelled and not scored. Model side only, no RTL work.
 
+**The forty-seventh fit** (`fit.json`, md5 042121d82c63b8c6b09bf0c6b68a1214; scratchpad wp92/fit-wp92.json, adopted 2026-10-31) is the
+forty-sixth fit plus WP92's `lea_slot=ea` and `lea_disp=run` (Facts "LDEA's 44 remaining misses read"), no integer
+moved. 30,041 → 30,049 of 31,532 over 38 lists: F25 573/588, F30 1,455/1,476; the other 36 lists byte-identical;
+nothing lost. Stage 23 (`fit.py`). The refresh-off corpus stands at 25,855 of 26,900 (F34 478, F32 298, F33 123,
+F24 44, F36 3, F29 29, F35 28, F30 21, F25 15, F22 6 missing). Model side only, no RTL work.
 
-### Fitted structure (forty-sixth fit, 2026-10-31)
 
-Forty-six fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (forty-seventh fit, 2026-10-31)
+
+Forty-seven fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6377,7 +6430,9 @@ forty-fifth (`fit.json`, 2026-10-31) models F35 and F36 (twelve classes,
 747/750, byte-identical on all 36 earlier lists. The forty-sixth (`fit.json`,
 2026-10-31) adds the not-taken transfer's two mechanisms (`xfer_nt_b2b=decide`,
 `decide_abort=cycle`, stage 22): 30041/31532, F23 360/360, F30 1451, F34 1118,
-F35 1016; byte-identical on 34 lists.
+F35 1016; byte-identical on 34 lists. The forty-seventh (`fit.json`, 2026-10-31)
+adds LDEA's `lea_slot=ea` and `lea_disp=run` (stage 23): 30049/31532, F25 573,
+F30 1455; byte-identical on 36 lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
