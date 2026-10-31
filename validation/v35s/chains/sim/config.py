@@ -757,6 +757,43 @@ OPTIONS = {
     # R120); -pE-w2 F111-115, R125 (any: R124); -pE-w0 F105-107, R117 under both.
     # Stage 25 (2026-10-31, wp95) chose delivery; flip at the candidate: any -22 (F24 only)
     "str_single_start": ("any", "delivery"),  # (WP95, F24)
+    # (WP94, F32/F34, 2026-10-31) bf_imm_hold: an imm4 bit field (EXT / INS reg8,imm4) raises
+    # fetch requests as the room allows (none) / when its width byte is the even (first) half of
+    # its word, the next opcode the odd half, raises none from the width byte's take until its
+    # execution ends (hrel clocks before the form's last clock; a committed back-to-back fetch
+    # held with it): the half-taken word keeps the room rule from asking, as MUL imm's under
+    # mul_imm_hold and RET imm's under ret_imm_hold (word); the operand's word alignment, not the
+    # chain's parity. In all 138 F32 / F34 runs of an imm4 field so aligned silicon runs no
+    # fetch between the field's start and its first read and fetches once, 4 clocks before the
+    # model's end of EXT (bf_ext.hrel 4 at span 14) and on INS's last clock (hrel 0); all 89
+    # runs of the other alignment are exact under both (no hold: the width byte ends its word).
+    # F34-out-bf-ext_bl_i7-nop-k1-pE-w0, rel t_fill: EXT BL,7 at 10050 (the width byte 10052,
+    # the next opcode 10053) starts on F88's issue; silicon F88 F91 D101 F165 (none: F88 F91
+    # F94 D104, the read's fetch-free setup restarted by F94, and F180); F34-out-bf-ext_bl_i7-
+    # l0-k1-pO-w0: silicon F82 O85 F88 D98 F162 (none: F91 back to back after F88)
+    "bf_imm_hold": ("none", "word"),
+    # (WP94, F32/F34, 2026-10-31) page_imm_run: under page_mem=fixed a fetch the bus unit did
+    # not commit to back to back restarts a 0F memory form's fetch-free read setup (none) / for
+    # the forms with an immediate bit index (TEST1 / CLR1 / SET1 / NOT1 [m],imm), a fetch issued
+    # on the clock after a fetch's last (its word's delivery clock) once the form has started
+    # and before its read issues runs inside the setup as a committed one does (delivery).
+    # F32-out-set1_mw_imm-k1-pE-w0, rel t_fill: SET1 [BW],7 starts 80 under M0's OUT (I/O 84),
+    # the refill F87 (room 1 on its last clock: not committed), F90 raised on F87's delivery
+    # clock; silicon reads at 93, F90's end + 1 (none: F90 restarts the count, D95); the CL
+    # index form in the same cell is committed back to back on F87's last clock (room 2) and
+    # exact under both
+    "page_imm_run": ("none", "delivery"),
+    # (WP94, F32/F34, 2026-10-31) page_b2b_win: page_b2b=reg commits for the fetch running at
+    # the register form's last operand take or issued on the clock after it (take) / also for
+    # the fetch issued back to back after the one running at that take when the take came after
+    # that fetch's issue clock, its wait clocks included (run); a take on the running fetch's
+    # issue clock (SET1 r,imm at l0 pE, F87) gets no second commitment in silicon, as under
+    # take. F34-out-rbit-set1_rw_cl-nop-k1-pE-w1, rel t_fill: SET1 AW,CL starts on
+    # F89's issue, its ModR/M taken on 91 (F89's wait clock), F93 committed back to back by the
+    # request rule; silicon F97 back to back after F93, O111 (take: F93 issued two clocks after
+    # the take, no commitment, F104); at w0 the take falls on F88's last clock and F91 follows
+    # on the clock after it: exact under both
+    "page_b2b_win": ("take", "run"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -819,6 +856,8 @@ OPTIONS = {
 # requests; 0 and unread under the old enums. rsetup (mul_imm): the read's setup clocks, read
 # by the immediate forms' read (_imm_read) whatever the enums, absent = 0 before (as before),
 # and with mul_imm_read=imm the setup before the immediate's clocks.
+# (WP94) hrel (bf_ext / bf_ins, bf_imm_hold=word): the clocks before the form's last clock at
+# which a half-taken width word's fetch hold ends; unread under bf_imm_hold=none.
 DEFAULT_COST = {
     "reg": {"pre": 0, "exec": 4},
     "prefix": {"exec": 2},
@@ -1045,9 +1084,10 @@ DEFAULT_COST = {
                 "mhold": 0, "rsetup": 0},
     "bcd4s": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "wmid": 10, "loop": 7, "exec": 12},
     "bcd4s_cmp": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "loop": 14, "exec": 20},
-    "bf_ext": {"fsetup": 6, "nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "xsetup": 26, "span": 14, "xspan": 42},
+    "bf_ext": {"fsetup": 6, "nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "xsetup": 26, "span": 14, "xspan": 42,
+               "hrel": 4},
     "bf_ins": {"fsetup": 6, "nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "span": 19, "wsetup": 2, "xwsetup": 68, "xrsetup": 11,
-               "xspan": 106, "post": 2},
+               "xspan": 106, "post": 2, "hrel": 0},
 }
 DEFAULT_EA = {"base": 2, "base_index": 3, "disp": 2, "base_disp": 3, "base_index_disp": 4,
               "direct": 0,
@@ -1334,6 +1374,9 @@ class Config:
     xfer_mem_ir: str = "none"          # (WP91)
     str_single_wb: str = "none"        # (WP95)
     str_single_start: str = "any"      # (WP95)
+    bf_imm_hold: str = "none"          # (WP94)
+    page_imm_run: str = "none"         # (WP94)
+    page_b2b_win: str = "take"         # (WP94)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

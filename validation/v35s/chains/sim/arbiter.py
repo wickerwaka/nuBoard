@@ -432,6 +432,26 @@ def _fetch_run(bus, t: int, prev: bool = False) -> bool:
             and cs[-2].kind == "fetch" and cs[-2].end == cs[-1].start - 1)
 
 
+def _page_imm_run(t: int, cfg, bus, eu) -> bool:
+    """(WP94) page_imm_run=delivery: a fetch issued on the clock after the last of a fetch that
+    itself issued after a 0F memory form with an immediate bit index had taken its head (its
+    ModR/M byte; the immediate waits for the read), the form's read not yet issued, runs inside
+    the read's fetch-free setup as one the bus unit committed to back to back does
+    (page_mem=fixed)."""
+    if cfg.page_imm_run != "delivery" or not getattr(eu, "page_imm", False):
+        return False
+    if t <= eu.start_clock or bus.last_fetch_end != t - 1:
+        return False
+    prev = [c for c in bus.cycles[-3:] if c.kind == "fetch" and c.end == t - 1]
+    take = eu.decoder.queue.take_t
+    if not prev or prev[-1].start <= eu.start_clock or take is None or prev[-1].start <= take:
+        return False                    # the fetch it follows issued before the form's head
+                                        # (its ModR/M byte) was taken
+    r = eu.req
+    return eu.page_fixed == "start" or (r is not None and r.pfree is not None
+                                        and not r.issued)
+
+
 def _choose(t: int, cfg, bus, queue, eu):
     req = eu.req if eu.req is not None and eu.req.cycles else None
     if queue.lost_start is not None and eu.start_clock == t and t > queue.lost_start:
@@ -704,9 +724,10 @@ def _choose(t: int, cfg, bus, queue, eu):
         if mem and r.beat_ext and queue.after_refresh == t:
             r.setup -= r.beat_ext           # (WP58) refresh_post=post_beat: the beaten fetch
             r.beat_ext = 0                  # runs first, the hold is the window's (as post)
+        imm_run = _page_imm_run(t, cfg, bus, eu)   # (WP94) before this fetch is the last
         addr, width, data = queue.issue(t, mem_waiting=mem)   # (WP26) request_reissue
         c = bus.start(t, "fetch", addr, width, data, owner=queue)
-        c.b2b = queue.b2b_at == t           # (WP81) page_mem: committed back to back
+        c.b2b = queue.b2b_at == t or imm_run  # (WP81) page_mem: committed back to back
         if eu.refresh is not None and cfg.refresh_sync == "run":
             # (WP34) refresh_sync=run: the beaten fetch the take sync counts, and the fetches
             # back to back behind it, run 2 clocks earlier for the EU (eu.early)
