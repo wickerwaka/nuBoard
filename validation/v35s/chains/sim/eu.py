@@ -1440,11 +1440,18 @@ class EU:
             # (WP26) port_landed: a port byte taken on a word's delivery clock with the
             # word's second byte latched reaches the port latch a clock later
             late = int(self.cfg.port_landed and q.arrived_t == t and bool(q.latched))
+            last = self.bus.cycles[-1] if self.bus.cycles else None
+            if (last is not None and last.kind == "refresh" and last.end == t - 1
+                    and self.cfg.port_refresh == "late"):
+                late = 1                        # (WP85) port_refresh: the clock after a refresh
             held = []
             for r in [self.req] + self.queued:
-                if (self.cfg.port_ready == "issue" and r is not None and r.ready()
+                if (self.cfg.port_ready == "issue" and r is not None and (r.ready() or (
+                        r.nowait and r.cycles and not r.issued and r.count + 1 >= r.setup
+                        and self.cfg.port_ready_count == "count"))
                         and r.not_before <= t and not self.bus.busy(t)):
-                    continue                    # (WP58) port_ready: it issues on this clock
+                    continue                    # (WP58) port_ready: it issues on this clock;
+                                                # (WP85) port_ready_count: or counts out on it
                 if r is not None and r.detached and r.cycles and not r.issued:
                     r.not_before = max(r.not_before, t + late + self.cfg.c(r.cls, "relatch"))
                     held.append(r)
@@ -1492,6 +1499,10 @@ class EU:
         r.dwlike = dwlike
         # (WP58) refresh_io_stall (read with refresh on only)
         r.io_stall = io and self.refresh is not None and self.cfg.refresh_io_stall == "step"
+        if io and self.refresh is not None:
+            # (WP85) io_step_restart, refresh_lead_step (read with refresh on only)
+            r.step_restart = self.cfg.io_step_restart
+            r.lead_step = self.cfg.refresh_lead_step
         if (self.cfg.sfr_setup == "count" and kind == "write" and self.sfr is not None
                 and self.cfg.sfr_cycle == "io" and addr >= SFR_PAGE):
             r.free_need = 0                      # (WP38) sfr_setup: no fetch-free clocks

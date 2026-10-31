@@ -83,6 +83,8 @@ class Request:
     io_stall: bool = False          # (WP58) refresh_io_stall=step: an I/O request
     eu_halted: bool = False         # (WP58) the EU is in HALT (arbitrate sets it every clock)
     beat_ext: int = 0               # (WP58) refresh_post=post_beat: the hold's clocks
+    step_restart: str = "max"       # (WP85) io_step_restart (an I/O request, refresh on)
+    lead_step: str = "block"        # (WP85) refresh_lead_step (an I/O request, refresh on)
     gdisp: bool = False             # (WP61) grp_disp=hold: a group RMW form's read after its
                                     # two-byte displacement
     dwlike: bool = False            # (WP70) str_count=dw: a string form's request, counted as a
@@ -252,7 +254,8 @@ def io_step(r, bus, t: int, issue: bool = False) -> bool:
     s = p + max(0, r.setup - 5)
     for c in reversed(bus.cycles):
         if c.start < t and c.end >= p:
-            s = max(s, c.end + 1)
+            # (WP85) io_step_restart=last: the restart whatever its clock
+            s = max(s, c.end + 1) if r.step_restart == "max" else c.end + 1
             break
         if c.end < p:
             break
@@ -283,7 +286,9 @@ def _refresh(t: int, cfg, bus, queue, eu, req, fetch_want):
             and r.setup - r.lead <= r.count < r.setup
             and not (cfg.refresh_lead_port == "last" and r.port and r.count < r.setup - 1
                      and not fetch_want)
-            and not step_lead):
+            and not step_lead
+            and not (r.lead_step == "step" and r.detached and io_stepped(r, eu)
+                     and io_step(r, bus, t))):  # (WP85) refresh_lead_step: a step takes it
         return None                      # (WP34) refresh_lead: committed to the I/O; (WP41)
                                          # refresh_lead_port: a port form's on its last clock only
                                          # (on its first unless an older fetch runs there)

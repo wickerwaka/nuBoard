@@ -6017,3 +6017,99 @@ class RefreshScope(unittest.TestCase):
         # the prelude's RFEN: the EU sees the controller from clock 0 under both
         s = _run84("F17-p-n0-empty-pE-w0")
         self.assertEqual(_model84(s, self.live), _model84(s, self.any))
+
+
+# WP85: the forty-third fit's refresh-on misses of F27 and F28, the I/O sequencer beside a refresh
+WP85 = {"port_ready_count": "count", "port_refresh": "late", "refresh_pair_post": "before",
+        "io_step_restart": "last", "refresh_lead_step": "step"}
+WP85_OLD = {"port_ready_count": "ready", "port_refresh": "none", "refresh_pair_post": "any",
+            "io_step_restart": "max", "refresh_lead_step": "block"}
+
+
+def _aligned85(cid, cfg):
+    from validation.v35s.chains.sim.machine import refresh_anchor
+    s = _run84(cid)
+    n = simulate_normalized(s.chain, cfg, s.chain_base, refresh=refresh_anchor(s))
+    return aligned(s), aligned(n)
+
+
+class RefreshSequencerF27F28(unittest.TestCase):
+    """WP85: the five new rules against their old values on their deciding runs (clocks rel
+    t_fill; scratchpad wp85/facts.txt), refresh_scope=live equal to any under them."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.new = Config.fitted().replace(**WP85)
+
+    def test_defaults_are_the_old_behaviour(self):
+        for name, old in WP85_OLD.items():
+            self.assertEqual(getattr(DEFAULT, name), old, name)
+            self.assertEqual(OPTIONS[name][0], old, name)
+            self.assertEqual(set(OPTIONS[name]), {old, WP85[name]}, name)
+
+    def _check(self, cid, name, kind, sil, old):
+        """Exact under the new rules; with name at its old value the first divergence is the
+        kind event at old where silicon has it at sil."""
+        a, b = _aligned85(cid, self.new)
+        self.assertEqual(a, b, cid)
+        self.assertIn(sil, [e[0] for e in a if e[1] == kind], cid)
+        a, b = _aligned85(cid, self.new.replace(**{name: WP85_OLD[name]}))
+        k = next(i for i, (x, y) in enumerate(zip(a, b)) if x != y)
+        self.assertEqual((a[k][0], a[k][1]), (sil, kind), cid)
+        self.assertEqual(b[k][0], old, cid)
+
+    def test_port_ready_count(self):
+        # the X's OUT 40h,AL posted 115, the refresh 120-124, its count's end and M1's port take
+        # on 125: the I/O issues there (ready: relatched, with port_refresh=late from 126, I129)
+        self._check("F27-out-fc-port-outb-n3-pE-w0", "port_ready_count", "io_write", 125, 129)
+
+    def test_port_refresh(self):
+        # M0's I/O posted 86, the refresh 89-93, M1's take on 94 (the clock after it), the
+        # count out on 96: I98 (none: the relatch from 94, I97)
+        self._check("F28-out-fc-fence-cl29-n0-pE-w0", "port_refresh", "io_write", 98, 97)
+
+    def test_refresh_pair_post(self):
+        # the refresh 127-131, M1 posts on 132, the beaten fetch's issue clock: no pair, I140
+        # (any: the pair's second fetch on 136, I141)
+        a, b = _aligned85("F27-out-fc-room-movawi-n0-k2-pE-w1", self.new)
+        self.assertEqual(a, b)
+        self.assertIn((140, "io_write"), [e[:2] for e in a])
+        self.assertNotIn(136, [e[0] for e in a if e[1] == "fetch"])
+        a, b = _aligned85("F27-out-fc-room-movawi-n0-k2-pE-w1",
+                          self.new.replace(refresh_pair_post="any"))
+        self.assertIn(136, [e[0] for e in b if e[1] == "fetch"])
+
+    def test_io_step_restart(self):
+        # M1's I/O posted 139 behind the fetch 138-140, the request 144: the steps 141, 143, 145
+        # (max: from 142, the refresh on 144)
+        self._check("F27-out-fc-beat-ds1-n4-pO-w0", "io_step_restart", "refresh", 145, 144)
+
+    def test_refresh_lead_step(self):
+        # the same run: the step 145 is the lead's last clock (block: the refresh on 146)
+        self._check("F27-out-fc-beat-ds1-n4-pO-w0", "refresh_lead_step", "refresh", 145, 146)
+
+    def test_live_equals_any_under_the_new_rules(self):
+        live = self.new.replace(refresh_scope="live")
+        for cid in ("F27-out-fc-port-outb-n3-pE-w0", "F28-out-fc-fence-cl29-n0-pE-w0",
+                    "F27-out-fc-room-movawi-n0-k2-pE-w1", "F27-out-fc-beat-ds1-n4-pO-w0",
+                    "F17-s-n0-shlcl4-pO-w0", "F18-b-n1-shlmcl-pE-w2", "F18-ac-out-fc-pO-w0",
+                    "F13-c-out-shlcl8-pO-w1", "F8-out-empty-pE-w1"):
+            s = _run84(cid)
+            self.assertEqual(_model84(s, live), _model84(s, self.new), cid)
+
+    def test_refresh_off_runs_unchanged_and_unread(self):
+        # every rule reads a refresh-on state only (a refresh cycle on the bus, a refresh-on I/O
+        # request's fields, the pair after a beaten fetch); port_ready_count is read beside any
+        # port take with a request still counting, and changes nothing without a refresh
+        from validation.v35s.chains import fit
+        old = Config.fitted()
+        for cid in ("F7-out-out_imm_al-ld_bw-pO-w0", "F26-out-pi-oo-none-n0-pO-w0",
+                    "F29-out-ec-pi-oo-movawi-n0-pO-w0", "F27-out-ec-port-outb-n3-pE-w0",
+                    "F28-out-ec-tail-shlcl8-outb-n1-pE-w0"):
+            s = _run84(cid)
+            self.assertEqual(_model84(s, self.new), _model84(s, old), cid)
+            rc = fit.recording(self.new)
+            simulate_normalized(s.chain, rc, s.chain_base)
+            for name in ("port_refresh", "refresh_pair_post", "io_step_restart",
+                         "refresh_lead_step"):
+                self.assertNotIn(name, rc._reads, cid)

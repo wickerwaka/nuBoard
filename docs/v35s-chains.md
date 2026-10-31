@@ -5261,6 +5261,91 @@ model is the model's first refresh after the store, in all 1,416). The
 causal RTL is `live`'s: the controller always enabled, requests gated by
 its own `on`, the EU's refresh input `on || pending` (WP83 takes it).
 
+### The I/O sequencer beside a refresh: F27 and F28's misses read, five enums (WP85, 2026-10-31; a candidate, not adopted yet)
+
+Under the forty-third fit F27 misses 183 of 1,072 and F28 268 of 1,088.
+Three of F27's are refresh-off (`out-ec-beat-ds1-n0-pE-w0`,
+`out-ec-beat-movr-n0-pE-w0`, `push-ec-room-movcl-n0-k3-pO-w0`: the
+thirty-sixth fit's findings, unchanged), so the refresh-on misses are 448
+(F27 180, F28 268). Facts over them (scratchpad wp85/facts.txt: one row
+per miss with the first divergence, the nearest refresh in silicon and in
+the model, the counter phase, the EU instruction and step, and the
+neighbours at k or n ± 1, the other parity, the other waits and the ECh
+twin; clocks relative to t_fill):
+
+- **Every miss is near a refresh:** a silicon refresh starts within 8
+  clocks of each first divergence. The divergences avoid the refresh's own
+  clocks (counter phase 2–4) and otherwise spread over the 16-clock period:
+  no phase keys a shape.
+- **The counter grid stands.** In the miss runs every silicon refresh
+  starts 0–4 clocks after the model's request clock (`POP_COUNTER`), never
+  before it; the lane's phase of WP82 (3 clocks later at 1 and 2 waits)
+  would put 4,579 of those starts before their request. The lane's counter
+  differs by its own request latency, not the model's grid.
+- **No remaining shape keys on the opcode byte or a neighbour.**
+
+Encoded as five enums (sim/config.py, each with the old behaviour as
+DEFAULT, the deciding run in its comment and a test in
+test_sim.RefreshSequencerF27F28; no integer changed or added), all
+conditions of the I/O sequencer when a refresh sits in or beside an I/O's
+setup:
+
+| Enum (old → new) | Rule | Deciding run (silicon; old model) | Flip |
+| --- | --- | --- | --- |
+| `port_ready_count` (ready → count) | the I/O waiting in the slot also issues on the next OUT's port-take clock when its setup counts out on that clock (the clock after a refresh whose stalled last clock moved the count's end there); silicon on the take in 28 of 28 such requests | `F27-out-fc-port-outb-n3-pE-w0`: I/O 125; 129 (128 with `port_refresh=none`) | −27 |
+| `port_refresh` (none → late) | a port byte taken on the clock after a refresh cycle's last reaches the port latch a clock late, as `port_landed`'s; silicon issues at the take + 4 in 43 of 43 | `F28-out-fc-fence-cl29-n0-pE-w0`: 98; 97 | −28 |
+| `refresh_pair_post` (any → before) | `refresh_io_run=pair_out`'s second back-to-back fetch after a fetch a refresh beat runs only when the OUT posted its I/O before the beaten fetch's issue clock: posted on that clock 0 of 45 pair in silicon, posted earlier 474 of 474 | `F27-out-fc-room-movawi-n0-k2-pE-w1`: I/O 140, no fetch at 136; fetch 136, I/O 141 | −45 |
+| `io_step_restart` (max → last) | the I/O steps restart on the clock after any bus cycle in the setup, even before setup − 5; 12 requests sit on that grid's first step in silicon, none on the old grid only | `F27-out-fc-beat-ds1-n4-pO-w0`: refresh 145; 144 | −12 |
+| `refresh_lead_step` (block → step) | a pending refresh held off a port-form I/O's lead takes the clock that is one of a detached I/O's steps, as `refresh_io_step=own` does in the setup | the same run: 145; 146 with `io_step_restart=last` alone | −25 |
+
+Fit stage 19 (`F45_ENUMS` with the old value first so a tie keeps it,
+`F45_INTS` = `out.relatch`, `out.lead`, `in.relatch`; F27 F28 with F8 F13
+F17 F18, since every rule reads refresh-on state only; the corpus guard the
+guard) from the forty-third fit chose all five new values with no integer
+move, refusing 0 of 2 moves. **F27 889 → 932/1,072, F28 820 → 898/1,088,
+the corpus 27,838 → 27,959** over the 36 lists, no run lost in any family;
+the three-pass gate (HEAD worktree and live tree under the tracked fit
+byte-identical on all 36 lists; tracked against the candidate: F27 won 43,
+F28 won 78, lost 0, only F13, F27 and F28 differ byte-wise, F13 in one
+already-missing run's trace after its divergence) and a fourth pass with
+`refresh_scope=live` byte-identical to the candidate on all 36 lists. The
+candidate (wp85/fit-wp85.json) is the forty-third fit plus the five
+fields. One rule was tried and removed: a zero-clock step as no EU
+micro-boundary under a refresh hold (the P shape below) loses about 1,500
+runs because it moves the prelude.
+
+**What stays a fact** (327 refresh-on misses under the candidate, PART 2 of
+the facts file):
+
+- **O1, 26 runs, 0 waits only:** the OUT has counted out 1–2 clocks before
+  the next OUT's port take on the bus-free clock after a refresh in its
+  setup. Silicon issues at the take + 1 at 0 waits (26 of 26) and on the
+  take at 1 and 2 waits (55 of 55), with the same visible state. A rule
+  would key on the wait count alone: a structural finding, not encoded.
+- **O2, 18 runs, 2 waits (one at 1):** the M1 OUT posts on a refresh's
+  first clock; silicon issues at the post + 7 in 17 of 35 such requests and
+  at + 9 (the model's) in 15, with identical bus history up to the post.
+  The difference lies before the OUT inside the EU; it needs a probe of the
+  OUT's start against the refresh at 2 waits.
+- **R, 39 runs:** refresh starts beside the M1 OUT's setup with mixed
+  outcomes under one visible key (setup 8, 1 wait, the request at post + 3,
+  the fetch ending at post − 1: + 4 in 14, + 3 in 4).
+- **P, 37 runs:** the M1 PUSH write beside a refresh; 12 are one clean
+  state (silicon post + 5, model + 6): the EU after a refresh hold starts
+  the PUSH a clock earlier.
+- **L, 35 runs:** the closing LS's `SHL AW,CL`, two clean sub-states (12 of
+  12 and 20 of 20) inside the eight fitted shift-refresh boundary rules
+  that are right on thousands of requests; not encoded.
+- **E, 34 runs (PUSH frame, 1 and 2 waits):** the END block's `MOV
+  DW,imm16 ; OUT DW,AL`: silicon runs no fetch between two refreshes 16
+  apart where the model runs one or two.
+- **B, 70 runs:** the immediate train after a beaten 3-clock fetch, the
+  successor's clock (the thirty-seventh fit's open state). **L2 21, M 17,
+  U 23, I 7:** small groups.
+
+The RTL does not implement the five rules yet; they are arbiter and queue
+conditions with no new template step kind, so `rtlgen` is unaffected.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

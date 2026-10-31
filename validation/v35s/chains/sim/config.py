@@ -559,6 +559,54 @@ OPTIONS = {
     # F17-w-fd-n5-pE-w0, the closest: effect 131, the request raised and served on 131 (the
     # RFT switch's edge), the next instruction starting on 131 with RFEN seen. A tie, not a win.
     "refresh_scope": ("any", "live"),
+    # (WP85, F27/F28, 2026-10-31) port_ready_count: port_ready=issue lets an I/O waiting in the
+    # slot issue on a port byte's take clock instead of being relatched when its setup has
+    # counted out before that clock (ready) / also when its count ends on that clock (count:
+    # the last setup clock, the bus free there). Seen only after a refresh in the setup (the
+    # refresh's stalled last clock moves the count's end onto the next OUT's take, the clock
+    # after the refresh). F27-out-fc-port-outb-n3-pE-w0 (OUT 40h,AL then the M1 OUT, 0 waits),
+    # rel t_fill: the X's I/O posted 115, the refresh 120-124, the count's end and M1's port
+    # take on 125: silicon I125 (ready: relatched, I129 at the candidate, I128 with
+    # port_refresh=none); 28 such OUT requests in F27/F28, silicon
+    # on the take in all 28, no run outside F27/F28 changes. Flip at the candidate: ready -11
+    # F27, -16 F28
+    "port_ready_count": ("ready", "count"),
+    # (WP85, F27/F28, 2026-10-31) port_refresh: a port byte's take relatches an I/O waiting in the
+    # slot to the take + relatch (none) / a take on the clock after a refresh cycle's last
+    # reaches the port latch a clock later, as port_landed's (late: the relatch counts from
+    # take + 1). F28-out-fc-fence-cl29-n0-pE-w0, rel t_fill: M0's I/O posted 86, the refresh
+    # 89-93, M1's take on 94, the count out on 96: silicon I98 (none: I97); a take on the clock
+    # after a refresh, with the setup counting out two clocks after it: 43 OUT requests in
+    # F27/F28 (prefix matched), silicon's issue the take + 4 in all 43 (none: + 3 in 28). Flip at the candidate: none -4 F27, -24 F28
+    "port_refresh": ("none", "late"),
+    # (WP85, F27/F28, 2026-10-31) refresh_pair_post: refresh_io_run=pair_out's committed pair
+    # after a fetch a refresh beat, beside an OUT, whatever the OUT's request (any) / only when
+    # the OUT posted its I/O request before the beaten fetch's issue clock (before): a request
+    # posted on that clock (the port take on it) takes the bus after the fetch. Over every
+    # pair_out firing in F8, F13, F17, F18, F27, F28 prefix matched: posted 5 clocks before the
+    # fetch (the refresh in the OUT's setup) silicon pairs in 474 of 474; posted on the fetch's
+    # issue clock in 0 of 45 (w1, w2; w0 has no such firing). F27-out-fc-room-movawi-n0-k2-pE-w1
+    # (1 wait), rel t_fill: the refresh 127-131, M1 posts on 132 with the beaten fetch 132-135:
+    # silicon I140 R143 (any: F136 I141). Flip at the candidate: any -20 F27, -25 F28
+    "refresh_pair_post": ("any", "before"),
+    # (WP85, F27/F28, 2026-10-31) io_step_restart: arbiter.io_step's phase, restarted on the clock
+    # after a bus cycle that ran in the setup, but never before setup - 5 clocks after the post
+    # (max) / restarted there whatever its clock (last: a fetch run back to back across the post
+    # and ending on post + 1 puts the steps on post + 2, + 4, ...). Over every refresh
+    # requested beside a port-form I/O's setup (rfio.py, F8 F13 F17 F18 F27 F28, prefix
+    # matched) silicon's start is the first step under last in 12 requests where it is not
+    # under max, never the reverse. F27-out-fc-beat-ds1-n4-pO-w0 (0 waits), rel t_fill: M1's
+    # I/O posted 139 behind the fetch 138-140, the request 144: silicon R145 I150 (max: the
+    # step 144, R144 I149). With refresh_lead_step (below): alone it holds the refresh to 146
+    # (the lead's last clock). Flip at the candidate: max -5 F27, -7 F28
+    "io_step_restart": ("max", "last"),
+    # (WP85, F27/F28, 2026-10-31) refresh_lead_step: refresh_lead=closed holds a pending refresh
+    # off a port-form I/O's lead (refresh_lead_port=last: its last clock) (block) / except on a
+    # clock that is one of a detached I/O's steps (step: the step takes the refresh, as
+    # refresh_io_step=own does in the setup). F27-out-fc-beat-ds1-n4-pO-w0 as above: the step
+    # 145 is the lead's last clock (count 7): silicon R145 I150 (block, with io_step_restart=
+    # last: R146 I151). Flip at the candidate: block -11 F27, -14 F28
+    "refresh_lead_step": ("block", "step"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1044,6 +1092,11 @@ class Config:
     bf_read: str = "count"             # (WP81)
     wb_fetch: str = "free"             # (WP81)
     refresh_scope: str = "any"         # (WP84)
+    port_ready_count: str = "ready"    # (WP85)
+    port_refresh: str = "none"         # (WP85)
+    refresh_pair_post: str = "any"     # (WP85)
+    io_step_restart: str = "max"       # (WP85)
+    refresh_lead_step: str = "block"   # (WP85)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

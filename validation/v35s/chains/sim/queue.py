@@ -324,7 +324,10 @@ class Queue:
               and self.after_refresh == c.start and self.cfg.refresh_io_run != "none"
               and self._io_form() and self.latched == 0
               and (self.room(t) >= 0 if self.cfg.refresh_io_run == "pair"
-                   else self.eu.cls == "out" and self.room(t) + self._taking() >= 1)):
+                   else self.eu.cls == "out" and self.room(t) + self._taking() >= 1)
+              and not (self.eu.req is not None and self.eu.req.posted >= c.start
+                       and self.cfg.refresh_pair_post == "before")):
+            # (WP85) refresh_pair_post=before: not when the OUT posted on the fetch's issue clock
             # (WP39) refresh_io_run=pair: while an IN or OUT waits for its I/O, the fetch a
             # refresh beat is followed by a second one the bus unit commits to back to back;
             # (WP58) pair_out: beside an OUT only, with a byte of room left counting the byte

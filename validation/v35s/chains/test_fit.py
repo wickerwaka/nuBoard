@@ -736,6 +736,61 @@ class MissShapeStage(unittest.TestCase):
         s17.assert_called_once()
 
 
+class RefreshSequencerStage(unittest.TestCase):
+    """(WP85) stage 19: the I/O sequencer's rules beside a refresh over F27 and F28 (with F8, F13,
+    F17, F18), the corpus guard as its guard."""
+
+    NAMES = {"port_ready_count", "port_refresh", "refresh_pair_post", "io_step_restart",
+             "refresh_lead_step"}
+
+    def test_stage_19_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[19], ["F27", "F28", "F8", "F13", "F17", "F18"])
+        self.assertEqual(set(fit.F45_ENUMS), self.NAMES)
+        for name, values in fit.F45_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            # the old value first (DEFAULT): a tie keeps it
+            self.assertEqual(getattr(DEFAULT, name), values[0], name)
+        self.assertEqual(fit.F45_INTS, ["out.relatch", "out.lead", "in.relatch"])
+        from validation.v35s.chains.sim.config import Config
+        for p in fit.F45_INTS:
+            cls, name = p.split(".")
+            self.assertIn(name, Config.fitted().cost[cls])
+
+    def test_stage_19_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage19({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_19_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage19({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 19)
+        self.assertEqual(args[2], fit.F45_ENUMS)
+        self.assertEqual(args[3], fit.F45_INTS)
+        self.assertEqual(kw["sweep"], fit.F45_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_19(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "19"])
+        self.assertEqual(args.stage, 19)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "18", "--to", "19"])
+        self.assertEqual(args.to, 19)
+
+    def test_run_stage_dispatches_19(self):
+        with mock.patch.object(fit, "stage19", return_value={"config": {}}) as s19, \
+                mock.patch.object(fit, "stage18") as s18, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(19, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s19.assert_called_once()
+        s18.assert_not_called()
+
+
 class CausalRefreshStage(unittest.TestCase):
     """(WP84) stage 18: refresh_scope over F17 and F18, the corpus guard as its guard."""
 

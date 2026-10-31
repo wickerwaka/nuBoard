@@ -714,6 +714,15 @@ state the RTL has no counterpart for: `Cycle.b2b`, `Request.pfree`,
 `Queue.odd_nt`/`odd_until`, `Op.half_word`, the `wb_fetch` arbiter rule and
 the decide-wait exception.
 
+**Model mechanisms landed unadopted the same day, for the catch-up after
+WP83:** `refresh_scope=live` (WP84; the causal refresh, a tie) and WP85's
+five I/O-sequencer enums beside a refresh (`port_ready_count=count`,
+`port_refresh=late`, `refresh_pair_post=before`, `io_step_restart=last`,
+`refresh_lead_step=step`; docs/v35s-chains.md Facts "The I/O sequencer
+beside a refresh"), F27 932/1,072 and F28 898/1,088 at the candidate. All
+are arbiter, queue and EU-request conditions with no new template step
+kind: `rtlgen` is unaffected, the RTL's refresh-on lane is behind by them.
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
