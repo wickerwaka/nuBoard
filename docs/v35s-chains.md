@@ -5652,6 +5652,42 @@ test_fit.LdeaDisplacementStage. Of the four earlier LDEA enums, `lea_form=reg` i
 `lea_io=recover` is consistent everywhere, `lea_room=ir` is right except S3, and `lea_disp=split` was the right hold
 with the wrong condition.
 
+### The small refresh-off groups read: the unprefixed string pair's second instance, two enums; F29, F35, F22 and F36's remainders as facts (WP95, 2026-10-31; the forty-ninth fit)
+
+Under the forty-eighth fit the small refresh-off groups were F24's 44 (series `s`, the second instance of an
+unprefixed string pair), F29's 29 (its refresh-off `ec` series), F35's 28 (the far forms and two loop runs), F22's 6
+and F36's 3. Read run by run (scratchpad wp95/facts.txt, facts-table.txt: the first divergence and the model's state on
+the clock before it, X's word halves, the cycle on X's start clock, the exact neighbours, the refuted probes):
+
+- **F24, encoded (34 runs).** The k = 1 runs (one instance, then the OUT) are all exact, and so are the STM and LDM
+  pairs; MOVBK, INM and CMPBK miss at pE w1/w2 and at pO, CMPM at pE w1/w2 only, the width never matters. At pO no
+  fetch runs between the instances and the second starts a clock earlier than the OUT would: the unprefixed form's
+  last `uwb` exec clocks are a write-back only a form waiting for one (the port OUT) sees, as `str_exit=wb` already
+  splits a REP form's exit. Enum `str_single_wb` (none → wb), `uwb` 1 for str_move, str_in, str_cmp and 0 for the
+  others; deciding run `F24-out-s-movbk-b-k2-pO-w0` (silicon R117; none R118); flip −18. At pE a fetch follows the
+  first instance's last cycle and silicon's second first cycle sits a fixed distance after that fetch's end at every
+  wait (MOVBK/INM/CMPBK +10, CMPM +11, LDM +9): an unprefixed string form starts no earlier than its class's `ugap`
+  clocks after a fetch's delivery (1 for move, cmp, in, scan; 0 for load, store, out). Enum `str_single_start` (any →
+  delivery), deciding run `F24-out-s-movbk-b-k2-pE-w1` (silicon R121; any R120); flip −22. Refuted: counting the
+  unprefixed exec only on non-wait clocks (+22 −20). OUTM's 10 stay facts (a clock later at pO and earlier at pE
+  w1/w2, opposite to the write-back; a data-latch hold fits pO and pE w0 only).
+- **F29 (29, facts):** the base+index+d16 store or load after OUT DW,AL has one idle clock after the DW I/O in silicon
+  while the bwd16 store at pE takes its displacement in the same state and is exact (12: the EA mode); TEST d16 after
+  DW at pE, the young fetch waiting for the group clock (6: a hold for every group request −162, on the first clock
+  after an I/O's recovery −24); the group d16 forms at n2 pO w1/w2, the read a clock later (10: the state occurs only
+  there, an extra setup clock −15); SHL [m],1 n2 pO w0 differs from INC in the same cell (1: the opcode).
+- **F35 (28, facts):** the far forms at w0, the fetch after a take on a delivery clock a clock late in silicon (10:
+  delaying it generally loses tens of thousands); CALL far's first write at the later of the take fetch's issue + 6
+  and its end + 3 (12: the best try won 8 and lost 8; a template change); RETF 2 started on a delivery clock (4); the
+  loop's backward DBNZ started on an aborted cycle with one more sequential fetch during the flush (2).
+- **F22 (6)** the open A8 cells; **F36 (3)** TEST DL,AL's template, which WP88 found loses more than it wins.
+
+Fit stage 25 (`F51_ENUMS` the two enums, `F51_INTS` the 46 integers an unprefixed form reads in the seven string
+classes; F24 F30 F31 F33; the corpus guard the guard) chose both enums and moved no integer. **F24 868 → 902/912,
+30,469 → 30,503 of 31,964**, the other 38 lists byte-identical (the gate: a clean worktree and the work's tree under
+the tracked fit byte-identical on all 39 lists; the candidate won 34, lost 0). Tests test_sim.StringPairSecondInstance,
+test_fit.StringPairStage.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -5671,7 +5707,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the forty-eighth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the forty-ninth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6099,10 +6135,16 @@ constrained integer loses at ±1, wp93/sens.txt; the flips `xfer_mem_head=split`
 byte-identical, nothing lost. The refresh-off corpus stands at 26,275 of 27,332 (F34 478, F32 298, F33 123, F24 44,
 F29 29, F35 28, F30 21, F25 15, F37 12, F22 6, F36 3 missing). Model side only, no RTL work.
 
+**The forty-ninth fit** (`fit.json`, md5 7811facd86f43de3be046a48adda5dd2; scratchpad wp95/fit-wp95.json, adopted 2026-10-31) is the
+forty-eighth fit plus WP95's `str_single_wb=wb` and `str_single_start=delivery` with the string classes' `uwb` / `ugap`
+(Facts "The small refresh-off groups read"). 30,469 → 30,503 of 31,964 over 39 lists: F24 902/912; the other 38 lists
+byte-identical; nothing lost. Stage 25 (`fit.py`). The refresh-off corpus stands at 26,309 of 27,332 (F34 478, F32
+298, F33 123, F29 29, F35 28, F30 21, F25 15, F37 12, F24 10, F22 6, F36 3 missing). Model side only, no RTL work.
 
-### Fitted structure (forty-eighth fit, 2026-10-31)
 
-Forty-eight fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (forty-ninth fit, 2026-10-31)
+
+Forty-nine fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6471,6 +6513,9 @@ adds LDEA's `lea_slot=ea` and `lea_disp=run` (stage 23): 30049/31532, F25 573,
 F30 1455; byte-identical on 36 lists. The forty-eighth (`fit.json`, 2026-10-31)
 adds F37's six classes and three enums (stage 24 confirming WP91's hand start):
 30469/31964 over 39 lists, F37 420/432; byte-identical on the 38 earlier lists.
+The forty-ninth (`fit.json`, 2026-10-31) adds the unprefixed string pair's
+`str_single_wb=wb` and `str_single_start=delivery` (stage 25): 30503/31964, F24
+902/912; byte-identical on 38 lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
