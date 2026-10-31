@@ -6431,3 +6431,94 @@ class CoverageForms(unittest.TestCase):
     def test_default_is_the_old_behaviour(self):
         self.assertEqual(DEFAULT.ret_imm_hold, "none")
         self.assertEqual(OPTIONS["ret_imm_hold"], ("none", "word"))
+
+
+# (WP89) the candidate's moves over the tracked fit (the forty-fifth): stage 22's chosen enums and
+# integers
+WP89 = {"xfer_nt_b2b": "decide", "decide_abort": "cycle", "dbnz_z.nhold": 2, "dbnz_z.chold": 5}
+
+
+def _ev89(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP89 (+ over)."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP89, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class NotTakenBackToBack(unittest.TestCase):
+    """(WP89, F23 F30 F34 F35) a short conditional transfer not taken: a fetch ending in its decide
+    step with a byte of room commits the bus unit to one more fetch back to back, and the test
+    does not wait for it (scratchpad wp89/facts.txt; clocks rel t_fill)."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev89(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.xfer_nt_b2b, "none")
+        self.assertEqual(OPTIONS["xfer_nt_b2b"], ("none", "decide"))
+        self.assertEqual(DEFAULT.decide_abort, "fetch")
+        self.assertEqual(OPTIONS["decide_abort"], ("fetch", "cycle"))
+
+    def test_deciding_run(self):
+        # BNE at 10050 starts on F87's issue, F90 back to back ends on 92 in the decide step with
+        # room 1: silicon F93 back to back, M1's I/O 107 (none: F100 after M1's start, I107)
+        mod = self._exact("F23-out-bne-n0-k1-pE-w0")
+        self.assertIn((93, "fetch", 0x10058, "word", 3), mod)
+        self.assertIn((107, "io_write", 0x21, "hi", 3), mod)
+        _, none = _ev89("F23-out-bne-n0-k1-pE-w0", xfer_nt_b2b="none")
+        self.assertNotIn((93, "fetch", 0x10058, "word", 3), none)
+        self.assertIn((100, "fetch", 0x10058, "word", 3), none)
+
+    def test_every_condition_wait_and_frame(self):
+        # every condition behind CMP, each wait, k = 2 and 3, NOPs after, the PUSH frame's second
+        # BNE at an even address
+        for cid in ("F35-out-cc-bv-nt-n0-pE-w1", "F35-out-cc-bgt-nt-n2-pE-w2",
+                    "F34-out-nt-be-l0-k2-pE-w1", "F30-out-nt-bne-k3-n0-pE-w0",
+                    "F30-out-nt-bne-k1-n3-pE-w2", "F23-out-bne-n2-pE-w2",
+                    "F30-push-nt-bne-k2-n0-pO-w0", "F30-push-nt-bne-k3-n0-pO-w1"):
+            self._exact(cid)
+
+    def test_not_in_the_cond_clocks(self):
+        # the fetch running on the start clock ends in the cond clocks with room 1: no run (PUSH
+        # frame, BNE at an even address); the odd address, the twin and the leads exact either way
+        for cid in ("F23-push-bne-n0-k1-pO-w0", "F23-out-bne-n0-k1-pO-w0",
+                    "F34-out-nt-twin-l0-k1-pE-w0", "F34-out-nt-bne-d2-k1-pE-w0",
+                    "F34-out-nt-bne-nop2-k1-pE-w0", "F35-out-cc-bnv-nt-n0-pE-w0"):
+            for over in ({}, {"xfer_nt_b2b": "none"}):
+                self._exact(cid, **over)
+
+    def test_loop_classes_untouched(self):
+        # DBNZ, BCWZ, DBNZE / DBNZNE: their decide step starts on the take; xfer_nt_b2b reads
+        # branch_short only
+        for cid in ("F34-out-nt-dbnz-l0-k1-pE-w0", "F35-out-cw-bcwz-nt-n0-pE-w0",
+                    "F35-out-cw-dbnze-c1-cmpaa-pE-w0", "F23-out-dbnz-c1-n0-pE-w0",
+                    "F35-out-loop-dbnz-nop-pO-w0"):
+            sil, new = _ev89(cid)
+            _, old = _ev89(cid, xfer_nt_b2b="none")
+            self.assertEqual(new, old, cid)
+
+    def test_decide_abort_deciding_run(self):
+        # DBNZ at 10053 (odd) starts on 99 with the request answered by an aborted cycle 99-101:
+        # its decide step's gap counts from 101, the odd hold ends nhold clocks into its nexec
+        # clocks: silicon F107 (fetch: the gap from F96's end, F106)
+        mod = self._exact("F34-out-nt-dbnz-d-k1-pO-w0")
+        self.assertIn((107, "fetch", 0x1005A, "word", 3), mod)
+        _, old = _ev89("F34-out-nt-dbnz-d-k1-pO-w0", decide_abort="fetch")
+        self.assertIn((106, "fetch", 0x1005A, "word", 3), old)
+        # started on a fetch's issue instead: exact either way (the gap from that fetch's end)
+        for over in ({}, {"decide_abort": "fetch"}):
+            self._exact("F34-out-nt-dbnz-l0-k1-pE-w0", **over)
+
+    def test_decide_abort_every_wait_and_the_loop(self):
+        # the drainer and NOP leads at every wait, the backward DBNZ's second (not-taken) pass,
+        # DBNZE / DBNZNE's exits at an odd address (their holds one lower with the rule)
+        for cid in ("F34-out-nt-dbnz-d3-k1-pO-w2", "F34-out-nt-dbnz-nop2-k1-pE-w1",
+                    "F34-push-nt-dbnz-nop-k1-pE-w2", "F35-out-loop-dbnz-nop-pO-w0",
+                    "F35-push-loop-dbnz-reg-pO-w1", "F35-out-loop-dbnz-nop-pE-w2",
+                    "F35-out-cw-dbnze-c1-cmpaa-pE-w0", "F35-push-cw-dbnzne-c2-cmpaa-pE-w1",
+                    "F35-out-cw-dbnzne-c1-cmpad-pO-w2"):
+            self._exact(cid)

@@ -648,6 +648,37 @@ OPTIONS = {
     # immediate 54-55, a whole word freed) fetches 1005A at 127 right after its read 124 under
     # both
     "ret_imm_hold": ("none", "word"),
+    # (WP89, F23/F30/F34/F35, 2026-10-31) xfer_nt_b2b: a fetch starts back to back only when the
+    # request rule raises it on the running fetch's last clock (none) / a short conditional
+    # transfer not taken (branch_short: BNE / BE and the other 70-7F conditions), once its
+    # condition is tested (its decide step), commits the bus unit to one more fetch back to back
+    # on a running fetch's last clock with a byte of room left, the latch taking the other, once
+    # per form, and its decide step does not wait for that committed fetch (decide). Keyed on the
+    # class, the decide step and the queue's room only; the fetch running on the transfer's start
+    # clock ends before the test (the cond clocks) and is not affected, so the state, not the
+    # opcode's word half, decides. F23-out-bne-n0-k1-pE-w0, rel t_fill: M0's I/O 84, BNE starts
+    # on 87 (F87 issued, M1's opcode into the IR), F90 back to back, its last clock 92 in the
+    # decide step with the queue 3 bytes and the fetch in flight (room 1); silicon F93 back to
+    # back, I107 (none: F100 after M1's start, I107). Every one of the 120 refresh-off fetch ends
+    # inside a not-taken branch_short's decide step with room 1 runs back to back in silicon;
+    # none of the 149 inside its cond clocks with room 1 does, nor any DBNZ / BCWZ / DBNZE fetch
+    # end (their decide step starts on the take, with the fetch running on the start clock).
+    # Flip at the candidate (scratchpad wp89/fit-wp89.json): none -120 (F23 -9, F30 -30, F34 -9,
+    # F35 -72)
+    "xfer_nt_b2b": ("none", "decide"),
+    # (WP89, F34/F35, 2026-10-31) decide_abort: a not-taken transfer's decide step waits until no
+    # fetch is in flight and its nfgap clocks have passed since the last fetch's end (fetch) /
+    # an aborted cycle that answered a fetch request since the transfer's start counts as the
+    # fetch it stood for, the gap counted from its last clock (cycle), as the take sync already
+    # waits for it. Keyed on the bus state at the start only (a DBNZ at an odd address: the
+    # next fetch 6 clocks after the end of the cycle running on its start clock, fetch or
+    # aborted). F34-out-nt-dbnz-d-k1-pO-w0, rel t_fill: DBNZ at 10053 starts on 99, its request
+    # answered by an aborted cycle 99-101; silicon's next fetch 107 (fetch: the gap from F96's
+    # end, F106); started on a fetch's issue instead (F34-out-nt-dbnz-l0-k1-pE-w0, F91) exact
+    # either way. With it dbnz_z.nhold 3 -> 2 and chold 6 -> 5 (every odd DBNZE / DBNZNE starts
+    # on an aborted cycle: the old integers carried the clock). Flip at the candidate: fetch -67
+    # (F34 -15, F35 -52), with dbnz_z's old integers -37 (F34 -15, F35 -22)
+    "decide_abort": ("fetch", "cycle"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1173,6 +1204,8 @@ class Config:
     page_b2b: str = "none"             # (WP86)
     page_run: str = "none"             # (WP86)
     ret_imm_hold: str = "none"         # (WP88)
+    xfer_nt_b2b: str = "none"          # (WP89)
+    decide_abort: str = "fetch"        # (WP89)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

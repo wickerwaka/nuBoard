@@ -952,3 +952,56 @@ class CoverageClassStage(unittest.TestCase):
             fit.run_stage(21, {"config": DEFAULT.to_json()}, log=lambda *a: None)
         s21.assert_called_once()
         s20.assert_not_called()
+
+
+class NotTakenB2BStage(unittest.TestCase):
+    """(WP89) stage 22: xfer_nt_b2b and decide_abort over F23, F30, F34 and F35 with every integer
+    of the four transfer classes with a not-taken path, the corpus guard as its guard."""
+
+    def test_stage_22_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[22], ["F23", "F30", "F34", "F35"])
+        self.assertEqual(set(fit.F48_ENUMS), {"xfer_nt_b2b", "decide_abort"})
+        for name, values in fit.F48_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            # the old value first (DEFAULT): a tie keeps it
+            self.assertEqual(getattr(DEFAULT, name), values[0], name)
+        for cls in fit.F48_CLASSES:
+            for name in DEFAULT_COST[cls]:
+                self.assertIn(f"{cls}.{name}", fit.F48_INTS)
+            self.assertIn(f"{cls}.wb", fit.F48_INTS)
+        self.assertFalse({p.split(".")[0] for p in fit.F48_INTS} - set(fit.F48_CLASSES))
+        self.assertEqual(len(fit.F48_INTS), len(set(fit.F48_INTS)))
+
+    def test_stage_22_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage22({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_22_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage22({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 22)
+        self.assertEqual(args[2], fit.F48_ENUMS)
+        self.assertEqual(args[3], fit.F48_INTS)
+        self.assertEqual(kw["sweep"], fit.F48_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_22(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "22"])
+        self.assertEqual(args.stage, 22)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "21", "--to", "22"])
+        self.assertEqual(args.to, 22)
+
+    def test_run_stage_dispatches_22(self):
+        with mock.patch.object(fit, "stage22", return_value={"config": {}}) as s22, \
+                mock.patch.object(fit, "stage21") as s21, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(22, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s22.assert_called_once()
+        s21.assert_not_called()

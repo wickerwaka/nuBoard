@@ -173,6 +173,8 @@ class Queue:
         self.odd_until: int | None = None       # (WP81) ... and ends on this clock
         self.pb_start = None                    # (WP86) page_b2b: the form it was applied for
         self.pr_start = None                    # (WP86) page_run: the form committed for
+        self.nb_start = None                    # (WP89) xfer_nt_b2b: the form committed for
+        self.nb_at: int | None = None           # (WP89) ... the committed fetch's issue clock
         # options read on every clock, looked up once
         self._byte_release = cfg.release == "byte"
         self._ported = cfg.word_latch in ("port", "byte", "byte_d")
@@ -345,6 +347,27 @@ class Queue:
               and self.pr_start != self.eu.start_clock):
             self.b2b_at = self.io_run_at = t + 1   # (WP86) page_run: evaluated on its last clock
             self.pr_start = self.eu.start_clock
+        elif (c is not None and c.kind == "fetch" and c.end == t
+              and self.cfg.xfer_nt_b2b == "decide" and self._nt_b2b(t)):
+            self.b2b_at = self.io_run_at = self.nb_at = t + 1   # (WP89) xfer_nt_b2b
+            self.nb_start = self.eu.start_clock
+
+    def _nt_b2b(self, t: int) -> bool:
+        """(WP89) xfer_nt_b2b=decide: on the last clock of a fetch while a short conditional
+        transfer not taken (base class branch_short) runs its decide step (its condition
+        tested), a byte of room commits the bus unit to one more fetch back to back, the latch
+        taking the word's other byte; once per form, nothing latched, the queue able to hold
+        the word."""
+        eu = self.eu
+        if (eu is None or eu.halted or getattr(eu, "cls", None) != "branch_short"
+                or self.decoder is None or self.decoder.need
+                or self.nb_start == eu.start_clock):
+            return False
+        if not (eu.k < len(eu.steps) and eu.steps[eu.k][0] == "decide"):
+            return False
+        if self.latched or self.room(t) < 1 or self.stored() + 2 * WORD > QUEUE_BYTES + 1:
+            return False
+        return True
 
     def _page_b2b(self, t: int, bus_start: int) -> bool:
         """(WP86) page_b2b=reg: on the last clock of a fetch that ran at a 0F register form's

@@ -991,7 +991,15 @@ class EU:
                 gap = ("nfgap" if kind == "decide" else step[2] if len(step) > 2
                        else "fgap")              # (WP72) cond_gap=own: cfgap
                 q = self.decoder.queue
-                if kind == "decide" and q.odd_nt and q.odd_until is not None:
+                if (kind == "decide" and q.nb_at is not None
+                        and q.nb_start == self.start_clock):
+                    # (WP89) xfer_nt_b2b=decide: the test does not wait for the fetch the bus
+                    # unit committed to back to back in it, only for those before it
+                    old = [c for c in self.bus.cycles[-4:] if c.kind == "fetch"
+                           and c.start < q.nb_at]
+                    inflight = bool(old) and old[-1].end >= t
+                    last = old[-1].end if old else -10
+                elif kind == "decide" and q.odd_nt and q.odd_until is not None:
                     # (WP81) xfer_nt=odd: the test does not wait for the fetches its own
                     # release raised (on or after odd_until), only for those before it
                     old = [c for c in self.bus.cycles[-4:] if c.kind == "fetch"
@@ -1000,6 +1008,12 @@ class EU:
                     last = old[-1].end if old else -10
                 else:
                     inflight, last = self.bus.fetch_inflight(t), self.bus.last_fetch_end
+                if (kind == "decide" and self.cfg.decide_abort == "cycle"
+                        and q.abort_t is not None and q.abort_t >= self.start_clock):
+                    # (WP89) decide_abort=cycle: an aborted cycle that answered a request since
+                    # the transfer's start counts as the fetch it stood for: the gap from its
+                    # last clock
+                    last = max(last, q.abort_t + 2)
                 if self.cfg.flush_inflight == "wait" and (
                         inflight or t <= last + self.cfg.c(self.ccls, gap)):
                     return                       # (flush_inflight=wait: fgap clocks after the

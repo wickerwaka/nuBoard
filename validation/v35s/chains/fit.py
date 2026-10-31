@@ -1719,7 +1719,24 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   18: ["F17", "F18"],
                   19: ["F27", "F28", "F8", "F13", "F17", "F18"],
                   20: ["F32", "F33", "F34"],
-                  21: ["F35", "F36"]}
+                  21: ["F35", "F36"],
+                  22: ["F23", "F30", "F34", "F35"]}
+
+# Stage 22 (WP89, F23, F30, F34, F35): the forty-fifth fit's refresh-off misses of a transfer not
+# taken (scratchpad wp89/facts.txt) as two mechanisms beside the transfer's decide step: a short
+# conditional's fetch ending there with a byte of room commits the bus unit to one more fetch back
+# to back, the latch taking the other byte, and the test does not wait for it (xfer_nt_b2b); an
+# aborted cycle answering a request since the transfer's start counts as a fetch for the decide
+# step's gap (decide_abort). From a hand start (the previous fit), the enums (F48_ENUMS, the old
+# value first, so a tie keeps it) as a grid at the input's integers (the top 2 descended over
+# F48_INTS: every integer of the four transfer classes with a not-taken path), then the sweep
+# over F48_ENUMS with F48_INTS descended inside every move; the families are those that run a
+# not-taken transfer (F36 runs none); the corpus guard over every modelled run is the guard, as
+# in stages 9 to 21.
+F48_ENUMS = {n: OPTIONS[n] for n in ("xfer_nt_b2b", "decide_abort")}
+F48_CLASSES = ("branch_short", "dbnz", "bcwz", "dbnz_z")
+F48_INTS = ([f"{cls}.{name}" for cls in F48_CLASSES for name in DEFAULT_COST[cls]]
+            + [f"{cls}.wb" for cls in F48_CLASSES if "wb" not in DEFAULT_COST[cls]])
 
 # Stage 21 (WP88, F35, F36): the refresh-off coverage families read as facts (scratchpad
 # wp88/facts.txt) and modelled: every form that costs what its class costs decodes to that class,
@@ -2655,6 +2672,16 @@ def stage21(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage22(prev: dict, log=say) -> dict:
+    """(WP89) F23, F30, F34, F35: xfer_nt_b2b and decide_abort as a grid at the input's integers
+    (the top 2 descended over F48_INTS), then the sweep over F48_ENUMS with F48_INTS descended inside every
+    move; the corpus guard is the guard, as in stages 9 to 21."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 22 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(22, prev, F48_ENUMS, F48_INTS, log, top_k=2, pairs_k=1, sweep=F48_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -2732,8 +2759,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage19(prev, log)
     elif stage == 20:
         out = stage20(prev, log)
-    else:
+    elif stage == 21:
         out = stage21(prev, log)
+    else:
+        out = stage22(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -2751,9 +2780,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 22), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 22), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-21 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 23), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 23), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-22 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -2791,7 +2820,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 22) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 23) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")
