@@ -289,10 +289,16 @@ def run_classes(chain) -> tuple[tuple, tuple]:
     test_irrelevant_class_does_not_change_results, on F0-ls-pE-w0). The segs tail is a
     superset of the regs tail; a class the config never reads costs only cache hits, never
     correctness, so the signature stays independent of the config."""
-    from .image import prelude_tail
+    from .image import prelude, prelude_tail
     from .sim.templates import decode, execute
 
-    code, regs = prelude_tail(chain, True) + chain.code, dict(chain.regs)
+    tail = prelude_tail(chain, True)
+    code, regs = tail + chain.code, dict(chain.regs)
+    # (WP88, F35) the code offset of code[0] in the code segment, as the EU keeps it: an absolute
+    # transfer target (BR / CALL r16, the far forms) is walked to its chain offset (the chain
+    # follows the prelude in the code segment)
+    regs["code_at"] = len(prelude(chain.regs, chain.wtc, chain.rfm, chain.prc,
+                                  getattr(chain, "prelude_marker", None))) - len(tail)
     pc = 0
     classes, modes = set(), set()
     while True:
@@ -1712,7 +1718,25 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   17: ["F32", "F33", "F34"],
                   18: ["F17", "F18"],
                   19: ["F27", "F28", "F8", "F13", "F17", "F18"],
-                  20: ["F32", "F33", "F34"]}
+                  20: ["F32", "F33", "F34"],
+                  21: ["F35", "F36"]}
+
+# Stage 21 (WP88, F35, F36): the refresh-off coverage families read as facts (scratchpad
+# wp88/facts.txt) and modelled: every form that costs what its class costs decodes to that class,
+# the forms that do not to the new classes (F47_CLASSES: BCWZ, DBNZNE / DBNZE, RET imm16, CALL / BR
+# through a register, the far transfers, LES / LDS, POP PSW, TEST r,r), each on an existing
+# class's structure (templates.BASE_CLASS) with its own integers, and one new enum (F47_ENUMS:
+# RET imm16's fetch hold over a half-taken word). From a hand start (the previous fit, the new
+# classes' integers in DEFAULT_COST read off the facts and descended class by class on F35 and
+# F36), the enum as a grid at the input's integers (both starts descended over F47_INTS: every
+# integer of the new classes), then the sweep over F47_ENUMS with F47_INTS descended inside every
+# move; no rule reads an earlier class (the transfer rules that name a class see the base class,
+# which is the old class itself for every earlier form), so F23, F25 and F33 stay out; the corpus
+# guard over every modelled run is the guard, as in stages 9 to 20.
+F47_ENUMS = {n: OPTIONS[n] for n in ("ret_imm_hold",)}
+F47_CLASSES = ("bcwz", "dbnz_z", "ret_imm", "ret_far", "ret_far_imm", "call_reg", "call_far",
+               "br_reg", "branch_far", "load_ptr", "pop_psw", "test_reg")
+F47_INTS = [f"{cls}.{name}" for cls in F47_CLASSES for name in DEFAULT_COST[cls]]
 
 # Stage 20 (WP86, F32, F33, F34): the forty-third fit's misses of the 0F page and the probe family
 # read as facts (scratchpad wp86/facts.txt); two of their shapes as mechanisms of the queue and the
@@ -2621,6 +2645,16 @@ def stage20(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage21(prev: dict, log=say) -> dict:
+    """(WP88) F35, F36: ret_imm_hold as a grid at the input's integers (both starts descended
+    over F47_INTS), then the sweep over F47_ENUMS with F47_INTS descended inside every move; the
+    corpus guard is the guard, as in stages 9 to 20."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 21 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(21, prev, F47_ENUMS, F47_INTS, log, top_k=2, pairs_k=1, sweep=F47_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -2696,8 +2730,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage18(prev, log)
     elif stage == 19:
         out = stage19(prev, log)
-    else:
+    elif stage == 20:
         out = stage20(prev, log)
+    else:
+        out = stage21(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -2715,9 +2751,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 21), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 21), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-20 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 22), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 22), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-21 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -2755,7 +2791,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 21) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 22) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")

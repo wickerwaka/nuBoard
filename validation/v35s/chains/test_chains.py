@@ -2068,7 +2068,7 @@ class F32F33Tests(unittest.TestCase):
         from validation.v35s.chains import fit
         self.assertNotIn("F32", UNMODELLED)
         self.assertNotIn("F33", UNMODELLED)
-        self.assertEqual(UNMODELLED, ("F35", "F36"))     # (WP87) generator-only
+        self.assertEqual(UNMODELLED, ())     # (WP87) F35 / F36 generator-only; (WP88) modelled
         self.assertIn("F32", fit.TIE_FAMILIES)
         self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
 
@@ -2526,7 +2526,7 @@ class F35Tests(unittest.TestCase):
         from collections import Counter
         from validation.v35s.chains.families import UNMODELLED
         self.assertEqual(len(self.f35), 1044)
-        self.assertIn("F35", UNMODELLED)
+        self.assertNotIn("F35", UNMODELLED)          # (WP88) modelled
         pe = [c for c in self.cells if c.parity == "even"]
         self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in pe),
                          {("out", "empty"): 1, ("out", "ctl"): 3, ("out", "cc"): 64,
@@ -2568,8 +2568,9 @@ class F35Tests(unittest.TestCase):
             self.assertIn(FORMS[name].cls, CLASSES, name)
         self.assertEqual({FORMS[f"{c}_n0"].cls for c in F35_COND if c not in ("be", "bne")},
                          {"branch_short"})
+        # (WP88) DBNZE / DBNZNE their own class (the Z test first: F35 cw)
         self.assertEqual((FORMS["dbnze_n0"].cls, FORMS["dbnzne_n0"].cls, FORMS["bcwz_n0"].cls),
-                         ("dbnz", "dbnz", "bcwz"))
+                         ("dbnz_z", "dbnz_z", "bcwz"))
         for name, cls, reads, writes, adj in (("ret_imm2", "ret_imm", 1, 0, 2),
                                               ("call_bw", "call_reg", 0, 1, 0),
                                               ("callf_t0051", "call_far", 0, 2, 0),
@@ -2704,21 +2705,26 @@ class F35Tests(unittest.TestCase):
                              [FORMS[n].code[0] for n in k["lead"]], f["id"])
 
     def test_unmodelled_forms(self):
+        # (WP88) every F35 / F36 form decodes, with its catalog class and length (a prefixed form
+        # walked: the prefix a pseudo-instruction of its own, then the form); UNMODELLED_FORMS is
+        # empty. The frozen decoder (sim/frozen) is the adopted fit's and learns the forms when the
+        # package is regenerated at adoption.
         from validation.v35s.chains.forms import F35_FORMS, F36_FORMS, UNMODELLED_FORMS
-        from validation.v35s.chains.sim.frozen.templates import decode as frozen_decode
-        from validation.v35s.chains.sim.templates import decode
+        from validation.v35s.chains.sim.templates import LOCK_PREFIX, PREFIXES, decode
         regs = {"AW": 0, "BW": 0x800, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
-                "IX": 0x100, "IY": 0x180, "Z": 1, "ret0F00": 0}
+                "IX": 0x100, "IY": 0x180, "Z": 1, "CY": 0, "S": 0, "V": 0, "P": 1,
+                "ret0F00": 0}
+        self.assertEqual(UNMODELLED_FORMS, frozenset())
         for name in F35_FORMS + F36_FORMS:
             f = FORMS[name]
-            for dec in (decode, frozen_decode):
-                try:
-                    op = dec(f.code, 0, regs)
-                    ok = op.length == f.length and op.cls == f.cls
-                except (ValueError, IndexError):     # an unknown opcode, or no ModR/M
-                    ok = False
-                self.assertEqual(ok, name not in UNMODELLED_FORMS, name)
-        self.assertTrue(UNMODELLED_FORMS <= set(F35_FORMS + F36_FORMS))
+            k = 0
+            while f.code[k] in PREFIXES or f.code[k] == LOCK_PREFIX:
+                self.assertEqual(decode(f.code, k, regs).cls, "prefix", name)
+                k += 1
+            op = decode(f.code, k, regs)
+            self.assertEqual(k + op.length, f.length, name)
+            if not k:
+                self.assertEqual(op.cls, f.cls, name)
 
     def test_gen_check(self):
         import contextlib
@@ -2746,7 +2752,7 @@ class F36Tests(unittest.TestCase):
         from collections import Counter
         from validation.v35s.chains.families import F36_OUT_ONLY, UNMODELLED
         self.assertEqual(len(self.f36), 750)
-        self.assertIn("F36", UNMODELLED)
+        self.assertNotIn("F36", UNMODELLED)          # (WP88) modelled
         self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in self.cells),
                          {("out", "empty"): 1, ("out", "mov"): 14, ("out", "shift"): 2,
                           ("out", "test"): 1, ("out", "xch"): 6, ("out", "stack"): 15,
@@ -2768,7 +2774,7 @@ class F36Tests(unittest.TestCase):
         from validation.v35s.chains.forms import CLASSES, F35_FORMS, F36_FORMS
         for name, code, cls in (("ld_al_dir", "a0000c", "load"), ("st_al_dir", "a2000c", "store"),
                                 ("shl_al_cl", "d2e0", "shift_cl"), ("shlb_m_cl", "d227", "rmw"),
-                                ("test_dl_al", "84c2", "reg"), ("xch_aw_cw", "91", "reg"),
+                                ("test_dl_al", "84c2", "test_reg"), ("xch_aw_cw", "91", "reg"),
                                 ("xch_aw_iy", "97", "reg"), ("push_cw", "51", "push"),
                                 ("push_iy", "57", "push"), ("pop_dw", "5a", "pop"),
                                 ("pop_iy", "5f", "pop"), ("mov_al_imm8", "b012", "imm"),
@@ -2778,8 +2784,9 @@ class F36Tests(unittest.TestCase):
                                 ("addc_aw_imm16", "153412", "imm"),
                                 ("addb_m_imm8_82", "820705", "rmw_imm"),
                                 ("cmpb_m_imm8_80", "803f05", "load_alu"),
-                                ("push_psw", "9c", "push_psw"), ("pop_psw", "9d", "pop_psw"),
-                                ("lahf", "9f", "ahf"), ("sahf", "9e", "ahf"),
+                                # (WP88) PUSH PSW the push class, LAHF / SAHF the flag class
+                                ("push_psw", "9c", "push"), ("pop_psw", "9d", "pop_psw"),
+                                ("lahf", "9f", "flag"), ("sahf", "9e", "flag"),
                                 ("lock_mov_aw_dw", "f08bc2", "prefix"),
                                 ("lock_add_m_aw", "f00107", "rmw"),
                                 ("les_aw_ix", "c404", "load_ptr"),

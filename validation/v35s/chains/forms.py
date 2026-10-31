@@ -40,18 +40,22 @@ CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rm
            # (the read, then SP raised by the immediate), CALL / BR near through a register
            # (FF /2, FF /4), BR far (EA), CALL far (9A: PS, then PC to the stack), RET far (CB:
            # PC, then PS) and RET far imm16 (CA). F36 the data forms never touched: LDS / LES
-           # (C5 / C4: a 32-bit pointer read, offset then segment), PUSH PSW / POP PSW (9C /
-           # 9D), LAHF / SAHF (9F / 9E: AH and the PSW's low byte). Generator-only: the
-           # simulator decodes none of them (UNMODELLED_FORMS)
+           # (C5 / C4: a 32-bit pointer read, offset then segment), POP PSW (9D). (WP88)
+           # modelled (sim/templates.py, _wp88_steps); PUSH PSW (9C) is the push class and
+           # LAHF / SAHF (9F / 9E) the flag class (their costs, F36: wp88/facts.txt), the
+           # classes push_psw and ahf WP87 named for them dropped
            "bcwz", "ret_imm", "call_reg", "br_reg", "branch_far", "call_far", "ret_far",
-           "ret_far_imm", "load_ptr", "push_psw", "pop_psw", "ahf")
+           "ret_far_imm", "load_ptr", "pop_psw",
+           # (WP88) DBNZNE / DBNZE cost differently from DBNZ (the Z test first: F35 cw), their
+           # own class; TEST r8,r8 / r16,r16 (84 / 85 with a register operand) from the other
+           # two-byte register forms (F36 test: 3 clocks longer, MOV r8,imm8's cost)
+           "dbnz_z", "test_reg")
 # Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
 STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
                  "prepare", "dispose", "ret",
                  # (WP87) F35 / F36: a form's writes are pushes, its reads pops, then SP raised
                  # by Form.sp_adjust
-                 "ret_imm", "call_reg", "call_far", "ret_far", "ret_far_imm", "push_psw",
-                 "pop_psw")
+                 "ret_imm", "call_reg", "call_far", "ret_far", "ret_far_imm", "pop_psw")
 MODE_CLASSES = ("base", "base_index", "disp", "base_disp", "base_index_disp", "direct")
 
 # Register and EA knob values (plan, "Registers from the prelude").
@@ -1047,8 +1051,8 @@ F35_FORMS = _register(
     + [Form("add_dw_imm2a01", "imm", bytes([0x81, 0xC2, 0x01, 0x2A])),
        Form("bcwz_n0", "bcwz", bytes([0xE3, 0x00])),
        Form("bcwz_n2", "bcwz", bytes([0xE3, 0x02])),
-       Form("dbnzne_n0", "dbnz", bytes([0xE0, 0x00])),
-       Form("dbnze_n0", "dbnz", bytes([0xE1, 0x00])),
+       Form("dbnzne_n0", "dbnz_z", bytes([0xE0, 0x00])),     # (WP88) its own class
+       Form("dbnze_n0", "dbnz_z", bytes([0xE1, 0x00])),
        Form("dbnz_m3", "dbnz", bytes([0xE2, 0xFD])),         # back over a NOP
        Form("dbnz_m4", "dbnz", bytes([0xE2, 0xFC])),         # back over MOV AW,DW
        Form("ret_imm0", "ret_imm", bytes([0xC2, 0x00, 0x00]), **_STACK_R),
@@ -1107,7 +1111,7 @@ F36_FORMS = _register(
           ea=DIRECT),
      Form("shl_al_cl", "shift_cl", bytes([0xD2, 0xE0])),
      Form("shlb_m_cl", "rmw", bytes([0xD2, 0x27]), reads=1, writes=1, **_BWB),
-     Form("test_dl_al", "reg", bytes([0x84, 0xC2]))]
+     Form("test_dl_al", "test_reg", bytes([0x84, 0xC2]))]           # (WP88) its own class
     + [Form(f"xch_aw_{r}", "reg", bytes([0x90 + i])) for r, i in F36_R16.items() if r != "dw"]
     + [Form(f"push_{r}", "push", bytes([0x50 + i]), **_STACK_W) for r, i in F36_R16.items()]
     + [Form(f"pop_{r}", "pop", bytes([0x58 + i]), **_STACK_R) for r, i in F36_R16.items()
@@ -1124,10 +1128,10 @@ F36_FORMS = _register(
        for g in (0x80, 0x82)
        for op, reg, cls, counts in (("add", 0, "rmw_imm", dict(reads=1, writes=1)),
                                     ("cmp", 7, "load_alu", dict(reads=1)))]
-    + [Form("push_psw", "push_psw", bytes([0x9C]), **_STACK_W),
+    + [Form("push_psw", "push", bytes([0x9C]), **_STACK_W),      # (WP88) PUSH r16's cost
        Form("pop_psw", "pop_psw", bytes([0x9D]), **_STACK_R),
-       Form("lahf", "ahf", bytes([0x9F])),
-       Form("sahf", "ahf", bytes([0x9E])),
+       Form("lahf", "flag", bytes([0x9F])),                       # (WP88) CLC's cost
+       Form("sahf", "flag", bytes([0x9E])),
        Form("lock_mov_aw_dw", "prefix", bytes([0xF0, 0x8B, 0xC2])),
        Form("lock_add_m_aw", "rmw", bytes([0xF0, 0x01, 0x07]), reads=1, writes=1, **_BW),
        Form("les_aw_ix", "load_ptr", bytes([0xC4]) + modrm(_IX, 0), reads=2, width=2,
@@ -1137,20 +1141,10 @@ F36_FORMS = _register(
 # MOV BW,0800h is F35's mov_bw_imm (BB 00 08), the same bytes
 F36_MOV16_FORM = {r: ("mov_bw_imm" if r == "bw" else f"mov_{r}_imm16") for r in F36_MOV16}
 
-# (WP87) forms the simulator does not decode, or decodes into a class the form is not: every F35
-# and F36 form of a new class (CALL / BR through a register decode as FF's read-modify-write
-# group), and the class-equivalent forms whose opcodes sim/templates.decode does not know (the
-# conditional branches besides 74 / 75, DBNZE / DBNZNE, XCH AW,r besides 92, PUSH / POP r
-# besides 50 / 58 / 59, the AW,imm16 ALU forms besides 05, the 80 / 82 groups, the byte shift
-# by CL, the direct byte forms A0 / A2 and the BUSLOCK prefix). F35 and F36 are in
-# families.UNMODELLED. Decoded with their class: MOV r8,imm8, MOV r16,imm16 (the absolute
-# targets too), the register ALU forms, TEST DL,AL, ADD DW,2A01h and the backward DBNZ (E2).
-_NEW_F35_F36 = frozenset({"bcwz", "ret_imm", "call_reg", "br_reg", "branch_far", "call_far",
-                          "ret_far", "ret_far_imm", "load_ptr", "push_psw", "pop_psw", "ahf"})
-F35_F36_DECODED = frozenset(
-    [n for n in F35_FORMS + F36_FORMS if FORMS[n].code[0] in (0xB0, 0xB2, 0xB3, 0xB4, 0xB5,
-                                                               0xB6, 0xB7, 0xBB, 0xBC, 0xBD,
-                                                               0xBE, 0xBF)]
-    + [f"{op}_aw_dw" for op in F36_ALU if op != "cmp"]
-    + ["test_dl_al", "add_dw_imm2a01", "dbnz_m3", "dbnz_m4"])
-UNMODELLED_FORMS = frozenset(n for n in F35_FORMS + F36_FORMS if n not in F35_F36_DECODED)
+# (WP87) the F35 and F36 forms were generator-only (UNMODELLED_FORMS: every form of a new class
+# and the class-equivalent forms whose opcodes sim/templates.decode did not know) until (WP88)
+# the simulator decoded them all (the conditional branches 70-7F, DBNZE / DBNZNE, BCWZ, RET
+# imm16, CALL / BR r16, the far transfers, XCH AW,r, PUSH / POP r, the AW,imm16 ALU forms, the
+# 80 / 82 groups, the byte shifts by CL, A0 / A2, BUSLOCK, LES / LDS, PUSH / POP PSW, LAHF /
+# SAHF): none left
+UNMODELLED_FORMS = frozenset()

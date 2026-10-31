@@ -44,6 +44,7 @@ from .arbiter import Request, io_step, io_stepped
 from .templates import (BCD_CLASSES, BF_CLASSES, STRING_CLASSES, _dest_route, base_class, decode,
                         ea_class, execute, grp_class, refresh_hold_steps, steps)
 from .queue import QUEUE_BYTES
+from ..types import CODE_BASE
 
 END_PORT = 0xFF00
 SFR_PAGE = 0xFFF00          # (WP23) the on-chip SFR page (IDB FFh): no external bus cycle
@@ -60,6 +61,9 @@ class EU:
                  start_offset: int):
         self.cfg, self.code, self.base = cfg, code, chain_base
         self.regs = dict(regs)
+        # (WP88, F35) the code offset (in PS) of code[0]: an absolute target (BR / CALL r16, far)
+        # is a chain offset less it (templates.decode)
+        self.regs["code_at"] = chain_base - CODE_BASE
         self.decoder, self.bus = decoder, bus
         self.pc = start_offset
         self.steps: list = []
@@ -128,6 +132,7 @@ class EU:
         self.refill = False             # (WP55) refill_start: a flush's refill gates the next start
         self.prev_cls = None            # (WP61) refresh_beat_b2b: the class of the instruction before
         self.grp_form = False           # (WP61) grp_disp: the running form is a group opcode's
+        self.zfail = False              # (WP88) the running DBNZNE / DBNZE failed its Z test
         self.strings = {}               # (WP67, F24) {chain offset: (elements, cond)} of the
                                         # string forms, from the chain walk (machine.py)
 
@@ -258,6 +263,7 @@ class EU:
                         else "wb")
         self.str_rep = op.cls in STRING_CLASSES and op.rep is not None   # (WP76)
         self.sreg = op.sreg             # (WP76) sreg_store
+        self.zfail = op.zfail           # (WP88) DBNZNE / DBNZE not taken on the Z test
         # (WP76) lea_disp=split: LDEA with a two-byte displacement whose last byte is the even
         # (low) half of a word: its successor does not start on a back-to-back fetch's issue
         # (not one started on an I/O's issue clock: its EA clocks wait out the I/O, lea_io)
@@ -365,6 +371,9 @@ class EU:
         if cfg.mul_imm_hold == "word" and op.imm_bytes and op.ea is not None:
             # (WP81) mul_imm_hold: the immediate's last byte the even half of its word
             op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
+        if cfg.ret_imm_hold == "word" and op.imm_bytes and bcls == "ret":
+            # (WP88) ret_imm_hold: RET imm16's immediate ends on the even half of its word
+            op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
         seq = steps(op, cfg)
         if self.refresh is not None and cfg.refresh_eu == "hold":
             seq = refresh_hold_steps(op, cfg, seq)   # read only with refresh on
@@ -374,7 +383,7 @@ class EU:
             # transfer's start to its flush (queue.wants_fetch)
             self.decoder.queue.flush_held = t + cfg.c(op.cls, "hold")
         if (op.target is not None and cfg.xfer_odd == "idle"
-                and op.cls in ("branch_short", "dbnz")
+                and bcls in ("branch_short", "dbnz")
                 and (self.decoder.queue.base + op.offset) & 1):
             # (WP76) xfer_odd=idle: a taken short jump (branch_short, dbnz: a one-byte
             # displacement, no stack cycle) whose opcode is at an odd address (its displacement
@@ -387,11 +396,12 @@ class EU:
             # (WP81) xfer_nt=odd: a not-taken short transfer's hold ends at its successor's start
             q.odd_xfer = q.odd_fed = None
             q.odd_nt = False
-        if (op.target is None and cfg.xfer_nt == "odd" and op.cls in ("branch_short", "dbnz")
+        if (op.target is None and cfg.xfer_nt == "odd" and bcls in ("branch_short", "dbnz")
                 and (q.base + op.offset) & 1):
             # (WP81) xfer_nt=odd: a short transfer not taken whose opcode is at an odd address
-            # holds its fetch request as xfer_odd=idle holds a taken one's, to its end
-            q.odd_xfer, q.odd_fed, q.odd_nt, q.odd_until = t, None, op.cls, None
+            # holds its fetch request as xfer_odd=idle holds a taken one's, to its end; (WP88)
+            # the base class's rule (BCWZ: DBNZ's)
+            q.odd_xfer, q.odd_fed, q.odd_nt, q.odd_until = t, None, bcls, None
         execute(op, self.code, self.regs)
         self.k = 0
         self.trace.append((t, op.offset - self.origin, op.cls))
@@ -642,7 +652,10 @@ class EU:
                     if q.odd_until is None:
                         # (WP81) xfer_nt=odd: the hold ends nhold clocks into the clocks after
                         # the transfer's operand take (BNE / BE: the flag test; DBNZ: CW's)
-                        q.odd_until = t + self.cfg.c(self.ccls, "nhold")
+                        # (WP88) dbnz_z: not taken on the count (its Z test passed), chold
+                        name = ("chold" if self.ccls == "dbnz_z" and not self.zfail
+                                else "nhold")
+                        q.odd_until = t + self.cfg.c(self.ccls, name)
                 if step[1]:
                     if self.refresh is not None:
                         # refresh_eu=hold: a clocks step following another clocks step of
@@ -1399,7 +1412,7 @@ class EU:
                 r.pfree = t - 1
         if (self.cfg.stack_wb != "none" and args[0] == "read" and t < self.wb_until
                 and t == self.start_clock
-                and self.ccls == "ret"):
+                and self.cls == "ret"):     # (WP88) the base class: RET imm16, the far RETs
             # (WP81) stack_wb: a stack read posted while the previous form's write-back runs
             # (its start the clock after that form's last) is held a clock
             r.setup += 1

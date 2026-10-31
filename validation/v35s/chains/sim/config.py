@@ -638,6 +638,16 @@ OPTIONS = {
     # extra fetch stay facts (wp86/facts.txt). Flip at the candidate: none -126 (F32 -82,
     # F34 -44), mem -38 (F32 -24, F34 -14)
     "page_run": ("none", "mem", "field"),
+    # (WP88, F35, 2026-10-31) ret_imm_hold: RET imm16 (and RET far imm16) raises a fetch request
+    # whenever the queue has room once its immediate is taken (none) / an immediate whose last
+    # byte is the even half of its word (the next opcode the odd half: the word half-taken)
+    # raises no fetch request for mhold clocks from its take, as MUL imm's under mul_imm_hold
+    # (word). Keyed on the operand's word alignment, not the chain's parity. F35-out-ret-imm0-
+    # pO-w0, rel t_fill: RET 0 at 10052 (the immediate 53-54), its read 122, silicon's next
+    # fetch the return target's at 133 (none: F125 1005A, then the target's); the pE twin (the
+    # immediate 54-55, a whole word freed) fetches 1005A at 127 right after its read 124 under
+    # both
+    "ret_imm_hold": ("none", "word"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -776,6 +786,38 @@ DEFAULT_COST = {
     "call": {"pre": 3, "setup": 7, "setup_free": 3, "exec": 8, "post": 0, "fgap": 5,
              "hold": 10},
     "ret": {"pre": 0, "setup": 7, "setup_free": 3, "exec": 8, "post": 0, "fgap": 5, "hold": 6},
+# (WP88, F35, F36) the classes F35 and F36 add (templates._wp88_steps; each its BASE_CLASS's
+# structure with its own integers). The values are the hand start stage 21 descends from: the
+# base class's fitted integers (the forty-fourth fit) where the facts (scratchpad
+# wp88/facts.txt) show the same cost, read-offs where they do not, each class then descended
+# alone on F35 / F36; wsetup the second word's setup (CALL far's return offset, the far returns'
+# segment, LES / LDS's segment word), every clock of it fetch-free (the eight-word bursts'
+# cadence: issue to issue 9 / 10 / 11 clocks at 0 / 1 / 2 waits); zexec (dbnz_z: the clocks after a not-taken DBNZNE / DBNZE that failed its
+# Z test, nexec when the count ended it), chold (dbnz_z, xfer_nt=odd: nhold for the count's
+# exit); spre (the far forms: clocks between the offset word's take and the segment word's);
+# wpre (CALL r16 / far: clocks between the operand take and the first write's post); mhold
+# (ret_imm_hold=word: the half-taken word's fetch hold); phold (LES / LDS, POP PSW: no fetch
+# request for phold clocks from the last read's data). The fit's own are in fit.json.
+    "bcwz": {"pre": 0, "exec": 11, "post": 0, "fgap": 5, "hold": 2, "nexec": 4, "nfgap": 1,
+             "nhold": 2, "wb": 2},
+    "dbnz_z": {"pre": 0, "exec": 15, "post": 0, "fgap": 5, "hold": 2, "nexec": 7, "zexec": 4,
+               "nfgap": 1, "nhold": 3, "chold": 6, "wb": 2},
+    "br_reg": {"pre": 5, "exec": 5, "post": 0, "fgap": 8, "hold": 10},
+    "branch_far": {"pre": 3, "spre": 2, "exec": 5, "post": 0, "fgap": 5, "hold": 16},
+    "call_reg": {"pre": 3, "wpre": 0, "setup": 7, "setup_free": 7, "exec": 8, "post": 0,
+                 "fgap": 5, "hold": 10},
+    "call_far": {"pre": 3, "spre": 0, "wpre": 1, "setup": 3, "setup_free": 3, "wsetup": 7,
+                 "exec": 8, "post": 0, "fgap": 5, "hold": 16},
+    "ret_imm": {"pre": 0, "setup": 8, "setup_free": 4, "exec": 8, "post": 0, "fgap": 5,
+                "hold": 13, "mhold": 6},
+    "ret_far": {"pre": 0, "setup": 7, "setup_free": 3, "wsetup": 7, "exec": 8, "post": 0,
+                "fgap": 5, "hold": 6},
+    "ret_far_imm": {"pre": 0, "setup": 7, "setup_free": 3, "wsetup": 7, "exec": 8, "post": 0,
+                    "fgap": 5, "hold": 6, "mhold": 6},
+    "load_ptr": {"pre": 0, "pre0": 2, "dfloor": 2, "wsetup": 5, "exec": 5, "phold": 3,
+                 "wb": 0},
+    "pop_psw": {"setup": 7, "setup_free": 3, "exec": 4, "phold": 2, "wb": 0},
+    "test_reg": {"pre": 3, "pre0": 4, "exec": 0, "nx": 1},
 # (WP67, F24) the string forms, one class per operation (templates._string_steps): without a
 # prefix pre clocks, the element's first cycle posted with setup, every later cycle of the
 # element with mid, exec clocks after it; with REP rpre clocks after the opcode's take, zexit
@@ -1130,6 +1172,7 @@ class Config:
     refresh_lead_step: str = "block"   # (WP85)
     page_b2b: str = "none"             # (WP86)
     page_run: str = "none"             # (WP86)
+    ret_imm_hold: str = "none"         # (WP88)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

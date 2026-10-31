@@ -2814,5 +2814,6 @@ def f36(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F35": f35, "F36": f36})
-# (WP87) generator-only: forms.UNMODELLED_FORMS holds the forms the simulator does not decode
-UNMODELLED = ("F35", "F36")
+# (WP87) generator-only (forms.UNMODELLED_FORMS held the forms the simulator did not decode);
+# (WP88) read as facts and modelled: none
+UNMODELLED = ()

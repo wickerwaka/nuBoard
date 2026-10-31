@@ -97,7 +97,8 @@ class ModelRuns(unittest.TestCase):
         # (WP55) the F23 forms decode with their context: Z known (CMP AW,AW), a return
         # address at SP (a CALL before the RET)
         regs = {"AW": 0, "BW": 0x800, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
-                "IX": 0x100, "IY": 0x180, "Z": 1, "ret0F00": 0}
+                "IX": 0x100, "IY": 0x180, "Z": 1, "ret0F00": 0,
+                "CY": 0, "S": 0, "V": 0, "P": 1}   # (WP88) every 70-7F condition known
         for form in FORMS.values():
             if form.name in UNMODELLED_FORMS:
                 continue                 # (WP49) generator-only forms (none since WP55)
@@ -4455,7 +4456,8 @@ class EaAloneAndStackFrame(unittest.TestCase):
     burst pushes and pops, PREPARE and DISPOSE, and the F25 chains simulate."""
 
     REGS = {"AW": 0x0034, "BW": 0x0800, "CW": 0, "DW": 0x40, "SP": 0x0F00, "BP": 0x0A00,
-            "IX": 0x0100, "IY": 0x0180, "Z": 1, "ret0F00": 0}   # (WP55) the F23 forms' context
+            "IX": 0x0100, "IY": 0x0180, "Z": 1, "ret0F00": 0,   # (WP55) the F23 forms' context
+            "CY": 0, "S": 0, "V": 0, "P": 1}                     # (WP88) F35's conditions
 
     def _op(self, form):
         from validation.v35s.chains.sim.templates import execute
@@ -5598,7 +5600,10 @@ class PageAndMiscellanyDecode(unittest.TestCase):
         self.assertEqual(base_class("convert"), "imm")
         self.assertEqual(base_class("bit1_clr"), "rmw")
         self.assertEqual(base_class("bcd4s"), "bcd4s")
-        self.assertEqual(set(BASE_CLASS.values()), {"reg", "imm", "load_alu", "rmw", "mul"})
+        # (WP88) and the F35 / F36 classes' bases: the transfers', the load's, POP's
+        self.assertEqual(set(BASE_CLASS.values()), {"reg", "imm", "load_alu", "rmw", "mul",
+                                                    "dbnz", "ret", "call", "branch_near",
+                                                    "load", "pop"})
 
     def test_bit_field_cost_and_registers(self):
         from validation.v35s.chains.sim.templates import bf_cost, execute
@@ -6216,3 +6221,213 @@ class PageFormRuns(unittest.TestCase):
             new = simulate_normalized(s.chain, Config.fitted().replace(**WP86), s.chain_base)
             old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
             self.assertEqual(aligned(new), aligned(old), cid)
+
+
+# (WP88) the candidate's moves over the tracked fit (the forty-fourth): stage 21's chosen enum and
+# integers; the new classes' other integers are DEFAULT_COST's (the hand start the stage kept)
+WP88 = {"ret_imm_hold": "word", "call_far.spre": 2, "load_ptr.wb": 2, "pop_psw.wb": 2,
+        "ret_far_imm.setup": 6, "ret_far_imm.setup_free": 4, "ret_far_imm.wsetup": 8}
+
+
+def _ev88(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP88 (+ over)."""
+    fam = cid.split("-", 1)[0]
+    w = int(cid.rsplit("-w", 1)[1])
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid and r["chain"]["waits"] == w)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP88, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class CoverageDecode(unittest.TestCase):
+    """(WP88, F35, F36) the decoder and execute on the forms F35 and F36 add: every condition of the
+    70-7F row from the flags, the loop format's Z test, BCWZ, the register-indirect and far
+    transfers' absolute targets and stack words, the class-equivalent forms in their classes."""
+
+    REGS = {"AW": 0, "BW": 0x0800, "CW": 0, "DW": 0x5678, "SP": 0x0F00, "BP": 0x0A00,
+            "IX": 0x0100, "IY": 0x0180}
+
+    def _flags(self, code):
+        from validation.v35s.chains.sim.templates import execute
+        regs = dict(self.REGS)
+        op = decode(code, 0, regs)
+        execute(op, code, regs)
+        return regs
+
+    def test_flags_and_every_condition(self):
+        from validation.v35s.chains.forms import F35_COND, F35_CONTROLS, f35_cond_taken
+        from validation.v35s.chains.sim.templates import cond_taken
+        for ctl, (form, flags) in F35_CONTROLS.items():
+            regs = self._flags(FORMS[form].code)
+            self.assertEqual({k: regs[k] for k in flags}, flags, ctl)
+            for cond, op in F35_COND.items():
+                self.assertEqual(cond_taken(op, regs), f35_cond_taken(cond, flags), (ctl, cond))
+                taken = decode(bytes([op, 2]), 0, regs).target is not None
+                self.assertEqual(taken, f35_cond_taken(cond, flags), (ctl, cond))
+        with self.assertRaises(ValueError):        # a condition whose flag is not known
+            decode(bytes([0x70, 0]), 0, {**self.REGS, "Z": 1})
+
+    def test_loop_format(self):
+        r = dict(self.REGS)
+        # BCWZ: taken iff CW = 0, CW unchanged
+        self.assertEqual(decode(bytes([0xE3, 2]), 0, {**r, "CW": 0}).target, 4)
+        self.assertIsNone(decode(bytes([0xE3, 2]), 0, {**r, "CW": 1}).target)
+        self.assertEqual(decode(bytes([0xE3, 2]), 0, r).cls, "bcwz")
+        # DBNZE / DBNZNE: the Z test first (zfail), then the count
+        for op, z, cw, taken, zfail in ((0xE1, 1, 2, True, False), (0xE1, 0, 2, False, True),
+                                        (0xE1, 1, 1, False, False), (0xE0, 1, 2, False, True),
+                                        (0xE0, 0, 2, True, False), (0xE0, 0, 1, False, False)):
+            o = decode(bytes([op, 0]), 0, {**r, "CW": cw, "Z": z})
+            self.assertEqual((o.cls, o.target is not None, o.zfail), ("dbnz_z", taken, zfail),
+                             (op, z, cw))
+        from validation.v35s.chains.sim.templates import execute
+        regs = {**r, "CW": 2, "Z": 1}
+        execute(decode(bytes([0xE1, 0]), 0, regs), bytes([0xE1, 0]), regs)
+        self.assertEqual(regs["CW"], 1)
+        regs = {**r, "CW": 0}
+        execute(decode(bytes([0xE3, 0]), 0, regs), bytes([0xE3, 0]), regs)
+        self.assertEqual(regs["CW"], 0)
+
+    def test_transfers_and_stack(self):
+        from validation.v35s.chains.sim.templates import execute
+        r = {**self.REGS, "code_at": 0x40}
+        op = decode(FORMS["brf_t0053"].code, 0, r)
+        self.assertEqual((op.cls, op.length, op.target), ("branch_far", 5, 0x53 - 0x40))
+        code = FORMS["callf_t0056"].code
+        regs = dict(r)
+        op = decode(code, 0, regs)
+        self.assertEqual((op.cls, op.target, op.stack), ("call_far", 0x16, (None, 0x0EFE)))
+        execute(op, code, regs)
+        self.assertEqual((regs["SP"], regs["ret0EFC"]), (0x0EFC, 5))
+        code = FORMS["retf_imm2"].code
+        op = decode(code, 0, regs)
+        self.assertEqual((op.cls, op.imm_bytes, op.target), ("ret_far_imm", 2, 5))
+        execute(op, code, regs)
+        self.assertEqual(regs["SP"], 0x0F02)
+        regs = {**r, "BW": 0x52}
+        op = decode(FORMS["call_bw"].code, 0, regs)
+        self.assertEqual((op.cls, op.target, op.modrm), ("call_reg", 0x12, False))
+        self.assertEqual(decode(FORMS["br_bw"].code, 0, regs).cls, "br_reg")
+        op = decode(FORMS["ret_imm2"].code, 0, {**r, "ret0F00": 9})
+        self.assertEqual((op.cls, op.imm_bytes, op.target), ("ret_imm", 2, 9))
+        op = decode(FORMS["les_aw_ix"].code, 0, r)
+        self.assertEqual((op.cls, op.ea, op.length), ("load_ptr", 0x0100, 2))
+
+    def test_class_equivalent_forms(self):
+        r = {**self.REGS, "CW": 31}
+        for name, cls in (("push_bp", "push"), ("pop_iy", "pop"), ("push_psw", "push"),
+                          ("pop_psw", "pop_psw"), ("xch_aw_sp", "reg"), ("mov_dh_imm8", "imm"),
+                          ("mov_ix_imm16", "imm"), ("subc_aw_dw", "reg"),
+                          ("xor_aw_imm16", "imm"), ("ld_al_dir", "load"), ("st_al_dir", "store"),
+                          ("shl_al_cl", "shift_cl"), ("shlb_m_cl", "rmw"), ("lahf", "flag"),
+                          ("sahf", "flag"), ("test_dl_al", "test_reg"),
+                          ("addb_m_imm8_82", "rmw_imm"), ("cmpb_m_imm8_80", "load_alu")):
+            op = decode(FORMS[name].code, 0, r)
+            self.assertEqual((op.cls, op.length), (cls, FORMS[name].length), name)
+        for name in ("ld_al_dir", "st_al_dir", "shlb_m_cl", "addb_m_imm8_80"):
+            self.assertEqual(decode(FORMS[name].code, 0, r).width, 1, name)
+        self.assertEqual(decode(FORMS["shl_al_cl"].code, 0, r).count, 31)
+        # BUSLOCK: a prefix pseudo-instruction, then the form
+        code = FORMS["lock_add_m_aw"].code
+        self.assertEqual(decode(code, 0, r).cls, "prefix")
+        self.assertEqual(decode(code, 1, r).cls, "rmw")
+
+
+class CoverageForms(unittest.TestCase):
+    """(WP88, F35, F36) each new class on its deciding run (scratchpad wp88/facts.txt; clocks rel
+    t_fill), the class-equivalent forms exact under their classes, ret_imm_hold against its old
+    value, and the earlier families untouched."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev88(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_every_condition_is_be_bne(self):
+        # taken and not taken, every condition, under each control: exact where BE / BNE are
+        for cid in ("F35-out-cc-bv-t-n0-pE-w0", "F35-out-cc-bgt-t-n2-pO-w1",
+                    "F35-out-cc-ble-nt-n2-pE-w2", "F35-out-cc-bc-t-n0-pO-w2",
+                    "F35-push-cc-bpe-t-n0-pO-w0", "F35-push-cc-blt-nt-n0-pE-w1",
+                    "F35-out-cc-bp-nt-n0-pO-w0"):
+            self._exact(cid)
+
+    def test_bcwz(self):
+        # BCWZ = DBNZ - 3 taken, - 2 not taken: its own exec / nexec
+        for cid in ("F35-out-cw-bcwz-t-n0-pE-w0", "F35-push-cw-bcwz-nt-n0-pE-w1"):
+            self._exact(cid)
+        dbnz = {"bcwz.exec": 14, "bcwz.nexec": 6}
+        for cid in ("F35-out-cw-bcwz-t-n0-pE-w0", "F35-push-cw-bcwz-nt-n0-pE-w1"):
+            sil, mod = _ev88(cid, **dbnz)
+            self.assertNotEqual(mod, sil, cid)
+
+    def test_dbnz_z(self):
+        # the Z test first: a Z exit zexec, a count exit nexec (3 apart)
+        for cid in ("F35-out-cw-dbnze-c1-cmpad-pO-w0", "F35-out-cw-dbnze-c1-cmpaa-pO-w1",
+                    "F35-out-cw-dbnzne-c2-cmpad-pE-w0", "F35-push-cw-dbnzne-c1-cmpad-pE-w2"):
+            self._exact(cid)
+        sil, mod = _ev88("F35-out-cw-dbnze-c1-cmpad-pO-w0", **{"dbnz_z.zexec": 7})
+        self.assertNotEqual(mod, sil)
+
+    def test_ret_imm_hold(self):
+        # RET 0 at 10052, its immediate 53-54 (the word half-taken): the read 122, no fetch until
+        # the return target's at 133 (none: F125 1005A)
+        mod = self._exact("F35-out-ret-imm0-pO-w0")
+        self.assertIn((122, "stack_read", 0x0EFE, "word", 3), mod)
+        self.assertNotIn((125, "fetch", 0x1005A, "word", 3), mod)
+        _, none = _ev88("F35-out-ret-imm0-pO-w0", ret_imm_hold="none")
+        self.assertIn((125, "fetch", 0x1005A, "word", 3), none)
+        # the pE twin (the immediate 54-55: a whole word freed) fetches 1005A after its read
+        for over in ({}, {"ret_imm_hold": "none"}):
+            mod = self._exact("F35-out-ret-imm0-pE-w0", **over)
+            self.assertIn((127, "fetch", 0x1005A, "word", 3), mod)
+
+    def test_register_and_far_transfers(self):
+        # CALL BW: the third fetch back to back at pE (F94), the write 7 after its end (w103)
+        mod = self._exact("F35-out-ind-callr-pE-w0")
+        self.assertIn((94, "fetch", 0x10058, "word", 3), mod)
+        self.assertIn((103, "stack_write", 0x0EFE, "word", 3), mod)
+        for cid in ("F35-out-ind-callr-pO-w2", "F35-out-ind-brr-n0-pE-w1",
+                    "F35-push-ind-brr-n1-pO-w0", "F35-out-ind-callr-ret-pE-w2",
+                    "F35-out-far-brf-n0-pO-w0", "F35-out-far-brf-n1-pE-w2"):
+            self._exact(cid)
+
+    def test_pointer_psw_and_test(self):
+        # LES: the offset at IX, the segment word at IX+2 seven clocks later
+        mod = self._exact("F36-out-ptr-les_aw_ix-pE-w0")
+        self.assertIn((90, "data_read", 0x0100, "word", 3), mod)
+        self.assertIn((97, "data_read", 0x0102, "word", 3), mod)
+        for cid in ("F36-push-ptr-lds_aw_ix-pO-w2", "F36-out-stack-push_psw-pop_psw-pO-w0",
+                    "F36-push-stack-push_psw-pop_psw-pE-w1", "F36-out-test-test_dl_al-pE-w0",
+                    "F36-push-test-test_dl_al-pE-w2"):
+            self._exact(cid)
+        # TEST DL,AL at the two-byte register forms' cost misses
+        sil, mod = _ev88("F36-out-test-test_dl_al-pE-w0", **{"test_reg.pre": 0})
+        self.assertNotEqual(mod, sil)
+
+    def test_class_equivalent_forms_exact(self):
+        for cid in ("F36-out-xch-xch_aw_bp-pE-w0", "F36-push-stack-push_ix-pO-w1",
+                    "F36-out-stack-push_sp-pop_sp-pE-w2", "F36-out-mov-mov_bh_imm8-pO-w1",
+                    "F36-push-mov-mov_iy_imm16-pE-w2", "F36-out-alu-subc_aw_dw-pE-w0",
+                    "F36-out-alu-cmp_aw_imm16-pO-w2", "F36-push-alu-addb_m_imm8_82-pO-w0",
+                    "F36-out-alu-cmpb_m_imm8_80-pE-w1", "F36-out-shift-shlb_m_cl-pE-w2",
+                    "F36-push-shift-shl_al_cl-pO-w0", "F36-out-mov-ld_al_dir-pO-w1",
+                    "F36-push-mov-st_al_dir-pE-w0", "F36-out-lock-lock_mov_aw_dw-pE-w1",
+                    "F36-push-lock-lock_add_m_aw-pO-w2", "F36-out-psw-lahf-sahf-pO-w0"):
+            self._exact(cid)
+
+    def test_earlier_families_untouched(self):
+        # no earlier class reads a WP88 rule or integer
+        for cid in ("F23-out-callret-pO-w1", "F30-out-nt-dbnz-k1-n0-pO-w0",
+                    "F34-out-cr-shl8-l0-pE-w0", "F25-push-pushr-pE-w2"):
+            fam = cid.split("-", 1)[0]
+            run = next((r for r in _runs(fam) if r["chain"]["id"] == cid), None)
+            if run is None:
+                continue
+            s = normalize(run)
+            new = simulate_normalized(s.chain, Config.fitted().replace(**WP88), s.chain_base)
+            old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
+            self.assertEqual(aligned(new), aligned(old), cid)
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.ret_imm_hold, "none")
+        self.assertEqual(OPTIONS["ret_imm_hold"], ("none", "word"))

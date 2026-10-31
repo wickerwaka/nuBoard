@@ -42,6 +42,10 @@ RM = [(("BW", "IX"), "base_index"), (("BW", "IY"), "base_index"), (("BP", "IX"),
 DISP_CLASS = {"base": "base_disp", "base_index": "base_index_disp"}
 GROUP_OPCODES = frozenset([0x80, 0x81, 0x82, 0x83, 0x8F, 0xC0, 0xC1, 0xC6, 0xC7, 0xD0, 0xD1, 0xD2,
                            0xD3, 0xF6, 0xF7, 0xFE, 0xFF])
+LOCK_PREFIX = 0xF0           # (WP88, F36) BUSLOCK: a prefix pseudo-instruction, no segment
+# (WP88, F36) the accumulator's ALU forms with an imm16 (OR ADDC SUBC AND SUB XOR CMP AW,imm16;
+# 05 ADD is F3's): the imm class
+ACC_IMM16 = frozenset([0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D])
 
 
 @dataclass
@@ -104,6 +108,8 @@ class Op:
     # second: the word half-taken (eu.py sets it from the chain base; a format property of the
     # operand's word alignment)
     half_word: bool = False
+    # (WP88, F35) DBNZNE / DBNZE not taken because the Z test failed (not the count)
+    zfail: bool = False
 
 
 def _modrm(code: bytes, k: int, regs: dict):
@@ -126,6 +132,42 @@ def _modrm(code: bytes, k: int, regs: dict):
     return mod, reg, rm, ea, mc, 1 + mod if mod < 3 else 1
 
 
+# (WP88, F35) the 70-7F row's conditions by the low nibble (bit 0 negates the even one's test):
+# V, CY, Z, CY or Z, S, P, S xor V, (S xor V) or Z
+_COND = {0: lambda f: f["V"], 2: lambda f: f["CY"], 4: lambda f: f["Z"],
+         6: lambda f: f["CY"] or f["Z"], 8: lambda f: f["S"], 0xA: lambda f: f["P"],
+         0xC: lambda f: f["S"] != f["V"], 0xE: lambda f: (f["S"] != f["V"]) or f["Z"]}
+_COND_FLAGS = {0: ("V",), 2: ("CY",), 4: ("Z",), 6: ("CY", "Z"), 8: ("S",), 0xA: ("P",),
+               0xC: ("S", "V"), 0xE: ("S", "V", "Z")}
+
+
+def _flag(regs: dict, name: str, op: int, k: int) -> int:
+    v = regs.get(name)
+    if v is None:
+        raise ValueError(f"opcode {op:02X} at chain offset {k}: the flags are not known")
+    return v
+
+
+def cond_taken(op: int, regs: dict, k: int = 0) -> bool:
+    """(WP88, F35) whether the conditional short branch op (70-7F) is taken under the flags
+    execute keeps (regs Z CY S V P; BE / BNE need Z alone, as since WP55)."""
+    n = op & 0x0E
+    f = {name: _flag(regs, name, op, k) for name in _COND_FLAGS[n]}
+    return bool(_COND[n](f)) != bool(op & 1)
+
+
+def _set_flags(regs: dict, a: int, b: int, sub: bool):
+    """(WP88, F35) Z CY S V P of the 16-bit a - b (sub) or a + b, as execute keeps them."""
+    r = (a - b if sub else a + b)
+    v = r & 0xFFFF
+    sa, sb, sr = a >> 15 & 1, b >> 15 & 1, v >> 15 & 1
+    regs["Z"] = int(v == 0)
+    regs["CY"] = int(r < 0 if sub else r > 0xFFFF)
+    regs["S"] = sr
+    regs["V"] = int((sa != sb and sr != sa) if sub else (sa == sb and sr != sa))
+    regs["P"] = int(bin(v & 0xFF).count("1") % 2 == 0)
+
+
 def decode(code: bytes, k: int, regs: dict) -> Op:
     op = code[k] if k < len(code) else 0x90
     if op in PREFIXES:
@@ -134,43 +176,91 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         sop = _string_op(code, k, regs)        # (WP67, F24) the string forms
         if sop is not None:
             return sop
-    if op in (0x90, 0x92):
+    if op == LOCK_PREFIX:
+        # (WP88, F36) BUSLOCK (F0): a prefix pseudo-instruction as a segment prefix is (F36:
+        # BUSLOCK MOV AW,DW costs what DS1: MOV AW,DW does, cell for cell); it names no segment
+        return Op(k, 1, "prefix", op)
+    if 0x90 <= op <= 0x97:
+        # NOP, XCH AW,r16 (WP88, F36: 91-97 cost what XCH AW,DW does in every cell)
         return Op(k, 1, "reg", op)
     if op == 0xF4:
         return Op(k, 1, "halt", op)
-    if op == 0x50:
+    if 0x50 <= op <= 0x57 or op == 0x9C:
+        # PUSH r16 (WP88, F36: 51-57 cost what PUSH AW does in every cell); PUSH PSW (9C: its
+        # write on PUSH r16's clock)
         return Op(k, 1, "push", op, stack=(None, (regs["SP"] - 2) & 0xFFFF))
-    if op in (0x58, 0x59):                  # POP AW, POP CW (F15)
+    if 0x58 <= op <= 0x5F:                  # POP r16 (F15 POP AW / CW; WP88, F36 the rest)
         return Op(k, 1, "pop", op, stack=(regs["SP"], None))
+    if op == 0x9D:                          # (WP88, F36) POP PSW: its own class
+        return Op(k, 1, "pop_psw", op, stack=(regs["SP"], None))
     if 0xB0 <= op <= 0xB7:
         return Op(k, 2, "imm", op, imm_bytes=1)
-    if 0xB8 <= op <= 0xBF or op in (0x05, 0xA9):  # (WP20) A9: TEST AW,imm16
+    if 0xB8 <= op <= 0xBF or op in (0x05, 0xA9) or op in ACC_IMM16:  # (WP20) A9: TEST AW,imm16
         return Op(k, 3, "imm", op, imm_bytes=2)
     if op == 0xA8:                          # (WP20) TEST AL,imm8
         return Op(k, 2, "imm", op, imm_bytes=1)
-    if op in (0xA1, 0xA3):
-        return Op(k, 3, "load" if op == 0xA1 else "store", op,
+    if op in (0xA0, 0xA1, 0xA2, 0xA3):
+        # MOV AW,[d16] / MOV [d16],AW; (WP88, F36) the byte forms A0 / A2 (bit 0 the width)
+        return Op(k, 3, "load" if op < 0xA2 else "store", op, width=1 + (op & 1),
                   ea=int.from_bytes(code[k + 1:k + 3], "little"), mode_class="direct")
     if op in (0xE4, 0xE5, 0xE6, 0xE7):
         return Op(k, 2, "in" if op < 0xE6 else "out", op, width=1 + (op & 1), port=code[k + 1])
     if op in (0xEC, 0xED, 0xEE, 0xEF):
         return Op(k, 1, "in" if op < 0xEE else "out", op, width=1 + (op & 1), port=regs["DW"])
     sp = regs["SP"]
-    if op in (0x74, 0x75, 0xEB, 0xE2):
+    if op in (0xEB, 0xE0, 0xE1, 0xE2, 0xE3) or 0x70 <= op <= 0x7F:
         # (WP55, F23) the short transfers, a 1-byte displacement from the next instruction:
         # BE (taken with Z), BNE (without Z), BR short (always) and DBNZ (CW counted down,
-        # taken while it is not 0); the decision is the semantics' (execute sets Z and CW)
+        # taken while it is not 0); the decision is the semantics' (execute sets Z and CW).
+        # (WP88, F35) every condition of the 70-7F row (cond_taken: the flags execute keeps),
+        # DBNZNE / DBNZE (E0 / E1: CW counted down, taken while it is not 0 and Z is clear /
+        # set: the loop format, DBNZ's class) and BCWZ (E3: taken when CW is 0, CW unchanged:
+        # its own class, the loop format's structure)
         disp = int.from_bytes(code[k + 1:k + 2], "little", signed=True)
-        if op == 0xE2:
+        cls = "branch_short"
+        zfail = False
+        if op in (0xE0, 0xE1, 0xE2):
             taken = (regs["CW"] - 1) & 0xFFFF != 0
+            cls = "dbnz"
+            if op != 0xE2:
+                # DBNZNE / DBNZE: the Z test decides first (F35: not taken on Z 3 clocks
+                # shorter than not taken on the count, taken a clock longer than DBNZ)
+                zfail = _flag(regs, "Z", op, k) != (op == 0xE1)
+                taken = taken and not zfail
+                cls = "dbnz_z"
+        elif op == 0xE3:
+            taken, cls = regs["CW"] == 0, "bcwz"
         elif op == 0xEB:
             taken = True
         else:
-            if regs.get("Z") is None:
-                raise ValueError(f"opcode {op:02X} at chain offset {k}: the flags are not known")
-            taken = bool(regs["Z"]) == (op == 0x74)
-        return Op(k, 2, "dbnz" if op == 0xE2 else "branch_short", op,
-                  target=k + 2 + disp if taken else None, cond=0x70 <= op <= 0x7F)
+            taken = cond_taken(op, regs, k)
+        return Op(k, 2, cls, op, target=k + 2 + disp if taken else None,
+                  cond=0x70 <= op <= 0x7F, zfail=zfail)
+    if op in (0xEA, 0x9A):
+        # (WP88, F35) BR far / CALL far (EA / 9A offset16 segment16): the target an absolute
+        # offset in the code segment (the segment is the chain's own, PS = 1000h); CALL far
+        # writes PS, then the return offset, below SP
+        target = int.from_bytes(code[k + 1:k + 3], "little") - regs.get("code_at", 0)
+        if op == 0xEA:
+            return Op(k, 5, "branch_far", op, target=target)
+        return Op(k, 5, "call_far", op, target=target, stack=(None, (sp - 2) & 0xFFFF))
+    if op in (0xC2, 0xCA, 0xCB):
+        # (WP88, F35) RET imm16 (C2), RET far (CB: the offset, then the segment) and RET far
+        # imm16 (CA): the return address read at SP (the CALL that wrote it, execute), SP
+        # raised past it and by the immediate
+        ret = regs.get(f"ret{sp:04X}")
+        if ret is None:
+            raise ValueError(f"RET at chain offset {k}: no return address at {sp:04X}")
+        cls = {0xC2: "ret_imm", 0xCA: "ret_far_imm", 0xCB: "ret_far"}[op]
+        n = 0 if op == 0xCB else 2
+        return Op(k, 1 + n, cls, op, target=ret, imm_bytes=n, stack=(sp, None))
+    if op in (0xC4, 0xC5):
+        # (WP88, F36) LES / LDS (MOV DS1,r16,m32 / MOV DS0,r16,m32): the pointer's offset word,
+        # then its segment word (load_ptr; the segment registers are not modelled)
+        mod, reg, rm, ea, mc, n = _modrm(code, k + 1, regs)
+        if mod == 3:
+            raise ValueError(f"opcode {op:02X} with a register operand at chain offset {k}")
+        return Op(k, 1 + n, "load_ptr", op, ea=ea, mode_class=mc, modrm=True, disp=n - 1)
     if op in (0xE9, 0xE8):
         # (WP55, F23) BR near / CALL near: a 2-byte displacement; CALL writes the return
         # address (the next instruction's) below SP
@@ -218,8 +308,8 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
     mem = mod != 3
     # the w bit (bit 0) of the ALU, TEST, XCH and MOV ModR/M opcodes: 0 = byte operand
     width = 1 if (op < 0x40 or 0x84 <= op <= 0x8B) and not op & 1 else 2
-    if op in (0xD0, 0xF6, 0xFE):        # (WP21) the byte groups' w bit; (WP78) FE
-        width = 1
+    if op in (0xD0, 0xF6, 0xFE, 0x80, 0x82, 0xD2):   # (WP21) the byte groups' w bit; (WP78)
+        width = 1                                       # FE; (WP88, F36) 80 / 82, D2
     # A group opcode: the operation is selected by the ModR/M reg field (a format
     # property of the encoding: 80-83, 8F, C0/C1, C6/C7, D0-D3, F6/F7, FE/FF).
     group = op in GROUP_OPCODES
@@ -236,11 +326,17 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         # reads only; a register destination (d = 1) is a load + ALU
         cls = "reg" if not mem else (
             "rmw" if not op & 2 and (op >> 3) & 7 != 7 else "load_alu")
+    elif op in (0x84, 0x85) and not mem:
+        # (WP88, F36) TEST r8,r8 / r16,r16: its own class (TEST DL,AL costs 3 clocks more than
+        # the other two-byte register forms, MOV r8,imm8's cost: the fixed operation's lookup)
+        cls = "test_reg"
     elif op in (0x8B, 0x8A, 0x85, 0x89, 0x88, 0x87, 0x84, 0x86):
         cls = "reg" if not mem else {0x8B: "load", 0x8A: "load", 0x89: "store", 0x88: "store",
                                      0x87: "rmw", 0x86: "rmw"}.get(op, "load_alu")
-    elif op in (0x81, 0x83):
-        # (WP20) 83: the immediate is one byte, sign-extended
+    elif op in (0x80, 0x81, 0x82, 0x83):
+        # (WP20) 83: the immediate is one byte, sign-extended; (WP88, F36) 80 and its alias 82,
+        # the byte group: a one-byte immediate (F36: ADD / CMP byte [BW],imm8 in 80 / 82 cost
+        # what the word form 83 does)
         nimm = 2 if op == 0x81 else 1
         length += nimm
         base["imm_bytes"] = nimm
@@ -265,7 +361,7 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         cls = "rmw"
         base["count"] = 1
         base["shift"] = True
-    elif op == 0xD3:
+    elif op in (0xD2, 0xD3):            # (WP88, F36) D2: the byte form
         if not mem:
             return Op(length=length, cls="shift_cl", count=regs["CW"] & 0xFF, cl_count=True, **base)
         cls = "rmw"                         # (WP19) SHL [BW],CL: a shift by CL on memory
@@ -296,6 +392,19 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         base["imm_bytes"] = nimm
         base["signed"] = True
         cls = "mul_imm"
+    elif op == 0xFF and not mem and reg in (2, 4):
+        # (WP88, F35) CALL r16 (FF /2) / BR r16 (FF /4): the target an absolute offset in the
+        # code segment, the register's value; CALL writes the return offset below SP
+        target = regs[REG16[rm]] - regs.get("code_at", 0)
+        # the ModR/M byte names the register: an operand byte as a displacement is, not a
+        # memory form's ModR/M (the rules that name a ModR/M form do not see it: start_sync
+        # b2b_modrm, io_older io_modrm, the ModR/M latch). F35 ind: with it a ModR/M form,
+        # the third refill fetch after M0's I/O 3 clocks late at pE and one too many at pO
+        base = {**base, "modrm": False}
+        if reg == 2:
+            return Op(length=length, cls="call_reg", target=target,
+                      **{**base, "stack": (None, (regs["SP"] - 2) & 0xFFFF)})
+        return Op(length=length, cls="br_reg", target=target, **base)
     elif op == 0xFF:
         cls = "push_mem" if reg == 6 else "rmw"
         if reg == 6:
@@ -364,7 +473,9 @@ def _string_op(code: bytes, k: int, regs: dict):
 # the decimal and the ASCII adjusts their own)
 ONE_BYTE = {0xF8: "flag", 0xF9: "flag", 0xF5: "flag", 0xFC: "flag", 0xFD: "flag",
             0xFA: "flag_di", 0xFB: "flag_ei", 0x98: "extend", 0x99: "extend_w",
-            0x27: "adjust", 0x2F: "adjust", 0x37: "adjust_b", 0x3F: "adjust_b"}
+            0x27: "adjust", 0x2F: "adjust", 0x37: "adjust_b", 0x3F: "adjust_b",
+            # (WP88, F36) LAHF / SAHF (MOV AH,PSW / MOV PSW,AH): CLC's cost, alone and in a pair
+            0x9F: "flag", 0x9E: "flag"}
 # (WP78, F32) the 0F page's second byte: the bit ops (10-1F: bits 2:1 the operation, TEST1 /
 # CLR1 / SET1 / NOT1, bit 0 the width, bit 3 an imm index after the operand where clear the
 # index is CL), the packed BCD strings (20 ADD4S, 22 SUB4S, 26 CMP4S), the digit rotates (28
@@ -383,7 +494,18 @@ BASE_CLASS = {"bit1": "reg", "rol4": "reg", "ror4": "reg", "incdec": "reg", "adj
               "adjust_b": "reg", "extend": "reg", "extend_w": "reg", "flag": "reg",
               "flag_di": "reg", "flag_ei": "reg", "convert": "imm", "convert_d": "imm",
               "bit1_test": "load_alu", "bit1_rmw": "rmw", "bit1_clr": "rmw",
-              "rol4_mem": "rmw", "ror4_mem": "rmw", "mul_imm": "mul"}
+              "rol4_mem": "rmw", "ror4_mem": "rmw", "mul_imm": "mul",
+              # (WP88, F35, F36) the transfers F35 completes and the forms of F36 that cost
+              # differently from their class (_wp88_steps): BCWZ and DBNZNE / DBNZE the loop
+              # format's (dbnz); RET imm16 and the far returns RET's; CALL r16 and CALL far
+              # CALL near's; BR r16 and BR far BR near's; LES / LDS the load's; POP PSW POP
+              # r16's; TEST r,r the register forms' (_wp78_steps)
+              "bcwz": "dbnz", "dbnz_z": "dbnz", "ret_imm": "ret", "ret_far": "ret",
+              "ret_far_imm": "ret", "call_reg": "call", "call_far": "call",
+              "br_reg": "branch_near", "branch_far": "branch_near", "load_ptr": "load",
+              "pop_psw": "pop", "test_reg": "reg"}
+WP88_CLASSES = ("bcwz", "dbnz_z", "ret_imm", "ret_far", "ret_far_imm", "call_reg", "call_far",
+                "br_reg", "branch_far", "load_ptr", "pop_psw")
 
 
 def base_class(cls: str) -> str:
@@ -531,6 +653,7 @@ def execute(op: Op, code: bytes, regs: dict):
         elif o == 0x87:
             regs[REG16[reg]] = FILL_WORD
         elif o == 0x81 and mod == 3 and reg == 0:
+            _set_flags(regs, regs[REG16[rm]], imm16(k + 2), False)   # (WP88) F35's ADD DW,imm16
             regs[REG16[rm]] = (regs[REG16[rm]] + imm16(k + 2)) & 0xFFFF
         elif o in (0xD1, 0xD3, 0xC1) and mod == 3 and reg == 4:
             n = 1 if o == 0xD1 else (regs["CW"] & 0xFF if o == 0xD3 else code[k + 2])   # (WP57) silicon: the full count
@@ -547,16 +670,20 @@ def execute(op: Op, code: bytes, regs: dict):
             regs[REG16[reg]] = op.ea            # (WP52) LDEA: the offset itself
         elif o in (0x3B, 0x39) and mod == 3:
             regs["Z"] = int(regs[REG16[reg]] == regs[REG16[rm]])   # (WP55) CMP r16,r16: Z
+            # (WP88, F35) and CY S V P, every condition of the 70-7F row
+            a, b = regs[REG16[reg]], regs[REG16[rm]]
+            _set_flags(regs, a if o == 0x3B else b, b if o == 0x3B else a, True)
     if o == 0xD7:
         _set8(regs, 0, FILL_WORD & 0xFF)        # (WP52) XLAT: AL from the data fill
     _execute_wp78(op, code, regs)
     if op.cls in ("push", "push_mem", "push_imm", "push_seg", "prepare"):
         regs["SP"] = (regs["SP"] - 2) & 0xFFFF
+    _execute_wp88(op, code, regs)
     if op.cls == "prepare":
         # (WP52) PREPARE imm16,0: BP := SP after BP's push, then SP -= imm16
         regs["BP"] = regs["SP"]
         regs["SP"] = (regs["SP"] - imm16(k + 1)) & 0xFFFF
-    if op.cls in ("pop", "pop_mem", "pop_seg"):
+    if op.cls in ("pop", "pop_mem", "pop_seg", "pop_psw"):
         regs["SP"] = (regs["SP"] + 2) & 0xFFFF
     if op.cls == "push_r":
         regs["SP"] = (regs["SP"] - 16) & 0xFFFF     # (WP52) eight words
@@ -568,8 +695,8 @@ def execute(op: Op, code: bytes, regs: dict):
         # (WP52) SP := BP, then BP popped (the data fill, as every other memory read)
         regs["SP"] = (regs["BP"] + 2) & 0xFFFF
         regs["BP"] = FILL_WORD
-    if op.cls == "dbnz":
-        regs["CW"] = (regs["CW"] - 1) & 0xFFFF      # (WP55) DBNZ
+    if op.cls in ("dbnz", "dbnz_z"):
+        regs["CW"] = (regs["CW"] - 1) & 0xFFFF      # (WP55) DBNZ; (WP88) DBNZNE / DBNZE
     if op.cls == "call":
         # (WP55) CALL: the return address (its code offset; the trace's data word is not
         # compared) at SP - 2, read back by the RET that pops it
@@ -587,6 +714,24 @@ def execute(op: Op, code: bytes, regs: dict):
             regs["IY"] = (regs["IY"] + step) & 0xFFFF
         if op.rep is not None:
             regs["CW"] = (regs["CW"] - op.n) & 0xFFFF
+
+
+def _execute_wp88(op: Op, code: bytes, regs: dict):
+    """(WP88, F35) the register effects of the transfers F35 completes: CALL r16 keeps the
+    return offset below SP as CALL near does; CALL far writes PS, then the return offset (two
+    words); RET imm16 and the far returns raise SP past what they read and by the immediate.
+    (DBNZNE / DBNZE count CW down with DBNZ in execute; BCWZ leaves CW.)"""
+    k, cls = op.offset, op.cls
+    if cls == "call_reg":
+        regs["SP"] = (regs["SP"] - 2) & 0xFFFF
+        regs[f"ret{regs['SP']:04X}"] = k + op.length
+    elif cls == "call_far":
+        regs["SP"] = (regs["SP"] - 4) & 0xFFFF
+        regs[f"ret{regs['SP']:04X}"] = k + op.length
+    elif cls in ("ret_imm", "ret_far", "ret_far_imm"):
+        n = 2 if cls == "ret_imm" else 4
+        imm = int.from_bytes(code[k + 1:k + 3], "little") if op.imm_bytes else 0
+        regs["SP"] = (regs["SP"] + n + imm) & 0xFFFF
 
 
 def _execute_wp78(op: Op, code: bytes, regs: dict):
@@ -911,6 +1056,8 @@ def _steps(op: Op, cfg) -> list[tuple]:
     rest = op.length - 1
     ea = ("clocks", cfg.ea.get(ea_class(op, cfg), 0) if op.ea is not None else 0, "ea")
     cls = op.cls
+    if cls in WP88_CLASSES:
+        return _wp88_steps(op, cfg, c, ea)
     if cls in BASE_CLASS or cls in BCD_CLASSES or cls in BF_CLASSES:
         return _wp78_steps(op, cfg, c, ea)
     if cls in ("reg", "prefix"):
@@ -1141,6 +1288,83 @@ def _steps(op: Op, cfg) -> list[tuple]:
             return head + tail
         return [("clocks", pre), ("take", rest), ("clocks", c("exec")),
                 ("data", kind, op.port, op.width, c("setup")), ("clocks", c("post"))]
+    raise ValueError(cls)
+
+
+def _wp88_steps(op: Op, cfg, c, ea) -> list[tuple]:
+    """(WP88, F35, F36) the templates of the classes F35 and F36 add, each its base class's
+    (BASE_CLASS) with its own integers.
+
+    bcwz (BCWZ) and dbnz_z (DBNZNE / DBNZE, base dbnz): the short transfer's template (pre, the
+    displacement's take; taken: exec, the flush, post; not taken: the decide step, then nexec,
+    or for dbnz_z not taken on its Z test zexec). The head of the others: a register form's
+    ModR/M byte taken on the start, then its pre clocks; a far form's pre clocks, its offset
+    word (chained: no take sync), spre clocks, its segment word. br_reg (BR r16) and
+    branch_far (BR far, base branch_near): the head, exec, the flush, post. call_reg (CALL
+    r16) and call_far (CALL far, base call): the head, wpre clocks, then in call_order the
+    stack writes (call_far: PS with setup, then the return offset with wsetup, all fetch-free)
+    and the exec clocks with the flush, post. ret_imm (RET imm16), ret_far (RET far),
+    ret_far_imm (RET far imm16) (base ret): pre, the stack read of the return offset (setup;
+    with an immediate posted, the immediate taken once the read is on the bus), the far forms
+    the segment's read (wsetup), exec, the flush, post. load_ptr (LES / LDS, base load): the
+    load's head and its read, the segment word's read (wsetup), exec. pop_psw (POP PSW, base
+    pop): POP r16's template with its own integers. Both hold fetch requests phold clocks from
+    the last read's data. (test_reg, TEST r,r, runs the register forms' template,
+    _wp78_steps.)"""
+    cls, rest = op.cls, op.length - 1
+    if cls in ("bcwz", "dbnz_z"):
+        head = [("clocks", c("pre")), ("take", rest)]
+        if op.target is None:
+            decide = [("decide",)] if cfg.untaken == "wait" else []
+            # dbnz_z: not taken on the Z test, zexec clocks; on the count, nexec
+            return head + decide + [("clocks", c("zexec" if op.zfail else "nexec"))]
+        return head + [("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
+    # a far form: pre clocks, the offset word, spre clocks, the segment word; a register form:
+    # the ModR/M byte, then the pre clocks
+    head = ([("clocks", c("pre")), ("take", 2, "chain")]
+            + ([("clocks", c("spre"))] if c("spre") else []) + [("take", 2)] if rest == 4
+            else [("take", rest), ("clocks", c("pre"))])
+    if cls in ("br_reg", "branch_far"):
+        return head + [("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
+    if cls in ("call_reg", "call_far"):
+        sp = op.stack[1]
+        # wpre: EU clocks between the operand take and the first write's post
+        write = ([("clocks", c("wpre"))] if c("wpre") else []) + [
+            ("data", "write", sp, 2, c("setup"))]
+        if cls == "call_far":
+            write.append(("data", "write", (sp - 2) & 0xFFFF, 2, c("wsetup"), c("wsetup")))
+        flush = [("clocks", c("exec")), ("flush", op.target)]
+        body = write + flush if cfg.call_order == "write_first" else flush + write
+        return head + body + [("clocks", c("post"))]
+    if cls in ("ret_imm", "ret_far", "ret_far_imm"):
+        sp = op.stack[0]
+        seq = [("clocks", c("pre"))]
+        if op.imm_bytes:
+            # the stack read posted, the immediate taken once it is on the bus (chained: no take
+            # sync), as a memory form's immediate under imm_order=after_issue
+            # (WP88) ret_imm_hold=word: an immediate whose last byte is the even half of its
+            # word (the next opcode the odd half) raises no fetch request for mhold clocks from
+            # its take
+            hold = ([("fetch_hold", c("mhold"))] if cfg.ret_imm_hold == "word" and op.half_word
+                    else [])
+            seq += [("post", "read", sp, 2, c("setup")), ("issued",),
+                    ("take", op.imm_bytes, "chain")] + hold + [("wait",)]
+        else:
+            seq.append(("data", "read", sp, 2, c("setup")))
+        if cls != "ret_imm":
+            seq.append(("data", "read", (sp + 2) & 0xFFFF, 2, c("wsetup"), c("wsetup")))
+        return seq + [("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
+    # phold: no fetch request for phold clocks from the last read's data (LES / LDS: the
+    # segment word; POP PSW: the PSW), the register file's load
+    hold = [("fetch_hold", c("phold"))] if c("phold") else []
+    if cls == "load_ptr":
+        return _head(op, cfg, c("pre"), ea) + [("data", "read", op.ea, 2, 0),
+                                                ("data", "read", (op.ea + 2) & 0xFFFF, 2,
+                                                 c("wsetup"), c("wsetup"))] + hold + [
+                                                ("clocks", cfg.read_use_latency),
+                                                ("clocks", c("exec"))]
+    if cls == "pop_psw":
+        return [("data", "read", op.stack[0], 2, c("setup"))] + hold + [("clocks", c("exec"))]
     raise ValueError(cls)
 
 
