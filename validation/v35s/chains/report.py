@@ -332,6 +332,9 @@ TABLES["F32"] = F3X_TABLES
 TABLES["F33"] = F3X_TABLES + TABLES["F24"][len(COST_TABLES):]
 # (WP80) F34: the cost frame's tables and X's own cycles, as F32's
 TABLES["F34"] = F3X_TABLES
+# (WP87) F35 / F36: the cost frame's tables and X's own cycles, as F34's
+TABLES["F35"] = F3X_TABLES
+TABLES["F36"] = F3X_TABLES
 
 
 def f3x_k_table(ff: dict) -> str:

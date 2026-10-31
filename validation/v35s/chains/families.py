@@ -2539,3 +2539,280 @@ def f34(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F34": f34})
+
+
+# F35 and F36 (WP87: two refresh-off coverage families). The census of forms.py's first bytes
+# left 124 of 256 opcode bytes no family ran; the model's classes assume an untested form costs
+# what its class's tested forms cost. Both families are the cost frame PAD LS M0 X M1 LS END,
+# refresh off (RFM ECh), every wait and parity, the OUT and the PUSH marker (the PUSH frame on a
+# subset where stated); X's cost is dM(X) - dM(baseline), the baseline the knob `baseline` names
+# (the x_variant of the chain whose frame holds X's lead alone: the empty frame, a flag control,
+# MOV CW,n, MOV BW,imm16). Generator-only: the simulator decodes few of the new forms
+# (forms.UNMODELLED_FORMS), so both families are in UNMODELLED until a template learns them.
+# Run ids F35-<out|push>-<series>-<label>-p<E|O>-w<N> and F36-<out|push>-<series>-<label>-...;
+# the empty frame F3x-<marker>-empty. Knobs on every chain: series (= probe), marker, form (the
+# measured X, None for a control), x (every X form in chain order), k, lead (the forms before X),
+# baseline, exec (X indices in execution order, repeats included), skipped (X never executed,
+# the NOPs a taken transfer jumps), taken (whether X transfers; None for a non-transfer), rfm,
+# refresh_on; F35 adds cond / control / flags (cc), cw (cw, loop), target_rel (the transfer's
+# target as an offset from the first X: ind, far).
+#
+# F35 (control flow completed; precedent F23). The register-indirect and far forms carry an
+# absolute code offset (forms.F35_ABS), so their bytes depend on the pad and the marker's
+# length: f35 builds each chain's body for its own parity, and a variant's pE and pO chains
+# differ in that one form (test_chains checks the target, not the bytes).
+# ctl: the empty frame and the three flag controls alone, CMP AW,AW (cmpaa: Z), CMP AW,DW
+#   (cmpad: CY, S; AW = 0 after the fence) and ADD DW,2A01h (adddw: S, V, not P).
+# cc: the sixteen conditional branches 70-7F, each taken and not taken, behind the control
+#   forms.F35_CC names for that outcome, +n with n = 0, 2 (taken: n NOPs the branch jumps, never
+#   executed; not taken: the NOPs run). Ids cc-<cond>-<t|nt>-n<n>. PUSH frame: n = 0.
+# cw: BCWZ +0 / +2 after MOV CW,0 (taken) and +0 after MOV CW,1 (not taken); DBNZE +0 and
+#   DBNZNE +0 after MOV CW,1 or MOV CW,2 and CMP AW,AW (Z = 1) or CMP AW,DW (Z = 0): DBNZE taken
+#   at CW 2 with Z, DBNZNE at CW 2 without; controls MOV CW,0 / 1 alone and MOV CW,c ; CMP.
+# loop: MOV CW,2 ; <body> ; DBNZ back over the body (E2 FD / FC), body NOP or MOV AW,DW: the body
+#   and the DBNZ run twice (exec 0 1 2 1 2), the backward transfer once; controls MOV CW,2 ;
+#   <body>.
+# ret: RET imm16 as F23's callret: CALL +2 ; BR +3 ; RET 0 (C2 00 00, run 0 2 1) and PUSH AW ;
+#   CALL +2 ; BR +3 ; RET 2 (the pushed word dropped by the immediate, run 0 1 3 2); F23's
+#   CALL +2 ; BR +1 ; RET and PUSH AW alone as controls.
+# ind: MOV BW,t ; CALL BW (FF D3) to the next instruction; MOV BW,t ; CALL BW ; BR +1 ; RET (t
+#   the RET, run 0 1 3 2); MOV BW,t ; BR BW (FF E3) to the next instruction and over one NOP;
+#   control MOV BW,0800h.
+# far: BR far (EA t 1000h) to the next instruction and over one NOP; CALL far (9A t 1000h) to the
+#   next instruction; CALL far ; BR +1 ; RET far (CB, run 0 2 1); PUSH AW ; CALL far ; BR +3 ;
+#   RET far 2 (CA 02 00, run 0 1 3 2).
+# Left out: memory-indirect transfers (the data fill is 9090h), BRK 3 / BRK imm8 / RETI (the
+# vector table is zeroed and image.py has no hook for a family to set a vector word).
+F35_RFM = RFM_OFF
+F35_FAMILY_REGS = {}            # the default presets: the prelude's length is F35_PRELUDE_LEN
+
+
+def _f35_flags_after(ctl):
+    from .forms import F35_CONTROLS
+    return dict(F35_CONTROLS[ctl][1])
+
+
+def _f35_specs(first_x):
+    """[(label, knobs-without-marker, x names, push)] for the frame whose first X sits at code
+    offset first_x (the absolute targets), in family order."""
+    from .forms import (F35_ABS_FORMS, F35_CC, F35_CC_N, F35_COND, F35_CONTROLS, f35_cc_form,
+                        f35_cond_taken)
+    specs = []
+
+    def add(series, label, names, lead=0, baseline="empty", exec_=None, taken=None,
+            push=True, form=None, **extra):
+        names = list(names)
+        ex = list(exec_ if exec_ is not None else range(len(names)))
+        knobs = {"probe": series, "series": series, "form": form, "x": names,
+                 "k": 1 if form else 0, "lead": names[:lead], "baseline": baseline,
+                 "exec": ex, "skipped": len(names) - len(set(ex)), "taken": taken,
+                 "rfm": F35_RFM, "refresh_on": False, **extra}
+        specs.append((label if series == "empty" else f"{series}-{label}", knobs, names, push))
+
+    def tgt(kind, rel):
+        return F35_ABS_FORMS[kind][first_x + rel]
+
+    add("empty", "empty", [], baseline=None)
+    for ctl, (name, flags) in F35_CONTROLS.items():
+        add("ctl", ctl, [name], flags=flags, control=ctl)
+    for cond in F35_COND:
+        for outcome, ctl in zip(("t", "nt"), F35_CC[cond]):
+            flags = _f35_flags_after(ctl)
+            taken = f35_cond_taken(cond, flags)
+            if taken != (outcome == "t"):
+                raise AssertionError(f"F35 {cond} under {ctl}: taken {taken}")
+            for n in F35_CC_N:
+                names = [F35_CONTROLS[ctl][0], f35_cc_form(cond, n)] + ["nop"] * n
+                add("cc", f"{cond}-{outcome}-n{n}", names, lead=1, baseline=f"ctl-{ctl}",
+                    exec_=[0, 1] if taken else None, taken=taken, push=n == 0,
+                    form=names[1], cond=cond, control=ctl, flags=flags, n=n)
+    # cw
+    for c in (0, 1):
+        add("cw", f"movcw{c}", [f"mov_cw_imm{c}"], cw=c)
+    add("cw", "bcwz-t-n0", ["mov_cw_imm0", "bcwz_n0"], 1, "cw-movcw0", [0, 1], True,
+        form="bcwz_n0", cw=0, n=0)
+    add("cw", "bcwz-t-n2", ["mov_cw_imm0", "bcwz_n2", "nop", "nop"], 1, "cw-movcw0", [0, 1], True,
+        form="bcwz_n2", cw=0, n=2)
+    add("cw", "bcwz-nt-n0", ["mov_cw_imm1", "bcwz_n0"], 1, "cw-movcw1", [0, 1], False,
+        form="bcwz_n0", cw=1, n=0)
+    for c in (1, 2):
+        for ctl in ("cmpaa", "cmpad"):
+            lead = [f"mov_cw_imm{c}", F35_CONTROLS[ctl][0]]
+            add("cw", f"c{c}-{ctl}", lead, cw=c, control=ctl, flags=_f35_flags_after(ctl))
+    for op in ("dbnze", "dbnzne"):
+        for c in (1, 2):
+            for ctl in ("cmpaa", "cmpad"):
+                z = _f35_flags_after(ctl)["Z"]
+                taken = c - 1 != 0 and z == (op == "dbnze")
+                add("cw", f"{op}-c{c}-{ctl}", [f"mov_cw_imm{c}", F35_CONTROLS[ctl][0],
+                                               f"{op}_n0"], 2, f"cw-c{c}-{ctl}", [0, 1, 2],
+                    taken, form=f"{op}_n0", cw=c, control=ctl, flags=_f35_flags_after(ctl), n=0)
+    # loop
+    for body, back in (("nop", "dbnz_m3"), ("reg", "dbnz_m4")):
+        body_form = "nop" if body == "nop" else "mov_aw_dw"
+        add("loop", f"c2-{body}", ["mov_cw_imm2", body_form], cw=2)
+        add("loop", f"dbnz-{body}", ["mov_cw_imm2", body_form, back], 2, f"loop-c2-{body}",
+            [0, 1, 2, 1, 2], True, form=back, cw=2)
+    # ret
+    add("ret", "pushaw", ["push_aw"])
+    add("ret", "callret", ["call_n2", "br_n1", "ret"], 0, "empty", [0, 2, 1], True, form="ret")
+    add("ret", "imm0", ["call_n2", "br_n3", "ret_imm0"], 0, "empty", [0, 2, 1], True,
+        form="ret_imm0")
+    add("ret", "imm2", ["push_aw", "call_n2", "br_n3", "ret_imm2"], 0, "empty", [0, 1, 3, 2],
+        True, form="ret_imm2")
+    # ind
+    add("ind", "movbw", ["mov_bw_imm"])
+    add("ind", "callr", [tgt("mov_bw", 5), "call_bw"], 1, "ind-movbw", [0, 1], True,
+        form="call_bw", target_rel=5)
+    add("ind", "callr-ret", [tgt("mov_bw", 7), "call_bw", "br_n1", "ret"], 1, "ind-movbw",
+        [0, 1, 3, 2], True, form="call_bw", target_rel=7)
+    add("ind", "brr-n0", [tgt("mov_bw", 5), "br_bw"], 1, "ind-movbw", [0, 1], True,
+        form="br_bw", target_rel=5)
+    add("ind", "brr-n1", [tgt("mov_bw", 6), "br_bw", "nop"], 1, "ind-movbw", [0, 1], True,
+        form="br_bw", target_rel=6)
+    # far
+    add("far", "brf-n0", [tgt("brf", 5)], 0, "empty", [0], True, form="brf", target_rel=5)
+    add("far", "brf-n1", [tgt("brf", 6), "nop"], 0, "empty", [0], True, form="brf",
+        target_rel=6)
+    add("far", "callf", [tgt("callf", 5)], 0, "empty", [0], True, form="callf", target_rel=5)
+    add("far", "callf-retf", [tgt("callf", 7), "br_n1", "retf"], 0, "empty", [0, 2, 1], True,
+        form="retf", target_rel=7)
+    add("far", "callf-retf2", ["push_aw", tgt("callf", 8), "br_n3", "retf_imm2"], 0, "empty",
+        [0, 1, 3, 2], True, form="retf_imm2", target_rel=8)
+    return specs
+
+
+def _f3536_chains(family, specs_for, waits, parities, rfm, regs=None):
+    """Chains of F35 / F36: specs_for(kind, parity) -> [(label, knobs, names, push)], built per
+    marker kind (out, then push: the labels with push set) and per parity, so a body may depend
+    on the pad; chain order variant, then waits, then parity, as _sweep's."""
+    regs = dict(regs or {})
+    chains = []
+    for kind in ("out", "push"):
+        per_parity = {p: [s for s in specs_for(kind, p) if kind == "out" or s[3]]
+                      for p in parities}
+        labels = [[s[0] for s in v] for v in per_parity.values()]
+        if any(lab != labels[0] for lab in labels):
+            raise AssertionError(f"{family}: the variants differ between parities")
+        for j in range(len(labels[0]) if labels else 0):
+            for w in waits:
+                for p in parities:
+                    label, knobs, names, _ = per_parity[p][j]
+                    body = [LS(), M(0, kind)] + xs(names) + [M(1, kind), LS(), END()]
+                    chains.append(make_chain(family, f"{kind}-{label}",
+                                             {**knobs, "marker": kind}, body, w, p,
+                                             marker_kind=kind, regs=regs, rfm=rfm))
+    return chains
+
+
+def f35_first_x(kind, parity, regs=None, rfm=F35_RFM):
+    """The code offset (in PS 1000h) of the first X of an F35 frame: the prelude, the parity
+    pad, the first LS and M0."""
+    from .forms import DEFAULT_REGS as _R, F35_PRELUDE_LEN
+    from .image import prelude
+    regs = {**_R, **(regs or {})}
+    wtc = WTC_FOR_WAITS[0]
+    n = len(prelude(regs, wtc, rfm, PRC_FX2))
+    if n != F35_PRELUDE_LEN:
+        raise AssertionError(f"F35: the prelude is {n} bytes, forms.F35_PRELUDE_LEN "
+                             f"{F35_PRELUDE_LEN}")
+    pad = int(needs_pad(regs, wtc, rfm, PRC_FX2, parity))
+    return n + pad + len(blocks.LS) + len(blocks.marker(kind, 0))
+
+
+def f35(waits=WAITS, parities=PARITIES):
+    """Control flow completed (see the comment above)."""
+    return _f3536_chains("F35", lambda kind, p: _f35_specs(f35_first_x(kind, p)), waits,
+                         parities, F35_RFM, F35_FAMILY_REGS)
+
+
+# F36 (the data forms no family ran; precedents F24, F25, F33), k = 1, every form against the
+# empty frame (baseline empty) unless stated:
+# mov: MOV AL,[0C00h] (A0), MOV [0C00h],AL (A2); MOV r8,imm8 for AL DL BL AH CH DH BH (B0,
+#   B2-B7, 12h); MOV r16,imm16 for BW, BP, IX, IY (BB, BD-BF, each register's preset) and SP
+#   (BC 00 0F, the OUT frame only: under PUSH M0 has moved SP).
+# shift: SHL AL,CL (D2 E0) and SHL byte [BW],CL (D2 27), CL = 31 from the fence.
+# test: TEST DL,AL (84 C2).
+# xch: XCH AW,r for CW BW BP IX IY (91 93 95-97) and SP (94, the OUT frame only: SP becomes 0).
+# stack: PUSH r for CW DW BW SP BP IX IY (51-57); PUSH r ; POP r for CW DW BW BP IX IY (POP CW
+#   59, 5A 5B 5D-5F; baseline PUSH r alone) and SP (54 ; 5C, the OUT frame only: what POP SP
+#   leaves in SP depends on the value PUSH SP stores); PUSH PSW ; POP PSW (9C ; 9D, the pair
+#   against the empty frame).
+# alu: OR / ADDC / SUBC / AND / SUB / XOR AW,DW (0B 13 1B 23 2B 33, C2); OR / ADDC / SUBC / AND /
+#   SUB / XOR / CMP AW,1234h (0D 15 1D 25 2D 35 3D); ADD / CMP byte [BW],5 in the 80 group and
+#   its 82 alias (80 07, 80 3F, 82 07, 82 3F).
+# psw: LAHF (9F) alone; LAHF ; SAHF (9E, baseline LAHF alone: SAHF only with AH = the PSW's low
+#   byte, so BRKI stays set).
+# lock: BUSLOCK MOV AW,DW (F0 8B C2) and BUSLOCK ADD [BW],AW (F0 01 07), with MOV AW,DW and ADD
+#   [BW],AW unprefixed as their controls (knob control the unprefixed variant).
+# ptr: LES AW,[IX] (C4 04) and LDS AW,[IX] (C5 04): the pointer at 0100h, in the zeroed vector
+#   table (offset and segment 0000h).
+# Left out: the word strings (F24 runs them), INC / DEC r16 (F33), IN AW,DW (F19), anything
+#   that traps or depends on a pin.
+F36_RFM = RFM_OFF
+F36_OUT_ONLY = ("mov-mov_sp_imm16", "xch-xch_aw_sp", "stack-push_sp-pop_sp")
+
+
+def _f36_specs():
+    from .forms import F36_ALU, F36_MOV16, F36_MOV16_FORM, F36_R8, F36_R16
+    specs = []
+
+    def add(series, names, form=None, label=None, lead=0, baseline="empty", **extra):
+        names = list(names)
+        label = label or "-".join(names)
+        full = label if series == "empty" else f"{series}-{label}"
+        knobs = {"probe": series, "series": series, "form": form, "x": names,
+                 "k": 1 if form else 0, "lead": names[:lead], "baseline": baseline,
+                 "exec": list(range(len(names))), "skipped": 0, "taken": None,
+                 "rfm": F36_RFM, "refresh_on": False, **extra}
+        specs.append((full, knobs, names, full not in F36_OUT_ONLY))
+
+    add("empty", [], label="empty", baseline=None)
+    for name in ("ld_al_dir", "st_al_dir"):
+        add("mov", [name], name)
+    for r in F36_R8:
+        add("mov", [f"mov_{r}_imm8"], f"mov_{r}_imm8")
+    for r in F36_MOV16:
+        add("mov", [F36_MOV16_FORM[r]], F36_MOV16_FORM[r])
+    for name in ("shl_al_cl", "shlb_m_cl"):
+        add("shift", [name], name)
+    add("test", ["test_dl_al"], "test_dl_al")
+    for r in F36_R16:
+        if r != "dw":
+            add("xch", [f"xch_aw_{r}"], f"xch_aw_{r}")
+    for r in F36_R16:
+        add("stack", [f"push_{r}"], f"push_{r}")
+    for r in F36_R16:
+        add("stack", [f"push_{r}", f"pop_{r}"], f"pop_{r}", lead=1, baseline=f"stack-push_{r}")
+    add("stack", ["push_psw", "pop_psw"], "pop_psw")
+    for op in F36_ALU:
+        if op != "cmp":
+            add("alu", [f"{op}_aw_dw"], f"{op}_aw_dw")
+    for op in F36_ALU:
+        add("alu", [f"{op}_aw_imm16"], f"{op}_aw_imm16")
+    for g in (0x80, 0x82):
+        for op in ("add", "cmp"):
+            name = f"{op}b_m_imm8_{g:02x}"
+            add("alu", [name], name, group_opcode=g)
+    add("psw", ["lahf"], "lahf")
+    add("psw", ["lahf", "sahf"], "sahf", lead=1, baseline="psw-lahf")
+    for name, ctl in (("lock_mov_aw_dw", "mov_aw_dw"), ("lock_add_m_aw", "add_m_aw")):
+        add("lock", [ctl], ctl)
+        add("lock", [name], name, control=f"lock-{ctl}")
+    for name in ("les_aw_ix", "lds_aw_ix"):
+        add("ptr", [name], name)
+    return specs
+
+
+def f36(waits=WAITS, parities=PARITIES):
+    """The data forms no family ran (see the comment above)."""
+    specs = _f36_specs()
+    missing = set(F36_OUT_ONLY) - {s[0] for s in specs}
+    if missing:
+        raise AssertionError(f"F36: OUT-only labels without a variant: {sorted(missing)}")
+    return _f3536_chains("F36", lambda kind, p: specs, waits, parities, F36_RFM)
+
+
+FAMILIES.update({"F35": f35, "F36": f36})
+# (WP87) generator-only: forms.UNMODELLED_FORMS holds the forms the simulator does not decode
+UNMODELLED = ("F35", "F36")

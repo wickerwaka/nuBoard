@@ -244,9 +244,11 @@ class Generated(unittest.TestCase):
         its group's class). An instruction of an UNBUILT_CLASSES class (WP77) has no template by
         design and is skipped; (WP79) none is left: the F32 / F33 classes are checked as every
         other, a BCD string against its compact template, a bit field in both crossings."""
-        from validation.v35s.chains.families import generate
+        from validation.v35s.chains.families import FAMILIES, UNMODELLED, generate
         from validation.v35s.chains.sim.frozen.templates import decode
-        codes = sorted({bytes(i.code) for c in generate(None) for i in c.instrs})
+        # (WP87) the modelled families only: an UNMODELLED family's forms have no template yet
+        codes = sorted({bytes(i.code) for c in generate([f for f in FAMILIES if f not in UNMODELLED])
+                        for i in c.instrs})
         seen = 0
         unbuilt = 0
         page = 0

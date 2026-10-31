@@ -35,10 +35,23 @@ CLASSES = ("reg", "imm", "prefix", "load", "load_alu", "store", "store_imm", "rm
            # (convert) and CVTDB (convert_d), CVTBW (extend) and CVTWL (extend_w), CLC STC CMC
            # CLD STD (flag), CLI (flag_di), STI (flag_ei)
            "incdec", "adjust", "adjust_b", "convert", "convert_d", "extend", "extend_w", "flag",
-           "flag_di", "flag_ei", "mul_imm")
+           "flag_di", "flag_ei", "mul_imm",
+           # (WP87) F35 control flow completed: BCWZ (a CW test without the count), RET imm16
+           # (the read, then SP raised by the immediate), CALL / BR near through a register
+           # (FF /2, FF /4), BR far (EA), CALL far (9A: PS, then PC to the stack), RET far (CB:
+           # PC, then PS) and RET far imm16 (CA). F36 the data forms never touched: LDS / LES
+           # (C5 / C4: a 32-bit pointer read, offset then segment), PUSH PSW / POP PSW (9C /
+           # 9D), LAHF / SAHF (9F / 9E: AH and the PSW's low byte). Generator-only: the
+           # simulator decodes none of them (UNMODELLED_FORMS)
+           "bcwz", "ret_imm", "call_reg", "br_reg", "branch_far", "call_far", "ret_far",
+           "ret_far_imm", "load_ptr", "push_psw", "pop_psw", "ahf")
 # Classes whose cycles are stack words (normalize.expected_accesses walks SP through them)
 STACK_CLASSES = ("push", "pop", "call", "push_imm", "push_seg", "pop_seg", "push_r", "pop_r",
-                 "prepare", "dispose", "ret")
+                 "prepare", "dispose", "ret",
+                 # (WP87) F35 / F36: a form's writes are pushes, its reads pops, then SP raised
+                 # by Form.sp_adjust
+                 "ret_imm", "call_reg", "call_far", "ret_far", "ret_far_imm", "push_psw",
+                 "pop_psw")
 MODE_CLASSES = ("base", "base_index", "disp", "base_disp", "base_index_disp", "direct")
 
 # Register and EA knob values (plan, "Registers from the prelude").
@@ -118,6 +131,8 @@ class Form:
     needs: tuple = ()               # register presets required, as (name, value) pairs
     rfm: int | None = None          # (WP23) the RFM value an internal SFR write stores (no
                                     # external bus cycle: the SFR page is on chip)
+    sp_adjust: int = 0              # (WP87) bytes added to SP after the form's stack reads (RET
+                                    # imm16, RET far imm16: normalize.expected_accesses)
 
     @property
     def length(self) -> int:
@@ -953,3 +968,189 @@ F33_FORMS = F33_REG_FORMS + F33_REP_FORMS + (F33_PATTERN_STORE,)
 # BNE +0; the decoder takes it as CMP AW,AW (the reg class, CMP r16,r16 setting Z from the two
 # registers; the RTL's format key is cmp_aw_aw's).
 F34_FORMS = _register([Form("cmp_aw_dw", "reg", bytes([0x3B, 0xC2]))])
+
+
+# F35 (WP87: control flow completed), refresh off. Every other form the family uses is in the
+# catalog above (CMP AW,AW and CMP AW,DW, BE / BNE +0 / +2, MOV CW,0 / 1 / 2, CALL +2, BR short,
+# RET, PUSH AW, NOP). NEC mnemonics and bytes:
+# - the sixteen conditional short branches 70-7F (disp8 from the next instruction): BV (V), BNV,
+#   BC (CY), BNC, BE (Z), BNE, BNH (CY or Z), BH, BN (S), BP, BPE (P), BPO, BLT (S xor V), BGE,
+#   BLE ((S xor V) or Z), BGT; +0 and +2 (74 / 75 are F23's be_n* / bne_n*). The flags are made
+#   known by one of three controls before the branch: CMP AW,AW (3B C0: Z 1, CY 0, S 0, V 0,
+#   P 1), CMP AW,DW (3B C2, AW = 0 after the fence and DW = 5678h: 0 - 5678h = A988h, Z 0, CY 1,
+#   S 1, V 0, P 1) and ADD DW,2A01h (81 C2 01 2A: 5678h + 2A01h = 8079h, Z 0, CY 0, S 1, V 1,
+#   P 0: low byte 79h has five bits). Every condition has a control under which it is taken and
+#   one under which it is not (F35_CC).
+# - BCWZ +n (E3 n: taken iff CW = 0, CW unchanged); DBNZNE +0 (E0 00: CW -= 1, taken iff CW != 0
+#   and Z = 0) and DBNZE +0 (E1 00: CW -= 1, taken iff CW != 0 and Z = 1), the class of DBNZ
+#   (E2: the same loop format; the class-equivalence the family tests).
+# - DBNZ backward (E2 FD over a NOP, E2 FC over MOV AW,DW): the body runs twice from CW = 2.
+# - RET imm16 (C2 00 00, C2 02 00: the return address read, then SP raised by the immediate).
+# - CALL BW (FF D3, FF /2) and BR BW (FF E3, FF /4) with BW loaded by MOV BW,imm16 (BB lo hi) to
+#   a code offset in the chain; BR far (EA lo hi 00 10) and CALL far (9A lo hi 00 10) with
+#   PS = 1000h (CODE_SEGMENT); RET far (CB) and RET far imm16 (CA 02 00).
+# The register-indirect and far targets are absolute offsets in the code segment: the prelude's
+# length (F35_PRELUDE_LEN, constant over the waits, RFM and the presets' values: every prelude
+# load is an imm16; families.f35 asserts it against image.prelude), the parity pad, the first
+# LS (4 bytes), the marker M0 (OUT 2 bytes, PUSH 1) and the target's offset from the first X.
+# One form per absolute offset in F35_ABS (named by it, hex): the chains of a variant at pE and
+# pO differ in that form's bytes, not only by the pad (test_chains). Memory-indirect transfers
+# are left out (the data fill is 9090h); BRK 3 / BRK imm8 and RETI are left out (the image's
+# vector table is zeroed and image.py has no hook for a family to set a vector word).
+F35_PRELUDE_LEN = 71
+F35_FIRST_X = tuple(F35_PRELUDE_LEN + 4 + n for n in (1, 2, 3))   # pad + M0 length 1, 2, 3
+F35_REL = (5, 6, 7, 8)                  # the targets' offsets from the first X (families.f35)
+F35_ABS = tuple(range(min(F35_FIRST_X) + min(F35_REL), max(F35_FIRST_X) + max(F35_REL) + 1))
+F35_CS = 0x1000                         # PS: types.CODE_SEGMENT (test_chains)
+# condition: (opcode, the flag test), NEC mnemonics
+F35_COND = {"bv": 0x70, "bnv": 0x71, "bc": 0x72, "bnc": 0x73, "be": 0x74, "bne": 0x75,
+            "bnh": 0x76, "bh": 0x77, "bn": 0x78, "bp": 0x79, "bpe": 0x7A, "bpo": 0x7B,
+            "blt": 0x7C, "bge": 0x7D, "ble": 0x7E, "bgt": 0x7F}
+F35_CC_N = (0, 2)
+# the flag controls: name, the catalog form, the flags it leaves (Z, CY, S, V, P)
+F35_CONTROLS = {"cmpaa": ("cmp_aw_aw", dict(Z=1, CY=0, S=0, V=0, P=1)),
+                "cmpad": ("cmp_aw_dw", dict(Z=0, CY=1, S=1, V=0, P=1)),
+                "adddw": ("add_dw_imm2a01", dict(Z=0, CY=0, S=1, V=1, P=0))}
+
+
+def f35_cond_taken(cond: str, flags: dict) -> bool:
+    """Whether the conditional branch `cond` (F35_COND) is taken under `flags`."""
+    z, cy, s, v, p = (flags[k] for k in ("Z", "CY", "S", "V", "P"))
+    base = {"bv": v, "bc": cy, "be": z, "bnh": cy or z, "bn": s, "bpe": p, "blt": s != v,
+            "ble": (s != v) or z}
+    neg = {"bnv": "bv", "bnc": "bc", "bne": "be", "bh": "bnh", "bp": "bn", "bpo": "bpe",
+           "bge": "blt", "bgt": "ble"}
+    return bool(base[cond]) if cond in base else not base[neg[cond]]
+
+
+# per condition: (the control it is taken under, the control it is not taken under), CMP AW,AW
+# or CMP AW,DW where one serves, ADD DW,2A01h where neither does
+F35_CC = {}
+for _c in F35_COND:
+    _t = [k for k in F35_CONTROLS if f35_cond_taken(_c, F35_CONTROLS[k][1])]
+    _nt = [k for k in F35_CONTROLS if not f35_cond_taken(_c, F35_CONTROLS[k][1])]
+    F35_CC[_c] = (_t[0], _nt[0])
+
+
+def f35_cc_form(cond: str, n: int) -> str:
+    return {"be": f"be_n{n}", "bne": f"bne_n{n}"}.get(cond, f"{cond}_n{n}")
+
+
+def _f35_abs(n: int) -> bytes:
+    return n.to_bytes(2, "little")
+
+
+_FAR = F35_CS.to_bytes(2, "little")
+F35_FORMS = _register(
+    [Form(f35_cc_form(c, n), "branch_short", bytes([op, n]))
+     for c, op in F35_COND.items() if c not in ("be", "bne") for n in F35_CC_N]
+    + [Form("add_dw_imm2a01", "imm", bytes([0x81, 0xC2, 0x01, 0x2A])),
+       Form("bcwz_n0", "bcwz", bytes([0xE3, 0x00])),
+       Form("bcwz_n2", "bcwz", bytes([0xE3, 0x02])),
+       Form("dbnzne_n0", "dbnz", bytes([0xE0, 0x00])),
+       Form("dbnze_n0", "dbnz", bytes([0xE1, 0x00])),
+       Form("dbnz_m3", "dbnz", bytes([0xE2, 0xFD])),         # back over a NOP
+       Form("dbnz_m4", "dbnz", bytes([0xE2, 0xFC])),         # back over MOV AW,DW
+       Form("ret_imm0", "ret_imm", bytes([0xC2, 0x00, 0x00]), **_STACK_R),
+       Form("ret_imm2", "ret_imm", bytes([0xC2, 0x02, 0x00]), sp_adjust=2, **_STACK_R),
+       Form("call_bw", "call_reg", bytes([0xFF, 0xD3]), **_STACK_W),
+       Form("br_bw", "br_reg", bytes([0xFF, 0xE3])),
+       Form("retf", "ret_far", bytes([0xCB]), reads=2, width=2, ea=_SP),
+       Form("retf_imm2", "ret_far_imm", bytes([0xCA, 0x02, 0x00]), reads=2, width=2, ea=_SP,
+            sp_adjust=2),
+       Form("mov_bw_imm", "imm", bytes([0xBB]) + DEFAULT_REGS["BW"].to_bytes(2, "little"))]
+    + [Form(f"mov_bw_t{a:04x}", "imm", bytes([0xBB]) + _f35_abs(a)) for a in F35_ABS]
+    + [Form(f"brf_t{a:04x}", "branch_far", bytes([0xEA]) + _f35_abs(a) + _FAR) for a in F35_ABS]
+    + [Form(f"callf_t{a:04x}", "call_far", bytes([0x9A]) + _f35_abs(a) + _FAR, writes=2,
+            width=2, ea=_SP - 2) for a in F35_ABS])
+# the absolute-target forms by kind: {kind: {absolute offset: form name}}
+F35_ABS_FORMS = {k: {a: f"{k}_t{a:04x}" for a in F35_ABS} for k in ("mov_bw", "brf", "callf")}
+
+
+# F36 (WP87: the data forms no family ran), refresh off. Every other form the family uses is in
+# the catalog above (MOV AW,DW, ADD [BW],AW, POP CW, PUSH AW, CMP AW,DW). Byte strings, NEC:
+# - MOV AL,[0C00h] (A0 00 0C) and MOV [0C00h],AL (A2 00 0C): the accumulator's direct byte forms.
+# - SHL AL,CL (D2 E0) and SHL byte [BW],CL (D2 27): the byte shifts by CL (CL = 31 from the
+#   fence, the full byte, as F26's count-mask finding).
+# - TEST DL,AL (84 C2): the byte TEST's register form (84 07 at [BW] is F14's test_m_al).
+# - XCH AW,r (91 CW, 93 BW, 94 SP, 95 BP, 96 IX, 97 IY; 92 DW is the catalog's xch_aw_dw).
+# - PUSH r (51-57) and POP r (5A-5F; 59 POP CW is F15's pop_cw), POP r only after PUSH r.
+# - MOV r8,imm8 (B0 AL, B2 DL, B3 BL, B4 AH, B5 CH, B6 DH, B7 BH; B1 CL is the catalog's) and MOV
+#   r16,imm16 for BW, SP, BP, IX, IY (BB-BF) with each register's preset (nothing moves).
+# - the register and AW,imm16 forms of OR (0B C2, 0D), ADDC (13 C2, 15), SUBC (1B C2, 1D), AND
+#   (23 C2, 25), SUB (2B C2, 2D), XOR (33 C2, 35) and CMP (3D; 3B C2 is F34's cmp_aw_dw), with
+#   DW and 1234h.
+# - ADD / CMP byte [BW],imm8 in the 80 group (80 07 05, 80 3F 05) and its alias 82 (82 07 05,
+#   82 3F 05).
+# - PUSH PSW (9C) and POP PSW (9D), as a pair only; MOV AH,PSW (9F, LAHF) and MOV PSW,AH (9E,
+#   SAHF, only after LAHF: AH then holds the PSW's low byte, BRKI (bit 1) included, so the OUT
+#   forms after it do not trap whatever SAHF writes).
+# - BUSLOCK (F0) before MOV AW,DW (F0 8B C2) and ADD [BW],AW (F0 01 07).
+# - MOV DS1,AW,[IX] (C4 04, LES) and MOV DS0,AW,[IX] (C5 04, LDS): the 32-bit pointer at IX =
+#   0100h, in the zeroed vector table, so AW, DS1 and DS0 load 0000h (the segment word is known:
+#   F25's rule that DS0, SS and PS are never loaded with an unknown value holds); reads the
+#   offset word at 0100h, then the segment word at 0102h.
+# Left out: the word strings (A5 A7 AB AD AF, F24's s, r, a, t and d series), INC / DEC r16
+# (40-4F, F33's incdec series, k = 1, 2, 4) and IN AW,DW (ED, F19's inw): in the catalog and
+# run already; anything that traps (CHKIND 62, FPO1 D8-DF, POLL 9B) or depends on a pin.
+F36_IMM8 = 0x12
+F36_R16 = {"cw": 1, "dw": 2, "bw": 3, "sp": 4, "bp": 5, "ix": 6, "iy": 7}
+F36_R8 = {"al": 0, "dl": 2, "bl": 3, "ah": 4, "ch": 5, "dh": 6, "bh": 7}
+F36_MOV16 = ("bw", "sp", "bp", "ix", "iy")
+F36_ALU = {"or": 0x08, "addc": 0x10, "subc": 0x18, "and": 0x20, "sub": 0x28, "xor": 0x30,
+           "cmp": 0x38}
+_IX = MODE["ix"]
+F36_FORMS = _register(
+    [Form("ld_al_dir", "load", bytes([0xA0]) + _DIR, reads=1, width=1, mode_class="direct",
+          ea=DIRECT),
+     Form("st_al_dir", "store", bytes([0xA2]) + _DIR, writes=1, width=1, mode_class="direct",
+          ea=DIRECT),
+     Form("shl_al_cl", "shift_cl", bytes([0xD2, 0xE0])),
+     Form("shlb_m_cl", "rmw", bytes([0xD2, 0x27]), reads=1, writes=1, **_BWB),
+     Form("test_dl_al", "reg", bytes([0x84, 0xC2]))]
+    + [Form(f"xch_aw_{r}", "reg", bytes([0x90 + i])) for r, i in F36_R16.items() if r != "dw"]
+    + [Form(f"push_{r}", "push", bytes([0x50 + i]), **_STACK_W) for r, i in F36_R16.items()]
+    + [Form(f"pop_{r}", "pop", bytes([0x58 + i]), **_STACK_R) for r, i in F36_R16.items()
+       if r != "cw"]
+    + [Form(f"mov_{r}_imm8", "imm", bytes([0xB0 + i, F36_IMM8])) for r, i in F36_R8.items()]
+    + [Form(f"mov_{r}_imm16", "imm", bytes([0xB8 + F36_R16[r]])
+            + DEFAULT_REGS[r.upper()].to_bytes(2, "little")) for r in F36_MOV16
+       if r != "bw"]
+    + [Form(f"{op}_aw_dw", "reg", bytes([base | 3, 0xC2])) for op, base in F36_ALU.items()
+       if op != "cmp"]
+    + [Form(f"{op}_aw_imm16", "imm", bytes([base | 5]) + IMM) for op, base in F36_ALU.items()]
+    + [Form(f"{op}b_m_imm8_{g:02x}", cls, bytes([g, 0x07 | (reg << 3), F15_IMM8]), **counts,
+            **_BWB)
+       for g in (0x80, 0x82)
+       for op, reg, cls, counts in (("add", 0, "rmw_imm", dict(reads=1, writes=1)),
+                                    ("cmp", 7, "load_alu", dict(reads=1)))]
+    + [Form("push_psw", "push_psw", bytes([0x9C]), **_STACK_W),
+       Form("pop_psw", "pop_psw", bytes([0x9D]), **_STACK_R),
+       Form("lahf", "ahf", bytes([0x9F])),
+       Form("sahf", "ahf", bytes([0x9E])),
+       Form("lock_mov_aw_dw", "prefix", bytes([0xF0, 0x8B, 0xC2])),
+       Form("lock_add_m_aw", "rmw", bytes([0xF0, 0x01, 0x07]), reads=1, writes=1, **_BW),
+       Form("les_aw_ix", "load_ptr", bytes([0xC4]) + modrm(_IX, 0), reads=2, width=2,
+            mode="ix", mode_class=_IX.mode_class, ea=_IX.ea),
+       Form("lds_aw_ix", "load_ptr", bytes([0xC5]) + modrm(_IX, 0), reads=2, width=2,
+            mode="ix", mode_class=_IX.mode_class, ea=_IX.ea)])
+# MOV BW,0800h is F35's mov_bw_imm (BB 00 08), the same bytes
+F36_MOV16_FORM = {r: ("mov_bw_imm" if r == "bw" else f"mov_{r}_imm16") for r in F36_MOV16}
+
+# (WP87) forms the simulator does not decode, or decodes into a class the form is not: every F35
+# and F36 form of a new class (CALL / BR through a register decode as FF's read-modify-write
+# group), and the class-equivalent forms whose opcodes sim/templates.decode does not know (the
+# conditional branches besides 74 / 75, DBNZE / DBNZNE, XCH AW,r besides 92, PUSH / POP r
+# besides 50 / 58 / 59, the AW,imm16 ALU forms besides 05, the 80 / 82 groups, the byte shift
+# by CL, the direct byte forms A0 / A2 and the BUSLOCK prefix). F35 and F36 are in
+# families.UNMODELLED. Decoded with their class: MOV r8,imm8, MOV r16,imm16 (the absolute
+# targets too), the register ALU forms, TEST DL,AL, ADD DW,2A01h and the backward DBNZ (E2).
+_NEW_F35_F36 = frozenset({"bcwz", "ret_imm", "call_reg", "br_reg", "branch_far", "call_far",
+                          "ret_far", "ret_far_imm", "load_ptr", "push_psw", "pop_psw", "ahf"})
+F35_F36_DECODED = frozenset(
+    [n for n in F35_FORMS + F36_FORMS if FORMS[n].code[0] in (0xB0, 0xB2, 0xB3, 0xB4, 0xB5,
+                                                               0xB6, 0xB7, 0xBB, 0xBC, 0xBD,
+                                                               0xBE, 0xBF)]
+    + [f"{op}_aw_dw" for op in F36_ALU if op != "cmp"]
+    + ["test_dl_al", "add_dw_imm2a01", "dbnz_m3", "dbnz_m4"])
+UNMODELLED_FORMS = frozenset(n for n in F35_FORMS + F36_FORMS if n not in F35_F36_DECODED)

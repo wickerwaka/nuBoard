@@ -527,6 +527,7 @@ def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, l
                     push(acc)
                 for _ in range(form.reads):
                     pop(acc)
+                sp = (sp + form.sp_adjust) & 0xFFFF   # (WP87) RET imm16, RET far imm16
             elif cls == "push_mem":
                 acc += _cycles("data_read", _form_ea(form, chain.regs), form.width)
                 push(acc)
@@ -543,6 +544,11 @@ def expected_accesses(chain: Chain, elements: dict | None = None) -> dict[int, l
                     port = ports.get(instr.offset, port)
                 kind = "io_write" if cls == "out" else "io_read"
                 acc += _cycles(kind, port, form.width)
+            elif cls == "load_ptr":
+                # (WP87, F36) LDS / LES: the pointer's offset word, then its segment word
+                ea = _form_ea(form, chain.regs)
+                for j in range(form.reads):
+                    acc += _cycles("data_read", (ea + 2 * j) & 0xFFFF, form.width)
             else:
                 ea = _form_ea(form, chain.regs) if form.reads or form.writes else None
                 for _ in range(form.reads):

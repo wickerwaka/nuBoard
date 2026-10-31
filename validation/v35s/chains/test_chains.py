@@ -130,6 +130,27 @@ RUN_RANGES.update({"F32": (858, 858), "F33": (1050, 1050)})
 # (WP80) F34: the forty-second fit's miss shapes; CMP AW,DW its one new byte string
 LENGTHS.update({"cmp_aw_dw": 2})
 RUN_RANGES.update({"F34": (1596, 1596)})
+# (WP87) F35 (control flow completed) and F36 (the data forms no family ran)
+LENGTHS.update({f"{c}_n{n}": 2 for c in ("bv", "bnv", "bc", "bnc", "bnh", "bh", "bn", "bp",
+                                          "bpe", "bpo", "blt", "bge", "ble", "bgt")
+                for n in (0, 2)})
+LENGTHS.update({"add_dw_imm2a01": 4, "bcwz_n0": 2, "bcwz_n2": 2, "dbnzne_n0": 2, "dbnze_n0": 2,
+                "dbnz_m3": 2, "dbnz_m4": 2, "ret_imm0": 3, "ret_imm2": 3, "call_bw": 2,
+                "br_bw": 2, "retf": 1, "retf_imm2": 3, "mov_bw_imm": 3})
+LENGTHS.update({f"{k}_t{a:04x}": n for k, n in (("mov_bw", 3), ("brf", 5), ("callf", 5))
+                for a in range(0x51, 0x57)})
+LENGTHS.update({"ld_al_dir": 3, "st_al_dir": 3, "shl_al_cl": 2, "shlb_m_cl": 2, "test_dl_al": 2,
+                "push_psw": 1, "pop_psw": 1, "lahf": 1, "sahf": 1, "lock_mov_aw_dw": 3,
+                "lock_add_m_aw": 3, "les_aw_ix": 2, "lds_aw_ix": 2})
+LENGTHS.update({f"xch_aw_{r}": 1 for r in ("cw", "bw", "sp", "bp", "ix", "iy")})
+LENGTHS.update({f"push_{r}": 1 for r in ("cw", "dw", "bw", "sp", "bp", "ix", "iy")})
+LENGTHS.update({f"pop_{r}": 1 for r in ("dw", "bw", "sp", "bp", "ix", "iy")})
+LENGTHS.update({f"mov_{r}_imm8": 2 for r in ("al", "dl", "bl", "ah", "ch", "dh", "bh")})
+LENGTHS.update({f"mov_{r}_imm16": 3 for r in ("sp", "bp", "ix", "iy")})
+LENGTHS.update({f"{op}_aw_dw": 2 for op in ("or", "addc", "subc", "and", "sub", "xor")})
+LENGTHS.update({f"{op}_aw_imm16": 3 for op in ("or", "addc", "subc", "and", "sub", "xor", "cmp")})
+LENGTHS.update({f"{op}b_m_imm8_{g}": 3 for op in ("add", "cmp") for g in ("80", "82")})
+RUN_RANGES.update({"F35": (1044, 1044), "F36": (750, 750)})
 
 
 def _synthetic_run(chain):
@@ -225,11 +246,21 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(built.image[0x0800], b"\x90" * 0x800)
 
     def test_parity_pairs_differ_by_pad(self):
+        from validation.v35s.chains.forms import F35_ABS_FORMS
         by_id = {c.id: c for c in self.chains}
+        # (WP87) F35's absolute targets (MOV BW,t, BR far, CALL far) move with the pad: the
+        # target less the pad is the same at both parities
+        absolute = {name for kind in F35_ABS_FORMS.values() for name in kind.values()}
+
+        def strip(c):
+            pad = int(c.instrs[0].role == "pad")
+            return [i.code[:1] + (int.from_bytes(i.code[1:3], "little") - pad).to_bytes(2, "little")
+                    + i.code[3:] if i.form in absolute else i.code
+                    for i in c.instrs if i.role != "pad"]
+
         for chain in self.chains:
             if chain.parity == "even":
                 odd = by_id[chain.id.replace("-pE", "-pO")]
-                strip = lambda c: [i.code for i in c.instrs if i.role != "pad"]
                 self.assertEqual(strip(chain), strip(odd), chain.id)
 
     def test_family_counts(self):
@@ -526,7 +557,8 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(FORMS[name].code.hex(), hexcode, name)
         new = set(code) - {"test_m_imm", "cmp_m_imm", "test_dir_aw", "pop_m"}
         for c in self.chains:
-            if c.family not in ("F15", "F16", "F21"):   # F16 and F21 reuse F15's forms
+            # F16 and F21 reuse F15's forms; (WP87) F36 POP CW after PUSH CW
+            if c.family not in ("F15", "F16", "F21", "F36"):
                 self.assertFalse(new & {i.form for i in c.instrs}, c.id)
         for c in f15:
             build_image(c)
@@ -2007,7 +2039,9 @@ class F32F33Tests(unittest.TestCase):
         for name in F32_FORMS + F33_FORMS:
             self.assertNotIn(name, UNMODELLED_FORMS)     # (WP78) the simulator decodes them
             self.assertIn(FORMS[name].cls, CLASSES, name)
-        self.assertEqual(UNMODELLED_FORMS, frozenset())
+        # (WP87) none of F32's or F33's: the generator-only forms are F35's and F36's
+        from validation.v35s.chains.forms import F35_FORMS, F36_FORMS
+        self.assertFalse(UNMODELLED_FORMS - set(F35_FORMS + F36_FORMS))
         # (WP78) one class per cost the facts tell apart
         for name, cls in (("clr1_mb_cl", "bit1_clr"), ("set1_mw_imm", "bit1_rmw"),
                           ("not1_mb_cl", "bit1_rmw"), ("test1_mw_imm", "bit1_test"),
@@ -2034,7 +2068,7 @@ class F32F33Tests(unittest.TestCase):
         from validation.v35s.chains import fit
         self.assertNotIn("F32", UNMODELLED)
         self.assertNotIn("F33", UNMODELLED)
-        self.assertEqual(UNMODELLED, ())
+        self.assertEqual(UNMODELLED, ("F35", "F36"))     # (WP87) generator-only
         self.assertIn("F32", fit.TIE_FAMILIES)
         self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
 
@@ -2257,7 +2291,9 @@ class F34Tests(unittest.TestCase):
         from validation.v35s.chains.forms import F34_FORMS
         self.assertEqual(F34_FORMS, ("cmp_aw_dw",))
         self.assertEqual((FORMS["cmp_aw_dw"].cls, FORMS["cmp_aw_dw"].code.hex()), ("reg", "3bc2"))
-        others = {bytes(i.code) for f in FAMILIES if f != "F34" for c in generate([f])
+        # (WP87) the families after F34 reuse its byte string
+        others = {bytes(i.code) for f in FAMILIES if f not in ("F34", "F35", "F36")
+                  for c in generate([f])
                   for i in c.instrs}
         new = {i.form for c in self.f34 for i in c.instrs if bytes(i.code) not in others}
         self.assertEqual(new, {"cmp_aw_dw"})
@@ -2397,6 +2433,416 @@ class F34Tests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             self.assertEqual(main(["gen", "--family", "F34", "--check"]), 0)
         self.assertIn("checked 1596 images", out.getvalue())
+
+def _f35_walk(chain):
+    """(WP87) run an F35 chain's X bytes as the CPU does, from the first X to M1: the flags after
+    each flag control (forms.F35_CONTROLS), CW from MOV CW,imm16 (001Fh from the fence), BW from
+    MOV BW,imm16, the stack of near and far return addresses (and PUSH AW's word), the code
+    offsets in PS 1000h from the built image. Returns (X indices in execution order, {X index:
+    taken at its first execution}, the stack left, the code offsets transferred to)."""
+    from validation.v35s.chains.forms import F35_COND, F35_CONTROLS, f35_cond_taken
+    cond_of = {op: c for c, op in F35_COND.items()}
+    controls = {form: flags for form, flags in F35_CONTROLS.values()}
+    built = build_image(chain)
+    base = built.chain_base - CODE_BASE
+    x = [i for i in chain.instrs if i.role == "x"]
+    at = {base + i.offset: i for i in x}
+    m1 = next(i for i in chain.instrs if i.role == "marker" and i.marker_id == 1)
+    end = base + m1.offset
+    pc = base + x[0].offset if x else end
+    flags, cw, bw, stack, done, first, targets = None, 0x001F, 0x0800, [], [], {}, []
+    while pc != end:
+        if pc not in at or len(done) > 24:
+            raise AssertionError(f"{chain.id}: pc {pc:04X} is not an X boundary")
+        i = at[pc]
+        done.append(i.index)
+        code, nxt, op = i.code, pc + len(i.code), i.code[0]
+        word = int.from_bytes(code[1:3], "little")
+        taken, new = None, nxt
+        if i.form in controls:
+            flags = controls[i.form]
+        elif 0x70 <= op <= 0x7F or op in (0xEB, 0xE0, 0xE1, 0xE2, 0xE3):
+            if op == 0xE3:
+                taken = cw == 0
+            elif op in (0xE0, 0xE1, 0xE2):
+                cw = (cw - 1) & 0xFFFF
+                taken = cw != 0 and (op == 0xE2 or bool(flags["Z"]) == (op == 0xE1))
+            else:
+                taken = op == 0xEB or f35_cond_taken(cond_of[op], flags)
+            new = nxt + int.from_bytes(code[1:2], "little", signed=True) if taken else nxt
+        elif op == 0xE8:
+            stack.append(nxt)
+            taken, new = True, (nxt + word) & 0xFFFF
+        elif op in (0xC3, 0xC2):
+            taken, new = True, stack.pop()
+            for _ in range(word // 2 if op == 0xC2 else 0):
+                stack.pop()
+        elif op == 0xFF:
+            if code[1] == 0xD3:
+                stack.append(nxt)
+            taken, new = True, bw
+        elif op in (0xEA, 0x9A):
+            if int.from_bytes(code[3:5], "little") != CODE_BASE >> 4:
+                raise AssertionError(f"{chain.id}: far target segment {code[3:5].hex()}")
+            if op == 0x9A:
+                stack += [CODE_BASE >> 4, nxt]
+            taken, new = True, word
+        elif op in (0xCB, 0xCA):
+            taken, new = True, stack.pop()
+            if stack.pop() != CODE_BASE >> 4:
+                raise AssertionError(f"{chain.id}: RET far pops another segment")
+            for _ in range(word // 2 if op == 0xCA else 0):
+                stack.pop()
+        elif op == 0x50:
+            stack.append("AW")
+        elif op == 0xBB:
+            bw = word
+        elif op == 0xB9:
+            cw = word
+        if taken is not None:
+            first.setdefault(i.index, taken)
+            if taken:
+                targets.append(new)
+        pc = new
+    return done, first, stack, targets
+
+
+class F35Tests(unittest.TestCase):
+    """(WP87) control flow completed: the conditional branches under the three flag controls,
+    BCWZ, DBNZE / DBNZNE, the backward DBNZ, RET imm16, the register-indirect and far
+    transfers; counts, bytes, the walk of every chain against its exec / skipped / taken knobs,
+    the absolute targets at both parities, baselines, synthetic runs, gen --check."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f35 = generate(["F35"])
+        cls.cells = [c for c in cls.f35 if c.waits == 0]
+        cls.by = {c.id[len("F35-"):-len("-w0")]: c for c in cls.cells}
+
+    def _body(self, label):
+        return " ".join(i.code.hex() for i in self.by[label].instrs if i.role == "x")
+
+    def test_counts(self):
+        from collections import Counter
+        from validation.v35s.chains.families import UNMODELLED
+        self.assertEqual(len(self.f35), 1044)
+        self.assertIn("F35", UNMODELLED)
+        pe = [c for c in self.cells if c.parity == "even"]
+        self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in pe),
+                         {("out", "empty"): 1, ("out", "ctl"): 3, ("out", "cc"): 64,
+                          ("out", "cw"): 17, ("out", "loop"): 4, ("out", "ret"): 4,
+                          ("out", "ind"): 5, ("out", "far"): 5,
+                          ("push", "empty"): 1, ("push", "ctl"): 3, ("push", "cc"): 32,
+                          ("push", "cw"): 17, ("push", "loop"): 4, ("push", "ret"): 4,
+                          ("push", "ind"): 5, ("push", "far"): 5})
+        for c in self.f35:
+            self.assertEqual(c.rfm, 0xEC, c.id)
+            self.assertTrue(c.id.startswith(f"F35-{c.marker_kind}-"), c.id)
+            self.assertEqual(c.knobs["marker"], c.marker_kind, c.id)
+            self.assertEqual(c.regs, self.f35[0].regs, c.id)
+            if c.marker_kind == "push":
+                self.assertEqual(c.knobs["n"] if c.knobs["series"] == "cc" else 0, 0, c.id)
+
+    def test_catalog(self):
+        from validation.v35s.chains.forms import (CLASSES, F35_ABS, F35_CC, F35_COND,
+                                                  F35_CONTROLS, F35_CS, F35_FIRST_X, F35_FORMS,
+                                                  F35_PRELUDE_LEN, F35_REL, STACK_CLASSES,
+                                                  f35_cond_taken)
+        from validation.v35s.chains.image import prelude
+        from validation.v35s.chains.types import CODE_SEGMENT
+        self.assertEqual(F35_CS, CODE_SEGMENT)
+        for w in (0, 1, 2):
+            self.assertEqual(len(prelude(self.f35[0].regs, w, 0xEC, 0x4C)), F35_PRELUDE_LEN)
+        self.assertEqual(F35_ABS, tuple(range(min(F35_FIRST_X) + min(F35_REL),
+                                              max(F35_FIRST_X) + max(F35_REL) + 1)))
+        for name, code in (("bv_n0", "7000"), ("bgt_n2", "7f02"), ("bpe_n0", "7a00"),
+                           ("add_dw_imm2a01", "81c2012a"), ("bcwz_n2", "e302"),
+                           ("dbnzne_n0", "e000"), ("dbnze_n0", "e100"), ("dbnz_m3", "e2fd"),
+                           ("dbnz_m4", "e2fc"), ("ret_imm0", "c20000"), ("ret_imm2", "c20200"),
+                           ("call_bw", "ffd3"), ("br_bw", "ffe3"), ("retf", "cb"),
+                           ("retf_imm2", "ca0200"), ("mov_bw_imm", "bb0008"),
+                           ("mov_bw_t0053", "bb5300"), ("brf_t0051", "ea51000010"),
+                           ("callf_t0056", "9a56000010")):
+            self.assertEqual(FORMS[name].code.hex(), code, name)
+        for name in F35_FORMS:
+            self.assertIn(FORMS[name].cls, CLASSES, name)
+        self.assertEqual({FORMS[f"{c}_n0"].cls for c in F35_COND if c not in ("be", "bne")},
+                         {"branch_short"})
+        self.assertEqual((FORMS["dbnze_n0"].cls, FORMS["dbnzne_n0"].cls, FORMS["bcwz_n0"].cls),
+                         ("dbnz", "dbnz", "bcwz"))
+        for name, cls, reads, writes, adj in (("ret_imm2", "ret_imm", 1, 0, 2),
+                                              ("call_bw", "call_reg", 0, 1, 0),
+                                              ("callf_t0051", "call_far", 0, 2, 0),
+                                              ("retf", "ret_far", 2, 0, 0),
+                                              ("retf_imm2", "ret_far_imm", 2, 0, 2)):
+            f = FORMS[name]
+            self.assertEqual((f.cls, f.reads, f.writes, f.sp_adjust), (cls, reads, writes, adj))
+            self.assertIn(cls, STACK_CLASSES)
+        # every condition taken under one control and not under the other
+        flags = {k: v for k, (_, v) in F35_CONTROLS.items()}
+        self.assertEqual(flags["cmpad"], dict(Z=0, CY=1, S=1, V=0, P=1))
+        for cond, (t, nt) in F35_CC.items():
+            self.assertTrue(f35_cond_taken(cond, flags[t]), cond)
+            self.assertFalse(f35_cond_taken(cond, flags[nt]), cond)
+        # conditions in complementary pairs (the opcode's bit 0 inverts)
+        for cond, op in F35_COND.items():
+            other = next(c for c, o in F35_COND.items() if o == op ^ 1)
+            for fl in flags.values():
+                self.assertNotEqual(f35_cond_taken(cond, fl), f35_cond_taken(other, fl), cond)
+        self.assertEqual(F35_CC["bv"], ("adddw", "cmpaa"))
+        self.assertEqual(F35_CC["bc"], ("cmpad", "cmpaa"))
+
+    def test_placement(self):
+        for label, body in (("out-cc-bv-t-n2-pE", "81c2012a 7002 90 90"),
+                            ("out-cc-bv-nt-n0-pE", "3bc0 7000"),
+                            ("push-cc-blt-t-n0-pO", "3bc2 7c00"),
+                            ("out-cc-be-t-n2-pE", "3bc0 7402 90 90"),
+                            ("out-cw-bcwz-t-n2-pE", "b90000 e302 90 90"),
+                            ("out-cw-dbnzne-c2-cmpad-pE", "b90200 3bc2 e000"),
+                            ("out-loop-dbnz-reg-pE", "b90200 8bc2 e2fc"),
+                            ("push-ret-imm2-pE", "50 e80200 eb03 c20200"),
+                            ("out-far-callf-retf-pO", "9a54000010 eb01 cb"),
+                            ("push-far-callf-retf-pO", "9a53000010 eb01 cb"),
+                            ("out-far-callf-retf-pE", "9a55000010 eb01 cb"),
+                            ("out-ind-callr-ret-pE", "bb5500 ffd3 eb01 c3"),
+                            ("push-ind-brr-n1-pO", "bb5200 ffe3 90")):
+            self.assertEqual(self._body(label), body, label)
+
+    def test_walk_matches_knobs(self):
+        from validation.v35s.chains.families import f35_first_x
+        targets = set()
+        left = {"ind-callr": 1, "far-callf": 2, "ret-pushaw": 1}    # the words left on the stack
+        for c in self.cells:
+            k = c.knobs
+            x = [i for i in c.instrs if i.role == "x"]
+            self.assertEqual([i.form for i in x], k["x"], c.id)
+            if x:
+                built = build_image(c)
+                self.assertEqual(built.chain_base - CODE_BASE + x[0].offset,
+                                 f35_first_x(c.marker_kind, c.parity), c.id)
+            done, first, stack, tgts = _f35_walk(c)
+            self.assertEqual(done, k["exec"], c.id)
+            label = c.id[len(f"F35-{c.marker_kind}-"):].rsplit("-p", 1)[0]
+            self.assertEqual(len(stack), left.get(label, 0), c.id)
+            never = [i for i in x if i.index not in done]
+            self.assertEqual(len(never), k["skipped"], c.id)
+            self.assertTrue(all(i.form == "nop" for i in never), c.id)
+            if k["taken"] is None:
+                self.assertFalse(first, c.id)
+            else:
+                idx = k["x"].index(k["form"]) if k["form"] in k["x"] else None
+                measured = [j for j in first if k["x"][j] == k["form"]] if idx is not None else []
+                self.assertTrue(measured or k["series"] in ("ind", "far"), c.id)
+                if measured:
+                    self.assertEqual(first[measured[0]], k["taken"], c.id)
+                else:
+                    self.assertTrue(k["taken"] and tgts, c.id)
+            if k["series"] == "cc" and k["taken"]:
+                targets.add((k["n"], tgts[0] & 1))
+            if k.get("target_rel") is not None:
+                self.assertIn(x[0].offset + k["target_rel"],
+                              [t - (build_image(c).chain_base - CODE_BASE) for t in tgts], c.id)
+            if k["series"] == "loop" and k["form"]:
+                self.assertEqual(done.count(1), 2, c.id)
+        # both target parities among the taken conditional branches at each n
+        self.assertEqual(targets, {(0, 0), (0, 1), (2, 0), (2, 1)})
+
+    def test_both_outcomes_every_condition(self):
+        from validation.v35s.chains.forms import F35_COND
+        seen = {(c.knobs["cond"], c.knobs["taken"], c.knobs["n"], c.marker_kind)
+                for c in self.cells if c.knobs["series"] == "cc"}
+        self.assertEqual(seen, {(cond, t, n, m) for cond in F35_COND for t in (True, False)
+                                for n, m in ((0, "out"), (2, "out"), (0, "push"))})
+        dbnz = {(c.knobs["form"], c.knobs["cw"], c.knobs["control"]): c.knobs["taken"]
+                for c in self.cells if c.knobs["series"] == "cw" and c.knobs["form"]
+                and c.knobs["form"].startswith("dbnz")}
+        self.assertEqual({k for k, t in dbnz.items() if t},
+                         {("dbnze_n0", 2, "cmpaa"), ("dbnzne_n0", 2, "cmpad")})
+        self.assertEqual(len(dbnz), 8)
+
+    def test_expected_accesses(self):
+        from validation.v35s.chains.normalize import expected_accesses
+
+        def acc(label):
+            c = self.by[label]
+            a = expected_accesses(c)
+            return [(x.kind, x.addr) for k in sorted(a) for x in a[k]]
+
+        sw, sr = "stack_write", "stack_read"
+        self.assertEqual(acc("push-ret-imm2-pE"),
+                         [(sw, 0xEFE), (sw, 0xEFC), (sw, 0xEFA), (sr, 0xEFA), (sw, 0xEFC),
+                          ("io_write", 0xFF00)])
+        self.assertEqual(acc("push-far-callf-retf2-pO"),
+                         [(sw, 0xEFE), (sw, 0xEFC), (sw, 0xEFA), (sw, 0xEF8), (sr, 0xEF8),
+                          (sr, 0xEFA), (sw, 0xEFC), ("io_write", 0xFF00)])
+        self.assertEqual(acc("push-ind-callr-pE"),
+                         [(sw, 0xEFE), (sw, 0xEFC), (sw, 0xEFA), ("io_write", 0xFF00)])
+        self.assertEqual(acc("out-cc-bpo-t-n2-pE"),
+                         [("io_write", 0x20), ("io_write", 0x21), ("io_write", 0xFF00)])
+
+    def test_synthetic_runs_and_baselines(self):
+        from validation.v35s.chains.derive import BASELINES, index_facts, run_facts
+        from validation.v35s.chains.normalize import normalize
+        metric, base = BASELINES["F35"]
+        self.assertEqual(metric, "dM")
+        facts = []
+        for c in self.cells:
+            n = normalize(_synthetic_run(c))
+            self.assertIsNone(n.access_mismatch, c.id)
+            self.assertEqual(n.checks, [], c.id)
+            self.assertEqual(sorted(n.t_markers), [0, 1], c.id)
+            facts.append(run_facts(n))
+        index = index_facts(facts)
+        for f in facts:
+            b, k = base(f, index, None), f["knobs"]
+            if k["baseline"] is None:
+                self.assertIsNone(b, f["id"])
+                continue
+            self.assertIsNotNone(b, f["id"])
+            self.assertEqual((b["marker"], b["column"]), (f["marker"], f["column"]))
+            self.assertEqual([FORMS[n].code[0] for n in b["knobs"]["x"]],
+                             [FORMS[n].code[0] for n in k["lead"]], f["id"])
+
+    def test_unmodelled_forms(self):
+        from validation.v35s.chains.forms import F35_FORMS, F36_FORMS, UNMODELLED_FORMS
+        from validation.v35s.chains.sim.frozen.templates import decode as frozen_decode
+        from validation.v35s.chains.sim.templates import decode
+        regs = {"AW": 0, "BW": 0x800, "CW": 0, "DW": 0x40, "SP": 0xF00, "BP": 0xA00,
+                "IX": 0x100, "IY": 0x180, "Z": 1, "ret0F00": 0}
+        for name in F35_FORMS + F36_FORMS:
+            f = FORMS[name]
+            for dec in (decode, frozen_decode):
+                try:
+                    op = dec(f.code, 0, regs)
+                    ok = op.length == f.length and op.cls == f.cls
+                except (ValueError, IndexError):     # an unknown opcode, or no ModR/M
+                    ok = False
+                self.assertEqual(ok, name not in UNMODELLED_FORMS, name)
+        self.assertTrue(UNMODELLED_FORMS <= set(F35_FORMS + F36_FORMS))
+
+    def test_gen_check(self):
+        import contextlib
+        import io
+        from validation.v35s.chains.__main__ import main
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["gen", "--family", "F35", "F36", "--check"]), 0)
+        self.assertIn("checked 1794 images", out.getvalue())
+
+
+class F36Tests(unittest.TestCase):
+    """(WP87) the data forms no family ran: counts, bytes and classes, the first bytes they add
+    to the catalog, the expected accesses (the direct byte forms, the byte shift and the 80 / 82
+    group at [BW], the pointer loads, the stack pairs), the OUT-only cells, baselines, synthetic
+    runs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f36 = generate(["F36"])
+        cls.cells = [c for c in cls.f36 if c.waits == 0 and c.parity == "even"]
+        cls.by = {c.id[len("F36-"):-len("-pE-w0")]: c for c in cls.cells}
+
+    def test_counts(self):
+        from collections import Counter
+        from validation.v35s.chains.families import F36_OUT_ONLY, UNMODELLED
+        self.assertEqual(len(self.f36), 750)
+        self.assertIn("F36", UNMODELLED)
+        self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in self.cells),
+                         {("out", "empty"): 1, ("out", "mov"): 14, ("out", "shift"): 2,
+                          ("out", "test"): 1, ("out", "xch"): 6, ("out", "stack"): 15,
+                          ("out", "alu"): 17, ("out", "psw"): 2, ("out", "lock"): 4,
+                          ("out", "ptr"): 2,
+                          ("push", "empty"): 1, ("push", "mov"): 13, ("push", "shift"): 2,
+                          ("push", "test"): 1, ("push", "xch"): 5, ("push", "stack"): 14,
+                          ("push", "alu"): 17, ("push", "psw"): 2, ("push", "lock"): 4,
+                          ("push", "ptr"): 2})
+        for label in F36_OUT_ONLY:
+            self.assertIn(f"out-{label}", self.by)
+            self.assertNotIn(f"push-{label}", self.by)
+        for c in self.f36:
+            self.assertEqual((c.rfm, c.regs["IX"], c.regs["SP"]), (0xEC, 0x0100, 0x0F00), c.id)
+            self.assertEqual(c.knobs["marker"], c.marker_kind, c.id)
+            self.assertEqual(c.knobs["exec"], list(range(len(c.knobs["x"]))), c.id)
+
+    def test_catalog(self):
+        from validation.v35s.chains.forms import CLASSES, F35_FORMS, F36_FORMS
+        for name, code, cls in (("ld_al_dir", "a0000c", "load"), ("st_al_dir", "a2000c", "store"),
+                                ("shl_al_cl", "d2e0", "shift_cl"), ("shlb_m_cl", "d227", "rmw"),
+                                ("test_dl_al", "84c2", "reg"), ("xch_aw_cw", "91", "reg"),
+                                ("xch_aw_iy", "97", "reg"), ("push_cw", "51", "push"),
+                                ("push_iy", "57", "push"), ("pop_dw", "5a", "pop"),
+                                ("pop_iy", "5f", "pop"), ("mov_al_imm8", "b012", "imm"),
+                                ("mov_bh_imm8", "b712", "imm"), ("mov_sp_imm16", "bc000f", "imm"),
+                                ("mov_iy_imm16", "bf8001", "imm"), ("or_aw_dw", "0bc2", "reg"),
+                                ("xor_aw_dw", "33c2", "reg"), ("cmp_aw_imm16", "3d3412", "imm"),
+                                ("addc_aw_imm16", "153412", "imm"),
+                                ("addb_m_imm8_82", "820705", "rmw_imm"),
+                                ("cmpb_m_imm8_80", "803f05", "load_alu"),
+                                ("push_psw", "9c", "push_psw"), ("pop_psw", "9d", "pop_psw"),
+                                ("lahf", "9f", "ahf"), ("sahf", "9e", "ahf"),
+                                ("lock_mov_aw_dw", "f08bc2", "prefix"),
+                                ("lock_add_m_aw", "f00107", "rmw"),
+                                ("les_aw_ix", "c404", "load_ptr"),
+                                ("lds_aw_ix", "c504", "load_ptr")):
+            self.assertEqual((FORMS[name].code.hex(), FORMS[name].cls), (code, cls), name)
+        for name in F36_FORMS:
+            self.assertIn(FORMS[name].cls, CLASSES, name)
+        # the first bytes F35 and F36 add to the catalog
+        new = set(F35_FORMS + F36_FORMS)
+        before = {f.code[0] for n, f in FORMS.items() if n not in new}
+        added = {FORMS[n].code[0] for n in new} - before
+        self.assertEqual(added, {0x0B, 0x0D, 0x13, 0x15, 0x1B, 0x1D, 0x25, 0x2B, 0x2D, 0x35, 0x3D,
+                                 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x5A, 0x5B, 0x5C,
+                                 0x5D, 0x5E, 0x5F, 0x70, 0x71, 0x72, 0x73, 0x76, 0x77, 0x78,
+                                 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F, 0x80, 0x82, 0x91,
+                                 0x93, 0x94, 0x95, 0x96, 0x97, 0x9A, 0x9C, 0x9D, 0x9E, 0x9F,
+                                 0xA0, 0xA2, 0xB0, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xBB,
+                                 0xBC, 0xBD, 0xBE, 0xBF, 0xC2, 0xC4, 0xC5, 0xCA, 0xCB, 0xD2,
+                                 0xE0, 0xE1, 0xE3, 0xEA, 0xF0})
+
+    def test_expected_accesses(self):
+        from validation.v35s.chains.normalize import expected_accesses
+
+        def acc(label):
+            c = self.by[label]
+            a = expected_accesses(c)
+            return [(x.kind, x.addr, x.width) for k in sorted(a) for x in a[k]
+                    if c.instrs[k].role == "x"]
+
+        r, w = "data_read", "data_write"
+        self.assertEqual(acc("out-mov-ld_al_dir"), [(r, 0xC00, "lo")])
+        self.assertEqual(acc("out-mov-st_al_dir"), [(w, 0xC00, "lo")])
+        self.assertEqual(acc("out-shift-shlb_m_cl"), [(r, 0x800, "lo"), (w, 0x800, "lo")])
+        self.assertEqual(acc("out-alu-addb_m_imm8_82"), [(r, 0x800, "lo"), (w, 0x800, "lo")])
+        self.assertEqual(acc("out-alu-cmpb_m_imm8_80"), [(r, 0x800, "lo")])
+        self.assertEqual(acc("out-lock-lock_add_m_aw"), [(r, 0x800, "word"), (w, 0x800, "word")])
+        self.assertEqual(acc("push-ptr-les_aw_ix"), [(r, 0x100, "word"), (r, 0x102, "word")])
+        self.assertEqual(acc("push-stack-push_psw-pop_psw"),
+                         [("stack_write", 0xEFC, "word"), ("stack_read", 0xEFC, "word")])
+        self.assertEqual(acc("out-stack-push_sp-pop_sp"),
+                         [("stack_write", 0xEFE, "word"), ("stack_read", 0xEFE, "word")])
+        self.assertEqual(acc("out-test-test_dl_al"), [])
+
+    def test_synthetic_runs_and_baselines(self):
+        from validation.v35s.chains.derive import BASELINES, index_facts, run_facts
+        from validation.v35s.chains.normalize import normalize
+        metric, base = BASELINES["F36"]
+        facts = []
+        for c in self.cells:
+            n = normalize(_synthetic_run(c))
+            self.assertIsNone(n.access_mismatch, c.id)
+            self.assertEqual(n.checks, [], c.id)
+            self.assertEqual(sorted(n.t_markers), [0, 1], c.id)
+            facts.append(run_facts(n))
+        index = index_facts(facts)
+        for f in facts:
+            b, k = base(f, index, None), f["knobs"]
+            if k["baseline"] is None:
+                self.assertIsNone(b, f["id"])
+                continue
+            self.assertIsNotNone(b, f["id"])
+            self.assertEqual(b["knobs"]["x"], k["lead"], f["id"])
+
 
 if __name__ == "__main__":
     unittest.main()
