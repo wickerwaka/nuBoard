@@ -734,7 +734,13 @@ candidates above together, 28,215/29,738) was adopted model-side only: the
 include was regenerated for consistency, no bench was rebuilt or gated, and
 the RTL stays at the forty-second fit's structure. WP83's catch-up to the
 forty-third fit (the agent's full gate green, the overseer's rerun green
-through C3 when stopped) is parked on branch `wp83-rtl-catchup`.
+through C3 when stopped) is parked on branch `wp83-rtl-catchup`. The
+forty-fifth fit (F35 and F36 modelled, twelve classes, WP88) was likewise
+adopted model-side only. `rtlgen` now fails outright on the frozen
+package (the `fetch_hold` template step), so the include stays at the
+forty-fourth fit's and `test_rtlgen` is no longer run; the RTL would need
+the twelve classes, the flag conditions and the fetch hold before it
+could follow.
 
 ### Synthesis trial on the T120F484 (2026-10-31)
 

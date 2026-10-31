@@ -52,6 +52,17 @@
    "pre": 0,
    "wb": 2
   },
+  "bcwz": {
+   "exec": 11,
+   "fgap": 5,
+   "hold": 2,
+   "nexec": 4,
+   "nfgap": 1,
+   "nhold": 2,
+   "post": 0,
+   "pre": 0,
+   "wb": 2
+  },
   "bf_ext": {
    "fsetup": 7,
    "nx": 1,
@@ -125,6 +136,21 @@
    "pre": 4,
    "wb": 0
   },
+  "br_reg": {
+   "exec": 5,
+   "fgap": 8,
+   "hold": 10,
+   "post": 0,
+   "pre": 5
+  },
+  "branch_far": {
+   "exec": 5,
+   "fgap": 5,
+   "hold": 16,
+   "post": 0,
+   "pre": 3,
+   "spre": 2
+  },
   "branch_near": {
    "exec": 5,
    "fgap": 3,
@@ -156,6 +182,28 @@
    "setup": 7,
    "setup_free": 3
   },
+  "call_far": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 16,
+   "post": 0,
+   "pre": 3,
+   "setup": 3,
+   "setup_free": 3,
+   "spre": 2,
+   "wpre": 1,
+   "wsetup": 7
+  },
+  "call_reg": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 10,
+   "post": 0,
+   "pre": 3,
+   "setup": 7,
+   "setup_free": 7,
+   "wpre": 0
+  },
   "convert": {
    "exec": 16,
    "nx": 0,
@@ -178,6 +226,19 @@
    "post": 0,
    "pre": 0,
    "wb": 2
+  },
+  "dbnz_z": {
+   "chold": 6,
+   "exec": 15,
+   "fgap": 5,
+   "hold": 2,
+   "nexec": 7,
+   "nfgap": 1,
+   "nhold": 3,
+   "post": 0,
+   "pre": 0,
+   "wb": 2,
+   "zexec": 4
   },
   "dispose": {
    "exec": 2,
@@ -289,6 +350,15 @@
    "pre": 0,
    "wb": 0
   },
+  "load_ptr": {
+   "dfloor": 2,
+   "exec": 5,
+   "phold": 3,
+   "pre": 0,
+   "pre0": 2,
+   "wb": 2,
+   "wsetup": 5
+  },
   "load_seg": {
    "dfloor": 2,
    "exec": 3,
@@ -352,6 +422,13 @@
    "rsetup": 7,
    "setup": 4,
    "setup_free": 0
+  },
+  "pop_psw": {
+   "exec": 4,
+   "phold": 2,
+   "setup": 7,
+   "setup_free": 3,
+   "wb": 2
   },
   "pop_r": {
    "exec": 2,
@@ -423,6 +500,37 @@
    "pre": 0,
    "setup": 7,
    "setup_free": 3
+  },
+  "ret_far": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 6,
+   "post": 0,
+   "pre": 0,
+   "setup": 7,
+   "setup_free": 3,
+   "wsetup": 7
+  },
+  "ret_far_imm": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 6,
+   "mhold": 6,
+   "post": 0,
+   "pre": 0,
+   "setup": 6,
+   "setup_free": 4,
+   "wsetup": 8
+  },
+  "ret_imm": {
+   "exec": 8,
+   "fgap": 5,
+   "hold": 13,
+   "mhold": 6,
+   "post": 0,
+   "pre": 0,
+   "setup": 8,
+   "setup_free": 4
   },
   "rmw": {
    "alu": 3,
@@ -637,6 +745,12 @@
    "zexit": 10,
    "zfetch": 6
   },
+  "test_reg": {
+   "exec": 0,
+   "nx": 1,
+   "pre": 3,
+   "pre0": 4
+  },
   "xlat": {
    "exec": 2,
    "pre": 0,
@@ -849,6 +963,7 @@
  "request_reissue": "no_mem",
  "request_sample": "after_take",
  "reraise_off": 0,
+ "ret_imm_hold": "word",
  "retry_first": true,
  "rfm_delay": 3,
  "rmw_alu": "through",

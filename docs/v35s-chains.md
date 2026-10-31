@@ -78,8 +78,8 @@ IX=0100h, IY=0180h, DS0=DS1=SS=0, SP=0F00h, AW=1234h, DW=5678h.
 | F33 | the register miscellany and REPC / REPNC (WP74, acquired 2026-10-30, read as facts; modelled 2026-10-30, WP78, the forty-second fit, 841/1,050; RFM ECh; OUT marker, a PUSH subset; 175 variants, 1,050 runs; ids `F33-<out|push>-<label>-p<E|O>-w<N>`): `incdec` (INC / DEC r16 for every register, k = 1, 2, 4; INC / DEC AL, DH and byte / word [BW], k = 1, 2), `adjust` (ADJ4A, ADJ4S, ADJBA, ADJBS), `convert` (CVTBD, CVTDB), `extend` (CVTBW, CVTWL at AW = 0 and behind MOV AW,8080h), `muldiv` (MUL CW, MUL [BW], DIV / DIVU CW and [BW] behind MOV AW,1234h ; MOV DW,0, no trap; MUL CW / [BW] at AW = 0), `mulimm` (MUL AW,CW / [BW],imm16 (69) and imm8 (6B)), `flag` (CLC STC CMC CLI STI CLD STD), each k = 1, 2; `rep` (STC or CLC ; MOV CW,n ; REPC / REPNC CMPM / CMPBK word, n = 1, 2, 4, IX 0A40h, IY 0C40h: the carry exit after element 1 against CW running out; the patterns [0C42h] = 0 / [0A42h] = 0 for an exit after element 2, n = 2, 4; n = 0; controls) | the HDL plan's Phase E item 5 classes against the existing ones: INC / DEC r16, CVTBW and the flags at 3 clocks (one less than NOP), INC r8 = MOV r8,imm8, the adjust / convert / multiply / divide spans, EI's ~10 extra clocks; REPC / REPNC = REPE / REPNE with CY for Z, cell for cell against F24 |
 | F34 | the forty-second fit's miss shapes' probe family (WP80, acquired 2026-10-30, read as facts; 469/1,596 under the forty-second fit, 958/1,596 under the forty-third; RFM ECh; OUT marker, a PUSH subset; 266 variants, 1,596 runs; ids `F34-<out|push>-<probe>-<label>-p<E|O>-w<N>`): the leads l0, `nop`/`nop2`/`nop3` (NOP^1..3), `d`/`d2`/`d3` (`MOV AW,1234h`^1..3), `sep` (`SHL AW,8`), `cl` (`MOV CL,4`), each alone as a control; `bf` (EXT/INS BL,DH and DL,BH (register width, within and crossing) and BL,7 and DL,11 (imm4), DW = 0608h, behind l0, nop, nop2, d, sep at k = 1, k = 2 behind a NOP, the within-word forms followed by NOP, `MOV AW,DW` or `MOV AW,[0C00h]`), `rbit` (SET1 AL/AW by CL and imm behind l0, nop, nop2, d, sep, k = 2 behind l0 and nop, the pair with a NOP between, the CL forms behind `MOV CL,4`; TEST1 AW,CL as the op control), `mbit` (TEST1/SET1/CLR1 [BW],CL and SET1/CLR1 [BW],15 word behind the five leads, k = 2 and the pair with a NOP between; SET1 [m],CL in [BW+10h], [BW+200h], [BW+IX], [0C00h] behind l0, nop, d; SET1 [BW],CL byte), `inc` (`INC AW`^k `; NOP`^n, k = 1..4, n = 0..2, behind a NOP at n = 0; `CLC`^k `; NOP`^n, k = 1, 2, n = 0, 1), `mul` (MUL AW,[BW],5 and AW,[BW],1234h behind the five leads, k = 2 behind l0 and nop; MUL AW,CW,5), `nt` (`CMP AW,AW ; BNE +0`, `MOV CW,1 ; DBNZ +0`, `CMP AW,DW ; BE +0` (not taken; CMP AW,DW, 3B C2, the one new byte string) and the twin `CMP AW,AW ; MOV AW,DW` behind l0, d, d2, d3, nop, nop2, nop3; BE twice), `cr` (`CALL +2 ; BR +(f+1) ; <filler> ; RET` behind l0 or a NOP (the RET's target at either parity), the filler none, NOP, `SHL AW,8`, `SHL AW,8 ; NOP`, `NOP ; SHL AW,8`, `SHL AW,4`) | per miss shape one thing varied against a control: the bit fields' read is 6 (imm4 7) clocks after the last fetch's end behind every lead, EXT = INS, crossing = within; the register bit ops' +7 is a back-to-back fetch on a page form's word-ending last byte, and a 0F at an even address behind a lead takes its fetch a clock before the model; the memory bit ops read on one clock for every op (the model's classes split it by 3); INC/CLC's -1/-4 only with M1's OUT directly after; MUL imm memory's read a clock per immediate byte late, no fetch for the multiply when the immediate ends a word's first byte; BE not taken = BNE not taken, both 2 longer than modelled, DBNZ at an odd address holding prefetch 5 clocks; the RET's -1 is the shift before it, not its target's parity |
 | F24 | the string and block forms (WP66, acquired 2026-10-28; modelled and fitted 2026-10-29, the thirty-eighth fit, 746/912; the thirty-ninth, 2026-10-30, 778/912; the forty-first, 2026-10-30, 868/912): MOVBK (A4/A5), CMPBK (A6/A7), STM (AA/AB), LDM (AC/AD), CMPM (AE/AF), INM (6C/6D), OUTM (6E/6F), byte and word, under the OUT marker and the cost frame, with IX = 0A40h (source), IY = 0C40h (destination) and DW = 0040h (the port) as register presets, DS0 = DS1 = 0, DIR clear, AW = 0 after the fence; series `s` (unprefixed singles, k = 1, 2), `r` (`MOV CW,n` then REP STM/MOVBK/LDM/INM/OUTM, REPNE CMPM, REPE CMPBK for n = 0, 1, 2, 3, 4, 8, and 16 for STM w and MOVBK w; `MOV CW,n` alone as controls), `a` (IX and/or IY odd, n = 1, 2, 4), `t` (REPE/REPNE compares exiting on the fill after one element or over a stored pattern `MOV word [0C42h],0` after two (word) or three (byte) elements, n = 2, 4), `d` (drainers before `MOV CW,4 ; REP STM/MOVBK w`, d = 0, 2, 4); 152 variants, 912 runs; ids `F24-out-<series>-[<rep>-]<op>-<b|w>-(k<k>|n<n>)[-ix|iy|ixiy|-fill|-pat|-d<d>]-p<E|O>-w<N>` | the per-element cadence of a bus stream that takes no queue bytes, the REP setup and exit, the n = 0 check, the compares' termination, the odd split per element, the I/O-plus-memory element |
-| F35 | control flow completed (WP87, generated and acquired 2026-10-31, 1,044 runs, every repeat equal, refresh off; generator-only until modelled: `families.UNMODELLED`; the cost frame under OUT and PUSH markers, 174 variants, 1,044 runs; ids `F35-<out|push>-<series>-<label>-p<E|O>-w<N>`): `ctl` (the empty frame and three flag controls: `cmpaa` CMP AW,AW with Z = 1, CY = 0, S = 0, V = 0, P = 1; `cmpad` CMP AW,DW, AW being 0 after the fence, so Z = 0, CY = 1, S = 1, V = 0, P = 1; `adddw` ADD DW,2A01h giving 8079h: Z = 0, CY = 0, S = 1, V = 1, P = 0), `cc` (all sixteen short conditional branches 70–7F, each taken and not taken at +0 and +2 with the control that decides it: `adddw`/`cmpaa` for BV BH BPO BGT, `cmpaa`/`adddw` for BNV BNH BPE BLE, `cmpad`/`cmpaa` for BC BNE BN BLT, `cmpaa`/`cmpad` for BNC BE BP BGE; the PUSH frame at +0 only), `cw` (BCWZ taken after MOV CW,0 at +0/+2 and not taken after MOV CW,1; DBNZE E1 and DBNZNE E0 at CW = 1 and 2 under `cmpaa` and `cmpad`), `loop` (MOV CW,2 then NOP or MOV AW,DW then DBNZ back over it: the body runs twice, a backward taken transfer), `ret` (CALL +2 ; BR +3 ; RET 0 and, after PUSH AW, RET 2: RET imm16 against F23's RET), `ind` (MOV BW,target ; CALL BW to the next instruction and to a RET; BR BW to the next instruction and over a NOP; MOV BW,0800h the control), `far` (BR far EA to the next instruction and over a NOP, CALL far 9A to the next instruction, CALL far ; BR +1 ; RETF, and after PUSH AW CALL far ; BR +3 ; RETF 2). Absolute targets are code offsets 51h–56h built per parity (the prelude is a constant 71 bytes, checked at generation), PS = 1000h. Left out: memory-indirect transfers (the data fill is 9090h), BRK and RETI (no vector hook in the image) | whether every condition costs what BE/BNE cost; CW-tested transfers against DBNZ; re-execution from a backward transfer's refill; RET imm16; register-indirect and far transfers (two stack words, the PS reload) |
-| F36 | the data forms no family had run (WP87, generated and acquired 2026-10-31, 750 runs, every repeat equal, refresh off; generator-only until modelled: `families.UNMODELLED`; 125 variants, 750 runs, k = 1; ids `F36-<out|push>-<series>-<label>-p<E|O>-w<N>`): `mov` (MOV AL,[0C00h] A0 and MOV [0C00h],AL A2; MOV r8,12h for AL DL BL AH CH DH BH; MOV BW/BP/IX/IY,preset BB BD–BF; MOV SP,0F00h under OUT only), `shift` (SHL AL,CL and SHL byte [BW],CL, CL = 31), `test` (TEST DL,AL 84 C2), `xch` (XCH AW,r for 91 93 95–97 and 94 SP under OUT only), `stack` (PUSH r 51–57; PUSH r ; POP r for CW DW BW BP IX IY; PUSH SP ; POP SP under OUT only; PUSH PSW ; POP PSW as a pair), `alu` (OR ADDC SUBC AND SUB XOR AW,DW 0B 13 1B 23 2B 33; the same six and CMP with AW,1234h 0D 15 1D 25 2D 35 3D; ADD and CMP byte [BW],5 as 80 /0, 80 /7 and the 82 alias), `psw` (LAHF; LAHF ; SAHF, AH the PSW's low byte so BRKI stays set), `lock` (BUSLOCK MOV AW,DW and BUSLOCK ADD [BW],AW with the unprefixed controls), `ptr` (LES AW,[IX] C4 and LDS AW,[IX] C5 with IX = 0100h: the pointer sits in the zeroed vector table, so offset and segment load 0000h; C4 loads DS1 and C5 DS0). Already in the corpus and not repeated: the word strings (F24), INC/DEC r16 (F33), IN AW,DW (F19). With F35 the two families add 76 first bytes to the catalog. New classes, all unmodelled: `bcwz`, `ret_imm`, `call_reg`, `br_reg`, `branch_far`, `call_far`, `ret_far`, `ret_far_imm`, `load_ptr`, `push_psw`, `pop_psw`, `ahf`; the register and immediate variants keep the class they look equivalent to (`forms.UNMODELLED_FORMS` lists every form the decoders do not decode to its class) | the class-equivalence assumption on every register, immediate and stack variant; the byte direct moves, byte shifts by CL, BUSLOCK, the PSW forms and the pointer loads |
+| F35 | control flow completed (WP87, generated and acquired 2026-10-31, 1,044 runs, every repeat equal, refresh off; modelled the same day, WP88, the forty-fifth fit, 922/1,044; the cost frame under OUT and PUSH markers, 174 variants, 1,044 runs; ids `F35-<out|push>-<series>-<label>-p<E|O>-w<N>`): `ctl` (the empty frame and three flag controls: `cmpaa` CMP AW,AW with Z = 1, CY = 0, S = 0, V = 0, P = 1; `cmpad` CMP AW,DW, AW being 0 after the fence, so Z = 0, CY = 1, S = 1, V = 0, P = 1; `adddw` ADD DW,2A01h giving 8079h: Z = 0, CY = 0, S = 1, V = 1, P = 0), `cc` (all sixteen short conditional branches 70–7F, each taken and not taken at +0 and +2 with the control that decides it: `adddw`/`cmpaa` for BV BH BPO BGT, `cmpaa`/`adddw` for BNV BNH BPE BLE, `cmpad`/`cmpaa` for BC BNE BN BLT, `cmpaa`/`cmpad` for BNC BE BP BGE; the PUSH frame at +0 only), `cw` (BCWZ taken after MOV CW,0 at +0/+2 and not taken after MOV CW,1; DBNZE E1 and DBNZNE E0 at CW = 1 and 2 under `cmpaa` and `cmpad`), `loop` (MOV CW,2 then NOP or MOV AW,DW then DBNZ back over it: the body runs twice, a backward taken transfer), `ret` (CALL +2 ; BR +3 ; RET 0 and, after PUSH AW, RET 2: RET imm16 against F23's RET), `ind` (MOV BW,target ; CALL BW to the next instruction and to a RET; BR BW to the next instruction and over a NOP; MOV BW,0800h the control), `far` (BR far EA to the next instruction and over a NOP, CALL far 9A to the next instruction, CALL far ; BR +1 ; RETF, and after PUSH AW CALL far ; BR +3 ; RETF 2). Absolute targets are code offsets 51h–56h built per parity (the prelude is a constant 71 bytes, checked at generation), PS = 1000h. Left out: memory-indirect transfers (the data fill is 9090h), BRK and RETI (no vector hook in the image) | whether every condition costs what BE/BNE cost; CW-tested transfers against DBNZ; re-execution from a backward transfer's refill; RET imm16; register-indirect and far transfers (two stack words, the PS reload) |
+| F36 | the data forms no family had run (WP87, generated and acquired 2026-10-31, 750 runs, every repeat equal, refresh off; modelled the same day, WP88, the forty-fifth fit, 747/750; 125 variants, 750 runs, k = 1; ids `F36-<out|push>-<series>-<label>-p<E|O>-w<N>`): `mov` (MOV AL,[0C00h] A0 and MOV [0C00h],AL A2; MOV r8,12h for AL DL BL AH CH DH BH; MOV BW/BP/IX/IY,preset BB BD–BF; MOV SP,0F00h under OUT only), `shift` (SHL AL,CL and SHL byte [BW],CL, CL = 31), `test` (TEST DL,AL 84 C2), `xch` (XCH AW,r for 91 93 95–97 and 94 SP under OUT only), `stack` (PUSH r 51–57; PUSH r ; POP r for CW DW BW BP IX IY; PUSH SP ; POP SP under OUT only; PUSH PSW ; POP PSW as a pair), `alu` (OR ADDC SUBC AND SUB XOR AW,DW 0B 13 1B 23 2B 33; the same six and CMP with AW,1234h 0D 15 1D 25 2D 35 3D; ADD and CMP byte [BW],5 as 80 /0, 80 /7 and the 82 alias), `psw` (LAHF; LAHF ; SAHF, AH the PSW's low byte so BRKI stays set), `lock` (BUSLOCK MOV AW,DW and BUSLOCK ADD [BW],AW with the unprefixed controls), `ptr` (LES AW,[IX] C4 and LDS AW,[IX] C5 with IX = 0100h: the pointer sits in the zeroed vector table, so offset and segment load 0000h; C4 loads DS1 and C5 DS0). Already in the corpus and not repeated: the word strings (F24), INC/DEC r16 (F33), IN AW,DW (F19). With F35 the two families add 76 first bytes to the catalog. New classes (WP88, from the facts): `bcwz`, `dbnz_z`, `ret_imm`, `call_reg`, `br_reg`, `branch_far`, `call_far`, `ret_far`, `ret_far_imm`, `load_ptr`, `pop_psw`, `test_reg`; every other register, immediate and stack variant decodes to the class it measured equal to (PUSH PSW the push class, LAHF/SAHF the flag class) | the class-equivalence assumption on every register, immediate and stack variant; the byte direct moves, byte shifts by CL, BUSLOCK, the PSW forms and the pointer loads |
 
 Each chain runs at 0, 1 and 2 memory waits (WTC 0000h, 0001h, 0002h; I/O
 stays at 0 waits) and at both parities. F2–F8 are generated twice, with
@@ -5431,6 +5431,82 @@ INC k = 4 +1, LDEA.
 
 The RTL does not implement the two rules yet.
 
+### Control flow completed and the data forms no family had run: F35 and F36 read as facts, twelve classes, one enum (WP88, 2026-10-31; the forty-fifth fit)
+
+F35 (1,044 runs) and F36 (750 runs), generator-only when acquired (WP87), read the same day from the cost tables, the
+strips and a corpus-wide index of ΔM by (marker, parity, waits, X's bytes) over every refresh-off frame of every family,
+so that a variant's class mate is the same frame with the catalog's form of its class wherever it ran (scratchpad
+wp88/facts.txt, report-F35.txt, report-F36.txt, strips-F3x.txt). Costs are against the frame with X's lead alone, cells
+pE-w0 pE-w1 pE-w2 / pO-w0 pO-w1 pO-w2, OUT unless said. Readings:
+
+- **The condition is not a cost.** Every one of the sixteen 70–7F conditions costs exactly what BE/BNE cost, taken and
+  not taken, in every cell and behind every control: taken 24 26 30 / 28 31 36 behind a 2-byte CMP, not taken 9 9 10 /
+  10 11 12; the PUSH frame 27 32 37 / 24 28 32 and 8 10 11 / 8 9 9. Taken +0 = taken +2 (the skipped bytes cost nothing,
+  F23's +0..+7 again); not taken +2 adds the two NOPs. What moves the cost is the 4-byte lead ADD DW,2A01h (+3 +2 +2 /
+  0 +1 +1 taken and not taken alike): the queue state a 4-byte form leaves, not the flag tested. F35's BE/BNE repeat
+  F23's cells one for one. In the model the decoder decides every condition from the flags `execute` keeps (Z CY S V
+  P, computed for CMP r16,r16 and ADD r16,imm16); the forms join `branch_short`.
+- **BCWZ is not DBNZ.** Against `MOV CW,n ; DBNZ` in the same frame BCWZ is 3 clocks shorter taken and 2 shorter not
+  taken in every one of the 12 cells (no count to decrement), with DBNZ's refill and interleaves shifted. Own class
+  `bcwz` on the loop format's structure.
+- **DBNZE/DBNZNE: the Z test decides first.** Not taken on the Z test 9 10 11 / 9 11 12 whatever CW is (CW = 1 and
+  CW = 2 identical in every Z-fail cell), not taken on the count +3 in every cell, taken a clock longer than DBNZ (30 34
+  38 / 27 31 35). Own class `dbnz_z` (`zexec` for the Z exit, `chold` for the odd-address hold of the count's exit,
+  which ends 3 clocks after the Z exit's `nhold`).
+- **The backward DBNZ** (`loop`: the body and DBNZ run twice) refills from the body's address exactly as a forward
+  taken transfer does and re-fetches the body's words; nothing survives the flush. DBNZ's own class, no new rule.
+- **RET imm16**: its stack read comes one clock after RET's in every cell (+1 +2 +3 / +1 +1 +1). Where the immediate's
+  last byte ends its word (the form at an odd address: OUT pE, PUSH pO) its take frees a whole word and silicon fetches
+  it back to back after the read; where that byte is the even half of a word no fetch comes between the read and the
+  target's. Own class `ret_imm` (the read posted at the start with its own `setup`, the immediate taken once the read
+  is on the bus) and one enum, `ret_imm_hold` (none → word): a half-taken immediate word raises no fetch request for
+  `mhold` clocks from its take, as `mul_imm_hold` holds MUL imm's. Keyed on the operand's word alignment, not the
+  chain's parity. Deciding run `F35-out-ret-imm0-pO-w0`: the read at 122, the target's fetch at 133 (none: F125 1005A
+  first); the pE twin fetches 1005A at 127 right after its read under both. Flip at the candidate: −8.
+- **CALL BW / BR BW**: the ModR/M byte names the register and leaves the queue at the form's start; it is not a memory
+  form's ModR/M (no back-to-back start, no older-I/O wait, no latch): with that, all 60 `ind` runs are exact. CALL BW's
+  write comes 7 clocks after the last fetch's end at every wait (its setup all fetch-free); BR BW's target fetch 9
+  after. Classes `call_reg` and `br_reg` on CALL near's and BR near's structure.
+- **The far forms**: CALL far writes PS at SP−2, then the return offset at SP−4, issue to issue 9/10/11 clocks at 0/1/2
+  waits, the eight-word bursts' cadence (PUSH R); RET far reads the offset, then PS, at the same cadence, and reloading
+  PS costs nothing beyond its read (the refill after it is RET's). The 5-byte operand frees the queue in two steps: the
+  offset word, then the segment word `spre` clocks later. Classes `branch_far`, `call_far`, `ret_far`, `ret_far_imm`
+  (`wsetup` the second word's fetch-free setup). What stays a fact (26 runs): at w0 the second fetch after M0's I/O is
+  not back to back in silicon where at w1/w2 it is (one idle clock), and CALL far's first write is a clock late in one
+  alignment and right in the other under every post time tried.
+- **F36: every register, immediate and stack variant is class-equivalent, in all 12 cells, except two forms.** PUSH r
+  51–57 = PUSH AW; POP r = each other; XCH AW,r = XCH AW,DW; MOV r8,imm8 and MOV r16,imm16 = each other; the six ALU
+  AW,DW forms = MOV AW,DW = ADD AW,DW; the seven AW,imm16 forms = ADD AW,1234h; 80 = 82 = 83 /0 (byte = word); the
+  byte shift D2 = D3 in memory and SHL AL,CL at CL = 31 the word form's cost; A0/A2 = A1/A3; BUSLOCK MOV AW,DW = DS1:
+  MOV AW,DW in every cell (a prefix pseudo-instruction, no segment); LAHF = CLC and LAHF ; SAHF = CLC ; CLC (the flag
+  class, 3 clocks per instance, not NOP's 4); LES = LDS: a load plus a second read 7/8/9 clocks later, then no fetch
+  for 3 clocks and the EU's end 2 later than a load's (class `load_ptr`, `wsetup` and `phold`). PUSH PSW writes on
+  PUSH r's clock (the push class); the pair PUSH PSW ; POP PSW costs PUSH r ; POP r + 2, the +2 after POP PSW's read
+  (silicon's next fetch 2 clocks later: class `pop_psw`, a fetch hold after the read). TEST DL,AL costs 7 7 8 / 7 7 8,
+  MOV DL,12h's cost, not the other 2-byte register forms' 4 5 6 / 3 4 5: the fixed operation costs the imm form's pre
+  clocks (class `test_reg`, the register template with its own integers).
+- **Structural**: nothing keys on parity beyond where X's bytes sit in their words (OUT pE = PUSH pO throughout) and
+  nothing on waits beyond the wait clocks of the form's own cycles; the one w0-only shape is the far forms' second
+  fetch above.
+
+Model (sim/templates.py `_wp88_steps`, `BASE_CLASS` for the twelve classes, `decode` for every F35/F36 form,
+`cond_taken` and `_set_flags`; sim/config.py `ret_imm_hold` with the old behaviour as DEFAULT and the twelve classes'
+integers in `DEFAULT_COST` as the hand start; the rules that name a transfer class, `xfer_odd`, `xfer_nt` and
+`stack_wb`, see the base class; `fit.run_classes` walks absolute targets, a cache-key fix found on the way; stage 21,
+`F47_ENUMS` / `F47_CLASSES` / `F47_INTS`, F35 and F36 only since no rule reads an earlier class, the corpus guard the
+guard; tests test_sim.CoverageDecode and CoverageForms, test_fit.CoverageClassStage). `families.UNMODELLED` and
+`forms.UNMODELLED_FORMS` are empty. Stage 21 from the hand start (1,651/1,794) chose `ret_imm_hold=word`,
+`call_far.spre` 2, `load_ptr.wb` 2, `pop_psw.wb` 2, `ret_far_imm.setup` 6 / `setup_free` 4 / `wsetup` 8: **F35
+922/1,044, F36 747/750**, every one of the 36 earlier lists byte-identical under the candidate (the gate: a clean
+worktree and the work's tree under the tracked fit, then the candidate, `score --show 5000` on all 38 lists; F35 won
+676, F36 won 501 against the clean worktree, nothing lost anywhere). F35 by series: cc 312/384 OUT (the 72 not-taken
+OUT pE cells are the open F34 shape of a not-taken short transfer at an even address behind no lead, the same cells for
+every condition and for BE/BNE in F23) and 192/192 PUSH, cw 198/204 (DBNZE/DBNZNE at OUT pE w0 a clock early), ind
+60/60, ret 48/48, loop 30/48 (the second, not-taken DBNZ releases its fetch a clock early: an earlier class, fitted on
+F23/F30/F34, left), far 34/60 (above). F36: everything exact except TEST DL,AL under PUSH at pO (3 runs: silicon fetches
+right after the marker's write as a ModR/M form would, the model after the pre clocks; a lead-take template lost more
+than it won).
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -5450,7 +5526,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the forty-fourth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the forty-fifth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -5843,10 +5919,22 @@ F25 19, F23 9, F22 6 missing) and is the focus from here; the refresh-on familie
 RTL mirror are not worked further (the RTL stays at the forty-second fit's structure; its catch-up to the forty-third,
 WP83, is parked on branch `wp83-rtl-catchup`; docs/v35s-hdl-plan.md "Synthesis trial").
 
+**The forty-fifth fit** (`fit.json`, md5 296300307303010bf4ca64d11f66cbb4; scratchpad wp88/fit-wp88.json, adopted 2026-10-31) is the
+forty-fourth fit plus WP88's candidate: the F35 and F36 forms decoded (the class-equivalent ones into their classes),
+twelve classes on existing structures (`bcwz`, `dbnz_z`, `ret_imm`, `ret_far`, `ret_far_imm`, `call_reg`, `call_far`,
+`br_reg`, `branch_far`, `load_ptr`, `pop_psw`, `test_reg`) and `ret_imm_hold=word` (Facts "Control flow completed and
+the data forms no family had run"). 28,215 → 29,884 of 31,532 over 38 lists: F35 922/1,044 and F36 747/750 newly
+scored, all 36 earlier lists byte-identical; stage 21 (`fit.py`). The refresh-off corpus stands at 25,690 of 26,900
+(F34 502, F32 298, F33 123, F35 122, F30 55, F24 44, F29 29, F25 19, F23 9, F22 6, F36 3 missing). Model side only, and
+the RTL mirror now lags for good: `rtlgen` fails outright on the frozen package (`RtlgenError: step ('fetch_hold', 2)`,
+the fetch hold inside a template, which the include's format has no place for), so the include stays at the
+forty-fourth fit's and `test_rtlgen` leaves the maintained set (nine offline modules from here; it is RTL-side, with
+`test_rtl_vectors` and `test_chain_lane`).
 
-### Fitted structure (forty-fourth fit, 2026-10-31)
 
-Forty-four fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (forty-fifth fit, 2026-10-31)
+
+Forty-five fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6204,7 +6292,10 @@ readings as eight enums and ten class integers (`page_mem=fixed`, `bf_read=fixed
 over the 36 scored families. The forty-fourth (`fit.json`, 2026-10-31) adopts
 the day's three candidates together (`refresh_scope=live`, WP85's five refresh
 enums, WP86's `page_b2b=reg` / `page_run=field` and five integers): 28215/29738,
-F27 932, F28 898, F32 560, F34 1094; byte-identical on 32 lists.
+F27 932, F28 898, F32 560, F34 1094; byte-identical on 32 lists. The
+forty-fifth (`fit.json`, 2026-10-31) models F35 and F36 (twelve classes,
+`ret_imm_hold=word`, stage 21): 29884/31532 over 38 lists, F35 922/1044, F36
+747/750, byte-identical on all 36 earlier lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
