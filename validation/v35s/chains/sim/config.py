@@ -538,6 +538,27 @@ OPTIONS = {
     # exact either way. Flip at the candidate: free -100 (F32 -8, F33 -81 net, F34 -11); INC /
     # DEC r8 at pE w1 / w2 (F33, 8 runs) are the cells it costs
     "wb_fetch": ("free", "hold"),
+    # (WP84, 2026-10-31) refresh_scope: which chains run the refresh controller and the EU's
+    # refresh templates and rules. any: a chain with refresh on anywhere (the prelude's RFM or
+    # an RFM store of its own, types.refresh_any) runs both from clock 0, before its store (a
+    # lookahead over the whole chain; the old behaviour) / live: the refresh counter exists for
+    # every chain from clock 0 (placed as before, refresh.POP_COUNTER), its requests gated by
+    # RFM.RFEN live (the prelude's value, then each store's from its effect clock, rfm_delay
+    # after its issue: refresh.write), and the EU's refresh templates (refresh_hold_steps,
+    # chosen at an instruction's start) and rules (every eu.refresh test) keyed on that RFEN
+    # (Refresh.eu_on), not on the controller's existence: what a causal core can know. A chain
+    # whose RFEN never sets is byte-identical under both by construction (the counter fires
+    # nothing, the templates are the refresh-off ones). Deciding runs (wp84/facts.txt): over
+    # the 1,416 runs whose own store turns refresh on (F17 S/D/W/C, F18 B/BD/AC) the model's
+    # trace up to the first refresh after the store is the refresh-never-on twin's (the store
+    # writing ECh) in every run, and the EU starts the instruction after the store on its
+    # effect clock (1,410) or the clock after (6), so no instruction whose template was chosen
+    # before the switch is running at any refresh: live and any give the same event lists on
+    # every corpus run. F17-s-n0-shlcl4-pO-w0 (rel clock 0): the store issued 105, its effect
+    # and MOV CL's start 108, the first request 120 inside SHL AW,CL (started 114);
+    # F17-w-fd-n5-pE-w0, the closest: effect 131, the request raised and served on 131 (the
+    # RFT switch's edge), the next instruction starting on 131 with RFEN seen. A tie, not a win.
+    "refresh_scope": ("any", "live"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1022,6 +1043,7 @@ class Config:
     mul_imm_hold: str = "none"         # (WP81)
     bf_read: str = "count"             # (WP81)
     wb_fetch: str = "free"             # (WP81)
+    refresh_scope: str = "any"         # (WP84)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

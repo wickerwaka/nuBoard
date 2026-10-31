@@ -33,9 +33,17 @@ WP17 (F13): RFM.RFT (bits 1-0) sets the interval to refresh_interval << RFT and 
 RFM with RFEN (bit 4) set turns the machine on. The EU side is refresh_eu=hold: the EU
 grants a pending request on its micro-boundaries (refresh_accept=boundary_bus) and, at
 its first boundary after the cycle starts, waits until the cycle has ended (eu.py).
+
+WP84 (refresh_scope, config.py): with any (the old behaviour) the machine exists only for a
+chain with refresh on somewhere (types.refresh_any) and the EU treats it as on from clock 0;
+with live it exists for every chain, as silicon's counter does, and the EU sees it (eu.refresh)
+only while RFEN is in force or a request is pending (Refresh.eu_on; machine.py sets it on
+every clock); eu.rfc is the controller an RFM store writes in both.
 """
 
 from __future__ import annotations
+
+from ..types import refresh_on as _rfen
 
 # (WP23) refresh_align=prelude: the refresh timer's counter value at clock 0 (the start of
 # the fetch of the word holding the chain's first byte), modulo 128, per prelude: the
@@ -175,6 +183,7 @@ class Refresh:
         self.bus = bus
         self.write_at: tuple | None = None    # (WP23) (clock, RFM value) a write takes effect
         self.writes: list = []                # (WP23) (issue clock, effect clock, value)
+        self.eu_from: tuple | None = None     # (WP84) (clock, RFM value) the EU sees a write
 
     def write(self, value: int, t: int, cycle):
         """(WP23) the EU's RFM store issued on t (an on-chip cycle, eu.py): RFEN, RFW and RFT
@@ -182,6 +191,27 @@ class Refresh:
         at = t + self.cfg.rfm_delay
         self.write_at = (at, value)
         self.writes.append((t, at, value))
+        if self.cfg.refresh_scope == "live":
+            # (WP84) refresh_scope=live: the EU sees the store's RFEN from its effect clock,
+            # when the counter's requests are gated by it (eu_on)
+            self.eu_from = (at, value)
+
+    def eu_on(self, t: int) -> bool:
+        """(WP84) refresh_scope=live: whether on clock t the EU runs its refresh templates
+        and rules: RFEN in force (a store's from its effect clock, rfm_delay after its
+        issue, the clock on which the counter's requests are gated by it), or a request is
+        pending. Asked at the top of the clock, before the EU's micro-step; an instruction's
+        template is chosen at its start. (2026-10-31) A switch at the store's issue clock or
+        at its internal cycle's last clock scores the same on every corpus run: the EU starts
+        the next instruction on the effect clock (1,410 of the 1,416 store-turns-refresh-on
+        runs) or the clock after (6), so no instruction started before the switch runs at a
+        refresh (scratchpad wp84/facts.txt)."""
+        if self.pending is not None:
+            return True
+        w = self.eu_from
+        if w is not None and t >= w[0]:
+            return _rfen(w[1])
+        return self.on                        # before the write's EU clock: not yet applied
 
     def _apply(self, t: int, value: int):
         from ..types import refresh_length, refresh_on, refresh_rft

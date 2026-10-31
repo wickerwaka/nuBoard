@@ -104,6 +104,10 @@ class EU:
         self.halt_t = None              # clock HALT started (halt_status)
         self.halt_defer = None          # (WP34) refresh_halt: the halt status after a refresh
         self.refresh = None             # the refresh controller (machine.py; RFM FCh only)
+        # (WP84) the controller an RFM store writes (machine.py): the same as refresh under
+        # refresh_scope=any; under live it exists for every chain while refresh is set only
+        # while the EU sees RFEN (Refresh.eu_on)
+        self.rfc = None
         self.ls_shift = 0               # refresh_align=phase_eu: the first LS's exec offset
         self.clk_tag = None             # tag of the last clocks step begun ("loop": a count loop)
         self.clk_end = -1               # the clock that step ends before (its resume)
@@ -1532,8 +1536,8 @@ class EU:
         kind, addr, width = req.cycles.pop(0)
         c = bus.start(t, kind, addr, width, self.regs.get("AW", 0), owner=self)
         req.issued.append(c)
-        if addr >= SFR_PAGE and kind == "write" and self.refresh is not None:
-            self.refresh.write(self.sfr, t, c)   # (WP23) the RFM store (refresh.py)
+        if addr >= SFR_PAGE and kind == "write" and self.rfc is not None:
+            self.rfc.write(self.sfr, t, c)   # (WP23) the RFM store (refresh.py)
         if self.cfg.wlatch and (kind == "write" or kind == "io_write"
                                 and self.cfg.str_io_latch == "write"
                                 and req.cls in STRING_CLASSES):

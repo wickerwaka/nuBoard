@@ -127,14 +127,22 @@ class Machine:
         self.refresh = None
         if rfm_writes(chain):
             self.bus.sfr_cycle = cfg.sfr_cycle   # (WP23) read only by a chain with an RFM store
-        if refresh_any(chain):
+        # (WP84) refresh_scope=live: the counter exists for every chain, and the EU runs its
+        # refresh templates and rules only while it sees RFEN (Refresh.eu_on, set on every
+        # clock in run()). It is built for a chain with refresh on or an RFM store: one with
+        # neither can never set RFEN, so its counter is unobservable, and leaving it out keeps
+        # refresh_scope unread there (the fit's cache keys on the fields a run reads)
+        self.live = bool(refresh_on(chain.rfm) or rfm_writes(chain)) and (
+            cfg.refresh_scope == "live")
+        if refresh_any(chain) or self.live:
             # (WP23) F17: the chain turns refresh on itself with an RFM store (eu.py); the
             # timer exists from clock 0 either way
             self.bus.refresh_whole = cfg.refresh_io == "all"
             self.refresh = Refresh(cfg, refresh_phase or 0, refresh_from, refresh_rft(chain.rfm),
                                    on=refresh_on(chain.rfm), bus=self.bus,
                                    phase_interval=phase_interval(chain, cfg))
-            self.eu.refresh = self.refresh
+            self.eu.rfc = self.refresh
+            self.eu.refresh = self.refresh if not self.live or self.refresh.on else None
         self.clock_log: list | None = None   # per-clock state rows (sim --trace); None: off
 
     def run(self) -> list:
@@ -142,8 +150,9 @@ class Machine:
         end = None
         probe = None                         # (clock, state, since_start) of a quiet probe
         offset = cfg.io_recover + cfg.min_gap + 4
-        fast = FAST_FORWARD and self.clock_log is None and self.refresh is None
+        fast = FAST_FORWARD and self.clock_log is None and (self.refresh is None or self.live)
         refresh = self.refresh
+        live = self.live
         completed, begin_clock, tick = bus.completed, queue.begin_clock, eu.tick
         load_ir, end_clock = self.decoder.load_ir, queue.end_clock
         before_take = cfg.request_sample == "before_take"
@@ -164,6 +173,9 @@ class Machine:
                 queue.abort_done(t)          # abort_fetch: the aborted cycle ends
             if before_take:
                 begin_clock(t)               # request_sample=before_take
+            if live:
+                # (WP84) refresh_scope=live: the EU's refresh templates and rules this clock
+                eu.refresh = refresh if refresh.eu_on(t) else None
             tick(t)
             load_ir(t)
             if refresh is not None:
@@ -246,6 +258,7 @@ class Machine:
                         t = last
                 probe = None
             elif (t - bus.last_end in PROBE_IDLE and fast and end is None
+                    and (refresh is None or self._dormant())
                     and bus.current is None and self._window(t, offset) is not None):
                 probe = (t, self._state(), eu.since_start)
         raise self._no_end()
@@ -279,6 +292,15 @@ class Machine:
         return RuntimeError(f"{self.chain.id}: no END write within {MAX_CLOCKS} clocks")
 
     # Quiet-clock fast-forward ------------------------------------------------------
+
+    def _dormant(self) -> bool:
+        """(WP84) refresh_scope=live: the counter can raise nothing and the EU does not see
+        it (RFEN clear, no write in flight, nothing pending): a quiet clock repeats as
+        without it. Skipped clocks leave refresh_counter=edge's previous bit stale, which is
+        read only once RFEN is set (by a write, which a skip never spans)."""
+        rf = self.refresh
+        return (self.live and not rf.on and rf.write_at is None and rf.pending is None
+                and self.eu.refresh is None)
 
     def _state(self) -> tuple:
         """Everything the next clock reads, frozen (every attribute of the EU, queue,
@@ -321,7 +343,8 @@ class Machine:
 
 
 _SCALARS = (int, bool, str, float, bytes, type(None))
-_EU_SKIP = frozenset(("cfg", "code", "decoder", "bus", "since_start", "trace"))
+_EU_SKIP = frozenset(("cfg", "code", "decoder", "bus", "since_start", "trace",
+                      "rfc"))   # (WP84) rfc: probed only while dormant (Machine._dormant)
 _Q_SKIP = frozenset(("cfg", "code", "decoder", "snap", "eu"))   # (WP39) eu: refresh_io_run only
 _D_SKIP = frozenset(("cfg", "queue"))
 _BUS_SKIP = frozenset(("cycles",))
@@ -393,8 +416,8 @@ def run_record(chain: Chain, cfg: Config = DEFAULT, chain_base: int = DEFAULT_BA
     cycles = m.run()
     rec = {"chain": chain.to_json(), "chain_base": chain_base, "complete": True,
            "socket_trace": trace_rows(cycles)}
-    if m.refresh is not None:
-        rec["refresh_served"] = m.refresh.served
+    if m.refresh is not None and (not m.live or m.refresh.served or refresh_any(chain)):
+        rec["refresh_served"] = m.refresh.served   # (WP84) live: a counter that never fired
     return rec
 
 

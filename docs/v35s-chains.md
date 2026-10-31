@@ -5204,6 +5204,63 @@ that the model does not have:
   0 on silicon even with A9 = 1 (fetches carry A9); A17 is 0 in every such
   corpus cycle. Unprobed; the scorer does not compare it.
 
+### A causal refresh: the lookahead is unobservable (WP84, 2026-10-31; a tie, not adopted yet)
+
+The model's `refresh_any` (types.py) decides from the whole chain whether the
+refresh controller and the EU's refresh templates run from clock 0, so a
+chain with an ECh prelude whose own RFM store turns refresh on (F17 S/D/W/C,
+F18 B/BD/AC: 1,416 runs) runs them before the store, which a causal core
+cannot. Facts over those runs (scratchpad wp84/facts.txt, one row per
+family, series, wait and parity; clocks the model's from clock 0):
+
+- **The store** issues its internal cycle at a fixed clock per wait and
+  parity: 109/105 (pE/pO) at 0 waits, 116/112 at 1, 125/120 at 2 (W moves 4
+  per NOP; AC a little); RFEN takes effect 3 clocks after the issue
+  (`rfm_delay`). The next instruction starts on the effect clock in 1,410
+  runs and the clock after in 6: the EU waits out the store's 3-clock cycle.
+- **The first refresh after the store** is requested 0–32 clocks after the
+  effect (0 at the RFT switch's edge, `F17-w-fd-n5-pE-w0`) and starts 0–4
+  clocks after its request.
+- **Before the store** the model's trace equals the twin's (the same chain
+  with the store writing ECh) in all 1,416 runs, and stays equal up to the
+  first refresh's start; silicon's trace before the store equals the
+  recorded twin's in all 306 runs that have one (F17 E, W ec). No run has
+  an instruction started before the effect still running at any refresh
+  request or start: nothing the lookahead chooses is ever observed.
+- **1,366 of the 1,416 are exact** under the forty-third fit; the 50 misses
+  (F18 B, mostly the register shift behind the store at 0 waits and the
+  `shl1`/`shli4`/`shlmcl` cells at 2 waits) are the same under both
+  structures.
+
+Encoded as `refresh_scope` (sim/config.py, WP84): `any` is the DEFAULT (the
+old behaviour); `live` builds the counter for every chain with refresh on or
+an RFM store (one with neither can never set RFEN; its counter is
+unobservable and the field unread, as the fit cache needs), gates its
+requests by RFEN as it stands on each clock (the prelude's value, then each
+store's from its effect clock), and keys the EU's refresh templates (chosen
+at an instruction's start) and rules on `Refresh.eu_on`: RFEN in force or a
+request pending, set at the top of every clock; the RFM store reaches the
+controller through `eu.rfc` in both. A switch at the store's issue clock or
+at its cycle's last clock gives the same event lists as the effect clock on
+all of F17 and F18, so there is no second knob. Fit stage 18 (F17, F18;
+`F44_ENUMS`, `F44_INTS` = `rfm_delay`; the grid lists `live` first so a tie
+keeps the causal structure) from the forty-third fit with `live`: 1,887 of
+1,962 either way (F17 754, F18 1,133), the tie-break 27,838 against 27,838,
+the corpus guard refusing nothing; the three-pass gate byte-identical on all
+36 lists, flips 0 both ways; the full event lists with the refresh rows
+differ in 0 of 4,632 runs over F8, F13, F17, F18, F27 and F28. The
+candidate (wp84/fit-wp84.json) is the forty-third fit with
+`refresh_scope=live` and nothing else.
+
+**The lane's 1,416 differences are the RTL's**, not the model's: in
+fpga/v35s/core/v35_refresh.sv the write's arming (`wr && en`) and the
+requests are gated by `en`, and the lane wires `en` to RFM.RFEN live, so
+with an ECh prelude the chain's store is never armed and the lane runs no
+refresh after clock 0 in any of those runs (its first divergence from the
+model is the model's first refresh after the store, in all 1,416). The
+causal RTL is `live`'s: the controller always enabled, requests gated by
+its own `on`, the EU's refresh input `on || pending` (WP83 takes it).
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

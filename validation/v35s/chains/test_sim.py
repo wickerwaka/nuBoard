@@ -5909,3 +5909,111 @@ class MissShapes(unittest.TestCase):
         for v in ("free", "hold"):
             sil, mod = _ev81("F34-out-inc-inc_aw-l0-k1-n1-pE-w1", wb_fetch=v)
             self.assertEqual(mod, sil, v)
+
+
+# WP84: refresh_scope, a causal refresh. Under live the refresh counter exists for every chain
+# and the EU runs its refresh templates and rules only while RFEN is in force (Refresh.eu_on);
+# under any (the old behaviour) a chain whose own RFM store turns refresh on runs them from
+# clock 0. Base: the tracked fit.
+def _run84(cid):
+    fam = cid.split("-")[0]
+    w = int(cid.rsplit("-w", 1)[1])
+    return normalize(next(r for r in _runs(fam) if r["chain"]["id"] == cid
+                          and r["chain"]["waits"] == w))
+
+
+def _model84(s, cfg):
+    from validation.v35s.chains.sim.machine import refresh_anchor
+    n = simulate_normalized(s.chain, cfg, s.chain_base, refresh=refresh_anchor(s))
+    return [(e.clock, e.kind, e.addr, e.width, e.length) for e in n.pre + n.events], n.t_fill
+
+
+class RefreshScope(unittest.TestCase):
+    """WP84: refresh_scope=live against any (scratchpad wp84/facts.txt)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.any = Config.fitted()
+        cls.live = cls.any.replace(refresh_scope="live")
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["refresh_scope"], ("any", "live"))
+        self.assertEqual(DEFAULT.refresh_scope, "any")
+
+    def test_live_equals_any_on_refresh_off_chains(self):
+        # a chain whose RFEN never sets: the counter fires nothing and the templates are the
+        # refresh-off ones (F17-e: its own store writes ECh)
+        for cid in ("F0-ls-pE-w0", "F1-out-m2-pE-w1", "F9-push-nop1-pE-w2",
+                    "F17-e-n0-empty-pE-w1", "F17-w-ec-n2-pE-w1", "F18-a-push-ec-empty-pO-w0"):
+            try:
+                s = _run84(cid)
+            except StopIteration:
+                self.fail(f"no run {cid}")
+            self.assertEqual(_model84(s, self.live), _model84(s, self.any), cid)
+
+    def test_live_counter_exists_for_a_chain_with_a_store(self):
+        # F17-e: the store writes ECh: under live the counter exists, the EU never sees it
+        s = _run84("F17-e-n0-empty-pE-w1")
+        m = Machine(s.chain, self.live, s.chain_base)
+        self.assertIsNotNone(m.refresh)
+        self.assertIsNone(m.eu.refresh)          # RFEN clear: no refresh templates or rules
+        m.run()
+        self.assertEqual(m.refresh.served, [])
+        self.assertEqual([w[2] for w in m.refresh.writes], [0xEC])
+        self.assertIsNone(Machine(s.chain, self.any, s.chain_base).refresh)
+
+    def test_no_store_no_refresh_on_reads_no_scope(self):
+        # a chain with neither refresh on nor an RFM store can never set RFEN: its counter is
+        # unobservable and not built, and refresh_scope is not read (the fit's cache key)
+        from validation.v35s.chains import fit
+        s = _run84("F0-ls-pE-w0")
+        rc = fit.recording(self.live)
+        simulate_normalized(s.chain, rc, s.chain_base)
+        self.assertNotIn("refresh_scope", rc._reads)
+        self.assertIsNone(Machine(s.chain, self.live, s.chain_base).refresh)
+
+    def test_live_no_refresh_before_the_store(self):
+        # F17-s-n0-shlcl4-pO-w0 (prelude ECh, the RFMON store FCh after the first LS): under
+        # live the EU sees no refresh controller before the store's effect and no request is
+        # raised before it; under any the controller is the EU's from clock 0
+        from validation.v35s.chains.sim import machine as M
+        s = _run84("F17-s-n0-shlcl4-pO-w0")
+        for cfg, before in ((self.live, False), (self.any, True)):
+            seen = []
+
+            class Probe(M.Machine):
+                def run(self):
+                    eu, tick = self.eu, self.eu.tick
+
+                    def probe(t):
+                        seen.append((t, eu.refresh is not None))
+                        return tick(t)
+                    eu.tick = probe
+                    return super().run()
+            phase = (64 - M.POP_COUNTER[(s.chain.rfm, s.chain.wtc)]) % 128
+            m = Probe(s.chain, cfg, s.chain_base, phase, 0)
+            m.run()
+            (issue, effect, value), = m.refresh.writes
+            self.assertEqual(value, 0xFC)
+            self.assertEqual(effect, issue + cfg.rfm_delay)
+            self.assertTrue(m.refresh.served)
+            self.assertTrue(all(r >= effect for r, _ in m.refresh.served))
+            pre = {on for t, on in seen if t < effect}
+            post = {on for t, on in seen if t >= effect}
+            self.assertEqual(pre, {before}, cfg.refresh_scope)
+            self.assertEqual(post, {True}, cfg.refresh_scope)
+
+    def test_live_equals_any_on_store_chains(self):
+        # the store-turns-refresh-on runs: the next instruction starts on the store's effect
+        # clock, so every refresh falls in an instruction whose template live chose with RFEN
+        # seen (F17 S/D/W/C, F18 B/BD/AC; a sample of each series, exact and not)
+        for cid in ("F17-s-n0-shlcl4-pO-w0", "F17-d-n1-shlcl16-pE-w0", "F17-w-fd-n5-pE-w0",
+                    "F17-c-push-mulu-pO-w0", "F18-b-n1-shlmcl-pE-w2", "F18-bd-n0-shlcl4-pE-w0",
+                    "F18-ac-out-fc-pO-w0", "F17-s-n3-rmw-pE-w1"):
+            s = _run84(cid)
+            self.assertEqual(_model84(s, self.live), _model84(s, self.any), cid)
+
+    def test_live_on_a_refresh_on_prelude(self):
+        # the prelude's RFEN: the EU sees the controller from clock 0 under both
+        s = _run84("F17-p-n0-empty-pE-w0")
+        self.assertEqual(_model84(s, self.live), _model84(s, self.any))

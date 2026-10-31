@@ -1400,6 +1400,11 @@ What the model leaves undefined that the RTL needs, and where the plan handles i
   (`Machine.__init__`, `eu.refresh is not None`). A causal core can only know RFM.RFEN live.
   The 1,416 such runs (F17 S/D/W/C, F18 B and EC-with-marker) are where the lane differs from
   the model; a `refresh_scope` enum (`any` as today, `live`) is the model-side question.
+  Answered the same day (WP84; docs/v35s-chains.md Facts "A causal refresh"): `live` ties
+  `any` on every corpus run (nothing the lookahead chooses is observed), and the lane's
+  1,416 differences are `v35_refresh.sv`'s `en` gating of the write's arming with `en` wired
+  to RFEN live, so the chain's own store never arms. The causal RTL: the controller always
+  enabled, requests gated by its `on`, the EU's `refresh_on` = `on || pending`.
 - (WP82) The refresh counter's phase at the POP read is fitted per prelude (`refresh.POP_COUNTER`);
   the lane's follows from its reset exit and prelude and differs by +3 (FC/F8, 0 waits), +13 (1
   and 2 waits) and +2 (EC) mod 16; with the lane's value the frozen model is exact on every

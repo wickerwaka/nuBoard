@@ -1709,7 +1709,22 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   14: ["F23", "F25"],
                   15: ["F30", "F31", "F24", "F23", "F25"],
                   16: ["F32", "F33"],
-                  17: ["F32", "F33", "F34"]}
+                  17: ["F32", "F33", "F34"],
+                  18: ["F17", "F18"]}
+
+# Stage 18 (WP84): a causal refresh. refresh_scope=live runs the refresh counter for every chain
+# and keys the EU's refresh templates and rules on RFM.RFEN live (sim/config.py), where any (the
+# old behaviour) runs them from clock 0 for a chain whose own RFM store turns refresh on later
+# (types.refresh_any, a lookahead over the whole chain; the 1,416 runs of F17 S/D/W/C and F18
+# B/BD/AC, scratchpad wp84/facts.txt). From a hand start (the previous fit with refresh_scope=live),
+# the enum as a grid at the input's integers (both starts descended over F44_INTS: rfm_delay, the
+# store's effect, which live's switch reads), then the sweep over F44_ENUMS with F44_INTS descended
+# inside every move; the corpus guard over every modelled run is the guard, as in stages 9 to 17.
+# The grid lists live first: on a tie over every family (the tie-break included) the stable sort
+# keeps it, and the sweep takes an inert tie only on the tie-break, so a tie keeps the causal
+# structure; sim.config.DEFAULT stays any.
+F44_ENUMS = {"refresh_scope": ("live", "any")}
+F44_INTS = ["rfm_delay"]
 
 # Stage 17 (WP81, F34): the forty-second fit's miss shapes as mechanisms, from F34's readings
 # (docs/v35s-chains.md Facts "Probes for the forty-second fit's miss shapes"). From a hand start
@@ -2546,6 +2561,16 @@ def stage17(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage18(prev: dict, log=say) -> dict:
+    """(WP84) F17, F18: refresh_scope as a grid at the input's integers (both starts descended
+    over F44_INTS), then the sweep over F44_ENUMS with F44_INTS descended inside every move; the
+    corpus guard is the guard, as in stages 9 to 17."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 18 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(18, prev, F44_ENUMS, F44_INTS, log, top_k=2, pairs_k=1, sweep=F44_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -2615,8 +2640,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage15(prev, log)
     elif stage == 16:
         out = stage16(prev, log)
-    else:
+    elif stage == 17:
         out = stage17(prev, log)
+    else:
+        out = stage18(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -2634,9 +2661,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 18), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 18), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-17 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 19), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 19), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-18 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -2674,7 +2701,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 18) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 19) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")
