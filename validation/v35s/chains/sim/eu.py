@@ -278,6 +278,13 @@ class EU:
                            else "post" if cfg.bf_read == "fixed" and op.cls in BF_CLASSES
                            else None)
         self.route = _dest_route(op, cfg)   # (WP19) dest_route clocks of this instruction
+        # (WP86) page_run: a 0F memory form under page_mem=fixed (and with field a bit field under
+        # bf_read=fixed); page_b2b: a 0F register form
+        # (TEST1 / CLR1 / SET1 / NOT1 r, ROL4 / ROR4 r)
+        self.page_run = (cfg.page_run != "none" and self.page_fixed == "start"
+                         or cfg.page_run == "field" and self.page_fixed == "post")
+        self.page_reg = (cfg.page_b2b == "reg" and bool(op.page) and op.ea is None
+                         and bcls == "reg")
         self.ro = bcls in ("load", "load_alu")
         self.prev_cls = getattr(self, "cls", None)   # (WP61) refresh_beat_b2b
         self.cls = bcls
@@ -1301,6 +1308,15 @@ class EU:
         return (cur is not None and cur.kind == "fetch" and cur.start + 2 <= t <= cur.end
                 and self.left == 1 and self.decoder.loads_after(t, 1))
 
+    def page_active(self) -> bool:
+        """(WP86) page_run: a 0F memory form (or, field, a bit field) runs and its read has not
+        issued."""
+        if not getattr(self, "page_run", False):
+            return False
+        r = self.req
+        return self.page_fixed == "start" or (r is not None and r.pfree is not None
+                                              and not r.issued)
+
     def end_clock(self, t: int):
         """take_sync=pending_end: after the clock's bus choice, wait for every fetch then
         in flight (including one issued this clock) and one more if a request is still
@@ -1371,6 +1387,7 @@ class EU:
             r.free_need = None
             if mode == "start":
                 r.pfree = self.start_clock
+                r.run_wait = self.cfg.page_run != "none"   # (WP86) the memory forms only
                 n, c = 0, t - 1
                 while c >= self.start_clock and n < r.setup and not any(
                         x.kind == "fetch" and x.start <= c <= x.end

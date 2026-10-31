@@ -607,6 +607,37 @@ OPTIONS = {
     # 145 is the lead's last clock (count 7): silicon R145 I150 (block, with io_step_restart=
     # last: R146 I151). Flip at the candidate: block -11 F27, -14 F28
     "refresh_lead_step": ("block", "step"),
+    # (WP86, F32/F34, 2026-10-31) page_b2b: a fetch starts back to back only when the request
+    # rule raises it on the running fetch's last clock (none) / a 0F register form (TEST1 / CLR1 /
+    # SET1 / NOT1 r, ROL4 / ROR4 r) whose operand bytes are all taken also commits the bus unit to
+    # one more fetch back to back on the last clock of the fetch running at its last take (or
+    # issued on the clock after it) with a byte of room left, the latch taking the other, once
+    # per form; not when the next opcode was already in the IR when that fetch issued, nor when
+    # the queue could not hold the word before the EU's clocks end (reg). Keyed on the class and
+    # the queue/IR state only (byte = word, TEST1 = SET1, both index forms; the word half of the
+    # last byte decides nothing once the state is read). F34-out-rbit-set1_rw_cl-l0-k1-pO-w0, rel
+    # t_fill: SET1 AW,CL starts on 85 under M0's I/O, its ModR/M (the last of its word) taken on
+    # 87, F88 issued; silicon F88 F91 O105 (none: F88 F98, the queue 4 bytes with the fetch in
+    # flight, room 1). ROL4 / ROR4 DL load the next opcode on the take clock and fetch nothing
+    # more (F32-out-ror4_dl-k1-pO-w0, exact under both). Flip at the candidate: none -69
+    # (F32 -25, F34 -44)
+    "page_b2b": ("none", "reg"),
+    # (WP86, F32/F34, 2026-10-31) page_run: under page_mem=fixed / bf_read=fixed a 0F memory
+    # form's (a bit field's) read waits out a fetch the bus unit did not already commit to back to
+    # back (none) / while a 0F memory form runs and its read has not issued, the request is
+    # evaluated on a running fetch's last clock (room for a word commits the next fetch back to
+    # back, once per form, a commitment the request rule made after the start counting), that
+    # committed fetch goes past the posted read's fetch hold, and its wait clocks do not count
+    # toward the read's setup (mem); the same for a bit field from its first read's post, its
+    # setup counting the committed fetch's wait clocks (field). F34-out-mbit-set1_mw_cl-l0-k1-pE-w0
+    # / F32-out-set1_mw_cl-k1-pE-w0, rel t_fill: the form's takes end on 82 under M0's I/O
+    # (84-86), the refill F87, room 2 on its last clock; silicon F87 F90 D95 W100 at w0 (w1 F88
+    # F92 D98, w2 F89 F94 D101; none: no F90, '@'). F34-out-bf-ext_bl_dh-l0-k1-pE-w0: EXT BL,DH's
+    # read posted under M0's I/O, the refill F87; silicon F87 F90 D96 (mem: no F90, D96 then F99).
+    # The immediate-index memory forms at pE (+2), the d16 / direct modes and the imm4 fields'
+    # extra fetch stay facts (wp86/facts.txt). Flip at the candidate: none -126 (F32 -82,
+    # F34 -44), mem -38 (F32 -24, F34 -14)
+    "page_run": ("none", "mem", "field"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1097,6 +1128,8 @@ class Config:
     refresh_pair_post: str = "any"     # (WP85)
     io_step_restart: str = "max"       # (WP85)
     refresh_lead_step: str = "block"   # (WP85)
+    page_b2b: str = "none"             # (WP86)
+    page_run: str = "none"             # (WP86)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

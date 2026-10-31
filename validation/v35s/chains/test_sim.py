@@ -6113,3 +6113,101 @@ class RefreshSequencerF27F28(unittest.TestCase):
             for name in ("port_refresh", "refresh_pair_post", "io_step_restart",
                          "refresh_lead_step"):
                 self.assertNotIn(name, rc._reads, cid)
+
+
+WP86 = {"page_b2b": "reg", "page_run": "field"}
+
+
+def _ev86(cid, **over):
+    """(silicon, model) (clock, kind) lists from t_fill under the tracked fit with WP86 (+ over)."""
+    run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP86, **over}), s.chain_base)
+    return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+
+class PageFormRuns(unittest.TestCase):
+    """(WP86) two of the 0F forms' remaining miss shapes as mechanisms (scratchpad
+    wp86/facts.txt): each new enum against its old value on its deciding run (clocks rel
+    t_fill)."""
+
+    def test_defaults_are_the_old_behaviour(self):
+        for name, new in WP86.items():
+            self.assertEqual(getattr(DEFAULT, name), "none", name)
+            self.assertEqual(OPTIONS[name][0], "none", name)
+            self.assertEqual(OPTIONS[name][-1], new, name)
+        self.assertEqual(OPTIONS["page_run"], ("none", "mem", "field"))
+
+    def test_page_b2b_register_form_run(self):
+        # SET1 AW,CL starts on 85 under M0's I/O, its ModR/M taken on 87, F88 issued: silicon
+        # runs F91 back to back (none: the room rule waits, F98)
+        sil, mod = _ev86("F34-out-rbit-set1_rw_cl-l0-k1-pO-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((91, "fetch"), mod)
+        _, none = _ev86("F34-out-rbit-set1_rw_cl-l0-k1-pO-w0", page_b2b="none")
+        self.assertNotIn((91, "fetch"), none)
+        self.assertIn((98, "fetch"), none)
+        # byte = word, TEST1 = SET1: the same cell exact under the rule
+        for cid in ("F34-out-rbit-set1_rb_cl-l0-k1-pO-w0", "F34-out-rbit-test1_rw_cl-l0-k1-pO-w0"):
+            sil, mod = _ev86(cid)
+            self.assertEqual(mod, sil, cid)
+
+    def test_page_b2b_not_after_an_early_ir_load(self):
+        # ROR4 DL loads the next opcode on its take clock, before the fetch issues: no run
+        for over in ({}, {"page_b2b": "none"}):
+            sil, mod = _ev86("F32-out-ror4_dl-k1-pO-w0", **over)
+            self.assertEqual(mod, sil, over)
+
+    def test_page_b2b_never_overfills(self):
+        # the word committed only where the queue can hold it (the corpus's k = 2 CL cells)
+        for cid in ("F34-out-rbit-set1_rw_cl-d-k1-pE-w0", "F32-out-set1_rw_cl-k2-pE-w0"):
+            run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+            s = normalize(run)
+            simulate_normalized(s.chain, Config.fitted().replace(**WP86), s.chain_base)
+
+    def test_page_run_committed_refill(self):
+        # the form's takes end on 82 under M0's I/O, the refill F87 with room for a word on its
+        # last clock: silicon F87 F90 D95 W100 (none: no F90, the read on 95 after F87)
+        sil, mod = _ev86("F34-out-mbit-set1_mw_cl-l0-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((90, "fetch"), mod)
+        self.assertIn((95, "data_read"), mod)
+        _, none = _ev86("F34-out-mbit-set1_mw_cl-l0-k1-pE-w0", page_run="none")
+        self.assertNotIn((90, "fetch"), none)
+        # the committed fetch's wait clocks do not count toward the read's setup: D98 / D101
+        for cid, read in (("F34-out-mbit-set1_mw_cl-l0-k1-pE-w1", 98),
+                          ("F34-out-mbit-set1_mw_cl-l0-k1-pE-w2", 101),
+                          ("F32-out-set1_mw_cl-k1-pE-w0", 95)):
+            sil, mod = _ev86(cid)
+            self.assertEqual(mod, sil, cid)
+            self.assertIn((read, "data_read"), mod, cid)
+
+    def test_page_run_field(self):
+        # EXT BL,DH: its read posted under M0's I/O, the refill F87 with room for a word on its
+        # last clock: silicon F87 F90 D96 (mem, the memory forms only: no F90, D96 then F99)
+        for cid in ("F34-out-bf-ext_bl_dh-l0-k1-pE-w0", "F34-out-bf-ext_bl_dh-l0-k1-pE-w1"):
+            sil, mod = _ev86(cid)
+            self.assertEqual(mod, sil, cid)
+        _, mem = _ev86("F34-out-bf-ext_bl_dh-l0-k1-pE-w0", page_run="mem")
+        self.assertNotIn((90, "fetch"), mem)
+        self.assertIn((99, "fetch"), mem)
+        # the memory forms are the same under mem and field
+        for cid in ("F34-out-mbit-set1_mw_cl-l0-k1-pE-w1", "F32-out-set1_mw_cl-k1-pE-w0"):
+            self.assertEqual(_ev86(cid, page_run="mem")[1], _ev86(cid)[1], cid)
+
+    def test_page_run_once_per_form(self):
+        # [BW+d8]: the request rule already committed a fetch after the start (deferred by M0's
+        # I/O to F89): no second one, the read on 98 (silicon F82 O86 F89 D98)
+        sil, mod = _ev86("F32-out-set1_mw_cl_bw_d8-k1-pO-w1")
+        self.assertEqual(mod, sil)
+        self.assertIn((98, "data_read"), mod)
+
+    def test_other_families_do_not_read_the_rules(self):
+        from validation.v35s.chains import fit
+        for cid in ("F7-out-out_imm_al-ld_bw-pO-w0", "F33-out-inc_al-k1-pE-w1",
+                    "F30-out-nt-bne-k2-n2-pE-w2"):
+            run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+            s = normalize(run)
+            new = simulate_normalized(s.chain, Config.fitted().replace(**WP86), s.chain_base)
+            old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
+            self.assertEqual(aligned(new), aligned(old), cid)

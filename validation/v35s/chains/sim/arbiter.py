@@ -91,6 +91,7 @@ class Request:
                                     # DW-form I/O request's (nowait, dw_count)
     imm1: bool = False              # (WP43) imm1_first: the first data request of a memory form
                                     # with a one-byte immediate (83 /x, C6 /0)
+    run_wait: bool = False          # (WP86) page_run: a committed fetch's wait clocks do not count
     pfree: int | None = None        # (WP81) page_mem=fixed: a 0F memory form's read, its setup
                                     # all fetch-free clocks since the end of the last fetch but
                                     # one committed back to back after the form's start (here)
@@ -104,6 +105,9 @@ class Request:
                 and not (cur.b2b and cur.start > self.pfree)):
             self.count = 0
             return False
+        if (self.run_wait and cur is not None and cur.kind == "fetch" and cur.start <= t <= cur.end
+                and bus.in_wait(t)):
+            return False                # (WP86) page_run: a committed fetch's wait clocks
         return True
 
     def counts(self, fetch_inflight: bool, mode: str, bus=None, t: int | None = None) -> bool:
@@ -540,6 +544,8 @@ def _choose(t: int, cfg, bus, queue, eu):
         io = req.cycles[0][0].startswith("io")
         if io and cfg.io_hold == "posted_b2b" and queue.b2b_at == t:
             pass                        # a back-to-back fetch the bus unit committed to goes
+        elif cfg.page_run != "none" and queue.b2b_at == t and eu.page_active():
+            pass                        # (WP86) page_run: so does one beside a 0F memory form
         elif cfg.hold_fetch is True or (io and cfg.io_hold != "hold_fetch" and t > req.posted) or (
                 queue.counted(t) - (eu.decoder.need if cfg.hold_count == "ahead"
                                     and not req.whole else 0)

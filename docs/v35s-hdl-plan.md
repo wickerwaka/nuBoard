@@ -722,6 +722,10 @@ five I/O-sequencer enums beside a refresh (`port_ready_count=count`,
 beside a refresh"), F27 932/1,072 and F28 898/1,088 at the candidate. All
 are arbiter, queue and EU-request conditions with no new template step
 kind: `rtlgen` is unaffected, the RTL's refresh-on lane is behind by them.
+WP86 (the same day) adds `page_b2b=reg` and `page_run=field`, the 0F forms'
+fetch commitments (docs/v35s-chains.md Facts "The 0F page's fetch
+commitments"), with five class integers; F32 560/858 and F34 1,094/1,596
+at its candidate; queue-side rules, no new step kind.
 
 ### Phase D: function
 

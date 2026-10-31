@@ -736,6 +736,59 @@ class MissShapeStage(unittest.TestCase):
         s17.assert_called_once()
 
 
+class PageFormStage(unittest.TestCase):
+    """(WP86) stage 20: the 0F forms' register-form run and memory-form refill over F32, F33 and
+    F34, every integer of the 0F classes, the corpus guard as its guard."""
+
+    def test_stage_20_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[20], ["F32", "F33", "F34"])
+        self.assertEqual(set(fit.F46_ENUMS), {"page_b2b", "page_run"})
+        for name, values in fit.F46_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            # the old value first (DEFAULT): a tie keeps it
+            self.assertEqual(getattr(DEFAULT, name), values[0], name)
+        for cls in fit.F46_CLASSES:
+            for name in DEFAULT_COST[cls]:
+                self.assertIn(f"{cls}.{name}", fit.F46_INTS)
+        for p in ("bf_ins.xwsetup", "bf_ins.xrsetup", "bf_ins.xspan", "bit1.exec",
+                  "bit1_rmw.fsetup", "mul_imm.rsetup"):
+            self.assertIn(p, fit.F46_INTS)
+
+    def test_stage_20_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage20({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_20_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage20({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 20)
+        self.assertEqual(args[2], fit.F46_ENUMS)
+        self.assertEqual(args[3], fit.F46_INTS)
+        self.assertEqual(kw["sweep"], fit.F46_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_20(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "20"])
+        self.assertEqual(args.stage, 20)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "19", "--to", "20"])
+        self.assertEqual(args.to, 20)
+
+    def test_run_stage_dispatches_20(self):
+        with mock.patch.object(fit, "stage20", return_value={"config": {}}) as s20, \
+                mock.patch.object(fit, "stage19") as s19, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(20, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s20.assert_called_once()
+        s19.assert_not_called()
+
+
 class RefreshSequencerStage(unittest.TestCase):
     """(WP85) stage 19: the I/O sequencer's rules beside a refresh over F27 and F28 (with F8, F13,
     F17, F18), the corpus guard as its guard."""

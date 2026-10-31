@@ -171,6 +171,8 @@ class Queue:
         self.odd_fed: bool | None = None        # (WP76) ... a fetch was on the bus on that clock
         self.odd_nt = False                     # (WP81) xfer_nt: the hold is a not-taken transfer's
         self.odd_until: int | None = None       # (WP81) ... and ends on this clock
+        self.pb_start = None                    # (WP86) page_b2b: the form it was applied for
+        self.pr_start = None                    # (WP86) page_run: the form committed for
         # options read on every clock, looked up once
         self._byte_release = cfg.release == "byte"
         self._ported = cfg.word_latch in ("port", "byte", "byte_d")
@@ -320,6 +322,8 @@ class Queue:
         c = bus.current
         if c is not None and c.kind == "fetch" and c.end == t and self._raised(t):
             self.b2b_at = t + 1
+            if self.cfg.page_run != "none" and self.eu.page_active():
+                self.pr_start = self.eu.start_clock     # (WP86) page_run: its one commitment
         elif (c is not None and c.kind == "fetch" and c.end == t
               and self.after_refresh == c.start and self.cfg.refresh_io_run != "none"
               and self._io_form() and self.latched == 0
@@ -333,6 +337,34 @@ class Queue:
             # (WP58) pair_out: beside an OUT only, with a byte of room left counting the byte
             # the decoder still takes
             self.b2b_at = self.io_run_at = t + 1
+        elif (c is not None and c.kind == "fetch" and c.end == t and self.cfg.page_b2b != "none"
+              and self._page_b2b(t, c.start)):
+            self.b2b_at = self.io_run_at = t + 1    # (WP86) page_b2b: committed back to back
+        elif (c is not None and c.kind == "fetch" and c.end == t and self.cfg.page_run != "none"
+              and self.eu.page_active() and self.room(t) >= WORD
+              and self.pr_start != self.eu.start_clock):
+            self.b2b_at = self.io_run_at = t + 1   # (WP86) page_run: evaluated on its last clock
+            self.pr_start = self.eu.start_clock
+
+    def _page_b2b(self, t: int, bus_start: int) -> bool:
+        """(WP86) page_b2b=reg: on the last clock of a fetch that ran at a 0F register form's
+        last operand take (or issued on the clock after it), the form commits the bus unit to
+        one more fetch back to back with a byte of room left (the word latch takes the other),
+        once per form; not when the next opcode was in the IR before that fetch issued, nor when
+        the queue could not take the word before the form's clocks end."""
+        eu = self.eu
+        if (not getattr(eu, "page_reg", False) or eu.halted or self.decoder is None
+                or self.decoder.need or self.pb_start == eu.start_clock):
+            return False
+        if self.latched or self.room(t) < 1 or self.take_t is None or bus_start > self.take_t + 1:
+            return False
+        if self.decoder.ir is not None and (self.ir_t is None or self.ir_t <= bus_start):
+            return False
+        if self.stored() + 2 * WORD > QUEUE_BYTES + 1 and not (
+                self.decoder.ir is None and eu.resume <= t):
+            return False
+        self.pb_start = eu.start_clock
+        return True
 
     def _taking(self) -> int:
         """(WP58) refresh_io_run=pair_out: 1 while the decoder still has a byte to take from

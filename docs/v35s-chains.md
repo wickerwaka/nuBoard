@@ -5346,6 +5346,89 @@ the facts file):
 The RTL does not implement the five rules yet; they are arbiter and queue
 conditions with no new template step kind, so `rtlgen` is unaffected.
 
+### The 0F page's fetch commitments: F32, F33 and F34's misses read, two enums (WP86, 2026-10-31; a candidate, not adopted yet)
+
+Under the forty-third fit F32 misses 418 of 858, F33 123 of 1,050 and F34
+638 of 1,596, the corpus's largest open area. Facts over all of them, with
+F23 and F30's transfer cells (scratchpad wp86/facts.txt, about 2,900
+lines: one row per miss with the first divergence, the EU's instruction,
+class and step there, the model's queue (bytes held, a fetch in flight,
+committed back to back), the word half of the form's start and last byte,
+and the neighbours at the other parity, the other waits, k ± 1, the
+PUSH/OUT twin and the other F34 leads):
+
+- **Every data operand is word-aligned** (the BCD strings' byte elements
+  aside), so the alignment knob is the ModR/M and immediate bytes' word
+  half. **Byte = word and TEST1 = SET1 = CLR1 = NOT1** in every comparable
+  cell. No remaining shape keys on the opcode byte or a neighbour.
+- **Parity alone (structural findings):** the memory bit ops'
+  immediate-index forms at pE (+2, 66 runs) and CVTBD/CVTDB at pO (−16 and
+  −14, 12 runs), both word-half shapes of the form's last byte that
+  resisted a structural rule; the not-taken transfers at pE.
+- **Waits alone (structural findings):** the register bit ops' +7 left at
+  2 waits, the bit fields' l0 pE w2 −1, MUL imm memory's read offsets.
+
+Encoded as two enums (sim/config.py, the old behaviour as DEFAULT, a dated
+deciding run, tests in test_sim.PageFormRuns), both keyed on the class and
+the queue, IR and bus state only; no new template step kind or tag:
+
+| Enum (old → new) | Rule | Deciding run (silicon; old model) | Flip |
+| --- | --- | --- | --- |
+| `page_b2b` (none → reg) | a 0F register form (TEST1/CLR1/SET1/NOT1 r, ROL4/ROR4 r) commits the bus unit to one more back-to-back fetch on the last clock of the fetch running at its last operand take (or issued the clock after), with a byte of room left (the word latch takes the other), once per form; not when the next opcode was already in the IR when that fetch issued (ROL4/ROR4 DL load it on the take clock and fetch nothing more), nor when the queue could not take the word before the form's clocks end | `F34-out-rbit-set1_rw_cl-l0-k1-pO-w0`: F88 F91; F88 F98 | −69 (F32 −25, F34 −44) |
+| `page_run` (none → mem → field) | while a 0F memory form's read is posted and not issued (field: also a bit field's first read), the request is evaluated on a running fetch's last clock and room for a word commits the next fetch back to back, once per form; that fetch passes the read's fetch hold, and for the memory forms its wait clocks do not count toward the read's setup (the bit fields count them: counting them too loses 6) | `F34-out-mbit-set1_mw_cl-l0-k1-pE-w0`: F87 F90 D95 (w1 D98, w2 D101); no F90. `F34-out-bf-ext_bl_dh-l0-k1-pE-w0`: F87 F90 D96; `mem` D96 then F99 | none −126 (F32 −82, F34 −44); mem −38 |
+
+Integers: the INS crossing's `bf_ins.xwsetup` 68 → 69, `xrsetup` 11 → 12,
+`xspan` 106 → 105 (every crossing INS cell −1 at every lead, parity and
+wait; the three move only together, which is why stage 17's single-integer
+descent never found them: +61 by hand), and from the stage `rol4_mem.fsetup`
+1 → 3, `ror4_mem.pre` 5 → 1. Fit stage 20 (`F46_ENUMS` with the old value
+first, `F46_INTS` = the 103 integers of the 0F, bit-field and MUL imm
+classes; F32 F33 F34; the corpus guard the guard) from that hand start
+chose `page_b2b=reg`, `page_run=field` and moved four more ROL4/ROR4
+register integers (`rol4.pre` 0 → 2, `rol4.wb` 1 → 2, `rol4.exec` 14 → 13,
+`ror4.pre` 1 → 2) that gain 5 and lose 2 inside one class
+(`F32-out-rol4_dl-k2-pE-w0`, `F32-out-ror4_dl-k2-pE-w0`): a within-class
+trade, so the candidate keeps the tracked values there (wp86/
+fit-wp86-noloss.json; the stage's full output, 28,097 with the two losses,
+is wp86/fit-wp86.json). **F32 440 → 560/858, F34 958 → 1,094/1,596, F33
+unchanged, the corpus 27,838 → 28,094** over the 36 lists, nothing lost in
+any family; the gate (a clean worktree and the work's worktree under the
+tracked fit byte-identical on all 36 lists; the candidate won F32 120 and
+F34 136, lost 0; the same won and lost sets on top of the pending WP84 +
+WP85 candidate, wp86/fit-wp86-pending-noloss.json, which differs from the
+plain candidate on F13, F27 and F28 only, WP85's gains).
+
+Tried and refuted (measured, removed): re-evaluating the request on a
+fetch's issue after it waited for the bus (+1 F34 but F27 +30 −1, F28 +45
+−4: a refresh-beside-an-OUT effect, for the WP85 line); no fetch raised
+after a bit field's or 0F memory form's read post until it issues (lost
+39–145, won 0: a request raised by the width byte's take on a fetch's B3
+runs back to back in silicon); any fetch issued the clock after a fetch's
+last counting as committed inside the read's setup (F32 +72 −38, F34 +31
+−119); `page_b2b` keyed on the last byte's word half (identical to keying
+on nothing once the IR and queue state is read); a CVTBD/CVTDB fetch hold
+like `mul_imm_hold` (silicon's PUSH twin fetches at once in the same
+alignment: 0 won, 3 lost).
+
+**What stays a fact** (PART 2 of the facts file): the bit fields, about
+290 runs (the imm4 forms at an odd start behind a lead at pE, where the
+model fetches on the width byte's take and silicon does not while the
+other parity runs that fetch back to back; the imm4 forms at l0 pO −61 and
+−30, the mid-span prefetch release; k = 2 +2, a k-keyed integer; the PUSH
+write +2); the register bit ops, about 190 (the k = 2 second instance 2–3
+clocks later in silicon; the imm form at an odd start behind a lead at pE
+3 clocks shorter; cells behind `MOV CL` or `NOP NOP` at pO); the memory bit
+ops, about 175 (the immediate index at pE +2, where a delivery-clock fetch
+runs inside silicon's read setup and counting such fetches loses 157;
+TEST1 [m],CL at pO; the d16 and direct modes); MUL imm memory, about 85
+(the best formula matches 76 of 162 reads, the rest shift with the waits);
+the not-taken transfers' l0 pE third refill, k = 2 and DBNZ −1; F33's
+INC/DEC r8 (the cost of `wb_fetch`), one-byte forms at k = 2 pE +1,
+CVTBD/CVTDB pO, MUL [BW] +2; BCD k = 2 pO −1, the DS1: prefix, the RET −22,
+INC k = 4 +1, LDEA.
+
+The RTL does not implement the two rules yet.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
