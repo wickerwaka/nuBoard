@@ -228,13 +228,13 @@
    "wb": 2
   },
   "dbnz_z": {
-   "chold": 6,
+   "chold": 5,
    "exec": 15,
    "fgap": 5,
    "hold": 2,
    "nexec": 7,
    "nfgap": 1,
-   "nhold": 3,
+   "nhold": 2,
    "post": 0,
    "pre": 0,
    "wb": 2,
@@ -761,6 +761,7 @@
  "count_latch": true,
  "data_ready": 0,
  "data_while_fetch": "wait_before",
+ "decide_abort": "cycle",
  "dest_route": "slot",
  "disp16": "word",
  "disp_floor": "posted",
@@ -1020,5 +1021,6 @@
  "write_wait": "mem_end",
  "xfer_abort": "word",
  "xfer_nt": "odd",
+ "xfer_nt_b2b": "decide",
  "xfer_odd": "idle"
 }

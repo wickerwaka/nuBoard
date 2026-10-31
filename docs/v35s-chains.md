@@ -5534,6 +5534,50 @@ extra read and the expected SP walk:
 Modelling these six classes (the pointer reads before CALL/BR's structure, BRK's read-push-read-push-push) is a model
 package of its own; until then score, fit and freeze skip F37.
 
+### The not-taken transfer's back-to-back fetch and the aborted cycle's gap: F23, F30, F34 and F35's misses read, two enums (WP89, 2026-10-31; the forty-sixth fit)
+
+Under the forty-fifth fit 135 refresh-off runs missed with what looked like one shape (a short conditional transfer
+not taken at an even address behind no lead, silicon's third refill fetch back to back). Read run by run (scratchpad
+wp89/facts.txt: every model fetch whose last clock falls inside a not-taken transfer, prefix-matched, with the EU's
+step, the queue's room, the IR and the latch at that clock, and every not-taken DBNZ-family start with the cycle
+running on it) they are two mechanisms:
+
+- **A: the not-taken short conditional's decide step commits a back-to-back fetch.** In all 120 cases where a fetch
+  ends inside a not-taken `branch_short`'s decide step (its condition tested) with a byte of room, silicon runs the
+  next fetch back to back; the model never did. In the 149 cases where the fetch ends inside the cond clocks before
+  the test (the fetch running on the transfer's start clock) silicon never does; with room 0 never. The state at every
+  miss is the same: the IR holds the next opcode, 3 bytes queued, a fetch in flight, nothing latched. Odd addresses
+  are exact because the `xfer_nt=odd` hold leaves room 0, and the leads (F34's `d2`/`nop2`, F35's ADD DW) are exact
+  because no fetch ends inside the decide step: the word half of the opcode is not what decides it. DBNZ, BCWZ and
+  DBNZE/DBNZNE give no evidence either way (their decide step starts on the take, with the start clock's fetch
+  running), so the rule stays on `branch_short`. Enum `xfer_nt_b2b` (none → decide): the same structure as
+  `page_b2b`, the latch taking the word's other byte, once per form, and the decide step does not wait for the fetch it
+  committed. Deciding run `F23-out-bne-n0-k1-pE-w0`: BNE starts on F87, F90 back to back, its last clock 92 in the
+  decide step with room 1; silicon F93, I107 (none: F100, I107). Flip at the candidate −120 (F23 −9, F30 −30, F34 −9,
+  F35 −72); gated alone it wins exactly those 120 and loses nothing.
+- **B: an aborted cycle counts as the fetch it stood for in the decide step's gap.** For a DBNZ at an odd address
+  silicon's next fetch comes 6 clocks after the end of whichever cycle ran on its start clock: a fetch (st+8/9/10 at
+  w0/w1/w2, 54 runs exact already) or an aborted cycle (3 clocks at every wait: silicon st+8, the model st+7 in all
+  31 rows). The 15 F34 `nt-dbnz` misses, 16 of F35's 18 `loop` misses and all 6 F35 `cw` misses at OUT pE w0 are this.
+  Enum `decide_abort` (fetch → cycle): an aborted cycle that answered a fetch request since the transfer's start
+  counts as the fetch, the `nfgap` counted from its last clock, as the take sync already waits for it. Every odd
+  DBNZE/DBNZNE starts on an aborted cycle, so `dbnz_z.nhold` 3 → 2 and `chold` 6 → 5 (the old integers carried the
+  clock). Deciding run `F34-out-nt-dbnz-d-k1-pO-w0`: DBNZ at 10053 starts on 99 with an aborted cycle 99–101; silicon
+  fetches at 107, the model under `fetch` at 106. Flip at the candidate −67 (F34 −15, F35 −52), −37 with dbnz_z's old
+  integers; gated alone it wins F34 15 and F35 22 and loses nothing.
+
+Fit stage 22 (`F48_ENUMS` the two enums, `F48_INTS` the 41 integers of branch_short, dbnz, bcwz and dbnz_z; F23 F30
+F34 F35; the corpus guard the guard) from the tracked fit chose both and the two dbnz_z integers, 3,909 → 3,945 of
+4,476 on its families; the sweep moved nothing. **F23 360/360, F30 1,451/1,476, F34 1,118/1,596, F35 1,016/1,044,
+29,884 → 30,041 of 31,532**, the other 34 lists byte-identical (the gate: a clean worktree and the work's tree under
+the tracked fit byte-identical on all 38 lists; the candidate won 157, lost 0). Tests test_sim.NotTakenBackToBack,
+test_fit.NotTakenB2BStage.
+
+**What stays a fact:** F35 `far` (26 runs: the w0 second fetch after M0's I/O and CALL far's first write, taken
+transfers that neither rule touches); two F35 `loop` runs where silicon makes one more sequential fetch before the
+first DBNZ's backward flush (a taken transfer's pre-flush fetch); F30's remaining 25 are all LDEA; F34's other 478
+are untouched (the bit fields, the register and memory bit ops, MUL imm memory).
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -5553,7 +5597,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the forty-fifth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the forty-sixth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -5958,10 +6002,18 @@ the fetch hold inside a template, which the include's format has no place for), 
 forty-fourth fit's and `test_rtlgen` leaves the maintained set (nine offline modules from here; it is RTL-side, with
 `test_rtl_vectors` and `test_chain_lane`).
 
+**The forty-sixth fit** (`fit.json`, md5 c13152ddfe0c637a30d9500332b9ec38; scratchpad wp89/fit-wp89.json, adopted 2026-10-31) is the
+forty-fifth fit plus WP89's two not-taken transfer mechanisms, `xfer_nt_b2b=decide` and `decide_abort=cycle`, with
+`dbnz_z.nhold` 2 and `chold` 5 (Facts "The not-taken transfer's back-to-back fetch and the aborted cycle's gap").
+29,884 → 30,041 of 31,532 over 38 lists: F23 360/360, F30 1,451/1,476, F34 1,118/1,596, F35 1,016/1,044; the
+other 34 lists byte-identical; nothing lost. Stage 22 (`fit.py`). The refresh-off corpus stands at 25,847 of 26,900
+(F34 478, F32 298, F33 123, F24 44, F29 29, F35 28, F30 25, F25 19, F22 6, F36 3 missing; F23 complete). F37 (432
+runs) is in the corpus but unmodelled and not scored. Model side only, no RTL work.
 
-### Fitted structure (forty-fifth fit, 2026-10-31)
 
-Forty-five fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (forty-sixth fit, 2026-10-31)
+
+Forty-six fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6322,7 +6374,10 @@ enums, WP86's `page_b2b=reg` / `page_run=field` and five integers): 28215/29738,
 F27 932, F28 898, F32 560, F34 1094; byte-identical on 32 lists. The
 forty-fifth (`fit.json`, 2026-10-31) models F35 and F36 (twelve classes,
 `ret_imm_hold=word`, stage 21): 29884/31532 over 38 lists, F35 922/1044, F36
-747/750, byte-identical on all 36 earlier lists.
+747/750, byte-identical on all 36 earlier lists. The forty-sixth (`fit.json`,
+2026-10-31) adds the not-taken transfer's two mechanisms (`xfer_nt_b2b=decide`,
+`decide_abort=cycle`, stage 22): 30041/31532, F23 360/360, F30 1451, F34 1118,
+F35 1016; byte-identical on 34 lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
