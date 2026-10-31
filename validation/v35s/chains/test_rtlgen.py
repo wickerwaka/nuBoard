@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import dataclasses
 import unittest
 from pathlib import Path
 
@@ -43,7 +44,7 @@ class Generated(unittest.TestCase):
         templates are found through the format words, not the templates' examples: a template
         two classes build is listed under the first (fit 40: DISPOSE's, setup 7, is POP's)."""
         cost = rtlgen.rtl_cost(self.cfg)    # (WP77) the built classes
-        self.assertEqual(len(cost), 42)     # fit 38: the seven string classes
+        self.assertEqual(len(cost), 65)     # fit 38: the seven string classes; (WP79) F32 / F33
         self.assertIn(f"localparam int V35_CLS_N = {len(cost)};", self.text)
         names = [n for n, _ in rtlgen.FMT_FIELDS]
         with_tmpl = {k[names.index("cls")] for k in self.sel}
@@ -240,13 +241,15 @@ class Generated(unittest.TestCase):
         """Every instruction of every generated chain (E3: the string forms too) decodes to a
         format the selection table holds, in both refresh forms (and the count-0 form of a
         shift), with the EU's own changes at its start (a CMP r/m,reg or 81 /7 form: nowrite,
-        its group's class). An instruction of an UNBUILT_CLASSES class (WP77: the F32 / F33
-        classes the RTL does not build yet) has no template by design and is skipped."""
+        its group's class). An instruction of an UNBUILT_CLASSES class (WP77) has no template by
+        design and is skipped; (WP79) none is left: the F32 / F33 classes are checked as every
+        other, a BCD string against its compact template, a bit field in both crossings."""
         from validation.v35s.chains.families import generate
         from validation.v35s.chains.sim.frozen.templates import decode
         codes = sorted({bytes(i.code) for c in generate(None) for i in c.instrs})
         seen = 0
         unbuilt = 0
+        page = 0
         for code in codes:
             k = 0
             while k < len(code):
@@ -267,6 +270,23 @@ class Generated(unittest.TestCase):
                     seen += 1
                     k += op.length
                     continue
+                if op.cls in rtlgen.bcd_classes() or op.cls in rtlgen.bf_classes():
+                    for refresh in (False, True):     # (WP79)
+                        for cross in ((False, True) if op.bf is not None else (False,)):
+                            o = op if op.bf is None else dataclasses.replace(
+                                op, bf=(0, 0, cross, rtlgen.BF_SENT))
+                            key = tuple(rtlgen.fmt_of(o, self.cfg, False, refresh)[n]
+                                        for n, _ in rtlgen.FMT_FIELDS)
+                            want = (rtlgen.bcd_template(o, self.cfg) if o.bf is None
+                                    else rtlgen.bf_template(o, self.cfg))
+                            with self.subTest(code=code.hex(" "), k=k, cross=cross):
+                                self.assertIn(key, self.sel)
+                                self.assertEqual(self.tmpls[self.sel[key]], want)
+                    seen += 1
+                    page += 1
+                    k += op.length
+                    continue
+                page += op.page
                 for refresh in (False, True):
                     cz = rtlgen.has_count(op) and op.count == 0
                     key = tuple(rtlgen.fmt_of(op, self.cfg, cz, refresh)[n]
@@ -278,7 +298,45 @@ class Generated(unittest.TestCase):
                 seen += 1
                 k += op.length
         self.assertGreater(seen, 300)
-        self.assertGreater(unbuilt, 0)              # F32 / F33 are in the corpus
+        if rtlgen.UNBUILT_CLASSES:
+            self.assertGreater(unbuilt, 0)          # (WP77) F32 / F33 were in the corpus
+        self.assertEqual(unbuilt, 0)                # (WP79) every class built
+        self.assertGreater(page, 40)                # (WP79) the 0F page's forms checked
+
+    def test_page_and_miscellany(self):
+        """(WP79) The F32 / F33 classes in the include: every class a base class (BASE_CLASS)
+        maps to the same in v35_base_cls; a BCD string's compact template expands to frozen
+        _wp78_steps for any pair count (bcd_template checks n up to 6) with pairs 0 and >= 1;
+        a bit field's template carries the cost formula in one clocks step tagged bf whose n is
+        the class's span / xspan, its word reads at IX / IY (+ 2 crossing as src_i 1); the new
+        widths hold (7-bit classes, the decoder's nx and ready_at, the bit field's cost)."""
+        from validation.v35s.chains.sim.frozen.templates import BASE_CLASS, decode
+        self.assertFalse(rtlgen.UNBUILT_CLASSES)
+        for c, b in BASE_CLASS.items():
+            self.assertIn(f"V35_CLS_{rtlgen._ident(c)}: v35_base_cls = V35_CLS_{rtlgen._ident(b)};",
+                          self.text)
+        c = self.cfg.c
+        for code, cls in ((b"\x0f\x20", "bcd4s"), (b"\x0f\x26", "bcd4s_cmp")):
+            op = decode(code + bytes(6), 0, rtlgen._regs(0, 3))
+            tm = [dict(r) for r in rtlgen.bcd_template(op, self.cfg)]
+            m = rtlgen.bcd_shape(tuple(rtlgen._row(d) for d in tm))
+            self.assertEqual(m, 3 if cls == "bcd4s" else 2)
+            self.assertEqual(tm[rtlgen.BCD_HEAD]["n"], (c(cls, "first"), 0))
+            self.assertEqual(tm[rtlgen.BCD_HEAD + m]["n"], (c(cls, "loop"), 0))
+            self.assertEqual(tm[-1], {"op": "clocks", "n": (c(cls, "exec"), 0)})
+            self.assertIn(f"v35_bcd_shape = 2'd{m};   // {cls}", self.text)
+        for second, cls, span in ((0x33, "bf_ext", "span"), (0x31, "bf_ins", "xspan")):
+            op = decode(bytes([0x0F, second, 0xC2, 0, 0, 0, 0, 0]), 0, rtlgen._regs(0, 3))
+            o = dataclasses.replace(op, bf=(0, 0, span == "xspan", rtlgen.BF_SENT))
+            tm = [dict(r) for r in rtlgen.bf_template(o, self.cfg)]
+            bf = [d for d in tm if d.get("tag") == "bf"]
+            self.assertEqual(bf, [{"op": "clocks", "tag": "bf", "n": (c(cls, span), 0)}])
+            reads = [(d["src"], d["src_i"]) for d in tm if d["op"] == "data"]
+            self.assertEqual(reads[0], ("ix" if cls == "bf_ext" else "iy", 0))
+            if span == "xspan":
+                self.assertIn(("iy", 1), reads)
+        self.assertEqual(rtlgen.WIDTHS["CLS"], 7)
+        self.assertLess(len(rtlgen.rtl_classes(self.cfg)), 127)
 
     def test_shift_counts_are_coefficients(self):
         """SHL AW,CL: its count loop is 2 clocks per count (per_shift_count), not a literal."""

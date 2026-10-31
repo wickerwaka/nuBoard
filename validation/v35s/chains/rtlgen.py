@@ -87,6 +87,12 @@ WIDTHS = {
     "Q_SD_OFF": 4,      # (E3) str_held - t: a compare's chold clocks (str_hold=hold);
                         # (WP77) str_fetch=hold's xfetch clocks after the stream's last cycle
     "Q_SR_OFF": 3,      # (WP77) str_raise - t: str_fetch=hold's zfetch clocks (CW = 0)
+    # (WP79) the 0F page and the register miscellany
+    "CLS": 7,           # a class id (65 classes; CLS_NONE = 127)
+    "NX": 3,            # the decoder's nx (a class's nx: rol4_mem 7)
+    "RA_OFF": 5,        # ready_at - t: nx, or a one-byte form's nx0 (adjust_b 16), + io_take_nx
+    "BF_COST": 12,      # a bit field's cost (templates.bf_cost of the whole offset and width
+                        # registers: INS 128 + 4 (255 + 255 - 16) = 2104 at most)
 }
 
 # Bus-cycle kinds and widths as the bus unit encodes them.
@@ -103,14 +109,16 @@ STEP_TAGS = ("none", "ea", "mexec", "exec", "loop", "tail", "loop_odd", "mexit",
              "lead", "chain", "word", "chain_word", "port",                         # take
              "cfgap",       # flush: (WP72) cond_gap=own, the class's cfgap (else fgap)
              "forever",     # fetch_release: (WP77) ("fetch_release", None): no request from here
-             "raise")       # fetch_release: (WP77) CW = 0: the aborted start's request raised
+             "raise",       # fetch_release: (WP77) CW = 0: the aborted start's request raised
                             # again n clocks in (queue.str_raise); untagged: str_held = t + n
+             "bf")          # clocks: (WP79) a bit field's cost formula's clocks less n
+                            # (max(0, bf_cost - span), templates._wp78_steps)
 REQ_KINDS = ("none", "read", "write", "io_read", "io_write", "nowrite")
 ADDR_SRC = ("none", "ea", "stack_read", "stack_write", "port", "target",
             "ix", "iy")     # (E3) a string element's source (DS0:IX) and destination (DS1:IY)
 
 # (name, bits): the packed step word, LSB first
-STEP_FIELDS = (("op", 4), ("n", 8), ("per_count", 2), ("tag", 4), ("kind", 3), ("src", 3),
+STEP_FIELDS = (("op", 4), ("n", 8), ("per_count", 2), ("tag", 5), ("kind", 3), ("src", 3),
                ("src_i", 3), ("width", 2), ("has_free", 1), ("free", 5), ("grp", 1),
                ("whole", 1), ("detached", 1))
 
@@ -123,10 +131,11 @@ EA_CLASSES = ("none", "base", "base_disp", "base_index", "base_index_disp",
 
 # The format word: the Op fields frozen templates.steps reads (besides the symbolic operands
 # and the count), LSB first. Two Ops with one format word build one template (checked).
-FMT_FIELDS = (("cls", 6), ("length", 3), ("imm_bytes", 2), ("has_ea", 1), ("modrm", 1),
+FMT_FIELDS = (("cls", 7), ("length", 3), ("imm_bytes", 2), ("has_ea", 1), ("modrm", 1),
               ("disp", 2), ("width", 2), ("ea_class", 3), ("signed", 1), ("group", 1),
               ("fixed_alu", 1), ("shift", 1), ("cl", 1), ("nowrite", 1), ("swap", 1),
-              ("cond", 1), ("taken", 1), ("count_zero", 1), ("refresh", 1))
+              ("cond", 1), ("taken", 1), ("count_zero", 1), ("refresh", 1),
+              ("cross", 1))     # (WP79) a bit field crosses into the next word (Op.bf)
 
 
 class RtlgenError(RuntimeError):
@@ -148,15 +157,12 @@ def _ident(name: str) -> str:
 
 # The fit ---------------------------------------------------------------------------------
 
-# (WP77) Classes the RTL does not build yet (the HDL plan's Phase E items 4 and 5: the 0F page and
-# the register miscellany, F32 / F33, modelled in WP78): their templates are left out of the
-# include (as the string classes were before E3), and so are their class ids and integers, so
-# the RTL's class numbering is the built classes' sorted order; an instruction of one of them in
-# a chain is not modelled (rtl_vectors: no template in the include)
-UNBUILT_CLASSES = frozenset({
-    "incdec", "flag", "flag_di", "flag_ei", "extend", "extend_w", "adjust", "adjust_b", "rol4",
-    "ror4", "bit1", "convert", "convert_d", "bit1_test", "bit1_rmw", "bit1_clr", "rol4_mem",
-    "ror4_mem", "mul_imm", "bcd4s", "bcd4s_cmp", "bf_ext", "bf_ins"})
+# (WP77) Classes the RTL does not build yet: their templates are left out of the include (as the
+# string classes were before E3), and so are their class ids and integers, so the RTL's class
+# numbering is the built classes' sorted order; an instruction of one of them in a chain is not
+# modelled (rtl_vectors: no template in the include). (WP79) None: the 0F page and the register
+# miscellany (F32 / F33, the HDL plan's Phase E items 4 and 5) are built.
+UNBUILT_CLASSES: frozenset = frozenset()
 
 
 def rtl_cost(cfg) -> dict:
@@ -220,16 +226,19 @@ def enumerate_ops():
     seen = {}
     for b0 in range(256):
         for b1 in range(256):
-            code = bytes([b0, b1, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00])
-            for z, cw in ((0, 3), (1, 3), (0, 1)):
-                try:
-                    op = decode(code, 0, _regs(z, cw))
-                except (ValueError, KeyError, IndexError):
-                    continue
-                k = (op.cls, op.length, op.opcode, b1 if op.length > 1 else None,
-                     op.target is not None)
-                if k not in seen:
-                    seen[k] = (op, code[:op.length])
+            # (WP79) the 0F page: the ModR/M byte is the third, every value of it
+            for b2 in (range(256) if b0 == 0x0F else (None,)):
+                code = (bytes([b0, b1, b2, 0x02, 0x00, 0x00, 0x00, 0x00]) if b2 is not None
+                        else bytes([b0, b1, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00]))
+                for z, cw in ((0, 3), (1, 3), (0, 1)):
+                    try:
+                        op = decode(code, 0, _regs(z, cw))
+                    except (ValueError, KeyError, IndexError):
+                        continue
+                    k = (op.cls, op.length, op.opcode, b1 if op.length > 1 else None,
+                         b2 if b0 == 0x0F and op.length > 2 else None, op.target is not None)
+                    if k not in seen:
+                        seen[k] = (op, code[:op.length])
             if b0 in ONE_BYTE:
                 break                       # no second byte read: one pass is enough
     return list(seen.values())
@@ -434,6 +443,105 @@ def expand_string(tm: tuple, cls: str, last: int, n: int, cond: bool) -> list:
     return out + [(tm[x + t + (1 if cond else 0)], 0)]
 
 
+# (WP79) The BCD strings (ADD4S / SUB4S / CMP4S, frozen templates._wp78_steps): pre clocks, the
+# second opcode byte's take, per byte pair i a byte read at IX + i (setup first, later pairs
+# loop), a byte read at IY + i (mid) and, ADD4S / SUB4S, the result written at IY + i (wmid), then
+# exec clocks; n pairs, (CL + 1) / 2 from the register file (the model: the walk's). The compact
+# template the include holds is
+#     0 clocks pre, 1 take 1,                      (BCD_HEAD rows)
+#     the rows of pair 0, the rows of pair >= 1    (m rows each, BCD_SETS sets),
+#     clocks exec;
+# the EU's step k (the model's flat index) is expand_bcd's: pair i = (k - BCD_HEAD) // m, the
+# addresses IX / IY + i (always upward), its rows pair 0's or pair 1's.
+BCD_HEAD = 2
+BCD_SETS = 2
+
+
+def bcd_classes() -> frozenset:
+    from .sim.frozen.templates import BCD_CLASSES
+    return frozenset(BCD_CLASSES)
+
+
+def bf_classes() -> frozenset:
+    from .sim.frozen.templates import BF_CLASSES
+    return frozenset(BF_CLASSES)
+
+
+def _bcd_raw(op, cfg, n: int) -> list:
+    from .sim.frozen.templates import steps
+    o = dataclasses.replace(op, ix=SENT["ix"], iy=SENT["iy"], n=n, cond=False)
+    return [_str_abstract(st, 1) for st in steps(o, cfg)]
+
+
+def bcd_template(op, cfg) -> tuple:
+    """(WP79) the compact template of a BCD string (above). Checked: expand_bcd gives frozen
+    _wp78_steps' list for every n up to 6, pair by pair."""
+    two, three = _bcd_raw(op, cfg, 2), _bcd_raw(op, cfg, 3)
+    m = len(three) - len(two)
+    if m < 1 or len(two) != BCD_HEAD + BCD_SETS * m + 1:
+        raise RtlgenError(f"{op.cls}: the BCD string's list is not the compact template's shape")
+    tm = tuple(_row(d) for d, _ in two)
+    for n in range(7):
+        want = [(_row(d), i if i is not None else 0) for d, i in _bcd_raw(op, cfg, n)]
+        if want != expand_bcd(tm, n):
+            raise RtlgenError(f"{op.cls}: the compact template does not expand to _wp78_steps "
+                              f"at n={n}")
+    return tm
+
+
+def bcd_shape(tm: tuple) -> int:
+    """(WP79) the rows per byte pair of a BCD string's compact template."""
+    return (len(tm) - BCD_HEAD - 1) // BCD_SETS
+
+
+def expand_bcd(tm: tuple, n: int) -> list:
+    """(WP79) a BCD string's step list from its compact template, as the EU expands it:
+    [(row, pair index)]."""
+    m = bcd_shape(tm)
+    out = [(tm[j], 0) for j in range(BCD_HEAD)]
+    for i in range(n):
+        out += [(tm[BCD_HEAD + min(i, BCD_SETS - 1) * m + j], i) for j in range(m)]
+    return out + [(tm[-1], 0)]
+
+
+# (WP79) The bit fields (EXT, INS: frozen templates._wp78_steps): the word reads and writes at IX /
+# IY (+ 2 for the next word, a symbolic source's src_i) and one clocks step whose count is the cost
+# formula's (templates.bf_cost of the offset and width registers) less a class integer, max(0, ...):
+# the step's tag "bf" with that integer as n; the EU computes the rest (v35_bf_cost). Whether the
+# field crosses into the next word (Op.bf[2]) is the format's cross.
+BF_SENT = 4000
+
+
+def bf_template(op, cfg) -> tuple:
+    """(WP79) the template of a bit field with the crossing op.bf[2]: frozen steps with the cost
+    symbolic (the step that moves with it becomes ("clocks", tag bf, n = cost - its count))."""
+    from .sim.frozen.templates import steps
+
+    def raw(cost):
+        o = dataclasses.replace(op, ix=SENT["ix"], iy=SENT["iy"],
+                                bf=(op.bf[0], op.bf[1], op.bf[2], cost))
+        return steps(o, cfg)
+    a, b = raw(BF_SENT), raw(2 * BF_SENT)
+    if len(a) != len(b):
+        raise RtlgenError(f"{op.cls}: the bit field's template changes shape with its cost")
+    out, moved = [], 0
+    for x, y in zip(a, b):
+        if x == y:
+            d = abstract(x)
+            for k in ("n", "free"):
+                if k in d and isinstance(d[k], int) and not isinstance(d[k], bool):
+                    d[k] = (d[k], 0)
+        elif x[0] == "clocks" and len(x) == 2 and y[1] - x[1] == BF_SENT and 0 <= BF_SENT - x[1] < 256:
+            d = {"op": "clocks", "tag": "bf", "n": (BF_SENT - x[1], 0)}
+            moved += 1
+        else:
+            raise RtlgenError(f"{op.cls}: step {x!r} moves with the cost but not as its clocks")
+        out.append(tuple(sorted(d.items())))
+    if moved != 1:
+        raise RtlgenError(f"{op.cls}: {moved} steps carry the bit field's cost")
+    return tuple(out)
+
+
 def has_count(op) -> bool:
     return op.cls in ("shift_imm", "shift_cl") or op.shift
 
@@ -447,9 +555,11 @@ def fmt_of(op, cfg, count_zero: bool, refresh: bool) -> dict:
             "signed": op.signed, "group": op.group, "fixed_alu": op.fixed_alu,
             "shift": op.shift, "cl": op.opcode in (0xD2, 0xD3), "nowrite": op.nowrite,
             "swap": op.swap, "taken": op.target is not None,
-            # (E3) a string form's cond is the walk's exit (Op.cond), not a format property
-            "cond": op.cond and op.cls not in string_classes(),
-            "count_zero": count_zero, "refresh": refresh}
+            # (E3) a string form's cond is the walk's exit (Op.cond), not a format property;
+            # (WP79) nor a BCD string's
+            "cond": op.cond and op.cls not in string_classes() and op.cls not in bcd_classes(),
+            "count_zero": count_zero, "refresh": refresh,
+            "cross": bool(op.bf is not None and op.bf[2])}
 
 
 def _symbolic(op):
@@ -482,6 +592,9 @@ def _addr(v):
         return "stack_read", (v - SENT["stack_read"]) // 2
     if SENT["stack_write"] - 14 <= v <= SENT["stack_write"] and not (SENT["stack_write"] - v) % 2:
         return "stack_write", (SENT["stack_write"] - v) // 2
+    for name in ("ix", "iy"):           # (WP79) a bit field's words: IX / IY + 2 * src_i
+        if SENT[name] <= v <= SENT[name] + 14 and not (v - SENT[name]) % 2:
+            return name, (v - SENT[name]) // 2
     raise RtlgenError(f"operand value {v:#x} is not a symbolic source")
 
 
@@ -590,6 +703,28 @@ def templates(cfg) -> tuple[list, dict, dict]:
         op = started(op, cfg)
         if op.cls in UNBUILT_CLASSES:
             continue                            # (WP77) not built: no template
+        variants = None
+        if op.cls in bcd_classes():
+            variants = [(bcd_template(op, cfg), op)]   # (WP79) refresh_hold_steps leaves it
+        elif op.cls in bf_classes():
+            variants = []                       # (WP79) both crossings, the cost symbolic
+            for cross in (False, True):
+                o = dataclasses.replace(op, bf=(0, 0, cross, BF_SENT))
+                variants.append((bf_template(o, cfg), o))
+        if variants is not None:
+            for tm, o in variants:
+                for refresh in (False, True):
+                    key = tuple(fmt_of(o, cfg, False, refresh)[n] for n, _ in FMT_FIELDS)
+                    if tm not in ids:
+                        ids[tm] = len(order)
+                        order.append(tm)
+                        tags = [t for t, on in (("cross", o.bf is not None and o.bf[2]),
+                                                ("refresh", refresh)) if on]
+                        example[ids[tm]] = (o.cls, code.hex(" ") + "".join(f", {t}" for t in tags))
+                    if key in sel and sel[key] != ids[tm]:
+                        raise RtlgenError(f"format {key} builds two templates ({code.hex(' ')})")
+                    sel[key] = ids[tm]
+            continue
         if op.cls in string_classes():
             tm = string_template(op, cfg)       # (E3) refresh_hold_steps leaves it as it is
             for refresh in (False, True):
@@ -753,7 +888,13 @@ def check_widths(cfg, structure, tmpls) -> list[str]:
             "Q_AB_LEFT": bc["BASE"] - 1, "Q_LA_OFF": 2, "Q_GD_OFF": cfg.c("rmw", "grp_free"),
             "Q_LE_OFF": max(cfg.ea.values()) + cfg.c("lea", "exec"),
             "Q_SD_OFF": max(cfg.c(c, n) for c in rtl_cost(cfg) for n in ("chold", "xfetch")),
-            "Q_SR_OFF": max(cfg.c(c, "zfetch") for c in rtl_cost(cfg))}
+            "Q_SR_OFF": max(cfg.c(c, "zfetch") for c in rtl_cost(cfg)),
+            # (WP79) the class ids and CLS_NONE (all ones), the decoder's nx and ready_at - t (a
+            # one-byte form's nx0; io_take_nx adds a clock), the bit field's cost
+            "CLS": len(rtl_classes(cfg)),
+            "NX": max(cfg.c(c, "nx") for c in rtl_cost(cfg)),
+            "RA_OFF": 1 + max(cfg.c(c, n) for c in rtl_cost(cfg) for n in ("nx", "nx0")),
+            "BF_COST": max(_bf_cost_max())}
     for k, v in need.items():
         if v >= 1 << WIDTHS[k]:
             bad.append(f"V35_W_{k}={WIDTHS[k]} cannot hold {v}")
@@ -761,6 +902,12 @@ def check_widths(cfg, structure, tmpls) -> list[str]:
     if 1 << WIDTHS["COUNT_LOOP"] > 1 << (WIDTHS["Q_OFF"] - 1):
         bad.append(f"V35_W_Q_OFF={WIDTHS['Q_OFF']} cannot hold a count loop's clocks signed")
     return bad
+
+
+def _bf_cost_max() -> list:
+    """(WP79) the bit fields' costs over every offset and width register value."""
+    from .sim.frozen.templates import BF_CLASSES, bf_cost
+    return [bf_cost(c, o, w) for c in BF_CLASSES for o in range(256) for w in range(256)]
 
 
 # Rendering -------------------------------------------------------------------------------
@@ -972,6 +1119,22 @@ def render(fit_path: Path | None = None) -> str:
     w("    endcase")
     w("endfunction")
     w("")
+    # (WP79) the BCD strings' compact templates (bcd_template, expand_bcd)
+    bcds = [(i, bcd_shape(t)) for i, t in enumerate(tmpls) if example[i][0] in bcd_classes()]
+    w("// ---- (WP79) The BCD strings' compact templates (rtlgen.bcd_template): rows 0-1 the head")
+    w("// (clocks pre, take 1), then the rows of byte pair 0 and of pair >= 1 (m rows each: the")
+    w("// byte reads at IX + i and IY + i, ADD4S / SUB4S's write at IY + i), then clocks exec; the")
+    w("// EU expands them by the pair count (expand_bcd) ----")
+    w(f"localparam int V35_BCD_HEAD = {BCD_HEAD};")
+    w(f"localparam int V35_BCD_SETS = {BCD_SETS};")
+    w("function automatic logic [1:0] v35_bcd_shape(input int tmpl);   // m; 0: not one")
+    w("    case (tmpl)")
+    for i, m in bcds:
+        w(f"        {i}: v35_bcd_shape = 2'd{m};   // {example[i][0]}: {example[i][1]}")
+    w("        default: v35_bcd_shape = 2'd0;")
+    w("    endcase")
+    w("endfunction")
+    w("")
     fw = sum(b for _, b in FMT_FIELDS)
     w(f"// ---- Template selection: the format word ({len(sel)} formats) ----")
     off = 0
@@ -984,6 +1147,20 @@ def render(fit_path: Path | None = None) -> str:
     for key, tid in sorted(sel.items(), key=lambda kv: pack_fmt(kv[0], classes)):
         w(f"        {fw}'h{pack_fmt(key, classes):0{(fw + 3) // 4}X}: v35_tmpl_sel = {tid};")
     w("        default: v35_tmpl_sel = -1;")
+    w("    endcase")
+    w("endfunction")
+    # (WP79) templates.BASE_CLASS: the class whose structure a class shares (every rule that
+    # names a class sees it; the integers stay the class's own)
+    from .sim.frozen.templates import BASE_CLASS
+    w("")
+    w("// ---- (WP79) templates.BASE_CLASS: the existing class whose structure a class shares")
+    w("// (the EU's, the queue's and the arbiter's rules see it; the costs are the class's) ----")
+    w("function automatic int v35_base_cls(input int cls);")
+    w("    case (cls)")
+    for c in classes:
+        if c in BASE_CLASS:
+            w(f"        V35_CLS_{_ident(c)}: v35_base_cls = V35_CLS_{_ident(BASE_CLASS[c])};")
+    w("        default: v35_base_cls = cls;")
     w("    endcase")
     w("endfunction")
     # the EU's wbsync prefix (eu.py _start)

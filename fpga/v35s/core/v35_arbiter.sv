@@ -61,7 +61,7 @@ module v35_arbiter
     parameter int NXQ = 8,                  // the arbiter's queue ops per clock
     parameter int NXOP = 6,                 // its touches on the EU per clock (v35_eu.sv)
     parameter int STATE_W = 112,            // $bits(v35_ast_t), checked below
-    parameter int ESTATE_W = 985,           // v35_eu.sv's STATE_W
+    parameter int ESTATE_W = 1021,           // v35_eu.sv's STATE_W
     parameter int QSTATE_W = 197            // v35_queue.sv's STATE_W
 ) (
     input  wire        clock,
@@ -214,7 +214,7 @@ module v35_arbiter
 
     // ------------------------------------------------ helpers
 
-    function automatic logic is_cls(input logic [5:0] cls, input int c);
+    function automatic logic is_cls(input logic [6:0] cls, input int c);
         is_cls = int'(cls) == c;
     endfunction
 
@@ -223,7 +223,7 @@ module v35_arbiter
     endfunction
 
     // arbiter.TRANSFERS (eu.TRANSFER_CLASSES): the control-transfer classes
-    function automatic logic eu_transfer(input logic [5:0] cls);
+    function automatic logic eu_transfer(input logic [6:0] cls);
         int k;
         k = int'(cls);
         eu_transfer = k == V35_CLS_BRANCH_SHORT || k == V35_CLS_BRANCH_NEAR || k == V35_CLS_DBNZ

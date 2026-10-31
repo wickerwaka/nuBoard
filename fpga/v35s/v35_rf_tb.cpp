@@ -1,10 +1,10 @@
 // Register file, EA adder and ALU bench (HDL plan, Phase D: D1, D2): v35_rf_tb (v35_eu_pkg's
 // eu_decode, v35_operands, v35_execute, v35_deliver, v35_wdata) against the functional reference
 // (validation/v35s/chains/funcref.py) or SingleStepTests (sst.py). Vectors: rtl_vectors.py
-// (V35RF-2), one line per instruction start:
+// (V35RF-3: (WP79) the record's bit-field cost), one line per instruction start:
 //
 //   V <register file before: 14 values, v35_rf_t's fields> <code: 12 hex digits> <pc>
-//     <code_org> <mutate> <the record: ea port sr sw count taken target> <bad> <next> <ncyc>
+//     <code_org> <mutate> <the record: ea port sr sw count taken target bfc> <bad> <next> <ncyc>
 //     {<kind> <w2> <odd> <first> <last> <data>} x ncyc
 //     <the register file after: 14 values> <trap>
 //
@@ -34,12 +34,13 @@ namespace {
 const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 3};
 const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ps", "ss", "ds0",
                             "ds1", "psw", "pfx"};
-constexpr int NRF = 14, RFW = 211, XW = 151;
-// v35_opnd_t, MSB first: offset code ea port sr sw count taken target fmt tmpl
-const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
+constexpr int NRF = 14, RFW = 211, XW = 167;
+// v35_opnd_t, MSB first: offset code ea port sr sw count taken target fmt tmpl bfc
+const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 33, 9, 12};
 const char* const OPND_N[] = {"offset", "code", "ea", "port", "sr", "sw", "count", "taken",
-                              "target", "fmt", "tmpl"};
-constexpr int OPNDW = 197;
+                              "target", "fmt", "tmpl", "bfc"};
+constexpr int OPNDW = 212;
+constexpr int NREC = 8;     // the record's compared fields: ea port sr sw count taken target bfc
 constexpr int RK_READ = 1, RK_WRITE = 2, RK_IO_READ = 3, RK_IO_WRITE = 4;
 
 template <typename W>
@@ -91,15 +92,15 @@ int main(int argc, char** argv) {
     std::string format, tag;
     long n = 0;
     in >> format >> n;
-    if (format != "V35RF-2") {
-        std::fprintf(stderr, "not a V35RF-2 vector file\n");
+    if (format != "V35RF-3") {
+        std::fprintf(stderr, "not a V35RF-3 vector file\n");
         return 2;
     }
     VerilatedContext context;
     Vv35_rf_tb d{&context};
     long bad = 0, fails = 0;
     for (long i = 0; i < n; ++i) {
-        std::vector<uint64_t> before(NRF), after(NRF), rec(7);
+        std::vector<uint64_t> before(NRF), after(NRF), rec(NREC);
         std::string hex;
         uint64_t pc = 0, org = 0, mut = 0, xbad = 0, next = 0, trap = 0;
         long ncyc = 0;
@@ -148,7 +149,7 @@ int main(int argc, char** argv) {
         if (uint64_t(d.obad) != xbad)
             report("function not built", xbad, d.obad);
         if (!xbad && d.ok) {
-            // the record: ea port sr sw count taken target
+            // the record: ea port sr sw count taken target, (WP79) bfc
             int at = OPNDW - OPND_W[0] - OPND_W[1];
             for (int k = 0; k < 7; ++k) {
                 at -= OPND_W[k + 2];
@@ -156,15 +157,18 @@ int main(int argc, char** argv) {
                 if (got != rec[k])
                     report(OPND_N[k + 2], rec[k], got);
             }
-            const uint64_t taken = get_bits(d.opr, OPND_W[10] + OPND_W[9] + OPND_W[8], 1);
-            const uint64_t target = get_bits(d.opr, OPND_W[10] + OPND_W[9], 16);
-            const uint64_t count = get_bits(d.opr, OPND_W[10] + OPND_W[9] + 17, 9);
+            if (get_bits(d.opr, 0, OPND_W[11]) != rec[7])
+                report("bfc", rec[7], get_bits(d.opr, 0, OPND_W[11]));
+            const int tail = OPND_W[11] + OPND_W[10] + OPND_W[9];   // fmt tmpl bfc
+            const uint64_t taken = get_bits(d.opr, tail + OPND_W[8], 1);
+            const uint64_t target = get_bits(d.opr, tail, 16);
+            const uint64_t count = get_bits(d.opr, tail + 17, 9);
             const int len = d.len;
             const bool ret = (code >> 40) == 0xC3;
             // the start
             bool tr = d.s_trap;
             VlWide<7> rf;
-            VlWide<5> x;
+            VlWide<6> x;
             copy_bits(rf, d.s_rf, RFW);
             copy_bits(x, d.s_x, XW);
             bool tgt_v = false;

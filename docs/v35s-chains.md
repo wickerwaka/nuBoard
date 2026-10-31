@@ -5465,7 +5465,8 @@ PUSH 4); the second instance of an unprefixed string pair, all 44 F24 misses (se
 
 **The forty-second fit** (`fit.json`, md5 e7b1d062; scratchpad wp78/fit-wp78.json, WP78, fitted and verified 2026-10-30,
 adopted the same evening once the RTL had caught up to the forty-first fit (WP77) and rtlgen read the frozen package;
-the RTL leaves the F32/F33 classes unbuilt, `rtlgen.UNBUILT_CLASSES`, so the 33 gate lists are unchanged by it) models the 0F page and the register miscellany (Facts "The 0F page and the
+the RTL left the F32/F33 classes unbuilt, `rtlgen.UNBUILT_CLASSES`, so the 33 gate lists were unchanged by it;
+WP79 built them later the same day, 28,142/28,142 against the model) models the 0F page and the register miscellany (Facts "The 0F page and the
 register miscellany"). Twenty-three new classes, two new enums, two new integers on existing classes (`mul.sexec` 41,
 `div.sexec` 58: the signed register multiply and divide), no existing field, EA entry or integer changed; F32 42 →
 379/858 and F33 116 → 841/1,050 (the decode alone, at DEFAULT_COST, gives 343 and 841; the fit's integers and
@@ -7168,7 +7169,10 @@ corpus of 26,234 runs over 33 lists exact against the model, 0 not modelled, mod
 24,710 = RTL-exact, a REP form's count from CW and a compare's exit from the RTL's own data; and
 since the same night the RTL has the forty-first fit's nine mechanisms and REPC/REPNC (WP77):
 26,234 exact against the model, model-exact 25,423 = RTL-exact, rtlgen reading the frozen package's
-fit so that live model edits no longer touch the include (the F32/F33 classes unbuilt). The
+fit so that live model edits no longer touch the include (the F32/F33 classes unbuilt); and
+since later the same day the RTL builds the F32/F33 classes too (WP79, HDL plan "The 0F page
+and the register miscellany built"): `UNBUILT_CLASSES` empty, the whole corpus of 28,142 runs
+over 35 lists exact against the model, model-exact 26,643 = RTL-exact, funcref 0 disagree. The
 state row's `pc` is a chain offset like `ir` since the same day. The same
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");

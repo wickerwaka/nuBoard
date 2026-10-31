@@ -44,8 +44,8 @@
 
 namespace {
 
-constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 985, QSTATE_W = 197;
-constexpr int OPW = 33, QVW = 52, BVW = 20, NBV = 11, OPNDW = 197, RFW = 211;
+constexpr int NQ = 16, NXOP = 6, JSLOT = 40, STATE_W = 1021, QSTATE_W = 197;
+constexpr int OPW = 33, QVW = 52, BVW = 20, NBV = 11, OPNDW = 212, RFW = 211;
 constexpr int K_FETCH = 1, K_READ = 2, K_WRITE = 3, K_IO_READ = 4, K_REFRESH = 6;
 constexpr int BW_WORD = 0, BW_HI = 2;
 constexpr long SFR_PAGE = 0xFFF00;
@@ -88,10 +88,11 @@ struct OpRec {
 };
 
 // (D1) the operand record (v35_opnd_t, MSB first) and the register file (v35_rf_t)
-const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 31, 8};
+// (WP79) fmt 33 bits, tmpl 9, and a bit field's cost (bfc)
+const int OPND_W[] = {16, 48, 20, 16, 16, 16, 9, 1, 16, 33, 9, 12};
 const char* const OPND_N[] = {"offset", "code", "ea", "port", "sr", "sw", "count", "taken",
-                              "target", "fmt", "tmpl"};
-constexpr int NOPND = 11;
+                              "target", "fmt", "tmpl", "bfc"};
+constexpr int NOPND = 12;
 const int RF_W[] = {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 3};
 const char* const RF_N[] = {"aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy", "ps", "ss", "ds0",
                             "ds1", "psw", "pfx"};

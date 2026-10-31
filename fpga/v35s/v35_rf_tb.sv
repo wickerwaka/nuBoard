@@ -13,7 +13,7 @@ module v35_rf_tb
     import v35_eu_pkg::*;
 (
     input  wire [210:0] rf_in,              // v35_rf_t: the register file before the step
-    input  wire [150:0] x_in,                // v35_fx_t: the instruction's context before it
+    input  wire [166:0] x_in,                // v35_fx_t: the instruction's context before it
     input  wire [47:0]  code,               // the instruction's bytes, the opcode in [47:40]
     input  wire [15:0]  pc,                 // its code offset
     input  wire [15:0]  code_org,           // the IP of offset 0
@@ -35,18 +35,18 @@ module v35_rf_tb
     input  wire         w_last,
     output logic        ok,                 // the decode knows the opcode
     output logic [2:0]  len,                // its length
-    output logic [196:0] opr,               // v35_opnd_t (fmt, tmpl 0: the start's)
+    output logic [211:0] opr,               // v35_opnd_t (fmt, tmpl 0: the start's)
     output logic        obad,               // the function is not built (V35_EE_FUNC)
     output logic [210:0] s_rf,              // the start: the register file after v35_execute ...
-    output logic [150:0] s_x,                // ... the context
+    output logic [166:0] s_x,                // ... the context
     output logic        s_trap,             // ... a divide error
     output logic [210:0] d_rf,              // the delivery: the register file after ...
-    output logic [150:0] d_x,
+    output logic [166:0] d_x,
     output logic        d_tgt_v,            // ... RET's target
     output logic [15:0] d_tgt,
     output logic        d_trap,
     output logic [15:0] w_data,             // the issue: the cycle's datum ...
-    output logic [150:0] w_x                 // ... the context after it (PUSH R's index)
+    output logic [166:0] w_x                 // ... the context after it (PUSH R's index)
 );
     always_comb begin
         v35_op_t op;

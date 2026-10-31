@@ -330,111 +330,229 @@ localparam int V35_W_Q_GD_OFF = 2;
 localparam int V35_W_Q_LE_OFF = 2;
 localparam int V35_W_Q_SD_OFF = 4;
 localparam int V35_W_Q_SR_OFF = 3;
+localparam int V35_W_CLS = 7;
+localparam int V35_W_NX = 3;
+localparam int V35_W_RA_OFF = 5;
+localparam int V35_W_BF_COST = 12;
 
-// ---- Classes (42) and class integers (319; Config.cost) ----
-localparam int V35_CLS_BRANCH_NEAR = 0;
-localparam int V35_CLS_BRANCH_SHORT = 1;
-localparam int V35_CLS_CALL = 2;
-localparam int V35_CLS_DBNZ = 3;
-localparam int V35_CLS_DISPOSE = 4;
-localparam int V35_CLS_DIV = 5;
-localparam int V35_CLS_HALT = 6;
-localparam int V35_CLS_IMM = 7;
-localparam int V35_CLS_IN = 8;
-localparam int V35_CLS_LEA = 9;
-localparam int V35_CLS_LOAD = 10;
-localparam int V35_CLS_LOAD_ALU = 11;
-localparam int V35_CLS_LOAD_SEG = 12;
-localparam int V35_CLS_MUL = 13;
-localparam int V35_CLS_OUT = 14;
-localparam int V35_CLS_POP = 15;
-localparam int V35_CLS_POP_MEM = 16;
-localparam int V35_CLS_POP_R = 17;
-localparam int V35_CLS_POP_SEG = 18;
-localparam int V35_CLS_PREFIX = 19;
-localparam int V35_CLS_PREPARE = 20;
-localparam int V35_CLS_PUSH = 21;
-localparam int V35_CLS_PUSH_IMM = 22;
-localparam int V35_CLS_PUSH_MEM = 23;
-localparam int V35_CLS_PUSH_R = 24;
-localparam int V35_CLS_PUSH_SEG = 25;
-localparam int V35_CLS_REG = 26;
-localparam int V35_CLS_RET = 27;
-localparam int V35_CLS_RMW = 28;
-localparam int V35_CLS_RMW_IMM = 29;
-localparam int V35_CLS_SHIFT_CL = 30;
-localparam int V35_CLS_SHIFT_IMM = 31;
-localparam int V35_CLS_STORE = 32;
-localparam int V35_CLS_STORE_IMM = 33;
-localparam int V35_CLS_STR_CMP = 34;
-localparam int V35_CLS_STR_IN = 35;
-localparam int V35_CLS_STR_LOAD = 36;
-localparam int V35_CLS_STR_MOVE = 37;
-localparam int V35_CLS_STR_OUT = 38;
-localparam int V35_CLS_STR_SCAN = 39;
-localparam int V35_CLS_STR_STORE = 40;
-localparam int V35_CLS_XLAT = 41;
-localparam int V35_CLS_N = 42;
+// ---- Classes (65) and class integers (484; Config.cost) ----
+localparam int V35_CLS_ADJUST = 0;
+localparam int V35_CLS_ADJUST_B = 1;
+localparam int V35_CLS_BCD4S = 2;
+localparam int V35_CLS_BCD4S_CMP = 3;
+localparam int V35_CLS_BF_EXT = 4;
+localparam int V35_CLS_BF_INS = 5;
+localparam int V35_CLS_BIT1 = 6;
+localparam int V35_CLS_BIT1_CLR = 7;
+localparam int V35_CLS_BIT1_RMW = 8;
+localparam int V35_CLS_BIT1_TEST = 9;
+localparam int V35_CLS_BRANCH_NEAR = 10;
+localparam int V35_CLS_BRANCH_SHORT = 11;
+localparam int V35_CLS_CALL = 12;
+localparam int V35_CLS_CONVERT = 13;
+localparam int V35_CLS_CONVERT_D = 14;
+localparam int V35_CLS_DBNZ = 15;
+localparam int V35_CLS_DISPOSE = 16;
+localparam int V35_CLS_DIV = 17;
+localparam int V35_CLS_EXTEND = 18;
+localparam int V35_CLS_EXTEND_W = 19;
+localparam int V35_CLS_FLAG = 20;
+localparam int V35_CLS_FLAG_DI = 21;
+localparam int V35_CLS_FLAG_EI = 22;
+localparam int V35_CLS_HALT = 23;
+localparam int V35_CLS_IMM = 24;
+localparam int V35_CLS_IN = 25;
+localparam int V35_CLS_INCDEC = 26;
+localparam int V35_CLS_LEA = 27;
+localparam int V35_CLS_LOAD = 28;
+localparam int V35_CLS_LOAD_ALU = 29;
+localparam int V35_CLS_LOAD_SEG = 30;
+localparam int V35_CLS_MUL = 31;
+localparam int V35_CLS_MUL_IMM = 32;
+localparam int V35_CLS_OUT = 33;
+localparam int V35_CLS_POP = 34;
+localparam int V35_CLS_POP_MEM = 35;
+localparam int V35_CLS_POP_R = 36;
+localparam int V35_CLS_POP_SEG = 37;
+localparam int V35_CLS_PREFIX = 38;
+localparam int V35_CLS_PREPARE = 39;
+localparam int V35_CLS_PUSH = 40;
+localparam int V35_CLS_PUSH_IMM = 41;
+localparam int V35_CLS_PUSH_MEM = 42;
+localparam int V35_CLS_PUSH_R = 43;
+localparam int V35_CLS_PUSH_SEG = 44;
+localparam int V35_CLS_REG = 45;
+localparam int V35_CLS_RET = 46;
+localparam int V35_CLS_RMW = 47;
+localparam int V35_CLS_RMW_IMM = 48;
+localparam int V35_CLS_ROL4 = 49;
+localparam int V35_CLS_ROL4_MEM = 50;
+localparam int V35_CLS_ROR4 = 51;
+localparam int V35_CLS_ROR4_MEM = 52;
+localparam int V35_CLS_SHIFT_CL = 53;
+localparam int V35_CLS_SHIFT_IMM = 54;
+localparam int V35_CLS_STORE = 55;
+localparam int V35_CLS_STORE_IMM = 56;
+localparam int V35_CLS_STR_CMP = 57;
+localparam int V35_CLS_STR_IN = 58;
+localparam int V35_CLS_STR_LOAD = 59;
+localparam int V35_CLS_STR_MOVE = 60;
+localparam int V35_CLS_STR_OUT = 61;
+localparam int V35_CLS_STR_SCAN = 62;
+localparam int V35_CLS_STR_STORE = 63;
+localparam int V35_CLS_XLAT = 64;
+localparam int V35_CLS_N = 65;
 localparam int V35_CN_ALU = 0;
 localparam int V35_CN_BMEXEC = 1;
 localparam int V35_CN_CEXIT = 2;
 localparam int V35_CN_CFGAP = 3;
 localparam int V35_CN_CHOLD = 4;
-localparam int V35_CN_COND = 5;
-localparam int V35_CN_CPRE = 6;
-localparam int V35_CN_DADD = 7;
-localparam int V35_CN_DCLK = 8;
-localparam int V35_CN_DFLOOR = 9;
-localparam int V35_CN_EXEC = 10;
-localparam int V35_CN_EXEC0 = 11;
-localparam int V35_CN_FDISP = 12;
-localparam int V35_CN_FGAP = 13;
-localparam int V35_CN_FGRP = 14;
-localparam int V35_CN_FGRP_FREE = 15;
-localparam int V35_CN_FIRST = 16;
-localparam int V35_CN_GAP = 17;
-localparam int V35_CN_GRP = 18;
-localparam int V35_CN_GRP1 = 19;
-localparam int V35_CN_GRP_FREE = 20;
-localparam int V35_CN_GRPCL = 21;
-localparam int V35_CN_HOLD = 22;
-localparam int V35_CN_HPHASE = 23;
-localparam int V35_CN_ISTART = 24;
-localparam int V35_CN_LAST = 25;
-localparam int V35_CN_LEAD = 26;
-localparam int V35_CN_LOOP = 27;
-localparam int V35_CN_LOOP1 = 28;
-localparam int V35_CN_MEXEC = 29;
-localparam int V35_CN_MID = 30;
-localparam int V35_CN_MTAIL = 31;
-localparam int V35_CN_MWB = 32;
-localparam int V35_CN_NEXEC = 33;
-localparam int V35_CN_NFGAP = 34;
-localparam int V35_CN_NX = 35;
-localparam int V35_CN_POST = 36;
-localparam int V35_CN_PRE = 37;
-localparam int V35_CN_PRE0 = 38;
-localparam int V35_CN_RELATCH = 39;
-localparam int V35_CN_REXIT = 40;
-localparam int V35_CN_RFREE = 41;
-localparam int V35_CN_RPRE = 42;
-localparam int V35_CN_RSETUP = 43;
-localparam int V35_CN_SETUP = 44;
-localparam int V35_CN_SETUP0 = 45;
-localparam int V35_CN_SETUP_FREE = 46;
-localparam int V35_CN_SEXEC = 47;
-localparam int V35_CN_SIDLE = 48;
-localparam int V35_CN_SMEXEC = 49;
-localparam int V35_CN_WB = 50;
-localparam int V35_CN_WBSYNC = 51;
-localparam int V35_CN_WBSYNC0 = 52;
-localparam int V35_CN_WSETUP = 53;
-localparam int V35_CN_XFETCH = 54;
-localparam int V35_CN_XSPLIT = 55;
-localparam int V35_CN_XWB = 56;
-localparam int V35_CN_ZEXIT = 57;
-localparam int V35_CN_ZFETCH = 58;
-localparam int V35_CN_N = 59;
+localparam int V35_CN_CL = 5;
+localparam int V35_CN_COND = 6;
+localparam int V35_CN_CPRE = 7;
+localparam int V35_CN_DADD = 8;
+localparam int V35_CN_DCLK = 9;
+localparam int V35_CN_DFLOOR = 10;
+localparam int V35_CN_EXEC = 11;
+localparam int V35_CN_EXEC0 = 12;
+localparam int V35_CN_FDISP = 13;
+localparam int V35_CN_FGAP = 14;
+localparam int V35_CN_FGRP = 15;
+localparam int V35_CN_FGRP_FREE = 16;
+localparam int V35_CN_FIRST = 17;
+localparam int V35_CN_GAP = 18;
+localparam int V35_CN_GRP = 19;
+localparam int V35_CN_GRP1 = 20;
+localparam int V35_CN_GRP_FREE = 21;
+localparam int V35_CN_GRPCL = 22;
+localparam int V35_CN_HOLD = 23;
+localparam int V35_CN_HPHASE = 24;
+localparam int V35_CN_ISTART = 25;
+localparam int V35_CN_LAST = 26;
+localparam int V35_CN_LEAD = 27;
+localparam int V35_CN_LOOP = 28;
+localparam int V35_CN_LOOP1 = 29;
+localparam int V35_CN_MEXEC = 30;
+localparam int V35_CN_MID = 31;
+localparam int V35_CN_MTAIL = 32;
+localparam int V35_CN_MWB = 33;
+localparam int V35_CN_NEXEC = 34;
+localparam int V35_CN_NFGAP = 35;
+localparam int V35_CN_NX = 36;
+localparam int V35_CN_NX0 = 37;
+localparam int V35_CN_POST = 38;
+localparam int V35_CN_PRE = 39;
+localparam int V35_CN_PRE0 = 40;
+localparam int V35_CN_RELATCH = 41;
+localparam int V35_CN_REXIT = 42;
+localparam int V35_CN_RFREE = 43;
+localparam int V35_CN_RPRE = 44;
+localparam int V35_CN_RSETUP = 45;
+localparam int V35_CN_SETUP = 46;
+localparam int V35_CN_SETUP0 = 47;
+localparam int V35_CN_SETUP_FREE = 48;
+localparam int V35_CN_SEXEC = 49;
+localparam int V35_CN_SIDLE = 50;
+localparam int V35_CN_SMEXEC = 51;
+localparam int V35_CN_SPAN = 52;
+localparam int V35_CN_WB = 53;
+localparam int V35_CN_WBSYNC = 54;
+localparam int V35_CN_WBSYNC0 = 55;
+localparam int V35_CN_WMID = 56;
+localparam int V35_CN_WSETUP = 57;
+localparam int V35_CN_XFETCH = 58;
+localparam int V35_CN_XRSETUP = 59;
+localparam int V35_CN_XSETUP = 60;
+localparam int V35_CN_XSPAN = 61;
+localparam int V35_CN_XSPLIT = 62;
+localparam int V35_CN_XWB = 63;
+localparam int V35_CN_XWSETUP = 64;
+localparam int V35_CN_ZEXIT = 65;
+localparam int V35_CN_ZFETCH = 66;
+localparam int V35_CN_N = 67;
+localparam int V35_C_ADJUST_EXEC = 0;
+localparam int V35_C_ADJUST_NX = 1;
+localparam int V35_C_ADJUST_NX0 = 8;
+localparam int V35_C_ADJUST_PRE = 0;
+localparam int V35_C_ADJUST_PRE0 = 10;
+localparam int V35_C_ADJUST_WB = 2;
+localparam int V35_C_ADJUST_B_EXEC = 0;
+localparam int V35_C_ADJUST_B_NX = 1;
+localparam int V35_C_ADJUST_B_NX0 = 16;
+localparam int V35_C_ADJUST_B_PRE = 0;
+localparam int V35_C_ADJUST_B_PRE0 = 17;
+localparam int V35_C_ADJUST_B_WB = 3;
+localparam int V35_C_BCD4S_EXEC = 12;
+localparam int V35_C_BCD4S_FIRST = 16;
+localparam int V35_C_BCD4S_LOOP = 7;
+localparam int V35_C_BCD4S_MID = 7;
+localparam int V35_C_BCD4S_NX = 0;
+localparam int V35_C_BCD4S_PRE = 0;
+localparam int V35_C_BCD4S_WB = 2;
+localparam int V35_C_BCD4S_WMID = 10;
+localparam int V35_C_BCD4S_CMP_EXEC = 20;
+localparam int V35_C_BCD4S_CMP_FIRST = 16;
+localparam int V35_C_BCD4S_CMP_LOOP = 14;
+localparam int V35_C_BCD4S_CMP_MID = 7;
+localparam int V35_C_BCD4S_CMP_NX = 0;
+localparam int V35_C_BCD4S_CMP_PRE = 0;
+localparam int V35_C_BCD4S_CMP_WB = 2;
+localparam int V35_C_BF_EXT_NX = 0;
+localparam int V35_C_BF_EXT_PRE = 0;
+localparam int V35_C_BF_EXT_SETUP = 12;
+localparam int V35_C_BF_EXT_SETUP_FREE = 0;
+localparam int V35_C_BF_EXT_SPAN = 14;
+localparam int V35_C_BF_EXT_WB = 0;
+localparam int V35_C_BF_EXT_XSETUP = 27;
+localparam int V35_C_BF_EXT_XSPAN = 43;
+localparam int V35_C_BF_INS_NX = 0;
+localparam int V35_C_BF_INS_POST = 0;
+localparam int V35_C_BF_INS_PRE = 0;
+localparam int V35_C_BF_INS_SETUP = 12;
+localparam int V35_C_BF_INS_SETUP_FREE = 0;
+localparam int V35_C_BF_INS_SPAN = 20;
+localparam int V35_C_BF_INS_WB = 0;
+localparam int V35_C_BF_INS_WSETUP = 2;
+localparam int V35_C_BF_INS_XRSETUP = 11;
+localparam int V35_C_BF_INS_XSPAN = 106;
+localparam int V35_C_BF_INS_XWSETUP = 68;
+localparam int V35_C_BIT1_CL = 0;
+localparam int V35_C_BIT1_EXEC = 4;
+localparam int V35_C_BIT1_NX = 1;
+localparam int V35_C_BIT1_PRE = 0;
+localparam int V35_C_BIT1_WB = 0;
+localparam int V35_C_BIT1_CLR_ALU = 4;
+localparam int V35_C_BIT1_CLR_CL = 3;
+localparam int V35_C_BIT1_CLR_DFLOOR = 2;
+localparam int V35_C_BIT1_CLR_GRP = 1;
+localparam int V35_C_BIT1_CLR_GRP_FREE = 0;
+localparam int V35_C_BIT1_CLR_NX = 0;
+localparam int V35_C_BIT1_CLR_POST = 0;
+localparam int V35_C_BIT1_CLR_PRE = 7;
+localparam int V35_C_BIT1_CLR_SETUP = 0;
+localparam int V35_C_BIT1_CLR_SETUP_FREE = 3;
+localparam int V35_C_BIT1_CLR_SIDLE = 2;
+localparam int V35_C_BIT1_CLR_WB = 0;
+localparam int V35_C_BIT1_RMW_ALU = 3;
+localparam int V35_C_BIT1_RMW_CL = 1;
+localparam int V35_C_BIT1_RMW_DFLOOR = 4;
+localparam int V35_C_BIT1_RMW_GRP = 0;
+localparam int V35_C_BIT1_RMW_GRP_FREE = 0;
+localparam int V35_C_BIT1_RMW_NX = 1;
+localparam int V35_C_BIT1_RMW_POST = 0;
+localparam int V35_C_BIT1_RMW_PRE = 7;
+localparam int V35_C_BIT1_RMW_SETUP = 0;
+localparam int V35_C_BIT1_RMW_SETUP_FREE = 3;
+localparam int V35_C_BIT1_RMW_SIDLE = 2;
+localparam int V35_C_BIT1_RMW_WB = 0;
+localparam int V35_C_BIT1_TEST_CL = 3;
+localparam int V35_C_BIT1_TEST_DFLOOR = 2;
+localparam int V35_C_BIT1_TEST_EXEC = 1;
+localparam int V35_C_BIT1_TEST_GRP = 1;
+localparam int V35_C_BIT1_TEST_GRP_FREE = 0;
+localparam int V35_C_BIT1_TEST_NX = 2;
+localparam int V35_C_BIT1_TEST_PRE = 7;
+localparam int V35_C_BIT1_TEST_WB = 0;
 localparam int V35_C_BRANCH_NEAR_EXEC = 5;
 localparam int V35_C_BRANCH_NEAR_FGAP = 3;
 localparam int V35_C_BRANCH_NEAR_HOLD = 10;
@@ -458,6 +576,14 @@ localparam int V35_C_CALL_POST = 0;
 localparam int V35_C_CALL_PRE = 3;
 localparam int V35_C_CALL_SETUP = 7;
 localparam int V35_C_CALL_SETUP_FREE = 3;
+localparam int V35_C_CONVERT_EXEC = 16;
+localparam int V35_C_CONVERT_NX = 0;
+localparam int V35_C_CONVERT_PRE = 3;
+localparam int V35_C_CONVERT_WB = 2;
+localparam int V35_C_CONVERT_D_EXEC = 16;
+localparam int V35_C_CONVERT_D_NX = 0;
+localparam int V35_C_CONVERT_D_PRE = 2;
+localparam int V35_C_CONVERT_D_WB = 0;
 localparam int V35_C_DBNZ_EXEC = 14;
 localparam int V35_C_DBNZ_FGAP = 5;
 localparam int V35_C_DBNZ_HOLD = 2;
@@ -481,6 +607,36 @@ localparam int V35_C_DIV_REXIT = 6;
 localparam int V35_C_DIV_SEXEC = 58;
 localparam int V35_C_DIV_SMEXEC = 58;
 localparam int V35_C_DIV_WB = 2;
+localparam int V35_C_EXTEND_EXEC = 0;
+localparam int V35_C_EXTEND_NX = 1;
+localparam int V35_C_EXTEND_NX0 = 0;
+localparam int V35_C_EXTEND_PRE = 0;
+localparam int V35_C_EXTEND_PRE0 = 3;
+localparam int V35_C_EXTEND_WB = 1;
+localparam int V35_C_EXTEND_W_EXEC = 0;
+localparam int V35_C_EXTEND_W_NX = 1;
+localparam int V35_C_EXTEND_W_NX0 = 8;
+localparam int V35_C_EXTEND_W_PRE = 0;
+localparam int V35_C_EXTEND_W_PRE0 = 9;
+localparam int V35_C_EXTEND_W_WB = 3;
+localparam int V35_C_FLAG_EXEC = 0;
+localparam int V35_C_FLAG_NX = 1;
+localparam int V35_C_FLAG_NX0 = 0;
+localparam int V35_C_FLAG_PRE = 0;
+localparam int V35_C_FLAG_PRE0 = 3;
+localparam int V35_C_FLAG_WB = 1;
+localparam int V35_C_FLAG_DI_EXEC = 0;
+localparam int V35_C_FLAG_DI_NX = 1;
+localparam int V35_C_FLAG_DI_NX0 = 3;
+localparam int V35_C_FLAG_DI_PRE = 0;
+localparam int V35_C_FLAG_DI_PRE0 = 4;
+localparam int V35_C_FLAG_DI_WB = 3;
+localparam int V35_C_FLAG_EI_EXEC = 0;
+localparam int V35_C_FLAG_EI_NX = 1;
+localparam int V35_C_FLAG_EI_NX0 = 12;
+localparam int V35_C_FLAG_EI_PRE = 0;
+localparam int V35_C_FLAG_EI_PRE0 = 13;
+localparam int V35_C_FLAG_EI_WB = 3;
 localparam int V35_C_IMM_EXEC = 0;
 localparam int V35_C_IMM_PRE = 3;
 localparam int V35_C_IMM_WB = 0;
@@ -494,6 +650,12 @@ localparam int V35_C_IN_SETUP = 8;
 localparam int V35_C_IN_SETUP0 = 7;
 localparam int V35_C_IN_WB = 0;
 localparam int V35_C_IN_WBSYNC = 0;
+localparam int V35_C_INCDEC_EXEC = 0;
+localparam int V35_C_INCDEC_NX = 1;
+localparam int V35_C_INCDEC_NX0 = 0;
+localparam int V35_C_INCDEC_PRE = 3;
+localparam int V35_C_INCDEC_PRE0 = 3;
+localparam int V35_C_INCDEC_WB = 1;
 localparam int V35_C_LEA_EXEC = 0;
 localparam int V35_C_LEA_NX = 0;
 localparam int V35_C_LEA_PRE = 0;
@@ -529,6 +691,14 @@ localparam int V35_C_MUL_REXIT = 8;
 localparam int V35_C_MUL_SEXEC = 41;
 localparam int V35_C_MUL_SMEXEC = 49;
 localparam int V35_C_MUL_WB = 2;
+localparam int V35_C_MUL_IMM_EXEC = 35;
+localparam int V35_C_MUL_IMM_HPHASE = 2;
+localparam int V35_C_MUL_IMM_MEXEC = 45;
+localparam int V35_C_MUL_IMM_MTAIL = 2;
+localparam int V35_C_MUL_IMM_MWB = 2;
+localparam int V35_C_MUL_IMM_NX = 0;
+localparam int V35_C_MUL_IMM_PRE = 0;
+localparam int V35_C_MUL_IMM_WB = 2;
 localparam int V35_C_OUT_EXEC = 2;
 localparam int V35_C_OUT_LEAD = 2;
 localparam int V35_C_OUT_NX = 0;
@@ -626,6 +796,36 @@ localparam int V35_C_RMW_IMM_PRE = 0;
 localparam int V35_C_RMW_IMM_SETUP = 0;
 localparam int V35_C_RMW_IMM_SETUP_FREE = 0;
 localparam int V35_C_RMW_IMM_SIDLE = 2;
+localparam int V35_C_ROL4_EXEC = 14;
+localparam int V35_C_ROL4_NX = 0;
+localparam int V35_C_ROL4_PRE = 0;
+localparam int V35_C_ROL4_WB = 1;
+localparam int V35_C_ROL4_MEM_ALU = 12;
+localparam int V35_C_ROL4_MEM_DFLOOR = 2;
+localparam int V35_C_ROL4_MEM_GRP = 0;
+localparam int V35_C_ROL4_MEM_GRP_FREE = 0;
+localparam int V35_C_ROL4_MEM_NX = 7;
+localparam int V35_C_ROL4_MEM_POST = 0;
+localparam int V35_C_ROL4_MEM_PRE = 1;
+localparam int V35_C_ROL4_MEM_SETUP = 0;
+localparam int V35_C_ROL4_MEM_SETUP_FREE = 3;
+localparam int V35_C_ROL4_MEM_SIDLE = 2;
+localparam int V35_C_ROL4_MEM_WB = 0;
+localparam int V35_C_ROR4_EXEC = 17;
+localparam int V35_C_ROR4_NX = 0;
+localparam int V35_C_ROR4_PRE = 1;
+localparam int V35_C_ROR4_WB = 2;
+localparam int V35_C_ROR4_MEM_ALU = 16;
+localparam int V35_C_ROR4_MEM_DFLOOR = 2;
+localparam int V35_C_ROR4_MEM_GRP = 0;
+localparam int V35_C_ROR4_MEM_GRP_FREE = 0;
+localparam int V35_C_ROR4_MEM_NX = 0;
+localparam int V35_C_ROR4_MEM_POST = 0;
+localparam int V35_C_ROR4_MEM_PRE = 6;
+localparam int V35_C_ROR4_MEM_SETUP = 0;
+localparam int V35_C_ROR4_MEM_SETUP_FREE = 3;
+localparam int V35_C_ROR4_MEM_SIDLE = 2;
+localparam int V35_C_ROR4_MEM_WB = 0;
 localparam int V35_C_SHIFT_CL_EXEC = 7;
 localparam int V35_C_SHIFT_CL_HPHASE = 2;
 localparam int V35_C_SHIFT_CL_LOOP = 2;
@@ -757,6 +957,119 @@ localparam int V35_C_XLAT_SETUP_FREE = 3;
 function automatic int v35_cost(input int cls, input int name);
     v35_cost = 0;
     case (cls)
+        V35_CLS_ADJUST: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 8;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_PRE0: v35_cost = 10;
+            V35_CN_WB: v35_cost = 2;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_ADJUST_B: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 16;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_PRE0: v35_cost = 17;
+            V35_CN_WB: v35_cost = 3;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BCD4S: case (name)
+            V35_CN_EXEC: v35_cost = 12;
+            V35_CN_FIRST: v35_cost = 16;
+            V35_CN_LOOP: v35_cost = 7;
+            V35_CN_MID: v35_cost = 7;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_WB: v35_cost = 2;
+            V35_CN_WMID: v35_cost = 10;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BCD4S_CMP: case (name)
+            V35_CN_EXEC: v35_cost = 20;
+            V35_CN_FIRST: v35_cost = 16;
+            V35_CN_LOOP: v35_cost = 14;
+            V35_CN_MID: v35_cost = 7;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_WB: v35_cost = 2;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BF_EXT: case (name)
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_SETUP: v35_cost = 12;
+            V35_CN_SETUP_FREE: v35_cost = 0;
+            V35_CN_SPAN: v35_cost = 14;
+            V35_CN_WB: v35_cost = 0;
+            V35_CN_XSETUP: v35_cost = 27;
+            V35_CN_XSPAN: v35_cost = 43;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BF_INS: case (name)
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_POST: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_SETUP: v35_cost = 12;
+            V35_CN_SETUP_FREE: v35_cost = 0;
+            V35_CN_SPAN: v35_cost = 20;
+            V35_CN_WB: v35_cost = 0;
+            V35_CN_WSETUP: v35_cost = 2;
+            V35_CN_XRSETUP: v35_cost = 11;
+            V35_CN_XSPAN: v35_cost = 106;
+            V35_CN_XWSETUP: v35_cost = 68;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BIT1: case (name)
+            V35_CN_CL: v35_cost = 0;
+            V35_CN_EXEC: v35_cost = 4;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_WB: v35_cost = 0;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BIT1_CLR: case (name)
+            V35_CN_ALU: v35_cost = 4;
+            V35_CN_CL: v35_cost = 3;
+            V35_CN_DFLOOR: v35_cost = 2;
+            V35_CN_GRP: v35_cost = 1;
+            V35_CN_GRP_FREE: v35_cost = 0;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_POST: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 7;
+            V35_CN_SETUP: v35_cost = 0;
+            V35_CN_SETUP_FREE: v35_cost = 3;
+            V35_CN_SIDLE: v35_cost = 2;
+            V35_CN_WB: v35_cost = 0;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BIT1_RMW: case (name)
+            V35_CN_ALU: v35_cost = 3;
+            V35_CN_CL: v35_cost = 1;
+            V35_CN_DFLOOR: v35_cost = 4;
+            V35_CN_GRP: v35_cost = 0;
+            V35_CN_GRP_FREE: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_POST: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 7;
+            V35_CN_SETUP: v35_cost = 0;
+            V35_CN_SETUP_FREE: v35_cost = 3;
+            V35_CN_SIDLE: v35_cost = 2;
+            V35_CN_WB: v35_cost = 0;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_BIT1_TEST: case (name)
+            V35_CN_CL: v35_cost = 3;
+            V35_CN_DFLOOR: v35_cost = 2;
+            V35_CN_EXEC: v35_cost = 1;
+            V35_CN_GRP: v35_cost = 1;
+            V35_CN_GRP_FREE: v35_cost = 0;
+            V35_CN_NX: v35_cost = 2;
+            V35_CN_PRE: v35_cost = 7;
+            V35_CN_WB: v35_cost = 0;
+            default: v35_cost = 0;
+        endcase
         V35_CLS_BRANCH_NEAR: case (name)
             V35_CN_EXEC: v35_cost = 5;
             V35_CN_FGAP: v35_cost = 3;
@@ -787,6 +1100,20 @@ function automatic int v35_cost(input int cls, input int name);
             V35_CN_PRE: v35_cost = 3;
             V35_CN_SETUP: v35_cost = 7;
             V35_CN_SETUP_FREE: v35_cost = 3;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_CONVERT: case (name)
+            V35_CN_EXEC: v35_cost = 16;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 3;
+            V35_CN_WB: v35_cost = 2;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_CONVERT_D: case (name)
+            V35_CN_EXEC: v35_cost = 16;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 2;
+            V35_CN_WB: v35_cost = 0;
             default: v35_cost = 0;
         endcase
         V35_CLS_DBNZ: case (name)
@@ -821,6 +1148,51 @@ function automatic int v35_cost(input int cls, input int name);
             V35_CN_WB: v35_cost = 2;
             default: v35_cost = 0;
         endcase
+        V35_CLS_EXTEND: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_PRE0: v35_cost = 3;
+            V35_CN_WB: v35_cost = 1;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_EXTEND_W: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 8;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_PRE0: v35_cost = 9;
+            V35_CN_WB: v35_cost = 3;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_FLAG: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_PRE0: v35_cost = 3;
+            V35_CN_WB: v35_cost = 1;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_FLAG_DI: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 3;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_PRE0: v35_cost = 4;
+            V35_CN_WB: v35_cost = 3;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_FLAG_EI: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 12;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_PRE0: v35_cost = 13;
+            V35_CN_WB: v35_cost = 3;
+            default: v35_cost = 0;
+        endcase
         V35_CLS_IMM: case (name)
             V35_CN_EXEC: v35_cost = 0;
             V35_CN_PRE: v35_cost = 3;
@@ -838,6 +1210,15 @@ function automatic int v35_cost(input int cls, input int name);
             V35_CN_SETUP0: v35_cost = 7;
             V35_CN_WB: v35_cost = 0;
             V35_CN_WBSYNC: v35_cost = 0;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_INCDEC: case (name)
+            V35_CN_EXEC: v35_cost = 0;
+            V35_CN_NX: v35_cost = 1;
+            V35_CN_NX0: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 3;
+            V35_CN_PRE0: v35_cost = 3;
+            V35_CN_WB: v35_cost = 1;
             default: v35_cost = 0;
         endcase
         V35_CLS_LEA: case (name)
@@ -887,6 +1268,17 @@ function automatic int v35_cost(input int cls, input int name);
             V35_CN_REXIT: v35_cost = 8;
             V35_CN_SEXEC: v35_cost = 41;
             V35_CN_SMEXEC: v35_cost = 49;
+            V35_CN_WB: v35_cost = 2;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_MUL_IMM: case (name)
+            V35_CN_EXEC: v35_cost = 35;
+            V35_CN_HPHASE: v35_cost = 2;
+            V35_CN_MEXEC: v35_cost = 45;
+            V35_CN_MTAIL: v35_cost = 2;
+            V35_CN_MWB: v35_cost = 2;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
             V35_CN_WB: v35_cost = 2;
             default: v35_cost = 0;
         endcase
@@ -1033,6 +1425,48 @@ function automatic int v35_cost(input int cls, input int name);
             V35_CN_SETUP: v35_cost = 0;
             V35_CN_SETUP_FREE: v35_cost = 0;
             V35_CN_SIDLE: v35_cost = 2;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_ROL4: case (name)
+            V35_CN_EXEC: v35_cost = 14;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 0;
+            V35_CN_WB: v35_cost = 1;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_ROL4_MEM: case (name)
+            V35_CN_ALU: v35_cost = 12;
+            V35_CN_DFLOOR: v35_cost = 2;
+            V35_CN_GRP: v35_cost = 0;
+            V35_CN_GRP_FREE: v35_cost = 0;
+            V35_CN_NX: v35_cost = 7;
+            V35_CN_POST: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 1;
+            V35_CN_SETUP: v35_cost = 0;
+            V35_CN_SETUP_FREE: v35_cost = 3;
+            V35_CN_SIDLE: v35_cost = 2;
+            V35_CN_WB: v35_cost = 0;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_ROR4: case (name)
+            V35_CN_EXEC: v35_cost = 17;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 1;
+            V35_CN_WB: v35_cost = 2;
+            default: v35_cost = 0;
+        endcase
+        V35_CLS_ROR4_MEM: case (name)
+            V35_CN_ALU: v35_cost = 16;
+            V35_CN_DFLOOR: v35_cost = 2;
+            V35_CN_GRP: v35_cost = 0;
+            V35_CN_GRP_FREE: v35_cost = 0;
+            V35_CN_NX: v35_cost = 0;
+            V35_CN_POST: v35_cost = 0;
+            V35_CN_PRE: v35_cost = 6;
+            V35_CN_SETUP: v35_cost = 0;
+            V35_CN_SETUP_FREE: v35_cost = 3;
+            V35_CN_SIDLE: v35_cost = 2;
+            V35_CN_WB: v35_cost = 0;
             default: v35_cost = 0;
         endcase
         V35_CLS_SHIFT_CL: case (name)
@@ -1205,19 +1639,38 @@ endfunction
 function automatic bit v35_cost_has(input int cls, input int name);
     v35_cost_has = 1'b0;
     case (cls)
+        V35_CLS_ADJUST: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
+        V35_CLS_ADJUST_B: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
+        V35_CLS_BCD4S: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_FIRST, V35_CN_LOOP, V35_CN_MID, V35_CN_NX, V35_CN_PRE, V35_CN_WB, V35_CN_WMID};
+        V35_CLS_BCD4S_CMP: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_FIRST, V35_CN_LOOP, V35_CN_MID, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
+        V35_CLS_BF_EXT: v35_cost_has = name inside {V35_CN_NX, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SPAN, V35_CN_WB, V35_CN_XSETUP, V35_CN_XSPAN};
+        V35_CLS_BF_INS: v35_cost_has = name inside {V35_CN_NX, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SPAN, V35_CN_WB, V35_CN_WSETUP, V35_CN_XRSETUP, V35_CN_XSPAN, V35_CN_XWSETUP};
+        V35_CLS_BIT1: v35_cost_has = name inside {V35_CN_CL, V35_CN_EXEC, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
+        V35_CLS_BIT1_CLR: v35_cost_has = name inside {V35_CN_ALU, V35_CN_CL, V35_CN_DFLOOR, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_NX, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SIDLE, V35_CN_WB};
+        V35_CLS_BIT1_RMW: v35_cost_has = name inside {V35_CN_ALU, V35_CN_CL, V35_CN_DFLOOR, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_NX, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SIDLE, V35_CN_WB};
+        V35_CLS_BIT1_TEST: v35_cost_has = name inside {V35_CN_CL, V35_CN_DFLOOR, V35_CN_EXEC, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
         V35_CLS_BRANCH_NEAR: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_FGAP, V35_CN_HOLD, V35_CN_NEXEC, V35_CN_POST, V35_CN_PRE};
         V35_CLS_BRANCH_SHORT: v35_cost_has = name inside {V35_CN_CFGAP, V35_CN_COND, V35_CN_EXEC, V35_CN_FGAP, V35_CN_HOLD, V35_CN_NEXEC, V35_CN_NFGAP, V35_CN_NX, V35_CN_POST, V35_CN_PRE};
         V35_CLS_CALL: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_FGAP, V35_CN_HOLD, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE};
+        V35_CLS_CONVERT: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
+        V35_CLS_CONVERT_D: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
         V35_CLS_DBNZ: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_FGAP, V35_CN_HOLD, V35_CN_NEXEC, V35_CN_NFGAP, V35_CN_POST, V35_CN_PRE};
         V35_CLS_DISPOSE: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE};
         V35_CLS_DIV: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_HPHASE, V35_CN_MEXEC, V35_CN_MTAIL, V35_CN_MWB, V35_CN_PRE, V35_CN_REXIT, V35_CN_SEXEC, V35_CN_SMEXEC, V35_CN_WB};
+        V35_CLS_EXTEND: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
+        V35_CLS_EXTEND_W: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
+        V35_CLS_FLAG: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
+        V35_CLS_FLAG_DI: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
+        V35_CLS_FLAG_EI: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
         V35_CLS_IMM: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_PRE, V35_CN_WB};
         V35_CLS_IN: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_LEAD, V35_CN_POST, V35_CN_PRE, V35_CN_PRE0, V35_CN_RELATCH, V35_CN_SETUP, V35_CN_SETUP0, V35_CN_WB, V35_CN_WBSYNC};
+        V35_CLS_INCDEC: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_NX0, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
         V35_CLS_LEA: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_PRE};
         V35_CLS_LOAD: v35_cost_has = name inside {V35_CN_DFLOOR, V35_CN_EXEC, V35_CN_PRE, V35_CN_PRE0, V35_CN_WB};
         V35_CLS_LOAD_ALU: v35_cost_has = name inside {V35_CN_DCLK, V35_CN_DFLOOR, V35_CN_EXEC, V35_CN_FDISP, V35_CN_FGRP, V35_CN_FGRP_FREE, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_PRE, V35_CN_WB};
         V35_CLS_LOAD_SEG: v35_cost_has = name inside {V35_CN_DFLOOR, V35_CN_EXEC, V35_CN_PRE, V35_CN_PRE0};
         V35_CLS_MUL: v35_cost_has = name inside {V35_CN_BMEXEC, V35_CN_EXEC, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_HPHASE, V35_CN_MEXEC, V35_CN_MTAIL, V35_CN_MWB, V35_CN_PRE, V35_CN_REXIT, V35_CN_SEXEC, V35_CN_SMEXEC, V35_CN_WB};
+        V35_CLS_MUL_IMM: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_HPHASE, V35_CN_MEXEC, V35_CN_MTAIL, V35_CN_MWB, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
         V35_CLS_OUT: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_LEAD, V35_CN_NX, V35_CN_POST, V35_CN_PRE, V35_CN_PRE0, V35_CN_RELATCH, V35_CN_SETUP, V35_CN_SETUP0, V35_CN_WBSYNC, V35_CN_WBSYNC0};
         V35_CLS_POP: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_WB};
         V35_CLS_POP_MEM: v35_cost_has = name inside {V35_CN_DFLOOR, V35_CN_EXEC, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_POST, V35_CN_PRE, V35_CN_RFREE, V35_CN_RSETUP, V35_CN_SETUP, V35_CN_SETUP_FREE};
@@ -1234,6 +1687,10 @@ function automatic bit v35_cost_has(input int cls, input int name);
         V35_CLS_RET: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_FGAP, V35_CN_HOLD, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE};
         V35_CLS_RMW: v35_cost_has = name inside {V35_CN_ALU, V35_CN_DCLK, V35_CN_DFLOOR, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_GRPCL, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SIDLE};
         V35_CLS_RMW_IMM: v35_cost_has = name inside {V35_CN_ALU, V35_CN_DADD, V35_CN_DFLOOR, V35_CN_GRP, V35_CN_GRP1, V35_CN_GRP_FREE, V35_CN_ISTART, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SIDLE};
+        V35_CLS_ROL4: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
+        V35_CLS_ROL4_MEM: v35_cost_has = name inside {V35_CN_ALU, V35_CN_DFLOOR, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_NX, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SIDLE, V35_CN_WB};
+        V35_CLS_ROR4: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
+        V35_CLS_ROR4_MEM: v35_cost_has = name inside {V35_CN_ALU, V35_CN_DFLOOR, V35_CN_GRP, V35_CN_GRP_FREE, V35_CN_NX, V35_CN_POST, V35_CN_PRE, V35_CN_SETUP, V35_CN_SETUP_FREE, V35_CN_SIDLE, V35_CN_WB};
         V35_CLS_SHIFT_CL: v35_cost_has = name inside {V35_CN_EXEC, V35_CN_HPHASE, V35_CN_LOOP, V35_CN_PRE, V35_CN_WB};
         V35_CLS_SHIFT_IMM: v35_cost_has = name inside {V35_CN_CPRE, V35_CN_EXEC, V35_CN_EXEC0, V35_CN_HPHASE, V35_CN_NX, V35_CN_PRE, V35_CN_WB};
         V35_CLS_STORE: v35_cost_has = name inside {V35_CN_DFLOOR, V35_CN_POST, V35_CN_PRE, V35_CN_PRE0, V35_CN_SETUP};
@@ -1279,22 +1736,22 @@ function automatic int v35_ea(input int mode);
     endcase
 endfunction
 
-// ---- Step lists: 243 templates (frozen templates.steps under the fit, and
+// ---- Step lists: 330 templates (frozen templates.steps under the fit, and
 // refresh_hold_steps for a refresh-on chain), one packed step per word ----
 localparam int V35_SF_OP = 0, V35_SF_OP_W = 4;
 localparam int V35_SF_N = 4, V35_SF_N_W = 8;
 localparam int V35_SF_PER_COUNT = 12, V35_SF_PER_COUNT_W = 2;
-localparam int V35_SF_TAG = 14, V35_SF_TAG_W = 4;
-localparam int V35_SF_KIND = 18, V35_SF_KIND_W = 3;
-localparam int V35_SF_SRC = 21, V35_SF_SRC_W = 3;
-localparam int V35_SF_SRC_I = 24, V35_SF_SRC_I_W = 3;
-localparam int V35_SF_WIDTH = 27, V35_SF_WIDTH_W = 2;
-localparam int V35_SF_HAS_FREE = 29, V35_SF_HAS_FREE_W = 1;
-localparam int V35_SF_FREE = 30, V35_SF_FREE_W = 5;
-localparam int V35_SF_GRP = 35, V35_SF_GRP_W = 1;
-localparam int V35_SF_WHOLE = 36, V35_SF_WHOLE_W = 1;
-localparam int V35_SF_DETACHED = 37, V35_SF_DETACHED_W = 1;
-localparam int V35_STEP_W = 38;
+localparam int V35_SF_TAG = 14, V35_SF_TAG_W = 5;
+localparam int V35_SF_KIND = 19, V35_SF_KIND_W = 3;
+localparam int V35_SF_SRC = 22, V35_SF_SRC_W = 3;
+localparam int V35_SF_SRC_I = 25, V35_SF_SRC_I_W = 3;
+localparam int V35_SF_WIDTH = 28, V35_SF_WIDTH_W = 2;
+localparam int V35_SF_HAS_FREE = 30, V35_SF_HAS_FREE_W = 1;
+localparam int V35_SF_FREE = 31, V35_SF_FREE_W = 5;
+localparam int V35_SF_GRP = 36, V35_SF_GRP_W = 1;
+localparam int V35_SF_WHOLE = 37, V35_SF_WHOLE_W = 1;
+localparam int V35_SF_DETACHED = 38, V35_SF_DETACHED_W = 1;
+localparam int V35_STEP_W = 39;
 localparam int V35_SOP_CLOCKS = 0;
 localparam int V35_SOP_TAKE = 1;
 localparam int V35_SOP_DATA = 2;
@@ -1327,6 +1784,7 @@ localparam int V35_STAG_PORT = 12;
 localparam int V35_STAG_CFGAP = 13;
 localparam int V35_STAG_FOREVER = 14;
 localparam int V35_STAG_RAISE = 15;
+localparam int V35_STAG_BF = 16;
 localparam int V35_RK_NONE = 0;
 localparam int V35_RK_READ = 1;
 localparam int V35_RK_WRITE = 2;
@@ -1341,2734 +1799,3831 @@ localparam int V35_SRC_PORT = 4;
 localparam int V35_SRC_TARGET = 5;
 localparam int V35_SRC_IX = 6;
 localparam int V35_SRC_IY = 7;
-localparam int V35_TMPL_N = 243;
-localparam int V35_TMPL_W = 8;
+localparam int V35_TMPL_N = 330;
+localparam int V35_TMPL_W = 9;
 // a clocks/take/setup count is n + per_count * count (a shift's count)
 function automatic int v35_tmpl_len(input int tmpl);
     case (tmpl)
-        0: v35_tmpl_len = 5;   // branch_near: e9 00 02, taken
-        1: v35_tmpl_len = 5;   // branch_short: 74 00
-        2: v35_tmpl_len = 6;   // branch_short: 74 00, taken
-        3: v35_tmpl_len = 5;   // branch_short: eb 00, taken
-        4: v35_tmpl_len = 6;   // call: e8 00 02, taken
-        5: v35_tmpl_len = 4;   // dbnz: e2 00
-        6: v35_tmpl_len = 5;   // dbnz: e2 00, taken
-        7: v35_tmpl_len = 6;   // div: f6 30
-        8: v35_tmpl_len = 6;   // div: f6 36 02 00
-        9: v35_tmpl_len = 6;   // div: f6 38
-        10: v35_tmpl_len = 6;   // div: f6 3e 02 00
-        11: v35_tmpl_len = 6;   // div: f6 70 02
-        12: v35_tmpl_len = 6;   // div: f6 78 02
-        13: v35_tmpl_len = 6;   // div: f6 b0 02 00
-        14: v35_tmpl_len = 6;   // div: f6 b8 02 00
-        15: v35_tmpl_len = 3;   // div: f6 f0
-        16: v35_tmpl_len = 4;   // div: f6 f0, refresh
-        17: v35_tmpl_len = 3;   // div: f6 f8
-        18: v35_tmpl_len = 4;   // div: f6 f8, refresh
-        19: v35_tmpl_len = 6;   // div: f7 30
-        20: v35_tmpl_len = 6;   // div: f7 36 02 00
-        21: v35_tmpl_len = 6;   // div: f7 38
-        22: v35_tmpl_len = 6;   // div: f7 3e 02 00
-        23: v35_tmpl_len = 6;   // div: f7 70 02
-        24: v35_tmpl_len = 6;   // div: f7 78 02
-        25: v35_tmpl_len = 6;   // div: f7 b0 02 00
-        26: v35_tmpl_len = 6;   // div: f7 b8 02 00
-        27: v35_tmpl_len = 1;   // halt: f4
-        28: v35_tmpl_len = 3;   // imm: 05 00 02
-        29: v35_tmpl_len = 4;   // imm: 81 c0 02 00
-        30: v35_tmpl_len = 4;   // imm: 83 c0 02
-        31: v35_tmpl_len = 3;   // imm: a8 00
-        32: v35_tmpl_len = 4;   // in: e4 00
-        33: v35_tmpl_len = 4;   // in: e5 00
-        34: v35_tmpl_len = 4;   // in: ec
-        35: v35_tmpl_len = 4;   // in: ed
-        36: v35_tmpl_len = 5;   // lea: 8d 00
-        37: v35_tmpl_len = 5;   // lea: 8d 06 02 00
-        38: v35_tmpl_len = 5;   // lea: 8d 40 02
-        39: v35_tmpl_len = 5;   // lea: 8d 80 02 00
-        40: v35_tmpl_len = 6;   // load: a1 00 02
-        41: v35_tmpl_len = 7;   // load_alu: 02 00
-        42: v35_tmpl_len = 7;   // load_alu: 02 06 02 00
-        43: v35_tmpl_len = 7;   // load_alu: 02 40 02
-        44: v35_tmpl_len = 7;   // load_alu: 02 80 02 00
-        45: v35_tmpl_len = 7;   // load_alu: 03 00
-        46: v35_tmpl_len = 7;   // load_alu: 03 06 02 00
-        47: v35_tmpl_len = 7;   // load_alu: 03 40 02
-        48: v35_tmpl_len = 7;   // load_alu: 03 80 02 00
-        49: v35_tmpl_len = 7;   // load_alu: 84 00
-        50: v35_tmpl_len = 8;   // load_alu: 84 06 02 00
-        51: v35_tmpl_len = 8;   // load_alu: 84 40 02
-        52: v35_tmpl_len = 8;   // load_alu: 84 80 02 00
-        53: v35_tmpl_len = 7;   // load_alu: 85 00
-        54: v35_tmpl_len = 8;   // load_alu: 85 06 02 00
-        55: v35_tmpl_len = 8;   // load_alu: 85 40 02
-        56: v35_tmpl_len = 8;   // load_alu: 85 80 02 00
-        57: v35_tmpl_len = 7;   // load_seg: 8e 00
-        58: v35_tmpl_len = 7;   // load_seg: 8e 06 02 00
-        59: v35_tmpl_len = 7;   // load_seg: 8e 40 02
-        60: v35_tmpl_len = 7;   // load_seg: 8e 80 02 00
-        61: v35_tmpl_len = 6;   // mul: f6 20
-        62: v35_tmpl_len = 6;   // mul: f6 26 02 00
-        63: v35_tmpl_len = 6;   // mul: f6 28
-        64: v35_tmpl_len = 6;   // mul: f6 2e 02 00
-        65: v35_tmpl_len = 6;   // mul: f6 60 02
-        66: v35_tmpl_len = 6;   // mul: f6 68 02
-        67: v35_tmpl_len = 6;   // mul: f6 a0 02 00
-        68: v35_tmpl_len = 6;   // mul: f6 a8 02 00
-        69: v35_tmpl_len = 3;   // mul: f6 e0
-        70: v35_tmpl_len = 4;   // mul: f6 e0, refresh
-        71: v35_tmpl_len = 3;   // mul: f6 e8
-        72: v35_tmpl_len = 4;   // mul: f6 e8, refresh
-        73: v35_tmpl_len = 6;   // mul: f7 20
-        74: v35_tmpl_len = 6;   // mul: f7 26 02 00
-        75: v35_tmpl_len = 6;   // mul: f7 28
-        76: v35_tmpl_len = 6;   // mul: f7 2e 02 00
-        77: v35_tmpl_len = 6;   // mul: f7 60 02
-        78: v35_tmpl_len = 6;   // mul: f7 68 02
-        79: v35_tmpl_len = 6;   // mul: f7 a0 02 00
-        80: v35_tmpl_len = 6;   // mul: f7 a8 02 00
-        81: v35_tmpl_len = 3;   // out: e6 00
-        82: v35_tmpl_len = 3;   // out: e7 00
-        83: v35_tmpl_len = 3;   // out: ee
-        84: v35_tmpl_len = 3;   // out: ef
-        85: v35_tmpl_len = 2;   // pop: 58
-        86: v35_tmpl_len = 5;   // pop_mem: 8f 00
-        87: v35_tmpl_len = 7;   // pop_mem: 8f 06 02 00
-        88: v35_tmpl_len = 7;   // pop_mem: 8f 40 02
-        89: v35_tmpl_len = 7;   // pop_mem: 8f 80 02 00
-        90: v35_tmpl_len = 9;   // pop_r: 61
-        91: v35_tmpl_len = 2;   // pop_seg: 07
-        92: v35_tmpl_len = 3;   // prefix: 26
-        93: v35_tmpl_len = 4;   // prepare: c8 00 02 00
-        94: v35_tmpl_len = 2;   // push: 50
-        95: v35_tmpl_len = 4;   // push_imm: 68 00 02
-        96: v35_tmpl_len = 4;   // push_imm: 6a 00
-        97: v35_tmpl_len = 7;   // push_mem: ff 30
-        98: v35_tmpl_len = 7;   // push_mem: ff 36 02 00
-        99: v35_tmpl_len = 7;   // push_mem: ff 70 02
-        100: v35_tmpl_len = 7;   // push_mem: ff b0 02 00
-        101: v35_tmpl_len = 9;   // push_r: 60
-        102: v35_tmpl_len = 2;   // push_seg: 06
-        103: v35_tmpl_len = 3;   // reg: 00 c0
-        104: v35_tmpl_len = 3;   // reg: 90
-        105: v35_tmpl_len = 5;   // ret: c3, taken
-        106: v35_tmpl_len = 8;   // rmw: 00 00
-        107: v35_tmpl_len = 8;   // rmw: 00 06 02 00
-        108: v35_tmpl_len = 8;   // rmw: 00 40 02
-        109: v35_tmpl_len = 8;   // rmw: 00 80 02 00
-        110: v35_tmpl_len = 8;   // rmw: 01 00
-        111: v35_tmpl_len = 8;   // rmw: 01 06 02 00
-        112: v35_tmpl_len = 8;   // rmw: 01 40 02
-        113: v35_tmpl_len = 8;   // rmw: 01 80 02 00
-        114: v35_tmpl_len = 8;   // rmw: 38 00
-        115: v35_tmpl_len = 8;   // rmw: 38 06 02 00
-        116: v35_tmpl_len = 8;   // rmw: 38 40 02
-        117: v35_tmpl_len = 8;   // rmw: 38 80 02 00
-        118: v35_tmpl_len = 8;   // rmw: 39 00
-        119: v35_tmpl_len = 8;   // rmw: 39 06 02 00
-        120: v35_tmpl_len = 8;   // rmw: 39 40 02
-        121: v35_tmpl_len = 8;   // rmw: 39 80 02 00
-        122: v35_tmpl_len = 8;   // rmw: 86 00
-        123: v35_tmpl_len = 8;   // rmw: 86 06 02 00
-        124: v35_tmpl_len = 8;   // rmw: 86 40 02
-        125: v35_tmpl_len = 8;   // rmw: 86 80 02 00
-        126: v35_tmpl_len = 8;   // rmw: 87 00
-        127: v35_tmpl_len = 8;   // rmw: 87 06 02 00
-        128: v35_tmpl_len = 8;   // rmw: 87 40 02
-        129: v35_tmpl_len = 8;   // rmw: 87 80 02 00
-        130: v35_tmpl_len = 8;   // rmw: d0 00
-        131: v35_tmpl_len = 8;   // rmw: d0 00, count 0
-        132: v35_tmpl_len = 8;   // rmw: d0 06 02 00
-        133: v35_tmpl_len = 8;   // rmw: d0 06 02 00, count 0
-        134: v35_tmpl_len = 8;   // rmw: d0 40 02
-        135: v35_tmpl_len = 8;   // rmw: d0 40 02, count 0
-        136: v35_tmpl_len = 8;   // rmw: d0 80 02 00
-        137: v35_tmpl_len = 8;   // rmw: d0 80 02 00, count 0
-        138: v35_tmpl_len = 8;   // rmw: d1 00
-        139: v35_tmpl_len = 8;   // rmw: d1 00, count 0
-        140: v35_tmpl_len = 8;   // rmw: d1 06 02 00
-        141: v35_tmpl_len = 8;   // rmw: d1 06 02 00, count 0
-        142: v35_tmpl_len = 8;   // rmw: d1 40 02
-        143: v35_tmpl_len = 8;   // rmw: d1 40 02, count 0
-        144: v35_tmpl_len = 8;   // rmw: d1 80 02 00
-        145: v35_tmpl_len = 8;   // rmw: d1 80 02 00, count 0
-        146: v35_tmpl_len = 8;   // rmw: d3 00
-        147: v35_tmpl_len = 8;   // rmw: d3 00, count 0
-        148: v35_tmpl_len = 8;   // rmw: d3 06 02 00
-        149: v35_tmpl_len = 8;   // rmw: d3 06 02 00, count 0
-        150: v35_tmpl_len = 8;   // rmw: d3 40 02
-        151: v35_tmpl_len = 8;   // rmw: d3 40 02, count 0
-        152: v35_tmpl_len = 8;   // rmw: d3 80 02 00
-        153: v35_tmpl_len = 8;   // rmw: d3 80 02 00, count 0
-        154: v35_tmpl_len = 8;   // rmw: f6 08
-        155: v35_tmpl_len = 8;   // rmw: f6 0e 02 00
-        156: v35_tmpl_len = 8;   // rmw: f6 48 02
-        157: v35_tmpl_len = 8;   // rmw: f6 88 02 00
-        158: v35_tmpl_len = 8;   // rmw: f7 08
-        159: v35_tmpl_len = 8;   // rmw: f7 0e 02 00
-        160: v35_tmpl_len = 8;   // rmw: f7 48 02
-        161: v35_tmpl_len = 8;   // rmw: f7 88 02 00
-        162: v35_tmpl_len = 12;   // rmw_imm: 81 00 02 00
-        163: v35_tmpl_len = 13;   // rmw_imm: 81 06 02 00 00 00
-        164: v35_tmpl_len = 12;   // rmw_imm: 81 38 02 00
-        165: v35_tmpl_len = 13;   // rmw_imm: 81 3e 02 00 00 00
-        166: v35_tmpl_len = 13;   // rmw_imm: 81 40 02 00 00
-        167: v35_tmpl_len = 13;   // rmw_imm: 81 78 02 00 00
-        168: v35_tmpl_len = 13;   // rmw_imm: 81 80 02 00 00 00
-        169: v35_tmpl_len = 13;   // rmw_imm: 81 b8 02 00 00 00
-        170: v35_tmpl_len = 12;   // rmw_imm: 83 00 02
-        171: v35_tmpl_len = 13;   // rmw_imm: 83 06 02 00 00
-        172: v35_tmpl_len = 12;   // rmw_imm: 83 38 02
-        173: v35_tmpl_len = 13;   // rmw_imm: 83 3e 02 00 00
-        174: v35_tmpl_len = 13;   // rmw_imm: 83 40 02 00
-        175: v35_tmpl_len = 13;   // rmw_imm: 83 78 02 00
-        176: v35_tmpl_len = 13;   // rmw_imm: 83 80 02 00 00
-        177: v35_tmpl_len = 13;   // rmw_imm: 83 b8 02 00 00
-        178: v35_tmpl_len = 12;   // rmw_imm: f7 00 02 00
-        179: v35_tmpl_len = 14;   // rmw_imm: f7 06 02 00 00 00
-        180: v35_tmpl_len = 14;   // rmw_imm: f7 40 02 00 00
-        181: v35_tmpl_len = 14;   // rmw_imm: f7 80 02 00 00 00
-        182: v35_tmpl_len = 4;   // shift_cl: d3 c0
-        183: v35_tmpl_len = 4;   // shift_cl: d3 c0, count 0
-        184: v35_tmpl_len = 5;   // shift_cl: d3 c0, refresh
-        185: v35_tmpl_len = 6;   // shift_imm: c1 00 02
-        186: v35_tmpl_len = 6;   // shift_imm: c1 00 02, count 0
-        187: v35_tmpl_len = 7;   // shift_imm: c1 00 02, refresh
-        188: v35_tmpl_len = 6;   // shift_imm: c1 06 02 00 00
-        189: v35_tmpl_len = 6;   // shift_imm: c1 06 02 00 00, count 0
-        190: v35_tmpl_len = 7;   // shift_imm: c1 06 02 00 00, refresh
-        191: v35_tmpl_len = 6;   // shift_imm: c1 40 02 00
-        192: v35_tmpl_len = 6;   // shift_imm: c1 40 02 00, count 0
-        193: v35_tmpl_len = 7;   // shift_imm: c1 40 02 00, refresh
-        194: v35_tmpl_len = 4;   // shift_imm: d0 c0
-        195: v35_tmpl_len = 4;   // shift_imm: d0 c0, count 0
-        196: v35_tmpl_len = 5;   // shift_imm: d0 c0, refresh
-        197: v35_tmpl_len = 6;   // store: 88 00
-        198: v35_tmpl_len = 6;   // store: 88 06 02 00
-        199: v35_tmpl_len = 6;   // store: 88 40 02
-        200: v35_tmpl_len = 6;   // store: 88 80 02 00
-        201: v35_tmpl_len = 6;   // store: 89 00
-        202: v35_tmpl_len = 6;   // store: 89 06 02 00
-        203: v35_tmpl_len = 6;   // store: 89 40 02
-        204: v35_tmpl_len = 6;   // store: 89 80 02 00
-        205: v35_tmpl_len = 5;   // store: a3 00 02
-        206: v35_tmpl_len = 9;   // store_imm: c6 00 02
-        207: v35_tmpl_len = 10;   // store_imm: c6 06 02 00 00
-        208: v35_tmpl_len = 10;   // store_imm: c6 40 02 00
-        209: v35_tmpl_len = 10;   // store_imm: c6 80 02 00 00
-        210: v35_tmpl_len = 9;   // store_imm: c7 00 02 00
-        211: v35_tmpl_len = 10;   // store_imm: c7 06 02 00 00 00
-        212: v35_tmpl_len = 10;   // store_imm: c7 40 02 00 00
-        213: v35_tmpl_len = 10;   // store_imm: c7 80 02 00 00 00
-        214: v35_tmpl_len = 18;   // str_cmp: 64 a6
-        215: v35_tmpl_len = 18;   // str_cmp: 64 a7
-        216: v35_tmpl_len = 5;   // str_cmp: a6
-        217: v35_tmpl_len = 5;   // str_cmp: a7
-        218: v35_tmpl_len = 14;   // str_in: 64 6c
-        219: v35_tmpl_len = 14;   // str_in: 64 6d
-        220: v35_tmpl_len = 4;   // str_in: 6c
-        221: v35_tmpl_len = 4;   // str_in: 6d
-        222: v35_tmpl_len = 10;   // str_load: 64 ac
-        223: v35_tmpl_len = 10;   // str_load: 64 ad
-        224: v35_tmpl_len = 3;   // str_load: ac
-        225: v35_tmpl_len = 3;   // str_load: ad
-        226: v35_tmpl_len = 14;   // str_move: 64 a4
-        227: v35_tmpl_len = 14;   // str_move: 64 a5
-        228: v35_tmpl_len = 4;   // str_move: a4
-        229: v35_tmpl_len = 4;   // str_move: a5
-        230: v35_tmpl_len = 14;   // str_out: 64 6e
-        231: v35_tmpl_len = 14;   // str_out: 64 6f
-        232: v35_tmpl_len = 4;   // str_out: 6e
-        233: v35_tmpl_len = 4;   // str_out: 6f
-        234: v35_tmpl_len = 14;   // str_scan: 64 ae
-        235: v35_tmpl_len = 14;   // str_scan: 64 af
-        236: v35_tmpl_len = 4;   // str_scan: ae
-        237: v35_tmpl_len = 4;   // str_scan: af
-        238: v35_tmpl_len = 11;   // str_store: 64 aa
-        239: v35_tmpl_len = 11;   // str_store: 64 ab
-        240: v35_tmpl_len = 3;   // str_store: aa
-        241: v35_tmpl_len = 3;   // str_store: ab
-        242: v35_tmpl_len = 3;   // xlat: d7
+        0: v35_tmpl_len = 3;   // adjust: 27
+        1: v35_tmpl_len = 3;   // adjust_b: 37
+        2: v35_tmpl_len = 9;   // bcd4s: 0f 20
+        3: v35_tmpl_len = 7;   // bcd4s_cmp: 0f 26
+        4: v35_tmpl_len = 4;   // bf_ext: 0f 33 c0
+        5: v35_tmpl_len = 5;   // bf_ext: 0f 33 c0, cross
+        6: v35_tmpl_len = 6;   // bf_ext: 0f 3b c0 02
+        7: v35_tmpl_len = 7;   // bf_ext: 0f 3b c0 02, cross
+        8: v35_tmpl_len = 6;   // bf_ins: 0f 31 c0
+        9: v35_tmpl_len = 8;   // bf_ins: 0f 31 c0, cross
+        10: v35_tmpl_len = 8;   // bf_ins: 0f 39 c0 02
+        11: v35_tmpl_len = 10;   // bf_ins: 0f 39 c0 02, cross
+        12: v35_tmpl_len = 3;   // bit1: 0f 10 c0
+        13: v35_tmpl_len = 3;   // bit1: 0f 18 c0 02
+        14: v35_tmpl_len = 9;   // bit1_clr: 0f 12 00
+        15: v35_tmpl_len = 9;   // bit1_clr: 0f 12 06 02 00
+        16: v35_tmpl_len = 9;   // bit1_clr: 0f 12 40 02
+        17: v35_tmpl_len = 9;   // bit1_clr: 0f 12 80 02 00
+        18: v35_tmpl_len = 9;   // bit1_clr: 0f 13 00
+        19: v35_tmpl_len = 9;   // bit1_clr: 0f 13 06 02 00
+        20: v35_tmpl_len = 9;   // bit1_clr: 0f 13 40 02
+        21: v35_tmpl_len = 9;   // bit1_clr: 0f 13 80 02 00
+        22: v35_tmpl_len = 12;   // bit1_clr: 0f 1a 00 02
+        23: v35_tmpl_len = 12;   // bit1_clr: 0f 1a 06 02 00 00
+        24: v35_tmpl_len = 12;   // bit1_clr: 0f 1a 40 02 00
+        25: v35_tmpl_len = 12;   // bit1_clr: 0f 1a 80 02 00 00
+        26: v35_tmpl_len = 12;   // bit1_clr: 0f 1b 00 02
+        27: v35_tmpl_len = 12;   // bit1_clr: 0f 1b 06 02 00 00
+        28: v35_tmpl_len = 12;   // bit1_clr: 0f 1b 40 02 00
+        29: v35_tmpl_len = 12;   // bit1_clr: 0f 1b 80 02 00 00
+        30: v35_tmpl_len = 9;   // bit1_rmw: 0f 14 00
+        31: v35_tmpl_len = 9;   // bit1_rmw: 0f 14 06 02 00
+        32: v35_tmpl_len = 9;   // bit1_rmw: 0f 14 40 02
+        33: v35_tmpl_len = 9;   // bit1_rmw: 0f 14 80 02 00
+        34: v35_tmpl_len = 9;   // bit1_rmw: 0f 15 00
+        35: v35_tmpl_len = 9;   // bit1_rmw: 0f 15 06 02 00
+        36: v35_tmpl_len = 9;   // bit1_rmw: 0f 15 40 02
+        37: v35_tmpl_len = 9;   // bit1_rmw: 0f 15 80 02 00
+        38: v35_tmpl_len = 12;   // bit1_rmw: 0f 1c 00 02
+        39: v35_tmpl_len = 12;   // bit1_rmw: 0f 1c 06 02 00 00
+        40: v35_tmpl_len = 12;   // bit1_rmw: 0f 1c 40 02 00
+        41: v35_tmpl_len = 12;   // bit1_rmw: 0f 1c 80 02 00 00
+        42: v35_tmpl_len = 12;   // bit1_rmw: 0f 1d 00 02
+        43: v35_tmpl_len = 12;   // bit1_rmw: 0f 1d 06 02 00 00
+        44: v35_tmpl_len = 12;   // bit1_rmw: 0f 1d 40 02 00
+        45: v35_tmpl_len = 12;   // bit1_rmw: 0f 1d 80 02 00 00
+        46: v35_tmpl_len = 8;   // bit1_test: 0f 10 00
+        47: v35_tmpl_len = 8;   // bit1_test: 0f 10 06 02 00
+        48: v35_tmpl_len = 8;   // bit1_test: 0f 10 40 02
+        49: v35_tmpl_len = 8;   // bit1_test: 0f 10 80 02 00
+        50: v35_tmpl_len = 8;   // bit1_test: 0f 11 00
+        51: v35_tmpl_len = 8;   // bit1_test: 0f 11 06 02 00
+        52: v35_tmpl_len = 8;   // bit1_test: 0f 11 40 02
+        53: v35_tmpl_len = 8;   // bit1_test: 0f 11 80 02 00
+        54: v35_tmpl_len = 11;   // bit1_test: 0f 18 00 02
+        55: v35_tmpl_len = 11;   // bit1_test: 0f 18 06 02 00 00
+        56: v35_tmpl_len = 11;   // bit1_test: 0f 18 40 02 00
+        57: v35_tmpl_len = 11;   // bit1_test: 0f 18 80 02 00 00
+        58: v35_tmpl_len = 11;   // bit1_test: 0f 19 00 02
+        59: v35_tmpl_len = 11;   // bit1_test: 0f 19 06 02 00 00
+        60: v35_tmpl_len = 11;   // bit1_test: 0f 19 40 02 00
+        61: v35_tmpl_len = 11;   // bit1_test: 0f 19 80 02 00 00
+        62: v35_tmpl_len = 5;   // branch_near: e9 00 02, taken
+        63: v35_tmpl_len = 5;   // branch_short: 74 00
+        64: v35_tmpl_len = 6;   // branch_short: 74 00, taken
+        65: v35_tmpl_len = 5;   // branch_short: eb 00, taken
+        66: v35_tmpl_len = 6;   // call: e8 00 02, taken
+        67: v35_tmpl_len = 3;   // convert: d4 00
+        68: v35_tmpl_len = 3;   // convert_d: d5 00
+        69: v35_tmpl_len = 4;   // dbnz: e2 00
+        70: v35_tmpl_len = 5;   // dbnz: e2 00, taken
+        71: v35_tmpl_len = 6;   // div: f6 30
+        72: v35_tmpl_len = 6;   // div: f6 36 02 00
+        73: v35_tmpl_len = 6;   // div: f6 38
+        74: v35_tmpl_len = 6;   // div: f6 3e 02 00
+        75: v35_tmpl_len = 6;   // div: f6 70 02
+        76: v35_tmpl_len = 6;   // div: f6 78 02
+        77: v35_tmpl_len = 6;   // div: f6 b0 02 00
+        78: v35_tmpl_len = 6;   // div: f6 b8 02 00
+        79: v35_tmpl_len = 3;   // div: f6 f0
+        80: v35_tmpl_len = 4;   // div: f6 f0, refresh
+        81: v35_tmpl_len = 3;   // div: f6 f8
+        82: v35_tmpl_len = 4;   // div: f6 f8, refresh
+        83: v35_tmpl_len = 6;   // div: f7 30
+        84: v35_tmpl_len = 6;   // div: f7 36 02 00
+        85: v35_tmpl_len = 6;   // div: f7 38
+        86: v35_tmpl_len = 6;   // div: f7 3e 02 00
+        87: v35_tmpl_len = 6;   // div: f7 70 02
+        88: v35_tmpl_len = 6;   // div: f7 78 02
+        89: v35_tmpl_len = 6;   // div: f7 b0 02 00
+        90: v35_tmpl_len = 6;   // div: f7 b8 02 00
+        91: v35_tmpl_len = 3;   // extend_w: 99
+        92: v35_tmpl_len = 3;   // flag_ei: fb
+        93: v35_tmpl_len = 1;   // halt: f4
+        94: v35_tmpl_len = 3;   // imm: 05 00 02
+        95: v35_tmpl_len = 4;   // imm: 81 c0 02 00
+        96: v35_tmpl_len = 4;   // imm: 83 c0 02
+        97: v35_tmpl_len = 3;   // imm: a8 00
+        98: v35_tmpl_len = 4;   // in: e4 00
+        99: v35_tmpl_len = 4;   // in: e5 00
+        100: v35_tmpl_len = 4;   // in: ec
+        101: v35_tmpl_len = 4;   // in: ed
+        102: v35_tmpl_len = 3;   // incdec: 40
+        103: v35_tmpl_len = 5;   // lea: 8d 00
+        104: v35_tmpl_len = 5;   // lea: 8d 06 02 00
+        105: v35_tmpl_len = 5;   // lea: 8d 40 02
+        106: v35_tmpl_len = 5;   // lea: 8d 80 02 00
+        107: v35_tmpl_len = 6;   // load: a1 00 02
+        108: v35_tmpl_len = 7;   // load_alu: 02 00
+        109: v35_tmpl_len = 7;   // load_alu: 02 06 02 00
+        110: v35_tmpl_len = 7;   // load_alu: 02 40 02
+        111: v35_tmpl_len = 7;   // load_alu: 02 80 02 00
+        112: v35_tmpl_len = 7;   // load_alu: 03 00
+        113: v35_tmpl_len = 7;   // load_alu: 03 06 02 00
+        114: v35_tmpl_len = 7;   // load_alu: 03 40 02
+        115: v35_tmpl_len = 7;   // load_alu: 03 80 02 00
+        116: v35_tmpl_len = 7;   // load_alu: 84 00
+        117: v35_tmpl_len = 8;   // load_alu: 84 06 02 00
+        118: v35_tmpl_len = 8;   // load_alu: 84 40 02
+        119: v35_tmpl_len = 8;   // load_alu: 84 80 02 00
+        120: v35_tmpl_len = 7;   // load_alu: 85 00
+        121: v35_tmpl_len = 8;   // load_alu: 85 06 02 00
+        122: v35_tmpl_len = 8;   // load_alu: 85 40 02
+        123: v35_tmpl_len = 8;   // load_alu: 85 80 02 00
+        124: v35_tmpl_len = 7;   // load_seg: 8e 00
+        125: v35_tmpl_len = 7;   // load_seg: 8e 06 02 00
+        126: v35_tmpl_len = 7;   // load_seg: 8e 40 02
+        127: v35_tmpl_len = 7;   // load_seg: 8e 80 02 00
+        128: v35_tmpl_len = 6;   // mul: f6 20
+        129: v35_tmpl_len = 6;   // mul: f6 26 02 00
+        130: v35_tmpl_len = 6;   // mul: f6 28
+        131: v35_tmpl_len = 6;   // mul: f6 2e 02 00
+        132: v35_tmpl_len = 6;   // mul: f6 60 02
+        133: v35_tmpl_len = 6;   // mul: f6 68 02
+        134: v35_tmpl_len = 6;   // mul: f6 a0 02 00
+        135: v35_tmpl_len = 6;   // mul: f6 a8 02 00
+        136: v35_tmpl_len = 3;   // mul: f6 e0
+        137: v35_tmpl_len = 4;   // mul: f6 e0, refresh
+        138: v35_tmpl_len = 3;   // mul: f6 e8
+        139: v35_tmpl_len = 4;   // mul: f6 e8, refresh
+        140: v35_tmpl_len = 6;   // mul: f7 20
+        141: v35_tmpl_len = 6;   // mul: f7 26 02 00
+        142: v35_tmpl_len = 6;   // mul: f7 28
+        143: v35_tmpl_len = 6;   // mul: f7 2e 02 00
+        144: v35_tmpl_len = 6;   // mul: f7 60 02
+        145: v35_tmpl_len = 6;   // mul: f7 68 02
+        146: v35_tmpl_len = 6;   // mul: f7 a0 02 00
+        147: v35_tmpl_len = 6;   // mul: f7 a8 02 00
+        148: v35_tmpl_len = 10;   // mul_imm: 69 00 02 00
+        149: v35_tmpl_len = 10;   // mul_imm: 69 06 02 00 00 00
+        150: v35_tmpl_len = 10;   // mul_imm: 69 40 02 00 00
+        151: v35_tmpl_len = 10;   // mul_imm: 69 80 02 00 00 00
+        152: v35_tmpl_len = 3;   // mul_imm: 69 c0 02 00
+        153: v35_tmpl_len = 10;   // mul_imm: 6b 00 02
+        154: v35_tmpl_len = 10;   // mul_imm: 6b 06 02 00 00
+        155: v35_tmpl_len = 10;   // mul_imm: 6b 40 02 00
+        156: v35_tmpl_len = 10;   // mul_imm: 6b 80 02 00 00
+        157: v35_tmpl_len = 3;   // mul_imm: 6b c0 02
+        158: v35_tmpl_len = 3;   // out: e6 00
+        159: v35_tmpl_len = 3;   // out: e7 00
+        160: v35_tmpl_len = 3;   // out: ee
+        161: v35_tmpl_len = 3;   // out: ef
+        162: v35_tmpl_len = 2;   // pop: 58
+        163: v35_tmpl_len = 5;   // pop_mem: 8f 00
+        164: v35_tmpl_len = 7;   // pop_mem: 8f 06 02 00
+        165: v35_tmpl_len = 7;   // pop_mem: 8f 40 02
+        166: v35_tmpl_len = 7;   // pop_mem: 8f 80 02 00
+        167: v35_tmpl_len = 9;   // pop_r: 61
+        168: v35_tmpl_len = 2;   // pop_seg: 07
+        169: v35_tmpl_len = 3;   // prefix: 26
+        170: v35_tmpl_len = 4;   // prepare: c8 00 02 00
+        171: v35_tmpl_len = 2;   // push: 50
+        172: v35_tmpl_len = 4;   // push_imm: 68 00 02
+        173: v35_tmpl_len = 4;   // push_imm: 6a 00
+        174: v35_tmpl_len = 7;   // push_mem: ff 30
+        175: v35_tmpl_len = 7;   // push_mem: ff 36 02 00
+        176: v35_tmpl_len = 7;   // push_mem: ff 70 02
+        177: v35_tmpl_len = 7;   // push_mem: ff b0 02 00
+        178: v35_tmpl_len = 9;   // push_r: 60
+        179: v35_tmpl_len = 2;   // push_seg: 06
+        180: v35_tmpl_len = 3;   // reg: 00 c0
+        181: v35_tmpl_len = 3;   // reg: 90
+        182: v35_tmpl_len = 5;   // ret: c3, taken
+        183: v35_tmpl_len = 8;   // rmw: 00 00
+        184: v35_tmpl_len = 8;   // rmw: 00 06 02 00
+        185: v35_tmpl_len = 8;   // rmw: 00 40 02
+        186: v35_tmpl_len = 8;   // rmw: 00 80 02 00
+        187: v35_tmpl_len = 8;   // rmw: 01 00
+        188: v35_tmpl_len = 8;   // rmw: 01 06 02 00
+        189: v35_tmpl_len = 8;   // rmw: 01 40 02
+        190: v35_tmpl_len = 8;   // rmw: 01 80 02 00
+        191: v35_tmpl_len = 8;   // rmw: 38 00
+        192: v35_tmpl_len = 8;   // rmw: 38 06 02 00
+        193: v35_tmpl_len = 8;   // rmw: 38 40 02
+        194: v35_tmpl_len = 8;   // rmw: 38 80 02 00
+        195: v35_tmpl_len = 8;   // rmw: 39 00
+        196: v35_tmpl_len = 8;   // rmw: 39 06 02 00
+        197: v35_tmpl_len = 8;   // rmw: 39 40 02
+        198: v35_tmpl_len = 8;   // rmw: 39 80 02 00
+        199: v35_tmpl_len = 8;   // rmw: 86 00
+        200: v35_tmpl_len = 8;   // rmw: 86 06 02 00
+        201: v35_tmpl_len = 8;   // rmw: 86 40 02
+        202: v35_tmpl_len = 8;   // rmw: 86 80 02 00
+        203: v35_tmpl_len = 8;   // rmw: 87 00
+        204: v35_tmpl_len = 8;   // rmw: 87 06 02 00
+        205: v35_tmpl_len = 8;   // rmw: 87 40 02
+        206: v35_tmpl_len = 8;   // rmw: 87 80 02 00
+        207: v35_tmpl_len = 8;   // rmw: d0 00
+        208: v35_tmpl_len = 8;   // rmw: d0 00, count 0
+        209: v35_tmpl_len = 8;   // rmw: d0 06 02 00
+        210: v35_tmpl_len = 8;   // rmw: d0 06 02 00, count 0
+        211: v35_tmpl_len = 8;   // rmw: d0 40 02
+        212: v35_tmpl_len = 8;   // rmw: d0 40 02, count 0
+        213: v35_tmpl_len = 8;   // rmw: d0 80 02 00
+        214: v35_tmpl_len = 8;   // rmw: d0 80 02 00, count 0
+        215: v35_tmpl_len = 8;   // rmw: d1 00
+        216: v35_tmpl_len = 8;   // rmw: d1 00, count 0
+        217: v35_tmpl_len = 8;   // rmw: d1 06 02 00
+        218: v35_tmpl_len = 8;   // rmw: d1 06 02 00, count 0
+        219: v35_tmpl_len = 8;   // rmw: d1 40 02
+        220: v35_tmpl_len = 8;   // rmw: d1 40 02, count 0
+        221: v35_tmpl_len = 8;   // rmw: d1 80 02 00
+        222: v35_tmpl_len = 8;   // rmw: d1 80 02 00, count 0
+        223: v35_tmpl_len = 8;   // rmw: d3 00
+        224: v35_tmpl_len = 8;   // rmw: d3 00, count 0
+        225: v35_tmpl_len = 8;   // rmw: d3 06 02 00
+        226: v35_tmpl_len = 8;   // rmw: d3 06 02 00, count 0
+        227: v35_tmpl_len = 8;   // rmw: d3 40 02
+        228: v35_tmpl_len = 8;   // rmw: d3 40 02, count 0
+        229: v35_tmpl_len = 8;   // rmw: d3 80 02 00
+        230: v35_tmpl_len = 8;   // rmw: d3 80 02 00, count 0
+        231: v35_tmpl_len = 8;   // rmw: f6 08
+        232: v35_tmpl_len = 8;   // rmw: f6 0e 02 00
+        233: v35_tmpl_len = 8;   // rmw: f6 48 02
+        234: v35_tmpl_len = 8;   // rmw: f6 88 02 00
+        235: v35_tmpl_len = 8;   // rmw: f7 08
+        236: v35_tmpl_len = 8;   // rmw: f7 0e 02 00
+        237: v35_tmpl_len = 8;   // rmw: f7 48 02
+        238: v35_tmpl_len = 8;   // rmw: f7 88 02 00
+        239: v35_tmpl_len = 12;   // rmw_imm: 81 00 02 00
+        240: v35_tmpl_len = 13;   // rmw_imm: 81 06 02 00 00 00
+        241: v35_tmpl_len = 12;   // rmw_imm: 81 38 02 00
+        242: v35_tmpl_len = 13;   // rmw_imm: 81 3e 02 00 00 00
+        243: v35_tmpl_len = 13;   // rmw_imm: 81 40 02 00 00
+        244: v35_tmpl_len = 13;   // rmw_imm: 81 78 02 00 00
+        245: v35_tmpl_len = 13;   // rmw_imm: 81 80 02 00 00 00
+        246: v35_tmpl_len = 13;   // rmw_imm: 81 b8 02 00 00 00
+        247: v35_tmpl_len = 12;   // rmw_imm: 83 00 02
+        248: v35_tmpl_len = 13;   // rmw_imm: 83 06 02 00 00
+        249: v35_tmpl_len = 12;   // rmw_imm: 83 38 02
+        250: v35_tmpl_len = 13;   // rmw_imm: 83 3e 02 00 00
+        251: v35_tmpl_len = 13;   // rmw_imm: 83 40 02 00
+        252: v35_tmpl_len = 13;   // rmw_imm: 83 78 02 00
+        253: v35_tmpl_len = 13;   // rmw_imm: 83 80 02 00 00
+        254: v35_tmpl_len = 13;   // rmw_imm: 83 b8 02 00 00
+        255: v35_tmpl_len = 12;   // rmw_imm: f7 00 02 00
+        256: v35_tmpl_len = 14;   // rmw_imm: f7 06 02 00 00 00
+        257: v35_tmpl_len = 14;   // rmw_imm: f7 40 02 00 00
+        258: v35_tmpl_len = 14;   // rmw_imm: f7 80 02 00 00 00
+        259: v35_tmpl_len = 3;   // rol4: 0f 28 c0
+        260: v35_tmpl_len = 9;   // rol4_mem: 0f 28 00
+        261: v35_tmpl_len = 9;   // rol4_mem: 0f 28 06 02 00
+        262: v35_tmpl_len = 9;   // rol4_mem: 0f 28 40 02
+        263: v35_tmpl_len = 9;   // rol4_mem: 0f 28 80 02 00
+        264: v35_tmpl_len = 3;   // ror4: 0f 2a c0
+        265: v35_tmpl_len = 9;   // ror4_mem: 0f 2a 00
+        266: v35_tmpl_len = 9;   // ror4_mem: 0f 2a 06 02 00
+        267: v35_tmpl_len = 9;   // ror4_mem: 0f 2a 40 02
+        268: v35_tmpl_len = 9;   // ror4_mem: 0f 2a 80 02 00
+        269: v35_tmpl_len = 4;   // shift_cl: d3 c0
+        270: v35_tmpl_len = 4;   // shift_cl: d3 c0, count 0
+        271: v35_tmpl_len = 5;   // shift_cl: d3 c0, refresh
+        272: v35_tmpl_len = 6;   // shift_imm: c1 00 02
+        273: v35_tmpl_len = 6;   // shift_imm: c1 00 02, count 0
+        274: v35_tmpl_len = 7;   // shift_imm: c1 00 02, refresh
+        275: v35_tmpl_len = 6;   // shift_imm: c1 06 02 00 00
+        276: v35_tmpl_len = 6;   // shift_imm: c1 06 02 00 00, count 0
+        277: v35_tmpl_len = 7;   // shift_imm: c1 06 02 00 00, refresh
+        278: v35_tmpl_len = 6;   // shift_imm: c1 40 02 00
+        279: v35_tmpl_len = 6;   // shift_imm: c1 40 02 00, count 0
+        280: v35_tmpl_len = 7;   // shift_imm: c1 40 02 00, refresh
+        281: v35_tmpl_len = 4;   // shift_imm: d0 c0
+        282: v35_tmpl_len = 4;   // shift_imm: d0 c0, count 0
+        283: v35_tmpl_len = 5;   // shift_imm: d0 c0, refresh
+        284: v35_tmpl_len = 6;   // store: 88 00
+        285: v35_tmpl_len = 6;   // store: 88 06 02 00
+        286: v35_tmpl_len = 6;   // store: 88 40 02
+        287: v35_tmpl_len = 6;   // store: 88 80 02 00
+        288: v35_tmpl_len = 6;   // store: 89 00
+        289: v35_tmpl_len = 6;   // store: 89 06 02 00
+        290: v35_tmpl_len = 6;   // store: 89 40 02
+        291: v35_tmpl_len = 6;   // store: 89 80 02 00
+        292: v35_tmpl_len = 5;   // store: a3 00 02
+        293: v35_tmpl_len = 9;   // store_imm: c6 00 02
+        294: v35_tmpl_len = 10;   // store_imm: c6 06 02 00 00
+        295: v35_tmpl_len = 10;   // store_imm: c6 40 02 00
+        296: v35_tmpl_len = 10;   // store_imm: c6 80 02 00 00
+        297: v35_tmpl_len = 9;   // store_imm: c7 00 02 00
+        298: v35_tmpl_len = 10;   // store_imm: c7 06 02 00 00 00
+        299: v35_tmpl_len = 10;   // store_imm: c7 40 02 00 00
+        300: v35_tmpl_len = 10;   // store_imm: c7 80 02 00 00 00
+        301: v35_tmpl_len = 18;   // str_cmp: 64 a6
+        302: v35_tmpl_len = 18;   // str_cmp: 64 a7
+        303: v35_tmpl_len = 5;   // str_cmp: a6
+        304: v35_tmpl_len = 5;   // str_cmp: a7
+        305: v35_tmpl_len = 14;   // str_in: 64 6c
+        306: v35_tmpl_len = 14;   // str_in: 64 6d
+        307: v35_tmpl_len = 4;   // str_in: 6c
+        308: v35_tmpl_len = 4;   // str_in: 6d
+        309: v35_tmpl_len = 10;   // str_load: 64 ac
+        310: v35_tmpl_len = 10;   // str_load: 64 ad
+        311: v35_tmpl_len = 3;   // str_load: ac
+        312: v35_tmpl_len = 3;   // str_load: ad
+        313: v35_tmpl_len = 14;   // str_move: 64 a4
+        314: v35_tmpl_len = 14;   // str_move: 64 a5
+        315: v35_tmpl_len = 4;   // str_move: a4
+        316: v35_tmpl_len = 4;   // str_move: a5
+        317: v35_tmpl_len = 14;   // str_out: 64 6e
+        318: v35_tmpl_len = 14;   // str_out: 64 6f
+        319: v35_tmpl_len = 4;   // str_out: 6e
+        320: v35_tmpl_len = 4;   // str_out: 6f
+        321: v35_tmpl_len = 14;   // str_scan: 64 ae
+        322: v35_tmpl_len = 14;   // str_scan: 64 af
+        323: v35_tmpl_len = 4;   // str_scan: ae
+        324: v35_tmpl_len = 4;   // str_scan: af
+        325: v35_tmpl_len = 11;   // str_store: 64 aa
+        326: v35_tmpl_len = 11;   // str_store: 64 ab
+        327: v35_tmpl_len = 3;   // str_store: aa
+        328: v35_tmpl_len = 3;   // str_store: ab
+        329: v35_tmpl_len = 3;   // xlat: d7
         default: v35_tmpl_len = 0;
     endcase
 endfunction
-function automatic logic [37:0] v35_step(input int tmpl, input int k);
-    v35_step = 38'd0;
+function automatic logic [38:0] v35_step(input int tmpl, input int k);
+    v35_step = 39'd0;
     case (tmpl)
-        0: case (k)   // branch_near: e9 00 02, taken
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h0000000021;   // take n=2
-            2: v35_step = 38'h0000000050;   // clocks n=5
-            3: v35_step = 38'h0000A0000A;   // flush target
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        1: case (k)   // branch_short: 74 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000040;   // clocks n=4
-            3: v35_step = 38'h0000000009;   // decide
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            default: v35_step = 38'd0;
-        endcase
-        2: case (k)   // branch_short: 74 00, taken
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000040;   // clocks n=4
-            3: v35_step = 38'h0000000080;   // clocks n=8
-            4: v35_step = 38'h0000A3400A;   // flush cfgap target
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        3: case (k)   // branch_short: eb 00, taken
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000080;   // clocks n=8
-            3: v35_step = 38'h0000A0000A;   // flush target
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        4: case (k)   // call: e8 00 02, taken
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h0000000021;   // take n=2
-            2: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            3: v35_step = 38'h0000000080;   // clocks n=8
-            4: v35_step = 38'h0000A0000A;   // flush target
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        5: case (k)   // dbnz: e2 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000009;   // decide
-            3: v35_step = 38'h0000000060;   // clocks n=6
-            default: v35_step = 38'd0;
-        endcase
-        6: case (k)   // dbnz: e2 00, taken
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h00000000E0;   // clocks n=14
-            3: v35_step = 38'h0000A0000A;   // flush target
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        7: case (k)   // div: f6 30
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        8: case (k)   // div: f6 36 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        9: case (k)   // div: f6 38
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        10: case (k)   // div: f6 3e 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        11: case (k)   // div: f6 70 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        12: case (k)   // div: f6 78 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        13: case (k)   // div: f6 b0 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        14: case (k)   // div: f6 b8 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        15: case (k)   // div: f6 f0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000270;   // clocks n=39
-            default: v35_step = 38'd0;
-        endcase
-        16: case (k)   // div: f6 f0, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000018210;   // clocks loop_odd n=33
-            3: v35_step = 38'h000001C060;   // clocks mexit n=6
-            default: v35_step = 38'd0;
-        endcase
-        17: case (k)   // div: f6 f8
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h00000003A0;   // clocks n=58
-            default: v35_step = 38'd0;
-        endcase
-        18: case (k)   // div: f6 f8, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000018340;   // clocks loop_odd n=52
-            3: v35_step = 38'h000001C060;   // clocks mexit n=6
-            default: v35_step = 38'd0;
-        endcase
-        19: case (k)   // div: f7 30
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        20: case (k)   // div: f7 36 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        21: case (k)   // div: f7 38
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        22: case (k)   // div: f7 3e 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        23: case (k)   // div: f7 70 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        24: case (k)   // div: f7 78 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        25: case (k)   // div: f7 b0 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008250;   // clocks mexec n=37
-            default: v35_step = 38'd0;
-        endcase
-        26: case (k)   // div: f7 b8 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000083A0;   // clocks mexec n=58
-            default: v35_step = 38'd0;
-        endcase
-        27: case (k)   // halt: f4
-            0: v35_step = 38'h0000000008;   // halt
-            default: v35_step = 38'd0;
-        endcase
-        28: case (k)   // imm: 05 00 02
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h0000000021;   // take n=2
-            2: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        29: case (k)   // imm: 81 c0 02 00
-            0: v35_step = 38'h0000020011;   // take lead n=1
-            1: v35_step = 38'h0000000030;   // clocks n=3
-            2: v35_step = 38'h0000000021;   // take n=2
-            3: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        30: case (k)   // imm: 83 c0 02
-            0: v35_step = 38'h0000020011;   // take lead n=1
-            1: v35_step = 38'h0000000030;   // clocks n=3
-            2: v35_step = 38'h0000000011;   // take n=1
-            3: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        31: case (k)   // imm: a8 00
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        32: case (k)   // in: e4 00
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h00088F0081;   // take port io_read port n=8 w=1
-            2: v35_step = 38'h0000000006;   // wait
-            3: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        33: case (k)   // in: e5 00
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h00108F0081;   // take port io_read port n=8 w=2
-            2: v35_step = 38'h0000000006;   // wait
-            3: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        34: case (k)   // in: ec
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h00088C0073;   // post io_read port n=7 w=1
-            2: v35_step = 38'h0000000006;   // wait
-            3: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        35: case (k)   // in: ed
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h00108C0073;   // post io_read port n=7 w=2
-            2: v35_step = 38'h0000000006;   // wait
-            3: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        36: case (k)   // lea: 8d 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        37: case (k)   // lea: 8d 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        38: case (k)   // lea: 8d 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        39: case (k)   // lea: 8d 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        40: case (k)   // load: a1 00 02
-            0: v35_step = 38'h0000000020;   // clocks n=2
-            1: v35_step = 38'h0000000021;   // take n=2
-            2: v35_step = 38'h0000004000;   // clocks ea n=0
-            3: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            5: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        41: case (k)   // load_alu: 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        42: case (k)   // load_alu: 02 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        43: case (k)   // load_alu: 02 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        44: case (k)   // load_alu: 02 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        45: case (k)   // load_alu: 03 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        46: case (k)   // load_alu: 03 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        47: case (k)   // load_alu: 03 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        48: case (k)   // load_alu: 03 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        49: case (k)   // load_alu: 84 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        50: case (k)   // load_alu: 84 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004020;   // clocks ea n=2
-            4: v35_step = 38'h0000028021;   // take word n=2
-            5: v35_step = 38'h0868240012;   // data read ea n=1 w=1 free=1 grp
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            7: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        51: case (k)   // load_alu: 84 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004020;   // clocks ea n=2
-            4: v35_step = 38'h0000000011;   // take n=1
-            5: v35_step = 38'h0868240012;   // data read ea n=1 w=1 free=1 grp
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            7: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        52: case (k)   // load_alu: 84 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004030;   // clocks ea n=3
-            4: v35_step = 38'h0000028021;   // take word n=2
-            5: v35_step = 38'h0868240012;   // data read ea n=1 w=1 free=1 grp
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            7: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        53: case (k)   // load_alu: 85 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        54: case (k)   // load_alu: 85 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004020;   // clocks ea n=2
-            4: v35_step = 38'h0000028021;   // take word n=2
-            5: v35_step = 38'h0870240012;   // data read ea n=1 w=2 free=1 grp
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            7: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        55: case (k)   // load_alu: 85 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004020;   // clocks ea n=2
-            4: v35_step = 38'h0000000011;   // take n=1
-            5: v35_step = 38'h0870240012;   // data read ea n=1 w=2 free=1 grp
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            7: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        56: case (k)   // load_alu: 85 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004030;   // clocks ea n=3
-            4: v35_step = 38'h0000028021;   // take word n=2
-            5: v35_step = 38'h0870240012;   // data read ea n=1 w=2 free=1 grp
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            7: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        57: case (k)   // load_seg: 8e 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000030;   // clocks n=3
-            default: v35_step = 38'd0;
-        endcase
-        58: case (k)   // load_seg: 8e 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000030;   // clocks n=3
-            default: v35_step = 38'd0;
-        endcase
-        59: case (k)   // load_seg: 8e 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000030;   // clocks n=3
-            default: v35_step = 38'd0;
-        endcase
-        60: case (k)   // load_seg: 8e 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0000000030;   // clocks n=3
-            default: v35_step = 38'd0;
-        endcase
-        61: case (k)   // mul: f6 20
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008150;   // clocks mexec n=21
-            default: v35_step = 38'd0;
-        endcase
-        62: case (k)   // mul: f6 26 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008150;   // clocks mexec n=21
-            default: v35_step = 38'd0;
-        endcase
-        63: case (k)   // mul: f6 28
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        64: case (k)   // mul: f6 2e 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        65: case (k)   // mul: f6 60 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008150;   // clocks mexec n=21
-            default: v35_step = 38'd0;
-        endcase
-        66: case (k)   // mul: f6 68 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        67: case (k)   // mul: f6 a0 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008150;   // clocks mexec n=21
-            default: v35_step = 38'd0;
-        endcase
-        68: case (k)   // mul: f6 a8 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        69: case (k)   // mul: f6 e0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h00000001F0;   // clocks n=31
-            default: v35_step = 38'd0;
-        endcase
-        70: case (k)   // mul: f6 e0, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000018170;   // clocks loop_odd n=23
-            3: v35_step = 38'h000001C080;   // clocks mexit n=8
-            default: v35_step = 38'd0;
-        endcase
-        71: case (k)   // mul: f6 e8
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000290;   // clocks n=41
-            default: v35_step = 38'd0;
-        endcase
-        72: case (k)   // mul: f6 e8, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000018210;   // clocks loop_odd n=33
-            3: v35_step = 38'h000001C080;   // clocks mexit n=8
-            default: v35_step = 38'd0;
-        endcase
-        73: case (k)   // mul: f7 20
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000081D0;   // clocks mexec n=29
-            default: v35_step = 38'd0;
-        endcase
-        74: case (k)   // mul: f7 26 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000081D0;   // clocks mexec n=29
-            default: v35_step = 38'd0;
-        endcase
-        75: case (k)   // mul: f7 28
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        76: case (k)   // mul: f7 2e 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        77: case (k)   // mul: f7 60 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000081D0;   // clocks mexec n=29
-            default: v35_step = 38'd0;
-        endcase
-        78: case (k)   // mul: f7 68 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        79: case (k)   // mul: f7 a0 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h00000081D0;   // clocks mexec n=29
-            default: v35_step = 38'd0;
-        endcase
-        80: case (k)   // mul: f7 a8 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000008310;   // clocks mexec n=49
-            default: v35_step = 38'd0;
-        endcase
-        81: case (k)   // out: e6 00
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h2008930081;   // take port io_write port n=8 w=1 detached
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        82: case (k)   // out: e7 00
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h2010930081;   // take port io_write port n=8 w=2 detached
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        83: case (k)   // out: ee
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008900074;   // post_io io_write port n=7 w=1
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        84: case (k)   // out: ef
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010900074;   // post_io io_write port n=7 w=2
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        85: case (k)   // pop: 58
-            0: v35_step = 38'h0010440072;   // data read stack_read n=7 w=2
-            1: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        86: case (k)   // pop_mem: 8f 00
-            0: v35_step = 38'h0000020011;   // take lead n=1
-            1: v35_step = 38'h00F0440072;   // data read stack_read n=7 w=2 free=3
-            2: v35_step = 38'h0010280063;   // post write ea n=6 w=2
-            3: v35_step = 38'h0000000006;   // wait
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        87: case (k)   // pop_mem: 8f 06 02 00
-            0: v35_step = 38'h0000020011;   // take lead n=1
-            1: v35_step = 38'h00F0440072;   // data read stack_read n=7 w=2 free=3
-            2: v35_step = 38'h0010280063;   // post write ea n=6 w=2
-            3: v35_step = 38'h0000000030;   // clocks n=3
-            4: v35_step = 38'h000002C021;   // take chain_word n=2
-            5: v35_step = 38'h0000000006;   // wait
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        88: case (k)   // pop_mem: 8f 40 02
-            0: v35_step = 38'h0000020011;   // take lead n=1
-            1: v35_step = 38'h00F0440072;   // data read stack_read n=7 w=2 free=3
-            2: v35_step = 38'h0010280063;   // post write ea n=6 w=2
-            3: v35_step = 38'h0000000030;   // clocks n=3
-            4: v35_step = 38'h0000024011;   // take chain n=1
-            5: v35_step = 38'h0000000006;   // wait
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        89: case (k)   // pop_mem: 8f 80 02 00
-            0: v35_step = 38'h0000020011;   // take lead n=1
-            1: v35_step = 38'h00F0440072;   // data read stack_read n=7 w=2 free=3
-            2: v35_step = 38'h0010280063;   // post write ea n=6 w=2
-            3: v35_step = 38'h0000000040;   // clocks n=4
-            4: v35_step = 38'h000002C021;   // take chain_word n=2
-            5: v35_step = 38'h0000000006;   // wait
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        90: case (k)   // pop_r: 61
-            0: v35_step = 38'h0010440072;   // data read stack_read n=7 w=2
-            1: v35_step = 38'h0011440072;   // data read stack_read+1 n=7 w=2
-            2: v35_step = 38'h0012440072;   // data read stack_read+2 n=7 w=2
-            3: v35_step = 38'h0013440072;   // data read stack_read+3 n=7 w=2
-            4: v35_step = 38'h0014440072;   // data read stack_read+4 n=7 w=2
-            5: v35_step = 38'h0015440072;   // data read stack_read+5 n=7 w=2
-            6: v35_step = 38'h0016440072;   // data read stack_read+6 n=7 w=2
-            7: v35_step = 38'h0017440072;   // data read stack_read+7 n=7 w=2
-            8: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        91: case (k)   // pop_seg: 07
-            0: v35_step = 38'h0010440072;   // data read stack_read n=7 w=2
-            1: v35_step = 38'h0000000030;   // clocks n=3
-            default: v35_step = 38'd0;
-        endcase
-        92: case (k)   // prefix: 26
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000001;   // take n=0
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        93: case (k)   // prepare: c8 00 02 00
-            0: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            1: v35_step = 38'h0000000020;   // clocks n=2
-            2: v35_step = 38'h0000000031;   // take n=3
-            3: v35_step = 38'h00000000B0;   // clocks n=11
-            default: v35_step = 38'd0;
-        endcase
-        94: case (k)   // push: 50
-            0: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            1: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        95: case (k)   // push_imm: 68 00 02
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h0000000021;   // take n=2
-            2: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            3: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        96: case (k)   // push_imm: 6a 00
-            0: v35_step = 38'h0000000030;   // clocks n=3
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            3: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        97: case (k)   // push_mem: ff 30
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        98: case (k)   // push_mem: ff 36 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        99: case (k)   // push_mem: ff 70 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        100: case (k)   // push_mem: ff b0 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0010680072;   // data write stack_write n=7 w=2
-            6: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        101: case (k)   // push_r: 60
-            0: v35_step = 38'h0010680092;   // data write stack_write n=9 w=2
-            1: v35_step = 38'h0011680072;   // data write stack_write+1 n=7 w=2
-            2: v35_step = 38'h0012680072;   // data write stack_write+2 n=7 w=2
-            3: v35_step = 38'h0013680072;   // data write stack_write+3 n=7 w=2
-            4: v35_step = 38'h0014680072;   // data write stack_write+4 n=7 w=2
-            5: v35_step = 38'h0015680072;   // data write stack_write+5 n=7 w=2
-            6: v35_step = 38'h0016680072;   // data write stack_write+6 n=7 w=2
-            7: v35_step = 38'h0017680072;   // data write stack_write+7 n=7 w=2
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        102: case (k)   // push_seg: 06
-            0: v35_step = 38'h0010680082;   // data write stack_write n=8 w=2
-            1: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        103: case (k)   // reg: 00 c0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        104: case (k)   // reg: 90
-            0: v35_step = 38'h0000000040;   // clocks n=4
-            1: v35_step = 38'h0000000001;   // take n=0
-            2: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        105: case (k)   // ret: c3, taken
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010440072;   // data read stack_read n=7 w=2
-            2: v35_step = 38'h0000000080;   // clocks n=8
-            3: v35_step = 38'h0000A0000A;   // flush target
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        106: case (k)   // rmw: 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        107: case (k)   // rmw: 00 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        108: case (k)   // rmw: 00 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        109: case (k)   // rmw: 00 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        110: case (k)   // rmw: 01 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        111: case (k)   // rmw: 01 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        112: case (k)   // rmw: 01 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        113: case (k)   // rmw: 01 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        114: case (k)   // rmw: 38 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008340032;   // data nowrite ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        115: case (k)   // rmw: 38 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008340032;   // data nowrite ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        116: case (k)   // rmw: 38 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008340032;   // data nowrite ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        117: case (k)   // rmw: 38 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008340032;   // data nowrite ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        118: case (k)   // rmw: 39 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        119: case (k)   // rmw: 39 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        120: case (k)   // rmw: 39 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        121: case (k)   // rmw: 39 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        122: case (k)   // rmw: 86 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280052;   // data write ea n=5 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        123: case (k)   // rmw: 86 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280052;   // data write ea n=5 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        124: case (k)   // rmw: 86 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280052;   // data write ea n=5 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        125: case (k)   // rmw: 86 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008240002;   // data read ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280052;   // data write ea n=5 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        126: case (k)   // rmw: 87 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280052;   // data write ea n=5 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        127: case (k)   // rmw: 87 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280052;   // data write ea n=5 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        128: case (k)   // rmw: 87 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280052;   // data write ea n=5 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        129: case (k)   // rmw: 87 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010240002;   // data read ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280052;   // data write ea n=5 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        130: case (k)   // rmw: d0 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008282072;   // data write ea n=7+2*count w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        131: case (k)   // rmw: d0 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280072;   // data write ea n=7 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        132: case (k)   // rmw: d0 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008282072;   // data write ea n=7+2*count w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        133: case (k)   // rmw: d0 06 02 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280072;   // data write ea n=7 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        134: case (k)   // rmw: d0 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008282072;   // data write ea n=7+2*count w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        135: case (k)   // rmw: d0 40 02, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280072;   // data write ea n=7 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        136: case (k)   // rmw: d0 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008282072;   // data write ea n=7+2*count w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        137: case (k)   // rmw: d0 80 02 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280072;   // data write ea n=7 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        138: case (k)   // rmw: d1 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        139: case (k)   // rmw: d1 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        140: case (k)   // rmw: d1 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        141: case (k)   // rmw: d1 06 02 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        142: case (k)   // rmw: d1 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        143: case (k)   // rmw: d1 40 02, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        144: case (k)   // rmw: d1 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        145: case (k)   // rmw: d1 80 02 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        146: case (k)   // rmw: d3 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        147: case (k)   // rmw: d3 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        148: case (k)   // rmw: d3 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        149: case (k)   // rmw: d3 06 02 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        150: case (k)   // rmw: d3 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        151: case (k)   // rmw: d3 40 02, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        152: case (k)   // rmw: d3 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010282072;   // data write ea n=7+2*count w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        153: case (k)   // rmw: d3 80 02 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h09F0240072;   // data read ea n=7 w=2 free=7 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280072;   // data write ea n=7 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        154: case (k)   // rmw: f6 08
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        155: case (k)   // rmw: f6 0e 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        156: case (k)   // rmw: f6 48 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        157: case (k)   // rmw: f6 88 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08E8240042;   // data read ea n=4 w=1 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0008280032;   // data write ea n=3 w=1
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        158: case (k)   // rmw: f7 08
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        159: case (k)   // rmw: f7 0e 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        160: case (k)   // rmw: f7 48 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        161: case (k)   // rmw: f7 88 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h08F0240042;   // data read ea n=4 w=2 free=3 grp
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            6: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            7: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        162: case (k)   // rmw_imm: 81 00 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            5: v35_step = 38'h0000000005;   // issued
-            6: v35_step = 38'h0000024021;   // take chain n=2
-            7: v35_step = 38'h0000000006;   // wait
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        163: case (k)   // rmw_imm: 81 06 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        164: case (k)   // rmw_imm: 81 38 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            5: v35_step = 38'h0000000005;   // issued
-            6: v35_step = 38'h0000024021;   // take chain n=2
-            7: v35_step = 38'h0000000006;   // wait
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        165: case (k)   // rmw_imm: 81 3e 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        166: case (k)   // rmw_imm: 81 40 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        167: case (k)   // rmw_imm: 81 78 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        168: case (k)   // rmw_imm: 81 80 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        169: case (k)   // rmw_imm: 81 b8 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        170: case (k)   // rmw_imm: 83 00 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            5: v35_step = 38'h0000000005;   // issued
-            6: v35_step = 38'h0000024011;   // take chain n=1
-            7: v35_step = 38'h0000000006;   // wait
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        171: case (k)   // rmw_imm: 83 06 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        172: case (k)   // rmw_imm: 83 38 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            5: v35_step = 38'h0000000005;   // issued
-            6: v35_step = 38'h0000024011;   // take chain n=1
-            7: v35_step = 38'h0000000006;   // wait
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        173: case (k)   // rmw_imm: 83 3e 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        174: case (k)   // rmw_imm: 83 40 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        175: case (k)   // rmw_imm: 83 78 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        176: case (k)   // rmw_imm: 83 80 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010280032;   // data write ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        177: case (k)   // rmw_imm: 83 b8 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870240023;   // post read ea n=2 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            12: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        178: case (k)   // rmw_imm: f7 00 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0970240063;   // post read ea n=6 w=2 free=5 grp
-            5: v35_step = 38'h0000000005;   // issued
-            6: v35_step = 38'h0000024021;   // take chain n=2
-            7: v35_step = 38'h0000000006;   // wait
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            10: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        179: case (k)   // rmw_imm: f7 06 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004020;   // clocks ea n=2
-            4: v35_step = 38'h0000028021;   // take word n=2
-            5: v35_step = 38'h0000000010;   // clocks n=1
-            6: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            7: v35_step = 38'h0000000005;   // issued
-            8: v35_step = 38'h0000024021;   // take chain n=2
-            9: v35_step = 38'h0000000006;   // wait
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            12: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            13: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        180: case (k)   // rmw_imm: f7 40 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004020;   // clocks ea n=2
-            4: v35_step = 38'h0000000011;   // take n=1
-            5: v35_step = 38'h0000000010;   // clocks n=1
-            6: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            7: v35_step = 38'h0000000005;   // issued
-            8: v35_step = 38'h0000024021;   // take chain n=2
-            9: v35_step = 38'h0000000006;   // wait
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            12: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            13: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        181: case (k)   // rmw_imm: f7 80 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000037;   // nowait n=3
-            3: v35_step = 38'h0000004030;   // clocks ea n=3
-            4: v35_step = 38'h0000028021;   // take word n=2
-            5: v35_step = 38'h0000000010;   // clocks n=1
-            6: v35_step = 38'h0870240033;   // post read ea n=3 w=2 free=1 grp
-            7: v35_step = 38'h0000000005;   // issued
-            8: v35_step = 38'h0000024021;   // take chain n=2
-            9: v35_step = 38'h0000000006;   // wait
-            10: v35_step = 38'h0000000000;   // clocks n=0
-            11: v35_step = 38'h0000000000;   // clocks n=0
-            12: v35_step = 38'h0010340032;   // data nowrite ea n=3 w=2
-            13: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        182: case (k)   // shift_cl: d3 c0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000090;   // clocks n=9
-            3: v35_step = 38'h0000002000;   // clocks n=0+2*count
-            default: v35_step = 38'd0;
-        endcase
-        183: case (k)   // shift_cl: d3 c0, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000070;   // clocks n=7
-            3: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        184: case (k)   // shift_cl: d3 c0, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h000000C060;   // clocks exec n=6
-            3: v35_step = 38'h0000012000;   // clocks loop n=0+2*count
-            4: v35_step = 38'h0000014030;   // clocks tail n=3
-            default: v35_step = 38'd0;
-        endcase
-        185: case (k)   // shift_imm: c1 00 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            5: v35_step = 38'h0000002000;   // clocks n=0+2*count
-            default: v35_step = 38'd0;
-        endcase
-        186: case (k)   // shift_imm: c1 00 02, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        187: case (k)   // shift_imm: c1 00 02, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h000000C030;   // clocks exec n=3
-            5: v35_step = 38'h0000012000;   // clocks loop n=0+2*count
-            6: v35_step = 38'h0000014030;   // clocks tail n=3
-            default: v35_step = 38'd0;
-        endcase
-        188: case (k)   // shift_imm: c1 06 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024031;   // take chain n=3
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            5: v35_step = 38'h0000002000;   // clocks n=0+2*count
-            default: v35_step = 38'd0;
-        endcase
-        189: case (k)   // shift_imm: c1 06 02 00 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024031;   // take chain n=3
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        190: case (k)   // shift_imm: c1 06 02 00 00, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024031;   // take chain n=3
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h000000C030;   // clocks exec n=3
-            5: v35_step = 38'h0000012000;   // clocks loop n=0+2*count
-            6: v35_step = 38'h0000014030;   // clocks tail n=3
-            default: v35_step = 38'd0;
-        endcase
-        191: case (k)   // shift_imm: c1 40 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024021;   // take chain n=2
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            5: v35_step = 38'h0000002000;   // clocks n=0+2*count
-            default: v35_step = 38'd0;
-        endcase
-        192: case (k)   // shift_imm: c1 40 02 00, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024021;   // take chain n=2
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        193: case (k)   // shift_imm: c1 40 02 00, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024021;   // take chain n=2
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h000000C030;   // clocks exec n=3
-            5: v35_step = 38'h0000012000;   // clocks loop n=0+2*count
-            6: v35_step = 38'h0000014030;   // clocks tail n=3
-            default: v35_step = 38'd0;
-        endcase
-        194: case (k)   // shift_imm: d0 c0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000050;   // clocks n=5
-            3: v35_step = 38'h0000002000;   // clocks n=0+2*count
-            default: v35_step = 38'd0;
-        endcase
-        195: case (k)   // shift_imm: d0 c0, count 0
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000000050;   // clocks n=5
-            3: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        196: case (k)   // shift_imm: d0 c0, refresh
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h000000C030;   // clocks exec n=3
-            3: v35_step = 38'h0000012000;   // clocks loop n=0+2*count
-            4: v35_step = 38'h0000014020;   // clocks tail n=2
-            default: v35_step = 38'd0;
-        endcase
-        197: case (k)   // store: 88 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0008280002;   // data write ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        198: case (k)   // store: 88 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008280002;   // data write ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        199: case (k)   // store: 88 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0008280002;   // data write ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        200: case (k)   // store: 88 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0008280002;   // data write ea n=0 w=1
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        201: case (k)   // store: 89 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0010280002;   // data write ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        202: case (k)   // store: 89 06 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010280002;   // data write ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        203: case (k)   // store: 89 40 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0010280002;   // data write ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        204: case (k)   // store: 89 80 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0010280002;   // data write ea n=0 w=2
-            5: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        205: case (k)   // store: a3 00 02
-            0: v35_step = 38'h0000000020;   // clocks n=2
-            1: v35_step = 38'h0000000021;   // take n=2
-            2: v35_step = 38'h0000004000;   // clocks ea n=0
-            3: v35_step = 38'h0010280002;   // data write ea n=0 w=2
-            4: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        206: case (k)   // store_imm: c6 00 02
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0868280023;   // post write ea n=2 w=1 free=1 grp
-            5: v35_step = 38'h0000000005;   // issued
-            6: v35_step = 38'h0000024011;   // take chain n=1
-            7: v35_step = 38'h0000000006;   // wait
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        207: case (k)   // store_imm: c6 06 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0868280023;   // post write ea n=2 w=1 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        208: case (k)   // store_imm: c6 40 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0868280023;   // post write ea n=2 w=1 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        209: case (k)   // store_imm: c6 80 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0868280023;   // post write ea n=2 w=1 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024011;   // take chain n=1
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        210: case (k)   // store_imm: c7 00 02 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000000011;   // take n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000001;   // take n=0
-            4: v35_step = 38'h0870280033;   // post write ea n=3 w=2 free=1 grp
-            5: v35_step = 38'h0000000005;   // issued
-            6: v35_step = 38'h0000024021;   // take chain n=2
-            7: v35_step = 38'h0000000006;   // wait
-            8: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        211: case (k)   // store_imm: c7 06 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870280033;   // post write ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        212: case (k)   // store_imm: c7 40 02 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004020;   // clocks ea n=2
-            3: v35_step = 38'h0000000011;   // take n=1
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870280033;   // post write ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        213: case (k)   // store_imm: c7 80 02 00 00 00
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0000024011;   // take chain n=1
-            2: v35_step = 38'h0000004030;   // clocks ea n=3
-            3: v35_step = 38'h0000028021;   // take word n=2
-            4: v35_step = 38'h0000000010;   // clocks n=1
-            5: v35_step = 38'h0870280033;   // post write ea n=3 w=2 free=1 grp
-            6: v35_step = 38'h0000000005;   // issued
-            7: v35_step = 38'h0000024021;   // take chain n=2
-            8: v35_step = 38'h0000000006;   // wait
-            9: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        214: case (k)   // str_cmp: 64 a6
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0008E400E2;   // data read iy n=14 w=1
-            6: v35_step = 38'h0008C40072;   // data read ix n=7 w=1
-            7: v35_step = 38'h000000002D;   // fetch_hold n=2
-            8: v35_step = 38'h0008E40072;   // data read iy n=7 w=1
-            9: v35_step = 38'h0008C40072;   // data read ix n=7 w=1
-            10: v35_step = 38'h000000002D;   // fetch_hold n=2
-            11: v35_step = 38'h0008E40072;   // data read iy n=7 w=1
-            12: v35_step = 38'h0008C40072;   // data read ix n=7 w=1
-            13: v35_step = 38'h000000002D;   // fetch_hold n=2
-            14: v35_step = 38'h000000008E;   // fetch_release n=8
-            15: v35_step = 38'h000000004F;   // split_floor n=4
-            16: v35_step = 38'h0000000120;   // clocks n=18
-            17: v35_step = 38'h0000000110;   // clocks n=17
-            default: v35_step = 38'd0;
-        endcase
-        215: case (k)   // str_cmp: 64 a7
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0010E400E2;   // data read iy n=14 w=2
-            6: v35_step = 38'h0010C40072;   // data read ix n=7 w=2
-            7: v35_step = 38'h000000002D;   // fetch_hold n=2
-            8: v35_step = 38'h0010E40072;   // data read iy n=7 w=2
-            9: v35_step = 38'h0010C40072;   // data read ix n=7 w=2
-            10: v35_step = 38'h000000002D;   // fetch_hold n=2
-            11: v35_step = 38'h0010E40072;   // data read iy n=7 w=2
-            12: v35_step = 38'h0010C40072;   // data read ix n=7 w=2
-            13: v35_step = 38'h000000002D;   // fetch_hold n=2
-            14: v35_step = 38'h000000008E;   // fetch_release n=8
-            15: v35_step = 38'h000000004F;   // split_floor n=4
-            16: v35_step = 38'h0000000120;   // clocks n=18
-            17: v35_step = 38'h0000000110;   // clocks n=17
-            default: v35_step = 38'd0;
-        endcase
-        216: case (k)   // str_cmp: a6
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008E40092;   // data read iy n=9 w=1
-            2: v35_step = 38'h0008C40072;   // data read ix n=7 w=1
-            3: v35_step = 38'h000000002D;   // fetch_hold n=2
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            default: v35_step = 38'd0;
-        endcase
-        217: case (k)   // str_cmp: a7
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010E40092;   // data read iy n=9 w=2
-            2: v35_step = 38'h0010C40072;   // data read ix n=7 w=2
-            3: v35_step = 38'h000000002D;   // fetch_hold n=2
-            4: v35_step = 38'h0000000060;   // clocks n=6
-            default: v35_step = 38'd0;
-        endcase
-        218: case (k)   // str_in: 64 6c
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C07E;   // fetch_release raise n=7
-            3: v35_step = 38'h00000000B0;   // clocks n=11
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h00088C00F2;   // data io_read port n=15 w=1
-            6: v35_step = 38'h0008E80042;   // data write iy n=4 w=1
-            7: v35_step = 38'h00088C0062;   // data io_read port n=6 w=1
-            8: v35_step = 38'h0008E80042;   // data write iy n=4 w=1
-            9: v35_step = 38'h00088C0062;   // data io_read port n=6 w=1
-            10: v35_step = 38'h0008E80042;   // data write iy n=4 w=1
-            11: v35_step = 38'h000000008E;   // fetch_release n=8
-            12: v35_step = 38'h000000004F;   // split_floor n=4
-            13: v35_step = 38'h00000000A0;   // clocks n=10
-            default: v35_step = 38'd0;
-        endcase
-        219: case (k)   // str_in: 64 6d
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C07E;   // fetch_release raise n=7
-            3: v35_step = 38'h00000000B0;   // clocks n=11
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h00108C00F2;   // data io_read port n=15 w=2
-            6: v35_step = 38'h0010E80042;   // data write iy n=4 w=2
-            7: v35_step = 38'h00108C0062;   // data io_read port n=6 w=2
-            8: v35_step = 38'h0010E80042;   // data write iy n=4 w=2
-            9: v35_step = 38'h00108C0062;   // data io_read port n=6 w=2
-            10: v35_step = 38'h0010E80042;   // data write iy n=4 w=2
-            11: v35_step = 38'h000000008E;   // fetch_release n=8
-            12: v35_step = 38'h000000004F;   // split_floor n=4
-            13: v35_step = 38'h00000000A0;   // clocks n=10
-            default: v35_step = 38'd0;
-        endcase
-        220: case (k)   // str_in: 6c
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h00088C0092;   // data io_read port n=9 w=1
-            2: v35_step = 38'h0008E80042;   // data write iy n=4 w=1
-            3: v35_step = 38'h0000000040;   // clocks n=4
-            default: v35_step = 38'd0;
-        endcase
-        221: case (k)   // str_in: 6d
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h00108C0092;   // data io_read port n=9 w=2
-            2: v35_step = 38'h0010E80042;   // data write iy n=4 w=2
-            3: v35_step = 38'h0000000040;   // clocks n=4
-            default: v35_step = 38'd0;
-        endcase
-        222: case (k)   // str_load: 64 ac
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000067;   // nowait n=6
-            2: v35_step = 38'h000003C05E;   // fetch_release raise n=5
-            3: v35_step = 38'h0000000090;   // clocks n=9
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0008C400E2;   // data read ix n=14 w=1
-            6: v35_step = 38'h0008C40092;   // data read ix n=9 w=1
-            7: v35_step = 38'h0008C40092;   // data read ix n=9 w=1
-            8: v35_step = 38'h000000008E;   // fetch_release n=8
-            9: v35_step = 38'h00000000D0;   // clocks n=13
-            default: v35_step = 38'd0;
-        endcase
-        223: case (k)   // str_load: 64 ad
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000067;   // nowait n=6
-            2: v35_step = 38'h000003C05E;   // fetch_release raise n=5
-            3: v35_step = 38'h0000000090;   // clocks n=9
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0010C400E2;   // data read ix n=14 w=2
-            6: v35_step = 38'h0010C40092;   // data read ix n=9 w=2
-            7: v35_step = 38'h0010C40092;   // data read ix n=9 w=2
-            8: v35_step = 38'h000000008E;   // fetch_release n=8
-            9: v35_step = 38'h00000000D0;   // clocks n=13
-            default: v35_step = 38'd0;
-        endcase
-        224: case (k)   // str_load: ac
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008C40092;   // data read ix n=9 w=1
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        225: case (k)   // str_load: ad
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010C40092;   // data read ix n=9 w=2
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        226: case (k)   // str_move: 64 a4
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0008C400F2;   // data read ix n=15 w=1
-            6: v35_step = 38'h0008E80072;   // data write iy n=7 w=1
-            7: v35_step = 38'h0008C40072;   // data read ix n=7 w=1
-            8: v35_step = 38'h0008E80072;   // data write iy n=7 w=1
-            9: v35_step = 38'h0008C40072;   // data read ix n=7 w=1
-            10: v35_step = 38'h0008E80072;   // data write iy n=7 w=1
-            11: v35_step = 38'h000000008E;   // fetch_release n=8
-            12: v35_step = 38'h000000004F;   // split_floor n=4
-            13: v35_step = 38'h00000000A0;   // clocks n=10
-            default: v35_step = 38'd0;
-        endcase
-        227: case (k)   // str_move: 64 a5
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0010C400F2;   // data read ix n=15 w=2
-            6: v35_step = 38'h0010E80072;   // data write iy n=7 w=2
-            7: v35_step = 38'h0010C40072;   // data read ix n=7 w=2
-            8: v35_step = 38'h0010E80072;   // data write iy n=7 w=2
-            9: v35_step = 38'h0010C40072;   // data read ix n=7 w=2
-            10: v35_step = 38'h0010E80072;   // data write iy n=7 w=2
-            11: v35_step = 38'h000000008E;   // fetch_release n=8
-            12: v35_step = 38'h000000004F;   // split_floor n=4
-            13: v35_step = 38'h00000000A0;   // clocks n=10
-            default: v35_step = 38'd0;
-        endcase
-        228: case (k)   // str_move: a4
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008C40092;   // data read ix n=9 w=1
-            2: v35_step = 38'h0008E80072;   // data write iy n=7 w=1
-            3: v35_step = 38'h0000000040;   // clocks n=4
-            default: v35_step = 38'd0;
-        endcase
-        229: case (k)   // str_move: a5
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010C40092;   // data read ix n=9 w=2
-            2: v35_step = 38'h0010E80072;   // data write iy n=7 w=2
-            3: v35_step = 38'h0000000040;   // clocks n=4
-            default: v35_step = 38'd0;
-        endcase
-        230: case (k)   // str_out: 64 6e
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C07E;   // fetch_release raise n=7
-            3: v35_step = 38'h00000000B0;   // clocks n=11
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0008C40102;   // data read ix n=16 w=1
-            6: v35_step = 38'h0008900062;   // data io_write port n=6 w=1
-            7: v35_step = 38'h0008C40062;   // data read ix n=6 w=1
-            8: v35_step = 38'h0008900062;   // data io_write port n=6 w=1
-            9: v35_step = 38'h0008C40062;   // data read ix n=6 w=1
-            10: v35_step = 38'h0008900062;   // data io_write port n=6 w=1
-            11: v35_step = 38'h000000009E;   // fetch_release n=9
-            12: v35_step = 38'h000000004F;   // split_floor n=4
-            13: v35_step = 38'h00000000B0;   // clocks n=11
-            default: v35_step = 38'd0;
-        endcase
-        231: case (k)   // str_out: 64 6f
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C07E;   // fetch_release raise n=7
-            3: v35_step = 38'h00000000B0;   // clocks n=11
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0010C40102;   // data read ix n=16 w=2
-            6: v35_step = 38'h0010900062;   // data io_write port n=6 w=2
-            7: v35_step = 38'h0010C40062;   // data read ix n=6 w=2
-            8: v35_step = 38'h0010900062;   // data io_write port n=6 w=2
-            9: v35_step = 38'h0010C40062;   // data read ix n=6 w=2
-            10: v35_step = 38'h0010900062;   // data io_write port n=6 w=2
-            11: v35_step = 38'h000000009E;   // fetch_release n=9
-            12: v35_step = 38'h000000004F;   // split_floor n=4
-            13: v35_step = 38'h00000000B0;   // clocks n=11
-            default: v35_step = 38'd0;
-        endcase
-        232: case (k)   // str_out: 6e
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008C400A2;   // data read ix n=10 w=1
-            2: v35_step = 38'h0008900072;   // data io_write port n=7 w=1
-            3: v35_step = 38'h0000000030;   // clocks n=3
-            default: v35_step = 38'd0;
-        endcase
-        233: case (k)   // str_out: 6f
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010C400A2;   // data read ix n=10 w=2
-            2: v35_step = 38'h0010900072;   // data io_write port n=7 w=2
-            3: v35_step = 38'h0000000030;   // clocks n=3
-            default: v35_step = 38'd0;
-        endcase
-        234: case (k)   // str_scan: 64 ae
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0008E400F2;   // data read iy n=15 w=1
-            6: v35_step = 38'h000000003D;   // fetch_hold n=3
-            7: v35_step = 38'h0008E40082;   // data read iy n=8 w=1
-            8: v35_step = 38'h000000003D;   // fetch_hold n=3
-            9: v35_step = 38'h0008E400A2;   // data read iy n=10 w=1
-            10: v35_step = 38'h000000003D;   // fetch_hold n=3
-            11: v35_step = 38'h000000008E;   // fetch_release n=8
-            12: v35_step = 38'h0000000120;   // clocks n=18
-            13: v35_step = 38'h0000000110;   // clocks n=17
-            default: v35_step = 38'd0;
-        endcase
-        235: case (k)   // str_scan: 64 af
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0010E400F2;   // data read iy n=15 w=2
-            6: v35_step = 38'h000000003D;   // fetch_hold n=3
-            7: v35_step = 38'h0010E40082;   // data read iy n=8 w=2
-            8: v35_step = 38'h000000003D;   // fetch_hold n=3
-            9: v35_step = 38'h0010E400A2;   // data read iy n=10 w=2
-            10: v35_step = 38'h000000003D;   // fetch_hold n=3
-            11: v35_step = 38'h000000008E;   // fetch_release n=8
-            12: v35_step = 38'h0000000120;   // clocks n=18
-            13: v35_step = 38'h0000000110;   // clocks n=17
-            default: v35_step = 38'd0;
-        endcase
-        236: case (k)   // str_scan: ae
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008E400A2;   // data read iy n=10 w=1
-            2: v35_step = 38'h000000003D;   // fetch_hold n=3
-            3: v35_step = 38'h0000000070;   // clocks n=7
-            default: v35_step = 38'd0;
-        endcase
-        237: case (k)   // str_scan: af
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010E400A2;   // data read iy n=10 w=2
-            2: v35_step = 38'h000000003D;   // fetch_hold n=3
-            3: v35_step = 38'h0000000070;   // clocks n=7
-            default: v35_step = 38'd0;
-        endcase
-        238: case (k)   // str_store: 64 aa
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0008E800F2;   // data write iy n=15 w=1
-            6: v35_step = 38'h0008E80072;   // data write iy n=7 w=1
-            7: v35_step = 38'h0008E80072;   // data write iy n=7 w=1
-            8: v35_step = 38'h000000008E;   // fetch_release n=8
-            9: v35_step = 38'h000000004F;   // split_floor n=4
-            10: v35_step = 38'h00000000A0;   // clocks n=10
-            default: v35_step = 38'd0;
-        endcase
-        239: case (k)   // str_store: 64 ab
-            0: v35_step = 38'h0000000011;   // take n=1
-            1: v35_step = 38'h0000000057;   // nowait n=5
-            2: v35_step = 38'h000003C06E;   // fetch_release raise n=6
-            3: v35_step = 38'h00000000A0;   // clocks n=10
-            4: v35_step = 38'h000003800E;   // fetch_release forever n=0
-            5: v35_step = 38'h0010E800F2;   // data write iy n=15 w=2
-            6: v35_step = 38'h0010E80072;   // data write iy n=7 w=2
-            7: v35_step = 38'h0010E80072;   // data write iy n=7 w=2
-            8: v35_step = 38'h000000008E;   // fetch_release n=8
-            9: v35_step = 38'h000000004F;   // split_floor n=4
-            10: v35_step = 38'h00000000A0;   // clocks n=10
-            default: v35_step = 38'd0;
-        endcase
-        240: case (k)   // str_store: aa
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008E800B2;   // data write iy n=11 w=1
-            2: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        241: case (k)   // str_store: ab
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0010E800B2;   // data write iy n=11 w=2
-            2: v35_step = 38'h0000000000;   // clocks n=0
-            default: v35_step = 38'd0;
-        endcase
-        242: case (k)   // xlat: d7
-            0: v35_step = 38'h0000000000;   // clocks n=0
-            1: v35_step = 38'h0008240072;   // data read ea n=7 w=1
-            2: v35_step = 38'h0000000020;   // clocks n=2
-            default: v35_step = 38'd0;
-        endcase
-        default: v35_step = 38'd0;
+        0: case (k)   // adjust: 27
+            0: v35_step = 39'h00000000A0;   // clocks n=10
+            1: v35_step = 39'h0000000001;   // take n=0
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        1: case (k)   // adjust_b: 37
+            0: v35_step = 39'h0000000110;   // clocks n=17
+            1: v35_step = 39'h0000000001;   // take n=0
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        2: case (k)   // bcd4s: 0f 20
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0011880102;   // data read ix n=16 w=1
+            3: v35_step = 39'h0011C80072;   // data read iy n=7 w=1
+            4: v35_step = 39'h0011D000A2;   // data write iy n=10 w=1
+            5: v35_step = 39'h0011880072;   // data read ix n=7 w=1
+            6: v35_step = 39'h0011C80072;   // data read iy n=7 w=1
+            7: v35_step = 39'h0011D000A2;   // data write iy n=10 w=1
+            8: v35_step = 39'h00000000C0;   // clocks n=12
+            default: v35_step = 39'd0;
+        endcase
+        3: case (k)   // bcd4s_cmp: 0f 26
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0011880102;   // data read ix n=16 w=1
+            3: v35_step = 39'h0011C80072;   // data read iy n=7 w=1
+            4: v35_step = 39'h00118800E2;   // data read ix n=14 w=1
+            5: v35_step = 39'h0011C80072;   // data read iy n=7 w=1
+            6: v35_step = 39'h0000000140;   // clocks n=20
+            default: v35_step = 39'd0;
+        endcase
+        4: case (k)   // bf_ext: 0f 33 c0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h00218800C2;   // data read ix n=12 w=2
+            3: v35_step = 39'h00000400E0;   // clocks bf n=14
+            default: v35_step = 39'd0;
+        endcase
+        5: case (k)   // bf_ext: 0f 33 c0, cross
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h00218800C2;   // data read ix n=12 w=2
+            3: v35_step = 39'h00238801B2;   // data read ix+1 n=27 w=2
+            4: v35_step = 39'h00000402B0;   // clocks bf n=43
+            default: v35_step = 39'd0;
+        endcase
+        6: case (k)   // bf_ext: 0f 3b c0 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h00218800C3;   // post read ix n=12 w=2
+            3: v35_step = 39'h0000024011;   // take chain n=1
+            4: v35_step = 39'h0000000006;   // wait
+            5: v35_step = 39'h00000400E0;   // clocks bf n=14
+            default: v35_step = 39'd0;
+        endcase
+        7: case (k)   // bf_ext: 0f 3b c0 02, cross
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h00218800C3;   // post read ix n=12 w=2
+            3: v35_step = 39'h0000024011;   // take chain n=1
+            4: v35_step = 39'h0000000006;   // wait
+            5: v35_step = 39'h00238801B2;   // data read ix+1 n=27 w=2
+            6: v35_step = 39'h00000402B0;   // clocks bf n=43
+            default: v35_step = 39'd0;
+        endcase
+        8: case (k)   // bf_ins: 0f 31 c0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0021C800C2;   // data read iy n=12 w=2
+            3: v35_step = 39'h0000040140;   // clocks bf n=20
+            4: v35_step = 39'h0021D00022;   // data write iy n=2 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        9: case (k)   // bf_ins: 0f 31 c0, cross
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0021C800C2;   // data read iy n=12 w=2
+            3: v35_step = 39'h0021D00442;   // data write iy n=68 w=2
+            4: v35_step = 39'h0023C800B2;   // data read iy+1 n=11 w=2
+            5: v35_step = 39'h00000406A0;   // clocks bf n=106
+            6: v35_step = 39'h0023D00022;   // data write iy+1 n=2 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        10: case (k)   // bf_ins: 0f 39 c0 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0021C800C3;   // post read iy n=12 w=2
+            3: v35_step = 39'h0000024011;   // take chain n=1
+            4: v35_step = 39'h0000000006;   // wait
+            5: v35_step = 39'h0000040140;   // clocks bf n=20
+            6: v35_step = 39'h0021D00022;   // data write iy n=2 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        11: case (k)   // bf_ins: 0f 39 c0 02, cross
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0021C800C3;   // post read iy n=12 w=2
+            3: v35_step = 39'h0000024011;   // take chain n=1
+            4: v35_step = 39'h0000000006;   // wait
+            5: v35_step = 39'h0021D00442;   // data write iy n=68 w=2
+            6: v35_step = 39'h0023C800B2;   // data read iy+1 n=11 w=2
+            7: v35_step = 39'h00000406A0;   // clocks bf n=106
+            8: v35_step = 39'h0023D00022;   // data write iy+1 n=2 w=2
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        12: case (k)   // bit1: 0f 10 c0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0000000040;   // clocks n=4
+            default: v35_step = 39'd0;
+        endcase
+        13: case (k)   // bit1: 0f 18 c0 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000031;   // take n=3
+            2: v35_step = 39'h0000000040;   // clocks n=4
+            default: v35_step = 39'd0;
+        endcase
+        14: case (k)   // bit1_clr: 0f 12 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        15: case (k)   // bit1_clr: 0f 12 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        16: case (k)   // bit1_clr: 0f 12 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        17: case (k)   // bit1_clr: 0f 12 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        18: case (k)   // bit1_clr: 0f 13 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        19: case (k)   // bit1_clr: 0f 13 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        20: case (k)   // bit1_clr: 0f 13 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        21: case (k)   // bit1_clr: 0f 13 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        22: case (k)   // bit1_clr: 0f 1a 00 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        23: case (k)   // bit1_clr: 0f 1a 06 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        24: case (k)   // bit1_clr: 0f 1a 40 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        25: case (k)   // bit1_clr: 0f 1a 80 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500042;   // data write ea n=4 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        26: case (k)   // bit1_clr: 0f 1b 00 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        27: case (k)   // bit1_clr: 0f 1b 06 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        28: case (k)   // bit1_clr: 0f 1b 40 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        29: case (k)   // bit1_clr: 0f 1b 80 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500042;   // data write ea n=4 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        30: case (k)   // bit1_rmw: 0f 14 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h10D0480012;   // data read ea n=1 w=1 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        31: case (k)   // bit1_rmw: 0f 14 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10D0480012;   // data read ea n=1 w=1 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        32: case (k)   // bit1_rmw: 0f 14 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h10D0480012;   // data read ea n=1 w=1 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        33: case (k)   // bit1_rmw: 0f 14 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10D0480012;   // data read ea n=1 w=1 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        34: case (k)   // bit1_rmw: 0f 15 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h10E0480012;   // data read ea n=1 w=2 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        35: case (k)   // bit1_rmw: 0f 15 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10E0480012;   // data read ea n=1 w=2 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        36: case (k)   // bit1_rmw: 0f 15 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h10E0480012;   // data read ea n=1 w=2 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        37: case (k)   // bit1_rmw: 0f 15 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10E0480012;   // data read ea n=1 w=2 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        38: case (k)   // bit1_rmw: 0f 1c 00 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h0010480003;   // post read ea n=0 w=1
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        39: case (k)   // bit1_rmw: 0f 1c 06 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0010480003;   // post read ea n=0 w=1
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        40: case (k)   // bit1_rmw: 0f 1c 40 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h0010480003;   // post read ea n=0 w=1
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        41: case (k)   // bit1_rmw: 0f 1c 80 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0010480003;   // post read ea n=0 w=1
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        42: case (k)   // bit1_rmw: 0f 1d 00 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        43: case (k)   // bit1_rmw: 0f 1d 06 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        44: case (k)   // bit1_rmw: 0f 1d 40 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        45: case (k)   // bit1_rmw: 0f 1d 80 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        46: case (k)   // bit1_test: 0f 10 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        47: case (k)   // bit1_test: 0f 10 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        48: case (k)   // bit1_test: 0f 10 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        49: case (k)   // bit1_test: 0f 10 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1250480042;   // data read ea n=4 w=1 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        50: case (k)   // bit1_test: 0f 11 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        51: case (k)   // bit1_test: 0f 11 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        52: case (k)   // bit1_test: 0f 11 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        53: case (k)   // bit1_test: 0f 11 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1260480042;   // data read ea n=4 w=2 free=4 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        54: case (k)   // bit1_test: 0f 18 00 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        55: case (k)   // bit1_test: 0f 18 06 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        56: case (k)   // bit1_test: 0f 18 40 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        57: case (k)   // bit1_test: 0f 18 80 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1050480013;   // post read ea n=1 w=1 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        58: case (k)   // bit1_test: 0f 19 00 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        59: case (k)   // bit1_test: 0f 19 06 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        60: case (k)   // bit1_test: 0f 19 40 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        61: case (k)   // bit1_test: 0f 19 80 02 00 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000070;   // clocks n=7
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h1060480013;   // post read ea n=1 w=2 free=0 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        62: case (k)   // branch_near: e9 00 02, taken
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0000000050;   // clocks n=5
+            3: v35_step = 39'h000140000A;   // flush target
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        63: case (k)   // branch_short: 74 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000040;   // clocks n=4
+            3: v35_step = 39'h0000000009;   // decide
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            default: v35_step = 39'd0;
+        endcase
+        64: case (k)   // branch_short: 74 00, taken
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000040;   // clocks n=4
+            3: v35_step = 39'h0000000080;   // clocks n=8
+            4: v35_step = 39'h000143400A;   // flush cfgap target
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        65: case (k)   // branch_short: eb 00, taken
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000080;   // clocks n=8
+            3: v35_step = 39'h000140000A;   // flush target
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        66: case (k)   // call: e8 00 02, taken
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            3: v35_step = 39'h0000000080;   // clocks n=8
+            4: v35_step = 39'h000140000A;   // flush target
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        67: case (k)   // convert: d4 00
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000100;   // clocks n=16
+            default: v35_step = 39'd0;
+        endcase
+        68: case (k)   // convert_d: d5 00
+            0: v35_step = 39'h0000000020;   // clocks n=2
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000100;   // clocks n=16
+            default: v35_step = 39'd0;
+        endcase
+        69: case (k)   // dbnz: e2 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000009;   // decide
+            3: v35_step = 39'h0000000060;   // clocks n=6
+            default: v35_step = 39'd0;
+        endcase
+        70: case (k)   // dbnz: e2 00, taken
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h00000000E0;   // clocks n=14
+            3: v35_step = 39'h000140000A;   // flush target
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        71: case (k)   // div: f6 30
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        72: case (k)   // div: f6 36 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        73: case (k)   // div: f6 38
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        74: case (k)   // div: f6 3e 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        75: case (k)   // div: f6 70 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        76: case (k)   // div: f6 78 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        77: case (k)   // div: f6 b0 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        78: case (k)   // div: f6 b8 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        79: case (k)   // div: f6 f0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000270;   // clocks n=39
+            default: v35_step = 39'd0;
+        endcase
+        80: case (k)   // div: f6 f0, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000018210;   // clocks loop_odd n=33
+            3: v35_step = 39'h000001C060;   // clocks mexit n=6
+            default: v35_step = 39'd0;
+        endcase
+        81: case (k)   // div: f6 f8
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h00000003A0;   // clocks n=58
+            default: v35_step = 39'd0;
+        endcase
+        82: case (k)   // div: f6 f8, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000018340;   // clocks loop_odd n=52
+            3: v35_step = 39'h000001C060;   // clocks mexit n=6
+            default: v35_step = 39'd0;
+        endcase
+        83: case (k)   // div: f7 30
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        84: case (k)   // div: f7 36 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        85: case (k)   // div: f7 38
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        86: case (k)   // div: f7 3e 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        87: case (k)   // div: f7 70 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        88: case (k)   // div: f7 78 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        89: case (k)   // div: f7 b0 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008250;   // clocks mexec n=37
+            default: v35_step = 39'd0;
+        endcase
+        90: case (k)   // div: f7 b8 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000083A0;   // clocks mexec n=58
+            default: v35_step = 39'd0;
+        endcase
+        91: case (k)   // extend_w: 99
+            0: v35_step = 39'h0000000090;   // clocks n=9
+            1: v35_step = 39'h0000000001;   // take n=0
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        92: case (k)   // flag_ei: fb
+            0: v35_step = 39'h00000000D0;   // clocks n=13
+            1: v35_step = 39'h0000000001;   // take n=0
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        93: case (k)   // halt: f4
+            0: v35_step = 39'h0000000008;   // halt
+            default: v35_step = 39'd0;
+        endcase
+        94: case (k)   // imm: 05 00 02
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        95: case (k)   // imm: 81 c0 02 00
+            0: v35_step = 39'h0000020011;   // take lead n=1
+            1: v35_step = 39'h0000000030;   // clocks n=3
+            2: v35_step = 39'h0000000021;   // take n=2
+            3: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        96: case (k)   // imm: 83 c0 02
+            0: v35_step = 39'h0000020011;   // take lead n=1
+            1: v35_step = 39'h0000000030;   // clocks n=3
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        97: case (k)   // imm: a8 00
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        98: case (k)   // in: e4 00
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h00111B0081;   // take port io_read port n=8 w=1
+            2: v35_step = 39'h0000000006;   // wait
+            3: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        99: case (k)   // in: e5 00
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h00211B0081;   // take port io_read port n=8 w=2
+            2: v35_step = 39'h0000000006;   // wait
+            3: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        100: case (k)   // in: ec
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011180073;   // post io_read port n=7 w=1
+            2: v35_step = 39'h0000000006;   // wait
+            3: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        101: case (k)   // in: ed
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021180073;   // post io_read port n=7 w=2
+            2: v35_step = 39'h0000000006;   // wait
+            3: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        102: case (k)   // incdec: 40
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000001;   // take n=0
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        103: case (k)   // lea: 8d 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        104: case (k)   // lea: 8d 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        105: case (k)   // lea: 8d 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        106: case (k)   // lea: 8d 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        107: case (k)   // load: a1 00 02
+            0: v35_step = 39'h0000000020;   // clocks n=2
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0000004000;   // clocks ea n=0
+            3: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            5: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        108: case (k)   // load_alu: 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        109: case (k)   // load_alu: 02 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        110: case (k)   // load_alu: 02 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        111: case (k)   // load_alu: 02 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        112: case (k)   // load_alu: 03 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        113: case (k)   // load_alu: 03 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        114: case (k)   // load_alu: 03 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        115: case (k)   // load_alu: 03 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        116: case (k)   // load_alu: 84 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        117: case (k)   // load_alu: 84 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10D0480012;   // data read ea n=1 w=1 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        118: case (k)   // load_alu: 84 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h10D0480012;   // data read ea n=1 w=1 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        119: case (k)   // load_alu: 84 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10D0480012;   // data read ea n=1 w=1 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        120: case (k)   // load_alu: 85 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        121: case (k)   // load_alu: 85 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10E0480012;   // data read ea n=1 w=2 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        122: case (k)   // load_alu: 85 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h10E0480012;   // data read ea n=1 w=2 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        123: case (k)   // load_alu: 85 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h10E0480012;   // data read ea n=1 w=2 free=1 grp
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        124: case (k)   // load_seg: 8e 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000030;   // clocks n=3
+            default: v35_step = 39'd0;
+        endcase
+        125: case (k)   // load_seg: 8e 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000030;   // clocks n=3
+            default: v35_step = 39'd0;
+        endcase
+        126: case (k)   // load_seg: 8e 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000030;   // clocks n=3
+            default: v35_step = 39'd0;
+        endcase
+        127: case (k)   // load_seg: 8e 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0000000030;   // clocks n=3
+            default: v35_step = 39'd0;
+        endcase
+        128: case (k)   // mul: f6 20
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008150;   // clocks mexec n=21
+            default: v35_step = 39'd0;
+        endcase
+        129: case (k)   // mul: f6 26 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008150;   // clocks mexec n=21
+            default: v35_step = 39'd0;
+        endcase
+        130: case (k)   // mul: f6 28
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        131: case (k)   // mul: f6 2e 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        132: case (k)   // mul: f6 60 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008150;   // clocks mexec n=21
+            default: v35_step = 39'd0;
+        endcase
+        133: case (k)   // mul: f6 68 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        134: case (k)   // mul: f6 a0 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008150;   // clocks mexec n=21
+            default: v35_step = 39'd0;
+        endcase
+        135: case (k)   // mul: f6 a8 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        136: case (k)   // mul: f6 e0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h00000001F0;   // clocks n=31
+            default: v35_step = 39'd0;
+        endcase
+        137: case (k)   // mul: f6 e0, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000018170;   // clocks loop_odd n=23
+            3: v35_step = 39'h000001C080;   // clocks mexit n=8
+            default: v35_step = 39'd0;
+        endcase
+        138: case (k)   // mul: f6 e8
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000290;   // clocks n=41
+            default: v35_step = 39'd0;
+        endcase
+        139: case (k)   // mul: f6 e8, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000018210;   // clocks loop_odd n=33
+            3: v35_step = 39'h000001C080;   // clocks mexit n=8
+            default: v35_step = 39'd0;
+        endcase
+        140: case (k)   // mul: f7 20
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000081D0;   // clocks mexec n=29
+            default: v35_step = 39'd0;
+        endcase
+        141: case (k)   // mul: f7 26 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000081D0;   // clocks mexec n=29
+            default: v35_step = 39'd0;
+        endcase
+        142: case (k)   // mul: f7 28
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        143: case (k)   // mul: f7 2e 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        144: case (k)   // mul: f7 60 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000081D0;   // clocks mexec n=29
+            default: v35_step = 39'd0;
+        endcase
+        145: case (k)   // mul: f7 68 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        146: case (k)   // mul: f7 a0 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h00000081D0;   // clocks mexec n=29
+            default: v35_step = 39'd0;
+        endcase
+        147: case (k)   // mul: f7 a8 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000008310;   // clocks mexec n=49
+            default: v35_step = 39'd0;
+        endcase
+        148: case (k)   // mul_imm: 69 00 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        149: case (k)   // mul_imm: 69 06 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        150: case (k)   // mul_imm: 69 40 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        151: case (k)   // mul_imm: 69 80 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        152: case (k)   // mul_imm: 69 c0 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000031;   // take n=3
+            2: v35_step = 39'h0000000230;   // clocks n=35
+            default: v35_step = 39'd0;
+        endcase
+        153: case (k)   // mul_imm: 6b 00 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024011;   // take chain n=1
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        154: case (k)   // mul_imm: 6b 06 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024011;   // take chain n=1
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        155: case (k)   // mul_imm: 6b 40 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024011;   // take chain n=1
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        156: case (k)   // mul_imm: 6b 80 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480003;   // post read ea n=0 w=2
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024011;   // take chain n=1
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h00000002D0;   // clocks n=45
+            default: v35_step = 39'd0;
+        endcase
+        157: case (k)   // mul_imm: 6b c0 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0000000230;   // clocks n=35
+            default: v35_step = 39'd0;
+        endcase
+        158: case (k)   // out: e6 00
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h4011230081;   // take port io_write port n=8 w=1 detached
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        159: case (k)   // out: e7 00
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h4021230081;   // take port io_write port n=8 w=2 detached
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        160: case (k)   // out: ee
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011200074;   // post_io io_write port n=7 w=1
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        161: case (k)   // out: ef
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021200074;   // post_io io_write port n=7 w=2
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        162: case (k)   // pop: 58
+            0: v35_step = 39'h0020880072;   // data read stack_read n=7 w=2
+            1: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        163: case (k)   // pop_mem: 8f 00
+            0: v35_step = 39'h0000020011;   // take lead n=1
+            1: v35_step = 39'h01E0880072;   // data read stack_read n=7 w=2 free=3
+            2: v35_step = 39'h0020500063;   // post write ea n=6 w=2
+            3: v35_step = 39'h0000000006;   // wait
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        164: case (k)   // pop_mem: 8f 06 02 00
+            0: v35_step = 39'h0000020011;   // take lead n=1
+            1: v35_step = 39'h01E0880072;   // data read stack_read n=7 w=2 free=3
+            2: v35_step = 39'h0020500063;   // post write ea n=6 w=2
+            3: v35_step = 39'h0000000030;   // clocks n=3
+            4: v35_step = 39'h000002C021;   // take chain_word n=2
+            5: v35_step = 39'h0000000006;   // wait
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        165: case (k)   // pop_mem: 8f 40 02
+            0: v35_step = 39'h0000020011;   // take lead n=1
+            1: v35_step = 39'h01E0880072;   // data read stack_read n=7 w=2 free=3
+            2: v35_step = 39'h0020500063;   // post write ea n=6 w=2
+            3: v35_step = 39'h0000000030;   // clocks n=3
+            4: v35_step = 39'h0000024011;   // take chain n=1
+            5: v35_step = 39'h0000000006;   // wait
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        166: case (k)   // pop_mem: 8f 80 02 00
+            0: v35_step = 39'h0000020011;   // take lead n=1
+            1: v35_step = 39'h01E0880072;   // data read stack_read n=7 w=2 free=3
+            2: v35_step = 39'h0020500063;   // post write ea n=6 w=2
+            3: v35_step = 39'h0000000040;   // clocks n=4
+            4: v35_step = 39'h000002C021;   // take chain_word n=2
+            5: v35_step = 39'h0000000006;   // wait
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        167: case (k)   // pop_r: 61
+            0: v35_step = 39'h0020880072;   // data read stack_read n=7 w=2
+            1: v35_step = 39'h0022880072;   // data read stack_read+1 n=7 w=2
+            2: v35_step = 39'h0024880072;   // data read stack_read+2 n=7 w=2
+            3: v35_step = 39'h0026880072;   // data read stack_read+3 n=7 w=2
+            4: v35_step = 39'h0028880072;   // data read stack_read+4 n=7 w=2
+            5: v35_step = 39'h002A880072;   // data read stack_read+5 n=7 w=2
+            6: v35_step = 39'h002C880072;   // data read stack_read+6 n=7 w=2
+            7: v35_step = 39'h002E880072;   // data read stack_read+7 n=7 w=2
+            8: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        168: case (k)   // pop_seg: 07
+            0: v35_step = 39'h0020880072;   // data read stack_read n=7 w=2
+            1: v35_step = 39'h0000000030;   // clocks n=3
+            default: v35_step = 39'd0;
+        endcase
+        169: case (k)   // prefix: 26
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000001;   // take n=0
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        170: case (k)   // prepare: c8 00 02 00
+            0: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            1: v35_step = 39'h0000000020;   // clocks n=2
+            2: v35_step = 39'h0000000031;   // take n=3
+            3: v35_step = 39'h00000000B0;   // clocks n=11
+            default: v35_step = 39'd0;
+        endcase
+        171: case (k)   // push: 50
+            0: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            1: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        172: case (k)   // push_imm: 68 00 02
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            3: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        173: case (k)   // push_imm: 6a 00
+            0: v35_step = 39'h0000000030;   // clocks n=3
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            3: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        174: case (k)   // push_mem: ff 30
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        175: case (k)   // push_mem: ff 36 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        176: case (k)   // push_mem: ff 70 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        177: case (k)   // push_mem: ff b0 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0020D00072;   // data write stack_write n=7 w=2
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        178: case (k)   // push_r: 60
+            0: v35_step = 39'h0020D00092;   // data write stack_write n=9 w=2
+            1: v35_step = 39'h0022D00072;   // data write stack_write+1 n=7 w=2
+            2: v35_step = 39'h0024D00072;   // data write stack_write+2 n=7 w=2
+            3: v35_step = 39'h0026D00072;   // data write stack_write+3 n=7 w=2
+            4: v35_step = 39'h0028D00072;   // data write stack_write+4 n=7 w=2
+            5: v35_step = 39'h002AD00072;   // data write stack_write+5 n=7 w=2
+            6: v35_step = 39'h002CD00072;   // data write stack_write+6 n=7 w=2
+            7: v35_step = 39'h002ED00072;   // data write stack_write+7 n=7 w=2
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        179: case (k)   // push_seg: 06
+            0: v35_step = 39'h0020D00082;   // data write stack_write n=8 w=2
+            1: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        180: case (k)   // reg: 00 c0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        181: case (k)   // reg: 90
+            0: v35_step = 39'h0000000040;   // clocks n=4
+            1: v35_step = 39'h0000000001;   // take n=0
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        182: case (k)   // ret: c3, taken
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0020880072;   // data read stack_read n=7 w=2
+            2: v35_step = 39'h0000000080;   // clocks n=8
+            3: v35_step = 39'h000140000A;   // flush target
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        183: case (k)   // rmw: 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        184: case (k)   // rmw: 00 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        185: case (k)   // rmw: 00 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        186: case (k)   // rmw: 00 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        187: case (k)   // rmw: 01 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        188: case (k)   // rmw: 01 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        189: case (k)   // rmw: 01 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        190: case (k)   // rmw: 01 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        191: case (k)   // rmw: 38 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010680032;   // data nowrite ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        192: case (k)   // rmw: 38 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010680032;   // data nowrite ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        193: case (k)   // rmw: 38 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010680032;   // data nowrite ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        194: case (k)   // rmw: 38 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010680032;   // data nowrite ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        195: case (k)   // rmw: 39 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        196: case (k)   // rmw: 39 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        197: case (k)   // rmw: 39 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        198: case (k)   // rmw: 39 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        199: case (k)   // rmw: 86 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500052;   // data write ea n=5 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        200: case (k)   // rmw: 86 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500052;   // data write ea n=5 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        201: case (k)   // rmw: 86 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500052;   // data write ea n=5 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        202: case (k)   // rmw: 86 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500052;   // data write ea n=5 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        203: case (k)   // rmw: 87 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500052;   // data write ea n=5 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        204: case (k)   // rmw: 87 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500052;   // data write ea n=5 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        205: case (k)   // rmw: 87 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500052;   // data write ea n=5 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        206: case (k)   // rmw: 87 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020480002;   // data read ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500052;   // data write ea n=5 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        207: case (k)   // rmw: d0 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010502072;   // data write ea n=7+2*count w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        208: case (k)   // rmw: d0 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500072;   // data write ea n=7 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        209: case (k)   // rmw: d0 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010502072;   // data write ea n=7+2*count w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        210: case (k)   // rmw: d0 06 02 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500072;   // data write ea n=7 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        211: case (k)   // rmw: d0 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010502072;   // data write ea n=7+2*count w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        212: case (k)   // rmw: d0 40 02, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500072;   // data write ea n=7 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        213: case (k)   // rmw: d0 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010502072;   // data write ea n=7+2*count w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        214: case (k)   // rmw: d0 80 02 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500072;   // data write ea n=7 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        215: case (k)   // rmw: d1 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        216: case (k)   // rmw: d1 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        217: case (k)   // rmw: d1 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        218: case (k)   // rmw: d1 06 02 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        219: case (k)   // rmw: d1 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        220: case (k)   // rmw: d1 40 02, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        221: case (k)   // rmw: d1 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        222: case (k)   // rmw: d1 80 02 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        223: case (k)   // rmw: d3 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        224: case (k)   // rmw: d3 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        225: case (k)   // rmw: d3 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        226: case (k)   // rmw: d3 06 02 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        227: case (k)   // rmw: d3 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        228: case (k)   // rmw: d3 40 02, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        229: case (k)   // rmw: d3 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020502072;   // data write ea n=7+2*count w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        230: case (k)   // rmw: d3 80 02 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h13E0480072;   // data read ea n=7 w=2 free=7 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500072;   // data write ea n=7 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        231: case (k)   // rmw: f6 08
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        232: case (k)   // rmw: f6 0e 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        233: case (k)   // rmw: f6 48 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        234: case (k)   // rmw: f6 88 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11D0480042;   // data read ea n=4 w=1 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0010500032;   // data write ea n=3 w=1
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        235: case (k)   // rmw: f7 08
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        236: case (k)   // rmw: f7 0e 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        237: case (k)   // rmw: f7 48 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        238: case (k)   // rmw: f7 88 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h11E0480042;   // data read ea n=4 w=2 free=3 grp
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            6: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            7: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        239: case (k)   // rmw_imm: 81 00 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        240: case (k)   // rmw_imm: 81 06 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        241: case (k)   // rmw_imm: 81 38 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        242: case (k)   // rmw_imm: 81 3e 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        243: case (k)   // rmw_imm: 81 40 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        244: case (k)   // rmw_imm: 81 78 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        245: case (k)   // rmw_imm: 81 80 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        246: case (k)   // rmw_imm: 81 b8 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        247: case (k)   // rmw_imm: 83 00 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024011;   // take chain n=1
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        248: case (k)   // rmw_imm: 83 06 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        249: case (k)   // rmw_imm: 83 38 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024011;   // take chain n=1
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        250: case (k)   // rmw_imm: 83 3e 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        251: case (k)   // rmw_imm: 83 40 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        252: case (k)   // rmw_imm: 83 78 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        253: case (k)   // rmw_imm: 83 80 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020500032;   // data write ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        254: case (k)   // rmw_imm: 83 b8 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0480023;   // post read ea n=2 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            12: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        255: case (k)   // rmw_imm: f7 00 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h12E0480063;   // post read ea n=6 w=2 free=5 grp
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            10: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        256: case (k)   // rmw_imm: f7 06 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0000000010;   // clocks n=1
+            6: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            7: v35_step = 39'h0000000005;   // issued
+            8: v35_step = 39'h0000024021;   // take chain n=2
+            9: v35_step = 39'h0000000006;   // wait
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            12: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            13: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        257: case (k)   // rmw_imm: f7 40 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h0000000010;   // clocks n=1
+            6: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            7: v35_step = 39'h0000000005;   // issued
+            8: v35_step = 39'h0000024021;   // take chain n=2
+            9: v35_step = 39'h0000000006;   // wait
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            12: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            13: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        258: case (k)   // rmw_imm: f7 80 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000037;   // nowait n=3
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0000000010;   // clocks n=1
+            6: v35_step = 39'h10E0480033;   // post read ea n=3 w=2 free=1 grp
+            7: v35_step = 39'h0000000005;   // issued
+            8: v35_step = 39'h0000024021;   // take chain n=2
+            9: v35_step = 39'h0000000006;   // wait
+            10: v35_step = 39'h0000000000;   // clocks n=0
+            11: v35_step = 39'h0000000000;   // clocks n=0
+            12: v35_step = 39'h0020680032;   // data nowrite ea n=3 w=2
+            13: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        259: case (k)   // rol4: 0f 28 c0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h00000000E0;   // clocks n=14
+            default: v35_step = 39'd0;
+        endcase
+        260: case (k)   // rol4_mem: 0f 28 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000010;   // clocks n=1
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h00105000C2;   // data write ea n=12 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        261: case (k)   // rol4_mem: 0f 28 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000010;   // clocks n=1
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h00105000C2;   // data write ea n=12 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        262: case (k)   // rol4_mem: 0f 28 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000010;   // clocks n=1
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h00105000C2;   // data write ea n=12 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        263: case (k)   // rol4_mem: 0f 28 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000010;   // clocks n=1
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h00105000C2;   // data write ea n=12 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        264: case (k)   // ror4: 0f 2a c0
+            0: v35_step = 39'h0000000010;   // clocks n=1
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0000000110;   // clocks n=17
+            default: v35_step = 39'd0;
+        endcase
+        265: case (k)   // ror4_mem: 0f 2a 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000060;   // clocks n=6
+            2: v35_step = 39'h0000000011;   // take n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000001;   // take n=0
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500102;   // data write ea n=16 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        266: case (k)   // ror4_mem: 0f 2a 06 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000060;   // clocks n=6
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500102;   // data write ea n=16 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        267: case (k)   // ror4_mem: 0f 2a 40 02
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000060;   // clocks n=6
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004020;   // clocks ea n=2
+            4: v35_step = 39'h0000000011;   // take n=1
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500102;   // data write ea n=16 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        268: case (k)   // ror4_mem: 0f 2a 80 02 00
+            0: v35_step = 39'h0000024011;   // take chain n=1
+            1: v35_step = 39'h0000000060;   // clocks n=6
+            2: v35_step = 39'h0000024011;   // take chain n=1
+            3: v35_step = 39'h0000004030;   // clocks ea n=3
+            4: v35_step = 39'h0000028021;   // take word n=2
+            5: v35_step = 39'h0010480002;   // data read ea n=0 w=1
+            6: v35_step = 39'h0000000000;   // clocks n=0
+            7: v35_step = 39'h0010500102;   // data write ea n=16 w=1
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        269: case (k)   // shift_cl: d3 c0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000090;   // clocks n=9
+            3: v35_step = 39'h0000002000;   // clocks n=0+2*count
+            default: v35_step = 39'd0;
+        endcase
+        270: case (k)   // shift_cl: d3 c0, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000070;   // clocks n=7
+            3: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        271: case (k)   // shift_cl: d3 c0, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h000000C060;   // clocks exec n=6
+            3: v35_step = 39'h0000012000;   // clocks loop n=0+2*count
+            4: v35_step = 39'h0000014030;   // clocks tail n=3
+            default: v35_step = 39'd0;
+        endcase
+        272: case (k)   // shift_imm: c1 00 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            5: v35_step = 39'h0000002000;   // clocks n=0+2*count
+            default: v35_step = 39'd0;
+        endcase
+        273: case (k)   // shift_imm: c1 00 02, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        274: case (k)   // shift_imm: c1 00 02, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h000000C030;   // clocks exec n=3
+            5: v35_step = 39'h0000012000;   // clocks loop n=0+2*count
+            6: v35_step = 39'h0000014030;   // clocks tail n=3
+            default: v35_step = 39'd0;
+        endcase
+        275: case (k)   // shift_imm: c1 06 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024031;   // take chain n=3
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            5: v35_step = 39'h0000002000;   // clocks n=0+2*count
+            default: v35_step = 39'd0;
+        endcase
+        276: case (k)   // shift_imm: c1 06 02 00 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024031;   // take chain n=3
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        277: case (k)   // shift_imm: c1 06 02 00 00, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024031;   // take chain n=3
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h000000C030;   // clocks exec n=3
+            5: v35_step = 39'h0000012000;   // clocks loop n=0+2*count
+            6: v35_step = 39'h0000014030;   // clocks tail n=3
+            default: v35_step = 39'd0;
+        endcase
+        278: case (k)   // shift_imm: c1 40 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024021;   // take chain n=2
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            5: v35_step = 39'h0000002000;   // clocks n=0+2*count
+            default: v35_step = 39'd0;
+        endcase
+        279: case (k)   // shift_imm: c1 40 02 00, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024021;   // take chain n=2
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        280: case (k)   // shift_imm: c1 40 02 00, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024021;   // take chain n=2
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h000000C030;   // clocks exec n=3
+            5: v35_step = 39'h0000012000;   // clocks loop n=0+2*count
+            6: v35_step = 39'h0000014030;   // clocks tail n=3
+            default: v35_step = 39'd0;
+        endcase
+        281: case (k)   // shift_imm: d0 c0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000050;   // clocks n=5
+            3: v35_step = 39'h0000002000;   // clocks n=0+2*count
+            default: v35_step = 39'd0;
+        endcase
+        282: case (k)   // shift_imm: d0 c0, count 0
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000000050;   // clocks n=5
+            3: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        283: case (k)   // shift_imm: d0 c0, refresh
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h000000C030;   // clocks exec n=3
+            3: v35_step = 39'h0000012000;   // clocks loop n=0+2*count
+            4: v35_step = 39'h0000014020;   // clocks tail n=2
+            default: v35_step = 39'd0;
+        endcase
+        284: case (k)   // store: 88 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0010500002;   // data write ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        285: case (k)   // store: 88 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010500002;   // data write ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        286: case (k)   // store: 88 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0010500002;   // data write ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        287: case (k)   // store: 88 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0010500002;   // data write ea n=0 w=1
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        288: case (k)   // store: 89 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h0020500002;   // data write ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        289: case (k)   // store: 89 06 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020500002;   // data write ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        290: case (k)   // store: 89 40 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0020500002;   // data write ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        291: case (k)   // store: 89 80 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0020500002;   // data write ea n=0 w=2
+            5: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        292: case (k)   // store: a3 00 02
+            0: v35_step = 39'h0000000020;   // clocks n=2
+            1: v35_step = 39'h0000000021;   // take n=2
+            2: v35_step = 39'h0000004000;   // clocks ea n=0
+            3: v35_step = 39'h0020500002;   // data write ea n=0 w=2
+            4: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        293: case (k)   // store_imm: c6 00 02
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h10D0500023;   // post write ea n=2 w=1 free=1 grp
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024011;   // take chain n=1
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        294: case (k)   // store_imm: c6 06 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10D0500023;   // post write ea n=2 w=1 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        295: case (k)   // store_imm: c6 40 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10D0500023;   // post write ea n=2 w=1 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        296: case (k)   // store_imm: c6 80 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10D0500023;   // post write ea n=2 w=1 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024011;   // take chain n=1
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        297: case (k)   // store_imm: c7 00 02 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000000011;   // take n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000001;   // take n=0
+            4: v35_step = 39'h10E0500033;   // post write ea n=3 w=2 free=1 grp
+            5: v35_step = 39'h0000000005;   // issued
+            6: v35_step = 39'h0000024021;   // take chain n=2
+            7: v35_step = 39'h0000000006;   // wait
+            8: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        298: case (k)   // store_imm: c7 06 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0500033;   // post write ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        299: case (k)   // store_imm: c7 40 02 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004020;   // clocks ea n=2
+            3: v35_step = 39'h0000000011;   // take n=1
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0500033;   // post write ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        300: case (k)   // store_imm: c7 80 02 00 00 00
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0000024011;   // take chain n=1
+            2: v35_step = 39'h0000004030;   // clocks ea n=3
+            3: v35_step = 39'h0000028021;   // take word n=2
+            4: v35_step = 39'h0000000010;   // clocks n=1
+            5: v35_step = 39'h10E0500033;   // post write ea n=3 w=2 free=1 grp
+            6: v35_step = 39'h0000000005;   // issued
+            7: v35_step = 39'h0000024021;   // take chain n=2
+            8: v35_step = 39'h0000000006;   // wait
+            9: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        301: case (k)   // str_cmp: 64 a6
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0011C800E2;   // data read iy n=14 w=1
+            6: v35_step = 39'h0011880072;   // data read ix n=7 w=1
+            7: v35_step = 39'h000000002D;   // fetch_hold n=2
+            8: v35_step = 39'h0011C80072;   // data read iy n=7 w=1
+            9: v35_step = 39'h0011880072;   // data read ix n=7 w=1
+            10: v35_step = 39'h000000002D;   // fetch_hold n=2
+            11: v35_step = 39'h0011C80072;   // data read iy n=7 w=1
+            12: v35_step = 39'h0011880072;   // data read ix n=7 w=1
+            13: v35_step = 39'h000000002D;   // fetch_hold n=2
+            14: v35_step = 39'h000000008E;   // fetch_release n=8
+            15: v35_step = 39'h000000004F;   // split_floor n=4
+            16: v35_step = 39'h0000000120;   // clocks n=18
+            17: v35_step = 39'h0000000110;   // clocks n=17
+            default: v35_step = 39'd0;
+        endcase
+        302: case (k)   // str_cmp: 64 a7
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0021C800E2;   // data read iy n=14 w=2
+            6: v35_step = 39'h0021880072;   // data read ix n=7 w=2
+            7: v35_step = 39'h000000002D;   // fetch_hold n=2
+            8: v35_step = 39'h0021C80072;   // data read iy n=7 w=2
+            9: v35_step = 39'h0021880072;   // data read ix n=7 w=2
+            10: v35_step = 39'h000000002D;   // fetch_hold n=2
+            11: v35_step = 39'h0021C80072;   // data read iy n=7 w=2
+            12: v35_step = 39'h0021880072;   // data read ix n=7 w=2
+            13: v35_step = 39'h000000002D;   // fetch_hold n=2
+            14: v35_step = 39'h000000008E;   // fetch_release n=8
+            15: v35_step = 39'h000000004F;   // split_floor n=4
+            16: v35_step = 39'h0000000120;   // clocks n=18
+            17: v35_step = 39'h0000000110;   // clocks n=17
+            default: v35_step = 39'd0;
+        endcase
+        303: case (k)   // str_cmp: a6
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011C80092;   // data read iy n=9 w=1
+            2: v35_step = 39'h0011880072;   // data read ix n=7 w=1
+            3: v35_step = 39'h000000002D;   // fetch_hold n=2
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            default: v35_step = 39'd0;
+        endcase
+        304: case (k)   // str_cmp: a7
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021C80092;   // data read iy n=9 w=2
+            2: v35_step = 39'h0021880072;   // data read ix n=7 w=2
+            3: v35_step = 39'h000000002D;   // fetch_hold n=2
+            4: v35_step = 39'h0000000060;   // clocks n=6
+            default: v35_step = 39'd0;
+        endcase
+        305: case (k)   // str_in: 64 6c
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C07E;   // fetch_release raise n=7
+            3: v35_step = 39'h00000000B0;   // clocks n=11
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h00111800F2;   // data io_read port n=15 w=1
+            6: v35_step = 39'h0011D00042;   // data write iy n=4 w=1
+            7: v35_step = 39'h0011180062;   // data io_read port n=6 w=1
+            8: v35_step = 39'h0011D00042;   // data write iy n=4 w=1
+            9: v35_step = 39'h0011180062;   // data io_read port n=6 w=1
+            10: v35_step = 39'h0011D00042;   // data write iy n=4 w=1
+            11: v35_step = 39'h000000008E;   // fetch_release n=8
+            12: v35_step = 39'h000000004F;   // split_floor n=4
+            13: v35_step = 39'h00000000A0;   // clocks n=10
+            default: v35_step = 39'd0;
+        endcase
+        306: case (k)   // str_in: 64 6d
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C07E;   // fetch_release raise n=7
+            3: v35_step = 39'h00000000B0;   // clocks n=11
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h00211800F2;   // data io_read port n=15 w=2
+            6: v35_step = 39'h0021D00042;   // data write iy n=4 w=2
+            7: v35_step = 39'h0021180062;   // data io_read port n=6 w=2
+            8: v35_step = 39'h0021D00042;   // data write iy n=4 w=2
+            9: v35_step = 39'h0021180062;   // data io_read port n=6 w=2
+            10: v35_step = 39'h0021D00042;   // data write iy n=4 w=2
+            11: v35_step = 39'h000000008E;   // fetch_release n=8
+            12: v35_step = 39'h000000004F;   // split_floor n=4
+            13: v35_step = 39'h00000000A0;   // clocks n=10
+            default: v35_step = 39'd0;
+        endcase
+        307: case (k)   // str_in: 6c
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011180092;   // data io_read port n=9 w=1
+            2: v35_step = 39'h0011D00042;   // data write iy n=4 w=1
+            3: v35_step = 39'h0000000040;   // clocks n=4
+            default: v35_step = 39'd0;
+        endcase
+        308: case (k)   // str_in: 6d
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021180092;   // data io_read port n=9 w=2
+            2: v35_step = 39'h0021D00042;   // data write iy n=4 w=2
+            3: v35_step = 39'h0000000040;   // clocks n=4
+            default: v35_step = 39'd0;
+        endcase
+        309: case (k)   // str_load: 64 ac
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000067;   // nowait n=6
+            2: v35_step = 39'h000003C05E;   // fetch_release raise n=5
+            3: v35_step = 39'h0000000090;   // clocks n=9
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h00118800E2;   // data read ix n=14 w=1
+            6: v35_step = 39'h0011880092;   // data read ix n=9 w=1
+            7: v35_step = 39'h0011880092;   // data read ix n=9 w=1
+            8: v35_step = 39'h000000008E;   // fetch_release n=8
+            9: v35_step = 39'h00000000D0;   // clocks n=13
+            default: v35_step = 39'd0;
+        endcase
+        310: case (k)   // str_load: 64 ad
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000067;   // nowait n=6
+            2: v35_step = 39'h000003C05E;   // fetch_release raise n=5
+            3: v35_step = 39'h0000000090;   // clocks n=9
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h00218800E2;   // data read ix n=14 w=2
+            6: v35_step = 39'h0021880092;   // data read ix n=9 w=2
+            7: v35_step = 39'h0021880092;   // data read ix n=9 w=2
+            8: v35_step = 39'h000000008E;   // fetch_release n=8
+            9: v35_step = 39'h00000000D0;   // clocks n=13
+            default: v35_step = 39'd0;
+        endcase
+        311: case (k)   // str_load: ac
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011880092;   // data read ix n=9 w=1
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        312: case (k)   // str_load: ad
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021880092;   // data read ix n=9 w=2
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        313: case (k)   // str_move: 64 a4
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h00118800F2;   // data read ix n=15 w=1
+            6: v35_step = 39'h0011D00072;   // data write iy n=7 w=1
+            7: v35_step = 39'h0011880072;   // data read ix n=7 w=1
+            8: v35_step = 39'h0011D00072;   // data write iy n=7 w=1
+            9: v35_step = 39'h0011880072;   // data read ix n=7 w=1
+            10: v35_step = 39'h0011D00072;   // data write iy n=7 w=1
+            11: v35_step = 39'h000000008E;   // fetch_release n=8
+            12: v35_step = 39'h000000004F;   // split_floor n=4
+            13: v35_step = 39'h00000000A0;   // clocks n=10
+            default: v35_step = 39'd0;
+        endcase
+        314: case (k)   // str_move: 64 a5
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h00218800F2;   // data read ix n=15 w=2
+            6: v35_step = 39'h0021D00072;   // data write iy n=7 w=2
+            7: v35_step = 39'h0021880072;   // data read ix n=7 w=2
+            8: v35_step = 39'h0021D00072;   // data write iy n=7 w=2
+            9: v35_step = 39'h0021880072;   // data read ix n=7 w=2
+            10: v35_step = 39'h0021D00072;   // data write iy n=7 w=2
+            11: v35_step = 39'h000000008E;   // fetch_release n=8
+            12: v35_step = 39'h000000004F;   // split_floor n=4
+            13: v35_step = 39'h00000000A0;   // clocks n=10
+            default: v35_step = 39'd0;
+        endcase
+        315: case (k)   // str_move: a4
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011880092;   // data read ix n=9 w=1
+            2: v35_step = 39'h0011D00072;   // data write iy n=7 w=1
+            3: v35_step = 39'h0000000040;   // clocks n=4
+            default: v35_step = 39'd0;
+        endcase
+        316: case (k)   // str_move: a5
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021880092;   // data read ix n=9 w=2
+            2: v35_step = 39'h0021D00072;   // data write iy n=7 w=2
+            3: v35_step = 39'h0000000040;   // clocks n=4
+            default: v35_step = 39'd0;
+        endcase
+        317: case (k)   // str_out: 64 6e
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C07E;   // fetch_release raise n=7
+            3: v35_step = 39'h00000000B0;   // clocks n=11
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0011880102;   // data read ix n=16 w=1
+            6: v35_step = 39'h0011200062;   // data io_write port n=6 w=1
+            7: v35_step = 39'h0011880062;   // data read ix n=6 w=1
+            8: v35_step = 39'h0011200062;   // data io_write port n=6 w=1
+            9: v35_step = 39'h0011880062;   // data read ix n=6 w=1
+            10: v35_step = 39'h0011200062;   // data io_write port n=6 w=1
+            11: v35_step = 39'h000000009E;   // fetch_release n=9
+            12: v35_step = 39'h000000004F;   // split_floor n=4
+            13: v35_step = 39'h00000000B0;   // clocks n=11
+            default: v35_step = 39'd0;
+        endcase
+        318: case (k)   // str_out: 64 6f
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C07E;   // fetch_release raise n=7
+            3: v35_step = 39'h00000000B0;   // clocks n=11
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0021880102;   // data read ix n=16 w=2
+            6: v35_step = 39'h0021200062;   // data io_write port n=6 w=2
+            7: v35_step = 39'h0021880062;   // data read ix n=6 w=2
+            8: v35_step = 39'h0021200062;   // data io_write port n=6 w=2
+            9: v35_step = 39'h0021880062;   // data read ix n=6 w=2
+            10: v35_step = 39'h0021200062;   // data io_write port n=6 w=2
+            11: v35_step = 39'h000000009E;   // fetch_release n=9
+            12: v35_step = 39'h000000004F;   // split_floor n=4
+            13: v35_step = 39'h00000000B0;   // clocks n=11
+            default: v35_step = 39'd0;
+        endcase
+        319: case (k)   // str_out: 6e
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h00118800A2;   // data read ix n=10 w=1
+            2: v35_step = 39'h0011200072;   // data io_write port n=7 w=1
+            3: v35_step = 39'h0000000030;   // clocks n=3
+            default: v35_step = 39'd0;
+        endcase
+        320: case (k)   // str_out: 6f
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h00218800A2;   // data read ix n=10 w=2
+            2: v35_step = 39'h0021200072;   // data io_write port n=7 w=2
+            3: v35_step = 39'h0000000030;   // clocks n=3
+            default: v35_step = 39'd0;
+        endcase
+        321: case (k)   // str_scan: 64 ae
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0011C800F2;   // data read iy n=15 w=1
+            6: v35_step = 39'h000000003D;   // fetch_hold n=3
+            7: v35_step = 39'h0011C80082;   // data read iy n=8 w=1
+            8: v35_step = 39'h000000003D;   // fetch_hold n=3
+            9: v35_step = 39'h0011C800A2;   // data read iy n=10 w=1
+            10: v35_step = 39'h000000003D;   // fetch_hold n=3
+            11: v35_step = 39'h000000008E;   // fetch_release n=8
+            12: v35_step = 39'h0000000120;   // clocks n=18
+            13: v35_step = 39'h0000000110;   // clocks n=17
+            default: v35_step = 39'd0;
+        endcase
+        322: case (k)   // str_scan: 64 af
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0021C800F2;   // data read iy n=15 w=2
+            6: v35_step = 39'h000000003D;   // fetch_hold n=3
+            7: v35_step = 39'h0021C80082;   // data read iy n=8 w=2
+            8: v35_step = 39'h000000003D;   // fetch_hold n=3
+            9: v35_step = 39'h0021C800A2;   // data read iy n=10 w=2
+            10: v35_step = 39'h000000003D;   // fetch_hold n=3
+            11: v35_step = 39'h000000008E;   // fetch_release n=8
+            12: v35_step = 39'h0000000120;   // clocks n=18
+            13: v35_step = 39'h0000000110;   // clocks n=17
+            default: v35_step = 39'd0;
+        endcase
+        323: case (k)   // str_scan: ae
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011C800A2;   // data read iy n=10 w=1
+            2: v35_step = 39'h000000003D;   // fetch_hold n=3
+            3: v35_step = 39'h0000000070;   // clocks n=7
+            default: v35_step = 39'd0;
+        endcase
+        324: case (k)   // str_scan: af
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021C800A2;   // data read iy n=10 w=2
+            2: v35_step = 39'h000000003D;   // fetch_hold n=3
+            3: v35_step = 39'h0000000070;   // clocks n=7
+            default: v35_step = 39'd0;
+        endcase
+        325: case (k)   // str_store: 64 aa
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0011D000F2;   // data write iy n=15 w=1
+            6: v35_step = 39'h0011D00072;   // data write iy n=7 w=1
+            7: v35_step = 39'h0011D00072;   // data write iy n=7 w=1
+            8: v35_step = 39'h000000008E;   // fetch_release n=8
+            9: v35_step = 39'h000000004F;   // split_floor n=4
+            10: v35_step = 39'h00000000A0;   // clocks n=10
+            default: v35_step = 39'd0;
+        endcase
+        326: case (k)   // str_store: 64 ab
+            0: v35_step = 39'h0000000011;   // take n=1
+            1: v35_step = 39'h0000000057;   // nowait n=5
+            2: v35_step = 39'h000003C06E;   // fetch_release raise n=6
+            3: v35_step = 39'h00000000A0;   // clocks n=10
+            4: v35_step = 39'h000003800E;   // fetch_release forever n=0
+            5: v35_step = 39'h0021D000F2;   // data write iy n=15 w=2
+            6: v35_step = 39'h0021D00072;   // data write iy n=7 w=2
+            7: v35_step = 39'h0021D00072;   // data write iy n=7 w=2
+            8: v35_step = 39'h000000008E;   // fetch_release n=8
+            9: v35_step = 39'h000000004F;   // split_floor n=4
+            10: v35_step = 39'h00000000A0;   // clocks n=10
+            default: v35_step = 39'd0;
+        endcase
+        327: case (k)   // str_store: aa
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0011D000B2;   // data write iy n=11 w=1
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        328: case (k)   // str_store: ab
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0021D000B2;   // data write iy n=11 w=2
+            2: v35_step = 39'h0000000000;   // clocks n=0
+            default: v35_step = 39'd0;
+        endcase
+        329: case (k)   // xlat: d7
+            0: v35_step = 39'h0000000000;   // clocks n=0
+            1: v35_step = 39'h0010480072;   // data read ea n=7 w=1
+            2: v35_step = 39'h0000000020;   // clocks n=2
+            default: v35_step = 39'd0;
+        endcase
+        default: v35_step = 39'd0;
     endcase
 endfunction
 
@@ -4084,734 +5639,1026 @@ localparam int V35_STR_PRE = 1;
 localparam int V35_STR_SETS = 3;
 function automatic logic [5:0] v35_str_shape(input int tmpl);   // {t, m, c}; 0: not one
     case (tmpl)
-        214: v35_str_shape = {2'd2, 2'd3, 2'd2};   // str_cmp: 64 a6
-        215: v35_str_shape = {2'd2, 2'd3, 2'd2};   // str_cmp: 64 a7
-        218: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_in: 64 6c
-        219: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_in: 64 6d
-        222: v35_str_shape = {2'd1, 2'd1, 2'd1};   // str_load: 64 ac
-        223: v35_str_shape = {2'd1, 2'd1, 2'd1};   // str_load: 64 ad
-        226: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_move: 64 a4
-        227: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_move: 64 a5
-        230: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_out: 64 6e
-        231: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_out: 64 6f
-        234: v35_str_shape = {2'd1, 2'd2, 2'd1};   // str_scan: 64 ae
-        235: v35_str_shape = {2'd1, 2'd2, 2'd1};   // str_scan: 64 af
-        238: v35_str_shape = {2'd2, 2'd1, 2'd1};   // str_store: 64 aa
-        239: v35_str_shape = {2'd2, 2'd1, 2'd1};   // str_store: 64 ab
+        301: v35_str_shape = {2'd2, 2'd3, 2'd2};   // str_cmp: 64 a6
+        302: v35_str_shape = {2'd2, 2'd3, 2'd2};   // str_cmp: 64 a7
+        305: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_in: 64 6c
+        306: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_in: 64 6d
+        309: v35_str_shape = {2'd1, 2'd1, 2'd1};   // str_load: 64 ac
+        310: v35_str_shape = {2'd1, 2'd1, 2'd1};   // str_load: 64 ad
+        313: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_move: 64 a4
+        314: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_move: 64 a5
+        317: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_out: 64 6e
+        318: v35_str_shape = {2'd2, 2'd2, 2'd2};   // str_out: 64 6f
+        321: v35_str_shape = {2'd1, 2'd2, 2'd1};   // str_scan: 64 ae
+        322: v35_str_shape = {2'd1, 2'd2, 2'd1};   // str_scan: 64 af
+        325: v35_str_shape = {2'd2, 2'd1, 2'd1};   // str_store: 64 aa
+        326: v35_str_shape = {2'd2, 2'd1, 2'd1};   // str_store: 64 ab
         default: v35_str_shape = 6'd0;
     endcase
 endfunction
 
-// ---- Template selection: the format word (686 formats) ----
-localparam int V35_FF_CLS = 0, V35_FF_CLS_W = 6;
-localparam int V35_FF_LENGTH = 6, V35_FF_LENGTH_W = 3;
-localparam int V35_FF_IMM_BYTES = 9, V35_FF_IMM_BYTES_W = 2;
-localparam int V35_FF_HAS_EA = 11, V35_FF_HAS_EA_W = 1;
-localparam int V35_FF_MODRM = 12, V35_FF_MODRM_W = 1;
-localparam int V35_FF_DISP = 13, V35_FF_DISP_W = 2;
-localparam int V35_FF_WIDTH = 15, V35_FF_WIDTH_W = 2;
-localparam int V35_FF_EA_CLASS = 17, V35_FF_EA_CLASS_W = 3;
-localparam int V35_FF_SIGNED = 20, V35_FF_SIGNED_W = 1;
-localparam int V35_FF_GROUP = 21, V35_FF_GROUP_W = 1;
-localparam int V35_FF_FIXED_ALU = 22, V35_FF_FIXED_ALU_W = 1;
-localparam int V35_FF_SHIFT = 23, V35_FF_SHIFT_W = 1;
-localparam int V35_FF_CL = 24, V35_FF_CL_W = 1;
-localparam int V35_FF_NOWRITE = 25, V35_FF_NOWRITE_W = 1;
-localparam int V35_FF_SWAP = 26, V35_FF_SWAP_W = 1;
-localparam int V35_FF_COND = 27, V35_FF_COND_W = 1;
-localparam int V35_FF_TAKEN = 28, V35_FF_TAKEN_W = 1;
-localparam int V35_FF_COUNT_ZERO = 29, V35_FF_COUNT_ZERO_W = 1;
-localparam int V35_FF_REFRESH = 30, V35_FF_REFRESH_W = 1;
-localparam int V35_FMT_W = 31;
-function automatic int v35_tmpl_sel(input logic [30:0] fmt);   // -1: none
+// ---- (WP79) The BCD strings' compact templates (rtlgen.bcd_template): rows 0-1 the head
+// (clocks pre, take 1), then the rows of byte pair 0 and of pair >= 1 (m rows each: the
+// byte reads at IX + i and IY + i, ADD4S / SUB4S's write at IY + i), then clocks exec; the
+// EU expands them by the pair count (expand_bcd) ----
+localparam int V35_BCD_HEAD = 2;
+localparam int V35_BCD_SETS = 2;
+function automatic logic [1:0] v35_bcd_shape(input int tmpl);   // m; 0: not one
+    case (tmpl)
+        2: v35_bcd_shape = 2'd3;   // bcd4s: 0f 20
+        3: v35_bcd_shape = 2'd2;   // bcd4s_cmp: 0f 26
+        default: v35_bcd_shape = 2'd0;
+    endcase
+endfunction
+
+// ---- Template selection: the format word (936 formats) ----
+localparam int V35_FF_CLS = 0, V35_FF_CLS_W = 7;
+localparam int V35_FF_LENGTH = 7, V35_FF_LENGTH_W = 3;
+localparam int V35_FF_IMM_BYTES = 10, V35_FF_IMM_BYTES_W = 2;
+localparam int V35_FF_HAS_EA = 12, V35_FF_HAS_EA_W = 1;
+localparam int V35_FF_MODRM = 13, V35_FF_MODRM_W = 1;
+localparam int V35_FF_DISP = 14, V35_FF_DISP_W = 2;
+localparam int V35_FF_WIDTH = 16, V35_FF_WIDTH_W = 2;
+localparam int V35_FF_EA_CLASS = 18, V35_FF_EA_CLASS_W = 3;
+localparam int V35_FF_SIGNED = 21, V35_FF_SIGNED_W = 1;
+localparam int V35_FF_GROUP = 22, V35_FF_GROUP_W = 1;
+localparam int V35_FF_FIXED_ALU = 23, V35_FF_FIXED_ALU_W = 1;
+localparam int V35_FF_SHIFT = 24, V35_FF_SHIFT_W = 1;
+localparam int V35_FF_CL = 25, V35_FF_CL_W = 1;
+localparam int V35_FF_NOWRITE = 26, V35_FF_NOWRITE_W = 1;
+localparam int V35_FF_SWAP = 27, V35_FF_SWAP_W = 1;
+localparam int V35_FF_COND = 28, V35_FF_COND_W = 1;
+localparam int V35_FF_TAKEN = 29, V35_FF_TAKEN_W = 1;
+localparam int V35_FF_COUNT_ZERO = 30, V35_FF_COUNT_ZERO_W = 1;
+localparam int V35_FF_REFRESH = 31, V35_FF_REFRESH_W = 1;
+localparam int V35_FF_CROSS = 32, V35_FF_CROSS_W = 1;
+localparam int V35_FMT_W = 33;
+function automatic int v35_tmpl_sel(input logic [32:0] fmt);   // -1: none
     case (fmt)
-        31'h00008048: v35_tmpl_sel = 34;
-        31'h0000804E: v35_tmpl_sel = 83;
-        31'h00008062: v35_tmpl_sel = 216;
-        31'h00008063: v35_tmpl_sel = 220;
-        31'h00008064: v35_tmpl_sel = 224;
-        31'h00008065: v35_tmpl_sel = 228;
-        31'h00008066: v35_tmpl_sel = 232;
-        31'h00008067: v35_tmpl_sel = 236;
-        31'h00008068: v35_tmpl_sel = 240;
-        31'h00008088: v35_tmpl_sel = 32;
-        31'h0000808E: v35_tmpl_sel = 81;
-        31'h000080A2: v35_tmpl_sel = 214;
-        31'h000080A3: v35_tmpl_sel = 218;
-        31'h000080A4: v35_tmpl_sel = 222;
-        31'h000080A5: v35_tmpl_sel = 226;
-        31'h000080A6: v35_tmpl_sel = 230;
-        31'h000080A7: v35_tmpl_sel = 234;
-        31'h000080A8: v35_tmpl_sel = 238;
-        31'h00008869: v35_tmpl_sel = 242;
-        31'h0000909A: v35_tmpl_sel = 103;
-        31'h00010044: v35_tmpl_sel = 85;
-        31'h00010046: v35_tmpl_sel = 27;
-        31'h00010048: v35_tmpl_sel = 35;
-        31'h0001004E: v35_tmpl_sel = 84;
-        31'h0001004F: v35_tmpl_sel = 85;
-        31'h00010051: v35_tmpl_sel = 90;
-        31'h00010052: v35_tmpl_sel = 91;
-        31'h00010053: v35_tmpl_sel = 92;
-        31'h00010055: v35_tmpl_sel = 94;
-        31'h00010058: v35_tmpl_sel = 101;
-        31'h00010059: v35_tmpl_sel = 102;
-        31'h0001005A: v35_tmpl_sel = 104;
-        31'h00010062: v35_tmpl_sel = 217;
-        31'h00010063: v35_tmpl_sel = 221;
-        31'h00010064: v35_tmpl_sel = 225;
-        31'h00010065: v35_tmpl_sel = 229;
-        31'h00010066: v35_tmpl_sel = 233;
-        31'h00010067: v35_tmpl_sel = 237;
-        31'h00010068: v35_tmpl_sel = 241;
-        31'h00010083: v35_tmpl_sel = 5;
-        31'h00010088: v35_tmpl_sel = 33;
-        31'h0001008E: v35_tmpl_sel = 82;
-        31'h000100A2: v35_tmpl_sel = 215;
-        31'h000100A3: v35_tmpl_sel = 219;
-        31'h000100A4: v35_tmpl_sel = 223;
-        31'h000100A5: v35_tmpl_sel = 227;
-        31'h000100A6: v35_tmpl_sel = 231;
-        31'h000100A7: v35_tmpl_sel = 235;
-        31'h000100A8: v35_tmpl_sel = 239;
-        31'h00010287: v35_tmpl_sel = 31;
-        31'h00010296: v35_tmpl_sel = 96;
-        31'h000104C7: v35_tmpl_sel = 28;
-        31'h000104D6: v35_tmpl_sel = 95;
-        31'h00010714: v35_tmpl_sel = 93;
-        31'h0001109A: v35_tmpl_sel = 103;
-        31'h0002988A: v35_tmpl_sel = 41;
-        31'h0002988B: v35_tmpl_sel = 41;
-        31'h0002989C: v35_tmpl_sel = 106;
-        31'h000298A0: v35_tmpl_sel = 197;
-        31'h00031889: v35_tmpl_sel = 36;
-        31'h0003188A: v35_tmpl_sel = 45;
-        31'h0003188B: v35_tmpl_sel = 45;
-        31'h0003188C: v35_tmpl_sel = 57;
-        31'h0003189C: v35_tmpl_sel = 110;
-        31'h000318A0: v35_tmpl_sel = 201;
-        31'h0004B8CA: v35_tmpl_sel = 43;
-        31'h0004B8CB: v35_tmpl_sel = 43;
-        31'h0004B8DC: v35_tmpl_sel = 108;
-        31'h0004B8E0: v35_tmpl_sel = 199;
-        31'h0004D90A: v35_tmpl_sel = 42;
-        31'h0004D90B: v35_tmpl_sel = 42;
-        31'h0004D91C: v35_tmpl_sel = 107;
-        31'h0004D920: v35_tmpl_sel = 198;
-        31'h000538C9: v35_tmpl_sel = 38;
-        31'h000538CA: v35_tmpl_sel = 47;
-        31'h000538CB: v35_tmpl_sel = 47;
-        31'h000538CC: v35_tmpl_sel = 59;
-        31'h000538DC: v35_tmpl_sel = 112;
-        31'h000538E0: v35_tmpl_sel = 203;
-        31'h00055909: v35_tmpl_sel = 37;
-        31'h0005590A: v35_tmpl_sel = 46;
-        31'h0005590B: v35_tmpl_sel = 46;
-        31'h0005590C: v35_tmpl_sel = 58;
-        31'h0005591C: v35_tmpl_sel = 111;
-        31'h00055920: v35_tmpl_sel = 202;
-        31'h0006988A: v35_tmpl_sel = 41;
-        31'h0006988B: v35_tmpl_sel = 41;
-        31'h0006989C: v35_tmpl_sel = 106;
-        31'h000698A0: v35_tmpl_sel = 197;
-        31'h00071889: v35_tmpl_sel = 36;
-        31'h0007188A: v35_tmpl_sel = 45;
-        31'h0007188B: v35_tmpl_sel = 45;
-        31'h0007188C: v35_tmpl_sel = 57;
-        31'h0007189C: v35_tmpl_sel = 110;
-        31'h000718A0: v35_tmpl_sel = 201;
-        31'h0008B8CA: v35_tmpl_sel = 43;
-        31'h0008B8CB: v35_tmpl_sel = 43;
-        31'h0008B8DC: v35_tmpl_sel = 108;
-        31'h0008B8E0: v35_tmpl_sel = 199;
-        31'h000938C9: v35_tmpl_sel = 38;
-        31'h000938CA: v35_tmpl_sel = 47;
-        31'h000938CB: v35_tmpl_sel = 47;
-        31'h000938CC: v35_tmpl_sel = 59;
-        31'h000938DC: v35_tmpl_sel = 112;
-        31'h000938E0: v35_tmpl_sel = 203;
-        31'h000AD90A: v35_tmpl_sel = 44;
-        31'h000AD90B: v35_tmpl_sel = 44;
-        31'h000AD91C: v35_tmpl_sel = 109;
-        31'h000AD920: v35_tmpl_sel = 200;
-        31'h000B5909: v35_tmpl_sel = 39;
-        31'h000B590A: v35_tmpl_sel = 48;
-        31'h000B590B: v35_tmpl_sel = 48;
-        31'h000B590C: v35_tmpl_sel = 60;
-        31'h000B591C: v35_tmpl_sel = 113;
-        31'h000B5920: v35_tmpl_sel = 204;
-        31'h000D08CA: v35_tmpl_sel = 40;
-        31'h000D08E0: v35_tmpl_sel = 205;
-        31'h00209085: v35_tmpl_sel = 15;
-        31'h0020908D: v35_tmpl_sel = 69;
-        31'h0020909F: v35_tmpl_sel = 194;
-        31'h00211085: v35_tmpl_sel = 15;
-        31'h0021108D: v35_tmpl_sel = 69;
-        31'h0021109F: v35_tmpl_sel = 194;
-        31'h002112C7: v35_tmpl_sel = 30;
-        31'h002112DF: v35_tmpl_sel = 185;
-        31'h00211507: v35_tmpl_sel = 29;
-        31'h00229885: v35_tmpl_sel = 7;
-        31'h0022988D: v35_tmpl_sel = 61;
-        31'h0022989C: v35_tmpl_sel = 154;
-        31'h00229AE1: v35_tmpl_sel = 206;
-        31'h00231885: v35_tmpl_sel = 19;
-        31'h0023188D: v35_tmpl_sel = 73;
-        31'h00231890: v35_tmpl_sel = 86;
-        31'h00231897: v35_tmpl_sel = 97;
-        31'h0023189C: v35_tmpl_sel = 158;
-        31'h00231ADD: v35_tmpl_sel = 170;
-        31'h00231ADF: v35_tmpl_sel = 185;
-        31'h00231D1D: v35_tmpl_sel = 162;
-        31'h00231D21: v35_tmpl_sel = 210;
-        31'h0024B8C5: v35_tmpl_sel = 11;
-        31'h0024B8CD: v35_tmpl_sel = 65;
-        31'h0024B8DC: v35_tmpl_sel = 156;
-        31'h0024BB21: v35_tmpl_sel = 208;
-        31'h0024D905: v35_tmpl_sel = 8;
-        31'h0024D90D: v35_tmpl_sel = 62;
-        31'h0024D91C: v35_tmpl_sel = 155;
-        31'h0024DB61: v35_tmpl_sel = 207;
-        31'h002538C5: v35_tmpl_sel = 23;
-        31'h002538CD: v35_tmpl_sel = 77;
-        31'h002538D0: v35_tmpl_sel = 88;
-        31'h002538D7: v35_tmpl_sel = 99;
-        31'h002538DC: v35_tmpl_sel = 160;
-        31'h00253B1D: v35_tmpl_sel = 174;
-        31'h00253B1F: v35_tmpl_sel = 191;
-        31'h00253D5D: v35_tmpl_sel = 166;
-        31'h00253D61: v35_tmpl_sel = 212;
-        31'h00255905: v35_tmpl_sel = 20;
-        31'h0025590D: v35_tmpl_sel = 74;
-        31'h00255910: v35_tmpl_sel = 87;
-        31'h00255917: v35_tmpl_sel = 98;
-        31'h0025591C: v35_tmpl_sel = 159;
-        31'h00255B5D: v35_tmpl_sel = 171;
-        31'h00255B5F: v35_tmpl_sel = 188;
-        31'h00255D9D: v35_tmpl_sel = 163;
-        31'h00255DA1: v35_tmpl_sel = 211;
-        31'h00269885: v35_tmpl_sel = 7;
-        31'h0026988D: v35_tmpl_sel = 61;
-        31'h0026989C: v35_tmpl_sel = 154;
-        31'h00269AE1: v35_tmpl_sel = 206;
-        31'h00271885: v35_tmpl_sel = 19;
-        31'h0027188D: v35_tmpl_sel = 73;
-        31'h00271890: v35_tmpl_sel = 86;
-        31'h00271897: v35_tmpl_sel = 97;
-        31'h0027189C: v35_tmpl_sel = 158;
-        31'h00271ADD: v35_tmpl_sel = 170;
-        31'h00271ADF: v35_tmpl_sel = 185;
-        31'h00271D1D: v35_tmpl_sel = 162;
-        31'h00271D21: v35_tmpl_sel = 210;
-        31'h0028B8C5: v35_tmpl_sel = 11;
-        31'h0028B8CD: v35_tmpl_sel = 65;
-        31'h0028B8DC: v35_tmpl_sel = 156;
-        31'h0028BB21: v35_tmpl_sel = 208;
-        31'h002938C5: v35_tmpl_sel = 23;
-        31'h002938CD: v35_tmpl_sel = 77;
-        31'h002938D0: v35_tmpl_sel = 88;
-        31'h002938D7: v35_tmpl_sel = 99;
-        31'h002938DC: v35_tmpl_sel = 160;
-        31'h00293B1D: v35_tmpl_sel = 174;
-        31'h00293B1F: v35_tmpl_sel = 191;
-        31'h00293D5D: v35_tmpl_sel = 166;
-        31'h00293D61: v35_tmpl_sel = 212;
-        31'h002AD905: v35_tmpl_sel = 13;
-        31'h002AD90D: v35_tmpl_sel = 67;
-        31'h002AD91C: v35_tmpl_sel = 157;
-        31'h002ADB61: v35_tmpl_sel = 209;
-        31'h002B5905: v35_tmpl_sel = 25;
-        31'h002B590D: v35_tmpl_sel = 79;
-        31'h002B5910: v35_tmpl_sel = 89;
-        31'h002B5917: v35_tmpl_sel = 100;
-        31'h002B591C: v35_tmpl_sel = 161;
-        31'h002B5B5D: v35_tmpl_sel = 176;
-        31'h002B5B5F: v35_tmpl_sel = 188;
-        31'h002B5D9D: v35_tmpl_sel = 168;
-        31'h002B5DA1: v35_tmpl_sel = 213;
-        31'h00309085: v35_tmpl_sel = 17;
-        31'h0030908D: v35_tmpl_sel = 71;
-        31'h00311085: v35_tmpl_sel = 17;
-        31'h0031108D: v35_tmpl_sel = 71;
-        31'h00329885: v35_tmpl_sel = 9;
-        31'h0032988D: v35_tmpl_sel = 63;
-        31'h00331885: v35_tmpl_sel = 21;
-        31'h0033188D: v35_tmpl_sel = 75;
-        31'h0034B8C5: v35_tmpl_sel = 12;
-        31'h0034B8CD: v35_tmpl_sel = 66;
-        31'h0034D905: v35_tmpl_sel = 10;
-        31'h0034D90D: v35_tmpl_sel = 64;
-        31'h003538C5: v35_tmpl_sel = 24;
-        31'h003538CD: v35_tmpl_sel = 78;
-        31'h00355905: v35_tmpl_sel = 22;
-        31'h0035590D: v35_tmpl_sel = 76;
-        31'h00369885: v35_tmpl_sel = 9;
-        31'h0036988D: v35_tmpl_sel = 63;
-        31'h00371885: v35_tmpl_sel = 21;
-        31'h0037188D: v35_tmpl_sel = 75;
-        31'h0038B8C5: v35_tmpl_sel = 12;
-        31'h0038B8CD: v35_tmpl_sel = 66;
-        31'h003938C5: v35_tmpl_sel = 24;
-        31'h003938CD: v35_tmpl_sel = 78;
-        31'h003AD905: v35_tmpl_sel = 14;
-        31'h003AD90D: v35_tmpl_sel = 68;
-        31'h003B5905: v35_tmpl_sel = 26;
-        31'h003B590D: v35_tmpl_sel = 80;
-        31'h0040909A: v35_tmpl_sel = 103;
-        31'h0041109A: v35_tmpl_sel = 103;
-        31'h0042988B: v35_tmpl_sel = 49;
-        31'h0043188B: v35_tmpl_sel = 53;
-        31'h0044B8CB: v35_tmpl_sel = 51;
-        31'h0044D90B: v35_tmpl_sel = 50;
-        31'h004538CB: v35_tmpl_sel = 55;
-        31'h0045590B: v35_tmpl_sel = 54;
-        31'h0046988B: v35_tmpl_sel = 49;
-        31'h0047188B: v35_tmpl_sel = 53;
-        31'h0048B8CB: v35_tmpl_sel = 51;
-        31'h004938CB: v35_tmpl_sel = 55;
-        31'h004AD90B: v35_tmpl_sel = 52;
-        31'h004B590B: v35_tmpl_sel = 56;
-        31'h00611507: v35_tmpl_sel = 29;
-        31'h00A2989C: v35_tmpl_sel = 130;
-        31'h00A3189C: v35_tmpl_sel = 138;
-        31'h00A4B8DC: v35_tmpl_sel = 134;
-        31'h00A4D91C: v35_tmpl_sel = 132;
-        31'h00A538DC: v35_tmpl_sel = 142;
-        31'h00A5591C: v35_tmpl_sel = 140;
-        31'h00A6989C: v35_tmpl_sel = 130;
-        31'h00A7189C: v35_tmpl_sel = 138;
-        31'h00A8B8DC: v35_tmpl_sel = 134;
-        31'h00A938DC: v35_tmpl_sel = 142;
-        31'h00AAD91C: v35_tmpl_sel = 136;
-        31'h00AB591C: v35_tmpl_sel = 144;
-        31'h0121109E: v35_tmpl_sel = 182;
-        31'h01A3189C: v35_tmpl_sel = 146;
-        31'h01A538DC: v35_tmpl_sel = 150;
-        31'h01A5591C: v35_tmpl_sel = 148;
-        31'h01A7189C: v35_tmpl_sel = 146;
-        31'h01A938DC: v35_tmpl_sel = 150;
-        31'h01AB591C: v35_tmpl_sel = 152;
-        31'h0202989C: v35_tmpl_sel = 114;
-        31'h0203189C: v35_tmpl_sel = 118;
-        31'h0204B8DC: v35_tmpl_sel = 116;
-        31'h0204D91C: v35_tmpl_sel = 115;
-        31'h020538DC: v35_tmpl_sel = 120;
-        31'h0205591C: v35_tmpl_sel = 119;
-        31'h0206989C: v35_tmpl_sel = 114;
-        31'h0207189C: v35_tmpl_sel = 118;
-        31'h0208B8DC: v35_tmpl_sel = 116;
-        31'h020938DC: v35_tmpl_sel = 120;
-        31'h020AD91C: v35_tmpl_sel = 117;
-        31'h020B591C: v35_tmpl_sel = 121;
-        31'h02231ADD: v35_tmpl_sel = 172;
-        31'h02231D1D: v35_tmpl_sel = 164;
-        31'h02253B1D: v35_tmpl_sel = 175;
-        31'h02253D5D: v35_tmpl_sel = 167;
-        31'h02255B5D: v35_tmpl_sel = 173;
-        31'h02255D9D: v35_tmpl_sel = 165;
-        31'h02271ADD: v35_tmpl_sel = 172;
-        31'h02271D1D: v35_tmpl_sel = 164;
-        31'h02293B1D: v35_tmpl_sel = 175;
-        31'h02293D5D: v35_tmpl_sel = 167;
-        31'h022B5B5D: v35_tmpl_sel = 177;
-        31'h022B5D9D: v35_tmpl_sel = 169;
-        31'h02631D1D: v35_tmpl_sel = 178;
-        31'h02653D5D: v35_tmpl_sel = 180;
-        31'h02655D9D: v35_tmpl_sel = 179;
-        31'h02671D1D: v35_tmpl_sel = 178;
-        31'h02693D5D: v35_tmpl_sel = 180;
-        31'h026B5D9D: v35_tmpl_sel = 181;
-        31'h0402989C: v35_tmpl_sel = 122;
-        31'h0403189C: v35_tmpl_sel = 126;
-        31'h0404B8DC: v35_tmpl_sel = 124;
-        31'h0404D91C: v35_tmpl_sel = 123;
-        31'h040538DC: v35_tmpl_sel = 128;
-        31'h0405591C: v35_tmpl_sel = 127;
-        31'h0406989C: v35_tmpl_sel = 122;
-        31'h0407189C: v35_tmpl_sel = 126;
-        31'h0408B8DC: v35_tmpl_sel = 124;
-        31'h040938DC: v35_tmpl_sel = 128;
-        31'h040AD91C: v35_tmpl_sel = 125;
-        31'h040B591C: v35_tmpl_sel = 129;
-        31'h08010081: v35_tmpl_sel = 1;
-        31'h1001005B: v35_tmpl_sel = 105;
-        31'h10010081: v35_tmpl_sel = 3;
-        31'h10010083: v35_tmpl_sel = 6;
-        31'h100100C0: v35_tmpl_sel = 0;
-        31'h100100C2: v35_tmpl_sel = 4;
-        31'h18010081: v35_tmpl_sel = 2;
-        31'h2020909F: v35_tmpl_sel = 195;
-        31'h2021109F: v35_tmpl_sel = 195;
-        31'h202112DF: v35_tmpl_sel = 186;
-        31'h20231ADF: v35_tmpl_sel = 186;
-        31'h20253B1F: v35_tmpl_sel = 192;
-        31'h20255B5F: v35_tmpl_sel = 189;
-        31'h20271ADF: v35_tmpl_sel = 186;
-        31'h20293B1F: v35_tmpl_sel = 192;
-        31'h202B5B5F: v35_tmpl_sel = 189;
-        31'h20A2989C: v35_tmpl_sel = 131;
-        31'h20A3189C: v35_tmpl_sel = 139;
-        31'h20A4B8DC: v35_tmpl_sel = 135;
-        31'h20A4D91C: v35_tmpl_sel = 133;
-        31'h20A538DC: v35_tmpl_sel = 143;
-        31'h20A5591C: v35_tmpl_sel = 141;
-        31'h20A6989C: v35_tmpl_sel = 131;
-        31'h20A7189C: v35_tmpl_sel = 139;
-        31'h20A8B8DC: v35_tmpl_sel = 135;
-        31'h20A938DC: v35_tmpl_sel = 143;
-        31'h20AAD91C: v35_tmpl_sel = 137;
-        31'h20AB591C: v35_tmpl_sel = 145;
-        31'h2121109E: v35_tmpl_sel = 183;
-        31'h21A3189C: v35_tmpl_sel = 147;
-        31'h21A538DC: v35_tmpl_sel = 151;
-        31'h21A5591C: v35_tmpl_sel = 149;
-        31'h21A7189C: v35_tmpl_sel = 147;
-        31'h21A938DC: v35_tmpl_sel = 151;
-        31'h21AB591C: v35_tmpl_sel = 153;
-        31'h40008048: v35_tmpl_sel = 34;
-        31'h4000804E: v35_tmpl_sel = 83;
-        31'h40008062: v35_tmpl_sel = 216;
-        31'h40008063: v35_tmpl_sel = 220;
-        31'h40008064: v35_tmpl_sel = 224;
-        31'h40008065: v35_tmpl_sel = 228;
-        31'h40008066: v35_tmpl_sel = 232;
-        31'h40008067: v35_tmpl_sel = 236;
-        31'h40008068: v35_tmpl_sel = 240;
-        31'h40008088: v35_tmpl_sel = 32;
-        31'h4000808E: v35_tmpl_sel = 81;
-        31'h400080A2: v35_tmpl_sel = 214;
-        31'h400080A3: v35_tmpl_sel = 218;
-        31'h400080A4: v35_tmpl_sel = 222;
-        31'h400080A5: v35_tmpl_sel = 226;
-        31'h400080A6: v35_tmpl_sel = 230;
-        31'h400080A7: v35_tmpl_sel = 234;
-        31'h400080A8: v35_tmpl_sel = 238;
-        31'h40008869: v35_tmpl_sel = 242;
-        31'h4000909A: v35_tmpl_sel = 103;
-        31'h40010044: v35_tmpl_sel = 85;
-        31'h40010046: v35_tmpl_sel = 27;
-        31'h40010048: v35_tmpl_sel = 35;
-        31'h4001004E: v35_tmpl_sel = 84;
-        31'h4001004F: v35_tmpl_sel = 85;
-        31'h40010051: v35_tmpl_sel = 90;
-        31'h40010052: v35_tmpl_sel = 91;
-        31'h40010053: v35_tmpl_sel = 92;
-        31'h40010055: v35_tmpl_sel = 94;
-        31'h40010058: v35_tmpl_sel = 101;
-        31'h40010059: v35_tmpl_sel = 102;
-        31'h4001005A: v35_tmpl_sel = 104;
-        31'h40010062: v35_tmpl_sel = 217;
-        31'h40010063: v35_tmpl_sel = 221;
-        31'h40010064: v35_tmpl_sel = 225;
-        31'h40010065: v35_tmpl_sel = 229;
-        31'h40010066: v35_tmpl_sel = 233;
-        31'h40010067: v35_tmpl_sel = 237;
-        31'h40010068: v35_tmpl_sel = 241;
-        31'h40010083: v35_tmpl_sel = 5;
-        31'h40010088: v35_tmpl_sel = 33;
-        31'h4001008E: v35_tmpl_sel = 82;
-        31'h400100A2: v35_tmpl_sel = 215;
-        31'h400100A3: v35_tmpl_sel = 219;
-        31'h400100A4: v35_tmpl_sel = 223;
-        31'h400100A5: v35_tmpl_sel = 227;
-        31'h400100A6: v35_tmpl_sel = 231;
-        31'h400100A7: v35_tmpl_sel = 235;
-        31'h400100A8: v35_tmpl_sel = 239;
-        31'h40010287: v35_tmpl_sel = 31;
-        31'h40010296: v35_tmpl_sel = 96;
-        31'h400104C7: v35_tmpl_sel = 28;
-        31'h400104D6: v35_tmpl_sel = 95;
-        31'h40010714: v35_tmpl_sel = 93;
-        31'h4001109A: v35_tmpl_sel = 103;
-        31'h4002988A: v35_tmpl_sel = 41;
-        31'h4002988B: v35_tmpl_sel = 41;
-        31'h4002989C: v35_tmpl_sel = 106;
-        31'h400298A0: v35_tmpl_sel = 197;
-        31'h40031889: v35_tmpl_sel = 36;
-        31'h4003188A: v35_tmpl_sel = 45;
-        31'h4003188B: v35_tmpl_sel = 45;
-        31'h4003188C: v35_tmpl_sel = 57;
-        31'h4003189C: v35_tmpl_sel = 110;
-        31'h400318A0: v35_tmpl_sel = 201;
-        31'h4004B8CA: v35_tmpl_sel = 43;
-        31'h4004B8CB: v35_tmpl_sel = 43;
-        31'h4004B8DC: v35_tmpl_sel = 108;
-        31'h4004B8E0: v35_tmpl_sel = 199;
-        31'h4004D90A: v35_tmpl_sel = 42;
-        31'h4004D90B: v35_tmpl_sel = 42;
-        31'h4004D91C: v35_tmpl_sel = 107;
-        31'h4004D920: v35_tmpl_sel = 198;
-        31'h400538C9: v35_tmpl_sel = 38;
-        31'h400538CA: v35_tmpl_sel = 47;
-        31'h400538CB: v35_tmpl_sel = 47;
-        31'h400538CC: v35_tmpl_sel = 59;
-        31'h400538DC: v35_tmpl_sel = 112;
-        31'h400538E0: v35_tmpl_sel = 203;
-        31'h40055909: v35_tmpl_sel = 37;
-        31'h4005590A: v35_tmpl_sel = 46;
-        31'h4005590B: v35_tmpl_sel = 46;
-        31'h4005590C: v35_tmpl_sel = 58;
-        31'h4005591C: v35_tmpl_sel = 111;
-        31'h40055920: v35_tmpl_sel = 202;
-        31'h4006988A: v35_tmpl_sel = 41;
-        31'h4006988B: v35_tmpl_sel = 41;
-        31'h4006989C: v35_tmpl_sel = 106;
-        31'h400698A0: v35_tmpl_sel = 197;
-        31'h40071889: v35_tmpl_sel = 36;
-        31'h4007188A: v35_tmpl_sel = 45;
-        31'h4007188B: v35_tmpl_sel = 45;
-        31'h4007188C: v35_tmpl_sel = 57;
-        31'h4007189C: v35_tmpl_sel = 110;
-        31'h400718A0: v35_tmpl_sel = 201;
-        31'h4008B8CA: v35_tmpl_sel = 43;
-        31'h4008B8CB: v35_tmpl_sel = 43;
-        31'h4008B8DC: v35_tmpl_sel = 108;
-        31'h4008B8E0: v35_tmpl_sel = 199;
-        31'h400938C9: v35_tmpl_sel = 38;
-        31'h400938CA: v35_tmpl_sel = 47;
-        31'h400938CB: v35_tmpl_sel = 47;
-        31'h400938CC: v35_tmpl_sel = 59;
-        31'h400938DC: v35_tmpl_sel = 112;
-        31'h400938E0: v35_tmpl_sel = 203;
-        31'h400AD90A: v35_tmpl_sel = 44;
-        31'h400AD90B: v35_tmpl_sel = 44;
-        31'h400AD91C: v35_tmpl_sel = 109;
-        31'h400AD920: v35_tmpl_sel = 200;
-        31'h400B5909: v35_tmpl_sel = 39;
-        31'h400B590A: v35_tmpl_sel = 48;
-        31'h400B590B: v35_tmpl_sel = 48;
-        31'h400B590C: v35_tmpl_sel = 60;
-        31'h400B591C: v35_tmpl_sel = 113;
-        31'h400B5920: v35_tmpl_sel = 204;
-        31'h400D08CA: v35_tmpl_sel = 40;
-        31'h400D08E0: v35_tmpl_sel = 205;
-        31'h40209085: v35_tmpl_sel = 16;
-        31'h4020908D: v35_tmpl_sel = 70;
-        31'h4020909F: v35_tmpl_sel = 196;
-        31'h40211085: v35_tmpl_sel = 16;
-        31'h4021108D: v35_tmpl_sel = 70;
-        31'h4021109F: v35_tmpl_sel = 196;
-        31'h402112C7: v35_tmpl_sel = 30;
-        31'h402112DF: v35_tmpl_sel = 187;
-        31'h40211507: v35_tmpl_sel = 29;
-        31'h40229885: v35_tmpl_sel = 7;
-        31'h4022988D: v35_tmpl_sel = 61;
-        31'h4022989C: v35_tmpl_sel = 154;
-        31'h40229AE1: v35_tmpl_sel = 206;
-        31'h40231885: v35_tmpl_sel = 19;
-        31'h4023188D: v35_tmpl_sel = 73;
-        31'h40231890: v35_tmpl_sel = 86;
-        31'h40231897: v35_tmpl_sel = 97;
-        31'h4023189C: v35_tmpl_sel = 158;
-        31'h40231ADD: v35_tmpl_sel = 170;
-        31'h40231ADF: v35_tmpl_sel = 187;
-        31'h40231D1D: v35_tmpl_sel = 162;
-        31'h40231D21: v35_tmpl_sel = 210;
-        31'h4024B8C5: v35_tmpl_sel = 11;
-        31'h4024B8CD: v35_tmpl_sel = 65;
-        31'h4024B8DC: v35_tmpl_sel = 156;
-        31'h4024BB21: v35_tmpl_sel = 208;
-        31'h4024D905: v35_tmpl_sel = 8;
-        31'h4024D90D: v35_tmpl_sel = 62;
-        31'h4024D91C: v35_tmpl_sel = 155;
-        31'h4024DB61: v35_tmpl_sel = 207;
-        31'h402538C5: v35_tmpl_sel = 23;
-        31'h402538CD: v35_tmpl_sel = 77;
-        31'h402538D0: v35_tmpl_sel = 88;
-        31'h402538D7: v35_tmpl_sel = 99;
-        31'h402538DC: v35_tmpl_sel = 160;
-        31'h40253B1D: v35_tmpl_sel = 174;
-        31'h40253B1F: v35_tmpl_sel = 193;
-        31'h40253D5D: v35_tmpl_sel = 166;
-        31'h40253D61: v35_tmpl_sel = 212;
-        31'h40255905: v35_tmpl_sel = 20;
-        31'h4025590D: v35_tmpl_sel = 74;
-        31'h40255910: v35_tmpl_sel = 87;
-        31'h40255917: v35_tmpl_sel = 98;
-        31'h4025591C: v35_tmpl_sel = 159;
-        31'h40255B5D: v35_tmpl_sel = 171;
-        31'h40255B5F: v35_tmpl_sel = 190;
-        31'h40255D9D: v35_tmpl_sel = 163;
-        31'h40255DA1: v35_tmpl_sel = 211;
-        31'h40269885: v35_tmpl_sel = 7;
-        31'h4026988D: v35_tmpl_sel = 61;
-        31'h4026989C: v35_tmpl_sel = 154;
-        31'h40269AE1: v35_tmpl_sel = 206;
-        31'h40271885: v35_tmpl_sel = 19;
-        31'h4027188D: v35_tmpl_sel = 73;
-        31'h40271890: v35_tmpl_sel = 86;
-        31'h40271897: v35_tmpl_sel = 97;
-        31'h4027189C: v35_tmpl_sel = 158;
-        31'h40271ADD: v35_tmpl_sel = 170;
-        31'h40271ADF: v35_tmpl_sel = 187;
-        31'h40271D1D: v35_tmpl_sel = 162;
-        31'h40271D21: v35_tmpl_sel = 210;
-        31'h4028B8C5: v35_tmpl_sel = 11;
-        31'h4028B8CD: v35_tmpl_sel = 65;
-        31'h4028B8DC: v35_tmpl_sel = 156;
-        31'h4028BB21: v35_tmpl_sel = 208;
-        31'h402938C5: v35_tmpl_sel = 23;
-        31'h402938CD: v35_tmpl_sel = 77;
-        31'h402938D0: v35_tmpl_sel = 88;
-        31'h402938D7: v35_tmpl_sel = 99;
-        31'h402938DC: v35_tmpl_sel = 160;
-        31'h40293B1D: v35_tmpl_sel = 174;
-        31'h40293B1F: v35_tmpl_sel = 193;
-        31'h40293D5D: v35_tmpl_sel = 166;
-        31'h40293D61: v35_tmpl_sel = 212;
-        31'h402AD905: v35_tmpl_sel = 13;
-        31'h402AD90D: v35_tmpl_sel = 67;
-        31'h402AD91C: v35_tmpl_sel = 157;
-        31'h402ADB61: v35_tmpl_sel = 209;
-        31'h402B5905: v35_tmpl_sel = 25;
-        31'h402B590D: v35_tmpl_sel = 79;
-        31'h402B5910: v35_tmpl_sel = 89;
-        31'h402B5917: v35_tmpl_sel = 100;
-        31'h402B591C: v35_tmpl_sel = 161;
-        31'h402B5B5D: v35_tmpl_sel = 176;
-        31'h402B5B5F: v35_tmpl_sel = 190;
-        31'h402B5D9D: v35_tmpl_sel = 168;
-        31'h402B5DA1: v35_tmpl_sel = 213;
-        31'h40309085: v35_tmpl_sel = 18;
-        31'h4030908D: v35_tmpl_sel = 72;
-        31'h40311085: v35_tmpl_sel = 18;
-        31'h4031108D: v35_tmpl_sel = 72;
-        31'h40329885: v35_tmpl_sel = 9;
-        31'h4032988D: v35_tmpl_sel = 63;
-        31'h40331885: v35_tmpl_sel = 21;
-        31'h4033188D: v35_tmpl_sel = 75;
-        31'h4034B8C5: v35_tmpl_sel = 12;
-        31'h4034B8CD: v35_tmpl_sel = 66;
-        31'h4034D905: v35_tmpl_sel = 10;
-        31'h4034D90D: v35_tmpl_sel = 64;
-        31'h403538C5: v35_tmpl_sel = 24;
-        31'h403538CD: v35_tmpl_sel = 78;
-        31'h40355905: v35_tmpl_sel = 22;
-        31'h4035590D: v35_tmpl_sel = 76;
-        31'h40369885: v35_tmpl_sel = 9;
-        31'h4036988D: v35_tmpl_sel = 63;
-        31'h40371885: v35_tmpl_sel = 21;
-        31'h4037188D: v35_tmpl_sel = 75;
-        31'h4038B8C5: v35_tmpl_sel = 12;
-        31'h4038B8CD: v35_tmpl_sel = 66;
-        31'h403938C5: v35_tmpl_sel = 24;
-        31'h403938CD: v35_tmpl_sel = 78;
-        31'h403AD905: v35_tmpl_sel = 14;
-        31'h403AD90D: v35_tmpl_sel = 68;
-        31'h403B5905: v35_tmpl_sel = 26;
-        31'h403B590D: v35_tmpl_sel = 80;
-        31'h4040909A: v35_tmpl_sel = 103;
-        31'h4041109A: v35_tmpl_sel = 103;
-        31'h4042988B: v35_tmpl_sel = 49;
-        31'h4043188B: v35_tmpl_sel = 53;
-        31'h4044B8CB: v35_tmpl_sel = 51;
-        31'h4044D90B: v35_tmpl_sel = 50;
-        31'h404538CB: v35_tmpl_sel = 55;
-        31'h4045590B: v35_tmpl_sel = 54;
-        31'h4046988B: v35_tmpl_sel = 49;
-        31'h4047188B: v35_tmpl_sel = 53;
-        31'h4048B8CB: v35_tmpl_sel = 51;
-        31'h404938CB: v35_tmpl_sel = 55;
-        31'h404AD90B: v35_tmpl_sel = 52;
-        31'h404B590B: v35_tmpl_sel = 56;
-        31'h40611507: v35_tmpl_sel = 29;
-        31'h40A2989C: v35_tmpl_sel = 130;
-        31'h40A3189C: v35_tmpl_sel = 138;
-        31'h40A4B8DC: v35_tmpl_sel = 134;
-        31'h40A4D91C: v35_tmpl_sel = 132;
-        31'h40A538DC: v35_tmpl_sel = 142;
-        31'h40A5591C: v35_tmpl_sel = 140;
-        31'h40A6989C: v35_tmpl_sel = 130;
-        31'h40A7189C: v35_tmpl_sel = 138;
-        31'h40A8B8DC: v35_tmpl_sel = 134;
-        31'h40A938DC: v35_tmpl_sel = 142;
-        31'h40AAD91C: v35_tmpl_sel = 136;
-        31'h40AB591C: v35_tmpl_sel = 144;
-        31'h4121109E: v35_tmpl_sel = 184;
-        31'h41A3189C: v35_tmpl_sel = 146;
-        31'h41A538DC: v35_tmpl_sel = 150;
-        31'h41A5591C: v35_tmpl_sel = 148;
-        31'h41A7189C: v35_tmpl_sel = 146;
-        31'h41A938DC: v35_tmpl_sel = 150;
-        31'h41AB591C: v35_tmpl_sel = 152;
-        31'h4202989C: v35_tmpl_sel = 114;
-        31'h4203189C: v35_tmpl_sel = 118;
-        31'h4204B8DC: v35_tmpl_sel = 116;
-        31'h4204D91C: v35_tmpl_sel = 115;
-        31'h420538DC: v35_tmpl_sel = 120;
-        31'h4205591C: v35_tmpl_sel = 119;
-        31'h4206989C: v35_tmpl_sel = 114;
-        31'h4207189C: v35_tmpl_sel = 118;
-        31'h4208B8DC: v35_tmpl_sel = 116;
-        31'h420938DC: v35_tmpl_sel = 120;
-        31'h420AD91C: v35_tmpl_sel = 117;
-        31'h420B591C: v35_tmpl_sel = 121;
-        31'h42231ADD: v35_tmpl_sel = 172;
-        31'h42231D1D: v35_tmpl_sel = 164;
-        31'h42253B1D: v35_tmpl_sel = 175;
-        31'h42253D5D: v35_tmpl_sel = 167;
-        31'h42255B5D: v35_tmpl_sel = 173;
-        31'h42255D9D: v35_tmpl_sel = 165;
-        31'h42271ADD: v35_tmpl_sel = 172;
-        31'h42271D1D: v35_tmpl_sel = 164;
-        31'h42293B1D: v35_tmpl_sel = 175;
-        31'h42293D5D: v35_tmpl_sel = 167;
-        31'h422B5B5D: v35_tmpl_sel = 177;
-        31'h422B5D9D: v35_tmpl_sel = 169;
-        31'h42631D1D: v35_tmpl_sel = 178;
-        31'h42653D5D: v35_tmpl_sel = 180;
-        31'h42655D9D: v35_tmpl_sel = 179;
-        31'h42671D1D: v35_tmpl_sel = 178;
-        31'h42693D5D: v35_tmpl_sel = 180;
-        31'h426B5D9D: v35_tmpl_sel = 181;
-        31'h4402989C: v35_tmpl_sel = 122;
-        31'h4403189C: v35_tmpl_sel = 126;
-        31'h4404B8DC: v35_tmpl_sel = 124;
-        31'h4404D91C: v35_tmpl_sel = 123;
-        31'h440538DC: v35_tmpl_sel = 128;
-        31'h4405591C: v35_tmpl_sel = 127;
-        31'h4406989C: v35_tmpl_sel = 122;
-        31'h4407189C: v35_tmpl_sel = 126;
-        31'h4408B8DC: v35_tmpl_sel = 124;
-        31'h440938DC: v35_tmpl_sel = 128;
-        31'h440AD91C: v35_tmpl_sel = 125;
-        31'h440B591C: v35_tmpl_sel = 129;
-        31'h48010081: v35_tmpl_sel = 1;
-        31'h5001005B: v35_tmpl_sel = 105;
-        31'h50010081: v35_tmpl_sel = 3;
-        31'h50010083: v35_tmpl_sel = 6;
-        31'h500100C0: v35_tmpl_sel = 0;
-        31'h500100C2: v35_tmpl_sel = 4;
-        31'h58010081: v35_tmpl_sel = 2;
-        31'h6020909F: v35_tmpl_sel = 195;
-        31'h6021109F: v35_tmpl_sel = 195;
-        31'h602112DF: v35_tmpl_sel = 186;
-        31'h60231ADF: v35_tmpl_sel = 186;
-        31'h60253B1F: v35_tmpl_sel = 192;
-        31'h60255B5F: v35_tmpl_sel = 189;
-        31'h60271ADF: v35_tmpl_sel = 186;
-        31'h60293B1F: v35_tmpl_sel = 192;
-        31'h602B5B5F: v35_tmpl_sel = 189;
-        31'h60A2989C: v35_tmpl_sel = 131;
-        31'h60A3189C: v35_tmpl_sel = 139;
-        31'h60A4B8DC: v35_tmpl_sel = 135;
-        31'h60A4D91C: v35_tmpl_sel = 133;
-        31'h60A538DC: v35_tmpl_sel = 143;
-        31'h60A5591C: v35_tmpl_sel = 141;
-        31'h60A6989C: v35_tmpl_sel = 131;
-        31'h60A7189C: v35_tmpl_sel = 139;
-        31'h60A8B8DC: v35_tmpl_sel = 135;
-        31'h60A938DC: v35_tmpl_sel = 143;
-        31'h60AAD91C: v35_tmpl_sel = 137;
-        31'h60AB591C: v35_tmpl_sel = 145;
-        31'h6121109E: v35_tmpl_sel = 183;
-        31'h61A3189C: v35_tmpl_sel = 147;
-        31'h61A538DC: v35_tmpl_sel = 151;
-        31'h61A5591C: v35_tmpl_sel = 149;
-        31'h61A7189C: v35_tmpl_sel = 147;
-        31'h61A938DC: v35_tmpl_sel = 151;
-        31'h61AB591C: v35_tmpl_sel = 153;
+        33'h000010099: v35_tmpl_sel = 100;
+        33'h0000100A1: v35_tmpl_sel = 160;
+        33'h0000100B9: v35_tmpl_sel = 303;
+        33'h0000100BA: v35_tmpl_sel = 307;
+        33'h0000100BB: v35_tmpl_sel = 311;
+        33'h0000100BC: v35_tmpl_sel = 315;
+        33'h0000100BD: v35_tmpl_sel = 319;
+        33'h0000100BE: v35_tmpl_sel = 323;
+        33'h0000100BF: v35_tmpl_sel = 327;
+        33'h000010102: v35_tmpl_sel = 2;
+        33'h000010103: v35_tmpl_sel = 3;
+        33'h000010119: v35_tmpl_sel = 98;
+        33'h000010121: v35_tmpl_sel = 158;
+        33'h000010139: v35_tmpl_sel = 301;
+        33'h00001013A: v35_tmpl_sel = 305;
+        33'h00001013B: v35_tmpl_sel = 309;
+        33'h00001013C: v35_tmpl_sel = 313;
+        33'h00001013D: v35_tmpl_sel = 317;
+        33'h00001013E: v35_tmpl_sel = 321;
+        33'h00001013F: v35_tmpl_sel = 325;
+        33'h0000110C0: v35_tmpl_sel = 329;
+        33'h00001212D: v35_tmpl_sel = 180;
+        33'h000012186: v35_tmpl_sel = 12;
+        33'h0000121B1: v35_tmpl_sel = 259;
+        33'h0000121B3: v35_tmpl_sel = 264;
+        33'h000012606: v35_tmpl_sel = 13;
+        33'h000020080: v35_tmpl_sel = 0;
+        33'h000020081: v35_tmpl_sel = 1;
+        33'h000020090: v35_tmpl_sel = 162;
+        33'h000020092: v35_tmpl_sel = 102;
+        33'h000020093: v35_tmpl_sel = 91;
+        33'h000020094: v35_tmpl_sel = 102;
+        33'h000020095: v35_tmpl_sel = 181;
+        33'h000020096: v35_tmpl_sel = 92;
+        33'h000020097: v35_tmpl_sel = 93;
+        33'h000020099: v35_tmpl_sel = 101;
+        33'h00002009A: v35_tmpl_sel = 102;
+        33'h0000200A1: v35_tmpl_sel = 161;
+        33'h0000200A2: v35_tmpl_sel = 162;
+        33'h0000200A4: v35_tmpl_sel = 167;
+        33'h0000200A5: v35_tmpl_sel = 168;
+        33'h0000200A6: v35_tmpl_sel = 169;
+        33'h0000200A8: v35_tmpl_sel = 171;
+        33'h0000200AB: v35_tmpl_sel = 178;
+        33'h0000200AC: v35_tmpl_sel = 179;
+        33'h0000200AD: v35_tmpl_sel = 181;
+        33'h0000200B9: v35_tmpl_sel = 304;
+        33'h0000200BA: v35_tmpl_sel = 308;
+        33'h0000200BB: v35_tmpl_sel = 312;
+        33'h0000200BC: v35_tmpl_sel = 316;
+        33'h0000200BD: v35_tmpl_sel = 320;
+        33'h0000200BE: v35_tmpl_sel = 324;
+        33'h0000200BF: v35_tmpl_sel = 328;
+        33'h00002010F: v35_tmpl_sel = 69;
+        33'h000020119: v35_tmpl_sel = 99;
+        33'h000020121: v35_tmpl_sel = 159;
+        33'h000020139: v35_tmpl_sel = 302;
+        33'h00002013A: v35_tmpl_sel = 306;
+        33'h00002013B: v35_tmpl_sel = 310;
+        33'h00002013C: v35_tmpl_sel = 314;
+        33'h00002013D: v35_tmpl_sel = 318;
+        33'h00002013E: v35_tmpl_sel = 322;
+        33'h00002013F: v35_tmpl_sel = 326;
+        33'h00002050D: v35_tmpl_sel = 67;
+        33'h00002050E: v35_tmpl_sel = 68;
+        33'h000020518: v35_tmpl_sel = 97;
+        33'h000020529: v35_tmpl_sel = 173;
+        33'h000020998: v35_tmpl_sel = 94;
+        33'h0000209A9: v35_tmpl_sel = 172;
+        33'h000020E27: v35_tmpl_sel = 170;
+        33'h00002212D: v35_tmpl_sel = 180;
+        33'h000022184: v35_tmpl_sel = 4;
+        33'h000022185: v35_tmpl_sel = 8;
+        33'h000022186: v35_tmpl_sel = 12;
+        33'h000022604: v35_tmpl_sel = 6;
+        33'h000022605: v35_tmpl_sel = 10;
+        33'h000022606: v35_tmpl_sel = 13;
+        33'h00005311C: v35_tmpl_sel = 108;
+        33'h00005311D: v35_tmpl_sel = 108;
+        33'h00005312F: v35_tmpl_sel = 183;
+        33'h000053137: v35_tmpl_sel = 284;
+        33'h000053187: v35_tmpl_sel = 14;
+        33'h000053188: v35_tmpl_sel = 30;
+        33'h000053189: v35_tmpl_sel = 46;
+        33'h0000531B2: v35_tmpl_sel = 260;
+        33'h0000531B4: v35_tmpl_sel = 265;
+        33'h000053607: v35_tmpl_sel = 22;
+        33'h000053608: v35_tmpl_sel = 38;
+        33'h000053609: v35_tmpl_sel = 54;
+        33'h00006311B: v35_tmpl_sel = 103;
+        33'h00006311C: v35_tmpl_sel = 112;
+        33'h00006311D: v35_tmpl_sel = 112;
+        33'h00006311E: v35_tmpl_sel = 124;
+        33'h00006312F: v35_tmpl_sel = 187;
+        33'h000063137: v35_tmpl_sel = 288;
+        33'h000063187: v35_tmpl_sel = 18;
+        33'h000063188: v35_tmpl_sel = 34;
+        33'h000063189: v35_tmpl_sel = 50;
+        33'h000063607: v35_tmpl_sel = 26;
+        33'h000063608: v35_tmpl_sel = 42;
+        33'h000063609: v35_tmpl_sel = 58;
+        33'h00009719C: v35_tmpl_sel = 110;
+        33'h00009719D: v35_tmpl_sel = 110;
+        33'h0000971AF: v35_tmpl_sel = 185;
+        33'h0000971B7: v35_tmpl_sel = 286;
+        33'h000097207: v35_tmpl_sel = 16;
+        33'h000097208: v35_tmpl_sel = 32;
+        33'h000097209: v35_tmpl_sel = 48;
+        33'h000097232: v35_tmpl_sel = 262;
+        33'h000097234: v35_tmpl_sel = 267;
+        33'h000097687: v35_tmpl_sel = 24;
+        33'h000097688: v35_tmpl_sel = 40;
+        33'h000097689: v35_tmpl_sel = 56;
+        33'h00009B21C: v35_tmpl_sel = 109;
+        33'h00009B21D: v35_tmpl_sel = 109;
+        33'h00009B22F: v35_tmpl_sel = 184;
+        33'h00009B237: v35_tmpl_sel = 285;
+        33'h00009B287: v35_tmpl_sel = 15;
+        33'h00009B288: v35_tmpl_sel = 31;
+        33'h00009B289: v35_tmpl_sel = 47;
+        33'h00009B2B2: v35_tmpl_sel = 261;
+        33'h00009B2B4: v35_tmpl_sel = 266;
+        33'h00009B707: v35_tmpl_sel = 23;
+        33'h00009B708: v35_tmpl_sel = 39;
+        33'h00009B709: v35_tmpl_sel = 55;
+        33'h0000A719B: v35_tmpl_sel = 105;
+        33'h0000A719C: v35_tmpl_sel = 114;
+        33'h0000A719D: v35_tmpl_sel = 114;
+        33'h0000A719E: v35_tmpl_sel = 126;
+        33'h0000A71AF: v35_tmpl_sel = 189;
+        33'h0000A71B7: v35_tmpl_sel = 290;
+        33'h0000A7207: v35_tmpl_sel = 20;
+        33'h0000A7208: v35_tmpl_sel = 36;
+        33'h0000A7209: v35_tmpl_sel = 52;
+        33'h0000A7687: v35_tmpl_sel = 28;
+        33'h0000A7688: v35_tmpl_sel = 44;
+        33'h0000A7689: v35_tmpl_sel = 60;
+        33'h0000AB21B: v35_tmpl_sel = 104;
+        33'h0000AB21C: v35_tmpl_sel = 113;
+        33'h0000AB21D: v35_tmpl_sel = 113;
+        33'h0000AB21E: v35_tmpl_sel = 125;
+        33'h0000AB22F: v35_tmpl_sel = 188;
+        33'h0000AB237: v35_tmpl_sel = 289;
+        33'h0000AB287: v35_tmpl_sel = 19;
+        33'h0000AB288: v35_tmpl_sel = 35;
+        33'h0000AB289: v35_tmpl_sel = 51;
+        33'h0000AB707: v35_tmpl_sel = 27;
+        33'h0000AB708: v35_tmpl_sel = 43;
+        33'h0000AB709: v35_tmpl_sel = 59;
+        33'h0000D311C: v35_tmpl_sel = 108;
+        33'h0000D311D: v35_tmpl_sel = 108;
+        33'h0000D312F: v35_tmpl_sel = 183;
+        33'h0000D3137: v35_tmpl_sel = 284;
+        33'h0000D3187: v35_tmpl_sel = 14;
+        33'h0000D3188: v35_tmpl_sel = 30;
+        33'h0000D3189: v35_tmpl_sel = 46;
+        33'h0000D31B2: v35_tmpl_sel = 260;
+        33'h0000D31B4: v35_tmpl_sel = 265;
+        33'h0000D3607: v35_tmpl_sel = 22;
+        33'h0000D3608: v35_tmpl_sel = 38;
+        33'h0000D3609: v35_tmpl_sel = 54;
+        33'h0000E311B: v35_tmpl_sel = 103;
+        33'h0000E311C: v35_tmpl_sel = 112;
+        33'h0000E311D: v35_tmpl_sel = 112;
+        33'h0000E311E: v35_tmpl_sel = 124;
+        33'h0000E312F: v35_tmpl_sel = 187;
+        33'h0000E3137: v35_tmpl_sel = 288;
+        33'h0000E3187: v35_tmpl_sel = 18;
+        33'h0000E3188: v35_tmpl_sel = 34;
+        33'h0000E3189: v35_tmpl_sel = 50;
+        33'h0000E3607: v35_tmpl_sel = 26;
+        33'h0000E3608: v35_tmpl_sel = 42;
+        33'h0000E3609: v35_tmpl_sel = 58;
+        33'h00011719C: v35_tmpl_sel = 110;
+        33'h00011719D: v35_tmpl_sel = 110;
+        33'h0001171AF: v35_tmpl_sel = 185;
+        33'h0001171B7: v35_tmpl_sel = 286;
+        33'h000117207: v35_tmpl_sel = 16;
+        33'h000117208: v35_tmpl_sel = 32;
+        33'h000117209: v35_tmpl_sel = 48;
+        33'h000117232: v35_tmpl_sel = 262;
+        33'h000117234: v35_tmpl_sel = 267;
+        33'h000117687: v35_tmpl_sel = 24;
+        33'h000117688: v35_tmpl_sel = 40;
+        33'h000117689: v35_tmpl_sel = 56;
+        33'h00012719B: v35_tmpl_sel = 105;
+        33'h00012719C: v35_tmpl_sel = 114;
+        33'h00012719D: v35_tmpl_sel = 114;
+        33'h00012719E: v35_tmpl_sel = 126;
+        33'h0001271AF: v35_tmpl_sel = 189;
+        33'h0001271B7: v35_tmpl_sel = 290;
+        33'h000127207: v35_tmpl_sel = 20;
+        33'h000127208: v35_tmpl_sel = 36;
+        33'h000127209: v35_tmpl_sel = 52;
+        33'h000127687: v35_tmpl_sel = 28;
+        33'h000127688: v35_tmpl_sel = 44;
+        33'h000127689: v35_tmpl_sel = 60;
+        33'h00015B21C: v35_tmpl_sel = 111;
+        33'h00015B21D: v35_tmpl_sel = 111;
+        33'h00015B22F: v35_tmpl_sel = 186;
+        33'h00015B237: v35_tmpl_sel = 287;
+        33'h00015B287: v35_tmpl_sel = 17;
+        33'h00015B288: v35_tmpl_sel = 33;
+        33'h00015B289: v35_tmpl_sel = 49;
+        33'h00015B2B2: v35_tmpl_sel = 263;
+        33'h00015B2B4: v35_tmpl_sel = 268;
+        33'h00015B707: v35_tmpl_sel = 25;
+        33'h00015B708: v35_tmpl_sel = 41;
+        33'h00015B709: v35_tmpl_sel = 57;
+        33'h00016B21B: v35_tmpl_sel = 106;
+        33'h00016B21C: v35_tmpl_sel = 115;
+        33'h00016B21D: v35_tmpl_sel = 115;
+        33'h00016B21E: v35_tmpl_sel = 127;
+        33'h00016B22F: v35_tmpl_sel = 190;
+        33'h00016B237: v35_tmpl_sel = 291;
+        33'h00016B287: v35_tmpl_sel = 21;
+        33'h00016B288: v35_tmpl_sel = 37;
+        33'h00016B289: v35_tmpl_sel = 53;
+        33'h00016B707: v35_tmpl_sel = 29;
+        33'h00016B708: v35_tmpl_sel = 45;
+        33'h00016B709: v35_tmpl_sel = 61;
+        33'h0001A119C: v35_tmpl_sel = 107;
+        33'h0001A11B7: v35_tmpl_sel = 292;
+        33'h0002225A0: v35_tmpl_sel = 157;
+        33'h000222A20: v35_tmpl_sel = 152;
+        33'h0002635A0: v35_tmpl_sel = 153;
+        33'h000263A20: v35_tmpl_sel = 148;
+        33'h0002A7620: v35_tmpl_sel = 155;
+        33'h0002A7AA0: v35_tmpl_sel = 150;
+        33'h0002AB6A0: v35_tmpl_sel = 154;
+        33'h0002ABB20: v35_tmpl_sel = 149;
+        33'h0002E35A0: v35_tmpl_sel = 153;
+        33'h0002E3A20: v35_tmpl_sel = 148;
+        33'h000327620: v35_tmpl_sel = 155;
+        33'h000327AA0: v35_tmpl_sel = 150;
+        33'h00036B6A0: v35_tmpl_sel = 156;
+        33'h00036BB20: v35_tmpl_sel = 151;
+        33'h000412111: v35_tmpl_sel = 79;
+        33'h00041211A: v35_tmpl_sel = 97;
+        33'h00041211F: v35_tmpl_sel = 136;
+        33'h000412136: v35_tmpl_sel = 281;
+        33'h000422111: v35_tmpl_sel = 79;
+        33'h00042211F: v35_tmpl_sel = 136;
+        33'h000422136: v35_tmpl_sel = 281;
+        33'h000422598: v35_tmpl_sel = 96;
+        33'h0004225B6: v35_tmpl_sel = 272;
+        33'h000422A18: v35_tmpl_sel = 95;
+        33'h000453111: v35_tmpl_sel = 71;
+        33'h00045311F: v35_tmpl_sel = 128;
+        33'h00045312F: v35_tmpl_sel = 231;
+        33'h0004535B8: v35_tmpl_sel = 293;
+        33'h000463111: v35_tmpl_sel = 83;
+        33'h00046311F: v35_tmpl_sel = 140;
+        33'h000463123: v35_tmpl_sel = 163;
+        33'h00046312A: v35_tmpl_sel = 174;
+        33'h00046312F: v35_tmpl_sel = 235;
+        33'h0004635B0: v35_tmpl_sel = 247;
+        33'h0004635B6: v35_tmpl_sel = 272;
+        33'h000463A30: v35_tmpl_sel = 239;
+        33'h000463A38: v35_tmpl_sel = 297;
+        33'h000497191: v35_tmpl_sel = 75;
+        33'h00049719F: v35_tmpl_sel = 132;
+        33'h0004971AF: v35_tmpl_sel = 233;
+        33'h000497638: v35_tmpl_sel = 295;
+        33'h00049B211: v35_tmpl_sel = 72;
+        33'h00049B21F: v35_tmpl_sel = 129;
+        33'h00049B22F: v35_tmpl_sel = 232;
+        33'h00049B6B8: v35_tmpl_sel = 294;
+        33'h0004A7191: v35_tmpl_sel = 87;
+        33'h0004A719F: v35_tmpl_sel = 144;
+        33'h0004A71A3: v35_tmpl_sel = 165;
+        33'h0004A71AA: v35_tmpl_sel = 176;
+        33'h0004A71AF: v35_tmpl_sel = 237;
+        33'h0004A7630: v35_tmpl_sel = 251;
+        33'h0004A7636: v35_tmpl_sel = 278;
+        33'h0004A7AB0: v35_tmpl_sel = 243;
+        33'h0004A7AB8: v35_tmpl_sel = 299;
+        33'h0004AB211: v35_tmpl_sel = 84;
+        33'h0004AB21F: v35_tmpl_sel = 141;
+        33'h0004AB223: v35_tmpl_sel = 164;
+        33'h0004AB22A: v35_tmpl_sel = 175;
+        33'h0004AB22F: v35_tmpl_sel = 236;
+        33'h0004AB6B0: v35_tmpl_sel = 248;
+        33'h0004AB6B6: v35_tmpl_sel = 275;
+        33'h0004ABB30: v35_tmpl_sel = 240;
+        33'h0004ABB38: v35_tmpl_sel = 298;
+        33'h0004D3111: v35_tmpl_sel = 71;
+        33'h0004D311F: v35_tmpl_sel = 128;
+        33'h0004D312F: v35_tmpl_sel = 231;
+        33'h0004D35B8: v35_tmpl_sel = 293;
+        33'h0004E3111: v35_tmpl_sel = 83;
+        33'h0004E311F: v35_tmpl_sel = 140;
+        33'h0004E3123: v35_tmpl_sel = 163;
+        33'h0004E312A: v35_tmpl_sel = 174;
+        33'h0004E312F: v35_tmpl_sel = 235;
+        33'h0004E35B0: v35_tmpl_sel = 247;
+        33'h0004E35B6: v35_tmpl_sel = 272;
+        33'h0004E3A30: v35_tmpl_sel = 239;
+        33'h0004E3A38: v35_tmpl_sel = 297;
+        33'h000517191: v35_tmpl_sel = 75;
+        33'h00051719F: v35_tmpl_sel = 132;
+        33'h0005171AF: v35_tmpl_sel = 233;
+        33'h000517638: v35_tmpl_sel = 295;
+        33'h000527191: v35_tmpl_sel = 87;
+        33'h00052719F: v35_tmpl_sel = 144;
+        33'h0005271A3: v35_tmpl_sel = 165;
+        33'h0005271AA: v35_tmpl_sel = 176;
+        33'h0005271AF: v35_tmpl_sel = 237;
+        33'h000527630: v35_tmpl_sel = 251;
+        33'h000527636: v35_tmpl_sel = 278;
+        33'h000527AB0: v35_tmpl_sel = 243;
+        33'h000527AB8: v35_tmpl_sel = 299;
+        33'h00055B211: v35_tmpl_sel = 77;
+        33'h00055B21F: v35_tmpl_sel = 134;
+        33'h00055B22F: v35_tmpl_sel = 234;
+        33'h00055B6B8: v35_tmpl_sel = 296;
+        33'h00056B211: v35_tmpl_sel = 89;
+        33'h00056B21F: v35_tmpl_sel = 146;
+        33'h00056B223: v35_tmpl_sel = 166;
+        33'h00056B22A: v35_tmpl_sel = 177;
+        33'h00056B22F: v35_tmpl_sel = 238;
+        33'h00056B6B0: v35_tmpl_sel = 253;
+        33'h00056B6B6: v35_tmpl_sel = 275;
+        33'h00056BB30: v35_tmpl_sel = 245;
+        33'h00056BB38: v35_tmpl_sel = 300;
+        33'h000612111: v35_tmpl_sel = 81;
+        33'h00061211F: v35_tmpl_sel = 138;
+        33'h000622111: v35_tmpl_sel = 81;
+        33'h00062211F: v35_tmpl_sel = 138;
+        33'h000653111: v35_tmpl_sel = 73;
+        33'h00065311F: v35_tmpl_sel = 130;
+        33'h000663111: v35_tmpl_sel = 85;
+        33'h00066311F: v35_tmpl_sel = 142;
+        33'h000697191: v35_tmpl_sel = 76;
+        33'h00069719F: v35_tmpl_sel = 133;
+        33'h00069B211: v35_tmpl_sel = 74;
+        33'h00069B21F: v35_tmpl_sel = 131;
+        33'h0006A7191: v35_tmpl_sel = 88;
+        33'h0006A719F: v35_tmpl_sel = 145;
+        33'h0006AB211: v35_tmpl_sel = 86;
+        33'h0006AB21F: v35_tmpl_sel = 143;
+        33'h0006D3111: v35_tmpl_sel = 73;
+        33'h0006D311F: v35_tmpl_sel = 130;
+        33'h0006E3111: v35_tmpl_sel = 85;
+        33'h0006E311F: v35_tmpl_sel = 142;
+        33'h000717191: v35_tmpl_sel = 76;
+        33'h00071719F: v35_tmpl_sel = 133;
+        33'h000727191: v35_tmpl_sel = 88;
+        33'h00072719F: v35_tmpl_sel = 145;
+        33'h00075B211: v35_tmpl_sel = 78;
+        33'h00075B21F: v35_tmpl_sel = 135;
+        33'h00076B211: v35_tmpl_sel = 90;
+        33'h00076B21F: v35_tmpl_sel = 147;
+        33'h00081212D: v35_tmpl_sel = 180;
+        33'h00082212D: v35_tmpl_sel = 180;
+        33'h00085311D: v35_tmpl_sel = 116;
+        33'h00086311D: v35_tmpl_sel = 120;
+        33'h00089719D: v35_tmpl_sel = 118;
+        33'h00089B21D: v35_tmpl_sel = 117;
+        33'h0008A719D: v35_tmpl_sel = 122;
+        33'h0008AB21D: v35_tmpl_sel = 121;
+        33'h0008D311D: v35_tmpl_sel = 116;
+        33'h0008E311D: v35_tmpl_sel = 120;
+        33'h00091719D: v35_tmpl_sel = 118;
+        33'h00092719D: v35_tmpl_sel = 122;
+        33'h00095B21D: v35_tmpl_sel = 119;
+        33'h00096B21D: v35_tmpl_sel = 123;
+        33'h000C22A18: v35_tmpl_sel = 95;
+        33'h00145312F: v35_tmpl_sel = 207;
+        33'h00146312F: v35_tmpl_sel = 215;
+        33'h0014971AF: v35_tmpl_sel = 211;
+        33'h00149B22F: v35_tmpl_sel = 209;
+        33'h0014A71AF: v35_tmpl_sel = 219;
+        33'h0014AB22F: v35_tmpl_sel = 217;
+        33'h0014D312F: v35_tmpl_sel = 207;
+        33'h0014E312F: v35_tmpl_sel = 215;
+        33'h0015171AF: v35_tmpl_sel = 211;
+        33'h0015271AF: v35_tmpl_sel = 219;
+        33'h00155B22F: v35_tmpl_sel = 213;
+        33'h00156B22F: v35_tmpl_sel = 221;
+        33'h002422135: v35_tmpl_sel = 269;
+        33'h00346312F: v35_tmpl_sel = 223;
+        33'h0034A71AF: v35_tmpl_sel = 227;
+        33'h0034AB22F: v35_tmpl_sel = 225;
+        33'h0034E312F: v35_tmpl_sel = 223;
+        33'h0035271AF: v35_tmpl_sel = 227;
+        33'h00356B22F: v35_tmpl_sel = 229;
+        33'h00405312F: v35_tmpl_sel = 191;
+        33'h00406312F: v35_tmpl_sel = 195;
+        33'h0040971AF: v35_tmpl_sel = 193;
+        33'h00409B22F: v35_tmpl_sel = 192;
+        33'h0040A71AF: v35_tmpl_sel = 197;
+        33'h0040AB22F: v35_tmpl_sel = 196;
+        33'h0040D312F: v35_tmpl_sel = 191;
+        33'h0040E312F: v35_tmpl_sel = 195;
+        33'h0041171AF: v35_tmpl_sel = 193;
+        33'h0041271AF: v35_tmpl_sel = 197;
+        33'h00415B22F: v35_tmpl_sel = 194;
+        33'h00416B22F: v35_tmpl_sel = 198;
+        33'h0044635B0: v35_tmpl_sel = 249;
+        33'h004463A30: v35_tmpl_sel = 241;
+        33'h0044A7630: v35_tmpl_sel = 252;
+        33'h0044A7AB0: v35_tmpl_sel = 244;
+        33'h0044AB6B0: v35_tmpl_sel = 250;
+        33'h0044ABB30: v35_tmpl_sel = 242;
+        33'h0044E35B0: v35_tmpl_sel = 249;
+        33'h0044E3A30: v35_tmpl_sel = 241;
+        33'h004527630: v35_tmpl_sel = 252;
+        33'h004527AB0: v35_tmpl_sel = 244;
+        33'h00456B6B0: v35_tmpl_sel = 254;
+        33'h00456BB30: v35_tmpl_sel = 246;
+        33'h004C63A30: v35_tmpl_sel = 255;
+        33'h004CA7AB0: v35_tmpl_sel = 257;
+        33'h004CABB30: v35_tmpl_sel = 256;
+        33'h004CE3A30: v35_tmpl_sel = 255;
+        33'h004D27AB0: v35_tmpl_sel = 257;
+        33'h004D6BB30: v35_tmpl_sel = 258;
+        33'h00805312F: v35_tmpl_sel = 199;
+        33'h00806312F: v35_tmpl_sel = 203;
+        33'h0080971AF: v35_tmpl_sel = 201;
+        33'h00809B22F: v35_tmpl_sel = 200;
+        33'h0080A71AF: v35_tmpl_sel = 205;
+        33'h0080AB22F: v35_tmpl_sel = 204;
+        33'h0080D312F: v35_tmpl_sel = 199;
+        33'h0080E312F: v35_tmpl_sel = 203;
+        33'h0081171AF: v35_tmpl_sel = 201;
+        33'h0081271AF: v35_tmpl_sel = 205;
+        33'h00815B22F: v35_tmpl_sel = 202;
+        33'h00816B22F: v35_tmpl_sel = 206;
+        33'h01002010B: v35_tmpl_sel = 63;
+        33'h0200200AE: v35_tmpl_sel = 182;
+        33'h02002010B: v35_tmpl_sel = 65;
+        33'h02002010F: v35_tmpl_sel = 70;
+        33'h02002018A: v35_tmpl_sel = 62;
+        33'h02002018C: v35_tmpl_sel = 66;
+        33'h03002010B: v35_tmpl_sel = 64;
+        33'h040412136: v35_tmpl_sel = 282;
+        33'h040422136: v35_tmpl_sel = 282;
+        33'h0404225B6: v35_tmpl_sel = 273;
+        33'h0404635B6: v35_tmpl_sel = 273;
+        33'h0404A7636: v35_tmpl_sel = 279;
+        33'h0404AB6B6: v35_tmpl_sel = 276;
+        33'h0404E35B6: v35_tmpl_sel = 273;
+        33'h040527636: v35_tmpl_sel = 279;
+        33'h04056B6B6: v35_tmpl_sel = 276;
+        33'h04145312F: v35_tmpl_sel = 208;
+        33'h04146312F: v35_tmpl_sel = 216;
+        33'h0414971AF: v35_tmpl_sel = 212;
+        33'h04149B22F: v35_tmpl_sel = 210;
+        33'h0414A71AF: v35_tmpl_sel = 220;
+        33'h0414AB22F: v35_tmpl_sel = 218;
+        33'h0414D312F: v35_tmpl_sel = 208;
+        33'h0414E312F: v35_tmpl_sel = 216;
+        33'h0415171AF: v35_tmpl_sel = 212;
+        33'h0415271AF: v35_tmpl_sel = 220;
+        33'h04155B22F: v35_tmpl_sel = 214;
+        33'h04156B22F: v35_tmpl_sel = 222;
+        33'h042422135: v35_tmpl_sel = 270;
+        33'h04346312F: v35_tmpl_sel = 224;
+        33'h0434A71AF: v35_tmpl_sel = 228;
+        33'h0434AB22F: v35_tmpl_sel = 226;
+        33'h0434E312F: v35_tmpl_sel = 224;
+        33'h0435271AF: v35_tmpl_sel = 228;
+        33'h04356B22F: v35_tmpl_sel = 230;
+        33'h080010099: v35_tmpl_sel = 100;
+        33'h0800100A1: v35_tmpl_sel = 160;
+        33'h0800100B9: v35_tmpl_sel = 303;
+        33'h0800100BA: v35_tmpl_sel = 307;
+        33'h0800100BB: v35_tmpl_sel = 311;
+        33'h0800100BC: v35_tmpl_sel = 315;
+        33'h0800100BD: v35_tmpl_sel = 319;
+        33'h0800100BE: v35_tmpl_sel = 323;
+        33'h0800100BF: v35_tmpl_sel = 327;
+        33'h080010102: v35_tmpl_sel = 2;
+        33'h080010103: v35_tmpl_sel = 3;
+        33'h080010119: v35_tmpl_sel = 98;
+        33'h080010121: v35_tmpl_sel = 158;
+        33'h080010139: v35_tmpl_sel = 301;
+        33'h08001013A: v35_tmpl_sel = 305;
+        33'h08001013B: v35_tmpl_sel = 309;
+        33'h08001013C: v35_tmpl_sel = 313;
+        33'h08001013D: v35_tmpl_sel = 317;
+        33'h08001013E: v35_tmpl_sel = 321;
+        33'h08001013F: v35_tmpl_sel = 325;
+        33'h0800110C0: v35_tmpl_sel = 329;
+        33'h08001212D: v35_tmpl_sel = 180;
+        33'h080012186: v35_tmpl_sel = 12;
+        33'h0800121B1: v35_tmpl_sel = 259;
+        33'h0800121B3: v35_tmpl_sel = 264;
+        33'h080012606: v35_tmpl_sel = 13;
+        33'h080020080: v35_tmpl_sel = 0;
+        33'h080020081: v35_tmpl_sel = 1;
+        33'h080020090: v35_tmpl_sel = 162;
+        33'h080020092: v35_tmpl_sel = 102;
+        33'h080020093: v35_tmpl_sel = 91;
+        33'h080020094: v35_tmpl_sel = 102;
+        33'h080020095: v35_tmpl_sel = 181;
+        33'h080020096: v35_tmpl_sel = 92;
+        33'h080020097: v35_tmpl_sel = 93;
+        33'h080020099: v35_tmpl_sel = 101;
+        33'h08002009A: v35_tmpl_sel = 102;
+        33'h0800200A1: v35_tmpl_sel = 161;
+        33'h0800200A2: v35_tmpl_sel = 162;
+        33'h0800200A4: v35_tmpl_sel = 167;
+        33'h0800200A5: v35_tmpl_sel = 168;
+        33'h0800200A6: v35_tmpl_sel = 169;
+        33'h0800200A8: v35_tmpl_sel = 171;
+        33'h0800200AB: v35_tmpl_sel = 178;
+        33'h0800200AC: v35_tmpl_sel = 179;
+        33'h0800200AD: v35_tmpl_sel = 181;
+        33'h0800200B9: v35_tmpl_sel = 304;
+        33'h0800200BA: v35_tmpl_sel = 308;
+        33'h0800200BB: v35_tmpl_sel = 312;
+        33'h0800200BC: v35_tmpl_sel = 316;
+        33'h0800200BD: v35_tmpl_sel = 320;
+        33'h0800200BE: v35_tmpl_sel = 324;
+        33'h0800200BF: v35_tmpl_sel = 328;
+        33'h08002010F: v35_tmpl_sel = 69;
+        33'h080020119: v35_tmpl_sel = 99;
+        33'h080020121: v35_tmpl_sel = 159;
+        33'h080020139: v35_tmpl_sel = 302;
+        33'h08002013A: v35_tmpl_sel = 306;
+        33'h08002013B: v35_tmpl_sel = 310;
+        33'h08002013C: v35_tmpl_sel = 314;
+        33'h08002013D: v35_tmpl_sel = 318;
+        33'h08002013E: v35_tmpl_sel = 322;
+        33'h08002013F: v35_tmpl_sel = 326;
+        33'h08002050D: v35_tmpl_sel = 67;
+        33'h08002050E: v35_tmpl_sel = 68;
+        33'h080020518: v35_tmpl_sel = 97;
+        33'h080020529: v35_tmpl_sel = 173;
+        33'h080020998: v35_tmpl_sel = 94;
+        33'h0800209A9: v35_tmpl_sel = 172;
+        33'h080020E27: v35_tmpl_sel = 170;
+        33'h08002212D: v35_tmpl_sel = 180;
+        33'h080022184: v35_tmpl_sel = 4;
+        33'h080022185: v35_tmpl_sel = 8;
+        33'h080022186: v35_tmpl_sel = 12;
+        33'h080022604: v35_tmpl_sel = 6;
+        33'h080022605: v35_tmpl_sel = 10;
+        33'h080022606: v35_tmpl_sel = 13;
+        33'h08005311C: v35_tmpl_sel = 108;
+        33'h08005311D: v35_tmpl_sel = 108;
+        33'h08005312F: v35_tmpl_sel = 183;
+        33'h080053137: v35_tmpl_sel = 284;
+        33'h080053187: v35_tmpl_sel = 14;
+        33'h080053188: v35_tmpl_sel = 30;
+        33'h080053189: v35_tmpl_sel = 46;
+        33'h0800531B2: v35_tmpl_sel = 260;
+        33'h0800531B4: v35_tmpl_sel = 265;
+        33'h080053607: v35_tmpl_sel = 22;
+        33'h080053608: v35_tmpl_sel = 38;
+        33'h080053609: v35_tmpl_sel = 54;
+        33'h08006311B: v35_tmpl_sel = 103;
+        33'h08006311C: v35_tmpl_sel = 112;
+        33'h08006311D: v35_tmpl_sel = 112;
+        33'h08006311E: v35_tmpl_sel = 124;
+        33'h08006312F: v35_tmpl_sel = 187;
+        33'h080063137: v35_tmpl_sel = 288;
+        33'h080063187: v35_tmpl_sel = 18;
+        33'h080063188: v35_tmpl_sel = 34;
+        33'h080063189: v35_tmpl_sel = 50;
+        33'h080063607: v35_tmpl_sel = 26;
+        33'h080063608: v35_tmpl_sel = 42;
+        33'h080063609: v35_tmpl_sel = 58;
+        33'h08009719C: v35_tmpl_sel = 110;
+        33'h08009719D: v35_tmpl_sel = 110;
+        33'h0800971AF: v35_tmpl_sel = 185;
+        33'h0800971B7: v35_tmpl_sel = 286;
+        33'h080097207: v35_tmpl_sel = 16;
+        33'h080097208: v35_tmpl_sel = 32;
+        33'h080097209: v35_tmpl_sel = 48;
+        33'h080097232: v35_tmpl_sel = 262;
+        33'h080097234: v35_tmpl_sel = 267;
+        33'h080097687: v35_tmpl_sel = 24;
+        33'h080097688: v35_tmpl_sel = 40;
+        33'h080097689: v35_tmpl_sel = 56;
+        33'h08009B21C: v35_tmpl_sel = 109;
+        33'h08009B21D: v35_tmpl_sel = 109;
+        33'h08009B22F: v35_tmpl_sel = 184;
+        33'h08009B237: v35_tmpl_sel = 285;
+        33'h08009B287: v35_tmpl_sel = 15;
+        33'h08009B288: v35_tmpl_sel = 31;
+        33'h08009B289: v35_tmpl_sel = 47;
+        33'h08009B2B2: v35_tmpl_sel = 261;
+        33'h08009B2B4: v35_tmpl_sel = 266;
+        33'h08009B707: v35_tmpl_sel = 23;
+        33'h08009B708: v35_tmpl_sel = 39;
+        33'h08009B709: v35_tmpl_sel = 55;
+        33'h0800A719B: v35_tmpl_sel = 105;
+        33'h0800A719C: v35_tmpl_sel = 114;
+        33'h0800A719D: v35_tmpl_sel = 114;
+        33'h0800A719E: v35_tmpl_sel = 126;
+        33'h0800A71AF: v35_tmpl_sel = 189;
+        33'h0800A71B7: v35_tmpl_sel = 290;
+        33'h0800A7207: v35_tmpl_sel = 20;
+        33'h0800A7208: v35_tmpl_sel = 36;
+        33'h0800A7209: v35_tmpl_sel = 52;
+        33'h0800A7687: v35_tmpl_sel = 28;
+        33'h0800A7688: v35_tmpl_sel = 44;
+        33'h0800A7689: v35_tmpl_sel = 60;
+        33'h0800AB21B: v35_tmpl_sel = 104;
+        33'h0800AB21C: v35_tmpl_sel = 113;
+        33'h0800AB21D: v35_tmpl_sel = 113;
+        33'h0800AB21E: v35_tmpl_sel = 125;
+        33'h0800AB22F: v35_tmpl_sel = 188;
+        33'h0800AB237: v35_tmpl_sel = 289;
+        33'h0800AB287: v35_tmpl_sel = 19;
+        33'h0800AB288: v35_tmpl_sel = 35;
+        33'h0800AB289: v35_tmpl_sel = 51;
+        33'h0800AB707: v35_tmpl_sel = 27;
+        33'h0800AB708: v35_tmpl_sel = 43;
+        33'h0800AB709: v35_tmpl_sel = 59;
+        33'h0800D311C: v35_tmpl_sel = 108;
+        33'h0800D311D: v35_tmpl_sel = 108;
+        33'h0800D312F: v35_tmpl_sel = 183;
+        33'h0800D3137: v35_tmpl_sel = 284;
+        33'h0800D3187: v35_tmpl_sel = 14;
+        33'h0800D3188: v35_tmpl_sel = 30;
+        33'h0800D3189: v35_tmpl_sel = 46;
+        33'h0800D31B2: v35_tmpl_sel = 260;
+        33'h0800D31B4: v35_tmpl_sel = 265;
+        33'h0800D3607: v35_tmpl_sel = 22;
+        33'h0800D3608: v35_tmpl_sel = 38;
+        33'h0800D3609: v35_tmpl_sel = 54;
+        33'h0800E311B: v35_tmpl_sel = 103;
+        33'h0800E311C: v35_tmpl_sel = 112;
+        33'h0800E311D: v35_tmpl_sel = 112;
+        33'h0800E311E: v35_tmpl_sel = 124;
+        33'h0800E312F: v35_tmpl_sel = 187;
+        33'h0800E3137: v35_tmpl_sel = 288;
+        33'h0800E3187: v35_tmpl_sel = 18;
+        33'h0800E3188: v35_tmpl_sel = 34;
+        33'h0800E3189: v35_tmpl_sel = 50;
+        33'h0800E3607: v35_tmpl_sel = 26;
+        33'h0800E3608: v35_tmpl_sel = 42;
+        33'h0800E3609: v35_tmpl_sel = 58;
+        33'h08011719C: v35_tmpl_sel = 110;
+        33'h08011719D: v35_tmpl_sel = 110;
+        33'h0801171AF: v35_tmpl_sel = 185;
+        33'h0801171B7: v35_tmpl_sel = 286;
+        33'h080117207: v35_tmpl_sel = 16;
+        33'h080117208: v35_tmpl_sel = 32;
+        33'h080117209: v35_tmpl_sel = 48;
+        33'h080117232: v35_tmpl_sel = 262;
+        33'h080117234: v35_tmpl_sel = 267;
+        33'h080117687: v35_tmpl_sel = 24;
+        33'h080117688: v35_tmpl_sel = 40;
+        33'h080117689: v35_tmpl_sel = 56;
+        33'h08012719B: v35_tmpl_sel = 105;
+        33'h08012719C: v35_tmpl_sel = 114;
+        33'h08012719D: v35_tmpl_sel = 114;
+        33'h08012719E: v35_tmpl_sel = 126;
+        33'h0801271AF: v35_tmpl_sel = 189;
+        33'h0801271B7: v35_tmpl_sel = 290;
+        33'h080127207: v35_tmpl_sel = 20;
+        33'h080127208: v35_tmpl_sel = 36;
+        33'h080127209: v35_tmpl_sel = 52;
+        33'h080127687: v35_tmpl_sel = 28;
+        33'h080127688: v35_tmpl_sel = 44;
+        33'h080127689: v35_tmpl_sel = 60;
+        33'h08015B21C: v35_tmpl_sel = 111;
+        33'h08015B21D: v35_tmpl_sel = 111;
+        33'h08015B22F: v35_tmpl_sel = 186;
+        33'h08015B237: v35_tmpl_sel = 287;
+        33'h08015B287: v35_tmpl_sel = 17;
+        33'h08015B288: v35_tmpl_sel = 33;
+        33'h08015B289: v35_tmpl_sel = 49;
+        33'h08015B2B2: v35_tmpl_sel = 263;
+        33'h08015B2B4: v35_tmpl_sel = 268;
+        33'h08015B707: v35_tmpl_sel = 25;
+        33'h08015B708: v35_tmpl_sel = 41;
+        33'h08015B709: v35_tmpl_sel = 57;
+        33'h08016B21B: v35_tmpl_sel = 106;
+        33'h08016B21C: v35_tmpl_sel = 115;
+        33'h08016B21D: v35_tmpl_sel = 115;
+        33'h08016B21E: v35_tmpl_sel = 127;
+        33'h08016B22F: v35_tmpl_sel = 190;
+        33'h08016B237: v35_tmpl_sel = 291;
+        33'h08016B287: v35_tmpl_sel = 21;
+        33'h08016B288: v35_tmpl_sel = 37;
+        33'h08016B289: v35_tmpl_sel = 53;
+        33'h08016B707: v35_tmpl_sel = 29;
+        33'h08016B708: v35_tmpl_sel = 45;
+        33'h08016B709: v35_tmpl_sel = 61;
+        33'h0801A119C: v35_tmpl_sel = 107;
+        33'h0801A11B7: v35_tmpl_sel = 292;
+        33'h0802225A0: v35_tmpl_sel = 157;
+        33'h080222A20: v35_tmpl_sel = 152;
+        33'h0802635A0: v35_tmpl_sel = 153;
+        33'h080263A20: v35_tmpl_sel = 148;
+        33'h0802A7620: v35_tmpl_sel = 155;
+        33'h0802A7AA0: v35_tmpl_sel = 150;
+        33'h0802AB6A0: v35_tmpl_sel = 154;
+        33'h0802ABB20: v35_tmpl_sel = 149;
+        33'h0802E35A0: v35_tmpl_sel = 153;
+        33'h0802E3A20: v35_tmpl_sel = 148;
+        33'h080327620: v35_tmpl_sel = 155;
+        33'h080327AA0: v35_tmpl_sel = 150;
+        33'h08036B6A0: v35_tmpl_sel = 156;
+        33'h08036BB20: v35_tmpl_sel = 151;
+        33'h080412111: v35_tmpl_sel = 80;
+        33'h08041211A: v35_tmpl_sel = 97;
+        33'h08041211F: v35_tmpl_sel = 137;
+        33'h080412136: v35_tmpl_sel = 283;
+        33'h080422111: v35_tmpl_sel = 80;
+        33'h08042211F: v35_tmpl_sel = 137;
+        33'h080422136: v35_tmpl_sel = 283;
+        33'h080422598: v35_tmpl_sel = 96;
+        33'h0804225B6: v35_tmpl_sel = 274;
+        33'h080422A18: v35_tmpl_sel = 95;
+        33'h080453111: v35_tmpl_sel = 71;
+        33'h08045311F: v35_tmpl_sel = 128;
+        33'h08045312F: v35_tmpl_sel = 231;
+        33'h0804535B8: v35_tmpl_sel = 293;
+        33'h080463111: v35_tmpl_sel = 83;
+        33'h08046311F: v35_tmpl_sel = 140;
+        33'h080463123: v35_tmpl_sel = 163;
+        33'h08046312A: v35_tmpl_sel = 174;
+        33'h08046312F: v35_tmpl_sel = 235;
+        33'h0804635B0: v35_tmpl_sel = 247;
+        33'h0804635B6: v35_tmpl_sel = 274;
+        33'h080463A30: v35_tmpl_sel = 239;
+        33'h080463A38: v35_tmpl_sel = 297;
+        33'h080497191: v35_tmpl_sel = 75;
+        33'h08049719F: v35_tmpl_sel = 132;
+        33'h0804971AF: v35_tmpl_sel = 233;
+        33'h080497638: v35_tmpl_sel = 295;
+        33'h08049B211: v35_tmpl_sel = 72;
+        33'h08049B21F: v35_tmpl_sel = 129;
+        33'h08049B22F: v35_tmpl_sel = 232;
+        33'h08049B6B8: v35_tmpl_sel = 294;
+        33'h0804A7191: v35_tmpl_sel = 87;
+        33'h0804A719F: v35_tmpl_sel = 144;
+        33'h0804A71A3: v35_tmpl_sel = 165;
+        33'h0804A71AA: v35_tmpl_sel = 176;
+        33'h0804A71AF: v35_tmpl_sel = 237;
+        33'h0804A7630: v35_tmpl_sel = 251;
+        33'h0804A7636: v35_tmpl_sel = 280;
+        33'h0804A7AB0: v35_tmpl_sel = 243;
+        33'h0804A7AB8: v35_tmpl_sel = 299;
+        33'h0804AB211: v35_tmpl_sel = 84;
+        33'h0804AB21F: v35_tmpl_sel = 141;
+        33'h0804AB223: v35_tmpl_sel = 164;
+        33'h0804AB22A: v35_tmpl_sel = 175;
+        33'h0804AB22F: v35_tmpl_sel = 236;
+        33'h0804AB6B0: v35_tmpl_sel = 248;
+        33'h0804AB6B6: v35_tmpl_sel = 277;
+        33'h0804ABB30: v35_tmpl_sel = 240;
+        33'h0804ABB38: v35_tmpl_sel = 298;
+        33'h0804D3111: v35_tmpl_sel = 71;
+        33'h0804D311F: v35_tmpl_sel = 128;
+        33'h0804D312F: v35_tmpl_sel = 231;
+        33'h0804D35B8: v35_tmpl_sel = 293;
+        33'h0804E3111: v35_tmpl_sel = 83;
+        33'h0804E311F: v35_tmpl_sel = 140;
+        33'h0804E3123: v35_tmpl_sel = 163;
+        33'h0804E312A: v35_tmpl_sel = 174;
+        33'h0804E312F: v35_tmpl_sel = 235;
+        33'h0804E35B0: v35_tmpl_sel = 247;
+        33'h0804E35B6: v35_tmpl_sel = 274;
+        33'h0804E3A30: v35_tmpl_sel = 239;
+        33'h0804E3A38: v35_tmpl_sel = 297;
+        33'h080517191: v35_tmpl_sel = 75;
+        33'h08051719F: v35_tmpl_sel = 132;
+        33'h0805171AF: v35_tmpl_sel = 233;
+        33'h080517638: v35_tmpl_sel = 295;
+        33'h080527191: v35_tmpl_sel = 87;
+        33'h08052719F: v35_tmpl_sel = 144;
+        33'h0805271A3: v35_tmpl_sel = 165;
+        33'h0805271AA: v35_tmpl_sel = 176;
+        33'h0805271AF: v35_tmpl_sel = 237;
+        33'h080527630: v35_tmpl_sel = 251;
+        33'h080527636: v35_tmpl_sel = 280;
+        33'h080527AB0: v35_tmpl_sel = 243;
+        33'h080527AB8: v35_tmpl_sel = 299;
+        33'h08055B211: v35_tmpl_sel = 77;
+        33'h08055B21F: v35_tmpl_sel = 134;
+        33'h08055B22F: v35_tmpl_sel = 234;
+        33'h08055B6B8: v35_tmpl_sel = 296;
+        33'h08056B211: v35_tmpl_sel = 89;
+        33'h08056B21F: v35_tmpl_sel = 146;
+        33'h08056B223: v35_tmpl_sel = 166;
+        33'h08056B22A: v35_tmpl_sel = 177;
+        33'h08056B22F: v35_tmpl_sel = 238;
+        33'h08056B6B0: v35_tmpl_sel = 253;
+        33'h08056B6B6: v35_tmpl_sel = 277;
+        33'h08056BB30: v35_tmpl_sel = 245;
+        33'h08056BB38: v35_tmpl_sel = 300;
+        33'h080612111: v35_tmpl_sel = 82;
+        33'h08061211F: v35_tmpl_sel = 139;
+        33'h080622111: v35_tmpl_sel = 82;
+        33'h08062211F: v35_tmpl_sel = 139;
+        33'h080653111: v35_tmpl_sel = 73;
+        33'h08065311F: v35_tmpl_sel = 130;
+        33'h080663111: v35_tmpl_sel = 85;
+        33'h08066311F: v35_tmpl_sel = 142;
+        33'h080697191: v35_tmpl_sel = 76;
+        33'h08069719F: v35_tmpl_sel = 133;
+        33'h08069B211: v35_tmpl_sel = 74;
+        33'h08069B21F: v35_tmpl_sel = 131;
+        33'h0806A7191: v35_tmpl_sel = 88;
+        33'h0806A719F: v35_tmpl_sel = 145;
+        33'h0806AB211: v35_tmpl_sel = 86;
+        33'h0806AB21F: v35_tmpl_sel = 143;
+        33'h0806D3111: v35_tmpl_sel = 73;
+        33'h0806D311F: v35_tmpl_sel = 130;
+        33'h0806E3111: v35_tmpl_sel = 85;
+        33'h0806E311F: v35_tmpl_sel = 142;
+        33'h080717191: v35_tmpl_sel = 76;
+        33'h08071719F: v35_tmpl_sel = 133;
+        33'h080727191: v35_tmpl_sel = 88;
+        33'h08072719F: v35_tmpl_sel = 145;
+        33'h08075B211: v35_tmpl_sel = 78;
+        33'h08075B21F: v35_tmpl_sel = 135;
+        33'h08076B211: v35_tmpl_sel = 90;
+        33'h08076B21F: v35_tmpl_sel = 147;
+        33'h08081212D: v35_tmpl_sel = 180;
+        33'h08082212D: v35_tmpl_sel = 180;
+        33'h08085311D: v35_tmpl_sel = 116;
+        33'h08086311D: v35_tmpl_sel = 120;
+        33'h08089719D: v35_tmpl_sel = 118;
+        33'h08089B21D: v35_tmpl_sel = 117;
+        33'h0808A719D: v35_tmpl_sel = 122;
+        33'h0808AB21D: v35_tmpl_sel = 121;
+        33'h0808D311D: v35_tmpl_sel = 116;
+        33'h0808E311D: v35_tmpl_sel = 120;
+        33'h08091719D: v35_tmpl_sel = 118;
+        33'h08092719D: v35_tmpl_sel = 122;
+        33'h08095B21D: v35_tmpl_sel = 119;
+        33'h08096B21D: v35_tmpl_sel = 123;
+        33'h080C22A18: v35_tmpl_sel = 95;
+        33'h08145312F: v35_tmpl_sel = 207;
+        33'h08146312F: v35_tmpl_sel = 215;
+        33'h0814971AF: v35_tmpl_sel = 211;
+        33'h08149B22F: v35_tmpl_sel = 209;
+        33'h0814A71AF: v35_tmpl_sel = 219;
+        33'h0814AB22F: v35_tmpl_sel = 217;
+        33'h0814D312F: v35_tmpl_sel = 207;
+        33'h0814E312F: v35_tmpl_sel = 215;
+        33'h0815171AF: v35_tmpl_sel = 211;
+        33'h0815271AF: v35_tmpl_sel = 219;
+        33'h08155B22F: v35_tmpl_sel = 213;
+        33'h08156B22F: v35_tmpl_sel = 221;
+        33'h082422135: v35_tmpl_sel = 271;
+        33'h08346312F: v35_tmpl_sel = 223;
+        33'h0834A71AF: v35_tmpl_sel = 227;
+        33'h0834AB22F: v35_tmpl_sel = 225;
+        33'h0834E312F: v35_tmpl_sel = 223;
+        33'h0835271AF: v35_tmpl_sel = 227;
+        33'h08356B22F: v35_tmpl_sel = 229;
+        33'h08405312F: v35_tmpl_sel = 191;
+        33'h08406312F: v35_tmpl_sel = 195;
+        33'h0840971AF: v35_tmpl_sel = 193;
+        33'h08409B22F: v35_tmpl_sel = 192;
+        33'h0840A71AF: v35_tmpl_sel = 197;
+        33'h0840AB22F: v35_tmpl_sel = 196;
+        33'h0840D312F: v35_tmpl_sel = 191;
+        33'h0840E312F: v35_tmpl_sel = 195;
+        33'h0841171AF: v35_tmpl_sel = 193;
+        33'h0841271AF: v35_tmpl_sel = 197;
+        33'h08415B22F: v35_tmpl_sel = 194;
+        33'h08416B22F: v35_tmpl_sel = 198;
+        33'h0844635B0: v35_tmpl_sel = 249;
+        33'h084463A30: v35_tmpl_sel = 241;
+        33'h0844A7630: v35_tmpl_sel = 252;
+        33'h0844A7AB0: v35_tmpl_sel = 244;
+        33'h0844AB6B0: v35_tmpl_sel = 250;
+        33'h0844ABB30: v35_tmpl_sel = 242;
+        33'h0844E35B0: v35_tmpl_sel = 249;
+        33'h0844E3A30: v35_tmpl_sel = 241;
+        33'h084527630: v35_tmpl_sel = 252;
+        33'h084527AB0: v35_tmpl_sel = 244;
+        33'h08456B6B0: v35_tmpl_sel = 254;
+        33'h08456BB30: v35_tmpl_sel = 246;
+        33'h084C63A30: v35_tmpl_sel = 255;
+        33'h084CA7AB0: v35_tmpl_sel = 257;
+        33'h084CABB30: v35_tmpl_sel = 256;
+        33'h084CE3A30: v35_tmpl_sel = 255;
+        33'h084D27AB0: v35_tmpl_sel = 257;
+        33'h084D6BB30: v35_tmpl_sel = 258;
+        33'h08805312F: v35_tmpl_sel = 199;
+        33'h08806312F: v35_tmpl_sel = 203;
+        33'h0880971AF: v35_tmpl_sel = 201;
+        33'h08809B22F: v35_tmpl_sel = 200;
+        33'h0880A71AF: v35_tmpl_sel = 205;
+        33'h0880AB22F: v35_tmpl_sel = 204;
+        33'h0880D312F: v35_tmpl_sel = 199;
+        33'h0880E312F: v35_tmpl_sel = 203;
+        33'h0881171AF: v35_tmpl_sel = 201;
+        33'h0881271AF: v35_tmpl_sel = 205;
+        33'h08815B22F: v35_tmpl_sel = 202;
+        33'h08816B22F: v35_tmpl_sel = 206;
+        33'h09002010B: v35_tmpl_sel = 63;
+        33'h0A00200AE: v35_tmpl_sel = 182;
+        33'h0A002010B: v35_tmpl_sel = 65;
+        33'h0A002010F: v35_tmpl_sel = 70;
+        33'h0A002018A: v35_tmpl_sel = 62;
+        33'h0A002018C: v35_tmpl_sel = 66;
+        33'h0B002010B: v35_tmpl_sel = 64;
+        33'h0C0412136: v35_tmpl_sel = 282;
+        33'h0C0422136: v35_tmpl_sel = 282;
+        33'h0C04225B6: v35_tmpl_sel = 273;
+        33'h0C04635B6: v35_tmpl_sel = 273;
+        33'h0C04A7636: v35_tmpl_sel = 279;
+        33'h0C04AB6B6: v35_tmpl_sel = 276;
+        33'h0C04E35B6: v35_tmpl_sel = 273;
+        33'h0C0527636: v35_tmpl_sel = 279;
+        33'h0C056B6B6: v35_tmpl_sel = 276;
+        33'h0C145312F: v35_tmpl_sel = 208;
+        33'h0C146312F: v35_tmpl_sel = 216;
+        33'h0C14971AF: v35_tmpl_sel = 212;
+        33'h0C149B22F: v35_tmpl_sel = 210;
+        33'h0C14A71AF: v35_tmpl_sel = 220;
+        33'h0C14AB22F: v35_tmpl_sel = 218;
+        33'h0C14D312F: v35_tmpl_sel = 208;
+        33'h0C14E312F: v35_tmpl_sel = 216;
+        33'h0C15171AF: v35_tmpl_sel = 212;
+        33'h0C15271AF: v35_tmpl_sel = 220;
+        33'h0C155B22F: v35_tmpl_sel = 214;
+        33'h0C156B22F: v35_tmpl_sel = 222;
+        33'h0C2422135: v35_tmpl_sel = 270;
+        33'h0C346312F: v35_tmpl_sel = 224;
+        33'h0C34A71AF: v35_tmpl_sel = 228;
+        33'h0C34AB22F: v35_tmpl_sel = 226;
+        33'h0C34E312F: v35_tmpl_sel = 224;
+        33'h0C35271AF: v35_tmpl_sel = 228;
+        33'h0C356B22F: v35_tmpl_sel = 230;
+        33'h100022184: v35_tmpl_sel = 5;
+        33'h100022185: v35_tmpl_sel = 9;
+        33'h100022604: v35_tmpl_sel = 7;
+        33'h100022605: v35_tmpl_sel = 11;
+        33'h180022184: v35_tmpl_sel = 5;
+        33'h180022185: v35_tmpl_sel = 9;
+        33'h180022604: v35_tmpl_sel = 7;
+        33'h180022605: v35_tmpl_sel = 11;
         default: v35_tmpl_sel = -1;
+    endcase
+endfunction
+
+// ---- (WP79) templates.BASE_CLASS: the existing class whose structure a class shares
+// (the EU's, the queue's and the arbiter's rules see it; the costs are the class's) ----
+function automatic int v35_base_cls(input int cls);
+    case (cls)
+        V35_CLS_ADJUST: v35_base_cls = V35_CLS_REG;
+        V35_CLS_ADJUST_B: v35_base_cls = V35_CLS_REG;
+        V35_CLS_BIT1: v35_base_cls = V35_CLS_REG;
+        V35_CLS_BIT1_CLR: v35_base_cls = V35_CLS_RMW;
+        V35_CLS_BIT1_RMW: v35_base_cls = V35_CLS_RMW;
+        V35_CLS_BIT1_TEST: v35_base_cls = V35_CLS_LOAD_ALU;
+        V35_CLS_CONVERT: v35_base_cls = V35_CLS_IMM;
+        V35_CLS_CONVERT_D: v35_base_cls = V35_CLS_IMM;
+        V35_CLS_EXTEND: v35_base_cls = V35_CLS_REG;
+        V35_CLS_EXTEND_W: v35_base_cls = V35_CLS_REG;
+        V35_CLS_FLAG: v35_base_cls = V35_CLS_REG;
+        V35_CLS_FLAG_DI: v35_base_cls = V35_CLS_REG;
+        V35_CLS_FLAG_EI: v35_base_cls = V35_CLS_REG;
+        V35_CLS_INCDEC: v35_base_cls = V35_CLS_REG;
+        V35_CLS_MUL_IMM: v35_base_cls = V35_CLS_MUL;
+        V35_CLS_ROL4: v35_base_cls = V35_CLS_REG;
+        V35_CLS_ROL4_MEM: v35_base_cls = V35_CLS_RMW;
+        V35_CLS_ROR4: v35_base_cls = V35_CLS_REG;
+        V35_CLS_ROR4_MEM: v35_base_cls = V35_CLS_RMW;
+        default: v35_base_cls = cls;
     endcase
 endfunction
 

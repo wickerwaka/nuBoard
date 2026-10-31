@@ -40,6 +40,9 @@ SREG = ("DS1", "PS", "SS", "DS0")             # the sreg field: 00 DS1, 01 PS, 1
 PREFIX_SREG = {0x26: 0, 0x2E: 1, 0x36: 2, 0x3E: 3}
 REP_PREFIXES = (0xF2, 0xF3, 0x64, 0x65)      # (WP77) 64 REPNC, 65 REPC (templates.REP_PREFIXES)
 CY_PREFIXES = (0x64, 0x65)                  # (WP77) ... the compare's exit from the carry
+# (WP79, F33) the flag forms: (PSW bit, clr | set | not)
+ONE_FLAG = {0xF8: (0, "clr"), 0xF9: (0, "set"), 0xF5: (0, "not"), 0xFA: (9, "clr"),
+            0xFB: (9, "set"), 0xFC: (10, "clr"), 0xFD: (10, "set")}
 SFR_PAGE = 0xFFF00
 IO_WORD = 0x0000                    # the board's I/O reads (silicon: IN from 40h reads 0000h)
 PSW_INIT = 0xF002                   # reset F002 (MD 1, RB 7, BRKI 1); POP PSW 0002h keeps 15-12
@@ -227,6 +230,45 @@ def div(signed: bool, num: int, d: int, w: int, psw: int) -> tuple[int, int, int
     return q & m, r & m, psw, False
 
 
+def bcd_add8(a: int, b: int, cin: int) -> tuple[int, int, int]:
+    """(WP79, F32) ADD4S's byte step, a = the destination byte, b = the source byte: (carry,
+    the byte's zero term for Z, the byte written). nuV30's law (docs/facts/undefined_flags.md,
+    the 0F20 tranche; sw/oracle_4s_predicate.py bcd_add8): a nibble-serial adder whose high
+    digit's adjust decision sees one carry rail (two carries landing on a 9 leave the digit Ah
+    unadjusted); the carry out is that decision (the V20 suite: 2,000 of 2,000 tests, where the
+    oracle's binary byte carry fails 1,930); Z accumulates over the V30 stage (the 9-bit raw
+    sum zero), which the V20 suite cannot tell from the V20's pre-adjust stage."""
+    lo = (a & 0xF) + (b & 0xF) + cin
+    c1 = (lo >> 4) & 1
+    dlo0 = lo & 0xF
+    c2 = int(dlo0 > 9)
+    dlo = (dlo0 + 6) & 0xF if (c1 or c2) else dlo0
+    hi = ((a >> 4) & 0xF) + ((b >> 4) & 0xF) + c1 + c2
+    dhi0 = hi & 0xF
+    fire = int(((a >> 4) & 0xF) + ((b >> 4) & 0xF) + (c1 | c2) > 9)
+    dhi = (dhi0 + 6) & 0xF if fire else dhi0
+    return fire, int(a + b + cin == 0), ((dhi << 4) | dlo) & 0xFF
+
+
+def bcd_sub8(a: int, b: int, bin_: int) -> tuple[int, int, int]:
+    """(WP79, F32) SUB4S / CMP4S's byte step (a - b - borrow): (borrow, the zero term, the
+    byte). nuV30's law (sw/oracle_4s_predicate.py bcd_sub8; Z the V30 stage: {dec, dlo} = 0);
+    the borrow out is the high digit's adjust decision, as ADD4S's carry (the V20 suite)."""
+    lo = ((a & 0xF) - (b & 0xF) - bin_) & 0x1F
+    c1 = (lo >> 4) & 1
+    dlo0 = lo & 0xF
+    c2 = int(dlo0 > 9)
+    fl = c1 or c2
+    dlo = (dlo0 - 6) & 0xF if fl else dlo0
+    wrapb = int(bool(fl) and dlo0 < 6)
+    hi = (((a >> 4) & 0xF) - ((b >> 4) & 0xF) - c1 - wrapb) & 0x1F
+    dhi0 = hi & 0xF
+    dec = (((a >> 4) & 0xF) - ((b >> 4) & 0xF) - c1) & 0x1F
+    fire = int(bool((dec >> 4) & 1) or dec > 9 or ((dec & 0xF) == 9 and c2 and not c1))
+    dhi = (dhi0 - 6) & 0xF if fire else dhi0
+    return fire, int((dec & 0xF) == 0 and dlo == 0), ((dhi << 4) | dlo) & 0xFF
+
+
 def cond(cc: int, psw: int) -> bool:
     """Bcond's 16 conditions (the 70-7F row's low nibble)."""
     f = lambda b: bool(flag(psw, b))
@@ -275,6 +317,8 @@ class Start:
 class Cpu:
     """The programmer's model and the memory. `pfx`: the segment prefix the next instruction
     carries (the sreg index, None without)."""
+
+    v20_digits = False              # (WP79) ROL4 / ROR4's AL as the V20 leaves it (sst.py)
 
     def __init__(self, regs: dict, mem: bytearray, io_word: int = IO_WORD, code_org: int = 0):
         self.r = {n: regs.get(n, 0) & 0xFFFF for n in REG16 + SREG}
@@ -460,6 +504,27 @@ class Cpu:
             self._string(st, code, pfx, strings)
             return
         if o == 0x90:
+            return
+        if o == 0x0F:
+            self._page0f(st, code, pfx)                 # (WP79, F32) the 0F page
+            return
+        if o in ONE_FLAG:                               # (WP79, F33) the flag forms
+            bit, how = ONE_FLAG[o]
+            v = (0 if how == "clr" else 1 if how == "set" else 1 - flag(self.psw, bit))
+            self.psw = _put(self.psw, bit, v)
+            return
+        if o in (0x27, 0x2F, 0x37, 0x3F):               # (WP79, F33) the adjusts
+            self._adjust(o)
+            return
+        if o == 0x98:                                   # (WP79) CVTBW
+            r["AW"] = _sx(r["AW"], 1) & 0xFFFF
+            return
+        if o == 0x99:                                   # (WP79) CVTWL
+            r["DW"] = 0xFFFF if r["AW"] & 0x8000 else 0
+            return
+        if o in (0xD4, 0xD5):                           # (WP79) CVTBD / CVTDB imm8
+            st.length = 2
+            self._convert(o, code[1])
             return
         if o == 0xF4:
             st.halt = True
@@ -713,6 +778,18 @@ class Cpu:
                 else:
                     r["AW"], r["DW"] = q, rem
             return
+        if o in (0x69, 0x6B):                           # (WP79, F33) MUL r16,r/m16,imm
+            k = 1 + n
+            if o == 0x69:
+                imm = code[k] | (code[k + 1] << 8)
+                st.length += 2
+            else:
+                imm = _sx(code[k], 1) & 0xFFFF
+                st.length += 1
+            a = self._rm_read(mod, rm, off, base, 2)
+            p, self.psw = mul(True, a, imm, 2, self.psw)
+            r[REG16[reg]] = p & 0xFFFF
+            return
         if o in (0xFE, 0xFF):
             if reg in (0, 1):
                 a = self._rm_read(mod, rm, off, base, w)
@@ -726,6 +803,163 @@ class Cpu:
                 return
             raise NotModelled(f"{o:02X} /{reg}")
         raise NotModelled(f"opcode {o:02X}")
+
+    def _adjust(self, o: int):
+        """(WP79, F33) ADJ4A (27, DAA), ADJ4S (2F, DAS), ADJBA (37, AAA), ADJBS (3F, AAS), as the
+        V20 suite has them (10,000 of 10,000 tests each): the flags are the ALU's for AL plus /
+        minus the correction (S Z P V AC of that byte add / subtract), then CY and AC the
+        adjust decisions. ADJ4A / ADJ4S: the low digit corrected (6) when it exceeds 9 or AC is
+        set, the high (60h) when CY is set or AL exceeds 99h, or 9Fh with AC set; ADJBA / ADJBS:
+        AL + / - 6 and AH + / - 1 when the low digit exceeds 9 or AC is set, AL's high digit
+        cleared."""
+        r, psw = self.r, self.psw
+        al, cf, af = r["AW"] & 0xFF, flag(psw, CY), flag(psw, AC)
+        sub = o in (0x2F, 0x3F)
+        if o in (0x27, 0x2F):
+            lo = (al & 0xF) > 9 or af
+            hi = bool(cf) or al > (0x9F if af else 0x99)
+            res, psw = alu(5 if sub else 0, al, (6 if lo else 0) | (0x60 if hi else 0), 1, psw)
+            r["AW"] = (r["AW"] & 0xFF00) | res
+            self.psw = _put(_put(psw, CY, hi), AC, lo)
+            return
+        adj = (al & 0xF) > 9 or af
+        _, psw = alu(5 if sub else 0, al, 6 if adj else 0, 1, psw)
+        ah = (r["AW"] >> 8) + ((-1 if sub else 1) if adj else 0)
+        al = (al + ((-6 if sub else 6) if adj else 0)) & 0x0F     # no carry into AH
+        r["AW"] = ((ah & 0xFF) << 8) | al
+        self.psw = _put(_put(psw, CY, adj), AC, adj)
+
+    def _convert(self, o: int, imm: int):
+        """(WP79, F33) CVTBD (D4 imm8, AAM: AH = AL / imm, AL = AL % imm) and CVTDB (D5 imm8,
+        AAD: AL = AH * imm + AL, AH = 0)."""
+        r = self.r
+        al, ah = r["AW"] & 0xFF, (r["AW"] >> 8) & 0xFF
+        if o == 0xD4:
+            # by 0: no trap, AH = FFh and AL kept (the V20 suite)
+            q, m = divmod(al, imm) if imm else (0xFF, al)
+            r["AW"] = ((q & 0xFF) << 8) | m
+            psw = _szp(self.psw, m, 1)
+            self.psw = psw & ~((1 << CY) | (1 << AC) | (1 << V))
+            return
+        # CVTDB multiplies by 10 whatever the byte (the V20 suite; CVTBD divides by it)
+        res, self.psw = alu(0, (ah * 10) & 0xFF, al, 1, self.psw)
+        r["AW"] = res
+
+    def _page0f(self, st: Start, code: bytes, pfx):
+        """(WP79, F32) the 0F page: the bit ops TEST1 / CLR1 / SET1 / NOT1 (10-1F: bits 2:1 the
+        operation, bit 0 the width, bit 3 an imm index after the operand, else CL; the index
+        modulo the width), the packed BCD strings ADD4S / SUB4S / CMP4S (20 / 22 / 26: (CL + 1)
+        / 2 byte pairs, the source byte at DS0:IX + i (a prefix's segment) read before the
+        destination's at DS1:IY + i, the result written back), the digit rotates ROL4 / ROR4
+        (28 / 2A: the byte operand and AL's low digit), the bit fields INS / EXT (31 / 39, 33 /
+        3B: the offset register in ModR/M bits 2:0, the width - 1 in the register of bits 5:3
+        or the imm4 byte; the field in the words at DS1:IY (INS) / DS0:IX (EXT), a prefix's for
+        EXT; the offset register and the pointer stepped)."""
+        r = self.r
+        s = code[1]
+        if s in (0x20, 0x22, 0x26):
+            st.length = 2
+            n = ((r["CW"] & 0xFF) + 1) // 2
+            src, dst = self.seg(pfx if pfx is not None else 3), self.seg(0)
+            ix, iy = r["IX"], r["IY"]
+            carry, z = 0, 1
+            for i in range(n):
+                b = self.read(src, ix + i, 1)
+                a = self.read(dst, iy + i, 1)
+                carry, zt, res = (bcd_add8 if s == 0x20 else bcd_sub8)(a, b, carry)
+                z &= zt
+                if s != 0x26:
+                    self.write(dst, iy + i, 1, res)
+            psw = self.psw
+            for bit, v in ((CY, carry), (Z, z), (V, 0), (S, carry), (AC, carry), (P, z)):
+                psw = _put(psw, bit, v)
+            self.psw = psw
+            st.string = (None, ix, iy, 0, n, False)
+            return
+        if not (0x10 <= s <= 0x1F or s in (0x28, 0x2A, 0x31, 0x33, 0x39, 0x3B)):
+            raise NotModelled(f"opcode 0F {s:02X}")
+        mod, reg, rm, off, base, n = self.modrm(code, 2)
+        mem = mod != 3
+        st.length = 2 + n
+        if mem:
+            st.ea = base + off
+        if 0x10 <= s <= 0x1F:
+            w = 1 + (s & 1)
+            if s & 8:
+                idx = code[2 + n]
+                st.length += 1
+            else:
+                idx = r["CW"] & 0xFF
+            m = 1 << (idx & (8 * w - 1))
+            a = self._rm_read(mod, rm, off, base, w)
+            op = (s >> 1) & 3
+            if op == 0:                                 # TEST1: S Z P of the masked value
+                t = a & m
+                psw = _szp(self.psw, t, w)
+                self.psw = psw & ~((1 << CY) | (1 << AC) | (1 << V))
+                return
+            v = a & ~m if op == 1 else a | m if op == 2 else a ^ m
+            self._rm_write(mod, rm, off, base, w, v & _mask(w))
+            return
+        if s in (0x28, 0x2A):                           # ROL4 / ROR4
+            a = self._rm_read(mod, rm, off, base, 1)
+            al = r["AW"] & 0xFF
+            # AL's low digit takes the operand's high (ROL4) / low (ROR4) digit, its high digit
+            # kept: the data book's, and the V35's (F32-out-rol4_dl-k2: the second ROL4 DL
+            # leaves AL = 08h, which the OUT after it writes). The V20 differs (the V20 suite):
+            # ROL4 leaves AL = AL << 4 | the operand's high digit, ROR4 AL = the operand
+            # (V20_DIGITS, sst.py's V20 class)
+            if s == 0x28:
+                v, al = ((a << 4) | (al & 0xF)) & 0xFF, (al & 0xF0) | (a >> 4)
+                if self.v20_digits:
+                    al = ((r["AW"] << 4) | (a >> 4)) & 0xFF
+            else:
+                v, al = ((al & 0xF) << 4) | (a >> 4), (al & 0xF0) | (a & 0xF)
+                if self.v20_digits:
+                    al = a
+            self._rm_write(mod, rm, off, base, 1, v)
+            self.set8(0, al)
+            return
+        if mem:
+            raise NotModelled(f"0F {s:02X} with a memory operand")
+        offset = self.r8(rm)
+        if s & 8:
+            width = code[3]
+            st.length += 1
+        else:
+            width = self.r8(reg)
+        o4, w4 = offset & 15, width & 15
+        cross = offset + width >= 16                    # the model's: the registers whole
+        fm = (1 << (w4 + 1)) - 1
+        if s in (0x33, 0x3B):                           # EXT
+            src = self.seg(pfx if pfx is not None else 3)
+            lo = self.read(src, r["IX"], 2)
+            hi = self.read(src, r["IX"] + 2, 2) if cross else 0
+            v = (((hi << 16) | lo) >> o4) & fm
+            r["AW"] = v
+            # the flags: SUB(15, offset + width) at byte width (the V20 suite, 20,000 of 20,000
+            # tests over both forms; its borrow is the crossing decision)
+            _, self.psw = alu(5, 15, (offset + width) & 0xFF, 1, self.psw)
+            ptr = "IX"
+        else:                                           # INS
+            dst = self.seg(0)
+            # the offset register is stepped before AW is read (an INS whose offset is AL or
+            # AH inserts the stepped value: the V20 suite)
+            self.set8(rm, (o4 + w4 + 1) & 15)
+            field = (r["AW"] & fm) << o4
+            mask = fm << o4
+            lo = self.read(dst, r["IY"], 2)
+            self.write(dst, r["IY"], 2, ((lo & ~mask) | field) & 0xFFFF)
+            if cross:
+                hi = self.read(dst, r["IY"] + 2, 2)
+                self.write(dst, r["IY"] + 2, 2, ((hi & ~(mask >> 16)) | (field >> 16)) & 0xFFFF)
+            # the flags: SUB(15, offset + width + 1) at byte width (the V20 suite, 20,000 of 20,000)
+            _, self.psw = alu(5, 15, (offset + width + 1) & 0xFF, 1, self.psw)
+            ptr = "IY"
+        new = o4 + w4 + 1
+        self.set8(rm, new & 15)
+        if new >= 16:
+            r[ptr] = (r[ptr] + 2) & 0xFFFF
 
     def _string(self, st: Start, code: bytes, pfx, strings):
         """(F24) the string forms with or without a REP prefix: elements while CW is not 0
@@ -880,22 +1114,26 @@ def frozen_walk(chain, chain_base: int) -> list:
     """The frozen model's starts in program order (templates.decode / execute from the EU's
     presets, as the EU's _start meets them: the DS1 prefix's SFR store, the string forms'
     element counts from the chain walk): [(offset, op)]."""
+    from .forms import F32_BCD
     from .image import prelude_tail
-    from .normalize import string_elements
+    from .normalize import WALK_STRING_FORMS, string_elements
     from .sim.frozen.bus import SFR_PAGE as FSFR
-    from .sim.frozen.templates import STRING_CLASSES, decode, execute
+    from .sim.frozen.machine import _prefixes
+    from .sim.frozen.templates import BCD_CLASSES, STRING_CLASSES, decode, execute
     tail = prelude_tail(chain, True)
     code = tail + chain.code
     regs = dict(chain.regs)
-    from .forms import STRING_FORMS
     strings = {}
-    if any(i.role == "x" and i.form in STRING_FORMS for i in chain.instrs):
-        strings = {chain.instrs[k].offset: (len(sr.elements), sr.cond)
-                   for k, sr in string_elements(chain).items()}
+    # (WP79) as the frozen machine keys them (machine.py): F33's REPC / REPNC forms
+    # (WALK_STRING_FORMS) and F32's BCD strings by the 0F opcode's offset
+    if any(i.role == "x" and (i.form in WALK_STRING_FORMS or i.form in F32_BCD)
+           for i in chain.instrs):
+        strings = {chain.instrs[k].offset + _prefixes(chain.instrs[k].code):
+                   (len(sr.elements), sr.cond) for k, sr in string_elements(chain).items()}
     out, k, seg_prefix = [], 0, None
     for _ in range(MAX_STARTS):
         op = decode(code, k, regs)
-        if op.cls in STRING_CLASSES and op.offset - len(tail) in strings:
+        if (op.cls in STRING_CLASSES or op.cls in BCD_CLASSES) and op.offset - len(tail) in strings:
             op.n, op.cond = strings[op.offset - len(tail)]
         if (op.cls != "prefix" and seg_prefix == 0x26 and op.ea is not None
                 and op.cls in ("store", "store_imm")):
@@ -915,7 +1153,7 @@ def quantities_frozen(op) -> dict:
     s0, s1 = op.stack if op.stack else (None, None)
     q = {"ea": op.ea or 0, "port": op.port or 0, "sr": s0 or 0, "sw": s1 or 0,
          "count": op.count, "taken": int(op.target is not None), "target": op.target or 0}
-    if op.cls.startswith("str_"):
+    if op.cls.startswith("str_") or op.cls.startswith("bcd4s"):     # (WP79) the BCD strings
         q["string"] = (op.rep, op.ix, op.iy, op.port or 0, op.n, bool(op.cond))
     return q
 
@@ -943,7 +1181,7 @@ def agree(chain, chain_base: int, run: Run | None = None) -> list[str]:
             bad.append(f"start {i}: offset {st.pc}, frozen {k}")
             break
         a, b = quantities(st), quantities_frozen(op)
-        if op.cls.startswith("str_") and "string" in b:
+        if (op.cls.startswith("str_") or op.cls.startswith("bcd4s")) and "string" in b:
             b["port"] = a["port"] = 0
             if a["string"][3] is None:
                 a["string"] = a["string"][:3] + (0,) + a["string"][4:]

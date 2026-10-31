@@ -12,7 +12,7 @@ module v35_core_tb #(
     parameter int NXOP = 6,
     parameter int NXQ = 8,
     parameter int JSLOT = 40,
-    parameter int STATE_W = 985,
+    parameter int STATE_W = 1021,
     parameter int QSTATE_W = 197,
     parameter int ASTATE_W = 112,
     parameter int RSTATE_W = 24
@@ -66,8 +66,8 @@ module v35_core_tb #(
     input  wire [5:0]  mutate,              // the mutation tests (1..7, 20 the arbiter's, 8..19, 21..32 the EU's)
     // (D1) the operand record of the clock's first and second start and the register file
     // before each one's execute; (D2) the EU cycle's datum (the EU's)
-    output wire [196:0] opr_a,
-    output wire [196:0] opr_b,
+    output wire [211:0] opr_a,
+    output wire [211:0] opr_b,
     output wire [210:0] rfx_a,
     output wire [210:0] rfx_b,
     output wire [15:0] x_data,

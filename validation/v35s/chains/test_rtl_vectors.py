@@ -18,9 +18,10 @@ gates' full runs:
 python -m validation.v35s.chains.rtl_vectors --family F0 F0w, --queue --family F0 F2 F9 F11,
 --joint --family F0 F2 F9 F11, --eu / --joint3 --family F1 F2 F3 F9 F11 F12 F20, --core
 --family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F26 F29, --core --family F8 F13 F17 F18,
---regfile and the corpus's --core over every family (33 lists: F0, F0w, F1 .. F31; F32 and F33
-are generator-only), funcref --silicon, sst and sst --rtl. (WP75) The fortieth fit's seven
-mechanisms and (E3) the string forms are in the RTL: no run is outside it."""
+--regfile and the corpus's --core over every family (35 lists: F0, F0w, F1 .. F33), funcref
+--silicon, sst and sst --rtl. (WP75) The fortieth fit's seven mechanisms and (E3) the string
+forms are in the RTL; (WP79) the 0F page and the register miscellany (F32, F33) too: no run is
+outside it."""
 
 from __future__ import annotations
 
@@ -842,6 +843,37 @@ class CoreBench(unittest.TestCase):
         self.assertEqual(caught, 3)     # the exit's condition ignored: all but REPNC CMPBK,
                                         # which runs CW out
 
+    def test_page_and_miscellany_runs_exact(self):
+        """(WP79) F32 / F33 forms of every new template shape run exact against the frozen model
+        through the core: a register bit op (CL index), a memory bit op (page_grp=group), a digit
+        rotate on memory, a BCD string of 4 byte pairs (the compact loop) behind the DS1 prefix,
+        the bit fields (EXT crossing, INS crossing at k = 2: the stepped offset register and IY),
+        a one-byte form with nx0 (ADJBA), CVTDB, MUL imm memory; silicon-exact where the model
+        is."""
+        cfg = fit_config()
+        for family, part in PSAMPLE:
+            rec = _run(family, part)
+            with self.subTest(run=part):
+                r = rtl_vectors.check_core_run(rec, cfg)
+                self.assertEqual((r.error, r.not_modelled), ("", ""))
+                self.assertTrue(r.ok, r.first)
+                self.assertEqual(r.rtl_exact, r.model_exact)
+
+    def test_bench_catches_page_and_miscellany_mutations(self):
+        """(WP79) each new mechanism or function broken (v35_eu.sv `mutate` 33 .. 38: a BCD
+        pair's address step 0, bf_count=dw off, a bit op's index off by one, a BCD pair's carry
+        dropped, a bit field's offset step without its + 1, the 0F page's second byte not
+        skipped at the ModR/M latch) fails its run, which runs exact without."""
+        cfg = fit_config()
+        for mut, family, part in PMUT:
+            rec = _run(family, part)
+            with self.subTest(mutate=mut, run=part):
+                self.assertTrue(rtl_vectors.check_core_run(rec, cfg).ok)
+                r = rtl_vectors.check_core_run(rec, cfg, mutate=mut)
+                self.assertEqual(r.error, "")
+                self.assertFalse(r.ok)
+                self.assertRegex(r.first, r"^FAIL clock \d+ ")
+
     def test_bench_catches_register_file_mutations(self):
         """(D1, D2) the register file's and the ALU's mutations (v35_eu.sv `mutate` 8..12):
         [BW+IX] computed without IX (an EA mode: the record), a push's SP step of 4 (the next
@@ -871,8 +903,19 @@ class CoreBench(unittest.TestCase):
 
 # D1, D2 --------------------------------------------------------------------------------------
 
-# (WP75) the 33 lists of the whole corpus: F0, F0w, F1 .. F31 (F30 and F31 the probe families)
-ALL_FAMILIES = ("F0", "F0w") + tuple(f"F{i}" for i in range(1, 32))
+# (WP79) F32 / F33 runs of each new template shape, and each WP79 mutation's run
+PSAMPLE = (("F32", "F32-out-set1_rb_cl-k1-pE-w0"), ("F32", "F32-out-set1_mb_cl-k1-pE-w0"),
+           ("F32", "F32-out-rol4_m-k1-pE-w0"), ("F32", "F32-out-pfx_add4s-n4-k1-pE-w0"),
+           ("F32", "F32-out-ext_dl_bh-k1-pE-w0"), ("F32", "F32-out-ins_dl_dh-k2-pE-w0"),
+           ("F33", "F33-out-adjba-k1-pE-w0"), ("F33", "F33-out-cvtdb-k1-pE-w0"),
+           ("F33", "F33-out-mul_aw_m_imm8-k1-pE-w0"))
+PMUT = ((33, "F32", "F32-out-add4s-n4-k1-pE-w0"), (34, "F32", "F32-out-ext_bl_dh-k1-pO-w0"),
+        (35, "F32", "F32-out-set1_rb_cl-k1-pE-w0"), (36, "F32", "F32-out-add4s-n4-k1-pE-w0"),
+        (37, "F32", "F32-out-ins_dl_dh-k2-pE-w0"), (38, "F32", "F32-out-set1_mb_cl-k1-pE-w0"))
+
+# (WP75) the lists of the whole corpus: F0, F0w, F1 .. F31 (F30 and F31 the probe families);
+# (WP79) and F32, F33: 35 lists, 28,142 runs
+ALL_FAMILIES = ("F0", "F0w") + tuple(f"F{i}" for i in range(1, 34))
 
 
 class FunctionalReference(unittest.TestCase):
@@ -888,8 +931,8 @@ class FunctionalReference(unittest.TestCase):
         silicon's."""
         from validation.v35s.chains import funcref
         tot = funcref.agree_corpus(ALL_FAMILIES, silicon=True)
-        self.assertGreater(tot["runs"], 24000)
-        self.assertGreater(tot["starts"], 600000)
+        self.assertGreater(tot["runs"], 28000)
+        self.assertGreater(tot["starts"], 700000)
         self.assertEqual((tot["bad"], tot["nm"], tot["trap"]), (0, 0, 0), tot["first"])
         self.assertGreater(tot["scyc"], 90000)
         self.assertEqual(tot["seq"], tot["scyc"], tot["first"])
@@ -953,21 +996,23 @@ class FunctionalReference(unittest.TestCase):
                      .exists(), "SingleStepTests not fetched: tools/fetch_sst_v20.py")
 class SingleStepTests(unittest.TestCase):
     """(D2) the V20 suite: the reference (and, built, the unit bench) on a sample of files."""
-    FILES = ("01", "2B", "81.3", "C1.2", "D3.7", "F7.6", "F7.7", "F6.5", "8F", "61", "C3", "7C")
+    FILES = ("01", "2B", "81.3", "C1.2", "D3.7", "F7.6", "F7.7", "F6.5", "8F", "61", "C3", "7C",
+             # (WP79) the 0F page and the register miscellany
+             "0F15", "0F1A", "0F20", "0F22", "0F26", "0F33", "0F39", "27", "3F", "D4", "D5", "6B")
 
     def test_reference_passes(self):
         from validation.v35s.chains import sst
         res = sst.check_funcref(self.FILES, show=0)
         for stem, counts in res.items():
             self.assertEqual(counts.get("fail", 0), 0, (stem, counts))
-            self.assertGreater(counts.get("pass", 0), 2000, (stem, counts))
+            self.assertGreater(counts.get("pass", 0), 1900, (stem, counts))
 
     @unittest.skipUnless(rtl_vectors.RFBENCH.exists(), "bench not built: fpga/v35s/build_rf_tb.sh")
     def test_rtl_passes(self):
         res = rtl_vectors.check_sst(self.FILES, show=0)
         for stem, counts in res.items():
             self.assertFalse([k for k in counts if k.startswith("rtl fail")], (stem, counts))
-            self.assertGreater(counts.get("pass", 0), 2000, (stem, counts))
+            self.assertGreater(counts.get("pass", 0), 1900, (stem, counts))
 
 
 @unittest.skipUnless(rtl_vectors.RFBENCH.exists(), "bench not built: fpga/v35s/build_rf_tb.sh")

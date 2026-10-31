@@ -31,7 +31,11 @@ bench checks); an access to the V35's on-chip page (FFE00h-FFFFFh: the internal 
 banks and the SFRs at IDB = FFh, memory on the V20); an operand read outside the test's RAM (the
 suite's mirror-dependent cases; POP R's discarded SP word, which the V20 does not read and the
 V35 does, excepted). The shift group's undocumented /6 is SHL's alias on the V20 (every test
-passes so) and is built so.
+passes so) and is built so. (WP79) ROL4 / ROR4 leave AL differently on the V20 (ROL4: AL << 4 |
+the operand's high digit; ROR4: the operand) and the V35 (the data book: AL's high digit kept,
+F32's silicon): a test passing only with the V20's AL is counted apart (V20_DIGITS). An INS
+with offset 0 and width field 15 replaces the whole word: the V20 does not read it (the suite
+lists no RAM there: "unlisted"), the frozen model's template does.
 
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.sst [--rtl] [--files 00 81.0 ...]
 """
@@ -74,7 +78,18 @@ RTL_FILES = tuple(
     + _groups(0xC1, range(8)) + ["C3", "C6", "C7", "C8", "C9"]
     + _groups(0xD0, range(8)) + _groups(0xD1, range(8)) + _groups(0xD3, range(8))
     + ["D7", "E2", "E4", "E5", "E6", "E7", "E8", "E9", "EB", "EC", "ED", "EE", "EF"]
-    + _groups(0xF6, range(1, 8)) + _groups(0xF7, range(8)) + _groups(0xFF, range(8)))
+    + _groups(0xF6, range(1, 8)) + _groups(0xF7, range(8)) + _groups(0xFF, range(8))
+    # (WP79) the 0F page (F32: the bit ops, the BCD strings, the digit rotates, the bit
+    # fields) and the register miscellany (F33: INC / DEC, the adjusts, the converts, the flag
+    # forms, FE /0 /1, MUL imm)
+    + [f"0F{s:02X}" for s in range(0x10, 0x20)]
+    + ["0F20", "0F22", "0F26", "0F28", "0F2A", "0F31", "0F33", "0F39", "0F3B"]
+    + ["27", "2F", "37", "3F"] + [f"{0x40 + k:02X}" for k in range(16)]
+    + ["98", "99", "D4", "D5", "F5", "F8", "F9", "FA", "FB", "FC", "FD", "FE.0", "FE.1",
+       "69", "6B"])
+# (WP79) ROL4 / ROR4: the V20 leaves AL as the V35 does not (funcref.Cpu.v20_digits); a test
+# that fails with the V35's AL and passes with the V20's is counted apart
+V20_DIGIT_FILES = frozenset(["0F28", "0F2A"])
 
 # the forms the decoder gives a template their semantics do not fit (V35_EE_FUNC)
 NOT_FUNCTIONAL = frozenset(["FF.2", "FF.3", "FF.4", "FF.5", "FF.7", "F6.1", "F7.1"])
@@ -197,6 +212,25 @@ def _ivt(test: dict, n: int) -> tuple[int, int]:
     return w(4 * n), w(4 * n + 2)
 
 
+class _V20DigitsCpu(_CheckedCpu):
+    """(WP79) _CheckedCpu with ROL4 / ROR4's AL as the V20 leaves it."""
+    v20_digits = True
+
+
+def run_v35_or_v20(test: dict, stem: str) -> tuple[str, list, object]:
+    """(WP79) run_funcref; a ROL4 / ROR4 test failing with the V35's AL and passing with the
+    V20's is the class V20_DIGITS."""
+    c, diffs, starts = run_funcref(test)
+    if c == "fail" and stem in V20_DIGIT_FILES:
+        c2, d2, s2 = run_funcref(test, _V20DigitsCpu)
+        if c2 == "pass":
+            return V20_DIGITS, d2, s2
+    return c, diffs, starts
+
+
+V20_DIGITS = "V20's ROL4 / ROR4 AL"
+
+
 def _funcref_file(args) -> tuple[str, dict, list]:
     stem, show = args
     counts: dict = {}
@@ -204,7 +238,7 @@ def _funcref_file(args) -> tuple[str, dict, list]:
     for test in load(stem):
         c = classify(test, stem)
         if c is None:
-            c, diffs, _ = run_funcref(test)
+            c, diffs, _ = run_v35_or_v20(test, stem)
             if c == "fail" and len(fails) < show:
                 fails.append(f"    {stem} #{test['idx']} {test['name']}: {'; '.join(diffs[:4])}")
         counts[c] = counts.get(c, 0) + 1

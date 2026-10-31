@@ -14,7 +14,7 @@
 module v35_eu_tb #(
     parameter int NQ = 16,
     parameter int NXOP = 6,
-    parameter int STATE_W = 985,
+    parameter int STATE_W = 1021,
     parameter int JSLOT = 40,
     parameter int QSTATE_W = 197
 ) (
@@ -36,8 +36,8 @@ module v35_eu_tb #(
     input  wire [95:0] code_win,
     input  wire [5:0]  mutate,
     output wire [15:0] x_data,              // (D2) the EU cycle's datum (the EU's)
-    output wire [196:0] opr_a,              // (D1) the starts' operand records and the
-    output wire [196:0] opr_b,              // register file before each
+    output wire [211:0] opr_a,              // (D1) the starts' operand records and the
+    output wire [211:0] opr_b,              // register file before each
     output wire [210:0] rfx_a,
     output wire [210:0] rfx_b,
     input  wire [NQ:0][51:0] qv_tl,

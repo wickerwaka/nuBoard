@@ -579,6 +579,58 @@ the initial register file. Not built: the trap sequence, the 0F page and the
 register miscellany (F32/F33, `UNBUILT_CLASSES`; the forty-second fit,
 adopted the same day, changes nothing on the 33 gate lists), interrupts.
 
+**The 0F page and the register miscellany built 2026-10-30 (WP79, Phase E
+items 4 and 5):** all 23 F32/F33 classes are in RTL and
+`rtlgen.UNBUILT_CLASSES` is empty. Whole corpus `--core` over the 35 lists
+(the overseer's re-run, scratchpad wp79r/): 28,142 exact against the model,
+0 not modelled, model-exact 26,643 = RTL-exact (F32 858/858 with silicon 379,
+F33 1,050/1,050 with 841; F34's 1,596 runs exact too, 469 silicon-exact on
+both sides); C1–C3 unchanged, `--regfile` 69,099 vectors 0 bad, funcref
+29,738 runs over 36 lists 0 disagree (INS's written data and the BCD results
+included), SST funcref 2,044,304 and RTL 2,001,666 pass with 62 more V20 files
+(the BCD, bit-field, adjust, convert and digit-rotate suites); mutations 33–38
+(the BCD pair step, `bf_count`, the bit index, the BCD carry, the bit-field
+offset step, the 0F second byte at the ModR/M latch) caught on their runs,
+each exact unmutated. Structure: the EU's `e.cls` holds the base class
+(`templates.BASE_CLASS`, generated as `v35_base_cls`: the rules see it) and
+a new `e.ccls` the class's own (every cost read of the running instruction);
+the 0F form's ModR/M, displacement and immediate are read through
+`v35_mcode` with the first byte dropped, the second byte skipped at the
+decoder's ModR/M latch (`skip`), `nx0` loading `ra_off` for the one-byte
+forms; the BCD strings are a compact template (head, pair 0, pair ≥ 1, exec)
+the EU expands by (CL + 1)/2 pairs, the count checked at the next start
+against the walk's as a REP's is, addresses always stepping up; the bit
+fields carry the formula's clocks in a `bf`-tagged step (n = span or xspan)
+that the RTL computes with `v35_bf_cost` (ported from `templates.bf_cost`),
+the crossing a format field from the whole registers (o + w ≥ 16), and the
+record's `bfc` checks the cost at every start. Data paths read off the V20
+suite where silicon is silent: BCD flags carried pair by pair (S = AC = CY,
+P = Z, V = 0, the carry the high digit's adjust decision: 2,000/2,000 where
+nuV30's binary carry fails 1,930); bit-field flags SUB8(15, o + w) for EXT
+and SUB8(15, o + w + 1) for INS, INS stepping its offset register before
+reading AW, EXT re-stepping it after writing AW (20,000/20,000); ADJ4A/ADJ4S
+a high threshold of 9Fh with AC set, else 99h, ADJBA/ADJBS stepping AH with
+no carry from AL (10,000/10,000); CVTBD by 0 does not trap (AH = FFh);
+CVTDB multiplies by 10 whatever its immediate. Where silicon speaks it wins:
+ROL4/ROR4 keep AL's high digit as the data book says (F32's OUT writes
+AL = 08h; the V20 differs, 18,368 SST tests set apart as "V20's ROL4 / ROR4
+AL" and passing under a `v20_digits` switch); INS with offset 0 and width
+field 15 reads the word in model, funcref and RTL where the V20 does not
+(82 tests "unlisted"). funcref's `frozen_walk` lacked the REPC/REPNC and BCD
+counts and is keyed as the frozen machine is. Widths: `v35_st_t` 1021
+(decoder + 5: nx 3, `ra_off` 5, `skip`; EU + 12: cls 7, `ccls` 7, tmpl 9,
+`res` 11, `prev_cls` 7, `ce_off` 12, an INS with whole registers reaching
+1,998 cost clocks), `v35_fx_t` 167 (`bfo`, `bfw`), `v35_opnd_t` 212 (fmt 33
+with `cross`, tmpl 9, `bfc` 12; `opr_a`/`opr_b` [211:0], no new ports),
+`CLS_NONE` 127, `V35_CLS_N` 65, `V35_TMPL_N` 330, `STEP_W` 39 (tag 5 bits),
+`V35_W_CLS` 7, `V35_W_NX` 3, `V35_W_RA_OFF` 5, `V35_W_BF_COST` 12;
+`v35_bcd_shape`, `V35_BCD_HEAD`/`SETS` in the include; the rf vector format
+V35RF-3. Bit-field data for registers above 15 stays unprobed (the corpus
+and the suite stop at 15; silicon's FFFFh write with DL = 78h is not nibble
+data). Still scripted: the code window, the memory image, the I/O read
+value, the initial register file. Not built: the trap sequence,
+interrupts.
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
@@ -664,9 +716,10 @@ then the RTL. In the order the generator gains them:
    bits. Modelled 2026-10-30 (WP78, docs/v35s-chains.md "The forty-second
    fit", adopted the same night: the 0F page decoded through `Op.page`, the BCD
    byte-pair loop and the bit-field class, 379/858; the bit fields and the
-   CL-indexed bit ops mostly ±1 off). Not in RTL: the RTL needs the second
-   opcode byte in `eu_decode`, the two new template shapes and the
-   whole-register bit-field arithmetic.
+   CL-indexed bit ops mostly ±1 off). Built 2026-10-30 (WP79, "The 0F page
+   and the register miscellany built" above: the second opcode byte at the
+   ModR/M latch, the BCD compact template, the bit-field cost step and
+   whole-register arithmetic; 858/858 against the model).
 5. The register miscellany (INC and DEC r16, flags, adjusts, CVTBD and
    CVTDB, signed multiply and divide, IMUL with an immediate). Acquired
    2026-10-30 (F33, WP74, 1,050 runs, generator-only, with REPC/REPNC): the
@@ -675,7 +728,8 @@ then the RTL. In the order the generator gains them:
    Modelled 2026-10-30 (WP78, with item 4: 841/1,050, the register forms on
    the reg and imm shapes with their own integers, `mul.sexec`/`div.sexec`
    for the signed register forms; REPC/REPNC decoded as REP prefixes since
-   WP76). Not in RTL.
+   WP76). Built 2026-10-30 (WP79, with item 4; 1,050/1,050 against the
+   model, the adjust, convert and BCD data paths read off the V20 suite).
 6. Interrupts, the register banks and the V35 instructions: the core
    plan's Phases 5 and 6, each measured before coded.
 

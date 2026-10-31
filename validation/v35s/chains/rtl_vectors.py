@@ -62,12 +62,20 @@ imm_latch=wait) and, E3, the string forms: a REP form's step list is the frozen 
 (e_k), its element loop expanded by the EU from rtlgen's compact template, the addresses from
 IX / IY by the element, the element count from CW and a compare's exit from the RTL's own data
 (x_sn, x_sc: not in the state rows, checked at the next start against the walk's, the P line's
-last three fields); str_hold=hold is the EU's str_held op. No run is outside the RTL. The
-whole corpus, 33 lists (F32 and F33 are generator-only):
+last three fields); str_hold=hold is the EU's str_held op. No run is outside the RTL.
+
+(WP79) The 0F page and the register miscellany (F32, F33; HDL plan Phase E items 4 and 5): the
+classes share an existing class's structure (eu.cls the base class, templates.BASE_CLASS; the
+integers the class's own, e_ccls); the decoder skips a 0F form's second opcode byte at the ModR/M
+latch (d_skip) and holds a one-byte form's successor nx0 clocks; a BCD string's byte pairs are a
+compact template the EU expands by its pair count ((CL + 1) / 2, x_sn, checked at the next start
+against the walk's as a REP form's); a bit field's cost clocks come from its offset and width
+registers (the record's bfc, v35_bf_cost) and its crossing is the format's. The whole corpus,
+35 lists, 28,142 runs:
 
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --core --family F0 F0w \
         F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 \
-        F25 F26 F27 F28 F29 F30 F31
+        F25 F26 F27 F28 F29 F30 F31 F32 F33
 """
 
 from __future__ import annotations
@@ -1095,7 +1103,7 @@ EFORMAT = "V35EU-4"           # (E3) the P lines carry the string form's element
 NQ = 16                      # the EU's queue ops per phase (T and L; P) (v35_eu.sv NQ)
 NXOP = 6                     # the arbiter's touches on the EU per clock (v35_eu.sv NXOP)
 JSLOT = 40                   # the joint bench's queue op chain: T, L, X and P ops
-CLS_NONE = 63                # no instruction yet (eu.cls unset)
+CLS_NONE = 127               # no instruction yet (eu.cls unset); (WP79) 7-bit class ids
 
 # the arbiter's touches on the EU (v35_eu.sv V35_XOP_*), in this order
 XOPS = ("nop", "issue", "nowrite", "fetch_start", "sync_one", "free0", "not_before",
@@ -1114,25 +1122,28 @@ DFIELDS = (
     ("ir_addr", 20),         # ... from this address
     ("taddr", 20),           # the address of the next byte the decoder takes (its own count)
     ("need", 3),             # operand bytes still to take
-    ("nx", 2),               # the class's nx
-    ("ra_off", 2),           # ready_at - t
+    ("nx", 3),               # the class's nx ((WP79) rol4_mem's 7)
+    ("ra_off", 5),           # ready_at - t ((WP79) a one-byte form's nx0: adjust_b's 16)
     ("ir_hold", 1),          # ir_load=disp_data
     ("ea_off", 2),           # ea_end - t (ea_ir_room: t < ea_end)
     ("modrm_next", 1),       # the next byte taken is a ModR/M
     ("mate_next", 1),        # the next byte taken is the ModR/M's odd word-mate (modrm_mate)
     ("imm_reg", 1),          # a register form with an immediate
     ("stopped", 1),          # HALT stopped the loader
+    ("skip", 1),             # (WP79) modrm_skip: a 0F form's second opcode byte still to take
 )
 EUFIELDS = (
     ("pc", 16),              # eu.pc: the code offset (the tail's first byte 0)
-    ("cls", 6),              # the running instruction's class (V35_CLS_*; CLS_NONE before one)
-    ("tmpl", 8),             # its template (v35_step)
+    ("cls", 7),              # the running instruction's class (V35_CLS_*; CLS_NONE before one):
+                             # (WP79) its base class (templates.BASE_CLASS, eu.cls) ...
+    ("ccls", 7),             # ... and its own, whose integers the EU reads (eu.ccls)
+    ("tmpl", 9),             # its template (v35_step)
     ("wbs", 1),              # the wbsync step before it (v35_wbsync)
     ("count", 9),            # its shift count (a template's per-count clocks)
     ("ins", 1),              # a port relatch inserted the slot and post steps ...
     ("ins_at", 4),           # ... at this step
     ("k", 18),               # the step cursor (E3: a REP string form's flat index)
-    ("res", 10),             # resume - t
+    ("res", 11),             # resume - t ((WP79) an INS's cost clocks: up to 1998)
     ("left", 3),             # bytes left in the current take
     ("nw_v", 1),             # left_nw is set ...
     ("nw", 3),               # ... clocks left in a nowait step
@@ -1181,14 +1192,14 @@ EUFIELDS = (
     ("sw", 16),              # stack write address
     ("tgt", 16),             # a taken transfer's target (a code offset)
     # (C5) the refresh's
-    ("prev_cls", 6),         # refresh_beat_b2b: the class of the instruction before
+    ("prev_cls", 7),         # refresh_beat_b2b: the class of the instruction before
     ("sfr", 8),              # eu.sfr: the SFR store's value (the RFM write)
     ("rmw", 1),              # refresh_rmw_loop: rmw_loop is set (a memory shift RMW)
     ("rmw_cl", 1),           # refresh_grpcl: rmw_cl is set (... by CL)
     ("clk_tag", 3),          # CLK_TAGS
     ("cs_now", 1),           # clk_start == t
     ("clk_seam", 1),
-    ("ce_off", 11),          # clk_end - t, clipped at -1 (two's complement)
+    ("ce_off", 12),          # clk_end - t, clipped at -1 (two's complement)
     ("res_past", 1),         # resume < t
     ("hv", 1),               # hold_end is set ...
     ("h_off", 3),            # ... max(0, hold_end - t) ...
@@ -1223,7 +1234,7 @@ RFIELDS = (
     ("free", 5),             # ... its value
     ("lead", 2),
     ("nowait", 1),
-    ("cls", 6),              # the posting class
+    ("cls", 7),              # the posting class (its base class)
     ("free_bus", 1),
     ("whole", 1),
     ("through", 7),
@@ -1257,7 +1268,10 @@ FFIELDS = (
 XFIELDS = (("code", 48), ("wd", 16), ("md", 16), ("rk", 3), ("wk", 3),
            # (E3) a string form: its elements (the RTL's, from its CW and its data), whether a
            # compare's condition ended it, IX and IY at its start, the source's segment
-           ("sn", 16), ("sc", 1), ("six", 16), ("siy", 16), ("sseg", 16))
+           ("sn", 16), ("sc", 1), ("six", 16), ("siy", 16), ("sseg", 16),
+           # (WP79) a BCD string's pairs and addresses use sn / six / siy / sseg; a bit field's
+           # offset and width registers at its start
+           ("bfo", 8), ("bfw", 8))
 EFIELDS = (tuple((f"d_{n}", w) for n, w in DFIELDS) + tuple((f"e_{n}", w) for n, w in EUFIELDS)
            + tuple((f"f_{n}", w) for n, w in FFIELDS) + tuple((f"x_{n}", w) for n, w in XFIELDS)
            + tuple((f"r{i}_{n}", w) for i in (2, 1, 0) for n, w in RFIELDS))
@@ -1281,7 +1295,7 @@ BVIEW = (("kind", 3), ("pos", 3), ("len", 3), ("free", 1), ("finf", 1), ("in_wai
 # bench compares), then (D2) the register file before the instruction (FFIELDS, the functional
 # reference's)
 OPFIELDS = ("offset", "code", "ea", "port", "sr", "sw", "count", "taken", "target", "fmt",
-            "tmpl")
+            "tmpl", "bfc")
 
 
 def rf_of(regs: dict) -> dict:
@@ -1330,6 +1344,7 @@ class OpRec:
     target: int
     fmt: int
     tmpl: int
+    bfc: int = 0                    # (WP79) a bit field's cost (Op.bf: templates.bf_cost)
     rf: dict | None = None          # (D2) the register file before it (FFIELDS, funcref's)
     tgt: int = 0                    # (D2) the transfer's target (RET's: the stack read's, which
                                     # the record leaves 0)
@@ -1338,7 +1353,7 @@ class OpRec:
 
     def text(self) -> str:
         return (f"P {self.offset} {self.code.hex()} {self.ea} {self.port} {self.sr} {self.sw} "
-                f"{self.count} {self.taken} {self.target} {self.fmt} {self.tmpl} "
+                f"{self.count} {self.taken} {self.target} {self.fmt} {self.tmpl} {self.bfc} "
                 + " ".join(str(self.rf[n]) for n, _ in FFIELDS)
                 + " " + " ".join(str(v) for v in self.string))
 
@@ -1644,6 +1659,7 @@ class EURecorder:
         ret = op.cls == "ret"
         r = OpRec(op.offset, code, st.ea, st.port, st.sr, st.sw, st.count, int(st.taken),
                   0 if ret else st.target, rtlgen.pack_fmt(key, self.classes), self.sel[key],
+                  op.bf[3] if op.bf is not None else 0,
                   rf_of(st.regs), st.target if st.taken else 0,
                   (1, st.string[4], int(st.string[5])) if st.string is not None else (0, 0, 0))
         self.opnds.append(r)
@@ -1726,10 +1742,13 @@ def estate(m, t: int, rec) -> dict:
                            and rec.taddr == d.modrm_addr + 1)
     s["d_imm_reg"] = int(bool(d.imm_reg))
     s["d_stopped"] = int(d.stopped)
+    s["d_skip"] = int(bool(getattr(d, "modrm_skip", 0)))    # (WP79)
     op = rec.cur
     s["e_pc"] = eu.pc
     cls = getattr(eu, "cls", None)
     s["e_cls"] = rec.classes.index(cls) if cls is not None else CLS_NONE
+    ccls = getattr(eu, "ccls", None)        # (WP79) the class whose integers the EU reads
+    s["e_ccls"] = rec.classes.index(ccls) if ccls is not None else CLS_NONE
     s["e_tmpl"] = op.tmpl if op else 0
     s["e_wbs"] = int(bool(eu.steps) and eu.steps[0] == ("wbsync",))
     s["e_count"] = op.count if op else 0
@@ -1819,7 +1838,7 @@ def estate(m, t: int, rec) -> dict:
     s["e_clk_tag"] = CLK_TAGS.index(eu.clk_tag)
     s["e_cs_now"] = int(eu.clk_start == t)
     s["e_clk_seam"] = int(bool(eu.clk_seam))
-    s["e_ce_off"] = _bits(max(-1, eu.clk_end - t), 11)
+    s["e_ce_off"] = _bits(max(-1, eu.clk_end - t), 12)
     s["e_res_past"] = int(eu.resume < t)
     he = eu.hold_end
     s["e_hv"] = int(he is not None)
@@ -2651,7 +2670,7 @@ def _report_core(f, rs, show) -> int:
 #     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --regfile --family F0 ...
 
 RFBENCH = ROOT / "build" / "fpga" / "v35s" / "rf-tb" / "Vv35_rf_tb"
-RFFORMAT = "V35RF-2"
+RFFORMAT = "V35RF-3"         # (WP79) the record carries a bit field's cost
 RK = {"read": 1, "write": 2, "io_read": 3, "io_write": 4}       # V35_RK_*
 EDGES = (0x0000, 0x0001, 0x0002, 0x007F, 0x0080, 0x00FF, 0x0100, 0x7FFF, 0x8000, 0x8001,
          0xFFFE, 0xFFFF)
@@ -2679,9 +2698,19 @@ def func_ok(code: bytes) -> bool:
 
 def rtl_decodes(code: bytes) -> bool:
     """(D2) eu_decode knows the opcode (op.ok), for the vector generators (the bench checks
-    the RTL's own): the catalog's opcodes and the 70-7F conditions."""
+    the RTL's own): the catalog's opcodes and the 70-7F conditions; (WP79) the 0F page and the
+    register miscellany."""
     o, m = code[0], code[1]
     mod, reg = m >> 6, (m >> 3) & 7
+    if o == 0x0F:                       # (WP79) the bit fields: a register operand only
+        if m in (0x31, 0x33, 0x39, 0x3B):
+            return code[2] >> 6 == 3
+        return 0x10 <= m <= 0x1F or m in (0x20, 0x22, 0x26, 0x28, 0x2A)
+    if 0x40 <= o <= 0x4F or o in (0xF5, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0x98, 0x99, 0x27,
+                                  0x2F, 0x37, 0x3F, 0xD4, 0xD5, 0x69, 0x6B):
+        return True
+    if o == 0xFE:
+        return reg in (0, 1)
     if o in (0x26, 0x2E, 0x36, 0x3E, 0x90, 0x92, 0xF4, 0x50, 0x58, 0x59, 0x05, 0xA8, 0xA9, 0xA1,
              0xA3, 0xEB, 0xE2, 0xE9, 0xE8, 0xC3, 0x68, 0x6A, 0x60, 0x61, 0xC8, 0xC9, 0x06, 0x0E,
              0x16, 0x1E, 0x07, 0x17, 0x1F, 0xD7):
@@ -2712,10 +2741,10 @@ def rf_vector(before: dict, code6: bytes, pc: int, org: int, st, after: dict | N
     trap. bad: a form whose function the RTL does not build (only obad is compared)."""
     head = f"V {_rf_text(before)} {code6.hex()} {pc} {org} {mutate}"
     if bad:
-        return f"{head} 0 0 0 0 0 0 0 1 0 0 {_rf_text(before)} 0"
+        return f"{head} 0 0 0 0 0 0 0 0 1 0 0 {_rf_text(before)} 0"
     ret = code6[0] == 0xC3
     rec = (st.ea, st.port, st.sr, st.sw, st.count, int(st.taken),
-           0 if ret or not st.taken else st.target)
+           0 if ret or not st.taken else st.target, bf_cost_of(before, code6))
     if nxt is None:
         nxt = st.target if st.taken else (pc + st.length) & 0xFFFF
     cyc, req, odd, wi = [], None, 0, 0
@@ -2733,6 +2762,19 @@ def rf_vector(before: dict, code6: bytes, pc: int, org: int, st, after: dict | N
     tail = _rf_text(after if after is not None else before)
     return (f"{head} {' '.join(map(str, rec))} 0 {nxt & 0xFFFF} {len(cyc)}"
             + "".join(" " + x for x in cyc) + f" {tail} {int(trap)}")
+
+
+def bf_cost_of(regs: dict, code6: bytes) -> int:
+    """(WP79) a bit field's cost (frozen templates.bf_cost of its offset and width registers,
+    whole) from the register file before it (a funcref snapshot), 0 for any other form."""
+    if code6[0] != 0x0F or code6[1] not in (0x31, 0x33, 0x39, 0x3B):
+        return 0
+    from .funcref import REG8
+    from .sim.frozen.templates import BF_OPS, bf_cost
+    r8 = lambda k: (regs[REG8[k][0]] >> REG8[k][1]) & 0xFF
+    m = code6[2]
+    width = code6[3] if code6[1] & 8 else r8((m >> 3) & 7)
+    return bf_cost(BF_OPS[code6[1]], r8(m & 7), width)
 
 
 def single_step(regs: dict, code6: bytes, mem: bytearray, pc: int, io_word: int | None = None):
@@ -2772,10 +2814,14 @@ def _case(rnd, base_mem: bytes, code6: bytes, regs: dict | None = None, pc: int 
     if not func_ok(code6):
         return rf_vector(regs, code6, pc, 0, None, None, mutate=mutate, bad=True)
     mem = bytearray(base_mem)
-    if operand is not None and code6[0] not in (0x05, 0xA8, 0xA9) and code6[0] & 0xF0 != 0x70:
+    one = (0x05, 0xA8, 0xA9, 0x98, 0x99, 0x27, 0x2F, 0x37, 0x3F, 0xD4, 0xD5, 0xF5, 0xF8, 0xF9, 0xFA,
+           0xFB, 0xFC, 0xFD)            # (WP79) no ModR/M byte
+    page = code6[0] == 0x0F             # (WP79) the 0F page: the ModR/M byte the third
+    if (operand is not None and code6[0] not in one and code6[0] & 0xF0 not in (0x70, 0x40)
+            and not (page and code6[1] in (0x20, 0x22, 0x26, 0x31, 0x33, 0x39, 0x3B))):
         cpu = funcref.Cpu(regs, mem, funcref.IO_WORD, 0)
         cpu.cur = regs.get("pfx")
-        mod, _, _, off, sb, _ = cpu.modrm(code6, 1)
+        mod, _, _, off, sb, _ = cpu.modrm(code6, 2 if page else 1)
         if mod != 3:
             for i in range(2):
                 mem[(sb + ((off + i) & 0xFFFF)) & 0xFFFFF] = (operand >> (8 * i)) & 0xFF
@@ -2842,6 +2888,24 @@ def alu_codes(rnd) -> list[bytes]:
                 out.append(bytes([0xFF]) + modrm(reg, kind))
         for o in (0x84, 0x85, 0x86, 0x87, 0x8C, 0x8E):
             out.append(bytes([o]) + modrm(rnd.randrange(8), kind))
+    # (WP79) the 0F page: the bit ops (CL and imm index, byte and word), the digit rotates, the BCD
+    # strings, the bit fields (reg and imm4 width); the register miscellany
+    for kind in ("r", "m"):
+        for sb in range(0x10, 0x20):
+            out.append(bytes([0x0F, sb]) + modrm(rnd.randrange(8), kind)
+                       + (bytes([rnd.randrange(256)]) if sb & 8 else b""))
+        for sb in (0x28, 0x2A):
+            out.append(bytes([0x0F, sb]) + modrm(rnd.randrange(8), kind))
+        out.append(bytes([0xFE]) + modrm(rnd.randrange(2), kind))
+        out.append(bytes([0x69]) + modrm(rnd.randrange(8), kind) + imm(2))
+        out.append(bytes([0x6B]) + modrm(rnd.randrange(8), kind) + imm(1))
+    for sb in (0x31, 0x33, 0x39, 0x3B):
+        out.append(bytes([0x0F, sb]) + modrm(rnd.randrange(8), "r")
+                   + (bytes([rnd.randrange(256)]) if sb & 8 else b""))
+    out += [bytes([0x0F, sb]) for sb in (0x20, 0x22, 0x26)]
+    out += [bytes([o]) for o in (0x98, 0x99, 0x27, 0x2F, 0x37, 0x3F, 0xF5, 0xF8, 0xF9, 0xFA, 0xFB,
+                                 0xFC, 0xFD)] + [bytes([0x40 + k]) for k in range(16)]
+    out += [bytes([0xD4]) + imm(1), bytes([0xD5]) + imm(1)]
     out += [bytes([0x05]) + imm(2), bytes([0xA8]) + imm(1), bytes([0xA9]) + imm(2), b"\x92"]
     out += [bytes([0x70 + k, rnd.randrange(256)]) for k in range(16)]
     out += [bytes([0xE2, rnd.randrange(256)])]
@@ -2960,7 +3024,7 @@ def sst_file(args) -> tuple[str, dict, list]:
         if c is not None:
             counts[c] = counts.get(c, 0) + 1
             continue
-        fc, _, starts = sst.run_funcref(test)
+        fc, _, starts = sst.run_v35_or_v20(test, stem)
         if fc not in ("pass", "trap"):
             counts[f"reference {fc}"] = counts.get(f"reference {fc}", 0) + 1
             continue

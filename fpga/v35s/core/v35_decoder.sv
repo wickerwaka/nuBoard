@@ -18,7 +18,11 @@
 // queue's), the address of the next byte to leave the queue (the model's byte addresses,
 // kept by the decoder), need, nx, ready_at as an offset, ir_hold, ea_end as an offset,
 // modrm_next, and the ModR/M's word-mate as "the next byte is the mate" (the model's
-// modrm_addr is only compared with the next byte's address less one).
+// modrm_addr is only compared with the next byte's address less one). (WP79) The 0F page: the
+// opcode bytes taken before the ModR/M byte (`skip`, Op.page: one for every 0F form) leave the
+// ModR/M latch waiting for the byte after them (modrm_skip); a form without operand bytes holds
+// the next opcode's load nx0 clocks from its start (ready_at = t + nx0); nx and ready_at - t are
+// wider (V35_W_NX, V35_W_RA_OFF: rol4_mem's nx 7, adjust_b's nx0 16).
 package v35_decoder_pkg;
 `include "v35_chain_params.svh"
 
@@ -73,14 +77,15 @@ package v35_decoder_pkg;
         logic [19:0] ir_addr;
         logic [19:0] taddr;
         logic [2:0]  need;
-        logic [1:0]  nx;
-        logic [1:0]  ra_off;        // ready_at - t (clipped at 0)
+        logic [V35_W_NX-1:0] nx;
+        logic [V35_W_RA_OFF-1:0] ra_off;   // ready_at - t (clipped at 0)
         logic        ir_hold;       // ir_load=disp_data
         logic [1:0]  ea_off;        // ea_end - t (clipped): ea_ir_room's t < ea_end
         logic        modrm_next;
         logic        mate_next;
         logic        imm_reg;
         logic        stopped;
+        logic        skip;          // (WP79) modrm_skip: a 0F form's second opcode byte to come
     } v35_dec_t;
 
     // the decoder's (and the EU's) state the queue reads with each op (v35_queue.sv's
@@ -92,15 +97,17 @@ package v35_decoder_pkg;
     // the clock's start: the offsets move on a clock
     function automatic v35_dec_t dec_begin(input v35_dec_t d);
         dec_begin = d;
-        if (d.ra_off != 2'd0) dec_begin.ra_off = d.ra_off - 2'd1;
+        if (d.ra_off != '0) dec_begin.ra_off = d.ra_off - 1'b1;
         if (d.ea_off != 2'd0) dec_begin.ea_off = d.ea_off - 2'd1;
     endfunction
 
     // Decoder.start: the EU starts an instruction of `length` bytes (the IR consumed); the
-    // next opcode may load at once when it has no operand bytes (ready_at = t)
+    // next opcode may load at once when it has no operand bytes (ready_at = t), or (WP79) nx0
+    // clocks after the start; page: the 0F page's second opcode byte comes before the ModR/M
     function automatic v35_dec_t dec_start(input v35_dec_t d, input logic [2:0] length,
-                                           input logic [1:0] nx, input logic modrm,
-                                           input logic imm_reg);
+                                           input logic [V35_W_NX-1:0] nx, input logic modrm,
+                                           input logic imm_reg, input logic page,
+                                           input logic [V35_W_RA_OFF-1:0] nx0);
         dec_start = d;
         dec_start.ir_v = 1'b0;
         dec_start.ir_addr = 20'd0;    // (canonical: no opcode held)
@@ -110,20 +117,28 @@ package v35_decoder_pkg;
         dec_start.ea_off = 2'd0;        // ea_end = None
         dec_start.need = length - 3'd1;
         dec_start.nx = nx;
-        dec_start.ra_off = 2'd0;
+        dec_start.ra_off = length == 3'd1 ? nx0 : '0;
+        dec_start.skip = page && modrm;
     endfunction
 
     // one byte of Decoder.take (the loop's body): the byte at taddr leaves the queue. mate:
     // it is the ModR/M's odd word-mate with operand bytes still to come after this call's k
-    // (modrm_mate=imm); commit_one: it is the ModR/M byte (modrm_commit=byte)
+    // (modrm_mate=imm); commit_one: it is the ModR/M byte (modrm_commit=byte); (WP79) a 0F
+    // form's second opcode byte is neither (modrm_skip: the latch waits for the next byte)
     function automatic v35_dec_t dec_take_byte(input v35_dec_t d, input logic [2:0] k,
                                                output logic mate, output logic commit_one);
         dec_take_byte = d;
         mate = d.taddr[0] && d.mate_next && (d.need > k) && d.imm_reg;
+        dec_take_byte.taddr = d.taddr + 20'd1;
+        if (d.modrm_next && d.skip) begin
+            commit_one = 1'b0;
+            dec_take_byte.skip = 1'b0;
+            dec_take_byte.mate_next = 1'b0;     // modrm_addr stays None
+            return dec_take_byte;
+        end
         commit_one = d.modrm_next;
         dec_take_byte.mate_next = d.modrm_next && !d.taddr[0];
         dec_take_byte.modrm_next = 1'b0;
-        dec_take_byte.taddr = d.taddr + 20'd1;
     endfunction
 
     // the end of Decoder.take: need counts the bytes; the last one starts the nx clocks
@@ -131,19 +146,19 @@ package v35_decoder_pkg;
         dec_take_end = d;
         dec_take_end.need = d.need - k;
         if (k != 3'd0 && d.need == k)
-            dec_take_end.ra_off = d.nx;
+            dec_take_end.ra_off = V35_W_RA_OFF'(d.nx);
     endfunction
 
     // the conditions of Decoder.loads_after (the queue's available() is the caller's op)
     function automatic logic dec_loads_after_cond(input v35_dec_t d, input logic [2:0] n);
-        dec_loads_after_cond = !d.ir_v && d.need == n && d.nx == 2'd0 && !d.ir_hold
+        dec_loads_after_cond = !d.ir_v && d.need == n && d.nx == '0 && !d.ir_hold
                                && !d.stopped;
     endfunction
 
     // the conditions of Decoder.load_ir before the queue's available() (the IR hold is
     // tested after it, as the model's `and` chain does)
     function automatic logic dec_load_cond(input v35_dec_t d);
-        dec_load_cond = !d.ir_v && d.need == 3'd0 && d.ra_off == 2'd0 && !d.stopped;
+        dec_load_cond = !d.ir_v && d.need == 3'd0 && d.ra_off == '0 && !d.stopped;
     endfunction
 
     // Decoder.load_ir's load (after the queue's irload op): the IR holds the byte at taddr

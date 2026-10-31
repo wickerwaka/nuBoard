@@ -963,6 +963,46 @@ decision differs it is said here.
   `sexec` templates, 243, and the F32/F33 classes stay unbuilt). Not built: the trap sequence, the 0F
   page and the register miscellany, interrupts.
 
+- **The 0F page and the register miscellany (2026-10-30, WP79; docs/v35s-hdl-plan.md):** the 23
+  F32/F33 classes built, `UNBUILT_CLASSES` empty; the whole corpus 28,142 exact against the model
+  over the 35 lists, model-exact 26,643 = RTL-exact, F34 1,596 exact; funcref 0 disagree over 36 lists, SST 2,044,304 / 2,001,666
+  pass; mutations 33–38. Decisions: (1) `e.cls` holds the base class (`BASE_CLASS`, `v35_base_cls`
+  generated) for every rule, `e.ccls` the class's own for every `cost`/`has` read of the running
+  instruction (hphase, mtail, dfloor, grp_free, nfgap/fgap/cfgap, sidle, setup_free, lead, last);
+  a request's cls is the base class; (2) the BCD strings are a compact template (head 2, pair 0,
+  pair ≥ 1, exec) the EU expands by its own pair count (CL + 1)/2, checked at the next start
+  against the walk's (`x_sn`) as a REP's is; addresses step upward, DIR ignored; (3) BCD flags are
+  set to the zero-pair result before the first pair and carried in the PSW pair by pair (S = AC =
+  CY, P = Z, V = 0), the carry/borrow the high digit's adjust decision (2,000/2,000 on the V20
+  suite; nuV30's binary carry fails 1,930), Z the V30 stage's; (4) the bit-field template carries
+  the formula's clocks in a `bf`-tagged step (n = span or xspan) and the RTL computes the cost with
+  `v35_bf_cost` (ported from `templates.bf_cost`), the record's `bfc` checking it at every start and
+  in the rf bench; (5) the crossing is a format field from the whole registers (o + w ≥ 16);
+  (6) bit-field data use the low nibbles; flags SUB8(15, o + w) for EXT and SUB8(15, o + w + 1)
+  for INS (20,000/20,000); INS steps its offset register before reading AW, EXT re-steps it after
+  writing AW; the offset register and IX/IY step at the start, addresses from `x.six`/`x.siy`;
+  (7) ROL4/ROR4 AL keep the high digit as the data book says, which F32 silicon shows
+  (`F32-out-rol4_dl-k2`: the OUT writes AL = 08h) and the V20 does not (18,368 tests "V20's ROL4 /
+  ROR4 AL", passing under `v20_digits`); (8) INS with offset 0 and width field 15 reads the word
+  in model, funcref and RTL, not on the V20 (82 tests "unlisted"); (9) CVTBD by 0 does not trap
+  (AH = FFh, AL kept); CVTDB multiplies by 10 whatever its immediate, CVTBD divides by its;
+  (10) ADJ4A/ADJ4S use a high threshold of 9Fh when AC is set, else 99h, flags from the ALU on
+  AL ± the correction with CY and AC the decisions; ADJBA/ADJBS step AH separately
+  (10,000/10,000); (11) `res` 11 bits and `ce_off` 12, an INS with whole registers reaching 1,998
+  cost clocks; (12) funcref's `frozen_walk` keys REPC/REPNC and the BCD strings as the frozen
+  machine does (it disagreed on 96 F33 runs once CLC/STC became executable); (13) a 0F form's
+  ModR/M, displacement and immediate are read through `v35_mcode` with the first byte dropped,
+  the second byte skipped at the decoder's ModR/M latch (`skip`), `nx0` loading `ra_off` for the
+  one-byte forms; (14) `enumerate_ops` iterates the third (ModR/M) byte for 0F. Widths: `v35_st_t`
+  1021 (decoder nx 3, `ra_off` 5, `skip`; EU cls 7, `ccls` 7, tmpl 9, `res` 11, `prev_cls` 7,
+  `ce_off` 12), `v35_fx_t` 167 (`bfo`, `bfw`), each request's cls 7 bits, `v35_opnd_t` 212 (fmt 33
+  with `cross`, tmpl 9, `bfc` 12; `opr_a`/`opr_b` [211:0], no new ports), `CLS_NONE` 127,
+  `V35_CLS_N` 65, `V35_TMPL_N` 330 (`TMPL_W` 9), `STEP_W` 39 (tag 5 bits, new tag `bf`), `FMT_W`
+  33, `V35_W_CLS` 7, `V35_W_NX` 3, `V35_W_RA_OFF` 5, `V35_W_BF_COST` 12; `v35_bcd_shape`,
+  `V35_BCD_HEAD`/`V35_BCD_SETS`, `v35_base_cls` in the include; P lines carry `bfc`, the rf format
+  V35RF-3; 62 more SST files in `RTL_FILES`. Still scripted: the code window, the memory image, the
+  I/O read value, the initial register file. Not built: the trap sequence, interrupts.
+
 ### The request rule and the queue's room
 
 The queue's fetch request is `room >= 2` evaluated on change clocks (`request_eval=on_change`), with the IR as a seventh slot under conditions. These are the queue's own definition of room; port them as one combinational `room` function (A3 lists its inputs).
