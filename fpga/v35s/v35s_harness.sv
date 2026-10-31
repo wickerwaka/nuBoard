@@ -142,7 +142,12 @@ module v35s_harness #(
     wire [15:0] model_data_in;
     wire model_data_drive, model_ready;
 
+`ifdef V35S_CHAIN_LANE
+    // (WP82) the chain-model core in the model lane (build_sim.sh direct chain)
+    v35s_chain_model model (
+`else
     v35s_model model (
+`endif
         .clock(clock),
         .x_rise(x_rise),
         .x_fall(x_fall),

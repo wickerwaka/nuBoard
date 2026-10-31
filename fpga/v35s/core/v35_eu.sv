@@ -81,6 +81,15 @@
 // the slot's sreg_held, the arbiter's not_before), sreg_store=own (the write request's sreg, the
 // arbiter's sreg_ok), lea_disp=split (lea_split: no start on a back-to-back fetch's issue); Op.sreg
 // is eu_decode's; REPC (65) and REPNC (64) are REP prefixes, the compare's exit the carry.
+// (WP82) With V35S_CHAIN_LANE (the model lane, v35s_chain_model.sv) the code window's bytes are
+// the core's own fetches, each with a valid bit: a start waits until the bytes it reads have
+// been fetched, except a ModR/M byte still on the bus (decoded as the register form, checked
+// when it lands) and a data-only immediate (eu_late_imm), whose function is redone from the
+// register file before the start once the bytes are in; the prelude's POP PSW (9D) starts as a
+// NOP whose stack read the core issues (pop_wait, pop_fire: start_at as Machine.__init__'s,
+// SP + 2, the PSW from the read), and the reset vector's JMP far (EA) runs as BR near to its
+// offset with PS loaded at the start. The lane's state is outside v35_st_t; the benches build
+// without it and are unchanged.
 // The EU's state types (v35_eus_t, the request record v35_req_t, the bundle v35_st_t), a
 // package so that the arbiter (C4) reads the state the module exports after phase L and at
 // the end of the clock (state_l, state_e).
@@ -2332,6 +2341,30 @@ module v35_eu
     output wire [2:0]   fresh_p,
     // (D1) the register file's AW after the starts before phase X: an EU cycle's datum
     output wire [15:0]  x_data              // (D2) the datum of the EU cycle issued in X
+`ifdef V35S_CHAIN_LANE
+    ,
+    // (WP82, D3/C6) the model lane (v35s_chain_model.sv), from /RESET with nothing scripted:
+    // the code window's bytes come from the core's own fetches (the wrapper's code cache), so
+    // each byte has a valid bit; the running instruction's late immediate bytes (a memory
+    // form's, fetched after its start) are patched in from a second window at lx_addr; the
+    // prelude's POP PSW is the core's (pop_wait: the EU has started it and waits for its read,
+    // pop_fire: the core issues the read this clock, psw_load: its datum is delivered)
+    input  wire [11:0]  code_ok,            // code_win's valid bits (bit 11: the byte at code_addr)
+    output wire [19:0]  lx_addr,            // the running instruction's first byte ...
+    input  wire [47:0]  lx_win,             // ... its six bytes there ...
+    input  wire [5:0]   lx_ok,              // ... and their valid bits (bit 5: the first)
+    output wire         pop_wait,           // a POP PSW waits for its read, the EU's slot empty
+    output wire [19:0]  pop_addr,           // its stack address (SS:SP)
+    input  wire         pop_fire,           // the core issues it this clock ...
+    input  wire [2:0]   pop_len,            // ... with this length
+    input  wire         psw_load,           // its datum is delivered this clock (phase C)
+    input  wire [15:0]  psw_data,
+    output wire         lane_stall,         // a start held for code bytes not yet fetched
+    output wire         lane_late,          // an EU cycle while late bytes are still missing
+    output wire         lane_spec,          // a start with its ModR/M byte to come (assumed
+    output wire         lane_spec_bad,      // a register operand) ... the byte proved otherwise
+    output wire         lane_start          // (diagnostics) an instruction started this clock
+`endif
 `ifdef V35S_STATE_DUMP
     ,
     input  wire [5:0]   mutate,             // the bench's mutation tests (v35_operands)
@@ -2430,9 +2463,36 @@ module v35_eu
         v35_opnd_t [1:0] opr;       // (D1) the starts' operand records ...
         v35_rf_t [1:0] rfx;         // ... and the register file before each one's execute
         logic [15:0] x_data;        // (D2) the datum of the cycle issued in X
+`ifdef V35S_CHAIN_LANE
+        logic        lx_v;          // (WP82) a start this clock: its first byte, the bytes
+        logic [19:0] lx_addr;       // still to be fetched (late immediates) ...
+        logic [5:0]  lx_miss;
+        logic        pop_start;     // ... it was a POP PSW
+        logic        stall;         // a start held for its bytes
+        v35_rf_t     lx_rf;         // a start with late bytes: the register file before it,
+        v35_op_t     lx_op;         // its op and pc, to redo its function when they are in
+        logic [15:0] lx_pc;
+        logic        lx_spec;       // ... its ModR/M byte assumed, the format to check
+        logic [32:0] lx_fmt;
+`endif
     } v35_ctx_t;
 
     logic [15:0] pc_r;                      // (D1) pc at the end of the last model clock
+`ifdef V35S_CHAIN_LANE
+    // (WP82) the lane's own state, outside v35_st_t so the benches' bundle is unchanged:
+    // a POP PSW started and waiting for its read; the running instruction's first byte and
+    // the bytes of it not yet fetched at its start (a memory form's trailing immediate)
+    reg          lp_wait_r = 1'b0;
+    reg  [19:0]  lx_addr_r = 20'd0;
+    reg  [5:0]   lx_miss_r = 6'd0;
+    v35_rf_t     lx_rf_r;
+    v35_op_t     lx_op_r;
+    reg  [15:0]  lx_pc_r = 16'd0;
+    reg          lx_spec_r = 1'b0;
+    reg  [32:0]  lx_fmt_r = 33'd0;
+    reg          spec_bad_r = 1'b0;
+    logic        spec_bad;              // this clock: an assumed ModR/M proved wrong
+`endif
 
     // ------------------------------------------------ helpers
 
@@ -2966,6 +3026,53 @@ module v35_eu
         eu_code = ok ? code_win[95 - 8 * int'(off[2:0]) -: 48] : 48'h909090909090;
     endfunction
 
+`ifdef V35S_CHAIN_LANE
+    // (WP82) the valid bits of eu_code's six bytes (bit 5: the first)
+    function automatic logic [5:0] eu_code_ok(input v35_st_t s);
+        logic [15:0] off;
+        off = s.e.pc - pc_r;
+        eu_code_ok = off <= 16'd6 ? code_ok[11 - int'(off[2:0]) -: 6] : 6'd0;
+    endfunction
+
+    // (WP82) the bytes [0, n) of an instruction as a mask in eu_code_ok's order
+    function automatic logic [5:0] eu_lead_mask(input int n);
+        eu_lead_mask = 6'd0;
+        for (int i = 0; i < 6; i++)
+            if (i < n)
+                eu_lead_mask[5 - i] = 1'b1;
+    endfunction
+
+    // (WP82) a form whose immediate is data only (no template, length or address depends on
+    // its value), so its trailing immediate bytes may arrive after the start, before they are
+    // taken: the start's function is redone from the register file before it once they are
+    // in (the clock's begin). Memory forms: 80-83 and F6/F7 /0 (the ALU at the read's
+    // delivery), C6/C7 (the write datum); register forms: MOV r,imm (B0-BF), ADD AW,imm16
+    // (05), TEST acc,imm (A8, A9), 80-83 and F7 /0 on a register, PUSH imm (68, 6A). Not a
+    // shift's count (C0/C1: the template's clocks), a multiply's or PREPARE's immediate
+    function automatic logic eu_late_imm(input v35_op_t op, input logic [47:0] code);
+        logic [7:0] o;
+        o = code[47:40];
+        eu_late_imm = op.imm_bytes != '0
+                      && ((o >= 8'h80 && o <= 8'h83) || o == 8'hC6 || o == 8'hC7
+                          || ((o == 8'hF6 || o == 8'hF7) && code[37:35] == 3'd0)
+                          || (!op.ea_v && ((o >= 8'hB0 && o <= 8'hBF) || o == 8'h05
+                                           || o == 8'hA8 || o == 8'hA9 || o == 8'h68
+                                           || o == 8'h6A)));
+    endfunction
+
+    // (WP82) eu_start's decode with its two adjustments (CMP r/m,reg's d = 0 template, the
+    // group's RMW class), for a late instruction's redo
+    function automatic v35_op_t eu_decode_lane(input logic [47:0] code);
+        v35_op_t op;
+        op = eu_decode(code);
+        if (op.dbit_v && !op.dbit && is_cls(op.cls, V35_CLS_LOAD_ALU) && op.ea_v)
+            op.nowrite = 1'b1;
+        if (op.nowrite)
+            op.cls = 7'(op.imm_bytes != '0 ? V35_CLS_RMW_IMM : V35_CLS_RMW);
+        return op;
+    endfunction
+`endif
+
     // (WP77) _sreg_hold (sreg_io=hold): a MOV sreg,r/m decoded (started, or waiting at the I/O
     // interlock) while an OUT's I/O waits in the slot holds that I/O a clock past the clock its
     // setup counts out (the arbiter)
@@ -2989,8 +3096,48 @@ module v35_eu
         logic [32:0] fmt;
         logic [47:0] code;
         int tm, wbu, fl;
+`ifdef V35S_CHAIN_LANE
+        logic [5:0] vmask, need;
+        logic far, pop9d, spec;
+        v35_op_t gop;
+        logic [15:0] fseg, fdisp;
+        logic [19:0] la0;
+`endif
         eu_start = 1'b0;
         code = eu_code(s, cok);
+`ifdef V35S_CHAIN_LANE
+        // (WP82) the lane: the bytes' valid bits, the instruction's first byte; the two forms
+        // the prelude runs before its POP PSW read that the model never decodes: POP PSW (9D),
+        // started as a NOP whose stack read the core issues (pop_wait / pop_fire), and the reset
+        // vector's JMP far (EA), run as BR near (E9) to the same target with PS loaded at the
+        // start (its timing is BR near's: the prelude before the POP read is not modelled)
+        vmask = eu_code_ok(s);
+        la0 = {s.f.ps, 4'd0} + {4'd0, code_org + s.e.pc};
+        far = 1'b0;
+        pop9d = 1'b0;
+        fseg = 16'd0;
+        if (lp_wait_r || c.pop_start)
+            return 1'b0;                        // the POP PSW's read is still to come
+        if (code[47:40] == 8'h9D) begin
+            pop9d = 1'b1;
+            code = {8'h90, code[39:0]};
+        end else if (code[47:40] == 8'hEA) begin
+            far = 1'b1;
+            fseg = {code[15:8], code[23:16]};
+            fdisp = {code[31:24], code[39:32]} - code_org - s.e.pc - 16'd3;
+            code = {8'hE9, fdisp[7:0], fdisp[15:8], code[23:0]};
+        end
+        // a ModR/M form whose ModR/M byte is still on the bus (the model, as silicon, starts it
+        // on the opcode): decoded as its register form (ModR/M C0h), the bytes taken as they
+        // come; when the byte is in, its format is checked against the assumed one (lane_spec_bad)
+        // and the function redone with it
+        spec = 1'b0;
+        gop = eu_decode({code[47:40], 8'hC0, code[31:0]});
+        if (vmask[5] && !vmask[4] && code[47:40] != 8'h0F && gop.ok && gop.modrm) begin
+            spec = 1'b1;
+            code = {code[47:40], 8'hC0, code[31:0]};
+        end
+`endif
         if (s.e.pr_cand && !s.e.pr_now) begin
             // pop_refresh=stall: a refresh started inside POP PSW's clocks after its read
             // stalls them by its length less 2
@@ -3086,6 +3233,26 @@ module v35_eu
             if (st < 8'(FIT_IO_B2B_Q))
                 return 1'b0;
         end
+`ifdef V35S_CHAIN_LANE
+        // (WP82) every byte the start reads must have been fetched (a memory form's trailing
+        // immediate excepted, eu_late_imm, patched in when it arrives); else no start this clock
+        need = far ? eu_lead_mask(5)
+                   : eu_lead_mask(int'(op.length)
+                                  - (eu_late_imm(op, code) ? int'(op.imm_bytes) : 0))
+                     & ~(spec ? 6'b010000 : 6'b000000);
+        if ((need & ~vmask) != 6'd0) begin
+            // the queue's request is evaluated again (as an IR load does) so the bytes come:
+            // a held start changes nothing in the queue (request_eval=on_change)
+            if (!c.stall)
+                void'(q_op(c, s, V35_EQ_EVAL, 1'b0, 1'b0, 20'd0));
+            c.stall = 1'b1;
+            return 1'b0;
+        end
+        c.lx_rf = s.f;
+        c.lx_op = op;
+        c.lx_pc = s.e.pc;
+        c.lx_spec = spec;
+`endif
         // the start: (D1) the operand record from the register file (templates.decode)
         opr = v35_operands(s.f, code, s.e.pc, op, mut, bad);
         if (bad)
@@ -3156,6 +3323,9 @@ module v35_eu
         fmt = eu_fmt(op, opr.count, opr.taken, refresh_on,
                      (is_cls(op.cls, V35_CLS_BF_EXT) || is_cls(op.cls, V35_CLS_BF_INS))
                      && {1'b0, bo} + {1'b0, bw} >= 9'd16);
+`ifdef V35S_CHAIN_LANE
+        c.lx_fmt = fmt;
+`endif
         tm = v35_tmpl_sel(fmt);
         if (tm < 0) begin
             fail(c, V35_EE_TMPL);
@@ -3187,6 +3357,15 @@ module v35_eu
         if (eu_str_shape(s.e) != '0 && s.x.sn != '0 && mut != 6'd25)
             s.e.wb = 2'(cost(op.cls, V35_CN_XWB));
         c.starts = c.starts + 2'd1;
+`ifdef V35S_CHAIN_LANE
+        if (far)
+            s.f.ps = fseg;                      // (WP82) JMP far: PS, before its flush step
+        c.lx_v = 1'b1;
+        c.lx_addr = la0;
+        c.lx_miss = eu_lead_mask(int'(op.length)) & ~vmask;
+        if (pop9d)
+            c.pop_start = 1'b1;
+`endif
         return 1'b1;
     endfunction
 
@@ -4004,8 +4183,52 @@ module v35_eu
         v35_st_t s;
         v35_ctx_t c;
         v35_stp_t st0;
+`ifdef V35S_CHAIN_LANE
+        logic [47:0] lcode;
+        v35_op_t lop;
+        v35_opnd_t lopr;
+        v35_fx_t lfx;
+        logic lbad;
+`endif
         c = '0;
         s = eu_begin(r, v35_bview_t'(bus_t), fetch_done);
+`ifdef V35S_CHAIN_LANE
+        lop = '0;
+        lopr = '0;
+        lfx = '0;
+        lbad = 1'b0;
+        spec_bad = 1'b0;
+        // (WP82) the clock's start in the lane: the running instruction's late immediate
+        // bytes (a C6/C7's write datum, and the SFR store's value, follow them); the POP PSW
+        // read's datum into the PSW (MD and RB kept); the read issued now: the EU's next start
+        // pop_exit clocks after its delivery, as Machine.__init__'s start_at (the read's
+        // length + 4 at the end of this clock), SP past the word
+        lcode = s.x.code;
+        for (int i = 0; i < 6; i++)
+            if (lx_miss_r[5 - i] && lx_ok[5 - i])
+                lcode[47 - 8 * i -: 8] = lx_win[47 - 8 * i -: 8];
+        if (lx_miss_r != 6'd0 && (lx_miss_r & ~lx_ok) == 6'd0) begin
+            // the late instruction's start function again, from the register file before it
+            // (no later start can have run: its bytes come first)
+            lop = eu_decode_lane(lcode);
+            lopr = v35_operands(lx_rf_r, lcode, lx_pc_r, lop, mut, lbad);
+            spec_bad = lx_spec_r
+                       && eu_fmt(lop, lopr.count, lopr.taken, lx_fmt_r[V35_FF_REFRESH],
+                                 lx_fmt_r[V35_FF_CROSS]) != lx_fmt_r;
+            s.f = v35_execute(lx_rf_r, lcode, lop, lopr, code_org, mut, lfx, lbad);
+            s.x = lfx;
+            if ((lcode[47:40] == 8'hC6 || lcode[47:40] == 8'hC7) && s.e.ea >= V35_SFR_PAGE)
+                s.e.sfr = lcode[47 - 8 * (int'(s.e.op_len) - 1) -: 8];
+        end else begin
+            s.x.code = lcode;
+        end
+        if (psw_load)
+            s.f.psw = {s.f.psw[15:12], psw_data[11:0]};
+        if (pop_fire) begin
+            s.e.sa_off = 5'(pop_len) + 5'd4;
+            s.f.sp = s.f.sp + 16'd2;
+        end
+`endif
         if (c_eu && c_read)
             eu_complete(s, c);
         s_c = s;
@@ -4065,6 +4288,47 @@ module v35_eu
                 error <= 1'b1;
         end
     end
+
+`ifdef V35S_CHAIN_LANE
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            lp_wait_r <= 1'b0;
+            lx_addr_r <= 20'd0;
+            lx_miss_r <= 6'd0;
+            spec_bad_r <= 1'b0;
+        end else if (ce) begin
+            if (spec_bad)
+                spec_bad_r <= 1'b1;
+            if (cx.pop_start)
+                lp_wait_r <= 1'b1;
+            else if (pop_fire)
+                lp_wait_r <= 1'b0;
+            if (cx.lx_v) begin
+                lx_addr_r <= cx.lx_addr;
+                lx_miss_r <= cx.lx_miss;
+                lx_rf_r <= cx.lx_rf;
+                lx_op_r <= cx.lx_op;
+                lx_pc_r <= cx.lx_pc;
+                lx_spec_r <= cx.lx_spec;
+                lx_fmt_r <= cx.lx_fmt;
+            end else begin
+                lx_miss_r <= lx_miss_r & ~lx_ok;
+            end
+        end
+    end
+    function automatic logic slot_open(input v35_req_t q);
+        slot_open = q.valid && q.ncyc != '0;
+    endfunction
+    assign lx_addr = lx_addr_r;
+    assign pop_wait = lp_wait_r && !slot_open(r.r[0]) && !slot_open(r.r[1])
+                      && !slot_open(r.r[2]);
+    assign pop_addr = {r.f.ss, 4'd0} + {4'd0, r.f.sp};
+    assign lane_stall = cx.stall;
+    assign lane_late = (lx_miss_r & ~lx_ok) != 6'd0 && (c_eu || cx.x_cyc);
+    assign lane_start = cx.starts != 2'd0;
+    assign lane_spec = cx.lx_v && cx.lx_spec;
+    assign lane_spec_bad = spec_bad_r;
+`endif
 
     assign state_l = s_l;
     assign state_e = s_e;

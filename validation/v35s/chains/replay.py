@@ -7,6 +7,18 @@ From the repo root:
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains score --rtl --family F0 [--show N]
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --state DUMP --id RUN_ID
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --dump-model DUMP --id RUN_ID
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core chain --family F0 ...
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core chain --score \
+        --family F0 [F1 ...] [--waits ...] [--show N]
+
+(WP82) --core chain replays through the chain-model core in the model lane (fpga/v35s/
+build_sim.sh direct chain: build/fpga/v35s/verilator-direct-chain/Vv35s_harness), from /RESET
+with nothing scripted, into build/validation/v35s/chains-sim-chain (the header's "core":
+"chain"). --score reads those replays against the silicon corpus with score.py's normaliser
+and scorer: per family the runs, model-exact (the frozen model, sim/frozen: the tracked fit,
+against silicon), RTL-exact (the replay against silicon), RTL = model (the replay against the
+frozen model, from t_fill) and the pre window (score.pre_score: the fetch train from the POP
+PSW read before clock 0, silicon against the replay, and the first divergence).
 
 B1, the replay driver. Every selected chain is built (image.build_image) and run once
 from reset through the model lane of the `direct` Verilator build
@@ -77,8 +89,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .acquire import (DEFAULT_LIMIT, ROOT, SIM_BINARY, SIM_OUTPUT, TICKS_PER_CLOCK, X_HALF,
-                      RunFile, file_name, group_chains, run_built, select_chains)
+from .acquire import (DEFAULT_LIMIT, ROOT, SIM_BINARY, SIM_CORES, SIM_OUTPUT, TICKS_PER_CLOCK,
+                      X_HALF, RunFile, file_name, group_chains, run_built, select_chains,
+                      sim_transport)
 
 FPGA_DIR = ROOT / "fpga/v35s"
 SHARED_SOURCES = ("fpga/m68000/m68000_scope.sv", "fpga/m68000/scope_encoder.sv")
@@ -140,17 +153,17 @@ def rtl_key(identity: dict) -> str:
 _worker = None                  # (transport, harness) of this worker process
 
 
-def _open_lane():
+def _open_lane(core: str = "ucore", diag: bool = False):
     from nuboard.debug import DebugClient
-    from ..runner import Harness, SimulationTransport
-    transport = SimulationTransport("direct")
+    from ..runner import Harness
+    transport = sim_transport(core, diag)
     return transport, Harness(DebugClient(transport.exchange))
 
 
-def _init_worker():
+def _init_worker(core: str = "ucore", diag: bool = False):
     global _worker
     from multiprocessing import util
-    _worker = _open_lane()
+    _worker = _open_lane(core, diag)
     util.Finalize(None, _worker[0].close, exitpriority=10)
 
 
@@ -177,12 +190,12 @@ def _pool_task(item):
 
 def replay(chains, *, output_dir: Path = SIM_OUTPUT, jobs: int = 1, resume: bool = False,
            limit: int = DEFAULT_LIMIT, identity: dict | None = None, runner=None,
-           log=print) -> dict:
+           log=print, core: str = "ucore", diag: bool = False) -> dict:
     """Replay the chains into acquire-format files under output_dir. runner(chain) -> record
     replaces the Verilator run (tests); with it, or jobs == 1, everything runs in this
-    process."""
+    process. core (WP82): the model lane's core (acquire.SIM_CORES)."""
     if identity is None:
-        identity = rtl_identity()
+        identity = rtl_identity(SIM_CORES[core][0])
     key = rtl_key(identity)
     groups = group_chains(chains)
     files: dict = {}
@@ -190,6 +203,8 @@ def replay(chains, *, output_dir: Path = SIM_OUTPUT, jobs: int = 1, resume: bool
         header = {"backend": "sim", "board_state": None, "x_half": X_HALF,
                   "ticks_per_clock": TICKS_PER_CLOCK, "family": family, "waits": waits,
                   "rtl": identity}
+        if core != "ucore":
+            header["core"] = core
         files[(family, waits)] = RunFile(output_dir / file_name(family, waits), header)
     order = {k: [c.id for c in members] for k, members in groups.items()}
     todo, skipped = [], 0
@@ -231,7 +246,7 @@ def replay(chains, *, output_dir: Path = SIM_OUTPUT, jobs: int = 1, resume: bool
     try:
         if runner is not None or jobs <= 1 or len(todo) <= 1:
             if runner is None:
-                transport, harness = _open_lane()
+                transport, harness = _open_lane(core, diag)
                 runner = lambda c: replay_one(c, limit, harness=harness)
             else:
                 transport = None
@@ -244,7 +259,7 @@ def replay(chains, *, output_dir: Path = SIM_OUTPUT, jobs: int = 1, resume: bool
         else:
             import multiprocessing
             ctx = multiprocessing.get_context("fork")
-            with ctx.Pool(jobs, initializer=_init_worker) as pool:
+            with ctx.Pool(jobs, initializer=_init_worker, initargs=(core, diag)) as pool:
                 for record in pool.imap_unordered(_pool_task, [(c, limit) for c in todo]):
                     take(record)
                 pool.close()
@@ -281,6 +296,123 @@ def load_rtl_runs(family: str, waits=(0, 1, 2), rtl_dir: Path | None = None) -> 
         for run in data.get("runs", []):
             runs[run["chain"]["id"]] = run
     return runs, headers
+
+
+# (WP82) Scoring a core's replays against silicon and the frozen model --------------------
+
+def _pre_event(e) -> str:
+    return "-" if e is None else f"{e[1]}@{e[0]} {e[2]:05X}/{e[4]}"
+
+
+def score_lane_run(item) -> dict:
+    """One silicon run record and its replay record (or None): the three marks and the pre
+    window (silicon against the replay) as a plain dict."""
+    run, rec = item
+    from .normalize import NormalizeError, normalize
+    from .score import pre_aligned, pre_score, relabel_refresh, score
+    from .sim.frozen.config import DEFAULT as FROZEN
+    from .sim.frozen.machine import refresh_anchor, simulate_normalized
+    s = normalize(run)
+    out = {"id": s.run_id, "family": s.chain.family, "waits": s.chain.waits,
+           "parity": s.chain.parity, "model_exact": False, "rtl_exact": False,
+           "rtl_model": False, "pre_exact": False, "pre_prefix": 0, "pre_len": 0,
+           "pre_first": None, "status": "ok", "first": None, "model_first": None}
+    try:
+        m = simulate_normalized(s.chain, FROZEN, s.chain_base, refresh=refresh_anchor(s))
+        out["model_exact"] = score(s, m).exact
+    except Exception as e:      # noqa: BLE001 (the model cannot run it)
+        m = None
+        out["status"] = f"model error: {type(e).__name__}"
+    if rec is None:
+        out["status"] = "no RTL"
+        return out
+    if rec.get("chain_base") != run.get("chain_base") or (
+            run.get("image_sha256") and rec.get("image_sha256")
+            and rec["image_sha256"] != run["image_sha256"]):
+        out["status"] = "image differs"
+        return out
+    try:
+        n = normalize(rec, strict=False)
+    except (NormalizeError, KeyError, ValueError, StopIteration) as e:
+        out["status"] = f"RTL error: {e}"
+        return out
+    anchor = refresh_anchor(s, events=False)
+    relabel_refresh(n, anchor[1] if anchor is not None else 0)
+    sc = score(s, n)
+    out["rtl_exact"] = sc.exact
+    if sc.first_divergence:
+        k, a, b = sc.first_divergence
+        out["first"] = f"#{k}: silicon {a} rtl {b}"
+    if m is not None:
+        sm = score(m, n)
+        out["rtl_model"] = sm.exact
+        if sm.first_divergence:
+            k, a, b = sm.first_divergence
+            out["model_first"] = f"#{k}: model {a} rtl {b}"
+    exact, prefix, length = pre_score(s, n)
+    out["pre_exact"], out["pre_prefix"], out["pre_len"] = exact, prefix, length
+    a, b = pre_aligned(s), pre_aligned(n)
+    if not exact:
+        out["pre_first"] = (prefix, _pre_event(a[prefix] if prefix < len(a) else None),
+                            _pre_event(b[prefix] if prefix < len(b) else None))
+    return out
+
+
+def score_lane(families, waits=(0, 1, 2), rtl_dir: Path | None = None, jobs: int = 1,
+               show: int = 0, log=print) -> dict:
+    """{family: [score_lane_run dicts]} for the replays in rtl_dir, printed per family:
+    runs, model-exact, RTL-exact, RTL = model, pre-window exact and the commonest first
+    pre divergences."""
+    from collections import Counter
+    from .normalize import load_runs
+    items_by: dict = {}
+    for family in families:
+        try:
+            runs = load_runs(family, tuple(waits))
+        except FileNotFoundError as e:
+            log(f"{family}: no silicon runs ({e})")
+            continue
+        rtl_runs, _ = load_rtl_runs(family, tuple(waits), rtl_dir)
+        items_by[family] = [(r, rtl_runs.get(r["chain"]["id"])) for r in runs]
+    results: dict = {}
+    flat = [(f, it) for f, its in items_by.items() for it in its]
+    if jobs > 1 and len(flat) > 1:
+        import multiprocessing
+        with multiprocessing.get_context("fork").Pool(jobs) as pool:
+            outs = pool.map(score_lane_run, [it for _, it in flat], chunksize=4)
+    else:
+        outs = [score_lane_run(it) for _, it in flat]
+    for (f, _), o in zip(flat, outs):
+        results.setdefault(f, []).append(o)
+    tot = Counter()
+    for family, rs in results.items():
+        c = Counter()
+        for r in rs:
+            c["runs"] += 1
+            c["model"] += r["model_exact"]
+            c["rtl"] += r["rtl_exact"]
+            c["rm"] += r["rtl_model"]
+            c["pre"] += r["pre_exact"]
+            c["norl"] += r["status"] != "ok"
+            c["rtl_not_model"] += r["model_exact"] and not r["rtl_exact"]
+        tot.update(c)
+        log(f"{family:<5} runs {c['runs']:>5}  model-exact {c['model']:>5}  RTL-exact "
+            f"{c['rtl']:>5}  RTL = model {c['rm']:>5}  pre exact {c['pre']:>5}  "
+            f"model-exact not RTL-exact {c['rtl_not_model']}  not scored {c['norl']}")
+        firsts = Counter((r["pre_first"][0], r["pre_first"][1], r["pre_first"][2])
+                         for r in rs if r["pre_first"])
+        for (k, a, b), n in firsts.most_common(3):
+            log(f"      pre first divergence at #{k}: silicon {a} | rtl {b}  ({n} runs)")
+        bad = [r for r in rs if r["status"] != "ok"]
+        for r in bad[:3]:
+            log(f"      {r['id']}: {r['status']}")
+        for r in [r for r in rs if not r["rtl_model"] and r["status"] == "ok"][:show]:
+            log(f"      {r['id']}: RTL != model {r['model_first']}")
+    if len(results) > 1:
+        log(f"all   runs {tot['runs']:>5}  model-exact {tot['model']:>5}  RTL-exact "
+            f"{tot['rtl']:>5}  RTL = model {tot['rm']:>5}  pre exact {tot['pre']:>5}  "
+            f"model-exact not RTL-exact {tot['rtl_not_model']}  not scored {tot['norl']}")
+    return results
 
 
 # State rows (B3) --------------------------------------------------------------------
@@ -417,6 +549,16 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
                         help="write the model's per-clock rows for --id in the dump format")
     parser.add_argument("--config", metavar="PATH",
                         help="with --state/--dump-model: model config (default the tracked fit)")
+    parser.add_argument("--core", choices=tuple(SIM_CORES), default="ucore",
+                        help="(WP82) the model lane's core: ucore (build_sim.sh direct) or chain "
+                             "(build_sim.sh direct chain), each with its own default output")
+    parser.add_argument("--diag", action="store_true",
+                        help="(WP82) with --core chain: the lane's diagnostics on stderr")
+    parser.add_argument("--score", action="store_true",
+                        help="(WP82) score the core's replays (--output-dir or the core's "
+                             "default) against silicon and the frozen model, with the pre window")
+    parser.add_argument("--show", type=int, default=0,
+                        help="with --score: list the first N runs where RTL != model per family")
     return parser
 
 
@@ -449,15 +591,20 @@ def main(argv=None, args=None) -> int:
         raise SystemExit("replay needs --family (or --state/--dump-model with --id)")
     if args.jobs < 1:
         raise SystemExit("--jobs must be at least 1")
-    if not SIM_BINARY.exists():
-        print(f"error: the Verilator model is not built ({SIM_BINARY} is missing; "
-              f"fpga/v35s/build_sim.sh direct)", file=sys.stderr)
+    binary, default_output = SIM_CORES[args.core]
+    output_dir = args.output_dir or default_output
+    if args.score:
+        score_lane(args.family, tuple(args.waits or (0, 1, 2)), output_dir, args.jobs, args.show)
+        return 0
+    if not binary.exists():
+        print(f"error: the Verilator model is not built ({binary} is missing; "
+              f"fpga/v35s/build_sim.sh direct{' chain' if args.core == 'chain' else ''})",
+              file=sys.stderr)
         return 2
-    output_dir = args.output_dir or SIM_OUTPUT
     chains = select_chains(args.family, args.waits, args.parity, args.ids)
     if not chains:
         raise SystemExit("no chains match the filters")
-    identity = rtl_identity()
+    identity = rtl_identity(binary)
     print(f"{len(chains)} chains from {' '.join(args.family)} -> {output_dir}", flush=True)
     print(f"RTL: {identity['binary']} built {identity['binary_mtime_iso']}, fpga/v35s "
           f"{(identity['fpga_commit'] or '?')[:12]} tree {(identity['fpga_tree'] or '?')[:12]}"
@@ -466,7 +613,7 @@ def main(argv=None, args=None) -> int:
         print(f"warning: sources newer than the binary: {' '.join(identity['sources_newer'])}"
               f" (fpga/v35s/build_sim.sh direct)", flush=True)
     stats = replay(chains, output_dir=output_dir, jobs=args.jobs, resume=args.resume,
-                   limit=args.limit, identity=identity)
+                   limit=args.limit, identity=identity, core=args.core, diag=args.diag)
     return 1 if stats["incomplete"] else 0
 
 

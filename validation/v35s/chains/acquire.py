@@ -36,6 +36,10 @@ Only a repeat that differs beyond a constant offset counts as a mismatch.
 --backend sim runs the model lane alone in Verilator (SimulationTransport
 "direct") to test this plumbing only; the trace is still stored as
 "socket_trace", with "backend": "sim", in a separate default directory.
+--core chain (WP82) runs the chain-model core in that lane instead of the ucore
+(fpga/v35s/build_sim.sh direct chain: build/fpga/v35s/verilator-direct-chain/), into
+its own default directory (build/validation/v35s/chains-sim-chain), the file header
+saying "core": "chain"; --diag passes +chain_diag (the lane's diagnostics on stderr).
 """
 
 from __future__ import annotations
@@ -52,10 +56,28 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT = ROOT / "build/validation/v35s/chains"
 SIM_OUTPUT = ROOT / "build/validation/v35s/chains-sim"
 SIM_BINARY = ROOT / "build/fpga/v35s/verilator-direct/Vv35s_harness"
+# (WP82) the model lane's cores under --backend sim: the binary and the default output directory
+CHAIN_BINARY = ROOT / "build/fpga/v35s/verilator-direct-chain/Vv35s_harness"
+CHAIN_OUTPUT = ROOT / "build/validation/v35s/chains-sim-chain"
+SIM_CORES = {"ucore": (SIM_BINARY, SIM_OUTPUT), "chain": (CHAIN_BINARY, CHAIN_OUTPUT)}
 X_HALF = 2
 TICKS_PER_CLOCK = 4 * X_HALF
 DEFAULT_LIMIT = 2_000_000
 FLAG_REFRESH = 1 << 2   # as runner.FLAG_REFRESH; kept here so the module imports without nuboard
+
+
+def sim_transport(core: str = "ucore", diag: bool = False):
+    """(WP82) a SimulationTransport on the model lane's binary for `core` (runner's for the
+    ucore without diagnostics, else the same pipe protocol on the core's binary)."""
+    import subprocess
+    from ..runner import SimulationTransport
+    if core == "ucore" and not diag:
+        return SimulationTransport("direct")
+    transport = SimulationTransport.__new__(SimulationTransport)
+    transport.process = subprocess.Popen(
+        [str(SIM_CORES[core][0])] + (["+chain_diag"] if diag else []), cwd=ROOT,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    return transport
 
 
 def file_name(family: str, waits: int) -> str:
@@ -92,6 +114,10 @@ class RunFile:
             if data.get("backend") != header["backend"]:
                 raise SystemExit(f"{path} holds {data.get('backend')} runs, not "
                                  f"{header['backend']}: choose another --output-dir")
+            if data.get("core", "ucore") != header.get("core", "ucore"):
+                raise SystemExit(f"{path} holds the {data.get('core', 'ucore')} core's runs, "
+                                 f"not the {header.get('core', 'ucore')}'s: choose another "
+                                 f"--output-dir")
             for run in data.get("runs", []):
                 self.runs[run["chain"]["id"]] = run
 
@@ -155,7 +181,7 @@ def group_chains(chains) -> dict[tuple[str, int], list]:
 
 
 def sweep(harness, chains, *, backend: str, board_state, output_dir: Path, resume: bool,
-          repeat_fraction: float, limit: int, build=None, log=print) -> dict:
+          repeat_fraction: float, limit: int, build=None, log=print, core: str = "ucore") -> dict:
     """Run the chains, writing each (family, waits) file after every run."""
     if build is None:
         from .image import build_image as build
@@ -164,6 +190,8 @@ def sweep(harness, chains, *, backend: str, board_state, output_dir: Path, resum
     for (family, waits), members in groups.items():
         header = {"backend": backend, "board_state": board_state, "x_half": X_HALF,
                   "ticks_per_clock": TICKS_PER_CLOCK, "family": family, "waits": waits}
+        if core != "ucore":
+            header["core"] = core
         files[(family, waits)] = RunFile(output_dir / file_name(family, waits), header)
     order = {key: [c.id for c in members] for key, members in groups.items()}
 
@@ -265,6 +293,11 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
                         help="confirm the uPD70337 daughterboard is installed; permits DUT power")
     parser.add_argument("--backend", choices=("board", "sim"), default="board",
                         help="sim: model lane in Verilator, to test the plumbing only")
+    parser.add_argument("--core", choices=tuple(SIM_CORES), default="ucore",
+                        help="(WP82) with --backend sim: the model lane's core (chain: the "
+                             "chain-model RTL, build_sim.sh direct chain)")
+    parser.add_argument("--diag", action="store_true",
+                        help="(WP82) with --core chain: the lane's diagnostics on stderr")
     parser.add_argument("--family", nargs="+", required=True, help="families, e.g. F0 F0w F1")
     parser.add_argument("--waits", nargs="+", type=int, choices=(0, 1, 2),
                         help="keep chains at these waits (F0w chains are always kept)")
@@ -288,7 +321,10 @@ def main(argv=None, args=None) -> int:
         raise SystemExit("--repeat-fraction must be between 0 and 1")
     if args.backend == "board" and not args.socket_fitted:
         raise SystemExit("board runs power the socket: pass --socket-fitted")
-    output_dir = args.output_dir or (SIM_OUTPUT if args.backend == "sim" else DEFAULT_OUTPUT)
+    if args.core != "ucore" and args.backend != "sim":
+        raise SystemExit("--core selects the model lane's core: it needs --backend sim")
+    binary, sim_output = SIM_CORES[args.core]
+    output_dir = args.output_dir or (sim_output if args.backend == "sim" else DEFAULT_OUTPUT)
 
     chains = select_chains(args.family, args.waits, args.parity, args.ids)
     if not chains:
@@ -296,19 +332,19 @@ def main(argv=None, args=None) -> int:
     print(f"{len(chains)} chains from {' '.join(args.family)} -> {output_dir}", flush=True)
 
     from nuboard.debug import DebugClient
-    from ..runner import Harness, SimulationTransport, open_board
+    from ..runner import Harness, open_board
 
     common = dict(backend=args.backend, output_dir=output_dir, resume=args.resume,
                   repeat_fraction=args.repeat_fraction, limit=args.limit)
     if args.backend == "sim":
-        if not SIM_BINARY.exists():
-            print(f"error: the Verilator model is not built ({SIM_BINARY} is missing)",
+        if not binary.exists():
+            print(f"error: the Verilator model is not built ({binary} is missing)",
                   file=sys.stderr)
             return 2
-        transport = SimulationTransport("direct")
+        transport = sim_transport(args.core, args.diag)
         try:
             stats = sweep(Harness(DebugClient(transport.exchange)), chains,
-                          board_state=None, **common)
+                          board_state=None, core=args.core, **common)
         finally:
             transport.close()
     else:

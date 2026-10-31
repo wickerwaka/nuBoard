@@ -5147,6 +5147,63 @@ Clocks relative to t_fill; residual = model − silicon. Readings:
   early during it. The fetch after the stack read is 8 clocks after its end in silicon and model alike. Candidate (EU):
   a stack read requested on an immediate shift's exit clock is held a clock, as the string exit's `wbsync`.
 
+### The prelude from reset against the chain core (2026-10-31, WP82; no fit)
+
+Not a probe: the chain core running in the Verilator model lane from /RESET
+with nothing scripted (HDL plan "The chain core in the model lane";
+`replay --core chain --score`) replays every corpus run, and the pre window
+(the fetch train from the POP PSW read to clock 0) and the bus before it
+are compared with silicon's. The lane is deterministic; silicon's spread is
+the fX/8 divider's phase at release. What the comparison reads off silicon
+that the model does not have:
+
+- **The reset exit.** First refresh 483–517 ticks after release over the
+  corpus (lane 500), first fetch of FFFF0h at 804–832 (lane 820). Silicon
+  fetches six words of the reset vector (FFFF0h–
+  FFFFAh) before the far jump's target; the lane, with the model's queue,
+  four (FFFF0h–FFFF6h). The jump target's fetch (10000h) is 112–140 ticks
+  (3.5–4.4 fX/8 states) later on silicon than in the lane: the far jump at
+  the slow clock costs more than BR near does.
+- **The prelude at the slow clock.** The switch to fX/2 (the PRC store) is
+  196–256 ticks earlier on silicon than in the lane (F0-ls-pE-w0: 5,272
+  against 5,504); the PUSH 0002h write and the POP read 164–224 and 148–200
+  ticks earlier (5,480 / 5,552 against 5,680 / 5,728); the PUSH-to-POP gap
+  is 9 clocks on silicon, 6 in the lane. The SFR stores are internal and
+  show only as fetch spacing.
+- **Equal on every run:** 19 fetches from the jump to the POP read; the 3
+  words after the POP PSW fetched before its read (the model's
+  `preload(3)`); the refreshes before the POP read, except F13 where 268
+  of 462 runs differ by ±1 (264 one fewer in the lane).
+- **The refresh counter at the POP read** (lane minus `refresh.POP_COUNTER`,
+  mod the interval): FC and F8 preludes +3 at 0 waits, +13 at 1 and 2
+  waits; EC +2 at every wait; F0 +4/+1/0, F4 +1/+13/+13, FD (mod 32) +6/0/0,
+  FE (mod 64) +2/+2/+7, FF (mod 128) −1/0/+4 (scratchpad
+  wp82/logs/pop_counter_f13.txt). The lane's value in the frozen model
+  makes every 0-wait refresh cell exact and no 1- or 2-wait cell.
+- **In the pre window** of refresh-on preludes the first divergence is the
+  POP read itself: 5 clocks closer to clock 0 on silicon at 0 waits (−98
+  against the lane's −93), 3 further at 1 and 2 waits (−111 against −114,
+  −133 against −136). Refresh-off preludes: the pre window is exact on
+  every run.
+- **`refresh_any` is a lookahead.** A chain whose own RFM store turns
+  refresh on (F17 S/D/W/C, F18 B, F18 EC with a marker) runs the refresh
+  controller and templates from clock 0 in the model; the lane, knowing
+  only RFM.RFEN live, runs without until the store: 1,416 runs differ
+  (F17 66 of 246 equal, F18 B 0 of 864), the counter swap above changing
+  none of them.
+- **Per family** (runs / model-exact / RTL-exact / RTL = model / pre exact):
+  F8 48/37/27/32/0, F13 462/440/290/306/44, F17 798/754/219/238/738, F18
+  1,164/1,133/205/208/1,004, F27 1,072/889/684/804/268, F28
+  1,088/820/659/816/272; every other list RTL = model on every run with the
+  pre window exact; all 29,738/27,112/25,123/27,510/27,432.
+- **The model is an oracle for 466 starts:** it decodes a start from the
+  image when bytes of the instruction are still on the bus (a memory form's
+  trailing immediate, a register form's immediate, three ModR/M bytes).
+  Silicon's timing is the model's, so the EU does not wait for them.
+- **A pin:** in the column phase of data and I/O cycles the A17/A9 pin is
+  0 on silicon even with A9 = 1 (fetches carry A9); A17 is 0 in every such
+  corpus cycle. Unprobed; the scorer does not compare it.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -7172,7 +7229,13 @@ since the same night the RTL has the forty-first fit's nine mechanisms and REPC/
 fit so that live model edits no longer touch the include (the F32/F33 classes unbuilt); and
 since later the same day the RTL builds the F32/F33 classes too (WP79, HDL plan "The 0F page
 and the register miscellany built"): `UNBUILT_CLASSES` empty, the whole corpus of 28,142 runs
-over 35 lists exact against the model, model-exact 26,643 = RTL-exact, funcref 0 disagree. The
+over 35 lists exact against the model, model-exact 26,643 = RTL-exact, funcref 0 disagree. Since
+2026-10-31 the chain core also runs in the Verilator model lane from /RESET with nothing
+scripted (WP82: `build_sim.sh direct chain`, `acquire --backend sim --core chain`, `replay
+--core chain --score`; HDL plan "The chain core in the model lane"): every refresh-off
+family RTL = model on every run with the pre window exact, the six refresh-on families 2,228
+runs short for two things the model has non-causally, the counter's phase at the POP read and
+the `refresh_any` lookahead (Facts "The prelude from reset against the chain core"). The
 state row's `pc` is a chain offset like `ir` since the same day. The same
 change fixed `run_classes` leaving the prelude tail's classes out of the
 result cache's key (Facts, "The fitter's stage 6 under the family guard");

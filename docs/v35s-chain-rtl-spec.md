@@ -1002,6 +1002,44 @@ decision differs it is said here.
   `V35_BCD_HEAD`/`V35_BCD_SETS`, `v35_base_cls` in the include; P lines carry `bfc`, the rf format
   V35RF-3; 62 more SST files in `RTL_FILES`. Still scripted: the code window, the memory image, the
   I/O read value, the initial register file. Not built: the trap sequence, interrupts.
+- **The chain core in the model lane (2026-10-31, WP82; docs/v35s-hdl-plan.md "The chain core in
+  the model lane"):** `build_sim.sh direct chain` builds `v35s_chain_model.sv` around the core with
+  `V35S_CHAIN_LANE`; every lane-only path is under that define and the benches' bundle `v35_st_t`
+  is unchanged (the lane's EU state is separate flops). Decisions: (1) the core's `first` (the
+  bench's clock 0) becomes `pop_now` = `first || pop_fire`: in the lane `first` is never set and
+  `pop_fire` is the clock the EU, having started the prelude's POP PSW (9D, run as a NOP) and
+  waiting with its slot empty, finds the bus free; the request port and the bus view are the
+  clock-0 ones, the read at SS:SP, SP + 2 and `start_at` = length + 4 as `Machine.__init__`, the
+  PSW's low 12 bits loaded from the delivered word (MD, RB kept). (2) The refresh controller takes
+  only the RFM store (offset E1h): the prelude's WTC and PRC stores are SFR stores too and the
+  model's only SFR store is the RFM's. (3) `refresh_on` is RFM.RFEN live from the SFR block: the
+  controller does not run for a chain whose own store turns refresh on later (the model's
+  `refresh_any` does; see the observations). (4) Routing is the model's: writes at FFF00h and up
+  are on-chip (the SFR store's internal cycle), the stack at 0E00h–0F00h on the bus; the
+  internal RAM is not built (IDB = FFh puts it at FFE00h–FFEFFh). (5) Reset PS FFFFh, IP 0,
+  PSW F002h; the reset vector's JMP far (EA) runs as BR near (E9) to the same offset with PS
+  loaded at the start (its timing is BR near's, before the POP read, not modelled). (6) The
+  divider is the ucore wrapper's (X1/8 at reset, PRC.PCK at the next state boundary); a model
+  clock ends at a state's start, strobes mid-state; an unsettled clock is flagged (`unsettled`).
+  (7) Reset exit: `RESET_REFRESH_STATE` 15 and `RESET_FETCH_STATE` 25 (A3), the wrapper's one
+  reset refresh (5 states, row 0), the core released the state before the fetch's B1,
+  `init_counter` 18 continuing the refresh's 16-clock grid. (8) Memory is the bus: a 4 KiB
+  direct-mapped code cache (A11..A0, tag A19..A12) filled from `done_data` at B3, this clock's
+  fetch bypassed in, a valid bit per byte for the code window (`code_ok`) and the running
+  instruction's six bytes (`lx_win`, `lx_ok`); `fetch_data`, `init_*` tied off, `code_org` 0.
+  (9) A start whose bytes are not all fetched: a data-only immediate (`eu_late_imm`: 80–83,
+  F6/F7 /0, C6/C7, the SFR value included; register forms B0–BF, 05, A8/A9, 80–83, F7 /0, 68/6A)
+  starts and its function is redone from the saved register file (`lx_rf_r`) at the clock's
+  begin once the bytes are in; a missing ModR/M byte (F13 SHL AW,CL, 3 runs) is decoded as the
+  register form and the format checked when it lands (`lane_spec_bad`, never set on the
+  corpus); any other missing byte holds the start and re-evaluates the queue's request
+  (`V35_EQ_EVAL`), else the queue deadlocks (its request is evaluated on change only). No hold
+  changed a scored result. (10) SFR stores are captured at issue (`sfr_issue`) and applied at
+  the cycle's end; a word store writes the offset and the next, a byte store its lane. (11)
+  Diagnostics as ports (`lane_stall`, `lane_late`, `lane_spec`, `lane_spec_bad`, `lane_start`),
+  printed with `+chain_diag`. Results: every refresh-off family RTL = model on every run and
+  the pre window exact; the 2,228 RTL ≠ model runs are all in F8, F13, F17, F18, F27, F28 (the
+  counter's phase at the POP read and `refresh_any`, HDL plan).
 
 ### The request rule and the queue's room
 
@@ -1351,3 +1389,23 @@ What the model leaves undefined that the RTL needs, and where the plan handles i
   flipped), so the fit carries rules no run tests: `room_ir_ready`, `ea_floor`,
   `wlatch_ir`, `wlatch_mul`, `sfr_setup` (and the `wlatch_ir_at` that only matters with
   `wlatch_ir`); likewise `abort_latched=full`/`any` and `sync_io=issue`/`unit` tie.
+- (WP82) The model decodes a start from the image, an oracle: on the corpus 466 starts read
+  bytes not yet fetched (a memory form's trailing immediate, a register form's immediate, three
+  ModR/M bytes). Silicon's timing agrees with the model's, so the EU does not wait for those
+  bytes; the lane redoes the function when they land. A decoder that takes the immediate as a
+  late step, as the templates' `take` steps already do for the timing, would make the model
+  causal here.
+- (WP82) `refresh_any` is a lookahead over the whole chain: a chain whose own RFM store turns
+  refresh on runs the refresh controller and the refresh templates from clock 0 in the model
+  (`Machine.__init__`, `eu.refresh is not None`). A causal core can only know RFM.RFEN live.
+  The 1,416 such runs (F17 S/D/W/C, F18 B and EC-with-marker) are where the lane differs from
+  the model; a `refresh_scope` enum (`any` as today, `live`) is the model-side question.
+- (WP82) The refresh counter's phase at the POP read is fitted per prelude (`refresh.POP_COUNTER`);
+  the lane's follows from its reset exit and prelude and differs by +3 (FC/F8, 0 waits), +13 (1
+  and 2 waits) and +2 (EC) mod 16; with the lane's value the frozen model is exact on every
+  0-wait refresh cell. The prelude's own cycles (the SFR stores, the register loads, PUSH, POP,
+  JMP far at the slow clock) are what the model would need to make the phase emergent (C6).
+- (WP82) On silicon the A17/A9 pin in the column phase of data and I/O cycles is 0 even when
+  A9 = 1 (fetches carry A9); A17 is 0 in every such corpus cycle, so it may be A17 held over
+  from the row phase. `v35_biu.sv`, like `v35s_model.sv`, drives A9; the scorer does not
+  compare it. Unprobed.

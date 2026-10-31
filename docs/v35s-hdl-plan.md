@@ -130,6 +130,9 @@ it with the same normaliser and scorer as silicon and the Python model.
   stores, register loads, POP PSW, the prelude marker in F18). The
   normaliser aligns at the first LS, and the `--pre` window scores the
   fetch train from the POP PSW read; both are already there for the model.
+  Since 2026-10-31 the chain core does this itself in the lane (WP82,
+  "The chain core in the model lane" in Phase C): `replay --core chain
+  --score` reports the three marks and the pre window per family.
 - **Gate:** the current ucore model lane (`v35s_model.sv`) replays F0 and
   the scorer reports its numbers. They will be poor; the point is that the
   path runs end to end before any new RTL exists.
@@ -631,6 +634,64 @@ data). Still scripted: the code window, the memory image, the I/O read
 value, the initial register file. Not built: the trap sequence,
 interrupts.
 
+**The chain core in the model lane, 2026-10-31 (WP82, Phase D3 and the
+start of C6):** `fpga/v35s/build_sim.sh direct chain` builds the Verilator
+harness with the chain core in the model lane (`core/v35s_chain_model.sv`
+wrapping `v35_chain_core.sv` built with `V35S_CHAIN_LANE`, the ucore build
+and every core bench unchanged; binary
+`build/fpga/v35s/verilator-direct-chain/`), and `acquire --backend sim
+--core chain`, `replay --core chain` and `replay --core chain --score` run
+and score it (output `build/validation/v35s/chains-sim-chain/`, the header's
+`"core": "chain"`; `--diag` prints the lane's diagnostics). Nothing is
+scripted: the core leaves reset, fetches the reset vector at FFFF0h (PS
+FFFFh, IP 0, not F000h:0000h), runs the image's prelude, and every fetch,
+data and I/O cycle is a bus cycle whose data the core itself latched. The
+wrapper adds the clock (one bus state per CLKOUT = X1/8 at reset, PRC.PCK
+at the prelude's store; a model clock ends at a state's start and its
+strobes sit mid-state, 8 edges per state at fX/2 against the core's worst
+settle of 6), the reset exit as parameters from docs/v35s-bus-timing.md
+"Reset" and docs/v35s-core-decision.md A3 (`RESET_REFRESH_STATE` 15,
+`RESET_FETCH_STATE` 25: the wrapper drives the one reset refresh, the core
+is held in reset until the state before the first fetch's B1 and its
+counter continues that refresh's grid, `INIT_COUNTER` 18), the SFR block
+`core/v35_sfr.sv` (PRC, WTC, RFM, IDB at IDB:F00–FFF and FFFFFh, reset 4Eh,
+FFFFh, FCh, FFh, written at the SFR store cycle's end; only the RFM store
+reaches the refresh controller), a 4 KiB direct-mapped code cache filled by
+the core's own fetches with a valid bit per byte, and `refresh_on` =
+RFM.RFEN live. In the EU (lane only, its state outside `v35_st_t`) a start
+waits for the bytes it reads, except a ModR/M byte still on the bus
+(decoded as the register form, the format checked when it lands: never
+wrong on the corpus) and a data-only immediate (80–83, F6/F7 /0, C6/C7,
+B0–BF, 05, A8/A9, 68/6A), whose function is redone from the saved register
+file once the bytes are in; the prelude's POP PSW starts as a NOP whose
+stack read the core issues on the first clock the EU waits for it with the
+bus free (`pop_fire`, the model's clock-0 bus view), and the reset
+vector's JMP far runs as BR near with PS loaded at the start. Results
+(overseer's re-run, scratchpad wp82r/): all 29,738 corpus runs replay;
+every refresh-off family RTL = model on every run, RTL-exact = model-exact,
+pre window exact; the six refresh-on families (F8, F13, F17, F18, F27, F28)
+leave 2,228 runs with RTL ≠ model, from two things the model does not have
+causally: the refresh counter's phase at the POP read (the model's fitted
+`POP_COUNTER`, the lane's from its reset exit and prelude: FC/F8 +3 at 0
+waits and +13 at 1 and 2, EC +2; the lane's counter in the model makes
+every 0-wait refresh cell exact) and `refresh_any`, the model's lookahead
+that runs the refresh templates from clock 0 for a chain whose own RFM
+store turns refresh on later (1,416 runs: F17 S/D/W/C 66 of 246 equal, F18
+B 0 of 864). The prelude before the POP read is not modelled and the lane
+shows it (docs/v35s-chains.md Facts "The prelude from reset against the
+chain core"): four reset-vector words fetched against silicon's six, the
+jump target 112–140 ticks early, the fX/2 switch 196–256 ticks late, the
+PUSH-to-POP gap 6 clocks against 9. Gate: nothing lost (rtlgen --check,
+five builds and lint, C1–C3, `--core` 28,142/28,142 model-exact 26,643 =
+RTL-exact, F34 1,596/1,596, `--regfile` 69,099 0 bad, funcref 29,738 runs 0
+disagree, SST 2,044,304 / 2,001,666, the ucore lane byte-identical to
+HEAD's); `test_chain_lane` adds five offline tests and one end-to-end run
+of F0-ls-pE-w0 through the chain binary (skipped when the binary is older
+than its sources unless `V35S_BUILD_CHAIN=1`). Still scripted: nothing in
+the lane; the benches keep their code window, memory image, I/O read value
+and initial register file. Not built: the internal RAM (IDB:E00–EFF, which
+no chain touches), the trap sequence, interrupts.
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do
@@ -650,7 +711,13 @@ sequencer in place of a cost table.
   adapter runs through the rf bench as a function-only check, not the
   replay harness.
 - Segment arithmetic (done with D2), the IDA routing and the SFR block for
-  WTC, RFM, PRC (D3, with the reset and the prelude of C6).
+  WTC, RFM, PRC (D3, with the reset and the prelude of C6). Done
+  2026-10-31 (WP82, "The chain core in the model lane" above): the SFR
+  block `v35_sfr.sv`, the routing (FFF00h and up on-chip, the stack on the
+  bus; RAMEN set by PRC 4Ch but IDB = FFh puts the internal RAM at
+  FFE00h–FFEFFh, which nothing touches, so it is not built), the reset exit
+  as A3's parameters; the prelude before the POP PSW read runs but is not
+  modelled (C6 stays open there).
 - **Gate:** the chain corpus unchanged (Phase C's gate holds), the directed
   programs (`smoke`, `clocks`, `alu`) match on the board with `--mode both`.
 

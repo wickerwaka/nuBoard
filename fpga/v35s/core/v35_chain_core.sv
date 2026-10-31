@@ -39,6 +39,13 @@
 // the counter's value at clock 0 (refresh.POP_COUNTER for the run's prelude).
 // Not modelled here: the prelude's tail before the POP PSW read and the reset (C6).
 // Build: fpga/v35s/build_core_tb.sh (bench fpga/v35s/v35_core_tb.sv, .cpp).
+// (WP82) With V35S_CHAIN_LANE (fpga/v35s/build_sim.sh direct chain) the core runs in the model
+// lane from /RESET (v35s_chain_model.sv): no clock 0 at reset; the POP PSW read is issued when
+// the EU, having started the prelude's POP PSW, waits for it with its slot empty and the bus
+// free (pop_fire, the clock-0 view of the bus and the request port as above); the refresh
+// controller takes only the RFM store (the prelude's WTC and PRC stores are SFR stores too);
+// the delivered word, the SFR store and the lane's diagnostics are ports. The benches build
+// without it and are unchanged.
 module v35_chain_core
     import v35_decoder_pkg::*;
     import v35_eu_pkg::*;
@@ -98,6 +105,31 @@ module v35_chain_core
     output wire        iostb_n,
     output wire        read_write,
     output wire        refrq_n
+`ifdef V35S_CHAIN_LANE
+    ,
+    // (WP82) the model lane (v35s_chain_model.sv): the core from /RESET with nothing scripted.
+    // The memory is the bus: the delivered word and its width (the wrapper's code cache takes
+    // the fetches'), the code window's valid bits and the late-immediate window (v35_eu.sv);
+    // the SFR store's internal write (issued: its address, width and datum; the SFR block takes
+    // it at the cycle's end); the prelude's POP PSW read, issued by the core when the EU waits
+    // for it and the bus is free, as Machine.__init__'s clock 0 (pop_fire)
+    output wire [15:0] done_data_o,
+    output wire [1:0]  done_width_o,
+    input  wire [11:0] code_ok,
+    output wire [19:0] lx_addr,
+    input  wire [47:0] lx_win,
+    input  wire [5:0]  lx_ok,
+    output wire        sfr_issue,           // an SFR store starts this clock (at commit) ...
+    output wire [19:0] sfr_addr,
+    output wire [1:0]  sfr_width,
+    output wire [15:0] sfr_data,
+    output wire        pop_fire,            // the POP PSW read starts this clock
+    output wire        lane_stall,          // diagnostics (v35_eu.sv)
+    output wire        lane_late,
+    output wire        lane_spec,
+    output wire        lane_spec_bad,
+    output wire        lane_start
+`endif
 `ifdef V35S_STATE_DUMP
     ,
     input  wire [5:0]  mutate,              // the mutation tests (1..7, 20 the arbiter's, 8..19, 21..32 the EU's)
@@ -212,6 +244,9 @@ module v35_chain_core
     assign settled = sn == sr;
 
     reg first;                              // the model's clock 0 (the POP PSW read)
+    // the clock the POP PSW read starts on: the bench's clock 0; (WP82) in the lane the clock
+    // the core issues it (pop_fire), the bus view and the request port as on clock 0
+    wire pop_now;
     reg eu_owner;                           // the cycle on the bus is the EU's
 
     // ------------------------------------------------ the bus unit
@@ -255,11 +290,24 @@ module v35_chain_core
     // the bus unit before the choice as the EU and the arbiter read it: on clock 0 the
     // prelude's POP PSW read, which Machine.__init__ starts before the clock's phases
     wire [2:0] pop_len = 3'(V35_BUS_BASE) + {1'b0, wtc[V35_WTC_MEM_LSB +: 2]};
-    wire        v_busy = first ? 1'b1 : busy;
-    wire        v_free = first ? 1'b0 : free;
-    wire [2:0]  v_kind = first ? V35_K_READ : cur_kind;
-    wire [2:0]  v_pos = first ? 3'd0 : cur_pos;
-    wire [2:0]  v_len = first ? pop_len : cur_len;
+`ifdef V35S_CHAIN_LANE
+    // (WP82) the POP PSW read: issued on the first clock the EU waits for it (its slot empty)
+    // with the bus free, at SS:SP; its delivery loads the PSW (psw_load)
+    wire        eu_pop_wait;
+    wire [19:0] eu_pop_addr;
+    reg         pop_owner;
+    assign pop_fire = eu_pop_wait && free && !first;
+    assign pop_now = first || pop_fire;
+    wire [19:0] pop_a = eu_pop_addr;
+`else
+    assign pop_now = first;
+    wire [19:0] pop_a = V35_PRELUDE_POP_ADDR;
+`endif
+    wire        v_busy = pop_now ? 1'b1 : busy;
+    wire        v_free = pop_now ? 1'b0 : free;
+    wire [2:0]  v_kind = pop_now ? V35_K_READ : cur_kind;
+    wire [2:0]  v_pos = pop_now ? 3'd0 : cur_pos;
+    wire [2:0]  v_len = pop_now ? pop_len : cur_len;
     wire        f3 = fetch_len == 3'd3;
     wire        a_run;                      // (WP77) the arbiter's run (bview.run)
     // (two processes: bus_p depends on the arbiter's choice, which depends on the EU's T)
@@ -304,6 +352,11 @@ module v35_chain_core
         .x_cyc_addr(e_x_cyc_addr), .x_cyc_width(e_x_cyc_width), .qsnap_c, .qsnap_e, .e_io, .e_out,
         .error(eu_error), .err_code(eu_err), .state_l(eu_state_l), .state_e(eu_state_e),
         .fresh_l, .fresh_p, .x_data(eu_xd)
+`ifdef V35S_CHAIN_LANE
+        , .code_ok, .lx_addr, .lx_win, .lx_ok, .pop_wait(eu_pop_wait), .pop_addr(eu_pop_addr),
+        .pop_fire, .pop_len, .psw_load(done && pop_owner), .psw_data(done_data),
+        .lane_stall, .lane_late, .lane_spec, .lane_spec_bad, .lane_start
+`endif
 `ifdef V35S_STATE_DUMP
         , .mutate, .opr_a, .opr_b, .rfx_a, .rfx_b
         , .state_c(eu_c), .state_t(eu_t), .state_x(eu_x), .state_p(eu_p), .state_dump(eu_dump)
@@ -345,11 +398,18 @@ module v35_chain_core
         );
 
     // ------------------------------------------------ (C5) the refresh controller
+`ifdef V35S_CHAIN_LANE
+    // (WP82) the RFM store only: in the lane the prelude's WTC and PRC stores are SFR stores
+    // too (the model's only SFR store is the RFM's, eu.issue's refresh.write)
+    wire rf_wr = !pop_now && a_sfr_wr && a_req_addr[7:0] == 8'hE1;
+`else
+    wire rf_wr = !first && a_sfr_wr;
+`endif
     wire [RSTATE_W-1:0] rf_state_r, rf_state_e;
     v35_refresh #(.STATE_W(RSTATE_W)) refresh (
         .clock, .reset_n, .ce(commit), .en(refresh_on), .rfm, .init_counter,
-        .start(!first && a_req_start && a_req_kind == V35_K_REFRESH),
-        .wr(!first && a_sfr_wr), .wr_value(a_sfr_value),
+        .start(!pop_now && a_req_start && a_req_kind == V35_K_REFRESH),
+        .wr(rf_wr), .wr_value(a_sfr_value),
         .pending(rf_pending), .rfm_load(rf_load), .rfm_value(rf_value),
         .state_r(rf_state_r), .state_e(rf_state_e)
 `ifdef V35S_STATE_DUMP
@@ -453,14 +513,14 @@ module v35_chain_core
     end
 
     // ------------------------------------------------ the bus unit's request
-    assign b_req_start = first || a_req_start;
-    assign b_req_kind = first ? V35_K_READ : a_req_kind;
-    assign b_req_addr = first ? V35_PRELUDE_POP_ADDR : a_req_fetch ? q_fetch_issue_addr : a_req_addr;
-    assign b_req_width = first ? V35_BW_WORD : a_req_width;
-    assign b_req_data = first ? V35_PRELUDE_PSW : a_req_fetch ? fetch_data
+    assign b_req_start = pop_now || a_req_start;
+    assign b_req_kind = pop_now ? V35_K_READ : a_req_kind;
+    assign b_req_addr = pop_now ? pop_a : a_req_fetch ? q_fetch_issue_addr : a_req_addr;
+    assign b_req_width = pop_now ? V35_BW_WORD : a_req_width;
+    assign b_req_data = pop_now ? V35_PRELUDE_PSW : a_req_fetch ? fetch_data
                         : a_req_eu ? eu_xd : 16'd0;     // (D2) the EU's; a refresh: none
-    assign b_req_ext = !first && a_req_ext;
-    assign b_req_latch = !first && a_req_latch;  // the POP PSW read's datum: no latch (C1, 7)
+    assign b_req_ext = !pop_now && a_req_ext;
+    assign b_req_latch = !pop_now && a_req_latch;  // the POP PSW read's datum: no latch (C1, 7)
     assign fetch_addr = q_fetch_issue_addr;
 
     // the core's checks: the chain's length; the arbiter's cycle the queue's fetch or the EU's
@@ -470,24 +530,47 @@ module v35_chain_core
         core_err = 2'd0;
         if (nall > JSLOT)
             core_err = V35_CE_SLOTS;
-        else if (!first && ((a_req_fetch != q_fetch_issue) || (a_req_eu != e_x_cyc)
+        else if (!pop_now && ((a_req_fetch != q_fetch_issue) || (a_req_eu != e_x_cyc)
                  || (a_req_eu && (a_req_kind != e_x_cyc_kind || a_req_addr != e_x_cyc_addr
                                   || a_req_width != e_x_cyc_width))))
             core_err = V35_CE_CYCLE;
-        else if (b_req_start && !first && a_req_len != start_len)
+        else if (b_req_start && !pop_now && a_req_len != start_len)
             core_err = V35_CE_LEN;
     end
     assign err_code = {core_err, arb_err[2:0], eu_err[2:0]};
 
+`ifdef V35S_CHAIN_LANE
+    always @(posedge clock) begin
+        if (!reset_n)
+            pop_owner <= 1'b0;
+        else if (commit) begin
+            if (pop_fire)
+                pop_owner <= 1'b1;
+            else if (done)
+                pop_owner <= 1'b0;
+        end
+    end
+    assign done_data_o = done_data;
+    assign done_width_o = done_width;
+    assign sfr_issue = b_req_start && b_req_kind == V35_K_WRITE && b_req_addr >= V35_SFR_PAGE;
+    assign sfr_addr = b_req_addr;
+    assign sfr_width = b_req_width;
+    assign sfr_data = b_req_data;
+`endif
+
     always @(posedge clock) begin
         if (!reset_n) begin
+`ifdef V35S_CHAIN_LANE
+            first <= 1'b0;                  // (WP82) the lane's POP PSW read is pop_fire's
+`else
             first <= 1'b1;
+`endif
             eu_owner <= 1'b0;
             error <= 1'b0;
         end else if (commit) begin
             first <= 1'b0;
             if (b_req_start)
-                eu_owner <= !first && a_req_eu;
+                eu_owner <= !pop_now && a_req_eu;
             if (core_err != 2'd0 || arb_err != 8'd0 || eu_err != 8'd0)
                 error <= 1'b1;
         end
