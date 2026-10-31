@@ -692,6 +692,28 @@ the lane; the benches keep their code window, memory image, I/O read value
 and initial register file. Not built: the internal RAM (IDB:E00–EFF, which
 no chain touches), the trap sequence, interrupts.
 
+**The forty-third fit adopted 2026-10-31 (WP81), the RTL behind it:** the
+fit encodes F34's readings as eight enums (`page_mem=fixed`, `bf_read=fixed`,
+`page_take=own`, `xfer_nt=odd`, `mul_imm_hold=word`, `wb_fetch=hold`,
+`stack_wb=ret`, `mul_imm_read=issue`) and new class integers (`nhold`, `wb`
+on the short transfers and DBNZ, `fsetup` on the bit, digit-rotate and
+bit-field forms, `mul_imm.mhold`/`rsetup`), 27,838/29,738 over the 36 lists
+(docs/v35s-chains.md "The forty-third fit"). `rtlgen` re-ran on it (the
+include's class integers renumbered, 495) and the benches rebuilt; the
+`--core` gate at the adoption (scratchpad wp81r/baseline/) is the baseline
+the catch-up starts from: over the 35 lists 27,446 of 28,142 runs exact
+against the model (696 differing, all in F23, F30, F32 and F33; the
+vectors of 108 runs not generated, the walk not knowing the queue's
+`odd_nt` event), model-exact as the gate counts it 26,772, RTL-exact
+26,511; F34 698 of 1,596 exact against the model (model-exact 860,
+RTL-exact 594). C1–C3 unchanged. `test_rtl_vectors`' page-and-miscellany
+run and mutation tests fail until the catch-up (WP83); three WP78 model
+tests pin the forty-second fit's superseded enums (`bf_read=count`,
+`page_mem=group`, `wb_fetch=free`) for their alternative checks. New model
+state the RTL has no counterpart for: `Cycle.b2b`, `Request.pfree`,
+`Queue.odd_nt`/`odd_until`, `Op.half_word`, the `wb_fetch` arbiter rule and
+the decide-wait exception.
+
 ### Phase D: function
 
 The chain model fixes when each step happens; this phase makes the steps do

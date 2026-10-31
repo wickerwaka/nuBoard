@@ -458,6 +458,86 @@ OPTIONS = {
     # (data: R96: the read is start + 12 whatever the fetch). Flip: data -31 F32 (EXT / INS at
     # pO), nothing else
     "bf_count": ("data", "dw"),
+    # (WP81, F34, 2026-10-30) xfer_nt: a short transfer not taken (branch_short: BNE / BE; dbnz)
+    # raises fetch requests as the queue's room allows (none) / whose opcode is at an odd address
+    # (the displacement the even half of the next word) holds its fetch request as xfer_odd=idle
+    # holds a taken one's, from the clock after its start until nhold clocks into the clocks
+    # after its operand take (BNE / BE: the flag test; DBNZ: CW's test, its nexec clocks), the
+    # not-taken decision not waiting for the fetch its release raises; BNE / BE keep xfer_odd's
+    # exception for a fetch on the bus on the start clock, DBNZ holds whatever the bus (odd).
+    # F34-out-nt-bne-d-k1-pE-w0, rel t_fill: BNE at an odd address starts at 97 with an aborted
+    # cycle 97-99; silicon's next fetch 103 (none: F100, re-raised on the aborted cycle's end);
+    # F34-out-nt-dbnz-l0-k1-pE-w0: DBNZ starts on F91's issue, silicon F99 (none: F94 back to
+    # back). With branch_short.wb / dbnz.wb 2 (the not-taken form's last clocks a write-back only
+    # the port OUT waits for: the PUSH frame exact without them). Flip at the candidate
+    # (scratchpad wp81/fit-wp81b.json): none -117 (F23 -12, F30 -54, F34 -51 net)
+    "xfer_nt": ("none", "odd"),
+    # (WP81, F34, 2026-10-30) stack_wb: a RET's stack read is posted with its class's setup
+    # (none) / posted on its start clock while the previous form's write-back runs (wb: an
+    # immediate shift's exit) it is held a clock, as the string exit's write-back holds a wbsync
+    # form (ret). F34-out-cr-shl8-l0-pE-w0, rel t_fill: SHL AW,8 ends at 143, the RET starts on
+    # 144; silicon's stack read 151 (none: r150); with a NOP between the shift and the RET every
+    # cell is exact either way, the target's parity changes nothing. Keyed on the reading class
+    # (ret) and the write-back's presence; POP's stack read is not held (F15, F16, F25 lose 42
+    # with the rule on every stack read). Flip at the candidate: none -54 (F30 -12, F34 -42)
+    "stack_wb": ("none", "ret"),
+    # (WP81, F34, 2026-10-30) page_take: a 0F register form's (bit1, rol4, ror4; the bit fields
+    # bf_ext / bf_ins) second opcode byte is one of its operand bytes, taken and committed with
+    # them at the take step's end (operand) / is taken as a take of its own on the form's start
+    # clock, chained to the rest, as the memory forms' head takes it (own): the byte leaves the
+    # queue a clock or two earlier. F34-out-rbit-set1_rw_imm-nop-k1-pO-w0, rel t_fill: the NOP at
+    # 85 loads 0F, SET1 AW,imm starts at 89; silicon's fetch 89 (operand: F90, the room freed on
+    # 91); the same lead before a one-byte or a non-0F two-byte form is exact either way. Flip
+    # at the candidate: operand -107 (F32 -19, F34 -88)
+    "page_take": ("operand", "own"),
+    # (WP81, F34, 2026-10-30) page_mem: a 0F memory form's read (TEST1 / CLR1 / SET1 / NOT1 r/m,
+    # ROL4 / ROR4 r/m) takes its class's group setup (page_grp) and per-class clocks (group) /
+    # issues fsetup clocks (and cl more with the bit index in CL) after the end of the last fetch,
+    # every one fetch-free, counted back from the read's post to the form's start; a fetch the bus
+    # unit committed to back to back after the form's start runs inside the count, any other
+    # fetch restarts it; no group setup (fixed). One rule for every op: F34 reads TEST1, SET1 and
+    # CLR1 on the same clock in all 84 op-comparable cells. F34-out-mbit-test1_mw_cl-l0-k1-pE-w0,
+    # rel t_fill: the refill 87, 90 (committed back to back on 89), silicon's read 95 = F87's end
+    # + 6 counted clocks (group: R98); -pO-w0: F88, R96, exact under both. A fetch that runs
+    # while the ready read waits restarts the count too. Flip at the candidate: group -233
+    # (F32 -99 net, F34 -134)
+    "page_mem": ("group", "fixed"),
+    # (WP81, F34, 2026-10-30) mul_imm_read: MUL r16,r/m,imm's read is posted as the immediate
+    # forms' are (imm_order) (issue) / is posted after the head and issues rsetup clocks and a
+    # clock per immediate byte after its post, the immediate taken while it waits (imm).
+    # F34-out-mul-mul_aw_m_imm8-l0-k1-pE-w0, rel t_fill: M0's I/O 84-86, the refill 87; silicon's
+    # read 90 and no fetch until 134 (with mul_imm_hold); the register form exact either way.
+    # Stage 17's sweep kept issue with mul_imm.rsetup 2 (+26 on the stage's lists): the reading
+    # (the read a clock per immediate byte late) stays a cost, not this order
+    "mul_imm_read": ("issue", "imm"),
+    # (WP81, F34, 2026-10-30) mul_imm_hold: MUL imm memory raises fetch requests as the room allows
+    # (none) / when its immediate's last byte is the even (first) byte of its word, the next
+    # opcode its second, raises none for mhold clocks from the read's post: the half-taken word
+    # keeps the room rule from asking over the multiply's span (word); the operand's word
+    # alignment, not a parity. F34-out-mul-mul_aw_m_imm8-l0-k1-pE-w0: silicon R90 F134 (none: a
+    # fetch committed back to back at 90 beats the read, R93). Flip at the candidate: none -35
+    # (F33 -6, F34 -29)
+    "mul_imm_hold": ("none", "word"),
+    # (WP81, F34, 2026-10-30) bf_read: a bit field's first word read (EXT / INS) counts its setup
+    # per bf_count (count) / issues fsetup clocks (and one more per immediate byte: the imm4
+    # width) after its post, every one fetch-free: a fetch on the bus at the post restarts the
+    # count, one the bus unit committed to back to back after the post runs inside it (fixed).
+    # F34-out-bf-ext_bl_dh-nop-k1-pE-w0, rel t_fill: the refill 88, 91; silicon's read 100, the
+    # last fetch's end + 6 behind every lead (count: R105); EXT = INS, crossing = within. Flip
+    # at the candidate: count -135 (F32 -18, F34 -117)
+    "bf_read": ("count", "fixed"),
+    # (WP81, F34, 2026-10-30) wb_fetch: a fetch starts on any clock the bus is free (free) / one
+    # requested before it (or on a word's delivery on it) does not start on the start clock of a
+    # form that waits for its predecessor's write-back (wbsync: the port-form OUT) while that
+    # write-back runs, a fetch committed back to back aside; one the start itself raises (the IR
+    # emptied) is not held (hold): the port byte lands on that fetch's issue clock and holds it
+    # (the port_issue family). F27-out-fc-unit-shli8-n0-pE-w0 (the start's own request after a
+    # shift, refresh on) is unchanged by it.
+    # F34-out-inc-inc_aw-l0-k1-n0-pE-w1, rel t_fill: INC AW 85-87, the OUT starts on 88 behind
+    # its write-back; silicon F89 F93 I101 (free: F88 F92 I100); with a NOP between every cell is
+    # exact either way. Flip at the candidate: free -100 (F32 -8, F33 -81 net, F34 -11); INC /
+    # DEC r8 at pE w1 / w2 (F33, 8 runs) are the cells it costs
+    "wb_fetch": ("free", "hold"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -512,6 +592,14 @@ OPTIONS = {
 # half's issue), str_fetch=hold's release (xfetch: clocks after the stream's last cycle;
 # zfetch: with CW = 0, clocks into the exit at which the aborted start's request is raised
 # again); 0 and unread under the old enums.
+# (WP81) nhold (branch_short, dbnz; xfer_nt=odd): the clocks into the clocks after a not-taken
+# short transfer's operand take at which its odd-address hold ends; fsetup (the 0F memory
+# classes, page_mem=fixed; bf_ext / bf_ins, bf_read=fixed): the read's fetch-free setup (the CL
+# index's cl added for a 0F memory form, a clock per immediate byte for a bit field); mhold
+# (mul_imm, mul_imm_hold=word): the clocks from the read's post the half-taken word holds fetch
+# requests; 0 and unread under the old enums. rsetup (mul_imm): the read's setup clocks, read
+# by the immediate forms' read (_imm_read) whatever the enums, absent = 0 before (as before),
+# and with mul_imm_read=imm the setup before the immediate's clocks.
 DEFAULT_COST = {
     "reg": {"pre": 0, "exec": 4},
     "prefix": {"exec": 2},
@@ -576,14 +664,15 @@ DEFAULT_COST = {
 # untaken=wait, branch_reg=reg; branch_short.nx 6 there scored the same but over-fills the
 # queue in F23-out-bne-n0-k2-pE-w0 under the default enums, so 0); the fit's own are in fit.json.
     "branch_short": {"pre": 0, "cond": 4, "exec": 8, "post": 0, "fgap": 5, "hold": 6,
-                     "nexec": 1, "nfgap": 1, "nx": 0,
+                     "nexec": 1, "nfgap": 1, "nx": 0, "nhold": 0,
                      # (WP72) cfgap: with cond_gap=own, the quiet clocks a taken form with a
                      # condition field (BE) waits after the last fetch's end before its flush
                      # (read off F23's BE cells: the target fetch at the last pre-flush fetch's
                      # end + 9 where BR short's is at + 6); unread under cond_gap=fgap
                      "cfgap": 8},
     "branch_near": {"pre": 3, "exec": 5, "post": 0, "fgap": 3, "hold": 10, "nexec": 4},
-    "dbnz": {"pre": 0, "exec": 14, "post": 0, "fgap": 5, "hold": 2, "nexec": 6, "nfgap": 1},
+    "dbnz": {"pre": 0, "exec": 14, "post": 0, "fgap": 5, "hold": 2, "nexec": 6, "nfgap": 1,
+             "nhold": 0},
     "call": {"pre": 3, "setup": 7, "setup_free": 3, "exec": 8, "post": 0, "fgap": 5,
              "hold": 10},
     "ret": {"pre": 0, "setup": 7, "setup_free": 3, "exec": 8, "post": 0, "fgap": 5, "hold": 6},
@@ -648,20 +737,21 @@ DEFAULT_COST = {
     "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1},
     "convert": {"nx": 0, "wb": 2, "pre": 3, "exec": 16},
     "convert_d": {"nx": 0, "wb": 0, "pre": 2, "exec": 16},
-    "bit1_test": {"grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3},
-    "bit1_rmw": {"grp": 0, "grp_free": 0, "nx": 1, "wb": 0, "pre": 7, "alu": 3, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+    "bit1_test": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3},
+    "bit1_rmw": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 1, "wb": 0, "pre": 7, "alu": 3, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2, "cl": 3},
-    "bit1_clr": {"grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 7, "alu": 4, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+    "bit1_clr": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 7, "alu": 4, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2, "cl": 3},
-    "rol4_mem": {"grp": 0, "grp_free": 0, "nx": 8, "wb": 0, "pre": 1, "alu": 12, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+    "rol4_mem": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 8, "wb": 0, "pre": 1, "alu": 12, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2},
-    "ror4_mem": {"grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 6, "alu": 16, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+    "ror4_mem": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 6, "alu": 16, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2},
-    "mul_imm": {"nx": 0, "pre": 0, "exec": 35, "mexec": 45, "hphase": 2, "mtail": 2, "wb": 2, "mwb": 2},
+    "mul_imm": {"nx": 0, "pre": 0, "exec": 35, "mexec": 45, "hphase": 2, "mtail": 2, "wb": 2, "mwb": 2,
+                "mhold": 0, "rsetup": 0},
     "bcd4s": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "wmid": 10, "loop": 7, "exec": 12},
     "bcd4s_cmp": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "loop": 14, "exec": 20},
-    "bf_ext": {"nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "xsetup": 26, "span": 14, "xspan": 42},
-    "bf_ins": {"nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "span": 19, "wsetup": 2, "xwsetup": 68, "xrsetup": 11,
+    "bf_ext": {"fsetup": 6, "nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "xsetup": 26, "span": 14, "xspan": 42},
+    "bf_ins": {"fsetup": 6, "nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "span": 19, "wsetup": 2, "xwsetup": 68, "xrsetup": 11,
                "xspan": 106, "post": 2},
 }
 DEFAULT_EA = {"base": 2, "base_index": 3, "disp": 2, "base_disp": 3, "base_index_disp": 4,
@@ -924,6 +1014,14 @@ class Config:
     lea_disp: str = "none"             # (WP76)
     bf_count: str = "data"             # (WP78)
     page_grp: str = "none"             # (WP78)
+    xfer_nt: str = "none"              # (WP81)
+    stack_wb: str = "none"             # (WP81)
+    page_take: str = "operand"         # (WP81)
+    page_mem: str = "group"            # (WP81)
+    mul_imm_read: str = "issue"        # (WP81)
+    mul_imm_hold: str = "none"         # (WP81)
+    bf_read: str = "count"             # (WP81)
+    wb_fetch: str = "free"             # (WP81)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

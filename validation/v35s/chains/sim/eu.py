@@ -94,6 +94,7 @@ class EU:
         self.nw_t: int | None = None    # (WP76) str_io_setup: the nowait step's first clock
         self.nw_run: int | None = None  # (WP76) ... the wait clock it counted
         self.wb = 0                     # write-back tail of the instruction now running
+        self.page_fixed = None          # (WP81) page_mem / bf_read=fixed: the read to post
         self.done_t: int | None = None  # clock the last instruction's steps ended
         self.modrm = False              # the instruction now running has a ModR/M byte
         self.latch_wait = None          # last clock an I/O instruction waited for the write latch
@@ -266,6 +267,12 @@ class EU:
             # (WP76) str_exit=wb: a REP form's exit ends xwb clocks early, its last clocks a
             # write-back that only a form waiting for one (wbsync: the port-form OUT) sees
             self.wb = cfg.c(op.cls, "xwb")
+        # (WP81) page_mem=fixed: a 0F memory form's read counts its setup back to its start
+        # (WP81) bf_read=fixed: a bit field's first read counts its setup from its post
+        self.page_fixed = ("start" if cfg.page_mem == "fixed" and bool(op.page)
+                           and op.ea is not None and bcls in ("load_alu", "rmw")
+                           else "post" if cfg.bf_read == "fixed" and op.cls in BF_CLASSES
+                           else None)
         self.route = _dest_route(op, cfg)   # (WP19) dest_route clocks of this instruction
         self.ro = bcls in ("load", "load_alu")
         self.prev_cls = getattr(self, "cls", None)   # (WP61) refresh_beat_b2b
@@ -344,6 +351,9 @@ class EU:
                      else "wbsync")      # (WP16) a form without operand bytes: wbsync0
         if cfg.c(op.cls, sync_name):
             lead = [("wbsync",)] + lead
+        if cfg.mul_imm_hold == "word" and op.imm_bytes and op.ea is not None:
+            # (WP81) mul_imm_hold: the immediate's last byte the even half of its word
+            op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
         seq = steps(op, cfg)
         if self.refresh is not None and cfg.refresh_eu == "hold":
             seq = refresh_hold_steps(op, cfg, seq)   # read only with refresh on
@@ -361,6 +371,16 @@ class EU:
             # unless a fetch was on the bus on it
             q = self.decoder.queue
             q.odd_xfer, q.odd_fed = t, None
+        q = self.decoder.queue
+        if q.odd_nt:
+            # (WP81) xfer_nt=odd: a not-taken short transfer's hold ends at its successor's start
+            q.odd_xfer = q.odd_fed = None
+            q.odd_nt = False
+        if (op.target is None and cfg.xfer_nt == "odd" and op.cls in ("branch_short", "dbnz")
+                and (q.base + op.offset) & 1):
+            # (WP81) xfer_nt=odd: a short transfer not taken whose opcode is at an odd address
+            # holds its fetch request as xfer_odd=idle holds a taken one's, to its end
+            q.odd_xfer, q.odd_fed, q.odd_nt, q.odd_until = t, None, op.cls, None
         execute(op, self.code, self.regs)
         self.k = 0
         self.trace.append((t, op.offset - self.origin, op.cls))
@@ -531,6 +551,10 @@ class EU:
                 return
             if self.k >= len(self.steps) and self.done_t is None:
                 self.done_t = t                 # the running instruction's steps are done
+                q = self.decoder.queue
+                if q.odd_nt and self.cfg.xfer_nt == "odd":
+                    q.odd_xfer = q.odd_fed = None   # (WP81) xfer_nt: the hold ends with it
+                    q.odd_nt = False
             if self.k >= len(self.steps) and not self._start(t):
                 return
             if self.sync == "operand" and self.bus.fetch_inflight(t):
@@ -602,6 +626,12 @@ class EU:
                         and self.taken and self.decoder.need == 0
                         and self.cls in ("shift_imm", "shift_cl", "mul", "div")):
                     self.exec_t = t             # (WP22) unit_hold: the exec's first clock
+                if step[1] and self.taken and self.decoder.queue.odd_nt:
+                    q = self.decoder.queue
+                    if q.odd_until is None:
+                        # (WP81) xfer_nt=odd: the hold ends nhold clocks into the clocks after
+                        # the transfer's operand take (BNE / BE: the flag test; DBNZ: CW's)
+                        q.odd_until = t + self.cfg.c(self.ccls, "nhold")
                 if step[1]:
                     if self.refresh is not None:
                         # refresh_eu=hold: a clocks step following another clocks step of
@@ -936,9 +966,18 @@ class EU:
             if kind in ("flush", "decide"):      # (WP55) a taken transfer: the queue discarded,
                 gap = ("nfgap" if kind == "decide" else step[2] if len(step) > 2
                        else "fgap")              # (WP72) cond_gap=own: cfgap
+                q = self.decoder.queue
+                if kind == "decide" and q.odd_nt and q.odd_until is not None:
+                    # (WP81) xfer_nt=odd: the test does not wait for the fetches its own
+                    # release raised (on or after odd_until), only for those before it
+                    old = [c for c in self.bus.cycles[-4:] if c.kind == "fetch"
+                           and c.start < q.odd_until]
+                    inflight = bool(old) and old[-1].end >= t
+                    last = old[-1].end if old else -10
+                else:
+                    inflight, last = self.bus.fetch_inflight(t), self.bus.last_fetch_end
                 if self.cfg.flush_inflight == "wait" and (
-                        self.bus.fetch_inflight(t)
-                        or t <= self.bus.last_fetch_end + self.cfg.c(self.ccls, gap)):
+                        inflight or t <= last + self.cfg.c(self.ccls, gap)):
                     return                       # (flush_inflight=wait: fgap clocks after the
                                                  # last fetch's end)
                 if kind == "flush":              # (untaken=wait: a transfer not taken waits as
@@ -1318,6 +1357,31 @@ class EU:
             r.setup -= 1
             self.unit_early = True
         r.detached = detached
+        if self.page_fixed and args[0] == "read":
+            # (WP81) page_mem=fixed, bf_read=fixed: the read's setup clocks are all fetch-free
+            # since the end of the last fetch but one the bus unit committed to back to back
+            # after the form's start (page_mem) / the read's post (bf_read) (arbiter.py); a
+            # 0F memory form counts them back from its post to its start
+            mode, self.page_fixed = self.page_fixed, None
+            r.nowait = r.dwlike = False         # not a DW-form count (bf_count)
+            r.free_need = None
+            if mode == "start":
+                r.pfree = self.start_clock
+                n, c = 0, t - 1
+                while c >= self.start_clock and n < r.setup and not any(
+                        x.kind == "fetch" and x.start <= c <= x.end
+                        and not (x.b2b and x.start > self.start_clock)
+                        for x in self.bus.cycles[-6:]):
+                    n, c = n + 1, c - 1
+                r.count = n
+            else:
+                r.pfree = t - 1
+        if (self.cfg.stack_wb != "none" and args[0] == "read" and t < self.wb_until
+                and t == self.start_clock
+                and self.ccls == "ret"):
+            # (WP81) stack_wb: a stack read posted while the previous form's write-back runs
+            # (its start the clock after that form's last) is held a clock
+            r.setup += 1
         if self.cfg.sreg_store == "own" and self.sreg == "store" and args[0] == "write":
             r.sreg = True                # (WP76) sreg_store=own: MOV r/m,sreg's write (arbiter)
         if (self.cfg.grp_disp == "hold" and r.free_bus and self.mem and self.disp == 2

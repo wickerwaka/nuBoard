@@ -1708,7 +1708,27 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   13: ["F24"],
                   14: ["F23", "F25"],
                   15: ["F30", "F31", "F24", "F23", "F25"],
-                  16: ["F32", "F33"]}
+                  16: ["F32", "F33"],
+                  17: ["F32", "F33", "F34"]}
+
+# Stage 17 (WP81, F34): the forty-second fit's miss shapes as mechanisms, from F34's readings
+# (docs/v35s-chains.md Facts "Probes for the forty-second fit's miss shapes"). From a hand start
+# (the previous fit with the new enums on and their integers read off the F34 tables), the new
+# enums (F43_ENUMS: the not-taken short transfer's hold at an odd address, the RET's read behind
+# a write-back, the page register form's second opcode byte, the 0F memory form's and the bit
+# field's fixed fetch-free read setup, MUL imm memory's read after its immediate and its hold
+# over a half-taken word, the port OUT's start under a write-back) as a grid at the input's
+# integers (the top 2 descended over F43_INTS: the integers of the classes the readings name and
+# the new ones), then the sweep over F43_ENUMS with F43_INTS descended inside every move; the
+# corpus guard over every modelled run is the guard, as in stages 9 to 16.
+F43_ENUMS = {n: OPTIONS[n] for n in ("xfer_nt", "stack_wb", "page_take", "page_mem",
+                                     "bf_read", "mul_imm_read", "mul_imm_hold", "wb_fetch")}
+F43_CLASSES = ("bit1", "bit1_test", "bit1_rmw", "bit1_clr", "rol4_mem", "ror4_mem", "bf_ext",
+               "bf_ins", "mul_imm")
+F43_INTS = ([f"{cls}.{name}" for cls in F43_CLASSES for name in DEFAULT_COST[cls]]
+            + [f"{cls}.{name}" for cls in ("branch_short", "dbnz")
+               for name in ("nexec", "nfgap", "nhold", "wb")]
+            + ["ret.setup", "incdec.wb", "flag.wb"])
 
 # Stage 16 (WP78, F32, F33): the 0F page and the register miscellany. From a hand start (the
 # previous fit with the new classes' integers read off the facts, wp74/facts-F32.txt and
@@ -2516,6 +2536,16 @@ def stage16(prev: dict, log=say) -> dict:
                    sweep=F42_ENUMS or None, guard=False)
 
 
+def stage17(prev: dict, log=say) -> dict:
+    """(WP81) F32, F33, F34: the new enums as a grid at the input's integers (the top 2
+    descended over F43_INTS), then the sweep over F43_ENUMS with F43_INTS descended inside every
+    move; the corpus guard is the guard, as in stages 9 to 16."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 17 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(17, prev, F43_ENUMS, F43_INTS, log, top_k=2, pairs_k=1, sweep=F43_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -2583,8 +2613,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage14(prev, log)
     elif stage == 15:
         out = stage15(prev, log)
-    else:
+    elif stage == 16:
         out = stage16(prev, log)
+    else:
+        out = stage17(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -2602,9 +2634,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 17), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 17), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-16 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 18), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 18), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-17 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -2642,7 +2674,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 17) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 18) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")

@@ -25,6 +25,7 @@ class Cycle:
     length: int
     data: int = 0
     owner: object = None     # the requester to notify on completion
+    b2b: bool = False        # (WP81) a fetch the bus unit committed to back to back
 
     @property
     def end(self) -> int:

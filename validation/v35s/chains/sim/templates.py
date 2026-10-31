@@ -100,6 +100,10 @@ class Op:
     # docs/v35s-eu-timing.md formula of (offset, width))
     page: int = 0
     bf: tuple | None = None
+    # (WP81) the last immediate byte is the first (even) byte of its word, the next opcode its
+    # second: the word half-taken (eu.py sets it from the chain base; a format property of the
+    # operand's word alignment)
+    half_word: bool = False
 
 
 def _modrm(code: bytes, k: int, regs: dict):
@@ -769,7 +773,7 @@ def _group(seq: list[tuple], op: Op, cfg) -> list[tuple]:
         n += cl
     grp = op.group or fixed or (
         cfg.grp_ops == "nodir" and op.dbit is None and 0x84 <= op.opcode <= 0x87)
-    if cfg.page_grp == "group" and op.page and op.ea is not None:
+    if cfg.page_grp == "group" and op.page and op.ea is not None and cfg.page_mem == "group":
         # (WP78) page_grp=group: a 0F memory form (its operation named by the second opcode
         # byte, as a group form's by the reg field) takes its class's group setup, and with
         # the bit index in CL its cl clocks as part of it (as grpcl for SHL r/m,CL)
@@ -1165,36 +1169,48 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
     """
     cls, rest = op.cls, op.length - 1
     base = BASE_CLASS.get(cls)
+    if op.page and cfg.page_take == "own" and op.ea is None and (base == "reg"
+                                                                 or cls in BF_CLASSES):
+        # (WP81) page_take=own: a 0F register form's second opcode byte is taken (and leaves
+        # the queue) on its start clock as a take of its own, chained to the rest, as the
+        # memory forms' head takes it (_head); the template's own take is the rest
+        sub = Op(**{**op.__dict__, "length": op.length - op.page, "page": 0})
+        return [("take", op.page, "chain")] + _wp78_steps(sub, cfg, c, ea)
     if base == "reg":
         pre = c("pre") if rest else (c("pre0") if "pre0" in cfg.cost.get(cls, {}) else c("pre"))
         return [("clocks", pre), ("take", rest),
                 ("clocks", c("exec") + (c("cl") if op.cl_count else 0))]
     if base == "imm":
         return [("clocks", c("pre")), ("take", op.imm_bytes), ("clocks", c("exec"))]
+    fixed = cfg.page_mem == "fixed" and op.page and op.ea is not None
     cl = ([("clocks", c("cl"))] if op.cl_count and c("cl")
-          and not (cfg.page_grp == "group" and op.ea is not None) else [])
+          and not (cfg.page_grp == "group" and op.ea is not None) and not fixed else [])
+    if fixed and base in ("load_alu", "rmw"):
+        # (WP81) page_mem=fixed: the read's setup is the class's fsetup (and with the index in
+        # CL its cl) clocks, all fetch-free, counted back from its post to the end of the last
+        # fetch the form did not let through (eu.py, arbiter.py); no group setup (_group)
+        fs = c("fsetup") + (c("cl") if op.cl_count else 0)
+        seq = _wp78_mem(op, cfg, c, ea, base, [])
+        k = next(i for i, st in enumerate(seq) if st[0] in ("data", "post") and st[1] == "read")
+        seq[k] = seq[k][:4] + (fs, fs)
+        return seq
     if base in ("load_alu", "rmw"):
-        head = _head(op, cfg, c("pre"), ea) + cl
-    if base == "load_alu":
-        if op.imm_bytes and cfg.imm_order != "with_addr":
-            return head + _imm_read(op, cfg, c) + [("clocks", c("exec"))]
-        return head + [("data", "read", op.ea, op.width, 0), ("clocks", cfg.read_use_latency),
-                       ("clocks", c("exec"))]
-    if base == "rmw":
-        if op.imm_bytes and cfg.imm_order != "with_addr":
-            read = head + _imm_read(op, cfg, c)
-        else:
-            read = head + [("data", "read", op.ea, op.width, 0),
-                           ("clocks", cfg.read_use_latency)]
-        if cfg.rmw_write_issue == "immediate":
-            return read + [("data", "write", op.ea, op.width, max(c("alu"), c("setup"))),
-                           ("clocks", c("post"))]
-        return read + [("clocks", c("alu")), ("data", "write", op.ea, op.width, c("setup")),
-                       ("clocks", c("post"))]
+        return _wp78_mem(op, cfg, c, ea, base, cl)
     if base == "mul":
         if op.ea is None:
             return [("clocks", c("pre")), ("take", rest), ("clocks", c("exec"))]
-        return _head(op, cfg, c("pre"), ea) + _imm_read(op, cfg, c) + [("clocks", c("mexec"))]
+        hold = ([("fetch_hold", c("mhold"))] if cfg.mul_imm_hold == "word" and op.half_word
+                else [])
+        if cfg.mul_imm_read == "imm":
+            # (WP81) mul_imm_read=imm: the read is posted before the immediate's take but
+            # issues only rsetup clocks and a clock per immediate byte after its post, the
+            # immediate taken while it waits (imm_order=after_post's order); (WP81)
+            # mul_imm_hold=word: with the immediate's word half-taken (the next opcode its
+            # second byte), no fetch request for mhold clocks from the post
+            return (_head(op, cfg, c("pre"), ea)
+                    + [("post", "read", op.ea, op.width, c("rsetup") + op.imm_bytes)] + hold
+                    + [("take", op.imm_bytes, "chain"), ("wait",), ("clocks", c("mexec"))])
+        return _head(op, cfg, c("pre"), ea) + _imm_read(op, cfg, c) + hold + [("clocks", c("mexec"))]
     if cls in BCD_CLASSES:
         seq = [("clocks", c("pre")), ("take", rest)]
         for i in range(op.n):
@@ -1205,14 +1221,17 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
         return seq + [("clocks", c("exec"))]
     offset, width, cross, cost = op.bf
     first = op.ix if cls == "bf_ext" else op.iy
+    # (WP81) bf_read=fixed: the first word's read is issued fsetup clocks (and one more per
+    # immediate byte: the imm4 width) after the last fetch's end, every one fetch-free (eu.py)
+    st = c("fsetup") + op.imm_bytes if cfg.bf_read == "fixed" else c("setup")
     if op.imm_bytes:
         # the imm4 width form: the word's read is posted after the ModR/M byte and the width
         # byte taken while it waits (as a memory form's immediate under imm_order=after_post)
         seq = [("clocks", c("pre")), ("take", rest - op.imm_bytes),
-               ("post", "read", first, 2, c("setup")), ("take", op.imm_bytes, "chain"),
+               ("post", "read", first, 2, st), ("take", op.imm_bytes, "chain"),
                ("wait",)]
     else:
-        seq = [("clocks", c("pre")), ("take", rest), ("data", "read", first, 2, c("setup"))]
+        seq = [("clocks", c("pre")), ("take", rest), ("data", "read", first, 2, st)]
     if cls == "bf_ext":
         if cross:
             seq.append(("data", "read", (op.ix + 2) & 0xFFFF, 2, c("xsetup")))
@@ -1228,6 +1247,27 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
                     ("data", "write", op.iy, 2, c("wsetup"))]
         tail = c("post")
     return seq + [("clocks", tail)]
+
+
+def _wp78_mem(op: Op, cfg, c, ea, base, cl) -> list[tuple]:
+    """(WP78) the 0F memory forms on the load_alu (TEST1) and rmw shapes, the CL index's cl
+    clocks (cl: the step, or none) before the read."""
+    head = _head(op, cfg, c("pre"), ea) + cl
+    if base == "load_alu":
+        if op.imm_bytes and cfg.imm_order != "with_addr":
+            return head + _imm_read(op, cfg, c) + [("clocks", c("exec"))]
+        return head + [("data", "read", op.ea, op.width, 0), ("clocks", cfg.read_use_latency),
+                       ("clocks", c("exec"))]
+    if op.imm_bytes and cfg.imm_order != "with_addr":
+        read = head + _imm_read(op, cfg, c)
+    else:
+        read = head + [("data", "read", op.ea, op.width, 0),
+                       ("clocks", cfg.read_use_latency)]
+    if cfg.rmw_write_issue == "immediate":
+        return read + [("data", "write", op.ea, op.width, max(c("alu"), c("setup"))),
+                       ("clocks", c("post"))]
+    return read + [("clocks", c("alu")), ("data", "write", op.ea, op.width, c("setup")),
+                   ("clocks", c("post"))]
 
 
 def _string_steps(op: Op, cfg) -> list[tuple]:

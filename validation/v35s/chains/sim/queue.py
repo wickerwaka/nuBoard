@@ -169,6 +169,8 @@ class Queue:
         self.lea_ea: tuple | None = None        # (WP72) lea_room: LDEA's EA clocks (first, end)
         self.odd_xfer: int | None = None        # (WP76) xfer_odd: a taken transfer at an odd address started here
         self.odd_fed: bool | None = None        # (WP76) ... a fetch was on the bus on that clock
+        self.odd_nt = False                     # (WP81) xfer_nt: the hold is a not-taken transfer's
+        self.odd_until: int | None = None       # (WP81) ... and ends on this clock
         # options read on every clock, looked up once
         self._byte_release = cfg.release == "byte"
         self._ported = cfg.word_latch in ("port", "byte", "byte_d")
@@ -526,12 +528,14 @@ class Queue:
         self.flush_t = t
         self.flush_held = None
         self.odd_xfer = self.odd_fed = None
+        self.odd_nt = False
 
     def _odd_held(self, t: int) -> bool:
         """(WP76) xfer_odd=idle: an odd-address jump that started with no fetch on the bus
         raises no request from the clock after its start, once its operand bytes are taken."""
         return (self.odd_xfer is not None and t > self.odd_xfer
-                and self.decoder.need == 0 and not self._odd_fed())
+                and self.decoder.need == 0 and (self.odd_nt == "dbnz" or not self._odd_fed())
+                and not (self.odd_until is not None and t >= self.odd_until))
 
     def _odd_fed(self) -> bool:
         """(WP76) xfer_odd: whether a fetch was on the bus (in flight, or issued) on the clock

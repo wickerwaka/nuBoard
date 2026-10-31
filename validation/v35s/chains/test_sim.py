@@ -5707,7 +5707,8 @@ class PageAndMiscellany(unittest.TestCase):
         sil, mod = _ev78("F32-out-ext_bl_dh-k1-pO-w0")
         self.assertEqual(mod, sil)
         self.assertIn((97, "data_read"), mod)
-        _, data = _ev78("F32-out-ext_bl_dh-k1-pO-w0", bf_count="data")
+        # (the forty-third fit's bf_read=fixed supersedes the count: pinned to the forty-second's)
+        _, data = _ev78("F32-out-ext_bl_dh-k1-pO-w0", bf_count="data", bf_read="count")
         self.assertIn((96, "data_read"), data)
 
     def test_page_grp_group_setup(self):
@@ -5717,7 +5718,8 @@ class PageAndMiscellany(unittest.TestCase):
         sil, mod = _ev78("F32-out-set1_mb_cl-k1-pE-w0")
         self.assertEqual(mod, sil)
         self.assertIn((95, "data_read"), mod)
-        _, none = _ev78("F32-out-set1_mb_cl-k1-pE-w0", page_grp="none")
+        # (the forty-third fit's page_mem=fixed has no group setup: pinned to the forty-second's)
+        _, none = _ev78("F32-out-set1_mb_cl-k1-pE-w0", page_grp="none", page_mem="group")
         self.assertIn((96, "data_read"), none)
 
     def test_nx0_long_one_byte_form(self):
@@ -5726,7 +5728,8 @@ class PageAndMiscellany(unittest.TestCase):
         sil, mod = _ev78("F33-out-adj4a-k1-pE-w0")
         self.assertEqual(mod, sil)
         self.assertIn((92, "fetch"), mod)
-        _, zero = _ev78("F33-out-adj4a-k1-pE-w0", **{"adjust.nx0": 0})
+        # (the forty-third fit's wb_fetch=hold holds that fetch a clock: pinned to the forty-second's)
+        _, zero = _ev78("F33-out-adj4a-k1-pE-w0", **{"adjust.nx0": 0, "wb_fetch": "free"})
         self.assertIn((94, "fetch"), zero)
 
     def test_sexec_signed_register_multiply(self):
@@ -5775,3 +5778,134 @@ class PageAndMiscellany(unittest.TestCase):
         io = [c.start for c in cycles if c.kind == "io_write"]
         starts = [t for t, off, cls in m.eu.trace if cls == "adjust"]
         self.assertTrue(starts and starts[0] >= io[0], (starts, io))
+
+
+# (WP81) the forty-third fit's candidate (scratchpad wp81/fit-wp81b.json): the new enums and the
+# integers stage 17 moved or added, over the tracked fit
+WP81 = {"xfer_nt": "odd", "stack_wb": "ret", "page_take": "own", "page_mem": "fixed",
+        "bf_read": "fixed", "mul_imm_read": "issue", "mul_imm_hold": "word", "wb_fetch": "hold"}
+WP81_INTS = {"bf_ext.fsetup": 7, "bf_ext.nx": 1, "bf_ext.pre": 1, "bf_ins.fsetup": 7,
+             "bf_ins.nx": 1, "bf_ins.pre": 1, "bit1.exec": 2, "bit1.nx": 5, "bit1.pre": 1,
+             "bit1.wb": 2, "bit1_clr.fsetup": 3, "bit1_clr.pre": 1, "bit1_rmw.cl": 3,
+             "bit1_rmw.dfloor": 2, "bit1_rmw.fsetup": 3, "bit1_rmw.nx": 0, "bit1_rmw.pre": 1,
+             "bit1_test.exec": 2, "bit1_test.fsetup": 3, "bit1_test.pre": 4,
+             "branch_short.nhold": 3, "branch_short.wb": 2, "dbnz.nhold": 4, "dbnz.wb": 2,
+             "mul_imm.mexec": 43, "mul_imm.mhold": 41, "mul_imm.rsetup": 2,
+             "rol4_mem.fsetup": 1, "ror4_mem.fsetup": 3, "ror4_mem.nx": 1, "ror4_mem.pre": 5}
+
+
+def _ev81(cid, **over):
+    """(silicon, model) event lists from t_fill under the tracked fit with WP81 (+ over)."""
+    run = next(r for r in _runs(cid.split("-", 1)[0]) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    cfg = Config.fitted().replace(**{**WP81, **WP81_INTS, **over})
+    m = simulate_normalized(s.chain, cfg, s.chain_base)
+    return [e[:2] for e in aligned(s)], [e[:2] for e in aligned(m)]
+
+
+class MissShapes(unittest.TestCase):
+    """(WP81) F34's readings as mechanisms: each new enum against its alternative on its deciding
+    run (clocks rel t_fill)."""
+
+    def test_wp81_defaults_are_the_old_model(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST
+        for name, value in WP81.items():
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+            self.assertIn(value, OPTIONS[name], name)
+        # the new integers: unread by the tracked fit's enums, absent from the classes before
+        for cls in ("branch_short", "dbnz"):
+            self.assertEqual(DEFAULT_COST[cls]["nhold"], 0)
+        for cls in ("bit1_test", "bit1_rmw", "bit1_clr", "rol4_mem", "ror4_mem", "bf_ext",
+                    "bf_ins"):
+            self.assertIn("fsetup", DEFAULT_COST[cls])
+        self.assertEqual(DEFAULT_COST["mul_imm"]["mhold"], 0)
+
+    def test_xfer_nt_odd_not_taken_hold(self):
+        # BNE not taken at an odd address starts at 97 with an aborted cycle 97-99: no request
+        # until 3 clocks into the flag test, silicon's fetch 103; none: re-raised at 100
+        sil, mod = _ev81("F34-out-nt-bne-d-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((103, "fetch"), mod)
+        _, none = _ev81("F34-out-nt-bne-d-k1-pE-w0", xfer_nt="none")
+        self.assertIn((100, "fetch"), none)
+        # DBNZ at an odd address holds even the fetch committed back to back on its start
+        sil, mod = _ev81("F34-out-nt-dbnz-l0-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((99, "fetch"), mod)
+        _, none = _ev81("F34-out-nt-dbnz-l0-k1-pE-w0", xfer_nt="none")
+        self.assertIn((94, "fetch"), none)
+
+    def test_not_taken_write_back(self):
+        # BNE not taken: its last 2 clocks a write-back only the port OUT waits for (I118 at
+        # pE behind the drainer); the PUSH frame's stack write is the same either way
+        sil, mod = _ev81("F34-out-nt-bne-nop-k1-pE-w0")
+        self.assertEqual(mod, sil)
+        _, zero = _ev81("F34-out-nt-bne-nop-k1-pE-w0", **{"branch_short.wb": 0})
+        self.assertNotEqual(zero, sil)
+        for wb in (0, 2):
+            sil, mod = _ev81("F34-push-nt-bne-l0-k1-pE-w0", **{"branch_short.wb": wb})
+            self.assertEqual(mod, sil, wb)
+
+    def test_stack_wb_ret_after_a_shift(self):
+        # SHL AW,8 ends at 143 and the RET starts on 144: its stack read 151 (none: 150)
+        sil, mod = _ev81("F34-out-cr-shl8-l0-pE-w0")
+        self.assertEqual(mod, sil)
+        self.assertIn((151, "stack_read"), mod)
+        _, none = _ev81("F34-out-cr-shl8-l0-pE-w0", stack_wb="none")
+        self.assertIn((150, "stack_read"), none)
+        # a NOP between the shift and the RET: exact either way
+        for v in ("none", "ret"):
+            sil, mod = _ev81("F34-out-cr-shl8nop-l0-pE-w0", stack_wb=v)
+            self.assertEqual(mod, sil, v)
+
+    def test_page_take_own(self):
+        # the NOP at 85 loads 0F, SET1 AW,imm starts at 89 and its second opcode byte leaves the
+        # queue there: silicon's fetch 89 and 92 (operand: the room freed with the take step's
+        # end, F91 at the candidate's integers, F90 at the tracked fit's)
+        sil, mod = _ev81("F34-out-rbit-set1_rw_imm-nop-k1-pO-w0")
+        self.assertIn((89, "fetch"), sil)
+        self.assertEqual(mod[:5], sil[:5])
+        _, operand = _ev81("F34-out-rbit-set1_rw_imm-nop-k1-pO-w0", page_take="operand")
+        self.assertNotIn((89, "fetch"), operand)
+
+    def test_page_mem_fixed(self):
+        # TEST1 [BW],CL at pE: the refill 87, 90 (committed back to back), silicon's read 95
+        # = F87's end + 6 counted clocks; at pO (F88 alone) 96; SET1 the same clocks
+        for cid, r in (("F34-out-mbit-test1_mw_cl-l0-k1-pE-w0", 95),
+                       ("F34-out-mbit-test1_mw_cl-l0-k1-pO-w0", 96),
+                       ("F34-out-mbit-set1_mw_cl-l0-k1-pE-w0", 95)):
+            sil, mod = _ev81(cid)
+            self.assertIn((r, "data_read"), sil, cid)
+            self.assertIn((r, "data_read"), mod, cid)
+        _, group = _ev81("F34-out-mbit-test1_mw_cl-l0-k1-pE-w0", page_mem="group")
+        self.assertNotIn((95, "data_read"), group)
+
+    def test_bf_read_fixed(self):
+        # EXT BL,DH behind a NOP at pE: the refill 88, 91; silicon's read 100, the last fetch's
+        # end + 6 (count: 105)
+        sil, mod = _ev81("F34-out-bf-ext_bl_dh-nop-k1-pE-w0")
+        self.assertIn((100, "data_read"), sil)
+        self.assertIn((100, "data_read"), mod)
+        _, count = _ev81("F34-out-bf-ext_bl_dh-nop-k1-pE-w0", bf_read="count")
+        self.assertNotIn((100, "data_read"), count)
+
+    def test_mul_imm_hold_word(self):
+        # MUL AW,[BW],5 at pE: the immediate the even byte of its word, the next opcode its
+        # second: no fetch from the read until near the multiply's end (silicon F134)
+        sil, mod = _ev81("F34-out-mul-mul_aw_m_imm8-l0-k1-pE-w0")
+        self.assertIn((134, "fetch"), sil)
+        fetches = [t for t, k in mod if k == "fetch" and 92 <= t < 130]
+        self.assertEqual(fetches, [])
+        _, none = _ev81("F34-out-mul-mul_aw_m_imm8-l0-k1-pE-w0", mul_imm_hold="none")
+        self.assertTrue([t for t, k in none if k == "fetch" and 88 <= t < 130])
+
+    def test_wb_fetch_hold(self):
+        # INC AW 85-87, the OUT starts on 88 behind its write-back: silicon F89 F93 I101
+        # (free: F88 F92 I100); with a NOP between exact either way
+        sil, mod = _ev81("F34-out-inc-inc_aw-l0-k1-n0-pE-w1")
+        self.assertEqual(mod, sil)
+        _, free = _ev81("F34-out-inc-inc_aw-l0-k1-n0-pE-w1", wb_fetch="free")
+        self.assertIn((88, "fetch"), free)
+        for v in ("free", "hold"):
+            sil, mod = _ev81("F34-out-inc-inc_aw-l0-k1-n1-pE-w1", wb_fetch=v)
+            self.assertEqual(mod, sil, v)

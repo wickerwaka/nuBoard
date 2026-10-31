@@ -89,9 +89,25 @@ class Request:
                                     # DW-form I/O request's (nowait, dw_count)
     imm1: bool = False              # (WP43) imm1_first: the first data request of a memory form
                                     # with a one-byte immediate (83 /x, C6 /0)
+    pfree: int | None = None        # (WP81) page_mem=fixed: a 0F memory form's read, its setup
+                                    # all fetch-free clocks since the end of the last fetch but
+                                    # one committed back to back after the form's start (here)
+
+    def page_free(self, bus, t: int) -> bool:
+        """(WP81) page_mem=fixed: t counts toward the read's setup unless a fetch is on the bus
+        that the bus unit did not commit back to back after the form's start (pfree); such a
+        fetch restarts the count."""
+        cur = bus.current
+        if (cur is not None and cur.kind == "fetch" and cur.start <= t <= cur.end
+                and not (cur.b2b and cur.start > self.pfree)):
+            self.count = 0
+            return False
+        return True
 
     def counts(self, fetch_inflight: bool, mode: str, bus=None, t: int | None = None) -> bool:
         """Whether this clock counts toward setup (data_while_fetch mode; io_count=nowait)."""
+        if self.pfree is not None and bus is not None and t is not None:
+            return self.page_free(bus, t)       # (WP81) page_mem / bf_read=fixed
         if self.nowait:
             if (self.io_stall and not self.eu_halted and bus is not None
                     and bus.current is not None and bus.current.kind == "refresh"
@@ -140,6 +156,11 @@ def arbitrate(t: int, cfg, bus, queue, eu):
         req.eu_halted = eu.halted       # (WP58) refresh_io_stall
     # halt_status: the clock HALT starts is the bus unit's (the halt status); no setup counts
     halting = (eu.halt_t == t or eu.halt_defer == t) and cfg.halt_status
+    if (req is not None and req.pfree is not None and req.cycles and not req.issued
+            and req.ready()):
+        # (WP81) page_mem / bf_read=fixed: a fetch that runs before the ready read issues
+        # restarts its count as well (the setup is counted after the last fetch's end)
+        req.page_free(bus, t)
     base = req.count if req is not None else 0
     counted = False
     if (not halting and cfg.data_while_fetch == "wait_before" and req is not None and req.cycles
@@ -521,6 +542,15 @@ def _choose(t: int, cfg, bus, queue, eu):
             fetch_want = False
             if io and cfg.hold_fetch == "le_q_io":
                 queue.requested_at = None  # held by an I/O request: it dates from its release
+    if (cfg.wb_fetch == "hold" and fetch_want and eu.start_clock == t and eu.k < len(eu.steps)
+            and eu.steps[eu.k][0] == "wbsync" and t < eu.wb_until and queue.b2b_at != t
+            and queue.requested_at is not None
+            and (queue.requested_at < t or queue.arrived_t == t)):
+        # (WP81) wb_fetch=hold: a fetch requested before it (or on a word's delivery on it)
+        # does not start on the clock a form that waits for the previous one's write-back
+        # (wbsync: the port-form OUT) starts while that write-back runs; one the start itself
+        # raised (the IR emptied) is not held
+        fetch_want = False
     if queue.io_held is not None:
         if eu.start_clock > queue.io_held or not queue.flag or queue.inflight:
             queue.io_held = None        # (WP19) io_ir_hold: released by the next start
@@ -665,6 +695,7 @@ def _choose(t: int, cfg, bus, queue, eu):
             r.beat_ext = 0                  # runs first, the hold is the window's (as post)
         addr, width, data = queue.issue(t, mem_waiting=mem)   # (WP26) request_reissue
         c = bus.start(t, "fetch", addr, width, data, owner=queue)
+        c.b2b = queue.b2b_at == t           # (WP81) page_mem: committed back to back
         if eu.refresh is not None and cfg.refresh_sync == "run":
             # (WP34) refresh_sync=run: the beaten fetch the take sync counts, and the fetches
             # back to back behind it, run 2 clocks earlier for the EU (eu.early)

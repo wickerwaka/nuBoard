@@ -9,6 +9,7 @@
  "arbiter_q": 2,
  "arrive_partial": false,
  "bf_count": "dw",
+ "bf_read": "fixed",
  "branch_reg": "reg",
  "burst_count": "dw",
  "burst_wait": "data",
@@ -52,8 +53,9 @@
    "wb": 2
   },
   "bf_ext": {
-   "nx": 0,
-   "pre": 0,
+   "fsetup": 7,
+   "nx": 1,
+   "pre": 1,
    "setup": 12,
    "setup_free": 0,
    "span": 14,
@@ -62,9 +64,10 @@
    "xspan": 43
   },
   "bf_ins": {
-   "nx": 0,
+   "fsetup": 7,
+   "nx": 1,
    "post": 0,
-   "pre": 0,
+   "pre": 1,
    "setup": 12,
    "setup_free": 0,
    "span": 20,
@@ -76,20 +79,21 @@
   },
   "bit1": {
    "cl": 0,
-   "exec": 4,
-   "nx": 1,
-   "pre": 0,
-   "wb": 0
+   "exec": 2,
+   "nx": 5,
+   "pre": 1,
+   "wb": 2
   },
   "bit1_clr": {
    "alu": 4,
    "cl": 3,
    "dfloor": 2,
+   "fsetup": 3,
    "grp": 1,
    "grp_free": 0,
    "nx": 0,
    "post": 0,
-   "pre": 7,
+   "pre": 1,
    "setup": 0,
    "setup_free": 3,
    "sidle": 2,
@@ -97,13 +101,14 @@
   },
   "bit1_rmw": {
    "alu": 3,
-   "cl": 1,
-   "dfloor": 4,
+   "cl": 3,
+   "dfloor": 2,
+   "fsetup": 3,
    "grp": 0,
    "grp_free": 0,
-   "nx": 1,
+   "nx": 0,
    "post": 0,
-   "pre": 7,
+   "pre": 1,
    "setup": 0,
    "setup_free": 3,
    "sidle": 2,
@@ -112,11 +117,12 @@
   "bit1_test": {
    "cl": 3,
    "dfloor": 2,
-   "exec": 1,
+   "exec": 2,
+   "fsetup": 3,
    "grp": 1,
    "grp_free": 0,
    "nx": 2,
-   "pre": 7,
+   "pre": 4,
    "wb": 0
   },
   "branch_near": {
@@ -135,9 +141,11 @@
    "hold": 6,
    "nexec": 1,
    "nfgap": 1,
+   "nhold": 3,
    "nx": 0,
    "post": 0,
-   "pre": 0
+   "pre": 0,
+   "wb": 2
   },
   "call": {
    "exec": 8,
@@ -166,8 +174,10 @@
    "hold": 2,
    "nexec": 6,
    "nfgap": 1,
+   "nhold": 4,
    "post": 0,
-   "pre": 0
+   "pre": 0,
+   "wb": 2
   },
   "dispose": {
    "exec": 2,
@@ -303,11 +313,13 @@
   "mul_imm": {
    "exec": 35,
    "hphase": 2,
-   "mexec": 45,
+   "mexec": 43,
+   "mhold": 41,
    "mtail": 2,
    "mwb": 2,
    "nx": 0,
    "pre": 0,
+   "rsetup": 2,
    "wb": 2
   },
   "out": {
@@ -448,6 +460,7 @@
   "rol4_mem": {
    "alu": 12,
    "dfloor": 2,
+   "fsetup": 1,
    "grp": 0,
    "grp_free": 0,
    "nx": 7,
@@ -467,11 +480,12 @@
   "ror4_mem": {
    "alu": 16,
    "dfloor": 2,
+   "fsetup": 3,
    "grp": 0,
    "grp_free": 0,
-   "nx": 0,
+   "nx": 1,
    "post": 0,
-   "pre": 6,
+   "pre": 5,
    "setup": 0,
    "setup_free": 3,
    "sidle": 2,
@@ -723,11 +737,15 @@
  "modrm_commit": "byte",
  "modrm_mate": "imm",
  "modrm_port": true,
+ "mul_imm_hold": "word",
+ "mul_imm_read": "issue",
  "nop_hold": "any",
  "odd_split": "atomic",
  "opcode_overlap": 0,
  "opcode_take": "prefetch",
  "page_grp": "group",
+ "page_mem": "fixed",
+ "page_take": "own",
  "per_shift_count": 2,
  "pop_exit": 4,
  "pop_mem_order": "stack_post",
@@ -845,6 +863,7 @@
  "slot_room": "word",
  "sreg_io": "hold",
  "sreg_store": "own",
+ "stack_wb": "ret",
  "start_sync": "b2b_modrm",
  "str_count": "dw",
  "str_exit": "wb",
@@ -864,6 +883,7 @@
  "take_sync": "pending",
  "unit_hold": true,
  "untaken": "wait",
+ "wb_fetch": "hold",
  "wb_from": "end",
  "wlatch": 4,
  "wlatch_cls": "port",
@@ -876,5 +896,6 @@
  "word_latch": "byte_d",
  "write_wait": "mem_end",
  "xfer_abort": "word",
+ "xfer_nt": "odd",
  "xfer_odd": "idle"
 }
