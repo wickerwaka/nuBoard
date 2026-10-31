@@ -2864,8 +2864,8 @@ UNMODELLED = ()
 #   normalize.expected_accesses walks the stack cycles in chain order, and such a chain pops
 #   before it pushes in chain order; anything else that traps (CHKIND, FPO1, POLL, BRKV); RETI
 #   without a BRK before it; a handler with an I/O form; a pointer at an odd address.
-#   Generator-only (UNMODELLED): the transfers' classes have no template
-#   (forms.UNMODELLED_FORMS). (WP90) Acquired 2026-10-31 (432 runs); normalize expects the
+#   Generator-only (UNMODELLED) until WP91 (sim/templates.py _wp91_steps): the transfers'
+#   classes had no template (forms.UNMODELLED_FORMS). (WP90) Acquired 2026-10-31 (432 runs); normalize expects the
 #   pointer and vector reads in silicon's order (normalize.VECTORED_ACCESSES) and derive costs
 #   every cell against the baseline its knob names.
 F37_RFM = RFM_OFF
@@ -2995,6 +2995,6 @@ def f37(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F37": f37})
-# (WP90) F37 is generator-only: its transfers (forms.UNMODELLED_FORMS) have no template, and the
-# scorer, the fitter and freeze skip it until one is learned
-UNMODELLED = ("F37",)
+# (WP90) F37 was generator-only: its transfers (forms.UNMODELLED_FORMS) had no template, and the
+# scorer, the fitter and freeze skipped it. (WP91) modelled (sim/templates.py _wp91_steps)
+UNMODELLED = ()

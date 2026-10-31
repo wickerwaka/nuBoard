@@ -51,6 +51,8 @@ SFR_PAGE = 0xFFF00          # (WP23) the on-chip SFR page (IDB FFh): no external
 SHIFT_CLASSES = ("shift_cl", "shift_imm")   # the shift unit's classes (refresh_eu)
 # (WP55) the control-transfer classes (F23): branch_reg treats them as register-only forms
 TRANSFER_CLASSES = ("branch_short", "branch_near", "dbnz", "call", "ret")
+# (WP91, F37) the memory-indirect transfers: group forms (FF /2-/5) with a memory operand
+XFER_MEM = ("call_mem", "br_mem", "call_far_mem", "branch_far_mem")
 # io_interlock: register-only classes that do not start while an OUT's I/O waits in the slot
 INTERLOCK = {"none": (), "reg": ("reg", "imm", "shift_imm", "shift_cl", "mul"),
              "reg_pfx": ("reg", "imm", "shift_imm", "shift_cl", "mul", "prefix")}
@@ -132,6 +134,7 @@ class EU:
         self.refill = False             # (WP55) refill_start: a flush's refill gates the next start
         self.prev_cls = None            # (WP61) refresh_beat_b2b: the class of the instruction before
         self.grp_form = False           # (WP61) grp_disp: the running form is a group opcode's
+        self.gdisp_cls = False          # (WP91) ... and one grp_disp reads (eu._start)
         self.zfail = False              # (WP88) the running DBNZNE / DBNZE failed its Z test
         self.strings = {}               # (WP67, F24) {chain offset: (elements, cond)} of the
                                         # string forms, from the chain walk (machine.py)
@@ -296,6 +299,9 @@ class EU:
         self.cls = bcls
         self.ccls = op.cls              # (WP78) the class whose integers the EU reads
         self.grp_form = bool(op.group)   # (WP61) grp_disp: a group opcode's form
+        # (WP61) grp_disp=hold reads a group RMW form's two-byte displacement; (WP91)
+        # xfer_mem_disp=grp: the memory-indirect transfers' too (rmw alone under none)
+        self.gdisp_cls = bcls == "rmw" or (cfg.xfer_mem_disp == "grp" and op.cls in XFER_MEM)
         # (WP21) a memory form whose operation runs after the read in a unit other than the
         # ALU (the shift unit, the multiplier/divider, the stack write of PUSH r/m)
         self.unit = op.ea is not None and (op.shift or bcls in ("mul", "div", "push_mem"))
@@ -360,7 +366,11 @@ class EU:
         # successor's opcode in the queue until its first data cycle issues (machine.py
         # clears the hold on the issue clock, the displacement's take on a delivery clock)
         self.decoder.ir_hold = (cfg.ir_load == "disp_data" and op.ea is not None
-                                and op.modrm and bool(op.disp) and op.bus)
+                                and op.modrm and bool(op.disp) and op.bus
+                                # (WP91) xfer_mem_ir=hold: a memory-indirect transfer's
+                                # successor stays out of the IR until the pointer read issues,
+                                # with or without a displacement
+                                or cfg.xfer_mem_ir == "hold" and op.cls in XFER_MEM)
         self.decoder.queue.start_t = t
         self.decoder.queue.starts += 1
         lead = [] if cfg.opcode_take == "prefetch" else [("take", 1, "opcode")]
@@ -865,13 +875,17 @@ class EU:
                         asked = asked and not q.inflight     # the fetch in flight, else the asked one
                     self.sync = q.completed + q.inflight + int(asked and not held)
                     if (self.cfg.grp_disp == "hold" and self.grp_form and self.mem
-                            and self.disp == 2 and self.cls == "rmw" and not self.imm_bytes
+                            and self.disp == 2 and self.gdisp_cls and not self.imm_bytes
                             and self.taken == self.op_len - 1):
                         # (WP61) grp_disp=hold: a group RMW form's two-byte displacement: the
                         # take sync waits only for a fetch on the bus, a fetch is held for
                         # the take clock and the grp_free clocks after it (arbiter.py)
                         self.sync = q.completed + q.inflight
-                        q.gdisp_until = t + self.cfg.c(self.ccls, "grp_free")
+                        # (WP91) a class with its own dhold holds the fetch that long (the
+                        # memory-indirect transfers under xfer_mem_disp=grp); rmw: grp_free
+                        hold = ("dhold" if "dhold" in self.cfg.cost.get(self.ccls, {})
+                                else "grp_free")
+                        q.gdisp_until = t + self.cfg.c(self.ccls, hold)
                     if self.cfg.sync_req == "none" and self.imm_bytes and self.mem:
                         self.sync = None    # (WP27) the group setup counts through the fetch
                     elif self.cfg.sync_req == "disp" and self.imm_bytes and self.mem and self.disp:
@@ -1433,8 +1447,8 @@ class EU:
         if self.cfg.sreg_store == "own" and self.sreg == "store" and args[0] == "write":
             r.sreg = True                # (WP76) sreg_store=own: MOV r/m,sreg's write (arbiter)
         if (self.cfg.grp_disp == "hold" and r.free_bus and self.mem and self.disp == 2
-                and self.cls == "rmw" and not self.imm_bytes and args[0] in ("read", "nowrite")):
-            r.gdisp = True               # (WP61) grp_disp=hold
+                and self.gdisp_cls and not self.imm_bytes and args[0] in ("read", "nowrite")):
+            r.gdisp = True               # (WP61) grp_disp=hold; (WP91) xfer_mem_disp=grp
         if detached and args[0] == "io_write":
             self.latch_until = float("inf")     # released when its I/O cycle ends
         if self.req is None:
