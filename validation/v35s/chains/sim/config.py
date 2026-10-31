@@ -440,7 +440,20 @@ OPTIONS = {
     # back (split). F30-push-lea-bw_d16-k1-pE-w1, rel t_fill: LDEA [BW+200h] at 1004D, the
     # refill 82, 86, 90 back to back; silicon's PUSH write 100, the third fetch's end + 7 at
     # every wait (none: the PUSH starts on 90, W96); pO (the d16 in one word) exact either way.
-    "lea_disp": ("none", "split"),  # (WP76, F30)
+    # (WP92, F25/F30, 2026-10-31) run: as split, only when the displacement's last byte was taken
+    # while a fetch was on the bus past its issue clock or on the clock after a fetch's last
+    # (its word's delivery), the refill run carrying the take; taken with the bus idle (the
+    # fetch it frees room for issuing on the take clock) the successor starts on the next
+    # back-to-back fetch's issue as after any form. F30-push-lea-bw_d16-nopb-pO-w0, rel t_fill:
+    # NOP, then LDEA [BW+200h] at 1004E (the d16's high byte at 10050) starts 85, the bus idle
+    # since fetch 81-83, the d16 taken on 88 with fetch 88 issued there, 91 back to back;
+    # silicon's PUSH write 97 (the PUSH on 91's issue; split: the PUSH on 94, W100). The same
+    # with [BW+IX+200h] and [0C00h], and F25 [BW+IX+200h] at pE w0 once lea_slot moves its
+    # second fetch off the delivery clock (85, 88: silicon W94). Every split cell at 1 and 2
+    # waits takes the d16 inside the run (on fetch 82-85's last clock, on fetch 83-87's second
+    # wait clock) and keeps the hold. Stage 23 (2026-10-31, wp92) chose run; flip at the
+    # candidate: split -8 (F25 -4, F30 -4), none -41
+    "lea_disp": ("none", "split", "run"),  # (WP76, F30); (WP92) run
     # (WP78, F32, 2026-10-30) a 0F memory form (TEST1 / CLR1 / SET1 / NOT1 r/m, ROL4 / ROR4 r/m:
     # the operation named by the second opcode byte) runs no group setup (none: its class's cl
     # clocks, with the index in CL, as EU clocks before the read) / its class's group setup as
@@ -679,6 +692,19 @@ OPTIONS = {
     # on an aborted cycle: the old integers carried the clock). Flip at the candidate: fetch -67
     # (F34 -15, F35 -52), with dbnz_z's old integers -37 (F34 -15, F35 -22)
     "decide_abort": ("fetch", "cycle"),
+    # (WP92, F25/F30, 2026-10-31) lea_slot: a displaced LDEA (lea, op.bus False, so neither
+    # ir_load=disp_data's hold nor self.mem's rules apply to it) counts the empty IR as a seventh
+    # slot on a delivery clock inside its EA clocks (none) / not, as any displaced ModR/M form
+    # under ea_ir_room (ea): its successor's opcode cannot load before the displacement's take,
+    # so the IR is no room for the word while the address adder runs the EA clocks; after the
+    # take LDEA is a register form again. F25-push-ldea-bw_ix_d16-pE-w0, rel t_fill: LDEA
+    # [BW+IX+200h] at 1004D starts 81 on fetch 81-83, its EA clocks 82-84 (3), the word
+    # delivered on 84 with 5 bytes queued and the d16 still to take (at 85); silicon F85 F88
+    # W94, as the load in the same cell (F21-push-l0-ld-bw_ix_d16-pE-w0: F81 F85 R88, ea_ir_room's
+    # deciding run); none: F84 F87 W96. [BW+200h] (EA 82-83, the delivery after them) fetches
+    # on 84 in both. With lea_disp=split the PUSH waits out fetch 88 (W97): lea_disp=run lands it.
+    # Stage 23 (2026-10-31, wp92) chose ea; flip at the candidate: none -5 (F25 -4, F30 -1)
+    "lea_slot": ("none", "ea"),  # (WP92, F25/F30)
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1206,6 +1232,7 @@ class Config:
     ret_imm_hold: str = "none"         # (WP88)
     xfer_nt_b2b: str = "none"          # (WP89)
     decide_abort: str = "fetch"        # (WP89)
+    lea_slot: str = "none"             # (WP92)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

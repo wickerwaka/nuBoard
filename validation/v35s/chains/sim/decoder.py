@@ -44,6 +44,7 @@ class Decoder:
         self.imm_reg = False            # (WP26) it is a register form with an immediate
         self.ir_hold = False            # (WP28) ir_load=disp_data: no IR load before the data cycle
         self.ea_end: int | None = None  # (WP30) ea_ir_room: a displaced form's EA clocks end before this
+        self.lea_wait = False           # (WP92) lea_slot=ea: the running form is a displaced LDEA
 
     def take(self, t: int, n: int, wide: bool = False) -> int:
         """wide (WP27, disp16=word): a two-byte displacement, up to two bytes this clock."""
@@ -100,6 +101,7 @@ class Decoder:
         self.modrm_addr = None
         self.imm_reg = imm_reg
         self.ea_end = None
+        self.lea_wait = False
         self.need = length - 1 if self.cfg.opcode_take == "prefetch" else length
         self.nx = nx
         # no operand bytes: the next opcode may load at once, or (WP78) nx0 clocks after the

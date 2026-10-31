@@ -1005,3 +1005,54 @@ class NotTakenB2BStage(unittest.TestCase):
             fit.run_stage(22, {"config": DEFAULT.to_json()}, log=lambda *a: None)
         s22.assert_called_once()
         s21.assert_not_called()
+
+
+class LdeaDisplacementStage(unittest.TestCase):
+    """(WP92) stage 23: lea_slot and lea_disp over F25 and F30 with every integer of the lea
+    class, the corpus guard as its guard."""
+
+    def test_stage_23_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[23], ["F25", "F30"])
+        self.assertEqual(set(fit.F49_ENUMS), {"lea_slot", "lea_disp"})
+        for name, values in fit.F49_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+        # the old value first (DEFAULT): a tie keeps it
+        self.assertEqual(fit.F49_ENUMS["lea_slot"][0], DEFAULT.lea_slot)
+        for name in DEFAULT_COST["lea"]:
+            self.assertIn(f"lea.{name}", fit.F49_INTS)
+        self.assertFalse({p.split(".")[0] for p in fit.F49_INTS} - {"lea"})
+        self.assertEqual(len(fit.F49_INTS), len(set(fit.F49_INTS)))
+
+    def test_stage_23_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage23({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_23_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage23({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 23)
+        self.assertEqual(args[2], fit.F49_ENUMS)
+        self.assertEqual(args[3], fit.F49_INTS)
+        self.assertEqual(kw["sweep"], fit.F49_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_23(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "23"])
+        self.assertEqual(args.stage, 23)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "22", "--to", "23"])
+        self.assertEqual(args.to, 23)
+
+    def test_run_stage_dispatches_23(self):
+        with mock.patch.object(fit, "stage23", return_value={"config": {}}) as s23, \
+                mock.patch.object(fit, "stage22") as s22, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(23, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s23.assert_called_once()
+        s22.assert_not_called()

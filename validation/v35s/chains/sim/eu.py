@@ -136,6 +136,14 @@ class EU:
         self.strings = {}               # (WP67, F24) {chain offset: (elements, cond)} of the
                                         # string forms, from the chain walk (machine.py)
 
+    def _in_run(self, t: int) -> bool:
+        """(WP92) lea_disp=run: on t a fetch is on the bus past its issue clock, or t is the
+        clock after a fetch's last (its word's delivery): a take on t is inside a refill run."""
+        cur = self.bus.current
+        if cur is not None and cur.kind == "fetch" and cur.start < t <= cur.end:
+            return True
+        return self.bus.last_fetch_end == t - 1
+
     def _start(self, t: int) -> bool:
         cfg = self.cfg
         if self.start_at >= 0:
@@ -268,7 +276,7 @@ class EU:
         # (low) half of a word: its successor does not start on a back-to-back fetch's issue
         # (not one started on an I/O's issue clock: its EA clocks wait out the I/O, lea_io)
         cur = self.bus.current
-        self.lea_split = (cfg.lea_disp == "split" and op.cls == "lea" and op.disp == 2
+        self.lea_split = (cfg.lea_disp in ("split", "run") and op.cls == "lea" and op.disp == 2
                           and not (self.decoder.queue.base + op.offset + op.length - 1) & 1
                           and not (cur is not None and cur.kind.startswith("io")
                                    and cur.start == t))
@@ -361,6 +369,9 @@ class EU:
         # clears the hold on the issue clock, the displacement's take on a delivery clock)
         self.decoder.ir_hold = (cfg.ir_load == "disp_data" and op.ea is not None
                                 and op.modrm and bool(op.disp) and op.bus)
+        # (WP92) lea_slot=ea: a displaced LDEA's EA clocks follow ea_ir_room (queue.room) as a
+        # displaced memory form's do, though it holds no IR load (no data cycle to end it)
+        self.decoder.lea_wait = (cfg.lea_slot == "ea" and op.cls == "lea" and bool(op.disp))
         self.decoder.queue.start_t = t
         self.decoder.queue.starts += 1
         lead = [] if cfg.opcode_take == "prefetch" else [("take", 1, "opcode")]
@@ -672,8 +683,9 @@ class EU:
                                                   and t == self.start_clock))
                         self.clk_start = t
                     self.resume = t + step[1]
-                    if len(step) > 2 and step[2] == "ea" and self.mem and self.disp:
-                        self.decoder.ea_end = self.resume   # (WP30) ea_ir_room
+                    if len(step) > 2 and step[2] == "ea" and self.disp and (
+                            self.mem or self.decoder.lea_wait):
+                        self.decoder.ea_end = self.resume   # (WP30) ea_ir_room; (WP92) lea_slot
                     if (len(step) > 2 and step[2] == "ea" and self.cls == "lea"
                             and self.decoder.need == 0):
                         self.decoder.queue.lea_ea = (t, self.resume)   # (WP72) lea_room
@@ -797,6 +809,11 @@ class EU:
                         # an I/O cycle's issue clock: the ALU passes the OUT's data there,
                         # the form's operation and so the IR load go a clock later
                         self.decoder.ready_at += 1
+                if (n and self.lea_split and self.cfg.lea_disp == "run"
+                        and self.decoder.need == 0 and not self._in_run(t)):
+                    # (WP92) lea_disp=run: the split d16 taken off a refill run (the bus idle
+                    # before the take clock): its successor is held off no back-to-back fetch
+                    self.lea_split = False
                 if n and self.mem and self.disp and self.taken == self.op_len - 1 - self.imm_bytes:
                     # (WP28) the displacement's (last byte's) take
                     q = self.decoder.queue

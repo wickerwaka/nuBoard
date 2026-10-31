@@ -290,11 +290,15 @@ class Queue:
                 and self.decoder.need == 0 and not self._imm16(t)) or (
                 cfg.room_ir == "arrival_ready" and self.decoder is not None
                 and self.decoder.need == 0 and (t is None or t >= self.decoder.ready_at)):
-            if (self.decoder is not None and self.decoder.ir_hold
+            if (self.decoder is not None and (self.decoder.ir_hold
                     and (self.decoder.need == 0 or cfg.ea_ir_room and t is not None
-                         and self.decoder.ea_end is not None and t < self.decoder.ea_end)):
+                         and self.decoder.ea_end is not None and t < self.decoder.ea_end)
+                    or self.decoder.lea_wait and self.decoder.need > 0 and cfg.ea_ir_room
+                    and t is not None and self.decoder.ea_end is not None
+                    and t < self.decoder.ea_end)):
                 # (WP28) ir_load: the IR is no seventh slot; (WP30) ea_ir_room: nor while
-                # the form runs its EA clocks, before the displacement's take
+                # the form runs its EA clocks, before the displacement's take; (WP92)
+                # lea_slot=ea: nor while a displaced LDEA runs them (it holds no IR load)
                 used += ir
             elif not (cfg.room_ir_ready and not ir and self.decoder is not None and t is not None
                     and self.decoder.ready_at > t + self.fetch_len):

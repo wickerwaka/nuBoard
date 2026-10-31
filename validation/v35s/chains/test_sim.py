@@ -6522,3 +6522,84 @@ class NotTakenBackToBack(unittest.TestCase):
                     "F35-out-cw-dbnze-c1-cmpaa-pE-w0", "F35-push-cw-dbnzne-c2-cmpaa-pE-w1",
                     "F35-out-cw-dbnzne-c1-cmpad-pO-w2"):
             self._exact(cid)
+
+
+WP92 = dict(lea_slot="ea", lea_disp="run")
+
+
+def _ev92(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP92 (+ over)."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP92, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class LdeaDisplacement(unittest.TestCase):
+    """(WP92, F25 F30) a displaced LDEA: its EA clocks give the empty IR no seventh slot on a
+    delivery clock, as a displaced memory form's do (lea_slot), and its split two-byte
+    displacement holds the successor off a back-to-back fetch's issue only when it was taken
+    inside the refill run (lea_disp=run) (scratchpad wp92/facts.txt; clocks rel t_fill)."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev92(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.lea_slot, "none")
+        self.assertEqual(OPTIONS["lea_slot"], ("none", "ea"))
+        self.assertEqual(DEFAULT.lea_disp, "none")
+        self.assertEqual(OPTIONS["lea_disp"], ("none", "split", "run"))
+
+    def test_lea_slot_deciding_run(self):
+        # LDEA [BW+IX+200h] at 1004D starts on fetch 81-83, its EA clocks 82-84, the word
+        # delivered on 84 with the d16 still to take: silicon F85 F88 W94 (none: F84 F87 W96)
+        mod = self._exact("F25-push-ldea-bw_ix_d16-pE-w0")
+        self.assertIn((85, "fetch", 0x10054, "word", 3), mod)
+        self.assertIn((94, "stack_write", 0x0EFC, "word", 3), mod)
+        _, none = _ev92("F25-push-ldea-bw_ix_d16-pE-w0", lea_slot="none")
+        self.assertIn((84, "fetch", 0x10054, "word", 3), none)
+        self.assertNotIn((85, "fetch", 0x10054, "word", 3), none)
+
+    def test_lea_slot_every_base_index_mode_and_the_load(self):
+        # the four base+index+d16 modes at pE w0 and F30's OUT frame behind a NOP; the load in
+        # the same cell (ea_ir_room's deciding run) and the base-only d16 (its EA clocks over
+        # before the delivery) exact either way
+        for cid in ("F25-push-ldea-bw_iy_d16-pE-w0", "F25-push-ldea-bp_ix_d16-pE-w0",
+                    "F25-push-ldea-bp_iy_d16-pE-w0", "F30-out-lea-bw_ix_d16-nopb-pE-w0"):
+            self._exact(cid)
+        for cid in ("F21-push-l0-ld-bw_ix_d16-pE-w0", "F25-push-ldea-bw_d16-pE-w0",
+                    "F25-push-ldea-bw_ix_d16-pO-w0", "F25-push-ldea-bw_ix_d16-pE-w1"):
+            for over in ({}, {"lea_slot": "none"}):
+                self._exact(cid, **over)
+
+    def test_lea_disp_run_deciding_run(self):
+        # NOP, then LDEA [BW+200h] at 1004E: the d16 taken on 88 with the bus idle since 83,
+        # fetch 88 issued on the take, 91 back to back: silicon's PUSH on 91's issue, W97
+        # (split: W100)
+        mod = self._exact("F30-push-lea-bw_d16-nopb-pO-w0")
+        self.assertIn((97, "stack_write", 0x0EFC, "word", 3), mod)
+        _, split = _ev92("F30-push-lea-bw_d16-nopb-pO-w0", lea_disp="split")
+        self.assertIn((100, "stack_write", 0x0EFC, "word", 3), split)
+        for cid in ("F30-push-lea-bw_ix_d16-nopb-pO-w0", "F30-push-lea-dir-nopb-pO-w0"):
+            self._exact(cid)
+
+    def test_lea_disp_run_keeps_the_hold_inside_the_run(self):
+        # the d16 taken on a delivery clock (w0), a fetch's last clock (w1), a wait clock (w2):
+        # the hold stays, W = the third fetch's end + 7 (none: the PUSH on the third's issue)
+        for cid in ("F25-push-ldea-bw_d16-pE-w0", "F25-push-ldea-bw_d16-pE-w1",
+                    "F25-push-ldea-bw_d16-pE-w2", "F30-push-lea-bw_d16-k1-pE-w1",
+                    "F25-push-ldea-dir-pE-w2", "F30-out-lea-dir-nopb-pE-w1"):
+            self._exact(cid)
+            for over in ({"lea_disp": "split"},):
+                self._exact(cid, **over)
+
+    def test_other_classes_untouched(self):
+        # no run without LDEA reads either enum
+        for cid in ("F21-push-l0-ld-bw_ix_d16-pE-w0", "F21-push-n1-st-bw_d16-pE-w1",
+                    "F23-out-bne-n0-k1-pE-w0", "F30-push-seg-8c-bw-ds1-n0-pO-w0"):
+            _, new = _ev92(cid)
+            _, old = _ev92(cid, lea_slot="none", lea_disp="split")
+            self.assertEqual(new, old, cid)
