@@ -383,6 +383,8 @@ def family_tables(ff: dict) -> str:
                          rows, lambda f: _num(f["x"][0]["issue_after_fetch"]) if f["x"] else "-"))
     if family == "F7":
         out.append(f7_matrices(ff))
+    if family == "F39":
+        out.append(f39_pair_tables(ff))
     if family == "F13":
         return f13_tables(ff)
     if family == "F14":
@@ -536,6 +538,29 @@ def f7_matrices(ff: dict) -> str:
             f"{m} {c}: {d}" for (m, c), d in inter["empties"].items()))
     else:
         out.append("F7: F3/F4/F5 same-kind empties agree in every column")
+    return "\n\n".join(out)
+
+
+def f39_pair_tables(ff: dict) -> str:
+    """(WP100) F39: the interaction of every pair per column, the count of each value per
+    series and marker, push - out, and the controls or empties that are missing / disagree."""
+    pairs = ff["pairs"]
+    out = [table("F39: interaction = dM(A B) - dM(A) - dM(B) + dM(empty), the controls the "
+                 "knobs control_a / control_b name", pairs["cells"], _num)]
+    rows = {f"{s}-{m}": {"values": " ".join(f"{v}:{n}" for v, n in sorted(c.items()))}
+            for (s, m), c in sorted(pairs["by_series"].items())}
+    out.append(table("F39: interaction value:count per series and marker, every column", rows,
+                     lambda x: x, ["values"]))
+    inter = ff.get("push_minus_out_interaction")
+    if inter:
+        out.append(table("F39: interaction push/out (push - out)", inter,
+                         lambda t: f"{_num(t[0])}/{_num(t[1])} ({_num(t[2])})"))
+    if pairs["missing"]:
+        out.append("F39: controls with no run (their cells are blank): "
+                   + ", ".join(pairs["missing"]))
+    if pairs["empties"]:
+        out.append("F39: earlier families' empty frames against F39's (dM difference): "
+                   + "; ".join(f"{f} {m} {c}: {d}" for (f, m, c), d in pairs["empties"].items()))
     return "\n\n".join(out)
 
 

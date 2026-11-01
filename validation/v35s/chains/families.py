@@ -3118,3 +3118,282 @@ FAMILIES.update({"F38": f38})
 # (WP97) generator-only: eleven of its forms did not decode (forms.F38_UNMODELLED); (WP98)
 # modelled: decode takes them into the imm, shift_imm and rmw classes
 UNMODELLED = ()
+
+
+# F39 (WP100: one refresh-off validation family; precedent F7). The model's claim is that its
+# machines compose: the cost of A followed by B follows from the queue, bus and EU state A leaves,
+# with no pair-specific parameter. F7 tested that on a 6 x 6 grid of the original classes; F39
+# tests it on the classes added since (the transfers, the 0F page, the strings, the stack frame,
+# the segment forms, the memory-indirect transfers, BRK) at k = 1: the cost frame
+# PAD LS M0 A B M1 LS END against the single-form frames M0 A M1 and M0 B M1 (the controls), so
+# interaction(A, B) = cost(A B) - cost(A) - cost(B) is a zero-parameter test (derive.pair_facts).
+# Refresh off (RFM ECh), every wait and parity, the OUT and the PUSH marker on every variant; run
+# ids F39-<out|push>-<series>-<A>-<B>-p<E|O>-w<N>, the controls
+# F39-<marker>-ctl-<piece>[-<preset>], the empty frame F39-<marker>-empty (every cost's
+# baseline). No image.py or blocks.py change and no new form: every piece is made of catalog
+# forms an earlier family ran.
+# A piece is one form, or a form with the lead / return that makes it straight-line (CMP AW,AW
+# before a conditional branch, CALL +2 ; BR +1 ; RET, MOV BW,t before BR BW, F37's lead stores
+# before CALL [0C00h] and BRK 3); every chain is straight-line or returns to its own next
+# instruction, and each piece leaves the registers, the stack and the data the next one needs.
+# xfer (A then B): BE +0 taken behind CMP AW,AW (be), BNE +0 not taken behind CMP AW,AW (bne),
+#   CALL +2 ; BR +1 ; RET (callret, F23's), MOV BW,t ; BR BW to the next instruction (brbw, F35's
+#   ind-brr-n0); B: NOP, MOV AW,[BW], MOV [BW],AW, ADD [BW],AW, PUSH AW, OUT 40h,AL, MOVBK word
+#   (unprefixed, F24's presets), SET1 AW,CL, LDEA AW,[BW+200h], EXT BL,DH.
+# page: SET1 AW,CL, TEST1 [BW],CL word, ROL4 DL, EXT BL,DH, EXT DL,DH, MOV CL,2 ; ADD4S; B: MOV
+#   AW,[BW], MOV [BW],AW, PUSH AW, OUT 40h,AL, MOV AW,DW.
+# str: MOVBK, CMPBK, STM, INM, word, unprefixed (F24's presets IX 0A40h, IY 0C40h, DW 0040h); B:
+#   MOV AW,[BW], PUSH AW, OUT 40h,AL, LDEA AW,[BW].
+# stack: PUSH R ; POP R, PREPARE 0,0 ; DISPOSE, PUSH DS0 ; POP DS0; B: MOV AW,[BW], OUT 40h,AL,
+#   CALL +2 ; BR +1 ; RET.
+# ind: MOV AW,t ; MOV [0C00h],AW ; CALL [0C00h] ; BR +1 ; RET (F37's indm-callm-ret), MOV AW,t ;
+#   MOV [0Ch],AW ; MOV AW,1000h ; MOV [0Eh],AW ; BRK 3 ; BR +1 ; RETI (F37's brk-brk3); B: MOV
+#   AW,[BW], PUSH AW, OUT 40h,AL, MOVBK.
+# The OUT form is OUT 40h,AL (out_imm_al, F7's): OUT 20h,AL is M0's own port. The absolute
+# targets (MOV BW,t, MOV AW,t) are built per marker and parity from f35_first_x as F35 and F37
+# build them: A is the first X, so a piece's bytes in a pair are its control's bytes.
+# Presets: the defaults, F24's (IX 0A40h, IY 0C40h, DW 0040h) when a string form is in the
+# chain, and every form's own needs (EXT: IX 0A40h, DW 0608h; ADD4S: IX 0A40h, IY 0C40h). A
+# control runs under its pair's presets (F39_PRESETS names them in the control's label), so a
+# pair and its two controls build the same prelude.
+# Controls: control_a / control_b name the id stem (family-marker-label) of a chain whose image
+# is byte for byte the single-form frame of A / B under the pair's presets: an earlier family's
+# where one exists (F39_REUSE; test_chains proves the images identical at every wait and
+# parity), else F39's own ctl variant.
+# Left out (the reasons; the cells exist nowhere else):
+# - page x BE +0 and str x BNE +0: the simulator's execute keeps the flags only from CMP r16,r16
+#   and ADD r16,imm16 (sim/templates.py), so a conditional branch behind a 0F form or a string
+#   form raises "the flags are not known", and every modelled chain must simulate (test_fit's
+#   over-fill test). Silicon would take BE behind SET1 / ROL4 / EXT (Z = 1 from the fence's
+#   SHL, which those forms leave alone) and not behind TEST1 [BW],CL (bit 15 of 9090h is set)
+#   or ADD4S (90h + 90h = 80h with a carry); BNE behind CMPBK on the fill not taken (equal).
+# - xfer x MOVBK and EXT BL,DH, ind x MOVBK: normalize._StringState walks the registers a string
+#   or bit-field form reads (IX, IY, DW, BL, DH) through the chain in order and makes them all
+#   unknown at any form it does not follow (CMP AW,AW, the branches, CALL / RET, MOV BW,imm16,
+#   the lead's MOV [d16],AW), so the expected accesses of such a chain raise ("needs IX, which
+#   is unknown here"), for the board's runs as for the model's; the walk learning those forms
+#   (they leave IX, IY, DW and BW alone) would admit the nine cells per marker.
+# - BR BW before MOV AW,[BW], MOV [BW],AW and ADD [BW],AW: BR BW leaves BW = t (a code offset),
+#   so the data cycle is not the control's.
+# - EXT BL,DH before MOV AW,[BW] and MOV [BW],AW: EXT leaves BL = 7 (0 + 6 + 1), so the access
+#   would be at 0807h; EXT DL,DH (offset DL = 8, DL = 15 after it) is the EXT row of those cells.
+# Knobs: probe = series, marker, a, b (the pieces' labels), a_x, b_x (their forms), x (every
+# form between M0 and M1 in order), exec (the X indices in execution order), skipped (0),
+# taken (A's transfer decision, None where A does not transfer), taken_b (B's), control_a,
+# control_b, sp_adjust (SP's change through the X forms in bytes: B's PUSH AW; every other
+# piece is balanced), preset (an F39_PRESETS key), target / target_rel (the X index an absolute
+# target names and its offset from the first X), baseline (empty), form (None), k (1), rfm,
+# refresh_on; the ctl variants: piece (a = b = None) and the same knobs.
+F39_RFM = RFM_OFF
+# piece: (forms, "T:<kind>:<i>" for the absolute target of the form at index i; the exec order;
+# taken)
+F39_PIECES = {
+    "be": (["cmp_aw_aw", "be_n0"], [0, 1], True),
+    "bne": (["cmp_aw_aw", "bne_n0"], [0, 1], False),
+    "callret": (["call_n2", "br_n1", "ret"], [0, 2, 1], True),
+    "brbw": (["T:mov_bw:2", "br_bw"], [0, 1], True),
+    "set1": (["set1_rw_cl"], [0], None),
+    "test1": (["test1_mw_cl"], [0], None),
+    "rol4": (["rol4_dl"], [0], None),
+    "ext": (["ext_bl_dh"], [0], None),
+    "extdl": (["ext_dl_dh"], [0], None),
+    "add4s": (["mov_cl2", "add4s"], [0, 1], None),
+    "movbk": (["movbk_w"], [0], None),
+    "cmpbk": (["cmpbk_w"], [0], None),
+    "stm": (["stm_w"], [0], None),
+    "inm": (["inm_w"], [0], None),
+    "pushr": (["push_r", "pop_r"], [0, 1], None),
+    "frame": (["prepare_00", "dispose"], [0, 1], None),
+    "ds0": (["push_ds0", "pop_ds0"], [0, 1], None),
+    "callm": (["T:mov_aw:4", "st_acc_dir", "call_m_dir", "br_n1", "ret"], [0, 1, 2, 4, 3], True),
+    "brk3": (["T:mov_aw:6", "st_acc_000c", "mov_aw_1000", "st_acc_000e", "brk3", "br_n1",
+              "reti"], [0, 1, 2, 3, 4, 6, 5], True),
+    "nop": (["nop"], [0], None),
+    "ld": (["ld_bw"], [0], None),
+    "st": (["st_bw"], [0], None),
+    "rmw": (["add_m_aw"], [0], None),
+    "push": (["push_aw"], [0], None),
+    "out": (["out_imm_al"], [0], None),
+    "ldead16": (["ldea_bw_d16"], [0], None),
+    "ldea": (["ldea_bw"], [0], None),
+    "movr": (["mov_aw_dw"], [0], None),
+}
+F39_SERIES = {
+    "xfer": (("be", "bne", "callret", "brbw"),
+             ("nop", "ld", "st", "rmw", "push", "out", "movbk", "set1", "ldead16", "ext")),
+    "page": (("set1", "test1", "rol4", "ext", "extdl", "add4s"),
+             ("ld", "st", "push", "out", "movr")),
+    "str": (("movbk", "cmpbk", "stm", "inm"), ("ld", "push", "out", "ldea")),
+    "stack": (("pushr", "frame", "ds0"), ("ld", "out", "callret")),
+    "ind": (("callm", "brk3"), ("ld", "push", "out", "movbk")),
+}
+# (series, A, B) cells left out (see the comment above): a string or bit-field form behind a
+# piece the normaliser's walk does not follow; BR BW before a form that reads BW; EXT BL,DH
+# before a form that reads BW
+F39_SKIP = frozenset({("xfer", a, b) for a in ("be", "bne", "callret", "brbw")
+                      for b in ("movbk", "ext")}
+                     | {("ind", a, "movbk") for a in ("callm", "brk3")}
+                     | {("xfer", "brbw", b) for b in ("ld", "st", "rmw")}
+                     | {("page", "ext", b) for b in ("ld", "st")})
+# the presets a chain runs under, by name (the differences from forms.DEFAULT_REGS)
+F39_PRESETS = {"": {}, "s": {"IX": 0x0A40, "IY": 0x0C40, "DW": 0x0040},
+               "bf": {"IX": 0x0A40, "DW": 0x0608}, "bcd": {"IX": 0x0A40, "IY": 0x0C40}}
+# controls an earlier family ran with the same image (every wait and parity): {(marker, ctl
+# label): id stem}, F7's sources (F3, F4, F5) first, then the family that introduced the piece
+F39_REUSE: dict[tuple[str, str], str] = {
+    **{(k, "ctl-nop"): f"F3-{k}-nop-k1" for k in ("out", "push")},
+    **{(k, "ctl-ld"): f"F4-{k}-ld_bw-k1" for k in ("out", "push")},
+    **{(k, "ctl-st"): f"F5-{k}-st_bw-k1" for k in ("out", "push")},
+    **{(k, "ctl-rmw"): f"F5-{k}-add_m_aw-k1" for k in ("out", "push")},
+    **{(k, "ctl-push"): f"F5-{k}-push_aw-k1" for k in ("out", "push")},
+    **{(k, "ctl-out"): f"F5-{k}-out_imm_al-k1" for k in ("out", "push")},
+    **{(k, "ctl-movr"): f"F3-{k}-mov_aw_dw-k1" for k in ("out", "push")},
+    **{(k, "ctl-be"): f"F23-{k}-be-n0" for k in ("out", "push")},
+    **{(k, "ctl-bne"): f"F23-{k}-bne-n0-k1" for k in ("out", "push")},
+    **{(k, "ctl-callret"): f"F23-{k}-callret" for k in ("out", "push")},
+    **{(k, "ctl-ldead16"): f"F25-{k}-ldea-bw_d16" for k in ("out", "push")},
+    **{(k, "ctl-pushr"): f"F25-{k}-pushr_popr" for k in ("out", "push")},
+    **{(k, "ctl-frame"): f"F25-{k}-prepare_dispose" for k in ("out", "push")},
+    **{(k, "ctl-ds0"): f"F25-{k}-push_ds0_pop_ds0" for k in ("out", "push")},
+    **{(k, "ctl-test1"): f"F32-{k}-test1_mw_cl-k1" for k in ("out", "push")},
+    **{(k, "ctl-brbw"): f"F35-{k}-ind-brr-n0" for k in ("out", "push")},
+    **{(k, "ctl-callm"): f"F37-{k}-indm-callm-ret" for k in ("out", "push")},
+    **{(k, "ctl-brk3"): f"F37-{k}-brk-brk3" for k in ("out", "push")},
+    ("out", "ctl-set1"): "F32-out-set1_rw_cl-k1",
+    ("push", "ctl-set1"): "F34-push-rbit-set1_rw_cl-l0-k1",
+    ("out", "ctl-ext-bf"): "F32-out-ext_bl_dh-k1",
+    ("push", "ctl-ext-bf"): "F34-push-bf-ext_bl_dh-l0-k1",
+}
+# Not reused: a control an earlier family ran under one marker only (F32's OUT ROL4 DL, EXT DL,DH
+# and MOV CL,2 ; ADD4S, F24's OUT MOVBK, CMPBK, STM and INM) is F39's own under both, so every
+# F39 PUSH chain has its OUT twin (test_chains' cost-family rule)
+
+
+def _f39_family_regs(names):
+    """F24's presets when a string form is among names, else none (make_chain adds the forms'
+    needs)."""
+    from .forms import STRING_FORMS
+    return _f24_regs() if any(n in STRING_FORMS for n in names) else {}
+
+
+def _f39_preset(names) -> str:
+    """The F39_PRESETS key of the chain whose X forms are names."""
+    regs = dict(_f39_family_regs(names))
+    for n in names:
+        if not n.startswith("T:"):
+            regs.update(dict(FORMS[n].needs))
+    diff = {k: v for k, v in regs.items() if DEFAULT_REGS.get(k) != v}
+    for key, preset in F39_PRESETS.items():
+        if preset == diff:
+            return key
+    raise AssertionError(f"F39: presets {diff} for {names} are not in F39_PRESETS")
+
+
+def _f39_resolve(names, first_x):
+    """names with every "T:<kind>:<i>" replaced by the absolute-target form for the code offset
+    of the form at index i (first_x the code offset of names[0]); (names, target, target_rel)."""
+    from .forms import F35_ABS_FORMS, F37_ABS_FORMS
+    out, target, rel = [], None, None
+    for name in names:
+        if name.startswith("T:"):
+            _, kind, i = name.split(":")
+            target = int(i)
+            rel = sum(3 if n.startswith("T:") else len(FORMS[n].code) for n in names[:target])
+            table = F35_ABS_FORMS["mov_bw"] if kind == "mov_bw" else F37_ABS_FORMS["mov_aw"]
+            out.append(table[first_x + rel])
+        else:
+            out.append(name)
+    return out, target, rel
+
+
+def _f39_sp(names) -> int:
+    """SP's change through names in bytes: the stack classes' pushes (writes) and pops (reads)
+    and RET imm16's adjust, as normalize.expected_accesses walks them."""
+    from .forms import STACK_CLASSES
+    return sum(2 * FORMS[n].reads - 2 * FORMS[n].writes + FORMS[n].sp_adjust
+               for n in names if FORMS[n].cls in STACK_CLASSES)
+
+
+def _f39_ctl_label(piece, preset):
+    return f"ctl-{piece}" + (f"-{preset}" if preset else "")
+
+
+def f39_control(kind, piece, preset) -> str:
+    """The id stem (family-marker-label) of piece's control under preset, marker kind."""
+    label = _f39_ctl_label(piece, preset)
+    return F39_REUSE.get((kind, label), f"F39-{kind}-{label}")
+
+
+def _f39_specs(kind, parity):
+    """[(label, knobs-without-marker, x names, regs)] for marker kind and parity, in family
+    order: the empty frame, the controls F39 runs itself, then the pairs by series."""
+    first_x = f35_first_x(kind, parity)
+    pairs, ctl = [], {}
+    for series, (a_list, b_list) in F39_SERIES.items():
+        for a in a_list:
+            for b in b_list:
+                if (series, a, b) in F39_SKIP:
+                    continue
+                a_raw, a_exec, a_taken = F39_PIECES[a]
+                b_raw, b_exec, b_taken = F39_PIECES[b]
+                if any(n.startswith("T:") for n in b_raw):
+                    raise AssertionError(f"F39 {b}: a B piece with an absolute target")
+                a_x, target, rel = _f39_resolve(a_raw, first_x)
+                b_x = list(b_raw)
+                names = a_x + b_x
+                preset = _f39_preset(names)
+                for piece in (a, b):
+                    ctl.setdefault((piece, preset), None)
+                knobs = {"probe": series, "series": series, "a": a, "b": b, "a_x": a_x,
+                         "b_x": b_x, "x": names,
+                         "exec": a_exec + [len(a_x) + j for j in b_exec], "skipped": 0,
+                         "taken": a_taken, "taken_b": b_taken,
+                         "control_a": f39_control(kind, a, preset),
+                         "control_b": f39_control(kind, b, preset),
+                         "sp_adjust": _f39_sp(names), "preset": preset, "target": target,
+                         "target_rel": rel, "baseline": "empty", "form": None, "k": 1,
+                         "rfm": F39_RFM, "refresh_on": False}
+                pairs.append((f"{series}-{a}-{b}", knobs, names, _f39_family_regs(names)))
+    specs = [("empty", {"probe": "empty", "series": "empty", "a": None, "b": None, "piece": None,
+                        "x": [], "exec": [], "skipped": 0, "taken": None, "sp_adjust": 0,
+                        "preset": "", "target": None, "target_rel": None, "baseline": None,
+                        "form": None, "k": 0, "rfm": F39_RFM, "refresh_on": False}, [], {})]
+    for piece, preset in ctl:
+        label = _f39_ctl_label(piece, preset)
+        if (kind, label) in F39_REUSE:
+            continue
+        raw, ex, taken = F39_PIECES[piece]
+        names, target, rel = _f39_resolve(raw, first_x)
+        knobs = {"probe": "ctl", "series": "ctl", "a": None, "b": None, "piece": piece,
+                 "x": names, "exec": list(ex), "skipped": 0, "taken": taken,
+                 "sp_adjust": _f39_sp(names), "preset": preset, "target": target,
+                 "target_rel": rel, "baseline": "empty", "form": None, "k": 1, "rfm": F39_RFM,
+                 "refresh_on": False}
+        specs.append((label, knobs, names, dict(F39_PRESETS[preset])))
+    return specs + pairs
+
+
+def f39(waits=WAITS, parities=PARITIES):
+    """Neighbour pairs across the classes added since F7 (see the comment above)."""
+    chains = []
+    for kind in ("out", "push"):
+        per_parity = {p: _f39_specs(kind, p) for p in parities}
+        labels = [[s[0] for s in v] for v in per_parity.values()]
+        if any(lab != labels[0] for lab in labels):
+            raise AssertionError("F39: the variants differ between parities")
+        for j in range(len(labels[0]) if labels else 0):
+            for w in waits:
+                for p in parities:
+                    label, knobs, names, regs = per_parity[p][j]
+                    body = [LS(), M(0, kind)] + xs(names) + [M(1, kind), LS(), END()]
+                    chain = make_chain("F39", f"{kind}-{label}", {**knobs, "marker": kind},
+                                       body, w, p, marker_kind=kind, regs=regs, rfm=F39_RFM)
+                    if chain.regs != {**DEFAULT_REGS, **F39_PRESETS[knobs["preset"]]}:
+                        raise AssertionError(f"{chain.id}: presets {chain.regs}")
+                    chains.append(chain)
+    return chains
+
+
+FAMILIES.update({"F39": f39})
+# (WP100) every F39 form is a catalog form a modelled family ran: F39 is modelled (not in
+# UNMODELLED)

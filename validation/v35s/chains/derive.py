@@ -412,6 +412,78 @@ BASELINES.update({"F37": ("dM", _f24_baseline)})
 # (WP97) F38: the chain the knob `baseline` names (the empty frame for every X, as F36's), same
 # marker and column; the class mate a variant is read against is its knob `control`
 BASELINES.update({"F38": ("dM", _f24_baseline)})
+# (WP100) F39: every cost against the empty frame of the same marker and column (the knob
+# baseline); a pair's interaction against its two controls is pair_facts'
+BASELINES.update({"F39": ("dM", _f24_baseline)})
+
+
+def _stem(run_id: str) -> str:
+    """A run id less its -p<E|O>[-w<N>] suffix: the id stem a control knob names."""
+    return run_id.rsplit("-p", 1)[0]
+
+
+def pair_extra(facts, waits=(0, 1, 2)) -> list:
+    """(WP100) the facts of the earlier families' runs F39's controls name (control_a /
+    control_b outside the family) and of those families' same-marker empty frames, from the
+    corpus; a family with no corpus entries is left out (its controls stay missing)."""
+    want: dict = defaultdict(set)
+    for f in facts:
+        k = f.get("knobs", {})
+        for key in ("control_a", "control_b"):
+            stem = k.get(key)
+            if stem and not stem.startswith(f"{f['family']}-"):
+                family, rest = stem.split("-", 1)
+                want[family] |= {stem, f"{family}-{rest.split('-', 1)[0]}-empty"}
+    out = []
+    for family, stems in sorted(want.items()):
+        try:
+            runs = load_runs(family, waits)
+        except FileNotFoundError:
+            continue
+        out += [run_facts(normalize(r)) for r in runs if _stem(r["chain"]["id"]) in stems]
+    return out
+
+
+def pair_facts(facts, extra=None) -> dict:
+    """(WP100) F39: per pair run, interaction = dM(A B) - dM(A) - dM(B) + dM(empty), the two
+    controls (knobs control_a / control_b: id stems in F39 or an earlier family, `extra` their
+    facts) and F39's empty frame of the same marker and column; sets f["interaction"] (None
+    where a control is missing). Returns {"cells": {variant: {column: interaction}}, "by_series":
+    {(series, marker): {interaction: count}}, "missing": [control stems with no run],
+    "empties": {(family, marker, column): dM - F39's empty dM} where an earlier family's empty
+    frame disagrees}."""
+    by = {(_stem(f["id"]), f["column"]): f for f in list(facts) + list(extra or [])}
+    cells: dict = defaultdict(dict)
+    by_series: dict = defaultdict(Counter)
+    missing: set = set()
+    for f in facts:
+        k = f.get("knobs", {})
+        if k.get("control_a") is None:
+            continue
+        empty = by.get((f"{f['family']}-{f['marker']}-empty", f["column"]))
+        got = []
+        for key in ("control_a", "control_b"):
+            g = by.get((k[key], f["column"]))
+            if g is None:
+                missing.add(k[key])
+            got.append(g)
+        value = None
+        dms = [f.get("dM"), empty and empty.get("dM")] + [g and g.get("dM") for g in got]
+        if None not in dms:
+            value = dms[0] - dms[2] - dms[3] + dms[1]
+        f["interaction"] = value
+        cells[f["variant"]][f["column"]] = value
+        if value is not None:
+            by_series[(k["series"], f["marker"])][value] += 1
+    empties = {}
+    for (stem, column), g in by.items():
+        if not stem.endswith("-empty") or g["family"] == "F39" or g.get("dM") is None:
+            continue
+        own = by.get((f"F39-{g['marker']}-empty", column))
+        if own is not None and own.get("dM") is not None and own["dM"] != g["dM"]:
+            empties[(g["family"], g["marker"], column)] = g["dM"] - own["dM"]
+    return {"cells": dict(cells), "by_series": {k: dict(v) for k, v in by_series.items()},
+            "missing": sorted(missing), "empties": empties}
 
 
 def k_series(cost: dict) -> dict:
@@ -558,6 +630,10 @@ def family_facts(family: str, waits=(0, 1, 2), files=None, extra=None) -> dict:
         out["push_minus_out"] = kind_pairs(facts)
     if family == "F7":
         out["interactions"] = f7_interactions(facts, extra)
+        out["push_minus_out_interaction"] = kind_pairs(facts, "interaction")
+    if family == "F39":
+        # (WP100) extra: the earlier families' control and empty facts (pair_extra's list)
+        out["pairs"] = pair_facts(facts, pair_extra(facts, waits) if extra is None else extra)
         out["push_minus_out_interaction"] = kind_pairs(facts, "interaction")
     if family == "F6":
         out["drain_slopes"] = f6_drain_slopes(facts)
