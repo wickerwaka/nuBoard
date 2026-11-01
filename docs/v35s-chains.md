@@ -5979,7 +5979,7 @@ The edited tree under the unedited fit is byte-identical to a clean extract on a
 three ROL4 integers went to stage 31 (WP110): the fifty-fifth fit (Model). Tests test_sim.WaitKeyedWP106,
 test_fit's stage-31 class.
 
-### The multiply's read, hold, exec and data cost: four mechanisms for the "read offset that moves with the wait count" (WP109, 2026-10-31; a candidate)
+### The multiply's read, hold, exec and data cost: four mechanisms for the "read offset that moves with the wait count" (WP109, 2026-10-31; the fifty-sixth fit)
 
 Under the fifty-fourth fit 109 refresh-off misses were the read of a multiply with a memory operand or an immediate
 (F34 `mul` 66, F33 43: MUL r16,[BW],imm8/imm16 84, MUL [BW] after the load 12, DIV/DIVU [BW] 4, MUL imm register 9).
@@ -6013,7 +6013,8 @@ WP94 left as "moving with the wait count behind a lead" is four mechanisms, none
 
 All four together: **F33 927 → 955/1,050, F34 1,295 → 1,361/1,596, lost 0**, the other 40 lists byte-identical; with
 every new enum at its default the edited tree is byte-identical to a clean export on all 42 lists. Tests
-test_sim.MulImmWP109 (the pre-change values pinned as `_OLD109`). The fit stage is WP111.
+test_sim.MulImmWP109 (the pre-change values pinned as `_OLD109`), test_fit's stage-32 class. Stage 32 (WP111) from
+this hand start: the fifty-sixth fit (Model).
 
 ## Model
 
@@ -6034,7 +6035,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-fifth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-sixth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6518,10 +6519,16 @@ read"): fit stage 31 (`F57_ENUMS`, `F57_INTS`; WP110) from that hand start kept 
 F32 676 → 687/858, F39 1,202 → 1256/1,320, F40 903 → 926/1,020, the other lists byte-identical, nothing lost. Model
 side only, no RTL work.
 
+**The fifty-sixth fit** (`fit.json`, md5 8659fce28e797a8711b9cc6faa77975f; scratchpad wp111/fit-wp111.json, adopted 2026-10-31) is the
+fifty-fifth fit plus WP109's multiply mechanisms, `mul_imm_count=sync`, `mul_imm_half=room`, `mul_imm_exec=hold`,
+`mul_data=sign` with `mul.smexec` 39 (Facts "The multiply's read, hold, exec and data cost"): fit stage 32
+(`F58_ENUMS`, `F58_INTS`; WP111) from that hand start made no move (the corpus guard refused all 23 other grid points, each losing runs against the hand start; the descent over the 36 multiply and divide integers and the sweep moved nothing). **33972 of 35,168 over 42 lists**: F33 927 → 955/1,050,
+F34 1,295 → 1361/1,596, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
-### Fitted structure (fifty-fifth fit, 2026-10-31)
 
-Fifty-five fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-sixth fit, 2026-10-31)
+
+Fifty-six fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6910,7 +6917,9 @@ the far transfers' mechanisms (`far_room=take`, `call_far_post=take`,
 `ret_far_fetch=after`; stage 30): 33790/35168, F35 1038/1044, F40 903/1020. The
 fifty-fifth (`fit.json`, 2026-10-31) adds the digit rotate's exec rule
 (`rot4_exec=wait`, rol4 pre 1 / exec 13 / wb 2; stage 31): 33878/35168, F32 687,
-F39 1256, F40 926.
+F39 1256, F40 926. The fifty-sixth (`fit.json`, 2026-10-31) adds the multiply's
+four mechanisms (`mul_imm_count=sync`, `mul_imm_half=room`, `mul_imm_exec=hold`,
+`mul_data=sign`; stage 32): 33972/35168, F33 955, F34 1361.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

@@ -447,7 +447,7 @@
    "pre": 0,
    "rexit": 8,
    "sexec": 41,
-   "smexec": 49,
+   "smexec": 39,
    "wb": 2
   },
   "mul_imm": {
@@ -951,6 +951,10 @@
  "modrm_commit": "byte",
  "modrm_mate": "imm",
  "modrm_port": true,
+ "mul_data": "sign",
+ "mul_imm_count": "sync",
+ "mul_imm_exec": "hold",
+ "mul_imm_half": "room",
  "mul_imm_hold": "word",
  "mul_imm_read": "issue",
  "nop_hold": "any",
