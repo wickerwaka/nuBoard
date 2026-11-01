@@ -432,7 +432,8 @@ class EU:
         if cfg.mul_imm_hold == "word" and op.imm_bytes and op.ea is not None:
             # (WP81) mul_imm_hold: the immediate's last byte the even half of its word
             op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
-        if cfg.ret_imm_hold == "word" and op.imm_bytes and bcls == "ret":
+        if (cfg.ret_imm_hold == "word" or cfg.ret_far_fetch != "hold") and op.imm_bytes \
+                and bcls == "ret":
             # (WP88) ret_imm_hold: RET imm16's immediate ends on the even half of its word
             op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
         if cfg.bf_imm_hold == "word" and op.imm_bytes and op.cls in BF_CLASSES:
@@ -1027,6 +1028,10 @@ class EU:
                                   else t + step[1])  # the stream's last cycle
                 self.k += 1
                 continue
+            if kind == "flush_from":             # (WP107) ret_far_fetch=after: the flush hold
+                self.decoder.queue.flush_held = t + step[1]   # from step[1] clocks on
+                self.k += 1
+                continue
             if kind == "fetch_hold":             # (WP67, F24) str_hold=hold: no fetch request
                 q = self.decoder.queue           # for step[1] clocks from here
                 if step[1] == BF_TAKE_HOLD:      # (WP94) bf_imm_hold: armed, from the next take
@@ -1604,7 +1609,7 @@ class EU:
                 self.own = r
 
     def _post(self, t, kind, addr, width, setup, free=None, grp=False,
-              whole=False) -> Request:
+              whole=False, restart=False) -> Request:
         if kind == "nowrite":
             cycles = [(kind, addr, "word")]      # grp_read=rmw_slot: a slot, not a cycle
         elif width == 2 and addr & 1 and not kind.startswith("io"):
@@ -1628,6 +1633,7 @@ class EU:
                     free_bus=grp and self.cfg.grp_free_bus,
                     recover=self.cfg.io_recover, whole=whole)
         r.dwlike = dwlike
+        r.restart = restart              # (WP107) call_far_post=take
         # (WP58) refresh_io_stall (read with refresh on only)
         r.io_stall = io and self.refresh is not None and self.cfg.refresh_io_stall == "step"
         if io and self.refresh is not None:

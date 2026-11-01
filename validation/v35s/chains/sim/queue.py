@@ -96,6 +96,8 @@ QUEUE_BYTES = 6            # physical queue storage, not a parameter
 # (WP104) room_ir_pre=test: the classes whose pre clocks before the first operand take leave
 # the IR counted as room (TEST r,r)
 ROOM_IR_PRE_CLASSES = ("test_reg",)
+# (WP107) far_room=take: the far forms with a five-byte operand (BR far, CALL far)
+FAR_ROOM_CLASSES = ("branch_far", "call_far")
 WORD = 2
 
 
@@ -290,7 +292,8 @@ class Queue:
             used -= latched                     # latch_midtake: counted while mid-take
         size = QUEUE_BYTES
         if cfg.room_ir is True or (cfg.room_ir in ("arrival", "arrival_idle", "arrival_ready")
-                                   and t is not None and t == self.arrived_t) or (
+                                   and t is not None and t == self.arrived_t
+                                   and not self._far_take()) or (
                 cfg.room_ir in ("idle", "arrival_idle") and self.decoder is not None
                 and (self.decoder.need == 0 or self._pre_room(t)) and not self._imm16(t)) or (
                 cfg.room_ir == "arrival_ready" and self.decoder is not None
@@ -319,6 +322,12 @@ class Queue:
                 and t == self.removed_t):
             used -= 1           # the delivered word's second byte is counted a clock later
         return size - used
+
+    def _far_take(self) -> bool:
+        """(WP107) far_room=take: a far form (FAR_ROOM_CLASSES) with only its segment word's
+        last byte still to take: the empty IR is no seventh slot on a word's arrival clock."""
+        return (self.cfg.far_room == "take" and self.decoder is not None
+                and self.decoder.need == 1 and self.decoder.cls in FAR_ROOM_CLASSES)
 
     def _pre_room(self, t: int | None) -> bool:
         """(WP104) room_ir_pre=test: the IR counts as the seventh slot while the running TEST r,r

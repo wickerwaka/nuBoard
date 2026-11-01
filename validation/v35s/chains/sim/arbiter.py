@@ -95,6 +95,8 @@ class Request:
     pfree: int | None = None        # (WP81) page_mem=fixed: a 0F memory form's read, its setup
                                     # all fetch-free clocks since the end of the last fetch but
                                     # one committed back to back after the form's start (here)
+    restart: bool = False           # (WP107) call_far_post=take: a fetch that runs in its
+                                    # fetch-free clocks (free_run) restarts them after its end
 
     def page_free(self, bus, t: int) -> bool:
         """(WP81) page_mem=fixed: t counts toward the read's setup unless a fetch is on the bus
@@ -487,7 +489,12 @@ def _choose(t: int, cfg, bus, queue, eu):
                 and (bus.last_fetch_end == t - 1 or cfg.free_run in ("any", "held"))
                 and (queue.requested_at in (None, t) or cfg.free_run == "held"))
     if free_run and fetch_want:
-        req.free_need = 0
+        if req.restart:
+            # (WP107) call_far_post=take: the fetch runs, the fetch-free clocks start again
+            # after it
+            req.count = min(req.count, req.setup - req.free_need)
+        else:
+            req.free_need = 0
     if (cfg.free_hold == "delivery" and req is not None and not req.issued and fetch_want
             and req.cycles and not req.cycles[0][0].startswith("io")):
         if req.free_held == t - 1:

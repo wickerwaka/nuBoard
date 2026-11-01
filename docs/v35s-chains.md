@@ -5900,6 +5900,48 @@ fifty-second fit; the edited tree under the unedited fit byte-identical to the c
 test_sim.SecondInstanceWP104, test_fit's stage-29 class. Stage 29 (WP105) from this hand start: the fifty-third fit
 (Model).
 
+### The far transfers' shapes read: the segment's last byte and the IR, CALL far's write from the segment take, RETF imm16's read and its whole-word fetch (WP107, 2026-10-31; a candidate)
+
+The far forms carried 58 misses across F35 (`far` 26), F40 (CALL far ; RETF 20, BR far 8) and F37 (`farm-brfm-sep` 4)
+under the fifty-second fit with WP104's values. Read with every exact far-form cell beside them (scratchpad
+wp107/facts.txt: the offset and segment takes, each write's issue against the takes and the last fetch, the refill
+against the flush), they are four mechanisms and two facts:
+
+- **S1, the segment's last byte and the IR (the w0 second fetch).** At the even alignment the 5-byte form takes the
+  segment's low byte, the odd half of its word, on a fetch's delivery clock; the model counts the empty IR as a
+  seventh slot there (`room_ir=arrival_idle`, room 2) and fetches on that clock, silicon after the last byte. The second
+  BR far in F40 takes its offset's high byte on a delivery clock and silicon does count the IR, so the rule is "exactly
+  one byte left", not "operand bytes left": while BR far or CALL far has only the segment's last byte to take, the empty
+  IR is no slot on a delivery clock (the successor cannot load yet, as `ea_ir_room` and `lea_slot` say for displaced
+  forms). Enum `far_room` (none → take); the same rule on every class with one byte left loses 778. Deciding run
+  `F35-out-far-callf-pE-w0`. Alone it wins nothing (S2 hides it); with S2, F35 +12, F40 +20.
+- **S2, CALL far's first write** issues at the later of the segment take + 6 and the last fetch's end + 3, in every
+  cell, wait and alignment, in F35 and both F40 instances; the model's take sync, wpre 1 and setup 3 give the end + 4,
+  and no integer grid gives both terms (WP95). Enum `call_far_post` (sync → take) with `call_far.tsetup` 6 and `tfree`
+  3: the segment take chained, the write posted the next clock, and a fetch that runs inside the fetch-free tail
+  restarts the count after its end instead of counting through it. Deciding run `F35-out-far-callf-pO-w1`. Alone:
+  F35 +8, F40 +16.
+- **S3, RETF 2's read** at the later of start + 6 and the last fetch's end + 3 in all cells: `ret_far_imm.setup` 7 /
+  `setup_free` 3, DEFAULT_COST's hand start, where stage 21's 6 / 4 is a clock off in each alignment. An integer move
+  only.
+- **S4, the extra fetch after RETF 2 at an odd address**: with a whole-word immediate silicon fetches back to back
+  after the second read and the refill still comes 9 after that read's end; at the even address (a half word) no such
+  fetch. The model's flush hold from start + 6 suppressed it, and raising the hold lets a fetch run between the two reads
+  where silicon never fetches. Enum `ret_far_fetch` (hold → after): for a whole-word immediate the request waits for the
+  second read's data, goes then, and the flush hold starts the clock after; keyed on the immediate's word alignment as
+  `ret_imm_hold` is. Deciding run `F35-out-far-callf-retf2-pO-w1`.
+- **Facts:** the BR far refill at 0 waits (F35 4, F40 8): a fetch committed back to back on the clock the EU reaches
+  its flush is followed by silicon's refill at its end + 4 (BR near end + 4 at all waits, BR short end + 6, BR far end +
+  4 at 0 waits only; no `branch_far` integer fits: a rule would key on that fetch's wait count for BR far alone). F37's
+  `-sep` cells (4 far, 8 near): the transfer starts on a delivery clock with the word's second byte latched; counting it
+  fixes the fetch in all 12 cells but puts the pointer read a clock late in all 12 (the group setup after a displacement
+  taken on a delivery clock, an old rule); removed.
+
+All four together: **F35 1,016 → 1,038/1,044, F40 875 → 895/1,020, lost 0** on the seven families that run the far or
+transfer classes (F23, F30, F34, F37, F39 byte-identical); every new or moved integer loses runs at ±1 on the 108
+far-form runs (wp107/sens.txt). Tests test_sim.FarTransferWP107. The fit stage is WP108. (The RTL generator would
+reject the new step kind and the nine-field data step; RTL work is stopped.)
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

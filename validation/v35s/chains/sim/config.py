@@ -835,6 +835,31 @@ OPTIONS = {
     # none F84 F87 W93. The repeats' cells with 6 bytes queued (F40-out-reg-testdl-k2-pO-w0,
     # silicon F91) stay facts: one word fits only if the ModR/M byte has left the queue
     "room_ir_pre": ("none", "test"),
+    # (WP107, F35/F40, 2026-10-31) far_room: under room_ir=arrival / arrival_idle the empty IR
+    # is the request rule's seventh slot on a word's arrival clock whatever the running form
+    # (none) / except while BR far or CALL far has only its segment word's last byte to take
+    # (take). F35-out-far-callf-pE-w0, rel t_fill (with call_far_post=take): CALL far (EOEOE)
+    # starts 84 on M0's I/O, its segment's low byte taken on 91, F88's delivery; silicon F92
+    # W98 (none: F91, the segment taken on its issue). Applied to every class with one operand byte left: -778 on F35
+    # F37 F40 F23 F30 F34 F39. PROTOTYPE (WP107), scored not fitted.
+    "far_room": ("none", "take"),
+    # (WP107, F35/F40, 2026-10-31) call_far_post: CALL far's segment word taken with the take
+    # sync, wpre clocks, then the first write posted with setup / setup_free (sync) / the
+    # segment word's take chained and the first write posted on the next clock with
+    # call_far.tsetup clocks of setup, its last call_far.tfree fetch-free, a fetch run inside
+    # those (free_run) restarting them after its end (take): the write at the later of the
+    # segment take + 6 and the last fetch's end + 3 at every wait and alignment.
+    # F35-out-far-callf-pO-w1, rel t_fill: the segment taken on 94 (F90's delivery), F94 raised
+    # there; silicon W100 (sync: W101). PROTOTYPE (WP107), scored not fitted.
+    "call_far_post": ("sync", "take"),
+    # (WP107, F35, 2026-10-31) ret_far_fetch: RET far imm16 raises fetch requests as any taken
+    # transfer up to its flush hold (hold) / with an immediate that is a whole word (the form at
+    # an odd address), the request its take raises waits until the second read's data and goes
+    # then, the flush hold from the clock after (after). F35-out-far-callf-retf2-pO-w1, rel
+    # t_fill (with ret_far_imm setup 7 / setup_free 3): the reads at 158 and 169, silicon F173
+    # back to back after the second (hold: no fetch, the refill F181). PROTOTYPE (WP107),
+    # scored not fitted.
+    "ret_far_fetch": ("hold", "after"),
     # (WP104, F40, 2026-10-31) one_idle: a one-byte register form runs its pre0 clocks
     # wherever it starts (none) / a clock fewer, its nx0 IR load a clock earlier, when it starts
     # with the queue full (room for no word), the bus idle and no cycle issued on its start
@@ -1008,7 +1033,9 @@ DEFAULT_COST = {
 # exit); spre (the far forms: clocks between the offset word's take and the segment word's);
 # wpre (CALL r16 / far: clocks between the operand take and the first write's post); mhold
 # (ret_imm_hold=word: the half-taken word's fetch hold); phold (LES / LDS, POP PSW: no fetch
-# request for phold clocks from the last read's data). The fit's own are in fit.json.
+# request for phold clocks from the last read's data). (WP107) tsetup / tfree (call_far,
+# call_far_post=take: the first write's setup from the clock after the segment take, and its
+# fetch-free tail; unread under sync). The fit's own are in fit.json.
     "bcwz": {"pre": 0, "exec": 11, "post": 0, "fgap": 5, "hold": 2, "nexec": 4, "nfgap": 1,
              "nhold": 2, "wb": 2},
     "dbnz_z": {"pre": 0, "exec": 15, "post": 0, "fgap": 5, "hold": 2, "nexec": 7, "zexec": 4,
@@ -1018,7 +1045,7 @@ DEFAULT_COST = {
     "call_reg": {"pre": 3, "wpre": 0, "setup": 7, "setup_free": 7, "exec": 8, "post": 0,
                  "fgap": 5, "hold": 10},
     "call_far": {"pre": 3, "spre": 0, "wpre": 1, "setup": 3, "setup_free": 3, "wsetup": 7,
-                 "exec": 8, "post": 0, "fgap": 5, "hold": 16},
+                 "exec": 8, "post": 0, "fgap": 5, "hold": 16, "tsetup": 6, "tfree": 3},
     "ret_imm": {"pre": 0, "setup": 8, "setup_free": 4, "exec": 8, "post": 0, "fgap": 5,
                 "hold": 13, "mhold": 6},
     "ret_far": {"pre": 0, "setup": 7, "setup_free": 3, "wsetup": 7, "exec": 8, "post": 0,
@@ -1445,6 +1472,9 @@ class Config:
     page_b2b_win: str = "take"         # (WP94)
     shift_mem_imm: str = "rmw"         # (WP99)
     room_ir_pre: str = "none"          # (WP104)
+    far_room: str = "none"             # (WP107)
+    call_far_post: str = "sync"        # (WP107)
+    ret_far_fetch: str = "hold"        # (WP107)
     one_idle: str = "none"             # (WP104)
     brk_free: str = "type"             # (WP104)
     per_shift_count: int = 2           # shift(count) clocks per count

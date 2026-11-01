@@ -7412,3 +7412,87 @@ class SecondInstanceWP104(unittest.TestCase):
                                           s.chain_base)
                 old = simulate_normalized(s.chain, Config.fitted().replace(**WP101), s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+WP107 = {"far_room": "take", "call_far_post": "take", "ret_far_fetch": "after",
+         "ret_far_imm.setup": 7, "ret_far_imm.setup_free": 3}
+
+
+class FarTransferWP107(unittest.TestCase):
+    """(WP107, F35/F40) the far transfers (scratchpad wp107/facts.txt; clocks rel t_fill, the
+    tracked fit with WP101's and WP104's values): BR far / CALL far with only the segment's last
+    byte to take count no IR slot on a delivery clock (far_room=take); CALL far's first write at
+    the later of the segment take + 6 and the last fetch's end + 3 (call_far_post=take, tsetup 6,
+    tfree 3); RET far imm16's read at the later of its start + 6 and the last fetch's end + 3
+    (ret_far_imm setup 7 / setup_free 3) and, with a whole-word immediate, its fetch back to back
+    after the second read (ret_far_fetch=after). Each against its old value on its deciding run."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev101(cid, **{**WP104, **over})
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.far_room, "none")
+        self.assertEqual(OPTIONS["far_room"], ("none", "take"))
+        self.assertEqual(DEFAULT.call_far_post, "sync")
+        self.assertEqual(OPTIONS["call_far_post"], ("sync", "take"))
+        self.assertEqual(DEFAULT.ret_far_fetch, "hold")
+        self.assertEqual(OPTIONS["ret_far_fetch"], ("hold", "after"))
+        self.assertEqual(DEFAULT.c("call_far", "tsetup"), 6)
+        self.assertEqual(DEFAULT.c("call_far", "tfree"), 3)
+
+    def test_far_room_deciding_run(self):
+        # CALL far (EOEOE) starts 84 on M0's I/O, its segment's low byte taken on 91, F88's
+        # delivery: silicon F92 W98 (none: F91)
+        mod = self._exact("F35-out-far-callf-pE-w0", **WP107)
+        self.assertIn((92, "fetch", 0x10056, "word", 3), mod)
+        _, old = _ev101("F35-out-far-callf-pE-w0", **{**WP104, **WP107, "far_room": "none"})
+        self.assertIn((91, "fetch", 0x10056, "word", 3), old)
+        for cid in ("F35-out-far-callf-pO-w0", "F35-push-far-callf-pO-w0",
+                    "F40-out-xfer-brf-k2-pO-w1", "F40-out-xfer-callfretf-k4-pE-w0"):
+            self._exact(cid, **WP107)
+
+    def test_call_far_post_deciding_run(self):
+        # the segment taken on 94, F90's delivery, F94 raised there: silicon W100 (sync: W101)
+        mod = self._exact("F35-out-far-callf-pO-w1", **WP107)
+        self.assertIn((100, "stack_write", 0x0EFE, "word", 4), mod)
+        _, old = _ev101("F35-out-far-callf-pO-w1", **WP104)
+        self.assertIn((101, "stack_write", 0x0EFE, "word", 4), old)
+        for cid in ("F35-out-far-callf-pE-w1", "F35-push-far-callf-pE-w2",
+                    "F40-push-xfer-callfretf-k4-pO-w2"):
+            self._exact(cid, **WP107)
+
+    def test_ret_far_imm_read_and_fetch(self):
+        # RETF 2 (OEO) starts on an idle bus: silicon S158 S169 F173 F182 (setup 6 / 4: S157;
+        # ret_far_fetch=hold: no fetch, the refill F181)
+        mod = self._exact("F35-out-far-callf-retf2-pO-w1", **WP107)
+        self.assertIn((158, "stack_read", 0x0EFA, "word", 4), mod)
+        self.assertIn((173, "fetch", 0x1005C, "word", 4), mod)
+        _, old = _ev101("F35-out-far-callf-retf2-pO-w1",
+                        **{**WP104, **WP107, "ret_far_fetch": "hold"})
+        self.assertNotIn((173, "fetch", 0x1005C, "word", 4), old)
+        self.assertIn((181, "fetch", 0x10053, "word", 4), old)
+        # RETF 2 (EOE) starts on F143's issue: silicon S149 (setup 6 / 4: S150)
+        self._exact("F35-out-far-callf-retf2-pE-w1", **WP107)
+        _, old = _ev101("F35-out-far-callf-retf2-pE-w1",
+                        **{**WP104, **WP107, "ret_far_imm.setup": 6, "ret_far_imm.setup_free": 4})
+        self.assertIn((150, "stack_read", 0x0EFA, "word", 4), old)
+
+    def test_br_far_refill_stays_a_fact(self):
+        # BR far (EOEOE, w0): F95 committed back to back on the flush clock, silicon's refill at
+        # its end + 4 (F101), the model's fgap 5 at F103
+        sil, mod = _ev101("F35-out-far-brf-n0-pE-w0", **{**WP104, **WP107})
+        self.assertIn((101, "fetch", 0x10053, "word", 3), sil)
+        self.assertIn((103, "fetch", 0x10053, "word", 3), mod)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families reads a WP107 value
+        for fam in ("F5", "F23", "F24", "F39"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**WP101, **WP104, **WP107}), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**{**WP101, **WP104}),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

@@ -1460,6 +1460,12 @@ def _wp88_steps(op: Op, cfg, c, ea) -> list[tuple]:
         # wpre: EU clocks between the operand take and the first write's post
         write = ([("clocks", c("wpre"))] if c("wpre") else []) + [
             ("data", "write", sp, 2, c("setup"))]
+        if cls == "call_far" and cfg.call_far_post == "take":
+            # (WP107) call_far_post=take: the segment word's take chained (no take sync), the
+            # first write posted on the next clock, tsetup clocks of setup, its last tfree
+            # fetch-free
+            head = head[:-1] + [("take", 2, "chain")]
+            write = [("data", "write", sp, 2, c("tsetup"), c("tfree"), False, False, True)]
         if cls == "call_far":
             write.append(("data", "write", (sp - 2) & 0xFFFF, 2, c("wsetup"), c("wsetup")))
         flush = [("clocks", c("exec")), ("flush", op.target)]
@@ -1480,8 +1486,17 @@ def _wp88_steps(op: Op, cfg, c, ea) -> list[tuple]:
                     ("take", op.imm_bytes, "chain")] + hold + [("wait",)]
         else:
             seq.append(("data", "read", sp, 2, c("setup")))
+        after = (cls == "ret_far_imm" and cfg.ret_far_fetch == "after" and op.imm_bytes
+                 and not op.half_word)
+        if after:
+            # (WP107) ret_far_fetch=after: an immediate that is a whole word: the request its
+            # take raised waits (no request) until the second read's data, then goes, the flush
+            # hold from the clock after
+            seq.insert(len(seq) - 1, ("fetch_release", None))
         if cls != "ret_imm":
             seq.append(("data", "read", (sp + 2) & 0xFFFF, 2, c("wsetup"), c("wsetup")))
+        if after:
+            seq += [("fetch_release", 0), ("flush_from", 1)]
         return seq + [("clocks", c("exec")), ("flush", op.target), ("clocks", c("post"))]
     # phold: no fetch request for phold clocks from the last read's data (LES / LDS: the
     # segment word; POP PSW: the PSW), the register file's load
