@@ -5942,7 +5942,7 @@ transfer classes (F23, F30, F34, F37, F39 byte-identical); every new or moved in
 far-form runs (wp107/sens.txt). Tests test_sim.FarTransferWP107, test_fit's stage-30 class. Stage 30 (WP108) from this hand start: the fifty-fourth
 fit (Model). (The RTL generator would reject the new step kind and the nine-field data step; RTL work is stopped.)
 
-### The wait-keyed trades read: the digit rotate's exec does not count a fetch's wait clock; TEST1 [m] runs SET1's head but loses four; the register bit ops' two start states key on the lead (WP106, 2026-10-31; a candidate)
+### The wait-keyed trades read: the digit rotate's exec does not count a fetch's wait clock; TEST1 [m] runs SET1's head but loses four; the register bit ops' two start states key on the lead (WP106, 2026-10-31; the fifty-fifth fit)
 
 Three groups of misses (about 300 runs across F32, F34, F39 and F40) had resisted every rule because the integer that
 fits them differs by wait count, which the plan treats as a structural finding. Read per run and per instance with
@@ -5976,7 +5976,8 @@ every take, IR load, fetch, read, write and successor start beside silicon's (sc
   on bit1's exec win nothing.
 
 The edited tree under the unedited fit is byte-identical to a clean extract on all 42 lists; `rot4_exec=wait` with the
-three ROL4 integers is the candidate for the fit stage (WP110). Tests test_sim.WaitKeyedWP106.
+three ROL4 integers went to stage 31 (WP110): the fifty-fifth fit (Model). Tests test_sim.WaitKeyedWP106,
+test_fit's stage-31 class.
 
 ## Model
 
@@ -5997,7 +5998,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-fourth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-fifth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6475,10 +6476,16 @@ fifty-third fit plus WP107's far-transfer mechanisms, `far_room=take`, `call_far
 fit stage 30 (`F56_ENUMS`, `F56_INTS`; WP108) from that hand start made no move (the family guard refused the enum grid's other seven points, each losing F35 or F40 runs against the hand start; the descent over the 35 far-class integers and the sweep moved nothing). **33790 of 35,168 over 42 lists**: F35
 1,016 → 1038/1,044, F40 883 → 903/1,020, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
+**The fifty-fifth fit** (`fit.json`, md5 748962a9087e99c36f3e504e17b263cc; scratchpad wp110/fit-wp110.json, adopted 2026-10-31) is the
+fifty-fourth fit plus WP106's `rot4_exec=wait` with `rol4.pre` 1, `exec` 13, `wb` 2 (Facts "The wait-keyed trades
+read"): fit stage 31 (`F57_ENUMS`, `F57_INTS`; WP110) from that hand start kept every hand value: its one joint TEST1 move (`test1_head=set1`, `page_commit=post` with four bit1 integers, +84 −3) is a within-class trade and was not taken; `test1_head=own` with bit1_test pre 1 / nx 1 recorded as a tie with set1. **33878 of 35,168 over 42 lists**:
+F32 676 → 687/858, F39 1,202 → 1256/1,320, F40 903 → 926/1,020, the other lists byte-identical, nothing lost. Model
+side only, no RTL work.
 
-### Fitted structure (fifty-fourth fit, 2026-10-31)
 
-Fifty-four fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-fifth fit, 2026-10-31)
+
+Fifty-five fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6864,7 +6871,10 @@ adds the second instance's five mechanisms (`one_idle=flags`, `xfer_nt=dbnz_z`,
 `brk_free=format`, `room_ir_pre=test`, `br_reg.nx` 1; stage 29): 33748/35168,
 F40 883/1020, F34 1295, F36 750. The fifty-fourth (`fit.json`, 2026-10-31) adds
 the far transfers' mechanisms (`far_room=take`, `call_far_post=take`,
-`ret_far_fetch=after`; stage 30): 33790/35168, F35 1038/1044, F40 903/1020.
+`ret_far_fetch=after`; stage 30): 33790/35168, F35 1038/1044, F40 903/1020. The
+fifty-fifth (`fit.json`, 2026-10-31) adds the digit rotate's exec rule
+(`rot4_exec=wait`, rol4 pre 1 / exec 13 / wb 2; stage 31): 33878/35168, F32 687,
+F39 1256, F40 926.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

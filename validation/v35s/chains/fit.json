@@ -642,10 +642,10 @@
    "sthru": 2
   },
   "rol4": {
-   "exec": 14,
+   "exec": 13,
    "nx": 0,
-   "pre": 0,
-   "wb": 1
+   "pre": 1,
+   "wb": 2
   },
   "rol4_mem": {
    "alu": 12,
@@ -960,6 +960,7 @@
  "opcode_take": "prefetch",
  "page_b2b": "reg",
  "page_b2b_win": "run",
+ "page_commit": "start",
  "page_grp": "group",
  "page_imm_run": "delivery",
  "page_mem": "fixed",
@@ -1077,6 +1078,7 @@
  "room_ir_imm": "none",
  "room_ir_pre": "test",
  "room_ir_ready": false,
+ "rot4_exec": "wait",
  "sfr_cycle": "io",
  "sfr_setup": "fetch_free",
  "shift_cl_mem": "count",
@@ -1111,6 +1113,7 @@
  "sync_req": "disp",
  "take_commit": "at_end",
  "take_sync": "pending",
+ "test1_head": "own",
  "unit_hold": true,
  "untaken": "wait",
  "wb_fetch": "hold",
