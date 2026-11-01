@@ -7585,3 +7585,112 @@ class WaitKeyedWP106(unittest.TestCase):
                 old = simulate_normalized(s.chain, Config.fitted().replace(
                     **{**WP101, **WP104, **WP107}), s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+
+WP109 = {"mul_imm_count": "sync", "mul_imm_half": "room", "mul_imm_exec": "hold",
+         "mul_data": "sign", "mul.smexec": 39}
+# (fit 54) the pre-WP109 values, pinned for the "old" traces so they hold after an adoption: the
+# four enums and mul.smexec, and the tracked values the MUL imm memory template reads with them
+_OLD109 = {"mul_imm_count": "post", "mul_imm_half": "hold", "mul_imm_exec": "free",
+           "mul_data": "none", "mul.smexec": 49, "mul_imm_read": "issue", "mul_imm_hold": "word",
+           "mul_imm.rsetup": 2, "mul_imm.mhold": 41, "mul_imm.mexec": 43, "mul_imm.hphase": 2,
+           "unit_hold": True}
+_KEEP109 = {k: v for k, v in _OLD109.items() if k not in WP109}
+
+
+def _ev109(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with the MUL imm
+    template's tracked values pinned (_KEEP109) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**_KEEP109, **over}),
+                            s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class MulImmWP109(unittest.TestCase):
+    """(WP109, F33/F34) the multiply's read and exec (scratchpad wp109/facts.txt; clocks rel
+    t_fill): MUL imm memory's read counts rsetup and a clock per immediate byte from the clock
+    after its EA clocks, restarted by a non-fetch cycle (the EU's previous request) or a fetch
+    issued before that clock, a fetch issued on or after it running inside the count
+    (mul_imm_count=sync); its half-taken immediate word holds fetch requests only while the queue
+    has no room for a word besides the taken byte (mul_imm_half=room); its exec waits while a
+    fetch is past its second clock, each such fetch costing its wait states + 1
+    (mul_imm_exec=hold); MUL r/m16's exec adds the data book's sign clocks (mul_data=sign, with
+    smexec the equal-sign cost 39). Each against its old value on its deciding run."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev109(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["mul_imm_count"], ("post", "sync"))
+        self.assertEqual(OPTIONS["mul_imm_half"], ("hold", "room"))
+        self.assertEqual(OPTIONS["mul_imm_exec"], ("free", "hold", "unit"))
+        self.assertEqual(OPTIONS["mul_data"], ("none", "sign"))
+        for name in ("mul_imm_count", "mul_imm_half", "mul_imm_exec", "mul_data"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+
+    def test_mul_data_operands(self):
+        regs = dict(FORMS_REGS)
+        # AW = 0 x [BW] = 9090h (the fill): signs differ, the product's halves both zero
+        self.assertEqual(decode(bytes([0xF7, 0x2F]), 0, {**regs, "AW": 0}).mneg, 10)
+        self.assertEqual(decode(bytes([0xF7, 0x2F]), 0, {**regs, "AW": 0x1234}).mneg, 8)
+        self.assertEqual(decode(bytes([0xF7, 0xE9]), 0, {**regs, "AW": 0x1234,
+                                                         "CW": 0x001F}).mneg, 0)
+        self.assertEqual(decode(bytes([0xF7, 0x27]), 0, {**regs, "AW": 0}).mneg, 0)   # MULU
+
+    def test_count_deciding_runs(self):
+        # the fetch on the start clock (88-91) and the committed one (92-95): silicon R97 =
+        # 92 + rsetup 2 + 2 + the issue clock (post: R98)
+        mod = self._exact("F34-out-mul-mul_aw_m_imm16-nop-k1-pE-w1", **WP109)
+        self.assertIn((97, "data_read", 0x0800, "word", 4), mod)
+        _, old = _ev109("F34-out-mul-mul_aw_m_imm16-nop-k1-pE-w1", **_OLD109)
+        self.assertIn((98, "data_read", 0x0800, "word", 4), old)
+        # M0's port write 85-87 restarts the count: silicon R92 (post: R90)
+        self._exact("F34-out-mul-mul_aw_m_imm16-l0-k1-pO-w0", **WP109)
+        _, old = _ev109("F34-out-mul-mul_aw_m_imm16-l0-k1-pO-w0",
+                        **{**WP109, "mul_imm_count": "post"})
+        self.assertIn((90, "data_read", 0x0800, "word", 3), old)
+        for cid in ("F34-out-mul-mul_aw_m_imm8-l0-k1-pO-w2", "F33-out-mul_aw_m_imm16-k2-pE-w1",
+                    "F34-out-mul-mul_aw_m_imm16-nop-k1-pE-w0"):
+            self._exact(cid, **WP109)
+
+    def test_half_deciding_run(self):
+        # an idle start, 2 bytes left after the immediate: silicon R119 F122 F125 (hold: F163)
+        mod = self._exact("F34-out-mul-mul_aw_m_imm16-sep-k1-pE-w0", **WP109)
+        self.assertIn((122, "fetch", 0x10058, "word", 3), mod)
+        _, old = _ev109("F34-out-mul-mul_aw_m_imm16-sep-k1-pE-w0",
+                        **{**WP109, "mul_imm_half": "hold"})
+        self.assertIn((163, "fetch", 0x10058, "word", 3), old)
+
+    def test_exec_deciding_run(self):
+        # R92, the fetch 96-99 in the exec: silicon F146 O154 (free: F144 O152)
+        mod = self._exact("F34-out-mul-mul_aw_m_imm16-l0-k1-pE-w1", **WP109)
+        self.assertIn((146, "fetch", 0x10058, "word", 4), mod)
+        _, old = _ev109("F34-out-mul-mul_aw_m_imm16-l0-k1-pE-w1", **_OLD109)
+        self.assertIn((144, "fetch", 0x10058, "word", 4), old)
+
+    def test_data_deciding_run(self):
+        # MUL [BW] with AW = 1234h: silicon F161 (none, smexec 49: F163); AW = 0 exact under both
+        mod = self._exact("F33-out-mul_m-ld-k1-pE-w0", **WP109)
+        self.assertIn((161, "fetch", 0x1005C, "word", 3), mod)
+        _, old = _ev109("F33-out-mul_m-ld-k1-pE-w0", **_OLD109)
+        self.assertIn((163, "fetch", 0x1005C, "word", 3), old)
+        for cid in ("F33-out-mul_m-k1-pE-w0", "F16-r-push-mul-pO-w0"):
+            self._exact(cid, **WP109)
+            self._exact(cid, **_OLD109)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP109's values
+        for fam in ("F3", "F14", "F16", "F32"):
+            for run in _runs(fam)[::50]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**_KEEP109, **WP109}), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**_OLD109),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

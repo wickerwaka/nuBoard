@@ -536,6 +536,46 @@ OPTIONS = {
     # fetch committed back to back at 90 beats the read, R93). Flip at the candidate: none -35
     # (F33 -6, F34 -29)
     "mul_imm_hold": ("none", "word"),
+    # (WP109, F33, F34, 2026-10-31) mul_imm_count: MUL r16,r/m,imm's read counts its rsetup
+    # clocks as mul_imm_read has it (post) / from the clock after its ModR/M byte's EA clocks,
+    # rsetup and a clock per immediate byte, none of them while a bus cycle that is not a fetch
+    # runs (the EU's previous request, M0's port write) or while a fetch issued before that
+    # clock runs (either restarts the count); a fetch issued on or after it runs inside the
+    # count; the read issues on the first free bus clock after (sync). Read off all 162 MUL imm
+    # memory reads of F33 and F34 (153 at the model's start, the other 9 the k = 2 second
+    # instance at silicon's own start). F34-out-mul-mul_aw_m_imm16-nop-k1-pE-w1, rel the start:
+    # the fetch on the start clock 0-3, the committed one 4-7, silicon's read 8 = 4 + rsetup 2
+    # + 2 (post: R9); -l0-k1-pO-w0: the fetch 2-4, M0's port write 5-7, silicon's read 12 =
+    # 8 + 4 (post: R10); -sep-k1-pE-w0: an idle bus, silicon's read 7 = 3 + 4 at every wait
+    # (post: R4). PROTOTYPE (WP109), scored not fitted.
+    "mul_imm_count": ("post", "sync"),
+    # (WP109, F33, F34, 2026-10-31) mul_imm_half: under mul_imm_hold=word the half-taken
+    # immediate word holds fetch requests for mhold clocks (hold) / only while the queue,
+    # counting the half-taken word's taken byte as used, has no room for a word after the
+    # immediate's take (room): with 2 bytes left (room 4) silicon fetches right after the read
+    # in all 16 such reads; with 4 left (room 2) it holds in all 17. F34-out-mul-
+    # mul_aw_m_imm16-sep-k1-pE-w0, rel the start: silicon R7 F10 F13 (hold: F48);
+    # -nop-k1-pE-w0: R7 F51 under both. PROTOTYPE (WP109), scored not fitted.
+    "mul_imm_half": ("hold", "room"),
+    # (WP109, F33, F34, 2026-10-31) mul_imm_exec: under unit_hold a memory form's exec clocks
+    # after its read run whatever the bus does (free) / MUL imm's wait at a micro-boundary while
+    # a fetch is past its second clock, as a register multiply's do (hold) / every memory
+    # multiply's and divide's (unit). With the read and the hold matched (mul_imm_count=sync,
+    # mul_imm_half=room) all 63 MUL imm memory instances with a fetch right after the read end
+    # w + 1 clocks later per such fetch in silicon (one fetch: 1/2/3 at w0/w1/w2, two: 2/4/6)
+    # and the 78 without one end where the model does. F34-out-mul-mul_aw_m_imm16-l0-k1-pE-w1,
+    # rel the start: R11 F15-18, silicon F65 O73 (free: F63 O71). PROTOTYPE (WP109), scored
+    # not fitted.
+    "mul_imm_exec": ("free", "hold", "unit"),
+    # (WP109, F33, 2026-10-31) mul_data: MUL r/m16's (F7 /5) exec clocks are the class's
+    # sexec / smexec whatever the operands (none) / plus the data book's sign clocks (Op.mneg,
+    # docs/v35s-eu-timing.md "Multiply"): 8 when the operands' top bits differ, one more with
+    # the product's low half zero, one more again with the high half zero too (sign; smexec is
+    # then the equal-sign cost, 10 below none's, which the corpus's AW = 0 x 9090h cells fit).
+    # F33-out-mul_m-ld-k1-pE-w0 (AW = 1234h, [BW] = 9090h, rel the start): R8, silicon F63 O70
+    # (none: F65 O72), where F16-r-push-mul-pO-w0 and F33-out-mul_m-k1-pE-w0 (AW = 0) are
+    # exact under both. PROTOTYPE (WP109), scored not fitted.
+    "mul_data": ("none", "sign"),
     # (WP81, F34, 2026-10-30) bf_read: a bit field's first word read (EXT / INS) counts its setup
     # per bf_count (count) / issues fsetup clocks (and one more per immediate byte: the imm4
     # width) after its post, every one fetch-free: a fetch on the bus at the post restarts the
@@ -1469,6 +1509,10 @@ class Config:
     page_mem: str = "group"            # (WP81)
     mul_imm_read: str = "issue"        # (WP81)
     mul_imm_hold: str = "none"         # (WP81)
+    mul_imm_count: str = "post"        # (WP109)
+    mul_imm_half: str = "hold"         # (WP109)
+    mul_imm_exec: str = "free"         # (WP109)
+    mul_data: str = "none"             # (WP109)
     bf_read: str = "count"             # (WP81)
     wb_fetch: str = "free"             # (WP81)
     refresh_scope: str = "any"         # (WP84)

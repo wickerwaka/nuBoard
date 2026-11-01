@@ -5979,6 +5979,42 @@ The edited tree under the unedited fit is byte-identical to a clean extract on a
 three ROL4 integers went to stage 31 (WP110): the fifty-fifth fit (Model). Tests test_sim.WaitKeyedWP106,
 test_fit's stage-31 class.
 
+### The multiply's read, hold, exec and data cost: four mechanisms for the "read offset that moves with the wait count" (WP109, 2026-10-31; a candidate)
+
+Under the fifty-fourth fit 109 refresh-off misses were the read of a multiply with a memory operand or an immediate
+(F34 `mul` 66, F33 43: MUL r16,[BW],imm8/imm16 84, MUL [BW] after the load 12, DIV/DIVU [BW] 4, MUL imm register 9).
+Read per run and per cell over all 258 multiply and divide runs of F33 and F34 (scratchpad wp109/facts.txt: the ModR/M
+take, the read's post and issue, the immediate's take, every fetch, the end, silicon beside the model), the offset
+WP94 left as "moving with the wait count behind a lead" is four mechanisms, none keyed on waits, parity, k or the lead:
+
+- **S1, the MUL imm memory read:** the EU posts the read the clock after the ModR/M byte's EA clocks; the bus unit
+  issues it `rsetup` clocks plus one per immediate byte later, the issue clock counted; a cycle that is not a fetch
+  (the EU's previous request, M0's port write) restarts the count, a fetch issued before the post restarts it and a
+  fetch issued on or after the post runs inside it; the read then waits for a free bus. On silicon's own bus events it
+  fits all 162 reads (the alternatives miss 69–126). Enum `mul_imm_count` (post → sync). Alone: F34 +21, lost 0.
+- **S2, the half-taken word's fetch hold:** silicon holds fetches after the read only when the queue keeps 4 bytes
+  after the immediate's take (17 of 17) and fetches right after the read with 2 bytes left (16 of 16); the model held
+  all 39 imm16 reads of that alignment. The taken byte keeps its slot until the next opcode is taken: the hold comes
+  from the queue's room, not the alignment alone. Enum `mul_imm_half` (hold → room); +16 once S1 and S3 are in.
+- **S3, the end after the read:** with no fetch after the read silicon ends where the model does (78 instances); each
+  fetch inside the exec costs its wait states + 1 (one fetch +1/+2/+3 at w0/w1/w2, two back to back +2/+4/+6, 63
+  instances): the register multiply's `unit_hold` wait without the micro-boundary parity. Enum `mul_imm_exec` (free →
+  hold); the value `unit`, which holds MUL/MULU/DIV/DIVU [BW] too, loses 45 (F16 30, F14 6, F15 7, F33 2): in those
+  forms silicon ends unchanged with a fetch in the exec.
+- **S4, MUL [BW] after the load (+2 in all 12 runs):** not a bus effect. [BW] reads the fill 9090h and AW is 1234h after
+  the lead, against AW = 0 in the exact cells; the data book's signed-multiply rule (docs/v35s-eu-timing.md: +8 when
+  the operands' signs differ, +1 when the product's low half is zero, +1 more when the high half is) gives 0 × 9090h
+  +10 and 1234h × 9090h +8, the 2. Enum `mul_data` (none → sign) with `mul.smexec` 39, the decoder computing the
+  operands' sign relation. Alone: F33 +10, lost 0.
+- **Facts (15):** MUL/DIV/DIVU [BW] at k = 2, pO w0/w1 (6; a fetch in the second instance's exec ends exactly where the
+  exec does and silicon starts the OUT a clock before the model: every class's start rule on a fetch's last clock); MUL
+  imm register at k = 2 (7; the fetch after the second instance's start 2 clocks later in silicon: the next
+  instruction); MUL imm register under PUSH at w0 (2; one idle clock before the second fetch: wait-keyed).
+
+All four together: **F33 927 → 955/1,050, F34 1,295 → 1,361/1,596, lost 0**, the other 40 lists byte-identical; with
+every new enum at its default the edited tree is byte-identical to a clean export on all 42 lists. Tests
+test_sim.MulImmWP109 (the pre-change values pinned as `_OLD109`). The fit stage is WP111.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

@@ -97,6 +97,19 @@ class Request:
                                     # one committed back to back after the form's start (here)
     restart: bool = False           # (WP107) call_far_post=take: a fetch that runs in its
                                     # fetch-free clocks (free_run) restarts them after its end
+    mfrom: int | None = None        # (WP109) mul_imm_count=sync: MUL imm memory's read, its
+                                    # setup counted from here (mul_free)
+
+    def mul_free(self, bus, t: int) -> bool:
+        """(WP109) mul_imm_count=sync: t counts toward the read's setup unless a cycle runs that
+        is not a fetch (the EU's previous request) or a fetch issued before mfrom; either
+        restarts the count. A fetch issued on or after mfrom runs inside it."""
+        cur = bus.current
+        if (cur is not None and cur.start <= t <= cur.end
+                and (cur.kind != "fetch" or cur.start < self.mfrom)):
+            self.count = 0
+            return False
+        return True
 
     def page_free(self, bus, t: int) -> bool:
         """(WP81) page_mem=fixed: t counts toward the read's setup unless a fetch is on the bus
@@ -116,6 +129,8 @@ class Request:
         """Whether this clock counts toward setup (data_while_fetch mode; io_count=nowait)."""
         if self.pfree is not None and bus is not None and t is not None:
             return self.page_free(bus, t)       # (WP81) page_mem / bf_read=fixed
+        if self.mfrom is not None and bus is not None and t is not None:
+            return self.mul_free(bus, t)        # (WP109) mul_imm_count=sync
         if self.nowait:
             if (self.io_stall and not self.eu_halted and bus is not None
                     and bus.current is not None and bus.current.kind == "refresh"

@@ -114,6 +114,10 @@ class Op:
     zfail: bool = False
     # (WP91, F37) BRK's vector: the address of its offset word (4n; the segment word at + 2)
     vec: int | None = None
+    # (WP109) MUL r/m16 (F7 /5): the data book's clocks beyond the equal-sign cost
+    # (docs/v35s-eu-timing.md "Multiply"): with the operands' signs differing (by top bit) 8,
+    # one more with the product's low half zero, one more again with its high half zero too
+    mneg: int = 0
 
 
 def _modrm(code: bytes, k: int, regs: dict):
@@ -414,6 +418,17 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         else:
             cls = "mul" if reg in (4, 5) else "div" if reg in (6, 7) else "rmw"
             base["signed"] = reg in (5, 7)
+            if op == 0xF7 and reg == 5:
+                # (WP109) mul_data: the operands as the walk has them (a memory word the chain
+                # did not store reads the data fill)
+                a = regs["AW"]
+                b = (regs[REG16[rm]] if not mem
+                     else regs.get(f"mem{ea & 0xFFFF:04X}", FILL_WORD))
+                if (a ^ b) & 0x8000:
+                    sx = lambda v: v - 0x10000 if v & 0x8000 else v
+                    p = (sx(a) * sx(b)) & 0xFFFFFFFF
+                    lo0 = not p & 0xFFFF
+                    base["mneg"] = 8 + int(lo0) + int(lo0 and not p >> 16)
     elif op == 0xFE:                    # (WP78, F33) INC / DEC r/m8 (FE /0, /1)
         if reg not in (0, 1):
             raise ValueError(f"opcode FE /{reg} at chain offset {k} is not in the catalog")
@@ -1208,11 +1223,15 @@ def _steps(op: Op, cfg) -> list[tuple]:
             # (WP78, F33) the signed register form (F7 /5 MUL, /7 DIV) runs the class's sexec
             # where it has one (a format property, as smexec for the memory form)
             ex = c("sexec") if op.signed and "sexec" in cfg.cost.get(cls, {}) else c("exec")
+            if op.signed and cls == "mul" and cfg.mul_data == "sign":
+                ex += op.mneg           # (WP109) mul_data=sign: the data book's sign clocks
             return [("clocks", c("pre")), ("take", rest), ("clocks", ex)]
         # (WP19) a memory operand form may have its own mexec (a format property, as exec0)
         mex = c("mexec") if "mexec" in cfg.cost.get(cls, {}) else c("exec")
         if op.signed and "smexec" in cfg.cost.get(cls, {}):
             mex = c("smexec")           # (WP21) the signed operation (F7 /5, /7): its own
+            if cls == "mul" and cfg.mul_data == "sign":
+                mex += op.mneg          # (WP109) mul_data=sign: the data book's sign clocks
         elif op.width == 1 and "bmexec" in cfg.cost.get(cls, {}):
             mex = c("bmexec")           # (WP21) the byte operation (F6): its own
         return _head(op, cfg, c("pre"), ea) + [("data", "read", op.ea, op.width, 0),
@@ -1633,6 +1652,10 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
             return [("clocks", c("pre")), ("take", rest), ("clocks", c("exec"))]
         hold = ([("fetch_hold", c("mhold"))] if cfg.mul_imm_hold == "word" and op.half_word
                 else [])
+        if hold and cfg.mul_imm_half == "room":
+            # (WP109) mul_imm_half=room: the hold only while the queue has no room for a word
+            # besides the half-taken word's taken byte (eu.py)
+            hold = [("fetch_hold", c("mhold"), "room")]
         if cfg.mul_imm_read == "imm":
             # (WP81) mul_imm_read=imm: the read is posted before the immediate's take but
             # issues only rsetup clocks and a clock per immediate byte after its post, the
@@ -1642,7 +1665,13 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
             return (_head(op, cfg, c("pre"), ea)
                     + [("post", "read", op.ea, op.width, c("rsetup") + op.imm_bytes)] + hold
                     + [("take", op.imm_bytes, "chain"), ("wait",), ("clocks", c("mexec"))])
-        return _head(op, cfg, c("pre"), ea) + _imm_read(op, cfg, c) + hold + [("clocks", c("mexec"))]
+        read = _imm_read(op, cfg, c)
+        if cfg.mul_imm_count == "sync" and read[0][0] == "post":
+            # (WP109) mul_imm_count=sync: the read issues rsetup clocks and a clock per
+            # immediate byte after the clock after the EA clocks (eu.py,
+            # arbiter.Request.mul_free); the issue clock is one of the setup's counted clocks
+            read[0] = read[0][:4] + (c("rsetup") + op.imm_bytes + 1,)
+        return _head(op, cfg, c("pre"), ea) + read + hold + [("clocks", c("mexec"))]
     if cls in BCD_CLASSES:
         seq = [("clocks", c("pre")), ("take", rest)]
         for i in range(op.n):

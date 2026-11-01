@@ -345,6 +345,11 @@ class EU:
         # (WP94) page_imm_run: a 0F memory form with an immediate bit index under page_mem=fixed
         self.page_imm = (cfg.page_imm_run == "delivery" and self.page_fixed == "start"
                          and bool(op.imm_bytes))
+        # (WP109) mul_imm_count=sync: MUL imm memory's read counts its setup from the clock
+        # after its ModR/M byte's EA clocks (arbiter.Request.mul_free)
+        self.mul_from = (t + 1 + cfg.ea.get(ea_class(op, cfg), 0)
+                         if op.cls == "mul_imm" and op.ea is not None
+                         and cfg.mul_imm_count == "sync" else None)
         self.ro = bcls in ("load", "load_alu")
         self.prev_cls = getattr(self, "cls", None)   # (WP61) refresh_beat_b2b
         self.cls = bcls
@@ -518,13 +523,29 @@ class EU:
             return True                 # (WP55) branch_reg=reg: a transfer is a register-only form
         return cls == "div" and mode != "none" and self.cfg.reg_div
 
+    def _mem_unit_hold(self) -> bool:
+        """(WP109) mul_imm_exec: a memory multiply's exec clocks after its read are held as
+        unit_hold holds a register form's: MUL imm's (hold), every memory multiply's and
+        divide's (unit)."""
+        if self.cls not in ("mul", "div") or not any(s[0] in ("data", "wait")
+                                                     for s in self.steps[:self.k]):
+            return False                # (the EA clocks before the read are not held)
+        mode = self.cfg.mul_imm_exec
+        return mode == "unit" or (mode == "hold" and self.ccls == "mul_imm")
+
     def _unit_hold(self, t: int) -> bool:
         """(WP22) unit_hold: a register shift, multiply or divide in its exec clocks waits at
         a micro-boundary (every second exec clock from the class's hphase-th) while a fetch,
         or an aborted fetch cycle, is past its second clock, until the clock after that
         cycle's last; the clocks still to run move on with it."""
         n = t - self.exec_t - self.cfg.c(self.ccls, "hphase")
-        if n < 0 or n % 2:
+        if self.mem:
+            # (WP109) mul_imm_exec: a memory form's exec waits on any clock a fetch is past
+            # its second clock (no micro-boundary parity): each such fetch costs its wait
+            # states + 1
+            if t < self.exec_t:
+                return False
+        elif n < 0 or n % 2:
             return False
         q = self.decoder.queue
         cur = self.bus.current
@@ -728,7 +749,8 @@ class EU:
                         self.resume += self.cfg.io_recover
                     return
                 self.k += 1
-                if (step[1] and self.exec_t is None and self.cfg.unit_hold and not self.mem
+                if (step[1] and self.exec_t is None and self.cfg.unit_hold
+                        and (not self.mem or self._mem_unit_hold())
                         and self.taken and self.decoder.need == 0
                         and self.cls in ("shift_imm", "shift_cl", "mul", "div")):
                     self.exec_t = t             # (WP22) unit_hold: the exec's first clock
@@ -1054,6 +1076,12 @@ class EU:
                 continue
             if kind == "fetch_hold":             # (WP67, F24) str_hold=hold: no fetch request
                 q = self.decoder.queue           # for step[1] clocks from here
+                if (len(step) > 2 and step[2] == "room"
+                        and QUEUE_BYTES - len(q.bytes) - 1 >= 2):
+                    # (WP109) mul_imm_half=room: no hold while the queue has room for a word
+                    # besides the half-taken word's taken byte
+                    self.k += 1
+                    continue
                 if step[1] == BF_TAKE_HOLD:      # (WP94) bf_imm_hold: armed, from the next take
                     q.take_hold, q.hold_from = t, None
                 elif q.take_hold is not None:    # (WP94) lifted by the form's 0-clock hold
@@ -1538,6 +1566,18 @@ class EU:
                 r.count = n
             else:
                 r.pfree = t - 1
+        if getattr(self, "mul_from", None) is not None and args[0] == "read":
+            # (WP109) mul_imm_count=sync: the setup counts the clocks since mul_from on which no
+            # cycle runs that is not a fetch, nor a fetch issued before mul_from; those already
+            # past at the post count back to the last such clock
+            mf, self.mul_from = self.mul_from, None
+            r.mfrom = mf
+            n, c = 0, t - 1
+            while c >= mf and n < r.setup and not any(
+                    x.start <= c <= x.end and (x.kind != "fetch" or x.start < mf)
+                    for x in self.bus.cycles[-6:]):
+                n, c = n + 1, c - 1
+            r.count = n
         if (self.cfg.stack_wb != "none" and args[0] == "read" and t < self.wb_until
                 and t == self.start_clock
                 and self.cls == "ret"):     # (WP88) the base class: RET imm16, the far RETs
