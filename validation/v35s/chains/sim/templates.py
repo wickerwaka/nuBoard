@@ -572,6 +572,8 @@ BF_CLASSES = ("bf_ext", "bf_ins")
 # take (that clock included) and lasts until a ("fetch_hold", 0) lifts it; requests raised
 # (and back-to-back fetches committed) before that take still run (eu.py, queue.py)
 BF_TAKE_HOLD = -1
+# (WP114) bcd_fetch=hold: a hold longer than any BCD string, lifted by the form's 0-clock hold
+BCD_HOLD = 4096
 # (WP78) the classes of the 0F page and F33 whose structure (the queue's, the bus unit's and the
 # EU's rules that name a class: the I/O interlock, the register forms' and the unit forms'
 # rules, the read-modify-write's) is an existing class's: the costs are their own (Config.c
@@ -1631,6 +1633,15 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
         pre = c("pre") if rest else (c("pre0") if "pre0" in cfg.cost.get(cls, {}) else c("pre"))
         return [("clocks", pre), ("take", rest),
                 ("clocks", c("exec") + (c("cl") if op.cl_count else 0))]
+    if base == "imm" and cfg.cvt_hold == "word" and op.half_word:
+        # (WP114) cvt_hold=word: CVTBD / CVTDB with the constant byte the even half of its word
+        # (the next opcode the odd half): no fetch request from that byte's take (requests
+        # raised and back-to-back fetches committed before it still run) until hrel clocks
+        # before the exec's end (BF_TAKE_HOLD, as bf_imm_hold)
+        r = min(c("hrel"), c("exec"))
+        return [("clocks", c("pre")), ("fetch_hold", BF_TAKE_HOLD, "dlv"),
+                ("take", op.imm_bytes),
+                ("clocks", c("exec") - r), ("fetch_hold", 0), ("clocks", r)]
     if base == "imm":
         return [("clocks", c("pre")), ("take", op.imm_bytes), ("clocks", c("exec"))]
     fixed = cfg.page_mem == "fixed" and op.page and op.ea is not None
@@ -1648,6 +1659,11 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
     if base in ("load_alu", "rmw"):
         return _wp78_mem(op, cfg, c, ea, base, cl)
     if base == "mul":
+        if op.ea is None and cfg.mul_imm_reg == "gap":
+            # (WP114) mul_imm_reg=gap: MUL r16,r16,imm takes its ModR/M byte (no take sync) and
+            # its immediate igap clocks later, the take sync after the immediate's last byte
+            return [("clocks", c("pre")), ("take", 1, "chain"), ("clocks", c("igap")),
+                    ("take", rest - 1), ("clocks", c("exec"))]
         if op.ea is None:
             return [("clocks", c("pre")), ("take", rest), ("clocks", c("exec"))]
         hold = ([("fetch_hold", c("mhold"))] if cfg.mul_imm_hold == "word" and op.half_word
@@ -1679,6 +1695,13 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
                     ("data", "read", (op.iy + i) & 0xFFFF, 1, c("mid"))]
             if cls == "bcd4s":
                 seq.append(("data", "write", (op.iy + i) & 0xFFFF, 1, c("wmid")))
+        if cfg.bcd_fetch == "hold":
+            # (WP114) bcd_fetch=hold: no fetch request from the first read's data until hrel
+            # clocks before the end (a fetch_hold of BCD_HOLD clocks, lifted by a 0-clock one);
+            # the first read on an idle start counts a clock later (machine.py)
+            r = min(c("hrel"), c("exec"))
+            seq.insert(3, ("fetch_hold", BCD_HOLD))
+            return seq + [("clocks", c("exec") - r), ("fetch_hold", 0), ("clocks", r)]
         return seq + [("clocks", c("exec"))]
     offset, width, cross, cost = op.bf
     first = op.ix if cls == "bf_ext" else op.iy

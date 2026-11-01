@@ -874,7 +874,15 @@ OPTIONS = {
     # TEST DL,AL starts 81 on an idle bus, 5 bytes queued, the IR emptied; silicon F81 F84 W93,
     # none F84 F87 W93. The repeats' cells with 6 bytes queued (F40-out-reg-testdl-k2-pO-w0,
     # silicon F91) stay facts: one word fits only if the ModR/M byte has left the queue
-    "room_ir_pre": ("none", "test"),
+    # (WP114, F33/F40, 2026-11-01) modrm: as test, for INC / DEC r8 (FE /0, /1 on a register)
+    # too, and the ModR/M byte of either counts as gone from the queue from the start (the
+    # decoder latches it with the opcode; the EU's take of it stays where it was). With
+    # incdec.nx 0 and incdec.rwb 0 (INC / DEC r8 then runs MOV CL,imm8's EU timing in every
+    # cell). F33-out-inc_al-k2-pO-w0, rel t_fill: the second INC AL (FE at an odd address)
+    # starts 91 on an idle bus with 6 bytes queued; silicon F91 (test: F94); F33-push-inc_al-
+    # k1-pO-w0 (5 bytes): silicon F81 F84 W93 (test: F84 F87). F40-out-reg-testdl-k2-pO-w0
+    # (TEST DL,AL, 6 bytes queued): silicon F91. PROTOTYPE (WP114), scored not fitted.
+    "room_ir_pre": ("none", "test", "modrm"),
     # (WP107, F35/F40, 2026-10-31) far_room: under room_ir=arrival / arrival_idle the empty IR
     # is the request rule's seventh slot on a word's arrival clock whatever the running form
     # (none) / except while BR far or CALL far has only its segment word's last byte to take
@@ -908,8 +916,14 @@ OPTIONS = {
     # adjusts (reg1) / and CVTBW / CVTWL (all1: loses F40's six CVTBW k = 4 PUSH cells, where
     # silicon's CVTBW keeps 3 clocks). F40-push-reg-lahf-k4-pO-w0, rel t_fill: LAHF starts 81
     # and 84 on fetch issues, 87 and 90 on an idle bus with 6 and 5 bytes queued; silicon W97
-    # (PUSH AW at 91), none W99
-    "one_idle": ("none", "flags", "reg1", "all1"),
+    # (PUSH AW at 91), none W99. (WP114, F33, 2026-11-01) long: as flags, and ADJBA / ADJBS and
+    # CVTWL too, and for the long forms (eu.LONG_CLASSES: DI, EI, ADJBA / ADJBS, CVTWL) the
+    # saved clock is a clock of their own, not a write-back: the port OUT after them starts a
+    # clock earlier as well. F33-out-cli-k2-pE-w0, rel t_fill: the second CLI starts 90 on an
+    # idle bus with 6 bytes queued; silicon F99 I106 (flags: F100 I107). ADJ4A / ADJ4S stay
+    # out (ADJ4A's identical cells are exact as they are). PROTOTYPE value (WP114), scored not
+    # fitted.
+    "one_idle": ("none", "flags", "reg1", "all1", "long"),
     # (WP104, F40, 2026-10-31) brk_free: the vector offset's read keeps brk.rfree fetch-free
     # clocks before it for BRK 3 and BRK imm8 alike (type) / BRK 3, without a type byte, keeps
     # brk.rfree0 (format: a format property, as pre0). F40-out-ind-brk3-k2-pE-w0, rel t_fill:
@@ -967,6 +981,40 @@ OPTIONS = {
     # raise no request there and are unchanged. PROTOTYPE (WP112), scored not fitted: F32 +10,
     # F34 +18, lost 0.
     "page_cl": ("free", "thru"),
+    # (WP114, F33, 2026-11-01) cvt_hold: CVTBD / CVTDB (D4 / D5 0A) raise fetch requests as any
+    # form (none) / with the constant byte the even half of its word (the form at an odd
+    # address, the next opcode the word's odd half) no request is raised from that byte's take
+    # until hrel clocks before the exec's end (convert.hrel, convert_d.hrel), the take sync not
+    # counting a held request; a take on a word's delivery clock arms no hold (the delivered
+    # word fills the room) (word). F33-out-cvtbd-k1-pO-w1, rel t_fill: CVTBD starts 86 on M0's
+    # I/O issue, 6 bytes queued, its 0A taken at 89; silicon F105 (hrel 1), F117 I121 (none:
+    # F89 F119 I123); the PUSH twin F33-push-cvtbd-k1-pE-w0 (same alignment, the take on F81's
+    # delivery clock 84) fetches F84 as before. WP86's hold from before the take (+0 -3) is
+    # not this one. PROTOTYPE (WP114), scored not fitted.
+    "cvt_hold": ("none", "word"),
+    # (WP114, F33, 2026-11-01) long_exec: the long one-byte register forms (eu.LONG_CLASSES: the
+    # adjusts, DI, EI, CVTWL, whose IR load the loader holds nx0 clocks) count every clock
+    # (none) / do not count a clock on which a fetch is in a wait state, their IR load moving
+    # with them, as rot4_exec=wait (wait). F33-out-cvtwl-a8080-k1-pE-w2, rel t_fill: CVTWL
+    # starts 95 on F95's issue; silicon F112 (none: F110); F33-push-adj4a-k1-pE-w1. The
+    # 3-clock forms (flag, incdec, extend) keep counting (with them: -166 on the one-byte
+    # runs). PROTOTYPE (WP114), scored not fitted.
+    "long_exec": ("none", "wait"),
+    # (WP114, F33/F34, 2026-11-01) mul_imm_reg: MUL r16,r16,imm (69 / 6B, register operand)
+    # takes its ModR/M byte and immediate in one take step (take) / its ModR/M byte (no take
+    # sync), then mul_imm.igap clocks, then the immediate (gap). F33-out-mul_aw_cw_imm16-k2-
+    # pO-w0, rel t_fill: the second instance starts 128 on an idle bus; silicon F132 F135
+    # (take: F130 F133); the first instance, started on M0's I/O issue, took its immediate at
+    # +3 under imm_latch already. PROTOTYPE (WP114), scored not fitted.
+    "mul_imm_reg": ("take", "gap"),
+    # (WP114, F32/F40, 2026-11-01) bcd_fetch: the BCD strings (ADD4S / SUB4S / CMP4S) raise
+    # fetch requests as any form (free) / none from the first read's data until hrel clocks
+    # before the end (bcd4s.hrel, bcd4s_cmp.hrel), and started on an idle bus (no cycle on the
+    # start clock) the first read counts its setup a clock later (hold). F32-out-add4s-n2-k2-
+    # pO-w0, rel t_fill: the second ADD4S starts 144 on an idle bus with room for a word;
+    # silicon D160 D169 W181 F194 (free: D159 D168 W180 F183). Started on a fetch's issue the
+    # queue is full to the end and nothing changes. PROTOTYPE (WP114), scored not fitted.
+    "bcd_fetch": ("free", "hold"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1584,6 +1632,10 @@ class Config:
     page_ir: str = "none"              # (WP112)
     page_dio: str = "extend"           # (WP112)
     page_cl: str = "free"              # (WP112)
+    cvt_hold: str = "none"             # (WP114)
+    long_exec: str = "none"            # (WP114)
+    mul_imm_reg: str = "take"          # (WP114)
+    bcd_fetch: str = "free"            # (WP114)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

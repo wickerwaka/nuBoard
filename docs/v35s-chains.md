@@ -6058,6 +6058,43 @@ counted through the setup (+47 −141), a take-clock commitment as the take's ow
 test_sim.PageFormsWP112 (`_OLD112` pins the pre-change values), test_fit's stage-33 class. Stage 33 (WP113) from this
 hand start: the fifty-seventh fit (Model).
 
+### F33's miscellany read: INC/DEC r8 is MOV CL,imm8, the long one-byte forms' wait clocks and idle starts, the conversions' and BCD strings' fetch holds, MUL imm register's immediate gap (WP114, 2026-11-01; a candidate)
+
+F33's 95 remaining misses (INC/DEC r8 35, the long one-byte forms at k = 2 20, CVTWL 13, CVTBD/CVTDB 12, MUL imm
+register 9, MUL/DIV [BW] at k = 2 6), with F32's BCD k = 2 pO cells (21) and F40's add4s repeats (12), read per run and
+per cell with their exact neighbours (scratchpad wp114/facts.txt), are six mechanisms and four facts:
+
+- **INC/DEC r8 (F33 +35, F40 +3):** silicon runs INC/DEC r8 exactly as MOV CL,imm8, cell for cell, except on an
+  idle-bus start where INC r8 fetches on its start clock. The extra cost was not `wb_fetch`'s hold but a write-back
+  silicon does not have (`incdec.wb` 1) and an IR load a clock late (`incdec.nx` 1); `wb_fetch` mattered only because
+  the port OUT waited out that write-back. On the idle start the decoder latches the ModR/M byte with the opcode and the
+  empty IR counts as room: `room_ir_pre=modrm` (a wider value of WP104's enum, which also wins WP104's three 6-byte TEST
+  DL,AL facts), `incdec.nx` 0 and a new `incdec.rwb` 0 (absent = the old `wb`).
+- **The long one-byte forms' wait clocks (F33 +6):** the adjusts, DI, EI and CVTWL do not count a clock on which a fetch
+  is in a wait state, and their IR load moves with them, as `rot4_exec=wait` says for the digit rotates; the CVTWL AW =
+  8080h cells were never data-dependent, they are the only CVTWL cells started on a fetch's issue. Enum `long_exec` (none
+  → wait); adding the 3-clock forms loses 166.
+- **The second long form at k = 2 pE on an idle bus with a full queue (F33 +15):** the form saves a clock of its own
+  rather than a write-back, so the OUT after it starts a clock earlier: `one_idle=long` (a wider value: ADJBA/ADJBS and
+  CVTWL added, with no write-back for DI, EI, the ASCII adjusts and CVTWL).
+- **CVTBD/CVTDB at pO (F33 +6):** the constant byte is the even half of a word whose odd half is the next opcode; from
+  its take no fetch is requested until `hrel` clocks before the end, a take on a word's delivery clock arms no hold
+  (which is why WP86's version lost the PUSH twin), and the take sync does not count a held request. Enum `cvt_hold`
+  (none → word), `convert.hrel` 1, `convert_d.hrel` 3.
+- **MUL r16,r16,imm (F33 +9):** the immediate is taken 2 clocks after the ModR/M byte and the ModR/M take has no take
+  sync. Enum `mul_imm_reg` (take → gap), `mul_imm.igap` 2.
+- **The BCD strings (F32 +21, F40 +12):** no fetch is requested from the first read's data until 2 clocks before the
+  end, and on an idle-bus start the first read's setup counts a clock later. Enum `bcd_fetch` (free → hold),
+  `bcd4s.hrel` / `bcd4s_cmp.hrel` 2 (sharp: only 2 wins).
+- **Facts (F33's remaining 24):** CVTBD/CVTDB at w0 where the fetch after the release is a clock early at w0 only (4,
+  the wait count) and CVTDB's second instance whose release counts from the start (2); MUL/DIV [BW] at k = 2 (6,
+  WP109's fact); CVTWL under the PUSH frame where the same start state is exact under OUT (6, the neighbour); ADJ4S
+  where ADJ4A in identical cells is exact (6, the opcode byte or AL's data).
+
+All six together: **F33 955 → 1,026/1,050, F32 728 → 749/858, F40 926 → 941/1,020, lost 0**, the other 39 lists
+unchanged; with every new value at its default the edited tree scores byte-identically to a clean extract on all 42
+lists. Tests test_sim.MiscellanyWP114 (`_OLD114`). The fit stage is WP115.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

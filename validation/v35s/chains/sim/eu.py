@@ -55,7 +55,12 @@ TRANSFER_CLASSES = ("branch_short", "branch_near", "dbnz", "call", "ret")
 # (WP91, F37) the memory-indirect transfers: group forms (FF /2-/5) with a memory operand
 XFER_MEM = ("call_mem", "br_mem", "call_far_mem", "branch_far_mem")
 # (WP104) one_idle: the one-byte register classes whose start with no fetch issuing saves a clock
+# (WP114) the long one-byte register forms, whose IR load the loader holds (nx0 > 0): the decimal
+# and ASCII adjusts, DI / EI, CVTWL (long_exec, one_idle=long)
+LONG_CLASSES = ("adjust", "adjust_b", "flag_di", "flag_ei", "extend_w")
 ONE_IDLE = {"flags": ("flag", "flag_di", "flag_ei", "incdec"),
+            # (WP114) long: and ADJBA / ADJBS and CVTWL; a long form saves a clock of its own
+            "long": ("flag", "flag_di", "flag_ei", "incdec", "adjust_b", "extend_w"),
             "reg1": ("flag", "flag_di", "flag_ei", "incdec", "adjust", "adjust_b"),
             "all1": ("flag", "flag_di", "flag_ei", "incdec", "adjust", "adjust_b", "extend",
                      "extend_w")}
@@ -147,6 +152,7 @@ class EU:
         self.strings = {}               # (WP67, F24) {chain offset: (elements, cond)} of the
                                         # string forms, from the chain walk (machine.py)
         self.rot4_from = None           # (WP106) rot4_exec: the rotate's exec clocks began here
+        self.long_from = False          # (WP114) long_exec: rot4_from marks a long form's clocks
         self.rot4_t = None              # (WP106) ... the last wait clock it did not count
 
     def _in_run(self, t: int) -> bool:
@@ -297,6 +303,8 @@ class EU:
         # (WP19) a memory operand form may have its own write-back (mwb), as its own mexec
         self.wb = cfg.c(op.cls, "mwb" if op.ea is not None and "mwb" in cfg.cost.get(op.cls, {})
                         else "wb")
+        if op.cls == "incdec" and op.length > 1 and "rwb" in cfg.cost.get(op.cls, {}):
+            self.wb = cfg.c(op.cls, "rwb")      # (WP114) INC / DEC r8's own write-back
         self.str_rep = op.cls in STRING_CLASSES and op.rep is not None   # (WP76)
         self.sreg = op.sreg             # (WP76) sreg_store
         self.zfail = op.zfail           # (WP88) DBNZNE / DBNZE not taken on the Z test
@@ -342,6 +350,7 @@ class EU:
         self.page_reg = (cfg.page_b2b == "reg" and bool(op.page) and op.ea is None
                          and bcls == "reg")
         self.rot4_from = self.rot4_t = None   # (WP106) rot4_exec
+        self.long_from = False
         # (WP94) page_imm_run: a 0F memory form with an immediate bit index under page_mem=fixed
         self.page_imm = (cfg.page_imm_run == "delivery" and self.page_fixed == "start"
                          and bool(op.imm_bytes))
@@ -449,6 +458,9 @@ class EU:
         if (cfg.ret_imm_hold == "word" or cfg.ret_far_fetch != "hold") and op.imm_bytes \
                 and bcls == "ret":
             # (WP88) ret_imm_hold: RET imm16's immediate ends on the even half of its word
+            op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
+        if cfg.cvt_hold == "word" and op.cls in ("convert", "convert_d"):
+            # (WP114) cvt_hold: CVTBD / CVTDB's constant byte the even half of its word
             op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
         if cfg.bf_imm_hold == "word" and op.imm_bytes and op.cls in BF_CLASSES:
             # (WP94) bf_imm_hold: an imm4 bit field's width byte the even half of its word
@@ -623,6 +635,8 @@ class EU:
             self.rot4_t = t             # once per clock (a clock may tick twice)
             self.resume += 1
             self.clk_end = self.resume
+            if self.long_from and self.decoder.ready_at > t:
+                self.decoder.ready_at += 1      # (WP114) long_exec: the IR load moves too
 
     def tick(self, t: int):
         q = self.decoder.queue
@@ -784,6 +798,14 @@ class EU:
                                                   and t == self.start_clock))
                         self.clk_start = t
                     self.resume = t + step[1]
+                    if (self.cfg.long_exec == "wait" and self.ccls in LONG_CLASSES
+                            and self.k == 1 and self.op_len == 1):
+                        # (WP114) long_exec=wait: a long one-byte form's clocks (pre0) do not
+                        # count a clock on which a fetch is in a wait state, its IR load (nx0)
+                        # moving with them
+                        self.rot4_from = t
+                        self.long_from = True
+                        self._rot4_hold(t)
                     if (self.cfg.rot4_exec == "wait" and self.ccls in ("rol4", "ror4")
                             and self.k == len(self.steps)):
                         self.rot4_from = t      # (WP106) rot4_exec: the exec clocks begin
@@ -901,6 +923,13 @@ class EU:
                     return              # (WP27) the displacement waits for the word's delivery
                 n = self.decoder.take(t, self.left, wide=len(step) > 2 and step[2] in (
                     "word", "chain_word"))
+                q = self.decoder.queue
+                if n and q.hold_dlv and q.take_hold is not None and q.hold_from is None:
+                    q.hold_dlv = False
+                    if q.arrived_t == t:
+                        # (WP114) cvt_hold: the byte taken on a word's delivery clock: the
+                        # delivered word fills the room, no hold
+                        q.take_hold = None
                 if not n and self.decoder.queue.dropped:
                     q = self.decoder.queue      # refresh_drop: a starved decoder raises it again
                     q.dropped = False
@@ -1101,8 +1130,10 @@ class EU:
                     continue
                 if step[1] == BF_TAKE_HOLD:      # (WP94) bf_imm_hold: armed, from the next take
                     q.take_hold, q.hold_from = t, None
+                    q.hold_dlv = q.cvt_held = len(step) > 2 and step[2] == "dlv"   # (WP114)
                 elif q.take_hold is not None:    # (WP94) lifted by the form's 0-clock hold
                     q.take_hold = q.hold_from = None
+                    q.cvt_held = False
                 else:
                     q.str_held = t + step[1]
                 self.k += 1

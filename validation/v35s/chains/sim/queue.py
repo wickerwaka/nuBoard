@@ -95,7 +95,9 @@ from collections import deque
 QUEUE_BYTES = 6            # physical queue storage, not a parameter
 # (WP104) room_ir_pre=test: the classes whose pre clocks before the first operand take leave
 # the IR counted as room (TEST r,r)
-ROOM_IR_PRE_CLASSES = ("test_reg",)
+# (WP114) modrm: and INC / DEC r8 (FE /0, /1 with a register operand: the incdec class with a
+# ModR/M byte), the ModR/M byte of either counted as gone from the start (decoder.fresh)
+ROOM_IR_PRE_CLASSES = {"test": ("test_reg",), "modrm": ("test_reg", "incdec")}
 # (WP107) far_room=take: the far forms with a five-byte operand (BR far, CALL far)
 FAR_ROOM_CLASSES = ("branch_far", "call_far")
 WORD = 2
@@ -170,6 +172,8 @@ class Queue:
         self.flush_held: int | None = None      # (WP55) flush_hold: no fetch request from this clock to the flush
         self.str_held: int | None = None        # (WP67) str_hold: no fetch request before this clock
         self.take_hold: int | None = None       # (WP94) bf_imm_hold: armed on this clock
+        self.hold_dlv = False                   # (WP114) cvt_hold: not on a delivery clock
+        self.cvt_held = False                   # (WP114) cvt_hold: a held request is not asked
         self.hold_from: int | None = None       # (WP94) the take that started it
         self.str_raise: int | None = None       # (WP76) str_fetch: raise a retried request on this clock
         self.xfer_abort = False                 # (WP72) xfer_abort: a transfer's aborted cycle runs
@@ -316,6 +320,9 @@ class Queue:
                 and self.lea_ea is not None and self.lea_ea[0] <= t < self.lea_ea[1]):
             used -= 1           # (WP72) lea_room=ir: during LDEA's EA clocks after its last
                                 # operand byte, the IR's opcode is not counted (config.py)
+        if cfg.room_ir_pre == "modrm" and self.decoder is not None and self._pre_room(t):
+            used -= 1           # (WP114) room_ir_pre=modrm: the ModR/M byte, latched by the
+                                # decoder with the opcode, is no queue byte for the rule
         if cfg.modrm_mate and t is not None and t == self.arrived_t == self.mate_t:
             used += 1           # (WP26) modrm_mate: the ModR/M's word is not free yet
         if (self.cfg.arrive_partial and t is not None and t == self.arrived_t
@@ -331,9 +338,10 @@ class Queue:
 
     def _pre_room(self, t: int | None) -> bool:
         """(WP104) room_ir_pre=test: the IR counts as the seventh slot while the running TEST r,r
-        (ROOM_IR_PRE_CLASSES) has taken none of its operand bytes (its pre clocks)."""
-        return (self.cfg.room_ir_pre == "test" and self.decoder.fresh
-                and self.decoder.cls in ROOM_IR_PRE_CLASSES)
+        (ROOM_IR_PRE_CLASSES) has taken none of its operand bytes (its pre clocks); (WP114) modrm:
+        and INC / DEC r8's, the ModR/M byte of either not counted (room)."""
+        return (self.cfg.room_ir_pre != "none" and self.decoder.fresh
+                and self.decoder.cls in ROOM_IR_PRE_CLASSES[self.cfg.room_ir_pre])
 
     def counted(self, t: int | None = None) -> int:
         """Queue bytes as the request rule counts them (6 minus its room)."""
@@ -547,6 +555,8 @@ class Queue:
         """A request raised on t that is not yet on the bus (take_sync=pending)."""
         if self.inflight:
             return self.room(t) >= WORD or (self.cfg.request_hold == "hold" and self.held)
+        if self.take_hold is not None and self.cvt_held and self._take_held():
+            return False                # (WP114) cvt_hold: a held request is no take's fetch
         return self.requesting(t) and not self._odd_held(t)
 
     def issue(self, t: int | None = None, mem_waiting: bool = False) -> tuple[int, str, int]:

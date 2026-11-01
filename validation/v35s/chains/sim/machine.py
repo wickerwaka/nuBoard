@@ -40,8 +40,9 @@ from ..types import (TICKS_PER_CLOCK, Chain, refresh_any, refresh_length, refres
 from .bus import BusUnit
 from .config import DEFAULT, Config
 from .decoder import Decoder
-from .eu import END_PORT, EU, ONE_IDLE, SFR_PAGE
+from .eu import END_PORT, EU, LONG_CLASSES, ONE_IDLE, SFR_PAGE
 from .queue import Queue
+from .templates import BCD_CLASSES
 from .arbiter import Request, arbitrate
 from .bus import Cycle
 from .refresh import POP_COUNTER, PRELUDE_COUNTER, Refresh, model_counter, prelude_key
@@ -242,9 +243,18 @@ class Machine:
                 # successor's IR load (nx0) a clock earlier; its last clock becomes a
                 # write-back, so a form waiting for one (wbsync) starts where it did
                 eu.resume -= 1
-                eu.wb += 1                   # its write-back still ends where it did (wbsync)
+                if not (cfg.one_idle == "long" and eu.ccls in LONG_CLASSES):
+                    eu.wb += 1               # its write-back still ends where it did (wbsync)
+                # (WP114) one_idle=long: a long form's saved clock is a clock of its own, not
+                # a write-back: the port OUT after it starts a clock earlier too
                 if self.decoder.ready_at > t:
                     self.decoder.ready_at -= 1
+            if (cfg.bcd_fetch == "hold" and eu.start_clock == t and c is None
+                    and not bus.busy(t) and eu.ccls in BCD_CLASSES and eu.own is not None
+                    and not eu.own.issued):
+                # (WP114) bcd_fetch=hold: a BCD string started on an idle bus (no cycle on its
+                # start clock): its first read, posted there, counts its setup a clock later
+                eu.own.setup += 1
             if eu.sync == "pending_end":
                 eu.end_clock(t)              # take_sync=pending_end
             if self.clock_log is not None:

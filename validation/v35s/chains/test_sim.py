@@ -7344,13 +7344,13 @@ class SecondInstanceWP104(unittest.TestCase):
 
     def test_defaults_are_the_old_behaviour(self):
         self.assertEqual(DEFAULT.one_idle, "none")
-        self.assertEqual(OPTIONS["one_idle"], ("none", "flags", "reg1", "all1"))
+        self.assertEqual(OPTIONS["one_idle"][:4], ("none", "flags", "reg1", "all1"))  # (WP114: + long)
         self.assertEqual(DEFAULT.xfer_nt, "none")
         self.assertEqual(OPTIONS["xfer_nt"], ("none", "odd", "dbnz_z", "dbnz"))
         self.assertEqual(DEFAULT.brk_free, "type")
         self.assertEqual(OPTIONS["brk_free"], ("type", "format"))
         self.assertEqual(DEFAULT.room_ir_pre, "none")
-        self.assertEqual(OPTIONS["room_ir_pre"], ("none", "test"))
+        self.assertEqual(OPTIONS["room_ir_pre"][:2], ("none", "test"))  # (WP114: + modrm)
         self.assertEqual(DEFAULT.c("br_reg", "nx"), 0)
         self.assertEqual(DEFAULT.c("brk", "rfree0"), 10)
 
@@ -7842,5 +7842,184 @@ class PageFormsWP112(unittest.TestCase):
                 new = simulate_normalized(s.chain, Config.fitted().replace(
                     **{**_KEEP112, **WP112}), s.chain_base)
                 old = simulate_normalized(s.chain, Config.fitted().replace(**_OLD112),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+# (WP114, F32/F33/F40) the register miscellany's remaining misses (scratchpad wp114/facts.txt)
+WP114_R8 = {"room_ir_pre": "modrm", "incdec.nx": 0, "incdec.rwb": 0}
+WP114_LONG = {"long_exec": "wait"}
+WP114_IDLE = {"one_idle": "long"}
+WP114_CVT = {"cvt_hold": "word", "convert.hrel": 1, "convert_d.hrel": 3}
+WP114_MUL = {"mul_imm_reg": "gap", "mul_imm.igap": 2}
+WP114_BCD = {"bcd_fetch": "hold", "bcd4s.hrel": 2, "bcd4s_cmp.hrel": 2}
+WP114 = {**WP114_R8, **WP114_LONG, **WP114_IDLE, **WP114_CVT, **WP114_MUL, **WP114_BCD}
+# the pre-WP114 values, pinned for the "old" traces so they hold after an adoption: the enums and
+# integers WP114 moves (incdec.rwb 1 = incdec.wb, the old write-back of INC / DEC r8), WP112's
+# candidate values (the base WP114 scored against) and the tracked values these forms read
+_OLD114 = {"room_ir_pre": "test", "incdec.nx": 1, "incdec.rwb": 1, "long_exec": "none",
+           "one_idle": "flags", "cvt_hold": "none", "mul_imm_reg": "take", "bcd_fetch": "free",
+           "page_ir": "delivery", "page_dio": "free", "page_cl": "thru",
+           "bf_ext.ftail": 2, "bf_ins.ftail": 2,
+           "room_ir": "arrival_idle", "take_sync": "pending", "wb_fetch": "hold",
+           "imm_latch": "wait", "unit_hold": True, "rot4_exec": "wait",
+           "mul_imm_count": "sync", "mul_imm_half": "room", "mul_imm_exec": "hold",
+           "incdec.wb": 1, "incdec.pre": 3, "incdec.exec": 0,
+           "extend_w.pre0": 9, "extend_w.nx0": 8, "extend_w.wb": 3,
+           "adjust.pre0": 10, "adjust.nx0": 8, "adjust.wb": 2,
+           "flag_di.pre0": 4, "flag_di.nx0": 3, "flag_di.wb": 3,
+           "convert.pre": 3, "convert.exec": 16, "convert.wb": 2,
+           "convert_d.pre": 2, "convert_d.exec": 16, "convert_d.wb": 0,
+           "mul_imm.exec": 35, "mul_imm.pre": 0,
+           "bcd4s.first": 16, "bcd4s.mid": 7, "bcd4s.wmid": 10, "bcd4s.loop": 7,
+           "bcd4s.exec": 12, "bcd4s_cmp.first": 16, "bcd4s_cmp.exec": 20}
+_KEEP114 = {k: v for k, v in _OLD114.items() if k not in WP114}
+
+
+def _ev114(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with the values
+    WP114's forms read pinned (_KEEP114) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**_KEEP114, **over}),
+                            s.chain_base)
+    return aligned(s), aligned(m)
+
+
+def _at114(events):
+    """(clock, kind) of each event."""
+    return [(e[0], e[1]) for e in events]
+
+
+class MiscellanyWP114(unittest.TestCase):
+    """(WP114, F32/F33/F40) INC / DEC r8 runs MOV CL,imm8's EU timing, its (and TEST r,r's)
+    ModR/M byte latched with the opcode for the room rule (room_ir_pre=modrm, incdec.nx 0,
+    incdec.rwb 0); the long one-byte forms' clocks do not count a fetch's wait clocks
+    (long_exec=wait) and, started with the queue full on an idle bus, save a clock of their own
+    (one_idle=long); CVTBD / CVTDB with the constant byte the even half of its word hold fetch
+    requests from its take to hrel clocks before the end (cvt_hold=word); MUL r16,r16,imm takes
+    its immediate igap clocks after its ModR/M byte (mul_imm_reg=gap); the BCD strings hold
+    fetch requests from the first read to hrel clocks before the end, the first read a clock
+    later on an idle start (bcd_fetch=hold). Each against its old value on its deciding run
+    (clocks rel t_fill)."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev114(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["room_ir_pre"], ("none", "test", "modrm"))
+        self.assertEqual(OPTIONS["one_idle"], ("none", "flags", "reg1", "all1", "long"))
+        self.assertEqual(OPTIONS["cvt_hold"], ("none", "word"))
+        self.assertEqual(OPTIONS["long_exec"], ("none", "wait"))
+        self.assertEqual(OPTIONS["mul_imm_reg"], ("take", "gap"))
+        self.assertEqual(OPTIONS["bcd_fetch"], ("free", "hold"))
+        for name in ("room_ir_pre", "one_idle", "cvt_hold", "long_exec", "mul_imm_reg",
+                     "bcd_fetch"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+        # incdec.rwb absent: INC / DEC r8 writes back incdec.wb clocks, as before
+        self.assertNotIn("rwb", DEFAULT.cost["incdec"])
+
+    def test_incdec_r8_deciding_runs(self):
+        # the second INC AL (FE at an odd address) starts 91 on an idle bus with 6 bytes queued:
+        # silicon F91 (old: F94)
+        cid = "F33-out-inc_al-k2-pO-w0"
+        mod = self._exact(cid, **WP114_R8)
+        self.assertIn((91, "fetch"), _at114(mod))
+        _, old = _ev114(cid, **_OLD114)
+        self.assertIn((94, "fetch"), _at114(old))
+        self.assertNotIn((91, "fetch"), _at114(old))
+        # INC AL after M0's OUT at 1 wait: the OUT starts on the clock after the take's fetch,
+        # its fetch back to back, silicon F92 (old: the write-back holds it, F96)
+        cid = "F33-out-inc_al-k1-pE-w1"
+        mod = self._exact(cid, **WP114_R8)
+        self.assertIn((92, "fetch"), _at114(mod))
+        _, old = _ev114(cid, **_OLD114)
+        self.assertIn((96, "fetch"), _at114(old))
+        # 5 bytes queued under the PUSH frame: silicon F81 F84 (old F84 F87); TEST DL,AL's 6-byte
+        # cell; INC AW and MOV CL,imm8's cells exact under both
+        self._exact("F33-push-inc_al-k1-pO-w0", **WP114_R8)
+        self._exact("F40-out-reg-testdl-k2-pO-w0", **WP114_R8)
+        for c in ("F33-out-inc_aw-k2-pO-w0", "F3-out-mov_cl_imm-k2-pO-w0",
+                  "F33-out-dec_dh-k1-pE-w0"):
+            self._exact(c, **WP114_R8)
+            self._exact(c, **_OLD114)
+
+    def test_long_exec_deciding_run(self):
+        # CVTWL started on F95's issue at 2 waits: silicon F112 (none: F110)
+        cid = "F33-out-cvtwl-a8080-k1-pE-w2"
+        mod = self._exact(cid, **WP114_LONG)
+        self.assertIn((112, "fetch"), _at114(mod))
+        _, old = _ev114(cid, **_OLD114)
+        self.assertIn((110, "fetch"), _at114(old))
+        self._exact("F33-push-adj4a-k1-pE-w2", **WP114_LONG)
+        self._exact("F33-out-cvtwl-a8080-k1-pE-w0", **WP114_LONG)
+
+    def test_one_idle_long_deciding_run(self):
+        # the second CLI starts 90 on an idle bus with 6 bytes queued: silicon F99, the OUT's I/O
+        # at 106 (flags: F100, 107: the saved clock a write-back)
+        cid = "F33-out-cli-k2-pE-w0"
+        mod = self._exact(cid, **WP114_IDLE)
+        self.assertIn((99, "fetch"), _at114(mod))
+        self.assertIn((106, "io_write"), _at114(mod))
+        _, old = _ev114(cid, **_OLD114)
+        self.assertIn((100, "fetch"), _at114(old))
+        self.assertIn((107, "io_write"), _at114(old))
+        for c in ("F33-out-adjba-k2-pE-w1", "F33-out-cvtwl-k2-pE-w2", "F33-out-sti-k2-pE-w0"):
+            self._exact(c, **WP114_IDLE)
+        # ADJ4A's identical cells stay exact (the adjust class is not in long)
+        self._exact("F33-out-adj4a-k2-pE-w0", **WP114_IDLE)
+
+    def test_cvt_hold_deciding_runs(self):
+        # CVTBD at an odd address on M0's I/O issue (86), its constant byte taken at 89 with the
+        # next opcode the word's odd half: silicon F105 F117 I121 (none: F89 F119 I123)
+        cid = "F33-out-cvtbd-k1-pO-w1"
+        mod = self._exact(cid, **WP114_CVT)
+        self.assertIn((105, "fetch"), _at114(mod))
+        self.assertNotIn((89, "fetch"), _at114(mod))
+        _, old = _ev114(cid, **_OLD114)
+        self.assertIn((89, "fetch"), _at114(old))
+        # the PUSH twin, same alignment, takes the byte on F81's delivery clock 84: F84 under both
+        cid = "F33-push-cvtbd-k1-pE-w0"
+        mod = self._exact(cid, **WP114_CVT)
+        self.assertIn((84, "fetch"), _at114(mod))
+        self._exact(cid, **_OLD114)
+        self._exact("F33-out-cvtdb-k1-pO-w2", **WP114_CVT)
+
+    def test_mul_imm_reg_deciding_run(self):
+        # the second MUL AW,CW,imm16 starts 128 on an idle bus: silicon F132 F135 (take: F130 F133)
+        cid = "F33-out-mul_aw_cw_imm16-k2-pO-w0"
+        mod = self._exact(cid, **WP114_MUL)
+        self.assertIn((132, "fetch"), _at114(mod))
+        _, old = _ev114(cid, **_OLD114)
+        self.assertIn((130, "fetch"), _at114(old))
+        for c in ("F33-out-mul_aw_cw_imm8-k2-pE-w1", "F33-push-mul_aw_cw_imm16-k1-pE-w0",
+                  "F33-out-mul_aw_cw_imm16-k1-pE-w0"):
+            self._exact(c, **WP114_MUL)
+
+    def test_bcd_fetch_deciding_run(self):
+        # the second ADD4S starts 144 on an idle bus with room for a word: silicon D160 D169 W181
+        # F194 (free: D159 D168 W180 F183)
+        cid = "F32-out-add4s-n2-k2-pO-w0"
+        mod = self._exact(cid, **WP114_BCD)
+        self.assertIn((160, "data_read"), _at114(mod))
+        self.assertIn((194, "fetch"), _at114(mod))
+        _, old = _ev114(cid, **_OLD114)
+        self.assertIn((159, "data_read"), _at114(old))
+        self.assertIn((183, "fetch"), _at114(old))
+        for c in ("F32-out-cmp4s-n4-k2-pO-w1", "F40-push-page-add4s-k2-pE-w0",
+                  "F32-out-add4s-n2-k2-pE-w0", "F32-out-pfx_add4s-n4-k1-pO-w2"):
+            self._exact(c, **WP114_BCD)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP114's values
+        for fam in ("F3", "F14", "F16", "F21", "F36"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**_KEEP114, **WP114}), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**_OLD114),
                                           s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
