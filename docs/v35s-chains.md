@@ -5851,7 +5851,7 @@ all 39 lists from a clean copy and the edited tree under the unedited fit, byte 
 test_sim.StringSuccessorWP101, test_fit.StringSuccessorStage. Stage 28 (WP103) from this hand start made no move: the
 fifty-second fit.
 
-### F40's 205 misses read: five mechanisms of the second instance, seven shapes as facts or known trades (WP104, 2026-10-31; a candidate)
+### F40's 205 misses read: five mechanisms of the second instance, seven shapes as facts or known trades (WP104, 2026-10-31; the fifty-third fit)
 
 Under the fifty-second fit F40 misses 205 of 1,020. Read run by run (scratchpad wp104/facts.txt: the first divergence,
 which instance, the EU's class and step, the queue / IR / bus state, the word halves, the cycle on each instance's start
@@ -5897,7 +5897,8 @@ residual c4 − (c1 + 3s) is nonzero in many exact pieces, alternating with pari
 
 All five together: **F40 815 → 875/1,020, F34 1,285 → 1,295, F36 747 → 749, lost 0 on every list** (scored against the
 fifty-second fit; the edited tree under the unedited fit byte-identical to the clean tree on all 42 lists). Tests
-test_sim.SecondInstanceWP104. The fit stage for the five values is WP105.
+test_sim.SecondInstanceWP104, test_fit's stage-29 class. Stage 29 (WP105) from this hand start: the fifty-third fit
+(Model).
 
 ## Model
 
@@ -5918,7 +5919,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-second fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-third fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6384,10 +6385,16 @@ other 41 lists byte-identical, nothing lost. The refresh-off corpus stands at 29
 182, F33 123, F39 118, F29 29, F35 28, F30 21, F25 15, F37 12, F24 10, F22 6, F36 3 missing). Model side only, no RTL
 work.
 
+**The fifty-third fit** (`fit.json`, md5 af24c18a52cf0e4025034b90846690a0; scratchpad wp105/fit-wp105.json, adopted 2026-10-31) is the
+fifty-second fit plus WP104's second-instance mechanisms, `one_idle=flags`, `xfer_nt=dbnz_z`, `brk_free=format` with
+`brk.rfree0` 10, `room_ir_pre=test` and `br_reg.nx` 1 (Facts "F40's 205 misses read"): fit stage 29 (`F55_ENUMS`,
+`F55_INTS`; WP105) from that hand start made one move, `test_reg.nx` 1 → 0 (TEST r,r's successor loads into the IR on the ModR/M take: 9 more TEST DL,AL runs, none lost), kept every hand value and recorded `xfer_nt=dbnz` and `one_idle=reg1` as inert ties. **33748 of 35,168 over 42 lists**: F40 815 → 883/1,020, F34 1,285 →
+1295/1,596, F36 747 → 750/750, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
-### Fitted structure (fifty-second fit, 2026-10-31)
 
-Fifty-two fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-third fit, 2026-10-31)
+
+Fifty-three fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6768,7 +6775,10 @@ RMW (`shift_mem_imm=rmw_imm`, stage 27): 32755/34148 over 41 lists with F38
 fifty-second (`fit.json`, 2026-10-31) adds the string form's successor
 (`str_single_wb=index`, `str_single_start=write`, uwb 2; stage 28 confirming
 WP101's hand start): 33667/35168 over 42 lists, F39 1202/1320, F40 815/1020;
-byte-identical on the other 41 lists.
+byte-identical on the other 41 lists. The fifty-third (`fit.json`, 2026-10-31)
+adds the second instance's five mechanisms (`one_idle=flags`, `xfer_nt=dbnz_z`,
+`brk_free=format`, `room_ir_pre=test`, `br_reg.nx` 1; stage 29): 33748/35168,
+F40 883/1020, F34 1295, F36 750.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

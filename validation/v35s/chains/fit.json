@@ -12,6 +12,7 @@
  "bf_imm_hold": "word",
  "bf_read": "fixed",
  "branch_reg": "reg",
+ "brk_free": "format",
  "burst_count": "dw",
  "burst_wait": "data",
  "bytes_per_clock": 1,
@@ -153,6 +154,7 @@
    "exec": 5,
    "fgap": 8,
    "hold": 10,
+   "nx": 1,
    "post": 0,
    "pre": 5
   },
@@ -205,6 +207,7 @@
    "pre": 0,
    "rexec": 3,
    "rfree": 8,
+   "rfree0": 10,
    "rsetup": 12,
    "setup": 3,
    "setup_free": 3,
@@ -837,7 +840,7 @@
   },
   "test_reg": {
    "exec": 0,
-   "nx": 1,
+   "nx": 0,
    "pre": 3,
    "pre0": 4
   },
@@ -948,6 +951,7 @@
  "mul_imm_read": "issue",
  "nop_hold": "any",
  "odd_split": "atomic",
+ "one_idle": "flags",
  "opcode_overlap": 0,
  "opcode_take": "prefetch",
  "page_b2b": "reg",
@@ -1066,6 +1070,7 @@
  "rmw_write_issue": "immediate",
  "room_ir": "arrival_idle",
  "room_ir_imm": "none",
+ "room_ir_pre": "test",
  "room_ir_ready": false,
  "sfr_cycle": "io",
  "sfr_setup": "fetch_free",
@@ -1119,7 +1124,7 @@
  "xfer_mem_disp": "grp",
  "xfer_mem_head": "lead",
  "xfer_mem_ir": "hold",
- "xfer_nt": "odd",
+ "xfer_nt": "dbnz_z",
  "xfer_nt_b2b": "decide",
  "xfer_odd": "idle"
 }

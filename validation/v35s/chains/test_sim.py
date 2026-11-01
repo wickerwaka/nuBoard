@@ -7318,6 +7318,9 @@ class StringSuccessorWP101(unittest.TestCase):
 # (WP104, F40) the second instance's mechanisms, prototyped on the tracked fit with WP101's values
 WP104 = {"one_idle": "flags", "xfer_nt": "dbnz_z", "br_reg.nx": 1, "brk_free": "format",
          "room_ir_pre": "test"}
+# (fit 53) the pre-WP104 values, pinned for the "old" traces now that the tracked fit carries WP104's
+_OLD104 = {"one_idle": "none", "xfer_nt": "odd", "br_reg.nx": 0, "brk_free": "type",
+           "room_ir_pre": "none", "test_reg.nx": 1}
 
 
 class SecondInstanceWP104(unittest.TestCase):
@@ -7352,7 +7355,7 @@ class SecondInstanceWP104(unittest.TestCase):
         # silicon's PUSH AW writes at 97 (none: 99)
         mod = self._exact("F40-push-reg-lahf-k4-pO-w0", one_idle="flags")
         self.assertIn((97, "stack_write", 0x0EFC, "word", 3), mod)
-        _, old = _ev101("F40-push-reg-lahf-k4-pO-w0")
+        _, old = _ev101("F40-push-reg-lahf-k4-pO-w0", **_OLD104)
         self.assertIn((99, "stack_write", 0x0EFC, "word", 3), old)
         for cid in ("F40-push-page-stc-k4-pE-w1", "F40-push-page-incaw-k4-pO-w2",
                     # the port OUT waits out the write-back: as before
@@ -7365,7 +7368,7 @@ class SecondInstanceWP104(unittest.TestCase):
         # the second DBNZE (even address, not taken) starts 103: silicon F109 (odd: F106)
         mod = self._exact("F40-out-xfer-dbnze-k2-pO-w0", xfer_nt="dbnz_z")
         self.assertIn((109, "fetch", 0x1005A, "word", 3), mod)
-        _, old = _ev101("F40-out-xfer-dbnze-k2-pO-w0", xfer_nt="odd")
+        _, old = _ev101("F40-out-xfer-dbnze-k2-pO-w0", **_OLD104)
         self.assertIn((106, "fetch", 0x1005A, "word", 3), old)
         for cid in ("F40-out-xfer-dbnze-k2-pE-w0", "F40-push-xfer-dbnze-k4-pE-w2",
                     "F40-out-ctl-dbnze-pO-w1"):
@@ -7375,7 +7378,7 @@ class SecondInstanceWP104(unittest.TestCase):
         # the second BR BW starts 121 on the refill's delivery: silicon fetches there (nx 0: 124)
         mod = self._exact("F40-out-xfer-brbw-k2-pO-w0", **{"br_reg.nx": 1})
         self.assertIn((121, "fetch", 0x1005C, "word", 3), mod)
-        _, old = _ev101("F40-out-xfer-brbw-k2-pO-w0")
+        _, old = _ev101("F40-out-xfer-brbw-k2-pO-w0", **_OLD104)
         self.assertIn((124, "fetch", 0x1005C, "word", 3), old)
         for cid in ("F40-out-xfer-brbw-k2-pE-w0", "F35-out-ind-brr-n0-pE-w0",
                     "F35-push-ind-brr-n1-pO-w2"):
@@ -7385,7 +7388,7 @@ class SecondInstanceWP104(unittest.TestCase):
         # the second BRK 3 starts 252 on F252's issue: silicon reads the vector at 264 (type: 263)
         mod = self._exact("F40-out-ind-brk3-k2-pE-w0", brk_free="format")
         self.assertIn((264, "data_read", 0x000C, "word", 3), mod)
-        _, old = _ev101("F40-out-ind-brk3-k2-pE-w0")
+        _, old = _ev101("F40-out-ind-brk3-k2-pE-w0", **_OLD104)
         self.assertIn((263, "data_read", 0x000C, "word", 3), old)
         for cid in ("F37-out-brk-brk3-pE-w0", "F37-out-brk-brk5-pE-w0",
                     "F37-push-brk-brk5-pO-w1"):
@@ -7395,7 +7398,7 @@ class SecondInstanceWP104(unittest.TestCase):
         # TEST DL,AL starts 81 on an idle bus with 5 bytes queued: silicon F81 (none: F84)
         mod = self._exact("F36-push-test-test_dl_al-pO-w0", room_ir_pre="test")
         self.assertIn((81, "fetch", 0x10052, "word", 3), mod)
-        _, old = _ev101("F36-push-test-test_dl_al-pO-w0")
+        _, old = _ev101("F36-push-test-test_dl_al-pO-w0", **_OLD104)
         self.assertIn((84, "fetch", 0x10052, "word", 3), old)
         for cid in ("F36-out-test-test_dl_al-pO-w0", "F36-push-test-test_dl_al-pE-w1"):
             self._exact(cid, room_ir_pre="test")
