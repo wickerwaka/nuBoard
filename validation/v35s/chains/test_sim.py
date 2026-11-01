@@ -7694,3 +7694,145 @@ class MulImmWP109(unittest.TestCase):
                 old = simulate_normalized(s.chain, Config.fitted().replace(**_OLD109),
                                           s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+
+WP112_IR = {"page_ir": "delivery"}
+WP112_DIO = {"page_dio": "free"}
+WP112_CL = {"page_cl": "thru"}
+WP112_TAIL = {"bf_ext.ftail": 2, "bf_ins.ftail": 2}
+WP112 = {**WP112_IR, **WP112_DIO, **WP112_CL, **WP112_TAIL}
+# (fit 55) the pre-WP112 values, pinned for the "old" traces so they hold after an adoption: the
+# three enums and the two ftail integers, and the tracked values the 0F memory and bit-field
+# templates read with them
+_OLD112 = {"page_ir": "none", "page_dio": "extend", "page_cl": "free",
+           "bf_ext.ftail": 0, "bf_ins.ftail": 0,
+           "page_mem": "fixed", "page_run": "field", "page_take": "own", "page_grp": "group",
+           "page_imm_run": "delivery", "page_commit": "start", "test1_head": "own",
+           "bf_read": "fixed", "bf_imm_hold": "word", "ir_load": "disp_data", "disp_io": "extend",
+           "hold_fetch": "le_q", "hold_run": False,
+           "bit1_rmw.fsetup": 3, "bit1_rmw.cl": 3, "bit1_rmw.pre": 1,
+           "bf_ext.fsetup": 7, "bf_ins.fsetup": 7, "bf_ext.pre": 1, "bf_ins.pre": 1}
+_KEEP112 = {k: v for k, v in _OLD112.items() if k not in WP112}
+
+
+def _ev112(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with the 0F memory
+    and bit-field values pinned (_KEEP112) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**_KEEP112, **over}),
+                            s.chain_base)
+    return aligned(s), aligned(m)
+
+
+def _at112(events):
+    """(clock, kind) of each event."""
+    return [(e[0], e[1]) for e in events]
+
+
+class PageFormsWP112(unittest.TestCase):
+    """(WP112, F32/F34) the 0F memory forms' and bit fields' remaining misses (scratchpad
+    wp112/facts.txt; clocks rel t_fill). A 0F memory form whose last operand byte is taken on a
+    word's delivery clock keeps its successor out of the IR until its read issues (page_ir=
+    delivery); a displacement taken on an I/O cycle's issue clock by a 0F memory form does not
+    hold that cycle a clock longer (page_dio=free); a 0F memory form's read with the bit index
+    in CL counts its CL clocks through a fetch requested after the read's post (or by its
+    two-byte displacement's take), its fsetup clocks fetch-free (page_cl=thru); a bit field's
+    first read issues only ftail (+ the imm4 width byte) clocks after the last fetch's end
+    (bf_ext / bf_ins ftail 2). Each against its old value on its deciding run."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev112(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["page_ir"], ("none", "delivery"))
+        self.assertEqual(OPTIONS["page_dio"], ("extend", "free"))
+        self.assertEqual(OPTIONS["page_cl"], ("free", "thru"))
+        for name in ("page_ir", "page_dio", "page_cl"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+        self.assertEqual(DEFAULT.c("bf_ext", "ftail"), 0)
+        self.assertEqual(DEFAULT.c("bf_ins", "ftail"), 0)
+
+    def test_page_ir_deciding_run(self):
+        # SET1 [BW],CL behind MOV AW,imm at an odd address, started on F94's issue with 5 bytes
+        # queued; its ModR/M taken on F94's delivery clock 97: silicon no fetch, R102 (none: the
+        # IR loads, F97, R105)
+        cid = "F34-out-mbit-set1_mw_cl-d-k1-pE-w0"
+        mod = self._exact(cid, **WP112_IR)
+        self.assertIn((102, "data_read"), _at112(mod))
+        self.assertNotIn((97, "fetch"), _at112(mod))
+        _, old = _ev112(cid, **_OLD112)
+        self.assertIn((97, "fetch"), _at112(old))
+        self.assertIn((105, "data_read"), _at112(old))
+        # the two-byte displacement taken on a delivery clock: no fetch before the read
+        self._exact("F34-out-mbit-set1_mw_cl_bw_d16-d-k1-pO-w0", **WP112_IR)
+
+    def test_page_dio_deciding_run(self):
+        # SET1 [BW+10h],CL takes its displacement on M0's I/O issue clock 85: silicon F88 right
+        # after the I/O (extend: F89, R97)
+        cid = "F34-out-mbit-set1_mw_cl_bw_d8-l0-k1-pO-w0"
+        mod = self._exact(cid, **WP112_DIO)
+        self.assertIn((88, "fetch"), _at112(mod))
+        self.assertIn((96, "data_read"), _at112(mod))
+        _, old = _ev112(cid, **_OLD112)
+        self.assertIn((89, "fetch"), _at112(old))
+        self.assertIn((97, "data_read"), _at112(old))
+
+    def test_page_cl_deciding_runs(self):
+        # SET1 [BW+200h],CL under M0's OUT: the refill F87, F90 back to back, the fetch the queue
+        # asks on F90's last clock runs back to back (F93) inside the read's CL clocks: silicon
+        # R96 (free: no F93, R95)
+        cid = "F34-out-mbit-set1_mw_cl_bw_d16-l0-k1-pE-w0"
+        mod = self._exact(cid, **WP112_CL)
+        self.assertIn((93, "fetch"), _at112(mod))
+        self.assertIn((96, "data_read"), _at112(mod))
+        _, old = _ev112(cid, **_OLD112)
+        self.assertNotIn((93, "fetch"), _at112(old))
+        self.assertIn((95, "data_read"), _at112(old))
+        # the displacement's own fetch F100 (3 fetch-free clocks after F94's end) runs inside
+        # the setup: silicon R103 (free: F100 restarts the count, R108)
+        cid = "F34-out-mbit-set1_mw_cl_bw_d16-d-k1-pE-w0"
+        mod = self._exact(cid, **WP112_CL)
+        self.assertIn((103, "data_read"), _at112(mod))
+        _, old = _ev112(cid, **_OLD112)
+        self.assertIn((108, "data_read"), _at112(old))
+        # the displacement's fetch waits out fsetup: silicon F97, 3 clocks after F91's end, R100
+        # (free: F94 back to back, R102)
+        cid = "F34-out-mbit-set1_mw_cl_bw_d16-nop-k1-pE-w0"
+        mod = self._exact(cid, **WP112_CL)
+        self.assertIn((97, "fetch"), _at112(mod))
+        _, old = _ev112(cid, **_OLD112)
+        self.assertIn((94, "fetch"), _at112(old))
+        # the plain and d8 forms are exact under both
+        for c in ("F34-out-mbit-set1_mw_cl-l0-k1-pE-w0", "F34-out-mbit-set1_mw_cl-l0-k1-pO-w1",
+                  "F34-out-mbit-set1_mw_cl_bw_d8-l0-k1-pO-w1"):
+            self._exact(c, **WP112_CL)
+            self._exact(c, **_OLD112)
+
+    def test_ftail_deciding_run(self):
+        # EXT BL,DH under M0's OUT at 2 waits: the refill F89, F94 committed back to back; silicon
+        # R101, 2 fetch-free clocks after F94's last (98) (0: R100); at 1 wait exact under both
+        cid = "F34-out-bf-ext_bl_dh-l0-k1-pE-w2"
+        mod = self._exact(cid, **WP112_TAIL)
+        self.assertIn((101, "data_read"), _at112(mod))
+        _, old = _ev112(cid, **_OLD112)
+        self.assertIn((100, "data_read"), _at112(old))
+        for c in ("F34-out-bf-ext_bl_dh-l0-k1-pE-w1", "F34-out-bf-ext_bl_i7-l0-k1-pE-w0"):
+            self._exact(c, **WP112_TAIL)
+            self._exact(c, **_OLD112)
+        self._exact("F34-out-bf-ext_bl_i7-l0-k1-pE-w2", **WP112_TAIL)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP112's values
+        for fam in ("F14", "F21", "F33", "F38"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**_KEEP112, **WP112}), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**_OLD112),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

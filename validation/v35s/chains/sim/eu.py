@@ -385,6 +385,11 @@ class EU:
         self.mem = op.ea is not None and not (not op.bus and cfg.lea_form == "reg")
         self.op_len, self.imm_bytes, self.taken = op.length, op.imm_bytes, 0
         self.disp = op.disp             # (WP27) displacement bytes (sync_req=disp)
+        self.page_mem = bool(op.page) and op.ea is not None     # (WP112) a 0F memory form
+        # (WP112) page_cl=thru: a 0F memory form's CL index clocks, the part of its read's setup
+        # that counts through a fetch (arbiter.Request.pthru)
+        self.page_cl_n = (cfg.c(op.cls, "cl") if cfg.page_cl == "thru" and self.page_mem
+                          and op.cl_count else 0)
         self.dfloor_at = None           # (WP28) disp_floor
         if (cfg.ea_floor and op.ea is not None and op.modrm and not op.disp
                 and op.cls != "pop_mem" and cfg.disp_floor != "none" and cfg.c(op.cls, "dfloor")):
@@ -923,6 +928,12 @@ class EU:
                     if self.cfg.disp_floor != "none" and self.cfg.c(self.ccls, "dfloor"):
                         # disp_floor: the first data cycle no earlier than dfloor clocks after
                         self._floor(t + self.cfg.c(self.ccls, "dfloor"))
+                if (n and self.cfg.page_ir == "delivery" and self.page_fixed == "start"
+                        and self.decoder.need == 0 and self.decoder.queue.arrived_t == t):
+                    # (WP112) page_ir=delivery: a 0F memory form's last operand byte taken on a
+                    # word's delivery clock: its successor stays out of the IR until the read
+                    # issues (machine.py clears the hold on the issue clock)
+                    self.decoder.ir_hold = True
                 if (n and self.cfg.wlatch and self.cfg.wlatch_src != "write"
                         and self.taken >= self.op_len - 1 and (
                             self.imm_bytes and not (self.cfg.wlatch_imm != "all" and self.mem)
@@ -993,6 +1004,12 @@ class EU:
                         hold = ("dhold" if "dhold" in self.cfg.cost.get(self.ccls, {})
                                 else "grp_free")
                         q.gdisp_until = t + self.cfg.c(self.ccls, hold)
+                    if (getattr(self, "page_cl_n", 0) and self.page_fixed == "start"
+                            and self.taken == self.op_len - 1):
+                        # (WP112) page_cl=thru: a 0F memory form's last operand take: the take
+                        # sync waits only for a fetch on the bus; the fetch the take asks for
+                        # waits out the read's fetch-free clocks (arbiter.py)
+                        self.sync = q.completed + q.inflight
                     if self.cfg.sync_req == "none" and self.imm_bytes and self.mem:
                         self.sync = None    # (WP27) the group setup counts through the fetch
                     elif self.cfg.sync_req == "disp" and self.imm_bytes and self.mem and self.disp:
@@ -1557,15 +1574,21 @@ class EU:
                 # read's post counts toward its setup (start: after the form's start)
                 r.pfree = t - 1 if self.cfg.page_commit == "post" else self.start_clock
                 r.run_wait = self.cfg.page_run != "none"   # (WP86) the memory forms only
+                r.pthru = getattr(self, "page_cl_n", 0)   # (WP112) page_cl
                 n, c = 0, t - 1
                 while c >= self.start_clock and n < r.setup and not any(
                         x.kind == "fetch" and x.start <= c <= x.end
                         and not (x.b2b and x.start > r.pfree)
+                        and not (r.pthru and x.thru)        # (WP112) page_cl=thru
                         for x in self.bus.cycles[-6:]):
                     n, c = n + 1, c - 1
                 r.count = n
             else:
                 r.pfree = t - 1
+                # (WP112) ftail: the bit field's read waits for ftail fetch-free clocks after
+                # the last fetch's end (and one more per immediate byte: the imm4 width)
+                ft = self.cfg.c(self.ccls, "ftail")
+                r.ftail = ft + self.imm_bytes if ft else 0
         if getattr(self, "mul_from", None) is not None and args[0] == "read":
             # (WP109) mul_imm_count=sync: the setup counts the clocks since mul_from on which no
             # cycle runs that is not a fetch, nor a fetch issued before mul_from; those already

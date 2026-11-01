@@ -6016,6 +6016,47 @@ every new enum at its default the edited tree is byte-identical to a clean expor
 test_sim.MulImmWP109 (the pre-change values pinned as `_OLD109`), test_fit's stage-32 class. Stage 32 (WP111) from
 this hand start: the fifty-sixth fit (Model).
 
+### The 0F memory forms' and bit fields' remaining misses read: the CL index's setup through a fetch, the IR held to the read's issue, the 0F displacement on an I/O issue clock, the bit field's fetch-free tail (WP112, 2026-10-31; a candidate)
+
+About 230 refresh-off misses of F32 and F34 were the 0F memory forms in the displaced and direct modes, the "other" memory
+forms and the bit-field reads at some waits, left by WP94 as keyed on the displacement length or the wait count. Read
+per run and per cell over all 1,164 0F-memory and bit-field instances of F32 and F34 (scratchpad wp112/facts.txt: every
+take, the read's post and issue, every fetch, the write, the successor, silicon beside the model; the read against the
+last fetch's end per form, mode, lead, parity and wait), they are four mechanisms and one fact:
+
+- **A, the two-byte displacement modes with a CL index** (d16 and direct, identical in silicon, 40 runs): in every
+  missing cell silicon reads on the clock after a fetch that runs inside the setup, the fetch the d16 take frees a word
+  of room for (d8, index and plain forms raise none and are exact); when not committed back to back it issues exactly
+  `fsetup` (3) clocks after the last fetch's end at every wait. Enum `page_cl` (hold → thru): the read's setup is
+  `fsetup` fetch-free clocks, then the `cl` clocks counting through a fetch; a fetch requested after the post, or the
+  one the d16 take asks for, waits out `fsetup` and runs inside the `cl` clocks; a fetch run back to back off a running
+  fetch is not held once `fsetup` has counted. The wait count enters only as the fetch's length. Alone: F32 +10, F34
+  +18, lost 0; four `nop` pE w1/w2 cells stay (the take on F4's last or wait clock with a back-to-back commitment).
+- **B, the last operand take on a word's delivery clock** (15 runs, F34): the model loads the IR, sees room and fetches
+  back to back; silicon fetches nothing and reads at the last fetch's end + 6. Enum `page_ir` (none → delivery): the 0F
+  memory form keeps its successor out of the IR until the read issues (the value hold, for every form, +12 −102).
+  Alone: F34 +15, lost 0.
+- **C, the displacement taken on an I/O cycle's issue clock** (l0 pO w0): silicon fetches on the clock after M0's I/O,
+  the model a clock late under `disp_io=extend`. Enum `page_dio` (extend → free): the extension does not apply to the
+  0F memory forms, a class rule whose cause (why the 0F decode path differs) is not read. Alone +2; with A it closes
+  four more d16/direct cells.
+- **D, the bit field's first read at l0 pE w2** (57 runs, F39's included): the read minus the committed fetch's end is
+  +4/+3/+3 at w0/w1/w2 (one more for imm4). A new integer `bf_ext.ftail` / `bf_ins.ftail` (0 = old → 2): the read
+  issues only after `ftail` fetch-free clocks (+1 per immediate byte) since the last fetch's end, the rest of `fsetup`
+  counting through the committed fetch as before; sharp (1 wins nothing, 3 loses 48), and at w2 the tail is the binding
+  term, so it is not a wait key. Alone: F32 +28, F34 +20, F39 +9, lost 0.
+- **E, a fact (53 runs: F34 mbit 18, bf 26; F32 bf 9):** an odd address, a start on a fetch's issue with 5 bytes queued
+  at w1/w2 behind NOP NOP, the PUSH-frame NOP or a k = 2 second instance, silicon 2 (bit fields) or 3 (memory bit ops)
+  clocks late; the model's state from the start on is identical to the MOV AW,1234h lead at pE where every cell is
+  exact, the only difference the history (the 0F entered the IR at −4/−5 with 4 bytes queued against −8/−10 with 2): the
+  lead, WP94's S04 and WP106's register-bit-op states again.
+
+All four together: **F32 687 → 728/858, F34 1,361 → 1,417/1,596, F39 1,256 → 1,265/1,320, lost 0** (scored against the
+multiply candidate on fit 55); with every new value at its default the score tables are byte-identical to the baseline.
+Refuted and removed: `page_ir=hold`, `ir_hold_io=keep`, the read posted on the take clock, any last take's own fetch
+counted through the setup (+47 −141), a take-clock commitment as the take's own request, `ftail` 1 and 3. Tests
+test_sim.PageFormsWP112 (`_OLD112` pins the pre-change values). The fit stage is WP113.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

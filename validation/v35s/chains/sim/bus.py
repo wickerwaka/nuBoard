@@ -26,6 +26,7 @@ class Cycle:
     data: int = 0
     owner: object = None     # the requester to notify on completion
     b2b: bool = False        # (WP81) a fetch the bus unit committed to back to back
+    thru: bool = False       # (WP112) page_cl=thru: a fetch issued in a 0F read's cl clocks
 
     @property
     def end(self) -> int:

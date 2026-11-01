@@ -97,6 +97,12 @@ class Request:
                                     # one committed back to back after the form's start (here)
     restart: bool = False           # (WP107) call_far_post=take: a fetch that runs in its
                                     # fetch-free clocks (free_run) restarts them after its end
+    ftail: int = 0                  # (WP112) bf_ext / bf_ins ftail: a bit field's first read
+                                    # issues only once ftail clocks have passed since the last
+                                    # fetch's end (its setup's fetch-free tail)
+    pthru: int = 0                  # (WP112) page_cl=thru: the last pthru setup clocks of a 0F
+                                    # memory form's read count through a fetch requested after
+                                    # its post (the CL index's cl clocks)
     mfrom: int | None = None        # (WP109) mul_imm_count=sync: MUL imm memory's read, its
                                     # setup counted from here (mul_free)
 
@@ -117,7 +123,8 @@ class Request:
         fetch restarts the count."""
         cur = bus.current
         if (cur is not None and cur.kind == "fetch" and cur.start <= t <= cur.end
-                and not (cur.b2b and cur.start > self.pfree)):
+                and not (cur.b2b and cur.start > self.pfree)
+                and not (self.pthru and cur.thru)):    # (WP112) page_cl=thru
             self.count = 0
             return False
         if (self.run_wait and cur is not None and cur.kind == "fetch" and cur.start <= t <= cur.end
@@ -202,7 +209,8 @@ def arbitrate(t: int, cfg, bus, queue, eu):
         if new.counts(bus.fetch_inflight(t), cfg.data_while_fetch, bus, t):
             new.count += 1
     if (c is not None and cfg.disp_io == "extend" and c.kind.startswith("io")
-            and queue.disp_t == t and getattr(eu, "mem", False) and getattr(eu, "disp", 0)):
+            and queue.disp_t == t and getattr(eu, "mem", False) and getattr(eu, "disp", 0)
+            and not (cfg.page_dio == "free" and getattr(eu, "page_mem", False))):
         # (WP30) disp_io: the running form took its displacement on this I/O issue clock: the
         # bus unit holds the I/O a clock longer (nothing starts on the clock after its last,
         # its recovery counts from there)
@@ -469,6 +477,16 @@ def _page_imm_run(t: int, cfg, bus, eu) -> bool:
                                         and not r.issued)
 
 
+def _page_take_ask(eu, queue) -> bool:
+    """(WP112) page_cl=thru: the fetch request is the one a 0F memory form's two-byte
+    displacement take raised on its clock, not one the bus unit had committed to before the
+    take."""
+    tk = queue.take_t
+    return bool(getattr(eu, "page_cl_n", 0) and getattr(eu, "disp", 0) == 2 and tk is not None
+                and tk >= eu.start_clock and eu.decoder.need == 0 and queue.b2b_at != tk
+                and queue.requested_at == tk)
+
+
 def _choose(t: int, cfg, bus, queue, eu):
     req = eu.req if eu.req is not None and eu.req.cycles else None
     if queue.lost_start is not None and eu.start_clock == t and t > queue.lost_start:
@@ -580,9 +598,33 @@ def _choose(t: int, cfg, bus, queue, eu):
         sreg_wait = req.sreg_ok is None or req.sreg_ok == t
         if req.sreg_ok == t:
             fetch_want = False
+    thru = False
+    take_ask = _page_take_ask(eu, queue)
+    if (req is not None and req.pthru and not req.issued and req.pfree is not None and fetch_want
+            and queue.requested_at is not None
+            and (queue.b2b_at != t and (queue.requested_at > req.posted
+                                        or queue.requested_at == req.posted == queue.take_t)
+                 or take_ask)):
+        # (WP112) page_cl=thru: a fetch requested after a 0F memory form's read was posted waits
+        # out the read's fetch-free clocks (fsetup), then runs inside its CL clocks
+        if req.count <= req.setup - req.pthru:
+            fetch_want = False
+        else:
+            thru = True
+    if (getattr(eu, "page_cl_n", 0) and fetch_want and eu.page_fixed == "start"
+            and _page_take_ask(eu, queue)):
+        # (WP112) page_cl=thru: the fetch a 0F memory form's two-byte displacement asks for
+        # (its read not yet posted) waits until fsetup clocks have passed since the last fetch
+        # ended, then runs inside the read's CL clocks
+        if t - bus.last_fetch_end <= eu.cfg.c(eu.ccls, "fsetup"):
+            fetch_want = False
+        else:
+            thru = True
     if (req is not None and cfg.hold_fetch and not req.issued
             and (req.holding() or recovering or req.floor_hold and t < req.not_before)
-            and not in_run and not free_run):
+            and not in_run and not free_run
+            and not (thru and (bus.last_fetch_end == t - 1
+                               or queue.requested_at == queue.take_t))):
         io = req.cycles[0][0].startswith("io")
         if io and cfg.io_hold == "posted_b2b" and queue.b2b_at == t:
             pass                        # a back-to-back fetch the bus unit committed to goes
@@ -652,6 +694,9 @@ def _choose(t: int, cfg, bus, queue, eu):
         req = None
     if req is not None and not req.issued and (not req.ready() or t < req.not_before):
         req = None
+    if (req is not None and req.ftail and not req.issued and req.pfree is not None
+            and t - bus.last_fetch_end <= req.ftail):
+        req = None                      # (WP112) ftail: the bit field's fetch-free tail
     # (WP58) io_step_issue: an IN's I/O after a refresh in its setup issues on one of its steps
     if (cfg.io_step_issue == "step" and io_stepped(req, eu) and not req.detached
             and not io_step(req, bus, t, issue=True)):
@@ -750,6 +795,8 @@ def _choose(t: int, cfg, bus, queue, eu):
         addr, width, data = queue.issue(t, mem_waiting=mem)   # (WP26) request_reissue
         c = bus.start(t, "fetch", addr, width, data, owner=queue)
         c.b2b = queue.b2b_at == t or imm_run  # (WP81) page_mem: committed back to back
+        # (WP112) page_cl=thru: issued in the read's CL clocks
+        c.thru = thru
         if eu.refresh is not None and cfg.refresh_sync == "run":
             # (WP34) refresh_sync=run: the beaten fetch the take sync counts, and the fetches
             # back to back behind it, run 2 clocks earlier for the EU (eu.early)

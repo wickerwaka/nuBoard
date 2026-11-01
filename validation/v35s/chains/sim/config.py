@@ -937,6 +937,36 @@ OPTIONS = {
     # (89), before the read's post (95); silicon D98, 6 fetch-free clocks after F90's last
     # (start: D95). PROTOTYPE (WP106), scored not fitted.
     "page_commit": ("start", "post"),
+    # (WP112, F34, 2026-10-31) page_ir: a 0F memory form's last operand take loads the next
+    # opcode into the IR as any form's does (none) / taken on a word's delivery clock, it keeps the
+    # successor out of the IR until the read issues (ir_load=disp_data's hold, which a delivery-
+    # clock take otherwise releases): the delivered word fills the room the take frees, so no
+    # fetch is requested inside the read's setup (delivery). F34-out-mbit-set1_mw_cl-d-k1-pE-w0,
+    # rel t_fill: SET1 [BW],CL at an odd address starts on F94's issue with 5 bytes queued, its
+    # ModR/M taken on F94's delivery clock 97; silicon no fetch, R102 (none: F97, R105). A take
+    # on any other clock is unchanged. PROTOTYPE (WP112), scored not fitted: F34 +15, lost 0.
+    "page_ir": ("none", "delivery"),
+    # (WP112, F32/F34, 2026-10-31) page_dio: under disp_io=extend a displacement taken on an I/O
+    # cycle's issue clock holds that cycle a clock longer for every memory form (extend) / not
+    # for a 0F memory form, whose displacement take there changes nothing on the bus (free).
+    # F34-out-mbit-set1_mw_cl_bw_d8-l0-k1-pO-w0, rel t_fill: the d8 taken on M0's I/O issue clock
+    # 85 (F82's delivery); silicon F88 on the clock after the I/O, R96 (extend: F89, R97).
+    # PROTOTYPE (WP112), scored not fitted: F32 +1, F34 +1, lost 0.
+    "page_dio": ("extend", "free"),
+    # (WP112, F32/F34, 2026-10-31) page_cl: under page_mem=fixed a 0F memory form's read setup
+    # (fsetup, and cl more with the bit index in CL) is fetch-free throughout, a fetch the bus
+    # unit did not commit back to back restarting it (free) / with the index in CL its cl clocks
+    # count through a fetch: a fetch requested after the read's post, or the one the two-byte
+    # displacement's take asks for, waits until fsetup clocks have counted since the last
+    # fetch's end, then runs inside the cl clocks, a back-to-back one past the queue rule's hold
+    # (hold_q); the read issues when its count is complete and the bus free (thru).
+    # F34-out-mbit-set1_mw_cl_bw_d16-l0-k1-pE-w0, rel t_fill: the refill F87, F90 back to back,
+    # silicon F93 back to back, R96 (free: no F93, R95); -d-k1-pE-w0: the displacement's fetch
+    # F100 (3 fetch-free clocks after F94's last), R103 (free: R108); -nop-k1-pE-w0: F97 (3
+    # fetch-free clocks after F91's last), R100 (free: F94, R102). The d8, index and plain forms
+    # raise no request there and are unchanged. PROTOTYPE (WP112), scored not fitted: F32 +10,
+    # F34 +18, lost 0.
+    "page_cl": ("free", "thru"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1238,10 +1268,16 @@ DEFAULT_COST = {
                 "mhold": 0, "rsetup": 0},
     "bcd4s": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "wmid": 10, "loop": 7, "exec": 12},
     "bcd4s_cmp": {"nx": 0, "wb": 2, "pre": 0, "first": 16, "mid": 7, "loop": 14, "exec": 20},
+    # (WP112, F32/F34/F39, 2026-10-31) ftail: under bf_read=fixed a bit field's first read
+    # issues only once ftail clocks (and one more per immediate byte) have passed since the last
+    # fetch's end, the rest of fsetup counting through a committed fetch as before; 0: no such
+    # tail (the old behaviour). F34-out-bf-ext_bl_dh-l0-k1-pE-w2, rel t_fill: the refill F89,
+    # F94 committed back to back, silicon R101 (0: R100); at w0 / w1 the count binds and both
+    # agree. PROTOTYPE (WP112), scored not fitted at 2: F32 +28, F34 +20, F39 +9, lost 0
     "bf_ext": {"fsetup": 6, "nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "xsetup": 26, "span": 14, "xspan": 42,
-               "hrel": 4},
+               "hrel": 4, "ftail": 0},
     "bf_ins": {"fsetup": 6, "nx": 0, "wb": 0, "pre": 0, "setup": 12, "setup_free": 0, "span": 19, "wsetup": 2, "xwsetup": 68, "xrsetup": 11,
-               "xspan": 106, "post": 2, "hrel": 0},
+               "xspan": 106, "post": 2, "hrel": 0, "ftail": 0},
 }
 DEFAULT_EA = {"base": 2, "base_index": 3, "disp": 2, "base_disp": 3, "base_index_disp": 4,
               "direct": 0,
@@ -1545,6 +1581,9 @@ class Config:
     rot4_exec: str = "none"            # (WP106)
     test1_head: str = "own"            # (WP106)
     page_commit: str = "start"         # (WP106)
+    page_ir: str = "none"              # (WP112)
+    page_dio: str = "extend"           # (WP112)
+    page_cl: str = "free"              # (WP112)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))
