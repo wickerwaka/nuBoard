@@ -1731,7 +1731,36 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   28: ["F24", "F30", "F31", "F33", "F39", "F40"],
                   29: ["F23", "F30", "F33", "F34", "F35", "F36", "F37", "F39", "F40"],
                   30: ["F35", "F37", "F40"],
-                  31: ["F32", "F34", "F39", "F40"]}
+                  31: ["F32", "F34", "F39", "F40"],
+                  32: ["F33", "F34", "F3", "F16", "F14", "F15"]}
+
+# Stage 32 (WP111, F33, F34, F3, F16, F14, F15): the
+# multiply's read, hold, exec and data cost as WP109 read them (docs/v35s-chains.md Facts "The
+# multiply's read, hold, exec and data cost"): MUL imm's memory read counts its setup from the
+# post with the fetches issued after it running inside (mul_imm_count=sync), the half-taken
+# word's hold only while the queue has no room for a word (mul_imm_half=room), each fetch in a
+# memory MUL imm's exec costs its wait states + 1 (mul_imm_exec=hold) and the signed multiply's
+# exec adds the data book's operand-sign clocks (mul_data=sign, with mul.smexec 39). From a hand
+# start (the fifty-fifth fit with the four values and mul.smexec 39, F33 955, F34 1,361), the enums
+# (F58_ENUMS: mul_imm_count, mul_imm_half, mul_imm_exec and mul_data with every value, the old
+# value first, so a tie keeps it) as a grid at the input's integers (the top 2 descended over
+# F58_INTS: every integer of the classes the four rules read, mul, mul_imm and div (mul_imm_exec=
+# unit holds a memory divide's exec too): the fitted entries of the three classes and mul.nx,
+# which stage 4 fits), then the sweep over F58_ENUMS with F58_INTS descended inside every move;
+# the families are F33 (mul, mul_imm, div), F34 (MUL imm), F14, F16 (mul, div), F3, F15 (mul):
+# run_classes finds mul, mul_imm or div in their chains, and F32 runs none of the three. F5, F13,
+# F17, F18, F27, F28 and F40 also run a register or memory multiply (F18 a divide), but with
+# them in the stage key (12,516 runs) the stage ran out of its 40G scope in the descent twice;
+# they are left to the corpus guard over every modelled run, which is the guard, as in stages 9
+# to 31.
+F58_ENUMS = {n: OPTIONS[n] for n in ("mul_imm_count", "mul_imm_half", "mul_imm_exec", "mul_data")}
+F58_CLASSES = ("mul", "mul_imm", "div")
+F58_INTS = (["mul." + n for n in ("pre", "nx", "exec", "sexec", "mexec", "smexec", "bmexec",
+                                  "hphase", "mtail", "wb", "mwb", "grp", "grp_free", "rexit")]
+            + ["mul_imm." + n for n in ("nx", "pre", "exec", "mexec", "hphase", "mtail", "wb",
+                                        "mwb", "mhold", "rsetup")]
+            + ["div." + n for n in ("pre", "exec", "sexec", "mexec", "smexec", "hphase", "mtail",
+                                    "wb", "mwb", "grp", "grp_free", "rexit")])
 
 # Stage 31 (WP110, F32, F34, F39, F40): the wait-keyed 0F trades as WP106 read them
 # (docs/v35s-chains.md Facts "The wait-keyed trades read"): ROL4 / ROR4 on a register do not
@@ -2948,6 +2977,17 @@ def stage31(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage32(prev: dict, log=say) -> dict:
+    """(WP111) F33, F34, F3, F16, F14, F15 (lists that run mul, mul_imm or div): mul_imm_count,
+    mul_imm_half, mul_imm_exec and mul_data (every value) as a grid at the input's integers (the
+    top 2 descended over F58_INTS), then the sweep over F58_ENUMS with F58_INTS descended inside
+    every move; the corpus guard is the guard, as in stages 9 to 31."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 32 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(32, prev, F58_ENUMS, F58_INTS, log, top_k=2, pairs_k=1, sweep=F58_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -3045,8 +3085,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage29(prev, log)
     elif stage == 30:
         out = stage30(prev, log)
-    else:
+    elif stage == 31:
         out = stage31(prev, log)
+    else:
+        out = stage32(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -3064,9 +3106,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 32), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 32), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-31 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 33), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 33), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-32 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -3104,7 +3146,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 32) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 33) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")
