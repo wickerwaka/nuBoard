@@ -7113,3 +7113,111 @@ class DecodeF38WP98(unittest.TestCase):
         for cid in ("F38-out-shb-shl_m1-pE-w0", "F38-push-shb-shl_m1-pO-w2"):
             sil, mod = _ev98(cid)
             self.assertEqual(mod, sil, cid)
+
+
+def _ev99(cid, cfg):
+    """(silicon, model) aligned event lists from t_fill under cfg (refresh off)."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    return aligned(s), aligned(simulate_normalized(s.chain, cfg, s.chain_base))
+
+
+class ShiftMemImmWP99(unittest.TestCase):
+    """(WP99, F38) shift_mem_imm: the memory shift by imm8 (C0 / C1 on memory, Op.count_byte) runs
+    the rmw template with the count byte in its head (rmw, WP98's decode, the old value) or the
+    immediate RMW's (rmw_imm: the read posted after the ModR/M byte, the count byte taken as the
+    immediate once the read is on the bus), its ALU step the shift's (shift_imm.exec,
+    per_shift_count, rmw_imm.sexec) as the posted write's setup, the first rmw_imm.sthru clocks
+    counting through a fetch in flight (scratchpad wp99/facts.txt)."""
+
+    REGS = {"AW": 0x1200, "BW": 0x0800, "CW": 0x001F, "DW": 0, "SP": 0x0F00, "BP": 0, "IX": 0,
+            "IY": 0, "CY": 1}
+
+    def _new(self):
+        # the tracked fit with the new value (the integers DEFAULT_COST's until adoption)
+        return Config.fitted().replace(shift_mem_imm="rmw_imm")
+
+    def test_option(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST
+        self.assertEqual(OPTIONS["shift_mem_imm"], ("rmw", "rmw_imm"))
+        self.assertEqual(DEFAULT.shift_mem_imm, "rmw")      # the old behaviour
+        self.assertEqual((DEFAULT_COST["rmw_imm"]["sexec"], DEFAULT_COST["rmw_imm"]["sthru"]),
+                         (3, 2))
+
+    def test_count_byte(self):
+        # a format property of the C0 / C1 memory forms only: decode keeps the rmw class
+        for code, want in ((bytes([0xC1, 0x27, 0x04]), True), (bytes([0xC0, 0x27, 0x04]), True),
+                           (bytes([0xD1, 0x27]), False), (bytes([0xD3, 0x27]), False),
+                           (bytes([0xC1, 0xE0, 0x04]), False), (bytes([0x83, 0x07, 0x05]), False)):
+            op = decode(code, 0, dict(self.REGS))
+            self.assertEqual(op.count_byte, want, code.hex())
+            if want:
+                self.assertEqual((op.cls, op.imm_bytes, op.count, op.shift),
+                                 ("rmw", 0, 4, True), code.hex())
+
+    def test_template(self):
+        # under rmw_imm: the read posted, the count byte taken once it is on the bus, the write
+        # posted with the ALU step as its setup (3 + 6 + 2 x 3 + 3 = 18), its last 16 fetch-free
+        from validation.v35s.chains.sim.templates import Op, steps
+        cfg = self._new()
+        op = decode(bytes([0xC1, 0x27, 0x04]), 0, dict(self.REGS))
+        op = Op(**{**op.__dict__, "cls": "rmw_imm", "imm_bytes": 1})
+        seq = steps(op, cfg)
+        kinds = [s[0] for s in seq]
+        self.assertLess(kinds.index("post"), kinds.index("issued"))
+        k = kinds.index("issued")
+        self.assertEqual(seq[k + 1], ("take", 1, "chain"))
+        self.assertEqual(seq[k + 2], ("wait",))
+        write = next(s for s in seq if s[0] == "data" and s[1] == "write")
+        self.assertEqual(write, ("data", "write", 0x0800, 2, 18, 16))
+        # ADD [BW],imm8 (83 /0) keeps its write: no shift clocks, the class's setup_free
+        add = decode(bytes([0x83, 0x07, 0x05]), 0, dict(self.REGS))
+        self.assertEqual(steps(add, cfg), steps(add, Config.fitted().replace(shift_mem_imm="rmw")))
+
+    def test_d1_d3_untouched(self):
+        # the memory shifts by 1 and by CL keep their template and runs under both values
+        from validation.v35s.chains.sim.templates import steps
+        old, new = Config.fitted().replace(shift_mem_imm="rmw"), self._new()
+        for code in (bytes([0xD1, 0x27]), bytes([0xD3, 0x27]), bytes([0xD0, 0x27])):
+            op = decode(code, 0, dict(self.REGS))
+            self.assertEqual(steps(op, new), steps(op, old), code.hex())
+        for cid in ("F38-out-shb-shl_m1-pO-w0", "F38-push-shb-shl_m1-pE-w2",
+                    "F14-g-push-shl_bw_cl-pO-w1", "F14-g-out-shl_bw_1-pE-w0"):
+            for cfg in (old, new):
+                sil, mod = _ev99(cid, cfg)
+                self.assertEqual(mod, sil, cid)
+
+    def test_deciding_runs(self):
+        # OUT pE w0 (no fetch between read and write: W = the read's end + 18), OUT pO w0 / w2
+        # (fetch 94 / 98 after the read: W = its end + 16), PUSH pO, the byte form
+        new = self._new()
+        for cid in ("F38-out-shb-shl_m_imm4-pE-w0", "F38-out-shb-shl_m_imm4-pO-w0",
+                    "F38-out-shb-shlb_m_imm4-pO-w2", "F38-push-shb-shl_m_imm4-pO-w0",
+                    "F38-push-shb-shlb_m_imm4-pE-w1"):
+            sil, mod = _ev99(cid, new)
+            self.assertEqual(mod, sil, cid)
+        # the old value: the count byte in the head, the read 3 clocks late (R93 for R90)
+        sil, mod = _ev99("F38-out-shb-shl_m_imm4-pE-w0",
+                         Config.fitted().replace(shift_mem_imm="rmw"))
+        self.assertNotEqual(mod, sil)
+        rd = lambda ev: next(e[0] for e in ev if e[1] == "data_read")
+        self.assertEqual(rd(mod) - rd(sil), 3)
+
+    def test_fetch_free_clocks_decide_po(self):
+        # every write setup clock counting through a fetch (sthru 18): pE stays exact, the OUT pO
+        # write comes on the read's end + 18 inside the fetch's shadow, 1 + w clocks early
+        cfg = self._new().replace(**{"rmw_imm.sthru": 18})
+        sil, mod = _ev99("F38-out-shb-shl_m_imm4-pE-w1", cfg)
+        self.assertEqual(mod, sil)
+        sil, mod = _ev99("F38-out-shb-shl_m_imm4-pO-w1", cfg)
+        wr = lambda ev: next(e[0] for e in ev if e[1] == "data_write")
+        self.assertEqual(wr(mod) - wr(sil), -2)
+
+    def test_run_classes(self):
+        # the fit's projection key: a count-byte memory shift reads rmw_imm's integers
+        from validation.v35s.chains import fit
+        c = next(c for c in generate(["F38"]) if c.id == "F38-out-shb-shl_m_imm4-pE-w0")
+        classes, _ = fit.run_classes(c)
+        self.assertIn("rmw_imm", classes)
+        self.assertIn("shift_imm", classes)

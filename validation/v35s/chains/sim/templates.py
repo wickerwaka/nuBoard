@@ -75,6 +75,8 @@ class Op:
     sfr: int | None = None       # (WP23) an on-chip SFR store (eu.py sets it: a DS1-prefixed
                                  # address in the SFR page): the RFM value it writes
     cl_count: bool = False       # (WP57) the count is CL (D2/D3): the EU masks it by shift_count_mask
+    count_byte: bool = False     # (WP99) a memory shift whose count is an operand byte (C0/C1 on
+                                 # memory), a format property: the EU runs it per shift_mem_imm
     disp: int = 0                # (WP27) displacement bytes after the ModR/M byte (mod 01: 1,
                                  # mod 10 and the direct mod 00 rm 110: 2)
     bus: bool = True             # (WP52) the memory operand has a bus cycle (False: LDEA, the
@@ -386,6 +388,7 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         cls = "rmw"
         base["count"] = code[k + length - 1]
         base["shift"] = True
+        base["count_byte"] = True       # (WP99) the count an operand byte (shift_mem_imm)
     elif op in (0xD0, 0xD1):            # (WP21) D0: the byte form
         if not mem:
             return Op(length=length, cls="shift_imm", count=1, **base)
@@ -1227,11 +1230,24 @@ def _steps(op: Op, cfg) -> list[tuple]:
             ("clocks", c("post"))]
     if cls == "rmw_imm" and cfg.imm_order != "with_addr":
         alu, setup = c("alu"), c("setup")
+        shift = op.shift and cfg.rmw_shift == "shift"
+        if shift:
+            # (WP99) shift_mem_imm=rmw_imm: the memory shift by imm8 (its count byte this
+            # class's immediate): the ALU step adds the shift unit's clocks (shift_imm.exec,
+            # per_shift_count per count beyond the first) and the class's sexec
+            alu += (cfg.c("shift_imm", "exec") + cfg.per_shift_count * (op.count - 1)
+                    + c("sexec"))
         if cfg.rmw_imm_issue == "rmw" and cfg.rmw_write_issue == "immediate":
             alu, setup = 0, max(alu, setup)     # posted at the start of the ALU step
         if op.nowrite:
             # grp_read: a form that does not write (81 /7) keeps the write's bus slot
             write = [("data", "nowrite", op.ea, op.width, setup)]
+        elif shift and not alu:
+            # (WP99) the write posted at the start of the ALU step: its first sthru setup clocks
+            # count through a fetch in flight, the rest (the shift's) only with none
+            # (F38-out-shb-shl_m_imm4-pO-w0: R91, fetch 94-96, W112 = the fetch's end + 16;
+            # pE-w0, no fetch: R90, W110 = the read's end + 18)
+            write = [("data", "write", op.ea, op.width, setup, max(0, setup - c("sthru")))]
         else:
             write = [("data", "write", op.ea, op.width, setup)]
         return (_head(op, cfg, c("pre"), ea) + _imm_read(op, cfg, c)

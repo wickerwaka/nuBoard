@@ -201,6 +201,10 @@ class EU:
             op.nowrite = True            # (WP19) CMP r/m,reg: the d = 0 template, no write
         if op.nowrite:
             op.cls = grp_class(op, cfg)      # grp_read: the group's read-modify-write class
+        if op.count_byte and op.cls == "rmw" and cfg.shift_mem_imm == "rmw_imm":
+            # (WP99) shift_mem_imm=rmw_imm: a memory shift whose count is an operand byte runs
+            # the immediate RMW's template and integers, the count byte its immediate
+            op.cls, op.imm_bytes = "rmw_imm", 1
         if op.cls != "prefix" and self.seg_prefix == 0x26 and op.ea is not None and op.cls in (
                 "store", "store_imm"):
             lin = ((self.regs.get("DS1", 0) << 4) + op.ea) & 0xFFFFF

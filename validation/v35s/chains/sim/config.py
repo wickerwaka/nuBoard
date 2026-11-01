@@ -794,6 +794,18 @@ OPTIONS = {
     # the take, no commitment, F104); at w0 the take falls on F88's last clock and F91 follows
     # on the clock after it: exact under both
     "page_b2b_win": ("take", "run"),
+    # (WP99, F38, 2026-10-31) shift_mem_imm: a memory shift whose count is an operand byte (C0 /
+    # C1 on memory, Op.count_byte) runs the read-modify-write template (rmw) with every operand
+    # byte, the count last, taken in its head before the read (WP98's decode) / runs the
+    # immediate RMW's (rmw_imm: the read posted after the ModR/M byte, the count byte taken as
+    # its immediate once the read is on the bus, imm_order=after_issue; its group setup, grp1
+    # and istart), the ALU step adding the shift unit's clocks and rmw_imm.sexec, the write
+    # posted with its last setup - rmw_imm.sthru clocks fetch-free. In every one of F38's 24
+    # cells the read issues on ADD [BW],imm8's clock (83 /0, same frame), 2 before SHL [BW],1's
+    # (D1, rmw): F38-out-shb-shl_m_imm4-pE-w0, rel t_fill: silicon R90 W110 F114 (rmw: F90 R93
+    # W110), -pO-w0 R91 F94 W112 (the write 16 clocks after that fetch's end; at pE 18 after
+    # the read's), PUSH pE / pO R87 W107; byte = word
+    "shift_mem_imm": ("rmw", "rmw_imm"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -873,13 +885,19 @@ DEFAULT_COST = {
     "store": {"pre": 2, "setup": 0, "post": 2},
     "store_imm": {"pre": 0, "setup": 2, "post": 1},
     "rmw": {"pre": 0, "alu": 2, "setup": 0, "post": 1, "sidle": 2},
-    "rmw_imm": {"pre": 0, "alu": 2, "setup": 0, "post": 1, "sidle": 2},
+    "rmw_imm": {"pre": 0, "alu": 2, "setup": 0, "post": 1, "sidle": 2, "sexec": 3, "sthru": 2},
     "push_mem": {"pre": 0, "exec": 1, "setup": 1, "post": 1},
     "pop_mem": {"pre": 0, "exec": 1, "setup": 1, "post": 1},
     "push": {"setup": 6, "post": 2},
     "pop": {"setup": 1, "exec": 1},
     "out": {"pre": 3, "exec": 3, "setup": 5, "post": 0},
     "in": {"pre": 5, "exec": 0, "setup": 4, "post": 1},
+# (WP99) sexec, sthru (rmw_imm, shift_mem_imm=rmw_imm only): a memory shift by imm8's ALU step
+# runs rmw_imm.alu + shift_imm.exec + per_shift_count * (count - 1) + sexec clocks (F38: the write
+# 18 clocks after the read's end with no fetch between, SHL [BW],4: 3 + 6 + 6 + 3), all of them
+# the posted write's setup; the first sthru count through a fetch in flight, the rest only with
+# none (F38 pO OUT: the write 16 clocks after the fetch that follows the read, at every wait).
+# Read off scratchpad wp99/facts.txt; unread by every other form.
 # (WP31) sidle: with slot_idle=eu, the clocks from a left-out write's slot that runs no fetch
 # to the clock the EU goes on (rmw_imm 2: `F19-i-push-l0-cmpimm8-pE-w1` the PUSH at slot + 2,
 # w104, at every wait; rmw 2, CMP r/m,reg under dest_route=slot: `F14-t-push-cmp_bw_aw-pE-w0`
@@ -1377,6 +1395,7 @@ class Config:
     bf_imm_hold: str = "none"          # (WP94)
     page_imm_run: str = "none"         # (WP94)
     page_b2b_win: str = "take"         # (WP94)
+    shift_mem_imm: str = "rmw"         # (WP99)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

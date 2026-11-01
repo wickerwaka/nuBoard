@@ -1234,3 +1234,66 @@ class PageMechanismStage(unittest.TestCase):
             fit.run_stage(25, {"config": DEFAULT.to_json()}, log=lambda *a: None)
         s25.assert_called_once()
         s26.assert_not_called()
+
+
+class ShiftMemImmStage(unittest.TestCase):
+    """(WP99) stage 27: shift_mem_imm over F38 (the memory shift by imm8) and the families whose
+    83 / 80 / 81 memory forms run rmw_imm (F14, F15, F19), every rmw_imm integer descended, the
+    corpus guard as its guard."""
+
+    def test_stage_27_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[27], ["F38", "F14", "F15", "F19"])
+        self.assertEqual(set(fit.F53_ENUMS), {"shift_mem_imm"})
+        for name, values in fit.F53_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            # the old value first (DEFAULT): a tie keeps it
+            self.assertEqual(values[0], getattr(DEFAULT, name))
+        for name in DEFAULT_COST["rmw_imm"]:
+            self.assertIn(f"rmw_imm.{name}", fit.F53_INTS)
+        for p in ("rmw_imm.sexec", "rmw_imm.sthru", "rmw_imm.grp1", "rmw_imm.istart"):
+            self.assertIn(p, fit.F53_INTS)
+        self.assertEqual({p.split(".")[0] for p in fit.F53_INTS}, {"rmw_imm"})
+        self.assertEqual(len(fit.F53_INTS), len(set(fit.F53_INTS)))
+
+    def test_stage_27_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage27({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_27_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage27({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 27)
+        self.assertEqual(args[2], fit.F53_ENUMS)
+        self.assertEqual(args[3], fit.F53_INTS)
+        self.assertEqual(kw["sweep"], fit.F53_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_27(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "27"])
+        self.assertEqual(args.stage, 27)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "26", "--to", "27"])
+        self.assertEqual(args.to, 27)
+
+    def test_run_stage_dispatches_27(self):
+        with mock.patch.object(fit, "stage27", return_value={"config": {}}) as s27, \
+                mock.patch.object(fit, "stage26") as s26, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(27, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s27.assert_called_once()
+        s26.assert_not_called()
+
+    def test_run_stage_dispatches_26_not_27(self):
+        with mock.patch.object(fit, "stage26", return_value={"config": {}}) as s26, \
+                mock.patch.object(fit, "stage27") as s27, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(26, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s26.assert_called_once()
+        s27.assert_not_called()
