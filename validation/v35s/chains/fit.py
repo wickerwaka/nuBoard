@@ -1750,7 +1750,34 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   33: ["F32", "F34", "F39", "F40"],
                   34: ["F33", "F32", "F40", "F36"],
                   35: ["F32", "F34", "F39", "F40"],
-                  36: ["F32", "F34", "F39", "F40"]}
+                  36: ["F32", "F34", "F39", "F40"],
+                  37: ["F25", "F30", "F37", "F39", "F40", "F24"]}
+
+# Stage 37 (WP121, F25, F30, F37, F39, F40, F24): F39's and F40's non-0F remainder as WP119 read
+# it (docs/v35s-chains.md Facts "F39's and F40's non-0F remainder re-read"): a memory-indirect
+# transfer on a word's arrival clock keeps its empty IR as the request rule's seventh slot
+# (xfer_mem_room=arrival) and its split displacement does not wait for the fetch on the bus
+# (late_disp_word=split; either alone wins nothing, word loses), LDEA started on a fetch's issue
+# writes back lea.fwb clocks after that fetch's last clock (lea_wb=fetch), the unprefixed INM's
+# I/O read counts its setup as a memory data request's (str_in_io=free, str_in.ufree) and the
+# ModR/M byte of TEST r,r / INC r8 leaves the queue only on a delivery clock (pre_modrm=arrival).
+# From a hand start (the sixtieth fit with the five values and lea.fwb 5, str_in.ufree 6), the
+# enums (F63_ENUMS: xfer_mem_room, late_disp_word, lea_wb, str_in_io and pre_modrm with every
+# value, the old value first, so a tie keeps it) as a grid at the input's integers (the top 2
+# descended over F63_INTS: every integer of lea, str_in, call_mem, br_mem, call_far_mem,
+# branch_far_mem, test_reg and incdec, fwb, ufree and incdec.rwb among them), then the sweep over
+# F63_ENUMS with F63_INTS descended inside every move; the families are those that run LDEA, the
+# unprefixed string forms, the memory-indirect transfers and TEST r,r / INC r8 (F25, F30, F37,
+# F39, F40, F24: 5,748 runs); the corpus guard over every modelled run is the guard, as in
+# stages 9 to 36.
+F63_ENUMS = {n: OPTIONS[n] for n in ("xfer_mem_room", "late_disp_word", "lea_wb", "str_in_io",
+                                     "pre_modrm")}
+F63_CLASSES = ("lea", "str_in", "call_mem", "br_mem", "call_far_mem", "branch_far_mem",
+               "test_reg", "incdec")
+F63_NEW_INTS = ("incdec.rwb",)
+F63_INTS = list(dict.fromkeys(
+    [f"{cls}.{name}" for cls in F63_CLASSES for name in DEFAULT_COST[cls]]
+    + list(F63_NEW_INTS)))
 
 # Stage 36 (WP120, F32, F34, F39, F40): the waited ModR/M byte's late arrival as WP118 read it
 # (docs/v35s-chains.md Facts "The waited ModR/M byte reaches the EU a clock late"): the byte
@@ -3139,6 +3166,18 @@ def stage36(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage37(prev: dict, log=say) -> dict:
+    """(WP121) F25, F30, F37, F39, F40, F24 (the lists that run LDEA, the unprefixed string
+    forms, the memory-indirect transfers and TEST r,r / INC r8): xfer_mem_room, late_disp_word,
+    lea_wb, str_in_io and pre_modrm (every value) as a grid at the input's integers (the top 2
+    descended over F63_INTS), then the sweep over F63_ENUMS with F63_INTS descended inside every
+    move; the corpus guard is the guard, as in stages 9 to 36."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 37 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(37, prev, F63_ENUMS, F63_INTS, log, top_k=2, pairs_k=1, sweep=F63_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -3246,8 +3285,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage34(prev, log)
     elif stage == 35:
         out = stage35(prev, log)
-    else:
+    elif stage == 36:
         out = stage36(prev, log)
+    else:
+        out = stage37(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -3265,9 +3306,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 37), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 37), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-36 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 38), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 38), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-37 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -3305,7 +3346,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 37) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 38) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")
