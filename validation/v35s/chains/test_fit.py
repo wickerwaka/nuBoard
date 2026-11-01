@@ -1428,7 +1428,7 @@ class SecondInstanceStage(unittest.TestCase):
             ["--stage", "28", "--to", "29"])
         self.assertEqual(args.to, 29)
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
-            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "30"])
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "31"])
 
     def test_run_stage_dispatches_29(self):
         with mock.patch.object(fit, "stage29", return_value={"config": {}}) as s29, \
@@ -1447,3 +1447,82 @@ class SecondInstanceStage(unittest.TestCase):
             fit.run_stage(28, {"config": DEFAULT.to_json()}, log=lambda *a: None)
         s28.assert_called_once()
         s29.assert_not_called()
+
+
+class FarTransferStage(unittest.TestCase):
+    """(WP108) stage 30: far_room, call_far_post and ret_far_fetch with every value (WP107's take,
+    take and after among them) over the families that run a far class, every integer of
+    branch_far, call_far (tsetup and tfree among them), ret_far and ret_far_imm descended, the
+    corpus guard as its guard."""
+
+    def test_stage_30_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        from validation.v35s.chains.sim.queue import FAR_ROOM_CLASSES
+        # the only lists whose chains run a far class (branch_far, call_far, ret_far,
+        # ret_far_imm and the memory far forms)
+        self.assertEqual(fit.STAGE_FAMILIES[30], ["F35", "F37", "F40"])
+        self.assertEqual(set(fit.F56_ENUMS), {"far_room", "call_far_post", "ret_far_fetch"})
+        for name, values in fit.F56_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            # the old value first (DEFAULT): a tie keeps it
+            self.assertEqual(values[0], getattr(DEFAULT, name))
+        self.assertIn("take", fit.F56_ENUMS["far_room"])
+        self.assertIn("take", fit.F56_ENUMS["call_far_post"])
+        self.assertIn("after", fit.F56_ENUMS["ret_far_fetch"])
+        for cls in FAR_ROOM_CLASSES + ("ret_far", "ret_far_imm"):
+            self.assertIn(cls, fit.F56_CLASSES)
+            for name in DEFAULT_COST[cls]:
+                self.assertIn(f"{cls}.{name}", fit.F56_INTS)
+        for name in ("call_far.tsetup", "call_far.tfree", "ret_far_imm.setup",
+                     "ret_far_imm.setup_free"):
+            self.assertIn(name, fit.F56_INTS)
+        # the memory far forms: read by none of the three rules
+        self.assertNotIn("call_far_mem", fit.F56_CLASSES)
+        self.assertNotIn("branch_far_mem", fit.F56_CLASSES)
+        self.assertEqual({p.split(".")[0] for p in fit.F56_INTS}, set(fit.F56_CLASSES))
+        self.assertEqual(len(fit.F56_INTS), len(set(fit.F56_INTS)))
+
+    def test_stage_30_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage30({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_30_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage30({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 30)
+        self.assertEqual(args[2], fit.F56_ENUMS)
+        self.assertEqual(args[3], fit.F56_INTS)
+        self.assertEqual(kw["sweep"], fit.F56_ENUMS)
+        self.assertEqual(kw["top_k"], 2)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_30(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "30"])
+        self.assertEqual(args.stage, 30)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "29", "--to", "30"])
+        self.assertEqual(args.to, 30)
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "31"])
+
+    def test_run_stage_dispatches_30(self):
+        with mock.patch.object(fit, "stage30", return_value={"config": {}}) as s30, \
+                mock.patch.object(fit, "stage29") as s29, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(30, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s30.assert_called_once()
+        s29.assert_not_called()
+
+    def test_run_stage_dispatches_29_not_30(self):
+        with mock.patch.object(fit, "stage29", return_value={"config": {}}) as s29, \
+                mock.patch.object(fit, "stage30") as s30, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(29, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s29.assert_called_once()
+        s30.assert_not_called()
