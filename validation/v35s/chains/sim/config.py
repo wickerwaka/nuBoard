@@ -744,7 +744,15 @@ OPTIONS = {
     # str_in and str_cmp, 0 in the others (STM, LDM and CMPM pairs are exact either way).
     # Stage 25 (2026-10-31, wp95) chose wb with the hand-start integers; flip at the candidate:
     # none -18 (F24 only; F30, F31, F33 unchanged)
-    "str_single_wb": ("none", "wb"),  # (WP95, F24)
+    # (WP101, F39, 2026-10-31) index: as wb, and an unprefixed string form that follows one
+    # waits for all but the last clock of that write-back (the index registers it reads);
+    # with uwb 2 in str_move, str_cmp and str_in (the hand start, read with it) every other
+    # successor starts 2 clocks after the form's last cycle, the port OUT and the second string
+    # form where they did under wb. F39-out-str-movbk-ld-pO-w0, rel t_fill: MOVBK's write
+    # 103-105, no fetch after it; silicon F108 D113 (wb, uwb 1: the load on 109, F109 D114);
+    # wb with uwb 2 starts F24-out-s-movbk-b-k2-pO-w0's second MOVBK a clock early (R116 for
+    # R117). Flip at the fifty-first fit with uwb 2: F39 +52, F24 F30 F31 F33 unchanged.
+    "str_single_wb": ("none", "wb", "index"),  # (WP95, F24; WP101, F39)
     # (WP95, F24, 2026-10-31) str_single_start: an unprefixed string form starts as any
     # instruction (any) / no earlier than its class's ugap clocks after a fetch's delivery (the
     # clock after the fetch's last) (delivery). An unprefixed pair whose first instance's last
@@ -756,7 +764,15 @@ OPTIONS = {
     # 108-111 (delivered 112), silicon's second read 121 (any: the start on the delivery 112,
     # R120); -pE-w2 F111-115, R125 (any: R124); -pE-w0 F105-107, R117 under both.
     # Stage 25 (2026-10-31, wp95) chose delivery; flip at the candidate: any -22 (F24 only)
-    "str_single_start": ("any", "delivery"),  # (WP95, F24)
+    # (WP101, F39, 2026-10-31) write: as delivery, and the form's first cycle counts its setup
+    # from no earlier than ugap clocks past a memory write's delivery (it issues no earlier than
+    # the write's last clock + ugap + setup; the floor holds fetches as the setup does).
+    # F39-push-ctl-movbk-s-pO-w0, rel t_fill: M0's PUSH writes 78-80, MOVBK starts 81 with no
+    # cycle on the bus until its read: silicon D90 (delivery: D89, every later event a clock
+    # early); at pE the fetch 81-83 sets the read at 90 under both (a start gate on the write
+    # instead meets that fetch's delivery gate: F39 +45 -7). Flip at the fifty-first fit:
+    # F39 +45, F24 F30 F31 F33 unchanged.
+    "str_single_start": ("any", "delivery", "write"),  # (WP95, F24; WP101, F39)
     # (WP94, F32/F34, 2026-10-31) bf_imm_hold: an imm4 bit field (EXT / INS reg8,imm4) raises
     # fetch requests as the room allows (none) / when its width byte is the even (first) half of
     # its word, the next opcode the odd half, raises none from the width byte's take until its

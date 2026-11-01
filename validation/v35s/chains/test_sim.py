@@ -6843,9 +6843,10 @@ class StringPairSecondInstance(unittest.TestCase):
 
     def test_default_is_the_old_behaviour(self):
         self.assertEqual(DEFAULT.str_single_wb, "none")
-        self.assertEqual(OPTIONS["str_single_wb"], ("none", "wb"))
+        # (WP101) each widened by a third value (StringSuccessorWP101)
+        self.assertEqual(OPTIONS["str_single_wb"][:2], ("none", "wb"))
         self.assertEqual(DEFAULT.str_single_start, "any")
-        self.assertEqual(OPTIONS["str_single_start"], ("any", "delivery"))
+        self.assertEqual(OPTIONS["str_single_start"][:2], ("any", "delivery"))
 
     def test_str_single_wb_deciding_run(self):
         # the first MOVBK's write 103-105, no fetch: silicon's second read 117 (none: 118)
@@ -7221,3 +7222,92 @@ class ShiftMemImmWP99(unittest.TestCase):
         classes, _ = fit.run_classes(c)
         self.assertIn("rmw_imm", classes)
         self.assertIn("shift_imm", classes)
+
+
+# (WP101) the string forms' successors in F39: str_single_wb=index with uwb 2 (the hand start read
+# off F39's series str) and str_single_start=write, over the tracked fit
+WP101 = {"str_single_wb": "index", "str_single_start": "write",
+         "str_move.uwb": 2, "str_cmp.uwb": 2, "str_in.uwb": 2}
+
+
+def _ev101(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP101 (+ over)."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**WP101, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class StringSuccessorWP101(unittest.TestCase):
+    """(WP101, F39) an unprefixed MOVBK, CMPBK or INM's last two exec clocks are a write-back
+    (uwb 2) that the port OUT waits out in full, the next unprefixed string form all but its last
+    clock, every other form not at all (str_single_wb=index); an unprefixed string form's first
+    cycle issues no earlier than ugap + setup clocks after a memory write's last clock
+    (str_single_start=write) (scratchpad wp101/facts.txt; clocks rel t_fill)."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev101(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_default_is_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.str_single_wb, "none")
+        self.assertEqual(OPTIONS["str_single_wb"], ("none", "wb", "index"))
+        self.assertEqual(DEFAULT.str_single_start, "any")
+        self.assertEqual(OPTIONS["str_single_start"], ("any", "delivery", "write"))
+
+    def test_index_deciding_run(self):
+        # MOVBK's write 103-105, no fetch (queue 5, room 1): the load starts 108, F108 D113
+        mod = self._exact("F39-out-str-movbk-ld-pO-w0")
+        self.assertIn((108, "fetch", 0x10054, "word", 3), mod)
+        self.assertIn((113, "data_read", 0x0800, "word", 3), mod)
+        # the old value with the tracked uwb 1: the load a clock later (F109)
+        _, old = _ev101("F39-out-str-movbk-ld-pO-w0", str_single_wb="wb",
+                        **{"str_move.uwb": 1})
+        self.assertIn((109, "fetch", 0x10054, "word", 3), old)
+        for cid in ("F39-out-str-cmpbk-push-pO-w1", "F39-out-str-inm-ld-pO-w2",
+                    "F39-push-str-movbk-ld-pE-w0", "F39-push-ctl-cmpbk-s-pE-w2"):
+            self._exact(cid)
+
+    def test_index_keeps_the_second_instance(self):
+        # uwb 2 under wb starts F24's second MOVBK a clock early (R116 for silicon's R117);
+        # index holds it for all but the write-back's last clock
+        mod = self._exact("F24-out-s-movbk-b-k2-pO-w0")
+        self.assertIn((117, "data_read", 0x0A41, "hi", 3), mod)
+        _, wb = _ev101("F24-out-s-movbk-b-k2-pO-w0", str_single_wb="wb")
+        self.assertIn((116, "data_read", 0x0A41, "hi", 3), wb)
+        for cid in ("F24-out-s-inm-w-k2-pO-w1", "F24-out-s-cmpbk-b-k2-pO-w2",
+                    "F24-out-s-movbk-b-k1-pO-w0", "F24-out-s-cmpbk-b-k1-pE-w0",
+                    "F39-out-str-movbk-out-pO-w0", "F39-out-str-inm-out-pE-w2"):
+            self._exact(cid)
+
+    def test_write_deciding_run(self):
+        # M0's PUSH writes 78-80, MOVBK starts 81 on an idle bus: silicon reads at 90
+        mod = self._exact("F39-push-ctl-movbk-s-pO-w0")
+        self.assertIn((90, "data_read", 0x0A40, "word", 3), mod)
+        _, old = _ev101("F39-push-ctl-movbk-s-pO-w0", str_single_start="delivery")
+        self.assertIn((89, "data_read", 0x0A40, "word", 3), old)
+        # at pE the fetch on its start clock already sets the read at 90: exact either way
+        for over in ({}, {"str_single_start": "delivery"}):
+            self._exact("F39-push-ctl-movbk-s-pE-w0", **over)
+        for cid in ("F39-push-str-cmpbk-ld-pO-w1", "F39-push-str-inm-out-pO-w2",
+                    "F39-push-str-movbk-push-pO-w0"):
+            self._exact(cid)
+
+    def test_rep_forms_untouched(self):
+        for cid in ("F24-out-r-rep-movbk-b-n0-pE-w0", "F24-out-r-rep-movbk-b-n2-pO-w0",
+                    "F24-out-r-rep-stm-w-n1-pE-w1"):
+            _, new = _ev101(cid)
+            _, old = _ev101(cid, str_single_wb="wb", str_single_start="delivery",
+                            **{"str_move.uwb": 1, "str_cmp.uwb": 1, "str_in.uwb": 1})
+            self.assertEqual(new, old, cid)
+
+    def test_other_families_untouched(self):
+        # no run without an unprefixed string form reads either value
+        for fam in ("F14", "F21", "F23", "F35"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**WP101), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

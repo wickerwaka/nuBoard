@@ -100,6 +100,8 @@ class EU:
         self.nw_t: int | None = None    # (WP76) str_io_setup: the nowait step's first clock
         self.nw_run: int | None = None  # (WP76) ... the wait clock it counted
         self.wb = 0                     # write-back tail of the instruction now running
+        self.str_single = False         # (WP101) the running form is an unprefixed string form
+        self.str_floor = None           # (WP101) str_single_start=write: its first cycle's floor
         self.page_fixed = None          # (WP81) page_mem / bf_read=fixed: the read to post
         self.done_t: int | None = None  # clock the last instruction's steps ended
         self.modrm = False              # the instruction now running has a ModR/M byte
@@ -214,10 +216,16 @@ class EU:
                 op.sfr = self.code[op.offset + op.length - 1]
         if cfg.start_sync == "b2b_modrm" and op.modrm and self.decoder.queue.b2b_at == t:
             return False                 # a ModR/M form waits out the back-to-back fetch
-        if (cfg.str_single_start == "delivery" and op.cls in STRING_CLASSES and op.rep is None
-                and t <= self.bus.last_fetch_end + cfg.c(op.cls, "ugap")):
+        if (cfg.str_single_start in ("delivery", "write") and op.cls in STRING_CLASSES
+                and op.rep is None and t <= self.bus.last_fetch_end + cfg.c(op.cls, "ugap")):
             # (WP95) str_single_start=delivery: an unprefixed string form starts no earlier
             # than its class's ugap clocks after the last fetch's delivery
+            return False
+        if (cfg.str_single_wb == "index" and op.cls in STRING_CLASSES and op.rep is None
+                and self.str_single and cfg.wb_from == "end" and self.done_t is not None
+                and t < self.done_t + self.wb - 1):
+            # (WP101) str_single_wb=index: an unprefixed string form after one waits for all but
+            # the last clock of its predecessor's write-back (the index registers it reads)
             return False
         if (op.modrm and self.bus.fetch_inflight(t) and self._early(t)
                 and cfg.refresh_run_modrm == "wait"):
@@ -293,9 +301,19 @@ class EU:
                           and not (cur is not None and cur.kind.startswith("io")
                                    and cur.start == t))
         self._sreg_hold(op)             # (WP76) sreg_io=hold
-        if cfg.str_single_wb == "wb" and op.cls in STRING_CLASSES and op.rep is None:
+        self.str_single = op.cls in STRING_CLASSES and op.rep is None   # (WP101)
+        # (WP101) str_single_start=write: an unprefixed string form's first cycle issues no
+        # earlier than ugap + setup clocks after the last memory write's last clock (its
+        # setup counted from ugap clocks past that write's delivery)
+        self.str_floor = None
+        if cfg.str_single_start == "write" and self.str_single:
+            wend = max((c.end for c in self.bus.cycles[-3:] if c.kind == "write"), default=None)
+            if wend is not None:
+                self.str_floor = wend + cfg.c(op.cls, "ugap") + cfg.c(op.cls, "setup")
+        if cfg.str_single_wb in ("wb", "index") and op.cls in STRING_CLASSES and op.rep is None:
             # (WP95) str_single_wb=wb: an unprefixed string form's last uwb exec clocks are a
-            # write-back that only a form waiting for one (wbsync) sees
+            # write-back that only a form waiting for one (wbsync) sees; (WP101) index: and,
+            # all but its last clock, the next unprefixed string form (eu._start)
             self.wb = cfg.c(op.cls, "uwb")
         if cfg.str_exit == "wb" and op.cls in STRING_CLASSES and op.rep is not None and op.n:
             # (WP76) str_exit=wb: a REP form's exit ends xwb clocks early, its last clocks a
@@ -1444,6 +1462,10 @@ class EU:
         if getattr(self, "dfloor_at", None) is not None and not args[0].startswith("io"):
             r.not_before = max(r.not_before, self.dfloor_at)   # (WP28) disp_floor
             self.dfloor_at = None
+        if self.str_floor is not None:
+            r.not_before = max(r.not_before, self.str_floor)   # (WP101) str_single_start=write
+            r.floor_hold = True          # the floor holds fetches as the setup does
+            self.str_floor = None
         if getattr(self, "floor_n", 0) and not args[0].startswith("io"):
             # (WP25) imm_count=start: no issue before floor_n clocks from the start
             r.not_before = max(r.not_before, self.start_clock + self.floor_n)

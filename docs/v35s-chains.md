@@ -5815,6 +5815,41 @@ exact at both k. The register-form second instance (TEST DL,AL, LAHF, STC, INC A
 k") and the 0F register forms' are the shapes to read next; the far and register-indirect transfers' repeats add to
 WP95's far-form facts.
 
+### F39's 215 misses read: the string form's successor is WP95's two mechanisms with wider conditions; nine shapes stay facts (WP101, 2026-10-31; a candidate)
+
+Under the fifty-first fit F39 misses 215 of 1,320. Read run by run (scratchpad wp101/facts.txt: the first divergence,
+the EU's class and step, the queue / IR / bus state, A's and B's word halves, the exact neighbours) they are eleven
+shapes; two have a mechanism and two are the integer trades the fitter already knows:
+
+- **A, 52 runs, the string form's write-back:** MOVBK, CMPBK or INM (unprefixed) followed by a load, PUSH or LDEA at
+  OUT pO / PUSH pE, and 7 of the PUSH-frame controls. After the form's last cycle no fetch runs (5 bytes queued, room
+  1); silicon starts the successor 2 clocks after that cycle, the model 3 later (`F39-out-str-movbk-ld-pO-w0`: the
+  write 103–105, silicon F108 D113; the model F109 D114). The port OUT after these forms is exact and F24's second
+  string instance starts a clock later than a load would: WP95's write-back is two clocks, not one (`uwb` 2 in
+  str_move, str_cmp, str_in), the port OUT waits it out in full, the next unprefixed string form all but its last clock
+  (the index registers it reads), every other form ignores it. A third value of `str_single_wb`: index. Alone, with
+  uwb 2: F39 +52, F24 F30 F31 F33 unchanged.
+- **B, 45 runs, the first cycle after a memory write:** MOVBK, CMPBK or INM under the PUSH marker at pO at every wait,
+  before every successor, and 9 controls. M0's PUSH writes 78–80, the form starts 81 on an idle bus; silicon reads at
+  90, the model at 89 (at pE the fetch 81–83 already puts the read at 90). WP95's delivery gate widened to memory
+  writes: the first cycle's setup counts from no earlier than `ugap` clocks past a write's delivery, a floor on the
+  first cycle (not a start gate, which meets the pE fetch's delivery gate and loses 7) that holds fetches as a setup
+  does. A third value of `str_single_start`: write. Alone: F39 +45, the string families unchanged.
+- **C1, 46, and F, 10: the integer trades** (ROL4 DL followed by anything, WP86/WP96's ROL4 trade: pre 2 / wb 2 / exec
+  13 wins F39 46 and loses 4 and F32 1; TEST1 [BW],CL under PUSH at pO, WP94's S09: nx 0 / pre 1 wins 10 + F32 16 +
+  F34 25 and loses 6).
+- **Facts:** D (15) SET1 AW,CL at an odd address on a taken transfer's refill, starting on the refill's fourth fetch
+  with 5 bytes queued (not the `page_b2b` commitment: neither value wins a run; `bit1.nx` 7 wins 9 and loses 23; a rule
+  would key on the target's parity and, at w0, on the successor); E (15) LDEA AW,[BW] behind a string form and alone at
+  OUT pE w0, F25's LDEA [BW] shape; G (10) INM under PUSH at pE w1/w2, the I/O read 6 clocks after the start fetch's
+  last clock where `str_count=dw` gives 7 (the cycle kind; `str_count=data` loses 134 F24 runs); H (9) EXT r8,r8 at pE
+  w2, WP94's S12; C2 (8) ROL4 under OUT at pE w1/w2, WP94's S13; I (3) BNE not taken then SET1 at OUT pE (the
+  predecessor); J (2) a [BW] access after SET1 under PUSH at pO w0 (SET1's committed fetch and the wait count).
+
+Both prototypes together: **F39 1,105 → 1,202/1,320, won 97, lost 0**, the other 38 lists byte-identical (scored on
+all 39 lists from a clean copy and the edited tree under the unedited fit, byte for byte the same). Tests
+test_sim.StringSuccessorWP101. The fit stage for the wider values is WP103.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
