@@ -1639,9 +1639,14 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
         # raised and back-to-back fetches committed before it still run) until hrel clocks
         # before the exec's end (BF_TAKE_HOLD, as bf_imm_hold)
         r = min(c("hrel"), c("exec"))
+        # (WP124) cvt_tail=release: hx clocks more after the release (the form's own end);
+        # cvt_from=start: the release counted from the start, as if the take were pre clocks in
+        # (eu.py: both only with the hold armed at the take)
+        tail = [("held_clocks", c("hx"))] if cfg.cvt_tail == "release" and c("hx") else []
+        body = ([("from_start", c("pre") + 1 + c("exec") - r, c("exec") - r)]
+                if cfg.cvt_from == "start" else [("clocks", c("exec") - r)])
         return [("clocks", c("pre")), ("fetch_hold", BF_TAKE_HOLD, "dlv"),
-                ("take", op.imm_bytes),
-                ("clocks", c("exec") - r), ("fetch_hold", 0), ("clocks", r)]
+                ("take", op.imm_bytes)] + body + [("fetch_hold", 0), ("clocks", r)] + tail
     if base == "imm":
         return [("clocks", c("pre")), ("take", op.imm_bytes), ("clocks", c("exec"))]
     fixed = cfg.page_mem == "fixed" and op.page and op.ea is not None

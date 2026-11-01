@@ -6265,6 +6265,64 @@ exact, so the clock belongs to CLR1's operation and a rule would key on the opco
 F32-out-pfx_rol4_m-k1-pE-w1 (1) are outside these classes. Tests test_sim.PageFormsWP122 (`_OLD122`), test_fit's stage-38
 class. Stage 38 (WP123) from this hand start: the sixty-second fit (Model).
 
+### The small refresh-off remainders re-read: six mechanisms in F29, F33 and F24, three earlier readings corrected (WP124, 2026-11-01; a candidate)
+
+The 89 remaining misses of F22, F24, F25, F29, F30 and F33 (scratchpad wp124/facts.txt, hist89.txt, wonlost.txt) all
+still miss exactly as their first readings left them: compared at the first divergence plus three events against the
+fits they were read under (the forty-seventh for F25 / F30, the forty-ninth for F22 / F24 / F29, WP114's candidate for
+F33), 0 of 89 differ, so the d16 group hold, LDEA's fetch-anchored write-back, the string forms' start and write-back,
+the conversions' fetch hold and the not-taken commitment left every residual in place. Re-read against the exact cells
+of the same forms, six are mechanisms (**+44, 0 lost** on all 42 lists: F29 427 → 449, F24 902 → 912, F33 1,026 →
+1,038) and the rest stay facts; three earlier readings named the wrong owner.
+
+**F29's byte store / load [IX+d16] under the DW-port I/O frame (12).** WP95 said "one idle clock after the DW I/O; the
+EA mode". Silicon's first fetch after the DW I/O is a clock late at every wait and parity (pE w0: O92 F96, model F95);
+the bw_d16, d8 and direct twins are exact, and at pO w1 / w2 their per-clock model state equals the bix cells', take
+clock included. Mechanism: a base + index + d16 displacement taken while an I/O request still waits unissued in the slot
+holds that I/O a clock longer when it runs (today `disp_io`'s hold needs the take on the I/O's issue clock). Enum
+`disp_io_wait` (none → bix): **F29 +12**; it reads the EA mode class (the only three-clock EA); extended to base +
+index + d8 it loses 54 F21 cells.
+
+**F29's group RMW [d16] with two drainers at pO w1 / w2 (10).** The read is a clock late (D103 against D102). These are
+the only cells where the d16 is taken on a waited fetch's delivery clock with the second byte latched and no fetch
+follows before the read (`grp_disp` keeps the fetch off the take clock); every other instance in that delivery state
+fetches on the take clock and is exact (67 RMW, 264 loads, 342 stores, 24 load-ALU). Mechanism: the d16 reaches the EA
+adder a clock late, as `count_latch`'s count byte does, so the read posts a clock later. Enum `gdisp_dlv` (none →
+late): **F29 +10**; it reads the group RMW class; on the memory-indirect transfers it loses 36. SHL [d16],1 in the same
+cell at pO w0 (1): INC / NOT / NEG / DEC there are exact with an identical state; a fact (a rule would key on the shift
+unit, one run as witness).
+
+**F29's TEST [0C00h] / [BW+200h],AW after the DW I/O at pE (6).** Silicon behaves as if the DW I/O were a clock
+longer (F98 D101 against F97 D100); the pO twins are exact. `grp_io_lift=count` (the hold through the first countable
+group clock) wins 0 and loses 24 (F14 / F15 / F26 TEST pO; WP95's −24 reproduced): a fact, a rule would key on parity.
+
+**F33's CVTBD / CVTDB (6).** WP114 called them "w0 only: the wait count"; they are not wait-keyed: at w1 / w2 the
+fetch's end hides it, and silicon's OUT starts at max(s + 23, fetch end + 1). Two mechanisms: with the hold armed the
+result's write-back runs `hx` clocks longer (enum `cvt_tail`, none → release, `convert.hx` 1, `convert_d.hx` 2; only a
+write-back-synced OUT sees it), and the second CVTDB releases at s + 17 as the first does, counted from the form's
+start (enum `cvt_from`, take → start, with `convert_d.hrel` 3 → 2). Together **F33 +6**; `cvt_tail` alone wins 2 and
+loses F33-out-cvtdb-k1-pO-w1, `cvt_from` alone wins 2.
+
+**F33's MUL / DIVU / DIV [BW] behind a load at k = 2 pO w0 / w1 (6).** WP109 blamed "the start rule on a fetch's last
+clock"; the extra clock is `abort_unit=loop`'s kept end clock, the second instance starting on an aborted cycle. Enum
+`abort_unit_end` (keep → early: it ends with its early read's exec, as `abort_reg_end=early` does for the register
+forms): **F33 +6**.
+
+**F24's OUTM second instance (10).** WP95's "opposite signs" was a count rule; silicon issues the read at max(s + 10,
+start fetch end + 7), which is not a DW-form count. Enum `str_out_rd` (nowait → free: the read counts as a memory
+request with its post clock always counted, `str_out.ufree` 7, `str_out.usetup` 11; WP119's `str_in_io` for OUTM):
+**F24 +10** (912/912); ufree 6 / 8 win 8 / 6, usetup 10 / 12 lose 14.
+
+**Facts.** ADJ4S at k = 2 (6): the per-clock state equals the exact ADJ4A twins'; a rule would key on the opcode or on
+AL / AF after the first instance (a data-varied probe would decide). CVTWL under the PUSH frame (6): silicon loads the
+successor's IR a clock earlier and ends a clock later; ADJ4A in the same cells and the OUT-frame CVTWL in the same start
+states are exact; the only separating state is how long the opcode sat in the IR, the predecessor. LDEA (20): WP92's
+S3 (8), S4 (6), S6 (2) and S7 (2) unchanged; the two S5 cells `lea_wb` left fit an anchor on the fetch issued at the
+d16 take, which breaks the exact bw_ix_d16 twin (a rule would key on the EA mode). TEST [BW+d16],imm16 behind the OUT
+(F22, 6): unchanged since WP43's A8; `grp_io_any=any` wins 2 and loses 101 (immediate stores and RMWs behind the OUT at
+pO in F5 / F19 / F21 / F22 / F26); a rule would key on TEST's fixed setup. Tests test_sim.RemaindersWP124 (`_OLD124`).
+The fit stage is WP126.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

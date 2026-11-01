@@ -105,6 +105,8 @@ class Request:
                                     # its post (the CL index's cl clocks)
     mfrom: int | None = None        # (WP109) mul_imm_count=sync: MUL imm memory's read, its
                                     # setup counted from here (mul_free)
+    io_ext: bool = False            # (WP124) disp_io_wait=bix: an I/O request a base+index+d16
+                                    # form's displacement take found waiting in the slot
 
     def mul_free(self, bus, t: int) -> bool:
         """(WP109) mul_imm_count=sync: t counts toward the read's setup unless a cycle runs that
@@ -214,6 +216,11 @@ def arbitrate(t: int, cfg, bus, queue, eu):
         # (WP30) disp_io: the running form took its displacement on this I/O issue clock: the
         # bus unit holds the I/O a clock longer (nothing starts on the clock after its last,
         # its recovery counts from there)
+        bus.last_io_end = bus.last_end = c.end + 1
+    if (c is not None and cfg.disp_io_wait == "bix" and c.kind.startswith("io")
+            and req is not None and req.io_ext and c in req.issued):
+        # (WP124) disp_io_wait=bix: the I/O a base+index+d16 displacement take found waiting in
+        # the slot runs a clock longer (nothing starts on the clock after its last)
         bus.last_io_end = bus.last_end = c.end + 1
     if c is not None and cfg.dw_count != "all":
         if c.kind == "fetch" and eu.start_clock == t:
@@ -542,15 +549,19 @@ def _choose(t: int, cfg, bus, queue, eu):
             fetch_want = False          # (WP29) free_hold: held at the free clocks' eve
             req.free_held = t
     if (cfg.grp_io_hold and req is not None and not req.issued and req.free_bus
-            and req.free_need and req.count >= req.setup - req.free_need and fetch_want
+            and req.free_need and fetch_want
+            and (req.count >= req.setup - req.free_need or cfg.grp_io_any == "any")
             and not req.cycles[0][0].startswith("io")):
         # (WP33) grp_io_hold: the request's next setup clock is a bus-free group clock; while
         # an I/O cycle or its recovery keeps it from counting, a fetch requested on or after
         # that I/O's issue clock waits; the held fetch dates from the clock the hold ends
+        # (WP124) grp_io_any=any: whatever group clock is next; grp_io_lift=count: the hold
+        # also covers the first clock after the recovery (the group clock counts first)
         cur = bus.current
         ios = [x for x in bus.cycles if x.kind.startswith("io")]
+        lift = 1 if cfg.grp_io_lift == "count" else 0
         if (((cur is not None and cur.kind.startswith("io") and cur.end >= t)
-                or t <= bus.last_io_end + req.recover) and ios
+                or t <= bus.last_io_end + req.recover + lift) and ios
                 and queue.requested_at is not None and queue.requested_at >= ios[-1].start):
             fetch_want = False
             req.grp_held = t

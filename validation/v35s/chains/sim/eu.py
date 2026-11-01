@@ -144,6 +144,9 @@ class EU:
         self.exec_t = None              # (WP22) unit_hold: first clock of the exec clocks
         self.hold_done = None           # (WP22) unit_hold: the cycle that already held it
         self.reg_early = False
+        self.cvt_armed = False          # (WP124) cvt_tail / cvt_from: the hold armed at the take
+        self.mode_class = None          # (WP124) disp_io_wait: the running form's EA mode
+        self.gdisp_late = False         # (WP124) gdisp_dlv=late
         self.fixed = False              # (WP31) abort_fixed: a fixed-lookup group setup form
         self.seg_prefix = None          # (WP23) the segment prefix the next instruction carries
         self.sfr = None                 # (WP23) the running instruction's SFR store value
@@ -382,6 +385,8 @@ class EU:
         self.cls = bcls
         self.ccls = op.cls              # (WP78) the class whose integers the EU reads
         self.grp_form = bool(op.group)   # (WP61) grp_disp: a group opcode's form
+        self.mode_class = op.mode_class  # (WP124) disp_io_wait: the EA mode
+        self.cvt_armed = False          # (WP124) cvt_tail / cvt_from
         # (WP61) grp_disp=hold reads a group RMW form's two-byte displacement; (WP91)
         # xfer_mem_disp=grp: the memory-indirect transfers' too (rmw alone under none)
         self.gdisp_cls = bcls == "rmw" or (cfg.xfer_mem_disp == "grp" and op.cls in XFER_MEM)
@@ -906,7 +911,8 @@ class EU:
                         q = self.decoder.queue
                         if q.retry and q.retry_loop:
                             q.retry_at = self.resume - self.cfg.c(self.ccls, "mtail")
-                        self.resume += 1
+                        if self.cfg.abort_unit_end == "keep":
+                            self.resume += 1    # (WP124) abort_unit_end=early: no kept clock
                     if self.ls_shift and self.cls == "shift_cl" and len(self.trace) == 2:
                         # refresh_align=phase_eu: the first LS's exec clocks, aligned
                         self.resume = max(t, self.resume + self.ls_shift)
@@ -993,6 +999,7 @@ class EU:
                         # (WP114) cvt_hold: the byte taken on a word's delivery clock: the
                         # delivered word fills the room, no hold
                         q.take_hold = None
+                        self.cvt_armed = False      # (WP124) cvt_tail / cvt_from
                 if not n and self.decoder.queue.dropped:
                     q = self.decoder.queue      # refresh_drop: a starved decoder raises it again
                     q.dropped = False
@@ -1036,6 +1043,14 @@ class EU:
                     # (WP28) the displacement's (last byte's) take
                     q = self.decoder.queue
                     q.disp_t = t                        # latch_disp
+                    if (self.cfg.disp_io_wait == "bix" and self.disp == 2
+                            and getattr(self, "mode_class", None) == "base_index_disp"):
+                        # (WP124) disp_io_wait=bix: a base+index+d16 displacement taken while an
+                        # I/O request waits unissued in the slot: that I/O runs a clock longer
+                        for r in [self.req] + self.queued:
+                            if (r is not None and r.cycles and not r.issued
+                                    and r.cycles[0][0].startswith("io")):
+                                r.io_ext = True
                     cur = self.bus.current
                     if (self.cfg.page_disp == "hold" and getattr(self, "page_mem", False)
                             and cur is not None and cur.kind == "fetch"
@@ -1125,6 +1140,12 @@ class EU:
                         hold = ("dhold" if "dhold" in self.cfg.cost.get(self.ccls, {})
                                 else "grp_free")
                         q.gdisp_until = t + self.cfg.c(self.ccls, hold)
+                        if (self.cfg.gdisp_dlv == "late" and q.arrived_t == t and q.latched
+                                and self.cls == "rmw"):
+                            # (WP124) gdisp_dlv=late: taken on a word's delivery clock with its
+                            # second byte latched, the displacement reaches the EA adder a
+                            # clock late: the read posts a clock later
+                            self.gdisp_late = True
                     if (getattr(self, "page_cl_n", 0) and self.page_fixed == "start"
                             and self.taken == self.op_len - 1):
                         # (WP112) page_cl=thru: a 0F memory form's last operand take: the take
@@ -1157,7 +1178,8 @@ class EU:
                     self.sync = "pending_end"           # resolved at the end of the clock
                 elif not opcode and self.cfg.take_sync != "none":
                     self.sync = self.cfg.take_sync
-                self.resume = t + 1
+                self.resume = t + 1 + int(self.gdisp_late)   # (WP124) gdisp_dlv=late
+                self.gdisp_late = False
                 return
             if kind == "data":
                 if self.own is None:
@@ -1169,6 +1191,20 @@ class EU:
                 self.last_issued = self.own.issued      # (WP76) str_split: the cycles it ran
                 self._retire()
                 self.k += 1
+                continue
+            if kind in ("from_start", "held_clocks"):
+                # (WP124) cvt_from=start: with the hold armed at the take the clocks run to
+                # step[1] clocks after the form's start, else step[2] clocks as a clocks step;
+                # cvt_tail=release: with the hold armed, step[1] write-back clocks more after
+                # the form's end (seen only by a form that waits for a write-back, wbsync)
+                self.k += 1
+                if kind == "held_clocks":
+                    if self.cvt_armed:
+                        self.wb += step[1]
+                elif self.cvt_armed:
+                    self.resume = max(t, self.start_clock + step[1])
+                else:
+                    self.resume = t + step[2]
                 continue
             if kind == "split_floor":            # (WP76) str_split=floor: a split last cycle's
                 cyc = self.last_issued           # second half issued no fewer than step[1]
@@ -1228,6 +1264,7 @@ class EU:
                 if step[1] == BF_TAKE_HOLD:      # (WP94) bf_imm_hold: armed, from the next take
                     q.take_hold, q.hold_from = t, None
                     q.hold_dlv = q.cvt_held = len(step) > 2 and step[2] == "dlv"   # (WP114)
+                    self.cvt_armed = q.cvt_held     # (WP124) cvt_tail / cvt_from
                 elif q.take_hold is not None:    # (WP94) lifted by the form's 0-clock hold
                     q.take_hold = q.hold_from = None
                     q.cvt_held = False
@@ -1873,6 +1910,15 @@ class EU:
             # request's (data_while_fetch), its last str_in.ufree clocks fetch-free
             r.nowait = False
             r.free_need = cost.get("ufree", 0)
+        if (self.cfg.str_out_rd == "free" and kind == "read" and cls == "str_out"
+                and self.str_single):
+            # (WP124) str_out_rd=free: an unprefixed OUTM's memory read counts its setup as a
+            # memory request's (data_while_fetch), its last str_out.ufree clocks fetch-free,
+            # its post clock counted whatever cycle starts there (no dw_count) and
+            # str_out.usetup clocks in all
+            r.nowait = r.dwlike = False
+            r.free_need = cost.get("ufree", 0)
+            r.setup = cost.get("usetup", r.setup)
         # (WP58) refresh_io_stall (read with refresh on only)
         r.io_stall = io and self.refresh is not None and self.cfg.refresh_io_stall == "step"
         if io and self.refresh is not None:

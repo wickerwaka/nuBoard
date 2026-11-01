@@ -1162,6 +1162,73 @@ OPTIONS = {
     # (wins SET1 / CLR1 [m],imm behind NOP NOP at w1 / w2, loses the d-lead SET1 / CLR1 [m]
     # cells; with mtx 0 -15).
     "page_mtest": ("none", "wait", "all"),
+    # (WP124, F29, 2026-11-01) disp_io_wait: under disp_io=extend only an I/O cycle issued on
+    # the displacement's take clock is held a clock longer (none) / a base+index+d16 form's
+    # displacement taken while an I/O request still waits unissued in the slot holds that I/O
+    # a clock longer too when it runs: nothing starts on the clock after its last (bix).
+    # F29-out-ec-dio-dw-stbixd16-n0-pE-w0, rel t_fill: MOV [BW+IX+200h],AL starts 82 behind
+    # OUT DW,AL, its d16 taken at 86 with the DW I/O waiting (issued 92); silicon O92 F96 W99
+    # (none: F95 W98); the [BW+200h], [BW+10h] and [0C00h] twins take theirs in the same state
+    # and fetch at 95. Keyed on the EA mode (the third EA clock; with base+index+d8 too: -54
+    # F21 out-l0). PROTOTYPE (WP124), scored not fitted: F29 +12, lost 0 on all 42 lists.
+    "disp_io_wait": ("none", "bix"),
+    # (WP124, F29, 2026-11-01) grp_io_lift: grp_io_hold's held fetch goes on the first clock
+    # the request's group clock can count (end) / one clock later, the group clock counting on
+    # an idle bus first (count). F29-out-ec-gih-dw-testdir-n0-pE-w0, rel t_fill: TEST
+    # [0C00h],AW behind OUT DW,AL, its read moved into the slot on the DW I/O's issue 92; silicon
+    # F98 D101 (end: F97 D100); the pO twins (the fetch requested before that I/O) are exact.
+    # REFUTED (WP124): count wins 0 of those (the read goes first, D97) and loses 24 (F14 / F15
+    # TEST [0C00h],AW OUT pO 6, F26 TEST pO 18), WP95's -24; stays at end.
+    "grp_io_lift": ("end", "count"),
+    # (WP124, F22, 2026-11-01) grp_io_any: grp_io_hold holds a fetch only while the request's
+    # next setup clock is a bus-free group clock (free) / while any of its group clocks is still
+    # to count (any). F22-out-l0-test_d16-pO-w0, rel t_fill: TEST [BW+200h],imm16 takes its d16
+    # on the marker I/O's issue 85, posts its read at 86; silicon F91 D95 (free: F89 D93).
+    # REFUTED (WP124): any +2 (F22 TEST d16 pO w1) -101 (F5 12, F19 12, F21 30, F22 32, F26 15:
+    # the immediate stores and RMWs behind the OUT marker at pO); stays at free.
+    "grp_io_any": ("free", "any"),
+    # (WP124, F33, 2026-11-01) cvt_tail: under cvt_hold=word CVTBD / CVTDB end hrel clocks after
+    # their release (none) / convert.hx, convert_d.hx clocks later (release): the held form's
+    # end is its own, not the fetch's. F33-out-cvtbd-k1-pO-w0, rel t_fill: CVTBD starts 85 on
+    # M0's I/O issue, released 104 (F104-106); silicon F116 O119, the OUT starting 108 (none:
+    # F115 O118, the OUT at 107 on the fetch's end); w1 / w2 the fetch's end is the later bound.
+    # The hx clocks are write-back (wb), so the next CVT does not see them; only with the hold
+    # armed at the take (the PUSH twin, its byte taken on a delivery clock, is unchanged).
+    # PROTOTYPE (WP124), scored not fitted: with cvt_from=start and convert_d.hrel 2 F33 +6, lost
+    # 0 on all 42 lists; alone (hrel 3) +2 -1 (F33-out-cvtdb-k1-pO-w1).
+    "cvt_tail": ("none", "release"),
+    # (WP124, F33, 2026-11-01) cvt_from: under cvt_hold=word the release counts from the
+    # constant byte's take (take) / from the form's start, as if the take were pre clocks after
+    # it (start). F33-out-cvtdb-k2-pO-w1, rel t_fill: the second CVTDB starts 107 on an idle bus
+    # and takes its 0A at 109 (the first took its at start + 3 behind M0's I/O); silicon F124
+    # (take: F123). Only with the hold armed. PROTOTYPE (WP124), scored not fitted: alone (with
+    # convert_d.hrel 2) F33 +2, lost 0 on all 42 lists; with cvt_tail=release +6.
+    "cvt_from": ("take", "start"),
+    # (WP124, F33, 2026-11-01) abort_unit_end: under abort_unit=loop a memory multiply or divide
+    # started on an aborted cycle still ends where it would have (keep) / ends with its early
+    # read's exec, as abort_reg_end=early for the register forms (early). F33-out-mul_m-ld-k2-pO-w0,
+    # rel t_fill: the second MUL [BW] starts 157 on an aborted cycle, reads at 164; silicon F224
+    # O227 (keep: F225 O228). PROTOTYPE (WP124), scored not fitted: F33 +6, lost 0 on all 42
+    # lists.
+    "abort_unit_end": ("keep", "early"),
+    # (WP124, F24, 2026-11-01) str_out_rd: an unprefixed OUTM's memory read counts its setup as
+    # str_count says (nowait) / as a memory data request's, its last str_out.ufree clocks
+    # fetch-free (free), as str_in_io=free for INM's I/O read. F24-out-s-outm-w-k2-pO-w0, rel
+    # t_fill: the second OUTM starts 107 on an idle bus; silicon D117 (nowait: D116);
+    # F24-out-s-outm-w-k2-pE-w1: started on F108's issue (one wait state), silicon D118
+    # (nowait: D119). Its post clock counts whatever cycle starts there (no dw_count) and its
+    # setup is str_out.usetup. PROTOTYPE (WP124), scored not fitted: F24 +10 (912/912), lost 0 on
+    # all 42 lists (ufree 6 +8, 8 +6; usetup 10 or 12 -14, the k = 1 cells).
+    "str_out_rd": ("nowait", "free"),
+    # (WP124, F29, 2026-11-01) gdisp_dlv: under grp_disp=hold a group RMW form's two-byte
+    # displacement taken on a word's delivery clock with the word's second byte latched posts
+    # its read on the next clock (none) / a clock later, the byte reaching the EA adder a clock
+    # late as count_latch's count byte does (late). F29-out-ec-gih-incd16-n2-pO-w1, rel t_fill:
+    # INC [BW+200h] starts 94 on F94's issue, its d16 taken on the delivery 98 (latched); silicon
+    # D103 (none: D102). The group RMW forms only (with the memory-indirect transfers too: -36,
+    # F37 22, F39 6, F40 8). PROTOTYPE (WP124), scored not fitted: F29 +10, lost 0 on all 42
+    # lists.
+    "gdisp_dlv": ("none", "late"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1414,7 +1481,7 @@ DEFAULT_COST = {
                "uwb": 1, "ugap": 1, "ufree": 6},   # (WP119) ufree: str_in_io=free
     "str_out": {"pre": 0, "setup": 11, "mid": 6, "exec": 3, "nx": 1, "rpre": 5, "zexit": 11,
                 "first": 16, "loop": 6, "last": 1, "rexit": 13, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
-                "uwb": 0, "ugap": 0},
+                "uwb": 0, "ugap": 0, "ufree": 7, "usetup": 11},   # (WP124) str_out_rd=free
 # (WP78, F32, F33) the 0F page and the register miscellany (templates._wp78_steps; each class's
 # structure is its BASE_CLASS's, its integers its own; nx, wb as every class's; nx0: a form
 # without operand bytes holds its successor's IR load nx0 clocks from its start, absent = 0;
@@ -1448,8 +1515,8 @@ DEFAULT_COST = {
     "rol4": {"wb": 1, "pre": 0, "exec": 14, "nx": 0},
     "ror4": {"wb": 2, "pre": 1, "exec": 17, "nx": 0},
     "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1, "mtx": 1},
-    "convert": {"nx": 0, "wb": 2, "pre": 3, "exec": 16},
-    "convert_d": {"nx": 0, "wb": 0, "pre": 2, "exec": 16},
+    "convert": {"nx": 0, "wb": 2, "pre": 3, "exec": 16, "hx": 1},   # (WP124) hx: cvt_tail
+    "convert_d": {"nx": 0, "wb": 0, "pre": 2, "exec": 16, "hx": 2},
     "bit1_test": {"mtx": 0, "fsetup": 2, "grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3, "pdhold": 3},
     "bit1_rmw": {"mtx": 0, "fsetup": 2, "grp": 0, "grp_free": 0, "nx": 1, "wb": 0, "pre": 7, "alu": 3, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2, "cl": 3, "pdhold": 3},
@@ -1796,6 +1863,14 @@ class Config:
     page_imm_sync: str = "take"        # (WP122)
     page_ir_room: str = "ir"           # (WP122)
     page_mtest: str = "none"           # (WP122)
+    disp_io_wait: str = "none"         # (WP124)
+    grp_io_lift: str = "end"           # (WP124)
+    grp_io_any: str = "free"           # (WP124)
+    cvt_tail: str = "none"             # (WP124)
+    cvt_from: str = "take"             # (WP124)
+    abort_unit_end: str = "keep"       # (WP124)
+    str_out_rd: str = "nowait"         # (WP124)
+    gdisp_dlv: str = "none"            # (WP124)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

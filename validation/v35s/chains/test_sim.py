@@ -8500,4 +8500,161 @@ class PageFormsWP122(unittest.TestCase):
                                           s.chain_base)
                 old = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **_OLD122}),
                                           s.chain_base)
+# (WP124) the small refresh-off remainders re-read under the sixty-first fit: a base+index+d16
+# displacement taken while an I/O request waits in the slot holds that I/O a clock longer
+# (disp_io_wait=bix); a held CVTBD / CVTDB releases its hold counted from its start and writes
+# back hx clocks longer (cvt_from=start, cvt_tail=release, convert_d.hrel 2, convert.hx 1,
+# convert_d.hx 2); a memory multiply or divide started on an aborted cycle ends with its early
+# read's exec (abort_unit_end=early); an unprefixed OUTM's read counts as a memory request's
+# (str_out_rd=free, str_out.ufree 7, str_out.usetup 11); a group RMW form's d16 taken on a
+# word's delivery clock with the second byte latched posts its read a clock later
+# (gdisp_dlv=late)
+WP124 = {"disp_io_wait": "bix", "cvt_tail": "release", "cvt_from": "start",
+         "convert_d.hrel": 2, "convert.hx": 1, "convert_d.hx": 2,
+         "abort_unit_end": "early", "str_out_rd": "free", "str_out.ufree": 7,
+         "str_out.usetup": 11, "gdisp_dlv": "late"}
+# the pre-WP124 values, pinned for the "old" traces so they hold after an adoption, with the
+# tracked values these forms read
+_OLD124 = {"disp_io_wait": "none", "cvt_tail": "none", "cvt_from": "take",
+           "abort_unit_end": "keep", "str_out_rd": "nowait", "gdisp_dlv": "none",
+           "convert.hrel": 1, "convert_d.hrel": 3, "convert.exec": 16, "convert_d.exec": 16,
+           "convert.wb": 2, "convert_d.wb": 0, "cvt_hold": "word", "disp_io": "extend",
+           "grp_disp": "hold", "grp_io_hold": True, "abort_unit": "loop", "mul_data": "sign",
+           "str_count": "dw", "io_count": "nowait", "str_single_start": "write",
+           "str_single_wb": "index", "str_out.setup": 10, "wb_from": "end", "out.wbsync": 1}
+_NEW124 = ("disp_io_wait", "cvt_tail", "cvt_from", "abort_unit_end", "str_out_rd", "gdisp_dlv")
+_KEEP124 = {k: v for k, v in _OLD124.items() if k not in _NEW124 and k != "convert_d.hrel"}
+
+
+def _ev124(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit, the values WP124's
+    forms read pinned (_KEEP124) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**_KEEP124, **over}),
+                            s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class RemaindersWP124(unittest.TestCase):
+    """(WP124) F22, F24, F25, F29, F30 and F33's small refresh-off remainders: each new value
+    against its old one on its deciding run, the controls exact under both."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev124(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["disp_io_wait"], ("none", "bix"))
+        self.assertEqual(OPTIONS["grp_io_lift"], ("end", "count"))
+        self.assertEqual(OPTIONS["grp_io_any"], ("free", "any"))
+        self.assertEqual(OPTIONS["cvt_tail"], ("none", "release"))
+        self.assertEqual(OPTIONS["cvt_from"], ("take", "start"))
+        self.assertEqual(OPTIONS["abort_unit_end"], ("keep", "early"))
+        self.assertEqual(OPTIONS["str_out_rd"], ("nowait", "free"))
+        self.assertEqual(OPTIONS["gdisp_dlv"], ("none", "late"))
+        for name in _NEW124 + ("grp_io_lift", "grp_io_any"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+            self.assertEqual(getattr(Config.fitted(), name), OPTIONS[name][0], name)
+        self.assertEqual(DEFAULT.cost["convert"]["hx"], 1)
+        self.assertEqual(DEFAULT.cost["convert_d"]["hx"], 2)
+        self.assertEqual(DEFAULT.cost["str_out"]["ufree"], 7)
+        self.assertEqual(DEFAULT.cost["str_out"]["usetup"], 11)
+
+    def test_disp_io_wait_deciding_run(self):
+        # MOV [BW+IX+200h],AL starts 82 behind OUT DW,AL, its d16 taken at 86 with the DW I/O
+        # waiting in the slot (issued 92): silicon F96 W99 (none: F95 W98)
+        cid = "F29-out-ec-dio-dw-stbixd16-n0-pE-w0"
+        mod = self._exact(cid, **WP124)
+        self.assertIn((96, "fetch"), _at114(mod))
+        self.assertIn((99, "data_write"), _at114(mod))
+        _, old = _ev124(cid, **_OLD124)
+        self.assertIn((95, "fetch"), _at114(old))
+        self.assertIn((98, "data_write"), _at114(old))
+        # the load in the same state at pO, one wait: silicon F97 (none: F96)
+        self._exact("F29-out-ec-dio-dw-ldbixd16-n0-pO-w1", **WP124)
+        # the [BW+200h] twin takes its d16 in the same state and fetches at 95; the
+        # base+index+d8 form behind the OUT marker takes its d8 with the marker's I/O waiting,
+        # and the d16 form there takes its on the I/O's issue clock (disp_io): exact under both
+        for c in ("F29-out-ec-dio-dw-stbwd16-n0-pE-w0", "F21-out-l0-ld-bw_ix_d8-pE-w0",
+                  "F21-out-l0-ld-bw_ix_d16-pE-w1"):
+            self._exact(c, **WP124)
+            self._exact(c, **_OLD124)
+
+    def test_cvt_tail_and_from_deciding_runs(self):
+        # CVTBD (odd) starts 85 on M0's I/O issue, released 104: silicon F116 O119, the OUT
+        # waiting out the write-back (none: F115 O118)
+        cid = "F33-out-cvtbd-k1-pO-w0"
+        mod = self._exact(cid, **WP124)
+        self.assertIn((116, "fetch"), _at114(mod))
+        self.assertIn((119, "io_write"), _at114(mod))
+        _, old = _ev124(cid, **_OLD124)
+        self.assertIn((115, "fetch"), _at114(old))
+        self.assertIn((118, "io_write"), _at114(old))
+        # the second CVTDB starts 107 on an idle bus and takes its 0A at 109: silicon F124
+        # (take: the release counted from that take, F123)
+        cid = "F33-out-cvtdb-k2-pO-w1"
+        mod = self._exact(cid, **WP124)
+        self.assertIn((124, "fetch"), _at114(mod))
+        _, old = _ev124(cid, **_OLD124)
+        self.assertIn((123, "fetch"), _at114(old))
+        # the PUSH twin takes its byte on a delivery clock (no hold armed) and the w1 / w2 OUT
+        # cells end on the fetch: exact under both
+        for c in ("F33-push-cvtbd-k1-pE-w0", "F33-out-cvtbd-k1-pO-w1", "F33-out-cvtdb-k1-pO-w2",
+                  "F33-out-cvtbd-k1-pE-w0"):
+            self._exact(c, **WP124)
+            self._exact(c, **_OLD124)
+
+    def test_abort_unit_end_deciding_run(self):
+        # the second MUL [BW] starts 157 on an aborted cycle and reads at 164: silicon F224
+        # O227 (keep: F225 O228); the pE twin starts on a fetch's issue: exact under both
+        cid = "F33-out-mul_m-ld-k2-pO-w0"
+        mod = self._exact(cid, **WP124)
+        self.assertIn((224, "fetch"), _at114(mod))
+        self.assertIn((227, "io_write"), _at114(mod))
+        _, old = _ev124(cid, **_OLD124)
+        self.assertIn((225, "fetch"), _at114(old))
+        self.assertIn((228, "io_write"), _at114(old))
+        for c in ("F33-out-mul_m-ld-k2-pE-w0", "F33-out-divu_m-ld-k2-pO-w2"):
+            self._exact(c, **WP124)
+            self._exact(c, **_OLD124)
+
+    def test_str_out_rd_deciding_runs(self):
+        # the second OUTM starts 107 on an idle bus: silicon D117 (nowait: D116); started on
+        # F108's issue at one wait: silicon D118 (nowait: D119)
+        for cid, new, old_t in (("F24-out-s-outm-w-k2-pO-w0", 117, 116),
+                                ("F24-out-s-outm-w-k2-pE-w1", 118, 119)):
+            mod = self._exact(cid, **WP124)
+            self.assertIn((new, "data_read"), _at114(mod))
+            _, old = _ev124(cid, **_OLD124)
+            self.assertIn((old_t, "data_read"), _at114(old))
+        for c in ("F24-out-s-outm-w-k1-pO-w0", "F24-out-s-outm-w-k2-pE-w0",
+                  "F24-out-s-outm-b-k1-pE-w2"):
+            self._exact(c, **WP124)
+            self._exact(c, **_OLD124)
+
+    def test_gdisp_dlv_deciding_run(self):
+        # INC [BW+200h] starts 94 on F94's issue, its d16 taken on the delivery 98 with the
+        # word's second byte latched: silicon D103 (none: D102); the pE twin fetches between
+        # the take and the read, the ALU RMW form fetches on its take clock: exact under both
+        cid = "F29-out-ec-gih-incd16-n2-pO-w1"
+        mod = self._exact(cid, **WP124)
+        self.assertIn((103, "data_read"), _at114(mod))
+        _, old = _ev124(cid, **_OLD124)
+        self.assertIn((102, "data_read"), _at114(old))
+        for c in ("F29-out-ec-gih-incd16-n2-pE-w1", "F21-out-n2-add-bw_d16-pO-w1"):
+            self._exact(c, **WP124)
+            self._exact(c, **_OLD124)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP124's values
+        for fam in ("F3", "F14", "F21", "F36"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**_KEEP124, **WP124}), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**_KEEP124, **_OLD124}), s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
