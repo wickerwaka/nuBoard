@@ -1643,10 +1643,13 @@ class MultiplyStage(unittest.TestCase):
         for cls in fit.F58_CLASSES:
             for name in DEFAULT_COST[cls]:
                 self.assertIn(f"{cls}.{name}", fit.F58_INTS)
-        # every integer the tracked fit carries for the three classes
+        # every integer the tracked fit carries for the three classes, less the ones later
+        # work added (WP114's mul_imm.igap, fit 58, 2026-11-01: stage 34's F60_NEW_INTS)
         tracked = json.loads((Path(fit.__file__).parent / "fit.json").read_text())
         for cls in fit.F58_CLASSES:
             for name in tracked["cost"][cls]:
+                if f"{cls}.{name}" in fit.F60_NEW_INTS:
+                    continue
                 self.assertIn(f"{cls}.{name}", fit.F58_INTS)
         for name in ("mul.smexec", "mul.sexec", "mul_imm.rsetup", "mul_imm.mhold", "div.smexec"):
             self.assertIn(name, fit.F58_INTS)

@@ -6058,7 +6058,7 @@ counted through the setup (+47 −141), a take-clock commitment as the take's ow
 test_sim.PageFormsWP112 (`_OLD112` pins the pre-change values), test_fit's stage-33 class. Stage 33 (WP113) from this
 hand start: the fifty-seventh fit (Model).
 
-### F33's miscellany read: INC/DEC r8 is MOV CL,imm8, the long one-byte forms' wait clocks and idle starts, the conversions' and BCD strings' fetch holds, MUL imm register's immediate gap (WP114, 2026-11-01; a candidate)
+### F33's miscellany read: INC/DEC r8 is MOV CL,imm8, the long one-byte forms' wait clocks and idle starts, the conversions' and BCD strings' fetch holds, MUL imm register's immediate gap (WP114, 2026-11-01; the fifty-eighth fit)
 
 F33's 95 remaining misses (INC/DEC r8 35, the long one-byte forms at k = 2 20, CVTWL 13, CVTBD/CVTDB 12, MUL imm
 register 9, MUL/DIV [BW] at k = 2 6), with F32's BCD k = 2 pO cells (21) and F40's add4s repeats (12), read per run and
@@ -6093,7 +6093,8 @@ per cell with their exact neighbours (scratchpad wp114/facts.txt), are six mecha
 
 All six together: **F33 955 → 1,026/1,050, F32 728 → 749/858, F40 926 → 941/1,020, lost 0**, the other 39 lists
 unchanged; with every new value at its default the edited tree scores byte-identically to a clean extract on all 42
-lists. Tests test_sim.MiscellanyWP114 (`_OLD114`). The fit stage is WP115.
+lists. Tests test_sim.MiscellanyWP114 (`_OLD114`), test_fit's stage-34 class. Stage 34 (WP115) from this hand start:
+the fifty-eighth fit (Model).
 
 ## Model
 
@@ -6114,7 +6115,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-seventh fit since 2026-11-01): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-eighth fit since 2026-11-01): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6611,10 +6612,17 @@ and `bf_ext.ftail` / `bf_ins.ftail` 2 (Facts "The 0F memory forms' and bit field
 F34 1,361 → 1417/1,596, F39 1,256 → 1265/1,320, the other lists byte-identical, nothing lost. Model side only, no RTL
 work.
 
+**The fifty-eighth fit** (`fit.json`, md5 d93cd78340297049b04a5960a77219ac; scratchpad wp115/fit-wp115.json, adopted 2026-11-01) is the
+fifty-seventh fit plus WP114's miscellany mechanisms, `room_ir_pre=modrm`, `long_exec=wait`, `one_idle=long`,
+`cvt_hold=word`, `mul_imm_reg=gap`, `bcd_fetch=hold` with `incdec.nx` 0 / `rwb` 0, `convert.hrel` 1, `convert_d.hrel` 3,
+`mul_imm.igap` 2, `bcd4s.hrel` / `bcd4s_cmp.hrel` 2 (Facts "F33's miscellany read"): fit stage 34 (`F60_ENUMS`,
+`F60_INTS`; WP115) from that hand start moves nothing: the corpus guard refuses all 239 other grid configurations and every single flip of the six enums over the whole corpus only loses runs (room_ir_pre=none F33 15 / F36 3 / F40 10, one_idle=none F33 15 / F34 10 / F40 18, bcd_fetch=free F32 21 / F40 12, the rest F33 6 to 15). **34188 of 35,168 over 42 lists**: F33 955 → 1026/1,050, F32 731 →
+752/858, F40 926 → 941/1,020, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
-### Fitted structure (fifty-seventh fit, 2026-11-01)
 
-Fifty-seven fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-eighth fit, 2026-11-01)
+
+Fifty-eight fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -7008,7 +7016,10 @@ four mechanisms (`mul_imm_count=sync`, `mul_imm_half=room`, `mul_imm_exec=hold`,
 `mul_data=sign`; stage 32): 33972/35168, F33 955, F34 1361. The fifty-seventh
 (`fit.json`, 2026-11-01) adds the 0F memory forms' and bit fields' mechanisms
 (`page_cl=thru`, `page_ir=delivery`, `page_dio=free`, ftail 2; stage 33): 34081/35168,
-F32 731, F34 1417, F39 1265.
+F32 731, F34 1417, F39 1265. The fifty-eighth (`fit.json`, 2026-11-01) adds F33's
+miscellany mechanisms (`room_ir_pre=modrm`, `long_exec=wait`, `one_idle=long`,
+`cvt_hold=word`, `mul_imm_reg=gap`, `bcd_fetch=hold`; stage 34): 34188/35168,
+F33 1026, F32 752, F40 941.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
