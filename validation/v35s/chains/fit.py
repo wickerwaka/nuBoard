@@ -622,8 +622,22 @@ class Scored:
         return (self.guard, self.exact, -self.resid)
 
 
+# (WP113) score_many evaluates at most SCORE_CELLS configuration x run cells in one evaluate()
+# batch: a batch's working set (results, misses, pool tasks) costs about 650 B a cell, and a
+# descent's pair round over F59_INTS (C(84, 2) x 4 = 13,944 configurations x 4,794 runs, 67M
+# cells) exceeded the 40G scope in one batch. The cache is pure, so the results are the same
+# however a batch is split.
+SCORE_CELLS = 8_000_000
+
+
 def score_many(cfgs, ids, guard_ids=()) -> list[Scored]:
     all_ids = list(guard_ids) + list(ids)
+    step = max(1, SCORE_CELLS // max(len(all_ids), 1))
+    if len(cfgs) > step:
+        out = []
+        for k in range(0, len(cfgs), step):
+            out += score_many(cfgs[k:k + step], ids, guard_ids)
+        return out
     out = []
     for cfg, res in zip(cfgs, evaluate(cfgs, all_ids)):
         g, s = res[:len(guard_ids)], res[len(guard_ids):]
@@ -1732,7 +1746,29 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   29: ["F23", "F30", "F33", "F34", "F35", "F36", "F37", "F39", "F40"],
                   30: ["F35", "F37", "F40"],
                   31: ["F32", "F34", "F39", "F40"],
-                  32: ["F33", "F34", "F3", "F16", "F14", "F15"]}
+                  32: ["F33", "F34", "F3", "F16", "F14", "F15"],
+                  33: ["F32", "F34", "F39", "F40"]}
+
+# Stage 33 (WP113, F32, F34, F39, F40): the 0F memory forms' and bit fields' remaining misses as
+# WP112 read them (docs/v35s-chains.md Facts "The 0F memory forms' and bit fields' remaining
+# misses read"): with the bit index in CL a 0F memory form's read setup counts its cl clocks
+# through a fetch after fsetup fetch-free clocks (page_cl=thru), its last operand take on a
+# word's delivery clock keeps the successor out of the IR until the read issues
+# (page_ir=delivery), a 0F displacement taken on an I/O cycle's issue clock takes no extension
+# (page_dio=free), and a bit field's first read waits ftail fetch-free clocks (+1 per immediate
+# byte) after the last fetch's end (bf_ext.ftail / bf_ins.ftail 2). From a hand start (the
+# fifty-sixth fit with the three values and the two ftails, F32 728, F34 1,417, F39 1,265), the
+# enums (F59_ENUMS: page_cl, page_ir and page_dio with every value, the old value first, so a tie
+# keeps it) as a grid at the input's integers (the top 2 descended over F59_INTS: every integer
+# of the classes the rules read, the 0F memory forms bit1_test, bit1_rmw, bit1_clr, rol4_mem and
+# ror4_mem (page_cl, page_ir, page_dio: eu.page_mem) and the bit fields bf_ext and bf_ins
+# (ftail)), then the sweep over F59_ENUMS with F59_INTS descended inside every move; the families
+# are those that run those classes (F32, F34, F39, F40), kept to four (a stage over more than
+# about 9,000 runs has exhausted its 40G scope); the corpus guard over every modelled run is the
+# guard, as in stages 9 to 32.
+F59_ENUMS = {n: OPTIONS[n] for n in ("page_cl", "page_ir", "page_dio")}
+F59_CLASSES = ("bit1_test", "bit1_rmw", "bit1_clr", "rol4_mem", "ror4_mem", "bf_ext", "bf_ins")
+F59_INTS = [f"{cls}.{name}" for cls in F59_CLASSES for name in DEFAULT_COST[cls]]
 
 # Stage 32 (WP111, F33, F34, F3, F16, F14, F15): the
 # multiply's read, hold, exec and data cost as WP109 read them (docs/v35s-chains.md Facts "The
@@ -2988,6 +3024,17 @@ def stage32(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage33(prev: dict, log=say) -> dict:
+    """(WP113) F32, F34, F39, F40 (the lists that run the 0F memory forms and the bit fields):
+    page_cl, page_ir and page_dio (every value) as a grid at the input's integers (the top 2
+    descended over F59_INTS), then the sweep over F59_ENUMS with F59_INTS descended inside every
+    move; the corpus guard is the guard, as in stages 9 to 32."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 33 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(33, prev, F59_ENUMS, F59_INTS, log, top_k=2, pairs_k=1, sweep=F59_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -3087,8 +3134,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage30(prev, log)
     elif stage == 31:
         out = stage31(prev, log)
-    else:
+    elif stage == 32:
         out = stage32(prev, log)
+    else:
+        out = stage33(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -3106,9 +3155,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 33), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 33), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-32 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 34), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 34), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-33 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -3146,7 +3195,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 33) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 34) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")
