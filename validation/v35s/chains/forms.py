@@ -1235,3 +1235,107 @@ F37_TRANSFER_CLASSES = ("call_mem", "br_mem", "call_far_mem", "branch_far_mem", 
 # modelled (sim/templates.py decode and _wp91_steps; the pointer and the vector read from the
 # words the lead stored, templates._execute_wp91): none is left.
 UNMODELLED_FORMS = frozenset()
+
+
+# F38 (WP97: the ALU operations' memory, byte and immediate forms, the SS: / DS0: / PS: prefixes
+# and the byte shift by imm8; one refresh-off coverage family, precedent F36). A first-byte
+# census of the catalog left 02 04 08 0A 0C 10 11 12 14 18 19 1A 1C 20 22 24 28 2A 2C 30 31 32
+# 34 3A 3C, 2E 36 3E and C0 untouched (for ADD only 01 / 03 / 05 had run, for OR / ADDC / SUBC /
+# AND / SUB / XOR only the register and AW,imm16 forms, F36). The model gives every ALU operation
+# one class per operand shape and every segment prefix the prefix class; each form below takes
+# the class of its shape, and a form already in the catalog with the same bytes keeps its name
+# (F14's add_m_al, F15's or_m_aw and_m_aw sub_m_aw and_aw_m xor_aw_m and_m_imm and_m_imm8 and
+# test_al_imm, the base catalog's add_m_aw add_aw_m cmp_aw_m add_m_imm add_m_imm8 ld_bw
+# mov_aw_dw pfx_mov_aw_dw shl_imm4 shl_m1, F36's 80 group). NEC mnemonics, the operation in bits
+# 5:3 (the 80-83 groups' reg field): ADD 0, OR 1, ADDC 2, SUBC 3, AND 4, SUB 5, XOR 6, CMP 7:
+# - rmw: op [BW],AW (the 01 shape: 01 09 11 19 21 29 31, ModR/M 07) and op byte [BW],AL (the 00
+#   shape: 00 08 10 18 20 28 30 07): a read and a write of the operand at 0800h (the 9090h fill).
+# - ldalu: op AW,[BW] (the 03 shape: 03 0B 13 1B 23 2B 33 3B 07) and op AL,[BW] (the 02 shape: 02
+#   0A 12 1A 22 2A 32 3A 07): a read, the result to the register (CMP only the flags).
+# - imm8: op AL,34h (04 0C 14 1C 24 2C 34 3C, 34h) and TEST AL,34h (A8 34, F15's) beside them.
+# - grp: op byte [BW],5 in the 80 group (80 /0-/7: 80 07+8r 05), op [BW],5 sign-extended in the
+#   83 group (83 /0-/6) and op [BW],1234h in the 81 group (81 /0, /1, /4).
+# - pfx: DS1: (26), SS: (36), DS0: (3E) and PS: (2E) before MOV AW,DW (8B C2); DS1:, SS: and DS0:
+#   before MOV AW,[BW] (8B 07). DS0 = DS1 = SS = 0 in every chain, so each prefixed load reads
+#   0800h as the unprefixed one does. Left out: a PS:-prefixed load (PS = 1000h: it would read
+#   10800h, in the code page, which the normaliser classifies as a fetch).
+# - shb: SHL AL,4 (C0 E0 04) and SHL byte [BW],4 (C0 27 04), with the word forms SHL AW,4 (C1 E0
+#   04, the catalog's shl_imm4), SHL [BW],4 (C1 27 04, new) and SHL [BW],1 (D1 27, shl_m1).
+# Every write lands on the 9090h fill at 0800h; AW is 0 after the fence; the flags ADDC / SUBC
+# read are the fence's (fixed), and nothing after X reads a flag.
+F38_OPS = {"add": 0, "or": 1, "addc": 2, "subc": 3, "and": 4, "sub": 5, "xor": 6, "cmp": 7}
+F38_IMM8 = IMM16 & 0xFF                      # 34h: TEST AL,imm8's (test_al_imm) immediate
+F38_SEGS = {"ds1": 0x26, "ss": 0x36, "ds0": 0x3E, "ps": 0x2E}
+F38_FORM: dict[tuple, str] = {}              # (shape, op or segment) -> catalog form name
+
+
+def _f38_forms() -> list:
+    """The F38 forms not yet in the catalog; F38_FORM names every shape's form, reused or new."""
+    new: list[Form] = []
+
+    def put(key, name, cls, code, **kw):
+        same = [f for f in list(FORMS.values()) + new if f.code == code]
+        if same:
+            if (same[0].name, same[0].cls) != (name, cls):
+                raise RuntimeError(f"F38 {key}: catalog has {same[0].name} ({same[0].cls}), "
+                                   f"expected {name} ({cls})")
+        else:
+            new.append(Form(name, cls, code, **kw))
+        F38_FORM[key] = name
+
+    rd, rw = dict(reads=1), dict(reads=1, writes=1)
+    for op, r in F38_OPS.items():
+        b = r << 3
+        if op != "cmp":
+            put(("rmw_w", op), f"{op}_m_aw", "rmw", bytes([b | 1, 0x07]), **rw, **_BW)
+            put(("rmw_b", op), f"{op}_m_al", "rmw", bytes([b, 0x07]), **rw, **_BWB)
+        put(("ldalu_w", op), f"{op}_aw_m", "load_alu", bytes([b | 3, 0x07]), **rd, **_BW)
+        put(("ldalu_b", op), f"{op}_al_m", "load_alu", bytes([b | 2, 0x07]), **rd, **_BWB)
+        put(("imm8", op), f"{op}_al_imm8", "imm", bytes([b | 4, F38_IMM8]))
+        cls80, n80 = ("load_alu", rd) if op == "cmp" else ("rmw_imm", rw)
+        put(("g80", op), f"{op}b_m_imm8_80", cls80, bytes([0x80, 0x07 | b, F15_IMM8]),
+            **n80, **_BWB)
+        if op != "cmp":
+            put(("g83", op), f"{op}_m_imm8", "rmw_imm", bytes([0x83, 0x07 | b, F15_IMM8]),
+                **rw, **_BW)
+        if op in ("add", "or", "and"):
+            put(("g81", op), f"{op}_m_imm", "rmw_imm", bytes([0x81, 0x07 | b]) + IMM, **rw,
+                **_BW)
+    put(("imm8", "test"), "test_al_imm", "imm", bytes([0xA8, F38_IMM8]))
+    put(("pfx_reg", None), "mov_aw_dw", "reg", bytes([0x8B, 0xC2]))
+    put(("pfx_ld", None), "ld_bw", "load", bytes([0x8B, 0x07]), **rd, **_BW)
+    for seg, p in F38_SEGS.items():
+        stem = "pfx" if seg == "ds1" else seg
+        put(("pfx_reg", seg), f"{stem}_mov_aw_dw", "prefix", bytes([p, 0x8B, 0xC2]))
+        if seg != "ps":
+            put(("pfx_ld", seg), f"{stem}_ld_bw", "load", bytes([p, 0x8B, 0x07]), **rd, **_BW)
+    n = SHL_IMM_COUNT
+    put(("shb", "aw_imm"), f"shl_imm{n}", "shift_imm", bytes([0xC1, 0xE0, n]))
+    put(("shb", "al_imm"), f"shl_al_imm{n}", "shift_imm", bytes([0xC0, 0xE0, n]))
+    put(("shb", "m1"), "shl_m1", "rmw", bytes([0xD1, 0x27]), **rw, **_BW)
+    put(("shb", "m_imm"), f"shl_m_imm{n}", "rmw", bytes([0xC1, 0x27, n]), **rw, **_BW)
+    put(("shb", "mb_imm"), f"shlb_m_imm{n}", "rmw", bytes([0xC0, 0x27, n]), **rw, **_BWB)
+    return new
+
+
+F38_FORMS = _register(_f38_forms())
+
+# (WP97) the F38 forms sim/templates.decode does not take to their catalog class and length, so
+# the simulator cannot run them (and F38 is in families.UNMODELLED until a template learns them;
+# sim/* is not this package's to change):
+# - op AL,imm8 (04 0C 14 1C 24 2C 34 3C): decode's 00-3F block takes the ModR/M shapes (bits 2:0
+#   0-3) and the AW,imm16 forms (05, ACC_IMM16); the AL,imm8 forms (bits 2:0 = 4) fall through to
+#   the ModR/M path, whose last branch raises ("not in the catalog").
+# - C0 /4 (SHL AL,imm8 and SHL byte [BW],imm8): C0 is in GROUP_OPCODES but decode has no C0 case
+#   (only C1's), so both raise.
+# - C1 /4 with a memory operand (SHL [BW],imm8, C0 27 04's word control): decode takes every C1
+#   form to shift_imm without looking at mod, so the memory form decodes to a register shift (no
+#   read, no write), not the rmw class its D1 / D3 / D0 / D2 twins take.
+F38_UNMODELLED = {
+    **{F38_FORM[("imm8", op)]: "AL,imm8: decode raises (the 00-3F block, bits 2:0 = 4)"
+       for op in F38_OPS},
+    F38_FORM[("shb", "al_imm")]: "C0: decode raises (no C0 case)",
+    F38_FORM[("shb", "mb_imm")]: "C0: decode raises (no C0 case)",
+    F38_FORM[("shb", "m_imm")]: "C1 with a memory operand: decodes to shift_imm, not rmw",
+}
+UNMODELLED_FORMS = frozenset(F38_UNMODELLED)

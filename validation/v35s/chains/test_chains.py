@@ -160,6 +160,20 @@ LENGTHS.update({"mov_aw_1000": 3, "mov_bw_c00": 3,
                 "callf_m_dir": 4, "callf_m_bw": 2, "brf_m_dir": 4, "brf_m_bw": 2,
                 "brk3": 1, "brk5": 2, "reti": 1})
 RUN_RANGES.update({"F37": (432, 432)})
+# (WP97) F38: the ALU operations' memory, byte and immediate forms, the SS: / DS0: / PS: prefixes,
+# the byte shift by imm8
+_F38_OPS = ("add", "or", "addc", "subc", "and", "sub", "xor", "cmp")
+LENGTHS.update({f"{op}_m_aw": 2 for op in ("addc", "subc", "xor")})
+LENGTHS.update({f"{op}_m_al": 2 for op in ("or", "addc", "subc", "and", "sub", "xor")})
+LENGTHS.update({f"{op}_aw_m": 2 for op in ("or", "addc", "subc", "sub")})
+LENGTHS.update({f"{op}_al_m": 2 for op in _F38_OPS})
+LENGTHS.update({f"{op}_al_imm8": 2 for op in _F38_OPS})
+LENGTHS.update({f"{op}b_m_imm8_80": 3 for op in ("or", "addc", "subc", "and", "sub", "xor")})
+LENGTHS.update({f"{op}_m_imm8": 3 for op in ("or", "addc", "subc", "sub", "xor")})
+LENGTHS.update({"or_m_imm": 4, "pfx_ld_bw": 3, "ss_mov_aw_dw": 3, "ss_ld_bw": 3,
+                "ds0_mov_aw_dw": 3, "ds0_ld_bw": 3, "ps_mov_aw_dw": 3, "shl_al_imm4": 3,
+                "shl_m_imm4": 3, "shlb_m_imm4": 3})
+RUN_RANGES.update({"F38": (864, 864)})
 
 
 def _synthetic_run(chain):
@@ -512,9 +526,9 @@ class ChainTests(unittest.TestCase):
         new = set(code) - {"test_m_aw", "xch_m_aw", "add_m_aw"}
         for c in self.chains:
             # F15, F16, F18 reuse F14's forms, and (WP56) F26, F27, (WP59) F28, F29, (WP73) F30,
-            # (WP74) F33 (DIVU [BW]), (WP80) F34 (SHL AW,8)
+            # (WP74) F33 (DIVU [BW]), (WP80) F34 (SHL AW,8), (WP97) F38 (ADD byte [BW],AL)
             if c.family not in ("F14", "F15", "F16", "F18", "F26", "F27", "F28", "F29", "F30",
-                                "F33", "F34"):
+                                "F33", "F34", "F38"):
                 self.assertFalse(new & {i.form for i in c.instrs}, c.id)
         for c in f14:
             build_image(c)
@@ -567,8 +581,9 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(FORMS[name].code.hex(), hexcode, name)
         new = set(code) - {"test_m_imm", "cmp_m_imm", "test_dir_aw", "pop_m"}
         for c in self.chains:
-            # F16 and F21 reuse F15's forms; (WP87) F36 POP CW after PUSH CW
-            if c.family not in ("F15", "F16", "F21", "F36"):
+            # F16 and F21 reuse F15's forms; (WP87) F36 POP CW after PUSH CW; (WP97) F38 the
+            # ALU forms and TEST AL,imm8 beside their class mates
+            if c.family not in ("F15", "F16", "F21", "F36", "F38"):
                 self.assertFalse(new & {i.form for i in c.instrs}, c.id)
         for c in f15:
             build_image(c)
@@ -2050,8 +2065,9 @@ class F32F33Tests(unittest.TestCase):
             self.assertNotIn(name, UNMODELLED_FORMS)     # (WP78) the simulator decodes them
             self.assertIn(FORMS[name].cls, CLASSES, name)
         # (WP87) none of F32's or F33's: the generator-only forms were F35's and F36's; (WP90)
-        # they were F37's; (WP91) modelled: none is left
-        self.assertEqual(UNMODELLED_FORMS, frozenset())
+        # they were F37's; (WP91) modelled: none is left; (WP97) F38's eleven that do not decode
+        from validation.v35s.chains.forms import F38_UNMODELLED
+        self.assertEqual(UNMODELLED_FORMS, frozenset(F38_UNMODELLED))
         # (WP78) one class per cost the facts tell apart
         for name, cls in (("clr1_mb_cl", "bit1_clr"), ("set1_mw_imm", "bit1_rmw"),
                           ("not1_mb_cl", "bit1_rmw"), ("test1_mw_imm", "bit1_test"),
@@ -2079,8 +2095,8 @@ class F32F33Tests(unittest.TestCase):
         self.assertNotIn("F32", UNMODELLED)
         self.assertNotIn("F33", UNMODELLED)
         # (WP87) F35 / F36 generator-only; (WP88) modelled; (WP90) F37 generator-only; (WP91)
-        # modelled
-        self.assertEqual(UNMODELLED, ())
+        # modelled; (WP97) F38 generator-only (forms.F38_UNMODELLED)
+        self.assertEqual(UNMODELLED, ("F38",))
         self.assertIn("F32", fit.TIE_FAMILIES)
         self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
 
@@ -2807,10 +2823,11 @@ class F36Tests(unittest.TestCase):
         for name in F36_FORMS:
             self.assertIn(FORMS[name].cls, CLASSES, name)
         # the first bytes F35 and F36 add to the catalog (as it stood before them: (WP90) F37's
-        # later forms left out)
-        from validation.v35s.chains.forms import F37_FORMS
+        # later forms left out; (WP97) and F38's)
+        from validation.v35s.chains.forms import F37_FORMS, F38_FORMS
         new = set(F35_FORMS + F36_FORMS)
-        before = {f.code[0] for n, f in FORMS.items() if n not in new and n not in F37_FORMS}
+        before = {f.code[0] for n, f in FORMS.items()
+                  if n not in new and n not in F37_FORMS + F38_FORMS}
         added = {FORMS[n].code[0] for n in new} - before
         self.assertEqual(added, {0x0B, 0x0D, 0x13, 0x15, 0x1B, 0x1D, 0x25, 0x2B, 0x2D, 0x35, 0x3D,
                                  0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x5A, 0x5B, 0x5C,
@@ -3206,6 +3223,240 @@ class F37Tests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             self.assertEqual(main(["gen", "--family", "F37", "--check"]), 0)
         self.assertIn("checked 432 images", out.getvalue())
+
+
+class F38Tests(unittest.TestCase):
+    """(WP97) the ALU operations' memory, byte and immediate forms, the SS: / DS0: / PS: prefixes
+    and the byte shift by imm8: counts, bytes and classes, the first bytes they add to the
+    catalog, byte placement and parity, the class mates, the live decoder on every form, the
+    expected accesses, synthetic runs and baselines, gen --check."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.f38 = generate(["F38"])
+        cls.cells = [c for c in cls.f38 if c.waits == 0 and c.parity == "even"]
+        cls.by = {c.id[len("F38-"):-len("-pE-w0")]: c for c in cls.cells}
+
+    def test_counts(self):
+        from collections import Counter
+        from validation.v35s.chains.families import UNMODELLED
+        self.assertEqual(len(self.f38), 864)
+        self.assertEqual(len(self.f38), RUN_RANGES["F38"][0])
+        self.assertIn("F38", UNMODELLED)            # (WP97) generator-only: F38_UNMODELLED
+        per_marker = {"empty": 1, "rmw": 14, "ldalu": 16, "imm8": 9, "grp": 18, "pfx": 9,
+                      "shb": 5}
+        self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in self.cells),
+                         {(m, s): n for m in ("out", "push") for s, n in per_marker.items()})
+        self.assertEqual(Counter((c.waits, c.parity) for c in self.f38),
+                         {(w, p): 144 for w in (0, 1, 2) for p in ("even", "odd")})
+        for c in self.f38:
+            self.assertEqual((c.rfm, c.regs["BW"], c.regs["SP"], c.regs["DS0"], c.regs["DS1"],
+                              c.regs["SS"]), (0xEC, 0x0800, 0x0F00, 0, 0, 0), c.id)
+            self.assertEqual(c.knobs["marker"], c.marker_kind, c.id)
+            self.assertTrue(c.id.startswith(f"F38-{c.marker_kind}-"), c.id)
+            k = c.knobs
+            self.assertEqual(k["exec"], list(range(len(k["x"]))), c.id)
+            self.assertEqual(k["lead"], [], c.id)
+            if k["series"] == "empty":
+                self.assertEqual((k["x"], k["baseline"], k["k"]), ([], None, 0), c.id)
+            else:
+                self.assertEqual((k["x"], k["baseline"], k["k"]), ([k["form"]], "empty", 1),
+                                 c.id)
+                label = c.id[len(f"F38-{c.marker_kind}-"):].rsplit("-p", 1)[0]
+                self.assertEqual(label, f"{k['series']}-{k['form']}", c.id)
+
+    def test_catalog(self):
+        from validation.v35s.chains.forms import CLASSES, F38_FORM, F38_FORMS, F38_UNMODELLED
+        for name, code, cls in (
+                ("addc_m_aw", "1107", "rmw"), ("subc_m_aw", "1907", "rmw"),
+                ("xor_m_aw", "3107", "rmw"), ("or_m_al", "0807", "rmw"),
+                ("addc_m_al", "1007", "rmw"), ("subc_m_al", "1807", "rmw"),
+                ("and_m_al", "2007", "rmw"), ("sub_m_al", "2807", "rmw"),
+                ("xor_m_al", "3007", "rmw"), ("or_aw_m", "0b07", "load_alu"),
+                ("addc_aw_m", "1307", "load_alu"), ("subc_aw_m", "1b07", "load_alu"),
+                ("sub_aw_m", "2b07", "load_alu"), ("add_al_m", "0207", "load_alu"),
+                ("or_al_m", "0a07", "load_alu"), ("addc_al_m", "1207", "load_alu"),
+                ("subc_al_m", "1a07", "load_alu"), ("and_al_m", "2207", "load_alu"),
+                ("sub_al_m", "2a07", "load_alu"), ("xor_al_m", "3207", "load_alu"),
+                ("cmp_al_m", "3a07", "load_alu"), ("add_al_imm8", "0434", "imm"),
+                ("or_al_imm8", "0c34", "imm"), ("addc_al_imm8", "1434", "imm"),
+                ("subc_al_imm8", "1c34", "imm"), ("and_al_imm8", "2434", "imm"),
+                ("sub_al_imm8", "2c34", "imm"), ("xor_al_imm8", "3434", "imm"),
+                ("cmp_al_imm8", "3c34", "imm"), ("orb_m_imm8_80", "800f05", "rmw_imm"),
+                ("addcb_m_imm8_80", "801705", "rmw_imm"), ("subcb_m_imm8_80", "801f05", "rmw_imm"),
+                ("andb_m_imm8_80", "802705", "rmw_imm"), ("subb_m_imm8_80", "802f05", "rmw_imm"),
+                ("xorb_m_imm8_80", "803705", "rmw_imm"), ("or_m_imm8", "830f05", "rmw_imm"),
+                ("addc_m_imm8", "831705", "rmw_imm"), ("subc_m_imm8", "831f05", "rmw_imm"),
+                ("sub_m_imm8", "832f05", "rmw_imm"), ("xor_m_imm8", "833705", "rmw_imm"),
+                ("or_m_imm", "810f3412", "rmw_imm"), ("pfx_ld_bw", "268b07", "load"),
+                ("ss_mov_aw_dw", "368bc2", "prefix"), ("ss_ld_bw", "368b07", "load"),
+                ("ds0_mov_aw_dw", "3e8bc2", "prefix"), ("ds0_ld_bw", "3e8b07", "load"),
+                ("ps_mov_aw_dw", "2e8bc2", "prefix"), ("shl_al_imm4", "c0e004", "shift_imm"),
+                ("shl_m_imm4", "c12704", "rmw"), ("shlb_m_imm4", "c02704", "rmw")):
+            self.assertEqual((FORMS[name].code.hex(), FORMS[name].cls), (code, cls), name)
+        self.assertEqual(len(F38_FORMS), 50)
+        # the catalog forms F38 reuses keep their names, bytes and classes
+        reused = {n for n in F38_FORM.values()} - set(F38_FORMS)
+        self.assertEqual(reused, {"add_m_aw", "or_m_aw", "and_m_aw", "sub_m_aw", "add_m_al",
+                                  "add_aw_m", "and_aw_m", "xor_aw_m", "cmp_aw_m", "test_al_imm",
+                                  "addb_m_imm8_80", "cmpb_m_imm8_80", "add_m_imm8",
+                                  "and_m_imm8", "add_m_imm", "and_m_imm", "mov_aw_dw",
+                                  "pfx_mov_aw_dw", "ld_bw", "shl_imm4", "shl_m1"})
+        for name in F38_FORMS:
+            f = FORMS[name]
+            self.assertIn(f.cls, CLASSES, name)
+            if f.reads or f.writes:
+                self.assertEqual((f.mode, f.mode_class, f.ea), ("bw", "base", 0x0800), name)
+        # the memory forms: a byte operand where the w bit (or the 80 / C0 group) says so
+        for (shape, _), name in F38_FORM.items():
+            f = FORMS[name]
+            if shape in ("rmw_b", "ldalu_b", "g80"):
+                self.assertEqual(f.width, 1, name)
+            elif shape in ("rmw_w", "ldalu_w", "g83", "g81", "pfx_ld"):
+                self.assertEqual(f.width, 2, name)
+        self.assertEqual(FORMS["shlb_m_imm4"].width, 1)
+        self.assertEqual(len(F38_UNMODELLED), 11)
+        # the first bytes F38 adds to the catalog: the census WP97 started from, less the ones
+        # left out (62 9B CE D8-DF 63 66 67 D6 F1 F4)
+        before = {f.code[0] for n, f in FORMS.items() if n not in F38_FORMS}
+        added = {FORMS[n].code[0] for n in F38_FORMS} - before
+        self.assertEqual(added, {0x02, 0x04, 0x08, 0x0A, 0x0C, 0x10, 0x11, 0x12, 0x14, 0x18,
+                                 0x19, 0x1A, 0x1C, 0x20, 0x22, 0x24, 0x28, 0x2A, 0x2C, 0x30,
+                                 0x31, 0x32, 0x34, 0x3A, 0x3C, 0x2E, 0x36, 0x3E, 0xC0})
+
+    def test_byte_placement_and_parity(self):
+        by_id = {c.id: c for c in self.f38}
+        for c in self.f38:
+            built = build_image(c)
+            xs = [i for i in c.instrs if i.role == "x"]
+            self.assertEqual([i.form for i in xs], c.knobs["x"], c.id)
+            for i in xs:
+                at = built.chain_base - CODE_BASE + i.offset
+                self.assertEqual(built.code[at:at + len(i.code)], FORMS[i.form].code, c.id)
+                # X follows M0: at the chain's parity behind the 2-byte OUT, the other behind
+                # the 1-byte PUSH
+                first = (built.chain_base + i.offset) & 1
+                self.assertEqual(first, int(c.parity == "odd") ^ (c.marker_kind == "push"),
+                                 c.id)
+            roles = [i.role for i in c.instrs if i.role != "pad"]
+            self.assertEqual(roles, ["ls", "marker"] + ["x"] * len(xs)
+                             + ["marker", "ls", "end"], c.id)
+            if c.parity == "even":
+                odd = by_id[c.id.replace("-pE", "-pO")]
+                self.assertEqual([i.code for i in c.instrs if i.role != "pad"],
+                                 [i.code for i in odd.instrs if i.role != "pad"], c.id)
+
+    def test_controls_are_class_mates(self):
+        from validation.v35s.chains.forms import F38_FORMS
+        for c in self.cells:
+            k = c.knobs
+            if k["series"] == "empty":
+                continue
+            ctl = k["control"]
+            if ctl is None:
+                # a mate the catalog had before F38 (some family already ran it)
+                self.assertNotIn(k["form"], F38_FORMS, c.id)
+                continue
+            self.assertTrue(ctl.startswith(f"{k['series']}-"), c.id)
+            mate = self.by[f"{c.marker_kind}-{ctl}"]
+            self.assertEqual(FORMS[mate.knobs["form"]].cls, FORMS[k["form"]].cls, c.id)
+        # every new form is measured against a mate
+        for c in self.cells:
+            if c.knobs["form"] in F38_FORMS:
+                self.assertIsNotNone(c.knobs["control"], c.id)
+        self.assertEqual(self.by["out-pfx-ss_ld_bw"].knobs["control"], "pfx-pfx_ld_bw")
+        self.assertEqual(self.by["out-pfx-ps_mov_aw_dw"].knobs["control"], "pfx-pfx_mov_aw_dw")
+        self.assertEqual(self.by["push-shb-shlb_m_imm4"].knobs["control"], "shb-shl_m_imm4")
+        self.assertEqual(self.by["out-grp-xor_m_imm8"].knobs["control"], "grp-add_m_imm8")
+        self.assertEqual(self.by["out-imm8-cmp_al_imm8"].knobs["control"], "imm8-add_al_imm8")
+        # no PS:-prefixed load (it would read the code page)
+        self.assertNotIn("out-pfx-ps_ld_bw", self.by)
+
+    def test_decoder(self):
+        # (WP97) every F38 form against the live decoder: a prefix decodes as its own
+        # pseudo-instruction, then the form; the class and length must be the catalog's. The
+        # eleven that raise or decode to another class are F38_UNMODELLED, and only they
+        from validation.v35s.chains.forms import F38_FORM, F38_UNMODELLED, UNMODELLED_FORMS
+        from validation.v35s.chains.sim.templates import PREFIXES, decode
+        regs = {"AW": 0, "BW": 0x800, "CW": 0x1F, "DW": 0x5678, "SP": 0xF00, "BP": 0xA00,
+                "IX": 0x100, "IY": 0x180, "Z": 1, "CY": 0, "S": 0, "V": 0, "P": 1}
+        failed = set()
+        for name in sorted(set(F38_FORM.values())):
+            f = FORMS[name]
+            k = 0
+            try:
+                while f.code[k] in PREFIXES:
+                    self.assertEqual(decode(f.code, k, dict(regs)).cls, "prefix", name)
+                    k += 1
+                op = decode(f.code, k, dict(regs))
+            except ValueError:
+                failed.add(name)
+                continue
+            want = "reg" if f.cls == "prefix" else f.cls     # a prefixed register form
+            if (op.cls, k + op.length) != (want, f.length):
+                failed.add(name)
+                continue
+            if f.reads or f.writes:
+                self.assertEqual((op.ea, op.width), (f.ea, f.width), name)
+        self.assertEqual(failed, set(F38_UNMODELLED))
+        self.assertEqual(set(F38_UNMODELLED), set(UNMODELLED_FORMS))
+        self.assertEqual({c.knobs["form"] for c in self.cells if not c.knobs["modelled"]},
+                         set(F38_UNMODELLED))
+
+    def test_expected_accesses(self):
+        from validation.v35s.chains.normalize import expected_accesses
+
+        def acc(label):
+            c = self.by[label]
+            a = expected_accesses(c)
+            return [(x.kind, x.addr, x.width) for k in sorted(a) for x in a[k]
+                    if c.instrs[k].role == "x"]
+
+        r, w = "data_read", "data_write"
+        self.assertEqual(acc("out-rmw-xor_m_aw"), [(r, 0x800, "word"), (w, 0x800, "word")])
+        self.assertEqual(acc("out-rmw-subc_m_al"), [(r, 0x800, "lo"), (w, 0x800, "lo")])
+        self.assertEqual(acc("push-ldalu-or_aw_m"), [(r, 0x800, "word")])
+        self.assertEqual(acc("out-ldalu-cmp_al_m"), [(r, 0x800, "lo")])
+        self.assertEqual(acc("out-imm8-xor_al_imm8"), [])
+        self.assertEqual(acc("out-grp-andb_m_imm8_80"), [(r, 0x800, "lo"), (w, 0x800, "lo")])
+        self.assertEqual(acc("out-grp-or_m_imm"), [(r, 0x800, "word"), (w, 0x800, "word")])
+        self.assertEqual(acc("out-pfx-ss_ld_bw"), [(r, 0x800, "word")])
+        self.assertEqual(acc("push-pfx-ds0_ld_bw"), [(r, 0x800, "word")])
+        self.assertEqual(acc("out-pfx-ps_mov_aw_dw"), [])
+        self.assertEqual(acc("out-shb-shlb_m_imm4"), [(r, 0x800, "lo"), (w, 0x800, "lo")])
+        self.assertEqual(acc("out-shb-shl_m_imm4"), [(r, 0x800, "word"), (w, 0x800, "word")])
+        self.assertEqual(acc("out-shb-shl_al_imm4"), [])
+
+    def test_synthetic_runs_and_baselines(self):
+        # derive.BASELINES has no F38 entry (WP97 changes only forms, families and this file):
+        # the knob `baseline` names the empty frame, which _f24_baseline finds
+        from validation.v35s.chains.derive import _f24_baseline, index_facts, run_facts
+        from validation.v35s.chains.normalize import normalize
+        facts = []
+        for c in self.cells:
+            n = normalize(_synthetic_run(c))
+            self.assertIsNone(n.access_mismatch, c.id)
+            self.assertEqual(n.checks, [], c.id)
+            self.assertEqual(sorted(n.t_markers), [0, 1], c.id)
+            facts.append(run_facts(n))
+        index = index_facts(facts)
+        for f in facts:
+            b, k = _f24_baseline(f, index, None), f["knobs"]
+            if k["baseline"] is None:
+                self.assertIsNone(b, f["id"])
+                continue
+            self.assertIsNotNone(b, f["id"])
+            self.assertEqual((b["marker"], b["column"], b["knobs"]["x"]),
+                             (f["marker"], f["column"], []), f["id"])
+
+    def test_gen_check(self):
+        import contextlib
+        import io
+        from validation.v35s.chains.__main__ import main
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["gen", "--family", "F38", "--check"]), 0)
+        self.assertIn("checked 864 images", out.getvalue())
 
 
 if __name__ == "__main__":

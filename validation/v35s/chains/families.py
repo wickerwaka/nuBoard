@@ -2998,3 +2998,122 @@ FAMILIES.update({"F37": f37})
 # (WP90) F37 was generator-only: its transfers (forms.UNMODELLED_FORMS) had no template, and the
 # scorer, the fitter and freeze skipped it. (WP91) modelled (sim/templates.py _wp91_steps)
 UNMODELLED = ()
+
+
+# F38 (WP97: one refresh-off coverage family; precedent F36, a class-equivalence family). The
+# first bytes no family had run that a straight-line chain can run: the ALU operations' memory,
+# byte and immediate forms, the SS: / DS0: / PS: prefixes, the byte shift by imm8 (forms, F38).
+# The model gives every ALU operation one class per operand shape (rmw, load_alu, rmw_imm, imm)
+# and every segment prefix the prefix class; F38 measures each new form beside its class mate in
+# the same frame. The cost frame PAD LS M0 X M1 LS END, k = 1, refresh off (RFM ECh), every wait
+# and parity, the OUT and the PUSH marker on every variant (no X touches SP); run ids
+# F38-<out|push>-<series>-<label>-p<E|O>-w<N>, the label X's form name, the empty frame
+# F38-<marker>-empty. Every X against the empty frame (baseline empty). Knobs as F36's (series =
+# probe, marker, form, x, k, lead, baseline, exec, skipped, taken, rfm, refresh_on) and: control
+# (the label of the variant whose X is the class mate the form is measured against, in the same
+# series; None for a mate that is itself a catalog form some family already ran), shape (the
+# operand shape, forms.F38_FORM's key), op (the ALU operation, the segment, or the shift form),
+# width (the operand width in bytes), group_opcode (grp) and modelled (False where X is in
+# forms.UNMODELLED_FORMS). Controls (catalog forms already run unless said):
+# rmw: op [BW],AW for ADD (control) OR ADDC SUBC AND SUB XOR (01 09 11 19 21 29 31 07), mate
+#   rmw-add_m_aw; op byte [BW],AL (00 08 10 18 20 28 30 07), mate rmw-add_m_al (F14's).
+# ldalu: op AW,[BW] (03 0B 13 1B 23 2B 33 07), mate ldalu-add_aw_m, CMP AW,[BW] (3B 07) a second
+#   control; op AL,[BW] (0A 12 1A 22 2A 32 07), mate ldalu-add_al_m (02 07, new: its mate
+#   ldalu-add_aw_m), CMP AL,[BW] (3A 07, new: its mate ldalu-cmp_aw_m).
+# imm8: op AL,34h (0C 14 1C 24 2C 34 3C), mate imm8-add_al_imm8 (04 34, new: its mate
+#   imm8-test_al_imm, TEST AL,34h A8, F15's).
+# grp: 80 /1-/6 at [BW],5, mate grp-addb_m_imm8_80 (80 /0; 80 /7 CMP, F36's, the read-only
+#   control); 83 /1-/6 at [BW],5, mate grp-add_m_imm8 (83 /0, F15's); 81 /1 and /4 at [BW],1234h,
+#   mate grp-add_m_imm (81 /0).
+# pfx: SS: / DS0: / PS: MOV AW,DW (36 3E 2E 8B C2), mate pfx-pfx_mov_aw_dw (DS1: 26 8B C2, F3's);
+#   SS: / DS0: MOV AW,[BW] (36 3E 8B 07), mate pfx-pfx_ld_bw (DS1: 26 8B 07, new: its mate the
+#   unprefixed pfx-ld_bw); MOV AW,DW and MOV AW,[BW] unprefixed beside them.
+# shb: SHL AL,4 (C0 E0 04), mate shb-shl_imm4 (C1 E0 04); SHL byte [BW],4 (C0 27 04), mate
+#   shb-shl_m_imm4 (C1 27 04, new: its mate shb-shl_m1, D1 27).
+# Left out: a PS:-prefixed load (PS = 1000h: it reads 10800h, the code page, which the
+#   normaliser classifies as a fetch); 80 / 83 /7 and the 81 group's other operations (CMP and
+#   F15's AND ran; the other 81 operations are one immediate width of the 83 rows); CHKIND (62),
+#   POLL (9B), BRKV (CE), FPO1 (D8-DF), the undefined 63 66 67 D6 F1, and HALT (F4, the END).
+# Generator-only (UNMODELLED): eleven forms do not decode to their class and length
+# (forms.F38_UNMODELLED: the AL,imm8 forms and C0 raise in sim/templates.decode, C1 with a
+# memory operand decodes to a register shift), so the scorer, the fitter and freeze skip F38
+# until a template learns them; every other F38 form decodes to its catalog class and length.
+F38_RFM = RFM_OFF
+
+
+def _f38_specs():
+    from .forms import F38_FORM, F38_OPS, F38_SEGS, FORMS as _FORMS, UNMODELLED_FORMS
+    specs = []
+
+    def add(series, shape, key, control=None, label=None, width=None, **extra):
+        if series == "empty":
+            names, form, full = [], None, "empty"
+        else:
+            form = F38_FORM[(shape, key)]
+            names, full = [form], f"{series}-{label or form}"
+        knobs = {"probe": series, "series": series, "form": form, "x": names,
+                 "k": 1 if form else 0, "lead": [], "baseline": None if form is None else "empty",
+                 "exec": list(range(len(names))), "skipped": 0, "taken": None,
+                 "rfm": F38_RFM, "refresh_on": False,
+                 "control": control and f"{series}-{F38_FORM[control]}",
+                 "shape": shape, "op": key,
+                 "width": None if form is None else (
+                     _FORMS[form].width or (1 if shape == "imm8" or key == "al_imm" else 2)),
+                 "modelled": form not in UNMODELLED_FORMS, **extra}
+        specs.append((full, knobs, names, True))
+
+    alu = [op for op in F38_OPS if op != "cmp"]
+    add("empty", None, None)
+    for w in ("w", "b"):
+        for op in alu:
+            add("rmw", f"rmw_{w}", op, None if op == "add" else (f"rmw_{w}", "add"))
+    add("ldalu", "ldalu_w", "add")
+    for op in alu[1:]:
+        add("ldalu", "ldalu_w", op, ("ldalu_w", "add"))
+    add("ldalu", "ldalu_w", "cmp")
+    add("ldalu", "ldalu_b", "add", ("ldalu_w", "add"))
+    for op in alu[1:]:
+        add("ldalu", "ldalu_b", op, ("ldalu_b", "add"))
+    add("ldalu", "ldalu_b", "cmp", ("ldalu_w", "cmp"))
+    add("imm8", "imm8", "test")
+    add("imm8", "imm8", "add", ("imm8", "test"))
+    for op in list(F38_OPS)[1:]:
+        add("imm8", "imm8", op, ("imm8", "add"))
+    for g, ops in ((0x80, list(F38_OPS)), (0x83, alu), (0x81, ["add", "or", "and"])):
+        shape = f"g{g:02x}"
+        for op in ops:
+            add("grp", shape, op, None if op in ("add", "cmp") else (shape, "add"),
+                group_opcode=g)
+    for shape, segs in (("pfx_reg", (None, "ds1", "ss", "ds0", "ps")),
+                        ("pfx_ld", (None, "ds1", "ss", "ds0"))):
+        for seg in segs:
+            if seg is None or (seg == "ds1" and shape == "pfx_reg"):
+                control = None
+            elif seg == "ds1":
+                control = (shape, None)
+            else:
+                control = (shape, "ds1")
+            add("pfx", shape, seg, control, segment=seg,
+                prefix=None if seg is None else F38_SEGS[seg])
+    for key, control in (("aw_imm", None), ("al_imm", "aw_imm"), ("m1", None),
+                         ("m_imm", "m1"), ("mb_imm", "m_imm")):
+        add("shb", "shb", key, control and ("shb", control))
+    return specs
+
+
+def f38(waits=WAITS, parities=PARITIES):
+    """The ALU operations' memory, byte and immediate forms, the segment prefixes, the byte
+    shift by imm8 (see the comment above)."""
+    specs = _f38_specs()
+    labels = [s[0] for s in specs]
+    if len(set(labels)) != len(labels):
+        raise AssertionError("F38: duplicate labels")
+    for label, knobs, _, _ in specs:
+        if knobs["control"] is not None and knobs["control"] not in labels:
+            raise AssertionError(f"F38 {label}: control {knobs['control']} has no variant")
+    return _f3536_chains("F38", lambda kind, p: specs, waits, parities, F38_RFM)
+
+
+FAMILIES.update({"F38": f38})
+# (WP97) generator-only: eleven of its forms do not decode (forms.F38_UNMODELLED)
+UNMODELLED = ("F38",)
