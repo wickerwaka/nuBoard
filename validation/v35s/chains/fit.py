@@ -1730,7 +1730,26 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   27: ["F38", "F14", "F15", "F19"],
                   28: ["F24", "F30", "F31", "F33", "F39", "F40"],
                   29: ["F23", "F30", "F33", "F34", "F35", "F36", "F37", "F39", "F40"],
-                  30: ["F35", "F37", "F40"]}
+                  30: ["F35", "F37", "F40"],
+                  31: ["F32", "F34", "F39", "F40"]}
+
+# Stage 31 (WP110, F32, F34, F39, F40): the wait-keyed 0F trades as WP106 read them
+# (docs/v35s-chains.md Facts "The wait-keyed trades read"): ROL4 / ROR4 on a register do not
+# count an exec clock on which a fetch is in a wait state (rot4_exec=wait, with rol4 pre 1 / exec
+# 13 / wb 2, ROR4's pre and wb); TEST1 [m] runs SET1 [m]'s head (test1_head=set1) and a fetch
+# committed back to back before the read's post does not count toward its setup
+# (page_commit=post; the pair +77 -4, left at DEFAULT for the guard to judge). From a hand start
+# (the fifty-fourth fit with rot4_exec=wait and the three ROL4 integers), the enums (F57_ENUMS:
+# rot4_exec, test1_head and page_commit with every value, the old value first, so a tie keeps
+# it) as a grid at the input's integers (the top 2 descended over F57_INTS: every integer of the
+# classes the three rules read, rol4 and ror4 (rot4_exec), bit1_test and bit1_rmw (test1_head),
+# and the 0F memory forms' reads, bit1_test, bit1_rmw, bit1_clr, rol4_mem and ror4_mem
+# (page_commit)), then the sweep over F57_ENUMS with F57_INTS descended inside every move; the
+# families are those that run those classes (F32, F34, F39, F40); the corpus guard over every
+# modelled run is the guard, as in stages 9 to 30.
+F57_ENUMS = {n: OPTIONS[n] for n in ("rot4_exec", "test1_head", "page_commit")}
+F57_CLASSES = ("rol4", "ror4", "rol4_mem", "ror4_mem", "bit1_test", "bit1_rmw", "bit1_clr")
+F57_INTS = [f"{cls}.{name}" for cls in F57_CLASSES for name in DEFAULT_COST[cls]]
 
 # Stage 30 (WP108, F35, F37, F40): the far transfers' shapes as WP107 read them (docs/v35s-chains.md
 # Facts "The far transfers' shapes read"): while BR far or CALL far has only its segment word's
@@ -2918,6 +2937,17 @@ def stage30(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage31(prev: dict, log=say) -> dict:
+    """(WP110) F32, F34, F39, F40 (the lists that run the digit rotates and the 0F bit memory
+    forms): rot4_exec, test1_head and page_commit (every value) as a grid at the input's integers
+    (the top 2 descended over F57_INTS), then the sweep over F57_ENUMS with F57_INTS descended
+    inside every move; the corpus guard is the guard, as in stages 9 to 30."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 31 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(31, prev, F57_ENUMS, F57_INTS, log, top_k=2, pairs_k=1, sweep=F57_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -3013,8 +3043,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage28(prev, log)
     elif stage == 29:
         out = stage29(prev, log)
-    else:
+    elif stage == 30:
         out = stage30(prev, log)
+    else:
+        out = stage31(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -3032,9 +3064,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 31), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 31), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-30 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 32), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 32), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-31 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -3072,7 +3104,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 31) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 32) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")
