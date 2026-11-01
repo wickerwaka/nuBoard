@@ -1166,3 +1166,71 @@ class StringPairStage(unittest.TestCase):
             fit.run_stage(25, {"config": DEFAULT.to_json()}, log=lambda *a: None)
         s25.assert_called_once()
         s24.assert_not_called()
+
+
+class PageMechanismStage(unittest.TestCase):
+    """(WP96) stage 26: WP94's bf_imm_hold, page_imm_run and page_b2b_win over F32, F33 and F34
+    with every integer of the classes the mechanisms read, the corpus guard as its guard."""
+
+    def test_stage_26_families_enums_and_integers(self):
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[26], ["F32", "F33", "F34"])
+        self.assertEqual(set(fit.F52_ENUMS), {"bf_imm_hold", "page_imm_run", "page_b2b_win"})
+        for name, values in fit.F52_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            # the old value first (DEFAULT): a tie keeps it
+            self.assertEqual(values[0], getattr(DEFAULT, name))
+        self.assertEqual(set(fit.F52_CLASSES), {"bf_ext", "bf_ins", "bit1", "rol4", "ror4",
+                                                "bit1_test", "bit1_rmw", "bit1_clr"})
+        for cls in fit.F52_CLASSES:
+            for name in DEFAULT_COST[cls]:
+                self.assertIn(f"{cls}.{name}", fit.F52_INTS)
+        for p in ("bf_ext.hrel", "bf_ins.hrel", "bf_ext.span", "bf_ext.xspan", "bf_ext.wb"):
+            self.assertIn(p, fit.F52_INTS)
+        # the 0F classes no mechanism reads stay out
+        for cls in ("rol4_mem", "ror4_mem", "mul_imm"):
+            self.assertNotIn(cls, fit.F52_CLASSES)
+        self.assertFalse({p.split(".")[0] for p in fit.F52_INTS} - set(fit.F52_CLASSES))
+        self.assertEqual(len(fit.F52_INTS), len(set(fit.F52_INTS)))
+
+    def test_stage_26_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage26({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_26_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage26({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 26)
+        self.assertEqual(args[2], fit.F52_ENUMS)
+        self.assertEqual(args[3], fit.F52_INTS)
+        self.assertEqual(kw["sweep"], fit.F52_ENUMS)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_26(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "26"])
+        self.assertEqual(args.stage, 26)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "25", "--to", "26"])
+        self.assertEqual(args.to, 26)
+
+    def test_run_stage_dispatches_26(self):
+        with mock.patch.object(fit, "stage26", return_value={"config": {}}) as s26, \
+                mock.patch.object(fit, "stage25") as s25, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(26, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s26.assert_called_once()
+        s25.assert_not_called()
+
+    def test_run_stage_dispatches_25_not_26(self):
+        with mock.patch.object(fit, "stage25", return_value={"config": {}}) as s25, \
+                mock.patch.object(fit, "stage26") as s26, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(25, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s25.assert_called_once()
+        s26.assert_not_called()
