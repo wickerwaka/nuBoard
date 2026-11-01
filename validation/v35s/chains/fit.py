@@ -1747,7 +1747,38 @@ STAGE_FAMILIES = {1: ["F0", "F0w"], 2: ["F0"],
                   30: ["F35", "F37", "F40"],
                   31: ["F32", "F34", "F39", "F40"],
                   32: ["F33", "F34", "F3", "F16", "F14", "F15"],
-                  33: ["F32", "F34", "F39", "F40"]}
+                  33: ["F32", "F34", "F39", "F40"],
+                  34: ["F33", "F32", "F40", "F36"]}
+
+# Stage 34 (WP115, F33, F32, F40, F36): F33's miscellany as WP114 read it (docs/v35s-chains.md
+# Facts "F33's miscellany read"): INC / DEC r8 runs MOV CL,imm8's timing, its ModR/M byte latched
+# with the opcode on an idle start and the empty IR counted as room (room_ir_pre=modrm, with
+# incdec.nx 0 and the new incdec.rwb 0); the long one-byte forms count no clock on which a fetch
+# is in a wait state (long_exec=wait); the second long form at k = 2 on an idle bus with a full
+# queue saves a clock of its own (one_idle=long); CVTBD / CVTDB hold their fetches from the
+# constant byte's take until hrel clocks before the end (cvt_hold=word, convert.hrel 1,
+# convert_d.hrel 3); MUL r16,r16,imm takes its immediate igap clocks after the ModR/M byte
+# (mul_imm_reg=gap, mul_imm.igap 2); the BCD strings request no fetch from the first read's data
+# until hrel clocks before the end (bcd_fetch=hold, bcd4s.hrel / bcd4s_cmp.hrel 2). From a hand
+# start (the fifty-seventh fit with the six values and the seven integers, F33 1,026, F32 752,
+# F40 941), the enums (F60_ENUMS: room_ir_pre, long_exec, one_idle, cvt_hold, mul_imm_reg and
+# bcd_fetch with every value, the old value first, so a tie keeps it) as a grid at the input's
+# integers (the top 2 descended over F60_INTS: every integer of the classes the six rules read,
+# incdec, convert, convert_d, adjust, adjust_b, extend_w, flag_di, flag_ei, mul_imm, bcd4s,
+# bcd4s_cmp and test_reg, with the integers WP114 added that DEFAULT_COST does not carry: incdec.rwb
+# (absent = the old wb), convert.hrel, convert_d.hrel, mul_imm.igap, bcd4s.hrel, bcd4s_cmp.hrel),
+# then the sweep over F60_ENUMS with F60_INTS descended inside every move; the families are those
+# that run those classes (F33, F32, F40, F36: 3,678 runs, under the about 9,000 that exhaust the
+# 40G scope); the corpus guard over every modelled run is the guard, as in stages 9 to 33.
+F60_ENUMS = {n: OPTIONS[n] for n in ("room_ir_pre", "long_exec", "one_idle", "cvt_hold",
+                                     "mul_imm_reg", "bcd_fetch")}
+F60_CLASSES = ("incdec", "convert", "convert_d", "adjust", "adjust_b", "extend_w", "flag_di",
+               "flag_ei", "mul_imm", "bcd4s", "bcd4s_cmp", "test_reg")
+F60_NEW_INTS = ("incdec.rwb", "convert.hrel", "convert_d.hrel", "mul_imm.igap", "bcd4s.hrel",
+                "bcd4s_cmp.hrel")
+F60_INTS = list(dict.fromkeys(
+    [f"{cls}.{name}" for cls in F60_CLASSES for name in DEFAULT_COST[cls]]
+    + list(F60_NEW_INTS)))
 
 # Stage 33 (WP113, F32, F34, F39, F40): the 0F memory forms' and bit fields' remaining misses as
 # WP112 read them (docs/v35s-chains.md Facts "The 0F memory forms' and bit fields' remaining
@@ -3035,6 +3066,18 @@ def stage33(prev: dict, log=say) -> dict:
                    guard=False)
 
 
+def stage34(prev: dict, log=say) -> dict:
+    """(WP115) F33, F32, F40, F36 (the lists that run INC / DEC r8, the long one-byte forms, the
+    conversions, MUL imm and the BCD strings): room_ir_pre, long_exec, one_idle, cvt_hold,
+    mul_imm_reg and bcd_fetch (every value) as a grid at the input's integers (the top 2
+    descended over F60_INTS), then the sweep over F60_ENUMS with F60_INTS descended inside every
+    move; the corpus guard is the guard, as in stages 9 to 33."""
+    if CORPUS_GUARD is None:
+        raise SystemExit("stage 34 needs the corpus guard (--corpus-guard family or run)")
+    return stage_n(34, prev, F60_ENUMS, F60_INTS, log, top_k=2, pairs_k=1, sweep=F60_ENUMS,
+                   guard=False)
+
+
 def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -> dict:
     cfg = Config.from_json(prev["config"]) if prev else DEFAULT
     log(f"== stage {stage} ({', '.join(STAGE_FAMILIES[stage])})")
@@ -3136,8 +3179,10 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
         out = stage31(prev, log)
     elif stage == 32:
         out = stage32(prev, log)
-    else:
+    elif stage == 33:
         out = stage33(prev, log)
+    else:
+        out = stage34(prev, log)
     out["seconds"] = round(time.time() - t0, 1)
     n, hits = CACHE_STATS["lookups"], CACHE_STATS["hits"]
     out["cache"] = {"lookups": n, "hits": hits, "simulated": n - hits}
@@ -3155,9 +3200,9 @@ def run_stage(stage: int, prev: dict | None, log=say, grid: str | None = None) -
 # CLI -------------------------------------------------------------------------------
 
 def add_arguments(p):
-    p.add_argument("--stage", type=int, choices=range(1, 34), help="run one stage")
-    p.add_argument("--to", type=int, choices=range(1, 34), help="with --stage: run stages N..TO")
-    p.add_argument("--all", action="store_true", help="run stages 1-33 in order")
+    p.add_argument("--stage", type=int, choices=range(1, 35), help="run one stage")
+    p.add_argument("--to", type=int, choices=range(1, 35), help="with --stage: run stages N..TO")
+    p.add_argument("--all", action="store_true", help="run stages 1-34 in order")
     p.add_argument("--from", dest="src", help="previous stage JSON (default: stage N-1's)")
     p.add_argument("--jobs", type=int, default=JOBS)
     p.add_argument("--corpus-guard", choices=("family", "run", "off"), default="family",
@@ -3195,7 +3240,7 @@ def fit_main(args) -> int:
         CORPUS_GUARD = corpus_guard_ids()
         say(f"corpus guard ({mode}): {len(CORPUS_GUARD)} runs")
     first = args.stage or 1
-    stages = range(1, 34) if args.all else range(first, (args.to or first) + 1)
+    stages = range(1, 35) if args.all else range(first, (args.to or first) + 1)
     grid = getattr(args, "grid", None)
     if grid is not None and (args.all or first != 6):
         say("--grid resumes stage 6: give it with --stage 6")
