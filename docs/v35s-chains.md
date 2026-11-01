@@ -5815,7 +5815,7 @@ exact at both k. The register-form second instance (TEST DL,AL, LAHF, STC, INC A
 k") and the 0F register forms' are the shapes to read next; the far and register-indirect transfers' repeats add to
 WP95's far-form facts.
 
-### F39's 215 misses read: the string form's successor is WP95's two mechanisms with wider conditions; nine shapes stay facts (WP101, 2026-10-31; a candidate)
+### F39's 215 misses read: the string form's successor is WP95's two mechanisms with wider conditions; nine shapes stay facts (WP101, 2026-10-31; the fifty-second fit)
 
 Under the fifty-first fit F39 misses 215 of 1,320. Read run by run (scratchpad wp101/facts.txt: the first divergence,
 the EU's class and step, the queue / IR / bus state, A's and B's word halves, the exact neighbours) they are eleven
@@ -5848,7 +5848,8 @@ shapes; two have a mechanism and two are the integer trades the fitter already k
 
 Both prototypes together: **F39 1,105 → 1,202/1,320, won 97, lost 0**, the other 38 lists byte-identical (scored on
 all 39 lists from a clean copy and the edited tree under the unedited fit, byte for byte the same). Tests
-test_sim.StringSuccessorWP101. The fit stage for the wider values is WP103.
+test_sim.StringSuccessorWP101, test_fit.StringSuccessorStage. Stage 28 (WP103) from this hand start made no move: the
+fifty-second fit.
 
 ## Model
 
@@ -5869,7 +5870,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-first fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-second fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6325,10 +6326,20 @@ except F38's 24; nothing lost. Stage 27 (`fit.py`). The refresh-off corpus stand
 215, F32 182, F33 123, F29 29, F35 28, F30 21, F25 15, F37 12, F24 10, F22 6, F36 3 missing). Model side only, no RTL
 work.
 
+**The fifty-second fit** (`fit.json`, md5 4ff3d210646e9ee903057dc908d27146; scratchpad wp103/fit-wp103.json, adopted 2026-10-31) is the
+fifty-first fit plus WP101's wider string mechanisms, `str_single_wb=index` and `str_single_start=write` with `uwb` 2 in
+str_move, str_cmp and str_in (Facts "F39's 215 misses read"): fit stage 28 (`F54_ENUMS`, `F54_INTS`; F24 F30 F31 F33
+F39 F40; WP103) from that hand start chose nothing (the family guard refused the enum grid's other eight cells, each
+losing F39 or F24 runs against the hand start; the sweep made no move). With F40 (WP102, acquired the same day) now
+scored: **33,667 of 35,168 over 42 lists** (F39 1,105 → 1,202/1,320, F40 815/1,020 with zero free parameters), the
+other 41 lists byte-identical, nothing lost. The refresh-off corpus stands at 29,497 of 30,536 (F34 311, F40 205, F32
+182, F33 123, F39 118, F29 29, F35 28, F30 21, F25 15, F37 12, F24 10, F22 6, F36 3 missing). Model side only, no RTL
+work.
 
-### Fitted structure (fifty-first fit, 2026-10-31)
 
-Fifty-one fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-second fit, 2026-10-31)
+
+Fifty-two fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6705,7 +6716,11 @@ the 0F page's four mechanisms (`bf_imm_hold=word`, `page_imm_run=delivery`,
 start): 30786/31964, F32 676, F34 1285; byte-identical on 37 lists. The
 fifty-first (`fit.json`, 2026-10-31) adds the memory shift by imm8 as an immediate
 RMW (`shift_mem_imm=rmw_imm`, stage 27): 32755/34148 over 41 lists with F38
-864/864 and F39 1105/1320; byte-identical on the other 40 lists.
+864/864 and F39 1105/1320; byte-identical on the other 40 lists. The
+fifty-second (`fit.json`, 2026-10-31) adds the string form's successor
+(`str_single_wb=index`, `str_single_start=write`, uwb 2; stage 28 confirming
+WP101's hand start): 33667/35168 over 42 lists, F39 1202/1320, F40 815/1020;
+byte-identical on the other 41 lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

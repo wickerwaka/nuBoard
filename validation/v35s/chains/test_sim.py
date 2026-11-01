@@ -6818,7 +6818,9 @@ class CoverageF37Forms(unittest.TestCase):
 
 # (WP95) the candidate's moves over the tracked fit (the forty-eighth): the two enums; uwb and ugap
 # are DEFAULT_COST's (the hand start read off F24's series s)
-WP95 = {"str_single_wb": "wb", "str_single_start": "delivery"}
+WP95 = {"str_single_wb": "wb", "str_single_start": "delivery",
+        # (fit 52) WP101 read uwb 2 with str_single_wb=index: WP95's wb is pinned with its uwb 1
+        "str_move.uwb": 1, "str_cmp.uwb": 1, "str_in.uwb": 1}
 
 
 def _ev95(cid, **over):
