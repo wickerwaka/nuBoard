@@ -104,6 +104,7 @@ class EU:
         self.start_at = -1              # (WP40) prelude_anchor=pop: no start before this clock
         self.pop_ref = None             # (WP40) pop_refresh=stall: the refresh already counted
         self.wb_until = 0               # previous instruction's write-back ends before this clock
+        self.mt_floor = None            # (WP118) page_mt_end=exec: no step before this clock
         self.last_issued: list = []     # (WP76) str_split: the last data step's bus cycles
         self.str_rep = False            # (WP76) a REP string form is running
         self.sreg: str | None = None    # (WP76) the running form's Op.sreg
@@ -472,6 +473,7 @@ class EU:
         # on a word's delivery clock: its ModR/M take waits for a fetch issued on the start clock
         q = self.decoder.queue
         self.page_mt_d = None
+        self.mt_floor = None            # (WP118) page_mt_end=exec
         self.page_mt = (cfg.page_mtake in ("deliver", "eu") and bool(op.page) and op.ea is None
                         and (op.cls == "bit1" or op.cls in BF_CLASSES)
                         and bool((q.base + op.offset) & 1) and q.arrived_t == t)
@@ -759,6 +761,10 @@ class EU:
                 self.sync += 1
                 return
             self.sync = None
+            if self.mt_floor is not None:
+                if t < self.mt_floor and self.steps[self.k][0] == "clocks":
+                    return                      # (WP118) page_mt_end=exec: the ALU clocks
+                self.mt_floor = None
             step = self.steps[self.k]
             kind = step[0]
             if kind == "clocks":
@@ -932,6 +938,9 @@ class EU:
                         cur = self.bus.current
                         self.page_mt = (cur.end + 2 if cur is not None and cur.kind == "fetch"
                                         and cur.start == self.start_clock else False)
+                        if self.page_mt and self.cfg.page_mt_end == "take":
+                            # (WP118) page_mt_end=take: the waited take a clock later still
+                            self.page_mt += 1
                     if self.page_mt and t < self.page_mt:
                         if self.page_mt_d is None:
                             self.page_mt_d = t      # the clock the take would have gone
@@ -940,6 +949,8 @@ class EU:
                         and (self.imm_bytes or self.cfg.late_disp == "all")
                         and self.taken == 1 and self._late_fetch(t)):
                     return              # (WP27) the displacement waits for the word's delivery
+                mt_take = (self.cfg.page_mt_end == "exec" and self.taken == 1
+                           and getattr(self, "page_mt_d", None) is not None)
                 n = self.decoder.take(t, self.left, wide=len(step) > 2 and step[2] in (
                     "word", "chain_word"))
                 q = self.decoder.queue
@@ -955,6 +966,11 @@ class EU:
                     q.flag = q.room(t) >= 2
                 self.taken += n
                 self.left -= n
+                if n and mt_take and not self.left:
+                    # (WP118) page_mt_end=exec: the ModR/M byte taken after the wait reaches
+                    # the EU mtx clocks late: the form's ALU clocks start no earlier than that
+                    # (a take sync waiting longer hides it; a data step is not held)
+                    self.mt_floor = t + 1 + self.cfg.c(self.ccls, "mtx")
                 if (n and self.page_mt_d is not None and self.decoder.need == 0
                         and self.cfg.page_mtake == "eu"):
                     # (WP116) page_mtake=eu: the loader keeps its own schedule, the successor's
@@ -977,6 +993,14 @@ class EU:
                     # (WP28) the displacement's (last byte's) take
                     q = self.decoder.queue
                     q.disp_t = t                        # latch_disp
+                    cur = self.bus.current
+                    if (self.cfg.page_disp == "hold" and getattr(self, "page_mem", False)
+                            and cur is not None and cur.kind == "fetch"
+                            and cur.start < t <= cur.end):
+                        # (WP118) page_disp=hold: a 0F memory form's displacement taken inside a
+                        # fetch's flight: no fetch committed back to back at its end, none before
+                        # pdhold clocks after its delivery
+                        q.pdisp_until = cur.end + 1 + self.cfg.c(self.ccls, "pdhold")
                     if q.arrived_t == t:
                         self.decoder.ir_hold = False    # ir_load: on a word's delivery clock
                     if self.cfg.disp_floor != "none" and self.cfg.c(self.ccls, "dfloor"):
@@ -1632,6 +1656,12 @@ class EU:
                 r.run_wait = self.cfg.page_run != "none"   # (WP86) the memory forms only
                 r.pthru = getattr(self, "page_cl_n", 0)   # (WP112) page_cl
                 n, c = 0, t - 1
+                if self.cfg.page_mem_from == "post" and any(
+                        x.kind == "fetch" and x.start == self.start_clock and not x.b2b
+                        for x in self.bus.cycles[-6:]):
+                    # (WP118) page_mem_from=post: started on the issue clock of a fetch the bus
+                    # unit did not commit back to back, the form counts no clock before its post
+                    c = self.start_clock - 1
                 while c >= self.start_clock and n < r.setup and not any(
                         x.kind == "fetch" and x.start <= c <= x.end
                         and not (x.b2b and x.start > r.pfree)

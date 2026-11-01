@@ -1039,6 +1039,42 @@ OPTIONS = {
     # 94 (hold: SET1 at 97, F105, I/O 112). The "identical start state" of WP94's S04 behind
     # MOV AW,1234h is this hold. PROTOTYPE (WP116), scored not fitted: reg alone F34 +6, lost 0.
     "page_start": ("hold", "b2b", "reg"),
+    # (WP118, F32/F34/F39/F40, 2026-11-01) page_mt_end: after a ModR/M take page_mtake held, the
+    # form's next step goes on the clock after the take (none) / a clocks step (a bit op's ALU
+    # clocks, which work on the register the ModR/M byte names) starts no earlier than mtx
+    # clocks after the clock after the take, a take sync waiting longer hiding it and a data
+    # step (a bit field's read at IX / IY) not held; the end, the write-back (wb_until) and the
+    # EU's next start move with it, the loader's IR load does not (exec) / the take itself a
+    # clock later still, the loader's correction to the clock the take would have gone (take).
+    # Deciding run F32-out-set1_rw_cl-k2-pE-w1, rel t_fill: the second SET1 AW,CL starts 96 on
+    # F96's issue, its ModR/M taken at 101; silicon the OUT's port fetch F110, I/O 118 (none:
+    # the write-back ends 106, the OUT's wbsync with it, F109 O117); a PUSH or SET1 successor
+    # sees the same clock through the EU's start at w1 / w2 (F39-push-xfer-be-set1-pE-w1 W133,
+    # none W132) and not at w0, where the IR load binds. PROTOTYPE (WP118), scored not fitted,
+    # with page_start=reg, page_mtake=eu: exec (bit1.mtx 1) F32 +24 F34 +21 F39 +15 F40 +5, lost
+    # 0 on all 42 lists; take F32 +24 -9, F34 +21 -28 (the bit fields behind NOP NOP and the
+    # d-lead w0 bit ops), F39 +15, F40 +5; exec with bit1.mtx 2: won 0, lost 6.
+    "page_mt_end": ("none", "exec", "take"),
+    # (WP118, F34, 2026-11-01) page_mem_from: a 0F memory form's read counts its setup back to
+    # its start (start, page_mem=fixed) / started on the issue clock of a fetch the bus unit did
+    # not commit back to back, from its post (post). Deciding run
+    # F34-out-mbit-set1_mw_cl-nop2-k1-pO-w1, rel t_fill: SET1 [IX],CL behind NOP NOP starts 94
+    # on F94's issue, the ModR/M taken on F94's delivery 98, the read posted 101; silicon D106
+    # (start: the clocks 98-100 counted back, D103). PROTOTYPE (WP118), scored not fitted: post
+    # F32 +2 -39, F34 +13 -52, F39 -10 (the imm forms, the d-lead forms, the TEST1 [m] page
+    # successors); with page_start=b2b F34 +13 -35.
+    "page_mem_from": ("start", "post"),
+    # (WP118, F32/F34, 2026-11-01) page_disp: a 0F memory form's displacement taken inside a
+    # fetch's flight frees room as any take (go) / commits no fetch back to back at that fetch's
+    # end and lets none issue before pdhold clocks after its delivery (hold). Deciding run
+    # F34-out-mbit-set1_mw_cl_bw_d16-nop-k1-pE-w1, rel t_fill: SET1 [BW+d16],CL behind a NOP
+    # starts 89 on F89's issue, the d16 taken at 96 on F93's last clock; silicon F100 D104
+    # (go: F97 committed back to back, D103); page_start=b2b puts the MOV AW,1234h cells
+    # (-d-k1-pE-w1/w2, d16 and direct) in the same state with the same miss. PROTOTYPE (WP118),
+    # scored not fitted: hold (pdhold 3) lets the read go first there (D102, the fetch after
+    # it), won 0, lost F32 6 F34 6 (the -l0-k1-pO / -k1-pO w1/w2 d8 / d16 / direct cells);
+    # with page_start=b2b lost F34 10.
+    "page_disp": ("go", "hold"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1324,14 +1360,14 @@ DEFAULT_COST = {
     "adjust_b": {"wb": 3, "nx0": 16, "pre": 0, "pre0": 17, "exec": 0, "nx": 1},
     "rol4": {"wb": 1, "pre": 0, "exec": 14, "nx": 0},
     "ror4": {"wb": 2, "pre": 1, "exec": 17, "nx": 0},
-    "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1},
+    "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1, "mtx": 1},
     "convert": {"nx": 0, "wb": 2, "pre": 3, "exec": 16},
     "convert_d": {"nx": 0, "wb": 0, "pre": 2, "exec": 16},
-    "bit1_test": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3},
+    "bit1_test": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3, "pdhold": 3},
     "bit1_rmw": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 1, "wb": 0, "pre": 7, "alu": 3, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
-                 "sidle": 2, "cl": 3},
+                 "sidle": 2, "cl": 3, "pdhold": 3},
     "bit1_clr": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 7, "alu": 4, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
-                 "sidle": 2, "cl": 3},
+                 "sidle": 2, "cl": 3, "pdhold": 3},
     "rol4_mem": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 8, "wb": 0, "pre": 1, "alu": 12, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2},
     "ror4_mem": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 6, "alu": 16, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
@@ -1662,6 +1698,9 @@ class Config:
     bcd_fetch: str = "free"            # (WP114)
     page_mtake: str = "none"           # (WP116)
     page_start: str = "hold"           # (WP116)
+    page_mt_end: str = "none"          # (WP118)
+    page_mem_from: str = "start"       # (WP118)
+    page_disp: str = "go"              # (WP118)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

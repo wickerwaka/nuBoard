@@ -6123,6 +6123,45 @@ k = 2, the d-lead SET1 r cells); `deliver` would add F39 +9 and F40 +3 but loses
 neighbour in any class; TEST1 [m],imm at k = 2 pO w1/w2 (4) stay. Tests test_sim.PageStartWP116 (`_OLD116`),
 test_fit's stage-35 class. Stage 35 (WP117) from this hand start: the fifty-ninth fit (Model).
 
+### The waited ModR/M byte reaches the EU a clock late: the bit op's ALU clocks wait for it while the loader keeps its schedule (WP118, 2026-11-01; a candidate)
+
+WP116 left the register bit ops' port-OUT successor a clock early under `page_mtake=eu` and, under `deliver`, a PUSH or
+SET1 successor two clocks late. Tracing all 184 waited instances in F32, F34, F39 and F40 (scratchpad wp118/facts.txt,
+atab.txt) with clocks relative to the bit op's start and D the take's wait (2 / 3 / 4 at w0 / w1 / w2): silicon's
+successor cycle is fixed at every w, D + 11 for the OUT's port fetch, D + 12 for the PUSH write, D + 6 for the SET1
+fetch. Under `eu` the model takes the ModR/M byte at D + 2, ends the bit op at D + 5 with its write-back sync to D + 7
+and loads the successor's IR at 7, so the OUT is one clock early at every w (55 cells) and PUSH / SET1 are one early at
+w1 / w2 but exact at w0, where the IR load is the later bound (which is why WP116 saw only the OUT cells). Of the three
+owners, the loader cannot carry the clock (PUSH / SET1 need the IR load at D + 5, the OUT at D + 7), the successor's own
+first step would key on w, and **the EU's end of the bit op fits every successor class, every w, parity, op (TEST1,
+SET1, CLR1, NOT1) and width when its ALU clocks start one clock later** (end D + 6, write-back sync to D + 8). The
+mechanism: the ModR/M byte taken on the clock after the start fetch's word is delivered reaches the EU one clock late;
+the bit op's ALU clocks need it and wait, the loader keeps its own schedule; the successor sees the clock through the
+OUT's write-back sync and through the EU's next start for PUSH and SET1. The clock is hidden by a longer take sync
+(behind MOV AW,1234h the take-to-end gap is 4–6 clocks), by a next step that does not need the byte (the bit fields'
+read uses IX / IY: giving them the clock loses all 35 bit-field wins) and at w0 by the IR load. Enum `page_mt_end`
+(none → exec: a clocks step following the held take starts `bit1.mtx` 1 clocks later; `take`, the take itself a clock
+later, wins 65 but loses the 37 WP116 won and two MOV AW,1234h cells; mtx 2 loses 6). **F32 +24, F34 +21, F39 +15,
+F40 +5, lost 0** on all 42 lists (F32's CL k = 2 pE bit ops, F34's rbit cl-k1 pO / l0-k2 pE / nop2 pO w1-w2 and push-nop
+pO w1-w2, F39's SET1 after a transfer at w0–w2 behind OUT and w1–w2 behind PUSH, F40's SET1 k = 2 and k = 4). The
+immediate forms in the same state (50 cells) are a separate shape, 3–4 clocks late under every value: the take sync on
+the start fetch holds the ALU clocks and the posted OUT then holds the fetch (F32-out-set1_rw_imm-k2-pO-w1: silicon
+F115 O119, model F119 O123); they stay a fact.
+
+**The 0F memory forms behind NOP NOP (28) stay a fact.** 24 are in WP116's O Fi q5 state behind a NOP at w1 / w2 (the
+w0 twins start in O . q5 and are exact); clock for clock the model's state equals that of the 27 exact cells behind MOV
+AW,1234h, and silicon reads three clocks later (D12 / D13 against D9 / D10 for the CL forms); the only separating
+variable is still WP116's H, the back-to-back commitment on the ready clock, which for a memory form is history. The
+four cells `page_start=b2b` loses (SET1 [BW+d16] / [d16] behind the d lead, pE w1 / w2) and the four O Fi q3 cells
+behind a NOP are one shape: the d16 taken in a fetch's flight in pE, the model commits a fetch back to back where
+silicon issues it at that fetch's delivery + 3 and reads right behind it; in silicon a memory form's displacement
+fetch lands where `hold` has it. Prototypes that lose and stay at their defaults: `page_mem_from=post` (the read's
+setup counted from its post: F32 +2 / F34 +13, lost F32 39 / F34 52 / F39 10), `page_disp=hold` with pdhold 3 (no
+back-to-back commitment after a displacement take: lost F32 6 / F34 6), `page_mtake`'s wait on the memory forms (lost
+31–38, won 0), `page_start=b2b` under `exec` (won 0 of the 28). A rule for the 28 would key on the history; for the
+eight displacement cells on the pE back-to-back commitment after a displacement take. Tests
+test_sim.PageMtEndWP118 (`_OLD118`). The fit stage is WP120.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

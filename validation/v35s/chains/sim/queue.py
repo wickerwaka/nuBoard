@@ -166,6 +166,7 @@ class Queue:
         self.eu = None                          # (WP39) refresh_io_run (machine.py sets it)
         self.io_run_at: int | None = None       # (WP39) refresh_io_run: the committed fetch's clock
         self.gdisp_until: int | None = None     # (WP61) grp_disp: no fetch before this clock
+        self.pdisp_until: int | None = None     # (WP118) page_disp: no fetch before this clock
         self.t4_at: int | None = None           # (WP41) refresh_beat_t4: the committed fetch's clock
         self.discard = False                    # (WP55) the fetch in flight at a flush: its word is dropped
         self.flush_t: int | None = None         # (WP55) the clock of the last flush
@@ -354,7 +355,10 @@ class Queue:
         """End of clock t: storage check; on a fetch's last clock, the back-to-back decision."""
         self.check(t)
         c = bus.current
-        if c is not None and c.kind == "fetch" and c.end == t and self._raised(t):
+        if (self.pdisp_until is not None and c is not None and c.kind == "fetch"
+                and c.end == t and t + 1 < self.pdisp_until):
+            pass                    # (WP118) page_disp=hold: no back-to-back commitment
+        elif c is not None and c.kind == "fetch" and c.end == t and self._raised(t):
             self.b2b_at = t + 1
             if self.cfg.page_run != "none" and self.eu.page_active():
                 self.pr_start = self.eu.start_clock     # (WP86) page_run: its one commitment

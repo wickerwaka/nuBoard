@@ -8114,3 +8114,102 @@ class PageStartWP116(unittest.TestCase):
                 old = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **_OLD116}),
                                           s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+# (WP118, F32/F34/F39/F40) after the ModR/M take page_mtake=eu holds (scratchpad wp118/facts.txt): a
+# 0F register bit op at an odd address started on a word's delivery clock with a fetch issued there
+# takes its ModR/M byte on the clock after that fetch's word is delivered; the byte reaches the EU a
+# clock late, so the bit op's ALU clocks start mtx clocks after the take (a take sync waiting longer
+# hides it, and a bit field's read, which does not wait for the ModR/M, is not held), its end and
+# write-back move with them, the loader keeping its schedule (page_mt_end=exec). The successor sees
+# it through the port OUT's write-back sync (every w) and through the EU's next start for PUSH and
+# SET1 (w1 and w2; at w0 the loader's IR load is the later of the two)
+WP118 = {"page_mt_end": "exec", "bit1.mtx": 1}
+# the pre-WP118 values, pinned for the "old" traces so they hold after an adoption, with the
+# values these forms read (WP116's candidate pair included)
+_OLD118 = {"page_mt_end": "none", "page_mem_from": "start", "page_disp": "go",
+           "page_start": "reg", "page_mtake": "eu", "bit1.pre": 1, "bit1.nx": 5, "bit1.exec": 2,
+           "bit1.wb": 2, "bit1.cl": 0, "out.wbsync": 1, "out.pre": 3}
+_KEEP118 = {k: v for k, v in _OLD118.items() if k not in WP118}
+
+
+def _ev118(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP114's and
+    WP116's candidate values (the base WP118 scored against), the values WP118's forms read pinned
+    (_KEEP118) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(
+        **{**_KEEP114, **WP114, **_KEEP116, **WP116, **_KEEP118, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class PageMtEndWP118(unittest.TestCase):
+    """(WP118) after the ModR/M take page_mtake=eu holds, the bit op's ALU clocks start mtx clocks
+    after the take (page_mt_end=exec), against the old value on its deciding runs; the losing
+    alternatives (page_mt_end=take, page_mem_from=post, page_disp=hold) stay at their defaults."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev118(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["page_mt_end"], ("none", "exec", "take"))
+        self.assertEqual(OPTIONS["page_mem_from"], ("start", "post"))
+        self.assertEqual(OPTIONS["page_disp"], ("go", "hold"))
+        for name in ("page_mt_end", "page_mem_from", "page_disp"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+        self.assertEqual(DEFAULT.cost["bit1"]["mtx"], 1)
+
+    def test_page_mt_end_deciding_run(self):
+        # the second SET1 AW,CL starts 96 on F96's issue, its ModR/M taken at 101: silicon the
+        # OUT's port fetch F110, I/O 118 (none: the bit op's write-back ends 106, F109 O117)
+        cid = "F32-out-set1_rw_cl-k2-pE-w1"
+        mod = self._exact(cid, **WP118)
+        self.assertIn((110, "fetch"), _at114(mod))
+        self.assertIn((118, "io_write"), _at114(mod))
+        _, old = _ev118(cid, **_OLD118)
+        self.assertIn((109, "fetch"), _at114(old))
+        self.assertIn((117, "io_write"), _at114(old))
+        self.assertNotIn((110, "fetch"), _at114(old))
+
+    def test_push_and_set1_successors(self):
+        # PUSH after SET1 at w1: silicon W133 (none: W132); SET1 after SET1 at w1: F105
+        # (none: F104); at w0 the loader's IR load binds and both values are exact
+        cid = "F39-push-xfer-be-set1-pE-w1"
+        mod = self._exact(cid, **WP118)
+        self.assertIn((133, "stack_write"), _at114(mod))
+        _, old = _ev118(cid, **_OLD118)
+        self.assertIn((132, "stack_write"), _at114(old))
+        cid = "F40-out-page-set1-k4-pE-w1"
+        mod = self._exact(cid, **WP118)
+        self.assertIn((105, "fetch"), _at114(mod))
+        _, old = _ev118(cid, **_OLD118)
+        self.assertIn((104, "fetch"), _at114(old))
+        for c in ("F39-push-xfer-be-set1-pE-w0", "F40-out-page-set1-k4-pE-w0"):
+            self._exact(c, **WP118)
+            self._exact(c, **_OLD118)
+
+    def test_take_sync_and_bit_fields_hide_it(self):
+        # behind MOV AW,1234h the take sync after the ModR/M take outlasts the clock; EXT's and
+        # INS's reads do not wait for the ModR/M byte: exact under both values, and with mtx set
+        # for the bit field classes too
+        for c in ("F34-out-rbit-set1_rw_cl-d-k1-pE-w0", "F34-out-rbit-set1_rw_cl-d-k1-pE-w2",
+                  "F34-out-bf-ext_bl_dh-nop2-k1-pO-w1", "F34-out-bf-ins_bl_i7-nop2-k1-pO-w2"):
+            self._exact(c, **WP118)
+            self._exact(c, **_OLD118)
+            self._exact(c, **WP118, **{"bf_ext.mtx": 1, "bf_ins.mtx": 1})
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP118's values
+        base = {**_KEEP114, **WP114, **_KEEP116, **WP116, **_KEEP118}
+        for fam in ("F3", "F14", "F33", "F36"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **WP118}),
+                                          s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **_OLD118}),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

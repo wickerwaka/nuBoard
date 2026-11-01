@@ -566,6 +566,8 @@ def _choose(t: int, cfg, bus, queue, eu):
             fetch_want = False
         else:
             req.free_need = 0
+    if fetch_want and queue.pdisp_until is not None and t < queue.pdisp_until:
+        fetch_want = False              # (WP118) page_disp=hold
     if (fetch_want and queue.b2b_at != t and queue.gdisp_until is not None
             and t < queue.gdisp_until and (queue.take_t != t or queue.room(t) < 4)):
         # (WP61) grp_disp=hold: no fetch on the group RMW form's displacement take clock or the

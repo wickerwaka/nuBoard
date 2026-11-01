@@ -344,8 +344,8 @@ class Machine:
         times = [eu.resume, eu.latch_until, eu.wb_until, eu.done_t, eu.latch_wait,
                  eu.wlatch_until, q.requested_at, q.arrived_t, q.removed_t, q.b2b_at,
                  q.read_t, q.ir_t, q.take_t, q.start_t, q.abort_end, d.ready_at,
-                 q.shift_until, q.retry_at, q.io_run_at, q.gdisp_until, q.str_held, q.str_raise, q.odd_xfer, q.odd_until,
-                 bus.last_fetch_end, bus.last_io_end]
+                 q.shift_until, q.retry_at, q.io_run_at, q.gdisp_until, q.pdisp_until, q.str_held, q.str_raise, q.odd_xfer, q.odd_until,
+                 bus.last_fetch_end, bus.last_io_end, eu.mt_floor]
         times += [u for _, u in q.bytes]
         for r in [eu.req, eu.own] + eu.queued:
             if r is not None:
