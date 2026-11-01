@@ -415,6 +415,9 @@ BASELINES.update({"F38": ("dM", _f24_baseline)})
 # (WP100) F39: every cost against the empty frame of the same marker and column (the knob
 # baseline); a pair's interaction against its two controls is pair_facts'
 BASELINES.update({"F39": ("dM", _f24_baseline)})
+# (WP102) F40: every cost against the empty frame of the same marker and column (the knob
+# baseline); the k series against the k = 1 control (knob control) is f40_k_series'
+BASELINES.update({"F40": ("dM", _f24_baseline)})
 
 
 def _stem(run_id: str) -> str:
@@ -422,14 +425,15 @@ def _stem(run_id: str) -> str:
     return run_id.rsplit("-p", 1)[0]
 
 
-def pair_extra(facts, waits=(0, 1, 2)) -> list:
+def pair_extra(facts, waits=(0, 1, 2), keys=("control_a", "control_b")) -> list:
     """(WP100) the facts of the earlier families' runs F39's controls name (control_a /
-    control_b outside the family) and of those families' same-marker empty frames, from the
-    corpus; a family with no corpus entries is left out (its controls stay missing)."""
+    control_b outside the family; (WP102) F40's: keys ("control",)) and of those families'
+    same-marker empty frames, from the corpus; a family with no corpus entries is left out (its
+    controls stay missing)."""
     want: dict = defaultdict(set)
     for f in facts:
         k = f.get("knobs", {})
-        for key in ("control_a", "control_b"):
+        for key in keys:
             stem = k.get(key)
             if stem and not stem.startswith(f"{f['family']}-"):
                 family, rest = stem.split("-", 1)
@@ -506,6 +510,41 @@ def k_series(cost: dict) -> dict:
                 slope = by_k[2] - by_k[1]
                 out[stem][column] = (dict(sorted(by_k.items())), slope, by_k[1] - slope)
     return dict(out)
+
+
+def f40_k_series(facts, extra=None) -> dict:
+    """(WP102) F40: per piece (stem <marker>-<series>-<piece>) and column, the cost at k = 1, 2,
+    4 against F40's empty frame of the same marker and column, k = 1 from the control the knob
+    `control` names (an earlier family's run in `extra`, or F40's own ctl-<piece>), k = 2 and 4
+    from F40's runs; then k_series' slope (c2 - c1) and intercept (c1 - slope) and the k = 4
+    residual c4 - (c1 + 3 slope), 0 where the third and fourth instances cost what the second
+    did. Returns {"k": {stem: {column: (costs by k, slope, intercept, residual)}}, "missing":
+    [control stems with no run]}."""
+    by = {(_stem(f["id"]), f["column"]): f for f in list(facts) + list(extra or [])}
+    cost: dict = defaultdict(dict)
+    missing: set = set()
+    for f in facts:
+        k = f.get("knobs", {})
+        if k.get("control") is None:
+            continue
+        empty = by.get((f"{f['family']}-{f['marker']}-empty", f["column"]))
+        e = empty.get("dM") if empty is not None else None
+        stem = f"{f['marker']}-{k['series']}-{k['piece']}"
+        if e is None:
+            continue
+        if f.get("dM") is not None:
+            cost[f"{stem}-k{k['k']}"][f["column"]] = f["dM"] - e
+        g = by.get((k["control"], f["column"]))
+        if g is None:
+            missing.add(k["control"])
+        elif g.get("dM") is not None:
+            cost[f"{stem}-k1"][f["column"]] = g["dM"] - e
+    out: dict = defaultdict(dict)
+    for stem, cols in k_series(dict(cost)).items():
+        for column, (by_k, slope, intercept) in cols.items():
+            r4 = by_k[4] - (by_k[1] + 3 * slope) if 4 in by_k else None
+            out[stem][column] = (by_k, slope, intercept, r4)
+    return {"k": dict(out), "missing": sorted(missing)}
 
 
 def f24_apply(facts, normalized):
@@ -635,6 +674,10 @@ def family_facts(family: str, waits=(0, 1, 2), files=None, extra=None) -> dict:
         # (WP100) extra: the earlier families' control and empty facts (pair_extra's list)
         out["pairs"] = pair_facts(facts, pair_extra(facts, waits) if extra is None else extra)
         out["push_minus_out_interaction"] = kind_pairs(facts, "interaction")
+    if family == "F40":
+        # (WP102) extra: the earlier families' k = 1 control and empty facts
+        out["k_series"] = f40_k_series(
+            facts, pair_extra(facts, waits, ("control",)) if extra is None else extra)
     if family == "F6":
         out["drain_slopes"] = f6_drain_slopes(facts)
     if family == "F1":

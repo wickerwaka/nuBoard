@@ -1328,3 +1328,32 @@ F38_FORMS = _register(_f38_forms())
 # from the immediate byte): none is left.
 F38_UNMODELLED: dict[str, str] = {}
 UNMODELLED_FORMS = frozenset(F38_UNMODELLED)
+
+
+# F40 (WP102: the second instance, k = 2 and 4 of the forms added since F23; families.f40). Every
+# form F40 runs is in the catalog except the absolute targets of the later instances: MOV BW,t ;
+# BR BW and BR far t to the next instruction, and CALL far t ; BR +1 ; RETF to the instance's own
+# RETF, are built per instance (the target moves with the instance), so instance j (from 0) of k
+# needs the code offset first_x + L * j + r, L the instance's length in bytes and r the target's
+# offset in it (F40_ABS_SPAN), first_x one of F35_FIRST_X. The offsets in F35_ABS are F35's forms
+# (the same names and bytes); F40 registers the others in F35's formats (BB lo hi, EA lo hi 00 10,
+# 9A lo hi 00 10, the classes imm, branch_far and call_far). The memory-indirect and BRK pieces
+# keep F37's targets (the lead stores once and every instance transfers to the first instance's
+# RET / RETI: F37_ABS covers them).
+F40_K_MAX = 4
+F40_ABS_SPAN = {"mov_bw": (5, 5), "brf": (5, 5), "callf": (8, 7)}     # kind: (L, r)
+F40_ABS = {kind: tuple(sorted({x + length * j + r for x in F35_FIRST_X
+                               for j in range(F40_K_MAX)}))
+           for kind, (length, r) in F40_ABS_SPAN.items()}
+_F40_ABS_FORM = {
+    "mov_bw": ("imm", lambda a: bytes([0xBB]) + _f35_abs(a), {}),
+    "brf": ("branch_far", lambda a: bytes([0xEA]) + _f35_abs(a) + _FAR, {}),
+    "callf": ("call_far", lambda a: bytes([0x9A]) + _f35_abs(a) + _FAR,
+              dict(writes=2, width=2, ea=_SP - 2))}
+F40_FORMS = _register(
+    [Form(f"{kind}_t{a:04x}", _F40_ABS_FORM[kind][0], _F40_ABS_FORM[kind][1](a),
+          **_F40_ABS_FORM[kind][2])
+     for kind, addrs in F40_ABS.items() for a in addrs if a not in F35_ABS])
+# the absolute-target forms by kind, F35's and F40's: {kind: {absolute offset: form name}}
+F40_ABS_FORMS = {kind: {a: f"{kind}_t{a:04x}" for a in sorted(set(F35_ABS) | set(addrs))}
+                 for kind, addrs in F40_ABS.items()}

@@ -3397,3 +3397,324 @@ def f39(waits=WAITS, parities=PARITIES):
 FAMILIES.update({"F39": f39})
 # (WP100) every F39 form is a catalog form a modelled family ran: F39 is modelled (not in
 # UNMODELLED)
+
+
+# F40 (WP102: one refresh-off validation family; precedents F3's k series, F39). The families
+# since F23 ran their forms at k = 1 (F32 / F33 at k = 1, 2 and the strings as pairs), so the
+# second instance of a form, which starts in a queue, IR and bus state no k = 1 form reaches (the
+# first instance drained or filled the queue), is where several facts were left "keyed on k".
+# F40 runs the forms added since F23 at k = 2 and k = 4 in the cost frame
+# PAD LS M0 X^k M1 LS END: X's k = 1 cell is the control, so only the composition of X with
+# itself is tested (a second zero-parameter set, like F39). Refresh off (RFM ECh), every wait
+# and parity, the OUT and the PUSH marker on every variant; run ids
+# F40-<out|push>-<series>-<label>-k<N>-p<E|O>-w<N>, F40's own controls
+# F40-<marker>-ctl-<label>, the empty frame F40-<marker>-empty (every cost's baseline). No
+# image.py or blocks.py change; the only new forms are the later instances' absolute targets
+# (forms.F40_FORMS).
+# A piece is a lead (run once, before the first instance: the flags, CW or CL a form needs, the
+# pointer or vector store) and a body, the instance, repeated k times. Every body is repeatable:
+# the registers it reads are what it leaves, or a register it changes is one no instance's
+# timing or access reads (XCH AW,CW, OR AW,DW, SUBC AW,1234h, LAHF, the ALU forms on AW / AL and
+# [BW], SET1 AW,CL, ROL4 DL, INC AW, CVTBW: the values change, not the cycles), the stack is
+# balanced within it, and it changes no flag the next instance's decision reads.
+# reg: XCH AW,CW, OR AW,DW, SUBC AW,1234h, MOV DL,12h, PUSH CW ; POP CW (one X), LAHF, PUSH PSW ;
+#   POP PSW (one X), TEST DL,AL (F36's class-equal register, immediate and stack variants).
+# alu: F38's OR [BW],AW, AND AW,[BW], XOR AL,[BW], ADD AL,34h, OR byte [BW],5 (80 /1), AND
+#   [BW],5 (83 /4), SS: MOV AW,[BW], SHL AL,4 (C0), SHL [BW],4 (C1), SHL byte [BW],4 (C0).
+# xfer: the lead CMP AW,AW once, then BE +0 k times (every one taken, the second from the
+#   first's refill: exec 0 1 2 ...); CMP AW,AW once, BNE +0 k times (none taken); CALL +2 ; BR +1 ;
+#   RET as one X (F23's callret: k call / ret pairs); MOV CW,0 once, BCWZ +0 k times (taken, CW
+#   stays 0); MOV CW,8 ; CMP AW,DW once, DBNZE +0 k times (not taken on Z = 0, CW 8 down to 4:
+#   never the count's exit; F35 ran CW = 1, 2, where the second instance would reach CW = 0);
+#   MOV BW,t ; BR BW as one X (the lead inside X since the target moves: instance j loads the
+#   code offset of instance j + 1, the last M1's, so each instance branches to the next
+#   instruction as F35's ind-brr-n0 does); CALL +2 ; BR +3 ; RET 0 as one X (F35's ret-imm0: RET
+#   imm16 needs a CALL); BR far t to the next instruction k times (absolute targets per
+#   instance); CALL far t ; BR +1 ; RETF as one X (t the instance's own RETF, F35's
+#   far-callf-retf).
+# ind (F37): the lead MOV AW,t ; MOV [0C00h],AW once, then CALL [0C00h] ; BR +1 ; RET k times;
+#   the lead MOV AW,t ; MOV [0Ch],AW ; MOV AW,1000h ; MOV [0Eh],AW once, then BRK 3 ; BR +1 ;
+#   RETI k times. The pointer / vector names the first instance's RET / RETI, so every later
+#   instance transfers back to it (a backward transfer to the first instance's parity) and
+#   returns to its own BR +1, which jumps its own RET / RETI (never executed: skipped k - 1).
+# ptr: LES AW,[IX], LDS AW,[IX] (IX unchanged; AW, DS1 / DS0 load 0000h from the zeroed vector
+#   table each time).
+# page (F32 / F33 forms whose k = 2 the corpus misses or lacks, or ran under one marker only):
+#   SET1 AW,CL, TEST1 [BW],CL, ROL4 DL, MOV CL,2 once then ADD4S k times
+#   (ADD4S leaves IX, IY and CL as it found them, F32 silicon and normalize._StringState.bcd: it
+#   is repeatable; the destination's digits change, not the cycles), SET1 [BW+IX],CL, INC AW,
+#   CVTBW, MUL CW at AW = 0 (AW and DW stay 0), STC.
+# Left out: EXT DL,DH (and every EXT / INS): EXT moves its offset register by width + 1 and
+#   steps IX when the field crosses (DL 8, 15, 6, 13 with DH = 6: the second instance crosses, the
+#   first does not), so no instance repeats the one before; F32 ran it at k = 2 already. A
+#   conditional branch on the flags of a form the simulator does not track (F39's reason).
+#   BRK 5, the [BW] memory-indirect forms, BR / CALL far through memory (F37's other forms):
+#   one of each kind is enough for the second instance's question.
+# The k = 1 cells: under the fifty-first fit every control is exact in all six columns except
+#   F35's far-brf-n0 (out pE-w0, push pO-w0: -1) and far-callf-retf (five columns, +-1), ROL4 DL
+#   (F32's out w1 / w2 at pE, F39's push ctl-rol4 in every column), TEST DL,AL and TEST1 [BW],CL
+#   under PUSH at pO; F40's own eight controls (five images) have not run. Their k = 2 / 4 cells read the
+#   composition only where the k = 1 cell is exact.
+# Controls: `control` names the id stem (family-marker-label) of the chain whose image is byte
+# for byte the frame with X once (k = 1) under the variant's marker and presets: an earlier
+# family's where one exists (F40_REUSE; test_chains proves the images identical at every wait and
+# parity), else F40's own ctl-<piece>. `same_image` names an earlier chain whose image is
+# byte for byte this variant's (F33's INC AW and CVTBW at k = 2, ...; F40_SAME): those runs
+# repeat a corpus cell, a repeatability check on the board.
+# Knobs: probe = series, marker, piece, k (0 for the empty frame, 1 for a control), x (every
+# form between M0 and M1 in order), lead (the lead's forms), body (the first instance's forms),
+# exec (the X indices in execution order, lead and instances), skipped (X never executed),
+# taken (each instance's transfer decision, None where the body does not transfer), sp_adjust
+# (SP's change through the executed X forms in bytes: 0, every piece is balanced), preset (an
+# F40_PRESETS key), target / target_rel (the X index of every absolute target in order and its
+# offset from the first X; None without one), control, same_image, baseline (empty), form (the
+# piece's measured form), rfm, refresh_on.
+F40_RFM = RFM_OFF
+F40_K = (2, 4)
+# piece: (series, lead, body, body exec, taken, form). Body tokens "T:<kind>:next" (the absolute
+# target of the next instance's first form, M1 after the last) and "T:<kind>:@<i>" (the form at
+# index i of the same instance; in the lead, of the first instance); body exec entries are
+# instance-relative indices, "f<i>" the first instance's index i
+F40_PIECES = {
+    "xchcw": ("reg", [], ["xch_aw_cw"], [0], None, "xch_aw_cw"),
+    "ordw": ("reg", [], ["or_aw_dw"], [0], None, "or_aw_dw"),
+    "subci": ("reg", [], ["subc_aw_imm16"], [0], None, "subc_aw_imm16"),
+    "movdl": ("reg", [], ["mov_dl_imm8"], [0], None, "mov_dl_imm8"),
+    "pushpopcw": ("reg", [], ["push_cw", "pop_cw"], [0, 1], None, "pop_cw"),
+    "lahf": ("reg", [], ["lahf"], [0], None, "lahf"),
+    "pushpoppsw": ("reg", [], ["push_psw", "pop_psw"], [0, 1], None, "pop_psw"),
+    "testdl": ("reg", [], ["test_dl_al"], [0], None, "test_dl_al"),
+    "orm": ("alu", [], ["or_m_aw"], [0], None, "or_m_aw"),
+    "andl": ("alu", [], ["and_aw_m"], [0], None, "and_aw_m"),
+    "xorbl": ("alu", [], ["xor_al_m"], [0], None, "xor_al_m"),
+    "addi8": ("alu", [], ["add_al_imm8"], [0], None, "add_al_imm8"),
+    "orb80": ("alu", [], ["orb_m_imm8_80"], [0], None, "orb_m_imm8_80"),
+    "and83": ("alu", [], ["and_m_imm8"], [0], None, "and_m_imm8"),
+    "ssld": ("alu", [], ["ss_ld_bw"], [0], None, "ss_ld_bw"),
+    "shlal4": ("alu", [], ["shl_al_imm4"], [0], None, "shl_al_imm4"),
+    "shlm4": ("alu", [], ["shl_m_imm4"], [0], None, "shl_m_imm4"),
+    "shlbm4": ("alu", [], ["shlb_m_imm4"], [0], None, "shlb_m_imm4"),
+    "be": ("xfer", ["cmp_aw_aw"], ["be_n0"], [0], True, "be_n0"),
+    "bne": ("xfer", ["cmp_aw_aw"], ["bne_n0"], [0], False, "bne_n0"),
+    "callret": ("xfer", [], ["call_n2", "br_n1", "ret"], [0, 2, 1], True, "ret"),
+    "bcwz": ("xfer", ["mov_cw_imm0"], ["bcwz_n0"], [0], True, "bcwz_n0"),
+    "dbnze": ("xfer", ["mov_cw_imm8", "cmp_aw_dw"], ["dbnze_n0"], [0], False, "dbnze_n0"),
+    "brbw": ("xfer", [], ["T:mov_bw:next", "br_bw"], [0, 1], True, "br_bw"),
+    "retimm": ("xfer", [], ["call_n2", "br_n3", "ret_imm0"], [0, 2, 1], True, "ret_imm0"),
+    "brf": ("xfer", [], ["T:brf:next"], [0], True, "brf"),
+    "callfretf": ("xfer", [], ["T:callf:@2", "br_n1", "retf"], [0, 2, 1], True, "retf"),
+    "callm": ("ind", ["T:mov_aw:@2", "st_acc_dir"], ["call_m_dir", "br_n1", "ret"],
+              [0, "f2", 1], True, "call_m_dir"),
+    "brk3": ("ind", ["T:mov_aw:@2", "st_acc_000c", "mov_aw_1000", "st_acc_000e"],
+             ["brk3", "br_n1", "reti"], [0, "f2", 1], True, "brk3"),
+    "les": ("ptr", [], ["les_aw_ix"], [0], None, "les_aw_ix"),
+    "lds": ("ptr", [], ["lds_aw_ix"], [0], None, "lds_aw_ix"),
+    "set1": ("page", [], ["set1_rw_cl"], [0], None, "set1_rw_cl"),
+    "test1": ("page", [], ["test1_mw_cl"], [0], None, "test1_mw_cl"),
+    "rol4": ("page", [], ["rol4_dl"], [0], None, "rol4_dl"),
+    "add4s": ("page", ["mov_cl2"], ["add4s"], [0], None, "add4s"),
+    "set1bix": ("page", [], ["set1_mw_cl_bw_ix"], [0], None, "set1_mw_cl_bw_ix"),
+    "incaw": ("page", [], ["inc_aw"], [0], None, "inc_aw"),
+    "cvtbw": ("page", [], ["cvtbw"], [0], None, "cvtbw"),
+    "mulcw": ("page", [], ["mul_cw"], [0], None, "mul_cw"),
+    "stc": ("page", [], ["stc"], [0], None, "stc"),
+}
+F40_SERIES = ("reg", "alu", "xfer", "ind", "ptr", "page")
+# the presets a chain runs under, by name (the differences from forms.DEFAULT_REGS)
+F40_PRESETS = {"": {}, "bcd": {"IX": 0x0A40, "IY": 0x0C40}}
+# the k = 1 controls an earlier family ran with the same image (every wait and parity):
+# {(marker, piece): id stem}, the family that introduced the form (F36, F38, F35, F37, F32, F33),
+# F23's leads as F39 reuses them, F34 / F39 where that family ran the form under one marker only (the other marker's then F40's own: see below)
+_M2 = ("out", "push")
+F40_REUSE: dict[tuple[str, str], str] = {
+    **{(k, "xchcw"): f"F36-{k}-xch-xch_aw_cw" for k in _M2},
+    **{(k, "ordw"): f"F36-{k}-alu-or_aw_dw" for k in _M2},
+    **{(k, "subci"): f"F36-{k}-alu-subc_aw_imm16" for k in _M2},
+    **{(k, "movdl"): f"F36-{k}-mov-mov_dl_imm8" for k in _M2},
+    **{(k, "pushpopcw"): f"F36-{k}-stack-push_cw-pop_cw" for k in _M2},
+    **{(k, "lahf"): f"F36-{k}-psw-lahf" for k in _M2},
+    **{(k, "pushpoppsw"): f"F36-{k}-stack-push_psw-pop_psw" for k in _M2},
+    **{(k, "testdl"): f"F36-{k}-test-test_dl_al" for k in _M2},
+    **{(k, "orm"): f"F38-{k}-rmw-or_m_aw" for k in _M2},
+    **{(k, "andl"): f"F38-{k}-ldalu-and_aw_m" for k in _M2},
+    **{(k, "xorbl"): f"F38-{k}-ldalu-xor_al_m" for k in _M2},
+    **{(k, "addi8"): f"F38-{k}-imm8-add_al_imm8" for k in _M2},
+    **{(k, "orb80"): f"F38-{k}-grp-orb_m_imm8_80" for k in _M2},
+    **{(k, "and83"): f"F38-{k}-grp-and_m_imm8" for k in _M2},
+    **{(k, "ssld"): f"F38-{k}-pfx-ss_ld_bw" for k in _M2},
+    **{(k, "shlal4"): f"F38-{k}-shb-shl_al_imm4" for k in _M2},
+    **{(k, "shlm4"): f"F38-{k}-shb-shl_m_imm4" for k in _M2},
+    **{(k, "shlbm4"): f"F38-{k}-shb-shlb_m_imm4" for k in _M2},
+    **{(k, "be"): f"F23-{k}-be-n0" for k in _M2},
+    **{(k, "bne"): f"F23-{k}-bne-n0-k1" for k in _M2},
+    **{(k, "callret"): f"F23-{k}-callret" for k in _M2},
+    **{(k, "bcwz"): f"F35-{k}-cw-bcwz-t-n0" for k in _M2},
+    **{(k, "brbw"): f"F35-{k}-ind-brr-n0" for k in _M2},
+    **{(k, "retimm"): f"F35-{k}-ret-imm0" for k in _M2},
+    **{(k, "brf"): f"F35-{k}-far-brf-n0" for k in _M2},
+    **{(k, "callfretf"): f"F35-{k}-far-callf-retf" for k in _M2},
+    **{(k, "callm"): f"F37-{k}-indm-callm-ret" for k in _M2},
+    **{(k, "brk3"): f"F37-{k}-brk-brk3" for k in _M2},
+    **{(k, "les"): f"F36-{k}-ptr-les_aw_ix" for k in _M2},
+    **{(k, "lds"): f"F36-{k}-ptr-lds_aw_ix" for k in _M2},
+    **{(k, "test1"): f"F32-{k}-test1_mw_cl-k1" for k in _M2},
+    **{(k, "incaw"): f"F33-{k}-inc_aw-k1" for k in _M2},
+    **{(k, "stc"): f"F33-{k}-stc-k1" for k in _M2},
+    ("out", "set1"): "F32-out-set1_rw_cl-k1",
+    ("push", "set1"): "F34-push-rbit-set1_rw_cl-l0-k1",
+    ("out", "rol4"): "F32-out-rol4_dl-k1",
+    ("push", "rol4"): "F39-push-ctl-rol4",
+    ("out", "add4s"): "F32-out-add4s-n2-k1",
+    ("push", "add4s"): "F39-push-ctl-add4s-bcd",
+}
+# Not reused (F40's own ctl-<piece> under both markers): DBNZE behind MOV CW,8 ; CMP AW,DW (F35
+# ran CW = 1, 2), and SET1 [BW+IX],CL, CVTBW and MUL CW at AW = 0, which F32 / F33 ran under OUT
+# only (F32-out-set1_mw_cl_bw_ix-k1, F33-out-cvtbw-k1, F33-out-mul_cw-k1 hold the OUT image), so
+# every F40 PUSH chain has its OUT twin (test_chains' cost-family rule), as F39 does
+# earlier chains whose image is a variant's (every wait and parity): {(marker, piece, k): stem},
+# the earliest family's
+F40_SAME: dict[tuple[str, str, int], str] = {
+    **{(k, "bne", 2): f"F30-{k}-nt-bne-k2-n0" for k in _M2},
+    ("out", "set1", 2): "F32-out-set1_rw_cl-k2",
+    ("out", "test1", 2): "F32-out-test1_mw_cl-k2",
+    ("out", "rol4", 2): "F32-out-rol4_dl-k2",
+    ("out", "add4s", 2): "F32-out-add4s-n2-k2",
+    ("out", "incaw", 2): "F33-out-inc_aw-k2",
+    ("out", "incaw", 4): "F33-out-inc_aw-k4",
+    ("push", "incaw", 2): "F34-push-inc-inc_aw-l0-k2-n0",
+    ("out", "cvtbw", 2): "F33-out-cvtbw-k2",
+    ("out", "stc", 2): "F33-out-stc-k2",
+}
+_F40_TLEN = {"mov_bw": 3, "mov_aw": 3, "brf": 5, "callf": 5}
+
+
+def _f40_layout(piece, k):
+    """(names with every target token as "T:<kind>:<X index>", exec, [target X index]) for piece
+    at k: the lead once, the body k times."""
+    _, lead, body, bexec, _, _ = F40_PIECES[piece]
+    nl, nb = len(lead), len(body)
+    targets = []
+
+    def tok(name, j):
+        if not name.startswith("T:"):
+            return name
+        _, kind, where = name.split(":")
+        t = nl + (j + 1) * nb if where == "next" else nl + j * nb + int(where[1:])
+        targets.append(t)
+        return f"T:{kind}:{t}"
+
+    names = [tok(n, 0) for n in lead]
+    for j in range(k):
+        names += [tok(n, j) for n in body]
+    ex = list(range(nl))
+    for j in range(k):
+        ex += [nl + (int(e[1:]) if isinstance(e, str) else j * nb + e) for e in bexec]
+    return names, ex, sorted(targets)
+
+
+def _f40_resolve(names, first_x):
+    """names with every "T:<kind>:<i>" replaced by the absolute-target form for the code offset
+    of X[i] (first_x the code offset of names[0]; i = len(names) is M1); (names, target_rel)."""
+    from .forms import F37_ABS_FORMS, F40_ABS_FORMS
+    offs = [0]
+    for n in names:
+        offs.append(offs[-1] + (_F40_TLEN[n.split(":")[1]] if n.startswith("T:")
+                                else len(FORMS[n].code)))
+    out, rel = [], []
+    for n in names:
+        if n.startswith("T:"):
+            _, kind, t = n.split(":")
+            table = F37_ABS_FORMS["mov_aw"] if kind == "mov_aw" else F40_ABS_FORMS[kind]
+            out.append(table[first_x + offs[int(t)]])
+            rel.append(offs[int(t)])
+        else:
+            out.append(n)
+    return out, rel
+
+
+def _f40_preset(names) -> str:
+    """The F40_PRESETS key of the chain whose X forms are names."""
+    regs = {}
+    for n in names:
+        regs.update(dict(FORMS[n].needs))
+    diff = {k: v for k, v in regs.items() if DEFAULT_REGS.get(k) != v}
+    for key, preset in F40_PRESETS.items():
+        if preset == diff:
+            return key
+    raise AssertionError(f"F40: presets {diff} for {names} are not in F40_PRESETS")
+
+
+def _f40_sp(names, exec_) -> int:
+    """SP's change through the executed X forms in bytes (the stack classes' pushes and pops and
+    RET imm16's adjust, in execution order)."""
+    from .forms import STACK_CLASSES
+    return sum(2 * FORMS[names[i]].reads - 2 * FORMS[names[i]].writes + FORMS[names[i]].sp_adjust
+               for i in exec_ if FORMS[names[i]].cls in STACK_CLASSES)
+
+
+def f40_control(kind, piece) -> str:
+    """The id stem (family-marker-label) of piece's k = 1 control under marker kind."""
+    return F40_REUSE.get((kind, piece), f"F40-{kind}-ctl-{piece}")
+
+
+def _f40_specs(kind, parity):
+    """[(label, knobs-without-marker, x names)] for marker kind and parity, in family order: the
+    empty frame, the controls F40 runs itself, then the variants by series, piece and k."""
+    first_x = f35_first_x(kind, parity)
+    common = {"rfm": F40_RFM, "refresh_on": False}
+
+    def spec(label, piece, k):
+        series, lead, body, _, taken, form = F40_PIECES[piece]
+        raw, ex, targets = _f40_layout(piece, k)
+        names, rel = _f40_resolve(raw, first_x)
+        knobs = {"probe": "ctl" if k == 1 else series, "series": "ctl" if k == 1 else series,
+                 "piece": piece, "k": k, "x": names, "lead": names[:len(lead)],
+                 "body": names[len(lead):len(lead) + len(body)], "exec": ex,
+                 "skipped": len(names) - len(set(ex)), "taken": taken,
+                 "sp_adjust": _f40_sp(names, ex), "preset": _f40_preset(names),
+                 "target": targets or None, "target_rel": rel or None,
+                 "control": None if k == 1 else f40_control(kind, piece),
+                 "same_image": F40_SAME.get((kind, piece, k)), "baseline": "empty",
+                 "form": form, **common}
+        return label, knobs, names
+
+    specs = [("empty", {"probe": "empty", "series": "empty", "piece": None, "k": 0, "x": [],
+                        "lead": [], "body": [], "exec": [], "skipped": 0, "taken": None,
+                        "sp_adjust": 0, "preset": "", "target": None, "target_rel": None,
+                        "control": None, "same_image": None, "baseline": None, "form": None,
+                        **common}, [])]
+    for piece in F40_PIECES:
+        if (kind, piece) not in F40_REUSE:
+            specs.append(spec(f"ctl-{piece}", piece, 1))
+    for series in F40_SERIES:
+        for piece, row in F40_PIECES.items():
+            if row[0] == series:
+                for k in F40_K:
+                    specs.append(spec(f"{series}-{piece}-k{k}", piece, k))
+    return specs
+
+
+def f40(waits=WAITS, parities=PARITIES):
+    """The second instance: k = 2 and 4 of the forms added since F23 (see the comment above)."""
+    chains = []
+    for kind in ("out", "push"):
+        per_parity = {p: _f40_specs(kind, p) for p in parities}
+        labels = [[s[0] for s in v] for v in per_parity.values()]
+        if any(lab != labels[0] for lab in labels):
+            raise AssertionError("F40: the variants differ between parities")
+        for j in range(len(labels[0]) if labels else 0):
+            for w in waits:
+                for p in parities:
+                    label, knobs, names = per_parity[p][j]
+                    body = [LS(), M(0, kind)] + xs(names) + [M(1, kind), LS(), END()]
+                    chain = make_chain("F40", f"{kind}-{label}", {**knobs, "marker": kind},
+                                       body, w, p, marker_kind=kind, rfm=F40_RFM)
+                    if chain.regs != {**DEFAULT_REGS, **F40_PRESETS[knobs["preset"]]}:
+                        raise AssertionError(f"{chain.id}: presets {chain.regs}")
+                    chains.append(chain)
+    return chains
+
+
+FAMILIES.update({"F40": f40})
+# (WP102) every F40 form is a catalog form a modelled family ran, or one of F35's absolute-target
+# forms at another offset (the same classes): F40 is modelled (not in UNMODELLED)

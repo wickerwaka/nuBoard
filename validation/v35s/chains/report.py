@@ -385,6 +385,8 @@ def family_tables(ff: dict) -> str:
         out.append(f7_matrices(ff))
     if family == "F39":
         out.append(f39_pair_tables(ff))
+    if family == "F40":
+        out.append(f40_k_tables(ff))
     if family == "F13":
         return f13_tables(ff)
     if family == "F14":
@@ -561,6 +563,20 @@ def f39_pair_tables(ff: dict) -> str:
     if pairs["empties"]:
         out.append("F39: earlier families' empty frames against F39's (dM difference): "
                    + "; ".join(f"{f} {m} {c}: {d}" for (f, m, c), d in pairs["empties"].items()))
+    return "\n\n".join(out)
+
+
+def f40_k_tables(ff: dict) -> str:
+    """(WP102) F40: per piece the cost at k = 1 (the control) / 2 / 4, the slope, the intercept
+    and the k = 4 residual (derive.f40_k_series), and the controls with no run."""
+    ks = ff["k_series"]
+    cell = lambda t: (f"{'/'.join(_num(v) for v in t[0].values())} s{_num(t[1])} i{_num(t[2])}"
+                      + (f" r{_num(t[3])}" if t[3] is not None else ""))
+    out = [table("F40: cost at k = 1/2/4 (k = 1 the control), slope s = c2 - c1, intercept "
+                 "i = c1 - s, residual r = c4 - (c1 + 3 s)", ks["k"], cell)]
+    if ks["missing"]:
+        out.append("F40: controls with no run (their pieces are blank): "
+                   + ", ".join(ks["missing"]))
     return "\n\n".join(out)
 
 
