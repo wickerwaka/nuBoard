@@ -93,6 +93,9 @@ from __future__ import annotations
 from collections import deque
 
 QUEUE_BYTES = 6            # physical queue storage, not a parameter
+# (WP104) room_ir_pre=test: the classes whose pre clocks before the first operand take leave
+# the IR counted as room (TEST r,r)
+ROOM_IR_PRE_CLASSES = ("test_reg",)
 WORD = 2
 
 
@@ -289,7 +292,7 @@ class Queue:
         if cfg.room_ir is True or (cfg.room_ir in ("arrival", "arrival_idle", "arrival_ready")
                                    and t is not None and t == self.arrived_t) or (
                 cfg.room_ir in ("idle", "arrival_idle") and self.decoder is not None
-                and self.decoder.need == 0 and not self._imm16(t)) or (
+                and (self.decoder.need == 0 or self._pre_room(t)) and not self._imm16(t)) or (
                 cfg.room_ir == "arrival_ready" and self.decoder is not None
                 and self.decoder.need == 0 and (t is None or t >= self.decoder.ready_at)):
             if (self.decoder is not None and (self.decoder.ir_hold
@@ -316,6 +319,12 @@ class Queue:
                 and t == self.removed_t):
             used -= 1           # the delivered word's second byte is counted a clock later
         return size - used
+
+    def _pre_room(self, t: int | None) -> bool:
+        """(WP104) room_ir_pre=test: the IR counts as the seventh slot while the running TEST r,r
+        (ROOM_IR_PRE_CLASSES) has taken none of its operand bytes (its pre clocks)."""
+        return (self.cfg.room_ir_pre == "test" and self.decoder.fresh
+                and self.decoder.cls in ROOM_IR_PRE_CLASSES)
 
     def counted(self, t: int | None = None) -> int:
         """Queue bytes as the request rule counts them (6 minus its room)."""
@@ -441,6 +450,9 @@ class Queue:
             return True                  # (WP35) refresh_lost=start: the lost request
         if self.refresh_beaten and self.halted:
             return True                  # (WP23) halt_refresh=run: no takes mark changes
+        if (self.cfg.room_ir_pre != "none" and t == self.start_t and self.decoder is not None
+                and self._pre_room(t)):
+            return True                  # (WP104) room_ir_pre: the start emptied the IR, the room
         if mode == "on_change":
             return t in (self.removed_t, self.arrived_t, 0)
         if mode == "on_take":

@@ -5851,6 +5851,54 @@ all 39 lists from a clean copy and the edited tree under the unedited fit, byte 
 test_sim.StringSuccessorWP101, test_fit.StringSuccessorStage. Stage 28 (WP103) from this hand start made no move: the
 fifty-second fit.
 
+### F40's 205 misses read: five mechanisms of the second instance, seven shapes as facts or known trades (WP104, 2026-10-31; a candidate)
+
+Under the fifty-second fit F40 misses 205 of 1,020. Read run by run (scratchpad wp104/facts.txt: the first divergence,
+which instance, the EU's class and step, the queue / IR / bus state, the word halves, the cycle on each instance's start
+clock, the exact neighbours, k = 2 against k = 4 and the k = 1 control) they are twelve shapes. The k = 4-only misses
+are the third or fourth instance reaching an idle-bus, full-queue or odd-half start the second does not; silicon's
+residual c4 − (c1 + 3s) is nonzero in many exact pieces, alternating with parity, and the model reproduces it.
+
+- **R2, 18 runs, the one-byte form started with the queue full on an idle bus** (LAHF, STC, INC AW at k = 4 under
+  PUSH): every k = 1 / k = 2 instance starts on a fetch or I/O issue; the third and fourth start with room for no word
+  and the bus idle, and silicon runs them in 2 clocks instead of 3 while CVTBW in the same cells keeps 3; the port OUT
+  still starts where it did, so the saved clock is a write-back. Enum `one_idle` (none → flags): a one-byte flag or
+  INC/DEC r16 form so started runs a clock fewer, loads its successor a clock earlier and makes its last clock a
+  write-back (reg1 adds the decimal adjusts and scores the same; all1 adds CVTBW/CVTWL and loses six). Deciding run
+  `F40-push-reg-lahf-k4-pO-w0` (silicon W97, none W99). Alone: F40 +18, F34 +10, 0 lost. Not WP94's S21 (CLI/STI's
+  cells are not won: there the OUT comes early).
+- **X2, 18 runs, the second BR BW:** at an odd address it starts on the refill's delivery clock, takes its ModR/M and
+  loads the IR there, and silicon fetches on that start clock: `br_reg.nx` 0 → 1 (BR r16's successor loads a clock
+  after the take), an integer the class never had; holding the successor out of the IR until the flush loses 43–83.
+  Alone: F40 +18, 0 lost. The refill meeting the next instance, seen through the transfer's own IR load.
+- **X1, 12 runs, the second DBNZE** (even address, not taken) gets its fetch at start + 6, as the odd-address DBNZE
+  does under `xfer_nt=odd`'s hold: a third value `xfer_nt=dbnz_z` (DBNZE/DBNZNE not taken hold at either parity;
+  `dbnz`, every loop-format form, scores the same). Deciding run `F40-out-xfer-dbnze-k2-pO-w0` (silicon F109; odd
+  F106). Alone: F40 +12, 0 lost.
+- **X6, 12 runs, the second BRK 3** starts on a fetch's issue and silicon reads the vector 10 clocks after that
+  fetch's last clock where the model reads at start + 11: enum `brk_free` (type → format): BRK 3, with no type byte,
+  keeps its own `brk.rfree0` 10 fetch-free clocks, a format property as `pre0`; BRK imm8 keeps `rfree` 8 (rfree 10 for
+  both loses F37's 18 BRK imm8 cells). Deciding run `F40-out-ind-brk3-k2-pE-w0` (silicon 264; type 263). Alone: F40
+  +12, 0 lost.
+- **R1, 22 runs, TEST DL,AL** (its F36 PUSH pO control misses too): silicon issues a fetch on TEST's start clock when
+  the bus is idle, the IR is empty and 5 or 6 bytes are queued, the model on the ModR/M take three clocks later. The
+  room rule on the start clock, not `nx`: enum `room_ir_pre` (none → test): the empty IR counts as room on TEST r,r's
+  start clock and in its pre clocks, the start re-evaluating the request. It closes the 5-byte case (F36 +2); with 6
+  bytes a word fits only if the ModR/M leaves the queue on the start clock, and no take-first template fits the EU side
+  (16 integer settings, best +6 −2): the 20 F40 runs stay facts, keyed on the wait count of the fetch issued on TEST's
+  start.
+- **Known trades:** P2a ROL4 (7; pre 2 / wb 2 / exec 13, +57 −6 on its families), P1 TEST1 [BW],CL (22; WP94 S09, +73
+  −6). **Facts:** P2b ROL4's successor a fixed count after the fetch committed at ROL4's take (16; the wait count), P3
+  the second SET1 AW,CL on an idle bus with 5–6 bytes queued (20; the neighbour: SET1 after SET1; `page_b2b_win=take`,
+  `page_b2b=none` and `room_ir_ready` win none), CALL far ; RETF (20; WP95's far-form facts unchanged by repetition),
+  X5 the second CALL [0C00h] (18; `xfer_mem_ir`'s hold takes precedence in the room rule; the predecessor and the
+  word half), P4 ADD4S on an idle start (12; whether a fetch issues on the start clock), X3 BR far (8; WP95's w0 fact
+  and a wait-keyed refill after a fetch that runs through the flush).
+
+All five together: **F40 815 → 875/1,020, F34 1,285 → 1,295, F36 747 → 749, lost 0 on every list** (scored against the
+fifty-second fit; the edited tree under the unedited fit byte-identical to the clean tree on all 42 lists). Tests
+test_sim.SecondInstanceWP104. The fit stage for the five values is WP105.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

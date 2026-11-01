@@ -45,6 +45,8 @@ class Decoder:
         self.ir_hold = False            # (WP28) ir_load=disp_data: no IR load before the data cycle
         self.ea_end: int | None = None  # (WP30) ea_ir_room: a displaced form's EA clocks end before this
         self.lea_wait = False           # (WP92) lea_slot=ea: the running form is a displaced LDEA
+        self.fresh = False              # (WP104) room_ir_pre: no operand byte of the running form taken yet
+        self.cls = None                 # (WP104) room_ir_pre: the running form's class
 
     def take(self, t: int, n: int, wide: bool = False) -> int:
         """wide (WP27, disp16=word): a two-byte displacement, up to two bytes this clock."""
@@ -63,6 +65,8 @@ class Decoder:
                 if self.cfg.modrm_commit == "byte":
                     self.queue.commit_one(addr, t)   # the ModR/M latch: out of the queue now
         self.need -= k
+        if k:
+            self.fresh = False
         if k and self.need == 0:
             self.ready_at = t + self.nx
         return k
@@ -103,6 +107,7 @@ class Decoder:
         self.ea_end = None
         self.lea_wait = False
         self.need = length - 1 if self.cfg.opcode_take == "prefetch" else length
+        self.fresh = self.need > 0
         self.nx = nx
         # no operand bytes: the next opcode may load at once, or (WP78) nx0 clocks after the
         # start (a class with nx0: the long one-byte forms, the loader busy as after a take)

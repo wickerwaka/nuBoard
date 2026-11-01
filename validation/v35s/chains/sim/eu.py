@@ -53,6 +53,11 @@ SHIFT_CLASSES = ("shift_cl", "shift_imm")   # the shift unit's classes (refresh_
 TRANSFER_CLASSES = ("branch_short", "branch_near", "dbnz", "call", "ret")
 # (WP91, F37) the memory-indirect transfers: group forms (FF /2-/5) with a memory operand
 XFER_MEM = ("call_mem", "br_mem", "call_far_mem", "branch_far_mem")
+# (WP104) one_idle: the one-byte register classes whose start with no fetch issuing saves a clock
+ONE_IDLE = {"flags": ("flag", "flag_di", "flag_ei", "incdec"),
+            "reg1": ("flag", "flag_di", "flag_ei", "incdec", "adjust", "adjust_b"),
+            "all1": ("flag", "flag_di", "flag_ei", "incdec", "adjust", "adjust_b", "extend",
+                     "extend_w")}
 # io_interlock: register-only classes that do not start while an OUT's I/O waits in the slot
 INTERLOCK = {"none": (), "reg": ("reg", "imm", "shift_imm", "shift_cl", "mul"),
              "reg_pfx": ("reg", "imm", "shift_imm", "shift_cl", "mul", "prefix")}
@@ -404,6 +409,7 @@ class EU:
                            # (WP78) nx0: a form without operand bytes holds the IR load nx0
                            # clocks from its start (a class integer; absent = 0, at once)
                            nx0=cfg.c(op.cls, "nx0") if op.length == 1 else 0)
+        self.decoder.cls = op.cls       # (WP104) room_ir_pre
         # (WP28) ir_load=disp_data: a ModR/M memory form with a displacement keeps its
         # successor's opcode in the queue until its first data cycle issues (machine.py
         # clears the hold on the issue clock, the displacement's take on a delivery clock)
@@ -454,8 +460,12 @@ class EU:
             # (WP81) xfer_nt=odd: a not-taken short transfer's hold ends at its successor's start
             q.odd_xfer = q.odd_fed = None
             q.odd_nt = False
-        if (op.target is None and cfg.xfer_nt == "odd" and bcls in ("branch_short", "dbnz")
-                and (q.base + op.offset) & 1):
+        if (op.target is None and cfg.xfer_nt != "none" and bcls in ("branch_short", "dbnz")
+                and ((q.base + op.offset) & 1
+                     # (WP104) xfer_nt=dbnz_z: DBNZE / DBNZNE at either parity; dbnz: every
+                     # loop-format transfer (base dbnz) at either parity
+                     or cfg.xfer_nt == "dbnz_z" and op.cls == "dbnz_z"
+                     or cfg.xfer_nt == "dbnz" and bcls == "dbnz")):
             # (WP81) xfer_nt=odd: a short transfer not taken whose opcode is at an odd address
             # holds its fetch request as xfer_odd=idle holds a taken one's, to its end; (WP88)
             # the base class's rule (BCWZ: DBNZ's)
@@ -631,7 +641,7 @@ class EU:
             if self.k >= len(self.steps) and self.done_t is None:
                 self.done_t = t                 # the running instruction's steps are done
                 q = self.decoder.queue
-                if q.odd_nt and self.cfg.xfer_nt == "odd":
+                if q.odd_nt and self.cfg.xfer_nt != "none":
                     q.odd_xfer = q.odd_fed = None   # (WP81) xfer_nt: the hold ends with it
                     q.odd_nt = False
             if self.k >= len(self.steps) and not self._start(t):

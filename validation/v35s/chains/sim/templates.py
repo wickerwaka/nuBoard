@@ -1532,7 +1532,10 @@ def _wp91_steps(op: Op, cfg, c, ea) -> list[tuple]:
         # BRK imm8's type byte: a chained take (no take sync; with a sync 48 of F37's 72 brk
         # runs, every BRK imm8 cell with a fetch after its start a clock or more late)
         seq = [("clocks", c("pre"))] + ([("take", rest, "chain")] if rest else [])
-        for j, (setup, free) in enumerate(((c("rsetup"), c("rfree")),
+        # (WP104) brk_free=format: BRK 3 (no type byte) keeps its own fetch-free clocks, rfree0,
+        # a format property as pre0
+        rfree = c("rfree0") if not rest and cfg.brk_free == "format" else c("rfree")
+        for j, (setup, free) in enumerate(((c("rsetup"), rfree),
                                            (c("vsetup"), c("vsetup")))):
             seq += [("post", "read", (op.vec + 2 * j) & 0xFFFF, 2, setup, free), ("issued",),
                     ("clocks", c("rexec")), ("wait",),

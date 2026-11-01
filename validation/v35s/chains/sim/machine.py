@@ -40,7 +40,7 @@ from ..types import (TICKS_PER_CLOCK, Chain, refresh_any, refresh_length, refres
 from .bus import BusUnit
 from .config import DEFAULT, Config
 from .decoder import Decoder
-from .eu import END_PORT, EU, SFR_PAGE
+from .eu import END_PORT, EU, ONE_IDLE, SFR_PAGE
 from .queue import Queue
 from .arbiter import Request, arbitrate
 from .bus import Cycle
@@ -233,6 +233,18 @@ class Machine:
                 # (WP32) latch_start: the byte latched behind a full queue went in on the
                 # clock this instruction started: its first clocks begin a clock later
                 eu.resume += 1
+            if (cfg.one_idle != "none" and eu.start_clock == t and c is None
+                    and not bus.busy(t) and queue.room(t) < 2 and eu.op_len == 1
+                    and eu.ccls in ONE_IDLE[cfg.one_idle] and eu.k == 1 and eu.steps
+                    and eu.steps[0][0] == "clocks" and eu.steps[0][1] and eu.resume > t):
+                # (WP104) one_idle: a one-byte register form started with the queue full (no
+                # room for a word) and no bus cycle on its start clock runs a clock less, its
+                # successor's IR load (nx0) a clock earlier; its last clock becomes a
+                # write-back, so a form waiting for one (wbsync) starts where it did
+                eu.resume -= 1
+                eu.wb += 1                   # its write-back still ends where it did (wbsync)
+                if self.decoder.ready_at > t:
+                    self.decoder.ready_at -= 1
             if eu.sync == "pending_end":
                 eu.end_clock(t)              # take_sync=pending_end
             if self.clock_log is not None:

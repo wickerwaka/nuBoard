@@ -484,7 +484,12 @@ OPTIONS = {
     # back). With branch_short.wb / dbnz.wb 2 (the not-taken form's last clocks a write-back only
     # the port OUT waits for: the PUSH frame exact without them). Flip at the candidate
     # (scratchpad wp81/fit-wp81b.json): none -117 (F23 -12, F30 -54, F34 -51 net)
-    "xfer_nt": ("none", "odd"),
+    # (WP104, F40, 2026-10-31) dbnz_z: as odd, and DBNZE / DBNZNE not taken (dbnz_z) hold at
+    # either parity / dbnz: every not-taken loop-format form (base dbnz: DBNZ, BCWZ, DBNZE,
+    # DBNZNE) at either parity. F40-out-xfer-dbnze-k2-pO-w0, rel t_fill: the second DBNZE (at
+    # an even address, never taken) starts 103 with 3 bytes queued; silicon F109 (start + 6, as
+    # the odd-address DBNZE's F103 / F112 at pE), odd F106
+    "xfer_nt": ("none", "odd", "dbnz_z", "dbnz"),
     # (WP81, F34, 2026-10-30) stack_wb: a RET's stack read is posted with its class's setup
     # (none) / posted on its start clock while the previous form's write-back runs (wb: an
     # immediate shift's exit) it is held a clock, as the string exit's write-back holds a wbsync
@@ -822,6 +827,30 @@ OPTIONS = {
     # W110), -pO-w0 R91 F94 W112 (the write 16 clocks after that fetch's end; at pE 18 after
     # the read's), PUSH pE / pO R87 W107; byte = word
     "shift_mem_imm": ("rmw", "rmw_imm"),
+    # (WP104, F36/F40, 2026-10-31) room_ir_pre: under room_ir=idle / arrival_idle the IR is the
+    # request rule's seventh slot only while the decoder is not mid-take (none) / also on the
+    # start clock and in the pre clocks of TEST r,r (test_reg, pre 3 before its ModR/M take),
+    # the start re-evaluating the request (test). F36-push-test-test_dl_al-pO-w0, rel t_fill:
+    # TEST DL,AL starts 81 on an idle bus, 5 bytes queued, the IR emptied; silicon F81 F84 W93,
+    # none F84 F87 W93. The repeats' cells with 6 bytes queued (F40-out-reg-testdl-k2-pO-w0,
+    # silicon F91) stay facts: one word fits only if the ModR/M byte has left the queue
+    "room_ir_pre": ("none", "test"),
+    # (WP104, F40, 2026-10-31) one_idle: a one-byte register form runs its pre0 clocks
+    # wherever it starts (none) / a clock fewer, its nx0 IR load a clock earlier, when it starts
+    # with the queue full (room for no word), the bus idle and no cycle issued on its start
+    # clock, its last clock a write-back so a form waiting for one (wbsync: the port OUT)
+    # starts where it did, in the flag and INC/DEC r16 classes (flags) / and the decimal
+    # adjusts (reg1) / and CVTBW / CVTWL (all1: loses F40's six CVTBW k = 4 PUSH cells, where
+    # silicon's CVTBW keeps 3 clocks). F40-push-reg-lahf-k4-pO-w0, rel t_fill: LAHF starts 81
+    # and 84 on fetch issues, 87 and 90 on an idle bus with 6 and 5 bytes queued; silicon W97
+    # (PUSH AW at 91), none W99
+    "one_idle": ("none", "flags", "reg1", "all1"),
+    # (WP104, F40, 2026-10-31) brk_free: the vector offset's read keeps brk.rfree fetch-free
+    # clocks before it for BRK 3 and BRK imm8 alike (type) / BRK 3, without a type byte, keeps
+    # brk.rfree0 (format: a format property, as pre0). F40-out-ind-brk3-k2-pE-w0, rel t_fill:
+    # the second BRK 3 starts 252 on F252's issue; silicon reads at 264 (10 clocks after
+    # F252's last), type at 263 (start + 11); BRK imm8's cells (F37 brk5) keep rfree 8
+    "brk_free": ("type", "format"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1020,7 +1049,9 @@ DEFAULT_COST = {
 # hold: flush_hold=start's, 6 for BRK (no fetch from its start + 6 to the flush; BRK imm8's
 # fetch at start + 3 goes). The values are the hand start read off F37 (scratchpad
 # wp91/facts.txt) and tuned by scoring F37 alone (wp91/fit-wp91.json, 420/432); the fit's own
-# come from its stage.
+# come from its stage. (WP104) rfree0: BRK 3's own fetch-free clocks under brk_free=format
+# (F40's second BRK 3 at pE, started on a fetch's issue: the vector read 10 clocks after that
+# fetch's last clock at 0 and 1 waits).
     "call_mem": {"pre": 0, "grp": 6, "grp_free": 6, "dhold": 3, "setup": 7, "setup_free": 7,
                  "exec": 8, "post": 0, "fgap": 5, "hold": 10},
     "br_mem": {"pre": 0, "grp": 6, "grp_free": 6, "dhold": 3, "exec": 8, "post": 0, "fgap": 5,
@@ -1031,7 +1062,8 @@ DEFAULT_COST = {
     "branch_far_mem": {"pre": 0, "grp": 6, "grp_free": 6, "dhold": 3, "rwsetup": 5, "exec": 8,
                        "post": 0, "fgap": 5, "hold": 16},
     "brk": {"pre": 0, "rsetup": 12, "rfree": 8, "rexec": 3, "setup": 3, "setup_free": 3,
-            "vsetup": 6, "wsetup": 7, "exec": 8, "post": 0, "fgap": 5, "hold": 6},
+            "vsetup": 6, "wsetup": 7, "exec": 8, "post": 0, "fgap": 5, "hold": 6,
+            "rfree0": 10},
     "reti": {"pre": 0, "setup": 7, "setup_free": 3, "wsetup": 7, "exec": 14, "post": 0,
              "fgap": 5, "hold": 6},
 # (WP67, F24) the string forms, one class per operation (templates._string_steps): without a
@@ -1412,6 +1444,9 @@ class Config:
     page_imm_run: str = "none"         # (WP94)
     page_b2b_win: str = "take"         # (WP94)
     shift_mem_imm: str = "rmw"         # (WP99)
+    room_ir_pre: str = "none"          # (WP104)
+    one_idle: str = "none"             # (WP104)
+    brk_free: str = "type"             # (WP104)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

@@ -7313,3 +7313,99 @@ class StringSuccessorWP101(unittest.TestCase):
                 new = simulate_normalized(s.chain, Config.fitted().replace(**WP101), s.chain_base)
                 old = simulate_normalized(s.chain, Config.fitted(), s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+# (WP104, F40) the second instance's mechanisms, prototyped on the tracked fit with WP101's values
+WP104 = {"one_idle": "flags", "xfer_nt": "dbnz_z", "br_reg.nx": 1, "brk_free": "format",
+         "room_ir_pre": "test"}
+
+
+class SecondInstanceWP104(unittest.TestCase):
+    """(WP104, F40) the second instance of the forms added since F23 (scratchpad wp104/facts.txt;
+    clocks rel t_fill): a one-byte flag or INC/DEC r16 form started with the queue full and the bus
+    idle runs a clock less, its last clock a write-back (one_idle=flags); a not-taken DBNZE holds
+    its fetch request at either parity (xfer_nt=dbnz_z); BR r16's successor loads into the IR a
+    clock after its ModR/M take (br_reg.nx 1); BRK 3 keeps 10 fetch-free clocks before its vector
+    read (brk_free=format); TEST r,r counts the empty IR as room in its pre clocks
+    (room_ir_pre=test). Each against its old value on its deciding run (_ev101: the tracked fit
+    with WP101's values)."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev101(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.one_idle, "none")
+        self.assertEqual(OPTIONS["one_idle"], ("none", "flags", "reg1", "all1"))
+        self.assertEqual(DEFAULT.xfer_nt, "none")
+        self.assertEqual(OPTIONS["xfer_nt"], ("none", "odd", "dbnz_z", "dbnz"))
+        self.assertEqual(DEFAULT.brk_free, "type")
+        self.assertEqual(OPTIONS["brk_free"], ("type", "format"))
+        self.assertEqual(DEFAULT.room_ir_pre, "none")
+        self.assertEqual(OPTIONS["room_ir_pre"], ("none", "test"))
+        self.assertEqual(DEFAULT.c("br_reg", "nx"), 0)
+        self.assertEqual(DEFAULT.c("brk", "rfree0"), 10)
+
+    def test_one_idle_deciding_run(self):
+        # LAHF starts 81 and 84 on fetch issues, 87 and 90 on an idle bus with the queue full:
+        # silicon's PUSH AW writes at 97 (none: 99)
+        mod = self._exact("F40-push-reg-lahf-k4-pO-w0", one_idle="flags")
+        self.assertIn((97, "stack_write", 0x0EFC, "word", 3), mod)
+        _, old = _ev101("F40-push-reg-lahf-k4-pO-w0")
+        self.assertIn((99, "stack_write", 0x0EFC, "word", 3), old)
+        for cid in ("F40-push-page-stc-k4-pE-w1", "F40-push-page-incaw-k4-pO-w2",
+                    # the port OUT waits out the write-back: as before
+                    "F40-out-reg-lahf-k4-pO-w0", "F40-out-page-stc-k4-pO-w2",
+                    # CVTBW keeps its three clocks (not in the class list)
+                    "F40-push-page-cvtbw-k4-pO-w0", "F40-push-reg-lahf-k2-pO-w0"):
+            self._exact(cid, one_idle="flags")
+
+    def test_xfer_nt_dbnz_z_deciding_run(self):
+        # the second DBNZE (even address, not taken) starts 103: silicon F109 (odd: F106)
+        mod = self._exact("F40-out-xfer-dbnze-k2-pO-w0", xfer_nt="dbnz_z")
+        self.assertIn((109, "fetch", 0x1005A, "word", 3), mod)
+        _, old = _ev101("F40-out-xfer-dbnze-k2-pO-w0", xfer_nt="odd")
+        self.assertIn((106, "fetch", 0x1005A, "word", 3), old)
+        for cid in ("F40-out-xfer-dbnze-k2-pE-w0", "F40-push-xfer-dbnze-k4-pE-w2",
+                    "F40-out-ctl-dbnze-pO-w1"):
+            self._exact(cid, xfer_nt="dbnz_z")
+
+    def test_br_reg_nx_deciding_run(self):
+        # the second BR BW starts 121 on the refill's delivery: silicon fetches there (nx 0: 124)
+        mod = self._exact("F40-out-xfer-brbw-k2-pO-w0", **{"br_reg.nx": 1})
+        self.assertIn((121, "fetch", 0x1005C, "word", 3), mod)
+        _, old = _ev101("F40-out-xfer-brbw-k2-pO-w0")
+        self.assertIn((124, "fetch", 0x1005C, "word", 3), old)
+        for cid in ("F40-out-xfer-brbw-k2-pE-w0", "F35-out-ind-brr-n0-pE-w0",
+                    "F35-push-ind-brr-n1-pO-w2"):
+            self._exact(cid, **{"br_reg.nx": 1})
+
+    def test_brk_free_deciding_run(self):
+        # the second BRK 3 starts 252 on F252's issue: silicon reads the vector at 264 (type: 263)
+        mod = self._exact("F40-out-ind-brk3-k2-pE-w0", brk_free="format")
+        self.assertIn((264, "data_read", 0x000C, "word", 3), mod)
+        _, old = _ev101("F40-out-ind-brk3-k2-pE-w0")
+        self.assertIn((263, "data_read", 0x000C, "word", 3), old)
+        for cid in ("F37-out-brk-brk3-pE-w0", "F37-out-brk-brk5-pE-w0",
+                    "F37-push-brk-brk5-pO-w1"):
+            self._exact(cid, brk_free="format")
+
+    def test_room_ir_pre_deciding_run(self):
+        # TEST DL,AL starts 81 on an idle bus with 5 bytes queued: silicon F81 (none: F84)
+        mod = self._exact("F36-push-test-test_dl_al-pO-w0", room_ir_pre="test")
+        self.assertIn((81, "fetch", 0x10052, "word", 3), mod)
+        _, old = _ev101("F36-push-test-test_dl_al-pO-w0")
+        self.assertIn((84, "fetch", 0x10052, "word", 3), old)
+        for cid in ("F36-out-test-test_dl_al-pO-w0", "F36-push-test-test_dl_al-pE-w1"):
+            self._exact(cid, room_ir_pre="test")
+
+    def test_old_families_untouched(self):
+        # no sampled run of these families reads a WP104 value
+        for fam in ("F5", "F14", "F21", "F24"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**{**WP101, **WP104}),
+                                          s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**WP101), s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)
