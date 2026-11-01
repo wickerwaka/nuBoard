@@ -6016,7 +6016,7 @@ every new enum at its default the edited tree is byte-identical to a clean expor
 test_sim.MulImmWP109 (the pre-change values pinned as `_OLD109`), test_fit's stage-32 class. Stage 32 (WP111) from
 this hand start: the fifty-sixth fit (Model).
 
-### The 0F memory forms' and bit fields' remaining misses read: the CL index's setup through a fetch, the IR held to the read's issue, the 0F displacement on an I/O issue clock, the bit field's fetch-free tail (WP112, 2026-10-31; a candidate)
+### The 0F memory forms' and bit fields' remaining misses read: the CL index's setup through a fetch, the IR held to the read's issue, the 0F displacement on an I/O issue clock, the bit field's fetch-free tail (WP112, 2026-10-31; the fifty-seventh fit)
 
 About 230 refresh-off misses of F32 and F34 were the 0F memory forms in the displaced and direct modes, the "other" memory
 forms and the bit-field reads at some waits, left by WP94 as keyed on the displacement length or the wait count. Read
@@ -6055,7 +6055,8 @@ All four together: **F32 687 → 728/858, F34 1,361 → 1,417/1,596, F39 1,256 �
 multiply candidate on fit 55); with every new value at its default the score tables are byte-identical to the baseline.
 Refuted and removed: `page_ir=hold`, `ir_hold_io=keep`, the read posted on the take clock, any last take's own fetch
 counted through the setup (+47 −141), a take-clock commitment as the take's own request, `ftail` 1 and 3. Tests
-test_sim.PageFormsWP112 (`_OLD112` pins the pre-change values). The fit stage is WP113.
+test_sim.PageFormsWP112 (`_OLD112` pins the pre-change values), test_fit's stage-33 class. Stage 33 (WP113) from this
+hand start: the fifty-seventh fit (Model).
 
 ## Model
 
@@ -6076,7 +6077,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-sixth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-seventh fit since 2026-11-01): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6566,10 +6567,17 @@ fifty-fifth fit plus WP109's multiply mechanisms, `mul_imm_count=sync`, `mul_imm
 (`F58_ENUMS`, `F58_INTS`; WP111) from that hand start made no move (the corpus guard refused all 23 other grid points, each losing runs against the hand start; the descent over the 36 multiply and divide integers and the sweep moved nothing). **33972 of 35,168 over 42 lists**: F33 927 → 955/1,050,
 F34 1,295 → 1361/1,596, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
+**The fifty-seventh fit** (`fit.json`, md5 92d9329613ba978b1b9ab6914eb594a4; scratchpad wp113/fit-wp113.json, adopted 2026-11-01) is the
+fifty-sixth fit plus WP112's 0F-memory and bit-field mechanisms, `page_cl=thru`, `page_ir=delivery`, `page_dio=free`
+and `bf_ext.ftail` / `bf_ins.ftail` 2 (Facts "The 0F memory forms' and bit fields' remaining misses read"): fit stage 33
+(`F59_ENUMS`, `F59_INTS`; WP113) from that hand start moved one integer, `bit1_test.nx` 2 → 0 (TEST1 [m]'s successor loads into the IR on the ModR/M take: +3, nothing lost), refused the TEST1 head trade (`pre` 1, +73 −4) and kept every other hand value; the stage's pair round exhausted the 40 GB scope until `score_many` learned to split a batch (`SCORE_CELLS`). **34081 of 35,168 over 42 lists**: F32 687 → 731/858,
+F34 1,361 → 1417/1,596, F39 1,256 → 1265/1,320, the other lists byte-identical, nothing lost. Model side only, no RTL
+work.
 
-### Fitted structure (fifty-sixth fit, 2026-10-31)
 
-Fifty-six fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-seventh fit, 2026-11-01)
+
+Fifty-seven fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6960,7 +6968,10 @@ fifty-fifth (`fit.json`, 2026-10-31) adds the digit rotate's exec rule
 (`rot4_exec=wait`, rol4 pre 1 / exec 13 / wb 2; stage 31): 33878/35168, F32 687,
 F39 1256, F40 926. The fifty-sixth (`fit.json`, 2026-10-31) adds the multiply's
 four mechanisms (`mul_imm_count=sync`, `mul_imm_half=room`, `mul_imm_exec=hold`,
-`mul_data=sign`; stage 32): 33972/35168, F33 955, F34 1361.
+`mul_data=sign`; stage 32): 33972/35168, F33 955, F34 1361. The fifty-seventh
+(`fit.json`, 2026-11-01) adds the 0F memory forms' and bit fields' mechanisms
+(`page_cl=thru`, `page_ir=delivery`, `page_dio=free`, ftail 2; stage 33): 34081/35168,
+F32 731, F34 1417, F39 1265.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

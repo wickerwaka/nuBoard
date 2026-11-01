@@ -68,6 +68,7 @@
   },
   "bf_ext": {
    "fsetup": 7,
+   "ftail": 2,
    "hrel": 2,
    "nx": 1,
    "pre": 1,
@@ -80,6 +81,7 @@
   },
   "bf_ins": {
    "fsetup": 7,
+   "ftail": 2,
    "hrel": 0,
    "nx": 1,
    "post": 0,
@@ -137,7 +139,7 @@
    "fsetup": 3,
    "grp": 1,
    "grp_free": 0,
-   "nx": 2,
+   "nx": 0,
    "pre": 4,
    "wb": 0
   },
@@ -964,9 +966,12 @@
  "opcode_take": "prefetch",
  "page_b2b": "reg",
  "page_b2b_win": "run",
+ "page_cl": "thru",
  "page_commit": "start",
+ "page_dio": "free",
  "page_grp": "group",
  "page_imm_run": "delivery",
+ "page_ir": "delivery",
  "page_mem": "fixed",
  "page_run": "field",
  "page_take": "own",

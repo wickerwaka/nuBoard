@@ -5686,11 +5686,15 @@ class PageAndMiscellanyDecode(unittest.TestCase):
 # (WP78) the hand start of stage 16 (sim/config.py DEFAULT_COST) with the two adopted enums and
 # the integers the tests read (the candidate's where stage 16 moved them): the tests pin the
 # mechanisms at these values, independent of the tracked fit
-WP78 = {"bf_count": "dw", "page_grp": "group"}
+WP78 = {"bf_count": "dw", "page_grp": "group",
+        # (fit 57) WP112's 0F-memory enums and WP113's bit1_test.nx move pinned to their old values
+        "page_cl": "free", "page_ir": "none", "page_dio": "extend"}
 WP78_INTS = {"adjust.nx0": 8, "adjust.pre0": 10, "adjust.wb": 2, "mul.sexec": 41,
              "div.sexec": 58, "bf_ext.setup": 12, "bf_ext.setup_free": 0, "bf_ext.span": 14,
              # (fit 50) WP94's EXT write-back moved span / xspan / wb together: pin all three
              "bf_ext.xspan": 42, "bf_ext.wb": 0,
+             # (fit 57) WP113 moved bit1_test.nx 2 -> 0: pinned to WP78's value
+             "bit1_test.nx": 2,
              "bcd4s.first": 16, "bcd4s.mid": 7, "bcd4s.wmid": 10, "bcd4s.loop": 7,
              "bcd4s.exec": 12, "bcd4s.wb": 2, "bit1_rmw.cl": 1, "bit1_rmw.dfloor": 4,
              "bit1_rmw.pre": 7, "bit1_rmw.grp": 0}
@@ -7573,7 +7577,11 @@ class WaitKeyedWP106(unittest.TestCase):
         # AW,1234h: silicon runs no fetch before its read (D102), the SET1 head one back to back
         sil, mod = self._ev("F34-out-mbit-test1_mw_cl-d-k1-pE-w0", **WP106_TEST1)
         self.assertIn((102, "data_read", 0x0800, "word", 3), sil)
-        self.assertIn((97, "fetch", 0x1005A, "word", 3), mod)
+        # (fit 57) WP112's page_ir=delivery holds the successor out of the IR until the read issues:
+        # the back-to-back fetch at 97 is gone and the run is exact; under the old value it stays
+        self.assertEqual(mod, sil)
+        _, old = self._ev("F34-out-mbit-test1_mw_cl-d-k1-pE-w0", **{**WP106_TEST1, "page_ir": "none"})
+        self.assertIn((97, "fetch", 0x1005A, "word", 3), old)
 
     def test_other_families_untouched(self):
         # no sampled run of these families reads a WP106 value
