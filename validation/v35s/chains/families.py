@@ -3034,10 +3034,10 @@ UNMODELLED = ()
 #   normaliser classifies as a fetch); 80 / 83 /7 and the 81 group's other operations (CMP and
 #   F15's AND ran; the other 81 operations are one immediate width of the 83 rows); CHKIND (62),
 #   POLL (9B), BRKV (CE), FPO1 (D8-DF), the undefined 63 66 67 D6 F1, and HALT (F4, the END).
-# Generator-only (UNMODELLED): eleven forms do not decode to their class and length
-# (forms.F38_UNMODELLED: the AL,imm8 forms and C0 raise in sim/templates.decode, C1 with a
-# memory operand decodes to a register shift), so the scorer, the fitter and freeze skip F38
-# until a template learns them; every other F38 form decodes to its catalog class and length.
+# Generator-only (UNMODELLED) until WP98: eleven forms did not decode to their class and length
+# (forms.F38_UNMODELLED: the AL,imm8 forms and C0 raised in sim/templates.decode, C1 with a
+# memory operand decoded to a register shift). (WP98) decode takes them into the imm, shift_imm
+# and rmw classes; every F38 form decodes to its catalog class and length.
 F38_RFM = RFM_OFF
 
 
@@ -3115,5 +3115,6 @@ def f38(waits=WAITS, parities=PARITIES):
 
 
 FAMILIES.update({"F38": f38})
-# (WP97) generator-only: eleven of its forms do not decode (forms.F38_UNMODELLED)
-UNMODELLED = ("F38",)
+# (WP97) generator-only: eleven of its forms did not decode (forms.F38_UNMODELLED); (WP98)
+# modelled: decode takes them into the imm, shift_imm and rmw classes
+UNMODELLED = ()

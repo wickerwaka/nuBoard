@@ -205,6 +205,10 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         return Op(k, 3, "imm", op, imm_bytes=2)
     if op == 0xA8:                          # (WP20) TEST AL,imm8
         return Op(k, 2, "imm", op, imm_bytes=1)
+    if op < 0x40 and op & 7 == 4:
+        # (WP98, F38) op AL,imm8 (04 0C 14 1C 24 2C 34 3C, the operation in bits 5:3): the imm
+        # class as TEST AL,imm8 (A8) is decoded (F38: each costs exactly A8's cost in every cell)
+        return Op(k, 2, "imm", op, imm_bytes=1)
     if op in (0xA0, 0xA1, 0xA2, 0xA3):
         # MOV AW,[d16] / MOV [d16],AW; (WP88, F36) the byte forms A0 / A2 (bit 0 the width)
         return Op(k, 3, "load" if op < 0xA2 else "store", op, width=1 + (op & 1),
@@ -331,8 +335,8 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
     mem = mod != 3
     # the w bit (bit 0) of the ALU, TEST, XCH and MOV ModR/M opcodes: 0 = byte operand
     width = 1 if (op < 0x40 or 0x84 <= op <= 0x8B) and not op & 1 else 2
-    if op in (0xD0, 0xF6, 0xFE, 0x80, 0x82, 0xD2):   # (WP21) the byte groups' w bit; (WP78)
-        width = 1                                       # FE; (WP88, F36) 80 / 82, D2
+    if op in (0xD0, 0xF6, 0xFE, 0x80, 0x82, 0xD2, 0xC0):   # (WP21) the byte groups' w bit;
+        width = 1                           # (WP78) FE; (WP88, F36) 80 / 82, D2; (WP98, F38) C0
     # A group opcode: the operation is selected by the ModR/M reg field (a format
     # property of the encoding: 80-83, 8F, C0/C1, C6/C7, D0-D3, F6/F7, FE/FF).
     group = op in GROUP_OPCODES
@@ -374,10 +378,18 @@ def decode(code: bytes, k: int, regs: dict) -> Op:
         base["imm_bytes"] = 1
         base["width"] = 1
         cls = "store_imm"
-    elif op == 0xC1:
+    elif op in (0xC0, 0xC1):            # (WP98, F38) C0: the byte form (bit 0 the width)
         length += 1
-        return Op(length=length, cls="shift_imm", count=code[k + length - 1], imm_bytes=1,
-                  **base)
+        if not mem:
+            return Op(length=length, cls="shift_imm", count=code[k + length - 1], imm_bytes=1,
+                      **base)
+        # (WP98, F38) a memory operand: a shift on memory, the rmw class as D1 / D3's memory
+        # forms are decoded (count, shift; no imm_bytes: the rmw template's head takes every
+        # operand byte, the count byte last), the count from the immediate byte (F38: C0 27 04
+        # costs exactly C1 27 04's cost in every cell)
+        cls = "rmw"
+        base["count"] = code[k + length - 1]
+        base["shift"] = True
     elif op in (0xD0, 0xD1):            # (WP21) D0: the byte form
         if not mem:
             return Op(length=length, cls="shift_imm", count=1, **base)
@@ -661,6 +673,8 @@ def written(op: Op, code: bytes) -> tuple:
         return ("AW", REG16[o - 0x90])
     if o in (0x05, 0xA1) or op.cls == "in":
         return ("AW",)
+    if o < 0x40 and o & 7 == 4:             # (WP98) op AL,imm8 (CMP: flags only)
+        return () if o == 0x3C else ("AW",)
     if op.cls == "pop":
         return (REG16[o - 0x58],)
     if not op.modrm:
@@ -679,6 +693,8 @@ def written(op: Op, code: bytes) -> tuple:
         return (REG8[reg][0],)
     if o == 0xF7 and reg in (4, 5, 6, 7):
         return ("AW", "DW")                 # MULU / DIVU: DW:AW
+    if mod == 3 and o == 0xC0:              # (WP98) SHL r8,imm8
+        return (REG8[rm][0],)
     if mod == 3 and o in (0x81, 0x83, 0xD1, 0xD3, 0xC1) and not (o in (0x81, 0x83)
                                                                   and reg == 7):
         return (REG16[rm],)
@@ -702,6 +718,13 @@ def execute(op: Op, code: bytes, regs: dict):
         regs["AW"] = (regs["AW"] + imm16(k + 1)) & 0xFFFF
     elif o == 0xA1:
         regs["AW"] = FILL_WORD
+    elif o < 0x40 and o & 7 == 4:
+        # (WP98) op AL,imm8: AL's value (the flags are not kept, as for the AW,imm16 forms)
+        al, imm, f = regs["AW"] & 0xFF, code[k + 1], (o >> 3) & 7
+        cy = regs.get("CY") or 0
+        r = (al + imm, al | imm, al + imm + cy, al - imm - cy, al & imm, al - imm, al ^ imm,
+             al)[f]
+        _set8(regs, 0, r & 0xFF)
     elif op.modrm and op.cls not in ("prefix",):
         m = code[k + 1]
         mod, reg, rm = m >> 6, (m >> 3) & 7, m & 7
@@ -723,6 +746,9 @@ def execute(op: Op, code: bytes, regs: dict):
         elif o in (0xD1, 0xD3, 0xC1) and mod == 3 and reg == 4:
             n = 1 if o == 0xD1 else (regs["CW"] & 0xFF if o == 0xD3 else code[k + 2])   # (WP57) silicon: the full count
             regs[REG16[rm]] = (regs[REG16[rm]] << n) & 0xFFFF
+        elif o == 0xC0 and mod == 3 and reg == 4:   # (WP98) SHL r8,imm8
+            name, sh = REG8[rm]
+            _set8(regs, rm, ((regs[name] >> sh) << code[k + 2]) & 0xFF)
         elif o == 0xF7 and reg == 4:
             p = regs["AW"] * src
             regs["AW"], regs["DW"] = p & 0xFFFF, (p >> 16) & 0xFFFF

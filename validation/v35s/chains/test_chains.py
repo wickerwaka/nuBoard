@@ -2065,9 +2065,11 @@ class F32F33Tests(unittest.TestCase):
             self.assertNotIn(name, UNMODELLED_FORMS)     # (WP78) the simulator decodes them
             self.assertIn(FORMS[name].cls, CLASSES, name)
         # (WP87) none of F32's or F33's: the generator-only forms were F35's and F36's; (WP90)
-        # they were F37's; (WP91) modelled: none is left; (WP97) F38's eleven that do not decode
+        # they were F37's; (WP91) modelled: none is left; (WP97) F38's eleven that did not
+        # decode; (WP98) decoded: none is left
         from validation.v35s.chains.forms import F38_UNMODELLED
         self.assertEqual(UNMODELLED_FORMS, frozenset(F38_UNMODELLED))
+        self.assertEqual(UNMODELLED_FORMS, frozenset())
         # (WP78) one class per cost the facts tell apart
         for name, cls in (("clr1_mb_cl", "bit1_clr"), ("set1_mw_imm", "bit1_rmw"),
                           ("not1_mb_cl", "bit1_rmw"), ("test1_mw_imm", "bit1_test"),
@@ -2095,8 +2097,8 @@ class F32F33Tests(unittest.TestCase):
         self.assertNotIn("F32", UNMODELLED)
         self.assertNotIn("F33", UNMODELLED)
         # (WP87) F35 / F36 generator-only; (WP88) modelled; (WP90) F37 generator-only; (WP91)
-        # modelled; (WP97) F38 generator-only (forms.F38_UNMODELLED)
-        self.assertEqual(UNMODELLED, ("F38",))
+        # modelled; (WP97) F38 generator-only (forms.F38_UNMODELLED); (WP98) modelled
+        self.assertEqual(UNMODELLED, ())
         self.assertIn("F32", fit.TIE_FAMILIES)
         self.assertEqual(fit.STAGE_FAMILIES[16], ["F32", "F33"])
 
@@ -3242,7 +3244,7 @@ class F38Tests(unittest.TestCase):
         from validation.v35s.chains.families import UNMODELLED
         self.assertEqual(len(self.f38), 864)
         self.assertEqual(len(self.f38), RUN_RANGES["F38"][0])
-        self.assertIn("F38", UNMODELLED)            # (WP97) generator-only: F38_UNMODELLED
+        self.assertNotIn("F38", UNMODELLED)         # (WP97) generator-only; (WP98) modelled
         per_marker = {"empty": 1, "rmw": 14, "ldalu": 16, "imm8": 9, "grp": 18, "pfx": 9,
                       "shb": 5}
         self.assertEqual(Counter((c.marker_kind, c.knobs["series"]) for c in self.cells),
@@ -3315,7 +3317,7 @@ class F38Tests(unittest.TestCase):
             elif shape in ("rmw_w", "ldalu_w", "g83", "g81", "pfx_ld"):
                 self.assertEqual(f.width, 2, name)
         self.assertEqual(FORMS["shlb_m_imm4"].width, 1)
-        self.assertEqual(len(F38_UNMODELLED), 11)
+        self.assertEqual(len(F38_UNMODELLED), 0)     # (WP97) eleven; (WP98) decoded
         # the first bytes F38 adds to the catalog: the census WP97 started from, less the ones
         # left out (62 9B CE D8-DF 63 66 67 D6 F1 F4)
         before = {f.code[0] for n, f in FORMS.items() if n not in F38_FORMS}
@@ -3375,7 +3377,9 @@ class F38Tests(unittest.TestCase):
     def test_decoder(self):
         # (WP97) every F38 form against the live decoder: a prefix decodes as its own
         # pseudo-instruction, then the form; the class and length must be the catalog's. The
-        # eleven that raise or decode to another class are F38_UNMODELLED, and only they
+        # eleven that raised or decoded to another class were F38_UNMODELLED; (WP98) none is left:
+        # every form decodes to its catalog class and length (a memory form to its address and
+        # width; a shift on memory with its count)
         from validation.v35s.chains.forms import F38_FORM, F38_UNMODELLED, UNMODELLED_FORMS
         from validation.v35s.chains.sim.templates import PREFIXES, decode
         regs = {"AW": 0, "BW": 0x800, "CW": 0x1F, "DW": 0x5678, "SP": 0xF00, "BP": 0xA00,
@@ -3398,10 +3402,15 @@ class F38Tests(unittest.TestCase):
                 continue
             if f.reads or f.writes:
                 self.assertEqual((op.ea, op.width), (f.ea, f.width), name)
+            if f.cls == "rmw" and f.code[k] in (0xC0, 0xC1, 0xD0, 0xD1):
+                self.assertEqual((op.shift, op.count),
+                                 (True, f.code[-1] if f.code[k] < 0xD0 else 1), name)
+        self.assertEqual(failed, set())
         self.assertEqual(failed, set(F38_UNMODELLED))
         self.assertEqual(set(F38_UNMODELLED), set(UNMODELLED_FORMS))
         self.assertEqual({c.knobs["form"] for c in self.cells if not c.knobs["modelled"]},
                          set(F38_UNMODELLED))
+        self.assertTrue(all(c.knobs["modelled"] for c in self.f38))
 
     def test_expected_accesses(self):
         from validation.v35s.chains.normalize import expected_accesses

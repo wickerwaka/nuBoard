@@ -7018,3 +7018,98 @@ class PageB2bWindowWP94(unittest.TestCase):
             sil, mod = self._ev(cid, "run")
             self.assertEqual(mod, sil, cid)
             self.assertEqual(self._ev(cid, "take")[1], mod, cid)
+
+
+def _ev98(cid):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit."""
+    fam = cid.split("-", 1)[0]
+    w = int(cid.rsplit("-w", 1)[1])
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid and r["chain"]["waits"] == w)
+    s = normalize(run)
+    return aligned(s), aligned(simulate_normalized(s.chain, Config.fitted(), s.chain_base))
+
+
+class DecodeF38WP98(unittest.TestCase):
+    """(WP98, F38) the eleven forms WP97 left undecoded, taken into their existing classes with no
+    template change: op AL,imm8 (04 0C 14 1C 24 2C 34 3C) the imm class as TEST AL,imm8 (A8);
+    C0 the byte form of C1 (SHL AL,imm8: shift_imm with the count byte); C0 / C1 with a memory
+    operand the rmw class as D1 / D3's memory forms (count, shift, the count from the immediate
+    byte, no imm_bytes: the rmw head takes every operand byte)."""
+
+    REGS = {"AW": 0x1200, "BW": 0x0800, "CW": 0, "DW": 0, "SP": 0x0F00, "BP": 0, "IX": 0,
+            "IY": 0, "CY": 1}
+
+    def test_al_imm8(self):
+        from validation.v35s.chains.sim.templates import execute, steps
+        for op_ in (0x04, 0x0C, 0x14, 0x1C, 0x24, 0x2C, 0x34, 0x3C):
+            code = bytes([op_, 0x34])
+            op = decode(code, 0, dict(self.REGS))
+            self.assertEqual((op.cls, op.length, op.imm_bytes, op.ea, op.modrm),
+                             ("imm", 2, 1, None, False), hex(op_))
+            regs = dict(self.REGS, AW=0x1281)
+            execute(op, code, regs)
+            # AL's value (AH kept), the eight operations in bits 5:3 (ADDC / SUBC with CY = 1)
+            want = {0x04: 0xB5, 0x0C: 0xB5, 0x14: 0xB6, 0x1C: 0x4C, 0x24: 0x00, 0x2C: 0x4D,
+                    0x34: 0xB5, 0x3C: 0x81}[op_]
+            self.assertEqual(regs["AW"], 0x1200 | want, hex(op_))
+        # its steps are A8's
+        cfg = Config.fitted()
+        a8 = steps(decode(bytes([0xA8, 0x34]), 0, dict(self.REGS)), cfg)
+        self.assertEqual(steps(decode(bytes([0x2C, 0x34]), 0, dict(self.REGS)), cfg), a8)
+
+    def test_c0_register(self):
+        from validation.v35s.chains.sim.templates import execute, steps
+        code = bytes([0xC0, 0xE0, 0x04])
+        op = decode(code, 0, dict(self.REGS))
+        self.assertEqual((op.cls, op.length, op.width, op.count, op.imm_bytes, op.shift),
+                         ("shift_imm", 3, 1, 4, 1, False))
+        regs = dict(self.REGS, AW=0x1233)
+        execute(op, code, regs)
+        self.assertEqual(regs["AW"], 0x1230)            # SHL AL,4: AH kept
+        cfg = Config.fitted()
+        c1 = decode(bytes([0xC1, 0xE0, 0x04]), 0, dict(self.REGS))
+        self.assertEqual(steps(op, cfg), steps(c1, cfg))
+
+    def test_memory_shift_by_imm8(self):
+        # C1 /4 and C0 /4 at [BW]: a read and a write of 0800h (word / byte), count 4 from the
+        # immediate byte, every operand byte taken (the ModR/M byte, then the count)
+        from validation.v35s.chains.sim.templates import steps
+        cfg = Config.fitted()
+        for code, width in ((bytes([0xC1, 0x27, 0x04]), 2), (bytes([0xC0, 0x27, 0x04]), 1)):
+            op = decode(code, 0, dict(self.REGS))
+            self.assertEqual((op.cls, op.length, op.width, op.ea, op.mode_class, op.count,
+                              op.shift, op.imm_bytes, op.group, op.cl_count),
+                             ("rmw", 3, width, 0x0800, "base", 4, True, 0, True, False),
+                             code.hex())
+            seq = steps(op, cfg)
+            data = [(s[1], s[2], s[3]) for s in seq if s[0] in ("data", "post")]
+            self.assertEqual(data, [("read", 0x0800, width), ("write", 0x0800, width)],
+                             code.hex())
+            self.assertEqual(sum(s[1] for s in seq if s[0] == "take"), 2, code.hex())
+        # D1 /4 at [BW] (count 1) keeps its decode
+        op = decode(bytes([0xD1, 0x27]), 0, dict(self.REGS))
+        self.assertEqual((op.cls, op.length, op.count, op.shift, op.imm_bytes),
+                         ("rmw", 2, 1, True, 0))
+
+    def test_exact_runs(self):
+        # each newly decoded register shape exact on F38 runs under the tracked fit
+        for cid in ("F38-out-imm8-add_al_imm8-pE-w0", "F38-push-imm8-cmp_al_imm8-pO-w2",
+                    "F38-out-imm8-subc_al_imm8-pO-w1", "F38-out-shb-shl_al_imm4-pE-w0",
+                    "F38-push-shb-shl_al_imm4-pO-w2"):
+            sil, mod = _ev98(cid)
+            self.assertEqual(mod, sil, cid)
+
+    def test_memory_shift_runs(self):
+        # C1 / C0 /4 at [BW]: the model's read and write are silicon's (kind, address, width,
+        # order). Not exact under the tracked fit (WP98's fact, reported, no rule added): silicon
+        # posts the read before the count byte's take (pE-w0 OUT: R90, the model F90 R93, both
+        # W110); the D1 mate shl_m1 is exact in every cell
+        pick = lambda ev: [e[1:4] for e in ev if e[1] in ("data_read", "data_write")]
+        for cid in ("F38-out-shb-shl_m_imm4-pE-w0", "F38-out-shb-shlb_m_imm4-pO-w1",
+                    "F38-push-shb-shl_m_imm4-pE-w2"):
+            sil, mod = _ev98(cid)
+            self.assertEqual(pick(mod), pick(sil), cid)
+            self.assertEqual(len(pick(mod)), 2, cid)
+        for cid in ("F38-out-shb-shl_m1-pE-w0", "F38-push-shb-shl_m1-pO-w2"):
+            sil, mod = _ev98(cid)
+            self.assertEqual(mod, sil, cid)

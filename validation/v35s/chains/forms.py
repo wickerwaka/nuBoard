@@ -1320,22 +1320,11 @@ def _f38_forms() -> list:
 
 F38_FORMS = _register(_f38_forms())
 
-# (WP97) the F38 forms sim/templates.decode does not take to their catalog class and length, so
-# the simulator cannot run them (and F38 is in families.UNMODELLED until a template learns them;
-# sim/* is not this package's to change):
-# - op AL,imm8 (04 0C 14 1C 24 2C 34 3C): decode's 00-3F block takes the ModR/M shapes (bits 2:0
-#   0-3) and the AW,imm16 forms (05, ACC_IMM16); the AL,imm8 forms (bits 2:0 = 4) fall through to
-#   the ModR/M path, whose last branch raises ("not in the catalog").
-# - C0 /4 (SHL AL,imm8 and SHL byte [BW],imm8): C0 is in GROUP_OPCODES but decode has no C0 case
-#   (only C1's), so both raise.
-# - C1 /4 with a memory operand (SHL [BW],imm8, C0 27 04's word control): decode takes every C1
-#   form to shift_imm without looking at mod, so the memory form decodes to a register shift (no
-#   read, no write), not the rmw class its D1 / D3 / D0 / D2 twins take.
-F38_UNMODELLED = {
-    **{F38_FORM[("imm8", op)]: "AL,imm8: decode raises (the 00-3F block, bits 2:0 = 4)"
-       for op in F38_OPS},
-    F38_FORM[("shb", "al_imm")]: "C0: decode raises (no C0 case)",
-    F38_FORM[("shb", "mb_imm")]: "C0: decode raises (no C0 case)",
-    F38_FORM[("shb", "m_imm")]: "C1 with a memory operand: decodes to shift_imm, not rmw",
-}
+# (WP97) the F38 forms sim/templates.decode did not take to their catalog class and length (the
+# eight op AL,imm8 forms, 04 0C 14 1C 24 2C 34 3C, raised: the 00-3F block had no bits 2:0 = 4
+# case; C0 /4, SHL AL,imm8 and SHL byte [BW],imm8, raised: no C0 case; C1 /4 with a memory
+# operand decoded to shift_imm, no read or write). (WP98) decode takes them into their existing
+# classes (imm as A8, shift_imm as C1's register form, rmw as D1 / D3's memory forms, the count
+# from the immediate byte): none is left.
+F38_UNMODELLED: dict[str, str] = {}
 UNMODELLED_FORMS = frozenset(F38_UNMODELLED)
