@@ -109,6 +109,7 @@ class EU:
         self.str_rep = False            # (WP76) a REP string form is running
         self.sreg: str | None = None    # (WP76) the running form's Op.sreg
         self.lea_split = False          # (WP76) lea_disp: the running LDEA's d16 is split
+        self.lea_fend: int | None = None  # (WP119) lea_wb=fetch: the LDEA's start clock
         self.nw_t: int | None = None    # (WP76) str_io_setup: the nowait step's first clock
         self.nw_run: int | None = None  # (WP76) ... the wait clock it counted
         self.wb = 0                     # write-back tail of the instruction now running
@@ -303,6 +304,13 @@ class EU:
             return False                 # (WP26) io_b2b: a shallow queue, it waits out the fetch
 
         self.wb_until = end + self.wb
+        if self.lea_fend is not None:
+            # (WP119) lea_wb=fetch: the LDEA before this form started on a fetch's issue clock;
+            # its result's write-back runs to lea.fwb clocks after that fetch's last clock
+            f = [c for c in self.bus.cycles[-6:] if c.kind == "fetch" and c.start == self.lea_fend]
+            if f:
+                self.wb_until = max(self.wb_until, f[-1].end + cfg.c("lea", "fwb"))
+            self.lea_fend = None
         self.done_t = None
         # (WP19) a memory operand form may have its own write-back (mwb), as its own mexec
         self.wb = cfg.c(op.cls, "mwb" if op.ea is not None and "mwb" in cfg.cost.get(op.cls, {})
@@ -320,6 +328,9 @@ class EU:
                           and not (self.decoder.queue.base + op.offset + op.length - 1) & 1
                           and not (cur is not None and cur.kind.startswith("io")
                                    and cur.start == t))
+        if cfg.lea_wb == "fetch" and op.cls == "lea":
+            self.lea_fend = t           # (WP119) lea_wb=fetch: LDEA's start clock (the next
+                                        # start looks for a fetch issued on it)
         self._sreg_hold(op)             # (WP76) sreg_io=hold
         self.str_single = op.cls in STRING_CLASSES and op.rep is None   # (WP101)
         # (WP101) str_single_start=write: an unprefixed string form's first cycle issues no
@@ -397,6 +408,7 @@ class EU:
         self.modrm = op.modrm
         self.mem = op.ea is not None and not (not op.bus and cfg.lea_form == "reg")
         self.op_len, self.imm_bytes, self.taken = op.length, op.imm_bytes, 0
+        self.op_addr = self.decoder.queue.base + op.offset   # (WP119) late_disp_word
         self.disp = op.disp             # (WP27) displacement bytes (sync_req=disp)
         self.page_mem = bool(op.page) and op.ea is not None     # (WP112) a 0F memory form
         # (WP112) page_cl=thru: a 0F memory form's CL index clocks, the part of its read's setup
@@ -1557,9 +1569,23 @@ class EU:
         self.stalled += n
 
     def _late_fetch(self, t: int) -> bool:
-        """(WP27) a fetch is on the bus past its second clock (its wait states or last clock)."""
+        """(WP27) a fetch is on the bus past its second clock (its wait states or last clock);
+        (WP119) late_disp_word=word: and that fetch's word holds an operand byte still to take;
+        split: not for a memory-indirect transfer's two-byte displacement whose first byte is the
+        odd half of a word."""
         cur = self.bus.current
-        return cur is not None and cur.kind == "fetch" and cur.start + 2 <= t <= cur.end
+        if not (cur is not None and cur.kind == "fetch" and cur.start + 2 <= t <= cur.end):
+            return False
+        if self.cfg.late_disp_word == "split" and self.ccls in XFER_MEM:
+            need = self.decoder.need
+            first = self.op_addr + self.op_len - need
+            return not (need == 2 and first & 1)
+        if self.cfg.late_disp_word == "word" and cur.addr is not None:
+            w = cur.addr & ~1
+            need = self.decoder.need
+            last = self.op_addr + self.op_len - 1
+            return any(w <= a <= w + 1 for a in range(last - need + 1, last + 1))
+        return True
 
     def _late_read(self, t: int) -> bool:
         """late_read: on t a fetch is past its second clock and this take is the
@@ -1805,6 +1831,12 @@ class EU:
                     recover=self.cfg.io_recover, whole=whole)
         r.dwlike = dwlike
         r.restart = restart              # (WP107) call_far_post=take
+        if (self.cfg.str_in_io == "free" and kind == "io_read" and cls == "str_in"
+                and self.str_single):
+            # (WP119) str_in_io=free: an unprefixed INM's I/O read counts its setup as a memory
+            # request's (data_while_fetch), its last str_in.ufree clocks fetch-free
+            r.nowait = False
+            r.free_need = cost.get("ufree", 0)
         # (WP58) refresh_io_stall (read with refresh on only)
         r.io_stall = io and self.refresh is not None and self.cfg.refresh_io_stall == "step"
         if io and self.refresh is not None:

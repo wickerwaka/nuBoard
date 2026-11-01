@@ -1075,6 +1075,51 @@ OPTIONS = {
     # it), won 0, lost F32 6 F34 6 (the -l0-k1-pO / -k1-pO w1/w2 d8 / d16 / direct cells);
     # with page_start=b2b lost F34 10.
     "page_disp": ("go", "hold"),
+    # (WP119, F40, 2026-11-01) pre_modrm: under room_ir_pre=modrm the ModR/M byte of TEST r,r /
+    # INC / DEC r8 counts as gone from the queue on every clock of the form's pre clocks (start)
+    # / only on a word's delivery clock, the empty IR still counted as room on the others
+    # (arrival). F40-out-reg-testdl-k4-pO-w0, rel t_fill: the third TEST DL,AL (odd) starts 95,
+    # the clock after the second's ModR/M take on F91's delivery, 6 bytes queued; silicon F98
+    # F101 O119 (start: F95 F99 O117). Started on the delivery clock itself (the second TEST at
+    # 91, F33's INC AL k2) silicon fetches on the start clock under both. PROTOTYPE (WP119),
+    # scored not fitted: F40 +3, lost 0 on all 42 lists.
+    "pre_modrm": ("start", "arrival"),
+    # (WP119, F39/F30/F25, 2026-11-01) lea_wb: LDEA writes its register back within its clocks
+    # (none) / started on a fetch's issue clock, its result's write-back runs to lea.fwb clocks
+    # after that fetch's last clock, seen only by a form that waits for one (wbsync: the port
+    # OUT; the PUSH after the same start is exact either way) (fetch). F39-out-str-movbk-ldea-
+    # pE-w1, rel t_fill: LDEA AW,[BW] starts 112 on F112's issue (last clock 115); silicon F128
+    # O132, the OUT starting at 120 (none: F126 O130). WP92's S5 ("a flat lea.wb loses"): the
+    # write-back is not flat but anchored on that fetch. PROTOTYPE (WP119), scored not fitted:
+    # F39 +14, F30 +12, F25 +4, lost 0 on all 42 lists (fwb 4: +0; 6: -56).
+    "lea_wb": ("none", "fetch"),
+    # (WP119, F39, 2026-11-01) str_in_io: an unprefixed INM's I/O read counts its setup as
+    # str_count says (nowait: every clock but a memory cycle's wait state) / as a memory data
+    # request's, its last str_in.ufree clocks fetch-free (free). F39-push-str-inm-ld-pE-w1,
+    # rel t_fill: INM (odd) starts 82 on F82's issue (one wait state, last clock 85); silicon I91
+    # (nowait: I92); MOVBK in the same cell reads at 92, 7 after the fetch, under either.
+    # PROTOTYPE (WP119), scored not fitted: F39 +10, lost 0 on all 42 lists (ufree 5: +5).
+    "str_in_io": ("nowait", "free"),
+    # (WP119, F40/F37, 2026-11-01) xfer_mem_room: under xfer_mem_ir=hold and ea_ir_room a
+    # memory-indirect transfer's empty IR is no seventh slot for the request rule until its
+    # pointer read issues (hold) / except on a word's arrival clock while two or more of its
+    # operand bytes are still to take (arrival). F40-out-ind-callm-k2-pE-w0, rel t_fill: the
+    # second CALL [0C00h] (odd) starts 187 on F184's delivery, the word's second byte latched;
+    # silicon F187 D195 (hold: F192). Alone it wins nothing: the pointer read then comes a clock
+    # late (D196) under late_disp_word=any (WP107's "-sep" finding). PROTOTYPE (WP119), scored
+    # not fitted: with late_disp_word=split F40 +18, F37 +12, lost 0 on all 42 lists.
+    "xfer_mem_room": ("hold", "arrival"),
+    # (WP119, F40/F37, 2026-11-01) late_disp_word: under sync_req=disp / late_disp=all a
+    # displacement due while a fetch is on the bus past its second clock waits for that fetch's
+    # delivery whatever word it brings (any) / only when that word holds an operand byte still to
+    # take (word: -90 on F37 F39 F40, the even [0C00h] cells wait for a word that does not hold
+    # their displacement) / except a memory-indirect transfer's two-byte displacement whose first
+    # byte is the odd half of a word, taken without that wait (split; for every class: -389, the
+    # loads' and RMWs' split d16 do wait). F37-out-indm-brm-sep-pE-w1, rel t_fill: BR [0C00h]
+    # (odd) starts 109 on F105's delivery, F109 issued there (xfer_mem_room=arrival); silicon
+    # D118 (any: the displacement taken on F109's delivery 113, D119). PROTOTYPE (WP119), scored
+    # not fitted: alone nothing moves (no fetch runs at those takes).
+    "late_disp_word": ("any", "word", "split"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1183,7 +1228,7 @@ DEFAULT_COST = {
 # The values are the hand read-offs stage 9 starts from (WP52; the fit's own are in fit.json):
 # XLAT, POP sreg and DISPOSE read with POP AW's setup and setup_free, PUSH imm and PREPARE
 # write with PUSH AW's, PUSH sreg one clock above it, MOV sreg,m16 the load's exec plus one.
-    "lea": {"pre": 0, "exec": 0, "nx": 2},
+    "lea": {"pre": 0, "exec": 0, "nx": 2, "fwb": 5},   # (WP119) fwb: lea_wb=fetch
     "xlat": {"pre": 0, "setup": 7, "setup_free": 3, "exec": 2},
     "load_seg": {"pre": 0, "pre0": 2, "dfloor": 2, "exec": 3},
     "push_imm": {"pre": 3, "setup": 7, "setup_free": 3, "post": 0},
@@ -1324,7 +1369,7 @@ DEFAULT_COST = {
                  "uwb": 0, "ugap": 1},
     "str_in": {"pre": 0, "setup": 9, "mid": 4, "exec": 4, "rpre": 5, "zexit": 11, "first": 15,
                "loop": 6, "rexit": 12, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
-               "uwb": 1, "ugap": 1},
+               "uwb": 1, "ugap": 1, "ufree": 6},   # (WP119) ufree: str_in_io=free
     "str_out": {"pre": 0, "setup": 11, "mid": 6, "exec": 3, "nx": 1, "rpre": 5, "zexit": 11,
                 "first": 16, "loop": 6, "last": 1, "rexit": 13, "xwb": 0, "xsplit": 0, "xfetch": 0, "zfetch": 0,
                 "uwb": 0, "ugap": 0},
@@ -1701,6 +1746,11 @@ class Config:
     page_mt_end: str = "none"          # (WP118)
     page_mem_from: str = "start"       # (WP118)
     page_disp: str = "go"              # (WP118)
+    pre_modrm: str = "start"           # (WP119)
+    lea_wb: str = "none"               # (WP119)
+    str_in_io: str = "nowait"          # (WP119)
+    xfer_mem_room: str = "hold"        # (WP119)
+    late_disp_word: str = "any"        # (WP119)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

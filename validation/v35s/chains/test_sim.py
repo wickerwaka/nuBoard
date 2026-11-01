@@ -8154,6 +8154,49 @@ class PageMtEndWP118(unittest.TestCase):
 
     def _exact(self, cid, **over):
         sil, mod = _ev118(cid, **over)
+# (WP119, F39/F40/F37/F25/F30, 2026-11-01) the non-0F remainder of F39 and F40 re-read under the
+# fifty-ninth fit: TEST r,r's ModR/M byte counts as gone only on a word's delivery clock
+# (pre_modrm=arrival); LDEA started on a fetch's issue clock writes its result back to lea.fwb
+# clocks after that fetch's last clock, which the port OUT waits out (lea_wb=fetch); an
+# unprefixed INM's I/O read counts its setup as a memory data request, its last str_in.ufree
+# clocks fetch-free (str_in_io=free); a memory-indirect transfer started on a word's delivery
+# clock keeps the empty IR as the request rule's seventh slot while two or more operand bytes
+# are to take (xfer_mem_room=arrival), and its split displacement (first byte the odd half of a
+# word) is taken without waiting for the delivery of a fetch on the bus (late_disp_word=split)
+WP119 = {"pre_modrm": "arrival", "lea_wb": "fetch", "str_in_io": "free",
+         "xfer_mem_room": "arrival", "late_disp_word": "split", "lea.fwb": 5, "str_in.ufree": 6}
+# the pre-WP119 values, pinned for the "old" traces so they hold after an adoption, with the
+# tracked values these forms read
+_OLD119 = {"pre_modrm": "start", "lea_wb": "none", "str_in_io": "nowait",
+           "xfer_mem_room": "hold", "late_disp_word": "any",
+           "room_ir_pre": "modrm", "room_ir": "arrival_idle", "word_latch": "byte_d",
+           "latch_midtake": True, "lea_io": "recover", "lea_room": "ir", "lea_slot": "ea",
+           "lea_disp": "run", "wb_from": "end", "out.wbsync": 1, "str_count": "dw",
+           "io_count": "nowait", "str_single_start": "write", "str_single_wb": "index",
+           "xfer_mem_ir": "hold", "xfer_mem_disp": "grp", "xfer_mem_head": "lead",
+           "ea_ir_room": True, "late_disp": "all", "sync_req": "disp", "str_in.setup": 9,
+           "call_mem.grp": 6, "call_mem.dhold": 3, "br_mem.grp": 6, "br_mem.dhold": 3}
+_NEW119 = ("pre_modrm", "lea_wb", "str_in_io", "xfer_mem_room", "late_disp_word")
+_KEEP119 = {k: v for k, v in _OLD119.items() if k not in _NEW119}
+
+
+def _ev119(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit, the values WP119's
+    forms read pinned (_KEEP119) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(**{**_KEEP119, **over}),
+                            s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class RemainderWP119(unittest.TestCase):
+    """(WP119) the second instances and successors of F39 and F40 outside the 0F page: each new
+    value against its old one on its deciding run, the controls exact under both."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev119(cid, **over)
         self.assertEqual(mod, sil, cid)
         return mod
 
@@ -8214,4 +8257,89 @@ class PageMtEndWP118(unittest.TestCase):
                                           s.chain_base)
                 old = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **_OLD118}),
                                           s.chain_base)
+        for name in _NEW119:
+            self.assertEqual(OPTIONS[name][0], _OLD119[name], name)
+            self.assertEqual(getattr(DEFAULT, name), _OLD119[name], name)
+
+    def test_pre_modrm_deciding_run(self):
+        # the third TEST DL,AL (odd) starts 95, the clock after the second's ModR/M take on F91's
+        # delivery (its second byte latched), 6 bytes queued: silicon F98 F101 O119 (start: the
+        # fetch on the start clock, F95 F99 O117)
+        cid = "F40-out-reg-testdl-k4-pO-w0"
+        mod = self._exact(cid, **WP119)
+        self.assertIn((98, "fetch"), _at114(mod))
+        self.assertIn((119, "io_write"), _at114(mod))
+        _, old = _ev119(cid, **_OLD119)
+        self.assertIn((95, "fetch"), _at114(old))
+        self.assertIn((117, "io_write"), _at114(old))
+        # started on the delivery clock itself the second instance still fetches there (F91),
+        # and WP114's INC AL control
+        for c in ("F40-out-reg-testdl-k2-pO-w0", "F33-out-inc_al-k2-pO-w0"):
+            self._exact(c, **WP119)
+            self._exact(c, **_OLD119)
+
+    def test_lea_wb_deciding_run(self):
+        # LDEA AW,[BW] (odd) starts 112 on F112's issue after MOVBK; silicon's OUT: F128 and the
+        # I/O at 132, the OUT starting 5 clocks after F112's last clock (none: F126 O130)
+        cid = "F39-out-str-movbk-ldea-pE-w1"
+        mod = self._exact(cid, **WP119)
+        self.assertIn((128, "fetch"), _at114(mod))
+        self.assertIn((132, "io_write"), _at114(mod))
+        _, old = _ev119(cid, **_OLD119)
+        self.assertIn((126, "fetch"), _at114(old))
+        self.assertIn((130, "io_write"), _at114(old))
+        # the PUSH after the same start and the NOP-led LDEA (its OUT behind the back-to-back
+        # fetch) exact under both
+        for c in ("F39-push-str-movbk-ldea-pO-w1", "F30-out-lea-bw-nopb-pE-w1"):
+            self._exact(c, **WP119)
+            self._exact(c, **_OLD119)
+
+    def test_str_in_io_deciding_run(self):
+        # INM (odd) under PUSH starts 82 on F82's issue (one wait state): silicon I91, 6 clocks
+        # after the fetch's last clock (nowait: I92); MOVBK in the same cell reads at 92
+        cid = "F39-push-str-inm-ld-pE-w1"
+        mod = self._exact(cid, **WP119)
+        self.assertIn((91, "io_read"), _at114(mod))
+        _, old = _ev119(cid, **_OLD119)
+        self.assertIn((92, "io_read"), _at114(old))
+        for c in ("F39-push-str-movbk-ld-pE-w1", "F39-push-str-inm-ld-pO-w1",
+                  "F39-push-str-inm-ld-pE-w0"):
+            self._exact(c, **WP119)
+            self._exact(c, **_OLD119)
+
+    def test_xfer_mem_room_deciding_runs(self):
+        # the second CALL [0C00h] (odd) starts 187 on F184's delivery with the word's second
+        # byte latched: silicon F187 D195 (hold: F192); the fetch alone (late_disp_word=any)
+        # puts the pointer read a clock late (D196)
+        cid = "F40-out-ind-callm-k2-pE-w0"
+        mod = self._exact(cid, **WP119)
+        self.assertIn((187, "fetch"), _at114(mod))
+        self.assertIn((195, "data_read"), _at114(mod))
+        _, old = _ev119(cid, **_OLD119)
+        self.assertIn((192, "fetch"), _at114(old))
+        _, half = _ev119(cid, **{**WP119, "late_disp_word": "any"})
+        self.assertIn((196, "data_read"), _at114(half))
+        # F37's BR [0C00h] behind a NOP: silicon F109 D118 (hold: F114)
+        cid = "F37-out-indm-brm-sep-pE-w1"
+        mod = self._exact(cid, **WP119)
+        self.assertIn((109, "fetch"), _at114(mod))
+        self.assertIn((118, "data_read"), _at114(mod))
+        _, old = _ev119(cid, **_OLD119)
+        self.assertIn((114, "fetch"), _at114(old))
+        # the even form (its whole-word displacement waits for the fetch's delivery) and the
+        # first instances exact under both
+        for c in ("F37-out-indm-callm-n0-pE-w1", "F37-out-indm-callm-n0-pO-w1",
+                  "F40-out-ind-callm-k2-pO-w1"):
+            self._exact(c, **WP119)
+            self._exact(c, **_OLD119)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP119's values
+        for fam in ("F3", "F14", "F21", "F36"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**_KEEP119, **WP119}), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**_KEEP119, **_OLD119}), s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)

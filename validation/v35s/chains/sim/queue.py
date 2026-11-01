@@ -100,6 +100,8 @@ QUEUE_BYTES = 6            # physical queue storage, not a parameter
 ROOM_IR_PRE_CLASSES = {"test": ("test_reg",), "modrm": ("test_reg", "incdec")}
 # (WP107) far_room=take: the far forms with a five-byte operand (BR far, CALL far)
 FAR_ROOM_CLASSES = ("branch_far", "call_far")
+# (WP119) xfer_mem_room=arrival: the memory-indirect transfers (eu.XFER_MEM)
+XFER_MEM_CLASSES = ("call_mem", "br_mem", "call_far_mem", "branch_far_mem")
 WORD = 2
 
 
@@ -303,7 +305,7 @@ class Queue:
                 and (self.decoder.need == 0 or self._pre_room(t)) and not self._imm16(t)) or (
                 cfg.room_ir == "arrival_ready" and self.decoder is not None
                 and self.decoder.need == 0 and (t is None or t >= self.decoder.ready_at)):
-            if (self.decoder is not None and (self.decoder.ir_hold
+            if (self.decoder is not None and not self._xfer_arrival(t) and (self.decoder.ir_hold
                     and (self.decoder.need == 0 or cfg.ea_ir_room and t is not None
                          and self.decoder.ea_end is not None and t < self.decoder.ea_end)
                     or self.decoder.lea_wait and self.decoder.need > 0 and cfg.ea_ir_room
@@ -321,7 +323,8 @@ class Queue:
                 and self.lea_ea is not None and self.lea_ea[0] <= t < self.lea_ea[1]):
             used -= 1           # (WP72) lea_room=ir: during LDEA's EA clocks after its last
                                 # operand byte, the IR's opcode is not counted (config.py)
-        if cfg.room_ir_pre == "modrm" and self.decoder is not None and self._pre_room(t):
+        if (cfg.room_ir_pre == "modrm" and self.decoder is not None and self._pre_room(t)
+                and not (cfg.pre_modrm == "arrival" and t != self.arrived_t)):
             used -= 1           # (WP114) room_ir_pre=modrm: the ModR/M byte, latched by the
                                 # decoder with the opcode, is no queue byte for the rule
         if cfg.modrm_mate and t is not None and t == self.arrived_t == self.mate_t:
@@ -330,6 +333,13 @@ class Queue:
                 and t == self.removed_t):
             used -= 1           # the delivered word's second byte is counted a clock later
         return size - used
+
+    def _xfer_arrival(self, t: int | None) -> bool:
+        """(WP119) xfer_mem_room=arrival: on a word's arrival clock a memory-indirect transfer
+        (XFER_MEM_CLASSES) with two or more operand bytes still to take leaves the empty IR the
+        request rule's seventh slot: xfer_mem_ir's hold and ea_ir_room do not take it away."""
+        return (self.cfg.xfer_mem_room == "arrival" and t is not None and t == self.arrived_t
+                and self.decoder.cls in XFER_MEM_CLASSES and self.decoder.need >= 2)
 
     def _far_take(self) -> bool:
         """(WP107) far_room=take: a far form (FAR_ROOM_CLASSES) with only its segment word's

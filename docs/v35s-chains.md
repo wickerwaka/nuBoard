@@ -6163,6 +6163,59 @@ eight displacement cells on the pE back-to-back commitment after a displacement 
 test_sim.PageMtEndWP118 (`_OLD118`), test_fit's stage-36 class. Stage 36 (WP120) from this hand start: the
 sixtieth fit (Model).
 
+### F39's and F40's non-0F remainder re-read: the memory-indirect transfer's IR slot and split displacement, LDEA's fetch-anchored write-back, INM's I/O read setup, the ModR/M byte's departure on a delivery clock (WP119, 2026-11-01; a candidate)
+
+The 80 non-0F misses of F35, F37, F39 and F40 (scratchpad wp119/facts.txt, wonlost.txt) all still miss under the
+fifty-ninth fit as their first readings said; no later mechanism moved any. Re-read against the exact cells of the same
+forms, 57 of them are four mechanisms and 23 stay facts.
+
+**The memory-indirect transfers (F40 `ind-callm` k = 2 / 4, 18; F37 `*-sep`, 12: one shape).** Of the 336 [0C00h]
+instances in F37, F39 and F40, the odd transfers starting on an idle bus with 5 bytes queued split on one thing: whether
+the start clock is a word's delivery with the second byte latched. Unlatched (always exact) the take is at start + 2,
+silicon's first fetch at start + 5, the pointer read at start + 8 / 9 / 10; latched (every one a miss) silicon fetches
+on the start clock and still reads at start + 8 / 9 / 10. The model misses because `xfer_mem_ir`'s hold and
+`ea_ir_room` take away the IR slot the arrival rule grants (room 1, no fetch: WP104's X5); giving the slot back fixes
+the fetch but puts the read a clock late (WP107's "-sep" finding), because `late_disp` makes the displacement wait for
+that fetch's delivery where silicon takes it on the fetch's last clock (read = fetch end + 6 at every wait); the even
+cells, whose displacement is a whole word, do wait. Enums `xfer_mem_room` (hold → arrival: on a word's arrival clock a
+memory-indirect transfer with two or more operand bytes still to take keeps the empty IR as the request rule's seventh
+slot, WP107's `far_room` "exactly one byte left" seen from the other side) and `late_disp_word` (any → split: a
+memory-indirect transfer's two-byte displacement whose first byte is the odd half of a word does not wait for the
+fetch on the bus; `word`, waiting only for a word that holds an operand byte, loses 90; `split` for every class loses
+389, the loads' and RMWs' split d16 do wait). Together **F40 +18, F37 +12** (F37 432/432); either alone moves nothing.
+
+**TEST DL,AL repeated (F40 `testdl`, 11): three sub-shapes.** T1 (6): the third odd TEST starts the clock after the
+second's ModR/M take, which landed on a delivery clock with a byte latched, 6 bytes queued; the model fetches on the
+start clock, silicon at the take; started on the delivery clock itself (k = 2 pO, F33's INC AL k = 2 control) silicon
+does fetch at the start. Enum `pre_modrm` (start → arrival: under `room_ir_pre=modrm` the ModR/M byte counts as gone
+from the queue only on a word's delivery clock, the empty IR still room on the other pre clocks): **F40 +3**. T2 (6): a
+PUSH started right after such a take writes a clock late in silicon; every start in this state across 14 families (18)
+follows TEST DL,AL in F40, so a rule would key on the predecessor: a fact. T3 (2, w0): keyed on the wait count of the
+fetch issued on TEST's start (WP104): a fact.
+
+**LDEA behind the string forms (F39 `str-*-ldea`, 14; WP92's S5).** Every LDEA [BW] started on a fetch's issue clock
+across F25, F30 and F39: silicon's port OUT starts at the later of that fetch's last clock + 5 and a back-to-back
+fetch's end + 1, at every wait and alignment; the model starts it 1–2 clocks early; all 72 PUSHes after the same starts
+are exact, so only a form that waits for a write-back (the OUT sends AL) sees it. Enum `lea_wb` (none → fetch: LDEA
+started on a fetch's issue clock writes its result back `lea.fwb` 5 clocks after that fetch's last clock; anchored on
+the fetch, which is why WP92's flat `lea.wb` lost; fwb 4 wins 0, 6 loses 56): **F39 +14, F30 +12, F25 +4**.
+`ctl-ldea-s` pE w0 (1) is WP92's S3, the same trace as F25-out-ldea-bw-pE-w0: a fact (a rule would key on what the IR
+holds).
+
+**INM under the PUSH frame (F39, 10).** The 15 unprefixed INMs that start on a fetch's issue clock are all these cells:
+silicon's I/O read at 90 / 91 / 93 (w0 / w1 / w2), the later of the floor and the fetch's end + 6, where MOVBK's memory
+read in the same state is at 90 / 92 / 94, fetch end + 7, and exact. Enum `str_in_io` (nowait → free: the unprefixed
+INM's I/O read counts its setup as a memory data request's, its last `str_in.ufree` 6 clocks fetch-free, not by
+`str_count=dw`'s rule; ufree 5 wins 5): **F39 +10**.
+
+**Facts.** BR far at w0 (F40 `xfer-brf` 8, F35 `far-brf` 4): as WP107 said, silicon refills at the end of the fetch
+committed on the flush clock + 4 at w0 and + 6 at w1 / w2, which the model gives; a rule would key on that fetch's wait
+count for BR far alone. F35 `loop-dbnz-nop` (2): the even taken DBNZ on an aborted cycle exists only in these runs and
+the odd ones in the same model state are exact; a rule would key on alignment with no control.
+
+The four kept together: **+73, 0 lost** on all 42 lists (34,225 → 34,298 against the fifty-ninth fit; byte-identical
+to a clean 9eed304 at the defaults). Tests test_sim.RemainderWP119 (`_OLD119`). The fit stage is WP121.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
