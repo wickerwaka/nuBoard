@@ -1441,7 +1441,7 @@ class SecondInstanceStage(unittest.TestCase):
             ["--stage", "28", "--to", "29"])
         self.assertEqual(args.to, 29)
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
-            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "35"])
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "36"])
 
     def test_run_stage_dispatches_29(self):
         with mock.patch.object(fit, "stage29", return_value={"config": {}}) as s29, \
@@ -1520,7 +1520,7 @@ class FarTransferStage(unittest.TestCase):
             ["--stage", "29", "--to", "30"])
         self.assertEqual(args.to, 30)
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
-            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "35"])
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "36"])
 
     def test_run_stage_dispatches_30(self):
         with mock.patch.object(fit, "stage30", return_value={"config": {}}) as s30, \
@@ -1594,7 +1594,7 @@ class WaitKeyedStage(unittest.TestCase):
             ["--stage", "30", "--to", "31"])
         self.assertEqual(args.to, 31)
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
-            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "35"])
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "36"])
 
     def test_run_stage_dispatches_31(self):
         with mock.patch.object(fit, "stage31", return_value={"config": {}}) as s31, \
@@ -1681,7 +1681,7 @@ class MultiplyStage(unittest.TestCase):
             ["--stage", "31", "--to", "32"])
         self.assertEqual(args.to, 32)
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
-            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "35"])
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "36"])
 
     def test_run_stage_dispatches_32(self):
         with mock.patch.object(fit, "stage32", return_value={"config": {}}) as s32, \
@@ -1763,7 +1763,7 @@ class PageFormsStage(unittest.TestCase):
             ["--stage", "32", "--to", "33"])
         self.assertEqual(args.to, 33)
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
-            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "35"])
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "36"])
 
     def test_run_stage_dispatches_33(self):
         with mock.patch.object(fit, "stage33", return_value={"config": {}}) as s33, \
@@ -1853,7 +1853,7 @@ class MiscellanyStage(unittest.TestCase):
             ["--stage", "33", "--to", "34"])
         self.assertEqual(args.to, 34)
         with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
-            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "35"])
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "36"])
 
     def test_run_stage_dispatches_34(self):
         with mock.patch.object(fit, "stage34", return_value={"config": {}}) as s34, \
@@ -1872,3 +1872,79 @@ class MiscellanyStage(unittest.TestCase):
             fit.run_stage(33, {"config": DEFAULT.to_json()}, log=lambda *a: None)
         s33.assert_called_once()
         s34.assert_not_called()
+
+
+class LeadKeyedStartStage(unittest.TestCase):
+    """(WP117) stage 35: page_start and page_mtake with every value (WP116's reg and eu among
+    them) over F32, F34, F39 and F40 (the lists that run the 0F register forms, memory forms and
+    bit fields), every integer of bit1, bit1_test, bit1_rmw, bit1_clr, rol4, ror4, bf_ext and
+    bf_ins descended, the corpus guard as its guard."""
+
+    def test_stage_35_families_enums_and_integers(self):
+        from pathlib import Path
+        from validation.v35s.chains.sim.config import DEFAULT_COST, OPTIONS
+        self.assertEqual(fit.STAGE_FAMILIES[35], ["F32", "F34", "F39", "F40"])
+        self.assertEqual(set(fit.F61_ENUMS), {"page_start", "page_mtake"})
+        for name, values in fit.F61_ENUMS.items():
+            self.assertEqual(values, OPTIONS[name])
+            # the old value first (DEFAULT): a tie keeps it
+            self.assertEqual(values[0], getattr(DEFAULT, name))
+        self.assertEqual(set(fit.F61_ENUMS["page_start"]), {"hold", "b2b", "reg"})
+        self.assertEqual(set(fit.F61_ENUMS["page_mtake"]), {"none", "deliver", "eu"})
+        self.assertEqual(set(fit.F61_CLASSES), {
+            "bit1", "bit1_test", "bit1_rmw", "bit1_clr", "rol4", "ror4", "bf_ext", "bf_ins"})
+        for cls in fit.F61_CLASSES:
+            for name in DEFAULT_COST[cls]:
+                self.assertIn(f"{cls}.{name}", fit.F61_INTS)
+        # every integer the tracked fit carries for the eight classes
+        tracked = json.loads((Path(fit.__file__).parent / "fit.json").read_text())
+        for cls in fit.F61_CLASSES:
+            for name in tracked["cost"].get(cls, {}):
+                self.assertIn(f"{cls}.{name}", fit.F61_INTS)
+        self.assertEqual({p.split(".")[0] for p in fit.F61_INTS}, set(fit.F61_CLASSES))
+        self.assertEqual(len(fit.F61_INTS), len(set(fit.F61_INTS)))
+
+    def test_stage_35_needs_the_corpus_guard(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", None):
+            with self.assertRaises(SystemExit):
+                fit.stage35({"config": DEFAULT.to_json()}, log=lambda *a: None)
+
+    def test_stage_35_calls_stage_n(self):
+        with mock.patch.object(fit, "CORPUS_GUARD", ["x"]), \
+                mock.patch.object(fit, "stage_n", return_value={"config": {}}) as sn:
+            fit.stage35({"config": DEFAULT.to_json()}, log=lambda *a: None)
+        args, kw = sn.call_args
+        self.assertEqual(args[0], 35)
+        self.assertEqual(args[2], fit.F61_ENUMS)
+        self.assertEqual(args[3], fit.F61_INTS)
+        self.assertEqual(kw["sweep"], fit.F61_ENUMS)
+        self.assertEqual(kw["top_k"], 2)
+        self.assertFalse(kw["guard"])
+
+    def test_cli_accepts_stage_35(self):
+        import argparse
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "35"])
+        self.assertEqual(args.stage, 35)
+        args = fit.add_arguments(argparse.ArgumentParser()).parse_args(
+            ["--stage", "34", "--to", "35"])
+        self.assertEqual(args.to, 35)
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            fit.add_arguments(argparse.ArgumentParser()).parse_args(["--stage", "36"])
+
+    def test_run_stage_dispatches_35(self):
+        with mock.patch.object(fit, "stage35", return_value={"config": {}}) as s35, \
+                mock.patch.object(fit, "stage34") as s34, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(35, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s35.assert_called_once()
+        s34.assert_not_called()
+
+    def test_run_stage_dispatches_34_not_35(self):
+        with mock.patch.object(fit, "stage34", return_value={"config": {}}) as s34, \
+                mock.patch.object(fit, "stage35") as s35, \
+                mock.patch.object(fit, "save", return_value="x"), \
+                mock.patch.object(fit, "CORPUS_GUARD", None):
+            fit.run_stage(34, {"config": DEFAULT.to_json()}, log=lambda *a: None)
+        s34.assert_called_once()
+        s35.assert_not_called()
