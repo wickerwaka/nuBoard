@@ -16,6 +16,7 @@
  "burst_count": "dw",
  "burst_wait": "data",
  "bytes_per_clock": 1,
+ "call_far_post": "take",
  "call_order": "write_first",
  "cond_gap": "own",
  "cost": {
@@ -232,6 +233,8 @@
    "setup": 3,
    "setup_free": 3,
    "spre": 2,
+   "tfree": 3,
+   "tsetup": 6,
    "wpre": 1,
    "wsetup": 7
   },
@@ -585,8 +588,8 @@
    "mhold": 6,
    "post": 0,
    "pre": 0,
-   "setup": 6,
-   "setup_free": 4,
+   "setup": 7,
+   "setup_free": 3,
    "wsetup": 8
   },
   "ret_imm": {
@@ -881,6 +884,7 @@
  "ea_floor": false,
  "ea_ir_room": true,
  "ea_post": "clocks",
+ "far_room": "take",
  "fixed_floor": true,
  "fixed_lookup": "decoder_nowait",
  "fixed_lookup_grp": "group",
@@ -1061,6 +1065,7 @@
  "request_reissue": "no_mem",
  "request_sample": "after_take",
  "reraise_off": 0,
+ "ret_far_fetch": "after",
  "ret_imm_hold": "word",
  "retry_first": true,
  "rfm_delay": 3,

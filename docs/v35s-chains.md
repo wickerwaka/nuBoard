@@ -5900,7 +5900,7 @@ fifty-second fit; the edited tree under the unedited fit byte-identical to the c
 test_sim.SecondInstanceWP104, test_fit's stage-29 class. Stage 29 (WP105) from this hand start: the fifty-third fit
 (Model).
 
-### The far transfers' shapes read: the segment's last byte and the IR, CALL far's write from the segment take, RETF imm16's read and its whole-word fetch (WP107, 2026-10-31; a candidate)
+### The far transfers' shapes read: the segment's last byte and the IR, CALL far's write from the segment take, RETF imm16's read and its whole-word fetch (WP107, 2026-10-31; the fifty-fourth fit)
 
 The far forms carried 58 misses across F35 (`far` 26), F40 (CALL far ; RETF 20, BR far 8) and F37 (`farm-brfm-sep` 4)
 under the fifty-second fit with WP104's values. Read with every exact far-form cell beside them (scratchpad
@@ -5939,8 +5939,8 @@ against the flush), they are four mechanisms and two facts:
 
 All four together: **F35 1,016 → 1,038/1,044, F40 875 → 895/1,020, lost 0** on the seven families that run the far or
 transfer classes (F23, F30, F34, F37, F39 byte-identical); every new or moved integer loses runs at ±1 on the 108
-far-form runs (wp107/sens.txt). Tests test_sim.FarTransferWP107. The fit stage is WP108. (The RTL generator would
-reject the new step kind and the nine-field data step; RTL work is stopped.)
+far-form runs (wp107/sens.txt). Tests test_sim.FarTransferWP107, test_fit's stage-30 class. Stage 30 (WP108) from this hand start: the fifty-fourth
+fit (Model). (The RTL generator would reject the new step kind and the nine-field data step; RTL work is stopped.)
 
 ## Model
 
@@ -5961,7 +5961,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-third fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-fourth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6433,10 +6433,16 @@ fifty-second fit plus WP104's second-instance mechanisms, `one_idle=flags`, `xfe
 `F55_INTS`; WP105) from that hand start made one move, `test_reg.nx` 1 → 0 (TEST r,r's successor loads into the IR on the ModR/M take: 9 more TEST DL,AL runs, none lost), kept every hand value and recorded `xfer_nt=dbnz` and `one_idle=reg1` as inert ties. **33748 of 35,168 over 42 lists**: F40 815 → 883/1,020, F34 1,285 →
 1295/1,596, F36 747 → 750/750, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
+**The fifty-fourth fit** (`fit.json`, md5 aea8073c7d455a1ba3435e10f8d73878; scratchpad wp108/fit-wp108.json, adopted 2026-10-31) is the
+fifty-third fit plus WP107's far-transfer mechanisms, `far_room=take`, `call_far_post=take` with `call_far.tsetup` 6 /
+`tfree` 3, `ret_far_fetch=after` and `ret_far_imm.setup` 7 / `setup_free` 3 (Facts "The far transfers' shapes read"):
+fit stage 30 (`F56_ENUMS`, `F56_INTS`; WP108) from that hand start made no move (the family guard refused the enum grid's other seven points, each losing F35 or F40 runs against the hand start; the descent over the 35 far-class integers and the sweep moved nothing). **33790 of 35,168 over 42 lists**: F35
+1,016 → 1038/1,044, F40 883 → 903/1,020, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
-### Fitted structure (fifty-third fit, 2026-10-31)
 
-Fifty-three fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-fourth fit, 2026-10-31)
+
+Fifty-four fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6820,7 +6826,9 @@ WP101's hand start): 33667/35168 over 42 lists, F39 1202/1320, F40 815/1020;
 byte-identical on the other 41 lists. The fifty-third (`fit.json`, 2026-10-31)
 adds the second instance's five mechanisms (`one_idle=flags`, `xfer_nt=dbnz_z`,
 `brk_free=format`, `room_ir_pre=test`, `br_reg.nx` 1; stage 29): 33748/35168,
-F40 883/1020, F34 1295, F36 750.
+F40 883/1020, F34 1295, F36 750. The fifty-fourth (`fit.json`, 2026-10-31) adds
+the far transfers' mechanisms (`far_room=take`, `call_far_post=take`,
+`ret_far_fetch=after`; stage 30): 33790/35168, F35 1038/1044, F40 903/1020.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

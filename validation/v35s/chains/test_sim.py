@@ -7416,6 +7416,9 @@ class SecondInstanceWP104(unittest.TestCase):
 
 WP107 = {"far_room": "take", "call_far_post": "take", "ret_far_fetch": "after",
          "ret_far_imm.setup": 7, "ret_far_imm.setup_free": 3}
+# (fit 54) the pre-WP107 values, pinned for the "old" traces now that the tracked fit carries WP107's
+_OLD107 = {"far_room": "none", "call_far_post": "sync", "ret_far_fetch": "hold",
+           "ret_far_imm.setup": 6, "ret_far_imm.setup_free": 4}
 
 
 class FarTransferWP107(unittest.TestCase):
@@ -7457,7 +7460,7 @@ class FarTransferWP107(unittest.TestCase):
         # the segment taken on 94, F90's delivery, F94 raised there: silicon W100 (sync: W101)
         mod = self._exact("F35-out-far-callf-pO-w1", **WP107)
         self.assertIn((100, "stack_write", 0x0EFE, "word", 4), mod)
-        _, old = _ev101("F35-out-far-callf-pO-w1", **WP104)
+        _, old = _ev101("F35-out-far-callf-pO-w1", **{**WP104, **_OLD107})
         self.assertIn((101, "stack_write", 0x0EFE, "word", 4), old)
         for cid in ("F35-out-far-callf-pE-w1", "F35-push-far-callf-pE-w2",
                     "F40-push-xfer-callfretf-k4-pO-w2"):
