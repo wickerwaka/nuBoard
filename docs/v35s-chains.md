@@ -5688,7 +5688,7 @@ classes; F24 F30 F31 F33; the corpus guard the guard) chose both enums and moved
 30,469 → 30,503 of 31,964**, the other 38 lists byte-identical (the gate: a clean worktree and the work's tree under
 the tracked fit byte-identical on all 39 lists; the candidate won 34, lost 0). Tests test_sim.StringPairSecondInstance,
 test_fit.StringPairStage.
-### The 0F page's 899 misses read as 23 shapes: four mechanisms, nineteen facts with their reasons (WP94, 2026-10-31; a candidate)
+### The 0F page's 899 misses read as 23 shapes: four mechanisms, nineteen facts with their reasons (WP94, 2026-10-31; the fiftieth fit)
 
 Under the forty-seventh fit the 0F page and the register miscellany held 899 refresh-off misses (F34 478, F32 298,
 F33 123). A per-miss state table over all of them (scratchpad wp94/facts.txt PART 3: the first divergence, the EU's
@@ -5737,7 +5737,8 @@ thing a rule would have to key on:
 The four together (wp94/t-all2.json on the forty-seventh fit; wp94r/fit-wp94-on48.json on the forty-eighth): **F32 560
 → 676/858, F34 1,118 → 1,285/1,596, F33 unchanged, won 283, lost 0**, every other list byte-identical; the S02 integers
 help only when all three move, so the fit stage needs that hand start. Tests test_sim.PageHoldsWP94 and
-PageB2bWindowWP94. The RTL implements none of this (RTL work is stopped).
+PageB2bWindowWP94, test_fit.PageMechanismStage. Stage 26 (WP96) from this hand start confirmed it: the fiftieth fit
+(Model). The RTL implements none of this (RTL work is stopped).
 
 ### The ALU operations' memory, byte and immediate forms, the segment prefixes, the byte shift by imm8: class equivalence holds everywhere (F38, 2026-10-31; no fit)
 
@@ -5778,7 +5779,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the forty-ninth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fiftieth fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6212,10 +6213,24 @@ forty-eighth fit plus WP95's `str_single_wb=wb` and `str_single_start=delivery` 
 byte-identical; nothing lost. Stage 25 (`fit.py`). The refresh-off corpus stands at 26,309 of 27,332 (F34 478, F32
 298, F33 123, F29 29, F35 28, F30 21, F25 15, F37 12, F24 10, F22 6, F36 3 missing). Model side only, no RTL work.
 
+**The fiftieth fit** (`fit.json`, md5 7cf5d9ca2a8a9839707e905c1cd0dd68; scratchpad wp96/fit-wp96.json, adopted 2026-10-31) is the
+forty-ninth fit plus WP94's four 0F-page mechanisms at their read-off values, `bf_imm_hold=word`, `page_imm_run=
+delivery`, `page_b2b_win=run`, `bf_ext` span 16 / xspan 45 / wb 2 / hrel 2, `bf_ins.hrel` 0 (Facts "The 0F page's 899
+misses read as 23 shapes"): fit stage 26 (`F52_ENUMS`, `F52_CLASSES`, `F52_INTS`, 71 integers of the eight 0F classes
+the mechanisms read; F32 F33 F34; WP96) ran from that hand start, the family guard refused the enum grid's other seven
+points (each loses 28 to 199 runs against the hand start), and its five integer moves (`bit1_test.nx`, `rol4.exec`,
+`rol4.pre`, `rol4.wb`, `ror4.pre`) each traded runs inside their class (F32 won 6, lost 3 together) and were not
+accepted; the fitter's knob-dependence check reports a different best value per wait count for `rol4.pre`, `ror4.pre`,
+`bit1_test.nx` and `bit1_test.pre`, the trade WP86 reported for the same integers: a structural finding, left. 30,503 →
+**30,786 of 31,964 over 39 lists**: F32 560 → 676/858, F34 1,118 → 1,285/1,596, every other list byte-identical,
+nothing lost. The refresh-off corpus stands at 26,592 of 27,332 (F34 311, F32 182, F33 123, F29 29, F35 28, F30 21,
+F25 15, F37 12, F24 10, F22 6, F36 3 missing); F38 (864 runs) is in the corpus but unmodelled and not scored. Model
+side only, no RTL work.
 
-### Fitted structure (forty-ninth fit, 2026-10-31)
 
-Forty-nine fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fiftieth fit, 2026-10-31)
+
+Fifty fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6586,7 +6601,10 @@ adds F37's six classes and three enums (stage 24 confirming WP91's hand start):
 30469/31964 over 39 lists, F37 420/432; byte-identical on the 38 earlier lists.
 The forty-ninth (`fit.json`, 2026-10-31) adds the unprefixed string pair's
 `str_single_wb=wb` and `str_single_start=delivery` (stage 25): 30503/31964, F24
-902/912; byte-identical on 38 lists.
+902/912; byte-identical on 38 lists. The fiftieth (`fit.json`, 2026-10-31) adds
+the 0F page's four mechanisms (`bf_imm_hold=word`, `page_imm_run=delivery`,
+`page_b2b_win=run`, EXT's write-back integers; stage 26 confirming WP94's hand
+start): 30786/31964, F32 676, F34 1285; byte-identical on 37 lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

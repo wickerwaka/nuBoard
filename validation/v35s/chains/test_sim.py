@@ -5689,6 +5689,8 @@ class PageAndMiscellanyDecode(unittest.TestCase):
 WP78 = {"bf_count": "dw", "page_grp": "group"}
 WP78_INTS = {"adjust.nx0": 8, "adjust.pre0": 10, "adjust.wb": 2, "mul.sexec": 41,
              "div.sexec": 58, "bf_ext.setup": 12, "bf_ext.setup_free": 0, "bf_ext.span": 14,
+             # (fit 50) WP94's EXT write-back moved span / xspan / wb together: pin all three
+             "bf_ext.xspan": 42, "bf_ext.wb": 0,
              "bcd4s.first": 16, "bcd4s.mid": 7, "bcd4s.wmid": 10, "bcd4s.loop": 7,
              "bcd4s.exec": 12, "bcd4s.wb": 2, "bit1_rmw.cl": 1, "bit1_rmw.dfloor": 4,
              "bit1_rmw.pre": 7, "bit1_rmw.grp": 0}
