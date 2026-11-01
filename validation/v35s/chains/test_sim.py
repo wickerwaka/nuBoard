@@ -6169,7 +6169,9 @@ class PageFormRuns(unittest.TestCase):
         sil, mod = _ev86("F34-out-rbit-set1_rw_cl-l0-k1-pO-w0")
         self.assertEqual(mod, sil)
         self.assertIn((91, "fetch"), mod)
-        _, none = _ev86("F34-out-rbit-set1_rw_cl-l0-k1-pO-w0", page_b2b="none")
+        # bit1.nx pinned at its pre-WP120 value 5 (the sixtieth fit, 2026-11-01, moved it to 4,
+        # which reaches F91 without page_b2b)
+        _, none = _ev86("F34-out-rbit-set1_rw_cl-l0-k1-pO-w0", page_b2b="none", **{"bit1.nx": 5})
         self.assertNotIn((91, "fetch"), none)
         self.assertIn((98, "fetch"), none)
         # byte = word, TEST1 = SET1: the same cell exact under the rule

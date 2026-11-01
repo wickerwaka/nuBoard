@@ -6123,7 +6123,7 @@ k = 2, the d-lead SET1 r cells); `deliver` would add F39 +9 and F40 +3 but loses
 neighbour in any class; TEST1 [m],imm at k = 2 pO w1/w2 (4) stay. Tests test_sim.PageStartWP116 (`_OLD116`),
 test_fit's stage-35 class. Stage 35 (WP117) from this hand start: the fifty-ninth fit (Model).
 
-### The waited ModR/M byte reaches the EU a clock late: the bit op's ALU clocks wait for it while the loader keeps its schedule (WP118, 2026-11-01; a candidate)
+### The waited ModR/M byte reaches the EU a clock late: the bit op's ALU clocks wait for it while the loader keeps its schedule (WP118, 2026-11-01; the sixtieth fit)
 
 WP116 left the register bit ops' port-OUT successor a clock early under `page_mtake=eu` and, under `deliver`, a PUSH or
 SET1 successor two clocks late. Tracing all 184 waited instances in F32, F34, F39 and F40 (scratchpad wp118/facts.txt,
@@ -6160,7 +6160,8 @@ setup counted from its post: F32 +2 / F34 +13, lost F32 39 / F34 52 / F39 10), `
 back-to-back commitment after a displacement take: lost F32 6 / F34 6), `page_mtake`'s wait on the memory forms (lost
 31–38, won 0), `page_start=b2b` under `exec` (won 0 of the 28). A rule for the 28 would key on the history; for the
 eight displacement cells on the pE back-to-back commitment after a displacement take. Tests
-test_sim.PageMtEndWP118 (`_OLD118`). The fit stage is WP120.
+test_sim.PageMtEndWP118 (`_OLD118`), test_fit's stage-36 class. Stage 36 (WP120) from this hand start: the
+sixtieth fit (Model).
 
 ## Model
 
@@ -6181,7 +6182,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fifty-ninth fit since 2026-11-01): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the sixtieth fit since 2026-11-01): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6691,10 +6692,16 @@ states of the 0F forms"): fit stage 35 (`F61_ENUMS`, `F61_INTS`; WP117) from tha
 over 42 lists**: F32 752 → 761/858, F34 1,417 → 1445/1,596, the other lists byte-identical, nothing lost. Model side
 only, no RTL work.
 
+**The sixtieth fit** (`fit.json`, md5 791e4919145931047b4e393bd5307518; scratchpad wp120/fit-wp120.json, adopted 2026-11-01) is the
+fifty-ninth fit plus WP118's mechanism, `page_mt_end=exec` with `bit1.mtx` 1 (Facts "The waited ModR/M byte reaches the
+EU a clock late"): fit stage 36 (`F62_ENUMS`, `F62_INTS`; WP120) from that hand start makes no enum move (`none` loses 65, `take` 37, `page_mem_from=post` 101 against 15 won, `page_disp=hold` 12), keeps `bit1.nx` 5 → 4 (+2: F39's SET1 behind a load or store under the PUSH frame at pO w0, 0 lost) and refuses the TEST1 within-class trade again (`bit1_test.pre` 4 → 1: +73 −7, the same cells as WP117). **34292 of 35,168 over
+42 lists**: F32 761 → 785/858, F34 1,445 → 1466/1,596, F39 1,265 → 1282/1,320, F40 941 → 946/1,020, the other
+lists byte-identical, nothing lost. Model side only, no RTL work.
 
-### Fitted structure (fifty-ninth fit, 2026-11-01)
 
-Fifty-nine fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (sixtieth fit, 2026-11-01)
+
+Sixty fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -7093,7 +7100,9 @@ miscellany mechanisms (`room_ir_pre=modrm`, `long_exec=wait`, `one_idle=long`,
 `cvt_hold=word`, `mul_imm_reg=gap`, `bcd_fetch=hold`; stage 34): 34188/35168,
 F33 1026, F32 752, F40 941. The fifty-ninth (`fit.json`, 2026-11-01) adds the 0F forms' start
 on a committed fetch (`page_start=reg`, `page_mtake=eu`; stage 35): 34225/35168,
-F32 761, F34 1445.
+F32 761, F34 1445. The sixtieth (`fit.json`, 2026-11-01) adds the waited ModR/M byte's late
+arrival at the EU (`page_mt_end=exec`, `bit1.mtx` 1; stage 36): 34292/35168,
+F32 785, F34 1466, F39 1282, F40 946.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
