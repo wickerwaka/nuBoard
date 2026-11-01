@@ -6096,6 +6096,33 @@ unchanged; with every new value at its default the edited tree scores byte-ident
 lists. Tests test_sim.MiscellanyWP114 (`_OLD114`), test_fit's stage-34 class. Stage 34 (WP115) from this hand start:
 the fifty-eighth fit (Model).
 
+### The "lead-keyed" start states of the 0F forms: the model's start rule held the form through a committed fetch where silicon starts on its issue (WP116, 2026-11-01; a candidate)
+
+About 200 misses across F32, F34, F39 and F40 (the register bit ops' k = 2 and odd-start cells, SET1 after a transfer,
+the 0F memory forms and bit fields behind NOP NOP) missed in a state every earlier reading found identical to an exact
+cell's except for the history, "the lead". Reconstructing the full history of every such miss and its exact neighbours
+(scratchpad wp116/facts.txt, cand-table.txt) and tabulating exact against missing over eight candidate state variables
+(the 0F and second byte taken as a pair or separately, the IR loaded from a delivery or a stored byte, a commitment or
+take sync persisting from the previous form, the bytes queued at the IR load, the idle clocks before the start, the IR
+load on the predecessor's last take) finds one that separates them with no reference to the lead: **whether the form
+became ready on a clock the bus unit had committed to a back-to-back fetch.** Behind the MOV AW,1234h lead the 0F form
+becomes ready on the issue clock of a fetch committed back to back after MOV's take-sync fetch; under `start_sync=
+b2b_modrm` the model, treating the form as a ModR/M form, waits out that fetch and its flight and starts 3–5 clocks
+late, on the next fetch's issue with 5 bytes queued and one latched, which is exactly the state of the NOP NOP, k = 2,
+MOV CL,imm8 and refill histories. Silicon starts the form on the back-to-back fetch's issue (its first take is the
+page byte, not a ModR/M byte), and a form at an odd address started on a word's delivery clock with a fetch issued
+there takes its ModR/M byte only on the clock after that fetch's word is delivered (the oracle fixes 107 of 117
+register misses and all 35 bit-field misses; holding the start instead fixes none). The variable, `queue.b2b_at` on the
+ready clock, was already in the model; the start rule discarded it for the 0F forms. Enums `page_start` (hold → reg: a
+0F register form or bit field starts on a back-to-back fetch's issue clock; b2b also releases the memory forms) and
+`page_mtake` (none → eu: the ModR/M take waits for the start fetch's word while the successor's IR load stays where the
+take would have put it; deliver shifts the rest of the form with the take and loses four PUSH/SET1 successor cells).
+The kept pair: **F32 +9, F34 +28, lost 0** on all 42 lists (bit fields behind NOP NOP at pO w1/w2, EXT behind a NOP at
+k = 2, the d-lead SET1 r cells); `deliver` would add F39 +9 and F40 +3 but loses 4; the 0F memory forms behind NOP NOP
+(28) follow the same variable but no memory-form version was built; WP106's idle full-queue state (75) has no exact
+neighbour in any class; TEST1 [m],imm at k = 2 pO w1/w2 (4) stay. Tests test_sim.PageStartWP116 (`_OLD116`). The fit
+stage is WP117.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

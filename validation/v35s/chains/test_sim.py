@@ -8023,3 +8023,94 @@ class MiscellanyWP114(unittest.TestCase):
                 old = simulate_normalized(s.chain, Config.fitted().replace(**_OLD114),
                                           s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+# (WP116, F32/F34/F39/F40) the "lead-keyed" start states of the 0F forms (scratchpad
+# wp116/facts.txt): behind MOV AW,1234h the 0F form was ready on the issue clock of a fetch the bus
+# unit committed back to back and the model held its start there (start_sync=b2b_modrm) until the
+# next fetch's issue, so its start state looked identical to the NOP NOP / k = 2 / MOV CL,imm8
+# starts; a 0F register form or bit field starts on that clock (page_start=reg), and started at an
+# odd address on a word's delivery clock with a fetch issued there it takes its ModR/M byte only
+# after that fetch's word is delivered, the loader keeping the successor's IR load (page_mtake=eu)
+WP116 = {"page_start": "reg", "page_mtake": "eu"}
+# the pre-WP116 values, pinned for the "old" traces so they hold after an adoption, with the
+# tracked values these forms read
+_OLD116 = {"page_start": "hold", "page_mtake": "none", "start_sync": "b2b_modrm",
+           "page_take": "own", "page_b2b": "reg", "page_b2b_win": "run",
+           "bit1.pre": 1, "bit1.nx": 5, "bit1.exec": 2, "bit1.wb": 2, "bit1.cl": 0,
+           "bf_ext.pre": 1, "bf_ext.nx": 1, "bf_ext.ftail": 2}
+_KEEP116 = {k: v for k, v in _OLD116.items() if k not in WP116}
+
+
+def _ev116(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with WP114's
+    candidate values (the base WP116 scored against), the values WP116's forms read pinned
+    (_KEEP116) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(
+        **{**_KEEP114, **WP114, **_KEEP116, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class PageStartWP116(unittest.TestCase):
+    """(WP116) a 0F register form or bit field starts on a back-to-back fetch's issue clock
+    (page_start=reg); started at an odd address on a word's delivery clock with a fetch issued
+    there, it takes its ModR/M byte on the clock after that fetch's word is delivered, its
+    successor's IR load where the take would have put it (page_mtake=eu). Each against its old
+    value on its deciding run."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev116(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["page_start"], ("hold", "b2b", "reg"))
+        self.assertEqual(OPTIONS["page_mtake"], ("none", "deliver", "eu"))
+        for name in ("page_start", "page_mtake"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+
+    def test_page_start_deciding_run(self):
+        # SET1 AW,CL behind MOV AW,1234h: MOV's take sync ends on F91's delivery 94, F94 committed
+        # back to back; silicon F97 back to back after F94, the OUT's I/O at 111 (hold: SET1
+        # starts 97, F105, I/O 112)
+        cid = "F34-out-rbit-set1_rw_cl-d-k1-pE-w0"
+        mod = self._exact(cid, page_start="reg")
+        self.assertIn((97, "fetch"), _at114(mod))
+        self.assertIn((111, "io_write"), _at114(mod))
+        _, old = _ev116(cid, **_OLD116)
+        self.assertNotIn((97, "fetch"), _at114(old))
+        self.assertIn((105, "fetch"), _at114(old))
+        self.assertIn((112, "io_write"), _at114(old))
+        # the w1 cell and the direct-mode memory form (left out of reg) exact under both
+        for c in ("F34-out-rbit-set1_rw_cl-d-k1-pE-w1",
+                  "F34-out-mbit-set1_mw_cl_dir-d-k1-pE-w1"):
+            self._exact(c, **WP116)
+            self._exact(c, **_OLD116)
+
+    def test_page_mtake_deciding_run(self):
+        # EXT BL,DH behind NOP NOP at an odd address starts on F94's issue (F90's word delivered
+        # there): silicon reads at 106 (none: the ModR/M taken inside F94, D104)
+        cid = "F34-out-bf-ext_bl_dh-nop2-k1-pO-w1"
+        mod = self._exact(cid, **WP116)
+        self.assertIn((106, "data_read"), _at114(mod))
+        _, old = _ev116(cid, **_OLD116)
+        self.assertIn((104, "data_read"), _at114(old))
+        # the same form behind MOV AW,1234h (now started on the back-to-back fetch's issue) and
+        # the second EXT at k = 2
+        for c in ("F34-out-bf-ext_bl_dh-d-k1-pE-w1", "F32-out-ext_dl_i7-k2-pO-w0"):
+            self._exact(c, **WP116)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP116's values
+        base = {**_KEEP114, **WP114, **_KEEP116}
+        for fam in ("F3", "F14", "F33", "F36"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **WP116}),
+                                          s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **_OLD116}),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

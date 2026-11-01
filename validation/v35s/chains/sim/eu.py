@@ -228,8 +228,11 @@ class EU:
                 # (WP23) DS1: MOV byte [0FFE1h],imm8 with DS1 = F000h: an on-chip SFR store
                 op.ea = lin
                 op.sfr = self.code[op.offset + op.length - 1]
-        if cfg.start_sync == "b2b_modrm" and op.modrm and self.decoder.queue.b2b_at == t:
+        if (cfg.start_sync == "b2b_modrm" and op.modrm and self.decoder.queue.b2b_at == t
+                and not (cfg.page_start == "b2b" and op.page
+                         or cfg.page_start == "reg" and op.page and op.ea is None)):
             return False                 # a ModR/M form waits out the back-to-back fetch
+                                         # ((WP116) page_start: not a 0F (register) form)
         if (cfg.str_single_start in ("delivery", "write") and op.cls in STRING_CLASSES
                 and op.rep is None and t <= self.bus.last_fetch_end + cfg.c(op.cls, "ugap")):
             # (WP95) str_single_start=delivery: an unprefixed string form starts no earlier
@@ -465,6 +468,13 @@ class EU:
         if cfg.bf_imm_hold == "word" and op.imm_bytes and op.cls in BF_CLASSES:
             # (WP94) bf_imm_hold: an imm4 bit field's width byte the even half of its word
             op.half_word = not (self.decoder.queue.base + op.offset + op.length - 1) & 1
+        # (WP116) page_mtake=deliver: a 0F register bit op or bit field at an odd address started
+        # on a word's delivery clock: its ModR/M take waits for a fetch issued on the start clock
+        q = self.decoder.queue
+        self.page_mt_d = None
+        self.page_mt = (cfg.page_mtake in ("deliver", "eu") and bool(op.page) and op.ea is None
+                        and (op.cls == "bit1" or op.cls in BF_CLASSES)
+                        and bool((q.base + op.offset) & 1) and q.arrived_t == t)
         seq = steps(op, cfg)
         if self.refresh is not None and cfg.refresh_eu == "hold":
             seq = refresh_hold_steps(op, cfg, seq)   # read only with refresh on
@@ -917,6 +927,15 @@ class EU:
                     return              # port_latch=wait: the latch is held by the waiting I/O
                 if self.cfg.late_read and self._late_read(t):
                     return              # late_read: the take and the IR load wait for the word
+                if getattr(self, "page_mt", False) and self.taken == 1:
+                    if self.page_mt is True:
+                        cur = self.bus.current
+                        self.page_mt = (cur.end + 2 if cur is not None and cur.kind == "fetch"
+                                        and cur.start == self.start_clock else False)
+                    if self.page_mt and t < self.page_mt:
+                        if self.page_mt_d is None:
+                            self.page_mt_d = t      # the clock the take would have gone
+                        return          # (WP116) page_mtake=deliver: the ModR/M after the word
                 if (self.cfg.sync_req == "disp" and self.mem and self.disp
                         and (self.imm_bytes or self.cfg.late_disp == "all")
                         and self.taken == 1 and self._late_fetch(t)):
@@ -936,6 +955,12 @@ class EU:
                     q.flag = q.room(t) >= 2
                 self.taken += n
                 self.left -= n
+                if (n and self.page_mt_d is not None and self.decoder.need == 0
+                        and self.cfg.page_mtake == "eu"):
+                    # (WP116) page_mtake=eu: the loader keeps its own schedule, the successor's
+                    # IR load where the ModR/M take would have put it
+                    self.decoder.ready_at -= self.page_mt - self.page_mt_d
+                    self.page_mt_d = None
                 if n and self.cfg.io_take_nx and self.decoder.need == 0 and self.cls == "reg":
                     cur = self.bus.current
                     if cur is not None and cur.kind.startswith("io") and cur.start == t:

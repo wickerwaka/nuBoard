@@ -1015,6 +1015,30 @@ OPTIONS = {
     # silicon D160 D169 W181 F194 (free: D159 D168 W180 F183). Started on a fetch's issue the
     # queue is full to the end and nothing changes. PROTOTYPE (WP114), scored not fitted.
     "bcd_fetch": ("free", "hold"),
+    # (WP116, F32/F34/F39/F40, 2026-11-01) page_mtake: a 0F register bit op (bit1) or bit field
+    # takes its ModR/M byte pre clocks after the second opcode byte (none) / started at an odd
+    # address on a word's delivery clock with a fetch issued on that clock, it takes the ModR/M
+    # byte no earlier than the clock after that fetch's word is delivered, the rest of the form
+    # following (deliver) / the same take, the loader keeping its own schedule: the successor's
+    # IR load nx clocks after the clock the take would have gone (eu). Deciding run
+    # F34-out-bf-ext_bl_dh-nop2-k1-pO-w1, rel t_fill: EXT BL,DH behind NOP NOP starts 94 on F94's
+    # issue (F90's word delivered there); silicon D106 (none: the ModR/M inside F94, D104).
+    # deliver also closes the register bit ops before a port OUT (F32-out-set1_rw_cl-k2-pE-w1:
+    # silicon F110 O118, none F100 O114) but puts a PUSH or SET1 successor 2 clocks late
+    # (F39-push-xfer-be-set1-pE-w0, F40-out-page-set1-k4-pE-w0); eu leaves those OUT cells a clock
+    # early. PROTOTYPE (WP116), scored not fitted: with page_start=reg, eu F32 +9 F34 +28 lost 0
+    # (every family); deliver F32 +33 F34 +47 F39 +9 F40 +3, lost F39 3 F40 1.
+    "page_mtake": ("none", "deliver", "eu"),
+    # (WP116, F32/F34/F39/F40, 2026-11-01) page_start: under start_sync=b2b_modrm a 0F form waits
+    # out a back-to-back fetch committed for its start clock as every ModR/M form does (hold) /
+    # starts on it, its first take the second opcode byte, not the ModR/M byte (b2b) / so does a
+    # 0F register form or bit field, a 0F memory form still waits (reg: b2b moves the d16 and
+    # direct memory forms' displacement fetch and loses 4). Deciding run
+    # F34-out-rbit-set1_rw_cl-d-k1-pE-w0, rel t_fill: MOV AW,1234h's take sync ends on F91's
+    # delivery 94, F94 committed back to back; silicon F97 back to back, I/O 111, SET1 started on
+    # 94 (hold: SET1 at 97, F105, I/O 112). The "identical start state" of WP94's S04 behind
+    # MOV AW,1234h is this hold. PROTOTYPE (WP116), scored not fitted: reg alone F34 +6, lost 0.
+    "page_start": ("hold", "b2b", "reg"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1636,6 +1660,8 @@ class Config:
     long_exec: str = "none"            # (WP114)
     mul_imm_reg: str = "take"          # (WP114)
     bcd_fetch: str = "free"            # (WP114)
+    page_mtake: str = "none"           # (WP116)
+    page_start: str = "hold"           # (WP116)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))
