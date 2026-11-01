@@ -5784,6 +5784,25 @@ parts by 1–3 clocks in most `page` and `xfer` cells (the queue state the first
 fetches), 0 in most `stack`, `ind` and PUSH-frame `xfer` cells, and +1 where B is an OUT behind a not-taken BNE (the
 interaction tables, report-F39.txt). The `str` successor and the ROL4 trade are the two shapes to read next.
 
+### The memory shift by imm8 is an immediate RMW whose operation is a shift (F38's last 24 misses, WP99, 2026-10-31; the fifty-first fit)
+
+In all 24 cells the memory shift by imm8 (C0/C1 27 04) reads on the same clock as ADD [BW],imm8 (83 /0) in that cell,
+with the same fetches before it, 2 clocks before SHL [BW],1 (D1); no fetch carries the count byte, which is in the queue
+before the form starts, and silicon's fetch pattern matches only when the count byte is taken once the read is on the
+bus, as rmw_imm takes its immediate (taken in the head it raises a fetch before the read; taken after the read's data
+it raises one between read and write that silicon does not run). With no fetch between read and write the write issues
+18 clocks after the read's last clock at every wait (SHL [BW],1 takes 9, SHL [BW],CL 69, ADD [BW],imm8 3): rmw_imm.alu
+3 + shift_imm.exec 6 + per_shift_count 2 × 3 + 3; with a fetch between (the OUT pO cells) the write comes 16 clocks after
+that fetch's last clock, so only 2 of the 18 count through a fetch on the bus (scratchpad wp99/facts.txt). Byte = word.
+Enum `shift_mem_imm` (rmw → rmw_imm): a memory shift whose count is an operand byte (`Op.count_byte`, a format property
+of C0/C1 on memory) runs the immediate RMW's template with the count byte as its immediate, the ALU step adding the
+shift unit's clocks and `rmw_imm.sexec` 3, the write's setup fetch-free beyond its first `rmw_imm.sthru` 2 clocks;
+deciding runs `F38-out-shb-shl_m_imm4-pE-w0` (silicon R90 W110; rmw F90 R93 W110) and `-pO-w0` (R91 F94 W112). The
+D0–D3 memory shifts never set `count_byte` and stay exact. Stage 27 (`F53_ENUMS`, `F53_INTS` the 15 rmw_imm integers;
+F38 F14 F15 F19) chose rmw_imm with every integer at the hand start: **F38 864/864**, 3,726/3,726 on its families, the
+other 40 lists byte-identical (the gate; won 24, lost 0). Facts left: only count 4 is in the corpus, so `sexec` and
+`per_shift_count`'s share are not separated; no recorded D1/D3 memory shift has a fetch between its read and write.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus
@@ -5803,7 +5822,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the fiftieth fit since 2026-10-31): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the fifty-first fit since 2026-10-31): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6251,10 +6270,18 @@ nothing lost. The refresh-off corpus stands at 26,592 of 27,332 (F34 311, F32 18
 F25 15, F37 12, F24 10, F22 6, F36 3 missing); F38 (864 runs) is in the corpus but unmodelled and not scored. Model
 side only, no RTL work.
 
+**The fifty-first fit** (`fit.json`, md5 b6bfe298348c49ba923cff7f6c31e5f6; scratchpad wp99/fit-wp99.json, adopted 2026-10-31) is the fiftieth
+fit plus WP99's `shift_mem_imm=rmw_imm` with `rmw_imm.sexec` 3 and `sthru` 2 (Facts "The memory shift by imm8 is an
+immediate RMW"). With F38 (WP98, decoded the same day) and F39 (WP100, acquired the same day) now scored: **32,755 of
+34,148 over 41 lists** (F38 864/864, F39 1,105/1,320 with zero free parameters); the 40 earlier lists byte-identical
+except F38's 24; nothing lost. Stage 27 (`fit.py`). The refresh-off corpus stands at 28,561 of 29,516 (F34 311, F39
+215, F32 182, F33 123, F29 29, F35 28, F30 21, F25 15, F37 12, F24 10, F22 6, F36 3 missing). Model side only, no RTL
+work.
 
-### Fitted structure (fiftieth fit, 2026-10-31)
 
-Fifty fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (fifty-first fit, 2026-10-31)
+
+Fifty-one fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -6628,7 +6655,10 @@ The forty-ninth (`fit.json`, 2026-10-31) adds the unprefixed string pair's
 902/912; byte-identical on 38 lists. The fiftieth (`fit.json`, 2026-10-31) adds
 the 0F page's four mechanisms (`bf_imm_hold=word`, `page_imm_run=delivery`,
 `page_b2b_win=run`, EXT's write-back integers; stage 26 confirming WP94's hand
-start): 30786/31964, F32 676, F34 1285; byte-identical on 37 lists.
+start): 30786/31964, F32 676, F34 1285; byte-identical on 37 lists. The
+fifty-first (`fit.json`, 2026-10-31) adds the memory shift by imm8 as an immediate
+RMW (`shift_mem_imm=rmw_imm`, stage 27): 32755/34148 over 41 lists with F38
+864/864 and F39 1105/1320; byte-identical on the other 40 lists.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

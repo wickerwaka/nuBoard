@@ -631,7 +631,9 @@
    "pre": 0,
    "setup": 0,
    "setup_free": 0,
-   "sidle": 2
+   "sexec": 3,
+   "sidle": 2,
+   "sthru": 2
   },
   "rol4": {
    "exec": 14,
@@ -1071,6 +1073,7 @@
  "shift_count": "late",
  "shift_count_mask": "cl8",
  "shift_exit0": "exit",
+ "shift_mem_imm": "rmw_imm",
  "shift_tail": 3,
  "slot_fetch": "slot",
  "slot_idle": "eu",
