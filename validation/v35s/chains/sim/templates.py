@@ -1690,10 +1690,18 @@ def _wp78_steps(op: Op, cfg, c, ea) -> list[tuple]:
     return seq + [("clocks", tail)]
 
 
+def head_cls(op: Op, cfg) -> str:
+    """(WP106) test1_head: the class whose pre and nx a form's head runs: its own, but SET1 [m]'s
+    (bit1_rmw) for TEST1 [m] (bit1_test) under test1_head=set1."""
+    if cfg.test1_head == "set1" and op.cls == "bit1_test":
+        return "bit1_rmw"
+    return op.cls
+
+
 def _wp78_mem(op: Op, cfg, c, ea, base, cl) -> list[tuple]:
     """(WP78) the 0F memory forms on the load_alu (TEST1) and rmw shapes, the CL index's cl
-    clocks (cl: the step, or none) before the read."""
-    head = _head(op, cfg, c("pre"), ea) + cl
+    clocks (cl: the step, or none) before the read; (WP106) the pre clocks head_cls's."""
+    head = _head(op, cfg, cfg.c(head_cls(op, cfg), "pre"), ea) + cl
     if base == "load_alu":
         if op.imm_bytes and cfg.imm_order != "with_addr":
             return head + _imm_read(op, cfg, c) + [("clocks", c("exec"))]

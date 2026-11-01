@@ -7499,3 +7499,89 @@ class FarTransferWP107(unittest.TestCase):
                 old = simulate_normalized(s.chain, Config.fitted().replace(**{**WP101, **WP104}),
                                           s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+# (WP106) the 0F register rotates' and TEST1 [m]'s wait-keyed trades read as structure
+WP106_ROT4 = {"rot4_exec": "wait", "rol4.pre": 1, "rol4.exec": 13, "rol4.wb": 2}
+WP106_TEST1 = {"test1_head": "set1", "page_commit": "post"}
+
+
+class WaitKeyedWP106(unittest.TestCase):
+    """(WP106, F32/F34/F39/F40) scratchpad wp106/facts.txt; clocks rel t_fill, the tracked fit with
+    WP101's, WP104's and WP107's values. ROL4 / ROR4 on a register do not count an exec clock on
+    which a fetch is in a wait state (rot4_exec=wait, with rol4.pre 1 / exec 13 / wb 2); TEST1 [m]
+    runs SET1 [m]'s head (test1_head=set1) and a fetch committed back to back counts toward a 0F
+    memory form's read setup only when committed after the read's post (page_commit=post). Each
+    against its old value on its deciding run."""
+
+    def _ev(self, cid, **over):
+        return _ev101(cid, **{**WP104, **WP107, **over})
+
+    def _exact(self, cid, **over):
+        sil, mod = self._ev(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(DEFAULT.rot4_exec, "none")
+        self.assertEqual(OPTIONS["rot4_exec"], ("none", "wait"))
+        self.assertEqual(DEFAULT.test1_head, "own")
+        self.assertEqual(OPTIONS["test1_head"], ("own", "set1"))
+        self.assertEqual(DEFAULT.page_commit, "start")
+        self.assertEqual(OPTIONS["page_commit"], ("start", "post"))
+
+    def test_rot4_exec_deciding_run(self):
+        # ROL4 DL starts 86 on M0's I/O; F89 (its take's) and F94 (committed back to back) run
+        # through its exec: silicon reads at 114, 16 clocks after F94's last at every wait (none,
+        # with the same integers: 112)
+        mod = self._exact("F39-out-page-rol4-ld-pE-w2", **WP106_ROT4)
+        self.assertIn((114, "data_read", 0x0800, "word", 5), mod)
+        _, old = self._ev("F39-out-page-rol4-ld-pE-w2", **{**WP106_ROT4, "rot4_exec": "none"})
+        self.assertIn((112, "data_read", 0x0800, "word", 5), old)
+        for cid in ("F39-out-page-rol4-ld-pE-w0", "F39-out-page-rol4-ld-pE-w1",
+                    "F39-push-ctl-rol4-pO-w1", "F39-out-page-rol4-out-pO-w2",
+                    "F32-out-rol4_dl-k2-pE-w0", "F32-out-ror4_dl-k1-pE-w2",
+                    "F40-out-page-rol4-k4-pE-w1", "F40-push-page-rol4-k2-pO-w0"):
+            self._exact(cid, **WP106_ROT4)
+
+    def test_test1_head_deciding_run(self):
+        # TEST1 [BW],CL (even address) starts 81 on F81's issue: silicon F84 back to back, D92
+        # (own: the ModR/M taken at 86, F86 D94)
+        mod = self._exact("F39-push-page-test1-ld-pO-w0", **WP106_TEST1)
+        self.assertIn((84, "fetch", 0x10054, "word", 3), mod)
+        self.assertIn((92, "data_read", 0x0800, "word", 3), mod)
+        _, old = self._ev("F39-push-page-test1-ld-pO-w0", **{**WP106_TEST1, "test1_head": "own"})
+        self.assertIn((86, "fetch", 0x10054, "word", 3), old)
+        for cid in ("F39-push-page-test1-ld-pO-w1", "F32-out-test1_mw_cl-k2-pE-w1",
+                    "F34-out-mbit-test1_mw_cl-sep-k1-pE-w2", "F40-out-page-test1-k4-pO-w2",
+                    "F32-out-test1_mw_imm-k2-pE-w0"):
+            self._exact(cid, **WP106_TEST1)
+
+    def test_page_commit_deciding_run(self):
+        # DS1: at 84, TEST1 [BW],CL at 86; F90 committed on F87's last clock (89), before the
+        # read's post (95): silicon D98, 6 fetch-free clocks after F90's last (start: D95)
+        mod = self._exact("F32-out-pfx_test1_mw_cl-k1-pE-w0", **WP106_TEST1)
+        self.assertIn((98, "data_read", 0x0800, "word", 3), mod)
+        _, old = self._ev("F32-out-pfx_test1_mw_cl-k1-pE-w0",
+                          **{**WP106_TEST1, "page_commit": "start"})
+        self.assertIn((95, "data_read", 0x0800, "word", 3), old)
+        for cid in ("F32-out-pfx_test1_mw_cl-k1-pO-w1", "F32-out-test1_mw_cl-k1-pE-w0"):
+            self._exact(cid, **WP106_TEST1)
+
+    def test_odd_fetch_issue_start_stays_a_fact(self):
+        # TEST1 [BW],CL at an odd address starts on F94's issue with 5 bytes queued behind MOV
+        # AW,1234h: silicon runs no fetch before its read (D102), the SET1 head one back to back
+        sil, mod = self._ev("F34-out-mbit-test1_mw_cl-d-k1-pE-w0", **WP106_TEST1)
+        self.assertIn((102, "data_read", 0x0800, "word", 3), sil)
+        self.assertIn((97, "fetch", 0x1005A, "word", 3), mod)
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families reads a WP106 value
+        for fam in ("F5", "F23", "F24", "F33", "F38"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**WP101, **WP104, **WP107, **WP106_ROT4, **WP106_TEST1}), s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(
+                    **{**WP101, **WP104, **WP107}), s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

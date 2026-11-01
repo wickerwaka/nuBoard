@@ -876,6 +876,27 @@ OPTIONS = {
     # the second BRK 3 starts 252 on F252's issue; silicon reads at 264 (10 clocks after
     # F252's last), type at 263 (start + 11); BRK imm8's cells (F37 brk5) keep rfree 8
     "brk_free": ("type", "format"),
+    # (WP106, F32/F39/F40, 2026-10-31) rot4_exec: ROL4 / ROR4 on a register count every exec
+    # clock after the take sync (none) / not one on which a fetch is in a wait state (wait:
+    # the rotate's exec stalls on the bus unit's wait clocks; with rol4.pre 1, exec 13, wb 2,
+    # ROR4's pre and wb). F39-out-page-rol4-ld-pE-w2, rel t_fill: ROL4 DL starts 86 on M0's
+    # I/O, F89 (the take's) and F94 (committed back to back) run through its exec; silicon
+    # reads at 114, 16 clocks after F94's last at every wait (none, with those integers: 112).
+    # PROTOTYPE (WP106), scored not fitted.
+    "rot4_exec": ("none", "wait"),
+    # (WP106, F32/F34/F39/F40, 2026-10-31) test1_head: TEST1 [m] runs its own pre and nx (own)
+    # / SET1 [m]'s, bit1_rmw.pre and .nx (set1: TEST1 = SET1 in the head, WP86's class
+    # equality). F39-push-page-test1-ld-pO-w0, rel t_fill: TEST1 [BW],CL starts 81 on F81's
+    # issue; silicon F84 back to back, D92 (own: the ModR/M at 86, F86 D94). PROTOTYPE (WP106),
+    # scored not fitted.
+    "test1_head": ("own", "set1"),
+    # (WP106, F32, 2026-10-31) page_commit: under page_mem=fixed a fetch the bus unit commits
+    # back to back after a 0F memory form's start counts toward its read's setup (start) /
+    # only one committed after the read's post (post). F32-out-pfx_test1_mw_cl-k1-pE-w0, rel
+    # t_fill (test1_head=set1): DS1: at 84, TEST1 at 86, F90 committed on F87's last clock
+    # (89), before the read's post (95); silicon D98, 6 fetch-free clocks after F90's last
+    # (start: D95). PROTOTYPE (WP106), scored not fitted.
+    "page_commit": ("start", "post"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1477,6 +1498,9 @@ class Config:
     ret_far_fetch: str = "hold"        # (WP107)
     one_idle: str = "none"             # (WP104)
     brk_free: str = "type"             # (WP104)
+    rot4_exec: str = "none"            # (WP106)
+    test1_head: str = "own"            # (WP106)
+    page_commit: str = "start"         # (WP106)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

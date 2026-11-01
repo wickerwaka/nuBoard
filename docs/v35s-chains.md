@@ -5942,6 +5942,42 @@ transfer classes (F23, F30, F34, F37, F39 byte-identical); every new or moved in
 far-form runs (wp107/sens.txt). Tests test_sim.FarTransferWP107, test_fit's stage-30 class. Stage 30 (WP108) from this hand start: the fifty-fourth
 fit (Model). (The RTL generator would reject the new step kind and the nine-field data step; RTL work is stopped.)
 
+### The wait-keyed trades read: the digit rotate's exec does not count a fetch's wait clock; TEST1 [m] runs SET1's head but loses four; the register bit ops' two start states key on the lead (WP106, 2026-10-31; a candidate)
+
+Three groups of misses (about 300 runs across F32, F34, F39 and F40) had resisted every rule because the integer that
+fits them differs by wait count, which the plan treats as a structural finding. Read per run and per instance with
+every take, IR load, fetch, read, write and successor start beside silicon's (scratchpad wp106/facts.txt):
+
+- **ROL4/ROR4 on a register (88 misses, a mechanism).** With one fetch inside the form (OUT pO, PUSH) silicon's
+  successor starts 14 clocks after that fetch's last clock at every wait where the model has 15, and a port OUT
+  successor is exact in both: ROL4's last exec clock is a write-back only the port OUT waits for, as ROR4's `wb` 2
+  already says. With two fetches inside the form (OUT pE: the take's fetch and the one `page_b2b` commits) silicon's
+  successor starts 11 clocks after the second fetch's last clock, start + 19 + 2w, where the model gives start + 20 +
+  w: the wait-keyed residual. The second instance at an odd address on an idle bus fetches at +2, a ModR/M take one
+  clock after the second opcode byte (`pre` 1, ROR4's). Mechanism: the rotate's exec does not count a clock on which a
+  fetch is in a wait state (an equivalent reading, the exec's last 10 / 14 clocks fetch-free, scores byte-identically
+  and no run separates them; the wait form needs no new integer). Enum `rot4_exec` (none → wait) with `rol4.pre` 1,
+  `exec` 13, `wb` 2: **F32 +11, F39 +54, F40 +23, lost 0**, every run the known ROL4 trade wins and none of its losses.
+- **TEST1 [m],CL / imm (88 misses, a mechanism that loses four).** At an even address started on a fetch's issue with
+  4 bytes queued silicon fetches back to back after the start fetch at every wait, where the model's ModR/M take at +5
+  (`pre` 4) leaves +2/+1/0: the trade, right only at w2; at an odd address on an idle bus silicon fetches at +2, the
+  model at +5. TEST1 [m] runs SET1 [m]'s head (`test1_head` own → set1: bit1_rmw's `pre` 1, `nx` 0, WP86's TEST1 =
+  SET1 equality), and a back-to-back fetch committed before the read's post does not count toward the read's setup
+  (`page_commit` start → post; alone +2 −33, with the head it closes the DS1: TEST1 cells). Together **+77 −4** against
+  the known trade's +73 −6; the four lost (`F32-out-test1_mb/mw_imm-k2-pO-w0`, `F34-out-mbit-test1_mw_cl-d-k1-pE-w0/w1`)
+  are the odd-address start on a fetch's issue with 5 bytes queued, where the old `pre` 4 was right only by the wait
+  count. Left at DEFAULT (nothing lost is the rule); the enums stay in the tree for the stage to test.
+- **The register bit ops (about 230, facts).** Two start states, reached almost only at k = 2/4 or after a transfer:
+  an even address on an idle bus with the queue full, where silicon's first fetch is at +5 and the model's at +2 (−3
+  at every wait, not wait-keyed); and an odd address started on a fetch's issue with 5 bytes queued, where silicon runs
+  no back-to-back fetch and the model's `page_b2b_win` commitment lands on a wait clock (−2/−10/−10), while behind the
+  MOV AW,1234h lead silicon does run that fetch from identical model state: WP94's S04, keyed on the lead. No
+  commitment for that state loses 31; the IR slot counted only from take + 3, the bit1 integer grids and the wait rule
+  on bit1's exec win nothing.
+
+The edited tree under the unedited fit is byte-identical to a clean extract on all 42 lists; `rot4_exec=wait` with the
+three ROL4 integers is the candidate for the fit stage (WP110). Tests test_sim.WaitKeyedWP106.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 from .arbiter import Request, io_step, io_stepped
 from .templates import (BCD_CLASSES, BF_CLASSES, BF_TAKE_HOLD, STRING_CLASSES, _dest_route, base_class, decode,
+                        head_cls,
                         ea_class, execute, grp_class, refresh_hold_steps, steps)
 from .queue import QUEUE_BYTES
 from ..types import CODE_BASE
@@ -145,6 +146,8 @@ class EU:
         self.zfail = False              # (WP88) the running DBNZNE / DBNZE failed its Z test
         self.strings = {}               # (WP67, F24) {chain offset: (elements, cond)} of the
                                         # string forms, from the chain walk (machine.py)
+        self.rot4_from = None           # (WP106) rot4_exec: the rotate's exec clocks began here
+        self.rot4_t = None              # (WP106) ... the last wait clock it did not count
 
     def _in_run(self, t: int) -> bool:
         """(WP92) lea_disp=run: on t a fetch is on the bus past its issue clock, or t is the
@@ -338,6 +341,7 @@ class EU:
                          or cfg.page_run == "field" and self.page_fixed == "post")
         self.page_reg = (cfg.page_b2b == "reg" and bool(op.page) and op.ea is None
                          and bcls == "reg")
+        self.rot4_from = self.rot4_t = None   # (WP106) rot4_exec
         # (WP94) page_imm_run: a 0F memory form with an immediate bit index under page_mem=fixed
         self.page_imm = (cfg.page_imm_run == "delivery" and self.page_fixed == "start"
                          and bool(op.imm_bytes))
@@ -382,8 +386,8 @@ class EU:
             # (WP29) ea_floor: a mod 00 form's address step is where a displacement would be
             # taken, pre + 1 + its EA clocks after the start, whatever the take sync waits
             # for; its first data cycle no earlier than dfloor clocks after that (s + 5)
-            self.dfloor_at = (t + cfg.c(op.cls, "pre") + 1 + cfg.ea.get(ea_class(op, cfg), 0)
-                              + cfg.c(op.cls, "dfloor"))
+            self.dfloor_at = (t + cfg.c(head_cls(op, cfg), "pre") + 1
+                              + cfg.ea.get(ea_class(op, cfg), 0) + cfg.c(op.cls, "dfloor"))
         # (WP25) imm_count=start: the first data request of a memory form with an immediate
         # issues no earlier than istart + its immediate bytes clocks after the start
         self.floor_n = (cfg.c(op.cls, "istart") + op.imm_bytes
@@ -403,7 +407,7 @@ class EU:
         self.stalled = 0
         # io_post=start: the clocks before an I/O form's post (its pre, or pre0 without a port byte)
         self.io_pre = cfg.c(op.cls, "pre" if op.length > 1 else "pre0")
-        self.decoder.start(op.length, t, cfg.c(op.cls, "nx"), modrm=op.modrm,
+        self.decoder.start(op.length, t, cfg.c(head_cls(op, cfg), "nx"), modrm=op.modrm,
                            imm_reg=bool(op.imm_bytes) and op.ea is None,   # (WP26) modrm_mate
                            page=op.page,                                   # (WP78) the 0F page
                            # (WP78) nx0: a form without operand bytes holds the IR load nx0
@@ -583,8 +587,20 @@ class EU:
         return (o in (0xE6, 0xE7) or cls != "out" and o in (0xE4, 0xE5)
                 or cls == "io" and o in (0xEC, 0xED, 0xEE, 0xEF))
 
+    def _rot4_hold(self, t: int):
+        """(WP106) rot4_exec=wait: ROL4 / ROR4 on a register do not count an exec clock (from
+        rot4_from to the resume) on which a fetch is in a wait state: the end moves a clock."""
+        if self.rot4_from is None or not self.rot4_from <= t < self.resume or self.rot4_t == t:
+            return
+        cur = self.bus.current
+        if cur is not None and cur.kind == "fetch" and self.bus.in_wait(t):
+            self.rot4_t = t             # once per clock (a clock may tick twice)
+            self.resume += 1
+            self.clk_end = self.resume
+
     def tick(self, t: int):
         q = self.decoder.queue
+        self._rot4_hold(t)
         if q.shift_until is not None and q.shift_until <= t:
             q.shift_until = None            # (WP21) count_latch: the shift's last clock
             q.shift_held = False
@@ -741,6 +757,10 @@ class EU:
                                                   and t == self.start_clock))
                         self.clk_start = t
                     self.resume = t + step[1]
+                    if (self.cfg.rot4_exec == "wait" and self.ccls in ("rol4", "ror4")
+                            and self.k == len(self.steps)):
+                        self.rot4_from = t      # (WP106) rot4_exec: the exec clocks begin
+                        self._rot4_hold(t)
                     if len(step) > 2 and step[2] == "ea" and self.disp and (
                             self.mem or self.decoder.lea_wait):
                         self.decoder.ea_end = self.resume   # (WP30) ea_ir_room; (WP92) lea_slot
@@ -1505,12 +1525,14 @@ class EU:
             r.nowait = r.dwlike = False         # not a DW-form count (bf_count)
             r.free_need = None
             if mode == "start":
-                r.pfree = self.start_clock
+                # (WP106) page_commit=post: only a fetch committed back to back after the
+                # read's post counts toward its setup (start: after the form's start)
+                r.pfree = t - 1 if self.cfg.page_commit == "post" else self.start_clock
                 r.run_wait = self.cfg.page_run != "none"   # (WP86) the memory forms only
                 n, c = 0, t - 1
                 while c >= self.start_clock and n < r.setup and not any(
                         x.kind == "fetch" and x.start <= c <= x.end
-                        and not (x.b2b and x.start > self.start_clock)
+                        and not (x.b2b and x.start > r.pfree)
                         for x in self.bus.cycles[-6:]):
                     n, c = n + 1, c - 1
                 r.count = n
