@@ -6217,7 +6217,7 @@ The four kept together: **+73, 0 lost** on all 42 lists (34,225 → 34,298 again
 to a clean 9eed304 at the defaults). Tests test_sim.RemainderWP119 (`_OLD119`), test_fit's stage-37 class. Stage 37
 (WP121) from this hand start: the sixty-first fit (Model).
 
-### The 0F register forms' remaining shapes: a half-taken immediate arms no take sync, the full-queue-plus-latch start counts no IR room, TEST1 [m]'s waited ModR/M byte (WP122, 2026-11-01; a candidate)
+### The 0F register forms' remaining shapes: a half-taken immediate arms no take sync, the full-queue-plus-latch start counts no IR room, TEST1 [m]'s waited ModR/M byte (WP122, 2026-11-01; the sixty-second fit)
 
 The 73 F32 and 130 F34 misses under the sixtieth fit (scratchpad wp122/facts.txt, tables A1–A3, B1–B2, C1–C2; the
 histories under wp122/t/) read as three shapes, each a mechanism; together **+190, 0 lost** on all 42 lists (F32 785 →
@@ -6262,8 +6262,8 @@ and stays at the default.
 **Facts.** WP118's 0F memory forms behind NOP NOP (24) and their displacement cells (4): the history, as WP118 found;
 `page_mtest=all` only trades them. CLR1 AW,CL under the PUSH frame at k = 1 pO (3): SET1 in the same state and frame is
 exact, so the clock belongs to CLR1's operation and a rule would key on the opcode. F34-out-cr-nopshl8 (2) and
-F32-out-pfx_rol4_m-k1-pE-w1 (1) are outside these classes. Tests test_sim.PageFormsWP122 (`_OLD122`). The fit stage is
-WP123.
+F32-out-pfx_rol4_m-k1-pE-w1 (1) are outside these classes. Tests test_sim.PageFormsWP122 (`_OLD122`), test_fit's stage-38
+class. Stage 38 (WP123) from this hand start: the sixty-second fit (Model).
 
 ## Model
 
@@ -6284,7 +6284,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the sixty-first fit since 2026-11-01): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the sixty-second fit since 2026-11-01): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6807,10 +6807,17 @@ re-read"): fit stage 37 (`F63_ENUMS`, `F63_INTS`; WP121) from that hand start mo
 lists**: F25 573 → 577/588, F30 1,455 → 1467/1,476, F37 420 → 432/432, F39 1,282 → 1306/1,320, F40 946 →
 967/1,020, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
+**The sixty-second fit** (`fit.json`, md5 de193740eaf1dee0862d2220ae084909; scratchpad wp123/fit-wp123.json, adopted 2026-11-01) is the
+sixty-first fit plus WP122's three mechanisms, `page_imm_sync=lead`, `page_ir_room=end`, `page_mtest=wait` with
+`bit1_test.mtx` 1, `bit1_test.pre` 1 and `page_commit=post` (Facts "The 0F register forms' remaining shapes"): fit stage
+38 (`F64_ENUMS`, `F64_INTS`; WP123) from that hand start moves nothing: the corpus guard refuses all 35 other grid configurations and every single flip over the whole corpus only loses (`page_imm_sync=take` 66, `modrm` 28, `page_ir_room=ir` 46, `page_mtest=none` or `page_commit=start` 6, `page_mtest=all` 15 with nothing won at these integers, `bit1_test.mtx` 0 or 2 6, `bit1_test.pre` 0 / 2 39 / 35), so every hand value is the strict best for its knob. **34555 of 35,168 over 42 lists**: F32 785 →
+846/858, F34 1,466 → 1547/1,596, F39 1,306 → 1318/1,320, F40 967 → 1003/1,020, the other lists byte-identical,
+nothing lost. Model side only, no RTL work.
 
-### Fitted structure (sixty-first fit, 2026-11-01)
 
-Sixty-one fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (sixty-second fit, 2026-11-01)
+
+Sixty-two fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -7214,7 +7221,9 @@ arrival at the EU (`page_mt_end=exec`, `bit1.mtx` 1; stage 36): 34292/35168,
 F32 785, F34 1466, F39 1282, F40 946. The sixty-first (`fit.json`, 2026-11-01) adds F39's and
 F40's non-0F remainder (`xfer_mem_room=arrival`, `late_disp_word=split`, `lea_wb=fetch`,
 `str_in_io=free`, `pre_modrm=arrival`; stage 37): 34365/35168, F25 577, F30 1467,
-F37 432, F39 1306, F40 967.
+F37 432, F39 1306, F40 967. The sixty-second (`fit.json`, 2026-11-01) adds the 0F register
+forms' remaining shapes (`page_imm_sync=lead`, `page_ir_room=end`, `page_mtest=wait`,
+`page_commit=post`; stage 38): 34555/35168, F32 846, F34 1547, F39 1318, F40 1003.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):

@@ -5695,6 +5695,8 @@ WP78_INTS = {"adjust.nx0": 8, "adjust.pre0": 10, "adjust.wb": 2, "mul.sexec": 41
              "bf_ext.xspan": 42, "bf_ext.wb": 0,
              # (fit 57) WP113 moved bit1_test.nx 2 -> 0: pinned to WP78's value
              "bit1_test.nx": 2,
+             # (fit 62) WP122 moved page_commit start -> post: pinned to WP78's value
+             "page_commit": "start",
              "bcd4s.first": 16, "bcd4s.mid": 7, "bcd4s.wmid": 10, "bcd4s.loop": 7,
              "bcd4s.exec": 12, "bcd4s.wb": 2, "bit1_rmw.cl": 1, "bit1_rmw.dfloor": 4,
              "bit1_rmw.pre": 7, "bit1_rmw.grp": 0}
@@ -7556,7 +7558,10 @@ class WaitKeyedWP106(unittest.TestCase):
         mod = self._exact("F39-push-page-test1-ld-pO-w0", **WP106_TEST1)
         self.assertIn((84, "fetch", 0x10054, "word", 3), mod)
         self.assertIn((92, "data_read", 0x0800, "word", 3), mod)
-        _, old = self._ev("F39-push-page-test1-ld-pO-w0", **{**WP106_TEST1, "test1_head": "own"})
+        # bit1_test.pre pinned at its pre-WP122 value 4 (the sixty-second fit, 2026-11-01, moved
+        # it to 1, which fetches at 84 under test1_head=own as well)
+        _, old = self._ev("F39-push-page-test1-ld-pO-w0",
+                          **{**WP106_TEST1, "test1_head": "own", "bit1_test.pre": 4})
         self.assertIn((86, "fetch", 0x10054, "word", 3), old)
         for cid in ("F39-push-page-test1-ld-pO-w1", "F32-out-test1_mw_cl-k2-pE-w1",
                     "F34-out-mbit-test1_mw_cl-sep-k1-pE-w2", "F40-out-page-test1-k4-pO-w2",
