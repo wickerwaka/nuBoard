@@ -105,6 +105,7 @@ class EU:
         self.pop_ref = None             # (WP40) pop_refresh=stall: the refresh already counted
         self.wb_until = 0               # previous instruction's write-back ends before this clock
         self.mt_floor = None            # (WP118) page_mt_end=exec: no step before this clock
+        self.mw_from = None             # (WP125) page_mwait=commit: the read's back-count floor
         self.mr_sync = None             # (WP122) page_imm_sync=modrm: the ModR/M take's sync
         self.imm_half = False           # (WP122) page_imm_sync: an even-half bit index byte
         self.full_latch = False         # (WP122) page_ir_room=end: started full, a byte latched
@@ -510,6 +511,15 @@ class EU:
                              or cfg.page_mtest == "all" and op.cls in ("bit1_test", "bit1_rmw",
                                                                        "bit1_clr"))
                         and bool((q.base + op.offset) & 1) and q.arrived_t == t)
+        self.mw_from = None             # (WP125) page_mwait=commit
+        if (cfg.page_mwait != "none" and op.ea is not None
+                and op.cls in ("bit1_test", "bit1_rmw", "bit1_clr")):
+            # (WP125) page_mwait=commit: every 0F memory form waits, unless the word delivered on
+            # its start clock came from a fetch the bus unit committed back to back
+            f = [c for c in self.bus.cycles[-4:] if c.kind == "fetch" and c.end == t - 1]
+            self.page_mt = (cfg.page_mtake in ("deliver", "eu")
+                            and bool((q.base + op.offset) & 1) and q.arrived_t == t
+                            and not (cfg.page_mwait == "commit" and f and f[-1].commit))
         seq = steps(op, cfg)
         if self.refresh is not None and cfg.refresh_eu == "hold":
             seq = refresh_hold_steps(op, cfg, seq)   # read only with refresh on
@@ -747,6 +757,10 @@ class EU:
                     # evaluates it on this clock
                     q = self.decoder.queue
                     q.flag = q.flag or q.room(t) >= 2
+                    if self.cfg.page_fl_end == "wb" and q.flag and not q.inflight:
+                        # (WP125) page_fl_end=wb: the steps' end raises the fetch; the result's
+                        # write-back runs flwb clocks longer (wbsync sees it)
+                        self.wb += self.cfg.c(self.ccls, "flwb")
                 q = self.decoder.queue
                 if q.odd_nt and self.cfg.xfer_nt != "none":
                     q.odd_xfer = q.odd_fed = None   # (WP81) xfer_nt: the hold ends with it
@@ -970,6 +984,13 @@ class EU:
                         and self.req is not None and self.req.detached and self.req.cycles
                         and self.req.cycles[0][0].startswith("io")):
                     return              # port_latch=wait: the latch is held by the waiting I/O
+                if (self.cfg.page_mwait != "none" and self.page_mt is True and self.taken == 1
+                        and self.mem):
+                    # (WP125) page_mwait=commit: the wait is decided on the take's first try,
+                    # before late_read holds the take (the fetch issued on the start clock)
+                    cur = self.bus.current
+                    self.page_mt = (cur.end + 2 if cur is not None and cur.kind == "fetch"
+                                    and cur.start == self.start_clock else False)
                 if self.cfg.late_read and self._late_read(t):
                     return              # late_read: the take and the IR load wait for the word
                 if getattr(self, "page_mt", False) and self.taken == 1:
@@ -1021,6 +1042,8 @@ class EU:
                     # (WP122) page_imm_sync=modrm: set by the ModR/M take of an even-half
                     # immediate form; page_mtest: TEST1 [m]'s EA clocks, its own mtx
                     self.mt_floor = t + 1 + self.cfg.c(self.ccls, "mtx")
+                    if self.cfg.page_mwait != "none" and self.mem:
+                        self.mw_from = self.mt_floor    # (WP125) the read's back-count floor
                 if (n and self.page_mt_d is not None and self.decoder.need == 0
                         and self.cfg.page_mtake == "eu"):
                     # (WP116) page_mtake=eu: the loader keeps its own schedule, the successor's
@@ -1761,7 +1784,12 @@ class EU:
                     # (WP118) page_mem_from=post: started on the issue clock of a fetch the bus
                     # unit did not commit back to back, the form counts no clock before its post
                     c = self.start_clock - 1
-                while c >= self.start_clock and n < r.setup and not any(
+                lo = self.start_clock
+                if self.mw_from is not None:
+                    # (WP125) page_mwait=commit: not back over the clocks the EU waited for the
+                    # ModR/M byte (from the clock its EA clocks may start)
+                    lo, self.mw_from = max(lo, self.mw_from), None
+                while c >= lo and n < r.setup and not any(
                         x.kind == "fetch" and x.start <= c <= x.end
                         and not (x.b2b and x.start > r.pfree)
                         and not (r.pthru and x.thru)        # (WP112) page_cl=thru

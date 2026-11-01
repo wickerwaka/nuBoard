@@ -8658,3 +8658,172 @@ class RemaindersWP124(unittest.TestCase):
                 old = simulate_normalized(s.chain, Config.fitted().replace(
                     **{**_KEEP124, **_OLD124}), s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+# (WP125, F34) the 0F memory forms behind NOP NOP and their displacement cells under the
+# sixty-second fit (scratchpad wp125/facts.txt). A: page_mtake's waited ModR/M take holds every 0F
+# memory form unless the word delivered on its start clock came from a fetch the bus unit committed
+# back to back (the commitment held to that word's delivery), and the read's setup counts back no
+# further than the clock the EA clocks may start (page_mwait=commit, bit1_rmw.mtx = bit1_clr.mtx
+# 1). B: no back-to-back commitment on the last clock of the fetch inside whose flight a 0F memory
+# form with a CL index took its two-byte displacement; the request is the take's, held for the
+# read's fetch-free clocks (page_dcommit=hold). C / D: a register bit op started in
+# page_ir_room=end's state (six stored, a byte latched, nothing in flight) writes back bit1.flwb
+# clocks later (page_fl_end=wb) and evaluates the request on the clock after each operand take
+# (page_fl_eval=next)
+WP125_A = {"page_mwait": "commit", "bit1_rmw.mtx": 1, "bit1_clr.mtx": 1}
+WP125_B = {"page_dcommit": "hold"}
+WP125_C = {"page_fl_end": "wb", "bit1.flwb": 2}
+WP125_D = {"page_fl_eval": "next"}
+WP125 = {**WP125_A, **WP125_B, **WP125_C, **WP125_D}
+# the pre-WP125 values, pinned for the "old" traces so they hold after an adoption, with the
+# sixty-second fit's values these forms read
+_OLD125 = {"page_mwait": "none", "page_dcommit": "go", "bit1_rmw.mtx": 0, "bit1_clr.mtx": 0,
+           "page_mtake": "eu", "page_mt_end": "exec", "page_mtest": "wait", "page_start": "reg",
+           "page_cl": "thru", "page_run": "field", "page_commit": "post", "page_mem": "fixed",
+           "page_b2b": "reg", "page_b2b_win": "run", "page_ir": "delivery", "page_disp": "go",
+           "page_mem_from": "start", "late_read": True, "bit1_test.mtx": 1, "bit1_test.pre": 1,
+           "bit1_rmw.pre": 1, "bit1_clr.pre": 1, "bit1_rmw.fsetup": 3, "bit1_clr.fsetup": 3,
+           "bit1_test.fsetup": 3, "bit1_rmw.cl": 3, "bit1_clr.cl": 3, "bit1_test.cl": 3,
+           "page_fl_end": "none", "page_fl_eval": "take", "page_ir_room": "end",
+           "page_imm_sync": "lead", "request_eval": "on_change", "bit1.wb": 2, "bit1.exec": 2,
+           "bit1.pre": 1, "bit1.nx": 4, "bit1.mtx": 1, "out.wbsync": 1, "out.pre": 3}
+_KEEP125 = {k: v for k, v in _OLD125.items() if k not in WP125}
+
+
+def _ev125(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with the earlier
+    candidates' values pinned as WP122's tests pin them, WP122's values (the sixty-second fit), the
+    values WP125's forms read pinned (_KEEP125) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(
+        **{**_KEEP114, **WP114, **_KEEP116, **WP116, **_KEEP118, **WP118, **_KEEP122, **WP122,
+           **_KEEP125, **over}), s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class PageMemWP125(unittest.TestCase):
+    """(WP125) the four prototypes against their old values on their deciding runs;
+    page_mwait=all (no commitment test) loses the MOV AW,1234h cells and stays out."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev125(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def _miss(self, cid, **over):
+        sil, mod = _ev125(cid, **over)
+        self.assertNotEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["page_mwait"], ("none", "commit", "all"))
+        self.assertEqual(OPTIONS["page_dcommit"], ("go", "hold"))
+        self.assertEqual(OPTIONS["page_fl_end"], ("none", "wb"))
+        self.assertEqual(OPTIONS["page_fl_eval"], ("take", "next"))
+        for name in ("page_mwait", "page_dcommit", "page_fl_end", "page_fl_eval"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+        self.assertEqual(DEFAULT.cost["bit1"]["flwb"], 2)
+
+    def test_page_mwait_deciding_run(self):
+        # SET1 [IX],CL behind NOP NOP starts 94 on F94's issue (F90's word, not committed,
+        # delivered there): silicon D106 (none: the ModR/M on F94's delivery 98, 98-100 counted
+        # back, D103; commit: the ModR/M at 99, the EA clocks 101-102, D106)
+        cid = "F34-out-mbit-set1_mw_cl-nop2-k1-pO-w1"
+        mod = self._exact(cid, **WP125_A)
+        self.assertIn((106, "data_read"), _at114(mod))
+        _, old = _ev125(cid, **_OLD125)
+        self.assertIn((103, "data_read"), _at114(old))
+        # the immediate form in the same state at w2: silicon D106 (none: D103)
+        cid = "F34-out-mbit-set1_mw_imm-nop2-k1-pO-w2"
+        mod = self._exact(cid, **WP125_A)
+        self.assertIn((106, "data_read"), _at114(mod))
+        _, old = _ev125(cid, **_OLD125)
+        self.assertIn((103, "data_read"), _at114(old))
+        # TEST1 [m],CL behind the PUSH frame's NOP: missing under the old values
+        self._exact("F34-push-mbit-test1_mw_cl-nop-k1-pO-w2", **WP125_A)
+        self._miss("F34-push-mbit-test1_mw_cl-nop-k1-pO-w2", **_OLD125)
+
+    def test_page_mwait_commitment(self):
+        # behind MOV AW,1234h the start clock is F93's delivery, the word of a fetch committed back
+        # to back on F89's last clock: no wait, D106 under none and commit; all waits (D109)
+        cid = "F34-out-mbit-set1_mw_cl-d-k1-pE-w1"
+        self._exact(cid, **WP125_A)
+        self._exact(cid, **_OLD125)
+        _, all_ = _ev125(cid, **{**WP125_A, "page_mwait": "all"})
+        self.assertNotIn((106, "data_read"), _at114(all_))
+        for c in ("F34-out-mbit-set1_mw_imm-d-k1-pE-w0", "F34-out-mbit-clr1_mw_cl-d-k1-pE-w2"):
+            self._exact(c, **WP125_A)
+            self._miss(c, **{**WP125_A, "page_mwait": "all"})
+        # TEST1 [m],imm's second instance at k = 2 pO, WP122's waited state, stays exact
+        for c in ("F32-out-test1_mw_imm-k2-pO-w0", "F32-out-test1_mw_imm-k2-pO-w1"):
+            self._exact(c, **WP125_A)
+            self._exact(c, **_OLD125)
+
+    def test_page_dcommit_deciding_run(self):
+        # SET1 [BW+d16],CL behind a NOP starts 89 on F89's issue, the d16 taken at 96 on F93's
+        # last clock: silicon F100 D104 (go: F97 committed back to back, D103)
+        cid = "F34-out-mbit-set1_mw_cl_bw_d16-nop-k1-pE-w1"
+        mod = self._exact(cid, **WP125_B)
+        self.assertIn((100, "fetch"), _at114(mod))
+        self.assertIn((104, "data_read"), _at114(mod))
+        _, old = _ev125(cid, **_OLD125)
+        self.assertIn((97, "fetch"), _at114(old))
+        self.assertIn((103, "data_read"), _at114(old))
+        # the w0 twin takes the d16 on F93's delivery, and the pO cell's commitment goes to the
+        # marker OUT's I/O: exact under both
+        for c in ("F34-out-mbit-set1_mw_cl_bw_d16-nop-k1-pE-w0",
+                  "F34-out-mbit-set1_mw_cl_bw_d16-l0-k1-pO-w1"):
+            self._exact(c, **WP125_B)
+            self._exact(c, **_OLD125)
+
+    def test_page_fl_end_deciding_run(self):
+        # the second SET1 AW,CL (an even address) starts 94 on an idle bus, six bytes stored and
+        # one latched, its steps end 99 with F99 issued there: silicon F111 O114 (none: the OUT
+        # starts 102 behind F99, F110 O113; wb: its wbsync to 103, F111 O114)
+        cid = "F32-out-set1_rw_cl-k2-pO-w0"
+        mod = self._exact(cid, **WP125_C)
+        self.assertIn((99, "fetch"), _at114(mod))
+        self.assertIn((111, "fetch"), _at114(mod))
+        self.assertIn((114, "io_write"), _at114(mod))
+        _, old = _ev125(cid, **_OLD125)
+        self.assertIn((110, "fetch"), _at114(old))
+        self.assertIn((113, "io_write"), _at114(old))
+        # w1: the fetch's flight holds the OUT to the same clock under both; the PUSH successor
+        # (no wbsync) is exact under both
+        for c in ("F32-out-set1_rw_cl-k2-pO-w1", "F40-push-page-set1-k2-pE-w0"):
+            self._exact(c, **WP125_C)
+            self._exact(c, **_OLD125)
+
+    def test_page_fl_eval_deciding_run(self):
+        # the second SET1 AW,0Fh (an even address) starts 102 in the same state, the immediate
+        # taken at 105: silicon F106 F110 O121 (take: F105 on the take's room, the ALU clocks
+        # wait for its word, F109 O123)
+        cid = "F34-out-rbit-set1_rw_imm-nop-k2-pO-w1"
+        mod = self._exact(cid, **WP125_D)
+        self.assertIn((106, "fetch"), _at114(mod))
+        self.assertIn((121, "io_write"), _at114(mod))
+        _, old = _ev125(cid, **_OLD125)
+        self.assertIn((105, "fetch"), _at114(old))
+        self.assertIn((123, "io_write"), _at114(old))
+        # w0 stays a fact: the first fetch right (F102), page_b2b's commitment on its last clock
+        # (F105) where silicon commits none (F109 O116)
+        sil, mod = _ev125("F34-out-rbit-set1_rw_imm-nop-k2-pO-w0", **WP125_D)
+        self.assertIn((102, "fetch"), _at114(mod))
+        self.assertIn((105, "fetch"), _at114(mod))
+        self.assertIn((116, "io_write"), _at114(sil))
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP125's values
+        base = {**_KEEP114, **WP114, **_KEEP116, **WP116, **_KEEP118, **WP118, **_KEEP122,
+                **WP122, **_KEEP125}
+        for fam in ("F3", "F14", "F33", "F36"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **WP125}),
+                                          s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **_OLD125}),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

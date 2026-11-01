@@ -489,9 +489,19 @@ def _page_take_ask(eu, queue) -> bool:
     displacement take raised on its clock, not one the bus unit had committed to before the
     take."""
     tk = queue.take_t
-    return bool(getattr(eu, "page_cl_n", 0) and getattr(eu, "disp", 0) == 2 and tk is not None
-                and tk >= eu.start_clock and eu.decoder.need == 0 and queue.b2b_at != tk
-                and queue.requested_at == tk)
+    if not (getattr(eu, "page_cl_n", 0) and getattr(eu, "disp", 0) == 2 and tk is not None
+            and tk >= eu.start_clock and eu.decoder.need == 0):
+        return False
+    if (eu.cfg.page_dcommit == "hold" and queue.requested_at is not None and tk == queue.disp_t
+            and eu.bus.last_end == queue.requested_at - 1):
+        # (WP125) page_dcommit=hold: the displacement taken inside the flight of the fetch that
+        # ended on the clock before the request was raised (no commitment on its last clock),
+        # no other cycle on the bus since
+        f = [c for c in eu.bus.cycles[-3:] if c.kind == "fetch"
+             and c.end == queue.requested_at - 1 and c.start < tk <= c.end]
+        if f:
+            return True
+    return queue.b2b_at != tk and queue.requested_at == tk
 
 
 def _choose(t: int, cfg, bus, queue, eu):
@@ -637,7 +647,8 @@ def _choose(t: int, cfg, bus, queue, eu):
             and (req.holding() or recovering or req.floor_hold and t < req.not_before)
             and not in_run and not free_run
             and not (thru and (bus.last_fetch_end == t - 1
-                               or queue.requested_at == queue.take_t))):
+                               or queue.requested_at == queue.take_t
+                               or take_ask))):     # (WP125) page_dcommit=hold
         io = req.cycles[0][0].startswith("io")
         if io and cfg.io_hold == "posted_b2b" and queue.b2b_at == t:
             pass                        # a back-to-back fetch the bus unit committed to goes
@@ -808,6 +819,7 @@ def _choose(t: int, cfg, bus, queue, eu):
         addr, width, data = queue.issue(t, mem_waiting=mem)   # (WP26) request_reissue
         c = bus.start(t, "fetch", addr, width, data, owner=queue)
         c.b2b = queue.b2b_at == t or imm_run  # (WP81) page_mem: committed back to back
+        c.commit = queue.b2b_at == t         # (WP125) page_mwait: the bus unit's commitment
         # (WP112) page_cl=thru: issued in the read's CL clocks
         c.thru = thru
         if eu.refresh is not None and cfg.refresh_sync == "run":

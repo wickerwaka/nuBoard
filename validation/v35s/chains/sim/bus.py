@@ -27,6 +27,8 @@ class Cycle:
     owner: object = None     # the requester to notify on completion
     b2b: bool = False        # (WP81) a fetch the bus unit committed to back to back
     thru: bool = False       # (WP112) page_cl=thru: a fetch issued in a 0F read's cl clocks
+    commit: bool = False     # (WP125) page_mwait: a fetch issued on the clock the bus unit had
+                             # committed to back to back (queue.b2b_at)
 
     @property
     def end(self) -> int:

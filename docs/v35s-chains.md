@@ -6323,6 +6323,49 @@ d16 take, which breaks the exact bw_ix_d16 twin (a rule would key on the EA mode
 pO in F5 / F19 / F21 / F22 / F26); a rule would key on TEST's fixed setup. Tests test_sim.RemaindersWP124 (`_OLD124`).
 The fit stage is WP126.
 
+### The 0F forms' history-keyed remainder: the bus unit's commitment outlives the committed fetch's issue (WP125, 2026-11-01; a candidate)
+
+Three readings (WP116, WP118, WP122) left the 0F memory forms behind a NOP lead missing in a model state identical to
+exact cells', separated only by whether the form became ready on a back-to-back committed clock: history, which
+neither the model nor silicon can carry. Tracing all 57 instances in `page_mtake`'s waited-take state (O Fi q5 l1: an
+odd address, started on a word's delivery clock with a fetch issued there; scratchpad wp125/facts.txt, t/) finds the
+physical state: silicon's read splits them into **waited timing (30: the 24 misses and WP122's 6 TEST1 [m],imm k = 2
+cells), where the word delivered on the start clock came from an ordinary fetch, and no-wait timing (27: every MOV
+AW,1234h cell), where that word came from a fetch the bus unit committed back to back.** Of the candidate states only
+**the bus unit's commitment flag held until the committed fetch's word is delivered** separates the two (table 1.3);
+the flag held only to the issue or the last clock, a queue slot reserved from commitment to delivery, the 0F byte's
+IR-load clock, a start on a commitment and the EU's idle clocks do not. Mechanism: a 0F memory form in that state takes
+its ModR/M byte on the clock after the start fetch's word, runs its EA clocks a clock later and counts its read setup
+back no further than the clock its EA clocks may start, unless the word delivered on its start clock is a committed
+fetch's. Enum `page_mwait` (none → commit, with `bit1_rmw.mtx` = `bit1_clr.mtx` 1): **F34 +24, 0 lost**; `all` (no
+commitment test) wins 24 and loses every MOV-lead cell (27); mtx 0 wins 6; without the back-count floor or with the
+wait decided after `late_read` only the immediate cells (8).
+
+**The displacement cells (4: SET1 [BW+d16] / [d16] behind a NOP, pE w1 / w2).** The d16 is taken inside a fetch's
+flight and the request it raises becomes a back-to-back commitment on that fetch's last clock; silicon treats it as the
+take's own request, the fetch going at that fetch's last clock + 4 and the read following it, the w0 twin's shape. It
+reads the take's state on that clock, not the parity (the pO twins raise no request). Enum `page_dcommit` (go → hold):
+**F34 +4**.
+
+**The w0 OUT after a CL form (17).** Nothing ends the bit op at + 7 at w0 only: its steps end at t0 + 5 and F5 is right
+at every wait; its register write-back runs to t0 + 9 at every wait, which only the OUT sees through its write-back
+sync, and at w1 / w2 the start fetch's flight holds the OUT to the same clock anyway. Ending the steps later would move
+F5, delaying the OUT would key on the wait count, the loader is never the bound. The longer write-back belongs only to
+the full-latch bit op whose end raises the fetch (on every full-latch bit op it takes back four of the w1 wins). Enum
+`page_fl_end` (none → wb, `bit1.flwb` 2): **F32 +8, F34 +7, F39 +1, F40 +1**. No physical reason for the delayed
+write-back was found beyond the reading itself: a weaker finding than the others, kept because it loses nothing.
+
+**The immediate forms' fetch in the full-queue state (12).** The request rule sees the immediate's take a clock late in
+the full-latch state. Enum `page_fl_eval` (take → next): **F34 +8** (w1 / w2). The four w0 cells stay a fact: with the
+first fetch right, `page_b2b` commits a second fetch (EU done, IR empty) where silicon commits none, so a rule would key
+on the wait count; requiring the IR to load on that clock broke an earlier instance.
+
+The four together: **+53, 0 lost** on all 42 lists (F32 846 → 854, F34 1,547 → 1,590, F39 1,318 → 1,319, F40 1,003 →
+1,004; byte-identical to a clean bddf11e at the defaults). Still facts in these classes: the 4 w0 immediate cells, CLR1
+AW,CL under the PUSH frame (3; the opcode), F32-out-pfx_rol4_m-k1-pE-w1 and F34-out-cr-nopshl8 (outside these
+classes), F39-out-ctl-ldea-s-pE-w0 (WP92's S3). Tests test_sim.PageMemWP125 (`_OLD125`). The fit stage is pending (the
+work is paused at the user's request after the sixty-second fit).
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

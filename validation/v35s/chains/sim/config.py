@@ -1229,6 +1229,55 @@ OPTIONS = {
     # F37 22, F39 6, F40 8). PROTOTYPE (WP124), scored not fitted: F29 +10, lost 0 on all 42
     # lists.
     "gdisp_dlv": ("none", "late"),
+    # (WP125, F34, 2026-11-01) page_mwait: page_mtake's waited ModR/M take (an odd address,
+    # started on a word's delivery clock with a fetch issued there) holds the 0F memory forms as
+    # page_mtest says, decided on the take's first try, and their read counts its setup back to
+    # their start (none) / holds every 0F memory form (TEST1 / SET1 / CLR1 / NOT1 [m], each
+    # with its own mtx) unless the word delivered on its start clock came from a fetch the bus
+    # unit committed back to back (the commitment held to that word's delivery), decided on its
+    # start clock (a CL form's take, which late_read holds to the delivery, waits too); its read
+    # counts its setup back no further than the clock its EA clocks may start (mt_floor), not
+    # over the clocks the EU waited for the byte (commit). Deciding run
+    # F34-out-mbit-set1_mw_cl-nop2-k1-pO-w1, rel t_fill: SET1 [IX],CL behind NOP NOP starts 94 on
+    # F94's issue (F90's word, not committed, delivered there), ModR/M on F94's delivery 98,
+    # the read posted 101; silicon D106 (none: 98-100 counted back, D103; commit: ModR/M at
+    # 99, EA 101-102, D106). Behind MOV AW,1234h (-d-k1-pE-w1) the start is F93's delivery, a
+    # committed fetch's word: no wait, D106 under both; the same rule with no commitment test
+    # waits there too (all). PROTOTYPE (WP125), scored not fitted.
+    "page_mwait": ("none", "commit", "all"),
+    # (WP125, F34, 2026-11-01) page_dcommit: under page_cl=thru the bus unit commits a fetch
+    # back to back on the last clock of the fetch inside whose flight a 0F memory form (CL index)
+    # took its two-byte displacement, as on any fetch's last clock (go) / does not: the request
+    # the take raised is the take's own, issued after the read's fetch-free clocks (fsetup) have
+    # counted since that fetch's end and running inside its CL clocks, as one raised on a
+    # delivery clock (hold). Deciding run F34-out-mbit-set1_mw_cl_bw_d16-nop-k1-pE-w1, rel
+    # t_fill: SET1 [BW+d16],CL behind a NOP starts 89 on F89's issue, the d16 taken at 96 on
+    # F93's last clock; silicon F100 D104 (go: F97 committed back to back, D103; the w0 twin
+    # takes it on F93's delivery and is exact under both: F99 D102). PROTOTYPE (WP125), scored
+    # not fitted.
+    "page_dcommit": ("go", "hold"),
+    # (WP125, F32/F34/F39/F40, 2026-11-01) page_fl_end: a register bit op started in
+    # page_ir_room=end's state (six bytes stored, the delivered word's second byte latched,
+    # nothing in flight) writes its result back within bit1.wb as in any state (none) /
+    # bit1.flwb clocks later when its steps' end raises the fetch (nothing in flight then: the
+    # empty IR's room), seen only by a form that waits for a write-back (wbsync: the port OUT);
+    # its steps, and the fetch issued at their end, do not move (wb). Deciding run F32-out-set1_rw_cl-k2-pO-w0, rel t_fill: the second SET1 AW,CL (an even
+    # address) starts 94, its steps end 99 with F99 issued there; silicon F111 O114, the OUT as
+    # if its wbsync ran to 103 (none: the OUT starts 102, F110 O113); at w1 / w2 F99's flight
+    # holds the OUT to the same clock under both; the immediate form, whose fetch is in flight
+    # by then (page_fl_eval=next: F4), keeps its write-back (its OUT starts on the back-to-back
+    # fetch's issue, t0+8 at w1). PROTOTYPE (WP125), scored not fitted.
+    "page_fl_end": ("none", "wb"),
+    # (WP125, F34, 2026-11-01) page_fl_eval: a register bit op started in page_ir_room=end's
+    # state evaluates the request on its operand takes' clocks as any form (take) / on the clock
+    # after each take (next: the take's room is seen a clock late; the take sync, which counts a
+    # request raised on the take clock, then waits for none). Deciding run
+    # F34-out-rbit-set1_rw_imm-nop-k2-pO-w1, rel t_fill: the second SET1 AW,0Fh (an even address)
+    # starts 102, the immediate taken at 105; silicon F106 F110 O121 (take: F105 on the take's
+    # room, the ALU clocks wait for its word, F109 O123). At w0 the first fetch is right under
+    # next but page_b2b commits F105 on F102's last clock (the EU done, the IR empty), where
+    # silicon commits none (F109 O116; next: F105 O118). PROTOTYPE (WP125), scored not fitted.
+    "page_fl_eval": ("take", "next"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1514,7 +1563,7 @@ DEFAULT_COST = {
     "adjust_b": {"wb": 3, "nx0": 16, "pre": 0, "pre0": 17, "exec": 0, "nx": 1},
     "rol4": {"wb": 1, "pre": 0, "exec": 14, "nx": 0},
     "ror4": {"wb": 2, "pre": 1, "exec": 17, "nx": 0},
-    "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1, "mtx": 1},
+    "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1, "mtx": 1, "flwb": 2},
     "convert": {"nx": 0, "wb": 2, "pre": 3, "exec": 16, "hx": 1},   # (WP124) hx: cvt_tail
     "convert_d": {"nx": 0, "wb": 0, "pre": 2, "exec": 16, "hx": 2},
     "bit1_test": {"mtx": 0, "fsetup": 2, "grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3, "pdhold": 3},
@@ -1871,6 +1920,10 @@ class Config:
     abort_unit_end: str = "keep"       # (WP124)
     str_out_rd: str = "nowait"         # (WP124)
     gdisp_dlv: str = "none"            # (WP124)
+    page_mwait: str = "none"           # (WP125)
+    page_dcommit: str = "go"           # (WP125)
+    page_fl_end: str = "none"          # (WP125)
+    page_fl_eval: str = "take"         # (WP125)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

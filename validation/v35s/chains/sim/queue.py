@@ -372,6 +372,12 @@ class Queue:
         if (self.pdisp_until is not None and c is not None and c.kind == "fetch"
                 and c.end == t and t + 1 < self.pdisp_until):
             pass                    # (WP118) page_disp=hold: no back-to-back commitment
+        elif (self.cfg.page_dcommit == "hold" and c is not None and c.kind == "fetch"
+              and c.end == t and self._disp_in_flight(c)):
+            # (WP125) page_dcommit=hold: no back-to-back commitment; the request is the take's
+            # (arbiter._page_take_ask), and it is the form's one page_run evaluation
+            if self.cfg.page_run != "none" and self.eu.page_active() and self._raised(t):
+                self.pr_start = self.eu.start_clock
         elif c is not None and c.kind == "fetch" and c.end == t and self._raised(t):
             self.b2b_at = t + 1
             if self.cfg.page_run != "none" and self.eu.page_active():
@@ -401,6 +407,16 @@ class Queue:
               and self.cfg.xfer_nt_b2b == "decide" and self._nt_b2b(t)):
             self.b2b_at = self.io_run_at = self.nb_at = t + 1   # (WP89) xfer_nt_b2b
             self.nb_start = self.eu.start_clock
+
+    def _disp_in_flight(self, c) -> bool:
+        """(WP125) page_dcommit=hold: the running 0F memory form (page_cl=thru, a CL index)
+        took its two-byte displacement inside fetch c's flight (after its issue clock), its
+        read not yet posted."""
+        eu = self.eu
+        return bool(eu is not None and getattr(eu, "page_cl_n", 0) and getattr(eu, "disp", 0) == 2
+                    and eu.page_fixed == "start" and self.disp_t is not None
+                    and self.disp_t >= eu.start_clock and c.start < self.disp_t <= c.end
+                    and self.decoder is not None and self.decoder.need == 0)
 
     def _nt_b2b(self, t: int) -> bool:
         """(WP89) xfer_nt_b2b=decide: on the last clock of a fetch while a short conditional
@@ -488,6 +504,11 @@ class Queue:
         if (self.cfg.room_ir_pre != "none" and t == self.start_t and self.decoder is not None
                 and self._pre_room(t)):
             return True                  # (WP104) room_ir_pre: the start emptied the IR, the room
+        if (self.cfg.page_fl_eval == "next" and mode == "on_change" and self.eu is not None
+                and getattr(self.eu, "full_latch", False) and self.eu.done_t is None
+                and not self.eu.halted and self.removed_t is not None):
+            # (WP125) page_fl_eval=next: the full-latch bit op's take is evaluated a clock later
+            return t in (self.removed_t + 1, self.arrived_t, 0)
         if mode == "on_change":
             return t in (self.removed_t, self.arrived_t, 0)
         if mode == "on_take":
