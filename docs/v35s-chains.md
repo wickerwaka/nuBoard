@@ -6217,6 +6217,54 @@ The four kept together: **+73, 0 lost** on all 42 lists (34,225 → 34,298 again
 to a clean 9eed304 at the defaults). Tests test_sim.RemainderWP119 (`_OLD119`), test_fit's stage-37 class. Stage 37
 (WP121) from this hand start: the sixty-first fit (Model).
 
+### The 0F register forms' remaining shapes: a half-taken immediate arms no take sync, the full-queue-plus-latch start counts no IR room, TEST1 [m]'s waited ModR/M byte (WP122, 2026-11-01; a candidate)
+
+The 73 F32 and 130 F34 misses under the sixtieth fit (scratchpad wp122/facts.txt, tables A1–A3, B1–B2, C1–C2; the
+histories under wp122/t/) read as three shapes, each a mechanism; together **+190, 0 lost** on all 42 lists (F32 785 →
+846, F34 1,466 → 1,547, F39 1,282 → 1,294, F40 946 → 982; the other 38 lists byte-identical).
+
+**A. The register bit ops' immediate forms (66: F32 24, F34 42).** Every miss has the form at an odd address, where the
+bit-index immediate is the even half of the word whose odd half is the next opcode; the misses fall in four start
+states (WP118's waited take O Fi q5 l1 44, O . q5 l0 11, O Fi q3 l0 5, O Fi q3 l1 6), so the start state does not
+separate them and the immediate's word half does; every even-address immediate form is exact (120) except in shape B's
+state. In the waited-take state silicon's OUT successor is at the same clock as the CL form's (I/O at t0 + 20 / 22 / 25
+at w0 / w1 / w2); the model is 3 / 4 / 4 clocks late because the immediate's take arms the take sync on the fetch issued
+on that clock (F32-out-set1_rw_imm-k2-pO-w1: silicon F115 O119, model F119 O123). Mechanism: an immediate whose word
+stays half-taken arms no take sync of its own; the bit op keeps the sync its ModR/M take set, and the immediate's take
+costs the EU no clock, the first ALU clock running on that take clock (this replaces the floor WP118's late ModR/M byte
+gives the CL form). Enum `page_imm_sync` (take → lead; `modrm`, the sync alone, F32 +8 / F34 +30): **F32 +24, F34 +42**,
+every odd-address immediate miss; applied at both halves it loses every even-address immediate cell (F32 24, F34 36).
+
+**B. The CL forms' k = 2 odd cells (75: 63 CL, 12 immediate).** The second instance in these runs is at an even
+address (the pE twin's is odd, in the waited-take state); all 75 are one start state, E . q6 l1: an even address, idle
+bus, six bytes stored plus the delivered word's second byte in the latch, nothing in flight. No exact instance of any
+class is in that state. Silicon fetches first at t0 + 5 (CL) and t0 + 4 (immediate) at every wait; the model at + 2 (the
+ModR/M take's room, the empty IR counted as the seventh slot) and + 3. Mechanism: a bit op started in the
+full-queue-plus-latch state does not count the empty IR as room until its steps end, and the request is evaluated on
+that clock. Enum `page_ir_room` (ir → end): **F32 +16, F34 +14, F39 +2, F40 +14**. Still missing: the OUT successor at
+w0 (17: the fetch is right, the OUT a clock early, silicon behaving as if the bit op ended at + 7; a rule would key on
+the wait count) and the 12 immediate cells (silicon's fetch a clock after the immediate's take; no state read
+separates it from the room rule's + 3): facts.
+
+**C. TEST1 [m]'s head (the fitter's `bit1_test.pre` split).** The "2 at k = 1, 1 elsewhere" is two states, neither keyed
+on k: (1) the DS1: prefixed form, whose ModR/M take at + 2 lands inside F87's flight, where `page_commit=start` lets
+F90, committed back to back on F87's last clock, run inside the read's setup; silicon reads 6 fetch-free clocks after
+F90 (D98; pre 1 gives D95); (2) TEST1 [m],imm's second instance at k = 2 pO in WP116's waited-take state, where silicon
+reads 6 clocks after the start fetch's last clock (+ 8 / 9 / 10 at w0 / w1 / w2; pre 4 is right only at w0, pre 1 gives
++ 5 / 6 / 7). Across every other state pre 1 matches silicon (table C2). Mechanism: TEST1 [m] in the waited-take state
+takes its ModR/M byte on the clock after the start fetch's word arrives, and its EA clocks, which need that byte, start
+`bit1_test.mtx` 1 clocks later. Enum `page_mtest` (none → wait) with `bit1_test.pre` 4 → 1 and `page_commit` start →
+post (only a fetch committed after the read's post runs inside the setup): **F32 +21, F34 +25, F39 +10, F40 +22, lost
+0** (pre 1 alone +73 −7, with post +74 −2, with wait and mtx 0 +74 −2). `all` (SET1 / CLR1 / NOT1 [m] too) is a
+within-class trade (F34 +8 −15: it wins the [m],imm forms behind NOP NOP at w1 / w2 and loses the d-lead [m] cells)
+and stays at the default.
+
+**Facts.** WP118's 0F memory forms behind NOP NOP (24) and their displacement cells (4): the history, as WP118 found;
+`page_mtest=all` only trades them. CLR1 AW,CL under the PUSH frame at k = 1 pO (3): SET1 in the same state and frame is
+exact, so the clock belongs to CLR1's operation and a rule would key on the opcode. F34-out-cr-nopshl8 (2) and
+F32-out-pfx_rol4_m-k1-pE-w1 (1) are outside these classes. Tests test_sim.PageFormsWP122 (`_OLD122`). The fit stage is
+WP123.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

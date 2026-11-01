@@ -8343,3 +8343,156 @@ class RemainderWP119(unittest.TestCase):
                 old = simulate_normalized(s.chain, Config.fitted().replace(
                     **{**_KEEP119, **_OLD119}), s.chain_base)
                 self.assertEqual(aligned(new), aligned(old), s.run_id)
+
+
+# (WP122, F32/F34/F39/F40) the 0F register forms' remaining shapes under the sixtieth fit
+# (scratchpad wp122/facts.txt). A: a register bit op whose bit index immediate is the even half of
+# its word (an odd address) takes the take sync its ModR/M take set and runs its first ALU clock on
+# the immediate's take clock (page_imm_sync=lead). B: a register bit op started with six bytes
+# stored, a byte latched and no fetch in flight does not count the empty IR as room until its
+# steps end (page_ir_room=end). C: TEST1 [m] takes its ModR/M byte a clock after the second opcode
+# byte (bit1_test.pre 1), a fetch committed before its read's post counts toward the setup
+# (page_commit=post), and in WP116's waited-take state its ModR/M take waits for the start fetch's
+# word and its EA clocks for the byte's late arrival (page_mtest=wait, bit1_test.mtx 1)
+WP122_A = {"page_imm_sync": "lead"}
+WP122_B = {"page_ir_room": "end"}
+WP122_C = {"page_mtest": "wait", "bit1_test.mtx": 1, "bit1_test.pre": 1, "page_commit": "post"}
+WP122 = {**WP122_A, **WP122_B, **WP122_C}
+# the pre-WP122 values, pinned for the "old" traces so they hold after an adoption, with the
+# sixtieth fit's values these forms read
+_OLD122 = {"page_imm_sync": "take", "page_ir_room": "ir", "page_mtest": "none",
+           "bit1_test.mtx": 0, "bit1_test.pre": 4, "page_commit": "start",
+           "page_mt_end": "exec", "page_mtake": "eu", "page_start": "reg", "test1_head": "own",
+           "bit1.mtx": 1, "bit1.nx": 4, "bit1.pre": 1, "bit1.exec": 2, "bit1.wb": 2,
+           "bit1.cl": 0, "bit1_test.nx": 0, "bit1_test.cl": 3, "bit1_test.fsetup": 3,
+           "bit1_test.exec": 2, "out.wbsync": 1, "out.pre": 3}
+_KEEP122 = {k: v for k, v in _OLD122.items() if k not in WP122}
+
+
+def _ev122(cid, **over):
+    """(silicon, model) aligned event lists from t_fill under the tracked fit with the earlier
+    candidates' values pinned as WP118's tests pin them, the values WP122's forms read pinned
+    (_KEEP122) and over."""
+    fam = cid.split("-", 1)[0]
+    run = next(r for r in _runs(fam) if r["chain"]["id"] == cid)
+    s = normalize(run)
+    m = simulate_normalized(s.chain, Config.fitted().replace(
+        **{**_KEEP114, **WP114, **_KEEP116, **WP116, **_KEEP118, **WP118, **_KEEP122, **over}),
+        s.chain_base)
+    return aligned(s), aligned(m)
+
+
+class PageFormsWP122(unittest.TestCase):
+    """(WP122) the three prototypes against their old values on their deciding runs; page_mtest=all
+    (a within-class trade) stays at its default."""
+
+    def _exact(self, cid, **over):
+        sil, mod = _ev122(cid, **over)
+        self.assertEqual(mod, sil, cid)
+        return mod
+
+    def _miss(self, cid, **over):
+        sil, mod = _ev122(cid, **over)
+        self.assertNotEqual(mod, sil, cid)
+        return mod
+
+    def test_defaults_are_the_old_behaviour(self):
+        self.assertEqual(OPTIONS["page_imm_sync"], ("take", "modrm", "lead"))
+        self.assertEqual(OPTIONS["page_ir_room"], ("ir", "end"))
+        self.assertEqual(OPTIONS["page_mtest"], ("none", "wait", "all"))
+        for name in ("page_imm_sync", "page_ir_room", "page_mtest"):
+            self.assertEqual(getattr(DEFAULT, name), OPTIONS[name][0], name)
+        for cls in ("bit1_test", "bit1_rmw", "bit1_clr"):
+            self.assertEqual(DEFAULT.cost[cls]["mtx"], 0, cls)
+
+    def test_page_imm_sync_deciding_run(self):
+        # the second SET1 AW,0Fh (an odd address) starts 97 on F97's issue, the ModR/M taken at
+        # 102, the immediate at 103 with F103 issued there: silicon F115 O119 (take: the take sync
+        # waits out F103, F119 O123; modrm: F116 O120)
+        cid = "F32-out-set1_rw_imm-k2-pO-w1"
+        mod = self._exact(cid, **WP122_A)
+        self.assertIn((115, "fetch"), _at114(mod))
+        self.assertIn((119, "io_write"), _at114(mod))
+        _, old = _ev122(cid, **_OLD122)
+        self.assertIn((119, "fetch"), _at114(old))
+        self.assertIn((123, "io_write"), _at114(old))
+        _, mid = _ev122(cid, page_imm_sync="modrm")
+        self.assertIn((116, "fetch"), _at114(mid))
+        self.assertIn((120, "io_write"), _at114(mid))
+        # the same form behind SHL AL,imm8 on an idle bus: exact under modrm and lead only
+        cid = "F34-out-rbit-set1_rw_imm-sep-k1-pE-w1"
+        self._exact(cid, **WP122_A)
+        self._exact(cid, page_imm_sync="modrm")
+        self._miss(cid, **_OLD122)
+        # the even-address form (the immediate the odd half of its word) keeps the old sync
+        for c in ("F32-out-set1_rw_imm-k2-pE-w1", "F32-out-set1_rw_imm-k2-pE-w0"):
+            self._exact(c, **WP122_A)
+            self._exact(c, **_OLD122)
+
+    def test_page_ir_room_deciding_run(self):
+        # the second SET1 AW,CL (an even address) starts 97 on an idle bus, six bytes stored and
+        # one latched: silicon F102 F114 O118 (ir: F99 on the ModR/M take's IR room, F115 O119)
+        cid = "F32-out-set1_rw_cl-k2-pO-w1"
+        mod = self._exact(cid, **WP122_B)
+        self.assertIn((102, "fetch"), _at114(mod))
+        self.assertIn((118, "io_write"), _at114(mod))
+        _, old = _ev122(cid, **_OLD122)
+        self.assertIn((99, "fetch"), _at114(old))
+        self.assertIn((119, "io_write"), _at114(old))
+        # a PUSH successor at w0: silicon F95 W104 (ir: F92 W103)
+        cid = "F40-push-page-set1-k2-pE-w0"
+        mod = self._exact(cid, **WP122_B)
+        self.assertIn((104, "stack_write"), _at114(mod))
+        _, old = _ev122(cid, **_OLD122)
+        self.assertIn((103, "stack_write"), _at114(old))
+        # the OUT successor at w0 stays a fact: the fetch right, the OUT a clock early
+        # (silicon F99 F111 O114)
+        cid = "F32-out-set1_rw_cl-k2-pO-w0"
+        sil, mod = _ev122(cid, **WP122_B)
+        self.assertIn((99, "fetch"), _at114(mod))
+        self.assertIn((113, "io_write"), _at114(mod))
+        self.assertIn((114, "io_write"), _at114(sil))
+
+    def test_page_mtest_deciding_run(self):
+        # the second TEST1 [BW],0Fh (an odd address) starts 103 on F103's issue: silicon D112,
+        # F103's last clock + 6 (none, with pre 1 and post: D109; the old values: D111)
+        cid = "F32-out-test1_mw_imm-k2-pO-w1"
+        mod = self._exact(cid, **WP122_C)
+        self.assertIn((112, "data_read"), _at114(mod))
+        _, none = _ev122(cid, **{**WP122_C, "page_mtest": "none"})
+        self.assertIn((109, "data_read"), _at114(none))
+        _, old = _ev122(cid, **_OLD122)
+        self.assertIn((111, "data_read"), _at114(old))
+        # w0, exact under the old values by the wait count, stays exact
+        self._exact("F32-out-test1_mw_imm-k2-pO-w0", **WP122_C)
+        self._exact("F32-out-test1_mw_imm-k2-pO-w0", **_OLD122)
+
+    def test_test1_head_and_commit(self):
+        # TEST1 [BW],CL at an even address on F81's issue: silicon F84 back to back, D92 (pre 4:
+        # the ModR/M at 86, F86 D94)
+        cid = "F32-push-test1_mw_cl-k1-pO-w0"
+        mod = self._exact(cid, **WP122_C)
+        self.assertIn((84, "fetch"), _at114(mod))
+        self.assertIn((92, "data_read"), _at114(mod))
+        _, old = _ev122(cid, **_OLD122)
+        self.assertIn((86, "fetch"), _at114(old))
+        self.assertIn((94, "data_read"), _at114(old))
+        # DS1: TEST1 [BW],CL: F90 committed on F87's last clock, before the read's post; silicon
+        # D98 (pre 1 with page_commit=start: D95)
+        cid = "F32-out-pfx_test1_mw_cl-k1-pE-w0"
+        self._exact(cid, **WP122_C)
+        self._exact(cid, **_OLD122)
+        _, start = _ev122(cid, **{**WP122_C, "page_commit": "start"})
+        self.assertIn((95, "data_read"), _at114(start))
+
+    def test_other_families_untouched(self):
+        # no sampled run of these families moves under WP122's values
+        base = {**_KEEP114, **WP114, **_KEEP116, **WP116, **_KEEP118, **WP118, **_KEEP122}
+        for fam in ("F3", "F14", "F33", "F36"):
+            for run in _runs(fam)[::60]:
+                s = normalize(run)
+                new = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **WP122}),
+                                          s.chain_base)
+                old = simulate_normalized(s.chain, Config.fitted().replace(**{**base, **_OLD122}),
+                                          s.chain_base)
+                self.assertEqual(aligned(new), aligned(old), s.run_id)

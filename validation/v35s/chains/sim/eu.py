@@ -105,6 +105,9 @@ class EU:
         self.pop_ref = None             # (WP40) pop_refresh=stall: the refresh already counted
         self.wb_until = 0               # previous instruction's write-back ends before this clock
         self.mt_floor = None            # (WP118) page_mt_end=exec: no step before this clock
+        self.mr_sync = None             # (WP122) page_imm_sync=modrm: the ModR/M take's sync
+        self.imm_half = False           # (WP122) page_imm_sync: an even-half bit index byte
+        self.full_latch = False         # (WP122) page_ir_room=end: started full, a byte latched
         self.last_issued: list = []     # (WP76) str_split: the last data step's bus cycles
         self.str_rep = False            # (WP76) a REP string form is running
         self.sreg: str | None = None    # (WP76) the running form's Op.sreg
@@ -486,8 +489,21 @@ class EU:
         q = self.decoder.queue
         self.page_mt_d = None
         self.mt_floor = None            # (WP118) page_mt_end=exec
-        self.page_mt = (cfg.page_mtake in ("deliver", "eu") and bool(op.page) and op.ea is None
-                        and (op.cls == "bit1" or op.cls in BF_CLASSES)
+        self.mr_sync = None             # (WP122) page_imm_sync: the ModR/M take's sync
+        # (WP122) page_ir_room=end: a register bit op started with six bytes stored, the
+        # delivered word's second byte waiting in the latch and no fetch in flight
+        self.full_latch = (cfg.page_ir_room == "end" and op.cls == "bit1"
+                           and not q.inflight and q.latched and len(q.bytes) > 6)
+        # (WP122) page_imm_sync: a register bit op whose bit index byte is the even half of its
+        # word (the next opcode the odd half)
+        self.imm_half = (cfg.page_imm_sync != "take" and op.cls == "bit1" and bool(op.imm_bytes)
+                         and not (q.base + op.offset + op.length - 1) & 1)
+        self.page_mt = (cfg.page_mtake in ("deliver", "eu") and bool(op.page)
+                        and (op.ea is None and (op.cls == "bit1" or op.cls in BF_CLASSES)
+                             # (WP122) page_mtest: TEST1 [m] (wait), SET1 / CLR1 / NOT1 [m] (all)
+                             or cfg.page_mtest == "wait" and op.cls == "bit1_test"
+                             or cfg.page_mtest == "all" and op.cls in ("bit1_test", "bit1_rmw",
+                                                                       "bit1_clr"))
                         and bool((q.base + op.offset) & 1) and q.arrived_t == t)
         seq = steps(op, cfg)
         if self.refresh is not None and cfg.refresh_eu == "hold":
@@ -721,6 +737,11 @@ class EU:
                 return
             if self.k >= len(self.steps) and self.done_t is None:
                 self.done_t = t                 # the running instruction's steps are done
+                if getattr(self, "full_latch", False):
+                    # (WP122) page_ir_room=end: the empty IR is room again; the request rule
+                    # evaluates it on this clock
+                    q = self.decoder.queue
+                    q.flag = q.flag or q.room(t) >= 2
                 q = self.decoder.queue
                 if q.odd_nt and self.cfg.xfer_nt != "none":
                     q.odd_xfer = q.odd_fed = None   # (WP81) xfer_nt: the hold ends with it
@@ -978,10 +999,20 @@ class EU:
                     q.flag = q.room(t) >= 2
                 self.taken += n
                 self.left -= n
-                if n and mt_take and not self.left:
+                imm_sync = getattr(self, "imm_half", False)
+                if n and self.left and imm_sync and self.cfg.take_sync == "pending":
+                    # (WP122) page_imm_sync: the register bit op's take sync is the one its
+                    # ModR/M take sets (the fetches on the bus or asked for then); the
+                    # even-half bit index byte taken after it does not extend it
+                    q = self.decoder.queue
+                    self.mr_sync = q.completed + q.inflight + int(q.asked(t))
+                if n and mt_take and (not self.left or imm_sync
+                                      and self.cfg.page_imm_sync == "modrm"):
                     # (WP118) page_mt_end=exec: the ModR/M byte taken after the wait reaches
                     # the EU mtx clocks late: the form's ALU clocks start no earlier than that
-                    # (a take sync waiting longer hides it; a data step is not held)
+                    # (a take sync waiting longer hides it; a data step is not held);
+                    # (WP122) page_imm_sync=modrm: set by the ModR/M take of an even-half
+                    # immediate form; page_mtest: TEST1 [m]'s EA clocks, its own mtx
                     self.mt_floor = t + 1 + self.cfg.c(self.ccls, "mtx")
                 if (n and self.page_mt_d is not None and self.decoder.need == 0
                         and self.cfg.page_mtake == "eu"):
@@ -1110,6 +1141,11 @@ class EU:
                         # delivery clock (its second byte latched): the sync counts the
                         # fetches pending on the next clock
                         self.sync = "defer"
+                    if self.mr_sync is not None:
+                        self.sync = self.mr_sync    # (WP122) page_imm_sync: the ModR/M's
+                        self.mr_sync = None
+                        if self.cfg.page_imm_sync == "lead":
+                            continue    # (WP122) lead: the ALU clocks may start on this clock
                     if self.cfg.count_latch and self.shift_latched:
                         # (WP21) count_latch: the shift holds the queue port (no fetch until
                         # its last clock, queue.shift_held); a count byte taken on the

@@ -1120,6 +1120,48 @@ OPTIONS = {
     # D118 (any: the displacement taken on F109's delivery 113, D119). PROTOTYPE (WP119), scored
     # not fitted: alone nothing moves (no fetch runs at those takes).
     "late_disp_word": ("any", "word", "split"),
+    # (WP122, F32/F34, 2026-11-01) page_imm_sync: a register bit op's (bit1) take sync follows
+    # its last operand take, the bit index immediate's, and its ALU clocks start on the clock
+    # after it (take) / when the immediate is the even half of its word (the next opcode the
+    # odd half: the form at an odd address), the take sync is the one the ModR/M take set (the
+    # fetches on the bus or asked for on that clock), the immediate's take adding none, and
+    # under page_mt_end=exec the ModR/M take sets mt_floor (modrm) / as modrm, and the
+    # immediate's take costs the EU no clock of its own: the ALU clocks may start on its take
+    # clock as soon as that sync is met (lead; no mt_floor: the clock the waited ModR/M byte
+    # reaches the EU late is the immediate's take). Deciding run
+    # F32-out-set1_rw_imm-k2-pO-w1, rel t_fill: the second SET1 AW,0Fh starts 97 on F97's issue
+    # (WP116's waited take), the ModR/M taken at 102, the immediate at 103, F103 issued there;
+    # silicon F115 O119 (take: the take sync waits out F103, F119 O123; modrm: F116 O120).
+    # The even-address form (the immediate the odd half, its word wholly taken) keeps the old
+    # sync: F32-out-set1_rw_imm-k2-pE-w1 exact under all three; modrm applied at both halves
+    # loses every even-address imm cell of F32 / F34 (24 / 36). PROTOTYPE (WP122), scored not
+    # fitted: lead F32 +24 F34 +42, modrm F32 +8 F34 +30, lost 0 on all 42 lists.
+    "page_imm_sync": ("take", "modrm", "lead"),
+    # (WP122, F32/F34/F39/F40, 2026-11-01) page_ir_room: the request rule counts the empty IR as
+    # the seventh slot as room_ir says (ir) / not while a register bit op that started with six
+    # bytes stored, the delivered word's second byte waiting in the latch and no fetch in flight
+    # runs its steps; the request is evaluated on the clock they end (end). Deciding run
+    # F32-out-set1_rw_cl-k2-pO-w1, rel t_fill: the second SET1 AW,CL (an even address) starts 97
+    # on an idle bus with the queue full and a byte latched, its ModR/M taken at 99; silicon
+    # F102 F114 O118 (ir: F99 on the ModR/M take's IR room, F115 O119). At w0 the successor OUT
+    # stays a clock early under end (F32-out-set1_rw_cl-k2-pO-w0: silicon F111 O114, end F110
+    # O113) and the immediate forms in the state keep their miss. PROTOTYPE (WP122), scored not
+    # fitted: end F32 +16 F34 +14 F39 +2 F40 +14, lost 0 on all 42 lists.
+    "page_ir_room": ("ir", "end"),
+    # (WP122, F32/F34/F39/F40, 2026-11-01) page_mtest: page_mtake's waited ModR/M take (an odd
+    # address, started on a word's delivery clock with a fetch issued there) holds the register
+    # bit ops and bit fields only (none) / TEST1 [m] (bit1_test) as well, its EA clocks starting
+    # no earlier than bit1_test.mtx clocks after the clock after the take (page_mt_end=exec's
+    # mt_floor: the EA clocks need the ModR/M byte) (wait) / SET1, CLR1, NOT1 [m] as well, with
+    # their own mtx (all). Deciding run F32-out-test1_mw_imm-k2-pO-w1, rel t_fill, with
+    # bit1_test.pre 1 and page_commit=post: the second TEST1 [BW],0Fh starts 103 on F103's issue;
+    # silicon D112, F103's last clock + 6 at every wait (none: D109; wait with mtx 0: D111;
+    # mtx 1: D112). PROTOTYPE (WP122), scored not fitted: with bit1_test.pre 1, page_commit=post
+    # and bit1_test.mtx 1, wait F32 +21 F34 +25 F39 +10 F40 +22, lost 0 on all 42 lists (pre 1
+    # alone +73 -7, with post +74 -2); all with bit1_rmw.mtx / bit1_clr.mtx 1 on top: F34 +8 -15
+    # (wins SET1 / CLR1 [m],imm behind NOP NOP at w1 / w2, loses the d-lead SET1 / CLR1 [m]
+    # cells; with mtx 0 -15).
+    "page_mtest": ("none", "wait", "all"),
 }
 
 # Per-class integer costs. Pinned by hand on F0 (all 18 runs exact): reg.exec
@@ -1408,10 +1450,10 @@ DEFAULT_COST = {
     "bit1": {"wb": 0, "pre": 0, "exec": 4, "cl": 0, "nx": 1, "mtx": 1},
     "convert": {"nx": 0, "wb": 2, "pre": 3, "exec": 16},
     "convert_d": {"nx": 0, "wb": 0, "pre": 2, "exec": 16},
-    "bit1_test": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3, "pdhold": 3},
-    "bit1_rmw": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 1, "wb": 0, "pre": 7, "alu": 3, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+    "bit1_test": {"mtx": 0, "fsetup": 2, "grp": 0, "grp_free": 0, "nx": 2, "wb": 0, "pre": 7, "exec": 1, "dfloor": 2, "cl": 3, "pdhold": 3},
+    "bit1_rmw": {"mtx": 0, "fsetup": 2, "grp": 0, "grp_free": 0, "nx": 1, "wb": 0, "pre": 7, "alu": 3, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2, "cl": 3, "pdhold": 3},
-    "bit1_clr": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 7, "alu": 4, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
+    "bit1_clr": {"mtx": 0, "fsetup": 2, "grp": 0, "grp_free": 0, "nx": 0, "wb": 0, "pre": 7, "alu": 4, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2, "cl": 3, "pdhold": 3},
     "rol4_mem": {"fsetup": 2, "grp": 0, "grp_free": 0, "nx": 8, "wb": 0, "pre": 1, "alu": 12, "setup": 0, "setup_free": 3, "post": 0, "dfloor": 2,
                  "sidle": 2},
@@ -1751,6 +1793,9 @@ class Config:
     str_in_io: str = "nowait"          # (WP119)
     xfer_mem_room: str = "hold"        # (WP119)
     late_disp_word: str = "any"        # (WP119)
+    page_imm_sync: str = "take"        # (WP122)
+    page_ir_room: str = "ir"           # (WP122)
+    page_mtest: str = "none"           # (WP122)
     per_shift_count: int = 2           # shift(count) clocks per count
     cost: dict = field(default_factory=lambda: copy.deepcopy(DEFAULT_COST))
     ea: dict = field(default_factory=lambda: dict(DEFAULT_EA))

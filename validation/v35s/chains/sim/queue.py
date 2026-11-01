@@ -315,6 +315,10 @@ class Queue:
                 # the form runs its EA clocks, before the displacement's take; (WP92)
                 # lea_slot=ea: nor while a displaced LDEA runs them (it holds no IR load)
                 used += ir
+            elif (cfg.page_ir_room == "end" and not ir and self.decoder is not None
+                  and self.eu is not None and getattr(self.eu, "full_latch", False)
+                  and self.eu.done_t is None and not self.eu.halted):
+                pass            # (WP122) page_ir_room=end: no seventh slot while that bit op runs
             elif not (cfg.room_ir_ready and not ir and self.decoder is not None and t is not None
                     and self.decoder.ready_at > t + self.fetch_len):
                 size += 1                       # room_ir_ready: an IR that cannot load is no room
