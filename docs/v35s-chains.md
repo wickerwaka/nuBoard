@@ -6163,7 +6163,7 @@ eight displacement cells on the pE back-to-back commitment after a displacement 
 test_sim.PageMtEndWP118 (`_OLD118`), test_fit's stage-36 class. Stage 36 (WP120) from this hand start: the
 sixtieth fit (Model).
 
-### F39's and F40's non-0F remainder re-read: the memory-indirect transfer's IR slot and split displacement, LDEA's fetch-anchored write-back, INM's I/O read setup, the ModR/M byte's departure on a delivery clock (WP119, 2026-11-01; a candidate)
+### F39's and F40's non-0F remainder re-read: the memory-indirect transfer's IR slot and split displacement, LDEA's fetch-anchored write-back, INM's I/O read setup, the ModR/M byte's departure on a delivery clock (WP119, 2026-11-01; the sixty-first fit)
 
 The 80 non-0F misses of F35, F37, F39 and F40 (scratchpad wp119/facts.txt, wonlost.txt) all still miss under the
 fifty-ninth fit as their first readings said; no later mechanism moved any. Re-read against the exact cells of the same
@@ -6214,7 +6214,8 @@ count for BR far alone. F35 `loop-dbnz-nop` (2): the even taken DBNZ on an abort
 the odd ones in the same model state are exact; a rule would key on alignment with no control.
 
 The four kept together: **+73, 0 lost** on all 42 lists (34,225 → 34,298 against the fifty-ninth fit; byte-identical
-to a clean 9eed304 at the defaults). Tests test_sim.RemainderWP119 (`_OLD119`). The fit stage is WP121.
+to a clean 9eed304 at the defaults). Tests test_sim.RemainderWP119 (`_OLD119`), test_fit's stage-37 class. Stage 37
+(WP121) from this hand start: the sixty-first fit (Model).
 
 ## Model
 
@@ -6235,7 +6236,7 @@ the summed first-divergence residual). Each stage writes
 `build/validation/v35s/chains/fit/stageN.json` and the final configuration
 `fit.json` there, under the ignored `build/`. The adopted fit is tracked in
 the package as `validation/v35s/chains/fit.json` (since 2026-10-26,
-`sim.config.FIT_PATH`; the sixtieth fit since 2026-11-01): `score` and `sim` read it by
+`sim.config.FIT_PATH`; the sixty-first fit since 2026-11-01): `score` and `sim` read it by
 default (`--config PATH` for another file, `--defaults` for the unfitted
 baseline `sim.config.DEFAULT`), the regression tests in `test_fit.py` and
 `test_perf.py` run against it, and
@@ -6751,10 +6752,17 @@ EU a clock late"): fit stage 36 (`F62_ENUMS`, `F62_INTS`; WP120) from that hand 
 42 lists**: F32 761 → 785/858, F34 1,445 → 1466/1,596, F39 1,265 → 1282/1,320, F40 941 → 946/1,020, the other
 lists byte-identical, nothing lost. Model side only, no RTL work.
 
+**The sixty-first fit** (`fit.json`, md5 6c3694bbd1d532c881fd45c97e4e1704; scratchpad wp121/fit-wp121.json, adopted 2026-11-01) is the
+sixtieth fit plus WP119's four mechanisms, `xfer_mem_room=arrival` + `late_disp_word=split`, `lea_wb=fetch` with
+`lea.fwb` 5, `str_in_io=free` with `str_in.ufree` 6, `pre_modrm=arrival` (Facts "F39's and F40's non-0F remainder
+re-read"): fit stage 37 (`F63_ENUMS`, `F63_INTS`; WP121) from that hand start moves nothing: the corpus guard refuses all 47 other grid configurations and every single flip over the whole corpus only loses (`xfer_mem_room=hold` or `late_disp_word=any` 30, `late_disp_word=word` 1,498 across 15 lists, `lea_wb=none` or fwb 4 30, fwb 6 86, `str_in_io=nowait` 10, ufree 5 or 7 5 / 10, `pre_modrm=start` 3), so every hand value is the strict best for its knob. **34365 of 35,168 over 42
+lists**: F25 573 → 577/588, F30 1,455 → 1467/1,476, F37 420 → 432/432, F39 1,282 → 1306/1,320, F40 946 →
+967/1,020, the other lists byte-identical, nothing lost. Model side only, no RTL work.
 
-### Fitted structure (sixtieth fit, 2026-11-01)
 
-Sixty fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
+### Fitted structure (sixty-first fit, 2026-11-01)
+
+Sixty-one fits so far. The first (`fit-wp5.json`, 994/3404) let the queue hold
 7 bytes. The second (`fit-wp6.json`, 1146/3404) made storage physical
 (6-byte queue, instruction register as a seventh byte outside it, an
 in-flight word reserves 2, the simulator raises on any clock ending with
@@ -7155,7 +7163,10 @@ F33 1026, F32 752, F40 941. The fifty-ninth (`fit.json`, 2026-11-01) adds the 0F
 on a committed fetch (`page_start=reg`, `page_mtake=eu`; stage 35): 34225/35168,
 F32 761, F34 1445. The sixtieth (`fit.json`, 2026-11-01) adds the waited ModR/M byte's late
 arrival at the EU (`page_mt_end=exec`, `bit1.mtx` 1; stage 36): 34292/35168,
-F32 785, F34 1466, F39 1282, F40 946.
+F32 785, F34 1466, F39 1282, F40 946. The sixty-first (`fit.json`, 2026-11-01) adds F39's and
+F40's non-0F remainder (`xfer_mem_room=arrival`, `late_disp_word=split`, `lea_wb=fetch`,
+`str_in_io=free`, `pre_modrm=arrival`; stage 37): 34365/35168, F25 577, F30 1467,
+F37 432, F39 1306, F40 967.
 
 **Queue, decoder and arbiter** (settled by F0, F2, F9 PUSH; unchanged since
 the third fit except the aborted fetch):
