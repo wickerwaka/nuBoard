@@ -489,6 +489,86 @@ class F37Tests(unittest.TestCase):
                                  f"F37-{f['marker']}-{base}-{f['column']}", f["id"])
 
 
+class F38Tests(unittest.TestCase):
+    """(WP97) the F38 silicon runs: every run and repeat normalises strictly, the cycles of one
+    run per memory shape, the cost table against the empty frame, and the class mates: every
+    variant whose knob `control` names a same-class mate costs what the mate does in all six
+    cells under both markers."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            cls.runs = {r["chain"]["id"]: r for r in load_runs("F38")}
+        except FileNotFoundError:
+            raise unittest.SkipTest("no corpus entries for F38")
+
+    def test_every_run_normalises(self):
+        self.assertEqual(len(self.runs), 864)
+        repeats = 0
+        for rid, run in self.runs.items():
+            for key in ("socket_trace", "repeat_trace"):
+                if run.get(key):
+                    repeats += key == "repeat_trace"
+                    n = normalize(run, key)
+                    self.assertIsNone(n.access_mismatch, rid)
+                    self.assertEqual(n.checks, [], rid)
+                    self.assertEqual(sorted(n.t_markers), [0, 1], rid)
+        self.assertGreater(repeats, 0)
+
+    def cycles(self, rid):
+        n = normalize(self.runs[rid])
+        return [(e.kind, e.addr) for e in n.events
+                if e.kind not in ("fetch", "refresh", "io_write")]
+
+    def test_cycle_orders(self):
+        dr, dw = "data_read", "data_write"
+        self.assertEqual(self.cycles("F38-out-rmw-subc_m_al-pE-w0"), [(dr, 0x800), (dw, 0x800)])
+        self.assertEqual(self.cycles("F38-out-ldalu-cmp_al_m-pO-w1"), [(dr, 0x800)])
+        self.assertEqual(self.cycles("F38-out-grp-xorb_m_imm8_80-pE-w2"),
+                         [(dr, 0x800), (dw, 0x800)])
+        self.assertEqual(self.cycles("F38-out-pfx-ss_ld_bw-pE-w0"), [(dr, 0x800)])
+        self.assertEqual(self.cycles("F38-out-pfx-ps_mov_aw_dw-pE-w0"), [])
+        self.assertEqual(self.cycles("F38-out-imm8-xor_al_imm8-pE-w0"), [])
+        self.assertEqual(self.cycles("F38-out-shb-shlb_m_imm4-pO-w0"), [(dr, 0x800), (dw, 0x800)])
+
+    def test_cost_table_fills(self):
+        ff = _facts("F38")
+        for variant, cols in ff["rows"].items():
+            if variant.endswith("-empty"):
+                continue
+            self.assertEqual(len(cols), 6, variant)
+            self.assertEqual(set(cols), set(ff["cost"].get(variant, {})), variant)
+        for f in ff["runs"]:
+            base = f["knobs"]["baseline"]
+            if base is not None:
+                self.assertEqual(f["baseline"],
+                                 f"F38-{f['marker']}-{base}-{f['column']}", f["id"])
+
+    def test_class_mates_cost_the_same(self):
+        # (WP97, the first reading) every same-class mate pair is equal in all 12 cells; the
+        # two controls of another shape differ: DS1: MOV AW,[BW] against the unprefixed load
+        # (the prefix) and SHL [BW],4 against SHL [BW],1 (the count)
+        from validation.v35s.chains.forms import FORMS
+        ff = _facts("F38")
+        cost, knobs = ff["cost"], {f["variant"]: f["knobs"] for f in ff["runs"]}
+        differ = set()
+        for v, k in knobs.items():
+            if k.get("control") is None:
+                continue
+            mate = f"{k['marker']}-{k['control']}"
+            if FORMS[knobs[mate]["form"]].cls != FORMS[k["form"]].cls:
+                continue
+            if cost[v] != cost[mate]:
+                differ.add(v)
+        self.assertEqual(differ, {"out-pfx-pfx_ld_bw", "push-pfx-pfx_ld_bw",
+                                  "out-shb-shl_m_imm4", "push-shb-shl_m_imm4"})
+        # C0 = C1, byte = word: SHL AL,4 = SHL AW,4 and SHL byte [BW],4 = SHL [BW],4
+        for m in ("out", "push"):
+            self.assertEqual(cost[f"{m}-shb-shl_al_imm4"], cost[f"{m}-shb-shl_imm4"])
+            self.assertEqual(cost[f"{m}-shb-shlb_m_imm4"], cost[f"{m}-shb-shl_m_imm4"])
+            self.assertEqual(cost[f"{m}-grp-addb_m_imm8_80"], cost[f"{m}-grp-add_m_imm8"])
+
+
 class ReportTests(unittest.TestCase):
     def test_tables_and_strips_render(self):
         for family in ("F0", "F0w", "F1"):

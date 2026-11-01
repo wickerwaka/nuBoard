@@ -409,6 +409,9 @@ BASELINES.update({"F35": ("dM", _f24_baseline), "F36": ("dM", _f24_baseline)})
 # ctl-far, ctl-farbw, ctl-vec3, ctl-vec5 and their -sep twins; the controls against the empty
 # frame), same marker and column
 BASELINES.update({"F37": ("dM", _f24_baseline)})
+# (WP97) F38: the chain the knob `baseline` names (the empty frame for every X, as F36's), same
+# marker and column; the class mate a variant is read against is its knob `control`
+BASELINES.update({"F38": ("dM", _f24_baseline)})
 
 
 def k_series(cost: dict) -> dict:

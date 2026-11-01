@@ -5739,6 +5739,26 @@ The four together (wp94/t-all2.json on the forty-seventh fit; wp94r/fit-wp94-on4
 help only when all three move, so the fit stage needs that hand start. Tests test_sim.PageHoldsWP94 and
 PageB2bWindowWP94. The RTL implements none of this (RTL work is stopped).
 
+### The ALU operations' memory, byte and immediate forms, the segment prefixes, the byte shift by imm8: class equivalence holds everywhere (F38, 2026-10-31; no fit)
+
+F38 (WP97; 72 variants per marker, 864 runs, every repeat equal, generator-only: eleven forms the decoder does not
+decode, `forms.F38_UNMODELLED`, so `families.UNMODELLED` holds F38 until they do) read strictly by the normaliser with
+no change to it (`derive.BASELINES` F38 = the empty frame; scratchpad wp97/report-F38.txt, readings.txt). **Every
+variant whose class mate has the same operand shape costs exactly its mate's cost in all six cells under both
+markers:** the fourteen rmw forms (ADD OR ADDC SUBC AND SUB XOR [BW],r, word and byte: OUT 15 17 20 / 13 15 18, PUSH 14
+18 21 / 13 16 19), the sixteen load_alu forms (the eight operations r,[BW] word and byte, MOV AW,[BW] the same), the
+eight AL,imm8 forms (= TEST AL,imm8 = ADD AL,imm8: 7 7 8 / 7 7 8), 80 /0–/6 = 83 /0–/6 (the byte group = the
+sign-extended word group), 81 /0 = /1 = /4, SS: = DS0: = PS: = DS1: before MOV AW,DW and SS: = DS0: = DS1: before MOV
+AW,[BW], C0 SHL AL,4 = C1 SHL AW,4 and C0 SHL byte [BW],4 = C1 SHL [BW],4. Byte = word in every series. The only
+differences are the two controls whose mate has another shape: the prefix's cost on a load (OUT +4 +5 +6 / +2 +3 +3
+over the unprefixed load; on the register form +3 +3 +4 / +3 +2 +2) and the count byte plus three more shift steps
+(SHL [BW],4 over SHL [BW],1: +7 +8 +9 / +8 +8 +8). Cross-shape anchors against 80 /0 = 83 /0: CMP byte [BW],5 (80 /7,
+read-only) +1 0 −1 / 0 −1 −2, the imm16 form 81 /0 +2 +1 +1 / +1 +2 +3; ADD [BW],AW over ADD AW,[BW] +2 +2 +3 / +1 +2
++3. Parity-free rows: the AL,imm8 forms under OUT and the prefixed register form under PUSH; elsewhere pO is 1–2
+clocks cheaper than pE under OUT and the order varies under PUSH, as in F36. The eleven unmodelled forms each cost
+exactly what a decoded form of their class costs, so the decoder can take them into the existing imm, shift_imm and
+rmw classes with no new class.
+
 ## Model
 
 `validation/v35s/chains/sim/` is a clocked simulation of four machines: a bus

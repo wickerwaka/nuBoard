@@ -3428,10 +3428,11 @@ class F38Tests(unittest.TestCase):
         self.assertEqual(acc("out-shb-shl_al_imm4"), [])
 
     def test_synthetic_runs_and_baselines(self):
-        # derive.BASELINES has no F38 entry (WP97 changes only forms, families and this file):
-        # the knob `baseline` names the empty frame, which _f24_baseline finds
-        from validation.v35s.chains.derive import _f24_baseline, index_facts, run_facts
+        # the knob `baseline` names the empty frame (derive.BASELINES["F38"], _f24_baseline)
+        from validation.v35s.chains.derive import BASELINES, index_facts, run_facts
         from validation.v35s.chains.normalize import normalize
+        metric, _f24_baseline = BASELINES["F38"]
+        self.assertEqual(metric, "dM")
         facts = []
         for c in self.cells:
             n = normalize(_synthetic_run(c))
