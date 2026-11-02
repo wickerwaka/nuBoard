@@ -1,4 +1,4 @@
-"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt | rtlgen [...]"""
+"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt | rtlgen | ucgen [...]"""
 
 from __future__ import annotations
 
@@ -90,6 +90,12 @@ def main(argv=None) -> int:
     rtlgen = rtlgen_parser(sub.add_parser(
         "rtlgen", help="generate fpga/v35s/core/v35_chain_params.svh from the fit (HDL plan, C)"))
     rtlgen.set_defaults(func=lambda args: rtlgen_main(args=args))
+
+    from .ucgen import build_parser as ucgen_parser, main as ucgen_main
+    ucgen = ucgen_parser(sub.add_parser(
+        "ucgen", help="generate the core v2 microcode, decode and class tables "
+                      "(fpga/v35s/core/v35/, docs/v35s-core-v2.md S1)"))
+    ucgen.set_defaults(func=lambda args: ucgen_main(args=args))
 
     args = parser.parse_args(argv)
     return args.func(args) or 0

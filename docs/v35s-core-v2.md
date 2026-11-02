@@ -632,3 +632,13 @@ Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, e
 ## Record
 
 - 2026-11-02: plan approved; S1 (generator) and S2 (front end) launched as worktree work packages.
+- 2026-11-02, **S1 landed**: `validation/v35s/chains/ucgen.py` (+ `ucgen` subcommand), `test_ucgen.py`
+  (12 tests: regenerate-and-diff, the inverse check equal on all 108,302 expansions of the 45,819 enumerated
+  forms, decode length/class/EA mode per form, the S5 budget over 63 interlocked start pairs, size bounds,
+  hex/struct round trip), `test_v35_struct.py` (the structure lint). Generated under `fpga/v35s/core/v35/`:
+  1,133 rows × 64 bits in 231 templates, 84 classes (trap_nop + 83), a 93-bit `v35_fmt_t`, decode tables for
+  256 native + 256 0F opcodes + 17 group overrides, the class table (84 × 122 bits). Departures from the plan's
+  row sketch (recorded in the README): 64-bit rows; `sync` implied by a TAKE's tag; `wsrc` deferred to S6;
+  no `boundary` (refresh out of scope); REP/BCD strings as one element body looped n times; bit-field
+  crossing and the compare exit as skip rows; relatch as one row; 288 register forms the decoder accepts
+  but no template runs decode as trap_nop.
