@@ -550,8 +550,9 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
     parser.add_argument("--config", metavar="PATH",
                         help="with --state/--dump-model: model config (default the tracked fit)")
     parser.add_argument("--core", choices=tuple(SIM_CORES), default="ucore",
-                        help="(WP82) the model lane's core: ucore (build_sim.sh direct) or chain "
-                             "(build_sim.sh direct chain), each with its own default output")
+                        help="(WP82) the model lane's core: ucore (build_sim.sh direct), chain "
+                             "(build_sim.sh direct chain) or v35 (the core v2, build_sim.sh "
+                             "direct v35), each with its own default output")
     parser.add_argument("--diag", action="store_true",
                         help="(WP82) with --core chain: the lane's diagnostics on stderr")
     parser.add_argument("--score", action="store_true",
@@ -598,7 +599,7 @@ def main(argv=None, args=None) -> int:
         return 0
     if not binary.exists():
         print(f"error: the Verilator model is not built ({binary} is missing; "
-              f"fpga/v35s/build_sim.sh direct{' chain' if args.core == 'chain' else ''})",
+              f"fpga/v35s/build_sim.sh direct{'' if args.core == 'ucore' else ' ' + args.core})",
               file=sys.stderr)
         return 2
     chains = select_chains(args.family, args.waits, args.parity, args.ids)

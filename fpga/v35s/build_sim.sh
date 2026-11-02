@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verilator builds of the V35S harness.
 #
-#   ./build_sim.sh [direct|spi|dual] [model|stub|chain]
+#   ./build_sim.sh [direct|spi|dual] [model|stub|chain|v35]
 #
 # direct  the harness alone, driven over its debug bus (socket idle)
 # spi     the board top through the SPI mailbox, checking the safety outputs
@@ -11,6 +11,8 @@
 # chain  (WP82) the chain-model core in the model lane (core/v35s_chain_model.sv, the core
 #        built with V35S_CHAIN_LANE): direct only, into build/fpga/v35s/verilator-direct-chain/;
 #        the ucore build and every core bench are unchanged
+# v35    the V35S core v2 (docs/v35s-core-v2.md: core/v35/v35_top.sv, macro V35S_CORE_V35):
+#        direct only, into build/fpga/v35s/verilator-direct-v35/
 #
 # The model core is the forked nuV30 ucore in core/ucore (PROVENANCE.md). Its
 # microcode ROM loads from fpga/v35s/core/ucore/ relative to the working
@@ -43,7 +45,7 @@ case "$variant" in
         extra_options=(-CFLAGS -DNUBOARD_DUAL_SIM)
         model=model
         ;;
-    *) echo "usage: $0 [direct|spi|dual] [model|stub|chain]" >&2; exit 2 ;;
+    *) echo "usage: $0 [direct|spi|dual] [model|stub|chain|v35]" >&2; exit 2 ;;
 esac
 
 core_dir="$project_dir/core"
@@ -64,6 +66,20 @@ if [[ "$model" == chain ]]; then
     model_present=1
     suffix="-chain"
     extra_options+=(-DV35S_CHAIN_LANE -O3 -I"$core_dir")
+elif [[ "$model" == v35 ]]; then
+    if [[ "$variant" != direct ]]; then
+        echo "the v35 core is built for the direct harness only" >&2
+        exit 2
+    fi
+    v35_dir="$core_dir/v35"
+    model_sources=("$v35_dir/v35_front_pkg.sv" "$v35_dir/v35_stub_pkg.sv"
+                   "$v35_dir/v35_bus.sv" "$v35_dir/v35_queue.sv" "$v35_dir/v35_loader.sv"
+                   "$v35_dir/v35_arbiter.sv" "$v35_dir/v35_eu_script.sv"
+                   "$v35_dir/v35_trace.sv" "$core_dir/v35_sfr.sv" "$core_dir/v35_refresh.sv"
+                   "$v35_dir/v35_top.sv")
+    model_present=1
+    suffix="-v35"
+    extra_options+=(-DV35S_CORE_V35 -O3 -I"$core_dir" -I"$v35_dir")
 elif [[ "$model" == model ]]; then
     model_sources=("$ucore_dir/v30u_ss_pkg.sv" "$ucore_dir/v30u_ucrom.sv"
                    "$ucore_dir/v30u_biu.sv" "$ucore_dir/v30u_eu.sv"

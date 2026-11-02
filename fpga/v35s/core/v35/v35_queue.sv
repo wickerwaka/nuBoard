@@ -1,0 +1,438 @@
+`timescale 1ns/1ps
+
+// V35S core v2: the prefetch queue (docs/v35s-core-v2.md, "Modules and the state they own";
+// Appendix A §1 item 3; Appendix B §1 "Prefetch queue", §2 S1/S3/S6), written from the model's
+// mechanisms (validation/v35s/chains/sim/queue.py) under fit 62, not ported from it.
+//
+// Storage is eight bytes (six nominal, eight inside a clock) in a ring, the delivered word's
+// second byte counted as the ring's last entry while it waits in the one-byte write-port latch
+// (`lat`, word_latch=byte_d). The decoder reads the head through a four-byte window that
+// bypasses this clock's delivery (S1: delivery before take). The request rule's room is
+// v35_front_pkg::room_f, evaluated at each stage that reads it from that stage's values.
+//
+// Stage map (all combinational from the registers and the earlier stages, written once at
+// `ce`; no block reads its own outputs):
+//   S1  arrive: the delivered word's bytes, `lat`, inflight cleared, completed (owed−1);
+//       retry_after on a non-fetch cycle's end; the abort's end; room_c
+//   S2  (T, the loader's pops) the retry_at countdown's raise, the take sync's `asked`
+//       (twice: a deferred sync at the clock's start, a take's at its end), room_t
+//   S3  (L, the IR load) room_x, the request flag, `wants_fetch`, the request's dating
+//   S4  (X, the arbiter's grant) fetch issue (the reissue), the aborted cycle
+//   S5  (P, the second pass's pops) a take's `asked`, io_ir_hold, nop_hold
+//   S6  (E) the write-port latch (`check`), the back-to-back commitment, the next state
+//
+// Registered state (widths) and the model variables it replaces:
+//   q 8×8, head 3, cnt 4             bytes (len(bytes) = stored + latched)
+//   lat 1, lat_full 1                latched, latch_full
+//   unc 3                            uncommitted (take_commit=at_end)
+//   take_addr 20                     the head byte's address (modrm_mate, the trace)
+//   flag 1                           flag (request_eval=on_change, request_hold=lapse)
+//   rq_v 1                           requested_at is not None (dated by strobes: rq_now)
+//   inflight 1, fetch_addr 20        inflight, fetch_addr
+//   b2b 1                            b2b_at == t (registered at a fetch's last clock)
+//   retry 1, retry_loop 1            retry, retry_loop (abort_fetch=retry, abort_unit=loop)
+//   rt_v 1, rt_cnt 9                 retry_at as a countdown
+//   nop_held 1, io_held 1            nop_held, io_held (their clocks: "a start since")
+//   discard 1                        discard (a flush drops the word in flight)
+//   starts 2                         starts (saturating at 3: `starts > 2`)
+//   fhold 2                          str_held (POP PSW's fetch_hold 2: the prelude only)
+//   first 1                          t == 0 (_evaluates)
+module v35_queue
+    import v35_front_pkg::*;
+(
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce,
+    input  wire [19:0] reset_addr,      // the first fetch's address (FFFF0h)
+
+    // ---------------------------------------------------------------- S0/S1 from the bus
+    input  wire        dlv_fetch,       // a fetch ended on t-1: its word arrives now
+    input  wire        dlv_other,       // another cycle ended on t-1 (retry_after)
+    input  wire [19:0] dlv_addr,
+    input  wire [15:0] dlv_data,
+    input  wire        abort_done,      // the aborted cycle ended on t-1
+    input  wire        abort_busy,      // an aborted cycle is in flight (after S1)
+    input  wire        fetch_last,      // a fetch's last clock is t (S6: the b2b decision)
+
+    // ---------------------------------------------------------------- S2 (T) from loader, EU
+    input  wire [1:0]  t_pops,          // bytes the EU took
+    input  wire        t_commit,        // its take step committed
+    input  wire        t_commit1,       // the ModR/M byte committed at once (modrm_commit=byte)
+    input  wire        t_take,          // a take on this clock (take_t == t)
+    input  wire        t_mate,          // the ModR/M's word-mate taken (modrm_mate)
+    input  wire        t_disp,          // a displacement's take (latch_disp)
+    input  wire        t_start,         // an instruction started (start_t == t)
+    input  wire        t_flush,         // a transfer's flush (the prelude's BR far)
+    input  wire [19:0] t_flush_addr,
+    input  wire        t_fhold,         // fetch_hold 2 (POP PSW)
+    input  wire        ask_d,           // the EU resolves a deferred take sync (imm_landed)
+    input  wire        ask_t,           // the EU's take step ends with a take sync
+    input  wire        rt_set,          // abort_unit=loop: retry_at = t + rt_n
+    input  wire signed [9:0] rt_n,      //   (≤ 0: retry_first, raised on this clock)
+    // decoder state the room reads
+    input  wire [2:0]  need_c,          // before T
+    input  wire        ir_v_c,
+    input  wire        imm16_c,
+    input  wire [2:0]  need_t,          // after T
+    input  wire        ir_v_t,
+    input  wire        imm16_t,
+    input  wire        ir_hold,
+
+    // ---------------------------------------------------------------- S3 (L)
+    input  wire        l_pop,           // the IR load
+    input  wire [2:0]  need_l,
+
+    // ---------------------------------------------------------------- S4 (X) from the arbiter
+    input  wire        g_fetch,         // a fetch issued
+    input  wire        g_abort,         // the aborted cycle
+    input  wire        g_mem_waiting,   // request_reissue=no_mem: a memory request waits
+    input  wire        abort_loop,      // abort_unit=loop: a count-loop form started now
+    input  wire        rq_set_x,        // the arbiter dates the request now (free_hold)
+
+    // ---------------------------------------------------------------- S5 (P) from loader, EU
+    input  wire        p_run,           // the second pass runs (an EU I/O cycle issued)
+    input  wire [1:0]  p_pops,          // its take (one byte at most)
+    input  wire        p_commit,
+    input  wire        p_commit1,
+    input  wire        p_take,
+    input  wire        p_ir,            // its IR load
+    input  wire        p_start,
+    input  wire        ask_p,
+    input  wire        ir_v_p,
+    input  wire [2:0]  need_p,
+    input  wire        imm16_p,
+    input  wire        nop_cand,        // nop_hold: a register-only form without operand bytes
+                                        // started on this clock (T)
+
+    // ---------------------------------------------------------------- outputs
+    output wire [7:0]  vb0, vb1, vb2, vb3, vb4, // the head window (the delivery bypassed)
+    output wire [19:0] head_addr,
+    output wire [3:0]  avail_c,         // bytes available to the decoder after S1
+    output wire        arrived_now,     // arrived_t == t
+    output wire        inflight_c,      // after S1
+    output wire        inflight_x,      // after S4
+    output wire        completed_now,   // a fetch (or an aborted cycle) completed: owed−1
+    output wire signed [4:0] room_c,
+    output wire signed [4:0] room_x,
+    output wire signed [4:0] room_p0,   // after S4, before the second pass (its sync lapse)
+    output wire [3:0]  stored_c,        // stored() after S1
+    output wire [3:0]  stored_l,        // ... after S3
+    output wire        lat_c,           // latched after S1 (imm_landed, port_landed)
+    output wire        lat_x,
+    output wire        asked_d,         // asked(t) for the deferred sync
+    output wire        asked_t,         // ... for the T take
+    output wire        asked_p,         // ... for the P take
+    output wire        flag_x,          // the request flag after S3 (before the grant)
+    output wire        want_x,          // wants_fetch(t)
+    output wire        rq_v_x,          // requested_at is set (after wants_fetch)
+    output wire        rq_now_x,        // requested_at == t
+    output wire        rq_old_c,        // requested_at < t, before S3 (io_older in T)
+    output wire        rq_old_p,        // ... after S4 (io_older in P)
+    output wire        rq_clr_p,        // requested_at was cleared on this clock (S4)
+    output wire        b2b_now,         // b2b_at == t
+    output wire        triple_x,        // queue.triple(t)
+    output wire        retry_o,         // retry, retry_loop (the EU's loop row reads them)
+    output wire        retry_loop_o,
+    output wire [19:0] fetch_addr_o,    // the next fetch's address (a T flush's target)
+    output wire        io_held_o,
+    output wire        io_hold_x,       // io_ir_hold: the held request keeps no fetch (S4)
+    output wire        latch_start_now, // latch_start: the byte behind a full queue went in
+    output wire        nop_held_o,
+    output wire        rq_ir_hold,      // io_ir_hold dated the request on this clock (S5)
+    output wire        b2b_next,        // the S6 decision (the trace's B)
+    output wire signed [4:0] room_e,
+    output wire        flag_e,
+    output wire        overflow         // QueueOverflow (sticky)
+);
+    // ------------------------------------------------------------ registered state
+    reg [7:0]  q [0:7];
+    reg [2:0]  head = 3'd0;
+    reg [3:0]  cnt = 4'd0;
+    reg        lat = 1'b0;
+    reg        lat_full = 1'b0;
+    reg [2:0]  unc = 3'd0;
+    reg [19:0] take_addr = 20'd0;
+    reg        flag = 1'b0;
+    reg        rq_v = 1'b0;
+    reg        inflight = 1'b0;
+    reg [19:0] fetch_addr = 20'd0;
+    reg        b2b = 1'b0;
+    reg        retry = 1'b0;
+    reg        retry_loop = 1'b0;
+    reg        rt_v = 1'b0;
+    reg [8:0]  rt_cnt = 9'd0;
+    reg        nop_held = 1'b0;
+    reg        io_held = 1'b0;
+    reg        discard = 1'b0;
+    reg [1:0]  starts = 2'd0;
+    reg [1:0]  fhold = 2'd0;
+    reg        first = 1'b1;
+    reg        ovf = 1'b0;
+
+    integer i;
+    initial for (i = 0; i < 8; i = i + 1) q[i] = 8'h00;
+
+    // ------------------------------------------------------------ S1: arrival
+    wire       arrive = dlv_fetch && !discard;
+    wire [1:0] n_arr = !arrive ? 2'd0 : (dlv_addr[0] ? 2'd1 : 2'd2);
+    wire [7:0] a0 = dlv_addr[0] ? dlv_data[15:8] : dlv_data[7:0];
+    wire [7:0] a1 = dlv_data[15:8];
+    assign arrived_now = arrive;
+    assign completed_now = dlv_fetch || abort_done;
+    assign inflight_c = inflight && !dlv_fetch && !abort_done;
+    wire [3:0] cnt_c = cnt + 4'(n_arr);
+    assign avail_c = cnt_c;
+    wire lat_c_w = arrive ? 1'b1 : lat;
+    assign lat_c = lat_c_w;
+
+    // the head window: ring bytes, then this clock's delivery
+    function automatic logic [7:0] vbyte(input logic [2:0] k);
+        logic [3:0] kk;
+        kk = {1'b0, k};
+        if (kk < cnt)
+            vbyte = q[head + k];
+        else if (kk == cnt)
+            vbyte = a0;
+        else
+            vbyte = a1;
+    endfunction
+    assign vb0 = vbyte(3'd0);
+    assign vb1 = vbyte(3'd1);
+    assign vb2 = vbyte(3'd2);
+    assign vb3 = vbyte(3'd3);
+    assign vb4 = vbyte(3'd4);
+    assign head_addr = take_addr;
+
+    // removal and port strobes, per stage (removed_t, qport_t, ir_t == t)
+    wire [2:0] unc_pre_t = unc + 3'(t_pops) - (t_commit1 ? 3'd1 : 3'd0);
+    wire qport_t = t_commit && unc_pre_t != 3'd0;
+    wire rem_t = qport_t || t_commit1 || t_flush;
+    wire rem_l = rem_t || l_pop;
+    wire qport_l = qport_t || l_pop;
+    wire [2:0] unc_l_w = l_pop ? 3'd0 : (t_flush ? 3'd0 : (t_commit ? 3'd0 : unc_pre_t));
+    wire [2:0] unc_t_w = t_flush ? 3'd0 : (t_commit ? 3'd0 : unc_pre_t);
+    wire [2:0] unc_pre_p = unc_l_w + 3'(p_pops) - (p_commit1 ? 3'd1 : 3'd0);
+    wire qport_pp = p_commit && unc_pre_p != 3'd0;
+    wire rem_p = rem_l || qport_pp || p_commit1 || p_ir;
+    wire qport_p = qport_l || qport_pp || p_ir;
+    wire [2:0] unc_p_w = p_ir ? 3'd0 : (p_commit ? 3'd0 : unc_pre_p);
+    wire ir_now_l = l_pop;
+    wire ir_now_p = l_pop || p_ir;
+
+    // counts after each stage (a flush empties the queue in T)
+    wire [3:0] cnt_t = t_flush ? 4'd0 : cnt_c - 4'(t_pops);
+    wire [3:0] cnt_l = cnt_t - (l_pop ? 4'd1 : 4'd0);
+    wire [3:0] cnt_p = cnt_l - 4'(p_pops) - (p_ir ? 4'd1 : 4'd0);
+    // latched = min(latched, len(bytes)): a byte taken through the latch
+    wire lat_t_w = lat_c_w && cnt_t != 4'd0 && !t_flush;
+    wire lat_l = lat_t_w && cnt_l != 4'd0;
+    wire lat_p = lat_l && cnt_p != 4'd0;
+    assign lat_x = lat_l;
+
+    // _port_busy (latch_read=commit, modrm_port): the decoder holds the write port
+    wire pb_c = 1'b0;
+    wire pb_t = arrive ? rem_t : qport_t;
+    wire pb_l = arrive ? rem_l : (qport_l || ir_now_l);
+    wire pb_p = arrive ? rem_p : (qport_p || ir_now_p);
+    // the clock is one the request flag is evaluated on (_evaluates, request_eval=on_change)
+    wire ev_c = arrive || first;
+    wire ev_t = ev_c || rem_t;
+    wire ev_l = ev_c || rem_l;
+    wire ev_p = ev_c || rem_p;
+
+    // the rooms
+    wire inflight_x_w = inflight_c || g_fetch || g_abort;
+    assign room_c = room_f(cnt_c, unc, inflight_c, lat_c_w, arrive, pb_c, need_c != 3'd0,
+                           1'b0, ir_v_c, imm16_c, ir_hold, 1'b0);
+    wire signed [4:0] room_t = room_f(cnt_t, unc_t_w, inflight_c, lat_t_w, arrive,
+                                      pb_t, need_t != 3'd0, t_disp, ir_v_t, imm16_t, ir_hold,
+                                      t_mate);
+    assign room_x = room_f(cnt_l, unc_l_w, inflight_c, lat_l, arrive, pb_l,
+                           need_l != 3'd0, t_disp, ir_v_t || l_pop, imm16_t, ir_hold, t_mate);
+    // after the grant (the reissue reads it with the word in flight)
+    wire signed [4:0] room_g = room_f(cnt_l, unc_l_w, 1'b1, lat_l, arrive, pb_l,
+                                      need_l != 3'd0, t_disp, l_pop || ir_v_t, imm16_t,
+                                      ir_hold, t_mate);
+    assign room_p0 = room_f(cnt_l, unc_l_w, inflight_x_w, lat_l, arrive, pb_l, need_l != 3'd0,
+                            t_disp, l_pop || ir_v_t, imm16_t, ir_hold, t_mate);
+    wire signed [4:0] room_pp = room_f(cnt_p, unc_p_w, inflight_x_w, lat_p, arrive, pb_p,
+                                       need_p != 3'd0, t_disp, ir_v_p, imm16_p, ir_hold,
+                                       t_mate);
+
+    // stored() = len(bytes) - latched
+    assign stored_c = cnt_c - (lat_c_w ? 4'd1 : 4'd0);
+    assign stored_l = cnt_l - (lat_l ? 4'd1 : 4'd0);
+
+    // ------------------------------------------------------------ the request flag
+    // S1: retry_after (a non-fetch cycle ended on t-1)
+    wire retry_c = dlv_other && retry && !retry_loop;
+    wire flag_c = retry_c ? room_c >= 5'sd2 : flag;
+    wire retry_c1 = retry_c ? 1'b0 : retry;
+    // S2 start: retry_at reached (abort_unit=loop's count-loop exit)
+    wire rt_fire = rt_v && rt_cnt == 9'd0;
+    wire rt_raise = rt_fire && retry_c1;
+    wire flag_t0 = rt_raise ? room_c >= 5'sd2 : flag_c;
+    wire retry_t0 = rt_raise ? 1'b0 : retry_c1;
+    // retry_first: the loop row's retry_at at or before t raises on this clock
+    wire rt_now = rt_set && rt_n <= 10'sd0;
+    // asked(t) (take_sync=pending): requesting(t) when no word is in flight
+    wire want_d = ev_c ? room_c >= 5'sd2 : flag_t0 && room_c >= 5'sd2;
+    assign asked_d = inflight_c ? room_c >= 5'sd2 : want_d;
+    wire flag_d = (ask_d && !inflight_c) ? want_d : flag_t0;
+    wire flag_r = (rt_now && retry_t0) ? room_t >= 5'sd2 : flag_d;
+    wire retry_t1 = (rt_now && retry_t0) ? 1'b0 : retry_t0;
+    wire want_tk = ev_t ? room_t >= 5'sd2 : flag_r && room_t >= 5'sd2;
+    assign asked_t = inflight_c ? room_t >= 5'sd2 : want_tk;
+    wire flag_t = t_flush ? 1'b0 : ((ask_t && !inflight_c) ? want_tk : flag_r);
+
+    // S3: requesting(t) in wants_fetch
+    wire raw_x = ev_l ? room_x >= 5'sd2 : flag_t && room_x >= 5'sd2;
+    assign flag_x = raw_x;
+    wire nop_act_x = nop_held && !t_start;
+    wire fhold_act = fhold != 2'd0 || t_fhold;
+    wire latch_blocks = lat_l && !arrive && (pb_l || cnt_l > 4'(QUEUE_BYTES));
+    wire want_w = raw_x && !fhold_act && !nop_act_x && !inflight_c && !latch_blocks;
+    assign want_x = want_w;
+    wire rq_after_want = want_w ? 1'b1 : (inflight_c ? (rq_v && !t_flush) : 1'b0);
+    assign rq_now_x = (want_w && !(rq_v && !t_flush)) || rq_set_x;
+    assign rq_v_x = rq_after_want || rq_set_x;
+    assign rq_old_c = rq_v;
+    // S4: the grant
+    wire flag_g = g_fetch ? (!g_mem_waiting && ev_l ? room_g >= 5'sd2 : 1'b0)
+                          : (g_abort ? 1'b0 : flag_x);
+    wire rq_g = (g_fetch || g_abort) ? 1'b0 : rq_v_x;
+    assign inflight_x = inflight_x_w;
+    assign rq_old_p = rq_g && !rq_now_x;
+    assign rq_clr_p = rq_v && !rq_g;
+    // S5: a take's asked(t), then io_ir_hold (machine.py:189-195)
+    wire want_pt = ev_p ? room_pp >= 5'sd2 : flag_g && room_pp >= 5'sd2;
+    assign asked_p = inflight_x_w ? room_pp >= 5'sd2 : want_pt;
+    wire flag_pa = (ask_p && !inflight_x_w) ? want_pt : flag_g;
+    wire want_pi = ev_p ? room_pp >= 5'sd2 : flag_pa && room_pp >= 5'sd2;
+    wire iih = p_run && !flag_g && ir_now_p && !(t_take || p_take) && !inflight_x_w;
+    wire flag_p = iih ? want_pi : flag_pa;
+    wire iih_set = iih && want_pi;
+    assign rq_ir_hold = iih_set;
+    wire rq_p = iih_set ? 1'b1 : rq_g;
+    // nop_hold=any (machine.py:206-216): on a fetch's issue clock where a register-only form
+    // without operand bytes started, the IR loaded and the reissue kept the flag raised
+    wire nop_set = g_fetch && nop_cand && flag_g && ir_now_l && !t_take;
+
+    // ------------------------------------------------------------ S6: check, b2b
+    wire latch_in = lat_p && cnt_p <= 4'(QUEUE_BYTES) && !pb_p;
+    wire lat_e = lat_p && !latch_in;
+    wire lat_full_e = lat_e ? (cnt_p > 4'(QUEUE_BYTES) ? 1'b1 : lat_full) : 1'b0;
+    // _raised(t) on a fetch's last clock: the flag as it stands, the room after every stage
+    assign room_e = room_pp;
+    assign flag_e = flag_p;
+    wire nop_act_e = (nop_held && !(t_start || p_start)) || nop_set;
+    wire raised_e = !nop_act_e && (ev_p ? room_pp >= 5'sd2 : flag_p && room_pp >= 5'sd2);
+    assign b2b_next = fetch_last && raised_e;
+    assign b2b_now = b2b;
+    assign triple_x = t_start && t_take && l_pop && starts >= 2'd2;
+    assign retry_o = retry_t0;      // before this clock's loop row (it reads it)
+    assign retry_loop_o = retry_loop;
+    assign fetch_addr_o = t_flush ? t_flush_addr : fetch_addr;
+    assign io_held_o = io_held;
+    assign io_hold_x = io_held && !t_start && flag_x && !inflight_c;
+    assign latch_start_now = latch_in && lat_full;
+    assign nop_held_o = nop_held;
+    assign overflow = ovf;
+
+    // ------------------------------------------------------------ next state
+    wire [2:0] pops = 3'(t_pops) + (l_pop ? 3'd1 : 3'd0) + 3'(p_pops) + (p_ir ? 3'd1 : 3'd0);
+    wire [3:0] stored_e = cnt_p - (lat_e ? 4'd1 : 4'd0);
+    wire [19:0] issue_addr = t_flush ? t_flush_addr : fetch_addr;
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            head <= 3'd0;
+            cnt <= 4'd0;
+            lat <= 1'b0;
+            lat_full <= 1'b0;
+            unc <= 3'd0;
+            take_addr <= reset_addr;
+            flag <= 1'b0;
+            rq_v <= 1'b0;
+            inflight <= 1'b0;
+            fetch_addr <= reset_addr;
+            b2b <= 1'b0;
+            retry <= 1'b0;
+            retry_loop <= 1'b0;
+            rt_v <= 1'b0;
+            rt_cnt <= 9'd0;
+            nop_held <= 1'b0;
+            io_held <= 1'b0;
+            discard <= 1'b0;
+            starts <= 2'd0;
+            fhold <= 2'd0;
+            first <= 1'b1;
+            ovf <= 1'b0;
+        end else if (ce) begin
+            first <= 1'b0;
+            // storage: the delivered bytes behind the ones held, the pops from the head
+            if (t_flush) begin
+                // a flush in T: the queue emptied before this clock's later stages
+                head <= 3'd0;
+                cnt <= cnt_p;
+                take_addr <= t_flush_addr + 20'(pops) - 20'(t_pops);
+            end else begin
+                if (n_arr != 2'd0)
+                    q[head + 3'(cnt)] <= a0;
+                if (n_arr == 2'd2)
+                    q[head + 3'(cnt) + 3'd1] <= a1;
+                head <= head + pops;
+                cnt <= cnt_p;
+                take_addr <= take_addr + 20'(pops);
+            end
+            lat <= lat_e;
+            lat_full <= lat_full_e;
+            unc <= unc_p_w;
+            if (arrive && lat)
+                ovf <= 1'b1;                // a word delivered into a full latch
+            if (stored_e > 4'(QUEUE_BYTES))
+                ovf <= 1'b1;                // check(): more than six bytes stored
+            flag <= flag_p;
+            rq_v <= rq_p;
+            inflight <= inflight_x_w;
+            if (dlv_fetch)
+                discard <= 1'b0;
+            if (t_flush)
+                discard <= inflight_c && !abort_busy;
+            if (g_fetch)
+                fetch_addr <= (issue_addr | 20'd1) + 20'd1;
+            else if (t_flush)
+                fetch_addr <= t_flush_addr;
+            b2b <= b2b_next;
+            // abort_fetch=retry
+            if (g_abort) begin
+                retry <= 1'b1;
+                retry_loop <= abort_loop;
+            end else
+                retry <= retry_t1;
+            if (rt_set && !rt_now) begin
+                rt_v <= 1'b1;
+                rt_cnt <= 9'(rt_n - 10'sd1);
+            end else if (rt_fire || rt_now) begin
+                rt_v <= 1'b0;
+            end else if (rt_v)
+                rt_cnt <= rt_cnt - 9'd1;
+            // the holds, released by a later start
+            if (nop_set)
+                nop_held <= 1'b1;
+            else if (t_start || p_start)
+                nop_held <= 1'b0;
+            if (iih_set)
+                io_held <= 1'b1;
+            else if (io_held && (t_start || p_start || !flag_x || inflight_c))
+                io_held <= 1'b0;
+            if ((t_start || p_start) && starts != 2'd3)
+                starts <= starts + 2'd1;
+            if (t_fhold)
+                fhold <= 2'd1;
+            else if (fhold != 2'd0)
+                fhold <= fhold - 2'd1;
+        end
+    end
+
+    wire unused = &{1'b0, dlv_addr[19:1]};
+endmodule

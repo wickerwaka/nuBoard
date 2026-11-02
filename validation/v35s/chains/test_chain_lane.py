@@ -49,7 +49,7 @@ def _chain_binary() -> str | None:
 
 class TestCoreSwitch(unittest.TestCase):
     def test_cores(self):
-        self.assertEqual(set(acquire.SIM_CORES), {"ucore", "chain"})
+        self.assertEqual(set(acquire.SIM_CORES), {"ucore", "chain", "v35"})
         self.assertEqual(acquire.SIM_CORES["ucore"], (acquire.SIM_BINARY, acquire.SIM_OUTPUT))
         binary, out = acquire.SIM_CORES["chain"]
         self.assertEqual(binary.parent.name, "verilator-direct-chain")

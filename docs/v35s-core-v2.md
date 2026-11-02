@@ -642,3 +642,17 @@ Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, e
   no `boundary` (refresh out of scope); REP/BCD strings as one element body looped n times; bit-field
   crossing and the compare exit as skip rows; relatch as one row; 288 register forms the decoder accepts
   but no template runs decode as trap_nop.
+- 2026-11-02, **S2 landed**: `fpga/v35s/core/v35/` front end — `v35_top` (slot, PCK divider, reset exit, SFR
+  store latch), `v35_bus` (pin timing from `v35_biu`, delivery registers, I/O recovery window, data latch,
+  the 3-clock aborted fetch cycle), `v35_queue` (8-byte ring + 1-byte write-port latch, room at each
+  stage, the request flag on change clocks, b2b at a fetch's last clock, the no_mem reissue, abort/retry
+  as a countdown, the holds), `v35_loader` (IR, need, ready countdown, ModR/M commit and word-mate
+  strobes, IR loads in L and P), `v35_arbiter` (one request slot, setup counting, the fetch holds, the
+  choice; window FSM / nowrite slot / alu_busy left as named inputs for S4), the throw-away
+  `v35_eu_script`, `v35_trace`, `evtrace.py`, and the `--core v35` build/replay plumbing. **Gate: F0 18/18,
+  F0w 20/20, F1 54/54, F2 120/120 RTL-exact, all also pre-window exact and strobe-identical to the model on
+  every run.** Verilator `-Wall` clean. Divergences (README): register-only decided from the opcode in
+  the stub; `refill_start=full_io` / `flush_hold` approximated before the pre-window only; the SFR
+  store's datum sampled at the cycle's end; each EU pass evaluates at most two rows. The structure lint
+  now flags only read-before-assign inside an `always_comb` and ignores zero literals; the S2 stub's
+  opcode literals are allowed until S3 retires it.

@@ -59,7 +59,11 @@ SIM_BINARY = ROOT / "build/fpga/v35s/verilator-direct/Vv35s_harness"
 # (WP82) the model lane's cores under --backend sim: the binary and the default output directory
 CHAIN_BINARY = ROOT / "build/fpga/v35s/verilator-direct-chain/Vv35s_harness"
 CHAIN_OUTPUT = ROOT / "build/validation/v35s/chains-sim-chain"
-SIM_CORES = {"ucore": (SIM_BINARY, SIM_OUTPUT), "chain": (CHAIN_BINARY, CHAIN_OUTPUT)}
+# the V35S core v2 (docs/v35s-core-v2.md; fpga/v35s/build_sim.sh direct v35)
+V35_BINARY = ROOT / "build/fpga/v35s/verilator-direct-v35/Vv35s_harness"
+V35_OUTPUT = ROOT / "build/validation/v35s/chains-sim-v35"
+SIM_CORES = {"ucore": (SIM_BINARY, SIM_OUTPUT), "chain": (CHAIN_BINARY, CHAIN_OUTPUT),
+             "v35": (V35_BINARY, V35_OUTPUT)}
 X_HALF = 2
 TICKS_PER_CLOCK = 4 * X_HALF
 DEFAULT_LIMIT = 2_000_000
@@ -75,7 +79,8 @@ def sim_transport(core: str = "ucore", diag: bool = False):
         return SimulationTransport("direct")
     transport = SimulationTransport.__new__(SimulationTransport)
     transport.process = subprocess.Popen(
-        [str(SIM_CORES[core][0])] + (["+chain_diag"] if diag else []), cwd=ROOT,
+        [str(SIM_CORES[core][0])] + ([f"+{'v35' if core == 'v35' else 'chain'}_diag"]
+                                     if diag else []), cwd=ROOT,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     return transport
 

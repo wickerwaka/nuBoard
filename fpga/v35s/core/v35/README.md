@@ -122,3 +122,138 @@ forms, 82 / 83 /1 /4 /6, C0 / C1 / D0-D3 /6, 8F / C6 / C7 /1-7, F6 / F7 /1 mem, 
   the prefix's `v35_dec_native` entry).
 - **Model k-dependent `wb` additions** (lea_wb=fetch's `fwb`, page_fl_end's `flwb`) stay
   run-time rules: class table columns.
+
+
+The design record is `docs/v35s-core-v2.md` (the plan, Appendix A §1, Appendix B §1-2). This
+directory holds stage S2: the bus unit, the prefetch queue, the loader, a fetch + scripted-request
+arbiter and the slot module, driven by a scripted EU that stands in for S3's microcode sequencer.
+The decode table is a hand-written stub until S1's generated tables replace it.
+
+Gate (S2): `replay --core v35 --score` on F0, F0w, F1, F2: RTL-exact ≥ model-exact.
+
+## Modules
+
+| File | Module | Role |
+| --- | --- | --- |
+| `v35_front_pkg.sv` | package `v35_front_pkg` | cycle kinds/widths, the fit integers the front end reads, `req_t` (a posted request), `room_f` (the request rule's room) |
+| `v35_decode_stub.svh`, `v35_stub_pkg.sv` | package `v35_stub_pkg` | **stub** decode table (`fmt_t`, `v35_decode`, `v35_modrm_disp`) and class table (`cls_t`, `v35_class_stub`); the only place opcode values appear |
+| `v35_bus.sv` | `v35_bus` | one cycle at a time, pin timing verbatim from `../v35_biu.sv`, the delivery registers, the I/O recovery window, the data latch (`wlatch`), the 3-clock aborted fetch cycle, the fetch-run flag |
+| `v35_queue.sv` | `v35_queue` | 8-byte ring (6 nominal) with the 1-byte write-port latch, `uncommitted`, room at each stage, the request flag and its dating, `wants_fetch`, b2b, reissue, abort/retry, `retry_at`, `nop_held`, `io_held` |
+| `v35_loader.sv` | `v35_loader` | IR, the format lookup, `need`, the ready countdown (`ready_at`), the ModR/M commit and word-mate strobes, the IR load in L and P |
+| `v35_arbiter.sv` | `v35_arbiter` | the one request slot (`Request`), setup counting, the fetch holds, the choice (EU cycle / aborted cycle / fetch) |
+| `v35_eu_script.sv` | `v35_eu_script` | **S2 only, throw-away**: the forms' step lists as a hand-written row table, the take sync, `unit_hold`, the start gate, the functional registers the S2 forms need |
+| `v35_trace.sv` | `v35_trace` | `ifndef SYNTHESIS`: one line per CPU clock to `+v35_trace=FILE` |
+| `v35_top.sv` | `v35_top` | the slot (ports of `../v35s_model.sv`), the CPU clock and reset exit (from `../v35s_chain_model.sv`), `../v35_sfr.sv`, `../v35_refresh.sv` (instantiated, not served), the SFR-store latch, the pins, the trace hook |
+| `v35_lint.vlt` | | lint waivers for the reused old files only (`v35_refresh.sv` includes the old `v35_chain_params.svh`) |
+
+## Interfaces (the nets in `v35_top.sv`)
+
+- bus → all (S0, registers only): `busy, free, cur_kind, cur_pos, cur_left, cur_on_start,
+  in_wait, fetch_inflight, fetch_past_b2, fetch_end_prev, fetch_since, fetch_run_prev, io_win,
+  wl_busy (wl_busy_x after this clock's T and X fills), dlv_v/kind/addr/width, done_data,
+  abort_busy, abort_last, abort_done, fetch_len, grant_len`.
+- queue ↔ loader/EU: the head window `vb0..vb4` (this clock's delivery bypassed) and
+  `head_addr`, `avail_c`; T pops `t_k`, `t_done` (commit), `t_commit1` (ModR/M), `t_mate`;
+  L `l_pop`; P `p_k`, `p_done`, `p_commit1`, `p_ir`; the decoder state the room reads
+  (`need_*`, `ir_v_*`, `imm16_*`).
+- queue → EU/arbiter: `room_c, room_x, room_p0, room_e`, `stored_c/l`, `lat_c/x`, `arrived_now`,
+  `inflight_c/x`, `completed_now`, `asked_d/t/p` (the take sync's `asked(t)` at each of its
+  three call points), `flag_x, want_x, rq_v_x, rq_now_x, rq_old_c/p`, `b2b_now`, `triple_x`,
+  `retry, retry_loop`, `io_hold_x`, `latch_start_now`, `fetch_addr_o`.
+- EU → queue: `t_start, p_start, t_flush, t_fhold, ask_d, ask_t, ask_p, rt_set/rt_n
+  (retry_at), nop_cand, abort_loop`.
+- EU → arbiter: `post_t/rq_t` (a T post), `post_p/rq_p` (a P post), `retire`, `relatch,
+  relatch_late, relatch_n`, `halting, halted, wb_hold, latch_wait`.
+- arbiter → bus/queue/EU (S4): `g_start, g_kind, g_addr, g_width, g_data, g_fetch, g_eu,
+  g_abort, g_mem_waiting, g_b2b, rq_set_x, retick`; the slot as the EU reads it
+  (`slot_wait_c/p, slot_det_c/p, own_issued, own_done`).
+
+## The six stages in the code
+
+One registered update per CPU clock at `ce` (`state_start && core_run`); everything else is
+combinational, feed-forward, in this order (no settle registers, no iteration, no block reading
+its own outputs; Verilator reports no `UNOPTFLAT`):
+
+| Stage | Model phase | Where |
+| --- | --- | --- |
+| S0 | — | every module's registers; `v35_bus` S0 assigns |
+| S1 | C, A | `v35_queue` "S1: arrival" (the delivered word, `lat`, `inflight_c`, `completed_now`), `retry_c` (retry_after), `room_c`; `v35_bus` `abort_done` |
+| S2 | T | `v35_eu_script` T pass (the `always_comb` that builds `s0..s3`: (A) clocks wait and `unit_hold`, (B) the take sync, (C) a row or the start gate + first row, (D) the `cont` row); `v35_loader` "S2 (T)"; `v35_queue` `flag_t0/flag_d/flag_r/flag_t`, `room_t`, `asked_d/t` |
+| S3 | L | `v35_loader` "S3 (L): load_ir"; `v35_queue` `room_x`, `raw_x` (requesting), `want_w` (wants_fetch), the dating |
+| S4 | X | `v35_arbiter` "S4: counting", "S4: the choice"; `v35_queue` `flag_g`, `rq_g`, `inflight_x` |
+| S5 | P | `v35_eu_script` P pass (the `always_comb` building `q0..q3`, run only on `retick`); `v35_loader` "S5 (P)"; `v35_queue` `asked_p`, io_ir_hold (`iih`), `nop_set` |
+| S6 | E | `v35_queue` "S6: check, b2b" (`latch_in`, `b2b_next`) and every `always @(posedge clock)` block (`ce`); `v35_eu_script` `ls_adj` (latch_start), `res_e` |
+
+## Registered state
+
+| Module | State (widths) | Replaces |
+| --- | --- | --- |
+| `v35_bus` | `c_valid 1, c_kind 3, c_pos 3, c_len 3, c_addr 20, c_width 2, c_data 16, c_internal 1, c_ext 1`; `c_b2b 1, c_commit 1, c_on_start 1, c_run 1`; `d_v 1, d_kind 3, d_addr 20, d_width 2, done_data 16`; `gap 1, f_since 4, io_tail 2, wl 3, ab_v 1, ab_pos 2`; pins + `refresh_row 9` | `bus.current`, `Cycle.b2b/commit`, `cur.start == start_clock`, `_fetch_run`, `bus.completed`, `last_end/last_fetch_end/last_io_end`, `wlatch_until`, `abort_end` |
+| `v35_queue` | `q 8×8, head 3, cnt 4, lat 1, lat_full 1, unc 3, take_addr 20, flag 1, rq_v 1, inflight 1, fetch_addr 20, b2b 1, retry 1, retry_loop 1, rt_v 1, rt_cnt 9, nop_held 1, io_held 1, discard 1, starts 2, fhold 2, first 1` | `bytes, latched, latch_full, uncommitted, flag, requested_at, inflight, fetch_addr, b2b_at, retry, retry_loop, retry_at, nop_held, io_held, discard, starts, str_held` |
+| `v35_loader` | `ir_v 1, ir 8, ir_addr 20, need 3, nx 3, ra 3, modrm_next 1, mate_arm 1, imm_reg 1, stopped 1` | `decoder.ir, need, nx, ready_at, modrm_next, modrm_addr/imm_reg, stopped` |
+| `v35_arbiter` | slot: `v 1, kind 3, addr 20, width 2, data 16, setup 7, count 7, fn_v 1, fn 3, fo 3, lead 2, nowait 1, port 1, detached 1, grp 1, issued 1, nb 4, rs_v 1, lift_v 1, fh_prev 1, rq_le 1` | `Request` (`free_need`, `free_orig`, `not_before`, `ready_since`, `lift_t`, `free_held`, `requested_at <= posted`) |
+| `v35_eu_script` (S2) | `run 1, tmpl 4, k 3, res 11, left 3, taken 3, oplen 3, sync_v 1, sync_def 1, owed 2, armed 1, own_v 1, exec_v 1, ex_age 2, ex_par 1, hold_done 1, abort_start 1, done_m 1, wbu 2, wb_cur 2, lu_inf 1, lu 3, halted 1, refill 1, fmt, ob 40`, functional `fr` (AW CW DW BW SP, DS0 DS1 SS PS, seg) and `pc 20` | `eu.steps/k, resume, left, taken, op_len, sync, own, exec_t, hold_done, abort_t == start_clock, done_t, wb_until, wb, latch_until, halted, refill` |
+
+No clock stamps anywhere: every `x_t == t` is a strobe of the stage that produces it,
+`== t-1` a registered copy (`fetch_end_prev`, `fh_prev`), an order a flag (`rq_le`), a "no
+earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `lu`, `wbu`, `wl`, `io_tail`).
+
+## The S2 forms (scripted EU)
+
+The row table in `v35_eu_script.sv` covers the S2 families' forms and the image's prelude and
+reset vector: NOP, MOV r,imm8/imm16, MOV r16,r16, MOV sreg,r16, ADD r16,imm16 (81 /0),
+SHL r16,CL, OUT imm8,AL, OUT DW,AW, PUSH r16, MOV [d16],AW, the segment prefixes, HALT, BR far
+(EA), MOV [d16],imm8/imm16 (C6/C7 /0, mod 00 rm 110), PUSH imm16/imm8 (68, 6A), POP PSW.
+Anything else runs `trap_nop` (two clocks, no bus). The prelude's opcodes beyond the brief's list
+(EA, 8E, C6, C7, 6A, 9D, BB-BF) are in the stub because the core runs the image from reset.
+
+## Stubbed for S3 / S4 (named zero inputs or not built)
+
+- S3: the microcode ROM and sequencer (`v35_ucode`), the datapath (`v35_eu`, `v35_regram`,
+  `v35_fn_pkg`) replace `v35_eu_script.sv`; the generated `v35_pkg.sv` / `v35_decode_tbl.svh` /
+  `v35_class_tbl.svh` replace `v35_stub_pkg.sv` (the format field `reg` is `rg` here: `reg` is a
+  SystemVerilog keyword).
+- S4 (arbiter): the window FSM (`grp_io_hold`, `slot_fetch`, the nowrite slot, `sreg_*`),
+  requests queued behind a detached I/O (`eu.queued`: a post into an occupied slot stalls the
+  EU here), the atomic odd-word pair, `disp_io` / `disp_io_wait` (`g_ext` is 0), `imm1_first`,
+  `alu_busy`, `dw_port`, `imm_start`, `io_take` (io_drop), the bus cycle flags `thru,
+  after_post, lea_start, disp_in_flight, ir_before, take_near` (`g_thru` is 0).
+- Loader: `ir_hold` (ir_load=disp_data / page_ir), `ea_end`, `lea_wait`, `fresh`, the 0F page's
+  `modrm_skip` (outputs tied to 0).
+- Refresh: `v35_refresh` runs but its request is never served (no refresh-on family is in the
+  S2 gate). The refresh cycles silicon runs in the prelude before its RFM store are therefore not
+  on the RTL's bus; from the POP PSW read on (the pre window) the RTL still matches silicon.
+
+## Divergences (behaviour not expressed in the structure)
+
+1. The stub decides "register-only" (`ilock`, `mem`) from the opcode alone, without the ModR/M
+   byte (the model decodes the whole form at its start): a ModR/M memory form of reg/imm/shift
+   would be gated as register-only. No S2 form is one.
+2. `refill_start=full_io` after the prelude's BR far is approximated as "no word in flight and
+   room < 2" at the start gate, and `flush_hold=start` (branch_far.hold 16) is not built: the
+   prelude's reset-vector jump only, before the pre window.
+3. An on-chip SFR store (`MOV [d16],imm` with DS0 F000h) takes its datum from the EU at the
+   store cycle's end: store_imm posts its write before it takes its immediate (the model's bus
+   datum is AW).
+4. The scripted EU evaluates at most two rows per pass (a row and the one its `cont` releases,
+   or a form's end, the start gate and the next form's first row). Every S2 form fits; the
+   generator's S5 budget check (S1) is what bounds S3's sequencer.
+
+## Build, replay, trace
+
+    fpga/v35s/build_sim.sh direct v35        # build/fpga/v35s/verilator-direct-v35/Vv35s_harness
+    rm -rf build/validation/v35s/chains-sim-v35
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core v35 \
+        --family F0 F0w F1 F2 --jobs 8
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core v35 --score \
+        --family F0 F0w F1 F2 [--show N]
+    # one chain, the RTL event trace against the frozen model from t_fill:
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains evtrace --id F1-out-m4-pO-w1 \
+        --rtl F1-out-m4-pO-w1.trace --run
+    # lint (clean with and without V35S_CORE_V35 / SYNTHESIS):
+    cd fpga/v35s/core && verilator --lint-only -Wall -DV35S_CORE_V35 -I. -Iv35 v35/v35_lint.vlt \
+        v35/v35_front_pkg.sv v35/v35_stub_pkg.sv v35/v35_bus.sv v35/v35_queue.sv \
+        v35/v35_loader.sv v35/v35_arbiter.sv v35/v35_eu_script.sv v35/v35_trace.sv \
+        v35_sfr.sv v35_refresh.sv v35/v35_top.sv --top-module v35_top
+
+`--diag` on replay passes `+v35_diag` (a bus start on a busy bus, a queue overflow, on stderr).

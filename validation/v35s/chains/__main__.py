@@ -1,4 +1,4 @@
-"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt | rtlgen | ucgen [...]"""
+"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt | rtlgen | ucgen | evtrace [...]"""
 
 from __future__ import annotations
 
@@ -96,6 +96,10 @@ def main(argv=None) -> int:
         "ucgen", help="generate the core v2 microcode, decode and class tables "
                       "(fpga/v35s/core/v35/, docs/v35s-core-v2.md S1)"))
     ucgen.set_defaults(func=lambda args: ucgen_main(args=args))
+    from .evtrace import build_parser as evtrace_parser, main as evtrace_main
+    evtrace = evtrace_parser(sub.add_parser(
+        "evtrace", help="the core v2's event trace against the frozen model, one chain"))
+    evtrace.set_defaults(func=lambda args: evtrace_main(args=args))
 
     args = parser.parse_args(argv)
     return args.func(args) or 0

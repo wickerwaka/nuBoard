@@ -19,7 +19,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 V35 = ROOT / "fpga" / "v35s" / "core" / "v35"
-OPCODE_FILES = ("v35_decode_tbl.svh", "v35_pkg.sv")
+OPCODE_FILES = ("v35_decode_tbl.svh", "v35_pkg.sv",
+                # S2's hand-written stub decode, retired by S3 (docs/v35s-core-v2.md Record)
+                "v35_decode_stub.svh", "v35_stub_pkg.sv")
 
 
 def sources() -> list:
@@ -65,19 +67,27 @@ _KEYWORDS = {"begin", "end", "if", "else", "case", "endcase", "unique", "priorit
 
 
 def comb_self_reads(body: str) -> set:
-    """Signals an always_comb block assigns (blocking `=`) and also reads."""
-    assigned = set()
+    """Signals an always_comb block reads before it assigns them (blocking `=`) while also
+    assigning them somewhere in the block: a combinational self-dependency. A variable assigned
+    and then read further down the block is ordinary procedural code and is allowed (Verilator's
+    UNOPTFLAT is the loop check for everything else)."""
+    assigned_anywhere = set()
     for m in re.finditer(r"([A-Za-z_]\w*)(?:\s*\[[^\]]*\])*(?:\.\w+)*\s*=(?!=)", body):
         if body[m.end() - 2:m.end()] in ("<=", ">=", "!="):
             continue
-        assigned.add(m.group(1))
-    reads = set()
+        assigned_anywhere.add(m.group(1))
+    assigned_so_far, early = set(), set()
     for stmt in re.split(r";", body):
-        rhs = stmt.split("=", 1)[1] if re.search(r"[^<>!=]=[^=]", stmt) else stmt
+        lhs, rhs = (stmt.split("=", 1) if re.search(r"[^<>!=]=[^=]", stmt) else ("", stmt))
         cond = re.findall(r"\b(?:if|case|casez|unique case)\s*\((.*)\)", stmt)
         for part in [rhs] + cond:
-            reads |= set(re.findall(r"\b([A-Za-z_]\w*)\b", part))
-    return (assigned & reads) - _KEYWORDS
+            for name in re.findall(r"\b([A-Za-z_]\w*)\b", part):
+                if name in assigned_anywhere and name not in assigned_so_far:
+                    early.add(name)
+        m = re.match(r"\s*(?:\belse\b|\bif\s*\(.*\))?\s*([A-Za-z_]\w*)", lhs)
+        for name in re.findall(r"([A-Za-z_]\w*)(?:\s*\[[^\]]*\])*(?:\.\w+)*\s*$", lhs.strip()):
+            assigned_so_far.add(name)
+    return early - _KEYWORDS
 
 
 class Structure(unittest.TestCase):
@@ -96,6 +106,7 @@ class Structure(unittest.TestCase):
             if p.name in OPCODE_FILES:
                 continue
             hits = re.findall(r"\b8'[hHdD][0-9a-fA-F_]+", strip(p.read_text()))
+            hits = [h for h in hits if set(h.split("'")[1][1:]) - set("0_")]   # 8'h00 / 8'd0 are not opcodes
             self.assertEqual(hits, [], p.name)
 
     def test_always_ff_clocked_by_clock_and_ce_gated(self):
@@ -110,7 +121,7 @@ class Lint(unittest.TestCase):
     """The lint's own checks, on snippets."""
 
     def test_comb_self_read(self):
-        self.assertEqual(comb_self_reads("begin x = a; y = x & b; end"), {"x"})
+        self.assertEqual(comb_self_reads("begin x = a; y = x & b; end"), set())  # write, then read: procedural
         self.assertEqual(comb_self_reads("begin x = a; if (c) x = b; end"), set())
         self.assertEqual(comb_self_reads("begin n = n + 1; end"), {"n"})
 
