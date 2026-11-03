@@ -17,7 +17,7 @@
 // run with a "# reset" line.
 module v35_trace
     import v35_front_pkg::*;
-    import v35_stub_pkg::*;
+    import v35_pkg::*;
 (
     input  wire        clock,
     input  wire        reset_n,
@@ -42,7 +42,9 @@ module v35_trace
     input  wire        abort,
     input  wire signed [4:0] room,
     input  wire        flag,
-    input  wire [3:0]  why
+    input  wire [3:0]  why,
+    input  wire        dec_miss,        // the start waited for its decode (W: dec)
+    input  wire        wlost            // a register write was lost (W: lost)
 );
 `ifndef SYNTHESIS
     integer fd = 0;
@@ -75,18 +77,90 @@ module v35_trace
     endfunction
     function automatic string cname(input logic [6:0] c);
         case (c)
-            CLS_REG: cname = "reg";
-            CLS_IMM: cname = "imm";
-            CLS_SHIFT_CL: cname = "shift_cl";
-            CLS_OUT: cname = "out";
-            CLS_PUSH: cname = "push";
-            CLS_STORE: cname = "store";
-            CLS_PREFIX: cname = "prefix";
-            CLS_HALT: cname = "halt";
-            CLS_BRANCH_FAR: cname = "branch_far";
-            CLS_STORE_IMM: cname = "store_imm";
-            CLS_PUSH_IMM: cname = "push_imm";
-            CLS_POP_PSW: cname = "pop_psw";
+            V35_CLS_TRAP_NOP: cname = "trap_nop";
+            V35_CLS_ADJUST: cname = "adjust";
+            V35_CLS_ADJUST_B: cname = "adjust_b";
+            V35_CLS_BCD4S: cname = "bcd4s";
+            V35_CLS_BCD4S_CMP: cname = "bcd4s_cmp";
+            V35_CLS_BCWZ: cname = "bcwz";
+            V35_CLS_BF_EXT: cname = "bf_ext";
+            V35_CLS_BF_INS: cname = "bf_ins";
+            V35_CLS_BIT1: cname = "bit1";
+            V35_CLS_BIT1_CLR: cname = "bit1_clr";
+            V35_CLS_BIT1_RMW: cname = "bit1_rmw";
+            V35_CLS_BIT1_TEST: cname = "bit1_test";
+            V35_CLS_BR_MEM: cname = "br_mem";
+            V35_CLS_BR_REG: cname = "br_reg";
+            V35_CLS_BRANCH_FAR: cname = "branch_far";
+            V35_CLS_BRANCH_FAR_MEM: cname = "branch_far_mem";
+            V35_CLS_BRANCH_NEAR: cname = "branch_near";
+            V35_CLS_BRANCH_SHORT: cname = "branch_short";
+            V35_CLS_BRK: cname = "brk";
+            V35_CLS_CALL: cname = "call";
+            V35_CLS_CALL_FAR: cname = "call_far";
+            V35_CLS_CALL_FAR_MEM: cname = "call_far_mem";
+            V35_CLS_CALL_MEM: cname = "call_mem";
+            V35_CLS_CALL_REG: cname = "call_reg";
+            V35_CLS_CONVERT: cname = "convert";
+            V35_CLS_CONVERT_D: cname = "convert_d";
+            V35_CLS_DBNZ: cname = "dbnz";
+            V35_CLS_DBNZ_Z: cname = "dbnz_z";
+            V35_CLS_DISPOSE: cname = "dispose";
+            V35_CLS_DIV: cname = "div";
+            V35_CLS_EXTEND: cname = "extend";
+            V35_CLS_EXTEND_W: cname = "extend_w";
+            V35_CLS_FLAG: cname = "flag";
+            V35_CLS_FLAG_DI: cname = "flag_di";
+            V35_CLS_FLAG_EI: cname = "flag_ei";
+            V35_CLS_HALT: cname = "halt";
+            V35_CLS_IMM: cname = "imm";
+            V35_CLS_IN: cname = "in";
+            V35_CLS_INCDEC: cname = "incdec";
+            V35_CLS_LEA: cname = "lea";
+            V35_CLS_LOAD: cname = "load";
+            V35_CLS_LOAD_ALU: cname = "load_alu";
+            V35_CLS_LOAD_PTR: cname = "load_ptr";
+            V35_CLS_LOAD_SEG: cname = "load_seg";
+            V35_CLS_MUL: cname = "mul";
+            V35_CLS_MUL_IMM: cname = "mul_imm";
+            V35_CLS_OUT: cname = "out";
+            V35_CLS_POP: cname = "pop";
+            V35_CLS_POP_MEM: cname = "pop_mem";
+            V35_CLS_POP_PSW: cname = "pop_psw";
+            V35_CLS_POP_R: cname = "pop_r";
+            V35_CLS_POP_SEG: cname = "pop_seg";
+            V35_CLS_PREFIX: cname = "prefix";
+            V35_CLS_PREPARE: cname = "prepare";
+            V35_CLS_PUSH: cname = "push";
+            V35_CLS_PUSH_IMM: cname = "push_imm";
+            V35_CLS_PUSH_MEM: cname = "push_mem";
+            V35_CLS_PUSH_R: cname = "push_r";
+            V35_CLS_PUSH_SEG: cname = "push_seg";
+            V35_CLS_REG: cname = "reg";
+            V35_CLS_RET: cname = "ret";
+            V35_CLS_RET_FAR: cname = "ret_far";
+            V35_CLS_RET_FAR_IMM: cname = "ret_far_imm";
+            V35_CLS_RET_IMM: cname = "ret_imm";
+            V35_CLS_RETI: cname = "reti";
+            V35_CLS_RMW: cname = "rmw";
+            V35_CLS_RMW_IMM: cname = "rmw_imm";
+            V35_CLS_ROL4: cname = "rol4";
+            V35_CLS_ROL4_MEM: cname = "rol4_mem";
+            V35_CLS_ROR4: cname = "ror4";
+            V35_CLS_ROR4_MEM: cname = "ror4_mem";
+            V35_CLS_SHIFT_CL: cname = "shift_cl";
+            V35_CLS_SHIFT_IMM: cname = "shift_imm";
+            V35_CLS_STORE: cname = "store";
+            V35_CLS_STORE_IMM: cname = "store_imm";
+            V35_CLS_STR_CMP: cname = "str_cmp";
+            V35_CLS_STR_IN: cname = "str_in";
+            V35_CLS_STR_LOAD: cname = "str_load";
+            V35_CLS_STR_MOVE: cname = "str_move";
+            V35_CLS_STR_OUT: cname = "str_out";
+            V35_CLS_STR_SCAN: cname = "str_scan";
+            V35_CLS_STR_STORE: cname = "str_store";
+            V35_CLS_TEST_REG: cname = "test_reg";
+            V35_CLS_XLAT: cname = "xlat";
             default: cname = "trap_nop";
         endcase
     endfunction
@@ -140,7 +214,9 @@ module v35_trace
                     line = {line, " B"};
                 if (abort)
                     line = {line, " A"};
-                line = {line, $sformatf(" R:%0d:%0d W:%s", room, flag, why_name(why))};
+                line = {line, $sformatf(" R:%0d:%0d W:%s", room, flag,
+                                        wlost ? "lost" : dec_miss ? "dec"
+                                                                 : why_name(why))};
                 $fdisplay(fd, "%s", line);
                 $fflush(fd);
             end
@@ -151,6 +227,6 @@ module v35_trace
 `else
     wire unused = &{1'b0, clock, reset_n, ce, g_start, g_kind, g_addr, g_width, g_len, start_t,
                     start_p, scls_t, scls_p, pc_t, pc_p, takes, loads, post, post_kind, issue,
-                    b2b, abort, room, flag, why};
+                    b2b, abort, room, flag, why, dec_miss, wlost};
 `endif
 endmodule

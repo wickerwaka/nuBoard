@@ -54,10 +54,8 @@ package v35_front_pkg;
 
     // ------------------------------------------------------------ fit integers (fit.json)
     localparam int FIT_HOLD_Q = 3;              // hold_q
-    localparam int FIT_IO_B2B_Q = 3;            // io_b2b_q
     localparam int FIT_IO_RECOVER = 2;          // io_recover
     localparam int FIT_WLATCH = 4;              // wlatch
-    localparam int FIT_PER_SHIFT_COUNT = 2;     // per_shift_count
     localparam int FIT_MIN_GAP = 0;             // min_gap
 
     // ------------------------------------------------------------ the request rule's room

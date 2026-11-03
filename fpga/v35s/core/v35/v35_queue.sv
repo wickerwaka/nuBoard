@@ -35,7 +35,8 @@
 //   nop_held 1, io_held 1            nop_held, io_held (their clocks: "a start since")
 //   discard 1                        discard (a flush drops the word in flight)
 //   starts 2                         starts (saturating at 3: `starts > 2`)
-//   fhold 2                          str_held (POP PSW's fetch_hold 2: the prelude only)
+//   fhold 3                          str_held (a row's fetch_hold n: POP PSW's 2)
+//   sh_held 1, sh_v 1, sh_cnt 9      shift_held, shift_until (count_latch) as a countdown
 //   first 1                          t == 0 (_evaluates)
 module v35_queue
     import v35_front_pkg::*;
@@ -64,7 +65,10 @@ module v35_queue
     input  wire        t_start,         // an instruction started (start_t == t)
     input  wire        t_flush,         // a transfer's flush (the prelude's BR far)
     input  wire [19:0] t_flush_addr,
-    input  wire        t_fhold,         // fetch_hold 2 (POP PSW)
+    input  wire [2:0]  t_fhold,         // fetch_hold n: no request for n clocks from now
+    input  wire        cnt_take,        // count_latch: a shift's count byte take ends now
+    input  wire        sh_set,          // ... the shift's last clock is t + sh_n
+    input  wire [9:0]  sh_n,
     input  wire        ask_d,           // the EU resolves a deferred take sync (imm_landed)
     input  wire        ask_t,           // the EU's take step ends with a take sync
     input  wire        rt_set,          // abort_unit=loop: retry_at = t + rt_n
@@ -101,6 +105,8 @@ module v35_queue
     input  wire        ir_v_p,
     input  wire [2:0]  need_p,
     input  wire        imm16_p,
+    input  wire        io_drop,         // io_take=unit: the P take's request dropped (a retry)
+    input  wire        io_drop_loop,    // ... raised again at the count loop's exit
     input  wire        nop_cand,        // nop_hold: a register-only form without operand bytes
                                         // started on this clock (T)
 
@@ -138,6 +144,7 @@ module v35_queue
     output wire        io_hold_x,       // io_ir_hold: the held request keeps no fetch (S4)
     output wire        latch_start_now, // latch_start: the byte behind a full queue went in
     output wire        nop_held_o,
+    output wire        shift_latch,     // count_latch: the shift holds the queue port from now
     output wire        rq_ir_hold,      // io_ir_hold dated the request on this clock (S5)
     output wire        b2b_next,        // the S6 decision (the trace's B)
     output wire signed [4:0] room_e,
@@ -165,7 +172,10 @@ module v35_queue
     reg        io_held = 1'b0;
     reg        discard = 1'b0;
     reg [1:0]  starts = 2'd0;
-    reg [1:0]  fhold = 2'd0;
+    reg [2:0]  fhold = 3'd0;
+    reg        sh_held = 1'b0;
+    reg        sh_v = 1'b0;
+    reg [8:0]  sh_cnt = 9'd0;
     reg        first = 1'b1;
     reg        ovf = 1'b0;
 
@@ -247,6 +257,11 @@ module v35_queue
     wire signed [4:0] room_t = room_f(cnt_t, unc_t_w, inflight_c, lat_t_w, arrive,
                                       pb_t, need_t != 3'd0, t_disp, ir_v_t, imm16_t, ir_hold,
                                       t_mate);
+    // count_latch: a register shift's operand take (an immediate count) on a word's delivery
+    // clock with its second byte latched and no room for a word but that uncounted byte: no
+    // fetch until the shift's last clock (queue.shift_held)
+    wire signed [4:0] room_cl = room_t - ((lat_t_w && need_t == 3'd0) ? 5'sd1 : 5'sd0);
+    wire sh_latch = cnt_take && arrive && lat_t_w && room_cl < 5'sd2;
     assign room_x = room_f(cnt_l, unc_l_w, inflight_c, lat_l, arrive, pb_l,
                            need_l != 3'd0, t_disp, ir_v_t || l_pop, imm16_t, ir_hold, t_mate);
     // after the grant (the reissue reads it with the word in flight)
@@ -269,9 +284,13 @@ module v35_queue
     wire flag_c = retry_c ? room_c >= 5'sd2 : flag;
     wire retry_c1 = retry_c ? 1'b0 : retry;
     // S2 start: retry_at reached (abort_unit=loop's count-loop exit)
+    // S2 start: shift_until reached (count_latch: the shift's last clock passed), then
+    // retry_at (abort_unit=loop's count-loop exit); each raises the request again
+    wire sh_fire = sh_v && sh_cnt == 9'd0;
+    wire flag_s = sh_fire ? room_c >= 5'sd2 : flag_c;
     wire rt_fire = rt_v && rt_cnt == 9'd0;
     wire rt_raise = rt_fire && retry_c1;
-    wire flag_t0 = rt_raise ? room_c >= 5'sd2 : flag_c;
+    wire flag_t0 = rt_raise ? room_c >= 5'sd2 : flag_s;
     wire retry_t0 = rt_raise ? 1'b0 : retry_c1;
     // retry_first: the loop row's retry_at at or before t raises on this clock
     wire rt_now = rt_set && rt_n <= 10'sd0;
@@ -289,9 +308,11 @@ module v35_queue
     wire raw_x = ev_l ? room_x >= 5'sd2 : flag_t && room_x >= 5'sd2;
     assign flag_x = raw_x;
     wire nop_act_x = nop_held && !t_start;
-    wire fhold_act = fhold != 2'd0 || t_fhold;
+    wire fhold_act = fhold != 3'd0 || t_fhold != 3'd0;
     wire latch_blocks = lat_l && !arrive && (pb_l || cnt_l > 4'(QUEUE_BYTES));
-    wire want_w = raw_x && !fhold_act && !nop_act_x && !inflight_c && !latch_blocks;
+    wire sh_held_t = (sh_held && !sh_fire) || sh_latch;
+    wire want_w = raw_x && !fhold_act && !nop_act_x && !inflight_c && !latch_blocks
+                  && !sh_held_t;
     assign want_x = want_w;
     wire rq_after_want = want_w ? 1'b1 : (inflight_c ? (rq_v && !t_flush) : 1'b0);
     assign rq_now_x = (want_w && !(rq_v && !t_flush)) || rq_set_x;
@@ -307,13 +328,14 @@ module v35_queue
     // S5: a take's asked(t), then io_ir_hold (machine.py:189-195)
     wire want_pt = ev_p ? room_pp >= 5'sd2 : flag_g && room_pp >= 5'sd2;
     assign asked_p = inflight_x_w ? room_pp >= 5'sd2 : want_pt;
-    wire flag_pa = (ask_p && !inflight_x_w) ? want_pt : flag_g;
+    // io_take=unit (eu._io_drop): the request this clock raises dropped as an aborted cycle's
+    wire flag_pa = io_drop ? 1'b0 : ((ask_p && !inflight_x_w) ? want_pt : flag_g);
     wire want_pi = ev_p ? room_pp >= 5'sd2 : flag_pa && room_pp >= 5'sd2;
     wire iih = p_run && !flag_g && ir_now_p && !(t_take || p_take) && !inflight_x_w;
     wire flag_p = iih ? want_pi : flag_pa;
     wire iih_set = iih && want_pi;
     assign rq_ir_hold = iih_set;
-    wire rq_p = iih_set ? 1'b1 : rq_g;
+    wire rq_p = iih_set ? 1'b1 : (io_drop ? 1'b0 : rq_g);
     // nop_hold=any (machine.py:206-216): on a fetch's issue clock where a register-only form
     // without operand bytes started, the IR loaded and the reissue kept the flag raised
     wire nop_set = g_fetch && nop_cand && flag_g && ir_now_l && !t_take;
@@ -336,6 +358,7 @@ module v35_queue
     assign io_held_o = io_held;
     assign io_hold_x = io_held && !t_start && flag_x && !inflight_c;
     assign latch_start_now = latch_in && lat_full;
+    assign shift_latch = sh_latch;
     assign nop_held_o = nop_held;
     assign overflow = ovf;
 
@@ -364,7 +387,10 @@ module v35_queue
             io_held <= 1'b0;
             discard <= 1'b0;
             starts <= 2'd0;
-            fhold <= 2'd0;
+            fhold <= 3'd0;
+            sh_held <= 1'b0;
+            sh_v <= 1'b0;
+            sh_cnt <= 9'd0;
             first <= 1'b1;
             ovf <= 1'b0;
         end else if (ce) begin
@@ -407,6 +433,9 @@ module v35_queue
             if (g_abort) begin
                 retry <= 1'b1;
                 retry_loop <= abort_loop;
+            end else if (io_drop) begin
+                retry <= 1'b1;              // io_take: raised again as an aborted cycle's
+                retry_loop <= io_drop_loop;
             end else
                 retry <= retry_t1;
             if (rt_set && !rt_now) begin
@@ -427,10 +456,20 @@ module v35_queue
                 io_held <= 1'b0;
             if ((t_start || p_start) && starts != 2'd3)
                 starts <= starts + 2'd1;
-            if (t_fhold)
-                fhold <= 2'd1;
-            else if (fhold != 2'd0)
-                fhold <= fhold - 2'd1;
+            if (t_fhold != 3'd0)
+                fhold <= t_fhold - 3'd1;
+            else if (fhold != 3'd0)
+                fhold <= fhold - 3'd1;
+            // count_latch: held from the count's take to the shift's last clock
+            sh_held <= sh_held_t;
+            if (sh_set) begin
+                sh_v <= 1'b1;
+                sh_cnt <= sh_n == 10'd0 ? 9'd0 : 9'(sh_n - 10'd1);
+            end else if (sh_fire) begin
+                sh_v <= 1'b0;
+            end else if (sh_v) begin
+                sh_cnt <= sh_cnt - 9'd1;
+            end
         end
     end
 

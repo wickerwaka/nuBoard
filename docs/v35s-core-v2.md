@@ -656,3 +656,25 @@ Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, e
   store's datum sampled at the cycle's end; each EU pass evaluates at most two rows. The structure lint
   now flags only read-before-assign inside an `always_comb` and ignores zero literals; the S2 stub's
   opcode literals are allowed until S3 retires it.
+- 2026-11-02, **S3 landed**: `v35_ucode` (the ROM sequencer: four banks of 64-bit rows read as a four-row
+  window registered at `ce`, the T pass of at most three rows and the P pass of at most one operand byte, the
+  resume countdown, take sync, unit-hold parity, wb_until, latch_until and NOWAIT counters), `v35_eu` (the
+  register-class datapath: operands through the RAM ports named a clock ahead, exec at the last operand
+  byte's take or the read's delivery, one register write per clock plus one pending, a stepped restoring
+  divider, the request record by `asrc`/`wsel`/`xop`), `v35_regram` (4 × 128 × 8), `v35_fn_pkg` (the
+  functions lifted from `v35_eu_pkg`); the stub decode and `v35_eu_script` retired; the loader decodes
+  through `v35_fmt_of` a clock ahead; the function bench retargeted (`rtl_vectors.py --fn`, format V35FN-1).
+  Generator: decode attributes `breg`, `idle1` and the datapath attributes `xop aop opa opb wd nwr sx stk`
+  derived from the opcode and group field (no opcode literal in the RTL); `v35_fmt_t` 115 bits. **Gate: F0
+  18/18, F0w 20/20, F1 54/54, F2 120/120, F3 840/840, F9 408/408, F11 132/132, F12 204/204 RTL-exact; F20
+  3,165/3,594 (model 3,594)**; all 5,390 pre-window exact; no decode miss and no dropped write on any run.
+  The 429 F20 misses are one mechanism: a PUSH or OUT posted while a detached OUT holds the single request
+  slot (the model queues it behind the I/O, `eu.queued`; S2's slot makes the EU wait), which is S4's
+  request path — confirmed on F20-r-push-l0-pfxmovr-outimm-pE-w0 at t_fill+94. Lint `-Wall` clean in all four
+  macro configurations; function bench 19,578 vectors 0 bad; `efx_map` of ucode + eu + regram 13,296 LUT4 /
+  631 FF / 32 RAM_5K / 8 MULT in 200 s (the ROM banks as plain 64-bit vectors infer block RAM; packed-struct
+  arrays folded into LUTs). Departures recorded in the README: three rows per T pass; the four-row ROM
+  window with decode a clock ahead (a start whose template is not in the window waits a clock: none in the
+  gate); segment registers and CW as flops rather than RAM entries (to be stored through to the bank as
+  well: S4); one write per clock. Risk noted for S7: the three modules alone exceed the whole-core LUT and
+  BRAM targets; S4's module check reports ucode, eu and arbiter separately.

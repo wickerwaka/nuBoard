@@ -94,6 +94,7 @@ module v35_arbiter
     output wire        g_fetch,
     output wire        g_eu,            // the slot's cycle
     output wire        g_abort,
+    output wire        g_abort_lat,     // ... answered for the latched byte (abort_latched)
     output wire        g_mem_waiting,
     output wire        g_b2b,
     output wire        rq_set_x,        // free_hold: the held fetch dates from now
@@ -237,6 +238,7 @@ module v35_arbiter
     assign g_eu = eu_go;
     assign g_fetch = fetch_go;
     assign g_abort = abort_go;
+    assign g_abort_lat = abort_go && latched_abort;
     assign g_start = eu_go || fetch_go;
     assign g_kind = eu_go ? s_kind : K_FETCH;
     assign g_addr = eu_go ? s_addr : fetch_addr;

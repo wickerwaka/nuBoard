@@ -131,8 +131,62 @@ package v35_pkg;
   localparam logic [6:0] V35_CLS_TEST_REG = 7'd82;
   localparam logic [6:0] V35_CLS_XLAT = 7'd83;
 
+  // ---- (S3) the datapath's operations (v35_fmt_t.xop) and operand roles (opa, opb): ucgen.XOPS, ROLES ----
+  localparam logic [4:0] V35_XOP_NONE = 5'd0;
+  localparam logic [4:0] V35_XOP_ALU = 5'd1;
+  localparam logic [4:0] V35_XOP_MOV = 5'd2;
+  localparam logic [4:0] V35_XOP_XCH = 5'd3;
+  localparam logic [4:0] V35_XOP_SHIFT = 5'd4;
+  localparam logic [4:0] V35_XOP_MUL = 5'd5;
+  localparam logic [4:0] V35_XOP_DIV = 5'd6;
+  localparam logic [4:0] V35_XOP_MULI = 5'd7;
+  localparam logic [4:0] V35_XOP_INC = 5'd8;
+  localparam logic [4:0] V35_XOP_DEC = 5'd9;
+  localparam logic [4:0] V35_XOP_NOT = 5'd10;
+  localparam logic [4:0] V35_XOP_NEG = 5'd11;
+  localparam logic [4:0] V35_XOP_LDEA = 5'd12;
+  localparam logic [4:0] V35_XOP_SRLD = 5'd13;
+  localparam logic [4:0] V35_XOP_SRST = 5'd14;
+  localparam logic [4:0] V35_XOP_PUSH = 5'd15;
+  localparam logic [4:0] V35_XOP_POP = 5'd16;
+  localparam logic [4:0] V35_XOP_PUSHF = 5'd17;
+  localparam logic [4:0] V35_XOP_POPF = 5'd18;
+  localparam logic [4:0] V35_XOP_PUSHR = 5'd19;
+  localparam logic [4:0] V35_XOP_POPR = 5'd20;
+  localparam logic [4:0] V35_XOP_CVTBW = 5'd21;
+  localparam logic [4:0] V35_XOP_CVTWL = 5'd22;
+  localparam logic [4:0] V35_XOP_FLAG = 5'd23;
+  localparam logic [4:0] V35_XOP_ADJ = 5'd24;
+  localparam logic [4:0] V35_XOP_CVTBD = 5'd25;
+  localparam logic [4:0] V35_XOP_CVTDB = 5'd26;
+  localparam logic [4:0] V35_XOP_LAHF = 5'd27;
+  localparam logic [4:0] V35_XOP_SAHF = 5'd28;
+  localparam logic [4:0] V35_XOP_IN = 5'd29;
+  localparam logic [4:0] V35_XOP_OUT = 5'd30;
+  localparam logic [4:0] V35_XOP_XLAT = 5'd31;
+  localparam logic [3:0] V35_ROLE_NONE = 4'd0;
+  localparam logic [3:0] V35_ROLE_RF = 4'd1;
+  localparam logic [3:0] V35_ROLE_RM = 4'd2;
+  localparam logic [3:0] V35_ROLE_OPR = 4'd3;
+  localparam logic [3:0] V35_ROLE_ACC = 4'd4;
+  localparam logic [3:0] V35_ROLE_IMM = 4'd5;
+  localparam logic [3:0] V35_ROLE_ONE = 4'd6;
+  localparam logic [3:0] V35_ROLE_CL = 4'd7;
+  localparam logic [3:0] V35_ROLE_SRF = 4'd8;
+  localparam logic [3:0] V35_ROLE_SOP = 4'd9;
+
   // ---- decode table entries: a register-form half (hr: mod = 3 or no ModR/M) and a memory-form half (hm) ----
   typedef struct packed {
+    logic stk;
+    logic sx;
+    logic nwr;
+    logic wd;
+    logic [3:0] opb;
+    logic [3:0] opa;
+    logic [2:0] aop;
+    logic [4:0] xop;
+    logic idle1;
+    logic breg;
     logic rmw;
     logic ro;
     logic bf;
@@ -207,6 +261,16 @@ package v35_pkg;
 
   // ---- the format word the loader holds for the running form ----
   typedef struct packed {
+    logic stk;
+    logic sx;
+    logic nwr;
+    logic wd;
+    logic [3:0] opb;
+    logic [3:0] opa;
+    logic [2:0] aop;
+    logic [4:0] xop;
+    logic idle1;
+    logic breg;
     logic rmw;
     logic ro;
     logic bf;
@@ -431,6 +495,16 @@ package v35_pkg;
     f.bf = h.bf;
     f.ro = h.ro;
     f.rmw = h.rmw;
+    f.breg = h.breg;
+    f.idle1 = h.idle1;
+    f.xop = h.xop;
+    f.aop = h.aop;
+    f.opa = h.opa;
+    f.opb = h.opb;
+    f.wd = h.wd;
+    f.nwr = h.nwr;
+    f.sx = h.sx;
+    f.stk = h.stk;
     v35_fmt_of = f;
   endfunction
 

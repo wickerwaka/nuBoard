@@ -70,8 +70,11 @@ OUT_DIR = ROOT / "fpga" / "v35s" / "core" / "v35"
 PLA = ROOT / "fpga" / "v35s" / "core" / "ucore" / "pla3_tables.svh"
 INSTR_JSON = ROOT / "build" / "deps" / "nuV30" / "docs" / "facts" / "instructions.json"
 INVOCATION = "python -m validation.v35s.chains ucgen"
+# (S3) the ROM is also written as four banks by row address mod 4 (v35_ucode.sv reads a window
+# of four consecutive rows a clock, one row from each bank: four block RAMs with one read port)
+ROM_BANKS = 4
 FILES = ("v35_ucode.hex", "v35_ucode_tbl.svh", "v35_decode_tbl.svh", "v35_class_tbl.svh",
-         "v35_consts.svh", "v35_pkg.sv")
+         "v35_consts.svh", "v35_pkg.sv") + tuple(f"v35_ucode_b{b}.hex" for b in range(ROM_BANKS))
 
 
 class UcgenError(RuntimeError):
@@ -1358,12 +1361,173 @@ def _decode_attrs():
         ("bf", 1, lambda o, c: o.cls in T.BF_CLASSES),
         ("ro", 1, lambda o, c: b(o) in ("load", "load_alu")),
         ("rmw", 1, lambda o, c: b(o) == "rmw"),
+        # (S3) the register class (base class reg: io_take_nx, eu.py), the one-byte forms whose
+        # start on an idle bus saves a clock (one_idle, machine.py: ONE_IDLE[cfg.one_idle])
+        ("breg", 1, lambda o, c: b(o) == "reg"),
+        ("idle1", 1, lambda o, c: c.one_idle != "none" and o.length == 1
+         and o.cls in E.ONE_IDLE[c.one_idle]),
     )
+
+
+# (S3) the datapath's decode attributes: what the form does to the registers (the function
+# path, docs/v35s-core-v2.md "Function path"), so the RTL selects operands and operations from
+# format bits and never compares opcode bytes. Derived from the encoding (the opcode and, for a
+# group opcode, the ModR/M reg field): the same register-transfer meaning the model's
+# templates.execute / written give the forms they time, completed for every register form.
+#   xop  the operation (XOPS); aop its sub-operation: the ALU op (ADD OR ADC SBB AND SUB XOR
+#        CMP), the shift / rotate (the group's reg field), the flag form, the adjust
+#   opa  the destination (or first) operand, opb the source (or second): ROLES
+#   wd   a word operation (0: byte registers AL..BH)
+#   nwr  the result is not written (CMP, TEST: flags only)
+#   sx   the immediate byte is sign-extended to a word (83, 6A, 6B)
+#   stk  the form's requests address the stack (SP is its address register)
+XOPS = ("NONE", "ALU", "MOV", "XCH", "SHIFT", "MUL", "DIV", "MULI", "INC", "DEC", "NOT", "NEG",
+        "LDEA", "SRLD", "SRST", "PUSH", "POP", "PUSHF", "POPF", "PUSHR", "POPR", "CVTBW",
+        "CVTWL", "FLAG", "ADJ", "CVTBD", "CVTDB", "LAHF", "SAHF", "IN", "OUT", "XLAT")
+ROLES = ("NONE",
+         "RF",          # the ModR/M reg field's register
+         "RM",          # the ModR/M rm field's register, or the memory operand (a memory half)
+         "OPR",         # the register in the opcode's bits 2:0 (40-5F, 91-97, B0-BF)
+         "ACC",         # AW / AL
+         "IMM",         # the immediate (sx: a sign-extended byte)
+         "ONE",         # the constant 1 (D0 / D1's count)
+         "CL",          # CL (D2 / D3's count)
+         "SRF",         # the segment register the reg field's bits 1:0 name (8C / 8E)
+         "SOP")         # the segment register the opcode's bits 4:3 name (06-1F)
+FLAG_OPS = {0xF8: 0, 0xF9: 1, 0xF5: 2, 0xFA: 3, 0xFB: 4, 0xFC: 5, 0xFD: 6}   # CLC STC CMC CLI STI
+ADJ_OPS = {0x27: 0, 0x2F: 1, 0x37: 2, 0x3F: 3}                                # CLD STD; ADJ4A ...
+XOP_ATTRS = (("xop", 5, None), ("aop", 3, None), ("opa", 4, None), ("opb", 4, None),
+             ("wd", 1, None), ("nwr", 1, None), ("sx", 1, None), ("stk", 1, None))
+
+
+def _xop_of(op, form) -> dict:
+    """The datapath attributes of a started form (XOP_ATTRS), from its encoding."""
+    x = {"xop": "NONE", "aop": 0, "opa": "NONE", "opb": "NONE", "wd": 1, "nwr": 0, "sx": 0,
+         "stk": int(bool(op.stack))}
+    if form.page != 0:
+        return _xop_int(x)                  # the 0F page and the REP strings: S5's
+    o = form.opcode
+    reg = (form.modrm >> 3) & 7 if form.modrm is not None else 0
+
+    def put(xop, opa="NONE", opb="NONE", wd=1, aop=0, nwr=0, sx=0):
+        x.update(xop=xop, opa=opa, opb=opb, wd=wd, aop=aop, nwr=nwr, sx=sx)
+
+    if o < 0x40 and o & 7 < 4:
+        d = bool(o & 2)
+        put("ALU", "RF" if d else "RM", "RM" if d else "RF", o & 1, (o >> 3) & 7,
+            int((o >> 3) & 7 == 7))
+    elif o < 0x40 and o & 7 in (4, 5):
+        put("ALU", "ACC", "IMM", o & 1, (o >> 3) & 7, int((o >> 3) & 7 == 7))
+    elif o in (0x06, 0x0E, 0x16, 0x1E):
+        put("PUSH", opb="SOP")
+    elif o in (0x07, 0x17, 0x1F):
+        put("POP", opa="SOP")
+    elif o in ADJ_OPS:
+        put("ADJ", aop=ADJ_OPS[o], wd=0)
+    elif 0x40 <= o <= 0x47:
+        put("INC", "OPR")
+    elif 0x48 <= o <= 0x4F:
+        put("DEC", "OPR")
+    elif 0x50 <= o <= 0x57:
+        put("PUSH", opb="OPR")
+    elif 0x58 <= o <= 0x5F:
+        put("POP", opa="OPR")
+    elif o == 0x60:
+        put("PUSHR")
+    elif o == 0x61:
+        put("POPR")
+    elif o in (0x68, 0x6A):
+        put("PUSH", opb="IMM", sx=int(o == 0x6A))
+    elif o in (0x69, 0x6B):
+        put("MULI", "RF", "RM", sx=int(o == 0x6B))
+    elif 0x80 <= o <= 0x83:
+        put("ALU", "RM", "IMM", o & 1, reg, int(reg == 7), int(o == 0x83))
+    elif o in (0x84, 0x85):
+        put("ALU", "RM", "RF", o & 1, 4, 1)
+    elif o in (0x86, 0x87):
+        put("XCH", "RF", "RM", o & 1)
+    elif 0x88 <= o <= 0x8B:
+        d = bool(o & 2)
+        put("MOV", "RF" if d else "RM", "RM" if d else "RF", o & 1)
+    elif o == 0x8C:
+        put("SRST", "RM", "SRF")
+    elif o == 0x8D:
+        put("LDEA", "RF")
+    elif o == 0x8E:
+        put("SRLD", "SRF", "RM")
+    elif o == 0x8F and reg == 0:
+        put("POP", opa="RM")
+    elif 0x91 <= o <= 0x97:
+        put("XCH", "ACC", "OPR")
+    elif o == 0x98:
+        put("CVTBW")
+    elif o == 0x99:
+        put("CVTWL")
+    elif o == 0x9C:
+        put("PUSHF")
+    elif o == 0x9D:
+        put("POPF")
+    elif o == 0x9E:
+        put("SAHF", wd=0)
+    elif o == 0x9F:
+        put("LAHF", wd=0)
+    elif o in (0xA0, 0xA1):
+        put("MOV", "ACC", "RM", o & 1)
+    elif o in (0xA2, 0xA3):
+        put("MOV", "RM", "ACC", o & 1)
+    elif o in (0xA8, 0xA9):
+        put("ALU", "ACC", "IMM", o & 1, 4, 1)
+    elif 0xB0 <= o <= 0xB7:
+        put("MOV", "OPR", "IMM", 0)
+    elif 0xB8 <= o <= 0xBF:
+        put("MOV", "OPR", "IMM", 1)
+    elif o in (0xC0, 0xC1):
+        put("SHIFT", "RM", "IMM", o & 1, reg)
+    elif o in (0xD0, 0xD1):
+        put("SHIFT", "RM", "ONE", o & 1, reg)
+    elif o in (0xD2, 0xD3):
+        put("SHIFT", "RM", "CL", o & 1, reg)
+    elif o in (0xC6, 0xC7) and reg == 0:
+        put("MOV", "RM", "IMM", o & 1)
+    elif o == 0xD4:
+        put("CVTBD", opb="IMM", wd=0)
+    elif o == 0xD5:
+        put("CVTDB", opb="IMM", wd=0)
+    elif o == 0xD7:
+        put("XLAT", "ACC", "RM", 0)
+    elif o in (0xE4, 0xE5, 0xEC, 0xED):
+        put("IN", "ACC", wd=o & 1)
+    elif o in (0xE6, 0xE7, 0xEE, 0xEF):
+        put("OUT", opb="ACC", wd=o & 1)
+    elif o in FLAG_OPS:
+        put("FLAG", aop=FLAG_OPS[o])
+    elif o in (0xF6, 0xF7):
+        w = o & 1
+        if reg in (0, 1):
+            put("ALU", "RM", "IMM", w, 4, 1)
+        elif reg == 2:
+            put("NOT", "RM", wd=w)
+        elif reg == 3:
+            put("NEG", "RM", wd=w)
+        elif reg in (4, 5):
+            put("MUL", "ACC", "RM", w)
+        else:
+            put("DIV", "ACC", "RM", w)
+    elif o in (0xFE, 0xFF) and reg in (0, 1):
+        put("INC" if reg == 0 else "DEC", "RM", wd=o & 1)
+    elif o == 0xFF and reg == 6:
+        put("PUSH", opb="RM")
+    return _xop_int(x)
+
+
+def _xop_int(x: dict) -> dict:
+    return {**x, "xop": XOPS.index(x["xop"]), "opa": ROLES.index(x["opa"]),
+            "opb": ROLES.index(x["opb"])}
 
 
 @lru_cache(maxsize=1)
 def attrs() -> tuple:
-    return STRUCT_ATTRS + _decode_attrs()
+    return STRUCT_ATTRS + _decode_attrs() + XOP_ATTRS
 
 
 def half_fields() -> tuple:
@@ -1455,7 +1619,9 @@ def _half_of(op, form: Form, cfg) -> dict:
     if op.ea is not None and form.modrm is None:
         h["eafix"] = EA_MODES.index(T.ea_class(op, cfg) or "none")
     for name, _, f in attrs():
-        h[name] = int(f(op, cfg))
+        if f is not None:
+            h[name] = int(f(op, cfg))
+    h.update(_xop_of(op, form))             # (S3) XOP_ATTRS
     return h
 
 
@@ -2079,6 +2245,21 @@ def render_hex(gen: Gen) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_bank_hex(gen: Gen, b: int) -> str:
+    """(S3) bank b of the ROM: rows b, b + 4, b + 8 ... (row address mod 4 = b), one per line,
+    padded with zero rows to the banks' common depth."""
+    depth = (len(gen.rows) + ROM_BANKS - 1) // ROM_BANKS
+    lines = _header(gen, f"The microcode ROM's bank {b} of {ROM_BANKS}: rows {b}, {b} + "
+                         f"{ROM_BANKS}, ... (row address mod {ROM_BANKS} = {b}), {depth} lines "
+                         f"of {ROW_BITS} bits (v35_ucode.hex row by row).")
+    digits = (ROW_BITS + 3) // 4
+    for k in range(depth):
+        i = ROM_BANKS * k + b
+        word = pack_row(gen.rows[i]) if i < len(gen.rows) else 0
+        lines.append(f"{word:0{digits}x}  // {i}")
+    return "\n".join(lines) + "\n"
+
+
 def _sel_literal(fields, proj) -> str:
     bits = "".join(format(v, f"0{SEL_BITS[n]}b") for n, v in zip(fields, proj))
     return f"{len(bits)}'b{bits}"
@@ -2286,6 +2467,14 @@ def render_pkg(gen: Gen) -> str:
     for i, k in enumerate(gen.classes):
         lines.append(f"  localparam logic [6:0] V35_CLS_{_ident(k)} = 7'd{i};")
     lines.append("")
+    lines.append("  // ---- (S3) the datapath's operations (v35_fmt_t.xop) and operand roles (opa, "
+                 "opb): ucgen.XOPS, ROLES ----")
+    xb, rb = dict((n, b) for n, b, _ in XOP_ATTRS)["xop"], dict((n, b) for n, b, _ in XOP_ATTRS)["opa"]
+    for i, v in enumerate(XOPS):
+        lines.append(f"  localparam logic [{xb - 1}:0] V35_XOP_{v} = {xb}'d{i};")
+    for i, v in enumerate(ROLES):
+        lines.append(f"  localparam logic [{rb - 1}:0] V35_ROLE_{v} = {rb}'d{i};")
+    lines.append("")
     lines.append("  // ---- decode table entries: a register-form half (hr: mod = 3 or no ModR/M)"
                  " and a memory-form half (hm) ----")
     lines += _sv_struct("v35_half_t", half_fields())
@@ -2377,7 +2566,8 @@ def render_all(gen: Gen) -> dict:
     return {"v35_ucode.hex": render_hex(gen), "v35_ucode_tbl.svh": render_ucode_tbl(gen),
             "v35_decode_tbl.svh": render_decode_tbl(gen),
             "v35_class_tbl.svh": render_class_tbl(gen), "v35_consts.svh": render_consts(gen),
-            "v35_pkg.sv": render_pkg(gen)}
+            "v35_pkg.sv": render_pkg(gen),
+            **{f"v35_ucode_b{b}.hex": render_bank_hex(gen, b) for b in range(ROM_BANKS)}}
 
 
 def write(out_dir: Path, gen: Gen | None = None) -> dict:

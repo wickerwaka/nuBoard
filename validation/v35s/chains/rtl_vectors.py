@@ -3005,6 +3005,139 @@ def check_regfile(families, keep: Path | None = None, mutate: int = 0) -> tuple[
     return sm["bad"], counts, out
 
 
+# (S3, core v2) The function bench: v35_fn_pkg's pure functions (fpga/v35s/v35_rf_tb.sv) ------
+#
+# The core v2's datapath (fpga/v35s/core/v35/v35_eu.sv) reads its operands from the register RAM
+# and applies v35_fn_pkg's functions (the ALU, the shifter, the multiplier, the divider stepped,
+# the adjusts, the conditions). Its bench is a pure-function check, so it cannot take the
+# V35RF-3 lines (an instruction's whole register file in and out, the old package's
+# v35_execute): `--fn` derives one function-level line from each --regfile vector whose form is
+# one function application on registers (the register forms of the ALU, TEST, the shifts,
+# MUL / DIV, INC / DEC, the adjusts, the 70-7F conditions), the expected result and PSW the
+# functional reference's (funcref.py) register file after it. Format V35FN-1, a line each:
+#
+#   <kind> <op> <w> <sgn> <a> <b> <n> <psw> <res> <psw after> <trap>
+#
+# kind A ALU (op the ALU op; res the result, not compared for CMP), T TEST (the ALU's AND, the
+# PSW only), I INC / DEC (op 0 / 5: the ALU with CY kept), S shift (op the group's reg field, n
+# the count), M MUL (res the 32-bit product: DW:AW, AW for a byte form), D DIV (a the dividend
+# DW:AW / AW, b the divisor; res {remainder, quotient}; trap the divide error), J adjust (op 0-3
+# ADJ4A ADJ4S ADJBA ADJBS, a AW, res AW), C condition (op the condition code, res taken).
+FNBENCH = ROOT / "build" / "fpga" / "v35s" / "fn-tb" / "Vv35_rf_tb"
+FNFORMAT = "V35FN-1"
+
+
+def _fn_line(f: list) -> str | None:
+    """The V35FN-1 line of one V35RF-3 vector's fields (None: not one function application)."""
+    names = [n for n, _ in FFIELDS]
+    before = dict(zip(names, map(int, f[1:15])))
+    code = bytes.fromhex(f[15])
+    pc = int(f[16])
+    ncyc = int(f[29])
+    tail = f[30 + 6 * ncyc:]
+    after = dict(zip(names, map(int, tail[:14])))
+    trap = int(tail[14])
+    nxt = int(f[28])
+    if int(f[27]):                      # a form whose function the old bench left out
+        return None
+    r16 = ("aw", "cw", "dw", "bw", "sp", "bp", "ix", "iy")
+
+    def reg(regs, k, w):
+        if w:
+            return regs[r16[k]]
+        return (regs[r16[k & 3]] >> (8 * (k >> 2))) & 0xFF
+
+    o, m = code[0], code[1]
+    md, rf, rm = m >> 6, (m >> 3) & 7, m & 7
+    pw, pa = before["psw"], after["psw"]
+
+    def line(kind, op, w, sgn, a, b, n, res):
+        return f"{kind} {op} {w} {sgn} {a} {b} {n} {pw} {res} {pa} {trap}"
+
+    if o < 0x40 and o & 7 < 4 and md == 3:
+        w, op, d = o & 1, (o >> 3) & 7, bool(o & 2)
+        dst, src = (rf, rm) if d else (rm, rf)
+        return line("A", op, w, 0, reg(before, dst, w), reg(before, src, w), 0,
+                    reg(after, dst, w) if op != 7 else 0)
+    if o < 0x40 and o & 7 in (4, 5):
+        w, op = o & 1, (o >> 3) & 7
+        imm = int.from_bytes(code[1:3], "little") if w else code[1]
+        return line("A", op, w, 0, reg(before, 0, w), imm, 0, reg(after, 0, w) if op != 7 else 0)
+    if 0x80 <= o <= 0x83 and md == 3:
+        w = o & 1
+        imm = (int.from_bytes(code[2:4], "little") if o == 0x81
+               else (code[2] | (0xFF00 if code[2] & 0x80 else 0)) if o == 0x83 else code[2])
+        return line("A", rf, w, 0, reg(before, rm, w), imm, 0,
+                    reg(after, rm, w) if rf != 7 else 0)
+    if o in (0x84, 0x85) and md == 3:
+        w = o & 1
+        return line("T", 4, w, 0, reg(before, rm, w), reg(before, rf, w), 0, 0)
+    if o in (0xA8, 0xA9):
+        w = o & 1
+        imm = int.from_bytes(code[1:3], "little") if w else code[1]
+        return line("T", 4, w, 0, reg(before, 0, w), imm, 0, 0)
+    if (o in (0xC0, 0xC1) or 0xD0 <= o <= 0xD3) and md == 3:
+        w = o & 1
+        n = code[2] if o in (0xC0, 0xC1) else 1 if o in (0xD0, 0xD1) else before["cw"] & 0xFF
+        return line("S", rf, w, 0, reg(before, rm, w), 0, n, reg(after, rm, w))
+    if o in (0xF6, 0xF7) and md == 3 and rf >= 4:
+        w = o & 1
+        b = reg(before, rm, w)
+        if rf in (4, 5):
+            p = (after["dw"] << 16 | after["aw"]) if w else after["aw"]
+            return line("M", 0, w, rf & 1, reg(before, 0, w), b, 0, p)
+        num = (before["dw"] << 16 | before["aw"]) if w else before["aw"]
+        res = 0 if trap else ((after["dw"] << 16 | after["aw"]) if w else after["aw"])
+        return line("D", 0, w, rf & 1, num, b, 0, res)
+    if 0x40 <= o <= 0x4F:
+        k = o & 7
+        return line("I", 5 if o & 8 else 0, 1, 0, reg(before, k, 1), 1, 0, reg(after, k, 1))
+    if o == 0xFE and md == 3 and rf in (0, 1):
+        return line("I", 5 if rf else 0, 0, 0, reg(before, rm, 0), 1, 0, reg(after, rm, 0))
+    if o in (0x27, 0x2F, 0x37, 0x3F):
+        return line("J", {0x27: 0, 0x2F: 1, 0x37: 2, 0x3F: 3}[o], 0, 0, before["aw"], 0, 0,
+                    after["aw"])
+    if 0x70 <= o <= 0x7F:
+        disp = code[1] - 256 if code[1] & 0x80 else code[1]
+        if disp == 0:
+            return None                 # taken and not taken alike
+        taken = int(nxt == (pc + 2 + disp) & 0xFFFF)
+        return line("C", o & 15, 0, 0, 0, 0, 0, taken)
+    return None
+
+
+def fn_vectors(families) -> tuple[str, dict]:
+    """The V35FN-1 vector file of the families' --regfile vectors and its counts by kind."""
+    text, _ = regfile_vectors(families)
+    lines, counts = [], {}
+    for ln in text.splitlines()[1:]:
+        f = ln.split()
+        if not f or f[0] != "V":
+            continue
+        out = _fn_line(f)
+        if out is not None:
+            lines.append(out)
+            counts[out[0]] = counts.get(out[0], 0) + 1
+    return f"{FNFORMAT} {len(lines)}\n" + "\n".join(lines) + "\n", counts
+
+
+def check_fn(families, keep: Path | None = None) -> tuple[int, dict, str]:
+    """(the bench's bad vectors, the counts, its output) of fn_vectors on the function bench."""
+    import re
+    text, counts = fn_vectors(families)
+    with tempfile.TemporaryDirectory() as tmp:
+        d = keep if keep is not None else Path(tmp)
+        path = d / "fn.fnvec"
+        path.write_text(text)
+        p = subprocess.run([str(FNBENCH), str(path)], capture_output=True, text=True, cwd=ROOT)
+    out = p.stdout + p.stderr
+    m = re.search(r"SUMMARY vectors=(\d+) bad=(\d+)", out)
+    if m is None:
+        raise RuntimeError(f"function bench output:\n{out}")
+    counts["vectors"] = int(m.group(1))
+    return int(m.group(2)), counts, out
+
+
 # D2: SingleStepTests through the unit bench (sst.py --rtl) ------------------------------------
 
 def sst_file(args) -> tuple[str, dict, list]:
@@ -3176,10 +3309,26 @@ def main(argv=None) -> int:
     p.add_argument("--regfile", action="store_true",
                    help="D1, D2: the register file's unit bench (v35_rf_tb.sv) on the families' "
                    "forms and every ALU form")
+    p.add_argument("--fn", action="store_true",
+                   help="(S3, core v2) the function bench (v35_rf_tb.sv on v35_fn_pkg) on the "
+                   "--regfile vectors that are one function application (format V35FN-1)")
     p.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
     p.add_argument("--keep", type=Path, help="keep the vector files and bench outputs here")
     p.add_argument("--show", type=int, default=5, help="failing runs to show per family")
     args = p.parse_args(argv)
+    if args.fn:
+        if not FNBENCH.exists():
+            print(f"error: {FNBENCH} is missing (fpga/v35s/build_rf_tb.sh)", file=sys.stderr)
+            return 2
+        if args.keep:
+            args.keep.mkdir(parents=True, exist_ok=True)
+        bad, counts, out = check_fn(args.family, args.keep)
+        for line in out.splitlines()[:args.show]:
+            if line.startswith("FAIL"):
+                print("    " + line)
+        kinds = "  ".join(f"{k} {v}" for k, v in sorted(counts.items()) if k != "vectors")
+        print(f"fn {' '.join(args.family)}: {counts['vectors']} vectors ({kinds}), {bad} bad")
+        return 1 if bad else 0
     if args.regfile:
         if not RFBENCH.exists():
             print(f"error: {RFBENCH} is missing (fpga/v35s/build_rf_tb.sh)", file=sys.stderr)
