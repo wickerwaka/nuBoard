@@ -98,7 +98,9 @@ module v35_arbiter
     input  wire        ea_b2b_act,      // ea_b2b: a displaced memory form's EA clocks (t < ea_end)
     input  wire        take_now,        // an operand take on this clock (take_t == t)
     input  wire [19:0] ea_live,         // the running form's memory operand address
+    input  wire [15:0] ea_lo,           // (S6) ... its offset (the segment's wrap)
     input  wire [15:0] wd_live,         // ... and its write datum (an RMW's result, POP's)
+    input  wire        wd_rdy,          // (S6) ... computed (else the bus takes it at B2: g_dsel)
     input  wire [2:0]  sidle,           // the running class's sidle (slot_idle=eu)
     // the queue
     input  wire        want_x,
@@ -246,9 +248,21 @@ module v35_arbiter
         r.rq_lt = rq_old_c;             // ... < posted: raised before the post's clock
         return r;
     endfunction
-    // the record's address as it issues (a live EA: posted before the displacement)
+    // the record's address as it issues (a live EA: posted before the displacement; (S6) its
+    // offset + 2 * aoff wraps in the segment)
+    function automatic logic [16:0] rlo(input rec_t r);
+        rlo = {1'b0, ea_lo} + {13'd0, r.d.aoff, 1'b0};
+    endfunction
     function automatic logic [19:0] raddr(input rec_t r);
-        raddr = r.d.alive ? ea_live + {16'd0, r.d.aoff, 1'b0} : r.d.addr;
+        logic [16:0] o;
+        o = rlo(r);
+        raddr = r.d.alive ? ea_live + {16'd0, r.d.aoff, 1'b0} - {3'd0, o[16], 16'd0} : r.d.addr;
+    endfunction
+    // (S6) an odd pair's second half: offset + 1 in the segment (FFFFh wraps to 0)
+    function automatic logic [19:0] raddr2(input rec_t r);
+        logic [16:0] o;
+        o = rlo(r);
+        raddr2 = raddr(r) + ((r.d.alive ? o[15:0] == 16'hFFFF : r.d.w16) ? 20'hF0001 : 20'd1);
     endfunction
     function automatic logic [15:0] rdata(input rec_t r);
         rdata = !r.d.dlive ? r.d.data : (r.d.width == BW_WORD ? wd_live
@@ -525,14 +539,15 @@ module v35_arbiter
     assign g_abort_lat = abort_go && latched_abort;
     assign g_start = eu_go || g_fetch;
     assign g_kind = eu_go ? b0.d.kind : K_FETCH;
-    assign g_addr = !eu_go ? fetch_addr : (second ? s_addr + 20'd1 : s_addr);
+    assign g_addr = !eu_go ? fetch_addr : (second ? raddr2(b0) : s_addr);
     assign g_width = !eu_go ? BW_WORD : second ? BW_LO : s_two ? BW_HI
                    : (b0.d.width == BW_WORD || k_io(b0.d.kind)) ? b0.d.width
                    : (s_addr[0] ? BW_HI : BW_LO);
     assign g_data = !eu_go ? 16'd0 : (second ? {8'd0, s_data[15:8]}
                                      : (s_two ? {s_data[7:0], 8'd0} : s_data));
     assign g_mem_waiting = mem_wait && !nw_go;
-    assign g_dsel = !(eu_go && b0.d.dimm) ? 2'd0 : second ? 2'd3 : s_two ? 2'd2 : 2'd1;
+    assign g_dsel = !(eu_go && (b0.d.dimm || (b0.d.dlive && !wd_rdy))) ? 2'd0  // ((S6) late)
+                  : second ? 2'd3 : s_two ? 2'd2 : 2'd1;
     // (S5b) page_imm_run=delivery (_page_imm_run): a fetch issued on the clock after a fetch's
     // last clock, that fetch issued after a 0F memory form with an immediate index took its
     // head (no take since) and after its start, the read not yet issued: committed back to back

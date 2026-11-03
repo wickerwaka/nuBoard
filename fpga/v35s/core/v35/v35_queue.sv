@@ -69,6 +69,7 @@ module v35_queue
     input  wire        reset_n,
     input  wire        ce,
     input  wire [19:0] reset_addr,      // the first fetch's address (FFFF0h)
+    input  wire [19:0] ps_base,         // (S6) {PS, 0h} after this clock: the fetch wraps at FFFFh
 
     // ---------------------------------------------------------------- S0/S1 from the bus
     input  wire        dlv_fetch,       // a fetch ended on t-1: its word arrives now
@@ -716,8 +717,8 @@ module v35_queue
                 discard <= 1'b0;
             if (t_flush)
                 discard <= inflight_c && !abort_busy;
-            if (g_fetch)
-                fetch_addr <= (issue_addr | 20'd1) + 20'd1;
+            if (g_fetch)        // ((S6) the next word's offset in PS, FFFFh + 1 wrapping to 0)
+                fetch_addr <= ps_base + {4'd0, 16'((issue_addr | 20'd1) + 20'd1 - ps_base)};
             else if (t_flush)
                 fetch_addr <= t_flush_addr;
             b2b <= b2b_next;

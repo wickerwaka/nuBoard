@@ -415,6 +415,100 @@ def score_lane(families, waits=(0, 1, 2), rtl_dir: Path | None = None, jobs: int
     return results
 
 
+# (S6) Scoring a core's replays' write data against silicon ----------------------------
+#
+# The scorer above compares timing only (the events' kinds, addresses, widths, clocks). The
+# data check compares the datum of every memory, stack and I/O write of a replay with the
+# silicon record's (the normaliser's data_write / stack_write / io_write events in order: the
+# address and the datum on the cycle's lanes), per run: the function on real silicon data.
+
+DATA_KINDS = ("data_write", "stack_write", "io_write")
+
+
+def _lanes(e) -> int:
+    """An event's datum on its cycle's lanes (an odd byte on D15-8)."""
+    if e.width == "lo":
+        return e.data & 0xFF
+    if e.width == "hi":
+        return (e.data >> 8) & 0xFF
+    return e.data & 0xFFFF
+
+
+def data_lane_run(item) -> dict:
+    """One silicon run record and its replay record (or None): the writes compared (silicon's
+    write events against the replay's, in order), the ones agreeing, the first difference."""
+    run, rec = item
+    from .normalize import NormalizeError, normalize
+    out = {"id": run["chain"]["id"], "status": "ok", "writes": 0, "agree": 0, "first": None}
+    if rec is None:
+        out["status"] = "no RTL"
+        return out
+    try:
+        s = normalize(run)
+        n = normalize(rec, strict=False)
+    except (NormalizeError, KeyError, ValueError, StopIteration) as e:
+        out["status"] = f"normalize error: {e}"
+        return out
+    sw = [e for e in s.events if e.kind in DATA_KINDS]
+    nw = [e for e in n.events if e.kind in DATA_KINDS]
+    out["writes"] = len(sw)
+    for k, (a, b) in enumerate(zip(sw, nw)):
+        if (a.kind, a.addr, a.width, _lanes(a)) == (b.kind, b.addr, b.width, _lanes(b)):
+            out["agree"] += 1
+        elif out["first"] is None:
+            out["first"] = (f"#{k} {a.kind} {a.addr:05X} {a.width}: silicon {_lanes(a):04X}, "
+                            f"rtl {b.kind} {b.addr:05X} {b.width} {_lanes(b):04X}")
+    if len(sw) != len(nw):
+        out["status"] = f"{len(nw)} writes, silicon {len(sw)}"
+    return out
+
+
+def score_data(families, waits=(0, 1, 2), rtl_dir: Path | None = None, jobs: int = 1,
+               show: int = 0, log=print) -> dict:
+    """{family: [data_lane_run dicts]} for the replays in rtl_dir, printed per family: the runs,
+    the writes compared, those agreeing, the runs that differ (a datum, or the count) and the
+    first of them (show: that many)."""
+    from collections import Counter
+    from .normalize import load_runs
+    items = []
+    for family in families:
+        try:
+            runs = load_runs(family, tuple(waits))
+        except FileNotFoundError as e:
+            log(f"{family}: no silicon runs ({e})")
+            continue
+        rtl_runs, _ = load_rtl_runs(family, tuple(waits), rtl_dir)
+        items += [(family, (r, rtl_runs.get(r["chain"]["id"]))) for r in runs]
+    if jobs > 1 and len(items) > 1:
+        import multiprocessing
+        with multiprocessing.get_context("fork").Pool(jobs) as pool:
+            outs = pool.map(data_lane_run, [it for _, it in items], chunksize=8)
+    else:
+        outs = [data_lane_run(it) for _, it in items]
+    results: dict = {}
+    for (f, _), o in zip(items, outs):
+        results.setdefault(f, []).append(o)
+    tot = Counter()
+    for family, rs in results.items():
+        c = Counter()
+        bad = [r for r in rs if r["status"] != "ok" or r["agree"] != r["writes"]]
+        for r in rs:
+            c["runs"] += 1
+            c["writes"] += r["writes"]
+            c["agree"] += r["agree"]
+        c["differ"] = len(bad)
+        tot.update(c)
+        first = f"  first: {bad[0]['id']}: {bad[0]['first'] or bad[0]['status']}" if bad else ""
+        log(f"{family:<5} runs {c['runs']:>5}  writes {c['writes']:>6}  agreeing {c['agree']:>6}"
+            f"  runs differing {c['differ']}{first}")
+        for r in bad[1:show]:
+            log(f"      {r['id']}: {r['first'] or r['status']}")
+    if len(results) > 1:
+        log(f"all   runs {tot['runs']:>5}  writes {tot['writes']:>6}  agreeing {tot['agree']:>6}"
+            f"  runs differing {tot['differ']}")
+    return results
+
+
 # State rows (B3) --------------------------------------------------------------------
 
 STATE_FORMAT = "v35s-state-1"
@@ -560,6 +654,10 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
                              "default) against silicon and the frozen model, with the pre window")
     parser.add_argument("--show", type=int, default=0,
                         help="with --score: list the first N runs where RTL != model per family")
+    parser.add_argument("--data", action="store_true",
+                        help="(S6) with --score: compare every memory, stack and I/O write "
+                             "datum of the replays with the silicon record's instead (per "
+                             "family: writes, agreeing, the first differing run)")
     return parser
 
 
@@ -595,6 +693,11 @@ def main(argv=None, args=None) -> int:
     binary, default_output = SIM_CORES[args.core]
     output_dir = args.output_dir or default_output
     if args.score:
+        if args.data:
+            res = score_data(args.family, tuple(args.waits or (0, 1, 2)), output_dir, args.jobs,
+                             args.show)
+            return 1 if any(r["status"] != "ok" or r["agree"] != r["writes"]
+                            for rs in res.values() for r in rs) else 0
         score_lane(args.family, tuple(args.waits or (0, 1, 2)), output_dir, args.jobs, args.show)
         return 0
     if not binary.exists():

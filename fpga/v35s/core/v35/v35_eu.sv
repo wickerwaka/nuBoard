@@ -148,8 +148,11 @@ module v35_eu
     // the running form's memory operand address and write datum, as a request posted before
     // its displacement or its result issues reads them (the arbiter)
     output wire [19:0] ea_live,
+    output wire [15:0] ea_lo,           // (S6) ... its offset (a word at FFFFh wraps)
     output wire [15:0] wd_live,
     output wire [15:0] wd_imm,          // the immediate after T's takes (store_imm's datum, B2)
+    output wire        wd_rdy,          // (S6) the running form's result is in res (else wd_imm,
+                                        //   at B2, is it: an RMW write issued before its exec)
     // the sequencer's counts
     output wire [8:0]  cnt,
     output wire [7:0]  cl_c,
@@ -173,6 +176,7 @@ module v35_eu
     output wire [3:0]  mneg,
     // a transfer's target (the flush), the SFR store's datum
     output wire [19:0] t_flush_addr,
+    output wire [19:0] ps_base,         // (S6) {PS, 0h} after this clock (the fetch's segment)
     output wire [15:0] sfr_data,
     // the trace
     output wire [19:0] pc_o,
@@ -212,8 +216,11 @@ module v35_eu
     reg [3:0]  nrd = 4'd0;              // the own reads delivered in the running form
     reg [15:0] tgt = 16'd0;             // BR / CALL r16's target (the register at its exec)
     reg [2:0]  nsp = 3'd0;              // the stack posts made in the running form (PUSH R)
+    reg [15:0] sp_ret = 16'd0;          // (S6) SP after the last stack post (RET imm16's base)
     wire [15:0] ea_off_w, ea_seg_w;     // (v35_ea: the offset of the form after T, its segment)
-    wire        ea_ok_t;                // (S5a) ... its base and index were on the ports (LDEA)
+    wire        ea_ok_t;                // (S5a) ... its base and index were on the ports
+    wire [15:0] ea_off_n;               // (S6) the offset of the form after P (LDEA's exec)
+    wire        ea_ok_n;
     // (S5a) the string unit: IX and IY as flops (CW's already), stepped by the width at each
     // element's request post (DIR: down; not a REP compare's overrun read), CW counted down per
     // REP element; written through to the register RAM on a clock its write port is free
@@ -284,7 +291,7 @@ module v35_eu
         k = (f.page != 2'd0 ? 1 : 0) + (f.has_modrm ? 1 : 0) + int'(f.disp);
         lo = b[8 * k +: 8];
         hi = b[8 * (k + 1) +: 8];
-        if (f.immb == 2'd2)
+        if (f.immb[1])                  // ((S6) 3: PREPARE's imm16, then its level byte)
             immv = {hi, lo};
         else if (f.sx)
             immv = {{8{lo[7]}}, lo};
@@ -513,7 +520,14 @@ module v35_eu
         bb = opnd(f.opb, f, o, b, mdat);
         ra = role_reg(f.opa, f, o);
         rb = role_reg(f.opb, f, o);
-        x.ok = a[16] && bb[16];
+        // (S6) the destination of a move / load (MOV, the segment stores, POP, POP PSW, IN,
+        // XLAT, LES / LDS, POP R, MUL imm) is not read: its register need not be on the ports (an IN, a
+        // POP whose read delivered after the ports turned to the next form lost its write: AL
+        // after IN AL,port with a NOP behind it)
+        x.ok = (a[16] || f.xop == V35_XOP_MOV || f.xop == V35_XOP_SRST || f.xop == V35_XOP_POP
+                || f.xop == V35_XOP_POPF || f.xop == V35_XOP_IN || f.xop == V35_XOP_XLAT
+                || f.xop == V35_XOP_LPTR || f.xop == V35_XOP_POPR || f.xop == V35_XOP_MULI)
+               && bb[16];
         pw = psw;
         case (f.xop)
             V35_XOP_ALU: begin
@@ -637,15 +651,20 @@ module v35_eu
                 x.v1 = p[15:0];
                 x.ok = awv[16];
             end
-            V35_XOP_CVTBD: begin                // AH := AL / imm, AL := AL mod imm
+            // AH := AL / imm, AL := AL mod imm; (S6) by 0: AH := FFh, AL kept (the V20 suite,
+            // funcref._convert); S Z P of AL, CY AC V cleared; AW written whole (the format's
+            // byte width wrote AL only)
+            V35_XOP_CVTBD: begin
                 awv = rget({1'b1, R_AW});
-                if (b[7:0] != 8'd0) begin
-                    x.w1 = 1'b1;
-                    x.r1 = {1'b1, R_AW};
-                    x.v1 = {awv[7:0] / b[7:0], awv[7:0] % b[7:0]};
-                    x.pw = 1'b1;
-                    x.pv = v35_szp(psw, {8'd0, awv[7:0] % b[7:0]}, 1'b0);
-                end
+                x.w1 = 1'b1;
+                x.r1 = {1'b1, R_AW};
+                x.v1 = b[7:0] != 8'd0 ? {awv[7:0] / b[7:0], awv[7:0] % b[7:0]}
+                                      : {{8{1'b1}}, awv[7:0]};
+                x.pw = 1'b1;
+                x.pv = v35_szp(psw, {8'd0, x.v1[7:0]}, 1'b0);
+                x.pv[V35_PSW_CY] = 1'b0;
+                x.pv[V35_PSW_AC] = 1'b0;
+                x.pv[V35_PSW_V] = 1'b0;
                 x.ok = awv[16];
             end
             // (S5a) the strings at a read's delivery: LDM loads AL / AW; CMPBK keeps [IY], then
@@ -674,8 +693,8 @@ module v35_eu
             V35_XOP_LDEA: begin
                 x.w1 = ra[3];
                 x.r1 = ra;
-                x.v1 = ea_off_w;
-                x.ok = ea_ok_t;
+                x.v1 = ea_off_n;            // (S6) the form's own (it may start in P)
+                x.ok = ea_ok_n;
             end
             // (S5a) a BCD string's destination byte read: the pair's result (written back by
             // ADD4S / SUB4S), the PSW of the string so far (CY S AC the carry, Z P the zero term)
@@ -744,14 +763,18 @@ module v35_eu
                 x.r1 = ra;
                 x.v1 = {12'd0, a[3:0] + bb[3:0] + 4'd1};
             end
-            V35_XOP_CVTDB: begin                // AL := AH * imm + AL, AH := 0
+            // AL := AH * 10 + AL, AH := 0: (S6) the base is 10 whatever the byte (the V20 suite,
+            // funcref._convert; the data book's encoding D5 0AH; the corpus's only byte is 0AH),
+            // the flags the byte ADD's (AH * 10 + AL); AW written whole
+            V35_XOP_CVTDB: begin
                 awv = rget({1'b1, R_AW});
-                r = {8'd0, 8'(awv[15:8] * b[7:0] + awv[7:0])};
+                r = v35_alu(3'd0, 1'b0, {8'd0, 8'(awv[15:8] * 4'd10)}, {8'd0, awv[7:0]}, psw,
+                            pw);
                 x.w1 = 1'b1;
                 x.r1 = {1'b1, R_AW};
-                x.v1 = r;
+                x.v1 = {8'd0, r[7:0]};
                 x.pw = 1'b1;
-                x.pv = v35_szp(psw, r, 1'b0);
+                x.pv = pw;
                 x.ok = awv[16];
             end
             V35_XOP_INC, V35_XOP_DEC: begin
@@ -821,15 +844,21 @@ module v35_eu
                 x.r1 = {1'b1, R_AW};
                 x.v1 = {8'd0, mdat[7:0]};
             end
+            // (S6) CVTBW / CVTWL read AW (the format names no operand role: AW was read as 0, AW
+            // and DW cleared: F33 cvtbw's OUT of AL)
             V35_XOP_CVTBW: begin
+                awv = rget({1'b1, R_AW});
                 x.w1 = 1'b1;
                 x.r1 = {1'b1, R_AW};
-                x.v1 = {{8{a[7]}}, a[7:0]};
+                x.v1 = {{8{awv[7]}}, awv[7:0]};
+                x.ok = awv[16];
             end
             V35_XOP_CVTWL: begin
+                awv = rget({1'b1, R_AW});
                 x.w1 = 1'b1;
                 x.r1 = {1'b1, R_DW};
-                x.v1 = {16{a[15]}};
+                x.v1 = {16{awv[15]}};
+                x.ok = awv[16];
             end
             V35_XOP_FLAG: begin
                 x.pw = 1'b1;
@@ -849,9 +878,11 @@ module v35_eu
                 x.r1 = {1'b1, 3'd4};            // AH: byte register 4
                 x.v1 = {8'd0, psw[7:0]};
             end
-            V35_XOP_SAHF: begin
+            V35_XOP_SAHF: begin                 // ((S6) AH: the format names no operand)
+                awv = rget({1'b1, R_AW});
                 x.pw = 1'b1;
-                x.pv = {psw[15:8], a[15:8]};
+                x.pv = {psw[15:8], awv[15:8]};
+                x.ok = awv[16];
             end
             default: ;                          // the transfers, the stack and I/O writes, the
         endcase                                 // 0F page, the strings: S4 / S5 (PUSH's SP
@@ -934,11 +965,13 @@ module v35_eu
     function automatic req_t mkreq(input uc_row_t r, input logic [6:0] setup,
                                    input logic fnv, input logic [6:0] fn, input logic [1:0] lead,
                                    input req_t tm, input v35_fmt_t f, input logic [7:0] o,
-                                   input logic [47:0] b, input logic [19:0] pcx);
+                                   input logic [47:0] b, input logic [19:0] pcx,
+                                   input logic [2:0] sgo);
         req_t q;
         logic [15:0] sp_v, d;
         logic [16:0] spr, bpr;
         logic [7:0] vt;
+        logic [15:0] sgb, ofs;          // (S6) the segment and the offset in it
         q = tm;                         // the window fields (through, imm1, floors, ...)
         case (r.rkind)
             V35_RK_READ: q.kind = K_READ;
@@ -951,42 +984,63 @@ module v35_eu
         spr = rget({1'b1, R_SP});
         sp_v = spr[15:0];
         // the memory operand (v35_ea.sv): the running form's own request takes its address as
-        // it issues (posted before the displacement was taken: pop_mem's write)
+        // it issues (posted before the displacement was taken: pop_mem's write). (S6) Every
+        // address is the segment's base + an offset that wraps at FFFFh (+ 2 aidx, a stack
+        // word's SP - 2; a word at offset FFFFh: w16, its odd pair's second half at offset 0)
+        sgb = 16'd0;
+        ofs = 16'd0;
         case (r.asrc)
             V35_ASRC_EA: begin
-                q.addr = ea_phys + {16'd0, r.aidx, 1'b0};
+                sgb = ea_seg_w;
+                ofs = ea_off_w + {12'd0, r.aidx, 1'b0};
                 q.alive = !r.detached;
                 q.aoff = r.aidx;
             end
             // (S5a) a stack word: SP moves at every stack post (sp_post), so the i-th word of a
             // burst (aidx) is at the SP the earlier posts left
-            V35_ASRC_SPW: q.addr = {ss, 4'd0} + {4'd0, sp_v - 16'd2};
-            V35_ASRC_SPR: q.addr = {ss, 4'd0} + {4'd0, sp_v};
-            V35_ASRC_PORT_IMM: q.addr = {12'd0, b[7:0]};
-            V35_ASRC_PORT_DW: q.addr = {4'd0, rb_v};
+            V35_ASRC_SPW: begin
+                sgb = ss;
+                ofs = sp_v - 16'd2;
+            end
+            V35_ASRC_SPR: begin
+                sgb = ss;
+                ofs = sp_v;
+            end
+            V35_ASRC_PORT_IMM: ofs = {8'd0, b[7:0]};
+            V35_ASRC_PORT_DW: ofs = rb_v;
             V35_ASRC_BP: begin                  // (S5a) DISPOSE's read at SS:BP
                 bpr = rget({1'b1, R_BP});
-                q.addr = {ss, 4'd0} + {4'd0, bpr[15:0]};
+                sgb = ss;
+                ofs = bpr[15:0];
             end
             // (S5a) a string element: the source DS0:IX (a prefix's segment), the destination
             // DS1:IY
-            V35_ASRC_STR_IX: q.addr = {seg_o != 3'd0 && seg_o <= 3'd4 ? segv(2'(seg_o - 3'd1))
-                                                                      : ds0, 4'd0}
-                                      + {4'd0, ix + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0)};
-            V35_ASRC_STR_IY: q.addr = {ds1, 4'd0}
-                                      + {4'd0, iy + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0)};
+            V35_ASRC_STR_IX: begin
+                sgb = sgo != 3'd0 && sgo <= 3'd4 ? segv(2'(sgo - 3'd1)) : ds0;
+                ofs = ix + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0);
+            end
+            V35_ASRC_STR_IY: begin
+                sgb = ds1;
+                ofs = iy + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0);
+            end
             // (S5b) a bit field's words: EXT's at DS0:IX (a prefix's segment), INS's at DS1:IY
             // (+ 2 aidx: the next word when it crosses)
-            V35_ASRC_IX: q.addr = {seg_o != 3'd0 && seg_o <= 3'd4 ? segv(2'(seg_o - 3'd1))
-                                                                 : ds0, 4'd0}
-                                  + {4'd0, ix + {12'd0, r.aidx, 1'b0}};
-            V35_ASRC_IY: q.addr = {ds1, 4'd0} + {4'd0, iy + {12'd0, r.aidx, 1'b0}};
+            V35_ASRC_IX: begin
+                sgb = sgo != 3'd0 && sgo <= 3'd4 ? segv(2'(sgo - 3'd1)) : ds0;
+                ofs = ix + {12'd0, r.aidx, 1'b0};
+            end
+            V35_ASRC_IY: begin
+                sgb = ds1;
+                ofs = iy + {12'd0, r.aidx, 1'b0};
+            end
             V35_ASRC_VEC: begin                 // (S5a) BRK's vector words at 0:4n (+2)
                 vt = f.aop != 3'd0 ? {5'd0, f.aop} : b[7:0];
-                q.addr = {10'd0, vt, 2'b00} + {16'd0, r.aidx, 1'b0};
+                ofs = {6'd0, vt, 2'b00} + {12'd0, r.aidx, 1'b0};
             end
-            default: q.addr = 20'd0;        // IX, IY, the strings
+            default: ;
         endcase
+        q.addr = {sgb, 4'd0} + {4'd0, ofs};
+        q.w16 = ofs == 16'hFFFF;
         // the datum: the form's write value (its source register, the immediate, the PSW,
         // a segment register, an RMW's result, a return address)
         d = wdatum(f, o, b, r.aidx, pcx, sp_v);
@@ -1054,7 +1108,11 @@ module v35_eu
                 v = {v[16], bf_ins(rd_now ? rd_dat : (ai == 3'd0 ? rq0 : rq1), v[15:0], bfo[3:0],
                                    bfw[3:0], ai[0])};
             end
-            V35_XOP_PUSH: v = opnd(f.opb, f, o, b, rd);
+            // (S6) PUSH r/m: the read's datum, live on its delivery clock (the write posted
+            // there: the last read's `rd` was stale, F14 / F16 push_m); PUSH SP: SP - 2 (the
+            // decremented SP, as silicon writes it: F36 push_sp)
+            V35_XOP_PUSH: v = wreg(role_reg(f.opb, f, o), 1'b1) == {1'b1, R_SP}
+                              ? {1'b1, spx - 16'd2} : opnd(f.opb, f, o, b, rd_now ? rd_dat : rd);
             V35_XOP_PUSHF: v = {1'b1, psw};
             V35_XOP_OUT: v = rop({1'b1, R_AW}, 1'b1);
             V35_XOP_MOV, V35_XOP_SRST: v = opnd(f.opb, f, o, b, rd);
@@ -1064,14 +1122,44 @@ module v35_eu
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
-    assign rq_t = mkreq(prow_t, psetup_t, pfnv_t, pfn_t, plead_t, ptm_t, f_t, o_t, ob_t, pc_t);
+    // (S6) the segment prefix of the form after T / after P (a post on its start clock: seg_o
+    // is still the last form's; a cs movsb's read went to DS0)
+    wire [2:0]  seg_t = st_t ? pfx : seg_o;
+    wire [2:0]  seg_n = st_p ? (st_t ? fmt_c.seg : pfx) : seg_t;
+    assign rq_t = mkreq(prow_t, psetup_t, pfnv_t, pfn_t, plead_t, ptm_t, f_t, o_t, ob_t, pc_t,
+                        seg_t);
     assign rq_p = mkreq(prow_p, psetup_p, pfnv_p, pfn_p, plead_p, ptm_p, f_now, o_now, ob_now,
-                        pc_now);
+                        pc_now, seg_n);
     // the live address and datum (an RMW's result after its read's delivery: res, registered)
     assign ea_live = ea_phys;
+    assign ea_lo = ea_off_w;
     assign wd_live = res;
-    wire [15:0] imm_t = immv(f_t, ob_t);
-    assign wd_imm = f_t.w ? imm_t : {imm_t[7:0], imm_t[7:0]};
+    // (S6) store_imm's write is posted before its immediate is taken, its datum on the pins at B2
+    // (g_dsel): the immediate's bytes not yet taken are the queue's head after T's takes (the
+    // bytes after the form's last one taken; a B2 before the immediate's take wrote the bytes
+    // ob held: F19 / F21 / F22 / F26's MOV [m],imm16 wrote 0034h for 1234h at no wait states)
+    wire [31:0] q_after_t = {vb3, vb2, vb1, vb0} >> {t_k, 3'b000};
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic logic [15:0] imm_ahead(input v35_fmt_t f, input logic [47:0] b,
+                                              input logic [2:0] n, input logic [31:0] q);
+        int k;
+        logic [7:0] lo, hi;
+        k = (f.page != 2'd0 ? 1 : 0) + (f.has_modrm ? 1 : 0) + int'(f.disp);
+        lo = k < int'(n) ? b[8 * k +: 8] : q[8 * (k - int'(n)) +: 8];
+        hi = k + 1 < int'(n) ? b[8 * (k + 1) +: 8] : q[8 * (k + 1 - int'(n)) +: 8];
+        imm_ahead = f.immb[1] ? {hi, lo} : {8'd0, lo};
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    wire [15:0] imm_t = imm_ahead(f_t, ob_t, nob_t, q_after_t);
+    // (S6) ... and an RMW's result when its write issued before the form's exec ran (wd_rdy 0:
+    // its read delivered on the clock after the issue, the exec there; the bus takes the datum
+    // at B2, the exec's own clock forwarded: C1 / D3 r/m16,count at an odd address, the pair's
+    // first half wrote 00h at no wait states)
+    wire        dimm_t = f_t.xop == V35_XOP_MOV && f_t.opb == V35_ROLE_IMM;
+    wire [15:0] res_f = (ex_go && xr.rv && !new_form) ? xr.res : res;
+    wire [15:0] late_t = dimm_t ? imm_t : res_f;
+    assign wd_imm = f_t.w ? late_t : {late_t[7:0], late_t[7:0]};
+    assign wd_rdy = exec_done;
 
     // (S5a) a BCD string's byte pair: the destination byte (the read delivered now, or the last
     // read's) with the source byte, the carry in; {carry, zero term, result}
@@ -1153,6 +1241,7 @@ module v35_eu
         endcase
     end
     assign t_flush_addr = {tg_seg, 4'd0} + {4'd0, tg_off};
+    assign ps_base = {(t_flush && tg_far) ? tg_seg : ps, 4'd0};
 
     // the SFR store's datum (a store_imm takes its immediate after the store issued)
     wire [16:0] sfr_v = opnd(fmt.opb, fmt, op, ob, rd);
@@ -1173,7 +1262,10 @@ module v35_eu
         c2_v = 1'b0; c2_a = 7'd0; c2_b = 2'd0; c2_d = 16'd0;
         c3_v = 1'b0; c3_a = 7'd0; c3_b = 2'd0; c3_d = 16'd0;
         if (ex_go && xr.w1) begin
-            wp = wput(xr.r1, (xr.r1 == {1'b1, R_AW} && (f_now.xop == V35_XOP_MUL || bfx)) ? 1'b1
+            wp = wput(xr.r1, (xr.r1 == {1'b1, R_AW} && (f_now.xop == V35_XOP_MUL || bfx
+                                                         || f_now.xop == V35_XOP_ADJ
+                                                         || f_now.xop == V35_XOP_CVTBD
+                                                         || f_now.xop == V35_XOP_CVTDB)) ? 1'b1
                              : (f_now.xop == V35_XOP_LAHF ? 1'b0 : f_now.wd), xr.v1);
             c1_v = 1'b1;
             c1_a = rword(bank, wp[20:18]);
@@ -1216,7 +1308,8 @@ module v35_eu
             c3_v = 1'b1;                // (S5a) RET imm16: SP raised by the immediate
             c3_a = rword(bank, R_SP);
             c3_b = 2'b11;
-            c3_d = sp_rd[15:0] + immv(f_t, ob_t);
+            // ((S6) from SP after the return address's read: SP is off the ports by the flush)
+            c3_d = sp_ret + immv(f_t, ob_t);
         end
     end
     // the order: the pending second write, then this clock's; the rest pending (one)
@@ -1317,9 +1410,14 @@ module v35_eu
     // the PSW after this clock (the exec's, the divider's)
     // (S5a) RETI's PSW at its flush (the flags: MD and RB stay, as POP PSW's); BRK clears IE
     // and BRK at its flush
+    // (S6) a BCD string with no pair (CL = 0): the flags of an empty string (CY S AC V 0, Z P 1:
+    // the V20 suite, funcref._page0f; the PSW was left as it was)
+    wire        bcd0 = new_form && f_now.xop == V35_XOP_BCD && cw[7:0] == 8'd0;
+    wire [15:0] psw_b0 = (psw & ~16'h08D5) | 16'h0044;
     wire [15:0] psw_n = (ex_go && xr.pw) ? xr.pv : dfin ? dpsw
                       : (t_flush && tg_psw) ? {psw[15:12], rq2[11:0]}
-                      : (t_flush && f_t.xop == V35_XOP_BRK) ? psw & ~16'h0300 : psw;
+                      : (t_flush && f_t.xop == V35_XOP_BRK) ? psw & ~16'h0300
+                      : bcd0 ? psw_b0 : psw;
     assign psw_c = psw;
     assign psw_e = psw_n;
     assign cw_c = cw;
@@ -1339,12 +1437,12 @@ module v35_eu
     wire [19:0] ea_phys;
     v35_ea ea (
         .clock, .reset_n, .ce,
-        .f_t, .b_t(ob_t), .base_t(ea_bt), .index_t(ea_it), .sego(st_t ? pfx : seg_o),
-        .ds1, .ps, .ss, .ds0,
-        .f_now, .new_form, .aim_ea, .base_n(ea_b), .index_n(ea_i), .xl_bw(xl_b[15:0]),
-        .xl_al(xl_a[7:0]),
+        .f_t, .t_new(st_t), .b_t(ob_t), .base_t(ea_bt), .index_t(ea_it),
+        .sego(seg_t), .ds1, .ps, .ss, .ds0,
+        .f_now, .b_now(ob_now), .new_form, .aim_ea, .base_n(ea_b), .index_n(ea_i),
+        .xl_bw(xl_b[15:0]), .xl_al(xl_a[7:0]),
         .regs_n(ear_now), .done_n(ea_done_n), .off(ea_off_w), .bp(ea_bp), .seg(ea_seg_w),
-        .phys(ea_phys), .ok_t(ea_ok_t)
+        .phys(ea_phys), .ok_t(ea_ok_t), .off_n(ea_off_n), .ok_n(ea_ok_n)
     );
 
     // the next clock's ports: the registers the next clock's form reads: the running form's
@@ -1388,7 +1486,7 @@ module v35_eu
                 nb = wreg(role_reg(fx.opb, fx, ox), fx.wd);
             if (fx.xop == V35_XOP_MUL || fx.xop == V35_XOP_DIV || fx.xop == V35_XOP_CVTWL
                 || fx.xop == V35_XOP_CVTBW || fx.xop == V35_XOP_ADJ || fx.xop == V35_XOP_CVTBD
-                || fx.xop == V35_XOP_CVTDB)
+                || fx.xop == V35_XOP_CVTDB || fx.xop == V35_XOP_SAHF)
                 na = {1'b1, R_AW};
             // (S5a) the strings: AW (STM's datum, CMPM, LDM); DW on B (the port forms)
             if (fx.xop == V35_XOP_STR)
@@ -1449,12 +1547,42 @@ module v35_eu
             w2_v <= 1'b0;
             dv <= 1'b0;
             ds <= '0;
+            // (S6) the rest of the state (a reset after power-on: the stale write-through flags,
+            // the string unit's and the bit field's registers, the reads in order)
+            w2_a <= 7'd0;
+            w2_be <= 2'd0;
+            w2_d <= 16'd0;
+            dvp <= 1'b0;
+            dv_d <= 16'd0;
+            dv_lo <= 16'd0;
+            rd_lo <= 8'd0;
+            rq0 <= 16'd0;
+            rq1 <= 16'd0;
+            rq2 <= 16'd0;
+            nrd <= 4'd0;
+            tgt <= 16'd0;
+            nsp <= 3'd0;
+            sp_ret <= 16'd0;
+            ix <= 16'd0;
+            iy <= 16'd0;
+            dcw <= 1'b0;
+            dix <= 1'b0;
+            diy <= 1'b0;
+            srd_iy <= 1'b0;
+            srd_ovr <= 1'b0;
+            sdst <= 16'd0;
+            bi <= 8'd0;
+            bcy <= 1'b0;
+            bz <= 1'b1;
+            bres <= 8'd0;
+            bfo <= 8'd0;
+            bfw <= 8'd0;
         end else if (ce) begin
             fmt <= f_now;
             op <= o_now;
             pc <= pc_now;
             if (st_t || st_p) begin
-                seg_o <= pfx;
+                seg_o <= seg_n;
                 pfx <= f_now.seg;           // a prefix's segment for the next form (0: none)
             end
             ob <= ob_now;
@@ -1500,6 +1628,8 @@ module v35_eu
             if (ex_go && xr.tg)
                 tgt <= xr.tgv;
             nsp <= nsp_n;
+            if (sp_post)
+                sp_ret <= sp_new;
             cw <= cw_n;
             ix <= ix_n;
             iy <= iy_n;
@@ -1559,6 +1689,6 @@ module v35_eu
     wire unused = &{1'b0, xr, rq2[15:12], s_aw[16], cnt_v[16:9], mu_a[16], mu_b[16], sfr_v[16], dv_hi[16], dv_aw[16],
                     dv_op[16], sp_rd[16], bf_a[16:8], bf_b[16:8],
                     ea_b[16], ea_i[16], xl_b[16], xl_a[16:8], dtrap, nf_v, fmt_l, ea_off_w,
-                    ea_seg_w, ea_bp, ea_bt[16], ea_it[16],
+                    ea_seg_w, ea_bp, ea_bt[16], ea_it[16], ea_ok_t,
                     dlv_addr[19:1]};
 endmodule

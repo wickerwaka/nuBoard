@@ -790,3 +790,31 @@ constraints. The user's direction is to fix the structure, not the constraints.
   or special constraints. S7a's whole-core place-and-route had stalled on a 275 ns chain (six row evaluators,
   the arbiter tree and the decode ahead in series) under 30 ns with partly rejected multicycle lines; it was
   stopped. S7's goal becomes timing closure at 64 MHz by structure; the area work continues under it.
+- 2026-11-03, **S6 landed — the function path**: a whole-core function bench (`fpga/v35s/v35_core2_tb`, the real
+  `v35_top` with the post-reset state preloaded through Verilator hooks, one instruction per test, about 1 ms a
+  test) runs the SingleStepTests V20 suite and the `--regfile` vectors as single-instruction tests; `sst.py
+  --rtl` and `rtl_vectors --regfile` are retargeted to it; `replay --core v35 --score --data` compares every
+  memory, stack and I/O write datum of the replays with the silicon record; funcref models E0/E1/E3, EA/9A,
+  C2/CA/CB/CF, CC/CD, 9C–9F, C4/C5, F0 and FF /2–/5. Thirteen datapath bugs fixed structurally, among them:
+  LDEA's exec in the P pass read the EA of the form after T (the OUT's port byte as an offset: AL = 20h);
+  PUSH r/m pushed the stale read; store_imm's untaken bytes at B2; an RMW write issued before its exec takes
+  the result at B2; CVTBW/CVTWL/SAHF read 0 for AW; a move whose read delivered after the ports turned
+  dropped its write; segment wrap at FFFFh (offset + base, `w16`, the queue's fetch wrapping in PS); BCWZ
+  decided by CW − 1 (ucgen's `tsel` order); C6/C7 /1–/7 without MOV's attributes; a start-clock post used the
+  previous form's segment prefix; RET imm16 added the immediate after SP left the ports (`sp_ret`); PREPARE's
+  imm16 read as a byte; an empty BCD string's flags. **Gate, all rerun on main:** timing unchanged (36 families,
+  30,536 / 30,536 RTL = model, `--diag` silent); write data 106,824 / 106,824 agreeing in every family (at
+  cc0704f 104,574, with 1,776 runs differing); SST `--rtl --all` 2,849,080 pass / 0 fail over RTL_FILES and the
+  100 new S6_FILES (old core 1,651,237 over RTL_FILES), counted apart: trap condition 24,387, PREPARE level
+  1,941, V20's ROL4/ROR4 AL 18,368, V20's fixed PSW bits 26,281, on-chip page 887, unlisted 82, trap_nop
+  register forms (F6/F7 /1–/3, FF /0 /1 /6 /7, C6/C7 reg, F6 /0, REP before a non-string form) ≈45,000, and
+  three decoder divergences (F6 /1 mem, F7 /1 mem, FF /7 mem: the model decodes them as rmw without an
+  immediate) ≈22,500; `--regfile` 69,099 + 38,760 vectors 0 bad (the count exceeds the plan's 58,508 because
+  today's generator over today's corpus produces more); function bench 19,752 / 0 bad; lint clean in four
+  configurations; 30 fast tests (incl. the new `test_sst_rtl`) green; the nine offline modules unchanged.
+  eu + ea `efx_map` 8,589 → 9,123 LUT4 (the second EA adder, the datum at B2, segment-relative addressing in
+  both `mkreq` instances). Divergences 27–29 (README). Decisions: trap_nop stays NOP (the README lists what
+  a trap needs); V20 semantics adopted where the corpus is silent (CVTDB base 10, CVTBD by 0, the empty BCD
+  string's flags, C6/C7 aliases); ROL4/ROR4's AL and PSW bits 1/3/5 stay the V35's. Open for S7: the reset
+  blocks of v35_queue (take / transfer holds), v35_bus (`w_v`, `tk_prev`) and v35_ucode (`mf_*`) are
+  incomplete (the bench restores a post-reset snapshot instead); MOV PS,r/m does not redirect the queue.

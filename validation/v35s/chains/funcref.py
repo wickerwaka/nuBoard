@@ -319,6 +319,7 @@ class Cpu:
     carries (the sreg index, None without)."""
 
     v20_digits = False              # (WP79) ROL4 / ROR4's AL as the V20 leaves it (sst.py)
+    v20_flags = False               # (S6) POP PSW / RETI / SAHF's fixed bits as the V20's (sst.py)
 
     def __init__(self, regs: dict, mem: bytearray, io_word: int = IO_WORD, code_org: int = 0):
         self.r = {n: regs.get(n, 0) & 0xFFFF for n in REG16 + SREG}
@@ -659,7 +660,104 @@ class Cpu:
             st.ea = base + off
             self.set8(0, self.read(base, off, 1))
             return
+        if self._xfer_misc(st, code, o):                # (S6) F35-F37, F39, F40's gaps
+            return
         self._modrm_form(st, code, o)
+
+    def _flags_loaded(self, v: int) -> int:
+        """(S6) the PSW as POP PSW / RETI / SAHF leave it from the word v (its bits 11-0; MD and
+        RB stay: the V35's, the chain prelude's POP PSW 0002h keeps RB 7). The V20 forces its fixed
+        bits (1 = 1, 3 = 5 = 0: the V35's BRKI, F0, F1): v20_flags (sst.py's V20 class)."""
+        psw = (self.psw & 0xF000) | (v & 0x0FFF)
+        if self.v20_flags:
+            psw = (psw & ~((1 << F0) | (1 << F1))) | (1 << BRKI)
+        return psw
+
+    def _xfer_misc(self, st: Start, code: bytes, o: int) -> bool:
+        """(S6) the forms the corpus's F35-F37, F39 and F40 run that the reference lacked: BCWZ
+        (E3), DBNZE / DBNZNE (E1 / E0), BR / CALL far (EA / 9A), RET imm16 / far / far imm16 (C2 /
+        CB / CA), RETI (CF), BRK 3 / BRK imm8 (CC / CD), PUSH PSW / POP PSW (9C / 9D), SAHF / LAHF
+        (9E / 9F), LES / LDS (C4 / C5: DS1 / DS0), BUSLOCK (F0, no effect: a start of its own, as
+        the frozen model's), the bus cycles in the V35's order (templates.py: BRK reads the
+        vector's offset, pushes the PSW, reads its segment, pushes PS and the return offset;
+        CALL far pushes PS, then the return offset). True when o is one of them."""
+        r = self.r
+        imm16 = lambda k: code[k] | (code[k + 1] << 8)
+        if o == 0xF0:
+            return True
+        if o in (0xE0, 0xE1, 0xE3):                     # DBNZNE / DBNZE / BCWZ disp8
+            st.length = 2
+            if o == 0xE3:
+                tk = r["CW"] == 0
+            else:
+                r["CW"] = (r["CW"] - 1) & 0xFFFF
+                tk = r["CW"] != 0 and bool(flag(self.psw, Z)) == (o == 0xE1)
+            if tk:
+                st.taken = True
+                st.target = (st.ip + 2 + _sx(code[1], 1)) & 0xFFFF
+            return True
+        if o in (0xEA, 0x9A):                           # BR far / CALL far offset16 segment16
+            st.length = 5
+            if o == 0x9A:
+                st.sw = (r["SP"] - 2) & 0xFFFF
+                self.push(r["PS"])
+                self.push((st.ip + 5) & 0xFFFF)
+            r["PS"] = imm16(3)
+            st.taken = True
+            st.target = imm16(1)
+            return True
+        if o in (0xC2, 0xCA, 0xCB, 0xCF):               # RET imm16 / far imm16 / far, RETI
+            st.length = 3 if o in (0xC2, 0xCA) else 1
+            st.sr = r["SP"]
+            ip = self.pop()
+            if o != 0xC2:
+                r["PS"] = self.pop()
+            if o == 0xCF:
+                self.psw = self._flags_loaded(self.pop())
+            if o in (0xC2, 0xCA):
+                r["SP"] = (r["SP"] + imm16(1)) & 0xFFFF
+            st.taken = True
+            st.target = ip
+            return True
+        if o in (0xCC, 0xCD):                           # BRK 3 / BRK imm8
+            n = 3 if o == 0xCC else code[1]
+            st.length = 1 if o == 0xCC else 2
+            st.sw = (r["SP"] - 2) & 0xFFFF
+            ip = self.read(0, 4 * n, 2)
+            self.push(self.psw)
+            self.psw &= ~((1 << IE) | (1 << BRK))
+            ps = self.read(0, 4 * n + 2, 2)
+            self.push(r["PS"])
+            self.push((st.ip + st.length) & 0xFFFF)
+            r["PS"] = ps
+            st.taken = True
+            st.target = ip
+            return True
+        if o == 0x9C:                                   # PUSH PSW
+            st.sw = (r["SP"] - 2) & 0xFFFF
+            self.push(self.psw)
+            return True
+        if o == 0x9D:                                   # POP PSW
+            st.sr = r["SP"]
+            self.psw = self._flags_loaded(self.pop())
+            return True
+        if o == 0x9E:                                   # SAHF: the PSW's low byte from AH
+            self.psw = self._flags_loaded((self.psw & 0x0F00) | (r["AW"] >> 8))
+            return True
+        if o == 0x9F:                                   # LAHF: AH from the PSW's low byte
+            r["AW"] = (r["AW"] & 0xFF) | ((self.psw & 0xFF) << 8)
+            return True
+        if o in (0xC4, 0xC5):                           # LES / LDS r16,m32
+            mod, reg, rm, off, base, n = self.modrm(code, 1)
+            if mod == 3:
+                raise NotModelled(f"opcode {o:02X} with a register operand")
+            st.length = 1 + n
+            st.ea = base + off
+            v = self.read(base, off, 2)
+            r[SREG[0 if o == 0xC4 else 3]] = self.read(base, off + 2, 2)
+            r[REG16[reg]] = v
+            return True
+        return False
 
     def _modrm_form(self, st: Start, code: bytes, o: int):
         r = self.r
@@ -800,6 +898,23 @@ class Cpu:
                 st.sw = (r["SP"] - 2) & 0xFFFF
                 v = st.sw if mod == 3 and rm == 4 else self._rm_read(mod, rm, off, base, 2)
                 self.push(v)
+                return
+            # (S6) CALL / BR near r/m16 (FF /2, /4: the register or the word at the EA), CALL /
+            # BR far [m] (/3, /5: the pointer's offset, then its segment); CALL pushes (far: PS,
+            # then) the return offset
+            if o == 0xFF and (reg in (2, 4) or (reg in (3, 5) and mem)):
+                ip = self._rm_read(mod, rm, off, base, 2)
+                if reg in (3, 5):
+                    ps = self.read(base, off + 2, 2)
+                if reg in (2, 3):
+                    st.sw = (r["SP"] - 2) & 0xFFFF
+                    if reg == 3:
+                        self.push(r["PS"])
+                    self.push((st.ip + st.length) & 0xFFFF)
+                if reg in (3, 5):
+                    r["PS"] = ps
+                st.taken = True
+                st.target = ip
                 return
             raise NotModelled(f"{o:02X} /{reg}")
         raise NotModelled(f"opcode {o:02X}")
@@ -984,6 +1099,9 @@ class Cpu:
         def element(i, overrun=False):
             ix, iy = (r["IX"] + i * step) & 0xFFFF, (r["IY"] + i * step) & 0xFFFF
             b = o & 0xFE
+            # (S6) the overrun element's reads are discarded (sst.py: the V20 does not make
+            # them, its suite need not list their bytes)
+            self.discard = overrun
             if b == 0xA4:
                 v = self.read(src, ix, w)
                 if not overrun:
@@ -1008,6 +1126,7 @@ class Cpu:
             else:
                 v = self.read(src, ix, w)
                 self.io_out(r["DW"], w, v)
+            self.discard = False
 
         if rep is None:
             element(0)
@@ -1123,6 +1242,10 @@ def frozen_walk(chain, chain_base: int) -> list:
     tail = prelude_tail(chain, True)
     code = tail + chain.code
     regs = dict(chain.regs)
+    # (S6) the code offset (in PS) of code[0], as the frozen EU keeps it (eu.py: an absolute
+    # target, BR / CALL far, r16, [m], a BRK vector, is a code offset less it); code[0] here is
+    # the prelude tail's first byte
+    regs["code_at"] = chain_base - len(tail) - CODE_BASE
     strings = {}
     # (WP79) as the frozen machine keys them (machine.py): F33's REPC / REPNC forms
     # (WALK_STRING_FORMS) and F32's BCD strings by the 0F opcode's offset

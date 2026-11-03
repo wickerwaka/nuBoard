@@ -78,6 +78,9 @@ package v35_front_pkg;
                                 //     a fetch requested after the post (the CL clocks)
         logic [2:0]  ftl;       // ftail: a bit field's read issues once ftl clocks passed since
                                 //     the last fetch's end
+        // (S6)
+        logic        w16;       // the word's offset is FFFFh: an odd pair's second half wraps to
+                                //     the segment's offset 0 (not a live address's: ea_lo's)
     } req_t;
 
     // ------------------------------------------------------------ fixed structure

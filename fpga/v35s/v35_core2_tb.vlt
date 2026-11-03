@@ -1,0 +1,21 @@
+`verilator_config
+// The core v2's whole-core function bench (v35_core2_tb.sv): the registers the C++ driver
+// (v35_core2_tb.cpp) preloads after a reset (a test's state: the register RAM, the EU's flops,
+// the first fetch's address, the reset exit and the CPU clock's divider). Bench only: the
+// harness build and the RTL sources are unchanged.
+public_flat_rw -module "v35_top" -var "tb_reset_addr"
+public_flat_rw -module "v35_top" -var "core_run"
+public_flat_rw -module "v35_sfr" -var "prc"
+public_flat_rw -module "v35_sfr" -var "wtc"
+public_flat_rw -module "v35_eu" -var "psw"
+public_flat_rw -module "v35_eu" -var "ds1"
+public_flat_rw -module "v35_eu" -var "ps"
+public_flat_rw -module "v35_eu" -var "ss"
+public_flat_rw -module "v35_eu" -var "ds0"
+public_flat_rw -module "v35_eu" -var "cw"
+public_flat_rw -module "v35_eu" -var "ix"
+public_flat_rw -module "v35_eu" -var "iy"
+public_flat_rw -module "v35_regram" -var "ae"
+public_flat_rw -module "v35_regram" -var "ao"
+public_flat_rw -module "v35_regram" -var "be"
+public_flat_rw -module "v35_regram" -var "bo"

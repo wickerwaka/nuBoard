@@ -1384,8 +1384,9 @@ def _decode_attrs():
         # start picks from the flags and CW, templates.decode): tsel 0 always taken (or no
         # transfer), 1 the condition field (cond_taken), 2 CW counted down (DBNZ: CW - 1 != 0),
         # 3 CW zero (BCWZ); zpol: DBNZE's Z test (Z set continues; DBNZNE: Z clear)
-        ("tsel", 2, lambda o, c: 1 if o.cond else 2 if b(o) == "dbnz" else
-         3 if o.cls == "bcwz" else 0),
+        # ((S6) bcwz before its base class dbnz: BCWZ was decided by CW - 1 != 0)
+        ("tsel", 2, lambda o, c: 1 if o.cond else 3 if o.cls == "bcwz" else
+         2 if b(o) == "dbnz" else 0),
         ("zpol", 1, lambda o, c: o.cls == "dbnz_z" and o.opcode == 0xE1),
         # xshort: a short transfer (base class branch_short or dbnz: xfer_odd, xfer_nt)
         ("xshort", 1, lambda o, c: b(o) in ("branch_short", "dbnz")),
@@ -1596,7 +1597,9 @@ def _xop_of(op, form) -> dict:
         put("SHIFT", "RM", "ONE", o & 1, reg)
     elif o in (0xD2, 0xD3):
         put("SHIFT", "RM", "CL", o & 1, reg)
-    elif o in (0xC6, 0xC7) and reg == 0:
+    elif o in (0xC6, 0xC7):
+        # (S6) every reg field: the undocumented /1-/7 aliases store the immediate too (the V20
+        # suite's C6 / C7 /1-/7 memory tests; the decoder gives them the store_imm template)
         put("MOV", "RM", "IMM", o & 1)
     elif o == 0xD4:
         put("CVTBD", opb="IMM", wd=0)

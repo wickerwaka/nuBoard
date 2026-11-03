@@ -51,8 +51,10 @@ compared at every start. D2, the function (vectors V35EU-3): the register file, 
 segment registers and the data are nuV30's; the benches compare the register file before every
 start and every EU cycle's datum with the functional reference's (funcref.py), serve the reads
 from a memory the EU's own writes update, and leave the state rows' functional fields out.
---regfile runs the register file's unit bench (fpga/v35s/build_rf_tb.sh) on the families' forms
-and every ALU form; sst.py --rtl runs SingleStepTests through it: see "D1, D2" below.
+--regfile runs the families' forms and every ALU form, (S6) as single instructions on the core
+v2's whole-core bench (fpga/v35s/build_core2_tb.sh; the old core's unit bench: check_regfile_old);
+sst.py --rtl runs SingleStepTests through the same bench: see "D1, D2" and "(S6, core v2) The
+whole-core function bench" below.
 
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --regfile --family F0 F23
 
@@ -85,7 +87,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -2803,16 +2805,15 @@ def _random_regs(rnd) -> dict:
 
 
 def _case(rnd, base_mem: bytes, code6: bytes, regs: dict | None = None, pc: int | None = None,
-          mutate: int = 0, operand: int | None = None) -> str | None:
-    """A random-state vector of code6 (None: outside the RTL's decode or the reference's).
-    operand: the memory operand's word (else the random memory's)."""
+          mutate: int = 0, operand: int | None = None):
+    """A random-state vector of code6 and (S6) its whole-core test (c2_case): (line, C2Test), or
+    None (outside the old RTL's decode or the reference's). operand: the memory operand's word
+    (else the random memory's)."""
     from . import funcref
     if not rtl_decodes(code6):
         return None
     regs = dict(regs) if regs is not None else _random_regs(rnd)
     pc = rnd.randrange(0, 0xFFF0) if pc is None else pc
-    if not func_ok(code6):
-        return rf_vector(regs, code6, pc, 0, None, None, mutate=mutate, bad=True)
     mem = bytearray(base_mem)
     one = (0x05, 0xA8, 0xA9, 0x98, 0x99, 0x27, 0x2F, 0x37, 0x3F, 0xD4, 0xD5, 0xF5, 0xF8, 0xF9, 0xFA,
            0xFB, 0xFC, 0xFD)            # (WP79) no ModR/M byte
@@ -2825,17 +2826,26 @@ def _case(rnd, base_mem: bytes, code6: bytes, regs: dict | None = None, pc: int 
         if mod != 3:
             for i in range(2):
                 mem[(sb + ((off + i) & 0xFFFF)) & 0xFFFFF] = (operand >> (8 * i)) & 0xFF
+    if not func_ok(code6):
+        # (the old core's V35_EE_FUNC forms: only its error flag was compared; S6 runs them)
+        try:
+            st, after, trap = single_step(regs, code6, bytearray(mem), pc)
+            test = c2_case(regs, code6, pc, st, after, trap, kind="old V35_EE_FUNC")
+        except funcref.NotModelled:
+            test = c2_case(regs, code6, pc, None, None, False, kind="reference not modelled")
+        return rf_vector(regs, code6, pc, 0, None, None, mutate=mutate, bad=True), test
     try:
         st, after, trap = single_step(regs, code6, mem, pc)
     except funcref.NotModelled:
         return None
-    return rf_vector(regs, code6, pc, 0, st, after, mutate=mutate, trap=trap)
+    return (rf_vector(regs, code6, pc, 0, st, after, mutate=mutate, trap=trap),
+            c2_case(regs, code6, pc, st, after, trap))
 
 
-def walk_vectors(chain, chain_base: int) -> list[tuple[str, bytes, int]]:
+def walk_vectors(chain, chain_base: int) -> list[tuple]:
     """(D2) every instruction start of the chain as the functional reference walks it (the
     prelude's tail first, as Machine; the taken transfers followed; a string form skipped):
-    [(the vector, the six bytes, the code offset)]."""
+    [(the vector, the six bytes, the code offset, (S6) its whole-core test)]."""
     from . import funcref
     run = funcref.chain_run(chain, chain_base)
     out = []
@@ -2843,9 +2853,73 @@ def walk_vectors(chain, chain_base: int) -> list[tuple[str, bytes, int]]:
         if not rtl_decodes(st.code):
             continue
         after = run.starts[i + 1].regs if i + 1 < len(run.starts) else run.final
+        nxt = None
+        if st.taken:                    # (chain_run made the target a code offset)
+            nxt = (st.target + run.code_org) & 0xFFFF
         out.append((rf_vector(st.regs, st.code, st.pc, run.code_org, st, after,
-                              bad=not func_ok(st.code)), st.code, st.pc))
+                              bad=not func_ok(st.code)), st.code, st.pc,
+                    c2_case(st.regs, st.code, st.ip, st, after, False, nxt=nxt,
+                            kind="pass" if func_ok(st.code) else "old V35_EE_FUNC")))
     return out
+
+
+# (S6) the --regfile forms whose decode is not the reference's (sst.py's DECODE_DIVERGENCE and
+# MOV PS: 8E with the reg field's PS loads PS, the V20 then fetches from the new PS; the RTL's
+# queue goes on at its linear address, no flush: the data book does not define PS as MOV's
+# destination)
+def code_divergence(code: bytes) -> str | None:
+    """The DECODE_DIVERGENCE kind of an instruction's bytes (no prefix), or None."""
+    o, m = code[0], code[1]
+    if m < 0xC0 and (o, (m >> 3) & 7) in ((0xF6, 1), (0xF7, 1), (0xFF, 7)):
+        return DECODE_DIVERGENCE[{0xF6: "F6.1", 0xF7: "F7.1", 0xFF: "FF.7"}[o]]
+    if o == 0x8E and (m >> 3) & 3 == 1:
+        return "8E: MOV PS,r/m (the queue not redirected)"
+    return None
+
+
+def c2_case(regs: dict, code6: bytes, ip: int, st, after: dict | None, trap: bool,
+            nxt: int | None = None, kind: str = "pass") -> C2Test:
+    """(S6) the whole-core test of one --regfile vector: the register file before (a funcref
+    snapshot; a pending segment prefix becomes the prefix byte before the instruction, a start
+    of its own), the code's six bytes at PS:ip, the bytes the reference's reads delivered (the
+    aligned words), the register file after, the next IP (default: the target, or ip + the
+    length), the bytes written, the I/O writes; st None (a form the reference does not model):
+    the state before as the expected one (only a trap_nop passes it)."""
+    pfx = regs.get("pfx")
+    code, start, n = bytes(code6), ip, 1
+    if pfx is not None:
+        code, start, n = bytes([0x26 + 8 * pfx]) + code, (ip - 1) & 0xFFFF, 2
+    base = (regs["PS"] & 0xFFFF) << 4
+    ram = {}
+    for i, b in enumerate(code):
+        ram[(base + ((start + i) & 0xFFFF)) & 0xFFFFF] = b
+    regs_in = {k: regs[k] for k in C2REGS}
+    kind = code_divergence(code6) or kind
+    if st is not None and any(c.kind in ("read", "write") and c.addr >= 0xFFE00
+                              for c in st.cycles):
+        kind = "on-chip page"           # (the internal RAM and SFRs: not on the pins)
+    if st is None:
+        return C2Test("", n, regs_in, start, ram, dict(regs_in), (ip + 1) & 0xFFFF, {}, None,
+                      2000, kind, len(code), IO_WORD_REF)
+    fin = {}
+    for c in st.cycles:
+        if c.kind == "read":
+            a = c.addr & 0xFFFFE
+            ram.setdefault(a, c.rdata & 0xFF)
+            ram.setdefault(a + 1, (c.rdata >> 8) & 0xFF)
+        elif c.kind == "write":
+            if c.width == "word":
+                fin[c.addr] = c.data & 0xFF
+                fin[(c.addr + 1) & 0xFFFFF] = (c.data >> 8) & 0xFF
+            else:
+                fin[c.addr] = (c.data >> 8 if c.width == "hi" else c.data) & 0xFF
+    if trap:
+        return C2Test("", n, regs_in, start, ram, None, limit=c2_limit([st]), kind="trap",
+                      clen=n - 1 + st.length, ioword=IO_WORD_REF)
+    if nxt is None:
+        nxt = st.target if st.taken else (ip + st.length) & 0xFFFF
+    return C2Test("", n, regs_in, start, ram, {k: after[k] for k in C2REGS}, nxt, fin,
+                  c2_io([st]), c2_limit([st]), kind, n - 1 + st.length, IO_WORD_REF)
 
 
 EA_FORMS = (bytes([0x8B]), bytes([0x89]), bytes([0x8D]), bytes([0xC7]), bytes([0x01]),
@@ -2913,9 +2987,10 @@ def alu_codes(rnd) -> list[bytes]:
 
 
 def regfile_vectors(families, seed: int = 71, per_code: int = 3, per_alu: int = 64,
-                    mutate: int = 0) -> tuple[str, dict]:
+                    mutate: int = 0, tests: list | None = None) -> tuple[str, dict]:
     """The V35RF-2 vector file over the families' chains (see the section comment) and its
-    counts (walk, random, modes, alu)."""
+    counts (walk, random, modes, alu); (S6) tests: a list the vectors' whole-core tests
+    (C2Test, their ids the vector's number) are appended to."""
     import random
 
     from .funcref import CODE_SEGMENT, SREG
@@ -2925,11 +3000,17 @@ def regfile_vectors(families, seed: int = 71, per_code: int = 3, per_alu: int = 
     lines, seen, codes = [], set(), {}
     counts = {"walk": 0, "random": 0, "modes": 0, "alu": 0}
 
-    def add(line, kind):
-        if line is not None and line not in seen:
+    def add(case, kind):
+        if case is None:
+            return
+        line, test = case
+        if line not in seen:
             seen.add(line)
             lines.append(line)
             counts[kind] += 1
+            if tests is not None:
+                test.tid = str(len(lines) - 1)
+                tests.append(test)
 
     chains = set()
     for f in families:
@@ -2941,8 +3022,8 @@ def regfile_vectors(families, seed: int = 71, per_code: int = 3, per_alu: int = 
             if key in chains:
                 continue
             chains.add(key)
-            for line, six, k in walk_vectors(ch, s.chain_base):
-                add(line, "walk")
+            for line, six, k, test in walk_vectors(ch, s.chain_base):
+                add((line, test), "walk")
                 codes.setdefault(six, k)
     for six in sorted(codes):
         for _ in range(per_code):
@@ -2997,12 +3078,47 @@ def run_rf_bench(text: str, keep: Path | None = None, name: str = "regfile") -> 
     return sm, p.stdout
 
 
-def check_regfile(families, keep: Path | None = None, mutate: int = 0) -> tuple[int, dict, str]:
-    """(the bench's bad vectors, the counts, its output) of regfile_vectors on the bench."""
+def check_regfile_old(families, keep: Path | None = None,
+                      mutate: int = 0) -> tuple[int, dict, str]:
+    """(the bench's bad vectors, the counts, its output) of regfile_vectors on the old core's
+    unit bench (build/fpga/v35s/rf-tb)."""
     text, counts = regfile_vectors(families, mutate=mutate)
     sm, out = run_rf_bench(text, keep)
     counts["vectors"] = sm["vectors"]
     return sm["bad"], counts, out
+
+
+def check_regfile(families, keep: Path | None = None, mutate: int = 0) -> tuple[int, dict, str]:
+    """(S6) (the failures, the counts, the bench's output) of the --regfile vectors as
+    single-instruction tests on the core v2's whole-core bench (c2_case, run_core2): counts the
+    sources (walk, random, modes, alu), "vectors", and by kind: pass, trap (a divide error: the
+    trap condition), "old V35_EE_FUNC" (the forms the old bench left out: run in full),
+    "reference not modelled", "trap_nop" (the RTL decodes the form as trap_nop: not compared),
+    "fail". mutate is the old bench's (not used here)."""
+    tests: list = []
+    _, counts = regfile_vectors(families, tests=tests)
+    sm, res = run_core2(tests, keep, "regfile")
+    counts["vectors"] = len(tests)
+    bad, lines = 0, []
+    apart = set(DECODE_DIVERGENCE.values()) | {"on-chip page"}
+    for t in tests:
+        r = res.get(t.tid)
+        if t.kind == "on-chip page":
+            k = t.kind
+        elif r is None:
+            k = "pass" if t.kind in apart or t.kind.startswith("8E:") else t.kind
+        elif r[0] == "TRAPNOP":
+            k = "trap_nop" if t.kind == "pass" else f"trap_nop ({t.kind})"
+        elif t.kind == "reference not modelled":
+            k = "reference not modelled (ran, not compared)"
+        elif t.kind in apart or t.kind.startswith("8E:"):
+            k = f"divergence ({t.kind})"
+        else:
+            k = "fail" if t.kind == "pass" else f"fail ({t.kind})"
+            bad += 1
+            lines.append(r[1])
+        counts[k] = counts.get(k, 0) + 1
+    return bad, counts, "\n".join(lines)
 
 
 # (S3, core v2) The function bench: v35_fn_pkg's pure functions (fpga/v35s/v35_rf_tb.sv) ------
@@ -3138,84 +3254,248 @@ def check_fn(families, keep: Path | None = None) -> tuple[int, dict, str]:
     return int(m.group(2)), counts, out
 
 
-# D2: SingleStepTests through the unit bench (sst.py --rtl) ------------------------------------
+# (S6, core v2) The whole-core function bench (fpga/v35s/v35_core2_tb) -------------------------
+#
+# v35_top, the real slot module, runs one instruction per test from a preloaded state (the
+# register RAM, the EU's flops, the first fetch's address: fpga/v35s/v35_core2_tb.sv / .vlt / .cpp,
+# fpga/v35s/build_core2_tb.sh), its memory served by the bench from the test's bytes (any other
+# byte 90h, I/O reads FFFFh), to the start of the next instruction; then its register file, PSW,
+# segment registers, next PS:IP, memory writes and I/O writes are compared with the test's
+# expected state (format V35SST-1, two lines a test: v35_core2_tb.cpp). Two producers:
+# sst.py --rtl (SingleStepTests V20: sst_file) and --regfile (the --regfile vectors as single
+# instructions: regfile_tests). A test whose instruction the RTL decodes as trap_nop (class 0,
+# the unmodeled forms: template 0, CLOCKS 2, no bus) is reported as such (TRAPNOP), not compared.
+# The old core's V35RF-3 unit bench (fpga/v35s/v35_rf_tb.sv, build/fpga/v35s/rf-tb/) is left as
+# it was built; check_regfile_old runs it.
+
+C2BENCH = Path(os.environ.get("V35_CORE2_TB", ROOT / "build" / "fpga" / "v35s" / "core2-tb"
+                             / "Vv35_core2_tb"))    # (V35_CORE2_TB: another build)
+C2FORMAT = "V35SST-1"
+C2REGS = ("AW", "CW", "DW", "BW", "SP", "BP", "IX", "IY", "DS1", "PS", "SS", "DS0", "PSW")
+C2WIDTH = {"word": 0, "lo": 1, "hi": 2}
+SEG_PREFIXES = (0x26, 0x2E, 0x36, 0x3E)
+IO_WORD_REF = 0x0000            # funcref.IO_WORD: the --regfile vectors' I/O reads (the board's)
+
+
+@dataclass
+class C2Test:
+    """One V35SST-1 test: the state before (regs: C2REGS, ip, the listed memory), the starts it
+    is, the state after (out: C2REGS, None for a divide error: the trap condition only), the
+    memory bytes after, the I/O writes ([(port, width, data)], None: not compared)."""
+    tid: str
+    starts: int
+    regs: dict
+    ip: int
+    ram: dict
+    out: dict | None
+    out_ip: int = 0
+    fin: dict | None = None
+    io: list | None = None
+    limit: int = 2000
+    kind: str = "pass"          # (the producer's class, not in the text)
+    clen: int = 0               # the instruction's bytes from PS:ip (a fetch elsewhere: 90h)
+    ioword: int = 0xFFFF        # every I/O read's word (the suite's FFFFh; the corpus's 0000h)
+
+    def text(self) -> str:
+        t = ["T", self.tid, str(self.starts), str(self.limit)]
+        t += [str(self.regs[n] & 0xFFFF) for n in C2REGS] + [str(self.ip & 0xFFFF)]
+        t += [str(self.clen), str(self.ioword)]
+        t += [str(len(self.ram))] + [f"{a} {v}" for a, v in sorted(self.ram.items())]
+        out = self.out or {n: 0 for n in C2REGS}
+        fin = self.fin or {}
+        e = ["E", "1" if self.out is None else "0"]
+        e += [str(out[n] & 0xFFFF) for n in C2REGS] + [str(self.out_ip & 0xFFFF)]
+        e += [str(len(fin))] + [f"{a} {v}" for a, v in sorted(fin.items())]
+        e += [str(-1 if self.io is None else len(self.io))]
+        e += [f"{p} {w} {d}" for p, w, d in (self.io or [])]
+        return " ".join(t) + "\n" + " ".join(e)
+
+
+def c2_io(starts) -> list:
+    """The I/O writes of the reference's starts, as the bench reads them off the pins: (port,
+    width, the datum on its lanes)."""
+    return [(c.addr, C2WIDTH[c.width], c.data & (0xFFFF if c.width == "word" else 0xFF
+                                                if c.width == "lo" else 0xFF00))
+            for st in starts for c in st.cycles if c.kind == "io_write"]
+
+
+def c2_written(starts) -> set:
+    """The memory bytes the reference's starts write."""
+    out = set()
+    for st in starts:
+        for c in st.cycles:
+            if c.kind == "write":
+                out.add(c.addr)
+                if c.width == "word":
+                    out.add((c.addr + 1) & 0xFFFFF)
+    return out
+
+
+def c2_limit(starts) -> int:
+    """A test's clock limit from its reference's bus cycles (a bit field's: its cost, from its
+    registers whole, up to 2047 clocks)."""
+    bf = any(st.code[:1] == b"\x0f" and st.code[1:2] in (b"\x31", b"\x33", b"\x39", b"\x3b")
+             for st in starts)
+    return 400 + 60 * sum(len(st.cycles) for st in starts) + (2100 if bf else 0)
+
+
+def run_core2(tests: list, keep: Path | None = None, name: str = "tests") -> tuple[dict, dict]:
+    """(the bench's SUMMARY, {test id: (status, text)} of the tests that are not a pass: status
+    FAIL, TRAPNOP or TIMEOUT) on a list of C2Test."""
+    text = f"{C2FORMAT} {len(tests)}\n" + "\n".join(t.text() for t in tests) + "\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        d = keep if keep is not None else Path(tmp)
+        path = d / f"{name}.sstvec"
+        path.write_text(text)
+        p = subprocess.run([str(C2BENCH), str(path)], capture_output=True, text=True, cwd=ROOT)
+    sm, res = {}, {}
+    for line in p.stdout.splitlines():
+        f = line.split(None, 2)
+        if not f:
+            continue
+        if f[0] == "SUMMARY":
+            sm = {k: int(v) for k, v in (x.split("=") for x in line.split()[1:])}
+        elif f[0] in ("FAIL", "TRAPNOP", "TIMEOUT") and len(f) >= 2:
+            res[f[1].rstrip(";")] = (f[0], line)
+    if p.returncode not in (0, 1) or not sm:
+        raise RuntimeError(f"bench exit {p.returncode}: {(p.stderr or p.stdout)[-400:]}")
+    return sm, res
+
+
+_MODRM = frozenset([o for o in range(0x40) if o & 7 < 4] + [0x62, 0x63, 0x69, 0x6B]
+                   + list(range(0x80, 0x90)) + [0xC0, 0xC1, 0xC4, 0xC5, 0xC6, 0xC7]
+                   + list(range(0xD0, 0xD4)) + list(range(0xD8, 0xE0)) + [0xF6, 0xF7, 0xFE, 0xFF])
+
+
+def trap_nop_form(test: dict, stem: str) -> str:
+    """The form a trap_nop test's instruction is, for the counted-apart table: a REP prefix
+    before a non-string form, or the opcode file and its operand (reg / mem)."""
+    from . import funcref as fr
+    b = test["bytes"]
+    k = 0
+    while k < len(b) and b[k] in SEG_PREFIXES + (0xF0,):
+        k += 1
+    if k < len(b) and b[k] in fr.REP_PREFIXES:
+        return "REP before a non-string form"
+    m = None
+    if k + 1 < len(b) and b[k] in _MODRM:
+        m = b[k + 1]
+    elif b[k] == 0x0F and k + 2 < len(b):
+        m = b[k + 2]
+    return stem + ("" if m is None else " reg" if m >= 0xC0 else " mem")
+
+
+# (S6) the forms whose decode (the frozen model's templates.decode, the generated table) is not the
+# V20's: F6 / F7 /1 with a memory operand (TEST's undocumented alias on the V20, an imm8 / imm16
+# after the operand) decode as the rmw class with no immediate (a read, a write of the read's
+# datum, the length one or two bytes short); a test that fails there is a divergence, not a
+# failure
+DECODE_DIVERGENCE = {"F6.1": "F6 /1 mem: decoded rmw, no immediate",
+                     "F7.1": "F7 /1 mem: decoded rmw, no immediate",
+                     # FF /7 with a memory operand: the V20 pushes it (PUSH r/m's alias); the
+                     # decoder's rmw form reads it and writes it back
+                     "FF.7": "FF /7 mem: decoded rmw (the V20's PUSH r/m)"}
+
+
+def decode_divergence(test: dict, stem: str) -> str | None:
+    """The DECODE_DIVERGENCE kind of a test (its memory form), or None."""
+    if stem not in DECODE_DIVERGENCE:
+        return None
+    b = test["bytes"]
+    k = 0
+    while k < len(b) and b[k] in SEG_PREFIXES + (0xF0,):
+        k += 1
+    return DECODE_DIVERGENCE[stem] if k + 1 < len(b) and b[k + 1] < 0xC0 else None
+
+
+def sst_test(test: dict, stem: str) -> tuple[str | None, str, C2Test | None]:
+    """_sst_test, the test's clen its bytes (the instruction and its prefixes)."""
+    c, kind, t = _sst_test(test, stem)
+    if t is not None:
+        t.clen = len(test["bytes"])
+    return c, kind, t
+
+
+def _sst_test(test: dict, stem: str) -> tuple[str | None, str, C2Test | None]:
+    """(the class counted apart without the bench, or None; the test's kind; its C2Test) of one
+    SingleStepTests test for the whole-core bench. The kinds: pass (the expected state the
+    suite's), trap (a divide error: the trap condition only), the V20 classes (sst.V20_DIGITS,
+    V20_FLAGS: the expected state the V35 reference's), "reference not modelled" (the suite's
+    state, the I/O writes not compared)."""
+    from . import sst
+    c = sst.classify(test, stem, rtl=True)
+    if c is not None:
+        return c, "", None
+    r = sst.reference_v35_or_v20(test, stem)
+    tid = str(test["idx"])
+    r0 = test["initial"]["regs"]
+    regs0, ip0 = {n: r0[k] for k, n in sst.REGMAP}, r0["ip"]
+    ram = {a: v for a, v in test["initial"]["ram"]}
+    regs = {n: regs0[n] for n in C2REGS}
+    if r.cls in ("unlisted", "on-chip page", "fail"):
+        return f"reference {r.cls}", "", None
+    want, wip, wram = sst.expected(test)
+    if r.cls == "not modelled":
+        b = test["bytes"]
+        n = 0
+        while n < len(b) and b[n] in SEG_PREFIXES:
+            n += 1
+        return None, decode_divergence(test, stem) or "reference not modelled", C2Test(
+            tid, n + 1, regs, ip0, ram, {k: want[k] for k in C2REGS}, wip, dict(wram), None, 3000)
+    if r.cls == "trap":
+        return None, "trap", C2Test(tid, len(r.starts), regs, ip0, ram, None,
+                                    limit=c2_limit(r.starts))
+    io = c2_io(r.starts)
+    if r.cls == "pass":
+        return None, decode_divergence(test, stem) or "pass", C2Test(
+            tid, len(r.starts), regs, ip0, ram, {k: want[k] for k in C2REGS}, wip, dict(wram),
+            io, c2_limit(r.starts))
+    # a V20 class: the V35 reference's state after
+    got = r.cpu.snapshot()
+    fin = {a: r.cpu.mem[a] for a in set(ram) | c2_written(r.starts)}
+    return None, r.cls, C2Test(tid, len(r.starts), regs, ip0, ram, {k: got[k] for k in C2REGS},
+                               r.ip, fin, io, c2_limit(r.starts))
+
 
 def sst_file(args) -> tuple[str, dict, list]:
-    """(stem, {class: tests}, [failure text]) of one SingleStepTests file on the unit bench:
-    each test the RTL decodes, its prefixes and its instruction an instruction start each (the
-    register file before from the functional reference's walk of the test), the reads served
-    in the reference's order from the test's RAM, the expected register file, next IP and
-    write data the suite's final state; the classes are sst.classify's and the reference's
-    (a test the reference does not pass, or that touches the V35's on-chip page, is counted
-    apart, not run)."""
-    from . import funcref, sst
+    """(stem, {class: tests}, [failure text]) of one SingleStepTests file on the whole-core
+    bench (sst_test, run_core2): the counted-apart classes (sst.classify's, the reference's),
+    the kinds that ran (pass, trap, the V20 classes, reference not modelled), "trap_nop
+    (<form>)" for a test the RTL decodes as trap_nop, "rtl fail (<kind>)" for a failure."""
     stem, keep, show = args
+    from . import sst
     counts: dict = {}
-    vecs, owner = [], []
+    tests, kinds, forms = [], {}, {}
     for test in sst.load(stem):
-        c = sst.classify(test, stem, rtl=True)
+        c, kind, t = sst_test(test, stem)
         if c is not None:
             counts[c] = counts.get(c, 0) + 1
             continue
-        fc, _, starts = sst.run_v35_or_v20(test, stem)
-        if fc not in ("pass", "trap"):
-            counts[f"reference {fc}"] = counts.get(f"reference {fc}", 0) + 1
-            continue
-        if not all(rtl_decodes(st.code) for st in starts):
-            counts["not decoded"] = counts.get("not decoded", 0) + 1
-            continue
-        want, wip, wram = sst.expected(test)
-        init = {a: b for a, b in test["initial"]["ram"]}
-        want["pfx"] = None
-        kind = "trap" if fc == "trap" else "pass"
-        if not func_ok(starts[-1].code):
-            kind = "not functional (register form)"
-        for i, st in enumerate(starts):
-            last = i == len(starts) - 1
-            if not last:
-                after, nxt = starts[i + 1].regs, None
-                vecs.append(rf_vector(st.regs, st.code, st.ip, 0, st, after))
-            elif kind.startswith("not functional"):
-                vecs.append(rf_vector(st.regs, st.code, st.ip, 0, None, None, bad=True))
-            elif kind == "trap":
-                vecs.append(rf_vector(st.regs, st.code, st.ip, 0, st, None, trap=True))
-            else:
-                wd = []
-                for cy in st.cycles:
-                    if cy.kind == "io_write":
-                        wd.append(cy.data)      # the suite has no I/O data: the reference's
-                    elif cy.kind == "write":
-                        def byte(a, ln, cy=cy):
-                            b = wram.get(a, init.get(a))
-                            return (cy.data >> (8 * ln)) & 0xFF if b is None else b
-                        a = cy.addr
-                        wd.append(byte(a, 0) | (byte(a + 1, 1) << 8) if cy.width == "word"
-                                  else byte(a, 0) if cy.width == "lo" else byte(a, 1) << 8)
-                vecs.append(rf_vector(st.regs, st.code, st.ip, 0, st, want, nxt=wip, wdata=wd))
-            owner.append((test["idx"], kind, test["name"]))
-    sm, out = run_rf_bench(f"{RFFORMAT} {len(vecs)}\n" + "\n".join(vecs) + "\n", keep,
-                           f"sst-{stem}")
-    bad = {int(ln.split()[1]) for ln in out.splitlines() if ln.startswith("BAD ")}
-    failed = {}
-    for i, (idx, kind, name) in enumerate(owner):
-        if i in bad:
-            failed[idx] = (kind, name)
-    results: dict = {}
-    for idx, kind, name in owner:
-        results[idx] = (kind, name)
-    for idx, (kind, name) in results.items():
-        k = f"rtl fail ({kind})" if idx in failed else kind
+        tests.append(t)
+        kinds[t.tid] = kind
+        forms[t.tid] = trap_nop_form(test, stem)
+    sm, res = run_core2(tests, keep, f"sst-{stem}") if tests else ({}, {})
+    fails = []
+    for t in tests:
+        st = res.get(t.tid)
+        if st is None:
+            k = "pass" if kinds[t.tid] in DECODE_DIVERGENCE.values() else kinds[t.tid]
+        elif st[0] == "TRAPNOP":
+            k = f"trap_nop ({forms[t.tid]})"
+        else:
+            k = (f"divergence ({kinds[t.tid]})" if kinds[t.tid] in DECODE_DIVERGENCE.values()
+                 else f"rtl fail ({kinds[t.tid]})")
+            if len(fails) < show:
+                fails.append(f"    {stem} {st[1]}")
         counts[k] = counts.get(k, 0) + 1
-    fails = [f"    {stem} #{idx} {name}" for idx, (kind, name) in list(failed.items())[:show]]
-    fails += [ln for ln in out.splitlines() if ln.startswith("FAIL")][:show]
     return stem, counts, fails
 
 
 def check_sst(stems, keep: Path | None = None, jobs: int = 8, show: int = 3) -> dict:
-    """{stem: {class: tests}} of the unit bench over SingleStepTests files (sst_file)."""
+    """{stem: {class: tests}} of the whole-core bench over SingleStepTests files (sst_file)."""
     from multiprocessing import get_context
-    if not RFBENCH.exists():
-        raise SystemExit(f"error: {RFBENCH} is missing (fpga/v35s/build_rf_tb.sh)")
+    if not C2BENCH.exists():
+        raise SystemExit(f"error: {C2BENCH} is missing (fpga/v35s/build_core2_tb.sh)")
     if keep:
         keep.mkdir(parents=True, exist_ok=True)
     out = {}
@@ -3307,8 +3587,8 @@ def main(argv=None) -> int:
     p.add_argument("--core", action="store_true",
                    help="C4: the whole core (v35_chain_core.sv), the arbiter in RTL")
     p.add_argument("--regfile", action="store_true",
-                   help="D1, D2: the register file's unit bench (v35_rf_tb.sv) on the families' "
-                   "forms and every ALU form")
+                   help="D1, D2: the families' forms and every ALU form; (S6) as single "
+                   "instructions on the core v2's whole-core bench (v35_core2_tb.sv)")
     p.add_argument("--fn", action="store_true",
                    help="(S3, core v2) the function bench (v35_rf_tb.sv on v35_fn_pkg) on the "
                    "--regfile vectors that are one function application (format V35FN-1)")
@@ -3330,18 +3610,20 @@ def main(argv=None) -> int:
         print(f"fn {' '.join(args.family)}: {counts['vectors']} vectors ({kinds}), {bad} bad")
         return 1 if bad else 0
     if args.regfile:
-        if not RFBENCH.exists():
-            print(f"error: {RFBENCH} is missing (fpga/v35s/build_rf_tb.sh)", file=sys.stderr)
+        if not C2BENCH.exists():
+            print(f"error: {C2BENCH} is missing (fpga/v35s/build_core2_tb.sh)", file=sys.stderr)
             return 2
         if args.keep:
             args.keep.mkdir(parents=True, exist_ok=True)
         bad, counts, out = check_regfile(args.family, args.keep)
         for line in out.splitlines()[:args.show]:
-            if line.startswith("FAIL"):
+            if line.startswith("FAIL") or line.startswith("TIMEOUT"):
                 print("    " + line)
+        kinds = "  ".join(f"{k} {v}" for k, v in sorted(counts.items())
+                          if k not in ("vectors", "walk", "random", "modes", "alu"))
         print(f"regfile {' '.join(args.family)}: {counts['vectors']} vectors (walk "
               f"{counts['walk']}, random {counts['random']}, modes {counts['modes']}, alu "
-              f"{counts['alu']}), {bad} bad")
+              f"{counts['alu']}) on the whole-core bench: {kinds}; {bad} bad")
         return 1 if bad else 0
     mode = ("core" if args.core else "joint3" if args.joint3 else "eu" if args.eu
             else "joint" if args.joint else "queue" if args.queue else "biu")

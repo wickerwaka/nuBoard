@@ -216,8 +216,10 @@ module v35_top
     wire [10:0] eu_res;
     // the datapath
     req_t       rq_t, rq_p;
-    wire [19:0] t_flush_addr, eu_pc, ea_live;
+    wire [19:0] t_flush_addr, eu_pc, ea_live, ps_base;
+    wire [15:0] ea_lo;
     wire [15:0] wd_live, wd_imm;
+    wire        wd_rdy;
     wire [1:0]  g_dsel;
     wire [15:0] sfr_data;
     wire [8:0]  cnt;
@@ -262,8 +264,16 @@ module v35_top
     wire fetch_last = b_busy && b_cur_kind == K_FETCH && b_cur_left == 3'd1;
 
     // ---------------------------------------------------------------- the queue
+    // (S6) the first fetch's address: FFFF0h; the function bench (fpga/v35s/v35_core2_tb.sv)
+    // sets a test's PS:IP here through a `verilator public` hook (observability and preload
+    // only: the harness build keeps the constant)
+`ifndef SYNTHESIS
+    reg [19:0] tb_reset_addr = 20'hFFFF0;
+`else
+    wire [19:0] tb_reset_addr = 20'hFFFF0;
+`endif
     v35_queue queue (
-        .clock, .reset_n(core_reset_n), .ce, .reset_addr(20'hFFFF0),
+        .clock, .reset_n(core_reset_n), .ce, .reset_addr(tb_reset_addr), .ps_base,
         .dlv_fetch, .dlv_other, .dlv_addr(b_dlv_addr), .dlv_data(b_done_data),
         .abort_done(b_abort_done), .abort_busy(b_abort_busy), .fetch_last,
         .fetch_inflight_c(b_fetch_inflight), .fetch_since_c(b_fetch_since),
@@ -365,7 +375,7 @@ module v35_top
         .own_done(own_dlv), .own_two, .dlv_kind(b_dlv_kind), .dlv_addr(b_dlv_addr), .dlv_width(b_dlv_width),
         .dlv_data(b_done_data),
         .ra_next, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data,
-        .rq_t, .rq_p, .ea_live, .wd_live, .wd_imm, .cnt, .cl_c, .cl_e, .psw_c, .psw_e, .cw_c, .cw_e, .mneg, .t_flush_addr, .sfr_data,
+        .rq_t, .rq_p, .ea_live, .ea_lo, .ps_base, .wd_live, .wd_imm, .wd_rdy, .cnt, .cl_c, .cl_e, .psw_c, .psw_e, .cw_c, .cw_e, .mneg, .t_flush_addr, .sfr_data,
         .edone, .edone_t, .povr_t, .povr_p, .str_last, .str_exit,
         .f_end(xs_done), .bf_cross, .bfcost, .bf_ok,
         .pc_o(eu_pc), .miss_o(eu_miss)
@@ -382,7 +392,7 @@ module v35_top
         .post_t, .rq_t, .post_p, .rq_p, .retire_t(retire), .retire_p,
         .relatch, .relatch_late, .floor_set, .floor_nb, .sreg_hold_set,
         .halting, .halted, .need(need_t), .wb_hold, .latch_wait, .gdisp_act,
-        .ea_b2b_act(ea_act_x), .take_now, .ea_live, .wd_live, .sidle,
+        .ea_b2b_act(ea_act_x), .take_now, .ea_live, .ea_lo, .wd_live, .wd_rdy, .sidle,
         .want_x, .rq_v_x, .rq_now_x, .rq_v_end(rq_v_e),
         .rq_now_end(rq_now_x || rq_set_x || rq_ir_hold), .rq_old_c, .b2b_now, .room_x,
         .inflight_c, .triple_x, .lat_x, .arrived_now, .io_hold_x, .xfer_x,

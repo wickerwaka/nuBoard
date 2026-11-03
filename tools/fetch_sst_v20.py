@@ -3,7 +3,8 @@
 functional check (HDL plan D2: validation/v35s/chains/sst.py).
 
 The files go to build/deps/sst-v20/ (never into the tree) with a manifest of their sha256.
-By default the files of every opcode the RTL decodes (sst.RTL_FILES); --files names others.
+By default the files of every opcode the RTL decodes (sst.RTL_FILES) and (S6) the core v2's
+whole-core bench's further files (sst.S6_FILES); --files names others.
 
     python3 tools/fetch_sst_v20.py [--files 00 81.0 ...] [--verify-only]
 """
@@ -42,8 +43,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.files is None:
         sys.path.insert(0, str(ROOT))
-        from validation.v35s.chains.sst import RTL_FILES
-        args.files = list(RTL_FILES)
+        from validation.v35s.chains.sst import RTL_FILES, S6_FILES
+        args.files = list(RTL_FILES) + list(S6_FILES)
     if any(not re.fullmatch(r"[0-9A-F]{2,4}(\.[0-7])?", f) for f in args.files):
         parser.error("file stems are upper-case hex opcodes, optionally .N")
     manifest_path = DEST / "manifest.json"

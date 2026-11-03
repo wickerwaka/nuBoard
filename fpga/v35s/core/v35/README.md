@@ -163,7 +163,10 @@ frame (PUSH R / POP R, PREPARE / DISPOSE), LES / LDS, the register miscellany's 
 hold of the conversions, mul_imm_count=sync, rot4_exec) and the BCD strings' datapath; and (S5b)
 the 0F page: the escape's decode (the second opcode byte and the ModR/M byte behind it, the
 decode a clock ahead over three bytes), the `page_*` rules as flags and timers (below), the bit
-ops, the digit rotates, the bit fields and the BCD strings running.
+ops, the digit rotates, the bit fields and the BCD strings running; and (S6) the function path:
+the whole-core function bench (`fpga/v35s/v35_core2_tb.*`), SingleStepTests and `--regfile`
+through it, the write-data score on the corpus, and the datapath fixes they found (see
+"Function (S6)").
 
 Gates: S2 `replay --core v35 --score` on F0, F0w, F1, F2; S3 on F0, F0w, F1, F2, F3, F9, F11,
 F12, F20; S4 on those and F4, F5, F6, F7, F10, F14, F15, F16, F19, F21, F22: RTL-exact ≥
@@ -514,7 +517,126 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
   binary `build/fpga/v35s/fn-tb/Vv35_rf_tb`) with `rtl_vectors.py --fn` (format V35FN-1: the
   `--regfile` vectors that are one function application, the expected values the functional
   reference's; the V35RF-3 line, a whole register file before and after the old package's
-  `v35_execute`, does not fit a pure-function bench).
+  `v35_execute`, does not fit a pure-function bench). (S6) The whole core's function is the
+  whole-core bench's (below, "Function (S6)"); `--fn` stays as the pure functions' unit check.
+
+## Function (S6)
+
+### The whole-core function bench
+
+`fpga/v35s/v35_core2_tb.sv` / `.vlt` / `.cpp`, `fpga/v35s/build_core2_tb.sh` (binary
+`build/fpga/v35s/core2-tb/Vv35_core2_tb`; `V35_CORE2_TB_DIR` builds elsewhere, `V35_CORE2_TB` points
+the Python side at another binary). `v35_top`, the real slot module, runs one instruction (its
+prefixes included) per test:
+
+- **Preload, not a prelude.** The model's state after its first reset is kept in memory
+  (Verilator `--savable`, an in-memory `VerilatedSerialize`) and restored before every test (the
+  core's reset does not clear every register: "Not built"); then a reset with the test's first
+  fetch address (`v35_top.tb_reset_addr`, the queue's `reset_addr`; FFFF0h in the harness build)
+  and, through `verilator public_flat_rw` hooks (`v35_core2_tb.vlt`, no RTL edit), the reset exit
+  skipped (`core_run`), PCK 0 and WTC 0 (X1/2, no wait states), the PSW, PS / SS / DS0 / DS1,
+  CW / IX / IY (the EU's flops) and the register RAM's bank (both copies). About 1 ms of CPU a
+  test.
+- **Memory.** The test's bytes are served on the bus unit's current cycle (`data_in`, the aligned
+  word); an unlisted byte reads 90h (an operand read of one is counted apart by the reference:
+  "reference unlisted"); a fetch outside the instruction's own bytes, or after its flush, reads
+  90h, so the next instruction is a NOP (its start writes nothing); I/O reads FFFFh. Writes are
+  read off the pins at their last state (the address, the lanes); the writes posted and not yet
+  run when the next instruction starts (a detached OUT) are drained (the arbiter's positions, the
+  bus cycle running: `o_pend_w`).
+- **The end.** The test ends at the start after its own (`t_start` / `p_start`): that clock's edge
+  is taken (the last form's writes on it: an IN's AL at its read's delivery, a bit field's pointer
+  step), then the register RAM (the pending second write applied), CW / IX / IY and the segment
+  registers from the flops (their RAM copies checked), the PSW, IP (the next start's offset in the
+  expected PS), every memory byte written (each must hold the expected value; a byte the test
+  lists and does not expect written must be unchanged; a write to a byte it does not list fails)
+  and the I/O writes in order are compared. A divide error: only the trap condition (the
+  divider's: `dvp && ds_n.trap`, `dfin && dtrap`) is checked, the trap sequence is not built. A
+  test whose instruction decodes as trap_nop (class 0) is reported as such and not compared. A
+  lost register write (`miss_o`), a delivery whose exec could not run (its operands not on the
+  ports) and an exec still pending at the next start fail the test.
+- Format V35SST-1 (two lines a test; `v35_core2_tb.cpp`'s header), from
+  `rtl_vectors.C2Test`.
+
+### SingleStepTests and `--regfile`
+
+    fpga/v35s/build_core2_tb.sh
+    python3 tools/fetch_sst_v20.py              # RTL_FILES and S6_FILES (the suite's files)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.sst --rtl [--files ...] [--show N]
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.rtl_vectors --regfile \
+        --family F0 F0w F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 \
+                 F21 F22 F23 F24 F25 F26 F27 F28 F29 F30 F31 F32 F33
+
+`sst.py --rtl` (`rtl_vectors.sst_file`, one bench process a file) runs RTL_FILES and S6_FILES
+(the files the reference now models beyond the old core's: the AL / AW,imm rows, 80 / 82, C0 /
+D2, PUSH / POP r16, XCH, A0 / A2, the string forms with and without REP, the far transfers, RET
+imm16 / far, RETI, BRK, PUSH / POP PSW, SAHF / LAHF, LES / LDS, DBNZNE / DBNZE / BCWZ, F6 /0).
+Each test is classified (`sst.classify(..., rtl=True)`: PREPARE with a level, the LOCK prefix),
+run through the reference (`sst.reference_v35_or_v20`: the expected state the suite's; the V20
+classes, ROL4 / ROR4's AL and POP PSW / RETI / SAHF's fixed bits, the V35 reference's state; a
+divide error the trap condition; the reference's unlisted / on-chip page / not modelled counted
+apart, a not-modelled test still run against the suite's state, its I/O not compared) and run on
+the bench. `rtl_vectors --regfile` runs the 58,508 `--regfile` vectors (the same RNG and the
+same lines as the old core's V35RF-3 file) as single-instruction tests (`c2_case`: a pending
+segment prefix becomes the prefix byte before the instruction; the memory the reference's reads
+delivered; the old core's V35_EE_FUNC forms run in full). The old core's unit bench stays
+(`check_regfile_old`).
+
+### Write data on the corpus
+
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core v35 --score --data \
+        --family F0 F0w F1 ... F40 [--show N]
+
+`replay.score_data` compares every memory, stack and I/O write of the replays (the normaliser's
+`data_write`, `stack_write`, `io_write` events in order: the address, the width, the datum on its
+lanes) with the silicon record's: per family the runs, the writes compared, those agreeing, the
+runs that differ and the first of them. The timing scorer (`--score`) compares no data.
+
+### Fixed (S6): the mechanisms
+
+The bench, the suite and the write-data score found these; each is fixed in the structure (no
+per-opcode code; decode attributes from `ucgen.py` where the decode was wrong):
+
+1. **LDEA's offset in the P pass** (`v35_ea.off_n`): LDEA's exec read the EA unit's offset of the
+   form after T; LDEA started in the P pass (on a detached OUT's issue) read the OUT's (its port
+   byte as a direct offset): AL = 20h after F25's `OUT 20h,AL; LDEA AW,[BW]; OUT 21h,AL`, F30's
+   lea and F39's out-ctl-ldea likewise. The EA unit now also forms the offset of the form after
+   P from its own bytes and registers (a second adder). The T latch is no longer reused by a form
+   started in T (`t_new`).
+2. **PUSH r/m's datum** is the read's, live on its delivery clock (the last read's `rd` was
+   written: F14 / F15 / F16 push_m pushed 0002h, the prelude's POP PSW word); **PUSH SP** pushes
+   SP - 2 (F36 push_sp).
+3. **store_imm's immediate at B2** (`imm_ahead`): its bytes not yet taken are the queue's head
+   after T's takes (F19 / F21 / F22 / F26 MOV [m],imm16 wrote 0034h for 1234h at no wait
+   states); **an RMW write issued before its exec** (its read delivered on the clock after the
+   issue: C1 / D3 r/m16 at an odd address, the pair's first half wrote 00h) takes the result at
+   B2 too (`wd_rdy` 0: `g_dsel`, the exec's own clock forwarded).
+4. **CVTBW / CVTWL / SAHF** read AW / AH (the format names no operand: AW and DW were cleared,
+   F33's cvtbw OUT); **the adjusts and converts** write AW whole (ADJBA / ADJBS's AH, CVTBD's AH,
+   CVTDB's AH := 0); CVTBD by 0 leaves AH FFh and AL (the V20 suite), its flags S Z P of AL with
+   CY AC V cleared; CVTDB's base is 10 whatever the byte (the V20 suite: the data book's encoding
+   is D5 0AH, the corpus's only byte 0AH), its flags the byte ADD's.
+5. **A move's destination is not read**: a delivery's exec (IN, POP, MOV r,m, XLAT, LES / LDS,
+   POP R, MUL imm) no longer needs its destination register on the ports (an IN or POP whose
+   read delivered after the ports turned to the next form lost its write: AL after IN with a NOP
+   behind it).
+6. **The segment's wrap at FFFFh**: every request address is the segment's base + a 16-bit
+   offset (+ 2 aidx, SP - 2; `q.w16` marks a word at FFFFh, its odd pair's second half at offset
+   0: the arbiter's `raddr2`, with a live EA's offset `ea_lo`); the fetch address wraps in PS
+   (the queue's `ps_base`). SP = 1's pushes, POP sreg at SP = FFFFh, words at EA FFFFh / FFFEh,
+   code across PS:FFFFh went to the next 64 KiB.
+7. **BCWZ's decision** (`ucgen` `tsel`: bcwz was matched by its base class dbnz first): BCWZ
+   was taken on CW - 1 != 0 (CW = 0 and 1 happened to agree).
+8. **C6 / C7 /1-/7** store the immediate too (`ucgen` XOP_ATTRS: only /0 had MOV's attributes;
+   the aliases wrote the result register's stale value).
+9. **A post on its form's start clock** takes the started form's segment prefix (`seg_t`,
+   `seg_n`: `seg_o` was still the last form's; a cs movsb read DS0).
+10. **RET imm16 / RET far imm16** raise SP from SP after the return address's read (`sp_ret`:
+    at the flush SP was off the ports, SP := the immediate).
+11. **PREPARE's imm16** (immb 3: the imm16 and the level byte) was read as a byte.
+12. **The empty BCD string** (CL = 0) sets CY S AC V 0, Z P 1 (the V20 suite; the PSW was left).
+
+The counted-apart table and the scores: "Gate (S6)".
 
 ## Not built (left out of the first delivery by design)
 
@@ -526,6 +648,32 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
   CHKIND, BRKV, the FPO escapes, READY: not decoded (trap_nop). A register-bank switch would see
   the string unit's flops' write-through (Divergence 14) and the segment shadows.
 - **The trap_nop list** (above): those opcodes and halves run template 0 (CLOCKS 2, no bus).
+  (S6) What each class does today, in SingleStepTests terms (the counts: "Gate (S6)"): the
+  register forms the model has no template for (F6 / F7 /1 /2 /3, C6 / C7, FF /0 /1 /6 /7, 8F
+  r/m with a register) and TEST r/m8,imm8 (F6 /0, both halves) take the decoder's length, run two
+  clocks, write nothing, and the next instruction starts after them; a REP prefix before a
+  non-string byte (the suite has them only before IDIV, F6 /7 / F7 /7) decodes as page 2's
+  trap_nop half and the same. A real trap would need: a trap template (BRK 6's: the PSW, PS and
+  the return offset pushed, the vector read), its timing (no corpus family measures one), the
+  decoder's lengths for the trapping halves as silicon counts them, and the data book's word on
+  which forms trap (it lists none of these; the V20 executes all of them).
+- (S6) **The decoder's forms for undocumented aliases** (the model's `templates.decode`, so the
+  generated table): F6 / F7 /1 with a memory operand decode as the rmw class with no immediate
+  (the V20: TEST's alias with its imm8 / imm16; the RTL reads, writes the read datum's register
+  result back, and its length is one or two bytes short) and FF /7 with a memory operand as rmw
+  (the V20 pushes it: PUSH r/m's alias). MOV PS,r/m (8E with the reg field's PS) loads PS; the
+  queue is not redirected (no flush), the V20 fetches on at the new PS:IP; the data book does
+  not define PS as MOV's destination. Counted as divergences (sst.py: DECODE_DIVERGENCE;
+  `--regfile`: `code_divergence`).
+- (S6) **The reset is not complete.** The core's `reset_n` does not clear every register (the
+  power-on values do): `v35_queue` fh_v fh_cnt ox_v ox_fed ox_nt ox_dbnz ou_v ou_cnt od_v od_nb
+  od_inf od_since xa ira th_a th_on th_pre th_c pb_done pr_done (a take hold left on by a reset
+  holds every fetch: the next test never started), `v35_bus` w_v w_ncyc tk_prev and the cycle's
+  flags behind `c_valid`, `v35_ucode` mf_on mf_cnt mf_o mfw_v mfw (S6 completed `v35_eu`'s and
+  `v35_ea`'s reset blocks: the stale write-through flags, the string unit's and the bit field's
+  registers, the reads in order). The harness resets once (power-on values); the bench restores
+  the post-reset state before each test instead. A board reset after power-on needs these in the
+  reset blocks (S7: the queue, bus and ucode are its files).
 - Not in the ROM under fit 62 (built, not run): QUIET (str_take=sync), FROM_START (cvt_from=take),
   HELD (cvt_tail=none: passes as a NOP). The request record's `io_ext` (disp_io_wait, a WP124
   candidate at its default `none`) is not in the record.
@@ -646,6 +794,85 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
    a form started before its ModR/M byte arrived latched the decode ahead's registers (an
    assumed ModR/M of 00); its re-decode at the ModR/M take now reads the ports again (this was
    S5a's: LDEA [BW] after such a start wrote BW + IX; timing never depended on it).
+27. (S6) **A write's datum at B2.** store_imm's immediate and the result of an RMW whose write
+   issued before its exec ran (`wd_rdy` 0 at the issue) are taken by the bus at B2 (`g_dsel`):
+   the immediate's bytes not yet taken from the queue's head after T's takes (`imm_ahead`), the
+   result with the exec's own clock forwarded (`res_f`). A datum not ready at B2 would leave the
+   cycle's data stale; none in SingleStepTests or the corpus (the write-data score agrees).
+28. (S6) **The V20's semantics where the corpus says nothing** (the reference's, funcref.py, from
+   the V20 suite; the data book does not define them): CVTDB's base is 10 whatever its byte,
+   CVTBD by 0 leaves AH FFh and AL, an empty BCD string (CL = 0) sets CY S AC V 0 and Z P 1, the
+   C6 / C7 /1-/7 aliases store their immediate. ROL4 / ROR4's AL and POP PSW / RETI / SAHF's
+   bits 1, 3, 5 stay the V35's (F32's silicon; the PSW's BRKI / F0 / F1 are the V35's), counted
+   apart as the V20 classes.
+29. (S6) **The segment arithmetic.** A request's address is its segment's base + a 16-bit offset
+   (the second half of an odd word at offset FFFFh at offset 0); the fetch address wraps in PS
+   with the PS after the clock's flush. The IR's address the loader keeps stays linear (its
+   offset in PS, IP, is taken modulo 64 KiB wherever it is used: the return addresses, the
+   relative targets).
+
+## Gate (S6)
+
+**Timing, unchanged:** `build_sim.sh direct v35`, a fresh output directory, `replay --core v35
+--diag --jobs 8` and `--score` over the 36 refresh-off families: every one of the 30,536 runs RTL =
+model, RTL-exact = model-exact 30,361 (each family as "Gate (S5b)"), the pre window exact on every
+run, `--diag` silent.
+
+**Write data** (`replay --score --data`, the same replays): 106,824 memory, stack and I/O writes,
+every one agreeing with silicon's, in all 36 families (at cc0704f: 104,574 agreeing, 1,776 runs
+differing: F14 F15 F16 push_m, F19 F21 F22 F26 store_imm, F25 F30 F39 LDEA -> OUT, F33 cvtbw, F36
+push_sp).
+
+**SingleStepTests** (`sst.py --rtl`, RTL_FILES and S6_FILES, 2,985,000 tests): **0 failures**.
+Against the old core's table (RTL_FILES only, its rf bench):
+
+| Class | old core (RTL_FILES) | S6, RTL_FILES | S6, S6_FILES |
+| --- | --- | --- | --- |
+| pass | 1,651,237 | 2,041,643 | 807,437 |
+| fail | 0 | 0 | 0 |
+| trap (the divide error's trap condition agreed) | 24,387 | 24,387 | - |
+| V35_EE_FUNC (the old core's unbuilt forms) | 92,647 | run: see below | - |
+| on-chip page (FFE00h-FFFFFh) | 448 | 601 | 286 |
+| REP before a non-string form | 1,340 | 1,340 trap_nop (all before IDIV) | - |
+| PREPARE with a level | 1,941 | 1,941 | - |
+| V20's ROL4 / ROR4 AL (RTL = the V35 reference) | (reference) | 18,368 | - |
+| V20's fixed PSW bits (RTL = the V35 reference) | - | - | 26,281 |
+| reference unlisted | (reference) | 82 | 0 |
+| trap_nop, register halves with no template | (in V35_EE_FUNC) | 30,107 | - |
+| trap_nop, F6 /0 (TEST r/m8,imm8) | - | - | 9,996 |
+| divergence: F6 / F7 /1 mem, FF /7 mem decoded rmw | (in V35_EE_FUNC) | 22,531 | - |
+
+The old core's V35_EE_FUNC forms now all run: FF /2 /3 /4 /5 pass (memory, and /2 /4 on a
+register); F6 / F7 /1 /2 /3, C6 / C7, FF /0 /1 /6 /7 on a register are trap_nop (F7 /3 2,575, FF /0
+2,543, C7 2,539, C6 2,537, F6 /3 2,524, F7 /2 2,515, FF /6 2,509, F6 /1 2,499, FF /1 2,499, F7 /1
+2,484, FF /7 2,477, F6 /2 2,406); F6 / F7 /1 and FF /7 on memory are the decode divergences
+("Not built"). The on-chip page and unlisted counts are the reference's (the old flow counted
+the rep-prefix and V35_EE_FUNC tests apart before running the reference, so fewer reached it).
+"V20's" classes ran on the bench against the V35 reference's state and passed.
+
+**`--regfile`** (the whole-core bench): over the 35 lists F0, F0w, F1 .. F33, 69,099 vectors (walk
+29,487, random 19,116, modes 912, alu 19,584: today's generator over today's corpus; the 58,508 of
+docs/v35s-hdl-plan.md were WP75's, before WP79's 0F / miscellany ALU codes and the later lists),
+**0 bad**: pass 68,078, trap 319, on-chip page 89, trap_nop 512 (the old V35_EE_FUNC register
+halves), divergence 101 (F7 /1 mem 64, MOV PS 37); over F34-F40, 38,760 vectors, 0 bad (pass
+37,837 with the old V35_EE_FUNC forms' 300, trap 310, on-chip 13, trap_nop 512, divergence 88).
+
+**The reference** (`sst.py`, funcref): RTL_FILES 2,084,281 pass, 0 fail (the old count
+1,693,875); S6_FILES 817,433 pass, 0 fail, 26,281 V20's fixed PSW bits; funcref over F35, F36,
+F37, F39, F40 (`funcref --family ... --silicon`): every start agreeing with the frozen model,
+22,890 / 22,890 data cycles matching silicon.
+
+## Synthesis trial (S6)
+
+`efx_map` of `v35_eu` + `v35_ea` (S5b's script, `v2/s6/syn/build_s6_syn.sh`, a memory-capped
+scope), the base cc0704f's files and the S6 tree: LUT4 8,589 -> 9,123 (+534, +6 %), FF 590 -> 605,
+RAM_5K 0 -> 0, MULT 9 -> 8 (CVTDB's x 10 a constant), ADD 1,041 -> 910. The growth: the second EA
+offset (the form after P, LDEA's: an adder and its displacement mux), the store_imm / RMW datum at
+B2 (the queue-head immediate, the forwarded result), the segment-relative request addresses (one
+base + 16-bit offset add and the w16 compare in each of `mkreq`'s two instances), the start
+clock's prefix segment, `sp_ret` (16 FF), the adjusts' and converts' word writes and CVTBD by 0.
+The other modules' edits are a few lines each (the arbiter's `raddr2` / `rlo` and late `g_dsel`,
+the queue's PS-relative fetch increment).
 
 ## Gate (S5b)
 
