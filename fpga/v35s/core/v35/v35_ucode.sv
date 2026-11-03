@@ -11,7 +11,7 @@
 // pass are S2's, the rows come from the ROM.
 //
 // The ROM. Four banks (row address mod 4), each a block RAM with one read port whose read is
-// registered at `ce` (q0..q3): the clock reads a window of four consecutive rows (`wa` ..
+// registered at `ce_a` (q0..q3): the clock reads a window of four consecutive rows (`wa` ..
 // wa + 3) besides the current row, held in `row_c`. While a form runs the window follows its
 // cursor (the rows a pass may reach after the current one); when the current row is the
 // template's last, or no form runs, the window holds the first rows of the template the next
@@ -32,7 +32,7 @@
 // own request, POST / POST_IO post and go on, FLUSH / FLUSH_C / DECIDE wait out the fetch gap,
 // HALT stops; NOWAIT counts clocks not in a bus wait state.
 //
-// Stage map (one registered update at `ce`; everything else feed-forward, no block reads its
+// Stage map (one registered update at `ce_a`; everything else feed-forward, no block reads its
 // own outputs):
 //   S2  T: (A) the resume countdown and unit_hold, the form's end (done, the write-back), the
 //       start gate and the first row, (B) the take sync, (C) one row, (D) one row more (or the
@@ -132,7 +132,8 @@ module v35_ucode
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,
+    input  wire        ce_a,
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
 
     // the loader / queue (S1 values; the loader's IR before S2 and after S3)
     input  wire        ir_v_c,
@@ -525,18 +526,27 @@ module v35_ucode
         logic    v;
         uc_row_t r;
     } rv_t;
-    function automatic rv_t rowat(input logic [10:0] a);
-        logic [10:0] d;
-        d = a - wa;
-        rowat.v = 1'b1;
-        if (run && rc_v && a == upc)
-            rowat.r = row_c;
-        else if (d < 11'd4)
-            rowat.r = wrow(d[1:0]);
+    // (S7b) the row at offset dw from the window's first row, du from the cursor's (rowat by
+    // address before: the offsets are tracked through the pass instead of subtracted)
+    function automatic rv_t rowat_o(input logic signed [7:0] dw, input logic signed [7:0] du);
+        rowat_o.v = 1'b1;
+        if (run && rc_v && du == 8'sd0)
+            rowat_o.r = row_c;
+        else if (dw >= 8'sd0 && dw < 8'sd4)
+            rowat_o.r = wrow(dw[1:0]);
         else begin
-            rowat.r = '0;
-            rowat.v = 1'b0;
+            rowat_o.r = '0;
+            rowat_o.v = 1'b0;
         end
+    endfunction
+    // the offset of address x from y, saturated (beyond +-64 no pass reaches the window)
+    function automatic logic signed [7:0] off8(input logic [10:0] x, input logic [10:0] y);
+        logic signed [11:0] d;
+        d = $signed({1'b0, x}) - $signed({1'b0, y});
+        off8 = d > 12'sd64 ? 8'sd64 : (d < -12'sd64 ? -8'sd64 : 8'(d));
+    endfunction
+    function automatic logic signed [7:0] inc8(input logic signed [7:0] d, input logic [2:0] n);
+        inc8 = d + 8'(n);
     endfunction
 
     // wait reasons (the trace's W)
@@ -614,6 +624,10 @@ module v35_ucode
         logic [2:0]  mtf;
         logic        mrh;       // page_imm_sync=lead: an even-half bit index form ...
         logic        mr_v;      // ... its ModR/M take set mr_sync
+        // (S7b) the row addresses as small offsets (saturating at +-64: no row there): the
+        // cursor (dw: a - wa, du: a - upc), the loop's top (ltd, ltu), the template's base (bdw,
+        // bdu); rowat_o reads the window and the cursor's row by them (no address subtract)
+        logic signed [7:0] dw, du, ltd, ltu, bdw, bdu;
         logic        tl;        // the cursor's row is the last its form runs (the rows after it
         logic [1:0]  tlwb;      //   skip to the end: seen in the window on an earlier clock), wb
     } ps_t;
@@ -772,6 +786,12 @@ module v35_ucode
     localparam voc_t VOC_T3 = '{1,0,0,1,0,0,0,0,0,0, 1,0,0,0, 1, 0,0,0,0,1, 0,1,0, 1, 1,0,0,0,1};
     localparam voc_t VOC_P1 = '{1,0,1,1,1,0,0,0,0,0, 1,1,0,0, 1, 1,1,1,0,0, 1,0,0, 1, 0,0,0,0,0};
     localparam voc_t VOC_P2 = '{1,0,0,1,0,0,0,0,1,0, 0,0,0,0, 1, 0,0,0,0,0, 0,0,0, 1, 0,0,0,0,1};
+    // (S7b) the P step's cases: the first row not a data step (E) or a data step (D), the rows
+    // after it on the same clock (after E: a lead take's clocks; after D: P2, then P3)
+    localparam voc_t VOC_P1E = '{1,0,1,0,1,0,0,0,0,0, 1,1,0,0, 1, 1,1,1,0,0, 1,0,0, 1, 0,0,0,0,0};
+    localparam voc_t VOC_P1D = '{0,0,0,1,0,0,0,0,0,0, 1,1,0,0, 1, 0,0,0,0,0, 1,0,0, 1, 0,0,0,0,0};
+    localparam voc_t VOC_P2E = '{1,0,0,0,0,0,0,0,0,0, 0,0,0,0, 1, 0,0,0,0,0, 0,0,0, 1, 0,0,0,0,1};
+    localparam voc_t VOC_P2D = VOC_P2;
     localparam voc_t VOC_P3 = '{1,0,0,0,0,0,0,0,0,0, 0,0,0,0, 0, 0,0,0,0,0, 0,0,0, 1, 0,0,0,0,0};
     // the row as the slot's evaluator sees it: a feature outside the vocabulary neutral
     function automatic uc_row_t vmask(input uc_row_t r, input voc_t v);
@@ -978,14 +998,16 @@ module v35_ucode
         end
     end
     function automatic void skip_run(inout ps_t s);
-        logic [10:0] d;
-        d = s.a - wa;
-        if (s.run && d < 11'd4) begin
-            if (sr_end[d[1:0]]) begin
+        logic [1:0] d;
+        d = s.dw[1:0];
+        if (s.run && s.dw >= 8'sd0 && s.dw < 8'sd4) begin
+            if (sr_end[d]) begin
                 s.run = 1'b0;
-                s.wbc = sr_wb[d[1:0]];
+                s.wbc = sr_wb[d];
             end
-            s.a = s.a + 11'(sr_n[d[1:0]]);
+            s.a = s.a + 11'(sr_n[d]);
+            s.dw = inc8(s.dw, sr_n[d]);
+            s.du = inc8(s.du, sr_n[d]);
         end
     endfunction
 
@@ -995,8 +1017,11 @@ module v35_ucode
         // (S5a) a REP loop: once more unless CW runs out (str_last) or a compare's condition
         // ends it (str_exit, at its read's delivery)
         more = r.loop && !str_last && !str_exit;
-        if (r.ltop)
+        if (r.ltop) begin
             s.ltop = s.a;
+            s.ltd = s.dw;
+            s.ltu = s.du;
+        end
         if (r.loop) begin
             s.elem = s.elem == 2'd2 ? 2'd2 : s.elem + 2'd1;
             s.edn = 1'b1;
@@ -1006,6 +1031,8 @@ module v35_ucode
             end
         end
         s.a = more ? s.ltop : s.a + 11'd1;
+        s.dw = more ? s.ltd : inc8(s.dw, 3'd1);
+        s.du = more ? s.ltu : inc8(s.du, 3'd1);
         s.arm_done = 1'b0;
         s.wpass = 1'b0;
         if (r.last && !more && !noend) begin
@@ -1030,8 +1057,10 @@ module v35_ucode
         rv_t rnn;
         if (r.v && skipped(vmask(r.r, v), s) && rn.v && !(xrow(r.r) && !bf_ok)
             && (!r.r.last || (rn.r.skip != V35_SKIP_NONE && rn.r.last))) begin
-            rnn = rowat(s.a + 11'd2);
+            rnn = rowat_o(inc8(s.dw, 3'd2), inc8(s.du, 3'd2));
             s.a = s.a + 11'd1;
+            s.dw = inc8(s.dw, 3'd1);
+            s.du = inc8(s.du, 3'd1);
             s.arm_done = 1'b0;
             s.wpass = 1'b0;
             r = rn;
@@ -1681,8 +1710,9 @@ module v35_ucode
     endfunction
     // (S5a) str_single_start=write: an unprefixed string form starts no earlier than its class's
     // ugap clocks after the last fetch's end (P: a fetch issued now ends later)
-    function automatic logic ssb(input v35_fmt_t f, input v35_cls_t c, input logic is_p);
-        ssb = f.strop && !f.rep && ((is_p && g_fetch) || fetch_since <= {3'd0, c.ugap});
+    function automatic logic ssb(input v35_fmt_t f, input v35_cls_t c, input logic is_p,
+                               input logic gf);
+        ssb = f.strop && !f.rep && ((is_p && gf) || fetch_since <= {3'd0, c.ugap});
     endfunction
     // the template a form starts: its first row (the start-time bits: cnt0 from CL, half from
     // the last operand byte's address; (S5a) taken / zfail, a transfer's decision from the PSW
@@ -1736,6 +1766,10 @@ module v35_ucode
         s.ont = !rb.taken && f.xshort && (odd || f.dbnz_z);
         s.a = b;
         s.base = b;
+        s.dw = 8'sd0;               // (b is the window's first row: base_c / base_l = wa)
+        s.du = d_wu;
+        s.bdw = 8'sd0;
+        s.bdu = d_wu;
         s.arm_done = 1'b0;
         s.wpass = 1'b0;
         s.res = 11'd0;
@@ -1757,6 +1791,8 @@ module v35_ucode
         s.lxt = 1'b0;
         s.scond = 1'b0;
         s.ltop = b;
+        s.ltd = 8'sd0;
+        s.ltu = d_wu;
         s.fmt = f;
         s.cc = c;
         s.op = o;
@@ -1825,6 +1861,9 @@ module v35_ucode
     wire [10:0] base_c = wa;
     wire [10:0] base_l = wa;
 
+    // (S7b) the registered addresses' offsets from the window and the cursor (once a clock)
+    wire signed [7:0] d_uw = off8(upc, wa), d_wu = off8(wa, upc), d_bw = off8(base, wa);
+    wire signed [7:0] d_bu = off8(base, upc), d_lw = off8(ltop, wa), d_lu = off8(ltop, upc);
     ps_t   s0, s1, s2, s3, s4;
     fx_t   x1, x2, x3;
     env_t  et;
@@ -1840,6 +1879,12 @@ module v35_ucode
         s0 = '0;
         s0.run = run;
         s0.a = upc;
+        s0.dw = d_uw;
+        s0.du = 8'sd0;
+        s0.bdw = d_bw;
+        s0.bdu = d_bu;
+        s0.ltd = d_lw;
+        s0.ltu = d_lu;
         s0.base = base;
         s0.arm_done = arm_done;
         s0.wpass = wpass;
@@ -1952,7 +1997,7 @@ module v35_ucode
         et.wbu_busy = wbu_t1 != 2'd0;
         t_gate1 = gate(fmt_c, ir_v_c, 1'b0, slot_det_c, rq_old_c, inflight_c, stored_c,
                        wl_busy, rfb_c || swb(fmt_c, wbu_t1) || (lsp && b2b_now)
-                                || ssb(fmt_c, cls_c, 1'b0), dw_blk_c);
+                                || ssb(fmt_c, cls_c, 1'b0, 1'b0), dw_blk_c);
         t_try1 = !t_wait && !run && !halted;
         g1.v = hit_c;
         g1.r = wrow(2'd0);
@@ -1987,8 +2032,8 @@ module v35_ucode
 
         // (C) the cursor's row
         t_ev1 = !t_wait && !t_sync_blk && !s1.halted && s1.run;
-        r1 = rowat(s1.a);
-        r1n = rowat(s1.a + 11'd1);
+        r1 = rowat_o(s1.dw, s1.du);
+        r1n = rowat_o(inc8(s1.dw, 3'd1), inc8(s1.du, 3'd1));
         s2 = s1;
         x1 = '0;
         if (t_ev1)
@@ -2009,7 +2054,7 @@ module v35_ucode
         et.wbu_busy = wbu_t2 != 2'd0;
         t_gate2 = gate(fmt_c, ir_v_c && !x1.flush, 1'b0, slot_det_c, rq_old_c, inflight_c,
                        stored_c, wl_busy, rfb_c || x1.flush || swb(fmt_c, wbu_t2)
-                                          || (lsp && b2b_now) || ssb(fmt_c, cls_c, 1'b0),
+                                          || (lsp && b2b_now) || ssb(fmt_c, cls_c, 1'b0, 1'b0),
                        dw_blk_c);
         t_try2 = t_end2 && !s2.halted;
         g2.v = hit_c;
@@ -2020,8 +2065,8 @@ module v35_ucode
                      arrived_now);
         et.wbu_busy = wbu_t2 != 2'd0 || lwb(s1.started || s3.started);
         t_ev2 = t_ev1 && x1.complete && x1.cont && (s2.run || (t_try2 && t_gate2 && g2.v));
-        r2 = rowat(s3.a);
-        r2n = rowat(s3.a + 11'd1);
+        r2 = rowat_o(s3.dw, s3.du);
+        r2n = rowat_o(inc8(s3.dw, 3'd1), inc8(s3.du, 3'd1));
         if (t_ev2)
             sk(s3, r2, r2n, VOC_T2);
         if (t_ev2 && r2.v)
@@ -2036,8 +2081,8 @@ module v35_ucode
         s4 = s3;
         x3 = '0;
         t_ev3 = t_ev2 && x2.complete && x2.cont && s3.run;
-        r3 = rowat(s3.a);
-        r3n = rowat(s3.a + 11'd1);
+        r3 = rowat_o(s3.dw, s3.du);
+        r3n = rowat_o(inc8(s3.dw, 3'd1), inc8(s3.du, 3'd1));
         if (t_ev3)
             sk(s4, r3, r3n, VOC_T3);
         if (t_ev3 && r3.v)
@@ -2082,8 +2127,6 @@ module v35_ucode
     assign p_sth = xp.sth;
     assign p_sth_inf = xp.sthinf;
     assign p_sth_n = xp.sthn;
-    assign rs_set = xt.rsset || xp.rsset;
-    assign rs_n = xt.rsset ? xt.rsn : xp.rsn;
     assign ask_d = !t_wait && s1.run && sync_v && sync_def;
     assign ask_t = xt.ask;
     assign cnt_take = xt.cntk;
@@ -2103,7 +2146,7 @@ module v35_ucode
     assign nop_cand = t_start && s3.fmt.one_reg;
     // wb_fetch=hold: the form started on this clock waits at its first row's write-back wait
     rv_t r0t;
-    always_comb r0t = rowat(s4.base);
+    always_comb r0t = rowat_o(s4.bdw, s4.bdu);
     assign wb_hold = t_start && s4.a == s4.base && r0t.v && r0t.r.wcond == V35_WC_WB
                      && (wbu_t2 != 2'd0 || lwb(1'b1));
     // wlatch_hold: an I/O form waits at its start for the data latch (the checks before
@@ -2154,129 +2197,294 @@ module v35_ucode
     // lea_room=ir: LDEA's EA clocks after its last operand byte (queue.lea_ea)
     assign lea_xk_c = lrc != 4'd0;
     assign lea_xk_t = lrc != 4'd0 || (xt.lrset && xt.lrn != 4'd0);
-    assign lea_xk_p = lrc != 4'd0 || (xt.lrset && xt.lrn != 4'd0) || (xp.lrset && xp.lrn != 4'd0);
 
+    assign wl_fill_t = xt.wl_fill;
+    assign irh_pg_t = xt.irpg;
+    assign mt_sub_t = xt.mtw;
+    assign fl_c = flt && !done_m && !halted;
+    assign fl_t = s4.flt && !s4.done_m && !s4.halted;
+    assign fl_end_t = flt && !halted && res == 11'd0 && !run && !done_m;   // (t_done_rec, from the registers)
+    assign fl_end_t2 = t_end2 && s2.flt;
+    assign pfs_x = s4.pfs;
+    assign pimm_x = s4.fmt.page_mem && s4.fmt.immb != 2'd0;    // (eu.page_imm: set at the start)
+    assign pcl_x = s4.fmt.pcl && s4.fmt.disp == 2'd2;
+    assign pcl_fs = s4.cc.fsetup;
+    assign post_t = xt.post;
+    assign prow_t = xt.row;
+    assign psetup_t = xt.setup;
+    assign pfnv_t = xt.fnv;
+    assign pfn_t = xt.fn;
+    assign plead_t = xt.lead;
+    assign ptm_t = ptm(xt, s4);
+    assign relatch = xt.relatch;
+    assign relatch_late = xt.landed;
+    assign th_arm_t = xt.tharm;
+    assign th_lift_t = xt.thlift || xt.thcan;
+    assign edone_t = s4.edn;
+    assign povr_t = s4.lxt;
+    assign ff_t = xt.ffset;
+    assign ff_t0 = xt.ffset && xt.ffn == 3'd0;
+    assign xfer_x = s4.fmt.xfer;
+    assign wait_o = t_why;
+    // ------------------------------------------------------------ (S7b) the ce_b registers
+    // Tick A (S1-S4: the T pass and the strobes it sends the loader, the queue and the
+    // arbiter) ends at ce_b; tick B (S5 the P pass, S6 the next state) reads its results from
+    // these registers (and the architectural registers), never tick A's logic.
+    ps_t        s1_b = '0, s2_b = '0, s3_b = '0, s4_b = '0;
+    fx_t        x1_b = '0, x2_b = '0, x3_b = '0, xt_b = '0;
+    rv_t        r1_b = '0, r2_b = '0, r3_b = '0;
+    env_t       et_b = '0;
+    logic       t_start_b = 1'b0, t_dec1_b = 1'b0, t_dec2_b = 1'b0, t_done_rec_b = 1'b0;
+    logic       t_end2_b = 1'b0, t_ev1_b = 1'b0, t_ev2_b = 1'b0, t_ev3_b = 1'b0;
+    logic       t_gate1_b = 1'b0, t_gate2_b = 1'b0, t_hold_b = 1'b0, t_prs_b = 1'b0;
+    logic       t_try1_b = 1'b0, t_try2_b = 1'b0, hit_l_b = 1'b0, fl_now_p_b = 1'b0;
+    logic       ask_d_b = 1'b0;
+    logic [10:0] hold_res_b = 11'd0;
+    logic [1:0] mro_c_b = 2'd0, owed_c_b = 2'd0, owed_t_b = 2'd0, wbu_t2_b = 2'd0;
+    v35_run_t   run_l_b = '0;
+    logic [3:0] avail_c_b = 4'd0, stored_l_b = 4'd0;
+    logic       g_abort_b = 1'b0, g_abort_lat_b = 1'b0, g_eu_b = 1'b0, g_fetch_b = 1'b0;
+    logic       g_io_b = 1'b0, g_thru_b = 1'b0, inflight_x_b = 1'b0, ir_v_l_b = 1'b0;
+    logic [2:0] grant_len_b = 3'd0;
+    logic [7:0] ir_l_b = 8'h00, vb0_b = 8'h00, vb1_b = 8'h00, vb2_b = 8'h00, vb3_b = 8'h00;
+    logic [19:0] ir_addr_l_b = 20'd0;
+    logic       l_pop_b = 1'b0, lat_x_b = 1'b0, ok_l_b = 1'b0, own_done_p_b = 1'b0;
+    logic       own_h2_b = 1'b0, post_ok_p_b = 1'b0, retick_b = 1'b0, rq_old_p_b = 1'b0;
+    logic       shift_latch_b = 1'b0, slot_det_p_b = 1'b0, slot_wait_p_b = 1'b0;
+    logic       wl_busy_x_b = 1'b0, slot_det_c_b = 1'b0, inflight_c_b = 1'b0;
+    logic       ir_v_c_b = 1'b0, ok_c_b = 1'b0;
+    logic signed [4:0] room_p0_b = 5'sd0;
+    v35_fmt_t   fmt_c_b = '0;
+    v35_cls_t   cls_c_b = '0;
+    always_ff @(posedge clock) begin
+        if (ce_b) begin
+            s1_b <= s1;
+            s2_b <= s2;
+            s3_b <= s3;
+            s4_b <= s4;
+            x1_b <= x1;
+            x2_b <= x2;
+            x3_b <= x3;
+            xt_b <= xt;
+            r1_b <= r1;
+            r2_b <= r2;
+            r3_b <= r3;
+            et_b <= et;
+            t_start_b <= t_start;
+            t_dec1_b <= t_dec1;
+            t_dec2_b <= t_dec2;
+            t_done_rec_b <= t_done_rec;
+            t_end2_b <= t_end2;
+            t_ev1_b <= t_ev1;
+            t_ev2_b <= t_ev2;
+            t_ev3_b <= t_ev3;
+            t_gate1_b <= t_gate1;
+            t_gate2_b <= t_gate2;
+            t_hold_b <= t_hold;
+            t_prs_b <= t_prs;
+            t_try1_b <= t_try1;
+            t_try2_b <= t_try2;
+            hit_l_b <= hit_l;
+            fl_now_p_b <= fl_now_p;
+            ask_d_b <= ask_d;
+            hold_res_b <= hold_res;
+            mro_c_b <= mro_c;
+            owed_c_b <= owed_c;
+            owed_t_b <= owed_t;
+            wbu_t2_b <= wbu_t2;
+            run_l_b <= run_l;
+            avail_c_b <= avail_c;
+            stored_l_b <= stored_l;
+            g_abort_b <= g_abort;
+            g_abort_lat_b <= g_abort_lat;
+            g_eu_b <= g_eu;
+            g_fetch_b <= g_fetch;
+            g_io_b <= g_io;
+            g_thru_b <= g_thru;
+            inflight_x_b <= inflight_x;
+            ir_v_l_b <= ir_v_l;
+            grant_len_b <= grant_len;
+            ir_l_b <= ir_l;
+            vb0_b <= vb0;
+            vb1_b <= vb1;
+            vb2_b <= vb2;
+            vb3_b <= vb3;
+            ir_addr_l_b <= ir_addr_l;
+            l_pop_b <= l_pop;
+            lat_x_b <= lat_x;
+            ok_l_b <= ok_l;
+            own_done_p_b <= own_done_p;
+            own_h2_b <= own_h2;
+            post_ok_p_b <= post_ok_p;
+            retick_b <= retick;
+            rq_old_p_b <= rq_old_p;
+            shift_latch_b <= shift_latch;
+            slot_det_p_b <= slot_det_p;
+            slot_wait_p_b <= slot_wait_p;
+            wl_busy_x_b <= wl_busy_x;
+            slot_det_c_b <= slot_det_c;
+            inflight_c_b <= inflight_c;
+            ir_v_c_b <= ir_v_c;
+            ok_c_b <= ok_c;
+            room_p0_b <= room_p0;
+            fmt_c_b <= fmt_c;
+            cls_c_b <= cls_c;
+        end
+    end
     // ------------------------------------------------------------ S5: the P pass
+    assign rs_set = xt_b.rsset || xp.rsset;
+    assign rs_n = xt_b.rsset ? xt_b.rsn : xp.rsn;
+    assign lea_xk_p = lrc != 4'd0 || (xt_b.lrset && xt_b.lrn != 4'd0) || (xp.lrset && xp.lrn != 4'd0);
     // machine.py's retick on a detached I/O's issue clock: the start gate again (the I/O
     // interlock satisfied), the started form's first row, a SLOT wait's release
-    ps_t   p0, p1, p2, p3, p4;
+    ps_t   p0, p1, p2, p4;
     fx_t   y1, y2, y3;
     env_t  ep;
-    rv_t   h1, h2, u1, u1n, u2, u2n, u3, u3n;
-    logic  p_gate1, p_gate2, p_try1, p_try2, p_ev1, p_ev2, p_wait, p_sync_blk, p_lapse;
+    rv_t   h1, h2, u1, u1n, u2, u3, u3n;
+    logic  p_gate1, p_try1, p_try2, p_ev1, p_ev2, p_wait, p_sync_blk, p_lapse;
     logic  p_done_rec, p_end2, p_dec1, p_dec2, p_ev3;
+    // (S7b) the P step's two cases (E: not a data step, D: a data step) side by side
+    ps_t   p2e, p2d, p3e, p3d, p4d;
+    fx_t   y1e, y1d, y2e, y2d;
+    rv_t   u2e, u2en, u2d, u2dn;
+    env_t  ep_e;
+    logic  p_dat, p_ev2e, p_ev2d, p_e3;
     logic [1:0] wbu_p1, wbu_p2;
 
     always_comb begin
-        p0 = s4;
+        p0 = s4_b;
         p0.started = 1'b0;
         p0.pnew = 1'b0;
         p0.edn = 1'b0;
-        ep = et;
+        ep = et_b;
         ep.is_p = 1'b1;
-        ep.avail = avail_c - 4'(xt.tk) - (l_pop ? 4'd1 : 4'd0);
-        ep.b0 = xt.tk == 2'd0 ? (l_pop ? vb1 : vb0) : (xt.tk == 2'd1 ? (l_pop ? vb2 : vb1)
-                                                                  : (l_pop ? vb3 : vb2));
-        ep.ir_v = ir_v_l;
+        ep.avail = avail_c_b - 4'(xt_b.tk) - (l_pop_b ? 4'd1 : 4'd0);
+        ep.b0 = xt_b.tk == 2'd0 ? (l_pop_b ? vb1_b : vb0_b) : (xt_b.tk == 2'd1 ? (l_pop_b ? vb2_b : vb1_b)
+                                                                  : (l_pop_b ? vb3_b : vb2_b));
+        ep.ir_v = ir_v_l_b;
         ep.late = 1'b0;                 // the bus holds the I/O just issued
         ep.lu_busy = 1'b1;              // ... and it holds the latches to its end
-        ep.lu_val = grant_len;
-        ep.slot_wait = slot_wait_p;
-        ep.slot_det = slot_det_p;
-        ep.cur_io_s = g_io;             // the cycle issued now, on a P start's clock
-        ep.cur_left = grant_len;
-        ep.cur_io_now = g_io;
-        ep.lat = lat_x;
-        ep.own_done = own_done_p || (own_done && !s4.pnew);
-        ep.own_issued = own_issued && !s4.pnew;
-        ep.post_ok = post_ok_p;
+        ep.lu_val = grant_len_b;
+        ep.slot_wait = slot_wait_p_b;
+        ep.slot_det = slot_det_p_b;
+        ep.cur_io_s = g_io_b;             // the cycle issued now, on a P start's clock
+        ep.cur_left = grant_len_b;
+        ep.cur_io_now = g_io_b;
+        ep.lat = lat_x_b;
+        ep.own_done = own_done_p_b || (own_done && !s4_b.pnew);
+        ep.own_issued = own_issued && !s4_b.pnew;
+        ep.post_ok = post_ok_p_b;
         ep.memw = 1'b0;                 // (the slot's request issued or moved on this clock)
         ep.finfl = 1'b1;
         ep.fm = fmt_mp;
-        ep.fs = fmt_c;
+        ep.fs = fmt_c_b;
         ep.fsf = 1'b0;                  // (the bus holds the I/O just issued)
 
-        p_wait = !retick || p0.halted || p0.res != 11'd0;
+        p_wait = !retick_b || p0.halted || p0.res != 11'd0;
         p1 = p0;
         p_done_rec = !p_wait && !p0.run && !p0.done_m;
         if (p_done_rec)
             p1.done_m = 1'b1;
-        wbu_p1 = p_done_rec ? p0.wbc + (wbx ? 2'd1 : 2'd0) : wbu_t2;
+        wbu_p1 = p_done_rec ? p0.wbc + (wbx ? 2'd1 : 2'd0) : wbu_t2_b;
         ep.wbu_busy = wbu_p1 != 2'd0;
-        p_gate1 = gate(fmt_c, ir_v_l, 1'b1, slot_det_p, rq_old_p, inflight_x, stored_l,
-                       wl_busy_x, refill || swb(fmt_c, wbu_p1) || (lsp && b2b_now)
-                                  || ssb(fmt_c, cls_c, 1'b1), dw_blk_p);
+        p_gate1 = gate(fmt_c_b, ir_v_l_b, 1'b1, slot_det_p_b, rq_old_p_b, inflight_x_b, stored_l_b,
+                       wl_busy_x_b, refill || swb(fmt_c_b, wbu_p1) || (lsp && b2b_now)
+                                  || ssb(fmt_c_b, cls_c_b, 1'b1, g_fetch_b), dw_blk_p);
         p_try1 = !p_wait && !p0.run;
-        h1.v = hit_l;
+        h1.v = hit_l_b;
         h1.r = wrow(2'd0);
         p_dec1 = p_try1 && p_gate1 && !h1.v;
         if (p_try1 && p_gate1 && h1.v)
-            start_ps(p1, fmt_c, cls_c, ir_l, base_l, run_l, ir_addr_l[0], fl_now_p,
+            start_ps(p1, fmt_c_b, cls_c_b, ir_l_b, base_l, run_l_b, ir_addr_l_b[0], fl_now_p_b,
                      arrived_now);
-        ep.wbu_busy = wbu_p1 != 2'd0 || lwb(t_start || p1.started);
-        p_lapse = !inflight_x && !abort_busy && room_p0 < 5'sd2;
+        ep.wbu_busy = wbu_p1 != 2'd0 || lwb(t_start_b || p1.started);
+        p_lapse = !inflight_x_b && !abort_busy && room_p0_b < 5'sd2;
         p_sync_blk = !p_wait && p1.run && p1.sync_v && !p_lapse;
         if (!p_wait && p1.run && !p_sync_blk)
             p1.sync_v = 1'b0;
         p_ev1 = !p_wait && !p_sync_blk && p1.run;
-        u1 = rowat(p1.a);
-        u1n = rowat(p1.a + 11'd1);
+        u1 = rowat_o(p1.dw, p1.du);
+        u1n = rowat_o(inc8(p1.dw, 3'd1), inc8(p1.du, 3'd1));
         p2 = p1;
-        y1 = '0;
         if (p_ev1)
             sk(p2, u1, u1n, VOC_P1);
-        if (p_ev1 && u1.v)
-            do_row(p2, ep, u1.r, u1n, VOC_P1, y1);
-        y1.rom_miss = p_ev1 && !u1.v;
-        p3 = p2;
-        y2 = '0;
-        p_end2 = p_ev1 && y1.complete && y1.cont && !p2.run && !p1.started;
-        if (p_end2)
-            p3.done_m = 1'b1;
-        wbu_p2 = p_end2 ? p2.wbc + (wbx ? 2'd1 : 2'd0) : wbu_p1;
-        ep.wbu_busy = wbu_p2 != 2'd0;
-        p_gate2 = gate(fmt_c, ir_v_l, 1'b1, slot_det_p, rq_old_p, inflight_x, stored_l,
-                       wl_busy_x, refill || swb(fmt_c, wbu_p2) || (lsp && b2b_now)
-                                  || ssb(fmt_c, cls_c, 1'b1), dw_blk_p);
-        // (S7) no second start in the P pass (none on the corpus: a form ending in P after its
-        // first row is reported, voc_miss)
+        // (S7b) the P pass as one step of a small state machine over the ce_b registers: the
+        // case is the row's (DATA: the own I/O write's or a string read's data step; anything
+        // else: a start's first row, a SLOT wait's release, a take), each case its own row
+        // evaluator with its own vocabulary (VOC_P1E, VOC_P1D), and the rows that follow on the
+        // same clock only after the cases that have them on the corpus: after a DATA step done,
+        // a string read's post, the split floor or clocks (VOC_P2D), then clocks (VOC_P3);
+        // after a lead take, its clocks (VOC_P2E). The two chains are evaluated side by side,
+        // not one after the other; a row a case does not have is reported (voc_miss).
+        p_dat = u1.v && u1.r.op == V35_OP_DATA;
+        y1e = '0;
+        y1d = '0;
+        p2e = p2;
+        p2d = p2;
+        if (p_ev1 && u1.v && !p_dat)
+            do_row(p2e, ep, u1.r, u1n, VOC_P1E, y1e);
+        if (p_ev1 && p_dat)
+            do_row(p2d, ep, u1.r, u1n, VOC_P1D, y1d);
+        // ... the form's end after its first row (no second start in P: voc_miss)
+        p_end2 = p_ev1 && (p_dat ? (y1d.complete && y1d.cont && !p2d.run)
+                                 : (y1e.complete && y1e.cont && !p2e.run)) && !p1.started;
+        p3e = p2e;
+        p3d = p2d;
+        if (p_end2) begin
+            p3e.done_m = 1'b1;
+            p3d.done_m = 1'b1;
+        end
+        wbu_p2 = p_end2 ? (p_dat ? p2d.wbc : p2e.wbc) + (wbx ? 2'd1 : 2'd0) : wbu_p1;
+        ep.wbu_busy = wbu_p2 != 2'd0 || lwb(t_start_b || p1.started);
         p_try2 = 1'b0;
-        h2.v = hit_l;
-        h2.r = wrow(2'd0);
-        p_dec2 = p_try2 && p_gate2 && !h2.v;
-        if (p_try2 && p_gate2 && h2.v)
-            start_ps(p3, fmt_c, cls_c, ir_l, base_l, run_l, ir_addr_l[0], fl_now_p,
-                     arrived_now);
-        ep.wbu_busy = wbu_p2 != 2'd0 || lwb(t_start || p1.started || p3.started);
-        if (y1.tk != 2'd0)
-            ep.avail = 4'd0;            // (P: one byte at most)
-        p_ev2 = p_ev1 && y1.complete && y1.cont
-                && (p2.run || (p_try2 && p_gate2 && h2.v));
-        u2 = rowat(p3.a);
-        u2n = rowat(p3.a + 11'd1);
-        if (p_ev2)
-            sk(p3, u2, u2n, VOC_P2);
-        if (p_ev2 && u2.v)
-            do_row(p3, ep, u2.r, u2n, VOC_P2, y2);
-        y2.rom_miss = p_ev2 && !u2.v;
-        p4 = p3;
+        h2 = '0;
+        p_dec2 = 1'b0;
+        // the lead take's clocks (E)
+        ep_e = ep;
+        if (y1e.tk != 2'd0)
+            ep_e.avail = 4'd0;              // (P: one byte at most)
+        p_ev2e = p_ev1 && !p_dat && y1e.complete && y1e.cont && p2e.run;
+        u2e = rowat_o(p3e.dw, p3e.du);
+        u2en = rowat_o(inc8(p3e.dw, 3'd1), inc8(p3e.du, 3'd1));
+        y2e = '0;
+        if (p_ev2e)
+            sk(p3e, u2e, u2en, VOC_P2E);
+        if (p_ev2e && u2e.v)
+            do_row(p3e, ep_e, u2e.r, u2en, VOC_P2E, y2e);
+        y2e.rom_miss = p_ev2e && !u2e.v;
+        // the data step's followers (D)
+        p_ev2d = p_ev1 && p_dat && y1d.complete && y1d.cont && p2d.run;
+        u2d = rowat_o(p3d.dw, p3d.du);
+        u2dn = rowat_o(inc8(p3d.dw, 3'd1), inc8(p3d.du, 3'd1));
+        y2d = '0;
+        if (p_ev2d)
+            sk(p3d, u2d, u2dn, VOC_P2D);
+        if (p_ev2d && u2d.v)
+            do_row(p3d, ep, u2d.r, u2dn, VOC_P2D, y2d);
+        y2d.rom_miss = p_ev2d && !u2d.v;
+        p4d = p3d;
         y3 = '0;
-        if (y2.tk != 2'd0)
-            ep.avail = 4'd0;
-        // (S5a) a running form's third row too (a REP OUTM's I/O write done, its split floor,
-        // its exit clocks)
-        p_ev3 = p_ev2 && y2.complete && y2.cont && p3.run;
-
-        u3 = rowat(p3.a);
-        u3n = rowat(p3.a + 11'd1);
+        p_ev3 = p_ev2d && y2d.complete && y2d.cont && p3d.run;
+        u3 = rowat_o(p3d.dw, p3d.du);
+        u3n = rowat_o(inc8(p3d.dw, 3'd1), inc8(p3d.du, 3'd1));
         if (p_ev3)
-            sk(p4, u3, u3n, VOC_P3);
+            sk(p4d, u3, u3n, VOC_P3);
         if (p_ev3 && u3.v)
-            do_row(p4, ep, u3.r, u3n, VOC_P3, y3);
+            do_row(p4d, ep, u3.r, u3n, VOC_P3, y3);
         y3.rom_miss = p_ev3 && !u3.v;
+        // (a row after the lead take's clocks: not on the corpus)
+        p_e3 = p_ev2e && y2e.complete && y2e.cont && p3e.run;
+        // the case's results
+        y1 = p_dat ? y1d : y1e;
+        y1.rom_miss = p_ev1 && !u1.v;
+        y2 = p_dat ? y2d : y2e;
+        u2 = p_dat ? u2d : u2e;
+        p_ev2 = p_dat ? p_ev2d : p_ev2e;
+        p2 = p_dat ? p2d : p2e;
+        p4 = p_dat ? p4d : p3e;
     end
 
-    assign p_start = p1.started || p3.started;
+    assign p_start = p1.started;   // (no second start in P)
     fx_t xp;
     always_comb begin
         xp = y1 | y2 | y3;
@@ -2307,48 +2515,31 @@ module v35_ucode
                                                                  || p4.fmt.xop == V35_XOP_DIV
                                                                  || p4.fmt.xop == V35_XOP_MULI));
     assign imm16_p = p4.fmt.imm16_reg;
-    assign wl_fill_t = xt.wl_fill;
     assign wl_fill_p = xp.wl_fill;
-    assign start_any = t_start || p_start;
+    assign start_any = t_start_b || p_start;
     // (a try whose format was not decoded a clock ahead counts too, unless the gate's tests
     // that read no format hold the start anyway (start_sync's fetch on the bus, a refill): the
     // gate, sreg_io's hold and the latch wait read that format; an escape whose second byte
     // arrives on the clock is such a form: its gate is held by the fetch that brings it)
-    assign dec_miss = t_dec1 || t_dec2 || p_dec1 || p_dec2
-                      || ((t_try1 || t_try2) && ir_v_c && !ok_c && !fetch_inflight
-                          && !(refill && (inflight_c || want_c)))
-                      || ((p_try1 || p_try2) && ir_v_l && !ok_l && !(refill && inflight_x));
+    assign dec_miss = t_dec1_b || t_dec2_b || p_dec1 || p_dec2
+                      || ((t_try1_b || t_try2_b) && ir_v_c_b && !ok_c_b && !fetch_inflight
+                          && !(refill && (inflight_c_b || want_c)))
+                      || ((p_try1 || p_try2) && ir_v_l_b && !ok_l_b && !(refill && inflight_x_b));
     assign p_flush = xp.flush;
-    assign voc_miss = p_end2 || (t_ev1 && x1.bad) || (t_ev2 && x2.bad) || (t_ev3 && x3.bad)
+    assign voc_miss = p_end2 || p_e3 || (t_ev1_b && x1_b.bad) || (t_ev2_b && x2_b.bad) || (t_ev3_b && x3_b.bad)
                       || (p_ev1 && y1.bad) || (p_ev2 && y2.bad) || (p_ev3 && y3.bad);
 
     // ------------------------------------------------------------ the posts
     // (S5b) the 0F page's outputs
-    assign irh_pg_t = xt.irpg;
     assign irh_pg_p = xp.irpg;
-    assign mt_sub_t = xt.mtw;
     assign mt_sub_p = xp.mtw;
-    assign fl_c = flt && !done_m && !halted;
-    assign fl_t = s4.flt && !s4.done_m && !s4.halted;
     assign fl_p = p4.flt && !p4.done_m && !p4.halted;
-    assign fl_end_t = flt && !halted && res == 11'd0 && !run && !done_m;   // (t_done_rec, from the registers)
-    assign fl_end_t2 = t_end2 && s2.flt;
     assign fl_end_p = (p_done_rec && p0.flt) || (p_end2 && p2.flt);
-    assign pfs_x = s4.pfs;
     assign pfs_e = p4.pfs;
-    assign pimm_x = s4.fmt.page_mem && s4.fmt.immb != 2'd0;    // (eu.page_imm: set at the start)
-    assign pcl_x = s4.fmt.pcl && s4.fmt.disp == 2'd2;
-    assign pcl_fs = s4.cc.fsetup;
     assign pgb2b_e = p4.fmt.pgb2b;
     assign res0_e = res_e == 11'd0;
-    assign bcd_idle = st_now && p4.fmt.bcd && p4.own_v && !g_fetch && !g_eu && !g_abort && !busy;
-    assign post_t = xt.post;
-    assign prow_t = xt.row;
-    assign psetup_t = xt.setup;
-    assign pfnv_t = xt.fnv;
-    assign pfn_t = xt.fn;
-    assign plead_t = xt.lead;
-    assign post_p = xp.post && !xt.post;
+    assign bcd_idle = st_now && p4.fmt.bcd && p4.own_v && !g_fetch_b && !g_eu_b && !g_abort_b && !busy;
+    assign post_p = xp.post && !xt_b.post;
     assign prow_p = xp.row;
     assign psetup_p = xp.setup;
     assign pfnv_p = xp.fnv;
@@ -2378,17 +2569,14 @@ module v35_ucode
         return q;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
-    assign ptm_t = ptm(xt, s4);
     assign ptm_p = ptm(xp, p4);
     // port_latch=relatch: the slot's waiting I/O (its poster's class's relatch), port_landed
-    assign relatch = xt.relatch;
-    assign relatch_late = xt.landed;
     assign relatch_n = slot_rl;
 
     // ------------------------------------------------------------ S6: the next state
     // latch_start: the byte latched behind a full queue went in on the clock a form whose
     // first step is a clocks step started (and is in it): its clocks begin a clock later
-    wire       st_now = t_start || p_start;
+    wire       st_now = t_start_b || p_start;
     // (S5a) the transfers' holds (queue.flush_held, odd_xfer / odd_nt / odd_until), at a start
     // (T or P: the started form is p4's)
     assign xs_start = st_now;
@@ -2397,26 +2585,19 @@ module v35_ucode
     assign ox_set = st_now && p4.tkn && p4.fmt.xshort && p4.oddpc;
     assign nt_set = st_now && !p4.tkn && p4.fmt.xshort && (p4.oddpc || p4.fmt.dbnz_z);
     assign nt_dbnz = p4.fmt.dbnz;
-    assign ou_set = xt.ouset || xp.ouset;
-    assign ou_n = xt.ouset ? xt.oun : xp.oun;
-    assign ff_set = xt.ffset || xp.ffset;
-    assign ff_t = xt.ffset;
+    assign ou_set = xt_b.ouset || xp.ouset;
+    assign ou_n = xt_b.ouset ? xt_b.oun : xp.oun;
+    assign ff_set = xt_b.ffset || xp.ffset;
     // (S5a) the take hold (queue): armed (T, P), cancelled, lifted
-    assign th_arm_t = xt.tharm;
     assign th_arm_p = xp.tharm;
-    assign th_cvt = xt.tharm ? xt.thcvt : xp.thcvt;
-    assign th_lift_t = xt.thlift || xt.thcan;
+    assign th_cvt = xt_b.tharm ? xt_b.thcvt : xp.thcvt;
     assign th_lift_p = xp.thlift || xp.thcan;
-    assign edone = s4.edn || p4.edn;
-    assign edone_t = s4.edn;
-    assign povr_t = s4.lxt;
+    assign edone = s4_b.edn || p4.edn;
     assign povr_p = p4.lxt;
-    assign ff_t0 = xt.ffset && xt.ffn == 3'd0;
-    assign ff_n = xt.ffset ? xt.ffn : xp.ffn;
+    assign ff_n = xt_b.ffset ? xt_b.ffn : xp.ffn;
     assign xs_done = end_any;
-    assign xfer_x = s4.fmt.xfer;
     rv_t       r0p;
-    always_comb r0p = rowat(p4.base);
+    always_comb r0p = rowat_o(p4.bdw, p4.bdu);
     wire       r0c = st_now && p4.first_clk && p4.res != 11'd0 && p4.a == p4.base + 11'd1;
     wire       r0_plain = r0p.v && r0p.r.wcond == V35_WC_NONE
                           && !(r0p.r.arm != V35_ARM_NONE && r0p.r.apos == V35_APOS_ENTRY);
@@ -2424,7 +2605,7 @@ module v35_ucode
     // one_idle=long: a one-byte form of the set started with the queue full and no bus cycle
     // on its start clock runs a clock less (its IR load too); its last clock becomes a
     // write-back unless it is a long form
-    wire       oi_adj = r0c && r0_plain && p4.fmt.idle1 && !g_fetch && !retick && !g_abort
+    wire       oi_adj = r0c && r0_plain && p4.fmt.idle1 && !g_fetch_b && !retick_b && !g_abort_b
                         && !busy && room_e < 5'sd2;
     assign idle_adj = oi_adj;
     // long_exec=wait: a fetch's wait clock does not count (the IR load moves with it)
@@ -2434,44 +2615,44 @@ module v35_ucode
     assign lx_hold = lx_now;
     // count_latch: the count byte taken on the latched delivery clock reaches the shift
     // counter a clock later; the take sync waits for the fetches in flight only
-    wire        cl_hold = xt.cntk && xt.syn && (shift_latch || shift_held_r);
-    wire [10:0] res_e = t_hold ? hold_res
+    wire        cl_hold = xt_b.cntk && xt_b.syn && (shift_latch_b || shift_held_r);
+    wire [10:0] res_e = t_hold_b ? hold_res_b
                       : (p4.res + (ls_adj ? 11'd1 : 11'd0) - (oi_adj ? 11'd1 : 11'd0)
                          + ((lx_now || r4_now) ? 11'd1 : 11'd0)
                          + ((cl_hold && arrived_now) ? 11'd1 : 11'd0));
     // the take sync's count: in flight + asked on the take clock (a held detached I/O's
     // request not counted; sync_io=issue: nor one asked under the I/O's issue clock)
-    wire [1:0]  owed_tk = (inflight_c ? 2'd1 : 2'd0)
-                          + (asked_t && !slot_det_c && !cl_hold && !xt.gd && !xt.pcs ? 2'd1
+    wire [1:0]  owed_tk = (inflight_c_b ? 2'd1 : 2'd0)
+                          + (asked_t && !slot_det_c_b && !cl_hold && !xt_b.gd && !xt_b.pcs ? 2'd1
                                                                                      : 2'd0);
-    wire [1:0]  owed_pk = (inflight_x ? 2'd1 : 2'd0)
-                          + (asked_p && !slot_det_p && !g_io && !xp.gd && !xp.pcs ? 2'd1
+    wire [1:0]  owed_pk = (inflight_x_b ? 2'd1 : 2'd0)
+                          + (asked_p && !slot_det_p_b && !g_io_b && !xp.gd && !xp.pcs ? 2'd1
                                                                                   : 2'd0);
-    wire        end_any = t_done_rec || t_end2 || p_done_rec || p_end2;
+    wire        end_any = t_done_rec_b || t_end2_b || p_done_rec || p_end2;
     // the fetches the take sync still owes after this clock; abort_latched: a sync that counted
     // no request waits for the aborted cycle the latched byte answered
-    wire [1:0]  owed_s = xp.mrs ? mro_c
+    wire [1:0]  owed_s = xp.mrs ? mro_c_b
                        : (xp.syn && !xp.def) ? owed_pk
-                       : xt.mrs ? mro_c
-                       : (xt.syn && (!xt.def || cl_hold)) ? owed_tk
-                       : ask_d ? owed_t : owed_c;
+                       : xt_b.mrs ? mro_c_b
+                       : (xt_b.syn && (!xt_b.def || cl_hold)) ? owed_tk
+                       : ask_d_b ? owed_t_b : owed_c_b;
     // (S5b) page_imm_sync: mr_sync, the fetches in flight or asked for at the ModR/M take
-    wire [1:0]  mro_n = xp.mrset ? (inflight_x ? 2'd1 : 2'd0) + (asked_p ? 2'd1 : 2'd0)
-                      : xt.mrset ? (inflight_c ? 2'd1 : 2'd0) + (asked_t ? 2'd1 : 2'd0)
-                      : mro_c;
+    wire [1:0]  mro_n = xp.mrset ? (inflight_x_b ? 2'd1 : 2'd0) + (asked_p ? 2'd1 : 2'd0)
+                      : xt_b.mrset ? (inflight_c_b ? 2'd1 : 2'd0) + (asked_t ? 2'd1 : 2'd0)
+                      : mro_c_b;
     // (S5b) pf_cnt: a clock with a fetch on the bus (one issued on it included; page_cl=thru:
     // a thru fetch of a CL-index form not) ends the fetch-free run back from the post
     wire        pf_cov = (busy && cur_kind == K_FETCH && !(p4.fmt.pcl && cur_thru))
-                         || (g_fetch && !(p4.fmt.pcl && g_thru));
-    wire [1:0]  owed_n = t_prs ? 2'd1
-                       : (g_abort_lat && p4.sync_v && !p4.sync_def && owed_s == 2'd0) ? 2'd1
+                         || (g_fetch_b && !(p4.fmt.pcl && g_thru_b));
+    wire [1:0]  owed_n = t_prs_b ? 2'd1
+                       : (g_abort_lat_b && p4.sync_v && !p4.sync_def && owed_s == 2'd0) ? 2'd1
                                                                                         : owed_s;
-    wire [1:0]  wb_end = p_end2 ? p2.wbc : (p_done_rec ? p0.wbc : (t_end2 ? s2.wbc : wbc));
+    wire [1:0]  wb_end = p_end2 ? p2.wbc : (p_done_rec ? p0.wbc : (t_end2_b ? s2_b.wbc : wbc));
     wire [2:0]  wb_tot = {1'b0, wb_end} + (wbx ? 3'd1 : 3'd0);
 
     // the next cursor's row, the window's address (the decode ahead when no row follows)
     rv_t        nrow;
-    always_comb nrow = rowat(p4.a);
+    always_comb nrow = rowat_o(p4.dw, p4.du);
     // (the window: a REP loop's last row loops back unless CW runs out; a compare's exit on its
     // condition finds the rows after the loop in the window too)
     wire        loop_e = p4.run && nrow.v && nrow.r.loop && !(p4.fmt.rep && cw_e == 16'd1);
@@ -2481,6 +2662,8 @@ module v35_ucode
     always_comb begin
         ptail = p4;
         ptail.a = p4.a + 11'd1;
+        ptail.dw = inc8(p4.dw, 3'd1);
+        ptail.du = inc8(p4.du, 3'd1);
         skip_run(ptail);
     end
     wire        tail_e = p4.run && !ptail.run;
@@ -2491,7 +2674,7 @@ module v35_ucode
     // (a last row with a skip condition: once decided, a bit field's crossing alternative with
     // no final skip partner after it)
     rv_t        nrow2;
-    always_comb nrow2 = rowat(p4.a + 11'd1);
+    always_comb nrow2 = rowat_o(inc8(p4.dw, 3'd1), inc8(p4.du, 3'd1));
     wire        xlast_e = nrow.r.last && xrow(nrow.r) && bf_ok
                           && !(nrow2.v && nrow2.r.skip != V35_SKIP_NONE && nrow2.r.last);
     wire        ahead_e = !p4.run || (nrow.v && !loop_e
@@ -2520,11 +2703,10 @@ module v35_ucode
     assign aim_next = ahead_e && !(p4.run && nrow.v && !p4.own_v
                                    && (nrow.r.op == V35_OP_DATA || nrow.r.op == V35_OP_POST
                                        || nrow.r.op == V35_OP_POST_IO));
-    assign wait_o = t_why;
     assign res_o = res;
 
     always_ff @(posedge clock) begin
-        if (ce) begin
+        if (ce_a) begin
             q0 <= uc_row_t'(bank0[bank_a(wa_e, 2'd0)]);
             q1 <= uc_row_t'(bank1[bank_a(wa_e, 2'd1)]);
             q2 <= uc_row_t'(bank2[bank_a(wa_e, 2'd2)]);
@@ -2629,7 +2811,7 @@ module v35_ucode
             pfc <= 4'd0;
             tlr <= 1'b0;
             tlwb <= 2'd0;
-        end else if (ce) begin
+        end else if (ce_a) begin
             run <= p4.run;
             upc <= p4.a;
             row_c <= nrow.r;
@@ -2651,7 +2833,7 @@ module v35_ucode
             own_v <= p4.own_v;
             dpass <= p4.dpass;
             exec_v <= p4.exec_v;
-            if (xt.set_exec || xp.set_exec) begin
+            if (xt_b.set_exec || xp.set_exec) begin
                 ex_age <= 2'd1;
                 ex_par <= 1'b1;
             end else begin
@@ -2659,12 +2841,12 @@ module v35_ucode
                     ex_age <= ex_age + 2'd1;
                 ex_par <= !ex_par;
             end
-            if (t_hold)
+            if (t_hold_b)
                 hold_done <= 1'b1;
-            else if (g_fetch || g_abort)
+            else if (g_fetch_b || g_abort_b)
                 hold_done <= 1'b0;
             if (st_now)
-                abort_start <= (t_start && g_abort) || xp.iodrop || io_unit_drop;
+                abort_start <= (t_start_b && g_abort_b) || xp.iodrop || io_unit_drop;
             else if (io_unit_drop)
                 abort_start <= 1'b1;    // queue.abort_t = eu.start_clock (machine.py:211)
             done_m <= p4.done_m;
@@ -2673,7 +2855,7 @@ module v35_ucode
             cc <= p4.cc;
             op <= p4.op;
             halted <= p4.halted;
-            if (xt.flush)
+            if (xt_b.flush)
                 refill <= 1'b1;
             else if (st_now)
                 refill <= 1'b0;
@@ -2688,17 +2870,17 @@ module v35_ucode
                 wbx <= 1'b0;
             // the latches an OUT's detached I/O holds (eu.latch_until): from its post to the
             // end of its cycle
-            if (retick && g_io) begin
+            if (retick_b && g_io_b) begin
                 lu_inf <= 1'b0;
-                lu <= grant_len - 3'd1;         // latch_until = end + 1
+                lu <= grant_len_b - 3'd1;         // latch_until = end + 1
             end else begin
-                if ((post_t && prow_t.rkind == V35_RK_IO_WRITE && prow_t.detached)
+                if ((xt_b.post && xt_b.row.rkind == V35_RK_IO_WRITE && xt_b.row.detached)
                     || (post_p && prow_p.rkind == V35_RK_IO_WRITE && prow_p.detached))
                     lu_inf <= 1'b1;
                 if (lu != 3'd0)
                     lu <= lu - 3'd1;
             end
-            if ((post_t && prow_t.detached) || (post_p && prow_p.detached))
+            if ((xt_b.post && xt_b.row.detached) || (post_p && prow_p.detached))
                 slot_rl <= p4.cc.relatch;
             nw_v <= p4.nw_v;
             nw <= p4.nw;
@@ -2716,15 +2898,15 @@ module v35_ucode
             thd <= p4.thd;
             cva <= p4.cva && !st_now;
             sage <= st_now ? 4'd1 : (sage == 4'd15 ? 4'd15 : sage + 4'd1);
-            sfage <= own_h2 ? 4'd1 : (sfage == 4'd15 ? 4'd15 : sfage + 4'd1);
+            sfage <= own_h2_b ? 4'd1 : (sfage == 4'd15 ? 4'd15 : sfage + 4'd1);
             // str_io_setup=run: the fetch issued on the nowait row's first clock back to back
-            if (xt.nwfirst)
-                nwf <= g_fetch && fetch_end_prev;
+            if (xt_b.nwfirst)
+                nwf <= g_fetch_b && fetch_end_prev;
             else if (fetch_last_c)
                 nwf <= 1'b0;
-            if (xt.nwfirst)
+            if (xt_b.nwfirst)
                 nwu <= 1'b0;
-            else if (xt.nwused || xp.nwused)
+            else if (xt_b.nwused || xp.nwused)
                 nwu <= 1'b1;
             // mul_imm_count=sync: the clean clocks (no cycle but a fetch issued from mul_from
             // on) since mul_from
@@ -2743,7 +2925,7 @@ module v35_ucode
             mf_o <= mf_oldn && !fetch_last_c;
             if (st_now) begin
                 lwc <= (lw_v && lwx > 6'sd1) ? 3'(lwx - 6'sd1) : 3'd0;
-                lw_v <= p4.fmt.lea && g_fetch;
+                lw_v <= p4.fmt.lea && g_fetch_b;
                 lw_rel <= 4'(fetch_len) - 4'sd2;
                 lw_fwb <= p4.cc.fwb;
             end else begin
@@ -2754,8 +2936,8 @@ module v35_ucode
             end
             if (xp.lrset)
                 lrc <= xp.lrn == 4'd0 ? 4'd0 : xp.lrn - 4'd1;
-            else if (xt.lrset)
-                lrc <= xt.lrn == 4'd0 ? 4'd0 : xt.lrn - 4'd1;
+            else if (xt_b.lrset)
+                lrc <= xt_b.lrn == 4'd0 ? 4'd0 : xt_b.lrn - 4'd1;
             else if (lrc != 4'd0)
                 lrc <= lrc - 4'd1;
             // lea_disp=run: an LDEA's d16 whose last byte is the even half of a word (not one
@@ -2764,7 +2946,7 @@ module v35_ucode
             if (st_now)
                 lsp <= !p_start && p4.fmt.lea && p4.fmt.disp == 2'd2
                        && !(p4.oddpc ^ ((p4.fmt.len - 3'd1) & 3'd1) != 3'd0);
-            else if (xt.lsclr || xp.lsclr)
+            else if (xt_b.lsclr || xp.lsclr)
                 lsp <= 1'b0;
             ltop <= p4.ltop;
             // the memory forms' timers (this clock's values in p4, counted down at the edge)
@@ -2773,24 +2955,24 @@ module v35_ucode
             dfl_v <= p4.dfl_v;
             dfl <= p4.dfl == 3'd0 ? 3'd0 : p4.dfl - 3'd1;
             uearly <= p4.uearly;
-            if (xt.gd || xp.gd)
+            if (xt_b.gd || xp.gd)
                 gdc <= p4.cc.dhold == 2'd0 ? 2'd0 : p4.cc.dhold - 2'd1;
             else if (gdc != 2'd0)
                 gdc <= gdc - 2'd1;
             if (st_now)
                 eac <= 3'd0;
-            if (xt.easet || xp.easet)
-                eac <= (xt.easet ? xt.ean : xp.ean) - 3'd1;
+            if (xt_b.easet || xp.easet)
+                eac <= (xt_b.easet ? xt_b.ean : xp.ean) - 3'd1;
             else if (eac != 3'd0 && !st_now)
                 eac <= eac - 3'd1;
             // lookup_start: the running form started on this clock, a fetch issued on it (T)
             st_prev <= st_now;
-            fst <= t_start && !p_start && g_fetch;
+            fst <= t_start_b && !p_start && g_fetch_b;
             tkn <= p4.tkn;
             zf <= p4.zf;
             oddpc <= p4.oddpc;
             ont <= p4.ont;
-            dab <= st_now ? g_abort : (dab || g_abort);
+            dab <= st_now ? g_abort_b : (dab || g_abort_b);
             // (S5b) the 0F page's timers (this clock's values in p4, counted down at the edge)
             flt <= p4.flt;
             pfs <= p4.pfs;
@@ -2810,9 +2992,9 @@ module v35_ucode
                 tlwb <= ptail.wbc;
             pfc <= st_now ? (pf_cov ? 4'd0 : 4'd1)
                           : (pf_cov ? 4'd0 : (pfc == 4'd15 ? 4'd15 : pfc + 4'd1));
-            dabs <= et.dabs == 4'd15 ? 4'd15 : et.dabs + 4'd1;
+            dabs <= et_b.dabs == 4'd15 ? 4'd15 : et_b.dabs + 4'd1;
             // count_latch: held from the count byte's take to the shift's last clock
-            if (shift_latch)
+            if (shift_latch_b)
                 shift_held_r <= 1'b1;
             else if (st_now)
                 shift_held_r <= 1'b0;
@@ -2820,29 +3002,523 @@ module v35_ucode
     end
 
 `ifndef SYNTHESIS
+    /* verilator lint_off WIDTHTRUNC */
+    /* verilator lint_off UNUSEDSIGNAL */
+    /* verilator lint_off BLKSEQ */
+    // (S7b) +v35_stats: the passes' shapes counted over a run (bring-up of the two-tick
+    // structure: which rows each pass evaluates together and how they end), printed at the end
+    // as "v35 stat: KEY COUNT" (T: the T pass, P: the P pass on a retick)
+    reg stats_on = 1'b0;
+    int stats [string];
+    initial stats_on = $test$plusargs("v35_stats");
+    function automatic string rsig(input uc_row_t r);
+        return $sformatf("%0d.%0d.%0d.%0d.%0d.%0d.%0d.%0d", r.op, r.wcond, r.tag, r.skip, r.arm,
+                         r.apos, r.nsrc, r.rkind);
+    endfunction
+    function automatic string xsig(input fx_t x);
+        return $sformatf("c%0dn%0dk%0dp%0da%0dw%0d", x.complete, x.cont, x.tk, x.post, x.adv,
+                         x.why);
+    endfunction
+    string st_key;
+    always @(posedge clock) begin
+        if (stats_on && reset_n && ce_a && t_ev2) begin
+            st_key = $sformatf("T w%0d h%0d s%0d st%0d%0d try%0d%0d", t_wait, t_hold, t_sync_blk,
+                               s1.started, s3.started, t_try1, t_try2);
+            if (t_ev1)
+                st_key = {st_key, " |", rsig(r1.r), " ", xsig(x1)};
+            if (t_ev2)
+                st_key = {st_key, " |", rsig(r2.r), " ", xsig(x2)};
+            if (t_ev3)
+                st_key = {st_key, " |", rsig(r3.r), " ", xsig(x3)};
+            $display("v35 stat: %s = 1", st_key);
+        end
+        if (stats_on && reset_n && ce_a) begin
+            if (retick_b) begin
+                st_key = $sformatf("P w%0d s%0d st%0d try%0d g%0d", p_wait, p_sync_blk,
+                                   p1.started, p_try1, p_gate1);
+                if (p_ev1)
+                    st_key = {st_key, " |", rsig(u1.r), " ", xsig(y1)};
+                if (p_ev2)
+                    st_key = {st_key, " |", rsig(u2.r), " ", xsig(y2)};
+                if (p_ev3)
+                    st_key = {st_key, " |", rsig(u3.r), " ", xsig(y3)};
+                $display("v35 stat: %s = 1", st_key);
+            end
+        end
+    end
+    final begin
+        if (stats_on)
+            foreach (stats[k])
+                $display("v35 stat: %s = %0d", k, stats[k]);
+    end
+    /* verilator lint_on BLKSEQ */
+    /* verilator lint_on UNUSEDSIGNAL */
+    /* verilator lint_on WIDTHTRUNC */
     // +v35_dbg=FILE: the sequencer's state per clock (bring-up only)
     integer dbg = 0;
     reg [31:0] dbg_t = 32'd0;
     string dbg_name;
     initial if ($value$plusargs("v35_dbg=%s", dbg_name)) dbg = $fopen(dbg_name, "w");
     always @(posedge clock) begin
-        if (ce && reset_n) begin
+        if (ce_a && reset_n) begin
             dbg_t <= dbg_t + 32'd1;
             if (dbg != 0)
-                $fdisplay(dbg, "uc %0d run%0d upc%0d rc%0d wa%0d res%0d | r1 %0d.%0d op%0d c%0d k%0d m%0d | r2 %0d op%0d c%0d m%0d | st%0d%0d try%0d%0d gate%0d%0d dec%0d%0d base%0d nf%0d->%0d | r3 %0d op%0d | p %0d%0d%0d | sc%0d lx%0d el%0d sl%0d se%0d ls2%0d",
-                         dbg_t, run, upc, rc_v, wa, res, t_ev1, r1.v, r1.r.op, x1.complete,
-                         x1.cont, x1.rom_miss, t_ev2, r2.r.op, x2.complete, x2.rom_miss,
-                         s1.started, s3.started, t_try1, t_try2, t_gate1, t_gate2, t_dec1,
-                         t_dec2, base_c, nf_v, wa_e, t_ev3, r3.r.op, p_ev1, p_ev2, p_ev3,
+                $fdisplay(dbg, "uc %0d run%0d upc%0d rc%0d wa%0d res%0d | r1_b %0d.%0d op%0d c%0d k%0d m%0d | r2_b %0d op%0d c%0d m%0d | st%0d%0d try%0d%0d gate%0d%0d dec%0d%0d base%0d nf%0d->%0d | r3_b %0d op%0d | p %0d%0d%0d | sc%0d lx%0d el%0d sl%0d se%0d ls2%0d",
+                         dbg_t, run, upc, rc_v, wa, res, t_ev1_b, r1_b.v, r1_b.r.op, x1_b.complete,
+                         x1_b.cont, x1_b.rom_miss, t_ev2_b, r2_b.r.op, x2_b.complete, x2_b.rom_miss,
+                         s1_b.started, s3_b.started, t_try1_b, t_try2_b, t_gate1_b, t_gate2_b, t_dec1_b,
+                         t_dec2_b, base_c, nf_v, wa_e, t_ev3_b, r3_b.r.op, p_ev1, p_ev2, p_ev3,
                          p4.scond, p4.lxt, p4.elem, str_last, str_exit, p4.ls2);
         end
     end
 `endif
 
-    wire unused = &{1'b0, xt.why, xp.why, xt.def, xp.def, xt.complete, xp.complete, xt.cont,
+    // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
+`ifndef SYNTHESIS
+    /* verilator lint_off BLKSEQ */
+    reg chk_on = 1'b0;
+    integer chk_n = 0;
+    initial chk_on = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (s1_b !== s1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.s1 changed in tick B: %h -> %h at %0t",
+                             s1_b, s1, $time);
+            end
+            if (s2_b !== s2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.s2 changed in tick B: %h -> %h at %0t",
+                             s2_b, s2, $time);
+            end
+            if (s3_b !== s3) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.s3 changed in tick B: %h -> %h at %0t",
+                             s3_b, s3, $time);
+            end
+            if (s4_b !== s4) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.s4 changed in tick B: %h -> %h at %0t",
+                             s4_b, s4, $time);
+            end
+            if (x1_b !== x1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.x1 changed in tick B: %h -> %h at %0t",
+                             x1_b, x1, $time);
+            end
+            if (x2_b !== x2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.x2 changed in tick B: %h -> %h at %0t",
+                             x2_b, x2, $time);
+            end
+            if (x3_b !== x3) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.x3 changed in tick B: %h -> %h at %0t",
+                             x3_b, x3, $time);
+            end
+            if (xt_b !== xt) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.xt changed in tick B: %h -> %h at %0t",
+                             xt_b, xt, $time);
+            end
+            if (r1_b !== r1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.r1 changed in tick B: %h -> %h at %0t",
+                             r1_b, r1, $time);
+            end
+            if (r2_b !== r2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.r2 changed in tick B: %h -> %h at %0t",
+                             r2_b, r2, $time);
+            end
+            if (r3_b !== r3) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.r3 changed in tick B: %h -> %h at %0t",
+                             r3_b, r3, $time);
+            end
+            if (et_b !== et) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.et changed in tick B: %h -> %h at %0t",
+                             et_b, et, $time);
+            end
+            if (t_start_b !== t_start) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_start changed in tick B: %h -> %h at %0t",
+                             t_start_b, t_start, $time);
+            end
+            if (t_dec1_b !== t_dec1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_dec1 changed in tick B: %h -> %h at %0t",
+                             t_dec1_b, t_dec1, $time);
+            end
+            if (t_dec2_b !== t_dec2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_dec2 changed in tick B: %h -> %h at %0t",
+                             t_dec2_b, t_dec2, $time);
+            end
+            if (t_done_rec_b !== t_done_rec) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_done_rec changed in tick B: %h -> %h at %0t",
+                             t_done_rec_b, t_done_rec, $time);
+            end
+            if (t_end2_b !== t_end2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_end2 changed in tick B: %h -> %h at %0t",
+                             t_end2_b, t_end2, $time);
+            end
+            if (t_ev1_b !== t_ev1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_ev1 changed in tick B: %h -> %h at %0t",
+                             t_ev1_b, t_ev1, $time);
+            end
+            if (t_ev2_b !== t_ev2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_ev2 changed in tick B: %h -> %h at %0t",
+                             t_ev2_b, t_ev2, $time);
+            end
+            if (t_ev3_b !== t_ev3) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_ev3 changed in tick B: %h -> %h at %0t",
+                             t_ev3_b, t_ev3, $time);
+            end
+            if (t_gate1_b !== t_gate1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_gate1 changed in tick B: %h -> %h at %0t",
+                             t_gate1_b, t_gate1, $time);
+            end
+            if (t_gate2_b !== t_gate2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_gate2 changed in tick B: %h -> %h at %0t",
+                             t_gate2_b, t_gate2, $time);
+            end
+            if (t_hold_b !== t_hold) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_hold changed in tick B: %h -> %h at %0t",
+                             t_hold_b, t_hold, $time);
+            end
+            if (t_prs_b !== t_prs) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_prs changed in tick B: %h -> %h at %0t",
+                             t_prs_b, t_prs, $time);
+            end
+            if (t_try1_b !== t_try1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_try1 changed in tick B: %h -> %h at %0t",
+                             t_try1_b, t_try1, $time);
+            end
+            if (t_try2_b !== t_try2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_try2 changed in tick B: %h -> %h at %0t",
+                             t_try2_b, t_try2, $time);
+            end
+            if (hit_l_b !== hit_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.hit_l changed in tick B: %h -> %h at %0t",
+                             hit_l_b, hit_l, $time);
+            end
+            if (fl_now_p_b !== fl_now_p) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.fl_now_p changed in tick B: %h -> %h at %0t",
+                             fl_now_p_b, fl_now_p, $time);
+            end
+            if (ask_d_b !== ask_d) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.ask_d changed in tick B: %h -> %h at %0t",
+                             ask_d_b, ask_d, $time);
+            end
+            if (hold_res_b !== hold_res) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.hold_res changed in tick B: %h -> %h at %0t",
+                             hold_res_b, hold_res, $time);
+            end
+            if (mro_c_b !== mro_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.mro_c changed in tick B: %h -> %h at %0t",
+                             mro_c_b, mro_c, $time);
+            end
+            if (owed_c_b !== owed_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.owed_c changed in tick B: %h -> %h at %0t",
+                             owed_c_b, owed_c, $time);
+            end
+            if (owed_t_b !== owed_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.owed_t changed in tick B: %h -> %h at %0t",
+                             owed_t_b, owed_t, $time);
+            end
+            if (wbu_t2_b !== wbu_t2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.wbu_t2 changed in tick B: %h -> %h at %0t",
+                             wbu_t2_b, wbu_t2, $time);
+            end
+            if (run_l_b !== run_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.run_l changed in tick B: %h -> %h at %0t",
+                             run_l_b, run_l, $time);
+            end
+            if (avail_c_b !== avail_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.avail_c changed in tick B: %h -> %h at %0t",
+                             avail_c_b, avail_c, $time);
+            end
+            if (stored_l_b !== stored_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.stored_l changed in tick B: %h -> %h at %0t",
+                             stored_l_b, stored_l, $time);
+            end
+            if (g_abort_b !== g_abort) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.g_abort changed in tick B: %h -> %h at %0t",
+                             g_abort_b, g_abort, $time);
+            end
+            if (g_abort_lat_b !== g_abort_lat) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.g_abort_lat changed in tick B: %h -> %h at %0t",
+                             g_abort_lat_b, g_abort_lat, $time);
+            end
+            if (g_eu_b !== g_eu) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.g_eu changed in tick B: %h -> %h at %0t",
+                             g_eu_b, g_eu, $time);
+            end
+            if (g_fetch_b !== g_fetch) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.g_fetch changed in tick B: %h -> %h at %0t",
+                             g_fetch_b, g_fetch, $time);
+            end
+            if (g_io_b !== g_io) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.g_io changed in tick B: %h -> %h at %0t",
+                             g_io_b, g_io, $time);
+            end
+            if (g_thru_b !== g_thru) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.g_thru changed in tick B: %h -> %h at %0t",
+                             g_thru_b, g_thru, $time);
+            end
+            if (inflight_x_b !== inflight_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.inflight_x changed in tick B: %h -> %h at %0t",
+                             inflight_x_b, inflight_x, $time);
+            end
+            if (ir_v_l_b !== ir_v_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.ir_v_l changed in tick B: %h -> %h at %0t",
+                             ir_v_l_b, ir_v_l, $time);
+            end
+            if (grant_len_b !== grant_len) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.grant_len changed in tick B: %h -> %h at %0t",
+                             grant_len_b, grant_len, $time);
+            end
+            if (ir_l_b !== ir_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.ir_l changed in tick B: %h -> %h at %0t",
+                             ir_l_b, ir_l, $time);
+            end
+            if (vb0_b !== vb0) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.vb0 changed in tick B: %h -> %h at %0t",
+                             vb0_b, vb0, $time);
+            end
+            if (vb1_b !== vb1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.vb1 changed in tick B: %h -> %h at %0t",
+                             vb1_b, vb1, $time);
+            end
+            if (vb2_b !== vb2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.vb2 changed in tick B: %h -> %h at %0t",
+                             vb2_b, vb2, $time);
+            end
+            if (vb3_b !== vb3) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.vb3 changed in tick B: %h -> %h at %0t",
+                             vb3_b, vb3, $time);
+            end
+            if (ir_addr_l_b !== ir_addr_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.ir_addr_l changed in tick B: %h -> %h at %0t",
+                             ir_addr_l_b, ir_addr_l, $time);
+            end
+            if (l_pop_b !== l_pop) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.l_pop changed in tick B: %h -> %h at %0t",
+                             l_pop_b, l_pop, $time);
+            end
+            if (lat_x_b !== lat_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.lat_x changed in tick B: %h -> %h at %0t",
+                             lat_x_b, lat_x, $time);
+            end
+            if (ok_l_b !== ok_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.ok_l changed in tick B: %h -> %h at %0t",
+                             ok_l_b, ok_l, $time);
+            end
+            if (own_done_p_b !== own_done_p) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.own_done_p changed in tick B: %h -> %h at %0t",
+                             own_done_p_b, own_done_p, $time);
+            end
+            if (own_h2_b !== own_h2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.own_h2 changed in tick B: %h -> %h at %0t",
+                             own_h2_b, own_h2, $time);
+            end
+            if (post_ok_p_b !== post_ok_p) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.post_ok_p changed in tick B: %h -> %h at %0t",
+                             post_ok_p_b, post_ok_p, $time);
+            end
+            if (retick_b !== retick) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.retick changed in tick B: %h -> %h at %0t",
+                             retick_b, retick, $time);
+            end
+            if (rq_old_p_b !== rq_old_p) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.rq_old_p changed in tick B: %h -> %h at %0t",
+                             rq_old_p_b, rq_old_p, $time);
+            end
+            if (shift_latch_b !== shift_latch) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.shift_latch changed in tick B: %h -> %h at %0t",
+                             shift_latch_b, shift_latch, $time);
+            end
+            if (slot_det_p_b !== slot_det_p) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.slot_det_p changed in tick B: %h -> %h at %0t",
+                             slot_det_p_b, slot_det_p, $time);
+            end
+            if (slot_wait_p_b !== slot_wait_p) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.slot_wait_p changed in tick B: %h -> %h at %0t",
+                             slot_wait_p_b, slot_wait_p, $time);
+            end
+            if (wl_busy_x_b !== wl_busy_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.wl_busy_x changed in tick B: %h -> %h at %0t",
+                             wl_busy_x_b, wl_busy_x, $time);
+            end
+            if (slot_det_c_b !== slot_det_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.slot_det_c changed in tick B: %h -> %h at %0t",
+                             slot_det_c_b, slot_det_c, $time);
+            end
+            if (inflight_c_b !== inflight_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.inflight_c changed in tick B: %h -> %h at %0t",
+                             inflight_c_b, inflight_c, $time);
+            end
+            if (ir_v_c_b !== ir_v_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.ir_v_c changed in tick B: %h -> %h at %0t",
+                             ir_v_c_b, ir_v_c, $time);
+            end
+            if (ok_c_b !== ok_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.ok_c changed in tick B: %h -> %h at %0t",
+                             ok_c_b, ok_c, $time);
+            end
+            if (room_p0_b !== room_p0) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.room_p0 changed in tick B: %h -> %h at %0t",
+                             room_p0_b, room_p0, $time);
+            end
+            if (fmt_c_b !== fmt_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.fmt_c changed in tick B: %h -> %h at %0t",
+                             fmt_c_b, fmt_c, $time);
+            end
+            if (cls_c_b !== cls_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.cls_c changed in tick B: %h -> %h at %0t",
+                             cls_c_b, cls_c, $time);
+            end
+        end
+    end
+    final if (chk_on && chk_n != 0)
+        $display("v35 chk: ucode: %0d changes in tick B", chk_n);
+    /* verilator lint_on BLKSEQ */
+`endif
+    // (S7b) chk end
+
+    wire unused = &{1'b0, ce_b, s1_b, xt_b, r1_b, t_gate1_b, t_gate2_b, s2_b, s3_b, x1_b, x2_b, x3_b, r2_b, r3_b, ir_addr_l_b, xt_b.why, xp.why, xt_b.def, xp.def, xt_b.complete, xp.complete, xt_b.cont,
                     xp.cont, xp.relatch, xp.flush, xp.halt, xp.rt_set, xp.rt_n,
                     xp.retire, xp.set_exec, xp.sh_set, xp.sh_n, xp.cntk, xp.landed, t_lapse,
                     x1.rom_miss, x2.rom_miss, y1.rom_miss, y2.rom_miss, xt, xp, ir_addr_c,
-                    room_p0, r1n, r2n, u1n, u2n, cur_left, dpass, nf_addr, g1, g2, h1, h2,
+                    room_p0, r1n, r2n, u1n, u2, cur_left, dpass, nf_addr, g1, g2, h1, h2,
                     ep, et, p4, x3, y3, r3n, u3n};
 endmodule

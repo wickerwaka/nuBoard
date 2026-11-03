@@ -843,3 +843,39 @@ constraints. The user's direction is to fix the structure, not the constraints.
   SST 2,849,080 pass / 0 fail; `--regfile` 69,099 + 38,760 vectors 0 bad; function bench 19,752 / 0 bad; lint
   clean in four configurations; 30 fast tests green; the nine offline modules unchanged. Divergences 27–30
   (README). Open from S6 for S7b: the reset blocks of v35_queue, v35_bus and v35_ucode are incomplete.
+- 2026-11-03, **S7b checkpoint landed (steps 1–3 of the two-tick work)**: two clock enables through
+  `v35_top`: `ce_a` the CPU clock's edge (every architectural register) and `ce_b` one fabric tick inside the
+  clock (the pipeline registers that hold tick A's results; nothing architectural); `ce_a` waits for a
+  `ce_b` after the reset exit. Every module's tick-A results (S1–S4: arrival, the T pass, the IR load, room /
+  request, the arbiter's choice and grant) are registered at `ce_b`; tick B (S5–S6) and the `ce_a` blocks
+  read only those registers and the architectural ones. The P pass is a case step (the data step against the
+  other first row, the measured follow-on rows evaluated beside it, anything else reported as `voc_miss`);
+  the ROM window is read by tracked offsets instead of 11-bit address subtracts. Simulation variants:
+  `+v35_ticks=2` (the core's registers update only on `ce_a` and the clock's middle tick, exactly the target's
+  two ticks, pins and the 30 ns recording unchanged), `+v35_ceb=K` (ce_b K ticks after the middle), `+v35_chk`
+  (a sim-only check that every `ce_b` register equals its tick-A source at `ce_a`); replay passes them through
+  `V35_PLUSARGS`, `V35_SIM_BINARY` / `V35_SIM_DIR` run a second build beside a gate. The timing wrapper
+  (`fpga/v35s/synth/v35_tw.sv`, `v35_tw.py`, `v35_timing.sh`: a module's inputs from a shift chain, its
+  outputs registered and folded onto eight pins, `create_clock -period 15.625`, no other constraint) is written
+  and not yet run. **Structural finding (the agent's, directed on the same day):** the read datum is on the
+  pins only from the middle of its delivery clock (where the V35 samples it), and tick A needs it (S1's bytes
+  into the T pass, the start's ModR/M decode, the IR); with `ce_b` at the middle the datum reaches tick A from
+  the live pins, an input-to-register path through all of tick A that at the target would have no time at
+  all. Direction given: the datum register at the sample point is the *start* of tick A — `ce_a` moves to the
+  clock's middle, `ce_b` to its edge, the bus starts a cycle at the edge from the grant registered there, the
+  core's state is a half clock later than the model's convention while the pins stay. The one same-clock
+  dependency found (the write datum of an RMW whose write issued before its exec ran is the exec's result, S5)
+  is resolved by driving every write datum at mid-B2 from one register written at `ce_a` (the recorder keeps
+  the last data sample while the strobe is low, so the write-data gate stays like for like; the pin change is
+  README Divergence 31 in the agent's tree). Step 4 is the T pass as one row decision by cases evaluated side
+  by side (no ROM compound rows: 65 % of the chained T passes cross a form boundary, which no row can fold),
+  step 5 the arbiter's precomputed holds, step 6 the eu/ea pipeline registers (the reset blocks of v35_queue,
+  v35_bus and v35_ucode are complete in the agent's tree), step 7 the timing runs; the swap is in the agent's
+  tree, not in this checkpoint. Map in the agent's step-3 tree (LUT4 / FF): ucode 10,103 / 1,219 (S7a 8,832 /
+  498), loader 2,182 / 558, arbiter 1,810 / 705, queue 1,105 / 315, bus 264 / 225, regram 16 / 14, eu + ea
+  9,231 / 917; its levelizer's module-local LUT depth: ucode tick A 63 / tick B 61, eu tick B 62, arbiter tick
+  A 44, queue 20, loader 19, bus 4, against ~5–6 a tick at the target. **Gate, rerun on main:** 36 families at
+  the eight-tick spacing with `+v35_chk` 30,536 / 30,536 RTL = model (model-exact = RTL-exact 30,361), `--diag`
+  silent, 0 check reports; the same at `+v35_ticks=2`, per-family tables identical; write data 106,824 /
+  106,824 at both; SST 2,849,080 pass / 0 fail; `--regfile` 69,099 + 38,760 vectors 0 bad; function bench
+  19,752 / 0 bad; lint clean in four configurations; 30 fast tests green; the nine offline modules unchanged.

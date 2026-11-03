@@ -8,11 +8,11 @@
 // SFR store field 7's (sfr_cycle=io: 3 + the I/O waits, never on the pins).
 //
 // The pin timing and the read latch are v35_biu.sv's (lines 290-350), verbatim: a cycle granted
-// on clock s shows B1 on the pins in the CPU state after s's `ce`; /MREQ (or /REFRQ) falls
+// on clock s shows B1 on the pins in the CPU state after s's `ce_a`; /MREQ (or /REFRQ) falls
 // mid-B1, /IOSTB and a read's /MSTB mid-B2, a memory write's /MSTB mid-way through the state
 // before B3, every strobe rises mid-B3, where read data is latched.
 //
-// Clocking: `ce` ends a CPU clock; the registers hold the state at the end of the last clock.
+// Clocking: `ce_a` ends a CPU clock; the registers hold the state at the end of the last clock.
 // Everything this module outputs is stage S0 (registers only) except the grant inputs, which
 // are S4 and are written at the edge.
 //
@@ -60,7 +60,8 @@ module v35_bus
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,          // end of a CPU clock
+    input  wire        ce_a,          // end of a CPU clock
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
     input  wire        ce_mid,      // the middle of a CPU clock (strobe edges)
     input  wire [15:0] wtc,
     input  wire [7:0]  rfm,         // RFM.RFW: a refresh cycle's length
@@ -87,7 +88,8 @@ module v35_bus
     input  wire [1:0]  g_dsel,      // (S4) the write datum taken at B2 (store_imm's immediate)
     input  wire [15:0] wd_imm,      // ... the EU's immediate on that clock
     input  wire        disp_take,   // a displacement taken on this clock (c_disp_in_flight)
-    input  wire        take_any,    // (S5b) an operand take on this clock (T or P: take_t == t)
+    input  wire        take_t,      // (S5b) an operand take on this clock (T or P: take_t == t)
+    input  wire        take_p,      //   (S7b) T (tick A), P (tick B)
     input  wire        flush_now,   // (S5b) a flush empties the IR on this clock
     // S5: the clock's instruction starts (an I/O issue clock's second pass included)
     input  wire        start_any,
@@ -117,7 +119,8 @@ module v35_bus
     output wire [2:0]  dlv_kind,
     output wire [19:0] dlv_addr,
     output wire [1:0]  dlv_width,
-    output reg  [15:0] done_data,       // ... its read datum (latched mid-B3)
+    output wire [15:0] done_data,       // ... its read datum (on the pins mid-B3: (S7b) live
+                                        //   through the delivery clock, then latched)
     output wire        abort_busy,      // an aborted cycle is in flight (abort_end >= t)
     output wire        abort_last,      // abort_end == t
     output wire        abort_done,      // abort_end == t-1 (queue.abort_done in phase C)
@@ -239,7 +242,7 @@ module v35_bus
     wire [2:0] wl_fill_v = wl_now > 3'(FIT_WLATCH) ? wl_now : 3'(FIT_WLATCH);
     wire [2:0] wl_c = fill_c ? wl_fill_v : wl_now;
     wire [2:0] wl_x = (fill_c || fill_x) ? wl_fill_v : wl_now;
-    wire [2:0] wl_e = (fill_c || fill_x || wl_fill_p) ? wl_fill_v : wl_now;
+    wire [2:0] wl_e = (fill_c || fill_x_b || wl_fill_p) ? wl_fill_v : wl_now;
     assign wl_busy = wl_c != 3'd0;
     assign wl_busy_x = wl_x != 3'd0;
 
@@ -252,8 +255,41 @@ module v35_bus
                        3'(BUS_BASE) + 3'(waits_mem);
     assign fetch_len = 3'(BUS_BASE) + 3'(waits_mem);
 
+    // ------------------------------------------------ (S7b) the ce_b registers
+    // the grant (S4) and this clock's T-pass inputs, registered at the end of tick A: the end of
+    // the clock (the cycle's start, the pins at ce_a) reads these, never tick A's logic
+    reg         g_start_b = 1'b0, g_ext_b = 1'b0, g_b2b_b = 1'b0, g_thru_b = 1'b0;
+    reg         g_after_post_b = 1'b0, g_abort_b = 1'b0, disp_take_b = 1'b0, flush_now_b = 1'b0;
+    reg         g_sfr_b = 1'b0, fill_x_b = 1'b0, take_t_b = 1'b0;
+    reg  [2:0]  g_kind_b = K_NONE, grant_len_b = 3'd0;
+    reg  [19:0] g_addr_b = 20'd0;
+    reg  [1:0]  g_width_b = BW_WORD, g_dsel_b = 2'd0;
+    reg  [15:0] g_data_b = 16'd0;
+    always @(posedge clock) begin
+        if (ce_b) begin
+            g_start_b <= g_start;
+            g_ext_b <= g_ext;
+            g_b2b_b <= g_b2b;
+            g_thru_b <= g_thru;
+            g_after_post_b <= g_after_post;
+            g_abort_b <= g_abort;
+            disp_take_b <= disp_take;
+            flush_now_b <= flush_now;
+            g_sfr_b <= g_sfr;
+            fill_x_b <= fill_x;
+            take_t_b <= take_t;
+            g_kind_b <= g_kind;
+            grant_len_b <= grant_len;
+            g_addr_b <= g_addr;
+            g_width_b <= g_width;
+            g_dsel_b <= g_dsel;
+            g_data_b <= g_data;
+        end
+    end
+    wire take_any_b = take_t_b || take_p;
+
     // ------------------------------------------------ the end of the clock (S6)
-    wire fetch_x = g_start && g_kind == K_FETCH;
+    wire fetch_x = g_start_b && g_kind_b == K_FETCH;
     always @(posedge clock) begin
         if (!reset_n) begin
             c_valid <= 1'b0;
@@ -274,16 +310,16 @@ module v35_bus
             ab_pos <= 2'd0;
             d_v <= 1'b0;
             error <= 1'b0;
-        end else if (ce) begin
+        end else if (ce_a) begin
             wl <= wl_e;
             f_since <= fetch_x ? 4'd0 : fetch_since;
             // (S5a) the last memory write (its last clock relative to the next clock)
-            if (g_start && g_kind == K_WRITE) begin
+            if (g_start_b && g_kind_b == K_WRITE) begin
                 w_v <= 1'b1;
                 w_ncyc <= 2'd0;
-                w_rel <= 5'(grant_len) - 5'sd2;
+                w_rel <= 5'(grant_len_b) - 5'sd2;
             end else begin
-                if (g_start && w_ncyc != 2'd3)
+                if (g_start_b && w_ncyc != 2'd3)
                     w_ncyc <= w_ncyc + 2'd1;
                 if (w_rel != -5'sd16)
                     w_rel <= w_rel - 5'sd1;
@@ -293,33 +329,33 @@ module v35_bus
             d_kind <= c_kind;
             d_addr <= c_addr;
             d_width <= c_width;
-            if (g_start) begin
+            if (g_start_b) begin
                 if (!free)
                     error <= 1'b1;
                 c_valid <= 1'b1;
-                c_kind <= g_kind;
+                c_kind <= g_kind_b;
                 c_pos <= 3'd0;
-                c_len <= grant_len;
-                c_ext <= g_ext;
-                c_internal <= g_sfr;
-                c_addr <= g_addr;
-                c_width <= g_width;
-                c_data <= g_data;
-                c_dsel <= g_dsel;
-                c_b2b <= g_b2b;
-                c_commit <= g_b2b;
+                c_len <= grant_len_b;
+                c_ext <= g_ext_b;
+                c_internal <= g_sfr_b;
+                c_addr <= g_addr_b;
+                c_width <= g_width_b;
+                c_data <= g_data_b;
+                c_dsel <= g_dsel_b;
+                c_b2b <= g_b2b_b;
+                c_commit <= g_b2b_b;
                 c_on_start <= start_any;
                 c_run <= fetch_x && fetch_end_prev;
-                c_after_post <= fetch_x && g_after_post;
+                c_after_post <= fetch_x && g_after_post_b;
                 c_ir_before <= fetch_x && g_ir_before;
                 c_disp_in_flight <= 1'b0;
-                c_thru <= fetch_x && g_thru;
-                c_pfa <= fetch_x && g_after_post;
-                c_tn <= tk_prev || take_any || tn_carry;
+                c_thru <= fetch_x && g_thru_b;
+                c_pfa <= fetch_x && g_after_post_b;
+                c_tn <= tk_prev || take_any_b || tn_carry;
                 c_tkin <= 1'b0;
                 c_as <= !start_any;
-                c_nt <= !take_any;
-                gap <= g_ext || FIT_MIN_GAP != 0;
+                c_nt <= !take_any_b;
+                gap <= g_ext_b || FIT_MIN_GAP != 0;
             end else begin
                 if (busy)
                     c_pos <= pos_now;
@@ -329,25 +365,25 @@ module v35_bus
                     gap <= 1'b0;
                 if (start_any)
                     c_on_start <= 1'b0;     // another instruction started: not its start clock
-                if (busy && c_kind == K_FETCH && disp_take)
+                if (busy && c_kind == K_FETCH && disp_take_b)
                     c_disp_in_flight <= 1'b1;
                 // (S5b) the window flags through the cycle's flight
-                if (busy && take_any) begin
+                if (busy && take_any_b) begin
                     c_tn <= 1'b1;
                     c_tkin <= 1'b1;
                     c_nt <= 1'b0;
                 end
                 if (busy && start_any)
                     c_as <= 1'b0;
-                if (start_any || flush_now)
+                if (start_any || flush_now_b)
                     c_ir_before <= 1'b0;
             end
-            tk_prev <= take_any;
-            if (g_start && k_io(g_kind))
+            tk_prev <= take_any_b;
+            if (g_start_b && k_io(g_kind_b))
                 io_tail <= 2'(FIT_IO_RECOVER);
             else if (!(busy && k_io(c_kind)) && !(gap && c_ext) && io_tail != 2'd0)
                 io_tail <= io_tail - 2'd1;      // (disp_io=extend: from the clock after its last)
-            if (g_abort) begin
+            if (g_abort_b) begin
                 ab_v <= 1'b1;
                 ab_pos <= 2'd0;
             end else if (ab_v) begin
@@ -360,13 +396,13 @@ module v35_bus
     end
 
     // ------------------------------------------------ pins (v35_biu.sv:290-350)
-    wire        n_valid = g_start || busy;
-    wire [2:0]  n_kind = g_start ? g_kind : c_kind;
-    wire [2:0]  n_pos = g_start ? 3'd0 : pos_now;
-    wire [19:0] n_addr = g_start ? g_addr : c_addr;
-    wire [1:0]  n_width = g_start ? g_width : c_width;
-    wire [15:0] n_data = g_start ? g_data : c_data;
-    wire        n_internal = g_start ? g_sfr : c_internal;
+    wire        n_valid = g_start_b || busy;
+    wire [2:0]  n_kind = g_start_b ? g_kind_b : c_kind;
+    wire [2:0]  n_pos = g_start_b ? 3'd0 : pos_now;
+    wire [19:0] n_addr = g_start_b ? g_addr_b : c_addr;
+    wire [1:0]  n_width = g_start_b ? g_width_b : c_width;
+    wire [15:0] n_data = g_start_b ? g_data_b : c_data;
+    wire        n_internal = g_start_b ? g_sfr_b : c_internal;
     wire        n_write = n_kind == K_WRITE || n_kind == K_IO_WRITE;
     wire        c_write = c_kind == K_WRITE || c_kind == K_IO_WRITE;
     wire        pins = c_valid && !c_internal;
@@ -383,7 +419,6 @@ module v35_bus
         iostb_n = 1'b1;
         read_write = 1'b1;
         refrq_n = 1'b1;
-        done_data = 16'hffff;
     end
 
     always @(posedge clock) begin
@@ -394,7 +429,7 @@ module v35_bus
             refrq_n <= 1'b1;
             read_write <= 1'b1;
             refresh_row <= 9'd0;
-        end else if (ce) begin
+        end else if (ce_a) begin
             if (!n_valid || n_internal) begin
                 read_write <= 1'b1;
             end else if (n_pos == 3'd0) begin
@@ -417,7 +452,7 @@ module v35_bus
                 mux_address <= {n_addr[9], n_addr[8:1]};
                 a18_ube <= n_width == BW_LO;
                 if (n_write)
-                    data_out <= (g_start || c_dsel == 2'd0) ? n_data
+                    data_out <= (g_start_b || c_dsel == 2'd0) ? n_data
                               : c_dsel == 2'd1 ? wd_imm
                               : c_dsel == 2'd2 ? {wd_imm[7:0], 8'd0} : {8'd0, wd_imm[15:8]};
             end
@@ -441,13 +476,137 @@ module v35_bus
         end
     end
 
-    // read data: latched mid-B3, delivered on the next CPU clock
+    // read data: on the pins by mid-B3, delivered on the same CPU clock (the pins' B3 is the
+    // core's delivery clock). (S7b) The delivery clock's first tick reads the pins themselves:
+    // tick A ends (ce_b) no earlier than the strobe edge (ce_mid), where the datum is on the
+    // pins; the latch holds it after the cycle for the clocks that follow.
+    reg  [15:0] done_r = 16'hffff;
+    wire        b3_read = c_valid && c_pos == c_len - 3'd1 && k_read(c_kind) && !c_internal;
     always @(posedge clock) begin
-        if (ce_mid && c_valid && c_pos == c_len - 3'd1 && k_read(c_kind) && !c_internal)
-            done_data <= data_in;
+        if (ce_mid && b3_read)
+            done_r <= data_in;
     end
+    assign done_data = b3_read ? data_in : done_r;
 
-    wire unused = &{1'b0, c_commit, g_lea_start, g_disp_in_flight,
+    // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
+`ifndef SYNTHESIS
+    /* verilator lint_off BLKSEQ */
+    reg chk_on = 1'b0;
+    integer chk_n = 0;
+    initial chk_on = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (g_start_b !== g_start) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_start changed in tick B: %h -> %h at %0t",
+                             g_start_b, g_start, $time);
+            end
+            if (g_ext_b !== g_ext) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_ext changed in tick B: %h -> %h at %0t",
+                             g_ext_b, g_ext, $time);
+            end
+            if (g_b2b_b !== g_b2b) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_b2b changed in tick B: %h -> %h at %0t",
+                             g_b2b_b, g_b2b, $time);
+            end
+            if (g_thru_b !== g_thru) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_thru changed in tick B: %h -> %h at %0t",
+                             g_thru_b, g_thru, $time);
+            end
+            if (g_after_post_b !== g_after_post) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_after_post changed in tick B: %h -> %h at %0t",
+                             g_after_post_b, g_after_post, $time);
+            end
+            if (g_abort_b !== g_abort) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_abort changed in tick B: %h -> %h at %0t",
+                             g_abort_b, g_abort, $time);
+            end
+            if (disp_take_b !== disp_take) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.disp_take changed in tick B: %h -> %h at %0t",
+                             disp_take_b, disp_take, $time);
+            end
+            if (flush_now_b !== flush_now) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.flush_now changed in tick B: %h -> %h at %0t",
+                             flush_now_b, flush_now, $time);
+            end
+            if (g_sfr_b !== g_sfr) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_sfr changed in tick B: %h -> %h at %0t",
+                             g_sfr_b, g_sfr, $time);
+            end
+            if (fill_x_b !== fill_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.fill_x changed in tick B: %h -> %h at %0t",
+                             fill_x_b, fill_x, $time);
+            end
+            if (take_t_b !== take_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.take_t changed in tick B: %h -> %h at %0t",
+                             take_t_b, take_t, $time);
+            end
+            if (g_kind_b !== g_kind) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_kind changed in tick B: %h -> %h at %0t",
+                             g_kind_b, g_kind, $time);
+            end
+            if (grant_len_b !== grant_len) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.grant_len changed in tick B: %h -> %h at %0t",
+                             grant_len_b, grant_len, $time);
+            end
+            if (g_addr_b !== g_addr) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_addr changed in tick B: %h -> %h at %0t",
+                             g_addr_b, g_addr, $time);
+            end
+            if (g_width_b !== g_width) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_width changed in tick B: %h -> %h at %0t",
+                             g_width_b, g_width, $time);
+            end
+            if (g_dsel_b !== g_dsel) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_dsel changed in tick B: %h -> %h at %0t",
+                             g_dsel_b, g_dsel, $time);
+            end
+            if (g_data_b !== g_data) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.g_data changed in tick B: %h -> %h at %0t",
+                             g_data_b, g_data, $time);
+            end
+        end
+    end
+    final if (chk_on && chk_n != 0)
+        $display("v35 chk: bus: %0d changes in tick B", chk_n);
+    /* verilator lint_on BLKSEQ */
+`endif
+    // (S7b) chk end
+
+    wire unused = &{1'b0, ce_b, c_commit, g_lea_start, g_disp_in_flight,
                     g_take_near, c_after_post, c_disp_in_flight, wtc[13:2],
                     rfm[7:4], rfm[1:0]};
 endmodule

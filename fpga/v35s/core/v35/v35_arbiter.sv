@@ -71,7 +71,8 @@ module v35_arbiter
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,
+    input  wire        ce_a,
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
 
     // the EU's posts (S2 T; S5 P) and retires
     input  wire        post_t,
@@ -107,7 +108,7 @@ module v35_arbiter
     input  wire        rq_v_x,
     input  wire        rq_now_x,
     input  wire        rq_v_end,        // requested_at is set at the clock's end
-    input  wire        rq_now_end,      // ... dated on this clock (X, or S5's io_ir_hold)
+    input  wire        rq_ir_hold,      // ... dated on this clock by S5's io_ir_hold ((S7b) or X: rq_now_x, rq_set_x)
     input  wire        rq_old_c,        // requested_at is set before this clock (< t)
     input  wire        b2b_now,
     input  wire signed [4:0] room_x,
@@ -695,16 +696,56 @@ module v35_arbiter
     wire   own_c0 = own_c == 2'd0;
     assign post_ok_p = !c0.v || own_c0 || ((c_det_wait || c1.v) && !c2.v);
 
+    // ------------------------------------------------------------ (S7b) the ce_b registers
+    // Tick A (S2's posts, S4's choice and the slot after it) ends at ce_b; tick B (the P pass's
+    // retire and post, the next state) reads its results from these registers only.
+    rec_t       c0_b = '0, c1_b = '0, c2_b = '0, b0_b = '0;
+    reg  [19:0] ea_live_b = 20'd0;
+    reg  [15:0] ea_lo_b = 16'd0;
+    reg  [1:0]  own_c_b = 2'd3;
+    reg         own_c0_b = 1'b0, pn_b = 1'b0, det_go_b = 1'b0, take_now_b = 1'b0, eu_go_b = 1'b0;
+    reg         rq_now_x_b = 1'b0, rq_dated_b = 1'b0;
+    always @(posedge clock) begin
+        if (ce_b) begin
+            c0_b <= c0;
+            c1_b <= c1;
+            c2_b <= c2;
+            b0_b <= b0;
+            own_c_b <= own_c;
+            own_c0_b <= own_c0;
+            pn_b <= pn;
+            det_go_b <= det_go;
+            take_now_b <= take_now;
+            eu_go_b <= eu_go;
+            rq_now_x_b <= rq_now_x;
+            rq_dated_b <= rq_dated;
+            ea_live_b <= ea_live;
+            ea_lo_b <= ea_lo;
+        end
+    end
+    // the odd-word pair flag at the clock's end (the live address as tick A left it)
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic logic f_two_b(input rec_t r);
+        logic [16:0] o;
+        logic [19:0] a;
+        o = {1'b0, ea_lo_b} + {13'd0, r.d.aoff, 1'b0};
+        a = r.d.alive ? ea_live_b + {16'd0, r.d.aoff, 1'b0} - {3'd0, o[16], 16'd0} : r.d.addr;
+        f_two_b = r.d.width == BW_WORD && a[0] && !k_io(r.d.kind) && !r.d.nowrite;
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    // requested_at dated on this clock: by X (wants_fetch, the arbiter's re-dating) or S5
+    wire        rq_now_end = rq_now_x_b || rq_dated_b || rq_ir_hold;
+
     // ------------------------------------------------------------ S5 (P): retire, post
     rec_t e0, e1, e2;
     logic [1:0] own_e;
     always_comb begin
-        e0 = c0;
-        e1 = c1;
-        e2 = c2;
-        own_e = own_c;
+        e0 = c0_b;
+        e1 = c1_b;
+        e2 = c2_b;
+        own_e = own_c_b;
         if (retire_p) begin
-            if (own_c0) e0 = '0;
+            if (own_c0_b) e0 = '0;
             own_e = 2'd3;
         end
         if (post_p) begin
@@ -734,7 +775,7 @@ module v35_arbiter
     function automatic rec_t tick(input rec_t r);
         rec_t n;
         n = r;
-        n.two = f_two(r);
+        n.two = f_two_b(r);
         if (n.nb != 4'd0)
             n.nb = n.nb - 4'd1;
         if (n.nwd && n.dn != 3'd0)
@@ -762,20 +803,20 @@ module v35_arbiter
             io_seen <= 1'b0;
             tkq <= 1'b0;
             tkr <= 1'b0;
-        end else if (ce) begin
-            r0 <= tick(redate(e0, pn || det_go || (post_p && !c0.v)));
+        end else if (ce_a) begin
+            r0 <= tick(redate(e0, pn_b || det_go_b || (post_p && !c0_b.v)));
             r1 <= qtrim(tick(e1));
             r2 <= qtrim(tick(e2));
             own <= own_e;
             // (S5b) requested_at == take_t (and b2b_at != take_t) at the clock's end
-            if (take_now || p_take) begin
+            if (take_now_b || p_take) begin
                 tkq <= rq_v_end && rq_now_end;
                 tkr <= rq_v_end && rq_now_end && !b2b_now;
             end else begin
                 tkq <= tkq && rq_v_end && !rq_now_end;
                 tkr <= tkr && rq_v_end && !rq_now_end;
             end
-            if (eu_go && k_io(b0.d.kind)) begin
+            if (eu_go_b && k_io(b0_b.d.kind)) begin
                 io_seen <= 1'b1;
                 rq_aio <= rq_now_end;
             end else if (rq_now_end)
@@ -785,5 +826,105 @@ module v35_arbiter
         end
     end
 
-    wire unused = &{1'b0, fetch_first, rq_set_x, r0.d.lead, cur_io};
+    // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
+`ifndef SYNTHESIS
+    /* verilator lint_off BLKSEQ */
+    reg chk_on = 1'b0;
+    integer chk_n = 0;
+    initial chk_on = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (c0_b !== c0) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.c0 changed in tick B: %h -> %h at %0t",
+                             c0_b, c0, $time);
+            end
+            if (c1_b !== c1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.c1 changed in tick B: %h -> %h at %0t",
+                             c1_b, c1, $time);
+            end
+            if (c2_b !== c2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.c2 changed in tick B: %h -> %h at %0t",
+                             c2_b, c2, $time);
+            end
+            if (b0_b !== b0) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.b0 changed in tick B: %h -> %h at %0t",
+                             b0_b, b0, $time);
+            end
+            if (own_c_b !== own_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.own_c changed in tick B: %h -> %h at %0t",
+                             own_c_b, own_c, $time);
+            end
+            if (own_c0_b !== own_c0) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.own_c0 changed in tick B: %h -> %h at %0t",
+                             own_c0_b, own_c0, $time);
+            end
+            if (pn_b !== pn) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.pn changed in tick B: %h -> %h at %0t",
+                             pn_b, pn, $time);
+            end
+            if (det_go_b !== det_go) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.det_go changed in tick B: %h -> %h at %0t",
+                             det_go_b, det_go, $time);
+            end
+            if (take_now_b !== take_now) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.take_now changed in tick B: %h -> %h at %0t",
+                             take_now_b, take_now, $time);
+            end
+            if (eu_go_b !== eu_go) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.eu_go changed in tick B: %h -> %h at %0t",
+                             eu_go_b, eu_go, $time);
+            end
+            if (rq_now_x_b !== rq_now_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.rq_now_x changed in tick B: %h -> %h at %0t",
+                             rq_now_x_b, rq_now_x, $time);
+            end
+            if (rq_dated_b !== rq_dated) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.rq_dated changed in tick B: %h -> %h at %0t",
+                             rq_dated_b, rq_dated, $time);
+            end
+            if (ea_live_b !== ea_live) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.ea_live changed in tick B: %h -> %h at %0t",
+                             ea_live_b, ea_live, $time);
+            end
+            if (ea_lo_b !== ea_lo) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: arbiter.ea_lo changed in tick B: %h -> %h at %0t",
+                             ea_lo_b, ea_lo, $time);
+            end
+        end
+    end
+    final if (chk_on && chk_n != 0)
+        $display("v35 chk: arbiter: %0d changes in tick B", chk_n);
+    /* verilator lint_on BLKSEQ */
+`endif
+    // (S7b) chk end
+
+    wire unused = &{1'b0, ce_b, b0_b, fetch_first, rq_set_x, r0.d.lead, cur_io};
 endmodule

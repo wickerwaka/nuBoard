@@ -96,6 +96,8 @@ if [[ "$variant" == direct ]]; then
 fi
 
 output_dir="$repo_root/build/fpga/v35s/verilator-$variant$suffix"
+# (S7b) V35_SIM_DIR: the v35 core's build elsewhere (acquire.py's V35_SIM_BINARY runs it)
+if [[ "$model" == v35 && -n "${V35_SIM_DIR:-}" ]]; then output_dir=$V35_SIM_DIR; fi
 mkdir -p "$output_dir"
 echo "\`define V35S_MODEL_PRESENT $model_present" > "$output_dir/v35s_build.vh"
 

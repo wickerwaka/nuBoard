@@ -60,7 +60,9 @@ SIM_BINARY = ROOT / "build/fpga/v35s/verilator-direct/Vv35s_harness"
 CHAIN_BINARY = ROOT / "build/fpga/v35s/verilator-direct-chain/Vv35s_harness"
 CHAIN_OUTPUT = ROOT / "build/validation/v35s/chains-sim-chain"
 # the V35S core v2 (docs/v35s-core-v2.md; fpga/v35s/build_sim.sh direct v35)
-V35_BINARY = ROOT / "build/fpga/v35s/verilator-direct-v35/Vv35s_harness"
+# ((S7b) V35_SIM_BINARY: another build of it, e.g. a work-in-progress one beside a running gate)
+V35_BINARY = Path(os.environ.get("V35_SIM_BINARY")
+                  or ROOT / "build/fpga/v35s/verilator-direct-v35/Vv35s_harness")
 V35_OUTPUT = ROOT / "build/validation/v35s/chains-sim-v35"
 SIM_CORES = {"ucore": (SIM_BINARY, SIM_OUTPUT), "chain": (CHAIN_BINARY, CHAIN_OUTPUT),
              "v35": (V35_BINARY, V35_OUTPUT)}
@@ -77,10 +79,13 @@ def sim_transport(core: str = "ucore", diag: bool = False):
     from ..runner import SimulationTransport
     if core == "ucore" and not diag:
         return SimulationTransport("direct")
+    # (S7b) V35_PLUSARGS: more plusargs for the v35 core's runs (+v35_ticks=2: the two-tick
+    # variant, ce_b on the CPU clock's middle tick; +v35_ceb=K)
+    extra = os.environ.get("V35_PLUSARGS", "").split() if core == "v35" else []
     transport = SimulationTransport.__new__(SimulationTransport)
     transport.process = subprocess.Popen(
         [str(SIM_CORES[core][0])] + ([f"+{'v35' if core == 'v35' else 'chain'}_diag"]
-                                     if diag else []), cwd=ROOT,
+                                     if diag else []) + extra, cwd=ROOT,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     return transport
 

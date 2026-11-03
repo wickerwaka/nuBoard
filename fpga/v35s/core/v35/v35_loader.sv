@@ -55,7 +55,8 @@ module v35_loader
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,
+    input  wire        ce_a,
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
 
     // the queue's head window (S1) and its address
     input  wire [7:0]  vb0, vb1, vb2, vb3, vb4,
@@ -277,73 +278,134 @@ module v35_loader
     assign ok_l = pd_v && (ir_s || (l_pop && !ir_v && k_t == 3'd0));
 
 
+    // ------------------------------------------------------------ (S7b) the ce_b registers
+    // Tick A (S1-S4: the T pass's take and start, the IR load) ends at ce_b; tick B (S5, S6:
+    // the P pass, the decode ahead, the next state) reads its results from these registers
+    // only (and the architectural registers), never tick A's logic.
+    reg  [7:0]  vb0_b = 8'h00, vb1_b = 8'h00, vb2_b = 8'h00, vb3_b = 8'h00, vb4_b = 8'h00;
+    reg  [19:0] head_addr_b = 20'd0, ir_addr_l_b = 20'd0;
+    reg  [3:0]  avail_c_b = 4'd0, av_l_b = 4'd0;
+    v35_fmt_t   fmt_l_b = '0, fm_r_b = '0;
+    v35_cls_t   c_cls_b = '0;
+    reg  [2:0]  need_t_w_b = 3'd0, nx_s_b = 3'd0, pos_p_b = 3'd0;
+    reg         mn_t_b = 1'b0, pg_s_b = 1'b0, ms_t_b = 1'b0, ma_t_b = 1'b0, ir_v_l_b = 1'b0;
+    reg  [7:0]  ir_l_w_b = 8'h00, opc_t_b = 8'h00;
+    reg         l_pop_b = 1'b0, ra_ld_t_b = 1'b0, irh_t_b = 1'b0, eu_issue_b = 1'b0;
+    reg  [4:0]  ra_v_t_b = 5'd0;
+    reg         fr_t_b = 1'b0, im_t_b = 1'b0, t_flush_b = 1'b0, stop_t_b = 1'b0, t_start_b = 1'b0;
+    always_ff @(posedge clock) begin
+        if (ce_b) begin
+            vb0_b <= vb0;
+            vb1_b <= vb1;
+            vb2_b <= vb2;
+            vb3_b <= vb3;
+            vb4_b <= vb4;
+            head_addr_b <= head_addr;
+            ir_addr_l_b <= ir_addr_l;
+            avail_c_b <= avail_c;
+            av_l_b <= av_l;
+            fmt_l_b <= fmt_l;
+            fm_r_b <= fm_r;
+            c_cls_b <= c_cls;
+            need_t_w_b <= need_t_w;
+            nx_s_b <= nx_s;
+            pos_p_b <= pos_p;
+            mn_t_b <= mn_t;
+            pg_s_b <= pg_s;
+            ms_t_b <= ms_t;
+            ma_t_b <= ma_t;
+            ir_v_l_b <= ir_v_l;
+            ir_l_w_b <= ir_l_w;
+            opc_t_b <= opc_t;
+            l_pop_b <= l_pop;
+            ra_ld_t_b <= ra_ld_t;
+            irh_t_b <= irh_t;
+            eu_issue_b <= eu_issue;
+            ra_v_t_b <= ra_v_t;
+            fr_t_b <= fr_t;
+            im_t_b <= im_t;
+            t_flush_b <= t_flush;
+            stop_t_b <= stop_t;
+            t_start_b <= t_start;
+        end
+    end
+    function automatic logic [7:0] vb_b(input logic [2:0] k);
+        case (k)
+            3'd0: vb_b = vb0_b;
+            3'd1: vb_b = vb1_b;
+            3'd2: vb_b = vb2_b;
+            3'd3: vb_b = vb3_b;
+            default: vb_b = vb4_b;
+        endcase
+    endfunction
+
     // ------------------------------------------------------------ S5 (P)
-    wire [2:0] need_ps = p_start ? fmt_l.len - 3'd1 : need_t_w;
-    wire [2:0] nx_ps = p_start ? c_cls.nx : nx_s;
-    wire       mn_ps = p_start ? fmt_l.has_modrm : mn_t;
-    wire       pg_ps = p_start ? fmt_l.page == 2'd1 : pg_s;
-    wire       ms_ps = p_start ? (fmt_l.page == 2'd1 && fmt_l.has_modrm) : ms_t;
-    wire       ma_ps = p_start ? 1'b0 : ma_t;
-    wire       ir_ps = p_start ? 1'b0 : ir_v_l;
-    wire [7:0] op_ps = p_start ? ir_l_w : opc_t;
-    wire [4:0] ra_v_ps = (fmt_l.len == 3'd1) ? c_cls.nx0 : 5'd0;
-    wire [3:0] av_p = av_l - (l_pop ? 4'd1 : 4'd0);
+    wire [2:0] need_ps = p_start ? fmt_l_b.len - 3'd1 : need_t_w_b;
+    wire [2:0] nx_ps = p_start ? c_cls_b.nx : nx_s_b;
+    wire       mn_ps = p_start ? fmt_l_b.has_modrm : mn_t_b;
+    wire       pg_ps = p_start ? fmt_l_b.page == 2'd1 : pg_s_b;
+    wire       ms_ps = p_start ? (fmt_l_b.page == 2'd1 && fmt_l_b.has_modrm) : ms_t_b;
+    wire       ma_ps = p_start ? 1'b0 : ma_t_b;
+    wire       ir_ps = p_start ? 1'b0 : ir_v_l_b;
+    wire [7:0] op_ps = p_start ? ir_l_w_b : opc_t_b;
+    wire [4:0] ra_v_ps = (fmt_l_b.len == 3'd1) ? c_cls_b.nx0 : 5'd0;
+    wire [3:0] av_p = av_l_b - (l_pop_b ? 4'd1 : 4'd0);
     wire k_p_w = p_k_in && av_p != 4'd0;
     wire modrm_p = k_p_w && mn_ps && !ms_ps;
     wire ms_p = ms_ps && !k_p_w;
-    wire [7:0] opc_p = (k_p_w && ms_ps) ? vb(pos_p) : op_ps;
+    wire [7:0] opc_p = (k_p_w && ms_ps) ? vb_b(pos_p_b) : op_ps;
     assign p_commit1 = modrm_p;
     assign p_mate = k_p_w && ma_ps && need_ps > 3'd1;
     v35_fmt_t fm_q, fm_p;
     // (no P start: the form after T.) (S7) A running form takes its ModR/M byte in the P pass
     // only after a P start (the start's format, fmt_l): a P take of a form started before is
     // not on the corpus, its re-decode not built (p_mmiss reports one)
-    assign fm_q = fm_r;
+    assign fm_q = fm_r_b;
     assign p_mmiss = modrm_p && !p_start;
     assign fmt_mp = fm_q;
-    assign fm_p = p_start ? fmt_l : fm_q;
+    assign fm_p = p_start ? fmt_l_b : fm_q;
     wire [2:0] need_p_w = modrm_p ? fm_p.len - 3'd2 - (pg_ps ? 3'd1 : 3'd0)
                                   : need_ps - (k_p_w ? 3'd1 : 3'd0);
     assign need_p = need_p_w;
     wire ra_ld_pk = k_p_w && need_p_w == 3'd0;
-    wire ra_ld_p = ra_ld_pk || p_start || ra_ld_t;
+    wire ra_ld_p = ra_ld_pk || p_start || ra_ld_t_b;
     wire [4:0] ra_pk = {2'd0, nx_ps} + (p_io_nx ? 5'd1 : 5'd0);
     wire [4:0] ra_v_p = ra_ld_pk ? (ra_pk > {1'b0, mt_sub_p} ? ra_pk - {1'b0, mt_sub_p} : 5'd0) :
-                        p_start ? ra_v_ps : ra_v_t;
+                        p_start ? ra_v_ps : ra_v_t_b;
     wire ready_p = ra_ld_p ? ra_v_p == 5'd0 : ra == 5'd0;
     wire [3:0] av_pi = av_p - (k_p_w ? 4'd1 : 4'd0);
     // ir_load: the EU's data cycle issued: the hold released, the IR loads again (machine.py)
-    wire irh_x = irh_t && !eu_issue;
-    assign ir_rel = irh_t && eu_issue;
+    wire irh_x = irh_t_b && !eu_issue_b;
+    assign ir_rel = irh_t_b && eu_issue_b;
     wire irh_p = p_start ? irh_set_p : ((irh_x && !irh_clr_p) || irh_pg_p);
     assign ir_hold_p = irh_p;
-    assign p_ir = !ir_ps && need_p_w == 3'd0 && ready_p && !stop_t && av_pi != 4'd0
+    assign p_ir = !ir_ps && need_p_w == 3'd0 && ready_p && !stop_t_b && av_pi != 4'd0
                   && (p_start || k_p_w || ir_rel) && !irh_p;
-    wire fr_p = k_p_w ? 1'b0 : (p_start ? fmt_l.modrm_pre && fmt_l.len != 3'd1 : fr_t);
+    wire fr_p = k_p_w ? 1'b0 : (p_start ? fmt_l_b.modrm_pre && fmt_l_b.len != 3'd1 : fr_t_b);
     assign fresh_p = fr_p;
     assign ir_v_p = ir_ps || p_ir;
     wire mn_p = modrm_p ? 1'b0 : mn_ps;
-    wire ma_p = k_p_w ? (modrm_p && !(head_addr[0] ^ pos_p[0])
-                         && (p_start ? fmt_l.immb != 2'd0 && !fmt_l.mem : im_t)) : ma_ps;
-    wire im_p = p_start ? (fmt_l.immb != 2'd0 && !fmt_l.mem) : im_t;
+    wire ma_p = k_p_w ? (modrm_p && !(head_addr_b[0] ^ pos_p_b[0])
+                         && (p_start ? fmt_l_b.immb != 2'd0 && !fmt_l_b.mem : im_t_b)) : ma_ps;
+    wire im_p = p_start ? (fmt_l_b.immb != 2'd0 && !fmt_l_b.mem) : im_t_b;
 
     // ------------------------------------------------------------ S6: the decode ahead
     // the bytes this clock leaves at the queue's head (this clock's delivery included)
-    wire [2:0] pops = pos_p + (k_p_w ? 3'd1 : 3'd0) + (p_ir ? 3'd1 : 3'd0);
-    wire [7:0] ir_e = p_ir ? vb(pos_p + (k_p_w ? 3'd1 : 3'd0)) : ir_l_w;
-    wire [19:0] ira_e = p_ir ? head_addr + 20'(pos_p) + (k_p_w ? 20'd1 : 20'd0) : ir_addr_l;
-    wire       irv_e = ir_v_p && !t_flush;
-    wire       h0 = !t_flush && {1'b0, pops} < avail_c && pops <= 3'd4;
-    wire       h1 = !t_flush && {1'b0, pops} + 4'd1 < avail_c && pops <= 3'd3;
+    wire [2:0] pops = pos_p_b + (k_p_w ? 3'd1 : 3'd0) + (p_ir ? 3'd1 : 3'd0);
+    wire [7:0] ir_e = p_ir ? vb_b(pos_p_b + (k_p_w ? 3'd1 : 3'd0)) : ir_l_w_b;
+    wire [19:0] ira_e = p_ir ? head_addr_b + 20'(pos_p_b) + (k_p_w ? 20'd1 : 20'd0) : ir_addr_l_b;
+    wire       irv_e = ir_v_p && !t_flush_b;
+    wire       h0 = !t_flush_b && {1'b0, pops} < avail_c_b && pops <= 3'd4;
+    wire       h1 = !t_flush_b && {1'b0, pops} + 4'd1 < avail_c_b && pops <= 3'd3;
     // (S5b) the byte after those (a 0F form's ModR/M byte behind its second opcode byte)
-    wire       h2 = !t_flush && {1'b0, pops} + 4'd2 < avail_c && pops <= 3'd2;
+    wire       h2 = !t_flush_b && {1'b0, pops} + 4'd2 < avail_c_b && pops <= 3'd2;
     assign nf_v = irv_e || h0;
-    assign nf_op = irv_e ? ir_e : vb(pops);
-    assign nf_addr = irv_e ? ira_e : head_addr + 20'(pops);
+    assign nf_op = irv_e ? ir_e : vb_b(pops);
+    assign nf_addr = irv_e ? ira_e : head_addr_b + 20'(pops);
     // the decode ahead: the opcode's escape, the table entry of the opcode or the byte behind
     // an escape (the only table reads of the clock), the format with the ModR/M byte
-    wire [7:0] nf_b1 = irv_e ? (h0 ? vb(pops) : 8'h00) : (h1 ? vb(pops + 3'd1) : 8'h00);
-    wire [7:0] nf_b2 = irv_e ? (h1 ? vb(pops + 3'd1) : 8'h00) : (h2 ? vb(pops + 3'd2) : 8'h00);
+    wire [7:0] nf_b1 = irv_e ? (h0 ? vb_b(pops) : 8'h00) : (h1 ? vb_b(pops + 3'd1) : 8'h00);
+    wire [7:0] nf_b2 = irv_e ? (h1 ? vb_b(pops + 3'd1) : 8'h00) : (h2 ? vb_b(pops + 3'd2) : 8'h00);
     wire       nf_b1v = irv_e ? h0 : h1;
     v35_dec_t  nf_d1, nf_d;
     assign nf_d1 = v35_dec_native(nf_op);
@@ -381,36 +443,244 @@ module v35_loader
             pd_rc <= 2'd0;
             pd_d <= '0;
             d_run <= '0;
-        end else if (ce) begin
+        end else if (ce_a) begin
             pd_v <= nf_v && (nf_pg == 2'd0 || nf_b1v);
             pd_pg <= nf_pg;
             pd_op <= nf_aop;
             pd_rc <= nf_d1.repc;
             pd_d <= nf_d;
-            if (t_start || p_start)
+            if (t_start_b || p_start)
                 d_run <= pd_d;
-            ir_v <= ir_v_p && !t_flush;
+            ir_v <= ir_v_p && !t_flush_b;
             if (p_ir) begin
                 ir <= ir_e;
                 ir_addr <= ira_e;
-            end else if (l_pop) begin
-                ir <= ir_l_w;
-                ir_addr <= ir_addr_l;
+            end else if (l_pop_b) begin
+                ir <= ir_l_w_b;
+                ir_addr <= ir_addr_l_b;
             end
             opc <= opc_p;
             pg <= pg_ps;
             mskip <= ms_p;
-            need <= t_flush ? 3'd0 : need_p_w;
+            need <= t_flush_b ? 3'd0 : need_p_w;
             nx <= nx_ps;
             ra <= ra_a == 5'd0 ? 5'd0 : ra_a - 5'd1;
             modrm_next <= mn_p;
             mate_arm <= ma_p;
             imm_reg <= im_p;
-            stopped <= stop_t;
-            irh <= irh_p && !t_flush;
+            stopped <= stop_t_b;
+            irh <= irh_p && !t_flush_b;
             fresh <= fr_p;
         end
     end
 
-    wire unused = &{1'b0, c_cls, av_p, fm_t, fm_p, h1, nf_d1};
+    // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
+`ifndef SYNTHESIS
+    /* verilator lint_off BLKSEQ */
+    reg chk_on = 1'b0;
+    integer chk_n = 0;
+    initial chk_on = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (vb0_b !== vb0) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.vb0 changed in tick B: %h -> %h at %0t",
+                             vb0_b, vb0, $time);
+            end
+            if (vb1_b !== vb1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.vb1 changed in tick B: %h -> %h at %0t",
+                             vb1_b, vb1, $time);
+            end
+            if (vb2_b !== vb2) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.vb2 changed in tick B: %h -> %h at %0t",
+                             vb2_b, vb2, $time);
+            end
+            if (vb3_b !== vb3) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.vb3 changed in tick B: %h -> %h at %0t",
+                             vb3_b, vb3, $time);
+            end
+            if (vb4_b !== vb4) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.vb4 changed in tick B: %h -> %h at %0t",
+                             vb4_b, vb4, $time);
+            end
+            if (head_addr_b !== head_addr) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.head_addr changed in tick B: %h -> %h at %0t",
+                             head_addr_b, head_addr, $time);
+            end
+            if (ir_addr_l_b !== ir_addr_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.ir_addr_l changed in tick B: %h -> %h at %0t",
+                             ir_addr_l_b, ir_addr_l, $time);
+            end
+            if (avail_c_b !== avail_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.avail_c changed in tick B: %h -> %h at %0t",
+                             avail_c_b, avail_c, $time);
+            end
+            if (av_l_b !== av_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.av_l changed in tick B: %h -> %h at %0t",
+                             av_l_b, av_l, $time);
+            end
+            if (fmt_l_b !== fmt_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.fmt_l changed in tick B: %h -> %h at %0t",
+                             fmt_l_b, fmt_l, $time);
+            end
+            if (fm_r_b !== fm_r) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.fm_r changed in tick B: %h -> %h at %0t",
+                             fm_r_b, fm_r, $time);
+            end
+            if (c_cls_b !== c_cls) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.c_cls changed in tick B: %h -> %h at %0t",
+                             c_cls_b, c_cls, $time);
+            end
+            if (need_t_w_b !== need_t_w) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.need_t_w changed in tick B: %h -> %h at %0t",
+                             need_t_w_b, need_t_w, $time);
+            end
+            if (nx_s_b !== nx_s) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.nx_s changed in tick B: %h -> %h at %0t",
+                             nx_s_b, nx_s, $time);
+            end
+            if (pos_p_b !== pos_p) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.pos_p changed in tick B: %h -> %h at %0t",
+                             pos_p_b, pos_p, $time);
+            end
+            if (mn_t_b !== mn_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.mn_t changed in tick B: %h -> %h at %0t",
+                             mn_t_b, mn_t, $time);
+            end
+            if (pg_s_b !== pg_s) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.pg_s changed in tick B: %h -> %h at %0t",
+                             pg_s_b, pg_s, $time);
+            end
+            if (ms_t_b !== ms_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.ms_t changed in tick B: %h -> %h at %0t",
+                             ms_t_b, ms_t, $time);
+            end
+            if (ma_t_b !== ma_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.ma_t changed in tick B: %h -> %h at %0t",
+                             ma_t_b, ma_t, $time);
+            end
+            if (ir_v_l_b !== ir_v_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.ir_v_l changed in tick B: %h -> %h at %0t",
+                             ir_v_l_b, ir_v_l, $time);
+            end
+            if (ir_l_w_b !== ir_l_w) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.ir_l_w changed in tick B: %h -> %h at %0t",
+                             ir_l_w_b, ir_l_w, $time);
+            end
+            if (opc_t_b !== opc_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.opc_t changed in tick B: %h -> %h at %0t",
+                             opc_t_b, opc_t, $time);
+            end
+            if (l_pop_b !== l_pop) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.l_pop changed in tick B: %h -> %h at %0t",
+                             l_pop_b, l_pop, $time);
+            end
+            if (ra_ld_t_b !== ra_ld_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.ra_ld_t changed in tick B: %h -> %h at %0t",
+                             ra_ld_t_b, ra_ld_t, $time);
+            end
+            if (irh_t_b !== irh_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.irh_t changed in tick B: %h -> %h at %0t",
+                             irh_t_b, irh_t, $time);
+            end
+            if (eu_issue_b !== eu_issue) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.eu_issue changed in tick B: %h -> %h at %0t",
+                             eu_issue_b, eu_issue, $time);
+            end
+            if (ra_v_t_b !== ra_v_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.ra_v_t changed in tick B: %h -> %h at %0t",
+                             ra_v_t_b, ra_v_t, $time);
+            end
+            if (fr_t_b !== fr_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.fr_t changed in tick B: %h -> %h at %0t",
+                             fr_t_b, fr_t, $time);
+            end
+            if (im_t_b !== im_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.im_t changed in tick B: %h -> %h at %0t",
+                             im_t_b, im_t, $time);
+            end
+            if (t_flush_b !== t_flush) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.t_flush changed in tick B: %h -> %h at %0t",
+                             t_flush_b, t_flush, $time);
+            end
+            if (stop_t_b !== stop_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.stop_t changed in tick B: %h -> %h at %0t",
+                             stop_t_b, stop_t, $time);
+            end
+            if (t_start_b !== t_start) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.t_start changed in tick B: %h -> %h at %0t",
+                             t_start_b, t_start, $time);
+            end
+        end
+    end
+    final if (chk_on && chk_n != 0)
+        $display("v35 chk: loader: %0d changes in tick B", chk_n);
+    /* verilator lint_on BLKSEQ */
+`endif
+    // (S7b) chk end
+
+    wire unused = &{1'b0, ce_b, c_cls_b, av_p, fm_t, fm_p, h1, nf_d1};
 endmodule

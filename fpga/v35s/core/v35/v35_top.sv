@@ -19,7 +19,8 @@
 // (no refresh-on family is in the gates; the prelude's refreshes before its RFM store are not
 // run, so the pre-window differs from silicon there).
 //
-// The six stages of a CPU clock (one registered update at `ce`, feed-forward inside it):
+// The six stages of a CPU clock (one registered update at `ce_a`, feed-forward inside it; (S7b) the
+// enables `ce_a` / `ce_b` below):
 //   S0  every module's registers                         (bus: busy, delivery, abort, ...)
 //   S1  v35_queue: arrival, retry_after, room_c          (C, A)
 //   S2  v35_ucode pass T, v35_loader take/start, v35_eu (the start's form, the takes'
@@ -121,8 +122,51 @@ module v35_top
     end
     localparam int INIT_COUNTER = (8 + (RESET_FETCH_STATE - 1) - (RESET_REFRESH_STATE - 1)) % 128;
 
-    wire ce = state_start && core_run;
+    // (S7b) the two enables of a CPU clock: `ce_a` its edge (every architectural register),
+    // `ce_b` one fabric tick between two ce_a's (the pipeline registers that hold the first
+    // tick's results; nothing architectural). At the target (a 64 MHz fabric clock, a 32 MHz
+    // CPU clock: two ticks) ce_b is the second tick, which is the CPU clock's middle (ce_mid).
+    // Tick A must end no earlier than ce_mid: the read datum the clock delivers (S1) is on the
+    // pins only by then (the strobe edge, where v35_biu latches it), and the T pass, the IR
+    // load and the grant read it (a ModR/M byte's length, an opcode, an address byte). So ce_b
+    // is ce_mid by default (the harness and the target alike), and the core is correct for any
+    // spacing from there to the tick before the next ce_a: +v35_ceb=K (simulation only) puts
+    // ce_b K fabric ticks after ce_mid (in the harness's eight-tick clock K = 1..3; 3 is the
+    // tick before ce_a). The core's registers update on ce_a, ce_b and ce_mid only, so with
+    // K = 0 the core runs exactly as at the target, two ticks a CPU clock, while the harness's
+    // pins and its recording at 30 ns ticks are unchanged (+v35_ticks=2 names that variant).
+    // ce_a waits for a ce_b since the core left reset (the ce_b registers then hold tick A's
+    // results of the state the ce_a ends: the first clock after the reset exit included).
     wire ce_mid = state_mid;
+    reg  [2:0] ceb_age = 3'd7;          // fabric ticks since the CPU clock's middle (sat 7)
+    reg        b_seen = 1'b0;
+    wire       ce_b;
+    always @(posedge clock) begin
+        if (!reset_n)
+            ceb_age <= 3'd7;
+        else if (state_mid)
+            ceb_age <= 3'd1;
+        else if (ceb_age != 3'd7)
+            ceb_age <= ceb_age + 3'd1;
+        if (!core_reset_n)
+            b_seen <= 1'b0;
+        else if (ce_b)
+            b_seen <= 1'b1;
+    end
+    wire ce_a = state_start && core_run && b_seen;
+`ifndef SYNTHESIS
+    reg  [2:0] ceb_k = 3'd0;
+    integer    ceb_arg = 0;
+    initial begin
+        if ($value$plusargs("v35_ceb=%d", ceb_arg) && ceb_arg >= 0 && ceb_arg <= 7
+            && !$test$plusargs("v35_ticks=2"))
+            ceb_k = 3'(ceb_arg);
+    end
+    assign ce_b = core_run && !state_start && (ceb_k == 3'd0 ? state_mid : ceb_age == ceb_k);
+`else
+    assign ce_b = core_run && state_mid;
+`endif
+    wire ce = ce_a;                     // (the function bench's hook: o_ce)
 
     // ---------------------------------------------------------------- the nets between stages
     // bus (S0)
@@ -233,17 +277,33 @@ module v35_top
     wire [1:0]  wa_be;
     wire [15:0] wa_data, ra_data, rb_data;
 
+    // (S7b) the slot's own ce_b registers: tick A's strobes that the nets between the modules
+    // combine for tick B
+    reg         t_flush_b = 1'b0, g_start_b = 1'b0;
+    reg  [2:0]  g_kind_b = K_NONE;
+    reg  [19:0] g_addr_b = 20'd0;
+    reg  [1:0]  g_width_b = BW_WORD;
+    always @(posedge clock) begin
+        if (ce_b) begin
+            t_flush_b <= t_flush;
+            g_start_b <= g_start;
+            g_kind_b <= g_kind;
+            g_addr_b <= g_addr;
+            g_width_b <= g_width;
+        end
+    end
+
     // ---------------------------------------------------------------- the bus unit
     wire c_a0, c_a19, c_a18_ube, c_mreq_n, c_mstb_n, c_iostb_n, c_read_write, c_refrq_n;
     wire [8:0] c_mux_address;
     wire [15:0] c_data_out;
     v35_bus bus (
-        .clock, .reset_n(core_reset_n), .ce, .ce_mid, .wtc, .rfm,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_mid, .wtc, .rfm,
         .g_start, .g_kind, .g_addr, .g_width, .g_data, .g_ext, .g_b2b,
         .g_thru, .g_after_post(g_pfa), .g_lea_start(1'b0),
-        .g_disp_in_flight(1'b0), .g_ir_before(ir_v_p && !t_flush), .g_take_near(1'b0), .g_abort,
+        .g_disp_in_flight(1'b0), .g_ir_before(ir_v_p && !t_flush_b), .g_take_near(1'b0), .g_abort,
         .g_slot, .g_wl_io, .g_dsel, .wd_imm, .disp_take(disp_t),
-        .take_any(t_k != 2'd0 || p_k), .flush_now(t_flush), .start_any, .wl_fill_t, .wl_fill_p,
+        .take_t(t_k != 2'd0), .take_p(p_k), .flush_now(t_flush), .start_any, .wl_fill_t, .wl_fill_p,
         .busy(b_busy), .free(b_free), .cur_kind(b_cur_kind), .cur_pos(b_cur_pos),
         .cur_left(b_cur_left), .cur_on_start(b_cur_on_start), .in_wait(b_in_wait),
         .fetch_inflight(b_fetch_inflight), .fetch_past_b2(b_fetch_past_b2),
@@ -274,7 +334,7 @@ module v35_top
     wire [19:0] tb_reset_addr = 20'hFFFF0;
 `endif
     v35_queue queue (
-        .clock, .reset_n(core_reset_n), .ce, .reset_addr(tb_reset_addr), .ps_base,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .reset_addr(tb_reset_addr), .ps_base,
         .dlv_fetch, .dlv_other, .dlv_addr(b_dlv_addr), .dlv_data(b_done_data),
         .abort_done(b_abort_done), .abort_busy(b_abort_busy), .fetch_last,
         .fetch_inflight_c(b_fetch_inflight), .fetch_since_c(b_fetch_since),
@@ -305,7 +365,7 @@ module v35_top
 
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
-        .clock, .reset_n(core_reset_n), .ce,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .vb0, .vb1, .vb2, .vb3, .vb4, .head_addr, .avail_c,
         .t_start, .t_k_in(t_k), .t_flush, .t_halt, .lx_hold, .idle_adj,
         .p_start, .p_k_in(p_k), .p_io_nx,
@@ -322,7 +382,7 @@ module v35_top
 
     // ---------------------------------------------------------------- the microcode sequencer
     v35_ucode ucode (
-        .clock, .reset_n(core_reset_n), .ce,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .ir_v_c, .fmt_c, .ok_c, .ok_l, .cls_c, .fmt_mt, .fmt_mp, .ir_c, .ir_v_l, .ir_l,
         .ir_addr_c, .ir_addr_l, .vb0, .vb1, .vb2, .vb3, .avail_c, .l_pop, .arrived_now,
         .lat_c, .lat_x, .inflight_c, .inflight_x, .completed_now, .room_c, .room_p0,
@@ -367,7 +427,7 @@ module v35_top
 
     // ---------------------------------------------------------------- the datapath
     v35_eu eu (
-        .clock, .reset_n(core_reset_n), .ce,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .t_start, .p_start, .fmt_c, .ir_c, .ir_addr_c, .fmt_l, .fmt_mt, .fmt_mp, .ir_l,
         .ir_addr_l, .vb0, .vb1, .vb2, .vb3, .t_k, .l_pop, .p_k,
         .run_e, .aim_next, .fmt_e, .t_flush, .nf_v, .nf_fmt, .nf_op,
@@ -384,18 +444,18 @@ module v35_top
 
     // ---------------------------------------------------------------- the register RAM
     v35_regram regram (
-        .clock, .ce, .ra_next, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data
+        .clock, .ce_a, .ce_b, .ra_next, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data
     );
 
     // ---------------------------------------------------------------- the arbiter
     v35_arbiter arbiter (
-        .clock, .reset_n(core_reset_n), .ce,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .post_t, .rq_t, .post_p, .rq_p, .retire_t(retire), .retire_p,
         .relatch, .relatch_late, .floor_set, .floor_nb, .sreg_hold_set,
         .halting, .halted, .need(need_t), .wb_hold, .latch_wait, .gdisp_act,
         .ea_b2b_act(ea_act_x), .take_now, .ea_live, .ea_lo, .wd_live, .wd_rdy, .sidle,
         .want_x, .rq_v_x, .rq_now_x, .rq_v_end(rq_v_e),
-        .rq_now_end(rq_now_x || rq_set_x || rq_ir_hold), .rq_old_c, .b2b_now, .room_x,
+        .rq_ir_hold, .rq_old_c, .b2b_now, .room_x,
         .inflight_c, .triple_x, .lat_x, .arrived_now, .io_hold_x, .xfer_x,
         .free(b_free), .busy(b_busy), .cur_io(b_busy && k_io(b_cur_kind)), .cur_kind(b_cur_kind), .mf_old,
         .fetch_inflight(b_fetch_inflight), .in_wait(b_in_wait),
@@ -418,7 +478,7 @@ module v35_top
     wire [7:0] rf_value;
     wire [23:0] rf_state_r, rf_state_e;
     v35_refresh #(.STATE_W(24)) refresh (
-        .clock, .reset_n(core_reset_n), .ce, .en(1'b1), .rfm, .init_counter(7'(INIT_COUNTER)),
+        .clock, .reset_n(core_reset_n), .ce(ce_a), .en(1'b1), .rfm, .init_counter(7'(INIT_COUNTER)),
         .start(1'b0), .wr(1'b0), .wr_value(8'd0),
         .pending(rf_pending), .rfm_load(rf_load), .rfm_value(rf_value),
         .state_r(rf_state_r), .state_e(rf_state_e)
@@ -432,11 +492,11 @@ module v35_top
         sfr_wr <= 1'b0;
         if (!core_reset_n) begin
             sfr_open <= 1'b0;
-        end else if (ce) begin
-            if (g_start && g_kind == K_WRITE && g_addr >= SFR_PAGE) begin
+        end else if (ce_a) begin
+            if (g_start_b && g_kind_b == K_WRITE && g_addr_b >= SFR_PAGE) begin
                 sfr_open <= 1'b1;
-                sfr_a <= g_addr;
-                sfr_w <= g_width;
+                sfr_a <= g_addr_b;
+                sfr_w <= g_width_b;
             end else if (sfr_open && dlv_other) begin
                 sfr_open <= 1'b0;
                 sfr_wr <= 1'b1;
@@ -473,7 +533,7 @@ module v35_top
 `ifdef V35S_CORE_V35
     // ---------------------------------------------------------------- the trace hook
     v35_trace trace (
-        .clock, .reset_n(core_reset_n), .ce,
+        .clock, .reset_n(core_reset_n), .ce_a,
         .g_start, .g_kind, .g_addr, .g_width, .g_len(b_grant_len),
         .start_t(t_start), .start_p(p_start), .scls_t(fmt_c.cls), .scls_p(fmt_l.cls),
         .pc_t(ir_addr_c), .pc_p(ir_addr_l),
@@ -492,7 +552,7 @@ module v35_top
     always @(posedge clock) begin
         if (!core_reset_n)
             err_seen <= 1'b0;
-        else if (ce) begin
+        else if (ce_a) begin
             if ((b_error || q_overflow || eu_miss) && !err_seen) begin
                 err_seen <= 1'b1;
                 if (diag)
@@ -513,7 +573,7 @@ module v35_top
 `endif
 `endif
 
-    wire unused = &{1'b0, ready, x_fall, input_levels, idb, prc[7:2], ld_p_mate, ld_stopped,
+    wire unused = &{1'b0, ready, ce, x_fall, input_levels, idb, prc[7:2], ld_p_mate, ld_stopped,
                     b_cur_pos, b_dlv_width, lat_c, rq_clr_p, io_held, nop_held, a_count, own_pos,
                     a_ready, rf_pending, rf_load, rf_value, rf_state_r, rf_state_e, eu_pc,
                     eu_res, flag_x, b_in_wait, b_fetch_since, b_error, b2b_next, flag_e,

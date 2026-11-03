@@ -26,7 +26,8 @@ module v35_ea
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,
+    input  wire        ce_a,
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
 
     // the form after T (the address) ...
     input  v35_fmt_t   f_t,
@@ -128,7 +129,7 @@ module v35_ea
             ea_bi <= 16'd0;
             ea_done <= 1'b0;
             ea_mr <= 5'd0;              // ((S6) the reset complete)
-        end else if (ce) begin
+        end else if (ce_a) begin
             if (lat) begin
                 ea_bi <= base_n[15:0] + index_n[15:0];
                 ea_mr <= {f_now.md, f_now.rm};
@@ -139,5 +140,5 @@ module v35_ea
         end
     end
 
-    wire unused = &{1'b0, f_now, bp_n};
+    wire unused = &{1'b0, ce_b, f_now, bp_n};
 endmodule

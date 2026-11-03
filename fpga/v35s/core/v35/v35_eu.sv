@@ -17,14 +17,14 @@
 // 2:0 (role OPR) or a segment in its bits 4:3 (role SOP) is read from the opcode byte as a
 // field.
 //
-// The register RAM's read addresses are registered at `ce`: on every clock this module
+// The register RAM's read addresses are registered at `ce_a`: on every clock this module
 // names the registers the next clock's form reads (S6: the running form's, or, when no form
 // runs next clock, the decode ahead's: the IR's format as v35_loader decodes it a clock
 // early). A form's register function runs on its "exec" clock: a register form's when its
 // last operand byte is taken (a form without operand bytes: its start clock), a memory
 // form's (and a load / POP / IN's) at its read's delivery, a stack form's stack pointer at
 // its post. When the ports did not hold its operands on that clock (its ModR/M byte was not
-// known a clock ahead) it runs a clock later (exec_pend). Results are written at `ce` (one
+// known a clock ahead) it runs a clock later (exec_pend). Results are written at `ce_a` (one
 // write per clock; a second, MUL's DW or XCH's other register, the next clock).
 //
 // The segment registers are kept in flops as well (written through to the RAM): every memory
@@ -83,7 +83,8 @@ module v35_eu
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,
+    input  wire        ce_a,
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
 
     // the starts (S2 T, S5 P) and the IR they start from
     input  wire        t_start,
@@ -242,6 +243,19 @@ module v35_eu
     // (S5b) a bit field's offset and width (the registers at its exec)
     reg [7:0]  bfo = 8'd0, bfw = 8'd0;
 
+    // (S7b) the ce_b registers (written at the end of this file): tick A's results (the form after T,
+    // its post, its target, the EA of the form after T, the bytes the P pass may take) as tick B
+    // (the P pass, the exec, the writes, the next state) reads them
+    v35_fmt_t   f_t_b = '0, fmt_c_b = '0, fmt_l_b = '0;
+    reg  [7:0]  o_t_b = 8'h00, ir_l_b = 8'h00, bi_now_b = 8'd0, pb_byte_b = 8'h00;
+    reg  [19:0] pc_t_b = 20'd0, ir_addr_l_b = 20'd0;
+    reg  [47:0] ob_t_b = 48'd0;
+    reg  [2:0]  nob_t_b = 3'd0, seg_t_b = 3'd0;
+    reg         st_t_b = 1'b0, t_flush_b = 1'b0, tg_far_b = 1'b0, tg_psw_b = 1'b0;
+    reg         post_t_b = 1'b0, povr_t_b = 1'b0;
+    reg  [15:0] tg_seg_b = 16'd0, imm_t_b = 16'd0, ea_off_w_b = 16'd0, ea_seg_w_b = 16'd0;
+    uc_row_t    prow_t_b = '0;
+
     localparam logic [2:0] R_AW = 3'd0, R_CW = 3'd1, R_DW = 3'd2, R_BW = 3'd3, R_SP = 3'd4,
                            R_BP = 3'd5, R_IX = 3'd6, R_IY = 3'd7;
 
@@ -346,22 +360,22 @@ module v35_eu
     logic [2:0]  nob_now;
     logic        new_form;
     always_comb begin
-        f_now = f_t;
-        o_now = o_t;
-        pc_now = pc_t;
-        ob_now = ob_t;
-        nob_now = nob_t;
-        new_form = st_t;
+        f_now = f_t_b;
+        o_now = o_t_b;
+        pc_now = pc_t_b;
+        ob_now = ob_t_b;
+        nob_now = nob_t_b;
+        new_form = st_t_b;
         if (st_p) begin
-            f_now = fmt_l;
-            o_now = ir_l;
-            pc_now = ir_addr_l;
+            f_now = fmt_l_b;
+            o_now = ir_l_b;
+            pc_now = ir_addr_l_b;
             ob_now = 48'd0;
             nob_now = 3'd0;
             new_form = 1'b1;
         end
         if (p_k) begin
-            ob_now[8 * nob_now +: 8] = pb_byte;
+            ob_now[8 * nob_now +: 8] = pb_byte_b;
             nob_now = nob_now + 3'd1;
         end
         if (!st_p && f_now.has_modrm && p_k && nob_now == (f_now.page == 2'd1 ? 3'd2 : 3'd1))
@@ -966,7 +980,8 @@ module v35_eu
                                    input logic fnv, input logic [6:0] fn, input logic [1:0] lead,
                                    input req_t tm, input v35_fmt_t f, input logic [7:0] o,
                                    input logic [47:0] b, input logic [19:0] pcx,
-                                   input logic [2:0] sgo);
+                                   input logic [2:0] sgo, input logic [15:0] eseg,
+                                   input logic [15:0] eoff, input logic [7:0] bix);
         req_t q;
         logic [15:0] sp_v, d;
         logic [16:0] spr, bpr;
@@ -991,8 +1006,8 @@ module v35_eu
         ofs = 16'd0;
         case (r.asrc)
             V35_ASRC_EA: begin
-                sgb = ea_seg_w;
-                ofs = ea_off_w + {12'd0, r.aidx, 1'b0};
+                sgb = eseg;
+                ofs = eoff + {12'd0, r.aidx, 1'b0};
                 q.alive = !r.detached;
                 q.aoff = r.aidx;
             end
@@ -1017,11 +1032,11 @@ module v35_eu
             // DS1:IY
             V35_ASRC_STR_IX: begin
                 sgb = sgo != 3'd0 && sgo <= 3'd4 ? segv(2'(sgo - 3'd1)) : ds0;
-                ofs = ix + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0);
+                ofs = ix + (f.xop == V35_XOP_BCD ? {8'd0, bix} : 16'd0);
             end
             V35_ASRC_STR_IY: begin
                 sgb = ds1;
-                ofs = iy + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0);
+                ofs = iy + (f.xop == V35_XOP_BCD ? {8'd0, bix} : 16'd0);
             end
             // (S5b) a bit field's words: EXT's at DS0:IX (a prefix's segment), INS's at DS1:IY
             // (+ 2 aidx: the next word when it crosses)
@@ -1125,11 +1140,11 @@ module v35_eu
     // (S6) the segment prefix of the form after T / after P (a post on its start clock: seg_o
     // is still the last form's; a cs movsb's read went to DS0)
     wire [2:0]  seg_t = st_t ? pfx : seg_o;
-    wire [2:0]  seg_n = st_p ? (st_t ? fmt_c.seg : pfx) : seg_t;
+    wire [2:0]  seg_n = st_p ? (st_t_b ? fmt_c_b.seg : pfx) : seg_t_b;
     assign rq_t = mkreq(prow_t, psetup_t, pfnv_t, pfn_t, plead_t, ptm_t, f_t, o_t, ob_t, pc_t,
-                        seg_t);
+                        seg_t, ea_seg_w, ea_off_w, bi_now);
     assign rq_p = mkreq(prow_p, psetup_p, pfnv_p, pfn_p, plead_p, ptm_p, f_now, o_now, ob_now,
-                        pc_now, seg_n);
+                        pc_now, seg_n, ea_seg_w_b, ea_off_w_b, bi_now_b);
     // the live address and datum (an RMW's result after its read's delivery: res, registered)
     assign ea_live = ea_phys;
     assign ea_lo = ea_off_w;
@@ -1155,10 +1170,10 @@ module v35_eu
     // its read delivered on the clock after the issue, the exec there; the bus takes the datum
     // at B2, the exec's own clock forwarded: C1 / D3 r/m16,count at an odd address, the pair's
     // first half wrote 00h at no wait states)
-    wire        dimm_t = f_t.xop == V35_XOP_MOV && f_t.opb == V35_ROLE_IMM;
+    wire        dimm_t = f_t_b.xop == V35_XOP_MOV && f_t_b.opb == V35_ROLE_IMM;
     wire [15:0] res_f = (ex_go && xr.rv && !new_form) ? xr.res : res;
-    wire [15:0] late_t = dimm_t ? imm_t : res_f;
-    assign wd_imm = f_t.w ? late_t : {late_t[7:0], late_t[7:0]};
+    wire [15:0] late_t = dimm_t ? imm_t_b : res_f;
+    assign wd_imm = f_t_b.w ? late_t : {late_t[7:0], late_t[7:0]};
     assign wd_rdy = exec_done;
 
     // (S5a) a BCD string's byte pair: the destination byte (the read delivered now, or the last
@@ -1167,10 +1182,10 @@ module v35_eu
     wire [9:0]  bcd_r = v35_bcd8(fmt.aop != 3'd0, bcd_a, sdst[7:0], bcy);
     // the stack pointer of a stack form's post: SP - 2 (a push), SP + 2 (a pop) at the post
     // (S5a) every stack post moves SP (the burst's words, CALL far's, BRK's, RET far's)
-    wire        sp_post = (post_t && (prow_t.asrc == V35_ASRC_SPW || prow_t.asrc == V35_ASRC_SPR))
+    wire        sp_post = (post_t_b && (prow_t_b.asrc == V35_ASRC_SPW || prow_t_b.asrc == V35_ASRC_SPR))
                           || (post_p && (prow_p.asrc == V35_ASRC_SPW
                                          || prow_p.asrc == V35_ASRC_SPR));
-    wire        sp_dn = post_t ? prow_t.asrc == V35_ASRC_SPW : prow_p.asrc == V35_ASRC_SPW;
+    wire        sp_dn = post_t_b ? prow_t_b.asrc == V35_ASRC_SPW : prow_p.asrc == V35_ASRC_SPW;
     wire [16:0] sp_rd = rget({1'b1, R_SP});
     wire [15:0] sp_new = sp_dn ? sp_rd[15:0] - 16'd2 : sp_rd[15:0] + 16'd2;
     wire        sp_done_n = sp_post || (sp_done && !new_form);
@@ -1293,23 +1308,23 @@ module v35_eu
             c2_a = rword(bank, R_DW);
             c2_b = 2'b11;
             c2_d = dres[31:16];
-        end else if (t_flush && tg_far) begin
+        end else if (t_flush_b && tg_far_b) begin
             c2_v = 1'b1;                // a far transfer's PS, stored through to its bank slot
             c2_a = sword(bank, 2'd1);
             c2_b = 2'b11;
-            c2_d = tg_seg;
+            c2_d = tg_seg_b;
         end
         if (sp_post) begin
             c3_v = 1'b1;
             c3_a = rword(bank, R_SP);
             c3_b = 2'b11;
             c3_d = sp_new;
-        end else if (t_flush && f_t.xop == V35_XOP_RET && f_t.immb != 2'd0) begin
+        end else if (t_flush_b && f_t_b.xop == V35_XOP_RET && f_t_b.immb != 2'd0) begin
             c3_v = 1'b1;                // (S5a) RET imm16: SP raised by the immediate
             c3_a = rword(bank, R_SP);
             c3_b = 2'b11;
             // ((S6) from SP after the return address's read: SP is off the ports by the flush)
-            c3_d = sp_ret + immv(f_t, ob_t);
+            c3_d = sp_ret + immv(f_t_b, ob_t_b);
         end
     end
     // the order: the pending second write, then this clock's; the rest pending (one)
@@ -1354,7 +1369,7 @@ module v35_eu
     wire        lz_v = !wr_v && (dcw || dix || diy);
     wire [2:0]  lz_r = dcw ? R_CW : (dix ? R_IX : R_IY);
     wire [15:0] lz_d = dcw ? cw : (dix ? ix : iy);
-    assign wa_en = ce && (wr_v || lz_v);
+    assign wa_en = ce_a && (wr_v || lz_v);
     assign wa_addr = wr_v ? wr_a : rword(bank, lz_r);
     assign wa_be = wr_v ? wr_b : 2'b11;
     assign wa_data = wr_v ? wr_d : lz_d;
@@ -1378,9 +1393,9 @@ module v35_eu
     // the steps: an element's post (T, P), a REP element done (the sequencer's strobe)
     wire        sstr = f_now.xop == V35_XOP_STR;
     wire [15:0] sstep = f_now.w ? 16'd2 : 16'd1;
-    wire        ix_st = sstr && ((post_t && prow_t.asrc == V35_ASRC_STR_IX && !povr_t)
+    wire        ix_st = sstr && ((post_t_b && prow_t_b.asrc == V35_ASRC_STR_IX && !povr_t_b)
                                  || (post_p && prow_p.asrc == V35_ASRC_STR_IX && !povr_p));
-    wire        iy_st = sstr && ((post_t && prow_t.asrc == V35_ASRC_STR_IY && !povr_t)
+    wire        iy_st = sstr && ((post_t_b && prow_t_b.asrc == V35_ASRC_STR_IY && !povr_t_b)
                                  || (post_p && prow_p.asrc == V35_ASRC_STR_IY && !povr_p));
     wire        cw_st = sstr && f_now.rep && edone;
     wire [15:0] cw_n = cw_st ? cw - 16'd1 : follow(cw, R_CW);
@@ -1415,8 +1430,8 @@ module v35_eu
     wire        bcd0 = new_form && f_now.xop == V35_XOP_BCD && cw[7:0] == 8'd0;
     wire [15:0] psw_b0 = (psw & ~16'h08D5) | 16'h0044;
     wire [15:0] psw_n = (ex_go && xr.pw) ? xr.pv : dfin ? dpsw
-                      : (t_flush && tg_psw) ? {psw[15:12], rq2[11:0]}
-                      : (t_flush && f_t.xop == V35_XOP_BRK) ? psw & ~16'h0300
+                      : (t_flush_b && tg_psw_b) ? {psw[15:12], rq2[11:0]}
+                      : (t_flush_b && f_t_b.xop == V35_XOP_BRK) ? psw & ~16'h0300
                       : bcd0 ? psw_b0 : psw;
     assign psw_c = psw;
     assign psw_e = psw_n;
@@ -1436,7 +1451,7 @@ module v35_eu
     wire        ea_bp;
     wire [19:0] ea_phys;
     v35_ea ea (
-        .clock, .reset_n, .ce,
+        .clock, .reset_n, .ce_a, .ce_b,
         .f_t, .t_new(st_t), .b_t(ob_t), .base_t(ea_bt), .index_t(ea_it),
         .sego(seg_t), .ds1, .ps, .ss, .ds0,
         .f_now, .b_now(ob_now), .new_form, .aim_ea, .base_n(ea_b), .index_n(ea_i),
@@ -1577,11 +1592,11 @@ module v35_eu
             bres <= 8'd0;
             bfo <= 8'd0;
             bfw <= 8'd0;
-        end else if (ce) begin
+        end else if (ce_a) begin
             fmt <= f_now;
             op <= o_now;
             pc <= pc_now;
-            if (st_t || st_p) begin
+            if (st_t_b || st_p) begin
                 seg_o <= seg_n;
                 pfx <= f_now.seg;           // a prefix's segment for the next form (0: none)
             end
@@ -1611,8 +1626,8 @@ module v35_eu
                     default: ds0 <= xr.sgv;
                 endcase
             end
-            if (t_flush && tg_far)
-                ps <= tg_seg;
+            if (t_flush_b && tg_far_b)
+                ps <= tg_seg_b;
             // (S5a) the form's reads in order; a register transfer's target
             if (new_form)
                 nrd <= rd_now ? 4'd1 : 4'd0;
@@ -1642,14 +1657,14 @@ module v35_eu
                 bfw <= bf_b[7:0];
             end
             // the string read posted last ([IY]? an overrun?), CMPBK's [IY] datum
-            if (post_t && prow_t.rkind == V35_RK_READ) begin
-                srd_iy <= prow_t.asrc == V35_ASRC_STR_IY;
-                srd_ovr <= povr_t;
+            if (post_t_b && prow_t_b.rkind == V35_RK_READ) begin
+                srd_iy <= prow_t_b.asrc == V35_ASRC_STR_IY;
+                srd_ovr <= povr_t_b;
             end else if (post_p && (prow_p.rkind == V35_RK_READ
                                     || prow_p.rkind == V35_RK_IO_READ)) begin
                 srd_iy <= prow_p.asrc == V35_ASRC_STR_IY;
                 srd_ovr <= povr_p;
-            end else if (post_t && prow_t.rkind == V35_RK_IO_READ) begin
+            end else if (post_t_b && prow_t_b.rkind == V35_RK_IO_READ) begin
                 srd_iy <= 1'b0;
                 srd_ovr <= 1'b0;
             end
@@ -1686,7 +1701,190 @@ module v35_eu
         end
     end
 
-    wire unused = &{1'b0, xr, rq2[15:12], s_aw[16], cnt_v[16:9], mu_a[16], mu_b[16], sfr_v[16], dv_hi[16], dv_aw[16],
+    // (S7b) the ce_b registers: tick A's results
+    always_ff @(posedge clock) begin
+        if (ce_b) begin
+            f_t_b <= f_t;
+            fmt_c_b <= fmt_c;
+            fmt_l_b <= fmt_l;
+            o_t_b <= o_t;
+            ir_l_b <= ir_l;
+            bi_now_b <= bi_now;
+            pb_byte_b <= pb_byte;
+            pc_t_b <= pc_t;
+            ir_addr_l_b <= ir_addr_l;
+            ob_t_b <= ob_t;
+            nob_t_b <= nob_t;
+            seg_t_b <= seg_t;
+            st_t_b <= st_t;
+            t_flush_b <= t_flush;
+            tg_far_b <= tg_far;
+            tg_psw_b <= tg_psw;
+            post_t_b <= post_t;
+            povr_t_b <= povr_t;
+            tg_seg_b <= tg_seg;
+            imm_t_b <= imm_t;
+            ea_off_w_b <= ea_off_w;
+            ea_seg_w_b <= ea_seg_w;
+            prow_t_b <= prow_t;
+        end
+    end
+
+    // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
+`ifndef SYNTHESIS
+    /* verilator lint_off BLKSEQ */
+    reg chk_on = 1'b0;
+    integer chk_n = 0;
+    initial chk_on = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (f_t_b !== f_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.f_t changed in tick B: %h -> %h at %0t",
+                             f_t_b, f_t, $time);
+            end
+            if (fmt_c_b !== fmt_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.fmt_c changed in tick B: %h -> %h at %0t",
+                             fmt_c_b, fmt_c, $time);
+            end
+            if (fmt_l_b !== fmt_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.fmt_l changed in tick B: %h -> %h at %0t",
+                             fmt_l_b, fmt_l, $time);
+            end
+            if (o_t_b !== o_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.o_t changed in tick B: %h -> %h at %0t",
+                             o_t_b, o_t, $time);
+            end
+            if (ir_l_b !== ir_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.ir_l changed in tick B: %h -> %h at %0t",
+                             ir_l_b, ir_l, $time);
+            end
+            if (bi_now_b !== bi_now) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.bi_now changed in tick B: %h -> %h at %0t",
+                             bi_now_b, bi_now, $time);
+            end
+            if (pb_byte_b !== pb_byte) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.pb_byte changed in tick B: %h -> %h at %0t",
+                             pb_byte_b, pb_byte, $time);
+            end
+            if (pc_t_b !== pc_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.pc_t changed in tick B: %h -> %h at %0t",
+                             pc_t_b, pc_t, $time);
+            end
+            if (ir_addr_l_b !== ir_addr_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.ir_addr_l changed in tick B: %h -> %h at %0t",
+                             ir_addr_l_b, ir_addr_l, $time);
+            end
+            if (ob_t_b !== ob_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.ob_t changed in tick B: %h -> %h at %0t",
+                             ob_t_b, ob_t, $time);
+            end
+            if (nob_t_b !== nob_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.nob_t changed in tick B: %h -> %h at %0t",
+                             nob_t_b, nob_t, $time);
+            end
+            if (seg_t_b !== seg_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.seg_t changed in tick B: %h -> %h at %0t",
+                             seg_t_b, seg_t, $time);
+            end
+            if (st_t_b !== st_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.st_t changed in tick B: %h -> %h at %0t",
+                             st_t_b, st_t, $time);
+            end
+            if (t_flush_b !== t_flush) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.t_flush changed in tick B: %h -> %h at %0t",
+                             t_flush_b, t_flush, $time);
+            end
+            if (tg_far_b !== tg_far) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.tg_far changed in tick B: %h -> %h at %0t",
+                             tg_far_b, tg_far, $time);
+            end
+            if (tg_psw_b !== tg_psw) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.tg_psw changed in tick B: %h -> %h at %0t",
+                             tg_psw_b, tg_psw, $time);
+            end
+            if (post_t_b !== post_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.post_t changed in tick B: %h -> %h at %0t",
+                             post_t_b, post_t, $time);
+            end
+            if (povr_t_b !== povr_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.povr_t changed in tick B: %h -> %h at %0t",
+                             povr_t_b, povr_t, $time);
+            end
+            if (tg_seg_b !== tg_seg) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.tg_seg changed in tick B: %h -> %h at %0t",
+                             tg_seg_b, tg_seg, $time);
+            end
+            if (imm_t_b !== imm_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.imm_t changed in tick B: %h -> %h at %0t",
+                             imm_t_b, imm_t, $time);
+            end
+            if (ea_off_w_b !== ea_off_w) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.ea_off_w changed in tick B: %h -> %h at %0t",
+                             ea_off_w_b, ea_off_w, $time);
+            end
+            if (ea_seg_w_b !== ea_seg_w) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.ea_seg_w changed in tick B: %h -> %h at %0t",
+                             ea_seg_w_b, ea_seg_w, $time);
+            end
+            if (prow_t_b !== prow_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu.prow_t changed in tick B: %h -> %h at %0t",
+                             prow_t_b, prow_t, $time);
+            end
+        end
+    end
+    final if (chk_on && chk_n != 0)
+        $display("v35 chk: eu: %0d changes in tick B", chk_n);
+    /* verilator lint_on BLKSEQ */
+`endif
+    // (S7b) chk end
+
+    wire unused = &{1'b0, ce_b, fmt_c_b, prow_t_b, xr, rq2[15:12], s_aw[16], cnt_v[16:9], mu_a[16], mu_b[16], sfr_v[16], dv_hi[16], dv_aw[16],
                     dv_op[16], sp_rd[16], bf_a[16:8], bf_b[16:8],
                     ea_b[16], ea_i[16], xl_b[16], xl_a[16:8], dtrap, nf_v, fmt_l, ea_off_w,
                     ea_seg_w, ea_bp, ea_bt[16], ea_it[16], ea_ok_t,

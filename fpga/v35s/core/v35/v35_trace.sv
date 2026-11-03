@@ -21,7 +21,7 @@ module v35_trace
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,
+    input  wire        ce_a,
     input  wire        g_start,
     input  wire [2:0]  g_kind,
     input  wire [19:0] g_addr,
@@ -208,7 +208,7 @@ module v35_trace
         if (!reset_n) begin
             t <= 32'd0;
             running <= 1'b0;
-        end else if (ce) begin
+        end else if (ce_a) begin
             if (fd != 0) begin
                 string line;
                 if (!running)
@@ -245,7 +245,7 @@ module v35_trace
         end
     end
 `else
-    wire unused = &{1'b0, clock, reset_n, ce, g_start, g_kind, g_addr, g_width, g_len, start_t,
+    wire unused = &{1'b0, clock, reset_n, ce_a, g_start, g_kind, g_addr, g_width, g_len, start_t,
                     start_p, scls_t, scls_p, pc_t, pc_p, takes, loads, post, post_kind, issue,
                     b2b, abort, room, flag, why, hold, dec_miss, wlost};
 `endif

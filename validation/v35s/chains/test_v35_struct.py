@@ -8,7 +8,7 @@ Rules (comments and string literals are stripped first):
 3. no 8-bit opcode literals (`8'h..`, `8'd..`) outside the generated v35_decode_tbl.svh and
    v35_pkg.sv: RTL compares format bits and row fields, never opcode bytes;
 4. every `always_ff` is clocked by `posedge clock` and its state updates are gated by `ce`
-   (an `if` on `ce` in the block).
+   (an `if` on `ce` in the block; (S7b) or on the two-tick enables `ce_a` / `ce_b`).
 The checks are textual (a lint, not a parser): keep blocks plain `begin ... end`."""
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ class Structure(unittest.TestCase):
             for header, body in blocks(strip(p.read_text()), "always_ff"):
                 self.assertRegex(header.strip(), r"^posedge\s+clock$", p.name)
                 if "<=" in body:
-                    self.assertRegex(body, r"\bif\s*\(\s*[^)]*\bce\b", f"{p.name}: {body[:200]}")
+                    self.assertRegex(body, r"\bif\s*\(\s*[^)]*\bce(?:_a|_b)?\b", f"{p.name}: {body[:200]}")
 
 
 class Lint(unittest.TestCase):

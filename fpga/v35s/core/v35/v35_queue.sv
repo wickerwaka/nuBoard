@@ -11,7 +11,7 @@
 // v35_front_pkg::room_f, evaluated at each stage that reads it from that stage's values.
 //
 // Stage map (all combinational from the registers and the earlier stages, written once at
-// `ce`; no block reads its own outputs):
+// `ce_a`; no block reads its own outputs):
 //   S1  arrive: the delivered word's bytes, `lat`, inflight cleared, completed (owed−1);
 //       retry_after on a non-fetch cycle's end; the abort's end; room_c
 //   S2  (T, the loader's pops) the retry_at countdown's raise, the take sync's `asked`
@@ -67,7 +67,8 @@ module v35_queue
 (
     input  wire        clock,
     input  wire        reset_n,
-    input  wire        ce,
+    input  wire        ce_a,
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
     input  wire [19:0] reset_addr,      // the first fetch's address (FFFF0h)
     input  wire [19:0] ps_base,         // (S6) {PS, 0h} after this clock: the fetch wraps at FFFFh
 
@@ -344,35 +345,25 @@ module v35_queue
     wire qport_l = qport_t || l_pop;
     wire [2:0] unc_l_w = l_pop ? 3'd0 : (t_flush ? 3'd0 : (t_commit ? 3'd0 : unc_pre_t));
     wire [2:0] unc_t_w = t_flush ? 3'd0 : (t_commit ? 3'd0 : unc_pre_t);
-    wire [2:0] unc_pre_p = unc_l_w + 3'(p_pops) - (p_commit1 ? 3'd1 : 3'd0);
-    wire qport_pp = p_commit && unc_pre_p != 3'd0;
-    wire rem_p = rem_l || qport_pp || p_commit1 || p_ir;
-    wire qport_p = qport_l || qport_pp || p_ir;
-    wire [2:0] unc_p_w = p_ir ? 3'd0 : (p_commit ? 3'd0 : unc_pre_p);
     wire ir_now_l = l_pop;
-    wire ir_now_p = l_pop || p_ir;
 
     // counts after each stage (a flush empties the queue in T)
     wire [3:0] cnt_t = t_flush ? 4'd0 : cnt_c - 4'(t_pops);
     wire [3:0] cnt_l = cnt_t - (l_pop ? 4'd1 : 4'd0);
-    wire [3:0] cnt_p = cnt_l - 4'(p_pops) - (p_ir ? 4'd1 : 4'd0);
     // latched = min(latched, len(bytes)): a byte taken through the latch
     wire lat_t_w = lat_c_w && cnt_t != 4'd0 && !t_flush;
     wire lat_l = lat_t_w && cnt_l != 4'd0;
-    wire lat_p = lat_l && cnt_p != 4'd0;
     assign lat_x = lat_l;
 
     // _port_busy (latch_read=commit, modrm_port): the decoder holds the write port
     wire pb_c = 1'b0;
     wire pb_t = arrive ? rem_t : qport_t;
     wire pb_l = arrive ? rem_l : (qport_l || ir_now_l);
-    wire pb_p = arrive ? rem_p : (qport_p || ir_now_p);
     // the clock is one the request flag is evaluated on (_evaluates, request_eval=on_change)
     // (room_ir_pre: the start of a TEST r,r / INC-DEC r8 emptied the IR, the room)
     wire ev_c = arrive || first;
     wire ev_t = ev_c || rem_t || (t_start && fresh_t);
     wire ev_l = ev_t || rem_l;
-    wire ev_p = ev_l || rem_p || (p_start && fresh_p);
 
     // the rooms
     wire inflight_x_w = inflight_c || g_fetch || g_abort;
@@ -406,10 +397,6 @@ module v35_queue
     assign room_p0 = room_f(cnt_l, unc_l_w, inflight_x_w, lat_l, arrive, pb_l, need_l,
                             t_disp, l_pop || ir_v_t, imm16_t, ir_hold_t, t_mate, ea_act_x,
                             fresh_t, sw, xk_t, lea_xk_t, fl_t);
-    wire signed [4:0] room_pp = room_f(cnt_p, unc_p_w, inflight_x_w, lat_p, arrive, pb_p,
-                                       need_p, t_disp || p_disp, ir_v_p, imm16_p,
-                                       ir_hold_p, t_mate, ea_act_x, fresh_p, sw, xk_p, lea_xk_p,
-                                       fl_p);
 
     // stored() = len(bytes) - latched
     assign stored_c = cnt_c - (lat_c_w ? 4'd1 : 4'd0);
@@ -461,8 +448,6 @@ module v35_queue
     wire flag_r = (rt_now && retry_t0) ? room_t >= 5'sd2 : flag_d;
     wire retry_t1 = (rt_now && retry_t0) ? 1'b0 : retry_t0;
     wire want_tk = ira || (ev_t ? room_t >= 5'sd2 : flag_r && room_t >= 5'sd2);
-    assign asked_t = inflight_c ? room_t >= 5'sd2 : want_tk && !odd_held(need_t, 1'b0)
-                                                    && !(th_held && (th_c || th_cvt));
     wire flag_t = t_flush ? 1'b0 : ((ask_t && !inflight_c) ? want_tk : flag_r);
 
     // S3: requesting(t) in wants_fetch
@@ -495,31 +480,131 @@ module v35_queue
     assign inflight_x = inflight_x_w;
     assign rq_old_p = rq_g && !rq_now_x && !rq_set_x;
     assign rq_clr_p = rq_v && !rq_g;
+
+    // ------------------------------------------------------------ (S7b) the ce_b registers
+    // Tick A (S1-S4: arrival, the T pass's takes, the IR load, the request, the grant) ends at
+    // ce_b; tick B (S5, S6: the P pass's takes, the check, b2b, the next state) reads its
+    // results from these registers (and the architectural registers), never tick A's logic.
+    reg  [2:0]  unc_l_w_b = 3'd0, need_t_b = 3'd0;
+    reg         qport_l_b = 1'b0, rem_l_b = 1'b0, l_pop_b = 1'b0, lat_l_b = 1'b0, ev_l_b = 1'b0;
+    reg  [3:0]  cnt_l_b = 4'd0;
+    reg         inflight_x_w_b = 1'b0, t_disp_b = 1'b0, t_mate_b = 1'b0, ea_act_x_b = 1'b0;
+    reg         sw_b = 1'b0, flag_g_b = 1'b0, t_flush_b = 1'b0, g_io_b = 1'b0, p_run_b = 1'b0;
+    reg         t_take_b = 1'b0, retry_t1_b = 1'b0, rq_g_b = 1'b0, g_fetch_b = 1'b0;
+    reg         g_abort_b = 1'b0, nop_cand_b = 1'b0, ir_now_l_b = 1'b0, t_start_b = 1'b0;
+    reg  [19:0] t_flush_addr_b = 20'd0, ps_base_b = 20'd0;
+    reg  [1:0]  t_pops_b = 2'd0;
+    reg         th_lift_t_b = 1'b0, th_arm_t_b = 1'b0, th_on_t_b = 1'b0, th_arm_c_b = 1'b0;
+    reg         th_pre_t_b = 1'b0, th_held_b = 1'b0, xfer_x_b = 1'b0, g_slot_fetch_b = 1'b0;
+    reg         abort_loop_b = 1'b0, rs_fire_b = 1'b0, rt_set_b = 1'b0, rt_now_b = 1'b0;
+    reg  signed [9:0] rt_n_b = 10'sd0;
+    reg         rt_fire_b = 1'b0, flag_x_b = 1'b0, inflight_c_b = 1'b0, t_sth_b = 1'b0;
+    reg         t_sth_inf_b = 1'b0, sh_held_t_b = 1'b0, sh_set_b = 1'b0, sh_fire_b = 1'b0;
+    reg  [5:0]  t_sth_n_b = 6'd0;
+    reg  [9:0]  sh_n_b = 10'd0;
+    reg  signed [4:0] room_t_b = 5'sd0;
+    reg         want_tk_b = 1'b0;
+    always @(posedge clock) begin
+        if (ce_b) begin
+            unc_l_w_b <= unc_l_w;
+            need_t_b <= need_t;
+            qport_l_b <= qport_l;
+            rem_l_b <= rem_l;
+            l_pop_b <= l_pop;
+            lat_l_b <= lat_l;
+            ev_l_b <= ev_l;
+            cnt_l_b <= cnt_l;
+            inflight_x_w_b <= inflight_x_w;
+            t_disp_b <= t_disp;
+            t_mate_b <= t_mate;
+            ea_act_x_b <= ea_act_x;
+            sw_b <= sw;
+            flag_g_b <= flag_g;
+            t_flush_b <= t_flush;
+            g_io_b <= g_io;
+            p_run_b <= p_run;
+            t_take_b <= t_take;
+            retry_t1_b <= retry_t1;
+            rq_g_b <= rq_g;
+            g_fetch_b <= g_fetch;
+            g_abort_b <= g_abort;
+            nop_cand_b <= nop_cand;
+            ir_now_l_b <= ir_now_l;
+            t_start_b <= t_start;
+            t_flush_addr_b <= t_flush_addr;
+            ps_base_b <= ps_base;
+            t_pops_b <= t_pops;
+            th_lift_t_b <= th_lift_t;
+            th_arm_t_b <= th_arm_t;
+            th_on_t_b <= th_on_t;
+            th_arm_c_b <= th_arm_c;
+            th_pre_t_b <= th_pre_t;
+            th_held_b <= th_held;
+            xfer_x_b <= xfer_x;
+            g_slot_fetch_b <= g_slot_fetch;
+            abort_loop_b <= abort_loop;
+            rs_fire_b <= rs_fire;
+            rt_set_b <= rt_set;
+            rt_now_b <= rt_now;
+            rt_n_b <= rt_n;
+            rt_fire_b <= rt_fire;
+            flag_x_b <= flag_x;
+            inflight_c_b <= inflight_c;
+            t_sth_b <= t_sth;
+            t_sth_inf_b <= t_sth_inf;
+            t_sth_n_b <= t_sth_n;
+            sh_held_t_b <= sh_held_t;
+            sh_set_b <= sh_set;
+            sh_fire_b <= sh_fire;
+            sh_n_b <= sh_n;
+            room_t_b <= room_t;
+            want_tk_b <= want_tk;
+        end
+    end
+
+    // ------------------------------------------------------------ (S7b) tick B
+    // (S7b) asked(t) of the T take: in tick B (the take hold's cvt flag may be the P pass's)
+    assign asked_t = inflight_c_b ? room_t_b >= 5'sd2 : want_tk_b && !odd_held(need_t_b, 1'b0)
+                                                        && !(th_held_b && (th_c || th_cvt));
+    wire [2:0] unc_pre_p = unc_l_w_b + 3'(p_pops) - (p_commit1 ? 3'd1 : 3'd0);
+    wire qport_pp = p_commit && unc_pre_p != 3'd0;
+    wire rem_p = rem_l_b || qport_pp || p_commit1 || p_ir;
+    wire qport_p = qport_l_b || qport_pp || p_ir;
+    wire [2:0] unc_p_w = p_ir ? 3'd0 : (p_commit ? 3'd0 : unc_pre_p);
+    wire ir_now_p = l_pop_b || p_ir;
+    wire [3:0] cnt_p = cnt_l_b - 4'(p_pops) - (p_ir ? 4'd1 : 4'd0);
+    wire lat_p = lat_l_b && cnt_p != 4'd0;
+    wire pb_p = arrive ? rem_p : (qport_p || ir_now_p);
+    wire ev_p = ev_l_b || rem_p || (p_start && fresh_p);
+    wire signed [4:0] room_pp = room_f(cnt_p, unc_p_w, inflight_x_w_b, lat_p, arrive, pb_p,
+                                       need_p, t_disp_b || p_disp, ir_v_p, imm16_p,
+                                       ir_hold_p, t_mate_b, ea_act_x_b, fresh_p, sw_b, xk_p, lea_xk_p,
+                                       fl_p);
     // S5: a take's asked(t), then io_ir_hold (machine.py:189-195)
     // (S5b) page_ir_room=end: the full-latch bit op's end in the P pass
-    wire flag_gf = fl_end_p ? (flag_g || room_pp >= 5'sd2) : flag_g;
+    wire flag_gf = fl_end_p ? (flag_g_b || room_pp >= 5'sd2) : flag_g_b;
     wire want_pt = ira || (ev_p ? room_pp >= 5'sd2 : flag_gf && room_pp >= 5'sd2);
-    assign asked_p = inflight_x_w ? room_pp >= 5'sd2 : want_pt && !odd_held(need_p, t_flush);
+    assign asked_p = inflight_x_w_b ? room_pp >= 5'sd2 : want_pt && !odd_held(need_p, t_flush_b);
     // io_take=unit (eu._io_drop): the request this clock raises dropped as an aborted cycle's
-    wire flag_pa = io_drop ? 1'b0 : ((ask_p && !inflight_x_w) ? want_pt : flag_gf);
+    wire flag_pa = io_drop ? 1'b0 : ((ask_p && !inflight_x_w_b) ? want_pt : flag_gf);
     wire want_pi = ira || (ev_p ? room_pp >= 5'sd2 : flag_pa && room_pp >= 5'sd2);
-    wire iih = p_run && !flag_g && ir_now_p && !(t_take || p_take) && !inflight_x_w;
+    wire iih = p_run_b && !flag_g_b && ir_now_p && !(t_take_b || p_take) && !inflight_x_w_b;
     // ir_load=disp_data: the IR loaded again on the EU cycle's issue: a queue change
     // (machine.py:185-189)
     wire flag_ir = (ir_rel && p_ir) ? room_pp >= 5'sd2 : flag_pa;
     // io_take=unit (machine.py:201-211): a request first raised on an I/O cycle's issue clock
     // by a word's delivery (its second byte latched) while a memory multiply or divide runs:
     // dropped, raised again at its loop's exit
-    wire iud = g_io && flag_ir && arrive && lat_p && unit_md && !inflight_x_w && !retry_t1;
+    wire iud = g_io_b && flag_ir && arrive && lat_p && unit_md && !inflight_x_w_b && !retry_t1_b;
     assign io_unit_drop = iud;
     wire flag_p = iih ? want_pi : (iud ? 1'b0 : flag_ir);
     wire iih_set = iih && want_pi;
     assign rq_ir_hold = iih_set;
-    wire rq_p = iih_set ? 1'b1 : ((io_drop || iud) ? 1'b0 : rq_g);
+    wire rq_p = iih_set ? 1'b1 : ((io_drop || iud) ? 1'b0 : rq_g_b);
     assign rq_v_e = rq_p;
     // nop_hold=any (machine.py:206-216): on a fetch's issue clock where a register-only form
     // without operand bytes started, the IR loaded and the reissue kept the flag raised
-    wire nop_set = g_fetch && nop_cand && flag_g && ir_now_l && !t_take;
+    wire nop_set = g_fetch_b && nop_cand_b && flag_g_b && ir_now_l_b && !t_take_b;
 
     // ------------------------------------------------------------ S6: check, b2b
     wire latch_in = lat_p && cnt_p <= 4'(QUEUE_BYTES) && !pb_p;
@@ -528,7 +613,7 @@ module v35_queue
     // _raised(t) on a fetch's last clock: the flag as it stands, the room after every stage
     assign room_e = room_pp;
     assign flag_e = flag_p;
-    wire nop_act_e = (nop_held && !(t_start || p_start)) || nop_set;
+    wire nop_act_e = (nop_held && !(t_start_b || p_start)) || nop_set;
     wire raised_e = !nop_act_e && (ev_p ? room_pp >= 5'sd2 : flag_p && room_pp >= 5'sd2);
     // xfer_nt_b2b=decide (queue._nt_b2b): on a fetch's last clock not committed otherwise, a
     // conditional short transfer not taken waiting at its decide row commits one more fetch
@@ -542,9 +627,9 @@ module v35_queue
     wire pb_eff = pb_done && !start_any;
     wire pr_eff = pr_done && !start_any;
     wire pgb_go = fetch_last && !raised_e && pgb2b_e && !halted && need_p == 3'd0 && !pb_eff
-                  && !lat_e && room_pp >= 5'sd1 && (cf_tn || t_take || p_take)
-                  && !(ir_v_p && !t_flush && cf_irb && !start_any)
-                  && !(stored_e + 4'd4 > 4'(QUEUE_BYTES) + 4'd1 && !(!(ir_v_p && !t_flush) && res0_e));
+                  && !lat_e && room_pp >= 5'sd1 && (cf_tn || t_take_b || p_take)
+                  && !(ir_v_p && !t_flush_b && cf_irb && !start_any)
+                  && !(stored_e + 4'd4 > 4'(QUEUE_BYTES) + 4'd1 && !(!(ir_v_p && !t_flush_b) && res0_e));
     // page_run (end_clock): a 0F memory form (or a bit field) whose read has not issued
     // commits one fetch back to back on a fetch's last clock with a word of room, once per form
     wire prun_go = fetch_last && !raised_e && !pgb_go && pg_act_e && room_pp >= 5'sd2 && !pr_eff;
@@ -561,21 +646,21 @@ module v35_queue
     assign dec_inf = (od_v || ou_hit) ? od_inf_c : fetch_inflight_c;
     assign dec_since = (od_v || ou_hit) ? od_since_c : fetch_since_c;
     assign b2b_now = b2b;
-    assign triple_x = t_start && t_take && l_pop && starts >= 2'd2;
+    assign triple_x = t_start && t_take && l_pop && starts >= 2'd2;   // (tick A: S4)
     assign retry_o = retry_t0;      // before this clock's loop row (it reads it)
     assign retry_loop_o = retry_loop;
-    assign fetch_addr_o = t_flush ? t_flush_addr : fetch_addr;
+    assign fetch_addr_o = t_flush ? t_flush_addr : fetch_addr;   // (tick A: the grant)
     assign io_held_o = io_held;
-    assign io_hold_x = io_held && !t_start && flag_x && !inflight_c;
+    assign io_hold_x = io_held && !t_start && flag_x && !inflight_c;   // (tick A: S4)
     assign latch_start_now = latch_in && lat_full;
     assign shift_latch = sh_latch;
     assign nop_held_o = nop_held;
     assign overflow = ovf;
 
     // ------------------------------------------------------------ next state
-    wire [2:0] pops = 3'(t_pops) + (l_pop ? 3'd1 : 3'd0) + 3'(p_pops) + (p_ir ? 3'd1 : 3'd0);
+    wire [2:0] pops = 3'(t_pops_b) + (l_pop_b ? 3'd1 : 3'd0) + 3'(p_pops) + (p_ir ? 3'd1 : 3'd0);
     wire [3:0] stored_e = cnt_p - (lat_e ? 4'd1 : 4'd0);
-    wire [19:0] issue_addr = t_flush ? t_flush_addr : fetch_addr;
+    wire [19:0] issue_addr = t_flush_b ? t_flush_addr_b : fetch_addr;
     always @(posedge clock) begin
         if (!reset_n) begin
             head <= 3'd0;
@@ -607,10 +692,10 @@ module v35_queue
             first <= 1'b1;
             ovf <= 1'b0;
             sfetch <= 1'b0;
-        end else if (ce) begin
+        end else if (ce_a) begin
             first <= 1'b0;
             // (S5a) the transfers' holds
-            if (t_flush) begin
+            if (t_flush_b) begin
                 fh_v <= 1'b0;
                 ox_v <= 1'b0;
                 ox_nt <= 1'b0;
@@ -629,7 +714,7 @@ module v35_queue
                     // not-taken one's (both, as eu._start orders them); a not-taken one arms its
                     if ((ox_set && !ox_nt) || nt_set) begin
                         ox_v <= 1'b1;
-                        ox_fed <= fetch_inflight_c || g_fetch;
+                        ox_fed <= fetch_inflight_c || g_fetch_b;
                     end else if (ox_nt)
                         ox_v <= 1'b0;
                     ox_nt <= nt_set;
@@ -666,34 +751,34 @@ module v35_queue
             pb_done <= pb_eff || pgb_go;
             pr_done <= pr_eff || prun_go || (fetch_last && raised_e && pg_act_e);
             // the take hold
-            if (th_lift_p || (th_lift_t && !th_arm_p)) begin
+            if (th_lift_p || (th_lift_t_b && !th_arm_p)) begin
                 th_a <= 1'b0;
                 th_on <= 1'b0;
             end else begin
-                if (th_arm_t || th_arm_p) begin
+                if (th_arm_t_b || th_arm_p) begin
                     th_a <= 1'b1;
                     th_c <= th_cvt;
                 end
-                if (th_on_t)
+                if (th_on_t_b)
                     th_on <= 1'b1;
-                else if ((th_arm_c || th_arm_p) && p_take)
+                else if ((th_arm_c_b || th_arm_p) && p_take)
                     th_on <= 1'b1;
             end
-            th_pre <= (th_on_t ? th_pre_t : rq_v) && rq_v_e && !(g_fetch || g_abort);
-            if (g_abort)
-                xa <= xfer_x;
+            th_pre <= (th_on_t_b ? th_pre_t_b : rq_v) && rq_v_e && !(g_fetch_b || g_abort_b);
+            if (g_abort_b)
+                xa <= xfer_x_b;
             else if (abort_done)
                 xa <= 1'b0;
-            if (g_slot_fetch)
+            if (g_slot_fetch_b)
                 sfetch <= 1'b1;
             else if (dlv_fetch)
                 sfetch <= 1'b0;
             // storage: the delivered bytes behind the ones held, the pops from the head
-            if (t_flush) begin
+            if (t_flush_b) begin
                 // a flush in T: the queue emptied before this clock's later stages
                 head <= 3'd0;
                 cnt <= cnt_p;
-                take_addr <= t_flush_addr + 20'(pops) - 20'(t_pops);
+                take_addr <= t_flush_addr_b + 20'(pops) - 20'(t_pops_b);
             end else begin
                 if (n_arr != 2'd0)
                     q[head + 3'(cnt)] <= a0;
@@ -712,20 +797,20 @@ module v35_queue
                 ovf <= 1'b1;                // check(): more than six bytes stored
             flag <= flag_p;
             rq_v <= rq_p;
-            inflight <= inflight_x_w;
+            inflight <= inflight_x_w_b;
             if (dlv_fetch)
                 discard <= 1'b0;
-            if (t_flush)
-                discard <= inflight_c && !abort_busy;
-            if (g_fetch)        // ((S6) the next word's offset in PS, FFFFh + 1 wrapping to 0)
-                fetch_addr <= ps_base + {4'd0, 16'((issue_addr | 20'd1) + 20'd1 - ps_base)};
-            else if (t_flush)
-                fetch_addr <= t_flush_addr;
+            if (t_flush_b)
+                discard <= inflight_c_b && !abort_busy;
+            if (g_fetch_b)        // ((S6) the next word's offset in PS, FFFFh + 1 wrapping to 0)
+                fetch_addr <= ps_base_b + {4'd0, 16'((issue_addr | 20'd1) + 20'd1 - ps_base_b)};
+            else if (t_flush_b)
+                fetch_addr <= t_flush_addr_b;
             b2b <= b2b_next;
             // abort_fetch=retry
-            if (g_abort) begin
+            if (g_abort_b) begin
                 retry <= 1'b1;
-                retry_loop <= abort_loop;
+                retry_loop <= abort_loop_b;
             end else if (io_drop) begin
                 retry <= 1'b1;              // io_take: raised again as an aborted cycle's
                 retry_loop <= io_drop_loop;
@@ -733,48 +818,48 @@ module v35_queue
                 retry <= 1'b1;
                 retry_loop <= 1'b1;
             end else
-                retry <= retry_t1 && !rs_fire;
-            if (rt_set && !rt_now) begin
+                retry <= retry_t1_b && !rs_fire_b;
+            if (rt_set_b && !rt_now_b) begin
                 rt_v <= 1'b1;
-                rt_cnt <= 9'(rt_n - 10'sd1);
-            end else if (rt_fire || rt_now) begin
+                rt_cnt <= 9'(rt_n_b - 10'sd1);
+            end else if (rt_fire_b || rt_now_b) begin
                 rt_v <= 1'b0;
             end else if (rt_v)
                 rt_cnt <= rt_cnt - 9'd1;
             // the holds, released by a later start
             if (nop_set)
                 nop_held <= 1'b1;
-            else if (t_start || p_start)
+            else if (t_start_b || p_start)
                 nop_held <= 1'b0;
             if (iih_set)
                 io_held <= 1'b1;
-            else if (io_held && (t_start || p_start || !flag_x || inflight_c))
+            else if (io_held && (t_start_b || p_start || !flag_x_b || inflight_c_b))
                 io_held <= 1'b0;
-            if ((t_start || p_start) && starts != 2'd3)
+            if ((t_start_b || p_start) && starts != 2'd3)
                 starts <= starts + 2'd1;
             // str_held (the P pass's setting after T's)
             if (p_sth) begin
                 st_inf <= p_sth_inf;
                 fhold <= (p_sth_inf || p_sth_n == 6'd0) ? 6'd0 : p_sth_n - 6'd1;
-            end else if (t_sth) begin
-                st_inf <= t_sth_inf;
-                fhold <= (t_sth_inf || t_sth_n == 6'd0) ? 6'd0 : t_sth_n - 6'd1;
+            end else if (t_sth_b) begin
+                st_inf <= t_sth_inf_b;
+                fhold <= (t_sth_inf_b || t_sth_n_b == 6'd0) ? 6'd0 : t_sth_n_b - 6'd1;
             end else if (fhold != 6'd0)
                 fhold <= fhold - 6'd1;
             // str_raise: counted down to its clock (wants_fetch raises a retried request there)
             if (rs_set) begin
                 rs_v <= 1'b1;
                 rs_cnt <= rs_n == 4'd0 ? 4'd0 : rs_n - 4'd1;
-            end else if (rs_fire)
+            end else if (rs_fire_b)
                 rs_v <= 1'b0;
             else if (rs_v && rs_cnt != 4'd0)
                 rs_cnt <= rs_cnt - 4'd1;
             // count_latch: held from the count's take to the shift's last clock
-            sh_held <= sh_held_t;
-            if (sh_set) begin
+            sh_held <= sh_held_t_b;
+            if (sh_set_b) begin
                 sh_v <= 1'b1;
-                sh_cnt <= sh_n == 10'd0 ? 9'd0 : 9'(sh_n - 10'd1);
-            end else if (sh_fire) begin
+                sh_cnt <= sh_n_b == 10'd0 ? 9'd0 : 9'(sh_n_b - 10'd1);
+            end else if (sh_fire_b) begin
                 sh_v <= 1'b0;
             end else if (sh_v) begin
                 sh_cnt <= sh_cnt - 9'd1;
@@ -782,5 +867,339 @@ module v35_queue
         end
     end
 
-    wire unused = &{1'b0, dlv_addr[19:1]};
+    // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
+`ifndef SYNTHESIS
+    /* verilator lint_off BLKSEQ */
+    reg chk_on = 1'b0;
+    integer chk_n = 0;
+    initial chk_on = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (unc_l_w_b !== unc_l_w) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.unc_l_w changed in tick B: %h -> %h at %0t",
+                             unc_l_w_b, unc_l_w, $time);
+            end
+            if (need_t_b !== need_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.need_t changed in tick B: %h -> %h at %0t",
+                             need_t_b, need_t, $time);
+            end
+            if (qport_l_b !== qport_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.qport_l changed in tick B: %h -> %h at %0t",
+                             qport_l_b, qport_l, $time);
+            end
+            if (rem_l_b !== rem_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.rem_l changed in tick B: %h -> %h at %0t",
+                             rem_l_b, rem_l, $time);
+            end
+            if (l_pop_b !== l_pop) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.l_pop changed in tick B: %h -> %h at %0t",
+                             l_pop_b, l_pop, $time);
+            end
+            if (lat_l_b !== lat_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.lat_l changed in tick B: %h -> %h at %0t",
+                             lat_l_b, lat_l, $time);
+            end
+            if (ev_l_b !== ev_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.ev_l changed in tick B: %h -> %h at %0t",
+                             ev_l_b, ev_l, $time);
+            end
+            if (cnt_l_b !== cnt_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.cnt_l changed in tick B: %h -> %h at %0t",
+                             cnt_l_b, cnt_l, $time);
+            end
+            if (inflight_x_w_b !== inflight_x_w) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.inflight_x_w changed in tick B: %h -> %h at %0t",
+                             inflight_x_w_b, inflight_x_w, $time);
+            end
+            if (t_disp_b !== t_disp) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_disp changed in tick B: %h -> %h at %0t",
+                             t_disp_b, t_disp, $time);
+            end
+            if (t_mate_b !== t_mate) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_mate changed in tick B: %h -> %h at %0t",
+                             t_mate_b, t_mate, $time);
+            end
+            if (ea_act_x_b !== ea_act_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.ea_act_x changed in tick B: %h -> %h at %0t",
+                             ea_act_x_b, ea_act_x, $time);
+            end
+            if (sw_b !== sw) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.sw changed in tick B: %h -> %h at %0t",
+                             sw_b, sw, $time);
+            end
+            if (flag_g_b !== flag_g) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.flag_g changed in tick B: %h -> %h at %0t",
+                             flag_g_b, flag_g, $time);
+            end
+            if (t_flush_b !== t_flush) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_flush changed in tick B: %h -> %h at %0t",
+                             t_flush_b, t_flush, $time);
+            end
+            if (g_io_b !== g_io) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.g_io changed in tick B: %h -> %h at %0t",
+                             g_io_b, g_io, $time);
+            end
+            if (p_run_b !== p_run) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.p_run changed in tick B: %h -> %h at %0t",
+                             p_run_b, p_run, $time);
+            end
+            if (t_take_b !== t_take) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_take changed in tick B: %h -> %h at %0t",
+                             t_take_b, t_take, $time);
+            end
+            if (retry_t1_b !== retry_t1) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.retry_t1 changed in tick B: %h -> %h at %0t",
+                             retry_t1_b, retry_t1, $time);
+            end
+            if (rq_g_b !== rq_g) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.rq_g changed in tick B: %h -> %h at %0t",
+                             rq_g_b, rq_g, $time);
+            end
+            if (g_fetch_b !== g_fetch) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.g_fetch changed in tick B: %h -> %h at %0t",
+                             g_fetch_b, g_fetch, $time);
+            end
+            if (g_abort_b !== g_abort) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.g_abort changed in tick B: %h -> %h at %0t",
+                             g_abort_b, g_abort, $time);
+            end
+            if (nop_cand_b !== nop_cand) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.nop_cand changed in tick B: %h -> %h at %0t",
+                             nop_cand_b, nop_cand, $time);
+            end
+            if (ir_now_l_b !== ir_now_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.ir_now_l changed in tick B: %h -> %h at %0t",
+                             ir_now_l_b, ir_now_l, $time);
+            end
+            if (t_start_b !== t_start) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_start changed in tick B: %h -> %h at %0t",
+                             t_start_b, t_start, $time);
+            end
+            if (t_flush_addr_b !== t_flush_addr) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_flush_addr changed in tick B: %h -> %h at %0t",
+                             t_flush_addr_b, t_flush_addr, $time);
+            end
+            if (ps_base_b !== ps_base) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.ps_base changed in tick B: %h -> %h at %0t",
+                             ps_base_b, ps_base, $time);
+            end
+            if (t_pops_b !== t_pops) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_pops changed in tick B: %h -> %h at %0t",
+                             t_pops_b, t_pops, $time);
+            end
+            if (th_lift_t_b !== th_lift_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.th_lift_t changed in tick B: %h -> %h at %0t",
+                             th_lift_t_b, th_lift_t, $time);
+            end
+            if (th_arm_t_b !== th_arm_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.th_arm_t changed in tick B: %h -> %h at %0t",
+                             th_arm_t_b, th_arm_t, $time);
+            end
+            if (th_on_t_b !== th_on_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.th_on_t changed in tick B: %h -> %h at %0t",
+                             th_on_t_b, th_on_t, $time);
+            end
+            if (th_arm_c_b !== th_arm_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.th_arm_c changed in tick B: %h -> %h at %0t",
+                             th_arm_c_b, th_arm_c, $time);
+            end
+            if (th_pre_t_b !== th_pre_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.th_pre_t changed in tick B: %h -> %h at %0t",
+                             th_pre_t_b, th_pre_t, $time);
+            end
+            if (th_held_b !== th_held) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.th_held changed in tick B: %h -> %h at %0t",
+                             th_held_b, th_held, $time);
+            end
+            if (xfer_x_b !== xfer_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.xfer_x changed in tick B: %h -> %h at %0t",
+                             xfer_x_b, xfer_x, $time);
+            end
+            if (g_slot_fetch_b !== g_slot_fetch) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.g_slot_fetch changed in tick B: %h -> %h at %0t",
+                             g_slot_fetch_b, g_slot_fetch, $time);
+            end
+            if (abort_loop_b !== abort_loop) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.abort_loop changed in tick B: %h -> %h at %0t",
+                             abort_loop_b, abort_loop, $time);
+            end
+            if (rs_fire_b !== rs_fire) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.rs_fire changed in tick B: %h -> %h at %0t",
+                             rs_fire_b, rs_fire, $time);
+            end
+            if (rt_set_b !== rt_set) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.rt_set changed in tick B: %h -> %h at %0t",
+                             rt_set_b, rt_set, $time);
+            end
+            if (rt_now_b !== rt_now) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.rt_now changed in tick B: %h -> %h at %0t",
+                             rt_now_b, rt_now, $time);
+            end
+            if (rt_n_b !== rt_n) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.rt_n changed in tick B: %h -> %h at %0t",
+                             rt_n_b, rt_n, $time);
+            end
+            if (rt_fire_b !== rt_fire) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.rt_fire changed in tick B: %h -> %h at %0t",
+                             rt_fire_b, rt_fire, $time);
+            end
+            if (flag_x_b !== flag_x) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.flag_x changed in tick B: %h -> %h at %0t",
+                             flag_x_b, flag_x, $time);
+            end
+            if (inflight_c_b !== inflight_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.inflight_c changed in tick B: %h -> %h at %0t",
+                             inflight_c_b, inflight_c, $time);
+            end
+            if (t_sth_b !== t_sth) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_sth changed in tick B: %h -> %h at %0t",
+                             t_sth_b, t_sth, $time);
+            end
+            if (t_sth_inf_b !== t_sth_inf) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_sth_inf changed in tick B: %h -> %h at %0t",
+                             t_sth_inf_b, t_sth_inf, $time);
+            end
+            if (t_sth_n_b !== t_sth_n) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.t_sth_n changed in tick B: %h -> %h at %0t",
+                             t_sth_n_b, t_sth_n, $time);
+            end
+            if (sh_held_t_b !== sh_held_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.sh_held_t changed in tick B: %h -> %h at %0t",
+                             sh_held_t_b, sh_held_t, $time);
+            end
+            if (sh_set_b !== sh_set) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.sh_set changed in tick B: %h -> %h at %0t",
+                             sh_set_b, sh_set, $time);
+            end
+            if (sh_fire_b !== sh_fire) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.sh_fire changed in tick B: %h -> %h at %0t",
+                             sh_fire_b, sh_fire, $time);
+            end
+            if (sh_n_b !== sh_n) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.sh_n changed in tick B: %h -> %h at %0t",
+                             sh_n_b, sh_n, $time);
+            end
+            if (room_t_b !== room_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.room_t changed in tick B: %h -> %h at %0t",
+                             room_t_b, room_t, $time);
+            end
+            if (want_tk_b !== want_tk) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: queue.want_tk changed in tick B: %h -> %h at %0t",
+                             want_tk_b, want_tk, $time);
+            end
+        end
+    end
+    final if (chk_on && chk_n != 0)
+        $display("v35 chk: queue: %0d changes in tick B", chk_n);
+    /* verilator lint_on BLKSEQ */
+`endif
+    // (S7b) chk end
+
+    wire unused = &{1'b0, ce_b, dlv_addr[19:1]};
 endmodule

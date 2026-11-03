@@ -8,9 +8,9 @@
 // down to 08h (DS0) (validation/v35s/model/eu.py:17-18): the word address is {RB, slot[4:1]}.
 //
 // Ports: A reads and writes (the operand / result register), B reads (the second operand,
-// the EA's base, SP). Each read port's address is registered at `ce` (a block RAM's read
+// the EA's base, SP). Each read port's address is registered at `ce_a` (a block RAM's read
 // address register: the EU names the registers it reads on the clock before), the data is the
-// word at that address during the clock; the write is at `ce` (one word or one half). A read
+// word at that address during the clock; the write is at `ce_a` (one word or one half). A read
 // whose address register latches on the same edge as a write to that address returns the new
 // data (write first). Two copies of each half, one per read port, so each copy is a simple
 // dual-port RAM (one write, one read).
@@ -23,8 +23,9 @@
 // prelude loads the rest; the PSW's RB 7 at reset is the EU's).
 module v35_regram (
     input  wire        clock,
-    input  wire        ce,
-    // port A: read address for the next clock, write (at ce)
+    input  wire        ce_a,
+    input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
+    // port A: read address for the next clock, write (at ce_a)
     input  wire [6:0]  ra_next,     // {bank, slot[4:1]}
     input  wire        wa_en,
     input  wire [6:0]  wa_addr,
@@ -55,7 +56,7 @@ module v35_regram (
     end
 
     always_ff @(posedge clock) begin
-        if (ce) begin
+        if (ce_a) begin
             if (wa_en && wa_be[0]) begin
                 ae[wa_addr] <= wa_data[7:0];
                 be[wa_addr] <= wa_data[7:0];
@@ -71,4 +72,6 @@ module v35_regram (
 
     assign ra_data = {ao[ra_q], ae[ra_q]};
     assign rb_data = {bo[rb_q], be[rb_q]};
+
+    wire unused = &{1'b0, ce_b};
 endmodule
