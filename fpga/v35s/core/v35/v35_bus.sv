@@ -28,7 +28,21 @@
 //                                            in flight (queue._disp_in_flight), the IR held an
 //                                            opcode (queue._page_b2b's ir_t <= bus_start); read by
 //                                            S5's page rules
-//   (c_thru, c_lea_start, c_take_near: S5, named zero inputs on the grant port)
+//   (S5b) c_thru 1                           Cycle.thru (page_cl=thru: issued in a 0F read's cl
+//                                            clocks)
+//   (S5b) c_pfa 1                            the fetch issued while a 0F read (pfree) waited in
+//                                            the slot: x.start > pfree (page_commit=post)
+//   (S5b) c_tn 1, c_tkin 1, tk_prev 1        _page_b2b's window: the form's last take at or after
+//                                            the clock before the fetch's issue (take_t >=
+//                                            bus_start - 1), or page_b2b_win=run's look-back
+//                                            (the fetch before it, back to back, took it after
+//                                            its issue clock: carried at the issue); a take in
+//                                            this fetch after its issue clock; a take on t-1
+//   (S5b) c_as 1, c_nt 1                     _page_imm_run: the fetch issued after the running
+//                                            form's start clock (prev.start > start_clock), no
+//                                            take on or after its issue clock (> take_t)
+//   (c_ir_before (S4) is kept up: cleared when a start empties the IR after the issue)
+//   (c_lea_start: not built: lea_wb=fetch is the sequencer's lw_*)
 //   dlv_v 1, dlv_kind 3, dlv_addr 20, dlv_width 2, done_data 16
 //                                            the cycle that ended on t-1 (bus.completed), its
 //                                            read datum (latched mid-B3)
@@ -73,6 +87,8 @@ module v35_bus
     input  wire [1:0]  g_dsel,      // (S4) the write datum taken at B2 (store_imm's immediate)
     input  wire [15:0] wd_imm,      // ... the EU's immediate on that clock
     input  wire        disp_take,   // a displacement taken on this clock (c_disp_in_flight)
+    input  wire        take_any,    // (S5b) an operand take on this clock (T or P: take_t == t)
+    input  wire        flush_now,   // (S5b) a flush empties the IR on this clock
     // S5: the clock's instruction starts (an I/O issue clock's second pass included)
     input  wire        start_any,
     // the data latch's fills on this clock other than a write's issue (S2/S5: a register
@@ -110,6 +126,13 @@ module v35_bus
     output reg         error,           // a start on a bus that was not free (sticky)
     output wire        w3_v,            // (S5a) a memory write is among the last three cycles ...
     output wire signed [4:0] w3_rel,    //   ... its last clock - t
+    // (S5b) the 0F page: the fetch on the bus (S0) ...
+    output wire        cur_thru,        // ... c_thru (page_cl=thru)
+    output wire        cur_b2b_pfa,     // ... committed back to back after a 0F read's post
+    output wire        cf_tn,           // ... take_near (page_b2b=reg, page_b2b_win=run)
+    output wire        cf_irb,          // ... the IR held an opcode loaded no later than its issue
+    output wire        prev_imm,        // the fetch that ended on t-1 issued after the running
+                                        //   form's start and no take since (page_imm_run)
 
     // pins (as v35s_model.sv)
     output reg         a0,
@@ -150,6 +173,13 @@ module v35_bus
     reg         c_after_post = 1'b0;
     reg         c_disp_in_flight = 1'b0;
     reg         c_ir_before = 1'b0;
+    reg         c_thru = 1'b0;      // (S5b)
+    reg         c_pfa = 1'b0;
+    reg         c_tn = 1'b0;
+    reg         c_tkin = 1'b0;
+    reg         tk_prev = 1'b0;
+    reg         c_as = 1'b0;
+    reg         c_nt = 1'b0;
     reg         gap = 1'b0;
     reg  [3:0]  f_since = 4'd9;     // last_fetch_end = -10: at the end of clock -1, 9
     reg  [1:0]  io_tail = 2'd0;
@@ -190,6 +220,15 @@ module v35_bus
     assign abort_busy = ab_v && ab_pos != 2'd2;
     assign abort_last = ab_v && ab_pos == 2'd1;
     assign abort_done = ab_v && ab_pos == 2'd2;
+    // (S5b) the 0F page's flags of the fetch on the bus / the one that ended on t-1
+    assign cur_thru = fetch_inflight && c_thru;
+    assign cur_b2b_pfa = fetch_inflight && c_b2b && c_pfa;
+    assign cf_tn = c_tn;
+    assign cf_irb = c_ir_before;
+    assign prev_imm = fetch_end_prev && c_kind == K_FETCH && c_as && c_nt;
+    // page_b2b_win=run: a fetch issued back to back after one that took the form's last take
+    // after its issue clock takes the window over
+    wire tn_carry = fetch_end_prev && c_kind == K_FETCH && c_tkin;
 
     // the data latch: a read's datum on its delivery clock (eu.complete), a write from its
     // issue (eu.issue), a register form's last operand byte (wl_fill)
@@ -274,6 +313,12 @@ module v35_bus
                 c_after_post <= fetch_x && g_after_post;
                 c_ir_before <= fetch_x && g_ir_before;
                 c_disp_in_flight <= 1'b0;
+                c_thru <= fetch_x && g_thru;
+                c_pfa <= fetch_x && g_after_post;
+                c_tn <= tk_prev || take_any || tn_carry;
+                c_tkin <= 1'b0;
+                c_as <= !start_any;
+                c_nt <= !take_any;
                 gap <= g_ext || FIT_MIN_GAP != 0;
             end else begin
                 if (busy)
@@ -286,7 +331,18 @@ module v35_bus
                     c_on_start <= 1'b0;     // another instruction started: not its start clock
                 if (busy && c_kind == K_FETCH && disp_take)
                     c_disp_in_flight <= 1'b1;
+                // (S5b) the window flags through the cycle's flight
+                if (busy && take_any) begin
+                    c_tn <= 1'b1;
+                    c_tkin <= 1'b1;
+                    c_nt <= 1'b0;
+                end
+                if (busy && start_any)
+                    c_as <= 1'b0;
+                if (start_any || flush_now)
+                    c_ir_before <= 1'b0;
             end
+            tk_prev <= take_any;
             if (g_start && k_io(g_kind))
                 io_tail <= 2'(FIT_IO_RECOVER);
             else if (!(busy && k_io(c_kind)) && !(gap && c_ext) && io_tail != 2'd0)
@@ -391,7 +447,7 @@ module v35_bus
             done_data <= data_in;
     end
 
-    wire unused = &{1'b0, c_b2b, c_commit, g_thru, g_lea_start, g_disp_in_flight,
-                    g_take_near, c_after_post, c_disp_in_flight, c_ir_before, wtc[13:2],
+    wire unused = &{1'b0, c_commit, g_lea_start, g_disp_in_flight,
+                    g_take_near, c_after_post, c_disp_in_flight, wtc[13:2],
                     rfm[7:4], rfm[1:0]};
 endmodule

@@ -158,7 +158,7 @@ module v35_top
     wire        xs_start, fh_set, ox_set, nt_set, nt_dbnz, ou_set, xs_done, ff_set, ntb_ok, xfer_x;
     wire        ff_t, ff_t0;
     // (S5a) the strings
-    wire        edone, povr_t, povr_p, str_last, str_exit, own_h2, g_wl_io, w3_v;
+    wire        edone, edone_t, povr_t, povr_p, str_last, str_exit, own_h2, g_wl_io, w3_v;
     wire signed [4:0] w3_rel;
     wire [4:0]  fh_n;
     wire [2:0]  ou_n, ff_n;
@@ -171,6 +171,14 @@ module v35_top
     wire        shift_latch, rq_v_e, io_unit_drop;
     wire signed [4:0] room_c0;
     wire signed [4:0] room_c, room_x, room_p0, room_e;
+    // (S5b) the 0F page
+    wire        b_cur_thru, b_cur_b2b_pfa, b_cf_tn, b_cf_irb, b_prev_imm;
+    wire        g_thru, g_pfa, slot_pf_e;
+    wire        irh_pg_t, irh_pg_p, fl_c, fl_t, fl_p, fl_end_t, fl_end_t2, fl_end_p, pfs_x, pfs_e;
+    wire        pimm_x, pcl_x, pgb2b_e, res0_e, bcd_idle, bf_cross, bf_ok;
+    wire [3:0]  mt_sub_t, mt_sub_p;
+    wire [2:0]  pcl_fs;
+    wire [10:0] bfcost;
     // loader
     wire        ir_v_c, ir_v_t, ir_v_l, ir_v_p, l_pop, p_ir, l_ir_hold;
     wire        ld_t_commit1, ld_t_mate, ld_p_commit1, ld_p_mate;
@@ -229,9 +237,10 @@ module v35_top
     v35_bus bus (
         .clock, .reset_n(core_reset_n), .ce, .ce_mid, .wtc, .rfm,
         .g_start, .g_kind, .g_addr, .g_width, .g_data, .g_ext, .g_b2b,
-        .g_thru(1'b0), .g_after_post(g_mem_waiting), .g_lea_start(1'b0),
-        .g_disp_in_flight(1'b0), .g_ir_before(ir_v_l), .g_take_near(1'b0), .g_abort,
-        .g_slot, .g_wl_io, .g_dsel, .wd_imm, .disp_take(disp_t), .start_any, .wl_fill_t, .wl_fill_p,
+        .g_thru, .g_after_post(g_pfa), .g_lea_start(1'b0),
+        .g_disp_in_flight(1'b0), .g_ir_before(ir_v_p && !t_flush), .g_take_near(1'b0), .g_abort,
+        .g_slot, .g_wl_io, .g_dsel, .wd_imm, .disp_take(disp_t),
+        .take_any(t_k != 2'd0 || p_k), .flush_now(t_flush), .start_any, .wl_fill_t, .wl_fill_p,
         .busy(b_busy), .free(b_free), .cur_kind(b_cur_kind), .cur_pos(b_cur_pos),
         .cur_left(b_cur_left), .cur_on_start(b_cur_on_start), .in_wait(b_in_wait),
         .fetch_inflight(b_fetch_inflight), .fetch_past_b2(b_fetch_past_b2),
@@ -242,6 +251,8 @@ module v35_top
         .dlv_width(b_dlv_width), .done_data(b_done_data), .abort_busy(b_abort_busy),
         .abort_last(b_abort_last), .abort_done(b_abort_done), .fetch_len(b_fetch_len),
         .grant_len(b_grant_len), .error(b_error), .w3_v, .w3_rel,
+        .cur_thru(b_cur_thru), .cur_b2b_pfa(b_cur_b2b_pfa), .cf_tn(b_cf_tn), .cf_irb(b_cf_irb),
+        .prev_imm(b_prev_imm),
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
         .data_out(c_data_out), .mreq_n(c_mreq_n), .mstb_n(c_mstb_n), .iostb_n(c_iostb_n),
         .read_write(c_read_write), .refrq_n(c_refrq_n), .data_in
@@ -258,6 +269,8 @@ module v35_top
         .fetch_inflight_c(b_fetch_inflight), .fetch_since_c(b_fetch_since),
         .xs_start, .fh_set, .fh_n, .ox_set, .nt_set, .nt_dbnz, .ou_set, .ou_n, .xs_done,
         .ff_set, .ff_n, .ff_t, .ff_t0, .ntb_ok, .xfer_x, .nb_now, .dec_inf, .dec_since, .xk_c, .xk_t, .xk_p, .lea_xk_c, .lea_xk_t, .lea_xk_p, .th_arm_t, .th_arm_p, .th_cvt, .th_lift_t, .th_lift_p,
+        .fl_c, .fl_t, .fl_p, .fl_end_t, .fl_end_t2, .fl_end_p, .pgb2b_e, .halted, .res0_e,
+        .pg_act_e(pfs_e || slot_pf_e), .cf_tn(b_cf_tn), .cf_irb(b_cf_irb), .start_any,
         .t_pops(t_k), .t_commit(t_done), .t_commit1(ld_t_commit1), .t_take(t_k != 2'd0),
         .t_mate(ld_t_mate), .t_disp(disp_t), .p_disp(disp_p), .t_start, .t_flush, .t_flush_addr, .t_sth, .t_sth_inf, .t_sth_n, .p_sth, .p_sth_inf, .p_sth_n, .rs_set, .rs_n,
         .cnt_take, .sh_set, .sh_n,
@@ -286,6 +299,7 @@ module v35_top
         .t_start, .t_k_in(t_k), .t_flush, .t_halt, .lx_hold, .idle_adj,
         .p_start, .p_k_in(p_k), .p_io_nx,
         .irh_set_t, .irh_clr_t, .eu_issue, .irh_set_p, .irh_clr_p,
+        .irh_pg_t, .irh_pg_p, .mt_sub_t, .mt_sub_p,
         .ir_v_c, .ir_c, .ir_addr_c, .fmt_c, .cls_c, .fmt_mt, .need_c,
         .t_commit1(ld_t_commit1), .t_mate(ld_t_mate), .need_t, .ir_v_t,
         .l_pop, .ir_l, .ir_addr_l, .fmt_l, .cls_l, .ir_v_l,
@@ -310,7 +324,7 @@ module v35_top
         .abort_busy(b_abort_busy), .abort_last(b_abort_last), .wl_busy(b_wl_busy),
         .wl_busy_x(b_wl_busy_x), .grant_len(b_grant_len),
         .own_two, .own_h2, .w3_v, .w3_rel, .fetch_last_c(fetch_last), .str_last, .str_exit,
-        .edone, .povr_t, .povr_p,
+        .edone, .edone_t, .povr_t, .povr_p,
         .slot_wait_c, .slot_wait_p, .slot_det_c, .slot_det_p, .post_ok_c, .post_ok_p,
         .slot_memw_c, .dw_blk_c(dwq_c || (dws_c && b_busy && k_io(b_cur_kind))),
         .dw_blk_p(dwq_c || dws_c), .own_issued, .own_done, .own_done_p,
@@ -319,8 +333,11 @@ module v35_top
         .xs_start, .fh_set, .fh_n, .ox_set, .nt_set, .nt_dbnz, .ou_set, .ou_n, .xs_done,
         .ff_set, .ff_n, .ff_t, .ff_t0, .ntb_ok, .xfer_x, .xk_c, .xk_t, .xk_p, .lea_xk_c, .lea_xk_t, .lea_xk_p, .th_arm_t, .th_arm_p, .th_cvt, .th_lift_t, .th_lift_p, .mf_old,
         .g_fetch, .g_abort, .g_abort_lat, .retick, .g_io(g_eu && k_io(g_kind)),
-        .cnt, .cl_c, .cl_e, .psw_c, .psw_e, .cw_c, .cw_e, .mneg,  .bf_cross(1'b0),
-        .bfcost(10'd0),
+        .cnt, .cl_c, .cl_e, .psw_c, .psw_e, .cw_c, .cw_e, .mneg, .bf_cross, .bfcost, .bf_ok,
+        .g_eu, .g_thru, .cur_thru(b_cur_thru), .irh_pg_t, .irh_pg_p, .mt_sub_t, .mt_sub_p,
+        .fl_c, .fl_t, .fl_p, .fl_end_t, .fl_end_t2, .fl_end_p, .pfs_x, .pfs_e, .pimm_x, .pcl_x,
+        .pcl_fs,
+        .pgb2b_e, .res0_e, .bcd_idle,
         .t_start, .t_k, .t_done, .t_flush, .t_halt, .ask_d, .ask_t, .cnt_take,
         .t_sth, .t_sth_inf, .t_sth_n, .p_sth, .p_sth_inf, .p_sth_n, .rs_set, .rs_n,
         .rt_set, .rt_n, .sh_set, .sh_n, .imm16_c, .imm16_t, .nop_cand, .abort_loop, .halting,
@@ -349,7 +366,8 @@ module v35_top
         .dlv_data(b_done_data),
         .ra_next, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data,
         .rq_t, .rq_p, .ea_live, .wd_live, .wd_imm, .cnt, .cl_c, .cl_e, .psw_c, .psw_e, .cw_c, .cw_e, .mneg, .t_flush_addr, .sfr_data,
-        .edone, .povr_t, .povr_p, .str_last, .str_exit,
+        .edone, .edone_t, .povr_t, .povr_p, .str_last, .str_exit,
+        .f_end(xs_done), .bf_cross, .bfcost, .bf_ok,
         .pc_o(eu_pc), .miss_o(eu_miss)
     );
 
@@ -373,6 +391,9 @@ module v35_top
         .fetch_end_prev(b_fetch_end_prev), .fetch_run_prev(b_fetch_run_prev),
         .io_win(b_io_win), .fetch_len(b_fetch_len), .fetch_addr(q_fetch_addr),
         .dlv_eu(dlv_other),
+        .p_take(p_k), .t_start, .pfs_x, .pimm_x, .pcl_x, .pcl_fs, .fetch_since(b_fetch_since),
+        .cur_b2b_pfa(b_cur_b2b_pfa), .cur_thru(b_cur_thru), .prev_imm(b_prev_imm), .bcd_idle,
+        .g_thru, .g_pfa, .slot_pf_e,
         .g_start, .g_kind, .g_addr, .g_width, .g_data, .g_fetch, .g_eu, .g_slot, .g_slot_fetch,
         .g_abort, .g_abort_lat, .g_mem_waiting, .g_b2b, .rq_set_x, .retick, .eu_issue, .g_ext,
         .g_dsel,

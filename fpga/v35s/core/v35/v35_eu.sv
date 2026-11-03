@@ -62,6 +62,20 @@
 //                                          an element's first read's datum (the compare's,
 //                                          the BCD pair's source)
 //   bi 8, bcy 1, bz 1, bres 8              a BCD string's pair index, carry, zero term, result
+//   (S5b) bfo 8, bfw 8                     a bit field's offset and width registers (their
+//                                          values at its exec: templates.decode's op.bf, the
+//                                          crossing and the cost the sequencer reads)
+//
+// (S5b) The 0F page's datapath: the bit ops (TEST1 / CLR1 / SET1 / NOT1: v35_bit1 on a register
+// at its last operand byte's take, or on the read datum at its delivery (an RMW's result the
+// write's datum); the bit index CL or the immediate, modulo the width), the digit rotates
+// (ROL4 / ROR4: v35_rot4 with AL, the byte register or the read datum; AL written after the
+// operand), the bit fields (EXT / INS: at the last operand byte's take the offset register is
+// stepped to (offset + width + 1) mod 16 and the PSW set (SUB 15, offset + width (+ 1 INS) at
+// byte width); EXT's field into AW at its last read's delivery (the two words' when it
+// crosses); INS's words written back with AW's field (AW read after the offset's step) on
+// port A; the pointer, IX (EXT) / IY (INS), raised by 2 at the form's end when the field ran
+// past its word), the BCD strings (S5a's datapath).
 module v35_eu
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -146,10 +160,16 @@ module v35_eu
     output wire [15:0] cw_e,
     // (S5a) the strings: the sequencer's element strobe and overrun posts, the loop's exits
     input  wire        edone,           // a REP element's last row completed (CW counted down)
+    input  wire        edone_t,         // (S5b) ... in the T pass
     input  wire        povr_t,          // the T / P post is a REP compare's overrun read
     input  wire        povr_p,
     output wire        str_last,        // the REP loop's last element by count (CW = 1)
     output wire        str_exit,        // the compare ended the REP loop on its condition now
+    // (S5b) the bit fields: the form's end (the pointer's step), the crossing and the cost
+    input  wire        f_end,
+    output wire        bf_cross,
+    output wire [10:0] bfcost,
+    output wire        bf_ok,           // ... known (the form's exec ran on an earlier clock)
     output wire [3:0]  mneg,
     // a transfer's target (the flush), the SFR store's datum
     output wire [19:0] t_flush_addr,
@@ -206,8 +226,14 @@ module v35_eu
     // (S5a) the BCD strings (ADD4S / SUB4S / CMP4S): the byte pair's index (IX and IY stay),
     // the carry / borrow and the zero term across the pairs
     reg [7:0]  bi = 8'd0;
+    // (S5b) the pair index a post on this clock reads: an element ended earlier in this clock's
+    // pass (its write done, the next pair's read posted in the same pass) counts
+    // (the T pass's: a BCD string's posts are T's)
+    wire [7:0] bi_now = st_t ? 8'd0 : bi + {7'd0, edone_t && fmt.xop == V35_XOP_BCD};
     reg        bcy = 1'b0, bz = 1'b1;
     reg [7:0]  bres = 8'd0;               // ... the pair's result (its write posted after the delivery)
+    // (S5b) a bit field's offset and width (the registers at its exec)
+    reg [7:0]  bfo = 8'd0, bfw = 8'd0;
 
     localparam logic [2:0] R_AW = 3'd0, R_CW = 3'd1, R_DW = 3'd2, R_BW = 3'd3, R_SP = 3'd4,
                            R_BP = 3'd5, R_IX = 3'd6, R_IY = 3'd7;
@@ -300,7 +326,9 @@ module v35_eu
         nob_t = nob_t + {1'b0, t_k};
         // the ModR/M byte taken now: the format as it decodes (the start decoded the head
         // byte; the loader's re-decode)
-        if (!st_t && f_t.has_modrm && t_k != 2'd0 && nob_t == {1'b0, t_k})
+        // ((S5b) a 0F form's ModR/M byte after its second opcode byte)
+        if (!st_t && f_t.has_modrm && t_k != 2'd0
+            && nob_t - {1'b0, t_k} == (f_t.page == 2'd1 ? 3'd1 : 3'd0))
             f_t = fmt_mt;
     end
     // ... and after the P pass: the form this clock
@@ -329,7 +357,7 @@ module v35_eu
             ob_now[8 * nob_now +: 8] = pb_byte;
             nob_now = nob_now + 3'd1;
         end
-        if (!st_p && f_now.has_modrm && p_k && nob_now == 3'd1)
+        if (!st_p && f_now.has_modrm && p_k && nob_now == (f_now.page == 2'd1 ? 3'd2 : 3'd1))
             f_now = fmt_mp;
     end
 
@@ -426,14 +454,60 @@ module v35_eu
             wput = {wr[2:0], 2'b01, 8'd0, v[7:0]};
     endfunction
 
+    // (S5b) a bit field: the field of width w + 1 at offset o of the two words {hi, lo}
+    function automatic logic [15:0] bf_field(input logic [31:0] d, input logic [3:0] o,
+                                             input logic [3:0] w);
+        logic [31:0] s;
+        logic [15:0] m;
+        s = d >> o;
+        m = 16'hFFFF >> (4'd15 - w);
+        bf_field = s[15:0] & m;
+    endfunction
+    // ... INS: the word k (0: the first, 1: the next) d with AW's field inserted
+    function automatic logic [15:0] bf_ins(input logic [15:0] d, input logic [15:0] aw,
+                                           input logic [3:0] o, input logic [3:0] w,
+                                           input logic k);
+        logic [31:0] m, fv;
+        m = {16'd0, 16'hFFFF >> (4'd15 - w)} << o;
+        fv = {16'd0, aw & (16'hFFFF >> (4'd15 - w))} << o;
+        bf_ins = k ? ((d & ~m[31:16]) | fv[31:16]) : ((d & ~m[15:0]) | fv[15:0]);
+    endfunction
+    // ... the EU cost (templates.bf_cost: the registers whole), saturated at 11 bits
+    function automatic logic [10:0] bf_cost(input logic ins, input logic [7:0] o,
+                                            input logic [7:0] w);
+        logic [11:0] c;
+        logic [8:0] s;
+        logic w15;
+        s = {1'b0, o} + {1'b0, w};
+        w15 = w[7:4] == 4'd0 && w[3:0] == 4'hF;      // (a width field of 15: the whole word)
+        if (!ins) begin
+            if (s >= 9'd16)
+                c = 12'd61 + {3'd0, o, 1'b0} - (w15 ? 12'd1 : 12'd0);
+            else if (o == 8'd0 && w15)
+                c = 12'd43;
+            else
+                c = 12'd107 - {3'd0, o, 1'b0} - {2'd0, w, 2'b00};
+        end else begin
+            if (s >= 9'd16)
+                c = 12'd128 + {1'b0, s - 9'd16, 2'b00};
+            else if (s == 9'd15)
+                c = o == 8'd0 ? 12'd84 : 12'd86;
+            else
+                c = o == 8'd0 ? 12'd92 : 12'd94;
+        end
+        bf_cost = c[11] ? 11'h7FF : c[10:0];
+    endfunction
     function automatic ex_t exec(input v35_fmt_t f, input logic [7:0] o, input logic [47:0] b,
-                                 input logic [15:0] mdat, input logic [3:0] ri);
+                                 input logic [15:0] mdat, input logic [3:0] ri,
+                                 input logic dl);
         ex_t x;
         logic [16:0] a, bb;
         logic [15:0] r, pw;
         logic [31:0] p;
         logic [3:0] ra, rb;
         logic [16:0] spv, bpv, awv;
+        logic [3:0] bix;
+        logic [8:0] bsum;
         x = '0;
         a = opnd(f.opa, f, o, b, mdat);
         bb = opnd(f.opb, f, o, b, mdat);
@@ -615,6 +689,61 @@ module v35_eu
                 x.pv[V35_PSW_Z] = bz && bcd_r[8];
                 x.pv[V35_PSW_P] = bz && bcd_r[8];
             end
+            // (S5b) TEST1 / CLR1 / SET1 / NOT1: the bit index (CL, or the immediate) modulo the
+            // width; TEST1 the flags only
+            V35_XOP_BIT1: begin
+                bix = bb[3:0] & (f.wd ? 4'd15 : 4'd7);
+                r = v35_bit1({5'd0, f.aop[1:0], 1'b0}, a[15:0], 16'd1 << bix, f.wd, psw, pw);
+                if (f.aop[1:0] == 2'd0) begin
+                    x.pw = 1'b1;
+                    x.pv = pw;
+                end else begin
+                    x.w1 = ra[3];
+                    x.r1 = ra;
+                    x.v1 = r;
+                    x.rv = 1'b1;
+                    x.res = r;
+                end
+            end
+            // (S5b) ROL4 / ROR4: the operand (a byte register, or the read datum: the write's
+            // datum) and AL's low digit
+            V35_XOP_ROT4: begin
+                awv = rget({1'b1, R_AW});
+                r = v35_rot4(f.aop[0], a[7:0], awv[7:0]);
+                x.w1 = ra[3];
+                x.r1 = ra;
+                x.v1 = {8'd0, r[7:0]};
+                x.rv = 1'b1;
+                x.res = {8'd0, r[7:0]};
+                x.w2 = 1'b1;
+                x.r2 = {1'b1, R_AW};            // AL (a byte write)
+                x.v2 = {8'd0, r[15:8]};
+                x.ok = x.ok && awv[16];
+            end
+            // (S5b) EXT / INS: at the last operand take the offset register stepped and the
+            // PSW; EXT's field into AW at its last read's delivery (dl)
+            V35_XOP_BF: if (dl) begin
+                r = bf_field(bf_cross_w ? {mdat, rq0} : {16'd0, mdat}, bfo[3:0], bfw[3:0]);
+                // the offset register (AL / AH) stepped after AW is written (funcref's order)
+                if (f.rm[1:0] == 2'b00) begin
+                    if (f.rm[2])
+                        r[15:8] = {4'd0, bfo[3:0] + bfw[3:0] + 4'd1};
+                    else
+                        r[7:0] = {4'd0, bfo[3:0] + bfw[3:0] + 4'd1};
+                end
+                x.w1 = 1'b1;
+                x.r1 = {1'b1, R_AW};
+                x.v1 = r;
+                x.ok = 1'b1;
+            end else begin
+                bsum = {1'b0, a[7:0]} + {1'b0, bb[7:0]} + (f.aop[0] ? 9'd1 : 9'd0);
+                void'(v35_alu(3'd5, 1'b0, 16'd15, {8'd0, bsum[7:0]}, psw, pw));
+                x.pw = 1'b1;
+                x.pv = pw;
+                x.w1 = ra[3];
+                x.r1 = ra;
+                x.v1 = {12'd0, a[3:0] + bb[3:0] + 4'd1};
+            end
             V35_XOP_CVTDB: begin                // AL := AH * imm + AL, AH := 0
                 awv = rget({1'b1, R_AW});
                 r = {8'd0, 8'(awv[15:8] * b[7:0] + awv[7:0])};
@@ -739,7 +868,8 @@ module v35_eu
                                 || f_now.xop == V35_XOP_IN || f_now.xop == V35_XOP_XLAT
                                 || f_now.xop == V35_XOP_POPR || f_now.xop == V35_XOP_DISP
                                 || f_now.xop == V35_XOP_STR || f_now.xop == V35_XOP_BCD;
-    wire        all_taken = nob_now >= f_now.len - 3'd1 - (f_now.page != 2'd0 ? 3'd1 : 3'd0);
+    // (S5b) a 0F form's second opcode byte is one of its operand bytes taken (ob[0])
+    wire        all_taken = nob_now >= f_now.len - 3'd1 - (f_now.page == 2'd2 ? 3'd1 : 3'd0);
     wire        ex_reg = !delivery_form && (new_form ? all_taken : (!exec_done && all_taken))
                          || exec_pend;
     // a read delivered for the own request (the last cycle of a word: S2's single cycle)
@@ -751,10 +881,13 @@ module v35_eu
                        : (dlv_width == BW_WORD) ? dlv_data
                        : {8'd0, (dlv_width == BW_HI || dlv_addr[0]) ? dlv_data[15:8]
                                                                      : dlv_data[7:0]};
-    wire        ex_mem = rd_now && delivery_form;
+    // (S5b) EXT's last read (the second when the field crosses): the field into AW
+    wire        bfx = rd_now && !new_form && f_now.xop == V35_XOP_BF && f_now.aop == 3'd0
+                      && nrd == (bf_cross_w ? 4'd1 : 4'd0);
+    wire        ex_mem = rd_now && (delivery_form || bfx);
     ex_t        xr;
     always_comb begin
-        xr = exec(f_now, o_now, ob_now, ex_mem ? rd_dat : rd, nrd);
+        xr = exec(f_now, o_now, ob_now, ex_mem ? rd_dat : rd, nrd, bfx);
         if (!(ex_reg || ex_mem))
             xr = '0;
     end
@@ -779,6 +912,21 @@ module v35_eu
     logic        dtrap;
     wire [31:0]  dres = v35_div_fin(ds_n, psw, dpsw, dtrap);
     wire         dfin = dv && ds.n == 5'd1;          // the last step this clock
+
+    // ------------------------------------------------------------ (S5b) the bit fields
+    // the offset and width registers latched at the exec (the last operand take); the
+    // sequencer's crossing rows and cost come a clock or more after it (registered: the rows
+    // reading them never share a clock with the exec)
+    wire [16:0] bf_a = opnd(f_now.opa, f_now, o_now, ob_now, rd);
+    wire [16:0] bf_b = opnd(f_now.opb, f_now, o_now, ob_now, rd);
+    wire        bf_now = ex_go && !bfx && f_now.xop == V35_XOP_BF;
+    wire        bf_cross_w = {1'b0, bfo} + {1'b0, bfw} >= 9'd16;
+    assign bf_cross = bf_cross_w;
+    assign bf_ok = exec_done && fmt.xop == V35_XOP_BF;
+    assign bfcost = bf_cost(fmt.aop[0], bfo, bfw);
+    // the pointer's step at the form's end: the field ran past its word
+    wire        bf_step = f_end && fmt.xop == V35_XOP_BF && {1'b0, bfo[3:0]} + {1'b0, bfw[3:0]}
+                          + 5'd1 >= 5'd16;
 
     // ------------------------------------------------------------ the requests
     // the address of a post's request, its datum, its width
@@ -824,9 +972,15 @@ module v35_eu
             // DS1:IY
             V35_ASRC_STR_IX: q.addr = {seg_o != 3'd0 && seg_o <= 3'd4 ? segv(2'(seg_o - 3'd1))
                                                                       : ds0, 4'd0}
-                                      + {4'd0, ix + (f.xop == V35_XOP_BCD ? {8'd0, bi} : 16'd0)};
+                                      + {4'd0, ix + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0)};
             V35_ASRC_STR_IY: q.addr = {ds1, 4'd0}
-                                      + {4'd0, iy + (f.xop == V35_XOP_BCD ? {8'd0, bi} : 16'd0)};
+                                      + {4'd0, iy + (f.xop == V35_XOP_BCD ? {8'd0, bi_now} : 16'd0)};
+            // (S5b) a bit field's words: EXT's at DS0:IX (a prefix's segment), INS's at DS1:IY
+            // (+ 2 aidx: the next word when it crosses)
+            V35_ASRC_IX: q.addr = {seg_o != 3'd0 && seg_o <= 3'd4 ? segv(2'(seg_o - 3'd1))
+                                                                 : ds0, 4'd0}
+                                  + {4'd0, ix + {12'd0, r.aidx, 1'b0}};
+            V35_ASRC_IY: q.addr = {ds1, 4'd0} + {4'd0, iy + {12'd0, r.aidx, 1'b0}};
             V35_ASRC_VEC: begin                 // (S5a) BRK's vector words at 0:4n (+2)
                 vt = f.aop != 3'd0 ? {5'd0, f.aop} : b[7:0];
                 q.addr = {10'd0, vt, 2'b00} + {16'd0, r.aidx, 1'b0};
@@ -857,8 +1011,8 @@ module v35_eu
         q.grp = r.grp;
         // (S5a) io_count=nowait (an I/O request; dwlike: str_count / burst_count = dw, the
         // format's dw_count), str_in_io=free (the sequencer's memc), a string's class
-        q.dwl = f.dw_count;
-        q.nwt = (q.kind == K_IO_READ || q.kind == K_IO_WRITE || f.dw_count) && !tm.memc;
+        q.dwl = f.dw_count && !tm.pfv;      // (S5b) a pfree read: no DW count (eu._submit)
+        q.nwt = (q.kind == K_IO_READ || q.kind == K_IO_WRITE || f.dw_count) && !tm.memc && !tm.pfv;
         q.strc = f.strop;
         return q;
     endfunction
@@ -867,7 +1021,8 @@ module v35_eu
     function automatic logic wd_res(input v35_fmt_t f);
         case (f.xop)
             V35_XOP_PUSH, V35_XOP_PUSHF, V35_XOP_OUT, V35_XOP_MOV, V35_XOP_SRST, V35_XOP_CALL,
-            V35_XOP_BRK, V35_XOP_PUSHR, V35_XOP_PREP, V35_XOP_STR: wd_res = 1'b0;
+            V35_XOP_BRK, V35_XOP_PUSHR, V35_XOP_PREP, V35_XOP_STR, V35_XOP_BF,
+            V35_XOP_BCD: wd_res = 1'b0;
             default: wd_res = 1'b1;
         endcase
     endfunction
@@ -893,6 +1048,12 @@ module v35_eu
             V35_XOP_STR: v = f.aop == V35_STR_STM ? rop({1'b1, R_AW}, f.wd)
                                                    : {1'b1, rd_now ? rd_dat : rd};
             V35_XOP_BCD: v = {1'b1, 8'd0, rd_now ? bcd_r[7:0] : bres};   // (S5a) the pair's result
+            // (S5b) INS: the word read (the first, or the next one) with AW's field inserted
+            V35_XOP_BF: begin
+                v = rget({1'b1, R_AW});
+                v = {v[16], bf_ins(rd_now ? rd_dat : (ai == 3'd0 ? rq0 : rq1), v[15:0], bfo[3:0],
+                                   bfw[3:0], ai[0])};
+            end
             V35_XOP_PUSH: v = opnd(f.opb, f, o, b, rd);
             V35_XOP_PUSHF: v = {1'b1, psw};
             V35_XOP_OUT: v = rop({1'b1, R_AW}, 1'b1);
@@ -1012,7 +1173,7 @@ module v35_eu
         c2_v = 1'b0; c2_a = 7'd0; c2_b = 2'd0; c2_d = 16'd0;
         c3_v = 1'b0; c3_a = 7'd0; c3_b = 2'd0; c3_d = 16'd0;
         if (ex_go && xr.w1) begin
-            wp = wput(xr.r1, (xr.r1 == {1'b1, R_AW} && f_now.xop == V35_XOP_MUL) ? 1'b1
+            wp = wput(xr.r1, (xr.r1 == {1'b1, R_AW} && (f_now.xop == V35_XOP_MUL || bfx)) ? 1'b1
                              : (f_now.xop == V35_XOP_LAHF ? 1'b0 : f_now.wd), xr.v1);
             c1_v = 1'b1;
             c1_a = rword(bank, wp[20:18]);
@@ -1130,8 +1291,12 @@ module v35_eu
                                  || (post_p && prow_p.asrc == V35_ASRC_STR_IY && !povr_p));
     wire        cw_st = sstr && f_now.rep && edone;
     wire [15:0] cw_n = cw_st ? cw - 16'd1 : follow(cw, R_CW);
-    wire [15:0] ix_n = ix_st ? (psw[V35_PSW_DIR] ? ix - sstep : ix + sstep) : follow(ix, R_IX);
-    wire [15:0] iy_n = iy_st ? (psw[V35_PSW_DIR] ? iy - sstep : iy + sstep) : follow(iy, R_IY);
+    wire        bfx_st = bf_step && fmt.aop == 3'd0;    // (S5b) EXT: IX + 2; INS: IY + 2
+    wire        bfy_st = bf_step && fmt.aop == 3'd1;
+    wire [15:0] ix_n = ix_st ? (psw[V35_PSW_DIR] ? ix - sstep : ix + sstep)
+                     : bfx_st ? ix + 16'd2 : follow(ix, R_IX);
+    wire [15:0] iy_n = iy_st ? (psw[V35_PSW_DIR] ? iy - sstep : iy + sstep)
+                     : bfy_st ? iy + 16'd2 : follow(iy, R_IY);
     // the REP loop's last element by count (CW = 1 before its step), the compare's exit on
     // its condition (REPE: not Z; REPNE: Z; REPC: not CY; REPNC: CY) at its read's delivery
     // (the running form: a REP loop's rows never share a clock with a start; a BCD string's
@@ -1233,6 +1398,16 @@ module v35_eu
                 na = {1'b1, R_BP};
             if (fx.xop == V35_XOP_PUSHR)
                 na = {1'b1, cur_e ? nsp_n : 3'd0};
+            // (S5b) ROL4 / ROR4 read AL (port B beside a register operand, else port A); INS
+            // reads AW for its writes' datum once its offset register is stepped (its exec)
+            if (fx.xop == V35_XOP_ROT4) begin
+                if (na[3])
+                    nb = {1'b1, R_AW};
+                else
+                    na = {1'b1, R_AW};
+            end
+            if (fx.xop == V35_XOP_BF && fx.aop == 3'd1 && cur_e && exec_done_n)
+                na = {1'b1, R_AW};
         end
         // DIV: the dividend's high half (DW) on the clock after its exec
         if (ex_go && xr.dstart)
@@ -1329,8 +1504,13 @@ module v35_eu
             ix <= ix_n;
             iy <= iy_n;
             dcw <= cw_st || (dcw && !wfull(R_CW) && !(lz_v && lz_r == R_CW));
-            dix <= ix_st || (dix && !wfull(R_IX) && !(lz_v && lz_r == R_IX));
-            diy <= iy_st || (diy && !wfull(R_IY) && !(lz_v && lz_r == R_IY));
+            dix <= ix_st || bfx_st || (dix && !wfull(R_IX) && !(lz_v && lz_r == R_IX));
+            diy <= iy_st || bfy_st || (diy && !wfull(R_IY) && !(lz_v && lz_r == R_IY));
+            // (S5b) a bit field's offset and width at its exec
+            if (bf_now) begin
+                bfo <= bf_a[7:0];
+                bfw <= bf_b[7:0];
+            end
             // the string read posted last ([IY]? an overrun?), CMPBK's [IY] datum
             if (post_t && prow_t.rkind == V35_RK_READ) begin
                 srd_iy <= prow_t.asrc == V35_ASRC_STR_IY;
@@ -1377,7 +1557,7 @@ module v35_eu
     end
 
     wire unused = &{1'b0, xr, rq2[15:12], s_aw[16], cnt_v[16:9], mu_a[16], mu_b[16], sfr_v[16], dv_hi[16], dv_aw[16],
-                    dv_op[16], sp_rd[16],
+                    dv_op[16], sp_rd[16], bf_a[16:8], bf_b[16:8],
                     ea_b[16], ea_i[16], xl_b[16], xl_a[16:8], dtrap, nf_v, fmt_l, ea_off_w,
                     ea_seg_w, ea_bp, ea_bt[16], ea_it[16],
                     dlv_addr[19:1]};

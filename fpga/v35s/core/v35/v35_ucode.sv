@@ -104,7 +104,23 @@
 //   mfw_v 1, mfw 4, mf_on 1, mf_cnt 4, mf_o 1   mul_imm_count=sync: mul_from - t, t > mul_from,
 //                                           the clean clocks back from t-1 (the back-count),
 //                                           the fetch on the bus older than mul_from
-//   (mt_floor, page_mt*, pf_cnt: the 0F page's timers, S5b; named here, not built)
+//   (S5b) the 0F page (in the pass state, registered with it):
+//   flt 1                                   eu.full_latch (page_ir_room=end: a register bit op
+//                                           started with six bytes stored, the delivered word's
+//                                           second byte latched, no fetch in flight)
+//   pfs 1, pfb 1                            eu.page_fixed == "start" (a 0F memory form, its read
+//                                           not yet posted: page_mem=fixed) / "post" (a bit
+//                                           field, its first read not yet posted: bf_read=fixed)
+//   pm_a 1, pm_on 1, pm_c 4, pm_dv 1, pm_w 4   eu.page_mt (page_mtake=eu): armed at the start
+//                                           (True), the ModR/M take's wait (page_mt - t),
+//                                           page_mt_d is set, page_mt - page_mt_d
+//   mtf_v 1, mtf 3                          eu.mt_floor - t (page_mt_end=exec)
+//   mrh 1, mr_v 1                           page_imm_sync=lead: an even-half bit index form
+//                                           (eu.imm_half), eu.mr_sync is set ...
+//   mro 2                                   ... the fetches it still owes (counted down)
+//   pfc 4 sat                               pf_cnt: the fetch-free clocks back from the clock
+//                                           before (since the start): the at-post back-count of
+//                                           page_mem=fixed (eu._submit) counted forward
 module v35_ucode
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -217,11 +233,38 @@ module v35_ucode
     input  wire [3:0]  mneg,            // MUL's sign clocks (UNIT rows)
     input  wire        str_last,        // (S5a) the REP loop's last element by count (CW = 1)
     input  wire        str_exit,        // (S5a) the compare ends the REP loop on its condition now
-    input  wire        bf_cross,        // (S5) the bit field crosses a word
-    input  wire [9:0]  bfcost,          // (S5) the bit field's cost
+    input  wire        bf_cross,        // (S5b) the bit field crosses a word
+    input  wire [10:0] bfcost,          // (S5b) the bit field's cost (bf_cost, saturated)
+    input  wire        bf_ok,           // (S5b) ... known: the form's exec ran on an earlier clock
+    // (S5b) the 0F page
+    input  wire        g_eu,            // an EU cycle issued (bcd_fetch=hold: no cycle on t)
+    input  wire        g_thru,          // the fetch issued now runs in a 0F read's cl clocks
+    input  wire        cur_thru,        // ... the fetch on the bus does (page_cl=thru)
+    output wire        irh_pg_t,        // page_ir=delivery: the IR held from this take (T, P)
+    output wire        irh_pg_p,
+    output wire [3:0]  mt_sub_t,        // page_mtake=eu: the ready countdown less (T, P)
+    output wire [3:0]  mt_sub_p,
+    output wire        fl_c,            // page_ir_room=end: the full-latch bit op runs (before
+    output wire        fl_t,            //   T, after T, after S5)
+    output wire        fl_p,
+    output wire        fl_end_t,        // ... its steps ended now: the request evaluated (T at the
+    output wire        fl_end_t2,       //   clock's start, T after a row, P)
+    output wire        fl_end_p,
+    output wire        pfs_x,           // page_mem=fixed: a 0F memory form's read not yet posted
+    output wire        pfs_e,           //   (after T, after S5)
+    output wire        pimm_x,          // page_imm_run: ... with an immediate bit index (after T)
+    output wire        pcl_x,           // page_cl=thru: a CL-index 0F memory form with a d16
+                                        //   (_page_take_ask's form; after T)
+    output wire [2:0]  pcl_fs,          // ... its class's fsetup
+    output wire        pgb2b_e,         // page_b2b=reg: the last form started is a 0F register
+                                        //   form (eu.page_reg), after S5
+    output wire        res0_e,          // eu.resume <= t at the clock's end
+    output wire        bcd_idle,        // bcd_fetch=hold: a BCD string started on an idle bus
+                                        //   posted its first read now
 
     // (S5a) the strings: an element's last row done (CW), a post after the loop (overrun)
     output wire        edone,
+    output wire        edone_t,         // (S5b) ... in the T pass
     output wire        povr_t,
     output wire        povr_p,
     // (S5a) the transfers' holds (the queue's)
@@ -441,6 +484,23 @@ module v35_ucode
     reg        ont = 1'b0;              // xfer_nt: odd_until not yet set by its clocks
     reg        dab = 1'b0;              // decide_abort: an aborted cycle since the start ...
     reg [3:0]  dabs = 4'd0;             // ... clocks since its last (sat)
+    // (S5b) the 0F page
+    reg        flt = 1'b0;              // page_ir_room=end: the full-latch bit op
+    reg        pfs = 1'b0;              // page_mem=fixed: page_fixed == "start"
+    reg        pfb = 1'b0;              // bf_read=fixed: page_fixed == "post"
+    reg        pm_a = 1'b0;             // page_mtake=eu: page_mt armed (True) ...
+    reg        pm_on = 1'b0;            // ... decided (an int): the ModR/M take waits ...
+    reg [3:0]  pm_c = 4'd0;             // ... page_mt - t
+    reg        pm_dv = 1'b0;            // page_mt_d is set ...
+    reg [3:0]  pm_w = 4'd0;             // ... page_mt - page_mt_d
+    reg        mtf_v = 1'b0;            // page_mt_end=exec: mt_floor is set ...
+    reg [2:0]  mtf = 3'd0;              // ... mt_floor - t
+    reg        mrh = 1'b0;              // page_imm_sync=lead: an even-half bit index form ...
+    reg        mr_v = 1'b0;             // ... mr_sync is set ...
+    reg [1:0]  mro = 2'd0;              // ... the fetches it still owes
+    reg [3:0]  pfc = 4'd0;              // pf_cnt (sat)
+    reg        tlr = 1'b0;              // the cursor's row is the last its form runs (a skip run
+    reg [1:0]  tlwb = 2'd0;             //   after it, seen in the window), its last row's wb
 
     // the window: rows wa .. wa + 3 (bank (wa + j) mod 4 at its registered address)
     uc_row_t   q0 = '0, q1 = '0, q2 = '0, q3 = '0;    // the banks' read registers
@@ -536,6 +596,21 @@ module v35_ucode
         logic        zf;        // ... DBNZE / DBNZNE not taken on its Z test (op.zfail)
         logic        oddpc;     // ... its opcode at an odd address
         logic        ont;       // xfer_nt: a not-taken short transfer's odd_until not yet set
+        // (S5b) the 0F page
+        logic        flt;       // page_ir_room=end: a full-latch bit op (eu.full_latch)
+        logic        pfs;       // page_mem=fixed: page_fixed == "start"
+        logic        pfb;       // bf_read=fixed: page_fixed == "post"
+        logic        pm_a;      // page_mtake=eu: page_mt armed (True)
+        logic        pm_on;     // ... decided: the ModR/M take waits ...
+        logic [3:0]  pm_c;      // ... page_mt - t
+        logic        pm_dv;     // page_mt_d is set ...
+        logic [3:0]  pm_w;      // ... page_mt - page_mt_d
+        logic        mtf_v;     // page_mt_end=exec: mt_floor - t
+        logic [2:0]  mtf;
+        logic        mrh;       // page_imm_sync=lead: an even-half bit index form ...
+        logic        mr_v;      // ... its ModR/M take set mr_sync
+        logic        tl;        // the cursor's row is the last its form runs (the rows after it
+        logic [1:0]  tlwb;      //   skip to the end: seen in the window on an earlier clock), wb
     } ps_t;
 
     typedef struct packed {
@@ -574,6 +649,10 @@ module v35_ucode
         logic        finfl;     // a fetch on the bus (flush, quiet)
         v35_fmt_t    fm;        // the running form re-decoded with this pass's ModR/M byte
         v35_fmt_t    fs;        // ... a form started in this pass (its start's decode)
+        // (S5b) the 0F page
+        logic        fsf;       // page_mtake: a fetch issued on the form's start clock runs
+        logic        fl;        // page_ir_room=end: the queue full, its latch too, no fetch
+        logic [1:0]  mro;       // page_imm_sync: the fetches mr_sync still owes
     } env_t;
 
     typedef struct packed {
@@ -640,6 +719,16 @@ module v35_ucode
         logic        thlift;    //   ... lifted
         logic        thcan;     //   ... cancelled: its take on a word's delivery clock
         logic        nwused;    // (S5a) ... its run's wait clock counted
+        // (S5b) the 0F page
+        logic        irpg;      // page_ir=delivery: the IR held from this take
+        logic [3:0]  mtw;       // page_mtake=eu: the ready countdown less (ready_at moved)
+        logic        mrset;     // page_imm_sync: mr_sync set by this take (the owed now)
+        logic        mrs;       // ... the sync is mr_sync (owed: mro)
+        logic        pcs;       // page_cl=thru: the take sync counts no asked fetch
+        logic        pfv;       // page_mem / bf_read=fixed: the read's pfree ...
+        logic        prw;       // ... run_wait (page_run, a 0F memory form's)
+        logic [1:0]  pth;       // ... pthru (page_cl=thru: the cl clocks)
+        logic [2:0]  ftl;       // ... ftail (a bit field's)
     } fx_t;
 
     /* verilator lint_off UNUSEDSIGNAL */
@@ -652,8 +741,7 @@ module v35_ucode
             V35_NSRC_EA: nval = 11'(r.imm) + 11'(v35_ea_clocks(s.fmt.ea_mode));
             V35_NSRC_CNT: nval = 11'(r.imm) + 11'(V35_PER_SHIFT_COUNT) * {2'd0, cnt};
             V35_NSRC_UNIT: nval = 11'(r.imm) + {7'd0, mneg};
-            V35_NSRC_BF: nval = {1'b0, bfcost} > 11'(r.imm) ? {1'b0, bfcost} - 11'(r.imm)
-                                                             : 11'd0;
+            V35_NSRC_BF: nval = bfcost > 11'(r.imm) ? bfcost - 11'(r.imm) : 11'd0;
             V35_NSRC_STR: begin
                 k = s.elem == 2'd0 ? 11'(c.first) : (s.elem == 2'd1 ? 11'(c.loop1)
                                                                        : 11'(c.loop));
@@ -691,6 +779,19 @@ module v35_ucode
                     x.sthinf = 1'b0;
                     x.sthn = r.x[5:0];
                 end
+            // (S5b) bcd_fetch=hold: a hold longer than any BCD string (BCD_HOLD), element 0
+            // only, lifted by the form's 0-clock HOLD (str_held for ever until then)
+            V35_ARM_HOLD_LONG:
+                if (s.elem == 2'd0) begin
+                    if (s.tha) begin
+                        x.thlift = 1'b1;
+                        s.tha = 1'b0;
+                    end else begin
+                        x.sth = 1'b1;
+                        x.sthinf = 1'b1;
+                        x.sthn = 6'd0;
+                    end
+                end
             // (S5a) bf_imm_hold / cvt_hold: no request from the next operand take on (one asked
             // before it still runs); dlv: not if that take is on a word's delivery clock
             V35_ARM_HOLD_TAKE, V35_ARM_HOLD_TAKE_DLV: begin
@@ -722,6 +823,52 @@ module v35_ucode
         endcase
     endfunction
 
+    // (S5b) a bit field's crossing alternative (CROSS / NCROSS): decided once the field is known
+    function automatic logic xrow(input uc_row_t r);
+        xrow = r.skip == V35_SKIP_CROSS || r.skip == V35_SKIP_NCROSS;
+    endfunction
+    // (S5b) the skipped rows at the cursor (at most the window's four)
+    // (the window's rows' crossing alternatives decided as skipped, their last and wb bits,
+    // once a clock: the skip run reads these, not the rows)
+    logic [4:0] wxs, wlst, wprt;
+    logic [9:0] wwb;
+    uc_row_t wr;   // the loop's row under inspection (a wire; declared here for the structure lint)
+    always_comb begin
+        wr = '0;
+        for (int j = 0; j < 4; j++) begin
+            wr = wrow(2'(j));
+            wxs[j] = (wr.skip == V35_SKIP_CROSS && bf_cross)
+                     || (wr.skip == V35_SKIP_NCROSS && !bf_cross);
+            wxs[j] = wxs[j] && bf_ok;
+            wlst[j] = wr.last;
+            wprt[j] = wr.skip != V35_SKIP_NONE && wr.last;
+            wwb[2 * j +: 2] = wr.wb;
+        end
+        wxs[4] = 1'b0;
+        wlst[4] = 1'b0;
+        wprt[4] = 1'b0;
+        wwb[9:8] = 2'd0;
+    end
+    function automatic void skip_run(inout ps_t s);
+        logic [10:0] d;
+        logic [2:0] k;
+        logic go;
+        go = 1'b1;
+        d = s.a - wa;
+        for (int j = 0; j < 4; j++) begin
+            k = (d < 11'd4) ? 3'(d) : 3'd4;
+            if (go && s.run && wxs[k]) begin
+                if (wlst[k] && !wprt[k + 3'd1]) begin
+                    s.run = 1'b0;
+                    s.wbc = wwb[2 * k +: 2];
+                end
+                s.a = s.a + 11'd1;
+                d = d + 11'd1;
+            end else
+                go = 1'b0;
+        end
+    endfunction
+
     // leaving a row: the next one (the element loop's top after its last body row)
     function automatic void adv(inout ps_t s, input uc_row_t r, input logic noend);
         logic more;
@@ -745,13 +892,23 @@ module v35_ucode
             s.run = 1'b0;
             s.wbc = r.wb;
         end
+        // (S5b) a run of skipped crossing rows after it (the bit fields' alternatives: up to
+        // six) passes in no time, as far as the window holds them: the model has no such step;
+        // a skipped last row (not the first of a final skip pair) ends the template; when the
+        // window holds the next form's rows already, the run was seen on an earlier clock (tl)
+        if (s.run && !more && !(r.last && !noend) && s.tl) begin
+            s.run = 1'b0;
+            s.wbc = s.tlwb;
+        end else if (s.run && !more && !(r.last && !noend))
+            skip_run(s);
+        s.tl = 1'b0;
     endfunction
 
     // (S5a) a skipped row costs no row of the pass: the row after it is the one evaluated (a
     // final skip pair's partner, a REP compare's exit; the window holds it)
     function automatic void sk(inout ps_t s, inout rv_t r, inout rv_t rn);
         rv_t rnn;
-        if (r.v && skipped(r.r, s) && rn.v
+        if (r.v && skipped(r.r, s) && rn.v && !(xrow(r.r) && !bf_ok)
             && (!r.r.last || (rn.r.skip != V35_SKIP_NONE && rn.r.last))) begin
             rnn = rowat(s.a + 11'd2);
             s.a = s.a + 11'd1;
@@ -768,12 +925,13 @@ module v35_ucode
                                    input rv_t rn, output fx_t x);
         logic [10:0] n;
         logic [2:0] left0, cap, kk, need, dlast;
-        logic dnext, unit_e, rio, gdsync;
+        logic dnext, unit_e, rio, gdsync, mtk;
         v35_cls_t c;
         v35_fmt_t fm;
         c = s.cc;
         n = nval(r, s);
         x = '0;
+        mtk = 1'b0;
         x.row = r;
         x.setup = 7'(n + ((r.lastadd && str_last) ? 11'(c.last)
                                                                                 : 11'd0));
@@ -793,6 +951,11 @@ module v35_ucode
         end
         x.lead = (r.rkind == V35_RK_IO_READ || r.rkind == V35_RK_IO_WRITE) ? c.lead : 2'd0;
         need = s.oplen - 3'd1 - s.taken;
+        // (S5b) a bit field's crossing alternative waits for the field (its exec a clock late)
+        if (xrow(r) && !bf_ok) begin
+            x.why = W_CLK;
+            return;
+        end
         // a skipped row
         if (skipped(r, s)) begin
             x.complete = 1'b1;
@@ -801,6 +964,16 @@ module v35_ucode
             // leads to its partner; a final row skipped ends the template
             adv(s, r, rn.v && rn.r.skip != V35_SKIP_NONE && rn.r.last);
             return;
+        end
+        // (S5b) page_mt_end=exec: after a waited ModR/M take the form's ALU clocks start no
+        // earlier than mt_floor (a clocks step is held; any other step lifts the floor)
+        if (s.mtf_v) begin
+            if (r.op == V35_OP_CLOCKS && r.wcond == V35_WC_NONE && s.mtf != 3'd0
+                && !(r.arm != V35_ARM_NONE && r.apos == V35_APOS_ENTRY)) begin
+                x.why = W_CLK;
+                return;
+            end
+            s.mtf_v = 1'b0;
         end
         // the side effect before the wait
         if (r.arm != V35_ARM_NONE && r.apos == V35_APOS_ENTRY && !s.arm_done) begin
@@ -967,6 +1140,22 @@ module v35_ucode
                 else if (e.late && left0 == 3'd1 && !(e.ir_v && !s.started) && need == 3'd1
                          && c.nx == 3'd0 && !s.halted && e.avail > 4'd1)
                     x.why = W_LATE;             // late_read: the take and the IR load wait
+                // (S5b) page_mtake=eu: a 0F register bit op / bit field (TEST1 [m]: page_mtest)
+                // at an odd address started on a word's delivery clock: its ModR/M take, first
+                // tried while a fetch issued on its start clock runs, waits to the clock after
+                // that fetch's delivery (page_mt = its end + 2)
+                else if (s.taken == 3'd1 && (s.pm_a ? e.fsf : (s.pm_on && s.pm_c != 4'd0))) begin
+                    if (s.pm_a) begin
+                        s.pm_a = 1'b0;
+                        s.pm_on = 1'b1;
+                        s.pm_c = 4'(e.cur_left) + 4'd1;
+                    end
+                    if (!s.pm_dv) begin
+                        s.pm_dv = 1'b1;     // page_mt_d: the clock the take would have gone
+                        s.pm_w = s.pm_c;
+                    end
+                    x.why = W_HOLD;
+                end
                 // sync_req=disp (late_disp=all): a memory form's displacement waits while a
                 // fetch is past its second clock (the word's delivery)
                 // ((S5a) late_disp_word=split: not a memory-indirect transfer's d16 whose first
@@ -987,9 +1176,13 @@ module v35_ucode
                             x.thcan = 1'b1;
                         end
                     end
-                    if (s.taken == 3'd0 && s.fmt.has_modrm) begin
-                        // the ModR/M byte: the form's format as it decodes (the start decoded
-                        // the head byte)
+                    // (S5b) page_mt_end=exec: the ModR/M take after the page_mtake wait
+                    mtk = s.pm_dv && s.taken == 3'd1;
+                    if (s.taken == 3'd1)
+                        s.pm_a = 1'b0;          // (decided on its first try: False)
+                    if (s.taken == (s.fmt.page == 2'd1 ? 3'd1 : 3'd0) && s.fmt.has_modrm) begin
+                        // the ModR/M byte (a 0F form's after its second opcode byte): the form's
+                        // format as it decodes (the start decoded the head byte)
                         fm = s.started ? e.fs : e.fm;
                         s.fmt.md = fm.md;
                         s.fmt.rfield = fm.rfield;
@@ -1006,6 +1199,28 @@ module v35_ucode
                     s.taken = s.taken + kk;
                     s.left = left0 - kk;
                     need = s.oplen - 3'd1 - s.taken;
+                    // (S5b) page_mt_end=exec: the waited ModR/M byte reaches the EU mtx clocks
+                    // late: the ALU clocks no earlier than t + 1 + mtx
+                    if (mtk && s.left == 3'd0) begin
+                        s.mtf_v = 1'b1;
+                        s.mtf = 3'd1 + 3'(c.mtx);
+                    end
+                    // page_mtake=eu: the loader keeps its schedule, the successor's IR load where
+                    // the ModR/M take would have put it
+                    if (s.pm_dv && need == 3'd0) begin
+                        x.mtw = s.pm_w;
+                        s.pm_dv = 1'b0;
+                    end
+                    // page_imm_sync=lead: an even-half bit index form's ModR/M take: its take
+                    // sync is the fetches in flight or asked for now
+                    if (s.left != 3'd0 && s.mrh) begin
+                        s.mr_v = 1'b1;
+                        x.mrset = 1'b1;
+                        x.ask = 1'b1;
+                    end
+                    // page_ir=delivery: a 0F memory form's last operand byte taken on a word's
+                    // delivery clock holds its successor out of the IR until the read issues
+                    x.irpg = s.pfs && need == 3'd0 && arrived_now;
                     if (x.disp) begin
                         x.irclr = arrived_now;  // ir_load: taken on a word's delivery clock
                         if (c.dfloor != 2'd0) begin
@@ -1084,11 +1299,31 @@ module v35_ucode
                                     && e.avail > 4'(kk);
                             x.ask = 1'b1;       // queue.asked(t): the flag evaluated
                             x.syn = !(s.fmt.immb != 2'd0 && s.fmt.mem && s.fmt.disp != 2'd0);
+                            // (S5b) page_cl=thru: a CL-index 0F memory form's last operand take:
+                            // the sync waits for a fetch on the bus only
+                            x.pcs = s.fmt.pcl && s.pfs;
                             if (x.syn) begin
                                 s.sync_v = 1'b1;
                                 s.sync_def = x.def;
                             end
                             s.res = 11'd1;
+                            // (S5b) page_imm_sync=lead: the sync is the ModR/M take's; the ALU
+                            // clocks may start on this clock once it is met
+                            if (s.mr_v) begin
+                                s.mr_v = 1'b0;
+                                x.def = 1'b0;
+                                x.syn = 1'b0;
+                                x.pcs = 1'b0;
+                                if (e.mro == 2'd0) begin
+                                    s.sync_v = 1'b0;
+                                    s.res = 11'd0;
+                                    x.cont = 1'b1;
+                                end else begin
+                                    s.sync_v = 1'b1;
+                                    s.sync_def = 1'b0;
+                                    x.mrs = 1'b1;
+                                end
+                            end
                         end
                         adv(s, r, 1'b0);
                     end
@@ -1219,6 +1454,22 @@ module v35_ucode
                 s.fl_v = 1'b0;
                 s.dfl_v = 1'b0;
             end
+            // (S5b) page_mem=fixed / bf_read=fixed (eu._submit): the form's first read's setup
+            // all fetch-free clocks (pfree: page_commit=post, after its post), no DW count; a
+            // 0F memory form's counted back from the post to the start (pf_cnt; page_cl=thru:
+            // a thru fetch not counted), run_wait (page_run), pthru its CL clocks; a bit
+            // field's ftail
+            if (r.rkind == V35_RK_READ && (s.pfs || s.pfb)) begin
+                x.pfv = 1'b1;
+                x.prw = s.pfs;
+                x.pth = (s.pfs && s.fmt.pcl) ? 2'(c.cl) : 2'd0;
+                x.ftl = (s.pfb && c.ftail != 2'd0) ? 3'(c.ftail) + 3'(s.fmt.immb) : 3'd0;
+                x.c0 = s.pfs ? (7'(pfc) > x.setup ? 4'(x.setup) : pfc) : 4'd0;
+                x.fnv = 1'b0;
+                x.fn = 7'd0;
+                s.pfs = 1'b0;
+                s.pfb = 1'b0;
+            end
             // (S5a) mul_imm_count=sync: MUL imm memory's read counts its setup from mul_from
             // (the clean clocks already past counted back)
             if (r.rkind == V35_RK_READ && s.fmt.mul_imm && s.fmt.mem) begin
@@ -1325,7 +1576,8 @@ module v35_ucode
     // a form starts: the pass state for its first row
     function automatic void start_ps(inout ps_t s, input v35_fmt_t f, input v35_cls_t c,
                                      input logic [7:0] o, input logic [10:0] b,
-                                     input v35_run_t rb, input logic odd);
+                                     input v35_run_t rb, input logic odd, input logic flq,
+                                     input logic dlv);
         logic signed [5:0] sfv;
         s.run = 1'b1;
         s.tkn = rb.taken;
@@ -1376,10 +1628,33 @@ module v35_ucode
         s.sfl_v = s.single && w3_v && sfv > 6'sd0;
         s.sfl = sfv > 6'sd15 ? 4'd15 : 4'(sfv);
         s.ls2 = 1'b0;
+        // (S5b) the 0F page's start rules: page_ir_room=end's full latch, page_fixed, page_mt
+        // (an odd address, a word delivered on the start clock), page_imm_sync's even half
+        s.flt = f.bit1r && flq;
+        s.pfs = f.page_mem;
+        s.pfb = f.bf;
+        s.pm_a = f.pmt && odd && dlv;
+        s.pm_on = 1'b0;
+        s.pm_c = 4'd0;
+        s.pm_dv = 1'b0;
+        s.pm_w = 4'd0;
+        s.mtf_v = 1'b0;
+        s.mtf = 3'd0;
+        s.mrh = f.bit1r && f.immb != 2'd0 && rb.half;
+        s.mr_v = 1'b0;
+        s.tl = 1'b0;
+        s.tlwb = 2'd0;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
     // ------------------------------------------------------------ S2: the T pass
+    // (S5b) page_ir_room=end's state at a start: six bytes stored, the delivered word's second
+    // byte latched, no fetch in flight (T: as the clock began after S1; P: after S4)
+    wire        fl_now_c = !inflight_c && lat_c && avail_c > 4'(QUEUE_BYTES);
+    wire        fl_now_p = !inflight_x && lat_x && (stored_l + (lat_x ? 4'd1 : 4'd0))
+                                                   > 4'(QUEUE_BYTES);
+    // page_imm_sync: the fetches mr_sync still owes (this clock's completion counted)
+    wire [1:0]  mro_c = mro - ((completed_now && mro != 2'd0) ? 2'd1 : 2'd0);
     wire        lu_busy_c = lu_inf || lu != 3'd0;
     wire [1:0]  owed_c = owed - (completed_now && owed != 2'd0 ? 2'd1 : 2'd0);
     wire [1:0]  hphase = cc.hphase;
@@ -1455,6 +1730,20 @@ module v35_ucode
         s0.zf = zf;
         s0.oddpc = oddpc;
         s0.ont = ont;
+        s0.flt = flt;
+        s0.pfs = pfs;
+        s0.pfb = pfb;
+        s0.pm_a = pm_a;
+        s0.pm_on = pm_on;
+        s0.pm_c = pm_c;
+        s0.pm_dv = pm_dv;
+        s0.pm_w = pm_w;
+        s0.mtf_v = mtf_v;
+        s0.mtf = mtf;
+        s0.mrh = mrh;
+        s0.mr_v = mr_v;
+        s0.tl = tlr;
+        s0.tlwb = tlwb;
 
         et = '0;
         et.avail = avail_c;
@@ -1488,6 +1777,8 @@ module v35_ucode
         et.sage = sage;
         et.sfage = sfage;
         et.nwrun = nwf && !nwu;
+        et.fsf = cur_on_start && cur_kind == K_FETCH;
+        et.mro = mro_c;
 
         // (A) the clocks wait; unit_hold: the exec clocks wait at a micro-boundary (every
         // second clock from hphase; a memory form's on any clock) while a fetch is past its
@@ -1512,7 +1803,8 @@ module v35_ucode
         g1 = rowat(base_c);
         t_dec1 = t_try1 && t_gate1 && !g1.v;
         if (t_try1 && t_gate1 && g1.v)
-            start_ps(s1, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0]);
+            start_ps(s1, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0], fl_now_c,
+                     arrived_now);
         et.wbu_busy = wbu_t1 != 2'd0 || lwb(s1.started);
 
         // (B) the take sync (once a form runs): owed fetches not delivered, unless the
@@ -1568,7 +1860,8 @@ module v35_ucode
         g2 = rowat(base_c);
         t_dec2 = t_try2 && t_gate2 && !g2.v;
         if (t_try2 && t_gate2 && g2.v)
-            start_ps(s3, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0]);
+            start_ps(s3, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0], fl_now_c,
+                     arrived_now);
         et.wbu_busy = wbu_t2 != 2'd0 || lwb(s1.started || s3.started);
         t_ev2 = t_ev1 && x1.complete && x1.cont && (s2.run || (t_try2 && t_gate2 && g2.v));
         r2 = rowat(s3.a);
@@ -1667,7 +1960,8 @@ module v35_ucode
     assign floor_nb = {1'b0, xt.flnb};
     assign disp_t = xt.disp;
     assign disp_p = xp.disp;
-    assign disp_ext = xt.disp;
+    // (S5b) page_dio=free: not a 0F memory form's displacement
+    assign disp_ext = xt.disp && !s4.fmt.page_mem;
     assign irh_clr_t = xt.irclr;
     assign irh_clr_p = xp.irclr;
     assign take_now = xt.tk != 2'd0;
@@ -1744,6 +2038,7 @@ module v35_ucode
         ep.finfl = 1'b1;
         ep.fm = fmt_mp;
         ep.fs = fmt_l;
+        ep.fsf = 1'b0;                  // (the bus holds the I/O just issued)
 
         p_wait = !retick || p0.halted || p0.res != 11'd0;
         p1 = p0;
@@ -1759,7 +2054,8 @@ module v35_ucode
         h1 = rowat(base_l);
         p_dec1 = p_try1 && p_gate1 && !h1.v;
         if (p_try1 && p_gate1 && h1.v)
-            start_ps(p1, fmt_l, cls_l, ir_l, base_l, run_l, ir_addr_l[0]);
+            start_ps(p1, fmt_l, cls_l, ir_l, base_l, run_l, ir_addr_l[0], fl_now_p,
+                     arrived_now);
         ep.wbu_busy = wbu_p1 != 2'd0 || lwb(t_start || p1.started);
         p_lapse = !inflight_x && !abort_busy && room_p0 < 5'sd2;
         p_sync_blk = !p_wait && p1.run && p1.sync_v && !p_lapse;
@@ -1789,7 +2085,8 @@ module v35_ucode
         h2 = rowat(base_l);
         p_dec2 = p_try2 && p_gate2 && !h2.v;
         if (p_try2 && p_gate2 && h2.v)
-            start_ps(p3, fmt_l, cls_l, ir_l, base_l, run_l, ir_addr_l[0]);
+            start_ps(p3, fmt_l, cls_l, ir_l, base_l, run_l, ir_addr_l[0], fl_now_p,
+                     arrived_now);
         ep.wbu_busy = wbu_p2 != 2'd0 || lwb(t_start || p1.started || p3.started);
         if (y1.tk != 2'd0)
             ep.avail = 4'd0;            // (P: one byte at most)
@@ -1857,6 +2154,25 @@ module v35_ucode
     assign p_flush = xp.flush;
 
     // ------------------------------------------------------------ the posts
+    // (S5b) the 0F page's outputs
+    assign irh_pg_t = xt.irpg;
+    assign irh_pg_p = xp.irpg;
+    assign mt_sub_t = xt.mtw;
+    assign mt_sub_p = xp.mtw;
+    assign fl_c = flt && !done_m && !halted;
+    assign fl_t = s4.flt && !s4.done_m && !s4.halted;
+    assign fl_p = p4.flt && !p4.done_m && !p4.halted;
+    assign fl_end_t = flt && !halted && res == 11'd0 && !run && !done_m;   // (t_done_rec, from the registers)
+    assign fl_end_t2 = t_end2 && s2.flt;
+    assign fl_end_p = (p_done_rec && p0.flt) || (p_end2 && p2.flt);
+    assign pfs_x = s4.pfs;
+    assign pfs_e = p4.pfs;
+    assign pimm_x = s4.fmt.page_mem && s4.fmt.immb != 2'd0;    // (eu.page_imm: set at the start)
+    assign pcl_x = s4.fmt.pcl && s4.fmt.disp == 2'd2;
+    assign pcl_fs = s4.cc.fsetup;
+    assign pgb2b_e = p4.fmt.pgb2b;
+    assign res0_e = res_e == 11'd0;
+    assign bcd_idle = st_now && p4.fmt.bcd && p4.own_v && !g_fetch && !g_eu && !g_abort && !busy;
     assign post_t = xt.post;
     assign prow_t = xt.row;
     assign psetup_t = xt.setup;
@@ -1886,6 +2202,10 @@ module v35_ucode
         q.fhd = x.fhd;
         q.mfr = x.mfr;
         q.c0 = x.c0;
+        q.pfv = x.pfv;
+        q.prw = x.prw;
+        q.pth = x.pth;
+        q.ftl = x.ftl;
         return q;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
@@ -1919,6 +2239,7 @@ module v35_ucode
     assign th_lift_t = xt.thlift || xt.thcan;
     assign th_lift_p = xp.thlift || xp.thcan;
     assign edone = s4.edn || p4.edn;
+    assign edone_t = s4.edn;
     assign povr_t = s4.lxt;
     assign povr_p = p4.lxt;
     assign ff_t0 = xt.ffset && xt.ffn == 3'd0;
@@ -1952,15 +2273,27 @@ module v35_ucode
     // the take sync's count: in flight + asked on the take clock (a held detached I/O's
     // request not counted; sync_io=issue: nor one asked under the I/O's issue clock)
     wire [1:0]  owed_tk = (inflight_c ? 2'd1 : 2'd0)
-                          + (asked_t && !slot_det_c && !cl_hold && !xt.gd ? 2'd1 : 2'd0);
+                          + (asked_t && !slot_det_c && !cl_hold && !xt.gd && !xt.pcs ? 2'd1
+                                                                                     : 2'd0);
     wire [1:0]  owed_pk = (inflight_x ? 2'd1 : 2'd0)
-                          + (asked_p && !slot_det_p && !g_io && !xp.gd ? 2'd1 : 2'd0);
+                          + (asked_p && !slot_det_p && !g_io && !xp.gd && !xp.pcs ? 2'd1
+                                                                                  : 2'd0);
     wire        end_any = t_done_rec || t_end2 || p_done_rec || p_end2;
     // the fetches the take sync still owes after this clock; abort_latched: a sync that counted
     // no request waits for the aborted cycle the latched byte answered
-    wire [1:0]  owed_s = (xp.syn && !xp.def) ? owed_pk
+    wire [1:0]  owed_s = xp.mrs ? mro_c
+                       : (xp.syn && !xp.def) ? owed_pk
+                       : xt.mrs ? mro_c
                        : (xt.syn && (!xt.def || cl_hold)) ? owed_tk
                        : ask_d ? owed_t : owed_c;
+    // (S5b) page_imm_sync: mr_sync, the fetches in flight or asked for at the ModR/M take
+    wire [1:0]  mro_n = xp.mrset ? (inflight_x ? 2'd1 : 2'd0) + (asked_p ? 2'd1 : 2'd0)
+                      : xt.mrset ? (inflight_c ? 2'd1 : 2'd0) + (asked_t ? 2'd1 : 2'd0)
+                      : mro_c;
+    // (S5b) pf_cnt: a clock with a fetch on the bus (one issued on it included; page_cl=thru:
+    // a thru fetch of a CL-index form not) ends the fetch-free run back from the post
+    wire        pf_cov = (busy && cur_kind == K_FETCH && !(p4.fmt.pcl && cur_thru))
+                         || (g_fetch && !(p4.fmt.pcl && g_thru));
     wire [1:0]  owed_n = t_prs ? 2'd1
                        : (g_abort_lat && p4.sync_v && !p4.sync_def && owed_s == 2'd0) ? 2'd1
                                                                                         : owed_s;
@@ -1973,8 +2306,28 @@ module v35_ucode
     // (the window: a REP loop's last row loops back unless CW runs out; a compare's exit on its
     // condition finds the rows after the loop in the window too)
     wire        loop_e = p4.run && nrow.v && nrow.r.loop && !(p4.fmt.rep && cw_e == 16'd1);
-    wire        ahead_e = !p4.run || (nrow.v && nrow.r.last && nrow.r.skip == V35_SKIP_NONE
-                                      && !loop_e);
+    // (S5b) the rows after the cursor's all skipped through the template's last (a bit field's
+    // crossing alternative): the cursor's row is the last the form runs
+    ps_t        ptail;
+    always_comb begin
+        ptail = p4;
+        ptail.a = p4.a + 11'd1;
+        skip_run(ptail);
+    end
+    wire        tail_e = p4.run && !ptail.run;
+    wire        unused_ptail = &{1'b0, ptail};
+    // ... held while the cursor stays (the window then holds the next form's rows, not those)
+    wire        moved_e = p4.a != upc || st_now;
+    wire        tl_e = p4.run && (tail_e || (!moved_e && tlr));
+    // (a last row with a skip condition: once decided, a bit field's crossing alternative with
+    // no final skip partner after it)
+    rv_t        nrow2;
+    always_comb nrow2 = rowat(p4.a + 11'd1);
+    wire        xlast_e = nrow.r.last && xrow(nrow.r) && bf_ok
+                          && !(nrow2.v && nrow2.r.skip != V35_SKIP_NONE && nrow2.r.last);
+    wire        ahead_e = !p4.run || (nrow.v && !loop_e
+                                      && ((nrow.r.last && nrow.r.skip == V35_SKIP_NONE) || xlast_e
+                                          || tl_e));
     assign run_n = run_of(nf_fmt, nf_addr, cl_e, psw_e, cw_e);
     wire [10:0] base_e = tbase(nf_fmt, run_n);
     // xfer_nt_b2b=decide: a conditional short transfer not taken waits at its decide row
@@ -2089,6 +2442,22 @@ module v35_ucode
             ont <= 1'b0;
             dab <= 1'b0;
             dabs <= 4'd0;
+            flt <= 1'b0;
+            pfs <= 1'b0;
+            pfb <= 1'b0;
+            pm_a <= 1'b0;
+            pm_on <= 1'b0;
+            pm_c <= 4'd0;
+            pm_dv <= 1'b0;
+            pm_w <= 4'd0;
+            mtf_v <= 1'b0;
+            mtf <= 3'd0;
+            mrh <= 1'b0;
+            mr_v <= 1'b0;
+            mro <= 2'd0;
+            pfc <= 4'd0;
+            tlr <= 1'b0;
+            tlwb <= 2'd0;
         end else if (ce) begin
             run <= p4.run;
             upc <= p4.a;
@@ -2249,6 +2618,25 @@ module v35_ucode
             oddpc <= p4.oddpc;
             ont <= p4.ont;
             dab <= st_now ? g_abort : (dab || g_abort);
+            // (S5b) the 0F page's timers (this clock's values in p4, counted down at the edge)
+            flt <= p4.flt;
+            pfs <= p4.pfs;
+            pfb <= p4.pfb;
+            pm_a <= p4.pm_a;
+            pm_on <= p4.pm_on;
+            pm_c <= p4.pm_c == 4'd0 ? 4'd0 : p4.pm_c - 4'd1;
+            pm_dv <= p4.pm_dv;
+            pm_w <= p4.pm_w;
+            mtf_v <= p4.mtf_v;
+            mtf <= p4.mtf == 3'd0 ? 3'd0 : p4.mtf - 3'd1;
+            mrh <= p4.mrh;
+            mr_v <= p4.mr_v;
+            mro <= mro_n;
+            tlr <= tl_e;
+            if (tail_e)
+                tlwb <= ptail.wbc;
+            pfc <= st_now ? (pf_cov ? 4'd0 : 4'd1)
+                          : (pf_cov ? 4'd0 : (pfc == 4'd15 ? 4'd15 : pfc + 4'd1));
             dabs <= et.dabs == 4'd15 ? 4'd15 : et.dabs + 4'd1;
             // count_latch: held from the count byte's take to the shift's last clock
             if (shift_latch)

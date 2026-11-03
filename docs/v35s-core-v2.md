@@ -729,3 +729,34 @@ Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, e
   queue 1,030, loader 3,962, bus 248, regram 16; sum 27,641 (S4: 22,379), RAM_5K 44, MULT 9; the growth is
   inside the existing `do_row` / `mkreq` / `v35_fmt_of` instances (no copy added). S5b (the 0F page and the
   whole refresh-off corpus) launched.
+- 2026-11-03, **S5b landed — the whole refresh-off corpus matches**: the 0F page (the escape decode a
+  clock ahead with `modrm_skip` and the page-1 re-decode; TEST1 / CLR1 / SET1 / NOT1 on registers and
+  memory, ROL4 / ROR4, EXT / INS with the crossing alternatives, the bit-field cost and the pointer step,
+  the BCD strings under bcd_fetch=hold), the page_* rules in their modules (`pf_cnt` and `mt_floor` and
+  the page_mt timers and the full latch in the sequencer; `pb_done` / `pr_done`, page_b2b and page_run in
+  the queue; `pfree` counting, `pthru` with `take_ask`, ftail and page_imm_run in the arbiter; `c_thru` and
+  `c_take_near` in the bus; page_dio=free). ucgen emits `bit1r` / `pmt` / `pgb2b` / `pcl` and the BIT1 /
+  ROT4 / BF operations (`v35_fmt_t` 125 bits, decode entries 211). Fixed on the way, all structural:
+  page_imm_run as a property of the form, the BCD pair index counting an element that ended in the same
+  pass, the `pfree` read's DW count cleared, the skip run of up to four crossing rows passing in no time
+  with the held tail flag `tlr`, crossing rows decided only once the field is known (`bf_ok`). **Gate: the
+  whole refresh-off corpus, 36 families, 30,536 runs, every one RTL = model; RTL-exact = model-exact
+  30,361 (fit 62's refresh-off number); the 175 misses all the model's own and shared; pre-window exact
+  on every run; `--diag` silent.** Lint clean in four configurations (one fix at integration: the window
+  summary's loop temporary moved to module scope so the structure lint's early-read rule passes; logic
+  unchanged, gate rerun on the committed tree); 23 ucgen / structure / lane tests green; function bench
+  19,752 vectors 0 bad over 28 families (funcref lacks E3, 9C, FF /2, FF /4, E1: F35–F37, F39, F40
+  unvectored; the 0F datapath has no function vectors, checked only by the agent's write-data comparison
+  against the silicon corpus: F32, F34, F40 agree on every run, F39 on all but the LDEA → OUT AL cells);
+  the nine offline modules unchanged. **Open for S6:** AL read by an OUT right after LDEA is 20h (18 F25
+  runs and 6 F39 runs, data only, timing exact); Divergence 26 (the EA latch records its mode) closed the
+  LDEA [BW] address bug of S5a. Divergences 19–26 (README): the 0F start before its bytes arrive runs what
+  the window holds and is re-decoded at the ModR/M take; page_b2b_win=run as the bus's `c_tn`; `pf_cnt`;
+  the skip run and the tail flag; page_imm_sync's lapse applied on the next clock; the full-latch end check
+  reading the room after the P pass; the bit field's register updates spread over the form; the EA latch's
+  mode. Per-module `efx_map` LUT4: arbiter 1,738, ucode 16,370, eu + ea 8,589, loader 4,768, queue 1,053,
+  bus 259, regram 16; sum 32,793 (S5a 27,641), FF 1,855, RAM_5K 55 (loader 23: the 0F decode table), MULT 9.
+  No evaluator copy added; the ucode growth is the 0F rows' attributes through the six `do_row` copies (a
+  first version reading the window rows in every copy mapped to 23,233 and was replaced by a 4-bit window
+  summary computed once a clock). Not built, by design: refresh timing, interrupts and bank switching, the
+  trap_nop list, the WP125 candidates at their defaults. Next: S6 (function) and S7 (synthesis, retirement).

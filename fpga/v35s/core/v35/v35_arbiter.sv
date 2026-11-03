@@ -28,8 +28,15 @@
 //                 slot_latch: the fetch that runs in it), the aborted cycle (abort_fetch=retry,
 //                 abort_latched=any), request_reissue=no_mem, port_latch=relatch with
 //                 port_ready=issue / port_ready_count=count and port_issue (not_before)
-//   not built     refresh (no refresh-on family is gated), the page_* / pthru / ftail / pfree
-//                 window rules and io_ext (disp_io_wait, a candidate): S5, named in the record
+//   (S5b) the 0F page: page_mem=fixed / bf_read=fixed (Request.page_free: a fetch on the bus
+//                 not committed back to back after the read's post restarts its count;
+//                 page_commit=post), page_run (run_wait: a committed fetch's wait clocks not
+//                 counted; a back-to-back fetch not held while a 0F read waits), page_cl=thru
+//                 (pthru: a fetch requested after the read's post, or the d16 take's, waits out
+//                 the read's fetch-free clocks then runs in its CL clocks, Cycle.thru;
+//                 _page_take_ask), ftail (a bit field's read after ftail fetch-free clocks),
+//                 page_imm_run=delivery (_page_imm_run: Cycle.b2b), bcd_fetch=hold's setup
+//   not built     refresh (no refresh-on family is gated), io_ext (disp_io_wait, a candidate)
 //
 // Registered state (widths) and the model variables it replaces, per position (slot, q0, q1;
 // arbiter.Request; `posted` survives only as the order flags and the moved bits):
@@ -56,6 +63,9 @@
 // and for the arbiter:
 //   own 2                                           eu.own's position (3: none)
 //   rq_aio 1, io_seen 1                             requested_at >= ios[-1].start; an I/O ran
+//   (S5b) tkq 1, tkr 1                              requested_at == queue.take_t (the request
+//                                                   dated on the last take's clock); ... and
+//                                                   b2b_at != take_t (_page_take_ask)
 module v35_arbiter
     import v35_front_pkg::*;
 (
@@ -119,6 +129,21 @@ module v35_arbiter
     input  wire [2:0]  fetch_len,
     input  wire [19:0] fetch_addr,
     input  wire        dlv_eu,          // an EU cycle ended on t-1 (its delivery)
+    // (S5b) the 0F page
+    input  wire        p_take,          // an operand take in the P pass (take_t == t)
+    input  wire        t_start,         // a form started in the T pass (start_clock == t)
+    input  wire        pfs_x,           // a 0F memory form's read not yet posted (page_fixed)
+    input  wire        pimm_x,          // ... with an immediate bit index (page_imm_run)
+    input  wire        pcl_x,           // the running form is a CL-index 0F memory form with a d16
+    input  wire [2:0]  pcl_fs,          // ... its class's fsetup
+    input  wire [3:0]  fetch_since,     // t - last_fetch_end (0 while a fetch runs)
+    input  wire        cur_b2b_pfa,     // the fetch on the bus: committed b2b after the read's post
+    input  wire        cur_thru,        // ... issued in a 0F read's cl clocks
+    input  wire        prev_imm,        // the fetch that ended on t-1: after the start, no take since
+    input  wire        bcd_idle,        // bcd_fetch=hold: the own read's setup a clock longer
+    output wire        g_thru,          // the fetch issued now runs in the read's cl clocks
+    output wire        g_pfa,           // ... it issued while a 0F read waits (after its post)
+    output wire        slot_pf_e,       // the slot's 0F read waits unissued at the clock's end
 
     // S4: the grant
     output wire        g_start,
@@ -198,6 +223,8 @@ module v35_arbiter
     reg [1:0]  own = 2'd3;
     reg        rq_aio = 1'b0;
     reg        io_seen = 1'b0;
+    reg        tkq = 1'b0;              // (S5b) requested_at == take_t
+    reg        tkr = 1'b0;              // ... and b2b_at != take_t
 
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic logic f_io(input rec_t r);
@@ -333,9 +360,17 @@ module v35_arbiter
     // (S5a) mul_imm_count=sync (Request.mul_free): a cycle that is not a fetch, or a fetch
     // issued before mul_from, restarts the count
     wire mf_blk = b0.d.mfr && busy && (cur_kind != K_FETCH || mf_old);
-    wire counts = b0.d.mfr ? !mf_blk
+    // (S5b) page_mem=fixed / bf_read=fixed (Request.page_free): a fetch on the bus restarts the
+    // read's count unless the bus unit committed it back to back after the read's post (or,
+    // page_cl=thru, it runs in the read's CL clocks); page_run: a committed fetch's wait clock
+    // does not count
+    wire pf_blk = b0.d.pfv && busy && cur_kind == K_FETCH && !cur_b2b_pfa
+                  && !(b0.d.pth != 2'd0 && cur_thru);
+    wire pf_rw = b0.d.pfv && b0.d.prw && busy && cur_kind == K_FETCH && in_wait;
+    wire counts = b0.d.pfv ? (!pf_blk && !pf_rw)
+                : b0.d.mfr ? !mf_blk
                 : b0.d.nwt ? !in_wait : (b0.d.grp ? counts_grp : counts_mem);
-    wire [6:0] count_b = (pending && mf_blk) ? 7'd0 : b0.count;
+    wire [6:0] count_b = (pending && (mf_blk || pf_blk)) ? 7'd0 : b0.count;
     wire cnt_inc = !halting && pending && count_b < b0.d.setup && counts;
     wire [6:0] count_x = count_b + (cnt_inc ? 7'd1 : 7'd0);
     wire ready_x = count_x >= b0.d.setup;
@@ -400,13 +435,38 @@ module v35_arbiter
     wire sok_now = sr_on && sr_cond && !b0.sok;
     wire sreg_wait = sr_on && (!sr_cond || sok_now);
     wire fw6 = fw5 && !sok_now;
+    // the order flags (requested_at against the slot request's post)
+    wire rq_le_x = pn ? 1'b1 : (b0.rq_le && !rq_now);
+    wire rq_eq_x = rq_le_x && !rq_lt_x;
+    // (S5b) requested_at == take_t: dated on the last take's clock (this clock's take: T's),
+    // and not on a back-to-back commitment's clock (_page_take_ask)
+    wire tkq_now = take_now ? rq_now : (tkq && rq_v_a && !rq_now);
+    wire tkr_now = take_now ? (rq_now && !b2b_now) : (tkr && rq_v_a && !rq_now);
+    wire take_ask = pcl_x && need == 3'd0 && tkr_now;
+    // (S5b) page_cl=thru: a fetch requested after the 0F read's post (or on its post's clock,
+    // the last take's; or the d16 take's request) waits out the read's fetch-free clocks
+    // (fsetup), then runs inside its CL clocks (thru)
+    wire pth_cand = pending && b0.d.pfv && b0.d.pth != 2'd0 && fw6 && rq_v_a
+                    && ((!b2b_now && (!rq_le_x || (rq_eq_x && tkq_now))) || take_ask);
+    wire pth_hold = pth_cand && count_r <= b0.d.setup - 7'(b0.d.pth);
+    // ... the fetch the d16 take asks for before the read's post: no earlier than fsetup
+    // clocks after the last fetch's end
+    wire ptk_cand = pfs_x && pcl_x && fw6 && !pth_hold && take_ask;
+    wire ptk_hold = ptk_cand && fetch_since <= {1'b0, pcl_fs};
+    wire thru = (pth_cand && !pth_hold) || (ptk_cand && !ptk_hold);
+    wire fw6b = fw6 && !pth_hold && !ptk_hold;
+    // (S5b) page_run: the 0F read not yet issued (eu.page_active, the form's read posted or not)
+    wire pg_act_x = pfs_x || (pending && b0.d.pfv);
     // hold_fetch=le_q (hold_count=ahead, whole), floor_hold, io_hold=posted_b2b
     wire signed [5:0] counted = 6'sd6 - 6'(room_x);
     wire hold_le = counted - (b0.d.whole ? 6'sd0 : $signed({3'd0, need})) > 6'(FIT_HOLD_Q);
     wire hf_on = pending && (holding_x || recovering || (b0.fhold && !nb_ok)) && !free_run;
-    wire hf_pass = s_io && b2b_now;
+    // (S5b) page_run: a back-to-back fetch beside a waiting 0F read goes; page_cl=thru: a thru
+    // fetch on a delivery clock, or requested on the last take's clock, or the take's ask
+    wire hf_pass = (s_io && b2b_now) || (b2b_now && pg_act_x)
+                   || (thru && (fetch_end_prev || tkq_now || take_ask));
     wire hf_block = hf_on && !hf_pass && ((s_io && !pn) || hold_le);
-    wire fw7 = fw6 && !hf_block;
+    wire fw7 = fw6b && !hf_block;
     // wb_fetch=hold
     wire wb_block = wb_hold && !b2b_now && rq_v_a && (!rq_now || arrived_now);
     wire fw8 = fw7 && !wb_block;
@@ -418,8 +478,6 @@ module v35_arbiter
     // queue counts hold_q bytes or fewer
     wire lead_on = pending && b0.d.lead != 2'd0 && !holding_x;
     wire lift_now = lead_on && !b0.lift;
-    wire rq_le_x = pn ? 1'b1 : (b0.rq_le && !rq_now);
-    wire rq_eq_x = rq_le_x && !rq_lt_x;
     wire lead_block = lead_on && (!lift_now || !rq_v_a || !rq_le_x || (b0.dwm && rq_eq_x)
                                   || (b0.dwm && b1.v && counted > 6'(FIT_HOLD_Q)));
     wire fetch_want = fw9 && !lead_block;
@@ -427,7 +485,10 @@ module v35_arbiter
     wire sat_now = pending && !b0.sat && ready_x;
     wire sat_hold = sat_now && b0.shl;
     // the slot's issuable request
-    wire issuable = pending && ready_x && nb_ok && !recovering && !sreg_wait && !sat_hold;
+    // (S5b) ftail: a bit field's read issues only once ftl clocks passed since the last fetch
+    wire ftl_hold = b0.d.pfv && b0.d.ftl != 3'd0 && fetch_since <= {1'b0, b0.d.ftl};
+    wire issuable = pending && ready_x && nb_ok && !recovering && !sreg_wait && !sat_hold
+                    && !ftl_hold;
     wire rs_now = issuable && !b0.rs;
     wire s_two = f_two(b0);
     wire second = b0.v && b0.iss && s_two && !b0.h2;   // the odd pair's second half: next
@@ -472,7 +533,14 @@ module v35_arbiter
                                      : (s_two ? {s_data[7:0], 8'd0} : s_data));
     assign g_mem_waiting = mem_wait && !nw_go;
     assign g_dsel = !(eu_go && b0.d.dimm) ? 2'd0 : second ? 2'd3 : s_two ? 2'd2 : 2'd1;
-    assign g_b2b = fetch_go && b2b_now;
+    // (S5b) page_imm_run=delivery (_page_imm_run): a fetch issued on the clock after a fetch's
+    // last clock, that fetch issued after a 0F memory form with an immediate index took its
+    // head (no take since) and after its start, the read not yet issued: committed back to back
+    // as far as the read's count is concerned (Cycle.b2b)
+    wire imm_run = pimm_x && prev_imm && !take_now && !t_start && pg_act_x;
+    assign g_b2b = fetch_go && (b2b_now || imm_run);
+    assign g_thru = fetch_go && thru;
+    assign g_pfa = fetch_go && pending && b0.d.pfv;
     assign eu_issue = eu_go;
     wire        det_go = eu_go && eu_last && b0.d.detached;
     wire        own_io_go = eu_go && eu_last && own_a == 2'd0 && b0.d.kind == K_IO_WRITE;
@@ -620,7 +688,16 @@ module v35_arbiter
                 if (!rq_p.detached) own_e = 2'd2;
             end
         end
+        // (S5b) bcd_fetch=hold (machine.py): a BCD string started on an idle bus: its first
+        // read, posted there, counts its setup a clock later
+        if (bcd_idle) begin
+            if (own_e == 2'd0)
+                e0.d.setup = e0.d.setup + 7'd1;
+            else if (own_e == 2'd1)
+                e1.d.setup = e1.d.setup + 7'd1;
+        end
     end
+    assign slot_pf_e = e0.v && e0.d.pfv && !e0.iss;
 
     // ------------------------------------------------------------ S6: the next state
     function automatic rec_t tick(input rec_t r);
@@ -652,11 +729,21 @@ module v35_arbiter
             own <= 2'd3;
             rq_aio <= 1'b0;
             io_seen <= 1'b0;
+            tkq <= 1'b0;
+            tkr <= 1'b0;
         end else if (ce) begin
             r0 <= tick(redate(e0, pn || det_go || (post_p && !c0.v)));
             r1 <= tick(e1);
             r2 <= tick(e2);
             own <= own_e;
+            // (S5b) requested_at == take_t (and b2b_at != take_t) at the clock's end
+            if (take_now || p_take) begin
+                tkq <= rq_v_end && rq_now_end;
+                tkr <= rq_v_end && rq_now_end && !b2b_now;
+            end else begin
+                tkq <= tkq && rq_v_end && !rq_now_end;
+                tkr <= tkr && rq_v_end && !rq_now_end;
+            end
             if (eu_go && k_io(b0.d.kind)) begin
                 io_seen <= 1'b1;
                 rq_aio <= rq_now_end;

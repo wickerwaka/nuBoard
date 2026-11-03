@@ -1391,6 +1391,22 @@ def _decode_attrs():
         ("xshort", 1, lambda o, c: b(o) in ("branch_short", "dbnz")),
         # rot4r: ROL4 / ROR4 on a register (rot4_exec=wait)
         ("rot4r", 1, lambda o, c: o.cls in ("rol4", "ror4")),
+        # (S5b) the 0F page's rules (eu._start): bit1r a register bit op (class bit1:
+        # page_ir_room=end's full latch, page_imm_sync's even-half bit index); pmt page_mtake's
+        # forms (a register bit op or bit field, and under page_mtest TEST1 [m] / the other bit
+        # ops [m]: the ModR/M take waits out a fetch issued on the start clock); pgb2b
+        # page_b2b=reg's form (a 0F register form of base class reg: the bit ops, the digit
+        # rotates); pcl page_cl=thru's form (a 0F memory form with its bit index in CL and the
+        # class's cl clocks: its read's last cl setup clocks count through a fetch)
+        ("bit1r", 1, lambda o, c: o.cls == "bit1"),
+        ("pmt", 1, lambda o, c: c.page_mtake in ("deliver", "eu") and bool(o.page)
+         and (o.ea is None and (o.cls == "bit1" or o.cls in T.BF_CLASSES)
+              or c.page_mtest == "wait" and o.cls == "bit1_test"
+              or c.page_mtest == "all" and o.cls in ("bit1_test", "bit1_rmw", "bit1_clr"))),
+        ("pgb2b", 1, lambda o, c: c.page_b2b == "reg" and bool(o.page) and o.ea is None
+         and b(o) == "reg"),
+        ("pcl", 1, lambda o, c: c.page_cl == "thru" and bool(o.page) and o.ea is not None
+         and bool(o.cl_count) and bool(c.c(o.cls, "cl"))),
     )
 
 
@@ -1420,9 +1436,16 @@ XOPS = ("NONE", "ALU", "MOV", "XCH", "SHIFT", "MUL", "DIV", "MULI", "INC", "DEC"
         #   STR         aop the element's operation (STR_OPS); wd the width
         #   PREP, DISP  PREPARE imm16,0 / DISPOSE; LPTR (LES / LDS: aop the segment, 0 DS1, 3 DS0)
         "JMP", "CALL", "LOOP", "RET", "BRK", "STR", "PREP", "DISP", "LPTR",
-        # (S5a) the packed BCD strings ADD4S / SUB4S / CMP4S (0F 20 / 22 / 26: aop 0 / 1 / 2);
-        # the rest of the 0F page is S5b's
-        "BCD")
+        # (S5a) the packed BCD strings ADD4S / SUB4S / CMP4S (0F 20 / 22 / 26: aop 0 / 1 / 2)
+        "BCD",
+        # (S5b) the rest of the 0F page:
+        #   BIT1   TEST1 / CLR1 / SET1 / NOT1 (10-1F: aop the second byte's bits 2:1, wd its bit 0;
+        #          opa RM the operand, opb the bit index: CL, or IMM the byte after the operand)
+        #   ROT4   ROL4 / ROR4 (28 / 2A: aop 0 / 1; opa RM the byte operand, with AL)
+        #   BF     EXT / INS (33 / 3B, 31 / 39: aop 0 EXT, 1 INS; opa RM the offset register (a
+        #          byte), opb the width register RF or IMM (the imm4 byte); the field in the words
+        #          at DS0:IX (EXT, a prefix's segment) / DS1:IY (INS))
+        "BIT1", "ROT4", "BF")
 XFER_KINDS = ("REL", "FAR", "REG", "MEM", "MEMFAR")
 RET_KINDS = ("NEAR", "FAR", "INT")
 BCD_OPS = {0x20: 0, 0x22: 1, 0x26: 2}                                    # ADD4S SUB4S CMP4S
@@ -1449,9 +1472,18 @@ def _xop_of(op, form) -> dict:
     x = {"xop": "NONE", "aop": 0, "opa": "NONE", "opb": "NONE", "wd": 1, "nwr": 0, "sx": 0,
          "stk": int(bool(op.stack))}
     if form.page == 1:
-        if form.opcode in BCD_OPS:          # (S5a) the BCD strings' datapath (decoded in S5b)
-            x.update(xop="BCD", aop=BCD_OPS[form.opcode], wd=0)
-        return _xop_int(x)                  # the rest of the 0F page: S5b's
+        s = form.opcode
+        if s in BCD_OPS:                    # (S5a) the BCD strings' datapath
+            x.update(xop="BCD", aop=BCD_OPS[s], wd=0)
+        elif 0x10 <= s <= 0x1F:             # (S5b) the bit ops
+            x.update(xop="BIT1", aop=(s >> 1) & 3, opa="RM", opb="IMM" if s & 8 else "CL",
+                     wd=s & 1, nwr=int((s >> 1) & 3 == 0))
+        elif s in (0x28, 0x2A):             # (S5b) the digit rotates
+            x.update(xop="ROT4", aop=int(s == 0x2A), opa="RM", wd=0)
+        elif s in (0x31, 0x33, 0x39, 0x3B):  # (S5b) the bit fields
+            x.update(xop="BF", aop=int(s in (0x31, 0x39)), opa="RM",
+                     opb="IMM" if s & 8 else "RF", wd=0)
+        return _xop_int(x)
     o = form.opcode
     reg = (form.modrm >> 3) & 7 if form.modrm is not None else 0
     mem = form.modrm is not None and form.modrm >> 6 != 3

@@ -51,6 +51,17 @@
 //   ira 1                            io_run_at == t (xfer_nt_b2b's committed fetch)
 //   th_a 1, th_on 1, th_pre 1, th_c 1  take_hold is set, hold_from is set, requested_at <
 //                                    hold_from, cvt_held (bf_imm_hold, cvt_hold)
+//   (S5b) pb_done 1, pr_done 1       pb_start == start_clock (page_b2b=reg: the form's one
+//                                    commitment made), pr_start == start_clock (page_run's)
+//
+// (S5b) The 0F page's rules here: page_ir_room=end (the full-latch bit op: an empty IR is no
+// seventh slot while it runs, and its steps' end evaluates the request: flag or room >= 2);
+// at a fetch's last clock, after the raised flag's commitment, page_b2b=reg (_page_b2b: a 0F
+// register form, its operand bytes taken, once per form, nothing latched, a byte of room, the
+// fetch near the last take: its `take_near` flag, page_b2b_win=run's look-back carried from the
+// fetch before it (the bus unit's), the IR not loaded before the fetch issued, the queue able
+// to take the word) and page_run (_page_active: a 0F memory form's read not yet issued, once
+// per form, a word of room); both commit the next fetch back to back (io_run_at).
 module v35_queue
     import v35_front_pkg::*;
 (
@@ -171,6 +182,21 @@ module v35_queue
     input  wire        th_cvt,          //   ... cvt_hold's (its held request no take's asked)
     input  wire        th_lift_t,       //   ... lifted or cancelled: T, P
     input  wire        th_lift_p,
+    // (S5b) the 0F page
+    input  wire        fl_c,            // page_ir_room=end: the full-latch bit op runs (before T,
+    input  wire        fl_t,            //   after T, after S5)
+    input  wire        fl_p,
+    input  wire        fl_end_t,        // ... its steps ended now (T at the clock's start, T after
+    input  wire        fl_end_t2,       //   a row, P): the request evaluated
+    input  wire        fl_end_p,
+    input  wire        pgb2b_e,         // page_b2b=reg: the last form started is a 0F register form
+    input  wire        halted,          // eu.halted
+    input  wire        res0_e,          // eu.resume <= t at the clock's end
+    input  wire        pg_act_e,        // page_run: eu.page_active() at the clock's end
+    input  wire        cf_tn,           // the fetch on the bus: take_near (its last take near it,
+                                        //   or page_b2b_win=run's carried from the fetch before)
+    input  wire        cf_irb,          // ... the IR held an opcode loaded no later than its issue
+    input  wire        start_any,       // a form started on this clock (T or P)
 
     // ---------------------------------------------------------------- outputs
     output wire [7:0]  vb0, vb1, vb2, vb3, vb4, // the head window (the delivery bypassed)
@@ -272,6 +298,8 @@ module v35_queue
     reg        th_on = 1'b0;            // ... hold_from is set (the first take after it)
     reg        th_pre = 1'b0;           // ... a request raised before hold_from still stands
     reg        th_c = 1'b0;             // ... cvt_held
+    reg        pb_done = 1'b0;          // (S5b) page_b2b's commitment made for the running form
+    reg        pr_done = 1'b0;          // (S5b) page_run's
 
     integer i;
     initial for (i = 0; i < 8; i = i + 1) q[i] = 8'h00;
@@ -349,12 +377,18 @@ module v35_queue
     wire inflight_x_w = inflight_c || g_fetch || g_abort;
     wire sw = arrive && sfetch;
     assign room_c = room_f(cnt_c, unc, inflight_c, lat_c_w, arrive, pb_c, need_c,
-                           1'b0, ir_v_c, imm16_c, ir_hold, 1'b0, ea_act_c, fresh_c, sw, xk_c, lea_xk_c);
+                           1'b0, ir_v_c, imm16_c, ir_hold, 1'b0, ea_act_c, fresh_c, sw, xk_c, lea_xk_c,
+                           fl_c);
     assign room_c0 = room_f(cnt_c, unc, inflight_c, lat_c_w, arrive, pb_c, need_c,
-                            1'b0, 1'b0, imm16_c, ir_hold, 1'b0, ea_act_c, fresh_c, sw, xk_c, lea_xk_c);
+                            1'b0, 1'b0, imm16_c, ir_hold, 1'b0, ea_act_c, fresh_c, sw, xk_c, lea_xk_c,
+                            fl_c);
+    // (S5b) page_ir_room=end: the room as the full-latch bit op's end leaves it (its slot back)
+    wire signed [4:0] room_cf = room_f(cnt_c, unc, inflight_c, lat_c_w, arrive, pb_c, need_c,
+                                       1'b0, ir_v_c, imm16_c, ir_hold, 1'b0, ea_act_c, fresh_c,
+                                       sw, xk_c, lea_xk_c, 1'b0);
     wire signed [4:0] room_t = room_f(cnt_t, unc_t_w, inflight_c, lat_t_w, arrive,
                                       pb_t, need_t, t_disp, ir_v_t, imm16_t, ir_hold_t,
-                                      t_mate, ea_act_x, fresh_t, sw, xk_t, lea_xk_t);
+                                      t_mate, ea_act_x, fresh_t, sw, xk_t, lea_xk_t, fl_t);
     // count_latch: a register shift's operand take (an immediate count) on a word's delivery
     // clock with its second byte latched and no room for a word but that uncounted byte: no
     // fetch until the shift's last clock (queue.shift_held)
@@ -362,17 +396,19 @@ module v35_queue
     wire sh_latch = cnt_take && arrive && lat_t_w && room_cl < 5'sd2;
     assign room_x = room_f(cnt_l, unc_l_w, inflight_c, lat_l, arrive, pb_l,
                            need_l, t_disp, ir_v_t || l_pop, imm16_t, ir_hold_t, t_mate,
-                           ea_act_x, fresh_t, sw, xk_t, lea_xk_t);
+                           ea_act_x, fresh_t, sw, xk_t, lea_xk_t, fl_t);
     // after the grant (the reissue reads it with the word in flight)
     wire signed [4:0] room_g = room_f(cnt_l, unc_l_w, 1'b1, lat_l, arrive, pb_l,
                                       need_l, t_disp, l_pop || ir_v_t, imm16_t,
-                                      ir_hold_t, t_mate, ea_act_x, fresh_t, sw, xk_t, lea_xk_t);
+                                      ir_hold_t, t_mate, ea_act_x, fresh_t, sw, xk_t, lea_xk_t,
+                                      fl_t);
     assign room_p0 = room_f(cnt_l, unc_l_w, inflight_x_w, lat_l, arrive, pb_l, need_l,
                             t_disp, l_pop || ir_v_t, imm16_t, ir_hold_t, t_mate, ea_act_x,
-                            fresh_t, sw, xk_t, lea_xk_t);
+                            fresh_t, sw, xk_t, lea_xk_t, fl_t);
     wire signed [4:0] room_pp = room_f(cnt_p, unc_p_w, inflight_x_w, lat_p, arrive, pb_p,
                                        need_p, t_disp || p_disp, ir_v_p, imm16_p,
-                                       ir_hold_p, t_mate, ea_act_x, fresh_p, sw, xk_p, lea_xk_p);
+                                       ir_hold_p, t_mate, ea_act_x, fresh_p, sw, xk_p, lea_xk_p,
+                                       fl_p);
 
     // stored() = len(bytes) - latched
     assign stored_c = cnt_c - (lat_c_w ? 4'd1 : 4'd0);
@@ -394,10 +430,13 @@ module v35_queue
     wire rt_raise = rt_fire && retry_c1;
     wire flag_t0 = rt_raise ? room_c >= 5'sd2 : flag_s;
     wire retry_t0 = rt_raise ? 1'b0 : retry_c1;
+    // (S5b) page_ir_room=end: the full-latch bit op's steps ended (T): the empty IR is room
+    // again, the request evaluated on this clock (raised, or room for a word)
+    wire flag_fl = fl_end_t ? (flag_t0 || room_cf >= 5'sd2) : flag_t0;
     // retry_first: the loop row's retry_at at or before t raises on this clock
     wire rt_now = rt_set && rt_n <= 10'sd0;
     // asked(t) (take_sync=pending): requesting(t) when no word is in flight
-    wire want_d = ira || (ev_c ? room_c >= 5'sd2 : flag_t0 && room_c >= 5'sd2);
+    wire want_d = ira || (ev_c ? room_c >= 5'sd2 : flag_fl && room_c >= 5'sd2);
     // (S5a) wants_fetch(t) before T's takes (eu._start's refill_start=full_io test)
     assign want_c = want_d && !inflight_c && fhold == 6'd0 && !st_inf && !nop_held
                     && !(lat_c_w && !arrive && cnt_c > 4'(QUEUE_BYTES)) && !(sh_held && !sh_fire);
@@ -415,7 +454,9 @@ module v35_queue
                    && !(ou_v && ou_cnt == 3'd0);
     endfunction
     assign asked_d = inflight_c ? room_c >= 5'sd2 : want_d && !odd_held(need_c, 1'b0);
-    wire flag_d = (ask_d && !inflight_c) ? want_d : flag_t0;
+    wire flag_d0 = (ask_d && !inflight_c) ? want_d : flag_fl;
+    // ... (the steps' end after a row of this clock: after the deferred sync's asked)
+    wire flag_d = fl_end_t2 ? (flag_d0 || room_cf >= 5'sd2) : flag_d0;
     wire flag_r = (rt_now && retry_t0) ? room_t >= 5'sd2 : flag_d;
     wire retry_t1 = (rt_now && retry_t0) ? 1'b0 : retry_t0;
     wire want_tk = ira || (ev_t ? room_t >= 5'sd2 : flag_r && room_t >= 5'sd2);
@@ -454,10 +495,12 @@ module v35_queue
     assign rq_old_p = rq_g && !rq_now_x && !rq_set_x;
     assign rq_clr_p = rq_v && !rq_g;
     // S5: a take's asked(t), then io_ir_hold (machine.py:189-195)
-    wire want_pt = ira || (ev_p ? room_pp >= 5'sd2 : flag_g && room_pp >= 5'sd2);
+    // (S5b) page_ir_room=end: the full-latch bit op's end in the P pass
+    wire flag_gf = fl_end_p ? (flag_g || room_pp >= 5'sd2) : flag_g;
+    wire want_pt = ira || (ev_p ? room_pp >= 5'sd2 : flag_gf && room_pp >= 5'sd2);
     assign asked_p = inflight_x_w ? room_pp >= 5'sd2 : want_pt && !odd_held(need_p, t_flush);
     // io_take=unit (eu._io_drop): the request this clock raises dropped as an aborted cycle's
-    wire flag_pa = io_drop ? 1'b0 : ((ask_p && !inflight_x_w) ? want_pt : flag_g);
+    wire flag_pa = io_drop ? 1'b0 : ((ask_p && !inflight_x_w) ? want_pt : flag_gf);
     wire want_pi = ira || (ev_p ? room_pp >= 5'sd2 : flag_pa && room_pp >= 5'sd2);
     wire iih = p_run && !flag_g && ir_now_p && !(t_take || p_take) && !inflight_x_w;
     // ir_load=disp_data: the IR loaded again on the EU cycle's issue: a queue change
@@ -490,10 +533,25 @@ module v35_queue
     // conditional short transfer not taken waiting at its decide row commits one more fetch
     // with a byte of room (the latch takes the word's other byte), nothing latched, the queue
     // able to hold the word
-    wire nb_go = fetch_last && !raised_e && ntb_ok && !od_nb && need_p == 3'd0 && !lat_e
+    // (S5b) page_b2b=reg (queue._page_b2b): a 0F register form, its operand bytes taken, once
+    // per form, nothing latched, a byte of room; the fetch ending now ran at (or was issued the
+    // clock after) its last take, or page_b2b_win=run: followed back to back a fetch that took
+    // it after its issue clock (cf_tn); the IR not loaded before the fetch issued; the queue
+    // able to take the word unless the IR is empty and the form's clocks are done
+    wire pb_eff = pb_done && !start_any;
+    wire pr_eff = pr_done && !start_any;
+    wire pgb_go = fetch_last && !raised_e && pgb2b_e && !halted && need_p == 3'd0 && !pb_eff
+                  && !lat_e && room_pp >= 5'sd1 && (cf_tn || t_take || p_take)
+                  && !(ir_v_p && !t_flush && cf_irb && !start_any)
+                  && !(stored_e + 4'd4 > 4'(QUEUE_BYTES) + 4'd1 && !(!(ir_v_p && !t_flush) && res0_e));
+    // page_run (end_clock): a 0F memory form (or a bit field) whose read has not issued
+    // commits one fetch back to back on a fetch's last clock with a word of room, once per form
+    wire prun_go = fetch_last && !raised_e && !pgb_go && pg_act_e && room_pp >= 5'sd2 && !pr_eff;
+    wire nb_go = fetch_last && !raised_e && !pgb_go && !prun_go && ntb_ok && !od_nb
+                 && need_p == 3'd0 && !lat_e
                  && room_pp >= 5'sd1 && stored_e + 4'd4 <= 4'(QUEUE_BYTES) + 4'd1;
     assign nb_now = nb_go;
-    assign b2b_next = fetch_last && (raised_e || nb_go);
+    assign b2b_next = fetch_last && (raised_e || pgb_go || prun_go || nb_go);
     // the decide row's old fetch: from odd_until on (or the commitment), only the fetches issued
     // before it count (eu.py: the decide step)
     wire ou_hit = ou_v && ou_cnt == 3'd0 && !od_v;
@@ -602,7 +660,10 @@ module v35_queue
                 od_since <= od_inf_c ? (fetch_last ? 4'd1 : 4'd0)
                                      : (od_since_c == 4'd15 ? 4'd15 : od_since_c + 4'd1);
             end
-            ira <= nb_go;
+            ira <= nb_go || pgb_go || prun_go;
+            // (S5b) the 0F page's once-per-form commitments
+            pb_done <= pb_eff || pgb_go;
+            pr_done <= pr_eff || prun_go || (fetch_last && raised_e && pg_act_e);
             // the take hold
             if (th_lift_p || (th_lift_t && !th_arm_p)) begin
                 th_a <= 1'b0;

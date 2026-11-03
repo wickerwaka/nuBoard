@@ -67,7 +67,17 @@ package v35_front_pkg;
         logic        fhd;       // floor_hold: the floor (str_single_start=write) holds fetches
         logic        strc;      // a string form's (str_io_latch=write: its I/O write latched)
         logic        mfr;       // mul_imm_count=sync: MUL imm memory's read, counted by mul_free
-        logic [3:0]  c0;        // ... its count at the post (the clean clocks since mul_from)
+        logic [3:0]  c0;        // ... its count at the post (the clean clocks since mul_from;
+                                //     (S5b) page_mem=fixed: the fetch-free clocks back to the
+                                //     start, pf_cnt)
+        // (S5b) the 0F page's read (page_mem=fixed, bf_read=fixed: Request.pfree is set)
+        logic        pfv;       // pfree: every setup clock fetch-free since a fetch not
+                                //     committed back to back after the post (page_free)
+        logic        prw;       // run_wait (page_run): a committed fetch's wait clocks not counted
+        logic [1:0]  pth;       // pthru (page_cl=thru): the last setup clocks that count through
+                                //     a fetch requested after the post (the CL clocks)
+        logic [2:0]  ftl;       // ftail: a bit field's read issues once ftl clocks passed since
+                                //     the last fetch's end
     } req_t;
 
     // ------------------------------------------------------------ fixed structure
@@ -118,8 +128,10 @@ package v35_front_pkg;
         input logic [2:0] xk,           // (S5a) the running form: {a displaced LDEA (lea_slot),
                                         // a memory-indirect transfer (xfer_mem_room), a far
                                         // transfer (far_room)}
-        input logic       lea_ir        // (S5a) lea_room=ir: LDEA's EA clocks after its last
+        input logic       lea_ir,       // (S5a) lea_room=ir: LDEA's EA clocks after its last
                                         // operand byte: the IR's opcode not counted
+        input logic       flr           // (S5b) page_ir_room=end: a full-latch bit op runs: an
+                                        // empty IR is no seventh slot
     );
         logic signed [5:0] used, size;
         logic lat_now, need_nz, far1, xarr;
@@ -140,6 +152,8 @@ package v35_front_pkg;
             // (lea_slot=ea: a displaced LDEA's EA clocks before its displacement's take)
             if (((ir_hold && (!need_nz || ea_act)) || (xk[2] && need_nz && ea_act)) && !xarr)
                 used = used + (ir_v ? 6'sd1 : 6'sd0);
+            else if (flr && !ir_v)
+                ;                       // (S5b) page_ir_room=end
             else begin
                 size = size + 6'sd1;
                 used = used + (ir_v ? 6'sd1 : 6'sd0);

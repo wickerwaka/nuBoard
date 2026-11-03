@@ -17,6 +17,9 @@
 // Registered state (widths) and the model variables it replaces:
 //   ea_bi 16, ea_done 1     the base + index (XLAT: BW + AL) of v35_ea_off, latched once read
 //                           (templates.decode's op.ea, which the model computes at the start)
+//   (S5b) ea_mr 5           the mode (md, rm) the latch was taken for: a form started before its
+//                           ModR/M byte arrived latched the decode ahead's registers; its ModR/M
+//                           take re-decodes another mode, the latch is not that one's
 module v35_ea
     import v35_pkg::*;
     import v35_fn_pkg::*;
@@ -51,6 +54,7 @@ module v35_ea
 );
     reg [15:0] ea_bi = 16'd0;
     reg        ea_done = 1'b0;
+    reg [4:0]  ea_mr = 5'd0;            // (S5b) the mode (md, rm) ea_bi was latched for
 
     /* verilator lint_off UNUSEDSIGNAL */
     // the displacement (after the ModR/M byte; the direct form's d16 its first bytes)
@@ -69,9 +73,12 @@ module v35_ea
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
-    // the base + index: latched, or on the ports now
-    wire [15:0] bi_t = ea_done ? ea_bi : base_t[15:0] + index_t[15:0];
-    assign ok_t = ea_done || (base_t[16] && index_t[16]);
+    // the base + index: latched, or on the ports now ((S5b) the latch only for the mode it was
+    // latched for: a start decoded before its ModR/M byte arrived latches the decode ahead's
+    // registers, and the ModR/M take's re-decode names others)
+    wire        lat_ok_t = ea_done && ea_mr == {f_t.md, f_t.rm};
+    wire [15:0] bi_t = lat_ok_t ? ea_bi : base_t[15:0] + index_t[15:0];
+    assign ok_t = lat_ok_t || (base_t[16] && index_t[16]);
     logic       bp_w;
     logic [15:0] off_w;
     always_comb begin
@@ -90,15 +97,18 @@ module v35_ea
 
     // the latch (S6): once the ports held both registers for the form's mode
     assign regs_n = v35_ea_regs(f_now.md, f_now.rm);
-    wire lat = aim_ea && (new_form || !ea_done) && base_n[16] && index_n[16];
-    assign done_n = lat || (ea_done && !new_form);
+    wire mr_ok = ea_mr == {f_now.md, f_now.rm};
+    wire lat = aim_ea && (new_form || !ea_done || !mr_ok) && base_n[16] && index_n[16];
+    assign done_n = lat || (ea_done && !new_form && mr_ok);
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             ea_bi <= 16'd0;
             ea_done <= 1'b0;
         end else if (ce) begin
-            if (lat)
+            if (lat) begin
                 ea_bi <= base_n[15:0] + index_n[15:0];
+                ea_mr <= {f_now.md, f_now.rm};
+            end
             ea_done <= done_n;
             if (f_now.xop == V35_XOP_XLAT)
                 ea_bi <= xl_bw + {8'd0, xl_al};
