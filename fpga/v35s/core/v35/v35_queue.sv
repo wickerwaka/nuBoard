@@ -38,6 +38,7 @@
 //   fhold 3                          str_held (a row's fetch_hold n: POP PSW's 2)
 //   sh_held 1, sh_v 1, sh_cnt 9      shift_held, shift_until (count_latch) as a countdown
 //   first 1                          t == 0 (_evaluates)
+//   sfetch 1                         slot_fetch (its word: slot_word on its delivery clock)
 module v35_queue
     import v35_front_pkg::*;
 (
@@ -61,7 +62,8 @@ module v35_queue
     input  wire        t_commit1,       // the ModR/M byte committed at once (modrm_commit=byte)
     input  wire        t_take,          // a take on this clock (take_t == t)
     input  wire        t_mate,          // the ModR/M's word-mate taken (modrm_mate)
-    input  wire        t_disp,          // a displacement's take (latch_disp)
+    input  wire        t_disp,          // a displacement's take (latch_disp): T, P
+    input  wire        p_disp,
     input  wire        t_start,         // an instruction started (start_t == t)
     input  wire        t_flush,         // a transfer's flush (the prelude's BR far)
     input  wire [19:0] t_flush_addr,
@@ -80,7 +82,15 @@ module v35_queue
     input  wire [2:0]  need_t,          // after T
     input  wire        ir_v_t,
     input  wire        imm16_t,
-    input  wire        ir_hold,
+    input  wire        ir_hold,         // ir_load=disp_data: before T, after T, after S5
+    input  wire        ir_hold_t,
+    input  wire        ir_hold_p,
+    input  wire        ir_rel,          // ... released by an EU cycle's issue (the P IR load)
+    input  wire        ea_act_c,        // ea_ir_room: t < ea_end (before T, after T)
+    input  wire        ea_act_x,
+    input  wire        fresh_c,         // room_ir_pre=modrm: decoder.fresh (before T, after T,
+    input  wire        fresh_t,         //   after S5)
+    input  wire        fresh_p,
 
     // ---------------------------------------------------------------- S3 (L)
     input  wire        l_pop,           // the IR load
@@ -92,6 +102,9 @@ module v35_queue
     input  wire        g_mem_waiting,   // request_reissue=no_mem: a memory request waits
     input  wire        abort_loop,      // abort_unit=loop: a count-loop form started now
     input  wire        rq_set_x,        // the arbiter dates the request now (free_hold)
+    input  wire        g_slot_fetch,    // the fetch issued runs in a left-out write's slot
+    input  wire        g_io,            // an EU I/O cycle issued (io_take=unit's drop)
+    input  wire        unit_md,         // a memory multiply / divide runs (eu.unit, mul / div)
 
     // ---------------------------------------------------------------- S5 (P) from loader, EU
     input  wire        p_run,           // the second pass runs (an EU I/O cycle issued)
@@ -149,6 +162,9 @@ module v35_queue
     output wire        b2b_next,        // the S6 decision (the trace's B)
     output wire signed [4:0] room_e,
     output wire        flag_e,
+    output wire        rq_v_e,          // requested_at is set at the clock's end
+    output wire        io_unit_drop,    // io_take=unit: the request dropped on the I/O's issue
+    output wire signed [4:0] room_c0,   // room_c with the IR counted empty (imm_start)
     output wire        overflow         // QueueOverflow (sticky)
 );
     // ------------------------------------------------------------ registered state
@@ -178,6 +194,7 @@ module v35_queue
     reg [8:0]  sh_cnt = 9'd0;
     reg        first = 1'b1;
     reg        ovf = 1'b0;
+    reg        sfetch = 1'b0;           // slot_fetch: the fetch in flight runs in a slot
 
     integer i;
     initial for (i = 0; i < 8; i = i + 1) q[i] = 8'h00;
@@ -245,34 +262,40 @@ module v35_queue
     wire pb_l = arrive ? rem_l : (qport_l || ir_now_l);
     wire pb_p = arrive ? rem_p : (qport_p || ir_now_p);
     // the clock is one the request flag is evaluated on (_evaluates, request_eval=on_change)
+    // (room_ir_pre: the start of a TEST r,r / INC-DEC r8 emptied the IR, the room)
     wire ev_c = arrive || first;
-    wire ev_t = ev_c || rem_t;
-    wire ev_l = ev_c || rem_l;
-    wire ev_p = ev_c || rem_p;
+    wire ev_t = ev_c || rem_t || (t_start && fresh_t);
+    wire ev_l = ev_t || rem_l;
+    wire ev_p = ev_l || rem_p || (p_start && fresh_p);
 
     // the rooms
     wire inflight_x_w = inflight_c || g_fetch || g_abort;
+    wire sw = arrive && sfetch;
     assign room_c = room_f(cnt_c, unc, inflight_c, lat_c_w, arrive, pb_c, need_c != 3'd0,
-                           1'b0, ir_v_c, imm16_c, ir_hold, 1'b0);
+                           1'b0, ir_v_c, imm16_c, ir_hold, 1'b0, ea_act_c, fresh_c, sw);
+    assign room_c0 = room_f(cnt_c, unc, inflight_c, lat_c_w, arrive, pb_c, need_c != 3'd0,
+                            1'b0, 1'b0, imm16_c, ir_hold, 1'b0, ea_act_c, fresh_c, sw);
     wire signed [4:0] room_t = room_f(cnt_t, unc_t_w, inflight_c, lat_t_w, arrive,
-                                      pb_t, need_t != 3'd0, t_disp, ir_v_t, imm16_t, ir_hold,
-                                      t_mate);
+                                      pb_t, need_t != 3'd0, t_disp, ir_v_t, imm16_t, ir_hold_t,
+                                      t_mate, ea_act_x, fresh_t, sw);
     // count_latch: a register shift's operand take (an immediate count) on a word's delivery
     // clock with its second byte latched and no room for a word but that uncounted byte: no
     // fetch until the shift's last clock (queue.shift_held)
     wire signed [4:0] room_cl = room_t - ((lat_t_w && need_t == 3'd0) ? 5'sd1 : 5'sd0);
     wire sh_latch = cnt_take && arrive && lat_t_w && room_cl < 5'sd2;
     assign room_x = room_f(cnt_l, unc_l_w, inflight_c, lat_l, arrive, pb_l,
-                           need_l != 3'd0, t_disp, ir_v_t || l_pop, imm16_t, ir_hold, t_mate);
+                           need_l != 3'd0, t_disp, ir_v_t || l_pop, imm16_t, ir_hold_t, t_mate,
+                           ea_act_x, fresh_t, sw);
     // after the grant (the reissue reads it with the word in flight)
     wire signed [4:0] room_g = room_f(cnt_l, unc_l_w, 1'b1, lat_l, arrive, pb_l,
                                       need_l != 3'd0, t_disp, l_pop || ir_v_t, imm16_t,
-                                      ir_hold, t_mate);
+                                      ir_hold_t, t_mate, ea_act_x, fresh_t, sw);
     assign room_p0 = room_f(cnt_l, unc_l_w, inflight_x_w, lat_l, arrive, pb_l, need_l != 3'd0,
-                            t_disp, l_pop || ir_v_t, imm16_t, ir_hold, t_mate);
+                            t_disp, l_pop || ir_v_t, imm16_t, ir_hold_t, t_mate, ea_act_x,
+                            fresh_t, sw);
     wire signed [4:0] room_pp = room_f(cnt_p, unc_p_w, inflight_x_w, lat_p, arrive, pb_p,
-                                       need_p != 3'd0, t_disp, ir_v_p, imm16_p, ir_hold,
-                                       t_mate);
+                                       need_p != 3'd0, t_disp || p_disp, ir_v_p, imm16_p,
+                                       ir_hold_p, t_mate, ea_act_x, fresh_p, sw);
 
     // stored() = len(bytes) - latched
     assign stored_c = cnt_c - (lat_c_w ? 4'd1 : 4'd0);
@@ -315,15 +338,16 @@ module v35_queue
                   && !sh_held_t;
     assign want_x = want_w;
     wire rq_after_want = want_w ? 1'b1 : (inflight_c ? (rq_v && !t_flush) : 1'b0);
-    assign rq_now_x = (want_w && !(rq_v && !t_flush)) || rq_set_x;
-    assign rq_v_x = rq_after_want || rq_set_x;
+    // (as wants_fetch leaves it, before the arbiter's re-dating: the arbiter reads these)
+    assign rq_now_x = want_w && !(rq_v && !t_flush);
+    assign rq_v_x = rq_after_want;
     assign rq_old_c = rq_v;
     // S4: the grant
     wire flag_g = g_fetch ? (!g_mem_waiting && ev_l ? room_g >= 5'sd2 : 1'b0)
                           : (g_abort ? 1'b0 : flag_x);
     wire rq_g = (g_fetch || g_abort) ? 1'b0 : rq_v_x;
     assign inflight_x = inflight_x_w;
-    assign rq_old_p = rq_g && !rq_now_x;
+    assign rq_old_p = rq_g && !rq_now_x && !rq_set_x;
     assign rq_clr_p = rq_v && !rq_g;
     // S5: a take's asked(t), then io_ir_hold (machine.py:189-195)
     wire want_pt = ev_p ? room_pp >= 5'sd2 : flag_g && room_pp >= 5'sd2;
@@ -332,10 +356,19 @@ module v35_queue
     wire flag_pa = io_drop ? 1'b0 : ((ask_p && !inflight_x_w) ? want_pt : flag_g);
     wire want_pi = ev_p ? room_pp >= 5'sd2 : flag_pa && room_pp >= 5'sd2;
     wire iih = p_run && !flag_g && ir_now_p && !(t_take || p_take) && !inflight_x_w;
-    wire flag_p = iih ? want_pi : flag_pa;
+    // ir_load=disp_data: the IR loaded again on the EU cycle's issue: a queue change
+    // (machine.py:185-189)
+    wire flag_ir = (ir_rel && p_ir) ? room_pp >= 5'sd2 : flag_pa;
+    // io_take=unit (machine.py:201-211): a request first raised on an I/O cycle's issue clock
+    // by a word's delivery (its second byte latched) while a memory multiply or divide runs:
+    // dropped, raised again at its loop's exit
+    wire iud = g_io && flag_ir && arrive && lat_p && unit_md && !inflight_x_w && !retry_t1;
+    assign io_unit_drop = iud;
+    wire flag_p = iih ? want_pi : (iud ? 1'b0 : flag_ir);
     wire iih_set = iih && want_pi;
     assign rq_ir_hold = iih_set;
-    wire rq_p = iih_set ? 1'b1 : (io_drop ? 1'b0 : rq_g);
+    wire rq_p = iih_set ? 1'b1 : ((io_drop || iud) ? 1'b0 : rq_g);
+    assign rq_v_e = rq_p;
     // nop_hold=any (machine.py:206-216): on a fetch's issue clock where a register-only form
     // without operand bytes started, the IR loaded and the reissue kept the flag raised
     wire nop_set = g_fetch && nop_cand && flag_g && ir_now_l && !t_take;
@@ -393,8 +426,13 @@ module v35_queue
             sh_cnt <= 9'd0;
             first <= 1'b1;
             ovf <= 1'b0;
+            sfetch <= 1'b0;
         end else if (ce) begin
             first <= 1'b0;
+            if (g_slot_fetch)
+                sfetch <= 1'b1;
+            else if (dlv_fetch)
+                sfetch <= 1'b0;
             // storage: the delivered bytes behind the ones held, the pops from the head
             if (t_flush) begin
                 // a flush in T: the queue emptied before this clock's later stages
@@ -436,6 +474,9 @@ module v35_queue
             end else if (io_drop) begin
                 retry <= 1'b1;              // io_take: raised again as an aborted cycle's
                 retry_loop <= io_drop_loop;
+            end else if (iud) begin
+                retry <= 1'b1;
+                retry_loop <= 1'b1;
             end else
                 retry <= retry_t1;
             if (rt_set && !rt_now) begin

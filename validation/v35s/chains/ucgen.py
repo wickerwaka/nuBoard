@@ -658,6 +658,15 @@ def abstract_list(op, cfg, ea_mode, ctx: dict) -> list:
         if st[0] == "clocks" and st[1] == 0:
             continue                    # a literal zero (a symbolic one is a Sym)
         out.append(st)
+    # (S4) a take that leaves the take sync pending (no chain / lead / port tag) followed only by
+    # zero-time steps: eu.tick checks the sync before every step, so the trailing no-op step
+    # holds the form's end (and so the next start) until the sync is met, where a take that is
+    # the last step ends the form at once. A NOP row stands for that step (canonical: nothing).
+    real = [k for k, st in enumerate(base)
+            if not (st[0] in ("clocks", "take") and isinstance(st[1], int) and st[1] == 0)]
+    if (real and real[-1] < len(base) - 1 and base[real[-1]][0] == "take"
+            and (len(base[real[-1]]) < 3 or base[real[-1]][2] == "word")):
+        out.append(("nop",))
     return out
 
 
@@ -850,6 +859,11 @@ def fold(seq: list, fmt_w: int, strl: bool) -> list:
             pend.append(("A",) + arm_of(st))
         elif k == "sent":
             raise UcgenError("burst_wait=issue's sent step is not built (unused under the fit)")
+        elif k == "nop":
+            # (S4) the sync-holding end of a take-ended form (abstract_list): a NOP row
+            put(pend)
+            pend = []
+            rows.append(_nop_row())
         else:
             row = step_row(st, fmt_w, strl)
             for cut in (2, 1, 0):
@@ -2171,6 +2185,9 @@ CLASS_COLS = (
     ("usetup", lambda c, k: c.c(k, "usetup")),
     ("usetup_v", lambda c, k: int("usetup" in c.cost.get(k, {}))),
     ("grpcl", lambda c, k: c.c(k, "grpcl")),
+    # (S4) dest_route=slot's routing clocks (rmw_alu=through: through = setup - dclk - 1 for a
+    # swap form's write)
+    ("dclk", lambda c, k: c.c(k, "dclk")),
     ("cl", lambda c, k: c.c(k, "cl")),
     ("pre", lambda c, k: c.c(k, "pre")),
     ("pre0", lambda c, k: c.c(k, "pre0")),

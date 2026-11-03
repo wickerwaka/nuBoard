@@ -41,7 +41,10 @@
 //   pfx 3, seg_o 3                         eu.seg_prefix (the next form's), the running form's
 //   ob 6 x 8, nob 3                        the operand bytes taken (templates.decode's code)
 //   exec_done 1, exec_pend 1               the register function ran / waits a clock
-//   ea_bi 16, ea_done 1, aim_ea 1          the EA's base + index (v35_ea_off), latched
+//   aim_ea 1                               the ports hold the EA's registers (v35_ea.sv holds
+//                                          ea_bi, the base + index latched)
+//   rd_lo 8                                an odd word's first half (its low byte)
+//   sp_done 1                              the running stack form posted its SP request
 //   pa_r 4, pb_r 4                         the registers the RAM ports hold this clock
 //   rd 16                                  the read datum (v35_deliver's md)
 //   res 16                                 an RMW's result (the write datum)
@@ -96,8 +99,11 @@ module v35_eu
     input  wire        pfnv_p,
     input  wire [2:0]  pfn_p,
     input  wire [1:0]  plead_p,
-    // the own request's read delivered (its cycle ended on t-1)
+    input  req_t       ptm_t,           // the posts' window fields (the sequencer's)
+    input  req_t       ptm_p,
+    // the own request's read delivered (its last cycle ended on t-1)
     input  wire        own_done,
+    input  wire        own_two,         // ... an odd word's pair (hi, then lo)
     input  wire [2:0]  dlv_kind,
     input  wire [19:0] dlv_addr,
     input  wire [1:0]  dlv_width,
@@ -115,6 +121,11 @@ module v35_eu
     // the requests (the arbiter's records)
     output req_t       rq_t,
     output req_t       rq_p,
+    // the running form's memory operand address and write datum, as a request posted before
+    // its displacement or its result issues reads them (the arbiter)
+    output wire [19:0] ea_live,
+    output wire [15:0] wd_live,
+    output wire [15:0] wd_imm,          // the immediate after T's takes (store_imm's datum, B2)
     // the sequencer's counts
     output wire [8:0]  cnt,
     output wire [7:0]  cl_c,
@@ -137,9 +148,9 @@ module v35_eu
     reg [2:0]  nob = 3'd0;
     reg        exec_done = 1'b0;
     reg        exec_pend = 1'b0;
-    reg [15:0] ea_bi = 16'd0;
-    reg        ea_done = 1'b0;
     reg        aim_ea = 1'b0;
+    reg [7:0]  rd_lo = 8'd0;
+    reg        sp_done = 1'b0;          // the running stack form's SP post made
     reg [3:0]  pa_r = 4'd0;             // {valid, REG16 index} the ports hold this clock
     reg [3:0]  pb_r = 4'd0;
     reg [15:0] rd = 16'd0;
@@ -210,12 +221,6 @@ module v35_eu
             immv = {{8{lo[7]}}, lo};
         else
             immv = {8'd0, lo};
-    endfunction
-    // the displacement (after the ModR/M byte; a direct form's d16 its first bytes)
-    function automatic logic [15:0] dispv(input v35_fmt_t f, input logic [47:0] b);
-        int k;
-        k = (f.page != 2'd0 ? 1 : 0) + (f.has_modrm ? 1 : 0);
-        dispv = {b[8 * (k + 1) +: 8], b[8 * k +: 8]};
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
@@ -559,8 +564,12 @@ module v35_eu
     wire        ex_reg = !delivery_form && (new_form ? all_taken : (!exec_done && all_taken))
                          || exec_pend;
     // a read delivered for the own request (the last cycle of a word: S2's single cycle)
+    // (own_done here is the arbiter's own_dlv strobe: the datum on the bus's delivery clock)
     wire        rd_now = own_done && k_read(dlv_kind) && dlv_kind != K_FETCH;
-    wire [15:0] rd_dat = (dlv_width == BW_WORD) ? dlv_data
+    wire        rd_half = k_read(dlv_kind) && dlv_kind != K_FETCH && dlv_width == BW_HI
+                          && own_two && !own_done;     // the pair's first half (hi lane)
+    wire [15:0] rd_dat = own_two ? {dlv_data[7:0], rd_lo}
+                       : (dlv_width == BW_WORD) ? dlv_data
                        : {8'd0, (dlv_width == BW_HI || dlv_addr[0]) ? dlv_data[15:8]
                                                                      : dlv_data[7:0]};
     wire        ex_mem = rd_now && delivery_form;
@@ -597,37 +606,29 @@ module v35_eu
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic req_t mkreq(input uc_row_t r, input logic [6:0] setup,
                                    input logic fnv, input logic [2:0] fn, input logic [1:0] lead,
-                                   input v35_fmt_t f, input logic [7:0] o,
-                                   input logic [47:0] b, input logic [2:0] sego);
+                                   input req_t tm, input v35_fmt_t f, input logic [7:0] o,
+                                   input logic [47:0] b);
         req_t q;
-        logic [15:0] off, sg, sp_v, d, ea;
+        logic [15:0] sp_v, d;
         logic [16:0] spr;
-        logic bp;
-        q = '0;
+        q = tm;                         // the window fields (through, imm1, floors, ...)
         case (r.rkind)
             V35_RK_READ: q.kind = K_READ;
-            V35_RK_WRITE, V35_RK_NOWRITE: q.kind = K_WRITE;   // (NOWRITE: the S4 slot)
+            V35_RK_WRITE, V35_RK_NOWRITE: q.kind = K_WRITE;   // (NOWRITE: the slot)
             V35_RK_IO_READ: q.kind = K_IO_READ;
             V35_RK_IO_WRITE: q.kind = K_IO_WRITE;
             default: q.kind = K_NONE;
         endcase
+        q.nowrite = r.rkind == V35_RK_NOWRITE;
         spr = rget({1'b1, R_SP});
         sp_v = spr[15:0];
-        // the memory operand's offset: the EA's base + index (latched) + the displacement; a
-        // direct form's d16; XLAT's BW + AL (latched)
-        bp = 1'b0;
-        if (f.has_modrm)
-            ea = v35_ea_off(f.md, f.rm, ea_bi, 16'd0, dispv(f, b), bp);
-        else if (f.xop == V35_XOP_XLAT)
-            ea = ea_bi;
-        else
-            ea = dispv(f, b);
-        sg = (sego != 3'd0 && sego <= 3'd4) ? segv(2'(sego - 3'd1)) : (bp ? ss : ds0);
-        off = 16'd0;
+        // the memory operand (v35_ea.sv): the running form's own request takes its address as
+        // it issues (posted before the displacement was taken: pop_mem's write)
         case (r.asrc)
             V35_ASRC_EA: begin
-                off = ea + {12'd0, r.aidx, 1'b0};
-                q.addr = {sg, 4'd0} + {4'd0, off};
+                q.addr = ea_phys + {16'd0, r.aidx, 1'b0};
+                q.alive = !r.detached;
+                q.aoff = r.aidx;
             end
             V35_ASRC_SPW: q.addr = {ss, 4'd0} + {4'd0, sp_v - 16'd2 - {12'd0, r.aidx, 1'b0}};
             V35_ASRC_SPR: q.addr = {ss, 4'd0} + {4'd0, sp_v + {12'd0, r.aidx, 1'b0}};
@@ -638,6 +639,10 @@ module v35_eu
         // the datum: the form's write value (its source register, the immediate, the PSW,
         // a segment register, an RMW's result)
         d = wdatum(f, o, b);
+        // an RMW's result, POP's datum: the running form's own write takes its datum as it
+        // issues (the exec at the read's delivery registers it on that clock's edge)
+        q.dlive = !r.detached && wd_res(f);
+        q.dimm = !r.detached && f.xop == V35_XOP_MOV && f.opb == V35_ROLE_IMM;
         q.data = (q.kind == K_IO_WRITE && !(r.wsel == V35_WSEL_WORD || (r.wsel == V35_WSEL_FMT && f.w)))
                  ? {d[7:0], d[7:0]} : d;
         if (r.wsel == V35_WSEL_WORD || (r.wsel == V35_WSEL_FMT && f.w))
@@ -656,6 +661,13 @@ module v35_eu
         return q;
     endfunction
 
+    // the datum is the result register's (not a register operand read at the post)
+    function automatic logic wd_res(input v35_fmt_t f);
+        case (f.xop)
+            V35_XOP_PUSH, V35_XOP_PUSHF, V35_XOP_OUT, V35_XOP_MOV, V35_XOP_SRST: wd_res = 1'b0;
+            default: wd_res = 1'b1;
+        endcase
+    endfunction
     // the datum a form writes (memory, the stack, a port)
     function automatic logic [15:0] wdatum(input v35_fmt_t f, input logic [7:0] o,
                                            input logic [47:0] b);
@@ -671,10 +683,13 @@ module v35_eu
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
-    assign rq_t = mkreq(prow_t, psetup_t, pfnv_t, pfn_t, plead_t, f_t, o_t, ob_t,
-                        st_t ? pfx : seg_o);
-    assign rq_p = mkreq(prow_p, psetup_p, pfnv_p, pfn_p, plead_p, f_now, o_now, ob_now,
-                        (st_t || st_p) ? pfx : seg_o);
+    assign rq_t = mkreq(prow_t, psetup_t, pfnv_t, pfn_t, plead_t, ptm_t, f_t, o_t, ob_t);
+    assign rq_p = mkreq(prow_p, psetup_p, pfnv_p, pfn_p, plead_p, ptm_p, f_now, o_now, ob_now);
+    // the live address and datum (an RMW's result after its read's delivery: res, registered)
+    assign ea_live = ea_phys;
+    assign wd_live = res;
+    wire [15:0] imm_t = immv(f_t, ob_t);
+    assign wd_imm = f_t.w ? imm_t : {imm_t[7:0], imm_t[7:0]};
 
     // the stack pointer of a stack form's post: SP - 2 (a push), SP + 2 (a pop) at the post
     wire        sp_post = (post_t && (prow_t.asrc == V35_ASRC_SPW || prow_t.asrc == V35_ASRC_SPR)
@@ -684,6 +699,7 @@ module v35_eu
     wire        sp_dn = post_t ? prow_t.asrc == V35_ASRC_SPW : prow_p.asrc == V35_ASRC_SPW;
     wire [16:0] sp_rd = rget({1'b1, R_SP});
     wire [15:0] sp_new = sp_dn ? sp_rd[15:0] - 16'd2 : sp_rd[15:0] + 16'd2;
+    wire        sp_done_n = sp_post || (sp_done && !new_form);
 
     // ------------------------------------------------------------ the sequencer's counts
     // (the rows that read them, CNT and UNIT, follow the form's operand takes: the registered
@@ -692,8 +708,9 @@ module v35_eu
     assign cnt = fmt.xop == V35_XOP_SHIFT ? cnt_v[8:0] : 9'd0;
     // MUL r/m16 (F7 /5): the operands' signs differing: 8, a clock more with the product's
     // low half zero, one more with its high half zero too
-    wire [16:0] mu_a = opnd(fmt.opa, fmt, op, ob, rd);
-    wire [16:0] mu_b = opnd(fmt.opb, fmt, op, ob, rd);
+    // (a memory operand's datum: the read delivered on this clock, the row reads it then)
+    wire [16:0] mu_a = opnd(fmt.opa, fmt, op, ob, rd_now ? rd_dat : rd);
+    wire [16:0] mu_b = opnd(fmt.opb, fmt, op, ob, rd_now ? rd_dat : rd);
     wire [31:0] mu_p = $signed(mu_a[15:0]) * $signed(mu_b[15:0]);
     assign mneg = (fmt.xop == V35_XOP_MUL && fmt.sgn && fmt.wd
                    && (mu_a[15] ^ mu_b[15]))
@@ -757,6 +774,11 @@ module v35_eu
             c2_a = rword(bank, R_DW);
             c2_b = 2'b11;
             c2_d = dres[31:16];
+        end else if (t_flush && f_t.far_xfer) begin
+            c2_v = 1'b1;                // a far transfer's PS, stored through to its bank slot
+            c2_a = sword(bank, 2'd1);
+            c2_b = 2'b11;
+            c2_d = tg_seg;
         end
         if (sp_post) begin
             c3_v = 1'b1;
@@ -815,14 +837,28 @@ module v35_eu
     // the PSW after this clock (the exec's, the divider's)
     wire [15:0] psw_n = (ex_go && xr.pw) ? xr.pv : (dfin ? dpsw : psw);
 
-    // the EA's base + index, latched on the clock the ports held them
-    wire [7:0]  ear_now = v35_ea_regs(f_now.md, f_now.rm);
+    // the EA unit (v35_ea.sv): the base on port B, the index on port A, latched once read
+    wire [7:0]  ear_now, ear_t;
+    wire        ea_done_n;
+    assign ear_t = v35_ea_regs(f_t.md, f_t.rm);
     wire [16:0] ea_b = rget(ear_now[3] ? {1'b1, ear_now[2:0]} : 4'd0);
     wire [16:0] ea_i = rget(ear_now[7] ? {1'b1, ear_now[6:4]} : 4'd0);
-    wire        ea_lat = aim_ea && (new_form || !ea_done) && ea_b[16] && ea_i[16];
-    wire        ea_done_n = ea_lat || (ea_done && !new_form);
+    wire [16:0] ea_bt = rget(ear_t[3] ? {1'b1, ear_t[2:0]} : 4'd0);
+    wire [16:0] ea_it = rget(ear_t[7] ? {1'b1, ear_t[6:4]} : 4'd0);
     wire [16:0] xl_b = rget({1'b1, R_BW});
     wire [16:0] xl_a = rget({1'b1, R_AW});
+    wire [15:0] ea_off_w, ea_seg_w;
+    wire        ea_bp;
+    wire [19:0] ea_phys;
+    v35_ea ea (
+        .clock, .reset_n, .ce,
+        .f_t, .b_t(ob_t), .base_t(ea_bt), .index_t(ea_it), .sego(st_t ? pfx : seg_o),
+        .ds1, .ps, .ss, .ds0,
+        .f_now, .new_form, .aim_ea, .base_n(ea_b), .index_n(ea_i), .xl_bw(xl_b[15:0]),
+        .xl_al(xl_a[7:0]),
+        .regs_n(ear_now), .done_n(ea_done_n), .off(ea_off_w), .bp(ea_bp), .seg(ea_seg_w),
+        .phys(ea_phys)
+    );
 
     // the next clock's ports: the registers the next clock's form reads: the running form's
     // while it still reads them (its exec, a post, the divider's dividend), else the next
@@ -851,7 +887,9 @@ module v35_eu
         else if (fx.xop == V35_XOP_XLAT)
             nb = {1'b1, R_BW};
         // a memory operand's EA (ModR/M forms): the base on B, the index on A, until latched
-        if (fx.mem && fx.has_modrm && fx.md != 2'd3 && !(cur_e && ea_done_n)) begin
+        // (POP r/m: SP first, for its stack read; the EA's registers after its post)
+        if (fx.mem && fx.has_modrm && fx.md != 2'd3 && !(cur_e && ea_done_n)
+            && !(fx.stk && fx.xop == V35_XOP_POP && !(cur_e && sp_done_n))) begin
             nea = 1'b1;
             nb = ear[3] ? {1'b1, ear[2:0]} : 4'd0;
             na = ear[7] ? {1'b1, ear[6:4]} : 4'd0;
@@ -890,9 +928,8 @@ module v35_eu
             nob <= 3'd0;
             exec_done <= 1'b0;
             exec_pend <= 1'b0;
-            ea_bi <= 16'd0;
-            ea_done <= 1'b0;
             aim_ea <= 1'b0;
+            sp_done <= 1'b0;
             pa_r <= 4'd0;
             pb_r <= 4'd0;
             rd <= 16'd0;
@@ -921,17 +958,14 @@ module v35_eu
             else if (ex_go)
                 exec_done <= 1'b1;
             exec_pend <= ex_wait;
-            // the EA: base + index (XLAT: BW + AL), latched once the ports held them
-            if (ea_lat)
-                ea_bi <= ea_b[15:0] + ea_i[15:0];
-            ea_done <= ea_done_n;
-            if (f_now.xop == V35_XOP_XLAT)
-                ea_bi <= xl_b[15:0] + {8'd0, xl_a[7:0]};
             aim_ea <= nea && (cur_e || nf_v);
             pa_r <= (cur_e || nf_v) ? na : 4'd0;
             pb_r <= (cur_e || nf_v) ? nb : 4'd0;
             if (rd_now)
                 rd <= rd_dat;
+            if (rd_half)
+                rd_lo <= dlv_data[15:8];
+            sp_done <= sp_done_n;
             if (ex_go && xr.rv)
                 res <= xr.res;
             psw <= psw_n;
@@ -965,6 +999,7 @@ module v35_eu
 
     wire unused = &{1'b0, xr, cnt_v[16:9], mu_a[16], mu_b[16], sfr_v[16], dv_hi[16], dv_aw[16],
                     dv_op[16], sp_rd[16],
-                    ea_b[16], ea_i[16], xl_b[16], xl_a[16:8], dtrap, nf_v, fmt_l,
+                    ea_b[16], ea_i[16], xl_b[16], xl_a[16:8], dtrap, nf_v, fmt_l, ea_off_w,
+                    ea_seg_w, ea_bp, ea_bt[16], ea_it[16],
                     dlv_addr[19:1]};
 endmodule

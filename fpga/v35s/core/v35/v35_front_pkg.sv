@@ -30,9 +30,10 @@ package v35_front_pkg;
     endfunction
 
     // ------------------------------------------------------------ the EU's request record
-    // (as posted: arbiter.Request's fields the S2 rules read)
+    // (as posted: arbiter.Request's fields as eu._post / _submit set them; S4)
     typedef struct packed {
         logic [2:0]  kind;
+        logic        nowrite;   // grp_read=rmw_slot: the left-out write's slot (kind K_WRITE)
         logic [19:0] addr;
         logic [1:0]  width;
         logic [15:0] data;
@@ -42,7 +43,20 @@ package v35_front_pkg;
         logic [1:0]  lead;
         logic        port;      // an I/O form with a port byte
         logic        detached;  // io_release=post
-        logic        grp;       // grp_free_bus
+        logic        grp;       // grp_free_bus (free_bus)
+        logic [6:0]  through;   // rmw_alu=through: setup clocks that count through a fetch
+        logic        imm1;      // imm1_first: a one-byte-immediate memory form's first request
+        logic        gdisp;     // grp_disp=hold: a group RMW form's read after its d16
+        logic        sreg;      // sreg_store=own: MOV r/m,sreg's write
+        logic        whole;     // pop_read_hold=queue: the hold compares the whole queue
+        logic        restart;   // call_far_post=take: free_run restarts the free clocks
+        logic [3:0]  nb;        // not_before - t at the post (disp_floor, imm_count=start)
+        logic [1:0]  rl;        // the posting class's relatch (port_latch=relatch)
+        logic        alive;     // the address follows the running form's EA (posted before its
+        logic [2:0]  aoff;      //   displacement was taken: pop_mem), + 2 * aoff
+        logic        dlive;     // the datum is the running form's result (an RMW's, POP's)
+        logic        dimm;      // ... its immediate, taken after the write issued (store_imm):
+                                //     the bus takes it at B2
     } req_t;
 
     // ------------------------------------------------------------ fixed structure
@@ -68,6 +82,11 @@ package v35_front_pkg;
     //           outstanding unless a two-byte-immediate register form runs), `used` counting
     //           the IR byte then; ir_hold takes the slot away (its `used += ir` branch)
     //   used += 1 on a delivery clock that took the ModR/M's word-mate (modrm_mate=imm)
+    // (S4) ir_hold takes the slot away once the operand bytes are all taken, or (ea_ir_room)
+    // while the form runs its EA clocks; room_ir_pre=modrm: the running TEST r,r / INC-DEC r8
+    // with no operand byte taken (fresh) counts the IR as the seventh slot and, on a delivery
+    // clock (pre_modrm=arrival), its ModR/M byte as gone; a slot fetch's word (grp_read) is
+    // counted on its delivery clock whatever holds the port
     // Signed: −4 .. 7.
     function automatic logic signed [4:0] room_f(
         input logic [3:0] cnt,          // len(bytes): stored + latched
@@ -81,25 +100,30 @@ package v35_front_pkg;
         input logic       ir_v,         // the IR holds an opcode
         input logic       imm16,        // a two-byte-immediate register form runs (room_ir_imm)
         input logic       ir_hold,      // ir_load=disp_data: the IR is no seventh slot
-        input logic       mate_now      // the ModR/M's word-mate taken on a delivery clock
+        input logic       mate_now,     // the ModR/M's word-mate taken on a delivery clock
+        input logic       ea_act,       // ea_ir_room: t < ea_end
+        input logic       fresh,        // room_ir_pre=modrm: decoder.fresh (_pre_room)
+        input logic       slot_word     // the delivered word is a slot fetch's
     );
         logic signed [5:0] used, size;
         logic lat_now;
         used = 6'(cnt) + 6'(unc) + (inflight ? 6'sd2 : 6'sd0);
         // _latched_now (byte_d): the byte counts as a queue byte after its delivery clock,
         // and on it unless the decoder holds the port
-        lat_now = lat && arrived_now && port_busy;
+        lat_now = lat && arrived_now && port_busy && !slot_word;
         if (lat_now && !need_nz && !disp_now)
             used = used - 6'sd1;
         size = 6'sd6;
-        if (arrived_now || (!need_nz && !imm16)) begin
-            if (ir_hold && !need_nz)
+        if (arrived_now || ((!need_nz || fresh) && !imm16)) begin
+            if (ir_hold && (!need_nz || ea_act))
                 used = used + (ir_v ? 6'sd1 : 6'sd0);
             else begin
                 size = size + 6'sd1;
                 used = used + (ir_v ? 6'sd1 : 6'sd0);
             end
         end
+        if (fresh && arrived_now)
+            used = used - 6'sd1;
         if (arrived_now && mate_now)
             used = used + 6'sd1;
         room_f = 5'(size - used);

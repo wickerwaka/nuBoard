@@ -42,7 +42,8 @@ module v35_trace
     input  wire        abort,
     input  wire signed [4:0] room,
     input  wire        flag,
-    input  wire [3:0]  why,
+    input  wire [4:0]  why,
+    input  wire [3:0]  hold,            // (S4) the arbiter's fetch hold (W:<reason>/<hold>)
     input  wire        dec_miss,        // the start waited for its decode (W: dec)
     input  wire        wlost            // a register write was lost (W: lost)
 );
@@ -164,24 +165,42 @@ module v35_trace
             default: cname = "trap_nop";
         endcase
     endfunction
-    function automatic string why_name(input logic [3:0] w);
+    function automatic string why_name(input logic [4:0] w);
         case (w)
-            4'd1: why_name = "clk";
-            4'd2: why_name = "hold";
-            4'd3: why_name = "sync";
-            4'd4: why_name = "bytes";
-            4'd5: why_name = "late_read";
-            4'd6: why_name = "imm_latch";
-            4'd7: why_name = "data";
-            4'd8: why_name = "issued";
-            4'd9: why_name = "slot";
-            4'd10: why_name = "wbsync";
-            4'd11: why_name = "gate";
-            4'd12: why_name = "ir";
-            4'd13: why_name = "halt";
-            4'd14: why_name = "flush";
-            4'd15: why_name = "io_exec";
+            5'd1: why_name = "clk";
+            5'd2: why_name = "hold";
+            5'd3: why_name = "sync";
+            5'd4: why_name = "bytes";
+            5'd5: why_name = "late_read";
+            5'd6: why_name = "imm_latch";
+            5'd7: why_name = "data";
+            5'd8: why_name = "issued";
+            5'd9: why_name = "slot";
+            5'd10: why_name = "wbsync";
+            5'd11: why_name = "gate";
+            5'd12: why_name = "ir";
+            5'd13: why_name = "halt";
+            5'd14: why_name = "flush";
+            5'd15: why_name = "io_exec";
+            5'd16: why_name = "late_disp";      // (S4) sync_req=disp's _late_fetch
+            5'd17: why_name = "post";           // (S4) no request position (_submit)
             default: why_name = "-";
+        endcase
+    endfunction
+    // (S4) the arbiter's fetch holds (v35_arbiter why_o)
+    function automatic string hold_name(input logic [3:0] h);
+        case (h)
+            4'd1: hold_name = "/free_hold";
+            4'd2: hold_name = "/grp_io_hold";
+            4'd3: hold_name = "/slot_fetch";
+            4'd4: hold_name = "/grp_disp";
+            4'd5: hold_name = "/ea_b2b";
+            4'd6: hold_name = "/sreg";
+            4'd7: hold_name = "/hold_fetch";
+            4'd8: hold_name = "/wb_fetch";
+            4'd9: hold_name = "/io_hold";
+            4'd10: hold_name = "/lead";
+            default: hold_name = "";
         endcase
     endfunction
 
@@ -216,7 +235,8 @@ module v35_trace
                     line = {line, " A"};
                 line = {line, $sformatf(" R:%0d:%0d W:%s", room, flag,
                                         wlost ? "lost" : dec_miss ? "dec"
-                                                                 : why_name(why))};
+                                                                 : why_name(why)),
+                        hold_name(hold)};
                 $fdisplay(fd, "%s", line);
                 $fflush(fd);
             end
@@ -227,6 +247,6 @@ module v35_trace
 `else
     wire unused = &{1'b0, clock, reset_n, ce, g_start, g_kind, g_addr, g_width, g_len, start_t,
                     start_p, scls_t, scls_p, pc_t, pc_p, takes, loads, post, post_kind, issue,
-                    b2b, abort, room, flag, why, dec_miss, wlost};
+                    b2b, abort, room, flag, why, hold, dec_miss, wlost};
 `endif
 endmodule

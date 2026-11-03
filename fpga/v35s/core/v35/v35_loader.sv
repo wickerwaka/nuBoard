@@ -27,7 +27,12 @@
 //   mate_arm 1                    modrm_addr + imm_reg: the next byte is the ModR/M's word-mate
 //   imm_reg 1                     decoder.imm_reg
 //   stopped 1                     decoder.stopped (HALT)
-//   (ir_hold, ea_end, lea_wait, fresh, modrm_skip: S4/S5, not built; ir_hold is a zero output)
+//   ir_hold 1                     decoder.ir_hold (ir_load=disp_data: set at a displaced memory
+//                                 form's start, cleared by its displacement's take on a delivery
+//                                 clock or its first data cycle's issue; S4)
+//   fresh 1                       decoder.fresh (room_ir_pre=modrm: no operand byte of the
+//                                 running TEST r,r / INC-DEC r8 taken yet; S4)
+//   (ea_end: the sequencer's countdown; lea_wait, modrm_skip: S5)
 module v35_loader
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -52,6 +57,13 @@ module v35_loader
     input  wire        p_start,
     input  wire        p_k_in,
     input  wire        p_io_nx,         // io_take_nx: the IR load a clock later
+    // ir_load=disp_data (S4): set at a displaced memory form's start (T, P), cleared by its
+    // displacement's take on a delivery clock (T, P) or its data cycle's issue (S4)
+    input  wire        irh_set_t,
+    input  wire        irh_clr_t,
+    input  wire        eu_issue,
+    input  wire        irh_set_p,
+    input  wire        irh_clr_p,
 
     // the IR (before S2)
     output wire        ir_v_c,
@@ -81,7 +93,13 @@ module v35_loader
     output wire        p_ir,
     output wire [2:0]  need_p,
     output wire        ir_v_p,
-    output wire        ir_hold,
+    output wire        ir_hold,         // before T (registered)
+    output wire        ir_hold_t,       // after T
+    output wire        ir_hold_p,       // after S5
+    output wire        ir_rel,          // the hold released by an EU cycle's issue: an IR load in P
+    output wire        fresh_c,         // room_ir_pre: before T
+    output wire        fresh_t,         // ... after T
+    output wire        fresh_p,         // ... after S5
     output wire        stopped_o,
     // S6: the decode ahead (the next clock's IR, or head byte, and its format)
     output wire        nf_v,
@@ -101,8 +119,10 @@ module v35_loader
     reg        mate_arm = 1'b0;
     reg        imm_reg = 1'b0;
     reg        stopped = 1'b0;
+    reg        irh = 1'b0;
+    reg        fresh = 1'b0;
 
-    assign ir_hold = 1'b0;
+    assign ir_hold = irh;
     assign stopped_o = stopped;
     assign ir_v_c = ir_v;
     assign ir_c = ir;
@@ -155,10 +175,17 @@ module v35_loader
                                                              && !fmt_c.mem : imm_reg)) : ma_s;
     wire im_t = t_start ? (fmt_c.immb != 2'd0 && !fmt_c.mem) : imm_reg;
     wire stop_t = stopped || t_halt;
+    wire irh_t = t_start ? irh_set_t : (irh && !irh_clr_t);
+    assign ir_hold_t = irh_t;
+    // room_ir_pre=modrm: fresh from the start of a form with operand bytes to its first take
+    wire fr_t = k_t != 3'd0 ? 1'b0 : (t_start ? fmt_c.modrm_pre && fmt_c.len != 3'd1 : fresh);
+    assign fresh_c = fresh;
+    assign fresh_t = fr_t;
 
     // ------------------------------------------------------------ S3 (L): load_ir
     wire [3:0] av_l = avail_c - 4'(k_t);
-    assign l_pop = !ir_s && need_t_w == 3'd0 && ready_t && !stop_t && av_l != 4'd0 && !t_flush;
+    assign l_pop = !ir_s && need_t_w == 3'd0 && ready_t && !stop_t && av_l != 4'd0 && !t_flush
+                   && !irh_t;
     wire [7:0] ir_l_w = l_pop ? vb(k_t) : ir;
     assign ir_l = ir_l_w;
     assign ir_addr_l = l_pop ? head_addr + 20'(k_t) : ir_addr;
@@ -195,8 +222,15 @@ module v35_loader
                         p_start ? ra_v_ps : ra_v_t;
     wire ready_p = ra_ld_p ? ra_v_p == 5'd0 : ra == 5'd0;
     wire [3:0] av_pi = av_p - (k_p_w ? 4'd1 : 4'd0);
+    // ir_load: the EU's data cycle issued: the hold released, the IR loads again (machine.py)
+    wire irh_x = irh_t && !eu_issue;
+    assign ir_rel = irh_t && eu_issue;
+    wire irh_p = p_start ? irh_set_p : (irh_x && !irh_clr_p);
+    assign ir_hold_p = irh_p;
     assign p_ir = !ir_ps && need_p_w == 3'd0 && ready_p && !stop_t && av_pi != 4'd0
-                  && (p_start || k_p_w);
+                  && (p_start || k_p_w || ir_rel) && !irh_p;
+    wire fr_p = k_p_w ? 1'b0 : (p_start ? fmt_l.modrm_pre && fmt_l.len != 3'd1 : fr_t);
+    assign fresh_p = fr_p;
     assign ir_v_p = ir_ps || p_ir;
     wire mn_p = modrm_p ? 1'b0 : mn_ps;
     wire ma_p = k_p_w ? (modrm_p && !(head_addr[0] ^ pos_p[0])
@@ -235,6 +269,8 @@ module v35_loader
             mate_arm <= 1'b0;
             imm_reg <= 1'b0;
             stopped <= 1'b0;
+            irh <= 1'b0;
+            fresh <= 1'b0;
         end else if (ce) begin
             ir_v <= ir_v_p && !t_flush;
             if (p_ir) begin
@@ -252,6 +288,8 @@ module v35_loader
             mate_arm <= ma_p;
             imm_reg <= im_p;
             stopped <= stop_t;
+            irh <= irh_p && !t_flush;
+            fresh <= fr_p;
         end
     end
 

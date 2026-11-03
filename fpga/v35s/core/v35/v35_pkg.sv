@@ -355,6 +355,7 @@ package v35_pkg;
     logic [4:0] pre0;
     logic [2:0] pre;
     logic [1:0] cl;
+    logic [1:0] dclk;
     logic [1:0] grpcl;
     logic usetup_v;
     logic [3:0] usetup;

@@ -11,11 +11,11 @@ names the fit's md5 and the invocation.
 
 | File | Contents |
 | --- | --- |
-| `v35_ucode.hex` | the microcode ROM: 1,133 rows x 64 bits (72,512 bits), one row per line, `$readmemh` format with `//` comments naming each template and decoding each row |
-| `v35_ucode_b0.hex` .. `_b3.hex` | (S3) the same ROM as four banks by row address mod 4 (284 rows each, zero-padded): the banks `v35_ucode.sv` loads, one block RAM each |
+| `v35_ucode.hex` | the microcode ROM: 1,140 rows x 64 bits (72,960 bits), one row per line, `$readmemh` format with `//` comments naming each template and decoding each row |
+| `v35_ucode_b0.hex` .. `_b3.hex` | (S3) the same ROM as four banks by row address mod 4 (285 rows each): the banks `v35_ucode.sv` loads, one block RAM each |
 | `v35_ucode_tbl.svh` | `v35_tmpl_base(id)` (231 templates) and `v35_tmpl_sel(fmt, run)`: class x format bits x start-time bits -> template |
 | `v35_decode_tbl.svh` | `v35_dec_native(op)`, `v35_dec_ext(op)` (the 0F page's second byte), 256 entries each (191 bits), and `v35_dec_grp(gidx, reg)` (17 group opcodes x 8 reg fields) |
-| `v35_class_tbl.svh` | `v35_cls_const(cls)`: 84 classes x 122 bits (49 columns) |
+| `v35_class_tbl.svh` | `v35_cls_const(cls)`: 84 classes x 124 bits (50 columns; (S4) `dclk`, rmw_alu=through's routing clocks) |
 | `v35_consts.svh` | the EA table, hold_q, io_b2b_q, wlatch, io_recover, per_shift_count, the cross-class integers, the generated widths; `v35_ea_mode(mod, rm)`, `v35_ea_clocks(mode)` |
 | `v35_pkg.sv` | package `v35_pkg`: the row enums, `uc_row_t`, `v35_half_t` / `v35_dec_t` / `v35_grp_t`, `v35_fmt_t` (115 bits), `v35_run_t`, `v35_cls_t`, the class ids, (S3) the datapath's operations `V35_XOP_*` and operand roles `V35_ROLE_*`; includes the four .svh; `v35_fmt_of(opcode, page, modrm)`, `v35_tmpl_of(fmt, run)` |
 
@@ -47,7 +47,7 @@ the size bounds and the hex/struct round trip (about 30 s); `test_v35_struct` li
 | `arm`, `apos` | 4+2 | the folded side effect: HOLD, HOLD_ROOM, HOLD_TAKE, HOLD_TAKE_DLV, HOLD_LONG (element 0 only), REL, REL_FOREVER, REL_RAISE, FLUSH_FROM, HELD; applied on ENTRY (before the wait), PRE_OP (after it) or EXIT (as the row is left, every loop pass) |
 | `wb` | 2 | on a last row: the write-back clocks owed to the successor (mwb / rwb / uwb / xwb / wb by the form, as `eu._start` picks them) |
 
-Rows: 377 TAKE, 374 CLOCKS, 250 DATA, 63 POST, 31 FLUSH, 14 NOWAIT, 11 NOP, 5 SPLIT_FLOOR,
+Rows: 377 TAKE, 374 CLOCKS, 250 DATA, 63 POST, 31 FLUSH, 18 NOP, 14 NOWAIT, 5 SPLIT_FLOOR,
 4 DECIDE, 2 POST_IO, 1 FLUSH_C, 1 HALT; the longest template is 11 rows.
 
 ### Counts
@@ -55,7 +55,7 @@ Rows: 377 TAKE, 374 CLOCKS, 250 DATA, 63 POST, 31 FLUSH, 14 NOWAIT, 11 NOP, 5 SP
 - 45,819 forms enumerated (opcode x second byte x 0F third byte through the live decoder
   `sim/templates.decode`, under the flag / CW states that give every transfer both outcomes); 45,531 with a template, 288 register forms the decoder accepts that no template
   runs (trap_nop halves, below).
-- 1,133 rows, 231 templates (template 0 is trap_nop's: CLOCKS 2; the prefix class shares it),
+- 1,140 rows, 231 templates (template 0 is trap_nop's: CLOCKS 2; the prefix class shares it),
   84 classes (class 0 trap_nop + the fit's 83).
 - `v35_tmpl_sel`: 52 classes select by format / start-time bits (221 selections), 31 have
   one template, trap_nop none (the default, template 0). The start-time bits (`v35_run_t`): taken / zfail (the transfer's
@@ -109,6 +109,12 @@ forms, 82 / 83 /1 /4 /6, C0 / C1 / D0-D3 /6, 8F / C6 / C7 /1-7, F6 / F7 /1 mem, 
   `eu.tick`); a request step's trailing default arguments are dropped. A CNT / BF / UNIT row
   whose count evaluates to 0 (a shift by 0 of `shift_imm`, a bit field with cost <= span) is a
   0-clock row: the sequencer passes it as the model passes `("clocks", 0)`.
+  (S4) One exception: a take that leaves the take sync pending (no chain / lead / port tag)
+  followed in the model only by such no-op steps is followed by a NOP row (`last`): `eu.tick`
+  checks the sync before every step, so the trailing no-op holds the form's end (and the next
+  start) until the sync is met, where a take that is the template's last step ends the form at
+  once (the register ALU forms with a ModR/M byte, imm, LDEA with a displacement: 7 rows; found
+  on F19-d-push-adddwi_nop: ADD DW,imm16's deferred take sync).
 - **Step indices.** Rules that read the model's step index (`eu.k == 1 and steps[0][0] ==
   "clocks"`: latch_start, one_idle, long_exec; `k == len(steps)`: abort_unit=loop, rot4_exec,
   count_latch; `steps[k-1] == "slot"`; `_mem_unit_hold`'s scan for data / wait steps;
@@ -132,14 +138,18 @@ forms, 82 / 83 /1 /4 /6, C0 / C1 / D0-D3 /6, 8F / C6 / C7 /1-7, F6 / F7 /1 mem, 
 
 
 The design record is `docs/v35s-core-v2.md` (the plan, Appendix A §1, Appendix B §1-3). This
-directory holds stages S2 and S3: the bus unit, the prefetch queue, the loader, a fetch +
-single-slot arbiter and the slot module (S2), and the execution unit (S3): the microcode
-sequencer `v35_ucode` running the generated ROM, the datapath `v35_eu` for the register classes
-on the register RAM `v35_regram`, and the function package `v35_fn_pkg`. The memory classes run
-through the same sequencer and datapath; their request path is S2's single slot (S4 widens it).
+directory holds stages S2, S3 and S4: the bus unit, the prefetch queue, the loader and the slot
+module (S2), the execution unit (S3): the microcode sequencer `v35_ucode` running the generated
+ROM, the datapath `v35_eu` on the register RAM `v35_regram`, the function package `v35_fn_pkg`;
+and (S4) the memory classes: the arbiter's full request path (the slot and two queued
+positions, the request window, the nowrite slot, the odd-word pair), the EA unit `v35_ea`, the
+memory forms' timers and strobes in the sequencer, the loader's `ir_hold` and `fresh`, the bus's
+start flags.
 
 Gates: S2 `replay --core v35 --score` on F0, F0w, F1, F2; S3 on F0, F0w, F1, F2, F3, F9, F11,
-F12, F20: RTL-exact ≥ model-exact.
+F12, F20; S4 on those and F4, F5, F6, F7, F10, F14, F15, F16, F19, F21, F22: RTL-exact ≥
+model-exact. (S4: every one of the 16,670 runs RTL = model, so RTL-exact = model-exact in every
+family, F22's six model misses shared.)
 
 ## Modules
 
@@ -151,9 +161,10 @@ F12, F20: RTL-exact ≥ model-exact.
 | `v35_bus.sv` | `v35_bus` | one cycle at a time, pin timing verbatim from `../v35_biu.sv`, the delivery registers, the I/O recovery window, the data latch (`wlatch`), the 3-clock aborted fetch cycle, the fetch-run flag |
 | `v35_queue.sv` | `v35_queue` | 8-byte ring (6 nominal) with the 1-byte write-port latch, `uncommitted`, room at each stage, the request flag and its dating, `wants_fetch`, b2b, reissue, abort/retry, `retry_at`, `nop_held`, `io_held`, (S3) `shift_held` / `shift_until` (count_latch), io_take's drop, a row's `fetch_hold n` |
 | `v35_loader.sv` | `v35_loader` | IR, the format lookup (`v35_fmt_of`, the ModR/M byte the next queue byte; re-decoded at the ModR/M take), `need`, the ready countdown (`ready_at`, with one_idle's and long_exec's moves), the ModR/M commit and word-mate strobes, the IR load in L and P, the decode a clock ahead |
-| `v35_arbiter.sv` | `v35_arbiter` | the one request slot (`Request`), setup counting, the fetch holds, the choice (EU cycle / aborted cycle / fetch); (S3) `g_abort_lat` (abort_latched) |
+| `v35_arbiter.sv` | `v35_arbiter` | (S4) the request positions (`Request` x 3: the slot, two queued behind a detached I/O, `_promote`), setup counting, the request window and the fetch holds, the choice as one priority tree (the odd pair's second half / the slot's cycle or the left-out write's slot / the aborted cycle / a fetch); `g_abort_lat` (abort_latched) |
 | `v35_ucode.sv` | `v35_ucode` | the microcode sequencer: the ROM (four banks, a window of four rows), the T and P passes over the rows, the take sync, the start gate, unit_hold, the write-back countdown, the latch holds, the loop counters, the request descriptors |
-| `v35_eu.sv` | `v35_eu` | the datapath: the register ports' schedule, the exec (the register function), the read datum, the divider, the request records' address / datum / width, the segment registers, CW, the PSW |
+| `v35_eu.sv` | `v35_eu` | the datapath: the register ports' schedule, the exec (the register function), the read datum (an odd word's two halves), the divider, the request records' address / datum / width (a live EA and result for the running form's own request), the segment registers, CW, the PSW |
+| `v35_ea.sv` | `v35_ea` | (S4) the EA unit inside `v35_eu`: the mode from the format word, the base (port B) and index (port A) latched as `ea_bi`, the displacement from the operand bytes, the segment (prefix / SS for a BP mode / DS0), the physical address |
 | `v35_regram.sv` | `v35_regram` | the register banks in RAM: 256 bytes, even / odd halves, port A read + write, port B read, read addresses registered at `ce` |
 | `v35_trace.sv` | `v35_trace` | `ifndef SYNTHESIS`: one line per CPU clock to `+v35_trace=FILE` (the generated class names) |
 | `v35_top.sv` | `v35_top` | the slot (ports of `../v35s_model.sv`), the CPU clock and reset exit (from `../v35s_chain_model.sv`), `../v35_sfr.sv`, `../v35_refresh.sv` (instantiated, not served), the SFR-store latch, the pins, the trace hook |
@@ -184,8 +195,18 @@ are gone.
   rt_set/rt_n (retry_at), sh_set/sh_n (shift_until), nop_cand, abort_loop, io_drop /
   io_drop_loop`.
 - sequencer → loader: `t_k, p_k, t_halt, lx_hold, idle_adj, p_io_nx`.
-- sequencer → arbiter: `post_t/post_p` (the arbiter's records `rq_t/rq_p` are the datapath's),
-  `retire`, `relatch, relatch_late, relatch_n`, `halting, halted, wb_hold, latch_wait`.
+- sequencer → arbiter: `post_t/post_p` (the arbiter's records `rq_t/rq_p` are the datapath's,
+  their window fields `ptm_t/ptm_p` the sequencer's: through, imm1, gdisp, sreg, whole,
+  restart, the floors as `nb`, the poster's relatch), `retire / retire_p`, `relatch,
+  relatch_late`, (S4) `floor_set, floor_nb` (disp_floor=posted), `sreg_hold_set`, `gdisp_act`
+  (grp_disp), `ea_act_x` (ea_b2b), `take_now`, `disp_ext` (disp_io), `sidle`, `halting, halted,
+  wb_hold, latch_wait`.
+- (S4) sequencer ↔ loader / queue: `irh_set_t/p, irh_clr_t/p` (ir_load=disp_data), `ir_hold_t/p,
+  ir_rel` (the hold after T / S5, its release by an EU cycle's issue: the P IR load),
+  `fresh_c/t/p` (room_ir_pre), `ea_act_c/x` (ea_ir_room), `disp_t/p` (latch_disp),
+  `io_unit_drop` / `unit_md` (io_take=unit's drop on an I/O issue), `room_c0` (imm_start).
+- (S4) datapath → arbiter: `ea_live, wd_live` (the running form's memory operand address and
+  result, read as its own request issues).
 - sequencer → datapath: the posting row and its setup / free_need / lead (`prow_*, psetup_*,
   pfnv_*, pfn_*, plead_*`), `run_e, aim_next, fmt_e` (the next clock's form and whether it still
   reads its registers); datapath → sequencer: `cnt` (the shift count), `cl_c / cl_e` (CL now / after
@@ -193,8 +214,10 @@ are gone.
 - datapath ↔ register RAM: `ra_next, rb_next` (the next clock's read addresses), `wa_en, wa_addr,
   wa_be, wa_data` (the write at `ce`), `ra_data, rb_data`.
 - arbiter → bus/queue/EU (S4): `g_start, g_kind, g_addr, g_width, g_data, g_fetch, g_eu,
-  g_abort, g_abort_lat, g_mem_waiting, g_b2b, rq_set_x, retick`; the slot as the EU reads it
-  (`slot_wait_c/p, slot_det_c/p, own_issued, own_done`).
+  g_slot, g_slot_fetch, g_abort, g_abort_lat, g_mem_waiting, g_b2b, g_ext, rq_set_x, retick,
+  eu_issue`; the positions as the EU reads them (`slot_wait_c/p, slot_det_c/p, post_ok_c/p,
+  slot_memw_c, dwq_c, dws_c, own_issued, own_done, own_done_p, own_dlv, own_two`), the fetch's
+  hold reason `why_o` (the trace).
 
 ## The six stages in the code
 
@@ -206,22 +229,23 @@ its own outputs; Verilator reports no `UNOPTFLAT`):
 | --- | --- | --- |
 | S0 | — | every module's registers; `v35_bus` S0 assigns; the ROM window (`q0..q3`, read at the last `ce`) and the register RAM's ports (`ra_data, rb_data`) |
 | S1 | C, A | `v35_queue` "S1: arrival" (the delivered word, `lat`, `inflight_c`, `completed_now`), `retry_c` (retry_after), `room_c`; `v35_bus` `abort_done` |
-| S2 | T | `v35_ucode` T pass (the `always_comb` building `s0..s4`: (A) the resume countdown and `unit_hold`, the form's end (done, write-back) and the start gate + the template's first row in the window, (B) the take sync, (C) the cursor's row, (D) one more row when it completed with `cont` (or the form ended and the next one starts), (E) a third row after an end and a start (a LEAD take's clocks)); `v35_loader` "S2 (T)"; `v35_eu` the T form (`f_t`, `ob_t`), the exec, `rq_t`; `v35_queue` `flag_s/flag_t0/flag_d/flag_r/flag_t`, `room_t`, `asked_d/t`, `sh_latch` |
+| S2 | T | `v35_ucode` T pass (the `always_comb` building `s0..s4`: (A) the resume countdown and `unit_hold`, the form's end (done, write-back) and the start gate + the template's first row in the window, (B) the take sync, (C) the cursor's row, (D) one more row when it completed with `cont` (or the form ended and the next one starts), (E) a third row after an end and a start (a LEAD take's clocks)); `v35_loader` "S2 (T)"; `v35_eu` the T form (`f_t`, `ob_t`), the exec, `rq_t`; `v35_queue` `flag_s/flag_t0/flag_d/flag_r/flag_t`, `room_t`, `asked_d/t`, `sh_latch`; (S4) in `do_row` the memory forms' strobes and timers (the displacement's take: `disp`, `irclr`, disp_floor's `flset` / `dfl`, grp_disp's `gd`; the EA clocks' `easet`; mexec's retry_at; lookup_start; a post's window fields and the floors' consumption, abort_unit's setup − 1), the gate's dw_port and imm_start; `v35_loader` `irh_t`, `fr_t`; `v35_arbiter` "S2 (T): retire, post" (`a0..a2`, `pos_t`), the relatch and the floor (`b0..b2`); `v35_ea` the address of the form after T (`off`, `seg`, `phys`) |
 | S3 | L | `v35_loader` "S3 (L): load_ir"; `v35_queue` `room_x`, `raw_x` (requesting), `want_w` (wants_fetch), the dating |
-| S4 | X | `v35_arbiter` "S4: counting", "S4: the choice"; `v35_queue` `flag_g`, `rq_g`, `inflight_x` |
-| S5 | P | `v35_ucode` P pass (`p0..p4`, run only on `retick`: the start gate, one byte's take at most, the rows that follow without a take); `v35_loader` "S5 (P)"; `v35_eu` the P form (`f_now`), `rq_p`; `v35_queue` `asked_p`, io_take's drop, io_ir_hold (`iih`), `nop_set` |
-| S6 | E | `v35_queue` "S6: check, b2b" (`latch_in`, `b2b_next`) and every `always_ff` / `always @(posedge clock)` block (`ce`); `v35_ucode` `ls_adj` (latch_start), `oi_adj` (one_idle), `lx_now` (long_exec), `res_e`, the next cursor's row and the window's address (`wa_e`: the cursor's successors, or the decode ahead's template base); `v35_loader` the decode ahead (`nf_*`); `v35_eu` the writes and the next clock's register addresses |
+| S4 | X | `v35_arbiter` "S4: counting" (`counts`, `count_x`), "S4: the choice" (`fw0` .. `fw9`, `fetch_want`, `issuable`, `take_slot`, `nw_go`, `sl_fetch`, `abort_go`, `fetch_go`: one priority tree, evaluated once), "S4: the slot after the choice" (`c0..c2`: the counts, the window flags, `_promote`); `v35_queue` `flag_g`, `rq_g`, `inflight_x` |
+| S5 | P | `v35_ucode` P pass (`p0..p4`, run only on `retick`: a detached I/O's issue or the own I/O write's: the start gate, one byte's take at most, the rows that follow without a take); `v35_loader` "S5 (P)" (with `ir_rel`'s IR load: ir_load=disp_data released by an EU cycle's issue); `v35_eu` the P form (`f_now`), `rq_p`; `v35_queue` `asked_p`, io_take's drop, (S4) `flag_ir`, io_take=unit's `iud`, io_ir_hold (`iih`), `nop_set`; `v35_arbiter` "S5 (P): retire, post" (`e0..e2`) |
+| S6 | E | `v35_queue` "S6: check, b2b" (`latch_in`, `b2b_next`) and every `always_ff` / `always @(posedge clock)` block (`ce`); `v35_ucode` `ls_adj` (latch_start), `oi_adj` (one_idle), `lx_now` (long_exec), `res_e`, the next cursor's row and the window's address (`wa_e`: the cursor's successors, or the decode ahead's template base); `v35_loader` the decode ahead (`nf_*`); `v35_eu` the writes and the next clock's register addresses (POP r/m: SP before its stack read, the EA after); `v35_ea` the `ea_bi` latch; `v35_arbiter` `tick` / `redate` (the countdowns, the pair flag from the live address, the order flags) |
 
 ## Registered state
 
 | Module | State (widths) | Replaces |
 | --- | --- | --- |
-| `v35_bus` | `c_valid 1, c_kind 3, c_pos 3, c_len 3, c_addr 20, c_width 2, c_data 16, c_internal 1, c_ext 1`; `c_b2b 1, c_commit 1, c_on_start 1, c_run 1`; `d_v 1, d_kind 3, d_addr 20, d_width 2, done_data 16`; `gap 1, f_since 4, io_tail 2, wl 3, ab_v 1, ab_pos 2`; pins + `refresh_row 9` | `bus.current`, `Cycle.b2b/commit`, `cur.start == start_clock`, `_fetch_run`, `bus.completed`, `last_end/last_fetch_end/last_io_end`, `wlatch_until`, `abort_end` |
-| `v35_queue` | `q 8×8, head 3, cnt 4, lat 1, lat_full 1, unc 3, take_addr 20, flag 1, rq_v 1, inflight 1, fetch_addr 20, b2b 1, retry 1, retry_loop 1, rt_v 1, rt_cnt 9, nop_held 1, io_held 1, discard 1, starts 2, fhold 3, sh_held 1, sh_v 1, sh_cnt 9, first 1` | `bytes, latched, latch_full, uncommitted, flag, requested_at, inflight, fetch_addr, b2b_at, retry, retry_loop, retry_at, nop_held, io_held, discard, starts, str_held, shift_held, shift_until` |
-| `v35_loader` | `ir_v 1, ir 8, ir_addr 20, opc 8, need 3, nx 3, ra 5, modrm_next 1, mate_arm 1, imm_reg 1, stopped 1` | `decoder.ir, need, nx, ready_at, modrm_next, modrm_addr/imm_reg, stopped` |
-| `v35_arbiter` | slot: `v 1, kind 3, addr 20, width 2, data 16, setup 7, count 7, fn_v 1, fn 3, fo 3, lead 2, nowait 1, port 1, detached 1, grp 1, issued 1, nb 4, rs_v 1, lift_v 1, fh_prev 1, rq_le 1` | `Request` (`free_need`, `free_orig`, `not_before`, `ready_since`, `lift_t`, `free_held`, `requested_at <= posted`) |
-| `v35_ucode` | `run 1, upc 11, row_c 64, rc_v 1, base 11, wa 11, q0..q3 4×64` (the ROM banks' read registers), `arm_done 1, wpass 1, res 11, left 3, taken 3, oplen 3, sync_v 1, sync_def 1, owed 2, held 1, own_v 1, dpass 1, exec_v 1, ex_age 2, ex_par 1, hold_done 1, abort_start 1, done_m 1, wbu 2, wbc 2, wbx 1, lu_inf 1, lu 3, halted 1, refill 1, nw_v 1, nw 4, first_clk 1, lx 1, elem 16, ltop 11, fmt 115, cc 122 (class constants), op 8, shift_held_r 1, slot_rl 2` | `eu.steps/k, resume, left, taken, op_len, sync, port_take's ("slot",) insertion, own, _mem_unit_hold's data-step scan, exec_t, hold_done, abort_t == start_clock, done_t, wb, wb_until, one_idle's wb + 1, latch_until, halted, refill, left_nw, k == 1 (latch_start, one_idle), rot4_from/long_from, the string element index, shift_latched, the held I/O's class` |
-| `v35_eu` | `fmt 115, op 8, pc 20, pfx 3, seg_o 3, ob 48, nob 3, exec_done 1, exec_pend 1, ea_bi 16, ea_done 1, aim_ea 1, pa_r 4, pb_r 4, rd 16, res 16, psw 16, ds1/ds0/ss/ps 4×16, cw 16, w2_v 1, w2_a 7, w2_be 2, w2_d 16, dv 1, ds 75 (divider), dvp 1, dv_d 16, dv_lo 16, miss 1` | the model's `regs` (registers, PSW, segments), `seg_prefix`, `templates.decode`'s operands, `v35_execute / v35_deliver / v35_wdata`'s context |
+| `v35_bus` | `c_valid 1, c_kind 3, c_pos 3, c_len 3, c_addr 20, c_width 2, c_data 16, c_internal 1, c_ext 1`; `c_b2b 1, c_commit 1, c_on_start 1, c_run 1`; `d_v 1, d_kind 3, d_addr 20, d_width 2, done_data 16`; `gap 1, f_since 4, io_tail 2, wl 3, ab_v 1, ab_pos 2`; (S4) `c_after_post 1, c_disp_in_flight 1, c_ir_before 1`; pins + `refresh_row 9` | `bus.current`, `Cycle.b2b/commit`, (S4) the fetch's start flags S5's page rules read (`x.start > pfree`, `_disp_in_flight`, `ir_t <= bus_start`), disp_io's `last_io_end = c.end + 1` (`c_ext` holds `io_tail`), `cur.start == start_clock`, `_fetch_run`, `bus.completed`, `last_end/last_fetch_end/last_io_end`, `wlatch_until`, `abort_end` |
+| `v35_queue` | `q 8×8, head 3, cnt 4, lat 1, lat_full 1, unc 3, take_addr 20, flag 1, rq_v 1, inflight 1, fetch_addr 20, b2b 1, retry 1, retry_loop 1, rt_v 1, rt_cnt 9, nop_held 1, io_held 1, discard 1, starts 2, fhold 3, sh_held 1, sh_v 1, sh_cnt 9, first 1`; (S4) `sfetch 1` | `bytes, latched, latch_full, uncommitted, flag, requested_at, inflight, fetch_addr, b2b_at, retry, retry_loop, retry_at, nop_held, io_held, discard, starts, str_held, shift_held, shift_until`; (S4) `slot_fetch` / `slot_word` |
+| `v35_loader` | `ir_v 1, ir 8, ir_addr 20, opc 8, need 3, nx 3, ra 5, modrm_next 1, mate_arm 1, imm_reg 1, stopped 1`; (S4) `irh 1, fresh 1` | `decoder.ir, need, nx, ready_at, modrm_next, modrm_addr/imm_reg, stopped`; (S4) `decoder.ir_hold, fresh` |
+| `v35_arbiter` | (S4) three positions `r0` (the slot), `r1, r2` (queued), each: `v 1`, the posted `req_t` (`kind 3, nowrite 1, addr 20, width 2, data 16, setup 7, fn_v 1, fn 3, lead 2, port 1, detached 1, grp 1, through 7, imm1 1, gdisp 1, sreg 1, whole 1, restart 1, nb 4, rl 2, alive 1, aoff 3, dlive 1`), `count 7, fn_v 1, fn 3, fo 3, iss 1, h2 1, two 1, dne 1, nwd 1, dn 3, nb 4, fhold 1, rs 1, lift 1, fhp 1, ghp 1, moved 1, dwm 1, rq_le 1, rq_lt 1, shl 1, sok 1, sat 1` (≈ 160 b); `own 2, rq_aio 1, io_seen 1` | `Request` (`cycles`, `free_need`, `free_orig`, `issued`, the atomic pair, `done_at`, `not_before`, `floor_hold`, `ready_since`, `lift_t`, `free_held`, `grp_held`, `moved`, `dw_moved`, `requested_at` vs `posted`, `sreg_held/ok/at`), `eu.req`, `eu.queued`, `eu.own`, `requested_at >= ios[-1].start` |
+| `v35_ucode` | `run 1, upc 11, row_c 64, rc_v 1, base 11, wa 11, q0..q3 4×64` (the ROM banks' read registers), `arm_done 1, wpass 1, res 11, left 3, taken 3, oplen 3, sync_v 1, sync_def 1, owed 2, held 1, own_v 1, dpass 1, exec_v 1, ex_age 2, ex_par 1, hold_done 1, abort_start 1, done_m 1, wbu 2, wbc 2, wbx 1, lu_inf 1, lu 3, halted 1, refill 1, nw_v 1, nw 4, first_clk 1, lx 1, elem 16, ltop 11, fmt 115, cc 124 (class constants), op 8, shift_held_r 1, slot_rl 2`; (S4) `fl_v 1, fl 4, dfl_v 1, dfl 3, uearly 1, gdc 2, eac 3, st_prev 1, fst 1` | (S4) `floor_n` (imm_count=start), `dfloor_at` (disp_floor), `unit_early`, `queue.gdisp_until`, `decoder.ea_end`, `start_clock + 1`, `fetch_start`; `eu.steps/k, resume, left, taken, op_len, sync, port_take's ("slot",) insertion, own, _mem_unit_hold's data-step scan, exec_t, hold_done, abort_t == start_clock, done_t, wb, wb_until, one_idle's wb + 1, latch_until, halted, refill, left_nw, k == 1 (latch_start, one_idle), rot4_from/long_from, the string element index, shift_latched, the held I/O's class` |
+| `v35_eu` | `fmt 115, op 8, pc 20, pfx 3, seg_o 3, ob 48, nob 3, exec_done 1, exec_pend 1, aim_ea 1, (S4) rd_lo 8, sp_done 1, pa_r 4, pb_r 4, rd 16, res 16, psw 16, ds1/ds0/ss/ps 4×16, cw 16, w2_v 1, w2_a 7, w2_be 2, w2_d 16, dv 1, ds 75 (divider), dvp 1, dv_d 16, dv_lo 16, miss 1` | the model's `regs` (registers, PSW, segments), `seg_prefix`, `templates.decode`'s operands, `v35_execute / v35_deliver / v35_wdata`'s context |
+| `v35_ea` | (S4) `ea_bi 16, ea_done 1` | `v35_ea_off`'s base + index (the model's start-time `op.ea`) |
 | `v35_regram` | `4 × 128 × 8` RAM, `ra_q 7, rb_q 7` | the register banks |
 
 No clock stamps anywhere: every `x_t == t` is a strobe of the stage that produces it,
@@ -238,11 +262,13 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
   clock ahead (the IR, or the queue's head byte when the IR is empty, with the byte behind it as
   its ModR/M byte, as they stand at the clock's end; CL after the clock for cnt0, the last
   operand byte's parity for half). A start whose first row is not in the window waits a clock
-  (`dec_miss`, the trace's `W:dec`): 0 on the 5,390 gate runs' starts (every run's trace
+  (`dec_miss`, the trace's `W:dec`): 0 on the 5,390 S3 gate runs' starts (every run's trace
   counted, F0 .. F20).
 - **The passes.** The T pass evaluates at most three rows (a row and the ones its completion
   releases: `tdelay` 0, a satisfied wait, a skipped row; a form's end, the start gate and the next
-  form's first rows); the P pass (on `retick`) the same with one operand byte at most. A row is
+  form's first rows; (S4) in a running form the third row too: pop_mem's read delivery, its
+  write's post and its clocks row on one clock); the P pass (on `retick`) the same with one
+  operand byte at most, the third row only after a start. A row is
   `[skip] [ENTRY arm] [wcond] [PRE_OP arm] [op] [EXIT arm]`. The form's end (done), the start and
   then the take sync, in `eu.tick`'s order: a start does not wait for the sync, the started
   form's first row does.
@@ -257,6 +283,28 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
   SPLIT_FLOOR pass in no time (S5). The waits OWN_DONE, OWN_ISSUED, SLOT (then latch_until), WB,
   QUIET (S5: the fetch on the bus only). The arm HOLD (fetch_hold n); the strings' and bit fields'
   arms are S5's (decoded, not acted on).
+- **(S4) The memory forms.** A post (DATA / POST / POST_IO, a PORT take's own I/O: `own_v`) asks
+  the arbiter for a position (`post_ok`, the trace's `W:post` when none is free: none in the
+  gate); within a pass a request posted there is not the own one the arbiter's
+  `own_done / own_issued` describe (`pnew`). The post carries the window fields (`ptm`):
+  rmw_alu=through (`setup - dclk - 1` for an RMW's write, `dclk` a swap form's routing clocks),
+  imm1_first, grp_disp's read, sreg_store, whole / restart from the row, the floors as
+  `not_before - t`, the poster's relatch; abort_unit=loop (a unit or fixed group form started on
+  an aborted cycle) takes a setup clock off its first group request (`uearly`). The timers:
+  imm_count=start's floor (`fl`, istart + immediate bytes, + fgrp for fixed_floor) from the
+  start, disp_floor's (`dfl`, dfloor) from the displacement's take (or the slot's waiting
+  request floored at once: `floor_set`), grp_disp's `gdc` (dhold clocks from the d16 take; the
+  take sync then counts the fetch in flight only), ea_end's `eac` (a displaced memory form's EA
+  clocks: ea_ir_room, ea_b2b). The displacement's last byte (`disp`): latch_disp, the IR's
+  release on a delivery clock (`irclr`), disp_io's I/O extension. sync_req=disp: the
+  displacement waits while a fetch is past its second clock (`W:late_disp`). lookup_start: a
+  NOWAIT row a clock after a start whose clock issued a fetch counts a clock more (`st_prev`,
+  `fst`). mexec: io_take=unit and abort_unit=loop's retry_at mtail clocks before the exec's end
+  (abort_unit_end=keep: the end a clock later). The gate: dw_port=hold (a DW-form I/O request
+  queued, or in the slot with an I/O cycle on the bus), imm_start=wait (the queue's room with the
+  IR counted empty, `room_c0`). io_take=unit on a memory multiply / divide (the P take's drop,
+  and the queue's drop on the I/O's issue: `io_unit_drop` sets `abort_start`). sreg_io=hold's
+  `sreg_hold_set`.
 - **Counters and holds**: `res` (resume), `owed` (the take sync: in flight + asked, the defer,
   the lapse, sync_io, a held detached I/O's request not counted, abort_reg's early exec,
   abort_latched's aborted cycle), unit_hold (`ex_age`, `ex_par`, `hold_done`; a memory MUL imm on
@@ -270,9 +318,11 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
   select the function; the register operands (RF, RM, OPR, ACC) are read through the RAM's ports,
   which the datapath names a clock ahead: the running form's while it still reads them (its exec
   not done, a post not made, the divider's DW), else the next form's (the decode ahead). A memory
-  operand's EA: base on port B, index on port A until latched (`ea_bi`), then port A the data
-  register; the segment by the prefix (`seg_o`), SS for a BP mode, else DS0. A stack form: SP on
-  port B (written at the post: SP ∓ 2). A DW-port form: DW on port B.
+  operand's EA (`v35_ea.sv`): base on port B, index on port A until latched (`ea_bi`), then
+  port A the data register; the segment by the prefix (`seg_o`), SS for a BP mode, else DS0; the
+  direct d16 form, XLAT's BW + AL. A stack form: SP on port B (written at the post: SP ∓ 2);
+  (S4) POP r/m: SP until its stack read posts, then the EA's registers. A DW-port form: DW on
+  port B.
 - The exec: a register form's on the clock its last operand byte is taken (its start for a
   one-byte form), a memory / POP / IN / XLAT form's at its read's delivery (`rd`); a clock later
   when its operands were not on the ports (`exec_pend`). One register write per clock (a second,
@@ -284,23 +334,31 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
   the width by `wsel`, the datum by `xop` (PUSH: the source operand; PUSH PSW; OUT: AW / AL;
   a store: the source register or the immediate; an RMW: its result at the read's delivery).
   The setup, free_need (the row's x / setup − x, else the class's setup_free) and an I/O
-  request's lead are the sequencer's.
+  request's lead are the sequencer's. (S4) The running form's own request takes, as it issues,
+  the live EA (`ea_live`: pop_mem posts its write before its displacement is taken; a memory
+  word at an odd address is the atomic pair, hi then lo) and the live result (`wd_live`: an RMW's
+  result or POP r/m's datum, registered on the read's delivery clock, the post's); store_imm's
+  write (posted before its immediate is taken) has the bus take the immediate at B2
+  (`g_dsel`, `wd_imm`). An odd word's read assembles its two halves (`rd_lo`). The segment
+  registers and CW live in the register RAM's bank slots (every write through the RAM's port A,
+  the far transfer's PS included) with flop shadows for the fetch adder and the loops.
 - The function bench: `fpga/v35s/v35_rf_tb.sv` / `.cpp` / `build_rf_tb.sh` (now on `v35_fn_pkg`,
   binary `build/fpga/v35s/fn-tb/Vv35_rf_tb`) with `rtl_vectors.py --fn` (format V35FN-1: the
   `--regfile` vectors that are one function application, the expected values the functional
   reference's; the V35RF-3 line, a whole register file before and after the old package's
   `v35_execute`, does not fit a pure-function bench).
 
-## Stubbed for S4 / S5 (named inputs or not built)
+## Stubbed for S5 (named inputs or not built)
 
-- S4 (arbiter, requests): requests queued behind a detached I/O (`eu.queued`: a post into an
-  occupied slot stalls the EU here), the window FSM (`grp_io_hold`, `slot_fetch`, the nowrite
-  slot (a NOWRITE row posts a write here), `sreg_*`), the atomic odd-word pair, `disp_io` /
-  `disp_io_wait`, `imm1_first`, `alu_busy`, `dw_port`, `imm_start`, `rmw_alu=through`, the floors
-  (`disp_floor`, `imm_count=start`, `fixed_floor`), `grp_disp`, the bus cycle flags `thru,
-  after_post, lea_start, disp_in_flight, ir_before, take_near`; the loader's `ir_hold`
-  (ir_load=disp_data), `ea_end`, `lea_wait`, `fresh`; a memory form's `mexec` rules
-  (`io_take=unit` on memory, `unit_early`).
+- The request record's S5 fields: `pfree` / `pthru` / `ftail` / `run_wait` (page_mem /
+  bf_read=fixed, page_cl=thru, the bit fields' ftail, page_run), `mfrom` (mul_imm_count=sync's
+  `mul_free`: MUL imm on memory, F33), `dwlike` (str_count / burst_count / bf_count = dw: the
+  strings', PUSH R's, the bit fields' requests counted as a DW-form I/O's), `io_ext`
+  (disp_io_wait, a WP124 candidate at its default `none`), str_single_start's floor
+  (`str_floor`) and `stack_wb` (RET's): not in the record. The bus's `c_thru, c_lea_start,
+  c_take_near` (named zero inputs), `io_start_age`, `last_write_age` (no gate family reads them:
+  grp_io_hold's "requested since the last I/O's start" is the arbiter's `rq_aio` flag); the
+  loader's `lea_wait`; LDEA's `lea_io` / `lea_room` / `lea_slot`.
 - S5: the 0F page (`page_*` rules and timers, `mt_floor`, `pf_cnt`: named, not built; the loader
   decodes page 0 only, a 0F or REP prefix byte runs as trap_nop), the strings and BCD strings
   (the element loop's count `elems` is 1, `str_cond` / `bf_cross` / `bfcost` 0; QUIET waits on
@@ -321,7 +379,9 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
    start decodes the IR with the queue's head byte as its ModR/M byte and re-decodes the form
    when its ModR/M byte is taken (the template stays the start's). A form started before its
    ModR/M byte arrived runs the template of whatever byte was there (none in the gate).
-3. A pass evaluates at most three rows (T) / two after one take (P). Every gate form fits.
+3. A pass evaluates at most three rows (T) / two after one take (P). Every gate form fits ((S4) the
+   T pass's third row in a running form is needed by pop_mem: its read's delivery, its write's
+   post and its clocks row on one clock, F21 / F15 / F16).
 4. `refill_start=full_io` after the prelude's BR far is approximated as "no word in flight and
    room < 2" at the start gate, and `flush_hold=start` (branch_far.hold 16) is not built: the
    prelude's reset-vector jump only, before the pre window.
@@ -333,6 +393,65 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
    chain wrapper's init_s has it).
 8. Register writes: one a clock; a third write on one clock is dropped (`miss_o`, `+v35_diag`):
    none in the gate.
+9. (S4) **Three request positions.** The model's `eu.queued` is a list; the RTL has the slot and
+   two queued positions: a post that finds all three taken waits (`W:post`). None in the gate.
+10. (S4) **The live address and result.** The running form's own memory request takes its EA and
+   its result as it issues, from the datapath's registers (a request posted before its
+   displacement was taken, pop_mem's write; an RMW's result registered on its read's delivery
+   clock, the post's). The odd-word pair flag the S0 outputs read (`two`) is the address's as it
+   stood at the last clock's end. store_imm's write (posted before its immediate is taken) has
+   the bus take the immediate at B2: an immediate taken later than that clock would leave the
+   datum stale (data only; the cycle's timing is the model's).
+11. (S4) The P pass's environment is the T pass's where the model's retick sees a changed one: a
+   displacement taken in the P pass does not floor a waiting memory request at once
+   (`ep.memw` 0: its floor goes to the next request), dw_port's gate in P reads the positions as
+   they stood before the choice, and the request flag's re-evaluation after the P IR load
+   (ir_load=disp_data's release) reads the room after the whole P pass. sreg_io=hold's
+   `sreg_held` is set by a MOV sreg,r/m reaching the start gate while an OUT's I/O waits (the
+   model: decoded, started or held at the interlock). None changes a gate run.
+12. (S4) The plan's `alu_busy` is the record's `through` (rmw_alu=through: the RMW write's ALU
+   clocks count through a fetch); there is no separate busy signal.
+
+## Synthesis trial (S4)
+
+`efx_map` (Efinity 2026.1, Trion T120F484), one module as the top (its ports the wrapper's: every
+other net a pin), `SYNTHESIS` defined, each in a `systemd-run --user --scope -p MemoryMax=20G`
+scope (scratchpad `v2/s4/syn/build_s4_syn.sh`):
+
+| Module | LUT4 | ADD | FF | RAM_5K | MULT | map |
+| --- | --- | --- | --- | --- | --- | --- |
+| `v35_arbiter` | 1,427 | 95 | 289 | 0 | 0 | 8 s |
+| `v35_ucode` | 10,594 | 766 | 360 | 28 | 0 | 190 s |
+| `v35_eu` + `v35_ea` | 5,785 (`v35_ea` 204) | 501 | 422 | 0 | 8 | 30 s |
+| `v35_regram` | 16 | 0 | 14 | 4 | 0 | 2 s |
+| `v35_queue` | 858 | 221 | 154 | 0 | 0 | 8 s |
+| `v35_bus` | 230 | 8 | 152 | 0 | 0 | 3 s |
+| `v35_loader` | 3,469 | 67 | 54 | 20 | 0 | 50 s |
+| sum | 22,379 | 1,658 | 1,445 | 52 | 8 | |
+
+Where `v35_ucode` and `v35_eu` spend their LUTs (a reading for S7, from these runs and three
+variants of `v35_ucode` with parts cut, not a redesign):
+
+- `v35_ucode`: the P pass is about 4,300 LUT4 (10,594 → 6,289 with the pass cut), the T pass's
+  third row about 1,150 (→ 9,449; both cut: 4,906). Each `do_row` is one copy of the whole row
+  decoder, the take / post / wait logic and the pass state (`ps_t`, 348 bits: the 115-bit format
+  word and the 124-bit class constants ride along so a start can replace them mid-pass): six
+  copies (T 3, P 3), four start points (`start_ps` in s1, s3, p1, p3) each a 239-bit 2:1 mux,
+  fourteen `rowat` window muxes (64 bits, 5:1), three `tbase` template lookups (`v35_tmpl_of`'s
+  case table) and the gate twice per pass. The 11-bit counters (`res`, `hold_res`, `res_e`, the
+  `nval` sources) are most of the 766 ADD, not of the LUTs. The ROM is 28 RAM_5K (four banks of
+  7). The cheapest cuts for S7: one `do_row` instance with the pass state narrowed to the fields
+  a row reads (the format word and class constants as registered sideband, not pass state), the
+  P pass as a restricted second evaluation of that instance's outputs.
+- `v35_eu`: the exec function (`exec()`: the ALU, shifter, flags, the register-role muxes
+  `opnd` x2 over the ports, `rget` forwarding) is evaluated once per clock for `f_now`, but the
+  request builder `mkreq` is instantiated twice (T, P) with its own `opnd` / `wdatum` muxes, and
+  `v35_ea` 204. The 8 MULT: 7 for the exec's multiplies (`v35_mul` for MUL / IMUL, MUL imm), 1
+  for MUL's sign-clock product (`mneg`; 143 LUT4 with it). The divider steps one restoring
+  iteration a clock (no MULT).
+- `v35_loader` (3,469 LUT4, 20 RAM_5K): `v35_fmt_of` is evaluated six times a clock (the IR, the
+  re-decodes at a T and a P ModR/M take, the IR after L, the decode ahead) and `v35_cls_const`
+  twice: the decode tables as ROMs (RAM_5K) and their muxes.
 
 ## Synthesis trial (S3)
 
@@ -348,11 +467,12 @@ ROM's four banks 7 each, the register RAM's four halves 1 each), 8 MULT. The ban
     fpga/v35s/build_sim.sh direct v35        # build/fpga/v35s/verilator-direct-v35/Vv35s_harness
     rm -rf build/validation/v35s/chains-sim-v35
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core v35 \
-        --family F0 F0w F1 F2 F3 F9 F11 F12 F20 --jobs 8
+        --family F0 F0w F1 F2 F3 F9 F11 F12 F20 F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 --jobs 8
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core v35 --score \
-        --family F0 F0w F1 F2 F3 F9 F11 F12 F20 [--show N]
+        --family F0 F0w F1 F2 F3 F9 F11 F12 F20 F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 [--show N]
     # one chain, the RTL event trace against the frozen model from t_fill (W:dec a start that
-    # waited for its decode, W:lost a register write dropped):
+    # waited for its decode, W:lost a register write dropped; W:<reason>/<hold> the arbiter's
+    # fetch hold, e.g. /hold_fetch, /lead, /free_hold):
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains evtrace --id F1-out-m4-pO-w1 \
         --rtl F1-out-m4-pO-w1.trace --run
     # the function bench (v35_fn_pkg):
@@ -361,8 +481,9 @@ ROM's four banks 7 each, the register RAM's four halves 1 each), 8 MULT. The ban
     # lint (clean with and without V35S_CORE_V35 / SYNTHESIS):
     cd fpga/v35s/core && verilator --lint-only -Wall -DV35S_CORE_V35 -I. -Iv35 v35/v35_lint.vlt \
         v35/v35_front_pkg.sv v35/v35_pkg.sv v35/v35_fn_pkg.sv v35/v35_bus.sv v35/v35_queue.sv \
-        v35/v35_loader.sv v35/v35_arbiter.sv v35/v35_ucode.sv v35/v35_eu.sv v35/v35_regram.sv \
-        v35/v35_trace.sv v35_sfr.sv v35_refresh.sv v35/v35_top.sv --top-module v35_top
+        v35/v35_loader.sv v35/v35_arbiter.sv v35/v35_ucode.sv v35/v35_ea.sv v35/v35_eu.sv \
+        v35/v35_regram.sv v35/v35_trace.sv v35_sfr.sv v35_refresh.sv v35/v35_top.sv \
+        --top-module v35_top
 
 `--diag` on replay passes `+v35_diag` (a bus start on a busy bus, a queue overflow, a lost
 register write). `+v35_dbg=FILE` writes the sequencer's state per clock (bring-up only,

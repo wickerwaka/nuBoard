@@ -23,7 +23,7 @@
   localparam int V35_EA_BASE_INDEX_DISP = 2;  // EA table: base_index_disp
   localparam int V35_EA_DIRECT = 0;  // EA table: direct
   localparam int V35_EA_BASE_INDEX_DISP16 = 3;  // EA table: base_index_disp16
-  localparam int V35_N_ROWS = 1133;  // microcode rows
+  localparam int V35_N_ROWS = 1140;  // microcode rows
   localparam int V35_N_TMPL = 231;  // templates
   localparam int V35_N_CLS = 84;  // classes (0: trap_nop)
   localparam int V35_ROW_BITS = 64;  // uc_row_t width

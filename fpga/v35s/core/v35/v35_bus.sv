@@ -17,12 +17,18 @@
 // are S4 and are written at the edge.
 //
 // Registered state (widths) and the model variables it replaces:
-//   c_valid 1, c_kind 3, c_pos 3, c_len 3, c_addr 20, c_width 2, c_data 16, c_internal 1,
+//   c_valid 1, c_kind 3, c_pos 3, c_len 3, c_addr 20, c_width 2, c_data 16, c_dsel 2 (S4: the
+//   datum at B2), c_internal 1,
 //   c_ext 1                                  bus.current (kind, t - start, length, ...)
 //   c_b2b 1, c_commit 1, c_on_start 1, c_run 1  Cycle.b2b / .commit; cur.start == start_clock
 //                                            (eu.py io_exec); _fetch_run (arbiter.py:458)
-//   (c_thru, c_after_post, c_lea_start, c_disp_in_flight, c_ir_before, c_take_near: S4/S5,
-//    named zero inputs on the grant port, not built)
+//   c_after_post 1, c_disp_in_flight 1, c_ir_before 1   (S4) Cycle flags set at a fetch's
+//                                            start: a memory request waited in the slot (x.start >
+//                                            pfree, eu.py:1794), a displacement taken while it was
+//                                            in flight (queue._disp_in_flight), the IR held an
+//                                            opcode (queue._page_b2b's ir_t <= bus_start); read by
+//                                            S5's page rules
+//   (c_thru, c_lea_start, c_take_near: S5, named zero inputs on the grant port)
 //   dlv_v 1, dlv_kind 3, dlv_addr 20, dlv_width 2, done_data 16
 //                                            the cycle that ended on t-1 (bus.completed), its
 //                                            read datum (latched mid-B3)
@@ -59,6 +65,10 @@ module v35_bus
     input  wire        g_ir_before,
     input  wire        g_take_near,
     input  wire        g_abort,     // the aborted fetch cycle starts (abort_fetch=retry)
+    input  wire        g_slot,      // the left-out write's slot (slot_latch: the data latch)
+    input  wire [1:0]  g_dsel,      // (S4) the write datum taken at B2 (store_imm's immediate)
+    input  wire [15:0] wd_imm,      // ... the EU's immediate on that clock
+    input  wire        disp_take,   // a displacement taken on this clock (c_disp_in_flight)
     // S5: the clock's instruction starts (an I/O issue clock's second pass included)
     input  wire        start_any,
     // the data latch's fills on this clock other than a write's issue (S2/S5: a register
@@ -126,10 +136,14 @@ module v35_bus
     reg  [19:0] c_addr = 20'd0;
     reg  [1:0]  c_width = BW_WORD;
     reg  [15:0] c_data = 16'd0;
+    reg  [1:0]  c_dsel = 2'd0;
     reg         c_b2b = 1'b0;
     reg         c_commit = 1'b0;
     reg         c_on_start = 1'b0;
     reg         c_run = 1'b0;
+    reg         c_after_post = 1'b0;
+    reg         c_disp_in_flight = 1'b0;
+    reg         c_ir_before = 1'b0;
     reg         gap = 1'b0;
     reg  [3:0]  f_since = 4'd9;     // last_fetch_end = -10: at the end of clock -1, 9
     reg  [1:0]  io_tail = 2'd0;
@@ -170,7 +184,7 @@ module v35_bus
     // issue (eu.issue), a register form's last operand byte (wl_fill)
     wire [2:0] wl_now = wl == 3'd0 ? 3'd0 : wl - 3'd1;
     wire fill_c = d_v && (d_kind == K_READ || d_kind == K_IO_READ);
-    wire fill_x = (g_start && g_kind == K_WRITE) || wl_fill_t;
+    wire fill_x = (g_start && g_kind == K_WRITE) || wl_fill_t || g_slot;
     wire [2:0] wl_fill_v = wl_now > 3'(FIT_WLATCH) ? wl_now : 3'(FIT_WLATCH);
     wire [2:0] wl_c = fill_c ? wl_fill_v : wl_now;
     wire [2:0] wl_x = (fill_c || fill_x) ? wl_fill_v : wl_now;
@@ -229,10 +243,14 @@ module v35_bus
                 c_addr <= g_addr;
                 c_width <= g_width;
                 c_data <= g_data;
+                c_dsel <= g_dsel;
                 c_b2b <= g_b2b;
                 c_commit <= g_b2b;
                 c_on_start <= start_any;
                 c_run <= fetch_x && fetch_end_prev;
+                c_after_post <= fetch_x && g_after_post;
+                c_ir_before <= fetch_x && g_ir_before;
+                c_disp_in_flight <= 1'b0;
                 gap <= g_ext || FIT_MIN_GAP != 0;
             end else begin
                 if (busy)
@@ -243,11 +261,13 @@ module v35_bus
                     gap <= 1'b0;
                 if (start_any)
                     c_on_start <= 1'b0;     // another instruction started: not its start clock
+                if (busy && c_kind == K_FETCH && disp_take)
+                    c_disp_in_flight <= 1'b1;
             end
             if (g_start && k_io(g_kind))
                 io_tail <= 2'(FIT_IO_RECOVER);
-            else if (!(busy && k_io(c_kind)) && io_tail != 2'd0)
-                io_tail <= io_tail - 2'd1;
+            else if (!(busy && k_io(c_kind)) && !(gap && c_ext) && io_tail != 2'd0)
+                io_tail <= io_tail - 2'd1;      // (disp_io=extend: from the clock after its last)
             if (g_abort) begin
                 ab_v <= 1'b1;
                 ab_pos <= 2'd0;
@@ -318,7 +338,9 @@ module v35_bus
                 mux_address <= {n_addr[9], n_addr[8:1]};
                 a18_ube <= n_width == BW_LO;
                 if (n_write)
-                    data_out <= n_data;
+                    data_out <= (g_start || c_dsel == 2'd0) ? n_data
+                              : c_dsel == 2'd1 ? wd_imm
+                              : c_dsel == 2'd2 ? {wd_imm[7:0], 8'd0} : {8'd0, wd_imm[15:8]};
             end
         end else if (ce_mid && pins) begin
             if (c_pos == 3'd0) begin
@@ -346,6 +368,7 @@ module v35_bus
             done_data <= data_in;
     end
 
-    wire unused = &{1'b0, c_ext, c_b2b, c_commit, g_thru, g_after_post, g_lea_start,
-                    g_disp_in_flight, g_ir_before, g_take_near, wtc[13:2], rfm[7:4], rfm[1:0]};
+    wire unused = &{1'b0, c_b2b, c_commit, g_thru, g_lea_start, g_disp_in_flight,
+                    g_take_near, c_after_post, c_disp_in_flight, c_ir_before, wtc[13:2],
+                    rfm[7:4], rfm[1:0]};
 endmodule

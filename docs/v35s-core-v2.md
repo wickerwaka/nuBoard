@@ -678,3 +678,30 @@ Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, e
   gate); segment registers and CW as flops rather than RAM entries (to be stored through to the bank as
   well: S4); one write per clock. Risk noted for S7: the three modules alone exceed the whole-core LUT and
   BRAM targets; S4's module check reports ucode, eu and arbiter separately.
+- 2026-11-02, **S4 landed**: the full request path in `v35_arbiter` (the slot and two queued positions
+  shifting as registers for `eu.queued`; the record fields fit 62 reads, `ready && !ready_prev` for
+  `ready_since`; the setup counting, `free_run` / `free_hold`, `grp_io_hold` from an `rq_aio` order flag,
+  `slot_fetch`, `hold_fetch` in full, `io_recover`, port_latch's `not_before`, the `dw_port` hold, the
+  nowrite slot, `dw_count`; one priority tree in S4), the bus cycle flags `after_post` / `disp_in_flight` /
+  `ir_before`, `v35_ea` (mode decode, base/index from the RAM ports, the segment select) split out of
+  `v35_eu`, the memory-form rows with the floors as countdowns, `rmw_alu=through` (a `dclk` class-table
+  column; the class table is 124 bits), `mexec` / `unit_early`, the loader's `ir_hold`; segment registers
+  and CW stored through to the register RAM with flop shadows. Generator: a trailing `("clocks", 0)` after
+  a sync take is a NOP row the canonical form had dropped (F19 adddwi_nop started its successor four clocks
+  early): 1,140 rows, inverse check equal. Seven bring-up mechanisms closed (the queued request; POP r/m
+  aiming SP until its stack post; a PORT take's own I/O setting `own_v`; a third T-pass row inside a running
+  form for pop_mem's delivery + post + clocks on one clock; a per-pass `pnew` for OWN_DONE; memory MUL's
+  sign clocks from the delivered datum; the NOP row). **Gate: all 20 families RTL = model on 16,670 runs
+  (F0–F22 without the refresh-on lists): RTL-exact = model-exact everywhere, F22 1,314/1,320 sharing the
+  model's six, pre-window exact throughout; the e22ec6f baseline had 3,969 misses.** Lint `-Wall` clean in
+  four configurations; function bench 9,527 vectors 0 bad; the nine offline modules unchanged. Divergences
+  9–12 (README): three request positions (a fourth post waits: none in the gate); the running form's own
+  request takes its EA / result live at issue and store_imm's immediate at B2; the P pass reads the T pass's
+  environment where the model's retick would see a changed one; `alu_busy` is the record's `through`.
+  Per-module `efx_map` (LUT4 / FF / RAM_5K / MULT): arbiter 1,427 / 289 / 0 / 0; ucode 10,594 / 360 / 28 /
+  0; eu + ea 5,785 / 422 / 0 / 8; regram 16 / 14 / 4 / 0; queue 858 / 154 / 0 / 0; bus 230 / 152 / 0 / 0;
+  loader 3,469 / 54 / 20 / 0; sum 22,379 LUT4, about 2.5× the S7 target. The LUT reading for S7: ucode's P
+  pass ≈ 4,300 and the third T row ≈ 1,150 because each `do_row` copy carries the 348-bit pass state (six
+  copies); eu's `mkreq` is instantiated twice; the loader evaluates `v35_fmt_of` six times a clock. S7's
+  cuts: one `do_row` with the format word and class constants as registered sideband and P as a restricted
+  re-evaluation; one `mkreq`; one decode lookup.
