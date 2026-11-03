@@ -127,7 +127,22 @@ module v35_loader
     assign ir_v_c = ir_v;
     assign ir_c = ir;
     assign ir_addr_c = ir_addr;
-    assign fmt_c = v35_fmt_of(ir, 2'd0, vb0);
+    // (S5a) a REP prefix (escape 2) in the IR: the form is the string opcode behind it (page 2,
+    // the opcode the next byte), its repc the prefix's
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic v35_fmt_t dec(input logic [7:0] o, input logic [7:0] nxt);
+        v35_dec_t d;
+        logic rp;
+        v35_fmt_t f;
+        d = v35_dec_native(o);
+        rp = d.esc == 2'd2;
+        f = v35_fmt_of(rp ? nxt : o, rp ? 2'd2 : 2'd0, rp ? 8'h00 : nxt);
+        if (rp)
+            f.repc = d.repc;
+        return f;
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    assign fmt_c = dec(ir, vb0);
     assign need_c = need;
     v35_cls_t c_cls;
     assign c_cls = v35_cls_const(fmt_c.cls);
@@ -149,7 +164,7 @@ module v35_loader
     wire [2:0] nx_s = t_start ? c_cls.nx : nx;
     wire       mn_s = t_start ? fmt_c.has_modrm : modrm_next;
     wire       ma_s = t_start ? 1'b0 : mate_arm;
-    wire       ir_s = t_start ? 1'b0 : ir_v;
+    wire       ir_s = (t_start || t_flush) ? 1'b0 : ir_v;    // (S5a) a flush empties the IR
     wire [7:0] op_s = t_start ? ir : opc;
     wire       ra_ld_s = t_start;
     wire [4:0] ra_v_s = (fmt_c.len == 3'd1) ? c_cls.nx0 : 5'd0;
@@ -192,7 +207,7 @@ module v35_loader
     assign ir_v_l = ir_s || l_pop;
     // the IR's ModR/M byte: the byte after it
     wire [2:0] pos_p = k_t + (l_pop ? 3'd1 : 3'd0);
-    assign fmt_l = v35_fmt_of(ir_l_w, 2'd0, vb(pos_p));
+    assign fmt_l = dec(ir_l_w, vb(pos_p));
     v35_cls_t l_cls;
     assign l_cls = v35_cls_const(fmt_l.cls);
     assign cls_l = l_cls;
@@ -248,7 +263,7 @@ module v35_loader
     assign nf_v = irv_e || h0;
     assign nf_op = irv_e ? ir_e : vb(pops);
     assign nf_addr = irv_e ? ira_e : head_addr + 20'(pops);
-    assign nf_fmt = v35_fmt_of(nf_op, 2'd0, irv_e ? (h0 ? vb(pops) : 8'h00)
+    assign nf_fmt = dec(nf_op, irv_e ? (h0 ? vb(pops) : 8'h00)
                                                   : (h1 ? vb(pops + 3'd1) : 8'h00));
 
     // ------------------------------------------------------------ S6: next state

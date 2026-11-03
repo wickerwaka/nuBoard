@@ -33,11 +33,11 @@
 //
 // Registered state (widths) and the model variables it replaces, per position (slot, q0, q1;
 // arbiter.Request; `posted` survives only as the order flags and the moved bits):
-//   v 1, d (req_t: kind 3, nowrite 1, addr 20, width 2, data 16, setup 7, fn_v 1, fn 3,
+//   v 1, d (req_t: kind 3, nowrite 1, addr 20, width 2, data 16, setup 7, fn_v 1, fn 7,
 //   lead 2, port 1, detached 1, grp 1, through 7, imm1 1, gdisp 1, sreg 1, whole 1, restart 1,
 //   nb 4, rl 2, alive 1, aoff 3, dlive 1)           cycles[0], the EU's descriptor as posted
 //   count 7                                         count
-//   fn_v 1, fn 3, fo 3                              free_need (None: fn_v 0), free_orig
+//   fn_v 1, fn 7, fo 7                              free_need (None: fn_v 0), free_orig
 //   iss 1, h2 1                                     issued (non-empty), the odd pair's second
 //                                                   half issued (atomic: it goes next)
 //   two 1                                           ... the request is such a pair (as its
@@ -104,10 +104,13 @@ module v35_arbiter
     input  wire        lat_x,
     input  wire        arrived_now,
     input  wire        io_hold_x,
+    input  wire        xfer_x,          // (S5a) the running form is a transfer class (xfer_abort)
     // the bus (S0)
     input  wire        free,
     input  wire        busy,
     input  wire        cur_io,          // an I/O cycle runs on t
+    input  wire [2:0]  cur_kind,        // (S5a) the cycle that runs on t
+    input  wire        mf_old,          // (S5a) ... a fetch issued before mul_from (the sequencer's)
     input  wire        fetch_inflight,
     input  wire        in_wait,
     input  wire        fetch_end_prev,
@@ -127,6 +130,8 @@ module v35_arbiter
     output wire        g_eu,            // an EU cycle issued
     output wire        g_slot,          // the left-out write's slot ran (slot_latch)
     output wire        g_slot_fetch,    // ... with a fetch in it (queue.slot_fetch)
+    output wire        g_wl_io,         // (S5a) a string form's I/O write issued (its datum latched)
+    output wire        own_h2,          // (S5a) the own request's odd pair's second half issued
     output wire        g_abort,
     output wire        g_abort_lat,     // ... answered for the latched byte (abort_latched)
     output wire        g_mem_waiting,
@@ -165,8 +170,8 @@ module v35_arbiter
         req_t        d;
         logic [6:0]  count;
         logic        fn_v;
-        logic [2:0]  fn;
-        logic [2:0]  fo;
+        logic [6:0]  fn;
+        logic [6:0]  fo;
         logic        iss;
         logic        h2;
         logic        two;
@@ -206,8 +211,10 @@ module v35_arbiter
         r.d = q;
         r.fn_v = q.fn_v;
         r.fn = q.fn;
-        r.fo = !q.fn_v ? 3'd0 : (7'(q.fn) < q.setup ? q.fn : 3'(q.setup));
+        r.fo = !q.fn_v ? 7'd0 : (q.fn < q.setup ? q.fn : q.setup);
         r.nb = q.nb;
+        r.fhold = q.fhd;                // (S5a) str_single_start=write's floor holds fetches
+        r.count = 7'(q.c0);             // (S5a) mul_imm_count=sync: the clean clocks back to mul_from
         r.rq_le = 1'b1;                 // requested_at <= posted (valid while it is set)
         r.rq_lt = rq_old_c;             // ... < posted: raised before the post's clock
         return r;
@@ -321,9 +328,16 @@ module v35_arbiter
     // on an idle bus
     wire counts_grp = !io_win && (b0.d.gdisp || !busy || b0.count < free_lo);
     wire counts_mem = !fetch_inflight || b0.count < thru_lo;
-    wire counts = s_io ? !in_wait : (b0.d.grp ? counts_grp : counts_mem);
-    wire cnt_inc = !halting && pending && b0.count < b0.d.setup && counts;
-    wire [6:0] count_x = b0.count + (cnt_inc ? 7'd1 : 7'd0);
+    // (S5a) io_count=nowait: an I/O request's, and a dwlike one's (str_count / burst_count =
+    // dw), every clock not a wait state
+    // (S5a) mul_imm_count=sync (Request.mul_free): a cycle that is not a fetch, or a fetch
+    // issued before mul_from, restarts the count
+    wire mf_blk = b0.d.mfr && busy && (cur_kind != K_FETCH || mf_old);
+    wire counts = b0.d.mfr ? !mf_blk
+                : b0.d.nwt ? !in_wait : (b0.d.grp ? counts_grp : counts_mem);
+    wire [6:0] count_b = (pending && mf_blk) ? 7'd0 : b0.count;
+    wire cnt_inc = !halting && pending && count_b < b0.d.setup && counts;
+    wire [6:0] count_x = count_b + (cnt_inc ? 7'd1 : 7'd0);
     wire ready_x = count_x >= b0.d.setup;
     wire holding_x = {1'b0, count_x} < {1'b0, b0.d.setup} - 8'(b0.d.lead);
 
@@ -337,12 +351,12 @@ module v35_arbiter
     wire frun = free_run && fw0;
     wire [6:0] fr_lo = b0.d.setup - 7'(b0.fn);
     wire [6:0] count_r = (frun && b0.d.restart && count_x > fr_lo) ? fr_lo : count_x;
-    wire [2:0] fn_r = (frun && !b0.d.restart) ? 3'd0 : b0.fn;
+    wire [6:0] fn_r = (frun && !b0.d.restart) ? 7'd0 : b0.fn;
     // free_hold=delivery
     wire fh_cand = pending && fw0 && !s_io;
     wire fh_date = fh_cand && b0.fhp;
-    wire [2:0] fn_h = (fh_date && fn_r != 3'd0) ? 3'd0 : fn_r;
-    wire fh_hold = fh_cand && !b0.fhp && fn_r != 3'd0 && b0.fn_v
+    wire [6:0] fn_h = (fh_date && fn_r != 7'd0) ? 7'd0 : fn_r;
+    wire fh_hold = fh_cand && !b0.fhp && fn_r != 7'd0 && b0.fn_v
                    && count_r == b0.d.setup - 7'(fn_r) && fetch_end_prev && rq_now_x && !b2b_now
                    && !fetch_run_prev;
     wire fw1 = fw0 && !fh_hold;
@@ -362,10 +376,10 @@ module v35_arbiter
     wire rq_lt_x = b0.rq_lt && !rq_now;
     // slot_fetch=slot: a request moved into the slot when the I/O ahead issued holds a fetch
     // requested before that until its fetch-free clocks start, then counts through it
-    wire sf_cand = pending && b0.moved && fw2 && b0.fn_v && fn_h != 3'd0 && !b0.d.grp && !ready_x
+    wire sf_cand = pending && b0.moved && fw2 && b0.fn_v && fn_h != 7'd0 && !b0.d.grp && !ready_x
                    && rq_v_a && rq_lt_x;
     wire sf_hold = sf_cand && count_r <= b0.d.setup - 7'(fn_h);
-    wire [2:0] fn_s = (sf_cand && !sf_hold) ? 3'd0 : fn_h;
+    wire [6:0] fn_s = (sf_cand && !sf_hold) ? 7'd0 : fn_h;
     wire fw3 = fw2 && !sf_hold;
     // grp_disp=hold: no fetch on the group RMW form's displacement take clock or the grp_free
     // clocks after it (one committed back to back goes; on the take clock itself one with room
@@ -431,7 +445,9 @@ module v35_arbiter
     wire sl_fetch = nw_go && (fetch_want || (!inflight_c && !halted && room_sl >= 5'sd2));
     wire latched_abort = !fetch_want && triple_x && lat_x && !arrived_now && !inflight_c
                          && room_x + 5'sd1 == 5'sd2 && !halted;
-    wire abort_go = free && !take_slot && ((fetch_want && triple_x && room_x == 5'sd2)
+    // (xfer_abort=word: a transfer's start, displacement take and IR load see 2 or 3 bytes)
+    wire abort_go = free && !take_slot && ((fetch_want && triple_x
+                                            && (room_x == 5'sd2 || (xfer_x && room_x == 5'sd3)))
                                            || latched_abort);
     wire fetch_go = free && !take_slot && !abort_go && fetch_want;
     // the grant
@@ -442,6 +458,7 @@ module v35_arbiter
     assign g_eu = eu_go;
     assign g_slot = nw_go;
     assign g_slot_fetch = sl_fetch;
+    assign g_wl_io = eu_go && b0.d.strc && b0.d.kind == K_IO_WRITE;
     assign g_fetch = fetch_go || sl_fetch;
     assign g_abort = abort_go;
     assign g_abort_lat = abort_go && latched_abort;
@@ -465,11 +482,12 @@ module v35_arbiter
     // free_idle (free_idle_b2b): the request's fetch-free clock taken by a run's delivery-clock
     // fetch (or a b2b one): an idle clock after it, the request no earlier than the next
     wire fresh = rq_now && fetch_end_prev;
-    wire free_idle = fetch_go && mem_wait && b0.fo != 3'd0 && !b0.fhp
+    wire free_idle = fetch_go && mem_wait && b0.fo != 7'd0 && !b0.fhp
                      && count_r == b0.d.setup - 7'(b0.fo) && ((fresh && fetch_run_prev) || b2b_now);
     // dw_count=bus, dw_count_b2b: a DW-form I/O request's clock taken by a cycle starting
-    wire dw1 = fetch_go && pn && s_io && !b0.d.port && count_r != 7'd0;
-    wire dw2 = fetch_go && !pn && s_io && !b0.d.port && pending && cnt_inc && b2b_now && !b0.dwm;
+    wire s_dw = s_io || b0.d.dwl;
+    wire dw1 = fetch_go && pn && s_dw && !b0.d.port && count_r != 7'd0;
+    wire dw2 = fetch_go && !pn && s_dw && !b0.d.port && pending && cnt_inc && b2b_now && !b0.dwm;
     wire [6:0] count_e = count_r - ((dw1 || dw2) ? 7'd1 : 7'd0);
     assign count_o = count_x;
     assign ready_o = ready_x;
@@ -497,10 +515,10 @@ module v35_arbiter
         p = r;
         p.moved = !f_io(r);
         p.dwm = f_io(r) && !r.d.port;
-        c = f_io(r) ? !in_wait : !r.d.grp;
+        c = r.d.nwt ? !in_wait : !r.d.grp;
         if (!halting && r.count < r.d.setup && c)
             p.count = r.count + 7'd1;
-        if (f_io(r) && !r.d.port && p.count != 7'd0)
+        if ((f_io(r) || r.d.dwl) && !r.d.port && p.count != 7'd0)
             p.count = p.count - 7'd1;
         p.rq_le = rq_v_x;
         p.rq_lt = rq_v_x && !rq_now_x;
@@ -570,6 +588,7 @@ module v35_arbiter
                                || (r0.nwd && r0.dn == 3'd0));
     assign own_done_p = own_io_go;
     assign own_two = r0.two;
+    assign own_h2 = eu_go && second && own0;
     assign own_pos = own;
     assign slot_wait_p = c0.v && (!c0.iss || (f_two(c0) && !c0.h2)) && !c0.nwd;
     wire   c_det_wait = c0.v && c0.d.detached && !c0.iss;

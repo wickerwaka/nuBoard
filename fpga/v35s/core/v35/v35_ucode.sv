@@ -64,8 +64,9 @@
 //   nw_v 1, nw 4                            eu.left_nw (NOWAIT)
 //   first_clk 1, lx 1                       the counting clocks are row 0's (latch_start,
 //                                           one_idle); long_exec's wait-clock count (rot4_from)
-//   elem 16, ltop 11                        the element loop (S5's strings and BCD): the
-//                                           element index, the body's first row
+//   elem 2, ltop 11                         the element loop (the strings, the BCD strings): the
+//                                           element index (0, 1, more: the STR count source),
+//                                           the body's first row
 //   fmt 115, cc 122, op 8                   the running form's format, class constants
 //                                           (v35_cls_t) and opcode byte
 //   shift_held_r 1                          eu.shift_latched (count_latch)
@@ -78,7 +79,32 @@
 //   eac 3                                   decoder.ea_end - t (ea_ir_room, ea_b2b)
 //   st_prev 1, fst 1                        t == start_clock + 1, fetch_start == start_clock
 //                                           (lookup_start)
-//   (mt_floor, page_mt*, pf_cnt: the 0F page's timers, S5; named here, not built)
+//   (S5a) tkn 1, zf 1, oddpc 1             the started form's op.target is set, op.zfail, its
+//                                           opcode's parity (xfer_odd, xfer_nt)
+//   ont 1                                   xfer_nt: odd_until not yet set by its clocks
+//   dab 1, dabs 4                           decide_abort=cycle: queue.abort_t >= start_clock, the
+//                                           clocks since that cycle's last (sat)
+//   lxt 1, scond 1                          the element loop exited (the reads after: the
+//                                           overrun), on the compare's condition (op.cond)
+//   sfl_v 1, sfl 4                          str_single_start=write: str_floor - t (until the
+//                                           first request posts)
+//   ls2 1, sfage 4                          str_split: last_issued was an odd word's pair, the
+//                                           clocks since its second half issued (sat)
+//   single 1                                eu.str_single (the running or last form)
+//   nwf 1, nwu 1                            str_io_setup=run: the fetch issued on the nowait
+//                                           row's first clock back to back (nw_t), nw_run
+//   tha 1, thd 1, cva 1                     the take hold: queue.take_hold is set, hold_dlv,
+//                                           cvt_armed
+//   sage 4                                  t - start_clock (sat; cvt_from=start)
+//   r4 1                                    rot4_exec: rot4_from is set (ROL4 / ROR4 r)
+//   lrc 4                                   lea_room: queue.lea_ea's end - t
+//   lsp 1                                   lea_disp=run: eu.lea_split
+//   lw_v 1, lw_rel 4, lw_fwb 3, lwc 3       lea_wb=fetch: lea_fend's fetch (its last clock - t,
+//                                           lea's fwb), the next form's wb_until - t
+//   mfw_v 1, mfw 4, mf_on 1, mf_cnt 4, mf_o 1   mul_imm_count=sync: mul_from - t, t > mul_from,
+//                                           the clean clocks back from t-1 (the back-count),
+//                                           the fetch on the bus older than mul_from
+//   (mt_floor, page_mt*, pf_cnt: the 0F page's timers, S5b; named here, not built)
 module v35_ucode
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -131,6 +157,17 @@ module v35_ucode
     input  wire signed [4:0] room_e,    // the room at the clock's end (one_idle)
     input  wire signed [4:0] room_c0,   // room_c with the IR counted empty (imm_start)
     input  wire        fetch_end_prev,  // last_fetch_end == t-1 (imm_start)
+    input  wire        want_c,          // (S5a) wants_fetch(t) before T (refill_start)
+    input  wire        head_odd,        // (S5a) the queue's head byte is at an odd address
+    input  wire        own_two,         // (S5a) the own request is an odd word's pair ...
+    input  wire        own_h2,          //   ... whose second half issued now (str_split)
+    input  wire        w3_v,            // (S5a) the bus's last memory write (str_single_start)
+    input  wire signed [4:0] w3_rel,
+    input  wire        fetch_last_c,    // (S5a) a fetch's last clock is t
+    input  wire        dec_inf,         // (S5a) the decide row's fetch (queue)
+    input  wire [3:0]  dec_since,
+    input  wire        abort_done,      // (S5a) the aborted cycle ended on t-1 (decide_abort)
+    input  wire [2:0]  fetch_len,       // (S5a) bus.length("fetch") (refill_start=full_io)
     input  wire        io_unit_drop,    // io_take=unit: the request dropped on the I/O's issue
     // the decode ahead (S6): the next clock's IR (or head byte) and its format
     input  wire        nf_v,
@@ -173,19 +210,62 @@ module v35_ucode
     input  wire [8:0]  cnt,             // the shift count (CNT rows)
     input  wire [7:0]  cl_c,            // CL now (a shift by CL's cnt0)
     input  wire [7:0]  cl_e,            // CL after this clock (the decode ahead's cnt0)
+    input  wire [15:0] psw_c,           // (S5a) the PSW and CW now, after this clock: the
+    input  wire [15:0] psw_e,           //   transfers' and REP strings' start-time bits
+    input  wire [15:0] cw_c,
+    input  wire [15:0] cw_e,
     input  wire [3:0]  mneg,            // MUL's sign clocks (UNIT rows)
-    input  wire [15:0] elems,           // (S5) the element loop's count
-    input  wire        str_cond,        // (S5) the compare ended on its condition
+    input  wire        str_last,        // (S5a) the REP loop's last element by count (CW = 1)
+    input  wire        str_exit,        // (S5a) the compare ends the REP loop on its condition now
     input  wire        bf_cross,        // (S5) the bit field crosses a word
     input  wire [9:0]  bfcost,          // (S5) the bit field's cost
 
+    // (S5a) the strings: an element's last row done (CW), a post after the loop (overrun)
+    output wire        edone,
+    output wire        povr_t,
+    output wire        povr_p,
+    // (S5a) the transfers' holds (the queue's)
+    output wire [2:0]  xk_c,
+    output wire [2:0]  xk_t,
+    output wire [2:0]  xk_p,
+    output wire        mf_old,          // (S5a) mul_imm_count=sync: the fetch on the bus is older
+    output wire        th_arm_t,        // (S5a) the take hold armed (T, P) ...
+    output wire        th_arm_p,
+    output wire        th_cvt,          //   ... cvt_hold's
+    output wire        th_lift_t,       //   ... lifted or cancelled (T, P)
+    output wire        th_lift_p,
+    output wire        lea_xk_c,
+    output wire        lea_xk_t,
+    output wire        lea_xk_p,
+    output wire        xs_start,
+    output wire        fh_set,
+    output wire [4:0]  fh_n,
+    output wire        ox_set,
+    output wire        nt_set,
+    output wire        nt_dbnz,
+    output wire        ou_set,
+    output wire [2:0]  ou_n,
+    output wire        xs_done,
+    output wire        ff_set,
+    output wire [2:0]  ff_n,
+    output wire        ff_t,
+    output wire        ff_t0,
+    output wire        ntb_ok,
+    output wire        xfer_x,
     // S2 outputs
     output wire        t_start,
     output wire [1:0]  t_k,
     output wire        t_done,
     output wire        t_flush,
     output wire        t_halt,
-    output wire [2:0]  t_fhold,         // fetch_hold n (arm HOLD): no request for n clocks
+    output wire        t_sth,           // (S5a) str_held set (arms HOLD, REL, REL_FOREVER): T ...
+    output wire        t_sth_inf,       //   ... for ever (fetch_release None)
+    output wire [5:0]  t_sth_n,         //   ... no request for n clocks from now
+    output wire        p_sth,           //   ... by the P pass (from the next clock)
+    output wire        p_sth_inf,
+    output wire [5:0]  p_sth_n,
+    output wire        rs_set,          // (S5a) str_raise = t + rs_n (REL_RAISE)
+    output wire [3:0]  rs_n,
     output wire        ask_d,
     output wire        ask_t,
     output wire        cnt_take,        // count_latch: a shift's count byte take ends now
@@ -230,7 +310,7 @@ module v35_ucode
     output uc_row_t    prow_t,
     output wire [6:0]  psetup_t,
     output wire        pfnv_t,          // ... its free_need (none: every setup clock free)
-    output wire [2:0]  pfn_t,
+    output wire [6:0]  pfn_t,
     output wire [1:0]  plead_t,         // ... an I/O request's lead
     output req_t       ptm_t,           // ... its window fields (through, imm1, gdisp, sreg,
     output req_t       ptm_p,           //     whole, restart, the floors as nb, rl)
@@ -238,7 +318,7 @@ module v35_ucode
     output uc_row_t    prow_p,
     output wire [6:0]  psetup_p,
     output wire        pfnv_p,
-    output wire [2:0]  pfn_p,
+    output wire [6:0]  pfn_p,
     output wire [1:0]  plead_p,
     // S5 outputs
     output wire        p_start,
@@ -259,7 +339,8 @@ module v35_ucode
     // the trace
     output wire [4:0]  wait_o,
     output wire [10:0] res_o,
-    output wire        dec_miss         // a start waited for its decode (W_DEC)
+    output wire        dec_miss,        // a start waited for its decode (W_DEC)
+    output wire        p_flush          // (S5a) a FLUSH row reached in the P pass (not acted on)
 );
     // ------------------------------------------------------------ the ROM: four banks
     localparam int NB = (V35_N_ROWS + 3) / 4;
@@ -309,7 +390,33 @@ module v35_ucode
     reg [3:0]  nw = 4'd0;
     reg        first_clk = 1'b0;
     reg        lx = 1'b0;
-    reg [15:0] elem = 16'd0;
+    reg        r4 = 1'b0;              // (S5a) rot4_exec=wait: the exec clocks of ROL4 / ROR4 r run
+    reg [1:0]  elem = 2'd0;
+    reg        lxt = 1'b0;              // (S5a) the element loop exited (a later read: overrun)
+    reg        scond = 1'b0;            // (S5a) ... on the compare's condition
+    reg        sfl_v = 1'b0;            // (S5a) str_single_start=write: the floor is set ...
+    reg [3:0]  sfl = 4'd0;              //   ... not_before - t
+    reg        ls2 = 1'b0;              // (S5a) str_split: the last data step was a pair ...
+    reg [3:0]  sfage = 4'd0;            //   ... clocks since the own pair's second half issued
+    reg        single = 1'b0;           // (S5a) the running (last) form is an unprefixed string
+    reg        tha = 1'b0;              // (S5a) a take hold armed (bf_imm_hold, cvt_hold) ...
+    reg        thd = 1'b0;              //   ... dlv, its take still ahead
+    reg        cva = 1'b0;              //   ... cvt_armed
+    reg [3:0]  sage = 4'd0;             // (S5a) t - start_clock (sat; cvt_from=start)
+    reg        nwf = 1'b0;              // (S5a) str_io_setup=run: the nowait row's run fetch ...
+    reg        nwu = 1'b0;              //   ... its wait clock counted
+    reg [3:0]  lrc = 4'd0;              // (S5a) lea_room: LDEA's EA clocks left (queue.lea_ea)
+    reg        lw_v = 1'b0;             // (S5a) lea_wb=fetch: an LDEA started on a fetch's issue
+    reg signed [3:0] lw_rel = 4'sd0;    //   clock: that fetch's last clock - t, its class's fwb
+    reg [2:0]  lw_fwb = 3'd0;
+    reg [2:0]  lwc = 3'd0;              //   ... the next form's write-back wait (wb_until - t)
+    // (S5a) mul_imm_count=sync: MUL imm memory: mul_from = start + 1 + its EA clocks
+    reg        mfw_v = 1'b0;            // mul_from ahead ...
+    reg [3:0]  mfw = 4'd0;              //   ... mul_from - t
+    reg        mf_on = 1'b0;            // t > mul_from (the count runs)
+    reg [3:0]  mf_cnt = 4'd0;           // the clean clocks back from t-1 to mul_from (sat)
+    reg        mf_o = 1'b0;             // the fetch on the bus was issued before mul_from
+    reg        lsp = 1'b0;              // (S5a) lea_disp=run: the last LDEA's d16 split (eu.lea_split)
     reg [10:0] ltop = 11'd0;
     v35_fmt_t  fmt = '0;
     v35_cls_t  cc = '0;                 // the running form's class constants
@@ -327,6 +434,13 @@ module v35_ucode
     reg [2:0]  eac = 3'd0;              // ea_ir_room / ea_b2b: ea_end - t
     reg        st_prev = 1'b0;          // the running form started on t-1 ...
     reg        fst = 1'b0;              // ... with a fetch issued on its start clock (lookup_start)
+    // (S5a) the transfers
+    reg        tkn = 1'b0;              // the running form's start-time bits: taken (op.target)
+    reg        zf = 1'b0;               // ... zfail
+    reg        oddpc = 1'b0;            // ... its opcode at an odd address
+    reg        ont = 1'b0;              // xfer_nt: odd_until not yet set by its clocks
+    reg        dab = 1'b0;              // decide_abort: an aborted cycle since the start ...
+    reg [3:0]  dabs = 4'd0;             // ... clocks since its last (sat)
 
     // the window: rows wa .. wa + 3 (bank (wa + j) mod 4 at its registered address)
     uc_row_t   q0 = '0, q1 = '0, q2 = '0, q3 = '0;    // the banks' read registers
@@ -396,7 +510,18 @@ module v35_ucode
         logic [3:0]  nw;
         logic        first_clk;
         logic        lx;
-        logic [15:0] elem;
+        logic        r4;        // (S5a) rot4_exec: ROL4 / ROR4's exec clocks run (rot4_from)
+        logic [1:0]  elem;      // the element index (0, 1, 2: more)
+        logic        lxt;       // (S5a) the element loop exited
+        logic        scond;     // ... on the compare's condition (str_cond)
+        logic        edn;       // ... a loop pass ended in this pass (strobe: CW counted down)
+        logic        sfl_v;     // (S5a) str_single_start=write: the first request's floor ...
+        logic [3:0]  sfl;       //   ... not_before - t
+        logic        ls2;       // (S5a) the last data step was an odd word's pair (str_split)
+        logic        single;    // (S5a) an unprefixed string form (eu.str_single)
+        logic        tha;       // (S5a) a take hold is armed (queue.take_hold) ...
+        logic        thd;       //   ... dlv: not yet past its take (hold_dlv)
+        logic        cva;       //   ... cvt_armed (cvt_from / cvt_tail)
         logic [10:0] ltop;
         v35_fmt_t    fmt;
         v35_cls_t    cc;
@@ -407,6 +532,10 @@ module v35_ucode
         logic [2:0]  dfl;
         logic        uearly;    // unit_early
         logic        pnew;      // a request posted in this pass (the own is not yet issued)
+        logic        tkn;       // (S5a) the start-time bits: a taken transfer (op.target), ...
+        logic        zf;        // ... DBNZE / DBNZNE not taken on its Z test (op.zfail)
+        logic        oddpc;     // ... its opcode at an odd address
+        logic        ont;       // xfer_nt: a not-taken short transfer's odd_until not yet set
     } ps_t;
 
     typedef struct packed {
@@ -428,6 +557,17 @@ module v35_ucode
         logic        own_issued;
         logic        post_ok;   // (S4) a post finds a request position
         logic        memw;      // the slot holds a waiting memory request (_floor)
+        logic        dinf;      // (S5a) the decide row's fetch in flight (queue: nb_at /
+        logic [3:0]  dsince;    //   odd_until's old fetch), clocks since its end
+        logic        dab;       // ... decide_abort=cycle: an aborted cycle since the start
+        logic [3:0]  dabs;      //   (dabs: clocks since its last; dab_busy: it runs)
+        logic        dab_busy;
+        logic        hodd;      // (S5a) the next byte to take is at an odd address
+        logic        own_two;   // (S5a) the own request is an odd word's pair
+        logic [3:0]  sage;      // (S5a) t - start_clock (sat; cvt_from=start)
+        logic [3:0]  sfage;     // (S5a) clocks since its second half issued (sat)
+        logic        nwrun;     // (S5a) str_io_setup=run: the fetch issued on the nowait
+                                //   row's first clock back to back runs, its wait not counted yet
         logic        lk;        // lookup_start: t == start_clock + 1 == fetch_start + 1
         logic        retry_ok;  // q.retry and q.retry_loop
         logic        abort_st;
@@ -454,7 +594,11 @@ module v35_ucode
         logic signed [9:0] rt_n;
         logic        sh_set;
         logic [9:0]  sh_n;
-        logic [2:0]  fhold;
+        logic        sth;       // (S5a) str_held set: for sthn clocks from now, or for ever
+        logic        sthinf;
+        logic [5:0]  sthn;
+        logic        rsset;     // (S5a) str_raise = t + rsn
+        logic [3:0]  rsn;
         logic        flush;
         logic        halt;
         logic        io_nx;
@@ -465,7 +609,7 @@ module v35_ucode
         uc_row_t     row;       // the row that acted (its request)
         logic [6:0]  setup;     // its request's setup
         logic        fnv;       // ... its free_need
-        logic [2:0]  fn;
+        logic [6:0]  fn;
         logic [1:0]  lead;      // ... an I/O request's lead
         logic [6:0]  thr;       // (S4) ... rmw_alu=through
         logic        imm1;      // ... imm1_first
@@ -479,6 +623,23 @@ module v35_ucode
         logic        gd;        // grp_disp=hold: gdisp_until = t + dhold
         logic        easet;     // ea_end = t + n (an EA clocks row of a displaced form)
         logic [2:0]  ean;
+        logic        ouset;     // (S5a) xfer_nt: odd_until = t + oun
+        logic [2:0]  oun;
+        logic        ffset;     // (S5a) flush_from: flush_held = t + ffn
+        logic [2:0]  ffn;
+        logic        memc;      // (S5a) str_in_io=free: the request counts as a memory one's
+        logic        fhd;       // (S5a) str_single_start=write: its floor holds fetches
+        logic        nwfirst;   // (S5a) a nowait row's first clock
+        logic        lrset;     // (S5a) lea_room: LDEA's EA clocks run from now for lrn clocks
+        logic [3:0]  lrn;
+        logic        lsclr;     // (S5a) lea_disp=run: the split d16 taken off a refill run
+        logic        mfr;       // (S5a) mul_imm_count=sync: MUL imm memory's read ...
+        logic [3:0]  c0;        //   ... its clean clocks since mul_from at the post
+        logic        tharm;     // (S5a) a take hold armed (queue.take_hold) ...
+        logic        thcvt;     //   ... cvt_hold's (a held request is no take's asked)
+        logic        thlift;    //   ... lifted
+        logic        thcan;     //   ... cancelled: its take on a word's delivery clock
+        logic        nwused;    // (S5a) ... its run's wait clock counted
     } fx_t;
 
     /* verilator lint_off UNUSEDSIGNAL */
@@ -494,7 +655,7 @@ module v35_ucode
             V35_NSRC_BF: nval = {1'b0, bfcost} > 11'(r.imm) ? {1'b0, bfcost} - 11'(r.imm)
                                                              : 11'd0;
             V35_NSRC_STR: begin
-                k = s.elem == 16'd0 ? 11'(c.first) : (s.elem == 16'd1 ? 11'(c.loop1)
+                k = s.elem == 2'd0 ? 11'(c.first) : (s.elem == 2'd1 ? 11'(c.loop1)
                                                                        : 11'(c.loop));
                 nval = 11'(r.imm) + k;
             end
@@ -505,8 +666,8 @@ module v35_ucode
     // the row is skipped (a skipped row passes in no time)
     function automatic logic skipped(input uc_row_t r, input ps_t s);
         case (r.skip)
-            V35_SKIP_COND: skipped = str_cond;
-            V35_SKIP_NCOND: skipped = !str_cond;
+            V35_SKIP_COND: skipped = s.scond;
+            V35_SKIP_NCOND: skipped = !s.scond;
             V35_SKIP_NOHELD: skipped = !s.held;
             V35_SKIP_CROSS: skipped = bf_cross;
             V35_SKIP_NCROSS: skipped = !bf_cross;
@@ -515,27 +676,89 @@ module v35_ucode
     endfunction
 
     // the row's side effect (arm): its outputs
-    function automatic void do_arm(input uc_row_t r, inout fx_t x);
+    function automatic void do_arm(input uc_row_t r, inout fx_t x, inout ps_t s,
+                                   input env_t e);
         case (r.arm)
-            V35_ARM_HOLD: x.fhold = r.x[2:0];   // fetch_hold n (POP PSW's 2); (the other arms:
-            default: ;                          //  the strings', the bit fields', S5)
+            // fetch_hold n (POP PSW's 2, a compare's chold; (S5a) mul_imm_half=room: none while
+            // the queue has room for a word besides the half-taken word's taken byte); with a
+            // take hold armed it lifts that hold
+            V35_ARM_HOLD, V35_ARM_HOLD_ROOM:
+                if (s.tha) begin
+                    x.thlift = 1'b1;
+                    s.tha = 1'b0;
+                end else if (!(r.arm == V35_ARM_HOLD_ROOM && e.avail <= 4'd3)) begin
+                    x.sth = 1'b1;
+                    x.sthinf = 1'b0;
+                    x.sthn = r.x[5:0];
+                end
+            // (S5a) bf_imm_hold / cvt_hold: no request from the next operand take on (one asked
+            // before it still runs); dlv: not if that take is on a word's delivery clock
+            V35_ARM_HOLD_TAKE, V35_ARM_HOLD_TAKE_DLV: begin
+                x.tharm = 1'b1;
+                x.thcvt = r.arm == V35_ARM_HOLD_TAKE_DLV;
+                s.tha = 1'b1;
+                s.thd = r.arm == V35_ARM_HOLD_TAKE_DLV;
+                s.cva = r.arm == V35_ARM_HOLD_TAKE_DLV;
+            end
+            V35_ARM_REL: begin                  // (S5a) fetch_release n: no request before t + n
+                x.sth = 1'b1;
+                x.sthinf = 1'b0;
+                x.sthn = r.x[5:0];
+            end
+            V35_ARM_REL_FOREVER: begin          // (S5a) fetch_release None: none from now on
+                x.sth = 1'b1;
+                x.sthinf = 1'b1;
+                x.sthn = 6'd0;
+            end
+            V35_ARM_REL_RAISE: begin            // (S5a) CW = 0: the aborted start's request
+                x.rsset = 1'b1;                 //   raised again r.x clocks into the exit
+                x.rsn = r.x[3:0];
+            end
+            V35_ARM_FLUSH_FROM: begin           // (S5a) ret_far_fetch=after: the flush hold
+                x.ffset = 1'b1;                 //   from r.x clocks on
+                x.ffn = r.x[2:0];
+            end
+            default: ;
         endcase
     endfunction
 
     // leaving a row: the next one (the element loop's top after its last body row)
-    function automatic void adv(inout ps_t s, input uc_row_t r);
+    function automatic void adv(inout ps_t s, input uc_row_t r, input logic noend);
         logic more;
-        more = r.loop && (s.elem + 16'd1 < elems);
+        // (S5a) a REP loop: once more unless CW runs out (str_last) or a compare's condition
+        // ends it (str_exit, at its read's delivery)
+        more = r.loop && !str_last && !str_exit;
         if (r.ltop)
             s.ltop = s.a;
-        if (r.loop)
-            s.elem = s.elem + 16'd1;
+        if (r.loop) begin
+            s.elem = s.elem == 2'd2 ? 2'd2 : s.elem + 2'd1;
+            s.edn = 1'b1;
+            if (!more) begin
+                s.lxt = 1'b1;
+                s.scond = str_exit;
+            end
+        end
         s.a = more ? s.ltop : s.a + 11'd1;
         s.arm_done = 1'b0;
         s.wpass = 1'b0;
-        if (r.last && !more) begin
+        if (r.last && !more && !noend) begin
             s.run = 1'b0;
             s.wbc = r.wb;
+        end
+    endfunction
+
+    // (S5a) a skipped row costs no row of the pass: the row after it is the one evaluated (a
+    // final skip pair's partner, a REP compare's exit; the window holds it)
+    function automatic void sk(inout ps_t s, inout rv_t r, inout rv_t rn);
+        rv_t rnn;
+        if (r.v && skipped(r.r, s) && rn.v
+            && (!r.r.last || (rn.r.skip != V35_SKIP_NONE && rn.r.last))) begin
+            rnn = rowat(s.a + 11'd2);
+            s.a = s.a + 11'd1;
+            s.arm_done = 1'b0;
+            s.wpass = 1'b0;
+            r = rn;
+            rn = rnn;
         end
     endfunction
 
@@ -552,27 +775,36 @@ module v35_ucode
         n = nval(r, s);
         x = '0;
         x.row = r;
-        x.setup = 7'(n + ((r.lastadd && s.elem + 16'd1 >= elems && !str_cond) ? 11'(c.last)
+        x.setup = 7'(n + ((r.lastadd && str_last) ? 11'(c.last)
                                                                                 : 11'd0));
         // free_need: the row's (x, or setup - x), else the class's setup_free (None without);
         // an I/O request's lead
         case (r.i2m)
-            V35_I2M_LIT: begin x.fnv = 1'b1; x.fn = r.x[2:0]; end
-            V35_I2M_SETUP_MINUS: begin x.fnv = 1'b1; x.fn = 3'(x.setup - r.x); end
-            default: begin x.fnv = c.setup_free_v; x.fn = c.setup_free; end
+            V35_I2M_LIT: begin x.fnv = 1'b1; x.fn = r.x; end
+            V35_I2M_SETUP_MINUS: begin x.fnv = 1'b1; x.fn = x.setup - r.x; end
+            default: begin x.fnv = c.setup_free_v; x.fn = 7'(c.setup_free); end
         endcase
+        // (S5a) str_in_io=free: an unprefixed INM's I/O read: its setup counted as a memory
+        // request's, its last ufree clocks fetch-free
+        if (s.fmt.strop && !s.fmt.rep && r.rkind == V35_RK_IO_READ) begin
+            x.fnv = 1'b1;
+            x.fn = 7'(c.ufree);
+            x.memc = 1'b1;
+        end
         x.lead = (r.rkind == V35_RK_IO_READ || r.rkind == V35_RK_IO_WRITE) ? c.lead : 2'd0;
         need = s.oplen - 3'd1 - s.taken;
         // a skipped row
         if (skipped(r, s)) begin
             x.complete = 1'b1;
             x.cont = 1'b1;
-            adv(s, r);
+            // (S5a) a skipped row is no step: the first of a final skip pair (both `last`)
+            // leads to its partner; a final row skipped ends the template
+            adv(s, r, rn.v && rn.r.skip != V35_SKIP_NONE && rn.r.last);
             return;
         end
         // the side effect before the wait
         if (r.arm != V35_ARM_NONE && r.apos == V35_APOS_ENTRY && !s.arm_done) begin
-            do_arm(r, x);
+            do_arm(r, x, s, e);
             s.arm_done = 1'b1;
         end
         // the wait
@@ -585,6 +817,7 @@ module v35_ucode
                     end
                     s.own_v = 1'b0;
                     s.dpass = 1'b1;
+                    s.ls2 = e.own_two;
                     x.retire = 1'b1;
                 end
                 V35_WC_OWN_ISSUED: if (s.own_v && (!e.own_issued || s.pnew)) begin
@@ -607,7 +840,9 @@ module v35_ucode
                     x.why = W_WBSYNC;
                     return;
                 end
-                V35_WC_QUIET: if (e.finfl) begin     // (S5: and no fetch wanted)
+                // (S5a) str_take=quiet: no fetch on the bus or wanted (the request as the clock
+                // began; no row waits so under fit 62)
+                V35_WC_QUIET: if (e.finfl || want_c) begin
                     x.why = W_FLUSH;
                     return;
                 end
@@ -617,7 +852,7 @@ module v35_ucode
         s.wpass = 1'b1;
         // the side effect after the wait
         if (r.arm != V35_ARM_NONE && r.apos == V35_APOS_PRE_OP && !s.arm_done) begin
-            do_arm(r, x);
+            do_arm(r, x, s, e);
             s.arm_done = 1'b1;
         end
         case (r.op)
@@ -625,13 +860,14 @@ module v35_ucode
                 if (n == 11'd0) begin
                     x.complete = 1'b1;          // ("clocks", 0): no clock
                     x.cont = 1'b1;
-                end else if (s.taken != 3'd0 && !s.fmt.mem && need == 3'd0
+                end else if (s.taken != 3'd0 && !(s.fmt.mem && s.fmt.bus) && need == 3'd0
                              && s.fmt.interlock && e.cur_io_s) begin
                     // io_exec=after_io: a register form started on an I/O cycle's issue clock
-                    // runs its clocks after its operand take only once the cycle has ended
+                    // runs its clocks after its operand take only once the cycle has ended;
+                    // (S5a) lea_io=recover: LDEA's after the I/O's recovery too
                     x.why = W_IOEXEC;
                     s.wpass = 1'b0;
-                    s.res = 11'(e.cur_left);
+                    s.res = 11'(e.cur_left) + (s.fmt.lea ? 11'(FIT_IO_RECOVER) : 11'd0);
                     return;
                 end else begin
                     x.complete = 1'b1;
@@ -645,10 +881,23 @@ module v35_ucode
                         x.set_exec = 1'b1;
                     end
                     s.first_clk = s.a == s.base;
+                    // (S5a) xfer_nt: the clocks after a not-taken short transfer's operand take
+                    // end its hold nhold clocks on (chold: DBNZE / DBNZNE not taken on CW)
+                    if (s.ont && s.taken != 3'd0) begin
+                        x.ouset = 1'b1;
+                        x.oun = (s.fmt.dbnz_z && !s.zf) ? c.chold : c.nhold;
+                        s.ont = 1'b0;
+                    end
                     // ea_ir_room / ea_b2b: a displaced memory form's EA clocks end at t + n
                     if (r.tag == V35_TAG_EA && s.fmt.mem && s.fmt.disp != 2'd0) begin
                         x.easet = 1'b1;
                         x.ean = 3'(n);
+                    end
+                    // (S5a) lea_room=ir: LDEA's EA clocks after its last operand byte (the IR's
+                    // opcode not counted by the request rule)
+                    if (r.tag == V35_TAG_EA && s.fmt.lea && need == 3'd0) begin
+                        x.lrset = 1'b1;
+                        x.lrn = 4'(n);
                     end
                     // mexec: io_take=unit: a memory multiply / divide whose ModR/M take dropped
                     // the request raises it mtail clocks before its end; abort_unit=loop: so
@@ -663,6 +912,7 @@ module v35_ucode
                     // long_exec=wait: a long one-byte form's clocks do not count a fetch's
                     // wait clock (the IR load moves with them)
                     s.lx = s.fmt.long1 && s.a == s.base && s.oplen == 3'd1;
+                    s.r4 = s.fmt.rot4r && r.last;
                     if (r.last && e.retry_ok && e.abort_st && s.fmt.unit_reg) begin
                         // abort_unit=loop: a register shift started on an aborted cycle raises
                         // the dropped request as its last count iteration starts; a register
@@ -682,9 +932,16 @@ module v35_ucode
                     s.nw_v = 1'b1;
                     // lookup_start: a fetch issued on the start clock costs the lookup a clock
                     s.nw = 4'(n) + ((e.lk && !s.started) ? 4'd1 : 4'd0);
+                    x.nwfirst = 1'b1;
                 end
-                if (s.nw != 4'd0 && !in_wait)
+                // (S5a) str_io_setup=run: a REP INM / OUTM's setup counts the first wait clock
+                // of a fetch issued on its first clock back to back after another
+                if (s.nw != 4'd0 && (!in_wait || (e.nwrun && s.fmt.rep
+                                                  && (s.fmt.aop == V35_STR_INM
+                                                      || s.fmt.aop == V35_STR_OUTM)))) begin
                     s.nw = s.nw - 4'd1;
+                    x.nwused = in_wait;
+                end
                 if (s.nw != 4'd0) begin
                     s.wpass = 1'b0;
                     s.res = 11'd1;
@@ -712,12 +969,24 @@ module v35_ucode
                     x.why = W_LATE;             // late_read: the take and the IR load wait
                 // sync_req=disp (late_disp=all): a memory form's displacement waits while a
                 // fetch is past its second clock (the word's delivery)
-                else if (e.late && s.fmt.mem && s.fmt.disp != 2'd0 && s.taken == 3'd1)
+                // ((S5a) late_disp_word=split: not a memory-indirect transfer's d16 whose first
+                // byte is the odd half of a word)
+                else if (e.late && s.fmt.mem && s.fmt.bus && s.fmt.disp != 2'd0 && s.taken == 3'd1
+                         && !(s.fmt.xfer_mem && need == 3'd2 && e.hodd))
                     x.why = W_DISP;
                 else if (kk == 3'd0)
                     x.why = W_BYTES;
                 else begin
                     x.tk = 2'(kk);
+                    // (S5a) cvt_hold: the armed hold's take on a word's delivery clock: no hold
+                    if (s.tha && s.thd) begin
+                        s.thd = 1'b0;
+                        if (arrived_now) begin
+                            s.tha = 1'b0;
+                            s.cva = 1'b0;
+                            x.thcan = 1'b1;
+                        end
+                    end
                     if (s.taken == 3'd0 && s.fmt.has_modrm) begin
                         // the ModR/M byte: the form's format as it decodes (the start decoded
                         // the head byte)
@@ -732,7 +1001,7 @@ module v35_ucode
                     end
                     // the displacement's last byte (latch_disp, ir_load, disp_floor, grp_disp)
                     dlast = s.oplen - 3'd1 - 3'(s.fmt.immb);
-                    x.disp = s.fmt.mem && s.fmt.disp != 2'd0 && s.taken < dlast
+                    x.disp = s.fmt.mem && s.fmt.bus && s.fmt.disp != 2'd0 && s.taken < dlast
                              && s.taken + kk >= dlast;
                     s.taken = s.taken + kk;
                     s.left = left0 - kk;
@@ -760,7 +1029,7 @@ module v35_ucode
                     // wlatch_src=write_imm_read: the last immediate byte of a form without a
                     // memory operand; wlatch_imm=reg_last: the last operand byte of any
                     // register-only form: into the data latch on its take
-                    x.wl_fill = need == 3'd0 && !s.fmt.mem
+                    x.wl_fill = need == 3'd0 && !(s.fmt.mem && s.fmt.bus)
                                 && (s.fmt.immb != 2'd0 || s.fmt.interlock);
                     // io_take_nx: a register form's last operand byte taken on an I/O cycle's
                     // issue clock: its IR load a clock later
@@ -770,10 +1039,13 @@ module v35_ucode
                     // word's second byte latched: the fetch request it raises is dropped, raised
                     // again as an aborted cycle's (at a count loop's exit)
                     x.iodrop = e.is_p && e.cur_io_now && s.stc && need == 3'd0
-                               && (!s.fmt.mem || (s.fmt.unit_mem && (s.fmt.xop == V35_XOP_MUL
+                               && (!(s.fmt.mem && s.fmt.bus) || (s.fmt.unit_mem && (s.fmt.xop == V35_XOP_MUL
                                                                     || s.fmt.xop == V35_XOP_DIV
                                                                     || s.fmt.xop == V35_XOP_MULI)))
                                && s.fmt.interlock && arrived_now && e.lat && s.left == 3'd0;
+                    // lea_disp=run: the split d16 taken off a refill run (no fetch on the bus
+                    // past its issue clock, none ended on t-1)
+                    x.lsclr = s.fmt.lea && need == 3'd0 && !(fetch_inflight || fetch_end_prev);
                     if (s.left != 3'd0) begin
                         x.why = W_BYTES;
                     end else begin
@@ -818,7 +1090,7 @@ module v35_ucode
                             end
                             s.res = 11'd1;
                         end
-                        adv(s, r);
+                        adv(s, r, 1'b0);
                     end
                 end
             end
@@ -836,6 +1108,7 @@ module v35_ucode
                     x.cont = 1'b1;
                     s.own_v = 1'b0;
                     s.dpass = 1'b1;
+                    s.ls2 = e.own_two;
                     x.retire = 1'b1;
                 end else begin
                     x.why = W_DATA;
@@ -852,13 +1125,23 @@ module v35_ucode
                     x.cont = 1'b1;
                 end
             end
-            V35_OP_FLUSH, V35_OP_FLUSH_C, V35_OP_DECIDE: begin
-                if (e.finfl || fetch_since <= (r.op == V35_OP_FLUSH ? c.fgap
-                                               : r.op == V35_OP_FLUSH_C ? c.cfgap
-                                               : {3'd0, c.nfgap})) begin
+            V35_OP_FLUSH, V35_OP_FLUSH_C: begin
+                if (e.finfl || fetch_since <= (r.op == V35_OP_FLUSH ? c.fgap : c.cfgap)) begin
                     x.why = W_FLUSH;
                 end else begin
-                    x.flush = r.op != V35_OP_DECIDE;
+                    x.flush = 1'b1;
+                    x.complete = 1'b1;
+                    x.cont = 1'b1;
+                end
+            end
+            V35_OP_DECIDE: begin
+                // (S5a) a not-taken transfer's test: nfgap clocks after the last fetch's end
+                // (xfer_nt_b2b / xfer_nt: the fetch before its commitment / odd_until), or after
+                // an aborted cycle since its start (decide_abort=cycle)
+                if (e.dinf || e.dsince <= {3'd0, c.nfgap}
+                    || (e.dab && (e.dab_busy || e.dabs <= {3'd0, c.nfgap}))) begin
+                    x.why = W_FLUSH;
+                end else begin
                     x.complete = 1'b1;
                     x.cont = 1'b1;
                 end
@@ -867,20 +1150,40 @@ module v35_ucode
                 x.halt = 1'b1;
                 x.why = W_HALT;
                 s.halted = 1'b1;
-                adv(s, r);
+                adv(s, r, 1'b0);
                 s.run = 1'b0;
             end
-            default: begin                      // NOP; (S5) FROM_START, SPLIT_FLOOR: no clock
+            V35_OP_SPLIT_FLOOR: begin
+                // (S5a) str_split=floor: a split last cycle's second half issued no fewer than
+                // imm clocks before the exit
+                if (s.ls2 && {7'd0, e.sfage} < 11'(r.imm)) begin
+                    s.wpass = 1'b0;
+                    s.res = 11'(r.imm) - {7'd0, e.sfage};
+                    x.why = W_CLK;
+                end else begin
+                    x.complete = 1'b1;
+                    x.cont = 1'b1;
+                end
+            end
+            V35_OP_FROM_START: begin
+                // (S5a) cvt_from=start: with the hold armed at the take, the clocks run to imm
+                // clocks after the form's start, else x clocks (no row so under fit 62)
+                x.complete = 1'b1;
+                s.res = s.cva ? (11'(r.imm) > 11'(e.sage) ? 11'(r.imm) - 11'(e.sage) : 11'd0)
+                              : 11'(r.x);
+                x.cont = s.res == 11'd0;
+            end
+            default: begin                      // NOP; HELD (cvt_tail: none so under fit 62)
                 x.complete = 1'b1;
                 x.cont = 1'b1;
             end
         endcase
         if (x.complete && r.op != V35_OP_TAKE) begin
             if (r.arm != V35_ARM_NONE && r.apos == V35_APOS_EXIT)
-                do_arm(r, x);
-            adv(s, r);
+                do_arm(r, x, s, e);
+            adv(s, r, 1'b0);
         end else if (x.complete && r.arm != V35_ARM_NONE && r.apos == V35_APOS_EXIT) begin
-            do_arm(r, x);
+            do_arm(r, x, s, e);
         end
         // a post's window fields (eu._post, _submit)
         if (x.post) begin
@@ -900,17 +1203,32 @@ module v35_ucode
                     && s.fmt.immb == 2'd0
                     && (r.rkind == V35_RK_READ || r.rkind == V35_RK_NOWRITE);
             x.sreg = s.fmt.sreg == 2'd2 && r.rkind == V35_RK_WRITE;
+            // (S5a) str_single_start=write: the first request, its floor holding fetches
+            if (s.sfl_v) begin
+                x.nb = s.sfl;
+                x.fhd = 1'b1;
+                s.sfl_v = 1'b0;
+            end
             // the floors (disp_floor's dfloor_at, imm_count=start's floor_n) on the next
             // memory request
             if (!rio) begin
-                x.nb = 4'd0;
-                if (s.fl_v)
+                if (s.fl_v && s.fl > x.nb)
                     x.nb = s.fl;
                 if (s.dfl_v && 4'(s.dfl) > x.nb)
                     x.nb = 4'(s.dfl);
                 s.fl_v = 1'b0;
                 s.dfl_v = 1'b0;
             end
+            // (S5a) mul_imm_count=sync: MUL imm memory's read counts its setup from mul_from
+            // (the clean clocks already past counted back)
+            if (r.rkind == V35_RK_READ && s.fmt.mul_imm && s.fmt.mem) begin
+                x.mfr = 1'b1;
+                x.c0 = !mf_on ? 4'd0 : (7'(mf_cnt) > x.setup ? 4'(x.setup) : mf_cnt);
+            end
+            // (S5a) stack_wb=ret: a RET's stack read posted on its start clock while the
+            // previous form's write-back runs is held a clock
+            if (r.rkind == V35_RK_READ && s.fmt.xop == V35_XOP_RET && s.stc && e.wbu_busy)
+                x.setup = x.setup + 7'd1;
             // abort_unit=loop: a unit form (or abort_fixed's fixed group form) started on an
             // aborted cycle: one group setup clock ran during the aborted cycle's wait
             if (!rio && (s.fmt.unit_mem || s.fmt.fixed_grp) && e.abort_st && !s.uearly
@@ -953,23 +1271,69 @@ module v35_ucode
         return ok;
     endfunction
 
+    // (S5a) lea_wb=fetch: the form started after an LDEA that started on a fetch's issue clock
+    // waits for a write-back to fwb clocks after that fetch's last clock (wbsync)
+    wire signed [5:0] lwx = 6'(lw_rel) + 6'(lw_fwb);
+    function automatic logic lwb(input logic st);
+        lwb = st ? (lw_v && lwx > 6'sd0) : lwc != 3'd0;
+    endfunction
+    // (S5a) mul_imm_count=sync: mul_from's clock; a fetch older than it on the bus; a clean clock
+    wire        mf_at = mfw_v && mfw == 4'd0;
+    wire        mf_oldn = mf_at ? fetch_inflight : (mf_o && fetch_inflight);
+    wire        mf_clean = !(busy && (cur_kind != K_FETCH || mf_oldn));
+    assign mf_old = mf_oldn;
+    // (S5a) str_single_wb=index: an unprefixed string form after one waits for all but the last
+    // clock of its predecessor's write-back (the index registers it reads)
+    function automatic logic swb(input v35_fmt_t f, input logic [1:0] wb_now);
+        swb = f.strop && !f.rep && single && wb_now > 2'd1;
+    endfunction
+    // (S5a) str_single_start=write: an unprefixed string form starts no earlier than its class's
+    // ugap clocks after the last fetch's end (P: a fetch issued now ends later)
+    function automatic logic ssb(input v35_fmt_t f, input v35_cls_t c, input logic is_p);
+        ssb = f.strop && !f.rep && ((is_p && g_fetch) || fetch_since <= {3'd0, c.ugap});
+    endfunction
     // the template a form starts: its first row (the start-time bits: cnt0 from CL, half from
-    // the last operand byte's address; taken / zfail: the transfers, S5)
-    function automatic logic [10:0] tbase(input v35_fmt_t f, input logic [19:0] a,
-                                          input logic [7:0] cl);
+    // the last operand byte's address; (S5a) taken / zfail, a transfer's decision from the PSW
+    // and CW (tsel: the condition field, DBNZ's CW - 1 != 0 with DBNZE / DBNZNE's Z test,
+    // BCWZ's CW = 0; the other transfers always), n0 a REP string with CW = 0)
+    function automatic v35_run_t run_of(input v35_fmt_t f, input logic [19:0] a,
+                                        input logic [7:0] cl, input logic [15:0] pw,
+                                        input logic [15:0] cx);
         v35_run_t rb;
         logic [19:0] last;
+        logic xf;
         rb = '0;
         rb.cnt0 = cl == 8'd0;
         last = a + 20'(f.len) - 20'd1;
         rb.half = !last[0];
+        xf = f.xop == V35_XOP_JMP || f.xop == V35_XOP_CALL || f.xop == V35_XOP_LOOP
+             || f.xop == V35_XOP_RET || f.xop == V35_XOP_BRK;
+        rb.zfail = f.dbnz_z && (pw[v35_fn_pkg::V35_PSW_Z] != f.zpol);
+        case (f.tsel)
+            2'd1: rb.taken = v35_fn_pkg::v35_cond(pw, f.ccode);
+            2'd2: rb.taken = cx != 16'd1 && !rb.zfail;
+            2'd3: rb.taken = cx == 16'd0;
+            default: rb.taken = xf;
+        endcase
+        rb.n0 = (f.rep && cx == 16'd0) || (f.xop == V35_XOP_BCD && cl == 8'd0);
+        run_of = rb;
+    endfunction
+    function automatic logic [10:0] tbase(input v35_fmt_t f, input v35_run_t rb);
         tbase = v35_tmpl_base(v35_tmpl_of(f, rb));
     endfunction
 
     // a form starts: the pass state for its first row
     function automatic void start_ps(inout ps_t s, input v35_fmt_t f, input v35_cls_t c,
-                                     input logic [7:0] o, input logic [10:0] b);
+                                     input logic [7:0] o, input logic [10:0] b,
+                                     input v35_run_t rb, input logic odd);
+        logic signed [5:0] sfv;
         s.run = 1'b1;
+        s.tkn = rb.taken;
+        s.zf = rb.zfail;
+        s.oddpc = odd;
+        // xfer_nt=dbnz_z: a short transfer not taken at an odd address (DBNZE / DBNZNE at
+        // either) holds its requests to odd_until, set by its clocks after the operand take
+        s.ont = !rb.taken && f.xshort && (odd || f.dbnz_z);
         s.a = b;
         s.base = b;
         s.arm_done = 1'b0;
@@ -988,7 +1352,10 @@ module v35_ucode
         s.nw_v = 1'b0;
         s.first_clk = 1'b0;
         s.lx = 1'b0;
-        s.elem = 16'd0;
+        s.r4 = 1'b0;
+        s.elem = 2'd0;
+        s.lxt = 1'b0;
+        s.scond = 1'b0;
         s.ltop = b;
         s.fmt = f;
         s.cc = c;
@@ -1001,6 +1368,14 @@ module v35_ucode
         s.dfl_v = 1'b0;
         s.dfl = 3'd0;
         s.uearly = 1'b0;
+        // (S5a) str_single_start=write: an unprefixed string form's first cycle no earlier than
+        // ugap + setup clocks after the last memory write's last clock (among the last three
+        // cycles)
+        s.single = f.strop && !f.rep;
+        sfv = 6'(w3_rel) + 6'(c.ugap) + 6'(c.setup);
+        s.sfl_v = s.single && w3_v && sfv > 6'sd0;
+        s.sfl = sfv > 6'sd15 ? 4'd15 : 4'(sfv);
+        s.ls2 = 1'b0;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
@@ -1009,16 +1384,24 @@ module v35_ucode
     wire [1:0]  owed_c = owed - (completed_now && owed != 2'd0 ? 2'd1 : 2'd0);
     wire [1:0]  hphase = cc.hphase;
 
+    // refill_start=full_io (eu._start): after a flush no start while a fetch is in flight or
+    // wanted, nor an IN / OUT on a 3-clock fetch's delivery clock
+    wire        rfb_c = refill && (inflight_c || want_c
+                                   || (arrived_now && fetch_len == 3'd3
+                                       && (fmt_c.xop == V35_XOP_IN || fmt_c.xop == V35_XOP_OUT)));
     // the template of the IR's form if it starts now (T: the IR; P: the IR after L)
-    wire [10:0] base_c = tbase(fmt_c, ir_addr_c, cl_c);
-    wire [10:0] base_l = tbase(fmt_l, ir_addr_l, cl_c);
+    v35_run_t   run_c, run_l, run_n;
+    assign run_c = run_of(fmt_c, ir_addr_c, cl_c, psw_c, cw_c);
+    assign run_l = run_of(fmt_l, ir_addr_l, cl_c, psw_c, cw_c);
+    wire [10:0] base_c = tbase(fmt_c, run_c);
+    wire [10:0] base_l = tbase(fmt_l, run_l);
 
     ps_t   s0, s1, s2, s3, s4;
     fx_t   x1, x2, x3;
     env_t  et;
     rv_t   g1, g2, r1, r1n, r2, r2n, r3, r3n;
     logic  t_hold, t_wait, t_sync_blk, t_gate1, t_gate2, t_try1, t_try2, t_dec1, t_dec2;
-    logic  t_lapse, t_done_rec, t_ev1, t_ev2, t_ev3, t_end2, t_areg;
+    logic  t_lapse, t_done_rec, t_ev1, t_ev2, t_ev3, t_end2, t_areg, t_srep, t_prs;
     logic [4:0] t_why;
     logic [1:0] owed_t;
     logic [10:0] hold_res;
@@ -1048,7 +1431,17 @@ module v35_ucode
         s0.nw = nw;
         s0.first_clk = first_clk;
         s0.lx = lx;
+        s0.r4 = r4;
         s0.elem = elem;
+        s0.lxt = lxt;
+        s0.scond = scond;
+        s0.sfl_v = sfl_v;
+        s0.sfl = sfl;
+        s0.ls2 = ls2;
+        s0.single = single;
+        s0.tha = tha;
+        s0.thd = thd;
+        s0.cva = cva;
         s0.ltop = ltop;
         s0.fmt = fmt;
         s0.cc = cc;
@@ -1058,6 +1451,10 @@ module v35_ucode
         s0.dfl_v = dfl_v;
         s0.dfl = dfl;
         s0.uearly = uearly;
+        s0.tkn = tkn;
+        s0.zf = zf;
+        s0.oddpc = oddpc;
+        s0.ont = ont;
 
         et = '0;
         et.avail = avail_c;
@@ -1081,6 +1478,16 @@ module v35_ucode
         et.finfl = fetch_inflight;
         et.fm = fmt_mt;
         et.fs = fmt_c;
+        et.dinf = dec_inf;
+        et.dsince = dec_since;
+        et.dab = dab;
+        et.dabs = abort_done ? 4'd1 : dabs;
+        et.dab_busy = abort_busy;
+        et.hodd = head_odd;
+        et.own_two = own_two;
+        et.sage = sage;
+        et.sfage = sfage;
+        et.nwrun = nwf && !nwu;
 
         // (A) the clocks wait; unit_hold: the exec clocks wait at a micro-boundary (every
         // second clock from hphase; a memory form's on any clock) while a fetch is past its
@@ -1099,12 +1506,14 @@ module v35_ucode
         wbu_t1 = t_done_rec ? wbc + (wbx ? 2'd1 : 2'd0) : wbu;
         et.wbu_busy = wbu_t1 != 2'd0;
         t_gate1 = gate(fmt_c, ir_v_c, 1'b0, slot_det_c, rq_old_c, inflight_c, stored_c,
-                       wl_busy, refill && (inflight_c || room_c >= 5'sd2), dw_blk_c);
+                       wl_busy, rfb_c || swb(fmt_c, wbu_t1) || (lsp && b2b_now)
+                                || ssb(fmt_c, cls_c, 1'b0), dw_blk_c);
         t_try1 = !t_wait && !run && !halted;
         g1 = rowat(base_c);
         t_dec1 = t_try1 && t_gate1 && !g1.v;
         if (t_try1 && t_gate1 && g1.v)
-            start_ps(s1, fmt_c, cls_c, ir_c, base_c);
+            start_ps(s1, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0]);
+        et.wbu_busy = wbu_t1 != 2'd0 || lwb(s1.started);
 
         // (B) the take sync (once a form runs): owed fetches not delivered, unless the
         // request lapsed
@@ -1114,7 +1523,16 @@ module v35_ucode
         // aborted cycle runs its exec from that cycle's last clock (the one fetch it owed)
         t_areg = abort_last && abort_start && !fmt.mem && fmt.unit_reg
                  && !(fmt.xop == V35_XOP_SHIFT && fmt.opb == V35_ROLE_CL) && owed_t == 2'd1;
-        t_sync_blk = !t_wait && s1.run && sync_v && owed_t != 2'd0 && !t_lapse && !t_areg;
+        // str_start=skip: a REP form's sync is met on the last clock of the aborted cycle that
+        // answered its start clock's request
+        t_srep = abort_last && abort_start && fmt.rep;
+        t_sync_blk = !t_wait && s1.run && sync_v && owed_t != 2'd0 && !t_lapse && !t_areg
+                     && !t_srep;
+        // prepare_sync=run: PREPARE's sync met on a clock the bus unit committed a fetch back to
+        // back waits for that fetch too
+        t_prs = !t_wait && s1.run && sync_v && !sync_def && !t_sync_blk && owed_t == 2'd0
+                && fmt.xop == V35_XOP_PREP && b2b_now;
+        t_sync_blk = t_sync_blk || t_prs;
         if (!t_wait && s1.run && sync_v)
             s1.sync_def = 1'b0;         // a deferred sync is counted now (met or not)
         if (!t_wait && s1.run && !t_sync_blk)
@@ -1126,6 +1544,8 @@ module v35_ucode
         r1n = rowat(s1.a + 11'd1);
         s2 = s1;
         x1 = '0;
+        if (t_ev1)
+            sk(s2, r1, r1n);
         if (t_ev1 && r1.v)
             do_row(s2, et, r1.r, r1n, x1);
         x1.rom_miss = t_ev1 && !r1.v;
@@ -1141,16 +1561,20 @@ module v35_ucode
         wbu_t2 = t_end2 ? s2.wbc + (wbx ? 2'd1 : 2'd0) : wbu_t1;
         et.wbu_busy = wbu_t2 != 2'd0;
         t_gate2 = gate(fmt_c, ir_v_c && !x1.flush, 1'b0, slot_det_c, rq_old_c, inflight_c,
-                       stored_c, wl_busy, (refill || x1.flush) && (inflight_c || room_c >= 5'sd2
-                                                                   || x1.flush), dw_blk_c);
+                       stored_c, wl_busy, rfb_c || x1.flush || swb(fmt_c, wbu_t2)
+                                          || (lsp && b2b_now) || ssb(fmt_c, cls_c, 1'b0),
+                       dw_blk_c);
         t_try2 = t_end2 && !s2.halted;
         g2 = rowat(base_c);
         t_dec2 = t_try2 && t_gate2 && !g2.v;
         if (t_try2 && t_gate2 && g2.v)
-            start_ps(s3, fmt_c, cls_c, ir_c, base_c);
+            start_ps(s3, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0]);
+        et.wbu_busy = wbu_t2 != 2'd0 || lwb(s1.started || s3.started);
         t_ev2 = t_ev1 && x1.complete && x1.cont && (s2.run || (t_try2 && t_gate2 && g2.v));
         r2 = rowat(s3.a);
         r2n = rowat(s3.a + 11'd1);
+        if (t_ev2)
+            sk(s3, r2, r2n);
         if (t_ev2 && r2.v)
             do_row(s3, et, r2.r, r2n, x2);
         x2.rom_miss = t_ev2 && !r2.v;
@@ -1165,6 +1589,8 @@ module v35_ucode
         t_ev3 = t_ev2 && x2.complete && x2.cont && s3.run;
         r3 = rowat(s3.a);
         r3n = rowat(s3.a + 11'd1);
+        if (t_ev3)
+            sk(s4, r3, r3n);
         if (t_ev3 && r3.v)
             do_row(s4, et, r3.r, r3n, x3);
         x3.rom_miss = t_ev3 && !r3.v;
@@ -1181,7 +1607,10 @@ module v35_ucode
         xt = x1 | x2 | x3;
         xt.rt_n = x1.rt_set ? x1.rt_n : (x2.rt_set ? x2.rt_n : x3.rt_n);
         xt.sh_n = x1.sh_set ? x1.sh_n : (x2.sh_set ? x2.sh_n : x3.sh_n);
-        xt.fhold = x1.fhold != 3'd0 ? x1.fhold : (x2.fhold != 3'd0 ? x2.fhold : x3.fhold);
+        xt.sth = x1.sth || x2.sth || x3.sth;
+        xt.sthinf = x3.sth ? x3.sthinf : (x2.sth ? x2.sthinf : x1.sthinf);
+        xt.sthn = x3.sth ? x3.sthn : (x2.sth ? x2.sthn : x1.sthn);
+        xt.rsn = x3.rsset ? x3.rsn : (x2.rsset ? x2.rsn : x1.rsn);
         xt.row = x3.post ? x3.row : (x2.post ? x2.row : x1.row);
         xt.setup = x3.post ? x3.setup : (x2.post ? x2.setup : x1.setup);
         xt.fnv = x3.post ? x3.fnv : (x2.post ? x2.fnv : x1.fnv);
@@ -1191,12 +1620,21 @@ module v35_ucode
         xt.nb = x3.post ? x3.nb : (x2.post ? x2.nb : x1.nb);
         xt.flnb = x1.flset ? x1.flnb : (x2.flset ? x2.flnb : x3.flnb);
         xt.ean = x1.easet ? x1.ean : (x2.easet ? x2.ean : x3.ean);
+        xt.oun = x1.ouset ? x1.oun : (x2.ouset ? x2.oun : x3.oun);
+        xt.ffn = x1.ffset ? x1.ffn : (x2.ffset ? x2.ffn : x3.ffn);
     end
     assign t_k = xt.tk;
     assign t_done = xt.tk_done;
     assign t_flush = xt.flush;
     assign t_halt = xt.halt;
-    assign t_fhold = xt.fhold;
+    assign t_sth = xt.sth;
+    assign t_sth_inf = xt.sthinf;
+    assign t_sth_n = xt.sthn;
+    assign p_sth = xp.sth;
+    assign p_sth_inf = xp.sthinf;
+    assign p_sth_n = xp.sthn;
+    assign rs_set = xt.rsset || xp.rsset;
+    assign rs_n = xt.rsset ? xt.rsn : xp.rsn;
     assign ask_d = !t_wait && s1.run && sync_v && sync_def;
     assign ask_t = xt.ask;
     assign cnt_take = xt.cntk;
@@ -1218,11 +1656,11 @@ module v35_ucode
     rv_t r0t;
     always_comb r0t = rowat(s4.base);
     assign wb_hold = t_start && s4.a == s4.base && r0t.v && r0t.r.wcond == V35_WC_WB
-                     && wbu_t2 != 2'd0;
+                     && (wbu_t2 != 2'd0 || lwb(1'b1));
     // wlatch_hold: an I/O form waits at its start for the data latch (the checks before
     // eu._start's wlatch test passed)
     assign latch_wait = (t_try1 || t_try2) && ir_v_c && !fetch_inflight && !refill
-                        && fmt_c.port_io && wl_busy;
+                        && !(lsp && b2b_now) && !dw_blk_c && fmt_c.port_io && wl_busy;
     assign retire = xt.retire;
     assign retire_p = xp.retire;
     assign floor_set = xt.flset;
@@ -1245,8 +1683,9 @@ module v35_ucode
     // ir_load=disp_data: a ModR/M memory form with a displacement and a bus cycle keeps its
     // successor's opcode out of the IR until its first data cycle issues
     /* verilator lint_off UNUSEDSIGNAL */
+    // (S5a) xfer_mem_ir=hold: a memory-indirect transfer's, with or without a displacement
     function automatic logic irh(input v35_fmt_t f);
-        irh = f.mem && f.modrm_op && f.disp != 2'd0 && f.bus;
+        irh = (f.mem && f.modrm_op && f.disp != 2'd0 && f.bus) || f.xfer_mem;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     assign irh_set_t = t_start && irh(s4.fmt);
@@ -1257,6 +1696,15 @@ module v35_ucode
     // eu.cls / imm_bytes as the room's room_ir_imm reads them: the running (or last) form
     assign imm16_c = fmt.imm16_reg;
     assign imm16_t = s4.fmt.imm16_reg;
+    // (S5a) decoder.cls as far_room / xfer_mem_room read it
+    // (lea_slot=ea: decoder.lea_wait, a displaced LDEA)
+    assign xk_c = {fmt.lea && fmt.disp != 2'd0, fmt.xfer_mem, fmt.far_xfer};
+    assign xk_t = {s4.fmt.lea && s4.fmt.disp != 2'd0, s4.fmt.xfer_mem, s4.fmt.far_xfer};
+    assign xk_p = {p4.fmt.lea && p4.fmt.disp != 2'd0, p4.fmt.xfer_mem, p4.fmt.far_xfer};
+    // lea_room=ir: LDEA's EA clocks after its last operand byte (queue.lea_ea)
+    assign lea_xk_c = lrc != 4'd0;
+    assign lea_xk_t = lrc != 4'd0 || (xt.lrset && xt.lrn != 4'd0);
+    assign lea_xk_p = lrc != 4'd0 || (xt.lrset && xt.lrn != 4'd0) || (xp.lrset && xp.lrn != 4'd0);
 
     // ------------------------------------------------------------ S5: the P pass
     // machine.py's retick on a detached I/O's issue clock: the start gate again (the I/O
@@ -1273,6 +1721,7 @@ module v35_ucode
         p0 = s4;
         p0.started = 1'b0;
         p0.pnew = 1'b0;
+        p0.edn = 1'b0;
         ep = et;
         ep.is_p = 1'b1;
         ep.avail = avail_c - 4'(xt.tk) - (l_pop ? 4'd1 : 4'd0);
@@ -1304,12 +1753,14 @@ module v35_ucode
         wbu_p1 = p_done_rec ? p0.wbc + (wbx ? 2'd1 : 2'd0) : wbu_t2;
         ep.wbu_busy = wbu_p1 != 2'd0;
         p_gate1 = gate(fmt_l, ir_v_l, 1'b1, slot_det_p, rq_old_p, inflight_x, stored_l,
-                       wl_busy_x, refill, dw_blk_p);
+                       wl_busy_x, refill || swb(fmt_l, wbu_p1) || (lsp && b2b_now)
+                                  || ssb(fmt_l, cls_l, 1'b1), dw_blk_p);
         p_try1 = !p_wait && !p0.run;
         h1 = rowat(base_l);
         p_dec1 = p_try1 && p_gate1 && !h1.v;
         if (p_try1 && p_gate1 && h1.v)
-            start_ps(p1, fmt_l, cls_l, ir_l, base_l);
+            start_ps(p1, fmt_l, cls_l, ir_l, base_l, run_l, ir_addr_l[0]);
+        ep.wbu_busy = wbu_p1 != 2'd0 || lwb(t_start || p1.started);
         p_lapse = !inflight_x && !abort_busy && room_p0 < 5'sd2;
         p_sync_blk = !p_wait && p1.run && p1.sync_v && !p_lapse;
         if (!p_wait && p1.run && !p_sync_blk)
@@ -1319,6 +1770,8 @@ module v35_ucode
         u1n = rowat(p1.a + 11'd1);
         p2 = p1;
         y1 = '0;
+        if (p_ev1)
+            sk(p2, u1, u1n);
         if (p_ev1 && u1.v)
             do_row(p2, ep, u1.r, u1n, y1);
         y1.rom_miss = p_ev1 && !u1.v;
@@ -1330,18 +1783,22 @@ module v35_ucode
         wbu_p2 = p_end2 ? p2.wbc + (wbx ? 2'd1 : 2'd0) : wbu_p1;
         ep.wbu_busy = wbu_p2 != 2'd0;
         p_gate2 = gate(fmt_l, ir_v_l, 1'b1, slot_det_p, rq_old_p, inflight_x, stored_l,
-                       wl_busy_x, refill, dw_blk_p);
+                       wl_busy_x, refill || swb(fmt_l, wbu_p2) || (lsp && b2b_now)
+                                  || ssb(fmt_l, cls_l, 1'b1), dw_blk_p);
         p_try2 = p_end2;
         h2 = rowat(base_l);
         p_dec2 = p_try2 && p_gate2 && !h2.v;
         if (p_try2 && p_gate2 && h2.v)
-            start_ps(p3, fmt_l, cls_l, ir_l, base_l);
+            start_ps(p3, fmt_l, cls_l, ir_l, base_l, run_l, ir_addr_l[0]);
+        ep.wbu_busy = wbu_p2 != 2'd0 || lwb(t_start || p1.started || p3.started);
         if (y1.tk != 2'd0)
             ep.avail = 4'd0;            // (P: one byte at most)
         p_ev2 = p_ev1 && y1.complete && y1.cont
                 && (p2.run || (p_try2 && p_gate2 && h2.v));
         u2 = rowat(p3.a);
         u2n = rowat(p3.a + 11'd1);
+        if (p_ev2)
+            sk(p3, u2, u2n);
         if (p_ev2 && u2.v)
             do_row(p3, ep, u2.r, u2n, y2);
         y2.rom_miss = p_ev2 && !u2.v;
@@ -1349,10 +1806,14 @@ module v35_ucode
         y3 = '0;
         if (y2.tk != 2'd0)
             ep.avail = 4'd0;
-        p_ev3 = p_ev2 && y2.complete && y2.cont && p3.run
-                && p3.started;
+        // (S5a) a running form's third row too (a REP OUTM's I/O write done, its split floor,
+        // its exit clocks)
+        p_ev3 = p_ev2 && y2.complete && y2.cont && p3.run;
+
         u3 = rowat(p3.a);
         u3n = rowat(p3.a + 11'd1);
+        if (p_ev3)
+            sk(p4, u3, u3n);
         if (p_ev3 && u3.v)
             do_row(p4, ep, u3.r, u3n, y3);
         y3.rom_miss = p_ev3 && !u3.v;
@@ -1364,7 +1825,10 @@ module v35_ucode
         xp = y1 | y2 | y3;
         xp.rt_n = y1.rt_set ? y1.rt_n : (y2.rt_set ? y2.rt_n : y3.rt_n);
         xp.sh_n = y1.sh_set ? y1.sh_n : (y2.sh_set ? y2.sh_n : y3.sh_n);
-        xp.fhold = y1.fhold != 3'd0 ? y1.fhold : (y2.fhold != 3'd0 ? y2.fhold : y3.fhold);
+        xp.sth = y1.sth || y2.sth || y3.sth;
+        xp.sthinf = y3.sth ? y3.sthinf : (y2.sth ? y2.sthinf : y1.sthinf);
+        xp.sthn = y3.sth ? y3.sthn : (y2.sth ? y2.sthn : y1.sthn);
+        xp.rsn = y3.rsset ? y3.rsn : (y2.rsset ? y2.rsn : y1.rsn);
         xp.row = y3.post ? y3.row : (y2.post ? y2.row : y1.row);
         xp.setup = y3.post ? y3.setup : (y2.post ? y2.setup : y1.setup);
         xp.fnv = y3.post ? y3.fnv : (y2.post ? y2.fnv : y1.fnv);
@@ -1374,6 +1838,8 @@ module v35_ucode
         xp.nb = y3.post ? y3.nb : (y2.post ? y2.nb : y1.nb);
         xp.flnb = y1.flset ? y1.flnb : (y2.flset ? y2.flnb : y3.flnb);
         xp.ean = y1.easet ? y1.ean : (y2.easet ? y2.ean : y3.ean);
+        xp.oun = y1.ouset ? y1.oun : (y2.ouset ? y2.oun : y3.oun);
+        xp.ffn = y1.ffset ? y1.ffn : (y2.ffset ? y2.ffn : y3.ffn);
     end
     assign p_k = xp.tk != 2'd0;
     assign p_done = xp.tk_done;
@@ -1388,6 +1854,7 @@ module v35_ucode
     assign wl_fill_p = xp.wl_fill;
     assign start_any = t_start || p_start;
     assign dec_miss = t_dec1 || t_dec2 || p_dec1 || p_dec2;
+    assign p_flush = xp.flush;
 
     // ------------------------------------------------------------ the posts
     assign post_t = xt.post;
@@ -1415,6 +1882,10 @@ module v35_ucode
         q.restart = x.row.restart;
         q.nb = x.nb;
         q.rl = s.cc.relatch;
+        q.memc = x.memc;
+        q.fhd = x.fhd;
+        q.mfr = x.mfr;
+        q.c0 = x.c0;
         return q;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
@@ -1429,6 +1900,31 @@ module v35_ucode
     // latch_start: the byte latched behind a full queue went in on the clock a form whose
     // first step is a clocks step started (and is in it): its clocks begin a clock later
     wire       st_now = t_start || p_start;
+    // (S5a) the transfers' holds (queue.flush_held, odd_xfer / odd_nt / odd_until), at a start
+    // (T or P: the started form is p4's)
+    assign xs_start = st_now;
+    assign fh_set = st_now && p4.tkn;
+    assign fh_n = p4.cc.hold;
+    assign ox_set = st_now && p4.tkn && p4.fmt.xshort && p4.oddpc;
+    assign nt_set = st_now && !p4.tkn && p4.fmt.xshort && (p4.oddpc || p4.fmt.dbnz_z);
+    assign nt_dbnz = p4.fmt.dbnz;
+    assign ou_set = xt.ouset || xp.ouset;
+    assign ou_n = xt.ouset ? xt.oun : xp.oun;
+    assign ff_set = xt.ffset || xp.ffset;
+    assign ff_t = xt.ffset;
+    // (S5a) the take hold (queue): armed (T, P), cancelled, lifted
+    assign th_arm_t = xt.tharm;
+    assign th_arm_p = xp.tharm;
+    assign th_cvt = xt.tharm ? xt.thcvt : xp.thcvt;
+    assign th_lift_t = xt.thlift || xt.thcan;
+    assign th_lift_p = xp.thlift || xp.thcan;
+    assign edone = s4.edn || p4.edn;
+    assign povr_t = s4.lxt;
+    assign povr_p = p4.lxt;
+    assign ff_t0 = xt.ffset && xt.ffn == 3'd0;
+    assign ff_n = xt.ffset ? xt.ffn : xp.ffn;
+    assign xs_done = end_any;
+    assign xfer_x = s4.fmt.xfer;
     rv_t       r0p;
     always_comb r0p = rowat(p4.base);
     wire       r0c = st_now && p4.first_clk && p4.res != 11'd0 && p4.a == p4.base + 11'd1;
@@ -1443,13 +1939,15 @@ module v35_ucode
     assign idle_adj = oi_adj;
     // long_exec=wait: a fetch's wait clock does not count (the IR load moves with it)
     wire       lx_now = p4.lx && p4.res != 11'd0 && busy && cur_kind == K_FETCH && in_wait;
+    // (S5a) rot4_exec=wait: ROL4 / ROR4 on a register: the same for its exec clocks (no IR move)
+    wire       r4_now = p4.r4 && p4.res != 11'd0 && busy && cur_kind == K_FETCH && in_wait;
     assign lx_hold = lx_now;
     // count_latch: the count byte taken on the latched delivery clock reaches the shift
     // counter a clock later; the take sync waits for the fetches in flight only
     wire        cl_hold = xt.cntk && xt.syn && (shift_latch || shift_held_r);
     wire [10:0] res_e = t_hold ? hold_res
                       : (p4.res + (ls_adj ? 11'd1 : 11'd0) - (oi_adj ? 11'd1 : 11'd0)
-                         + (lx_now ? 11'd1 : 11'd0)
+                         + ((lx_now || r4_now) ? 11'd1 : 11'd0)
                          + ((cl_hold && arrived_now) ? 11'd1 : 11'd0));
     // the take sync's count: in flight + asked on the take clock (a held detached I/O's
     // request not counted; sync_io=issue: nor one asked under the I/O's issue clock)
@@ -1463,7 +1961,8 @@ module v35_ucode
     wire [1:0]  owed_s = (xp.syn && !xp.def) ? owed_pk
                        : (xt.syn && (!xt.def || cl_hold)) ? owed_tk
                        : ask_d ? owed_t : owed_c;
-    wire [1:0]  owed_n = (g_abort_lat && p4.sync_v && !p4.sync_def && owed_s == 2'd0) ? 2'd1
+    wire [1:0]  owed_n = t_prs ? 2'd1
+                       : (g_abort_lat && p4.sync_v && !p4.sync_def && owed_s == 2'd0) ? 2'd1
                                                                                         : owed_s;
     wire [1:0]  wb_end = p_end2 ? p2.wbc : (p_done_rec ? p0.wbc : (t_end2 ? s2.wbc : wbc));
     wire [2:0]  wb_tot = {1'b0, wb_end} + (wbx ? 3'd1 : 3'd0);
@@ -1471,10 +1970,15 @@ module v35_ucode
     // the next cursor's row, the window's address (the decode ahead when no row follows)
     rv_t        nrow;
     always_comb nrow = rowat(p4.a);
-    wire        loop_e = p4.run && nrow.v && nrow.r.loop && p4.elem + 16'd1 < elems;
+    // (the window: a REP loop's last row loops back unless CW runs out; a compare's exit on its
+    // condition finds the rows after the loop in the window too)
+    wire        loop_e = p4.run && nrow.v && nrow.r.loop && !(p4.fmt.rep && cw_e == 16'd1);
     wire        ahead_e = !p4.run || (nrow.v && nrow.r.last && nrow.r.skip == V35_SKIP_NONE
                                       && !loop_e);
-    wire [10:0] base_e = tbase(nf_fmt, nf_addr, cl_e);
+    assign run_n = run_of(nf_fmt, nf_addr, cl_e, psw_e, cw_e);
+    wire [10:0] base_e = tbase(nf_fmt, run_n);
+    // xfer_nt_b2b=decide: a conditional short transfer not taken waits at its decide row
+    assign ntb_ok = p4.run && nrow.v && nrow.r.op == V35_OP_DECIDE && !p4.fmt.dbnz && !halted;
     wire [10:0] wa_e = loop_e ? p4.ltop
                      : ahead_e ? (nf_v ? base_e : wa)
                      : (nrow.v ? p4.a + 11'd1 : p4.a);
@@ -1542,7 +2046,27 @@ module v35_ucode
             nw <= 4'd0;
             first_clk <= 1'b0;
             lx <= 1'b0;
-            elem <= 16'd0;
+            r4 <= 1'b0;
+            elem <= 2'd0;
+            lxt <= 1'b0;
+            scond <= 1'b0;
+            sfl_v <= 1'b0;
+            sfl <= 4'd0;
+            ls2 <= 1'b0;
+            sfage <= 4'd0;
+            single <= 1'b0;
+            tha <= 1'b0;
+            thd <= 1'b0;
+            cva <= 1'b0;
+            sage <= 4'd0;
+            nwf <= 1'b0;
+            nwu <= 1'b0;
+            lrc <= 4'd0;
+            lsp <= 1'b0;
+            lw_v <= 1'b0;
+            lw_rel <= 4'sd0;
+            lw_fwb <= 3'd0;
+            lwc <= 3'd0;
             ltop <= 11'd0;
             fmt <= '0;
             cc <= '0;
@@ -1559,6 +2083,12 @@ module v35_ucode
             eac <= 3'd0;
             st_prev <= 1'b0;
             fst <= 1'b0;
+            tkn <= 1'b0;
+            zf <= 1'b0;
+            oddpc <= 1'b0;
+            ont <= 1'b0;
+            dab <= 1'b0;
+            dabs <= 4'd0;
         end else if (ce) begin
             run <= p4.run;
             upc <= p4.a;
@@ -1632,7 +2162,68 @@ module v35_ucode
             nw <= p4.nw;
             first_clk <= p4.first_clk && p4.res != 11'd0;
             lx <= p4.lx && res_e > 11'd1;
+            r4 <= p4.r4 && res_e > 11'd1;
             elem <= p4.elem;
+            lxt <= p4.lxt;
+            scond <= p4.scond;
+            sfl_v <= p4.sfl_v;
+            sfl <= p4.sfl == 4'd0 ? 4'd0 : p4.sfl - 4'd1;
+            ls2 <= p4.ls2;
+            single <= p4.single;
+            tha <= p4.tha;
+            thd <= p4.thd;
+            cva <= p4.cva && !st_now;
+            sage <= st_now ? 4'd1 : (sage == 4'd15 ? 4'd15 : sage + 4'd1);
+            sfage <= own_h2 ? 4'd1 : (sfage == 4'd15 ? 4'd15 : sfage + 4'd1);
+            // str_io_setup=run: the fetch issued on the nowait row's first clock back to back
+            if (xt.nwfirst)
+                nwf <= g_fetch && fetch_end_prev;
+            else if (fetch_last_c)
+                nwf <= 1'b0;
+            if (xt.nwfirst)
+                nwu <= 1'b0;
+            else if (xt.nwused || xp.nwused)
+                nwu <= 1'b1;
+            // mul_imm_count=sync: the clean clocks (no cycle but a fetch issued from mul_from
+            // on) since mul_from
+            if (st_now) begin
+                mfw_v <= p4.fmt.mul_imm && p4.fmt.mem;
+                mfw <= 4'(v35_ea_clocks(p4.fmt.ea_mode));
+                mf_on <= 1'b0;
+            end else if (mf_at) begin
+                mfw_v <= 1'b0;
+                mf_on <= 1'b1;
+            end else if (mfw_v && mfw != 4'd0)
+                mfw <= mfw - 4'd1;
+            if (mf_at || mf_on)
+                mf_cnt <= !mf_clean ? 4'd0 : ((mf_at ? 4'd0 : mf_cnt) == 4'd15 ? 4'd15
+                                              : (mf_at ? 4'd0 : mf_cnt) + 4'd1);
+            mf_o <= mf_oldn && !fetch_last_c;
+            if (st_now) begin
+                lwc <= (lw_v && lwx > 6'sd1) ? 3'(lwx - 6'sd1) : 3'd0;
+                lw_v <= p4.fmt.lea && g_fetch;
+                lw_rel <= 4'(fetch_len) - 4'sd2;
+                lw_fwb <= p4.cc.fwb;
+            end else begin
+                if (lwc != 3'd0)
+                    lwc <= lwc - 3'd1;
+                if (lw_rel != -4'sd8)
+                    lw_rel <= lw_rel - 4'sd1;
+            end
+            if (xp.lrset)
+                lrc <= xp.lrn == 4'd0 ? 4'd0 : xp.lrn - 4'd1;
+            else if (xt.lrset)
+                lrc <= xt.lrn == 4'd0 ? 4'd0 : xt.lrn - 4'd1;
+            else if (lrc != 4'd0)
+                lrc <= lrc - 4'd1;
+            // lea_disp=run: an LDEA's d16 whose last byte is the even half of a word (not one
+            // started on an I/O's issue clock: the P pass); its successor does not start on a
+            // back-to-back fetch's clock, unless the d16 was taken off a refill run
+            if (st_now)
+                lsp <= !p_start && p4.fmt.lea && p4.fmt.disp == 2'd2
+                       && !(p4.oddpc ^ ((p4.fmt.len - 3'd1) & 3'd1) != 3'd0);
+            else if (xt.lsclr || xp.lsclr)
+                lsp <= 1'b0;
             ltop <= p4.ltop;
             // the memory forms' timers (this clock's values in p4, counted down at the edge)
             fl_v <= p4.fl_v;
@@ -1653,6 +2244,12 @@ module v35_ucode
             // lookup_start: the running form started on this clock, a fetch issued on it (T)
             st_prev <= st_now;
             fst <= t_start && !p_start && g_fetch;
+            tkn <= p4.tkn;
+            zf <= p4.zf;
+            oddpc <= p4.oddpc;
+            ont <= p4.ont;
+            dab <= st_now ? g_abort : (dab || g_abort);
+            dabs <= et.dabs == 4'd15 ? 4'd15 : et.dabs + 4'd1;
             // count_latch: held from the count byte's take to the shift's last clock
             if (shift_latch)
                 shift_held_r <= 1'b1;
@@ -1671,17 +2268,18 @@ module v35_ucode
         if (ce && reset_n) begin
             dbg_t <= dbg_t + 32'd1;
             if (dbg != 0)
-                $fdisplay(dbg, "uc %0d run%0d upc%0d rc%0d wa%0d res%0d | r1 %0d.%0d op%0d c%0d k%0d m%0d | r2 %0d op%0d c%0d m%0d | st%0d%0d try%0d%0d gate%0d%0d dec%0d%0d base%0d nf%0d->%0d",
+                $fdisplay(dbg, "uc %0d run%0d upc%0d rc%0d wa%0d res%0d | r1 %0d.%0d op%0d c%0d k%0d m%0d | r2 %0d op%0d c%0d m%0d | st%0d%0d try%0d%0d gate%0d%0d dec%0d%0d base%0d nf%0d->%0d | r3 %0d op%0d | p %0d%0d%0d | sc%0d lx%0d el%0d sl%0d se%0d ls2%0d",
                          dbg_t, run, upc, rc_v, wa, res, t_ev1, r1.v, r1.r.op, x1.complete,
                          x1.cont, x1.rom_miss, t_ev2, r2.r.op, x2.complete, x2.rom_miss,
                          s1.started, s3.started, t_try1, t_try2, t_gate1, t_gate2, t_dec1,
-                         t_dec2, base_c, nf_v, wa_e);
+                         t_dec2, base_c, nf_v, wa_e, t_ev3, r3.r.op, p_ev1, p_ev2, p_ev3,
+                         p4.scond, p4.lxt, p4.elem, str_last, str_exit, p4.ls2);
         end
     end
 `endif
 
     wire unused = &{1'b0, xt.why, xp.why, xt.def, xp.def, xt.complete, xp.complete, xt.cont,
-                    xp.cont, xp.relatch, xp.flush, xp.halt, xp.fhold, xp.rt_set, xp.rt_n,
+                    xp.cont, xp.relatch, xp.flush, xp.halt, xp.rt_set, xp.rt_n,
                     xp.retire, xp.set_exec, xp.sh_set, xp.sh_n, xp.cntk, xp.landed, t_lapse,
                     x1.rom_miss, x2.rom_miss, y1.rom_miss, y2.rom_miss, xt, xp, ir_addr_c,
                     room_p0, r1n, r2n, u1n, u2n, cur_left, dpass, nf_addr, g1, g2, h1, h2,

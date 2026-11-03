@@ -1380,6 +1380,17 @@ def _decode_attrs():
         ("breg", 1, lambda o, c: b(o) == "reg"),
         ("idle1", 1, lambda o, c: c.one_idle != "none" and o.length == 1
          and o.cls in E.ONE_IDLE[c.one_idle]),
+        # (S5a) the start-time decision of a transfer (v35_run_t.taken / zfail, the template a
+        # start picks from the flags and CW, templates.decode): tsel 0 always taken (or no
+        # transfer), 1 the condition field (cond_taken), 2 CW counted down (DBNZ: CW - 1 != 0),
+        # 3 CW zero (BCWZ); zpol: DBNZE's Z test (Z set continues; DBNZNE: Z clear)
+        ("tsel", 2, lambda o, c: 1 if o.cond else 2 if b(o) == "dbnz" else
+         3 if o.cls == "bcwz" else 0),
+        ("zpol", 1, lambda o, c: o.cls == "dbnz_z" and o.opcode == 0xE1),
+        # xshort: a short transfer (base class branch_short or dbnz: xfer_odd, xfer_nt)
+        ("xshort", 1, lambda o, c: b(o) in ("branch_short", "dbnz")),
+        # rot4r: ROL4 / ROR4 on a register (rot4_exec=wait)
+        ("rot4r", 1, lambda o, c: o.cls in ("rol4", "ror4")),
     )
 
 
@@ -1397,7 +1408,26 @@ def _decode_attrs():
 #   stk  the form's requests address the stack (SP is its address register)
 XOPS = ("NONE", "ALU", "MOV", "XCH", "SHIFT", "MUL", "DIV", "MULI", "INC", "DEC", "NOT", "NEG",
         "LDEA", "SRLD", "SRST", "PUSH", "POP", "PUSHF", "POPF", "PUSHR", "POPR", "CVTBW",
-        "CVTWL", "FLAG", "ADJ", "CVTBD", "CVTDB", "LAHF", "SAHF", "IN", "OUT", "XLAT")
+        "CVTWL", "FLAG", "ADJ", "CVTBD", "CVTDB", "LAHF", "SAHF", "IN", "OUT", "XLAT",
+        # (S5a) the transfers, the strings, the stack frame, the far pointer loads:
+        #   JMP / CALL  aop the target: XFER_REL (the next IP + the displacement), XFER_FAR (the
+        #               operand's offset and segment), XFER_REG (the rm register), XFER_MEM (the
+        #               pointer's offset word read at the EA), XFER_MEMFAR (and its segment word)
+        #   LOOP        DBNZ / DBNZE / DBNZNE: CW counted down, then XFER_REL
+        #   RET         aop RET_NEAR (the offset popped; RET imm16: SP raised by the immediate),
+        #               RET_FAR (offset, segment), RET_INT (RETI: offset, segment, PSW)
+        #   BRK         aop the vector type (0: the operand byte's, BRK imm8)
+        #   STR         aop the element's operation (STR_OPS); wd the width
+        #   PREP, DISP  PREPARE imm16,0 / DISPOSE; LPTR (LES / LDS: aop the segment, 0 DS1, 3 DS0)
+        "JMP", "CALL", "LOOP", "RET", "BRK", "STR", "PREP", "DISP", "LPTR",
+        # (S5a) the packed BCD strings ADD4S / SUB4S / CMP4S (0F 20 / 22 / 26: aop 0 / 1 / 2);
+        # the rest of the 0F page is S5b's
+        "BCD")
+XFER_KINDS = ("REL", "FAR", "REG", "MEM", "MEMFAR")
+RET_KINDS = ("NEAR", "FAR", "INT")
+BCD_OPS = {0x20: 0, 0x22: 1, 0x26: 2}                                    # ADD4S SUB4S CMP4S
+STR_OPS = {0xA4: 0, 0xA6: 1, 0xAA: 2, 0xAC: 3, 0xAE: 4, 0x6C: 5, 0x6E: 6}   # MOVBK CMPBK STM LDM
+                                                                            # CMPM INM OUTM
 ROLES = ("NONE",
          "RF",          # the ModR/M reg field's register
          "RM",          # the ModR/M rm field's register, or the memory operand (a memory half)
@@ -1410,7 +1440,7 @@ ROLES = ("NONE",
          "SOP")         # the segment register the opcode's bits 4:3 name (06-1F)
 FLAG_OPS = {0xF8: 0, 0xF9: 1, 0xF5: 2, 0xFA: 3, 0xFB: 4, 0xFC: 5, 0xFD: 6}   # CLC STC CMC CLI STI
 ADJ_OPS = {0x27: 0, 0x2F: 1, 0x37: 2, 0x3F: 3}                                # CLD STD; ADJ4A ...
-XOP_ATTRS = (("xop", 5, None), ("aop", 3, None), ("opa", 4, None), ("opb", 4, None),
+XOP_ATTRS = (("xop", 6, None), ("aop", 3, None), ("opa", 4, None), ("opb", 4, None),
              ("wd", 1, None), ("nwr", 1, None), ("sx", 1, None), ("stk", 1, None))
 
 
@@ -1418,15 +1448,48 @@ def _xop_of(op, form) -> dict:
     """The datapath attributes of a started form (XOP_ATTRS), from its encoding."""
     x = {"xop": "NONE", "aop": 0, "opa": "NONE", "opb": "NONE", "wd": 1, "nwr": 0, "sx": 0,
          "stk": int(bool(op.stack))}
-    if form.page != 0:
-        return _xop_int(x)                  # the 0F page and the REP strings: S5's
+    if form.page == 1:
+        if form.opcode in BCD_OPS:          # (S5a) the BCD strings' datapath (decoded in S5b)
+            x.update(xop="BCD", aop=BCD_OPS[form.opcode], wd=0)
+        return _xop_int(x)                  # the rest of the 0F page: S5b's
     o = form.opcode
     reg = (form.modrm >> 3) & 7 if form.modrm is not None else 0
+    mem = form.modrm is not None and form.modrm >> 6 != 3
 
     def put(xop, opa="NONE", opb="NONE", wd=1, aop=0, nwr=0, sx=0):
         x.update(xop=xop, opa=opa, opb=opb, wd=wd, aop=aop, nwr=nwr, sx=sx)
 
-    if o < 0x40 and o & 7 < 4:
+    if form.page == 2 or (o & 0xFE) in STR_OPS:
+        # (S5a) a string form (a REP prefix's: page 2, the opcode the string byte)
+        put("STR", wd=o & 1, aop=STR_OPS[o & 0xFE])
+    elif 0x70 <= o <= 0x7F or o in (0xEB, 0xE9, 0xE3):
+        put("JMP", aop=XFER_KINDS.index("REL"))
+    elif o in (0xE0, 0xE1, 0xE2):
+        put("LOOP", aop=XFER_KINDS.index("REL"))
+    elif o == 0xEA:
+        put("JMP", aop=XFER_KINDS.index("FAR"))
+    elif o == 0xE8:
+        put("CALL", aop=XFER_KINDS.index("REL"))
+    elif o == 0x9A:
+        put("CALL", aop=XFER_KINDS.index("FAR"))
+    elif o in (0xC2, 0xC3):
+        put("RET", aop=RET_KINDS.index("NEAR"))
+    elif o in (0xCA, 0xCB):
+        put("RET", aop=RET_KINDS.index("FAR"))
+    elif o == 0xCF:
+        put("RET", aop=RET_KINDS.index("INT"))
+    elif o in (0xCC, 0xCD):
+        put("BRK", aop=3 if o == 0xCC else 0)
+    elif o == 0xFF and reg in (2, 3, 4, 5):
+        kind = ("MEMFAR" if reg in (3, 5) else "MEM") if mem else "REG"
+        put("CALL" if reg in (2, 3) else "JMP", opa="RM", aop=XFER_KINDS.index(kind))
+    elif o == 0xC8:
+        put("PREP", opb="IMM")
+    elif o == 0xC9:
+        put("DISP")
+    elif o in (0xC4, 0xC5):
+        put("LPTR", "RF", "RM", aop=0 if o == 0xC4 else 3)
+    elif o < 0x40 and o & 7 < 4:
         d = bool(o & 2)
         put("ALU", "RF" if d else "RM", "RM" if d else "RF", o & 1, (o >> 3) & 7,
             int((o >> 3) & 7 == 7))
@@ -2491,6 +2554,14 @@ def render_pkg(gen: Gen) -> str:
         lines.append(f"  localparam logic [{xb - 1}:0] V35_XOP_{v} = {xb}'d{i};")
     for i, v in enumerate(ROLES):
         lines.append(f"  localparam logic [{rb - 1}:0] V35_ROLE_{v} = {rb}'d{i};")
+    # (S5a) the sub-operations (aop) of JMP / CALL / LOOP (the target), RET, STR
+    for i, v in enumerate(XFER_KINDS):
+        lines.append(f"  localparam logic [2:0] V35_XK_{v} = 3'd{i};")
+    for i, v in enumerate(RET_KINDS):
+        lines.append(f"  localparam logic [2:0] V35_RETK_{v} = 3'd{i};")
+    for v, i in sorted(STR_OPS.items(), key=lambda kv: kv[1]):
+        name = ("MOVBK", "CMPBK", "STM", "LDM", "CMPM", "INM", "OUTM")[i]
+        lines.append(f"  localparam logic [2:0] V35_STR_{name} = 3'd{i};   // {v:02X}")
     lines.append("")
     lines.append("  // ---- decode table entries: a register-form half (hr: mod = 3 or no ModR/M)"
                  " and a memory-form half (hm) ----")

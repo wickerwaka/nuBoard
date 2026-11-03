@@ -39,7 +39,7 @@ package v35_front_pkg;
         logic [15:0] data;
         logic [6:0]  setup;
         logic        fn_v;      // free_need is set (None: every setup clock fetch-free)
-        logic [2:0]  fn;        // free_need
+        logic [6:0]  fn;        // free_need ((S5a) 7 bits: BRK's rfree 8, a shift's setup - sthru)
         logic [1:0]  lead;
         logic        port;      // an I/O form with a port byte
         logic        detached;  // io_release=post
@@ -57,6 +57,17 @@ package v35_front_pkg;
         logic        dlive;     // the datum is the running form's result (an RMW's, POP's)
         logic        dimm;      // ... its immediate, taken after the write issued (store_imm):
                                 //     the bus takes it at B2
+        // (S5a)
+        logic        nwt;       // io_count=nowait: the setup counts every clock but a wait
+                                // state (an I/O request; str_count / burst_count = dw)
+        logic        dwl;       // dwlike: a string's / PUSH R's request counted as a DW-form
+                                // I/O request's (dw_count)
+        logic        memc;      // str_in_io=free: an unprefixed INM's I/O read counted as a
+                                // memory request's (the sequencer's)
+        logic        fhd;       // floor_hold: the floor (str_single_start=write) holds fetches
+        logic        strc;      // a string form's (str_io_latch=write: its I/O write latched)
+        logic        mfr;       // mul_imm_count=sync: MUL imm memory's read, counted by mul_free
+        logic [3:0]  c0;        // ... its count at the post (the clean clocks since mul_from)
     } req_t;
 
     // ------------------------------------------------------------ fixed structure
@@ -95,7 +106,7 @@ package v35_front_pkg;
         input logic       lat,          // the latched byte is present
         input logic       arrived_now,  // a word was delivered on this clock
         input logic       port_busy,    // the decoder holds the write port on this clock
-        input logic       need_nz,      // operand bytes outstanding (mid-take)
+        input logic [2:0] nd,           // operand bytes outstanding (decoder.need)
         input logic       disp_now,     // a displacement's take on this clock (latch_disp)
         input logic       ir_v,         // the IR holds an opcode
         input logic       imm16,        // a two-byte-immediate register form runs (room_ir_imm)
@@ -103,10 +114,21 @@ package v35_front_pkg;
         input logic       mate_now,     // the ModR/M's word-mate taken on a delivery clock
         input logic       ea_act,       // ea_ir_room: t < ea_end
         input logic       fresh,        // room_ir_pre=modrm: decoder.fresh (_pre_room)
-        input logic       slot_word     // the delivered word is a slot fetch's
+        input logic       slot_word,    // the delivered word is a slot fetch's
+        input logic [2:0] xk,           // (S5a) the running form: {a displaced LDEA (lea_slot),
+                                        // a memory-indirect transfer (xfer_mem_room), a far
+                                        // transfer (far_room)}
+        input logic       lea_ir        // (S5a) lea_room=ir: LDEA's EA clocks after its last
+                                        // operand byte: the IR's opcode not counted
     );
         logic signed [5:0] used, size;
-        logic lat_now;
+        logic lat_now, need_nz, far1, xarr;
+        need_nz = nd != 3'd0;
+        // far_room=take: a far form's segment word's last byte still to take: no seventh slot
+        // on the arrival clock; xfer_mem_room=arrival: a memory-indirect transfer with two or
+        // more operand bytes to take: the arrival clock's seventh slot whatever holds the IR
+        far1 = xk[0] && nd == 3'd1;
+        xarr = arrived_now && xk[1] && nd >= 3'd2;
         used = 6'(cnt) + 6'(unc) + (inflight ? 6'sd2 : 6'sd0);
         // _latched_now (byte_d): the byte counts as a queue byte after its delivery clock,
         // and on it unless the decoder holds the port
@@ -114,14 +136,17 @@ package v35_front_pkg;
         if (lat_now && !need_nz && !disp_now)
             used = used - 6'sd1;
         size = 6'sd6;
-        if (arrived_now || ((!need_nz || fresh) && !imm16)) begin
-            if (ir_hold && (!need_nz || ea_act))
+        if ((arrived_now && !far1) || ((!need_nz || fresh) && !imm16)) begin
+            // (lea_slot=ea: a displaced LDEA's EA clocks before its displacement's take)
+            if (((ir_hold && (!need_nz || ea_act)) || (xk[2] && need_nz && ea_act)) && !xarr)
                 used = used + (ir_v ? 6'sd1 : 6'sd0);
             else begin
                 size = size + 6'sd1;
                 used = used + (ir_v ? 6'sd1 : 6'sd0);
             end
         end
+        if (lea_ir && ir_v && size > 6'sd6)
+            used = used - 6'sd1;
         if (fresh && arrived_now)
             used = used - 6'sd1;
         if (arrived_now && mate_now)

@@ -38,6 +38,9 @@
 //   wl 3                                     wlatch_until - t (the data latch, wlatch 4)
 //   ab_v 1, ab_pos 2                         queue.abort_end (the 3-clock aborted fetch cycle:
 //                                            nothing on the pins, the bus stays free)
+//   (S5a) w_v 1, w_ncyc 2, w_rel 5           the last memory write among bus.cycles[-3:]
+//                                            (str_single_start=write): set, the cycles started
+//                                            after it (sat 3), its last clock - t (signed, sat)
 module v35_bus
     import v35_front_pkg::*;
 (
@@ -66,6 +69,7 @@ module v35_bus
     input  wire        g_take_near,
     input  wire        g_abort,     // the aborted fetch cycle starts (abort_fetch=retry)
     input  wire        g_slot,      // the left-out write's slot (slot_latch: the data latch)
+    input  wire        g_wl_io,     // (S5a) a string form's I/O write issued (str_io_latch=write)
     input  wire [1:0]  g_dsel,      // (S4) the write datum taken at B2 (store_imm's immediate)
     input  wire [15:0] wd_imm,      // ... the EU's immediate on that clock
     input  wire        disp_take,   // a displacement taken on this clock (c_disp_in_flight)
@@ -104,6 +108,8 @@ module v35_bus
     output wire [2:0]  fetch_len,       // bus.length("fetch")
     output wire [2:0]  grant_len,       // the length of the granted cycle
     output reg         error,           // a start on a bus that was not free (sticky)
+    output wire        w3_v,            // (S5a) a memory write is among the last three cycles ...
+    output wire signed [4:0] w3_rel,    //   ... its last clock - t
 
     // pins (as v35s_model.sv)
     output reg         a0,
@@ -154,6 +160,11 @@ module v35_bus
     reg  [2:0]  d_kind = K_NONE;
     reg  [19:0] d_addr = 20'd0;
     reg  [1:0]  d_width = BW_WORD;
+    reg         w_v = 1'b0;
+    reg  [1:0]  w_ncyc = 2'd0;
+    reg  signed [4:0] w_rel = 5'sd0;
+    assign w3_v = w_v && w_ncyc <= 2'd2;
+    assign w3_rel = w_rel;
 
     // ------------------------------------------------ S0
     wire last_clock = c_valid && c_pos == c_len - 3'd1;
@@ -184,7 +195,8 @@ module v35_bus
     // issue (eu.issue), a register form's last operand byte (wl_fill)
     wire [2:0] wl_now = wl == 3'd0 ? 3'd0 : wl - 3'd1;
     wire fill_c = d_v && (d_kind == K_READ || d_kind == K_IO_READ);
-    wire fill_x = (g_start && g_kind == K_WRITE) || wl_fill_t || g_slot;
+    wire fill_x = (g_start && (g_kind == K_WRITE || (g_kind == K_IO_WRITE && g_wl_io)))
+                  || wl_fill_t || g_slot;
     wire [2:0] wl_fill_v = wl_now > 3'(FIT_WLATCH) ? wl_now : 3'(FIT_WLATCH);
     wire [2:0] wl_c = fill_c ? wl_fill_v : wl_now;
     wire [2:0] wl_x = (fill_c || fill_x) ? wl_fill_v : wl_now;
@@ -226,6 +238,17 @@ module v35_bus
         end else if (ce) begin
             wl <= wl_e;
             f_since <= fetch_x ? 4'd0 : fetch_since;
+            // (S5a) the last memory write (its last clock relative to the next clock)
+            if (g_start && g_kind == K_WRITE) begin
+                w_v <= 1'b1;
+                w_ncyc <= 2'd0;
+                w_rel <= 5'(grant_len) - 5'sd2;
+            end else begin
+                if (g_start && w_ncyc != 2'd3)
+                    w_ncyc <= w_ncyc + 2'd1;
+                if (w_rel != -5'sd16)
+                    w_rel <= w_rel - 5'sd1;
+            end
             // the delivery registers: the cycle whose last clock is this one
             d_v <= busy && pos_now == c_len - 3'd1;
             d_kind <= c_kind;

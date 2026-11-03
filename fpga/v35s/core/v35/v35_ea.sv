@@ -46,7 +46,8 @@ module v35_ea
     output wire [15:0] off,             // the offset (f_t)
     output wire        bp,              // ... a BP mode (the default segment SS)
     output wire [15:0] seg,
-    output wire [19:0] phys
+    output wire [19:0] phys,
+    output wire        ok_t             // (S5a) off is known: base + index latched or on the ports
 );
     reg [15:0] ea_bi = 16'd0;
     reg        ea_done = 1'b0;
@@ -70,6 +71,7 @@ module v35_ea
 
     // the base + index: latched, or on the ports now
     wire [15:0] bi_t = ea_done ? ea_bi : base_t[15:0] + index_t[15:0];
+    assign ok_t = ea_done || (base_t[16] && index_t[16]);
     logic       bp_w;
     logic [15:0] off_w;
     always_comb begin
@@ -103,5 +105,5 @@ module v35_ea
         end
     end
 
-    wire unused = &{1'b0, base_t[16], index_t[16], f_now};
+    wire unused = &{1'b0, f_now};
 endmodule

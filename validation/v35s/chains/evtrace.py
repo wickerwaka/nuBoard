@@ -177,6 +177,7 @@ def _upper_addr(item: str) -> str:
     if f[0] == "X" and len(f) == 5:
         f[2] = f[2].upper()
     elif f[0] == "S" and len(f) == 3:
+        f[1] = _base_cls(f[1])          # (S5a) the model side names the base class
         f[2] = f[2].upper()
     return ":".join(f)
 
@@ -218,7 +219,10 @@ def run_rtl(chain, path: Path):
     if not binary.exists():
         raise SystemExit(f"{binary} is missing: fpga/v35s/build_sim.sh direct v35")
     transport = SimulationTransport.__new__(SimulationTransport)
-    transport.process = subprocess.Popen([str(binary), f"+v35_trace={path}"], cwd=ROOT,
+    import os
+    # (S5a) V35_PLUSARGS: more plusargs for the run (e.g. +v35_dbg=FILE, the sequencer's state)
+    extra = os.environ.get("V35_PLUSARGS", "").split()
+    transport.process = subprocess.Popen([str(binary), f"+v35_trace={path}", *extra], cwd=ROOT,
                                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     try:
         rec = replay_one(chain, harness=Harness(DebugClient(transport.exchange)))

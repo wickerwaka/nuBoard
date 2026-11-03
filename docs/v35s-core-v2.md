@@ -705,3 +705,27 @@ Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, e
   copies); eu's `mkreq` is instantiated twice; the loader evaluates `v35_fmt_of` six times a clock. S7's
   cuts: one `do_row` with the format word and class constants as registered sideband and P as a restricted
   re-evaluation; one `mkreq`; one decode lookup.
+- 2026-11-02, **S5a landed**: the transfers (start-time `taken` / `zfail` / `n0` from the PSW and CW at the
+  decode a clock ahead, with the generated `tsel` / `zpol` / `xshort` / `rot4r` bits; FLUSH / FLUSH_C /
+  DECIDE acting: the queue's flush and discard, the odd-target fetch, flush_hold, xfer_odd / xfer_nt /
+  xfer_nt_b2b, decide_abort, refill_start, far_room, stack_wb, ret_far_fetch; PC / PS / SP written by the
+  datapath, BRK and RETI vectors), the strings' element loop (CW / CL counts, the REP compare exits as
+  skip-ahead rows, fetch_hold / release, QUIET, SPLIT_FLOOR / FROM_START, str_held, str_single_start as a
+  last-write counter, dwlike), LDEA and the stack frame (lea_wb / lea_disp / lea_room, PUSH R / POP R,
+  PREPARE / DISPOSE), the I/O frame probes, the register miscellany (one_idle=long, long_exec, incdec, the
+  conversions under cvt_hold, mul_imm_count=sync counted forward, rot4's wait) and the data forms. Widths
+  corrected from the corpus: `free_need` 7 bits (BRK's 8, a memory shift's 16), `str_held` 6 bits. The
+  pass budget grew: a skipped row costs no row, the P pass evaluates a third row in a running form, a FLUSH
+  reached in P is not acted on (diag-reported; none in the gate). The prelude's BR far now runs the real
+  flush_hold / refill_start rows (Divergence 4 closed) and the pre-window still matches. **Gate: the 32
+  refresh-off families without a 0F form, 25,742 runs, every one RTL = model (model-exact 25,647; the
+  95 misses all the model's own and shared), pre-window exact throughout, `--diag` silent.** Lint clean in
+  four configurations; function bench 0 bad on F0 F3 F23 F24 F25 F30 F31 F33 F38 (funcref raises
+  NotModelled on F35 F36 F37 for opcodes E3, 9C, FF /2: pre-existing); the nine offline modules unchanged.
+  Divergences 13–18 (README): the REP prefix decoded with the queue's head byte as its string opcode; IX / IY
+  / CW as flops written through to the RAM when the port is free; the pass-budget changes; the element
+  loop's exits taken from the datapath at the loop row; model history kept as counters; QUIET waiting on
+  the request as the clock began. Per-module `efx_map` LUT4: arbiter 1,615, ucode 13,091, eu + ea 7,679,
+  queue 1,030, loader 3,962, bus 248, regram 16; sum 27,641 (S4: 22,379), RAM_5K 44, MULT 9; the growth is
+  inside the existing `do_row` / `mkreq` / `v35_fmt_of` instances (no copy added). S5b (the 0F page and the
+  whole refresh-off corpus) launched.
