@@ -654,6 +654,72 @@ chain (the T pass's three row evaluators, the arbiter's priority tree and the P 
 evaluators in series inside one CPU clock) against a 30 ns clock with partly rejected multicycle
 constraints. The user's direction is to fix the structure, not the constraints.
 
+## S8: the table-driven sequencer (decided 2026-11-03)
+
+S7b showed that the two-tick structure cannot be closed by reorganising the sequencer's RTL: a row's
+semantics are 15–20 LUT levels, a CPU clock needs a start and up to three rows in series, and the start reads
+the live IR format (scratchpad v2/s7b/s7b-depth-reading.md; v35_ucode 62 / 59 levels a tick against a budget
+of about 6–8). The user decided to redesign the sequencer. S8 replaces evaluation with selection: the
+generator computes outcomes, the ROM carries them, the RTL selects.
+
+**Principles.** Silicon exactness stays the gate (the corpus at both spacings, the write data, SST and the
+vectors unchanged). The clocking directive stands: two enables, no multicycle or input constraint; any tick
+beyond two means another pipeline register set, never more time for a path. Area and ROM width are the
+currency. A behaviour change is allowed only where the corpus shows no run (the registered start's W_DEC
+wait: 0 of 30,536 runs by the `+v35_wdec` probe) and is counted by the trace. The inverse check covers every
+table entry, not a sample: a Python mirror of the model's step semantics evaluates each (row, condition
+vector), (pair, vector) and (template, avail) entry and compares it with the steps the model runs on that
+clock. RTL still compares format bits and row fields only (test_v35_struct).
+
+**Architecture.**
+
+1. *The registered start.* The start's gate inputs, format, class constants, template key and the
+   ModR/M-derived run bits come from the decode ahead's registers written at the previous `ce_a` (`nf_fmt`,
+   the class entry, `ka_key`, the run bits), not from the live IR format. In-tick the start reads only S1's
+   strobes (a fetch in flight, room and latch values, `b2b_now`, the delivery, `fl_now`). A start whose
+   decode ahead was not the live format (the ModR/M or 0F second byte arriving on the start clock) waits a
+   clock (W_DEC, Divergences 19 / 28 widened to the whole format; `+v35_wdec` counts it; 0 on the corpus).
+2. *Row outcome words.* For each row, ucgen enumerates the row kind's P-known condition vector (the wait's
+   inputs, the skip and arm conditions, `n == 0`, `io_exec`, the exec flags, `post_ok`, the gap compares; 1–8
+   bits, the median 3) and emits the outcome per vector value beside the row: complete, cont, the take
+   count, post, the pass-state deltas and the strobes that are not plain functions of the static fields.
+   The RTL selects the entry by the registered vector (a mux) and applies the three in-tick quantities after
+   it: avail (a compare / subtract against the take count), the ModR/M byte's length / disp / mode (a
+   2-level decode of the byte when it arrives on the clock), `str_exit`. The vector's field list per row kind
+   is generated into `v35_pkg.sv` and checked by test_ucgen.
+3. *Pass tables for the in-form chains.* A pass never chains evaluators. The measured in-form pairs
+   (POST → TAKE, DATA → CLOCKS, LEAD TAKE → DATA, DATA → DATA, POST_IO → CLOCKS, NOWAIT → DATA, DATA → POST,
+   DECIDE → CLOCKS, DATA → SPLIT_FLOOR and the rest of the ~60 kind pairs on the corpus) are a table per
+   row-kind pair × the union vector, generated as logic (`v35_pass_tbl.svh`) or a small ROM, the row words
+   supplying the static parts; the third row (pop_mem's delivery / post / clocks, a lead take's clocks after a
+   start) is one fixed case. Anything outside the generated pairs is `voc_miss`, 0 on the corpus.
+4. *The cross-form pass.* The next form's template is known a clock ahead; its row-0 outcome per avail
+   (0..8) is read a tick early from a table indexed by the template base (231 × 9 entries, about 50 kbit, or
+   logic). Case E (the cursor row ends the form) is then: the row's "ends the form" bit selects the row-0
+   outcome, avail less the row's take count picks the entry — two selects and a subtract.
+5. *The P step* keeps S7b's case structure, its first-row action taken from the same outcome words.
+6. *Budget.* The core's block RAM stays within what the harness leaves (the harness uses 920 of 1,056
+   RAM_5K): the core ≤ 80 RAM_5K. Sequencer LUT4 ≤ 12,000 (S7b 10,797). Depth, module-local by the
+   levelizer: v35_ucode tick A and tick B ≤ 12 levels (from 62 / 59), confirmed by one routed run of
+   `v35_timing.sh ucode` at 15.625 ns with the worst path and slack reported; whole-top runs only when the
+   per-module runs close.
+
+**Work packages.** S8a (generator): the vector lists, the outcome words, the pass tables, the template
+row-0 table, the mirror and the extended inverse check; test_ucgen regenerate-and-diff. S8b (RTL): the
+registered start, the select-based T pass and P step, the ROM banks widened or paralleled for the outcome
+words, the loader's interface (the decode ahead's registers as the start's source), v35_trace's W_DEC count.
+S8a and S8b run in one worktree agent (the RTL's select structure and the generator's table format are one
+design); the hand-back is a diff against the S7b landing. Gates: the S7b gates (corpus at both spacings with
+`+v35_chk`, data, SST, regfile, fn, lint × 4, fast tests, nine modules) plus the depth and resource budgets
+above.
+
+**What S8 does not solve.** After S8 the same-clock chain outside the sequencer remains: arrival → the IR
+load → room / request → the arbiter's choice → P → the decode ahead → the ROM address, estimated 20–25 levels
+in tick A and 15–20 in tick B against about 6–8 a tick at 64 MHz. Closing two ticks at 64 MHz then needs
+speculation (the arbiter and P computed for both outcomes of the take and the IR load, selected late; the
+next template for each pop count); without it, the fabric clock the design closes at is lower. That is S9's
+question, decided from S8's routed numbers with the user.
+
 ## Record
 
 - 2026-11-02: plan approved; S1 (generator) and S2 (front end) launched as worktree work packages.
