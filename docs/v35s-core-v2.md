@@ -629,6 +629,31 @@ Bring-up order (each step adds the mechanisms the family isolates, so a divergen
 
 Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, end_clock 368-409, requesting/wants_fetch 518-581, issue 601, abort/retry 630-665); `eu.py` (`_start` 175-561, `_unit_hold` 608, tick 696-1373, `_submit` 1736-1836 incl. the back-count 1780-1798, `_post` 1909, issue/complete 1995-2034); `arbiter.py` (Request 47-110, counts 137, arbitrate 180-242, `_fetch_first` 429, `_page_take_ask` 487, `_choose` 507-843); `templates.py` (`_head` 943, `_ea_setup`/`_group` 1014-1108, `_steps` 1185, `_wp78_steps` 1600-1748, `_string_steps` 1779); `machine.py` (run 149-286: the C A T L R X P E order, the P-phase rules 185-228, the E-phase adjustments 230-257).
 
+## Clocking and timing (directive of 2026-11-03)
+
+The harness's fabric clock (30 ns) and CPU clock (eight fabric ticks) are not the target. The core
+must be able to run at a **fabric clock of 64 MHz with a CPU clock of 32 MHz**: two fabric ticks
+per CPU clock. The work of one CPU clock is split across those ticks with state machines or
+pipelining (two clock enables, or one clock enable at twice the CPU rate), never left as one
+combinational chain. **No multicycle or other special timing constraints**: the design closes
+timing on the plain clock period, in every module, and a stage's gate includes a static-timing
+result at 64 MHz with zero constraint exceptions.
+
+What this means for the structure of Appendix B §2: the six evaluation stages of a CPU clock keep
+their order and their meaning, but they are spread over the two fabric ticks (and over registered
+pipeline boundaries inside a tick where a chain is still too deep), and the architectural state
+still updates once per CPU clock. Where the model evaluates several sequential decisions in one
+clock (three microcode rows in a pass, the P pass after the arbiter's grant), the generator
+pre-resolves what can be pre-resolved into the ROM (zero-time rows folded, skip decisions as row
+attributes), and what remains is a small state machine stepping one decision per tick. The
+corpus gate (RTL = model on every refresh-off run) stays the regression for every such change;
+the model is a guide to the behaviour, never to the depth of the logic.
+
+Background: S7a's first whole-core place-and-route (2026-11-03) stalled on a 275 ns feed-forward
+chain (the T pass's three row evaluators, the arbiter's priority tree and the P pass's three
+evaluators in series inside one CPU clock) against a 30 ns clock with partly rejected multicycle
+constraints. The user's direction is to fix the structure, not the constraints.
+
 ## Record
 
 - 2026-11-02: plan approved; S1 (generator) and S2 (front end) launched as worktree work packages.
@@ -760,3 +785,8 @@ Critical model files: `queue.py` (room 288-339, `_latched_now` 271, check 235, e
   first version reading the window rows in every copy mapped to 23,233 and was replaced by a 4-bit window
   summary computed once a clock). Not built, by design: refresh timing, interrupts and bank switching, the
   trap_nop list, the WP125 candidates at their defaults. Next: S6 (function) and S7 (synthesis, retirement).
+- 2026-11-03, **clocking directive** (section "Clocking and timing"): fabric 64 MHz, CPU clock 32 MHz (two
+  fabric ticks per CPU clock), long chains split over ticks with state machines or pipelining, no multicycle
+  or special constraints. S7a's whole-core place-and-route had stalled on a 275 ns chain (six row evaluators,
+  the arbiter tree and the decode ahead in series) under 30 ns with partly rejected multicycle lines; it was
+  stopped. S7's goal becomes timing closure at 64 MHz by structure; the area work continues under it.
