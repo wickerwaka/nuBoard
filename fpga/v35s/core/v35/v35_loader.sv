@@ -94,6 +94,8 @@ module v35_loader
     output wire [7:0]  ir_c,
     output wire [19:0] ir_addr_c,
     output v35_fmt_t   fmt_c,           // the IR's format (its ModR/M byte the head byte)
+    output wire        ok_c,            // (S7) ... known (the opcode's table entry decoded a
+                                        //   clock ahead: the start waits a clock if not)
     output v35_cls_t   cls_c,           // ... its class constants
     output v35_fmt_t   fmt_mt,          // the running form (started before this clock)
                                         // re-decoded at a T ModR/M take (the head byte)
@@ -108,11 +110,14 @@ module v35_loader
     output wire [7:0]  ir_l,
     output wire [19:0] ir_addr_l,
     output v35_fmt_t   fmt_l,
-    output v35_cls_t   cls_l,
+    output wire        ok_l,            // (S7) ... known
     output wire        ir_v_l,
     // S5
     output wire        p_commit1,
     output v35_fmt_t   fmt_mp,          // the form running after T re-decoded at a P take
+                                        //   ((S7) not built: the T re-decode's; see p_mmiss)
+    output wire        p_mmiss,         // (S7) a P take of a running form's ModR/M byte: none
+                                        //   on the corpus (+v35_diag reports one)
     output wire        p_mate,
     output wire        p_ir,
     output wire [2:0]  need_p,
@@ -155,27 +160,44 @@ module v35_loader
     assign ir_addr_c = ir_addr;
     // (S5a) a REP prefix (escape 2) in the IR: the form is the string opcode behind it (page 2,
     // the opcode the next byte), its repc the prefix's; (S5b) the 0F escape (escape 1): the
-    // 0F page's form of the next byte (page 1), the byte after it its ModR/M byte
+    // 0F page's form of the next byte (page 1), the byte after it its ModR/M byte.
+    // (S7) The decode tables are read once a clock, by the decode ahead (S6): the opcode's
+    // table entry (v35_dec_native, v35_dec_ext on the 0F page, a REP prefix's string opcode's)
+    // is registered with the opcode, the page and the prefix's repc (`pd_*`) for the form the
+    // next clock holds (its IR, or the queue's head byte when the IR is empty); the format of
+    // the IR (`fmt_c`, and `fmt_l`, the IR after L) is assembled from that entry and the
+    // ModR/M byte as it stands (v35_fmt_asm: the group table and the ModR/M fields), the
+    // running form's re-decodes at its ModR/M take from the entry registered at its start
+    // (`d_run`). A format whose entry was not decoded a clock ahead (an escape whose second
+    // byte had not arrived; an IR loaded after T's takes) is not known (`ok_c`, `ok_l`): its
+    // start waits (W_DEC, counted by +v35_diag).
     /* verilator lint_off UNUSEDSIGNAL */
-    function automatic v35_fmt_t dec(input logic [7:0] o, input logic [7:0] nxt,
-                                     input logic [7:0] nxt2);
-        v35_dec_t d;
-        logic rp, pf;
+    function automatic v35_fmt_t dec_asm(input logic [7:0] o, input logic [1:0] page,
+                                         input v35_dec_t d, input logic [1:0] rc,
+                                         input logic [7:0] modrm);
         v35_fmt_t f;
-        d = v35_dec_native(o);
-        rp = d.esc == 2'd2;
-        pf = d.esc == 2'd1;
-        f = v35_fmt_of((rp || pf) ? nxt : o, rp ? 2'd2 : (pf ? 2'd1 : 2'd0),
-                       rp ? 8'h00 : (pf ? nxt2 : nxt));
-        if (rp)
-            f.repc = d.repc;
+        f = v35_fmt_asm(o, page, d, page == 2'd2 ? 8'h00 : modrm);
+        if (page == 2'd2)
+            f.repc = rc;
         return f;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
-    assign fmt_c = dec(ir, vb0, vb1);
+    // the decode ahead's registers: the next clock's form's opcode table entry
+    reg        pd_v = 1'b0;             // the opcode (and an escape's second byte) known
+    reg [1:0]  pd_pg = 2'd0;            // its page
+    reg [7:0]  pd_op = 8'h00;           // the opcode the entry is of (an escape's second byte)
+    reg [1:0]  pd_rc = 2'd0;            // a REP prefix's repc
+    v35_dec_t  pd_d = '0;               // the entry
+    v35_dec_t  d_run = '0;              // the running form's entry (from its start)
+    // the IR's form (or the head byte's when the IR is empty and L loads it before any take)
+    wire [7:0] a1_modrm = pd_pg == 2'd1 ? (ir_v ? vb1 : vb2) : (ir_v ? vb0 : vb1);
+    v35_fmt_t a1;
+    assign a1 = dec_asm(pd_op, pd_pg, pd_d, pd_rc, a1_modrm);
+    assign fmt_c = a1;
+    assign ok_c = pd_v;
     assign need_c = need;
     v35_cls_t c_cls;
-    assign c_cls = v35_cls_const(fmt_c.cls);
+    assign c_cls = v35_cls_const(a1.cls);
     assign cls_c = c_cls;
 
     function automatic logic [7:0] vb(input logic [2:0] k);
@@ -212,7 +234,7 @@ module v35_loader
     // the ModR/M byte taken: the form's length as it decodes ((S5b) a 0F form's second opcode
     // byte was taken before it: less that byte too)
     v35_fmt_t fm_r, fm_t;
-    assign fm_r = v35_fmt_of(opc, {1'b0, pg}, vb0);
+    assign fm_r = v35_fmt_asm(opc, {1'b0, pg}, d_run, vb0);
     assign fmt_mt = fm_r;
     assign fm_t = t_start ? fmt_c : fm_r;
     wire [2:0] need_t_w = modrm_tk ? fm_t.len - 3'd1 - k_t - (pg_s ? 3'd1 : 3'd0)
@@ -249,21 +271,22 @@ module v35_loader
     assign ir_v_l = ir_s || l_pop;
     // the IR's ModR/M byte: the byte after it
     wire [2:0] pos_p = k_t + (l_pop ? 3'd1 : 3'd0);
-    assign fmt_l = dec(ir_l_w, vb(pos_p), vb(pos_p + 3'd1));
-    v35_cls_t l_cls;
-    assign l_cls = v35_cls_const(fmt_l.cls);
-    assign cls_l = l_cls;
+    // (S7) the IR after L: the IR's (its form the same), or the head byte's loaded before any
+    // take (the decode ahead's when the IR was empty); else not known
+    assign fmt_l = a1;
+    assign ok_l = pd_v && (ir_s || (l_pop && !ir_v && k_t == 3'd0));
+
 
     // ------------------------------------------------------------ S5 (P)
     wire [2:0] need_ps = p_start ? fmt_l.len - 3'd1 : need_t_w;
-    wire [2:0] nx_ps = p_start ? l_cls.nx : nx_s;
+    wire [2:0] nx_ps = p_start ? c_cls.nx : nx_s;
     wire       mn_ps = p_start ? fmt_l.has_modrm : mn_t;
     wire       pg_ps = p_start ? fmt_l.page == 2'd1 : pg_s;
     wire       ms_ps = p_start ? (fmt_l.page == 2'd1 && fmt_l.has_modrm) : ms_t;
     wire       ma_ps = p_start ? 1'b0 : ma_t;
     wire       ir_ps = p_start ? 1'b0 : ir_v_l;
     wire [7:0] op_ps = p_start ? ir_l_w : opc_t;
-    wire [4:0] ra_v_ps = (fmt_l.len == 3'd1) ? l_cls.nx0 : 5'd0;
+    wire [4:0] ra_v_ps = (fmt_l.len == 3'd1) ? c_cls.nx0 : 5'd0;
     wire [3:0] av_p = av_l - (l_pop ? 4'd1 : 4'd0);
     wire k_p_w = p_k_in && av_p != 4'd0;
     wire modrm_p = k_p_w && mn_ps && !ms_ps;
@@ -272,7 +295,11 @@ module v35_loader
     assign p_commit1 = modrm_p;
     assign p_mate = k_p_w && ma_ps && need_ps > 3'd1;
     v35_fmt_t fm_q, fm_p;
-    assign fm_q = v35_fmt_of(opc_t, {1'b0, pg_s}, vb(pos_p));     // (no P start: the form after T)
+    // (no P start: the form after T.) (S7) A running form takes its ModR/M byte in the P pass
+    // only after a P start (the start's format, fmt_l): a P take of a form started before is
+    // not on the corpus, its re-decode not built (p_mmiss reports one)
+    assign fm_q = fm_r;
+    assign p_mmiss = modrm_p && !p_start;
     assign fmt_mp = fm_q;
     assign fm_p = p_start ? fmt_l : fm_q;
     wire [2:0] need_p_w = modrm_p ? fm_p.len - 3'd2 - (pg_ps ? 3'd1 : 3'd0)
@@ -313,10 +340,18 @@ module v35_loader
     assign nf_v = irv_e || h0;
     assign nf_op = irv_e ? ir_e : vb(pops);
     assign nf_addr = irv_e ? ira_e : head_addr + 20'(pops);
-    assign nf_fmt = dec(nf_op, irv_e ? (h0 ? vb(pops) : 8'h00)
-                                     : (h1 ? vb(pops + 3'd1) : 8'h00),
-                               irv_e ? (h1 ? vb(pops + 3'd1) : 8'h00)
-                                     : (h2 ? vb(pops + 3'd2) : 8'h00));
+    // the decode ahead: the opcode's escape, the table entry of the opcode or the byte behind
+    // an escape (the only table reads of the clock), the format with the ModR/M byte
+    wire [7:0] nf_b1 = irv_e ? (h0 ? vb(pops) : 8'h00) : (h1 ? vb(pops + 3'd1) : 8'h00);
+    wire [7:0] nf_b2 = irv_e ? (h1 ? vb(pops + 3'd1) : 8'h00) : (h2 ? vb(pops + 3'd2) : 8'h00);
+    wire       nf_b1v = irv_e ? h0 : h1;
+    v35_dec_t  nf_d1, nf_d;
+    assign nf_d1 = v35_dec_native(nf_op);
+    wire [1:0] nf_pg = nf_d1.esc == 2'd1 ? 2'd1 : (nf_d1.esc == 2'd2 ? 2'd2 : 2'd0);
+    wire [7:0] nf_aop = nf_pg != 2'd0 ? nf_b1 : nf_op;
+    // (nf_d1: only its escape and repc are read; one native table read for the entry)
+    assign nf_d = nf_pg == 2'd1 ? v35_dec_ext(nf_aop) : v35_dec_native(nf_aop);
+    assign nf_fmt = dec_asm(nf_aop, nf_pg, nf_d, nf_d1.repc, nf_pg == 2'd1 ? nf_b2 : nf_b1);
 
     // ------------------------------------------------------------ S6: next state
     // the ready countdown: one_idle a clock less, long_exec a wait clock more
@@ -340,7 +375,20 @@ module v35_loader
             fresh <= 1'b0;
             pg <= 1'b0;
             mskip <= 1'b0;
+            pd_v <= 1'b0;
+            pd_pg <= 2'd0;
+            pd_op <= 8'h00;
+            pd_rc <= 2'd0;
+            pd_d <= '0;
+            d_run <= '0;
         end else if (ce) begin
+            pd_v <= nf_v && (nf_pg == 2'd0 || nf_b1v);
+            pd_pg <= nf_pg;
+            pd_op <= nf_aop;
+            pd_rc <= nf_d1.repc;
+            pd_d <= nf_d;
+            if (t_start || p_start)
+                d_run <= pd_d;
             ir_v <= ir_v_p && !t_flush;
             if (p_ir) begin
                 ir <= ir_e;
@@ -364,5 +412,5 @@ module v35_loader
         end
     end
 
-    wire unused = &{1'b0, c_cls, l_cls, av_p, fm_t, fm_p, h1};
+    wire unused = &{1'b0, c_cls, av_p, fm_t, fm_p, h1, nf_d1};
 endmodule

@@ -818,3 +818,28 @@ constraints. The user's direction is to fix the structure, not the constraints.
   string's flags, C6/C7 aliases); ROL4/ROR4's AL and PSW bits 1/3/5 stay the V35's. Open for S7: the reset
   blocks of v35_queue (take / transfer holds), v35_bus (`w_v`, `tk_prev`) and v35_ucode (`mf_*`) are
   incomplete (the bench restores a post-reset snapshot instead); MOV PS,r/m does not redirect the queue.
+- 2026-11-03, **S7a landed — the build branch and the first area pass**: `V35S_CORE=v35 fpga/v35s/build.sh`
+  builds the harness image with the core as the model lane (two `efx:defmacro` elements for SYNTHESIS and
+  V35S_CORE_V35, the ROM banks under the project, `core/model_v35.sdc` with no timing exceptions, the build
+  failing on any SDC line the place-and-route could not apply); `fpga/v35s/synth/v35_map.sh` maps one module
+  or the core as a top and `v35_harness.sh` runs the whole build in the memory-capped scope with stage times
+  and the timing summary. Area, behaviour-preserving (the gate after each step): each pass slot's row
+  evaluator implements only the row features its slot meets on the corpus (`voc_t`, measured over all
+  30,536 runs; `voc_miss` reported), the start's template by a registered key compare instead of three
+  lookups and four window reads, one advance and one arm instance a row, the skip run as a per-position
+  table, no second P start (none on the corpus; reported); the loader reads the decode tables once a clock
+  (the decode ahead) and assembles the IR's and the re-decodes' formats from the registered entry
+  (`v35_fmt_asm`, emitted by ucgen); queued arbiter positions trimmed to the request, pair flag and
+  not_before count. Per-module `efx_map` LUT4: ucode 16,370 → 8,832, loader 4,768 → 2,318 (RAM_5K 23 → 0),
+  arbiter 1,738 → 1,703, eu + ea 9,123 (S6's), queue 1,053, bus 259, regram 16; the whole core 31,260 →
+  21,894 LUT4, 2,000 FF, 32 RAM_5K, 9 MULT (map 820 s → 491 s). Targets not reached (core 9,000; sequencer
+  5,000; loader 1,500; arbiter 1,200). Timing: no routed report; the placer's register-to-register estimate
+  of the core's one feed-forward CPU clock was 205–211 ns (about 70–90 LUT levels): queue arrival → the T
+  pass's gate and three rows → the IR load → room / request → the arbiter tree → the P pass → the decode
+  ahead → the template base → the ROM address. The multicycle work was withdrawn under the clocking
+  directive; the depth reading and the two-tick proposal are at the scratchpad's v2/s7/s7-timing-reading.md
+  and drive S7b. **Gate, rerun on main after the three-way merge with S6 (one conflict in v35_arbiter: both
+  functions kept):** 36 families 30,536 / 30,536 RTL = model, `--diag` silent; write data 106,824 / 106,824;
+  SST 2,849,080 pass / 0 fail; `--regfile` 69,099 + 38,760 vectors 0 bad; function bench 19,752 / 0 bad; lint
+  clean in four configurations; 30 fast tests green; the nine offline modules unchanged. Divergences 27–30
+  (README). Open from S6 for S7b: the reset blocks of v35_queue, v35_bus and v35_ucode are incomplete.

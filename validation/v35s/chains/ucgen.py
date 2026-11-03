@@ -2637,16 +2637,23 @@ def _fmt_of_sv() -> str:
   // (opcode the string byte; the loader merges the prefix's repc from v35_dec_native(ir)).
   // modrm: the ModR/M byte (ignored for a form without one). An escape (0F, a REP prefix)
   // decoded on page 0 reports esc with class trap_nop.
+  // (S7) v35_fmt_asm: the same from the opcode's table entry d (v35_dec_ext on page 1, else
+  // v35_dec_native), so a decoder holding d in a register assembles the format from the
+  // ModR/M byte alone.
   function automatic v35_fmt_t v35_fmt_of(input logic [7:0] opcode, input logic [1:0] page,
                                           input logic [7:0] modrm);
-    v35_dec_t d;
+    v35_fmt_of = v35_fmt_asm(opcode, page,
+                             (page == 2'd1) ? v35_dec_ext(opcode) : v35_dec_native(opcode),
+                             modrm);
+  endfunction
+  function automatic v35_fmt_t v35_fmt_asm(input logic [7:0] opcode, input logic [1:0] page,
+                                           input v35_dec_t d, input logic [7:0] modrm);
     v35_grp_t g;
     v35_half_t h;
     v35_fmt_t f;
     logic hm;
     logic [1:0] md;
     logic [2:0] rf, rm;
-    d = (page == 2'd1) ? v35_dec_ext(opcode) : v35_dec_native(opcode);
     hm = (page == 2'd2) ? 1'b0 : d.has_modrm;
     md = hm ? modrm[7:6] : 2'd0;
     rf = hm ? modrm[5:3] : 3'd0;
@@ -2681,7 +2688,7 @@ def _fmt_of_sv() -> str:
     f.bix16 = hm && md == 2'd2 && !rm[2];
     f.ccode = h.cond ? opcode[3:0] : 4'd0;
 {attr_lines}
-    v35_fmt_of = f;
+    v35_fmt_asm = f;
   endfunction"""
 
 

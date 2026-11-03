@@ -248,6 +248,18 @@ module v35_arbiter
         r.rq_lt = rq_old_c;             // ... < posted: raised before the post's clock
         return r;
     endfunction
+    // (S7) a queued position's record: only the request as posted, its pair flag and its
+    // not_before countdown are kept (the counts and window flags start at the promotion, from
+    // the request: mk); the rest of a queued record is constant
+    function automatic rec_t qtrim(input rec_t r);
+        rec_t q;
+        q = '0;
+        q.v = r.v;
+        q.two = r.two;
+        q.d = r.d;
+        q.nb = r.nb;
+        return q;
+    endfunction
     // the record's address as it issues (a live EA: posted before the displacement; (S6) its
     // offset + 2 * aoff wraps in the segment)
     function automatic logic [16:0] rlo(input rec_t r);
@@ -324,9 +336,11 @@ module v35_arbiter
     // nowait count that counts out now; past its floor, the bus idle)
     // (the request the port take itself posts is not one of them)
     /* verilator lint_off UNUSEDSIGNAL */
-    function automatic logic rl_hit(input rec_t r, input logic newp);
+    function automatic logic rl_hit(input rec_t r, input logic newp, input logic qd);
         logic skip;
-        skip = (r.count >= r.d.setup || (f_io(r) && r.count + 7'd1 >= r.d.setup))
+        logic [6:0] n;
+        n = qd ? 7'(r.d.c0) : r.count;  // (a queued record's count: as posted)
+        skip = (n >= r.d.setup || (f_io(r) && n + 7'd1 >= r.d.setup))
                && r.nb == 4'd0 && !busy;
         rl_hit = relatch && r.v && !r.iss && r.d.detached && !skip && !newp;
     endfunction
@@ -336,8 +350,8 @@ module v35_arbiter
         rl_nb = (hit && d > r.nb) ? d : r.nb;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
-    wire       h0 = rl_hit(a0, pos_t == 2'd0), h1 = rl_hit(a1, pos_t == 2'd1);
-    wire       h2 = rl_hit(a2, pos_t == 2'd2);
+    wire       h0 = rl_hit(a0, pos_t == 2'd0, 1'b0), h1 = rl_hit(a1, pos_t == 2'd1, 1'b1);
+    wire       h2 = rl_hit(a2, pos_t == 2'd2, 1'b1);
     rec_t b0, b1, b2;               // after the relatch and the floor: S4 reads b0
     always_comb begin
         b0 = a0;
@@ -595,12 +609,14 @@ module v35_arbiter
     function automatic rec_t promote(input rec_t r);
         rec_t p;
         logic c;
-        p = r;
+        p = mk(r.d);
+        p.nb = r.nb;
+        p.two = r.two;
         p.moved = !f_io(r);
         p.dwm = f_io(r) && !r.d.port;
         c = r.d.nwt ? !in_wait : !r.d.grp;
-        if (!halting && r.count < r.d.setup && c)
-            p.count = r.count + 7'd1;
+        if (!halting && p.count < r.d.setup && c)
+            p.count = p.count + 7'd1;
         if ((f_io(r) || r.d.dwl) && !r.d.port && p.count != 7'd0)
             p.count = p.count - 7'd1;
         p.rq_le = rq_v_x;
@@ -748,8 +764,8 @@ module v35_arbiter
             tkr <= 1'b0;
         end else if (ce) begin
             r0 <= tick(redate(e0, pn || det_go || (post_p && !c0.v)));
-            r1 <= tick(e1);
-            r2 <= tick(e2);
+            r1 <= qtrim(tick(e1));
+            r2 <= qtrim(tick(e2));
             own <= own_e;
             // (S5b) requested_at == take_t (and b2b_at != take_t) at the clock's end
             if (take_now || p_take) begin

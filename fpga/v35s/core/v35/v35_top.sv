@@ -163,7 +163,7 @@ module v35_top
     wire [4:0]  fh_n;
     wire [2:0]  ou_n, ff_n;
     wire [2:0]  xk_c, xk_t, xk_p;
-    wire        p_flush;
+    wire        p_flush, voc_miss;
     wire        lea_xk_c, lea_xk_t, lea_xk_p, mf_old, th_arm_t, th_arm_p, th_cvt, th_lift_t, th_lift_p;
     wire        asked_d, asked_t, asked_p, flag_x, want_x, rq_v_x, rq_now_x, rq_old_c, rq_old_p;
     wire        rq_clr_p, b2b_now, triple_x, q_retry, q_retry_loop, io_held, nop_held;
@@ -187,7 +187,8 @@ module v35_top
     wire [19:0] ir_addr_c, ir_addr_l, nf_addr;
     wire [2:0]  need_c, need_t, need_p;
     v35_fmt_t   fmt_c, fmt_l, nf_fmt, fmt_mt, fmt_mp;
-    v35_cls_t   cls_c, cls_l;
+    wire        ok_c, ok_l, ld_p_mmiss;
+    v35_cls_t   cls_c;
     // the sequencer
     wire        t_start, t_done, t_flush, t_halt, ask_d, ask_t, rt_set, cnt_take, sh_set;
     wire        imm16_c, imm16_t, imm16_p, nop_cand, abort_loop, halting, halted, wb_hold;
@@ -310,10 +311,10 @@ module v35_top
         .p_start, .p_k_in(p_k), .p_io_nx,
         .irh_set_t, .irh_clr_t, .eu_issue, .irh_set_p, .irh_clr_p,
         .irh_pg_t, .irh_pg_p, .mt_sub_t, .mt_sub_p,
-        .ir_v_c, .ir_c, .ir_addr_c, .fmt_c, .cls_c, .fmt_mt, .need_c,
+        .ir_v_c, .ir_c, .ir_addr_c, .fmt_c, .ok_c, .cls_c, .fmt_mt, .need_c,
         .t_commit1(ld_t_commit1), .t_mate(ld_t_mate), .need_t, .ir_v_t,
-        .l_pop, .ir_l, .ir_addr_l, .fmt_l, .cls_l, .ir_v_l,
-        .p_commit1(ld_p_commit1), .fmt_mp, .p_mate(ld_p_mate), .p_ir, .need_p, .ir_v_p,
+        .l_pop, .ir_l, .ir_addr_l, .fmt_l, .ok_l, .ir_v_l,
+        .p_commit1(ld_p_commit1), .fmt_mp, .p_mmiss(ld_p_mmiss), .p_mate(ld_p_mate), .p_ir, .need_p, .ir_v_p,
         .ir_hold(l_ir_hold), .ir_hold_t, .ir_hold_p, .ir_rel, .fresh_c, .fresh_t, .fresh_p,
         .stopped_o(ld_stopped),
         .nf_v, .nf_fmt, .nf_op, .nf_addr
@@ -322,7 +323,7 @@ module v35_top
     // ---------------------------------------------------------------- the microcode sequencer
     v35_ucode ucode (
         .clock, .reset_n(core_reset_n), .ce,
-        .ir_v_c, .fmt_c, .cls_c, .cls_l, .fmt_mt, .fmt_mp, .ir_c, .ir_v_l, .fmt_l, .ir_l,
+        .ir_v_c, .fmt_c, .ok_c, .ok_l, .cls_c, .fmt_mt, .fmt_mp, .ir_c, .ir_v_l, .ir_l,
         .ir_addr_c, .ir_addr_l, .vb0, .vb1, .vb2, .vb3, .avail_c, .l_pop, .arrived_now,
         .lat_c, .lat_x, .inflight_c, .inflight_x, .completed_now, .room_c, .room_p0,
         .stored_c, .stored_l, .rq_old_c, .rq_old_p, .b2b_now, .asked_d, .asked_t, .asked_p,
@@ -361,7 +362,7 @@ module v35_top
         .p_start, .p_k, .p_done, .p_io_nx, .ask_p, .io_drop, .io_drop_loop, .imm16_p,
         .wl_fill_t, .wl_fill_p,
         .start_any, .run_e, .aim_next, .fmt_e,
-        .wait_o(eu_wait), .res_o(eu_res), .dec_miss, .p_flush
+        .wait_o(eu_wait), .res_o(eu_res), .dec_miss, .p_flush, .voc_miss
     );
 
     // ---------------------------------------------------------------- the datapath
@@ -481,6 +482,7 @@ module v35_top
         .room(room_e), .flag(flag_e), .why(eu_wait), .hold(a_why), .dec_miss, .wlost(eu_miss)
     );
 
+`ifndef SYNTHESIS
     // diagnostics (+v35_diag): bus and queue errors on stderr; the decode-ahead misses (a
     // start a clock late) and lost register writes counted
     reg diag = 1'b0;
@@ -497,6 +499,8 @@ module v35_top
                     $display("v35: %s", b_error ? "a bus start on a busy bus"
                                         : q_overflow ? "queue overflow" : "a register write lost");
             end
+            if ((voc_miss || ld_p_mmiss) && diag)
+                $display("v35: a row outside its pass slot's vocabulary (not acted on)");
             if (p_flush && diag)
                 $display("v35: a FLUSH row in the P pass (not acted on: the S5 budget)");
             if (dec_miss) begin
@@ -507,10 +511,11 @@ module v35_top
         end
     end
 `endif
+`endif
 
     wire unused = &{1'b0, ready, x_fall, input_levels, idb, prc[7:2], ld_p_mate, ld_stopped,
                     b_cur_pos, b_dlv_width, lat_c, rq_clr_p, io_held, nop_held, a_count, own_pos,
                     a_ready, rf_pending, rf_load, rf_value, rf_state_r, rf_state_e, eu_pc,
                     eu_res, flag_x, b_in_wait, b_fetch_since, b_error, b2b_next, flag_e,
-                    q_overflow, room_e, eu_wait, dec_miss, eu_miss, relatch_n, a_why, nb_now, p_flush};
+                    q_overflow, room_e, eu_wait, dec_miss, eu_miss, relatch_n, a_why, nb_now, p_flush, voc_miss, ld_p_mmiss};
 endmodule

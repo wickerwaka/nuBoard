@@ -305,6 +305,10 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
 
 ## The sequencer (`v35_ucode.sv`)
 
+- **(S7a)** The passes' slots evaluate their measured vocabularies (`voc_t`, Divergence 27); a
+  start reads its template from the window when its key matches the decode ahead's (`ka_v`,
+  `ka_key`, Divergence 28); each row evaluator advances once (`do_row` / `do_row_b`) and the skip
+  run is a table over the window computed once a clock. See "Synthesis (S7a)".
 - **The ROM.** Four banks (row address mod 4: `v35_ucode_b0..3.hex`), each one block RAM with one
   read port whose read is registered at `ce`. A clock reads a window of four consecutive rows
   (`wa .. wa + 3`); the current row is kept in `row_c`. While a form runs the window holds the
@@ -445,6 +449,10 @@ earlier than" a countdown (`res`, `ra`, `nb`, `rt_cnt`, `sh_cnt`, `lu`, `wbu`, `
   any clock), `wbu` / `wbc` / `wbx` (wb_until, the last row's `wb`, one_idle's clock), `lu` /
   `lu_inf` (latch_until), `abort_start`, `shift_held_r`, the element loop (`elem`, `ltop`,
   `elems` from the datapath: S5), `nw` (NOWAIT).
+
+- **(S7a) The loader's decode** reads the tables once a clock (the decode ahead) and registers
+  the next form's table entry (`pd_*`); the IR's format and the T re-decode are assembled from
+  registered entries (`v35_fmt_asm`; Divergences 29, 30).
 
 ## The datapath (`v35_eu.sv`, `v35_regram.sv`, `v35_fn_pkg.sv`)
 
@@ -874,6 +882,22 @@ clock's prefix segment, `sp_ret` (16 FF), the adjusts' and converts' word writes
 The other modules' edits are a few lines each (the arbiter's `raddr2` / `rlo` and late `g_dsel`,
 the queue's PS-relative fetch increment).
 
+27. (S7a) **The pass slots' vocabularies.** T2, T3 and the P pass's rows evaluate only the row
+   features measured on the corpus for their slot (the struct `voc_t`); a row outside it stops
+   the pass there (`voc_miss`, +v35_diag). None on the corpus. The P pass has no second start
+   (a form ending in P after its first row is reported).
+28. (S7a) **A start's template is the decode ahead's.** A start whose form's template inputs
+   (`tkey`) differ from the ones the window was aimed with, or whose window was not aimed at a
+   template (`ka_v`), waits a clock (W_DEC); before S7a a template found elsewhere in the window
+   started. None on the corpus (diag silent).
+29. (S7a) **The loader's formats from the registered table entry.** The IR's format needs its
+   opcode's (and an escape's second byte's) table entry decoded a clock ahead; an IR loaded by L
+   after T's takes in the same clock, or an escape whose second byte arrived on the clock, has
+   no format (`ok_c` / `ok_l` 0): a start or a P start waits (W_DEC); a start try with the
+   gate's format-free tests passing is counted. None on the corpus.
+30. (S7a) **No P re-decode of a running form.** A running form taking its ModR/M byte in the P
+   pass is reported (`p_mmiss`); its format would be the T re-decode's. None on the corpus.
+
 ## Gate (S5b)
 
 `fpga/v35s/build_sim.sh direct v35`, `replay --core v35 --diag --jobs 8` into a fresh output
@@ -941,6 +965,88 @@ the 25,742 runs RTL = model** (from t_fill, and the pre window exact on every ru
 234 / 234, F33 1,026 / 1,050, F35 1,038 / 1,044, F36 750 / 750, F37 432 / 432, F38 864 / 864
 (the misses all the model's own). Not gated: F32, F34, F39, F40 (the 0F page, S5b) and the
 refresh-on lists F8 F13 F17 F18 F27 F28.
+
+## Synthesis (S7a)
+
+Build and scripts:
+
+    V35S_CORE=v35 fpga/v35s/build.sh       # the harness image with this core as the model lane
+    fpga/v35s/synth/v35_harness.sh         # the same in a memory-capped scope, stage times and
+                                           # the resource / timing summary (V35S_PNR_EFFORT=n)
+    fpga/v35s/synth/v35_map.sh ucode loader arbiter queue bus regram eu top
+                                           # efx_map of one module (or v35_top) as the top
+
+`build.sh`'s `V35S_CORE=v35` branch copies the core (core/v35, `v35_sfr.sv`, `v35_refresh.sv`
+and its `v35_chain_params.svh`), puts the ROM banks where `UCODE_DIR` names them under the
+project, defines `SYNTHESIS` and `V35S_CORE_V35` as `efx:defmacro` elements (efx_map takes one
+name from the `verilog-macros` param: two macros need two defmacros), appends
+`core/model_v35.sdc` (no exceptions: see below) and runs the same timing check as the other
+lanes; it now also fails when the place-and-route log reports an SDC line it could not apply.
+`v35_top`'s sim-only diagnostics are under `ifndef SYNTHESIS`.
+
+Per-module `efx_map` (Efinity 2026.1, T120F484, each module as the top, `SYNTHESIS` defined, in
+a `MemoryMax=20G` scope), before (cc0704f, S5b's numbers reproduced) and after:
+
+| Module | LUT4 before | after | ADD | FF before / after | RAM_5K before / after | map |
+| --- | --- | --- | --- | --- | --- | --- |
+| `v35_ucode` | 16,370 | 8,832 | 820 | 462 / 498 | 28 / 28 | 120 s |
+| `v35_loader` | 4,768 | 2,318 | 76 | 56 / 291 | 23 / 0 | 36 s |
+| `v35_arbiter` | 1,738 | 1,703 | 115 | 372 / 358 | 0 / 0 | 16 s |
+| `v35_queue` | 1,053 | 1,053 | 260 | 192 | 0 | 9 s |
+| `v35_bus` | 259 | 259 | 14 | 169 | 0 | 4 s |
+| `v35_regram` | 16 | 16 | 0 | 14 | 4 | 2 s |
+| `v35_eu` + `v35_ea` (S6's) | 8,589 | 8,589 | 1,041 | 590 | 0 | 76 s |
+| sum | 32,793 | 22,770 | | 1,855 / 2,112 | 55 / 32 | |
+
+The whole core (`v35_top`, every module, the SFR block and the refresh controller, the slot's
+ports the only pins): **before 31,260 LUT4, 2,663 ADD, 1,803 FF, 54 RAM_5K, 9 MULT (map 820 s);
+after 21,894 LUT4, 2,274 ADD, 2,000 FF, 32 RAM_5K, 9 MULT (map 491 s)**; in-context per module
+after: ucode 7,036, eu 7,539 (+ ea 213), arbiter 4,300 (Efinity groups the request descriptor's
+logic there), loader 1,561, queue 984, bus 264, regram 89, sfr 71. In the harness image (map
+443 s, an intermediate S7a tree): the core 24,315 LUT4 of the harness's 28,798, the device's
+block RAMs 952 / 1,056 used (the harness's buffers 920).
+
+Not reached: the plan's targets (core 9,000 LUT4, the sequencer 5,000, the loader 1,500, the
+arbiter 1,200) and timing. The eu (S6's file) is 8,589 alone. Timing: the place-and-route was
+stopped (see the S7a hand-back's timing reading): the core is one feed-forward CPU clock whose
+longest register-to-register path the placer estimated at 205-211 ns; the target since
+2026-11-03 is a 64 MHz fabric clock with two ticks a CPU clock and no timing exceptions, which
+needs the pipelined structure the reading proposes (S7b), not constraints. `core/model_v35.sdc`
+therefore holds no multicycle.
+
+What changed (all behaviour-preserving; the whole-corpus gate after each step, RTL = model on
+every run, `--diag` silent):
+
+- **The sequencer's pass slots have vocabularies (`voc_t`, `vmask`).** Each `do_row` instance
+  implements only the row features its slot meets on the corpus (measured: the rows each of
+  T1/T2/T3/P1/P2/P3 evaluated over all 30,536 runs); a row outside it is not acted on and is
+  reported (`voc_miss`, +v35_diag). T1 (the cursor's row) keeps every feature. 16,370 -> ~10,600.
+- **The start's template by key.** The window holds the decode ahead's template (`ka_v`, the key
+  `tkey` = the class, the format bits and run bits `v35_tmpl_sel` reads, registered); a start
+  hits when its form's key equals it, else it waits (W_DEC, counted). Three `tbase` lookups and
+  four start-time window reads become one lookup (the decode ahead's) and two compares.
+- **One advance and one arm instance a row** (`do_row` wraps `do_row_b`: the cursor's advance
+  with the skip run, a halt, a take's exit arm after the body; the ENTRY / PRE_OP arm after the
+  wait's evaluation); **the skip run as a per-window-position table** computed once a clock.
+- **No second start in the P pass** (none on the corpus; reported).
+- **The loader reads the decode tables once a clock**: the decode ahead reads the native / 0F
+  table entry of the next form's opcode (or the byte behind an escape) and registers it with its
+  page, opcode and the prefix's repc (`pd_*`); the IR's format (`fmt_c`, and `fmt_l`: the same
+  form) is assembled from that entry and the live ModR/M byte (`v35_fmt_asm`, now emitted by
+  ucgen with `v35_fmt_of` calling it); the running form's ModR/M re-decode from its start's entry
+  (`d_run`). A format not decoded a clock ahead is flagged (`ok_c`, `ok_l`): its start waits.
+  The P pass's re-decode of a running form (`fmt_mp`) is not built (no P take of a running
+  form's ModR/M byte on the corpus; `p_mmiss` reports one). 4,768 LUT4 / 23 RAM_5K -> 2,318 / 0.
+- **The arbiter's queued positions** keep only the request, its pair flag and its not_before
+  count (`qtrim`): their counts start at the promotion (`mk`). Small (1,738 -> 1,703): Efinity
+  had already found most of those registers constant. Three positions stay (the third is used on
+  the corpus).
+
+Cut readings that guided this (ucode, current tree): the P pass costs ~3,000 LUT4 of which its
+first evaluator ~700 and P2/P3 ~1,250; the T pass's third row ~1,400; the second row ~2,100
+(its vocabulary ~1,300); the template lookup of the decode ahead ~700; the base without P, T2
+and T3 ~4,000. Loader: the group table ~190 LUT4 per format assembly (three remain: the decode
+ahead, the IR, the T re-decode).
 
 ## Synthesis trial (S5b)
 
