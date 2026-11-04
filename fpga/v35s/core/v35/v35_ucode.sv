@@ -871,6 +871,24 @@ module v35_ucode
         endcase
     endfunction
 
+    // (S7b) nval(r, s) == 0 without the add (each source's terms are small and non-negative:
+    // the sum is 0 when every term is)
+    function automatic logic nz(input uc_row_t r, input ps_t s);
+        logic [10:0] k;
+        case (r.nsrc)
+            V35_NSRC_EA: nz = r.imm == 9'd0 && v35_ea_clocks(s.fmt.ea_mode) == 0;
+            V35_NSRC_CNT: nz = r.imm == 9'd0 && cnt == 9'd0;
+            V35_NSRC_UNIT: nz = r.imm == 9'd0 && mneg == 4'd0;
+            V35_NSRC_BF: nz = bfcost <= 11'(r.imm);
+            V35_NSRC_STR: begin
+                k = s.elem == 2'd0 ? 11'(s.cc.first) : (s.elem == 2'd1 ? 11'(s.cc.loop1)
+                                                                       : 11'(s.cc.loop));
+                nz = r.imm == 9'd0 && k == 11'd0;
+            end
+            default: nz = r.imm == 9'd0;
+        endcase
+    endfunction
+
     // the row is skipped (a skipped row passes in no time)
     function automatic logic skipped(input uc_row_t r, input ps_t s);
         case (r.skip)
@@ -1188,7 +1206,7 @@ module v35_ucode
         s.wpass = 1'b1;
         case (r.op)
             V35_OP_CLOCKS: begin
-                if (n == 11'd0) begin
+                if (nz(r, s)) begin
                     x.complete = 1'b1;          // ("clocks", 0): no clock
                     x.cont = 1'b1;
                 end else if (s.taken != 3'd0 && !(s.fmt.mem && s.fmt.bus) && need == 3'd0
@@ -1660,6 +1678,248 @@ module v35_ucode
             do_arm(x.row, x, s, e);
     endfunction
 
+
+    // (S7b) a row's follow-on state: the pass state the row leaves when it completes with `cont`
+    // (the model goes on to the next row on the same clock), from the row's fields, the pass
+    // state and S1's values only; c: it completes with cont, k: its bytes, f: a flush. The T
+    // pass evaluates the row after it from this state beside the row's own evaluator (do_row),
+    // not after it. do_row_b's state effects on that path, nothing else (its strobes are the
+    // evaluator's); `+v35_diag` reports a clock where the two disagree (voc_miss).
+    function automatic void fol(inout ps_t s, input env_t e, input uc_row_t r_in, input rv_t rn,
+                                input voc_t v, output logic c, output logic [1:0] k,
+                                output logic f);
+        uc_row_t r;
+        fx_t xd;
+        logic [10:0] n;
+        logic [2:0] left0, cap, kk, need, dlast;
+        logic wblk, rio, dnext, disp, mtk, syn, def, posted;
+        logic [6:0] setup, fnx;
+        logic fnv;
+        v35_cls_t cl;
+        v35_fmt_t fm;
+        cl = s.cc;
+        r = vmask(r_in, v);
+        c = 1'b0;
+        k = 2'd0;
+        f = 1'b0;
+        xd = '0;
+        posted = 1'b0;
+        n = nval(r, s);
+        if (r != r_in)
+            return;
+        if (xrow(r) && !bf_ok)
+            return;
+        if (skipped(r, s)) begin
+            c = 1'b1;
+            adv(s, r, rn.v && rn.r.skip != V35_SKIP_NONE && rn.r.last);
+            return;
+        end
+        if (s.mtf_v) begin
+            if (r.op == V35_OP_CLOCKS && r.wcond == V35_WC_NONE && s.mtf != 3'd0
+                && !(r.arm != V35_ARM_NONE && r.apos == V35_APOS_ENTRY))
+                return;
+            s.mtf_v = 1'b0;
+        end
+        wblk = 1'b0;
+        if (!s.wpass) begin
+            case (r.wcond)
+                V35_WC_OWN_DONE: if (s.own_v) begin
+                    if (!e.own_done || s.pnew)
+                        wblk = 1'b1;
+                    else begin
+                        s.own_v = 1'b0;
+                        s.dpass = 1'b1;
+                        s.ls2 = e.own_two;
+                    end
+                end
+                V35_WC_OWN_ISSUED: if (s.own_v && (!e.own_issued || s.pnew))
+                    wblk = 1'b1;
+                V35_WC_SLOT: if (e.slot_wait || (e.lu_busy && e.lu_val != 3'd0))
+                    wblk = 1'b1;
+                V35_WC_WB: if (e.wbu_busy)
+                    wblk = 1'b1;
+                V35_WC_QUIET: if (e.finfl || want_c)
+                    wblk = 1'b1;
+                default: ;
+            endcase
+        end
+        if (r.arm != V35_ARM_NONE && !s.arm_done
+            && (r.apos == V35_APOS_ENTRY || (r.apos == V35_APOS_PRE_OP && !wblk))) begin
+            do_arm(r, xd, s, e);
+            s.arm_done = 1'b1;
+        end
+        if (wblk)
+            return;
+        s.wpass = 1'b1;
+        case (r.op)
+            V35_OP_CLOCKS: if (!nz(r, s))
+                return;
+            V35_OP_NOWAIT: begin
+                if (!s.nw_v) begin
+                    s.nw_v = 1'b1;
+                    s.nw = 4'(n) + ((e.lk && !s.started) ? 4'd1 : 4'd0);
+                end
+                if (s.nw != 4'd0 && (!in_wait || (e.nwrun && s.fmt.rep
+                                                  && (s.fmt.aop == V35_STR_INM
+                                                      || s.fmt.aop == V35_STR_OUTM))))
+                    s.nw = s.nw - 4'd1;
+                if (s.nw != 4'd0)
+                    return;
+                s.nw_v = 1'b0;
+            end
+            V35_OP_TAKE: begin
+                left0 = s.left != 3'd0 ? s.left : r.aidx;
+                cap = (r.tag == V35_TAG_WORD || r.tag == V35_TAG_CHAIN_WORD) ? 3'd2 : 3'd1;
+                kk = left0 < cap ? left0 : cap;
+                if ({1'b0, kk} > e.avail)
+                    kk = 3'(e.avail);
+                need = s.oplen - 3'd1 - s.taken;
+                if (e.lu_busy && s.fmt.immb != 2'd0 && s.taken >= s.oplen - 3'd1 - 3'(s.fmt.immb))
+                    return;
+                if (e.late && left0 == 3'd1 && !(e.ir_v && !s.started) && need == 3'd1
+                    && cl.nx == 3'd0 && !s.halted && e.avail > 4'd1)
+                    return;
+                if (s.taken == 3'd1 && (s.pm_a ? e.fsf : (s.pm_on && s.pm_c != 4'd0)))
+                    return;
+                if (e.late && s.fmt.mem && s.fmt.bus && s.fmt.disp != 2'd0 && s.taken == 3'd1
+                    && !(s.fmt.xfer_mem && need == 3'd2 && e.hodd))
+                    return;
+                if (kk == 3'd0)
+                    return;
+                s.left = left0;
+                if (s.tha && s.thd) begin
+                    s.thd = 1'b0;
+                    if (arrived_now) begin
+                        s.tha = 1'b0;
+                        s.cva = 1'b0;
+                    end
+                end
+                mtk = s.pm_dv && s.taken == 3'd1;
+                if (s.taken == 3'd1)
+                    s.pm_a = 1'b0;
+                if (s.taken == (s.fmt.page == 2'd1 ? 3'd1 : 3'd0) && s.fmt.has_modrm) begin
+                    fm = s.started ? e.fs : e.fm;
+                    s.fmt.md = fm.md;
+                    s.fmt.rfield = fm.rfield;
+                    s.fmt.rm = fm.rm;
+                    s.fmt.disp = fm.disp;
+                    s.fmt.ea_mode = fm.ea_mode;
+                    s.fmt.bix16 = fm.bix16;
+                    s.oplen = fm.len;
+                end
+                dlast = s.oplen - 3'd1 - 3'(s.fmt.immb);
+                disp = s.fmt.mem && s.fmt.bus && s.fmt.disp != 2'd0 && s.taken < dlast
+                       && s.taken + kk >= dlast;
+                s.taken = s.taken + kk;
+                s.left = left0 - kk;
+                need = s.oplen - 3'd1 - s.taken;
+                if (mtk && s.left == 3'd0) begin
+                    s.mtf_v = 1'b1;
+                    s.mtf = 3'd1 + 3'(cl.mtx);
+                end
+                if (s.pm_dv && need == 3'd0)
+                    s.pm_dv = 1'b0;
+                if (s.left != 3'd0 && s.mrh)
+                    s.mr_v = 1'b1;
+                if (disp && cl.dfloor != 2'd0 && !e.memw) begin
+                    s.dfl_v = 1'b1;
+                    s.dfl = 3'(cl.dfloor);
+                end
+                if (s.left != 3'd0)
+                    return;
+                dnext = rn.v && rn.r.op == V35_OP_DATA && rn.r.wcond == V35_WC_NONE
+                        && !(rn.r.arm != V35_ARM_NONE && rn.r.apos != V35_APOS_EXIT)
+                        && !s.fmt.modrm_op;
+                if (r.tag == V35_TAG_PORT || r.tag == V35_TAG_CHAIN || r.tag == V35_TAG_CHAIN_WORD)
+                    return;
+                if (r.tag != V35_TAG_LEAD && !dnext) begin
+                    // a plain take: goes on only after page_imm_sync's met ModR/M sync
+                    if (!(s.mr_v && e.mro == 2'd0))
+                        return;
+                    def = s.fmt.immb != 2'd0 && !s.fmt.mem && arrived_now && e.lat
+                          && e.avail > 4'(kk);
+                    syn = !(s.fmt.immb != 2'd0 && s.fmt.mem && s.fmt.disp != 2'd0);
+                    if (syn)
+                        s.sync_def = def;
+                    s.mr_v = 1'b0;
+                    s.sync_v = 1'b0;
+                    s.res = 11'd0;
+                end
+                k = 2'(kk);
+                c = 1'b1;
+                adv(s, r, 1'b0);
+                if (r.arm != V35_ARM_NONE && r.apos == V35_APOS_EXIT)
+                    do_arm(r, xd, s, e);
+                return;
+            end
+            V35_OP_DATA: begin
+                if (!(s.own_v && e.own_done && !s.pnew))
+                    return;
+                s.own_v = 1'b0;
+                s.dpass = 1'b1;
+                s.ls2 = e.own_two;
+            end
+            V35_OP_POST, V35_OP_POST_IO: begin
+                if (!e.post_ok)
+                    return;
+                posted = 1'b1;
+                if (r.op == V35_OP_POST)
+                    s.own_v = 1'b1;
+            end
+            V35_OP_FLUSH, V35_OP_FLUSH_C: begin
+                if (e.finfl || fetch_since <= (r.op == V35_OP_FLUSH ? cl.fgap : cl.cfgap))
+                    return;
+                f = 1'b1;
+            end
+            V35_OP_DECIDE:
+                if (e.dinf || e.dsince <= {3'd0, cl.nfgap}
+                    || (e.dab && (e.dab_busy || e.dabs <= {3'd0, cl.nfgap})))
+                    return;
+            V35_OP_HALT, V35_OP_FROM_START:
+                return;                         // (no cont: the evaluator's alone)
+            V35_OP_SPLIT_FLOOR:
+                if (s.ls2 && {7'd0, e.sfage} < 11'(r.imm))
+                    return;
+            default: ;
+        endcase
+        if (posted) begin
+            // a post's window fields as they change the pass state (do_row_b, "a post's
+            // window fields")
+            s.pnew = 1'b1;
+            rio = r.rkind == V35_RK_IO_READ || r.rkind == V35_RK_IO_WRITE;
+            setup = 7'(n + ((r.lastadd && str_last) ? 11'(cl.last) : 11'd0));
+            case (r.i2m)
+                V35_I2M_LIT: begin fnv = 1'b1; fnx = r.x; end
+                V35_I2M_SETUP_MINUS: begin fnv = 1'b1; fnx = setup - r.x; end
+                default: begin fnv = cl.setup_free_v; fnx = 7'(cl.setup_free); end
+            endcase
+            if (s.fmt.strop && !s.fmt.rep && r.rkind == V35_RK_IO_READ) begin
+                fnv = 1'b1;
+                fnx = 7'(cl.ufree);
+            end
+            if (s.sfl_v)
+                s.sfl_v = 1'b0;
+            if (!rio) begin
+                s.fl_v = 1'b0;
+                s.dfl_v = 1'b0;
+            end
+            if (r.rkind == V35_RK_READ && (s.pfs || s.pfb)) begin
+                fnv = 1'b0;
+                fnx = 7'd0;
+                s.pfs = 1'b0;
+                s.pfb = 1'b0;
+            end
+            if (r.rkind == V35_RK_READ && s.fmt.xop == V35_XOP_RET && s.stc && e.wbu_busy)
+                setup = setup + 7'd1;
+            if (!rio && (s.fmt.unit_mem || s.fmt.fixed_grp) && e.abort_st && !s.uearly
+                && setup != 7'd0 && r.grp && fnv && fnx < setup)
+                s.uearly = 1'b1;
+        end
+        c = 1'b1;
+        if (r.arm != V35_ARM_NONE && r.apos == V35_APOS_EXIT)
+            do_arm(r, xd, s, e);
+        adv(s, r, 1'b0);
+    endfunction
     // the start gate (eu._start under the fit, in format bits); `wl` the data latch
     function automatic logic gate(input v35_fmt_t f, input logic ir_v, input logic is_p,
                                   input logic slot_det, input logic rq_old, input logic infl,
@@ -1867,6 +2127,11 @@ module v35_ucode
     ps_t   s0, s1, s2, s3, s4;
     fx_t   x1, x2, x3;
     env_t  et;
+    // (S7b) the T pass's follow-on states (fol) and the second and third rows' environments
+    ps_t   s2p, s3s, s3p, s3x, s4x;
+    env_t  et2, et3;
+    logic  c1, c2, f1, f2, t_fmiss;
+    logic [1:0] k1, k2;
     rv_t   g1, g2, r1, r1n, r2, r2n, r3, r3n;
     logic  t_hold, t_wait, t_sync_blk, t_gate1, t_gate2, t_try1, t_try2, t_dec1, t_dec2;
     logic  t_lapse, t_done_rec, t_ev1, t_ev2, t_ev3, t_end2, t_areg, t_srep, t_prs;
@@ -2030,7 +2295,9 @@ module v35_ucode
         if (!t_wait && s1.run && !t_sync_blk)
             s1.sync_v = 1'b0;
 
-        // (C) the cursor's row
+        // (C) the cursor's row (case S: a form started at the clock's start, its row 0 in the
+        // window; else the running form's cursor row), its evaluator x1; beside it, the state it
+        // leaves when it completes with cont (fol): the rows after it read that, never x1
         t_ev1 = !t_wait && !t_sync_blk && !s1.halted && s1.run;
         r1 = rowat_o(s1.dw, s1.du);
         r1n = rowat_o(inc8(s1.dw, 3'd1), inc8(s1.du, 3'd1));
@@ -2038,56 +2305,79 @@ module v35_ucode
         x1 = '0;
         if (t_ev1)
             sk(s2, r1, r1n, VOC_T1);
+        s2p = s2;
+        c1 = 1'b0;
+        k1 = 2'd0;
+        f1 = 1'b0;
+        if (t_ev1 && r1.v)
+            fol(s2p, et, r1.r, r1n, VOC_T1, c1, k1, f1);
         if (t_ev1 && r1.v)
             do_row(s2, et, r1.r, r1n, VOC_T1, x1);
         x1.rom_miss = t_ev1 && !r1.v;
 
-        // (D) a second row when the first one completed with `cont`
-        et.avail = avail_c - 4'(x1.tk);
-        et.b0 = x1.tk == 2'd0 ? vb0 : (x1.tk == 2'd1 ? vb1 : vb2);
-        s3 = s2;
-        x2 = '0;
-        t_end2 = t_ev1 && x1.complete && x1.cont && !s2.run && !s1.started;
+        // (D) the second row, from the follow-on state: case E (the row ended the form: the
+        // end, the start and the next form's row 0, already in the window) or case R (the form
+        // runs on: its next row)
+        et2 = et;
+        et2.avail = avail_c - 4'(k1);
+        et2.b0 = k1 == 2'd0 ? vb0 : (k1 == 2'd1 ? vb1 : vb2);
+        s3s = s2p;
+        t_end2 = t_ev1 && c1 && !s2p.run && !s1.started;
         if (t_end2)
-            s3.done_m = 1'b1;
-        wbu_t2 = t_end2 ? s2.wbc + (wbx ? 2'd1 : 2'd0) : wbu_t1;
-        et.wbu_busy = wbu_t2 != 2'd0;
-        t_gate2 = gate(fmt_c, ir_v_c && !x1.flush, 1'b0, slot_det_c, rq_old_c, inflight_c,
-                       stored_c, wl_busy, rfb_c || x1.flush || swb(fmt_c, wbu_t2)
+            s3s.done_m = 1'b1;
+        wbu_t2 = t_end2 ? s2p.wbc + (wbx ? 2'd1 : 2'd0) : wbu_t1;
+        et2.wbu_busy = wbu_t2 != 2'd0;
+        t_gate2 = gate(fmt_c, ir_v_c && !f1, 1'b0, slot_det_c, rq_old_c, inflight_c,
+                       stored_c, wl_busy, rfb_c || f1 || swb(fmt_c, wbu_t2)
                                           || (lsp && b2b_now) || ssb(fmt_c, cls_c, 1'b0, 1'b0),
                        dw_blk_c);
-        t_try2 = t_end2 && !s2.halted;
+        t_try2 = t_end2 && !s2p.halted;
         g2.v = hit_c;
         g2.r = wrow(2'd0);
         t_dec2 = t_try2 && t_gate2 && !g2.v;
         if (t_try2 && t_gate2 && g2.v)
-            start_ps(s3, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0], fl_now_c,
+            start_ps(s3s, fmt_c, cls_c, ir_c, base_c, run_c, ir_addr_c[0], fl_now_c,
                      arrived_now);
-        et.wbu_busy = wbu_t2 != 2'd0 || lwb(s1.started || s3.started);
-        t_ev2 = t_ev1 && x1.complete && x1.cont && (s2.run || (t_try2 && t_gate2 && g2.v));
-        r2 = rowat_o(s3.dw, s3.du);
-        r2n = rowat_o(inc8(s3.dw, 3'd1), inc8(s3.du, 3'd1));
+        et2.wbu_busy = wbu_t2 != 2'd0 || lwb(s1.started || s3s.started);
+        t_ev2 = t_ev1 && c1 && (s2p.run || (t_try2 && t_gate2 && g2.v));
+        r2 = rowat_o(s3s.dw, s3s.du);
+        r2n = rowat_o(inc8(s3s.dw, 3'd1), inc8(s3s.du, 3'd1));
         if (t_ev2)
-            sk(s3, r2, r2n, VOC_T2);
+            sk(s3s, r2, r2n, VOC_T2);
+        s3p = s3s;
+        c2 = 1'b0;
+        k2 = 2'd0;
+        f2 = 1'b0;
         if (t_ev2 && r2.v)
-            do_row(s3, et, r2.r, r2n, VOC_T2, x2);
+            fol(s3p, et2, r2.r, r2n, VOC_T2, c2, k2, f2);
+        s3x = s3s;
+        x2 = '0;
+        if (t_ev2 && r2.v)
+            do_row(s3x, et2, r2.r, r2n, VOC_T2, x2);
         x2.rom_miss = t_ev2 && !r2.v;
 
-        // (E) a third row: after a form's end and start, the row a LEAD take releases (S2
-        // folded the lead take into its clocks row); (S4) in a running form, the row after two
-        // that went on (a read's delivery, a post, then a clocks row: pop_mem)
-        et.avail = avail_c - 4'(x1.tk) - 4'(x2.tk);
-        et.b0 = (x1.tk + x2.tk) == 2'd0 ? vb0 : ((x1.tk + x2.tk) == 2'd1 ? vb1 : vb2);
-        s4 = s3;
+        // (E) the third row, from the second's follow-on state (after a start, the row a LEAD
+        // take releases; in a running form pop_mem's read delivery, post and clocks)
+        et3 = et2;
+        et3.avail = avail_c - 4'(k1) - 4'(k2);
+        et3.b0 = (k1 + k2) == 2'd0 ? vb0 : ((k1 + k2) == 2'd1 ? vb1 : vb2);
+        t_ev3 = t_ev2 && c2 && s3p.run;
+        r3 = rowat_o(s3p.dw, s3p.du);
+        r3n = rowat_o(inc8(s3p.dw, 3'd1), inc8(s3p.du, 3'd1));
+        s4x = s3p;
         x3 = '0;
-        t_ev3 = t_ev2 && x2.complete && x2.cont && s3.run;
-        r3 = rowat_o(s3.dw, s3.du);
-        r3n = rowat_o(inc8(s3.dw, 3'd1), inc8(s3.du, 3'd1));
         if (t_ev3)
-            sk(s4, r3, r3n, VOC_T3);
+            sk(s4x, r3, r3n, VOC_T3);
         if (t_ev3 && r3.v)
-            do_row(s4, et, r3.r, r3n, VOC_T3, x3);
+            do_row(s4x, et3, r3.r, r3n, VOC_T3, x3);
         x3.rom_miss = t_ev3 && !r3.v;
+
+        // the pass's state: the last evaluator's (the form's end alone: the follow-on state)
+        s3 = t_ev2 ? s3x : (t_end2 ? s3s : s2);
+        s4 = t_ev3 ? s4x : s3;
+        // (a row whose follow-on fol does not model: the evaluator went on, the pass did not)
+        t_fmiss = (t_ev1 && r1.v && x1.complete && x1.cont && !c1)
+                  || (t_ev2 && r2.v && x2.complete && x2.cont && !c2);
 
         t_why = halted ? W_HALT : t_hold ? W_HOLD : t_wait ? W_CLK : t_sync_blk ? W_SYNC :
                 (t_dec1 || t_dec2) ? W_DEC :
@@ -2526,7 +2816,7 @@ module v35_ucode
                           && !(refill && (inflight_c_b || want_c)))
                       || ((p_try1 || p_try2) && ir_v_l_b && !ok_l_b && !(refill && inflight_x_b));
     assign p_flush = xp.flush;
-    assign voc_miss = p_end2 || p_e3 || (t_ev1_b && x1_b.bad) || (t_ev2_b && x2_b.bad) || (t_ev3_b && x3_b.bad)
+    assign voc_miss = p_end2 || p_e3 || t_fmiss || (t_ev1_b && x1_b.bad) || (t_ev2_b && x2_b.bad) || (t_ev3_b && x3_b.bad)
                       || (p_ev1 && y1.bad) || (p_ev2 && y2.bad) || (p_ev3 && y3.bad);
 
     // ------------------------------------------------------------ the posts
@@ -2811,6 +3101,11 @@ module v35_ucode
             pfc <= 4'd0;
             tlr <= 1'b0;
             tlwb <= 2'd0;
+            mfw_v <= 1'b0;              // (S7b) the reset complete: mul_imm_count's timers
+            mfw <= 4'd0;
+            mf_on <= 1'b0;
+            mf_cnt <= 4'd0;
+            mf_o <= 1'b0;
         end else if (ce_a) begin
             run <= p4.run;
             upc <= p4.a;
@@ -3006,8 +3301,8 @@ module v35_ucode
     /* verilator lint_off UNUSEDSIGNAL */
     /* verilator lint_off BLKSEQ */
     // (S7b) +v35_stats: the passes' shapes counted over a run (bring-up of the two-tick
-    // structure: which rows each pass evaluates together and how they end), printed at the end
-    // as "v35 stat: KEY COUNT" (T: the T pass, P: the P pass on a retick)
+    // structure: which rows each pass evaluates together and how they end), one line
+    // an event "v35 stat: KEY = 1" (T: a T pass with a second row, P: the P pass on a retick)
     reg stats_on = 1'b0;
     int stats [string];
     initial stats_on = $test$plusargs("v35_stats");
@@ -3073,6 +3368,47 @@ module v35_ucode
     end
 `endif
 
+`ifndef SYNTHESIS
+    // (S7b) +v35_wdec (a measurement for the next stage): a start whose format differs from the
+    // one decoded a clock ahead (its ModR/M byte, or an escape's bytes, arrived on the start
+    // clock): it would wait a clock if the start's format were a register. Reported once a run.
+    reg wd_on = 1'b0, wd_seen = 1'b0;
+    v35_fmt_t ka_fmt = '0;
+    integer wd_n = 0;
+    initial wd_on = $test$plusargs("v35_wdec");
+    always @(posedge clock) begin
+        if (!reset_n)
+            wd_seen <= 1'b0;
+        else if (ce_a) begin
+            ka_fmt <= nf_fmt;
+            if (wd_on && ((t_start && fmt_c != ka_fmt) || (p_start && fmt_c_b != ka_fmt))) begin
+                wd_n <= wd_n + 1;
+                if (!wd_seen)
+                    $display("v35 stat: wdec first at %0t", $time);
+                wd_seen <= 1'b1;
+            end
+        end
+    end
+`endif
+`ifndef SYNTHESIS
+    // (S7b) +v35_chk: the T pass's follow-on state (fol) against the evaluator's (do_row) when
+    // the row went on: they must agree field by field
+    reg fol_chk = 1'b0;
+    integer fol_n = 0;
+    initial fol_chk = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (fol_chk && reset_n && ce_a && fol_n < 20) begin
+            if (t_ev1 && r1.v && c1 && s2 !== s2p) begin
+                fol_n <= fol_n + 1;
+                $display("v35 chk: ucode.fol row 1 differs: %h / %h (op %0d) at %0t", s2, s2p, r1.r.op, $time);
+            end
+            if (t_ev2 && r2.v && c2 && s3x !== s3p) begin
+                fol_n <= fol_n + 1;
+                $display("v35 chk: ucode.fol row 2 differs: %h / %h (op %0d) at %0t", s3x, s3p, r2.r.op, $time);
+            end
+        end
+    end
+`endif
     // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
 `ifndef SYNTHESIS
     /* verilator lint_off BLKSEQ */
@@ -3515,7 +3851,7 @@ module v35_ucode
 `endif
     // (S7b) chk end
 
-    wire unused = &{1'b0, ce_b, s1_b, xt_b, r1_b, t_gate1_b, t_gate2_b, s2_b, s3_b, x1_b, x2_b, x3_b, r2_b, r3_b, ir_addr_l_b, xt_b.why, xp.why, xt_b.def, xp.def, xt_b.complete, xp.complete, xt_b.cont,
+    wire unused = &{1'b0, ce_b, f2, s1_b, xt_b, r1_b, t_gate1_b, t_gate2_b, s2_b, s3_b, x1_b, x2_b, x3_b, r2_b, r3_b, ir_addr_l_b, xt_b.why, xp.why, xt_b.def, xp.def, xt_b.complete, xp.complete, xt_b.cont,
                     xp.cont, xp.relatch, xp.flush, xp.halt, xp.rt_set, xp.rt_n,
                     xp.retire, xp.set_exec, xp.sh_set, xp.sh_n, xp.cntk, xp.landed, t_lapse,
                     x1.rom_miss, x2.rom_miss, y1.rom_miss, y2.rom_miss, xt, xp, ir_addr_c,

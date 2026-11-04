@@ -945,3 +945,38 @@ question, decided from S8's routed numbers with the user.
   silent, 0 check reports; the same at `+v35_ticks=2`, per-family tables identical; write data 106,824 /
   106,824 at both; SST 2,849,080 pass / 0 fail; `--regfile` 69,099 + 38,760 vectors 0 bad; function bench
   19,752 / 0 bad; lint clean in four configurations; 30 fast tests green; the nine offline modules unchanged.
+- 2026-11-03, **S7b landed — the two-tick core; timing does not close by structure**: `ce_a` at the CPU
+  clock's middle (every architectural register and the read-datum register: the datum is sampled where the
+  V35 samples it, mid-B3, and tick A = S1–S4 runs from that register to the edge), `ce_b` at the edge (the
+  pipeline registers; tick B = S5–S6 runs from the edge to the middle); `ce_a` waits for a `ce_b` after the
+  reset exit; the SFR store writes at `ce_a`. The pins keep the model's timing (B1 / B2 at the edge from the
+  registered grant, the strobes and the read latch at the middle from the cycle's next state) with one pin
+  change: every write datum is driven at mid-B2 from one register written at `ce_a` (README Divergence 31;
+  the lane keeps the last data sample while the strobe is low, for both lanes, so the write-data comparison
+  is like for like). Every module has a `ce_b` register block and its tick-B logic reads tick A only through
+  it (`+v35_chk` compares each `ce_b` register with its source). The P pass is one case step (Divergence 32);
+  the T pass is split by cases (the cursor row's evaluator beside `fol`, the state a row leaves when it goes
+  on; the second and third rows from that state; a `fol`-versus-evaluator check silent on the corpus,
+  `t_fmiss` in `voc_miss`); ROM-window rows by tracked offsets; the reset blocks of v35_queue, v35_bus and
+  v35_ucode complete (the whole-core bench passes with a bare reset, `V35_C2_BARE=1`; S6's open item closed).
+  Plusargs `+v35_ticks=2`, `+v35_ceb=K` (1..3 after the middle), `+v35_chk`, `+v35_wdec`; `V35_PLUSARGS`,
+  `V35_SIM_DIR`, `V35_SIM_BINARY`. Timing tooling: `fpga/v35s/synth/v35_tw.sv` + `v35_tw.py` (a module's
+  inputs from a shift chain, its outputs registered and folded onto eight pins) and `v35_timing.sh` (efx_run
+  compile at 15.625 ns, one create_clock, no exceptions, inside the memory scope). Not done, by decision after
+  step 4: the generator's compound rows, the arbiter's precomputed holds, the eu/ea pipeline registers.
+  **Depth (the reason for S8):** v35_ucode module-local LUT levels after step 2 88 / 79, final 62.5 / 59.4
+  (tick A / tick B); the other modules eu + ea 16 / 62, arbiter 44 / 8, queue 20 / 20, loader 17 / 19, bus
+  4 / 4. Routed v35_ucode in the timing wrapper (857 s, every SDC line applied): worst setup slack −47.269 ns,
+  hold +0.307 ns; the worst path `wa[1]` → `wb_hold`, 57 logic levels, 62.2 ns, about 1.1 ns a level (so a
+  15.625 ns tick holds about 12–14 levels, not the 5–6 estimated from the placer); 10,991 LUT4, 738 ADD,
+  2,736 FF, 28 RAM_5K in the wrapper. `efx_map` LUT4 / FF: ucode 10,797 / 1,234 (S7a 8,832 / 498), loader
+  2,182 / 558, arbiter 1,810 / 705, queue 1,105 / 315, bus 264 / 225, regram 16 / 14, eu + ea 9,231 / 917.
+  Reorganising the RTL did not move the depth (step 4: 64 / 61 → 62.5 / 59.4) because the state a row leaves is
+  most of the row's semantics; hence S8. Start-path probe (`+v35_wdec`): 0 of 30,536 runs with a start whose
+  live format differs from the decode ahead's registered one (the inverted comparison fires on all 54 F1
+  runs). **Gate, rerun on main after the final patch (applied verbatim over the checkpoint):** 36 families at
+  the eight-tick spacing with `+v35_chk` 30,536 / 30,536 RTL = model (model-exact = RTL-exact 30,361), `--diag`
+  silent, 0 check reports; the same at `+v35_ticks=2 +v35_chk`, per-family tables identical; write data
+  106,824 / 106,824 at both; SST 2,849,080 pass / 0 fail; `--regfile` 69,099 + 38,760 vectors 0 bad; function
+  bench 19,752 / 0 bad on the 28-family list and 23,328 / 0 bad on all 41 families; lint clean in four
+  configurations; 30 fast tests green; the bare-reset SST test green; the nine offline modules unchanged.

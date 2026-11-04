@@ -673,15 +673,13 @@ The counted-apart table and the scores: "Gate (S6)".
   queue is not redirected (no flush), the V20 fetches on at the new PS:IP; the data book does
   not define PS as MOV's destination. Counted as divergences (sst.py: DECODE_DIVERGENCE;
   `--regfile`: `code_divergence`).
-- (S6) **The reset is not complete.** The core's `reset_n` does not clear every register (the
-  power-on values do): `v35_queue` fh_v fh_cnt ox_v ox_fed ox_nt ox_dbnz ou_v ou_cnt od_v od_nb
-  od_inf od_since xa ira th_a th_on th_pre th_c pb_done pr_done (a take hold left on by a reset
-  holds every fetch: the next test never started), `v35_bus` w_v w_ncyc tk_prev and the cycle's
-  flags behind `c_valid`, `v35_ucode` mf_on mf_cnt mf_o mfw_v mfw (S6 completed `v35_eu`'s and
-  `v35_ea`'s reset blocks: the stale write-through flags, the string unit's and the bit field's
-  registers, the reads in order). The harness resets once (power-on values); the bench restores
-  the post-reset state before each test instead. A board reset after power-on needs these in the
-  reset blocks (S7: the queue, bus and ucode are its files).
+- (S6, closed in S7b) **The reset is complete.** S7b added the registers S6 found outside the
+  reset blocks (`v35_queue` fh_v fh_cnt ox_* ou_* od_* xa ira th_* pb_done pr_done, `v35_bus` the
+  cycle's fields and flags, the delivery's, w_v w_ncyc w_rel tk_prev and the address / data pins,
+  `v35_ucode` mfw_v mfw mf_on mf_cnt mf_o). The function bench still restores the post-reset
+  snapshot by default; `V35_C2_BARE=1` runs it with the reset alone (test_sst_rtl passes so).
+  The ce_b registers are not reset (each is written before it is read: ce_a waits for a ce_b
+  after the reset), but `g_start_b` (the mid-clock strobes read it).
 - Not in the ROM under fit 62 (built, not run): QUIET (str_take=sync), FROM_START (cvt_from=take),
   HELD (cvt_tail=none: passes as a NOP). The request record's `io_ext` (disp_io_wait, a WP124
   candidate at its default `none`) is not in the record.
@@ -897,6 +895,24 @@ the queue's PS-relative fetch increment).
    gate's format-free tests passing is counted. None on the corpus.
 30. (S7a) **No P re-decode of a running form.** A running form taking its ModR/M byte in the P
    pass is reported (`p_mmiss`); its format would be the T re-decode's. None on the corpus.
+31. (S7b) **The write datum at mid-B2 (a pin change).** The core's clock sits half a CPU clock
+   after the model's convention (ce_a at the CPU clock's middle, where the read datum is sampled;
+   ce_b at its edge: "Two ticks (S7b)"), so a clock's S5 / S6 results, the exec's among them,
+   exist half a CPU clock after the edge that ends the model's clock. The one such result that
+   reaches a pin is a write cycle's datum taken at B2 (the store_imm immediate, an RMW's result
+   forwarded from the exec: S6's Divergence 27). Every write's datum is therefore driven on the data
+   pins at mid-B2 (one register, written at ce_a), where v35_biu (and the model lane before S7b)
+   drove it at the start of B2. The pins' address, R/W and strobe timing is unchanged. The V35's
+   write strobe falls no earlier than mid-B2 (/IOSTB mid-B2, a memory write's /MSTB mid-way
+   through the state before B3) and the data are sampled while it is low or as it rises (the
+   harness lane, v35s_lane.sv, keeps the last sample before the strobe rises, as it does for the
+   silicon lane), so the datum is valid wherever it is used; a device latching data at B2's
+   start would not see it. The write-data gate compares the same lane samples as before.
+32. (S7b) **The P step's cases.** The P pass evaluates its first row with the evaluator of its case
+   (a data step, `VOC_P1D`, or any other row, `VOC_P1E`) and the rows after it on the same clock
+   only where the corpus has them: after a data step done, P2 then P3 (`VOC_P2D`, `VOC_P3`); after
+   a lead take, its clocks (`VOC_P2E`). Any other follow-on is reported (`voc_miss`) and not acted
+   on. None on the corpus.
 
 ## Gate (S5b)
 
@@ -965,6 +981,47 @@ the 25,742 runs RTL = model** (from t_fill, and the pre window exact on every ru
 234 / 234, F33 1,026 / 1,050, F35 1,038 / 1,044, F36 750 / 750, F37 432 / 432, F38 864 / 864
 (the misses all the model's own). Not gated: F32, F34, F39, F40 (the 0F page, S5b) and the
 refresh-on lists F8 F13 F17 F18 F27 F28.
+
+## Two ticks (S7b)
+
+The CPU clock is two fabric ticks at the target (a 64 MHz fabric clock, a 32 MHz CPU clock; no
+multicycle or other timing exception anywhere). `v35_top` makes the two enables:
+
+- `ce_a`: the CPU clock's middle (`ce_mid`, the strobe edge): every architectural register and the
+  bus unit's read-datum register (mid-B3, where the V35 samples the datum). Tick A starts there:
+  S1 (arrival, from the registered datum) through S4 (the grant).
+- `ce_b`: the CPU clock's edge: the pipeline registers that hold tick A's results (each module's
+  `(S7b) the ce_b registers` block). Tick B starts there: S5 (the P pass) and S6 (the next state,
+  the decode ahead, the ROM window's address), ending at the next `ce_a`.
+
+Tick B and the `ce_a` blocks read tick A's results only through the ce_b registers (never tick
+A's logic); tick A reads only architectural registers. The pins keep the model's timing: B1 / B2
+at the edge (`ce_e`) from the grant tick A has just decided, the strobes and the read latch at the
+middle from the cycle's next state; the write datum at mid-B2 (Divergence 31). The core's state is
+half a CPU clock later than the model's convention; nothing else changes. After a reset `ce_a`
+waits for a `ce_b`.
+
+Simulation: the core's registers update on `ce_a` and `ce_b` only, so the default (ce_b at the
+edge) runs exactly as at the target while the harness keeps its eight-tick clock and 30 ns
+recording (`+v35_ticks=2` names that variant); `+v35_ceb=K` puts `ce_b` K ticks after `ce_a`
+(K = 1..3 in the eight-tick clock; the pins' edge stays at the edge). `+v35_chk` compares every
+ce_b register with its tick-A source at `ce_a` (a source that changed in tick B is reported):
+silent on the whole corpus at both spacings. `V35_PLUSARGS` (acquire.py) passes plusargs to the
+replays; `V35_SIM_DIR` / `V35_SIM_BINARY` build and run a second simulation binary.
+
+The T pass is one row decision by cases: the cursor's row (or, when no form runs, the started
+form's row 0 from the window) has its evaluator (`do_row`); beside it `fol` gives the state the row
+leaves when it completes with `cont` (from the row's fields, the pass state and S1's values), and
+the second row (case E: the form ended, the start and the next form's row 0, already in the window;
+case R: the form's next row) and the third are evaluated from those states, not after an evaluator
+(`t_fmiss` in `voc_miss` reports a row whose follow-on `fol` does not model; `+v35_chk` compares
+`fol`'s state with the evaluator's field by field: silent on the corpus). A CLOCKS row's zero count
+is tested without its add (`nz`). The P pass is one step of a small state machine (Divergence 32); the ROM window is read by
+offsets tracked through a pass (`dw`, `du`: the row's offset from the window and from the cursor)
+instead of address subtractions. Bring-up probes (simulation only): `+v35_stats` (each T pass that evaluated a second row and each
+P pass on a retick, one line each), `+v35_wdec` (a start whose format differs from the decode
+ahead's registered one, once a run: none on the corpus). Timing: `fpga/v35s/synth/v35_timing.sh MODULE` (the module in
+the timing wrapper `v35_tw.sv` / `v35_tw.py`, efx_run compile at 15.625 ns, one create_clock).
 
 ## Synthesis (S7a)
 

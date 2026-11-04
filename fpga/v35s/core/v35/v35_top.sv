@@ -58,10 +58,10 @@ module v35_top
     // ---------------------------------------------------------------- SFRs
     wire [7:0] prc, rfm, idb;
     wire [15:0] wtc;
-    reg sfr_wr = 1'b0;
+    wire sfr_wr;                        // ((S7b) at ce_a itself: tick A sees the new value)
     reg [19:0] sfr_a = 20'd0;
     reg [1:0] sfr_w = 2'd0;
-    reg [15:0] sfr_d = 16'd0;
+    wire [15:0] sfr_d;
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb);
 
@@ -122,22 +122,29 @@ module v35_top
     end
     localparam int INIT_COUNTER = (8 + (RESET_FETCH_STATE - 1) - (RESET_REFRESH_STATE - 1)) % 128;
 
-    // (S7b) the two enables of a CPU clock: `ce_a` its edge (every architectural register),
-    // `ce_b` one fabric tick between two ce_a's (the pipeline registers that hold the first
-    // tick's results; nothing architectural). At the target (a 64 MHz fabric clock, a 32 MHz
-    // CPU clock: two ticks) ce_b is the second tick, which is the CPU clock's middle (ce_mid).
-    // Tick A must end no earlier than ce_mid: the read datum the clock delivers (S1) is on the
-    // pins only by then (the strobe edge, where v35_biu latches it), and the T pass, the IR
-    // load and the grant read it (a ModR/M byte's length, an opcode, an address byte). So ce_b
-    // is ce_mid by default (the harness and the target alike), and the core is correct for any
-    // spacing from there to the tick before the next ce_a: +v35_ceb=K (simulation only) puts
-    // ce_b K fabric ticks after ce_mid (in the harness's eight-tick clock K = 1..3; 3 is the
-    // tick before ce_a). The core's registers update on ce_a, ce_b and ce_mid only, so with
-    // K = 0 the core runs exactly as at the target, two ticks a CPU clock, while the harness's
-    // pins and its recording at 30 ns ticks are unchanged (+v35_ticks=2 names that variant).
+    // (S7b) the two enables of a CPU clock. The pins' timing is the model's (v35_biu's): a cycle
+    // granted on a clock shows B1 from the CPU clock's edge after it, the strobes move at the
+    // clock's middle, and a read's datum is on the pins at mid-B3, where the V35 samples it.
+    // The core's clock is placed half a CPU clock later than that convention so that its first
+    // tick starts from the sampled datum:
+    //   ce_a  the CPU clock's middle (ce_mid): every architectural register, and the bus
+    //         unit's datum register (the read latch). Tick A runs from here: S1 (arrival, from
+    //         the registered datum) through S4 (the grant).
+    //   ce_b  the CPU clock's edge: the pipeline registers that hold tick A's results; the
+    //         pins' edge (B1's address, B2's column) takes the grant there. Tick B runs from
+    //         here: S5, S6, ending at the next ce_a.
+    // A clock's S5 / S6 results reach the pins half a CPU clock after the edge that ends the
+    // model's clock: the write datum is driven at mid-B2 (README, Divergence 31); nothing else
+    // on the pins depends on them. No input reaches logic without first landing in a register.
+    // Simulation only: +v35_ceb=K puts ce_b K fabric ticks after ce_a (K = 1..3 in the harness's
+    // eight-tick clock; the default is the edge, the target's second tick); the pins' edge
+    // stays at the CPU clock's edge. The core's registers update on ce_a and ce_b only, so the
+    // default runs exactly as at the target, two ticks a CPU clock, while the harness's pins
+    // and its recording at 30 ns ticks are unchanged (+v35_ticks=2 names that variant).
     // ce_a waits for a ce_b since the core left reset (the ce_b registers then hold tick A's
     // results of the state the ce_a ends: the first clock after the reset exit included).
     wire ce_mid = state_mid;
+    wire ce_e = state_start && core_run;            // the pins' edge
     reg  [2:0] ceb_age = 3'd7;          // fabric ticks since the CPU clock's middle (sat 7)
     reg        b_seen = 1'b0;
     wire       ce_b;
@@ -153,18 +160,18 @@ module v35_top
         else if (ce_b)
             b_seen <= 1'b1;
     end
-    wire ce_a = state_start && core_run && b_seen;
+    wire ce_a = state_mid && core_run && b_seen;
 `ifndef SYNTHESIS
     reg  [2:0] ceb_k = 3'd0;
     integer    ceb_arg = 0;
     initial begin
-        if ($value$plusargs("v35_ceb=%d", ceb_arg) && ceb_arg >= 0 && ceb_arg <= 7
+        if ($value$plusargs("v35_ceb=%d", ceb_arg) && ceb_arg >= 0 && ceb_arg <= 3
             && !$test$plusargs("v35_ticks=2"))
             ceb_k = 3'(ceb_arg);
     end
-    assign ce_b = core_run && !state_start && (ceb_k == 3'd0 ? state_mid : ceb_age == ceb_k);
+    assign ce_b = core_run && !state_mid && (ceb_k == 3'd0 ? state_start : ceb_age == ceb_k);
 `else
-    assign ce_b = core_run && state_mid;
+    assign ce_b = core_run && state_start;
 `endif
     wire ce = ce_a;                     // (the function bench's hook: o_ce)
 
@@ -298,7 +305,7 @@ module v35_top
     wire [8:0] c_mux_address;
     wire [15:0] c_data_out;
     v35_bus bus (
-        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_mid, .wtc, .rfm,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_e, .ce_mid, .wtc, .rfm,
         .g_start, .g_kind, .g_addr, .g_width, .g_data, .g_ext, .g_b2b,
         .g_thru, .g_after_post(g_pfa), .g_lea_start(1'b0),
         .g_disp_in_flight(1'b0), .g_ir_before(ir_v_p && !t_flush_b), .g_take_near(1'b0), .g_abort,
@@ -488,8 +495,9 @@ module v35_top
     // captured at its issue, written at its cycle's end with the EU's datum then (a store_imm
     // takes its immediate after the store issued)
     reg sfr_open = 1'b0;
+    assign sfr_wr = ce_a && sfr_open && dlv_other;
+    assign sfr_d = sfr_data;
     always @(posedge clock) begin
-        sfr_wr <= 1'b0;
         if (!core_reset_n) begin
             sfr_open <= 1'b0;
         end else if (ce_a) begin
@@ -499,8 +507,6 @@ module v35_top
                 sfr_w <= g_width_b;
             end else if (sfr_open && dlv_other) begin
                 sfr_open <= 1'b0;
-                sfr_wr <= 1'b1;
-                sfr_d <= sfr_data;
             end
         end
     end

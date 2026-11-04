@@ -692,6 +692,27 @@ module v35_queue
             first <= 1'b1;
             ovf <= 1'b0;
             sfetch <= 1'b0;
+            // (S7b) the reset complete (S6: a take hold left on by a reset held every fetch)
+            fh_v <= 1'b0;
+            fh_cnt <= 5'd0;
+            ox_v <= 1'b0;
+            ox_fed <= 1'b0;
+            ox_nt <= 1'b0;
+            ox_dbnz <= 1'b0;
+            ou_v <= 1'b0;
+            ou_cnt <= 3'd0;
+            od_v <= 1'b0;
+            od_nb <= 1'b0;
+            od_inf <= 1'b0;
+            od_since <= 4'd0;
+            xa <= 1'b0;
+            ira <= 1'b0;
+            th_a <= 1'b0;
+            th_on <= 1'b0;
+            th_pre <= 1'b0;
+            th_c <= 1'b0;
+            pb_done <= 1'b0;
+            pr_done <= 1'b0;
         end else if (ce_a) begin
             first <= 1'b0;
             // (S5a) the transfers' holds

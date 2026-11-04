@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -184,6 +185,7 @@ int main(int argc, char** argv) {
         b.half(1);
     }
     std::vector<uint8_t> snap;
+    const bool bare = std::getenv("V35_C2_BARE") != nullptr;
     {
         MemSave os(snap);
         os << b.d;
@@ -212,7 +214,8 @@ int main(int argc, char** argv) {
         };
         const uint32_t ps0 = t.in[9], ip0 = t.in[13];
         // ---- reset with the test's first fetch address, then the preload
-        {
+        // ((S7b) V35_C2_BARE=1: no restore, the reset alone: the reset blocks are complete)
+        if (!bare) {
             MemRestore is(snap);
             is >> b.d;
             is.close();

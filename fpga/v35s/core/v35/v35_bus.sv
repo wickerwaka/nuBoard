@@ -62,6 +62,7 @@ module v35_bus
     input  wire        reset_n,
     input  wire        ce_a,          // end of a CPU clock
     input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
+    input  wire        ce_e,        // (S7b) the CPU clock's edge (the pins' B1 / B2)
     input  wire        ce_mid,      // the middle of a CPU clock (strobe edges)
     input  wire [15:0] wtc,
     input  wire [7:0]  rfm,         // RFM.RFW: a refresh cycle's length
@@ -266,7 +267,9 @@ module v35_bus
     reg  [1:0]  g_width_b = BW_WORD, g_dsel_b = 2'd0;
     reg  [15:0] g_data_b = 16'd0;
     always @(posedge clock) begin
-        if (ce_b) begin
+        if (!reset_n)
+            g_start_b <= 1'b0;       // (the strobes at ce_mid read it before the first ce_b)
+        else if (ce_b) begin
             g_start_b <= g_start;
             g_ext_b <= g_ext;
             g_b2b_b <= g_b2b;
@@ -310,6 +313,28 @@ module v35_bus
             ab_pos <= 2'd0;
             d_v <= 1'b0;
             error <= 1'b0;
+            // (S7b) the reset complete: the cycle's fields and flags, the delivery's, the
+            // write tracker, the take flag
+            c_addr <= 20'd0;
+            c_width <= BW_WORD;
+            c_data <= 16'd0;
+            c_dsel <= 2'd0;
+            c_after_post <= 1'b0;
+            c_disp_in_flight <= 1'b0;
+            c_ir_before <= 1'b0;
+            c_thru <= 1'b0;
+            c_pfa <= 1'b0;
+            c_tn <= 1'b0;
+            c_tkin <= 1'b0;
+            c_as <= 1'b0;
+            c_nt <= 1'b0;
+            d_kind <= K_NONE;
+            d_addr <= 20'd0;
+            d_width <= BW_WORD;
+            tk_prev <= 1'b0;
+            w_v <= 1'b0;
+            w_ncyc <= 2'd0;
+            w_rel <= 5'sd0;
         end else if (ce_a) begin
             wl <= wl_e;
             f_since <= fetch_x ? 4'd0 : fetch_since;
@@ -396,17 +421,36 @@ module v35_bus
     end
 
     // ------------------------------------------------ pins (v35_biu.sv:290-350)
+    // (S7b) The pins keep the model's timing while the core's clock sits half a CPU clock later
+    // (v35_top: ce_a at the CPU clock's middle, ce_b at its edge). At the edge (ce_e) B1 / B2
+    // take the grant tick A has just decided (g_*) and the running cycle's registers as they
+    // stood (written at the last ce_a); at the middle (ce_mid, with ce_a) the strobes and the
+    // read latch follow the cycle as this clock leaves it (n_*: the registers' next state).
+    // The write datum is driven at mid-B2 (Divergence 31): the clock's S5 / S6 results, the
+    // exec's result among them (wd_imm), are there half a CPU clock after the edge.
+    wire        e_valid = g_start || busy;
+    wire [2:0]  e_kind = g_start ? g_kind : c_kind;
+    wire [2:0]  e_pos = g_start ? 3'd0 : pos_now;
+    wire [19:0] e_addr = g_start ? g_addr : c_addr;
+    wire [1:0]  e_width = g_start ? g_width : c_width;
+    wire [15:0] e_data = g_start ? g_data : c_data;
+    wire        e_internal = g_start ? (g_kind == K_WRITE && g_addr >= SFR_PAGE) : c_internal;
+    wire        e_write = e_kind == K_WRITE || e_kind == K_IO_WRITE;
+    // the cycle as this clock leaves it (the pins' view from the middle on)
     wire        n_valid = g_start_b || busy;
     wire [2:0]  n_kind = g_start_b ? g_kind_b : c_kind;
     wire [2:0]  n_pos = g_start_b ? 3'd0 : pos_now;
+    wire [2:0]  n_len = g_start_b ? grant_len_b : c_len;
     wire [19:0] n_addr = g_start_b ? g_addr_b : c_addr;
     wire [1:0]  n_width = g_start_b ? g_width_b : c_width;
-    wire [15:0] n_data = g_start_b ? g_data_b : c_data;
     wire        n_internal = g_start_b ? g_sfr_b : c_internal;
     wire        n_write = n_kind == K_WRITE || n_kind == K_IO_WRITE;
-    wire        c_write = c_kind == K_WRITE || c_kind == K_IO_WRITE;
-    wire        pins = c_valid && !c_internal;
+    wire        pins = n_valid && !n_internal;
     reg  [8:0]  refresh_row = 9'd0;
+    // B2's write datum, decided at the edge, driven at the middle
+    reg         dp_v = 1'b0;
+    reg  [1:0]  dp_sel = 2'd0;
+    reg  [15:0] dp_data = 16'd0;
 
     initial begin
         a0 = 1'b0;
@@ -429,64 +473,78 @@ module v35_bus
             refrq_n <= 1'b1;
             read_write <= 1'b1;
             refresh_row <= 9'd0;
-        end else if (ce_a) begin
-            if (!n_valid || n_internal) begin
-                read_write <= 1'b1;
-            end else if (n_pos == 3'd0) begin
-                // B1: the row (A17..A9), A19, A18 and A0
-                read_write <= !n_write;
-                if (n_kind == K_REFRESH) begin
-                    mux_address <= refresh_row;
-                    refresh_row <= refresh_row + 1'b1;
-                    a0 <= 1'b0;
-                    a19 <= 1'b0;
-                    a18_ube <= 1'b0;
-                end else begin
-                    mux_address <= n_addr[17:9];
-                    a0 <= n_addr[0];
-                    a19 <= n_addr[19];
-                    a18_ube <= n_addr[18];
+            a0 <= 1'b0;                 // (S7b) the address and data pins too
+            a19 <= 1'b0;
+            a18_ube <= 1'b0;
+            mux_address <= 9'd0;
+            data_out <= 16'd0;
+            dp_v <= 1'b0;
+            dp_sel <= 2'd0;
+            dp_data <= 16'd0;
+        end else begin
+            if (ce_e) begin
+                dp_v <= 1'b0;
+                if (!e_valid || e_internal) begin
+                    read_write <= 1'b1;
+                end else if (e_pos == 3'd0) begin
+                    // B1: the row (A17..A9), A19, A18 and A0
+                    read_write <= !e_write;
+                    if (e_kind == K_REFRESH) begin
+                        mux_address <= refresh_row;
+                        refresh_row <= refresh_row + 1'b1;
+                        a0 <= 1'b0;
+                        a19 <= 1'b0;
+                        a18_ube <= 1'b0;
+                    end else begin
+                        mux_address <= e_addr[17:9];
+                        a0 <= e_addr[0];
+                        a19 <= e_addr[19];
+                        a18_ube <= e_addr[18];
+                    end
+                end else if (e_pos == 3'd1 && e_kind != K_REFRESH) begin
+                    // B2: the column (A9, A8..A1), /UBE; the write datum at mid-B2
+                    mux_address <= {e_addr[9], e_addr[8:1]};
+                    a18_ube <= e_width == BW_LO;
+                    dp_v <= e_write;
+                    dp_sel <= (g_start || c_dsel == 2'd0) ? 2'd0 : c_dsel;
+                    dp_data <= e_data;
                 end
-            end else if (n_pos == 3'd1 && n_kind != K_REFRESH) begin
-                // B2: the column (A9, A8..A1), /UBE, the write data
-                mux_address <= {n_addr[9], n_addr[8:1]};
-                a18_ube <= n_width == BW_LO;
-                if (n_write)
-                    data_out <= (g_start_b || c_dsel == 2'd0) ? n_data
-                              : c_dsel == 2'd1 ? wd_imm
-                              : c_dsel == 2'd2 ? {wd_imm[7:0], 8'd0} : {8'd0, wd_imm[15:8]};
             end
-        end else if (ce_mid && pins) begin
-            if (c_pos == 3'd0) begin
-                if (c_kind == K_REFRESH)
-                    refrq_n <= 1'b0;
-                else
-                    mreq_n <= 1'b0;
-            end else if (c_pos == c_len - 3'd1) begin
-                mreq_n <= 1'b1;
-                mstb_n <= 1'b1;
-                iostb_n <= 1'b1;
-                refrq_n <= 1'b1;
-            end else if (c_kind != K_REFRESH) begin
-                if (k_io(c_kind))
-                    iostb_n <= 1'b0;
-                else if (!c_write || c_pos == c_len - 3'd2)
-                    mstb_n <= 1'b0;
+            if (ce_a && dp_v)
+                data_out <= dp_sel == 2'd0 ? dp_data
+                          : dp_sel == 2'd1 ? wd_imm
+                          : dp_sel == 2'd2 ? {wd_imm[7:0], 8'd0} : {8'd0, wd_imm[15:8]};
+            if (ce_mid && pins) begin
+                if (n_pos == 3'd0) begin
+                    if (n_kind == K_REFRESH)
+                        refrq_n <= 1'b0;
+                    else
+                        mreq_n <= 1'b0;
+                end else if (n_pos == n_len - 3'd1) begin
+                    mreq_n <= 1'b1;
+                    mstb_n <= 1'b1;
+                    iostb_n <= 1'b1;
+                    refrq_n <= 1'b1;
+                end else if (n_kind != K_REFRESH) begin
+                    if (k_io(n_kind))
+                        iostb_n <= 1'b0;
+                    else if (!n_write || n_pos == n_len - 3'd2)
+                        mstb_n <= 1'b0;
+                end
             end
         end
     end
 
     // read data: on the pins by mid-B3, delivered on the same CPU clock (the pins' B3 is the
-    // core's delivery clock). (S7b) The delivery clock's first tick reads the pins themselves:
-    // tick A ends (ce_b) no earlier than the strobe edge (ce_mid), where the datum is on the
-    // pins; the latch holds it after the cycle for the clocks that follow.
+    // core's delivery clock). (S7b) The datum register is written at mid-B3 (ce_mid, with ce_a):
+    // the delivery clock's tick A starts from it.
     reg  [15:0] done_r = 16'hffff;
-    wire        b3_read = c_valid && c_pos == c_len - 3'd1 && k_read(c_kind) && !c_internal;
+    wire        b3_read = n_valid && n_pos == n_len - 3'd1 && k_read(n_kind) && !n_internal;
     always @(posedge clock) begin
         if (ce_mid && b3_read)
             done_r <= data_in;
     end
-    assign done_data = b3_read ? data_in : done_r;
+    assign done_data = done_r;
 
     // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
 `ifndef SYNTHESIS
@@ -606,7 +664,7 @@ module v35_bus
 `endif
     // (S7b) chk end
 
-    wire unused = &{1'b0, ce_b, c_commit, g_lea_start, g_disp_in_flight,
+    wire unused = &{1'b0, ce_b, n_addr, n_width, c_commit, g_lea_start, g_disp_in_flight,
                     g_take_near, c_after_post, c_disp_in_flight, wtc[13:2],
                     rfm[7:4], rfm[1:0]};
 endmodule
