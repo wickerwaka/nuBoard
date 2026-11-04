@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # Verilator builds of the V35S harness.
 #
-#   ./build_sim.sh [direct|spi|dual] [model|stub|chain|v35]
+#   ./build_sim.sh [direct|spi|dual] [model|stub|v35]
 #
 # direct  the harness alone, driven over its debug bus (socket idle)
 # spi     the board top through the SPI mailbox, checking the safety outputs
 # dual    a second model core stands in for the socket (runner regression)
 #
 # model  the forked nuV30 ucore (core/v35s_model.sv)
-# chain  (WP82) the chain-model core in the model lane (core/v35s_chain_model.sv, the core
-#        built with V35S_CHAIN_LANE): direct only, into build/fpga/v35s/verilator-direct-chain/;
-#        the ucore build and every core bench are unchanged
 # v35    the V35S core v2 (docs/v35s-core-v2.md: core/v35/v35_top.sv, macro V35S_CORE_V35):
 #        direct only, into build/fpga/v35s/verilator-direct-v35/
 #
@@ -45,28 +42,12 @@ case "$variant" in
         extra_options=(-CFLAGS -DNUBOARD_DUAL_SIM)
         model=model
         ;;
-    *) echo "usage: $0 [direct|spi|dual] [model|stub|chain|v35]" >&2; exit 2 ;;
+    *) echo "usage: $0 [direct|spi|dual] [model|stub|v35]" >&2; exit 2 ;;
 esac
 
 core_dir="$project_dir/core"
 suffix=""
-if [[ "$model" == chain ]]; then
-    if [[ "$variant" != direct ]]; then
-        echo "the chain core is built for the direct harness only" >&2
-        exit 2
-    fi
-    (cd "$repo_root" && PYTHONPATH=host/src:. python3 -m validation.v35s.chains rtlgen --check >/dev/null) || {
-        echo "core/v35_chain_params.svh is stale: python -m validation.v35s.chains rtlgen" >&2
-        exit 1
-    }
-    model_sources=("$core_dir/v35_decoder.sv" "$core_dir/v35_eu.sv" "$core_dir/v35_queue.sv"
-                   "$core_dir/v35_biu.sv" "$core_dir/v35_arbiter.sv" "$core_dir/v35_refresh.sv"
-                   "$core_dir/v35_chain_core.sv" "$core_dir/v35_sfr.sv"
-                   "$core_dir/v35s_chain_model.sv")
-    model_present=1
-    suffix="-chain"
-    extra_options+=(-DV35S_CHAIN_LANE -O3 -I"$core_dir")
-elif [[ "$model" == v35 ]]; then
+if [[ "$model" == v35 ]]; then
     if [[ "$variant" != direct ]]; then
         echo "the v35 core is built for the direct harness only" >&2
         exit 2

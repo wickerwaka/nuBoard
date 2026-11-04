@@ -41,7 +41,6 @@ fi
 set -u
 
 v35=${V35_SRC:-$repo_root/fpga/v35s/core/v35}
-core=$(cd "$v35/.." && pwd)
 pkgs=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv)
 hdrs=(v35_consts.svh v35_class_tbl.svh v35_decode_tbl.svh v35_ucode_tbl.svh)
 
@@ -72,8 +71,6 @@ map_one() {
         names+=("$(basename "$f")")
     done
     for f in "${hdrs[@]}"; do cp "$v35/$f" "$project_dir/"; done
-    # v35_refresh's fitted integers (the old core's generated header, until it is retired)
-    if [[ $top == v35_top ]]; then cp "$core/v35_chain_params.svh" "$project_dir/"; fi
     # the ROM's banks where v35_ucode's UCODE_DIR default names them (relative to the project)
     mkdir -p "$project_dir/fpga/v35s/core/v35"
     cp "$v35"/v35_ucode_b?.hex "$project_dir/fpga/v35s/core/v35/"

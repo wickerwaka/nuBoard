@@ -980,3 +980,24 @@ question, decided from S8's routed numbers with the user.
   106,824 / 106,824 at both; SST 2,849,080 pass / 0 fail; `--regfile` 69,099 + 38,760 vectors 0 bad; function
   bench 19,752 / 0 bad on the 28-family list and 23,328 / 0 bad on all 41 families; lint clean in four
   configurations; 30 fast tests green; the bare-reset SST test green; the nine offline modules unchanged.
+- 2026-11-03, **retirement of the chain core (the plan's S7 step)**: deleted `fpga/v35s/core/v35_chain_core.sv`,
+  `v35_queue.sv`, `v35_arbiter.sv`, `v35_eu.sv`, `v35_decoder.sv`, `v35_biu.sv`, `v35s_chain_model.sv` and the
+  generated `v35_chain_params.svh`; `validation/v35s/chains/rtlgen.py`, `test_rtlgen.py` and the `rtlgen`
+  subcommand; the old benches `v35_core_tb`, `v35_eu_tb`, `v35_queue_tb`, `v35_biu_tb` with their build
+  scripts; the chain lane (`build_sim.sh direct chain`, the harness's `V35S_CHAIN_LANE` branch, acquire's and
+  replay's `--core chain`, now rejected with a message naming this record, the chain-lane end-to-end test);
+  `rtl_vectors.py`'s old modes (biu, --queue, --joint, --eu, --joint3, --core; 3,675 → 933 lines, `--fn` and
+  `--regfile` byte-identical, no rtlgen import) and the vector tests of those modes (the module keeps funcref,
+  SST and `--regfile` coverage, 5 tests; nothing covers `--fn`). `v35_refresh.sv` carries
+  `FIT_REFRESH_INTERVAL` (16), `FIT_RFM_DELAY` (3) and `v35_refresh_on` as its own localparams / function (from
+  the frozen fit; ucgen should emit them later). `build.sh`, `synth/v35_map.sh` and `synth/v35_timing.sh` no
+  longer copy the params header; `v35_lint.vlt` drops its two waivers. 36 files, +142 / −23,270. Before the
+  deletion the two old test modules already failed on main (43 tests: 115 failures, 18 errors; `test_rtlgen`
+  could not set up), so nothing that worked was lost. `docs/v35s-hdl-plan.md` and `docs/v35s-chain-rtl-spec.md`
+  carry superseded / note banners; the remaining mentions in `core/v35/v35_top.sv`, `v35_front_pkg.sv`,
+  `ucgen.py` and the README are comments in S8's files, fixed when S8 lands. **Gate, rerun on main:** 36
+  families with `+v35_chk` 30,536 / 30,536 RTL = model (30,361 exact both sides), check and `--diag` silent;
+  write data 106,824 / 106,824; SST 2,849,080 pass / 0 fail; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn`
+  19,752 / 0 bad; lint clean in four configurations; 30 fast tests green with no skip (the chain-lane skip is
+  gone); the remaining vector tests 5 / 5; the nine offline modules unchanged; the ucore model lane still
+  builds (`build_sim.sh direct`).

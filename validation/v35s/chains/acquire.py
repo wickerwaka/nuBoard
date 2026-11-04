@@ -36,10 +36,11 @@ Only a repeat that differs beyond a constant offset counts as a mismatch.
 --backend sim runs the model lane alone in Verilator (SimulationTransport
 "direct") to test this plumbing only; the trace is still stored as
 "socket_trace", with "backend": "sim", in a separate default directory.
---core chain (WP82) runs the chain-model core in that lane instead of the ucore
-(fpga/v35s/build_sim.sh direct chain: build/fpga/v35s/verilator-direct-chain/), into
-its own default directory (build/validation/v35s/chains-sim-chain), the file header
-saying "core": "chain"; --diag passes +chain_diag (the lane's diagnostics on stderr).
+--core v35 runs the V35S core v2 in that lane instead of the ucore
+(fpga/v35s/build_sim.sh direct v35: build/fpga/v35s/verilator-direct-v35/), into
+its own default directory (build/validation/v35s/chains-sim-v35), the file header
+saying "core": "v35"; --diag passes +v35_diag (the lane's diagnostics on stderr).
+(WP82's --core chain, the chain-model core, was retired with its RTL in S7.)
 """
 
 from __future__ import annotations
@@ -57,15 +58,12 @@ DEFAULT_OUTPUT = ROOT / "build/validation/v35s/chains"
 SIM_OUTPUT = ROOT / "build/validation/v35s/chains-sim"
 SIM_BINARY = ROOT / "build/fpga/v35s/verilator-direct/Vv35s_harness"
 # (WP82) the model lane's cores under --backend sim: the binary and the default output directory
-CHAIN_BINARY = ROOT / "build/fpga/v35s/verilator-direct-chain/Vv35s_harness"
-CHAIN_OUTPUT = ROOT / "build/validation/v35s/chains-sim-chain"
 # the V35S core v2 (docs/v35s-core-v2.md; fpga/v35s/build_sim.sh direct v35)
 # ((S7b) V35_SIM_BINARY: another build of it, e.g. a work-in-progress one beside a running gate)
 V35_BINARY = Path(os.environ.get("V35_SIM_BINARY")
                   or ROOT / "build/fpga/v35s/verilator-direct-v35/Vv35s_harness")
 V35_OUTPUT = ROOT / "build/validation/v35s/chains-sim-v35"
-SIM_CORES = {"ucore": (SIM_BINARY, SIM_OUTPUT), "chain": (CHAIN_BINARY, CHAIN_OUTPUT),
-             "v35": (V35_BINARY, V35_OUTPUT)}
+SIM_CORES = {"ucore": (SIM_BINARY, SIM_OUTPUT), "v35": (V35_BINARY, V35_OUTPUT)}
 X_HALF = 2
 TICKS_PER_CLOCK = 4 * X_HALF
 DEFAULT_LIMIT = 2_000_000
@@ -84,10 +82,23 @@ def sim_transport(core: str = "ucore", diag: bool = False):
     extra = os.environ.get("V35_PLUSARGS", "").split() if core == "v35" else []
     transport = SimulationTransport.__new__(SimulationTransport)
     transport.process = subprocess.Popen(
-        [str(SIM_CORES[core][0])] + ([f"+{'v35' if core == 'v35' else 'chain'}_diag"]
-                                     if diag else []) + extra, cwd=ROOT,
+        [str(SIM_CORES[core][0])] + (["+v35_diag"] if diag and core == "v35" else [])
+        + extra, cwd=ROOT,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     return transport
+
+
+def sim_core(value: str) -> str:
+    """argparse type of --core (acquire and replay): a key of SIM_CORES, the retired chain core
+    named as such."""
+    if value == "chain":
+        raise argparse.ArgumentTypeError(
+            "the chain core (WP82) was retired with its RTL (docs/v35s-core-v2.md, S7); "
+            "use --core v35 (the core v2) or ucore")
+    if value not in SIM_CORES:
+        raise argparse.ArgumentTypeError(
+            f"unknown core {value!r} (choose from {', '.join(SIM_CORES)})")
+    return value
 
 
 def file_name(family: str, waits: int) -> str:
@@ -303,11 +314,11 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
                         help="confirm the uPD70337 daughterboard is installed; permits DUT power")
     parser.add_argument("--backend", choices=("board", "sim"), default="board",
                         help="sim: model lane in Verilator, to test the plumbing only")
-    parser.add_argument("--core", choices=tuple(SIM_CORES), default="ucore",
-                        help="(WP82) with --backend sim: the model lane's core (chain: the "
-                             "chain-model RTL, build_sim.sh direct chain)")
+    parser.add_argument("--core", type=sim_core, choices=tuple(SIM_CORES), default="ucore",
+                        help="(WP82) with --backend sim: the model lane's core (v35: the core "
+                             "v2, build_sim.sh direct v35)")
     parser.add_argument("--diag", action="store_true",
-                        help="(WP82) with --core chain: the lane's diagnostics on stderr")
+                        help="(WP82) with --core v35: the lane's diagnostics on stderr")
     parser.add_argument("--family", nargs="+", required=True, help="families, e.g. F0 F0w F1")
     parser.add_argument("--waits", nargs="+", type=int, choices=(0, 1, 2),
                         help="keep chains at these waits (F0w chains are always kept)")

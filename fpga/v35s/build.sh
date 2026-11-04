@@ -67,8 +67,7 @@ if [[ "$core" == v35 ]]; then
                 v35_ucode_tbl.svh; do
         cp "$v35_dir/$file" "$project_dir/"
     done
-    cp "$script_dir/core/v35_sfr.sv" "$script_dir/core/v35_refresh.sv" \
-       "$script_dir/core/v35_chain_params.svh" "$project_dir/"
+    cp "$script_dir/core/v35_sfr.sv" "$script_dir/core/v35_refresh.sv" "$project_dir/"
     mkdir -p "$project_dir/fpga/v35s/core/v35"
     cp "$v35_dir"/v35_ucode_b?.hex "$project_dir/fpga/v35s/core/v35/"
     design_files="v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv v35_sfr.sv v35_refresh.sv"

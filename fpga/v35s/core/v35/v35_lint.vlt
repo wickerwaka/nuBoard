@@ -1,11 +1,8 @@
 `verilator_config
 // Lint waivers for the old core's files the v35 core reuses unchanged (fpga/v35s/core/:
-// v35_refresh.sv includes the old generated v35_chain_params.svh, most of which it does not
-// read) and for the generated package (ucgen.py: v35_pkg.sv and its .svh tables carry every
-// row enum, class id, constant and format field, not each read by the RTL). Nothing written by
-// hand in fpga/v35s/core/v35/ is waived.
-lint_off -rule UNUSEDPARAM -file "*v35_chain_params.svh"
-lint_off -rule UNUSEDSIGNAL -file "*v35_chain_params.svh"
+// v35_refresh.sv and v35_sfr.sv) and for the generated package (ucgen.py: v35_pkg.sv and its
+// .svh tables carry every row enum, class id, constant and format field, not each read by the
+// RTL). Nothing written by hand in fpga/v35s/core/v35/ is waived.
 lint_off -rule UNUSEDSIGNAL -file "*v35_refresh.sv"
 lint_off -rule UNUSEDSIGNAL -file "*v35_sfr.sv"
 lint_off -rule UNUSEDPARAM -file "*v35/v35_pkg.sv"

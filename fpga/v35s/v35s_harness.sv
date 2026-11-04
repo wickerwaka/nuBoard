@@ -142,10 +142,7 @@ module v35s_harness #(
     wire [15:0] model_data_in;
     wire model_data_drive, model_ready;
 
-`ifdef V35S_CHAIN_LANE
-    // (WP82) the chain-model core in the model lane (build_sim.sh direct chain)
-    v35s_chain_model model (
-`elsif V35S_CORE_V35
+`ifdef V35S_CORE_V35
     // the V35S core v2 (docs/v35s-core-v2.md; build_sim.sh direct v35)
     v35_top model (
 `else

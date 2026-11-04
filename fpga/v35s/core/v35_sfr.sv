@@ -32,7 +32,7 @@ module v35_sfr (
     localparam logic [15:0] WTC_RESET = 16'hFFFF;
     localparam logic [7:0] RFM_RESET = 8'hFC;
     localparam logic [7:0] IDB_RESET = 8'hFF;
-    localparam logic [1:0] BW_WORD = 2'd0, BW_LO = 2'd1, BW_HI = 2'd2;   // v35_chain_params.svh
+    localparam logic [1:0] BW_WORD = 2'd0, BW_LO = 2'd1, BW_HI = 2'd2;   // as v35/v35_front_pkg.sv
 
     initial begin
         prc = PRC_RESET;

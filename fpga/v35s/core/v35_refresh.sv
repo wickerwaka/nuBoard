@@ -54,7 +54,18 @@ module v35_refresh #(
     output wire [STATE_W-1:0] state_dump    // as registered at the last ce
 `endif
 );
-`include "v35_chain_params.svh"
+    // The fitted integers this unit takes, from validation/v35s/chains/fit.json (and the frozen
+    // sim's sim/frozen/config.py): FIT_REFRESH_INTERVAL is the fit's refresh_interval and
+    // FIT_RFM_DELAY its rfm_delay. The old core's generated header carried them until it was
+    // retired (S7); ucgen (validation/v35s/chains/ucgen.py) should emit them later instead of
+    // these literals.
+    localparam int FIT_REFRESH_INTERVAL = 16;
+    localparam int FIT_RFM_DELAY = 3;
+
+    // RFM.RFEN (types.refresh_on); RFM.RFT is bits 1-0 (types.refresh_rft)
+    function automatic logic v35_refresh_on(input logic [7:0] value);
+        v35_refresh_on = value[4];
+    endfunction
 
     // the counter bit of the half interval: refresh_interval = 16 << RFT, bit 3 + RFT
     localparam int BIT0 = $clog2(FIT_REFRESH_INTERVAL) - 1;

@@ -1,5 +1,11 @@
 # V35S chain model to RTL: conversion plan
 
+> **Superseded (2026-11-03).** This plan produced the first RTL attempt, the chain core (a port of the model's
+> phase loop; it never synthesized). The V35S core v2 ([`v35s-core-v2.md`](v35s-core-v2.md)) replaced it, and the
+> chain core, its generator `rtlgen.py`, its benches and the `--core chain` lane were deleted from the tree on
+> 2026-11-03 (core v2 Record, "retirement"). The document is kept as the record of that stage; its mechanism
+> descriptions and the chain RTL specification remain the model-side reference the core v2 design was written from.
+
 The chain-timing model in `validation/v35s/chains/sim/` is the fitted cycle
 model the V35S core plan called for in its Phase 2
 ([`v35s-core-plan.md`](v35s-core-plan.md)). This plan says how that model

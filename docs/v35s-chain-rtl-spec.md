@@ -1,5 +1,9 @@
 # V35S chain model: RTL specification (Phases A2 to A4)
 
+> **Note (2026-11-03).** The chain core this specification was written for has been retired (see
+> [`v35s-hdl-plan.md`](v35s-hdl-plan.md)'s banner and [`v35s-core-v2.md`](v35s-core-v2.md)). The state widths,
+> signals and rule verdicts here are still the model-side reference the core v2 uses (its plan cites A2 and A4).
+
 The signal-level description of the fitted chain-timing model that the RTL timing
 machines are written from ([`v35s-hdl-plan.md`](v35s-hdl-plan.md), Phase A). A2 lists
 every state variable of the five machines with its range and width, A3 every signal one

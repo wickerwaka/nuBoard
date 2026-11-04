@@ -7,18 +7,19 @@ From the repo root:
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains score --rtl --family F0 [--show N]
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --state DUMP --id RUN_ID
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --dump-model DUMP --id RUN_ID
-    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core chain --family F0 ...
-    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core chain --score \
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core v35 --family F0 ...
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay --core v35 --score \
         --family F0 [F1 ...] [--waits ...] [--show N]
 
-(WP82) --core chain replays through the chain-model core in the model lane (fpga/v35s/
-build_sim.sh direct chain: build/fpga/v35s/verilator-direct-chain/Vv35s_harness), from /RESET
-with nothing scripted, into build/validation/v35s/chains-sim-chain (the header's "core":
-"chain"). --score reads those replays against the silicon corpus with score.py's normaliser
-and scorer: per family the runs, model-exact (the frozen model, sim/frozen: the tracked fit,
-against silicon), RTL-exact (the replay against silicon), RTL = model (the replay against the
-frozen model, from t_fill) and the pre window (score.pre_score: the fetch train from the POP
-PSW read before clock 0, silicon against the replay, and the first divergence).
+(WP82) --core v35 replays through the V35S core v2 in the model lane (fpga/v35s/
+build_sim.sh direct v35: build/fpga/v35s/verilator-direct-v35/Vv35s_harness), from /RESET
+with nothing scripted, into build/validation/v35s/chains-sim-v35 (the header's "core":
+"v35"); WP82's --core chain (the chain-model core) was retired with its RTL in S7. --score
+reads those replays against the silicon corpus with score.py's normaliser and scorer: per
+family the runs, model-exact (the frozen model, sim/frozen: the tracked fit, against silicon),
+RTL-exact (the replay against silicon), RTL = model (the replay against the frozen model, from
+t_fill) and the pre window (score.pre_score: the fetch train from the POP PSW read before
+clock 0, silicon against the replay, and the first divergence).
 
 B1, the replay driver. Every selected chain is built (image.build_image) and run once
 from reset through the model lane of the `direct` Verilator build
@@ -91,7 +92,7 @@ from pathlib import Path
 
 from .acquire import (DEFAULT_LIMIT, ROOT, SIM_BINARY, SIM_CORES, SIM_OUTPUT, TICKS_PER_CLOCK,
                       X_HALF, RunFile, file_name, group_chains, run_built, select_chains,
-                      sim_transport)
+                      sim_core, sim_transport)
 
 FPGA_DIR = ROOT / "fpga/v35s"
 SHARED_SOURCES = ("fpga/m68000/m68000_scope.sv", "fpga/m68000/scope_encoder.sv")
@@ -643,12 +644,12 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
                         help="write the model's per-clock rows for --id in the dump format")
     parser.add_argument("--config", metavar="PATH",
                         help="with --state/--dump-model: model config (default the tracked fit)")
-    parser.add_argument("--core", choices=tuple(SIM_CORES), default="ucore",
-                        help="(WP82) the model lane's core: ucore (build_sim.sh direct), chain "
-                             "(build_sim.sh direct chain) or v35 (the core v2, build_sim.sh "
-                             "direct v35), each with its own default output")
+    parser.add_argument("--core", type=sim_core, choices=tuple(SIM_CORES), default="ucore",
+                        help="(WP82) the model lane's core: ucore (build_sim.sh direct) or v35 "
+                             "(the core v2, build_sim.sh direct v35), each with its own default "
+                             "output")
     parser.add_argument("--diag", action="store_true",
-                        help="(WP82) with --core chain: the lane's diagnostics on stderr")
+                        help="(WP82) with --core v35: the lane's diagnostics on stderr")
     parser.add_argument("--score", action="store_true",
                         help="(WP82) score the core's replays (--output-dir or the core's "
                              "default) against silicon and the frozen model, with the pre window")
