@@ -103,6 +103,8 @@ module v35_arbiter
     input  wire        gdisp_act,       // grp_disp=hold: t < gdisp_until
     input  wire        ea_b2b_act,      // ea_b2b: a displaced memory form's EA clocks (t < ea_end)
     input  wire        take_now,        // an operand take on this clock (take_t == t)
+    input  wire        l_pop,           // (Q2) the loader's IR load on this clock (tick A)
+    input  wire        q_word,          // (Q2) the queue's line: room for exactly one word
     input  wire [19:0] ea_live,         // the running form's memory operand address
     input  wire [15:0] ea_lo,           // (S6) ... its offset (the segment's wrap)
     input  wire [15:0] wd_live,         // ... and its write datum (an RMW's result, POP's)
@@ -500,7 +502,13 @@ module v35_arbiter
     wire sl_fetch = nw_go && fetch_req && !halted;
     // (xfer_abort=word: a transfer's start, displacement take and IR load see 2 or 3 bytes)
     // (Q1) the aborted cycle: a fetch committed back to back whose request line fell
-    wire abort_go = free && !take_slot && b2b_now && !fetch_req && !halted;
+    // (Q2) the triple clock: a start, an operand take and the IR load on one clock raise the
+    // line to exactly a word's room on a free bus: the fetch begun on it is abandoned (the
+    // request raised again by the sequencer's retry window, v35_ucode.sv dr_v)
+    wire tri3 = t_start && take_now && l_pop;
+    wire abort_tri = `V35_Q2_TRI && free && !take_slot && fetch_want && !fetch_inflight && tri3
+                     && q_word && !halted;
+    wire abort_go = (free && !take_slot && b2b_now && !fetch_req && !halted) || abort_tri;
     wire fetch_go = free && !take_slot && !abort_go && fetch_want;
     // the grant
     wire mem_wait = pending && !s_io;

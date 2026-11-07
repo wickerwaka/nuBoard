@@ -3486,6 +3486,7 @@ module v35_ucode
     reg        nop_held = 1'b0, io_held = 1'b0;
     reg        sh_held = 1'b0, sh_v = 1'b0;
     reg        dr_v = 1'b0, dr_loop = 1'b0, rt_v = 1'b0;
+    reg        dr_xfer = 1'b0;        // (Q2) the window is a transfer's (xfer_abort=word)
     reg [8:0]  rt_cnt = 9'd0;
     reg [8:0]  sh_cnt = 9'd0;
     // tick A: the windows as the T pass leaves them
@@ -3504,7 +3505,10 @@ module v35_ucode
     wire       sh_act = (sh_held && !sh_fire) || shift_latch;
     wire       rt_fire = rt_v && rt_cnt == 9'd0;
     wire       rt_now = rt_set && rt_n <= 10'sd0;
-    wire       dr_end = (cpu_end && !dr_loop) || rt_fire || rt_now;
+    // (Q2) xfer_abort=word: a transfer's aborted fetch raises its request again at the
+    // aborted cycle's end (no data cycle of its own follows); a flush lifts the window too
+    wire       dr_end = (cpu_end && !dr_loop) || rt_fire || rt_now
+                        || (`V35_Q2_TRI && (t_flush || (dr_xfer && abort_done)));
     wire       dr_act = dr_v && !dr_end;
     assign susp = sth_act || fh_act || odd_act || th_act || nop_act || io_act || sh_act || dr_act;
     // (S7b) the ce_b registers
@@ -3570,6 +3574,7 @@ module v35_ucode
             sh_cnt <= 9'd0;
             dr_v <= 1'b0;
             dr_loop <= 1'b0;
+            dr_xfer <= 1'b0;
             rt_v <= 1'b0;
             rt_cnt <= 9'd0;
         end else if (ce_a) begin
@@ -3577,6 +3582,16 @@ module v35_ucode
             if (io_drop) begin
                 dr_v <= 1'b1;
                 dr_loop <= io_drop_loop;
+                dr_xfer <= 1'b0;
+            end else if (`V35_Q2_TRI && t_start_b && g_abort_b) begin
+                // (Q2) abort_fetch=retry / abort_unit=loop: the aborted fetch's request is
+                // raised again by the next cycle's end, or at the count loop's exit (rt_fire)
+                dr_v <= 1'b1;
+                dr_loop <= fmt_c_b.unit_reg || (fmt_c_b.unit_mem && (fmt_c_b.xop == V35_XOP_MUL
+                                                  || fmt_c_b.xop == V35_XOP_DIV || fmt_c_b.xop == V35_XOP_MULI));
+                dr_xfer <= fmt_c_b.cls == V35_CLS_BRANCH_SHORT || fmt_c_b.cls == V35_CLS_BRANCH_NEAR
+                           || fmt_c_b.cls == V35_CLS_DBNZ || fmt_c_b.cls == V35_CLS_DBNZ_Z
+                           || fmt_c_b.cls == V35_CLS_CALL || fmt_c_b.cls == V35_CLS_RET;
             end else if (dr_end_b)
                 dr_v <= 1'b0;
             if (rt_set_b && !rt_now_b) begin

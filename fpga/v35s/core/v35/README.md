@@ -930,6 +930,40 @@ vectors 0 bad. Timing: `+v35_chk` silent at both spacings, `--diag` silent, ever
 the free bytes (approximate: the room without the staging byte and the latch) and the line, and
 ` U` marks a clock the sequencer suspends; `evtrace --keys X S T L P I A` compares without them.
 
+### Q2: the triple-clock aborted fetch
+
+The 1,565 misses Q1 classed as "the triple-clock aborted fetch a level line cannot produce" are one
+shape (1,565 of 1,565): the start of a form, the take of its one operand byte and the IR load on
+one clock (`S T:1 L:1`), the queue full before it (6 bytes and the IR, or 5 and the word delivering),
+the line RISING on that clock from the clock's own two reads to exactly a word's room, on a free
+bus; the chip begins the fetch and abandons it. The same two reads without the start (F9 clock 185
+against 188: the queue's counts, the line and the bus identical) fetch normally, and so does a
+triple that leaves a word plus one. The model never takes two operand bytes on one clock, so the
+start clock is the only clock the EU consumes two queue bytes (the opcode it starts on and the
+first operand byte; the IR load is the look-ahead copy of the new head). The reading: the fit's
+`bytes_per_clock=1`: the BIU's count moves one byte a clock on the EU side; the request comparator
+commits on the pointers' room (a word), the count is a byte behind for that clock and at the point
+the cycle confirms the request (where Q1's fallen back-to-back line already aborts, `abort_go`) it
+shows a word less one; with a word plus one it still shows a word and the fetch proceeds. The
+request is re-evaluated at cycle ends and the EU's pops: the loop forms (register shifts, MUL / DIV)
+pop nothing until their loop exits.
+
+Built (macro `V35_Q2_TRI`, v35_front_pkg.sv; 0 restores Q1): the queue exports `q_word` (the line
+up with free == 2); the arbiter aborts (`abort_tri`, the existing 3-clock aborted cycle) a fetch it
+would issue on a free bus when `t_start && take_now && l_pop && q_word`; the sequencer's drop
+window (`dr_v`, io_take=unit's) opens on an abort on a start clock and holds `susp` until the next
+data / I/O cycle ends, the count loop's exit (`rt_fire`: unit_reg forms and memory MUL / DIV /
+MULI, as `io_drop_loop`), the aborted cycle's end for a transfer (branch_short / near, dbnz, dbnz_z,
+call, ret: `dr_xfer`, xfer_abort=word) or a flush. Not built: `abort_latched` (five F16-s shlcl
+runs, the latched byte counted as room for the abort test).
+
+Measured on F3 F9 F11 F14 F16 (3,126 runs, Q1 2,559 exact, 386 of the aborts): the rule 2,946
+exact, 381 aborts recovered, 0 newly broken; without the start strobe 1,265 (1,473 broken: the
+prelude's doubles fetch in silicon); without "exactly a word" 0; with the hold in the bus unit and
+no loop exit the register-only chains starve. Whole refresh-off corpus: 24,920 RTL-exact against
+23,691 (1,223 of the 1,565 aborts), no family below its Q1 count, write data 106,824 / 106,824,
+lint clean with and without the macro.
+
 ## Divergences (behaviour not expressed in the structure)
 
 (Q1) The queue's divergences from the fit (the features it no longer carries and where they

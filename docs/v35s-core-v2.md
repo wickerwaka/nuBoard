@@ -1055,3 +1055,29 @@ question, decided from S8's routed numbers with the user.
   69,099 + 38,760 vectors 0 bad; `--fn` 19,752 / 0 bad; lint clean in four configurations for B and A; 35 fast
   tests (the remaining vector tests included); the nine offline modules unchanged. **Per-family baseline**
   (RTL-exact / model-exact, loss): F0 18/18 (−0), F0w 20/20 (−0), F1 54/54 (−0), F2 120/120 (−0), F3 783/840 (−57), F4 428/456 (−28), F5 740/840 (−100), F6 552/576 (−24), F7 403/432 (−29), F9 340/408 (−68), F10 198/204 (−6), F11 66/132 (−66), F12 164/204 (−40), F14 608/732 (−124), F15 706/840 (−134), F16 762/1014 (−252), F19 1129/1290 (−161), F20 3160/3594 (−434), F21 2731/3576 (−845), F22 1072/1314 (−242), F23 57/360 (−303), F24 902/902 (−0), F25 521/577 (−56), F26 775/906 (−131), F29 304/427 (−123), F30 1061/1467 (−406), F31 192/234 (−42), F32 468/846 (−378), F33 921/1026 (−105), F34 998/1547 (−549), F35 396/1038 (−642), F36 726/750 (−24), F37 132/432 (−300), F38 801/864 (−63), F39 797/1318 (−521), F40 586/1003 (−417).
+- 2026-11-07, **Q2 landed — the triple-clock aborted fetch has a mechanism** (a two-hour search by a Fable
+  agent at the user's direction; its reading at the scratchpad's v2/q2/q2-reading.md, the README's "Q2"
+  subsection). **Discriminator:** all 1,565 aborts are one shape: a form's start, the take of its single
+  operand byte and the IR load on one clock, the queue full the clock before, the two reads raising the request
+  line from nothing to *exactly a word's room* on a free bus; the identical take and IR load with the identical
+  queue and bus state but no start (F9-none-movr_nop0, clock 185) fetches normally in silicon, and a word plus
+  one fetches normally. The start clock is the only clock the EU consumes two queue bytes (the opcode and the
+  first operand; the IR load is a look-ahead copy); with the fit's own `bytes_per_clock=1` the reading is a
+  bus-controller count that moves one byte a clock: the request commits on a word's room, the count lags a byte
+  on that clock, the confirmation point sees a word less one and abandons. **Hypotheses measured** on F3 F9
+  F11 F14 F16 (3,126 runs, 386 aborts; recovered / newly broken): the dropped request held in the bus unit until
+  a cycle ends: killed (85 hangs, register-only chains starve); the hold as the sequencer's existing drop window
+  (lifted by a cycle end or the count loop's exit): 345 / 0; without the start strobe: 173 / 1,473 (the prelude's
+  doubles fetch normally); without "exactly a word": 0 / 2,559; + the loop window for memory MUL / DIV: 381 / 0;
+  + lifted by a flush and at the aborted cycle's end for a transfer: the nine corpus hangs gone. **As landed:**
+  `q_word` on the queue (the line up with room for exactly one word), `abort_tri` in the arbiter (free bus, no
+  fetch in flight, the start, take and IR-load strobes, `q_word`) OR-ed into the existing aborted cycle, the drop
+  window in the sequencer (`dr_v` opened by a start's abort, `dr_loop` for unit forms, `dr_xfer` for transfers),
+  behind the macro `V35_Q2_TRI`; 70 lines. The three strobes are a proxy for "two pops this clock"; the
+  count-lag form (the queue's room-side count applying one byte a clock) is Q3's question. The five F16 shift
+  cases of the model's `abort_latched` variant and 342 corpus aborts are not recovered. **Gate, rerun on main:**
+  whole corpus 24,920 / 30,361 RTL-exact (from 23,691; RTL = model 24,971) at both spacings, tables identical,
+  0 incomplete, `+v35_chk` silent, no family lower than Q1 (F16 762 → 947, F20 3,160 → 3,420, F21 2,731 →
+  2,893, F14 608 → 695, F15 706 → 783, F30 1,061 → 1,127, F11 66 → 124, F31 192 → 234 = all, F7 403 → 430, ...);
+  write data 106,824 / 106,824 at both; SST 2,849,080 / 0; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn`
+  19,752 / 0 bad; lint clean in four configurations; 35 fast tests; the nine offline modules unchanged.

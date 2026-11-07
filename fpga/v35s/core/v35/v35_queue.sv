@@ -61,6 +61,7 @@ module v35_queue
     output wire        fetch_req,
     output wire [19:0] fetch_addr,
     output wire        q_low,
+    output wire        q_word,          // (Q2) the line is up with room for exactly one word
     input  wire        fetch_go,        // a fetch issued now (S4)
     input  wire        dlv_v,           // a fetch ended on t-1: its word arrives now (S0)
     input  wire [15:0] dlv_data,
@@ -134,6 +135,7 @@ module v35_queue
     // stored, latched and in flight counted whatever the room counts
     wire       phys_ok = {1'b0, cnt_a} + (infl_a ? 5'd2 : 5'd0) <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
     assign fetch_req = occ <= 5'(CAP - 2) && phys_ok && !susp;
+    assign q_word = fetch_req && occ == 5'(CAP - 2);
     assign q_low = occ - 5'(CAP - QUEUE_BYTES) <= 5'(FIT_HOLD_Q);
     wire [15:0] pfp_a = flush ? flush_addr : pfp;
     assign fetch_addr = ps_base + {4'd0, pfp_a};

@@ -206,6 +206,7 @@ module v35_top
     wire [19:0] q_fetch_addr;
     wire [2:0]  q_avail;
     wire        q_fetch_req, q_low, q_susp, b_b2b_now, head_odd;
+    wire        q_word;                 // (Q2)
     wire        ld_l_load, ld_p_load;
     // (S5a) the transfers' holds
     wire        xs_done;
@@ -341,7 +342,7 @@ module v35_top
 `endif
     v35_queue #(.VARIANT_B(Q1_VARIANT_B)) queue (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .fetch_req(q_fetch_req), .fetch_addr(q_fetch_addr), .q_low,
+        .fetch_req(q_fetch_req), .fetch_addr(q_fetch_addr), .q_low, .q_word,
         .fetch_go(g_fetch), .dlv_v(dlv_fetch), .dlv_data(b_done_data), .abort_go(b_abort_busy),
         .vb0(qv0), .vb1(qv1), .vb2(qv2), .vb3(qv3), .avail(q_avail), .rd(ld_rd), .rd_b(ld_rd_b), .rel(ld_rel), .stg(ld_stg),
         .flush(t_flush), .flush_addr(q_flush_addr), .susp(q_susp), .ps_base
@@ -435,7 +436,8 @@ module v35_top
         .relatch, .relatch_late, .floor_set, .floor_nb, .sreg_hold_set,
         .halting, .halted, .wb_hold, .latch_wait, .gdisp_act,
         .ea_b2b_act(ea_act_x), .take_now, .ea_live, .ea_lo, .wd_live, .wd_rdy, .sidle,
-        .fetch_req(q_fetch_req), .q_low, .b2b_now(b_b2b_now),
+        .fetch_req(q_fetch_req), .q_low, .q_word, .l_pop,
+        .b2b_now(b_b2b_now),
         .free(b_free), .busy(b_busy), .cur_io(b_busy && k_io(b_cur_kind)), .cur_kind(b_cur_kind), .mf_old,
         .fetch_inflight(b_fetch_inflight), .in_wait(b_in_wait),
         .fetch_end_prev(b_fetch_end_prev), .fetch_run_prev(b_fetch_run_prev),
