@@ -1001,3 +1001,17 @@ question, decided from S8's routed numbers with the user.
   19,752 / 0 bad; lint clean in four configurations; 30 fast tests green with no skip (the chain-lane skip is
   gone); the remaining vector tests 5 / 5; the nine offline modules unchanged; the ucore model lane still
   builds (`build_sim.sh direct`).
+- 2026-11-06, **queue strategy** (user's direction after reviewing the code: "we are not building simple
+  machines"): `docs/v35s-queue-strategy.md`. The queue becomes a six-byte FIFO with a prefetch pointer, a
+  level request line (`free >= 2`, `free = 6 - cnt - 2·inflight`), two priority hints for the arbiter
+  (`q_low`: cnt ≤ hold_q; `q_starved`), `pop`, `flush(addr)` and `susp` from the EU: about 20 ports and 30
+  bits of state beyond the bytes, from 164 ports and 71 registers. The ~45 fitted queue situations move:
+  the request's sampling and back-to-back commitment to the bus unit, the fetch holds to the arbiter's use
+  of the hints, every hold to microcode suspend windows emitted by ucgen, the seventh-slot family to the
+  loader's pop timing, the one-shot commitments to an optional row strobe, the take sync to the loader's
+  stall on `avail`; the latched-byte rules are a structural variant (byte-wide write port + one-byte
+  latch) tried after the plain word write. The gate becomes RTL-exact against silicon within an accepted
+  per-family loss budget (5–10 % in the families that rest on the queue's situations) with every miss
+  classified as EU / microcode-recoverable, bus-unit sampling, or a true queue gap; only the last may
+  change the queue, and only through a structural knob. The model is not edited. Work package proposed,
+  not launched.
