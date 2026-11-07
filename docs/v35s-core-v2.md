@@ -1081,3 +1081,27 @@ question, decided from S8's routed numbers with the user.
   2,893, F14 608 → 695, F15 706 → 783, F30 1,061 → 1,127, F11 66 → 124, F31 192 → 234 = all, F7 403 → 430, ...);
   write data 106,824 / 106,824 at both; SST 2,849,080 / 0; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn`
   19,752 / 0 bad; lint clean in four configurations; 35 fast tests; the nine offline modules unchanged.
+- 2026-11-07, **Q3 measured — the aborted fetch is not a count-path lag; Q2 kept** (an Opus agent in a
+  worktree from 4f70754; README "Q3"). The question Q2 left: does the three-strobe abort (`t_start && take_now
+  && l_pop` with the line at exactly a word on a free bus) fall out of a queue count that moves one byte a
+  clock (the fit's bytes_per_clock=1)? Built behind a macro: the loader reports the bytes the EU consumes on a
+  clock, the queue applies one on the clock and the rest a clock later, the arbiter abandons a fetch committed
+  on a free bus whose request the lagging count does not confirm; no EU strobe in the arbiter. **Finding:** the
+  corpus has five kinds of clock (A the abort: start + take + IR load; B take + IR load, no start; C start +
+  ModR/M take with bytes outstanding; D start + ModR/M take, no IR load, room rising two to a word; E a wide
+  take of two operand bytes) and silicon fetches on B–E; A and B are identical in every queue count (pops,
+  releases, staging byte), A and D differ only by the IR load, A and E only by the start and the IR load, so
+  no one-byte-a-clock count singles A out: counting storage pops breaks B and E, counting the seven slots
+  breaks D and E, counting the opcode plus the IR load breaks one-byte forms; the one count reproducing A alone
+  (an operand byte plus the opcode when the IR reloads on its start's clock) is the three strobes restated and
+  still lags on E. Seven counts measured on F3 F9 F11 F14 F16 (Q2 2,946): the best lag 2,888 (58 D-clock runs
+  broken, 37 hanging: a false abort on a register form opens the drop window, which waits for a data cycle's
+  end a register-only chain never produces), the strobe-restated count 2,946. Whole corpus: the best lag 24,448
+  against Q2's 24,920 (0 gained, 472 lost, 63 hangs, write data 106,761 / 106,824), the strobe-restated count
+  24,777 (143 lost, all E clocks). **Reading:** the abort is the coincidence of the start's opcode leaving, an
+  operand byte leaving and the IR reloading on one clock, which Q2 states directly; the silicon count path, if
+  there is one, is not a bytes-per-clock lag. **Not landed:** the lag code (125 lines, two more queue ports) is
+  a rejected mechanism; the side build with its macro off reproduced Q2 run for run at both spacings with the
+  function gates, lint (nine configurations) and the 35 tests unmoved, so main stays 4f70754's core. The patch
+  and per-run tables are in the scratchpad's v2/q3/. Still open: the 342 unrecovered aborts and the five
+  abort_latched cases; Q1's (a) 2,725 EU / microcode and (b) 884 bus-sampling misses.

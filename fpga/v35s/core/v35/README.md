@@ -964,6 +964,79 @@ no loop exit the register-only chains starve. Whole refresh-off corpus: 24,920 R
 23,691 (1,223 of the 1,565 aborts), no family below its Q1 count, write data 106,824 / 106,824,
 lint clean with and without the macro.
 
+
+### Q3: the aborted fetch as a count-path lag (measured; Q2 kept)
+
+The question: does Q2's three-strobe abort (`t_start && take_now && l_pop` with the line up for
+exactly a word on a free bus) fall out of a queue count path that moves one byte a clock (the
+fit's `bytes_per_clock=1`)? Built in a side build (an Opus agent's worktree from 4f70754; the code is
+not landed, see the end of this subsection): the loader reports the bytes the EU consumes on the clock (`cons`, tick A); the queue applies one of
+them on the clock and the rest a clock later, and exports the line as that lagging count shows
+it (`q_cnt` = the line up and `occ + (cons - 1)` still a word's room); the arbiter abandons a
+fetch committed on a free bus whose request the lagging count does not confirm (`abort_lag`,
+into Q1's `abort_go` and the existing 3-clock aborted cycle; no start / take / IR-load strobe in
+the arbiter). The drop window in the sequencer is Q2's, unchanged.
+
+**What "consumed" must mean.** Four kinds of clock in the corpus, the queue's counts identical
+in pairs (qdbg: `rd`, `rel`, `stg`, `occ`, the line, the bus):
+
+| clock | events | queue (rd / rel / stg) | silicon | example |
+| --- | --- | --- | --- | --- |
+| A | start, ModR/M or operand take, IR load | 2 / 2 / 1 -> 1 | aborts | F9-none-movr_nop0 model 188 |
+| B | operand take, IR load, no start | 2 / 2 / 1 -> 1 (identical to A) | fetches | F9-none-movr_nop0 model 185 |
+| C | start, ModR/M take, operand bytes left (reservation) | 1 / 1 / 1 -> 1 | fetches | F3-push-shl_imm4 (store_imm prelude) |
+| D | start, ModR/M take, no IR load (the form not yet ready) | 1 / 1 / 1 -> 0 (room +2) | fetches | F9-push-movr_nop0-pO model 176 (`S:reg T:1`) |
+| E | two operand bytes on one clock (`T:2`, a wide take), no start | 2 / 2 / - | fetches | F22-none-es-add8_d16-k2 model +82 |
+
+A and B are identical in every queue count (storage pops 2, releases 2, the staging byte full
+before and after); only the start tells them apart. So the count must take the opcode the start
+consumes as one of the clock's bytes and must not take the IR load's move (B: one byte). C says
+the start's opcode is not consumed while its form leaves operand bytes outstanding (the slot
+passes to them: room_ir=arrival_idle). That gives the seven-slot definition (the build's CONS=1):
+**an operand byte read, plus the opcode when a start consumes it from the IR with no operand
+byte of its form outstanding; the IR load is a move between two slots, not a consumption.**
+A = 2 (lag), B = 1, C = 1. But D is also 2 under it (the ModR/M and the opcode leave, the IR is
+not refilled: the room rises by two to exactly a word) and silicon fetches there, and E is 2
+(two operand bytes) and silicon fetches. No one-byte-a-clock count separates A from B, D and E:
+with the storage pops (`rd`), B and E lag; with the seven slots, D and E lag; with the start and
+the IR load as the two counted bytes, a one-byte form's start (S L, no take) lags. The only count
+that reproduces A alone is "an operand byte, plus the opcode when the IR is reloaded on its
+start's clock" (CONS=3), and it still lags on E; capping the take at one byte would make
+it the three strobes again.
+
+**Measured** (five families F3 F9 F11 F14 F16: Q1 2,559, Q2 2,946 exact; aborts recovered of the
+386 / newly broken against Q1 / against Q2 / runs hanging):
+
+| count (`cons`) | exact | aborts | broken vs Q1 | broken vs Q2 | hangs |
+| --- | --- | --- | --- | --- | --- |
+| releases − IR load + any start's opcode | 2,658 | 361 | 268 | 288 | 66 |
+| operand reads + any start's opcode | 2,747 | 361 | 179 | 199 | 66 |
+| releases − IR load + opcode (nothing outstanding) | 2,799 | 381 | 147 | 147 | 40 |
+| **operand reads + opcode (nothing outstanding)** (CONS=1) | 2,888 | 381 | 58 | 58 | 40 |
+| storage pops (`rd`: the take and the IR load) | 1,294 | 209 | 1,480 | 1,652 | 0 |
+| start's opcode + IR load | 1,067 | 48 | 1,540 | 1,879 | 515 |
+| operand reads + opcode when the IR reloads (CONS=3) | 2,946 | 381 | 0 | 0 | 0 |
+
+The CONS=1 breaks are all D clocks (F9 37, F11 20, F14 1; 37 of the 58 hang: the abort on a
+register form opens the drop window, which waits for a data cycle's end a register-only chain
+never produces). The whole refresh-off corpus (`+v35_chk`): CONS=1 24,448 RTL-exact against
+Q2's 24,920 (0 gained, 472 lost: F20 149, F22 76, F21 53, F9 37, F19 30, F11 20, F30 22, F39 19,
+F31 18, F15 13, F12 12, F7 9, F2 6, F26 5, F34 2, F14 1; F2 below Q1), 1,223 of the 1,565 aborts
+(the same as Q2), 63 runs hanging, write data 106,761 / 106,824 (63 runs differing); CONS=3
+24,777 (0 gained, 143 lost: F22 76, F21 53, F19 12, F26 1, F30 1, all E clocks: `T:2 A` where
+silicon fetches), 1,223 aborts, 0 hangs, write data 106,824 / 106,824.
+
+**Kept: Q2.** The lag form cannot see the discriminator: A and B differ only by
+the start, A and D only by the IR load, A and E only by the start and the IR load; a count of
+bytes per clock is the same on A as on one of them. What remains of the reading: the abort is the
+coincidence of the start's opcode leaving, an operand byte leaving and the IR being reloaded on
+one clock, which Q2's three strobes state directly. The side build with its macro off reproduced Q2 run
+for run (the five families 2,946 identical; the corpus 24,920 at both spacings, the function gates and lint
+unmoved), so nothing of the measurement is in doubt; its code (a `cons` output on the loader, a `q_cnt`
+output on the queue, an `abort_lag` in the arbiter: 125 lines, two ports on the queue) is not landed, since
+it is a rejected mechanism and the queue is to stay the simple machine of Q1. The patch and the per-run
+tables are in the session's scratchpad (v2/q3/) and the Record entry of 2026-11-07 in docs/v35s-core-v2.md.
+
 ## Divergences (behaviour not expressed in the structure)
 
 (Q1) The queue's divergences from the fit (the features it no longer carries and where they
