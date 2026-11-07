@@ -1015,3 +1015,43 @@ question, decided from S8's routed numbers with the user.
   classified as EU / microcode-recoverable, bus-unit sampling, or a true queue gap; only the last may
   change the queue, and only through a structural knob. The model is not edited. Work package proposed,
   not launched.
+- 2026-11-07, **Q1 landed — the queue as a simple machine (the baseline for the recovery stages)**: per
+  `docs/v35s-queue-strategy.md`. `v35_queue.sv` is 248 lines, 24 ports (from 164) and, beyond the six bytes,
+  `cnt`, `unrel`, `pfp`, `inflight`, `discard`, `odd` plus variant B's `lat` / `lat_byte` (34 bits, from 71
+  registers); no input names a form, class, row or EU step. Request line `free = CAP − cnt − unrel − stg −
+  2·inflight` with CAP 7 (B, the staging byte counted) or 6 (A, `-DV35_QUEUE_A`), plus physical room for the
+  word (stored + latched + in flight ≤ 7). Two structural knobs approved as kind-(c) findings: the **read /
+  release split** (`rd` frees storage and advances the window, `rel` releases the room at the take step's
+  end: a read pointer and a release pointer; what take_commit=at_end / release=byte described) and the **IR as
+  the staging byte**, the seventh slot counted free when empty (the loader reports it unavailable while the
+  form has operand bytes outstanding except on a delivery clock: room_ir=arrival_idle's refinement, needed:
+  990 vs 303 of 1,032 on F0–F3). Variant B (byte-wide write port, one-byte latch, fixed owner chain) is the
+  default: 23,691 RTL-exact against A's 7,858. Kept as EU rules reading the bus unit and the line (the brief's
+  literal step 4 gave 0 exact runs in every family): start_sync and the take sync (owed = a fetch on the bus +
+  the line at the take, decremented by the delivery). The holds are the sequencer's `susp` (str_hold, flush_hold /
+  flush_from, xfer_odd / xfer_nt, bf_imm_hold / cvt_hold, nop_hold, io_ir_hold, count_latch, io_take=unit's
+  drop) from existing generated attributes (ucgen unchanged); nop_hold / io_ir_hold cleared by a flush, nop_hold
+  armed only with no memory request waiting (two hangs fixed: 264 runs never finished before). The bus unit
+  samples the line at the arbiter's decision point (b2b = the line high at a fetch's last clock, none while a
+  memory request waits in the slot); the arbiter adds two one-bit samples, `lup` (the line rose this clock)
+  and `lup_p` (the line was up when the request posted: the I/O lead's hold; +1,795 runs alone), and loses all
+  request dating. Not built: latch_hold (the line cannot carry "raised but held"; it broke the take sync),
+  the situational latch rules, modrm_mate, str_raise, refill_start, the one-shot commitments, the per-form
+  seventh-slot refinements, request dating, a fifth window byte. `room_f` removed from v35_front_pkg; the
+  loader owns `pc`, `unc`, `relc`, `stg`; the bus unit owns `b2b`; `+v35_qdbg`, the trace's `U` (suspend) and
+  free bytes in `R`; `evtrace --keys`; `build_sim.sh` reads `V35_SIM_DEFINES`. Step by step (whole corpus,
+  RTL-exact of fit 62's 30,361): literal step 2 (no syncs) 0; B first full run 19,533; + split, staging, no
+  latch_hold 21,896; + `lup_p` 23,691; A final 7,858. **Classification of the 6,680 misses** (first divergent
+  clock; the agent's tables at the scratchpad's v2/q1/): (a) EU / microcode 2,725 (OUT starts early 547, RET
+  375, PUSH 325, a write where the model posts nowrite 219, a read issued where the model fetches 173, ...);
+  (b) bus unit / arbiter with the same line 884 (fetch late 584, early 300); (c) 3,071: the triple-clock
+  aborted fetch 1,527 + 38 (a level line that only falls on pops cannot produce it; the one experiment aborted
+  nearly everything and was dropped: **the open queue question for the user**) and 793 + 713 fetches where the
+  line differs from the model's room, not yet split between (b) and (c). Area (efx_map LUT4 / ADD / FF): queue
+  1,108 / 277 / 315 → B 542 / 52 / 106; arbiter 1,810 / 150 / 705 → 1,767 / 139 / 687; sequencer 10,797 / 739 /
+  1,234 → 10,916 / 809 / 1,281 (it owns the suspend windows and the take sync now). **Gate, rerun on main:**
+  whole corpus 23,691 / 30,361 RTL-exact (RTL = model 23,736) at both spacings, per-family tables identical,
+  0 incomplete runs, `+v35_chk` silent; write data 106,824 / 106,824 at both; SST 2,849,080 / 0; `--regfile`
+  69,099 + 38,760 vectors 0 bad; `--fn` 19,752 / 0 bad; lint clean in four configurations for B and A; 35 fast
+  tests (the remaining vector tests included); the nine offline modules unchanged. **Per-family baseline**
+  (RTL-exact / model-exact, loss): F0 18/18 (−0), F0w 20/20 (−0), F1 54/54 (−0), F2 120/120 (−0), F3 783/840 (−57), F4 428/456 (−28), F5 740/840 (−100), F6 552/576 (−24), F7 403/432 (−29), F9 340/408 (−68), F10 198/204 (−6), F11 66/132 (−66), F12 164/204 (−40), F14 608/732 (−124), F15 706/840 (−134), F16 762/1014 (−252), F19 1129/1290 (−161), F20 3160/3594 (−434), F21 2731/3576 (−845), F22 1072/1314 (−242), F23 57/360 (−303), F24 902/902 (−0), F25 521/577 (−56), F26 775/906 (−131), F29 304/427 (−123), F30 1061/1467 (−406), F31 192/234 (−42), F32 468/846 (−378), F33 921/1026 (−105), F34 998/1547 (−549), F35 396/1038 (−642), F36 726/750 (−24), F37 132/432 (−300), F38 801/864 (−63), F39 797/1318 (−521), F40 586/1003 (−417).

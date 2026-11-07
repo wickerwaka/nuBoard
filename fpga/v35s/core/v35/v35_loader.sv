@@ -24,14 +24,10 @@
 //   nx 3                          decoder.nx (the running form's class integer)
 //   ra 5                          decoder.ready_at as a countdown (ready_at - t at the next clock)
 //   modrm_next 1                  decoder.modrm_next
-//   mate_arm 1                    modrm_addr + imm_reg: the next byte is the ModR/M's word-mate
-//   imm_reg 1                     decoder.imm_reg
 //   stopped 1                     decoder.stopped (HALT)
 //   ir_hold 1                     decoder.ir_hold (ir_load=disp_data: set at a displaced memory
 //                                 form's start, cleared by its displacement's take on a delivery
 //                                 clock or its first data cycle's issue; S4)
-//   fresh 1                       decoder.fresh (room_ir_pre=modrm: no operand byte of the
-//                                 running TEST r,r / INC-DEC r8 taken yet; S4)
 //   (S5b) pg 1, mskip 1           the running form is a 0F-page form (opc then holds its second
 //                                 byte: the ModR/M take's re-decode on page 1);
 //                                 decoder.modrm_skip (its second opcode byte not yet taken: the
@@ -59,9 +55,26 @@ module v35_loader
     input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
 
     // the queue's head window (S1) and its address
-    input  wire [7:0]  vb0, vb1, vb2, vb3, vb4,
-    input  wire [19:0] head_addr,
-    input  wire [3:0]  avail_c,
+    // the queue's head window and count (S1: this clock's delivery bypassed)
+    input  wire [7:0]  qv0, qv1, qv2, qv3,
+    input  wire [2:0]  q_avail,
+    // (Q1) the queue's read / release split: the bytes the EU reads leave the queue's storage
+    // at once (`rd`), and stop counting for its room when released (`rel`): a take step's bytes
+    // when it ends (take_commit=at_end, as a uniform loader rule), a ModR/M byte and the opcode
+    // when read (modrm_commit=byte, the IR load); the IR is the queue's staging byte (`stg`)
+    input  wire        t_done,          // the T pass's take step ended (its bytes committed)
+    input  wire        p_done,          // ... the P pass's
+    input  wire        dlv,             // a fetch's word delivered now (the bus unit's)
+    output wire [2:0]  rd,              // the bytes read: tick A (T, L), tick B (P)
+    output wire [2:0]  rd_b,
+    output wire [2:0]  rel,             // the bytes released (tick A; the P pass's a clock later)
+    output wire        stg,             // the IR (the staging byte) holds an opcode after L
+    output wire [7:0]  ev0, ev1, ev2, ev3,  // the EU's window (the queue's)
+    output wire [2:0]  e_avail,         // ... its bytes
+    // (Q1) the PC of the queue's head byte is the loader's: the reset's first fetch address, a
+    // flush's target, then counted up by the bytes taken
+    input  wire [19:0] reset_addr,
+    input  wire [19:0] t_flush_addr,
 
     // S2 (T) from the EU
     input  wire        t_start,
@@ -100,37 +113,26 @@ module v35_loader
     output v35_cls_t   cls_c,           // ... its class constants
     output v35_fmt_t   fmt_mt,          // the running form (started before this clock)
                                         // re-decoded at a T ModR/M take (the head byte)
-    output wire [2:0]  need_c,
     // S2
-    output wire        t_commit1,
-    output wire        t_mate,
-    output wire [2:0]  need_t,
-    output wire        ir_v_t,
     // S3
-    output wire        l_pop,
+    output wire        l_pop,           // (Q1) the IR's byte left the window in L (popped)
+    output wire        l_load,          // (Q1) the IR loaded in L (decoder.load_ir)
     output wire [7:0]  ir_l,
     output wire [19:0] ir_addr_l,
     output v35_fmt_t   fmt_l,
     output wire        ok_l,            // (S7) ... known
     output wire        ir_v_l,
     // S5
-    output wire        p_commit1,
     output v35_fmt_t   fmt_mp,          // the form running after T re-decoded at a P take
                                         //   ((S7) not built: the T re-decode's; see p_mmiss)
     output wire        p_mmiss,         // (S7) a P take of a running form's ModR/M byte: none
                                         //   on the corpus (+v35_diag reports one)
-    output wire        p_mate,
-    output wire        p_ir,
-    output wire [2:0]  need_p,
+    output wire        p_ir,            // (Q1) the IR's byte left the window in P (popped)
+    output wire        p_load,          // (Q1) the IR loaded in P
     output wire        ir_v_p,
-    output wire        ir_hold,         // before T (registered)
-    output wire        ir_hold_t,       // after T
-    output wire        ir_hold_p,       // after S5
-    output wire        ir_rel,          // the hold released by an EU cycle's issue: an IR load in P
-    output wire        fresh_c,         // room_ir_pre: before T
-    output wire        fresh_t,         // ... after T
-    output wire        fresh_p,         // ... after S5
     output wire        stopped_o,
+    output wire        head_odd,
+    output wire [2:0]  need_t,          // (Q1) the operand bytes still to take after T (susp)        // (Q1) the head byte is at an odd address (the PC's bit 0)
     // S6: the decode ahead (the next clock's IR, or head byte, and its format)
     output wire        nf_v,
     output v35_fmt_t   nf_fmt,
@@ -146,16 +148,26 @@ module v35_loader
     reg [2:0]  nx = 3'd0;
     reg [4:0]  ra = 5'd0;
     reg        modrm_next = 1'b0;
-    reg        mate_arm = 1'b0;
-    reg        imm_reg = 1'b0;
     reg        stopped = 1'b0;
     reg        irh = 1'b0;
-    reg        fresh = 1'b0;
+    reg [19:0] pc = 20'd0;             // (Q1) the next byte's address (the EU's read position)
+    reg [1:0]  unc = 2'd0;             // (Q1) bytes read by a take step not yet ended (released)
+    reg [2:0]  relc = 3'd0;            // (Q1) the P pass's released bytes, for the next clock
+    wire [19:0] head_addr = pc;
+    wire [7:0] vb0 = qv0, vb1 = qv1, vb2 = qv2, vb3 = qv3;
+    wire [2:0] avail_c = q_avail;
+    wire [3:0] avail4 = {1'b0, avail_c};
+    assign ev0 = vb0;
+    assign ev1 = vb1;
+    assign ev2 = vb2;
+    assign ev3 = vb3;
+    assign e_avail = avail_c;
     reg        pg = 1'b0;               // (S5b) the running form is on the 0F page
     reg        mskip = 1'b0;            // (S5b) its second opcode byte is still to take
 
-    assign ir_hold = irh;
     assign stopped_o = stopped;
+    assign head_odd = pc[0];
+    assign need_t = need_t_w;
     assign ir_v_c = ir_v;
     assign ir_c = ir;
     assign ir_addr_c = ir_addr;
@@ -196,7 +208,6 @@ module v35_loader
     assign a1 = dec_asm(pd_op, pd_pg, pd_d, pd_rc, a1_modrm);
     assign fmt_c = a1;
     assign ok_c = pd_v;
-    assign need_c = need;
     v35_cls_t c_cls;
     assign c_cls = v35_cls_const(a1.cls);
     assign cls_c = c_cls;
@@ -206,8 +217,7 @@ module v35_loader
             3'd0: vb = vb0;
             3'd1: vb = vb1;
             3'd2: vb = vb2;
-            3'd3: vb = vb3;
-            default: vb = vb4;
+            default: vb = vb3;
         endcase
     endfunction
 
@@ -219,7 +229,6 @@ module v35_loader
     // (S5b) the 0F page: the second opcode byte is taken before the ModR/M byte
     wire       pg_s = t_start ? fmt_c.page == 2'd1 : pg;
     wire       ms_s = t_start ? (fmt_c.page == 2'd1 && fmt_c.has_modrm) : mskip;
-    wire       ma_s = t_start ? 1'b0 : mate_arm;
     wire       ir_s = (t_start || t_flush) ? 1'b0 : ir_v;    // (S5a) a flush empties the IR
     wire [7:0] op_s = t_start ? ir : opc;
     wire       ra_ld_s = t_start;
@@ -228,10 +237,12 @@ module v35_loader
     wire [2:0] k_t = {1'b0, t_k_in};
     wire modrm_tk = k_t != 3'd0 && mn_s && !ms_s;
     wire ms_t = ms_s && k_t == 3'd0;
+    // (Q1) tick A's pops: a take step's bytes at its end, a ModR/M byte at once, the IR load
+    // (the held byte, read first, was popped already)
+    wire [2:0] unc_t = t_flush ? 3'd0 : (t_done ? 3'd0 : 3'(unc) + k_t - (modrm_tk ? 3'd1 : 3'd0));
+    wire [2:0] rel_t = t_done ? 3'(unc) + k_t : (modrm_tk ? 3'd1 : 3'd0);
     // (S5b) the 0F page's second opcode byte taken now: the opcode the ModR/M take re-decodes
     wire [7:0] opc_t = (k_t != 3'd0 && ms_s) ? vb0 : op_s;
-    assign t_commit1 = modrm_tk;
-    assign t_mate = k_t != 3'd0 && ma_s && need_s > k_t;
     // the ModR/M byte taken: the form's length as it decodes ((S5b) a 0F form's second opcode
     // byte was taken before it: less that byte too)
     v35_fmt_t fm_r, fm_t;
@@ -240,8 +251,6 @@ module v35_loader
     assign fm_t = t_start ? fmt_c : fm_r;
     wire [2:0] need_t_w = modrm_tk ? fm_t.len - 3'd1 - k_t - (pg_s ? 3'd1 : 3'd0)
                                    : need_s - k_t;
-    assign need_t = need_t_w;
-    assign ir_v_t = ir_s;
     // ready_at: t + nx at the last operand take
     wire ra_ld_t = (k_t != 3'd0 && need_t_w == 3'd0) || ra_ld_s;
     // (S5b) page_mtake=eu: less the clocks the ModR/M take waited
@@ -251,25 +260,24 @@ module v35_loader
                         : ra_v_s;
     wire ready_t = ra_ld_t ? ra_v_t == 5'd0 : ra == 5'd0;
     wire mn_t = modrm_tk ? 1'b0 : mn_s;
-    wire ma_t = k_t != 3'd0 ? (modrm_tk && !head_addr[0] && (t_start ? fmt_c.immb != 2'd0
-                                                             && !fmt_c.mem : imm_reg)) : ma_s;
-    wire im_t = t_start ? (fmt_c.immb != 2'd0 && !fmt_c.mem) : imm_reg;
     wire stop_t = stopped || t_halt;
     wire irh_t = t_start ? irh_set_t : ((irh && !irh_clr_t) || irh_pg_t);
-    assign ir_hold_t = irh_t;
-    // room_ir_pre=modrm: fresh from the start of a form with operand bytes to its first take
-    wire fr_t = k_t != 3'd0 ? 1'b0 : (t_start ? fmt_c.modrm_pre && fmt_c.len != 3'd1 : fresh);
-    assign fresh_c = fresh;
-    assign fresh_t = fr_t;
 
     // ------------------------------------------------------------ S3 (L): load_ir
-    wire [3:0] av_l = avail_c - 4'(k_t);
+    wire [3:0] av_l = avail4 - 4'(k_t);
     assign l_pop = !ir_s && need_t_w == 3'd0 && ready_t && !stop_t && av_l != 4'd0 && !t_flush
                    && !irh_t;
+    assign l_load = l_pop;
+    assign rd = k_t + (l_pop ? 3'd1 : 3'd0);
+    assign rel = rel_t + (l_pop ? 3'd1 : 3'd0) + relc;
+    // the staging byte (the IR, the queue's seventh slot) is occupied while it holds an opcode,
+    // and unavailable while the running form has operand bytes outstanding but on a word's
+    // delivery clock (room_ir=arrival_idle, from the loader's side)
+    assign stg = ir_s || l_pop || (need_t_w != 3'd0 && !dlv);
     wire [7:0] ir_l_w = l_pop ? vb(k_t) : ir;
     assign ir_l = ir_l_w;
     assign ir_addr_l = l_pop ? head_addr + 20'(k_t) : ir_addr;
-    assign ir_v_l = ir_s || l_pop;
+    assign ir_v_l = ir_s || l_load;
     // the IR's ModR/M byte: the byte after it
     wire [2:0] pos_p = k_t + (l_pop ? 3'd1 : 3'd0);
     // (S7) the IR after L: the IR's (its form the same), or the head byte's loaded before any
@@ -282,27 +290,30 @@ module v35_loader
     // Tick A (S1-S4: the T pass's take and start, the IR load) ends at ce_b; tick B (S5, S6:
     // the P pass, the decode ahead, the next state) reads its results from these registers
     // only (and the architectural registers), never tick A's logic.
-    reg  [7:0]  vb0_b = 8'h00, vb1_b = 8'h00, vb2_b = 8'h00, vb3_b = 8'h00, vb4_b = 8'h00;
-    reg  [19:0] head_addr_b = 20'd0, ir_addr_l_b = 20'd0;
-    reg  [3:0]  avail_c_b = 4'd0, av_l_b = 4'd0;
+    reg  [7:0]  vb0_b = 8'h00, vb1_b = 8'h00, vb2_b = 8'h00, vb3_b = 8'h00;
+    reg  [19:0] ir_addr_l_b = 20'd0, t_flush_addr_b = 20'd0;
+    reg  [3:0]  av_l_b = 4'd0;
+    reg  [1:0]  k_t_b = 2'd0;
+    reg  [2:0]  unc_t_b = 3'd0;
+
     v35_fmt_t   fmt_l_b = '0, fm_r_b = '0;
     v35_cls_t   c_cls_b = '0;
     reg  [2:0]  need_t_w_b = 3'd0, nx_s_b = 3'd0, pos_p_b = 3'd0;
-    reg         mn_t_b = 1'b0, pg_s_b = 1'b0, ms_t_b = 1'b0, ma_t_b = 1'b0, ir_v_l_b = 1'b0;
+    reg         mn_t_b = 1'b0, pg_s_b = 1'b0, ms_t_b = 1'b0, ir_v_l_b = 1'b0;
     reg  [7:0]  ir_l_w_b = 8'h00, opc_t_b = 8'h00;
     reg         l_pop_b = 1'b0, ra_ld_t_b = 1'b0, irh_t_b = 1'b0, eu_issue_b = 1'b0;
     reg  [4:0]  ra_v_t_b = 5'd0;
-    reg         fr_t_b = 1'b0, im_t_b = 1'b0, t_flush_b = 1'b0, stop_t_b = 1'b0, t_start_b = 1'b0;
+    reg         t_flush_b = 1'b0, stop_t_b = 1'b0, t_start_b = 1'b0;
     always_ff @(posedge clock) begin
         if (ce_b) begin
             vb0_b <= vb0;
             vb1_b <= vb1;
             vb2_b <= vb2;
             vb3_b <= vb3;
-            vb4_b <= vb4;
-            head_addr_b <= head_addr;
+            t_flush_addr_b <= t_flush_addr;
+            k_t_b <= t_k_in;
+            unc_t_b <= unc_t;
             ir_addr_l_b <= ir_addr_l;
-            avail_c_b <= avail_c;
             av_l_b <= av_l;
             fmt_l_b <= fmt_l;
             fm_r_b <= fm_r;
@@ -313,7 +324,6 @@ module v35_loader
             mn_t_b <= mn_t;
             pg_s_b <= pg_s;
             ms_t_b <= ms_t;
-            ma_t_b <= ma_t;
             ir_v_l_b <= ir_v_l;
             ir_l_w_b <= ir_l_w;
             opc_t_b <= opc_t;
@@ -322,8 +332,6 @@ module v35_loader
             irh_t_b <= irh_t;
             eu_issue_b <= eu_issue;
             ra_v_t_b <= ra_v_t;
-            fr_t_b <= fr_t;
-            im_t_b <= im_t;
             t_flush_b <= t_flush;
             stop_t_b <= stop_t;
             t_start_b <= t_start;
@@ -334,8 +342,7 @@ module v35_loader
             3'd0: vb_b = vb0_b;
             3'd1: vb_b = vb1_b;
             3'd2: vb_b = vb2_b;
-            3'd3: vb_b = vb3_b;
-            default: vb_b = vb4_b;
+            default: vb_b = vb3_b;
         endcase
     endfunction
 
@@ -345,7 +352,6 @@ module v35_loader
     wire       mn_ps = p_start ? fmt_l_b.has_modrm : mn_t_b;
     wire       pg_ps = p_start ? fmt_l_b.page == 2'd1 : pg_s_b;
     wire       ms_ps = p_start ? (fmt_l_b.page == 2'd1 && fmt_l_b.has_modrm) : ms_t_b;
-    wire       ma_ps = p_start ? 1'b0 : ma_t_b;
     wire       ir_ps = p_start ? 1'b0 : ir_v_l_b;
     wire [7:0] op_ps = p_start ? ir_l_w_b : opc_t_b;
     wire [4:0] ra_v_ps = (fmt_l_b.len == 3'd1) ? c_cls_b.nx0 : 5'd0;
@@ -353,9 +359,14 @@ module v35_loader
     wire k_p_w = p_k_in && av_p != 4'd0;
     wire modrm_p = k_p_w && mn_ps && !ms_ps;
     wire ms_p = ms_ps && !k_p_w;
+    // (Q1) tick B's pops: the P take step's bytes at its end, a ModR/M byte at once, the IR load
+    // (the held byte, if any, is the P pass's first)
+    wire [2:0] unc_e = t_flush_b ? 3'd0 : (p_done ? 3'd0 : unc_t_b + (k_p_w ? 3'd1 : 3'd0)
+                                                             - (modrm_p ? 3'd1 : 3'd0));
+    assign rd_b = (k_p_w ? 3'd1 : 3'd0) + (p_ir ? 3'd1 : 3'd0);
+    wire [2:0] rel_p = (p_done ? unc_t_b + (k_p_w ? 3'd1 : 3'd0) : (modrm_p ? 3'd1 : 3'd0))
+                       + (p_ir ? 3'd1 : 3'd0);
     wire [7:0] opc_p = (k_p_w && ms_ps) ? vb_b(pos_p_b) : op_ps;
-    assign p_commit1 = modrm_p;
-    assign p_mate = k_p_w && ma_ps && need_ps > 3'd1;
     v35_fmt_t fm_q, fm_p;
     // (no P start: the form after T.) (S7) A running form takes its ModR/M byte in the P pass
     // only after a P start (the start's format, fmt_l): a P take of a form started before is
@@ -366,7 +377,6 @@ module v35_loader
     assign fm_p = p_start ? fmt_l_b : fm_q;
     wire [2:0] need_p_w = modrm_p ? fm_p.len - 3'd2 - (pg_ps ? 3'd1 : 3'd0)
                                   : need_ps - (k_p_w ? 3'd1 : 3'd0);
-    assign need_p = need_p_w;
     wire ra_ld_pk = k_p_w && need_p_w == 3'd0;
     wire ra_ld_p = ra_ld_pk || p_start || ra_ld_t_b;
     wire [4:0] ra_pk = {2'd0, nx_ps} + (p_io_nx ? 5'd1 : 5'd0);
@@ -376,32 +386,29 @@ module v35_loader
     wire [3:0] av_pi = av_p - (k_p_w ? 4'd1 : 4'd0);
     // ir_load: the EU's data cycle issued: the hold released, the IR loads again (machine.py)
     wire irh_x = irh_t_b && !eu_issue_b;
-    assign ir_rel = irh_t_b && eu_issue_b;
+    wire ir_rel = irh_t_b && eu_issue_b;
     wire irh_p = p_start ? irh_set_p : ((irh_x && !irh_clr_p) || irh_pg_p);
-    assign ir_hold_p = irh_p;
     assign p_ir = !ir_ps && need_p_w == 3'd0 && ready_p && !stop_t_b && av_pi != 4'd0
                   && (p_start || k_p_w || ir_rel) && !irh_p;
-    wire fr_p = k_p_w ? 1'b0 : (p_start ? fmt_l_b.modrm_pre && fmt_l_b.len != 3'd1 : fr_t_b);
-    assign fresh_p = fr_p;
+    assign p_load = p_ir;
     assign ir_v_p = ir_ps || p_ir;
     wire mn_p = modrm_p ? 1'b0 : mn_ps;
-    wire ma_p = k_p_w ? (modrm_p && !(head_addr_b[0] ^ pos_p_b[0])
-                         && (p_start ? fmt_l_b.immb != 2'd0 && !fmt_l_b.mem : im_t_b)) : ma_ps;
-    wire im_p = p_start ? (fmt_l_b.immb != 2'd0 && !fmt_l_b.mem) : im_t_b;
 
     // ------------------------------------------------------------ S6: the decode ahead
     // the bytes this clock leaves at the queue's head (this clock's delivery included)
     wire [2:0] pops = pos_p_b + (k_p_w ? 3'd1 : 3'd0) + (p_ir ? 3'd1 : 3'd0);
+    wire [19:0] pc_e = t_flush_b ? t_flush_addr_b + 20'(pops) - 20'(k_t_b) : pc + 20'(pops);
     wire [7:0] ir_e = p_ir ? vb_b(pos_p_b + (k_p_w ? 3'd1 : 3'd0)) : ir_l_w_b;
-    wire [19:0] ira_e = p_ir ? head_addr_b + 20'(pos_p_b) + (k_p_w ? 20'd1 : 20'd0) : ir_addr_l_b;
+    wire [19:0] ira_e = p_ir ? pc + 20'(pos_p_b) + (k_p_w ? 20'd1 : 20'd0) : ir_addr_l_b;
     wire       irv_e = ir_v_p && !t_flush_b;
-    wire       h0 = !t_flush_b && {1'b0, pops} < avail_c_b && pops <= 3'd4;
-    wire       h1 = !t_flush_b && {1'b0, pops} + 4'd1 < avail_c_b && pops <= 3'd3;
+    // ((Q1) the window is four bytes: vb0..vb3)
+    wire       h0 = !t_flush_b && {1'b0, pops} < avail4 && pops <= 3'd3;
+    wire       h1 = !t_flush_b && {1'b0, pops} + 4'd1 < avail4 && pops <= 3'd2;
     // (S5b) the byte after those (a 0F form's ModR/M byte behind its second opcode byte)
-    wire       h2 = !t_flush_b && {1'b0, pops} + 4'd2 < avail_c_b && pops <= 3'd2;
+    wire       h2 = !t_flush_b && {1'b0, pops} + 4'd2 < avail4 && pops <= 3'd1;
     assign nf_v = irv_e || h0;
     assign nf_op = irv_e ? ir_e : vb_b(pops);
-    assign nf_addr = irv_e ? ira_e : head_addr_b + 20'(pops);
+    assign nf_addr = irv_e ? ira_e : pc_e;
     // the decode ahead: the opcode's escape, the table entry of the opcode or the byte behind
     // an escape (the only table reads of the clock), the format with the ModR/M byte
     wire [7:0] nf_b1 = irv_e ? (h0 ? vb_b(pops) : 8'h00) : (h1 ? vb_b(pops + 3'd1) : 8'h00);
@@ -430,11 +437,11 @@ module v35_loader
             nx <= 3'd0;
             ra <= 5'd0;
             modrm_next <= 1'b0;
-            mate_arm <= 1'b0;
-            imm_reg <= 1'b0;
             stopped <= 1'b0;
             irh <= 1'b0;
-            fresh <= 1'b0;
+            pc <= reset_addr;
+            relc <= 3'd0;
+            unc <= 2'd0;
             pg <= 1'b0;
             mskip <= 1'b0;
             pd_v <= 1'b0;
@@ -452,6 +459,7 @@ module v35_loader
             if (t_start_b || p_start)
                 d_run <= pd_d;
             ir_v <= ir_v_p && !t_flush_b;
+            relc <= t_flush_b ? 3'd0 : rel_p;
             if (p_ir) begin
                 ir <= ir_e;
                 ir_addr <= ira_e;
@@ -466,11 +474,10 @@ module v35_loader
             nx <= nx_ps;
             ra <= ra_a == 5'd0 ? 5'd0 : ra_a - 5'd1;
             modrm_next <= mn_p;
-            mate_arm <= ma_p;
-            imm_reg <= im_p;
             stopped <= stop_t_b;
             irh <= irh_p && !t_flush_b;
-            fresh <= fr_p;
+            pc <= pc_e;
+            unc <= unc_e[1:0];
         end
     end
 
@@ -506,29 +513,29 @@ module v35_loader
                     $display("v35 chk: loader.vb3 changed in tick B: %h -> %h at %0t",
                              vb3_b, vb3, $time);
             end
-            if (vb4_b !== vb4) begin
+            if (t_flush_addr_b !== t_flush_addr) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
-                    $display("v35 chk: loader.vb4 changed in tick B: %h -> %h at %0t",
-                             vb4_b, vb4, $time);
+                    $display("v35 chk: loader.t_flush_addr changed in tick B: %h -> %h at %0t",
+                             t_flush_addr_b, t_flush_addr, $time);
             end
-            if (head_addr_b !== head_addr) begin
+            if (k_t_b !== t_k_in) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
-                    $display("v35 chk: loader.head_addr changed in tick B: %h -> %h at %0t",
-                             head_addr_b, head_addr, $time);
+                    $display("v35 chk: loader.t_k_in changed in tick B: %h -> %h at %0t",
+                             k_t_b, t_k_in, $time);
+            end
+            if (unc_t_b !== unc_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.unc_t changed in tick B: %h -> %h at %0t",
+                             unc_t_b, unc_t, $time);
             end
             if (ir_addr_l_b !== ir_addr_l) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: loader.ir_addr_l changed in tick B: %h -> %h at %0t",
                              ir_addr_l_b, ir_addr_l, $time);
-            end
-            if (avail_c_b !== avail_c) begin
-                chk_n = chk_n + 1;
-                if (chk_n <= 20)
-                    $display("v35 chk: loader.avail_c changed in tick B: %h -> %h at %0t",
-                             avail_c_b, avail_c, $time);
             end
             if (av_l_b !== av_l) begin
                 chk_n = chk_n + 1;
@@ -590,12 +597,6 @@ module v35_loader
                     $display("v35 chk: loader.ms_t changed in tick B: %h -> %h at %0t",
                              ms_t_b, ms_t, $time);
             end
-            if (ma_t_b !== ma_t) begin
-                chk_n = chk_n + 1;
-                if (chk_n <= 20)
-                    $display("v35 chk: loader.ma_t changed in tick B: %h -> %h at %0t",
-                             ma_t_b, ma_t, $time);
-            end
             if (ir_v_l_b !== ir_v_l) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
@@ -644,18 +645,6 @@ module v35_loader
                     $display("v35 chk: loader.ra_v_t changed in tick B: %h -> %h at %0t",
                              ra_v_t_b, ra_v_t, $time);
             end
-            if (fr_t_b !== fr_t) begin
-                chk_n = chk_n + 1;
-                if (chk_n <= 20)
-                    $display("v35 chk: loader.fr_t changed in tick B: %h -> %h at %0t",
-                             fr_t_b, fr_t, $time);
-            end
-            if (im_t_b !== im_t) begin
-                chk_n = chk_n + 1;
-                if (chk_n <= 20)
-                    $display("v35 chk: loader.im_t changed in tick B: %h -> %h at %0t",
-                             im_t_b, im_t, $time);
-            end
             if (t_flush_b !== t_flush) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
@@ -682,5 +671,5 @@ module v35_loader
 `endif
     // (S7b) chk end
 
-    wire unused = &{1'b0, ce_b, c_cls_b, av_p, fm_t, fm_p, h1, nf_d1};
+    wire unused = &{1'b0, ce_b, c_cls_b, av_p, fm_t, fm_p, h1, nf_d1, unc_e[2]};
 endmodule

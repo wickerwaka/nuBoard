@@ -220,3 +220,14 @@ situation rule in the queue (no input that names a form, a class, a row or an EU
 per-family table and the miss classification before any recovery work. The overseer verifies on main,
 records the per-family losses in the core v2 Record as the baseline the recovery stages are measured
 against, and commits.
+
+## 8. Outcome of Q1 (2026-11-07; the core v2 Record has the detail)
+
+Variant B is the queue (24 ports, 34 bits of state beyond the bytes). Two structural knobs were needed and
+approved: a read pointer and a release pointer (storage frees when a byte is read, the room when the take
+step ends) and the IR as the staging byte counted in the capacity when empty. The start gate's wait for a
+fetch on the bus and the take sync had to stay as EU rules on bus-unit facts (without them nothing matched).
+`latch_hold` was dropped from the request line. Baseline: 23,691 of fit 62's 30,361 runs exact, F0–F2 and F24
+lossless, F23 / F35 / F37 / F11 / F32 / F40 worst; misses classified 2,725 (a), 884 (b), 3,071 (c) of which
+1,565 are the triple-clock aborted fetch that a level request line cannot produce, the one open question
+about the queue's mechanism. Recovery stages measure against this table.

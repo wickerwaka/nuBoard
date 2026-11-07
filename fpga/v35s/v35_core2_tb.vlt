@@ -4,6 +4,7 @@
 // the first fetch's address, the reset exit and the CPU clock's divider). Bench only: the
 // harness build and the RTL sources are unchanged.
 public_flat_rw -module "v35_top" -var "tb_reset_addr"
+public_flat_rw -module "v35_top" -var "tb_reset_ip"
 public_flat_rw -module "v35_top" -var "core_run"
 public_flat_rw -module "v35_sfr" -var "prc"
 public_flat_rw -module "v35_sfr" -var "wtc"

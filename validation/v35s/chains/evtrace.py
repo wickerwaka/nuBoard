@@ -233,13 +233,20 @@ def run_rtl(chain, path: Path):
 
 # Diff --------------------------------------------------------------------------------
 
-def diff(model: dict, m_fill: int, rtl: dict, r_fill: int, window: int = 8) -> str:
+def _keep(line: str, keys) -> str:
+    """(Q1) the line's items whose kind (the text before the first ':') is in keys."""
+    if keys is None:
+        return line
+    return " ".join(i for i in line.split() if i.split(":", 1)[0] in keys)
+
+
+def diff(model: dict, m_fill: int, rtl: dict, r_fill: int, window: int = 8, keys=None) -> str:
     off = r_fill - m_fill
     out = [f"aligned at t_fill: model clock {m_fill}, RTL clock {r_fill} (offset {off})"]
     first = None
     for t in sorted(k for k in model if k >= m_fill):
-        a = model[t]
-        b = rtl.get(t + off, ("<none>", ""))[0]
+        a = _keep(model[t], keys)
+        b = _keep(rtl.get(t + off, ("", ""))[0], keys)
         if a != b:
             first = t
             break
@@ -268,6 +275,9 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
     parser.add_argument("--window", type=int, default=8, help="clocks shown around the first "
                         "divergence (default 8)")
     parser.add_argument("--model-out", type=Path, help="write the model's lines here")
+    parser.add_argument("--keys", nargs="+", help="(Q1) compare only these items (X S T L P I "
+                        "B A R), e.g. --keys X S T L P I A: the simple queue's room and request "
+                        "line (R) and back-to-back sample (B) have no model meaning")
     return parser
 
 
@@ -288,7 +298,7 @@ def main(argv=None, args=None) -> int:
         print(f"{args.id}: no t_fill (model {m_fill}, RTL {r_fill})")
         return 2
     print(f"{args.id}")
-    print(diff(model, m_fill, rtl, r_fill, args.window))
+    print(diff(model, m_fill, rtl, r_fill, args.window, args.keys))
     return 0
 
 

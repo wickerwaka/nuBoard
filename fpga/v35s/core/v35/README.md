@@ -180,13 +180,13 @@ F40): see "Gate (S5a)" below. S5b on the whole refresh-off corpus (36 families):
 
 | File | Module | Role |
 | --- | --- | --- |
-| `v35_front_pkg.sv` | package `v35_front_pkg` | cycle kinds/widths, the fit integers the front end reads, `req_t` (a posted request), `room_f` (the request rule's room) |
+| `v35_front_pkg.sv` | package `v35_front_pkg` | cycle kinds/widths, the fit integers the front end reads, `req_t` (a posted request) |
 | `v35_pkg.sv` + `.svh` (generated) | package `v35_pkg` | the row format, the format word, the decode / class / template tables (above) |
 | `v35_fn_pkg.sv` | package `v35_fn_pkg` | the pure functions: ALU, S Z P, shifter, multiplier, the restoring divider's init / step / finish, conditions, adjusts, BCD byte, bit ops, digit rotate, the EA offset and its registers |
-| `v35_bus.sv` | `v35_bus` | one cycle at a time, pin timing verbatim from `../v35_biu.sv`, the delivery registers, the I/O recovery window, the data latch (`wlatch`), the 3-clock aborted fetch cycle, the fetch-run flag |
-| `v35_queue.sv` | `v35_queue` | 8-byte ring (6 nominal) with the 1-byte write-port latch, `uncommitted`, room at each stage, the request flag and its dating, `wants_fetch`, b2b, reissue, abort/retry, `retry_at`, `nop_held`, `io_held`, (S3) `shift_held` / `shift_until` (count_latch), io_take's drop, a row's `fetch_hold n`; (S5a) the transfers' holds (`flush_held`, `odd_xfer` / `odd_nt` / `odd_until`, xfer_nt_b2b's commitment and `io_run_at`, the decide row's old fetch, xfer_abort), `str_held` (fetch_hold / fetch_release, for ever), `str_raise`, the take hold (`take_hold` / `hold_from`, cvt_hold), far_room / xfer_mem_room / lea_slot / lea_room in the room |
-| `v35_loader.sv` | `v35_loader` | IR, the format lookup (`v35_fmt_of`, the ModR/M byte the next queue byte; re-decoded at the ModR/M take; (S5a) a REP prefix's form the string opcode behind it, page 2 with the prefix's repc), `need`, the ready countdown (`ready_at`, with one_idle's and long_exec's moves), the ModR/M commit and word-mate strobes, the IR load in L and P, the decode a clock ahead; (S5a) a flush empties the IR |
-| `v35_arbiter.sv` | `v35_arbiter` | (S4) the request positions (`Request` x 3: the slot, two queued behind a detached I/O, `_promote`), setup counting, the request window and the fetch holds, the choice as one priority tree (the odd pair's second half / the slot's cycle or the left-out write's slot / the aborted cycle / a fetch); `g_abort_lat` (abort_latched) |
+| `v35_bus.sv` | `v35_bus` | one cycle at a time, pin timing verbatim from `../v35_biu.sv`, the delivery registers, the I/O recovery window, the data latch (`wlatch`), the 3-clock aborted fetch cycle, the fetch-run flag; (Q1) the request line's sample at a fetch's last clock (`b2b_now`, held while a memory request waits in the slot) |
+| `v35_queue.sv` | `v35_queue` | (Q1) the simple machine: six bytes, the stored and unreleased counts, the prefetch pointer, the request line (`fetch_req`, `q_low`), the IR staging byte counted as the seventh slot (variant B), the byte-wide write port and its one-byte latch (variant B, `V35_QUEUE_B`). See "Queue (Q1)" |
+| `v35_loader.sv` | `v35_loader` | IR, the format lookup (`v35_fmt_of`, the ModR/M byte the next queue byte; re-decoded at the ModR/M take; (S5a) a REP prefix's form the string opcode behind it, page 2 with the prefix's repc), `need`, the ready countdown (`ready_at`, with one_idle's and long_exec's moves), the IR load in L and P, the decode a clock ahead; (S5a) a flush empties the IR; (Q1) the PC of the next byte (`pc`), the queue's reads and releases (`rd`, `rd_b`, `rel`: a take step's bytes released at its end, `unc`, `relc`), the staging byte's occupancy (`stg`) |
+| `v35_arbiter.sv` | `v35_arbiter` | (S4) the request positions (`Request` x 3: the slot, two queued behind a detached I/O, `_promote`), setup counting, the request window and the fetch holds, the choice as one priority tree (the odd pair's second half / the slot's cycle or the left-out write's slot / the aborted cycle / a fetch); (Q1) a fetch decided from `fetch_req`, `q_low`, `b2b_now` and the line's last sample (`lup`) only: no request dating |
 | `v35_ucode.sv` | `v35_ucode` | the microcode sequencer: the ROM (four banks, a window of four rows), the T and P passes over the rows, the take sync, the start gate, unit_hold, the write-back countdown, the latch holds, the loop counters, the request descriptors; (S5a) the start-time run bits (`taken`, `zfail`, `n0`), FLUSH / FLUSH_C / DECIDE, the REP element loop's exits, the skip-ahead, the fetch-hold arms, SPLIT_FLOOR / FROM_START, the transfers' and strings' start rules, LDEA's rules, mul_imm_count=sync's `mul_from`, rot4_exec |
 | `v35_eu.sv` | `v35_eu` | the datapath: the register ports' schedule, the exec (the register function), the read datum (an odd word's two halves), the divider, the request records' address / datum / width (a live EA and result for the running form's own request), the segment registers, CW, the PSW; (S5a) the transfers' targets and PC / PS / PSW writes, the return address pushes, SP at every stack post, the string unit (IX / IY / CW flops, the element steps, the compares), LDEA, LES / LDS, PUSH R / POP R, PREPARE / DISPOSE, the adjusts and conversions, the BCD strings' pairs |
 | `v35_ea.sv` | `v35_ea` | (S4) the EA unit inside `v35_eu`: the mode from the format word, the base (port B) and index (port A) latched as `ea_bi`, the displacement from the operand bytes, the segment (prefix / SS for a BP mode / DS0), the physical address |
@@ -204,21 +204,21 @@ are gone.
   in_wait, fetch_inflight, fetch_past_b2, fetch_end_prev, fetch_since, fetch_run_prev, io_win,
   wl_busy (wl_busy_x after this clock's T and X fills), dlv_v/kind/addr/width, done_data,
   abort_busy, abort_last, abort_done, fetch_len, grant_len`.
-- queue ↔ loader/EU: the head window `vb0..vb4` (this clock's delivery bypassed) and
-  `head_addr`, `avail_c`; T pops `t_k`, `t_done` (commit), `t_commit1` (ModR/M), `t_mate`;
-  L `l_pop`; P `p_k`, `p_done`, `p_commit1`, `p_ir`; the decoder state the room reads
-  (`need_*`, `ir_v_*`, `imm16_*`).
-- queue → EU/arbiter: `room_c, room_x, room_p0, room_e`, `stored_c/l`, `lat_c/x`, `arrived_now`,
-  `inflight_c/x`, `completed_now`, `asked_d/t/p`, `flag_x, want_x, rq_v_x, rq_now_x,
-  rq_old_c/p`, `b2b_now`, `triple_x`, `retry, retry_loop`, `io_hold_x`, `latch_start_now`,
-  `shift_latch` (count_latch decided on the count byte's take), `fetch_addr_o`.
+- (Q1) queue ↔ loader: the head window `vb0..vb3` (this clock's delivery bypassed) and its
+  count `avail`; the loader's `rd` (tick A: T's takes, the IR load), `rd_b` (tick B: P's),
+  `rel` (the releases: a take step's end, a ModR/M byte, the IR load; P's a clock later),
+  `stg` (the staging byte: the IR full, or the running form's operand bytes outstanding off a
+  delivery clock).
+- (Q1) queue ↔ bus unit / arbiter: `fetch_req` (the line), `fetch_addr`, `q_low`; `fetch_go`
+  (g_fetch), `dlv_v` / `dlv_data` (a fetch's word), `abort_go` (the aborted cycle running);
+  bus unit → arbiter / sequencer `b2b_now` (the line sampled high at a fetch's last clock);
+  arbiter → bus unit `mem_wait_o` (no back-to-back commitment while a memory request waits).
+- (Q1) sequencer → queue: `susp` (the suspend windows, below), `flush` / `flush_addr` (t_flush,
+  t_flush_off: the target's offset in the new PS), `ps_base` (the datapath's).
 - loader → sequencer / datapath: `ir_v_c, ir_c, ir_addr_c, fmt_c, cls_c` (the IR, its format with
   the head byte as its ModR/M byte, its class constants), the same after L (`*_l`),
   `fmt_mt / fmt_mp` (the running form re-decoded with this clock's ModR/M byte, T / P), the
   decode ahead `nf_v, nf_op, nf_fmt, nf_addr`.
-- sequencer → queue: `t_start, p_start, t_flush, t_fhold (n), ask_d, ask_t, ask_p, cnt_take,
-  rt_set/rt_n (retry_at), sh_set/sh_n (shift_until), nop_cand, abort_loop, io_drop /
-  io_drop_loop`.
 - sequencer → loader: `t_k, p_k, t_halt, lx_hold, idle_adj, p_io_nx`.
 - sequencer → arbiter: `post_t/post_p` (the arbiter's records `rq_t/rq_p` are the datapath's,
   their window fields `ptm_t/ptm_p` the sequencer's: through, imm1, gdisp, sreg, whole,
@@ -226,10 +226,7 @@ are gone.
   relatch_late`, (S4) `floor_set, floor_nb` (disp_floor=posted), `sreg_hold_set`, `gdisp_act`
   (grp_disp), `ea_act_x` (ea_b2b), `take_now`, `disp_ext` (disp_io), `sidle`, `halting, halted,
   wb_hold, latch_wait`.
-- (S4) sequencer ↔ loader / queue: `irh_set_t/p, irh_clr_t/p` (ir_load=disp_data), `ir_hold_t/p,
-  ir_rel` (the hold after T / S5, its release by an EU cycle's issue: the P IR load),
-  `fresh_c/t/p` (room_ir_pre), `ea_act_c/x` (ea_ir_room), `disp_t/p` (latch_disp),
-  `io_unit_drop` / `unit_md` (io_take=unit's drop on an I/O issue), `room_c0` (imm_start).
+- (S4) sequencer → loader: `irh_set_t/p, irh_clr_t/p` (ir_load=disp_data).
 - (S4) datapath → arbiter: `ea_live, wd_live` (the running form's memory operand address and
   result, read as its own request issues).
 - (S5a) datapath → sequencer: `psw_c / psw_e, cw_c / cw_e` (the PSW and CW now and after this
@@ -237,24 +234,15 @@ are gone.
   element by count, a BCD string's last pair), `str_exit` (a REP compare's exit on its
   condition, at its read's delivery); sequencer → datapath: `edone` (an element's last row done:
   CW counted down), `povr_t / povr_p` (a post after the loop: the overrun read).
-- (S5a) sequencer → queue: the transfers' holds `xs_start, fh_set / fh_n` (flush_hold=start),
-  `ox_set` (xfer_odd), `nt_set / nt_dbnz, ou_set / ou_n` (xfer_nt), `xs_done`, `ff_set / ff_n,
-  ff_t / ff_t0` (flush_from), `ntb_ok` (xfer_nt_b2b), `xfer_x` (xfer_abort); the fetch holds
-  `t_sth / p_sth` (+ `_inf`, `_n`: str_held from the T / P pass), `rs_set / rs_n` (str_raise),
-  `th_arm_t / th_arm_p, th_cvt, th_lift_t / th_lift_p` (the take hold); the room's `xk_c / t / p`
-  (far_room, xfer_mem_room, lea_slot) and `lea_xk_c / t / p` (lea_room); queue → sequencer:
-  `want_c` (wants_fetch before T: refill_start), `dec_inf / dec_since` (the decide row's fetch),
-  `head_odd`.
+- (S5a) loader → sequencer: `head_odd` (the next byte's address parity); (Q1) `need_t` (the
+  suspend windows' operand-bytes test), `p_load`.
 - (S5a) bus → sequencer: `w3_v / w3_rel` (the last memory write among the last three cycles);
   arbiter → sequencer: `own_h2` (the own pair's second half issued: str_split), arbiter → bus:
   `g_wl_io` (a string form's I/O write: str_io_latch); sequencer → arbiter: `mf_old`
   (mul_imm_count=sync: the fetch on the bus is older than mul_from).
 - (S5b) the 0F page: sequencer → loader `irh_pg_t / p` (page_ir=delivery), `mt_sub_t / p`
-  (page_mtake=eu's ready move); sequencer → queue `fl_c / t / p` (page_ir_room=end's full latch
-  running), `fl_end_t / t2 / p` (its end), `pgb2b_e`, `res0_e`, `halted`; sequencer → arbiter
-  `pfs_x` (a 0F memory form's read not yet posted), `pimm_x`, `pcl_x` / `pcl_fs`, `bcd_idle`;
-  `pfs_e || slot_pf_e` → queue (page_run's page_active at the clock's end); bus → queue
-  `cf_tn, cf_irb` (the fetch's take_near and IR-before flags); bus → arbiter `cur_b2b_pfa,
+  (page_mtake=eu's ready move); sequencer → arbiter `pfs_x` (a 0F memory form's read not yet
+  posted), `pimm_x`, `bcd_idle`; bus → arbiter `cur_b2b_pfa,
   cur_thru, prev_imm`; arbiter → bus `g_thru, g_pfa`, `g_b2b` (b2b or page_imm_run); bus ↔
   sequencer `cur_thru, g_thru` (pf_cnt); datapath → sequencer `bf_cross, bfcost, bf_ok`;
   sequencer → datapath `f_end` (the form's end: the bit field's pointer step), `edone_t`.
@@ -286,13 +274,18 @@ its own outputs; Verilator reports no `UNOPTFLAT`):
 | S5 | P | `v35_ucode` P pass (`p0..p4`, run only on `retick`: a detached I/O's issue or the own I/O write's: the start gate, one byte's take at most, the rows that follow without a take); `v35_loader` "S5 (P)" (with `ir_rel`'s IR load: ir_load=disp_data released by an EU cycle's issue); `v35_eu` the P form (`f_now`), `rq_p`; `v35_queue` `asked_p`, io_take's drop, (S4) `flag_ir`, io_take=unit's `iud`, io_ir_hold (`iih`), `nop_set`; `v35_arbiter` "S5 (P): retire, post" (`e0..e2`) |
 | S6 | E | `v35_queue` "S6: check, b2b" (`latch_in`, `b2b_next`, (S5a) xfer_nt_b2b's `nb_go`, the decide row's old fetch `od_*`) and every `always_ff` / `always @(posedge clock)` block (`ce`); `v35_ucode` `ls_adj` (latch_start), `oi_adj` (one_idle), `lx_now` (long_exec), (S5a) `r4_now` (rot4_exec), `res_e`, the next cursor's row and the window's address (`wa_e`: the cursor's successors, the element loop's top, or the decode ahead's template base, its run bits from the PSW and CW after this clock), (S5a) the transfers' holds and the lea / mul_from / take-hold timers; `v35_loader` the decode ahead (`nf_*`); `v35_eu` the writes and the next clock's register addresses (POP r/m: SP before its stack read, the EA after; (S5a) PUSH R its next word's register), (S5a) the string unit's steps and its write-through; `v35_ea` the `ea_bi` latch; `v35_arbiter` `tick` / `redate` (the countdowns, the pair flag from the live address, the order flags) |
 
+(Q1) The queue in the stages above is now: S1 the delivery and the window, S3 the request line
+from the counts after tick A's reads and releases, S6 its next state (the reads, the latch); its
+other S2–S6 entries (the room, the flag, the dating, b2b, the holds) are gone or moved (see "Queue
+(Q1)"); the bus unit samples the line in S6 (`b2b`), the arbiter's `lup` / `lup_p` in S4 and S6.
+
 ## Registered state
 
 | Module | State (widths) | Replaces |
 | --- | --- | --- |
 | `v35_bus` | `c_valid 1, c_kind 3, c_pos 3, c_len 3, c_addr 20, c_width 2, c_data 16, c_internal 1, c_ext 1`; `c_b2b 1, c_commit 1, c_on_start 1, c_run 1`; `d_v 1, d_kind 3, d_addr 20, d_width 2, done_data 16`; `gap 1, f_since 4, io_tail 2, wl 3, ab_v 1, ab_pos 2`; (S4) `c_after_post 1, c_disp_in_flight 1, c_ir_before 1`; (S5a) `w_v 1, w_ncyc 2, w_rel 5`; (S5b) `c_thru 1, c_pfa 1, c_tn 1, c_tkin 1, tk_prev 1, c_as 1, c_nt 1` (`c_ir_before` kept up after the issue); pins + `refresh_row 9` | `bus.current`, `Cycle.b2b/commit`, (S4) the fetch's start flags S5's page rules read (`x.start > pfree`, `_disp_in_flight`, `ir_t <= bus_start`), disp_io's `last_io_end = c.end + 1` (`c_ext` holds `io_tail`), `cur.start == start_clock`, `_fetch_run`, `bus.completed`, `last_end/last_fetch_end/last_io_end`, `wlatch_until`, `abort_end`; (S5a) str_single_start=write's `max(c.end for c in cycles[-3:] if c.kind == "write")`; (S5b) `Cycle.thru`, `x.b2b and x.start > pfree`, `_page_b2b`'s `take_t >= bus_start - 1` and page_b2b_win=run's `_after_take_fetch` (the plan's `take_near`, carried from the fetch before), `_page_imm_run`'s `prev.start > start_clock` / `> take_t` |
-| `v35_queue` | `q 8×8, head 3, cnt 4, lat 1, lat_full 1, unc 3, take_addr 20, flag 1, rq_v 1, inflight 1, fetch_addr 20, b2b 1, retry 1, retry_loop 1, rt_v 1, rt_cnt 9, nop_held 1, io_held 1, discard 1, starts 2, fhold 3, sh_held 1, sh_v 1, sh_cnt 9, first 1`; (S4) `sfetch 1`; (S5a) `fhold 6, st_inf 1, rs_v 1, rs_cnt 4, fh_v 1, fh_cnt 5, ox_v 1, ox_fed 1, ox_nt 1, ox_dbnz 1, ou_v 1, ou_cnt 3, od_v 1, od_nb 1, od_inf 1, od_since 4, xa 1, ira 1, th_a 1, th_on 1, th_pre 1, th_c 1`; (S5b) `pb_done 1, pr_done 1` | `bytes, latched, latch_full, uncommitted, flag, requested_at, inflight, fetch_addr, b2b_at, retry, retry_loop, retry_at, nop_held, io_held, discard, starts, str_held, shift_held, shift_until`; (S4) `slot_fetch` / `slot_word`; (S5a) `str_held` (finite or inf), `str_raise`, `flush_held`, `odd_xfer / odd_fed / odd_nt / odd_until` (`t > odd_xfer` is `ox_v` registered), `nb_at / nb_start` and the decide's `bus.cycles[-4:]` scan, `xfer_abort`, `io_run_at == t`, `take_hold / hold_from / cvt_held` and `requested_at < hold_from`; (S5b) `pb_start == start_clock` (page_b2b), `pr_start == start_clock` (page_run) |
-| `v35_loader` | `ir_v 1, ir 8, ir_addr 20, opc 8, need 3, nx 3, ra 5, modrm_next 1, mate_arm 1, imm_reg 1, stopped 1`; (S4) `irh 1, fresh 1`; (S5b) `pg 1, mskip 1` | `decoder.ir, need, nx, ready_at, modrm_next, modrm_addr/imm_reg, stopped`; (S4) `decoder.ir_hold, fresh` ((S5a) xfer_mem_ir's too, (S5b) page_ir's); (S5b) the 0F page's second byte as the re-decode's opcode, `decoder.modrm_skip` |
+| `v35_queue` | (Q1) `q 6×8, cnt 3, unrel 3, pfp 16, inflight 1, discard 1, odd 1`; variant B `lat 1, lat_byte 8` | `bytes`, the uncommitted bytes' count, `fetch_addr`, `inflight`, `discard`; B `latched` (word_latch=byte_d) |
+| `v35_loader` | `ir_v 1, ir 8, ir_addr 20, opc 8, need 3, nx 3, ra 5, modrm_next 1, stopped 1`; (S4) `irh 1`; (S5b) `pg 1, mskip 1`; (Q1) `pc 20, unc 2, relc 3` | `decoder.ir, need, nx, ready_at, modrm_next, modrm_addr/imm_reg, stopped`; (S4) `decoder.ir_hold, fresh` ((S5a) xfer_mem_ir's too, (S5b) page_ir's); (S5b) the 0F page's second byte as the re-decode's opcode, `decoder.modrm_skip` |
 | `v35_arbiter` | (S4) three positions `r0` (the slot), `r1, r2` (queued), each: `v 1`, the posted `req_t` (`kind 3, nowrite 1, addr 20, width 2, data 16, setup 7, fn_v 1, fn 7 ((S5a) was 3), lead 2, port 1, detached 1, grp 1, through 7, imm1 1, gdisp 1, sreg 1, whole 1, restart 1, nb 4, rl 2, alive 1, aoff 3, dlive 1, dimm 1`, (S5a) `nwt 1, dwl 1, memc 1, fhd 1, strc 1, mfr 1, c0 4`, (S5b) `pfv 1, prw 1, pth 2, ftl 3`), `count 7, fn_v 1, fn 7, fo 7, iss 1, h2 1, two 1, dne 1, nwd 1, dn 3, nb 4, fhold 1, rs 1, lift 1, fhp 1, ghp 1, moved 1, dwm 1, rq_le 1, rq_lt 1, shl 1, sok 1, sat 1` (≈ 175 b); `own 2, rq_aio 1, io_seen 1`; (S5b) `tkq 1, tkr 1` | `Request` (`cycles`, `free_need`, `free_orig`, `issued`, the atomic pair, `done_at`, `not_before`, `floor_hold`, `ready_since`, `lift_t`, `free_held`, `grp_held`, `moved`, `dw_moved`, `requested_at` vs `posted`, `sreg_held/ok/at`; (S5a) `nowait`, `dwlike`, `mfrom`; (S5b) `pfree`, `run_wait`, `pthru`, `ftail`), `eu.req`, `eu.queued`, `eu.own`, `requested_at >= ios[-1].start`; (S5b) `requested_at == take_t` and `b2b_at != take_t` (`_page_take_ask`) |
 | `v35_ucode` | `run 1, upc 11, row_c 64, rc_v 1, base 11, wa 11, q0..q3 4×64` (the ROM banks' read registers), `arm_done 1, wpass 1, res 11, left 3, taken 3, oplen 3, sync_v 1, sync_def 1, owed 2, held 1, own_v 1, dpass 1, exec_v 1, ex_age 2, ex_par 1, hold_done 1, abort_start 1, done_m 1, wbu 2, wbc 2, wbx 1, lu_inf 1, lu 3, halted 1, refill 1, nw_v 1, nw 4, first_clk 1, lx 1, elem 2 ((S5a) saturating: 0, 1, more), ltop 11, fmt 121, cc 124 (class constants), op 8, shift_held_r 1, slot_rl 2`; (S4) `fl_v 1, fl 4, dfl_v 1, dfl 3, uearly 1, gdc 2, eac 3, st_prev 1, fst 1`; (S5a) `tkn 1, zf 1, oddpc 1, ont 1, dab 1, dabs 4, lxt 1, scond 1, sfl_v 1, sfl 4, ls2 1, sfage 4, single 1, nwf 1, nwu 1, tha 1, thd 1, cva 1, sage 4, r4 1, lrc 4, lsp 1, lw_v 1, lw_rel 4, lw_fwb 3, lwc 3, mfw_v 1, mfw 4, mf_on 1, mf_cnt 4, mf_o 1`; (S5b) `flt 1, pfs 1, pfb 1, pm_a 1, pm_on 1, pm_c 4, pm_dv 1, pm_w 4, mtf_v 1, mtf 3, mrh 1, mr_v 1, mro 2, pfc 4, tlr 1, tlwb 2` (`fmt` 125, `cc` 124) | (S4) `floor_n` (imm_count=start), `dfloor_at` (disp_floor), `unit_early`, `queue.gdisp_until`, `decoder.ea_end`, `start_clock + 1`, `fetch_start`; `eu.steps/k, resume, left, taken, op_len, sync, port_take's ("slot",) insertion, own, _mem_unit_hold's data-step scan, exec_t, hold_done, abort_t == start_clock, done_t, wb, wb_until, one_idle's wb + 1, latch_until, halted, refill, left_nw, k == 1 (latch_start, one_idle), rot4_from/long_from, the string element index, shift_latched, the held I/O's class`; (S5a) `op.target` / `op.zfail` at the start, the opcode's parity (xfer_odd), `odd_until` not yet set, `abort_t >= start_clock` and the aborted cycle's end (decide_abort), the loop's exit and `op.cond`, `str_floor`, `last_issued` and `cyc[-1].start` (str_split), `str_single`, `nw_t / nw_run` (str_io_setup), the take hold's `take_hold / hold_dlv / cvt_armed`, `t - start_clock` (cvt_from), `rot4_from`, `queue.lea_ea`, `lea_split`, `lea_fend` and its fetch's end, `mul_from` and the back-count; (S5b) `full_latch`, `page_fixed`, `page_mt` / `page_mt_d`, `mt_floor`, `imm_half` / `mr_sync`, the at-post back-count of page_mem=fixed (`pf_cnt`), the step list's tail of skipped crossing alternatives |
 | `v35_eu` | `fmt 121, op 8, pc 20, pfx 3, seg_o 3, ob 48, nob 3, exec_done 1, exec_pend 1, aim_ea 1, (S4) rd_lo 8, sp_done 1, pa_r 4, pb_r 4, rd 16, res 16, psw 16, ds1/ds0/ss/ps 4×16, cw 16, w2_v 1, w2_a 7, w2_be 2, w2_d 16, dv 1, ds 75 (divider), dvp 1, dv_d 16, dv_lo 16, miss 1`; (S5a) `rq0 / rq1 / rq2 3×16, nrd 4, tgt 16, nsp 3, ix 16, iy 16, dcw 1, dix 1, diy 1, srd_iy 1, srd_ovr 1, sdst 16, bi 8, bcy 1, bz 1, bres 8`; (S5b) `bfo 8, bfw 8` | the model's `regs` (registers, PSW, segments), `seg_prefix`, `templates.decode`'s operands, `v35_execute / v35_deliver / v35_wdata`'s context; (S5a) the transfers' `op.target` (the reads' words, the register), the string walk's IX / IY / CW, its compare's operands, ADD4S's carry and zero term; (S5b) `op.bf` (the bit field's offset and width registers at its exec) |
@@ -688,7 +681,259 @@ The counted-apart table and the scores: "Gate (S6)".
   flwb, the full-latch take's late evaluation); page_disp=hold (`pdisp_until`) likewise. The
   bus's `c_lea_start` stays a named zero input (lea_wb=fetch is the sequencer's `lw_*`).
 
+## Queue (Q1)
+
+The prefetch queue rebuilt as a simple machine (docs/v35s-queue-strategy.md). It knows nothing of
+forms, classes, rows or the EU's steps; its 24 ports are the bus unit's request line and fetch,
+the EU's reads, releases, staging byte, flush and suspend, the window.
+
+**The machine.** Six storage bytes (`q`), the stored count (`cnt`), the count read and not yet
+released (`unrel`), the prefetch pointer (`pfp`, an offset in PS: the fetch address is
+`{PS, 0} + pfp` with the 16-bit wrap; an odd target fetches its word and drops the low byte),
+`inflight`, `discard` (a flushed stream's word), `odd`: 25 bits beyond the bytes. The request
+line `fetch_req` is a level: `free >= 2` and not suspended, `free = CAP - cnt - unrel - stg -
+2·(a word in flight or the bus unit's aborted cycle)`, and the word must find a physical place
+(stored + latched + in flight ≤ 7); `q_low` (the bytes counted ≤ hold_q = 3) is the arbiter's
+hint. Ports: clock, reset_n, ce_a, ce_b; to the bus unit `fetch_req, fetch_addr, q_low`, from it
+`fetch_go, dlv_v, dlv_data, abort_go`; to the EU `vb0..vb3, avail`, from it `rd, rd_b, rel,
+stg, flush, flush_addr, susp, ps_base` (24; at 909e471: 164).
+
+**Variant B (the default; `V35_QUEUE_A` selects A).** A byte-wide write port shared with the EU
+and a one-byte latch (`lat`, `lat_byte`: 34 bits beyond the bytes), the port's owner fixed: the
+EU's (a clock that releases bytes) first, else the latched byte drains, else the delivered word's
+second byte. On a delivery clock that releases, the word's second byte waits in the latch,
+uncounted on that clock (word_latch=byte_d); a word issued on the staging byte's room leaves its
+seventh byte there until storage frees. CAP is 7: the IR is the seventh slot (room_ir). Variant
+A: a word write port, CAP 6, the staging byte not counted. B is the recommendation: 23,691
+RTL-exact against A's 7,858; A cannot produce the latch's uncounted delivery byte, which is the
+largest single shape on F0–F3 (401 of A's 640 misses there).
+
+**The two structural knobs** (the read / release split and the staging byte): the EU's read frees
+storage at once (`rd`), its release frees the room (`rel`: a take step's bytes when the step
+ends, take_commit=at_end; a ModR/M byte and the opcode when read, modrm_commit=byte; the P pass's
+releases a clock later, at the next sample of the line). The loader reports `stg`: the IR holds
+an opcode, or the running form has operand bytes outstanding off a word's delivery clock
+(room_ir=arrival_idle from the loader's side). latch_hold is not built: holding the line while a
+latched byte waits breaks the take sync's count on the line (the model counts a request
+latch_hold keeps off the bus; the line cannot carry "raised but held").
+
+**Where the fitted queue features went.**
+- The bus unit samples the line at a fetch's last clock (`b2b_now`, the bus unit's register: no
+  commitment while a memory request waits in the slot, request_reissue=no_mem) and runs the
+  3-clock aborted cycle when a committed fetch finds the line fallen (a suspend).
+- The arbiter decides a fetch from `fetch_req`, `q_low`, `b2b_now`, its last sample of the line
+  (`lup`: _fetch_first's "the line rose on the clock the slot's request became issuable") and one
+  bit per request record (`lup_p`: the line was up when the request was posted and has stood
+  since; the I/O lead holds a fetch requested after the post). No request dating: free_hold,
+  grp_io_hold, slot_fetch, grp_disp's read, page_cl=thru and wb_fetch read the line as it stands;
+  hold_fetch=le_q is `!q_low` (hold_count=ahead's operand bytes not subtracted).
+- The sequencer drives `susp`, the OR of its windows (the generated attributes already carry
+  them: no new ROM field, `test_ucgen` unchanged): str_hold / str_fetch (the rows' HOLD / REL /
+  REL_FOREVER arms), flush_hold=start and flush_from (the class's `hold`, FLUSH_FROM), xfer_odd /
+  xfer_nt (`xshort`, `dbnz_z`, `dbnz`, the opcode's parity, the bus unit's fetch at the start),
+  bf_imm_hold / cvt_hold (HOLD_TAKE / HOLD_TAKE_DLV, unless the line stood before the take),
+  count_latch (a register shift's count taken on a delivery clock with more than a word's room
+  short, to the shift's last clock), io_take=unit's drop (to the next data / I/O cycle's end or
+  the count loop's retry_at), nop_hold and io_ir_hold (to the next start or a flush).
+- The EU's pacing (EU rules reading the bus unit, not the queue): start_sync (no start while a
+  fetch is on the bus; ModR/M forms not on a back-to-back clock; io_b2b) and the take sync on the
+  line (owed = a fetch on the bus + the line up at the take, decremented by the bus unit's
+  delivery). `Q1_START_SYNC` / `Q1_TAKE_SYNC` (v35_ucode.sv) turn them off: build (1) below.
+- The loader owns the PC of the next byte (`pc`), the release count (`unc`, `relc`) and `stg`.
+- Not built: abort_fetch=retry / abort_latched / xfer_abort's triple-clock aborts (below),
+  str_raise, refill_start, the one-shot commitments (page_b2b, page_run, xfer_nt_b2b), latch_hold
+  and the situational latch rules (latch_midtake, latch_disp, latch_start, modrm_port,
+  arrive_partial), modrm_mate, the seventh slot's per-form refinements (far_room, xfer_mem_room,
+  lea_room, lea_slot, ea_ir_room, room_ir_pre, room_ir_imm, page_ir_room, imm_start=wait), the
+  request dating everywhere; the decode ahead reads four bytes (`vb0..vb3`; a fifth: a start a
+  clock later, W:dec).
+
+**The tables** (the whole refresh-off corpus, `+v35_chk`, the default spacing; `+v35_ticks=2`
+gives the same 23,691 RTL-exact run for run; chk silent, `--diag` silent, every run passing).
+"loss" = runs fit 62 had exact and the RTL has not; `*` over the brief's budget (10 % in F6 F12
+F16 F19–F21 F23 F25 F30 F32–F34 F39 F40, 2 % elsewhere).
+
+| Family | runs | fit 62 | B exact | B loss | A exact | A loss |
+| --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 0 (0.0%) | 9 | 9 (50.0%*) |
+| F0w | 20 | 20 | 20 | 0 (0.0%) | 10 | 10 (50.0%*) |
+| F1 | 54 | 54 | 54 | 0 (0.0%) | 27 | 27 (50.0%*) |
+| F2 | 120 | 120 | 120 | 0 (0.0%) | 31 | 89 (74.2%*) |
+| F3 | 840 | 840 | 783 | 57 (6.8%*) | 248 | 592 (70.5%*) |
+| F4 | 456 | 456 | 428 | 28 (6.1%*) | 192 | 264 (57.9%*) |
+| F5 | 840 | 840 | 740 | 100 (11.9%*) | 282 | 558 (66.4%*) |
+| F6 | 576 | 576 | 552 | 24 (4.2%) | 69 | 507 (88.0%*) |
+| F7 | 432 | 432 | 403 | 29 (6.7%*) | 143 | 289 (66.9%*) |
+| F9 | 408 | 408 | 340 | 68 (16.7%*) | 69 | 339 (83.1%*) |
+| F10 | 204 | 204 | 198 | 6 (2.9%*) | 41 | 163 (79.9%*) |
+| F11 | 132 | 132 | 66 | 66 (50.0%*) | 0 | 132 (100.0%*) |
+| F12 | 204 | 204 | 164 | 40 (19.6%*) | 39 | 165 (80.9%*) |
+| F14 | 732 | 732 | 608 | 124 (16.9%*) | 251 | 481 (65.7%*) |
+| F15 | 840 | 840 | 706 | 134 (16.0%*) | 291 | 549 (65.4%*) |
+| F16 | 1,014 | 1,014 | 762 | 252 (24.9%*) | 234 | 780 (76.9%*) |
+| F19 | 1,290 | 1,290 | 1,129 | 161 (12.5%*) | 310 | 980 (76.0%*) |
+| F20 | 3,594 | 3,594 | 3,160 | 434 (12.1%*) | 870 | 2,724 (75.8%*) |
+| F21 | 3,576 | 3,576 | 2,731 | 845 (23.6%*) | 956 | 2,620 (73.3%*) |
+| F22 | 1,320 | 1,314 | 1,072 | 242 (18.3%*) | 206 | 1,108 (83.9%*) |
+| F23 | 360 | 360 | 57 | 303 (84.2%*) | 24 | 336 (93.3%*) |
+| F24 | 912 | 902 | 902 | 0 (0.0%) | 420 | 482 (52.9%*) |
+| F25 | 588 | 577 | 521 | 63 (10.7%*) | 211 | 373 (63.4%*) |
+| F26 | 906 | 906 | 775 | 131 (14.5%*) | 274 | 632 (69.8%*) |
+| F29 | 456 | 427 | 304 | 123 (27.0%*) | 76 | 351 (77.0%*) |
+| F30 | 1,476 | 1,467 | 1,061 | 408 (27.6%*) | 465 | 1,003 (68.0%*) |
+| F31 | 234 | 234 | 192 | 42 (17.9%*) | 81 | 153 (65.4%*) |
+| F32 | 858 | 846 | 468 | 378 (44.1%*) | 134 | 713 (83.1%*) |
+| F33 | 1,050 | 1,026 | 921 | 105 (10.0%) | 358 | 671 (63.9%*) |
+| F34 | 1,596 | 1,547 | 998 | 549 (34.4%*) | 214 | 1,333 (83.5%*) |
+| F35 | 1,044 | 1,038 | 396 | 642 (61.5%*) | 113 | 925 (88.6%*) |
+| F36 | 750 | 750 | 726 | 24 (3.2%*) | 319 | 431 (57.5%*) |
+| F37 | 432 | 432 | 132 | 300 (69.4%*) | 30 | 402 (93.1%*) |
+| F38 | 864 | 864 | 801 | 63 (7.3%*) | 373 | 491 (56.8%*) |
+| F39 | 1,320 | 1,318 | 797 | 522 (39.5%*) | 328 | 991 (75.1%*) |
+| F40 | 1,020 | 1,003 | 586 | 417 (40.9%*) | 160 | 843 (82.6%*) |
+| all | 30,536 | 30,361 | 23,691 | 6,680 (21.9%) | 7,858 | 22,516 (73.7%) |
+
+Step by step (RTL-exact per family): `base` 909e471; `s2(1)` the step-2 queue and arbiter, no take
+sync, no start_sync; `s2(3)` the same with start_sync and the take sync on the line (step 2's
+three builds were all 0: step 3's windows and step 4's pop timing not yet in); `B0` B with the
+eager IR pop and the deferred pop (19,533); `B1` with the read / release split, the staging byte
+and latch_hold dropped (21,896); `B2` with the post's line sample (23,691, the final).
+
+| Family | runs | fit 62 | base exact | base loss | s2(1) exact | s2(1) loss | s2(3) exact | s2(3) loss | B0 exact | B0 loss | B1 exact | B1 loss | B2 exact | B2 loss |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 0 (0.0%) | 0 | 18 (100.0%*) | 0 | 18 (100.0%*) | 18 | 0 (0.0%) | 18 | 0 (0.0%) | 18 | 0 (0.0%) |
+| F0w | 20 | 20 | 20 | 0 (0.0%) | 0 | 20 (100.0%*) | 0 | 20 (100.0%*) | 20 | 0 (0.0%) | 20 | 0 (0.0%) | 20 | 0 (0.0%) |
+| F1 | 54 | 54 | 54 | 0 (0.0%) | 0 | 54 (100.0%*) | 0 | 54 (100.0%*) | 54 | 0 (0.0%) | 54 | 0 (0.0%) | 54 | 0 (0.0%) |
+| F2 | 120 | 120 | 120 | 0 (0.0%) | 0 | 120 (100.0%*) | 0 | 120 (100.0%*) | 98 | 22 (18.3%*) | 120 | 0 (0.0%) | 120 | 0 (0.0%) |
+| F3 | 840 | 840 | 840 | 0 (0.0%) | 0 | 840 (100.0%*) | 0 | 840 (100.0%*) | 654 | 186 (22.1%*) | 783 | 57 (6.8%*) | 783 | 57 (6.8%*) |
+| F4 | 456 | 456 | 456 | 0 (0.0%) | 0 | 456 (100.0%*) | 0 | 456 (100.0%*) | 329 | 127 (27.9%*) | 329 | 127 (27.9%*) | 428 | 28 (6.1%*) |
+| F5 | 840 | 840 | 840 | 0 (0.0%) | 0 | 840 (100.0%*) | 0 | 840 (100.0%*) | 537 | 303 (36.1%*) | 584 | 256 (30.5%*) | 740 | 100 (11.9%*) |
+| F6 | 576 | 576 | 576 | 0 (0.0%) | 0 | 576 (100.0%*) | 0 | 576 (100.0%*) | 197 | 379 (65.8%*) | 516 | 60 (10.4%*) | 552 | 24 (4.2%) |
+| F7 | 432 | 432 | 432 | 0 (0.0%) | 0 | 432 (100.0%*) | 0 | 432 (100.0%*) | 278 | 154 (35.6%*) | 280 | 152 (35.2%*) | 403 | 29 (6.7%*) |
+| F9 | 408 | 408 | 408 | 0 (0.0%) | 0 | 408 (100.0%*) | 0 | 408 (100.0%*) | 326 | 82 (20.1%*) | 340 | 68 (16.7%*) | 340 | 68 (16.7%*) |
+| F10 | 204 | 204 | 204 | 0 (0.0%) | 0 | 204 (100.0%*) | 0 | 204 (100.0%*) | 157 | 47 (23.0%*) | 156 | 48 (23.5%*) | 198 | 6 (2.9%*) |
+| F11 | 132 | 132 | 132 | 0 (0.0%) | 0 | 132 (100.0%*) | 0 | 132 (100.0%*) | 62 | 70 (53.0%*) | 66 | 66 (50.0%*) | 66 | 66 (50.0%*) |
+| F12 | 204 | 204 | 204 | 0 (0.0%) | 0 | 204 (100.0%*) | 0 | 204 (100.0%*) | 152 | 52 (25.5%*) | 164 | 40 (19.6%*) | 164 | 40 (19.6%*) |
+| F14 | 732 | 732 | 732 | 0 (0.0%) | 0 | 732 (100.0%*) | 0 | 732 (100.0%*) | 503 | 229 (31.3%*) | 524 | 208 (28.4%*) | 608 | 124 (16.9%*) |
+| F15 | 840 | 840 | 840 | 0 (0.0%) | 0 | 840 (100.0%*) | 0 | 840 (100.0%*) | 608 | 232 (27.6%*) | 640 | 200 (23.8%*) | 706 | 134 (16.0%*) |
+| F16 | 1,014 | 1,014 | 1,014 | 0 (0.0%) | 0 | 1,014 (100.0%*) | 0 | 1,014 (100.0%*) | 733 | 281 (27.7%*) | 756 | 258 (25.4%*) | 762 | 252 (24.9%*) |
+| F19 | 1,290 | 1,290 | 1,290 | 0 (0.0%) | 0 | 1,290 (100.0%*) | 0 | 1,290 (100.0%*) | 948 | 342 (26.5%*) | 1,015 | 275 (21.3%*) | 1,129 | 161 (12.5%*) |
+| F20 | 3,594 | 3,594 | 3,594 | 0 (0.0%) | 0 | 3,594 (100.0%*) | 0 | 3,594 (100.0%*) | 2,590 | 1,004 (27.9%*) | 2,940 | 654 (18.2%*) | 3,160 | 434 (12.1%*) |
+| F21 | 3,576 | 3,576 | 3,576 | 0 (0.0%) | 0 | 3,576 (100.0%*) | 0 | 3,576 (100.0%*) | 2,410 | 1,166 (32.6%*) | 2,599 | 977 (27.3%*) | 2,731 | 845 (23.6%*) |
+| F22 | 1,320 | 1,314 | 1,314 | 0 (0.0%) | 0 | 1,314 (99.5%*) | 0 | 1,314 (99.5%*) | 797 | 517 (39.2%*) | 1,064 | 250 (18.9%*) | 1,072 | 242 (18.3%*) |
+| F23 | 360 | 360 | 360 | 0 (0.0%) | 0 | 360 (100.0%*) | 0 | 360 (100.0%*) | 57 | 303 (84.2%*) | 57 | 303 (84.2%*) | 57 | 303 (84.2%*) |
+| F24 | 912 | 902 | 902 | 0 (0.0%) | 0 | 902 (98.9%*) | 0 | 902 (98.9%*) | 772 | 130 (14.3%*) | 822 | 80 (8.8%*) | 902 | 0 (0.0%) |
+| F25 | 588 | 577 | 577 | 0 (0.0%) | 0 | 577 (98.1%*) | 0 | 577 (98.1%*) | 461 | 123 (20.9%*) | 491 | 93 (15.8%*) | 521 | 63 (10.7%*) |
+| F26 | 906 | 906 | 906 | 0 (0.0%) | 0 | 906 (100.0%*) | 0 | 906 (100.0%*) | 585 | 321 (35.4%*) | 651 | 255 (28.1%*) | 775 | 131 (14.5%*) |
+| F29 | 456 | 427 | 427 | 0 (0.0%) | 0 | 427 (93.6%*) | 0 | 427 (93.6%*) | 198 | 229 (50.2%*) | 220 | 207 (45.4%*) | 304 | 123 (27.0%*) |
+| F30 | 1,476 | 1,467 | 1,467 | 0 (0.0%) | 0 | 1,467 (99.4%*) | 0 | 1,467 (99.4%*) | 974 | 494 (33.5%*) | 1,034 | 435 (29.5%*) | 1,061 | 408 (27.6%*) |
+| F31 | 234 | 234 | 234 | 0 (0.0%) | 0 | 234 (100.0%*) | 0 | 234 (100.0%*) | 174 | 60 (25.6%*) | 192 | 42 (17.9%*) | 192 | 42 (17.9%*) |
+| F32 | 858 | 846 | 846 | 0 (0.0%) | 0 | 846 (98.6%*) | 0 | 846 (98.6%*) | 414 | 433 (50.5%*) | 468 | 378 (44.1%*) | 468 | 378 (44.1%*) |
+| F33 | 1,050 | 1,026 | 1,026 | 0 (0.0%) | 0 | 1,026 (97.7%*) | 0 | 1,026 (97.7%*) | 772 | 254 (24.2%*) | 894 | 132 (12.6%*) | 921 | 105 (10.0%) |
+| F34 | 1,596 | 1,547 | 1,547 | 0 (0.0%) | 0 | 1,547 (96.9%*) | 0 | 1,547 (96.9%*) | 876 | 671 (42.0%*) | 998 | 549 (34.4%*) | 998 | 549 (34.4%*) |
+| F35 | 1,044 | 1,038 | 1,038 | 0 (0.0%) | 0 | 1,038 (99.4%*) | 0 | 1,038 (99.4%*) | 380 | 658 (63.0%*) | 393 | 645 (61.8%*) | 396 | 642 (61.5%*) |
+| F36 | 750 | 750 | 750 | 0 (0.0%) | 0 | 750 (100.0%*) | 0 | 750 (100.0%*) | 616 | 134 (17.9%*) | 672 | 78 (10.4%*) | 726 | 24 (3.2%*) |
+| F37 | 432 | 432 | 432 | 0 (0.0%) | 0 | 432 (100.0%*) | 0 | 432 (100.0%*) | 60 | 372 (86.1%*) | 132 | 300 (69.4%*) | 132 | 300 (69.4%*) |
+| F38 | 864 | 864 | 864 | 0 (0.0%) | 0 | 864 (100.0%*) | 0 | 864 (100.0%*) | 619 | 245 (28.4%*) | 705 | 159 (18.4%*) | 801 | 63 (7.3%*) |
+| F39 | 1,320 | 1,318 | 1,318 | 0 (0.0%) | 0 | 1,318 (99.8%*) | 0 | 1,318 (99.8%*) | 667 | 652 (49.4%*) | 655 | 664 (50.3%*) | 797 | 522 (39.5%*) |
+| F40 | 1,020 | 1,003 | 1,003 | 0 (0.0%) | 0 | 1,003 (98.3%*) | 0 | 1,003 (98.3%*) | 437 | 566 (55.5%*) | 544 | 459 (45.0%*) | 586 | 417 (40.9%*) |
+| all | 30,536 | 30,361 | 30,361 | 0 (0.0%) | 0 | 30,361 (99.4%) | 0 | 30,361 (99.4%) | 19,533 | 10,838 (35.5%) | 21,896 | 8,475 (27.8%) | 23,691 | 6,680 (21.9%) |
+
+**The classification** of B's 6,680 misses by their first divergent clock (evtrace, X S T L P I
+A compared, the model's room and the line not): (a) an EU event first (a start, take, IR load,
+post, issue) or a fetch the sequencer's suspend held: EU / microcode pacing; (b) a fetch issued
+or held differently with the same request line: the bus unit's or the arbiter's sampling; (c) the
+model's triple-clock aborted cycle, and the fetches where the line itself differs (the queue's
+count against the model's room): listed run by run in the hand-back's q1-c-list.txt.
+
+| Family | misses | (a) | (b) | (c) | example (a) | example (b) | example (c) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| F3 | 57 | 12 | 15 | 30 | F3-push-mov_cl_imm-k4-pO-w0 | F3-push-pfx_mov_aw_dw-k2-pO-w0 | F3-push-shl1-k2-pE-w0 |
+| F4 | 28 | 6 | 0 | 22 | F4-push-ld_dir-k2-pE-w0 |  | F4-push-ld_bw_ix_d16-k1-pE-w0 |
+| F5 | 100 | 23 | 0 | 77 | F5-push-cmp_m_imm-k1-pO-w0 |  | F5-push-add_aw_m-k2-pE-w0 |
+| F6 | 24 | 0 | 0 | 24 |  |  | F6-push-ld_bw-n2d4-pE-w0 |
+| F7 | 29 | 2 | 0 | 27 | F7-out-mov_aw_dw-mov_aw_dw-pE-w1 |  | F7-push-ld_bw-ld_bw-pE-w0 |
+| F9 | 68 | 0 | 29 | 39 |  | F9-none-movr_nop1-pO-w0 | F9-none-movr_nop0-pE-w0 |
+| F10 | 6 | 4 | 0 | 2 | F10-push-adddwi-outdw-pE-w1 |  | F10-push-adddwi-outdw-pE-w0 |
+| F11 | 66 | 0 | 8 | 58 |  | F11-none-n2-movr-pE-w1 | F11-none-n0-movr-pE-w0 |
+| F12 | 40 | 6 | 10 | 24 | F12-b-push-n0-addi-pE-w1 | F12-a-out-n3-movr-pO-w1 | F12-a-out-n2-shl1-pO-w0 |
+| F14 | 124 | 25 | 0 | 99 | F14-t-push-test_bw_imm-pO-w0 |  | F14-t-push-add_bw_aw-k2-pE-w0 |
+| F15 | 134 | 24 | 0 | 110 | F15-a-push-test_bw_imm-pO-w0 |  | F15-p-push-push_bw-k2-pE-w0 |
+| F16 | 252 | 30 | 20 | 202 | F16-r-push-test_imm-x_x-pO-w0 | F16-s-none-n2-shlcl1-pE-w1 | F16-r-push-rol-x_x-pE-w0 |
+| F19 | 161 | 83 | 0 | 78 | F19-i-push-l0-cmpimm-pO-w0 |  | F19-i-push-l0-stimmd8-k2-pE-w0 |
+| F20 | 434 | 12 | 112 | 310 | F20-r-push-l0-adddwi-outdw-pE-w1 | F20-r-push-l0-pfxnop-movr-pO-w1 | F20-r-push-l0-nop-ld-pO-w0 |
+| F21 | 845 | 213 | 0 | 632 | F21-push-n1-ld-bw_d16-pO-w0 |  | F21-push-l0-ld-bw_ix_d16-pE-w0 |
+| F22 | 242 | 166 | 0 | 76 | F22-push-l0-cmp_d16-pO-w0 |  | F22-push-l0-add_d16-pE-w0 |
+| F23 | 303 | 264 | 9 | 30 | F23-push-be-n0-pE-w0 | F23-out-bne-n0-k1-pE-w0 | F23-push-br-n0-pO-w0 |
+| F25 | 63 | 10 | 31 | 22 | F25-out-ldea-dir-pE-w1 | F25-push-ldea-bw_ix-pO-w0 | F25-push-ldea-bw_ix_d16-pE-w0 |
+| F26 | 131 | 69 | 4 | 58 | F26-push-lks-testdir-n1-k1-pO-w0 | F26-push-pi-oo-movr-n3-pE-w1 | F26-push-fib-bixd16-n0-k1-pE-w0 |
+| F29 | 123 | 20 | 73 | 30 | F29-out-ec-dio-stbwd16-n2-pO-w0 | F29-out-ec-dio-dw-stbwd8-n0-pO-w0 | F29-push-ec-pi-oo-adddwi-n0-pO-w0 |
+| F30 | 408 | 183 | 48 | 177 | F30-out-str-inm-w-n0-sep-pE-w0 | F30-out-nt-bne-k1-n0-pE-w0 | F30-out-str-inm-w-n0-d4-pE-w0 |
+| F31 | 42 | 0 | 0 | 42 |  |  | F31-out-alf-stm-n1-ld-pE-w0 |
+| F32 | 378 | 164 | 58 | 156 | F32-out-test1_mb_cl-k1-pE-w0 | F32-out-test1_rb_imm-k2-pE-w0 | F32-out-test1_mb_imm-k1-pE-w0 |
+| F33 | 105 | 2 | 15 | 88 | F33-push-mul_aw_cw_imm16-k1-pE-w1 | F33-out-inc_al-k2-pO-w0 | F33-out-adj4a-k1-pE-w0 |
+| F34 | 549 | 307 | 94 | 148 | F34-out-bf-ext_bl_i7-l0-k1-fld-pE-w0 | F34-out-rbit-set1_rb_cl-nop2-k1-pO-w0 | F34-out-bf-ext_bl_dh-l0-k1-fld-pE-w0 |
+| F35 | 642 | 444 | 72 | 126 | F35-out-cc-bv-t-n0-pO-w0 | F35-out-cc-bv-nt-n0-pE-w0 | F35-out-ctl-adddw-pE-w0 |
+| F36 | 24 | 6 | 3 | 15 | F36-out-alu-cmpb_m_imm8_80-pO-w0 | F36-push-test-test_dl_al-pO-w0 | F36-out-shift-shlb_m_cl-pE-w0 |
+| F37 | 300 | 96 | 120 | 84 | F37-out-indm-callbw-n0-pO-w0 | F37-out-indm-callm-n0-pE-w0 | F37-out-indm-callbw-n0-pE-w0 |
+| F38 | 63 | 3 | 0 | 60 | F38-out-grp-cmpb_m_imm8_80-pO-w0 |  | F38-out-grp-addb_m_imm8_80-pE-w0 |
+| F39 | 522 | 318 | 112 | 92 | F39-out-xfer-be-nop-pE-w0 | F39-out-xfer-bne-nop-pE-w0 | F39-out-ctl-extdl-bf-pE-w0 |
+| F40 | 417 | 233 | 51 | 133 | F40-out-ctl-set1bix-pE-w0 | F40-out-reg-testdl-k2-pO-w0 | F40-out-ctl-dbnze-pE-w0 |
+| all | 6680 | 2725 | 884 | 3071 | | | |
+
+The shapes, largest first (one example each): 1,527 the model's aborted cycle on a triple clock,
+RTL fetches (F3-push-shl1-k2-pE-w0, (c)); 793 RTL fetches late, the line down
+(F5-push-st_imm_bw_d16-k1-pE-w0); 713 RTL fetches early, the line up
+(F3-push-add_dw_imm-k1-pE-w0: a P-pass pop the model's on_change flag does not evaluate); 584
+RTL late with the same line (F3-push-pfx_mov_aw_dw-k2-pO-w0, (b)); 547 OUT starts early
+(F3-out-mov_aw_dw-k2-pE-w1, (a)); 375 RET starts early (F23-push-callret-pE-w0, (a)); 325 PUSH
+starts early (F3-push-add_dw_imm-k1-pE-w1, (a)); 300 RTL early with the same line
+(F9-none-movr_nop1-pO-w0, (b)); 219 a write posted where the model posts nowrite
+(F5-push-cmp_m_imm-k1-pO-w0, (a)); 190 a read issued where the model fetches
+(F5-out-add_m_imm_d16-k1-pE-w0, (a)).
+
+**The recorded (c) gap: the triple-clock aborts** (1,527 runs whose first divergence is the
+model's aborted cycle, 18 of them F3's, and 38 more with the same line). The model answers a
+fetch request that sees exactly a word of room on a clock where the EU starts, takes an operand
+byte and loads the IR (abort_fetch=retry) with a 3-clock aborted cycle. In the simple machine
+the request line is a level of the counts after the clock's reads and releases; reads and
+releases only ever add room, so on such a clock the line can only rise, and "the line fell after
+the bus unit committed" (the bus unit's aborted cycle here) never happens there: a level line
+cannot produce this abort. The one experiment (the abort test reading the room before the
+clock's reads) aborted nearly every fetch (F0–F3: 0 / 1,032) and is not kept.
+
+**Port and state counts** (the queue and the arbiter, before → after): the queue 168 → 24 (the declared names; the strategy counted 164), its state 71 registers → 25 bits beyond the six bytes (34 in B); the arbiter 108 → 90 ports (the request dating inputs, the room views and the abort's inputs gone; `mem_wait_o` added), its per-record order flags (`rq_le`, `rq_lt`) and `tkq`, `tkr`, `rq_aio`, `io_seen` gone, `lup` and a record's `lup_p` added; the sequencer 268 → 192 ports (its 76 hold and sync strobes to the queue now its own suspend windows, `susp` out).
+
+**Area** (efx_map, T120F484, LUT4 / FF; synth/v35_map.sh one at a time): 
+
+| Module | 909e471 LUT4 / ADD / FF | Q1 LUT4 / ADD / FF |
+| --- | --- | --- |
+| `v35_queue` | 1,108 / 277 / 315 | B 542 / 52 / 106; A 407 / 40 / 97 |
+| `v35_arbiter` | 1,810 / 150 / 705 | 1,767 / 139 / 687 |
+| `v35_ucode` (RAM_5K 28) | 10,797 / 739 / 1,234 | 10,916 / 809 / 1,281 |
+
+The sequencer grew: the suspend windows (the old queue's hold registers, now its own) and the
+take sync on the line; its dead strobes (the one-shot commitments, the seventh slot's per-form
+refinements, the retries) are constant-pruned.
+
+**Gates.** Builds (`build_sim.sh direct v35`, `build_core2_tb.sh`, `build_rf_tb.sh`, their output
+directories removed first) clean; `verilator --lint-only -Wall` clean in the four macro
+configurations for B (the default) and for A (`-DV35_QUEUE_A`); `test_v35_struct`, `test_ucgen`,
+`test_chain_lane`, `test_sst_rtl` 30 tests OK; the nine offline modules 941 tests, the four known
+failures (test_sim TrackedFit ×3, test_freeze). Function, unmoved: `replay --score --data` on
+B's replays 106,824 / 106,824 writes agreeing, 0 runs differing; `sst.py --rtl --all` 2,849,080
+pass / 0 fail; `rtl_vectors --regfile` over the 35 lists F0 .. F33 69,099 vectors 0 bad, over
+F34–F40 38,760 vectors 0 bad; `rtl_vectors --fn` over the 36 refresh-off families 22,455
+vectors 0 bad. Timing: `+v35_chk` silent at both spacings, `--diag` silent, every run passing.
+
+`+v35_qdbg=FILE` (simulation only) writes the queue's counts each clock. The trace's `R:` is now
+the free bytes (approximate: the room without the staging byte and the latch) and the line, and
+` U` marks a clock the sequencer suspends; `evtrace --keys X S T L P I A` compares without them.
+
 ## Divergences (behaviour not expressed in the structure)
+
+(Q1) The queue's divergences from the fit (the features it no longer carries and where they
+went, the triple-clock aborts it cannot produce) are listed in "Queue (Q1)" above.
 
 1. **The decode a clock ahead.** The ROM window and the register ports are addressed at the
    clock before a start from the loader's decode of the next form; a start whose decode was not

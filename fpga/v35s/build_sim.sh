@@ -61,6 +61,8 @@ if [[ "$model" == v35 ]]; then
     model_present=1
     suffix="-v35"
     extra_options+=(-DV35S_CORE_V35 -O3 -I"$core_dir" -I"$v35_dir")
+    # (Q1) V35_SIM_DEFINES: more macros for the v35 core (e.g. -DV35_QUEUE_A: the queue's variant A)
+    extra_options+=(${V35_SIM_DEFINES:-})
 elif [[ "$model" == model ]]; then
     model_sources=("$ucore_dir/v30u_ss_pkg.sv" "$ucore_dir/v30u_ucrom.sv"
                    "$ucore_dir/v30u_biu.sv" "$ucore_dir/v30u_eu.sv"

@@ -221,6 +221,7 @@ int main(int argc, char** argv) {
             is.close();
         }
         r->v35_core2_tb__DOT__dut__DOT__tb_reset_addr = ((ps0 << 4) + ip0) & 0xFFFFF;
+        r->v35_core2_tb__DOT__dut__DOT__tb_reset_ip = ip0 & 0xFFFF;   // (Q1) the queue's pfp
         d.reset_n = 0;
         d.data_in = 0xFFFF;
         for (int i = 0; i < 2; ++i) {

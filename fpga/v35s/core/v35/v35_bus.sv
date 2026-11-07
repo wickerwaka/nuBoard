@@ -55,6 +55,14 @@
 //   (S5a) w_v 1, w_ncyc 2, w_rel 5           the last memory write among bus.cycles[-3:]
 //                                            (str_single_start=write): set, the cycles started
 //                                            after it (sat 3), its last clock - t (signed, sat)
+//   (Q1) b2b 1                               the request line sampled high at a fetch's last
+//                                            clock: the next fetch back to back (b2b_at)
+//
+// (Q1) The bus unit samples the queue's request line (a level) at its decision points: at a
+// fetch's last clock it commits to the next fetch back to back when the line is high
+// (`b2b_now` on the clock after); on a free clock the arbiter reads the line itself. A fetch
+// committed back to back whose line has fallen by its issue clock (a suspend) runs as the
+// 3-clock aborted cycle (the arbiter's abort_go).
 module v35_bus
     import v35_front_pkg::*;
 (
@@ -98,6 +106,10 @@ module v35_bus
     // form's last operand byte, wlatch_imm=reg_last; the left-out write's slot, S4)
     input  wire        wl_fill_t,
     input  wire        wl_fill_p,       // (the second pass's: the next state only)
+    input  wire        fetch_req,       // (Q1) the queue's request line (tick A)
+    input  wire        b2b_hold,        // (Q1) the arbiter's slot holds a waiting memory request:
+                                        //   its cycle is next, no fetch back to back
+    output wire        b2b_now,         // (Q1) the line was high at the last clock, a fetch's last
 
     // S0
     output wire        busy,            // a cycle started on an earlier clock runs on t
@@ -197,6 +209,8 @@ module v35_bus
     reg         w_v = 1'b0;
     reg  [1:0]  w_ncyc = 2'd0;
     reg  signed [4:0] w_rel = 5'sd0;
+    reg         b2b = 1'b0;
+    assign b2b_now = b2b;
     assign w3_v = w_v && w_ncyc <= 2'd2;
     assign w3_rel = w_rel;
 
@@ -261,7 +275,8 @@ module v35_bus
     // the clock (the cycle's start, the pins at ce_a) reads these, never tick A's logic
     reg         g_start_b = 1'b0, g_ext_b = 1'b0, g_b2b_b = 1'b0, g_thru_b = 1'b0;
     reg         g_after_post_b = 1'b0, g_abort_b = 1'b0, disp_take_b = 1'b0, flush_now_b = 1'b0;
-    reg         g_sfr_b = 1'b0, fill_x_b = 1'b0, take_t_b = 1'b0;
+    reg         g_sfr_b = 1'b0, fill_x_b = 1'b0, take_t_b = 1'b0, fetch_req_b = 1'b0;
+    reg         b2b_hold_b = 1'b0;
     reg  [2:0]  g_kind_b = K_NONE, grant_len_b = 3'd0;
     reg  [19:0] g_addr_b = 20'd0;
     reg  [1:0]  g_width_b = BW_WORD, g_dsel_b = 2'd0;
@@ -281,6 +296,8 @@ module v35_bus
             g_sfr_b <= g_sfr;
             fill_x_b <= fill_x;
             take_t_b <= take_t;
+            fetch_req_b <= fetch_req;
+            b2b_hold_b <= b2b_hold;
             g_kind_b <= g_kind;
             grant_len_b <= grant_len;
             g_addr_b <= g_addr;
@@ -335,7 +352,11 @@ module v35_bus
             w_v <= 1'b0;
             w_ncyc <= 2'd0;
             w_rel <= 5'sd0;
+            b2b <= 1'b0;
         end else if (ce_a) begin
+            // (Q1) the request line sampled at a fetch's last clock
+            b2b <= busy && c_kind == K_FETCH && pos_now == c_len - 3'd1 && fetch_req_b
+                   && !b2b_hold_b;
             wl <= wl_e;
             f_since <= fetch_x ? 4'd0 : fetch_since;
             // (S5a) the last memory write (its last clock relative to the next clock)
@@ -619,6 +640,18 @@ module v35_bus
                 if (chk_n <= 20)
                     $display("v35 chk: bus.take_t changed in tick B: %h -> %h at %0t",
                              take_t_b, take_t, $time);
+            end
+            if (fetch_req_b !== fetch_req) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.fetch_req changed in tick B: %h -> %h at %0t",
+                             fetch_req_b, fetch_req, $time);
+            end
+            if (b2b_hold_b !== b2b_hold) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: bus.b2b_hold changed in tick B: %h -> %h at %0t",
+                             b2b_hold_b, b2b_hold, $time);
             end
             if (g_kind_b !== g_kind) begin
                 chk_n = chk_n + 1;

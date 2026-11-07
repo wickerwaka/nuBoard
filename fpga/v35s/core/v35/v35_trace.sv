@@ -4,14 +4,15 @@
 // "Verification", and Appendix A §5). With +v35_trace=FILE, one line per CPU clock:
 //
 //   <t> [X:<kind>:<addr>:<width>:<len>] [S:<class>:<pc>] [T:<n>] [L:<n>] [P:<kind>] [I] [B]
-//       [A] R:<room>:<flag> W:<reason>
+//       [A] [U] R:<room>:<flag> W:<reason>
 //
 // X a cycle start (normalize.Event's kinds, the address in hex, word/lo/hi, the length in
 // clocks; an on-chip SFR store is listed too, as the model's bus.cycles list it), S an
 // instruction start (the class and the opcode's address), T the operand bytes the EU took,
 // L the IR loads, P a request posted, I the EU's request issued, B the bus unit committed to
-// a back-to-back fetch at this clock's end, A an aborted fetch cycle, R the request rule's
-// room and the request flag at the clock's end, W the EU's wait reason (RTL only).
+// a back-to-back fetch at this clock's end, A an aborted fetch cycle, (Q1) U the sequencer's suspend, R
+// the free bytes (approximate: without the staging byte and the latch) and the request line,
+// W the EU's wait reason (RTL only).
 // validation/v35s/chains/evtrace.py writes the model's side in the same format and diffs the
 // two from t_fill. `t` counts CPU clocks from the core's reset exit; each reset exit starts a
 // run with a "# reset" line.
@@ -42,6 +43,7 @@ module v35_trace
     input  wire        abort,
     input  wire signed [4:0] room,
     input  wire        flag,
+    input  wire        susp,            // (Q1) the sequencer's suspend (U)
     input  wire [4:0]  why,
     input  wire [3:0]  hold,            // (S4) the arbiter's fetch hold (W:<reason>/<hold>)
     input  wire        dec_miss,        // the start waited for its decode (W: dec)
@@ -233,6 +235,8 @@ module v35_trace
                     line = {line, " B"};
                 if (abort)
                     line = {line, " A"};
+                if (susp)
+                    line = {line, " U"};
                 line = {line, $sformatf(" R:%0d:%0d W:%s", room, flag,
                                         wlost ? "lost" : dec_miss ? "dec"
                                                                  : why_name(why)),
@@ -247,6 +251,6 @@ module v35_trace
 `else
     wire unused = &{1'b0, clock, reset_n, ce_a, g_start, g_kind, g_addr, g_width, g_len, start_t,
                     start_p, scls_t, scls_p, pc_t, pc_p, takes, loads, post, post_kind, issue,
-                    b2b, abort, room, flag, why, hold, dec_miss, wlost};
+                    b2b, abort, room, flag, susp, why, hold, dec_miss, wlost};
 `endif
 endmodule

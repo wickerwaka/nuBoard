@@ -153,41 +153,27 @@ module v35_ucode
     input  wire [7:0]  vb0, vb1, vb2, vb3,
     input  wire [3:0]  avail_c,
     input  wire        l_pop,
-    input  wire        arrived_now,
-    input  wire        lat_c,
-    input  wire        lat_x,
-    input  wire        inflight_c,
-    input  wire        inflight_x,
-    input  wire        completed_now,
-    input  wire signed [4:0] room_c,
-    input  wire signed [4:0] room_p0,
-    input  wire [3:0]  stored_c,
-    input  wire [3:0]  stored_l,
-    input  wire        rq_old_c,
-    input  wire        rq_old_p,
-    input  wire        b2b_now,
-    input  wire        asked_d,
-    input  wire        asked_t,
-    input  wire        asked_p,
-    input  wire        retry,
-    input  wire        retry_loop,
-    input  wire        latch_start_now,
-    input  wire        shift_latch,     // count_latch: the count byte's take latched (queue)
-    input  wire signed [4:0] room_e,    // the room at the clock's end (one_idle)
-    input  wire signed [4:0] room_c0,   // room_c with the IR counted empty (imm_start)
+    input  wire        arrived_now,     // (Q1) a fetch's word delivered now (the bus unit's)
+    input  wire        inflight_c,      // (Q1) a fetch or an aborted cycle on the bus (S0)
+    input  wire        inflight_x,      // ... or issued now (after S4)
+    input  wire [3:0]  stored_c,        // (Q1) the queue's bytes (after S1)
+    input  wire [3:0]  stored_l,        // ... after T's takes and the IR load
+    input  wire        fetch_req,       // (Q1) the queue's request line (tick A)
+    input  wire        b2b_now,         // (Q1) the bus unit's back-to-back commitment
     input  wire        fetch_end_prev,  // last_fetch_end == t-1 (imm_start)
-    input  wire        want_c,          // (S5a) wants_fetch(t) before T (refill_start)
     input  wire        head_odd,        // (S5a) the queue's head byte is at an odd address
+    input  wire [2:0]  need_l,          // (Q1) the loader's operand bytes still to take after T
+    input  wire        p_ir,            // (Q1) the loader's IR load in the P pass
+    input  wire        cpu_end,         // (Q1) a data or I/O cycle ended on t-1 (the bus unit's)
+    input  wire        mem_wait,        // (Q1) the arbiter's slot holds a waiting memory request
+    output wire        susp,            // (Q1) suspend prefetch: the queue's request line held low
     input  wire        own_two,         // (S5a) the own request is an odd word's pair ...
     input  wire        own_h2,          //   ... whose second half issued now (str_split)
     input  wire        w3_v,            // (S5a) the bus's last memory write (str_single_start)
     input  wire signed [4:0] w3_rel,
     input  wire        fetch_last_c,    // (S5a) a fetch's last clock is t
-    input  wire        dec_inf,         // (S5a) the decide row's fetch (queue)
-    input  wire [3:0]  dec_since,
     input  wire        abort_done,      // (S5a) the aborted cycle ended on t-1 (decide_abort)
     input  wire [2:0]  fetch_len,       // (S5a) bus.length("fetch") (refill_start=full_io)
-    input  wire        io_unit_drop,    // io_take=unit: the request dropped on the I/O's issue
     // the decode ahead (S6): the next clock's IR (or head byte) and its format
     input  wire        nf_v,
     input  v35_fmt_t   nf_fmt,
@@ -222,7 +208,6 @@ module v35_ucode
     input  wire        own_done_p,      // the own I/O write issued now (done_at == t, P)
     input  wire        g_fetch,
     input  wire        g_abort,
-    input  wire        g_abort_lat,     // abort_latched: the aborted cycle the latched byte's
     input  wire        retick,
     input  wire        g_io,
     // the datapath
@@ -247,21 +232,11 @@ module v35_ucode
     output wire        irh_pg_p,
     output wire [3:0]  mt_sub_t,        // page_mtake=eu: the ready countdown less (T, P)
     output wire [3:0]  mt_sub_p,
-    output wire        fl_c,            // page_ir_room=end: the full-latch bit op runs (before
-    output wire        fl_t,            //   T, after T, after S5)
-    output wire        fl_p,
-    output wire        fl_end_t,        // ... its steps ended now: the request evaluated (T at the
-    output wire        fl_end_t2,       //   clock's start, T after a row, P)
-    output wire        fl_end_p,
     output wire        pfs_x,           // page_mem=fixed: a 0F memory form's read not yet posted
     output wire        pfs_e,           //   (after T, after S5)
     output wire        pimm_x,          // page_imm_run: ... with an immediate bit index (after T)
-    output wire        pcl_x,           // page_cl=thru: a CL-index 0F memory form with a d16
                                         //   (_page_take_ask's form; after T)
-    output wire [2:0]  pcl_fs,          // ... its class's fsetup
-    output wire        pgb2b_e,         // page_b2b=reg: the last form started is a 0F register
                                         //   form (eu.page_reg), after S5
-    output wire        res0_e,          // eu.resume <= t at the clock's end
     output wire        bcd_idle,        // bcd_fetch=hold: a BCD string started on an idle bus
                                         //   posted its first read now
 
@@ -271,58 +246,14 @@ module v35_ucode
     output wire        povr_t,
     output wire        povr_p,
     // (S5a) the transfers' holds (the queue's)
-    output wire [2:0]  xk_c,
-    output wire [2:0]  xk_t,
-    output wire [2:0]  xk_p,
     output wire        mf_old,          // (S5a) mul_imm_count=sync: the fetch on the bus is older
-    output wire        th_arm_t,        // (S5a) the take hold armed (T, P) ...
-    output wire        th_arm_p,
-    output wire        th_cvt,          //   ... cvt_hold's
-    output wire        th_lift_t,       //   ... lifted or cancelled (T, P)
-    output wire        th_lift_p,
-    output wire        lea_xk_c,
-    output wire        lea_xk_t,
-    output wire        lea_xk_p,
-    output wire        xs_start,
-    output wire        fh_set,
-    output wire [4:0]  fh_n,
-    output wire        ox_set,
-    output wire        nt_set,
-    output wire        nt_dbnz,
-    output wire        ou_set,
-    output wire [2:0]  ou_n,
     output wire        xs_done,
-    output wire        ff_set,
-    output wire [2:0]  ff_n,
-    output wire        ff_t,
-    output wire        ff_t0,
-    output wire        ntb_ok,
-    output wire        xfer_x,
     // S2 outputs
     output wire        t_start,
     output wire [1:0]  t_k,
     output wire        t_done,
     output wire        t_flush,
     output wire        t_halt,
-    output wire        t_sth,           // (S5a) str_held set (arms HOLD, REL, REL_FOREVER): T ...
-    output wire        t_sth_inf,       //   ... for ever (fetch_release None)
-    output wire [5:0]  t_sth_n,         //   ... no request for n clocks from now
-    output wire        p_sth,           //   ... by the P pass (from the next clock)
-    output wire        p_sth_inf,
-    output wire [5:0]  p_sth_n,
-    output wire        rs_set,          // (S5a) str_raise = t + rs_n (REL_RAISE)
-    output wire [3:0]  rs_n,
-    output wire        ask_d,
-    output wire        ask_t,
-    output wire        cnt_take,        // count_latch: a shift's count byte take ends now
-    output wire        rt_set,
-    output wire signed [9:0] rt_n,
-    output wire        sh_set,          // count_latch: the shift's last clock is t + sh_n
-    output wire [9:0]  sh_n,
-    output wire        imm16_c,
-    output wire        imm16_t,
-    output wire        nop_cand,
-    output wire        abort_loop,
     output wire        halting,
     output wire        halted_o,
     output wire        wb_hold,
@@ -337,10 +268,8 @@ module v35_ucode
     output wire [3:0]  floor_nb,
     output wire        sreg_hold_set,   // sreg_io=hold: a MOV sreg,r/m decoded behind the OUT
     output wire        gdisp_act,       // grp_disp=hold: t < gdisp_until
-    output wire        ea_act_c,        // ea_ir_room / ea_b2b: t < ea_end (before T)
     output wire        ea_act_x,        // ... after T
     output wire        disp_t,          // a displacement's (last byte's) take: T (latch_disp)
-    output wire        disp_p,          // ... P
     output wire        disp_ext,        // ... by a memory form with a displacement (disp_io)
     output wire        irh_set_t,       // ir_load=disp_data: a displaced memory form started (T)
     output wire        irh_set_p,       // ... (P)
@@ -348,7 +277,6 @@ module v35_ucode
     output wire        irh_clr_p,
     output wire        take_now,        // an operand take on this clock (T: take_t == t)
     output wire [2:0]  sidle_o,         // the running class's sidle (slot_idle=eu)
-    output wire        unit_md,         // a memory multiply / divide runs (io_take=unit)
     output wire        lx_hold,         // long_exec: the loader's ready countdown holds a clock
     output wire        idle_adj,        // one_idle: the loader's ready countdown a clock less
     // the posts (S2, S5): the request descriptor (v35_eu builds the address and datum)
@@ -371,10 +299,6 @@ module v35_ucode
     output wire        p_k,
     output wire        p_done,
     output wire        p_io_nx,
-    output wire        ask_p,
-    output wire        io_drop,         // io_take=unit (the P take)
-    output wire        io_drop_loop,
-    output wire        imm16_p,
     output wire        wl_fill_t,
     output wire        wl_fill_p,
     output wire        start_any,
@@ -389,6 +313,115 @@ module v35_ucode
     output wire        p_flush,         // (S5a) a FLUSH row reached in the P pass (not acted on)
     output wire        voc_miss         // (S7) a row outside its pass slot's vocabulary (not acted on)
 );
+    // ------------------------------------------------------------ (Q1) the simple queue
+    // The queue is a simple machine (docs/v35s-queue-strategy.md): it tells the EU its bytes
+    // (avail, the window) and nothing of its room, its latch, its request's age or the
+    // fetches it was asked for. The fitted rules that read those are not built here:
+    //   Q1_TAKE_SYNC   take_sync=pending, imm_landed, port_landed, page_imm_sync's mr_sync
+    //                  (the EU stalls on the bytes it takes, the loader on `avail`)
+    //   Q1_START_SYNC  start_sync=b2b_modrm (no start while a fetch is in flight, nor a ModR/M
+    //                  form on a back-to-back fetch's clock) and io_b2b=all
+    //   Q1_REFILL      refill_start=full_io (a flush's refill before the next start)
+    // and these read constants: the latch (word_latch=byte_d: latch_start, count_latch, the
+    // latched-byte cases of io_take=unit, port_landed, imm_landed), the retries (abort_fetch=
+    // retry, abort_unit=loop, abort_latched), the room (the take sync's lapse, imm_start=wait).
+    // one_idle reads the request line at the clock's end for the room; io_older=io_modrm the
+    // line standing since the last clock (rq_old); the decide row the fetch on the bus.
+    localparam bit Q1_TAKE_SYNC = 1'b1;
+    localparam bit Q1_START_SYNC = 1'b1;
+    localparam bit Q1_REFILL = 1'b0;
+    // (Q1) variant B: a word delivered on this clock leaves its second byte in the queue's latch
+    // when the clock pops (the EU's rules that read "the delivered word's second byte latched":
+    // io_take=unit's drop, port_landed, imm_landed); variant A has no latch
+`ifndef V35_QUEUE_A
+    wire        lat_c = arrived_now, lat_x = arrived_now;
+`else
+    wire        lat_c = 1'b0, lat_x = 1'b0;
+`endif
+    // (Q1_TAKE_SYNC) the take sync on the bus unit's and the request line's facts: owed the
+    // fetch on the bus and the one the line asks for at the take; the room the free bytes
+    wire        completed_now = Q1_TAKE_SYNC && (arrived_now || abort_done);
+    wire signed [4:0] room_c = 5'sd6 - 5'(stored_c) - (inflight_c ? 5'sd2 : 5'sd0);
+    wire signed [4:0] room_p0 = 5'sd6 - 5'(stored_l) - (inflight_x ? 5'sd2 : 5'sd0);
+    wire signed [4:0] room_c0 = 5'sd0;
+    wire        asked_d = 1'b0;
+    wire        asked_t = Q1_TAKE_SYNC && fetch_req_b, asked_p = Q1_TAKE_SYNC && fetch_req_b;
+    wire        retry = dr_v, retry_loop = dr_loop, latch_start_now = 1'b0;   // (the drop window)
+    // count_latch, from the EU's side: a register shift's count byte taken on a word's delivery
+    // clock (its take step's end pops the port: the word's second byte waits) with the queue
+    // holding more than a word's room short after the clock's pops
+    wire        shift_latch = cnt_take && arrived_now
+                              && stored_l + (inflight_c ? 4'd2 : 4'd0) > 4'(QUEUE_BYTES - 2);
+    wire        want_c = 1'b0, io_unit_drop = 1'b0, g_abort_lat = 1'b0;
+    wire        dec_inf = fetch_inflight;
+    wire [3:0]  dec_since = fetch_since;
+    reg         rqo = 1'b0;             // the request line was up at the last clock, no fetch
+    wire        rq_old_c = rqo;
+    wire        rq_old_p = rqo && !g_fetch && !g_abort;
+
+    // (Q1) the old queue's strobes, now the sequencer's own (step 3: the suspend)
+    wire [2:0] xk_c;
+    wire [2:0] xk_t;
+    wire [2:0] xk_p;
+    wire lea_xk_c;
+    wire lea_xk_t;
+    wire lea_xk_p;
+    wire th_arm_t;
+    wire th_arm_p;
+    wire th_cvt;
+    wire th_lift_t;
+    wire th_lift_p;
+    wire xs_start;
+    wire fh_set;
+    wire [4:0] fh_n;
+    wire ox_set;
+    wire nt_set;
+    wire nt_dbnz;
+    wire ou_set;
+    wire [2:0] ou_n;
+    wire ff_set;
+    wire [2:0] ff_n;
+    wire ff_t;
+    wire ff_t0;
+    wire ntb_ok;
+    wire xfer_x;
+    wire t_sth;
+    wire t_sth_inf;
+    wire [5:0] t_sth_n;
+    wire p_sth;
+    wire p_sth_inf;
+    wire [5:0] p_sth_n;
+    wire rs_set;
+    wire [3:0] rs_n;
+    wire ask_d;
+    wire ask_t;
+    wire ask_p;
+    wire cnt_take;
+    wire rt_set;
+    wire signed [9:0] rt_n;
+    wire sh_set;
+    wire [9:0] sh_n;
+    wire imm16_c;
+    wire imm16_t;
+    wire imm16_p;
+    wire nop_cand;
+    wire abort_loop;
+    wire fl_c;
+    wire fl_t;
+    wire fl_p;
+    wire fl_end_t;
+    wire fl_end_t2;
+    wire fl_end_p;
+    wire pgb2b_e;
+    wire res0_e;
+    wire io_drop;
+    wire io_drop_loop;
+    wire unit_md;
+    wire pcl_x;
+    wire [2:0] pcl_fs;
+    wire ea_act_c;
+    wire disp_p;
+
     // ------------------------------------------------------------ the ROM: four banks
     localparam int NB = (V35_N_ROWS + 3) / 4;
     logic [V35_ROW_BITS-1:0] bank0 [0:NB - 1];     // (plain vectors: block RAM inference)
@@ -1478,7 +1511,7 @@ module v35_ucode
                             // (S5b) page_cl=thru: a CL-index 0F memory form's last operand take:
                             // the sync waits for a fetch on the bus only
                             x.pcs = s.fmt.pcl && s.pfs;
-                            if (x.syn) begin
+                            if (x.syn && Q1_TAKE_SYNC) begin
                                 s.sync_v = 1'b1;
                                 s.sync_def = x.def;
                             end
@@ -1495,7 +1528,7 @@ module v35_ucode
                                     s.res = 11'd0;
                                     x.cont = 1'b1;
                                 end else begin
-                                    s.sync_v = 1'b1;
+                                    s.sync_v = Q1_TAKE_SYNC;
                                     s.sync_def = 1'b0;
                                     x.mrs = 1'b1;
                                 end
@@ -1927,9 +1960,9 @@ module v35_ucode
                                   input logic dwb);
         logic ok;
         ok = ir_v && !rfb;              // refill_start=full_io: a flush's refill first
-        if (!is_p && fetch_inflight)
+        if (Q1_START_SYNC && !is_p && fetch_inflight)
             ok = 1'b0;                  // start_sync: no start with a fetch on the bus
-        if (f.modrm_op && b2b_now && !(f.page != 2'd0 && !f.mem))
+        if (Q1_START_SYNC && f.modrm_op && b2b_now && !(f.page != 2'd0 && !f.mem))
             ok = 1'b0;                  // start_sync=b2b_modrm (page_start=reg)
         if (f.regonly && slot_det)
             ok = 1'b0;                  // io_interlock=reg_pfx: an OUT's I/O waits in the slot
@@ -1947,7 +1980,7 @@ module v35_ucode
         if (f.mem && f.modrm_op && f.immb != 2'd0 && !is_p && bus_free && !infl && fetch_end_prev
             && stored <= 4'(V35_IO_B2B_Q) && room_c0 >= 5'sd2)
             ok = 1'b0;
-        if (!f.modrm_op && b2b_now && stored < 4'(V35_IO_B2B_Q))
+        if (Q1_START_SYNC && !f.modrm_op && b2b_now && stored < 4'(V35_IO_B2B_Q))
             ok = 1'b0;                  // io_b2b=all
         return ok;
     endfunction
@@ -2441,7 +2474,7 @@ module v35_ucode
                      && (wbu_t2 != 2'd0 || lwb(1'b1));
     // wlatch_hold: an I/O form waits at its start for the data latch (the checks before
     // eu._start's wlatch test passed)
-    assign latch_wait = (t_try1 || t_try2) && ir_v_c && !fetch_inflight && !refill
+    assign latch_wait = (t_try1 || t_try2) && ir_v_c && !(Q1_START_SYNC && fetch_inflight) && !refill
                         && !(lsp && b2b_now) && !dw_blk_c && fmt_c.port_io && wl_busy;
     assign retire = xt.retire;
     assign retire_p = xp.retire;
@@ -2533,7 +2566,7 @@ module v35_ucode
     logic [1:0] mro_c_b = 2'd0, owed_c_b = 2'd0, owed_t_b = 2'd0, wbu_t2_b = 2'd0;
     v35_run_t   run_l_b = '0;
     logic [3:0] avail_c_b = 4'd0, stored_l_b = 4'd0;
-    logic       g_abort_b = 1'b0, g_abort_lat_b = 1'b0, g_eu_b = 1'b0, g_fetch_b = 1'b0;
+    logic       fetch_req_b = 1'b0, g_abort_b = 1'b0, g_abort_lat_b = 1'b0, g_eu_b = 1'b0, g_fetch_b = 1'b0;
     logic       g_io_b = 1'b0, g_thru_b = 1'b0, inflight_x_b = 1'b0, ir_v_l_b = 1'b0;
     logic [2:0] grant_len_b = 3'd0;
     logic [7:0] ir_l_b = 8'h00, vb0_b = 8'h00, vb1_b = 8'h00, vb2_b = 8'h00, vb3_b = 8'h00;
@@ -2589,6 +2622,7 @@ module v35_ucode
             g_abort_lat_b <= g_abort_lat;
             g_eu_b <= g_eu;
             g_fetch_b <= g_fetch;
+            fetch_req_b <= fetch_req;
             g_io_b <= g_io;
             g_thru_b <= g_thru;
             inflight_x_b <= inflight_x;
@@ -2812,7 +2846,7 @@ module v35_ucode
     // gate, sreg_io's hold and the latch wait read that format; an escape whose second byte
     // arrives on the clock is such a form: its gate is held by the fetch that brings it)
     assign dec_miss = t_dec1_b || t_dec2_b || p_dec1 || p_dec2
-                      || ((t_try1_b || t_try2_b) && ir_v_c_b && !ok_c_b && !fetch_inflight
+                      || ((t_try1_b || t_try2_b) && ir_v_c_b && !ok_c_b && !(Q1_START_SYNC && fetch_inflight)
                           && !(refill && (inflight_c_b || want_c)))
                       || ((p_try1 || p_try2) && ir_v_l_b && !ok_l_b && !(refill && inflight_x_b));
     assign p_flush = xp.flush;
@@ -2896,7 +2930,7 @@ module v35_ucode
     // on its start clock runs a clock less (its IR load too); its last clock becomes a
     // write-back unless it is a long form
     wire       oi_adj = r0c && r0_plain && p4.fmt.idle1 && !g_fetch_b && !retick_b && !g_abort_b
-                        && !busy && room_e < 5'sd2;
+                        && !busy && !fetch_req_b;
     assign idle_adj = oi_adj;
     // long_exec=wait: a fetch's wait clock does not count (the IR load moves with it)
     wire       lx_now = p4.lx && p4.res != 11'd0 && busy && cur_kind == K_FETCH && in_wait;
@@ -3021,6 +3055,7 @@ module v35_ucode
             taken <= 3'd0;
             oplen <= 3'd1;
             sync_v <= 1'b0;
+            rqo <= 1'b0;
             sync_def <= 1'b0;
             owed <= 2'd0;
             held <= 1'b0;
@@ -3122,6 +3157,7 @@ module v35_ucode
             taken <= p4.taken;
             oplen <= p4.oplen;
             sync_v <= p4.sync_v;
+            rqo <= fetch_req_b && !g_fetch_b && !g_abort_b;
             sync_def <= p4.sync_def && !cl_hold;
             owed <= owed_n;
             held <= p4.held;
@@ -3150,7 +3186,7 @@ module v35_ucode
             cc <= p4.cc;
             op <= p4.op;
             halted <= p4.halted;
-            if (xt_b.flush)
+            if (xt_b.flush && Q1_REFILL)
                 refill <= 1'b1;
             else if (st_now)
                 refill <= 1'b0;
@@ -3409,6 +3445,235 @@ module v35_ucode
         end
     end
 `endif
+    // ------------------------------------------------------------ (Q1) the suspend windows
+    // The fitted holds the old queue applied, now the sequencer's: one `susp` to the queue,
+    // the OR of the windows below. Each opens and closes on the sequencer's own strobes, from
+    // generated attributes (the rows' arms HOLD / REL / REL_FOREVER / HOLD_TAKE / HOLD_TAKE_DLV /
+    // FLUSH_FROM, the class's `hold`, the format's `xshort` / `dbnz_z` / `dbnz` / `one_reg`)
+    // and the bus unit's facts; none reads the queue but its request line and byte count:
+    //   str_hold / str_fetch   (fhold, st_inf) a row's fetch_hold n / fetch_release n / for ever
+    //   flush_hold=start,      (fh_v, fh_cnt) a taken transfer: from its class's hold clocks
+    //   flush_from               after the start (flush_from: the row's n) to its flush, once
+    //                            its operand bytes are taken
+    //   xfer_odd / xfer_nt     (ox_*, ou_*) a short transfer at an odd address (a taken one with
+    //                            no fetch on the bus at its start; a not-taken one, DBNZE /
+    //                            DBNZNE at either address, to odd_until), its bytes taken
+    //   bf_imm_hold, cvt_hold  (th_*) from the first operand take after the arm, unless the line
+    //                            stood before it (rqo), to the lift
+    //   count_latch            (sh_held, sh_v, sh_cnt) from the shift's count take on a delivery
+    //                            clock (shift_latch) to the shift's last clock (the CLOCKS row)
+    //   io_take=unit           (dr_v, dr_loop; rt_v, rt_cnt) the request an I/O issue clock's
+    //                            last operand take raises (the latched-byte case: variant B) is
+    //                            held to the next data / I/O cycle's end, or to the count loop's
+    //                            retry_at (abort_unit=loop, retry_first: the CLOCKS row's rt)
+    //   nop_hold=any           (nop_held) a fetch issued on the clock a one-byte register form
+    //                            started and the IR loaded, the line still up with the new word
+    //                            in flight (2 bytes or fewer after the clock's pops): to the next
+    //                            start
+    //   io_ir_hold             (io_held) an I/O cycle's issue clock whose IR load (no take, no
+    //                            fetch on the bus, the line down after the grant) raises the
+    //                            line: to the next start or a fetch on the bus
+    // Not built: str_raise, xfer_abort, abort_unit=loop, retry_first (raises, not holds: the
+    // bus unit's aborted cycle), count_latch and latch_hold (the write-port latch: variant B),
+    // the one-shot commitments (page_b2b, page_run, xfer_nt_b2b, refill_start).
+    reg        st_inf = 1'b0;
+    reg [5:0]  fhold = 6'd0;
+    reg        fh_v = 1'b0;
+    reg [4:0]  fh_cnt = 5'd0;
+    reg        ox_v = 1'b0, ox_fed = 1'b0, ox_nt = 1'b0, ox_dbnz = 1'b0, ou_v = 1'b0;
+    reg [2:0]  ou_cnt = 3'd0;
+    reg        th_a = 1'b0, th_on = 1'b0, th_pre = 1'b0, th_c = 1'b0;
+    reg        nop_held = 1'b0, io_held = 1'b0;
+    reg        sh_held = 1'b0, sh_v = 1'b0;
+    reg        dr_v = 1'b0, dr_loop = 1'b0, rt_v = 1'b0;
+    reg [8:0]  rt_cnt = 9'd0;
+    reg [8:0]  sh_cnt = 9'd0;
+    // tick A: the windows as the T pass leaves them
+    wire       t_take = t_k != 2'd0;
+    wire       sth_act = t_sth ? (t_sth_inf || t_sth_n != 6'd0) : (st_inf || fhold != 6'd0);
+    wire       fh_act = (ff_t ? ff_t0 : (fh_v && fh_cnt == 5'd0)) && need_l == 3'd0 && !t_flush;
+    wire       odd_act = ox_v && !t_flush && need_l == 3'd0 && (ox_dbnz || !ox_fed)
+                         && !(ou_v && ou_cnt == 3'd0);
+    wire       th_arm_c = (th_a || th_arm_t) && !th_lift_t;
+    wire       th_on_t = th_on ? !th_lift_t : (th_arm_c && t_take);
+    wire       th_pre_t = th_on ? th_pre : rqo;
+    wire       th_act = th_on_t && !th_pre_t;
+    wire       nop_act = nop_held && !t_start;
+    wire       io_act = io_held && !t_start;
+    wire       sh_fire = sh_v && sh_cnt == 9'd0;
+    wire       sh_act = (sh_held && !sh_fire) || shift_latch;
+    wire       rt_fire = rt_v && rt_cnt == 9'd0;
+    wire       rt_now = rt_set && rt_n <= 10'sd0;
+    wire       dr_end = (cpu_end && !dr_loop) || rt_fire || rt_now;
+    wire       dr_act = dr_v && !dr_end;
+    assign susp = sth_act || fh_act || odd_act || th_act || nop_act || io_act || sh_act || dr_act;
+    // (S7b) the ce_b registers
+    reg        su_flush_b = 1'b0, su_sth_b = 1'b0, su_sthi_b = 1'b0, su_take_b = 1'b0;
+    reg [5:0]  su_sthn_b = 6'd0;
+    reg        th_lift_t_b = 1'b0, th_arm_t_b = 1'b0, th_on_t_b = 1'b0, th_arm_c_b = 1'b0;
+    reg        th_pre_t_b = 1'b0, nop_cand_b = 1'b0, su_run_b = 1'b0, sh_act_b = 1'b0;
+    reg        mem_wait_b = 1'b0;
+    reg        sh_set_b = 1'b0, dr_end_b = 1'b0, rt_set_b = 1'b0, rt_now_b = 1'b0;
+    reg        rt_fire_b = 1'b0;
+    reg signed [9:0] rt_n_b = 10'sd0;
+    reg [9:0]  sh_n_b = 10'd0;
+    always @(posedge clock) begin
+        if (ce_b) begin
+            su_flush_b <= t_flush;
+            su_sth_b <= t_sth;
+            su_sthi_b <= t_sth_inf;
+            su_sthn_b <= t_sth_n;
+            su_take_b <= t_take;
+            th_lift_t_b <= th_lift_t;
+            th_arm_t_b <= th_arm_t;
+            th_on_t_b <= th_on_t;
+            th_arm_c_b <= th_arm_c;
+            th_pre_t_b <= th_pre_t;
+            nop_cand_b <= nop_cand;
+            mem_wait_b <= mem_wait;
+            su_run_b <= retick && g_io;
+            sh_act_b <= sh_act;
+            sh_set_b <= sh_set;
+            sh_n_b <= sh_n;
+            dr_end_b <= dr_end;
+            rt_set_b <= rt_set;
+            rt_now_b <= rt_now;
+            rt_fire_b <= rt_fire;
+            rt_n_b <= rt_n;
+        end
+    end
+    // tick B: the windows' next state
+    wire       nop_set = g_fetch_b && nop_cand_b && fetch_req_b && !mem_wait_b && stored_l_b <= 4'd2
+                         && l_pop_b && !su_take_b;
+    wire       iih_set = su_run_b && !(fetch_req_b && !g_fetch_b) && (l_pop_b || p_ir)
+                         && !(su_take_b || p_k) && !inflight_x_b;
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            st_inf <= 1'b0;
+            fhold <= 6'd0;
+            fh_v <= 1'b0;
+            fh_cnt <= 5'd0;
+            ox_v <= 1'b0;
+            ox_fed <= 1'b0;
+            ox_nt <= 1'b0;
+            ox_dbnz <= 1'b0;
+            ou_v <= 1'b0;
+            ou_cnt <= 3'd0;
+            th_a <= 1'b0;
+            th_on <= 1'b0;
+            th_pre <= 1'b0;
+            th_c <= 1'b0;
+            nop_held <= 1'b0;
+            io_held <= 1'b0;
+            sh_held <= 1'b0;
+            sh_v <= 1'b0;
+            sh_cnt <= 9'd0;
+            dr_v <= 1'b0;
+            dr_loop <= 1'b0;
+            rt_v <= 1'b0;
+            rt_cnt <= 9'd0;
+        end else if (ce_a) begin
+            // io_take=unit's drop and the count loop's retry_at
+            if (io_drop) begin
+                dr_v <= 1'b1;
+                dr_loop <= io_drop_loop;
+            end else if (dr_end_b)
+                dr_v <= 1'b0;
+            if (rt_set_b && !rt_now_b) begin
+                rt_v <= 1'b1;
+                rt_cnt <= 9'(rt_n_b - 10'sd1);
+            end else if (rt_fire_b || rt_now_b)
+                rt_v <= 1'b0;
+            else if (rt_v)
+                rt_cnt <= rt_cnt - 9'd1;
+            // count_latch: held to the shift's last clock
+            sh_held <= sh_act_b;
+            if (sh_set_b) begin
+                sh_v <= 1'b1;
+                sh_cnt <= sh_n_b == 10'd0 ? 9'd0 : 9'(sh_n_b - 10'd1);
+            end else if (sh_v && sh_cnt == 9'd0)
+                sh_v <= 1'b0;
+            else if (sh_v)
+                sh_cnt <= sh_cnt - 9'd1;
+            // str_held (the P pass's setting after T's)
+            if (p_sth) begin
+                st_inf <= p_sth_inf;
+                fhold <= (p_sth_inf || p_sth_n == 6'd0) ? 6'd0 : p_sth_n - 6'd1;
+            end else if (su_sth_b) begin
+                st_inf <= su_sthi_b;
+                fhold <= (su_sthi_b || su_sthn_b == 6'd0) ? 6'd0 : su_sthn_b - 6'd1;
+            end else if (fhold != 6'd0)
+                fhold <= fhold - 6'd1;
+            // the transfers' holds
+            if (su_flush_b) begin
+                fh_v <= 1'b0;
+                ox_v <= 1'b0;
+                ox_nt <= 1'b0;
+                ou_v <= 1'b0;
+            end else begin
+                if (fh_set) begin
+                    fh_v <= 1'b1;
+                    fh_cnt <= fh_n == 5'd0 ? 5'd0 : fh_n - 5'd1;
+                end else if (ff_set) begin
+                    fh_v <= 1'b1;
+                    fh_cnt <= ff_n == 3'd0 ? 5'd0 : 5'(ff_n) - 5'd1;
+                end else if (fh_v && fh_cnt != 5'd0)
+                    fh_cnt <= fh_cnt - 5'd1;
+                if (xs_start) begin
+                    if ((ox_set && !ox_nt) || nt_set) begin
+                        ox_v <= 1'b1;
+                        ox_fed <= fetch_inflight || g_fetch_b;
+                    end else if (ox_nt)
+                        ox_v <= 1'b0;
+                    ox_nt <= nt_set;
+                    ox_dbnz <= nt_set && nt_dbnz;
+                    ou_v <= nt_set && ou_set;
+                    ou_cnt <= ou_n == 3'd0 ? 3'd0 : ou_n - 3'd1;
+                end else if (xs_done && ox_nt) begin
+                    ox_v <= 1'b0;
+                    ox_nt <= 1'b0;
+                    ou_v <= 1'b0;
+                end else if (ou_set && ox_nt && !ou_v) begin
+                    ou_v <= 1'b1;
+                    ou_cnt <= ou_n == 3'd0 ? 3'd0 : ou_n - 3'd1;
+                end else if (ou_v && ou_cnt != 3'd0)
+                    ou_cnt <= ou_cnt - 3'd1;
+            end
+            // the take hold
+            if (th_lift_p || (th_lift_t_b && !th_arm_p)) begin
+                th_a <= 1'b0;
+                th_on <= 1'b0;
+            end else begin
+                if (th_arm_t_b || th_arm_p) begin
+                    th_a <= 1'b1;
+                    th_c <= th_cvt;
+                end
+                if (th_on_t_b)
+                    th_on <= 1'b1;
+                else if ((th_arm_c_b || th_arm_p) && p_k)
+                    th_on <= 1'b1;
+            end
+            th_pre <= (th_on_t_b ? th_pre_t_b : rqo) && fetch_req_b && !g_fetch_b && !g_abort_b;
+            // nop_hold, io_ir_hold: to the next start
+            // (a flush ends both: the next start's bytes are a new stream's)
+            if (nop_set)
+                nop_held <= 1'b1;
+            else if (st_now || su_flush_b)
+                nop_held <= 1'b0;
+            if (iih_set)
+                io_held <= 1'b1;
+            else if (io_held && (st_now || inflight_c_b || su_flush_b))
+                io_held <= 1'b0;
+        end
+    end
+    // the strobes the windows leave unread (the old queue's retries, the seventh slot, the
+    // one-shot commitments, the latch): not built
+    wire susp_unused = &{1'b0, xk_c, xk_t, xk_p, lea_xk_c, lea_xk_t, lea_xk_p, ntb_ok, xfer_x,
+                         rs_set, rs_n, ask_d, ask_t, ask_p,
+                         imm16_c, imm16_t, imm16_p, abort_loop, fl_c,
+                         fl_t, fl_p, fl_end_t, fl_end_t2, fl_end_p, pgb2b_e, res0_e, unit_md,
+                         pcl_x, pcl_fs, ea_act_c, disp_p, th_c};
+
     // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
 `ifndef SYNTHESIS
     /* verilator lint_off BLKSEQ */
@@ -3663,6 +3928,12 @@ module v35_ucode
                     $display("v35 chk: ucode.g_fetch changed in tick B: %h -> %h at %0t",
                              g_fetch_b, g_fetch, $time);
             end
+            if (fetch_req_b !== fetch_req) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.fetch_req changed in tick B: %h -> %h at %0t",
+                             fetch_req_b, fetch_req, $time);
+            end
             if (g_io_b !== g_io) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
@@ -3842,6 +4113,126 @@ module v35_ucode
                 if (chk_n <= 20)
                     $display("v35 chk: ucode.cls_c changed in tick B: %h -> %h at %0t",
                              cls_c_b, cls_c, $time);
+            end
+            if (su_flush_b !== t_flush) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_flush changed in tick B: %h -> %h at %0t",
+                             su_flush_b, t_flush, $time);
+            end
+            if (su_sth_b !== t_sth) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_sth changed in tick B: %h -> %h at %0t",
+                             su_sth_b, t_sth, $time);
+            end
+            if (su_sthi_b !== t_sth_inf) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_sth_inf changed in tick B: %h -> %h at %0t",
+                             su_sthi_b, t_sth_inf, $time);
+            end
+            if (su_sthn_b !== t_sth_n) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_sth_n changed in tick B: %h -> %h at %0t",
+                             su_sthn_b, t_sth_n, $time);
+            end
+            if (su_take_b !== t_take) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.t_take changed in tick B: %h -> %h at %0t",
+                             su_take_b, t_take, $time);
+            end
+            if (th_lift_t_b !== th_lift_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.th_lift_t changed in tick B: %h -> %h at %0t",
+                             th_lift_t_b, th_lift_t, $time);
+            end
+            if (th_arm_t_b !== th_arm_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.th_arm_t changed in tick B: %h -> %h at %0t",
+                             th_arm_t_b, th_arm_t, $time);
+            end
+            if (th_on_t_b !== th_on_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.th_on_t changed in tick B: %h -> %h at %0t",
+                             th_on_t_b, th_on_t, $time);
+            end
+            if (th_arm_c_b !== th_arm_c) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.th_arm_c changed in tick B: %h -> %h at %0t",
+                             th_arm_c_b, th_arm_c, $time);
+            end
+            if (th_pre_t_b !== th_pre_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.th_pre_t changed in tick B: %h -> %h at %0t",
+                             th_pre_t_b, th_pre_t, $time);
+            end
+            if (nop_cand_b !== nop_cand) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.nop_cand changed in tick B: %h -> %h at %0t",
+                             nop_cand_b, nop_cand, $time);
+            end
+            if (mem_wait_b !== mem_wait) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.mem_wait changed in tick B: %h -> %h at %0t",
+                             mem_wait_b, mem_wait, $time);
+            end
+            if (sh_act_b !== sh_act) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.sh_act changed in tick B: %h -> %h at %0t",
+                             sh_act_b, sh_act, $time);
+            end
+            if (sh_set_b !== sh_set) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.sh_set changed in tick B: %h -> %h at %0t",
+                             sh_set_b, sh_set, $time);
+            end
+            if (sh_n_b !== sh_n) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.sh_n changed in tick B: %h -> %h at %0t",
+                             sh_n_b, sh_n, $time);
+            end
+            if (dr_end_b !== dr_end) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.dr_end changed in tick B: %h -> %h at %0t",
+                             dr_end_b, dr_end, $time);
+            end
+            if (rt_set_b !== rt_set) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.rt_set changed in tick B: %h -> %h at %0t",
+                             rt_set_b, rt_set, $time);
+            end
+            if (rt_now_b !== rt_now) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.rt_now changed in tick B: %h -> %h at %0t",
+                             rt_now_b, rt_now, $time);
+            end
+            if (rt_fire_b !== rt_fire) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.rt_fire changed in tick B: %h -> %h at %0t",
+                             rt_fire_b, rt_fire, $time);
+            end
+            if (rt_n_b !== rt_n) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: ucode.rt_n changed in tick B: %h -> %h at %0t",
+                             rt_n_b, rt_n, $time);
             end
         end
     end

@@ -177,6 +177,7 @@ module v35_eu
     output wire [3:0]  mneg,
     // a transfer's target (the flush), the SFR store's datum
     output wire [19:0] t_flush_addr,
+    output wire [15:0] t_flush_off,     // (Q1) ... its offset in the new PS (the queue's pfp)
     output wire [19:0] ps_base,         // (S6) {PS, 0h} after this clock (the fetch's segment)
     output wire [15:0] sfr_data,
     // the trace
@@ -1256,6 +1257,7 @@ module v35_eu
         endcase
     end
     assign t_flush_addr = {tg_seg, 4'd0} + {4'd0, tg_off};
+    assign t_flush_off = tg_off;
     assign ps_base = {(t_flush && tg_far) ? tg_seg : ps, 4'd0};
 
     // the SFR store's datum (a store_imm takes its immediate after the store issued)
