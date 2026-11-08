@@ -91,6 +91,9 @@ module v35_loader
     // displacement's take on a delivery clock (T, P) or its data cycle's issue (S4)
     input  wire        irh_set_t,
     input  wire        irh_clr_t,
+    input  wire        disp_tk,         // (R3) a memory form's displacement (last byte) taken (T)
+    input  wire        lea_room,        // (R3) LDEA's EA clocks after its last operand byte (T)
+    input  wire        mate,            // (R3) the ModR/M byte's word-mate taken on its delivery (T)
     input  wire        eu_issue,
     input  wire        irh_set_p,
     input  wire        irh_clr_p,
@@ -240,7 +243,7 @@ module v35_loader
     // (Q1) tick A's pops: a take step's bytes at its end, a ModR/M byte at once, the IR load
     // (the held byte, read first, was popped already)
     wire [2:0] unc_t = t_flush ? 3'd0 : (t_done ? 3'd0 : 3'(unc) + k_t - (modrm_tk ? 3'd1 : 3'd0));
-    wire [2:0] rel_t = t_done ? 3'(unc) + k_t : (modrm_tk ? 3'd1 : 3'd0);
+    wire [2:0] rel_t0 = t_done ? 3'(unc) + k_t : (modrm_tk ? 3'd1 : 3'd0);
     // (S5b) the 0F page's second opcode byte taken now: the opcode the ModR/M take re-decodes
     wire [7:0] opc_t = (k_t != 3'd0 && ms_s) ? vb0 : op_s;
     // the ModR/M byte taken: the form's length as it decodes ((S5b) a 0F form's second opcode
@@ -268,6 +271,15 @@ module v35_loader
     assign l_pop = !ir_s && need_t_w == 3'd0 && ready_t && !stop_t && av_l != 4'd0 && !t_flush
                    && !irh_t;
     assign l_load = l_pop;
+    // (R3) xfer_abort=word: a transfer's displacement byte is the bus unit's (its target
+    // adder's), not the EU's: its room is released a clock after the take step ends (relc)
+    // (R3) latch_disp: a memory form's displacement byte goes to the EA adder likewise: on a
+    // word's delivery clock with the IR load (V35_R3_DREL 1; 2: without it too) its room is
+    // released a clock late
+    wire       xl_t = ((`V35_R3_XREL != 0) && fm_t.xfer && (`V35_R3_XREL == 2 || t_start)
+                       || (`V35_R3_DREL != 0) && disp_tk && dlv && (`V35_R3_DREL == 2 || l_pop))
+                      && t_done && !modrm_tk && (3'(unc) + k_t) != 3'd0;
+    wire [2:0] rel_t = rel_t0 - (xl_t ? 3'd1 : 3'd0);
     assign rd = k_t + (l_pop ? 3'd1 : 3'd0);
     assign rel = rel_t + (l_pop ? 3'd1 : 3'd0) + relc;
     // the staging byte (the IR, the queue's seventh slot) is occupied while it holds an opcode,
@@ -275,7 +287,12 @@ module v35_loader
     // delivery clock (room_ir=arrival_idle, from the loader's side)
     // (R1) ea_ir_room / ir_load: nor is the empty IR a free slot while its load is held for the
     // form's data cycle (ir_hold) with no operand byte left to take
-    assign stg = ir_s || l_pop || (need_t_w != 3'd0 && !dlv)
+    // (R3) lea_room=ir: while LDEA runs its EA clocks after its last operand byte its successor's
+    // opcode, loaded into the IR, is decoded beside the address adder: the IR no slot taken
+    // (R3) modrm_mate=imm: the word whose first byte was the ModR/M byte is not free on its
+    // delivery clock while its second byte (an immediate's first) is taken: the staging byte stays
+    assign stg = ((ir_s || l_pop) && !(`V35_R3_LEAR && lea_room))
+                 || (need_t_w != 3'd0 && (!dlv || (`V35_R3_MATE && mate)))
                  || (`V35_R1_IRH && irh_t && need_t_w == 3'd0);
     wire [7:0] ir_l_w = l_pop ? vb(k_t) : ir;
     assign ir_l = ir_l_w;
@@ -307,6 +324,7 @@ module v35_loader
     reg         l_pop_b = 1'b0, ra_ld_t_b = 1'b0, irh_t_b = 1'b0, eu_issue_b = 1'b0;
     reg  [4:0]  ra_v_t_b = 5'd0;
     reg         t_flush_b = 1'b0, stop_t_b = 1'b0, t_start_b = 1'b0;
+    reg         xl_t_b = 1'b0;          // (R3) the displacement's late-released byte (relc)
     always_ff @(posedge clock) begin
         if (ce_b) begin
             vb0_b <= vb0;
@@ -338,6 +356,7 @@ module v35_loader
             t_flush_b <= t_flush;
             stop_t_b <= stop_t;
             t_start_b <= t_start;
+            xl_t_b <= xl_t;
         end
     end
     function automatic logic [7:0] vb_b(input logic [2:0] k);
@@ -462,7 +481,7 @@ module v35_loader
             if (t_start_b || p_start)
                 d_run <= pd_d;
             ir_v <= ir_v_p && !t_flush_b;
-            relc <= t_flush_b ? 3'd0 : rel_p;
+            relc <= t_flush_b ? 3'd0 : rel_p + (xl_t_b ? 3'd1 : 3'd0);
             if (p_ir) begin
                 ir <= ir_e;
                 ir_addr <= ira_e;
@@ -665,6 +684,12 @@ module v35_loader
                 if (chk_n <= 20)
                     $display("v35 chk: loader.t_start changed in tick B: %h -> %h at %0t",
                              t_start_b, t_start, $time);
+            end
+            if (xl_t_b !== xl_t) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader.xl_t changed in tick B: %h -> %h at %0t",
+                             xl_t_b, xl_t, $time);
             end
         end
     end

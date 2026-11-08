@@ -529,8 +529,10 @@ module v35_arbiter
     // line to exactly a word's room on a free bus: the fetch begun on it is abandoned (the
     // request raised again by the sequencer's retry window, v35_ucode.sv dr_v)
     wire tri3 = t_start && take_now && l_pop;
-    wire abort_tri = `V35_Q2_TRI && free && !take_slot && fetch_want && !fetch_inflight && tri3
-                     && q_word && !halted;
+    // (R3) xfer_abort=word: with the line down a byte short of a word by a byte read and not
+    // yet released (q_word's second term), the triple clock's fetch is begun and abandoned too
+    wire abort_tri = `V35_Q2_TRI && free && !take_slot && (fetch_want || ((`V35_R3_XRW || `V35_R3_ALAT) && !fetch_req))
+                     && !fetch_inflight && tri3 && q_word && !halted;
     wire abort_go = (free && !take_slot && b2b_now && !fetch_req && !halted) || abort_tri;
     wire fetch_go = free && !take_slot && !abort_go && fetch_want;
     // the grant

@@ -1266,6 +1266,129 @@ past a recovered (b) clock to a count clock):
 | F40 | 1020 | 1003 | 776 | 65 | 38 | 124 | 776 | 65 | 26 | 136 |
 | all | 30536 | 30361 | 27346 | 762 | 896 | 1357 | 27596 | 762 | 583 | 1420 |
 
+### R3: the loader's release timing and the remaining aborted fetches (class (c))
+
+The (c) misses (the request line differs on the first divergent clock: the queue's count against the
+model's room) by shape, re-read against the frozen model instrumented at that clock (the hand-back's
+an/rows.py, an/room.py: the model's room() pieces, its request evaluation). Six rules are built, each
+behind a macro in v35_front_pkg.sv (1: built; 0: the 8d0547e core). They are loader release / staging-byte
+timing on format bits and the sequencer's existing strobes, and one term on the queue's existing `q_word`
+output (`q_short`); no new queue input, no queue state, no input naming a form, no request dating.
+
+| Macro | Fitted rule | Where it lives | Facts it reads | Gained / lost |
+| --- | --- | --- | --- | --- |
+| `V35_R3_XREL` | xfer_abort=word (arbiter.py `_one_word`: room 2 or 3 on a transfer's triple clock) | the loader: on a transfer's start clock (`fmt.xfer`: branch_short / near, dbnz, dbnz_z, call, ret) the displacement take's room is released a clock late (`xl_t`, into `relc`): the byte goes to the bus unit's target adder, not the EU. Model room 3 then shows exactly a word and Q2's abort fires as it stands; the request comes back with the drop window's `dr_xfer` lift | `fmt.xfer`, `t_start`, `t_done`, the take | F23 F30 F35 F39: +273 / −7 (the 7: model room 2, below) |
+| `V35_R3_XRW` | xfer_abort=word's room 2 | the queue's `q_word` also up when the line is a byte short of a word by exactly one byte read and not released (`q_short`: `occ == CAP − 1 && unrel_a == 1`); the arbiter's `abort_tri` takes it with the line down; the take sync counts the triple clock's aborted cycle as asked (`asked_t`, as the model's abort counts for the sync) | `unrel_a`, `phys_ok`, `susp`; `g_abort_b`, `t_start_b` | with XREL: +273 / 0 on the four; corpus XREL + XRW +474 / 0 (F40 98, F39 96, F35 90, F37 60, F30 57, F34 43, F23 30) |
+| `V35_R3_DREL` | latch_disp (queue.room: the delivered word's latched byte counted on the displacement's take clock) | the loader: a memory form's displacement (last byte, the sequencer's `disp_t`) taken on a word's delivery clock together with the IR load is released a clock late: the IR load still owns the write port (the second byte latched, uncounted), the displacement's byte counts: one byte less room, as the model's | `disp_t`, `dlv`, `l_pop`, `t_done` | F4 F6 F7 F20 F21 F22 F26: +167 / 0; corpus +171 / 0 (F21 150, F4 9, F26 8, F29 4) |
+| `V35_R3_LEAR` | lea_room=ir (queue.room) | the loader's `stg`: while LDEA runs its EA clocks after its last operand byte (the sequencer's existing `lrc` window, `lea_xk_t`, unused since Q1) the IR's opcode is no slot taken | `lea_room_t` (new loader input from the sequencer) | F21 F25 F26: +29 / 0 |
+| `V35_R3_MATE` | modrm_mate=imm (queue.room: the ModR/M byte's word not free on its delivery clock) | the loader's `stg`: on a word's delivery clock a register form's first immediate byte, the odd word-mate of its ModR/M byte, taken with operand bytes to come: the staging byte stays counted | `mate_t` (the sequencer's take: `!fmt.mem`, ModR/M, page 0, `taken == 1`, one byte, `head_odd`, `arrived_now`, bytes to come) | F3 F4 F10 F14 F19 F20: +24 / 0 |
+| `V35_R3_ALAT` | abort_latched=any (arbiter.py `latched_abort`) | `q_short`'s second term: the line a byte short of a word by a byte latched on an earlier clock (`lat`, no delivery now) is room for the abort test only; the abort and the sync as XRW's | `lat_v`, `arrive`, `susp` | F3 F9 F14 F16 F20 F21: +38 / 0; corpus +38 / 0 (F20 21, F21 12, F16 5) |
+
+Corpus, cumulative in the order of the table (against 8d0547e's per-run set; no run lost at any step but
+XREL alone's 7, which XRW wins back; no family below 8d0547e at any step): XREL alone 28,073 (+474 / −7: the 7 the room-2 aborts, F35 6, F30 1); + XRW 28,080 (the 7 back: +474 / 0 against 8d0547e); + DREL 28,251 (+171 / 0); + LEAR + MATE
+28,370 (+128 / 0: F25 29, F30 28, F39 27, F20 11, F35 9, F19 8, F6 6, F3 3, F10 2, F12 2, F29 2, F33 1); + ALAT **28,408** (+811 / 0 against 27,606: F21 162, F39 123, F35 99, F40 98, F30 85, F37 60,
+F34 43, F20 32, F23 30, F25 29, F4 9, F19 8, F26 8, F6 6, F29 6, F16 5, F3 3, F10 2, F12 2, F33 1).
+
+**The transfer's displacement** (xfer_abort=word). The model's "room 2 or 3" is one byte: the transfer's
+displacement goes to the bus unit's target adder, so its slot is released a clock after the take. On the
+start clock with the late byte, model room 3 is the RTL's exactly-a-word (Q2's abort as it stands), model
+room 4 (pE in F23-push-br: 4 bytes of room) still fetches on both (F23-push-br-n0-pE-w0 exact before and
+after, -pO-w0 gained), and model room 2 is the line down a byte short, which only XRW's `q_short` catches
+(F30-store-br-short-n0-nop-pO-w0 t+85, F35-out-loop-dbnz-nop-pO-w0 t+96: the 7 XREL loses; without the
+take sync's count of that abort, 3 of them still differ: the EU's take sync ran two clocks early). Late
+release on every take of a transfer (not only the start clock): +273 / −117 (F39 50, F35 34, F30 25, F23
+8): the displacement byte of a later take is the EU's like any operand byte.
+
+**Release timing at the take (the brief's next three shapes): not one rule.** The F21 d8 shape is
+latch_disp (DREL); the F19 / F10 shapes are two different things; F11 is the physical check:
+- *d8 displacement + IR load on a delivery clock* (171 at 8d0547e, F21 150 recovered by DREL): the model
+  counts the latched byte on the displacement's take clock. Released late on every delivery-clock
+  displacement take (DREL=2): +167 / −165 (F22 add_d8 106, F21 sti 56: a displacement with an immediate
+  after it, where the release is the take's only one; the port then goes to the latched byte, which is
+  counted, and the late byte is counted too: two bytes where the model has one). With the IR load on the
+  clock the port stays the EU's and the count is the model's: kept.
+- *a take on an immediate form with the model's line down at room 2* (162: F35 51, F30 30, F19 24, F20 18,
+  F6 18; F19-d-out-adddwi-outb-pE-w0 t+87, F30-out-str-outm-w-n1-d4-pE-w2 t+89): not a count. The rooms are
+  equal (qdbg occ 5, model room 2); the model's request flag (request_eval=on_change) is down because the
+  room rose on a P-pass take whose removal the model records after that clock's sample, and no later
+  change re-evaluates it until the take step ends. Built as a release rule (the P pass's released bytes
+  reach the room only at the queue's next tick-A change, `relc` held): +42 / −168 on F3 F6 F19 F20 F30
+  F35 (F20 63, F3 51, F30 30, F19 24 lost): rejected. It needs the line to keep a "not re-evaluated" state
+  (a request sample the queue does not have): (c), or a sampling rule for the bus unit (b).
+- *a register form's start + take with the model's line up, the RTL's down* (161: F20 112, F3 15, F12 10,
+  F11 8; F11-none-n2-movr-pE-w1 t+80, F20-r-push-n1-pfxmovr-outdw-pO-w2 t+93): the RTL's physical check
+  (`phys_ok`: six stored and latched, a word delivering) holds the line where the model, which has no
+  physical bound, fetches. Counting the empty IR as a physical place: +12 / −35 on F9 F11 F12 F16 F25 F33
+  with 4 runs hanging (F16 pop_bw_d8: the queue overflows): rejected, (c): a phys_ok the model does not
+  have, needing the decoder's IR load ahead of the delivery.
+- *LDEA* (85 at 8d0547e; LEAR recovers 29) and *the OUT DW / immediate forms' take* (55; MATE recovers the
+  word-mate cases) are the seventh slot's per-form refinements (lea_room, modrm_mate) that Q1 dropped.
+
+**abort_latched**: kept (ALAT, +38 / 0, no family lower).
+
+**The classification** (classify2's reading, the hand-back's r3-misses-0 / r3-misses-1; at 8d0547e it gives
+(a) 762, (b) 635, (c) 1,368: R2's r2-misses-1c listed 52 more as (c), runs classify.py had called "line
+differs" where the model's line before its own fetch is up as the RTL's is: classify2 calls them (b)):
+
+| Family | runs | fit 62 | 8d0547e exact | (a) | (b) | (c) | R3 exact | (a) | (b) | (c) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 0 | 0 | 0 | 18 | 0 | 0 | 0 |
+| F0w | 20 | 20 | 20 | 0 | 0 | 0 | 20 | 0 | 0 | 0 |
+| F1 | 54 | 54 | 54 | 0 | 0 | 0 | 54 | 0 | 0 | 0 |
+| F2 | 120 | 120 | 120 | 0 | 0 | 0 | 120 | 0 | 0 | 0 |
+| F3 | 840 | 840 | 801 | 12 | 0 | 27 | 804 | 12 | 0 | 24 |
+| F4 | 456 | 456 | 443 | 0 | 0 | 13 | 452 | 0 | 0 | 4 |
+| F5 | 840 | 840 | 827 | 4 | 0 | 9 | 827 | 4 | 0 | 9 |
+| F6 | 576 | 576 | 552 | 0 | 0 | 24 | 558 | 0 | 0 | 18 |
+| F7 | 432 | 432 | 430 | 2 | 0 | 0 | 430 | 2 | 0 | 0 |
+| F9 | 408 | 408 | 379 | 0 | 25 | 4 | 379 | 0 | 25 | 4 |
+| F10 | 204 | 204 | 198 | 4 | 0 | 2 | 200 | 4 | 0 | 0 |
+| F11 | 132 | 132 | 124 | 0 | 0 | 8 | 124 | 0 | 0 | 8 |
+| F12 | 204 | 204 | 186 | 6 | 0 | 12 | 188 | 6 | 0 | 10 |
+| F14 | 732 | 732 | 713 | 7 | 3 | 9 | 713 | 7 | 3 | 9 |
+| F15 | 840 | 840 | 825 | 12 | 3 | 0 | 825 | 12 | 3 | 0 |
+| F16 | 1014 | 1014 | 965 | 24 | 25 | 0 | 970 | 24 | 20 | 0 |
+| F19 | 1290 | 1290 | 1224 | 20 | 14 | 32 | 1232 | 20 | 14 | 24 |
+| F20 | 3594 | 3594 | 3420 | 12 | 21 | 141 | 3452 | 12 | 0 | 130 |
+| F21 | 3576 | 3576 | 3384 | 12 | 14 | 166 | 3546 | 12 | 2 | 16 |
+| F22 | 1320 | 1314 | 1244 | 30 | 40 | 0 | 1244 | 30 | 40 | 0 |
+| F23 | 360 | 360 | 315 | 0 | 9 | 36 | 345 | 6 | 9 | 0 |
+| F24 | 912 | 902 | 902 | 0 | 0 | 0 | 902 | 0 | 0 | 0 |
+| F25 | 588 | 577 | 520 | 10 | 0 | 47 | 549 | 12 | 0 | 16 |
+| F26 | 906 | 906 | 843 | 38 | 8 | 17 | 851 | 38 | 8 | 9 |
+| F29 | 456 | 427 | 334 | 14 | 66 | 13 | 340 | 14 | 66 | 7 |
+| F30 | 1476 | 1467 | 1230 | 88 | 21 | 128 | 1315 | 88 | 30 | 34 |
+| F31 | 234 | 234 | 234 | 0 | 0 | 0 | 234 | 0 | 0 | 0 |
+| F32 | 858 | 846 | 660 | 124 | 62 | 0 | 660 | 124 | 62 | 0 |
+| F33 | 1050 | 1026 | 945 | 2 | 0 | 79 | 946 | 2 | 0 | 78 |
+| F34 | 1596 | 1547 | 1169 | 189 | 92 | 97 | 1212 | 228 | 92 | 15 |
+| F35 | 1044 | 1038 | 792 | 18 | 72 | 156 | 891 | 18 | 72 | 57 |
+| F36 | 750 | 750 | 744 | 0 | 3 | 3 | 744 | 0 | 3 | 3 |
+| F37 | 432 | 432 | 288 | 0 | 66 | 78 | 348 | 18 | 66 | 0 |
+| F38 | 864 | 864 | 864 | 0 | 0 | 0 | 864 | 0 | 0 | 0 |
+| F39 | 1320 | 1318 | 1053 | 69 | 65 | 131 | 1176 | 75 | 65 | 2 |
+| F40 | 1020 | 1003 | 776 | 65 | 26 | 136 | 874 | 65 | 44 | 20 |
+| all | 30536 | 30361 | 27596 | 762 | 635 | 1368 | 28407 | 833 | 624 | 497 |
+
+The (c) left (497): 162 the on_change flag (above), 161 the physical check (above), 36 + 33 + 21 + 31 the
+model idle with its line down at room 1–2 where the RTL's is up and no EU event (F14-g-out-mulu_bw-pO-w0
+t+96, F33-out-adj4a-k1-pE-w0 t+87, F21-push-l0-ld-bw_ix_d16-pE-w0 t+84: the same on_change flag, not
+examined further), 18 + 13 F33 inc_al starts (phys_ok), 10 F35 far call takes, 12 F34 bit-memory forms.
+The (a) count rose by 71 (762 → 833): runs whose first divergence moved past a recovered (c) clock to an EU
+event (F34 39, F37 18, F23 6, F39 6, F25 2).
+
+**Gates.** `verilator --lint-only -Wall` clean in the four configurations, with `-DV35_QUEUE_A` (four) and
+with the six R3 macros 0; the macros at 0 reproduce 8d0547e run for run (F10 F16 F20 F21 F23 F25 F35, 10,380 runs, every per-run line identical); `test_v35_struct`, `test_ucgen`, `test_chain_lane`, `test_sst_rtl`,
+`test_rtl_vectors` OK (ucgen untouched: no row or decode attribute changed); `sst.py --rtl --all` 2,849,080
+pass; `--regfile` F0..F33 69,099 and F34–F40 38,760 vectors 0 bad; `--fn` over the 28-family list 19,752
+vectors 0 bad; the whole refresh-off corpus identical run for run at `+v35_chk` and `+v35_ticks=2 +v35_chk`,
+chk silent, `--diag` silent, no run failing, write data 106,824 / 106,824.
+Timing guidance: one new loader register (`xl_t_b`, the ce_b copy of the late byte, ce_a into the existing
+`relc`; `+v35_chk` silent); `q_short` is one comparator (occ == CAP − 1) beside q_word's existing one, ANDed
+with registered state (`lat`) and the counts the line already forms; the arbiter's abort gains an OR term;
+the loader's `stg` gains two AND terms on the sequencer's tick-A strobes (`lea_room_t`, `mate_t`, both
+from existing take logic and the existing `lrc` register).
+
 ## Divergences (behaviour not expressed in the structure)
 
 (Q1) The queue's divergences from the fit (the features it no longer carries and where they

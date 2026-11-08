@@ -61,7 +61,8 @@ module v35_queue
     output wire        fetch_req,
     output wire [19:0] fetch_addr,
     output wire        q_low,
-    output wire        q_word,          // (Q2) the line is up with room for exactly one word
+    output wire        q_word,          // (Q2) the line is up with room for exactly one word ((R3) or a byte short, see q_short)
+                                        //   ((R3) or a byte short by a byte the abort test counts)
     input  wire        fetch_go,        // a fetch issued now (S4)
     input  wire        dlv_v,           // a fetch ended on t-1: its word arrives now (S0)
     input  wire [15:0] dlv_data,
@@ -135,7 +136,14 @@ module v35_queue
     // stored, latched and in flight counted whatever the room counts
     wire       phys_ok = {1'b0, cnt_a} + (infl_a ? 5'd2 : 5'd0) <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
     assign fetch_req = occ <= 5'(CAP - 2) && phys_ok && !susp;
-    assign q_word = fetch_req && occ == 5'(CAP - 2);
+    // (Q2) q_word: the line up with room for exactly a word (the triple clock's abort test).
+    // (R3) Or the line a byte short of a word by one byte the abort test counts as room: a byte
+    // read and not yet released (xfer_abort=word: a transfer's displacement byte, released a
+    // clock late by the loader) or a byte latched on an earlier clock (abort_latched)
+    wire       q_short = occ == 5'(CAP - 1) && !susp
+                         && ((`V35_R3_XRW && unrel_a == 4'd1 && phys_ok)
+                             || (`V35_R3_ALAT && lat_v && !arrive));
+    assign q_word = (fetch_req && occ == 5'(CAP - 2)) || q_short;
     assign q_low = occ - 5'(CAP - QUEUE_BYTES) <= 5'(FIT_HOLD_Q);
     wire [15:0] pfp_a = flush ? flush_addr : pfp;
     assign fetch_addr = ps_base + {4'd0, pfp_a};

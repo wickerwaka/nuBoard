@@ -63,6 +63,44 @@
 `ifndef V35_R2_DWLUP
 `define V35_R2_DWLUP 1'b1
 `endif
+// (R3) the loader's release timing, one macro each (1: built; 0: the 8d0547e core)
+//   V35_R3_XREL    xfer_abort=word: a transfer's displacement byte goes to the bus unit's target
+//                  adder, not the EU: the loader releases its room a clock after its take step
+//                  ends (the queue counts it on the take clock), so the triple clock's abort
+//                  test sees a word where the model's room is 3; on the start clock
+//                  (the take with the start and the IR load; 2: any take of a transfer)
+`ifndef V35_R3_XREL
+`define V35_R3_XREL 1
+`endif
+//   V35_R3_XRW     xfer_abort=word's room 2: the queue's q_word is also up when the line is a
+//                  byte short of a word only by a byte read and not yet released (the transfer's
+//                  late displacement byte): the triple clock's abort test sees the read-based room
+`ifndef V35_R3_XRW
+`define V35_R3_XRW 1'b1
+`endif
+//   V35_R3_DREL    latch_disp: a memory form's displacement (its last byte) is the EA adder's: taken
+//                  on a word's delivery clock with the IR load (the port the EU's, the second
+//                  byte latched) its room is released a clock late: one byte less room on that
+//                  clock, as the model's counted latched byte (2: without the IR load too)
+`ifndef V35_R3_DREL
+`define V35_R3_DREL 1
+`endif
+//   V35_R3_LEAR    lea_room=ir: during LDEA's EA clocks after its last operand byte the loader's
+//                  staging byte does not count the IR's opcode (the sequencer's lrc window)
+`ifndef V35_R3_LEAR
+`define V35_R3_LEAR 1'b1
+`endif
+//   V35_R3_MATE    modrm_mate=imm: on a word's delivery clock a register form's first immediate
+//                  byte, the ModR/M byte's odd word-mate, taken with operand bytes to come: the
+//                  loader's staging byte stays counted (the word's slot not yet free)
+`ifndef V35_R3_MATE
+`define V35_R3_MATE 1'b1
+`endif
+//   V35_R3_ALAT    abort_latched: the queue's q_word is also up when the line is a byte short of a
+//                  word by a byte latched on an earlier clock (room for the abort test only)
+`ifndef V35_R3_ALAT
+`define V35_R3_ALAT 1'b1
+`endif
 package v35_front_pkg;
 
     // ------------------------------------------------------------ bus cycle kinds and widths

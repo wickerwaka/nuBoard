@@ -236,7 +236,7 @@ module v35_top
     wire        latch_wait, relatch, relatch_late, retire, post_t, post_p, lx_hold, idle_adj;
     wire        p_start, p_k, p_done, p_io_nx, run_e, aim_next, dec_miss;
     wire        wl_fill_t, wl_fill_p, start_any;
-    wire        retire_p, floor_set, sreg_hold_set, gdisp_act, ea_act_x, disp_t;
+    wire        retire_p, floor_set, sreg_hold_set, gdisp_act, ea_act_x, disp_t, lea_room_t, mate_t;
     wire        disp_ext, irh_set_t, irh_set_p, irh_clr_t, irh_clr_p, take_now;
     wire [3:0]  floor_nb;
     wire [2:0]  sidle;
@@ -360,7 +360,7 @@ module v35_top
         .ev0(vb0), .ev1(vb1), .ev2(vb2), .ev3(vb3), .e_avail, .reset_addr(tb_reset_addr), .t_flush_addr,
         .t_start, .t_k_in(t_k), .t_flush, .t_halt, .lx_hold, .idle_adj,
         .p_start, .p_k_in(p_k), .p_io_nx,
-        .irh_set_t, .irh_clr_t, .eu_issue, .irh_set_p, .irh_clr_p,
+        .irh_set_t, .irh_clr_t, .disp_tk(disp_t), .lea_room(lea_room_t), .mate(mate_t), .eu_issue, .irh_set_p, .irh_clr_p,
         .irh_pg_t, .irh_pg_p, .mt_sub_t, .mt_sub_p,
         .ir_v_c, .ir_c, .ir_addr_c, .fmt_c, .ok_c, .cls_c, .fmt_mt,
         .l_pop, .l_load(ld_l_load), .ir_l, .ir_addr_l, .fmt_l, .ok_l, .ir_v_l,
@@ -398,7 +398,7 @@ module v35_top
         .t_start, .t_k, .t_done, .t_flush, .t_halt, .halting,
         .halted_o(halted), .wb_hold, .latch_wait, .relatch, .relatch_late, .relatch_n, .retire,
         .retire_p, .floor_set, .floor_nb, .sreg_hold_set, .gdisp_act, .ea_act_x,
-        .disp_t, .disp_ext, .irh_set_t, .irh_set_p, .irh_clr_t, .irh_clr_p, .take_now,
+        .disp_t, .lea_room_t, .mate_t, .disp_ext, .irh_set_t, .irh_set_p, .irh_clr_t, .irh_clr_p, .take_now,
         .sidle_o(sidle), .lx_hold, .idle_adj,
         .post_t, .prow_t, .psetup_t, .pfnv_t, .pfn_t, .plead_t, .ptm_t, .ptm_p,
         .post_p, .prow_p, .psetup_p, .pfnv_p, .pfn_p, .plead_p,

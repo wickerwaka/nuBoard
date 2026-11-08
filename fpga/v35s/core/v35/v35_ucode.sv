@@ -270,6 +270,8 @@ module v35_ucode
     output wire        gdisp_act,       // grp_disp=hold: t < gdisp_until
     output wire        ea_act_x,        // ... after T
     output wire        disp_t,          // a displacement's (last byte's) take: T (latch_disp)
+    output wire        lea_room_t,      // (R3) lea_room=ir: LDEA's EA clocks after its last operand byte (T)
+    output wire        mate_t,          // (R3) modrm_mate=imm: the ModR/M's word-mate taken (T)
     output wire        disp_ext,        // ... by a memory form with a displacement (disp_io)
     output wire        irh_set_t,       // ir_load=disp_data: a displaced memory form started (T)
     output wire        irh_set_p,       // ... (P)
@@ -347,7 +349,10 @@ module v35_ucode
     wire signed [4:0] room_p0 = 5'sd6 - 5'(stored_l) - (inflight_x ? 5'sd2 : 5'sd0);
     wire signed [4:0] room_c0 = 5'sd0;
     wire        asked_d = 1'b0;
-    wire        asked_t = Q1_TAKE_SYNC && fetch_req_b, asked_p = Q1_TAKE_SYNC && fetch_req_b;
+    // (R3) xfer_abort=word's room 2: the triple clock's aborted cycle answers a request the line
+    // (a byte short of a word by the transfer's late byte) did not show: the take counts it
+    wire        asked_t = Q1_TAKE_SYNC && (fetch_req_b || ((`V35_R3_XRW || `V35_R3_ALAT) && g_abort_b && t_start_b));
+    wire        asked_p = Q1_TAKE_SYNC && fetch_req_b;
     wire        retry = dr_v, retry_loop = dr_loop, latch_start_now = 1'b0;   // (the drop window)
     // count_latch, from the EU's side: a register shift's count byte taken on a word's delivery
     // clock (its take step's end pops the port: the word's second byte waits) with the queue
@@ -751,6 +756,7 @@ module v35_ucode
         logic        sreg;      // ... sreg_store=own
         logic [3:0]  nb;        // ... the floors (not_before - t)
         logic        disp;      // a displacement's last byte taken (latch_disp)
+        logic        mate;      // (R3) modrm_mate=imm: the ModR/M byte's word-mate taken on its delivery
         logic        irclr;     // ... on a delivery clock (ir_load: the IR may load)
         logic        flset;     // disp_floor=posted: the slot's request floored ...
         logic [2:0]  flnb;
@@ -1408,6 +1414,11 @@ module v35_ucode
                     dlast = s.oplen - 3'd1 - 3'(s.fmt.immb);
                     x.disp = s.fmt.mem && s.fmt.bus && s.fmt.disp != 2'd0 && s.taken < dlast
                              && s.taken + kk >= dlast;
+                    // (R3) modrm_mate=imm: a register form's first immediate byte, the word-mate
+                    // (odd) of its ModR/M byte, taken on the word's delivery clock with operand
+                    // bytes still to come
+                    x.mate = !s.fmt.mem && s.fmt.has_modrm && s.fmt.page == 2'd0 && s.taken == 3'd1
+                             && kk == 1 && e.hodd && arrived_now && s.taken + 3'(kk) < s.oplen - 3'd1;
                     s.taken = s.taken + kk;
                     s.left = left0 - kk;
                     need = s.oplen - 3'd1 - s.taken;
@@ -2526,6 +2537,8 @@ module v35_ucode
     // lea_room=ir: LDEA's EA clocks after its last operand byte (queue.lea_ea)
     assign lea_xk_c = lrc != 4'd0;
     assign lea_xk_t = lrc != 4'd0 || (xt.lrset && xt.lrn != 4'd0);
+    assign lea_room_t = lea_xk_t;
+    assign mate_t = xt.mate;
 
     assign wl_fill_t = xt.wl_fill;
     assign irh_pg_t = xt.irpg;

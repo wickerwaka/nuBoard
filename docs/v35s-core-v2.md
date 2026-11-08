@@ -1169,3 +1169,35 @@ question, decided from S8's routed numbers with the user.
   (b) 583, (c) 1,420, of which the largest shape (about 570 runs, F23 F35 F39 F30) is a transfer form's start clock
   where silicon runs the aborted fetch and the RTL fetches normally with the line already standing (free 2 against
   the model's room 1), and about 170 are F21 displacement forms at the two wider spacings only.
+- 2026-11-08, **R3 landed — the transfer's aborted fetch, the displacement's late release, the seventh-slot
+  refinements and the latched-byte abort** (an Opus agent in a worktree from 8d0547e, about five hours; README
+  "R3"). The target was the largest class-(c) shapes, where the RTL's request line differs from the model's on a
+  clock the EU takes bytes. **The rules,** each behind a macro in v35_front_pkg.sv (default 1), measured one at a
+  time on their families then cumulatively on the corpus: (1) `V35_R3_XREL` xfer_abort=word as the loader releasing
+  a transfer's displacement byte one clock late, on the start clock only (the byte is the bus unit's target adder's,
+  not the EU's; `xl_t` into the existing `relc`, one ce_b register), so the room shows exactly a word and Q2's
+  abort fires unchanged, +474 / −7 on the corpus (releasing late on every take of a transfer lost 117); (2)
+  `V35_R3_XRW` the same rule at the model's room 2, a second term `q_short` on the queue's existing `q_word` output
+  (`occ == CAP − 1` with one byte read and unreleased), the arbiter's `abort_tri` accepting it with the line down
+  and the take sync counting the aborted cycle as asked, winning the 7 back; (3) `V35_R3_DREL` latch_disp, a memory
+  form's displacement taken on a delivery clock with the IR load released a clock late, +171 (on every delivery
+  clock it lost 165); (4) `V35_R3_LEAR` lea_room=ir, the loader's `stg` ignoring the IR during LDEA's EA clocks (the
+  sequencer's existing `lea_xk_t`), and (5) `V35_R3_MATE` modrm_mate=imm, `stg` staying counted when the ModR/M
+  byte's odd word-mate is taken on its delivery clock in a register form with bytes to come (a new sequencer take
+  fact `mate_t`), together +128; (6) `V35_R3_ALAT` abort_latched, a byte latched on an earlier clock as room for the
+  abort test only (the second `q_short` term), +38 (F20 21, F21 12, F16 5). The queue gains no port and no state:
+  `q_word`'s definition carries the two abort-test terms from the queue's own counts. The loader gains three
+  sequencer facts (`disp_tk`, `lea_room`, `mate`). **Not one release rule:** the immediate-form take with the
+  model's line down at room 2 (162 runs) is the model's on_change flag missing a room rise from a P-pass take, not
+  a count difference (a release form scored +42 / −168, rejected; it needs a "not re-evaluated" state on the line);
+  the register start + take where the RTL's physical-room check holds the line (161; counting the empty IR as a
+  place scored +12 / −35 with 4 hangs, rejected). **Classification after:** (a) 833 (71 runs whose first divergence
+  moved on to an EU event), (b) 624, (c) 497 (the 162 on_change, the 161 phys_ok, about 121 more model-idle cases
+  with the line down at room 1–2, 31 F33 inc_al, 10 F35 far call, 12 F34 bit-memory forms). R2's list had 52 runs
+  labelled (c) that the corrected classifier calls (b). **Gate, rerun on main:** whole corpus 28,408 / 30,361
+  RTL-exact (from 27,606; RTL = model 28,507) at both spacings, per-family tables identical, 0 failing, `+v35_chk`
+  silent, 20 families up and none lower (F21 3,384 → 3,546, F39 1,054 → 1,176, F35 792 → 891, F40 776 → 874, F30
+  1,232 → 1,316, F37 288 → 348, F34 1,169 → 1,212, F20 3,420 → 3,452, F23 315 → 345, ...); write data 106,824 /
+  106,824 at both; SST 2,849,080 / 0; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn` 19,752 / 0 bad; lint clean
+  in five configurations; 35 fast tests; the nine offline modules unchanged. With the six macros at 0 the build
+  reproduces 8d0547e run for run on F10 F16 F20 F21 F23 F25 F35 (10,380 runs).
