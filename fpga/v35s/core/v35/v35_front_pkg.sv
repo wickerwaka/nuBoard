@@ -43,6 +43,26 @@
 `ifndef V35_R1_FHDATE
 `define V35_R1_FHDATE 1'b1
 `endif
+// (R2) the bus unit's / arbiter's sampling of the request line R2 recovers, one macro each
+// (1: built; 0: the 0a696bc core)
+//   V35_R2_SLOT    slot_room=word: the left-out write's slot chosen on a word's delivery clock
+//                  runs a fetch (the bus unit chose the slot's cycle before the word was written:
+//                  the delivered word is room)
+`ifndef V35_R2_SLOT
+`define V35_R2_SLOT 1'b1
+`endif
+//   V35_R2_GDLUP   grp_disp=hold's take clock: a fetch goes on the displacement's take clock only
+//                  when the line stood before the take (the arbiter's `lup`), not on the room
+//                  the take itself frees (room for two words after a two-byte take)
+`ifndef V35_R2_GDLUP
+`define V35_R2_GDLUP 1'b1
+`endif
+//   V35_R2_DWLUP   dw_lift=moved: a DW-form I/O request moved into the slot takes the bus unit's
+//                  sample from before the move-in (`lup`, the line up on a bus without a fetch
+//                  in flight) as its post's sample, not the line on the move-in clock
+`ifndef V35_R2_DWLUP
+`define V35_R2_DWLUP 1'b1
+`endif
 package v35_front_pkg;
 
     // ------------------------------------------------------------ bus cycle kinds and widths

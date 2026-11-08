@@ -436,7 +436,12 @@ module v35_arbiter
     // clocks after it (one committed back to back goes; on the take clock itself one with room
     // for two words left goes); its read holds a fetch no older than it until its fetch-free
     // group clocks have begun
-    wire gd_hold = fw3 && !b2b_now && gdisp_act && (!take_now || !q_low);
+    // (R2) the take clock's exemption is the bus unit's sample from before the take: the line
+    // stood at the last clock (lup), the room the take frees not counted (the model's room for
+    // two words after the take: a word's room before a two-byte take), unless the bus unit is
+    // still in its fetch run (a fetch ended on t-1: its delivery clock)
+    wire gd_go = q_low && !(`V35_R2_GDLUP && !lup && !fetch_end_prev);
+    wire gd_hold = fw3 && !b2b_now && gdisp_act && (!take_now || !gd_go);
     wire gr_hold = pending && b0.d.gdisp && fw3 && !b2b_now && count_r <= b0.d.setup - 7'(b0.fo);
     wire fw4 = fw3 && !gd_hold && !gr_hold;
     // ea_b2b: no back-to-back fetch on an EA clock before the displacement's take
@@ -513,7 +518,11 @@ module v35_arbiter
     // the left-out write's slot (issue_nowrite): a fetch runs in it when the queue wants one
     // (grp_read=rmw_slot_any: or has room for a word, slot_room=word: a word delivered now not
     // counted)
-    wire sl_fetch = nw_go && fetch_req && !halted;
+    // (R2) slot_room=word: on a word's delivery clock (a fetch ended on t-1) the slot's cycle
+    // was chosen at that fetch's last clock, before the word was written: the word is room
+    // (room + 2 >= 2), so the slot runs a fetch whatever the line now shows
+    wire sl_dlv = `V35_R2_SLOT && fetch_end_prev && !fetch_inflight;
+    wire sl_fetch = nw_go && (fetch_req || sl_dlv) && !halted;
     // (xfer_abort=word: a transfer's start, displacement take and IR load see 2 or 3 bytes)
     // (Q1) the aborted cycle: a fetch committed back to back whose request line fell
     // (Q2) the triple clock: a start, an operand take and the IR load on one clock raise the
@@ -598,7 +607,11 @@ module v35_arbiter
     function automatic rec_t promote(input rec_t r);
         rec_t p;
         logic c;
-        p = mk(r.d, fetch_req);
+        // (R2) dw_lift=moved: a DW-form I/O request (no port byte) moving in takes the line as
+        // the bus unit sampled it before the move-in clock (lup, no fetch ending then): a fetch
+        // the move-in clock itself raised goes after the I/O
+        p = mk(r.d, fetch_req && !(`V35_R2_DWLUP && f_io(r) && !r.d.port
+                                   && (!lup || fetch_end_prev)));
         p.nb = r.nb;
         p.two = r.two;
         p.moved = !f_io(r);

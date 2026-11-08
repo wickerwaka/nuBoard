@@ -1138,3 +1138,34 @@ question, decided from S8's routed numbers with the user.
   `--fn` 19,752 / 0 bad; lint clean in five configurations; 35 fast tests; the nine offline modules unchanged (941
   tests, the four known failures). With the six macros at 0 the build reproduces 541d91e run for run on F21 F22 F23
   F32 F35. Remaining: (a) 762, (b) 1,173, (c) 1,080 at the default spacing, the per-family table in the README.
+- 2026-11-07, **R2 landed — three sampling rules in the arbiter; the classifier corrected** (an Opus agent in a
+  worktree from 0a696bc, about 3.7 hours; README "R2"). The target was class (b): the request line the same on
+  both sides on the first divergent clock, the bus unit or arbiter fetching or holding differently. **Two findings
+  before any rule.** First, the model never honours a fallen request (request_hold=lapse instrumented at the first
+  divergent clock, the hand-back's an/why.py): every model fetch at room −1 with the line down is the nowrite slot
+  on a word's delivery clock (slot_room=word, 243 runs), xfer_nt_b2b=decide (140) or page_b2b=reg (167), one-shot
+  commitments. Second, the classifier read the model's line at the END of the clock, after an issue reserved the
+  word and cleared the flag, so 277 "same line" (b) misses are the model's line up against the RTL's down: (c).
+  Corrected on 0a696bc: (a) 762, (b) 896, (c) 1,357 (the classifier's classify2.py / recls.py). **The rules,** each
+  behind a macro in v35_front_pkg.sv (default 1), all in v35_arbiter.sv, no register and no comparator added, the
+  queue untouched: (1) `V35_R2_SLOT` slot_room=word, the nowrite slot on a word's delivery clock runs a fetch
+  whatever the line shows (the cycle was chosen at the fetch's last clock before the word was written; `sl_dlv`
+  from `fetch_end_prev`, `fetch_inflight`), +186 (F22 78, F19 51, F5 18, F15 15); (2) `V35_R2_GDLUP` grp_disp=hold's
+  take-clock exemption on the line as sampled at the last clock (`lup`) or a delivery clock, +46 (F37 42, F29 4);
+  (3) `V35_R2_DWLUP` dw_lift=moved, a DW-form I/O request moving into the slot takes the line as sampled before the
+  move-in clock, +18 (F29). With the three macros at 0 the build matches 0a696bc run for run on F5 F19 F22 F29 F37.
+  **Recorded as (c), two examples each:** xfer_nt_b2b=decide (140: F35 72, F39 23, F30 21) and page_b2b=reg (167:
+  F34 77, F32 58, F39 24) each need a byte of room and an empty latch plus the decide-row strobe or the format's
+  page bit (a form-free version, back to back on `q_low` sampled at the issue, broke 706 of 1,400 runs and was
+  dropped); grp_disp=hold's room after the clock's reads (126: F37 66, F29 30), two clocks identical in the line,
+  `lup`, `q_low` and every strobe where the model holds on one and fetches on the other; latch_hold (102) and
+  abort_latched (38) need the latched byte. Open: 10 runs of the 0F memory bit forms where page_run's once-per-form
+  commitment is spent a clock late. **Gate, rerun on main:** whole corpus 27,606 / 30,361 RTL-exact (from 27,356;
+  RTL = model 27,674) at both spacings, per-family tables identical, 0 failing, `+v35_chk` silent, ten families up
+  and none lower (F22 1,166 → 1,244, F19 1,173 → 1,224, F37 246 → 288, F29 312 → 334, F5 809 → 827, F15 810 → 825,
+  F14 704 → 713, F16 959 → 965, F36 738 → 744, F38 861 → 864 = all); write data 106,824 / 106,824 at both; SST
+  2,849,080 / 0; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn` 19,752 / 0 bad; lint clean in five
+  configurations; 35 fast tests; the nine offline modules unchanged. Remaining under the corrected reading: (a) 762,
+  (b) 583, (c) 1,420, of which the largest shape (about 570 runs, F23 F35 F39 F30) is a transfer form's start clock
+  where silicon runs the aborted fetch and the RTL fetches normally with the line already standing (free 2 against
+  the model's room 1), and about 170 are F21 displacement forms at the two wider spacings only.

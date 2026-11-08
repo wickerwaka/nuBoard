@@ -1140,6 +1140,132 @@ from their ce_b copies); the start gate gains one registered term; the arbiter's
 gains the loader's `need_t` (a tick-A output it already feeds the sequencer) and `nm`'s three
 strobes (take_now, l_pop, fetch_end_prev: inputs the arbiter already reads).
 
+### R2: the bus unit's and the arbiter's sampling of the request line (class (b))
+
+The (b) misses (the request line the same on both sides on the first divergent clock, the fetch
+issued or held differently) re-read against the frozen model run instrumented at that clock (which
+fitted rule issued or held the model's fetch: the hand-back's an/why.py). Three rules are built
+as bus-unit / arbiter samples on facts the arbiter already reads; the queue is untouched (no port,
+no state), no input names a form, class, row or EU step, no request is dated. One macro each in
+v35_front_pkg.sv (1: built; 0: the 0a696bc core).
+
+| Macro | Fitted rule | Sampling point / clearing event | Facts it reads | Corpus gained / lost |
+| --- | --- | --- | --- | --- |
+| `V35_R2_SLOT` | slot_room=word (grp_read=rmw_slot_any; arbiter.py _choose's nowrite slot) | the left-out write's slot chosen on a word's delivery clock runs a fetch: the bus unit chose the slot's cycle at the fetch's last clock, before the word was written, so the delivered word is room (`sl_dlv`; no state: the decision point is the delivery clock itself) | `fetch_end_prev`, `fetch_inflight`, `nw_go` | +186 / 0 (F22 78, F19 51, F5 18, F15 15, F14 9, F16 6, F36 6, F38 3) |
+| `V35_R2_GDLUP` | grp_disp=hold's take-clock exemption (room for two words after the take) | on the group form's displacement take clock a fetch goes only if the line stood before the take (`lup`, the bus unit's sample at the last clock, cleared by a fetch or the aborted cycle issued on it) or the bus unit is in its fetch run (a fetch ended on t-1); the room the take itself frees is not counted (`gd_go`) | `q_low`, `lup`, `fetch_end_prev`, `take_now`, `gdisp_act` | +46 / 0 (F37 42, F29 4) |
+| `V35_R2_DWLUP` | dw_lift=moved (the I/O lead; arbiter.py _choose) | a DW-form I/O request (no port byte) moving into the slot takes as its post's sample (`lup_p`) the bus unit's sample from before the move-in clock (`lup`, and no fetch ending then), not the line on the move-in clock: a fetch the move-in clock raised goes after the I/O; cleared as `lup_p` is (a fetch or the aborted cycle issued, the line falling) | `lup`, `fetch_end_prev`, the record's kind and port bit | +18 / 0 (F29 18) |
+
+Measured one at a time on their families against the previous step's per-run set, then the whole
+refresh-off corpus cumulatively: +250 / 0, no family below 0a696bc. The whole refresh-off corpus goes
+from 27,356 to **27,606 RTL-exact** (27,596 of fit 62's 30,361), identical run for run at `+v35_chk`
+and `+v35_ticks=2 +v35_chk`, chk silent, `--diag` silent, no run failing; write data 106,824 / 106,824.
+
+**The classifier's reading of the model's line.** The model's `R:room:flag` is the clock's end: on a
+clock it fetches, the issue has reserved the word (room − 2) and cleared the flag. Q1's / R1's
+classify.py compares that flag with the RTL's line, so every model fetch reads as "line down": 277
+of the 1,173 (b) misses at 0a696bc (161 on `S T:1` clocks, 85 on free clocks, 31 on `S` clocks:
+F11-none-n2-movr-pE-w1 t+80, F25-push-ldea-bw_ix-pO-w0 t+84, F33-out-inc_al-k2-pO-w0 t+91) are model fetches with room + 2 >= 2 before the issue (the line UP) against the RTL's
+line down (free 0 / 1: the queue's count, e.g. phys_ok or the seventh slot): class (c). classify2.py
+(the hand-back) reads the model's line before its own fetch (room >= 0 at the clock's end);
+recls.py applies it to an existing jsonl. At 0a696bc: (a) 762, (b) 1,173 → 896, (c) 1,080 → 1,357.
+
+**The shapes** (0a696bc, (b) by the corrected reading, 896): 243 the nowrite slot on a delivery
+clock (SLOT); 140 xfer_nt_b2b=decide and 167 page_b2b=reg (the model's one-shot back-to-back
+commitments with a byte of room); 180 + 34 grp_disp=hold's take clock (GDLUP, then the room
+count below); 45 + 38 latch_hold / abort_latched (the latched byte); 39 dw_lift=moved and the I/O
+lead (DWLUP and later divergences); 10 F32 / F34 0F memory bit forms. The brief's reading of the
+largest shape ("a request that stood earlier and has since fallen": request_hold=lapse) is not
+the mechanism: request_hold=lapse never honours a fallen request; every `R:-1:0` model fetch is
+the nowrite slot on a delivery clock (243) or a one-shot commitment (307).
+
+**Not recovered (recorded):**
+- *xfer_nt_b2b=decide* (140; F35 72, F39 23, F30 21): F23-out-bne-n0-k1-pE-w0 t+93 and
+  F23-out-bne-n2-pE-w0 t+93: at a fetch's last clock, while a not-taken short branch is at its
+  decide step, the model commits back to back with a byte of room (room 1, line down), nothing
+  latched, once per form. It needs a count the queue does not export (room >= 1, the latch empty)
+  and the decide row's strobe (`ntb_ok`, which exists in the sequencer, unused): (c), and an input
+  naming an EU step.
+- *page_b2b=reg* (167; F34 77, F32 58, F39 24): F32-out-test1_rb_imm-k2-pE-w0 t+99 and
+  F32-out-test1_rw_imm-k2-pE-w0 t+99 (the `R:-1:0 / R:1:0` form: F32-out-test1_rb_cl-k1-pO-w1 t+93):
+  the 0F register form's commitment with a byte of room; the same two counts and the format's
+  `page_reg`: (c).
+  A generic form was measured and rejected: the bus unit committing at a fetch's last clock on the
+  line OR `q_low` sampled at that fetch's issue (a byte of room left after the reservation, no form
+  input): 706 of the first ~1,400 runs of F9 F14 F23 F32 failed (stalls) before the replay was stopped.
+- *grp_disp=hold's take clock, the room after the reads* (126; F37 66, F29 30, F39 18, F40 12):
+  F29-out-ec-gih-incd16-n1-pO-w0 t+92 (delivery clock, `T:2 L:1`, room 3 after the reads: the
+  model holds) against F29-out-ec-gih-incd16-n1-pE-w0 t+91 (the same strobes, room 4: the model
+  fetches): the line, `lup` (down: the word in flight at t-1), `q_low` and every strobe are
+  identical; only the room after this clock's reads (>= 4) separates them. `lup` alone recovers 142
+  but loses these 5 (+137 / −5 on F5 F29 F32 F34 F36 F37 F38), so the fetch run exempts the
+  delivery clock and the 96 room-3 delivery-clock runs stay: (c).
+- *latch_hold* (102; F22 40, F9 25, F16 20, F19 14): F15-a-none-test_bw_imm-pE-w0 t+95 and
+  F15-a-none-test_bw_imm-pE-w1 t+99: a register shift's start + take + IR load with the line up
+  (room 3) while a byte delivered earlier is still latched and cannot go in: the model holds the
+  fetch. The queue's latched byte is not exported (Q1 left latch_hold out): (c).
+- *abort_latched* (38; F20 21, F21 12, F16 5): F16-s-none-cl1-n1-shlcl-pO-w0 t+82 and
+  F16-s-none-cl2-n1-shlcl-pO-w0 t+82: Q2's triple-clock abort with the latched byte counted as
+  room: the latched byte again: (c).
+- *0F memory bit forms* (10; F32 set1_mw 8, F34 mbit 2): F32-out-set1_mw_cl_bw_d16-k1-pO-w1 t+93
+  and F32-out-set1_mw_cl_dir-k1-pO-w1 t+93: the RTL's back-to-back commitment beside the 0F read
+  that page_run=field's once-per-form rule had already spent in the model (its commitment on the
+  clock before the read's P-pass post: the arbiter's `pg_act_x` is low on the clock between,
+  neither unposted after T nor yet in the slot). Counting that clock (`slot_pf_e` in tick B) was
+  measured: 0 / 0 on F32 F34 F39 F40 (the run then diverges on the read's page count); not kept, open.
+
+**Gates.** `verilator --lint-only -Wall` clean in the four configurations, with `-DV35_QUEUE_A` (four) and with
+the three R2 macros 0; the macros at 0 reproduce 0a696bc run for run (F5 F19 F22 F29 F37, 4,338 runs);
+`test_v35_struct`, `test_ucgen`, `test_chain_lane`, `test_sst_rtl`, `test_rtl_vectors` OK (ucgen untouched);
+`sst.py --rtl --all` 2,849,080 pass; `--regfile` F0..F33 69,099 and F34–F40 38,760 vectors 0 bad; `--fn`
+over the 28-family list 19,752 vectors 0 bad. Timing guidance: no new register (SLOT reads the delivery
+clock, GDLUP the existing `lup` and `fetch_end_prev`, DWLUP sets the record's existing `lup_p` from `lup`
+at the promotion); each adds one AND / OR term on registered facts to the fetch-hold tree or the slot's
+fetch, no comparator. `+v35_chk` silent at both spacings.
+
+**The classification at the end** (classify2's reading; exact = RTL-exact and fit-62-exact; classify.py's
+own reading: (b) 1,173 → 860, (c) 1,080 → 1,143; the 63 more (c) are runs whose first divergence moved
+past a recovered (b) clock to a count clock):
+
+| Family | runs | fit 62 | 0a696bc exact | (a) | (b) | (c) | R2 exact | (a) | (b) | (c) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 0 | 0 | 0 | 18 | 0 | 0 | 0 |
+| F0w | 20 | 20 | 20 | 0 | 0 | 0 | 20 | 0 | 0 | 0 |
+| F1 | 54 | 54 | 54 | 0 | 0 | 0 | 54 | 0 | 0 | 0 |
+| F2 | 120 | 120 | 120 | 0 | 0 | 0 | 120 | 0 | 0 | 0 |
+| F3 | 840 | 840 | 801 | 12 | 0 | 27 | 801 | 12 | 0 | 27 |
+| F4 | 456 | 456 | 443 | 0 | 0 | 13 | 443 | 0 | 0 | 13 |
+| F5 | 840 | 840 | 809 | 4 | 18 | 9 | 827 | 4 | 0 | 9 |
+| F6 | 576 | 576 | 552 | 0 | 0 | 24 | 552 | 0 | 0 | 24 |
+| F7 | 432 | 432 | 430 | 2 | 0 | 0 | 430 | 2 | 0 | 0 |
+| F9 | 408 | 408 | 379 | 0 | 25 | 4 | 379 | 0 | 25 | 4 |
+| F10 | 204 | 204 | 198 | 4 | 0 | 2 | 198 | 4 | 0 | 2 |
+| F11 | 132 | 132 | 124 | 0 | 0 | 8 | 124 | 0 | 0 | 8 |
+| F12 | 204 | 204 | 186 | 6 | 0 | 12 | 186 | 6 | 0 | 12 |
+| F14 | 732 | 732 | 704 | 7 | 9 | 12 | 713 | 7 | 0 | 12 |
+| F15 | 840 | 840 | 810 | 12 | 18 | 0 | 825 | 12 | 3 | 0 |
+| F16 | 1014 | 1014 | 959 | 24 | 31 | 0 | 965 | 24 | 25 | 0 |
+| F19 | 1290 | 1290 | 1173 | 20 | 65 | 32 | 1224 | 20 | 14 | 32 |
+| F20 | 3594 | 3594 | 3420 | 12 | 21 | 141 | 3420 | 12 | 21 | 141 |
+| F21 | 3576 | 3576 | 3384 | 12 | 12 | 168 | 3384 | 12 | 12 | 168 |
+| F22 | 1320 | 1314 | 1166 | 30 | 118 | 0 | 1244 | 30 | 40 | 0 |
+| F23 | 360 | 360 | 315 | 0 | 9 | 36 | 315 | 0 | 9 | 36 |
+| F24 | 912 | 902 | 902 | 0 | 0 | 0 | 902 | 0 | 0 | 0 |
+| F25 | 588 | 577 | 520 | 10 | 0 | 47 | 520 | 10 | 0 | 47 |
+| F26 | 906 | 906 | 843 | 38 | 0 | 25 | 843 | 38 | 0 | 25 |
+| F29 | 456 | 427 | 312 | 14 | 73 | 28 | 334 | 14 | 30 | 49 |
+| F30 | 1476 | 1467 | 1230 | 88 | 21 | 128 | 1230 | 88 | 21 | 128 |
+| F31 | 234 | 234 | 234 | 0 | 0 | 0 | 234 | 0 | 0 | 0 |
+| F32 | 858 | 846 | 660 | 124 | 62 | 0 | 660 | 124 | 62 | 0 |
+| F33 | 1050 | 1026 | 945 | 2 | 0 | 79 | 945 | 2 | 0 | 79 |
+| F34 | 1596 | 1547 | 1169 | 189 | 92 | 97 | 1169 | 189 | 92 | 97 |
+| F35 | 1044 | 1038 | 792 | 18 | 72 | 156 | 792 | 18 | 72 | 156 |
+| F36 | 750 | 750 | 738 | 0 | 6 | 6 | 744 | 0 | 0 | 6 |
+| F37 | 432 | 432 | 246 | 0 | 120 | 66 | 288 | 0 | 66 | 78 |
+| F38 | 864 | 864 | 861 | 0 | 3 | 0 | 864 | 0 | 0 | 0 |
+| F39 | 1320 | 1318 | 1053 | 69 | 83 | 113 | 1053 | 69 | 65 | 131 |
+| F40 | 1020 | 1003 | 776 | 65 | 38 | 124 | 776 | 65 | 26 | 136 |
+| all | 30536 | 30361 | 27346 | 762 | 896 | 1357 | 27596 | 762 | 583 | 1420 |
+
 ## Divergences (behaviour not expressed in the structure)
 
 (Q1) The queue's divergences from the fit (the features it no longer carries and where they
