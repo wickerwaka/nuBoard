@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "v35_macros.svh"
 
 // V35S core v2: the prefetch queue as a simple machine (docs/v35s-queue-strategy.md, Q1).
 //

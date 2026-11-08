@@ -41,7 +41,7 @@ set -u
 v35=${V35_SRC:-$repo_root/fpga/v35s/core/v35}
 period=${PERIOD:-15.625}
 pkgs=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv)
-hdrs=(v35_consts.svh v35_class_tbl.svh v35_decode_tbl.svh v35_ucode_tbl.svh)
+hdrs=(v35_macros.svh v35_consts.svh v35_class_tbl.svh v35_decode_tbl.svh v35_ucode_tbl.svh)
 
 time_one() {
     local name=$1 top files

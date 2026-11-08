@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "v35_macros.svh"
 
 // V35S core v2: the loader (docs/v35s-core-v2.md, "Modules and the state they own"; Appendix B
 // §1 "Loader / IR"): the opcode register (IR, a seventh byte outside the queue), the format

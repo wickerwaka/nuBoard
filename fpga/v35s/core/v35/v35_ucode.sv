@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "v35_macros.svh"
 
 // V35S core v2: the microcode sequencer (docs/v35s-core-v2.md, "Microcode"; Appendix B §2-§3;
 // stage S3). It runs the started form's template from the microcode ROM (v35_ucode.hex as

@@ -1201,3 +1201,15 @@ question, decided from S8's routed numbers with the user.
   106,824 at both; SST 2,849,080 / 0; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn` 19,752 / 0 bad; lint clean
   in five configurations; 35 fast tests; the nine offline modules unchanged. With the six macros at 0 the build
   reproduces 8d0547e run for run on F10 F16 F20 F21 F23 F25 F35 (10,380 runs).
+- 2026-11-08, **the core's macros move to a header** (overseer). Per-module synthesis had been broken since Q2:
+  Efinity compiles each file as its own unit, so a macro defined in v35_front_pkg.sv (V35_Q2_TRI, the R1 / R2 / R3
+  macros) never reached v35_queue / v35_loader / v35_arbiter / v35_ucode (`syntax error near '&&'`, `q_short is not
+  declared`); Verilator, compiling one unit, never showed it. The macros are now fpga/v35s/core/v35/v35_macros.svh
+  (include-guarded), included by the package and by the four modules; the synth scripts and build.sh copy it.
+  Lint clean in six configurations (including `-DV35_R1_NEED=0`), the three simulators rebuilt, F3 / F9 / F23
+  replay 804 / 379 / 345 as on 08a2c58. **Per-module timing at 15.625 ns on the R3 core** (`v35_timing.sh queue
+  arbiter loader`, TAG r3): v35_queue 568 LUT4 / 52 ADD / 236 FF, worst slack +4.835 ns at 10 logic levels (the
+  simple machine closes at 64 MHz); v35_arbiter 1,769 LUT4 / 139 ADD / 1,122 FF, worst slack −18.144 ns at 39
+  levels from the slot request's valid bit (the arbiter's choice tree is a long chain and the next timing target
+  after the sequencer); v35_loader did not time: the wrapper's post-synthesis netlist was empty ("all logic is
+  eliminated"), to be looked at with the wrapper.

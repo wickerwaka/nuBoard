@@ -63,7 +63,7 @@ if [[ "$core" == v35 ]]; then
     v35_files=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv v35_bus.sv v35_queue.sv
                v35_loader.sv v35_arbiter.sv v35_ucode.sv v35_ea.sv v35_eu.sv v35_regram.sv
                v35_trace.sv v35_top.sv)
-    for file in "${v35_files[@]}" v35_consts.svh v35_class_tbl.svh v35_decode_tbl.svh \
+    for file in "${v35_files[@]}" v35_macros.svh v35_consts.svh v35_class_tbl.svh v35_decode_tbl.svh \
                 v35_ucode_tbl.svh; do
         cp "$v35_dir/$file" "$project_dir/"
     done
