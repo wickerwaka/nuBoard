@@ -1389,6 +1389,178 @@ with registered state (`lat`) and the counts the line already forms; the arbiter
 the loader's `stg` gains two AND terms on the sequencer's tick-A strobes (`lea_room_t`, `mate_t`, both
 from existing take logic and the existing `lrc` register).
 
+### R4: the remaining EU misses (class (a)) and the bus-unit holds (class (b))
+
+The (a) misses at 08a2c58 (833) re-read against the frozen model instrumented at the first divergent clock
+(the hand-back's an/req.py: the model's request record per clock; an/why_start.py: the line of `EU._start`
+that held a start; an/setlog.py: every assignment of an EU attribute with its clock and source line). Ten
+rules are built, each behind a macro in v35_front_pkg.sv (1: built; 0: the 08a2c58 core). None touches
+v35_queue.sv; no input names a form, class, row or EU step to the queue or the bus unit; no request is dated.
+Most are the fitted rule the Q1 rebuild approximated with a plain bus fact where the model reads a slightly
+different one (the request record's post sample instead of none, the fetch's issue instead of its last
+clock, the delivery clock's latched byte).
+
+| Macro | Fitted rule | Where it lives | Facts it reads | Alone (its families) | Corpus step |
+| --- | --- | --- | --- | --- | --- |
+| `V35_R4_PTHRU` | page_cl=thru's order (arbiter.py _choose: `requested_at > req.posted`) | the arbiter's `pth_cand` | the record's post sample `lup_p` | F32 F34 F39 F40: +250 / 0 (F32 116, F34 74, F39 30, F40 30) | with NMB: +340 / 0 |
+| `V35_R4_NMB` | request_reissue=no_mem at the issue (queue.issue's `mem_waiting`) | the arbiter's new output `b2b_hold_o` (the bus unit's back-to-back sample held only by a memory request that waited at the fetch's issue, queue unchanged since); free_run's `!b2b_now` exempts such a commitment (`nmb`) | `nm`, `fetch_end_prev`, `take_now`, `l_pop`, `mem_wait_o`; `nmb` (1 bit) | F5 F19 F21 F22 F26 F29 F39 F40: +90 / 0 (F22 30, F26 28, F21 14, F29 10, F5 4, F19 4) | (above) |
+| `V35_R4_IOST` | io_b2b's `stored() < io_b2b_q` (the delivered word's latched byte not stored) | the start gate's io_b2b term: threshold + 1 on a delivery clock | `stored_c`, `b2b_now`, `fetch_end_prev` | +44 / 0 (F30 16, F25 10, F3 4, F20 4, F7 2, F14 2, F15 2, F34 2, F40 2) | +44 / 0 |
+| `V35_R4_CLAT` | count_latch's room (eu.py: `room - (latched if need == 0)`) | the sequencer's `shift_latch` | `stored_l`, `need_l`, `arrived_now`, `inflight_c` | F12 F14 F15 F16 F30 F34: +98 / 0 | with SRZ: +119 / 0 |
+| `V35_R4_SRZ` | str_raise (str_fetch=hold, CW = 0: queue.str_raise) | the drop window's end: the REL_RAISE row's countdown (`rz_v`, `rz_cnt`) | `rs_set`, `rs_n` (existing row attribute, unread since S5a) | F30: +21 / 0 | (above) |
+| `V35_R4_DASK` | imm_landed's deferred sync (`completed + inflight + asked` on the clock after the take) | the take sync's owed count in tick B | `asked_p` (the line, `fetch_req_b`) | +50 / 0 (F19 16, F35 10, F20 8, F10 4, F12 4, F29 4, F3 2, F33 2) | with LAPS: +172 / 0 |
+| `V35_R4_LAPS` | the take sync's lapse (`room(t) < 2`, the latched byte uncounted on its delivery clock) | `t_lapse` | `room_c`, `arrived_now` | F32 F34 F39: +120 / 0 (F34 67, F39 45, F32 8) | (above) |
+| `V35_R4_DRX` | xfer_abort=word's retry for TRANSFERS by base class | the drop window's `dr_xfer` | the format's `xfer` bit | F37: +18 / 0 | with XNT + GIOD: +125 / 0 |
+| `V35_R4_XNT` | xfer_nt=odd's decide (eu.py decide: only fetches started before `odd_until`) | the decide row's `dec_inf` / `dec_since` (`xo`, `xo_s`) | `ox_nt`, `ou_v`, `ou_cnt`, `g_fetch_b`, `fetch_since` | F23 F30 F35: +24 / 0 (F30 18, F23 6) | (above) |
+| `V35_R4_GIOD` | grp_io_hold's dating (`requested_at = t` when the hold ends) | the arbiter's `fetch_first` | the record's `ghp`, `gio_hold`, `fw0` | F14 F15: +6 / 0 | (above) |
+
+Corpus, cumulative in the order of the table (each step against the previous step's per-run set; no run lost
+at any step, no family below 08a2c58): PTHRU + NMB 28,748 (+340), + IOST 28,792 (+44), + CLAT + SRZ 28,911
+(+119), + DASK + LAPS 29,083 (+172), + DRX + XNT + GIOD **29,208** (+125): +800 / −0 against 28,408 (F34 216,
+F32 124, F30 88, F39 75, F26 46, F40 46, F22 30, F16 20, F19 20, F35 18, F37 18, F21 14, F29 14, F15 12,
+F20 12, F25 10, F14 7, F3 6, F12 6, F23 6, F5 4, F10 4, F7 2, F33 2). The rules alone sum to +721; the
+other 79 (F34 39, F26 18, F40 12, F35 8, F30 2) need two of them together (they were gained at the last step)..
+
+**The `I` shape** (350 at 08a2c58): two rules, neither a setup count. *page_cl=thru's order* (228 + 6, F32 F34
+F39 F40): the model lets a fetch run inside a CL-index 0F read's CL clocks only when it was requested after
+the read's post (`queue.requested_at > req.posted`); a request standing at the post is an ordinary fetch that
+restarts the read's fetch-free count (Request.page_free). Q1 left the order out ("undated"), so the RTL ran
+the standing fetch thru and issued the read 2 clocks early (F32-out-test1_mb_cl-k1-pE-w0: post +85, fetch
++87, model read +95, RTL +93). The record's post sample `lup_p` (the line up at the post and standing since,
+R1/Q1's bit) is exactly "requested no later than the post": PTHRU = `pth_cand && !lup_p`. *request_reissue=
+no_mem at the issue* (F22 F21 F19 F26 F29 F5 stores, F39 F40 transfers: model fetch, RTL write): the model
+leaves the flag down after a fetch issued *while* a memory request waits (queue.issue's mem_waiting); Q1's
+bus unit instead withheld its back-to-back sample whenever a memory request waited at the fetch's last clock,
+so a write posted during the flight beat the fetch the model commits back to back (F22-none-l0-sti_d16-k2-
+pE-w1 t+92). NMB: the waiting request holds the sample only when it already waited at the issue and the
+queue has not changed since (the arbiter's existing `nm`, a new output `b2b_hold_o`); free_run's
+"not standing since the last clock" (`!b2b_now`) does not count a commitment NMB let through (`nmb`, one
+register: 13 F29 / F40 runs lost without it, the group / stack request's fetch-free clocks counting through
+the committed fetch as the model's undated request does).
+
+**The start holds** (269 at 08a2c58): the counts before the start are equal on every example examined (R1's
+"counts differ" reading came from the RTL's trace field after its own start); three EU rules on bus facts
+and one row attribute: *io_b2b's shallow queue* (IOST): the model's `stored()` excludes the delivered word's
+second byte on its delivery clock (word_latch=byte_d: in the write-port latch for the clock) and io_b2b's
+clock is always a delivery clock (a back-to-back fetch follows the fetch that ended on t-1); *imm_landed's
+deferred count* (DASK): the RTL's deferred take sync counted only the fetch in flight (`asked_d` tied 0);
+the model counts `queue.asked` on the clock after the take, which is the line (`fetch_req_b`, tick A's end,
+before the grant) — F10-push-adddwi-outdw-pE-w1, F14-o-out-movr2-pE-w1, F19 / F20 OUT forms behind
+ADD DW,imm16; *the take sync's lapse* (LAPS): on a delivery clock the RTL's room counted the arriving
+second byte and lapsed the sync of a 0F register bit op one fetch early (F34-out-rbit-set1_rb_cl-nop-k1-
+pO-w0, F39-push-page-set1-movr-pO-w0: the "start a clock early after a 0F register bit form"); *xfer_nt=
+odd's decide* (XNT): a not-taken transfer's test waits only for the fetches issued before its odd hold's
+lift (`odd_until`), not for the one its release raised (F23-out-bne-n0-k2-pO-w0, F30-out-nt-bne-*-pO);
+the decide row read the plain bus facts (`fetch_inflight`, `fetch_since`). *xfer_abort=word's retry*
+(DRX): BRK is a call by base class (the format's `xfer` bit, which XREL already uses) and its aborted
+start's request comes back at the aborted cycle's end (F37-out-brk-brk5-pE-w0). *grp_io_hold's dating*
+(GIOD, F14 / F15 test_dir_aw): the fetch grp_io_hold held dates from the clock the hold ends and goes
+before a group read that became issuable there (as R1's FHDATE for free_hold; the record's existing `ghp`).
+
+**The `susp` shape** (137): not the latched byte. *count_latch's room* (CLAT, 98 alone: F16 F12 F14 F15 shifts,
+F30 / F34 string and bit forms' SHL by an immediate): the model's room for the rule subtracts the delivered
+word's latched byte only when the form has taken its last operand byte (`room - (latched if need == 0)`);
+the RTL counted it always. The loader's `need_l` (after T) carries the condition; R3's `lat_v` is not
+needed. *str_raise* (SRZ, 21 alone: F30 str_inm / outm / stm CW = 0 after a NOP): the REL_RAISE row (the row
+attribute already in the ROM, unread since S5a) ends the aborted start's drop window `rs_n` clocks into
+the exit (a 4-bit countdown `rz_cnt`), where the model raises the request again.
+
+**Not recovered (recorded):**
+- *latch_start* (22 (a): F40 movdl / addi8 k4 12, F3 mov_cl_imm k4 6, F16 movcl 4): F16-s-none-n2-movcl-pE-w1
+  t+87, F3-push-mov_cl_imm-k4-pO-w0 t+100: the form starts on the clock a byte latched behind a full queue
+  goes into the queue, so its first EU clocks run a clock later (eu.py latch_start; the sequencer's
+  `latch_start_now` is tied 0). Needs the queue's latch draining on this clock (`lat_v` and the room it
+  goes into): a queue fact not exported. (c).
+- *the one-shot commitments* (332 (b): xfer_nt_b2b=decide 297, F35 cc 72, F34 rbit 81, F30 nt 30, F39 ..., and
+  page_b2b=reg 35 more): F23-out-bne-n0-k1-pE-w0 t+93, F32-out-test1_rb_imm-k2-pE-w0 t+99. At a fetch's last
+  clock the model commits back to back with room >= 1 (line down), nothing latched, the word able to fit.
+  Needs the queue's free count >= 1 (exported only as >= 2 / == 2 / q_short) and `lat_v`; xfer_nt_b2b
+  also the DECIDE row's strobe (`ntb_ok`), an EU-step input to the bus unit the rules forbid. A one-bit
+  sample does not give it: "line up and not exactly a word at the issue" implies room >= 1 at the last
+  clock but misses a byte released in the flight (R2's line-or-q_low form stalled 706 runs). (c).
+- *grp_disp=hold's take clock, the room after the reads* (138 (b), F29 F37 F39 F40): F29-out-ec-gih-incd16-
+  n1-pO-w0 t+92 (room 3 after the reads: hold) against -pE-w0 t+91 (room 4: fetch), every other fact equal
+  (R2's finding stands). Needs the room after this clock's reads. (c).
+- *grp_disp=hold's read, the fetch no older than it* (36 (b), F29 gih-*-n0): F29-out-ec-gih-incd16-n0-pE-w0
+  t+87, F29-out-ec-gih-dw-incd16-n0-pO-w0 t+95: the model lets a fetch requested before the read's post go.
+  Candidate measured, NOT in the patch: `gr_hold && !lup_p` (GRLP): F5 F29 F32 F34 F36 F37 F38 F39 F40 +30 / −30
+  (gains the F29 n0 -pE runs; loses the F29 n0 pO runs, RTL fetch at +88 against
+  silicon +91: their request was raised on the post clock itself, which `lup_p` (sampled after the clock's
+  reads) counts as standing, while the model's `requested_at >= posted` holds it). Needs the post sample
+  taken before the clock's reads (`lup` instead of the line); not measured.
+- *latch_hold* (102 (b), F22 40, F9 25, F16 20, F15): F15-a-none-test_bw_imm-pE-w0 t+95, -pE-w1 t+99: no fetch
+  while a byte delivered on an earlier clock is still latched and the decoder holds the port. Needs `lat_v`
+  (with `!arrive`) at the arbiter: a queue output the strategy reserves. (c).
+- *grp_io_hold's order* (6 (b), F14-g-out-shl_bw_cl-pE-w0/w1/w2 t+87): the model holds only a fetch requested
+  on or after the I/O's issue. Candidate measured, NOT in the patch: `iol` (the line stood at the clock before
+  the I/O issue and since: a one-bit sample set from `lup` at the I/O issue, cleared as `lup_p`), `gio_hold &&
+  !iol` (IOL): F5 F9 F14 F15 F19 F22 F26 F29 F36 F37 +12 / 0 (F29 6, F14 3, F36 3) on top of the ten rules; not
+  measured on the corpus or at the second spacing, so left out.
+- *small (a) left* (10): F34-out-mbit-set1_mw_cl_bw_d16-d-k1-pE-w0 t+103 / -dir-d-k1 (6: the 0F memory read a
+  clock later in the RTL), F34-out-mbit-set1_mw_cl_bw_d8-nop-k1-pE-w1 t+96 (2), F25-out-ldea-bw_ix-k2-pE-w1 t+92
+  (2: the RTL's aborted cycle where the model fetches). Open, not examined.
+- (b) also 8 F32 set1_mw_cl d16 (R2's page_run beside the 0F read) and 2 F34 mbit: as R2 recorded.
+
+**Gates.** `verilator --lint-only -Wall` clean in the four configurations, with `-DV35_QUEUE_A` (four) and with the
+ten R4 macros 0; the macros at 0 reproduce 08a2c58 run for run (F14 F19 F22 F23 F26 F30 F32 F34 F37, 8,970
+runs, every per-run line identical); `test_v35_struct`, `test_ucgen` (ucgen untouched: no row or decode
+attribute changed), `test_chain_lane`, `test_sst_rtl`, `test_rtl_vectors` OK; `sst.py --rtl --all` 2,849,080
+pass; `--regfile` F0..F33 69,099 and F34–F40 38,760 vectors 0 bad; `--fn` over the 28-family list 19,752
+vectors 0 bad; the whole refresh-off corpus 29,208 RTL-exact, identical run for run at `+v35_chk` and
+`+v35_ticks=2 +v35_chk`, chk silent, `--diag` silent, no run failing, write data 106,824 / 106,824.
+The classification at the end (classify2's reading; the hand-back's r4-misses-0 / r4-misses-1): (a) 833 → 32,
+(b) 624 → 624 (the composition moved: F21 / F26 down 10, F34 / F40 up 10 from runs whose first divergence
+moved past a recovered (a) clock), (c) 497 → 498.
+
+| Family | runs | fit 62 | 08a2c58 exact | (a) | (b) | (c) | R4 exact | (a) | (b) | (c) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 0 | 0 | 0 | 18 | 0 | 0 | 0 |
+| F0w | 20 | 20 | 20 | 0 | 0 | 0 | 20 | 0 | 0 | 0 |
+| F1 | 54 | 54 | 54 | 0 | 0 | 0 | 54 | 0 | 0 | 0 |
+| F2 | 120 | 120 | 120 | 0 | 0 | 0 | 120 | 0 | 0 | 0 |
+| F3 | 840 | 840 | 804 | 12 | 0 | 24 | 810 | 6 | 0 | 24 |
+| F4 | 456 | 456 | 452 | 0 | 0 | 4 | 452 | 0 | 0 | 4 |
+| F5 | 840 | 840 | 827 | 4 | 0 | 9 | 831 | 0 | 0 | 9 |
+| F6 | 576 | 576 | 558 | 0 | 0 | 18 | 558 | 0 | 0 | 18 |
+| F7 | 432 | 432 | 430 | 2 | 0 | 0 | 432 | 0 | 0 | 0 |
+| F9 | 408 | 408 | 379 | 0 | 25 | 4 | 379 | 0 | 25 | 4 |
+| F10 | 204 | 204 | 200 | 4 | 0 | 0 | 204 | 0 | 0 | 0 |
+| F11 | 132 | 132 | 124 | 0 | 0 | 8 | 124 | 0 | 0 | 8 |
+| F12 | 204 | 204 | 188 | 6 | 0 | 10 | 194 | 0 | 0 | 10 |
+| F14 | 732 | 732 | 713 | 7 | 3 | 9 | 720 | 0 | 3 | 9 |
+| F15 | 840 | 840 | 825 | 12 | 3 | 0 | 837 | 0 | 3 | 0 |
+| F16 | 1014 | 1014 | 970 | 24 | 20 | 0 | 990 | 4 | 20 | 0 |
+| F19 | 1290 | 1290 | 1232 | 20 | 14 | 24 | 1252 | 0 | 14 | 24 |
+| F20 | 3594 | 3594 | 3452 | 12 | 0 | 130 | 3464 | 0 | 0 | 130 |
+| F21 | 3576 | 3576 | 3546 | 12 | 2 | 16 | 3560 | 0 | 0 | 16 |
+| F22 | 1320 | 1314 | 1244 | 30 | 40 | 0 | 1274 | 0 | 40 | 0 |
+| F23 | 360 | 360 | 345 | 6 | 9 | 0 | 351 | 0 | 9 | 0 |
+| F24 | 912 | 902 | 902 | 0 | 0 | 0 | 902 | 0 | 0 | 0 |
+| F25 | 588 | 577 | 549 | 12 | 0 | 16 | 559 | 2 | 0 | 16 |
+| F26 | 906 | 906 | 851 | 38 | 8 | 9 | 897 | 0 | 0 | 9 |
+| F29 | 456 | 427 | 340 | 14 | 66 | 7 | 354 | 0 | 66 | 7 |
+| F30 | 1476 | 1467 | 1315 | 88 | 30 | 34 | 1403 | 0 | 30 | 34 |
+| F31 | 234 | 234 | 234 | 0 | 0 | 0 | 234 | 0 | 0 | 0 |
+| F32 | 858 | 846 | 660 | 124 | 62 | 0 | 784 | 0 | 62 | 0 |
+| F33 | 1050 | 1026 | 946 | 2 | 0 | 78 | 948 | 0 | 0 | 78 |
+| F34 | 1596 | 1547 | 1212 | 228 | 92 | 15 | 1428 | 8 | 96 | 15 |
+| F35 | 1044 | 1038 | 891 | 18 | 72 | 57 | 909 | 0 | 72 | 57 |
+| F36 | 750 | 750 | 744 | 0 | 3 | 3 | 744 | 0 | 3 | 3 |
+| F37 | 432 | 432 | 348 | 18 | 66 | 0 | 366 | 0 | 66 | 0 |
+| F38 | 864 | 864 | 864 | 0 | 0 | 0 | 864 | 0 | 0 | 0 |
+| F39 | 1320 | 1318 | 1176 | 75 | 65 | 2 | 1251 | 0 | 65 | 2 |
+| F40 | 1020 | 1003 | 874 | 65 | 44 | 20 | 920 | 12 | 50 | 21 |
+| all | 30536 | 30361 | 28407 | 833 | 624 | 497 | 29207 | 32 | 624 | 498 |
+
+
+Timing guidance: new registers `nmb` (arbiter, ce_b copy `nmb_b`, ce_a), `rz_v` / `rz_cnt` and `xo` / `xo_s`
+(the sequencer's windows, ce_a from tick-B facts, read in tick A); the arbiter's choice tree gains an AND
+of the record's `lup_p` (PTHRU) and an OR term of the record's `ghp` (GIOD), the bus unit's sample input
+an AND of `nm` and three strobes it already had (NMB); the start gate's io_b2b compare takes a constant 3
+or 4 on `fetch_end_prev` (IOST); count_latch's and the lapse's sums gain a one-bit term (CLAT, LAPS); the
+deferred owed count an increment in tick B (DASK); the decide row a 2:1 mux from registers (XNT). No
+comparator against a count is added to the arbiter. `+v35_adbg=FILE` (the arbiter's slot and choice) and
+`+v35_sdbg=FILE` (the take sync and the suspend windows) are bring-up prints under `ifndef SYNTHESIS`.
+
 ## Divergences (behaviour not expressed in the structure)
 
 (Q1) The queue's divergences from the fit (the features it no longer carries and where they

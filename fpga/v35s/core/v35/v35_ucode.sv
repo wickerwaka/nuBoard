@@ -358,11 +358,20 @@ module v35_ucode
     // count_latch, from the EU's side: a register shift's count byte taken on a word's delivery
     // clock (its take step's end pops the port: the word's second byte waits) with the queue
     // holding more than a word's room short after the clock's pops
+    // ((R4) count_latch's room: with operand bytes still to take after the clock the delivered
+    // word's second byte, latched by the take, stays uncounted: the model's room less the latched
+    // byte only when the form has taken its last byte)
     wire        shift_latch = cnt_take && arrived_now
-                              && stored_l + (inflight_c ? 4'd2 : 4'd0) > 4'(QUEUE_BYTES - 2);
+                              && stored_l - ((`V35_R4_CLAT && need_l != 3'd0) ? 4'd1 : 4'd0)
+                                 + (inflight_c ? 4'd2 : 4'd0) > 4'(QUEUE_BYTES - 2);
     wire        want_c = 1'b0, io_unit_drop = 1'b0, g_abort_lat = 1'b0;
-    wire        dec_inf = fetch_inflight;
-    wire [3:0]  dec_since = fetch_since;
+    // (R4) xfer_nt=odd's decide (eu decide step, odd_nt): the test does not wait for the
+    // fetches its own release raised (issued on or after odd_until), only for those before it:
+    // `xo` the transfer's own fetch issued, `xo_s` the clocks since the older fetch's end
+    reg         xo = 1'b0;
+    reg  [3:0]  xo_s = 4'd0;
+    wire        dec_inf = fetch_inflight && !xo;
+    wire [3:0]  dec_since = xo ? xo_s : fetch_since;
     reg         rqo = 1'b0;             // the request line was up at the last clock, no fetch
     reg         rfl = 1'b0;             // (R1) the request line at the last clock (refill_start)
     wire        rq_old_c = rqo;
@@ -1995,7 +2004,10 @@ module v35_ucode
         if (f.mem && f.modrm_op && f.immb != 2'd0 && !is_p && bus_free && !infl && fetch_end_prev
             && stored <= 4'(V35_IO_B2B_Q) && room_c0 >= 5'sd2)
             ok = 1'b0;
-        if (Q1_START_SYNC && !f.modrm_op && b2b_now && stored < 4'(V35_IO_B2B_Q))
+        // ((R4) on the delivery clock the arriving word's second byte waits in the write port's
+        // latch for the clock (word_latch=byte_d): not yet a stored byte for the count)
+        if (Q1_START_SYNC && !f.modrm_op && b2b_now
+            && stored < 4'(V35_IO_B2B_Q) + ((`V35_R4_IOST && fetch_end_prev) ? 4'd1 : 4'd0))
             ok = 1'b0;                  // io_b2b=all
         return ok;
     endfunction
@@ -2325,7 +2337,10 @@ module v35_ucode
 
         // (B) the take sync (once a form runs): owed fetches not delivered, unless the
         // request lapsed
-        t_lapse = !inflight_c && !abort_busy && room_c < 5'sd2;
+        // ((R4) on a word's delivery clock its second byte is in the write port's latch for
+        // the clock (word_latch=byte_d): no stored byte for the lapse's room)
+        t_lapse = !inflight_c && !abort_busy
+                  && room_c + ((`V35_R4_LAPS && arrived_now) ? 5'sd1 : 5'sd0) < 5'sd2;
         owed_t = sync_def ? (inflight_c ? 2'd1 : 2'd0) + (asked_d ? 2'd1 : 2'd0) : owed_c;
         // abort_reg: a register shift by a count byte or 1, multiply or divide started on an
         // aborted cycle runs its exec from that cycle's last clock (the one fetch it owed)
@@ -2979,7 +2994,11 @@ module v35_ucode
                        : (xp.syn && !xp.def) ? owed_pk
                        : xt_b.mrs ? mro_c_b
                        : (xt_b.syn && (!xt_b.def || cl_hold)) ? owed_tk
-                       : ask_d_b ? owed_t_b : owed_c_b;
+                       : ask_d_b ? owed_t_b + ((`V35_R4_DASK && asked_p && owed_t_b != 2'd3) ? 2'd1
+                                                                                         : 2'd0)
+                       : owed_c_b;
+    // ((R4) imm_landed's deferred count: the request the line shows on the clock after the take
+    // (queue.asked there) is owed too: the line at this clock's tick A end, before its grant)
     // (S5b) page_imm_sync: mr_sync, the fetches in flight or asked for at the ModR/M take
     wire [1:0]  mro_n = xp.mrset ? (inflight_x_b ? 2'd1 : 2'd0) + (asked_p ? 2'd1 : 2'd0)
                       : xt_b.mrset ? (inflight_c_b ? 2'd1 : 2'd0) + (asked_t ? 2'd1 : 2'd0)
@@ -3407,6 +3426,20 @@ module v35_ucode
     /* verilator lint_on BLKSEQ */
     /* verilator lint_on UNUSEDSIGNAL */
     /* verilator lint_on WIDTHTRUNC */
+    // (R4) +v35_sdbg=FILE: the take sync per clock (bring-up only)
+    integer sdbg = 0, sdbg_t = 0;
+    string sdbg_n;
+    initial if ($value$plusargs("v35_sdbg=%s", sdbg_n)) sdbg = $fopen(sdbg_n, "w");
+    always @(posedge clock) begin
+        if (sdbg != 0 && ce_a && reset_n) begin
+            $fdisplay(sdbg, "s %0d sv%0d sd%0d owed%0d->%0d tsyn%0d tdef%0d psyn%0d pdef%0d at%0d ap%0d ic%0d ix%0d clh%0d tpcs%0d ppcs%0d tmrs%0d pmrs%0d askd%0d sdc%0d sdp%0d gio%0d | su sth%0d fh%0d odd%0d th%0d nop%0d io%0d sh%0d dr%0d drx%0d drl%0d",
+                      sdbg_t, sync_v, sync_def, owed, owed_n, xt_b.syn, xt_b.def, xp.syn, xp.def,
+                      asked_t, asked_p, inflight_c_b, inflight_x_b, cl_hold, xt_b.pcs, xp.pcs,
+                      xt_b.mrs, xp.mrs, ask_d_b, slot_det_c_b, slot_det_p_b, g_io_b,
+                      sth_act, fh_act, odd_act, th_act, nop_act, io_act, sh_act, dr_act, dr_xfer, dr_loop);
+            sdbg_t <= sdbg_t + 1;
+        end
+    end
     // +v35_dbg=FILE: the sequencer's state per clock (bring-up only)
     integer dbg = 0;
     reg [31:0] dbg_t = 32'd0;
@@ -3510,6 +3543,11 @@ module v35_ucode
     reg        sh_held = 1'b0, sh_v = 1'b0;
     reg        dr_v = 1'b0, dr_loop = 1'b0, rt_v = 1'b0;
     reg        dr_xfer = 1'b0;        // (Q2) the window is a transfer's (xfer_abort=word)
+    // (R4) str_raise (str_fetch=hold, CW = 0): the REL_RAISE row's countdown to the exit clock
+    // that raises the aborted start's request again (rz_cnt: clocks left, rz_v: armed)
+    reg        rz_v = 1'b0;
+    reg [3:0]  rz_cnt = 4'd0;
+    wire       rz_fire = `V35_R4_SRZ && rz_v && rz_cnt == 4'd0;
     reg [8:0]  rt_cnt = 9'd0;
     reg [8:0]  sh_cnt = 9'd0;
     // tick A: the windows as the T pass leaves them
@@ -3531,7 +3569,7 @@ module v35_ucode
     // (Q2) xfer_abort=word: a transfer's aborted fetch raises its request again at the
     // aborted cycle's end (no data cycle of its own follows); a flush lifts the window too
     wire       dr_end = (cpu_end && !dr_loop) || rt_fire || rt_now
-                        || (`V35_Q2_TRI && (t_flush || (dr_xfer && abort_done)));
+                        || (`V35_Q2_TRI && (t_flush || (dr_xfer && abort_done))) || rz_fire;
     wire       dr_act = dr_v && !dr_end;
     assign susp = sth_act || fh_act || odd_act || th_act || nop_act || io_act || sh_act || dr_act;
     // (S7b) the ce_b registers
@@ -3580,6 +3618,8 @@ module v35_ucode
             fhold <= 6'd0;
             fh_v <= 1'b0;
             fh_cnt <= 5'd0;
+            xo <= 1'b0;
+            xo_s <= 4'd0;
             ox_v <= 1'b0;
             ox_fed <= 1'b0;
             ox_nt <= 1'b0;
@@ -3600,7 +3640,17 @@ module v35_ucode
             dr_xfer <= 1'b0;
             rt_v <= 1'b0;
             rt_cnt <= 9'd0;
+            rz_v <= 1'b0;
+            rz_cnt <= 4'd0;
         end else if (ce_a) begin
+            // (R4) str_raise: armed by the REL_RAISE row (tick B), fires rs_n clocks after it
+            if (rs_set) begin
+                rz_v <= rs_n != 4'd0;
+                rz_cnt <= rs_n - 4'd1;
+            end else if (rz_fire || st_now)
+                rz_v <= 1'b0;
+            else if (rz_v)
+                rz_cnt <= rz_cnt - 4'd1;
             // io_take=unit's drop and the count loop's retry_at
             if (io_drop) begin
                 dr_v <= 1'b1;
@@ -3612,7 +3662,9 @@ module v35_ucode
                 dr_v <= 1'b1;
                 dr_loop <= fmt_c_b.unit_reg || (fmt_c_b.unit_mem && (fmt_c_b.xop == V35_XOP_MUL
                                                   || fmt_c_b.xop == V35_XOP_DIV || fmt_c_b.xop == V35_XOP_MULI));
-                dr_xfer <= fmt_c_b.cls == V35_CLS_BRANCH_SHORT || fmt_c_b.cls == V35_CLS_BRANCH_NEAR
+                // ((R4) xfer_abort=word's transfers are the base classes: the format's xfer bit,
+                // which also names BRK, a call by base class)
+                dr_xfer <= (`V35_R4_DRX && fmt_c_b.xfer) || fmt_c_b.cls == V35_CLS_BRANCH_SHORT || fmt_c_b.cls == V35_CLS_BRANCH_NEAR
                            || fmt_c_b.cls == V35_CLS_DBNZ || fmt_c_b.cls == V35_CLS_DBNZ_Z
                            || fmt_c_b.cls == V35_CLS_CALL || fmt_c_b.cls == V35_CLS_RET;
             end else if (dr_end_b)
@@ -3648,6 +3700,7 @@ module v35_ucode
                 ox_v <= 1'b0;
                 ox_nt <= 1'b0;
                 ou_v <= 1'b0;
+                xo <= 1'b0;
             end else begin
                 if (fh_set) begin
                     fh_v <= 1'b1;
@@ -3676,6 +3729,14 @@ module v35_ucode
                     ou_cnt <= ou_n == 3'd0 ? 3'd0 : ou_n - 3'd1;
                 end else if (ou_v && ou_cnt != 3'd0)
                     ou_cnt <= ou_cnt - 3'd1;
+                // (R4) the not-taken transfer's own fetch: issued at or after odd_until
+                if (xs_start)
+                    xo <= 1'b0;
+                else if (`V35_R4_XNT && ox_nt && ou_v && ou_cnt == 3'd0 && g_fetch_b && !xo) begin
+                    xo <= 1'b1;
+                    xo_s <= fetch_since == 4'd15 ? 4'd15 : fetch_since + 4'd1;
+                end else if (xo && xo_s != 4'd15)
+                    xo_s <= xo_s + 4'd1;
             end
             // the take hold
             if (th_lift_p || (th_lift_t_b && !th_arm_p)) begin
@@ -3707,7 +3768,7 @@ module v35_ucode
     // the strobes the windows leave unread (the old queue's retries, the seventh slot, the
     // one-shot commitments, the latch): not built
     wire susp_unused = &{1'b0, xk_c, xk_t, xk_p, lea_xk_c, lea_xk_t, lea_xk_p, ntb_ok, xfer_x,
-                         rs_set, rs_n, ask_d, ask_t, ask_p,
+                         ask_d, ask_t, ask_p,
                          imm16_c, imm16_t, imm16_p, abort_loop, fl_c,
                          fl_t, fl_p, fl_end_t, fl_end_t2, fl_end_p, pgb2b_e, res0_e, unit_md,
                          pcl_x, pcl_fs, ea_act_c, disp_p, th_c};

@@ -188,7 +188,7 @@ module v35_top
     wire [15:0] b_done_data;
     // arbiter (S4)
     wire        g_start, g_fetch, g_eu, g_abort, g_b2b, retick;
-    wire        g_slot, eu_issue, g_ext, own_done_p, own_dlv, a_mem_wait;
+    wire        g_slot, eu_issue, g_ext, own_done_p, own_dlv, a_mem_wait, a_b2b_hold;
     wire        own_two, post_ok_c, post_ok_p, slot_memw_c, dwq_c, dws_c;
     wire [1:0]  own_pos;
     wire [3:0]  a_why;
@@ -296,7 +296,7 @@ module v35_top
         .g_disp_in_flight(1'b0), .g_ir_before(ir_v_p && !t_flush_b), .g_take_near(1'b0), .g_abort,
         .g_slot, .g_wl_io, .g_dsel, .wd_imm, .disp_take(disp_t),
         .take_t(t_k != 2'd0), .take_p(p_k), .flush_now(t_flush), .start_any, .wl_fill_t, .wl_fill_p,
-        .fetch_req(q_fetch_req), .b2b_now(b_b2b_now), .b2b_hold(a_mem_wait),
+        .fetch_req(q_fetch_req), .b2b_now(b_b2b_now), .b2b_hold(a_b2b_hold),
         .busy(b_busy), .free(b_free), .cur_kind(b_cur_kind), .cur_pos(b_cur_pos),
         .cur_left(b_cur_left), .cur_on_start(b_cur_on_start), .in_wait(b_in_wait),
         .fetch_inflight(b_fetch_inflight), .fetch_past_b2(b_fetch_past_b2),
@@ -447,7 +447,7 @@ module v35_top
         .cur_b2b_pfa(b_cur_b2b_pfa), .cur_thru(b_cur_thru), .prev_imm(b_prev_imm), .bcd_idle,
         .g_thru, .g_pfa, .slot_pf_e,
         .g_start, .g_kind, .g_addr, .g_width, .g_data, .g_fetch, .g_eu, .g_slot,
-        .g_abort, .g_b2b, .retick, .eu_issue, .g_ext, .mem_wait_o(a_mem_wait),
+        .g_abort, .g_b2b, .retick, .eu_issue, .g_ext, .mem_wait_o(a_mem_wait), .b2b_hold_o(a_b2b_hold),
         .g_dsel,
         .disp_ext, .slot_wait_c, .slot_wait_p, .slot_det_c, .slot_det_p, .post_ok_c,
         .post_ok_p, .slot_memw_c, .dwq_c, .dws_c, .own_issued, .own_done, .own_done_p,

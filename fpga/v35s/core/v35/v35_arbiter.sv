@@ -157,6 +157,7 @@ module v35_arbiter
     output wire        g_abort,
     output wire        g_b2b,
     output wire        mem_wait_o,      // (Q1) a memory request waits unissued in the slot (S4)
+    output wire        b2b_hold_o,      // (R4) ... and the bus unit's back-to-back sample is held by it
     output wire        retick,          // the EU's second pass (S5): a detached I/O, or the own
                                         // I/O write, issued (done_at == t)
     output wire        eu_issue,        // an EU cycle issued (ir_load=disp_data's release)
@@ -401,13 +402,18 @@ module v35_arbiter
     // next changes (a delivery, an operand take, an IR load): no fetch wanted on that view and
     // the line seen to rise at the change (lup)
     reg  nm = 1'b0, nm_next_b = 1'b0;
+    // (R4) the bus unit's back-to-back sample at the last clock was taken beside a waiting memory
+    // request that NMB let through (the sample `b2b_now` carries on this clock)
+    reg  nmb = 1'b0, nmb_b = 1'b0;
     wire nm_c = `V35_R1_NOMEM && nm && !(fetch_end_prev || take_now || l_pop);
     wire fw0 = fetch_req && !halted && !nm_c;
     wire recovering = pending && !s_io && io_win;
     // free_run=run: a request counting its fetch-free clocks lets the delivery-clock fetch run
     // (its free clocks count through it; call_far_post=take: they start again after it)
     wire free_run = pending && !s_io && b0.fn_v && {1'b0, count_x} > {1'b0, b0.d.setup} - 8'(b0.fn)
-                    && fetch_end_prev && !b2b_now;   // (Q1: a request not standing since the last clock)
+                    && fetch_end_prev && !(b2b_now && !nmb);   // (Q1: a request not standing since the last clock)
+                    // ((R4) a commitment made beside a memory request posted in the fetch's flight
+                    // (NMB, `nmb`): the request stood since the issue, as the model's undated one)
     wire frun = free_run && fw0;
     wire [6:0] fr_lo = b0.d.setup - 7'(b0.fn);
     wire [6:0] count_r = (frun && b0.d.restart && count_x > fr_lo) ? fr_lo : count_x;
@@ -459,7 +465,10 @@ module v35_arbiter
     // (S5b) page_cl=thru: a fetch wanted while the 0F read waits (not committed back to back)
     // waits out the read's fetch-free clocks (fsetup), then runs inside its CL clocks (thru)
     // ((Q1) the request undated: the d16 take's ask and the post / take order not built)
-    wire pth_cand = pending && b0.d.pfv && b0.d.pth != 2'd0 && fw6 && !b2b_now;
+    // (R4) the post / request order: the request record's post sample (lup_p: the line up at
+    // the post and standing since) is a fetch requested no later than the post, not thru
+    wire pth_cand = pending && b0.d.pfv && b0.d.pth != 2'd0 && fw6 && !b2b_now
+                    && !(`V35_R4_PTHRU && b0.lup_p);
     wire pth_hold = pth_cand && count_r <= b0.d.setup - 7'(b0.d.pth);
     wire thru = pth_cand && !pth_hold;
     wire fw6b = fw6 && !pth_hold;
@@ -511,8 +520,11 @@ module v35_arbiter
     wire rs_now = issuable && !b0.rs;
     // (R1) free_hold=delivery: the fetch free_hold held dates from the clock its hold ends
     // (fh_date): it beats a request that became issuable on that clock
+    // (R4) grp_io_hold's dating: the fetch grp_io_hold held at t-1 (the record's `ghp`) dates
+    // from the clock the hold ends: it beats a request that became issuable on that clock
+    wire gio_date = `V35_R4_GIOD && pending && b0.ghp && !gio_hold && fw0;
     wire fetch_first = !imm1_go && (b2b_now || (rs_now && fetch_req && (!lup
-                                                 || (`V35_R1_FHDATE && fh_date))));
+                                                 || (`V35_R1_FHDATE && fh_date) || gio_date)));
     wire take_slot = free && (second || (issuable && !(fetch_want && fetch_first)));
     wire nw_go = take_slot && !second && b0.d.nowrite;
     wire eu_go = take_slot && !nw_go;
@@ -545,6 +557,12 @@ module v35_arbiter
     wire pr_next = t_start ? 1'b0 : (pr_used || (b2b_now && pg_act_x));
     wire pr_free = `V35_R1_PGRUN && pg_act_x && !pr_used && !t_start;
     assign mem_wait_o = mem_wait && !eu_go && !nw_go && !pr_free;
+    // (R4) request_reissue=no_mem at the issue: the waiting memory request holds the bus unit's
+    // back-to-back sample only when it waited at the fetch's issue (the line not re-sampled
+    // there, `nm`) and the queue has not changed since; one posted during the fetch's flight
+    // leaves the commitment to the line
+    wire   nm_v = nm && !(fetch_end_prev || take_now || l_pop);
+    assign b2b_hold_o = mem_wait_o && !(`V35_R4_NMB && !nm_v);
     wire [19:0] s_addr = raddr(b0);
     wire [15:0] s_data = rdata(b0);
     wire        eu_last = second || !s_two;          // the request's last cycle issues
@@ -715,6 +733,7 @@ module v35_arbiter
             own_c0_b <= own_c0;
             lup_b <= fetch_req && !g_fetch && !abort_go && !nm_c;
             nm_next_b <= (g_fetch && mem_wait) || nm_c;
+            nmb_b <= `V35_R4_NMB && mem_wait_o && !b2b_hold_o;
             ea_live_b <= ea_live;
             ea_lo_b <= ea_lo;
         end
@@ -785,7 +804,9 @@ module v35_arbiter
             lup <= 1'b0;
             pr_used <= 1'b0;
             nm <= 1'b0;
+            nmb <= 1'b0;
         end else if (ce_a) begin
+            nmb <= nmb_b;
             pr_used <= pr_next_b;
             nm <= nm_next_b;
             r0 <= tick(e0);
@@ -862,6 +883,22 @@ module v35_arbiter
     /* verilator lint_on BLKSEQ */
 `endif
     // (S7b) chk end
+`ifndef SYNTHESIS
+    // (R4) +v35_adbg=FILE: the slot's request and the choice per clock (bring-up)
+    integer adbg = 0, adbg_t = 0;
+    string adbg_n;
+    initial if ($value$plusargs("v35_adbg=%s", adbg_n)) adbg = $fopen(adbg_n, "w");
+    always @(posedge clock) begin
+        if (adbg != 0 && reset_n && ce_a) begin
+            $fdisplay(adbg, "a %0d v%0d pd%0d k%0d cnt%0d->%0d su%0d pfv%0d prw%0d pfb%0d prw%0d busy%0d ck%0d cb2b%0d iw%0d rdy%0d iss%0d rec%0d nb%0d hx%0d fw%0d ff%0d eu%0d fg%0d ab%0d b2b%0d lup%0d req%0d ql%0d qw%0d why%0d",
+                      adbg_t, b0.v, pending, b0.d.kind, b0.count, count_x, b0.d.setup, b0.d.pfv, b0.d.prw,
+                      pf_blk, pf_rw, busy, cur_kind, cur_b2b_pfa, in_wait, ready_x, issuable, recovering,
+                      b0.nb, holding_x, fetch_want, fetch_first, eu_go, fetch_go, abort_go, b2b_now, lup,
+                      fetch_req, q_low, q_word, why_o);
+            adbg_t <= adbg_t + 1;
+        end
+    end
+`endif
 
     wire unused = &{1'b0, ce_b, b0_b, fetch_first, r0.d.lead, cur_io};
 endmodule

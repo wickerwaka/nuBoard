@@ -1213,3 +1213,52 @@ question, decided from S8's routed numbers with the user.
   levels from the slot request's valid bit (the arbiter's choice tree is a long chain and the next timing target
   after the sequencer); v35_loader did not time: the wrapper's post-synthesis netlist was empty ("all logic is
   eliminated"), to be looked at with the wrapper.
+- 2026-11-08, **R4 landed — the remaining EU misses and the bus-unit holds** (an Opus agent in a worktree from
+  08a2c58, about five hours of rule work; README "R4"). The target was class (a) of the corrected classifier (833
+  runs whose first divergence is an EU event) and the class-(b) holds where the request line is the same on both
+  sides (624). The (a) misses were re-read against the frozen model instrumented at the first divergent clock (the
+  model's request record per clock, the line of `EU._start` that held a start, every EU attribute assignment with
+  its source line). **Ten rules,** each behind a macro in v35_macros.svh (default 1), none touching v35_queue.sv,
+  no request dated, no input naming a form to the queue or the bus unit, measured alone on their families then
+  cumulatively on the corpus with no run lost at any step: (1) `V35_R4_PTHRU` page_cl=thru's order: a fetch runs
+  inside a CL-index 0F read's CL clocks only when requested after the read's post; the record's existing post
+  sample `lup_p` is "requested no later than the post", so such a fetch is an ordinary one that restarts the
+  fetch-free count (+250 alone, F32 F34 F39 F40: the `I` shape, the read issued two clocks early); (2)
+  `V35_R4_NMB` request_reissue=no_mem decided at the fetch's issue: the waiting memory request holds the bus
+  unit's back-to-back sample only when it already waited at the issue (the arbiter's `nm`, a new output
+  `b2b_hold_o`) and free_run does not count a commitment NMB let through (one register `nmb`), +90 (stores in
+  F22 F21 F19 F26 F29 F5, transfers in F39 F40); (3) `V35_R4_IOST` io_b2b's stored count leaves out the arriving
+  word's second byte on its delivery clock (word_latch=byte_d), +44; (4) `V35_R4_CLAT` count_latch's room
+  subtracts the latched byte only when the form has no operand bytes left (the loader's `need_l`), +98, the
+  `susp` shape's shifts and bit forms; (5) `V35_R4_SRZ` str_raise: the ROM's REL_RAISE row attribute, unread since
+  S5a, ends the aborted start's drop window `rs_n` clocks into the exit (a 4-bit countdown), +21 (F30 CW = 0
+  strings); (6) `V35_R4_DASK` imm_landed's deferred take sync also counts the line on the clock after the take
+  (`fetch_req` at tick A's end, before the grant), +50; (7) `V35_R4_LAPS` the take sync's lapse counts the
+  delivered word's latched byte as room, +120 (the start a clock early after a 0F register bit form, F34 F39
+  F32); (8) `V35_R4_DRX` xfer_abort=word's retry by the format's `xfer` bit (BRK is a call by base class), +18
+  (F37); (9) `V35_R4_XNT` xfer_nt=odd's decide waits only for the fetches issued before the odd hold's lift, not
+  the one its release raised (`xo` / `xo_s`), +24 (F23 F30 F35); (10) `V35_R4_GIOD` grp_io_hold's dating through
+  the record's existing `ghp`, as R1's free_hold dating, +6 (F14 F15). Cumulative steps: PTHRU + NMB 28,748, +
+  IOST 28,792, + CLAT + SRZ 28,911, + DASK + LAPS 29,083, + DRX + XNT + GIOD 29,208; the rules alone sum to +721,
+  79 runs need two or more together. **New state:** `nmb` (arbiter, with its ce_b copy), `rz_v` / `rz_cnt` and
+  `xo` / `xo_s` (sequencer, ce_a registers written from tick-B facts); the arbiter's choice tree gains an AND of
+  `lup_p` and an OR of `ghp`, no comparator against a count. Two bring-up prints under `ifndef SYNTHESIS`
+  (`+v35_adbg=FILE` the slot and choice per clock, `+v35_sdbg=FILE` the take sync and suspend windows).
+  **Findings:** the start holds' counts before the start are equal on every example (R1's "counts differ" came
+  from the RTL's trace field after its own start); the `susp` shape is not the latched byte (R3's `lat_v` is not
+  needed for it); the (b) holds all need a queue count or an EU-step input the rules forbid and are recorded with
+  examples: xfer_nt_b2b / page_b2b one-shot commitments (332, free ≥ 1 and an empty latch; xfer_nt_b2b also the
+  DECIDE strobe), grp_disp's take-clock room after the reads (138), grp_disp's read against a fetch no older than
+  the read (36; a `gr_hold && !lup_p` form scored +30 / −30, the losses raised on the post clock itself),
+  latch_hold (102, `lat_v` at the arbiter), grp_io_hold's order (6; a one-bit sample of the line at the I/O issue
+  scored +12 / 0 on ten families but was not run on the corpus and is not landed), latch_start (22 (a), the latch
+  draining that clock), ten small (a) runs unexamined (F34 mbit d16 / d8, F25 LDEA). **Classification after:** (a)
+  833 → 32, (b) 624 → 624 (F21 and F26 down 10, F34 and F40 up 10, first divergences moved past a recovered
+  clock), (c) 497 → 498. **Gate, rerun on main:** whole corpus 29,208 / 30,361 RTL-exact (from 28,408) at both
+  spacings, per-family tables identical, 0 failing, `+v35_chk` silent, 24 families up and none lower (F34 1,212 →
+  1,428, F32 660 → 784, F30 1,316 → 1,404, F39 1,176 → 1,251, F40 874 → 920, F26 851 → 897, F22 1,244 → 1,274, F16
+  970 → 990, F19 1,232 → 1,252, F37 348 → 366, F35 891 → 909, ...); write data 106,824 / 106,824 at both; SST
+  2,849,080 / 0; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn` 19,752 / 0 bad; lint clean in five
+  configurations (the agent: eight, and with the ten macros at 0); 35 fast tests; the nine offline modules
+  unchanged. With the ten macros at 0 the build reproduces 08a2c58 run for run on F14 F19 F22 F23 F26 F30 F32 F34
+  F37 (8,970 runs). The user asked for a pause after this package; no R5 is launched.

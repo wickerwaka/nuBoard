@@ -100,5 +100,59 @@
 `ifndef V35_R3_ALAT
 `define V35_R3_ALAT 1'b1
 `endif
+// (R4) the remaining EU misses and the bus-unit holds (README "R4"); 1: built, 0: the 08a2c58 core
+//   V35_R4_PTHRU   page_cl=thru's order: a fetch runs in a 0F CL-index read's CL clocks only when
+//                  the line rose after the read's post (the request record's post sample `lup_p`
+//                  down); a request standing at the post is an ordinary fetch that restarts the
+//                  read's fetch-free count
+`ifndef V35_R4_PTHRU
+`define V35_R4_PTHRU 1'b1
+`endif
+//   V35_R4_NMB     request_reissue=no_mem at the issue: a memory request waiting in the slot holds
+//                  the bus unit's back-to-back sample only if it waited at the fetch's issue and
+//                  the queue has not changed since (the arbiter's `nm`)
+`ifndef V35_R4_NMB
+`define V35_R4_NMB 1'b1
+`endif
+//   V35_R4_IOST    io_b2b's shallow queue: on the delivery clock (a fetch ended on t-1) the arriving
+//                  word's second byte is in the write port's latch for the clock, not a stored byte
+`ifndef V35_R4_IOST
+`define V35_R4_IOST 1'b1
+`endif
+//   V35_R4_CLAT    count_latch's room: a count-byte shift's take on a delivery clock with operand
+//                  bytes still to take leaves the word's latched second byte uncounted
+`ifndef V35_R4_CLAT
+`define V35_R4_CLAT 1'b1
+`endif
+//   V35_R4_SRZ     str_raise (str_fetch=hold, CW = 0): the REL_RAISE row's clock count ends the
+//                  aborted start's drop window in the exit (the request raised again there)
+`ifndef V35_R4_SRZ
+`define V35_R4_SRZ 1'b1
+`endif
+//   V35_R4_DASK    imm_landed's deferred take sync counts the request the line shows on the clock
+//                  after the take (queue.asked there), not only the fetch in flight
+`ifndef V35_R4_DASK
+`define V35_R4_DASK 1'b1
+`endif
+//   V35_R4_LAPS    the take sync's lapse (no room for a word, nothing in flight): on a word's
+//                  delivery clock its second byte, in the write port's latch, is room
+`ifndef V35_R4_LAPS
+`define V35_R4_LAPS 1'b1
+`endif
+//   V35_R4_DRX     xfer_abort=word's retry at the aborted cycle's end for every transfer by base
+//                  class (the format's xfer bit: BRK is a call), not only the listed classes
+`ifndef V35_R4_DRX
+`define V35_R4_DRX 1'b1
+`endif
+//   V35_R4_XNT     xfer_nt=odd's decide: a not-taken transfer's test waits only for the fetches
+//                  issued before its odd hold's lift (odd_until), not for the one its release raised
+`ifndef V35_R4_XNT
+`define V35_R4_XNT 1'b1
+`endif
+//   V35_R4_GIOD    grp_io_hold's dating: the fetch it held dates from the clock the hold ends and
+//                  goes before a group read that became issuable on that clock
+`ifndef V35_R4_GIOD
+`define V35_R4_GIOD 1'b1
+`endif
 
 `endif // V35_MACROS_SVH
