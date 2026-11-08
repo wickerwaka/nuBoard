@@ -437,7 +437,7 @@ module v35_top
         .halting, .halted, .wb_hold, .latch_wait, .gdisp_act,
         .ea_b2b_act(ea_act_x), .take_now, .ea_live, .ea_lo, .wd_live, .wd_rdy, .sidle,
         .fetch_req(q_fetch_req), .q_low, .q_word, .l_pop,
-        .b2b_now(b_b2b_now),
+        .b2b_now(b_b2b_now), .need_t(ld_need_t),
         .free(b_free), .busy(b_busy), .cur_io(b_busy && k_io(b_cur_kind)), .cur_kind(b_cur_kind), .mf_old,
         .fetch_inflight(b_fetch_inflight), .in_wait(b_in_wait),
         .fetch_end_prev(b_fetch_end_prev), .fetch_run_prev(b_fetch_run_prev),

@@ -321,7 +321,9 @@ module v35_ucode
     //                  (the EU stalls on the bytes it takes, the loader on `avail`)
     //   Q1_START_SYNC  start_sync=b2b_modrm (no start while a fetch is in flight, nor a ModR/M
     //                  form on a back-to-back fetch's clock) and io_b2b=all
-    //   Q1_REFILL      refill_start=full_io (a flush's refill before the next start)
+    //   Q1_REFILL      refill_start=full_io (a flush's refill before the next start): (R1) built,
+    //                  on the bus unit's fetch and the request line at the last clock (`rfl`);
+    //                  V35_R1_REFILL (v35_front_pkg.sv) turns it off
     // and these read constants: the latch (word_latch=byte_d: latch_start, count_latch, the
     // latched-byte cases of io_take=unit, port_landed, imm_landed), the retries (abort_fetch=
     // retry, abort_unit=loop, abort_latched), the room (the take sync's lapse, imm_start=wait).
@@ -329,7 +331,7 @@ module v35_ucode
     // line standing since the last clock (rq_old); the decide row the fetch on the bus.
     localparam bit Q1_TAKE_SYNC = 1'b1;
     localparam bit Q1_START_SYNC = 1'b1;
-    localparam bit Q1_REFILL = 1'b0;
+    localparam bit Q1_REFILL = `V35_R1_REFILL;
     // (Q1) variant B: a word delivered on this clock leaves its second byte in the queue's latch
     // when the clock pops (the EU's rules that read "the delivered word's second byte latched":
     // io_take=unit's drop, port_landed, imm_landed); variant A has no latch
@@ -356,6 +358,7 @@ module v35_ucode
     wire        dec_inf = fetch_inflight;
     wire [3:0]  dec_since = fetch_since;
     reg         rqo = 1'b0;             // the request line was up at the last clock, no fetch
+    reg         rfl = 1'b0;             // (R1) the request line at the last clock (refill_start)
     wire        rq_old_c = rqo;
     wire        rq_old_p = rqo && !g_fetch && !g_abort;
 
@@ -2138,7 +2141,10 @@ module v35_ucode
 
     // refill_start=full_io (eu._start): after a flush no start while a fetch is in flight or
     // wanted, nor an IN / OUT on a 3-clock fetch's delivery clock
-    wire        rfb_c = refill && (inflight_c || want_c
+    // (R1) "wanted" is the request line at the previous clock (rfl, registered at ce_a from
+    // the line tick B held): the start gate reads no count of this clock's reads
+    wire        rf_want = rfl;
+    wire        rfb_c = refill && (inflight_c || rf_want
                                    || (arrived_now && fetch_len == 3'd3
                                        && (fmt_c.xop == V35_XOP_IN || fmt_c.xop == V35_XOP_OUT)));
     // the template of the IR's form if it starts now (T: the IR; P: the IR after L)
@@ -2847,7 +2853,7 @@ module v35_ucode
     // arrives on the clock is such a form: its gate is held by the fetch that brings it)
     assign dec_miss = t_dec1_b || t_dec2_b || p_dec1 || p_dec2
                       || ((t_try1_b || t_try2_b) && ir_v_c_b && !ok_c_b && !(Q1_START_SYNC && fetch_inflight)
-                          && !(refill && (inflight_c_b || want_c)))
+                          && !(refill && (inflight_c_b || rf_want)))
                       || ((p_try1 || p_try2) && ir_v_l_b && !ok_l_b && !(refill && inflight_x_b));
     assign p_flush = xp.flush;
     assign voc_miss = p_end2 || p_e3 || t_fmiss || (t_ev1_b && x1_b.bad) || (t_ev2_b && x2_b.bad) || (t_ev3_b && x3_b.bad)
@@ -3056,6 +3062,7 @@ module v35_ucode
             oplen <= 3'd1;
             sync_v <= 1'b0;
             rqo <= 1'b0;
+            rfl <= 1'b0;
             sync_def <= 1'b0;
             owed <= 2'd0;
             held <= 1'b0;
@@ -3158,6 +3165,7 @@ module v35_ucode
             oplen <= p4.oplen;
             sync_v <= p4.sync_v;
             rqo <= fetch_req_b && !g_fetch_b && !g_abort_b;
+            rfl <= fetch_req_b;
             sync_def <= p4.sync_def && !cl_hold;
             owed <= owed_n;
             held <= p4.held;
@@ -3475,7 +3483,8 @@ module v35_ucode
     //                            line: to the next start or a fetch on the bus
     // Not built: str_raise, xfer_abort, abort_unit=loop, retry_first (raises, not holds: the
     // bus unit's aborted cycle), count_latch and latch_hold (the write-port latch: variant B),
-    // the one-shot commitments (page_b2b, page_run, xfer_nt_b2b, refill_start).
+    // the one-shot commitments (page_b2b, xfer_nt_b2b; (R1) page_run is the arbiter's pr_free,
+    // refill_start the start gate's rfb_c).
     reg        st_inf = 1'b0;
     reg [5:0]  fhold = 6'd0;
     reg        fh_v = 1'b0;

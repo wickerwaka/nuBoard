@@ -12,6 +12,37 @@
 `ifndef V35_Q2_TRI
 `define V35_Q2_TRI 1'b1
 `endif
+// (R1) the EU / microcode rules R1 recovers, one macro each (1: built; 0: the 541d91e core)
+//   V35_R1_REFILL  refill_start=full_io: after a flush no start while a fetch is on the bus or
+//                  the request line stands (the sequencer's Q1_REFILL)
+`ifndef V35_R1_REFILL
+`define V35_R1_REFILL 1'b1
+`endif
+//   V35_R1_PGRUN   page_run=field: a 0F memory form's waiting read does not hold the bus unit's
+//                  back-to-back sample, once per form (the arbiter's pr_used)
+`ifndef V35_R1_PGRUN
+`define V35_R1_PGRUN 1'b1
+`endif
+//   V35_R1_NEED    hold_count=ahead: the arbiter's hold_fetch=le_q subtracts the loader's operand
+//                  bytes still to take (need_t) from the bytes counted
+`ifndef V35_R1_NEED
+`define V35_R1_NEED 1'b1
+`endif
+//   V35_R1_IRH     ea_ir_room (ir_load=disp_data): the loader's staging byte is occupied while the
+//                  IR load is held for the form's data cycle and no operand byte is left
+`ifndef V35_R1_IRH
+`define V35_R1_IRH 1'b1
+`endif
+//   V35_R1_NOMEM   request_reissue=no_mem: the arbiter's view of the line stays down
+//                  after a fetch issued beside a waiting memory request until the queue changes
+`ifndef V35_R1_NOMEM
+`define V35_R1_NOMEM 1'b1
+`endif
+//   V35_R1_FHDATE  free_hold=delivery: the held fetch dates from the clock its hold ends, so it
+//                  goes before a request that became issuable then (the arbiter's fetch_first)
+`ifndef V35_R1_FHDATE
+`define V35_R1_FHDATE 1'b1
+`endif
 package v35_front_pkg;
 
     // ------------------------------------------------------------ bus cycle kinds and widths

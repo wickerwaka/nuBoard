@@ -1105,3 +1105,36 @@ question, decided from S8's routed numbers with the user.
   function gates, lint (nine configurations) and the 35 tests unmoved, so main stays 4f70754's core. The patch
   and per-run tables are in the scratchpad's v2/q3/. Still open: the 342 unrecovered aborts and the five
   abort_latched cases; Q1's (a) 2,725 EU / microcode and (b) 884 bus-sampling misses.
+- 2026-11-07, **R1 landed — six fitted rules the simple queue left behind, rebuilt as EU / bus-unit rules** (an
+  Opus agent in a worktree from 541d91e, about four and a half hours; README "R1"). The target was Q1's class (a):
+  the fitted rules the old queue applied through its situation ports. Re-classified on 541d91e with a rebuilt
+  classifier (the hand-back's classify.py; the RTL trace has no "nowrite" post kind, so a CMP / TEST memory form's
+  model `P:nowrite` against the RTL's `P:write` was a naming difference, 213 of Q1's 256 "P" misses): (a) 2,574,
+  (b) 1,135, (c) 1,742. **The rules,** each behind a macro in v35_front_pkg.sv (default 1), measured one at a time
+  on its families then cumulatively on the corpus, 0 runs lost at every step: (1) `V35_R1_REFILL`
+  refill_start=full_io, the start gate's hold after a flush while a fetch is on the bus or the line stood at the
+  last clock (`rfl`, one registered bit; `Q1_REFILL` now takes the macro), +1,143 (F35 378, F23 258, F39 168, F30
+  105, F40 100, F37 78, F34 56); (2) `V35_R1_PGRUN` page_run=field, the arbiter lets a waiting 0F read not hold the
+  back-to-back sample once per form (`pr_used`, one bit), +177; (3) `V35_R1_NEED` hold_count=ahead, the arbiter's
+  `hold_le` lapses whenever the line stands while the running form has operand bytes outstanding (the loader's
+  `need_t`, a new arbiter input; not for a `whole` request), +651; (4) `V35_R1_IRH` ea_ir_room under
+  ir_load=disp_data, the loader's `stg` counts the empty IR as occupied while its load is held for the form's data
+  cycle with no operand byte left, +418 (F21 302); (5) `V35_R1_NOMEM` request_reissue=no_mem, a fetch issued
+  beside a waiting memory request leaves the arbiter's view of the line down until the queue next changes (`nm`,
+  one bit), and (6) `V35_R1_FHDATE` free_hold=delivery's dating in `fetch_first` (`fh_date`), together +47. The
+  queue (v35_queue.sv) is untouched: no port, no state, no input naming a form; no opcode literal; ucgen untouched;
+  the three new bits have ce_b copies and `+v35_chk` is silent. The one clocking note: rule 3 adds `need_t` as one
+  AND term in the arbiter's fetch-hold tree. **Result:** (a) 2,574 → 762 (start holds 1,670 → 216, I / I+L 718 →
+  356, P 43, L+T / T 28 and the suspend kind 119 untouched). **Gaps recorded:** the suspend misses (119; F30 54,
+  F34 34, F16 20) are a (c) gap, a count-byte shift starting on a word's delivery clock where the model's room
+  counts the latched byte; the 0F read's setup count on an OUT's issue clock (I: F32 114, F34 72, F39 30, F40 30,
+  the arbiter's request record, open); starts beside a 4-clock fetch at w1 (F10 F12 F14 F15 F19 F20, a (c) gap:
+  the counts differ before the start); a start one clock early after a 0F register bit form (page_b2b, not built);
+  P 43, L+T 22, T 6, L+S+T on not-taken branches with the model's aborted cycle. **Gate, rerun on main:** whole
+  corpus 27,356 / 30,361 RTL-exact (from 24,920; RTL = model 27,415) at both spacings, per-family tables identical,
+  0 failing, `+v35_chk` silent, 22 families up and none lower (F21 2,893 → 3,384, F23 57 → 315, F35 396 → 792,
+  F39 853 → 1,054, F32 468 → 660, F34 998 → 1,169, F40 640 → 776, F37 132 → 246, F30 1,127 → 1,232, F22 1,072 →
+  1,166, ...); write data 106,824 / 106,824 at both; SST 2,849,080 / 0; `--regfile` 69,099 + 38,760 vectors 0 bad;
+  `--fn` 19,752 / 0 bad; lint clean in five configurations; 35 fast tests; the nine offline modules unchanged (941
+  tests, the four known failures). With the six macros at 0 the build reproduces 541d91e run for run on F21 F22 F23
+  F32 F35. Remaining: (a) 762, (b) 1,173, (c) 1,080 at the default spacing, the per-family table in the README.

@@ -114,6 +114,7 @@ module v35_arbiter
     input  wire        fetch_req,
     input  wire        q_low,
     input  wire        b2b_now,
+    input  wire [2:0]  need_t,          // (R1) the loader's operand bytes still to take (hold_count)
     // the bus (S0)
     input  wire        free,
     input  wire        busy,
@@ -394,7 +395,13 @@ module v35_arbiter
     wire holding_x = {1'b0, count_x} < {1'b0, b0.d.setup} - 8'(b0.d.lead);
 
     // ------------------------------------------------------------ S4: the choice (_choose)
-    wire fw0 = fetch_req && !halted;
+    // (R1) request_reissue=no_mem: a fetch issued while a memory request waits in the slot
+    // leaves the bus unit's view of the line down (no re-sample at the issue) until the queue
+    // next changes (a delivery, an operand take, an IR load): no fetch wanted on that view and
+    // the line seen to rise at the change (lup)
+    reg  nm = 1'b0, nm_next_b = 1'b0;
+    wire nm_c = `V35_R1_NOMEM && nm && !(fetch_end_prev || take_now || l_pop);
+    wire fw0 = fetch_req && !halted && !nm_c;
     wire recovering = pending && !s_io && io_win;
     // free_run=run: a request counting its fetch-free clocks lets the delivery-clock fetch run
     // (its free clocks count through it; call_far_post=take: they start again after it)
@@ -454,7 +461,11 @@ module v35_arbiter
     wire pg_act_x = pfs_x || (pending && b0.d.pfv);
     // hold_fetch=le_q (hold_count=ahead, whole), floor_hold, io_hold=posted_b2b
     // ((Q1) hold_fetch=le_q: the queue holds more than hold_q bytes)
-    wire hold_le = !q_low;
+    // (R1) hold_count=ahead: the bytes ahead of the running form (its operand bytes still to take,
+    // the loader's need_t, not subtracted for a `whole` request): with one or more outstanding
+    // the bytes counted less the need are within hold_q whenever the line stands (q_low, or
+    // the line up: at most hold_q + 1 counted)
+    wire hold_le = !q_low && !(`V35_R1_NEED && !b0.d.whole && need_t != 3'd0);
     wire hf_on = pending && (holding_x || recovering || (b0.fhold && !nb_ok)) && !free_run;
     // (S5b) page_run: a back-to-back fetch beside a waiting 0F read goes; page_cl=thru: a thru
     // fetch on a delivery clock, or requested on the last take's clock, or the take's ask
@@ -492,7 +503,10 @@ module v35_arbiter
     // _fetch_first: committed back to back, or the line rose on the clock the slot's request
     // became issuable (the bus unit's sample: `lup`)
     wire rs_now = issuable && !b0.rs;
-    wire fetch_first = !imm1_go && (b2b_now || (rs_now && fetch_req && !lup));
+    // (R1) free_hold=delivery: the fetch free_hold held dates from the clock its hold ends
+    // (fh_date): it beats a request that became issuable on that clock
+    wire fetch_first = !imm1_go && (b2b_now || (rs_now && fetch_req && (!lup
+                                                 || (`V35_R1_FHDATE && fh_date))));
     wire take_slot = free && (second || (issuable && !(fetch_want && fetch_first)));
     wire nw_go = take_slot && !second && b0.d.nowrite;
     wire eu_go = take_slot && !nw_go;
@@ -512,7 +526,13 @@ module v35_arbiter
     wire fetch_go = free && !take_slot && !abort_go && fetch_want;
     // the grant
     wire mem_wait = pending && !s_io;
-    assign mem_wait_o = mem_wait && !eu_go && !nw_go;
+    // (R1) page_run=field: while a 0F memory form runs with its read not issued (pg_act_x, the
+    // format's page bits), the bus unit's back-to-back sample is not held by the waiting read,
+    // once per form (pr_used: a commitment beside it made since the form's start)
+    reg  pr_used = 1'b0, pr_next_b = 1'b0;
+    wire pr_next = t_start ? 1'b0 : (pr_used || (b2b_now && pg_act_x));
+    wire pr_free = `V35_R1_PGRUN && pg_act_x && !pr_used && !t_start;
+    assign mem_wait_o = mem_wait && !eu_go && !nw_go && !pr_free;
     wire [19:0] s_addr = raddr(b0);
     wire [15:0] s_data = rdata(b0);
     wire        eu_last = second || !s_two;          // the request's last cycle issues
@@ -677,7 +697,8 @@ module v35_arbiter
             b0_b <= b0;
             own_c_b <= own_c;
             own_c0_b <= own_c0;
-            lup_b <= fetch_req && !g_fetch && !abort_go;
+            lup_b <= fetch_req && !g_fetch && !abort_go && !nm_c;
+            nm_next_b <= (g_fetch && mem_wait) || nm_c;
             ea_live_b <= ea_live;
             ea_lo_b <= ea_lo;
         end
@@ -746,7 +767,11 @@ module v35_arbiter
             r2 <= '0;
             own <= 2'd3;
             lup <= 1'b0;
+            pr_used <= 1'b0;
+            nm <= 1'b0;
         end else if (ce_a) begin
+            pr_used <= pr_next_b;
+            nm <= nm_next_b;
             r0 <= tick(e0);
             r1 <= qtrim(tick(e1));
             r2 <= qtrim(tick(e2));
@@ -754,6 +779,9 @@ module v35_arbiter
             lup <= lup_b;
         end
     end
+    always @(posedge clock)
+        if (ce_b)
+            pr_next_b <= pr_next;
 
     // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
 `ifndef SYNTHESIS

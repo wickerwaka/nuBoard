@@ -273,7 +273,10 @@ module v35_loader
     // the staging byte (the IR, the queue's seventh slot) is occupied while it holds an opcode,
     // and unavailable while the running form has operand bytes outstanding but on a word's
     // delivery clock (room_ir=arrival_idle, from the loader's side)
-    assign stg = ir_s || l_pop || (need_t_w != 3'd0 && !dlv);
+    // (R1) ea_ir_room / ir_load: nor is the empty IR a free slot while its load is held for the
+    // form's data cycle (ir_hold) with no operand byte left to take
+    assign stg = ir_s || l_pop || (need_t_w != 3'd0 && !dlv)
+                 || (`V35_R1_IRH && irh_t && need_t_w == 3'd0);
     wire [7:0] ir_l_w = l_pop ? vb(k_t) : ir;
     assign ir_l = ir_l_w;
     assign ir_addr_l = l_pop ? head_addr + 20'(k_t) : ir_addr;

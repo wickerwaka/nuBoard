@@ -1037,6 +1037,109 @@ output on the queue, an `abort_lag` in the arbiter: 125 lines, two ports on the 
 it is a rejected mechanism and the queue is to stay the simple machine of Q1. The patch and the per-run
 tables are in the session's scratchpad (v2/q3/) and the Record entry of 2026-11-07 in docs/v35s-core-v2.md.
 
+### R1: the EU / microcode misses the simple queue left (class (a))
+
+Six fitted rules that the old queue applied through its situation ports, re-expressed on EU facts
+(format bits, the loader's `need` and IR hold) and bus-unit facts (the fetch on the bus, the line
+as last sampled, the slot's waiting request); the queue is untouched (no new port, no new state,
+no input naming a form). One macro each in v35_front_pkg.sv (1: built; 0: the 541d91e core).
+
+| Macro | Fitted rule | Where it lives | Facts it reads | Corpus gained / lost |
+| --- | --- | --- | --- | --- |
+| `V35_R1_REFILL` | refill_start=full_io (eu._start) | the start gate (`rfb_c`, the sequencer's `Q1_REFILL`): after a flush no start while a fetch is on the bus or the line stood at the last clock | `refill` (set by the FLUSH, cleared by the start), `inflight_c`, `rfl` (a new 1-bit register: the line at the last clock, ce_a from `fetch_req_b`) | +1,143 / 0 (F35 378, F23 258, F39 168, F30 105, F40 100, F37 78, F34 56) |
+| `V35_R1_PGRUN` | page_run=field (queue.end_clock) | the arbiter: while a 0F memory form's read is unissued (`pg_act_x`) the waiting read does not hold the bus unit's back-to-back sample (`mem_wait_o` low), once per form | `pfs_x`, the slot's `pfv`, `b2b_now`, `t_start`; `pr_used` (1 bit) | +177 / 0 (F32 96, F34 54, F39 27) |
+| `V35_R1_NEED` | hold_count=ahead (arbiter hold_fetch=le_q) | the arbiter's `hold_le`: the bytes counted less the running form's operand bytes still to take; with one or more outstanding the hold lapses whenever the line stands (counted ≤ hold_q + 1 is the line itself) | `q_low`, the line, the loader's `need_t` (a new arbiter input), the request's `whole` bit | +651 / 0 (F21 178, F32 96, F22 76, F38 60, F34 44, F40 36, F19 34, F15 27, F5 23, F35 18, F16 / F33 / F36 12, F26 8, F25 / F39 6, F14 3) |
+| `V35_R1_IRH` | ea_ir_room under ir_load=disp_data (queue.room) | the loader's `stg`: the empty IR is no free seventh slot while its load is held for the form's data cycle and no operand byte is left | `irh_t`, `need_t` | +418 / 0 (F21 302, F26 43, F37 36, F34 17, F29 8, F4 6, F14 6) |
+| `V35_R1_NOMEM` | request_reissue=no_mem (queue.issue) | the arbiter: a fetch issued beside a waiting memory request leaves the bus unit's view of the line down (no fetch wanted, `lup` low) until the queue next changes | `g_fetch`, `mem_wait`, `fetch_end_prev`, `take_now`, `l_pop`; `nm` (1 bit) | +26 / 0 on F5 F19 F21 F22 F26 F32 F34 |
+| `V35_R1_FHDATE` | free_hold=delivery's dating (arbiter) | the arbiter's `fetch_first`: the fetch free_hold held goes before a request that became issuable on the clock the hold ends | `fh_date` (the record's `fhp`), `rs_now` | +21 / 0 on the same seven (NOMEM + FHDATE on the corpus: +47 / 0, F22 18, F21 11, F5 10, F19 4, F26 4) |
+
+Each rule was measured alone on the families it touches against the previous step's per-run set,
+then on the whole refresh-off corpus (cumulative, in the order of the table): no run lost at any
+step, no family below 541d91e. The whole refresh-off corpus goes from 24,920 to **27,356 RTL-exact**
+(27,346 of fit 62's 30,361), identical run for run at `+v35_chk` and `+v35_ticks=2 +v35_chk`,
+chk silent, `--diag` silent, no run failing; write data 106,824 / 106,824.
+
+**The classification** (re-built: the hand-back's classify.py; evtrace's keys X S T L P I A, the
+first divergent clock; the model's `P:nowrite` compares equal to the RTL's `P:write`, which the
+trace has no other name for: 213 of Q1's 262 "P" misses were that naming and diverge later).
+(a) 2,574 → 762, (b) 1,135 → 1,173, (c) 1,742 → 1,080 (the hold_count and IR-hold rules also
+removed most of the "line differs" misses). Per family (exact = RTL-exact and fit-62-exact):
+
+| Family | runs | fit 62 | 541d91e exact | (a) | (b) | (c) | R1 exact | (a) | (b) | (c) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 0 | 0 | 0 | 18 | 0 | 0 | 0 |
+| F0w | 20 | 20 | 20 | 0 | 0 | 0 | 20 | 0 | 0 | 0 |
+| F1 | 54 | 54 | 54 | 0 | 0 | 0 | 54 | 0 | 0 | 0 |
+| F2 | 120 | 120 | 120 | 0 | 0 | 0 | 120 | 0 | 0 | 0 |
+| F3 | 840 | 840 | 801 | 12 | 15 | 12 | 801 | 12 | 15 | 12 |
+| F4 | 456 | 456 | 437 | 6 | 0 | 13 | 443 | 0 | 0 | 13 |
+| F5 | 840 | 840 | 776 | 14 | 9 | 41 | 809 | 4 | 18 | 9 |
+| F6 | 576 | 576 | 552 | 0 | 0 | 24 | 552 | 0 | 0 | 24 |
+| F7 | 432 | 432 | 430 | 2 | 0 | 0 | 430 | 2 | 0 | 0 |
+| F9 | 408 | 408 | 379 | 0 | 29 | 0 | 379 | 0 | 29 | 0 |
+| F10 | 204 | 204 | 198 | 4 | 0 | 2 | 198 | 4 | 0 | 2 |
+| F11 | 132 | 132 | 124 | 0 | 8 | 0 | 124 | 0 | 8 | 0 |
+| F12 | 204 | 204 | 186 | 6 | 10 | 2 | 186 | 6 | 10 | 2 |
+| F14 | 732 | 732 | 695 | 13 | 6 | 18 | 704 | 7 | 9 | 12 |
+| F15 | 840 | 840 | 783 | 12 | 12 | 33 | 810 | 12 | 18 | 0 |
+| F16 | 1014 | 1014 | 947 | 24 | 31 | 12 | 959 | 24 | 31 | 0 |
+| F19 | 1290 | 1290 | 1135 | 24 | 59 | 72 | 1173 | 20 | 65 | 32 |
+| F20 | 3594 | 3594 | 3420 | 12 | 133 | 29 | 3420 | 12 | 133 | 29 |
+| F21 | 3576 | 3576 | 2893 | 213 | 12 | 458 | 3384 | 12 | 12 | 168 |
+| F22 | 1320 | 1314 | 1072 | 54 | 112 | 76 | 1166 | 30 | 118 | 0 |
+| F23 | 360 | 360 | 57 | 264 | 9 | 30 | 315 | 0 | 9 | 36 |
+| F24 | 912 | 902 | 902 | 0 | 0 | 0 | 902 | 0 | 0 | 0 |
+| F25 | 588 | 577 | 514 | 10 | 31 | 22 | 520 | 10 | 31 | 16 |
+| F26 | 906 | 906 | 788 | 69 | 4 | 45 | 843 | 38 | 4 | 21 |
+| F29 | 456 | 427 | 304 | 20 | 73 | 30 | 312 | 14 | 73 | 28 |
+| F30 | 1476 | 1467 | 1125 | 223 | 48 | 71 | 1230 | 88 | 48 | 101 |
+| F31 | 234 | 234 | 234 | 0 | 0 | 0 | 234 | 0 | 0 | 0 |
+| F32 | 858 | 846 | 468 | 164 | 58 | 156 | 660 | 124 | 62 | 0 |
+| F33 | 1050 | 1026 | 933 | 2 | 15 | 76 | 945 | 2 | 15 | 64 |
+| F34 | 1596 | 1547 | 998 | 307 | 94 | 148 | 1169 | 189 | 98 | 91 |
+| F35 | 1044 | 1038 | 396 | 446 | 72 | 124 | 792 | 18 | 72 | 156 |
+| F36 | 750 | 750 | 726 | 0 | 9 | 15 | 738 | 0 | 9 | 3 |
+| F37 | 432 | 432 | 132 | 110 | 120 | 70 | 246 | 0 | 120 | 66 |
+| F38 | 864 | 864 | 801 | 0 | 3 | 60 | 861 | 0 | 3 | 0 |
+| F39 | 1320 | 1318 | 852 | 318 | 112 | 36 | 1053 | 69 | 112 | 84 |
+| F40 | 1020 | 1003 | 640 | 245 | 51 | 67 | 776 | 65 | 51 | 111 |
+| all | 30536 | 30361 | 24910 | 2574 | 1135 | 1742 | 27346 | 762 | 1173 | 1080 |
+
+**The (a) sub-kinds before → after:** the start holds (S, L+P+S, L+S, L+S+T, P+S, S+T) 1,670 → 216;
+I / I+L 718 → 356; P 43 → 43; L+T / T 28 → 28; the suspend windows (`fetch_late` with `U`) 115 → 119.
+
+**Not recovered (recorded):**
+- *The suspend misses are line misses* (119; F30 54, F34 34, F16 20). F30-out-str-inm-w-n0-sep-pE-w0
+  t+94 and F12-b-none-n2-shli-pO-w1 t+80: a count-byte shift starts on a word's delivery clock;
+  the model fetches on its request raised before (room 0 at the clock's end, -1 after), the RTL's
+  line is down (free 1) as well as its count_latch window: the queue would have to count the
+  delivered word's latched byte as the model's latch rules do. A (c) gap.
+- *The 0F read's setup count* (I, F32 114 / F34 72 / F39 30 / F40 30): F32-out-test1_mb_cl-k1-pO-w0
+  t+91 and F14-t-out-test_dir_aw-pO-w0 t+91: the read posted on an OUT's issue clock issues five
+  clocks before the model's (page_mem=fixed, run_wait), or before the model's fetch: the request
+  record's count in the arbiter, not a queue count. Open.
+- *Starts and IR loads beside a 4-clock fetch* (S / L+P+S / L+S, F10 F12 F14 F15 F19 F20, w1):
+  F14-o-out-movr2-pE-w1 t+92 and F10-push-adddwi-outdw-pE-w1 t+90: the RTL starts on a fetch's
+  issue clock with its line up (free 3) where the model's room is 0-1 and its line down: the
+  counts differ before the start. A (c) gap.
+- *A start a clock early after a 0F register bit form* (S / S+T, F34 rbit, F39 page-set1):
+  F34-out-rbit-set1_rb_cl-nop-k1-pO-w0 t+96 and F39-push-page-set1-movr-pO-w0 t+88. Open (the
+  page form's last clocks or page_b2b's commitment, not built).
+- *P* (43: the RTL posts a bit field's read on its IR-load clock, F34-out-bf-ext_bl_dh-nop-k1-pO-w0
+  t+92), *L+T* (22: F3-push-mov_cl_imm-k4-pO-w0 t+100, an IR load and take a clock early with the
+  line up where the model's is down), *T* (6), *L+S+T* on not-taken branches (xfer_nt's aborted
+  cycle, F30-out-nt-bne-k3-n0-pO-w0 t+105, the model's `A`): open.
+
+**Gates.** `verilator --lint-only -Wall` clean in the four configurations, with `-DV35_QUEUE_A` and
+with every R1 macro 0; the six macros at 0 reproduce 541d91e run for run (F21 F22 F23 F32 F35);
+`test_v35_struct`, `test_ucgen`, `test_chain_lane`, `test_sst_rtl`, `test_rtl_vectors` OK (ucgen
+untouched: no row or decode attribute changed); `sst.py --rtl --all` 2,849,080 pass / 0 fail;
+`--regfile` F0..F33 69,099 and F34–F40 38,760 vectors 0 bad; `--fn` over the 36 refresh-off
+families 22,455 vectors 0 bad. Timing guidance: `rfl`, `pr_used`, `nm` are registers (one bit each, ce_a
+from their ce_b copies); the start gate gains one registered term; the arbiter's fetch-hold tree
+gains the loader's `need_t` (a tick-A output it already feeds the sequencer) and `nm`'s three
+strobes (take_now, l_pop, fetch_end_prev: inputs the arbiter already reads).
+
 ## Divergences (behaviour not expressed in the structure)
 
 (Q1) The queue's divergences from the fit (the features it no longer carries and where they
