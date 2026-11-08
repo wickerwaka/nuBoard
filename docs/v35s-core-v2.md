@@ -1262,3 +1262,20 @@ question, decided from S8's routed numbers with the user.
   configurations (the agent: eight, and with the ten macros at 0); 35 fast tests; the nine offline modules
   unchanged. With the ten macros at 0 the build reproduces 08a2c58 run for run on F14 F19 F22 F23 F26 F30 F32 F34
   F37 (8,970 runs). The user asked for a pause after this package; no R5 is launched.
+- 2026-11-08, **arbiter strategy** (user's direction after R4: "nothing this complex would exist on real
+  hardware ... the EU is the only part of the CPU that is allowed to know anything about the type of operation
+  being executed"): `docs/v35s-arbiter-strategy.md`. The arbiter module (904 lines, 108 ports, three 130-bit
+  request records, a 39-level choice tree at −18 ns) is deleted. The bus unit gains an EU request port of a
+  cycle type (memory / I/O read / write), address, width, datum sampled at B2, a reservation line (nuV30's
+  `eu_soon`: no fetch starts while it is up unless the queue's `q_low` hint overrides it), and `req_ack` /
+  `req_done` (the F / OPR interlock); its grant is one fixed priority: the back-to-back committed fetch, the
+  EU's request, the queue's fetch, nothing, plus the aborted cycle and the odd pair as built. Every request
+  attribute (setup counts and their six counting modes, fetch-free tails, I/O leads, detached I/O, group and
+  RMW clocks, imm1, gdisp, sreg, floors, relatch, the 0F page's counts) leaves the bus unit: the counts become
+  microcode rows and sequencer counters on bus facts, the holds become the reservation window, the three
+  request positions become one write buffer in the EU, the nowrite slot and the dating variants are dropped,
+  and the bus cycle flags that encoded EU state leave the bus unit. The gate is RTL-exact against silicon
+  within a 10–15 % per-family loss budget in the families that rest on the attributes, every miss classified
+  (EU-expressible, grant with the same four inputs, or needs an instruction attribute at the bus unit: the
+  last is recorded and never built there); the model is not edited; ucgen may gain row attributes with the
+  inverse check kept green. Work package A1 launched the same day.
