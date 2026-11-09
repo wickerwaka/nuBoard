@@ -1279,3 +1279,63 @@ question, decided from S8's routed numbers with the user.
   (EU-expressible, grant with the same four inputs, or needs an instruction attribute at the bus unit: the
   last is recorded and never built there); the model is not edited; ucgen may gain row attributes with the
   inverse check kept green. Work package A1 launched the same day.
+- 2026-11-08, **A1 landed** (worktree agent; `v2/a1/`): the arbiter is gone. `v35_arbiter.sv` (904 lines, 108
+  ports) is deleted; the bus unit (577 lines from 703, 69 ports from 81) grants from two request ports, the
+  queue's (`fetch_req`, `q_low`, `q_word`, `fetch_addr`) and the EU's nine signals (`req_v`, `req_cyc` 2 bits
+  memory / I/O read / write, `req_addr`, `req_width`, `req_data` taken at B2, `req_resv`, `req_ack`, `req_done`,
+  `done_data`), plus Q2's three read strobes for the aborted fetch; the structure test's two new `Ports` tests
+  enforce that no port of the bus unit or the queue names or types an instruction and that the bus unit's
+  inputs are exactly those. **The grant** (about four logic levels on registered facts, no comparator against a
+  count): (0) the odd pair's second half and the aborted fetch (Q2's triple clock; a back-to-back commitment
+  whose line fell with no EU request standing); (1) the back-to-back committed fetch, its sample at the
+  previous fetch's last clock held by `req_v || req_resv` (`A1_B2BH` 1); (2) the EU's request, a memory cycle
+  blocked within io_recover of an I/O cycle (`A1_IOREC` 1: the turnaround is the bus unit's); (3) the queue's
+  fetch if `fetch_req && (!req_resv || (q_low && the reservation is a memory cycle's))` (`A1_IOQL` 1: an I/O
+  cycle's reservation is absolute); (4) nothing. Rules 1 and 3 are the overseer's decision after the step-2
+  measurement: the strategy's first wording (rule 1 by `req_v` alone, `q_low` over any reservation) is the
+  macros at 0 and scored 20,943 (−8,264, 28.3 %; 5,017 of its 5,213 (b) misses were `q_low` overriding an I/O
+  reservation silicon holds absolutely); + rule 3 22,413 (+1,470 / −0 after an empty slot was made to present
+  a memory read: ten F29 gih d16 runs had been lost to the empty slot reading as an I/O write), + rule 1 22,674
+  (+261 / −0 after the EU's last-clock reservation was defined: at a fetch's last clock it is the waiting
+  memory request if it waited at the fetch's issue (R4's NMB), the EA clocks running on, and the I/O lead's
+  block, a 0F form's waiting read exempt once per form; memory-typing the hold lost 994, `req_v` or a memory
+  reservation lost 32). **The EU's bus interface** (v35_ucode.sv, 4,916 lines from 4,350, 134 ports from 166,
+  about 560 lines): the request register `bq0` with the row's counts (setup, fn, lead, through, the count-mode
+  bits, the floor), the entry behind it `bq1` (the write buffer: a request posted behind a detached I/O counts
+  from the clock that I/O issues), `req_resv` as the OR of the setup hold and the windows the arbiter took as
+  inputs, the setup count pausing on `in_wait` (nowait rows) or on `busy` / `io_win` (group forms,
+  `A1_GRP`), the pair's second-half address, the B2 datum register, EU registers replacing the bus cycle
+  flags (`bq_os bq_wl bq_th bq_pa bq_fas bq_fnt`); `req_t` loses its thirty attributes in the shared package.
+  **Recovered rules** (strategy §5 step 4; each alone on the 6,517 runs the steps move, then cumulative, 0 lost
+  per step): `A1_FFD` fetch_first's dating +695 (with imm1_first's EU-side exemption; without it 34 F22
+  add8_d16 runs lost), `A1_LEAD` the I/O lead +1,849, `A1_FRUN` free_run=run +456, `A1_FHOLD`
+  free_hold=delivery +157, `A1_SREG` +48, `A1_MFR` +93, `A1_PAGE` the 0F page's counts as sequencer counters
+  on bus facts +483 (with page_run=field's exemption of the back-to-back sample, which fixed six F32 / F34
+  set1_mw_cl losses), `A1_BCD` +33, `A1_SF` slot_fetch=slot +36 with the others on, `A1_RL` port_latch=relatch
+  +931 (its first 131 losses were the I/O lead's block missing from the last-clock reservation; 0 after),
+  `A1_DW`; `A1_GIO` and `A1_GDR` showed no effect and are left at 0. Cumulative: + FFD + LEAD 25,242, + FRUN +
+  FHOLD 25,863, + SREG + MFR + PAGE + BCD 26,662, + SF + RL 28,058 (the middle rows measured before the
+  last-clock reservation's final form; the final source's whole-corpus run against the rule-1 step is +5,384 /
+  −0). **Not built** (recorded): the nowrite slot's rules (slot_room=word: 180 runs, F22 72, F19 51), disp_io=
+  extend (110: the I/O issued on a displacement's take clock runs a clock longer; the bus unit would need the
+  take or a cycle-length request), free_idle, request_reissue=no_mem beyond the sample bit, grp_io_hold and
+  grp_disp's read hold. **Gates found three fixes:** an I/O word at an odd port was given the byte width
+  (8 test_rtl_vectors failures on OUT word), the bench's `halted` reference and the bus unit's pin wires for
+  the bench. **Classification of the final core's 1,175 misses** (a1-misses.jsonl; the classifier's labels (a)
+  191, (b) 11, (c) 973, with the agent's reading of the hold shapes): wlatch_hold's window yielding to `q_low`
+  254 (F21 F22 F19; the EU could reserve with the cycle type of the I/O it waits to post, absolute under rule
+  3), wlatch_hold against a back-to-back fetch 183 (F20 F25 F29; latch_wait into the last-clock reservation),
+  slot_room=word 180 (needs a slot attribute at the bus unit: not built), `req_v` a clock early on store paths
+  175 (F22 105: the store's count or floor in the sequencer), disp_io=extend 110, grp_disp's window yielding to
+  `q_low` 106 (F37 54, F29 34, F39 18) and free_hold / slot_fetch / grp_io_hold yielding 67 / 42 / 24 (memory
+  reservations silicon holds absolutely: a rule 3 question), a start a clock early after an OUT 16, rule 1's
+  sample 11, ea_b2b 7. **Gate, rerun on main:** whole refresh-off corpus 28,059 / 30,361 RTL-exact (from 29,208; −1,149 net, the agent's tree 28,058 as in
+  R4 one F30 run apart) at both spacings, per-family tables identical, 0 failing, `+v35_chk` silent; the
+  per-family losses are the new baseline ($S/v2/a1/main/fam-v35_chk.txt): F22 1,274 → 1,033 (18.3 % of its runs:
+  over the 15 % budget), F29 354 → 309 (65 lost, 20 gained: 14.3 % gross), F37 366 → 312 (12.5 %), F19 1,252 →
+  1,143 (8.4 %), F26 897 → 811, F21 3,560 → 3,398, F20 3,464 → 3,407, F5 831 → 776, F36 744 → 707, F15 837 → 798,
+  eight families unchanged, none up; write data 106,824 / 106,824 at both; SST 2,849,080 / 0 with R4's
+  categories; `--regfile` 69,099 + 38,760 vectors 0 bad; `--fn` 19,752 / 0 bad; lint clean in the five
+  configurations without v35_arbiter.sv; 37 fast tests (the two `Ports` tests new); the nine offline modules
+  unchanged (941, the four known failures). The over-budget F22 and the rule-1 / rule-3 definitions are
+  reported to the user for decision; the recovery agenda above is the candidate next package.

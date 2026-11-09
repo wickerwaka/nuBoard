@@ -53,7 +53,7 @@ module v35_core2_tb
     output wire [15:0] o_ix,
     output wire [15:0] o_iy,
     output wire [2:0]  o_stale,
-    // the write cycles posted and not yet off the pins (the arbiter's three positions, the bus
+    // the write cycles posted and not yet off the pins ((A1) the EU bus interface's two entries, the bus
     // cycle running): an instruction's detached OUT runs after the next one's start
     output wire [3:0]  o_pend_w,
     // (+trace) the bus cycle's datum select and the EU's immediate
@@ -64,7 +64,8 @@ module v35_core2_tb
 );
     // a read's delivery whose exec could not run (its operands not on the ports): lost
     assign o_drop = dut.eu.ex_mem && !dut.eu.xr.ok;
-    assign o_dsel = dut.bus.c_dsel;
+    // ((A1) the old encoding: 0 the datum as issued, 1 the late value, 2 / 3 its pair's halves)
+    assign o_dsel = !dut.ucode.bq_b2l_b ? 2'd0 : dut.bus.c_half == 2'd0 ? 2'd1 : dut.bus.c_half + 2'd1;
     assign o_flush = dut.t_flush;
     assign o_wd_imm = dut.eu.wd_imm;
     wire a0, a19, a18_ube, mreq_n, mstb_n, iostb_n, read_write, refrq_n;
@@ -84,7 +85,7 @@ module v35_core2_tb
     assign o_p_addr = dut.ir_addr_l;
     assign o_t_cls = dut.fmt_c.cls;
     assign o_p_cls = dut.fmt_l.cls;
-    assign o_halted = dut.halted;
+    assign o_halted = dut.ucode.halted;   // ((A1) the sequencer's register)
     assign o_c_valid = dut.bus.n_valid;   // ((S7b) the cycle the pins show from mid-clock on)
     assign o_c_kind = dut.bus.n_kind;
     assign o_c_addr = dut.bus.n_addr;
@@ -123,15 +124,12 @@ module v35_core2_tb
         else
             pw = (two && !h2) ? 4'd1 : 4'd0;
     endfunction
-    assign o_pend_w = pw(dut.arbiter.r0.v, dut.arbiter.r0.nwd, dut.arbiter.r0.d.kind,
-                         dut.arbiter.r0.d.nowrite, dut.arbiter.r0.iss, dut.arbiter.r0.h2,
-                         dut.arbiter.r0.d.width, dut.arbiter.r0.d.addr[0])
-                    + pw(dut.arbiter.r1.v, dut.arbiter.r1.nwd, dut.arbiter.r1.d.kind,
-                         dut.arbiter.r1.d.nowrite, dut.arbiter.r1.iss, dut.arbiter.r1.h2,
-                         dut.arbiter.r1.d.width, dut.arbiter.r1.d.addr[0])
-                    + pw(dut.arbiter.r2.v, dut.arbiter.r2.nwd, dut.arbiter.r2.d.kind,
-                         dut.arbiter.r2.d.nowrite, dut.arbiter.r2.iss, dut.arbiter.r2.h2,
-                         dut.arbiter.r2.d.width, dut.arbiter.r2.d.addr[0])
+    assign o_pend_w = pw(dut.ucode.bq0.v, dut.ucode.bq0.nwd, dut.ucode.bq0.d.kind,
+                         dut.ucode.bq0.d.nowrite, dut.ucode.bq0.iss, dut.ucode.bq0.h2,
+                         dut.ucode.bq0.d.width, dut.ucode.bq0.d.addr[0])
+                    + pw(dut.ucode.bq1.v, dut.ucode.bq1.nwd, dut.ucode.bq1.d.kind,
+                         dut.ucode.bq1.d.nowrite, dut.ucode.bq1.iss, dut.ucode.bq1.h2,
+                         dut.ucode.bq1.d.width, dut.ucode.bq1.d.addr[0])
                     + ((dut.bus.c_valid && !dut.bus.c_internal
                         && (dut.bus.c_kind == 3'd3 || dut.bus.c_kind == 3'd5)
                         && dut.bus.c_pos != dut.bus.c_len - 3'd1) ? 4'd1 : 4'd0);

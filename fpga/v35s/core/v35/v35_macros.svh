@@ -155,4 +155,88 @@
 `define V35_R4_GIOD 1'b1
 `endif
 
+// (A1) the arbiter removed (docs/v35s-arbiter-strategy.md; README "A1"): the bus unit's grant
+// is one fixed priority over the EU request port; the request attributes are the sequencer's
+//   A1_IOREC   io_recover: 1 the bus unit's turnaround (no EU memory cycle while io_win), 2 no
+//              EU cycle at all while io_win, 0 the EU's own wait (req_v held)
+`ifndef A1_IOREC
+`define A1_IOREC 1
+`endif
+//   A1_B2BH    the back-to-back sample's hold at a fetch's last clock (rule 1): 1 req_v or req_resv
+//              standing (the grant's definition: at a fetch's last clock the EU's reservation is
+//              its waiting memory request, the EA clocks running on, the I/O lead's block); 0
+//              req_v only (the strategy's first wording); 2 req_v or a memory cycle's reservation
+`ifndef A1_B2BH
+`define A1_B2BH 1
+`endif
+//   A1_IOQL    the grant's rule 3: the queue's low hint overrides a memory cycle's reservation, not
+//              an I/O cycle's (the port's cycle type; 0: any reservation, the strategy's first
+//              wording, the step-2 record)
+`ifndef A1_IOQL
+`define A1_IOQL 1'b1
+`endif
+//   A1_GRP     the group forms' grp clocks pause on an I/O cycle or its recovery and count the
+//              free ones on an idle bus (grp_free_bus; 0: counted as any memory request's)
+`ifndef A1_GRP
+`define A1_GRP 1'b1
+`endif
+// the recovered rules (step 5: each the sequencer's, on bus facts; 1 built, 0 not built: GIO and GDR
+// showed no effect alone or with the others and are left at 0):
+//   A1_FFD     _fetch_first's dating: a request that became issuable on the clock the line rose
+//              waits a clock (the fetch goes first)
+`ifndef A1_FFD
+`define A1_FFD 1'b1
+`endif
+//   A1_LEAD    the I/O lead: in its lead clocks only a fetch standing since the post goes, on
+//              the clock the hold lifts
+`ifndef A1_LEAD
+`define A1_LEAD 1'b1
+`endif
+//   A1_FRUN    free_run=run: the delivery-clock fetch runs through a request's fetch-free clocks
+`ifndef A1_FRUN
+`define A1_FRUN 1'b1
+`endif
+//   A1_FHOLD   free_hold=delivery: no fetch on the delivery clock that takes the first free clock
+`ifndef A1_FHOLD
+`define A1_FHOLD 1'b1
+`endif
+//   A1_GIO     grp_io_hold: a group request's free clocks hold a fetch over an I/O cycle
+`ifndef A1_GIO
+`define A1_GIO 1'b0
+`endif
+//   A1_SF      slot_fetch=slot: a request moved in behind an I/O holds a fetch to its free clocks
+`ifndef A1_SF
+`define A1_SF 1'b1
+`endif
+//   A1_GDR     grp_disp=hold's read: held to its fetch-free group clocks
+`ifndef A1_GDR
+`define A1_GDR 1'b0
+`endif
+//   A1_SREG    sreg_store=own: MOV r/m,sreg's write after a clock issuable but for a fetch
+`ifndef A1_SREG
+`define A1_SREG 1'b1
+`endif
+//   A1_RL      port_latch=relatch: the waiting detached I/O held relatch clocks after a port take
+`ifndef A1_RL
+`define A1_RL 1'b1
+`endif
+//   A1_DW      dw_count=bus: a DW-form I/O request's clock taken by a cycle starting
+`ifndef A1_DW
+`define A1_DW 1'b1
+`endif
+//   A1_MFR     mul_imm_count=sync: MUL imm memory's read counted from mul_from
+`ifndef A1_MFR
+`define A1_MFR 1'b1
+`endif
+//   A1_PAGE    the 0F page's read counts (page_free's restart, run_wait, pthru, ftail,
+//              page_imm_run) as sequencer counters on bus facts (0: the plain fetch-free tail)
+`ifndef A1_PAGE
+`define A1_PAGE 1'b1
+`endif
+//   A1_BCD     bcd_fetch=hold: a BCD string started on an idle bus counts its first read's setup
+//              a clock longer
+`ifndef A1_BCD
+`define A1_BCD 1'b1
+`endif
+
 `endif // V35_MACROS_SVH

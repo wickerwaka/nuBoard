@@ -114,18 +114,8 @@ module v35_eu
     // the posts
     input  wire        post_t,
     input  uc_row_t    prow_t,
-    input  wire [6:0]  psetup_t,
-    input  wire        pfnv_t,
-    input  wire [6:0]  pfn_t,
-    input  wire [1:0]  plead_t,
     input  wire        post_p,
     input  uc_row_t    prow_p,
-    input  wire [6:0]  psetup_p,
-    input  wire        pfnv_p,
-    input  wire [6:0]  pfn_p,
-    input  wire [1:0]  plead_p,
-    input  req_t       ptm_t,           // the posts' window fields (the sequencer's)
-    input  req_t       ptm_p,
     // the own request's read delivered (its last cycle ended on t-1)
     input  wire        own_done,
     input  wire        own_two,         // ... an odd word's pair (hi, then lo)
@@ -143,11 +133,11 @@ module v35_eu
     output wire [6:0]  rb_next,
     input  wire [15:0] rb_data,
 
-    // the requests (the arbiter's records)
+    // the requests ((A1) the cycle, address and datum: the sequencer's bus interface holds them)
     output req_t       rq_t,
     output req_t       rq_p,
     // the running form's memory operand address and write datum, as a request posted before
-    // its displacement or its result issues reads them (the arbiter)
+    // its displacement or its result issues reads them (the sequencer's bus interface)
     output wire [19:0] ea_live,
     output wire [15:0] ea_lo,           // (S6) ... its offset (a word at FFFFh wraps)
     output wire [15:0] wd_live,
@@ -919,7 +909,7 @@ module v35_eu
     wire        ex_reg = !delivery_form && (new_form ? all_taken : (!exec_done && all_taken))
                          || exec_pend;
     // a read delivered for the own request (the last cycle of a word: S2's single cycle)
-    // (own_done here is the arbiter's own_dlv strobe: the datum on the bus's delivery clock)
+    // (own_done here is (A1) the sequencer's own_dlv strobe: the datum on the bus's delivery clock)
     wire        rd_now = own_done && k_read(dlv_kind) && dlv_kind != K_FETCH;
     wire        rd_half = k_read(dlv_kind) && dlv_kind != K_FETCH && dlv_width == BW_HI
                           && own_two && !own_done;     // the pair's first half (hi lane)
@@ -977,9 +967,7 @@ module v35_eu
     // ------------------------------------------------------------ the requests
     // the address of a post's request, its datum, its width
     /* verilator lint_off UNUSEDSIGNAL */
-    function automatic req_t mkreq(input uc_row_t r, input logic [6:0] setup,
-                                   input logic fnv, input logic [6:0] fn, input logic [1:0] lead,
-                                   input req_t tm, input v35_fmt_t f, input logic [7:0] o,
+    function automatic req_t mkreq(input uc_row_t r, input v35_fmt_t f, input logic [7:0] o,
                                    input logic [47:0] b, input logic [19:0] pcx,
                                    input logic [2:0] sgo, input logic [15:0] eseg,
                                    input logic [15:0] eoff, input logic [7:0] bix);
@@ -988,7 +976,7 @@ module v35_eu
         logic [16:0] spr, bpr;
         logic [7:0] vt;
         logic [15:0] sgb, ofs;          // (S6) the segment and the offset in it
-        q = tm;                         // the window fields (through, imm1, floors, ...)
+        q = '0;
         case (r.rkind)
             V35_RK_READ: q.kind = K_READ;
             V35_RK_WRITE, V35_RK_NOWRITE: q.kind = K_WRITE;   // (NOWRITE: the slot)
@@ -1072,18 +1060,6 @@ module v35_eu
             q.width = q.addr[0] ? BW_HI : BW_LO;
         if (q.kind == K_WRITE && q.width == BW_HI)
             q.data = {d[7:0], 8'd0};
-        q.setup = setup;
-        q.fn_v = fnv;                   // (the sequencer's: the row's, or the class's)
-        q.fn = fn;
-        q.lead = lead;
-        q.port = r.asrc == V35_ASRC_PORT_IMM;
-        q.detached = r.detached;
-        q.grp = r.grp;
-        // (S5a) io_count=nowait (an I/O request; dwlike: str_count / burst_count = dw, the
-        // format's dw_count), str_in_io=free (the sequencer's memc), a string's class
-        q.dwl = f.dw_count && !tm.pfv;      // (S5b) a pfree read: no DW count (eu._submit)
-        q.nwt = (q.kind == K_IO_READ || q.kind == K_IO_WRITE || f.dw_count) && !tm.memc && !tm.pfv;
-        q.strc = f.strop;
         return q;
     endfunction
 
@@ -1142,9 +1118,9 @@ module v35_eu
     // is still the last form's; a cs movsb's read went to DS0)
     wire [2:0]  seg_t = st_t ? pfx : seg_o;
     wire [2:0]  seg_n = st_p ? (st_t_b ? fmt_c_b.seg : pfx) : seg_t_b;
-    assign rq_t = mkreq(prow_t, psetup_t, pfnv_t, pfn_t, plead_t, ptm_t, f_t, o_t, ob_t, pc_t,
+    assign rq_t = mkreq(prow_t, f_t, o_t, ob_t, pc_t,
                         seg_t, ea_seg_w, ea_off_w, bi_now);
-    assign rq_p = mkreq(prow_p, psetup_p, pfnv_p, pfn_p, plead_p, ptm_p, f_now, o_now, ob_now,
+    assign rq_p = mkreq(prow_p, f_now, o_now, ob_now,
                         pc_now, seg_n, ea_seg_w_b, ea_off_w_b, bi_now_b);
     // the live address and datum (an RMW's result after its read's delivery: res, registered)
     assign ea_live = ea_phys;

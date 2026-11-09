@@ -4,7 +4,7 @@
 #
 #   fpga/v35s/synth/v35_map.sh MODULE [MODULE ...]
 #
-# MODULE: ucode eu (v35_eu with v35_ea) loader arbiter queue bus regram, or top (v35_top: every
+# MODULE: ucode eu (v35_eu with v35_ea) loader queue bus regram, or top (v35_top: every
 # module, v35_sfr and v35_refresh; the slot's ports the only pins). Each module is mapped with
 # its own ports as the device's pins and `SYNTHESIS` defined, into build/fpga/v35s/synth/<top>/
 # (log: <top>.log there); one summary line a module (LUT4 ADD FF RAM_5K MULT, the map's
@@ -50,12 +50,11 @@ map_one() {
         ucode|v35_ucode) top=v35_ucode; files=(v35_ucode.sv) ;;
         eu|v35_eu) top=v35_eu; files=(v35_ea.sv v35_eu.sv) ;;
         loader|v35_loader) top=v35_loader; files=(v35_loader.sv) ;;
-        arbiter|v35_arbiter) top=v35_arbiter; files=(v35_arbiter.sv) ;;
         queue|v35_queue) top=v35_queue; files=(v35_queue.sv) ;;
         bus|v35_bus) top=v35_bus; files=(v35_bus.sv) ;;
         regram|v35_regram) top=v35_regram; files=(v35_regram.sv) ;;
         top|v35_top) top=v35_top
-            files=(v35_bus.sv v35_queue.sv v35_loader.sv v35_arbiter.sv v35_ucode.sv v35_ea.sv
+            files=(v35_bus.sv v35_queue.sv v35_loader.sv v35_ucode.sv v35_ea.sv
                    v35_eu.sv v35_regram.sv v35_trace.sv ../v35_sfr.sv ../v35_refresh.sv
                    v35_top.sv) ;;
         *) echo "unknown module $name" >&2; return 2 ;;

@@ -8,7 +8,12 @@ Rules (comments and string literals are stripped first):
 3. no 8-bit opcode literals (`8'h..`, `8'd..`) outside the generated v35_decode_tbl.svh and
    v35_pkg.sv: RTL compares format bits and row fields, never opcode bytes;
 4. every `always_ff` is clocked by `posedge clock` and its state updates are gated by `ce`
-   (an `if` on `ce` in the block; (S7b) or on the two-tick enables `ce_a` / `ce_b`).
+   (an `if` on `ce` in the block; (S7b) or on the two-tick enables `ce_a` / `ce_b`);
+5. (A1, docs/v35s-arbiter-strategy.md) no port of v35_bus.sv or v35_queue.sv names or types an
+   instruction: no port of a format / class / row / run / request-record type, no port name
+   carrying a class, format, row, step, count mode or kind of instruction; the bus unit's inputs
+   are its clocking and configuration, the EU request port (exactly the strategy's nine signals),
+   the queue's port and the three read strobes of the aborted fetch, nothing else.
 The checks are textual (a lint, not a parser): keep blocks plain `begin ... end`."""
 
 from __future__ import annotations
@@ -115,6 +120,58 @@ class Structure(unittest.TestCase):
                 self.assertRegex(header.strip(), r"^posedge\s+clock$", p.name)
                 if "<=" in body:
                     self.assertRegex(body, r"\bif\s*\(\s*[^)]*\bce(?:_a|_b)?\b", f"{p.name}: {body[:200]}")
+
+
+# (A1) the bus unit's and the queue's ports
+EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data", "req_resv",   # EU -> bus
+           "req_ack", "req_done", "done_data"}                                    # bus -> EU
+BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "rfm", "data_in",
+              "fetch_req", "q_low", "q_word", "fetch_addr",       # the queue's port
+              "t_start", "take_now", "l_pop"}                     # (Q2) the aborted fetch's reads
+INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t")
+INSTR_WORDS = re.compile(r"(fmt|cls|class|row|step|xop|opc|form|instr|setup|lead|detach|grp|"
+                         r"thru|imm|disp|page|sreg|pfv|nowait|nwt|dwl|strc|mfr|ftl|pth|gdisp|"
+                         r"floor|relatch|retire|post|own|slot|halt|wb_|latch_wait|sidle|need|"
+                         r"rmw|string|mul|shift|xfer)", re.I)
+
+
+def ports(name: str) -> list:
+    """(direction, type, name) of the module's ANSI port list."""
+    text = strip((V35 / name).read_text())
+    m = re.search(r"\bmodule\s+\w+.*?\((\s*(?:input|output|inout)\b.*?)\);", text, flags=re.S)
+    out = []
+    for decl in re.split(r",\s*(?=(?:input|output|inout)\b)", m.group(1)):
+        d = re.match(r"\s*(input|output|inout)\s+(.*)$", decl.strip(), flags=re.S)
+        if not d:
+            continue
+        names = [n.strip() for n in d.group(2).replace("\n", " ").split(",") if n.strip()]
+        head = names[0].split()
+        typ = " ".join(head[:-1])
+        out.append((d.group(1), typ, head[-1]))
+        out += [(d.group(1), typ, n.split()[-1]) for n in names[1:]]
+    return out
+
+
+class Ports(unittest.TestCase):
+    def test_bus_and_queue_carry_no_instruction(self):
+        for f in ("v35_bus.sv", "v35_queue.sv"):
+            if not (V35 / f).exists():
+                continue
+            names = ports(f)
+            self.assertGreater(len(names), 10, f)
+            for d, typ, name in names:
+                for t in INSTR_TYPES:
+                    self.assertNotIn(t, typ.split(), f"{f}: {name} is a {t}")
+                self.assertIsNone(INSTR_WORDS.search(name), f"{f}: {name}")
+
+    def test_bus_inputs_are_the_ports(self):
+        if not (V35 / "v35_bus.sv").exists():
+            return
+        p = ports("v35_bus.sv")
+        ins = {n for d, _, n in p if d == "input"}
+        self.assertEqual(ins - BUS_INPUTS - EU_PORT, set())
+        req = {n for _, _, n in p if n.startswith("req_") or n == "done_data"}
+        self.assertEqual(req, EU_PORT)
 
 
 class Lint(unittest.TestCase):

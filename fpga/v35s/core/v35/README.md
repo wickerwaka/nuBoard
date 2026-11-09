@@ -183,11 +183,11 @@ F40): see "Gate (S5a)" below. S5b on the whole refresh-off corpus (36 families):
 | `v35_front_pkg.sv` | package `v35_front_pkg` | cycle kinds/widths, the fit integers the front end reads, `req_t` (a posted request) |
 | `v35_pkg.sv` + `.svh` (generated) | package `v35_pkg` | the row format, the format word, the decode / class / template tables (above) |
 | `v35_fn_pkg.sv` | package `v35_fn_pkg` | the pure functions: ALU, S Z P, shifter, multiplier, the restoring divider's init / step / finish, conditions, adjusts, BCD byte, bit ops, digit rotate, the EA offset and its registers |
-| `v35_bus.sv` | `v35_bus` | one cycle at a time, pin timing verbatim from `../v35_biu.sv`, the delivery registers, the I/O recovery window, the data latch (`wlatch`), the 3-clock aborted fetch cycle, the fetch-run flag; (Q1) the request line's sample at a fetch's last clock (`b2b_now`, held while a memory request waits in the slot) |
+| `v35_bus.sv` | `v35_bus` | (A1) the grant (one fixed priority over the EU request port and the queue's line, "A1"); one cycle at a time, pin timing verbatim from `../v35_biu.sv`, the delivery registers, the I/O recovery window, the data latch (`wlatch`), the 3-clock aborted fetch cycle, the fetch-run flag; (Q1) the request line's sample at a fetch's last clock (`b2b_now`, held while a memory request waits in the slot) |
 | `v35_queue.sv` | `v35_queue` | (Q1) the simple machine: six bytes, the stored and unreleased counts, the prefetch pointer, the request line (`fetch_req`, `q_low`), the IR staging byte counted as the seventh slot (variant B), the byte-wide write port and its one-byte latch (variant B, `V35_QUEUE_B`). See "Queue (Q1)" |
 | `v35_loader.sv` | `v35_loader` | IR, the format lookup (`v35_fmt_of`, the ModR/M byte the next queue byte; re-decoded at the ModR/M take; (S5a) a REP prefix's form the string opcode behind it, page 2 with the prefix's repc), `need`, the ready countdown (`ready_at`, with one_idle's and long_exec's moves), the IR load in L and P, the decode a clock ahead; (S5a) a flush empties the IR; (Q1) the PC of the next byte (`pc`), the queue's reads and releases (`rd`, `rd_b`, `rel`: a take step's bytes released at its end, `unc`, `relc`), the staging byte's occupancy (`stg`) |
-| `v35_arbiter.sv` | `v35_arbiter` | (S4) the request positions (`Request` x 3: the slot, two queued behind a detached I/O, `_promote`), setup counting, the request window and the fetch holds, the choice as one priority tree (the odd pair's second half / the slot's cycle or the left-out write's slot / the aborted cycle / a fetch); (Q1) a fetch decided from `fetch_req`, `q_low`, `b2b_now` and the line's last sample (`lup`) only: no request dating |
-| `v35_ucode.sv` | `v35_ucode` | the microcode sequencer: the ROM (four banks, a window of four rows), the T and P passes over the rows, the take sync, the start gate, unit_hold, the write-back countdown, the latch holds, the loop counters, the request descriptors; (S5a) the start-time run bits (`taken`, `zfail`, `n0`), FLUSH / FLUSH_C / DECIDE, the REP element loop's exits, the skip-ahead, the fetch-hold arms, SPLIT_FLOOR / FROM_START, the transfers' and strings' start rules, LDEA's rules, mul_imm_count=sync's `mul_from`, rot4_exec |
+| ~~`v35_arbiter.sv`~~ | | (A1) removed: the grant is the bus unit's, the request attributes the sequencer's ("A1" below) |
+| `v35_ucode.sv` | `v35_ucode` | the microcode sequencer ((A1) and the EU's bus interface: the request register, the entry behind it, the counts and the reservation, "A1"): the ROM (four banks, a window of four rows), the T and P passes over the rows, the take sync, the start gate, unit_hold, the write-back countdown, the latch holds, the loop counters, the request descriptors; (S5a) the start-time run bits (`taken`, `zfail`, `n0`), FLUSH / FLUSH_C / DECIDE, the REP element loop's exits, the skip-ahead, the fetch-hold arms, SPLIT_FLOOR / FROM_START, the transfers' and strings' start rules, LDEA's rules, mul_imm_count=sync's `mul_from`, rot4_exec |
 | `v35_eu.sv` | `v35_eu` | the datapath: the register ports' schedule, the exec (the register function), the read datum (an odd word's two halves), the divider, the request records' address / datum / width (a live EA and result for the running form's own request), the segment registers, CW, the PSW; (S5a) the transfers' targets and PC / PS / PSW writes, the return address pushes, SP at every stack post, the string unit (IX / IY / CW flops, the element steps, the compares), LDEA, LES / LDS, PUSH R / POP R, PREPARE / DISPOSE, the adjusts and conversions, the BCD strings' pairs |
 | `v35_ea.sv` | `v35_ea` | (S4) the EA unit inside `v35_eu`: the mode from the format word, the base (port B) and index (port A) latched as `ea_bi`, the displacement from the operand bytes, the segment (prefix / SS for a BP mode / DS0), the physical address |
 | `v35_regram.sv` | `v35_regram` | the register banks in RAM: 256 bytes, even / odd halves, port A read + write, port B read, read addresses registered at `ce` |
@@ -1560,6 +1560,236 @@ or 4 on `fetch_end_prev` (IOST); count_latch's and the lapse's sums gain a one-b
 deferred owed count an increment in tick B (DASK); the decide row a 2:1 mux from registers (XNT). No
 comparator against a count is added to the arbiter. `+v35_adbg=FILE` (the arbiter's slot and choice) and
 `+v35_sdbg=FILE` (the take sync and the suspend windows) are bring-up prints under `ifndef SYNTHESIS`.
+
+### A1: the arbiter removed; the bus unit's grant over an EU request port
+
+docs/v35s-arbiter-strategy.md. `v35_arbiter.sv` (904 lines, 108 ports, three request positions of a 130-bit
+record, a 39-level choice tree) is deleted. The bus unit grants its own cycles from two request ports, the
+queue's and the EU's; everything that names the operation (the setup counts and their counting modes, the
+fetch-free tails, the I/O lead, the floors, the holds, the detached I/O, the request positions) is the
+sequencer's, in its section "the EU's bus interface" (v35_ucode.sv). No signal crossing into v35_bus.sv or
+v35_queue.sv carries a class, format, row, step, count mode or kind of instruction (test_v35_struct's
+`Ports` tests: the bus unit's inputs are its clocking, the EU request port, the queue's port and the three
+read strobes of the aborted fetch; no port name or type names an instruction; the old bus unit fails the
+test on 8 ports).
+
+**The EU request port** (v35_bus.sv), exactly the strategy's nine signals:
+
+| Signal | Dir | Width | Meaning |
+| --- | --- | --- | --- |
+| `req_v` | EU → bus | 1 | the slot's request is issuable (a level, until `req_ack`) |
+| `req_cyc` | EU → bus | 2 | RQ_MEMR, RQ_MEMW, RQ_IOR, RQ_IOW (an empty slot presents RQ_MEMR) |
+| `req_addr` | EU → bus | 20 | the cycle's address; after `req_ack` of an odd memory word, its second half's (offset + 1 in the segment, the EU's) |
+| `req_width` | EU → bus | 1 | a word (at an odd memory address: the bus unit's pair, hi then lo) |
+| `req_data` | EU → bus | 16 | a write's datum, taken at mid-B2 (the EU holds the issued datum in `bq_b2d_b`, or presents the late result / immediate `wd_imm`); the bus unit places the pair's bytes |
+| `req_resv` | EU → bus | 1 | the reservation |
+| `req_ack` | bus → EU | 1 | the request's first cycle issued now |
+| `req_done` | bus → EU | 1 | its last cycle ended on t-1 |
+| `done_data` | bus → EU | 16 | the read datum |
+
+The bus unit's other inputs: `fetch_req`, `q_low`, `q_word`, `fetch_addr` (the queue) and `t_start`,
+`take_now`, `l_pop` (Q2's aborted fetch only). Its status outputs (S0) are as before less the EU-state
+flags; the grant's outputs `g_start/g_kind/g_addr/g_width/g_fetch/g_eu/g_abort/g_b2b`, `b2b_now`.
+
+**The grant** (one priority, evaluated once on a free bus; about four levels of logic on registered facts
+and the two request lines, no comparator against a count):
+
+0. the odd pair's second half (`p2_v`); the aborted fetch: Q2's triple clock (`ab_tri`, as built) or a
+   back-to-back commitment whose line fell with no EU request standing;
+1. the fetch committed back to back: the line up at the last clock of the fetch that just ended, with no
+   `req_v` and no `req_resv` standing then (A1_B2BH = 1; at a fetch's last clock the EU's reservation is
+   its waiting memory request if it waited at the fetch's issue, the EA clocks running on, and the I/O
+   lead's block, a 0F form's waiting read exempt once per form);
+2. the EU's request, `req_v` (a memory cycle not within io_recover clocks of an I/O cycle: the turnaround
+   is the bus unit's, `io_win`, A1_IOREC = 1);
+3. the queue's fetch: `fetch_req && (!req_resv || (q_low && req_cyc is a memory cycle))`: a memory
+   cycle's reservation yields to a starved queue, an I/O cycle's is absolute (A1_IOQL = 1);
+4. nothing.
+
+Rules 1 and 3 are the coordinator's decision after the step-2 measurement (below): the strategy's first
+wording (rule 1 held by `req_v` only, rule 3's `q_low` over any reservation) is A1_B2BH = 0, A1_IOQL = 0,
+the step-2 record.
+
+**The EU's bus interface** (v35_ucode.sv; registers ce_a unless noted, tick-B copies `bc0_b`, `bc1_b`, ...
+at ce_b, checked by `+v35_chk`): `bq0` (the request register: the cycle as the datapath builds it, `req_t`,
+and the row's counts: setup 7, fn 7, fo 7, lead 2, through 7, the count mode bits, the floor `nb` 4, the
+state bits iss / h2 / two / dne / nwd / dn / fhold / rs / lift / fhp / ghp / moved / dwm / shl / sok / sat
+/ lup_p), `bq1` (the entry behind it: the write buffer's other half; a request posted behind a detached
+I/O counts from the clock that I/O issues), `bq_own` 2, `bq_os` (the cycle on the bus started on a form's
+start clock: io_exec, page_mtake), `bq_wl` 3 (the data latch, moved from the bus unit), `bq_th`, `bq_pa`,
+`bq_fas`, `bq_fnt` (the 0F page's views of the fetch on the bus, moved from the bus unit's cycle flags),
+`bq_nm` (a memory request waited at the issue of the fetch on the bus: R4's NMB), `bq_b2l_b` / `bq_b2d_b`
+(ce_b: the B2 datum). `req_v` = the slot's request pending, its setup counted, its floors past, not the
+left-out write; `req_resv` = the setup hold (the setup clocks before the lead, the I/O recovery, a fetch-
+holding floor; R1's need lapse for a memory request) OR the windows (wb_hold, latch_wait, gdisp_act, and
+the recovered rules' holds); at a fetch's last clock (no fetch can start then) it is the waiting memory
+request (if it waited at that fetch's issue) or the EA clocks running on (ea_b2b), which is what rule 1
+samples. The left-out write's slot posts no cycle: on its slot clock the reservation is down and a fetch
+runs by rule 3 if the line is up; its done_at is the fetch's end or `sidle` clocks on. HALT suspends the
+queue's line (`susp`).
+
+**Step 2: the strategy's literal grant** (rule 1 held by `req_v` only, rule 3's `q_low` over any
+reservation; the EU interface with the plain counts: every clock / nowait / the group forms' pauses /
+dw_count, through clocks, the fetch-free tail, the floors, the windows as the reservation, the I/O lead as
+the reservation dropped; no recovered rule): **20,943** of 5a43654's 29,207 (−8,264, 28.3 %), 0 failing, chk
+silent, write data 106,824 / 106,824. Every miss was classified (`cls_a1.py`, the scratchpad's v2/a1/:
+both RTLs re-run, the old arbiter's grant inputs and choice (`+v35_adbg`) against the new bus unit's
+(`+v35_gdbg`) and the EU slot (`+v35_bdbg`) at the first divergent clock; the old choice tested against the
+four rules with the old clock's line, `q_low` and `b2b` and any `req_v` / `req_resv`): (a) 2,386 (the EU
+presented other inputs: v_early 974, resv_down 798, v_late 548, EU items 63), (b) 5,213 (rule 3, `q_low`
+over an I/O cycle's reservation that silicon holds absolutely: 4,320 setup hold + 697 I/O lead; rule 1's
+sample 196), (c) 665 (wlatch_hold absolute 184 / against a b2b fetch 169, the I/O lead against a b2b fetch
+143, the nowrite slot's fetch with the line down 138, free_hold 20, ea_b2b 7, grp_disp 4). This is the
+baseline record (the arbiter is gone, so no "macros at 0" build reproduces 5a43654):
+
+| Family | runs | fit 62 | 5a43654 | A1 | lost | gained | loss % | (a) | (b) | (c) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 18 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F0w | 20 | 20 | 20 | 20 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F1 | 54 | 54 | 54 | 28 | 26 | 0 | 48.1 | 18 | 6 | 2 |
+| F2 | 120 | 120 | 120 | 118 | 2 | 0 | 1.7 | 0 | 0 | 2 |
+| F3 | 840 | 840 | 810 | 789 | 21 | 0 | 2.6 | 0 | 3 | 18 |
+| F4 | 456 | 456 | 452 | 223 | 229 | 0 | 50.7 | 6 | 222 | 1 |
+| F5 | 840 | 840 | 831 | 354 | 477 | 0 | 57.4 | 50 | 409 | 18 |
+| F6 | 576 | 576 | 558 | 456 | 102 | 0 | 18.3 | 16 | 73 | 13 |
+| F7 | 432 | 432 | 432 | 190 | 242 | 0 | 56.0 | 12 | 218 | 12 |
+| F9 | 408 | 408 | 379 | 379 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F10 | 204 | 204 | 204 | 146 | 58 | 0 | 28.4 | 20 | 38 | 0 |
+| F11 | 132 | 132 | 124 | 124 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F12 | 204 | 204 | 194 | 181 | 13 | 0 | 6.7 | 0 | 3 | 10 |
+| F14 | 732 | 732 | 720 | 516 | 204 | 0 | 28.3 | 4 | 182 | 18 |
+| F15 | 840 | 840 | 837 | 605 | 232 | 0 | 27.7 | 29 | 193 | 10 |
+| F16 | 1014 | 1014 | 990 | 953 | 37 | 0 | 3.7 | 13 | 17 | 7 |
+| F19 | 1290 | 1290 | 1252 | 755 | 497 | 0 | 39.7 | 146 | 280 | 71 |
+| F20 | 3594 | 3594 | 3464 | 2611 | 853 | 0 | 24.6 | 306 | 460 | 87 |
+| F21 | 3576 | 3576 | 3560 | 2860 | 700 | 0 | 19.7 | 232 | 423 | 45 |
+| F22 | 1320 | 1314 | 1274 | 644 | 630 | 0 | 49.5 | 414 | 112 | 104 |
+| F23 | 360 | 360 | 351 | 332 | 19 | 0 | 5.4 | 8 | 7 | 4 |
+| F24 | 912 | 902 | 902 | 729 | 173 | 0 | 19.2 | 48 | 116 | 9 |
+| F25 | 588 | 577 | 559 | 446 | 113 | 0 | 20.2 | 15 | 69 | 29 |
+| F26 | 906 | 906 | 897 | 450 | 447 | 0 | 49.8 | 93 | 309 | 45 |
+| F29 | 456 | 427 | 354 | 109 | 245 | 0 | 69.2 | 24 | 190 | 31 |
+| F30 | 1476 | 1467 | 1403 | 1209 | 194 | 0 | 13.8 | 90 | 69 | 35 |
+| F31 | 234 | 234 | 234 | 230 | 4 | 0 | 1.7 | 0 | 3 | 1 |
+| F32 | 858 | 846 | 784 | 332 | 452 | 0 | 57.7 | 44 | 407 | 1 |
+| F33 | 1050 | 1026 | 948 | 853 | 95 | 0 | 10.0 | 0 | 84 | 11 |
+| F34 | 1596 | 1547 | 1428 | 945 | 483 | 0 | 33.8 | 208 | 271 | 4 |
+| F35 | 1044 | 1038 | 909 | 853 | 56 | 0 | 6.2 | 20 | 25 | 11 |
+| F36 | 750 | 750 | 744 | 553 | 191 | 0 | 25.7 | 12 | 144 | 35 |
+| F37 | 432 | 432 | 366 | 8 | 358 | 0 | 97.8 | 354 | 3 | 1 |
+| F38 | 864 | 864 | 864 | 541 | 323 | 0 | 37.4 | 0 | 315 | 8 |
+| F39 | 1320 | 1318 | 1251 | 699 | 552 | 0 | 44.1 | 144 | 389 | 19 |
+| F40 | 1020 | 1003 | 920 | 684 | 236 | 0 | 25.7 | 60 | 173 | 3 |
+| all | 30536 | 30361 | 29207 | 20943 | 8264 | 0 | 28.3 | 2386 | 5213 | 665 |
+
+**The steps** (whole corpus at the default spacing, each against the previous step's per-run table):
+
+| Step | RTL-exact (fit 62) | Gained / lost | Notes |
+| --- | --- | --- | --- |
+| step 2, literal grant | 20,943 | | |
+| rule 3: `q_low` over a memory cycle's reservation only (A1_IOQL) | 22,413 | +1,470 / −0 | measured first with an empty slot presenting RQ_IOW: −10 F29 (gih d16 forms: the grp_disp window, a reservation with no request, read as an I/O reservation and held absolutely at the take clock; silicon fetches there): a rule mistake, fixed (an empty slot presents RQ_MEMR) |
+| rule 1: the sample held by `req_v` or `req_resv`; at a fetch's last clock the EU reserves for its waiting memory request (R4's NMB: only if it waited at the fetch's issue) and the EA clocks running on (A1_B2BH) | 22,674 | +261 / −0 | measured first as `req_v \|\| req_resv` with the ordinary reservation: −12 F19 (d-out-mov..-inb/inw: an IN's setup hold held the sample, silicon commits the back-to-back fetch past a waiting I/O read), then memory-typed: −994 (an I/O request standing at the last clock must hold), then `req_v \|\| memory reservation`: −32 (F22 sti_d16 / F26 fib bixd16: a store posted during the fetch's flight does not hold the sample, R4's NMB; F29 gih) — fixed by the EU's own last-clock reservation |
+| + FFD (the fetch-first dating, imm1_first's exemption) + LEAD (the I/O lead) | 25,242 | +2,568 / −0 | (measured before the last-clock lead hold below) |
+| + FRUN + FHOLD | 25,863 | +621 / −0 | |
+| + SREG + MFR + PAGE + BCD | 26,662 | +805 / −6 | the 6 (F32 / F34 set1_mw_cl d8, pE) are page_run=field's once-per-form exemption of the b2b sample, added to PAGE (`bq_pru`, R1's PGRUN): with it +1,048 / −0 against the previous step on the 6,800 runs the steps move |
+| + SF + RL (port_latch=relatch) | | +1,147 / −0 on those runs | RL first lost 131 (F31 / F5 / F6 out-empty ...: a b2b fetch committed at the fetch's last clock where the old I/O lead's block held it): the lead's block joined the last-clock reservation |
+| **the final core** (source defaults) | **28,058** | **+5,384 / −0 against rule 1's step** | both spacings identical |
+
+Each rule alone, on top of rule 1's step (bin t2d), on the 6,517 runs the steps move (gained / lost):
+FFD +695 / 0, LEAD +1,849 / 0, FRUN +456 / 0, FHOLD +157 / 0, SREG +48 / 0, MFR +93 / 0, PAGE +483 / 0,
+BCD +33 / 0, SF 0 (+36 / 0 with the others), RL 0 (+931 / −131 with the others before the lead fix), GIO 0,
+GDR 0 (both left at 0: no effect alone or with the others).
+
+**The recovered rules** (v35_macros.svh, default 1; all in the sequencer's bus interface, on bus facts and
+the sequencer's own state; none reaches the bus unit): A1_FFD (_fetch_first's dating: a request that became
+issuable on the clock the line rose waits a clock, the fetch first, as do free_hold's / grp_io_hold's dated
+fetches; not a one-byte-immediate memory form's first request on a delivery clock off a run, imm1_first),
+A1_LEAD (in the I/O lead clocks only a fetch standing since the post goes, on the clock the hold lifts;
+dw_slot=behind; the block also holds the back-to-back sample), A1_FRUN (free_run=run, call_far_post's
+restart), A1_FHOLD (free_hold=delivery), A1_SF (slot_fetch=slot), A1_SREG (sreg_store=own), A1_RL
+(port_latch=relatch, port_issue), A1_MFR (mul_imm_count=sync), A1_PAGE (page_free's restart on a fetch not
+committed back to back after the post, run_wait, pthru, ftail, page_imm_run, page_run=field), A1_BCD
+(bcd_fetch=hold's setup). Not built: GIO (grp_io_hold), GDR (grp_disp's read hold), disp_io=extend (the bus
+unit sees no form), the nowrite slot's slot_room=word, free_idle, request_reissue=no_mem beyond the sample.
+
+**The final core against 5a43654** (both spacings identical, 0 failing, chk silent, write data 106,824 /
+106,824): 28,058 (−1,175 / +26; 4.0 %). Over the budget: F22 18.9 %, F29 18.4 %, F37 14.8 %; F19 −109 (8.7 %),
+F21 −162 (4.6 %). Per family, with the classification of every miss:
+
+| Family | runs | fit 62 | 5a43654 | A1 | lost | gained | loss % | (a) | (b) | (c) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F0 | 18 | 18 | 18 | 18 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F0w | 20 | 20 | 20 | 20 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F1 | 54 | 54 | 54 | 54 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F2 | 120 | 120 | 120 | 118 | 2 | 0 | 1.7 | 0 | 0 | 2 |
+| F3 | 840 | 840 | 810 | 793 | 17 | 0 | 2.1 | 0 | 0 | 17 |
+| F4 | 456 | 456 | 452 | 428 | 24 | 0 | 5.3 | 0 | 0 | 24 |
+| F5 | 840 | 840 | 831 | 776 | 55 | 0 | 6.6 | 18 | 0 | 37 |
+| F6 | 576 | 576 | 558 | 553 | 5 | 0 | 0.9 | 0 | 0 | 5 |
+| F7 | 432 | 432 | 432 | 420 | 12 | 0 | 2.8 | 0 | 0 | 12 |
+| F9 | 408 | 408 | 379 | 379 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F10 | 204 | 204 | 204 | 204 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F11 | 132 | 132 | 124 | 124 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F12 | 204 | 204 | 194 | 185 | 9 | 0 | 4.6 | 0 | 0 | 9 |
+| F14 | 732 | 732 | 720 | 695 | 28 | 3 | 3.9 | 0 | 0 | 28 |
+| F15 | 840 | 840 | 837 | 798 | 39 | 0 | 4.7 | 0 | 0 | 39 |
+| F16 | 1014 | 1014 | 990 | 981 | 9 | 0 | 0.9 | 0 | 0 | 9 |
+| F19 | 1290 | 1290 | 1252 | 1143 | 109 | 0 | 8.7 | 18 | 0 | 91 |
+| F20 | 3594 | 3594 | 3464 | 3407 | 57 | 0 | 1.6 | 4 | 0 | 53 |
+| F21 | 3576 | 3576 | 3560 | 3398 | 162 | 0 | 4.6 | 20 | 0 | 142 |
+| F22 | 1320 | 1314 | 1274 | 1033 | 241 | 0 | 18.9 | 105 | 0 | 136 |
+| F23 | 360 | 360 | 351 | 348 | 3 | 0 | 0.9 | 0 | 0 | 3 |
+| F24 | 912 | 902 | 902 | 895 | 7 | 0 | 0.8 | 0 | 0 | 7 |
+| F25 | 588 | 577 | 559 | 531 | 28 | 0 | 5.0 | 0 | 0 | 28 |
+| F26 | 906 | 906 | 897 | 811 | 86 | 0 | 9.6 | 6 | 0 | 80 |
+| F29 | 456 | 427 | 354 | 309 | 65 | 20 | 18.4 | 0 | 5 | 60 |
+| F30 | 1476 | 1467 | 1403 | 1369 | 34 | 0 | 2.4 | 0 | 0 | 34 |
+| F31 | 234 | 234 | 234 | 234 | 0 | 0 | 0.0 | 0 | 0 | 0 |
+| F32 | 858 | 846 | 784 | 779 | 5 | 0 | 0.6 | 0 | 3 | 2 |
+| F33 | 1050 | 1026 | 948 | 940 | 8 | 0 | 0.8 | 0 | 0 | 8 |
+| F34 | 1596 | 1547 | 1428 | 1419 | 9 | 0 | 0.6 | 0 | 3 | 6 |
+| F35 | 1044 | 1038 | 909 | 887 | 22 | 0 | 2.4 | 12 | 0 | 10 |
+| F36 | 750 | 750 | 744 | 707 | 40 | 3 | 5.4 | 0 | 0 | 40 |
+| F37 | 432 | 432 | 366 | 312 | 54 | 0 | 14.8 | 0 | 0 | 54 |
+| F38 | 864 | 864 | 864 | 854 | 10 | 0 | 1.2 | 0 | 0 | 10 |
+| F39 | 1320 | 1318 | 1251 | 1226 | 25 | 0 | 2.0 | 0 | 0 | 25 |
+| F40 | 1020 | 1003 | 920 | 910 | 10 | 0 | 1.1 | 8 | 0 | 2 |
+| all | 30536 | 30361 | 29207 | 28058 | 1175 | 26 | 4.0 | 191 | 11 | 973 |
+
+**The recovery agenda** (the final core's 1,175 misses by shape; the classifier's class, then the reading):
+
+| Shape | Runs | Families | Example (t_fill +) | Class | Reading |
+| --- | --- | --- | --- | --- | --- |
+| a memory-typed window reservation yielding to `q_low` where silicon holds absolutely: wlatch_hold | 254 | F21 57, F22 41, F19 29, F26 21, F30 21, F36 21 | F12-a-out-n0-movr-pE-w0 +87 | (c) → (a) | the window is an I/O form's start waiting for the data latch: the EU can reserve with the cycle type of the I/O it waits to post (req_cyc = IOR / IOW while latch_wait), making it absolute under rule 3 |
+| wlatch_hold against a back-to-back fetch | 183 | F20 44, F25 22, F29 16, F30 13, F36 13 | F12-a-out-n1-movr-pE-w0 +91 | (c) → (a) | latch_wait joins the EU's last-clock reservation (rule 1's sample) |
+| the left-out write's slot runs a fetch with the line down (slot_room=word) | 180 | F22 72, F19 51, F5 18, F15 15 | F14-t-push-test_bw_imm-pO-w0 +97 | (c) | the bus unit would need "a slot" on the port (an attribute); not built |
+| req_v a clock early | 175 | F22 105, F21 20, F5 14, F35 12 | F19-i-push-l0-stimmd8-k2-pE-w0 +100 | (a) | the store's count / floor in the sequencer (imm_count, a floor not set on this path) |
+| no fetch on a free clock with the line up and `q_low`, no hold named | 110 | F21 52, F26 24, F4 24 | F21-out-l0-ld-bw_ix_d16-pE-w0 +87 | (c) | disp_io=extend: the I/O issued on a displacement's take clock runs a clock longer (the bus unit's gap clock); the bus would need the take (an attribute) or the EU a cycle-length request |
+| grp_disp's window yielding to `q_low` | 106 | F37 54, F29 34, F39 18 | F29-out-ec-gih-incd16-n0-pO-w0 +88 | (b) rule 3 | a memory reservation that silicon holds absolutely; rule 3 lets `q_low` override every memory reservation |
+| free_hold / slot_fetch / grp_io_hold yielding to `q_low` | 67 + 42 + 24 | F21, F22, F19 / F15, F5, F14 / F26 | F19-i-push-n1-stimm-pO-w0 +98 | (b) rule 3 | as above (absolute memory-request holds) |
+| a start one clock early after an OUT | 16 | F19 8, F20 4, F5 4 | F19-d-out-none-outb-pE-w0 +84 | (a) | the start gate's view of the detached OUT (`slot_det`): the write buffer's I/O issued earlier than the old slot let it |
+| rule 1's sample differs | 11 | F29 5, F32 3, F34 3 | F29-out-ec-gih-incd16-n1-pE-w2 +100 | (b) rule 1 | the EU's last-clock reservation for a request posted in the fetch's flight |
+| ea_b2b against a back-to-back fetch | 7 | F26 6, F21 1 | F21-push-l0-sti-bw_ix_d16-k2-pO-w0 +95 | (a) | the EA clocks' end seen a clock early at the sample |
+
+**Sizes.** v35_arbiter.sv gone (904 lines, 108 ports). v35_bus.sv 577 lines (703), 69 ports (81): 22
+inputs (clocking 8, the EU port 6, the queue 4, the Q2 strobes 3, data_in 1) and 47 outputs (the grant 9,
+the EU port's 3, S0 status, the pins). v35_ucode.sv 4,916 lines (4,350), 134 ports (166): the bus
+interface adds about 560 lines; 40 arbiter-facing ports went, 22 came (the port, the bus facts it reads,
+the datapath's request). v35_queue.sv unchanged (25 ports). The grant is about four levels of logic on
+registered facts and the two request lines; the sequencer's new registers are tick-A registers written
+from tick-B copies (`bc0_b`, `bq_nm_b`, `bq_pru_b`, ...) checked by `+v35_chk`.
+
+**Gates (the exact final source, its defaults).** Whole refresh-off corpus 28,058 / 30,361 RTL-exact of fit
+62's (28,059 of 30,536 in all) at `+v35_chk` and at `+v35_ticks=2 +v35_chk`, per-family `--score` tables
+identical and run for run identical, 0 failing, `+v35_chk` silent; `--score --data` 106,824 / 106,824 at
+both. `sst.py --rtl --all` 2,849,080 pass (the categories as R4's); `rtl_vectors --regfile` F0..F33
+69,099 vectors 0 bad, F34–F40 38,760 0 bad; `--fn` 19,752 0 bad. test_v35_struct (8, with the two
+port tests), test_ucgen (12), test_chain_lane, test_sst_rtl, test_rtl_vectors OK; build_core2_tb.sh and
+build_rf_tb.sh build (v35_core2_tb.sv reads the bus interface's `bq0 / bq1` and the sequencer's `halted`).
+Lint clean in the five configurations (and the QUEUE_A ones). The rule 1 / rule 3 first wordings remain
+as macro values for the record (A1_B2BH = 0, A1_IOQL = 0: the step-2 core); GIO and GDR at 0. The
+two bring-up prints `+v35_gdbg=FILE` (the grant's inputs and choice per clock) and `+v35_bdbg=FILE` (the
+EU slot) replace `+v35_adbg`.
 
 ## Divergences (behaviour not expressed in the structure)
 

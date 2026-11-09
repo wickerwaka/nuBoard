@@ -45,7 +45,7 @@ module v35_trace
     input  wire        flag,
     input  wire        susp,            // (Q1) the sequencer's suspend (U)
     input  wire [4:0]  why,
-    input  wire [3:0]  hold,            // (S4) the arbiter's fetch hold (W:<reason>/<hold>)
+    input  wire [3:0]  hold,            // (A1) the EU's reservation window (W:<reason>/<hold>)
     input  wire        dec_miss,        // the start waited for its decode (W: dec)
     input  wire        wlost            // a register write was lost (W: lost)
 );
@@ -189,7 +189,7 @@ module v35_trace
             default: why_name = "-";
         endcase
     endfunction
-    // (S4) the arbiter's fetch holds (v35_arbiter why_o)
+    // (A1) the reservation's windows (v35_ucode hold_o; before A1 the arbiter's why_o)
     function automatic string hold_name(input logic [3:0] h);
         case (h)
             4'd1: hold_name = "/free_hold";

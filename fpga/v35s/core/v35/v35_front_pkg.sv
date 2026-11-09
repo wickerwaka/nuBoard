@@ -7,7 +7,8 @@
 // The constants are the tracked fit's (validation/v35s/chains/fit.json, md5
 // de193740eaf1dee0862d2220ae084909, fit 62), copied by hand for S2; S1's generated
 // v35_consts.svh / v35_class_tbl.svh replace them (the names below are the fit's).
-// The build-time macros (V35_Q2_TRI, V35_R1_*, V35_R2_*, V35_R3_*, V35_R4_*) are in v35_macros.svh.
+// The build-time macros (V35_Q2_TRI, V35_R1_*, V35_R2_*, V35_R3_*, V35_R4_*, A1_*) are in
+// v35_macros.svh.
 `include "v35_macros.svh"
 package v35_front_pkg;
 
@@ -31,56 +32,28 @@ package v35_front_pkg;
         k_read = k == K_FETCH || k == K_READ || k == K_IO_READ;
     endfunction
 
-    // ------------------------------------------------------------ the EU's request record
-    // (as posted: arbiter.Request's fields as eu._post / _submit set them; S4)
+    // ------------------------------------------------------------ (A1) the EU request port
+    // the cycle types on the bus unit's EU request port (req_cyc: the pin-level cycle; the SFR
+    // page is decoded from the address by the bus unit)
+    localparam logic [1:0] RQ_MEMR = 2'd0;
+    localparam logic [1:0] RQ_MEMW = 2'd1;
+    localparam logic [1:0] RQ_IOR = 2'd2;
+    localparam logic [1:0] RQ_IOW = 2'd3;
+
+    // ------------------------------------------------------------ the datapath's request
+    // (A1) the cycle a post asks for, as the datapath builds it (v35_eu mkreq): the sequencer's
+    // bus interface (v35_ucode.sv, "the EU's bus interface") holds it with its own counts
     typedef struct packed {
         logic [2:0]  kind;
         logic        nowrite;   // grp_read=rmw_slot: the left-out write's slot (kind K_WRITE)
         logic [19:0] addr;
         logic [1:0]  width;
         logic [15:0] data;
-        logic [6:0]  setup;
-        logic        fn_v;      // free_need is set (None: every setup clock fetch-free)
-        logic [6:0]  fn;        // free_need ((S5a) 7 bits: BRK's rfree 8, a shift's setup - sthru)
-        logic [1:0]  lead;
-        logic        port;      // an I/O form with a port byte
-        logic        detached;  // io_release=post
-        logic        grp;       // grp_free_bus (free_bus)
-        logic [6:0]  through;   // rmw_alu=through: setup clocks that count through a fetch
-        logic        imm1;      // imm1_first: a one-byte-immediate memory form's first request
-        logic        gdisp;     // grp_disp=hold: a group RMW form's read after its d16
-        logic        sreg;      // sreg_store=own: MOV r/m,sreg's write
-        logic        whole;     // pop_read_hold=queue: the hold compares the whole queue
-        logic        restart;   // call_far_post=take: free_run restarts the free clocks
-        logic [3:0]  nb;        // not_before - t at the post (disp_floor, imm_count=start)
-        logic [1:0]  rl;        // the posting class's relatch (port_latch=relatch)
         logic        alive;     // the address follows the running form's EA (posted before its
         logic [2:0]  aoff;      //   displacement was taken: pop_mem), + 2 * aoff
         logic        dlive;     // the datum is the running form's result (an RMW's, POP's)
         logic        dimm;      // ... its immediate, taken after the write issued (store_imm):
                                 //     the bus takes it at B2
-        // (S5a)
-        logic        nwt;       // io_count=nowait: the setup counts every clock but a wait
-                                // state (an I/O request; str_count / burst_count = dw)
-        logic        dwl;       // dwlike: a string's / PUSH R's request counted as a DW-form
-                                // I/O request's (dw_count)
-        logic        memc;      // str_in_io=free: an unprefixed INM's I/O read counted as a
-                                // memory request's (the sequencer's)
-        logic        fhd;       // floor_hold: the floor (str_single_start=write) holds fetches
-        logic        strc;      // a string form's (str_io_latch=write: its I/O write latched)
-        logic        mfr;       // mul_imm_count=sync: MUL imm memory's read, counted by mul_free
-        logic [3:0]  c0;        // ... its count at the post (the clean clocks since mul_from;
-                                //     (S5b) page_mem=fixed: the fetch-free clocks back to the
-                                //     start, pf_cnt)
-        // (S5b) the 0F page's read (page_mem=fixed, bf_read=fixed: Request.pfree is set)
-        logic        pfv;       // pfree: every setup clock fetch-free since a fetch not
-                                //     committed back to back after the post (page_free)
-        logic        prw;       // run_wait (page_run): a committed fetch's wait clocks not counted
-        logic [1:0]  pth;       // pthru (page_cl=thru): the last setup clocks that count through
-                                //     a fetch requested after the post (the CL clocks)
-        logic [2:0]  ftl;       // ftail: a bit field's read issues once ftl clocks passed since
-                                //     the last fetch's end
-        // (S6)
         logic        w16;       // the word's offset is FFFFh: an odd pair's second half wraps to
                                 //     the segment's offset 0 (not a live address's: ea_lo's)
     } req_t;
