@@ -1339,3 +1339,20 @@ question, decided from S8's routed numbers with the user.
   configurations without v35_arbiter.sv; 37 fast tests (the two `Ports` tests new); the nine offline modules
   unchanged (941, the four known failures). The over-budget F22 and the rule-1 / rule-3 definitions are
   reported to the user for decision; the recovery agenda above is the candidate next package.
+- 2026-11-09, **decisions and the first fit after A1.** The user: rule 3 as built (an I/O cycle's reservation is
+  absolute, a memory cycle's yields to `q_low`) stands; F22's 18.3 % loss is accepted. **The whole core at 64 MHz**
+  (`TAG=a1 fpga/v35s/synth/v35_timing.sh top`, 15.625 ns, one create_clock, every SDC line applied): 24,147 LUT4,
+  2,015 ADD, 3,153 FF, 32 RAM_5K, 8 MULT (the sequencer 13,018 LUT4, the EU 7,903, the loader 2,035, the queue 607,
+  the bus unit 301: the arbiter's 1,700 gone, the sequencer up about 6,000 for its bus interface); worst setup
+  slack −179.5 ns, hold +0.3; the worst path queue `lat` → the sequencer's row arithmetic (imm / add / sub) → the
+  bus interface's counters (`ba0.setup`, `bq_flo`, `bq_inc`, `bq_cx`) → the EU's divider operand and remainder
+  (`f_now.opb`, `dv_op`, `rem`, 55 levels) → `equal` / `run_n.n0` / `wa_e` → the ROM bank's read address, 202
+  logic levels, about 195 ns: the S7a whole-clock chain again, now with the divider on the row-decision path and
+  the bus interface in it. **The harness image** (`fpga/v35s/synth/v35_harness.sh`, 30 ns clock): map 281 s,
+  placement 59 min 37 s (the timing-driven placer on an unmeetable path: over the one-hour rule), routing 20 min
+  26 s; 28,760 LUT4, 5,912 FF, 952 / 1,056 RAM_5K (the harness's buffers 920), 8 MULT, 29.7 % of the logic
+  elements; worst slack −173.9 ns, the path queue `cnt` → ROM bank read address, 186 levels; build.sh exits 1 on
+  the timing check but the bitstream build/fpga/v35s/outflow/v35s.hex.bin (3.55 MB) is written. The worst paths
+  begin and end at `ce_a` registers, so in the harness's eight-tick CPU clock they have 240 ns, not one tick's
+  120 ns; whether every `ce_b`-ending path fits a tick is not shown by the report's path list. Closing 64 MHz
+  remains S8 (paused) and S9; the divider and the bus interface's counters join the list of chains to split.
