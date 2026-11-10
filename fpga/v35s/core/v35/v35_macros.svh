@@ -242,8 +242,10 @@
 // (MX0b) the EU's byte source: 0 the queue's stored bytes (ripeness), 1 the word register
 // loaded at the end of a clock that leaves it empty, 2 the word register loaded on a clock of
 // its own (README "MX0b")
+// (MX1e) 3 a FIFO of the word register and the window; (MX1f) 0 the default with
+// V35_MX1D_ARRIVE 1: the storage the model's queue (README "MX1f")
 `ifndef V35_MX0B_WR
-`define V35_MX0B_WR 1
+`define V35_MX0B_WR 0
 `endif
 // (MX0c) the dispatch's stall: 0 none, 1 while the bus unit runs a fetch cycle, 2 and a
 // ModR/M form on a back-to-back fetch's issue clock (both on the word after E), 3 the same
@@ -261,12 +263,39 @@
 `endif
 // (MX1c) V35_MX1C_TSYNC: the take sync (1 built, measured: the restart flat across the waits, a
 // uniform clock off; 0 the default until the staging load clock is found): README "MX1c"
+// (MX1f) 1 the default: with the model's room accounting the traces match (README "MX1f")
 `ifndef V35_MX1C_TSYNC
-`define V35_MX1C_TSYNC 0
+`define V35_MX1C_TSYNC 1
 `endif
 // (MX1c) V35_MX1C_ROOM: the staging slot's count while bytes are owed (v35_loader): 0 MX0's,
-// 1 free on a word's arrival clock, 2 free whenever empty
+// 1 free on a word's arrival clock, 2 free whenever empty; (MX1f) 3 the default: 1 and a take
+// step's bytes released at its end (a word operand's low byte held until its high byte's pop)
 `ifndef V35_MX1C_ROOM
-`define V35_MX1C_ROOM 1
+`define V35_MX1C_ROOM 3
+`endif
+// (MX1d) V35_MX1D_ARRIVE: the byte path takes a delivered word's bytes on its delivery clock
+// (1) or from the clock after (0, MX0b's ripeness): README "MX1d"
+`ifndef V35_MX1D_ARRIVE
+`define V35_MX1D_ARRIVE 1
+`endif
+// (MX1e) V35_MX1E_LHOLD: the request line held while a latched byte cannot drain (1; 0 not)
+`ifndef V35_MX1E_LHOLD
+`define V35_MX1E_LHOLD 1
+`endif
+// (MX1e) V35_MX1E_TSE: the take sync gates the E word too (1) or not (0)
+// (MX1f) V35_MX1F_ASKL: the take sync counts a request the latch holds off the bus (the frozen
+// model's asked: the request raised; the queue's fetch_raise, a port the coordinator's ruling
+// is asked for) (1, the default) or only the line (0)
+`ifndef V35_MX1F_ASKL
+`define V35_MX1F_ASKL 1
+`endif
+// (MX1f) V35_MX1F_WB: the write-back wait (v35_useq): 0 none, 1 the E word that pops a wbs
+// opcode waits out its own write-back's two clocks (the model's placement), 2 the wbs routine's
+// entry word waits the two clocks after the post-E word
+`ifndef V35_MX1F_WB
+`define V35_MX1F_WB 1
+`endif
+`ifndef V35_MX1E_TSE
+`define V35_MX1E_TSE 1
 `endif
 `endif // V35_MACROS_SVH

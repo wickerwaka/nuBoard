@@ -56,6 +56,8 @@ module v35_loader
     // the queue's port (Q1, unchanged)
     input  wire [7:0]  qv0,
     input  wire [7:0]  qv1,
+    input  wire [7:0]  qv2,             // (MX1e) the window's third and fourth bytes (WR 3's refill)
+    input  wire [7:0]  qv3,
     input  wire [2:0]  q_avail,
     input  wire [2:0]  q_stored,        // (MX0b) the queue's stored bytes (the load's source)
     input  wire        q_arrive,        // (MX1c) a fetched word is delivered on this clock
@@ -96,6 +98,7 @@ module v35_loader
     output wire        dtrap,           // tick A: the instruction (op, modrm) has no routine
     output wire        resv_e,          // tick A: the E word pops an opcode whose routine posts
     output wire        s_modrm,         // the staged opcode has a ModR/M byte (registers)
+    output wire        s_wbs,           // (MX1f) the staged opcode's routine reads the accumulator first
     output wire        e_rmodrm         // tick A: (MX1c) the E word pops a register-mode ModR/M
 );
     reg        s_v = 1'b0;
@@ -103,6 +106,7 @@ module v35_loader
     reg [19:0] s_a = 20'd0;
     reg [19:0] pc = 20'hFFFF0;
     reg [2:0]  need = 3'd0;
+    reg        hold = 1'b0;             // (MX1f) a word operand's low byte popped, not yet released
     reg [7:0]  mp = 8'h00;
     // (MX0b) the word register: the EU's byte source, up to two bytes of one aligned word
     reg [7:0]  w0 = 8'h00, w1 = 8'h00;
@@ -126,9 +130,28 @@ module v35_loader
     // (ripeness: a byte is poppable the clock after it is stored, never on its arriving clock);
     // 1: the word register, loaded at the end of a clock that leaves it empty; 2: the word
     // register, loaded only on a clock that starts with it empty (its load a clock of its own)
-    wire [7:0] sb0 = `V35_MX0B_WR == 0 ? qv0 : w0;
-    wire [7:0] sb1 = `V35_MX0B_WR == 0 ? qv1 : w1;
-    wire [1:0] sn = `V35_MX0B_WR == 0 ? (q_stored >= 3'd2 ? 2'd2 : 2'(q_stored)) : wn;
+    // (MX1d) V35_MX1D_ARRIVE 1: a delivered word's bytes are usable on its delivery clock (the
+    // frozen model's queue.arrive(addr, t, t): usable <= t). WR 0: the pops read the queue's
+    // window (`avail`, this clock's delivery bypassed); WR 1: with the word register empty and
+    // nothing stored, the pops read the arriving word directly (`arr`: the word register is
+    // not loaded that clock), else the word register as before
+    // (MX1e) V35_MX0B_WR 3: the word register empty, the pops and the staging load read the
+    // queue's window directly (the stored head, and with the bypass the arriving word), and the
+    // word register refills from the window's bytes left after them on the same clock
+    wire       arr = (`V35_MX1D_ARRIVE && `V35_MX0B_WR != 0 && wn == 2'd0 && q_stored == 3'd0
+                      && q_avail != 3'd0)
+                     && `V35_MX0B_WR != 3;
+    wire [2:0] win = `V35_MX1D_ARRIVE ? q_avail : q_stored;
+    // (MX1e) WR 3: the byte source is the word register's bytes followed by the queue's window
+    // (a FIFO: the word register first, the stored head, with the bypass the arriving word)
+    wire       wr3 = `V35_MX0B_WR == 3;
+    wire [2:0] tot3 = {1'b0, wn} + win;
+    wire [7:0] sb0 = wr3 ? (wn != 2'd0 ? w0 : qv0)
+                   : (`V35_MX0B_WR == 0 || arr) ? qv0 : w0;
+    wire [7:0] sb1 = wr3 ? (wn == 2'd2 ? w1 : wn == 2'd1 ? qv0 : qv1)
+                   : (`V35_MX0B_WR == 0 || arr) ? qv1 : w1;
+    wire [1:0] sn = wr3 ? (tot3 >= 3'd2 ? 2'd2 : 2'(tot3))
+                  : (`V35_MX0B_WR == 0 || arr) ? (win >= 3'd2 ? 2'd2 : 2'(win)) : wn;
     // the E word pops the staging register's opcode and, when the opcode has one, its ModR/M
     // byte from the queue's head (the opcode's decode from the staging register)
     v35_udec_t ds;
@@ -142,6 +165,7 @@ module v35_loader
     assign o_epop = epop;
     assign resv_e = epop && ds.rq;
     assign s_modrm = s_v && ds.has_modrm;
+    assign s_wbs = s_v && ds.wbs;
     assign e_rmodrm = mpop && sb0[7:6] == 2'd3;
     wire unused = &{1'b0, ds, dm, q_avail};
     wire [2:0] add = mpop ? ds.len + v35_umodrm(s_b, sb0)
@@ -154,22 +178,45 @@ module v35_loader
                        && sn > ((opop || mpop) ? 2'd1 : 2'd0);
     // the bytes popped this clock (an operand or the E word's ModR/M byte, the staging load)
     wire [1:0] np = ((opop || mpop) ? 2'd1 : 2'd0) + (sload ? 2'd1 : 2'd0);
-    wire [1:0] wn_left = wn - np;
+    // (WR 3) the bytes taken from the word register and from the window
+    wire [1:0] tk_w = np > wn ? wn : np;
+    wire [1:0] tk_q = np - tk_w;
+    wire [1:0] wn_left = wr3 ? wn - tk_w : arr ? 2'd0 : wn - np;
     // (MX0b) the word register's load: the queue head's aligned word (one byte from an odd
     // address), from the stored bytes, one load a clock
     wire       pcq_odd = pc[0] ^ np[0] ^ wn_left[0];      // the queue head's address parity
-    wire       wload = `V35_MX0B_WR != 0 && !flush && q_stored != 3'd0
-                       && (`V35_MX0B_WR == 1 ? wn_left == 2'd0 : wn == 2'd0);
-    wire [1:0] wk = (pcq_odd || q_stored == 3'd1) ? 2'd1 : 2'd2;
-    assign l_load = `V35_MX0B_WR == 0 ? sload : wload;
+    wire       wload_w = `V35_MX0B_WR != 0 && !wr3 && !flush && q_stored != 3'd0 && !arr
+                         && (`V35_MX0B_WR != 2 ? wn_left == 2'd0 : wn == 2'd0);
+    wire [1:0] wk_w = (pcq_odd || q_stored == 3'd1) ? 2'd1 : 2'd2;
+    // (MX1e) WR 3's refill on a direct clock: the window's bytes after the np taken
+    wire [2:0] w_left = win - {1'b0, tk_q};
+    wire       wload_d = wr3 && wn_left == 2'd0 && !flush && win > {1'b0, tk_q};
+    wire [1:0] wk_d = (pcq_odd || w_left == 3'd1) ? 2'd1 : 2'd2;
+    wire       wload = wload_w || wload_d;
+    wire [1:0] wk = wload_d ? wk_d : wk_w;
+    wire [7:0] wl0 = !wload_d ? qv0 : tk_q == 2'd0 ? qv0 : tk_q == 2'd1 ? qv1 : qv2;
+    wire [7:0] wl1 = !wload_d ? qv1 : tk_q == 2'd0 ? qv1 : tk_q == 2'd1 ? qv2 : qv3;
+    assign l_load = `V35_MX0B_WR == 0 ? sload : wr3 ? wload : (arr && !wload_d) ? sload : wload;
     // the queue's port: the bytes leaving its storage (rd) and leaving the EU's room (rel);
     // the word register's bytes stay counted (unreleased) until popped
-    assign rd = `V35_MX0B_WR == 0 ? {1'b0, np} : (wload ? {1'b0, wk} : 3'd0);
-    assign rel = {1'b0, np};
+    assign rd = `V35_MX0B_WR == 0 ? {1'b0, np}
+              : wr3 ? {1'b0, tk_q} + (wload_d ? {1'b0, wk_d} : 3'd0)
+              : arr ? {1'b0, np} + (wload_d ? {1'b0, wk_d} : 3'd0)
+              : (wload ? {1'b0, wk} : 3'd0);
+    // (MX1f) V35_MX1C_ROOM 3: a take step's bytes released at the step's end (the frozen model's
+    // take_commit=at_end: an immediate or a displacement word is one take step, its low byte
+    // counted by the room until its high byte is popped). A low byte popped with bytes still owed
+    // (IL; DL unless the ModR/M's mode is 01, the one-byte displacement) is held; the next pop
+    // (or the E pop) releases it with its own
+    wire       hold_n = `V35_MX1C_ROOM == 3 && opop
+                        && ((pop == PP_IL && need_n != 3'd0)
+                            || (pop == PP_DL && need_n != 3'd0 && !(fmt.has_modrm && modrm[7:6] == 2'd1)));
+    wire       hold_r = hold && (opop || mpop || sload);
+    assign rel = {1'b0, np} - (hold_n ? 3'd1 : 3'd0) + (hold_r ? 3'd1 : 3'd0);
     // (MX1c) V35_MX1C_ROOM: the staging slot while the running instruction owes bytes: 0
     // counted (MX0), 1 free on a word's arrival clock when the slot is empty (the frozen model's
     // room_ir=arrival_idle: the IR a seventh slot on an arrival clock), 2 free whenever empty
-    wire   stg_free = `V35_MX1C_ROOM == 2 || (`V35_MX1C_ROOM == 1 && q_arrive);
+    wire   stg_free = `V35_MX1C_ROOM == 2 || (`V35_MX1C_ROOM != 0 && q_arrive);
     assign stg = s_left || sload || (need_n != 3'd0 && !stg_free);
     assign len = need_n;
     assign dec1 = v35_udec1(op);
@@ -203,6 +250,7 @@ module v35_loader
     reg        wload_b = 1'b0;
     reg [1:0]  wk_b = 2'd0, wn_left_b = 2'd0;
     reg [2:0]  need_b = 3'd0;
+    reg        hold_nb = 1'b0, hold_rb = 1'b0;
     reg [19:0] flin_b = 20'd0;
     v35_udec_t dec1_b = '0;
     reg [2:0]  op3m_b = 3'd0;
@@ -216,14 +264,16 @@ module v35_loader
             disp_b <= disp;
             dispm_b <= ex && dispm;
             pop_b <= pop;
-            qv0_b <= qv0;
-            qv1_b <= qv1;
+            qv0_b <= wl0;
+            qv1_b <= wl1;
             sb0_b <= sb0;
             sb1_b <= sb1;
             wload_b <= wload;
             wk_b <= wk;
             wn_left_b <= wn_left;
             need_b <= need_n;
+            hold_nb <= hold_n;
+            hold_rb <= hold_r;
             flin_b <= flush_lin;
             dec1_b <= dec1;
             op3m_b <= dispm ? dec2.op3 : dec1.has_modrm ? dm.op3 : dec1.op3;
@@ -238,8 +288,15 @@ module v35_loader
             s_a <= reset_addr;
             need <= 3'd0;
             wn <= 2'd0;
+            hold <= 1'b0;
         end else if (ce_a) begin
             need <= need_b;
+            if (flush_b)
+                hold <= 1'b0;
+            else if (hold_nb)
+                hold <= 1'b1;
+            else if (hold_rb)
+                hold <= 1'b0;
             // (MX0b) the word register: its bytes left after the pops, then the load
             if (flush_b)
                 wn <= 2'd0;
@@ -300,8 +357,8 @@ module v35_loader
         if (chk_on && reset_n && ce_a) begin
             if (opop_b !== opop || mpop_b !== mpop || epop_b !== epop || sload_b !== sload || flush_b !== flush
                 || disp_b !== disp || dispm_b !== (ex && dispm) || pop_b !== pop
-                || qv0_b !== qv0 || qv1_b !== qv1 || sb0_b !== sb0 || sb1_b !== sb1
-                || wload_b !== wload || wk_b !== wk || wn_left_b !== wn_left || need_b !== need_n || flin_b !== flush_lin
+                || qv0_b !== wl0 || qv1_b !== wl1 || sb0_b !== sb0 || sb1_b !== sb1
+                || wload_b !== wload || wk_b !== wk || wn_left_b !== wn_left || need_b !== need_n || hold_nb !== hold_n || hold_rb !== hold_r || flin_b !== flush_lin
                 || dec1_b !== dec1) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
@@ -311,6 +368,18 @@ module v35_loader
     end
     final if (chk_on && chk_n != 0)
         $display("v35 chk: loader: %0d changes in tick B", chk_n);
+    // +v35_ldbg=FILE: the loader's room facts each clock (bring-up; clock as the queue's qdbg)
+    integer lfd = 0;
+    string lfn;
+    integer lt = 0;
+    initial if ($value$plusargs("v35_ldbg=%s", lfn)) lfd = $fopen(lfn, "w");
+    always @(posedge clock) begin
+        if (lfd != 0 && reset_n && ce_a) begin
+            $fdisplay(lfd, "l %0d wn %0d s_v %0d need %0d need_n %0d epop %0d opop %0d mpop %0d sload %0d np %0d rd %0d rel %0d stg %0d arrive %0d win %0d",
+                      lt, wn, s_v, need, need_n, epop, opop, mpop, sload, np, rd, rel, stg, q_arrive, win);
+            lt <= lt + 1;
+        end
+    end
     /* verilator lint_on BLKSEQ */
 `endif
 endmodule

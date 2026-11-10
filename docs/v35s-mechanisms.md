@@ -592,8 +592,40 @@ change to the text above, kept here rather than rewritten into it.
    frame +1, the OUT frame −1): the model takes a delivered word's byte on its arrival clock
    (machine.py: `queue.arrive(addr, t, t)`, usable at t) and loads the IR on the last take's clock, while
    MX0b's word register loads from the stored bytes only, a clock late on every synced pop. The unit hold
-   itself is left to MX3's loops.
+   itself is left to MX3's loops. Resolved at MX1f: the uniform clock was the room's count (item 9) and the
+   take sync is on in the defaults (item 10).
 8. **§3.7, the room (found at MX1b, built at MX1c, `V35_MX1C_ROOM` 1).** The IR / staging byte is a seventh queue slot: free
    when empty on a word's arrival clock and when the decoder is idle, not a slot while the running
    instruction still owes bytes (the model's room_ir = arrival_idle). MX0's loader counted the slot as
    occupied while bytes were owed, so a MOV r16,imm16 stream fetched three clocks later than silicon.
+
+## Corrections from MX1c to MX1f (2026-11-10)
+
+9. **§3.7, the uniform clock of item 7 was the room's count, not the byte path's.** The RTL released a
+   popped immediate's low byte at once and did not count a delivered word's second byte in the latch on its
+   delivery clock; the model counts both (a take step is the whole immediate or displacement word, released
+   at its end; a latched byte counts while the instruction is mid-take). Two bytes short, the RTL raised a
+   fetch a clock early on the first take's clock and the prelude's MOV r16,imm16 ran 6 against silicon's 7,
+   which set the phase every frame carried. Built at MX1f as `V35_MX1C_ROOM` 3 with the byte path the
+   queue's storage (the pops read the stored bytes with the arriving word bypassed; MX0b's word register
+   is off: its bytes sat outside the six storage bytes, so the latch never filled where silicon's does).
+   The delivery-clock bypass (MX1d) and the latch hold (MX1e) are on.
+10. **§3.7, the take sync's count.** The sync counts the request the room raises whether or not the latch
+    holds it off the bus (the model's `asked`); the RTL had counted the request line, which the latch hold
+    lowers. The queue exposes its raised request (`fetch_raise`), the one port added since MX0. With it
+    the take sync is on in the defaults, the shift's exec waiting for the word its ModR/M's take asked
+    for, and SHL r,CL is the book's 11 + 2n: silicon's twelfth clock is that wait, not a routine word
+    (item 2's 12 + 2n withdrawn).
+11. **§3.4 / §5, the write-back.** A routine whose result's write-back runs on past its E word (the
+    shifts, the register multiplies and divides, CVTBW, CVTWL: the model's wb 2) holds the write port for
+    the result's write and then the flags' on the E clock and the next. An opcode whose routine reads the
+    accumulator first (OUT imm8,acc; the decode's `wbs`) waits those two clocks at its E word; OUT DX, IN
+    and the register forms do not wait (no wbsync in the model; the register forms' first read is at E + 2,
+    the write-back's end, by structure). That is OUT's port byte at S + 5 after a shift and S + 3 after a
+    NOP. The classes the model gives wb 1 and wb 3 are not flagged: a one- or three-clock flag would be a
+    count without a named act.
+12. **§3.6, the I/O write under a running cycle's wait states (open).** On 7,013 runs the chain's final
+    OUT DX's write is early in the RTL by exactly the wait count: the model issues the write `setup0`
+    clocks after its post without counting the running fetch's wait states (`io_count=nowait`), while the
+    RTL's write waits the running fetch out. The machine reading is not yet known (the running cycle at
+    the post, and whether the write begins under its wait states or the fetch ends early); MX1g probes it.

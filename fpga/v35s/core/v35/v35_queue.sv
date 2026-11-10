@@ -60,6 +60,7 @@ module v35_queue
     input  wire        ce_b,
     // the bus unit
     output wire        fetch_req,
+    output wire        fetch_raise,     // (MX1f experiment) the request the room raises, before the latch's hold
     output wire [19:0] fetch_addr,
     output wire        q_low,
     output wire        q_word,          // (Q2) the line is up with room for exactly one word ((R3) or a byte short, see q_short)
@@ -139,7 +140,15 @@ module v35_queue
     // the word must find its bytes a place: the six storage bytes and (B) the latch, the bytes
     // stored, latched and in flight counted whatever the room counts
     wire       phys_ok = {1'b0, cnt_a} + (infl_a ? 5'd2 : 5'd0) <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
-    assign fetch_req = occ <= 5'(CAP - 2) && phys_ok && !susp;
+    // (MX1e) V35_MX1E_LHOLD: the latch's hold on the request line (the frozen model's
+    // latch_hold, queue.py latch_blocks, measured on F3-push-nop-k4-pE-w0 -3: room 3, the line
+    // held): a byte delivered on an earlier clock still latched, and on this clock the queue's
+    // port is the EU's (a release) or the storage is full, so the byte cannot go in: no fetch is
+    // requested until it can (the word would find its second byte's place still taken)
+    wire       lat_hold = `V35_MX1E_LHOLD && lat_v && !arrive
+                          && (port_a || {1'b0, cnt_a} >= 5'(QUEUE_BYTES));
+    assign fetch_req = occ <= 5'(CAP - 2) && phys_ok && !susp && !lat_hold;
+    assign fetch_raise = occ <= 5'(CAP - 2) && phys_ok && !susp;
     // (Q2) q_word: the line up with room for exactly a word (the triple clock's abort test).
     // (R3) Or the line a byte short of a word by one byte the abort test counts as room: a byte
     // read and not yet released (xfer_abort=word: a transfer's displacement byte, released a

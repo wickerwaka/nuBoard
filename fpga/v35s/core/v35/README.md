@@ -677,6 +677,247 @@ Open (MX1c):
    on MULU's runs), not built; its law is the note's proposal below.
 3. MX1b's items 2-4 stand.
 
+## MX1d: the delivery-clock bypass, measured; the take sync's offset traced
+
+### The delivery-clock bypass (`V35_MX1D_ARRIVE`; built, measured, default 0)
+
+The frozen model's delivered word is usable on its arrival clock (machine.py:
+`queue.arrive(addr, t, t)`). Built in the loader, with no queue or bus port changed: at 1, with
+`V35_MX0B_WR` 0 the pops read the queue's window (`avail`: this clock's delivery bypassed);
+with WR 1, when the word register is empty and nothing is stored, the pops and the staging load
+read the arriving word directly that clock (`arr`: the word register is not loaded on it). The
+one-load-a-clock rule stays. Measured on F0 F0w F1 F2 F3 F9 F11 F12 (`+v35_chk`):
+
+| | take sync off | take sync on |
+| --- | --- | --- |
+| WR 1, bypass off (MX1c) | 120 | 0 (restart flat: +0.83 -0.50 +0.97 -1.21 +1.25 -1.03) |
+| WR 1, bypass on | 120 | 0 (the same offsets) |
+| WR 0, bypass on | - | 0 (+0.83 -0.50 +0.82 -1.27 +1.16 -1.12) |
+
+The bypass moves nothing: on the traced run no word arrives where the offset is made. Kept
+behind its macro, off.
+
+### The offset, traced (F3-push-nop-k4-pE-w0, the take sync on, clocks from t_fill)
+
+- WR 1: MOV CL,imm8 pops its immediate (1F, the odd byte of word 10048) at -4 and the word
+  register loads word 1004A (D3 E0) at that clock's end; the staging register loads D3 at -3
+  (W:q) and SHL's E pops it with its ModR/M at -2, on the clock the fill's fetch 10050 issues.
+  The model takes 1F and loads its IR with D3 on one clock (-4), starts SHL at -3, and issues
+  10050 at -2, the clock after. D3 lies in another aligned word than 1F: the word register (one
+  aligned word, loaded only when empty) cannot hand it to the staging register on -4.
+- WR 0 (the stored bytes direct): the staging load lands on -4 and SHL's E on -3 relative to its
+  own start, but the whole stream is one clock late against the fill fetch from the prelude on:
+  the model's first start (it anchors its EU at the prelude's POP PSW read, prelude_anchor=pop)
+  is at -100, the RTL's at -98 / -99 with POP PSW re-derived (its post at S+5, as POP r16's).
+So the offset is the RTL's EU against its own fill fetch: in the model a take's room issues
+its fetch on the clock after the start that takes (SHL at -3, 10050 at -2); in the RTL the E
+that pops (and makes the room) and the fetch share a clock. Open: whether the fill's last fetch
+should wait a clock after the room the E makes (a queue law to measure) or the E start a clock
+earlier (the staging register loaded from the queue's stored head on the clock its operand
+predecessor's last pop runs, not only from the word register).
+
+### Also in MX1d
+
+- POP PSW re-derived on the model's read (its post at S+5 as POP r16's, 13 = the book).
+- Defaults unchanged: the take sync off, the bypass off, the room law on.
+
+### Measured (MX1d; both spacings, `+v35_chk` silent, tables identical)
+
+With the defaults (take sync off, bypass off, room law on): the corpus 485 of 30,536, every
+run's result identical to MX1c's at both spacings; the first divergence (i) 14,224, (ii) 0, (iii)
+15,827. Write data 93,540 / 106,824. OPEN words: 422 book clocks no act names, 18 beyond the book
+(silicon longer, measured), 9 named acts beyond the book. The take sync is not switched on: the
+uniform offset stays (above).
+
+## MX1e: the clock between a pop's room and its fetch, probed; three laws measured
+
+### The probe (`an/probe3.py`: the frozen model's queue.take / commit / requesting / room /
+wants_fetch and the arbiter wrapped; clocks from t_fill as evtrace aligns them)
+
+| Run, clock | occupancy / uncommitted / room / flag | the request | the arbiter |
+| --- | --- | --- | --- |
+| F3-push-nop-k4-pE-w0 -6, -5 | 7 / 0 / -1 / 0 | requesting 0 | none (bus free) |
+| -4 (takes 10049, 1004A, committed at once) | 6 -> 5 / 0 / 1 / 0 | requesting 0 | none |
+| -3 (takes 1004B, 1004C) | 4 -> 3 / 0 / 3 / 1 | requesting 1, wants_fetch 0: `latch_blocks` (a byte delivered at -8 still latched, the queue's port the EU's this clock) | none |
+| -2 | 3 / 0 / 3 / 1 | wants_fetch 1 | fetch 10050 |
+| F3-push-add_aw_dw-k1-pE-w0 +81 (take 1004E) | 3 / 0 / 4 / 1 | wants_fetch 1 | fetch 10052 on the take's clock |
+| F3-push-nop-k4-pE-w1 -36 / -32 (the prelude's MOV r16,imm16) | 5 / 0 / 2 / 1; 4 / 0 / 3 / 1 | wants_fetch 1 | fetch 10044 at -36, 10046 at -32: on the take's clock |
+
+Commits are at once (take_commit=at_end commits on the take's clock here: uncommitted 0 at
+every row), and request_eval re-evaluates on the take's clock. The only clock the fetch waits
+after its room is the latch's: the model's latch_hold (queue.py latch_blocks): a byte delivered
+on an earlier clock still in the latch, and the port the EU's on this clock (or the storage
+full), holds the request. The model keeps that byte latched from -8 to -2 because its storage
+is full (occupancy 7) until the takes at -4 and -3, which hold the port.
+
+### The laws built (each behind its macro, measured on F0 F0w F1 F2 F3 F9 F11 F12, `+v35_chk`)
+
+- `V35_MX1E_LHOLD` (v35_queue.sv, 6(ii), the probe above as its measurement; ports unchanged):
+  the request line held while a latched byte delivered on an earlier clock cannot drain (the
+  port the EU's this clock, or the storage full). Take sync off: 120 (MX1c 120); on: 0.
+- `V35_MX0B_WR` 3 (v35_loader.sv): the byte source a FIFO of the word register's bytes
+  followed by the queue's window (the stored head; with `V35_MX1D_ARRIVE` the arriving word),
+  the word register refilled from the window's bytes left on the same clock (the staging load
+  from the stored head on the last pop's clock). Off: 119; on: 0. Traced (F3-push-nop-k4-pE-w0):
+  SHL now starts at its MOV CL's S + 4 as the model's, the stream one clock late from earlier on.
+- `V35_MX1E_TSE`: the take sync gating the E word too (the model's exec after the last take):
+  with WR 3 and the take sync, 0.
+With the take sync on, every variant leaves the restart dt flat across the waits at the same
+per-family offsets (F0 +0.83, F1 -0.50, F2 +0.97, F3 -1.21, F9 +1.25, F12 -1.03): the offset is
+a phase between the RTL's instruction stream and its own fill fetch that none of the three
+laws moves. In the RTL the traced fetch (10050) issues on SHL's E clock (-2), where the room
+is made, so the latch hold has nothing to act on at -3; the model's room is made a clock
+earlier (-4, -3) by takes the RTL makes a clock later. The next question is that clock in the
+stream before the LS (the prelude's MOV r16,imm16 starts alternate 6 / 7 clocks in the RTL
+against the model's 7 / 7 under WR 3), and the latch's drain (the RTL drains "the first clock
+without a release with storage free", the model keeps it while its storage is full). The take sync stays off; every new law is kept behind its macro, off.
+
+### Measured (MX1e; the defaults, both spacings, `+v35_chk` silent, tables identical)
+
+The take sync, the latch hold, the bypass and WR 3 all off (the room law on): the corpus 485
+of 30,536, every run's result identical to MX1c's and MX1d's at both spacings; (i) 14,224, (ii) 0,
+(iii) 15,827; write data 93,540 / 106,824. OPEN words: 422 book clocks, 18 beyond the book, 9
+named acts beyond the book.
+
+## MX1f: the model's room accounting, the take sync on, OUT's write-back wait
+
+### The room, compared clock by clock (`an/occ.py` for the RTL: `+v35_qdbg`, `+v35_ldbg`; `an/probe3.py` for the model)
+
+F3-push-nop-k4-pE-w0 with WR 3, the take sync and TSE (MX1e's state), the MOV r16,imm16 at
+10032 (RTL E -55, model S -60; the RTL's 6-clock MOV):
+
+| clock | RTL: stored / word register / staging / in flight / room | model: occupancy / uncommitted / room / flag |
+| --- | --- | --- |
+| E (-55; model S -60), a word delivered | 2+2 / 1 / free (arrival) / 0 / 2: requests | 5 / 0 / 2 / 1: requests |
+| first take (-52; model -57), a word delivered | 4 / 2 (the immediate's low byte released) / free / 0, the delivered word's second byte latched and uncounted / 2: requests | 7 / 1 (the immediate's low byte, uncommitted) / 0, the latched byte counted (latch_midtake) |
+| the last take and the IR load (-51; model -56) | in flight / room 0 | requests (S+4) |
+
+The E clock counts alike; on the first take's clock the RTL counts two bytes fewer: the
+immediate's low byte (the RTL released it on its pop; the model's take step is the immediate
+word, take_commit=at_end, its first byte counted until the second is taken) and the delivered
+word's second byte the latch holds (the RTL does not count a latched byte on its delivery
+clock; the model counts it while the instruction is mid-take). The RTL's extra fetch on that
+clock is the 6-clock MOV.
+
+### The laws built
+
+- `V35_MX1C_ROOM` 3 (v35_loader.sv), the default: a take step's bytes released at its end. A
+  low byte popped with bytes still owed (IL; DL unless the ModR/M's mode is 01, the one-byte
+  displacement) is held (`hold`) and released with the next pop (or the E pop); the staging
+  slot's arrival law (1) kept. The latch's byte needs nothing more once the byte path is the
+  model's queue (below): with WR 0 the second byte waits in the latch exactly where the model's
+  does.
+- `V35_MX0B_WR` 0 with `V35_MX1D_ARRIVE` 1, the default: the pops read the queue's window (the
+  stored bytes, the arriving word bypassed) and the storage is the model's queue. Under WR 3 the
+  word register's bytes sit outside the six storage bytes, so the latch never fills where the
+  model's does (F3-push-nop-k4-pE-w0 -8: model occupancy 7 with a byte latched, the RTL's 6
+  stored and one in the word register); counting the word register in the storage's full test
+  instead broke the MOV stream (the held byte counted twice), so the word register is not used.
+- `V35_MX1E_LHOLD` 1, the default (MX1e's latch hold).
+- `V35_MX1C_TSYNC` 1 and `V35_MX1E_TSE` 1, the defaults: the take sync on.
+- `V35_MX1F_ASKL` 1, the default (v35_queue.sv, a new output `fetch_raise`, the request the
+  room raises before the latch's hold; v35_top.sv feeds it to the sequencer's `q_req`): the take
+  sync counts a request the latch holds off the bus, the model's `asked` (the flag raised;
+  latch_blocks only keeps it from the arbiter). At SHL's E (-3) the model's request is up and
+  latch-blocked, the fetch goes at -2, and the shift's exec waits for its word (+1): the RTL's
+  line was down at -3, the sync counted nothing. **This adds a port to the queue**, against the
+  rule that its ports stay: the coordinator's ruling is asked; `ASKL` 0 measured below.
+- shift_cl (loop.uasm) at the book's 11 + 2n: one OPEN word fewer. Silicon's twelfth clock is
+  the take sync's wait (the model's exec clocks start on the delivery of the word the ModR/M
+  take asked for: S + 3 on a fetch issued at S, S + 4 when the latch holds it a clock).
+
+### The trace (F3-push-nop-k4-pE-w0, the defaults)
+
+Every prelude MOV r16,imm16 at 7 from E to E, each E on the model's S (-60 -53 -46 ... -18),
+the fetches on the model's clocks (one at S + 4 each, and the arrival's at S on alternate
+MOVs as the model's), MOV r16 (10047) at -11, MOV CL at -7, SHL's E at -3, 10050 at -2, the
+shift 75 (the sync to +1), the PUSH frame's write at 78, the k4 NOPs at 81 / 85 / 89 / 93, the
+second shift 74, every instruction's start the model's to the chain's end (the last OUT DX's
+own length aside: its I/O write is the same clock at 0 waits).
+
+### OUT after the shift (`V35_MX1F_WB`)
+
+The probe (`an/probe4.py`, the model's eu.tick wrapped) on F3-out-shl_cl4-k2-pE-w0: the shift's
+done_t is +72 (its last clocks step ends on OUT's start clock), wb_until = done_t + wb = +74;
+OUT's steps: wbsync (+72, +73 waiting), its three pre clocks +74 .. +76, the port take at +77
+(S + 5), the I/O post there. After a NOP (no write-back) the same OUT takes at S + 3.
+
+Only the port form of OUT (E6 / E7, class out, wbsync 1) waits; OUT DX (wbsync0 0), IN, and the
+register forms do not (no class but out has wbsync). The register forms read a register no
+earlier than the write-back's end: their first routine word is E + 2, the write-back's end
+(F0-ls_nop_ls: every 0-wait run exact).
+
+Built: a word flag `wb` (the microword 88 bits) on the E words of the routines whose result's
+write-back runs on past E (the model's wb 2: shift_cl, shift_imm and the memory shifts, the
+multiplies and divides, CVTBW, CVTWL), and a decode bit `wbs` (the header `wbs=e`) on OUT
+imm8,acc: its routine's first act is the accumulator's read into the write datum.
+- 1 (the default): the E word that pops a `wbs` opcode waits out its own write-back's two
+  clocks (`wbn`): the result's write, then the flags'. That is the model's placement (the
+  write-back [done_t, done_t + 2) on the E clock and the next; OUT's three clocks before its
+  port take start at wb_until).
+- 2 (the coordinator's fallback): OUT's entry word waits, the write-back counted as the two
+  clocks after the post-E word (`wbp`). Its placement is two clocks after the model's (OUT's
+  three pre clocks in the RTL are its E, the post-E word and its first OPEN word: an entry-word
+  stall bites only with the write-back moved past them); measured identical to 1 on the gate
+  families (the S event is not scored).
+The wb 1 classes (flag, extend, INC / DEC) and the wb 3 ones (adjust_b, extend_w, flag_di,
+flag_ei) are not flagged: one clock or three would be a count; their E words would need a
+named act per clock.
+
+Traced: F3-out-shl_cl4-k2-pE-w0 the port take at S + 5, the I/O write at +84 as the model's (OUT
+waits at +72 / +73 `W:hold`); after the NOP at S + 3 unchanged.
+
+### Measured (MX1f; the defaults, both spacings, `+v35_chk` silent, tables identical)
+
+The MX0 gate families (F0 F0w F1 F2 F3 F9 F11 F12, 1,796 runs), each law's alternative:
+
+| variant | exact | restart dt across 0 / 1 / 2 waits |
+| --- | --- | --- |
+| MX1e defaults (take sync off) | 120 | grows a clock a wait |
+| WR 0 + bypass, ROOM 3, LHOLD, take sync + TSE (ASKL 0, WB 0) | 0 | grows |
+| ... and ASKL 1 (WB 0) | 253 | flat |
+| ... and WB 1 (the defaults) | **285** | flat (F0 +0.00, F1 -0.83, F2 +0.03, F3 -1.25, F9 +0.26, F11 +0.14, F12 -1.18) |
+| the defaults, ASKL 0 | 126 | grows |
+| the defaults, WB 2 (entry-word wait) | 285 (the same runs) | flat |
+| the defaults, ROOM 1 (no take-step hold) | 97 | flat |
+| the defaults, WR 3 (the word register FIFO) | 283 | flat |
+| the defaults, take sync off | 0 | - |
+
+The corpus (30,536): **1,285** exact (MX1c / MX1e 485): 897 gained, 97 lost (F20 35, F9 10,
+F3 8, F36 8, F7 7, F14 5, F38 5, F12 4, F15 4, F40 4, F35 2, F39 2, F2 1, F23 1, F34 1);
+every family's restart dt flat across the waits or within 0.2 of flat. First divergence: (i)
+22,321, (ii) 0, (iii) 6,930. The largest single residual: the I/O write -1 at 1 wait and -2 at 2
+waits (7,013 runs: the chain's last OUT DX, whose write the model issues setup0 clocks after its
+post counting no wait state of the cycle running (`io_count=nowait`); the RTL's post is a fixed
+word): a bus-unit law, not built. Write data 93,540 / 106,824 (MX1e's). Function: `--regfile`
+78,965 vectors 0 bad (pass 70,124), `--fn` 22,455 0 bad, the SingleStepTests set through the whole-core bench 0 bad (every file as before; 61, POP ALL, now passes its 9,997 where it trapped); lint clean in the five
+configurations and the variants; test_uasm (shift_cl's lengths 9 / 19 / 73 at n = 0 / 4 / 31),
+test_v35_struct, the nine offline modules (937 tests: 4 failures, test_freeze / test_sim TrackedFit on the tracked fit and the frozen package, files this work does not touch). OPEN words: 421 book clocks, 18 beyond the
+book, 8 named acts beyond the book (shift_cl's shifter load no longer declared beyond the book:
+the routine is the book's).
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- The take sync's count: the model's `asked` is the request the room raises, whether or not the
+  latch holds it off the bus; the RTL counted the request line, which the latch hold lowers.
+  With the count the model's (ASKL), the shift's exec waits for the word asked for at its E.
+- The room: a take step's bytes are released at the step's end (an immediate or displacement
+  word one step), not byte by byte; the byte path is the queue's storage (no word register:
+  its bytes would sit outside the six bytes and the latch would not fill where the model's does).
+- The latch hold (MX1e's law) is on in the defaults: with the byte path the model's queue the
+  latch fills and drains on the model's clocks.
+- The delivery-clock bypass (MX1d's ARRIVE) is on: the pops read the arriving word.
+- The write-back: the model's wb is the clocks [done_t, done_t + wb), done_t the next
+  instruction's start, so the wait is on the E word that pops OUT imm8 (its pop and dispatch
+  are two of OUT's three pre clocks); only OUT imm8 waits; the register forms read no earlier
+  than the write-back's end by structure. shift_cl's twelfth clock is the take sync's, not a
+  word of the routine.
+
+Open (MX1f): the queue port `fetch_raise` (ASKL) needs the coordinator's ruling; the wb 1 and wb
+3 classes are not flagged; OUT imm8 at an odd port byte (pO, S + 5 against the model's later
+fetch under a posted I/O write) and the fetch after an I/O write (the model's one clock later)
+stand; the I/O write's wait-state counting (7,013 runs) is the next lever.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

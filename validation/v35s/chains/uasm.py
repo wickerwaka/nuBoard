@@ -291,7 +291,7 @@ class Routine:
 
 
 SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop"}
-FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm"}
+FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "wb"}
 
 
 def _tokens(s: str) -> list[str]:
@@ -535,6 +535,9 @@ def udec1(prog: Program, op: int) -> dict:
     # the reservation at the opcode's pop: its routine's header says `resv=e`
     f["rq"] = int(op in prog.cells1 and next(r for r in prog.routines
                                              if r.name == prog.cells1[op]).head.get("resv") == "e")
+    # (MX1f) the write-back wait at the opcode's pop: its routine's header says `wbs=e`
+    f["wbs"] = int(op in prog.cells1 and next(r for r in prog.routines
+                                              if r.name == prog.cells1[op]).head.get("wbs") == "e")
     return f
 
 
@@ -587,7 +590,7 @@ def decode_svh(prog: Program) -> str:
         f = udec1(prog, op)
         L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
-                 f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, 1'b{f['rq']}}};")
+                 f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, 1'b{f['rq']}, 1'b{f['wbs']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte

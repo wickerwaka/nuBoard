@@ -133,6 +133,8 @@ package v35_pkg;
         logic       resv;       // the reservation raised (the routine will post)
         v35_pop_e   pop;        // a queue byte popped
         logic       e;          // E: the next opcode popped (one word follows)
+        logic       wb;         // (MX1f) on an E word: the result's write-back holds the register
+                                //   file's write port through this clock and the next
         logic       f;          // F: wait for the requested datum
         v35_cnt_e   cnt;        // the loop counter's load
         v35_seq_e   seq;
@@ -162,6 +164,8 @@ package v35_pkg;
         logic [2:0] len;        // the bytes after the opcode (no ModR/M form; the trap's)
         logic       rq;         // the routine posts a request: the reservation rises when the
                                 //   E word pops the opcode (the routine knows it will post)
+        logic       wbs;        // (MX1f) the routine's first act reads the accumulator: the E word
+                                //   that pops the opcode waits for the running write-back
     } v35_udec_t;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)

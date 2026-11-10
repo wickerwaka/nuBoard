@@ -1569,3 +1569,56 @@ question, decided from S8's routed numbers with the user.
   delivery clock, so the byte path is a clock late on every synced pop. MX1d builds the delivery-clock bypass
   (and the staging load on the last pop's clock), measured against `V35_MX0B_WR`'s values, then switches the
   take sync on.
+- 2026-11-10, **MX1f landed** (the same agent; MX1d and MX1e, the delivery-clock bypass and the latch hold, land
+  with it). **The uniform clock was the room's count.** A per-clock comparison of the RTL's room facts against
+  the frozen model's on the prelude's 6-clock MOV r16,imm16 (F3-push-nop-k4-pE-w0, RTL E −55 against the
+  model's S −60) found the E clock counted alike and the first take's clock two bytes short in the RTL: the
+  immediate's low byte (the RTL released it on its pop; the model's take step is the immediate word,
+  `take_commit=at_end`, the first byte counted until the second is taken) and the delivered word's second
+  byte in the latch (not counted on its delivery clock by the RTL; counted by the model while the
+  instruction is mid-take). Those two bytes raised the RTL's extra fetch, the 6-clock MOV, and set the
+  prelude's phase. **Built**, each behind a macro with the alternative measured: (1) `V35_MX1C_ROOM` 3, a
+  take step's bytes released at the step's end (a popped low byte with bytes still owed, the immediate's or
+  a d16 displacement's, held and released with the next pop or the E pop; the arrival-clock staging law
+  kept); (2) the byte path the queue's storage (`V35_MX0B_WR` 0 with `V35_MX1D_ARRIVE` 1: the pops read
+  the stored bytes with the arriving word bypassed; under the word register its bytes sat outside the six
+  storage bytes so the latch never filled where the model's does); (3) the latch hold (`V35_MX1E_LHOLD` 1),
+  the take sync and its E gate (`V35_MX1C_TSYNC` 1, `V35_MX1E_TSE` 1) on; (4) `V35_MX1F_ASKL` 1: the take
+  sync counts the request the room raises whether or not the latch holds it off the bus, the model's
+  `asked`; it needs the queue's raised request, a new output `fetch_raise` through v35_top into the
+  sequencer, **the one port added to the queue since MX0** (the overseer's ruling: the raised request is a
+  quantity the queue already holds, the no-port rule was the overseer's conservatism for the bus unit's
+  interface, not the user's; without it the gate families fall 285 → 126 and the restart dt grows with the
+  waits again); (5) shift_cl at the book's 11 + 2n: silicon's twelfth clock is the take sync's wait (the
+  exec starts on the delivery of the word the ModR/M's take asked for), one OPEN word fewer; (6) OUT's
+  write-back wait (`V35_MX1F_WB` 1): the agent's probe of the model (`an/probe4.py`,
+  F3-out-shl_cl4-k2-pE-w0) placed the shift's done_t at OUT's own start and wb_until two clocks on, OUT's
+  wbsync waiting those two, its three pre clocks and the port take at S + 5 (S + 3 after a NOP); built as a
+  word flag `wb` on the E words of the routines whose result's write-back runs on past E (the shifts, the
+  register multiplies and divides, CVTBW, CVTWL) and a decode bit `wbs` on OUT imm8 (its routine reads the
+  accumulator first): the E word that pops a `wbs` opcode waits out the write-back's two clocks, the
+  result's write then the flags'; only OUT imm8 waits (OUT DX, IN and the register forms have no wbsync;
+  the register forms' first word is at E + 2, the write-back's end); the overseer's fallback (the entry
+  word waiting, variant 2) measures identical; the wb 1 and wb 3 classes are not flagged, a one- or
+  three-clock flag being a count. **Traced** (F3-push-nop-k4-pE-w0): every prelude MOV at 7 from E to E on
+  the model's S, one fetch per MOV at S + 4 and the arrival's at S on alternate MOVs as the model's, SHL's E
+  at −3, 10050 at −2, the shift 75, the PUSH frame's write at 78, the NOPs 81 / 85 / 89 / 93, the second
+  shift 74; F3-out-shl_cl4-k2-pE-w0 the port take at S + 5 and the I/O write at +84 as the model's.
+  **Verified on main (both spacings identical, 0 failing, chk silent):** 1,285 / 30,536 exact (MX1c 485;
+  the MX0 gate families 285 / 1,796; every family gained or held: F3 50 → 124, F6 3 → 49, F9 49 → 90, F16
+  37 → 102, F21 44 → 208, F36 39 → 85, F38 29 → 67; F10, F24, F31 at 0, F23 at 2); per run 897 gained and
+  97 lost (F20 35, F9 10, F3 8, F36 8); the restart dt flat across the waits in every family (F0 +0.00, F1
+  −0.83, F2 +0.03, F3 −1.25, F9 +0.26, F11 +0.14, F12 −1.18; F15's −1.50 / −1.61 / −1.72 the widest); the
+  agent's variants on the gate families: take sync off 0, ASKL 0 126, ROOM 1 97, WR 3 283, WB 2 285, WB 0
+  253; classification (i) 22,321, (ii) 0, (iii) 6,930; the function gates unmoved (write data 93,540 /
+  106,824; register vectors 69,099 + 38,760 and function vectors 19,752, 0 bad; the agent's whole-core
+  SingleStepTests run 0 bad with POP ALL now passing where it trapped); lint clean in five configurations
+  and the variants; 45 fast tests; the nine offline modules 941 tests with the four known fit-tracking
+  failures. OPEN words: 421 book clocks, 18 beyond the book with their runs, 8 named acts beyond the book.
+  **The largest residual, not built:** 7,013 runs whose first divergence is the chain's final OUT DX's I/O
+  write early by exactly the wait count (−1 at 1 wait, −2 at 2): the frozen model issues that write
+  `setup0` clocks after its post without counting the running cycle's wait states (`io_count=nowait`),
+  while the RTL posts on a fixed word and the write waits the running fetch out. A bus-unit question: what
+  the running cycle is at the post and how the write starts under it, probed before anything is built.
+  Also standing: OUT imm8's port byte at an odd address (the parity residual) and the fetch after an I/O
+  write one clock later in the model. MX1g sent for the I/O write under a running cycle's wait states.

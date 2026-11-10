@@ -136,9 +136,11 @@ class BookCheck(unittest.TestCase):
         # (MX0d) the book's 11 + 2n; at n = 0 the zero test skips the loop and the write
         # (MX0e) silicon's 10 at n = 0 less the stall: 9 (one book clock on the loop's path)
         # (MX1b) the shifter's load on a word of its own: silicon's 12 + 2n, 10 at n = 0
-        self.assertEqual(uasm.length(prog, "shift_cl", 0), 10)
-        self.assertEqual(uasm.length(prog, "shift_cl", 4), 20)
-        self.assertEqual(uasm.length(prog, "shift_cl", 31), 74)
+        # (MX1f) the book's 11 + 2n again: silicon's twelfth clock is the take sync's wait for
+        # the word the ModR/M pop's room asked for (F3-push-nop-k4-pE-w0 +112: 74 at n = 31)
+        self.assertEqual(uasm.length(prog, "shift_cl", 0), 9)
+        self.assertEqual(uasm.length(prog, "shift_cl", 4), 19)
+        self.assertEqual(uasm.length(prog, "shift_cl", 31), 73)
 
     def test_declared_differences_name_silicon(self):
         # (MX0e) the book is the first draft; a routine is shorter than the book only where
