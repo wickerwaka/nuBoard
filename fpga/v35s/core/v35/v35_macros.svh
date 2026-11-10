@@ -239,4 +239,21 @@
 `define A1_BCD 1'b1
 `endif
 
+// (MX0b) the EU's byte source: 0 the queue's stored bytes (ripeness), 1 the word register
+// loaded at the end of a clock that leaves it empty, 2 the word register loaded on a clock of
+// its own (README "MX0b")
+`ifndef V35_MX0B_WR
+`define V35_MX0B_WR 1
+`endif
+// (MX0c) the dispatch's stall: 0 none, 1 while the bus unit runs a fetch cycle, 2 and a
+// ModR/M form on a back-to-back fetch's issue clock (both on the word after E), 3 the same
+// law on the E word (the staged opcode's pop) (README "MX0c", "MX0d")
+// (MX0f) V35_MX0F_QSTART: the start Q2's triple clock reads (1: the E word's opcode pop;
+// 0: the routine's entry word, MX0e)
+`ifndef V35_MX0F_QSTART
+`define V35_MX0F_QSTART 1
+`endif
+`ifndef V35_MX0C_DISPATCH
+`define V35_MX0C_DISPATCH 2
+`endif
 `endif // V35_MACROS_SVH

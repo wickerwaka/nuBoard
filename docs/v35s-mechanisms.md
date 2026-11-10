@@ -500,3 +500,47 @@ reviews, verifies on main, records and commits.
 Open to the user before MX0: whether the data book's formulas are accepted
 as the first draft of every routine (the position taken here), and whether
 the Q2 aborted fetch stays a bus-unit mechanism until a routine explains it.
+
+## Corrections from MX0 (2026-11-10)
+
+Measured on the gate families while landing MX0 (docs/v35s-core-v2.md, Record); each is a
+change to the text above, kept here rather than rewritten into it.
+
+1. **§3.1, the dispatch stall (new law, sequencer side).** The word after `E`, which hands the
+   staged opcode to its routine's entry, does not execute while the bus unit runs a fetch cycle
+   (its issue clock through its last clock); a form with a ModR/M byte also waits on the clock a
+   back-to-back fetch is issued. Operand pops are free during a fetch. This is the frozen model's
+   `_start` (`start_sync=b2b_modrm`, rules.md item 16, binned there as emerging from the
+   structure; it does not emerge). It removes the wait dependence of every family. On the `E`
+   word instead, the dependence returns. The machine explanation on record is the overseer's
+   hypothesis, not evidence: the dispatch and the fetch are mutually exclusive through one shared
+   resource (the decode's read of the queue, or a shared sequencer step). The ModR/M clause stalls
+   one clock the model does not (a back-to-back fetch committed after the `E` pop): open.
+2. **§5 and §7, the book offset.** "Measured = book + 1 or 2" is the dispatch stall: the a6
+   method timed each form between I/O markers, the form's own pops make room, the room issues a
+   fetch, and the marker dispatches inside it. The book's formulas are therefore the routine's
+   first draft with the stall in place, not the measured costs.
+3. **§7, the first draft's rule (overseer's wording, for the user's confirmation).** The data
+   book's formula is the first draft of every routine. A routine never carries a clock without an
+   explanation, so a clock may be removed on silicon's direct measurement (the a6 sweep,
+   v35s-eu-timing.md, the chain families' per-form costs), less the dispatch stall where the
+   method put a fetch under the marker, without further explanation; a clock is added only as a
+   named act or as a book clock marked OPEN. A clock the book charges and silicon does not spend
+   is a book error, not an OPEN word (PUSH r16: book 13, silicon 9; NOP: silicon 4 with the stall).
+   The position of a routine's OPEN words is free and chosen on the chain evidence. Fit integers
+   remain forbidden. `test_uasm` enforces: never longer than the book, never "measured" alone,
+   never a fit.
+4. **§3.1 / §3.2.** The `E` word pops the opcode and its ModR/M byte together; the dispatch reads
+   the registered ModR/M. The word register is built as §3.2 says (a registered word loaded from
+   stored bytes only, one load a clock, never the arriving word or the latch); it does not account
+   for the immediates' late takes (the model's `pre` 3), which stay OPEN words placed before the
+   pops.
+5. **§3.6.** OUT's I/O write is posted on the `E` word and not held; silicon's write leaves 3–4
+   clocks after a post following the datum. The model holds the fetch under the posted I/O write
+   with a lead and issues the write at pop + 14, after the routine has ended: a bus-unit attribute
+   with no act (the I/O lead A1 recorded), the cause of OUT imm8's parity residual.
+6. **§3.7, Q2.** The triple clock's start is the opcode's read from the queue (the `E` pop, with
+   the ModR/M as the operand take), not the routine's entry.
+7. **§3.4, MOV r8,imm8.** The model's events show 4 clocks opcode to opcode where the book says 5
+   (a6: 6 with the stall); evidence, not a measurement, so the routine keeps the book's 5. It is
+   entangled with SHL r,CL's OPEN words on the chains where MOV CL,imm precedes the shift.

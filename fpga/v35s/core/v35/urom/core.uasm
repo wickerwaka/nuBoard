@@ -1,0 +1,43 @@
+; MX0 core routines: the reset, the shared heads, the trap routines, the prefixes, HALT.
+; One line is one microinstruction (one CPU clock); the comment names its act. (MX0d) Every
+; routine's length at EA = 3, W = 0 is the data book's formula; a word marked OPEN is a book
+; clock no act names (README "MX0d": the agenda the mechanism note's rule puts on them).
+
+routine reset
+    e                                       ; E: pop the first opcode (the reset vector's), the decode follows
+
+; the 0F page: the second opcode byte popped and dispatched on
+routine page1
+    pop=il dispm                            ; pop the page's second byte; dispatch on it
+
+; ---- the traps: an opcode / cell without a routine pops its bytes by its format and ends
+; (MX0 reports these runs; nothing is executed). The loop counter is the instruction's
+; remaining byte count (LEN), a loop of one pop a word.
+routine trap
+    cnt=len                                 ; the counter: the bytes after the opcode (the format's)
+    jmp=trap_test                           ; to the common pop loop
+
+routine trapm
+    cnt=len                                 ; the counter: the displacement and immediate bytes after the ModR/M byte
+    jmp=trap_test                           ; to the common pop loop
+
+routine trap0f
+    cnt=len                                 ; the counter: the 0F form's immediate bytes
+    jmp=trap_test                           ; to the common pop loop
+
+routine trap0fm
+    pop=modrm cnt=len                       ; pop the 0F form's ModR/M byte; the counter: its displacement and immediate
+trap_test: jc=CNTZ:trap_end                 ; nothing left to pop: end
+trap_pop: pop=il loop=trap_pop              ; pop one byte (into IL: discarded); the counter step
+trap_end: e                                 ; E: pop the next opcode
+
+; ---- prefixes: their own instruction (data book: 2)
+routine pfx op=26,2E,36,3E book="segment override prefix" why="the prefix register written on the E word: the book's 2"
+    pfx e                                   ; the segment prefix register <- the prefix's segment (the format's); E
+
+routine lock op=F0 book="BUSLOCK" why="the bus lock pin is not built: its one word is the E word"
+    e                                       ; E: pop the next opcode (BUSLOCK: the lock output not built)
+
+; ---- HALT (data book: N/A): the sequencer stops; the queue fills and the bus idles
+routine halt op=F4
+hlt: halt jmp=hlt                           ; halted: the sequencer stops on this word (the halted stall)

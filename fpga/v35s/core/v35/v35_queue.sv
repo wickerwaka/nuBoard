@@ -71,6 +71,8 @@ module v35_queue
     // the execution unit
     output wire [7:0]  vb0, vb1, vb2, vb3,
     output wire [2:0]  avail,
+    output wire [2:0]  stored,          // (MX0b) the bytes stored (not this clock's delivery,
+                                        //   not the latch): the word register loads from these
     input  wire [2:0]  rd,              // bytes read in tick A (the T pass's takes, the IR load)
     input  wire [2:0]  rd_b,            // ... in tick B (the P pass's take and IR load)
     input  wire [2:0]  rel,             // bytes released (tick A; the P pass's a clock later)
@@ -106,6 +108,7 @@ module v35_queue
     wire [3:0] cnt_s = {1'b0, cnt} + (lat_v ? 4'd1 : 4'd0);
     wire [3:0] avail_w = cnt_s + {1'b0, n_arr};
     assign avail = avail_w > 4'd7 ? 3'd7 : avail_w[2:0];
+    assign stored = cnt;
 
     function automatic logic [7:0] seqb(input logic [3:0] k);
         if (k < {1'b0, cnt})

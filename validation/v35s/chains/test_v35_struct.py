@@ -5,10 +5,14 @@ Rules (comments and string literals are stripped first):
 1. no identifier containing `settle` (the old core's fixpoint registers);
 2. no `always_comb` block that assigns a signal it also reads (no block reads its own outputs:
    the clock's logic is feed-forward);
-3. no 8-bit opcode literals (`8'h..`, `8'd..`) outside the generated v35_decode_tbl.svh and
-   v35_pkg.sv: RTL compares format bits and row fields, never opcode bytes;
+3. no 8-bit opcode literals (`8'h..`, `8'd..`) outside the generated decode table
+   v35_udecode_tbl.svh ((MX0) the assembler's; v35_pkg.sv is hand-written and has none): RTL
+   compares format bits and the microinstruction's fields, never opcode bytes;
 4. every `always_ff` is clocked by `posedge clock` and its state updates are gated by `ce`
    (an `if` on `ce` in the block; (S7b) or on the two-tick enables `ce_a` / `ce_b`);
+6. (MX0) no .uasm word names an opcode (the routine headers do: the decode table's input) and
+   no RTL file outside the decode table compares one; the ROM word (v35_pkg::v35_uword_t) has
+   no count field.
 5. (A1, docs/v35s-arbiter-strategy.md) no port of v35_bus.sv or v35_queue.sv names or types an
    instruction: no port of a format / class / row / run / request-record type, no port name
    carrying a class, format, row, step, count mode or kind of instruction; the bus unit's inputs
@@ -24,9 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 V35 = ROOT / "fpga" / "v35s" / "core" / "v35"
-OPCODE_FILES = ("v35_decode_tbl.svh", "v35_pkg.sv",
-                # S2's hand-written stub decode, retired by S3 (docs/v35s-core-v2.md Record)
-                "v35_decode_stub.svh", "v35_stub_pkg.sv")
+OPCODE_FILES = ("v35_udecode_tbl.svh",)      # (MX0) the generated decode table only
 
 
 def sources() -> list:
@@ -128,7 +130,8 @@ EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data", "req_resv", 
 BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "rfm", "data_in",
               "fetch_req", "q_low", "q_word", "fetch_addr",       # the queue's port
               "t_start", "take_now", "l_pop"}                     # (Q2) the aborted fetch's reads
-INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t")
+INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t", "v35_uword_t",
+               "v35_udec_t", "v35_udecm_t")
 INSTR_WORDS = re.compile(r"(fmt|cls|class|row|step|xop|opc|form|instr|setup|lead|detach|grp|"
                          r"thru|imm|disp|page|sreg|pfv|nowait|nwt|dwl|strc|mfr|ftl|pth|gdisp|"
                          r"floor|relatch|retire|post|own|slot|halt|wb_|latch_wait|sidle|need|"
@@ -172,6 +175,41 @@ class Ports(unittest.TestCase):
         self.assertEqual(ins - BUS_INPUTS - EU_PORT, set())
         req = {n for _, _, n in p if n.startswith("req_") or n == "done_data"}
         self.assertEqual(req, EU_PORT)
+
+
+class MX0(unittest.TestCase):
+    """(MX0) the microprogram: no opcode in a word, no count in the word's layout."""
+
+    def test_no_opcode_compare_in_rtl_or_words(self):
+        from . import uasm
+        for p in sources():
+            if p.name in OPCODE_FILES:
+                continue
+            text = strip(p.read_text())
+            hits = [h for h in re.findall(r"==\s*8'[hHdD]([0-9a-fA-F_]+)", text)
+                    if set(h[1:] if len(h) > 1 else h) - set("0_")]
+            self.assertEqual(hits, [], p.name)
+        for p in sorted((V35 / "urom").glob("*.uasm")):
+            for ln, line in enumerate(p.read_text().splitlines(), 1):
+                code = line.split(";", 1)[0].strip()
+                if not code or code.startswith("routine "):
+                    continue
+                self.assertIsNone(re.search(r"\b(op|reg|rm|mod)\s*=|\b[0-9A-Fa-f]{2}h\b", code),
+                                  f"{p.name}:{ln}")
+        self.assertTrue(uasm.FIELDS)
+
+    def test_the_word_has_no_count_field(self):
+        text = strip((V35 / "v35_pkg.sv").read_text())
+        m = re.search(r"typedef\s+struct\s+packed\s*\{(.*?)\}\s*v35_uword_t", text, flags=re.S)
+        self.assertIsNotNone(m)
+        for name in re.findall(r"(\w+)\s*;", m.group(1)):
+            self.assertIsNone(re.search(r"(clk|clock|count|setup|delay|wait|hold|lead|nx|pre)",
+                                        name), name)
+
+    def test_no_class_table(self):
+        for gone in ("v35_class_tbl.svh", "v35_ucode.sv", "v35_ucode_tbl.svh", "v35_consts.svh",
+                     "v35_decode_tbl.svh"):
+            self.assertFalse((V35 / gone).exists(), gone)
 
 
 class Lint(unittest.TestCase):

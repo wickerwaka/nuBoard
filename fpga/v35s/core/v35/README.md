@@ -2,6 +2,300 @@
 
 Design record: `docs/v35s-core-v2.md`. This README holds the per-directory notes.
 
+## MX0: the microprogram, the registered-ROM sequencer, the register-form routines
+
+Design: `docs/v35s-mechanisms.md` (sections 3, 4, 7, 8). MX0 replaces the fitted sequencer
+(`v35_ucode.sv`, 4,916 lines, its generator `ucgen.py`, the class, template and EA tables) with a
+microprogram: a ROM of microinstructions, one a CPU clock, written by hand in
+`urom/*.uasm` and assembled by `validation/v35s/chains/uasm.py`. Everything below "MX0" in this
+README describing rows, classes, templates, counts and the T / P passes is the record of the
+retired sequencer; the module table's `v35_ucode` / loader / EU rows are superseded by this
+section.
+
+### The microinstruction (`v35_pkg::v35_uword_t`, 86 bits, MSB first)
+
+| Field | Bits | Meaning |
+| --- | --- | --- |
+| `ra`, `rb` | 5, 5 | the register RAM's read ports A and B: a register selector (`RS_REG` / `RS_RM` the ModR/M fields, `RS_OPR` the opcode's bits 2:0, `RS_DST` / `RS_SRC` by the direction bit, the eight word registers by name, `RS_SREG` / `RS_SOPR` a segment by the ModR/M reg field or the opcode's bits 4:3, the four segments, `RS_BASE` / `RS_INDEX` the ModR/M mode's EA registers) |
+| `wr`, `ws` | 5, 4 | the write port's register (and `RS_PSW`: POP PSW's bits 11:0) and its data source |
+| `wid` | 2 | the width of the word's register accesses and ALU op: the format's, byte, word, the high half |
+| `d1 s1`, `d2 s2` | 3+4, 3+4 | two moves into tmpa / tmpb / tmpc, the address register, the write datum OPRW, from a source (`SR_*`: RA RB TA TB TC SIG IMM IMM8 OPR PSW ONES DISP ADDR ONE ZERO) |
+| `alu`, `ax`, `ay`, `wf` | 5, 4, 4, 1 | the ALU operation into SIGMA and its operands; W (the flags written). The format's group op, AND, INC DEC NOT NEG, INC2 DEC2, the sign extensions, the shifter's load / one step / flags, the multiply's and the divide's init / one bit / finish, the flag operations, SAHF |
+| `ea` | 2 | the EA step into the address register: the popped displacement, or base + index + displacement |
+| `bus`, `seg`, `resv` | 3, 2, 1 | a request posted on the A1 port (memory read / write, I/O read / write), its segment (the default: a prefix's, else SS for a BP mode, else DS0; SS; DS1), the reservation raised |
+| `pop` | 3 | a queue byte popped into the ModR/M, immediate (IL IH) or displacement (DL DH) register |
+| `e`, `f` | 1, 1 | E (the next opcode popped; exactly one word follows, the dispatch) and F (wait for the datum) |
+| `cnt` | 3 | the loop counter's load: port B's low byte (CL), the first immediate byte, the operand's bit count (8 / 16), the instruction's bytes still to pop (the trap routines) |
+| `seq`, `cond`, `tgt` | 4, 3, 10 | next, jump, jump on a condition (counter zero, SIGMA's sign, the divide error, a word format), call, return, loop (counter step, jump while not zero), DISPM (dispatch on the byte this word pops: the 0F page), DISP (the word after E: dispatch on the decode) |
+| `pfx`, `flush`, `halt`, `trap` | 1 each | the segment prefix set; the queue flushed to the immediate in PS; halted; the divide error raised |
+
+No field is a count of clocks, a class, an attribute of another instruction or of the bus unit
+(`test_uasm.NoCounts`, `test_v35_struct.MX0`). The ROM is three 32-bit banks
+(`v35_urom_b0..b2.hex`, bank k the word's bits 32k+31..32k). 411 words, 69 routines.
+
+### The assembler (`validation/v35s/chains/uasm.py`)
+
+`python -m validation.v35s.chains uasm [--check] [--list] [--book]`. One file per routine family
+(`core` the reset, the 0F head, the traps, the prefixes, HALT; `reg` the register forms; `loop`
+the shifts, MUL, DIV; `bus` the stack, the direct stores and loads, I/O, the far branch). A
+routine's header names its opcodes (and the ModR/M `mod` / `reg` / `rm` cells it takes), the
+data book form (`book=`), the declared difference (`diff=`) and its reason (`why=`), the measured
+V35S cost (`measured=`); `resv=e` makes the decode raise the reservation at the opcode's E pop.
+Every word carries a comment naming its act. The word layout is read from `v35_pkg.sv` (the
+single source). Outputs: the ROM banks and `v35_udecode_tbl.svh` (`v35_udec1`: the opcode -> the
+entry and the format bits w, d, immw, sx, op3, seg, len, rq; `v35_udec2`: the opcode and the
+ModR/M byte, or the 0F second byte -> the entry and the group's op; `v35_umodrm` / `v35_upage`:
+the bytes a ModR/M or 0F second byte adds to the instruction's bytes still to pop). The format
+bits are the encoding's (`uasm.fmt_of`); every cell without a routine decodes to a trap routine
+that pops the instruction's bytes (counter from the loader's count) and ends (reported, not
+executed; the function bench counts it `trap_nop`).
+
+**The book check** (`test_uasm.BookCheck`): the routine's length, run by `uasm.length` from its
+entry at EA = 3, W = 0 with no queue stall (a request granted the clock after its post, a bus
+cycle 3 clocks, F and a write's E hold waiting for its end), equals the book's value plus the
+declared difference. All 55 routines with a book form pass; the differences are the measured
+V35S costs (classes.md, v35s-eu-timing.md, v35s-chains.md F1/F3/F5).
+
+**OPEN words.** A word the measured cost needs whose act the sources do not name is written
+`open` and its comment starts `OPEN`; its routine's `why` says so (`test_uasm` enforces both).
+There are 54 in 15 routines: the acc / register immediate forms 1 each (before the pops: the
+immediate leaves the queue three clocks after its opcode in the fitted model's take times;
+mechanisms 3.2's "word load under the pops" is the candidate, not built), the shifts 6 / 5 / 4
+(CL, imm8, by one; the V35's iteration is two words, built; the fixed part's extra clocks are
+open), MULU 11 / 12 (r16, r8), OUT imm8 5 and OUT DW 3 (the I/O write is posted on the E word and
+not waited for: the markers show it leaving 3-4 clocks after a post following the datum; the
+clocks before it are open). They are the agenda the user's rule puts on MX0: each is a clock with no machine
+explanation yet. Routines not in the gate families (DIVU, DIV, MUL, CVTWL, IN, POP, PUSH imm,
+the far branch, DI / EI) carry their natural shape and are short of silicon by the declared
+amount (`why` OPEN), not padded.
+
+### The sequencer (`v35_useq.sv`, 225 lines, 26 ports; `v35_ucode.sv` and its 4,916 lines are gone)
+
+The ROM word is a register (read at `ce_a` with the next address computed in tick B); the
+microaddress is a register. The five stalls, each from registered state in tick A, a stalled
+word performing none of its acts: q (an operand pop with the queue empty, or E with the staging
+register empty), f (F and the datum not here), slot (a post while the EU's one request is
+outstanding), hold (E while a memory write is outstanding with RAMEN = 1; an I/O write is posted
+and not waited for), halt. Next address: the same word (stalled), next, jump, conditional jump, call (one
+return register: the V20 ROM's FARJMP subroutines nest one level, V20UC.TXT 0000-04FF has no
+FARJMP inside a FARJMP target), return, loop, DISPM (the 0F second byte), DISP (the decode of the
+registered opcode and ModR/M). The loop counter is 9 bits. The decode's entries are registered
+at `ce_b`; no queue byte reaches the address except through a register (the 0F page head's
+popped byte is the one byte decoded as it is popped, by the word that pops it).
+
+### The loader (`v35_loader.sv`, 234 lines, 37 ports; it was 704)
+
+The staging register `s` (the queue's seventh slot, variant B's staging byte, `stg`) holds the
+next opcode: it loads from the queue's head when it is empty and the running instruction has no
+byte left to pop (`need`, the instruction's bytes still to pop: set at the E pop from the
+decode of the staged opcode, extended at the ModR/M / 0F second byte, counted down by each pop;
+while bytes are owed the staging slot stays counted). The E word pops the staged opcode into the
+opcode register and, for an opcode with a ModR/M byte, the ModR/M byte from the queue's head on
+the same clock (two bytes: the fitted model's starts take the opcode and the ModR/M together); a
+routine's pop takes the queue's head. `fmt`, `opc` and `modrm` (the running instruction's) load
+at the dispatch: the word after E still runs the last instruction's acts while the opcode
+register holds the next. The queue's port is unchanged (`rd`, `rel`, `stg`; Q2's strobes:
+`t_start` a routine's entry word executing, `take_now` an operand pop, `l_pop` the staging load).
+
+### The datapath (`v35_eu.sv`, 471 lines, 46 ports; it was 1,870)
+
+The register RAM's two read ports (addresses latched at `ce_b` now, `v35_regram`: a word reads
+what the words before it wrote, no forwarding), the write port, tmpa / tmpb / tmpc, SIGMA, the
+PSW and the segment flops (beside their RAM words), the address register (`v35_ea`: the EA step),
+the write datum OPRW, the A1 request register (address = segment + the address register as the
+posting word leaves it; an odd word's second half's address after the acknowledge; a read's
+datum latched at `req_done`, an odd word's first byte at its own end), the reservation (a
+request standing, a word's `resv` until the acknowledge, and the E clock that pops the opcode of
+a routine marked `resv=e`). The
+shifter runs one step a word (`v35_shift1`, the flags at the end `v35_shift_fl`), the multiplier
+one bit a word (`v35_mul_init / step / fin`), the divider one restoring step a word
+(`v35_div_init / step / fin`); `v35_shift`, `v35_mul`, `v35_div` stay in `v35_fn_pkg` for the
+function bench.
+
+### Depth (by construction; the levelizer and the routed timing are the overseer's runs)
+
+Tick A: the ROM word's selectors into the RAM's read address (a 23-way register selector into
+7 bits: about 5 levels); the stall terms (a few registered bits); the decode lookups (the
+opcode / ModR/M / staging registers into the generated case tables, 256-entry LUT logic: about
+6-8 levels) into ce_b registers; the bus unit's grant on the request register (A1's four
+levels). Tick B, the deepest: the RAM's read data -> the lane select -> the source mux (15-way)
+-> the ALU (`v35_alu`'s 17-bit add / subtract and the flags) -> SIGMA / the PSW: the ALU path,
+estimated 12-14 levels with the carry chain; the divider's init (`v35_div_init`: a 32-bit
+negate and a 16-bit compare on the RAM data) is the longest single path, estimated 15-18 levels,
+and is the first candidate for a split (its operands are temporaries a word earlier, so a
+register on its input costs no clock); the next-address mux (9 sources on the word's `seq` and
+registered conditions: about 4 levels) into the ROM address; the request address (the segment
++ the address register: a 20-bit add, about 8 levels).
+
+### MX0b: the word register
+
+The EU's byte source is now a registered word (`v35_loader`: `w0`, `w1`, `wn`), loaded from the
+queue's stored bytes only (the queue gained one read port, `stored` = its stored count: never
+this clock's arriving word, never the variant-B latch), one load a clock: the queue head's aligned
+word (one byte from an odd address, or the one stored byte). Every pop (the staging load, an
+operand, the E word's ModR/M) takes the word register's next byte; a pop with it empty stalls
+(stall q) and the load happens at the clock's end. The queue's `rd` is the load, `rel` the pops:
+the word register's bytes stay counted (unreleased) until popped. `V35_MX0B_WR` selects the law
+(`v35_macros.svh`); the three candidates were measured on the gate families at both waits:
+
+| Law | exact (gate, +v35_chk) | restart fetch vs silicon, mean dt at 0 / 1 / 2 waits |
+| --- | --- | --- |
+| 0: ripeness (pop the stored bytes directly) | 128 | -0.48 / -2.95 / -9.88 |
+| 1: the word register, loaded at the end of a clock that empties it (kept) | 128 | -0.48 / -2.95 / -8.88 |
+| 2: the word register, its load a clock of its own | 124 | -1.67 / -3.67 / -9.67 |
+
+None closes the wait-dependent gap: silicon's EU consumes the prelude's MOV r16,imm16 stream
+slower than the fetch rate at 2 waits with its queue full, which no byte-path law here produces.
+Removing the eight OPEN words placed before the immediate pops (the word register was to
+explain them) gives 0 exact under every law: they stay, OPEN. OUT imm8's early reservation is
+removed (an I/O reservation stops the fetch silicon makes before the write; the post is on the
+E word).
+
+### MX0c: the dispatch and the fetch
+
+The frozen model does not start an instruction while the bus unit runs a fetch cycle
+(`sim/frozen/eu.py` _start, `bus.fetch_inflight`), nor a ModR/M form on the clock a
+back-to-back fetch issues (`queue.b2b_at`). Built as a sequencer stall on the dispatch word
+only (the word after E: the staged opcode into its routine's entry; trace `W:fetch`), from the
+bus unit's existing registered outputs (`fetch_inflight`: a fetch granted on an earlier clock
+runs on this one, through its last clock; `b2b_now`: a back-to-back fetch issues now) and the
+decode's `has_modrm`; no output added. The loader's pops read `ex_pop` (the stalls a popping
+word can meet: a dispatch word never pops). `V35_MX0C_DISPATCH`: 0 none, 1 the fetch stall,
+2 and the ModR/M rule. Measured on the gate families, both spacings, `+v35_chk` (tables
+identical at both):
+
+| | exact | restart fetch vs silicon, mean dt at 0 / 1 / 2 waits |
+| --- | --- | --- |
+| A (0, MX0b; the default) | 128 | -0.48 / -2.95 / -8.88 |
+| B (1, the fetch stall) | 0 | +0.79 / -3.21 / -4.20 |
+| C (2, and the ModR/M b2b rule) | 0 | +0.79 / +0.79 / +0.80 |
+
+C removes the wait dependence entirely (the restart's offset is the same at every wait setting),
+which is the evidence that the law is silicon's: the starved queue's slower consumption is the
+dispatch waiting for the fetch in flight. It loses every exact run because the routines' lengths
+were set to the standalone measured costs with no dispatch stall in them: a NOP train (4, no
+OPEN word) now pays the stall on top, and the restart sits a uniform 1-3 clocks late. Removing
+the OPEN words before the immediate pops and two of the shift's common OPEN words moves the
+offsets (F9's mean prefix 0.12 -> 0.21) but no run becomes exact. The routines need re-deriving
+with the stall in place (their measured costs include it where the fill is running); that is
+the next step, not taken here, so the default stays A.
+
+### MX0d: C the default, the routines from the data book
+
+`V35_MX0C_DISPATCH` defaults to 2 (C). Every routine's length at EA = 3, W = 0 is the data
+book's formula: all 55 book rows pass `test_uasm` with no declared difference. The measured
+V35S costs are no longer a reason for a word (the a6 sweep timed each form between I/O markers;
+the form's pops make room, the room issues a fetch, the next marker's dispatch waits inside it:
+measured = book + the dispatch's stall). The OPEN words placed to reach measured costs are gone
+(54 -> 0); a book clock with no act is OPEN with the book as its reason: 135 such words in 21
+routines (PUSH r 4, PUSH imm 2 / 2, POP r 5, POP PSW 7, MOV acc,[d16] 1, OUT imm8 6, OUT DW 4,
+IN DW 11, IN imm8 11, BR far 7, SHL CL 5, SHL imm8 2, SHL 1 2, MULU 9 / 10, DIVU 14 / 16, DI 2,
+EI 10, CVTWL 5). Shapes that combined acts to meet the book: the two-operand register forms read,
+compute and pop on the E word (2), TEST reg,reg (4), the unary group (5), MOV sreg,r (4), the
+prefix's register on its E word (2), MOV [d16],acc's EA step, datum and post on one word (8).
+
+A fourth placement was measured: the stall on the E word (the staged opcode's pop, `3`): the
+restart offset becomes wait-dependent again (-1.1 / -2.1 / -3.1), so the dispatch word stays.
+
+Gate families, `+v35_chk`, both spacings: 0 exact (A 128, C-as-built 0). The restart's offset
+is flat across the waits in every family (mean dt at 0 / 1 / 2 waits): F0 +0.67 / +1.00 / +0.67,
+F1 +1.0 / +1.0 / +1.0, F2 +0.93 / +1.02 / +0.93, F3 +1.0 / +1.0 / +1.0 (|dt| 4), F9 +0.95 / +1.07 /
++0.95, F11 +0.91 / +0.95 / +0.91, F12 +0.29 / +0.29 / +0.29 (|dt| 3.1); F0w -3. The offsets by
+routine: PUSH r (the markers; book 13 against the measured 9: the write 5 late), OUT imm8 (the
+fetch 2-4 early: the port byte popped on the routine's first word), NOP (+1: book 4, silicon's
+NOP train 4 including the stall), OUT DW (END's write 3 late: book 8), MOV [d16],acc (+1).
+
+### MX0e: the book shortened by silicon's direct measurement
+
+The rule: a routine never carries a clock without an explanation; a clock may be removed on
+silicon's direct measurement (the a6 sweep's cost, docs/v35s-eu-timing.md, the chain families'
+per-form costs, less the dispatch's stall where the a6 method put a fetch under the marker's
+dispatch); a clock is added only as a named act or as a book clock marked OPEN. A clock the book
+charges and silicon does not spend is a book error. Declared differences (all shorter than the
+book, each naming its measurement; `test_uasm`): PUSH r16 -5 (13 -> 8: a6 9 less the stall, the
+acts merged: SP, the address and the datum on one word), PUSH PSW -1, PUSH imm16 / imm8 -1 / -1,
+OUT imm8 -2 (11 -> 9), OUT DW -3 (8 -> 5: END's write 3 early in MX0d), IN DW -3, IN imm8 -1,
+XCH reg,reg -1, MOV reg16,sreg -1, MOV sreg,reg16 -2, XCH AW,r / NOP -1 (4 -> 3), CVTBW -1. SHL
+r,CL keeps the book's 11 + 2n with one of its five OPEN words moved onto the loop's path (n = 0:
+silicon 10 less the stall, 9). MOV [d16],acc stays at the book's 8: its acts allow no shorter
+routine (silicon's marker is one earlier: a residual). OUT imm8's OPEN words sit before the
+port's pop (the restart fetch was early). OPEN words 135 -> 122.
+
+### MX0f: the three residuals in every chain
+
+Each traced on the side-by-side event trace (frozen model | RTL, clocks from the fill's end).
+
+1. **Q2's start is the opcode's read** (built, `V35_MX0F_QSTART` 1; 0 is MX0e). Q2's triple
+   clock (the aborted fetch) is three queue reads on one clock: the start's opcode, an operand
+   take and the IR load. MX0e drove the bus unit's `t_start` from the routine's entry word; the
+   opcode leaves the queue on the E word, one dispatch earlier, so a routine whose first word
+   pops an immediate (MOV r8,imm8, `pop=il` at its entry) made a false triple clock. F3-push-nop-k1-pE-w0:
+   `+98 S:u354 T:1 L:1 A` (the entry, the immediate's pop and the load: the fetch aborted), the
+   fetch at +101 against silicon's +97. `t_start` is now the loader's E pop (`o_epop`); the
+   fetch goes at +98 and the run's second fetch is +1 (item 2's offset), not +4. The function
+   bench reads the routine's entry (`dut.start`), no longer `t_start`.
+2. **The instruction after the shift is +1** (open). F9-push-nop1-pE-w0: the model's MOV CL,imm
+   starts (its opcode leaves) at -7 and SHL's at -3, the immediate's take at -4; the RTL pops
+   MOV CL's opcode at -7 too, the immediate at -5 and SHL's opcode at -2, on the clock the fill's
+   fetch 10050 is granted. `fetch_inflight` is low on the grant's clock and high through its
+   last clock (-1, 0), as the model's busy(t); the DISP word waits -1, 0 and dispatches at +1,
+   the entry at +2. So the stall is applied by the model's law; what puts it there is MOV
+   r8,imm8 running five clocks opcode-to-opcode (the book's 5) where the model's events show
+   four. Tried (not kept): MOV r8,imm8 as pop, tmpb, the write from tmpb on E (four clocks, no
+   ALU pass): SHL's opcode then leaves at -3 with the model's take and pop exactly, but the DISP
+   still waits -2 (the ModR/M form's back-to-back rule: the fill's fetch is committed back to
+   back at -3), -1 and 0, and NOP's fetch stays at +73 against +72; the gate families did not
+   move (F9 7 exact either way). SHL r,CL's OPEN words were sized in MX0e with this stall under
+   them, so the two lengths and the stall are not separable on these chains: open.
+3. **F3-push-nop-k1-pE's second fetch +4**: item 1's false triple clock (the MOV CL,imm8 of
+   the k1 form, +98 `A`); +1 after it.
+4. **OUT imm8's port byte by parity** (open; not the word register). F3-out-empty-pE/pO-w0:
+   the port's take is the opcode's pop + 5 at both parities in the model (+72 / +77) and the RTL
+   (+74 / +79), the word register's load on the take's clock at both parities in both. The
+   parity is in the fetch: the model posts the I/O write on the take (`P:io_write` +77) and
+   issues it at +86 (pop + 14) at both parities; at pE the fetch goes on the take's clock (+77),
+   at pO the line rises on the take's clock and the fetch waits under the posted I/O request
+   until +82 (the model's io_hold=posted / lead: a fetch requested when the I/O was posted runs
+   on the lead's first clock), ending a clock before the write. The RTL posts on the E word
+   (pop + 8), the write at pop + 9, and grants the fetch on the take at both parities (+2 at pE
+   from the shift's late pop, -3 at pO). The write five clocks after the next opcode's pop and
+   the pO fetch's hold are the model's I/O setup and lead counts; no act in the OUT routine
+   reaches past its E word, so neither is built: open (the note's §3.2 alignment cost is not
+   what moves this form).
+
+Measured (refresh-off corpus, `+v35_chk` silent, the two spacings' tables identical): 19 of
+30,536 runs exact (MX0e 16, A1 28,059), the gate families 9 of 1,796 (MX0e 6: F0 2, F9 7);
+the first divergence (i) 24,907, (ii) 0, (iii) 5,610 (MX0e 24,337 / 0 / 6,183). The restart's
+first event dt, mean at 0 / 1 / 2 waits (flat in every family): F0 -0.17, F1 +0.17, F2 +0.82,
+F3 -0.25, F9 +0.84, F11 +0.70, F12 -0.12, F20 -0.13; F0w -0.50 (MX0e F0 +0.50, F2 +0.62,
+F9 +0.61, F11 +0.50, the rest unchanged). The write data 64,664 / 106,824 (the gate families 0
+differing), the register vectors 0 bad (12,338 pass), the function vectors 0 bad, lint clean in
+five configurations and at `V35_MX0C_DISPATCH` 0 / 1 / 3 and `V35_MX0F_QSTART` 0, 35 tests.
+
+### Measured (`replay --core v35 --score`, refresh-off corpus, both spacings)
+
+The function gates pass: the write data agree on every gate family (F0 F0w F1 F2 F3 F9 F11 F12:
+0 runs differing; the corpus 64,682 / 106,824, the rest the memory forms' traps), the register
+vectors 0 bad (`--regfile`, the gate families), the function vectors 0 bad (`--fn`), lint clean
+in five configurations, `+v35_chk` silent at both spacings, the two spacings' tables identical.
+The timing gate does not: 358 of 30,536 runs exact (A1: 28,059), the gate families 128 of 1,796
+(A1 1,691), 1 run gained, 27,702 lost. The first divergence is in nearly every run the restart
+fetch after the fence (event 1) or the first marker's cycle: at 0 waits the next instruction's
+bytes leave the queue 1-3 clocks before silicon's takes; at 1 and 2 waits the gap widens to
+5-12 (the starved queue's refill law; the routines run ahead of the fetch stream); a PUSH
+marker's write is preceded on silicon by no fetch (the reservation on the E clock does not hold
+the restart fetch). The per-run classification is the hand-back's (scratchpad `mx0/`).
+
+### Build, replay, trace (MX0)
+
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains uasm --book   # assemble, the book table
+    fpga/v35s/build_sim.sh direct v35
+    V35_PLUSARGS="+v35_chk" PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay \
+        --core v35 --family F0 F0w F1 F2 F3 F9 F11 F12 --jobs 8
+    # the trace: X S T L P W and M (the microaddress); W the stall (q f slot hold halt)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains evtrace --id F2-push-nop-pE-w0 \
+        --rtl F2.trace --run --keys X
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit
@@ -2344,7 +2638,7 @@ ROM's four banks 7 each, the register RAM's four halves 1 each), 8 MULT. The ban
     # lint (clean with and without V35S_CORE_V35 / SYNTHESIS):
     cd fpga/v35s/core && verilator --lint-only -Wall -DV35S_CORE_V35 -I. -Iv35 v35/v35_lint.vlt \
         v35/v35_front_pkg.sv v35/v35_pkg.sv v35/v35_fn_pkg.sv v35/v35_bus.sv v35/v35_queue.sv \
-        v35/v35_loader.sv v35/v35_arbiter.sv v35/v35_ucode.sv v35/v35_ea.sv v35/v35_eu.sv \
+        v35/v35_loader.sv v35/v35_useq.sv v35/v35_ea.sv v35/v35_eu.sv \
         v35/v35_regram.sv v35/v35_trace.sv v35_sfr.sv v35_refresh.sv v35/v35_top.sv \
         --top-module v35_top
 

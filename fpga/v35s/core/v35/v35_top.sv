@@ -2,7 +2,8 @@
 
 // V35S core v2: the slot module (docs/v35s-core-v2.md, "Architecture"), stage S3: the front
 // end (bus unit, prefetch queue, loader, (A1) the grant in the bus unit) and the execution unit
-// (the microcode sequencer v35_ucode, the datapath v35_eu, the register RAM v35_regram).
+// ((MX0) the microsequencer v35_useq on a registered ROM word, the datapath v35_eu, the register
+// RAM v35_regram).
 // Ports are v35s_model.sv's (25-43); the harness instantiates it as `model` under
 // V35S_CORE_V35 (fpga/v35s/v35s_harness.sv, fpga/v35s/build_sim.sh direct v35).
 //
@@ -19,18 +20,14 @@
 // (no refresh-on family is in the gates; the prelude's refreshes before its RFM store are not
 // run, so the pre-window differs from silicon there).
 //
-// The six stages of a CPU clock (one registered update at `ce_a`, feed-forward inside it; (S7b) the
-// enables `ce_a` / `ce_b` below):
-//   S0  every module's registers                         (bus: busy, delivery, abort, ...)
-//   S1  v35_queue: the delivery, the window and the count  (C, A)
-//   S2  v35_ucode pass T, v35_loader take/start, v35_eu (the start's form, the takes'
-//       bytes, the exec's function, the T post's request)  (T)
-//   S3  v35_loader IR load; v35_queue the request line   (L)
-//   S4  v35_ucode's bus interface (the EU's request port), v35_bus the grant   (X)
-//   S5  v35_ucode pass P, v35_loader P, v35_eu (the P post's request)  (P)
-//   S6  every module's next state (the queue's pops, the bus unit's back-to-back sample);
-//       the decode ahead (v35_loader) and
-//       the next clock's ROM window (v35_ucode) and register RAM addresses (v35_eu)   (E)
+// (MX0) The CPU clock's two ticks (S7b; the enables `ce_a` / `ce_b` below):
+//   tick A  every module's registers; the queue's delivery and window; the microinstruction (a
+//           register) decides its stalls, its pops (the loader: the queue's reads and the
+//           staging load, the request line), its RAM read addresses; the decode lookups from
+//           the opcode / ModR/M / staging registers; the bus unit's grant on the request
+//           register and the queue's line
+//   tick B  the RAM's data, the sources, the ALU, the EA step, the write port, the request's
+//           next state, the next microaddress (the ROM read at ce_a)
 module v35_top
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -186,10 +183,10 @@ module v35_top
     wire [19:0] b_dlv_addr;
     wire [1:0]  b_dlv_width;
     wire [15:0] b_done_data;
+    wire        w3_v;
+    wire signed [4:0] w3_rel;
     // (A1) the grant (S4) and the EU request port
     wire        g_start, g_fetch, g_eu, g_abort, g_b2b;
-    wire        own_dlv, own_two;
-    wire [3:0]  a_why;
     wire [2:0]  g_kind;
     wire [19:0] g_addr;
     wire [1:0]  g_width;
@@ -198,61 +195,47 @@ module v35_top
     wire [19:0] req_addr;
     wire [15:0] req_data;
     // queue (Q1: the simple machine)
-    wire [7:0]  qv0, qv1, qv2, qv3, vb0, vb1, vb2, vb3;
-    wire [2:0]  ld_rd, ld_rd_b, ld_rel, e_avail, ld_need_t;
+    wire [7:0]  qv0, qv1, qv2, qv3;
+    wire [2:0]  ld_rd, ld_rel;
     wire        ld_stg;
     wire [19:0] q_fetch_addr;
-    wire [2:0]  q_avail;
-    wire        q_fetch_req, q_low, q_susp, b_b2b_now, head_odd;
+    wire [2:0]  q_avail, q_stored;
+    wire        q_fetch_req, q_low, b_b2b_now;
     wire        q_word;                 // (Q2)
-    wire        ld_l_load, ld_p_load;
-    // (S5a) the transfers' holds
-    wire        xs_done;
-    // (S5a) the strings
-    wire        edone, edone_t, povr_t, povr_p, str_last, str_exit, w3_v;
-    wire signed [4:0] w3_rel;
-    wire        p_flush, voc_miss;
-    // (S5b) the 0F page
-    wire        irh_pg_t, irh_pg_p;
-    wire        bf_cross, bf_ok;
-    wire [3:0]  mt_sub_t, mt_sub_p;
-    wire [10:0] bfcost;
-    // loader
-    wire        ir_v_c, ir_v_l, ir_v_p, l_pop, p_ir;
-    wire        ld_stopped, nf_v;
-    wire [7:0]  ir_c, ir_l, nf_op;
-    wire [19:0] ir_addr_c, ir_addr_l, nf_addr;
-    v35_fmt_t   fmt_c, fmt_l, nf_fmt, fmt_mt, fmt_mp;
-    wire        ok_c, ok_l, ld_p_mmiss;
-    v35_cls_t   cls_c;
-    // the sequencer
-    wire        t_start, t_done, t_flush, t_halt;
-    wire        post_t, post_p, lx_hold, idle_adj;
-    wire        p_start, p_k, p_done, p_io_nx, run_e, aim_next, dec_miss;
-    wire        disp_t, lea_room_t, mate_t;
-    wire        irh_set_t, irh_set_p, irh_clr_t, irh_clr_p, take_now;
-    wire [1:0]  t_k;
-    uc_row_t    prow_t, prow_p;
-    v35_fmt_t   fmt_e;
-    wire [4:0]  eu_wait;
-    wire [10:0] eu_res;
-    // the datapath
-    req_t       rq_t, rq_p;
-    wire [19:0] t_flush_addr, eu_pc, ea_live, ps_base;
-    wire [15:0] t_flush_off;
-    wire [15:0] ea_lo;
-    wire [15:0] wd_live, wd_imm;
-    wire        wd_rdy;
+    // (MX0) the loader: the word register, the popped bytes, the decode
+    wire        q_stall, dtrap, resv_e, s_modrm;
+    wire [UADDR_W-1:0] dent;
+    wire [7:0]  ld_op, ld_opc, ld_modrm, ld_il, ld_ih, ld_dl, ld_dh;
+    wire [19:0] op_a;
+    wire [2:0]  ld_op3, ld_len;
+    wire        ld_load;
+    v35_udec_t  fmt, dec1;
+    v35_udecm_t dec2;
+    // (MX0) the sequencer
+    v35_uword_t word;
+    wire        ex, ex_pop, ex_b, start, start_trap, halted;
+    wire [4:0]  why;
+    wire [UADDR_W-1:0] upc;
+    // (MX0) the datapath
+    wire        opr_rdy, rq_busy, wr_hold, c_sgn, c_dtrap, div_trap;
+    wire [7:0]  rb_lo;
+    wire [15:0] flush_off;
+    wire [19:0] flush_lin, ps_base;
     wire [15:0] sfr_data;
-    wire [8:0]  cnt;
-    wire [7:0]  cl_c, cl_e;
-    wire [15:0] psw_c, psw_e, cw_c, cw_e;
-    wire [3:0]  mneg;
-    wire        eu_miss;
     wire [6:0]  ra_next, rb_next, wa_addr;
     wire        wa_en;
     wire [1:0]  wa_be;
     wire [15:0] wa_data, ra_data, rb_data;
+
+    // the instruction's start and its address (the trace, the function bench, Q2's strobes)
+    // (MX0f) Q2's start is the opcode's read from the queue: the E word's pop, not the routine's
+    // entry word (the frozen model's start is that pop; the entry follows the post-E dispatch)
+    wire        e_popped;
+    wire        t_start = `V35_MX0F_QSTART ? e_popped : start;
+    wire [19:0] ir_addr_c = op_a;
+    wire        t_flush = ex_pop && word.flush;            // tick A: a FLUSH word executes
+    wire        take_now;                              // tick A: an operand byte popped
+    wire        ramen = prc[6];
 
     // (S7b) the slot's own ce_b registers: tick A's strobes that the nets between the modules
     // combine for tick B
@@ -277,7 +260,7 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_e, .ce_mid, .wtc, .rfm,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .fetch_req(q_fetch_req), .q_low, .q_word, .fetch_addr(q_fetch_addr),
-        .t_start, .take_now, .l_pop,
+        .t_start, .take_now, .l_pop(ld_load),
         .g_start, .g_kind, .g_addr, .g_width, .g_fetch, .g_eu, .g_abort, .g_b2b,
         .b2b_now(b_b2b_now),
         .busy(b_busy), .free(b_free), .cur_kind(b_cur_kind), .cur_pos(b_cur_pos),
@@ -311,98 +294,62 @@ module v35_top
     wire [19:0] tb_reset_addr = 20'hFFFF0;
     wire [15:0] tb_reset_ip = 16'h0000;
 `endif
-    // (Q1) the queue is a simple machine (docs/v35s-queue-strategy.md): the EU pops the bytes
-    // it takes (tick A: the T pass's takes and the IR load; tick B: the P pass's), flushes it
-    // and suspends prefetching; the bus unit starts its fetches and delivers their words
-    wire [15:0] q_flush_addr = core_reset_n ? t_flush_off : tb_reset_ip;
+    wire [15:0] q_flush_addr = core_reset_n ? flush_off : tb_reset_ip;
     // (Q1) the variant: B (a byte port and a latch) unless V35_QUEUE_A (a word write port)
 `ifdef V35_QUEUE_A
     localparam bit Q1_VARIANT_B = 1'b0;
 `else
     localparam bit Q1_VARIANT_B = 1'b1;
 `endif
+    // (MX0) no suspend: the V20 ROM's SUSP precedes FLUSH only, and MX0's one flush (BR far)
+    // needs none
     v35_queue #(.VARIANT_B(Q1_VARIANT_B)) queue (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .fetch_req(q_fetch_req), .fetch_addr(q_fetch_addr), .q_low, .q_word,
         .fetch_go(g_fetch), .dlv_v(dlv_fetch), .dlv_data(b_done_data), .abort_go(b_abort_busy),
-        .vb0(qv0), .vb1(qv1), .vb2(qv2), .vb3(qv3), .avail(q_avail), .rd(ld_rd), .rd_b(ld_rd_b), .rel(ld_rel), .stg(ld_stg),
-        .flush(t_flush), .flush_addr(q_flush_addr), .susp(q_susp), .ps_base
+        .vb0(qv0), .vb1(qv1), .vb2(qv2), .vb3(qv3), .avail(q_avail), .stored(q_stored), .rd(ld_rd), .rd_b(3'd0),
+        .rel(ld_rel), .stg(ld_stg),
+        .flush(t_flush), .flush_addr(q_flush_addr), .susp(1'b0), .ps_base
     );
-    // the EU's views: a fetch (or the aborted cycle) on the bus, the bytes stored
-    wire        q_infl_c = b_fetch_inflight || b_abort_busy;
-    wire        q_infl_x = q_infl_c || g_fetch || g_abort;
-    wire [3:0]  q_stored_c = {1'b0, q_avail};
-    wire [3:0]  q_stored_l = q_stored_c - {1'b0, ld_rd};
+    wire q_infl_c = b_fetch_inflight || b_abort_busy;
 
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .qv0, .qv1, .qv2, .qv3, .q_avail, .t_done, .p_done, .dlv(dlv_fetch), .rd(ld_rd), .rd_b(ld_rd_b), .rel(ld_rel), .stg(ld_stg),
-        .ev0(vb0), .ev1(vb1), .ev2(vb2), .ev3(vb3), .e_avail, .reset_addr(tb_reset_addr), .t_flush_addr,
-        .t_start, .t_k_in(t_k), .t_flush, .t_halt, .lx_hold, .idle_adj,
-        .p_start, .p_k_in(p_k), .p_io_nx,
-        .irh_set_t, .irh_clr_t, .disp_tk(disp_t), .lea_room(lea_room_t), .mate(mate_t), .eu_issue(g_eu), .irh_set_p, .irh_clr_p,
-        .irh_pg_t, .irh_pg_p, .mt_sub_t, .mt_sub_p,
-        .ir_v_c, .ir_c, .ir_addr_c, .fmt_c, .ok_c, .cls_c, .fmt_mt,
-        .l_pop, .l_load(ld_l_load), .ir_l, .ir_addr_l, .fmt_l, .ok_l, .ir_v_l,
-        .fmt_mp, .p_mmiss(ld_p_mmiss), .p_ir, .p_load(ld_p_load), .ir_v_p,
-        .stopped_o(ld_stopped), .head_odd, .need_t(ld_need_t),
-        .nf_v, .nf_fmt, .nf_op, .nf_addr
+        .qv0, .qv1, .q_avail, .q_stored, .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
+        .reset_addr(tb_reset_addr), .flush(t_flush), .flush_lin,
+        .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && word.seq == SQ_DISP),
+        .dispm(word.seq == SQ_DISPM), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
+        .dl(ld_dl), .dh(ld_dh), .fmt, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
+        .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dtrap, .resv_e, .s_modrm
     );
 
-    // ---------------------------------------------------------------- the microcode sequencer
-    v35_ucode ucode (
+    // ---------------------------------------------------------------- the microsequencer
+    v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .ir_v_c, .fmt_c, .ok_c, .ok_l, .cls_c, .fmt_mt, .fmt_mp, .ir_c, .ir_v_l, .ir_l,
-        .ir_addr_c, .ir_addr_l, .vb0, .vb1, .vb2, .vb3, .avail_c({1'b0, e_avail}), .l_pop,
-        .arrived_now(dlv_fetch), .inflight_c(q_infl_c), .inflight_x(q_infl_x),
-        .stored_c(q_stored_c), .stored_l(q_stored_l), .fetch_req(q_fetch_req), .b2b_now(b_b2b_now),
-        .nf_v, .nf_fmt, .nf_addr,
-        .bus_free(b_free), .busy(b_busy), .cur_kind(b_cur_kind), .cur_left(b_cur_left),
-        .fetch_inflight(b_fetch_inflight),
-        .fetch_past_b2(b_fetch_past_b2), .fetch_since(b_fetch_since), .in_wait(b_in_wait),
-        .abort_busy(b_abort_busy), .abort_last(b_abort_last), .grant_len(b_grant_len),
-        .w3_v, .w3_rel, .fetch_last_c(fetch_last), .str_last, .str_exit,
-        .edone, .edone_t, .povr_t, .povr_p,
-        .io_win(b_io_win), .fetch_run_prev(b_fetch_run_prev), .dlv_v(b_dlv_v), .dlv_kind(b_dlv_kind),
-        .g_fetch, .g_abort, .g_eu, .g_b2b, .q_low,
-        .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
-        .rq_t, .rq_p, .ea_live, .ea_lo, .wd_live, .wd_imm, .wd_rdy, .own_dlv, .own_two,
-        .fetch_end_prev(b_fetch_end_prev), .fetch_len(b_fetch_len),
-        .abort_done(b_abort_done), .head_odd, .need_l(ld_need_t), .p_ir(ld_p_load), .cpu_end(dlv_other), .susp(q_susp),
-        .xs_done,
-        .cnt, .cl_c, .cl_e, .psw_c, .psw_e, .cw_c, .cw_e, .mneg, .bf_cross, .bfcost, .bf_ok,
-        .irh_pg_t, .irh_pg_p, .mt_sub_t, .mt_sub_p,
-        .t_start, .t_k, .t_done, .t_flush, .t_halt,
-        .disp_t, .lea_room_t, .mate_t, .irh_set_t, .irh_set_p, .irh_clr_t, .irh_clr_p, .take_now,
-        .lx_hold, .idle_adj,
-        .post_t, .prow_t, .post_p, .prow_p,
-        .p_start, .p_k, .p_done, .p_io_nx,
-        .run_e, .aim_next, .fmt_e,
-        .hold_o(a_why), .wait_o(eu_wait), .res_o(eu_res), .dec_miss, .p_flush, .voc_miss
+        .q_stall, .dec1, .dent, .dtrap, .dec2, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .rb_lo,
+        .fetch_run(b_fetch_inflight), .b2b_now(b_b2b_now), .s_modrm,
+        .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .halted, .upc_o(upc)
     );
 
     // ---------------------------------------------------------------- the datapath
     v35_eu eu (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .t_start, .p_start, .fmt_c, .ir_c, .ir_addr_c, .fmt_l, .fmt_mt, .fmt_mp, .ir_l,
-        .ir_addr_l, .vb0, .vb1, .vb2, .vb3, .t_k, .l_pop, .p_k,
-        .run_e, .aim_next, .fmt_e, .t_flush, .nf_v, .nf_fmt, .nf_op,
-        .post_t, .prow_t, .post_p, .prow_p,
-        .own_done(own_dlv), .own_two, .dlv_kind(b_dlv_kind), .dlv_addr(b_dlv_addr), .dlv_width(b_dlv_width),
-        .dlv_data(b_done_data),
-        .ra_next, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data,
-        .rq_t, .rq_p, .ea_live, .ea_lo, .ps_base, .wd_live, .wd_imm, .wd_rdy, .cnt, .cl_c, .cl_e, .psw_c, .psw_e, .cw_c, .cw_e, .mneg, .t_flush_addr, .t_flush_off, .sfr_data,
-        .edone, .edone_t, .povr_t, .povr_p, .str_last, .str_exit,
-        .f_end(xs_done), .bf_cross, .bfcost, .bf_ok,
-        .pc_o(eu_pc), .miss_o(eu_miss)
+        .word, .ex, .ex_b, .resv_e,
+        .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
+        .dh(ld_dh),
+        .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
+        .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
+        .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .rb_lo,
+        .flush_off, .flush_lin, .ps_base, .sfr_data, .trap_o(div_trap)
     );
 
     // ---------------------------------------------------------------- the register RAM
     v35_regram regram (
         .clock, .ce_a, .ce_b, .ra_next, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data
     );
-
     // ---------------------------------------------------------------- refresh (not served)
     wire rf_pending, rf_load;
     wire [7:0] rf_value;
@@ -464,51 +411,40 @@ module v35_top
     v35_trace trace (
         .clock, .reset_n(core_reset_n), .ce_a,
         .g_start, .g_kind, .g_addr, .g_width, .g_len(b_grant_len),
-        .start_t(t_start), .start_p(p_start), .scls_t(fmt_c.cls), .scls_p(fmt_l.cls),
-        .pc_t(ir_addr_c), .pc_p(ir_addr_l),
-        .takes({1'b0, t_k} + {2'd0, p_k}), .loads({1'b0, ld_l_load} + {1'b0, ld_p_load}),
-        .post(post_t || post_p), .post_kind(post_t ? rq_t.kind : rq_p.kind), .issue(g_eu),
-        .b2b(fetch_last && q_fetch_req), .abort(g_abort),
+        .start, .start_trap, .entry(upc), .pc(op_a),
+        .take(take_now), .load(ld_load),
+        .post(ex_pop && word.bus != BQ_NONE), .post_kind(word.bus == BQ_MEMR ? K_READ
+                                           : word.bus == BQ_MEMW ? K_WRITE
+                                           : word.bus == BQ_IOR ? K_IO_READ : K_IO_WRITE),
+        .issue(g_eu), .b2b(fetch_last && q_fetch_req), .abort(g_abort),
         .room(5'sd6 - 5'({2'd0, q_avail} - {2'd0, ld_rd}) - (q_infl_c ? 5'sd2 : 5'sd0)),
-        .flag(q_fetch_req), .susp(q_susp), .why(eu_wait), .hold(a_why), .dec_miss,
-        .wlost(eu_miss)
+        .flag(q_fetch_req), .why, .upc
     );
 
 `ifndef SYNTHESIS
-    // diagnostics (+v35_diag): bus and queue errors on stderr; the decode-ahead misses (a
-    // start a clock late) and lost register writes counted
+    // diagnostics (+v35_diag): a bus start on a busy bus on stderr
     reg diag = 1'b0;
     reg err_seen = 1'b0;
-    integer n_dec = 0;
     initial diag = $test$plusargs("v35_diag");
     always @(posedge clock) begin
         if (!core_reset_n)
             err_seen <= 1'b0;
         else if (ce_a) begin
-            if ((b_error || eu_miss) && !err_seen) begin
+            if (b_error && !err_seen) begin
                 err_seen <= 1'b1;
                 if (diag)
-                    $display("v35: %s", b_error ? "a bus start on a busy bus"
-                                                : "a register write lost");
-            end
-            if ((voc_miss || ld_p_mmiss) && diag)
-                $display("v35: a row outside its pass slot's vocabulary (not acted on)");
-            if (p_flush && diag)
-                $display("v35: a FLUSH row in the P pass (not acted on: the S5 budget)");
-            if (dec_miss) begin
-                n_dec <= n_dec + 1;
-                if (diag)
-                    $display("v35: decode-ahead miss %0d", n_dec + 1);
+                    $display("v35: a bus start on a busy bus");
             end
         end
     end
 `endif
 `endif
 
-    // (Q1) the nets the old queue read that nothing reads now
-    wire q1_unused = &{1'b0, p_ir, ld_l_load, ir_v_p};
-    wire unused = &{1'b0, ready, ce, x_fall, input_levels, idb, prc[7:2], ld_stopped,
-                    b_cur_pos, b_dlv_width, q1_unused, rf_pending, rf_load, rf_value, rf_state_r, rf_state_e, eu_pc,
-                    eu_res, b_in_wait, b_fetch_since, b_error,
-                    eu_wait, dec_miss, eu_miss, a_why, p_flush, voc_miss, ld_p_mmiss};
+    wire unused = &{1'b0, ready, ce, x_fall, input_levels, idb, prc[7], prc[5:2], qv1, qv2, qv3,
+                    b_cur_pos, b_dlv_width, rf_pending, rf_load, rf_value, rf_state_r, rf_state_e,
+                    b_in_wait, b_fetch_since, b_error, b_fetch_past_b2, b_fetch_end_prev,
+                    b_fetch_run_prev, b_io_win, b_abort_last, b_abort_done, b_fetch_len,
+                    b_dlv_addr, w3_v, w3_rel, g_fetch, g_b2b, dlv_other, b_free, ld_len,
+                    ex_b, why, upc, start_trap, halted, div_trap, ir_addr_c, dec2,
+                    fetch_last, q_infl_c, ld_op3, ld_op, b_grant_len, g_eu, g_abort};
 endmodule

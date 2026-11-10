@@ -62,12 +62,11 @@ module v35_core2_tb
     output wire [1:0]  o_dsel,
     output wire [15:0] o_wd_imm
 );
-    // a read's delivery whose exec could not run (its operands not on the ports): lost
-    assign o_drop = dut.eu.ex_mem && !dut.eu.xr.ok;
-    // ((A1) the old encoding: 0 the datum as issued, 1 the late value, 2 / 3 its pair's halves)
-    assign o_dsel = !dut.ucode.bq_b2l_b ? 2'd0 : dut.bus.c_half == 2'd0 ? 2'd1 : dut.bus.c_half + 2'd1;
+    // (MX0) no lost exec, no datum select, no immediate register in the datapath's sense
+    assign o_drop = 1'b0;
+    assign o_dsel = 2'd0;
     assign o_flush = dut.t_flush;
-    assign o_wd_imm = dut.eu.wd_imm;
+    assign o_wd_imm = 16'd0;
     wire a0, a19, a18_ube, mreq_n, mstb_n, iostb_n, read_write, refrq_n;
     wire [8:0] mux_address;
     wire [15:0] data_out;
@@ -79,13 +78,13 @@ module v35_core2_tb
 
     assign o_ce = dut.ce;
     assign o_ce_mid = dut.ce_mid;
-    assign o_t_start = dut.t_start;
-    assign o_p_start = dut.p_start;
-    assign o_t_addr = dut.ir_addr_c;
-    assign o_p_addr = dut.ir_addr_l;
-    assign o_t_cls = dut.fmt_c.cls;
-    assign o_p_cls = dut.fmt_l.cls;
-    assign o_halted = dut.ucode.halted;   // ((A1) the sequencer's register)
+    assign o_t_start = dut.start;       // (MX0) a routine's entry word executes (MX0f: t_start is Q2's E pop)
+    assign o_p_start = 1'b0;
+    assign o_t_addr = dut.ir_addr_c;    // the started instruction's opcode address
+    assign o_p_addr = 20'd0;
+    assign o_t_cls = dut.start_trap ? 7'd0 : 7'd1;   // 0: a trap routine (not compared)
+    assign o_p_cls = 7'd0;
+    assign o_halted = dut.useq.halted;
     assign o_c_valid = dut.bus.n_valid;   // ((S7b) the cycle the pins show from mid-clock on)
     assign o_c_kind = dut.bus.n_kind;
     assign o_c_addr = dut.bus.n_addr;
@@ -94,42 +93,28 @@ module v35_core2_tb
     assign o_c_len = dut.bus.n_len;
     assign o_c_internal = dut.bus.n_internal;
     assign o_data_out = data_out;
-    assign o_div_trap = (dut.eu.dvp && dut.eu.ds_n.trap) || (dut.eu.dfin && dut.eu.dtrap);
-    assign o_miss = dut.eu_miss;
-    assign o_exec_pend = dut.eu.exec_pend;
-    assign o_w2_v = dut.eu.w2_v;
-    assign o_w2_a = dut.eu.w2_a;
-    assign o_w2_be = dut.eu.w2_be;
-    assign o_w2_d = dut.eu.w2_d;
+    assign o_div_trap = dut.eu.trap_o;
+    assign o_miss = 1'b0;
+    assign o_exec_pend = 1'b0;
+    assign o_w2_v = 1'b0;
+    assign o_w2_a = 7'd0;
+    assign o_w2_be = 2'd0;
+    assign o_w2_d = 16'd0;
     assign o_psw = dut.eu.psw;
     assign o_ds1 = dut.eu.ds1;
     assign o_ps = dut.eu.ps;
     assign o_ss = dut.eu.ss;
     assign o_ds0 = dut.eu.ds0;
-    assign o_cw = dut.eu.cw;
-    assign o_ix = dut.eu.ix;
-    assign o_iy = dut.eu.iy;
-    assign o_stale = {dut.eu.dcw, dut.eu.dix, dut.eu.diy};
+    // (MX0) CW / IX / IY are RAM words only: the driver reads them from the RAM (o_stale all set)
+    assign o_cw = 16'd0;
+    assign o_ix = 16'd0;
+    assign o_iy = 16'd0;
+    assign o_stale = 3'b111;
 
-    // a position's write cycles still to issue (an odd word: two)
-    function automatic logic [3:0] pw(input logic v, input logic nwd, input logic [2:0] kind,
-                                      input logic nowr, input logic iss, input logic h2,
-                                      input logic [1:0] width, input logic a0);
-        logic two;
-        two = width == 2'd0 && a0 && kind == 3'd3;
-        if (!v || nwd || nowr || !(kind == 3'd3 || kind == 3'd5))
-            pw = 4'd0;
-        else if (!iss)
-            pw = two ? 4'd2 : 4'd1;
-        else
-            pw = (two && !h2) ? 4'd1 : 4'd0;
-    endfunction
-    assign o_pend_w = pw(dut.ucode.bq0.v, dut.ucode.bq0.nwd, dut.ucode.bq0.d.kind,
-                         dut.ucode.bq0.d.nowrite, dut.ucode.bq0.iss, dut.ucode.bq0.h2,
-                         dut.ucode.bq0.d.width, dut.ucode.bq0.d.addr[0])
-                    + pw(dut.ucode.bq1.v, dut.ucode.bq1.nwd, dut.ucode.bq1.d.kind,
-                         dut.ucode.bq1.d.nowrite, dut.ucode.bq1.iss, dut.ucode.bq1.h2,
-                         dut.ucode.bq1.d.width, dut.ucode.bq1.d.addr[0])
+    // the write cycles posted and not yet off the pins: the EU's request standing (an odd word:
+    // two), the bus cycle running
+    wire eu_w = dut.eu.rq_v && (dut.eu.rq_cyc == 2'd1 || dut.eu.rq_cyc == 2'd3);
+    assign o_pend_w = (eu_w ? (dut.eu.rq_pair ? 4'd2 : 4'd1) : 4'd0)
                     + ((dut.bus.c_valid && !dut.bus.c_internal
                         && (dut.bus.c_kind == 3'd3 || dut.bus.c_kind == 3'd5)
                         && dut.bus.c_pos != dut.bus.c_len - 3'd1) ? 4'd1 : 4'd0);

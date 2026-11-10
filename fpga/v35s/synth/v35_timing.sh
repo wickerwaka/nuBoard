@@ -6,7 +6,7 @@
 #
 #   fpga/v35s/synth/v35_timing.sh MODULE [MODULE ...]
 #
-# MODULE: ucode loader queue bus eu (v35_eu with v35_ea) regram, or top (v35_top: every
+# MODULE: useq loader queue bus eu (v35_eu with v35_ea) regram, or top (v35_top: every
 # module, v35_sfr and v35_refresh). Output in build/fpga/v35s/timing/<top>${TAG}/; prints the
 # Clock Relationship Summary, the worst slack, the five worst setup paths (begin, end, slack,
 # logic levels) and the map's resources. Every run is inside a memory-capped systemd scope
@@ -41,19 +41,19 @@ set -u
 v35=${V35_SRC:-$repo_root/fpga/v35s/core/v35}
 period=${PERIOD:-15.625}
 pkgs=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv)
-hdrs=(v35_macros.svh v35_consts.svh v35_class_tbl.svh v35_decode_tbl.svh v35_ucode_tbl.svh)
+hdrs=(v35_macros.svh v35_udecode_tbl.svh)
 
 time_one() {
     local name=$1 top files
     case $name in
-        ucode|v35_ucode) top=v35_ucode; files=(v35_ucode.sv) ;;
+        useq|v35_useq) top=v35_useq; files=(v35_useq.sv) ;;
         eu|v35_eu) top=v35_eu; files=(v35_ea.sv v35_eu.sv) ;;
         loader|v35_loader) top=v35_loader; files=(v35_loader.sv) ;;
         queue|v35_queue) top=v35_queue; files=(v35_queue.sv) ;;
         bus|v35_bus) top=v35_bus; files=(v35_bus.sv) ;;
         regram|v35_regram) top=v35_regram; files=(v35_regram.sv) ;;
         top|v35_top) top=v35_top
-            files=(v35_bus.sv v35_queue.sv v35_loader.sv v35_ucode.sv v35_ea.sv
+            files=(v35_bus.sv v35_queue.sv v35_loader.sv v35_useq.sv v35_ea.sv
                    v35_eu.sv v35_regram.sv v35_trace.sv ../v35_sfr.sv ../v35_refresh.sv
                    v35_top.sv) ;;
         *) echo "unknown module $name" >&2; return 2 ;;
@@ -70,7 +70,7 @@ time_one() {
     done
     for f in "${hdrs[@]}"; do cp "$v35/$f" "$project_dir/"; done
     mkdir -p "$project_dir/fpga/v35s/core/v35"
-    cp "$v35"/v35_ucode_b?.hex "$project_dir/fpga/v35s/core/v35/"
+    cp "$v35"/v35_urom_b?.hex "$project_dir/fpga/v35s/core/v35/"
     cp "$script_dir/v35_tw.sv" "$project_dir/"
     local mfile=${files[-1]}
     python3 "$script_dir/v35_tw.py" "$v35/$mfile" "$top" "$project_dir/v35_tw_top.sv" > /dev/null

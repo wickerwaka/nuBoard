@@ -1377,3 +1377,64 @@ question, decided from S8's routed numbers with the user.
   Two V35-specific loop mechanisms are named as open on silicon: the shift's 2 clocks per count against
   the V30's 1, and the string element's 18 against the V30's 8. Open to the user before MX0: the data
   book's formulas as every routine's first draft, and whether Q2's aborted fetch stays a bus-unit mechanism.
+- 2026-11-10, **MX0 landed** (the assembler, the sequencer, the register-form routines; one Opus worktree agent
+  over six rounds MX0–MX0f directed from the overseer's traces). **Built:** `validation/v35s/chains/uasm.py`
+  (749 lines) reads the microinstruction word's layout from `v35_pkg.sv` (the single source: 86 bits, 3 × 32-bit
+  ROM banks; RAM read ports A / B and the write port with a selector and a data source; two moves; the ALU op
+  and W; the EA step; the bus request with its segment and the reservation; the pop with its target; E; F; the
+  loop counter's load; next / jump / call / return / loop / dispatch with a condition and a target; prefix,
+  flush, halt, trap — no count, class or attribute field, enforced by `test_uasm` and
+  `test_v35_struct.test_the_word_has_no_count_field`) and assembles `fpga/v35s/core/v35/urom/{core,reg,loop,
+  bus}.uasm` (one line one microinstruction, the comment naming the act; a routine header names its opcodes,
+  its form, the book's formula and any declared difference with its reason) into `v35_urom_b{0,1,2}.hex` and
+  `v35_udecode_tbl.svh` (the only place an opcode literal appears); `test_uasm`'s book check compares every
+  routine's length at EA = 3, W = 0 with `v35_book_clocks.json` (55 rows) and rejects a difference that is
+  longer than the book, "measured" alone, or a fit. `v35_useq.sv` (251 lines, 26 ports) replaces `v35_ucode.sv`
+  (4,916): a registered ROM word a clock, the microaddress from a register, the stalls (queue, F, slot, hold,
+  halt, and the dispatch stall below), the loop counter, a one-level return register (the V20 ROM has no nested
+  FARJMP), the E word popping the opcode and its ModR/M together with the next address decoded from the popped
+  byte through the registered decode. `v35_loader.sv` 704 → 287 lines (the word register, the pops, the decode
+  table), `v35_eu.sv` 1,870 → 473 (the shifter one shift per iteration, the divider one step per word, no
+  multiplier block); ucgen.py, test_ucgen.py, the ucode hex / class / decode tables and v35_consts deleted. The
+  routines cover the gate families' instruction set (69 routines, 411 words at MX0; the trap routine pops an
+  unimplemented form's bytes by its format and ends). **The laws found on the way** (each measured against the
+  alternative, selectable by a macro in v35_macros.svh): (1) `V35_MX0B_WR` = 1, the word register: the EU's
+  byte source is a registered word loaded from the queue's stored bytes only (never the arriving word or the
+  latch), one load a clock, a pop finding it empty stalls; the queue gained one output (`stored`); measured
+  against popping the stored bytes directly and against a load clock of its own: no change at the gate (the
+  immediates' late takes are not the word register). (2) `V35_MX0C_DISPATCH` = 2, the dispatch stall: the word
+  after E, which hands the staged opcode to its routine's entry, waits while the bus unit runs a fetch cycle
+  (issue clock through last clock), and a form with a ModR/M byte also waits on a back-to-back fetch's issue
+  clock; read from the bus unit's existing outputs. This is the frozen model's `_start` (start_sync=b2b_modrm,
+  rules.md item 16, binned "emerges from the structure": it did not). It removes the wait dependence entirely:
+  the restart fetch's mean offset from silicon goes from −0.5 / −3.0 / −8.9 clocks at 0 / 1 / 2 waits to a flat
+  value in every family; placed on the E word instead (variant 3) the dependence returns. (3) The data book's
+  "measured = book + 1 or 2" offset is this stall: the a6 method timed each form between I/O markers, the form's
+  pops make room, the room issues a fetch, and the marker dispatches inside it; so the routines were re-derived
+  from the book with the stall in place (MX0d), then shortened where silicon's direct measurement, less the
+  stall, shows a book clock absent (MX0e: PUSH r16 13 → 8, OUT imm8 11 → 9, OUT DW 8 → 5, IN DW −3, NOP 4 → 3,
+  XCH / MOV sreg / CVTBW −1; 12 routines, every one declared with its measurement). (4) `V35_MX0F_QSTART` = 1:
+  Q2's triple-clock start is the E word's opcode pop, not the routine's entry (the MX0e core aborted a fetch on
+  MOV CL,imm8's entry clock; model and RTL agree at +94). **OPEN words:** 122, each marking a data-book clock no
+  act names (POP r16 5, POP PSW 7, OUT imm8 4, IN DW 8, IN imm8 10, BR far 7, SHL r,CL 5, MULU 9 / 10, DIVU 14 /
+  16, DI / EI 2 / 10, CVTWL 5, PUSH imm 2 / 2, OUT DW 1, MOV acc,[d16] 1): the agenda. **Gate (verified on main,
+  `+v35_chk`, both spacings identical, 0 failing, chk silent):** F0 F0w F1 F2 F3 F9 F11 F12 together 9 / 1,796
+  exact (A1 1,691; F0 2, F9 7), F20 0 / 3,594 (A1 3,407), the whole refresh-off corpus 19 / 30,536 (A1 28,059;
+  28,040 lost, 0 gained), every miss classified: (i) routine shape 24,907, (ii) bus-unit law 0, (iii) 5,610
+  (offsets over 3 clocks at 0 waits and the F0w mixed-wait runs). The residuals every chain carries, traced to
+  the clock and left open: the instruction after the shift +1 (SHL r,CL's OPEN words and MOV r8,imm8's book 5
+  against the model's 4 cannot be separated on these chains; the ModR/M back-to-back clause stalls one clock the
+  model does not); OUT imm8's port byte by parity (+2 at pE, −3 at pO: the model holds the fetch under the
+  posted I/O write with a lead and issues the write at pop + 14, after the routine has ended — a bus-unit
+  attribute with no act, as A1 recorded for the I/O lead); MOV [d16],acc +1. Write data: the gate families 0
+  differing, the corpus 64,664 / 106,824 (the rest trap until MX1); `--regfile` on the gate families 0 bad
+  (12,338 pass, 11,758 trap_nop; `test_rtl_vectors`' 1,900 bar counts trap_nop until MX1 lands, said in the
+  test); `--fn` 9,525 / 0 bad; SST deferred to MX4; lint clean in the five configurations and with each macro's
+  alternatives; 35 fast tests; the nine offline modules unchanged. **Depth and timing (overseer, on the MX0
+  sources before MX0b; the later rounds add a stall and a word register):** whole-core map 3,741 LUT4, 274 ADD,
+  862 FF, 41 RAM_5K (the ROM 19, the decode tables 18), 0 MULT in 19 s (A1 24,147 / 3,153 / 32 / 8 in about 5
+  min); the levelizer's worst depth 24.6 (A1 202), queue `cnt` → the queue's room arithmetic → the bus grant;
+  routed at 15.625 ns worst slack −10.3 ns (A1 −179.5), 26 levels, `useq/rom0`'s read port → the EU's request →
+  the grant → the cycle registers (the next split, MX5); hold +0.3. **Mechanism-note corrections** are appended
+  to docs/v35s-mechanisms.md ("Corrections from MX0"). The loss against A1 is the rule's expected cost and is
+  recorded, not patched: the A1 core remains at 049e8c5.

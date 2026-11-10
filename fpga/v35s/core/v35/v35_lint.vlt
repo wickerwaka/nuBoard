@@ -1,11 +1,12 @@
 `verilator_config
 // Lint waivers for the old core's files the v35 core reuses unchanged (fpga/v35s/core/:
-// v35_refresh.sv and v35_sfr.sv) and for the generated package (ucgen.py: v35_pkg.sv and its
-// .svh tables carry every row enum, class id, constant and format field, not each read by the
-// RTL). Nothing written by hand in fpga/v35s/core/v35/ is waived.
+// v35_refresh.sv and v35_sfr.sv) and for the package and its generated decode table (the
+// word's enums and the decode's format fields, not each read by the RTL; v35_fn_pkg's whole
+// functions kept for the function bench). Nothing else written by hand in
+// fpga/v35s/core/v35/ is waived.
 lint_off -rule UNUSEDSIGNAL -file "*v35_refresh.sv"
 lint_off -rule UNUSEDSIGNAL -file "*v35_sfr.sv"
 lint_off -rule UNUSEDPARAM -file "*v35/v35_pkg.sv"
-lint_off -rule UNUSEDPARAM -file "*v35/v35_consts.svh"
+lint_off -rule UNUSEDPARAM -file "*v35/v35_udecode_tbl.svh"
 lint_off -rule UNUSEDSIGNAL -file "*v35/v35_pkg.sv"
-lint_off -rule UNUSEDSIGNAL -file "*v35/v35_ucode_tbl.svh"
+lint_off -rule UNUSEDSIGNAL -file "*v35/v35_udecode_tbl.svh"

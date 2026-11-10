@@ -240,9 +240,7 @@ int main(int argc, char** argv) {
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ps = t.in[9];
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ss = t.in[10];
         r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ds0 = t.in[11];
-        r->v35_core2_tb__DOT__dut__DOT__eu__DOT__cw = t.in[1];
-        r->v35_core2_tb__DOT__dut__DOT__eu__DOT__ix = t.in[6];
-        r->v35_core2_tb__DOT__dut__DOT__eu__DOT__iy = t.in[7];
+        // ((MX0) CW / IX / IY are RAM words only: preloaded with the others below)
         auto put = [&](unsigned a, uint32_t v) {
             r->v35_core2_tb__DOT__dut__DOT__regram__DOT__ae[a] = v & 0xFF;
             r->v35_core2_tb__DOT__dut__DOT__regram__DOT__be[a] = v & 0xFF;
@@ -409,9 +407,12 @@ int main(int argc, char** argv) {
             bad.push_back("IX's RAM copy " + std::to_string(got[6]));
         if (!(d.o_stale & 1) && got[7] != flop_iy)
             bad.push_back("IY's RAM copy " + std::to_string(got[7]));
-        got[1] = flop_cw;
-        got[6] = flop_ix;
-        got[7] = flop_iy;
+        if (!(d.o_stale & 4))
+            got[1] = flop_cw;
+        if (!(d.o_stale & 2))
+            got[6] = flop_ix;
+        if (!(d.o_stale & 1))
+            got[7] = flop_iy;
         uint32_t segf[4] = {d.o_ds1, d.o_ps, d.o_ss, d.o_ds0};
         for (unsigned s = 0; s < 4; ++s) {
             if (ram_w[7 - s] != segf[s])

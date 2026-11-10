@@ -1,0 +1,175 @@
+; MX0 loop routines, register forms ((MX0d) every length the data book's formula; OPEN a book
+; clock no act names): the shifts (one step a word, the V35's iteration two words:
+; mechanisms 3.4, classes.md SHIFT_CL / SHIFT_IMM) and the multiply / divide (one bit a word,
+; V20 0178-017F / 0188-0193). The count is loaded by a word from CL (port B), the immediate or
+; the operand's width; the zero count skips the loop (V20 SHIFT 0228 JMP Z).
+
+; D2 / D3: SHL r,CL (V20 0118-011B, SHIFT 0228-022B). Measured 10 (n = 0), 12 + 2n (n >= 1)
+routine shift_cl op=D2,D3 mod=reg book="SHL reg,CL" n=4 why="OPEN: the book's 11 + 2n: the read, the count load, the zero test, the two-word iteration (mechanisms 3.4), the write with the flags, E; five book clocks with no act, four on both paths and one on the loop's (silicon's 10 at n = 0, less the stall 9: v35s-eu-timing.md M5)" measured="12+2n"
+    rb=RM d1=TB s1=RB                       ; the operand into tmpb (V20 0118 M -> tmpb)
+    rb=CW cnt=RB alu=SHI ax=TB              ; CL into the loop counter (0119-011A); the shifter loaded from tmpb with CY
+    open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
+    open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
+    open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
+    open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
+    jc=CNTZ:shcl_z                          ; a zero count skips the loop and the write (SHIFT 0228 JMP Z)
+shcl_l: alu=SH1 ax=SIG                      ; one shift step of the group's operation (0229's R row)
+    loop=shcl_l                             ; the counter step (the V35's second word of the iteration)
+    open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
+    wr=RM ws=SIG alu=SHF ax=SIG wf          ; the result written; the shift's flags (W) (022A)
+shcl_z: e                                   ; E: pop the next opcode (022B)
+
+; C0 / C1: SHL r,imm8 (V20 028C-028F): the count popped. Measured as the CL form
+routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 why="OPEN: the book's 9 + 2n: the pop, the read, the count load, the zero test, the two-word iteration, the write, E; two book clocks with no act" measured="12+2n"
+    pop=il                                  ; pop the count (V20 028C Q -> tmpaL)
+    rb=RM d1=TB s1=RB                       ; the operand into tmpb (028D)
+    cnt=IL alu=SHI ax=TB                    ; the count into the loop counter (028E); the shifter loaded with CY
+    open                                    ; OPEN: a book clock with no act (SHL reg,imm8 9 + 2n)
+    open                                    ; OPEN: a book clock with no act (SHL reg,imm8 9 + 2n)
+    jc=CNTZ:shim_z                          ; a zero count skips the loop and the write
+shim_l: alu=SH1 ax=SIG                      ; one shift step
+    loop=shim_l                             ; the counter step
+    wr=RM ws=SIG alu=SHF ax=SIG wf          ; the result written; the shift's flags (W)
+shim_z: e                                   ; E: pop the next opcode
+
+; D0 / D1: by one (V20 0114-0117). Measured 10
+routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" why="OPEN: the book's 8: the read, the load, one step, the write, E; two book clocks with no act" measured="10"
+    rb=RM d1=TB s1=RB                       ; the operand into tmpb (0115 M -> tmpb)
+    alu=SHI ax=TB                           ; the shifter loaded with CY
+    open                                    ; OPEN: a book clock with no act (SHL reg,1 8)
+    open                                    ; OPEN: a book clock with no act (SHL reg,1 8)
+    alu=SH1 ax=SIG                          ; the one step (0116's R row, COUNT 1)
+    wr=RM ws=SIG alu=SHF ax=SIG wf          ; the result written; the flags (W) (0117)
+    e                                       ; E: pop the next opcode
+
+; F7 /4: MULU r16 (V20 0178-017F, MULX). Measured 34, 26 for the byte form
+routine mulu16 op=F7 mod=reg reg=4 book="MULU reg16" why="OPEN: the book's 32: the reads, the 16 steps, the finish, the two writes; nine book clocks with no act" measured="34"
+    rb=RM d1=TC s1=RB                       ; the multiplier into tmpc (0178 M -> tmpc)
+    ra=AW d1=TA s1=RA                       ; AW into tmpa (0179)
+    alu=MULI ax=TA ay=TC cnt=BITS           ; the multiplier loaded; the counter <- 16 (017B)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+    open                                    ; OPEN: a book clock with no act (MULU reg16 32)
+mu16_l: alu=MULS loop=mu16_l                ; one multiply step (017C's R row); the counter step
+    alu=MULF wf                             ; the product: low half to SIGMA, high to tmpc; CY V (W)
+    wr=AW wid=WORD ws=SIG                   ; AW <- the low half (017E)
+    wr=DW wid=WORD ws=TC e                  ; DW <- the high half (017F); E
+
+routine mulu8 op=F6 mod=reg reg=4 book="MULU reg8" width=byte why="OPEN: the book's 24: the reads, the 8 steps, the finish, the write; ten book clocks with no act" measured="26"
+    rb=RM d1=TC s1=RB                       ; the multiplier into tmpc
+    ra=AW d1=TA s1=RA                       ; AL (AW) into tmpa
+    alu=MULI ax=TA ay=TC cnt=BITS           ; the multiplier loaded; the counter <- 8 (017A)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+    open                                    ; OPEN: a book clock with no act (MULU reg8 24)
+mu8_l: alu=MULS loop=mu8_l                  ; one multiply step; the counter step
+    alu=MULF wf                             ; the 16-bit product into SIGMA; CY V (W)
+    wr=AW wid=WORD ws=SIG e                 ; AW <- the product; E
+
+; F6 / F7 /5: MUL (signed), not in the gate families: the natural shape, short of silicon
+routine mul16 op=F7 mod=reg reg=5 why="no book value (a range, 39-48): the natural shape, magnitudes, 16 steps, the sign fix-up in MULF"
+    rb=RM d1=TC s1=RB                       ; the multiplier into tmpc
+    ra=AW d1=TA s1=RA                       ; AW into tmpa
+    alu=MULI ax=TA ay=TC cnt=BITS           ; the magnitudes loaded; the counter <- 16
+mi16_l: alu=MULS loop=mi16_l                ; one multiply step; the counter step
+    alu=MULF wf                             ; the product, negated when the signs differ; CY V S Z P AC (W)
+    wr=AW wid=WORD ws=SIG                   ; AW <- the low half
+    wr=DW wid=WORD ws=TC e                  ; DW <- the high half; E
+
+routine mul8 op=F6 mod=reg reg=5 why="no book value (a range, 31-40): the natural shape"
+    rb=RM d1=TC s1=RB                       ; the multiplier into tmpc
+    ra=AW d1=TA s1=RA                       ; AL into tmpa
+    alu=MULI ax=TA ay=TC cnt=BITS           ; the magnitudes loaded; the counter <- 8
+mi8_l: alu=MULS loop=mi8_l                  ; one multiply step; the counter step
+    alu=MULF wf                             ; the product, negated when the signs differ (W)
+    wr=AW wid=WORD ws=SIG e                 ; AW <- the product; E
+
+; F6 / F7 /6 /7: DIVU / DIV (V20 0188-0197): the pre-check, one restoring step a word, the
+; finish; the divide error ends the instruction with the trap raised (BRK 0 is MX2's)
+routine divu16 op=F7 mod=reg reg=6 book="DIVU reg16" why="OPEN: the book's 39: the reads, the pre-check, 16 steps, the finish, the range test, two writes; fourteen book clocks with no act" measured="42"
+    rb=RM d1=TB s1=RB                       ; the divisor into tmpb
+    rb=DW wid=WORD d1=TC s1=RB              ; DW (the dividend's high half) into tmpc
+    ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the dividend DW:AW, the pre-check; the counter <- 16
+    jc=DTRAP:dv16_t                         ; the pre-check failed: the divide error
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+    open                                    ; OPEN: a book clock with no act (DIVU reg16 39)
+dv16_l: alu=DIVS loop=dv16_l                ; one restoring step; the counter step
+    alu=DIVF wf                             ; the quotient into SIGMA, the remainder into tmpc; the flags (W)
+    jc=DTRAP:dv16_t                         ; a signed quotient out of range: the divide error
+    wr=AW wid=WORD ws=SIG                   ; AW <- the quotient
+    wr=DW wid=WORD ws=TC e                  ; DW <- the remainder; E
+dv16_t: trap e                              ; the divide error raised (the vector is MX2's); E
+
+routine divu8 op=F6 mod=reg reg=6 book="DIVU reg8" width=byte why="OPEN: the book's 31: the reads, the pre-check, 8 steps, the finish, the range test, the write; sixteen book clocks with no act" measured="34"
+    rb=RM d1=TB s1=RB                       ; the divisor into tmpb
+    ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the dividend AW, the pre-check; the counter <- 8
+    jc=DTRAP:dv8_t                          ; the pre-check failed: the divide error
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+    open                                    ; OPEN: a book clock with no act (DIVU reg8 31)
+dv8_l: alu=DIVS loop=dv8_l                  ; one restoring step; the counter step
+    alu=DIVF wf                             ; {remainder, quotient} into SIGMA; the flags (W)
+    jc=DTRAP:dv8_t                          ; a signed quotient out of range
+    wr=AW wid=WORD ws=SIG e                 ; AW <- {AH remainder, AL quotient}; E
+dv8_t: trap e                               ; the divide error raised; E
+
+routine div16 op=F7 mod=reg reg=7 why="no book value (a range, 54-64): the natural shape"
+    rb=RM d1=TB s1=RB                       ; the divisor into tmpb
+    rb=DW wid=WORD d1=TC s1=RB              ; DW into tmpc
+    ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the magnitudes, the pre-check; the counter <- 16
+    jc=DTRAP:di16_t                         ; the pre-check failed
+di16_l: alu=DIVS loop=di16_l                ; one restoring step; the counter step
+    alu=DIVF wf                             ; the signs applied; the quotient's range checked (W)
+    jc=DTRAP:di16_t                         ; out of range: the divide error
+    wr=AW wid=WORD ws=SIG                   ; AW <- the quotient
+    wr=DW wid=WORD ws=TC e                  ; DW <- the remainder; E
+di16_t: trap e                              ; the divide error raised; E
+
+routine div8 op=F6 mod=reg reg=7 why="no book value (a range, 46-56): the natural shape"
+    rb=RM d1=TB s1=RB                       ; the divisor into tmpb
+    ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the magnitudes, the pre-check; the counter <- 8
+    jc=DTRAP:di8_t                          ; the pre-check failed
+di8_l: alu=DIVS loop=di8_l                  ; one restoring step; the counter step
+    alu=DIVF wf                             ; the signs applied; the range checked (W)
+    jc=DTRAP:di8_t                          ; out of range
+    wr=AW wid=WORD ws=SIG e                 ; AW <- {AH, AL}; E
+di8_t: trap e                               ; the divide error raised; E
+

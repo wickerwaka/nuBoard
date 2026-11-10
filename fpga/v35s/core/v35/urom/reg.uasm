@@ -1,0 +1,217 @@
+; MX0 register routines: the two-operand register forms, the short register forms, the flag
+; operations and conversions, the immediate forms, the unary group's register forms.
+; (MX0d) Every routine's length at EA = 3, W = 0 is the data book's formula (the user's first
+; draft of every routine); the shape follows the V20 routine (V20UC.TXT) where one exists. The
+; measured V35S costs are the book's plus the dispatch's fetch stall (README "MX0c", "MX0d"),
+; so they are not a reason for a word. A ModR/M form's ModR/M byte is popped by the E word that
+; pops its opcode. A word marked OPEN is a book clock no act names.
+; Register reads are RAM reads (ports A and B, this word's data in its second tick), a write is
+; the RAM's write port at the word's end; SIG is the ALU result of an earlier word.
+
+; ---- two operands, ModR/M register form (V20 ALU_RM 0000-0001)
+routine alu_rr op=00-03,08-0B,10-13,18-1B,20-23,28-2B,30-33 mod=reg book="ADD reg,reg" why="the read and the ALU on the E word, the write after it (V20 0000-0001): the book's 2"
+    ra=DST rb=SRC alu=GRP ax=RA ay=RB wf e  ; read the destination and the source; the group's ALU op, flags (W); E
+    wr=DST ws=SIG                           ; post-E: the result into the destination
+
+routine cmp_rr op=38-3B mod=reg book="CMP reg,reg" why="as ADD, no write: the book's 2"
+    ra=DST rb=SRC alu=GRP ax=RA ay=RB wf e  ; read both operands; CMP (the difference's flags, W); E
+
+routine mov_rr op=88-8B mod=reg book="MOV reg,reg" why="the read on the E word, the write after it: the book's 2"
+    rb=SRC alu=PASS ax=RB e                 ; read the source through the ALU; E
+    wr=DST ws=SIG                           ; post-E: the destination <- SIGMA
+
+; V20 XCHG_RM 0048-004A: two reads, then one write a word (the write port is one)
+routine xch_rr op=86,87 mod=reg book="XCH reg,reg" diff=-1 why="book error: the book's 3 against silicon's 3 (v35s-eu-timing.md; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the reads and the r/m write on the E word, the reg write after it"
+    ra=REG rb=RM wr=RM ws=RA d1=TB s1=RB e  ; read both; the r/m register <- the reg one; tmpb <- the r/m one; E
+    wr=REG ws=TB                            ; post-E: the reg register <- tmpb
+
+routine test_rr op=84,85 mod=reg book="TEST reg,reg" why="the reads, the AND, E: the book's 4"
+    ra=REG rb=RM d1=TA s1=RA d2=TB s2=RB    ; read both into tmpa / tmpb
+    alu=AND ax=TA ay=TB wf                  ; AND, flags (W)
+    e                                       ; E (TEST writes nothing)
+
+; MOV to / from a segment register (V20 MOV_SREG 0050)
+routine mov_sr op=8C mod=reg book="MOV reg16,sreg" diff=-1 why="book error: the book's 3 against silicon's 3 (a6 MOV CW,SS 3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the read on the E word, the write after it"
+    rb=SREG wid=WORD alu=PASS ax=RB e       ; read the segment register through the ALU; E
+    wr=RM wid=WORD ws=SIG                   ; post-E: the register <- it
+
+routine mov_rs op=8E mod=reg book="MOV sreg,reg16" diff=-2 why="book error: the book's 4 against silicon's 3 (a6 MOV DS1,DW 3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the read on the E word, the segment write after it"
+    rb=RM wid=WORD alu=PASS ax=RB e         ; read the register through the ALU; E
+    wr=SREG wid=WORD ws=SIG                 ; post-E: the segment register <- it (RAM and the segment flop)
+
+; ---- short register forms
+routine inc16 op=40-47 book="INC reg16" why="one word and the post-E write: the book's 2"
+    ra=OPR wid=WORD alu=INC ax=RA wf e      ; read the register; +1, flags but CY (W); E
+    wr=OPR wid=WORD ws=SIG                  ; post-E: the register <- SIGMA
+
+routine dec16 op=48-4F book="DEC reg16" why="as INC: the book's 2"
+    ra=OPR wid=WORD alu=DEC ax=RA wf e      ; read the register; -1, flags but CY (W); E
+    wr=OPR wid=WORD ws=SIG                  ; post-E: the register <- SIGMA
+
+; V20 XCHG_AX 005C-005E (NOP is XCH AW,AW)
+routine xch_aw op=90-97 book="XCH AW,reg16" diff=-1 why="book error: the book's 4 against silicon's 4 (NOP 4, XCH AW,DW 4, F3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 3); the reads, one write on the E word, the other after it"
+    ra=AW rb=OPR wid=WORD d1=TA s1=RA d2=TB s2=RB   ; read AW and the register into tmpa / tmpb
+    wr=OPR wid=WORD ws=TA e                 ; the register <- tmpa (AW); E
+    wr=AW wid=WORD ws=TB                    ; post-E: AW <- tmpb (the register)
+
+routine flag op=F5,F8,F9,FC,FD book="CLR1 CY" why="one word: the book's 2"
+    alu=FLAG wf e                           ; the format's flag operation on the PSW; E
+
+routine flag_di op=FA book="DI" why="OPEN: the book's 4, two clocks with no act (the interrupt controller is not built)"
+    open                                    ; OPEN: a book clock with no act (DI 4)
+    open                                    ; OPEN: a book clock with no act (DI 4)
+    alu=FLAG wf e                           ; IE <- 0; E
+
+routine flag_ei op=FB book="EI" why="OPEN: the book's 12, ten clocks with no act (the interrupt controller is not built)"
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    open                                    ; OPEN: a book clock with no act (EI 12)
+    alu=FLAG wf e                           ; IE <- 1; E
+
+routine lahf op=9F book="MOV AH,PSW" why="one word: the book's 2"
+    wr=AW wid=HIGH ws=PSW e                 ; AH <- the PSW's low byte; E
+
+routine sahf op=9E book="MOV PSW,AH" why="the read and the PSW write: the book's 3"
+    ra=AW wid=WORD d1=TB s1=RA              ; read AW into tmpb
+    alu=PSWL ax=TB wf e                     ; the PSW's low byte <- AH; E
+
+; V20 CBW 0060-0061
+routine cvtbw op=98 book="CVTBW" diff=-1 why="book error: the book's 3 against silicon's 3 (a6 CVTBW 3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the read and the extension on the E word, the write after it"
+    ra=AW wid=WORD alu=SEXT ax=RA e         ; read AW; AL sign-extended; E
+    wr=AW wid=WORD ws=SIG                   ; post-E: AW <- SIGMA
+
+; V20 CWD 0064-0067: DW <- AW's sign
+routine cvtwl op=99 book="CVTWL" why="OPEN: the book's 8: a read and a write (V20 CWD), five clocks with no act"
+    ra=AW wid=WORD alu=SIGNW ax=RA          ; read AW; its sign as a word (0000 / FFFF)
+    open                                    ; OPEN: a book clock with no act (CVTWL 8)
+    open                                    ; OPEN: a book clock with no act (CVTWL 8)
+    open                                    ; OPEN: a book clock with no act (CVTWL 8)
+    open                                    ; OPEN: a book clock with no act (CVTWL 8)
+    open                                    ; OPEN: a book clock with no act (CVTWL 8)
+    wr=DW wid=WORD ws=SIG e                 ; DW <- SIGMA; E
+
+; ---- immediates (V20 ALU_ACC 0004-0007, MOV r,imm): the immediate's bytes popped one a word,
+; into tmpb, the ALU, the write
+routine mov_ri8 op=B0-B7 book="MOV reg,imm" width=byte why="the pop, tmpb, the ALU, the write on the E word: the book's 5"
+    pop=il                                  ; pop the immediate byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    alu=PASS ax=TB                          ; through the ALU into SIGMA
+    wr=OPR ws=SIG e                         ; the register <- SIGMA; E
+
+routine mov_ri16 op=B8-BF book="MOV reg,imm" width=word why="two pops, tmpb, the ALU, the write on the E word: the book's 6"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    alu=PASS ax=TB                          ; through the ALU into SIGMA
+    wr=OPR ws=SIG e                         ; the register <- SIGMA; E
+
+routine alu_ai8 op=04,0C,14,1C,24,2C,34 book="ADD acc,imm" width=byte why="the pop, tmpb, the ALU, the write on the E word: the book's 5"
+    pop=il                                  ; pop the immediate byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=AW alu=GRP ax=RA ay=TB wf            ; read AL; the block's ALU op, flags (W)
+    wr=AW ws=SIG e                          ; AL <- SIGMA; E
+
+routine alu_ai16 op=05,0D,15,1D,25,2D,35 book="ADD acc,imm" width=word why="two pops, tmpb, the ALU, the write on the E word: the book's 6"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=AW alu=GRP ax=RA ay=TB wf            ; read AW; the block's ALU op, flags (W)
+    wr=AW ws=SIG e                          ; AW <- SIGMA; E
+
+routine cmp_ai8 op=3C book="CMP acc,imm" width=byte why="the pop, tmpb, the ALU, the E word (no write): the book's 5"
+    pop=il                                  ; pop the immediate byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=AW alu=GRP ax=RA ay=TB wf            ; read AL; CMP, flags (W)
+    e                                       ; E (CMP writes nothing)
+
+routine cmp_ai16 op=3D book="CMP acc,imm" width=word why="two pops, tmpb, the ALU, the E word: the book's 6"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=AW alu=GRP ax=RA ay=TB wf            ; read AW; CMP, flags (W)
+    e                                       ; E (CMP writes nothing)
+
+routine test_ai8 op=A8 book="TEST acc,imm" width=byte why="the pop, tmpb, the AND, the E word: the book's 5"
+    pop=il                                  ; pop the immediate byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=AW alu=AND ax=RA ay=TB wf            ; read AL; AND, flags (W)
+    e                                       ; E (TEST writes nothing)
+
+routine test_ai16 op=A9 book="TEST acc,imm" width=word why="two pops, tmpb, the AND, the E word: the book's 6"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=AW alu=AND ax=RA ay=TB wf            ; read AW; AND, flags (W)
+    e                                       ; E (TEST writes nothing)
+
+; ---- the 80-83 group, register form (V20 GRP1 003C-0040)
+routine grp1_rb op=80,82,83 mod=reg reg=0-6 book="ADD reg,imm" bookv=5 why="the pop, tmpb, the ALU (the register's read), the write on the E word: the book's reg8,imm8 / reg16,imm8 5"
+    pop=il                                  ; pop the immediate byte
+    d1=TB s1=IMM                            ; the immediate into tmpb (83: sign-extended)
+    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; the group's ALU op, flags (W)
+    wr=RM ws=SIG e                          ; the register <- SIGMA; E
+
+routine grp1_rw op=81 mod=reg reg=0-6 book="ADD reg,imm" why="two pops, tmpb, the ALU, the write on the E word: the book's 6"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; the group's ALU op, flags (W)
+    wr=RM ws=SIG e                          ; the register <- SIGMA; E
+
+routine grp1_cb op=80,82,83 mod=reg reg=7 book="CMP reg,imm" width=byte why="the pop, tmpb, the ALU, the E word: the book's 5"
+    pop=il                                  ; pop the immediate byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; CMP, flags (W)
+    e                                       ; E (CMP writes nothing)
+
+routine grp1_cw op=81 mod=reg reg=7 book="CMP reg,imm" width=word why="two pops, tmpb, the ALU, the E word: the book's 6"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    d1=TB s1=IMM                            ; the immediate into tmpb
+    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; CMP, flags (W)
+    e                                       ; E (CMP writes nothing)
+
+; ---- the unary group, register form (V20 0174-0175): read, the operation, the write, E
+routine inc_rm op=FE,FF mod=reg reg=0 book="INC reg8" why="read, op, write, E: the book's 5"
+    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
+    alu=INC ax=TB wf                        ; +1, flags but CY (W)
+    wr=RM ws=SIG                            ; the write-back
+    e                                       ; E: pop the next opcode
+
+routine dec_rm op=FE,FF mod=reg reg=1 book="DEC reg8" why="read, op, write, E: the book's 5"
+    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
+    alu=DEC ax=TB wf                        ; -1, flags but CY (W)
+    wr=RM ws=SIG                            ; the write-back
+    e                                       ; E: pop the next opcode
+
+routine not_rm op=F6,F7 mod=reg reg=2 book="NOT reg" why="read, op, write, E: the book's 5"
+    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
+    alu=NOT ax=TB                           ; the complement (no flags)
+    wr=RM ws=SIG                            ; the write-back
+    e                                       ; E: pop the next opcode
+
+routine neg_rm op=F6,F7 mod=reg reg=3 book="NEG reg" why="read, op, write, E: the book's 5"
+    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
+    alu=NEG ax=TB wf                        ; 0 - the operand, flags (W)
+    wr=RM ws=SIG                            ; the write-back
+    e                                       ; E: pop the next opcode
+
+routine test_rib op=F6 mod=reg reg=0-1 why="TEST reg,imm8 (not in the book's table): the pop, the read, the AND, E"
+    pop=il                                  ; pop the immediate byte
+    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
+    alu=AND ax=TB ay=IMM wf                 ; AND with the immediate, flags (W)
+    e                                       ; E: pop the next opcode (TEST writes nothing)
+
+routine test_riw op=F7 mod=reg reg=0-1 why="TEST reg,imm16: as the byte form with the second immediate byte"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
+    alu=AND ax=TB ay=IMM wf                 ; AND with the immediate, flags (W)
+    e                                       ; E: pop the next opcode (TEST writes nothing)

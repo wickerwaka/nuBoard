@@ -8,11 +8,10 @@
 // down to 08h (DS0) (validation/v35s/model/eu.py:17-18): the word address is {RB, slot[4:1]}.
 //
 // Ports: A reads and writes (the operand / result register), B reads (the second operand,
-// the EA's base, SP). Each read port's address is registered at `ce_a` (a block RAM's read
-// address register: the EU names the registers it reads on the clock before), the data is the
-// word at that address during the clock; the write is at `ce_a` (one word or one half). A read
-// whose address register latches on the same edge as a write to that address returns the new
-// data (write first). Two copies of each half, one per read port, so each copy is a simple
+// the EA's base, SP). (MX0) Each read port's address is registered at `ce_b` (a block RAM's
+// read address register: the microinstruction names the registers it reads in its first
+// tick), the data is the word at that address in the clock's second tick; the write is at
+// `ce_a` (one word or one half), so a word reads what the words before it wrote. Two copies of each half, one per read port, so each copy is a simple
 // dual-port RAM (one write, one read).
 //
 // Registered state (widths) and the model variables it replaces:
@@ -65,6 +64,11 @@ module v35_regram (
                 ao[wa_addr] <= wa_data[15:8];
                 bo[wa_addr] <= wa_data[15:8];
             end
+        end
+        // (MX0) the read addresses latch at ce_b: the word's register selectors are decided
+        // in its first tick (the ROM word is a register from ce_a), the data is read in its
+        // second; a write at the last ce_a is read back (no forwarding needed)
+        if (ce_b) begin
             ra_q <= ra_next;
             rb_q <= rb_next;
         end
@@ -73,5 +77,4 @@ module v35_regram (
     assign ra_data = {ao[ra_q], ae[ra_q]};
     assign rb_data = {bo[rb_q], be[rb_q]};
 
-    wire unused = &{1'b0, ce_b};
 endmodule

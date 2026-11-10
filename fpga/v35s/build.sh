@@ -55,21 +55,20 @@ cp "$script_dir"/nuboard_v35s.v "$script_dir"/nuboard_mailbox.v \
 macros=""
 if [[ "$core" == v35 ]]; then
     # The V35S core v2 (core/v35/README.md). Its microcode ROM banks load from
-    # fpga/v35s/core/v35/ relative to the project directory (v35_ucode's UCODE_DIR); the
+    # fpga/v35s/core/v35/ relative to the project directory ((MX0) v35_useq's UROM_DIR); the
     # harness picks the core with V35S_CORE_V35, the sim-only trace and checks drop out
     # under SYNTHESIS. core/model_v35.sdc holds no timing exceptions (the clocking directive).
     model=1
     v35_dir="$script_dir/core/v35"
     v35_files=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv v35_bus.sv v35_queue.sv
-               v35_loader.sv v35_ucode.sv v35_ea.sv v35_eu.sv v35_regram.sv
+               v35_loader.sv v35_useq.sv v35_ea.sv v35_eu.sv v35_regram.sv
                v35_trace.sv v35_top.sv)
-    for file in "${v35_files[@]}" v35_macros.svh v35_consts.svh v35_class_tbl.svh v35_decode_tbl.svh \
-                v35_ucode_tbl.svh; do
+    for file in "${v35_files[@]}" v35_macros.svh v35_udecode_tbl.svh; do
         cp "$v35_dir/$file" "$project_dir/"
     done
     cp "$script_dir/core/v35_sfr.sv" "$script_dir/core/v35_refresh.sv" "$project_dir/"
     mkdir -p "$project_dir/fpga/v35s/core/v35"
-    cp "$v35_dir"/v35_ucode_b?.hex "$project_dir/fpga/v35s/core/v35/"
+    cp "$v35_dir"/v35_urom_b?.hex "$project_dir/fpga/v35s/core/v35/"
     design_files="v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv v35_sfr.sv v35_refresh.sv"
     for file in "${v35_files[@]:3}"; do
         design_files="$design_files $file"

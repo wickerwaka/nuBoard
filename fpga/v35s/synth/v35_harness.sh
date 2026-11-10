@@ -49,7 +49,7 @@ wall=$(( $(date +%s) - t0 ))
             | grep -E '^EFX_(LUT4|ADD|FF|RAM_5K|MULT|DSP)' | sed 's/^/  /'
         echo "the core (map's per-module estimate, harness/model and below):"
         sed -n '/Module Resource Usage Distribution Estimates (begin)/,/Module Resource Usage Distribution Estimates (end)/p' \
-            "$out/v35s.map.rpt" | grep -E '^ *\+(model|bus|queue|loader|ucode|eu|ea|regram|arbiter|refresh|sfr|trace):' \
+            "$out/v35s.map.rpt" | grep -E '^ *\+(model|bus|queue|loader|useq|eu|ea|regram|arbiter|refresh|sfr|trace):' \
             | sed 's/^/  /'
     fi
     if [[ -s "$out/v35s.place.rpt" ]]; then

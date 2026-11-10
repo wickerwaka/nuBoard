@@ -55,7 +55,7 @@ if [[ "$model" == v35 ]]; then
     v35_dir="$core_dir/v35"
     model_sources=("$v35_dir/v35_front_pkg.sv" "$v35_dir/v35_pkg.sv" "$v35_dir/v35_fn_pkg.sv"
                    "$v35_dir/v35_bus.sv" "$v35_dir/v35_queue.sv" "$v35_dir/v35_loader.sv"
-                   "$v35_dir/v35_ucode.sv" "$v35_dir/v35_ea.sv" "$v35_dir/v35_eu.sv"
+                   "$v35_dir/v35_useq.sv" "$v35_dir/v35_ea.sv" "$v35_dir/v35_eu.sv"
                    "$v35_dir/v35_regram.sv" "$v35_dir/v35_trace.sv" "$core_dir/v35_sfr.sv"
                    "$core_dir/v35_refresh.sv" "$v35_dir/v35_top.sv")
     model_present=1

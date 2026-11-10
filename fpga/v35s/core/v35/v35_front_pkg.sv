@@ -40,24 +40,6 @@ package v35_front_pkg;
     localparam logic [1:0] RQ_IOR = 2'd2;
     localparam logic [1:0] RQ_IOW = 2'd3;
 
-    // ------------------------------------------------------------ the datapath's request
-    // (A1) the cycle a post asks for, as the datapath builds it (v35_eu mkreq): the sequencer's
-    // bus interface (v35_ucode.sv, "the EU's bus interface") holds it with its own counts
-    typedef struct packed {
-        logic [2:0]  kind;
-        logic        nowrite;   // grp_read=rmw_slot: the left-out write's slot (kind K_WRITE)
-        logic [19:0] addr;
-        logic [1:0]  width;
-        logic [15:0] data;
-        logic        alive;     // the address follows the running form's EA (posted before its
-        logic [2:0]  aoff;      //   displacement was taken: pop_mem), + 2 * aoff
-        logic        dlive;     // the datum is the running form's result (an RMW's, POP's)
-        logic        dimm;      // ... its immediate, taken after the write issued (store_imm):
-                                //     the bus takes it at B2
-        logic        w16;       // the word's offset is FFFFh: an odd pair's second half wraps to
-                                //     the segment's offset 0 (not a live address's: ea_lo's)
-    } req_t;
-
     // ------------------------------------------------------------ fixed structure
     localparam int QUEUE_BYTES = 6;             // queue.QUEUE_BYTES
     localparam int BUS_BASE = 3;                // bus.BASE: B1 B2 B3
@@ -68,7 +50,6 @@ package v35_front_pkg;
     // ------------------------------------------------------------ fit integers (fit.json)
     localparam int FIT_HOLD_Q = 3;              // hold_q
     localparam int FIT_IO_RECOVER = 2;          // io_recover
-    localparam int FIT_WLATCH = 4;              // wlatch
     localparam int FIT_MIN_GAP = 0;             // min_gap
 
 

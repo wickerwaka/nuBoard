@@ -457,5 +457,127 @@ package v35_fn_pkg;
         v35_ea_regs = {iv, i, bv, b};
     endfunction
 
+    // ---- (MX0) the loops' steps: the shifter one step a word under the loop counter, the
+    // multiplier one bit a word (the datapath runs them; v35_shift / v35_mul above are the
+    // whole operation, kept for the function bench's reference)
+
+    // one step of the shift group's operation op (the reg field) on a of width w, carry in cy:
+    // {carry out, the result}
+    function automatic logic [16:0] v35_shift1(input logic [2:0] op, input logic w,
+                                               input logic [15:0] a0, input logic cy);
+        logic [15:0] a, m, msb;
+        logic c;
+        m = w ? 16'hFFFF : 16'h00FF;
+        msb = w ? 16'h8000 : 16'h0080;
+        a = a0 & m;
+        case (op)
+            3'd0: begin c = |(a & msb); a = ((a << 1) | {15'd0, c}) & m; end
+            3'd1: begin c = a[0]; a = (a >> 1) | (c ? msb : 16'd0); end
+            3'd2: begin c = |(a & msb); a = ((a << 1) | {15'd0, cy}) & m; end
+            3'd3: begin c = a[0]; a = (a >> 1) | (cy ? msb : 16'd0); end
+            3'd5: begin c = a[0]; a = a >> 1; end
+            3'd7: begin c = a[0]; a = (a >> 1) | (a & msb); end
+            default: begin c = |(a & msb); a = (a << 1) & m; end
+        endcase
+        v35_shift1 = {c, a};
+    endfunction
+
+    // the flags after the loop (v35_shift's laws): CY the last bit out, V from the final state,
+    // the shifts S Z P with AC cleared
+    function automatic logic [15:0] v35_shift_fl(input logic [2:0] op, input logic w,
+                                                 input logic [15:0] a, input logic cy,
+                                                 input logic [15:0] psw0);
+        logic [15:0] psw, msb, msb1;
+        msb = w ? 16'h8000 : 16'h0080;
+        msb1 = msb >> 1;
+        psw = psw0;
+        psw[V35_PSW_CY] = cy;
+        if (op == 3'd0 || op == 3'd2 || op == 3'd4 || op == 3'd6)
+            psw[V35_PSW_V] = |(a & msb) ^ cy;
+        else
+            psw[V35_PSW_V] = |(a & msb) ^ |(a & msb1);
+        if (op[2]) begin
+            psw = v35_szp(psw, a, w);
+            psw[V35_PSW_AC] = 1'b0;
+        end
+        v35_shift_fl = psw;
+    endfunction
+
+    // the multiplier's state: the accumulator (the product's high part), the multiplier's
+    // bits still to use (the product's low part enters from the top), the multiplicand's
+    // magnitude, the product's sign
+    typedef struct packed {
+        logic [16:0] acc;
+        logic [15:0] lo;
+        logic [15:0] mc;
+        logic        neg;
+        logic        sgn;
+    } v35_mul_t;
+
+    function automatic v35_mul_t v35_mul_init(input logic sgn, input logic w,
+                                              input logic [15:0] a, input logic [15:0] b);
+        v35_mul_t s;
+        logic na, nb;
+        logic [15:0] ma, mb;
+        logic [7:0] a8, b8;
+        na = sgn && (w ? a[15] : a[7]);
+        nb = sgn && (w ? b[15] : b[7]);
+        a8 = na ? 8'd0 - a[7:0] : a[7:0];
+        b8 = nb ? 8'd0 - b[7:0] : b[7:0];
+        ma = w ? (na ? 16'd0 - a : a) : {8'd0, a8};
+        mb = w ? (nb ? 16'd0 - b : b) : {8'd0, b8};
+        s.acc = 17'd0;
+        s.lo = mb;
+        s.mc = ma;
+        s.neg = na ^ nb;
+        s.sgn = sgn;
+        v35_mul_init = s;
+    endfunction
+
+    // one bit: add the multiplicand when the low bit is set, shift the pair right
+    function automatic v35_mul_t v35_mul_step(input v35_mul_t s0);
+        v35_mul_t s;
+        logic [16:0] t;
+        s = s0;
+        t = s.lo[0] ? s.acc + {1'b0, s.mc} : s.acc;
+        s.lo = {t[0], s.lo[15:1]};
+        s.acc = {1'b0, t[16:1]};
+        v35_mul_step = s;
+    endfunction
+
+    // the product after the steps (word: 16, byte: 8), negated when the signs differ; the
+    // flags as v35_mul's
+    function automatic logic [31:0] v35_mul_fin(input v35_mul_t s, input logic w,
+                                                input logic [15:0] psw0, output logic [15:0] psw);
+        logic [31:0] p;
+        logic [15:0] lo, f, p16;
+        logic ext;
+        psw = psw0;
+        if (w) begin
+            p = {s.acc[15:0], s.lo};
+            if (s.neg)
+                p = 32'd0 - p;
+            lo = p[15:0];
+            ext = s.sgn ? p[31:16] != {16{p[15]}} : p[31:16] != 16'd0;
+        end else begin
+            p16 = {s.acc[7:0], s.lo[15:8]};
+            if (s.neg)
+                p16 = 16'd0 - p16;
+            p = {16'd0, p16};
+            lo = {8'd0, p16[7:0]};
+            ext = s.sgn ? p16[15:8] != {8{p16[7]}} : p16[15:8] != 8'd0;
+        end
+        if (s.sgn) begin
+            void'(v35_alu(3'd0, w, lo, lo, psw0, f));
+            psw[V35_PSW_S] = f[V35_PSW_S];
+            psw[V35_PSW_Z] = f[V35_PSW_Z];
+            psw[V35_PSW_AC] = f[V35_PSW_AC];
+            psw[V35_PSW_P] = f[V35_PSW_P];
+        end
+        psw[V35_PSW_CY] = ext;
+        psw[V35_PSW_V] = ext;
+        v35_mul_fin = p;
+    endfunction
+
     /* verilator lint_on UNUSEDSIGNAL */
 endpackage

@@ -1,4 +1,4 @@
-"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt | ucgen | evtrace [...]"""
+"""python -m validation.v35s.chains gen | acquire | replay | report | facts | score | sim | fit | adopt | uasm | evtrace [...]"""
 
 from __future__ import annotations
 
@@ -86,11 +86,17 @@ def main(argv=None) -> int:
     fit = fit_arguments(sub.add_parser("fit", help="staged fit of the cycle model"))
     fit.set_defaults(func=fit_main)
 
-    from .ucgen import build_parser as ucgen_parser, main as ucgen_main
-    ucgen = ucgen_parser(sub.add_parser(
-        "ucgen", help="generate the core v2 microcode, decode and class tables "
-                      "(fpga/v35s/core/v35/, docs/v35s-core-v2.md S1)"))
-    ucgen.set_defaults(func=lambda args: ucgen_main(args=args))
+    uasm = sub.add_parser("uasm", help="(MX0) assemble the core v2's microprogram "
+                                       "(fpga/v35s/core/v35/urom/*.uasm: the ROM banks, the "
+                                       "decode table)")
+    for flag in ("--check", "--list", "--book"):
+        uasm.add_argument(flag, action="store_true")
+
+    def _uasm(args):
+        from .uasm import main as uasm_main
+        return uasm_main([f for f in ("--check", "--list", "--book")
+                          if getattr(args, f[2:])])
+    uasm.set_defaults(func=_uasm)
     from .evtrace import build_parser as evtrace_parser, main as evtrace_main
     evtrace = evtrace_parser(sub.add_parser(
         "evtrace", help="the core v2's event trace against the frozen model, one chain"))
