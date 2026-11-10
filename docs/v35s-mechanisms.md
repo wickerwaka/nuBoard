@@ -516,11 +516,12 @@ change to the text above, kept here rather than rewritten into it.
    hypothesis, not evidence: the dispatch and the fetch are mutually exclusive through one shared
    resource (the decode's read of the queue, or a shared sequencer step). The ModR/M clause stalls
    one clock the model does not (a back-to-back fetch committed after the `E` pop): open.
+   *Confirmed by the user 2026-11-10: the law and its explanation stand.*
 2. **§5 and §7, the book offset.** "Measured = book + 1 or 2" is the dispatch stall: the a6
    method timed each form between I/O markers, the form's own pops make room, the room issues a
    fetch, and the marker dispatches inside it. The book's formulas are therefore the routine's
    first draft with the stall in place, not the measured costs.
-3. **§7, the first draft's rule (overseer's wording, for the user's confirmation).** The data
+3. **§7, the first draft's rule (overseer's wording; confirmed by the user 2026-11-10).** The data
    book's formula is the first draft of every routine. A routine never carries a clock without an
    explanation, so a clock may be removed on silicon's direct measurement (the a6 sweep,
    v35s-eu-timing.md, the chain families' per-form costs), less the dispatch stall where the
