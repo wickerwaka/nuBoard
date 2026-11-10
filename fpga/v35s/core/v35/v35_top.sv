@@ -331,7 +331,7 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .rb_lo,
-        .fetch_run(b_fetch_inflight), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
+        .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
         .e_rmodrm, .rmem(fmt.has_modrm && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
         .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .halted, .upc_o(upc)

@@ -72,6 +72,7 @@ module v35_useq
     // earlier clock runs on this one (its clocks after the issue through its last), and a
     // back-to-back fetch issues on this clock
     input  wire        fetch_run,
+    input  wire        bus_wait,        // (MX1g) a memory cycle is in a wait state (bus.in_wait)
     input  wire        b2b_now,
     input  wire        s_modrm,         // the staged opcode has a ModR/M byte (the loader's decode)
     input  wire        s_wbs,           // (MX1f) the staged opcode's routine reads the accumulator first
@@ -142,6 +143,14 @@ module v35_useq
     // counted as the two clocks after the post-E word (`wbp`), the coordinator's fallback
     // (its placement two clocks after the model's)
     reg  [1:0] wbn = 2'd0, wbp = 2'd0;
+    // (MX1g) V35_MX1G_BW: the bus wait. A word that moves into the bus unit's registers (the
+    // address register, 1 and 2; the write datum, 1) waits while a memory cycle is in a wait
+    // state: the move crosses the internal bus the running cycle holds for its datum until
+    // READY (the frozen model's io_count=nowait: an I/O or DW-form request's setup counts no
+    // memory wait-state clock)
+    wire mv_biu = (word.d1 == MD_ADDR || word.d2 == MD_ADDR)
+                  || (`V35_MX1G_BW == 1 && (word.d1 == MD_OPRW || word.d2 == MD_OPRW));
+    wire st_bw = `V35_MX1G_BW != 0 && bus_wait && mv_biu;
     wire st_wbw = (`V35_MX1F_WB == 1 && word.e && word.wb && s_wbs && wbn != 2'd2)
                   || (`V35_MX1F_WB == 2 && at_entry && dec1.wbs && (wbp == 2'd2 || wbp == 2'd1));
     // (MX1c) the take sync (V35_MX1C_TSYNC): a word that pops no byte waits, after an operand
@@ -171,10 +180,10 @@ module v35_useq
                         || (`V35_MX0C_DISPATCH == 2 && dec1.has_modrm && b2b_now));
     // the stalls a popping word can meet (the loader's pops read this: a DISP word never pops;
     // with the stall on the E word (3) it is the E word's too)
-    wire base = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw;
+    wire base = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw && !st_bw;
     assign ex_pop = base && !(`V35_MX0C_DISPATCH >= 3 && st_fch);
     assign ex = base && !st_fch;
-    assign why = halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3 : (st_hld || st_wbw) ? 5'd4
+    assign why = halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3 : (st_hld || st_wbw) ? 5'd4 : st_bw ? 5'd3
                : st_fch ? 5'd6 : st_tsy ? 5'd7 : 5'd0;
     // the arming pop (tick A) and the deliveries owed from it
     wire arm = ex_pop && ((word.e && e_rmodrm)

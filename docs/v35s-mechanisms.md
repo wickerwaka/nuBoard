@@ -629,3 +629,17 @@ change to the text above, kept here rather than rewritten into it.
     clocks after its post without counting the running fetch's wait states (`io_count=nowait`), while the
     RTL's write waits the running fetch out. The machine reading is not yet known (the running cycle at
     the post, and whether the write begins under its wait states or the fetch ends early); MX1g probes it.
+13. **§3.6, the I/O write under a memory cycle's wait states (item 12 resolved, MX1g).** The frozen model's
+    `io_count=nowait` (an I/O or DW-form request's setup counting no clock on which a memory cycle is in a wait
+    state) is, in the machine, the EU's moves into the bus unit's address register and write datum crossing
+    the internal bus between the units, which a memory cycle in its wait states holds for the datum it
+    latches from the pins until READY; no cycle overlaps another and none is aborted. Built as a stall of
+    any microword that moves into those registers while the bus unit reports a wait state
+    (`V35_MX1G_BW` 1, the bus unit's existing `in_wait`); it applies to every form alike.
+14. **§3.6, the fetch after an I/O write (MX1g, provisional).** The model's io_ir_hold: a request the IR
+    load raises on the clock the bus unit issues an EU I/O cycle is not granted until the EU's next start
+    or until the line falls. The agent's reading is that the bus unit's request input is the I/O's on that
+    clock and the risen line is first sampled at the next start's opcode pop. The overseer holds the
+    reading provisional (the release is an EU event); a registered sample of the request line (seen a
+    clock late, no start dependence) is to be measured against it. Built behind `V35_MX1G_IOH` 1; 10
+    runs on the gate families.

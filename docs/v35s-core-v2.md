@@ -1622,3 +1622,42 @@ question, decided from S8's routed numbers with the user.
   the running cycle is at the post and how the write starts under it, probed before anything is built.
   Also standing: OUT imm8's port byte at an odd address (the parity residual) and the fetch after an I/O
   write one clock later in the model. MX1g sent for the I/O write under a running cycle's wait states.
+- 2026-11-10, **MX1g landed** (the same agent). **Two bus-unit laws, both from probes of the frozen model, both
+  built behind macros with no port added.** (1) The I/O write under a memory cycle's wait states
+  (`V35_MX1G_BW` 1): the agent's probe (`an/probe5.py`, the model's arbitrate wrapped) on F0-ls-pE-w1 / w2
+  (their only MX1f miss the chain's final OUT DW,AW write, silicon 89 / 91 against the RTL's 88 / 89) showed
+  the model's I/O and DW-form request setup (`io_count=nowait`, arbiter.py Request.counts) counting every
+  clock but the post's own, HALT's start and each wait state of the running fetch (the write at S + 8 / 9 /
+  10 at 0 / 1 / 2 waits); nothing overlaps and nothing is aborted (the overseer's candidates (a) and (b)
+  do not occur). The paused clocks are OUT's moves of DW into the bus unit's address register (S + 2) and
+  AW into its write datum (S + 3). Machine reading: those moves cross the internal bus between the units,
+  which a memory cycle in its wait states holds for the datum it latches from the pins until READY. Built
+  as a sequencer stall on the bus unit's existing `in_wait` output (wired in as `bus_wait`): any microword
+  whose move writes the address register or the write datum waits while a memory cycle is in a wait state,
+  whatever the opcode (variant 2, the address register only, 765 against 819 on the gate families). (2)
+  The fetch after an I/O write (`V35_MX1G_IOH` 1): the probe (`an/probe6.py`, F3-out-nop-k2-pE-w0) placed
+  the write at +84 to +86, the request up from +84 and the bus free at +87, the fetch at +88: the model's
+  io_ir_hold (machine.py, `queue.io_held`), a request raised by the IR load on the I/O's issue clock held
+  until the next start or until the line falls; not the bus unit's idle rule (min_gap 0; io_recover gates
+  memory data cycles only), not the write's data hold. The agent's reading: on an I/O issue clock the bus
+  unit's request input is the I/O's, and a line that rises then is first sampled at the next start's
+  opcode pop. Built in v35_bus.sv on existing inputs. **The overseer records this reading as provisional**:
+  the release at the next start is an EU event in a bus-unit law, and a registered sample of the request
+  (a line rising on the issue clock seen a clock late, no start dependence) may measure the same; it is to
+  be measured before the reading is confirmed. It gains 10 runs on the gate families (819 → 829) and 6
+  alone. **Verified on main (both spacings identical, 0 failing, chk silent):** 3,552 / 30,536 exact
+  (MX1f 1,285; the MX0 gate families 829 / 1,796 with F0 18 / 18, F3 380, F9 264; every family gained or
+  held: F21 208 → 704, F3 124 → 380, F16 102 → 280, F9 90 → 264, F36 85 → 232; 2,267 runs gained, 0
+  lost); the restart dt per family unchanged from MX1f; classification (i) 17,262, (ii) 0, (iii) 9,722;
+  the function gates unmoved (write data 93,540 / 106,824; register vectors 69,099 + 38,760 and function
+  vectors 19,752, 0 bad; the agent's SingleStepTests set as MX1f); lint clean in five configurations and
+  the variants; 45 fast tests; the nine offline modules 941 with the four known failures. **The (i)
+  bucket split** (`an/split_i.py`, keyed on the first divergent event, the model's instruction at it and
+  RTL − silicon): OUT imm8 at an odd port byte 4,092 runs (3,952 at −5: the model's fetch held behind the
+  posted I/O write with its lead), kept apart; then OUT imm8's fetch −1 (501), PUSH r's stack write +1
+  (317) and −1 (289), POP mem's stack read −3 (306), the I/O write after OUT at −2 (265 + 235), CALL near's
+  fetch +2 (253), CMP mem,imm's read −1 (229), MOV r,r/m's fetch +3 (216), a load's read −1 (213): the
+  stack forms and CALL are MX2's, the loads' and stores' −1 / −2 growing with the waits are the memory
+  requests' setup under wait states (the model's data_while_fetch counting, not the I/O rule), the next
+  bus-unit probe. MX2 sent: the transfers and the stack, with the IOH alternative and the memory setup
+  probe in the same round.

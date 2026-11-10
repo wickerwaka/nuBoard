@@ -918,6 +918,111 @@ Open (MX1f): the queue port `fetch_raise` (ASKL) needs the coordinator's ruling;
 fetch under a posted I/O write) and the fetch after an I/O write (the model's one clock later)
 stand; the I/O write's wait-state counting (7,013 runs) is the next lever.
 
+## MX1g: the I/O write under a memory cycle's wait states; the fetch after an I/O write
+
+### 1. The I/O write's setup and the wait states (the probe: `an/probe5.py`, the frozen model's arbitrate wrapped)
+
+F0-ls-pE-w1 and F0-ls-pE-w2 (the chain's last OUT DW,AW; their only miss in MX1f the I/O write,
+silicon 89 / 91 against the RTL's 88 / 89). The model per clock from OUT's S:
+
+| run | OUT's S, the post | the fetch running (start, waits, end) | setup counted | the write's issue |
+| --- | --- | --- | --- | --- |
+| F0-ls-pE-w0 | +79 | fetch 10054 +79, 0, +81 | +80 +81, +83 .. +86 (not the post's clock, not HALT's start +82) | +87 = S + 8 |
+| F0-ls-pE-w1 | +80 | fetch 10054 +80, 1, +83 (W +82) | +81 +83, +85 .. +88 (not +82, the wait state) | +89 = S + 9 |
+| F0-ls-pE-w2 | +81 | fetch 10054 +81, 2, +85 (W +83 +84) | +82 +85, +87 .. +90 (not +83 +84) | +91 = S + 10 |
+
+The rule (arbiter.py Request.counts, `io_count=nowait`, evaluated each clock in arbitrate
+before the choice): an I/O request's (and a DW-form request's: PUSH r, the strings, the bit
+fields) setup counts every clock but one on which a memory cycle is in a wait state
+(bus.in_wait: start + 2 <= t < end, never an I/O cycle). Nothing overlaps: the write issues
+after the fetch has ended and delivered; the fetch is not aborted (candidates (a) and (b) do
+not occur). In the RTL the setup is OUT's own words (E, the post-E word, DW into the address
+register at S + 2, AW into the write datum at S + 3, three OPEN words, the post on E): the
+model's paused clocks are S + 2 (w1) and S + 2, S + 3 (w2), the words that move into the bus
+unit's registers.
+
+The machine reading: the EU's moves into the bus unit's address register and write datum
+cross the internal bus between the units, and a memory cycle in its wait states holds that
+bus for its datum (the word it latches at B3 goes from the pins over it, into the queue or the
+read datum) until READY. A word moving into those registers waits out the wait states.
+
+Built (`V35_MX1G_BW`, v35_useq.sv; the bus unit's `in_wait`, an existing output, now wired to
+the sequencer as `bus_wait`): 1 (the default) a word whose move writes the address register or
+the write datum waits while a memory cycle is in a wait state; 2 the address register only.
+Traced: F0-ls-pE-w1 / w2 the write at +89 / +91, the model's.
+
+### 2. The fetch after an I/O write (`an/probe6.py`)
+
+F3-out-nop-k2-pE-w0: the OUT's write issues at +84 (to +86), the NOP after it starts at +84,
+the queue's request is up from +84 and the bus is free at +87, but the fetch waits to +88, the
+next start. The model: io_ir_hold (machine.py, after the choice on the I/O's issue clock): when
+the EU, released on that issue, loads its IR on it and the load (not an operand take) raises
+the request (it was down), `queue.io_held` holds every fetch until a later start (or until the
+line falls or a fetch is in flight). Not the bus unit's idle rule after a write (min_gap 0,
+io_recover gates only memory data cycles) and not the write's data hold.
+
+The machine reading: on an I/O cycle's issue clock the bus unit's request input is the I/O's
+(the port address and the strobe set up from the EU's port); a queue line that rises on that
+clock is first sampled at the next queue event the bus unit watches, the next start's opcode
+pop (`t_start`).
+
+Built (`V35_MX1G_IOH`, v35_bus.sv, 6(ii), this probe as its measurement; no port changed): a
+line that rises on the clock the bus unit issues an EU I/O cycle, with the staging load and no
+operand take, is not granted until the next start, or until it falls. Traced: the fetch at
++88 and the NOP's E there, as the model's.
+
+### Measured (MX1g; the defaults, both spacings, `+v35_chk` silent, tables identical)
+
+| MX0 gate families (1,796) | exact |
+| --- | --- |
+| MX1f | 285 |
+| BW 1 | 819 |
+| BW 2 (the address register only) | 765 |
+| IOH 1 alone | 291 |
+| BW 1 and IOH 1 (the defaults) | **829** (F0 18 / 18, F0w 10, F1 30, F2 67, F3 380, F9 264, F11 30, F12 30) |
+
+The corpus (30,536): **3,552** exact (MX1f 1,285): 2,267 gained, 0 lost; every family gains or
+holds; the restart dt per family unchanged from MX1f (flat, or within 0.2 of flat). First
+divergence: (i) 17,262, (ii) 0, (iii) 9,722. Write data 93,540 / 106,824. Function: `--regfile` 78,965 vectors 0 bad
+(pass 70,124), `--fn` 22,455 0 bad, the SingleStepTests set as MX1f (0 bad); lint clean in the
+five configurations and BW 2, BW 0 / IOH 0; test_uasm and test_v35_struct 35 OK; the nine
+offline modules the four known failures (test_freeze, test_sim TrackedFit).
+
+### The (i) bucket split (`an/split_i.py`: the first divergent event, the frozen model's
+instruction running at silicon's event clock (its class and opcode), RTL - silicon)
+
+| runs | event | at | dt | named run |
+| --- | --- | --- | --- | --- |
+| 3,952 | fetch (pO, kept apart) | OUT imm8 (E6) | -5 | F1-out-m1-pO-w1 |
+| 501 | fetch | OUT imm8 (E6) | -1 | F2-out-mov_aw_imm-pE-w0 |
+| 317 | stack write | PUSH r (50) | +1 | F3-push-mov_aw_dw-k2-pE-w0 |
+| 306 | stack read / RTL fetch | POP mem (8F) | -3 | F5-push-pop_m-k1-pE-w0 |
+| 289 | stack write | PUSH r (50) | -1 | F3-push-mulu_dw-k1-pO-w0 |
+| 265 | I/O write | MOV r8,imm8 (B1) after OUT | -2 | F2-out-mov_aw_imm-pE-w1 |
+| 253 | fetch | CALL near (E8) | +2 | F23-push-call-pE-w0 |
+| 235 | I/O write | OUT imm8 (E6) | -2 | F1-out-m2-pE-w0 |
+| 229 | data read | CMP mem,imm (81) | -1 | F5-push-cmp_m_imm-k1-pE-w0 |
+| 216 | fetch | MOV r,r/m reg (8B) | +3 | F2-push-mov_aw_dw-pO-w0 |
+| 213 | data read | MOV r,mem (8B) | -1 | F4-push-ld_bw_ix-k1-pO-w1 |
+
+OUT imm8 at an odd parity (pO) is 4,092 runs in all (3,952 at -5); the rest of the bucket is
+spread over the stack forms (PUSH r +1 / -1, POP mem), CALL, the memory loads and stores
+(-1 / -2 growing with the waits at 1 and 2: their requests' setup), and OUT imm8's write.
+The full table: runs/cg-split-i.jsonl.
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- The I/O and DW-form requests' setup (the model's io_count=nowait): the EU's moves into the bus
+  unit's address register and write datum wait while a memory cycle is in a wait state (the
+  internal bus the running cycle holds for its datum); no overlap of cycles, no abort.
+- The fetch after an I/O write (io_ir_hold): a request line raised by the staging load on an
+  I/O cycle's issue clock is first sampled at the next start.
+
+Open (MX1g): OUT imm8 at an odd port byte (4,092 runs, -5: the model's fetch held behind the
+posted I/O write with its lead); the memory forms' request setup under wait states (the -1 / -2
+at 1 / 2 waits on loads and stores: the model's data_while_fetch counting, not the I/O rule);
+the stack forms and CALL (MX2).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

@@ -295,6 +295,17 @@
 `ifndef V35_MX1F_WB
 `define V35_MX1F_WB 1
 `endif
+// (MX1g) V35_MX1G_BW: the bus wait (v35_useq): a word moving into the bus unit's address
+// register (1, the default, and 2) or write datum (1) waits while a memory cycle is in a wait
+// state; 0 none
+// (MX1g) V35_MX1G_IOH: the fetch line raised by the staging load on an EU I/O cycle's issue
+// clock is not granted before the EU's next start (v35_bus): 1 the default; 0 none
+`ifndef V35_MX1G_IOH
+`define V35_MX1G_IOH 1
+`endif
+`ifndef V35_MX1G_BW
+`define V35_MX1G_BW 1
+`endif
 `ifndef V35_MX1E_TSE
 `define V35_MX1E_TSE 1
 `endif

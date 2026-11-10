@@ -213,8 +213,20 @@ module v35_bus
     wire        eu_ok = req_v && !(rq_turn && io_win);
     // rule 3: the queue's low hint overrides a memory cycle's reservation only (A1_IOQL 0: any
     // reservation, the strategy's first wording, kept for the record)
-    wire        fq_ok = fetch_req && (!req_resv || (q_low && !(`A1_IOQL && !rq_mem)));
+    wire        fq_ok = fetch_req && (!req_resv || (q_low && !(`A1_IOQL && !rq_mem)))
+                        && !ioh_hold;
     wire        tri3 = t_start && take_now && l_pop;
+    // (MX1g) V35_MX1G_IOH: the request line that rises on the clock this unit issues an EU I/O
+    // cycle, raised by the staging load (no operand take, no fetch in flight), is not granted
+    // until the EU's next start (the frozen model's io_ir_hold, machine.py: queue.io_held). The
+    // reading: on an I/O issue clock the bus unit's request input is the I/O's (its address
+    // and the port strobe set up from the EU's port); a line that rises then is first sampled
+    // at the next queue event the bus unit watches, the next start's opcode pop (t_start).
+    // The hold ends with the start, or when the line falls.
+    reg         ioh = 1'b0, fr_prev = 1'b0;
+    wire        ioh_set = `V35_MX1G_IOH && req_ack && !rq_mem && l_pop && !take_now
+                          && fetch_req && !fr_prev;
+    wire        ioh_hold = `V35_MX1G_IOH && ioh && !t_start;
     wire        g_second = free && p2_v;
     wire        b2b_go = free && !g_second && b2b && fetch_req;
     wire        eu_win = free && !g_second && !b2b_go && eu_ok;
@@ -255,6 +267,7 @@ module v35_bus
     // the pins at ce_a) reads these, never tick A's logic
     reg         g_start_b = 1'b0, g_abort_b = 1'b0, g_sfr_b = 1'b0, fetch_req_b = 1'b0;
     reg         b2b_hold_b = 1'b0;
+    reg         ioh_set_b = 1'b0, ioh_clr_b = 1'b0;
     reg  [2:0]  g_kind_b = K_NONE, grant_len_b = 3'd0;
     reg  [19:0] g_addr_b = 20'd0;
     reg  [1:0]  g_width_b = BW_WORD, g_half_b = 2'd0;
@@ -267,6 +280,8 @@ module v35_bus
             g_sfr_b <= g_sfr;
             fetch_req_b <= fetch_req;
             b2b_hold_b <= b2b_hold;
+            ioh_set_b <= ioh_set;
+            ioh_clr_b <= ioh && (t_start || !fetch_req);
             g_kind_b <= g_kind;
             grant_len_b <= grant_len;
             g_addr_b <= g_addr;
@@ -304,7 +319,14 @@ module v35_bus
             w_ncyc <= 2'd0;
             w_rel <= 5'sd0;
             b2b <= 1'b0;
+            ioh <= 1'b0;
+            fr_prev <= 1'b0;
         end else if (ce_a) begin
+            fr_prev <= fetch_req_b;
+            if (ioh_set_b)
+                ioh <= 1'b1;
+            else if (ioh_clr_b)
+                ioh <= 1'b0;
             // (Q1) the request line sampled at a fetch's last clock, no EU request standing
             b2b <= busy && c_kind == K_FETCH && pos_now == c_len - 3'd1 && fetch_req_b
                    && !b2b_hold_b;
