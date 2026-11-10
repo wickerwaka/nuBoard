@@ -5,9 +5,10 @@
 ; the operand's width; the zero count skips the loop (V20 SHIFT 0228 JMP Z).
 
 ; D2 / D3: SHL r,CL (V20 0118-011B, SHIFT 0228-022B). Measured 10 (n = 0), 12 + 2n (n >= 1)
-routine shift_cl op=D2,D3 mod=reg book="SHL reg,CL" n=4 why="OPEN: the book's 11 + 2n: the read, the count load, the zero test, the two-word iteration (mechanisms 3.4), the write with the flags, E; five book clocks with no act, four on both paths and one on the loop's (silicon's 10 at n = 0, less the stall 9: v35s-eu-timing.md M5)" measured="12+2n"
+routine shift_cl op=D2,D3 mod=reg book="SHL reg,CL" n=4 diff=1 why="OPEN: beyond the book: a named act, the shifter's load from tmpb on a word of its own (MX0 merged it with CL's count load): silicon's 12 + 2n, 10 at n = 0 (docs/v35s-eu-timing.md M5; F3-push-shl_cl4-k4-pE-w0 S-to-S 20, F3-push-shl_cl0-k4-pE-w0 10, the frozen model exact); the read, CL's count, the zero test, the two-word iteration, the write with the flags, E; the book's five clocks with no act (four on both paths, one on the loop's)"
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (V20 0118 M -> tmpb)
-    rb=CW cnt=RB alu=SHI ax=TB              ; CL into the loop counter (0119-011A); the shifter loaded from tmpb with CY
+    rb=CW cnt=RB                            ; CL into the loop counter (0119-011A)
+    alu=SHI ax=TB                           ; the shifter loaded from tmpb with CY
     open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
     open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
     open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
@@ -20,11 +21,12 @@ shcl_l: alu=SH1 ax=SIG                      ; one shift step of the group's oper
 shcl_z: e                                   ; E: pop the next opcode (022B)
 
 ; C0 / C1: SHL r,imm8 (V20 028C-028F): the count popped. Measured as the CL form
-routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 why="OPEN: the book's 9 + 2n: the pop, the read, the count load, the zero test, the two-word iteration, the write, E; two book clocks with no act" measured="12+2n"
-    pop=il                                  ; pop the count (V20 028C Q -> tmpaL)
+routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 diff=1 why="OPEN: beyond the book: a named act, the shifter's load on a word of its own; the count byte popped at S+3 after one OPEN word (the immediate's latency, README MX1b; F3-push-shl_imm4-k4-pE-w0: T at S and S+3, S-to-S 20 against the routine's 18: silicon's 12 + 2n, two clocks no act names and the book does not charge, open); the read, the count's load, the zero test, the two-word iteration, the write, E; one more book clock with no act"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the count (V20 028C Q -> tmpaL) (S+3)
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (028D)
-    cnt=IL alu=SHI ax=TB                    ; the count into the loop counter (028E); the shifter loaded with CY
-    open                                    ; OPEN: a book clock with no act (SHL reg,imm8 9 + 2n)
+    cnt=IL                                  ; the count into the loop counter (028E)
+    alu=SHI ax=TB                           ; the shifter loaded with CY
     open                                    ; OPEN: a book clock with no act (SHL reg,imm8 9 + 2n)
     jc=CNTZ:shim_z                          ; a zero count skips the loop and the write
 shim_l: alu=SH1 ax=SIG                      ; one shift step
@@ -33,13 +35,14 @@ shim_l: alu=SH1 ax=SIG                      ; one shift step
 shim_z: e                                   ; E: pop the next opcode
 
 ; D0 / D1: by one (V20 0114-0117). Measured 10
-routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" why="OPEN: the book's 8: the read, the load, one step, the write, E; two book clocks with no act" measured="10"
+routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" diff=1 why="OPEN: beyond the book: a named act, the iteration's second word (the V35's two-word iteration, mechanisms 3.4, as the CL form's loop word); silicon's 10 (F3-push-shl1-k4-pE-w0 S-to-S 10, the frozen model exact) against the routine's 9: one clock no act names and the book does not charge, open; the read, the load, two book clocks with no act, the step, the write, E"
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (0115 M -> tmpb)
     alu=SHI ax=TB                           ; the shifter loaded with CY
     open                                    ; OPEN: a book clock with no act (SHL reg,1 8)
     open                                    ; OPEN: a book clock with no act (SHL reg,1 8)
     alu=SH1 ax=SIG                          ; the one step (0116's R row, COUNT 1)
-    wr=RM ws=SIG alu=SHF ax=SIG wf          ; the result written; the flags (W) (0117)
+    alu=NONE                                ; the iteration's second word (the two-word iteration: the CL form's loop word)
+    wr=RM ws=SIG alu=SHF ax=SIG wf       ; the result written; the flags (W) (0117)
     e                                       ; E: pop the next opcode
 
 ; F7 /4: MULU r16 (V20 0178-017F, MULX). Measured 34, 26 for the byte form

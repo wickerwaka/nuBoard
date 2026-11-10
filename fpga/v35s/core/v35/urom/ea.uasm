@@ -24,13 +24,12 @@ routine eab0 diff=m00:-1 why="book error of one at mod 00 (the add one clock, th
     open ret                                ; OPEN: the book's EA clock at mod 00 the add does not fill; return to the routine's add
 
 routine eab8
-    pop=dl                                  ; pop the displacement byte (d8)
-    open ret                                ; OPEN: the book's EA clock at mod 01 the pop and the add do not fill (EA 3); return to the add
+    open                                    ; OPEN: the book's EA clock at mod 01 the pop and the add do not fill (EA 3), before the pop (MX1b: the displacement taken at S+3, the operand bytes' latency, F4-push-ld_bw_d8-k2-pE-w0)
+    pop=dl ret                              ; pop the displacement byte (d8, S+3); return to the add
 
-routine eab16
+routine eab16 diff=d16:-1 why="book error of one at mod 10 (the two pops and the add, 3, against the book's EA 4): the frozen model exact on F4-push-ld_bw_d16-k2-pE-w0 and F5-push-add_m_imm_d16-k2-pE-w0 posts a d16 form's read at S+6, one clock after [BW]'s, as d8's (MX1b)"
     pop=dl                                  ; pop the displacement's low byte (d16)
-    pop=dh                                  ; pop its high byte
-    open ret                                ; OPEN: the book's EA clock at mod 10 the pops and the add do not fill (EA 4); return to the add
+    pop=dh ret                              ; pop its high byte; return to the add
 
 routine ea8
     pop=dl ret                              ; pop the displacement byte (d8); return to the routine's add

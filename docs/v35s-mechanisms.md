@@ -545,3 +545,48 @@ change to the text above, kept here rather than rewritten into it.
 7. **§3.4, MOV r8,imm8.** The model's events show 4 clocks opcode to opcode where the book says 5
    (a6: 6 with the stall); evidence, not a measurement, so the routine keeps the book's 5. It is
    entangled with SHL r,CL's OPEN words on the chains where MOV CL,imm precedes the shift.
+
+## Corrections from MX1 and MX1b (2026-11-10)
+
+1. **§3.1 and Corrections-from-MX0 item 1: the dispatch law gates the pop.** The frozen model's start of
+   an instruction is the clock its ModR/M byte is taken from the queue (the opcode prefetched into the IR
+   earlier, with no effect on the room), and the fetch that take's room triggers is issued on the same clock
+   and never blocks the start; a started instruction is never stalled by a fetch. In the sequencer that is
+   the E word: it does not execute while a fetch granted on an earlier clock is in flight (a ModR/M form's
+   also not on a back-to-back fetch's issue clock), a fetch granted on the E clock never blocks it, and the
+   dispatch word and the routine's words never stall on a fetch. MX0 placed the stall on the dispatch word,
+   one clock later, under the very fetch the E's pops had triggered, and sized every routine around it. The
+   machine explanation stays the confirmed one (the opcode's read from the queue and a fetch in flight are
+   mutually exclusive through one shared resource); it is the pop it gates.
+2. **§5 and §7, the routines' clocks.** With the law on the E word, the routine's E-to-E clocks and its pop
+   clocks are set to the model's start-to-start and take clocks read on a run the model is exact on, named in
+   the routine's reason: ADD / CMP / MOV reg,reg 3 (book 2: the registers' RAM read a word of its own, the
+   V20's shape), NOP 4, MOV r8,imm8 4 (book 5), MOV r16,imm16 5 (book 6), PUSH r16 9 (book 13), SHL r,CL
+   12 + 2n (book 11 + 2n), MOV [d16],acc 9 (book 8), a load [BW] 11 (book 10) posting its read at start + 4.
+3. **§3.2, the immediates.** Every immediate form takes its first operand byte three clocks after the start
+   (the model's `pre` 3 in every immediate class; a d8 displacement too), while a ModR/M byte is taken at the
+   start. Written as one OPEN word before the pop; the one mechanism it suggests is an operand-byte path
+   latency the opcode / ModR/M path lacks (the word register of MX0b is not it). Open.
+4. **§7, ruling 3 extended.** Where silicon is longer than the book with no named act (the loads, CMP, TEST,
+   XCH, CMP / ADD mem,imm, MULU mem, the shifts by one and by imm8), the routine carries the extra clocks as
+   OPEN words declared "silicon longer than the book" with the exact run; the test accepts a path over the
+   book only with that declaration or with named acts. Fit integers remain forbidden.
+5. **§3.5, the EA as built (MX1).** The word after E of a ModR/M memory cell calls the EA head of the
+   registered ModR/M's mode (the displacement's pops and a return, through a one-level return register loaded
+   at the dispatch) and the routine's first word is the add; two head sets, the book's EA clocks the pops do
+   not fill as OPEN words (mod 00: one OPEN and one book error) or the pops alone where the routine's own acts
+   exceed the book. [BW] and [BW + IX] cost +0, a d8 +1, a d16 or a direct address +1 to +2 on silicon.
+6. **§3.6, the request slot.** The EU's one request slot frees on the cycle's end; a post on that clock
+   stands from the next. A read's datum is latched at its end also when that clock posts the next request.
+7. **§3.4, the register loops under a fetch (found at MX1b, built at MX1c).** On silicon the LS head's
+   SHL AW,CL runs 75 clocks at 0 waits and 76 at 1 wait for n = 31 where 12 + 2n is 74: a register shift,
+   MULU / MUL or DIVU / DIV pauses at its two-clock iteration boundary while a fetch is past its second clock,
+   until the clock after that fetch's last, once per fetch (the frozen model's unit_hold, rules.md item 94,
+   true over the whole corpus). The explanation on record is the overseer's hypothesis: the iteration and the
+   fetched word's delivery into the queue share a resource (the internal bus or the register RAM's port the
+   temporaries use). It accounts for MX0f's "instruction after the shift +1" and the OUT marker's port byte
+   at start + 5 after the shift.
+8. **§3.7, the room (found at MX1b, built at MX1c).** The IR / staging byte is a seventh queue slot: free
+   when empty on a word's arrival clock and when the decoder is idle, not a slot while the running
+   instruction still owes bytes (the model's room_ir = arrival_idle). MX0's loader counted the slot as
+   occupied while bytes were owed, so a MOV r16,imm16 stream fetched three clocks later than silicon.

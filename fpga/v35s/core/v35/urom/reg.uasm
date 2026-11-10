@@ -9,16 +9,19 @@
 ; the RAM's write port at the word's end; SIG is the ALU result of an earlier word.
 
 ; ---- two operands, ModR/M register form (V20 ALU_RM 0000-0001)
-routine alu_rr op=00-03,08-0B,10-13,18-1B,20-23,28-2B,30-33 mod=reg book="ADD reg,reg" why="the read and the ALU on the E word, the write after it (V20 0000-0001): the book's 2"
-    ra=DST rb=SRC alu=GRP ax=RA ay=RB wf e  ; read the destination and the source; the group's ALU op, flags (W); E
-    wr=DST ws=SIG                           ; post-E: the result into the destination
+routine alu_rr op=00-03,08-0B,10-13,18-1B,20-23,28-2B,30-33 mod=reg book="ADD reg,reg" diff=1 why="beyond the book: a named act, the two registers' RAM read on a word of its own (V20 0000 M->tmpb, R->tmpa), then the ALU on the E word and the write after it: S-to-S 3 (F3-push-add_aw_dw-k4-pE-w0, the frozen model's starts 87 90 93 96; a6 3)"
+    ra=DST rb=SRC d1=TA s1=RA d2=TB s2=RB   ; read the destination and the source into tmpa / tmpb (0000)
+    alu=GRP ax=TA ay=TB wf e                ; the group's ALU op, flags (W); E
+    wr=DST ws=SIG                           ; post-E: the result into the destination (0001)
 
-routine cmp_rr op=38-3B mod=reg book="CMP reg,reg" why="as ADD, no write: the book's 2"
-    ra=DST rb=SRC alu=GRP ax=RA ay=RB wf e  ; read both operands; CMP (the difference's flags, W); E
+routine cmp_rr op=38-3B mod=reg book="CMP reg,reg" diff=1 why="beyond the book: a named act, the registers' RAM read on a word of its own (as ADD reg,reg: S-to-S 3, F3-push-add_aw_dw-k4-pE-w0)"
+    ra=DST rb=SRC d1=TA s1=RA d2=TB s2=RB   ; read both operands into tmpa / tmpb
+    alu=GRP ax=TA ay=TB wf e                ; CMP (the difference's flags, W); E
 
-routine mov_rr op=88-8B mod=reg book="MOV reg,reg" why="the read on the E word, the write after it: the book's 2"
-    rb=SRC alu=PASS ax=RB e                 ; read the source through the ALU; E
-    wr=DST ws=SIG                           ; post-E: the destination <- SIGMA
+routine mov_rr op=88-8B mod=reg book="MOV reg,reg" diff=1 why="beyond the book: a named act, the source's RAM read on a word of its own, the pass on the E word, the write after it: S-to-S 3 (F3-push-mov_aw_dw-k4-pE-w0, the frozen model's starts 87 90 93 96; a6 3)"
+    rb=SRC d1=TB s1=RB                      ; read the source into tmpb (004C R -> tmpa)
+    alu=PASS ax=TB e                        ; through the ALU; E
+    wr=DST ws=SIG                           ; post-E: the destination <- SIGMA (004D)
 
 ; V20 XCHG_RM 0048-004A: two reads, then one write a word (the write port is one)
 routine xch_rr op=86,87 mod=reg book="XCH reg,reg" diff=-1 why="book error: the book's 3 against silicon's 3 (v35s-eu-timing.md; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the reads and the r/m write on the E word, the reg write after it"
@@ -49,10 +52,11 @@ routine dec16 op=48-4F book="DEC reg16" why="as INC: the book's 2"
     wr=OPR wid=WORD ws=SIG                  ; post-E: the register <- SIGMA
 
 ; V20 XCHG_AX 005C-005E (NOP is XCH AW,AW)
-routine xch_aw op=90-97 book="XCH AW,reg16" diff=-1 why="book error: the book's 4 against silicon's 4 (NOP 4, XCH AW,DW 4, F3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 3); the reads, one write on the E word, the other after it"
-    ra=AW rb=OPR wid=WORD d1=TA s1=RA d2=TB s2=RB   ; read AW and the register into tmpa / tmpb
-    wr=OPR wid=WORD ws=TA e                 ; the register <- tmpa (AW); E
-    wr=AW wid=WORD ws=TB                    ; post-E: AW <- tmpb (the register)
+routine xch_aw op=90-97 book="XCH AW,reg16" why="OPEN: the reads, one book clock with no act, one write on the E word, the other after it: the book's 4 (NOP / XCH AW,DW S-to-S 4: F3-push-nop-k4-pE-w0, F3-push-xch_aw_dw-k4-pE-w0)"
+    ra=AW rb=OPR wid=WORD d1=TA s1=RA d2=TB s2=RB   ; read AW and the register into tmpa / tmpb (005C)
+    open                                    ; OPEN: a book clock with no act (XCH AW,reg16 4)
+    wr=OPR wid=WORD ws=TA e                 ; the register <- tmpa (AW) (005D); E
+    wr=AW wid=WORD ws=TB                    ; post-E: AW <- tmpb (the register) (005E)
 
 routine flag op=F5,F8,F9,FC,FD book="CLR1 CY" why="one word: the book's 2"
     alu=FLAG wf e                           ; the format's flag operation on the PSW; E
@@ -99,84 +103,76 @@ routine cvtwl op=99 book="CVTWL" why="OPEN: the book's 8: a read and a write (V2
 
 ; ---- immediates (V20 ALU_ACC 0004-0007, MOV r,imm): the immediate's bytes popped one a word,
 ; into tmpb, the ALU, the write
-routine mov_ri8 op=B0-B7 book="MOV reg,imm" width=byte why="the pop, tmpb, the ALU, the write on the E word: the book's 5"
-    pop=il                                  ; pop the immediate byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    alu=PASS ax=TB                          ; through the ALU into SIGMA
-    wr=OPR ws=SIG e                         ; the register <- SIGMA; E
+routine mov_ri8 op=B0-B7 book="MOV reg,imm" width=byte diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the write on the E word: 4; the book's value against silicon's (F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled, the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    wr=OPR ws=IMM e                         ; the register <- the immediate; E
 
-routine mov_ri16 op=B8-BF book="MOV reg,imm" width=word why="two pops, tmpb, the ALU, the write on the E word: the book's 6"
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    alu=PASS ax=TB                          ; through the ALU into SIGMA
-    wr=OPR ws=SIG e                         ; the register <- SIGMA; E
+routine mov_ri16 op=B8-BF book="MOV reg,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_aw_imm-k4-pE-w0: S 81, T 84 85, S-to-S 5 unstalled): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the write on the E word: 5; the book's value against silicon's (F3-push-mov_aw_imm-k4-pE-w0: S 81, T 84 85, S-to-S 5 unstalled, the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    pop=ih                                  ; pop its high byte (S+4)
+    wr=OPR ws=IMM e                         ; the register <- the immediate; E
 
-routine alu_ai8 op=04,0C,14,1C,24,2C,34 book="ADD acc,imm" width=byte why="the pop, tmpb, the ALU, the write on the E word: the book's 5"
-    pop=il                                  ; pop the immediate byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=AW alu=GRP ax=RA ay=TB wf            ; read AL; the block's ALU op, flags (W)
-    wr=AW ws=SIG e                          ; AL <- SIGMA; E
+routine alu_ai8 op=04,0C,14,1C,24,2C,34 book="ADD acc,imm" width=byte diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the ALU on the E word, the write after it: 4; the book's value against silicon's (F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    ra=AW alu=GRP ax=RA ay=IMM wf e         ; read AL; the block's ALU op with the immediate, flags (W); E
+    wr=AW ws=SIG                            ; post-E: AL <- SIGMA
 
-routine alu_ai16 op=05,0D,15,1D,25,2D,35 book="ADD acc,imm" width=word why="two pops, tmpb, the ALU, the write on the E word: the book's 6"
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=AW alu=GRP ax=RA ay=TB wf            ; read AW; the block's ALU op, flags (W)
-    wr=AW ws=SIG e                          ; AW <- SIGMA; E
+routine alu_ai16 op=05,0D,15,1D,25,2D,35 book="ADD acc,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_aw_imm-k4-pE-w0: S 81, T 84 85): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the ALU on the E word, the write after it: 5; the book's value against silicon's (F3-push-add_aw_imm-k4-pE-w0: S 81, T 84 85, the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    pop=ih                                  ; pop its high byte (S+4)
+    ra=AW alu=GRP ax=RA ay=IMM wf e         ; read AW; the block's ALU op with the immediate, flags (W); E
+    wr=AW ws=SIG                            ; post-E: AW <- SIGMA
 
-routine cmp_ai8 op=3C book="CMP acc,imm" width=byte why="the pop, tmpb, the ALU, the E word (no write): the book's 5"
-    pop=il                                  ; pop the immediate byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=AW alu=GRP ax=RA ay=TB wf            ; read AL; CMP, flags (W)
-    e                                       ; E (CMP writes nothing)
+routine cmp_ai8 op=3C book="CMP acc,imm" width=byte diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 4; the book's value against silicon's (F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    ra=AW alu=GRP ax=RA ay=IMM wf e         ; read AL; CMP with the immediate, flags (W); E
 
-routine cmp_ai16 op=3D book="CMP acc,imm" width=word why="two pops, tmpb, the ALU, the E word: the book's 6"
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=AW alu=GRP ax=RA ay=TB wf            ; read AW; CMP, flags (W)
-    e                                       ; E (CMP writes nothing)
+routine cmp_ai16 op=3D book="CMP acc,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_aw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 5; the book's value against silicon's (F3-push-add_aw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    pop=ih                                  ; pop its high byte (S+4)
+    ra=AW alu=GRP ax=RA ay=IMM wf e         ; read AW; CMP with the immediate, flags (W); E
 
-routine test_ai8 op=A8 book="TEST acc,imm" width=byte why="the pop, tmpb, the AND, the E word: the book's 5"
-    pop=il                                  ; pop the immediate byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=AW alu=AND ax=RA ay=TB wf            ; read AL; AND, flags (W)
-    e                                       ; E (TEST writes nothing)
+routine test_ai8 op=A8 book="TEST acc,imm" width=byte diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the AND on the E word: 4; the book's value against silicon's (F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    ra=AW alu=AND ax=RA ay=IMM wf e         ; read AL; AND with the immediate, flags (W); E
 
-routine test_ai16 op=A9 book="TEST acc,imm" width=word why="two pops, tmpb, the AND, the E word: the book's 6"
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=AW alu=AND ax=RA ay=TB wf            ; read AW; AND, flags (W)
-    e                                       ; E (TEST writes nothing)
+routine test_ai16 op=A9 book="TEST acc,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_aw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the AND on the E word: 5; the book's value against silicon's (F3-push-add_aw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    pop=ih                                  ; pop its high byte (S+4)
+    ra=AW alu=AND ax=RA ay=IMM wf e         ; read AW; AND with the immediate, flags (W); E
 
 ; ---- the 80-83 group, register form (V20 GRP1 003C-0040)
-routine grp1_rb op=80,82,83 mod=reg reg=0-6 book="ADD reg,imm" bookv=5 why="the pop, tmpb, the ALU (the register's read), the write on the E word: the book's reg8,imm8 / reg16,imm8 5"
-    pop=il                                  ; pop the immediate byte
-    d1=TB s1=IMM                            ; the immediate into tmpb (83: sign-extended)
-    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; the group's ALU op, flags (W)
-    wr=RM ws=SIG e                          ; the register <- SIGMA; E
+routine grp1_rb op=80,82,83 mod=reg reg=0-6 bookv=5 book="ADD reg,imm" diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class, the ModR/M at S)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the ALU on the E word, the write after it: 4; the book's value against silicon's (F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class, the ModR/M at S), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; the group's ALU op with the immediate (83: sign-extended), flags (W); E
+    wr=RM ws=SIG                            ; post-E: the register <- SIGMA
 
-routine grp1_rw op=81 mod=reg reg=0-6 book="ADD reg,imm" why="two pops, tmpb, the ALU, the write on the E word: the book's 6"
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; the group's ALU op, flags (W)
-    wr=RM ws=SIG e                          ; the register <- SIGMA; E
+routine grp1_rw op=81 mod=reg reg=0-6 book="ADD reg,imm" diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_dw_imm-k4-pE-w0: S 98, T 98 101 102): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the ALU on the E word, the write after it: 5; the book's value against silicon's (F3-push-add_dw_imm-k4-pE-w0: S 98, T 98 101 102, the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    pop=ih                                  ; pop its high byte (S+4)
+    ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; the group's ALU op with the immediate (83: sign-extended), flags (W); E
+    wr=RM ws=SIG                            ; post-E: the register <- SIGMA
 
-routine grp1_cb op=80,82,83 mod=reg reg=7 book="CMP reg,imm" width=byte why="the pop, tmpb, the ALU, the E word: the book's 5"
-    pop=il                                  ; pop the immediate byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; CMP, flags (W)
-    e                                       ; E (CMP writes nothing)
+routine grp1_cb op=80,82,83 mod=reg reg=7 book="CMP reg,imm" width=byte diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 4; the book's value against silicon's (F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; CMP with the immediate (83: sign-extended), flags (W); E
 
-routine grp1_cw op=81 mod=reg reg=7 book="CMP reg,imm" width=word why="two pops, tmpb, the ALU, the E word: the book's 6"
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
-    d1=TB s1=IMM                            ; the immediate into tmpb
-    ra=RM alu=GRP ax=RA ay=TB wf            ; read the register; CMP, flags (W)
-    e                                       ; E (CMP writes nothing)
+routine grp1_cw op=81 mod=reg reg=7 book="CMP reg,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_dw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 5; the book's value against silicon's (F3-push-add_dw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    pop=ih                                  ; pop its high byte (S+4)
+    ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; CMP with the immediate (83: sign-extended), flags (W); E
 
 ; ---- the unary group, register form (V20 0174-0175): read, the operation, the write, E
 routine inc_rm op=FE,FF mod=reg reg=0 book="INC reg8" why="read, op, write, E: the book's 5"
@@ -203,15 +199,13 @@ routine neg_rm op=F6,F7 mod=reg reg=3 book="NEG reg" why="read, op, write, E: th
     wr=RM ws=SIG                            ; the write-back
     e                                       ; E: pop the next opcode
 
-routine test_rib op=F6 mod=reg reg=0-1 why="TEST reg,imm8 (not in the book's table): the pop, the read, the AND, E"
-    pop=il                                  ; pop the immediate byte
-    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
-    alu=AND ax=TB ay=IMM wf                 ; AND with the immediate, flags (W)
-    e                                       ; E: pop the next opcode (TEST writes nothing)
+routine test_rib op=F6 mod=reg reg=0-1 why="OPEN: TEST reg,imm8 (not in the book's table): one OPEN word (the immediate's latency, S+3: README MX1b), the pop, the AND on the E word"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    rb=RM alu=AND ax=RB ay=IMM wf e         ; read the register; AND with the immediate, flags (W); E
 
-routine test_riw op=F7 mod=reg reg=0-1 why="TEST reg,imm16: as the byte form with the second immediate byte"
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
-    rb=RM d1=TB s1=RB                       ; the operand read into tmpb
-    alu=AND ax=TB ay=IMM wf                 ; AND with the immediate, flags (W)
-    e                                       ; E: pop the next opcode (TEST writes nothing)
+routine test_riw op=F7 mod=reg reg=0-1 why="OPEN: TEST reg,imm16: as the byte form with the second byte"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the immediate's (low) byte (S+3)
+    pop=ih                                  ; pop its high byte (S+4)
+    rb=RM alu=AND ax=RB ay=IMM wf e         ; read the register; AND with the immediate, flags (W); E

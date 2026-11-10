@@ -28,6 +28,7 @@ module v35_trace
     input  wire [1:0]  g_width,
     input  wire [2:0]  g_len,
     input  wire        start,
+    input  wire        epop,            // (MX1b) the E word pops the next opcode (the model's start)
     input  wire        start_trap,
     input  wire [v35_pkg::UADDR_W-1:0] entry,
     input  wire [19:0] pc,
@@ -97,6 +98,8 @@ module v35_trace
                 if (g_start)
                     line = {line, $sformatf(" X:%s:%05X:%s:%0d", kname(g_kind), g_addr,
                                             wname(g_width), g_len)};
+                if (epop)
+                    line = {line, " E"};
                 if (start)
                     line = {line, start_trap ? $sformatf(" S:trap:%05X", pc)
                                              : $sformatf(" S:u%0d:%05X", entry, pc)};
@@ -121,7 +124,7 @@ module v35_trace
         end
     end
 `else
-    wire unused = &{1'b0, clock, reset_n, ce_a, g_start, g_kind, g_addr, g_width, g_len, start,
+    wire unused = &{1'b0, clock, reset_n, ce_a, g_start, g_kind, g_addr, g_width, g_len, start, epop,
                     start_trap, entry, pc, take, load, post, post_kind, issue, b2b, abort, room,
                     flag, why, upc};
 `endif

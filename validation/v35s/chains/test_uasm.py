@@ -135,9 +135,10 @@ class BookCheck(unittest.TestCase):
         prog = uasm.assemble()
         # (MX0d) the book's 11 + 2n; at n = 0 the zero test skips the loop and the write
         # (MX0e) silicon's 10 at n = 0 less the stall: 9 (one book clock on the loop's path)
-        self.assertEqual(uasm.length(prog, "shift_cl", 0), 9)
-        self.assertEqual(uasm.length(prog, "shift_cl", 4), 19)
-        self.assertEqual(uasm.length(prog, "shift_cl", 31), 73)
+        # (MX1b) the shifter's load on a word of its own: silicon's 12 + 2n, 10 at n = 0
+        self.assertEqual(uasm.length(prog, "shift_cl", 0), 10)
+        self.assertEqual(uasm.length(prog, "shift_cl", 4), 20)
+        self.assertEqual(uasm.length(prog, "shift_cl", 31), 74)
 
     def test_declared_differences_name_silicon(self):
         # (MX0e) the book is the first draft; a routine is shorter than the book only where
@@ -156,9 +157,18 @@ class BookCheck(unittest.TestCase):
                 self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9])", f"{name} {path}")
                 self.assertIn("book error", why, f"{name} {path}")
             else:
-                self.assertEqual(opens, 0, f"{name} {path}: {diff:+d} over the book with "
-                                           f"{opens} OPEN words on the path")
-                self.assertRegex(why, r"pops?\b", f"{name} {path}: the acts beyond the book")
+                # (MX1b) the words beyond the book are named acts, declared as such: the pops
+                # the book's EA does not resolve, or "beyond the book: a named act ..." (the
+                # path's OPEN words then stay the book's own clocks, none added past it)
+                # (MX1b) or silicon longer than the book, measured: the frozen model exact on a
+                # run the reason names (its positions), the extra clocks OPEN
+                self.assertRegex(why, r"(pops?\b|beyond the book: a named act|silicon longer "
+                                      r"than the book)", f"{name} {path}: the acts beyond the book")
+                if opens:
+                    self.assertRegex(why, r"(beyond the book: a named act|silicon longer than the "
+                                          r"book|F[0-9]+-\S+-w[0-9])",
+                                     f"{name} {path}: {diff:+d} over the book with {opens} OPEN "
+                                     "words, neither a named act nor a measured run declared")
 
     def test_a_positive_difference_with_an_open_word_is_rejected(self):
         # the rule's check on a routine written to break it: one OPEN word on a path over the book
@@ -172,7 +182,7 @@ class BookCheck(unittest.TestCase):
         from pathlib import Path as P
         with tempfile.TemporaryDirectory() as d:
             paths = sorted(uasm.UROM.glob("*.uasm"))
-            body = (uasm.UROM / "mem.uasm").read_text().replace("routine ld op=8A,8B", "routine ld_x op=8A")
+            body = (uasm.UROM / "mem.uasm").read_text().replace("op=8A,8B mod=mem", "op=8A mod=mem")
             files = []
             for p in paths:
                 q = P(d) / p.name
@@ -209,7 +219,7 @@ class EA(unittest.TestCase):
 
     def test_head_lengths_are_the_pops_and_the_book(self):
         prog = uasm.assemble()
-        book = {"eab0": 1, "eab8": 2, "eab16": 3, "ea8": 1, "ead": 2}
+        book = {"eab0": 1, "eab8": 2, "eab16": 2, "ea8": 1, "ead": 2}     # (MX1b) eab16: no OPEN
         pops = {"eab0": 0, "eab8": 1, "eab16": 2, "ea8": 1, "ead": 2}
         for name, n in book.items():
             r = prog.routine(name)
@@ -242,8 +252,9 @@ class EA(unittest.TestCase):
         # the EA's clocks per path: the book's EA (3 3 4 3) with mod 00's book error (2), or
         # the pops and the add alone (1 2 3 3)
         prog = uasm.assemble()
-        for name, want in (("ld", {"m00": 9, "d8": 10, "d16": 11, "dir": 10}),
-                           ("st", {"m00": 7, "d8": 8, "d16": 9, "dir": 9})):
+        # (MX1b) ld and st on the model's positions: [BW] 11 / 8, a displacement +1
+        for name, want in (("ld", {"m00": 11, "d8": 12, "d16": 12, "dir": 12}),
+                           ("st", {"m00": 8, "d8": 9, "d16": 9, "dir": 9})):
             for path, n in want.items():
                 self.assertEqual(uasm.length(prog, name, path=path), n, (name, path))
 

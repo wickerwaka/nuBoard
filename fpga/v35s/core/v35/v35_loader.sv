@@ -91,7 +91,6 @@ module v35_loader
     output wire        o_epop,          // tick A: the E word pops the next opcode (Q2's start)
     output wire [UADDR_W-1:0] dent,     // tick A: the DISP word's target
     output wire        dcall,           // tick A: (MX1) ... an EA head, called: the return is dret
-    output wire        dmem,            // tick A: ... a ModR/M memory cell (the decode's ea bit)
     output wire [UADDR_W-1:0] dret,     // tick A: ... the routine's entry (the head's return)
     output wire        dtrap,           // tick A: the instruction (op, modrm) has no routine
     output wire        resv_e,          // tick A: the E word pops an opcode whose routine posts
@@ -186,7 +185,6 @@ module v35_loader
                             : UROM_EAB0;
     assign dcall = m_ea && (mp[7:6] != 2'd0 || m_dir || dm.eab);
     assign dret = dm.entry;
-    assign dmem = m_ea;
     assign dent = !dec1.has_modrm ? dec1.entry : dcall ? head : dm.entry;
     assign dtrap = dec1.has_modrm ? dm.trap : dec1.trap;
 

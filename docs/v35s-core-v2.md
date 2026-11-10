@@ -1491,3 +1491,48 @@ question, decided from S8's routed numbers with the user.
   chain evidence, each citing the run), then the memory forms on the k2 runs; the baseline for it is this
   commit. Hand-back and verification: /tmp scratchpad v2/mx1/ (mx1.diff, mx1-table.md, mx1-k2.txt,
   mx1-book.txt), v2/mx1/main/ (verify.out, the traces, side.py).
+- 2026-11-10, **MX1b landed** (the same agent, one round on the overseer's trace finding above). **Built:** (1) the
+  dispatch law moves to the E word (`V35_MX0C_DISPATCH` 4, the default): the E word, the opcode's pop with its
+  ModR/M, does not execute while a fetch granted on an earlier clock is in flight through its last clock, and a
+  ModR/M form's E not on a back-to-back fetch's issue clock; a fetch granted on the E clock never blocks it; the
+  dispatch and the routine's words never stall on a fetch. The same gate as MX0d's value 3, which measured 0 exact
+  only because the routines were then sized for the stall a clock later; measured and not kept: the stall ending a
+  clock before the fetch's last (−3 / −6 / −10 at 0 / 1 / 2 waits) and the staging slot freed at the E pop. The
+  machine explanation on record is unchanged (the opcode's read from the queue and a fetch in flight exclude each
+  other); it is the pop the law gates. `V35_MX1_EAFREE` removed as moot; the trace gained an `E` item. (2) The
+  register-form routines re-derived so that E-to-E and the pop clocks equal the model's S-to-S and take clocks on
+  an exact k1 / k4 run named in each `why=`: ADD / CMP / MOV reg,reg 3 (the registers' RAM read a word of its own,
+  the ALU on E, the write after: the V20's shape; the book's 2 one short of silicon, the added word a named act),
+  NOP / XCH AW,r 4, the byte-immediate forms 4 (book 5) and the word-immediate forms 5 (book 6) with the immediate
+  popped at S + 3 (and S + 4), PUSH r16 9 (the post at S + 5), MOV [d16],acc 9 (book 8), SHL r,CL 12 + 2n (the
+  shifter's load on its own word), SHL r,imm8 11 + 2n and SHL r,1 9 (silicon 12 + 2n and 10: one clock each still
+  open), OUT imm8 10, OUT DW 7, POP r16 11, IN DW 12, IN imm8 16. Every immediate form shows the same three clocks
+  before its first pop (one OPEN word before the pop), and a d8 displacement is taken at S + 3 too: the one open
+  mechanism this suggests is an operand-byte path latency the opcode / ModR/M path lacks. (3) The memory forms on
+  the k2 runs: [BW] posts its read at S + 4 (issued S + 5 as the model's), displacement forms at S + 6; the d8
+  head's OPEN word before the pop, the d16 head's dropped (a book error of one at mod 10); a read-modify-write's
+  write issues two clocks after the datum; loads keep E at the model's next S with the OPEN words under the cycle;
+  group 1's immediates popped after the datum; at mod 00 against the book: MOV / ADD / CMP reg,mem 11 (10), ADD
+  mem,reg 13, TEST mem,reg 13, XCH 16, MOV mem,reg 8, ADD mem,imm 14 / 14 / 15, CMP mem,imm 14 / 14 / 15 (11 / 12 /
+  12), INC / DEC / NOT / NEG mem 13 (16), SHL mem,1 19, PUSH mem 17, MULU mem16 40 (36). The book check per ruling
+  3, amended and accepted: a path over the book may carry OPEN words only when its reason says "silicon longer than
+  the book" and names the exact run (the frozen model exact on it); named acts beyond the book are declared as
+  such. ROM 1,042 words (`UADDR_W` 11), OPEN words 439 in 67 routines. **Verified on main (both spacings identical,
+  0 failing, chk silent):** 479 / 30,536 exact (MX1 19; A1 28,059), the MX0 gate families 118 / 1,796 (9), the
+  MX1 gate families 232 / 14,388 (10), no family lost a run (F3 48, F9 49, F20 66, F21 44, F36 39, F16 37); (i)
+  14,153, (ii) 0, (iii) 15,904; write data 93,540 / 106,824, register vectors 0 bad, function vectors 0 bad, lint
+  clean in five configurations and the macro's values 0 / 2 / 3, 45 tests, the nine offline modules unchanged.
+  The PUSH frame now matches silicon at the start of F4-push-ld_bw-k1-pE-w0 (the write 78, the fetches 81 and 84,
+  the read 87). **Open after MX1b, with the overseer's reading of the w0 / w1 traces of F3-push-nop-k4-pE:** the
+  restart dt is about −2 / −3 / −4 at 0 / 1 / 2 waits in most families and the largest (i) bucket is the PUSH
+  marker's write −1 at 1 wait and −2 at 2 (F21 880, F20 740, F3 284): the LS head's SHL AW,CL (n = 31) runs 75
+  clocks on silicon at 0 waits and 76 at 1 wait against the RTL's 74, which is the frozen model's `unit_hold` (a
+  register shift, MULU / MUL or DIVU / DIV pauses at its two-clock iteration boundary while a fetch is past its
+  second clock, until the clock after its last, once per fetch; rules.md item 94, fitted true over the corpus);
+  the same law covers MX0f's "instruction after the shift +1" and OUT's port byte at S + 5 after the shift. The
+  prelude's MOV r16,imm16 stream fetches three clocks later than the model's (its room counts the staging slot as
+  occupied while bytes are owed; the model's room_ir = arrival_idle counts an empty IR as free on a word's arrival
+  clock and when idle). The immediate store pops its datum after its write issues in the model (a datum taken by
+  the bus after B2, not built). **MX1c** is sent: the loop's hold under a fetch as a sequencer mechanism (macro
+  `V35_MX1C_UHOLD`, the explanation recorded as a hypothesis: the iteration and the fetched word's delivery share
+  a resource), then the arrival-clock room law as a queue law under 6(ii) with the corpus as its measurement.

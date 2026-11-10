@@ -56,7 +56,6 @@ module v35_useq
     input  v35_udec_t  dec1,            // v35_udec1(the opcode register)
     input  wire [UADDR_W-1:0] dent,     // the DISP word's target (the loader's)
     input  wire        dcall,           // (MX1) ... an EA head, called (the return register <- dret)
-    input  wire        dmem,            // ... a ModR/M memory cell (V35_MX1_EAFREE)
     input  wire [UADDR_W-1:0] dret,     // ... the routine's entry (the head's return)
     input  wire        dtrap,           // ... the instruction has no routine
     input  v35_udecm_t dec2,            // v35_udec2(the opcode register, the word register's byte)
@@ -127,16 +126,15 @@ module v35_useq
     // the fetch exclude each other: one shared step (the decode's read and the queue's write)
     // (3: the same law on the E word, the staged opcode's pop into the opcode register: the
     // frozen model's start is that pop, its staging load (the IR load) stays free)
-    wire st_fch = `V35_MX0C_DISPATCH == 3
+    wire st_fch = `V35_MX0C_DISPATCH >= 3
                   ? word.e && (fetch_run || (s_modrm && b2b_now))
                   : word.seq == SQ_DISP
-                    && !(`V35_MX1_EAFREE && dmem)
                     && ((`V35_MX0C_DISPATCH >= 1 && fetch_run)
                         || (`V35_MX0C_DISPATCH == 2 && dec1.has_modrm && b2b_now));
     // the stalls a popping word can meet (the loader's pops read this: a DISP word never pops;
     // with the stall on the E word (3) it is the E word's too)
     wire base = !halted && !st_q && !st_f && !st_slt && !st_hld;
-    assign ex_pop = base && !(`V35_MX0C_DISPATCH == 3 && st_fch);
+    assign ex_pop = base && !(`V35_MX0C_DISPATCH >= 3 && st_fch);
     assign ex = base && !st_fch;
     assign why = halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3 : st_hld ? 5'd4
                : st_fch ? 5'd6 : 5'd0;
@@ -239,7 +237,7 @@ module v35_useq
         end
     end
 
-    wire unused = &{1'b0, dec1, dec2, qw[95:UWORD_BITS], dmem};
+    wire unused = &{1'b0, dec1, dec2, qw[95:UWORD_BITS]};
 
 `ifndef SYNTHESIS
     // (S7b) chk: the ce_b registers against their sources at ce_a

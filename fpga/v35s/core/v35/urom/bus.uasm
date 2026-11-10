@@ -12,10 +12,11 @@
 ; reservation stops every fetch (A1's rule 3) and the port byte may still be on its way.
 
 ; PUSH r16 (V20 PUSH_R16 0028-002A, its acts one a word). Measured 9 (RAMEN = 1), 6 (RAMEN = 0)
-routine push_r op=50-57 resv=e book="PUSH reg16" diff=-5 why="book error: the book's 13 against silicon's 9 (the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 8); the routine is its acts, SP - 2, then SP and the address on one word, the register's read with the post (after SP's write: PUSH SP's datum is SP - 2, F36), E held to the write's end (the RAMEN hold): 8"
+routine push_r op=50-57 resv=e book="PUSH reg16" diff=-4 why="OPEN: book error of four: the book's 13 against silicon's 9 (the a6 sweep's cost, docs/v35s-mechanisms/classes.md; F3-push-nop-k4-pE-w0: the frozen model's PUSH S 72, the write at S+6, the next S at S+9); SP - 2, SP and the address, one book clock with no act, the register's read with the post (S+5: the write at S+6), E held to the write's end (RAMEN): 9"
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2 (0028)
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG resv   ; SP <- SP - 2; the address register <- it (0029); the reservation
-    ra=OPR wid=WORD d1=OPRW s1=RA bus=MEMW seg=SS   ; the register into the write datum, read after SP's write (PUSH SP pushes SP - 2: F36 stack, (MX1)) (002A); post the write at SS:SP
+    open                                    ; OPEN: a book clock with no act (PUSH reg16 13)
+    ra=OPR wid=WORD d1=OPRW s1=RA bus=MEMW seg=SS   ; the register into the write datum, read after SP's write (PUSH SP pushes SP - 2: F36 stack) (002A); post the write at SS:SP
     e                                       ; E: held until the write's end (RAMEN)
 
 routine push_psw op=9C resv=e book="PUSH PSW" diff=-1 why="book error: the book's 9 against silicon's 9 (a6 PUSH PSW 8 / 10; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 8); the acts merged as PUSH r16's: 8"
@@ -26,34 +27,35 @@ routine push_psw op=9C resv=e book="PUSH PSW" diff=-1 why="book error: the book'
 
 ; PUSH imm (V20 0288-028B): the immediate popped, then the push
 routine push_i16 op=68 resv=e book="PUSH imm16" diff=-1 why="OPEN: book error of one: the book's 13 against silicon's 13 (a6 12 / 14, less the stall: 12); the pops, the push's acts merged, its hold, two book clocks with no act before the post"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
     pop=il                                  ; pop the immediate's low byte
     pop=ih                                  ; pop its high byte
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=IMM resv   ; SP <- SP - 2; the address register; the immediate into the write datum; the reservation
     open                                    ; OPEN: a book clock with no act (PUSH imm16 13)
-    open                                    ; OPEN: a book clock with no act (PUSH imm16 13)
     bus=MEMW seg=SS wid=WORD                ; post the write
     e                                       ; E: held until the write's end
 
 routine push_i8 op=6A resv=e book="PUSH imm8" diff=-1 why="OPEN: book error of one: the book's 12 against silicon's 12 (a6, less the stall: 11); the pop, the push's acts merged, its hold, two book clocks with no act before the post"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
     pop=il                                  ; pop the immediate byte (sign-extended)
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=IMM resv   ; SP <- SP - 2; the address register; the immediate into the write datum; the reservation
-    open                                    ; OPEN: a book clock with no act (PUSH imm8 12)
     open                                    ; OPEN: a book clock with no act (PUSH imm8 12)
     bus=MEMW seg=SS wid=WORD                ; post the write
     e                                       ; E: held until the write's end
 
 ; POP (V20 POP_R16 002C-002F, POPF 0078-007B)
-routine pop_r op=58-5F resv=e book="POP reg16" why="OPEN: the book's 11: the post, SP + 2, SP, the F word; five book clocks with no act before the post"
-    open                                    ; OPEN: a book clock with no act (POP reg16 11)
-    open                                    ; OPEN: a book clock with no act (POP reg16 11)
-    open                                    ; OPEN: a book clock with no act (POP reg16 11)
-    open                                    ; OPEN: a book clock with no act (POP reg16 11)
-    open                                    ; OPEN: a book clock with no act (POP reg16 11)
-    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS    ; SP into the address register; post the read (002C)
+routine pop_r op=58-5F resv=e book="POP reg16" why="OPEN: the frozen model's positions (F5-push-pop_aw-k2-pE-w0: the stack read at S+6, the next S at S+11): three book clocks with no act before the post (S+5), SP + 2, SP, three more, F: the register on the E word (S+11): the book's 11"
+    open                                    ; OPEN: a clock of the model's with no act (POP reg16 11)
+    open                                    ; OPEN: a clock of the model's with no act (POP reg16 11)
+    open                                    ; OPEN: a clock of the model's with no act (POP reg16 11)
+    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS    ; SP into the address register; post the read at SS:SP (002C; S+5)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2 (002D)
     wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2 (002E)
+    open                                    ; OPEN: a clock of the model's with no act (POP reg16 11)
+    open                                    ; OPEN: a clock of the model's with no act (POP reg16 11)
+    open                                    ; OPEN: a clock of the model's with no act (POP reg16 11)
     f wr=OPR wid=WORD ws=OPR e              ; F: the datum into the register (002F); E
 
 routine pop_psw op=9D resv=e book="POP PSW" why="OPEN: the book's 13: the post, SP + 2, SP, the F word; seven book clocks with no act before the post"
@@ -70,10 +72,11 @@ routine pop_psw op=9D resv=e book="POP PSW" why="OPEN: the book's 13: the post, 
     f wr=PSW ws=OPR e                       ; F: the PSW <- the datum (bits 11:0) (007A); E
 
 ; MOV [d16],acc (V20 MOV_DMEM_ACC 0088-008B). F1's store marker: measured 9
-routine st_dir op=A2,A3 resv=e book="MOV dmem,acc" why="the two pops, the EA step with the datum and the post, E held to the write's end: the book's 8; silicon's marker is 1 earlier (v35s-chains.md F1, the MX0d replay) and the acts allow no shorter routine (a residual)"
+routine st_dir op=A2,A3 resv=e book="MOV dmem,acc" diff=1 why="beyond the book: a named act, the post on the word after the address register's load (the request reads the address register a word later, as the EA's add: README MX1); the two pops at S+2 and S+3, the address and the datum, the post at S+5 (the write at S+6), E held to the write's end: 9 (F1-store-m2-pE-w0: the frozen model's T at S+2 S+3, the write at S+6, S-to-S 9; a6 9)"
     pop=dl                                  ; pop the address's low byte (0088 Q -> tmpbL)
     pop=dh                                  ; pop its high byte (0089)
-    ea=DISP ra=AW d1=OPRW s1=RA bus=MEMW    ; the address register <- the displacement; the accumulator into the write datum; post the write (008A MEMW)
+    ea=DISP ra=AW d1=OPRW s1=RA             ; the address register <- the displacement; the accumulator into the write datum
+    bus=MEMW                                ; post the write (008A MEMW)
     e                                       ; E: held until the write's end (RAMEN)
 
 ; MOV acc,[d16] (V20 MOV_ACC_DMEM 0084-0087)
@@ -89,49 +92,55 @@ routine ld_dir op=A0,A1 resv=e book="MOV acc,dmem" why="OPEN: the book's 10: the
 ; in every mode, the direct form's two pops in the EA head (ea.uasm ead)
 
 ; OUT imm8,acc (E6 / E7): the OUT marker. Measured 10 (a6 10 / 11; F1 10-12)
-routine out_i8 op=E6,E7 book="OUT imm8,acc" width=byte diff=-2 why="OPEN: book error of two: the book's 11 against silicon's 10 (a6 OUT 0x40,AL 10 / 11, less the stall: 9); four book clocks with no act, before the port's pop (the restart fetch was early: the port leaves the queue late, F3-out); the pop, the address, the datum, the post on the E word"
-    open                                    ; OPEN: a book clock with no act (OUT imm8,AL 11)
-    open                                    ; OPEN: a book clock with no act (OUT imm8,AL 11)
-    open                                    ; OPEN: a book clock with no act (OUT imm8,AL 11)
-    open                                    ; OPEN: a book clock with no act (OUT imm8,AL 11)
-    pop=il                                  ; pop the port number
+routine out_i8 op=E6,E7 book="OUT imm8,acc" width=byte diff=-1 why="OPEN: book error of one: the book's 11 against silicon's 10 (a6 OUT 0x40,AL 10 / 11; F3-out-nop-k2-pE-w0: the frozen model's port take at S+3, the I/O write at S+10 and the next S at S+10, S+5 / S+12 when the port byte waits); one OPEN word before the pop (the immediate's latency, README MX1b), the pop, the address, the datum, three book clocks with no act, the post (S+9: the write at S+10), E"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the port number (S+3)
     d1=ADDR s1=IMM8                         ; the address register <- the port
-    ra=AW d1=OPRW s1=RA                     ; the accumulator into the write datum (no reservation: an I/O reservation would stop the fetch silicon makes before the write, F3-out-pO)
-    bus=IOW e                               ; post the I/O write; E (the write is not waited for)
+    ra=AW d1=OPRW s1=RA                     ; the accumulator into the write datum
+    open                                    ; OPEN: a book clock with no act (OUT imm8,AL 11)
+    open                                    ; OPEN: a book clock with no act (OUT imm8,AL 11)
+    open                                    ; OPEN: a book clock with no act (OUT imm8,AL 11)
+    bus=IOW                                 ; post the I/O write (it leaves on the E clock)
+    e                                       ; E (the write is not waited for)
 
 ; OUT DW,acc (EE / EF): END's OUT DW,AW. Measured 7 (F5 OUT DW,AW 7; a6 6.5)
-routine out_dw op=EE,EF resv=e book="OUT DW,acc" width=word diff=-3 why="OPEN: book error of three: the book's 8 against END's OUT DW,AW 3 clocks earlier on silicon (v35s-chains.md F0, the MX0d replay; F5 OUT DW,AW 7, a6 6.5); DW into the address register, the datum, one book clock with no act, the post on the E word: 5"
+routine out_dw op=EE,EF resv=e book="OUT DW,acc" width=word diff=-1 why="OPEN: book error of one: the book's 8 against END's OUT DW,AW on silicon (F0-ls-pE-w0: the frozen model's write at S+8, the post on the E word at S+7); DW into the address register, the datum, three book clocks with no act, the post on the E word: 7"
     rb=DW wid=WORD d1=ADDR s1=RB            ; the address register <- DW
     ra=AW d1=OPRW s1=RA                     ; the accumulator into the write datum
+    open                                    ; OPEN: a book clock with no act (OUT DW,AW 8)
+    open                                    ; OPEN: a book clock with no act (OUT DW,AW 8)
     open                                    ; OPEN: a book clock with no act (OUT DW,AW 8)
     bus=IOW e                               ; post the I/O write; E (the write is not waited for)
 
 ; IN acc,DW / IN acc,imm8
-routine in_dw op=EC,ED resv=e book="IN acc,DW" diff=-3 why="OPEN: book error of three: the book's 14 against silicon's 12 (v35s-chains.md F5 IN AL,DW 12; a6 11.5, less the stall: 11); the post, eight book clocks with no act, the F word"
-    rb=DW wid=WORD d1=ADDR s1=RB bus=IOR    ; the address register <- DW; post the I/O read
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
-    open                                    ; OPEN: a book clock with no act (IN acc,DW 14)
+routine in_dw op=EC,ED resv=e book="IN acc,DW" diff=-2 why="OPEN: book error of two: the book's 14 against silicon's 12 (v35s-chains.md F5 IN AL,DW 12; F5-push-in_al_dw-k2-pE-w0: the frozen model's I/O read at S+6, the next S at S+12); three book clocks with no act, DW into the address register with the post (S+5), six more, the F word on the E word"
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    rb=DW wid=WORD d1=ADDR s1=RB bus=IOR    ; the address register <- DW; post the I/O read (S+5)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,DW 14)
     f wr=AW ws=OPR e                        ; F: the accumulator <- the datum; E
 
-routine in_i8 op=E4,E5 book="IN acc,imm8" diff=-1 why="OPEN: book error of one: the book's 15 against silicon's 15 (a6 15 / 16, less the stall: 14); the pop, the post, ten book clocks with no act, the F word"
-    pop=il                                  ; pop the port number
-    d1=ADDR s1=IMM8 bus=IOR                 ; the address register <- the port; post the I/O read
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
-    open                                    ; OPEN: a book clock with no act (IN acc,imm8 15)
+routine in_i8 op=E4,E5 book="IN acc,imm8" diff=1 why="OPEN: silicon longer than the book by one (F5-push-in_al_imm-k2-pE-w0: the frozen model's port take at S+3, the I/O read at S+10, the next S at S+16; a6 15 / 16): one OPEN word before the pop (the immediate's latency, README MX1b), the pop, the address, four clocks with no act, the post (S+9), six more, the F word on the E word"
+    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
+    pop=il                                  ; pop the port number (S+3)
+    d1=ADDR s1=IMM8                         ; the address register <- the port
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    bus=IOR                                 ; post the I/O read (S+9)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
+    open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
     f wr=AW ws=OPR e                        ; F: the accumulator <- the datum; E
 
 ; BR far (EA): the reset vector's. The segment and the offset popped, PS written, the queue

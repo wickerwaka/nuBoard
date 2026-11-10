@@ -109,7 +109,7 @@ package v35_pkg;
         CD_CNTZ = 3'd0, CD_SGN = 3'd1, CD_DTRAP = 3'd2, CD_WORD = 3'd3
     } v35_cond_e;
 
-    localparam int UADDR_W = 10;
+    localparam int UADDR_W = 11;      // (MX1b) 2,048 words: the ROM passed 1,024
 
     // ---- the microinstruction (MSB first) ----
     typedef struct packed {
