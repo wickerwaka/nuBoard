@@ -1356,3 +1356,24 @@ question, decided from S8's routed numbers with the user.
   begin and end at `ce_a` registers, so in the harness's eight-tick CPU clock they have 240 ns, not one tick's
   120 ns; whether every `ce_b`-ending path fits a tick is not shown by the report's path list. Closing 64 MHz
   remains S8 (paused) and S9; the divider and the bus interface's counters join the list of chains to split.
+- 2026-11-09, **mechanism note** (user's rule: "Every delay being introduced by the model needs to have a
+  machine explanation ... Arbitrary delays with no explanation are not allowed. We should not be looking
+  ahead at the next opcode to influence timing of the current one"): `docs/v35s-mechanisms.md`, with the
+  evidence in `docs/v35s-mechanisms/` (classes.md: the 84 classes with their forms, the model's step lists
+  with every integer named, the V35S / V30 / data book cost per form from the a6-timing corpus, the V30
+  routine and the open items; integers.md; rules.md: section 4's lists hold 150 items and 168 names, not
+  137, and 64 A4 rules are in no list; v30-structure.md; v30-opcodes.md; collected read-only by an Opus
+  agent at aa7c92f). The note supersedes section 4 above and the arbiter strategy's attribute placement:
+  nine mechanisms with their timing laws (the microsequencer with the `E` pop and one overlapped post-`E`
+  word; one queue byte per microinstruction from the word register; the register file as internal RAM with
+  the write hold that is the whole `wb` family, from the data book's bracketed RAMEN = 0 counts and M2's
+  +3 per write; the ALU and the loops; the EA as the loader's address march, since the ROM has no EA
+  routine; bus requests with the `F` interlock and the A1 port; the bus unit's measured laws; transfers;
+  and the fitted names with no act behind them, dropped), the sequencer that results (a registered ROM
+  word per clock, the next address from a register, the decode from the popped byte, a microprogram
+  assembler with a book check replacing ucgen and the inverse check), a per-class accounting from the data
+  book's formulas against the measured costs, the three-bin rule disposition, the method (misses
+  classified as routine shape / bus-unit law / unexplained, never a count) and six work packages MX0–MX5.
+  Two V35-specific loop mechanisms are named as open on silicon: the shift's 2 clocks per count against
+  the V30's 1, and the string element's 18 against the V30's 8. Open to the user before MX0: the data
+  book's formulas as every routine's first draft, and whether Q2's aborted fetch stays a bus-unit mechanism.

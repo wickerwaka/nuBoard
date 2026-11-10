@@ -1,0 +1,146 @@
+# Class integers and model constants: glossary
+
+Source: `Config.fitted()` (validation/v35s/chains/fit.json md5 de193740eaf1dee0862d2220ae084909, merged over config.py DEFAULT_COST, the values the class table `fpga/v35s/core/v35/v35_class_tbl.svh` was generated from). "Read at": the sites in validation/v35s/chains/sim/*.py (T = templates.py, E = eu.py) that read the integer by name (first 12; ucgen.py sites omitted). "Counts": condensed from the code comment at the read site or the config.py cost-block comment (C = config.py line). "In class table": a column of v35_cls_t (the rest are folded into the microcode rows). Classes: those with the integer non-zero (value in brackets); "present at 0" lists classes that carry it as 0 (the integer exists for the class, which some rules test with `name in cost[cls]`).
+
+## Per-class integers (cfg.cost[cls][name], read via `cfg.c(cls, name)`; absent = 0)
+
+| Name | In class table | Counts | Read at | Non-zero classes [value] | Present at 0 | Range |
+| --- | --- | --- | --- | --- | --- | --- |
+| `alu` | no | rmw / rmw_imm / 0F rmw forms: clocks between the read data and the write's post (ALU step); with rmw_write_issue=immediate the write is posted at the ALU step's start with max(alu, setup) setup [T:1253-1305, 1773] | E:404 E:407 T:1253 T:1295 T:1773 T:1775 | bit1_clr [4], bit1_rmw [3], rmw [3], rmw_imm [3], rol4_mem [12], ror4_mem [16] | - | 3..16 |
+| `bmexec` | no | mul/div memory form, byte operation (F6): its own mexec [C:1305-1306; T:1237] | T:1238 | mul [21] | - | 21..21 |
+| `cexit` | no | REP compare exit clocks when the condition ended it [C:1494-1495; T:1850] | T:1850 | str_cmp [19], str_scan [19] | - | 19..19 |
+| `cfgap` | yes | cond_gap=own: fgap for a taken form with a condition field [C:1416-1419; T:1403-1406] | read by a computed name or via the class table; see the cites in Counts | branch_short [8] | - | 8..8 |
+| `chold` | yes | compares (str_hold=hold): no fetch request for chold clocks after a compared element; dbnz_z: nhold for the count's exit [C:1500-1501, 1433-1434; T:1813-1816; E:849-851] | T:1815 T:1816 | dbnz_z [5], str_cmp [2], str_scan [3] | - | 2..5 |
+| `cl` | yes | bit ops with the index in CL: more exec clocks (register) or clocks before the read (memory) [C:1536-1541; T:1653-1659] | E:425 T:1058 T:1635 T:1653 T:1653 T:1659 | bit1_clr [3], bit1_rmw [3], bit1_test [3] | bit1 | 3..3 |
+| `cond` | no | short transfers with a condition field: the flag test clocks after the displacement take [T:1396-1399] | T:1398 T:1399 | branch_short [4] | - | 4..4 |
+| `cpre` | no | shift_imm (shift_count=late): clocks from the ModR/M take to the count byte's take [C:1304-1305; T:1211-1215] | T:1214 | shift_imm [2] | - | 2..2 |
+| `dadd` | no | mem_order=split: EU clocks after a displacement's take (store_imm) [C:1316-1318; T:982-985] | T:982 | rmw_imm [1], store_imm [1] | - | 1..1 |
+| `dclk` | yes | dest_route: clocks a form spends routing its result to the operand its direction bit does not name [T:1143-1158] | T:1158 | load_alu [2], rmw [2] | - | 2..2 |
+| `dfloor` | yes | disp_floor / ea_floor: the first data cycle no earlier than dfloor clocks after the displacement take (or where a mod-00 form's displacement would be taken) [C:1319-1324; E:427-434, 1087] | E:429 E:434 E:1087 E:1089 | bit1_clr [2], bit1_rmw [2], bit1_test [2], load [2], load_alu [2], load_ptr [2], load_seg [2], pop_mem [2], push_mem [2], rmw [2], rmw_imm [2], rol4_mem [2], ror4_mem [2], store [2], store_imm [2] | - | 2..2 |
+| `dhold` | yes | xfer_mem_disp=grp / grp_disp=hold: clocks after a d16's take a fetch is held (falls back to grp_free) [E:1154-1164; C:1468-1470] | read by a computed name or via the class table; see the cites in Counts | br_mem [3], branch_far_mem [3], call_far_mem [3], call_mem [3] | - | 3..3 |
+| `exec` | no | EU clocks after the operand take / after the last data step (template's exec step); for transfers the clocks before the flush; for I/O OUT the clocks after the post [C:1290-1291, 1300-1302] | E:404 T:1125 T:1199 T:1206 T:1210 T:1221 T:1227 T:1232 T:1242 T:1259 T:1279 T:1284 | bcd4s [12], bcd4s_cmp [20], bcwz [11], bit1 [2], bit1_test [2], br_mem [8], br_reg [5], branch_far [5], branch_far_mem [8], branch_near [5], branch_short [8], brk [8], call [8], call_far [8], call_far_mem [8], call_mem [8], call_reg [8], convert [16], convert_d [16], dbnz [14], dbnz_z [15], dispose [2], div [39], in [3], load [2], load_alu [2], load_ptr [5], load_seg [3], mul [31], mul_imm [35], out [2], pop [2], pop_mem [3], pop_psw [4], pop_r [2], pop_seg [3], prefix [2], prepare [11], push_mem [6], ret [8], ret_far [8], ret_far_imm [8], ret_imm [8], reti [14], rol4 [13], ror4 [17], shift_cl [7], shift_imm [6], str_cmp [6], str_in [4], str_load [2], str_move [4], str_out [3], str_scan [7], xlat [2] | adjust, adjust_b, extend, extend_w, flag, flag_di, flag_ei, imm, incdec, lea, reg, str_store, test_reg | 2..39 |
+| `exec0` | no | shift_imm: exec for the form without a count byte (D0/D1, count 1) [C:1303-1304; T:1208-1210] | T:1210 T:1210 | shift_imm [5] | - | 5..5 |
+| `fdisp` | no | load_alu: fixed_lookup=decoder, the TEST lookup's EU clocks between the ModR/M take and the displacement take [T:1066-1078] | T:1078 | load_alu [3] | - | 3..3 |
+| `fgap` | yes | flush_inflight=wait: the flush waits until no fetch is in flight and fgap clocks have passed since the last fetch's last clock [C:1407-1409; E:1331-1361] | read by a computed name or via the class table; see the cites in Counts | bcwz [5], br_mem [5], br_reg [8], branch_far [5], branch_far_mem [5], branch_near [3], branch_short [5], brk [5], call [5], call_far [5], call_far_mem [5], call_mem [5], call_reg [5], dbnz [5], dbnz_z [5], ret [5], ret_far [5], ret_far_imm [5], ret_imm [5], reti [5] | - | 3..8 |
+| `fgrp` | yes | load_alu: the fixed operation's lookup (TEST, F6/F7 /0) clocks added to the group setup (grp_fixed) and to the imm floor (fixed_floor) [T:1090-1104; E:443-447] | E:447 T:1093 T:1103 | load_alu [2] | - | 2..2 |
+| `fgrp_free` | yes | load_alu: fetch-free part of fgrp [T:1094, 1104] | T:1094 T:1104 | load_alu [2] | - | 2..2 |
+| `first` | yes | REP string / BCD string: the first element's first cycle setup [C:1490-1494; T:1838, 1699] | T:1699 T:1838 | bcd4s [16], bcd4s_cmp [16], str_cmp [14], str_in [15], str_load [14], str_move [15], str_out [16], str_scan [15], str_store [15] | - | 14..16 |
+| `flwb` | yes | bit1: write-back flwb clocks longer when the register bit op's step end raises a fetch in page_ir_room=end's state (page_fl_end=wb) [E:760-763; C:1259-1263] | E:763 | bit1 [2] | - | 2..2 |
+| `fsetup` | yes | 0F memory forms (page_mem=fixed) / bit fields (bf_read=fixed): the read's fetch-free setup counted back from its post [C:1335-1337; T:1655-1660, 1712-1715] | arbiter.py:642 T:1659 T:1715 | bf_ext [7], bf_ins [7], bit1_clr [3], bit1_rmw [3], bit1_test [3], rol4_mem [3], ror4_mem [3] | - | 3..7 |
+| `ftail` | yes | bf_read=fixed: the bit field's read waits ftail fetch-free clocks after the last fetch's end (+1 per imm byte) [E:1801-1804] | E:1803 | bf_ext [2], bf_ins [2] | - | 2..2 |
+| `fwb` | yes | lea: lea_wb=fetch, LDEA started on a fetch issue clock writes back to fwb clocks after that fetch's last clock [E:314-319] | E:319 | lea [5] | - | 5..5 |
+| `gap` | yes | push_r / pop_r burst: clocks between words [T:1384-1390] | T:1389 T:1390 | - | pop_r, push_r | 0 |
+| `grp` | no | group memory form: the group setup clocks before the first data request (as EU clocks or extra setup per grp_mode) [T:1032-1041] | T:1041 T:1093 T:1098 | bit1_clr [1], bit1_test [1], br_mem [6], branch_far_mem [6], call_far_mem [6], call_mem [6], div [4], load_alu [4], mul [4], push_mem [4], rmw [4], rmw_imm [3], store_imm [3] | bit1_rmw, pop_mem, rol4_mem, ror4_mem | 1..6 |
+| `grp1` | no | grp for a group form with a one-byte immediate (83 /x, imm8_grp=own) [T:1042-1043] | T:1043 | rmw_imm [2], store_imm [2] | - | 2..2 |
+| `grp_free` | yes | the last grp_free of the group setup clocks must be fetch-free (grp_mode=setup) [T:1084-1088] | T:1088 T:1088 T:1094 T:1099 | br_mem [6], branch_far_mem [6], call_far_mem [6], call_mem [6], div [3], load_alu [3], mul [3], pop_mem [3], push_mem [3], rmw [3], rmw_imm [1], store_imm [1] | bit1_clr, bit1_rmw, bit1_test, rol4_mem, ror4_mem | 1..6 |
+| `grpcl` | yes | memory shift by CL (D2/D3, shift_cl_mem=count): more group-setup clocks before the read, all fetch-free [T:1045-1048] | E:410 T:1048 | rmw [3] | - | 3..3 |
+| `hold` | yes | flush_hold=start: no fetch request from hold clocks after a taken transfer's start to its flush [C:1414-1415; E:526-530] | E:530 | bcwz [2], br_mem [10], br_reg [10], branch_far [16], branch_far_mem [16], branch_near [10], branch_short [6], brk [6], call [10], call_far [16], call_far_mem [16], call_mem [10], call_reg [10], dbnz [2], dbnz_z [2], ret [6], ret_far [6], ret_far_imm [6], ret_imm [13], reti [6] | - | 2..16 |
+| `hphase` | yes | unit_hold: the exec clock of the first micro-boundary (every second exec clock from it) at which a register shift/mul/div waits for a fetch past its second clock [E:608-613; C:1310-1311] | E:613 | div [2], mul [2], mul_imm [2], shift_cl [2], shift_imm [1] | - | 1..2 |
+| `hrel` | no | fetch hold released hrel clocks before the form's last clock (bf_imm_hold, bcd_fetch, cvt_hold) [C:1343-1344; T:1641, 1707, 1745] | T:1641 T:1707 T:1745 | bcd4s [2], bcd4s_cmp [2], bf_ext [2], convert [1], convert_d [3] | bf_ins | 1..3 |
+| `hx` | no | convert (cvt_tail=release): clocks more after the fetch hold's release [T:1625-1628] | T:1645 T:1645 | convert [1], convert_d [2] | - | 1..2 |
+| `igap` | no | mul_imm register form (mul_imm_reg=gap): clocks between the ModR/M take and the immediate's [T:1666-1670] | T:1670 | mul_imm [2] | - | 2..2 |
+| `istart` | yes | imm_count=start: the first data request of a memory form with an immediate issues no earlier than istart + imm bytes clocks after the start [E:435-439] | E:437 | rmw_imm [5], store_imm [5] | - | 5..5 |
+| `last` | yes | the CW-ending element's last cycle: last more setup clocks (str_out) [C:1493-1494; T:1812] | T:1812 | str_out [1] | - | 1..1 |
+| `lead` | yes | I/O: the last setup clocks during which the bus unit has committed to the I/O (Request.lead) [C:1298-1299; E:1929] | E:1929 | out [2] | in | 2..2 |
+| `loop` | yes | REP string: each later element's first cycle setup; BCD: each later pair's source read; shift_cl: clocks added to exec for a non-zero count [C:1490-1494; T:1220, 1699, 1820] | T:1220 T:1699 T:1820 | bcd4s [7], bcd4s_cmp [14], shift_cl [2], str_cmp [7], str_in [6], str_load [9], str_move [7], str_out [6], str_scan [10], str_store [7] | - | 2..14 |
+| `loop1` | yes | str_scan: the second element's setup (1-to-2 spacing) [C:1492-1493; T:1820] | T:1820 T:1820 | str_scan [8] | - | 8..8 |
+| `mexec` | no | mul/div/mul_imm memory form: clocks after the read data (the multiply/divide) [T:1231-1242, 1688] | T:1232 T:1232 T:1688 T:1695 | div [37], mul [29], mul_imm [43] | - | 29..43 |
+| `mhold` | no | ret_imm / ret_far_imm / mul_imm: a half-taken immediate word holds fetch requests mhold clocks [C:1338-1340, 1435-1436; T:1502-1504, 1674] | T:1504 T:1674 T:1679 | mul_imm [41], ret_far_imm [6], ret_imm [6] | - | 6..41 |
+| `mid` | no | string / BCD: setup of an element's later cycles (the write after the read; the destination read) [C:1489-1491; T:1810, 1700] | T:1700 T:1810 | bcd4s [7], bcd4s_cmp [7], str_cmp [7], str_in [4], str_move [7], str_out [6] | - | 4..7 |
+| `mtail` | yes | mul/div (abort_unit=loop, io_take): clocks before the exec's end at which a request an aborted start dropped is raised again [C:1307-1309, 1312-1315; E:734, 899, 918] | E:734 E:899 E:918 E:927 | div [2], mul [2], mul_imm [2] | - | 2..2 |
+| `mtx` | yes | page_mt_end=exec: the ModR/M byte taken after a wait reaches the EU mtx clocks late; ALU clocks start no earlier than take+1+mtx [E:1039-1044] | E:1044 | bit1 [1], bit1_test [1] | bit1_clr, bit1_rmw | 1..1 |
+| `mwb` | yes | a memory-operand form's own wb [E:322-323] | E:323 E:323 | div [2], mul [2], mul_imm [2] | - | 2..2 |
+| `nexec` | no | transfer not taken: clocks after the decide step [T:1400-1402] | T:1402 T:1470 | bcwz [4], branch_near [4], branch_short [1], dbnz [6], dbnz_z [7] | - | 1..7 |
+| `nfgap` | yes | untaken=wait: the same wait for a not-taken transfer (decide step) [C:1410-1411; E:1332] | read by a computed name or via the class table; see the cites in Counts | bcwz [1], branch_short [1], dbnz [1], dbnz_z [1] | - | 1..1 |
+| `nhold` | yes | xfer_nt=odd: clocks into the clocks after a not-taken short transfer's operand take at which its odd-address hold ends [C:1330-1331; E:846-853] | read by a computed name or via the class table; see the cites in Counts | bcwz [2], branch_short [3], dbnz [4], dbnz_z [2] | - | 2..4 |
+| `nx` | yes | hand-off: the next opcode may load into the IR nx clocks after the last operand take (the loader busy that long) [C:1294-1295; E:454; decoder.py:98-111] | read by a computed name or via the class table; see the cites in Counts | adjust [1], adjust_b [1], bf_ext [1], bf_ins [1], bit1 [4], br_reg [1], extend [1], extend_w [1], flag [1], flag_di [1], flag_ei [1], reg [1], rol4_mem [7], ror4_mem [1], str_cmp [2], str_move [1], str_scan [1] | bcd4s, bcd4s_cmp, bit1_clr, bit1_rmw, bit1_test, branch_short, convert, convert_d, incdec, lea, mul_imm, out, rol4, ror4, shift_imm, str_out, test_reg | 1..7 |
+| `nx0` | yes | form without operand bytes: its successor's IR load held nx0 clocks from its start [decoder.py:112-114; E:459-460] | E:459 | adjust [8], adjust_b [16], extend_w [8], flag_di [3], flag_ei [12] | extend, flag, incdec | 3..16 |
+| `pdhold` | yes | page_disp=hold: a 0F memory form's displacement taken inside a fetch's flight: no fetch before pdhold clocks after that fetch's delivery [E:1081-1084] | E:1084 | bit1_clr [3], bit1_rmw [3], bit1_test [3] | - | 3..3 |
+| `phold` | no | LES/LDS, POP PSW: no fetch request for phold clocks from the last read's data [C:1436; T:1523-1524] | T:1524 T:1524 | load_ptr [3], pop_psw [2] | - | 2..3 |
+| `post` | no | clocks after the last data cycle is issued (stores, RMW, transfers after the flush); IN: clocks after the data [C:1293, 1302] | T:1248 T:1251 T:1275 T:1291 T:1304 T:1306 T:1312 T:1316 T:1323 T:1345 T:1351 T:1355 | in [2] | bcwz, bf_ins, bit1_clr, bit1_rmw, br_mem, br_reg, branch_far, branch_far_mem, branch_near, branch_short, brk, call, call_far, call_far_mem, call_mem, call_reg, dbnz, dbnz_z, out, pop_mem, push, push_imm, push_mem, push_r, push_seg, ret, ret_far, ret_far_imm, ret_imm, reti, rmw, rmw_imm, rol4_mem, ror4_mem, store, store_imm | 2..2 |
+| `pre` | yes | EU clocks before the operand take (the template's first clocks step) [C:1287-1289; T:_steps] | E:453 T:1198 T:1198 T:1206 T:1213 T:1216 T:1221 T:1230 T:1239 T:1242 T:1246 T:1249 | bf_ext [1], bf_ins [1], bit1 [1], bit1_clr [1], bit1_rmw [1], bit1_test [1], br_reg [5], branch_far [3], branch_near [3], call [3], call_far [3], call_reg [3], convert [3], convert_d [2], imm [3], in [3], incdec [3], out [3], pop_mem [2], prepare [2], push_imm [3], rol4 [1], rol4_mem [1], ror4 [1], ror4_mem [1], test_reg [3] | adjust, adjust_b, bcd4s, bcd4s_cmp, bcwz, br_mem, branch_far_mem, branch_short, brk, call_far_mem, call_mem, dbnz, dbnz_z, dispose, div, extend, extend_w, flag, flag_di, flag_ei, lea, load, load_alu, load_ptr, load_seg, mul, mul_imm, pop_r, push_mem, push_r, reg, ret, ret_far, ret_far_imm, ret_imm, reti, rmw, rmw_imm, shift_cl, shift_imm, store, store_imm, str_cmp, str_in, str_load, str_move, str_out, str_scan, str_store, xlat | 1..5 |
+| `pre0` | yes | instead of pre for a form without operand bytes (and the A1/A3 direct forms' head, T:971-974): a format property [C:1290; T:1197-1198] | T:974 T:974 T:1198 T:1198 T:1424 T:1633 T:1633 | adjust [10], adjust_b [17], extend [3], extend_w [9], flag [3], flag_di [4], flag_ei [13], incdec [3], load [2], load_ptr [2], load_seg [2], reg [4], store [2], test_reg [4] | in, out | 2..17 |
+| `relatch` | yes | port_latch=relatch: clocks a port byte's take holds a waiting detached I/O request [C:1300; E:1890; machine.py:218] | E:1890 machine.py:218 | in [3], out [3] | - | 3..3 |
+| `rexec` | no | brk: EU clocks from a vector read's issue to the push after it [C:1476-1477; T:1577] | T:1577 | brk [3] | - | 3..3 |
+| `rexit` | no | REP string exit clocks when CW ran out; mul/div (refresh on): the exec's last clocks run as the loop exit [C:1325-1329, 1494; T:1850, 1133] | T:1133 T:1850 | div [6], mul [8], str_cmp [20], str_in [12], str_load [15], str_move [12], str_out [13], str_scan [20], str_store [12] | - | 6..20 |
+| `rfree` | no | fetch-free clocks of rsetup (pop_mem stack read, brk vector offset) [T:1321, 1573] | T:1321 T:1342 T:1349 T:1573 | brk [8], pop_mem [3] | - | 3..8 |
+| `rfree0` | no | brk_free=format: BRK 3's own rfree [C:1481-1483; T:1573] | T:1573 | brk [10] | - | 10..10 |
+| `rpre` | no | REP string: clocks after the opcode's take before the first element [C:1490; T:1830] | T:1830 | str_cmp [5], str_in [5], str_load [6], str_move [5], str_out [5], str_scan [5], str_store [5] | - | 5..6 |
+| `rsetup` | no | a read's setup where the template names it separately (immediate memory forms' read, pop_mem's stack read, brk vector offset) [C:1340-1342, 1476; T:1005, 1321, 1574] | T:1005 T:1008 T:1010 T:1321 T:1342 T:1349 T:1574 T:1687 T:1694 | brk [12], mul_imm [2], pop_mem [7] | - | 2..12 |
+| `rwb` | yes | incdec: INC/DEC r8's own wb (WP114) [E:325-326] | E:326 | - | incdec | 0 |
+| `rwsetup` | no | far memory-indirect transfers: the segment word's read setup, every clock fetch-free [C:1470-1471; T:1588] | T:1588 T:1588 | branch_far_mem [5], call_far_mem [5] | - | 5..5 |
+| `setup` | yes | clocks from posting a data request to its earliest issue (the request's setup) [C:1291-1292] | E:350 T:1247 T:1250 T:1253 T:1283 T:1290 T:1303 T:1305 T:1311 T:1315 T:1323 T:1344 | bf_ext [12], bf_ins [12], brk [3], call [7], call_far [3], call_far_mem [7], call_mem [7], call_reg [7], dispose [7], in [8], out [8], pop [7], pop_mem [4], pop_psw [7], pop_r [7], pop_seg [7], prepare [7], push [7], push_imm [7], push_mem [1], push_r [9], push_seg [8], ret [7], ret_far [7], ret_far_imm [7], ret_imm [8], reti [7], str_cmp [9], str_in [9], str_load [9], str_move [9], str_out [10], str_scan [10], str_store [11], xlat [7] | bit1_clr, bit1_rmw, rmw, rmw_imm, rol4_mem, ror4_mem, store, store_imm | 1..12 |
+| `setup0` | no | I/O form without a port byte (DW): its own setup [T:1431] | T:1431 T:1431 | in [7], out [7] | - | 7..7 |
+| `setup_free` | yes | how many of the last setup clocks must be fetch-free (default all); read as the Request's free_need [C:1292-1293; E:1928] | E:1928 | bit1_clr [3], bit1_rmw [3], brk [3], call [3], call_far [3], call_far_mem [7], call_mem [7], call_reg [7], dispose [3], pop [3], pop_psw [3], pop_r [3], pop_seg [3], prepare [3], push [3], push_imm [3], push_r [7], push_seg [4], ret [3], ret_far [3], ret_far_imm [3], ret_imm [4], reti [3], rmw [3], rol4_mem [3], ror4_mem [3], xlat [3] | bf_ext, bf_ins, pop_mem, rmw_imm | 3..7 |
+| `sexec` | no | mul/div: the signed register form's exec (F7 /5, /7); rmw_imm: extra clocks of the memory shift by imm8's ALU step [C:1356-1357, 1375-1380; T:1227, 1259] | T:1227 T:1227 T:1260 | div [58], mul [41], rmw_imm [3] | - | 3..58 |
+| `sidle` | yes | slot_idle=eu: clocks from a left-out write's slot that runs no fetch to the clock the EU goes on [C:1381-1384; E:1984-1987] | E:1987 | bit1_clr [2], bit1_rmw [2], rmw [2], rmw_imm [2], rol4_mem [2], ror4_mem [2] | - | 2..2 |
+| `smexec` | no | mul/div memory form, signed operation (F7 /5, /7): its own mexec [C:1305-1306; T:1233] | T:1234 | div [58], mul [39] | - | 39..58 |
+| `span` | no | bit fields within one word: the cost formula's clocks less span run as the tail [C:1551-1553; T:1731-1739] | T:1731 T:1739 | bf_ext [16], bf_ins [20] | - | 16..20 |
+| `spre` | no | far forms: clocks between the offset word's take and the segment word's [C:1434-1435; T:1474-1476] | T:1475 T:1475 | branch_far [2], call_far [2] | - | 2..2 |
+| `sthru` | no | rmw_imm memory shift by imm8: the first sthru setup clocks of the write count through a fetch in flight [C:1378-1380; T:1265-1271] | T:1271 | rmw_imm [2] | - | 2..2 |
+| `tfree` | no | its fetch-free tail [C:1436-1437; T:1518] | T:1489 | call_far [3] | - | 3..3 |
+| `tsetup` | no | call_far (call_far_post=take): first write's setup from the clock after the segment take [C:1436-1437; T:1517-1518] | T:1489 | call_far [6] | - | 6..6 |
+| `ufree` | yes | unprefixed INM/OUTM (str_in_io / str_out_rd=free): fetch-free clocks of the I/O / memory read's setup [E:1935-1949] | E:1940 E:1948 | str_in [6], str_out [7] | - | 6..7 |
+| `ugap` | yes | unprefixed string form: starts no earlier than ugap clocks past the last fetch's delivery (str_single_start) [C:1497-1499; E:245-250, 347-350] | E:246 E:350 | str_cmp [1], str_in [1], str_move [1], str_scan [1] | str_load, str_out, str_store | 1..1 |
+| `usetup` | yes | unprefixed OUTM (str_out_rd=free): its read's setup in all [E:1941-1949] | E:1949 | str_out [11] | - | 11..11 |
+| `uwb` | yes | string class, unprefixed form: the exec's last uwb clocks are a write-back (str_single_wb=wb/index) [E:351-355; T:1824] | E:355 T:1824 | str_cmp [2], str_in [2], str_move [2] | str_load, str_out, str_scan, str_store | 2..2 |
+| `vsetup` | no | brk: the vector segment read's setup (all fetch-free) [C:1477-1478; T:1575] | T:1575 T:1575 | brk [6] | - | 6..6 |
+| `wb` | yes | result write-back clocks running on past the instruction's end; only a successor with wbsync waits for them [C:1295-1296; E:351, 323] | read by a computed name or via the class table; see the cites in Counts | adjust [2], adjust_b [3], bcd4s [2], bcd4s_cmp [2], bcwz [2], bf_ext [2], bit1 [2], branch_short [2], convert [2], dbnz [2], dbnz_z [2], div [2], extend [1], extend_w [3], flag [1], flag_di [3], flag_ei [3], incdec [1], load_ptr [2], mul [2], mul_imm [2], pop_psw [2], prepare [2], rol4 [2], ror4 [2], shift_cl [2], shift_imm [2] | bf_ins, bit1_clr, bit1_rmw, bit1_test, convert_d, imm, in, load, load_alu, pop, rol4_mem, ror4_mem | 1..3 |
+| `wbsync` | yes | 1: the template begins by waiting for the previous instruction's write-back [C:1296-1297; E:474-479, 1323] | read by a computed name or via the class table; see the cites in Counts | out [1] | in | 1..1 |
+| `wbsync0` | yes | wbsync for a form without operand bytes [E:476] | read by a computed name or via the class table; see the cites in Counts | - | out | 0 |
+| `wmid` | no | bcd4s: the write-back's setup [C:1544; T:1702] | T:1702 | bcd4s [10] | - | 10..10 |
+| `wpre` | no | CALL r16 / far: clocks between the operand take and the first write's post [C:1435; T:1482] | T:1482 T:1482 | call_far [1] | call_reg | 1..1 |
+| `wsetup` | no | second and later word's setup (push_r/pop_r burst words, call_far return offset, far returns' segment, LES/LDS segment word, RETI PS/PSW, INS write-back) [C:1429-1432; T:1384, 1491, 1518, 1564] | T:1384 T:1491 T:1491 T:1518 T:1518 T:1528 T:1528 T:1564 T:1564 T:1579 T:1579 T:1594 | bf_ins [2], brk [7], call_far [7], call_far_mem [7], load_ptr [5], pop_r [7], push_r [7], ret_far [7], ret_far_imm [8], reti [7] | - | 2..8 |
+| `xfetch` | no | str_fetch=hold: fetch requests again xfetch clocks after the last cycle [C:1328; T:1843-1844] | T:1844 | str_cmp [8], str_in [8], str_load [8], str_move [8], str_out [9], str_scan [8], str_store [8] | - | 8..9 |
+| `xrsetup` | no | bf_ins crossing: the next word's read setup [T:1735] | T:1735 | bf_ins [12] | - | 12..12 |
+| `xsetup` | no | bf_ext crossing: the next word's read setup [T:1730] | T:1730 | bf_ext [27] | - | 27..27 |
+| `xspan` | no | bit fields crossing a word: the same with xspan [T:1731-1736] | T:1731 T:1736 | bf_ext [45], bf_ins [105] | - | 45..105 |
+| `xsplit` | no | str_split=floor: exit no earlier than xsplit clocks after a split last cycle's second half issue [C:1327-1328; T:1845-1849] | T:1849 | str_cmp [4], str_in [4], str_load [4], str_move [4], str_out [4], str_scan [4], str_store [4] | - | 4..4 |
+| `xwb` | yes | string class, REP form: the exit's last xwb clocks are a write-back past the end (str_exit=wb) [E:356-359; T:1850-1852] | E:359 T:1852 | str_cmp [2], str_in [2], str_load [2], str_move [2], str_out [2], str_scan [2], str_store [2] | - | 2..2 |
+| `xwsetup` | no | bf_ins crossing: the first word's write-back setup [T:1733-1734] | T:1734 | bf_ins [69] | - | 69..69 |
+| `zexec` | no | dbnz_z not taken on its Z test: its clocks (nexec when the count ended it) [C:1432-1433; T:1470] | T:1470 | dbnz_z [4] | - | 4..4 |
+| `zexit` | no | REP string with CW = 0: clocks to the end [C:1491; T:1834] | T:1834 | str_cmp [10], str_in [11], str_load [9], str_move [10], str_out [11], str_scan [10], str_store [10] | - | 9..11 |
+| `zfetch` | no | str_fetch=hold, CW = 0: clocks into the exit at which the aborted start's request is raised again [C:1329; T:1832-1833] | T:1833 | str_cmp [6], str_in [7], str_load [5], str_move [6], str_out [7], str_scan [6], str_store [6] | - | 5..7 |
+
+Class-table columns derived, not stored: `mwb`/`rwb` fall back to `wb`, `wbsync0` to `wbsync`, `dhold` to `grp_free`, `loop1` to `loop` where the class has none; `setup_free_v`, `istart_v`, `usetup_v` = the integer exists for the class (v35_class_tbl.svh header, ucgen.py:2243-2299).
+
+## The EA table (cfg.ea[mode], read at T:1188 `cfg.ea.get(ea_class(op, cfg), 0)` as the ("clocks", n, "ea") step; also E:416, E:433)
+
+`ea_class` (T:1161-1169): the ModR/M mode class, except base+index+d16 under ea_disp16=own (`base_index_disp16`) and a ModR/M direct address under ea_direct=base_disp (`base_disp`). config.py DEFAULT_EA at C:1593-1595 is the structural baseline, not the fit.
+
+| Mode | Fit | Default | ModR/M forms |
+| --- | --- | --- | --- |
+| `base` | 2 | 2 | [BW] [IX] [IY] (mod 00) |
+| `base_index` | 2 | 3 | [BW+IX] ... (mod 00) |
+| `disp` | 2 | 2 | [BP+d] / [IX+d] ... single register + displacement |
+| `base_disp` | 2 | 3 | single base + displacement (mod 01/10) |
+| `base_index_disp` | 2 | 4 | base+index+d8 (and d16 without ea_disp16=own) |
+| `direct` | 0 | 0 | mod 00 rm 110 [d16], and A0-A3 |
+| `base_index_disp16` | 3 | 3 | base+index+d16 (ea_disp16=own) |
+
+Enums that choose the table entry: ea_disp16 = `own`, ea_direct = `base_disp`, ea_post = `clocks` (ea_post=setup turns the EA clocks before a data step into that request's setup, T:1014-1029).
+
+## Model constants (Config integers)
+
+| Name | Fit | Declared | Counts | Rule it serves |
+| --- | --- | --- | --- | --- |
+| `hold_q` | 3 | C:1625 | hold_fetch=le_q: a posted data request holds fetches while queue bytes > Q | hold_fetch |
+| `arbiter_q` | 2 | C:1624 | fetch_wins_le_q: fetch wins while queue bytes <= Q | arbiter |
+| `io_b2b_q` | 3 | C:1733 | (WP26) io_b2b: the bytes stored below which an I/O form waits out a back-to-back fetch; also io_older / imm_start (E:290-311) | io_b2b, io_older, imm_start |
+| `wlatch` | 4 | C:1627 | data latch: a datum occupies the bus unit's data latch this many clocks from entering it; an I/O form of wlatch_cls does not start while busy (E:280-285, 1982) | wlatch_* |
+| `io_recover` | 2 | C:1626 | clocks after an I/O cycle's last clock before a memory data cycle may start (fetches may) (E:833-836) | - |
+| `per_shift_count` | 2 | C:1927 | shift clocks per count: shift_imm/shift_cl count loop (T:1216-1222), memory shift ALU step (T:1300, 1257), refresh_rmw_loop (E:400) | - |
+| `pop_exit` | 4 | C:1794 | (WP40) prelude_anchor=pop: clocks from the POP PSW read's delivery to the first segment load's start (prelude only) | prelude_anchor |
+| `shift_tail` | 3 | C:1667 | refresh_eu=hold: the shift's exec clocks that run after its count loop as its exit (T:1110-1125; refresh on only) | refresh_eu |
+| `reraise_off` | 0 | C:1661 | (WP23) refresh_reraise=unit: clocks from the shift loop's end to the clock it raises a request a refresh took (E:730-735) | refresh_reraise |
+| `rfm_delay` | 3 | C:1662 | (WP23) refresh_restart: clocks from the RFM store's issue to RFEN taking effect | refresh_restart |
+| `refresh_interval` | 16 | C:1663 | refresh (RFM FCh): clocks between refresh requests | refresh |
+| `refresh_recent` | 18 | C:1666 | (WP24) refresh_exec=every2_recent: clocks from the previous refresh start within which the shift exec's loop-eve boundary is one | refresh_exec |
+| `refresh_stall` | 3 | C:1664 | refresh_eu: clocks a refresh cycle adds to the count loop it stalls | refresh_eu |
+| `refresh_stall_exec` | 4 | C:1665 | refresh_eu: clocks it adds to another stalled clocks step | refresh_eu |
+| `refresh_tail_bound` | 2 | C:1668 | refresh_eu=hold: the exit's micro-boundary this many clocks before the exit ends | refresh_eu |
+| `read_use_latency` | 0 | C:1621 | clocks step after every read data step (T:1003-1012, 1287, 1295); no comment in config.py | - |
+| `data_ready` | 0 | C:1612 | no comment in the sources | - |
+| `min_gap` | 0 | C:1613 | no comment in the sources | - |
+| `opcode_overlap` | 0 | C:1617 | opcode_take=start only: the opcode take's clock overlapped (eu.py docstring lines 3-5); unread under prefetch | opcode_take |
+| `bytes_per_clock` | 1 | C:1614 | no comment in the sources | - |
