@@ -1023,6 +1023,95 @@ posted I/O write with its lead); the memory forms' request setup under wait stat
 at 1 / 2 waits on loads and stores: the model's data_while_fetch counting, not the I/O rule);
 the stack forms and CALL (MX2).
 
+## MX2 (part 1): the two bus-unit probes; the transfers' flush and refill probed
+
+### 1a. The post-I/O fetch hold, IOH 2 (the registered sample)
+
+`V35_MX1G_IOH` 2 (v35_bus.sv): the line's rise on an EU I/O cycle's issue clock is seen a clock
+late: the first free clock after the I/O cycle still reads the sample taken before the rise; the
+hold ends at the end of that clock, with no dependence on the next start. Measured: the MX0 gate
+families 825 (IOH 1: 829); the corpus 4,062 against IOH 1's 4,158 (both with TSM's first version): IOH 2 gains none and loses
+96 (F33 32, F21 24, F20 16, F34 11, F40 9, F3 4; e.g. F33-out-dec_aw-k4-pE-w1, F21-out-es-add-bw-pE-w1),
+all after an OUT whose next instruction is not yet started when the bus is first free. IOH 1 stays
+the default: the release is the next start, as the model's io_ir_hold, and its reading stays
+provisional (an EU event in a bus-unit law).
+
+### 1b. The memory requests' setup under wait states (`an/probe5.py`, `an/probe4.py`)
+
+F4-push-ld_bw_ix-k1-pO-w0 / w1 / w2 (MOV BW,[IX], mod 00): the model's read issues at S + 5 /
+S + 6 / S + 7; the fetch issued at S runs S .. S + 2 + w. The request's setup is 0 (posted and
+issued on one clock); what moves is the EU: the ModR/M take at S sets the take sync (the fetch
+issued on the take's clock), and the form's two `ea` clocks start on that fetch's delivery
+(S + 3 + w). So it is the take sync, not a counting rule (data_while_fetch is not involved), and
+not BW (the EA step is not a move into the bus unit's registers). The RTL armed the take sync on a
+register-mode ModR/M pop only (MX1c: "not a memory form's byte").
+
+The reading: the take sync's (the operand byte's path and the fetched word's write share the
+queue's port: the routine's next act waits for the words the pop's room asked for) holds for a
+memory form's ModR/M pop as for a register form's; at mod 00 the book's EA clock that eab0 kept
+as an OPEN word is that wait.
+
+Built (`V35_MX2_TSM` 1, the default; v35_loader.sv, v35_useq.sv): a memory form's ModR/M pop
+on E arms the take sync, and in a memory form the sync gates the EA's add (`ea` set) only, not
+the book's EA clock (the heads' OPEN words) before it: the model's ea clocks start no earlier
+than the delivery and no earlier than their place. A first version that dropped mod 00's head
+(the OPEN word as the sync's wait) gained 982 and lost 376 on the corpus (prefixed forms, where
+no fetch is owed at the ModR/M pop and the head's clock stands: F21-none-es-add-bw-pE-w0's read
+at S + 4 against S + 5); the second, built, keeps the head. Traced: F4-push-ld_bw_ix-k1-pO-w0..w2
+the read at S + 5 / 6 / 7, F21-none-es-add-bw-pE-w0's ADD mem,reg exact, the model's.
+
+The corpus (both spacings, tables identical): **4,572** exact (MX1g 3,552): 1,020 gained, 0 lost
+(F20 +240, F21 +264, F6 +69, F38 +65, F19 +58, F15 +51, F7 +46, F25 +46, F5 +42, F14 +28,
+F30 +23, F16 +21, F22 +20, F40 +16, F4 +11, F39 +11, F36 +7, F26 +1, F29 +1); the MX0 gate
+families unchanged (829). First divergence: (i) 16,455, (ii) 0, (iii) 9,509. Write data 93,540 /
+106,824. Function: `--regfile` 78,965 0 bad (pass 70,124), `--fn` 22,455 0 bad,
+the SingleStepTests set as MX1g; lint clean in the five configurations, TSM 0 and IOH 2; test_uasm
+and test_v35_struct 35 OK; the nine modules the four known failures.
+The load's own length stays off by the waits (w0 11 against the model's 10, w2 13 against 14):
+the routine's five OPEN words after the post were placed on the model's 0-wait positions where
+the model waits for the datum and two clocks; the F word's position is a routine question for
+MX2's memory pass.
+
+### 2. The transfers: the model's flush and refill, probed (not built)
+
+The frozen model (templates.py branch_short / call / ret, eu.py the flush step, queue.flush):
+- the flush waits until no fetch is in flight and the class's gap (fgap 5; branch_near 3; a
+  conditional taken cfgap 8; not taken nfgap 1, "decide") clocks have passed since the last
+  fetch's end (flush_inflight=wait), and no earlier than its exec clocks after the take;
+  F23-push-br-n0-pE-w0: BR short at S 81, the fetches 81 .. 83 and 84 .. 86 (back to back),
+  the flush at 92 = 86 + 6; at 2 waits (S 83, fetches to 92) the flush at 98 = 92 + 6. The
+  queue is emptied, a fetch in flight's word is discarded on arrival (`queue.discard`; the model
+  waits so none is in flight), the fetch from the target issues on the flush's clock;
+- the refill (refill_start=full_io): the target's first instruction starts only when no fetch is
+  in flight or wanted: BR short's target at 104, after four fetches (92 95 98 101), its IR
+  loaded at 95.
+
+The proposed readings (for the build):
+- the gap is the V20 ROM's SUSP (docs/v35s-mechanisms/v30-structure.md: "SUSP appears only
+  before FLUSH and on stack reads / INTA"): a word that suspends prefetching and waits while a
+  fetch cycle runs; the class's gap is the routine's words between SUSP and FLUSH, its exec the
+  routine's length to FLUSH when no fetch runs at SUSP (BR short: SUSP at S + 4, FLUSH five
+  clocks after it: S + 9 with no fetch running (the exec 8), SUSP held to 87 by the fetch to 86
+  and FLUSH at 92 at 0 waits, SUSP at 93 and FLUSH at 98 at 2, as the model's). No count: a word that stalls on the bus
+  unit's fetch_inflight (the existing `fetch_run`) and the queue's `susp` input (an existing
+  port).
+- the refill: the target's E word waits while the refill's fetch run lasts (a fetch in flight or
+  the line up), the queue's port the writes' (the take sync's reading).
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- The take sync is armed by every ModR/M pop on E (register and memory forms); in a memory form
+  it gates the EA's add, the book's EA clock before it standing.
+- The post-I/O fetch hold: the release at the next start measured better than a registered
+  sample (IOH 2 loses 96, gains none).
+- Proposed for the transfers: SUSP (a word that suspends prefetching and waits while a fetch
+  cycle runs) before FLUSH as the V20 ROM has it, the flush gap being the words after it; the
+  refill as the take sync's port reading (the target's E word waits while the refill run lasts).
+
+Open (MX2, part 1 handed back): the transfers (xfer.uasm) are not built; the model's per-class
+gaps (fgap 5, branch_near 3, cfgap 8, nfgap 1) are to be checked against the SUSP reading class
+by class; the load's tail length under waits (the F word's position).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

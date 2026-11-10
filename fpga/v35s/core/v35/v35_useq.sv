@@ -166,7 +166,10 @@ module v35_useq
     // (the delivery's own clock frees the word: the last owed word delivered now)
     wire st_tsy = `V35_MX1C_TSYNC && tw != 2'd0 && !(tw == 2'd1 && f_dlv)
                   && word.pop == PP_NONE && word.seq != SQ_DISP
-                  && (`V35_MX1E_TSE || !word.e);
+                  && (`V35_MX1E_TSE || !word.e)
+                  // (MX2) in a memory form the sync gates the EA's add (the model's ea clocks
+                  // start on the delivery), not the book's EA clock before it
+                  && (!(`V35_MX2_TSM && rmem) || word.ea != EA_NONE);
     // (MX0c) the dispatch (the word after E: the staged opcode's decode into its routine's
     // entry) waits while the bus unit runs a fetch cycle (V35_MX0C_DISPATCH >= 1), and a form
     // with a ModR/M byte also on the clock a back-to-back fetch issues (2). The dispatch and

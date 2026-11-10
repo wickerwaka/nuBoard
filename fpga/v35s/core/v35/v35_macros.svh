@@ -300,6 +300,11 @@
 // state; 0 none
 // (MX1g) V35_MX1G_IOH: the fetch line raised by the staging load on an EU I/O cycle's issue
 // clock is not granted before the EU's next start (v35_bus): 1 the default; 0 none
+// (MX2) V35_MX2_TSM: the take sync armed by a memory form's ModR/M pop too, the
+// sync gating the EA's add only in a memory form: 1; 0 the register forms' only (MX1c)
+`ifndef V35_MX2_TSM
+`define V35_MX2_TSM 1
+`endif
 `ifndef V35_MX1G_IOH
 `define V35_MX1G_IOH 1
 `endif

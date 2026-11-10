@@ -166,7 +166,11 @@ module v35_loader
     assign resv_e = epop && ds.rq;
     assign s_modrm = s_v && ds.has_modrm;
     assign s_wbs = s_v && ds.wbs;
-    assign e_rmodrm = mpop && sb0[7:6] == 2'd3;
+    // (MX2) V35_MX2_TSM: a memory form's ModR/M pop arms the take sync as a register form's
+    // does (the frozen model's take sync on the ModR/M take of every form: the EA clocks wait for
+    // the word the pop's room asked for, F4-push-ld_bw_ix-k1-pO-w0..w2: the EA clocks from the
+    // delivery at S + 3 + waits); in a memory form the sync gates the EA's add only (v35_useq)
+    assign e_rmodrm = mpop && (sb0[7:6] == 2'd3 || `V35_MX2_TSM);
     wire unused = &{1'b0, ds, dm, q_avail};
     wire [2:0] add = mpop ? ds.len + v35_umodrm(s_b, sb0)
                    : epop ? ds.len

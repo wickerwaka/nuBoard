@@ -643,3 +643,20 @@ change to the text above, kept here rather than rewritten into it.
     reading provisional (the release is an EU event); a registered sample of the request line (seen a
     clock late, no start dependence) is to be measured against it. Built behind `V35_MX1G_IOH` 1; 10
     runs on the gate families.
+15. **§3.7, the take sync's scope (MX2 part 1; item 7 amended).** The sync is armed by every ModR/M pop on
+    the E word, the memory forms' as the register forms'; in a memory form it gates the EA's add, the
+    book's EA clock before it standing. The memory loads' and stores' reads early by the wait count were
+    that exemption, not a setup-counting rule (the model's request setup is 0 there; data_while_fetch is
+    not involved). Displacement and port bytes stay exempt.
+16. **§3.6, item 14 measured.** The registered-sample alternative to the post-I/O hold gains nothing and
+    loses 96 runs: on them the bus is free before the next instruction starts and silicon holds the fetch
+    to that start. The release at the next start stands, its machine reading still provisional.
+17. **§3.3, the flush and the refill (probed at MX2 part 1, to be built in part 2).** The frozen model
+    flushes once no fetch is in flight and a class gap has passed since the last fetch's end (BR short 5,
+    BR near 3, a taken conditional 8, not taken 1), no earlier than its exec clocks after the take; the
+    queue is emptied and the target's fetch issues on the flush's clock; the target's first instruction
+    starts when no fetch is in flight or wanted. Proposed readings: the V20 ROM's SUSP word (prefetch
+    suspended, the word waiting while a fetch cycle runs) before FLUSH with the gap the routine's words
+    between them from the book's formula, and the refill as the take sync's port reading. Each class's
+    gap is to be checked against the book's words; a gap the book does not give is an OPEN word with its
+    run, not a count.

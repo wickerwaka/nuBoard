@@ -1661,3 +1661,38 @@ question, decided from S8's routed numbers with the user.
   requests' setup under wait states (the model's data_while_fetch counting, not the I/O rule), the next
   bus-unit probe. MX2 sent: the transfers and the stack, with the IOH alternative and the memory setup
   probe in the same round.
+- 2026-11-10, **MX2 part 1 landed** (the same agent, handed back early at the end of its context; the transfers go
+  to a fresh agent). **The two probes.** (a) The post-I/O fetch hold's registered-sample alternative
+  (`V35_MX1G_IOH` 2: the line's rise on an I/O issue clock seen a clock late, no start dependence) measured
+  825 against 829 on the gate families and 4,062 against 4,158 on the corpus, gaining nothing and losing 96
+  (F33 32, F21 24, F20 16; e.g. F33-out-dec_aw-k4-pE-w1): on those runs the bus is free before the next
+  instruction has started and the model holds the fetch to that start. IOH 1 stays; its reading stays
+  provisional. (b) The memory loads' and stores' reads early by the wait count are the take sync, not a
+  counting rule: the agent's probe on F4-push-ld_bw_ix-k1-pO-w0 / w1 / w2 placed the model's read at S + 5
+  / 6 / 7 with the request's setup 0 and the form's two EA clocks starting on the delivery of the fetch the
+  ModR/M's take issued (S + 3 + w); the RTL had armed the sync on a register-mode ModR/M only (MX1c's
+  exemption). Built as `V35_MX2_TSM` 1: a memory form's ModR/M pop on E arms the take sync and in a memory
+  form the sync gates the EA's add only, the heads' book EA clock standing (a first version that dropped
+  mod 00's head gained 982 and lost 376 on the prefixed forms, where no fetch is owed at the pop and the
+  head's clock stands: F21-none-es-add-bw-pE-w0). The reading is the take sync's own (the operand byte's
+  path and the fetched word's write sharing the queue's port), now with no form exempt but the displacement
+  and port bytes. Traced: the load's read at S + 5 / 6 / 7 and the prefixed ADD mem,reg exact. **Verified
+  on main (both spacings identical, 0 failing, chk silent):** 4,572 / 30,536 exact (MX1g 3,552; 1,020
+  gained, 0 lost: F21 704 → 968, F20 189 → 429, F6 109 → 178, F38 153 → 218, F19 33 → 91, F15 109 → 160;
+  the MX0 gate families unchanged at 829); classification (i) 16,455, (ii) 0, (iii) 9,509; the function
+  gates unmoved (write data 93,540 / 106,824; register vectors 69,099 + 38,760 and function vectors 19,752,
+  0 bad); lint clean in five configurations and the variants; 45 fast tests; the nine offline modules 941
+  with the four known failures; ROM unchanged (1,042 words). Open from the probe: the load's own length
+  is off by the waits (11 against 10 at 0 waits, 13 against 14 at 2): its five OPEN words after the post
+  sit on the model's 0-wait positions where the model waits for the datum and two clocks, a routine
+  question about the F word's place. **The transfers probed, not built** (README "MX2 (part 1)" §2): the
+  model flushes once no fetch is in flight and the class's gap has passed since the last fetch's end (BR
+  short 5, BR near 3, a taken conditional 8, not taken 1), no earlier than its exec clocks after the
+  take, empties the queue and issues the target's fetch on the flush's clock; the target's first
+  instruction starts only when no fetch is in flight or wanted (BR short at 104 after four refill
+  fetches on F23-push-br-n0-pE-w0). The agent's proposed readings, to be tested class by class in part 2:
+  the V20 ROM's SUSP (a word that suspends prefetching and waits while a fetch cycle runs) before FLUSH,
+  the gap being the routine's words between them from the book's formula, and the refill as the take
+  sync's port reading (the target's E word waiting while the refill's fetch run lasts). MX2 part 2 sent to
+  a fresh agent: urom/xfer.uasm, the flush and refill traced against the model, the PUSH frame's
+  residuals, the gate on F23 F30 F35 F37.

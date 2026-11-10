@@ -224,9 +224,12 @@ module v35_bus
     // at the next queue event the bus unit watches, the next start's opcode pop (t_start).
     // The hold ends with the start, or when the line falls.
     reg         ioh = 1'b0, fr_prev = 1'b0;
-    wire        ioh_set = `V35_MX1G_IOH && req_ack && !rq_mem && l_pop && !take_now
+    wire        ioh_set = (`V35_MX1G_IOH != 0) && req_ack && !rq_mem && l_pop && !take_now
                           && fetch_req && !fr_prev;
-    wire        ioh_hold = `V35_MX1G_IOH && ioh && !t_start;
+    // (MX2) IOH 2: the registered sample: the line's rise on the I/O issue clock is seen a clock
+    // late, the first free clock after the I/O cycle still reading the sample taken before the
+    // rise (no dependence on the next start): the hold ends at the end of the first free clock
+    wire        ioh_hold = `V35_MX1G_IOH == 2 ? ioh : (`V35_MX1G_IOH != 0 && ioh && !t_start);
     wire        g_second = free && p2_v;
     wire        b2b_go = free && !g_second && b2b && fetch_req;
     wire        eu_win = free && !g_second && !b2b_go && eu_ok;
@@ -281,7 +284,7 @@ module v35_bus
             fetch_req_b <= fetch_req;
             b2b_hold_b <= b2b_hold;
             ioh_set_b <= ioh_set;
-            ioh_clr_b <= ioh && (t_start || !fetch_req);
+            ioh_clr_b <= ioh && (`V35_MX1G_IOH == 2 ? free : (t_start || !fetch_req));
             g_kind_b <= g_kind;
             grant_len_b <= grant_len;
             g_addr_b <= g_addr;
