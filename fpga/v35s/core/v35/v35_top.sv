@@ -203,7 +203,7 @@ module v35_top
     wire        q_fetch_req, q_low, b_b2b_now;
     wire        q_word;                 // (Q2)
     // (MX0) the loader: the word register, the popped bytes, the decode
-    wire        q_stall, dtrap, resv_e, s_modrm, dcall;
+    wire        q_stall, dtrap, resv_e, s_modrm, dcall, e_rmodrm;
     wire [UADDR_W-1:0] dent, dret;
     wire [7:0]  ld_op, ld_opc, ld_modrm, ld_il, ld_ih, ld_dl, ld_dh;
     wire [19:0] op_a;
@@ -316,13 +316,13 @@ module v35_top
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .qv0, .qv1, .q_avail, .q_stored, .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
+        .qv0, .qv1, .q_avail, .q_stored, .q_arrive(dlv_fetch), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
         .reset_addr(tb_reset_addr), .flush(t_flush), .flush_lin,
         .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && word.seq == SQ_DISP),
         .dispm(word.seq == SQ_DISPM), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
         .dl(ld_dl), .dh(ld_dh), .fmt, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
         .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret, .dtrap,
-        .resv_e, .s_modrm
+        .resv_e, .s_modrm, .e_rmodrm
     );
 
     // ---------------------------------------------------------------- the microsequencer
@@ -331,6 +331,8 @@ module v35_top
         .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .rb_lo,
         .fetch_run(b_fetch_inflight), .b2b_now(b_b2b_now), .s_modrm,
+        .e_rmodrm, .rmem(fmt.has_modrm && ld_modrm[7:6] != 2'd3), .q_req(q_fetch_req), .resv(req_resv),
+        .f_grant(g_fetch), .f_dlv(dlv_fetch),
         .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .halted, .upc_o(upc)
     );
 

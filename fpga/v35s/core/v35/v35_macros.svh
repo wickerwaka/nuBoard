@@ -259,4 +259,14 @@
 `ifndef V35_MX0C_DISPATCH
 `define V35_MX0C_DISPATCH 4
 `endif
+// (MX1c) V35_MX1C_TSYNC: the take sync (1 built, measured: the restart flat across the waits, a
+// uniform clock off; 0 the default until the staging load clock is found): README "MX1c"
+`ifndef V35_MX1C_TSYNC
+`define V35_MX1C_TSYNC 0
+`endif
+// (MX1c) V35_MX1C_ROOM: the staging slot's count while bytes are owed (v35_loader): 0 MX0's,
+// 1 free on a word's arrival clock, 2 free whenever empty
+`ifndef V35_MX1C_ROOM
+`define V35_MX1C_ROOM 1
+`endif
 `endif // V35_MACROS_SVH

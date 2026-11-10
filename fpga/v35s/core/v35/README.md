@@ -604,6 +604,79 @@ Open (MX1b):
    longer than the book` with their run (the amended test; the overseer's to confirm).
 5. OPEN words 439 in 67 routines; the ROM 1,042 words (UADDR_W 11).
 
+## MX1c: the shift's head under the fill fetch (the take sync) and the staging slot's room
+
+### What the model does on the runs the overseer named (the frozen model exact on each)
+
+The LS's SHL AW,CL (n = 31) runs 75 / 76 / 77 clocks at 0 / 1 / 2 waits from the model's S
+(F3-push-nop-k4-pE-w0 / w1 / w2), the RTL's 74 at every wait. Read in the model
+(`an/probe2.py`: its `_unit_hold` and `_start` wrapped): `unit_hold` never holds on these runs
+(no fetch past its second clock during the shift's exec; it holds once on MULU's runs, F16-l-
+push-mulu_dw-pE-w1, F3-push-mulu_dw-k4-pE-w2). What moves the shift is the take sync
+(`take_sync=pending`, eu.py 1164-1219): the shift's exec starts at S + 4 / 5 / 6 (`exec_t`),
+after the ModR/M take at S, once the fetch in flight or requested on the take's clock has
+delivered its word. So the unit hold is not built (it is rare on the corpus; its law is in the
+note's corrections below); the take sync is.
+
+### The take sync (`V35_MX1C_TSYNC`; built, measured, default 0)
+
+After an operand byte's pop (a register form's ModR/M on its E word, an immediate byte of a
+register form; not a displacement, not a port number (the new pop target `port`: the model's
+port_sync=none), not a memory form's byte), the routine's next words that pop nothing (not E,
+not the dispatch) wait until the fetched words in flight or requested on the pop's clock have
+been delivered; the delivery's own clock frees them; a request the EU's own reservation holds
+back is not counted (the model's take sync counts no request a posted request holds), and a
+request that lapses ends the wait. In the sequencer: `tw`, the deliveries owed (two at most:
+the fetch on the bus and the one the request line asks for), stall `sync` (trace `W:sync`). The
+machine explanation (the overseer's hypothesis): the operand byte's path from the queue and
+the fetched word's write into it share the queue's port. Measured:
+- the LS's shift 75 / 76 / 77 at 0 / 1 / 2 waits (F3-push-nop-k4-pE-w0..w2), the model's;
+- the restart fetch's dt flat across the waits in every family (F0 F1 F2 F3 F9 F12: +0.83,
+  -0.50, +0.97, -1.21, +1.25, -1.03 at 0, 1 and 2 waits alike; MX1b's grew by one a wait) and
+  the unexplained bucket from 783 to 124 (the six families);
+- but a uniform clock off in every frame (the PUSH frame +1, the OUT frame -1): the exact count
+  0 (corpus 0 of 30,536; MX1b 479). The +1, traced (F3-push-nop-k4-pE-w0 -4 .. -2): MOV CL,imm8's
+  pop and the word register's load of D3 E0 at -4, the staging load at -3, SHL's E at -2; the
+  model takes the immediate and loads its IR from the queue on one clock (-4) and starts SHL at
+  -3. The staging load waits a clock behind the word register (MX0b's law); `V35_MX0B_WR` 0
+  (the stored bytes direct) measured the same. Until that clock is found the take sync stays
+  behind its macro, off.
+
+### The staging slot's room (`V35_MX1C_ROOM` 1, the default)
+
+The loader's `stg` (the staging slot counted occupied by the queue's request rule): MX0
+counted it while the running instruction owed bytes. The model (queue.py `room`,
+room_ir=arrival_idle): the IR is a seventh slot, counted only by what it holds, on a word's
+arrival clock or with the decoder idle. Built: the slot is free on a word's arrival clock when
+it is empty (`q_arrive`, the bus unit's delivery into the loader; no queue or bus port changed).
+Measured: the prelude's MOV r16,imm16 stream at 1 wait now matches the model's starts and takes
+clock for clock (F3-push-nop-k4-pE-w1 -36 .. -12: S -36 -28 -20, takes +3 +4); the corpus 485
+(MX1b 479); variant 2 (free whenever empty) 0 exact on the MX0 gate families; variant 0 is
+MX1b.
+
+### Measured (MX1c; both spacings, `+v35_chk` silent, tables identical, the defaults TSYNC 0, ROOM 1)
+
+| | MX0 gate families (1,796) | MX1 gate families (14,388) | corpus (30,536) |
+| --- | --- | --- | --- |
+| MX1b | 118 | 232 | 479 |
+| the room law (MX1c, default) | 120 | 232 | 485 |
+| and the take sync (`V35_MX1C_TSYNC` 1) | 0 (restart dt flat) | - | 0 |
+
+The corpus: 485 exact, 0 lost against MX1b (F3 +2, F40 +4); the first divergence (i) 14,224,
+(ii) 0, (iii) 15,827. Write data 93,540 / 106,824 (every gate family agreeing). OPEN words: 421
+book clocks no act names, 18 beyond the book (silicon longer than the book, measured: ld,
+ld_alu, cmp_rm, cmp_mr, xch_m, the group-1 CMP mem,imm forms, MULU mem16, IN imm8), and 9
+named acts beyond the book (the reg,reg forms' RAM read, MOV [d16],acc's post, the shifts'
+loads and iteration word, 83 mem's read after its pop).
+
+Open (MX1c):
+1. The staging load's clock (the take sync's uniform offset): the model loads its IR from the
+   queue on the clock it takes the operand before it (F3-push-nop-k4-pE-w0 -4); the RTL loads
+   the word register then the staging register a clock later. Found, the take sync goes on.
+2. The unit hold (`_unit_hold`): rare on the corpus (no hold on the LS's shift at any wait; one
+   on MULU's runs), not built; its law is the note's proposal below.
+3. MX1b's items 2-4 stand.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

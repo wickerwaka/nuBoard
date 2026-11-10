@@ -578,15 +578,22 @@ change to the text above, kept here rather than rewritten into it.
    exceed the book. [BW] and [BW + IX] cost +0, a d8 +1, a d16 or a direct address +1 to +2 on silicon.
 6. **§3.6, the request slot.** The EU's one request slot frees on the cycle's end; a post on that clock
    stands from the next. A read's datum is latched at its end also when that clock posts the next request.
-7. **§3.4, the register loops under a fetch (found at MX1b, built at MX1c).** On silicon the LS head's
-   SHL AW,CL runs 75 clocks at 0 waits and 76 at 1 wait for n = 31 where 12 + 2n is 74: a register shift,
-   MULU / MUL or DIVU / DIV pauses at its two-clock iteration boundary while a fetch is past its second clock,
-   until the clock after that fetch's last, once per fetch (the frozen model's unit_hold, rules.md item 94,
-   true over the whole corpus). The explanation on record is the overseer's hypothesis: the iteration and the
-   fetched word's delivery into the queue share a resource (the internal bus or the register RAM's port the
-   temporaries use). It accounts for MX0f's "instruction after the shift +1" and the OUT marker's port byte
-   at start + 5 after the shift.
-8. **§3.7, the room (found at MX1b, built at MX1c).** The IR / staging byte is a seventh queue slot: free
+7. **§3.2 / §3.7, the take sync (found at MX1b, built behind a macro at MX1c, on at MX1d).** On
+   silicon the LS head's SHL AW,CL runs 75 clocks at 0 waits, 76 at 1 and 77 at 2 for n = 31 where
+   12 + 2n is 74. The overseer first read this as the frozen model's unit_hold (rules.md item 94); the
+   agent's probe of the model showed that hold never fires on those runs (it fires once each on two MULU
+   runs in the corpus) and that the clocks are the model's take_sync = pending (eu.py 1164-1219): a
+   register form's next act after an operand byte's take (its ModR/M on the E word, or an immediate byte)
+   waits until the fetched words in flight or requested on the take's clock have been delivered; the E
+   pop, port bytes, displacements and the memory forms' bytes are exempt; a request held back by the EU's
+   own reservation is not counted; the delivery's own clock frees the word. Hypothesis on record: the
+   operand byte's path from the queue and the fetched word's write into the queue share the queue's port.
+   Built alone it makes the restart offset wait-flat in every family but leaves a uniform clock (the PUSH
+   frame +1, the OUT frame −1): the model takes a delivered word's byte on its arrival clock
+   (machine.py: `queue.arrive(addr, t, t)`, usable at t) and loads the IR on the last take's clock, while
+   MX0b's word register loads from the stored bytes only, a clock late on every synced pop. The unit hold
+   itself is left to MX3's loops.
+8. **§3.7, the room (found at MX1b, built at MX1c, `V35_MX1C_ROOM` 1).** The IR / staging byte is a seventh queue slot: free
    when empty on a word's arrival clock and when the decoder is idle, not a slot while the running
    instruction still owes bytes (the model's room_ir = arrival_idle). MX0's loader counted the slot as
    occupied while bytes were owed, so a MOV r16,imm16 stream fetched three clocks later than silicon.

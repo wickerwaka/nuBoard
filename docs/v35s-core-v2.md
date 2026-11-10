@@ -1536,3 +1536,36 @@ question, decided from S8's routed numbers with the user.
   the bus after B2, not built). **MX1c** is sent: the loop's hold under a fetch as a sequencer mechanism (macro
   `V35_MX1C_UHOLD`, the explanation recorded as a hypothesis: the iteration and the fetched word's delivery share
   a resource), then the arrival-clock room law as a queue law under 6(ii) with the corpus as its measurement.
+- 2026-11-10, **MX1c landed** (the same agent). **The overseer's unit-hold reading was wrong**: the agent wrapped
+  the frozen model's `_unit_hold` and `_start` in a probe; on F3-push-nop-k4-pE at every wait and on F0-ls the
+  hold never fires during the LS's shift (it fires once each on F16-l-push-mulu_dw-pE-w1 and F3-push-mulu_dw-k4-
+  pE-w2). The shift's 75 / 76 / 77 clocks at 0 / 1 / 2 waits are the model's take sync (`take_sync=pending`,
+  eu.py 1164–1219): the exec starts at S + 4 / 5 / 6 after the ModR/M's take at S, once the fetch in flight or
+  requested on that clock has delivered. **Built:** (1) the take sync behind `V35_MX1C_TSYNC` (default 0): a
+  register form's ModR/M popped on its E word, or its immediate byte, arms it; displacement bytes, the memory
+  forms' bytes and port numbers (a new pop target `pop=port`, the model's port_sync=none) do not; the routine's
+  next words that pop nothing wait until the fetched words in flight or requested on the arming clock have
+  arrived (at most two, `tw`, traced `W:sync`); E words and the dispatch never wait; the delivery's own clock
+  frees the word; a request held back by the EU's own reservation is not counted; a lapsed request ends the
+  wait. Measured on F0 F1 F2 F3 F9 F12: the LS's shift 75 / 76 / 77 as the model's, the restart dt flat across
+  the waits in every family (+0.83, −0.50, +0.97, −1.21, +1.25, −1.03 at 0, 1 and 2 waits alike; MX1b's grew a
+  clock a wait), the unexplained bucket 783 → 124, but a uniform clock (the PUSH frame +1, the OUT frame −1)
+  leaves 0 exact: on F3-push-nop-k4-pE-w0 the model takes the immediate and loads its next-opcode register on
+  one clock (−4) and starts SHL at −3; the RTL loads the word register at −4 and the staging register at −3
+  and starts SHL at −2 (`V35_MX0B_WR` 0 the same). Left off until that clock is found. (2) The room law
+  (`V35_MX1C_ROOM` 1, the default): the staging slot is free on a word's arrival clock when it is empty (the
+  model's room_ir = arrival_idle); the loader reads the bus unit's existing delivery strobe (`q_arrive`), no
+  queue or bus port changed, neither file edited; the prelude's MOV r16,imm16 stream at 1 wait matches the
+  model clock for clock. Variant 2 (free whenever empty) 0 exact on the MX0 gate families. **Verified on main
+  (both spacings identical, 0 failing, chk silent):** 485 / 30,536 exact (MX1b 479; F3 +2, F40 +4, nothing
+  lost), the MX0 gate families 120 / 1,796, the MX1 gate families 232 / 14,388; (i) 14,224, (ii) 0, (iii)
+  15,827; write data 93,540 / 106,824, register and function vectors 0 bad, lint clean in five configurations
+  and at TSYNC 1 / ROOM 0 / ROOM 2, 45 tests; no Python changed, so the nine offline modules are as at MX1b.
+  OPEN words split: 421 book clocks, 18 beyond the book (silicon longer, measured: ld, ld_alu, cmp_rm, cmp_mr,
+  xch_m, the group-1 CMP mem,imm forms, MULU mem16, IN imm8), 9 named acts beyond the book. The note's item 7
+  is corrected to the take sync. **MX1d** is sent: the model takes a delivered word's byte on its arrival clock
+  (machine.py `queue.arrive(addr, t, t)`) and loads the IR on the last take's clock, while MX0b's word register
+  loads from the stored bytes only, never the arriving word; the take sync releases the pop exactly on the
+  delivery clock, so the byte path is a clock late on every synced pop. MX1d builds the delivery-clock bypass
+  (and the staging load on the last pop's clock), measured against `V35_MX0B_WR`'s values, then switches the
+  take sync on.

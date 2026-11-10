@@ -58,6 +58,7 @@ module v35_loader
     input  wire [7:0]  qv1,
     input  wire [2:0]  q_avail,
     input  wire [2:0]  q_stored,        // (MX0b) the queue's stored bytes (the load's source)
+    input  wire        q_arrive,        // (MX1c) a fetched word is delivered on this clock
     output wire [2:0]  rd,              // the bytes read (tick A): an operand pop, the staging load
     output wire [2:0]  rel,             // the bytes released (tick A)
     output wire        stg,             // the staging slot is taken after this clock
@@ -94,7 +95,8 @@ module v35_loader
     output wire [UADDR_W-1:0] dret,     // tick A: ... the routine's entry (the head's return)
     output wire        dtrap,           // tick A: the instruction (op, modrm) has no routine
     output wire        resv_e,          // tick A: the E word pops an opcode whose routine posts
-    output wire        s_modrm          // the staged opcode has a ModR/M byte (registers)
+    output wire        s_modrm,         // the staged opcode has a ModR/M byte (registers)
+    output wire        e_rmodrm         // tick A: (MX1c) the E word pops a register-mode ModR/M
 );
     reg        s_v = 1'b0;
     reg [7:0]  s_b = 8'h00;
@@ -140,6 +142,7 @@ module v35_loader
     assign o_epop = epop;
     assign resv_e = epop && ds.rq;
     assign s_modrm = s_v && ds.has_modrm;
+    assign e_rmodrm = mpop && sb0[7:6] == 2'd3;
     wire unused = &{1'b0, ds, dm, q_avail};
     wire [2:0] add = mpop ? ds.len + v35_umodrm(s_b, sb0)
                    : epop ? ds.len
@@ -163,7 +166,11 @@ module v35_loader
     // the word register's bytes stay counted (unreleased) until popped
     assign rd = `V35_MX0B_WR == 0 ? {1'b0, np} : (wload ? {1'b0, wk} : 3'd0);
     assign rel = {1'b0, np};
-    assign stg = s_left || sload || need_n != 3'd0;
+    // (MX1c) V35_MX1C_ROOM: the staging slot while the running instruction owes bytes: 0
+    // counted (MX0), 1 free on a word's arrival clock when the slot is empty (the frozen model's
+    // room_ir=arrival_idle: the IR a seventh slot on an arrival clock), 2 free whenever empty
+    wire   stg_free = `V35_MX1C_ROOM == 2 || (`V35_MX1C_ROOM == 1 && q_arrive);
+    assign stg = s_left || sload || (need_n != 3'd0 && !stg_free);
     assign len = need_n;
     assign dec1 = v35_udec1(op);
     assign dec2 = v35_udec2(op, sb0);
@@ -266,7 +273,7 @@ module v35_loader
             if (opop_b) begin
                 case (pop_b)
                     PP_MODRM: modrm <= sb0_b;
-                    PP_IL: il <= sb0_b;
+                    PP_IL, PP_PORT: il <= sb0_b;
                     PP_IH: ih <= sb0_b;
                     PP_DL: dl <= sb0_b;
                     PP_DH: dh <= sb0_b;

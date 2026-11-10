@@ -75,6 +75,15 @@ module v35_useq
     input  wire        b2b_now,
     input  wire        s_modrm,         // the staged opcode has a ModR/M byte (the loader's decode)
     input  wire [7:0]  rb_lo,           // port B's low byte (tick B)
+    // (MX1c) the take sync's facts (tick A): the E word pops a register-mode ModR/M, the
+    // running instruction is a memory form, the queue's request line, a fetch in flight (granted
+    // on an earlier clock), a fetch granted now, a fetched word delivered now
+    input  wire        e_rmodrm,
+    input  wire        rmem,
+    input  wire        q_req,
+    input  wire        resv,            // the EU's reservation (a request it asks the bus to hold)
+    input  wire        f_grant,
+    input  wire        f_dlv,
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
     output wire        ex,              // the word executes this clock (tick A)
@@ -120,6 +129,19 @@ module v35_useq
     wire st_f   = word.f && !opr_rdy;
     wire st_slt = word.bus != BQ_NONE && rq_busy;
     wire st_hld = word.e && wr_hold;
+    // (MX1c) the take sync (V35_MX1C_TSYNC): a word that pops no byte waits, after an operand
+    // byte's pop (a register form's ModR/M on its E word, an immediate byte of a register form;
+    // not a displacement, a port number or a memory form's byte), until the fetched words in
+    // flight or requested on the pop's clock have been delivered (`tw`: the deliveries still
+    // owed, two at most: the fetch on the bus and the one the request line asks for). A request
+    // that lapses (no fetch in flight, none granted, the line down) ends the wait. The machine
+    // explanation (the overseer's hypothesis): the operand byte's path from the queue and the
+    // word's write into the queue share the queue's port, the routine's next act waiting for the
+    // words the pop's room asked for
+    reg  [1:0] tw = 2'd0;
+    // (the delivery's own clock frees the word: the last owed word delivered now)
+    wire st_tsy = `V35_MX1C_TSYNC && tw != 2'd0 && !(tw == 2'd1 && f_dlv)
+                  && word.pop == PP_NONE && word.seq != SQ_DISP && !word.e;
     // (MX0c) the dispatch (the word after E: the staged opcode's decode into its routine's
     // entry) waits while the bus unit runs a fetch cycle (V35_MX0C_DISPATCH >= 1), and a form
     // with a ModR/M byte also on the clock a back-to-back fetch issues (2). The dispatch and
@@ -133,11 +155,22 @@ module v35_useq
                         || (`V35_MX0C_DISPATCH == 2 && dec1.has_modrm && b2b_now));
     // the stalls a popping word can meet (the loader's pops read this: a DISP word never pops;
     // with the stall on the E word (3) it is the E word's too)
-    wire base = !halted && !st_q && !st_f && !st_slt && !st_hld;
+    wire base = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy;
     assign ex_pop = base && !(`V35_MX0C_DISPATCH >= 3 && st_fch);
     assign ex = base && !st_fch;
     assign why = halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3 : st_hld ? 5'd4
-               : st_fch ? 5'd6 : 5'd0;
+               : st_fch ? 5'd6 : st_tsy ? 5'd7 : 5'd0;
+    // the arming pop (tick A) and the deliveries owed from it
+    wire arm = ex_pop && ((word.e && e_rmodrm)
+                          || (!word.e && !rmem && (word.pop == PP_IL || word.pop == PP_IH)));
+    // (a request the EU's own reservation holds back is not counted: the model's take sync
+    // counts no request a posted request holds, and a form that posts after its take does not
+    // sync: the routine's request goes first)
+    wire       ask = (q_req && !resv) || f_grant;
+    wire [1:0] owe = {1'b0, fetch_run} + {1'b0, ask} - {1'b0, f_dlv && fetch_run};
+    wire [1:0] tw_n = arm ? owe
+                    : (tw != 2'd0 && f_dlv) ? tw - 2'd1
+                    : (tw != 2'd0 && !fetch_run && !ask) ? 2'd0 : tw;
     assign start = at_entry && ex_pop;     // (an entry word is never the dispatch word; with
                                            //  3 an entry word that is an E word: ex_pop is ex)
     // the instruction is a trap: its opcode has no routine, or (the ModR/M / 0F head) its
@@ -147,6 +180,7 @@ module v35_useq
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg [UADDR_W-1:0] d1_b = '0, d2_b = '0, dr_b = '0;
     reg        dc_b = 1'b0;
+    reg  [1:0] tw_b = 2'd0;
     reg [2:0]  len_b = 3'd0;
     reg [7:0]  il_b = 8'd0;
     reg        w_b = 1'b0;
@@ -155,6 +189,7 @@ module v35_useq
             ex_b <= ex;
             d1_b <= dent;
             dc_b <= dcall;
+            tw_b <= tw_n;
             dr_b <= dret;
             d2_b <= dec2.entry;
             len_b <= len;
@@ -221,11 +256,13 @@ module v35_useq
             upc <= UROM_RESET;
             retr <= '0;
             cnt <= 9'd0;
+            tw <= 2'd0;
             halted <= 1'b0;
             at_entry <= 1'b0;
         end else if (ce_a) begin
             upc <= upc_n;
             cnt <= cnt_n;
+            tw <= tw_b;
             if (ex_b && word.seq == SQ_CALL)
                 retr <= inc;
             else if (ex_b && word.seq == SQ_DISP && dc_b)
@@ -248,7 +285,7 @@ module v35_useq
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (ex_b !== ex || d1_b !== dent || d2_b !== dec2.entry || len_b !== len
-                || dc_b !== dcall || dr_b !== dret
+                || dc_b !== dcall || dr_b !== dret || tw_b !== tw_n
                 || il_b !== il || w_b !== fmt_w) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
