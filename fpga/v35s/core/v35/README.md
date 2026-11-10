@@ -296,6 +296,200 @@ the restart fetch). The per-run classification is the hand-back's (scratchpad `m
     PYTHONPATH=host/src:. python3 -m validation.v35s.chains evtrace --id F2-push-nop-pE-w0 \
         --rtl F2.trace --run --keys X
 
+## MX1: the memory forms (the EA, loads, stores, read-modify-write, the group forms, LDEA)
+
+Design: `docs/v35s-mechanisms.md` sections 3.3, 3.5, 3.6, 8 and "Corrections from MX0" (the
+dispatch stall is law; the first draft's rule). The routines are `urom/ea.uasm` (the EA's
+heads), `urom/mem.uasm` (every ModR/M memory form the gate families run) and `urom/stack.uasm`
+(PUSH / POP sreg, PUSH R / POP R, TRANS, PREPARE level 0, DISPOSE); `bus.uasm`'s direct
+MOV [d16],imm is gone into mem.uasm's general form. 121 routines, 1,005 words (MX0 411): the
+ROM is 19 words under its 1,024 (UADDR_W 10); MX2 widens it or OPEN words leave.
+
+### The EA
+
+The ROM has no EA routine (mechanisms 3.5, the V20's loader): the EA is the displacement's pops
+and one add. A memory routine's first word is the add, `ea=BI ra=BASE rb=INDEX` (the ModR/M
+mode's base on RAM port A, its index on port B, the popped displacement sign-extended by the
+mode, into the address register; SS the default for a BP mode); the pops are the EA heads,
+entered from the dispatch. The word after E of a ModR/M memory cell (the decode's new `ea` bit)
+is a call: its target is the head of the registered ModR/M byte's mode, the return register
+loads the routine's entry (the loader's `dcall` / `dret`, the sequencer's `retr` at DISP). The
+head pops and returns (`ret` on its last pop). This is the V20 loader's mode branch (S_MODRM,
+S_D8, S_D16 before the routine's first row) written as ROM words: a subroutine shared by every
+memory routine, because the pops are the same for all of them and the add is the routine's own
+first act (it can carry the reservation). The mode is decoded in the dispatch's target (the
+mode's bits and the cell's two decode bits only: `test_v35_struct.MX1`), so no word tests a
+condition to skip a pop: the EA's clocks are the pops and the add and nothing else. Two head
+sets, by the routine's header (the decode's `eab` bit):
+
+| Head | mod 00 [reg] | mod 01 d8 | mod 10 d16 | direct [d16] |
+| --- | --- | --- | --- | --- |
+| `ea=book` (eab0 eab8 eab16 ead) | OPEN, add: 2 | pop, OPEN, add: 3 | pop, pop, OPEN, add: 4 | pop, pop, add: 3 |
+| `ea=bare` (ea8 ead) | add: 1 | pop, add: 2 | pop, pop, add: 3 | pop, pop, add: 3 |
+| the book's EA | 3 | 3 | 4 | 3 |
+
+`ea=book`: each mode's pops and the add, and the book's EA clock they do not fill as an OPEN
+word; at mod 00 one OPEN word, the second book clock a book error (docs/v35s-eu-timing.md M4:
+[reg] and [base+index] +0, every d8 form +1, where the book charges EA 3 for both; the head's
+`diff=m00:-1` carries it into every routine's mod 00 path). `ea=bare`: the pops alone, for the
+routines whose own acts after the EA already exceed the book (the store's datum read a word
+after the add, both RAM read ports being the add's; the read-modify-write's write post), so
+that no path carries an OPEN word over the book (the amended test). The add is one tick-B path
+(the RAM's read data -> the 3-input 16-bit sum -> the address register); the request reads the
+address register a word later (the assembler rejects `ea=BI` on a posting word, and the request
+address in v35_eu no longer reads the EA's sum: `addr_q`), so the sum never reaches the 20-bit
+request address in the same tick.
+
+### The routines (lengths per path against the book, EA = 3 / 3 / 4 / 3, W = 0)
+
+| Routine (opcodes) | heads | m00 | d8 | d16 | dir | book | OPEN | shape |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ld (8A 8B) | book | 9 | 10 | 11 | 10 | EA+7 | 0 | add, post, F: tmpa, E: reg <- tmpa (V20 MOV_RM) |
+| ld_alu (02 03 0A 0B ... 32 33) | book | 9 | 10 | 11 | 10 | EA+7 | 0 | add, post, F with the ALU (V20 ALU_RM 0000), E: the write |
+| cmp_rm (3A 3B), cmp_mr (38 39) | book | 9 | 10 | 11 | 10 | EA+7 | 0 | as ld_alu, the write suppressed |
+| rmw (00 01 08 09 ... 30 31) | bare | 12 | 13 | 14 | 14 | EA+10 | 0 | add, read, F with the ALU, write post, E held (5 clocks read to write) |
+| test_m8 (84) / test_m16 (85) | book | 14 / 12 | 15 / 13 | 16 / 14 | 15 / 13 | EA+12 / EA+11 | 5 / 3 | add, OPEN, read, F with AND, E |
+| xch_m (86 87) | book | 14 | 15 | 16 | 15 | EA+12 | 1 | add, read, F (both registers), OPEN, write post, E held |
+| st (88 89) | bare | 7 | 8 | 9 | 9 | EA+5 | 0 | add, the register's read with the post, E held |
+| st_imm8 (C6 /0) / st_imm16 (C7 /0) | bare | 8 / 9 | 9 / 10 | 10 / 11 | 10 / 11 | EA+6 | 0 | add, the immediate's pops, the datum with the post, E held |
+| st_sr (8C) / ld_sr (8E) | book | 8 / 10 | 9 / 11 | 10 / 12 | 9 / 11 | EA+6 / EA+9 | 0 / 2 | the segment's read with the post / F: the segment |
+| les (C4) / lds (C5) | book | 19 | 20 | 21 | 20 | EA+17 | 6 | add, OPEN, read, INC2, F: reg, read, F: DS1 / DS0 (V20 LES / LDS) |
+| ldea (8D) | book | 4 | 5 | 6 | 5 | EA+2 | 0 | add, E: reg <- the address register (V20 LEA) |
+| grp1_mb (80 82 /0-6) / grp1_mw8 (83) / grp1_mw (81) | bare | 13 / 13 / 14 | 14 / 14 / 15 | 15 / 15 / 16 | 15 / 15 / 16 | EA+11 / EA+9 / EA+12 | 0 | add, the immediate's pops, read, F with the group's op, write post, E held (V20 GRP1) |
+| grp1_mcb / mcw8 / mcw (80 82 / 83 / 81 /7) | book | 10 / 11 / 11 | 11 / 12 / 12 | 12 / 13 / 13 | 11 / 12 / 12 | EA+8 / EA+9 / EA+9 | 0 / 1 / 0 | add, pops, read, F with CMP, E |
+| inc_m dec_m not_m neg_m (FE FF /0 /1, F6 F7 /2 /3) | book | 15 | 16 | 17 | 16 | EA+13 | 2 | add, read, F with the op, OPEN, write post, E held |
+| test_mib / test_miw (F6 / F7 /0 /1) | book | - | - | - | - | none | 0 | add, pops, read, F with AND, E |
+| mulu_m16 / mulu_m8 (F7 / F6 /4) | book | 35 / 29 | 36 / 30 | 37 / 31 | 36 / 30 | EA+33 / EA+27 | 8 / 11 | add, read, AW, F with the multiplier's load, OPEN, loop.uasm's loop by a jump |
+| mul_m16 / mul_m8 (/5), div_m16 / div_m8 (/7) | book | - | - | - | - | a range | 0 | the natural shape into loop.uasm's loops |
+| divu_m16 / divu_m8 (F7 / F6 /6) | book | 45 / 36 | 46 / 37 | 47 / 38 | 46 / 37 | EA+43 / EA+34 | 16 / 16 | add, read, (DW), F with DIVI, the trap test, OPEN, the loop |
+| shm_1 (D0 D1) | book | 18 | 19 | 20 | 19 | EA+16 | 4 | add, read, F: the shifter's load, OPEN, one step, write post with the flags, E held |
+| shm_cl (D2 D3), n = 4 | book | 29 | 30 | 31 | 30 | EA+19+2n | 7 | add, read, CL, F, OPEN, the zero test, the two-word iteration, write (count 0: the datum back) |
+| shm_imm (C0 C1), n = 4 | book | 25 | 26 | 27 | 26 | EA+15+2n (its note) | 3 | add, read, the count's pop and load, F, OPEN, the loop, write |
+| push_m (FF /6) | book | 18 | 19 | 20 | 19 | EA+16 | 5 | add, read, SP - 2 and the address, F: the datum, OPEN, write at SS:SP, E held |
+| pop_m (8F /0) | book | 16 | 17 | 18 | 17 | EA+14 | 3 | add, the EA kept in tmpc with the stack read, SP + 2, F, the EA back, OPEN, write, E held (V20 POP_RM) |
+| push_sr (06 0E 16 1E) / pop_sr (07 17 1F) | - | 9 / 11 | | | | 10 / 12 | 1 / 5 | PUSH / POP r16's acts on the segment (book error -1 each: a6 less the stall) |
+| push_all (60) / pop_all (61) | - | 74 / 74 | | | | 74 | 60 / 63 | one word a register (the read with the post, or F with the next read: V20 PUSHA / POPA), eight OPEN between |
+| trans (D7) | - | 11 | | | | 11 | 3 | AL, BW + AL, OPEN, the byte read (DS0 or the prefix: `seg=DSP`), F: AL |
+| dispose (C9) / prepare (C8, level 0) | - | 11 / 26 | | | | 11 / 26 | 5 / 16 | V20 LEAVE; the frame's three pops, BP's push, BP, SP (the level's loop: MX4) |
+
+The declared differences (`test_uasm`, every one per path): the mod 00 path -1 from the book
+head (M4) on every `ea=book` routine; the routines' own: rmw / st / grp1_mb / grp1_mw / st_imm8
+m00 -1 (a6 or F5 / F19 / F38 less the dispatch's stall) and dir +1 (the two pops the book's EA 3
+does not resolve); st_imm16 d8 +1, d16 +1, dir +2 and grp1_mw8 +1 / +2 / +2 / +3 (the pops;
+the 83 form's read after its immediate's pop, F19); test_m16 and ld_sr -1 on every path (a6);
+push_sr, pop_sr -1 (a6). A positive difference is on a path with no OPEN word (the bare heads
+and bodies without OPEN words); the test rejects one that carries an OPEN word.
+
+OPEN words: 383 in 50 routines (MX0 122): the new ones are the memory forms' book clocks no act
+names, chiefly PUSH R 60 and POP R 63 (silicon's 9.25 a word against the routine's four), PREPARE
+16, DIVU mem 16 + 16, MULU mem 8 + 11, LES / LDS 6 + 6, SHL mem 4 / 7 / 3, TEST mem 5 / 3, the
+three EA heads' 3.
+
+Shared tails: MULU / MUL / DIVU / DIV mem jump into loop.uasm's loops (mu16_l, mu8_l, mi16_l,
+mi8_l, dv16_l, dv8_l, di16_l, di8_l) and the divide error words (dv16_t, dv8_t, di16_t, di8_t):
+the acts after the operand's load are the register form's. The register forms' routines are not
+rewritten. PUSH r16 (bus.uasm) reads its register on the posting word (after SP's write): PUSH SP
+pushes SP - 2 (F36's stack series; the length is unchanged).
+
+### The datapath and the sequencer
+
+- The dispatch's call (v35_loader: `dcall`, `dret`, `dmem`; v35_useq: `dc_b`, `dr_b`, the return
+  register loaded at DISP). One level: the heads return before a routine could call.
+- The request slot frees on the cycle's end (`rq_busy = rq_v || (rq_out && !req_done)`): a post
+  on the end's clock stands from the next (the book check's machine: a post waits for the last
+  request's end, not one more clock); a read's datum is latched at its end also when the clock
+  posts the next request (POP R's F word with the next read; XCH's, the RMWs' write after F).
+- `AL_ADD` (x + y, no flags: TRANS's table address, PREPARE's frame); `SG_DSP` (the prefix's
+  segment, else DS0: an address formed without an EA mode, TRANS).
+- The request's address `addr_q`: the address register as the posting word leaves it by a move,
+  or the direct displacement (`ea=DISP`), never the EA's sum.
+- No port of v35_bus.sv or v35_queue.sv changed; neither file is edited.
+
+### Depth (by construction; the levelizer and the routed timing are the overseer's)
+
+- The EA add (tick B): the RAM's read data -> the base + index + displacement (two 16-bit carry
+  chains; the displacement's sign extension from registered dl / dh) -> the step mux -> the
+  address register: about 10 levels. It no longer feeds the request address (above).
+- The read datum's lanes into the ALU (tick B, the deepest new path): the bus unit's registered
+  datum -> the byte lane / pair select (`dnow`, 2 levels) -> the latched-or-live mux (1) -> the
+  source mux (SR_OPR, about 3) -> the ALU (12-14 with the carry) -> SIGMA: an F word that runs
+  its ALU op on the datum arriving that clock (ld_alu, rmw, the group forms). The split, if the
+  routed timing needs one: the F word takes the latched datum only (`opr`, the clock after the
+  end) or moves it into tmpb and the ALU runs a word later (one clock, the V20's M -> tmpb).
+- The dispatch's head choice (tick A, into the ce_b register `d1_b`): the decode table's lookup
+  (MX0's 6-8 levels) and a 6-way mux on three registered mode bits and the cell's two bits (2
+  levels). No new condition reaches the next-address mux; the return register's load is one
+  more source on `retr`.
+- The slot's stall term gains `req_done` (a registered bus output): one level.
+
+### Measured (`replay --core v35 --score`, both spacings, `+v35_chk` silent, tables identical)
+
+The gate families F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F25 F26 F36 F38: 10 of 14,388 exact
+(A1 13,332; MX0 10, all F16): 0 lost, 0 gained; the first divergence (i) 12,378, (ii) 0, (iii)
+2,000. The MX0 gate families F0 F0w F1 F2 F3 F9 F11 F12 F20: 9 exact (F0 2, F9 7), unchanged.
+The whole refresh-off corpus: 19 of 30,536 (MX0 19, A1 28,059); (i) 26,946, (ii) 0, (iii)
+3,571. The restart fetch's mean dt is flat across 0 / 1 / 2 waits in every gate family
+(F4 +0.13 / +0.13 / +0.13, F21 +0.16 / +0.14 / +0.13) but F15 (-0.45 / -0.54 / -0.62) and F25
+(-0.70 / -0.79 / -0.87), whose drift is the stack forms' PUSH frames.
+
+The first divergence is the memory form's own cycle in few runs: by event index (the gate families), 1 (the restart
+fetch) in 52 %, 2-3 (the M0 marker's cycle and the fetches round it) in 40 %, the X form's first
+cycle in the rest. The markers' residuals are MX0's (MX0f items 2 and 4: the instruction after
+the shift +1, OUT imm8's write; PUSH r16's write a clock late after a PUSH: F4-push-empty-pE-w0
+event 3, the closing PUSH's write +1). The routines' own lengths, free of the markers (the
+clocks from X1's first cycle to X2's in the `X ; X` runs at 0 waits, `k2.py`): loads, load-ALU,
+CMP, stores, TEST, XCH, INC / NOT, PUSH / POP mem, POP r16 within one clock of silicon on average
+over the two parities (pE +1, pO -1: the parity's fetch); SHL mem,1 -2 to -3 and MULU mem -3 to
+-4 (the book is short of silicon there: 19 against 22, 36 against 40); CMP [BW],imm16 -2; the
+immediate store k2 +2 to +5 (the second instance's bytes behind the first's write: a queue
+interaction, open).
+
+The memory form's first divergence, traced (`+v35_trace`, F4-push-ld_bw-k1-pE-w0, clocks from
+t_fill): PUSH AW's write 78-80 holds its E (W:hold), the E pops X's opcode and ModR/M at 81 with
+the fetch 10052 issued, a back-to-back fetch 10054 at 84; the dispatch waits 82-87 (W:fetch,
+the dispatch law), the head's OPEN word 88, the add 89, the post 90, the read 91. Silicon's read
+is at 87, the clock the second fetch ends: silicon's EA and its read's post ran under the
+fetches the dispatch waited for. The same in F6, F7, F14 (`add_bw_aw` +3: the bare head), F16
+(+2), F21 (+4), F25 (LDEA: M1's write +2). With the dispatch stall lifted for a memory cell
+(`V35_MX1_EAFREE` 1: measured, not kept; the law stays) the PUSH frame's X first-cycle dt moves
+from a mode of +2 to 0 (gate families, 0 waits), the exact count does not move (the markers
+come first). F19 / F22 (the immediate forms): the first divergence is the fetch after X's
+pops (+1 to +3): the dispatch's wait puts the immediate's pops after silicon's takes.
+
+Write data: 93,540 / 106,824 (MX0 64,664): every gate family agrees (0 runs differing); the
+rest are the later packages' forms: the strings (F24 F30 F31, MX4), the bit and field forms
+and the 0F page (F32 F34 F39 F40, MX3), MUL imm (F33, MX3), the transfers (F23 F35 F37, MX2).
+
+Function: `rtl_vectors --regfile` on the 36 families 78,965 vectors, 0 bad (pass 70,124,
+trap_nop 7,968 (7,668 and 300 of the old V35_EE_FUNC encodings), trap 316, the divergences 34: 33 MOV PS,r/m and one random vector whose operand
+read covers the prefix byte the bench inserts, which the reference holds as state, not as a
+byte: counted apart, `rtl_vectors.PFX_OVERLAP`); `--fn` 19,752, 0 bad; SingleStepTests through
+the whole-core bench (test_rtl_vectors): 01 2B 81.3 C1.2 D3.7 F6.5 F7.6 F7.7 8F 61 at the
+1,900-pass bar, pass alone (9,992 / 9,998 / 9,994 / 4,997 / 4,999 / 9,999 / 4,936 / 2,263 /
+9,990 / 9,997); the files whose forms are MX2's and MX3's (C3 7C, the 0F page, 27 3F D4 D5 6B)
+listed apart, all trap_nop, none failing.
+
+### Build, replay, trace (MX1)
+
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.uasm --book   # every path's row
+    fpga/v35s/build_sim.sh direct v35
+    V35_PLUSARGS="+v35_chk" PYTHONPATH=host/src:. python3 -m validation.v35s.chains replay \
+        --core v35 --family F4 F5 F6 F7 F10 F14 F15 F16 F19 F21 F22 F25 F26 F36 F38 --jobs 8
+    V35_SIM_DEFINES="-DV35_MX1_EAFREE=1" fpga/v35s/build_sim.sh direct v35   # the alternative
+
+### Open (MX1)
+
+1. The EA under the dispatch stall: silicon's operand read leaves on the clock the fetch run
+   ends, before the routine could have dispatched, added and posted under the law (above). Is
+   the V35's EA and operand read ahead of the dispatch (the V20's loader EA and pre-read), with
+   the stall on the routine's first word after them?
+2. [reg+d16] and the direct address: silicon +1 over [reg] (M4), the routine's two pops +2.
+3. The immediate memory forms' write at s + 7 whatever the mode (F19: C7 07, 47, 87 alike): the
+   displacement's pops do not delay it on silicon.
+4. CMP mem pays most of the RAMEN write penalty with no write (eu-timing): CMP mem,reg 12 and
+   CMP mem,imm 15 against the book's 10 / 12; the routines keep the book.
+5. The ROM is 1,005 of 1,024 words; 383 OPEN words, 123 of them PUSH R / POP R's.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

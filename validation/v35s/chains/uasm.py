@@ -47,8 +47,9 @@ unit; the loop counter is loaded only from CL (RB), an immediate (IL), the opera
 The language (one file per routine family):
 
     ; a comment
-    routine NAME [op=LIST] [mod=reg|mem|any] [reg=LIST] [page=0f]
-        [book="FORM" [width=byte|word]] [n=K] [diff=+K why="..."] [measured="..."]
+    routine NAME [op=LIST] [mod=reg|mem|any] [reg=LIST] [page=0f] [ea=book|bare]
+        [book="FORM" [width=byte|word]] [bookx="EXPR"] [n=K] [diff=K | diff=PATH:K,...]
+        [why="..."] [measured="..."]
     [label:] field=value field=value flag ...   ; the act of the word (required)
 
 op LIST: hex bytes and ranges (00-03,08-0B). An opcode with a ModR/M byte enters its
@@ -64,6 +65,22 @@ cycle 3 clocks, the request granted the clock after the post, the F word and a m
 RAMEN hold at E waiting for the datum / the cycle's end) and counts the clocks to the successor's
 first word. It must equal the book's value at n (the routine's `n`, default 4) plus the
 declared `diff`, whose `why` names the mechanism or the measured V35S cost that explains it.
+
+(MX1) The memory forms (`mod=mem`): the routine's first word is the EA's add (`ea=BI`, base +
+index + the displacement into the address register). The displacement's pops are the EA heads
+(ea.uasm), entered from the dispatch: the word after E of a ModR/M memory cell dispatches to the
+head of its mode and loads the return register with the routine's entry (a call from the
+dispatch: the V20 loader's mode branch, S_D8 / S_D16, before the routine's first row), the head
+pops the displacement bytes and returns. Two sets, by the routine's header: `ea=book` (the
+default: the book's EA clocks, EA 3 at mod 00 and 01 and the direct form, 4 at mod 10, each one
+the pops, the add and an OPEN word where the pops and the add do not fill the book's EA; at
+mod 00 one OPEN word, the second book clock a book error, docs/v35s-eu-timing.md M4) and
+`ea=bare` (the pops alone: mod 00 enters the routine's add directly). The paths the book check
+runs: m00 (mod 00, a register: EA 3), d8 (mod 01: EA 3), d16 (mod 10: EA 4), dir (mod 00 rm 110,
+the direct address: EA 3). `diff=K` declares K on every path; `diff=m00:K,d8:K,d16:K,dir:K` per
+path (a path not named: 0). A head's own `diff=` (eab0's) adds to the routine's on its path.
+`bookx=` is the book's formula where its table has no row of its own (a note's formula, e.g.
+the memory shift by imm8).
 """
 
 from __future__ import annotations
@@ -83,7 +100,7 @@ BOOK = ROOT / "build" / "validation" / "v35s" / "v35_book_clocks.json"
 BANK_BITS = 32
 BANKS = 3
 OUT_FILES = tuple(f"v35_urom_b{b}.hex" for b in range(BANKS)) + ("v35_udecode_tbl.svh",)
-UADDR_W = 10
+UADDR_W = int(re.search(r"localparam\s+int\s+UADDR_W\s*=\s*(\d+)", PKG.read_text()).group(1))
 
 # the enum prefix and the field names of the word (read from the package)
 PREFIX = {"v35_rsel_e": "RS_", "v35_wid_e": "WD_", "v35_src_e": "SR_", "v35_mvd_e": "MD_",
@@ -319,6 +336,9 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 fields[k] = 1
             else:
                 raise UasmError(f"{path}:{ln}: unknown flag {tok!r}")
+    if fields.get("ea") == enum_value("v35_ea_e", "bi") and fields.get("bus"):
+        raise UasmError(f"{path}:{ln}: the EA's add posts (the request reads the address "
+                        "register a word later)")
     if is_open and not act.startswith("OPEN"):
         raise UasmError(f"{path}:{ln}: an open word's comment must start OPEN")
     if act.startswith("OPEN") and not is_open:
@@ -382,6 +402,9 @@ class Program:
     cells1: dict          # opcode -> routine name (first level, no ModR/M)
     cells2: dict          # (opcode, modrm or second byte) -> routine name
 
+    def routine(self, name: str):
+        return next(r for r in self.routines if r.name == name)
+
 
 HEAD0F = "page1"          # the 0F page's head
 TRAP1 = "trap"            # an opcode without a routine
@@ -389,6 +412,36 @@ TRAP2 = "trapm"           # a ModR/M cell without a routine
 TRAP0F = "trap0f"         # a 0F form without a ModR/M byte
 TRAP0FM = "trap0fm"       # ... with one
 RESET = "reset"
+# (MX1) the EA heads (ea.uasm): the dispatch's targets for a ModR/M memory cell with a
+# displacement (or, ea=book, at mod 00 too); each returns to the routine's entry (its add)
+EA_HEADS = {"eab0": "UROM_EAB0", "eab8": "UROM_EAB8", "eab16": "UROM_EAB16", "ea8": "UROM_EA8",
+            "ead": "UROM_EAD"}
+PATHS = ("m00", "d8", "d16", "dir")
+PATH_MODRM = {"m00": 0x07, "d8": 0x47, "d16": 0x87, "dir": 0x06}     # [BW], [BW+d8], [BW+d16], [d16]
+PATH_EA = {"m00": 3, "d8": 3, "d16": 4, "dir": 3}                     # the book's EA
+
+
+def is_mem(r) -> bool:
+    return r.head.get("mod") == "mem"
+
+
+def ea_head(r, path: str) -> str | None:
+    """The head the dispatch calls for routine r on path (None: the routine's entry)."""
+    book = r.head.get("ea", "book") == "book"
+    if path == "m00":
+        return "eab0" if book else None
+    if path == "d8":
+        return "eab8" if book else "ea8"
+    if path == "d16":
+        return "eab16" if book else "ead"
+    return "ead"
+
+
+def modrm_path(mb: int) -> str:
+    md, rm = mb >> 6, mb & 7
+    if md == 0:
+        return "dir" if rm == 6 else "m00"
+    return {1: "d8", 2: "d16"}[md]
 
 
 def assemble(paths: list[Path] | None = None) -> Program:
@@ -403,6 +456,9 @@ def assemble(paths: list[Path] | None = None) -> Program:
     for need in (HEAD0F, TRAP1, TRAP2, TRAP0F, TRAP0FM, RESET):
         if need not in names:
             raise UasmError(f"no routine {need!r}")
+    for r in routines:
+        if is_mem(r) and r.head.get("ea", "book") not in ("book", "bare"):
+            raise UasmError(f"{r.path}:{r.line}: ea={r.head['ea']!r} (book or bare)")
     words, labels = [], {}
     for r in routines:
         _finish(r)
@@ -417,6 +473,10 @@ def assemble(paths: list[Path] | None = None) -> Program:
             words.append((r, w))
     if len(words) > 1 << UADDR_W:
         raise UasmError(f"{len(words)} words: more than the ROM's {1 << UADDR_W}")
+    if any(is_mem(r) for r in routines):
+        for lab in EA_HEADS:
+            if lab not in labels:
+                raise UasmError(f"no EA head {lab!r} (ea.uasm)")
     for r, w in words:
         for k, v in w.refs.items():
             if v not in labels:
@@ -479,15 +539,19 @@ def udec1(prog: Program, op: int) -> dict:
 
 
 def udec2(prog: Program, op: int, b: int) -> dict:
-    """The second level: (op, the popped byte) -> entry, trap, op3."""
+    """The second level: (op, the popped byte) -> entry, trap, op3, (MX1) ea (a memory cell:
+    the dispatch calls the EA head of the byte's mode) and eab (the book's EA heads)."""
     op3 = (b >> 3) & 7 if op in (0x80, 0x81, 0x82, 0x83, 0xC0, 0xC1, 0xD0, 0xD1, 0xD2, 0xD3,
                                  0xF6, 0xF7, 0xFE, 0xFF) else fmt_of(op)["op3"]
     if (op, b) in prog.cells2:
-        return {"entry": prog.labels[prog.cells2[(op, b)]], "trap": 0, "op3": op3}
+        r = prog.routine(prog.cells2[(op, b)])
+        mem = op != 0x0F and is_mem(r) and b >> 6 != 3
+        return {"entry": prog.labels[r.name], "trap": 0, "op3": op3, "ea": int(mem),
+                "eab": int(mem and r.head.get("ea", "book") == "book")}
     if op == 0x0F:
         name = TRAP0FM if b in PAGE1_MODRM else TRAP0F
-        return {"entry": prog.labels[name], "trap": 1, "op3": 0}
-    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3}
+        return {"entry": prog.labels[name], "trap": 1, "op3": 0, "ea": 0, "eab": 0}
+    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0}
 
 
 def ulen(op: int, il: int, mb: int) -> int:
@@ -511,7 +575,10 @@ def decode_svh(prog: Program) -> str:
          "",
          f"    localparam int UROM_WORDS = {len(prog.words)};",
          f"    localparam logic [UADDR_W-1:0] UROM_RESET = {UADDR_W}'d{prog.labels[RESET]};",
-         "",
+         "    // (MX1) the EA heads: the dispatch's call targets for a ModR/M memory cell (ea.uasm)"]
+    for lab, pname in EA_HEADS.items():
+        L.append(f"    localparam logic [UADDR_W-1:0] {pname} = {UADDR_W}'d{prog.labels.get(lab, 0)};")
+    L += ["",
          "    function automatic v35_udec_t v35_udec1(input logic [7:0] op);",
          "        v35_udec_t f;",
          "        f = '0;",
@@ -534,7 +601,7 @@ def decode_svh(prog: Program) -> str:
         by = {}
         for b in range(256):
             g = udec2(prog, op, b)
-            by.setdefault((g["entry"], g["trap"], g["op3"]), []).append(b)
+            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"]), []).append(b)
         L.append("                case (b)")
         default = max(by, key=lambda k: len(by[k]))
         for k, bs in sorted(by.items()):
@@ -542,11 +609,12 @@ def decode_svh(prog: Program) -> str:
                 continue
             items = ", ".join(f"8'h{b:02X}" for b in bs)
             L.append(f"                    {items}: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, "
-                     f"3'd{k[2]}}};")
+                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}}};")
         k = default
-        L.append(f"                    default: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, 3'd{k[2]}}};")
+        L.append(f"                    default: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, 3'd{k[2]}, "
+                 f"1'b{k[3]}, 1'b{k[4]}}};")
         L += ["                endcase", "            end"]
-    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0}};",
+    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0}};",
           "        endcase", "        v35_udec2 = f;", "    endfunction", ""]
     # (MX0) the loader's count of the instruction's bytes still to pop from the queue: what a
     # ModR/M byte's pop adds (its displacement and the form's immediate) and what the 0F page's
@@ -598,22 +666,27 @@ BUS_CYCLE = 3          # a bus cycle at W = 0 (v35s-bus-timing.md)
 
 
 def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
-           limit: int = 4000) -> int:
+           limit: int = 4000, path: str = "m00", trace: list | None = None) -> int:
     """The routine's clocks from its entry to the successor's first word at EA = 3, W = 0, no
     queue stall: one word a clock; a request posted on clock p is granted on p + 1 and done on
     p + 1 + BUS_CYCLE (the F word and a RAMEN write's E wait for it); the counter's loads read
     n (CL, the immediate) or the width's bit count; conditions from `conds`. A 0F routine counts the
-    page head's word."""
+    page head's word. (MX1) A memory routine (`mod=mem`) runs from the EA head of `path` (the
+    dispatch's call, returning to the routine's entry); `trace` collects (clock, address, word)."""
     conds = dict(conds or {})
-    r = next(x for x in prog.routines if x.name == name)
+    r = prog.routine(name)
     t = 0
     pc = r.base
+    retr = None
     if r.head.get("page") == "0f":
         t = 1
+    if is_mem(r):
+        h = ea_head(r, path)
+        if h is not None:
+            pc, retr = prog.labels[h], r.base
     cnt = 0
     done_at = None
     write_pend = False
-    retr = None
     width = 16 if r.head.get("width", "word") == "word" else 8
     while limit:
         limit -= 1
@@ -629,6 +702,8 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
                 t = done_at
             done_at = t + 1 + BUS_CYCLE
             write_pend = f["bus"] == enum_value("v35_bus_e", "memw")
+        if trace is not None:
+            trace.append((t, pc, w))
         if f.get("e"):
             return t + 2                        # E, its post-E word, then the successor
         c = f.get("cnt", 0)
@@ -653,7 +728,9 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
         elif seq == enum_value("v35_seq_e", "call"):
             retr, nxt = pc + 1, f["tgt"]
         elif seq == enum_value("v35_seq_e", "ret"):
-            nxt = retr
+            if retr is None:
+                raise UasmError(f"{name}: a return with no call")
+            nxt, retr = retr, None
         elif seq == enum_value("v35_seq_e", "loop"):
             cnt -= 1
             nxt = f["tgt"] if cnt != 0 else pc + 1
@@ -668,13 +745,28 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
     raise UasmError(f"{name}: no E reached")
 
 
+def path_words(prog: Program, name: str, n: int = 4, path: str = "m00") -> list:
+    """The words a path executes (each once per execution), for the OPEN count on it."""
+    tr = []
+    length(prog, name, n, path=path, trace=tr)
+    return [w for _, _, w in tr]
+
+
 def book_values() -> dict:
     d = json.loads(BOOK.read_text())
     return d["forms"]
 
 
-def book_value(form: str, width: str | None, n: int) -> int | None:
-    """The book's clocks for a form at EA = 3, W = 0 (a formula in n evaluated)."""
+def eval_book(expr: str, ea: int, n: int) -> int | None:
+    expr = expr.replace("EA", str(ea))
+    expr = re.sub(r"(\d)([Wn])", r"\1*\2", expr).replace("W", "0")       # 2W = 2 * 0
+    if not re.fullmatch(r"[0-9+*()n ]+", expr):
+        return None
+    return eval(expr, {}, {"n": n})
+
+
+def book_value(form: str, width: str | None, n: int, ea: int = 3) -> int | None:
+    """The book's clocks for a form at EA (3, or 4 for mod 10), W = 0 (a formula in n evaluated)."""
     f = book_values()[form]
     if width and f.get(width):
         expr = f[width]["expr"]
@@ -682,27 +774,62 @@ def book_value(form: str, width: str | None, n: int) -> int | None:
         expr = f.get("expr")
     if expr is None:
         return None
-    expr = expr.replace("EA", "3").replace("W", "0")
-    expr = re.sub(r"(\d)n", r"\1*n", expr)
-    if not re.fullmatch(r"[0-9+*()n ]+", expr):
-        return None
-    return eval(expr, {}, {"n": n})
+    return eval_book(expr, ea, n)
+
+
+def parse_diff(h: dict) -> dict:
+    """The declared difference per path: diff=K (every path) or diff=m00:K,d8:K,... ."""
+    v = h.get("diff", "0")
+    if ":" not in v:
+        return {p: int(v) for p in PATHS}
+    out = {p: 0 for p in PATHS}
+    for part in v.split(","):
+        k, _, x = part.partition(":")
+        if k not in PATHS:
+            raise UasmError(f"diff path {k!r} (one of {PATHS})")
+        out[k] = int(x)
+    return out
 
 
 def book_rows(prog: Program) -> list[tuple]:
-    """(routine, book form, book value, routine length, declared diff, why) for every routine
-    with book=."""
+    """(routine, book form, book value, routine length, declared diff, why, measured, path,
+    OPEN words on the path) for every routine with book= (bookx=); a memory routine has one row
+    per path (m00 d8 d16 dir), its declared diff the routine's plus its EA head's."""
     out = []
+    names = {x.name for x in prog.routines}
     for r in prog.routines:
         h = r.head
-        if "book" not in h:
+        if "book" not in h and "bookx" not in h:
             continue
         n = int(h.get("n", "4"))
-        bv = int(h["bookv"]) if "bookv" in h else book_value(h["book"], h.get("width"), n)
-        ln = length(prog, r.name, n)
-        out.append((r.name, h["book"], bv, ln, int(h.get("diff", "0")), h.get("why", ""),
-                    h.get("measured", "")))
+        diffs = parse_diff(h)
+        for path in (PATHS if is_mem(r) else ("m00",)):
+            ea = PATH_EA[path]
+            if "bookv" in h:
+                bv = int(h["bookv"]) + (ea - 3 if is_mem(r) else 0)
+            elif "bookx" in h:
+                bv = eval_book(h["bookx"], ea, n)
+            else:
+                bv = book_value(h["book"], h.get("width"), n, ea)
+            ln = length(prog, r.name, n, path=path)
+            diff = diffs[path]
+            why = h.get("why", "")
+            hd = ea_head(r, path) if is_mem(r) else None
+            if hd is not None and hd in names:
+                hr = prog.routine(hd)
+                if "diff" in hr.head:
+                    diff += parse_diff(hr.head)[path]
+                    why = (why + " | the EA head " + hd + ": " + hr.head.get("why", "")).strip(" |")
+            opens = sum(1 for w in path_words(prog, r.name, n, path) if w.open)
+            out.append((r.name, h.get("book", h.get("bookx")), bv, ln, diff, why,
+                        h.get("measured", ""), path if is_mem(r) else "", opens))
     return out
+
+
+def open_words(prog: Program) -> dict:
+    """OPEN words per routine (the agenda: a book clock no act names)."""
+    return {r.name: sum(1 for w in r.words if w.open) for r in prog.routines
+            if any(w.open for w in r.words)}
 
 
 def write(prog: Program) -> None:
@@ -731,10 +858,12 @@ def main(argv=None) -> int:
         print(listing(prog), end="")
     if args.book:
         for row in book_rows(prog):
-            name, form, bv, ln, diff, why, meas = row
+            name, form, bv, ln, diff, why, meas, path, opens = row
             ok = bv is None or ln == bv + diff
-            print(f"{'ok ' if ok else 'BAD'} {name:12s} {form:24s} book {bv!s:>4} len {ln:4d} "
-                  f"diff {diff:+d} measured {meas}  {why}")
+            print(f"{'ok ' if ok else 'BAD'} {name:12s} {path:3s} {form:24s} book {bv!s:>4} "
+                  f"len {ln:4d} diff {diff:+d} open {opens} measured {meas}  {why[:90]}")
+        ow = open_words(prog)
+        print(f"OPEN words: {sum(ow.values())} in {len(ow)} routines")
     if args.check:
         bad = check(prog)
         print("uasm: up to date" if not bad else f"uasm: stale {bad}")

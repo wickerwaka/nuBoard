@@ -1,0 +1,42 @@
+; MX1 the effective address's heads (docs/v35s-mechanisms.md section 3.5: the ROM has no EA
+; routine; the EA's clocks are the displacement bytes' pops and one add). A memory routine's
+; first word is the add (ea=BI: the ModR/M mode's base on port A + its index on port B + the
+; popped displacement into the address register, the default segment SS for a BP mode); the
+; pops come before it, in the heads below. The word after E of a ModR/M memory cell dispatches
+; to the head of the registered ModR/M byte's mode with the routine's entry in the return
+; register (the dispatch's call: the V20 loader's mode branch, S_D8 / S_D16, before the
+; routine's first row, v30-structure.md section 6); the head pops and returns. No head reads a
+; register or posts: the pops alone, and the book's EA clock where they leave one.
+;
+; Two sets, by the routine's header (the decode table's eab bit for its cells):
+;   ea=book  the book's EA: 3 clocks at mod 00 and 01 and for the direct address, 4 at mod 10
+;            (v35_book_clocks.json EA_values). Each mode's pops and the add, and the book clock
+;            they do not fill as an OPEN word; at mod 00 (the add alone against the book's 3)
+;            one OPEN word, the second clock a book error: silicon's EA table puts [reg] and
+;            [base+index] one clock under every d8 form, where the book charges EA 3 for both
+;            (docs/v35s-eu-timing.md M4: +0 / +1 / +2).
+;   ea=bare  the pops alone (mod 00 enters the routine's add directly): for the routines whose
+;            own acts already exceed the book's clocks after the EA (the store's datum read
+;            behind the add's two ports, the RMW's write post), so that no path carries an OPEN
+;            word beyond the book.
+
+routine eab0 diff=m00:-1 why="book error of one at mod 00 (the add one clock, the book's EA 3): docs/v35s-eu-timing.md M4, [reg] and [base+index] +0 against any + d8 +1 where the book charges EA 3 for both; one book clock stays (OPEN)"
+    open ret                                ; OPEN: the book's EA clock at mod 00 the add does not fill; return to the routine's add
+
+routine eab8
+    pop=dl                                  ; pop the displacement byte (d8)
+    open ret                                ; OPEN: the book's EA clock at mod 01 the pop and the add do not fill (EA 3); return to the add
+
+routine eab16
+    pop=dl                                  ; pop the displacement's low byte (d16)
+    pop=dh                                  ; pop its high byte
+    open ret                                ; OPEN: the book's EA clock at mod 10 the pops and the add do not fill (EA 4); return to the add
+
+routine ea8
+    pop=dl ret                              ; pop the displacement byte (d8); return to the routine's add
+
+; the direct address (mod 00 rm 110) in both sets (its two pops and the add are the book's EA 3),
+; and mod 10 in the bare set
+routine ead
+    pop=dl                                  ; pop the displacement's (the direct address's) low byte
+    pop=dh ret                              ; pop its high byte; return to the routine's add

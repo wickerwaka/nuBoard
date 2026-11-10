@@ -291,6 +291,7 @@ module v35_eu
                 endcase
             end
             AL_PSWL: pn = {psw[15:8], x[15:8]};
+            AL_ADD: r = x + y;
             default: ;
         endcase
     end
@@ -303,6 +304,13 @@ module v35_eu
     wire [15:0] addr_n = word.ea != EA_NONE ? ea_off
                        : word.d1 == MD_ADDR ? s1v : word.d2 == MD_ADDR ? s2v : addr;
     wire        ea_ss_n = word.ea != EA_NONE ? ea_bp : ea_ss;
+    // (MX1) the request's address: the address register as a posting word leaves it, but never
+    // through the EA's add (the assembler rejects a word with ea=BI that posts: the add's
+    // 3-input sum ends in the address register, the request reads it a word later; README
+    // "MX1", depth); the direct form's displacement (ea=DISP) is a register
+    wire [15:0] addr_q = word.ea == EA_DISP ? {dh, dl}
+                       : word.d1 == MD_ADDR ? s1v : word.d2 == MD_ADDR ? s2v : addr;
+    wire        ea_ss_q = word.ea == EA_NONE && ea_ss;
 
     // ------------------------------------------------------------ tick B: the write port
     wire [6:0]  sw = rsel(word.wr);
@@ -318,8 +326,8 @@ module v35_eu
     wire [15:0] segv = word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
                      : pfx_v ? (pfx_s == 2'd0 ? ds1 : pfx_s == 2'd1 ? ps : pfx_s == 2'd2 ? ss
                                 : ds0)
-                     : ea_ss_n ? ss : ds0;
-    wire [19:0] lin = {segv, 4'd0} + {4'd0, addr_n};
+                     : (ea_ss_q && word.seg != SG_DSP) ? ss : ds0;
+    wire [19:0] lin = {segv, 4'd0} + {4'd0, addr_q};
     wire [15:0] off2 = rq_off + 16'd1;
     wire [19:0] lin2 = {rq_seg, 4'd0} + {4'd0, off2};
 
@@ -334,7 +342,9 @@ module v35_eu
     assign req_resv = rq_v || resv_r || resv_e;
     assign sfr_data = req_data;
     assign opr_rdy = opr_v || (req_done && rq_out && rq_rd);
-    assign rq_busy = rq_v || rq_out;
+    // (MX1) the slot frees on the cycle's end (req_done): a post on that clock stands from the
+    // next, the book check's machine (uasm.length: a post waits for the last request's end)
+    assign rq_busy = rq_v || (rq_out && !req_done);
     assign wr_hold = rq_out && rq_wr && !rq_io && ramen && !req_done;
     assign c_sgn = sigma[15];
     assign c_dtrap = dtrap;
@@ -418,9 +428,9 @@ module v35_eu
                         : word.bus == BQ_IOR ? RQ_IOR : RQ_IOW;
                 rq_word <= weff;
                 rq_pair <= weff && !b_io && lin[0];
-                rq_addr <= b_io ? {4'd0, addr_n} : lin;
+                rq_addr <= b_io ? {4'd0, addr_q} : lin;
                 rq_seg <= segv;
-                rq_off <= addr_n;
+                rq_off <= addr_q;
                 rq_out <= 1'b1;
                 rq_rd <= word.bus == BQ_MEMR || word.bus == BQ_IOR;
                 rq_wr <= word.bus == BQ_MEMW || word.bus == BQ_IOW;
@@ -431,14 +441,16 @@ module v35_eu
                     if (rq_pair)
                         rq_addr <= lin2;
                 end
-                if (req_done && rq_out) begin
+                if (req_done && rq_out)
                     rq_out <= 1'b0;
-                    if (rq_rd) begin
-                        opr <= dnow;
-                        opr_v <= 1'b1;
-                    end
-                end else if (cpu_end_prev && rq_out && rq_pair)
+                else if (cpu_end_prev && rq_out && rq_pair)
                     plo <= done_data[15:8];
+            end
+            // (MX1) a read's datum latched at its end, also when the clock posts the next
+            // request (the slot is free on the end's clock: rq_busy)
+            if (req_done && rq_out && rq_rd) begin
+                opr <= dnow;
+                opr_v <= 1'b1;
             end
             if (resv_eb)
                 resv_r <= 1'b1;

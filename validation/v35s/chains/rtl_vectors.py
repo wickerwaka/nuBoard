@@ -293,6 +293,13 @@ def c2_case(regs: dict, code6: bytes, ip: int, st, after: dict | None, trap: boo
         ram[(base + ((start + i) & 0xFFFF)) & 0xFFFFF] = b
     regs_in = {k: regs[k] for k in C2REGS}
     kind = code_divergence(code6) or kind
+    # (MX1) the prefix byte is the bench's (the reference holds a pending prefix as state, not
+    # as a byte in its memory): an operand read that covers it reads the byte here and the
+    # reference's memory there (a random register file's EA on the instruction's own address)
+    pa = (base + start) & 0xFFFFF
+    if st is not None and pfx is not None and any(
+            c.kind == "read" and pa in (c.addr, (c.addr + 1) & 0xFFFFF) for c in st.cycles):
+        kind = PFX_OVERLAP
     if st is not None and any(c.kind in ("read", "write") and c.addr >= 0xFFE00
                               for c in st.cycles):
         kind = "on-chip page"           # (the internal RAM and SFRs: not on the pins)
@@ -318,6 +325,9 @@ def c2_case(regs: dict, code6: bytes, ip: int, st, after: dict | None, trap: boo
         nxt = st.target if st.taken else (ip + st.length) & 0xFFFF
     return C2Test("", n, regs_in, start, ram, {k: after[k] for k in C2REGS}, nxt, fin,
                   c2_io([st]), c2_limit([st]), kind, n - 1 + st.length, IO_WORD_REF)
+
+
+PFX_OVERLAP = "an operand read covers the bench's prefix byte"
 
 
 EA_FORMS = (bytes([0x8B]), bytes([0x89]), bytes([0x8D]), bytes([0xC7]), bytes([0x01]),
@@ -472,7 +482,7 @@ def check_regfile(families, keep: Path | None = None, mutate: int = 0) -> tuple[
     sm, res = run_core2(tests, keep, "regfile")
     counts["vectors"] = len(tests)
     bad, lines = 0, []
-    apart = set(DECODE_DIVERGENCE.values()) | {"on-chip page"}
+    apart = set(DECODE_DIVERGENCE.values()) | {"on-chip page", PFX_OVERLAP}
     for t in tests:
         r = res.get(t.tid)
         if t.kind == "on-chip page":

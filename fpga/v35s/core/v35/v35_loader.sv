@@ -25,6 +25,12 @@
 // (v35_upage), counted down by each pop. While an instruction still owes bytes the staging slot
 // stays counted by the queue (`stg`): the slot is the next opcode's.
 //
+// (MX1) The dispatch's target for a ModR/M memory cell (the decode's ea bit) is the EA head of
+// the registered ModR/M byte's mode, called with the routine's entry as the return (dcall,
+// dret): mod 01 one displacement pop, mod 10 and the direct form two, the book's heads (eab)
+// with the book's EA clock as an OPEN word, mod 00 too (ea.uasm). The choice reads the mode's
+// bits and the cell's two decode bits only.
+//
 // The decode's inputs are registers and the popped byte: v35_udec1 of the opcode register
 // (registered into `fmt` at the dispatch, DISP), v35_udec2 of the opcode register and the byte
 // a DISPM word pops (the group's reg field: `op3`). No byte is read that the routine does not
@@ -84,6 +90,9 @@ module v35_loader
     output wire        o_pop,           // tick A: an operand byte popped
     output wire        o_epop,          // tick A: the E word pops the next opcode (Q2's start)
     output wire [UADDR_W-1:0] dent,     // tick A: the DISP word's target
+    output wire        dcall,           // tick A: (MX1) ... an EA head, called: the return is dret
+    output wire        dmem,            // tick A: ... a ModR/M memory cell (the decode's ea bit)
+    output wire [UADDR_W-1:0] dret,     // tick A: ... the routine's entry (the head's return)
     output wire        dtrap,           // tick A: the instruction (op, modrm) has no routine
     output wire        resv_e,          // tick A: the E word pops an opcode whose routine posts
     output wire        s_modrm          // the staged opcode has a ModR/M byte (registers)
@@ -163,7 +172,22 @@ module v35_loader
     // opcode with one, else the first
     v35_udecm_t dm;
     assign dm = v35_udec2(op, mp);
-    assign dent = dec1.has_modrm ? dm.entry : dec1.entry;
+    // (MX1) a memory cell (dm.ea) dispatches to the EA head of the registered ModR/M byte's
+    // mode and returns to the routine's entry (its add): mod 01 one displacement pop, mod 10 and
+    // the direct form (mod 00 rm 110) two; with the book's heads (dm.eab) each head ends with
+    // the book's EA clock its pops and the add do not fill (OPEN), mod 00 included. A mode
+    // without a head (mod 00, ea=bare) enters the routine directly. The mode's bits only: no
+    // opcode reaches the choice (the cell's two bits are the decode table's)
+    wire       m_dir = mp[7:6] == 2'd0 && mp[2:0] == 3'd6;
+    wire       m_ea = dec1.has_modrm && dm.ea;
+    wire [UADDR_W-1:0] head = mp[7:6] == 2'd1 ? (dm.eab ? UROM_EAB8 : UROM_EA8)
+                            : (mp[7:6] == 2'd2 && dm.eab) ? UROM_EAB16
+                            : (mp[7:6] == 2'd2 || m_dir) ? UROM_EAD
+                            : UROM_EAB0;
+    assign dcall = m_ea && (mp[7:6] != 2'd0 || m_dir || dm.eab);
+    assign dret = dm.entry;
+    assign dmem = m_ea;
+    assign dent = !dec1.has_modrm ? dec1.entry : dcall ? head : dm.entry;
     assign dtrap = dec1.has_modrm ? dm.trap : dec1.trap;
 
     // ------------------------------------------------------------ (S7b) the ce_b registers

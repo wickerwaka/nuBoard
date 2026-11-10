@@ -1438,3 +1438,56 @@ question, decided from S8's routed numbers with the user.
   the grant → the cycle registers (the next split, MX5); hold +0.3. **Mechanism-note corrections** are appended
   to docs/v35s-mechanisms.md ("Corrections from MX0"). The loss against A1 is the rule's expected cost and is
   recorded, not patched: the A1 core remains at 049e8c5.
+- 2026-11-10, **MX1 landed** (the memory forms; the same Opus worktree agent, one round). **Built:** the EA as
+  mechanisms §3.5 says, no EA routine: the word after E of a ModR/M memory cell (a decode bit `ea`) calls the
+  EA head of the registered ModR/M's mode (`urom/ea.uasm`: the displacement's pops, none / one / two, and a
+  return; the loader's `dcall` / `dret`, the sequencer's return register loaded at the dispatch), and the
+  routine's first word is the add (`ea=BI ra=BASE rb=INDEX`, SS the default for a BP mode); no word tests a
+  mode, the EA's clocks are the pops and the add. Two head sets by the routine's header: `ea=book` carries the
+  book's EA clocks the pops do not fill as OPEN words (mod 00: one OPEN and one book error, eu-timing M4),
+  `ea=bare` the pops alone for the routines whose own acts already exceed the book. `urom/mem.uasm` (loads,
+  load+ALU, CMP, TEST, XCH, stores, MOV mem,imm, the segment moves, LES / LDS, LDEA, group 1 RMW and CMP,
+  INC / DEC / NOT / NEG mem, TEST mem,imm, MULU / MUL / DIVU / DIV mem jumping into loop.uasm's loops, the memory
+  shifts, PUSH / POP mem) and `urom/stack.uasm` (PUSH / POP sreg, PUSH R / POP R unrolled one word a register,
+  TRANS, PREPARE level 0, DISPOSE): 121 routines, 1,005 of 1,024 ROM words (MX2 widens `UADDR_W` or OPEN
+  words leave); OPEN words 383 in 50 routines (MX0 122; PUSH R / POP R 123 of them). The assembler: `ea=book|
+  bare`, a per-path `diff=m00:K,d8:K,d16:K,dir:K`, `bookx=` for a book note's formula, `length` per path, the
+  book check per path; `test_declared_differences_name_silicon` amended per ruling 3: a positive difference only
+  on a path with no OPEN word and a reason naming the pops, a negative one naming its measurement, a fit
+  rejected; a deliberately bad routine caught; EA tests (heads only pop and return, every memory routine starts
+  with the add, the decode cells' bits, the EA clocks per path). Datapath: the request slot frees on the
+  cycle's end (`rq_busy`), a read's datum latched at its end also when that clock posts the next request,
+  `AL_ADD`, `SG_DSP`, the request address never reads the EA sum in the same tick (about 10 levels for the add;
+  the deepest new path the arriving datum's lanes into the ALU on an F word, the ALU path plus about 3, with the
+  split named if routing needs it). PUSH r16 reads its register after SP's write (PUSH SP pushes SP − 2, F36).
+  No port of the bus unit or the queue changed. **Function gates (verified on main):** write data 93,540 /
+  106,824 (MX0 64,664; every gate family 0 differing; the 3,972 left are MX2's transfers, MX3's 0F / bit /
+  MUL imm forms and MX4's strings), `--regfile` on all 36 families 69,099 + 38,760 vectors 0 bad (pass 62,288
+  + 30,857, trap_nop 5,854 + 6,744 + 300; a `PFX_OVERLAP` kind counted apart for a bench artefact), `--fn`
+  19,752 / 0 bad, the SingleStepTests bar restored to `pass` over 1,900 for the implemented files with a named
+  `LATER` set (MX2 / MX3 files required to be wholly trap_nop), lint clean in the five configurations and each
+  macro's alternatives, 45 fast tests, the nine offline modules unchanged (the four known failures). **Timing
+  (both spacings identical, 0 failing, chk silent):** unchanged, 19 / 30,536 exact (A1 28,059), the MX1 gate
+  families 10 / 14,388 (A1 13,332; all F16), the MX0 gate 9 unchanged; (i) 26,946, (ii) 0, (iii) 3,571; the
+  restart dt flat but F15 / F25 / F39. On the k2 runs the memory routines sit within a clock of silicon
+  (SHL mem,1 2–3 short, MULU mem 3–4 short, CMP [BW],imm16 2 short, MOV mem,imm's interval +2 to +5 open).
+  **Root cause of the flat count, traced by the overseer on main with the frozen model's event trace against
+  the RTL's (`evtrace`; the model is exact on every run used):** the model's start S of an instruction is the
+  clock its ModR/M byte is taken from the queue (the opcode prefetched into the IR earlier, with no effect on
+  the room); the fetch that take's room triggers is issued on the same clock and never blocks the start (the
+  machine's T phase precedes X), and a started instruction is never stalled by a fetch. The RTL's E pop of the
+  opcode and ModR/M is that clock and triggers the same fetch, but the stall sits on the DISP word, one clock
+  later, under that fetch: F3-push-add_aw_dw-k1-pE-w0, model ADD S 81 with fetch 10052 at 81 and the next PUSH
+  S 84 on the b2b fetch's issue clock; RTL E 81, DISP waits 82–87, entry 88. Every instruction that makes
+  room pays it, so the first divergence is the restart fetch or the marker in most runs and the memory forms
+  are never reached. The same traces give silicon's S-to-S costs: ADD reg,reg 3 (the V20's read word, the ALU
+  on E, the write post-E), NOP / XCH AW,r 4, MOV r16,imm16 5 and r8,imm8 4 with the immediate's first byte
+  taken at S + 3 in every immediate class (the model's `pre` 3: one open mechanism, an operand-byte path
+  latency the opcode / ModR/M path lacks), PUSH r16 9, SHL r,CL 12 + 2n, MOV CL,imm8 4, a load [BW] posting
+  its read at S + 5 with S-to-S 11. MX0's measurement of the stall on the E word (README MX0d) was confounded
+  by the book-shaped routine lengths of that round. **MX1b** is sent to the agent: the stall on the E word
+  (a fetch granted on an earlier clock; a back-to-back fetch's issue clock for a ModR/M form), the register
+  forms re-derived to those costs with the pops at the measured clocks (named acts first, OPEN words on the
+  chain evidence, each citing the run), then the memory forms on the k2 runs; the baseline for it is this
+  commit. Hand-back and verification: /tmp scratchpad v2/mx1/ (mx1.diff, mx1-table.md, mx1-k2.txt,
+  mx1-book.txt), v2/mx1/main/ (verify.out, the traces, side.py).

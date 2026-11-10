@@ -53,13 +53,14 @@ package v35_pkg;
     // GRP the format's 3-bit operation (the 00-3F block, the 80-83 group), SHI / SH1 / SHF the
     // shifter's loop (load, one step under the counter, the flags), MULI / MULS / MULF and
     // DIVI / DIVS / DIVF the multiply and the restoring divide (one bit a word), FLAG the
-    // format's flag operation, PSWL the PSW's low byte from x's high byte (SAHF)
+    // format's flag operation, PSWL the PSW's low byte from x's high byte (SAHF), (MX1) ADD the
+    // 16-bit sum x + y, no flags (TRANS's table address, PREPARE's frame)
     typedef enum logic [4:0] {
         AL_NONE = 5'd0, AL_PASS = 5'd1, AL_GRP = 5'd2, AL_AND = 5'd3, AL_INC = 5'd4,
         AL_DEC = 5'd5, AL_NOT = 5'd6, AL_NEG = 5'd7, AL_INC2 = 5'd8, AL_DEC2 = 5'd9,
         AL_SEXT = 5'd10, AL_SIGNW = 5'd11, AL_SHI = 5'd12, AL_SH1 = 5'd13, AL_SHF = 5'd14,
         AL_MULI = 5'd15, AL_MULS = 5'd16, AL_MULF = 5'd17, AL_DIVI = 5'd18, AL_DIVS = 5'd19,
-        AL_DIVF = 5'd20, AL_FLAG = 5'd21, AL_PSWL = 5'd22
+        AL_DIVF = 5'd20, AL_FLAG = 5'd21, AL_PSWL = 5'd22, AL_ADD = 5'd23
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -74,9 +75,10 @@ package v35_pkg;
     } v35_bus_e;
 
     // ---- the request's segment: the default (a prefix's, else SS for a BP mode, else DS0),
-    // SS (the stack: no override), DS1 ----
+    // SS (the stack: no override), DS1, (MX1) DSP a prefix's, else DS0 (an address the routine
+    // formed without an EA mode: TRANS's table) ----
     typedef enum logic [1:0] {
-        SG_DEF = 2'd0, SG_SS = 2'd1, SG_DS1 = 2'd2
+        SG_DEF = 2'd0, SG_SS = 2'd1, SG_DS1 = 2'd2, SG_DSP = 2'd3
     } v35_seg_e;
 
     // ---- a queue pop (one byte from the word register) into a popped-byte register ----
@@ -166,6 +168,9 @@ package v35_pkg;
         logic [UADDR_W-1:0] entry;
         logic       trap;
         logic [2:0] op3;        // the group's operation (the reg field), or the block's
+        logic       ea;         // (MX1) a memory cell: the dispatch calls the EA head of the
+                                //   ModR/M byte's mode, the routine's entry (its add) the return
+        logic       eab;        // ... the book's EA heads (ea=book); else the pops alone
     } v35_udecm_t;
 
     `include "v35_udecode_tbl.svh"

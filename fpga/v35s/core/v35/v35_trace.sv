@@ -29,7 +29,7 @@ module v35_trace
     input  wire [2:0]  g_len,
     input  wire        start,
     input  wire        start_trap,
-    input  wire [9:0]  entry,
+    input  wire [v35_pkg::UADDR_W-1:0] entry,
     input  wire [19:0] pc,
     input  wire        take,
     input  wire        load,
@@ -41,7 +41,7 @@ module v35_trace
     input  wire signed [4:0] room,
     input  wire        flag,
     input  wire [4:0]  why,
-    input  wire [9:0]  upc
+    input  wire [v35_pkg::UADDR_W-1:0] upc
 );
 `ifndef SYNTHESIS
     integer fd = 0;

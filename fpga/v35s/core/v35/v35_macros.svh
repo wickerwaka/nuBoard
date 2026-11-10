@@ -256,4 +256,10 @@
 `ifndef V35_MX0C_DISPATCH
 `define V35_MX0C_DISPATCH 2
 `endif
+// (MX1) V35_MX1_EAFREE, measured and not kept (README "MX1"): 1 the dispatch of a ModR/M memory
+// cell (the EA head, the routine's add and its read's post) is not held by the fetch (the
+// V20's EA and operand pre-read ahead of the routine); 0 the dispatch law for every form
+`ifndef V35_MX1_EAFREE
+`define V35_MX1_EAFREE 0
+`endif
 `endif // V35_MACROS_SVH

@@ -1,5 +1,6 @@
 """(MX0) The microprogram assembler (uasm.py): the checked-in outputs, the word's round trip,
-bounds, the decode's coverage and the book check.
+bounds, the decode's coverage and the book check; (MX1) the per-path book check of the memory
+forms and the EA heads.
 
     PYTHONPATH=host/src:. python3 -m unittest validation.v35s.chains.test_uasm
 """
@@ -100,16 +101,18 @@ class NoCounts(unittest.TestCase):
 
 class BookCheck(unittest.TestCase):
     """Every routine with book= has the data book's length at EA = 3, W = 0 plus the declared
-    difference, the difference's reason written beside it."""
+    difference, the difference's reason written beside it. (MX1) A memory routine is checked
+    on each path (m00 mod 00 at EA 3, d8 mod 01 at EA 3, d16 mod 10 at EA 4, dir the direct
+    address at EA 3), its declared difference the routine's per path plus its EA head's."""
 
     def test_book_lengths(self):
         prog = uasm.assemble()
         rows = uasm.book_rows(prog)
         self.assertGreater(len(rows), 30)
-        for name, form, bv, ln, diff, why, _ in rows:
+        for name, form, bv, ln, diff, why, _, path, _ in rows:
             if bv is None:
                 continue
-            self.assertEqual(ln, bv + diff, f"{name} ({form}): length {ln}, book {bv}, "
+            self.assertEqual(ln, bv + diff, f"{name} {path} ({form}): length {ln}, book {bv}, "
                                             f"declared {diff:+d}")
             if diff:
                 self.assertTrue(why, f"{name}: a difference without its reason")
@@ -118,8 +121,15 @@ class BookCheck(unittest.TestCase):
         # a word without an act the sources name is marked OPEN, and its routine's reason says so
         prog = uasm.assemble()
         for r in prog.routines:
-            if any(w.open for w in r.words):
+            if any(w.open for w in r.words) and r.name not in uasm.EA_HEADS:
                 self.assertIn("OPEN", r.head.get("why", ""), r.name)
+
+    def test_open_words_reported(self):
+        # (MX1) the agenda: OPEN words per routine and in total (MX0 122)
+        ow = uasm.open_words(uasm.assemble())
+        print(f"\n(MX1) OPEN words: {sum(ow.values())} in {len(ow)} routines: "
+              + ", ".join(f"{k} {v}" for k, v in sorted(ow.items())))
+        self.assertGreater(sum(ow.values()), 0)
 
     def test_length_counts_the_shift_loop(self):
         prog = uasm.assemble()
@@ -132,16 +142,110 @@ class BookCheck(unittest.TestCase):
     def test_declared_differences_name_silicon(self):
         # (MX0e) the book is the first draft; a routine is shorter than the book only where
         # silicon's direct measurement (the a6 sweep, docs/v35s-eu-timing.md, the chain
-        # families) shows the clock absent, and the reason names that measurement; never
-        # longer (a clock is added only as a named act or an OPEN book clock); never a fit
+        # families) shows the clock absent, and the reason names that measurement; never a fit.
+        # (MX1) a path longer than the book only by named acts: no OPEN word on it, the reason
+        # naming the acts beyond the book (the displacement's pops the book's EA does not
+        # resolve)
         prog = uasm.assemble()
         rows = [r for r in uasm.book_rows(prog) if r[4]]
-        print("\n(MX0e) the declared differences: " + ", ".join(f"{r[0]} {r[4]:+d}" for r in rows))
-        for name, form, bv, ln, diff, why, _ in rows:
-            self.assertLess(diff, 0, name)
-            self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9])", name)
-            self.assertIn("book error", why, name)
+        print("\n(MX1) the declared differences: " + ", ".join(
+            f"{r[0]}{'.' + r[7] if r[7] else ''} {r[4]:+d}" for r in rows))
+        for name, form, bv, ln, diff, why, _, path, opens in rows:
             self.assertNotRegex(why, r"\bfit", name)
+            if diff < 0:
+                self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9])", f"{name} {path}")
+                self.assertIn("book error", why, f"{name} {path}")
+            else:
+                self.assertEqual(opens, 0, f"{name} {path}: {diff:+d} over the book with "
+                                           f"{opens} OPEN words on the path")
+                self.assertRegex(why, r"pops?\b", f"{name} {path}: the acts beyond the book")
+
+    def test_a_positive_difference_with_an_open_word_is_rejected(self):
+        # the rule's check on a routine written to break it: one OPEN word on a path over the book
+        text = ("routine bad op=8A,8B mod=mem book=\"MOV reg,mem\" diff=1 why=\"two pops\"\n"
+                "    ea=BI ra=BASE rb=INDEX resv ; the add\n"
+                "    open ; OPEN: a book clock\n"
+                "    bus=MEMR ; post\n"
+                "    f d1=TA s1=OPR ; F\n"
+                "    wr=REG ws=TA e ; E\n")
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as d:
+            paths = sorted(uasm.UROM.glob("*.uasm"))
+            body = (uasm.UROM / "mem.uasm").read_text().replace("routine ld op=8A,8B", "routine ld_x op=8A")
+            files = []
+            for p in paths:
+                q = P(d) / p.name
+                q.write_text(body if p.name == "mem.uasm" else p.read_text())
+                files.append(q)
+            # 8B is free in the copy: the bad routine claims it
+            text = text.replace("op=8A,8B", "op=8B")
+            (P(d) / "zz.uasm").write_text(text)
+            files.append(P(d) / "zz.uasm")
+            prog = uasm.assemble(files)
+            rows = [r for r in uasm.book_rows(prog) if r[0] == "bad" and r[4] > 0]
+            self.assertTrue(rows)
+            self.assertTrue(any(r[8] > 0 for r in rows))   # the test above would fail on it
+
+    def test_measured_alone_is_not_a_reason(self):
+        prog = uasm.assemble()
+        for r in prog.routines:
+            why = r.head.get("why", "")
+            if "diff" in r.head and "measured" in why:
+                self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9]|M[0-9])", r.name)
+
+
+class EA(unittest.TestCase):
+    """(MX1) the effective address: the heads pop and return, the routine's first word adds."""
+
+    def test_heads_pop_and_return_only(self):
+        prog = uasm.assemble()
+        allowed = {"pop", "seq", "tgt"}
+        for name in uasm.EA_HEADS:
+            r = prog.routine(name)
+            for w in r.words:
+                self.assertEqual(set(w.fields) - allowed, set(), f"{name}:{w.line}")
+            self.assertEqual(r.words[-1].fields.get("seq"), uasm.enum_value("v35_seq_e", "ret"))
+
+    def test_head_lengths_are_the_pops_and_the_book(self):
+        prog = uasm.assemble()
+        book = {"eab0": 1, "eab8": 2, "eab16": 3, "ea8": 1, "ead": 2}
+        pops = {"eab0": 0, "eab8": 1, "eab16": 2, "ea8": 1, "ead": 2}
+        for name, n in book.items():
+            r = prog.routine(name)
+            self.assertEqual(len(r.words), n, name)
+            self.assertEqual(sum(1 for w in r.words if w.fields.get("pop")), pops[name], name)
+            self.assertEqual(sum(1 for w in r.words if w.open), n - pops[name], name)
+
+    def test_memory_routines_start_with_the_add(self):
+        prog = uasm.assemble()
+        bi = uasm.enum_value("v35_ea_e", "bi")
+        disp = (uasm.enum_value("v35_pop_e", "dl"), uasm.enum_value("v35_pop_e", "dh"))
+        for r in prog.routines:
+            if uasm.is_mem(r):
+                self.assertEqual(r.words[0].fields.get("ea"), bi, r.name)
+                self.assertFalse(r.words[0].fields.get("bus"), r.name)
+                self.assertFalse(any(w.fields.get("pop") in disp for w in r.words), r.name)
+
+    def test_decode_cells_call_the_heads(self):
+        prog = uasm.assemble()
+        for (op, b), name in prog.cells2.items():
+            if op == 0x0F:
+                continue
+            r = prog.routine(name)
+            d = uasm.udec2(prog, op, b)
+            mem = uasm.is_mem(r) and b >> 6 != 3
+            self.assertEqual(d["ea"], int(mem), (hex(op), hex(b), name))
+            self.assertEqual(d["eab"], int(mem and r.head.get("ea", "book") == "book"))
+
+    def test_path_ea_clocks(self):
+        # the EA's clocks per path: the book's EA (3 3 4 3) with mod 00's book error (2), or
+        # the pops and the add alone (1 2 3 3)
+        prog = uasm.assemble()
+        for name, want in (("ld", {"m00": 9, "d8": 10, "d16": 11, "dir": 10}),
+                           ("st", {"m00": 7, "d8": 8, "d16": 9, "dir": 9})):
+            for path, n in want.items():
+                self.assertEqual(uasm.length(prog, name, path=path), n, (name, path))
 
 
 if __name__ == "__main__":

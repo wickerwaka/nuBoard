@@ -26,6 +26,10 @@
 // E) on the opcode the E word popped (v35_udec1 of the loader's opcode register), DISPM on the
 // byte this word pops (v35_udec2 of the opcode register and the word register's byte). No
 // queue byte reaches the address except through those registers.
+// (MX1) The dispatch of a ModR/M memory cell is a call: the target is the EA head of the
+// registered ModR/M byte's mode (the loader's dent), the return register loads the routine's
+// entry (dret); the head pops the displacement and returns (ea.uasm). One level still: no
+// memory routine calls (the heads' return frees the register).
 //
 // The loop counter (9 bits) is loaded by a word from port B's low byte (CL), the immediate,
 // the operand's bit count or the trap's remaining byte count, and stepped by LOOP.
@@ -37,7 +41,7 @@
 // registered ex) into the ROM's read address. The ROM output is a register.
 //
 // Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9, halted 1, at_entry
-// 1; the ce_b copies ex_b 1, d1_b 10, d2_b 10.
+// 1; the ce_b copies ex_b 1, d1_b 10, d2_b 10, (MX1) dc_b 1, dr_b 10.
 module v35_useq
     import v35_pkg::*;
 #(
@@ -51,6 +55,9 @@ module v35_useq
     input  wire        q_stall,         // the word's pop finds no byte (the loader's)
     input  v35_udec_t  dec1,            // v35_udec1(the opcode register)
     input  wire [UADDR_W-1:0] dent,     // the DISP word's target (the loader's)
+    input  wire        dcall,           // (MX1) ... an EA head, called (the return register <- dret)
+    input  wire        dmem,            // ... a ModR/M memory cell (V35_MX1_EAFREE)
+    input  wire [UADDR_W-1:0] dret,     // ... the routine's entry (the head's return)
     input  wire        dtrap,           // ... the instruction has no routine
     input  v35_udecm_t dec2,            // v35_udec2(the opcode register, the word register's byte)
     input  wire [2:0]  len,             // the instruction's bytes still to pop (the trap's LEN)
@@ -123,6 +130,7 @@ module v35_useq
     wire st_fch = `V35_MX0C_DISPATCH == 3
                   ? word.e && (fetch_run || (s_modrm && b2b_now))
                   : word.seq == SQ_DISP
+                    && !(`V35_MX1_EAFREE && dmem)
                     && ((`V35_MX0C_DISPATCH >= 1 && fetch_run)
                         || (`V35_MX0C_DISPATCH == 2 && dec1.has_modrm && b2b_now));
     // the stalls a popping word can meet (the loader's pops read this: a DISP word never pops;
@@ -139,7 +147,8 @@ module v35_useq
     assign start_trap = dtrap || (word.seq == SQ_DISPM && dec2.trap);
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
-    reg [UADDR_W-1:0] d1_b = '0, d2_b = '0;
+    reg [UADDR_W-1:0] d1_b = '0, d2_b = '0, dr_b = '0;
+    reg        dc_b = 1'b0;
     reg [2:0]  len_b = 3'd0;
     reg [7:0]  il_b = 8'd0;
     reg        w_b = 1'b0;
@@ -147,6 +156,8 @@ module v35_useq
         if (ce_b) begin
             ex_b <= ex;
             d1_b <= dent;
+            dc_b <= dcall;
+            dr_b <= dret;
             d2_b <= dec2.entry;
             len_b <= len;
             il_b <= il;
@@ -219,6 +230,8 @@ module v35_useq
             cnt <= cnt_n;
             if (ex_b && word.seq == SQ_CALL)
                 retr <= inc;
+            else if (ex_b && word.seq == SQ_DISP && dc_b)
+                retr <= dr_b;      // (MX1) the dispatch's call of an EA head
             if (ex_b && word.halt)
                 halted <= 1'b1;
             if (ex_b)
@@ -226,7 +239,7 @@ module v35_useq
         end
     end
 
-    wire unused = &{1'b0, dec1, dec2, qw[95:UWORD_BITS]};
+    wire unused = &{1'b0, dec1, dec2, qw[95:UWORD_BITS], dmem};
 
 `ifndef SYNTHESIS
     // (S7b) chk: the ce_b registers against their sources at ce_a
@@ -237,6 +250,7 @@ module v35_useq
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (ex_b !== ex || d1_b !== dent || d2_b !== dec2.entry || len_b !== len
+                || dc_b !== dcall || dr_b !== dret
                 || il_b !== il || w_b !== fmt_w) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)

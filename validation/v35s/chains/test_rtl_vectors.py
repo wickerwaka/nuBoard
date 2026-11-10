@@ -96,11 +96,20 @@ class SingleStepTests(unittest.TestCase):
         res = rtl_vectors.check_sst(self.FILES, show=0)
         for stem, counts in res.items():
             self.assertFalse([k for k in counts if k.startswith("rtl fail")], (stem, counts))
-            # (MX0) the memory forms decode to the trap routine (not compared, trap_nop): this
-            # bar counts trap_nop only until MX1 lands the memory routines; then the 1900-pass
-            # bar returns (sst.py --rtl: MX4)
-            ran = sum(v for k, v in counts.items() if k == "pass" or k.startswith("trap_nop"))
-            self.assertGreater(ran, 1900, (stem, counts))
+            if stem in self.LATER:
+                # a form a later package builds (the trap routine pops its bytes: trap_nop, not
+                # compared): every test of the file is one, none ran wrong
+                ran = sum(v for k, v in counts.items() if k == "pass" or k.startswith("trap_nop"))
+                self.assertGreater(ran, 1900, (stem, counts))
+                continue
+            # (MX1) the memory forms built: the 1900-pass bar, pass alone (sst.py --rtl: MX4)
+            self.assertGreater(counts.get("pass", 0), 1900, (stem, counts))
+
+    # (MX1) the files whose forms are a later package's (docs/v35s-mechanisms.md section 8):
+    # RET, the branch (MX2); the 0F page, the adjusts, MUL imm (MX3)
+    LATER = {"C3": "MX2", "7C": "MX2", "0F15": "MX3", "0F1A": "MX3", "0F20": "MX3",
+             "0F22": "MX3", "0F26": "MX3", "0F33": "MX3", "0F39": "MX3", "27": "MX3", "3F": "MX3",
+             "D4": "MX3", "D5": "MX3", "6B": "MX3"}
 
 
 @unittest.skipUnless(rtl_vectors.C2BENCH.exists(), "bench not built: fpga/v35s/build_core2_tb.sh")

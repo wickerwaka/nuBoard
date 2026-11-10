@@ -6,6 +6,11 @@
 // direct forms' [d16]); BI the ModR/M mode's base (port A) + index (port B) + displacement
 // (v35_fn_pkg::v35_ea_off: d8 sign-extended, d16, the mod 00 rm 110 direct form). bp: the mode
 // is BP-based (the default segment SS). No clock and no count of its own.
+// (MX1) The add's path, in the datapath's tick B: the RAM's read data (ports A and B, the
+// base and the index) -> the 3-input 16-bit sum (the displacement sign-extended by the mode)
+// -> the address register; a request reads the address register a word later (the assembler
+// rejects a posting word with ea=BI), so the sum never reaches the request's 20-bit address in
+// the same tick. About 10 levels with two carry chains: README "MX1".
 module v35_ea
     import v35_pkg::*;
     import v35_fn_pkg::*;
