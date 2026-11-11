@@ -6,9 +6,8 @@
 routine reset
     e                                       ; E: pop the first opcode (the reset vector's), the decode follows
 
-; the 0F page: the second opcode byte popped and dispatched on
-routine page1
-    pop=il dispm                            ; pop the page's second byte; dispatch on it
+; (MX3c) the 0F page has no head word: the E word pops the second opcode byte with the opcode
+; (into the ModR/M register) and the dispatch reads the second level on it (page.uasm)
 
 ; ---- the traps: an opcode / cell without a routine pops its bytes by its format and ends
 ; (MX0 reports these runs; nothing is executed). The loop counter is the instruction's

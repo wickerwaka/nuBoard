@@ -206,6 +206,8 @@ module v35_top
     wire        q_word;                 // (Q2)
     // (MX0) the loader: the word register, the popped bytes, the decode
     wire        q_stall, dtrap, resv_e, s_modrm, dcall, e_rmodrm, s_wbs;
+    wire        ec_reg, ec_call;                // (MX3c) the EAC word's mode facts
+    wire [UADDR_W-1:0] ec_head;
     wire [UADDR_W-1:0] dent, dret;
     wire [7:0]  ld_op, ld_opc, ld_modrm, ld_il, ld_ih, ld_dl, ld_dh;
     wire [19:0] op_a;
@@ -327,16 +329,16 @@ module v35_top
         .dispm(word.seq == SQ_DISPM), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
         .dl(ld_dl), .dh(ld_dh), .fmt, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
         .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret, .dtrap,
-        .resv_e, .s_modrm, .e_rmodrm, .s_wbs, .ip(ld_ip)
+        .resv_e, .s_modrm, .e_rmodrm, .s_wbs, .ec_reg, .ec_call, .ec_head, .ip(ld_ip)
     );
 
     // ---------------------------------------------------------------- the microsequencer
     v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
+        .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .ec_reg, .ec_call, .ec_head, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo,
         .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .fetch_dph(b_fetch_past_b2), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
-        .e_rmodrm, .rmem(fmt.has_modrm && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
+        .e_rmodrm, .rmem((fmt.has_modrm || fmt.pg) && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
         .f_abort(g_abort), .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );

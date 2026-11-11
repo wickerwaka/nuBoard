@@ -237,7 +237,7 @@ def disp_bytes(modrm: int) -> int:
 def fmt_of(op: int) -> dict:
     """The first level's format bits of an opcode (the encoding, not a routine's attribute)."""
     f = {"has_modrm": op in MODRM_OPS, "w": 0, "d": 0, "immw": 0, "sx": 0, "op3": 0, "seg": 0,
-         "len": IMM_PLAIN.get(op, 0), "e2": 0, "xc": 0}
+         "len": IMM_PLAIN.get(op, 0), "e2": 0, "xc": 0, "pg": 0}
     if op < 0x40 and op & 7 < 6:
         f["w"], f["d"], f["op3"] = op & 1, (op >> 1) & 1, (op >> 3) & 7
         f["immw"] = int(op & 7 == 5)
@@ -289,7 +289,17 @@ def fmt_of(op: int) -> dict:
         f["seg"] = 4 | SEG_PREFIX[op]
     if op == 0x0F:
         f["len"] = 1                     # the page's second byte
+        f["pg"] = 1                      # (MX3c) popped by the E word with the opcode (into mp)
     return f
+
+
+def page_w(b: int) -> int:
+    """(MX3c) the 0F page's operand width by the second byte (the encoding's): the bit
+    operations' bit 0 (10-1F), the bit fields' word (31 33 39 3B); the BCD strings and the
+    digit rotates bytes."""
+    if 0x10 <= b <= 0x1F:
+        return b & 1
+    return int(b in (0x31, 0x33, 0x39, 0x3B))
 
 
 # ------------------------------------------------------------------ parsing
@@ -314,7 +324,7 @@ class Routine:
     base: int = 0
 
 
-SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop"}
+SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac"}
 FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "wb", "susp",
          "fw"}
 
@@ -431,7 +441,6 @@ class Program:
         return next(r for r in self.routines if r.name == name)
 
 
-HEAD0F = "page1"          # the 0F page's head
 TRAP1 = "trap"            # an opcode without a routine
 TRAP2 = "trapm"           # a ModR/M cell without a routine
 TRAP0F = "trap0f"         # a 0F form without a ModR/M byte
@@ -442,6 +451,7 @@ RESET = "reset"
 EA_HEADS = {"eab0": "UROM_EAB0", "eab8": "UROM_EAB8", "eab16": "UROM_EAB16", "ea8": "UROM_EA8",
             "ead": "UROM_EAD"}
 PATHS = ("m00", "d8", "d16", "dir")
+RPATH = "r"               # (MX3c) a 0F routine's register path (its EAC word's jump)
 # (MX2) a transfer's two paths: its condition true (taken) and false (not taken); a routine whose
 # book form prints two values ("8 or 15": the smaller not taken, the larger taken) is checked on
 # both, one whose header says `xc=t` on the taken path only (BRKV: the book's trap)
@@ -452,6 +462,12 @@ PATH_EA = {"m00": 3, "d8": 3, "d16": 4, "dir": 3}                     # the book
 
 def is_mem(r) -> bool:
     return r.head.get("mod") == "mem"
+
+
+def is_pmem(r) -> bool:
+    """(MX3c) a 0F routine with a memory form (`bookm=` its book form): checked on the register
+    path and the four EA paths."""
+    return r.head.get("page") == "0f" and "bookm" in r.head
 
 
 def ea_head(r, path: str) -> str | None:
@@ -482,7 +498,7 @@ def assemble(paths: list[Path] | None = None) -> Program:
     dup = {n for n in names if names.count(n) > 1}
     if dup:
         raise UasmError(f"routines defined twice: {sorted(dup)}")
-    for need in (HEAD0F, TRAP1, TRAP2, TRAP0F, TRAP0FM, RESET):
+    for need in (TRAP1, TRAP2, TRAP0F, TRAP0FM, RESET):
         if need not in names:
             raise UasmError(f"no routine {need!r}")
     for r in routines:
@@ -511,10 +527,16 @@ def assemble(paths: list[Path] | None = None) -> Program:
     # The routine has taken an operand byte (a ModR/M register form, or an immediate popped):
     # the frozen model's wlatch counts only a register-only form's last operand byte's take
     pops_imm = {enum_value("v35_pop_e", "il"), enum_value("v35_pop_e", "ih")}
+    # (MX3c) and a 0F routine's ModR/M byte popped by its EAC word: the register path took an
+    # operand byte as a ModR/M register form does on its E word
+    pops_imm.add(enum_value("v35_pop_e", "modrm"))
     for r in routines:
         took = r.head.get("mod") == "reg" or any(x.fields.get("pop") in pops_imm for x in r.words)
         for i, w in enumerate(r.words[:-1]):
-            if (took and w.fields.get("e") and r.words[i + 1].fields.get("wr", 0)
+            # (MX3c) or its flags (TEST1's): the flags' write holds the write port as the
+            # result's does (MX1f's wb reading); no routine before MX3c writes flags after E
+            post = r.words[i + 1].fields
+            if (took and w.fields.get("e") and (post.get("wr", 0) or post.get("wf", 0))
                     and "wp" in FIELD_TYPE):
                 w.fields["wp"] = 1
     for r, w in words:
@@ -564,7 +586,8 @@ def rom_banks(prog: Program) -> list[str]:
 def udec1(prog: Program, op: int) -> dict:
     f = fmt_of(op)
     if op == 0x0F:
-        f["entry"], f["trap"] = prog.labels[HEAD0F], 0
+        # (MX3c) the dispatch reads the second level on the second byte the E word popped
+        f["entry"], f["trap"] = prog.labels[TRAP0F], 0
     elif f["has_modrm"]:
         # (the dispatch reads the second level on the ModR/M byte the E word popped)
         f["entry"], f["trap"] = prog.labels[TRAP2], 0
@@ -586,15 +609,19 @@ def udec2(prog: Program, op: int, b: int) -> dict:
     the dispatch calls the EA head of the byte's mode) and eab (the book's EA heads)."""
     op3 = (b >> 3) & 7 if op in (0x80, 0x81, 0x82, 0x83, 0xC0, 0xC1, 0xD0, 0xD1, 0xD2, 0xD3,
                                  0xF6, 0xF7, 0xFE, 0xFF) else fmt_of(op)["op3"]
+    if op == 0x0F:
+        op3 = (b >> 1) & 7               # (MX3c) the page's operation: the second byte's bits 3:1
     if (op, b) in prog.cells2:
         r = prog.routine(prog.cells2[(op, b)])
         mem = op != 0x0F and is_mem(r) and b >> 6 != 3
+        # (MX3c) a 0F routine's EA heads (its EAC word's call) by its header, as a memory cell's
+        eab = (mem or op == 0x0F) and r.head.get("ea", "book") == "book"
         return {"entry": prog.labels[r.name], "trap": 0, "op3": op3, "ea": int(mem),
-                "eab": int(mem and r.head.get("ea", "book") == "book")}
+                "eab": int(eab), "w": page_w(b) if op == 0x0F else 0}
     if op == 0x0F:
         name = TRAP0FM if b in PAGE1_MODRM else TRAP0F
-        return {"entry": prog.labels[name], "trap": 1, "op3": 0, "ea": 0, "eab": 0}
-    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0}
+        return {"entry": prog.labels[name], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0}
+    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0, "w": 0}
 
 
 def ulen(op: int, il: int, mb: int) -> int:
@@ -631,7 +658,7 @@ def decode_svh(prog: Program) -> str:
         L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
                  f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, 1'b{f['rq']}, "
-                 f"1'b{f['wbs']}, 1'b{f['e2']}, 5'd{f['xc']}}};")
+                 f"1'b{f['wbs']}, 1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte
@@ -645,7 +672,7 @@ def decode_svh(prog: Program) -> str:
         by = {}
         for b in range(256):
             g = udec2(prog, op, b)
-            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"]), []).append(b)
+            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"], g["w"]), []).append(b)
         L.append("                case (b)")
         default = max(by, key=lambda k: len(by[k]))
         for k, bs in sorted(by.items()):
@@ -653,12 +680,12 @@ def decode_svh(prog: Program) -> str:
                 continue
             items = ", ".join(f"8'h{b:02X}" for b in bs)
             L.append(f"                    {items}: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, "
-                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}}};")
+                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}}};")
         k = default
         L.append(f"                    default: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, 3'd{k[2]}, "
-                 f"1'b{k[3]}, 1'b{k[4]}}};")
+                 f"1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}}};")
         L += ["                endcase", "            end"]
-    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0}};",
+    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0}};",
           "        endcase", "        v35_udec2 = f;", "    endfunction", ""]
     # (MX0) the loader's count of the instruction's bytes still to pop from the queue: what a
     # ModR/M byte's pop adds (its displacement and the form's immediate) and what the 0F page's
@@ -727,8 +754,9 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
     t = 0
     pc = r.base
     retr = None
-    if r.head.get("page") == "0f":
-        t = 1
+    # (MX3c) a 0F routine starts at its entry as any other: the E word popped the second byte
+    # with the opcode (no page head word); its register path (`r`) and memory paths (the EA
+    # paths) part at its EAC word
     if is_mem(r):
         h = ea_head(r, path)
         if h is not None:
@@ -766,8 +794,9 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
             return t + 2                        # E, its post-E word, then the successor
         c = f.get("cnt", 0)
         newcnt = None
-        if c == enum_value("v35_cnt_e", "rb") or c == enum_value("v35_cnt_e", "il"):
-            newcnt = n
+        if c in (enum_value("v35_cnt_e", "rb"), enum_value("v35_cnt_e", "il"),
+                 enum_value("v35_cnt_e", "clh")):
+            newcnt = n                          # (MX3c) CLH: n the byte pairs
         elif c == enum_value("v35_cnt_e", "bits"):
             newcnt = width
         elif c == enum_value("v35_cnt_e", "len"):
@@ -792,6 +821,15 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
         elif seq == enum_value("v35_seq_e", "loop"):
             cnt -= 1
             nxt = f["tgt"] if cnt != 0 else pc + 1
+        elif seq == enum_value("v35_seq_e", "eac"):
+            # (MX3c) a 0F form's ModR/M pop: the register path jumps; a memory path calls the
+            # EA head of its mode (returning to the next word), or goes on (mod 00 bare)
+            if path == "r":
+                nxt = f["tgt"]
+            else:
+                h = ea_head(r, path)
+                if h is not None:
+                    retr, nxt = pc + 1, prog.labels[h]
         elif seq in (enum_value("v35_seq_e", "dispm"), enum_value("v35_seq_e", "disp")):
             raise UasmError(f"{name}: the book check reached a dispatch")
         if newcnt is not None:
@@ -818,6 +856,7 @@ def book_values() -> dict:
 def eval_book(expr: str, ea: int, n: int) -> int | None:
     expr = expr.replace("EA", str(ea))
     expr = re.sub(r"(\d)([Wn])", r"\1*\2", expr).replace("W", "0")       # 2W = 2 * 0
+    expr = re.sub(r"\)([n(])", r")*\1", expr)          # (MX3c) (30 + 3W)n: a product
     if not re.fullmatch(r"[0-9+*()n ]+", expr):
         return None
     return eval(expr, {}, {"n": n})
@@ -838,7 +877,7 @@ def book_value(form: str, width: str | None, n: int, ea: int = 3) -> int | None:
 def parse_diff(h: dict) -> dict:
     """The declared difference per path: diff=K (every path) or diff=m00:K,d8:K,... ."""
     v = h.get("diff", "0")
-    every = PATHS + XPATHS
+    every = PATHS + XPATHS + (RPATH,)
     if ":" not in v:
         return {p: int(v) for p in every}
     out = {p: 0 for p in every}
@@ -856,6 +895,8 @@ def book_paths(r) -> tuple:
     taken one), else the one path m00."""
     if is_mem(r):
         return PATHS
+    if is_pmem(r):
+        return (RPATH,) + PATHS if "book" in r.head else PATHS
     if r.head.get("xc") == "t":
         return ("t",)
     if "book" in r.head and len(book_values().get(r.head["book"], {}).get("values_printed")
@@ -872,7 +913,7 @@ def book_rows(prog: Program) -> list[tuple]:
     names = {x.name for x in prog.routines}
     for r in prog.routines:
         h = r.head
-        if "book" not in h and "bookx" not in h:
+        if "book" not in h and "bookx" not in h and "bookm" not in h:
             continue
         n = int(h.get("n", "4"))
         diffs = parse_diff(h)
@@ -880,7 +921,10 @@ def book_rows(prog: Program) -> list[tuple]:
             ea = PATH_EA.get(path, 3)
             two = book_values().get(h.get("book"), {}).get("values_printed") \
                 if "book" in h else None
-            if "bookv" in h:
+            pm = is_pmem(r) and path in PATHS        # (MX3c) a 0F memory form: bookm=
+            if pm:
+                bv = book_value(h["bookm"], h.get("width"), n, ea)
+            elif "bookv" in h:
                 bv = int(h["bookv"]) + (ea - 3 if is_mem(r) else 0)
             elif "bookx" in h:
                 bv = eval_book(h["bookx"], ea, n)
@@ -891,16 +935,17 @@ def book_rows(prog: Program) -> list[tuple]:
             ln = length(prog, r.name, n, path=path)
             diff = diffs[path]
             why = h.get("why", "")
-            hd = ea_head(r, path) if is_mem(r) else None
+            hd = ea_head(r, path) if (is_mem(r) or pm) else None
             if hd is not None and hd in names:
                 hr = prog.routine(hd)
                 if "diff" in hr.head:
                     diff += parse_diff(hr.head)[path]
                     why = (why + " | the EA head " + hd + ": " + hr.head.get("why", "")).strip(" |")
             opens = sum(1 for w in path_words(prog, r.name, n, path) if w.open)
-            out.append((r.name, h.get("book", h.get("bookx")), bv, ln, diff, why,
-                        h.get("measured", ""), path if (is_mem(r) or path in XPATHS) else "",
-                        opens))
+            form = h["bookm"] if pm else h.get("book", h.get("bookx"))
+            out.append((r.name, form, bv, ln, diff, why,
+                        h.get("measured", ""),
+                        path if (is_mem(r) or path in XPATHS or is_pmem(r)) else "", opens))
     return out
 
 

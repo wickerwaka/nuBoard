@@ -59,6 +59,9 @@ module v35_useq
     input  wire [UADDR_W-1:0] dret,     // ... the routine's entry (the head's return)
     input  wire        dtrap,           // ... the instruction has no routine
     input  v35_udecm_t dec2,            // v35_udec2(the opcode register, the word register's byte)
+    input  wire        ec_reg,          // (MX3c) the EAC word's popped byte: register mode
+    input  wire        ec_call,         // ... a memory mode with an EA head (called)
+    input  wire [UADDR_W-1:0] ec_head,  // ... the head
     input  wire [2:0]  len,             // the instruction's bytes still to pop (the trap's LEN)
     input  wire [7:0]  il,              // the first immediate byte
     input  wire        fmt_w,           // the running form's width
@@ -257,8 +260,11 @@ module v35_useq
     assign why = halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3 : (st_hld || st_wbw) ? 5'd4 : st_bw ? 5'd3
                : st_uh ? 5'd10 : st_sus ? 5'd8 : st_rfl ? 5'd9 : st_fch ? 5'd6 : st_tsy ? 5'd7 : 5'd0;
     // the arming pop (tick A) and the deliveries owed from it
+    // (MX3c) a 0F form's ModR/M byte, popped by its routine's EAC word, arms it as the E word's
+    // ModR/M pop does (the frozen model's take sync after the page's operand take)
     wire arm = ex_pop && ((word.e && e_rmodrm)
-                          || (!word.e && !rmem && (word.pop == PP_IL || word.pop == PP_IH)));
+                          || (!word.e && !rmem && (word.pop == PP_IL || word.pop == PP_IH))
+                          || (!word.e && word.pop == PP_MODRM));
     // (a request the EU's own reservation holds back is not counted: the model's take sync
     // counts no request a posted request holds, and a form that posts after its take does not
     // sync: the routine's request goes first)
@@ -283,6 +289,8 @@ module v35_useq
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg [UADDR_W-1:0] d1_b = '0, d2_b = '0, dr_b = '0;
     reg        dc_b = 1'b0;
+    reg        ecr_b = 1'b0, ecc_b = 1'b0;      // (MX3c) the EAC word's mode facts
+    reg [UADDR_W-1:0] ech_b = '0;
     reg  [1:0] tw_b = 2'd0;
     reg  [1:0] wbn_b = 2'd0, wbp_b = 2'd0;
     reg        wpn_b = 1'b0;
@@ -295,6 +303,9 @@ module v35_useq
             ex_b <= ex;
             d1_b <= dent;
             dc_b <= dcall;
+            ecr_b <= ec_reg;
+            ecc_b <= ec_call;
+            ech_b <= ec_head;
             tw_b <= tw_n;
             wbn_b <= wbn_n;
             wpn_b <= wpn_n;
@@ -342,6 +353,8 @@ module v35_useq
                 SQ_LOOP: upc_n = cnt != 9'd1 ? word.tgt : inc;
                 SQ_DISPM: upc_n = d2_b;
                 SQ_DISP: upc_n = d1_b;
+                // (MX3c) EAC: the register path, the EA head (called), or the next word
+                SQ_EAC: upc_n = ecr_b ? word.tgt : ecc_b ? ech_b : inc;
                 default: upc_n = inc;
             endcase
         end
@@ -355,6 +368,8 @@ module v35_useq
                 CN_IL: cnt_n = {1'b0, il_b};
                 CN_BITS: cnt_n = w_b ? 9'd16 : 9'd8;
                 CN_LEN: cnt_n = {6'd0, len_b};
+                // (MX3c) (CL + 1) / 2: CL shifted right by one, its low bit the carry-in
+                CN_CLH: cnt_n = {2'd0, rb_lo[7:1]} + {8'd0, rb_lo[0]};
                 default: cnt_n = word.seq == SQ_LOOP ? cnt - 9'd1 : cnt;
             endcase
         end
@@ -397,7 +412,7 @@ module v35_useq
             drop <= drop_b;
             rf <= rf_b;
             rqp <= rq_b;
-            if (ex_b && word.seq == SQ_CALL)
+            if (ex_b && (word.seq == SQ_CALL || (word.seq == SQ_EAC && !ecr_b && ecc_b)))
                 retr <= inc;
             else if (ex_b && word.seq == SQ_DISP && dc_b)
                 retr <= dr_b;      // (MX1) the dispatch's call of an EA head
@@ -419,7 +434,8 @@ module v35_useq
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (ex_b !== ex || d1_b !== dent || d2_b !== dec2.entry || len_b !== len
-                || dc_b !== dcall || dr_b !== dret || tw_b !== tw_n || wbn_b !== wbn_n || wpn_b !== wpn_n || wbp_b !== wbp_n
+                || dc_b !== dcall || dr_b !== dret || ecr_b !== ec_reg || ecc_b !== ec_call
+                || ech_b !== ec_head || tw_b !== tw_n || wbn_b !== wbn_n || wpn_b !== wpn_n || wbp_b !== wbp_n
                 || sp_b !== sp_n || un_b !== un_n || drop_b !== drop_n || rf_b !== rf_n || rq_b !== q_req
                 || il_b !== il || w_b !== fmt_w) begin
                 chk_n = chk_n + 1;

@@ -102,6 +102,12 @@ module v35_loader
     output wire        s_modrm,         // the staged opcode has a ModR/M byte (registers)
     output wire        s_wbs,           // (MX1f) the staged opcode's routine reads the accumulator first
     output wire        e_rmodrm,        // tick A: (MX1c) the E word pops a register-mode ModR/M
+    // (MX3c) the EAC word (a 0F form's ModR/M byte popped by a routine word): the byte's mode
+    // (tick A, from the byte popped): register mode (the routine's register path), and for a
+    // memory mode the EA head to call (the routine's ea=book / bare by the second level's eab)
+    output wire        ec_reg,
+    output wire        ec_call,
+    output wire [UADDR_W-1:0] ec_head,
     output wire [15:0] ip               // (MX2) the instruction pointer (registers): the offset of
                                         //   the byte after the last the routine popped
 );
@@ -166,7 +172,7 @@ module v35_loader
     assign ds = v35_udec1(s_b);         // the staging register's opcode (popped by E)
     // (MX2) the E word pops the opcode's second byte with it: a ModR/M byte, or (the decode's e2)
     // a short transfer's displacement (into IL; the frozen model's take on the start clock)
-    wire       ds2 = ds.has_modrm || ds.e2;
+    wire       ds2 = ds.has_modrm || ds.e2 || ds.pg;   // (MX3c) the 0F page's second byte
     assign q_stall = (wants_op && sn == 2'd0)
                      || (e_pop && (!s_v || (ds2 && sn == 2'd0)));
     wire       opop = ex && wants_op && !flush;
@@ -183,9 +189,12 @@ module v35_loader
     // delivery at S + 3 + waits); in a memory form the sync gates the EA's add only (v35_useq)
     // (MX2) a short transfer's displacement popped by E arms it as a register form's operand
     // byte does (the frozen model's take sync on the displacement's take at the start)
-    assign e_rmodrm = mpop && (sb0[7:6] == 2'd3 || `V35_MX2_TSM || ds.e2);
+    // (MX3c) the 0F page's second byte popped by E does not arm it (the frozen model's chained
+    // take: the page's operand bytes follow, page_take=own); the ModR/M byte's pop does (v35_useq)
+    assign e_rmodrm = mpop && !ds.pg && (sb0[7:6] == 2'd3 || `V35_MX2_TSM || ds.e2);
     wire unused = &{1'b0, ds, dm, q_avail};
     wire [2:0] add = (mpop && ds.e2) ? ds.len - 3'd1
+                   : (mpop && ds.pg) ? v35_upage(sb0)      // (MX3c) the second byte's ModR/M and immediate
                    : mpop ? ds.len + v35_umodrm(s_b, sb0)
                    : epop ? ds.len
                    : (opop && pop == PP_MODRM) ? v35_umodrm(op, sb0)
@@ -263,14 +272,25 @@ module v35_loader
     // opcode reaches the choice (the cell's two bits are the decode table's)
     wire       m_dir = mp[7:6] == 2'd0 && mp[2:0] == 3'd6;
     wire       m_ea = dec1.has_modrm && dm.ea;
+    wire       d2l = dec1.has_modrm || dec1.pg;    // (MX3c) the dispatch reads the second level
     wire [UADDR_W-1:0] head = mp[7:6] == 2'd1 ? (dm.eab ? UROM_EAB8 : UROM_EA8)
                             : (mp[7:6] == 2'd2 && dm.eab) ? UROM_EAB16
                             : (mp[7:6] == 2'd2 || m_dir) ? UROM_EAD
                             : UROM_EAB0;
     assign dcall = m_ea && (mp[7:6] != 2'd0 || m_dir || dm.eab);
     assign dret = dm.entry;
-    assign dent = !dec1.has_modrm ? dec1.entry : dcall ? head : dm.entry;
-    assign dtrap = dec1.has_modrm ? dm.trap : dec1.trap;
+    assign dent = !d2l ? dec1.entry : dcall ? head : dm.entry;
+    assign dtrap = d2l ? dm.trap : dec1.trap;
+    // (MX3c) the EAC word: the mode of the byte it pops (sb0) picks the register path or the EA
+    // head of that mode, as `head` above does for the registered ModR/M (the mode's bits and the
+    // routine's eab only)
+    wire       e_dir = sb0[7:6] == 2'd0 && sb0[2:0] == 3'd6;
+    assign ec_reg = sb0[7:6] == 2'd3;
+    assign ec_call = !ec_reg && (sb0[7:6] != 2'd0 || e_dir || dm.eab);
+    assign ec_head = sb0[7:6] == 2'd1 ? (dm.eab ? UROM_EAB8 : UROM_EA8)
+                   : (sb0[7:6] == 2'd2 && dm.eab) ? UROM_EAB16
+                   : (sb0[7:6] == 2'd2 || e_dir) ? UROM_EAD
+                   : UROM_EAB0;
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg        e2_b = 1'b0;
@@ -287,6 +307,7 @@ module v35_loader
     reg [19:0] flin_b = 20'd0;
     v35_udec_t dec1_b = '0;
     reg [2:0]  op3m_b = 3'd0;
+    reg        dmw_b = 1'b0;
     always_ff @(posedge clock) begin
         if (ce_b) begin
             opop_b <= opop;
@@ -312,7 +333,8 @@ module v35_loader
             hold2_b <= hold2_n;
             flin_b <= flush_lin;
             dec1_b <= dec1;
-            op3m_b <= dispm ? dec2.op3 : dec1.has_modrm ? dm.op3 : dec1.op3;
+            op3m_b <= dispm ? dec2.op3 : d2l ? dm.op3 : dec1.op3;
+            dmw_b <= dm.w;
         end
     end
 
@@ -384,6 +406,8 @@ module v35_loader
             end
             if (disp_b) begin
                 fmt <= dec1_b;
+                if (dec1_b.pg)
+                    fmt.w <= dmw_b;     // (MX3c) the 0F form's width (the second level's)
                 opc <= op;
                 modrm <= mp;
                 op3 <= op3m_b;
@@ -404,7 +428,7 @@ module v35_loader
                 || disp_b !== disp || dispm_b !== (ex && dispm) || pop_b !== pop
                 || qv0_b !== wl0 || qv1_b !== wl1 || sb0_b !== sb0 || sb1_b !== sb1
                 || wload_b !== wload || wk_b !== wk || wn_left_b !== wn_left || need_b !== need_n || hold_nb !== hold_n || hold_rb !== hold_r || hold2_b !== hold2_n || flin_b !== flush_lin
-                || dec1_b !== dec1) begin
+                || dec1_b !== dec1 || dmw_b !== dm.w) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: loader: a tick A source changed in tick B at %0t", $time);

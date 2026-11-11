@@ -1850,3 +1850,46 @@ question, decided from S8's routed numbers with the user.
   shortened by assembler-derived word bits, flat stall terms and a parallel room computation, then work moved
   across the ticks by registers, state machines or speculation with a late select; no multicycle constraint; the
   corpus, the misses and `+v35_chk` identical to the base). MX4 (the strings) follows on the closed structure.
+- 2026-11-10, **MX3 part 3 landed** (a fresh opus55 worktree agent from 647b149, handed back early: the 0F page's
+  structure, the BCD strings, the bit operations and the digit rotates built; INS / EXT not built, the part 2
+  probes not started). **The structure (no macro, always on):** the E word that pops 0F pops the second byte
+  with it (the model's page_take=own; the decode's `pg` bit; no page head word; the dispatch reads the second
+  level keyed on the second byte, whose `w` bit loads the form's width); a new sequencer act SQ_EAC on the
+  routine's first word, which pops the ModR/M byte and lets its mode pick the next word (register mode: the
+  routine's label; a memory mode: the EA head of that mode called, returning to the add; mod 00 with ea=bare:
+  the next word), MX1's EA-head choice applied to the byte being popped (`ec_reg`, `ec_call`, `ec_head` from
+  the loader, registered at ce_b, about 3 levels after the staged byte in tick A, one more source in tick B's
+  next-address case; not a third decode level because the cell is keyed on the second byte alone); the ALU
+  field widened to 6 bits (35 ops; BIT, BCDI / BCDS / BCDF, R4 on v35_fn_pkg's existing functions; the BCD
+  carry on `scy`, a zero flop `bz`); the counter loaded with (CL + 1) / 2 as a word's act (CN_CLH, a 7-bit
+  incrementer in tick B); the `wp` derivation counts a 0F routine's ModR/M pop as an operand byte taken and a
+  flags write after E (TEST1) as a write (provisional, with item 22). The second byte does not arm the take
+  sync (the model's chained take); the EAC pop does, and the memory path's add waits as under TSM. The book
+  machine takes a register path plus the four EA paths for a 0F routine. **The routines (urom/page.uasm):**
+  ADD4S / SUB4S per byte pair the book's 30 (the source read, the destination read 6 after its end, the write 9
+  after that, the next source 6 after the write's end), the fixed part +1 silicon longer than the book
+  (F32-push-add4s-n4-k1-pE-w0), the source address moved on the entry word under the BW law; CMP4S per pair
+  the book's 25, +2 (F32-out-cmp4s-n4-k1-pE-w0); TEST1 / CLR1 / SET1 / NOT1 register paths 9 clocks start to
+  start, the routine's words plus the take sync (the book's 6-8 a book error by the sync's clocks), memory
+  paths the book's EA + n plus the EAC pop with the CL index 3 clocks before the read (F32-push-set1_mw_cl,
+  test1_mw_cl, not1_mb_imm k1-pE-w0 exact); ROL4 / ROR4 register the book's 17 / 21 plus the sync, ROL4 [m]
+  the book's EA + 20, ROR4 [m] = ROL4 + 4 (the book's EA + 26 a book error of 2). **Page rules:** page_take=own
+  built; page_start=reg holds by structure; the b2b ModR/M start clause and the model's mode-first take clock
+  (E + 3 memory CL, E + 2 register) not causal, recorded (the RTL pops at E + 2 for both, those runs exact);
+  page_mem / page_cl / page_grp covered by the words after the sync, their residual the read W clocks early in
+  the OUT frame at w1 / w2 (no reading); bcd_fetch=hold not built, no reading. **Verified on main (both spacings
+  identical, 0 failing, chk silent):** 6,207 / 30,536 exact (part 2 5,965; 242 gained: F32 12 → 128, F34 83 →
+  123, F39 143 → 187, F40 190 → 232; 0 lost); the MX0 gate families 985, F23 F30 F33 F35 F37 unchanged. F32's
+  730 misses: 309 the pO OUT frame (item 23's ruling), 180 INS / EXT, 15 the frame's controls, 226 built forms
+  (the open items). Write data 99,906 / 106,824 (96,948); register vectors 69,099 + 38,760 with 0 bad (pass
+  104,763 from 98,574); function vectors 19,752, 0 bad; SingleStepTests 0F15 0F1A 0F20 0F22 0F26 passing and
+  dropped from the later list (0F33 / 0F39 stay); lint clean in five configurations and with UH 0 / US 0 /
+  WBR 0 / IRL 1; 46 fast tests; the nine offline modules 941 with the four known failures. ROM 1,922 / 2,048
+  words (UADDR_W 11), the microword 93 bits. v35_top.sv carries the macro include of d8ea945 over the agent's
+  copy. **Open (MX3 part 3):** INS / EXT (180 F32 runs, SST 0F33 / 0F39: the bit-field ALU steps, the crossing
+  word, the offset register and IX / IY steps; the model's bf_* rules need readings); OUT imm8 after a 0F
+  register form or a digit rotate (item 23's hold at pE; at w1 / w2 the `wp` stand on E where the model delays
+  the port take: a probe candidate is the stand on OUT's entry word as WB 2 does); the 0F memory forms' read W
+  early at w1 / w2; the part 2 probes; v35_bcd8's depth in tick B (a split candidate for MX5); the two pending
+  rulings untouched. **MX5 sent next** (the user's direction): timing closure at 64 MHz; MX4 (the strings) and
+  INS / EXT follow on the closed structure.

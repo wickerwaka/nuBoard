@@ -779,3 +779,36 @@ change to the text above, kept here rather than rewritten into it.
     imm16's fetch after the pops a clock early, imm8's fetch under the multiply four early, the memory
     forms' fetch held by silicon to +134 against +93 (the model's mul_imm_reg=gap, mul_imm_hold). MUL r8
     and DIV r8 have no corpus run.
+
+## Corrections from MX3 part 3 (2026-11-10)
+
+31. **§3.1 / §3.2, the 0F page's structure (MX3 part 3).** The E word that pops 0F pops the second byte with
+    it (the model's page_take=own); there is no page head word, and the dispatch reads a second decode level
+    keyed on the second byte alone (its `w` bit the form's width). The page's ModR/M byte is popped by the
+    routine's first word (the EAC act), whose mode picks the register path or calls the EA head of that mode,
+    returning to the add: MX1's EA-head choice applied to the byte being popped, from the loader's registered
+    facts. That pop arms the take sync; the second byte does not (the model's chained take). The counter's
+    (CL + 1) / 2 load for the BCD strings is a word's act.
+32. **§3.4, the BCD strings (MX3 part 3).** Per byte pair the book's 30 (ADD4S / SUB4S) and 25 (CMP4S), exact:
+    the source read, the destination read 6 clocks after the source's end, the write 9 after the destination's
+    (F through it), the next pair's source 6 after the write's end. The fixed part is +1 / +2 silicon longer
+    than the book (F32-push-add4s-n4-k1-pE-w0, F32-out-cmp4s-n4-k1-pE-w0). The first read's setup counts the
+    start fetch's wait states: the source address moves into the bus unit on the entry word under item 13's
+    BW law. The model's bcd_fetch=hold and its idle-start clock are not built (no reading; the w1 / w2 runs
+    miss by one at the source read).
+33. **§3.4, the bit operations and the digit rotates (MX3 part 3).** The register forms of TEST1 / CLR1 / SET1 /
+    NOT1 are 9 clocks start to start in every exact frame: the routine's words plus the take sync's wait; the
+    book's 6-8 are short by the sync's clocks (a declared book error of 0 / −1 / −2 by form). The memory forms
+    are the book's EA + n plus the EAC pop's clock, the CL index taken 3 clocks before the read, the imm index
+    popped the clock after the read's issue, the RMW imm forms reserving at the index pop. ROL4 / ROR4 on a
+    register are the book's 17 / 21 plus the sync; ROL4 [m] the book's EA + 20; ROR4 [m] is ROL4 [m] + 4 as the
+    register forms are, so the book's EA + 26 is a book error of 2. Not causal, recorded: the model's b2b
+    ModR/M start clause for 0F memory forms (the mode needed before the byte is taken) and its mode-first take
+    clock (E + 3 for memory CL forms, E + 2 for register forms; the RTL pops at E + 2 for both and those runs
+    are exact). Residual with no reading: the 0F memory forms' read W clocks early in the OUT frame at w1 /
+    w2 (the model's setup counts no wait-state clock, and the EA add is not one of the BW law's moves).
+34. **§3.3 / item 22 widened (MX3 part 3, provisional).** A flags write after E (TEST1's) holds the register
+    file's write port as a result's write does: the assembler's `wp` derivation counts it, and a 0F routine's
+    ModR/M pop as an operand byte taken. Every pre-existing routine derives as before. Open with item 22, and
+    with OUT imm8 after a 0F register form or a digit rotate (item 23's hold at pE; at w1 / w2 the model delays
+    the OUT's port take where the RTL stands its E word).

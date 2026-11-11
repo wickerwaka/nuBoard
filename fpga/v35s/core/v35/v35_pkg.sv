@@ -64,14 +64,23 @@ package v35_pkg;
     // CVTBD's divide (the restoring divide's state from AL and y, the byte divisor; the finish
     // {quotient, remainder} into SIGMA, AH FFh and AL kept by a zero divisor, S Z P of AL), CVDI /
     // CVDF CVTDB's multiply (the multiply's state from AH and ten; the finish: the product's low
-    // byte plus AL into SIGMA's low byte, AH zero, the add's flags)
-    typedef enum logic [4:0] {
-        AL_NONE = 5'd0, AL_PASS = 5'd1, AL_GRP = 5'd2, AL_AND = 5'd3, AL_INC = 5'd4,
-        AL_DEC = 5'd5, AL_NOT = 5'd6, AL_NEG = 5'd7, AL_INC2 = 5'd8, AL_DEC2 = 5'd9,
-        AL_SEXT = 5'd10, AL_SIGNW = 5'd11, AL_SHI = 5'd12, AL_SH1 = 5'd13, AL_SHF = 5'd14,
-        AL_MULI = 5'd15, AL_MULS = 5'd16, AL_MULF = 5'd17, AL_DIVI = 5'd18, AL_DIVS = 5'd19,
-        AL_DIVF = 5'd20, AL_FLAG = 5'd21, AL_PSWL = 5'd22, AL_ADD = 5'd23, AL_CITF = 5'd24,
-        AL_ADJ = 5'd25, AL_CVBI = 5'd26, AL_CVBF = 5'd27, AL_CVDI = 5'd28, AL_CVDF = 5'd29
+    // byte plus AL into SIGMA's low byte, AH zero, the add's flags); (MX3c, the field widened
+    // to six bits: 30 of 32 were used) the 0F page: BIT the bit operation of op3 1:0 (TEST1
+    // CLR1 SET1 NOT1) on x at the bit y names (modulo the width; TEST1's S Z P of the masked
+    // value, CY AC V cleared), BCDI the BCD string's carry cleared and its zero term set, BCDS
+    // one packed-BCD byte step (x the destination byte, y the source byte, op3 0 the add, else
+    // the subtract, the carry / borrow in and out on the step latch, the zero term
+    // accumulated), BCDF the string's flags from the two latches, R4 the digit rotate of op3 0
+    // (ROL4: the operand's low digit to its high, AL's low digit in; ROR4 the reverse) on the
+    // byte x with AL from y (the new operand byte to SIGMA, the new AL to tmpc)
+    typedef enum logic [5:0] {
+        AL_NONE = 6'd0, AL_PASS = 6'd1, AL_GRP = 6'd2, AL_AND = 6'd3, AL_INC = 6'd4,
+        AL_DEC = 6'd5, AL_NOT = 6'd6, AL_NEG = 6'd7, AL_INC2 = 6'd8, AL_DEC2 = 6'd9,
+        AL_SEXT = 6'd10, AL_SIGNW = 6'd11, AL_SHI = 6'd12, AL_SH1 = 6'd13, AL_SHF = 6'd14,
+        AL_MULI = 6'd15, AL_MULS = 6'd16, AL_MULF = 6'd17, AL_DIVI = 6'd18, AL_DIVS = 6'd19,
+        AL_DIVF = 6'd20, AL_FLAG = 6'd21, AL_PSWL = 6'd22, AL_ADD = 6'd23, AL_CITF = 6'd24,
+        AL_ADJ = 6'd25, AL_CVBI = 6'd26, AL_CVBF = 6'd27, AL_CVDI = 6'd28, AL_CVDF = 6'd29,
+        AL_BIT = 6'd30, AL_BCDI = 6'd31, AL_BCDS = 6'd32, AL_BCDF = 6'd33, AL_R4 = 6'd34
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -101,18 +110,24 @@ package v35_pkg;
 
     // ---- the loop counter's load ----
     // RB port B's low byte (CL), IL the first immediate byte, BITS the operand's bit count (8 or
-    // 16 by the format's width), LEN the instruction's bytes still to pop (the trap routine)
+    // 16 by the format's width), LEN the instruction's bytes still to pop (the trap routine),
+    // (MX3c) CLH (CL + 1) / 2 from port B's low byte: CL shifted right by one with its low bit
+    // as the carry-in (the BCD strings' byte pairs: CL digits)
     typedef enum logic [2:0] {
-        CN_NONE = 3'd0, CN_RB = 3'd1, CN_IL = 3'd2, CN_BITS = 3'd3, CN_LEN = 3'd4
+        CN_NONE = 3'd0, CN_RB = 3'd1, CN_IL = 3'd2, CN_BITS = 3'd3, CN_LEN = 3'd4, CN_CLH = 3'd5
     } v35_cnt_e;
 
     // ---- sequencing ----
     // JC / JNC on a condition, LOOP: the counter decremented, jump while it is not zero, DISPM
     // the dispatch on the byte this word pops (the ModR/M byte, the 0F page's second byte),
-    // DISP the dispatch on the opcode the E word popped (the word after E only)
+    // DISP the dispatch on the opcode the E word popped (the word after E only), (MX3c) EAC a
+    // 0F form's ModR/M byte popped by this word: its mode decides the next word (register mode:
+    // the target, the register form's path; a memory mode: the EA head of the byte's mode
+    // called, returning to the next word, the memory path's add; mod 00 without a head: the
+    // next word)
     typedef enum logic [3:0] {
         SQ_NEXT = 4'd0, SQ_JMP = 4'd1, SQ_JC = 4'd2, SQ_JNC = 4'd3, SQ_CALL = 4'd4,
-        SQ_RET = 4'd5, SQ_LOOP = 4'd6, SQ_DISPM = 4'd7, SQ_DISP = 4'd8
+        SQ_RET = 4'd5, SQ_LOOP = 4'd6, SQ_DISPM = 4'd7, SQ_DISP = 4'd8, SQ_EAC = 4'd9
     } v35_seq_e;
 
     // ---- jump conditions (registered state only) ----
@@ -196,6 +211,9 @@ package v35_pkg;
         logic [4:0] xc;         // (MX2) the transfer's condition (CD_XC): 0-15 the PSW condition
                                 //   of the encoding's low nibble (70-7F; BRKV's V; DBNZNE's NZ and
                                 //   DBNZE's Z, the loop's continuing), 16 SIGMA != 0, 17 SIGMA == 0
+        logic       pg;         // (MX3c) the 0F page: the E word pops the second opcode byte with
+                                //   the opcode (into the ModR/M register mp); the dispatch reads
+                                //   the second level on it
     } v35_udec_t;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)
@@ -206,6 +224,8 @@ package v35_pkg;
         logic       ea;         // (MX1) a memory cell: the dispatch calls the EA head of the
                                 //   ModR/M byte's mode, the routine's entry (its add) the return
         logic       eab;        // ... the book's EA heads (ea=book); else the pops alone
+        logic       w;          // (MX3c) the 0F page's operand width (the second byte's bit 0 for
+                                //   the bit operations; the bit fields' word)
     } v35_udecm_t;
 
     `include "v35_udecode_tbl.svh"

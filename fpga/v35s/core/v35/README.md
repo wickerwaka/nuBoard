@@ -1587,6 +1587,185 @@ mx3b-table.md, mx3b-runs-t1 / t2, mx3b-misses.jsonl.
 4. The adjusts (above), MUL imm's fetch holds (above).
 5. MUL r8 / DIV r8 have no corpus run (their lengths from the a6 sweep alone).
 
+## MX3 (part 3): the 0F page (urom/page.uasm): its structure, the BCD strings, the bit operations, the digit rotates
+
+The brief's item 1 for the 0F page. Built: the structure (the second byte on the E word, the
+EAC word, the ALU field widened, the CLH counter load), ADD4S / SUB4S / CMP4S, TEST1 / CLR1 /
+SET1 / NOT1 (register and memory, CL and imm), ROL4 / ROR4 (register and memory). **Not
+built: INS / EXT** (0F 31 / 33 / 39 / 3B stay on the trap routine; handed back with the bit
+forms done, the brief's item 2 probes not started). Every routine is the data book's formula
+first, the words on the frozen model's clocks from a run it is exact on (named in each
+header); the probes and traces are in the hand-back (`an/`, `tr*/`).
+
+### The structure
+
+- **The second byte on the E word** (`v35_udec_t.pg`, the 0F opcode's decode bit). The frozen
+  model's start of a 0F form takes the page's second byte (page_take=own, the start clock), as
+  a ModR/M form's start takes its ModR/M byte; so the E word that pops 0F pops the second byte
+  with it into the ModR/M register `mp` (the loader's `ds2`), and the dispatch (DISP) reads the
+  second level on it (`v35_udec2(0F, mp)`: the routine's entry, op3 = the second byte's bits
+  3:1, the new `w` = the operand width: the bit operations' bit 0, the bit fields' word). The
+  page head word (core.uasm `page1`, a DISPM word) is gone; the decode's `need` takes the
+  second byte's ModR/M and immediate (`v35_upage`) at the E pop. The second byte does not arm
+  the take sync (the model's chained take); `fmt.w` loads from the second level at the
+  dispatch.
+- **The ModR/M byte's EA call: a sequencer act on the popped byte (`SQ_EAC`), not a third
+  decode level.** A 0F form with a ModR/M byte pops it on its routine's first word (`pop=modrm
+  eac=LABEL`): the byte's mode (the loader's `sb0`, the byte this word pops: `ec_reg`,
+  `ec_call`, `ec_head`) picks the next word: register mode the label (the register path), a
+  memory mode the EA head of the mode called with the return the next word (the memory path's
+  add), mod 00 without a head (ea=bare) the next word. The head choice is MX1's `head` on the
+  popped byte instead of the registered one, with the routine's `eab` from the second level.
+  Why not a third decode level: the cell is keyed on the second byte alone (the register and
+  memory forms share it), and the choice is the mode's bits only, which the EA heads already
+  read; a decode level would add a ModR/M-keyed table for one bit. Depth: tick A the popped
+  byte (the byte-source mux) into a 2-bit mode decode and a 4-way constant select, registered
+  at ce_b (`ecr_b`, `ecc_b`, `ech_b`): about 3 levels after `sb0`; tick B one more source in the
+  next-address case (a 3-way select of registered values), and the return register's load. The
+  EAC pop arms the take sync (a register form's ModR/M), and a 0F memory mode is a memory form
+  for the take sync's gate (`rmem` includes `fmt.pg`): the memory path's add waits for the word
+  the pop asked for, as MX2's TSM.
+- **The ALU field widened**: `v35_alu_e` 5 to 6 bits (30 of 32 were used; 35 now): BIT (the
+  bit operation of op3 1:0 on x at the bit y names, modulo the width; TEST1 S Z P of the masked
+  value, CY AC V cleared), BCDI / BCDS / BCDF (the BCD string's latches, the packed-BCD byte
+  step, the flags: v35_fn_pkg's `v35_bcd8`, nuV30's law), R4 (`v35_rot4`: the new byte to
+  SIGMA, the new AL to tmpc). **The microword is 93 bits** (92 at part 2); three banks still.
+  The BCD string's carry rides the shifter's step latch `scy`, its zero term a new flop `bz`.
+- **The loop counter's (CL + 1) / 2** (`CN_CLH`): `{rb_lo[7:1]} + rb_lo[0]`, CL shifted right
+  by one with its low bit as the carry-in; a word's act, no compare. Depth: a 7-bit
+  incrementer after port B's lane select in tick B (about 4 levels on the CN_RB path).
+- **The write-port law** (`wp`, V35_MX3_WBR): the assembler's derivation now counts a 0F
+  routine's ModR/M pop (its EAC word) as an operand byte taken, and a flags write (`wf`) on the
+  post-E word as a write (TEST1's flags after E). Every routine before MX3c derives as before
+  (no word after E wrote flags; no routine word popped a ModR/M byte but trap0fm, whose post-E
+  word writes nothing): the new `wp` bits are the register bit operations' E words only.
+
+### The routines
+
+- **ADD4S / SUB4S** (0F 20 / 22; `book=ADD4S`, 22 + 30n): per byte pair the book's 30 (the
+  source read at DS0:IX + i (a prefix's), F, the destination read at DS1:IY + i five clocks
+  after the source's end, F, the BCD step, the write nine clocks after the destination's end,
+  F (the RAMEN hold), the next pair's source six clocks after the write's end; tmpc the pair's
+  offset, the addresses moved on the reads' second clocks or after the write); the fixed part
+  the book's 22 plus one silicon longer (F32-push-add4s-n4-k1-pE-w0, 83 for two pairs). The
+  source address moves on the entry word (E + 2), under the start's fetch's wait states (MX1g's
+  BW law: the model's first read at E + 17 + W). The E word carries `wb` (the model's wb 2: an
+  OUT imm8 after it waits, MX1f).
+- **CMP4S** (0F 26; 22 + 25n): the same without the write, per pair the book's 25 (the next
+  source 13 clocks after the destination's end), the fixed part + 2 silicon longer
+  (F32-out-cmp4s-n4-k1-pE-w0, 74 for two pairs).
+- **TEST1 / CLR1 / SET1 / NOT1** (0F 10-1F; one routine per operation and index source, the
+  width from the decode): the register paths 9 S-to-S in every frame the model is exact on, which
+  is the routine's words (EAC, three OPEN words, E with the operation, the write or TEST1's flags
+  after E) and the take sync's wait (the EAC pop arms it; F32-out-set1_rw_cl-k1-pE-w0 and
+  F34-push-rbit-set1_rw_cl-l0-k1-pE-w0): the book's 6 / 7 / 8 a book error by the sync's clocks.
+  The memory paths: the EAC pop, the EA head, the add (the sync's wait), CL into tmpb (the CL
+  forms), the read at E + 11 (CL) / E + 8 (imm), the imm index popped the clock after the read's
+  issue, F with the operation, the write's post, E held to its end (F32-push-set1_mw_cl-k1-pE-w0
+  19, F32-push-test1_mw_cl-k1-pE-w0 16, F32-push-not1_mb_imm-k1-pE-w0 16, exact); the CLR1 / SET1
+  / NOT1 imm forms raise the reservation at the index pop (the write to come; the pop's room asked
+  for a fetch the model holds: F32-push-not1_mb_imm-k1-pE-w0).
+- **ROL4 / ROR4** (0F 28 / 2A): the register paths the book's 17 / 21 after the take sync's wait
+  (F32-out-rol4_dl-k1-pE-w0 19, F32-push-ror4_dl-k1-pE-w0 / w2 23 / 27: the pop at E + 2, the
+  delivery it waits for at E + 5 / E + 9), `e wb` (the model's wb 2); the memory paths ROL4 the
+  book's EA + 20 (F32-push-rol4_m-k1-pE-w0: the read at E + 8, the write at the read's end + 11)
+  and ROR4 four more, as the register forms (F32-out-ror4_m-k1-pE-w0: + 15), the book's EA + 26 a
+  book error of two.
+
+### The frozen model's page rules, given a reading or recorded
+
+- page_take=own (the second byte taken on the start clock, chained): the E word's pop (built).
+- page_start=reg (no b2b ModR/M start sync for a 0F register form): the E word pops no ModR/M
+  for a 0F form, so the clause never applies (built by structure); the model's memory forms
+  keep it, which the RTL cannot know at the E word (it needs the ModR/M's mode): not causal in
+  a routine, recorded.
+- page_mem=fixed / page_cl=thru / page_grp=group (the memory read's fetch-free setup counted
+  back from the last fetch's end): the routine's words after the take sync's wait at the add; no
+  setup count built. Residual: the read W clocks early in the out frame at w1 / w2
+  (F32-out-set1_mw_cl-k1-pE-w1, the read at +97 against +98): the model's setup counts no
+  wait-state clock; the RTL's add (an address-register write) is not one of MX1g's BW moves.
+  Recorded, no reading built.
+- bcd_fetch=hold (no fetch request from the first read's datum to hrel clocks before the end)
+  and its idle-start clock (the first read a clock later on an idle bus): not built (the
+  corpus's BCD runs hold a full queue through the loop: none moved by it); no reading.
+- test1_head=own, rot4_exec=wait: by the routines' shapes.
+- The model's ModR/M take of a 0F memory CL form at E + 3 (F32-push-set1_mw_cl-k1-pE-w0) where the
+  register forms take at E + 2: the model decides by the mode before the byte is taken; the RTL
+  pops at E + 2 for both (not causal in a routine, recorded; the runs are exact).
+
+### Measured (the defaults, both spacings; no macro added)
+
+The corpus (both spacings, `+v35_chk` silent; the per-family tables and the per-run first
+divergences identical at `+v35_ticks=2`): **6,207** exact (MX3 part 2 5,965): 242 gained,
+**0 lost**.
+
+| family | MX3 (part 2) | MX3 (part 3) |
+| --- | --- | --- |
+| F32 | 12 | 128 (gained: ADD4S / SUB4S / CMP4S 66, the bit operations 38, ROL4 / ROR4 10, the prefix forms 2) |
+| F34 | 83 | 123 (mbit 38, rbit 2) |
+| F39 | 143 | 187 (the page and ctl series: SET1 AW,CL, TEST1 [BW],CL, ROL4 DL, ADD4S frames) |
+| F40 | 190 | 232 (the page series) |
+| the MX0 gate families, F23 F30 F33 F35 F37 | 985; 153 / 219 / 111 / 264 / 63 | unchanged |
+
+F32's 730 misses: 309 the OUT frame at pO (the ruling asked at part 1, item 23), 180 INS / EXT
+(not built), 15 the frame's controls (empty, MOV CL,n: missed at part 2 as well), 226 the built
+forms: the OUT imm8 after a register bit operation or a digit rotate (the fetch after the
+OUT's port pop, which silicon holds to the I/O's lead: item 23's mechanism at pE; and at w1 / w2
+the WBR stand on the E word where the model delays the port take and not the start), the
+memory forms' read W early at w1 / w2 in the out frame (above), the k = 2 second instances
+(the model is not exact on most of them). Write data 99,906 / 106,824 (part 2 96,948). Function:
+`--regfile` 107,859 vectors 0 bad (pass 104,763; part 2 98,574), `--fn` 19,752 0 bad; the
+SingleStepTests 0F15 0F1A 0F20 0F22 0F26 pass (test_rtl_vectors' LATER list drops them; 0F33 0F39
+stay, INS / EXT). Lint clean in the five configurations and with `V35_MX3B_UH` 0,
+`V35_MX3B_US` 0, `V35_MX3_WBR` 0, `V35_MX3_IRL` 1; test_uasm, test_v35_struct and the four
+modules 46 OK; the nine offline modules 941 tests, the four known failures (test_freeze,
+test_sim TrackedFit). ROM 1,922 words of 2,048 (part 2 1,669; UADDR_W stays 11); the word 93
+bits. The tables: the hand-back's mx3c-table.md, mx3c-runs-t1 / t2, mx3c-misses.jsonl.
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- §3.1 / §3.2, the 0F page: the E word pops the second opcode byte with the 0F opcode (as a
+  ModR/M form's E word pops its ModR/M byte; the model's start takes it) and the dispatch reads
+  the second level on it; there is no page head word. A 0F form's ModR/M byte is popped by its
+  routine's first word, whose mode picks the register path or calls the EA head (SQ_EAC: MX1's
+  head choice on the popped byte); its pop arms the take sync as a register form's.
+- §3.4, the BCD strings: per byte pair the book's 30 (ADD4S / SUB4S) and 25 (CMP4S), the model
+  exact; the fixed part one (ADD4S / SUB4S) and two (CMP4S) clocks silicon longer than the book
+  (OPEN, the runs named). The first read's setup counts the start's fetch's wait states (MX1g's
+  BW law on the source address's move at E + 2). The loop counter (CL + 1) / 2 is a word's act.
+  The model's bcd_fetch=hold and its idle-start clock: not built, no reading.
+- §3.4, the bit operations: the register forms' 9 clocks (every frame the model is exact on) are
+  the routine's words and the take sync's wait after the ModR/M pop; the book's 6-8 is short by
+  the sync's clocks (a book error in the test's terms, the sync standing for them). The memory
+  forms are the book's EA + n plus the EAC pop's clock, the sync's wait at the add; the CL index
+  three clocks before the read (the book's CL / imm difference). ROL4 / ROR4: the book's lengths
+  plus the sync; ROR4 [m] the book less two.
+- §3.3 / Correction 22, the write-port law: the flags' write after E (TEST1's) holds the write
+  port as a result's write does (the assembler derives `wp` from it; the model's OUT port take at
+  S + 4 after TEST1 r as after SET1 r). Provisional with item 22.
+
+### Open (MX3 part 3)
+
+1. INS / EXT (0F 31 33 39 3B): not built (the trap routine; 180 F32 runs, F34's bf probe, the
+   SingleStepTests 0F33 / 0F39). What they need: the bit-field steps in the ALU (the field's
+   offset and width from two byte registers or the imm4, the shift per bit or a funnel), the
+   crossing's second word, the offset register's and IX / IY's steps; the model's bf_* rules
+   (bf_read=fixed, bf_imm_hold, bf_count=dw) each to be read.
+2. The OUT imm8 after a 0F register form or digit rotate: the fetch after OUT's port pop held by
+   silicon (item 23's hold, now at pE), and the WBR stand placed on the E word (the model delays
+   OUT's port take, not its start: at w1 / w2 the dispatch's fetch stall and the stand add). A
+   probe of the stand on OUT's entry word (V35_MX1F_WB 2's placement for `wp`) is the candidate;
+   not measured.
+3. The 0F memory forms' read W clocks early in the out frame at w1 / w2 (the model's page_mem=
+   fixed counts no wait-state clock in the read's setup; the EA add is not one of MX1g's BW
+   moves).
+4. The part 2 open items' probes (the memory unit forms' read at pE w0, OUT imm8 after a
+   multiply, ADJ4A / ADJBA, MUL imm's fetch holds): not started.
+5. Depth: `v35_bcd8` in tick B from the temporaries (two 5-bit adds, the adjust decisions and
+   the digit adjusts, estimated 10-12 levels after the source mux) is the new longest ALU term;
+   its operands are temporaries a word earlier, so a register on its output into SIGMA costs a
+   word of the loop's OPEN clocks if the levelizer asks for a split.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

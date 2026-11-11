@@ -100,6 +100,9 @@ module v35_eu
     reg [15:0] ds1 = 16'd0, ps = 16'hFFFF, ss = 16'd0, ds0 = 16'd0;
     reg [15:0] ta = 16'd0, tb = 16'd0, tc = 16'd0, sigma = 16'd0, addr = 16'd0, oprw = 16'd0;
     reg        scy = 1'b0, ea_ss = 1'b0, pfx_v = 1'b0, dtrap = 1'b0;
+    // (MX3c) the BCD string's zero term (BCDI sets it, each BCDS step ands its byte's in; the
+    // carry / borrow rides the shifter's step latch scy)
+    reg        bz = 1'b0;
     reg [1:0]  pfx_s = 2'd0;
     v35_mul_t  mul = '0;
     v35_div_t  dv = '0;
@@ -223,7 +226,8 @@ module v35_eu
 
     // ------------------------------------------------------------ tick B: the ALU
     logic [15:0] r, pn, tc_n;
-    logic        scy_n, dtrap_n, tc_w;
+    logic        scy_n, dtrap_n, tc_w, bz_n;
+    logic [9:0]  b10;
     logic [16:0] st;
     logic [31:0] q32;
     v35_mul_t    mul_n;
@@ -232,6 +236,8 @@ module v35_eu
         r = sigma;
         pn = psw;
         scy_n = scy;
+        bz_n = bz;
+        b10 = 10'd0;
         dtrap_n = dtrap;
         tc_n = tc;
         tc_w = 1'b0;
@@ -319,6 +325,33 @@ module v35_eu
             AL_CVDF: begin
                 q32 = v35_mul_fin(mul, 1'b0, psw, pn);
                 r = {8'd0, 8'(v35_alu(3'd0, 1'b0, {8'd0, q32[7:0]}, {8'd0, x[7:0]}, psw, pn))};
+            end
+            // (MX3c) the 0F page
+            AL_BIT: r = v35_bit1({5'd0, op3[1:0], 1'b0}, x,
+                                 weff ? 16'(16'd1 << y[3:0]) : 16'(16'd1 << y[2:0]), weff, psw, pn);
+            AL_BCDI: begin
+                scy_n = 1'b0;
+                bz_n = 1'b1;
+            end
+            AL_BCDS: begin
+                b10 = v35_bcd8(op3 != 3'd0, x[7:0], y[7:0], scy);
+                r = {8'd0, b10[7:0]};
+                scy_n = b10[9];
+                bz_n = bz && b10[8];
+            end
+            AL_BCDF: begin
+                pn[V35_PSW_CY] = scy;
+                pn[V35_PSW_Z] = bz;
+                pn[V35_PSW_V] = 1'b0;
+                pn[V35_PSW_S] = scy;
+                pn[V35_PSW_AC] = scy;
+                pn[V35_PSW_P] = bz;
+            end
+            AL_R4: begin
+                q32 = {16'd0, v35_rot4(op3[0], x[7:0], y[7:0])};
+                r = {8'd0, q32[7:0]};
+                tc_n = {8'd0, q32[15:8]};
+                tc_w = 1'b1;
             end
             AL_CITF: begin
                 pn[V35_PSW_IE] = 1'b0;
@@ -431,6 +464,7 @@ module v35_eu
             f1 <= 1'b0;
             trap_o <= 1'b0;
             scy <= 1'b0;
+            bz <= 1'b0;
             ea_ss <= 1'b0;
         end else if (ce_a) begin
             trap_o <= ex_b && word.trap;
@@ -439,6 +473,7 @@ module v35_eu
                 if (word.wf)
                     psw <= pn;
                 scy <= scy_n;
+                bz <= bz_n;
                 dtrap <= dtrap_n;
                 mul <= mul_n;
                 dv <= dv_n;
