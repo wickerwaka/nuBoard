@@ -84,6 +84,7 @@ module v35_trace
             5'd7: why_name = "sync";
             5'd8: why_name = "susp";
             5'd9: why_name = "refill";
+            5'd10: why_name = "unit";
             default: why_name = "-";
         endcase
     endfunction

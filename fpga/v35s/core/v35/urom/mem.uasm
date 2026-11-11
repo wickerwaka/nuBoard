@@ -286,35 +286,13 @@ routine mulu_m16 diff=m00:+5,d8:+5,d16:+5,dir:+5 op=F7 mod=mem reg=4 book="MULU 
     ra=AW wid=WORD d1=TA s1=RA              ; AW into tmpa (0179)
     f alu=MULI ax=TA ay=OPR cnt=BITS        ; F: the multiplier (the datum) loaded; the counter <- 16 (017B)
     open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
-    open                                    ; OPEN: a clock of the model's with no act (MULU mem16)
     open jmp=mu16_l                         ; OPEN: a clock of the model's with no act (MULU mem16); to the register form's loop
 
-routine mulu_m8 op=F6 mod=mem reg=4 book="MULU mem8" width=byte why="OPEN: as the word form into the byte loop (loop.uasm mu8_l): the book's EA + 27 with eleven book clocks with no act before the loop"
+routine mulu_m8 diff=m00:+1,d8:+1,d16:+1,dir:+1 op=F6 mod=mem reg=4 book="MULU mem8" width=byte why="OPEN: as the word form into the byte loop (loop.uasm mu8_l): the add, the read, AL into tmpa, F with the load, the register form's loop and its tail (the book's clocks with no act after the loop and its clock silicon longer than the book, F14-g-push-mulu_aw-pO-w0 for the word form): one over the book's EA + 27, the eleven OPEN words moved behind the loop (MX3 part 2)"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     ra=AW wid=WORD d1=TA s1=RA              ; AL (AW) into tmpa
-    f alu=MULI ax=TA ay=OPR cnt=BITS        ; F: the multiplier (the datum) loaded; the counter <- 8
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open                                    ; OPEN: a book clock with no act (MULU mem8 EA + 27)
-    open jmp=mu8_l                          ; OPEN: a book clock with no act (MULU mem8 EA + 27); to the register form's loop
+    f alu=MULI ax=TA ay=OPR cnt=BITS       jmp=mu8_l  ; F: the multiplier (the datum) loaded; the counter <- 8
 
 routine mul_m16 op=F7 mod=mem reg=5 why="no book value (a range, EA + 42-51): the natural shape, the read, F with the magnitudes' load, the register form's loop (loop.uasm mi16_l)"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
@@ -328,65 +306,27 @@ routine mul_m8 op=F6 mod=mem reg=5 why="no book value (a range, EA + 34-43): the
     ra=AW wid=WORD d1=TA s1=RA              ; AL into tmpa
     f alu=MULI ax=TA ay=OPR cnt=BITS jmp=mi8_l      ; F: the magnitudes loaded; the counter <- 8; to the loop
 
-routine divu_m16 op=F7 mod=mem reg=6 book="DIVU mem16" why="OPEN: the add, the read, DW into tmpc under the cycle, F with the dividend's and the divisor's load and the pre-check, the divide error's test, the register form's loop, finish and writes (loop.uasm dv16_l, by a jump): the book's EA + 43 with fifteen book clocks with no act before the loop"
+routine divu_m16 diff=m00:+1,d8:+1,d16:+1,dir:+1 op=F7 mod=mem reg=6 book="DIVU mem16" why="OPEN: silicon longer than the book by one: the register form's tail with its two clocks (F16-l-push-divu_ix-pE-w0), the pre-check's jump and fifteen OPEN words moved behind the loop (MX3 part 2); the add, the read, DW into tmpc under the cycle, F with the dividend's and the divisor's load and the pre-check, the divide error's test, the register form's loop, finish and writes (loop.uasm dv16_l, by a jump): the book's EA + 43 with fifteen book clocks with no act before the loop"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     rb=DW wid=WORD d1=TC s1=RB              ; DW (the dividend's high half) into tmpc
-    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS ; F: the dividend DW:AW, the divisor (the datum), the pre-check; the counter <- 16
-    jc=DTRAP:dv16_t                         ; the pre-check failed: the divide error
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open                                    ; OPEN: a book clock with no act (DIVU mem16 EA + 43)
-    open jmp=dv16_l                         ; OPEN: a book clock with no act (DIVU mem16 EA + 43); to the register form's loop
+    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=dv16_l ; F: the dividend DW:AW, the divisor (the datum), the pre-check; the counter <- 16
 
-routine divu_m8 op=F6 mod=mem reg=6 book="DIVU mem8" width=byte why="OPEN: the add, the read, F with the dividend's and the divisor's load and the pre-check, the divide error's test, the register form's loop (loop.uasm dv8_l): the book's EA + 34 with sixteen book clocks with no act before the loop"
+routine divu_m8 diff=m00:+2,d8:+2,d16:+2,dir:+2 op=F6 mod=mem reg=6 book="DIVU mem8" width=byte why="OPEN: silicon longer than the book by two: the register form's tail with its two clocks (F16-l-push-divu_ix-pE-w0 for the word form), the pre-check's jump and sixteen OPEN words moved behind the loop (MX3 part 2); the add, the read, F with the dividend's and the divisor's load and the pre-check, the divide error's test, the register form's loop (loop.uasm dv8_l): the book's EA + 34 with sixteen book clocks with no act before the loop"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     bus=MEMR                                ; post the read
-    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS ; F: the dividend AW, the divisor (the datum), the pre-check; the counter <- 8
-    jc=DTRAP:dv8_t                          ; the pre-check failed: the divide error
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open                                    ; OPEN: a book clock with no act (DIVU mem8 EA + 34)
-    open jmp=dv8_l                          ; OPEN: a book clock with no act (DIVU mem8 EA + 34); to the register form's loop
+    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=dv8_l ; F: the dividend AW, the divisor (the datum), the pre-check; the counter <- 8
 
 routine div_m16 op=F7 mod=mem reg=7 why="no book value (a range, EA + 57-67): the natural shape (loop.uasm di16_l)"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     rb=DW wid=WORD d1=TC s1=RB              ; DW into tmpc
-    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS ; F: the magnitudes, the pre-check; the counter <- 16
-    jc=DTRAP:di16_t                         ; the pre-check failed
-    jmp=di16_l                              ; to the register form's loop
+    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=di16_l ; F: the magnitudes, the pre-check; the counter <- 16
 
 routine div_m8 op=F6 mod=mem reg=7 why="no book value (a range, EA + 49-59): the natural shape (loop.uasm di8_l)"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     bus=MEMR                                ; post the read
-    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS ; F: the magnitudes, the pre-check; the counter <- 8
-    jc=DTRAP:di8_t                          ; the pre-check failed
-    jmp=di8_l                               ; to the register form's loop
+    f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=di8_l ; F: the magnitudes, the pre-check; the counter <- 8
 
 ; ---- the memory shifts (mechanisms 3.4; docs/v35s-eu-timing.md: the operand read once and
 ; written once, the loop on a temporary, two words a count as the register form): the read,

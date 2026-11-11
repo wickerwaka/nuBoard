@@ -1436,6 +1436,157 @@ mx3-misses.jsonl.
 4. Item 2 (the loops, the 0F page, MULU r16's two clocks, the unit hold) and item 3's gate on F32
    F33 F34 F39 F40: not started.
 
+## MX3 (part 2): the loops (the multiply and divide units, the unit hold), the adjusts and converts
+
+The brief's item 1 for the loops (urom/loop.uasm extended); the BCD strings, the bit operations,
+INS / EXT and the 0F page (urom/page.uasm) are **not started**: handed back after the loops, as the
+brief allows. Every routine is the data book's formula first; a clock beyond it is an OPEN word
+declared "silicon longer than the book" with its run (the frozen model exact on it), or a book
+clock of the book's range (MUL / DIV's sign clocks); the probes and traces are in the hand-back
+(`an/`, `tr/`).
+
+### The multiply and divide units (loop.uasm)
+
+- **The shape.** The two operands' reads on ports A and B in one word, the unit's load (MULI /
+  DIVI) on the next, the loop (one step a word, the counter from BITS) from the entry's third
+  clock, then the book's clocks with no act (OPEN), the finish, the writes. MX1 had the book's
+  OPEN words before the loop; silicon puts the loop at the entry's third clock: the unit hold
+  (below) fires there on the take's back-to-back fetch at pE (+1 a wait state on the PUSH frame:
+  F16-l-push-mulu_aw-pE-w0 / w1 / w2, the write at +122 / 125 / 128) and not at pO
+  (F14-g-push-mulu_aw-pO-w0, +121). The divide's pre-check jump is folded into the jump after
+  the finish (DIVF carries the pre-check's trap and flags: one test for both).
+- **MULU r16 34 (book 32), resolved:** 33 + the unit hold. The book's 32 plus one clock silicon
+  longer than the book (F14-g-push-mulu_aw-pO-w0, no fetch under the loop: 33), and the unit
+  hold's clock at pE (34 at w0, the a6 sweep's 34). MULU r8 the same (25 + the hold; a6 26).
+- **DIVU** the book's 39 / 31 plus two (F16-l-push-divu_ix-pE-w0: the PUSH's write at +130).
+- **MUL (signed)** on the same shape: the book's low end (39 / 31) plus four / five silicon
+  longer (F33-out-mul_cw-ld-k1-pE-w0, 1234h x 001Fh; docs/v35s-eu-timing.md: MUL r16 44, r8 37 with
+  the signs equal), and the negation's book clocks on a jump: +8 when the operands' signs differ,
+  +1 with the low half zero, +1 more with the high half zero too (the eu-timing note's rule; the
+  zero halves' clocks on the word form only). **F1** (`CD_SGD`): the units' sign latch, loaded by
+  MULI (the operands' signs differ) and DIVI (the quotient's sign), the V20 / 8086 F1 flag; the
+  zero tests on SIGMA (SNZ, the high half through PASS).
+- **DIV (signed)**: the book's low end (54 / 46) plus six (F33-out-div_cw-ld-k1-pE-w0;
+  eu-timing DIV r16 61 base), the dividend's negation (+7) on **DN** (`CD_DN`, the divide unit's
+  dividend sign, DIVI's) and the quotient's (+2) on F1, both after the loop (the OPEN words'
+  position is free: the jumps ride two of them).
+- **The memory forms** jump into the register forms' loops as at MX1; the OPEN words MX1 placed
+  before the loop moved behind it with the register forms' (MULU mem8 +1, DIVU mem16 +1, mem8 +2
+  over the book, declared). Their reads stay two clocks early at pE w0 (the group setup, below).
+
+### The unit hold (Correction 26; built, `V35_MX3B_UH` 1)
+
+The reading offered at part 1 holds against the loops as built: a multiply or divide step
+(MULS, DIVS) waits while a fetch is past its second clock (the bus unit's existing
+`fetch_past_b2`: B3 and the wait states), to the clock after the cycle's end. Provisional
+machine reading: the step's move crosses the internal bus between the units that the fetch holds
+for its datum (MX1g's BW reading with B3 included). No new bus-unit port (the sequencer reads the
+existing output). Measured both ways (the whole corpus, +v35_chk): UH 0 loses 39 runs and gains none (5,926 against 5,965: every PUSH / OUT frame after MULU / DIVU / MUL at pE, the hold's clock at w0 and its +1 a wait state).
+
+### The unit's suspension of a dropped request (`V35_MX3B_US` 1; provisional)
+
+F3-push-mulu_dw-k2-pE-w0: the second MULU's start is the Q2 triple-clock aborted fetch (+116);
+the RTL raised the request again and fetched at +119; silicon fetches at +147, the clock the
+finish word is reached (the frozen model's abort_unit=loop: the request the abort dropped raised
+mtail before the end). Built: a request the bus unit dropped with an aborted cycle (`drop`, the
+sequencer's register, from the abort's grant to the next fetch's) is suspended (the queue's
+existing `susp`) from the clock the unit's load word is reached to the clock its result word is.
+A request not dropped still goes (F16-l-out-mulu_aw-pE-w0: the pending fetch at the load's clock
++87): suspending every request there loses it (+29). No new queue or bus-unit port: the
+sequencer gains an input (the bus unit's `g_abort` grant) and drives `susp`. The machine reading
+is provisional: the unit's steps hold the internal bus, and a request the bus unit has dropped is
+re-raised only by the EU's next queue event; the sources name neither. Measured both ways:
+US 0 loses 18 runs and gains none (5,947: the second instances of F3 mulu_dw k2 / k4, F14 mulu_aw k2, F40 mulcw k2 / k4, and three nop_mulu frames).
+
+### The adjusts and the converts
+
+- **ADJ4A / ADJ4S** (27 / 2F) and **ADJBA / ADJBS** (37 / 3F): the read and the adjust (`AL_ADJ`,
+  v35_adjust by the decode's op3), the write on E; the book's 9 and 17, OPEN words. ADJ4A has the
+  model's wb 2 (`wb`), ADJBA's wb 3 is not flagged (MX1f's rule). No run exact: ADJ4A's fetch
+  after it is 3 late and the OUT's port 1 early (F33-out-adj4a-k1-pE-w0: silicon's IR load at
+  S + 8, the OUT's port take at S + 15), ADJBA's OUT write 4 early (the model's wb 3); variants
+  measured (8 / 10 with wb, 17 / 18 with wb) none exact: open.
+- **CVTBD** (D4 ib): the divide unit on AL by the byte (`AL_CVBI` / `AL_CVBF`: eight restoring
+  steps; a zero divisor AH FFh, AL kept, the V20 suite's), the book's 19 plus one silicon longer
+  (F33-out-cvtbd-k1-pE-w0): 12 of 18 exact (the six pO OUT frames the ruling's).
+- **CVTDB** (D5 ib): the multiply unit on AH by ten (`AL_CVDI` / `AL_CVDF`: eight steps, AL
+  added, the add's flags): the book's 20, exact (F33-out-cvtdb-k1-pE-w0).
+- **MUL r16,r/m16,imm** (69 / 6B; the decode's op3 5, the signed multiply): the immediate's pops,
+  the operand and the immediate into the unit, the signed multiply's loop and negation path, the
+  low half into the reg register; the book's low end (40 / 39). Not exact: imm16 the fetch after
+  the pops a clock early (the model's mul_imm_reg=gap), imm8 the fetch before the OUT four early
+  (silicon holds it under the multiply: the model's mul_imm_hold), the memory forms' read early
+  and their fetch under the multiply (F34-out-mul-mul_aw_m_imm8-l0-k1-pE-w0: silicon +134, the
+  RTL +93): open.
+
+### The datapath and the sequencer
+
+- ALU ops (v35_pkg, v35_eu): `AL_ADJ`, `AL_CVBI`, `AL_CVBF`, `AL_CVDI`, `AL_CVDF` (25-29 of 32).
+- Conditions: `CD_SGD` (F1), `CD_DN` (the 3-bit field full).
+- The sequencer: `st_uh` (the unit hold, why 10 "unit"), `un` (the unit runs, MULI.. to MULF..),
+  `drop` (a request dropped by an aborted fetch), `u_sus` into `q_susp`. The eu: `f1`.
+- The write-port law (`wp`): the assembler's derivation is unchanged; the new register forms
+  with a post-E write: none (every new routine writes on or before its E word).
+- Depth: the new terms are registered bits and the word's fields (one compare of the alu field
+  against four values per term); `AL_CVDF` is the byte multiply's finish and an 8-bit add
+  (the finish's 16-bit negate is MULF's); no chain past the existing MULF / DIVF.
+
+### Measured (the defaults: UH 1, US 1, WBR 1, IRL 0; both spacings)
+
+The corpus (both spacings, `+v35_chk` silent; the per-family tables and the per-run first
+divergences identical at `+v35_ticks=2`): **5,965** exact (MX3 part 1 5,827): 138 gained, **0 lost**.
+
+| family | MX3 (part 1) | MX3 (part 2) |
+| --- | --- | --- |
+| F3 | 430 | 448 (MULU DW k1 / k2 / k4) |
+| F14 | 129 | 141 (MULU AW, k2) |
+| F15 | 185 | 197 (MULU AW, NOP ; MULU AW) |
+| F16 | 301 | 340 (MULU AW / DW frames, DIVU IX) |
+| F33 | 72 | 111 (CVTBD 12, CVTDB 3, MUL CW 12, DIV CW 6, DIVU CW 6) |
+| F40 | 172 | 190 (MUL CW control, k2, k4) |
+| F32 / F34 / F39 | 12 / 83 / 143 | unchanged (the 0F page not built; F34's mul probe is MUL imm) |
+| F23 / F30 / F35 / F37 | 153 / 219 / 264 / 63 | unchanged |
+
+The MX0 gate families 967 → 985 (F3 448; F0 18, F0w 10, F1 39, F2 70, F9 315, F11 40, F12 45 as
+part 1). Write data 96,948 / 106,824 (part 1 96,786). Function: `--regfile` 107,859 vectors 0 bad (pass 98,574; part 1 97,109), `--fn` 19,752 0 bad,
+the SingleStepTests 27, 3F, D4, D5 10,000 pass each, 6B 9,996 (4 the reference's on-chip page),
+F6.5 / F7.6 / F7.7 pass (the divide error's trap runs as before); test_rtl_vectors' LATER list
+drops 27 3F D4 D5 6B. Lint clean in the five configurations and with `V35_MX3B_UH` 0,
+`V35_MX3B_US` 0, `V35_MX3_WBR` 0, `V35_MX3_IRL` 1; test_uasm and test_v35_struct 36 OK, the four modules 46 OK; the nine offline modules 941 tests,
+the four known failures (test_freeze, test_sim TrackedFit). ROM
+1,669 words of 2,048 (part 1 1,473; the word 92 bits). The tables: the hand-back's
+mx3b-table.md, mx3b-runs-t1 / t2, mx3b-misses.jsonl.
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- §3.4 / Correction 26, the unit hold: built (`V35_MX3B_UH` 1): a multiply / divide step waits
+  while a fetch is past its second clock; the reading stays provisional (the step's move on the
+  internal bus the fetch holds for its datum); measured: off loses 39, gains 0.
+- §3.4, MULU r16's 34: the book's 32, one clock silicon longer than the book (OPEN, the pO run),
+  and the unit hold's clock at pE; the loop at the entry's third clock (the reads on two ports,
+  the load), the book's OPEN clocks behind the loop, not before it.
+- §3.4, MUL / DIV signed: the sign clocks (+8 / +1 / +1; +7 / +2) are the book's range read as
+  conditional paths on F1 (the operands' / the quotient's signs) and DN (the dividend's), and
+  SIGMA's zero test; each base silicon longer than the book's low end (4, 5, 6, 6).
+- §3.7, the unit's suspension (new, provisional): a fetch request the bus unit dropped with an
+  aborted cycle at a unit form's start is not raised again until the unit's result word
+  (`V35_MX3B_US`); a request not dropped still goes.
+
+### Open (MX3 part 2)
+
+1. The 0F page (urom/page.uasm), the BCD strings, ROL4 / ROR4, the bit operations, INS / EXT:
+   not started. What it needs: a 0F memory form's EA call on its ModR/M byte (the second-level
+   decode is keyed on the 0F second byte: a sequencer act that calls the EA head of the byte a
+   word pops, or a third decode level); the ALU field widened (25-29 of 32 used: BIT1, BCD8, ROT4
+   and the bit-field steps need more); a loop counter load of (CL + 1) / 2 for the BCD strings.
+2. The memory unit forms' read (MULU / DIVU / MUL / DIV / MUL imm [m]): two clocks early at pE w0,
+   and silicon's read at the last fetch's end plus the cycle's length (+3 a wait state:
+   F5-push-mulu_m-k1-pE-w0 / w1 / w2 at +89 / 92 / 95): the model's group setup; no reading.
+3. OUT imm8 after a multiply (F16-l-out-mulu_aw-pE-w0, 12 runs): the port take a clock early
+   against the shift's frame, exact: the model's write-back for MULU (wb 2) is the shift's; open.
+4. The adjusts (above), MUL imm's fetch holds (above).
+5. MUL r8 / DIV r8 have no corpus run (their lengths from the a6 sweep alone).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

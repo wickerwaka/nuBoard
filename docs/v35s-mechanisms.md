@@ -744,3 +744,38 @@ change to the text above, kept here rather than rewritten into it.
     which a fetch holds for its datum from its third clock to its end (item 13's BW law with B3 included).
     Two runs, and MULU r16's own length (34 against the book's 32) is open: not built; MX3 part 2 probes
     it with the loops.
+
+## Corrections from MX3 part 2 (2026-11-10)
+
+27. **§3.4, item 26 resolved: the unit hold built (MX3 part 2, provisional).** A multiply or divide step
+    (the loop's MULS / DIVS word) waits while a fetch is past its second clock (the bus unit's existing
+    `fetch_past_b2`: B3 and the wait states), to the clock after the cycle's end (`V35_MX3B_UH` 1). The
+    reading stays item 26's: the step crosses the internal bus between the units that the fetch holds for
+    its datum, item 13's BW law with B3 included. Measured off: 39 lost, 0 gained (every PUSH / OUT frame
+    after MULU / DIVU / MUL at pE: the hold's clock at 0 waits and its +1 a wait state).
+28. **§3.4, MULU r16's 34 (item 21 / MX2's open item resolved).** The book's 32, one clock silicon longer
+    than the book (F14-g-push-mulu_aw-pO-w0, where no fetch runs under the loop: 33), and the unit hold's
+    clock at pE (34). The loop runs from the entry's third clock (the two reads on ports A and B, the unit's
+    load), and the book's OPEN clocks sit behind the loop; MX1's routine had them before it, which hid the
+    hold. MULU r8 25 + the hold (the a6 sweep's 26); DIVU the book + 2; the signed MUL / DIV the book's low
+    end + 4 / 5 / 6 / 6 with the sign clocks as the book's range on conditional paths (the units' sign
+    latch F1, the dividend's sign DN, SIGMA's zero test), each from a named exact run.
+29. **§3.7, the unit's suspension of a dropped request (MX3 part 2, new, provisional).** A fetch request
+    the bus unit dropped with an aborted cycle (Q2's triple clock) at a unit form's start is not raised
+    again until the unit's result word: held through the queue's existing `susp` from the load word to
+    the finish (`V35_MX3B_US` 1; F3-push-mulu_dw-k2-pE-w0: silicon's fetch at +147, the RTL's re-raise at
+    +119 before). A request the abort did not drop still goes (F16-l-out-mulu_aw-pE-w0: suspending every
+    request under the unit loses 29). The sequencer reads the bus unit's existing abort grant; no port
+    added. The reading, which the sources do not name: the unit's steps hold the internal bus, and a
+    request the bus unit has dropped is raised again only by the EU's next queue event, which under the
+    loop is the result word. The frozen model's counterpart is abort_unit=loop. Measured off: 18 lost, 0
+    gained. For the user's eye with items 14, 20 and 22.
+30. **§3.4 / §3.6, open from the loops (MX3 part 2, recorded).** The memory unit forms' read lands two
+    clocks early at pE w0 (silicon's at the last fetch's end plus the cycle's length, +3 a wait state:
+    F5-push-mulu_m-k1-pE-w0 / w1 / w2 at +89 / 92 / 95; the model's group setup; moving the post later
+    gained nothing). OUT imm8 after a multiply (12 runs): the port take a clock early where the shift's
+    frame is exact; the model gives MULU the shift's write-back. The adjusts: ADJ4A's fetch 3 late and its
+    OUT port 1 early (silicon's IR load at S + 8), ADJBA's OUT write 4 early (the model's wb 3). MUL imm:
+    imm16's fetch after the pops a clock early, imm8's fetch under the multiply four early, the memory
+    forms' fetch held by silicon to +134 against +93 (the model's mul_imm_reg=gap, mul_imm_hold). MUL r8
+    and DIV r8 have no corpus run.

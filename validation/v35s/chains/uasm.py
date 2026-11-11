@@ -209,6 +209,8 @@ SHORT_XFER = set(_ranges("70-7F,E0-E3,EB"))
 XC_LOOP = {0xE0: 5, 0xE1: 4, 0xE2: 16, 0xE3: 17}
 BRK_VEC = {0xCC: 3, 0xCE: 4}
 FLAG_OP = {0xF8: 0, 0xF9: 1, 0xF5: 2, 0xFA: 3, 0xFB: 4, 0xFC: 5, 0xFD: 6}
+# (MX3b) the adjusts' operation (v35_adjust's aop): 0 ADJ4A, 1 ADJ4S, 2 ADJBA, 3 ADJBS
+ADJUST_OP = {0x27: 0, 0x2F: 1, 0x37: 2, 0x3F: 3}
 # the 0F page (the second byte): ModR/M present, immediate bytes after it
 PAGE1_MODRM = set(_ranges("10-1F,28,2A,31,33,39,3B,2D,94,95"))
 PAGE1_IMM = {**{o: 1 for o in _ranges("18-1F,39,3B,FF")}, 0x9C: 3}
@@ -246,6 +248,8 @@ def fmt_of(op: int) -> dict:
         f["d"] = 1 if op == 0x8E else 0
         f["immw"] = int(op == 0x69)
         f["sx"] = int(op == 0x6B)
+        if op in (0x69, 0x6B):
+            f["op3"] = 5                 # (MX3b) the signed multiply (the F7 group's /5: MULI's op3 0)
     elif 0x80 <= op <= 0x83:
         f["w"] = int(op in (0x81, 0x83))
         f["immw"] = int(op == 0x81)
@@ -265,6 +269,8 @@ def fmt_of(op: int) -> dict:
         f["immw"] = int(op in (0xA9, 0xC7, 0xF7))
     elif op in FLAG_OP:
         f["op3"] = FLAG_OP[op]
+    elif op in ADJUST_OP:
+        f["op3"] = ADJUST_OP[op]         # (MX3b) the adjust's operation (AL_ADJ: op3 1:0)
     elif op in (0xEA, 0x9A, 0xE8, 0xE9, 0xC2, 0xCA):
         f["w"] = 1
         f["immw"] = 1                    # (MX2) the word displacement, offset or stack adjust

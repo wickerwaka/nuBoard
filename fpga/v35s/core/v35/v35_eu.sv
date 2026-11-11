@@ -85,6 +85,8 @@ module v35_eu
     output wire        c_dtrap,
     output wire        c_xc,            // (MX2) the transfer's condition (registers)
     output wire        c_snz,           // (MX2) SIGMA is not zero
+    output wire        c_f1,            // (MX3b) F1, the units' sign latch (the operands' signs differ)
+    output wire        c_dn,            // (MX3b) the divide's dividend negative (DIVI's)
     output wire [7:0]  rb_lo,
     // the queue's flush (tick A: registers)
     output wire [15:0] flush_off,
@@ -101,6 +103,10 @@ module v35_eu
     reg [1:0]  pfx_s = 2'd0;
     v35_mul_t  mul = '0;
     v35_div_t  dv = '0;
+    // (MX3b) F1: the multiply's / divide's sign latch, loaded by the unit's init word (MULI: the
+    // operands' signs differ; DIVI: the dividend's and the divisor's signs differ, the quotient
+    // negative); the signed routines' negation paths jump on it (the 8086 / V20 F1 flag)
+    reg        f1 = 1'b0;
     reg        rq_v = 1'b0, rq_word = 1'b0, rq_pair = 1'b0, rq_out = 1'b0, rq_rd = 1'b0;
     reg        rq_wr = 1'b0, rq_io = 1'b0, resv_r = 1'b0, opr_v = 1'b0;
     reg [1:0]  rq_cyc = RQ_MEMR;
@@ -296,6 +302,24 @@ module v35_eu
             end
             AL_PSWL: pn = {psw[15:8], x[15:8]};
             AL_ADD: r = x + y;
+            AL_ADJ: begin
+                q32 = v35_adjust(op3[1:0], x, psw);
+                r = q32[15:0];
+                pn = q32[31:16];
+            end
+            AL_CVBI: dv_n = v35_div_init(1'b0, 1'b0, {24'd0, x[7:0]}, y);
+            AL_CVBF: begin
+                r = dv.trap ? {{8{1'b1}}, x[7:0]} : {dv.q[7:0], dv.r[7:0]};
+                pn = v35_szp(psw, {8'd0, r[7:0]}, 1'b0);
+                pn[V35_PSW_CY] = 1'b0;
+                pn[V35_PSW_AC] = 1'b0;
+                pn[V35_PSW_V] = 1'b0;
+            end
+            AL_CVDI: mul_n = v35_mul_init(1'b0, 1'b0, {8'd0, x[15:8]}, 16'd10);
+            AL_CVDF: begin
+                q32 = v35_mul_fin(mul, 1'b0, psw, pn);
+                r = {8'd0, 8'(v35_alu(3'd0, 1'b0, {8'd0, q32[7:0]}, {8'd0, x[7:0]}, psw, pn))};
+            end
             AL_CITF: begin
                 pn[V35_PSW_IE] = 1'b0;
                 pn[8] = 1'b0;               // BRK (the single-step flag)
@@ -382,6 +406,8 @@ module v35_eu
     wire       sz = sigma == 16'd0;
     assign c_xc = !fmt.xc[4] ? (xcv ^ fmt.xc[0]) : (sz ^ !fmt.xc[0]);
     assign c_snz = !sz;
+    assign c_f1 = f1;
+    assign c_dn = dv.nneg;
     assign ps_base = {ps, 4'd0};
 
     // ------------------------------------------------------------ the end of the clock (ce_a)
@@ -402,6 +428,7 @@ module v35_eu
             resv_r <= 1'b0;
             opr_v <= 1'b0;
             dtrap <= 1'b0;
+            f1 <= 1'b0;
             trap_o <= 1'b0;
             scy <= 1'b0;
             ea_ss <= 1'b0;
@@ -415,6 +442,10 @@ module v35_eu
                 dtrap <= dtrap_n;
                 mul <= mul_n;
                 dv <= dv_n;
+                if (word.alu == AL_MULI)
+                    f1 <= mul_n.neg;
+                else if (word.alu == AL_DIVI)
+                    f1 <= dv_n.nneg ^ dv_n.dneg;
                 if (tc_w)
                     tc <= tc_n;
                 case (word.d1)

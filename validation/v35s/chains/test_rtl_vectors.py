@@ -106,10 +106,10 @@ class SingleStepTests(unittest.TestCase):
             self.assertGreater(counts.get("pass", 0), 1900, (stem, counts))
 
     # (MX1) the files whose forms are a later package's (docs/v35s-mechanisms.md section 8):
-    # RET, the branch (MX2); the 0F page, the adjusts, MUL imm (MX3)
+    # RET, the branch (MX2); the 0F page (MX3; the adjusts, the converts and MUL imm built at
+    # MX3 part 2: 27 3F D4 D5 6B pass)
     LATER = {"C3": "MX2", "7C": "MX2", "0F15": "MX3", "0F1A": "MX3", "0F20": "MX3",
-             "0F22": "MX3", "0F26": "MX3", "0F33": "MX3", "0F39": "MX3", "27": "MX3", "3F": "MX3",
-             "D4": "MX3", "D5": "MX3", "6B": "MX3"}
+             "0F22": "MX3", "0F26": "MX3", "0F33": "MX3", "0F39": "MX3"}
 
 
 @unittest.skipUnless(rtl_vectors.C2BENCH.exists(), "bench not built: fpga/v35s/build_core2_tb.sh")

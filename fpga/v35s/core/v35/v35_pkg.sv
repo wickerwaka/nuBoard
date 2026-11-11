@@ -59,13 +59,19 @@ package v35_pkg;
     // DIVI / DIVS / DIVF the multiply and the restoring divide (one bit a word), FLAG the
     // format's flag operation, PSWL the PSW's low byte from x's high byte (SAHF), (MX1) ADD the
     // 16-bit sum x + y, no flags (TRANS's table address, PREPARE's frame), (MX2) CITF the PSW's
-    // IE and BRK flags cleared (a break's: the V20 ROM's CITF on its PSW push)
+    // IE and BRK flags cleared (a break's: the V20 ROM's CITF on its PSW push), (MX3b) ADJ the
+    // adjust of AW by the format's operation (ADJ4A / ADJ4S / ADJBA / ADJBS: op3 1:0), CVBI / CVBF
+    // CVTBD's divide (the restoring divide's state from AL and y, the byte divisor; the finish
+    // {quotient, remainder} into SIGMA, AH FFh and AL kept by a zero divisor, S Z P of AL), CVDI /
+    // CVDF CVTDB's multiply (the multiply's state from AH and ten; the finish: the product's low
+    // byte plus AL into SIGMA's low byte, AH zero, the add's flags)
     typedef enum logic [4:0] {
         AL_NONE = 5'd0, AL_PASS = 5'd1, AL_GRP = 5'd2, AL_AND = 5'd3, AL_INC = 5'd4,
         AL_DEC = 5'd5, AL_NOT = 5'd6, AL_NEG = 5'd7, AL_INC2 = 5'd8, AL_DEC2 = 5'd9,
         AL_SEXT = 5'd10, AL_SIGNW = 5'd11, AL_SHI = 5'd12, AL_SH1 = 5'd13, AL_SHF = 5'd14,
         AL_MULI = 5'd15, AL_MULS = 5'd16, AL_MULF = 5'd17, AL_DIVI = 5'd18, AL_DIVS = 5'd19,
-        AL_DIVF = 5'd20, AL_FLAG = 5'd21, AL_PSWL = 5'd22, AL_ADD = 5'd23, AL_CITF = 5'd24
+        AL_DIVF = 5'd20, AL_FLAG = 5'd21, AL_PSWL = 5'd22, AL_ADD = 5'd23, AL_CITF = 5'd24,
+        AL_ADJ = 5'd25, AL_CVBI = 5'd26, AL_CVBF = 5'd27, AL_CVDI = 5'd28, AL_CVDF = 5'd29
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -113,10 +119,12 @@ package v35_pkg;
     // CNTZ the loop counter is zero, SGN SIGMA's sign (by the width), DTRAP the divide error,
     // WORD the format's width is a word, (MX2) XC the transfer's condition by the format (`xc`:
     // the sixteen conditions on the PSW of 70-7F, BRKV's V, DBNZE / DBNZNE's Z test, DBNZ's and
-    // BCWZ's counter test on SIGMA: the decremented CW, or CW), SNZ SIGMA is not zero
+    // BCWZ's counter test on SIGMA: the decremented CW, or CW), SNZ SIGMA is not zero, (MX3b) SGD F1,
+    // the units' sign latch (MULI: the operands' signs differ; DIVI: the quotient's sign), DN the
+    // divide unit's dividend negative (DIVI's)
     typedef enum logic [2:0] {
         CD_CNTZ = 3'd0, CD_SGN = 3'd1, CD_DTRAP = 3'd2, CD_WORD = 3'd3, CD_XC = 3'd4,
-        CD_SNZ = 3'd5
+        CD_SNZ = 3'd5, CD_SGD = 3'd6, CD_DN = 3'd7
     } v35_cond_e;
 
     localparam int UADDR_W = 11;      // (MX1b) 2,048 words: the ROM passed 1,024

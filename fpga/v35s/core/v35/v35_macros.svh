@@ -327,6 +327,16 @@
 `ifndef V35_MX1G_BW
 `define V35_MX1G_BW 1
 `endif
+// (MX3b) V35_MX3B_UH: the unit hold (v35_useq): a multiply or divide step waits while a fetch is
+// past its second clock (bus.fetch_past_b2): 1; 0 none
+`ifndef V35_MX3B_UH
+`define V35_MX3B_UH 1
+`endif
+// (MX3b) V35_MX3B_US: a request dropped by an aborted fetch held while the multiply / divide unit
+// runs (v35_useq's q_susp, from the unit's load to its result): 1; 0 none
+`ifndef V35_MX3B_US
+`define V35_MX3B_US 1
+`endif
 `ifndef V35_MX1E_TSE
 `define V35_MX1E_TSE 1
 `endif

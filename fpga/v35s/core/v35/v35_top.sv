@@ -219,7 +219,7 @@ module v35_top
     wire [UADDR_W-1:0] upc;
     // (MX0) the datapath
     wire        opr_rdy, rq_busy, wr_hold, c_sgn, c_dtrap, div_trap;
-    wire        c_xc, c_snz, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
+    wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
     wire [15:0] ld_ip;                  // (MX2) the instruction pointer
     wire [7:0]  rb_lo;
     wire [15:0] flush_off;
@@ -333,11 +333,11 @@ module v35_top
     v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .rb_lo,
-        .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo,
+        .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .fetch_dph(b_fetch_past_b2), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
         .e_rmodrm, .rmem(fmt.has_modrm && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
-        .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
+        .f_abort(g_abort), .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
     // ---------------------------------------------------------------- the datapath
@@ -349,7 +349,7 @@ module v35_top
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .rb_lo,
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo,
         .flush_off, .flush_lin, .ps_base, .sfr_data, .trap_o(div_trap)
     );
 

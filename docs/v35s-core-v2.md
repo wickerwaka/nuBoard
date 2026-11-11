@@ -1792,3 +1792,43 @@ question, decided from S8's routed numbers with the user.
   the staging load's clock (an act separating the reg-class routines from the shifts, or a ruling); the
   target IN / OUT after a refill; the one-byte forms' exemption from the write-port hold. MX3 part 2
   sent: the loops, the BCD and bit forms, the 0F page, MULU r16's two clocks, the unit hold.
+- 2026-11-10, **MX3 part 2 landed** (a fresh opus55 worktree agent from d780a67, handed back early: the loops
+  done, the 0F page not started). **The multiply and divide units rebuilt on the book's formulas**
+  (urom/loop.uasm): the two operands read on ports A and B in one word, the unit loaded on the next, the
+  loop from the entry's third clock (one step a word, the counter from the width), the book's OPEN clocks
+  behind the loop where MX1 had them before it, the divide's pre-check folded into the finish's jump.
+  **MULU r16's 34 resolved:** the book's 32, one clock silicon longer than the book (F14-g-push-mulu_aw-pO-w0,
+  no fetch under the loop: 33), and the unit hold's clock at pE; MULU r8 25 plus the hold; DIVU the book
+  plus two (F16-l-push-divu_ix-pE-w0). **Signed MUL / DIV** on the same shape: the book's low end plus
+  silicon-longer clocks (MUL r16 +4, r8 +5; DIV r16 +6, r8 +6; F33-out-mul_cw-ld-k1-pE-w0 and
+  F33-out-div_cw-ld-k1-pE-w0), the sign clocks the book's range on conditional paths: MUL +8 negation on the
+  new F1 condition (the units' sign latch, the V20's F1), +1 with the low half zero and +1 more with the
+  high half zero (SIGMA's zero test; the word form); DIV +7 on DN (the dividend's sign) and +2 on F1 (the
+  quotient's). MUL r8 and DIV r8 have no corpus run (the a6 sweep alone). **The unit hold built**
+  (`V35_MX3B_UH` 1, item 26's reading, provisional): a multiply or divide step waits while a fetch is past
+  its second clock, read from the bus unit's existing `fetch_past_b2`; off loses 39 and gains 0. **The
+  unit's suspension of a dropped request** (`V35_MX3B_US` 1, new, provisional): a fetch request the bus
+  unit dropped with an aborted cycle at a unit form's start (F3-push-mulu_dw-k2-pE-w0: Q2's triple-clock
+  abort at +116, silicon's fetch at +147 where the RTL re-raised at +119) is held through the queue's
+  existing `susp` from the unit's load word to its result word; a request not dropped still goes
+  (F16-l-out-mulu_aw-pE-w0; suspending every request loses 29); the sequencer gains the bus unit's
+  existing abort grant as an input, no bus-unit or queue port added; off loses 18 and gains 0. **The
+  adjusts and converts:** ADJ4A / ADJ4S and ADJBA / ADJBS at the book's 9 and 17 (none exact: ADJ4A's
+  fetch 3 late and its OUT port 1 early, ADJBA's OUT write 4 early, the model's wb 3); CVTBD on the divide
+  unit at the book's 19 plus one (12 of 18 exact, the six pO OUT frames the pending ruling's); CVTDB on
+  the multiply unit by ten at the book's 20, exact; MUL r16,r/m,imm (69 / 6B) on the signed shape at the
+  book's low end, none exact (the model's mul_imm_reg=gap and mul_imm_hold; the memory forms' fetch under
+  the multiply, silicon +134 against +93). New ALU ops AL_ADJ / AL_CVBI / AL_CVBF / AL_CVDI / AL_CVDF (25
+  to 29 of 32), conditions F1 and DN (the 3-bit field full). The `wp` derivation unchanged. **Verified on
+  main (both spacings identical, 0 failing, chk silent):** 5,965 / 30,536 exact (part 1 5,827; 138 gained:
+  F16 +39, F33 +39, F3 +18, F40 +18, F14 +12, F15 +12; 0 lost); the MX0 gate families 967 → 985; F32 12,
+  F34 83, F39 143 unchanged (the 0F page not built); F23 F30 F35 F37 unchanged. Write data 96,948 / 106,824
+  (96,786); register vectors 69,099 + 38,760 with 0 bad (pass 98,574 from 97,109); function vectors 19,752,
+  0 bad; the SingleStepTests 27 3F D4 D5 at 10,000 and 6B at 9,996 (the reference's on-chip page), dropped
+  from test_rtl_vectors' later list; lint clean in five configurations and with UH 0 / US 0 / WBR 0 / IRL 1;
+  46 fast tests; the nine offline modules 941 with the four known failures. ROM 1,669 / 2,048 words.
+  **Open (MX3 part 2):** the 0F page (a 0F memory form's EA call on its ModR/M byte, the ALU field widened,
+  a (CL + 1) / 2 counter load for the BCD strings); the memory unit forms' read two clocks early at pE w0
+  (silicon's read at the last fetch's end plus the cycle's length, +3 a wait state, F5-push-mulu_m-k1-pE:
+  the model's group setup, no reading); OUT imm8 after a multiply (12 runs: the model's MULU write-back
+  the shift's); the adjusts; MUL imm's fetch holds. MX3 part 3 sent: the 0F page.
