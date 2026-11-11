@@ -1845,3 +1845,8 @@ question, decided from S8's routed numbers with the user.
   MX3's stall terms. At this path the fabric closes near 32 MHz (a CPU clock of 16 MHz), half the directive's
   target; the report lists only the ten worst paths, so the spectrum below it is not shown. MX5 (the split of
   the word → pops → room → request → grant chain across the two ticks) remains the planned closure.
+- 2026-11-10, **direction: MX5 before MX4** (the user, on the whole-core timing above: "run MX5 right after MX3
+  part 3 lands"). MX5 closes the 64 MHz tick by structure (the brief: scratchpad v2/mx5-brief.md: tick A's chain
+  shortened by assembler-derived word bits, flat stall terms and a parallel room computation, then work moved
+  across the ticks by registers, state machines or speculation with a late select; no multicycle constraint; the
+  corpus, the misses and `+v35_chk` identical to the base). MX4 (the strings) follows on the closed structure.
