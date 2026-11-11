@@ -1832,3 +1832,16 @@ question, decided from S8's routed numbers with the user.
   (silicon's read at the last fetch's end plus the cycle's length, +3 a wait state, F5-push-mulu_m-k1-pE:
   the model's group setup, no reading); OUT imm8 after a multiply (12 runs: the model's MULU write-back
   the shift's); the adjusts; MUL imm's fetch holds. MX3 part 3 sent: the 0F page.
+- 2026-11-10, **whole-core timing on the MX3 part 2 sources** (overseer, on the user's question; `v35_timing.sh top`
+  at 15.625 ns, no exceptions, 143 s). v35_top.sv did not include v35_macros.svh (the macros reached it through
+  the other files' includes under Verilator; Efinity's parser compiles each file alone and `V35_MX0F_QSTART ?`
+  expanded empty): the include added, lint unchanged. Map 4,504 LUT4, 368 ADD, 1,026 FF, 72 RAM_5K (MX0 3,741 /
+  274 / 862 / 41). **Worst setup slack −15.151 ns** (MX0 −10.3), hold +0.306; the worst path 28 logic levels,
+  30.6 ns of data path: the ROM bank's read data (3.7 ns) → 13 LUT levels of the word's decode and the
+  sequencer's stall terms to the pop count → the queue's room arithmetic (three adders in series) → 11 LUT
+  levels of the room → the fetch request → the bus unit's grant → the cycle registers (the refresh row's clock
+  enable the reported endpoint; `in_q`, `fmt.len`, `fmt.xc`, `c_addr` and the sequencer's `tw` / `wbn` / `rf`
+  the other reported ends). The same S2 → S3 → S4 chain MX0's run named, two levels and 5 ns longer with MX1 to
+  MX3's stall terms. At this path the fabric closes near 32 MHz (a CPU clock of 16 MHz), half the directive's
+  target; the report lists only the ten worst paths, so the spectrum below it is not shown. MX5 (the split of
+  the word → pops → room → request → grant chain across the two ticks) remains the planned closure.

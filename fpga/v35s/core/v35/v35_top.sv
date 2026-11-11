@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "v35_macros.svh"
 
 // V35S core v2: the slot module (docs/v35s-core-v2.md, "Architecture"), stage S3: the front
 // end (bus unit, prefetch queue, loader, (A1) the grant in the bus unit) and the execution unit
