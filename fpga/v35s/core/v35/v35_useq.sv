@@ -155,7 +155,18 @@ module v35_useq
     wire mv_biu = (word.d1 == MD_ADDR || word.d2 == MD_ADDR)
                   || (`V35_MX1G_BW == 1 && (word.d1 == MD_OPRW || word.d2 == MD_OPRW));
     wire st_bw = `V35_MX1G_BW != 0 && bus_wait && mv_biu;
+    // (MX3) `wpn`: the clock of the post-E write has been stood (set on the first clock the E word
+    // meets no other stall; cleared when it executes)
+    reg        wpn = 1'b0;
+    wire st_oth;
+    wire st_wp = `V35_MX3_WBR != 0 && word.e && word.wp && !word.wb && s_wbs && !wpn;
+    // (MX3) V35_MX3_WBR: the same law for a register form whose result is written by its post-E
+    // word (`wp`, the assembler's): that write holds the write port on the clock after E, and the
+    // E word that pops a wbs opcode (OUT imm8,acc) stands that one clock (`wbn` 1); the frozen
+    // model's wlatch (an I/O port form's start no earlier than the register form's last operand
+    // take + 4: MOV / ADD reg,reg before OUT imm8, README "MX3")
     wire st_wbw = (`V35_MX1F_WB == 1 && word.e && word.wb && s_wbs && wbn != 2'd2)
+                  || st_wp
                   || (`V35_MX1F_WB == 2 && at_entry && dec1.wbs && (wbp == 2'd2 || wbp == 2'd1));
     // (MX1c) the take sync (V35_MX1C_TSYNC): a word that pops no byte waits, after an operand
     // byte's pop (a register form's ModR/M on its E word, an immediate byte of a register form;
@@ -209,6 +220,9 @@ module v35_useq
     wire st_rfl = word.e && rf && (fetch_run || rqp);
     // the stalls a popping word can meet (the loader's pops read this: a DISP word never pops;
     // with the stall on the E word (3) it is the E word's too)
+    assign st_oth = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_bw
+                    && !st_sus && !st_rfl && !st_fch;
+    wire wpn_n = (word.e && word.wp && !ex) ? (wpn || st_oth) : 1'b0;
     wire base = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw && !st_bw
                 && !st_sus && !st_rfl;
     assign ex_pop = base && !(`V35_MX0C_DISPATCH >= 3 && st_fch);
@@ -244,6 +258,7 @@ module v35_useq
     reg        dc_b = 1'b0;
     reg  [1:0] tw_b = 2'd0;
     reg  [1:0] wbn_b = 2'd0, wbp_b = 2'd0;
+    reg        wpn_b = 1'b0;
     reg        sp_b = 1'b0, rf_b = 1'b0, rq_b = 1'b0;
     reg [2:0]  len_b = 3'd0;
     reg [7:0]  il_b = 8'd0;
@@ -255,6 +270,7 @@ module v35_useq
             dc_b <= dcall;
             tw_b <= tw_n;
             wbn_b <= wbn_n;
+            wpn_b <= wpn_n;
             wbp_b <= wbp_n;
             sp_b <= sp_n;
             rf_b <= rf_n;
@@ -330,6 +346,7 @@ module v35_useq
             tw <= 2'd0;
             wbn <= 2'd0;
             wbp <= 2'd0;
+            wpn <= 1'b0;
             sp <= 1'b0;
             rf <= 1'b0;
             rqp <= 1'b0;
@@ -340,6 +357,7 @@ module v35_useq
             cnt <= cnt_n;
             tw <= tw_b;
             wbn <= wbn_b;
+            wpn <= wpn_b;
             wbp <= wbp_b;
             sp <= sp_b;
             rf <= rf_b;
@@ -366,7 +384,7 @@ module v35_useq
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (ex_b !== ex || d1_b !== dent || d2_b !== dec2.entry || len_b !== len
-                || dc_b !== dcall || dr_b !== dret || tw_b !== tw_n || wbn_b !== wbn_n || wbp_b !== wbp_n
+                || dc_b !== dcall || dr_b !== dret || tw_b !== tw_n || wbn_b !== wbn_n || wpn_b !== wpn_n || wbp_b !== wbp_n
                 || sp_b !== sp_n || rf_b !== rf_n || rq_b !== q_req
                 || il_b !== il || w_b !== fmt_w) begin
                 chk_n = chk_n + 1;

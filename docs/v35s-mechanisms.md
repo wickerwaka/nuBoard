@@ -688,3 +688,59 @@ change to the text above, kept here rather than rewritten into it.
     and BRK at odd parity under the model's group setup, io_older (an OUT waiting out a fetch requested
     before its start: 34 runs) and xfer_nt (a not-taken short transfer at an odd address holding its
     re-raised fetch to the instruction's end: 19 runs).
+
+## Corrections from MX3 part 1 (2026-11-10)
+
+22. **§3.6 / item 21's io_older (MX3, provisional).** The 34 runs MX2 lost are the frozen model's wlatch (an
+    I/O port form starts no earlier than a register-only form's last operand take + 4), not io_older, which
+    never fires on them. Built as `V35_MX3_WBR` 1, MX1f's write-back law (item 12) extended: a register form
+    that took an operand byte (its register ModR/M, or a popped immediate) and writes its result on the word
+    after E holds the register file's write port on the clock after E; the E word that pops a `wbs` opcode
+    (OUT imm8,acc, which reads the accumulator first) stands that clock. The assembler derives the word bit
+    (`wp`) from the routine's structure; nothing is hand-set. Measured 0 lost / 62 gained; the variant on
+    every post-E write lost 131 (OUT after INC r16, DEC r16, XCH AW,r and CVTBW, which write after E and
+    which the model does not hold). The one-byte forms' exemption is the fact the reading does not explain:
+    the sources name nothing, and the four routines are open for the user's eye. The model's window (the
+    take + 4) and the RTL's (E + 1) agree on every corpus run; a register form whose E falls at S + 2 (no
+    fetch owed at the ModR/M pop) would separate them, and IN imm8 (the model holds it, the RTL does not)
+    has no corpus run.
+23. **§3.6 / item 5, OUT imm8 at an odd port byte (MX3, probed; a ruling asked of the user).** 8,015 runs,
+    every pO frame's first divergence: the fetch after the port byte's pop issues at +77 where silicon holds
+    it to +82 and the I/O then follows the fetch's end (+85 / 86 / 87 at 0 / 1 / 2 waits against the pE
+    twin's +84 / 85 / 86). The frozen model's frame is three holds: (1) on the post's clock only the
+    reservation's queue rule holds a fetch, and the parity is the queue's count (4 bytes at pO, the last
+    fetch of the shift's word having put both its bytes behind the staged opcode; 3 at pE; the port byte is
+    in the queue at the OUT's start on both); (2) from the next clock the posted I/O holds every fetch; (3)
+    on the lead's first clock (setup − lead, the lead a fitted 2) a fetch requested no later than the post
+    goes first and the I/O follows its end. Holds 1 and 2 are A1's rule 3 if OUT imm8 raises its reservation
+    on the word that pops the port byte and the bus unit learns the kind with the post. Hold 3's release is
+    the clock before the post word in the routine, and no act in the sources does it: a FIFO law in the bus
+    unit (the older request first) acts on the post's clock at the earliest and is one clock late on every
+    pO frame; holds 1 and 2 alone put the fetch after the I/O (+88), which silicon refutes. Not built. The
+    overseer's candidate reading for the user: the bus unit counts the posted I/O's setup itself (an I/O
+    cycle begins later than a memory cycle) and lets a pending older fetch go while a wait-free fetch still
+    ends by the I/O's earliest start, the two then back to back at 0 waits; this is the bus unit's own
+    counter and no look-ahead, but the sources do not name it and the clocks are the model's fitted 2.
+    Until the user rules, the 8,015 runs are the rule's cost.
+24. **§3.8 / item 21's refill_start (MX3, probed).** F23-out-br-n0-pE-w0 against w1: the refill's last
+    fetch delivers at +104 (w0) and +109 (w1) with the same queue contents and request line on both clocks;
+    the model starts the OUT on the delivery clock at w1 and a clock later at w0, and the two clocks differ
+    only in the fetch's length (3 against 4) and in the staged opcode, the two facts the model's rule reads.
+    A gate on the delivery clock for every opcode (the `fw` shape) stops the non-I/O targets the RTL
+    matches. No causal reading; stays recorded.
+25. **§3.2 / item 21's nx 1 (MX3, measured both ways, off).** The staging register loaded a clock after the
+    E word's ModR/M pop: on a register-mode ModR/M +145 / −42 (`V35_MX3_IRL` 1), on every ModR/M or e2
+    byte +145 / −79 (2). The gains are MOV / ADD reg,reg (F20, F9, F11), the losses the register shifts
+    (SHL AW,CL in F9 and F16: the model's take and IR load on one clock). The frozen model's delay is per
+    class (reg 1; TEST reg,reg, the shifts and MUL 0; the adjusts and the flag forms 1): no act in the RTL
+    separates MOV reg,reg from SHL r,CL at the staging load but the routine. Left at 0 (the pop's clock,
+    MX2); built as a routine attribute only with a named act or the user's ruling.
+26. **§3.4, the unit hold (MX3, probed, not built).** The model's `_unit_hold` fires on two corpus runs,
+    both MULU r16 after PUSH (F16-l-push-mulu_dw-pE-w1: the hold at +88 on the exec's iteration boundary
+    while the back-to-back fetch 86 .. 89 runs, the resume +117 → +119; F3-push-mulu_dw-k4-pE-w2 likewise,
+    +119 → +122). The rule: at an iteration boundary (every second exec clock from hphase) while a fetch is
+    past its second clock, the loop waits to the clock after the cycle's end. The reading offered,
+    provisional: the iteration's step at its boundary moves through the internal bus between the units,
+    which a fetch holds for its datum from its third clock to its end (item 13's BW law with B3 included).
+    Two runs, and MULU r16's own length (34 against the book's 32) is open: not built; MX3 part 2 probes
+    it with the loops.

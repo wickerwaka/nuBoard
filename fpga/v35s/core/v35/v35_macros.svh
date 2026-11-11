@@ -314,6 +314,16 @@
 `ifndef V35_MX1G_IOH
 `define V35_MX1G_IOH 1
 `endif
+// (MX3) V35_MX3_WBR: the E word whose post-E word writes the register file (`wp`) and that pops
+// a wbs opcode (OUT imm8,acc) stands one clock for that write (v35_useq): 1; 0 none
+// (MX3) V35_MX3_IRL: the staging load a clock after the E word's ModR/M pop (v35_loader): 0 on
+// the pop's clock (the default), 1 a register-mode ModR/M's, 2 every ModR/M or e2 byte's
+`ifndef V35_MX3_IRL
+`define V35_MX3_IRL 0
+`endif
+`ifndef V35_MX3_WBR
+`define V35_MX3_WBR 1
+`endif
 `ifndef V35_MX1G_BW
 `define V35_MX1G_BW 1
 `endif

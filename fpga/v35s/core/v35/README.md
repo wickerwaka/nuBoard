@@ -1265,6 +1265,177 @@ the two-path check new) and test_v35_struct OK, the four modules 46 OK; the nine
   that pops the last operand byte (or the E pop, `resv=e`), the operand popped as a displacement
   (no take sync) where the model has none.
 
+## MX3 (part 1): the four I/O probes, the unit hold probed
+
+The brief's item 1 (the I/O probes) and the unit hold of item 2, probed in the frozen model per
+clock (`an/probe5.py`, `an/probe7.py`, `an/mlines.py`, `an/whyout.py`, `an/uhold.py` in the
+hand-back) and in the RTL (`an/side2.py` on `evtrace` traces). One law built (b), one variant
+measured both ways and left off (d), two recorded with no machine reading (a's release, c).
+The loops and the 0F page (item 2) are not started: handed back after the probes.
+
+### a. OUT imm8 at an odd port byte (probed; not built: a ruling is asked)
+
+The bucket: 8,015 runs first divergent at index 1, the fetch after the OUT marker's port byte
+5 clocks early (every family's pO frames; MX1g counted 4,092 before MX2's gains moved the rest
+of their first divergences here). F1-out-m1-pO-w1 against its exact twin F1-out-m1-pE-w1, the
+frozen model from t_fill (the chain: LS, OUT 20h,AL, LS; the OUT's S at +72 after the shift's
+write-back):
+
+| clock | model pO | model pE | RTL (6ec3790, both) |
+| --- | --- | --- | --- |
+| +77 | port take, IR load, I/O posted (setup 8, lead 2); fetch 10052 requested, held | the same; the fetch issued | the port pop; the fetch issued |
+| +78 .. +81 | the fetch held (the I/O hold, absolute) | the fetch runs (77 .. 80, w1) | ADDR, OPRW (BW at +79 in pE), OPEN |
+| +82 | the lead's first clock: the fetch issued (82 .. 85) | the lead (+83: the wait state not counted) | OPEN |
+| +84 | | | the post |
+| I/O | +85 / +86 / +87 at w0 / 1 / 2 (after the fetch) | +84 / +85 / +86 | +84 / +85 / +86 (pE exact) |
+
+The model's three holds (arbiter.py, frozen): (1) on the post's own clock only the reservation's
+queue rule holds a fetch (hold_q 3: the bytes counted less the bytes owed above 3); (2) from the
+next clock an I/O request holds every fetch (`io and t > posted`); (3) on the lead's first clock
+(count = setup − lead) a fetch requested no later than the post goes first (io_hold=posted_b2b),
+later ones wait for the issue. **Why parity matters:** at the port pop the pO queue counts 4 bytes
+(1004E .. 10051: the shift's fetch of word 10050 put both its bytes behind the staged opcode) and
+the pE queue 3 (1004F .. 10051), so rule (1) holds the pO fetch and passes the pE one; the port
+byte's arrival is not involved (it is in the queue at the OUT's start in both).
+
+RTL readings: (1) is A1's rule 3 (a reservation stops a fetch unless the queue is low) if OUT
+imm8 raises its reservation on the word that pops the port byte (the routine knows it will post
+once it holds the port; MX0 left it off because "the port byte may still be on its way") and the
+bus unit does not yet know the request's kind on that clock (the kind is loaded with the post);
+(2) is rule 3's I/O term from the next clock (it needs the reservation's kind before the post: a
+register loaded by the reserving word). (3) has no machine reading I can give: in the RTL's
+terms the release is the clock before the post word (the third OPEN word), and a FIFO law in the
+bus unit (the older request first) acts on the post's clock at the earliest (the fetch at +83 and
+the I/O at +86 / +87 / +88: one late each). Built alone, (1) and (2) hold the pO fetch to after the
+I/O (+88), which silicon refutes. **Ruling asked:** whether the bus unit's commitment to the I/O
+on the clock before its post (the model's lead, the clocks a fitted 2) may be built as an act
+(e.g. OUT imm8's last OPEN word an explicit "I/O commit" that releases a fetch requested before
+the reservation), or the bucket stays the rule's cost. Not measured either way: the probe shows
+the variant without (3) wrong on every pO frame.
+
+### b. The register form before the OUT marker: the model's wlatch, not io_older (built)
+
+`an/whyout.py` on the 34 runs MX2 lost (F20 22, F12 5, F7 4, F26 2, F2 1): on every one the OUT's
+start is held one clock by the frozen model's **wlatch** (eu.py: an I/O port form does not start
+before the data latch frees, `wlatch_until` = a register-only form's last operand byte's take + 4;
+wlatch_src reg_last), checked before io_older; io_older never fires on them. The MOV / ADD reg,reg
+before the OUT took its ModR/M at S and ended (the take sync) at S+3; the model starts the OUT at
+S+4, MX2's routine at S+3 (MX1b's read word had put it at S+4).
+
+The reading, provisional (MX1f's write-back law extended): a register form that has taken an
+operand byte (its ModR/M, or an immediate) and writes its result on the post-E word holds the
+register file's write port on the clock after its E; the E word that pops an opcode whose routine
+reads the accumulator first (the decode's `wbs`: OUT imm8,acc) stands that clock, as the shift's
+E word stands its write-back's two (V35_MX1F_WB 1).
+
+Built (`V35_MX3_WBR` 1, the default; v35_useq.sv): the word gains `wp` (92 bits), set by the
+assembler on an E word whose next word writes the register file, in a routine with a register
+ModR/M or an immediate pop (never by hand: uasm.py); the sequencer's `wpn` stands the E word one
+clock after its other stalls clear. Variants measured (the whole corpus, +v35_chk):
+
+| variant | exact | lost / gained against 6ec3790 |
+| --- | --- | --- |
+| 6ec3790 | 5,765 | |
+| WBR on every post-E write (the one-byte forms too: NOP, XCH AW,r, INC r16) | 5,737 | 131 / 103 (OUT after NOP, XCH AW,DW, INC AW: the model has no wlatch after a form with no operand byte) |
+| **WBR, a routine that took an operand byte (the default)** | **5,827** | **0 / 62** (F20 +32, F38 +7, F3 +5, F12 +5, F7 +4, F40 +4, F26 +2, F34 +2, F2 +1); the 34 all exact |
+
+The model's window is the take + 4 whatever the E's clock; the RTL's is the E + 1: they agree
+when the take sync holds E to S+3 (every run here). An E at S+2 (no fetch owed at the ModR/M pop)
+would give S+3 against the model's S+4: no corpus run separates them. IN imm8 (also a port form
+in the model's wlatch) is not `wbs` and does not wait: no corpus run either.
+
+### c. refill_start=full_io (probed; no causal reading; not built)
+
+F23-out-br-n0-pE-w0 / w1 (`an/probe7.py`): after BR short's flush the refill runs 10050, 10052,
+10054. At w0 the last fetch ends at +103 and delivers at +104; the queue then holds the staged
+OUT and 5 bytes (room 1, no request). The model does not start the OUT on +104 (full_io: an IN or
+OUT not on a 3-clock fetch's delivery clock, decided by decoding the staged opcode) and starts it
+at +105 with no fetch; the next fetch goes with the port take at +108. At w1 the run's last fetch
+ends at +108 and the OUT starts on the delivery clock +109 with a fetch issued there (the model's
+room then −1). The RTL's refill gate (MX2) starts it at +104 and its E pop raises the fetch at
++104 (F23-out-br-n0-pE-w0: silicon's fetch at +108, the RTL's at +104).
+
+What the machine would need: a gate on the target's E pop at +104 at w0 that is open at +109 at
+w1. Both are delivery clocks of the run's last fetch with the same queue contents and request
+line; they differ in the fetch's length (3 against 4) and in the opcode, the two facts the model
+uses. A gate on the delivery clock for every opcode (the `fw` shape) stops the non-I/O targets
+the RTL matches today. No causal reading found: recorded, not built (Correction 21 stands).
+
+### d. The staging load a clock after a register form's ModR/M pop (measured both ways; off)
+
+`V35_MX3_IRL` (v35_loader.sv): the staging load held off the clock of the E word's ModR/M pop:
+1 a register-mode ModR/M, 2 any ModR/M or e2 byte; 0 the pop's clock (the default, MX2). The
+whole corpus, against WBR's 5,827:
+
+| IRL | exact | lost / gained |
+| --- | --- | --- |
+| 0 (default) | 5,827 | |
+| 1 | 5,930 | 42 / 145 (gained: MOV reg,reg in F20 65, F9 37, F11 20, F7 7, F12 5, F15 4, F2 3, F30 3, F14 1; lost: F9 22, F16 20) |
+| 2 | 5,893 | 79 / 145 (as 1, and F23 24, F30 13 more lost: the short transfers' e2 and the memory forms) |
+
+The runs that separate them: F9-push-movr_nop0-pO-w0 (MOV reg,reg: the model loads the IR a
+clock after the take, gained with 1) against F9-none-nop2-pE-w1 (the LS head's SHL AW,CL at +84:
+the model's ModR/M take and IR load on one clock, lost with 1). The frozen model does both: its
+`nx` is per class (reg 1, test_reg 0, the shifts and MUL 0, adjust 1, flag 1 ...: config.py), so
+neither clock is "the machine's" for every register form, and nothing in the RTL separates MOV /
+ADD reg,reg from SHL r,CL / TEST reg,reg at the staging load but the routine (a per-routine flag
+with no act). Left at 0; the +103 is open. A ruling could make it a routine attribute if an act
+is named (the reg-class routines are one word to E; the shift's and TEST's are longer).
+
+### The unit hold (item 2's probe; not built)
+
+`an/uhold.py`: in the whole corpus the model's `_unit_hold` fires on two runs, both MULU r16 after
+PUSH: F16-l-push-mulu_dw-pE-w1 (exec from +86, the back-to-back fetch 86 .. 89, the hold at +88 =
+the exec's micro-boundary hphase 2, resume +117 → +119) and F3-push-mulu_dw-k4-pE-w2 (exec +88,
+fetch 88 .. 92, hold at +90, resume +119 → +122). The rule: at an iteration boundary (every second
+exec clock from hphase) while a fetch is past its second clock (B2 + 1 through B3), the loop waits
+to the clock after the cycle's end. The reading offered (provisional): the iteration's step at its
+boundary moves through the internal bus between the units that a fetch holds for its datum from
+its third clock to its end (MX1g's BW reading, with B3 included). Two runs, and MULU r16's own
+length is open (34 against the book's 32): not built.
+
+### Measured (the defaults: WBR 1, IRL 0; both spacings)
+
+The corpus (both spacings, `+v35_chk` silent; the per-family tables and the per-run first
+divergences identical at `+v35_ticks=2`): **5,827** exact (MX2 5,765): 62 gained, 0 lost (F20 +32,
+F38 +7, F3 +5, F12 +5, F7 +4, F40 +4, F26 +2, F34 +2, F2 +1). The MX0 gate families 956 → 967 (F2
+70, F3 430, F12 45; F0 18, F0w 10, F1 39, F9 315, F11 40 as MX2); F23 153, F30 219, F35 264, F37
+63 unchanged; F32 12, F33 72, F34 83, F39 143, F40 172. Write data 96,786 / 106,824 (as MX2).
+Function: `--regfile` 107,859 vectors 0 bad (pass 97,109, as MX2), `--fn` 19,752 0 bad, the
+SingleStepTests set through the whole-core bench (test_rtl_vectors) 0 bad; lint clean in the five
+configurations and with `V35_MX3_WBR` 0, `V35_MX3_IRL` 1 and 2; test_uasm and test_v35_struct 36
+OK, the four modules 46 OK; the nine offline modules 941 tests, the four known failures (test_freeze, test_sim TrackedFit). ROM 1,473 words of 2,048 (as MX2; the
+word 92 bits with `wp`). The tables: the hand-back's mx3-table.md, mx3-runs-t1 / t2,
+mx3-misses.jsonl.
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- Correction 21's io_older item: the 34 runs are the model's wlatch (an I/O port form's start
+  held to a register-only form's last operand take + 4), not io_older. Built as the write port's
+  post-E write: a register form that took an operand byte and writes its result on the post-E
+  word holds the write port the clock after E; an E word popping a `wbs` opcode stands that clock
+  (provisional, MX1f's law extended; `V35_MX3_WBR`).
+- §3.6 / Correction 5, OUT imm8's parity: the model's frame is three holds: the reservation's queue
+  rule on the post's clock (4 bytes counted at pO, 3 at pE: the parity), the I/O's absolute hold,
+  and the lead's release of an older fetch on the clock before the issue less one. The first two are
+  A1's rule 3 on a reservation raised by the port byte's pop; the third has no act named (ruling
+  asked).
+- Correction 21's refill_start: probed; the w0 / w1 runs differ only in the fetch's length and the
+  opcode; no causal gate; stays recorded.
+- Correction 21's nx 1: the model's IR-load delay is per class (reg 1, shifts and TEST reg,reg 0);
+  measured both ways (+145 / −42 for register-mode ModR/M forms); off.
+- §3.4 (unit_hold): fires on two corpus runs (MULU r16 after PUSH); reading offered: the
+  iteration boundary against a fetch's datum phase (B2 + 1 .. B3) on the internal bus; not built.
+
+### Open (MX3 part 1)
+
+1. OUT imm8 at pO (8,015 runs): the release (3) above, a ruling.
+2. The staging load's clock after a ModR/M pop (IRL 1: +145 / −42): an act that separates the
+   reg-class routines from the shifts, or a ruling.
+3. The target IN / OUT after a refill (F23 / F35): no causal reading.
+4. Item 2 (the loops, the 0F page, MULU r16's two clocks, the unit hold) and item 3's gate on F32
+   F33 F34 F39 F40: not started.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

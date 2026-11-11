@@ -192,7 +192,12 @@ module v35_loader
                    : (opop && dispm && !dec1.has_modrm) ? v35_upage(sb0) : 3'd0;
     wire [2:0] need_n = flush ? 3'd0 : need + add - (opop ? 3'd1 : 3'd0);
     wire       s_left = s_v && !epop;
-    wire       sload = !flush && !s_left && need_n == 3'd0
+    // (MX3) V35_MX3_IRL: the staging load waits a clock after the E word's ModR/M pop (the frozen
+    // model's IR load a clock after a register form's ModR/M take, nx 1): 1 a register-mode
+    // ModR/M, 2 any ModR/M or the E word's second byte (e2); 0 on the pop's clock (MX2)
+    wire       irl_w = (`V35_MX3_IRL == 1 && mpop && !ds.e2 && sb0[7:6] == 2'd3)
+                       || (`V35_MX3_IRL == 2 && mpop);
+    wire       sload = !flush && !s_left && need_n == 3'd0 && !irl_w
                        && sn > ((opop || mpop) ? 2'd1 : 2'd0);
     // the bytes popped this clock (an operand or the E word's ModR/M byte, the staging load)
     wire [1:0] np = ((opop || mpop) ? 2'd1 : 2'd0) + (sload ? 2'd1 : 2'd0);

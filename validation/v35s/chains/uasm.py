@@ -500,6 +500,17 @@ def assemble(paths: list[Path] | None = None) -> Program:
         for lab in EA_HEADS:
             if lab not in labels:
                 raise UasmError(f"no EA head {lab!r} (ea.uasm)")
+    # (MX3) wp: an E word whose post-E word writes the register file (the result's write after
+    # E holds the write port on the next clock); derived, never written by hand
+    # The routine has taken an operand byte (a ModR/M register form, or an immediate popped):
+    # the frozen model's wlatch counts only a register-only form's last operand byte's take
+    pops_imm = {enum_value("v35_pop_e", "il"), enum_value("v35_pop_e", "ih")}
+    for r in routines:
+        took = r.head.get("mod") == "reg" or any(x.fields.get("pop") in pops_imm for x in r.words)
+        for i, w in enumerate(r.words[:-1]):
+            if (took and w.fields.get("e") and r.words[i + 1].fields.get("wr", 0)
+                    and "wp" in FIELD_TYPE):
+                w.fields["wp"] = 1
     for r, w in words:
         for k, v in w.refs.items():
             if v not in labels:

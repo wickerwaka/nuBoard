@@ -144,6 +144,9 @@ package v35_pkg;
         logic       e;          // E: the next opcode popped (one word follows)
         logic       wb;         // (MX1f) on an E word: the result's write-back holds the register
                                 //   file's write port through this clock and the next
+        logic       wp;         // (MX3) on an E word: the post-E word writes the register file
+                                //   (the assembler sets it: the result's write after E holds the
+                                //   write port on the clock after this one)
         logic       f;          // F: wait for the requested datum
         v35_cnt_e   cnt;        // the loop counter's load
         v35_seq_e   seq;
