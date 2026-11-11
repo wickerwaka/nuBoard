@@ -39,8 +39,13 @@ module v35_regram (
     reg [7:0] ao [0:127];           //               odd bytes
     reg [7:0] be [0:127];           // port B's copy
     reg [7:0] bo [0:127];
-    reg [6:0] ra_q = 7'd0;
-    reg [6:0] rb_q = 7'd0;
+    // (MX5) the read ports are read at ce_b (the data a register from then on): every reader is
+    // in tick B (ce_b to ce_a: the sources, the ALU, the EA, the write port), and no write lands
+    // between a ce_b and the next ce_a, so the data read at ce_b is what the old port (the
+    // address registered at ce_b, the data the array's current contents) shows all through tick
+    // B. The RAM reads before it writes (no write-through on the read port: README "MX5")
+    reg [15:0] ra_d = 16'd0;
+    reg [15:0] rb_d = 16'd0;
 
     // PS (slot 0Ch: word 6 of every bank) = FFFFh, the rest 0
     localparam logic [15:0] PS_RESET = 16'hFFFF;
@@ -69,12 +74,12 @@ module v35_regram (
         // in its first tick (the ROM word is a register from ce_a), the data is read in its
         // second; a write at the last ce_a is read back (no forwarding needed)
         if (ce_b) begin
-            ra_q <= ra_next;
-            rb_q <= rb_next;
+            ra_d <= {ao[ra_next], ae[ra_next]};
+            rb_d <= {bo[rb_next], be[rb_next]};
         end
     end
 
-    assign ra_data = {ao[ra_q], ae[ra_q]};
-    assign rb_data = {bo[rb_q], be[rb_q]};
+    assign ra_data = ra_d;
+    assign rb_data = rb_d;
 
 endmodule

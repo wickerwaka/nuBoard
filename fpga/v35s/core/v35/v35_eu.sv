@@ -218,8 +218,14 @@ module v35_eu
             default: src = 16'd0;
         endcase
     endfunction
-    wire [15:0] x = src(word.ax);
-    wire [15:0] y = src(word.ay);
+    // (MX5) the ALU's operands with the register RAM's data (read at ce_b, the latest source)
+    // entering last: the word's choice among the other sources is formed beside the read
+    // (`src` of the same field, the RAM ports' values not among them), the two RAM ports
+    // select over it: the same value for every field, by construction
+    wire [15:0] x_o = src(word.ax == SR_RA || word.ax == SR_RB ? SR_ZERO : word.ax);
+    wire [15:0] y_o = src(word.ay == SR_RA || word.ay == SR_RB ? SR_ZERO : word.ay);
+    wire [15:0] x = word.ax == SR_RA ? va : word.ax == SR_RB ? vb : x_o;
+    wire [15:0] y = word.ay == SR_RA ? va : word.ay == SR_RB ? vb : y_o;
     wire [15:0] s1v = src(word.s1);
     wire [15:0] s2v = src(word.s2);
     wire [15:0] wsv = src(word.ws);

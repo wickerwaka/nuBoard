@@ -1893,3 +1893,43 @@ question, decided from S8's routed numbers with the user.
   early at w1 / w2; the part 2 probes; v35_bcd8's depth in tick B (a split candidate for MX5); the two pending
   rulings untouched. **MX5 sent next** (the user's direction): timing closure at 64 MHz; MX4 (the strings) and
   INS / EXT follow on the closed structure.
+- **MX5 round 1 landed (2026-11-10): the two ticks shortened, not yet closed; structure only.** Ten splits,
+  each a register at a stage boundary holding a function of registered values or a late select over values
+  formed early, each written as the old function and compared by `+v35_chk` every clock (the core README
+  "MX5" lists them with the reason each leaves behaviour unchanged): the ROM read at ce_b at the next address
+  formed in tick A, the word a plain ce_a register (tick A loses the bank's 3.7 ns); the word's derived bits
+  (the stall terms' field compares) decoded from the next word's read data in tick B; the loader's tick A
+  expanded on the sequencer's late bit `ex` and on `z` (the bytes owed after the clock are none, written as
+  compares against a target), selected last; the staging register's decode and the dispatch's facts as
+  registers loaded with their sources (test_v35_struct's MX1 rule reads `dsp_f`); the queue's room as
+  thresholds read from a thermometer by `rel` then by `stg` / `unc_a` (the three adders in series gone),
+  `eq_r` a register of cnt + latch + unrel, the fetch address's two sums formed early with the flush selecting
+  last; the bus unit's SFR compare on `req_addr` (a write is never a fetch); the register RAM read at ce_b
+  (read-first, 3.7 ns out, was 6.5); the take sync's count expanded on the request facts; the ALU's operands
+  with the RAM ports at the last select. No macro default, routine, ROM word or law moved; no port added to
+  the queue or the bus unit (new useq → loader ports `w_disp` / `w_dispm` / `w_popany`, loader port
+  `flush_w`). **Tools:** v35_tw.py casts named-type ports (the loader times alone); v35_timing.sh reports the
+  2,000 worst endpoints through sta_tclsh (`NPATHS`, `STA_ONLY`, `DETAIL_TO`) and v35_spectrum.py gives the
+  failing count per module and a histogram. **Measured (the overseer's rerun on main, identical to the
+  hand-back):** the top 5,488 LUT4 / 414 ADD / 1,229 FF / 73 RAM_5K (fec2386 4,874 / 403 / 1,035 / 73),
+  worst setup −5.058 ns (fec2386 −12.412), 496 of 2,000 endpoints failing (839), hold +0.307; the worst path
+  `q_stored[1]` → the head byte's three select levels (4.3 ns) → the head byte's lookups → z → rel / rd → the
+  room → fetch_req → the grant → the pins' enables, 17 levels; by module useq 354 failing (worst −3.70, tw_b),
+  dut pins 62 (−5.06), bus 47 (−4.21), eu 30 (−2.35, the divider's init from the RAM data), loader 2, queue 1.
+  Alone: useq +5.167 (6 levels), loader +2.778, queue +5.385 (6 levels), bus +6.160 (1 level), eu −1.242 (27
+  levels, word → ALU → psw[6]; 29 endpoints within −1.3 .. 0). Placement moves the top's worst by about 1 ns
+  between runs (−4.245 at the step before the last). **Verified on main:** 6,207 / 30,536 exact at both
+  spacings, the per-family tables and the per-run first divergences identical to fec2386, chk silent (now
+  also the ROM address, the derived bits, ds, df, z, flush, the room's facts and eq_r), write data 99,906,
+  register vectors 107,859 with 0 bad, function vectors 19,752 with 0 bad, lint clean in five configurations
+  and the macro alternatives, 46 fast tests, the nine offline modules with the four known failures.
+  **Rulings for round 2 (the overseer's):** tick A by option (a), the head byte's decode moved before the
+  queue's head select (per candidate source selected by the registered head select, or the bytes decoded as
+  written and the attribute bits carried through the storage as opaque bits), the queue gaining ports for its
+  own registered facts only; option (b) refused (the loader's outcomes would enter the bus unit's grant,
+  against the arbiter direction of 2026-11-08, and triple it); option (c), a third tick, refused as the
+  user's clock targets are two ticks at 64 MHz. Tick B by the operands read a tick earlier: the register RAM
+  read at ce_a at the next word's address formed in tick B from the ROM's read data, the write landing at
+  ce_a forwarded, the operands held in ce_b registers so the ALU and the divider's init start from flops; a
+  register split inside the ALU refused as it would move when psw is visible. The gate adds margin: the
+  top's worst setup ≥ +1.0 ns on the run, or ≥ 0 on three placement seeds.

@@ -218,6 +218,7 @@ module v35_top
     // (MX0) the sequencer
     v35_uword_t word;
     wire        ex, ex_pop, ex_b, start, start_trap, halted;
+    wire        w_disp, w_dispm, w_popany;     // (MX5) the word's derived bits (registers)
     wire [4:0]  why;
     wire [UADDR_W-1:0] upc;
     // (MX0) the datapath
@@ -323,10 +324,10 @@ module v35_top
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .qv0, .qv1, .qv2, .qv3, .q_avail, .q_stored, .q_arrive(dlv_fetch), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
-        .reset_addr(tb_reset_addr), .reset_ip(tb_reset_ip), .flush(t_flush), .flush_lin,
+        .reset_addr(tb_reset_addr), .reset_ip(tb_reset_ip), .flush(t_flush), .flush_w(word.flush), .flush_lin,
         .flush_off,
-        .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && word.seq == SQ_DISP),
-        .dispm(word.seq == SQ_DISPM), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
+        .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && w_disp),
+        .dispm(w_dispm), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
         .dl(ld_dl), .dh(ld_dh), .fmt, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
         .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret, .dtrap,
         .resv_e, .s_modrm, .e_rmodrm, .s_wbs, .ec_reg, .ec_call, .ec_head, .ip(ld_ip)
@@ -340,7 +341,7 @@ module v35_top
         .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .fetch_dph(b_fetch_past_b2), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
         .e_rmodrm, .rmem((fmt.has_modrm || fmt.pg) && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
-        .f_abort(g_abort), .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
+        .f_abort(g_abort), .word, .w_disp, .w_dispm, .w_popany, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
     // ---------------------------------------------------------------- the datapath
@@ -455,6 +456,6 @@ module v35_top
                     b_in_wait, b_fetch_since, b_error, b_fetch_past_b2, b_fetch_end_prev,
                     b_fetch_run_prev, b_io_win, b_abort_last, b_abort_done, b_fetch_len,
                     b_dlv_addr, w3_v, w3_rel, g_fetch, g_b2b, dlv_other, b_free, ld_len,
-                    ex_b, why, upc, start_trap, halted, div_trap, ir_addr_c, dec2,
+                    ex_b, why, upc, start_trap, w_popany, halted, div_trap, ir_addr_c, dec2,
                     fetch_last, q_infl_c, ld_op3, ld_op, b_grant_len, g_eu, g_abort};
 endmodule

@@ -68,6 +68,7 @@ module v35_loader
     input  wire [19:0] reset_addr,
     input  wire [15:0] reset_ip,        // (MX2) ... its offset in PS
     input  wire        flush,           // tick A: a FLUSH word executes
+    input  wire        flush_w,         // (MX5) the word's FLUSH (a register: flush = ex && flush_w)
     input  wire [19:0] flush_lin,       // ... the new stream's linear address
     input  wire [15:0] flush_off,       // (MX2) ... its offset in PS
     // the sequencer (tick A)
@@ -168,92 +169,158 @@ module v35_loader
                   : (`V35_MX0B_WR == 0 || arr) ? (win >= 3'd2 ? 2'd2 : 2'(win)) : wn;
     // the E word pops the staging register's opcode and, when the opcode has one, its ModR/M
     // byte from the queue's head (the opcode's decode from the staging register)
-    v35_udec_t ds;
-    assign ds = v35_udec1(s_b);         // the staging register's opcode (popped by E)
+    // (MX5) the staging register's decode is a register beside it (`ds`: v35_udec1 of the byte
+    // loaded into s_b, decoded in tick B from the ce_b registers and loaded with s_b at ce_a;
+    // in reset with s_b, which a reset does not change): ds is v35_udec1(s_b) whenever s_v
+    // (`+v35_chk`), and nothing reads it without s_v (the E pop stalls on an empty slot)
+    v35_udec_t ds = '0;
     // (MX2) the E word pops the opcode's second byte with it: a ModR/M byte, or (the decode's e2)
     // a short transfer's displacement (into IL; the frozen model's take on the start clock)
     wire       ds2 = ds.has_modrm || ds.e2 || ds.pg;   // (MX3c) the 0F page's second byte
     assign q_stall = (wants_op && sn == 2'd0)
                      || (e_pop && (!s_v || (ds2 && sn == 2'd0)));
-    wire       opop = ex && wants_op && !flush;
-    wire       epop = ex && e_pop;
-    wire       mpop = epop && ds2;              // ... and its second byte
+    // the lookups the function reads (registers and the queue's head byte: early in tick A)
+    wire [2:0] umr_s = v35_umodrm(s_b, sb0);
+    wire [2:0] umr_o = v35_umodrm(op, sb0);
+    wire [2:0] upg_s = v35_upage(sb0);
+    wire   stg_free = `V35_MX1C_ROOM == 2 || (`V35_MX1C_ROOM != 0 && q_arrive);
+    // (MX5) tick A's pops, the staging load and the room facts, as a function of the
+    // sequencer's late bit `ex` (and the FLUSH it gates): `ta(x, fl)` is the code below with
+    // ex = x and flush = fl, every other input a register or a register's lookup; the outputs
+    // are `ex ? ta(1, flush_w) : ta(0, 0)` (Shannon's expansion on ex: the same function, the
+    // late bit selecting last; flush is ex && the word's FLUSH, `+v35_chk`). README "MX5"
+    typedef struct packed {
+        logic       opop, epop, mpop, sload, wload, wload_d, hold_n, hold_r, hold2_n, stg, l_load;
+        logic       e_rmodrm, resv_e;
+        logic [1:0] np, wn_left, wk, tk_q;
+        logic [2:0] need_n, rd, rel;
+    } v35_lta_t;
+    // (MX5) z: the bytes still owed after this clock are none (need_n == 0), passed in so that
+    // the queue head's decode (the one late input of the function's ex = 1 case) selects between
+    // two outcomes formed early; the callers pass the true value (`z1`, `+v35_chk`)
+    function automatic v35_lta_t ta(input logic x, input logic fl, input logic z);
+        logic [2:0] add, w_left;
+        logic [1:0] tk_w, wk_w, wk_d;
+        logic       s_left, irl_w, pcq_odd, wload_w;
+        ta.opop = x && wants_op && !fl;
+        ta.epop = x && e_pop;
+        ta.mpop = ta.epop && ds2;               // ... and its second byte
+        ta.resv_e = ta.epop && ds.rq;
+        // (MX2) V35_MX2_TSM: a memory form's ModR/M pop arms the take sync as a register form's
+        // does (the frozen model's take sync on the ModR/M take of every form: the EA clocks wait
+        // for the word the pop's room asked for, F4-push-ld_bw_ix-k1-pO-w0..w2: the EA clocks
+        // from the delivery at S + 3 + waits); in a memory form the sync gates the EA's add only
+        // (v35_useq). (MX2) a short transfer's displacement popped by E arms it as a register
+        // form's operand byte does (the frozen model's take sync on the displacement's take at
+        // the start). (MX3c) the 0F page's second byte popped by E does not arm it (the frozen
+        // model's chained take: the page's operand bytes follow, page_take=own); the ModR/M
+        // byte's pop does (v35_useq)
+        ta.e_rmodrm = ta.mpop && !ds.pg && (sb0[7:6] == 2'd3 || `V35_MX2_TSM || ds.e2);
+        add = (ta.mpop && ds.e2) ? ds.len - 3'd1
+            : (ta.mpop && ds.pg) ? upg_s        // (MX3c) the second byte's ModR/M and immediate
+            : ta.mpop ? ds.len + umr_s
+            : ta.epop ? ds.len
+            : (ta.opop && pop == PP_MODRM) ? umr_o
+            : (ta.opop && dispm && !dec1.has_modrm) ? upg_s : 3'd0;
+        ta.need_n = fl ? 3'd0 : need + add - (ta.opop ? 3'd1 : 3'd0);
+        s_left = s_v && !ta.epop;
+        // (MX3) V35_MX3_IRL: the staging load waits a clock after the E word's ModR/M pop (the
+        // frozen model's IR load a clock after a register form's ModR/M take, nx 1): 1 a
+        // register-mode ModR/M, 2 any ModR/M or the E word's second byte (e2); 0 on the pop's
+        // clock (MX2)
+        irl_w = (`V35_MX3_IRL == 1 && ta.mpop && !ds.e2 && sb0[7:6] == 2'd3)
+                || (`V35_MX3_IRL == 2 && ta.mpop);
+        ta.sload = !fl && !s_left && z && !irl_w
+                   && sn > ((ta.opop || ta.mpop) ? 2'd1 : 2'd0);
+        // the bytes popped this clock (an operand or the E word's ModR/M byte, the staging load)
+        ta.np = ((ta.opop || ta.mpop) ? 2'd1 : 2'd0) + (ta.sload ? 2'd1 : 2'd0);
+        // (WR 3) the bytes taken from the word register and from the window
+        tk_w = ta.np > wn ? wn : ta.np;
+        ta.tk_q = ta.np - tk_w;
+        ta.wn_left = wr3 ? wn - tk_w : arr ? 2'd0 : wn - ta.np;
+        // (MX0b) the word register's load: the queue head's aligned word (one byte from an odd
+        // address), from the stored bytes, one load a clock
+        pcq_odd = pc[0] ^ ta.np[0] ^ ta.wn_left[0];     // the queue head's address parity
+        wload_w = `V35_MX0B_WR != 0 && !wr3 && !fl && q_stored != 3'd0 && !arr
+                  && (`V35_MX0B_WR != 2 ? ta.wn_left == 2'd0 : wn == 2'd0);
+        wk_w = (pcq_odd || q_stored == 3'd1) ? 2'd1 : 2'd2;
+        // (MX1e) WR 3's refill on a direct clock: the window's bytes after the np taken
+        w_left = win - {1'b0, ta.tk_q};
+        ta.wload_d = wr3 && ta.wn_left == 2'd0 && !fl && win > {1'b0, ta.tk_q};
+        wk_d = (pcq_odd || w_left == 3'd1) ? 2'd1 : 2'd2;
+        ta.wload = wload_w || ta.wload_d;
+        ta.wk = ta.wload_d ? wk_d : wk_w;
+        ta.l_load = `V35_MX0B_WR == 0 ? ta.sload : wr3 ? ta.wload
+                  : (arr && !ta.wload_d) ? ta.sload : ta.wload;
+        // the queue's port: the bytes leaving its storage (rd) and leaving the EU's room (rel);
+        // the word register's bytes stay counted (unreleased) until popped
+        ta.rd = `V35_MX0B_WR == 0 ? {1'b0, ta.np}
+              : wr3 ? {1'b0, ta.tk_q} + (ta.wload_d ? {1'b0, wk_d} : 3'd0)
+              : arr ? {1'b0, ta.np} + (ta.wload_d ? {1'b0, wk_d} : 3'd0)
+              : (ta.wload ? {1'b0, ta.wk} : 3'd0);
+        // (MX1f) V35_MX1C_ROOM 3: a take step's bytes released at the step's end (the frozen
+        // model's take_commit=at_end: an immediate or a displacement word is one take step, its
+        // low byte counted by the room until its high byte is popped). A low byte popped with
+        // bytes still owed (IL; DL unless the ModR/M's mode is 01, the one-byte displacement) is
+        // held; the next pop (or the E pop) releases it with its own
+        ta.hold_n = `V35_MX1C_ROOM == 3 && ta.opop
+                    && ((pop == PP_IL && !z)
+                        || (pop == PP_DL && !z
+                            && !(fmt.has_modrm && modrm[7:6] == 2'd1)));
+        ta.hold_r = hold && (ta.opop || ta.mpop || ta.sload);
+        // (MX2) V35_MX2_E2H: the E word's displacement byte (e2) stays counted on its pop's
+        // clock and is released on the next (the take step's end)
+        ta.hold2_n = `V35_MX2_E2H && ta.mpop && ds.e2;
+        ta.rel = {1'b0, ta.np} - (ta.hold_n ? 3'd1 : 3'd0) + (ta.hold_r ? 3'd1 : 3'd0)
+                 - (ta.hold2_n ? 3'd1 : 3'd0) + ((hold2 && !fl) ? 3'd1 : 3'd0);
+        // (MX1c) V35_MX1C_ROOM: the staging slot while the running instruction owes bytes: 0
+        // counted (MX0), 1 free on a word's arrival clock when the slot is empty (the frozen
+        // model's room_ir=arrival_idle: the IR a seventh slot on an arrival clock), 2 free
+        // whenever empty
+        ta.stg = s_left || ta.sload || (!z && !stg_free);
+    endfunction
+    v35_lta_t lt0, lt1, ltx;
+    // (MX5) z for ex = 1: need + add - opop == 0 (3 bits) is add == opop - need, each case's add
+    // compared with that early target (the head byte's lookups compared, not summed)
+    wire       o1 = wants_op && !flush_w;
+    wire       m1 = e_pop && ds2;
+    wire [2:0] t1 = (o1 ? 3'd1 : 3'd0) - need;
+    wire       z1 = flush_w
+                    || ((m1 && ds.e2) ? ds.len - 3'd1 == t1
+                      : (m1 && ds.pg) ? upg_s == t1
+                      : m1 ? umr_s == t1 - ds.len
+                      : e_pop ? ds.len == t1
+                      : (o1 && pop == PP_MODRM) ? umr_o == t1
+                      : (o1 && dispm && !dec1.has_modrm) ? upg_s == t1 : t1 == 3'd0);
+    assign lt0 = ta(1'b0, 1'b0, need == 3'd0);
+    assign lt1 = z1 ? ta(1'b1, flush_w, 1'b1) : ta(1'b1, flush_w, 1'b0);
+    assign ltx = ex ? lt1 : lt0;
+    wire       opop = ltx.opop;
+    wire       epop = ltx.epop;
+    wire       mpop = ltx.mpop;
     assign o_pop = opop || mpop;
     assign o_epop = epop;
-    assign resv_e = epop && ds.rq;
+    assign resv_e = ltx.resv_e;
     assign s_modrm = s_v && ds.has_modrm;
     assign s_wbs = s_v && ds.wbs;
-    // (MX2) V35_MX2_TSM: a memory form's ModR/M pop arms the take sync as a register form's
-    // does (the frozen model's take sync on the ModR/M take of every form: the EA clocks wait for
-    // the word the pop's room asked for, F4-push-ld_bw_ix-k1-pO-w0..w2: the EA clocks from the
-    // delivery at S + 3 + waits); in a memory form the sync gates the EA's add only (v35_useq)
-    // (MX2) a short transfer's displacement popped by E arms it as a register form's operand
-    // byte does (the frozen model's take sync on the displacement's take at the start)
-    // (MX3c) the 0F page's second byte popped by E does not arm it (the frozen model's chained
-    // take: the page's operand bytes follow, page_take=own); the ModR/M byte's pop does (v35_useq)
-    assign e_rmodrm = mpop && !ds.pg && (sb0[7:6] == 2'd3 || `V35_MX2_TSM || ds.e2);
-    wire unused = &{1'b0, ds, dm, q_avail};
-    wire [2:0] add = (mpop && ds.e2) ? ds.len - 3'd1
-                   : (mpop && ds.pg) ? v35_upage(sb0)      // (MX3c) the second byte's ModR/M and immediate
-                   : mpop ? ds.len + v35_umodrm(s_b, sb0)
-                   : epop ? ds.len
-                   : (opop && pop == PP_MODRM) ? v35_umodrm(op, sb0)
-                   : (opop && dispm && !dec1.has_modrm) ? v35_upage(sb0) : 3'd0;
-    wire [2:0] need_n = flush ? 3'd0 : need + add - (opop ? 3'd1 : 3'd0);
-    wire       s_left = s_v && !epop;
-    // (MX3) V35_MX3_IRL: the staging load waits a clock after the E word's ModR/M pop (the frozen
-    // model's IR load a clock after a register form's ModR/M take, nx 1): 1 a register-mode
-    // ModR/M, 2 any ModR/M or the E word's second byte (e2); 0 on the pop's clock (MX2)
-    wire       irl_w = (`V35_MX3_IRL == 1 && mpop && !ds.e2 && sb0[7:6] == 2'd3)
-                       || (`V35_MX3_IRL == 2 && mpop);
-    wire       sload = !flush && !s_left && need_n == 3'd0 && !irl_w
-                       && sn > ((opop || mpop) ? 2'd1 : 2'd0);
-    // the bytes popped this clock (an operand or the E word's ModR/M byte, the staging load)
-    wire [1:0] np = ((opop || mpop) ? 2'd1 : 2'd0) + (sload ? 2'd1 : 2'd0);
-    // (WR 3) the bytes taken from the word register and from the window
-    wire [1:0] tk_w = np > wn ? wn : np;
-    wire [1:0] tk_q = np - tk_w;
-    wire [1:0] wn_left = wr3 ? wn - tk_w : arr ? 2'd0 : wn - np;
-    // (MX0b) the word register's load: the queue head's aligned word (one byte from an odd
-    // address), from the stored bytes, one load a clock
-    wire       pcq_odd = pc[0] ^ np[0] ^ wn_left[0];      // the queue head's address parity
-    wire       wload_w = `V35_MX0B_WR != 0 && !wr3 && !flush && q_stored != 3'd0 && !arr
-                         && (`V35_MX0B_WR != 2 ? wn_left == 2'd0 : wn == 2'd0);
-    wire [1:0] wk_w = (pcq_odd || q_stored == 3'd1) ? 2'd1 : 2'd2;
-    // (MX1e) WR 3's refill on a direct clock: the window's bytes after the np taken
-    wire [2:0] w_left = win - {1'b0, tk_q};
-    wire       wload_d = wr3 && wn_left == 2'd0 && !flush && win > {1'b0, tk_q};
-    wire [1:0] wk_d = (pcq_odd || w_left == 3'd1) ? 2'd1 : 2'd2;
-    wire       wload = wload_w || wload_d;
-    wire [1:0] wk = wload_d ? wk_d : wk_w;
+    assign e_rmodrm = ltx.e_rmodrm;
+    wire unused = &{1'b0, ds, dm, q_avail, ltx.np};
+    wire [2:0] need_n = ltx.need_n;
+    wire       sload = ltx.sload;
+    wire [1:0] wn_left = ltx.wn_left;
+    wire [1:0] tk_q = ltx.tk_q;
+    wire       wload_d = ltx.wload_d;
+    wire       wload = ltx.wload;
+    wire [1:0] wk = ltx.wk;
     wire [7:0] wl0 = !wload_d ? qv0 : tk_q == 2'd0 ? qv0 : tk_q == 2'd1 ? qv1 : qv2;
     wire [7:0] wl1 = !wload_d ? qv1 : tk_q == 2'd0 ? qv1 : tk_q == 2'd1 ? qv2 : qv3;
-    assign l_load = `V35_MX0B_WR == 0 ? sload : wr3 ? wload : (arr && !wload_d) ? sload : wload;
-    // the queue's port: the bytes leaving its storage (rd) and leaving the EU's room (rel);
-    // the word register's bytes stay counted (unreleased) until popped
-    assign rd = `V35_MX0B_WR == 0 ? {1'b0, np}
-              : wr3 ? {1'b0, tk_q} + (wload_d ? {1'b0, wk_d} : 3'd0)
-              : arr ? {1'b0, np} + (wload_d ? {1'b0, wk_d} : 3'd0)
-              : (wload ? {1'b0, wk} : 3'd0);
-    // (MX1f) V35_MX1C_ROOM 3: a take step's bytes released at the step's end (the frozen model's
-    // take_commit=at_end: an immediate or a displacement word is one take step, its low byte
-    // counted by the room until its high byte is popped). A low byte popped with bytes still owed
-    // (IL; DL unless the ModR/M's mode is 01, the one-byte displacement) is held; the next pop
-    // (or the E pop) releases it with its own
-    wire       hold_n = `V35_MX1C_ROOM == 3 && opop
-                        && ((pop == PP_IL && need_n != 3'd0)
-                            || (pop == PP_DL && need_n != 3'd0 && !(fmt.has_modrm && modrm[7:6] == 2'd1)));
-    wire       hold_r = hold && (opop || mpop || sload);
-    // (MX2) V35_MX2_E2H: the E word's displacement byte (e2) stays counted on its pop's clock
-    // and is released on the next (the take step's end)
-    wire       hold2_n = `V35_MX2_E2H && mpop && ds.e2;
-    assign rel = {1'b0, np} - (hold_n ? 3'd1 : 3'd0) + (hold_r ? 3'd1 : 3'd0)
-                 - (hold2_n ? 3'd1 : 3'd0) + ((hold2 && !flush) ? 3'd1 : 3'd0);
-    // (MX1c) V35_MX1C_ROOM: the staging slot while the running instruction owes bytes: 0
-    // counted (MX0), 1 free on a word's arrival clock when the slot is empty (the frozen model's
-    // room_ir=arrival_idle: the IR a seventh slot on an arrival clock), 2 free whenever empty
-    wire   stg_free = `V35_MX1C_ROOM == 2 || (`V35_MX1C_ROOM != 0 && q_arrive);
-    assign stg = s_left || sload || (need_n != 3'd0 && !stg_free);
+    assign l_load = ltx.l_load;
+    assign rd = ltx.rd;
+    wire       hold_n = ltx.hold_n;
+    wire       hold_r = ltx.hold_r;
+    wire       hold2_n = ltx.hold2_n;
+    assign rel = ltx.rel;
+    assign stg = ltx.stg;
     assign len = need_n;
     // (MX2) the instruction pointer: the staged opcode's offset, else the next queue byte's (a
     // routine reads it after its last pop: the bytes owed are none)
@@ -270,25 +337,49 @@ module v35_loader
     // the book's EA clock its pops and the add do not fill (OPEN), mod 00 included. A mode
     // without a head (mod 00, ea=bare) enters the routine directly. The mode's bits only: no
     // opcode reaches the choice (the cell's two bits are the decode table's)
-    wire       m_dir = mp[7:6] == 2'd0 && mp[2:0] == 3'd6;
-    wire       m_ea = dec1.has_modrm && dm.ea;
     wire       d2l = dec1.has_modrm || dec1.pg;    // (MX3c) the dispatch reads the second level
-    wire [UADDR_W-1:0] head = mp[7:6] == 2'd1 ? (dm.eab ? UROM_EAB8 : UROM_EA8)
-                            : (mp[7:6] == 2'd2 && dm.eab) ? UROM_EAB16
-                            : (mp[7:6] == 2'd2 || m_dir) ? UROM_EAD
-                            : UROM_EAB0;
-    assign dcall = m_ea && (mp[7:6] != 2'd0 || m_dir || dm.eab);
-    assign dret = dm.entry;
-    assign dent = !d2l ? dec1.entry : dcall ? head : dm.entry;
-    assign dtrap = d2l ? dm.trap : dec1.trap;
+    // (MX5) the dispatch's facts are a function of op and mp alone (`dsp_f`), held in a register
+    // beside them (`df`: loaded at ce_a from the values op and mp load, in reset from op and mp):
+    // df is dsp_f(op, mp) on every clock (`+v35_chk`), so the next address reads a register
+    typedef struct packed {
+        logic [UADDR_W-1:0] ent, ret;
+        logic               call, trap, eab;
+    } v35_dsp_t;
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic v35_dsp_t dsp_f(input logic [7:0] o, input logic [7:0] m);
+        v35_udec_t  d1;
+        v35_udecm_t d2;
+        logic       mdir, mea, l2;
+        logic [UADDR_W-1:0] hd;
+        d1 = v35_udec1(o);
+        d2 = v35_udec2(o, m);
+        mdir = m[7:6] == 2'd0 && m[2:0] == 3'd6;
+        mea = d1.has_modrm && d2.ea;
+        l2 = d1.has_modrm || d1.pg;
+        hd = m[7:6] == 2'd1 ? (d2.eab ? UROM_EAB8 : UROM_EA8)
+           : (m[7:6] == 2'd2 && d2.eab) ? UROM_EAB16
+           : (m[7:6] == 2'd2 || mdir) ? UROM_EAD
+           : UROM_EAB0;
+        dsp_f.call = mea && (m[7:6] != 2'd0 || mdir || d2.eab);
+        dsp_f.ret = d2.entry;
+        dsp_f.ent = !l2 ? d1.entry : dsp_f.call ? hd : d2.entry;
+        dsp_f.trap = l2 ? d2.trap : d1.trap;
+        dsp_f.eab = d2.eab;             // (the EAC word's head choice: dm.eab)
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    v35_dsp_t df = '0;
+    assign dcall = df.call;
+    assign dret = df.ret;
+    assign dent = df.ent;
+    assign dtrap = df.trap;
     // (MX3c) the EAC word: the mode of the byte it pops (sb0) picks the register path or the EA
     // head of that mode, as `head` above does for the registered ModR/M (the mode's bits and the
     // routine's eab only)
     wire       e_dir = sb0[7:6] == 2'd0 && sb0[2:0] == 3'd6;
     assign ec_reg = sb0[7:6] == 2'd3;
-    assign ec_call = !ec_reg && (sb0[7:6] != 2'd0 || e_dir || dm.eab);
-    assign ec_head = sb0[7:6] == 2'd1 ? (dm.eab ? UROM_EAB8 : UROM_EA8)
-                   : (sb0[7:6] == 2'd2 && dm.eab) ? UROM_EAB16
+    assign ec_call = !ec_reg && (sb0[7:6] != 2'd0 || e_dir || df.eab);
+    assign ec_head = sb0[7:6] == 2'd1 ? (df.eab ? UROM_EAB8 : UROM_EA8)
+                   : (sb0[7:6] == 2'd2 && df.eab) ? UROM_EAB16
                    : (sb0[7:6] == 2'd2 || e_dir) ? UROM_EAD
                    : UROM_EAB0;
 
@@ -339,8 +430,19 @@ module v35_loader
     end
 
     // ------------------------------------------------------------ the end of the clock (ce_a)
+    wire [7:0] s_nb = (opop_b || mpop_b) ? sb1_b : sb0_b;     // the staging load's byte
+    // (MX5) the values op and mp load at ce_a (the dispatch facts' register reads them)
+    wire [7:0] op_nx = epop_b ? s_b : op;
+    wire [7:0] mp_nx = (mpop_b && !e2_b) ? sb0_b : mp;
+    always_ff @(posedge clock) begin
+        if (!reset_n)
+            df <= dsp_f(op, mp);
+        else if (ce_a)
+            df <= dsp_f(op_nx, mp_nx);
+    end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
+            ds <= v35_udec1(s_b);
             s_v <= 1'b0;
             pc <= reset_addr;
             s_a <= reset_addr;
@@ -380,7 +482,8 @@ module v35_loader
                 ipo <= ipo + ((opop_b || mpop_b) ? 16'd1 : 16'd0) + (sload_b ? 16'd1 : 16'd0);
                 if (sload_b) begin
                     s_v <= 1'b1;
-                    s_b <= (opop_b || mpop_b) ? sb1_b : sb0_b;
+                    s_b <= s_nb;
+                    ds <= v35_udec1(s_nb);
                     s_a <= pc + ((opop_b || mpop_b) ? 20'd1 : 20'd0);
                     s_ip <= ipo + ((opop_b || mpop_b) ? 16'd1 : 16'd0);
                 end else if (epop_b)
@@ -424,7 +527,9 @@ module v35_loader
     initial chk_on = $test$plusargs("v35_chk");
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
-            if (opop_b !== opop || mpop_b !== mpop || e2_b !== ds.e2 || foff_b !== flush_off || epop_b !== epop || sload_b !== sload || flush_b !== flush
+            if ((s_v && ds !== v35_udec1(s_b)) || flush !== (ex && flush_w) || df !== dsp_f(op, mp)
+                || (ex ? z1 : need == 3'd0) !== (need_n == 3'd0)
+                || opop_b !== opop || mpop_b !== mpop || e2_b !== ds.e2 || foff_b !== flush_off || epop_b !== epop || sload_b !== sload || flush_b !== flush
                 || disp_b !== disp || dispm_b !== (ex && dispm) || pop_b !== pop
                 || qv0_b !== wl0 || qv1_b !== wl1 || sb0_b !== sb0 || sb1_b !== sb1
                 || wload_b !== wload || wk_b !== wk || wn_left_b !== wn_left || need_b !== need_n || hold_nb !== hold_n || hold_rb !== hold_r || hold2_b !== hold2_n || flin_b !== flush_lin
@@ -445,7 +550,7 @@ module v35_loader
     always @(posedge clock) begin
         if (lfd != 0 && reset_n && ce_a) begin
             $fdisplay(lfd, "l %0d wn %0d s_v %0d need %0d need_n %0d epop %0d opop %0d mpop %0d sload %0d np %0d rd %0d rel %0d stg %0d arrive %0d win %0d",
-                      lt, wn, s_v, need, need_n, epop, opop, mpop, sload, np, rd, rel, stg, q_arrive, win);
+                      lt, wn, s_v, need, need_n, epop, opop, mpop, sload, ltx.np, rd, rel, stg, q_arrive, win);
             lt <= lt + 1;
         end
     end

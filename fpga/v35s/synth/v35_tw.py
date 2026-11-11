@@ -30,8 +30,8 @@ if '#' in head[:j]:
             break
     head = head[p + 1:]
 ports_txt = head[head.index('(') + 1:]
-ports = []                       # (dir, width_expr, name)
-cur_dir, cur_w = None, None
+ports = []                       # (dir, width_expr, name, type name or None)
+cur_dir, cur_w, cur_t = None, None, None
 for item in [x.strip() for x in ports_txt.split(',')]:
     if not item:
         continue
@@ -45,19 +45,21 @@ for item in [x.strip() for x in ports_txt.split(',')]:
         decl = re.sub(r'\b(wire|reg|logic)\b', '', decl).strip()
         decl = decl.replace('signed', '').strip()
         mw = re.match(r'\[([^:\]]+):0\]$', decl)
+        cur_t = None
         if decl == '':
             cur_w = '1'
         elif mw:
             cur_w = f'({mw.group(1)}) + 1'
         elif re.match(r'^[A-Za-z_]\w*$', decl):
             cur_w = f'$bits({decl})'
+            cur_t = decl
         else:
             raise SystemExit(f'{name}: cannot read the port declaration "{item}"')
     else:
         pname = item.split()[-1]
     if cur_dir is None:
         raise SystemExit(f'{name}: a port before its direction: {item}')
-    ports.append((cur_dir, cur_w, pname))
+    ports.append((cur_dir, cur_w, pname, cur_t))
 
 ins = [p for p in ports if p[0] == 'input' and p[2] != 'clock']
 outs = [p for p in ports if p[0] == 'output']
@@ -73,13 +75,13 @@ L.append('    input  wire       si,')
 L.append('    output wire [7:0] xo')
 L.append(');')
 off = '0'
-for d, w, n in ins:
+for d, w, n, t in ins:
     L.append(f'    localparam int IW_{n} = {w};')
     L.append(f'    localparam int IO_{n} = {off};')
     off = f'IO_{n} + IW_{n}'
 L.append(f'    localparam int NI = {off};')
 off = '0'
-for d, w, n in outs:
+for d, w, n, t in outs:
     L.append(f'    localparam int OW_{n} = {w};')
     L.append(f'    localparam int OO_{n} = {off};')
     off = f'OO_{n} + OW_{n}'
@@ -89,9 +91,13 @@ L.append('    wire [NO-1:0] out_d;')
 L.append('    v35_tw_in #(.N(NI)) tw_in (.clock(clk_sys), .si, .q(in_q));')
 L.append(f'    {name} dut (')
 conns = []
-for d, w, n in ports:
+for d, w, n, t in ports:
     if n == 'clock':
         conns.append('        .clock(clk_sys)')
+    elif d == 'input' and t is not None:
+        # a named (enum or struct) type: cast the chain's bits to it (an enum port takes no
+        # plain vector, Verific VERI-1348)
+        conns.append(f'        .{n}({t}\'(in_q[IO_{n} +: IW_{n}]))')
     elif d == 'input':
         conns.append(f'        .{n}(in_q[IO_{n} +: IW_{n}])')
     else:

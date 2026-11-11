@@ -97,6 +97,9 @@ module v35_useq
     input  wire        f_dlv,
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
+    output wire        w_disp,          // (MX5) the word's derived bits (registers): seq == SQ_DISP
+    output wire        w_dispm,         // ... seq == SQ_DISPM
+    output wire        w_popany,        // ... pop != PP_NONE
     output wire        ex,              // the word executes this clock (tick A)
     output wire        ex_pop,          // ... but for the dispatch's fetch stall (the pops' view)
     output reg         ex_b,            // ... registered at ce_b (tick B, ce_a)
@@ -127,9 +130,54 @@ module v35_useq
     end
 
     reg [UADDR_W-1:0] upc = UROM_RESET;
+    // (MX5) the ROM is read a tick earlier: the banks at ce_b (`r0`..`r2`, the RAM's read data)
+    // with the next address decided in tick A (`upc_a`), the word a plain register (`q0`..`q2`)
+    // loaded from the read data at ce_a. The word a clock executes is the one the old ce_a read
+    // gave: the address is the same function of the same values (README "MX5")
+    reg [31:0] r0 = 32'd0, r1 = 32'd0, r2 = 32'd0;
     reg [31:0] q0 = 32'd0, q1 = 32'd0, q2 = 32'd0;
     wire [95:0] qw = {q2, q1, q0};
     assign word = v35_uword_t'(qw[UWORD_BITS-1:0]);
+    // (MX5) the word's derived bits (the field compares the stall terms, the pops and the take
+    // sync read), decoded from the next word's read data in tick B and registered with the word
+    // at ce_a: `pd` is always the function `pre(word)` of the word it sits beside
+    typedef struct packed {
+        logic post;         // bus != BQ_NONE
+        logic mvbiu;        // a move into the bus unit's address register (or OPRW, BW 1)
+        logic unit;         // a multiply or divide step (MULS, DIVS)
+        logic uinit;        // the unit's load (MULI DIVI CVBI CVDI)
+        logic ufin;         // the unit's result taken (MULF DIVF CVBF CVDF) or E
+        logic tsy;          // the take sync's word facts but the memory form's: no pop, not DISP, (TSE or not E)
+        logic ea;           // ea != EA_NONE
+        logic disp;         // seq == SQ_DISP
+        logic dispm;        // seq == SQ_DISPM
+        logic popany;       // pop != PP_NONE
+        logic pmodrm;       // pop == PP_MODRM
+        logic pilih;        // pop == PP_IL or PP_IH
+    } v35_upre_t;
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic v35_upre_t pre(input v35_uword_t w);
+        pre.post = w.bus != BQ_NONE;
+        pre.mvbiu = (w.d1 == MD_ADDR || w.d2 == MD_ADDR)
+                    || (`V35_MX1G_BW == 1 && (w.d1 == MD_OPRW || w.d2 == MD_OPRW));
+        pre.unit = w.alu == AL_MULS || w.alu == AL_DIVS;
+        pre.uinit = w.alu == AL_MULI || w.alu == AL_DIVI || w.alu == AL_CVBI || w.alu == AL_CVDI;
+        pre.ufin = w.alu == AL_MULF || w.alu == AL_DIVF || w.alu == AL_CVBF || w.alu == AL_CVDF
+                   || w.e;
+        pre.tsy = w.pop == PP_NONE && w.seq != SQ_DISP && (`V35_MX1E_TSE || !w.e);
+        pre.ea = w.ea != EA_NONE;
+        pre.disp = w.seq == SQ_DISP;
+        pre.dispm = w.seq == SQ_DISPM;
+        pre.popany = w.pop != PP_NONE;
+        pre.pmodrm = w.pop == PP_MODRM;
+        pre.pilih = w.pop == PP_IL || w.pop == PP_IH;
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    wire [95:0] rw = {r2, r1, r0};
+    v35_upre_t pd = '0;
+    assign w_disp = pd.disp;
+    assign w_dispm = pd.dispm;
+    assign w_popany = pd.popany;
     assign upc_o = upc;
 
     reg [UADDR_W-1:0] retr = '0;
@@ -140,7 +188,7 @@ module v35_useq
     // ------------------------------------------------------------ tick A: the stalls
     wire st_q   = q_stall;
     wire st_f   = word.f && !opr_rdy;
-    wire st_slt = word.bus != BQ_NONE && rq_busy;
+    wire st_slt = pd.post && rq_busy;
     wire st_hld = word.e && wr_hold;
     // (MX1f) V35_MX1F_WB: the write-back wait (the frozen model's wbsync: the port form of OUT
     // waits for the previous instruction's write-back, wb_until = its done_t + wb). An E word
@@ -159,14 +207,12 @@ module v35_useq
     // state: the move crosses the internal bus the running cycle holds for its datum until
     // READY (the frozen model's io_count=nowait: an I/O or DW-form request's setup counts no
     // memory wait-state clock)
-    wire mv_biu = (word.d1 == MD_ADDR || word.d2 == MD_ADDR)
-                  || (`V35_MX1G_BW == 1 && (word.d1 == MD_OPRW || word.d2 == MD_OPRW));
-    wire st_bw = `V35_MX1G_BW != 0 && bus_wait && mv_biu;
+    wire st_bw = `V35_MX1G_BW != 0 && bus_wait && pd.mvbiu;
     // (MX3b) V35_MX3B_UH: the unit hold. A multiply or divide step (MULS, DIVS) waits while a
     // fetch is past its second clock (its datum phase, B3 and the wait states): the step's move
     // crosses the internal bus between the units that the fetch holds for its datum (provisional:
     // MX1g's BW reading with B3 included; the frozen model's _unit_hold, mechanisms Correction 26)
-    wire st_uh = `V35_MX3B_UH != 0 && fetch_dph && (word.alu == AL_MULS || word.alu == AL_DIVS);
+    wire st_uh = `V35_MX3B_UH != 0 && fetch_dph && pd.unit;
     // (MX3) `wpn`: the clock of the post-E write has been stood (set on the first clock the E word
     // meets no other stall; cleared when it executes)
     reg        wpn = 1'b0;
@@ -192,11 +238,10 @@ module v35_useq
     reg  [1:0] tw = 2'd0;
     // (the delivery's own clock frees the word: the last owed word delivered now)
     wire st_tsy = `V35_MX1C_TSYNC && tw != 2'd0 && !(tw == 2'd1 && f_dlv)
-                  && word.pop == PP_NONE && word.seq != SQ_DISP
-                  && (`V35_MX1E_TSE || !word.e)
+                  && pd.tsy
                   // (MX2) in a memory form the sync gates the EA's add (the model's ea clocks
                   // start on the delivery), not the book's EA clock before it
-                  && (!(`V35_MX2_TSM && rmem) || word.ea != EA_NONE);
+                  && (!(`V35_MX2_TSM && rmem) || pd.ea);
     // (MX0c) the dispatch (the word after E: the staged opcode's decode into its routine's
     // entry) waits while the bus unit runs a fetch cycle (V35_MX0C_DISPATCH >= 1), and a form
     // with a ModR/M byte also on the clock a back-to-back fetch issues (2). The dispatch and
@@ -205,7 +250,7 @@ module v35_useq
     // frozen model's start is that pop, its staging load (the IR load) stays free)
     wire st_fch = `V35_MX0C_DISPATCH >= 3
                   ? word.e && (fetch_run || (s_modrm && b2b_now))
-                  : word.seq == SQ_DISP
+                  : pd.disp
                     && ((`V35_MX0C_DISPATCH >= 1 && fetch_run)
                         || (`V35_MX0C_DISPATCH == 2 && dec1.has_modrm && b2b_now));
     // (MX2) SUSP (the V20 ROM's SUSP before its FLUSH): the word suspends prefetching (the
@@ -231,10 +276,8 @@ module v35_useq
     // mtail before its end); F3-push-mulu_dw-k2-pE-w0: the fetch +119 against silicon's +147. A
     // request not dropped still goes (F16-l-out-mulu_aw-pE-w0: the fetch at the load's clock +87)
     reg        un = 1'b0;
-    wire       u_init = word.alu == AL_MULI || word.alu == AL_DIVI || word.alu == AL_CVBI
-                        || word.alu == AL_CVDI;
-    wire       u_fin = word.alu == AL_MULF || word.alu == AL_DIVF || word.alu == AL_CVBF
-                       || word.alu == AL_CVDF || word.e;
+    wire       u_init = pd.uinit;
+    wire       u_fin = pd.ufin;
     wire       un_n = (ex && u_fin) ? 1'b0 : (ex && u_init) ? 1'b1 : un;
     reg        drop = 1'b0;
     wire       drop_n = f_abort ? 1'b1 : f_grant ? 1'b0 : drop;
@@ -263,23 +306,29 @@ module v35_useq
     // (MX3c) a 0F form's ModR/M byte, popped by its routine's EAC word, arms it as the E word's
     // ModR/M pop does (the frozen model's take sync after the page's operand take)
     wire arm = ex_pop && ((word.e && e_rmodrm)
-                          || (!word.e && !rmem && (word.pop == PP_IL || word.pop == PP_IH))
-                          || (!word.e && word.pop == PP_MODRM));
+                          || (!word.e && !rmem && pd.pilih)
+                          || (!word.e && pd.pmodrm));
     // (a request the EU's own reservation holds back is not counted: the model's take sync
     // counts no request a posted request holds, and a form that posts after its take does not
     // sync: the routine's request goes first)
     wire       ask = (q_req && !resv) || f_grant;
-    wire [1:0] owe = {1'b0, fetch_run} + {1'b0, ask} - {1'b0, f_dlv && fetch_run};
     wire [1:0] wbn_n = (word.e && word.wb && !ex) ? (wbn == 2'd2 ? 2'd2 : wbn + 2'd1) : 2'd0;
     // (MX2) the suspension stands from the SUSP word's execution to the FLUSH (or an E); the
     // refill from the FLUSH to the E
     wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && word.susp) ? 1'b1 : sp;
     wire       rf_n = (ex && word.e) ? 1'b0 : (ex && word.flush) ? 1'b1 : rf;
     wire [1:0] wbp_n = (ex && word.e && word.wb) ? 2'd3 : (wbp != 2'd0 ? wbp - 2'd1 : 2'd0);
-    wire [1:0] tw_n = (ex && word.flush) ? 2'd0      // (MX2) the flush: the words asked are dropped
-                    : arm ? owe
-                    : (tw != 2'd0 && f_dlv) ? tw - 2'd1
-                    : (tw != 2'd0 && !fetch_run && !ask) ? 2'd0 : tw;
+    // (MX5) the same choice with the request facts (`ask`: the queue's line and the grant, the
+    // last to arrive) selecting last: tw_f(a) is the choice with ask = a
+    function automatic logic [1:0] tw_f(input logic a);
+        logic [1:0] ow;
+        ow = {1'b0, fetch_run} + {1'b0, a} - {1'b0, f_dlv && fetch_run};
+        tw_f = (ex && word.flush) ? 2'd0      // (MX2) the flush: the words asked are dropped
+             : arm ? ow
+             : (tw != 2'd0 && f_dlv) ? tw - 2'd1
+             : (tw != 2'd0 && !fetch_run && !a) ? 2'd0 : tw;
+    endfunction
+    wire [1:0] tw_n = ask ? tw_f(1'b1) : tw_f(1'b0);
     assign start = at_entry && ex_pop;     // (an entry word is never the dispatch word; with
                                            //  3 an entry word that is an E word: ex_pop is ex)
     // the instruction is a trap: its opcode has no routine, or (the ModR/M / 0F head) its
@@ -375,13 +424,60 @@ module v35_useq
         end
     end
 
+    // ------------------------------------------------------------ (MX5) tick A: the ROM's address
+    // The next address as tick B's upc_n computes it, on the tick-A sources of its ce_b registers
+    // (ex for ex_b, dent for d1_b, dec2.entry for d2_b, the EAC facts for ecr_b / ecc_b / ech_b,
+    // fmt_w for w_b; the word, upc, retr, cnt and the datapath's conditions are ce_a registers):
+    // each ce_b register holds its source's tick-A value (`+v35_chk`), so upc_a at ce_b is upc_n
+    // at ce_a. The candidate (`nx_a`) is formed from the word and registers; ex selects last.
+    logic cond_a;
+    always_comb begin
+        case (word.cond)
+            CD_CNTZ: cond_a = cnt == 9'd0;
+            CD_SGN: cond_a = c_sgn;
+            CD_DTRAP: cond_a = c_dtrap;
+            CD_WORD: cond_a = fmt_w;
+            CD_XC: cond_a = c_xc;
+            CD_SNZ: cond_a = c_snz;
+            CD_SGD: cond_a = c_f1;
+            CD_DN: cond_a = c_dn;
+            default: cond_a = 1'b0;
+        endcase
+    end
+    logic [UADDR_W-1:0] nx_a;
+    always_comb begin
+        case (word.seq)
+            SQ_JMP: nx_a = word.tgt;
+            SQ_JC: nx_a = cond_a ? word.tgt : inc;
+            SQ_JNC: nx_a = cond_a ? inc : word.tgt;
+            SQ_CALL: nx_a = word.tgt;
+            SQ_RET: nx_a = retr;
+            SQ_LOOP: nx_a = cnt != 9'd1 ? word.tgt : inc;
+            SQ_DISPM: nx_a = dec2.entry;
+            SQ_DISP: nx_a = dent;
+            SQ_EAC: nx_a = ec_reg ? word.tgt : ec_call ? ec_head : inc;
+            default: nx_a = inc;
+        endcase
+    end
+    wire [UADDR_W-1:0] upc_a = ex ? nx_a : upc;
+
     // ------------------------------------------------------------ the end of the clock (ce_a)
-    wire [UADDR_W-1:0] raddr = !reset_n ? UROM_RESET : upc_n;
+    // (MX5) the banks read at ce_b (in reset: the reset word, every clock); the word register
+    // loads their data at ce_a, the derived bits with it
+    wire [UADDR_W-1:0] raddr = !reset_n ? UROM_RESET : upc_a;
+    always_ff @(posedge clock) begin
+        if (!reset_n || ce_b) begin
+            r0 <= rom0[raddr];
+            r1 <= rom1[raddr];
+            r2 <= rom2[raddr];
+        end
+    end
     always_ff @(posedge clock) begin
         if (!reset_n || ce_a) begin
-            q0 <= rom0[raddr];
-            q1 <= rom1[raddr];
-            q2 <= rom2[raddr];
+            q0 <= r0;
+            q1 <= r1;
+            q2 <= r2;
+            pd <= pre(v35_uword_t'(rw[UWORD_BITS-1:0]));
         end
     end
     always_ff @(posedge clock) begin
@@ -423,7 +519,7 @@ module v35_useq
         end
     end
 
-    wire unused = &{1'b0, dec1, dec2, qw[95:UWORD_BITS]};
+    wire unused = &{1'b0, dec1, dec2, qw[95:UWORD_BITS], rw[95:UWORD_BITS]};
 
 `ifndef SYNTHESIS
     // (S7b) chk: the ce_b registers against their sources at ce_a
@@ -431,8 +527,16 @@ module v35_useq
     reg chk_on = 1'b0;
     integer chk_n = 0;
     initial chk_on = $test$plusargs("v35_chk");
+    // (MX5) the address read at ce_b against tick B's, and the derived bits against the word
+    reg [UADDR_W-1:0] upc_ab = '0;
+    always @(posedge clock) if (ce_b) upc_ab <= upc_a;
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
+            if (upc_ab !== upc_n || pd !== pre(word)) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: useq: the ROM's address or the derived bits differ at %0t", $time);
+            end
             if (ex_b !== ex || d1_b !== dent || d2_b !== dec2.entry || len_b !== len
                 || dc_b !== dcall || dr_b !== dret || ecr_b !== ec_reg || ecc_b !== ec_call
                 || ech_b !== ec_head || tw_b !== tw_n || wbn_b !== wbn_n || wpn_b !== wpn_n || wbp_b !== wbp_n

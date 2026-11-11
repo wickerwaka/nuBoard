@@ -220,11 +220,19 @@ class MX1(unittest.TestCase):
         text = strip((V35 / "v35_loader.sv").read_text())
         m = re.search(r"wire\s+m_dir\s*=(.*?);\s*wire\s+m_ea\s*=(.*?);.*?head\s*=(.*?);"
                       r"\s*assign\s+dcall\s*=(.*?);", text, flags=re.S)
+        allowed = {"mp", "dec1.has_modrm", "dm.ea", "dm.eab", "UROM_EAB0", "UROM_EAB8",
+                   "UROM_EAB16", "UROM_EA8", "UROM_EAD", "m_dir", "m_ea", "dm.entry"}
+        if m is None:
+            # (MX5) the dispatch facts as a function of the opcode and the ModR/M byte (dsp_f,
+            # registered beside them): the same rule on the function's body (m the byte, d1 / d2
+            # the two decode levels)
+            m = re.search(r"mdir\s*=(.*?);\s*mea\s*=(.*?);.*?hd\s*=(.*?);"
+                          r"\s*dsp_f\.call\s*=(.*?);", text, flags=re.S)
+            allowed = {"m", "d1.has_modrm", "d2.ea", "d2.eab", "UROM_EAB0", "UROM_EAB8",
+                       "UROM_EAB16", "UROM_EA8", "UROM_EAD", "mdir", "mea", "d2.entry"}
         self.assertIsNotNone(m)
         names = set(re.findall(r"[A-Za-z_][\w.]*", re.sub(r"\d+'[dhb]\w+", "", " ".join(m.groups()))))
-        self.assertEqual(names - {"mp", "dec1.has_modrm", "dm.ea", "dm.eab", "UROM_EAB0",
-                                  "UROM_EAB8", "UROM_EAB16", "UROM_EA8", "UROM_EAD", "m_dir",
-                                  "m_ea", "dm.entry"}, set())
+        self.assertEqual(names - allowed, set())
 
     def test_heads_named_by_the_assembler(self):
         from . import uasm

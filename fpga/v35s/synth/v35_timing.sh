@@ -17,6 +17,13 @@
 #   PERIOD=ns      the clock period (default 15.625)
 #   V35_SRC=dir    the core's sources (default fpga/v35s/core/v35 of this tree)
 #   EFFORT=n       the placer's effort level (default the project's 5)
+#   NPATHS=n       (MX5) the spectrum: after the compile, efx_run's sta_tclsh reports the n worst
+#                  setup endpoints (report_timing -nworst 1, one path an endpoint; default 2000,
+#                  0 skips it) into outflow/spectrum.rpt; printed: the failing endpoints' count,
+#                  per module (the instance path's first two levels) their count and worst slack;
+#                  outflow/spectrum_paths.rpt: the 100 worst endpoints' paths cell by cell
+#   STA_ONLY=1     (MX5) no compile: the spectrum alone on the last compile of the same TAG
+#   DETAIL_TO="p.." (MX5) the worst path to each named pin, cell by cell (outflow/detail_K.rpt)
 set -eo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -30,7 +37,7 @@ fi
 if [[ -z "${V35_SCOPED:-}" ]]; then
     exec systemd-run --user --scope -p MemoryMax=20G -p MemorySwapMax=1G -q \
         env V35_SCOPED=1 ${TAG:+TAG="$TAG"} ${PERIOD:+PERIOD="$PERIOD"} \
-        ${V35_SRC:+V35_SRC="$V35_SRC"} ${EFFORT:+EFFORT="$EFFORT"} \
+        ${V35_SRC:+V35_SRC="$V35_SRC"} ${EFFORT:+EFFORT="$EFFORT"} ${NPATHS:+NPATHS="$NPATHS"} ${STA_ONLY:+STA_ONLY="$STA_ONLY"} ${DETAIL_TO:+DETAIL_TO="$DETAIL_TO"} \
         "$script_dir/v35_timing.sh" "$@"
 fi
 if ! command -v efx_run >/dev/null; then
@@ -61,6 +68,10 @@ time_one() {
     local build_dir="$repo_root/build/fpga/v35s/timing/$top${TAG:-}"
     local project_dir="$build_dir/project" output_dir="$build_dir/outflow"
     local work_dir="$build_dir/work" log="$build_dir/$top.log"
+    if [[ -n "${STA_ONLY:-}" ]]; then
+        spectrum "$build_dir" "$project_dir" "$output_dir" "$work_dir"
+        return
+    fi
     rm -rf "$build_dir"
     mkdir -p "$project_dir" "$output_dir" "$work_dir"
     local f names=()
@@ -147,6 +158,34 @@ PY
          on && /^Slack/ { s = $0 } on && /^Logic Level/ {
              n++; if (n <= 5) { print "   " n ": " b; print "      " e; print "      " s;
                                 print "      " $0 } }' "$rpt"
+    spectrum "$build_dir" "$project_dir" "$output_dir" "$work_dir"
+}
+
+# (MX5) the spectrum under the worst path: one path per endpoint, the n worst; the 100 worst
+# endpoints' paths in detail
+spectrum() {
+    local build_dir=$1 project_dir=$2 output_dir=$3 work_dir=$4
+    local npaths=${NPATHS:-2000}
+    [[ $npaths -gt 0 ]] || return 0
+    {
+        printf 'report_timing -setup -npaths %s -nworst 1 -detail summary -file spectrum.rpt\n' "$npaths"
+        printf 'report_timing -setup -npaths 100 -nworst 1 -detail path_only -file spectrum_paths.rpt\n'
+        local k=0 to
+        for to in ${DETAIL_TO:-}; do
+            k=$((k + 1))
+            printf 'report_timing -setup -to {%s} -npaths 1 -detail path_only -file detail_%s.rpt\n' \
+                "$to" "$k"
+        done
+    } > "$project_dir/spectrum.tcl"
+    (cd "$project_dir" && efx_run --prj -f sta_tclsh -t spectrum.tcl v35s \
+        --output_dir "$output_dir" --work_dir "$work_dir") > "$build_dir/sta.log" 2>&1 || true
+    local sp
+    sp=$(find "$output_dir" "$project_dir" -name spectrum.rpt 2>/dev/null | head -1)
+    if [[ -s "$sp" ]]; then
+        python3 "$script_dir/v35_spectrum.py" "$sp" | sed 's/^/   /'
+    else
+        echo "   spectrum: no report (log $build_dir/sta.log)"
+    fi
 }
 
 status=0

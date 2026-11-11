@@ -260,7 +260,10 @@ module v35_bus
     // lengths: bus.length(kind), the SFR store's I/O waits
     wire [1:0] waits_mem = wtc[WTC_MEM_LSB +: 2];
     wire [1:0] waits_io = wtc[WTC_IO_LSB +: 2];
-    wire g_sfr = g_kind == K_WRITE && g_addr >= SFR_PAGE;
+    // (MX5) a write's address is the request's (a write is never a fetch: g_kind K_WRITE implies
+    // g_addr = req_addr), so the SFR page's compare reads the request register, not the grant
+    wire rq_sfr = req_addr >= SFR_PAGE;
+    wire g_sfr = g_kind == K_WRITE && rq_sfr;
     assign grant_len = (k_io(g_kind) || g_sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
                        3'(BUS_BASE) + 3'(waits_mem);
     assign fetch_len = 3'(BUS_BASE) + 3'(waits_mem);
@@ -400,7 +403,7 @@ module v35_bus
     wire [2:0]  e_pos = g_start ? 3'd0 : pos_now;
     wire [19:0] e_addr = g_start ? g_addr : c_addr;
     wire [1:0]  e_width = g_start ? g_width : c_width;
-    wire        e_internal = g_start ? (g_kind == K_WRITE && g_addr >= SFR_PAGE) : c_internal;
+    wire        e_internal = g_start ? g_sfr : c_internal;
     wire        e_write = e_kind == K_WRITE || e_kind == K_IO_WRITE;
     // the cycle as this clock leaves it (the pins' view from the middle on)
     wire        n_valid = g_start_b || busy;

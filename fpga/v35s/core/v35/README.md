@@ -1766,6 +1766,181 @@ bits. The tables: the hand-back's mx3c-table.md, mx3c-runs-t1 / t2, mx3c-misses.
    its operands are temporaries a word earlier, so a register on its output into SIGMA costs a
    word of the loop's OPEN clocks if the levelizer asks for a split.
 
+## MX5: timing at 64 MHz (two ticks a CPU clock, one create_clock, no exception)
+
+The gate is `fpga/v35s/synth/v35_timing.sh top` (and each module alone) at 15.625 ns with one
+`create_clock` and nothing else: setup and hold slack >= 0. MX5 changes structure only: every
+split below is a register at a stage boundary holding a function of values that are themselves
+registers there, or a late select over values formed early (Shannon's expansion), each written
+so the function computed is the old one. No macro default, routine, ROM word, clock or law of the
+queue or the bus unit moved; no port was added to the queue or the bus unit. **The tick is not
+closed yet: worst setup slack -12.412 ns at fec2386, -4.2 to -5.1 ns now (placement varies by
+about 1 ns run to run); hold +0.307.** The open paths and what closing them needs are under
+"Open (MX5)".
+
+### The measurement (MX5 tools)
+
+- `v35_tw.py`: a port of a named type (an enum or struct) is driven through a cast of the
+  chain's bits (Verific rejects a plain vector on an enum port, VERI-1348): `v35_timing.sh
+  loader` compiles alone.
+- `v35_timing.sh`: after the compile, efx_run's `sta_tclsh` runs `report_timing -nworst 1
+  -npaths N` (`NPATHS`, default 2000): the failing endpoints' count, per module their count and
+  worst slack, a histogram by slack (`v35_spectrum.py`); `STA_ONLY=1` re-runs that report on the
+  last compile of the same `TAG`; `DETAIL_TO="pin ..."` writes the worst path to each named pin
+  cell by cell (`outflow/detail_K.rpt`). The project's `print_critical_path` (10) is unchanged.
+- The RAM blocks' clock-to-out: a ROM bank (READ_UNKNOWN) 3.67 ns; the register RAM in its old
+  form (an asynchronous read of a registered address: the map's WRITE_FIRST mode) 6.49 ns.
+
+### Where it stood (fec2386)
+
+Whole core: map 4,874 LUT4 / 403 ADD / 1,035 FF / 73 RAM_5K; **worst setup -12.412 ns**, hold
++0.306; 839 of the 2,000 worst endpoints fail: tick A's chain (the ROM bank's read data, 3.7 ns
+-> the stall terms -> `ex_pop` -> the loader's pops and staging load -> `rd` / `rel` -> the
+queue's three adders -> `occ` -> the request line -> the grant -> the pins' enables, 25 levels:
+the pins -12.4, the bus unit's ce_b registers -10.5, the sequencer's tw_b / drop_b -10.6, the
+queue's go_r -8.3), tick B's datapath from the register RAM (6.5 ns out -> the ALU -> psw -7.5,
+flush_off -6.9, the divider -6.7 .. -3.4, req_addr -3.2) and the ROM's read address in tick B
+(cnt -> the next-address mux -> 46 banks' RADDR, -3.1).
+
+| module alone | LUT4 / ADD / FF / RAM_5K | worst setup | levels | the worst path |
+| --- | --- | --- | --- | --- |
+| v35_useq | 367 / 8 / 322 / 47 | +3.722 | 5 | rom0 read data -> the next address -> the banks' RADDR |
+| v35_loader | 1,004 / 72 / 672 / 40 | +3.356 | 8 | a decode table's RAM -> an output |
+| v35_queue | 577 / 52 / 244 / 0 | +3.985 | 12 | the input chain -> the room -> an output |
+| v35_bus | 283 / 14 / 441 / 0 | +6.194 | 5 | c_len -> an output's enable |
+| v35_eu | 3,185 / 323 / 791 / 0 | -0.861 | 24 | the word -> the ALU -> psw[2] |
+
+### The splits (each: where the register sits, what it holds, why the behaviour is unchanged)
+
+1. **The ROM read a tick earlier** (`v35_useq`). The banks read at `ce_b` (`r0`..`r2`, the RAM's
+   read data) at `upc_a`, the next address formed in tick A; the word is a plain register
+   (`q0`..`q2`) loaded from the read data at `ce_a`. `upc_a` is tick B's `upc_n` written on the
+   tick-A sources of its ce_b registers (ex for ex_b, dent / dec2.entry / the EAC facts for d1_b /
+   d2_b / ecr_b / ecc_b / ech_b, fmt_w for w_b; the word, upc, retr, cnt and the datapath's
+   conditions are ce_a registers): each ce_b register holds its source's tick-A value
+   (`+v35_chk`), so the address read at ce_b is the one the old ce_a read used and the word at
+   ce_a is the same word. `ex` selects last (`upc_a = ex ? nx_a : upc`). In reset both read the
+   reset word every clock. `+v35_chk` compares the address read at ce_b with `upc_n`. Tick A
+   loses the bank's 3.7 ns and its routing; tick B gains the bank's read into the word register.
+2. **The word's derived bits** (`v35_useq` `pd`, `v35_upre_t`): the field compares the stall
+   terms, the take sync and the pops read (a post, a move into the bus unit, a unit step, the
+   unit's load and result, the take sync's word facts, an EA step, DISP, DISPM, a pop, the ModR/M
+   pop, IL / IH) decoded from the next word's read data in tick B and loaded with the word at
+   ce_a: `pd` is always `pre(word)` (`+v35_chk`). No ROM bit was added (the assembler's
+   encoding, the ROM's 3 banks and the book check unchanged); the loader reads `w_disp` /
+   `w_dispm` (new useq ports).
+3. **The loader's tick A on the sequencer's late bit** (`v35_loader` `ta(x, fl, z)`). The pops,
+   the staging load, rd / rel / stg, the holds and the word register's load are the old code as
+   a function of `ex` (and the FLUSH it gates: `flush` is `ex && flush_w`, the word's bit, a new
+   loader port, `+v35_chk`) and of `z` (the bytes owed after the clock are none); the outputs are
+   `ex ? (z1 ? ta(1, f, 1) : ta(1, f, 0)) : ta(0, 0, need == 0)`. `z1` is `need + add - opop ==
+   0` written as `add == opop - need` (3 bits), each case's add compared with that target (the
+   queue head's lookups compared, not summed). The same function; the two late facts select last.
+4. **The staging register's decode** (`v35_loader` `ds`): `v35_udec1` of the byte loaded into
+   `s_b`, decoded in tick B from the ce_b registers and loaded with `s_b` at ce_a (in reset with
+   s_b). `ds` is `v35_udec1(s_b)` whenever the slot is full (`+v35_chk`); nothing reads it with
+   the slot empty (the E pop stalls on an empty slot).
+5. **The dispatch's facts** (`v35_loader` `df`, `dsp_f(op, mp)`: the DISP target, the EA head's
+   call and return, the trap, the second level's eab) in a register beside `op` and `mp`,
+   loaded at ce_a from the values op and mp load (in reset from op and mp): `df` is `dsp_f(op,
+   mp)` on every clock (`+v35_chk`). The next address and the EAC word's head choice read the
+   register, not the decode tables' RAM. `test_v35_struct.MX1` reads the same rule from
+   `dsp_f`'s body (the byte's mode bits and the two decode bits only): **a rule added**.
+6. **The queue's room with the loader's inputs last** (`v35_queue`): occ = E - (rel - stg +
+   unc_a) with E = avail_w + unrel + 2 infl_a (no flush; with a flush occ = stg + 2 infl_a).
+   Each threshold `occ <= c` is read from E's thermometer by rel (an 8-way select) and then by
+   stg and unc_a (3-way): the three adders in series are gone. The tests on cnt_a (not zero, the
+   storage full, the physical room) are exact per rd, one value per rd selected by rd. The
+   identity holds while no read takes more bytes than are available and no release more than
+   are read (the queue's invariants); `+v35_chk` compares fetch_req, fetch_raise, q_word, q_low,
+   lat_hold and fetch_addr with the old arithmetic every clock (kept under `ifndef SYNTHESIS`,
+   with the qdbg trace's `occ`). E itself: `eq_r` (cnt + the latch + unrel, a register loaded at
+   ce_a with the three registers' new values, `+v35_chk`) plus this clock's arrival and flight
+   (the bus unit's registers) as a select over eq_r's compares. The fetch address: the two sums
+   (PS + the flush offset, PS + the prefetch pointer) formed from registers, the flush selecting
+   last. The laws are the same expressions on the same facts.
+7. **The SFR page's compare** (`v35_bus`): a write is never a fetch, so `g_kind == K_WRITE`
+   implies `g_addr = req_addr`; `g_sfr` and the pins' `e_internal` read `req_addr >= SFR_PAGE`
+   (the request register) instead of the granted address. The same value.
+8. **The register RAM read at ce_b** (`v35_regram`): the read ports are read at ce_b into the
+   RAM's output (`ra_d`, `rb_d`) instead of an asynchronous read of the address registered at
+   ce_b. Every reader is in tick B (the sources, the ALU, the EA, the write port, rb_lo), and no
+   write lands between a ce_b and the next ce_a, so the data read at ce_b is what the old port
+   showed all through tick B. The map's RAM mode becomes read-first (3.7 ns out, was 6.5).
+9. **The take sync's count** (`v35_useq` `tw_f`): `tw_n` with the request facts (`ask`: the
+   queue's line and the grant) selecting last: `ask ? tw_f(1) : tw_f(0)`.
+10. **The ALU's operands** (`v35_eu`): `x` / `y` are `RA ? va : RB ? vb : x_o`, x_o the word's
+    choice among the other sources (`src` of the same field with the two RAM ports removed): the
+    register RAM's data, the latest source in tick B, enters at the last select.
+
+### Measured (the whole core, `v35_timing.sh top`, each step on the cumulative sources)
+
+| step | map LUT4 / ADD / FF / RAM_5K | worst setup | failing endpoints (of 2,000) | the worst path |
+| --- | --- | --- | --- | --- |
+| fec2386 | 4,874 / 403 / 1,035 / 73 | -12.412 | 839 | rom1 read data -> the pins' enables (25 levels) |
+| 1-3 (ROM at ce_b, derived bits, ex expanded) | 4,972 / 403 / 1,146 / 73 | -11.798 | 818 | the queue's head byte -> the loader's decode -> occ -> the pins |
+| + 6 (the room's selects, the fetch address) | 5,038 / 418 / 1,161 / 73 | -7.611 | 806 | the register RAM -> the ALU -> psw (tick B) |
+| + 4, 5, 7, 8 | 5,476 / 418 / 1,191 / 73 | -5.194 | 695 | q_stored -> the head byte -> the loader -> the grant -> the pins |
+| + 3's z, 9, 10, eab from df | 5,517 / 418 / 1,207 / 73 | -4.245 | 421 | the arrival (dlv_v) -> E -> the request -> the pins |
+| + 6's eq_r (MX5 as handed back) | 5,488 / 414 / 1,229 / 73 | -5.058 | 496 | q_stored -> the head byte -> the loader -> the grant -> the pins |
+
+Hold +0.306 / +0.307 throughout. The last step shortened the arrival's path (two adders before
+the compares) and the placement moved the worst path to the head byte's (unchanged logic, -4.2
+in the step before): the run-to-run spread is about 1 ns. The resources: +614 LUT4 (+13 %),
++11 ADD, +194 FF (the word register 96, the derived bits, ds, df, eq_r), RAM_5K 73 (unchanged;
+the core <= 80).
+
+| module alone (MX5) | LUT4 / ADD / FF / RAM_5K | worst setup (fec2386) | worst setup | levels | the worst path |
+| --- | --- | --- | --- | --- | --- |
+| v35_useq | 413 / 8 / 471 / 47 | +3.722 | +5.167 | 6 | the wrapper's input (ex's sources) -> upc_a -> the banks' RADDR (now tick A's) |
+| v35_loader | 1,499 / 72 / 702 / 40 | +3.356 | +2.778 (hold +0.116) | 8 | sb0_b -> the staging decode -> ds (tick B) |
+| v35_queue | 723 / 95 / 304 / 0 | +3.985 | +5.385 | 6 | an input -> lat_byte's enable |
+| v35_bus | 297 / 14 / 441 / 0 | +6.194 | +6.160 | 1 | an input -> a ce_b register's enable |
+| v35_eu | 3,188 / 323 / 822 / 0 | -0.861 | **-1.242** | 27 | the word -> the ALU -> psw[6] (29 endpoints fail, all -1.3 .. 0) |
+
+Every module but the EU closes alone; the EU's word-to-flags path in tick B (the wrapper's
+word bits are registers at the chain, as the word is now in the core) is short by 1.2 ns (its
+spread across runs is about 0.4 ns; the operand select of split 10 adds a level on the word's
+side of it while shortening the RAM data's side, the top's).
+
+### Behaviour (the gate, against fec2386)
+
+The whole refresh-off corpus at both spacings (the default and `+v35_ticks=2`, `+v35_chk`):
+**6,207 / 30,536 exact at both, the per-family tables identical to fec2386's, the per-run first
+divergences identical to fec2386's (the misses diff empty: 30,536 runs compared, 0 differ, at
+each spacing), `+v35_chk` silent** (it now also checks the ROM's address read at ce_b, the
+derived bits, the staging decode, the dispatch facts, z, flush = ex && flush_w, the room's facts
+against the old arithmetic and eq_r). Write data 99,906 / 106,824. `--regfile` 107,859 vectors 0
+bad (pass 104,763), `--fn` 19,752 0 bad. Lint clean in the five configurations and with
+`V35_MX3B_UH` 0, `V35_MX3B_US` 0, `V35_MX3_WBR` 0, `V35_MX3_IRL` 1 (also IRL 2, DISPATCH 3,
+WR 3, WB 2, BW 2). test_uasm, test_v35_struct (with the MX1 rule read from `dsp_f`, above), test_chain_lane and test_rtl_vectors (the SingleStepTests set) 46 OK; the nine offline modules 941 tests, the four known failures (test_freeze, test_sim TrackedFit), as at fec2386. The hand-back: mx5-table.md, the misses diffs (t1-mdiff.txt, t2-mdiff.txt: empty), the timing logs before / after.
+
+### Open (MX5)
+
+1. **Tick A** (-5.1 .. -4.2 ns; the pins' enables and data, the bus unit's ce_b registers, the
+   sequencer's tw_b / drop_b, the ROM's read address -3.1): the queue's head byte (`qv0`, three
+   select levels over the storage, the latch and the arriving word: 4.3 ns) -> the head byte's
+   lookups (umodrm / upage) -> z -> rel / rd / stg -> the room's selects -> fetch_req -> the
+   grant -> the pins' enables (g_fetch's fan-out 52, 1.5-1.8 ns of routing). About 17 levels
+   remain where a tick holds 12-14. What closes it needs a structural choice (a ruling):
+   (a) the head byte's lookups formed per candidate source (the storage's first byte, the latch,
+   the arriving word's two bytes: the queue's registers) and selected by the queue's registered
+   head select, which needs those registers on the queue's port (registered values, but a new
+   port); or (b) the request and the grant speculated over the loader's three outcomes (ex = 0;
+   ex = 1 with z = 0 or 1): the queue's line and the bus unit's grant formed for each from
+   registers and selected by ex and z after the grant (a new port pair on both, carrying the
+   outcomes); or (c) a third tick. The DISPM target (`v35_udec2(op, head byte)`, -3.1 at the
+   ROM's address) is the same head byte's lookup.
+2. **Tick B** (-2.5 .. 0 ns in the top: the divider's init `dv.trap` / `c_dtrap`, psw, flush_off,
+   the multiplier; the EU alone -1.2): the register RAM's data (now 3.7 ns) -> the lane select
+   -> the ALU or the divider's 32-bit negate and compare -> the flags. The candidates (the
+   brief's step 3): the divider's init and the ALU's flags split with a register where their
+   operands are known a word earlier (README "Depth"), or the operand read a tick earlier (the
+   register RAM read at ce_a with the previous word's write forwarded: the operands a ce_b
+   register, the ALU alone in tick B).
+3. The resources: LUT4 +614 against fec2386 (the expansions: the loader's ta twice and the
+   z pair, the room's per-rd and per-rel tables), FF +194, RAM_5K unchanged (73).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

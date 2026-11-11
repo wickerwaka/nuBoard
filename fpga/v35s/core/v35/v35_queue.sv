@@ -128,38 +128,112 @@ module v35_queue
 
     // ------------------------------------------------------------ tick A: the request line
     wire       infl_a = (inflight && !dlv_v) || abort_go;
-    wire [3:0] cnt_a = flush ? 4'd0 : avail_w - {1'b0, rd};
-    wire [3:0] unrel_a = flush ? 4'd0 : {1'b0, unrel} + {1'b0, rd} - {1'b0, rel};
+    // (MX5) The room's facts with the loader's tick-A inputs (rd, rel, stg, flush) entering last.
+    // The occupancy the request line tests is
+    //     occ = cnt_a + unrel_a + stg - unc_a + 2 infl_a
+    //         = (avail_w - rd) + (unrel + rd - rel) + stg - unc_a + 2 infl_a
+    //         = E - (rel - stg + unc_a),     E = avail_w + unrel + 2 infl_a
+    // (no flush; with a flush cnt_a = unrel_a = unc_a = 0 and occ = stg + 2 infl_a). E is formed
+    // from registers alone, early in tick A; each threshold occ <= c is E <= c + rel - stg +
+    // unc_a, read from E's thermometer (`lev`) by rel (an 8-way select) and then by stg and
+    // unc_a (a 3-way select): two levels of select for the three adders in series. The identity
+    // holds while no read takes more bytes than are available (avail_w >= rd) and no release
+    // more than are read (unrel + rd >= rel), the queue's invariants (`+v35_chk` compares every
+    // output with the old arithmetic, kept for the check and the qdbg trace). The tests on cnt_a
+    // (not zero, the storage full, the physical room) are exact per rd: one value per rd,
+    // selected by rd. The laws (fetch_req, fetch_raise, q_word, q_short, q_low, lat_hold, susp)
+    // are the same expressions on the same facts. README "MX5"
+    localparam int CL = CAP - QUEUE_BYTES;          // q_low's offset (B 1, A 0)
+    wire [4:0] i2 = infl_a ? 5'd2 : 5'd0;
+    // E = eq_r + n_arr + 2 infl_a: `eq_r` (cnt + the latch + unrel, the queue's own registers)
+    // is a register beside them (loaded at ce_a with their next values: eq_r is always their
+    // sum, `+v35_chk`), so E's thermometer is eq_r's compares selected by this clock's arrival
+    // and flight (a2, the bus unit's registers): no adder before the compares
+    reg  [4:0] eq_r = 5'd0;
+    wire [2:0] a2 = n_arr + (infl_a ? 3'd2 : 3'd0);
+    wire       sg = VARIANT_B && stg;
+    logic [16:0] lev;                               // lev[i]: E <= i - 2
+    always_comb
+        for (int t = 0; t < 17; t = t + 1) begin
+            lev[t] = 1'b0;
+            for (int k = 0; k < 5; k = k + 1)
+                if ({29'd0, a2} == 32'(k))
+                    lev[t] = t - 2 - k >= 0 && {27'd0, eq_r} <= 32'(t - 2 - k);
+        end
+    // the per-rd tests on cnt_a = avail_w - rd (4 bits, exactly as the old arithmetic)
+    logic [7:0] nz_r, ge_r, ph_r;
+    always_comb
+        for (int j = 0; j < 8; j = j + 1) begin
+            nz_r[j] = avail_w - 4'(j) != 4'd0;
+            ge_r[j] = {1'b0, 4'(avail_w - 4'(j))} >= 5'(QUEUE_BYTES);
+            ph_r[j] = {1'b0, 4'(avail_w - 4'(j))} + i2 <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
+        end
     // (variant B) the port: a clock that releases bytes is the EU's. The delivered word's second
     // byte waits uncounted on such a delivery clock
     wire       port_a = rel != 3'd0;
-    wire       unc_a = VARIANT_B && arrive && n_arr == 3'd2 && port_a && cnt_a != 4'd0;
-    wire [4:0] cntd = {1'b0, cnt_a} + {1'b0, unrel_a} + ((VARIANT_B && stg) ? 5'd1 : 5'd0)
-                      - (unc_a ? 5'd1 : 5'd0);
-    wire [4:0] occ = cntd + (infl_a ? 5'd2 : 5'd0);
+    wire       c_nz = !flush && nz_r[rd];           // cnt_a != 0
+    wire       c_ge = !flush && ge_r[rd];           // cnt_a >= QUEUE_BYTES
+    wire       unc_a = VARIANT_B && arrive && n_arr == 3'd2 && port_a && c_nz;
+    // occ <= c (c >= -1): no flush, E's thermometer by rel then by unc_a - stg; a flush,
+    // stg + 2 infl_a <= c (registers and stg)
+    function automatic logic le_occ(input int c);
+        logic m0, m1, m2;
+        m0 = lev[c + 1 + int'(rel)];                // unc_a - stg = -1
+        m1 = lev[c + 2 + int'(rel)];                // 0
+        m2 = lev[c + 3 + int'(rel)];                // +1
+        le_occ = flush ? 32'({4'd0, sg} + i2) <= 32'(c) && c >= 0
+               : (unc_a && !sg) ? m2 : (!unc_a && sg) ? m0 : m1;
+    endfunction
+    wire       le_req = le_occ(CAP - 2);
+    wire       le_ful = le_occ(CAP - 1);
+    wire       le_low = le_occ(CL + FIT_HOLD_Q);
+    wire       le_lo0 = le_occ(CL - 1);
     // the word must find its bytes a place: the six storage bytes and (B) the latch, the bytes
     // stored, latched and in flight counted whatever the room counts
-    wire       phys_ok = {1'b0, cnt_a} + (infl_a ? 5'd2 : 5'd0) <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
+    wire       phys_ok = flush ? i2 <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2) : ph_r[rd];
     // (MX1e) V35_MX1E_LHOLD: the latch's hold on the request line (the frozen model's
     // latch_hold, queue.py latch_blocks, measured on F3-push-nop-k4-pE-w0 -3: room 3, the line
     // held): a byte delivered on an earlier clock still latched, and on this clock the queue's
     // port is the EU's (a release) or the storage is full, so the byte cannot go in: no fetch is
     // requested until it can (the word would find its second byte's place still taken)
-    wire       lat_hold = `V35_MX1E_LHOLD && lat_v && !arrive
-                          && (port_a || {1'b0, cnt_a} >= 5'(QUEUE_BYTES));
-    assign fetch_req = occ <= 5'(CAP - 2) && phys_ok && !susp && !lat_hold;
-    assign fetch_raise = occ <= 5'(CAP - 2) && phys_ok && !susp;
+    wire       lat_hold = `V35_MX1E_LHOLD && lat_v && !arrive && (port_a || c_ge);
+    assign fetch_req = le_req && phys_ok && !susp && !lat_hold;
+    assign fetch_raise = le_req && phys_ok && !susp;
     // (Q2) q_word: the line up with room for exactly a word (the triple clock's abort test).
     // (R3) Or the line a byte short of a word by one byte the abort test counts as room: a byte
     // read and not yet released (xfer_abort=word: a transfer's displacement byte, released a
     // clock late by the loader) or a byte latched on an earlier clock (abort_latched)
-    wire       q_short = occ == 5'(CAP - 1) && !susp
+    wire [3:0] unrel_a = flush ? 4'd0 : {1'b0, unrel} + {1'b0, rd} - {1'b0, rel};
+    wire       q_short = le_ful && !le_req && !susp
                          && ((`V35_R3_XRW && unrel_a == 4'd1 && phys_ok)
                              || (`V35_R3_ALAT && lat_v && !arrive));
-    assign q_word = (fetch_req && occ == 5'(CAP - 2)) || q_short;
-    assign q_low = occ - 5'(CAP - QUEUE_BYTES) <= 5'(FIT_HOLD_Q);
-    wire [15:0] pfp_a = flush ? flush_addr : pfp;
-    assign fetch_addr = ps_base + {4'd0, pfp_a};
+    assign q_word = (fetch_req && le_req && !le_occ(CAP - 3)) || q_short;
+    // q_low: occ - (CAP - QUEUE_BYTES) <= FIT_HOLD_Q (5 bits): CL <= occ <= CL + FIT_HOLD_Q
+    assign q_low = le_low && !le_lo0;
+    // (MX5) the fetch address: the two sums formed from registers, the flush selecting last
+    wire [19:0] fa_f = ps_base + {4'd0, flush_addr};
+    wire [19:0] fa_n = ps_base + {4'd0, pfp};
+    assign fetch_addr = flush ? fa_f : fa_n;
+`ifndef SYNTHESIS
+    // the old arithmetic: the reference of `+v35_chk` and the qdbg trace's occ
+    wire [4:0] e_s = {1'b0, avail_w} + {2'd0, unrel} + i2;
+    wire [3:0] cnt_x = flush ? 4'd0 : avail_w - {1'b0, rd};
+    wire       unc_x = VARIANT_B && arrive && n_arr == 3'd2 && port_a && cnt_x != 4'd0;
+    wire [4:0] occ = {1'b0, cnt_x} + {1'b0, unrel_a} + ((VARIANT_B && stg) ? 5'd1 : 5'd0)
+                     - (unc_x ? 5'd1 : 5'd0) + i2;
+    wire       phys_x = {1'b0, cnt_x} + i2 <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
+    wire       lhold_x = `V35_MX1E_LHOLD && lat_v && !arrive
+                         && (port_a || {1'b0, cnt_x} >= 5'(QUEUE_BYTES));
+    wire       freq_x = occ <= 5'(CAP - 2) && phys_x && !susp && !lhold_x;
+    wire       frai_x = occ <= 5'(CAP - 2) && phys_x && !susp;
+    wire       qsh_x = occ == 5'(CAP - 1) && !susp
+                       && ((`V35_R3_XRW && unrel_a == 4'd1 && phys_x)
+                           || (`V35_R3_ALAT && lat_v && !arrive));
+    wire       qword_x = (freq_x && occ == 5'(CAP - 2)) || qsh_x;
+    wire       qlow_x = occ - 5'(CAP - QUEUE_BYTES) <= 5'(FIT_HOLD_Q);
+    wire [15:0] pfp_x = flush ? flush_addr : pfp;
+    wire [19:0] faddr_x = ps_base + {4'd0, pfp_x};
+`endif
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg  [2:0]  rd_r = 3'd0, rel_r = 3'd0;
@@ -190,6 +264,7 @@ module v35_queue
         if (!reset_n) begin
             cnt <= 3'd0;
             unrel <= 3'd0;
+            eq_r <= 5'd0;
             pfp <= flush_addr;
             inflight <= 1'b0;
             discard <= 1'b0;
@@ -201,6 +276,9 @@ module v35_queue
             cnt <= 3'(cnt_e - (lat_e ? 4'd1 : 4'd0));
             unrel <= unrel_e[2:0];
             lat <= lat_e;
+            // (MX5) the room's registered sum: the three registers' new values added
+            eq_r <= {2'd0, 3'(cnt_e - (lat_e ? 4'd1 : 4'd0))} + ((VARIANT_B && lat_e) ? 5'd1 : 5'd0)
+                    + {2'd0, unrel_e[2:0]};
             if (lat_e)
                 lat_byte <= seqb(cnt_e - 4'd1 + {1'b0, reads});
             if (go_r) begin
@@ -257,7 +335,12 @@ module v35_queue
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (rd_r !== rd || rel_r !== rel || flush_r !== flush || go_r !== fetch_go
-                || faddr_r !== flush_addr) begin
+                || faddr_r !== flush_addr
+                // (MX5) the room's facts against the old arithmetic
+                || fetch_req !== freq_x || fetch_raise !== frai_x || q_word !== qword_x
+                || q_low !== qlow_x || fetch_addr !== faddr_x || lat_hold !== lhold_x
+                || eq_r !== {2'd0, cnt} + (lat_v ? 5'd1 : 5'd0) + {2'd0, unrel}
+                || e_s !== eq_r + {2'd0, a2}) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: queue: a tick A input changed in tick B at %0t", $time);
