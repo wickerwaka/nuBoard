@@ -1999,3 +1999,20 @@ question, decided from S8's routed numbers with the user.
   bytes' z as one kept function; an inequivalent datum copy made by decoding the pins before a register
   refused (no input reaches logic before a register); the gate as written, ≥ 0 on all three seeds meeting it.
   If a seed is still under 0 after that, the residual goes to the user as a measured choice.
+- **MX5 round 4 (2026-11-11): the three candidates measured, none kept; the sources stand at 64076f3.** On
+  three seeds each: the grant and the pins expanded on fetch_req, q_low and q_word together −2.286 / −1.108 /
+  −1.204 (the worst path moved onto the grant's ce_b registers); the room per release count with kept
+  cofactors and rel selecting last −5.146 / −4.961 / −5.874 (the synthesizer folded the kept thresholds back
+  into each cofactor's arithmetic; rel takes the values 0..3 in the corpus, 3 in 8 runs, so the select is
+  8-way); each delivered byte's z as one kept function of the byte and zc −1.928 / −1.035 / −0.769 (still 5
+  LUTs after the datum register, the head select grown to two); the pairs worse. Candidates 2 + 3 replayed
+  on F3 F4 F16 F33 F34 F38 (5,820 runs) identical with chk silent. The core README gains "Round 4" with the
+  table. **MX5 closes here as a measured residual for the user:** the whole core at 15.625 ns routes at
+  +0.729 / +0.913 / −0.261 ns on seeds 1 / 2 / 3 with one create_clock and no exception, every module alone
+  ≥ +3.5 ns, hold +0.307; the one path under budget on seed 3 is the word arriving from the bus on its own
+  delivery clock (its decode → the pop decision → the room → the request → the grant → the pin's D, 15 LUT
+  levels, 15.577 against 15.316 ns), the remaining depth LUT4 fan-in rather than logic that moves under the
+  two-tick structure. The choices are the user's: accept the design at the seeds that close (a placement
+  choice, no constraint); lower the CPU clock's target below 32 MHz (a 17 ns tick closes every seed with
+  about 1.5 ns of margin); or allow a third fabric tick per CPU clock (the arriving word's decode and the
+  pop decision in a tick of their own), which the overseer refused on the user's directive.
