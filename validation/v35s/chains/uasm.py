@@ -690,18 +690,25 @@ def decode_svh(prog: Program) -> str:
     # (MX0) the loader's count of the instruction's bytes still to pop from the queue: what a
     # ModR/M byte's pop adds (its displacement and the form's immediate) and what the 0F page's
     # second byte's pop adds (its ModR/M byte and its immediate)
-    L += ["    function automatic logic [2:0] v35_umodrm(input logic [7:0] op, input logic [7:0] mb);",
-          "        logic [2:0] dsp;",
-          "        dsp = mb[7:6] == 2'd1 ? 3'd1 : mb[7:6] == 2'd2 ? 3'd2"
+    # (MX5c) the two shares as the RTL reads them: v35_umdsp (the ModR/M byte's displacement
+    # bytes, of the byte alone) and v35_umimm (the form's immediate bytes, of the opcode and the
+    # byte's reg field being 0 or 1: mb[5:4] == 0); v35_umodrm is their sum
+    L += ["    function automatic logic [2:0] v35_umdsp(input logic [7:0] mb);",
+          "        v35_umdsp = mb[7:6] == 2'd1 ? 3'd1 : mb[7:6] == 2'd2 ? 3'd2"
           " : (mb[7:6] == 2'd0 && mb[2:0] == 3'd6) ? 3'd2 : 3'd0;",
+          "    endfunction", "",
+          "    function automatic logic [2:0] v35_umimm(input logic [7:0] op, input logic r01);",
           "        case (op)"]
     for op in sorted(MODRM_OPS):
         if op in (0xF6, 0xF7):
             n = 1 if op == 0xF6 else 2
-            L.append(f"            8'h{op:02X}: v35_umodrm = dsp + (mb[5:4] == 2'd0 ? 3'd{n} : 3'd0);")
+            L.append(f"            8'h{op:02X}: v35_umimm = r01 ? 3'd{n} : 3'd0;")
         elif imm_modrm(op, 0):
-            L.append(f"            8'h{op:02X}: v35_umodrm = dsp + 3'd{imm_modrm(op, 0)};")
-    L += ["            default: v35_umodrm = dsp;", "        endcase", "    endfunction", "",
+            L.append(f"            8'h{op:02X}: v35_umimm = 3'd{imm_modrm(op, 0)};")
+    L += ["            default: v35_umimm = 3'd0;", "        endcase", "    endfunction", "",
+          "    function automatic logic [2:0] v35_umodrm(input logic [7:0] op, input logic [7:0] mb);",
+          "        v35_umodrm = v35_umdsp(mb) + v35_umimm(op, mb[5:4] == 2'd0);",
+          "    endfunction", "",
           "    function automatic logic [2:0] v35_upage(input logic [7:0] b);",
           "        case (b)"]
     by = {}

@@ -33,6 +33,8 @@
 // last clock, the datum in `done_data`). Nothing on the port names an instruction: the bus
 // unit knows no form, class, row, step or count. The grant is a handful of terms on registered
 // facts (the cycle's position, b2b, the pair's half) and the two request lines: four levels.
+// (MX5c) It is formed for each value of the queue's line and selected by the line last, and the
+// pins' registers load per group from the line's select (README "MX5" round 3).
 //
 // Clocking: `ce_a` ends a CPU clock; the registers hold the state at the end of the last clock.
 // Everything this module outputs is stage S0 (registers only) except the grant, which is S4 and
@@ -127,17 +129,26 @@ module v35_bus
     output reg         error,           // a start on a bus that was not free (sticky)
     output wire        w3_v,            // (S5a) a memory write is among the last three cycles ...
     output wire signed [4:0] w3_rel,    //   ... its last clock - t
+    // (MX5c) the next values of S0 facts (tick B: the state the coming ce_a loads, the D nets
+    // of the registers below), for the sequencer's registered stall outcome: nothing new
+    output wire        fetch_inflight_nx,
+    output wire        fetch_past_b2_nx,
+    output wire        in_wait_nx,
+    output wire        b2b_now_nx,
+    output wire        dlv_v_nx,
+    output wire [2:0]  dlv_kind_nx,
+    output wire        eu_done_nx,      // req_done's
 
     // pins (as v35s_model.sv)
-    output reg         a0,
-    output reg         a19,
-    output reg         a18_ube,
-    output reg  [8:0]  mux_address,
+    output wire        a0,
+    output wire        a19,
+    output wire        a18_ube,
+    output wire [8:0]  mux_address,
     output reg  [15:0] data_out,
     output reg         mreq_n,
     output reg         mstb_n,
     output reg         iostb_n,
-    output reg         read_write,
+    output wire        read_write,
     output reg         refrq_n,
     input  wire [15:0] data_in
 );
@@ -211,10 +222,6 @@ module v35_bus
     // clocks of an I/O cycle; 2: no EU cycle at all; 0: the EU's own wait, not here)
     wire        rq_turn = (`A1_IOREC == 1 && rq_mem) || `A1_IOREC == 2;
     wire        eu_ok = req_v && !(rq_turn && io_win);
-    // rule 3: the queue's low hint overrides a memory cycle's reservation only (A1_IOQL 0: any
-    // reservation, the strategy's first wording, kept for the record)
-    wire        fq_ok = fetch_req && (!req_resv || (q_low && !(`A1_IOQL && !rq_mem)))
-                        && !ioh_hold;
     wire        tri3 = t_start && take_now && l_pop;
     // (MX1g) V35_MX1G_IOH: the request line that rises on the clock this unit issues an EU I/O
     // cycle, raised by the staging load (no operand take, no fetch in flight), is not granted
@@ -224,48 +231,80 @@ module v35_bus
     // at the next queue event the bus unit watches, the next start's opcode pop (t_start).
     // The hold ends with the start, or when the line falls.
     reg         ioh = 1'b0, fr_prev = 1'b0;
-    wire        ioh_set = (`V35_MX1G_IOH != 0) && req_ack && !rq_mem && l_pop && !take_now
-                          && fetch_req && !fr_prev;
     // (MX2) IOH 2: the registered sample: the line's rise on the I/O issue clock is seen a clock
     // late, the first free clock after the I/O cycle still reading the sample taken before the
     // rise (no dependence on the next start): the hold ends at the end of the first free clock
     wire        ioh_hold = `V35_MX1G_IOH == 2 ? ioh : (`V35_MX1G_IOH != 0 && ioh && !t_start);
     wire        g_second = free && p2_v;
-    wire        b2b_go = free && !g_second && b2b && fetch_req;
-    wire        eu_win = free && !g_second && !b2b_go && eu_ok;
-    // (Q2) the triple clock's fetch begun and abandoned; (R3) also with the line down a byte
-    // short of a word (q_word's second term)
-    wire        ab_tri = `V35_Q2_TRI && free && !g_second && !eu_win
-                         && (b2b_go || fq_ok || ((`V35_R3_XRW || `V35_R3_ALAT) && !fetch_req))
-                         && tri3 && q_word;
-    wire        ab_b2b = free && !g_second && b2b && !fetch_req && !eu_ok;
-    assign g_abort = ab_tri || ab_b2b;
-    assign g_fetch = free && !g_second && !g_abort && !eu_win && (b2b_go || fq_ok);
-    assign g_b2b = g_fetch && b2b;
-    assign req_ack = eu_win && !g_abort;
-    assign g_eu = g_second || req_ack;
-    assign g_start = g_eu || g_fetch;
-    assign g_kind = g_fetch ? K_FETCH : g_second ? c_kind : rq_kind;
-    assign g_addr = g_fetch ? fetch_addr : req_addr;
-    assign g_width = !g_eu ? BW_WORD : g_second ? BW_LO : rq_two ? BW_HI
-                   : (req_width && (!req_addr[0] || !rq_mem)) ? BW_WORD   // (an I/O word: no pair)
-                   : (req_addr[0] ? BW_HI : BW_LO);
-    wire [1:0]  g_half = g_second ? 2'd2 : (req_ack && rq_two) ? 2'd1 : 2'd0;
-    // the back-to-back sample's hold: an EU request standing at the fetch's last clock
-    // (A1_B2BH 1, the rule: req_v or req_resv; 0: req_v only; 2: req_v or a memory cycle's
-    // reservation)
-    wire        b2b_hold = `A1_B2BH == 0 ? req_v
-                         : `A1_B2BH == 1 ? (req_v || req_resv) : (req_v || (req_resv && rq_mem));
-
+    // (MX5c) the grant expanded on the request line (Shannon's expansion on the bus unit's own
+    // input): `gnt_f(fr)` is the priority below with fetch_req = fr, every other input as it
+    // stands; the grant is `fetch_req ? gnt_f(1) : gnt_f(0)`, the line selecting last. The bus
+    // unit reads nothing it did not read before (the same function; `+v35_chk` compares it with
+    // the direct form every clock). README "MX5" round 3
+    typedef struct packed {
+        logic       start, fetch, eu, abt, b2b, ack, sfr, ioh_set;
+        logic [2:0] kind, len;
+        logic [1:0] width, half;
+    } v35_gnt_t;
     // lengths: bus.length(kind), the SFR store's I/O waits
     wire [1:0] waits_mem = wtc[WTC_MEM_LSB +: 2];
     wire [1:0] waits_io = wtc[WTC_IO_LSB +: 2];
     // (MX5) a write's address is the request's (a write is never a fetch: g_kind K_WRITE implies
     // g_addr = req_addr), so the SFR page's compare reads the request register, not the grant
     wire rq_sfr = req_addr >= SFR_PAGE;
-    wire g_sfr = g_kind == K_WRITE && rq_sfr;
-    assign grant_len = (k_io(g_kind) || g_sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
-                       3'(BUS_BASE) + 3'(waits_mem);
+    function automatic v35_gnt_t gnt_f(input logic fr);
+        logic fq, b2b_go, eu_win, ab_tri, ab_b2b;
+        // rule 3: the queue's low hint overrides a memory cycle's reservation only (A1_IOQL 0:
+        // any reservation, the strategy's first wording, kept for the record)
+        fq = fr && (!req_resv || (q_low && !(`A1_IOQL && !rq_mem))) && !ioh_hold;
+        b2b_go = free && !g_second && b2b && fr;
+        eu_win = free && !g_second && !b2b_go && eu_ok;
+        // (Q2) the triple clock's fetch begun and abandoned; (R3) also with the line down a byte
+        // short of a word (q_word's second term)
+        ab_tri = `V35_Q2_TRI && free && !g_second && !eu_win
+                 && (b2b_go || fq || ((`V35_R3_XRW || `V35_R3_ALAT) && !fr))
+                 && tri3 && q_word;
+        ab_b2b = free && !g_second && b2b && !fr && !eu_ok;
+        gnt_f.abt = ab_tri || ab_b2b;
+        gnt_f.fetch = free && !g_second && !gnt_f.abt && !eu_win && (b2b_go || fq);
+        gnt_f.b2b = gnt_f.fetch && b2b;
+        gnt_f.ack = eu_win && !gnt_f.abt;
+        gnt_f.eu = g_second || gnt_f.ack;
+        gnt_f.start = gnt_f.eu || gnt_f.fetch;
+        gnt_f.kind = gnt_f.fetch ? K_FETCH : g_second ? c_kind : rq_kind;
+        gnt_f.width = !gnt_f.eu ? BW_WORD : g_second ? BW_LO : rq_two ? BW_HI
+                    : (req_width && (!req_addr[0] || !rq_mem)) ? BW_WORD   // (an I/O word: no pair)
+                    : (req_addr[0] ? BW_HI : BW_LO);
+        gnt_f.half = g_second ? 2'd2 : (gnt_f.ack && rq_two) ? 2'd1 : 2'd0;
+        gnt_f.sfr = gnt_f.kind == K_WRITE && rq_sfr;
+        gnt_f.len = (k_io(gnt_f.kind) || gnt_f.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
+                    3'(BUS_BASE) + 3'(waits_mem);
+        gnt_f.ioh_set = (`V35_MX1G_IOH != 0) && gnt_f.ack && !rq_mem && l_pop && !take_now
+                        && fr && !fr_prev;
+    endfunction
+    v35_gnt_t gn1, gn0, gn;
+    assign gn1 = gnt_f(1'b1);
+    assign gn0 = gnt_f(1'b0);
+    assign gn = fetch_req ? gn1 : gn0;
+    assign g_abort = gn.abt;
+    assign g_fetch = gn.fetch;
+    assign g_b2b = gn.b2b;
+    assign req_ack = gn.ack;
+    assign g_eu = gn.eu;
+    assign g_start = gn.start;
+    assign g_kind = gn.kind;
+    assign g_addr = gn.fetch ? fetch_addr : req_addr;
+    assign g_width = gn.width;
+    wire [1:0]  g_half = gn.half;
+    wire        ioh_set = gn.ioh_set;
+    // the back-to-back sample's hold: an EU request standing at the fetch's last clock
+    // (A1_B2BH 1, the rule: req_v or req_resv; 0: req_v only; 2: req_v or a memory cycle's
+    // reservation)
+    wire        b2b_hold = `A1_B2BH == 0 ? req_v
+                         : `A1_B2BH == 1 ? (req_v || req_resv) : (req_v || (req_resv && rq_mem));
+
+    wire g_sfr = gn.sfr;
+    assign grant_len = gn.len;
     assign fetch_len = 3'(BUS_BASE) + 3'(waits_mem);
 
     // ------------------------------------------------ (S7b) the ce_b registers
@@ -298,6 +337,24 @@ module v35_bus
 
     // ------------------------------------------------ the end of the clock (S6)
     wire fetch_x = g_start_b && g_kind_b == K_FETCH;
+    // (MX5c) the next state the stall reads (the always block below loads exactly these)
+    wire        c_valid_nx = g_start_b || busy;
+    wire [2:0]  c_kind_nx = g_start_b ? g_kind_b : c_kind;
+    wire [2:0]  c_pos_nx = g_start_b ? 3'd0 : busy ? pos_now : c_pos;
+    wire [2:0]  c_len_nx = g_start_b ? grant_len_b : c_len;
+    wire        busy_nx = c_valid_nx && !(c_pos_nx == c_len_nx - 3'd1);
+    wire [2:0]  pos_now_nx = c_pos_nx + 3'd1;
+    assign fetch_inflight_nx = busy_nx && c_kind_nx == K_FETCH;
+    assign fetch_past_b2_nx = fetch_inflight_nx && pos_now_nx >= 3'd2;
+    assign in_wait_nx = busy_nx && !k_io(c_kind_nx) && pos_now_nx >= 3'd2
+                        && pos_now_nx < c_len_nx - 3'd1;
+    wire        b2b_nx = busy && c_kind == K_FETCH && pos_now == c_len - 3'd1 && fetch_req_b
+                         && !b2b_hold_b;
+    assign b2b_now_nx = b2b_nx;
+    wire        d_v_nx = busy && pos_now == c_len - 3'd1;
+    assign dlv_v_nx = d_v_nx;
+    assign dlv_kind_nx = c_kind;
+    assign eu_done_nx = d_v_nx && c_kind != K_FETCH && !(c_half == 2'd1);
     always @(posedge clock) begin
         if (!reset_n) begin
             c_valid <= 1'b0;
@@ -334,8 +391,7 @@ module v35_bus
             else if (ioh_clr_b)
                 ioh <= 1'b0;
             // (Q1) the request line sampled at a fetch's last clock, no EU request standing
-            b2b <= busy && c_kind == K_FETCH && pos_now == c_len - 3'd1 && fetch_req_b
-                   && !b2b_hold_b;
+            b2b <= b2b_nx;
             f_since <= fetch_x ? 4'd0 : fetch_since;
             // (S5a) the last memory write (its last clock relative to the next clock)
             if (g_start_b && g_kind_b == K_WRITE) begin
@@ -349,7 +405,7 @@ module v35_bus
                     w_rel <= w_rel - 5'sd1;
             end
             // the delivery registers: the cycle whose last clock is this one
-            d_v <= busy && pos_now == c_len - 3'd1;
+            d_v <= d_v_nx;
             d_kind <= c_kind;
             d_addr <= c_addr;
             d_width <= c_width;
@@ -398,13 +454,6 @@ module v35_bus
     // The write datum is driven at mid-B2 (Divergence 31): (A1) the EU's req_data as it stands
     // there (the EU holds its issued write's datum through B2, or presents its late result);
     // the bus unit places the pair's bytes (first half: the low byte on the high lane).
-    wire        e_valid = g_start || busy;
-    wire [2:0]  e_kind = g_start ? g_kind : c_kind;
-    wire [2:0]  e_pos = g_start ? 3'd0 : pos_now;
-    wire [19:0] e_addr = g_start ? g_addr : c_addr;
-    wire [1:0]  e_width = g_start ? g_width : c_width;
-    wire        e_internal = g_start ? g_sfr : c_internal;
-    wire        e_write = e_kind == K_WRITE || e_kind == K_IO_WRITE;
     // the cycle as this clock leaves it (the pins' view from the middle on)
     wire        n_valid = g_start_b || busy;
     wire [2:0]  n_kind = g_start_b ? g_kind_b : c_kind;
@@ -415,22 +464,119 @@ module v35_bus
     wire        n_internal = g_start_b ? g_sfr_b : c_internal;
     wire        n_write = n_kind == K_WRITE || n_kind == K_IO_WRITE;
     wire        pins = n_valid && !n_internal;
-    reg  [8:0]  refresh_row = 9'd0;
+    // (MX5c) the registers the pins' edge writes (ce_e) carry no inferred enable: each loads its
+    // group's select every fabric clock, the hold folded into the selected values (below)
+    (* syn_extract_enable = "false" *) reg        read_write_r = 1'b1;
+    (* syn_extract_enable = "false" *) reg  [8:0] mux_address_r = 9'd0;
+    (* syn_extract_enable = "false" *) reg        a0_r = 1'b0, a19_r = 1'b0, a18_ube_r = 1'b0;
+    (* syn_extract_enable = "false" *) reg  [8:0] refresh_row = 9'd0;
     // B2's write datum, decided at the edge, driven at the middle
-    reg         dp_v = 1'b0;
-    reg  [1:0]  dp_half = 2'd0;
+    (* syn_extract_enable = "false" *) reg        dp_v = 1'b0;
+    (* syn_extract_enable = "false" *) reg  [1:0] dp_half = 2'd0;
+    assign read_write = read_write_r;
+    assign mux_address = mux_address_r;
+    assign a0 = a0_r;
+    assign a19 = a19_r;
+    assign a18_ube = a18_ube_r;
+    // (MX5c) the pins' edge as a function of the grant: `pin_f(g)` is the B1 / B2 update with the
+    // grant g (the e_* view: the cycle granted now, else the running one), the registers' hold
+    // values included, so a pin register's only enable is ce_e. Each pin group loads
+    // `fetch_req ? pin_f(gn1) : pin_f(gn0)` through its own kept select (syn_keep): the grant's
+    // last stage duplicated per group (the request line enters each group's data select, not
+    // one grant net with every pin register's enable on it). The same values the update below
+    // computed from g_*; README "MX5" round 3
+    typedef struct packed {
+        logic       rw;
+        logic [8:0] ma;
+        logic       a0, a19, a18;
+        logic [8:0] rr;
+        logic       dpv;
+        logic [1:0] dph;
+    } v35_pin_t;
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic v35_pin_t pin_f(input v35_gnt_t g);
+        logic        ev, ein, ew;
+        logic [2:0]  ek, ep;
+        logic [19:0] ea;
+        logic [1:0]  ewd;
+        ev = g.start || busy;
+        ek = g.start ? g.kind : c_kind;
+        ep = g.start ? 3'd0 : pos_now;
+        ea = g.start ? (g.fetch ? fetch_addr : req_addr) : c_addr;
+        ewd = g.start ? g.width : c_width;
+        ein = g.start ? g.sfr : c_internal;
+        ew = ek == K_WRITE || ek == K_IO_WRITE;
+        pin_f.rw = read_write_r;
+        pin_f.ma = mux_address_r;
+        pin_f.a0 = a0_r;
+        pin_f.a19 = a19_r;
+        pin_f.a18 = a18_ube_r;
+        pin_f.rr = refresh_row;
+        pin_f.dpv = 1'b0;
+        pin_f.dph = dp_half;
+        if (!ev || ein) begin
+            pin_f.rw = 1'b1;
+        end else if (ep == 3'd0) begin
+            // B1: the row (A17..A9), A19, A18 and A0
+            pin_f.rw = !ew;
+            if (ek == K_REFRESH) begin
+                pin_f.ma = refresh_row;
+                pin_f.rr = refresh_row + 1'b1;
+                pin_f.a0 = 1'b0;
+                pin_f.a19 = 1'b0;
+                pin_f.a18 = 1'b0;
+            end else begin
+                pin_f.ma = ea[17:9];
+                pin_f.a0 = ea[0];
+                pin_f.a19 = ea[19];
+                pin_f.a18 = ea[18];
+            end
+        end else if (ep == 3'd1 && ek != K_REFRESH) begin
+            // B2: the column (A9, A8..A1), /UBE; the write datum at mid-B2
+            pin_f.ma = {ea[9], ea[8:1]};
+            pin_f.a18 = ewd == BW_LO;
+            pin_f.dpv = ew;
+            pin_f.dph = c_half;
+        end
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    // the registers as they stand (the selected values off the edge)
+    v35_pin_t pn1, pn0, ph;
+    assign ph = {read_write_r, mux_address_r, a0_r, a19_r, a18_ube_r, refresh_row, dp_v, dp_half};
+    assign pn1 = ce_e ? pin_f(gn1) : ph;
+    assign pn0 = ce_e ? pin_f(gn0) : ph;
+    (* syn_keep = "true" *) wire       pk_rw = fetch_req ? pn1.rw : pn0.rw;
+    (* syn_keep = "true" *) wire [8:0] pk_ma = fetch_req ? pn1.ma : pn0.ma;
+    (* syn_keep = "true" *) wire [2:0] pk_ah = fetch_req ? {pn1.a0, pn1.a19, pn1.a18}
+                                                         : {pn0.a0, pn0.a19, pn0.a18};
+    (* syn_keep = "true" *) wire [8:0] pk_rr = fetch_req ? pn1.rr : pn0.rr;
+    (* syn_keep = "true" *) wire [2:0] pk_dp = fetch_req ? {pn1.dpv, pn1.dph} : {pn0.dpv, pn0.dph};
 
     initial begin
-        a0 = 1'b0;
-        a19 = 1'b0;
-        a18_ube = 1'b0;
-        mux_address = 9'd0;
         data_out = 16'd0;
         mreq_n = 1'b1;
         mstb_n = 1'b1;
         iostb_n = 1'b1;
-        read_write = 1'b1;
         refrq_n = 1'b1;
+    end
+
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            read_write_r <= 1'b1;
+            refresh_row <= 9'd0;
+            a0_r <= 1'b0;               // (S7b) the address and data pins too
+            a19_r <= 1'b0;
+            a18_ube_r <= 1'b0;
+            mux_address_r <= 9'd0;
+            dp_v <= 1'b0;
+            dp_half <= 2'd0;
+        end else begin
+            read_write_r <= pk_rw;
+            mux_address_r <= pk_ma;
+            {a0_r, a19_r, a18_ube_r} <= pk_ah;
+            refresh_row <= pk_rr;
+            {dp_v, dp_half} <= pk_dp;
+        end
     end
 
     always @(posedge clock) begin
@@ -439,43 +585,8 @@ module v35_bus
             mstb_n <= 1'b1;
             iostb_n <= 1'b1;
             refrq_n <= 1'b1;
-            read_write <= 1'b1;
-            refresh_row <= 9'd0;
-            a0 <= 1'b0;                 // (S7b) the address and data pins too
-            a19 <= 1'b0;
-            a18_ube <= 1'b0;
-            mux_address <= 9'd0;
             data_out <= 16'd0;
-            dp_v <= 1'b0;
-            dp_half <= 2'd0;
         end else begin
-            if (ce_e) begin
-                dp_v <= 1'b0;
-                if (!e_valid || e_internal) begin
-                    read_write <= 1'b1;
-                end else if (e_pos == 3'd0) begin
-                    // B1: the row (A17..A9), A19, A18 and A0
-                    read_write <= !e_write;
-                    if (e_kind == K_REFRESH) begin
-                        mux_address <= refresh_row;
-                        refresh_row <= refresh_row + 1'b1;
-                        a0 <= 1'b0;
-                        a19 <= 1'b0;
-                        a18_ube <= 1'b0;
-                    end else begin
-                        mux_address <= e_addr[17:9];
-                        a0 <= e_addr[0];
-                        a19 <= e_addr[19];
-                        a18_ube <= e_addr[18];
-                    end
-                end else if (e_pos == 3'd1 && e_kind != K_REFRESH) begin
-                    // B2: the column (A9, A8..A1), /UBE; the write datum at mid-B2
-                    mux_address <= {e_addr[9], e_addr[8:1]};
-                    a18_ube <= e_width == BW_LO;
-                    dp_v <= e_write;
-                    dp_half <= c_half;
-                end
-            end
             if (ce_a && dp_v)
                 data_out <= dp_half == 2'd0 ? req_data
                           : dp_half == 2'd1 ? {req_data[7:0], 8'd0} : {8'd0, req_data[15:8]};
@@ -513,10 +624,51 @@ module v35_bus
 
     // (S7b) chk begin (generated: the ce_b registers against their sources at ce_a)
 `ifndef SYNTHESIS
+    // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
+    // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
+    wire        x_fq = fetch_req && (!req_resv || (q_low && !(`A1_IOQL && !rq_mem))) && !ioh_hold;
+    wire        x_b2b_go = free && !g_second && b2b && fetch_req;
+    wire        x_eu_win = free && !g_second && !x_b2b_go && eu_ok;
+    wire        x_ab_tri = `V35_Q2_TRI && free && !g_second && !x_eu_win
+                           && (x_b2b_go || x_fq || ((`V35_R3_XRW || `V35_R3_ALAT) && !fetch_req))
+                           && tri3 && q_word;
+    wire        x_ab_b2b = free && !g_second && b2b && !fetch_req && !eu_ok;
+    v35_gnt_t   gnt_x;
+    always_comb begin
+        gnt_x.abt = x_ab_tri || x_ab_b2b;
+        gnt_x.fetch = free && !g_second && !gnt_x.abt && !x_eu_win && (x_b2b_go || x_fq);
+        gnt_x.b2b = gnt_x.fetch && b2b;
+        gnt_x.ack = x_eu_win && !gnt_x.abt;
+        gnt_x.eu = g_second || gnt_x.ack;
+        gnt_x.start = gnt_x.eu || gnt_x.fetch;
+        gnt_x.kind = gnt_x.fetch ? K_FETCH : g_second ? c_kind : rq_kind;
+        gnt_x.width = !gnt_x.eu ? BW_WORD : g_second ? BW_LO : rq_two ? BW_HI
+                    : (req_width && (!req_addr[0] || !rq_mem)) ? BW_WORD
+                    : (req_addr[0] ? BW_HI : BW_LO);
+        gnt_x.half = g_second ? 2'd2 : (gnt_x.ack && rq_two) ? 2'd1 : 2'd0;
+        gnt_x.sfr = gnt_x.kind == K_WRITE && rq_sfr;
+        gnt_x.len = (k_io(gnt_x.kind) || gnt_x.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
+                    3'(BUS_BASE) + 3'(waits_mem);
+        gnt_x.ioh_set = (`V35_MX1G_IOH != 0) && gnt_x.ack && !rq_mem && l_pop && !take_now
+                        && fetch_req && !fr_prev;
+    end
+    // the pins' update from the selected per-group values (what the registers load at ce_e)
+    v35_pin_t   pn_x;
+    assign pn_x = {pk_rw, pk_ma, pk_ah, pk_rr, pk_dp};
     /* verilator lint_off BLKSEQ */
     reg chk_on = 1'b0;
     integer chk_n = 0;
     initial chk_on = $test$plusargs("v35_chk");
+    // (MX5c) every fabric clock: the expanded grant against the direct form, the pins' selected
+    // values against the update from it
+    always @(posedge clock) begin
+        if (chk_on && reset_n && (gn !== gnt_x || pn_x !== (ce_e ? pin_f(gn) : ph))) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: bus: the expanded grant differs from the direct form at %0t",
+                         $time);
+        end
+    end
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (g_start_b !== g_start) begin

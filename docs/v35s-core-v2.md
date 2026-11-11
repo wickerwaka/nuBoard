@@ -1965,3 +1965,37 @@ question, decided from S8's routed numbers with the user.
   formed per group from duplicated logic; the room's 4.0 ns select tightened; the divider's init split as a
   state-machine step only if no clock moves. A third tick stays refused; if the gate is still not met the
   agent hands back the worst path's composition level by level for the user's measured choice.
+- **MX5 round 3 landed (2026-11-11): tick A within 0.26 ns of closing on one seed of three; structure only.**
+  Six more splits, each checked by `+v35_chk` every clock (the core README "MX5", "Round 3"): the bus unit's
+  grant written once as a function of the request line and selected by it last (Shannon on its own input);
+  the pins' registers loaded per group through kept selects with no inferred enable (the `g_fetch` fan-out
+  of 50 is gone; the outputs are wires from those registers); the room's tests as compares of the loader's
+  three inputs against kept thresholds formed from registers (occ <= c as rel >= E − (c + unc_a − stg)); the
+  byte-only decode facts as a 6-bit tag formed on the delivered word and stored beside each byte through
+  the storage and the latch (the queue gains `dlv_tag` in, `h_q0t` / `h_latt` out, opaque to it; the
+  assembler emits v35_umodrm's two shares `v35_umdsp(mb)` and `v35_umimm(op, r01)`, the opcode's share a
+  register beside s_b and op); the stall outcome {ex, ex_pop, st_oth, why} as a ce_a register `st_r` loaded
+  with the stalls of the next values (new next-value outputs on the bus unit, the queue, the loader, the
+  EU and v35_sfr's `prc_at`; the bus unit's inputs unchanged); the loader's fetch-path outcomes registered
+  for the three cases (ex with z, ex without z, not ex) and selected in tick A by z1f last, z's cases a
+  register `zc` so each candidate's z is a compare on its tag. test_v35_struct's Ports rule names the
+  queue's `h_*` and `*_nx` outputs. Ruling 6 (the divider) not needed: +2.4 in the top. **Measured (the
+  overseer's rerun on main, identical to the hand-back):** 6,413 LUT4 / 403 ADD / 1,345 FF / 73 RAM_5K
+  (round 2 5,914 / 414 / 1,253 / 73); worst setup **+0.729 / +0.913 / −0.261 ns on seeds 1 / 2 / 3** (round
+  2 −5.002 / −4.491 / −5.267), failing endpoints 0 / 0 / 2, hold +0.307; alone useq +5.026, loader +3.516,
+  queue +5.309, bus +5.396, eu +4.090, regram +10.093. The worst path (seed 3, 15 LUT levels, 15.577 ns
+  against 15.316): the bus unit's datum register (2.2 with its route) → the delivered byte's upage decode
+  and tag compare (5 LUTs, 5.0) → the loader's select (1, 1.4) → the room's compares and selects (5, 4.6) →
+  the grant's cofactor and the pin group's select (2, 2.4). The delivered byte is the one content-dependent
+  input left in tick A; the rest is LUT4 fan-in. Equivalent sources map 1 to 4 ns apart (the synthesizer
+  serialises wide decodes unless nodes are kept), more than the ~1.2 ns spread across seeds. **Verified on
+  main:** 6,207 / 30,536 at both spacings, the tables and the per-run first divergences identical to
+  6a629bb, chk silent (now also the expanded grant, the pins' selects, the room's compares, the tags, st_r
+  and the registered outcomes), write data 99,906, register vectors 107,859 with 0 bad, function vectors
+  19,752 with 0 bad, lint clean in five configurations and the macro alternatives, 48 fast tests, the nine
+  offline modules with the four known failures. **Round 4 (the overseer's rulings):** the grant and the
+  pins' selects expanded on fetch_req, q_low and q_word together (allowed, the bus unit's own inputs); the
+  room re-measured in its per-release-count form with kept cofactors on the present sources; the delivered
+  bytes' z as one kept function; an inequivalent datum copy made by decoding the pins before a register
+  refused (no input reaches logic before a register); the gate as written, ≥ 0 on all three seeds meeting it.
+  If a seed is still under 0 after that, the residual goes to the user as a measured choice.

@@ -8,7 +8,8 @@
 // first tick on. The microaddress is a register.
 //
 // The five stalls, each from registered state at tick A (a stalled word performs none of its
-// acts and is read again):
+// acts and is read again); (MX5c) the outcome itself is a register (`st_r`, loaded at ce_a with
+// the stalls of the next state, README "MX5" round 3):
 //   q     the word pops a byte and there is none: an operand byte and the queue is empty, or
 //         E's opcode and the staging register is empty
 //   f     F: the requested datum has not arrived (the datapath's opr_rdy: req_done or the
@@ -95,12 +96,29 @@ module v35_useq
     input  wire        resv,            // the EU's reservation (a request it asks the bus to hold)
     input  wire        f_grant,
     input  wire        f_dlv,
+    // (MX5c) tick B: the next values of the stall's inputs (the D nets of their ce_a registers,
+    // as they stand after the coming ce_a): the loader's, the datapath's, the bus unit's
+    input  wire        q_stall_nx,
+    input  wire        opr_rdy_nx,
+    input  wire        rq_busy_nx,
+    input  wire        wr_hold_nx,
+    input  wire        s_wbs_nx,
+    input  wire        s_modrm_nx,
+    input  wire        d1_wbs_nx,
+    input  wire        d1_hm_nx,
+    input  wire        rmem_nx,
+    input  wire        fetch_run_nx,
+    input  wire        bus_wait_nx,
+    input  wire        fetch_dph_nx,
+    input  wire        b2b_now_nx,
+    input  wire        f_dlv_nx,
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
     output v35_uword_t word_nx,         // (MX5b) tick B: the next word (the banks' read data)
     output wire        w_disp,          // (MX5) the word's derived bits (registers): seq == SQ_DISP
     output wire        w_dispm,         // ... seq == SQ_DISPM
     output wire        w_popany,        // ... pop != PP_NONE
+    output wire        w_dispm_nx,      // (MX5c) tick B: the next word's seq == SQ_DISPM
     output wire        ex,              // the word executes this clock (tick A)
     output wire        ex_pop,          // ... but for the dispatch's fetch stall (the pops' view)
     output reg         ex_b,            // ... registered at ce_b (tick B, ce_a)
@@ -188,95 +206,173 @@ module v35_useq
     initial halted = 1'b0;
 
     // ------------------------------------------------------------ tick A: the stalls
-    wire st_q   = q_stall;
-    wire st_f   = word.f && !opr_rdy;
-    wire st_slt = pd.post && rq_busy;
-    wire st_hld = word.e && wr_hold;
-    // (MX1f) V35_MX1F_WB: the write-back wait (the frozen model's wbsync: the port form of OUT
-    // waits for the previous instruction's write-back, wb_until = its done_t + wb). An E word
-    // flagged `wb` (a routine whose result's write-back runs on past its last act: the shifts,
-    // the multiply and divide, the converts and adjusts) holds the register file's write port
-    // through its own clock and the next (the result's write, then the flags'). 1: the E word
-    // that pops an opcode whose routine reads the accumulator first (the decode's wbs: OUT
-    // imm8,acc) waits for both clocks (`wbn`: the clocks this E word has stood), the model's
-    // placement (done_t = the E clock; OUT's three clocks before its port take start at
-    // wb_until); 2: the routine's entry word of such an opcode waits instead, the write-back
-    // counted as the two clocks after the post-E word (`wbp`), the coordinator's fallback
-    // (its placement two clocks after the model's)
+    // (MX5c) The stall outcome is a register. Every stall term reads ce_a registers only (the
+    // word, its derived bits, the sequencer's counters, the loader's staging slot and byte
+    // counts, the datapath's request registers and RAMEN, the bus unit's cycle registers), never
+    // tick A's logic. `stall_f(i)` is the five stalls below on the facts `i`; the outcome
+    // (ex, ex_pop, st_oth, why) is `st_r`, a ce_a register loaded with stall_f of the facts' next
+    // values (`si_nx`: tick B's word_nx and its derived bits, the ce_b registers the counters
+    // load from, the other modules' *_nx outputs: the D nets of their registers), in reset with
+    // stall_f of the facts as they stand. So st_r is stall_f(si_now) on every clock
+    // (`+v35_chk`), and tick A starts from a registered stall outcome. README "MX5" round 3
+    typedef struct packed {
+        logic       halted, f, e, wp, wb, susp, fw;
+        logic       post, mvbiu, unit, tsy, ea, disp, at_entry;
+        logic [1:0] wbn, wbp, tw;
+        logic       wpn, rf, rqp;
+        logic       q_stall, opr_rdy, rq_busy, wr_hold, s_wbs, s_modrm, d1_wbs, d1_hm, rmem;
+        logic       fetch_run, bus_wait, fetch_dph, b2b_now, f_dlv;
+    } v35_sin_t;
+    typedef struct packed {
+        logic       ex, exp, oth;
+        logic [4:0] why;
+    } v35_stl_t;
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic v35_stl_t stall_f(input v35_sin_t f);
+        logic st_q, st_f, st_slt, st_hld, st_bw, st_uh, st_wp, st_wbw, st_tsy, st_fch, st_sus;
+        logic st_rfl, base;
+        st_q   = f.q_stall;
+        st_f   = f.f && !f.opr_rdy;
+        st_slt = f.post && f.rq_busy;
+        st_hld = f.e && f.wr_hold;
+        // (MX1g) V35_MX1G_BW: the bus wait. A word that moves into the bus unit's registers (the
+        // address register, 1 and 2; the write datum, 1) waits while a memory cycle is in a wait
+        // state: the move crosses the internal bus the running cycle holds for its datum until
+        // READY (the frozen model's io_count=nowait: an I/O or DW-form request's setup counts no
+        // memory wait-state clock)
+        st_bw = `V35_MX1G_BW != 0 && f.bus_wait && f.mvbiu;
+        // (MX3b) V35_MX3B_UH: the unit hold. A multiply or divide step (MULS, DIVS) waits while a
+        // fetch is past its second clock (its datum phase, B3 and the wait states): the step's
+        // move crosses the internal bus between the units that the fetch holds for its datum
+        // (provisional: MX1g's BW reading with B3 included; the frozen model's _unit_hold,
+        // mechanisms Correction 26)
+        st_uh = `V35_MX3B_UH != 0 && f.fetch_dph && f.unit;
+        // (MX3) V35_MX3_WBR: the same law for a register form whose result is written by its
+        // post-E word (`wp`, the assembler's): that write holds the write port on the clock
+        // after E, and the E word that pops a wbs opcode (OUT imm8,acc) stands that one clock
+        // (`wpn`: the clock of the post-E write has been stood); the frozen model's wlatch (an
+        // I/O port form's start no earlier than the register form's last operand take + 4: MOV /
+        // ADD reg,reg before OUT imm8, README "MX3")
+        st_wp = `V35_MX3_WBR != 0 && f.e && f.wp && !f.wb && f.s_wbs && !f.wpn;
+        // (MX1f) V35_MX1F_WB: the write-back wait (the frozen model's wbsync: the port form of
+        // OUT waits for the previous instruction's write-back, wb_until = its done_t + wb). An E
+        // word flagged `wb` (a routine whose result's write-back runs on past its last act: the
+        // shifts, the multiply and divide, the converts and adjusts) holds the register file's
+        // write port through its own clock and the next (the result's write, then the flags').
+        // 1: the E word that pops an opcode whose routine reads the accumulator first (the
+        // decode's wbs: OUT imm8,acc) waits for both clocks (`wbn`: the clocks this E word has
+        // stood), the model's placement (done_t = the E clock; OUT's three clocks before its
+        // port take start at wb_until); 2: the routine's entry word of such an opcode waits
+        // instead, the write-back counted as the two clocks after the post-E word (`wbp`), the
+        // coordinator's fallback (its placement two clocks after the model's)
+        st_wbw = (`V35_MX1F_WB == 1 && f.e && f.wb && f.s_wbs && f.wbn != 2'd2)
+                 || st_wp
+                 || (`V35_MX1F_WB == 2 && f.at_entry && f.d1_wbs && (f.wbp == 2'd2 || f.wbp == 2'd1));
+        // (MX1c) the take sync (V35_MX1C_TSYNC): a word that pops no byte waits, after an
+        // operand byte's pop (a register form's ModR/M on its E word, an immediate byte of a
+        // register form; not a displacement, a port number or a memory form's byte), until the
+        // fetched words in flight or requested on the pop's clock have been delivered (`tw`: the
+        // deliveries still owed, two at most: the fetch on the bus and the one the request line
+        // asks for). A request that lapses (no fetch in flight, none granted, the line down) ends
+        // the wait. The machine explanation (the overseer's hypothesis): the operand byte's path
+        // from the queue and the word's write into the queue share the queue's port, the
+        // routine's next act waiting for the words the pop's room asked for. (The delivery's own
+        // clock frees the word: the last owed word delivered now.) (MX2) In a memory form the
+        // sync gates the EA's add (the model's ea clocks start on the delivery), not the book's
+        // EA clock before it
+        st_tsy = `V35_MX1C_TSYNC && f.tw != 2'd0 && !(f.tw == 2'd1 && f.f_dlv)
+                 && f.tsy && (!(`V35_MX2_TSM && f.rmem) || f.ea);
+        // (MX0c) the dispatch (the word after E: the staged opcode's decode into its routine's
+        // entry) waits while the bus unit runs a fetch cycle (V35_MX0C_DISPATCH >= 1), and a
+        // form with a ModR/M byte also on the clock a back-to-back fetch issues (2). The
+        // dispatch and the fetch exclude each other: one shared step (the decode's read and the
+        // queue's write) (3: the same law on the E word, the staged opcode's pop into the opcode
+        // register: the frozen model's start is that pop, its staging load (the IR load) stays
+        // free)
+        st_fch = `V35_MX0C_DISPATCH >= 3
+                 ? f.e && (f.fetch_run || (f.s_modrm && f.b2b_now))
+                 : f.disp
+                   && ((`V35_MX0C_DISPATCH >= 1 && f.fetch_run)
+                       || (`V35_MX0C_DISPATCH == 2 && f.d1_hm && f.b2b_now));
+        // (MX2) SUSP: the word waits while a fetch cycle runs (granted on an earlier clock,
+        // through its last clock: the bus unit's fetch_inflight); the decide's wait (`fw`): while
+        // a fetch cycle runs or its word is delivered (the queue's port the fetch's: the take
+        // sync's reading), the frozen model's untaken=wait
+        st_sus = (f.susp && f.fetch_run) || (f.fw && (f.fetch_run || f.f_dlv));
+        // (MX2) the refill: after a FLUSH, the E word that pops the target's opcode waits while
+        // the refill's fetch run lasts (`rf` from the FLUSH to that E): a fetch granted on an
+        // earlier clock in flight, or the request line up at the end of the last clock (`rqp`)
+        st_rfl = f.e && f.rf && (f.fetch_run || f.rqp);
+        // the stalls a popping word can meet (the loader's pops read this: a DISP word never
+        // pops; with the stall on the E word (3) it is the E word's too)
+        stall_f.oth = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_bw
+                      && !st_uh && !st_sus && !st_rfl && !st_fch;
+        base = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw && !st_bw
+               && !st_uh && !st_sus && !st_rfl;
+        stall_f.exp = base && !(`V35_MX0C_DISPATCH >= 3 && st_fch);
+        stall_f.ex = base && !st_fch;
+        stall_f.why = f.halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3
+                    : (st_hld || st_wbw) ? 5'd4 : st_bw ? 5'd3
+                    : st_uh ? 5'd10 : st_sus ? 5'd8 : st_rfl ? 5'd9 : st_fch ? 5'd6
+                    : st_tsy ? 5'd7 : 5'd0;
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
     reg  [1:0] wbn = 2'd0, wbp = 2'd0;
-    // (MX1g) V35_MX1G_BW: the bus wait. A word that moves into the bus unit's registers (the
-    // address register, 1 and 2; the write datum, 1) waits while a memory cycle is in a wait
-    // state: the move crosses the internal bus the running cycle holds for its datum until
-    // READY (the frozen model's io_count=nowait: an I/O or DW-form request's setup counts no
-    // memory wait-state clock)
-    wire st_bw = `V35_MX1G_BW != 0 && bus_wait && pd.mvbiu;
-    // (MX3b) V35_MX3B_UH: the unit hold. A multiply or divide step (MULS, DIVS) waits while a
-    // fetch is past its second clock (its datum phase, B3 and the wait states): the step's move
-    // crosses the internal bus between the units that the fetch holds for its datum (provisional:
-    // MX1g's BW reading with B3 included; the frozen model's _unit_hold, mechanisms Correction 26)
-    wire st_uh = `V35_MX3B_UH != 0 && fetch_dph && pd.unit;
-    // (MX3) `wpn`: the clock of the post-E write has been stood (set on the first clock the E word
-    // meets no other stall; cleared when it executes)
     reg        wpn = 1'b0;
-    wire st_oth;
-    wire st_wp = `V35_MX3_WBR != 0 && word.e && word.wp && !word.wb && s_wbs && !wpn;
-    // (MX3) V35_MX3_WBR: the same law for a register form whose result is written by its post-E
-    // word (`wp`, the assembler's): that write holds the write port on the clock after E, and the
-    // E word that pops a wbs opcode (OUT imm8,acc) stands that one clock (`wbn` 1); the frozen
-    // model's wlatch (an I/O port form's start no earlier than the register form's last operand
-    // take + 4: MOV / ADD reg,reg before OUT imm8, README "MX3")
-    wire st_wbw = (`V35_MX1F_WB == 1 && word.e && word.wb && s_wbs && wbn != 2'd2)
-                  || st_wp
-                  || (`V35_MX1F_WB == 2 && at_entry && dec1.wbs && (wbp == 2'd2 || wbp == 2'd1));
-    // (MX1c) the take sync (V35_MX1C_TSYNC): a word that pops no byte waits, after an operand
-    // byte's pop (a register form's ModR/M on its E word, an immediate byte of a register form;
-    // not a displacement, a port number or a memory form's byte), until the fetched words in
-    // flight or requested on the pop's clock have been delivered (`tw`: the deliveries still
-    // owed, two at most: the fetch on the bus and the one the request line asks for). A request
-    // that lapses (no fetch in flight, none granted, the line down) ends the wait. The machine
-    // explanation (the overseer's hypothesis): the operand byte's path from the queue and the
-    // word's write into the queue share the queue's port, the routine's next act waiting for the
-    // words the pop's room asked for
     reg  [1:0] tw = 2'd0;
-    // (the delivery's own clock frees the word: the last owed word delivered now)
-    wire st_tsy = `V35_MX1C_TSYNC && tw != 2'd0 && !(tw == 2'd1 && f_dlv)
-                  && pd.tsy
-                  // (MX2) in a memory form the sync gates the EA's add (the model's ea clocks
-                  // start on the delivery), not the book's EA clock before it
-                  && (!(`V35_MX2_TSM && rmem) || pd.ea);
-    // (MX0c) the dispatch (the word after E: the staged opcode's decode into its routine's
-    // entry) waits while the bus unit runs a fetch cycle (V35_MX0C_DISPATCH >= 1), and a form
-    // with a ModR/M byte also on the clock a back-to-back fetch issues (2). The dispatch and
-    // the fetch exclude each other: one shared step (the decode's read and the queue's write)
-    // (3: the same law on the E word, the staged opcode's pop into the opcode register: the
-    // frozen model's start is that pop, its staging load (the IR load) stays free)
-    wire st_fch = `V35_MX0C_DISPATCH >= 3
-                  ? word.e && (fetch_run || (s_modrm && b2b_now))
-                  : pd.disp
-                    && ((`V35_MX0C_DISPATCH >= 1 && fetch_run)
-                        || (`V35_MX0C_DISPATCH == 2 && dec1.has_modrm && b2b_now));
-    // (MX2) SUSP (the V20 ROM's SUSP before its FLUSH): the word suspends prefetching (the
-    // queue's request line held low from the clock the word is reached until the FLUSH: `sp`
-    // once it has executed) and waits while a fetch cycle runs (granted on an earlier clock,
-    // through its last clock: the bus unit's fetch_inflight). The machine reading: the routine
-    // reads the instruction pointer and replaces the stream; the bus unit's prefetch is stopped
-    // and the cycle it runs completes first (the V20's PC is the prefetch pointer less the
-    // queue's count; a doomed fetch is not started)
     reg        sp = 1'b0;
-    wire st_sus = (word.susp && fetch_run)
-                  // (MX2) the decide's wait (`fw`): while a fetch cycle runs or its word is
-                  // delivered (the queue's port the fetch's: the take sync's reading), the frozen
-                  // model's untaken=wait (a short transfer not taken waits for no fetch in flight
-                  // and a clock after its last); no suspension
-                  || (word.fw && (fetch_run || f_dlv));
-    // (MX3b) V35_MX3B_US: the unit's suspension of a dropped request. A fetch request the bus unit
-    // dropped with an aborted cycle (`drop`, from that grant to the next fetch's) is not raised
-    // again while the multiply / divide unit runs: prefetching suspended (the queue's susp) from
-    // the clock the word that loads the unit (MULI, DIVI, CVBI, CVDI) is reached to the clock the
-    // word that takes its result (MULF, DIVF, CVBF, CVDF) or an E is. Provisional: the frozen
-    // model's abort_unit=loop (the request an aborted cycle dropped at a multiply's start raised
-    // mtail before its end); F3-push-mulu_dw-k2-pE-w0: the fetch +119 against silicon's +147. A
-    // request not dropped still goes (F16-l-out-mulu_aw-pE-w0: the fetch at the load's clock +87)
+    reg        rf = 1'b0, rqp = 1'b0;
+    v35_sin_t  si_now;
+    always_comb begin
+        si_now.halted = halted;
+        si_now.f = word.f;
+        si_now.e = word.e;
+        si_now.wp = word.wp;
+        si_now.wb = word.wb;
+        si_now.susp = word.susp;
+        si_now.fw = word.fw;
+        si_now.post = pd.post;
+        si_now.mvbiu = pd.mvbiu;
+        si_now.unit = pd.unit;
+        si_now.tsy = pd.tsy;
+        si_now.ea = pd.ea;
+        si_now.disp = pd.disp;
+        si_now.at_entry = at_entry;
+        si_now.wbn = wbn;
+        si_now.wbp = wbp;
+        si_now.tw = tw;
+        si_now.wpn = wpn;
+        si_now.rf = rf;
+        si_now.rqp = rqp;
+        si_now.q_stall = q_stall;
+        si_now.opr_rdy = opr_rdy;
+        si_now.rq_busy = rq_busy;
+        si_now.wr_hold = wr_hold;
+        si_now.s_wbs = s_wbs;
+        si_now.s_modrm = s_modrm;
+        si_now.d1_wbs = dec1.wbs;
+        si_now.d1_hm = dec1.has_modrm;
+        si_now.rmem = rmem;
+        si_now.fetch_run = fetch_run;
+        si_now.bus_wait = bus_wait;
+        si_now.fetch_dph = fetch_dph;
+        si_now.b2b_now = b2b_now;
+        si_now.f_dlv = f_dlv;
+    end
+    v35_stl_t  st_r = '0;
+    wire       st_oth = st_r.oth;
+    assign ex_pop = st_r.exp;
+    assign ex = st_r.ex;
+    assign why = st_r.why;
+    // (MX3b) V35_MX3B_US: the unit's suspension of a dropped request. A fetch request the bus
+    // unit dropped with an aborted cycle (`drop`, from that grant to the next fetch's) is not
+    // raised again while the multiply / divide unit runs: prefetching suspended (the queue's
+    // susp) from the clock the word that loads the unit (MULI, DIVI, CVBI, CVDI) is reached to
+    // the clock the word that takes its result (MULF, DIVF, CVBF, CVDF) or an E is. Provisional:
+    // the frozen model's abort_unit=loop (the request an aborted cycle dropped at a multiply's
+    // start raised mtail before its end); F3-push-mulu_dw-k2-pE-w0: the fetch +119 against
+    // silicon's +147. A request not dropped still goes (F16-l-out-mulu_aw-pE-w0: the fetch at
+    // the load's clock +87)
     reg        un = 1'b0;
     wire       u_init = pd.uinit;
     wire       u_fin = pd.ufin;
@@ -284,26 +380,11 @@ module v35_useq
     reg        drop = 1'b0;
     wire       drop_n = f_abort ? 1'b1 : f_grant ? 1'b0 : drop;
     wire       u_sus = `V35_MX3B_US != 0 && drop && ((un && !u_fin) || u_init);
+    // (MX2) SUSP suspends prefetching (the queue's request line held low from the clock the word
+    // is reached until the FLUSH: `sp` once it has executed)
     assign q_susp = (sp && !word.flush) || word.susp      // (the FLUSH word issues the target's fetch)
                     || u_sus;
-    // (MX2) the refill: after a FLUSH, the E word that pops the target's opcode waits while the
-    // refill's fetch run lasts (`rf` from the FLUSH to that E): a fetch granted on an earlier
-    // clock in flight, or the request line up at the end of the last clock (`rqp`, a register:
-    // the run's next fetch is granted on this clock). The machine reading (README "MX2"): the
-    // queue's port is the refill's writes' while the run lasts, as the take sync's
-    reg        rf = 1'b0, rqp = 1'b0;
-    wire st_rfl = word.e && rf && (fetch_run || rqp);
-    // the stalls a popping word can meet (the loader's pops read this: a DISP word never pops;
-    // with the stall on the E word (3) it is the E word's too)
-    assign st_oth = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_bw
-                    && !st_uh && !st_sus && !st_rfl && !st_fch;
     wire wpn_n = (word.e && word.wp && !ex) ? (wpn || st_oth) : 1'b0;
-    wire base = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw && !st_bw
-                && !st_uh && !st_sus && !st_rfl;
-    assign ex_pop = base && !(`V35_MX0C_DISPATCH >= 3 && st_fch);
-    assign ex = base && !st_fch;
-    assign why = halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3 : (st_hld || st_wbw) ? 5'd4 : st_bw ? 5'd3
-               : st_uh ? 5'd10 : st_sus ? 5'd8 : st_rfl ? 5'd9 : st_fch ? 5'd6 : st_tsy ? 5'd7 : 5'd0;
     // the arming pop (tick A) and the deliveries owed from it
     // (MX3c) a 0F form's ModR/M byte, popped by its routine's EAC word, arms it as the E word's
     // ModR/M pop does (the frozen model's take sync after the page's operand take)
@@ -372,6 +453,56 @@ module v35_useq
             il_b <= il;
             w_b <= fmt_w;
         end
+    end
+
+    // (MX5c) the stall's facts as they stand after the coming ce_a (tick B: the next word and
+    // its derived bits, the ce_b registers the counters load, the other modules' next values)
+    // and the registered outcome
+    v35_upre_t pd_nx;
+    assign pd_nx = pre(word_nx);
+    assign w_dispm_nx = pd_nx.dispm;
+    v35_sin_t  si_nx;
+    always_comb begin
+        si_nx.halted = halted || (ex_b && word.halt);
+        si_nx.f = word_nx.f;
+        si_nx.e = word_nx.e;
+        si_nx.wp = word_nx.wp;
+        si_nx.wb = word_nx.wb;
+        si_nx.susp = word_nx.susp;
+        si_nx.fw = word_nx.fw;
+        si_nx.post = pd_nx.post;
+        si_nx.mvbiu = pd_nx.mvbiu;
+        si_nx.unit = pd_nx.unit;
+        si_nx.tsy = pd_nx.tsy;
+        si_nx.ea = pd_nx.ea;
+        si_nx.disp = pd_nx.disp;
+        si_nx.at_entry = ex_b ? word.seq == SQ_DISP : at_entry;
+        si_nx.wbn = wbn_b;
+        si_nx.wbp = wbp_b;
+        si_nx.tw = tw_b;
+        si_nx.wpn = wpn_b;
+        si_nx.rf = rf_b;
+        si_nx.rqp = rq_b;
+        si_nx.q_stall = q_stall_nx;
+        si_nx.opr_rdy = opr_rdy_nx;
+        si_nx.rq_busy = rq_busy_nx;
+        si_nx.wr_hold = wr_hold_nx;
+        si_nx.s_wbs = s_wbs_nx;
+        si_nx.s_modrm = s_modrm_nx;
+        si_nx.d1_wbs = d1_wbs_nx;
+        si_nx.d1_hm = d1_hm_nx;
+        si_nx.rmem = rmem_nx;
+        si_nx.fetch_run = fetch_run_nx;
+        si_nx.bus_wait = bus_wait_nx;
+        si_nx.fetch_dph = fetch_dph_nx;
+        si_nx.b2b_now = b2b_now_nx;
+        si_nx.f_dlv = f_dlv_nx;
+    end
+    always_ff @(posedge clock) begin
+        if (!reset_n)
+            st_r <= stall_f(si_now);
+        else if (ce_a)
+            st_r <= stall_f(si_nx);
     end
 
     // ------------------------------------------------------------ tick B: the next address
@@ -479,7 +610,7 @@ module v35_useq
             q0 <= r0;
             q1 <= r1;
             q2 <= r2;
-            pd <= pre(v35_uword_t'(rw[UWORD_BITS-1:0]));
+            pd <= pd_nx;
         end
     end
     always_ff @(posedge clock) begin
@@ -532,6 +663,15 @@ module v35_useq
     // (MX5) the address read at ce_b against tick B's, and the derived bits against the word
     reg [UADDR_W-1:0] upc_ab = '0;
     always @(posedge clock) if (ce_b) upc_ab <= upc_a;
+    // (MX5c) the registered stall outcome against the stalls of the facts as they stand, every
+    // clock
+    always @(posedge clock) begin
+        if (chk_on && reset_n && st_r !== stall_f(si_now)) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: useq: the registered stall outcome differs at %0t", $time);
+        end
+    end
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (upc_ab !== upc_n || pd !== pre(word)) begin

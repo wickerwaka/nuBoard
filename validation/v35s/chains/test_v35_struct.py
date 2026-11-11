@@ -170,15 +170,27 @@ class Ports(unittest.TestCase):
     def test_queue_head_facts_are_its_registers(self):
         """(MX5b) the queue's head facts (the loader's head-byte decode before the select) are
         its own registers, driven directly: the first stored byte, the latched byte, the latch's
-        bit, the in-flight word's parity; nothing else of that kind."""
+        bit, the in-flight word's parity; (MX5c) the first stored byte's and the latched byte's
+        tags (the bits stored beside each byte, opaque to the queue); nothing else of that kind."""
         if not (V35 / "v35_queue.sv").exists():
             return
         outs = {n for d, _, n in ports("v35_queue.sv") if d == "output" and n.startswith("h_")}
-        self.assertEqual(outs, {"h_q0", "h_lat", "h_latv", "h_odd"})
+        self.assertEqual(outs, {"h_q0", "h_lat", "h_latv", "h_odd", "h_q0t", "h_latt"})
         text = strip((V35 / "v35_queue.sv").read_text())
         for name, reg in (("h_q0", r"q\[0\]"), ("h_lat", "lat_byte"), ("h_latv", "lat_v"),
-                          ("h_odd", "odd")):
+                          ("h_odd", "odd"), ("h_q0t", r"q_t\[0\]"), ("h_latt", "lat_t")):
             self.assertRegex(text, rf"assign\s+{name}\s*=\s*{reg}\s*;")
+
+    def test_queue_next_values_are_its_registers_d(self):
+        """(MX5c) the queue's next-value outputs (the sequencer's registered stall reads them in
+        tick B) are exactly the D nets of four of its registers: the count, the latch's bit, the
+        parity, the discard; each loaded with that net at ce_a."""
+        if not (V35 / "v35_queue.sv").exists():
+            return
+        outs = {n for d, _, n in ports("v35_queue.sv") if d == "output" and n.endswith("_nx")}
+        self.assertEqual(outs, {"stored_nx", "latv_nx", "odd_nx", "discard_nx"})
+        text = strip((V35 / "v35_queue.sv").read_text())
+        self.assertRegex(text, r"cnt\s*<=\s*stored_nx\s*;")
 
     def test_bus_inputs_are_the_ports(self):
         if not (V35 / "v35_bus.sv").exists():

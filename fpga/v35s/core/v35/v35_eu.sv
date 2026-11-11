@@ -84,6 +84,14 @@ module v35_eu
     input  wire [15:0] done_data,
     input  wire        cpu_end_prev,    // a non-fetch cycle ended on t-1 (a pair's first half)
     input  wire        ramen,           // PRC.RAMEN
+    // (MX5c) tick B: the next values of the stall inputs (the sequencer's registered stall
+    // outcome): from the request registers' next state, the bus unit's next req_done, the
+    // next RAMEN
+    input  wire        req_done_nx,
+    input  wire        ramen_nx,
+    output wire        opr_rdy_nx,
+    output wire        rq_busy_nx,
+    output wire        wr_hold_nx,
     // to the sequencer (registers; rb_lo tick B)
     output wire        opr_rdy,
     output wire        rq_busy,
@@ -483,6 +491,17 @@ module v35_eu
     // next, the book check's machine (uasm.length: a post waits for the last request's end)
     assign rq_busy = rq_v || (rq_out && !req_done);
     assign wr_hold = rq_out && rq_wr && !rq_io && ramen && !req_done;
+    // (MX5c) the same three on the request registers' next values (the ce_a block below)
+    wire        rq_v_nx = post ? 1'b1 : ack_b ? 1'b0 : rq_v;
+    wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
+    wire        rq_rd_nx = post ? (word.bus == BQ_MEMR || word.bus == BQ_IOR) : rq_rd;
+    wire        rq_wr_nx = post ? (word.bus == BQ_MEMW || word.bus == BQ_IOW) : rq_wr;
+    wire        rq_io_nx = post ? b_io : rq_io;
+    wire        opr_v_nx = (ex_b && word.f) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
+    assign wr_hold_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && ramen_nx && !req_done_nx;
+    assign opr_rdy_nx = rq_wr_nx ? !wr_hold_nx
+                      : (opr_v_nx || (req_done_nx && rq_out_nx && rq_rd_nx));
+    assign rq_busy_nx = rq_v_nx || (rq_out_nx && !req_done_nx);
     assign c_sgn = sigma[15];
     assign c_dtrap = dtrap;
     // (MX2) the flush's target: SIGMA (the V20 ROM's SIGMA -> PC on its FLUSH word), in PS

@@ -2045,6 +2045,143 @@ The whole refresh-off corpus at both spacings (the default and `+v35_ticks=2`, `
 2. **Tick B (-0.85 ns, `dv.trap`):** the divider's init from `x_b` / `y_b` (the 32-bit negate and
    the compare). Next is the brief's state-machine step for the init, which I have not built.
 
+### Round 3 (the rulings: the grant on the request line, the pins' enables, the room's thresholds, the byte tags, the stall outcome a tick earlier)
+
+**Not closed yet, by 0.261 ns on one seed of three.** The top's worst setup is +0.729 ns on seed 1, +0.913 on seed 2 and -0.261 on seed 3 (round 2: -5.002 / -4.491 / -5.267). The gate asks >= +1.0 on seed 1 or >= 0 on all three. Hold +0.306 / +0.307. Tick B closes in the top: its worst is the psw at about +2.0, the divider's init `x_b` -> `dv.trap` at +2.4 on seed 1. Every module closes alone (below). The behaviour is the same as at 6a629bb (below).
+
+#### The splits (round 3)
+
+14. **The grant on the request line** (ruling 3, `v35_bus` `gnt_f(fr)`). The priority is written once as a function of `fr` (fetch_req's value), with every other input as it stands. The grant is `fetch_req ? gnt_f(1) : gnt_f(0)`, the line selecting last. `fetch_raise` is not a bus input, so it has no expansion. The bus unit reads the same inputs as before. `+v35_chk` compares the expanded grant with the direct form (kept under `ifndef SYNTHESIS`) every fabric clock.
+15. **The pins' registers per group** (ruling 4, `v35_bus` `pin_f(g)`). The B1 / B2 update at the edge is written as a function of the grant g, with the registers' hold values included. Each pin group loads `fetch_req ? pn1 : pn0`, where `pnX = ce_e ? pin_f(gnX) : hold`. The groups are read_write, the mux address, {A0, A19, A18/UBE}, the refresh row and the write datum's {dp_v, dp_half}. Each group's select is a kept node (`(* syn_keep = "true" *)`, Efinity's `syn-attr-keep`). The registers carry `(* syn_extract_enable = "false" *)`, so no enable is inferred on them: each loads its group's select every fabric clock, with no CE. The pins' output ports become wires driven by these registers, with the same values. Measured: the pins' enable net (base: `g_fetch` fo=50 -> two LUTs -> the CE nets, 3.5 ns) is gone. The request line now reaches the pins in two LUT levels. Kept cofactors (gn1 / gn0 and pn1 / pn0 as nodes) were measured worse (-9.6 ns, s34c), because q_low, q_word and the triple clock's strobes are as late as the line.
+16. **The room's thresholds ahead of the loader's inputs** (ruling 5, `v35_queue`). The tests the request line, q_low and q_word read are compares of the loader's three inputs with thresholds formed from registers. Each threshold is a kept node:
+    - occ <= c is rel >= E - (c + unc_a - stg), with E = eq_r + the arrival + the flight. That is eight thresholds `kv`, one for each of c + d = -2 .. 8.
+    - cnt_a != 0 is rd != avail_w.
+    - cnt_a >= 6 is rd <= avail_w - 6.
+    - The physical room is rd >= avail_w + 2 infl_a - 5.
+    - q_short's unrel_a == 1 is rd - rel == 1 - unrel.
+
+    These identities hold under the queue's invariants (rd <= avail_w, rel <= unrel + rd). `+v35_chk` compares fetch_req, fetch_raise, q_word, q_low, lat_hold and the fetch address with the old arithmetic every clock. The first form measured was the request's facts per release count, rel selecting last (`rq_f(r)`, -2.857 at the step). It was replaced by this form, which measured the round's best (+0.729). Registered per-rel thresholds were not needed: E is formed from registers early in tick A.
+17. **The byte tags and the opcode shares** (ruling 1, the second form; `v35_loader`, `v35_queue`, the assembler).
+    - **The assembler.** It emits v35_umodrm's two shares as the RTL reads them: `v35_umdsp(mb)` (the displacement bytes, of the byte alone) and `v35_umimm(op, r01)` (the immediate bytes, of the opcode and r01 = mb[5:4] == 0). v35_umodrm is now their sum, the same table. test_uasm and the book check are unchanged.
+    - **The tag.** The loader's `bt_f(b)` is 6 bits: dsp, r01, upg (v35_upage) and the direct form (mod 00 rm 110). The loader forms the tags of the delivered word's two bytes in tick A (`dlv_tag`, from the bus unit's datum register). The queue stores each tag beside its byte, through the storage and the latch. Its writes take the tag from the same window position as the byte (`seqt`, beside `seqb`).
+    - **The queue's ports.** The queue gains the input `dlv_tag` (2 x QTAG_W) and the outputs `h_q0t = q_t[0]` and `h_latt = lat_t`. These are its own stored bits, opaque to it. `QTAG_W` (6) is in v35_front_pkg.
+    - **The opcode's share.** `{v35_umimm(o, 1), v35_umimm(o, 0)}` is a register beside s_b (`ims`, loaded with s_b) and beside op (`imo`, loaded from op_nx), as ds and d1r are.
+    - **The effect.** umodrm(s_b, b) is dsp(tag) + ims[r01(tag)], and no decode table sits between a stored candidate and z. The delivered word's two bytes are the only content decoded in tick A.
+    - **The checks.** `+v35_chk` compares the head facts with the tables' facts on the byte itself (`hd_ref`). It also compares each stored tag with its byte's tag and ims / imo with the tables.
+18. **The stall outcome a register** (ruling 2, `v35_useq` `stall_f`, `st_r`).
+    - **The function.** The five stalls are written as a function of their facts (`v35_sin_t`: the word's fields, its derived bits, the sequencer's counters, q_stall, s_wbs, s_modrm, dec1's wbs / has_modrm, rmem, opr_rdy, rq_busy, wr_hold, and the bus unit's fetch_run, in_wait, fetch_past_b2, b2b and the delivery). The outcome {ex, ex_pop, st_oth, why} is `st_r`, a ce_a register loaded with `stall_f(si_nx)`. In reset it is `stall_f(si_now)`.
+    - **The next values.** si_nx is built from:
+      - word_nx and pre(word_nx);
+      - the ce_b registers the counters load from (tw_b, wbn_b, wpn_b, wbp_b, rf_b, rq_b);
+      - halted's and at_entry's D nets;
+      - the modules' new `*_nx` outputs, which carry the D nets of their ce_a registers.
+    - **The new outputs.**
+      - The bus unit: `fetch_inflight_nx`, `fetch_past_b2_nx`, `in_wait_nx`, `b2b_now_nx`, `dlv_v_nx`, `dlv_kind_nx`, `eu_done_nx`. Its `b2b` and `d_v` load those wires.
+      - The queue: `stored_nx`, `latv_nx`, `odd_nx`, `discard_nx`. `cnt` loads `stored_nx`.
+      - The loader: `q_stall_nx`, `s_modrm_nx`, `s_wbs_nx`, `d1_wbs_nx`, `d1_hm_nx`. Its s_v, ds, wn and d1r load those nets.
+      - The EU: `opr_rdy_nx`, `rq_busy_nx`, `wr_hold_nx`, from its request registers' next values, the bus unit's `eu_done_nx` and the next RAMEN.
+      - v35_sfr: `prc_at`, PRC after the write that `wr_at` (the store's write condition without its enable) says lands at the coming ce_a.
+    - **The check.** `+v35_chk` compares st_r with stall_f(si_now) every fabric clock. A deliberate break (the check inverted) printed 160 reports on F4, so the check reaches the replay log.
+    - **What tick A reads.** Every reader of ex in tick A (the loader's selects, the ROM's read address, the take sync, the room's flush) starts from a flop.
+19. **The loader's outcomes registered, z's cases registered** (ruling 2, the loader's facts; `v35_loader`).
+    - **The registered outcomes.** `ta` is written on a struct of its register inputs (`v35_lin_t`: `ln` the facts as they stand, `lx` their next values). The outcomes on the queue's port and the bus unit's strobes are rd, rel, stg, l_load, opop, mpop, epop and resv_e. For each of ta(1, flush_w, z = 1), ta(1, flush_w, z = 0) and ta(0, 0, need == 0), these outcomes are a ce_a register (`lr1`, `lr0`, `lrx`) loaded with ta of `lx`. The head byte's lookups enter only need_n, e_rmodrm and V35_MX3_IRL's wait.
+    - **The tick-A select.** Tick A selects `z1f ? (ex ? lr1 : lrx) : (ex ? lr0 : lrx)`. The two inner selects are kept nodes, so z1f is the last select.
+    - **z's cases.** z1_f's cases and targets are a register (`zc`: k, the dsp value that matches for r01 = 1 / 0, the upg value and its valid bit), loaded with `zc_f(lx, ...)`. So z of a candidate is `k || dsp == (r01 ? a1 : a0) || (gv && upg == g)` on its tag. z1f selects the stored candidates' compares (from the queue's tags) and the delivered word's two bytes' compares (each decoded) by the registered head select, last.
+    - **IRL.** With V35_MX3_IRL != 0 the staging load reads the head byte's mode, so the outputs are ltx's (`LRG`).
+    - **The check.** `+v35_chk` compares the selected outcomes with lrg_f(ltx), z1f with hh.z, and zc with zc_f(ln) every fabric clock.
+
+Ruling 6 (tick B's divider): not built. With the operands at ce_b flops (round 2) the divider's init `x_b` -> `dv.trap` is at +2.436 in the top on seed 1 and the EU closes alone at +4.090. Tick B's worst in the top is the psw at +1.999.
+
+The Ports rule (`test_v35_struct.Ports`) grows two parts:
+- The queue's `h_*` outputs are exactly h_q0, h_lat, h_latv, h_odd, h_q0t and h_latt, each assigned from its own register.
+- Its `*_nx` outputs are exactly stored_nx, latv_nx, odd_nx and discard_nx, and `cnt` loads `stored_nx`.
+
+The bus unit's inputs are unchanged (the rule's BUS_INPUTS stands). It gains outputs only: the next values above.
+
+#### Measured (the whole core, `v35_timing.sh top`, seed 1 unless named, cumulative on 6a629bb)
+
+| step | map LUT4 / ADD / FF / RAM_5K | worst setup | failing (of 2,000) | the worst path |
+| --- | --- | --- | --- | --- |
+| 6a629bb (round 2) | 5,914 / 414 / 1,253 / 73 | -5.002 | 344 | s_b -> umodrm per candidate -> z -> rel -> the room -> g_fetch (fo 50) -> the pins' CE |
+| 14 + 15 (the grant on the line; the pins' groups, the CE inferred by the tool) | 6,071 / 406 / 1,255 / 73 | -2.819 | 73 | ld_op -> umodrm -> z -> rel -> the room -> fetch_req -> the pins' CE |
+| 15 with no inferred enable (the D selects) | 5,961 / 406 / 1,256 / 73 | -3.240 | 72 | word.pop -> the stall -> ex -> rel -> the room -> fetch_req -> the pins' D |
+| + 16, first form (rq_f(r), rel selecting last) | 6,084 / 406 / 1,261 / 73 | -2.857 | 53 | done_data -> the head byte's lookups -> z -> the room -> g_fetch -> g_addr_b |
+| + 17 (the tags, the opcode shares) | 6,194 / 406 / 1,303 / 73 | -1.563 | 46 | need -> z -> rel -> the room -> the grant -> useq tw_b |
+| + 18 (the stall outcome a register) | 6,188 / 406 / 1,307 / 73 | -0.010 (seeds 2 / 3: -1.429 / -0.777) | 1 | word.flush -> o1 / t1 -> z's compare -> rd -> the room (3) -> fetch_req -> the pins |
+| + 19 (the loader's outcomes registered) | 6,294 / 410 / 1,324 / 73 | -2.595 | 62 | done_data -> z (8 LUTs) -> rd -> the room -> the pins |
+| + 19's zc, z on the tags (z1f kept) | 6,449 / 410 / 1,337 / 73 | -3.911 | 70 | q_hlv -> the byte select -> upage -> z1f (9 LUTs) -> the room -> the pins |
+| + the delivered word's two bytes decoded in parallel, the head select last | 6,395 / 410 / 1,332 / 73 | -1.740 | 52 | done_data -> z1f (5) -> rd -> the room (6) -> the pins |
+| + the ex-selected outcomes kept, q_short's compare | 6,558 / 426 / 1,332 / 73 | -3.072 (seeds 2 / 3: -2.465 / -1.759) | 208 | done_data -> upage (6) -> z1f -> rd -> the room (7) -> g_start_b |
+| **+ 16, second form (the thresholds kept, compares): round 3 as handed back** | **6,413 / 403 / 1,345 / 73** | **+0.729 (seeds 2 / 3: +0.913 / -0.261)** | **0 (0 / 2)** | done_data -> z1f -> rel -> the room (4) -> fetch_req -> req_ack -> g_abort -> useq drop_n |
+
+Measured and not kept (each on the hand-back's sources, three seeds):
+- The second-form queue on step 18's loader, without 19: -1.217 on seed 1 (60 failing).
+- The datum register copied for the loader's decode, with q_word written without fetch_req: -2.202 / -2.552 / -1.575. The synthesizer merged the copy into done_r ("merged to equivalence"), despite syn_preserve / syn_keep.
+- le_req, phys_ok and lat_hold kept as nodes: -0.618 / -0.529 / -0.999.
+- The pins' cofactors pn1 / pn0 kept as nodes: -1.374 / -1.202 / -0.486.
+
+The same sources and seed give the same result: the hand-back's sources (the snapshot of +0.729 with the round's comments added) gave +0.729 / +0.913 / -0.261 again. Across these structures the spread is 1 to 4 ns, larger than the spread across seeds (about 1 ns). The synthesizer maps an 8-input decode or a select chain as a serial LUT chain when nothing pins its structure.
+
+The worst path at the hand-back (seed 3, -0.261 ns, 15 LUT levels, the arrival's):
+
+| | to | ns (cumulative) | the step |
+| --- | --- | --- | --- |
+| start | `b_done_data[3]` (the bus unit's datum register, fo 17) | 2.218 | clock-to-out and the route |
+| 5 LUTs | `z1f` (fo 11) | 7.203 | the delivered byte's decode (v35_upage: 3 LUTs) and the tag's compares with `zc` (2 LUTs), the head select |
+| 1 LUT | `ld_rel[0]` (fo 9) | 8.569 | the loader's select by z1f of the registered outcomes |
+| 5 LUTs | `q_fetch_req` (fo 19) | 13.158 | the queue: rel against the kept thresholds `kv` (2 LUTs), the unc_a / stg / flush select, fetch_raise, fetch_req (with the latch's hold) |
+| 2 LUTs | `pk_ah[0]` -> `c_a18_ube` D | 15.577 | the bus unit: the grant's cofactor on q_low / q_word / the strobes, the pin group's select |
+
+The data path is 15.577 ns against 15.316 allowed. On seed 1 the same chain reaches `fetch_req` at 11.946 and ends at the sequencer's `drop_n` through `req_ack` and `g_abort` (+0.729).
+
+| module alone (round 3) | LUT4 / ADD / FF / RAM_5K | worst setup | levels | the worst path |
+| --- | --- | --- | --- | --- |
+| v35_useq | 485 / 8 / 585 / 47 | +5.026 | 6 | rom1's read data -> the stall of the next facts -> st_r (tick B) |
+| v35_loader | 2,109 / 72 / 900 / 40 | +3.516 | 8 | the wrapper's input -> the loader's facts -> an output |
+| v35_queue | 991 / 65 / 361 / 0 | +5.309 | 7 | an input -> an output's enable |
+| v35_bus | 402 / 6 / 450 / 0 | +5.396 | 4 | g_start_b -> an output's enable |
+| v35_eu | 3,301 / 323 / 1,148 / 0 | +4.090 | 12 | x_b -> the ALU -> psw[2] |
+| v35_regram | 25 / 0 / 56 / 4 | +10.093 (hold +0.086) | 1 | an input -> the RAM's read enable |
+
+**Every module closes alone** (hold +0.307, the register RAM +0.086). The whole core's map: 6,413 LUT4 (+499 against round 2), 403 ADD, 1,345 FF (+92: st_r, the tags 42, lr1 / lr0 / lrx, zc, ims / imo), 73 RAM_5K (unchanged; the core's limit is 80).
+
+#### Behaviour (round 3, against 6a629bb = fec2386's behaviour)
+
+The whole refresh-off corpus at both spacings (the default and `+v35_ticks=2`, `+v35_chk`): **6,207 / 30,536 exact at both. The per-family tables are identical to 6a629bb's (= fec2386's: the misses-diff base, MX3c's t1 / t2). The per-run first divergences are identical: 30,536 runs compared at each spacing, 0 differ. `+v35_chk` is silent.** It now also checks:
+- the expanded grant and the pins' selects against the direct form;
+- the room's compares against the old arithmetic;
+- the stored tags, ims and imo, and the head facts against the tables;
+- st_r against the stalls of the facts as they stand;
+- the loader's registered outcomes and zc.
+
+The other checks:
+- Write data 99,906 / 106,824.
+- `--regfile`: 107,859 vectors, 0 bad (pass 104,763). `--fn`: 19,752 vectors, 0 bad.
+- Lint is clean in the five configurations and with UH 0, US 0, WBR 0, IRL 1, IRL 2, DISPATCH 3, WR 3, WB 2 and BW 2.
+- test_uasm, test_v35_struct, test_chain_lane and test_rtl_vectors: 48 OK. test_v35_struct gains the queue's next-value rule and the tag outputs in the head-facts rule.
+- The nine offline modules: 941 tests with the four known failures (test_freeze, test_sim TrackedFit x3), as at 6a629bb.
+
+#### Open (round 3)
+
+1. **Tick A, the residual (-0.261 ns on seed 3; +0.729 / +0.913 on seeds 1 / 2).** The chain is the delivered word's head byte on its own delivery clock:
+   - the datum register (2.2 ns with its route);
+   - the byte's decode and z's compare (5 LUTs, 5.0 ns);
+   - the loader's select (1 LUT, 1.4 ns);
+   - the queue's room (5 LUTs, 4.6 ns);
+   - the grant and the pin group's select (2 LUTs, 2.4 ns).
+
+   Every input on it is a register except the delivered byte, which is the one content-dependent input left in tick A (ruling 2). The remaining levels are LUT4 fan-in rather than logic that could move:
+   - the decode is an 8-input table (v35_upage) and a 7-input compare;
+   - the queue's request is a function of three late inputs (rel, rd, stg) against early thresholds;
+   - the grant reads three late queue outputs (fetch_req, q_low, q_word).
+
+   What would take the last nanosecond needs a structural choice:
+   - (a) a copy of the datum register beside the loader's decode, which the synthesizer merges unless the copy is made inequivalent (its routing is about 1.3 ns of the 2.2);
+   - (b) q_low and q_word expanded in the grant as fetch_req is (ruling 3's principle on two more of the bus unit's own inputs; measured nowhere yet);
+   - (c) the placement's spread itself: the same netlist ranges over about 1.2 ns across seeds.
+2. **The structure's sensitivity.** Equivalent sources map 1 to 4 ns apart (the table). The hand-back is the best measured, not a local optimum of a model. The kept nodes (`syn_keep`) on the thresholds and on the loader's two ex-selects are what fix the queue's and the loader's depth. Removing either measured worse.
+3. **Ruling 6** is not needed for the gate: tick B's divider has +2.4 ns in the top and the EU closes alone at +4.1.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

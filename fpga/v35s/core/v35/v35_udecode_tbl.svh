@@ -931,24 +931,30 @@
         v35_udec2 = f;
     endfunction
 
-    function automatic logic [2:0] v35_umodrm(input logic [7:0] op, input logic [7:0] mb);
-        logic [2:0] dsp;
-        dsp = mb[7:6] == 2'd1 ? 3'd1 : mb[7:6] == 2'd2 ? 3'd2 : (mb[7:6] == 2'd0 && mb[2:0] == 3'd6) ? 3'd2 : 3'd0;
+    function automatic logic [2:0] v35_umdsp(input logic [7:0] mb);
+        v35_umdsp = mb[7:6] == 2'd1 ? 3'd1 : mb[7:6] == 2'd2 ? 3'd2 : (mb[7:6] == 2'd0 && mb[2:0] == 3'd6) ? 3'd2 : 3'd0;
+    endfunction
+
+    function automatic logic [2:0] v35_umimm(input logic [7:0] op, input logic r01);
         case (op)
-            8'h69: v35_umodrm = dsp + 3'd2;
-            8'h6B: v35_umodrm = dsp + 3'd1;
-            8'h80: v35_umodrm = dsp + 3'd1;
-            8'h81: v35_umodrm = dsp + 3'd2;
-            8'h82: v35_umodrm = dsp + 3'd1;
-            8'h83: v35_umodrm = dsp + 3'd1;
-            8'hC0: v35_umodrm = dsp + 3'd1;
-            8'hC1: v35_umodrm = dsp + 3'd1;
-            8'hC6: v35_umodrm = dsp + 3'd1;
-            8'hC7: v35_umodrm = dsp + 3'd2;
-            8'hF6: v35_umodrm = dsp + (mb[5:4] == 2'd0 ? 3'd1 : 3'd0);
-            8'hF7: v35_umodrm = dsp + (mb[5:4] == 2'd0 ? 3'd2 : 3'd0);
-            default: v35_umodrm = dsp;
+            8'h69: v35_umimm = 3'd2;
+            8'h6B: v35_umimm = 3'd1;
+            8'h80: v35_umimm = 3'd1;
+            8'h81: v35_umimm = 3'd2;
+            8'h82: v35_umimm = 3'd1;
+            8'h83: v35_umimm = 3'd1;
+            8'hC0: v35_umimm = 3'd1;
+            8'hC1: v35_umimm = 3'd1;
+            8'hC6: v35_umimm = 3'd1;
+            8'hC7: v35_umimm = 3'd2;
+            8'hF6: v35_umimm = r01 ? 3'd1 : 3'd0;
+            8'hF7: v35_umimm = r01 ? 3'd2 : 3'd0;
+            default: v35_umimm = 3'd0;
         endcase
+    endfunction
+
+    function automatic logic [2:0] v35_umodrm(input logic [7:0] op, input logic [7:0] mb);
+        v35_umodrm = v35_umdsp(mb) + v35_umimm(op, mb[5:4] == 2'd0);
     endfunction
 
     function automatic logic [2:0] v35_upage(input logic [7:0] b);

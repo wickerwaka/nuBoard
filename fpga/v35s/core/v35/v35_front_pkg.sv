@@ -46,6 +46,9 @@ package v35_front_pkg;
     localparam logic [19:0] SFR_PAGE = 20'hFFF00;   // eu.SFR_PAGE: an on-chip store
     localparam int WTC_MEM_LSB = 0;             // machine.waits_of: WTC field 0 (memory, fetch)
     localparam int WTC_IO_LSB = 14;             // ... field 7 (I/O, the SFR store)
+    // (MX5c) the bits the queue stores beside each byte (the loader's byte tag: written with the
+    // byte, opaque to the queue)
+    localparam int QTAG_W = 6;
 
     // ------------------------------------------------------------ fit integers (fit.json)
     localparam int FIT_HOLD_Q = 3;              // hold_q

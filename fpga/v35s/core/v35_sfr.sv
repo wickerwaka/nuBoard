@@ -24,6 +24,10 @@ module v35_sfr (
     input  wire [1:0]  width,
     input  wire [15:0] data,
     output reg  [7:0]  prc,
+    // (MX5c, the core v2's registered stall) PRC as it stands after a write of the cycle that
+    // `wr_at` says ends at the coming write enable (wr_at: wr's condition without its enable)
+    input  wire        wr_at,
+    output wire [7:0]  prc_at,
     output reg  [15:0] wtc,
     output reg  [7:0]  rfm,
     output reg  [7:0]  idb
@@ -54,6 +58,14 @@ module v35_sfr (
 
     wire in_page = addr[19:12] == idb && addr[11:8] == 4'hF;
     wire top = addr == 20'hFFFFF;
+    function automatic logic [7:0] prc_put(input logic [7:0] p, input logic [7:0] offset,
+                                           input logic [7:0] value);
+        prc_put = offset == 8'hEB ? value : p;
+    endfunction
+    assign prc_at = (!wr_at || top || !in_page) ? prc
+                  : width == BW_WORD ? prc_put(prc_put(prc, addr[7:0], data[7:0]),
+                                               addr[7:0] | 8'd1, data[15:8])
+                  : prc_put(prc, addr[7:0], width == BW_HI ? data[15:8] : data[7:0]);
 
     always @(posedge clock) begin
         if (!reset_n) begin
