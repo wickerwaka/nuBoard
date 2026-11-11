@@ -660,3 +660,31 @@ change to the text above, kept here rather than rewritten into it.
     between them from the book's formula, and the refill as the take sync's port reading. Each class's
     gap is to be checked against the book's words; a gap the book does not give is an OPEN word with its
     run, not a count.
+18. **§3.8, the flush and the refill as built (MX2; item 17 resolved).** The SUSP word holds the queue's
+    request line low from the word it stands on to the FLUSH and waits while a fetch is on the bus; the
+    class gap is the routine's words between SUSP and FLUSH from the book's formula (BR short 5, BR near 3,
+    a taken conditional 8), each over the book an OPEN word with its run. FLUSH empties the queue and
+    loads PC from SIGMA (the V20's `SIGMA -> PC FLUSH`); the target's fetch issues on that clock. The
+    refill gate: the E word that pops the target's opcode waits while a fetch is in flight or while the
+    request line was up at the end of the previous clock (the take sync's port reading). A short
+    transfer's displacement is popped on E with its opcode and arms the take sync.
+19. **§3.2 / §5, item 2 amended.** ADD / CMP / MOV reg,reg are the book's 2: silicon's 3 is the take sync's
+    wait, not a register-read word (MX1b's word, withdrawn at MX2: +248 / −6). An F word after a write
+    waits the write's end under RAMEN as a data word does. A request the model posts on a byte's take
+    holds fetches; the RTL's equivalent is the reservation on the word that pops that byte (MOV [d16],acc's
+    moved to its last pop).
+20. **§3.8, the not-taken decide's wait (MX2, provisional).** A short transfer not taken waits while a
+    fetch cycle runs or delivers its word (the model's untaken=wait), one clock more than SUSP's wait, on a
+    word flag with no count. The overseer's provisional reading: the decide's not-taken exit continues into
+    the next instruction's E pop, which the delivered word's write into the queue blocks on that clock (the
+    take sync's mechanism, a clock wider); the instruction pointer's read is the other candidate; the
+    sources name neither. Whether this and the take sync's E gate are one law is open.
+21. **§3.8, not causal in a routine (MX2, recorded).** The frozen model stops a taken DBNZ / BCWZ / DBNZE's
+    fetch requests from S + 2, before the routine can know the outcome (the model knows it at the start),
+    and its refill_start=full_io starts no IN / OUT on a 3-clock fetch's delivery clock by decoding the
+    next opcode. Neither is built; the runs they cost (DBNZ taken at odd parity −14, the OUT frames of F23
+    / F35 after a refill) are the rule's expected cost until a causal reading is found. Also open from
+    MX2: the model's IR load a clock after a register form's ModR/M take (nx 1), the memory-indirect forms
+    and BRK at odd parity under the model's group setup, io_older (an OUT waiting out a fetch requested
+    before its start: 34 runs) and xfer_nt (a not-taken short transfer at an odd address holding its
+    re-raised fetch to the instruction's end: 19 runs).

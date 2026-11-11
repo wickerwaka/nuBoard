@@ -73,9 +73,9 @@ routine pop_psw op=9D resv=e book="POP PSW" why="OPEN: the frozen model's positi
     f wr=PSW ws=OPR e                       ; F: the PSW <- the datum (bits 11:0) (007A); E
 
 ; MOV [d16],acc (V20 MOV_DMEM_ACC 0088-008B). F1's store marker: measured 9
-routine st_dir op=A2,A3 resv=e book="MOV dmem,acc" diff=1 why="beyond the book: a named act, the post on the word after the address register's load (the request reads the address register a word later, as the EA's add: README MX1); the two pops at S+2 and S+3, the address and the datum, the post at S+5 (the write at S+6), E held to the write's end: 9 (F1-store-m2-pE-w0: the frozen model's T at S+2 S+3, the write at S+6, S-to-S 9; a6 9)"
+routine st_dir op=A2,A3 book="MOV dmem,acc" diff=1 why="beyond the book: a named act, the post on the word after the address register's load (the request reads the address register a word later, as the EA's add: README MX1); the two pops at S+2 and S+3, the address and the datum, the post at S+5 (the write at S+6), E held to the write's end: 9 (F1-store-m2-pE-w0: the frozen model's T at S+2 S+3, the write at S+6, S-to-S 9; a6 9)"
     pop=dl                                  ; pop the address's low byte (0088 Q -> tmpbL)
-    pop=dh                                  ; pop its high byte (0089)
+    pop=dh resv                             ; pop its high byte (0089); the reservation (MX2: the frozen model posts the write on this take, F37-push-ctl-ptr-pE-w0: the fetch at S on the opcode's room, the write after the fetch at S+3)
     ea=DISP ra=AW d1=OPRW s1=RA             ; the address register <- the displacement; the accumulator into the write datum
     bus=MEMW                                ; post the write (008A MEMW)
     e                                       ; E: held until the write's end (RAMEN)
@@ -144,21 +144,5 @@ routine in_i8 op=E4,E5 book="IN acc,imm8" diff=1 why="OPEN: silicon longer than 
     open                                    ; OPEN: a clock of the model's with no act (IN acc,imm8 15)
     f wr=AW ws=OPR e                        ; F: the accumulator <- the datum; E
 
-; BR far (EA): the reset vector's. The segment and the offset popped, PS written, the queue
-; flushed to the offset, the E word waits for the new stream's first byte
-routine br_far op=EA book="BR far-label" why="OPEN: the book's 15: four pops, the PS write, the flush, the E word (and the refetch's stall, not counted); seven book clocks with no act before the flush"
-    pop=il                                  ; pop the offset's low byte
-    pop=ih                                  ; pop its high byte
-    pop=dl                                  ; pop the segment's low byte
-    pop=dh                                  ; pop its high byte
-    wr=PS wid=WORD ws=DISP                  ; PS <- the segment (RAM and the flop)
-    open                                    ; OPEN: a book clock with no act (BR far-label 15)
-    open                                    ; OPEN: a book clock with no act (BR far-label 15)
-    open                                    ; OPEN: a book clock with no act (BR far-label 15)
-    open                                    ; OPEN: a book clock with no act (BR far-label 15)
-    open                                    ; OPEN: a book clock with no act (BR far-label 15)
-    open                                    ; OPEN: a book clock with no act (BR far-label 15)
-    open                                    ; OPEN: a book clock with no act (BR far-label 15)
-    flush                                   ; the queue flushed: the stream from the offset in PS
-    e                                       ; E: pop the new stream's first opcode (stalls until it is fetched)
+; BR far (EA, the reset vector's): (MX2) xfer.uasm
 

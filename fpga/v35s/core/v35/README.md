@@ -1112,6 +1112,159 @@ Open (MX2, part 1 handed back): the transfers (xfer.uasm) are not built; the mod
 gaps (fgap 5, branch_near 3, cfgap 8, nfgap 1) are to be checked against the SUSP reading class
 by class; the load's tail length under waits (the F word's position).
 
+## MX2: the transfers and the stack (urom/xfer.uasm)
+
+### The acts and the laws
+
+- **The word** (91 bits; MX1 88): `susp` (SUSP: prefetching suspended from the word until the
+  FLUSH, the word waiting while a fetch cycle runs: the V20 ROM's SUSP), `fw` (the not-taken
+  decide's wait: while a fetch cycle runs or delivers its word; no suspension), the segment
+  field 3 bits (`SG_ZERO`: a break's vector table). New values: `SR_PC` (the instruction
+  pointer: the loader's offset of the byte after the routine's last pop, `s_ip` of the staged
+  opcode or `ipo` of the next queue byte, two 16-bit registers counted as `pc` is and loaded by
+  the flush), `SR_VEC` (4n: the type byte popped, or the format's n for BRK 3 / BRKV; it replaces
+  `SR_ONES`, which no word read), `AL_CITF` (IE and BRK cleared), `CD_XC` (the format's
+  condition) and `CD_SNZ` (SIGMA not zero).
+- **The decode** (`v35_udec_t` + 6 bits): `e2` (the E word pops the opcode's second byte with
+  it: the short transfers' displacement, into IL; the frozen model's take on the start clock; it
+  arms the take sync as a register form's ModR/M does) and `xc` (the encoding's condition: the
+  PSW's sixteen for 70-7F and BRKV, DBNZNE's NZ and DBNZE's Z, DBNZ's CW - 1 != 0, BCWZ's
+  CW == 0 on SIGMA). The short transfers' displacement is sign-extended (`sx`), CALL / BR near,
+  far and RET imm16 / RETF imm16 have word immediates (`immw`), BRK 3 / BRKV's vector number is
+  the format's `op3`. All in the generated table; no RTL compares an opcode.
+- **The flush's target is SIGMA** (the V20 ROM's `SIGMA -> PC` on its FLUSH word); the queue's
+  `flush` (an existing port) empties it, the loader drops the staging register and loads its
+  offsets; the target's first fetch issues on the FLUSH's clock (no fetch is in flight: SUSP
+  waited for it). The reset's BR far computes SIGMA from its offset.
+- **SUSP** drives the queue's `susp` (an existing port, tied low since MX0): the request line held
+  low from the clock the SUSP word is reached (while it stalls too) to the FLUSH word, which
+  issues the target's fetch. Machine reading: the routine reads the instruction pointer and
+  replaces the stream; the bus unit's prefetch is stopped and the cycle it runs completes first.
+- **The refill gate** (v35_useq `rf`, `rqp`): after a FLUSH the E word that pops the target's
+  opcode waits while a fetch granted on an earlier clock is in flight or the request line was up
+  at the end of the last clock (a register: the line's own clock depends on the E's pop, a
+  combinational loop otherwise). The model's refill_start (full: no fetch in flight or wanted).
+  Reading: the queue's port is the refill's writes' while the run lasts (the take sync's).
+- **F after a write** waits for its end with RAMEN = 1 (mechanisms 3.3's hold placed on that word,
+  not only E): CALL's push before its FLUSH (the model's write step waits for the cycle's end).
+- **The short transfer's displacement** stays counted by the room on its pop's clock and is
+  released on the next (`V35_MX2_E2H` 1; 0 at once): the take step's end, R3's xfer_abort=word.
+  With it the start's triple clock (the opcode, the displacement, the staging load) answers the
+  fetch with Q2's aborted cycle where the model's does (F23-push-br-n0-pO-w0, F35 DBNZE pO).
+- No port of v35_bus.sv or v35_queue.sv is added or changed; neither file is edited. The loader
+  gains `reset_ip`, `flush_off` and `ip`; the datapath `ip`, `c_xc`, `c_snz`; the sequencer
+  `c_xc`, `c_snz`, `q_susp`.
+
+### The routines (EA = 3, W = 0; the book machine counts the refill's first fetch, 3 clocks, before the target's E)
+
+The positions are the frozen model's on a PUSH-frame w0 run it is exact on (named in each
+header): the entry at S+2 or at the take sync's release, a post a clock before the model's issue,
+F on the datum's (or the write end's) clock, SUSP at the model's flush_held clock or FLUSH less the
+class gap, FLUSH at the model's flush. Lengths against the book (`uasm --book`):
+
+| Routine (opcodes) | book | length | diff | OPEN | shape |
+| --- | --- | --- | --- | --- | --- |
+| br_short (EB) | 12 | 13 | +1 | 6 | target add, 2, SUSP, 4, FLUSH |
+| bcond (70-7F) t / nt | 15 / 8 | 17 / 7 | +2 / -1 | 9 / 2 | add, 2, decide; nt fw, E; t SUSP, 7, FLUSH |
+| br_near (E9) | 12 | 13 | +1 | 4 | latency, pops, add, 1, SUSP, 2, FLUSH |
+| dbnz (E2) t / nt | 17 / 8 | 19 / 8 | +2 / 0 | 10 / 4 | CW - 1 with fw, CW with the test; nt 4, E; t SUSP, add, 10, FLUSH |
+| dbnz_z (E0 E1) t / nt | 17 / 8 | 20 / 6 | +3 / -2 | 10 / 2 | as DBNZ, the Z test then the count test (Z exit 4, count exit 7) |
+| bcwz (E3) t / nt | 15 / 8 | 16 / 6 | +1 / -2 | 7 / 2 | CW with fw, the test |
+| call_near (E8) | 21 | 24 | +3 | 9 | the displacement as DL DH (no take sync) with the reservation, SP - 2, SP / address / PC, 2, post, F with SUSP, add, 6, FLUSH |
+| ret (C3) | 19 | 20 | +1 | 8 | 3, the read's post (S+5), F with SUSP, SP + 2, SP and the target, 5, FLUSH |
+| ret_imm (C2) | 19 | 21 | +2 | 9 | as RET, the immediate popped once the read is on the bus |
+| retf (CB) / retf_imm (CA) | 27 / 28 | 29 / 30 | +2 / +2 | 13 / 12 | two reads, PS from the second datum |
+| br_far (EA) | 15 | 17 | +2 | 7 | offset as DL DH, 2, segment as IL IH (the sync), PS and the target with SUSP, 4, FLUSH |
+| call_far (9A) | 36 | 35 | -1 | 12 | pops, PS pushed, PC pushed, PS and the target, FLUSH (the sync's wait making up the rest) |
+| br_reg / call_reg (FF /4 /2 reg) | 13 / 21 | 15 / 25 | +2 / +4 | 8 / 11 | the register into SIGMA (tmpa), the push |
+| br_mem / call_mem (FF /4 /2 mem, ea=bare) | EA+16 / EA+24 | 20-22 / 29-31 | +1..+3 / +2..+4 | 9 / 11 | the add with the reservation, 2, the pointer's read, F with SUSP |
+| br_far_mem / call_far_mem (FF /5 /3) | EA+23 / EA+32 | 27-29 / 45-47 | +1..+3 / +10..+12 | 10 / 14 | the two reads (address + 2), PS from the second |
+| brk3 / brk_imm / brkv (CC CD CE) | 50 / 51 / 50 | 54 / 54 / 54 | +4 / +3 / +4 | 18 | SUSP (S+6), the vector's offset read at 0:4n, PSW pushed (CITF), the segment's read, PS and PC pushed, PS and the target |
+| reti (CF) | 40 | 44 | +4 | 20 | three reads (PC, PS, the PSW), SP + 6, PS and the target |
+
+The book's two-valued forms are checked taken and not taken (`test_uasm`
+`test_two_valued_transfers_checked_on_both_paths`). Every positive difference is declared
+"silicon longer than the book" with the run; most are the clock between the model's exec start
+and the RTL's (the model's exec clocks start on the take sync's release, as the RTL's entry does;
+the book places the flush as the model does with no sync). The register forms' MX1b read word is
+gone (below). ROM 1,473 words of 2,048 (MX2 part 1: 1,042), OPEN words 661 in 87 routines
+(439 in 67): the transfers' 229.
+
+### The PUSH frame's residuals (the brief's three)
+
+- **PUSH r +1 after MOV AW,DW** (F3-push-mov_aw_dw-k2-pE-w0): the routine's word. ADD / CMP / MOV
+  reg,reg carried MX1b's RAM read on a word of its own (S-to-S 3, sized before the take sync
+  existed); the sync then gated that word, E a clock after the delivery. The model's register
+  form (pre 0, exec 0) starts its successor on the delivery. Built: the book's 2 (the read, the
+  ALU and E on one word, the write after): silicon's 3 is the sync. Corpus +248 / -6 on the MX0
+  gate families and F23 at the step (the 6: MOV reg,reg before the OUT marker, the model's
+  io_older start rule, which the old read word covered).
+- **PUSH r -1 after MULU r16** (F3-push-mulu_dw-k1-pO-w0): the push's write a clock early at pO;
+  MULU r16's length (34 against the book's 32, silicon longer, open since MX1b) — not traced
+  further.
+- **POP mem -3** (F5-push-pop_m-k1-pE-w0): the RTL's fetch at S+3 against the model's stack read at
+  S+6 (pop_mem's stack_post order: the read posted at the start holds the fetch); not built.
+
+### Measured (`replay --core v35 --score`, the whole refresh-off corpus, `+v35_chk` silent)
+
+The corpus: **5,765** exact (MX2 part 1 4,572): 1,246 gained, 53 lost. Write data 96,786 /
+106,824 (93,540). Per family (MX2 part 1 → MX2): F23 6 → 153, F30 154 → 219, F35 51 → 264,
+F37 36 → 63; the MX0 gate families 829 → 956 (F2 69, F3 425, F9 315, F11 40, F12 40, F0 18,
+F0w 10, F1 39); F7 116, F14 129, F15 185, F20 720, F34 81, F36 290, F38 248, F39 143, F40 168.
+Lost (53), each with its cause: 34 a register form (MOV / ADD reg,reg, a prefixed MOV) before the
+OUT marker (F20 22, F12 5, F7 4, F26 2, F2 1): the model's io_older (an OUT waits out a fetch
+requested before its start, eu.py _start) — the old read word put E a clock later; 19 the odd
+parity's not-taken short transfers (DBNZE / DBNZNE on the Z test F35 12, F40 3; BNE / BE k1 F34 4):
+the model's xfer_nt (a not-taken short transfer at an odd address holds its re-raised request
+to its end), which the trap routine had matched.
+The per-run tables: the hand-back's mx2-runs-t1 / t2, mx2-misses.jsonl. The two spacings'
+tables are identical (5,765 at both, `+v35_chk` silent). Function: `--regfile` 107,859 vectors
+0 bad (pass 97,109, MX2 part 1 93,145; trap_nop 8,634, was 12,598: the transfers execute),
+`--fn` 19,752 0 bad, the SingleStepTests set through the whole-core bench (test_rtl_vectors) 0 bad;
+lint clean in the five configurations and with `V35_MX2_E2H` 0, `V35_MX2_TSM` 0; test_uasm (23,
+the two-path check new) and test_v35_struct OK, the four modules 46 OK; the nine offline modules
+941 tests, the four known failures (test_freeze, test_sim TrackedFit).
+
+### Open (MX2)
+
+1. **The not-taken decide's wait (`fw`)** has no act the sources name: the model's untaken=wait
+   (nfgap 1). SUSP's semantics (while a fetch runs) give the taken flush's gap after the last
+   fetch (fgap, cfgap) with SUSP placed at FLUSH less the gap; the not-taken path needs its wait a
+   clock longer (also on the delivery clock). A ruling is asked: the reading offered is the
+   queue's port (the take sync's), or the PC read.
+2. **flush_held before the decision.** The model holds the fetch requests of a taken DBNZ /
+   BCWZ / DBNZE from S+2, before the RTL can know the outcome (CW - 1 on the entry word): the
+   model knows it at the start. DBNZ taken at pO -14 (F23-push-dbnz-c2-n0-pO-w0), +1 at pE
+   (the shared decide's wait). Not causal in a routine: open.
+3. **The target OUT after a refill** (F23 / F35 OUT frames, 70+ runs): the model's refill_start
+   = full_io (an IN / OUT does not start on a 3-clock fetch's delivery clock): it decodes the
+   next opcode; not built.
+4. **The IR load a clock after a register form's ModR/M take** (the model's nx 1): the RTL's
+   staging load on the take's clock makes Q2's triple clock where the model fetches
+   (F23-push-bne-n0-k2-pE-w0).
+5. **The memory-indirect forms' read under the group setup** (F37 callm / brfm pO: the model's
+   grp / grp_free setup holds the fetch after the displacement's take) and BRK imm8 / the far
+   indirect forms at pO: not traced to the end.
+6. The OUT marker at odd parity (MX1g's open item) still bounds F23 / F35 / F37 (90 / 309 / 108
+   runs).
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- §3.8: a transfer's FLUSH word empties the queue and the staging register and issues the
+  target's fetch on its clock; its target is SIGMA. SUSP (the V20's) holds the request line low
+  from its word to the FLUSH and waits while a fetch cycle runs; the class gaps (fgap 5, branch_near
+  3, cfgap 8) are the words from SUSP to FLUSH. The refill: the target's E waits while the run
+  lasts (a fetch in flight, or the line up at the last clock's end).
+- §3.2: a short transfer's displacement is popped by the E word with its opcode (the model's take
+  at the start) and arms the take sync; it stays counted a clock (the take step's end).
+- §3.3: the RAMEN hold applies to an F word after a write (CALL's push before its FLUSH).
+- Corrections-from-MX1 item 2 withdrawn for ADD / CMP / MOV reg,reg: the book's 2; silicon's 3 is
+  the take sync on the ModR/M pop.
+- A posted request in the model (post_on_take: CALL near's push, MOV [d16],acc's write, BRK's
+  vector read) holds the fetches from its take or start: in the RTL the reservation on the word
+  that pops the last operand byte (or the E pop, `resv=e`), the operand popped as a displacement
+  (no take sync) where the model has none.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

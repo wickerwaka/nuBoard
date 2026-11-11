@@ -201,6 +201,13 @@ IMM_PLAIN = {**{o: 1 for o in _ranges("04,0C,14,1C,24,2C,34,3C,6A,70-7F,A8,B0-B7
                                       "E9")},
              0xC8: 3, 0xEA: 4, 0x9A: 4}
 SEG_PREFIX = {0x26: 0, 0x2E: 1, 0x36: 2, 0x3E: 3}      # the sreg: 0 DS1, 1 PS, 2 SS, 3 DS0
+# (MX2) the short transfers (a one-byte displacement: Bcond, DBNZNE / DBNZE / DBNZ, BCWZ, BR
+# short); the loop forms' conditions (the decode's xc: DBNZNE's NZ and DBNZE's Z (5, 4: the PSW
+# condition the loop continues on), 16 SIGMA != 0 (DBNZ: CW - 1), 17 SIGMA == 0 (BCWZ: CW));
+# BRK 3 / BRKV's vector numbers
+SHORT_XFER = set(_ranges("70-7F,E0-E3,EB"))
+XC_LOOP = {0xE0: 5, 0xE1: 4, 0xE2: 16, 0xE3: 17}
+BRK_VEC = {0xCC: 3, 0xCE: 4}
 FLAG_OP = {0xF8: 0, 0xF9: 1, 0xF5: 2, 0xFA: 3, 0xFB: 4, 0xFC: 5, 0xFD: 6}
 # the 0F page (the second byte): ModR/M present, immediate bytes after it
 PAGE1_MODRM = set(_ranges("10-1F,28,2A,31,33,39,3B,2D,94,95"))
@@ -228,7 +235,7 @@ def disp_bytes(modrm: int) -> int:
 def fmt_of(op: int) -> dict:
     """The first level's format bits of an opcode (the encoding, not a routine's attribute)."""
     f = {"has_modrm": op in MODRM_OPS, "w": 0, "d": 0, "immw": 0, "sx": 0, "op3": 0, "seg": 0,
-         "len": IMM_PLAIN.get(op, 0)}
+         "len": IMM_PLAIN.get(op, 0), "e2": 0, "xc": 0}
     if op < 0x40 and op & 7 < 6:
         f["w"], f["d"], f["op3"] = op & 1, (op >> 1) & 1, (op >> 3) & 7
         f["immw"] = int(op & 7 == 5)
@@ -258,9 +265,20 @@ def fmt_of(op: int) -> dict:
         f["immw"] = int(op in (0xA9, 0xC7, 0xF7))
     elif op in FLAG_OP:
         f["op3"] = FLAG_OP[op]
-    elif op in (0xEA, 0x9A):
+    elif op in (0xEA, 0x9A, 0xE8, 0xE9, 0xC2, 0xCA):
         f["w"] = 1
-        f["immw"] = 1
+        f["immw"] = 1                    # (MX2) the word displacement, offset or stack adjust
+    if op in SHORT_XFER:
+        # (MX2) a short transfer: its displacement byte sign-extended and popped by the E word
+        # with the opcode (the frozen model's take on the start clock); its condition by the
+        # encoding (the PSW condition of the low nibble, or the loop forms' counter tests)
+        f["w"], f["sx"], f["e2"] = 1, 1, 1
+        f["xc"] = op & 0x0F if op < 0x80 else XC_LOOP.get(op, 0)
+    if op in BRK_VEC:
+        f["w"], f["op3"] = 1, BRK_VEC[op]    # (MX2) BRK 3 / BRKV: the vector number; BRKV's
+        f["xc"] = 0                          # condition V (70's)
+    if op in (0xCD, 0xC3, 0xCB, 0xCF):
+        f["w"] = 1                       # (MX2) the words a break or a return moves
     if op in SEG_PREFIX:
         f["seg"] = 4 | SEG_PREFIX[op]
     if op == 0x0F:
@@ -291,7 +309,8 @@ class Routine:
 
 
 SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop"}
-FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "wb"}
+FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "wb", "susp",
+         "fw"}
 
 
 def _tokens(s: str) -> list[str]:
@@ -417,6 +436,10 @@ RESET = "reset"
 EA_HEADS = {"eab0": "UROM_EAB0", "eab8": "UROM_EAB8", "eab16": "UROM_EAB16", "ea8": "UROM_EA8",
             "ead": "UROM_EAD"}
 PATHS = ("m00", "d8", "d16", "dir")
+# (MX2) a transfer's two paths: its condition true (taken) and false (not taken); a routine whose
+# book form prints two values ("8 or 15": the smaller not taken, the larger taken) is checked on
+# both, one whose header says `xc=t` on the taken path only (BRKV: the book's trap)
+XPATHS = ("t", "nt")
 PATH_MODRM = {"m00": 0x07, "d8": 0x47, "d16": 0x87, "dir": 0x06}     # [BW], [BW+d8], [BW+d16], [d16]
 PATH_EA = {"m00": 3, "d8": 3, "d16": 4, "dir": 3}                     # the book's EA
 
@@ -590,7 +613,8 @@ def decode_svh(prog: Program) -> str:
         f = udec1(prog, op)
         L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
-                 f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, 1'b{f['rq']}, 1'b{f['wbs']}}};")
+                 f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, 1'b{f['rq']}, "
+                 f"1'b{f['wbs']}, 1'b{f['e2']}, 5'd{f['xc']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte
@@ -677,6 +701,11 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
     page head's word. (MX1) A memory routine (`mod=mem`) runs from the EA head of `path` (the
     dispatch's call, returning to the routine's entry); `trace` collects (clock, address, word)."""
     conds = dict(conds or {})
+    if path in XPATHS:
+        # (MX2) a transfer's path: its conditions (CD_XC, and SNZ: the loop forms' count) hold
+        # (t, taken) or not (nt)
+        conds.setdefault(enum_value("v35_cond_e", "xc"), path == "t")
+        conds.setdefault(enum_value("v35_cond_e", "snz"), path == "t")
     r = prog.routine(name)
     t = 0
     pc = r.base
@@ -690,6 +719,7 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
     cnt = 0
     done_at = None
     write_pend = False
+    refill_at = None
     width = 16 if r.head.get("width", "word") == "word" else 8
     while limit:
         limit -= 1
@@ -700,6 +730,14 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
             t = done_at
         if f.get("e") and write_pend and done_at is not None and t < done_at:
             t = done_at
+        # (MX2) after a FLUSH the E word pops the target's opcode from the refill's first fetch:
+        # issued on the flush's clock, its word on the clock after its BUS_CYCLE clocks (the
+        # book's transfer formulas count that fetch at W = 0; the refill's later fetches are
+        # the bus unit's and not counted)
+        if f.get("e") and refill_at is not None and t < refill_at:
+            t = refill_at
+        if f.get("flush"):
+            refill_at = t + BUS_CYCLE
         if f.get("bus"):
             if done_at is not None and t < done_at:      # one request at a time
                 t = done_at
@@ -783,15 +821,30 @@ def book_value(form: str, width: str | None, n: int, ea: int = 3) -> int | None:
 def parse_diff(h: dict) -> dict:
     """The declared difference per path: diff=K (every path) or diff=m00:K,d8:K,... ."""
     v = h.get("diff", "0")
+    every = PATHS + XPATHS
     if ":" not in v:
-        return {p: int(v) for p in PATHS}
-    out = {p: 0 for p in PATHS}
+        return {p: int(v) for p in every}
+    out = {p: 0 for p in every}
     for part in v.split(","):
         k, _, x = part.partition(":")
-        if k not in PATHS:
-            raise UasmError(f"diff path {k!r} (one of {PATHS})")
+        if k not in every:
+            raise UasmError(f"diff path {k!r} (one of {every})")
         out[k] = int(x)
     return out
+
+
+def book_paths(r) -> tuple:
+    """The paths the book check runs for routine r: the four EA paths of a memory routine, the
+    taken / not-taken paths of a transfer whose book form prints two values (or `xc=t`: the
+    taken one), else the one path m00."""
+    if is_mem(r):
+        return PATHS
+    if r.head.get("xc") == "t":
+        return ("t",)
+    if "book" in r.head and len(book_values().get(r.head["book"], {}).get("values_printed")
+                                or ()) == 2:
+        return XPATHS
+    return ("m00",)
 
 
 def book_rows(prog: Program) -> list[tuple]:
@@ -806,12 +859,16 @@ def book_rows(prog: Program) -> list[tuple]:
             continue
         n = int(h.get("n", "4"))
         diffs = parse_diff(h)
-        for path in (PATHS if is_mem(r) else ("m00",)):
-            ea = PATH_EA[path]
+        for path in book_paths(r):
+            ea = PATH_EA.get(path, 3)
+            two = book_values().get(h.get("book"), {}).get("values_printed") \
+                if "book" in h else None
             if "bookv" in h:
                 bv = int(h["bookv"]) + (ea - 3 if is_mem(r) else 0)
             elif "bookx" in h:
                 bv = eval_book(h["bookx"], ea, n)
+            elif path in XPATHS and two and len(two) == 2:
+                bv = max(two) if path == "t" else min(two)
             else:
                 bv = book_value(h["book"], h.get("width"), n, ea)
             ln = length(prog, r.name, n, path=path)
@@ -825,7 +882,8 @@ def book_rows(prog: Program) -> list[tuple]:
                     why = (why + " | the EA head " + hd + ": " + hr.head.get("why", "")).strip(" |")
             opens = sum(1 for w in path_words(prog, r.name, n, path) if w.open)
             out.append((r.name, h.get("book", h.get("bookx")), bv, ln, diff, why,
-                        h.get("measured", ""), path if is_mem(r) else "", opens))
+                        h.get("measured", ""), path if (is_mem(r) or path in XPATHS) else "",
+                        opens))
     return out
 
 

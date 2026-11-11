@@ -219,6 +219,8 @@ module v35_top
     wire [UADDR_W-1:0] upc;
     // (MX0) the datapath
     wire        opr_rdy, rq_busy, wr_hold, c_sgn, c_dtrap, div_trap;
+    wire        c_xc, c_snz, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
+    wire [15:0] ld_ip;                  // (MX2) the instruction pointer
     wire [7:0]  rb_lo;
     wire [15:0] flush_off;
     wire [19:0] flush_lin, ps_base;
@@ -302,15 +304,15 @@ module v35_top
 `else
     localparam bit Q1_VARIANT_B = 1'b1;
 `endif
-    // (MX0) no suspend: the V20 ROM's SUSP precedes FLUSH only, and MX0's one flush (BR far)
-    // needs none
+    // (MX2) the suspend: the V20 ROM's SUSP before a transfer's FLUSH (the sequencer's q_susp: the
+    // request line held low from the SUSP word to the FLUSH)
     v35_queue #(.VARIANT_B(Q1_VARIANT_B)) queue (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .fetch_req(q_fetch_req), .fetch_raise(q_fetch_raise), .fetch_addr(q_fetch_addr), .q_low, .q_word,
         .fetch_go(g_fetch), .dlv_v(dlv_fetch), .dlv_data(b_done_data), .abort_go(b_abort_busy),
         .vb0(qv0), .vb1(qv1), .vb2(qv2), .vb3(qv3), .avail(q_avail), .stored(q_stored), .rd(ld_rd), .rd_b(3'd0),
         .rel(ld_rel), .stg(ld_stg),
-        .flush(t_flush), .flush_addr(q_flush_addr), .susp(1'b0), .ps_base
+        .flush(t_flush), .flush_addr(q_flush_addr), .susp(q_susp), .ps_base
     );
     wire q_infl_c = b_fetch_inflight || b_abort_busy;
 
@@ -318,23 +320,24 @@ module v35_top
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .qv0, .qv1, .qv2, .qv3, .q_avail, .q_stored, .q_arrive(dlv_fetch), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
-        .reset_addr(tb_reset_addr), .flush(t_flush), .flush_lin,
+        .reset_addr(tb_reset_addr), .reset_ip(tb_reset_ip), .flush(t_flush), .flush_lin,
+        .flush_off,
         .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && word.seq == SQ_DISP),
         .dispm(word.seq == SQ_DISPM), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
         .dl(ld_dl), .dh(ld_dh), .fmt, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
         .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret, .dtrap,
-        .resv_e, .s_modrm, .e_rmodrm, .s_wbs
+        .resv_e, .s_modrm, .e_rmodrm, .s_wbs, .ip(ld_ip)
     );
 
     // ---------------------------------------------------------------- the microsequencer
     v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .rb_lo,
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .rb_lo,
         .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
         .e_rmodrm, .rmem(fmt.has_modrm && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
-        .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .halted, .upc_o(upc)
+        .word, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
     // ---------------------------------------------------------------- the datapath
@@ -342,11 +345,11 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .word, .ex, .ex_b, .resv_e,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
-        .dh(ld_dh),
+        .dh(ld_dh), .ip(ld_ip),
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .rb_lo,
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .rb_lo,
         .flush_off, .flush_lin, .ps_base, .sfr_data, .trap_o(div_trap)
     );
 

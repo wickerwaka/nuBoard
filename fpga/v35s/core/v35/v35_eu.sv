@@ -55,6 +55,7 @@ module v35_eu
     input  wire [7:0]  ih,
     input  wire [7:0]  dl,
     input  wire [7:0]  dh,
+    input  wire [15:0] ip,              // (MX2) the instruction pointer (the loader's registers)
     // the register RAM
     output wire [6:0]  ra_next,
     output wire [6:0]  rb_next,
@@ -82,6 +83,8 @@ module v35_eu
     output wire        wr_hold,
     output wire        c_sgn,
     output wire        c_dtrap,
+    output wire        c_xc,            // (MX2) the transfer's condition (registers)
+    output wire        c_snz,           // (MX2) SIGMA is not zero
     output wire [7:0]  rb_lo,
     // the queue's flush (tick A: registers)
     output wire [15:0] flush_off,
@@ -198,10 +201,11 @@ module v35_eu
             SR_IMM8: src = {8'd0, il};
             SR_OPR: src = oprv;
             SR_PSW: src = psw;
-            SR_ONES: src = 16'hFFFF;
+            SR_VEC: src = {6'd0, fmt.len != 3'd0 ? il : {5'd0, op3}, 2'b00};
             SR_DISP: src = {dh, dl};
             SR_ADDR: src = addr;
             SR_ONE: src = 16'd1;
+            SR_PC: src = ip;
             default: src = 16'd0;
         endcase
     endfunction
@@ -292,6 +296,10 @@ module v35_eu
             end
             AL_PSWL: pn = {psw[15:8], x[15:8]};
             AL_ADD: r = x + y;
+            AL_CITF: begin
+                pn[V35_PSW_IE] = 1'b0;
+                pn[8] = 1'b0;               // BRK (the single-step flag)
+            end
             default: ;
         endcase
     end
@@ -323,7 +331,7 @@ module v35_eu
     // ------------------------------------------------------------ tick B: the request
     wire        post = ex_b && word.bus != BQ_NONE;
     wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW;
-    wire [15:0] segv = word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
+    wire [15:0] segv = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
                      : pfx_v ? (pfx_s == 2'd0 ? ds1 : pfx_s == 2'd1 ? ps : pfx_s == 2'd2 ? ss
                                 : ds0)
                      : (ea_ss_q && word.seg != SG_DSP) ? ss : ds0;
@@ -341,15 +349,39 @@ module v35_eu
     // clock that pops a posting routine's opcode (the loader's resv_e: the decode knows)
     assign req_resv = rq_v || resv_r || resv_e;
     assign sfr_data = req_data;
-    assign opr_rdy = opr_v || (req_done && rq_out && rq_rd);
+    // (MX2) F after a memory write (the last request a write): the RAMEN hold (mechanisms 3.3:
+    // the EU holds until the write cycle ends, the write may land in the register RAM) placed on
+    // that word, not only on E (CALL's push before its FLUSH: the frozen model's write step
+    // waits for the cycle's end); a read's F waits for its datum
+    assign opr_rdy = rq_wr ? !wr_hold : (opr_v || (req_done && rq_out && rq_rd));
     // (MX1) the slot frees on the cycle's end (req_done): a post on that clock stands from the
     // next, the book check's machine (uasm.length: a post waits for the last request's end)
     assign rq_busy = rq_v || (rq_out && !req_done);
     assign wr_hold = rq_out && rq_wr && !rq_io && ramen && !req_done;
     assign c_sgn = sigma[15];
     assign c_dtrap = dtrap;
-    assign flush_off = {ih, il};
-    assign flush_lin = {ps, 4'd0} + {4'd0, ih, il};
+    // (MX2) the flush's target: SIGMA (the V20 ROM's SIGMA -> PC on its FLUSH word), in PS
+    assign flush_off = sigma;
+    assign flush_lin = {ps, 4'd0} + {4'd0, sigma};
+    // (MX2) the transfer's condition by the format's xc: the PSW's sixteen (the encoding's low
+    // nibble: V, CY, Z, CY or Z, S, P, S xor V, (S xor V) or Z, each and its negation), the
+    // loop forms' counter test on SIGMA (CW - 1 not zero, or CW zero for BCWZ)
+    logic xcv;
+    always_comb begin
+        case (fmt.xc[3:1])
+            3'd0: xcv = psw[V35_PSW_V];
+            3'd1: xcv = psw[V35_PSW_CY];
+            3'd2: xcv = psw[V35_PSW_Z];
+            3'd3: xcv = psw[V35_PSW_CY] || psw[V35_PSW_Z];
+            3'd4: xcv = psw[V35_PSW_S];
+            3'd5: xcv = psw[V35_PSW_P];
+            3'd6: xcv = psw[V35_PSW_S] ^ psw[V35_PSW_V];
+            default: xcv = (psw[V35_PSW_S] ^ psw[V35_PSW_V]) || psw[V35_PSW_Z];
+        endcase
+    end
+    wire       sz = sigma == 16'd0;
+    assign c_xc = !fmt.xc[4] ? (xcv ^ fmt.xc[0]) : (sz ^ !fmt.xc[0]);
+    assign c_snz = !sz;
     assign ps_base = {ps, 4'd0};
 
     // ------------------------------------------------------------ the end of the clock (ce_a)

@@ -117,6 +117,27 @@ class BookCheck(unittest.TestCase):
             if diff:
                 self.assertTrue(why, f"{name}: a difference without its reason")
 
+    def test_two_valued_transfers_checked_on_both_paths(self):
+        # (MX2) a transfer whose book form prints two values ("8 or 15": the smaller not taken,
+        # the larger taken) is checked on its taken path (the format's condition true) and its
+        # not-taken path (false), each against its own value; the taken path ends with the FLUSH,
+        # the book machine counting the refill's first fetch before the E word's pop
+        prog = uasm.assemble()
+        rows = uasm.book_rows(prog)
+        two = [r for r in prog.routines if uasm.book_paths(r) == uasm.XPATHS]
+        self.assertGreaterEqual(len(two), 4)            # Bcond, DBNZ, DBNZE, BCWZ
+        for r in two:
+            got = {row[7]: row for row in rows if row[0] == r.name}
+            self.assertEqual(set(got), {"t", "nt"}, r.name)
+            vals = uasm.book_values()[r.head["book"]]["values_printed"]
+            self.assertEqual(got["t"][2], max(vals), r.name)
+            self.assertEqual(got["nt"][2], min(vals), r.name)
+            self.assertLess(got["nt"][3], got["t"][3], r.name)
+            taken = uasm.path_words(prog, r.name, path="t")
+            self.assertTrue(any(w.fields.get("flush") for w in taken), r.name)
+            self.assertFalse(any(w.fields.get("flush")
+                                 for w in uasm.path_words(prog, r.name, path="nt")), r.name)
+
     def test_open_words_are_declared(self):
         # a word without an act the sources name is marked OPEN, and its routine's reason says so
         prog = uasm.assemble()

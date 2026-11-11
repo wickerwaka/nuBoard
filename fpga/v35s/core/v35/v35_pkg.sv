@@ -36,11 +36,15 @@ package v35_pkg;
     // RA / RB the RAM ports' data (this clock's read), TA TB TC the temporaries, SIG the last
     // ALU result (SIGMA), IMM the popped immediate by the format (a word, or a byte sign- or
     // zero-extended), IMM8 the first immediate byte zero-extended (a port number), OPR the bus
-    // datum (the F word's), DISP the popped displacement / far segment, ADDR the address register
+    // datum (the F word's), DISP the popped displacement / far segment, ADDR the address register;
+    // (MX2) PC the instruction pointer: the offset of the byte after the last the routine popped
+    // (the loader's: the staged opcode's, else the next queue byte's), VEC a break's vector
+    // address in the table (4n: n the popped type byte, or the format's for BRK 3 / BRKV; it
+    // replaces ONES, which no word read), ONE 1
     typedef enum logic [3:0] {
         SR_ZERO = 4'd0, SR_RA = 4'd1, SR_RB = 4'd2, SR_TA = 4'd3, SR_TB = 4'd4, SR_TC = 4'd5,
         SR_SIG = 4'd6, SR_IMM = 4'd7, SR_IMM8 = 4'd8, SR_OPR = 4'd9, SR_PSW = 4'd10,
-        SR_ONES = 4'd11, SR_DISP = 4'd12, SR_ADDR = 4'd13, SR_ONE = 4'd14
+        SR_VEC = 4'd11, SR_DISP = 4'd12, SR_ADDR = 4'd13, SR_ONE = 4'd14, SR_PC = 4'd15
     } v35_src_e;
 
     // ---- move destinations (two moves a word) ----
@@ -54,13 +58,14 @@ package v35_pkg;
     // shifter's loop (load, one step under the counter, the flags), MULI / MULS / MULF and
     // DIVI / DIVS / DIVF the multiply and the restoring divide (one bit a word), FLAG the
     // format's flag operation, PSWL the PSW's low byte from x's high byte (SAHF), (MX1) ADD the
-    // 16-bit sum x + y, no flags (TRANS's table address, PREPARE's frame)
+    // 16-bit sum x + y, no flags (TRANS's table address, PREPARE's frame), (MX2) CITF the PSW's
+    // IE and BRK flags cleared (a break's: the V20 ROM's CITF on its PSW push)
     typedef enum logic [4:0] {
         AL_NONE = 5'd0, AL_PASS = 5'd1, AL_GRP = 5'd2, AL_AND = 5'd3, AL_INC = 5'd4,
         AL_DEC = 5'd5, AL_NOT = 5'd6, AL_NEG = 5'd7, AL_INC2 = 5'd8, AL_DEC2 = 5'd9,
         AL_SEXT = 5'd10, AL_SIGNW = 5'd11, AL_SHI = 5'd12, AL_SH1 = 5'd13, AL_SHF = 5'd14,
         AL_MULI = 5'd15, AL_MULS = 5'd16, AL_MULF = 5'd17, AL_DIVI = 5'd18, AL_DIVS = 5'd19,
-        AL_DIVF = 5'd20, AL_FLAG = 5'd21, AL_PSWL = 5'd22, AL_ADD = 5'd23
+        AL_DIVF = 5'd20, AL_FLAG = 5'd21, AL_PSWL = 5'd22, AL_ADD = 5'd23, AL_CITF = 5'd24
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -76,9 +81,10 @@ package v35_pkg;
 
     // ---- the request's segment: the default (a prefix's, else SS for a BP mode, else DS0),
     // SS (the stack: no override), DS1, (MX1) DSP a prefix's, else DS0 (an address the routine
-    // formed without an EA mode: TRANS's table) ----
-    typedef enum logic [1:0] {
-        SG_DEF = 2'd0, SG_SS = 2'd1, SG_DS1 = 2'd2, SG_DSP = 2'd3
+    // formed without an EA mode: TRANS's table), (MX2) ZERO the segment 0 (a break's vector
+    // table) ----
+    typedef enum logic [2:0] {
+        SG_DEF = 3'd0, SG_SS = 3'd1, SG_DS1 = 3'd2, SG_DSP = 3'd3, SG_ZERO = 3'd4
     } v35_seg_e;
 
     // ---- a queue pop (one byte from the word register) into a popped-byte register ----
@@ -105,9 +111,12 @@ package v35_pkg;
 
     // ---- jump conditions (registered state only) ----
     // CNTZ the loop counter is zero, SGN SIGMA's sign (by the width), DTRAP the divide error,
-    // WORD the format's width is a word
+    // WORD the format's width is a word, (MX2) XC the transfer's condition by the format (`xc`:
+    // the sixteen conditions on the PSW of 70-7F, BRKV's V, DBNZE / DBNZNE's Z test, DBNZ's and
+    // BCWZ's counter test on SIGMA: the decremented CW, or CW), SNZ SIGMA is not zero
     typedef enum logic [2:0] {
-        CD_CNTZ = 3'd0, CD_SGN = 3'd1, CD_DTRAP = 3'd2, CD_WORD = 3'd3
+        CD_CNTZ = 3'd0, CD_SGN = 3'd1, CD_DTRAP = 3'd2, CD_WORD = 3'd3, CD_XC = 3'd4,
+        CD_SNZ = 3'd5
     } v35_cond_e;
 
     localparam int UADDR_W = 11;      // (MX1b) 2,048 words: the ROM passed 1,024
@@ -141,7 +150,11 @@ package v35_pkg;
         v35_cond_e  cond;
         logic [UADDR_W-1:0] tgt;    // the jump / call / loop target
         logic       pfx;        // the segment prefix set (the format's)
-        logic       flush;      // the queue flushed, the stream from IMM in PS
+        logic       susp;       // (MX2) SUSP: prefetching suspended from this word to the FLUSH,
+                                //   the word waiting while a fetch cycle runs (the V20 ROM's SUSP)
+        logic       fw;         // (MX2) the word waits while a fetch cycle runs or delivers its
+                                //   word (a short transfer's decide: the frozen model's untaken)
+        logic       flush;      // the queue flushed, the stream from SIGMA in PS
         logic       halt;       // halted
         logic       trap;       // the divide error raised
     } v35_uword_t;
@@ -159,13 +172,19 @@ package v35_pkg;
         logic       d;          // the direction (DST = d ? REG : RM)
         logic       immw;       // the immediate is a word
         logic       sx;         // a byte immediate is sign-extended
-        logic [2:0] op3;        // the format's operation (00-3F: bits 5:3; the flag op)
+        logic [2:0] op3;        // the format's operation (00-3F: bits 5:3; the flag op; (MX2) the
+                                //   vector number of BRK 3 and BRKV)
         logic [2:0] seg;        // a segment prefix: {1, sreg} (0: none)
         logic [2:0] len;        // the bytes after the opcode (no ModR/M form; the trap's)
         logic       rq;         // the routine posts a request: the reservation rises when the
                                 //   E word pops the opcode (the routine knows it will post)
         logic       wbs;        // (MX1f) the routine's first act reads the accumulator: the E word
                                 //   that pops the opcode waits for the running write-back
+        logic       e2;         // (MX2) the E word pops the opcode's second byte with it (a short
+                                //   transfer's displacement, into IL)
+        logic [4:0] xc;         // (MX2) the transfer's condition (CD_XC): 0-15 the PSW condition
+                                //   of the encoding's low nibble (70-7F; BRKV's V; DBNZNE's NZ and
+                                //   DBNZE's Z, the loop's continuing), 16 SIGMA != 0, 17 SIGMA == 0
     } v35_udec_t;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)

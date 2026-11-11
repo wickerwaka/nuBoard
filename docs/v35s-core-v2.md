@@ -1696,3 +1696,52 @@ question, decided from S8's routed numbers with the user.
   sync's port reading (the target's E word waiting while the refill's fetch run lasts). MX2 part 2 sent to
   a fresh agent: urom/xfer.uasm, the flush and refill traced against the model, the PUSH frame's
   residuals, the gate on F23 F30 F35 F37.
+- 2026-11-10, **MX2 landed** (a fresh opus55 worktree agent, from cf2d12f). **The transfers and the stack built**
+  (urom/xfer.uasm): BR short / near / far, the sixteen conditional branches taken and not taken, DBNZ /
+  DBNZE / DBNZNE / BCWZ, CALL near / far, RET / RET imm16 / RETF / RETF imm16, BR and CALL through a
+  register and through memory (the far forms' second read), BRK 3 / BRK imm8 / BRKV, RETI; each from the
+  book's formula with the words on the frozen model's clocks from a run it is exact on, named in the header;
+  every positive difference "silicon longer than the book" with its run, the negative ones (the not-taken
+  conditionals, BCWZ, DBNZE, CALL far) book errors with a run; the book check counting the refill's first
+  fetch before the target's E word and checking two-valued formulas on both paths. **The mechanisms:** the
+  SUSP word (the queue's request line held low from the word to the FLUSH, the word waiting while a fetch
+  is on the bus; the queue's existing `susp` port), FLUSH with the target from SIGMA as the V20's
+  `SIGMA -> PC FLUSH` (the reset's far branch moved into xfer.uasm), the refill gate (the E word that pops
+  the target's opcode waits while a fetch is in flight or while the request line was up at the end of the
+  previous clock; this clock's line would loop through E's own pop), the instruction pointer as a
+  register source (two 16-bit offset registers in the loader), the vector source, a zero segment, the
+  condition decoded from the encoding (`xc`), the E word popping a short transfer's displacement with its
+  opcode (`e2`, arming the take sync), an F word after a write waiting the write's end under RAMEN, and
+  `V35_MX2_E2H` 1 (the displacement counted in the room one clock more, Q2's triple clock then aborting
+  where the model's does; linted at 0, not replayed). No bus-unit or queue port changed, neither file
+  edited. **The PUSH frame's residuals:** PUSH r +1 after MOV AW,DW was MX1b's separate register-read word
+  in the reg,reg routines, which the take sync then delayed a clock: ADD / CMP / MOV reg,reg are back on the
+  book's 2, silicon's 3 the sync's wait (+248 / −6 alone; MX1 correction 2 withdrawn for them); PUSH r −1
+  after MULU r16 is MULU's own 34 against the book's 32, open; POP mem −3 is the model's stack read posted
+  at the start holding the fetch, not built. MOV [d16],acc's reservation moved from its E pop to its last
+  pop (+72). **Verified on main (both spacings identical, 0 failing, chk silent):** 5,765 / 30,536 exact
+  (MX2 part 1 4,572; 1,246 gained, 53 lost); F23 6 → 153, F30 154 → 219, F35 51 → 264, F37 36 → 63; the
+  MX0 gate families 829 → 956 (F3 425, F9 315); F20 429 → 720, F39 55 → 143, F36 239 → 290; F26 45 → 43
+  the one family net down. **The 53 losses, each named:** 34 are a register form before the OUT marker
+  (F20 F12 F7 F26 F2), the model's io_older (an OUT waiting out a fetch requested before its start) that the
+  withdrawn read word had absorbed; 19 are short transfers not taken at an odd address (DBNZE / DBNZNE in
+  F35 / F40, BNE / BE in F34), the model's xfer_nt (the re-raised fetch request held to the instruction's
+  end) that the trap routine had matched by accident. Write data 96,786 / 106,824 (93,540); register vectors
+  69,099 + 38,760 with 0 bad (pass 97,109 from 93,145, trap_nop 8,634 from 12,598); function vectors
+  19,752, 0 bad; the agent's SingleStepTests run 0 bad; lint clean in five configurations and with E2H 0 /
+  TSM 0; 46 fast tests (test_uasm's taken / not-taken check added); the nine offline modules 941 with the
+  four known failures. ROM 1,473 / 2,048 words, the microword 91 bits; OPEN words 661 in 87 routines (the
+  transfers 229). **The overseer's ruling on the not-taken decide's wait (`fw`):** a microword flag with no
+  count (the word waits while a fetch cycle runs or delivers its word, the model's untaken=wait; SUSP's
+  wait alone starts the next instruction a clock early on F23-push-bne-n0-k1-pE-w1), kept as built; its
+  reading is provisional: the queue's port (the decide's not-taken exit continuing into the next E pop,
+  which the delivered word's write into the queue blocks that clock, the take sync's accepted mechanism
+  one clock wider) over the instruction pointer's read; the sources name neither, and whether the take
+  sync's E gate and `fw` are one law a clock apart is for the user's eye and a later probe. **Open
+  (MX2):** DBNZ / BCWZ / DBNZE taken, where the model stops fetch requests from S + 2 before the routine can
+  know the outcome (not causal in a routine, recorded, not built; −14 at odd parity); the target OUT after a
+  refill (the model's refill_start=full_io decodes the next opcode, forbidden); the model's IR load a clock
+  after a register form's ModR/M take (nx 1); the memory-indirect forms and BRK at odd parity under the
+  model's group setup; OUT imm8 at an odd port byte (4,092 runs; caps F23 / F35 / F37 by 90 / 309 / 108);
+  the load's tail length under waits. MX3 sent to a fresh agent: the I/O probes (the odd-port OUT, io_older,
+  full_io, the IR load's clock) first, then the loops and the 0F page.

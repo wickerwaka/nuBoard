@@ -305,6 +305,12 @@
 `ifndef V35_MX2_TSM
 `define V35_MX2_TSM 1
 `endif
+// (MX2) V35_MX2_E2H: a short transfer's displacement byte, popped by the E word with its opcode,
+// released by the queue's room a clock after its pop (the take step's end: R3's xfer_abort=word,
+// the frozen model's room on the start clock): 1; 0 released at once
+`ifndef V35_MX2_E2H
+`define V35_MX2_E2H 1
+`endif
 `ifndef V35_MX1G_IOH
 `define V35_MX1G_IOH 1
 `endif

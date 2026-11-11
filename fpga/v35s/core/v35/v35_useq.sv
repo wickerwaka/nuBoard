@@ -68,6 +68,8 @@ module v35_useq
     input  wire        wr_hold,         // an outstanding write holds E
     input  wire        c_sgn,           // SIGMA's sign
     input  wire        c_dtrap,         // the divide error
+    input  wire        c_xc,            // (MX2) the transfer's condition (the datapath's, by the format)
+    input  wire        c_snz,           // (MX2) SIGMA is not zero
     // (MX0c) the bus unit's registered facts the dispatch reads: a fetch cycle granted on an
     // earlier clock runs on this one (its clocks after the issue through its last), and a
     // back-to-back fetch issues on this clock
@@ -94,6 +96,8 @@ module v35_useq
     output wire        start,           // a routine's entry word executes (an instruction starts)
     output wire        start_trap,      // ... and it is a trap (no routine)
     output wire [4:0]  why,             // the stall's reason (the trace): 0 none, 1 q, 2 f, 3 slot, 4 hold, 5 halt
+                                        //   6 fetch, 7 sync, (MX2) 8 susp, 9 refill
+    output wire        q_susp,          // (MX2) prefetching suspended (the queue's susp)
     output reg         halted,
     output wire [UADDR_W-1:0] upc_o
 );
@@ -181,13 +185,36 @@ module v35_useq
                   : word.seq == SQ_DISP
                     && ((`V35_MX0C_DISPATCH >= 1 && fetch_run)
                         || (`V35_MX0C_DISPATCH == 2 && dec1.has_modrm && b2b_now));
+    // (MX2) SUSP (the V20 ROM's SUSP before its FLUSH): the word suspends prefetching (the
+    // queue's request line held low from the clock the word is reached until the FLUSH: `sp`
+    // once it has executed) and waits while a fetch cycle runs (granted on an earlier clock,
+    // through its last clock: the bus unit's fetch_inflight). The machine reading: the routine
+    // reads the instruction pointer and replaces the stream; the bus unit's prefetch is stopped
+    // and the cycle it runs completes first (the V20's PC is the prefetch pointer less the
+    // queue's count; a doomed fetch is not started)
+    reg        sp = 1'b0;
+    wire st_sus = (word.susp && fetch_run)
+                  // (MX2) the decide's wait (`fw`): while a fetch cycle runs or its word is
+                  // delivered (the queue's port the fetch's: the take sync's reading), the frozen
+                  // model's untaken=wait (a short transfer not taken waits for no fetch in flight
+                  // and a clock after its last); no suspension
+                  || (word.fw && (fetch_run || f_dlv));
+    assign q_susp = (sp && !word.flush) || word.susp;     // (the FLUSH word issues the target's fetch)
+    // (MX2) the refill: after a FLUSH, the E word that pops the target's opcode waits while the
+    // refill's fetch run lasts (`rf` from the FLUSH to that E): a fetch granted on an earlier
+    // clock in flight, or the request line up at the end of the last clock (`rqp`, a register:
+    // the run's next fetch is granted on this clock). The machine reading (README "MX2"): the
+    // queue's port is the refill's writes' while the run lasts, as the take sync's
+    reg        rf = 1'b0, rqp = 1'b0;
+    wire st_rfl = word.e && rf && (fetch_run || rqp);
     // the stalls a popping word can meet (the loader's pops read this: a DISP word never pops;
     // with the stall on the E word (3) it is the E word's too)
-    wire base = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw && !st_bw;
+    wire base = !halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw && !st_bw
+                && !st_sus && !st_rfl;
     assign ex_pop = base && !(`V35_MX0C_DISPATCH >= 3 && st_fch);
     assign ex = base && !st_fch;
     assign why = halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3 : (st_hld || st_wbw) ? 5'd4 : st_bw ? 5'd3
-               : st_fch ? 5'd6 : st_tsy ? 5'd7 : 5'd0;
+               : st_sus ? 5'd8 : st_rfl ? 5'd9 : st_fch ? 5'd6 : st_tsy ? 5'd7 : 5'd0;
     // the arming pop (tick A) and the deliveries owed from it
     wire arm = ex_pop && ((word.e && e_rmodrm)
                           || (!word.e && !rmem && (word.pop == PP_IL || word.pop == PP_IH)));
@@ -197,8 +224,13 @@ module v35_useq
     wire       ask = (q_req && !resv) || f_grant;
     wire [1:0] owe = {1'b0, fetch_run} + {1'b0, ask} - {1'b0, f_dlv && fetch_run};
     wire [1:0] wbn_n = (word.e && word.wb && !ex) ? (wbn == 2'd2 ? 2'd2 : wbn + 2'd1) : 2'd0;
+    // (MX2) the suspension stands from the SUSP word's execution to the FLUSH (or an E); the
+    // refill from the FLUSH to the E
+    wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && word.susp) ? 1'b1 : sp;
+    wire       rf_n = (ex && word.e) ? 1'b0 : (ex && word.flush) ? 1'b1 : rf;
     wire [1:0] wbp_n = (ex && word.e && word.wb) ? 2'd3 : (wbp != 2'd0 ? wbp - 2'd1 : 2'd0);
-    wire [1:0] tw_n = arm ? owe
+    wire [1:0] tw_n = (ex && word.flush) ? 2'd0      // (MX2) the flush: the words asked are dropped
+                    : arm ? owe
                     : (tw != 2'd0 && f_dlv) ? tw - 2'd1
                     : (tw != 2'd0 && !fetch_run && !ask) ? 2'd0 : tw;
     assign start = at_entry && ex_pop;     // (an entry word is never the dispatch word; with
@@ -212,6 +244,7 @@ module v35_useq
     reg        dc_b = 1'b0;
     reg  [1:0] tw_b = 2'd0;
     reg  [1:0] wbn_b = 2'd0, wbp_b = 2'd0;
+    reg        sp_b = 1'b0, rf_b = 1'b0, rq_b = 1'b0;
     reg [2:0]  len_b = 3'd0;
     reg [7:0]  il_b = 8'd0;
     reg        w_b = 1'b0;
@@ -223,6 +256,9 @@ module v35_useq
             tw_b <= tw_n;
             wbn_b <= wbn_n;
             wbp_b <= wbp_n;
+            sp_b <= sp_n;
+            rf_b <= rf_n;
+            rq_b <= q_req;
             dr_b <= dret;
             d2_b <= dec2.entry;
             len_b <= len;
@@ -239,6 +275,8 @@ module v35_useq
             CD_SGN: cond_v = c_sgn;
             CD_DTRAP: cond_v = c_dtrap;
             CD_WORD: cond_v = w_b;
+            CD_XC: cond_v = c_xc;
+            CD_SNZ: cond_v = c_snz;
             default: cond_v = 1'b0;
         endcase
     end
@@ -292,6 +330,9 @@ module v35_useq
             tw <= 2'd0;
             wbn <= 2'd0;
             wbp <= 2'd0;
+            sp <= 1'b0;
+            rf <= 1'b0;
+            rqp <= 1'b0;
             halted <= 1'b0;
             at_entry <= 1'b0;
         end else if (ce_a) begin
@@ -300,6 +341,9 @@ module v35_useq
             tw <= tw_b;
             wbn <= wbn_b;
             wbp <= wbp_b;
+            sp <= sp_b;
+            rf <= rf_b;
+            rqp <= rq_b;
             if (ex_b && word.seq == SQ_CALL)
                 retr <= inc;
             else if (ex_b && word.seq == SQ_DISP && dc_b)
@@ -323,6 +367,7 @@ module v35_useq
         if (chk_on && reset_n && ce_a) begin
             if (ex_b !== ex || d1_b !== dent || d2_b !== dec2.entry || len_b !== len
                 || dc_b !== dcall || dr_b !== dret || tw_b !== tw_n || wbn_b !== wbn_n || wbp_b !== wbp_n
+                || sp_b !== sp_n || rf_b !== rf_n || rq_b !== q_req
                 || il_b !== il || w_b !== fmt_w) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)

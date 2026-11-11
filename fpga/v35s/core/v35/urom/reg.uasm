@@ -9,18 +9,15 @@
 ; the RAM's write port at the word's end; SIG is the ALU result of an earlier word.
 
 ; ---- two operands, ModR/M register form (V20 ALU_RM 0000-0001)
-routine alu_rr op=00-03,08-0B,10-13,18-1B,20-23,28-2B,30-33 mod=reg book="ADD reg,reg" diff=1 why="beyond the book: a named act, the two registers' RAM read on a word of its own (V20 0000 M->tmpb, R->tmpa), then the ALU on the E word and the write after it: S-to-S 3 (F3-push-add_aw_dw-k4-pE-w0, the frozen model's starts 87 90 93 96; a6 3)"
-    ra=DST rb=SRC d1=TA s1=RA d2=TB s2=RB   ; read the destination and the source into tmpa / tmpb (0000)
-    alu=GRP ax=TA ay=TB wf e                ; the group's ALU op, flags (W); E
+routine alu_rr op=00-03,08-0B,10-13,18-1B,20-23,28-2B,30-33 mod=reg book="ADD reg,reg" why="the two registers' RAM read, the ALU and E on one word, the write after it: the book's 2 (MX2: silicon's S-to-S 3 is the take sync's wait on the ModR/M pop, the E word waiting for the word its room asked for: F3-push-mov_aw_dw-k2-pE-w0, the frozen model's next start on that word's delivery, S+3; MX1b's read word of its own put the E a clock after it)"
+    ra=DST rb=SRC alu=GRP ax=RA ay=RB wf e  ; read the destination and the source; the group's ALU op, flags (W); E
     wr=DST ws=SIG                           ; post-E: the result into the destination (0001)
 
-routine cmp_rr op=38-3B mod=reg book="CMP reg,reg" diff=1 why="beyond the book: a named act, the registers' RAM read on a word of its own (as ADD reg,reg: S-to-S 3, F3-push-add_aw_dw-k4-pE-w0)"
-    ra=DST rb=SRC d1=TA s1=RA d2=TB s2=RB   ; read both operands into tmpa / tmpb
-    alu=GRP ax=TA ay=TB wf e                ; CMP (the difference's flags, W); E
+routine cmp_rr op=38-3B mod=reg book="CMP reg,reg" why="the registers' RAM read, CMP and E on one word: the book's 2 (MX2: as ADD reg,reg, silicon's 3 the take sync's wait)"
+    ra=DST rb=SRC alu=GRP ax=RA ay=RB wf e  ; read both operands; CMP (the difference's flags, W); E
 
-routine mov_rr op=88-8B mod=reg book="MOV reg,reg" diff=1 why="beyond the book: a named act, the source's RAM read on a word of its own, the pass on the E word, the write after it: S-to-S 3 (F3-push-mov_aw_dw-k4-pE-w0, the frozen model's starts 87 90 93 96; a6 3)"
-    rb=SRC d1=TB s1=RB                      ; read the source into tmpb (004C R -> tmpa)
-    alu=PASS ax=TB e                        ; through the ALU; E
+routine mov_rr op=88-8B mod=reg book="MOV reg,reg" why="the source's RAM read and its pass with E on one word, the write after it: the book's 2 (MX2: silicon's S-to-S 3 is the take sync's wait, F3-push-mov_aw_dw-k2-pE-w0: the frozen model's next start at S+3 on the delivery of the word the ModR/M pop's room asked for)"
+    rb=SRC alu=PASS ax=RB e                 ; read the source; through the ALU; E
     wr=DST ws=SIG                           ; post-E: the destination <- SIGMA (004D)
 
 ; V20 XCHG_RM 0048-004A: two reads, then one write a word (the write port is one)
