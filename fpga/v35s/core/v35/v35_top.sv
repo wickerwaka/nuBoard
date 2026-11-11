@@ -201,6 +201,8 @@ module v35_top
     wire        ld_stg;
     wire [19:0] q_fetch_addr;
     wire [2:0]  q_avail, q_stored;
+    wire [7:0]  q_h0, q_hl;             // (MX5b) the queue's registered head facts
+    wire        q_hlv, q_hod;
     wire        q_fetch_req, q_low, b_b2b_now;
     wire        q_fetch_raise;
     wire        q_word;                 // (Q2)
@@ -216,7 +218,10 @@ module v35_top
     v35_udec_t  fmt, dec1;
     v35_udecm_t dec2;
     // (MX0) the sequencer
-    v35_uword_t word;
+    v35_uword_t word, word_nx;
+    wire [7:0]  ld_opc_nx, ld_modrm_nx;   // (MX5b) tick B: the values loading at ce_a
+    v35_udec_t  fmt_nx;
+    wire [6:0]  ra_early, rb_early;
     wire        ex, ex_pop, ex_b, start, start_trap, halted;
     wire        w_disp, w_dispm, w_popany;     // (MX5) the word's derived bits (registers)
     wire [4:0]  why;
@@ -314,7 +319,7 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .fetch_req(q_fetch_req), .fetch_raise(q_fetch_raise), .fetch_addr(q_fetch_addr), .q_low, .q_word,
         .fetch_go(g_fetch), .dlv_v(dlv_fetch), .dlv_data(b_done_data), .abort_go(b_abort_busy),
-        .vb0(qv0), .vb1(qv1), .vb2(qv2), .vb3(qv3), .avail(q_avail), .stored(q_stored), .rd(ld_rd), .rd_b(3'd0),
+        .vb0(qv0), .vb1(qv1), .vb2(qv2), .vb3(qv3), .avail(q_avail), .stored(q_stored), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .rd(ld_rd), .rd_b(3'd0),
         .rel(ld_rel), .stg(ld_stg),
         .flush(t_flush), .flush_addr(q_flush_addr), .susp(q_susp), .ps_base
     );
@@ -323,12 +328,12 @@ module v35_top
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .qv0, .qv1, .qv2, .qv3, .q_avail, .q_stored, .q_arrive(dlv_fetch), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
+        .qv0, .qv1, .qv2, .qv3, .q_avail, .q_stored, .q_arrive(dlv_fetch), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
         .reset_addr(tb_reset_addr), .reset_ip(tb_reset_ip), .flush(t_flush), .flush_w(word.flush), .flush_lin,
         .flush_off,
         .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && w_disp),
         .dispm(w_dispm), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
-        .dl(ld_dl), .dh(ld_dh), .fmt, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
+        .dl(ld_dl), .dh(ld_dh), .fmt, .opc_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
         .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret, .dtrap,
         .resv_e, .s_modrm, .e_rmodrm, .s_wbs, .ec_reg, .ec_call, .ec_head, .ip(ld_ip)
     );
@@ -341,13 +346,14 @@ module v35_top
         .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .fetch_dph(b_fetch_past_b2), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
         .e_rmodrm, .rmem((fmt.has_modrm || fmt.pg) && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
-        .f_abort(g_abort), .word, .w_disp, .w_dispm, .w_popany, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
+        .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
     // ---------------------------------------------------------------- the datapath
     v35_eu eu (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .word, .ex, .ex_b, .resv_e,
+        .word, .word_nx(word_nx), .op_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx,
+        .ra_early, .rb_early, .ex, .ex_b, .resv_e,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
         .dh(ld_dh), .ip(ld_ip),
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
@@ -359,7 +365,7 @@ module v35_top
 
     // ---------------------------------------------------------------- the register RAM
     v35_regram regram (
-        .clock, .ce_a, .ce_b, .ra_next, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data
+        .clock, .ce_a, .ce_b, .ra_next, .ra_early, .rb_early, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data
     );
     // ---------------------------------------------------------------- refresh (not served)
     wire rf_pending, rf_load;

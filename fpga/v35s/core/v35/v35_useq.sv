@@ -97,6 +97,7 @@ module v35_useq
     input  wire        f_dlv,
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
+    output v35_uword_t word_nx,         // (MX5b) tick B: the next word (the banks' read data)
     output wire        w_disp,          // (MX5) the word's derived bits (registers): seq == SQ_DISP
     output wire        w_dispm,         // ... seq == SQ_DISPM
     output wire        w_popany,        // ... pop != PP_NONE
@@ -174,6 +175,7 @@ module v35_useq
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     wire [95:0] rw = {r2, r1, r0};
+    assign word_nx = v35_uword_t'(rw[UWORD_BITS-1:0]);
     v35_upre_t pd = '0;
     assign w_disp = pd.disp;
     assign w_dispm = pd.dispm;

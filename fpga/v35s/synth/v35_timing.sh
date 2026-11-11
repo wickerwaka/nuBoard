@@ -17,6 +17,7 @@
 #   PERIOD=ns      the clock period (default 15.625)
 #   V35_SRC=dir    the core's sources (default fpga/v35s/core/v35 of this tree)
 #   EFFORT=n       the placer's effort level (default the project's 5)
+#   SEED=n         (MX5b) the place-and-route seed (default the project's 1)
 #   NPATHS=n       (MX5) the spectrum: after the compile, efx_run's sta_tclsh reports the n worst
 #                  setup endpoints (report_timing -nworst 1, one path an endpoint; default 2000,
 #                  0 skips it) into outflow/spectrum.rpt; printed: the failing endpoints' count,
@@ -37,7 +38,7 @@ fi
 if [[ -z "${V35_SCOPED:-}" ]]; then
     exec systemd-run --user --scope -p MemoryMax=20G -p MemorySwapMax=1G -q \
         env V35_SCOPED=1 ${TAG:+TAG="$TAG"} ${PERIOD:+PERIOD="$PERIOD"} \
-        ${V35_SRC:+V35_SRC="$V35_SRC"} ${EFFORT:+EFFORT="$EFFORT"} ${NPATHS:+NPATHS="$NPATHS"} ${STA_ONLY:+STA_ONLY="$STA_ONLY"} ${DETAIL_TO:+DETAIL_TO="$DETAIL_TO"} \
+        ${V35_SRC:+V35_SRC="$V35_SRC"} ${EFFORT:+EFFORT="$EFFORT"} ${SEED:+SEED="$SEED"} ${NPATHS:+NPATHS="$NPATHS"} ${STA_ONLY:+STA_ONLY="$STA_ONLY"} ${DETAIL_TO:+DETAIL_TO="$DETAIL_TO"} \
         "$script_dir/v35_timing.sh" "$@"
 fi
 if ! command -v efx_run >/dev/null; then
@@ -106,10 +107,10 @@ time_one() {
             echo "design.assign_pkg_pin(\"xo[$k]\", \"${pins[$k]}\")"
         done
     } > "$project_dir/v35s.isf"
-    python3 - "$repo_root/fpga/v35s/v35s.xml" "$project_dir/v35s.xml" "${EFFORT:-}" \
+    python3 - "$repo_root/fpga/v35s/v35s.xml" "$project_dir/v35s.xml" "${EFFORT:-}" "${SEED:-}" \
         "${names[@]}" <<'PY'
 import re, sys
-source, target, effort, *files = sys.argv[1:]
+source, target, effort, seed, *files = sys.argv[1:]
 text = open(source).read()
 text = re.sub(r'        <efx:design_file name="[^"]+" version="default" library="default" />\n',
               '', text)
@@ -127,6 +128,10 @@ if effort:
     a = '<efx:param name="placer_effort_level" value="5" value_type="e_option" />'
     assert a in text
     text = text.replace(a, a.replace('"5"', f'"{effort}"'))
+if seed:
+    a = '<efx:param name="seed" value="1" value_type="e_integer" />'
+    assert a in text
+    text = text.replace(a, a.replace('"1"', f'"{seed}"'))
 open(target, 'w').write(text)
 PY
     local t0 rc=0

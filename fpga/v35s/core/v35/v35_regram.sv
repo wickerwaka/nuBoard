@@ -26,6 +26,8 @@ module v35_regram (
     input  wire        ce_b,          // (S7b) the CPU clock's second tick (the pipeline registers)
     // port A: read address for the next clock, write (at ce_a)
     input  wire [6:0]  ra_next,     // {bank, slot[4:1]}
+    input  wire [6:0]  ra_early,    // (MX5b) read at ce_a: the next word's port A address
+    input  wire [6:0]  rb_early,    // ... port B
     input  wire        wa_en,
     input  wire [6:0]  wa_addr,
     input  wire [1:0]  wa_be,       // byte enables {odd, even}
@@ -44,6 +46,13 @@ module v35_regram (
     // between a ce_b and the next ce_a, so the data read at ce_b is what the old port (the
     // address registered at ce_b, the data the array's current contents) shows all through tick
     // B. The RAM reads before it writes (no write-through on the read port: README "MX5")
+    // (MX5b) each port also reads at ce_a, at the address the next word's read will name
+    // (`ra_early`, formed in tick B): that data stands through tick A and the datapath captures
+    // it at ce_b, the edge on which the ce_b read replaces it (ce_a and ce_b are never one tick).
+    // The ce_a read is read-first: the write landing on the same edge is forwarded by the
+    // datapath. Every tick-B reader still reads the ce_b read
+    wire [6:0] ra_addr = ce_a ? ra_early : ra_next;
+    wire [6:0] rb_addr = ce_a ? rb_early : rb_next;
     reg [15:0] ra_d = 16'd0;
     reg [15:0] rb_d = 16'd0;
 
@@ -73,9 +82,9 @@ module v35_regram (
         // (MX0) the read addresses latch at ce_b: the word's register selectors are decided
         // in its first tick (the ROM word is a register from ce_a), the data is read in its
         // second; a write at the last ce_a is read back (no forwarding needed)
-        if (ce_b) begin
-            ra_d <= {ao[ra_next], ae[ra_next]};
-            rb_d <= {bo[rb_next], be[rb_next]};
+        if (ce_a || ce_b) begin
+            ra_d <= {ao[ra_addr], ae[ra_addr]};
+            rb_d <= {bo[rb_addr], be[rb_addr]};
         end
     end
 

@@ -1933,3 +1933,35 @@ question, decided from S8's routed numbers with the user.
   ce_a forwarded, the operands held in ce_b registers so the ALU and the divider's init start from flops; a
   register split inside the ALU refused as it would move when psw is visible. The gate adds margin: the
   top's worst setup ≥ +1.0 ns on the run, or ≥ 0 on three placement seeds.
+- **MX5 round 2 landed (2026-11-11): tick B closed, tick A not yet; structure only.** Three more splits, each
+  checked by `+v35_chk` every clock (the core README "MX5", "Round 2"): the head byte decoded before the
+  queue's head select (the overseer's option (a), first form: the queue gains four outputs each driven by
+  one of its own registers, `h_q0` / `h_lat` / `h_latv` / `h_odd`; the loader forms the head byte's lookups
+  per candidate byte and selects by the registered facts that pick the head; test_v35_struct's Ports rule
+  names the four; `v35_udec2(op, byte)` stays behind the select since replicating it per candidate costs 72
+  RAM blocks); the opcode's decode as a register `d1r` loaded with op's next value; the operands a tick
+  earlier (each register RAM port also reads at ce_a at the next word's selectors formed in tick B from the
+  ROM's read data `word_nx` and the loader's `opc_nx` / `modrm_nx` / `fmt_nx`, the bank psw.RB as it stands,
+  the same-ce_a write forwarded byte by byte, the operands captured in ce_b registers `x_b` / `y_b`; every
+  other tick-B reader keeps the ce_b read). v35_timing.sh takes `SEED` (the place-and-route seed; the same
+  sources and seed reproduce the slack exactly). **Measured (the overseer's rerun on main, identical to the
+  hand-back):** the top 5,914 LUT4 / 414 ADD / 1,253 FF / 73 RAM_5K (round 1 5,488 / 414 / 1,229 / 73),
+  worst setup −5.002 ns at seed 1 (−4.491 seed 2, −5.267 seed 3), 344 failing endpoints (seeds 2 / 3: 242 /
+  77), hold +0.307. The worst path, 17 levels and 20.2 ns of data: the staging register `s_b` → the
+  candidates' umodrm → z's compare → the candidate select → the ex / z selects → `rel` (10.8 ns) → the room's
+  selects → `fetch_req` (4.0) → `g_fetch` (1.9) → the pins' clock enables (3.5, of which 2.0 routing on a
+  fan-out of 52). Tick B in the top: one endpoint at −0.852 (`x_b` → the divider's init). Alone: useq +5.257,
+  loader +3.253, queue +5.668, bus +6.160, eu +3.680 (was −1.242). **Verified on main:** 6,207 / 30,536 at
+  both spacings, the tables and the per-run first divergences identical to 6281c60, chk silent (now also the
+  head decode's select, d1r, x_b / y_b), write data 99,906, register vectors 107,859 with 0 bad, function
+  vectors 19,752 with 0 bad, lint clean in five configurations and the macro alternatives, 47 fast tests,
+  the nine offline modules with the four known failures. **Rulings for round 3 (the overseer's):** the second
+  form of option (a) allowed (the byte-only facts decoded on the delivered word before storage and carried
+  beside the byte as opaque bits; the generated table emitted as two functions); the stall outcome `ex`
+  computed in tick B from the ce_a registers' next values and held in a ce_a register, since it reads the
+  arrival event and registered facts but never the arriving datum's content (q_stall reads `ds2` and the
+  byte counts), and likewise every loader fact that reads registered state only, leaving in tick A only the
+  arriving word's own decode; the bus unit's grant expanded on its own `fetch_req` input; the pins' enables
+  formed per group from duplicated logic; the room's 4.0 ns select tightened; the divider's init split as a
+  state-machine step only if no clock moves. A third tick stays refused; if the gate is still not met the
+  agent hands back the worst path's composition level by level for the user's measured choice.

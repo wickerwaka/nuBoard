@@ -1941,6 +1941,110 @@ WR 3, WB 2, BW 2). test_uasm, test_v35_struct (with the MX1 rule read from `dsp_
 3. The resources: LUT4 +614 against fec2386 (the expansions: the loader's ta twice and the
    z pair, the room's per-rd and per-rel tables), FF +194, RAM_5K unchanged (73).
 
+### Round 2 (the rulings: the head byte decoded before the head select; the operands a tick earlier)
+
+**Not closed yet: tick B is nearly closed, tick A is not.** The top's worst setup is -5.002 ns on seed 1, -4.491 on seed 2 and -5.267 on seed 3 (the minimum -5.267; the gate asks >= +1.0 on the run or >= 0 on three seeds: not met).
+Tick B's datapath went from -2.5 ns (round 1) to -0.85 ns (one endpoint, the divider's init:
+`x_b` -> `dv.trap`). Tick A is about -5 ns: its logic got shorter (344 failing endpoints, from
+496), but the head byte's lookups still sit in series before the loader's z. Hold +0.307. The
+behaviour is the same as at 6281c60 (below). New in `v35_timing.sh`: `SEED=n` sets the
+place-and-route seed (the project's `seed`; the default is 1). Same sources and seed give the
+same result: b1 run twice gave the same slack.
+
+#### The splits (round 2)
+
+11. **The head byte's lookups before the head select** (option (a), the first form; `v35_queue`,
+    `v35_loader`). The queue gains four outputs, each one of its own registers driven directly:
+    `h_q0` (q[0]), `h_lat` (lat_byte), `h_latv` (lat_v) and `h_odd` (odd). With the bus unit's
+    datum register (`h_dlv`, the delivered word) and the loader's word register these are the
+    head byte's candidates. `hd_f` of each candidate gives the umodrm of the staged opcode and
+    of the opcode, upage, the mode bits, the EAC word's head facts and z's compare. The result
+    is selected by `hs`, the registered facts that select the byte itself (queue's seqb(0):
+    stored bytes first, then the latch, then the arrival at its parity; then the loader's sb0
+    choice). The selected set equals `hd_f(sb0)` on every clock (`+v35_chk`). The queue learns
+    nothing about instructions. `test_v35_struct.Ports` gains the rule: the queue's `h_*`
+    outputs are exactly these four, each `assign h_x = <its register>`.
+    Why the first form: it needs no change to the queue's storage or latch writes. The second
+    form (the attributes stored beside the bytes) would need the queue's write paths to carry
+    loader-computed bits; I did not build it.
+    **The second-level lookup (`v35_udec2(op, byte)`) stays behind the select.** Replicated per
+    candidate (measured, b1) it maps into 72 more RAM blocks (145 RAM_5K, over the core's 80).
+    Its readers are the DISPM target (the ROM's read address) and op3.
+12. **The opcode register's decode** (`v35_loader` `d1r`): `v35_udec1(op)` in a register beside
+    op, loaded at ce_a with op's next value (in reset from op). `dec1` is the register
+    (`+v35_chk`). Before this, the table's RAM (registered address, 3.7 ns out) began tick A's
+    worst path.
+13. **The operands a tick earlier** (`v35_regram`, `v35_eu`, `v35_loader`, `v35_useq`):
+    - **The early read:** each register RAM port also reads at ce_a, at `ra_early` / `rb_early`.
+      These are the next word's selectors (`word_nx`: the ROM's read data, a new useq output)
+      on the values opc, modrm and fmt load at ce_a (`opc_nx`, `modrm_nx`, `fmt_nx`: new loader
+      outputs; the loader's ce_a block now assigns exactly them). The bank is psw.RB as it
+      stands: no write changes PSW's bits 14:12. The ALU and unit results start from psw and set
+      named flags; POP PSW keeps 15:12.
+    - **The ports' timing:** the ports read at ce_a and at ce_b alternately (the address muxed
+      by ce_a). The early data stands through tick A; the ce_b read replaces it for every tick-B
+      reader (the EA's base and index, the moves, the write port, rb_lo), as before.
+    - **The forward:** the write landing on the same ce_a is registered at ce_a (`fw_be`,
+      `fw_a`, `fw_d`) and forwarded byte by byte into the early data.
+    - **The operand registers:** at ce_b, `x_b` / `y_b` capture the lane and the same source
+      choice. Every other source is a ce_a register, and the early data is what the ce_b read
+      returns (same address, no write between ce_a and ce_b). So `x_b` / `y_b` are the old
+      x / y through tick B. `+v35_chk` compares them every clock.
+    - **The effect:** the ALU, the divider's init and the multiplier start from flops.
+
+#### Measured (the whole core, cumulative on 6281c60)
+
+| step | map LUT4 / ADD / FF / RAM_5K | worst setup | failing (of 2,000) | the worst path |
+| --- | --- | --- | --- | --- |
+| 6281c60 (round 1) | 5,488 / 414 / 1,229 / 73 | -5.058 | 496 | q_stored -> the head byte -> the loader -> the grant -> the pins |
+| 11 (with udec2 per candidate) + 13 | 6,469 / 414 / 1,233 / **145** | -5.125 | 537 | ld_op -> the per-candidate tables -> the pins (rejected: RAM) |
+| 11 (udec2 behind the select) + 13 | 5,881 / 414 / 1,233 / 73 | -4.345 | 475 | udec1(op)'s RAM -> z -> the pins; the EU -0.886 (x_b -> psw) |
+| + 12 (MX5 round 2 as handed back) | 5,914 / 414 / 1,253 / 73 | -5.002 | 344 | s_b -> umodrm per candidate -> z -> rel -> the room -> the grant -> the pins |
+| the same sources, seeds 2 / 3 | | -4.491 / -5.267 | 242 / 77 | tick A (the pins' enables) |
+
+The worst path at the hand-back (20.2 ns of data path, 17 levels):
+- s_b to `rel`: 10.8 ns (umodrm of the candidates, z's compare, the candidate select, the ex / z
+  selects).
+- `rel` to `fetch_req`: 4.0 ns.
+- To `g_fetch`: 1.9 ns.
+- `g_fetch` to the pins' clock enables: 3.5 ns (1.5 + 2.0 ns of routing, fan-out 52).
+
+| module alone (round 2) | LUT4 / ADD / FF / RAM_5K | worst setup | levels | the worst path |
+| --- | --- | --- | --- | --- |
+| v35_useq | 453 / 8 / 564 / 47 | +5.257 | 5 | the address inputs -> the banks' RADDR |
+| v35_loader | 1,912 / 72 / 822 / 40 | +3.253 | 9 | s_b -> the per-candidate lookups -> an output |
+| v35_queue | 743 / 95 / 304 / 0 | +5.668 | 6 | rd_r -> the output fold |
+| v35_bus | 297 / 14 / 441 / 0 | +6.160 | 1 | an input -> a ce_b register's enable |
+| v35_eu | 3,353 / 323 / 1,116 / 0 | **+3.680** (round 1 -1.242) | 8 | x_b -> the ALU -> an output |
+
+**Every module closes alone** (hold +0.307 in each). The EU's word-to-flags path is gone: the
+operands are flops at ce_b.
+
+#### Behaviour (round 2, against 6281c60 = fec2386's behaviour)
+
+The whole refresh-off corpus at both spacings (the default and `+v35_ticks=2`, `+v35_chk`): **6,207 / 30,536 exact at both, the per-family tables identical, the per-run first divergences identical (30,536 runs compared at each spacing, 0 differ), `+v35_chk` silent** (it now also checks the per-candidate lookups against hd_f(sb0), d1r, and the early operands x_b / y_b against the ce_b read). Write data 99,906 / 106,824. `--regfile` 107,859 vectors 0 bad (pass 104,763), `--fn` 19,752 0 bad. Lint clean in the five configurations and with UH 0, US 0, WBR 0, IRL 1 (also IRL 2, DISPATCH 3, WR 3, WB 2, BW 2). test_uasm, test_v35_struct (the queue head-facts rule added), test_chain_lane, test_rtl_vectors (the SingleStepTests set) 47 OK; the nine offline modules 941 tests, the four known failures.
+
+#### Open (round 2)
+
+1. **Tick A (-5.0 ns).** About 6 ns must go for the margin.
+   - **Candidates, in order:**
+     - (i) The second form of option (a), for the byte-only facts: dsp(mb), mb[5:4] == 0, the
+       mode bits, upage. These are decoded on the delivered word in the tick before it is
+       stored and carried beside the byte, so z's compare reads stored bits. The opcode's part
+       of umodrm (the immediate class of s_b and op, from the decode table) would be a register
+       beside s_b and op, as `ds` and `d1r` are. This needs a ruling: it writes umodrm as
+       dsp(mb) + imm(op, mb[5:4] == 0), the generated table's present structure, which the
+       assembler would then emit as two functions.
+     - (ii) The pins' clock enables from the grant with no logic after it (route `g_fetch`
+       through a replicated, kept copy per pin group; the routing is 3.5 ns).
+     - (iii) The room's selects on rel from the loader's ex / z outcome sets inside the loader:
+       rel is a 3-way choice of early values. The queue cannot take the sets (the ruling).
+   - **Not built:** the grant replication the brief names. `g_fetch` is not a register (it is
+     tick A's grant, combinational into the pins at ce_e), so there is no flop to duplicate;
+     (ii) is the form it would take.
+2. **Tick B (-0.85 ns, `dv.trap`):** the divider's init from `x_b` / `y_b` (the 32-bit negate and
+   the compare). Next is the brief's state-machine step for the init, which I have not built.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

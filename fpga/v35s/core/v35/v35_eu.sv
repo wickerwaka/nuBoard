@@ -43,6 +43,11 @@ module v35_eu
     input  wire        ce_b,
     // the sequencer
     input  v35_uword_t word,
+    // (MX5b) tick B: the next word and the values opc, modrm and fmt load at ce_a (the early read)
+    input  v35_uword_t word_nx,
+    input  wire [7:0]  op_nx,
+    input  wire [7:0]  modrm_nx,
+    input  v35_udec_t  fmt_nx,
     input  wire        ex,              // tick A
     input  wire        ex_b,            // tick B / ce_a
     input  wire        resv_e,          // tick A: the reservation rises (the loader's E pop)
@@ -59,6 +64,8 @@ module v35_eu
     // the register RAM
     output wire [6:0]  ra_next,
     output wire [6:0]  rb_next,
+    output wire [6:0]  ra_early,        // (MX5b) tick B: the next word's read addresses (read at ce_a)
+    output wire [6:0]  rb_early,
     input  wire [15:0] ra_data,
     input  wire [15:0] rb_data,
     output wire        wa_en,
@@ -136,35 +143,44 @@ module v35_eu
     function automatic logic [6:0] sg(input logic [1:0] s);
         sg = {1'b1, 2'd0, 4'(4'd7 - {2'd0, s})};
     endfunction
-    function automatic logic [6:0] rsel(input v35_rsel_e r);
+    // (MX5b) the register selector as a function of the values it reads (rsel: the current
+    // word's; the early read: the next word's, in tick B)
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic logic [6:0] rsel_g(input v35_rsel_e r, input v35_wid_e wd,
+                                          input logic [7:0] md, input logic [7:0] o,
+                                          input logic fd, input logic we);
         logic hi;
-        hi = word.wid == WD_HIGH;
+        hi = wd == WD_HIGH;
         case (r)
-            RS_REG: rsel = num(modrm[5:3], weff);
-            RS_RM: rsel = num(modrm[2:0], weff);
-            RS_OPR: rsel = num(op[2:0], weff);
-            RS_DST: rsel = num(fmt.d ? modrm[5:3] : modrm[2:0], weff);
-            RS_SRC: rsel = num(fmt.d ? modrm[2:0] : modrm[5:3], weff);
-            RS_AW: rsel = fix(3'd0, weff, hi);
-            RS_CW: rsel = fix(3'd1, weff, hi);
-            RS_DW: rsel = fix(3'd2, weff, hi);
-            RS_BW: rsel = fix(3'd3, weff, hi);
-            RS_SP: rsel = fix(3'd4, weff, hi);
-            RS_BP: rsel = fix(3'd5, weff, hi);
-            RS_IX: rsel = fix(3'd6, weff, hi);
-            RS_IY: rsel = fix(3'd7, weff, hi);
-            RS_SREG: rsel = sg(modrm[4:3]);
-            RS_SOPR: rsel = sg(op[4:3]);
-            RS_PS: rsel = sg(2'd1);
-            RS_SS: rsel = sg(2'd2);
-            RS_DS0: rsel = sg(2'd3);
-            RS_DS1: rsel = sg(2'd0);
-            RS_BASE: rsel = fix((modrm[2:0] == 3'd2 || modrm[2:0] == 3'd3 || modrm[2:0] == 3'd6)
-                                ? 3'd5 : modrm[2:0] == 3'd4 ? 3'd6 : modrm[2:0] == 3'd5 ? 3'd7
+            RS_REG: rsel_g = num(md[5:3], we);
+            RS_RM: rsel_g = num(md[2:0], we);
+            RS_OPR: rsel_g = num(o[2:0], we);
+            RS_DST: rsel_g = num(fd ? md[5:3] : md[2:0], we);
+            RS_SRC: rsel_g = num(fd ? md[2:0] : md[5:3], we);
+            RS_AW: rsel_g = fix(3'd0, we, hi);
+            RS_CW: rsel_g = fix(3'd1, we, hi);
+            RS_DW: rsel_g = fix(3'd2, we, hi);
+            RS_BW: rsel_g = fix(3'd3, we, hi);
+            RS_SP: rsel_g = fix(3'd4, we, hi);
+            RS_BP: rsel_g = fix(3'd5, we, hi);
+            RS_IX: rsel_g = fix(3'd6, we, hi);
+            RS_IY: rsel_g = fix(3'd7, we, hi);
+            RS_SREG: rsel_g = sg(md[4:3]);
+            RS_SOPR: rsel_g = sg(o[4:3]);
+            RS_PS: rsel_g = sg(2'd1);
+            RS_SS: rsel_g = sg(2'd2);
+            RS_DS0: rsel_g = sg(2'd3);
+            RS_DS1: rsel_g = sg(2'd0);
+            RS_BASE: rsel_g = fix((md[2:0] == 3'd2 || md[2:0] == 3'd3 || md[2:0] == 3'd6)
+                                ? 3'd5 : md[2:0] == 3'd4 ? 3'd6 : md[2:0] == 3'd5 ? 3'd7
                                 : 3'd3, 1'b1, 1'b0);
-            RS_INDEX: rsel = fix(modrm[0] ? 3'd7 : 3'd6, 1'b1, 1'b0);
-            default: rsel = 7'd0;
+            RS_INDEX: rsel_g = fix(md[0] ? 3'd7 : 3'd6, 1'b1, 1'b0);
+            default: rsel_g = 7'd0;
         endcase
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    function automatic logic [6:0] rsel(input v35_rsel_e r);
+        rsel = rsel_g(r, word.wid, modrm, op, fmt.d, weff);
     endfunction
 
     // ------------------------------------------------------------ tick A: the read addresses
@@ -172,6 +188,32 @@ module v35_eu
     wire [6:0] sb = rsel(word.rb);
     assign ra_next = {bank, sa[3:0]};
     assign rb_next = {bank, sb[3:0]};
+    // (MX5b) the early read: the next word's selectors on the values its fields will read at
+    // ce_a. The bank is psw.RB as it stands: no write changes PSW's bits 14:12 (the ALU's flag
+    // results and POP PSW's write keep them; `+v35_chk` checks the address against ra_next)
+    wire       weff_n = word_nx.wid == WD_WORD ? 1'b1 : (word_nx.wid == WD_FMT ? fmt_nx.w : 1'b0);
+    wire [6:0] sa_n = rsel_g(word_nx.ra, word_nx.wid, modrm_nx, op_nx, fmt_nx.d, weff_n);
+    wire [6:0] sb_n = rsel_g(word_nx.rb, word_nx.wid, modrm_nx, op_nx, fmt_nx.d, weff_n);
+    assign ra_early = {bank, sa_n[3:0]};
+    assign rb_early = {bank, sb_n[3:0]};
+    // ... registered at ce_a (the lanes of the early data, the address for the forward)
+    reg  [1:0] la_e = 2'd0, lb_e = 2'd0;
+    reg  [6:0] rae_q = 7'd0, rbe_q = 7'd0;
+    // the write landing on ce_a (forwarded into the early read's data)
+    reg  [1:0] fw_be = 2'd0;
+    reg  [6:0] fw_a = 7'd0;
+    reg [15:0] fw_d = 16'd0;
+    always_ff @(posedge clock) begin
+        if (ce_a) begin
+            la_e <= sa_n[5:4];
+            lb_e <= sb_n[5:4];
+            rae_q <= ra_early;
+            rbe_q <= rb_early;
+            fw_be <= wa_en ? wa_be : 2'b00;
+            fw_a <= wa_addr;
+            fw_d <= wa_data;
+        end
+    end
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg  [1:0] la_b = 2'd0, lb_b = 2'd0;
@@ -224,8 +266,28 @@ module v35_eu
     // select over it: the same value for every field, by construction
     wire [15:0] x_o = src(word.ax == SR_RA || word.ax == SR_RB ? SR_ZERO : word.ax);
     wire [15:0] y_o = src(word.ay == SR_RA || word.ay == SR_RB ? SR_ZERO : word.ay);
-    wire [15:0] x = word.ax == SR_RA ? va : word.ax == SR_RB ? vb : x_o;
-    wire [15:0] y = word.ay == SR_RA ? va : word.ay == SR_RB ? vb : y_o;
+    wire [15:0] x_l = word.ax == SR_RA ? va : word.ax == SR_RB ? vb : x_o;
+    wire [15:0] y_l = word.ay == SR_RA ? va : word.ay == SR_RB ? vb : y_o;
+    // (MX5b) the ALU's operands a tick earlier: the early read's data (tick A) with the ce_a
+    // write forwarded byte by byte, the lane, the same choice; captured at ce_b (`x_b`, `y_b`).
+    // Every other source is a ce_a register (stable through the clock) and the early read's
+    // data is the ce_b read's (the same address, no write between ce_a and ce_b), so x_b is the
+    // old x through tick B (`+v35_chk` compares them every clock)
+    function automatic logic [15:0] fwd(input logic [15:0] d, input logic [6:0] a);
+        fwd = {(fw_be[1] && fw_a == a) ? fw_d[15:8] : d[15:8],
+               (fw_be[0] && fw_a == a) ? fw_d[7:0] : d[7:0]};
+    endfunction
+    wire [15:0] va_e = lane(fwd(ra_data, rae_q), la_e);
+    wire [15:0] vb_e = lane(fwd(rb_data, rbe_q), lb_e);
+    reg  [15:0] x_b = 16'd0, y_b = 16'd0;
+    always_ff @(posedge clock) begin
+        if (ce_b) begin
+            x_b <= word.ax == SR_RA ? va_e : word.ax == SR_RB ? vb_e : x_o;
+            y_b <= word.ay == SR_RA ? va_e : word.ay == SR_RB ? vb_e : y_o;
+        end
+    end
+    wire [15:0] x = x_b;
+    wire [15:0] y = y_b;
     wire [15:0] s1v = src(word.s1);
     wire [15:0] s2v = src(word.s2);
     wire [15:0] wsv = src(word.ws);
@@ -565,7 +627,7 @@ module v35_eu
         end
     end
 
-    wire unused = &{1'b0, ex, sa[6], sb[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
+    wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], x_l, y_l, dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 
 `ifndef SYNTHESIS
     /* verilator lint_off BLKSEQ */
@@ -574,6 +636,11 @@ module v35_eu
     initial chk_on = $test$plusargs("v35_chk");
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
+            if (x_b !== x_l || y_b !== y_l) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu: the early operands differ at %0t", $time);
+            end
             if (la_b !== sa[5:4] || lb_b !== sb[5:4] || ack_b !== req_ack
                 || resv_eb !== resv_e) begin
                 chk_n = chk_n + 1;

@@ -167,6 +167,19 @@ class Ports(unittest.TestCase):
                     self.assertNotIn(t, typ.split(), f"{f}: {name} is a {t}")
                 self.assertIsNone(INSTR_WORDS.search(name), f"{f}: {name}")
 
+    def test_queue_head_facts_are_its_registers(self):
+        """(MX5b) the queue's head facts (the loader's head-byte decode before the select) are
+        its own registers, driven directly: the first stored byte, the latched byte, the latch's
+        bit, the in-flight word's parity; nothing else of that kind."""
+        if not (V35 / "v35_queue.sv").exists():
+            return
+        outs = {n for d, _, n in ports("v35_queue.sv") if d == "output" and n.startswith("h_")}
+        self.assertEqual(outs, {"h_q0", "h_lat", "h_latv", "h_odd"})
+        text = strip((V35 / "v35_queue.sv").read_text())
+        for name, reg in (("h_q0", r"q\[0\]"), ("h_lat", "lat_byte"), ("h_latv", "lat_v"),
+                          ("h_odd", "odd")):
+            self.assertRegex(text, rf"assign\s+{name}\s*=\s*{reg}\s*;")
+
     def test_bus_inputs_are_the_ports(self):
         if not (V35 / "v35_bus.sv").exists():
             return

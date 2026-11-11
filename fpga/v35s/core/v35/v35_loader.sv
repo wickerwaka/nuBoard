@@ -60,6 +60,15 @@ module v35_loader
     input  wire [7:0]  qv3,
     input  wire [2:0]  q_avail,
     input  wire [2:0]  q_stored,        // (MX0b) the queue's stored bytes (the load's source)
+    // (MX5b) the queue's own registered facts for the head byte's decode: its first stored byte,
+    // the latched byte and the latch's bit, the in-flight word's parity; with the delivered word
+    // (the bus unit's datum register) they are the head byte's candidates, q_stored and the
+    // latch's bit its select
+    input  wire [7:0]  h_q0,
+    input  wire [7:0]  h_lat,
+    input  wire        h_latv,
+    input  wire        h_odd,
+    input  wire [15:0] h_dlv,
     input  wire        q_arrive,        // (MX1c) a fetched word is delivered on this clock
     output wire [2:0]  rd,              // the bytes read (tick A): an operand pop, the staging load
     output wire [2:0]  rel,             // the bytes released (tick A)
@@ -88,8 +97,13 @@ module v35_loader
     output reg  [7:0]  dl,
     output reg  [7:0]  dh,
     output v35_udec_t  fmt,             // the running instruction's format (registered)
+    // (MX5b) tick B: the values opc, modrm and fmt load at the coming ce_a (the datapath's early
+    // register read forms the next word's read address from them)
+    output wire [7:0]  opc_nx,
+    output wire [7:0]  modrm_nx,
+    output v35_udec_t  fmt_nx,
     output reg  [2:0]  op3,
-    output v35_udec_t  dec1,            // tick A: v35_udec1(op)
+    output v35_udec_t  dec1,            // tick A: v35_udec1(op) ((MX5b) a register beside op)
     output v35_udecm_t dec2,            // tick A: v35_udec2(op, the byte this word pops)
     output wire [2:0]  len,             // tick A: the bytes still to pop after this clock (LEN)
     output wire        l_load,          // tick A: the staging register loads (the trace, Q2's l_pop)
@@ -180,9 +194,58 @@ module v35_loader
     assign q_stall = (wants_op && sn == 2'd0)
                      || (e_pop && (!s_v || (ds2 && sn == 2'd0)));
     // the lookups the function reads (registers and the queue's head byte: early in tick A)
-    wire [2:0] umr_s = v35_umodrm(s_b, sb0);
-    wire [2:0] umr_o = v35_umodrm(op, sb0);
-    wire [2:0] upg_s = v35_upage(sb0);
+    wire       o1 = wants_op && !flush_w;
+    wire       m1 = e_pop && ds2;
+    wire [2:0] t1 = (o1 ? 3'd1 : 3'd0) - need;
+    function automatic logic z1_f(input logic [2:0] us, input logic [2:0] uo, input logic [2:0] ug);
+        z1_f = flush_w
+               || ((m1 && ds.e2) ? ds.len - 3'd1 == t1
+                 : (m1 && ds.pg) ? ug == t1
+                 : m1 ? us == t1 - ds.len
+                 : e_pop ? ds.len == t1
+                 : (o1 && pop == PP_MODRM) ? uo == t1
+                 : (o1 && dispm && !dec1.has_modrm) ? ug == t1 : t1 == 3'd0);
+    endfunction
+    // (MX5b) the head byte's lookups formed per candidate source before the head select: `hd_f`
+    // of each candidate (the queue's first stored byte, its latch, the delivered word's two
+    // bytes, the word register's first byte), selected by the registered facts that select the
+    // byte itself (the queue's seqb(0) and the loader's sb0 choice). The selected lookups are
+    // hd_f(sb0) on every clock (`+v35_chk`); no lookup sits behind the select (README "MX5")
+    typedef struct packed {
+        logic [2:0] umr_s, umr_o, upg;
+        logic [1:0] m76;
+        logic       ecr, ecc;
+        logic [UADDR_W-1:0] ech;
+        logic       z;              // z1's compare for this byte (below)
+    } v35_hd_t;
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic v35_hd_t hd_f(input logic [7:0] b, input logic eab);
+        logic edir;
+        hd_f.umr_s = v35_umodrm(s_b, b);
+        hd_f.umr_o = v35_umodrm(op, b);
+        hd_f.upg = v35_upage(b);
+        hd_f.m76 = b[7:6];
+        edir = b[7:6] == 2'd0 && b[2:0] == 3'd6;
+        hd_f.ecr = b[7:6] == 2'd3;
+        hd_f.ecc = !hd_f.ecr && (b[7:6] != 2'd0 || edir || eab);
+        hd_f.ech = b[7:6] == 2'd1 ? (eab ? UROM_EAB8 : UROM_EA8)
+                 : (b[7:6] == 2'd2 && eab) ? UROM_EAB16
+                 : (b[7:6] == 2'd2 || edir) ? UROM_EAD
+                 : UROM_EAB0;
+        hd_f.z = z1_f(hd_f.umr_s, hd_f.umr_o, hd_f.upg);
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    // the head byte's source: 0 the queue's first stored byte, 1 its latch, 2 / 3 the delivered
+    // word's low / high byte (seqb(0): stored bytes first, then the latch, then the arrival at
+    // its parity), 4 the word register's first byte (sb0's choice above)
+    wire [2:0] q_hs = q_stored != 3'd0 ? 3'd0 : h_latv ? 3'd1 : h_odd ? 3'd3 : 3'd2;
+    wire [2:0] hs = wr3 ? (wn != 2'd0 ? 3'd4 : q_hs)
+                  : (`V35_MX0B_WR == 0 || arr) ? q_hs : 3'd4;
+    v35_hd_t hd0, hd1, hd2, hd3, hd4, hh;
+    assign hh = hs == 3'd0 ? hd0 : hs == 3'd1 ? hd1 : hs == 3'd2 ? hd2 : hs == 3'd3 ? hd3 : hd4;
+    wire [2:0] umr_s = hh.umr_s;
+    wire [2:0] umr_o = hh.umr_o;
+    wire [2:0] upg_s = hh.upg;
     wire   stg_free = `V35_MX1C_ROOM == 2 || (`V35_MX1C_ROOM != 0 && q_arrive);
     // (MX5) tick A's pops, the staging load and the room facts, as a function of the
     // sequencer's late bit `ex` (and the FLUSH it gates): `ta(x, fl)` is the code below with
@@ -215,7 +278,7 @@ module v35_loader
         // the start). (MX3c) the 0F page's second byte popped by E does not arm it (the frozen
         // model's chained take: the page's operand bytes follow, page_take=own); the ModR/M
         // byte's pop does (v35_useq)
-        ta.e_rmodrm = ta.mpop && !ds.pg && (sb0[7:6] == 2'd3 || `V35_MX2_TSM || ds.e2);
+        ta.e_rmodrm = ta.mpop && !ds.pg && (hh.m76 == 2'd3 || `V35_MX2_TSM || ds.e2);
         add = (ta.mpop && ds.e2) ? ds.len - 3'd1
             : (ta.mpop && ds.pg) ? upg_s        // (MX3c) the second byte's ModR/M and immediate
             : ta.mpop ? ds.len + umr_s
@@ -228,7 +291,7 @@ module v35_loader
         // frozen model's IR load a clock after a register form's ModR/M take, nx 1): 1 a
         // register-mode ModR/M, 2 any ModR/M or the E word's second byte (e2); 0 on the pop's
         // clock (MX2)
-        irl_w = (`V35_MX3_IRL == 1 && ta.mpop && !ds.e2 && sb0[7:6] == 2'd3)
+        irl_w = (`V35_MX3_IRL == 1 && ta.mpop && !ds.e2 && hh.m76 == 2'd3)
                 || (`V35_MX3_IRL == 2 && ta.mpop);
         ta.sload = !fl && !s_left && z && !irl_w
                    && sn > ((ta.opop || ta.mpop) ? 2'd1 : 2'd0);
@@ -282,16 +345,7 @@ module v35_loader
     v35_lta_t lt0, lt1, ltx;
     // (MX5) z for ex = 1: need + add - opop == 0 (3 bits) is add == opop - need, each case's add
     // compared with that early target (the head byte's lookups compared, not summed)
-    wire       o1 = wants_op && !flush_w;
-    wire       m1 = e_pop && ds2;
-    wire [2:0] t1 = (o1 ? 3'd1 : 3'd0) - need;
-    wire       z1 = flush_w
-                    || ((m1 && ds.e2) ? ds.len - 3'd1 == t1
-                      : (m1 && ds.pg) ? upg_s == t1
-                      : m1 ? umr_s == t1 - ds.len
-                      : e_pop ? ds.len == t1
-                      : (o1 && pop == PP_MODRM) ? umr_o == t1
-                      : (o1 && dispm && !dec1.has_modrm) ? upg_s == t1 : t1 == 3'd0);
+    wire       z1 = hh.z;
     assign lt0 = ta(1'b0, 1'b0, need == 3'd0);
     assign lt1 = z1 ? ta(1'b1, flush_w, 1'b1) : ta(1'b1, flush_w, 1'b0);
     assign ltx = ex ? lt1 : lt0;
@@ -325,7 +379,12 @@ module v35_loader
     // (MX2) the instruction pointer: the staged opcode's offset, else the next queue byte's (a
     // routine reads it after its last pop: the bytes owed are none)
     assign ip = s_v ? s_ip : ipo;
-    assign dec1 = v35_udec1(op);
+    // (MX5b) the opcode register's decode is a register beside it, loaded with op's next value
+    // at ce_a (in reset from op): dec1 is v35_udec1(op) on every clock (`+v35_chk`)
+    v35_udec_t d1r = '0;
+    assign dec1 = d1r;
+    // (the second level's lookup stays behind the head select: replicated per candidate it maps
+    // into 72 more RAM blocks; its reader is the DISPM target, README "MX5" round 2)
     assign dec2 = v35_udec2(op, sb0);
     // the dispatch's (DISP) entry: the second level on the registered ModR/M byte for an
     // opcode with one, else the first
@@ -369,19 +428,20 @@ module v35_loader
     /* verilator lint_on UNUSEDSIGNAL */
     v35_dsp_t df = '0;
     assign dcall = df.call;
+    assign hd0 = hd_f(h_q0, df.eab);
+    assign hd1 = hd_f(h_lat, df.eab);
+    assign hd2 = hd_f(h_dlv[7:0], df.eab);
+    assign hd3 = hd_f(h_dlv[15:8], df.eab);
+    assign hd4 = hd_f(w0, df.eab);
     assign dret = df.ret;
     assign dent = df.ent;
     assign dtrap = df.trap;
     // (MX3c) the EAC word: the mode of the byte it pops (sb0) picks the register path or the EA
     // head of that mode, as `head` above does for the registered ModR/M (the mode's bits and the
     // routine's eab only)
-    wire       e_dir = sb0[7:6] == 2'd0 && sb0[2:0] == 3'd6;
-    assign ec_reg = sb0[7:6] == 2'd3;
-    assign ec_call = !ec_reg && (sb0[7:6] != 2'd0 || e_dir || df.eab);
-    assign ec_head = sb0[7:6] == 2'd1 ? (df.eab ? UROM_EAB8 : UROM_EA8)
-                   : (sb0[7:6] == 2'd2 && df.eab) ? UROM_EAB16
-                   : (sb0[7:6] == 2'd2 || e_dir) ? UROM_EAD
-                   : UROM_EAB0;
+    assign ec_reg = hh.ecr;
+    assign ec_call = hh.ecc;
+    assign ec_head = hh.ech;
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg        e2_b = 1'b0;
@@ -434,11 +494,25 @@ module v35_loader
     // (MX5) the values op and mp load at ce_a (the dispatch facts' register reads them)
     wire [7:0] op_nx = epop_b ? s_b : op;
     wire [7:0] mp_nx = (mpop_b && !e2_b) ? sb0_b : mp;
+    // (MX5b) opc, modrm and fmt load exactly these at ce_a (the block below assigns them)
+    assign opc_nx = disp_b ? op : opc;
+    assign modrm_nx = disp_b ? mp : (opop_b && pop_b == PP_MODRM) ? sb0_b : modrm;
+    always_comb begin
+        fmt_nx = fmt;
+        if (disp_b) begin
+            fmt_nx = dec1_b;
+            if (dec1_b.pg)
+                fmt_nx.w = dmw_b;   // (MX3c) the 0F form's width (the second level's)
+        end
+    end
     always_ff @(posedge clock) begin
-        if (!reset_n)
+        if (!reset_n) begin
             df <= dsp_f(op, mp);
-        else if (ce_a)
+            d1r <= v35_udec1(op);
+        end else if (ce_a) begin
             df <= dsp_f(op_nx, mp_nx);
+            d1r <= v35_udec1(op_nx);
+        end
     end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
@@ -453,6 +527,9 @@ module v35_loader
             hold <= 1'b0;
             hold2 <= 1'b0;
         end else if (ce_a) begin
+            fmt <= fmt_nx;
+            opc <= opc_nx;
+            modrm <= modrm_nx;
             hold2 <= hold2_b && !flush_b;
             need <= need_b;
             if (flush_b)
@@ -499,7 +576,7 @@ module v35_loader
                 il <= sb0_b;            // (MX2) the short transfer's displacement
             if (opop_b) begin
                 case (pop_b)
-                    PP_MODRM: modrm <= sb0_b;
+                    PP_MODRM: ;                 // (modrm_nx)
                     PP_IL, PP_PORT: il <= sb0_b;
                     PP_IH: ih <= sb0_b;
                     PP_DL: dl <= sb0_b;
@@ -508,11 +585,7 @@ module v35_loader
                 endcase
             end
             if (disp_b) begin
-                fmt <= dec1_b;
-                if (dec1_b.pg)
-                    fmt.w <= dmw_b;     // (MX3c) the 0F form's width (the second level's)
-                opc <= op;
-                modrm <= mp;
+                // (MX5b) fmt, opc and modrm: their next values (above)
                 op3 <= op3m_b;
             end
             if (dispm_b)
@@ -527,7 +600,7 @@ module v35_loader
     initial chk_on = $test$plusargs("v35_chk");
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
-            if ((s_v && ds !== v35_udec1(s_b)) || flush !== (ex && flush_w) || df !== dsp_f(op, mp)
+            if ((s_v && ds !== v35_udec1(s_b)) || flush !== (ex && flush_w) || df !== dsp_f(op, mp) || hh !== hd_f(sb0, df.eab) || d1r !== v35_udec1(op)
                 || (ex ? z1 : need == 3'd0) !== (need_n == 3'd0)
                 || opop_b !== opop || mpop_b !== mpop || e2_b !== ds.e2 || foff_b !== flush_off || epop_b !== epop || sload_b !== sload || flush_b !== flush
                 || disp_b !== disp || dispm_b !== (ex && dispm) || pop_b !== pop

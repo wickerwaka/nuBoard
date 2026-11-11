@@ -74,6 +74,13 @@ module v35_queue
     output wire [2:0]  avail,
     output wire [2:0]  stored,          // (MX0b) the bytes stored (not this clock's delivery,
                                         //   not the latch): the word register loads from these
+    // (MX5b) the queue's own registered facts (the loader's head-byte decode reads them before
+    // the head select): the first stored byte, the latched byte, the latch's bit (variant B),
+    // the in-flight word's parity. Registers of the queue's state, nothing of an instruction
+    output wire [7:0]  h_q0,
+    output wire [7:0]  h_lat,
+    output wire        h_latv,
+    output wire        h_odd,
     input  wire [2:0]  rd,              // bytes read in tick A (the T pass's takes, the IR load)
     input  wire [2:0]  rd_b,            // ... in tick B (the P pass's take and IR load)
     input  wire [2:0]  rel,             // bytes released (tick A; the P pass's a clock later)
@@ -110,6 +117,10 @@ module v35_queue
     wire [3:0] avail_w = cnt_s + {1'b0, n_arr};
     assign avail = avail_w > 4'd7 ? 3'd7 : avail_w[2:0];
     assign stored = cnt;
+    assign h_q0 = q[0];
+    assign h_lat = lat_byte;
+    assign h_latv = lat_v;
+    assign h_odd = odd;
 
     function automatic logic [7:0] seqb(input logic [3:0] k);
         if (k < {1'b0, cnt})
