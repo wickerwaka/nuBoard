@@ -2101,3 +2101,26 @@ question, decided from S8's routed numbers with the user.
   time). The landing gate is three seeds from here (the user). Open: the bit-field forms behind item 23's OUT
   frame; the model's fetch-free setup rule (bf_read=fixed) and bf_imm_hold not built; the memory ModR/M
   forms unmeasured.
+- **F1 landed (2026-11-11): on-chip memory, the SFR page as data, IDB, RAMEN, the PSW bits; merged on F2a.**
+  Measured on the socket first (programs validation/v35s/programs/f1_*.s from validation/v35s/onchip.py, the
+  receipts in validation/v35s/receipts/, the per-offset table in docs/v35s-sfr-socket.md). Against the data
+  book: SCE0 / SCE1 reset to 80h (the book 00h); EMS, SRMS, STMS, TMMS1 / 2 reset to 44h and TMMS0 to C4h (the
+  book undefined); several priority fields read a fixed 7; a 16-bit timer register ignores a byte write;
+  write-only and some undocumented offsets read the last byte on the internal bus; bank 7's slots are the
+  live registers both ways, a DS0 / SS / DS1 slot write acting on the next data access and a PS slot write
+  on the fetch only after a branch; RAMEN = 0 sends E00-EFF to the bus, the SFRs staying internal; IDB moves
+  RAM and SFRs together and is writable at FFFFF whatever it holds; RETI restores the bank; with BRKI = 0
+  IN and OUT trap to vector 19 with the instruction's own PC pushed, SAHF's BRKI acting one instruction
+  late and POP PSW's at once. **Built:** the bus unit's on-chip decision on the request register against
+  IDB (an internal cycle, no pins, reads as well as stores), a third read copy of the register RAM and a
+  registered SFR read into the bus unit's data register, internal RAM writes at the next ce_b, v35_sfr.sv
+  as masked storage with the measured reset values for every documented SFR (function later: F3 / F4),
+  FLAG linked to the PSW, RETI writing the whole PSW across the bank change. Not built: bus-residue reads,
+  the PS slot steering the fetch, live peripheral state, the vector-19 trap (F2). **Verified on main (the
+  merge's ROM regenerated, 1,572 words):** the six F1 programs equal on socket and RTL (the excluded bytes
+  are residue reads and live or undefined state, each with a stated reason), the corpus 6,520 with 0 runs
+  differing from F2a's at both spacings, chk silent, vectors 0 bad, lint clean, 48 fast tests. **FPGA at 17
+  ns:** +1.415 / +1.201 / +1.595 on seeds 1 / 2 / 3, 7,857 LUT4 / 421 ADD / 1,759 FF / 75 RAM_5K (F2a 6,805 /
+  421 / 1,395 / 73), alone useq +6.353, loader +4.361, queue +6.339, bus +7.542, eu +4.821, regram +11.738.
+  **The harness version 2 image is on the board** (the version 1 image kept as v35s.hex.bin.v1-backup);
+  the socket passes smoke, clocks and alu with the cycle counts unchanged (21 / 73 / 368).

@@ -109,7 +109,19 @@ module v35_eu
     output wire [19:0] flush_lin,
     output wire [19:0] ps_base,
     output wire [15:0] sfr_data,
-    output reg         trap_o           // the divide error raised (a strobe at the word's end)
+    output reg         trap_o,          // the divide error raised (a strobe at the word's end)
+    // (F1) the SFR page's FLAG (PSW bits 5 and 3, F1 and F0): read, and a store's bits at ce_a
+    output wire [1:0]  psw_f,
+    output wire [2:0]  psw_rb,          // PSW.RB (the on-chip write's bank compare)
+    input  wire        flag_we,
+    input  wire [1:0]  flag_d,
+    // (F1) an on-chip data write to the current bank's DS0 / SS / DS1 slot (the register RAM
+    // written at the ce_b before): the segment's flop takes the slot's bytes at ce_a (a PS slot
+    // write reaches the RAM only: README "F1")
+    input  wire        oc_seg_we,
+    input  wire [1:0]  oc_seg_s,        // as the flops' slots: 0 DS1, 2 SS, 3 DS0
+    input  wire [1:0]  oc_seg_be,
+    input  wire [15:0] oc_seg_d
 );
     // ------------------------------------------------------------ registered state
     reg [15:0] psw = 16'hF002;
@@ -510,7 +522,7 @@ module v35_eu
 
     // ------------------------------------------------------------ tick B: the write port
     wire [6:0]  sw = rsel(word.wr);
-    wire        w_ram = ex_b && word.wr != RS_NONE && word.wr != RS_PSW;
+    wire        w_ram = ex_b && word.wr != RS_NONE && word.wr != RS_PSW && word.wr != RS_PSWA;
     assign wa_en = w_ram;
     assign wa_addr = {bank, sw[3:0]};
     assign wa_be = sw[5:4] == 2'd0 ? 2'b11 : sw[5:4] == 2'd2 ? 2'b10 : 2'b01;
@@ -611,6 +623,16 @@ module v35_eu
             ea_ss <= 1'b0;
         end else if (ce_a) begin
             trap_o <= ex_b && word.trap;
+            // (F1) an on-chip write to a segment's slot (before the word's own writes: a
+            // register write on the same clock is later in the program and wins)
+            if (oc_seg_we) begin
+                case (oc_seg_s)
+                    2'd0: ds1 <= seg_merge(ds1);
+                    2'd2: ss <= seg_merge(ss);
+                    2'd3: ds0 <= seg_merge(ds0);
+                    default: ;
+                endcase
+            end
             if (ex_b) begin
                 sigma <= r;
                 if (word.wf)
@@ -647,6 +669,8 @@ module v35_eu
                 // the write port's segment flops and the PSW
                 if (word.wr == RS_PSW)
                     psw <= {psw[15:12], wsv[11:0]};
+                else if (word.wr == RS_PSWA)
+                    psw <= wsv;
                 else if (w_ram && sw[6]) begin
                     case (sw[3:0])
                         4'd7: ds1 <= wsv;
@@ -701,8 +725,20 @@ module v35_eu
                 resv_r <= 1'b0;
             if (ex_b && word.f)
                 opr_v <= 1'b0;
+            // (F1) a FLAG store: PSW bits 5 and 3 (after the word's PSW write: the store's
+            // cycle ended on this clock)
+            if (flag_we) begin
+                psw[5] <= flag_d[1];
+                psw[3] <= flag_d[0];
+            end
         end
     end
+    function automatic logic [15:0] seg_merge(input logic [15:0] old);
+        seg_merge = {oc_seg_be[1] ? oc_seg_d[15:8] : old[15:8],
+                     oc_seg_be[0] ? oc_seg_d[7:0] : old[7:0]};
+    endfunction
+    assign psw_f = {psw[5], psw[3]};
+    assign psw_rb = psw[14:12];
 
     wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 

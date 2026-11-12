@@ -2563,6 +2563,114 @@ register) in tick B, after the word's cnt field.
 4. The memory ModR/M forms are not V20 forms; their behaviour on silicon is unmeasured (a probe
    on the socket would settle it).
 
+## F1: on-chip memory, the SFR page as data, IDB, RAMEN, the PSW bits
+
+Stage F1 of docs/v35s-function-plan.md. Measured first on the socket (validation/v35s/onchip.py,
+programs validation/v35s/programs/f1_*.s, receipts validation/v35s/receipts/f1-*-socket*.json),
+then built so the same programs give the socket's write and I/O sequence and result pages on the
+RTL (`python3 -m validation.v35s.onchip sim` runs them on the direct harness's v35 lane, `gate`
+compares; timing ignored).
+
+### What the core had before
+
+The SFR block held PRC, WTC, RFM and IDB and dropped every other store; only a store at
+FFF00-FFFFF was on-chip (the address compare was a constant: IDB never moved it); every read of
+the page and every access to E00-EFF went out on the pins. RETI wrote PSW bits 11:0 only (RB and
+MD kept); FLAG was not linked to the PSW; the segment flops changed only through the write port.
+
+### The on-chip cycle
+
+- **Decision** (`v35_bus`, `rq_sfr`): a memory read or write whose address is in IDB:E00-EFF with
+  PRC.RAMEN = 1, IDB:F00-FFF, or FFFFF. From registers only (the request register, IDB, PRC): an
+  8-bit compare beside the grant, joining it at the length's select as the old constant compare
+  did. An odd word is two byte cycles, each decided by its own address (silicon: a word at xxDFF is
+  an external byte and an internal byte; at xxEFF RAM and SFR). The cycle is the SFR store's:
+  3 + the I/O waits, no pins (timing is not F1's; M8's costs are not built).
+- **Read datum**: `v35_top` captures the cycle's offset at its start (`oc_off`, `oc_ram`); the
+  register RAM's new port C (`v35_regram`: a third copy of the 256 bytes, read at every ce_b at
+  `oc_off[7:1]`) and the SFR page's read (`v35_sfr.rd_data`, registered at every ce_b) both read
+  it; the bus unit's datum register takes the selected one at the cycle's last clock instead of
+  the pins (`done_r <= n_internal ? oc_data : data_in`: a 2:1 mux before a register, the select
+  a register).
+- **Write**: at the cycle's end, as the SFR store always was. The SFR page at that ce_a. The
+  internal RAM one tick later, at the next ce_b (the register RAM's write port is the EU's at ce_a;
+  ce_b is free: `w_en = ce_a ? wa_en : ce_b && oc_we`); a word lands in all three copies, so the
+  next word's early read (at ce_a) sees it. A write to the current bank's DS0 / SS / DS1 slot also
+  updates the segment's flop at the ce_a after (silicon uses the slot at once: f1_iram). The datum
+  by lane: an odd word's halves carry its low byte on the high lane and its high byte on the low
+  lane, as the bus unit places them on the pins.
+- **PS**: an on-chip write to the PS slot reaches the RAM only. Silicon: MOV AW,PS reads the new
+  value at once and the prefetch continues from the old fetch pointer (as the RTL), but a near
+  branch then refetches from the new PS; the RTL's refill uses the PS flop (old). Not built: the
+  sled's marker in f1_iram is excluded from the gate.
+
+### The SFR page (`v35_sfr.sv`)
+
+One byte of storage per offset, with the measured write mask, fixed-1 bits and reset value; the
+bits no write reaches are constants. Every-value sweep (f1_sfr_all) for SCM0/1, TMC0/1, DMAC0,
+INTM and four IC registers. Storage only (the function is a later stage's): PMT, INTM, EMS0-2,
+EXIC0-2, SRMS / STMS / SCM / SCC / BRG / SEIC / SRIC / STIC 0 and 1, TM0 MD0 TM1 MD1, TMC0/1,
+TMMS0-2, TMIC0-2, DMAC0/1, DMAM0/1, DIC0/1, TBIC, the port latches and PM / PMC / TxB (write-only).
+Built with function: PRC (bits 7, 5, 4 read 0 now), WTC, RFM as before; IDB (at xxFFF and at
+FFFFF, which moves the page: `rq_sfr` and the top's decision read it); FLAG (reads PSW bits 5
+and 3; a store sets them in the EU at the store's end, after the word's own PSW write).
+
+| class | offsets | read |
+| --- | --- | --- |
+| storage | above | (stored & mask) or fixed ones; SCM bit 3 = written bit 3 and bit 0 |
+| 16-bit | TM0 MD0 TM1 MD1 | by word whole; a byte store ignored; a byte read of the low offset the low byte, of the high offset residue |
+| pins | P0 P1 P2 PT | P0 P2 PT 00h, P1 {READY 1, 0, 0, INT, INTP2-0, NMI} from the model's input levels |
+| constant | SCE0/1 80h; STBC, ISPR, RxB0/1, FF0, FF1, FF9 00h; FF4 02h; FF7 C7h; FF8 4Eh; undocumented offsets with bit 2 set F7h | the constant |
+| residue (not built) | PM0-2, PMC0-2, TxB0/1, undocumented offsets with bit 2 clear, FF5 FF6 FFD FFE | silicon: the internal bus's last byte (the code stream's); RTL: the low lane 00h, the high lane the low lane's byte |
+
+STBC's writes are ignored (only-set bits: STOP / HALT are F4's). A word read of an 8-bit SFR is two
+byte reads on silicon (P1 by word reads 8F8Fh: P1 then PM1's residue, the byte just read); the RTL
+gives the high lane the low lane's byte for a residue offset, which is that.
+
+### The PSW
+
+- RETI (xfer.uasm): the PSW's read and SP + 2 on one word; F: the datum into tmpb and SP written
+  (the OLD bank: silicon's bank 7 SP reads 7FFE after a RETI into bank 6, bank 6's untouched);
+  `wr=PSWA` (new selector RS_PSWA: all 16 bits, RB and MD); PS written (the NEW bank's slot:
+  silicon, f1_psw) with no RAM read on that word (the bank changed on the clock before, and the
+  early read was formed with the old bank); DS0, SS and DS1's flops reloaded from the new bank's
+  slots by three words (`rb=DS0 wr=DS0 ws=RB`, ...) that replace three of the open clocks. The
+  routine's length is unchanged (book check: 40 + 4).
+- POP PSW (bits 11:0), SAHF / LAHF (bits 7:0), PUSH PSW (all 16) were already as silicon.
+- FLAG: above. BRKI is stored; its I/O trap (vector 19) is F2's: measured in f1_brki (IN and OUT
+  both trap, PC pushed = the I/O instruction's; SAHF's BRKI takes effect one instruction late,
+  POP PSW's at once).
+
+### The F1 gate (`onchip.py gate`)
+
+The write and I/O sequence and the result pages equal on the socket and the RTL, with the
+`excluded()` bytes masked: residue reads (and the words containing them, and the pass marker's
+high lane, which carries AH = a residue), live peripheral or hidden state (FF7-FF9, TM0 / TM1 low
+byte and RxB0/1 undefined at reset, the IF bits STIC0/1 and TBIC set once the sweep started the
+transmitters and the time base), and f1_iram's near-branch PS marker. f1_brki is measured only
+(F2's).
+
+Measured at the landing (the RTL in simulation against the socket's receipts): f1_sfr_doc,
+f1_sfr_undoc, f1_iram, f1_idb, f1_psw, f1_sfr_all all EQUAL. The common gate: the refresh-off
+corpus RTL-exact 6,400, 0 runs differing from the base's rows, `+v35_chk` silent; `rtl_vectors
+--regfile` and `--fn` 0 bad; lint clean in the five configurations; test_uasm, test_v35_struct
+(BUS_INPUTS gains idb, ramen, oc_data), test_chain_lane, test_rtl_vectors OK. The function bench
+(v35_core2_tb.cpp) sets `sfr.prc` and `sfr.wtc` directly: they stay registers of their own in
+`v35_sfr` for that reason.
+
+### Depth (for the overseer's timing run)
+
+- Tick A: `rq_sfr` (8-bit compare of the request register with IDB, plus RAMEN and a 20-bit
+  constant compare) into the grant's length select and `g_sfr_b`; `v35_top`'s `g_oc` (the same on
+  the granted address) into capture registers only.
+- Tick B / ce_b: the register RAM's write port gains a 2:1 select by tick (address, data, enable);
+  port C's read; the SFR read mux (256 offsets, mostly constants, registered at ce_b from the
+  captured offset); the datum register's 2:1 select (ce_mid).
+- The SFR store's datum gains a lane swap (select from registers) on its way to `v35_sfr`, and so
+  into `prc_at` (MX5c's registered stall: RAMEN after a PRC store).
+- The EU: the PSW's D input gains the FLAG store's two bits and the RS_PSWA case; the segment flops'
+  D inputs gain the on-chip write's merge.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

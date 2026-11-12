@@ -35,12 +35,24 @@ module v35_regram (
     output wire [15:0] ra_data,
     // port B: read address for the next clock
     input  wire [6:0]  rb_next,
-    output wire [15:0] rb_data
+    output wire [15:0] rb_data,
+    // (F1) the internal RAM as data (the on-chip cycles, v35_top): port C reads the word at
+    // `oc_ra` at every ce_b (a register: the cycle's address); the data write lands at ce_b
+    // (the EU's write port owns ce_a), every copy
+    input  wire [6:0]  oc_ra,
+    output wire [15:0] oc_rd,
+    input  wire        oc_we,
+    input  wire [6:0]  oc_wa,
+    input  wire [1:0]  oc_be,
+    input  wire [15:0] oc_wd
 );
     reg [7:0] ae [0:127];           // port A's copy, even bytes
     reg [7:0] ao [0:127];           //               odd bytes
     reg [7:0] be [0:127];           // port B's copy
     reg [7:0] bo [0:127];
+    reg [7:0] ce [0:127];           // (F1) port C's copy
+    reg [7:0] co [0:127];
+    reg [15:0] rc_d = 16'd0;
     // (MX5) the read ports are read at ce_b (the data a register from then on): every reader is
     // in tick B (ce_b to ce_a: the sources, the ALU, the EA, the write port), and no write lands
     // between a ce_b and the next ce_a, so the data read at ce_b is what the old port (the
@@ -65,20 +77,32 @@ module v35_regram (
             ao[i] = (i[3:0] == 4'd6) ? PS_RESET[15:8] : '0;
             be[i] = (i[3:0] == 4'd6) ? PS_RESET[7:0] : '0;
             bo[i] = (i[3:0] == 4'd6) ? PS_RESET[15:8] : '0;
+            ce[i] = (i[3:0] == 4'd6) ? PS_RESET[7:0] : '0;
+            co[i] = (i[3:0] == 4'd6) ? PS_RESET[15:8] : '0;
         end
     end
 
+    // (F1) the one write port, two owners by tick: the EU's at ce_a, the on-chip data write's
+    // at ce_b (both from registers / tick B; the select is the enable)
+    wire       w_en = ce_a ? wa_en : (ce_b && oc_we);
+    wire [6:0] w_a = ce_a ? wa_addr : oc_wa;
+    wire [1:0] w_be = ce_a ? wa_be : oc_be;
+    wire [15:0] w_d = ce_a ? wa_data : oc_wd;
     always_ff @(posedge clock) begin
-        if (ce_a) begin
-            if (wa_en && wa_be[0]) begin
-                ae[wa_addr] <= wa_data[7:0];
-                be[wa_addr] <= wa_data[7:0];
+        if (ce_a || ce_b) begin
+            if (w_en && w_be[0]) begin
+                ae[w_a] <= w_d[7:0];
+                be[w_a] <= w_d[7:0];
+                ce[w_a] <= w_d[7:0];
             end
-            if (wa_en && wa_be[1]) begin
-                ao[wa_addr] <= wa_data[15:8];
-                bo[wa_addr] <= wa_data[15:8];
+            if (w_en && w_be[1]) begin
+                ao[w_a] <= w_d[15:8];
+                bo[w_a] <= w_d[15:8];
+                co[w_a] <= w_d[15:8];
             end
         end
+        if (ce_b)
+            rc_d <= {co[oc_ra], ce[oc_ra]};
         // (MX0) the read addresses latch at ce_b: the word's register selectors are decided
         // in its first tick (the ROM word is a register from ce_a), the data is read in its
         // second; a write at the last ce_a is read back (no forwarding needed)
@@ -90,5 +114,6 @@ module v35_regram (
 
     assign ra_data = ra_d;
     assign rb_data = rb_d;
+    assign oc_rd = rc_d;
 
 endmodule

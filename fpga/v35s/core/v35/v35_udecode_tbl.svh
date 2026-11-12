@@ -3,7 +3,7 @@
 // v35_udec2 (the opcode and the byte a DISPM word pops: the ModR/M byte, the 0F page's second byte -> the second entry and
 // the group's operation), v35_umodrm / v35_upage (the bytes a ModR/M or a 0F second byte's pop adds to the bytes still to pop). Included by v35_pkg.sv.
 
-    localparam int UROM_WORDS = 1569;
+    localparam int UROM_WORDS = 1572;
     localparam logic [UADDR_W-1:0] UROM_RESET = 11'd199;
     // (MX1) the EA heads: the dispatch's call targets for a ModR/M memory cell (ea.uasm)
     localparam logic [UADDR_W-1:0] UROM_EAB0 = 11'd217;

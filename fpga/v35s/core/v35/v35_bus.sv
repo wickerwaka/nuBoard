@@ -69,6 +69,11 @@ module v35_bus
     input  wire        ce_mid,      // the middle of a CPU clock (strobe edges)
     input  wire [15:0] wtc,
     input  wire [7:0]  rfm,         // RFM.RFW: a refresh cycle's length
+    // (F1) the on-chip decision (registers): IDB, PRC.RAMEN; the on-chip read's datum (a
+    // register, v35_top: the register RAM's port C or the SFR page, by the cycle's address)
+    input  wire [7:0]  idb,
+    input  wire        ramen,
+    input  wire [15:0] oc_data,
 
     // (A1) the EU's request port (tick A)
     input  wire        req_v,       // a cycle is wanted (a level: stands until acknowledged)
@@ -251,7 +256,13 @@ module v35_bus
     wire [1:0] waits_io = wtc[WTC_IO_LSB +: 2];
     // (MX5) a write's address is the request's (a write is never a fetch: g_kind K_WRITE implies
     // g_addr = req_addr), so the SFR page's compare reads the request register, not the grant
-    wire rq_sfr = req_addr >= SFR_PAGE;
+    // (F1) an on-chip memory cycle: the request's address in the page IDB:E00-FFF (E00-EFF the
+    // internal RAM while RAMEN = 1, F00-FFF the SFRs) or FFFFF (IDB at any IDB): read or write,
+    // no pins, 3 + the I/O waits (the SFR store's cycle, now every on-chip access's; timing is
+    // not F1's). From registers only (the request register, IDB, PRC): an 8-bit compare beside
+    // the grant, joining it at the length's select as the old SFR compare did
+    wire rq_sfr = (req_addr[19:12] == idb && req_addr[11:9] == 3'b111 && (req_addr[8] || ramen))
+                  || req_addr == 20'hFFFFF;
     function automatic v35_gnt_t gnt_f(input logic fr);
         logic fq, b2b_go, eu_win, ab_tri, ab_b2b;
         // rule 3: the queue's low hint overrides a memory cycle's reservation only (A1_IOQL 0:
@@ -276,7 +287,7 @@ module v35_bus
                     : (req_width && (!req_addr[0] || !rq_mem)) ? BW_WORD   // (an I/O word: no pair)
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_f.half = g_second ? 2'd2 : (gnt_f.ack && rq_two) ? 2'd1 : 2'd0;
-        gnt_f.sfr = gnt_f.kind == K_WRITE && rq_sfr;
+        gnt_f.sfr = (gnt_f.kind == K_WRITE || gnt_f.kind == K_READ) && rq_sfr;
         gnt_f.len = (k_io(gnt_f.kind) || gnt_f.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
                     3'(BUS_BASE) + 3'(waits_mem);
         gnt_f.ioh_set = (`V35_MX1G_IOH != 0) && gnt_f.ack && !rq_mem && l_pop && !take_now
@@ -615,10 +626,11 @@ module v35_bus
     // core's delivery clock). (S7b) The datum register is written at mid-B3 (ce_mid, with ce_a):
     // the delivery clock's tick A starts from it.
     reg  [15:0] done_r = 16'hffff;
-    wire        b3_read = n_valid && n_pos == n_len - 3'd1 && k_read(n_kind) && !n_internal;
+    // (F1) an on-chip read's datum at the same point, from the on-chip read register
+    wire        b3_read = n_valid && n_pos == n_len - 3'd1 && k_read(n_kind);
     always @(posedge clock) begin
         if (ce_mid && b3_read)
-            done_r <= data_in;
+            done_r <= n_internal ? oc_data : data_in;
     end
     assign done_data = done_r;
 
@@ -646,7 +658,7 @@ module v35_bus
                     : (req_width && (!req_addr[0] || !rq_mem)) ? BW_WORD
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_x.half = g_second ? 2'd2 : (gnt_x.ack && rq_two) ? 2'd1 : 2'd0;
-        gnt_x.sfr = gnt_x.kind == K_WRITE && rq_sfr;
+        gnt_x.sfr = (gnt_x.kind == K_WRITE || gnt_x.kind == K_READ) && rq_sfr;
         gnt_x.len = (k_io(gnt_x.kind) || gnt_x.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
                     3'(BUS_BASE) + 3'(waits_mem);
         gnt_x.ioh_set = (`V35_MX1G_IOH != 0) && gnt_x.ack && !rq_mem && l_pop && !take_now

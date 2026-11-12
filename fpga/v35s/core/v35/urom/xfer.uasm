@@ -367,11 +367,14 @@ routine reti op=CF book="RETI" diff=4 why="OPEN: silicon longer than the book (F
     f d1=TC s1=OPR                          ; F: the segment into tmpc (S+18)
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP + 2; the PSW's address
     open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 2)
-    bus=MEMR seg=SS wid=WORD                ; post the PSW's read (S+23)
-    f wr=PSW ws=OPR                         ; F: the PSW <- the datum (bits 11:0) (S+27)
-    rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2
-    wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment; the offset into SIGMA
-    open call=w9                            ; OPEN: 10 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 9)
+    rb=SP wid=WORD alu=INC2 ax=RB bus=MEMR seg=SS   ; post the PSW's read (S+23); SP + 2
+    f wr=SP wid=WORD ws=SIG d1=TB s1=OPR    ; F: the PSW into tmpb; SP <- SP + 2 in the old bank (F1: silicon's bank 7 SP, f1_psw) (S+27)
+    wr=PSWA ws=TB                           ; the PSW <- tmpb, all 16 bits: RB and MD restored (F1; the bank switches)
+    wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment in the new bank (F1: f1_psw); the offset into SIGMA (no RAM read: the bank changed on the last clock)
+    rb=DS0 wr=DS0 wid=WORD ws=RB            ; (F1) DS0's flop from the new bank's slot
+    rb=SS wr=SS wid=WORD ws=RB              ; (F1) SS's
+    rb=DS1 wr=DS1 wid=WORD ws=RB            ; (F1) DS1's
+    open                                    ; OPEN: a book clock with no act (RETI 40)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the return offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended

@@ -63,8 +63,17 @@ module v35_top
     wire [15:0] sfr_d;
     wire        sfr_wat;                // (MX5c) the store's write at the coming ce_a
     wire [7:0]  prc_at;                 // ... PRC after it (the registered stall's RAMEN)
+    // (F1) the on-chip read (the cycle's offset, registered below) and FLAG
+    wire [15:0] sfr_rd;
+    reg  [7:0]  oc_off = 8'd0;
+    reg         oc_word = 1'b0;
+    wire [1:0]  psw_f;
+    wire        flag_we;
+    wire [1:0]  flag_d;
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
-                 .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at);
+                 .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
+                 .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd), .psw_f,
+                 .input_levels, .flag_we, .flag_d);
 
     // ---------------------------------------------------------------- CPU clock
     reg [2:0] x_count = 3'd0;
@@ -252,6 +261,14 @@ module v35_top
     wire        wa_en;
     wire [1:0]  wa_be;
     wire [15:0] wa_data, ra_data, rb_data;
+    // (F1) the on-chip data path
+    wire [15:0] oc_rd, oc_data;
+    wire [2:0]  psw_rb;
+    reg         oc_ram = 1'b0;          // the cycle's target: the internal RAM (else the SFRs)
+    reg         pend_v = 1'b0;          // an internal RAM write, landing at the coming ce_b
+    reg  [6:0]  pend_a = 7'd0;
+    reg  [1:0]  pend_be = 2'b00;
+    reg  [15:0] pend_d = 16'd0;
 
     // the instruction's start and its address (the trace, the function bench, Q2's strobes)
     // (MX0f) Q2's start is the opcode's read from the queue: the E word's pop, not the routine's
@@ -284,6 +301,7 @@ module v35_top
     wire [15:0] c_data_out;
     v35_bus bus (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_e, .ce_mid, .wtc, .rfm,
+        .idb, .ramen, .oc_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .fetch_req(q_fetch_req), .q_low, .q_word, .fetch_addr(q_fetch_addr),
         .t_start, .take_now, .l_pop(ld_load),
@@ -390,13 +408,20 @@ module v35_top
         .req_done_nx(b_done_nx), .ramen_nx(prc_at[6]), .opr_rdy_nx(e_ordy_nx),
         .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
-        .flush_off, .flush_lin, .ps_base, .sfr_data, .trap_o(div_trap)
+        .flush_off, .flush_lin, .ps_base, .sfr_data, .trap_o(div_trap),
+        .psw_f, .psw_rb, .flag_we, .flag_d,
+        .oc_seg_we(pend_v && pend_a[6:4] == psw_rb
+                   && (pend_a[3:0] == 4'd4 || pend_a[3:0] == 4'd5 || pend_a[3:0] == 4'd7)),
+        .oc_seg_s(pend_a[3:0] == 4'd7 ? 2'd0 : pend_a[3:0] == 4'd5 ? 2'd2 : 2'd3),
+        .oc_seg_be(pend_be), .oc_seg_d(pend_d)
     );
 
     // ---------------------------------------------------------------- the register RAM
     v35_regram regram (
-        .clock, .ce_a, .ce_b, .ra_next, .ra_early, .rb_early, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data
+        .clock, .ce_a, .ce_b, .ra_next, .ra_early, .rb_early, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data,
+        .oc_ra(oc_off[7:1]), .oc_rd, .oc_we(pend_v), .oc_wa(pend_a), .oc_be(pend_be), .oc_wd(pend_d)
     );
+    assign oc_data = oc_ram ? oc_rd : sfr_rd;
     // ---------------------------------------------------------------- refresh (not served)
     wire rf_pending, rf_load;
     wire [7:0] rf_value;
@@ -408,23 +433,51 @@ module v35_top
         .state_r(rf_state_r), .state_e(rf_state_e)
     );
 
-    // ---------------------------------------------------------------- the SFR store
-    // captured at its issue, written at its cycle's end with the EU's datum then (a store_imm
-    // takes its immediate after the store issued)
+    // ---------------------------------------------------------------- the on-chip cycles
+    // (F1) an on-chip memory cycle (the bus unit's decision, made again here on the granted
+    // address: IDB:E00-EFF with RAMEN = 1, IDB:F00-FFF, FFFFF) is captured at its start: its
+    // offset (the SFR read's and the register RAM's port C address: both read at every ce_b,
+    // the bus unit latching the datum at the cycle's last clock) and its target. A store is
+    // written at its cycle's end with the EU's datum then (a store_imm takes its immediate
+    // after the store issued): the SFR page at that ce_a (as the SFR store always was); the
+    // internal RAM at the next ce_b (the register RAM's ce_a belongs to the EU's write port),
+    // and a write to the current bank's DS0 / SS / DS1 slot updates the segment's flop at the
+    // ce_a after
+    wire g_top = g_addr_b == 20'hFFFFF;
+    wire g_oc = (g_addr_b[19:12] == idb && g_addr_b[11:9] == 3'b111 && (g_addr_b[8] || ramen))
+                || g_top;
+    wire g_ocmem = g_start_b && (g_kind_b == K_WRITE || g_kind_b == K_READ) && g_oc;
     reg sfr_open = 1'b0;
-    assign sfr_wr = ce_a && sfr_open && dlv_other;
-    assign sfr_wat = sfr_open && dlv_other;
-    assign sfr_d = sfr_data;
+    assign sfr_wr = ce_a && sfr_open && dlv_other && !oc_ram;
+    assign sfr_wat = sfr_open && dlv_other && !oc_ram;
+    // the datum by lane: an odd word's halves (a byte cycle of a word request) carry its low
+    // byte on the high lane (the first, odd address) and its high byte on the low lane (the
+    // second), as the bus unit places them on the pins
+    assign sfr_d = (sfr_w != BW_WORD && req_width) ? {sfr_data[7:0], sfr_data[15:8]} : sfr_data;
     always @(posedge clock) begin
         if (!core_reset_n) begin
             sfr_open <= 1'b0;
+            pend_v <= 1'b0;
         end else if (ce_a) begin
-            if (g_start_b && g_kind_b == K_WRITE && g_addr_b >= SFR_PAGE) begin
-                sfr_open <= 1'b1;
+            pend_v <= 1'b0;
+            // a cycle's end and the next cycle's start can share the clock (an odd word's
+            // halves): the end reads the captured cycle, the start captures the new one
+            if (sfr_open && dlv_other) begin
+                sfr_open <= 1'b0;
+                if (oc_ram) begin
+                    pend_v <= 1'b1;
+                    pend_a <= sfr_a[7:1];
+                    pend_be <= sfr_w == BW_WORD ? 2'b11 : sfr_w == BW_HI ? 2'b10 : 2'b01;
+                    pend_d <= sfr_d;
+                end
+            end
+            if (g_ocmem) begin
+                sfr_open <= g_kind_b == K_WRITE;
                 sfr_a <= g_addr_b;
                 sfr_w <= g_width_b;
-            end else if (sfr_open && dlv_other) begin
-                sfr_open <= 1'b0;
+                oc_off <= g_top ? '1 : g_addr_b[7:0];
+                oc_word <= g_width_b == BW_WORD;
+                oc_ram <= !g_addr_b[8] && !g_top;
             end
         end
     end
@@ -488,7 +541,7 @@ module v35_top
 `endif
 `endif
 
-    wire unused = &{1'b0, ready, ce, x_fall, input_levels, idb, prc[7], prc[5:2], qv1, qv2, qv3,
+    wire unused = &{1'b0, ready, ce, x_fall, prc[7], prc[5:2], qv1, qv2, qv3,
                     b_cur_pos, b_dlv_width, rf_pending, rf_load, rf_value, rf_state_r, rf_state_e,
                     b_in_wait, b_fetch_since, b_error, b_fetch_past_b2, b_fetch_end_prev,
                     b_fetch_run_prev, b_io_win, b_abort_last, b_abort_done, b_fetch_len,

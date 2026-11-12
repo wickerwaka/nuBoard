@@ -24,7 +24,9 @@ package v35_pkg;
         RS_SRC = 5'd5, RS_AW = 5'd6, RS_CW = 5'd7, RS_DW = 5'd8, RS_BW = 5'd9, RS_SP = 5'd10,
         RS_BP = 5'd11, RS_IX = 5'd12, RS_IY = 5'd13, RS_SREG = 5'd14, RS_SOPR = 5'd15,
         RS_PS = 5'd16, RS_SS = 5'd17, RS_DS0 = 5'd18, RS_DS1 = 5'd19, RS_PSW = 5'd20,
-        RS_BASE = 5'd21, RS_INDEX = 5'd22
+        RS_BASE = 5'd21, RS_INDEX = 5'd22,
+        // (F1) PSWA (write only): the whole PSW, RB and MD included (RETI: the bank switches)
+        RS_PSWA = 5'd23
     } v35_rsel_e;
 
     // ---- the width of this word's register accesses and ALU operation ----
