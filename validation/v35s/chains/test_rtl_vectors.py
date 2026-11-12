@@ -81,7 +81,9 @@ class SingleStepTests(unittest.TestCase):
     """(D2) the V20 suite: the reference (and, built, the unit bench) on a sample of files."""
     FILES = ("01", "2B", "81.3", "C1.2", "D3.7", "F7.6", "F7.7", "F6.5", "8F", "61", "C3", "7C",
              # (WP79) the 0F page and the register miscellany
-             "0F15", "0F1A", "0F20", "0F22", "0F26", "0F33", "0F39", "27", "3F", "D4", "D5", "6B")
+             "0F15", "0F1A", "0F20", "0F22", "0F26", "0F33", "0F39", "27", "3F", "D4", "D5", "6B",
+             # (MX4) the string forms, single and under a REP prefix (each file 5,000 tests)
+             "A5", "A6", "AB", "AC", "AF", "6C", "6F")
 
     def test_reference_passes(self):
         from validation.v35s.chains import sst

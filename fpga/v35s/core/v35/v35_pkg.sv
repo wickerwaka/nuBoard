@@ -72,7 +72,9 @@ package v35_pkg;
     // the subtract, the carry / borrow in and out on the step latch, the zero term
     // accumulated), BCDF the string's flags from the two latches, R4 the digit rotate of op3 0
     // (ROL4: the operand's low digit to its high, AL's low digit in; ROR4 the reverse) on the
-    // byte x with AL from y (the new operand byte to SIGMA, the new AL to tmpc)
+    // byte x with AL from y (the new operand byte to SIGMA, the new AL to tmpc); (MX4) STEP the
+    // string unit's index step: x plus the element's width (1 or 2 by the format's), minus
+    // it with PSW.DIR set, no flags (IX / IY after an element)
     typedef enum logic [5:0] {
         AL_NONE = 6'd0, AL_PASS = 6'd1, AL_GRP = 6'd2, AL_AND = 6'd3, AL_INC = 6'd4,
         AL_DEC = 6'd5, AL_NOT = 6'd6, AL_NEG = 6'd7, AL_INC2 = 6'd8, AL_DEC2 = 6'd9,
@@ -80,7 +82,8 @@ package v35_pkg;
         AL_MULI = 6'd15, AL_MULS = 6'd16, AL_MULF = 6'd17, AL_DIVI = 6'd18, AL_DIVS = 6'd19,
         AL_DIVF = 6'd20, AL_FLAG = 6'd21, AL_PSWL = 6'd22, AL_ADD = 6'd23, AL_CITF = 6'd24,
         AL_ADJ = 6'd25, AL_CVBI = 6'd26, AL_CVBF = 6'd27, AL_CVDI = 6'd28, AL_CVDF = 6'd29,
-        AL_BIT = 6'd30, AL_BCDI = 6'd31, AL_BCDS = 6'd32, AL_BCDF = 6'd33, AL_R4 = 6'd34
+        AL_BIT = 6'd30, AL_BCDI = 6'd31, AL_BCDS = 6'd32, AL_BCDF = 6'd33, AL_R4 = 6'd34,
+        AL_STEP = 6'd35
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +

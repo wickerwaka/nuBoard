@@ -812,3 +812,50 @@ change to the text above, kept here rather than rewritten into it.
     ModR/M pop as an operand byte taken. Every pre-existing routine derives as before. Open with item 22, and
     with OUT imm8 after a 0F register form or a digit rotate (item 23's hold at pE; at w1 / w2 the model delays
     the OUT's port take where the RTL stands its E word).
+
+## Corrections from MX4 (2026-11-11)
+
+35. **§3.1 / §3.2 / §5's string row, the REP prefix is the 0F page's structure (MX4).** The REP prefix's decode
+    sets the page bit and length 1, so the E word pops the string opcode behind it together with the prefix
+    (item 31's pop), and the dispatch reads a second decode level keyed on the string opcode (its bit 0 the
+    width; the compares carry the group's CMP). The prefix's condition (REPE Z, REPNE NZ, REPC CY, REPNC NC)
+    is the first level's condition field, the one the conditional jumps already read. The model's
+    str_take=sync and quiet need no reading: the E word stalls while the second byte is absent. The prefix's
+    own word is the routine's first (CW into SIGMA), the zero test the second (the V20's JMP Z first). The
+    count is CW in the register RAM, decremented through the ALU each element and written back; the loop
+    counter's 9 bits do not hold it. A REP prefix before a non-string byte decodes to the trap routine.
+36. **§3.4 / §5's string row, the element (MX4).** Per element: the read (its datum on the F word at the
+    post + 4), the write (the F word after it waits for its end, RAMEN = 1), the index steps (a new ALU
+    operation, x plus the format's width or minus it with PSW.DIR set, its step a register loaded at ce_a and
+    sharing the add's adder), the count's decrement and test, the jump back; each address moves on the cycle's
+    second clock under item 13's BW law. Measured: STM 9 + W, MOVBK 18 + 2W, LDM 11 + W (the book's LDMB; the
+    §5 row's "LDMW 10 + W" has the sizes swapped), INM / OUTM 14 + W, CMPBK 18 + 2W (the book's 23 + 2W is five
+    long), CMPM 12 + W (the book's 16 + 2W four long; the first gap 10 + W). The fixed part from E to the
+    successor's start: 25 (STM, MOVBK), 26 (LDM), 26 / 28 (INM / OUTM); CW = 0 a plain E at 17 (memory forms)
+    or 18 (INM / OUTM). The §5 row's "REP STM 16 + (9 + W)n" is 25 + (9 + W)n.
+37. **§3.4, the REP compares' overrun (MX4, a machine reading).** A REP compare posts the next element's
+    read(s) before its tests act (the model's str_overrun=read): CMPM's loop posts the next read, then tests
+    the last element's condition and then the count, so the first gap is two words shorter (10 against 12)
+    and the count's exit is one clock after the condition's (the model's cexit / rexit); CMPBK's tests sit
+    after the next element's two posts inside its 18. The exit waits for the overrun's datum. CW counts every
+    compared element; IX / IY point past the last one compared.
+38. **§3.6 / Correction 22, the string exits (MX4).** A REP form's exit is E with the write-back flag at the
+    model's done_t (the model's str_exit=wb, xwb 2): the last register writes run on past E, an OUT imm8 after
+    it stands two clocks, any other successor starts at E. The single MOVBK / CMPBK / INM the same (the model's
+    str_single_wb, uwb 2); STM / LDM / CMPM / OUTM a plain E.
+39. **§3.3 / item 13's BW law, the REP prologue (MX4, provisional).** The prologue's five setup words each
+    move the element's first address into the address register, so each waits out a memory cycle's wait
+    states: the first cycle issues at c21 + 2W at pE and + W at pO, as silicon (the model's str_setup=nowait,
+    five setup clocks counted only on clocks no cycle is in a wait state). Provisional: the sources name the
+    law, not that the prefix's five words are moves. INM's three setup words (the model's str_io_setup=run)
+    are exact at w1 and a clock early at w2; OUTM uses five.
+40. **§8 the ROM, the shared OPEN delay (MX4).** A run of K + 1 act-free OPEN clocks is one OPEN word calling a
+    ladder of K OPEN words that returns (the sequencer's call / return, until now used only by the EA heads);
+    the string exits jump into tails of K OPEN words and the E word. Every routine's runs of three or more
+    act-free OPEN words were rewritten so (not in the EA heads, never right after an E): the same words on the
+    same clocks, 720 words saved; the strings cost 242. The ROM is 1,451 words of 2,048 (UADDR_W 11). No
+    reading built (recorded): the model's str_fetch=hold (silicon raises no fetch request inside a REP form
+    even with room: F31's lone b0a4 / b2a4 cells; the candidate is SUSP on the prefix's word with a release
+    act on the exit path, a new word bit), chold, split_floor (the a-series' odd exits), str_single_start (a
+    single form right after the OUT marker's I/O write issues its first read a clock late, about 90 F24
+    s-series k1 runs). Item 23 is F24's ceiling: every F24 / F31 frame ends with the M1 OUT imm8.

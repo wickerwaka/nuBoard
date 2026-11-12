@@ -223,6 +223,15 @@ module v35_eu
         end
     end
 
+    // (MX4) the string unit's step: the element's width (the format's), negated with PSW.DIR set,
+    // registered at ce_a from the PSW and the format as they stand (both settle before a
+    // string routine's first step: the format at the dispatch, DIR by an earlier instruction)
+    reg [15:0] stepk = 16'd1;
+    always_ff @(posedge clock) begin
+        if (ce_a)
+            stepk <= psw[V35_PSW_DIR] ? (fmt.w ? 16'hFFFE : 16'hFFFF) : (fmt.w ? 16'd2 : 16'd1);
+    end
+
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg  [1:0] la_b = 2'd0, lb_b = 2'd0;
     reg        ack_b = 1'b0, resv_eb = 1'b0;
@@ -274,8 +283,13 @@ module v35_eu
     // select over it: the same value for every field, by construction
     wire [15:0] x_o = src(word.ax == SR_RA || word.ax == SR_RB ? SR_ZERO : word.ax);
     wire [15:0] y_o = src(word.ay == SR_RA || word.ay == SR_RB ? SR_ZERO : word.ay);
+`ifndef SYNTHESIS
+    // the checker's reference for x_b / y_b (the ce_b read's data entering last); simulation
+    // only: synthesised, the reference's cone is not pruned (MX4's landing: +80 FF, -0.17 ns)
     wire [15:0] x_l = word.ax == SR_RA ? va : word.ax == SR_RB ? vb : x_o;
-    wire [15:0] y_l = word.ay == SR_RA ? va : word.ay == SR_RB ? vb : y_o;
+    wire [15:0] y_l = word.alu == AL_STEP ? stepk      // (MX4) the step's y (y_b's load)
+                    : word.ay == SR_RA ? va : word.ay == SR_RB ? vb : y_o;
+`endif
     // (MX5b) the ALU's operands a tick earlier: the early read's data (tick A) with the ce_a
     // write forwarded byte by byte, the lane, the same choice; captured at ce_b (`x_b`, `y_b`).
     // Every other source is a ce_a register (stable through the clock) and the early read's
@@ -291,7 +305,10 @@ module v35_eu
     always_ff @(posedge clock) begin
         if (ce_b) begin
             x_b <= word.ax == SR_RA ? va_e : word.ax == SR_RB ? vb_e : x_o;
-            y_b <= word.ay == SR_RA ? va_e : word.ay == SR_RB ? vb_e : y_o;
+            // (MX4) AL_STEP's y: the string unit's step (stepk, a register), so the step shares
+            // AL_ADD's adder in tick B
+            y_b <= word.alu == AL_STEP ? stepk
+                 : word.ay == SR_RA ? va_e : word.ay == SR_RB ? vb_e : y_o;
         end
     end
     wire [15:0] x = x_b;
@@ -383,7 +400,7 @@ module v35_eu
                 endcase
             end
             AL_PSWL: pn = {psw[15:8], x[15:8]};
-            AL_ADD: r = x + y;
+            AL_ADD, AL_STEP: r = x + y;      // (MX4) AL_STEP: y the registered step (y_b's load)
             AL_ADJ: begin
                 q32 = v35_adjust(op3[1:0], x, psw);
                 r = q32[15:0];
@@ -646,7 +663,7 @@ module v35_eu
         end
     end
 
-    wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], x_l, y_l, dh, fmt, mul_n.acc[16], q32[31:16], word, op};
+    wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 
 `ifndef SYNTHESIS
     /* verilator lint_off BLKSEQ */

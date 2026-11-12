@@ -29,10 +29,7 @@ routine br_short op=EB book="BR short-label" diff=1 why="OPEN: silicon longer th
     open                                    ; OPEN: a book clock with no act (BR short 12)
     open                                    ; OPEN: a book clock with no act (BR short 12)
     susp                                    ; SUSP: prefetching suspended; waits while a fetch cycle runs
-    open                                    ; OPEN: a book clock with no act (BR short 12)
-    open                                    ; OPEN: a book clock with no act (BR short 12)
-    open                                    ; OPEN: a book clock with no act (BR short 12)
-    open                                    ; OPEN: silicon longer than the book (F30-store-br-short-n0-nop-pO-w0)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (BR short 12) (the call and the shared delay's 3)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -45,13 +42,7 @@ routine bcond op=70-7F book="BC/BZ/BNZ/BNC short-label (Bcond)" diff=t:2,nt:-1 w
     fw                                      ; not taken: the decide's wait (a fetch running or delivering)
     e                                       ; E
 bc_t: susp                                  ; taken: SUSP
-    open                                    ; OPEN: a book clock with no act (Bcond 15)
-    open                                    ; OPEN: a book clock with no act (Bcond 15)
-    open                                    ; OPEN: a book clock with no act (Bcond 15)
-    open                                    ; OPEN: a book clock with no act (Bcond 15)
-    open                                    ; OPEN: a book clock with no act (Bcond 15)
-    open                                    ; OPEN: silicon longer than the book (F23-push-be-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F23-push-be-n0-pE-w0)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (Bcond 15) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -72,23 +63,11 @@ routine br_near op=E9 book="BR near-label" diff=1 why="OPEN: silicon longer than
 routine dbnz op=E2 book="DBNZ" diff=t:2 why="OPEN: the book's 8 or 17; not taken the book's 8 (F23-push-dbnz-c1-n0-pE-w0: the frozen model's decide a clock after the take sync's release, the next start six after it); taken silicon longer than the book by two (F23-push-dbnz-c2-n0-pE-w0: the flush fourteen clocks after the sync's release, S+17, the book's 17 placing it at S+14); CW - 1 with the decide's wait, CW written with the count test; not taken four book clocks with no act, E; taken SUSP, eleven, FLUSH, E"
     rb=CW wid=WORD alu=DEC ax=RB fw         ; CW - 1 (no flags); the decide's wait (a fetch running or delivering)
     wr=CW wid=WORD ws=SIG jc=XC:dbnz_t      ; CW <- CW - 1; the count test (taken while not zero)
-    open                                    ; OPEN: a book clock with no act (DBNZ 8)
-    open                                    ; OPEN: a book clock with no act (DBNZ 8)
-    open                                    ; OPEN: a book clock with no act (DBNZ 8)
-    open                                    ; OPEN: a book clock with no act (DBNZ 8)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (DBNZ 8) (the call and the shared delay's 3)
     e                                       ; E (not taken)
 dbnz_t: susp                                ; taken: SUSP
     alu=ADD ax=PC ay=IMM                    ; the target: the instruction pointer + the displacement
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
-    open                                    ; OPEN: silicon longer than the book (F23-push-dbnz-c2-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F23-push-dbnz-c2-n0-pE-w0)
-    open                                    ; OPEN: a book clock with no act (DBNZ 17)
+    open call=w9                            ; OPEN: 10 clocks: a book clock with no act (DBNZ 17) (the call and the shared delay's 9)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -99,25 +78,14 @@ routine dbnz_z op=E0,E1 book="DBNZE" diff=t:3,nt:-2 why="OPEN: the book's 8 or 1
     jnc=SNZ:dz_c                            ; the count test (CW - 1 zero: not taken)
     susp                                    ; taken: SUSP
     alu=ADD ax=PC ay=IMM                    ; the target: the instruction pointer + the displacement
-    open                                    ; OPEN: a book clock with no act (DBNZE 17)
-    open                                    ; OPEN: a book clock with no act (DBNZE 17)
-    open                                    ; OPEN: a book clock with no act (DBNZE 17)
-    open                                    ; OPEN: a book clock with no act (DBNZE 17)
-    open                                    ; OPEN: a book clock with no act (DBNZE 17)
-    open                                    ; OPEN: a book clock with no act (DBNZE 17)
-    open                                    ; OPEN: a book clock with no act (DBNZE 17)
-    open                                    ; OPEN: silicon longer than the book (F35-out-cw-dbnze-c2-cmpaa-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-out-cw-dbnze-c2-cmpaa-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-out-cw-dbnze-c2-cmpaa-pE-w0)
+    open call=w9                            ; OPEN: 10 clocks: a book clock with no act (DBNZE 17) (the call and the shared delay's 9)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 dz_z: open                                  ; OPEN: a book clock with no act (DBNZE 8: the Z exit)
     open                                    ; OPEN: a book clock with no act (DBNZE 8: the Z exit)
     e                                       ; E (not taken on the Z test)
 dz_c: open                                  ; OPEN: a book clock with no act (DBNZE 8: the count exit)
-    open                                    ; OPEN: a book clock with no act (DBNZE 8: the count exit)
-    open                                    ; OPEN: a book clock with no act (DBNZE 8: the count exit)
-    open                                    ; OPEN: a book clock with no act (DBNZE 8: the count exit)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (DBNZE 8: the count exit) (the call and the shared delay's 2)
     e                                       ; E (not taken on the count)
 
 ; ---- BCWZ (E3): V20 JCXZ 0140-0143 (CX PASS, JMP Z; SUSP, FLUSH E)
@@ -129,13 +97,7 @@ routine bcwz op=E3 book="BCWZ short-label" diff=t:1,nt:-2 why="OPEN: the book's 
     e                                       ; E (not taken)
 bcwz_t: susp                                ; taken: SUSP
     alu=ADD ax=PC ay=IMM                    ; the target: the instruction pointer + the displacement
-    open                                    ; OPEN: a book clock with no act (BCWZ 15)
-    open                                    ; OPEN: a book clock with no act (BCWZ 15)
-    open                                    ; OPEN: a book clock with no act (BCWZ 15)
-    open                                    ; OPEN: a book clock with no act (BCWZ 15)
-    open                                    ; OPEN: a book clock with no act (BCWZ 15)
-    open                                    ; OPEN: a book clock with no act (BCWZ 15)
-    open                                    ; OPEN: silicon longer than the book (F35-out-cw-bcwz-t-n0-pE-w0)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (BCWZ 15) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -154,29 +116,18 @@ routine call_near op=E8 book="CALL near-proc" diff=3 why="OPEN: silicon longer t
     bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (S+9: written at S+10)
     f susp                                  ; F: the push's end (RAMEN); SUSP (S+10)
     alu=ADD ax=PC ay=DISP                   ; the target: the instruction pointer + the displacement
-    open                                    ; OPEN: a book clock with no act (CALL near 21)
-    open                                    ; OPEN: a book clock with no act (CALL near 21)
-    open                                    ; OPEN: a book clock with no act (CALL near 21)
-    open                                    ; OPEN: a book clock with no act (CALL near 21)
-    open                                    ; OPEN: silicon longer than the book (F23-push-call-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F23-push-call-pE-w0)
+    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CALL near 21) (the call and the shared delay's 5)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
 ; ---- RET (C3): V20 RET 00F0-00F3 (SP -> IND SUSP MEMR SS, INC2, SP, OPR -> PC F E FLUSH)
 routine ret op=C3 book="RET" diff=1 why="OPEN: silicon longer than the book by one (F23-push-callret-pE-w0: the frozen model's stack read issued at S+6, the flush eight clocks after its datum; the fetch requests held from S+6); three book clocks with no act, the read's post (S+5), F with SUSP (S+6), SP + 2, SP with the target, five more, FLUSH, E"
-    open                                    ; OPEN: a book clock with no act (RET 19)
-    open                                    ; OPEN: a book clock with no act (RET 19)
-    open                                    ; OPEN: a book clock with no act (RET 19)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RET 19) (the call and the shared delay's 2)
     rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the read at SS:SP (S+5)
     f d1=TA s1=OPR susp                     ; F: the return address into tmpa; SUSP (S+6)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG alu=PASS ax=TA    ; SP <- SP + 2; the target into SIGMA
-    open                                    ; OPEN: a book clock with no act (RET 19)
-    open                                    ; OPEN: a book clock with no act (RET 19)
-    open                                    ; OPEN: a book clock with no act (RET 19)
-    open                                    ; OPEN: a book clock with no act (RET 19)
-    open                                    ; OPEN: silicon longer than the book (F23-push-callret-pE-w0)
+    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (RET 19) (the call and the shared delay's 4)
     flush                                   ; FLUSH: the stream from the return address
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -192,10 +143,7 @@ routine br_far op=EA book="BR far-label" diff=2 why="OPEN: silicon longer than t
     pop=il                                  ; pop the segment's low byte (S+7)
     pop=ih                                  ; pop its high byte: the take sync armed
     wr=PS wid=WORD ws=IMM alu=PASS ax=DISP susp ; PS <- the segment (RAM and the flop); the offset into SIGMA; SUSP
-    open                                    ; OPEN: a book clock with no act (BR far 15)
-    open                                    ; OPEN: a book clock with no act (BR far 15)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-brf-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-brf-n0-pE-w0)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (BR far 15) (the call and the shared delay's 3)
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -203,10 +151,7 @@ routine br_far op=EA book="BR far-label" diff=2 why="OPEN: silicon longer than t
 ; FLUSH). The stack read posted, the immediate popped once the read is on the bus (DL DH: the
 ; frozen model's chained take, no take sync), F, SP + 2 + the immediate
 routine ret_imm op=C2 book="RET pop-value" diff=2 why="OPEN: silicon longer than the book (F35-push-ret-imm0-pE-w0: the frozen model's stack read issued at S+7, the immediate taken at S+8 and S+9, the flush eight clocks after the datum, S+18; the fetch requests held from S+13); four book clocks with no act, the read's post (S+6), one more, the pops, F, SP + 2, + the immediate, SP with the target and SUSP, four more, FLUSH, E"
-    open                                    ; OPEN: a book clock with no act (RET pop-value 19)
-    open                                    ; OPEN: a book clock with no act (RET pop-value 19)
-    open                                    ; OPEN: a book clock with no act (RET pop-value 19)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ret-imm0-pE-w0)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (RET pop-value 19) (the call and the shared delay's 3)
     rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the read at SS:SP (S+6)
     open                                    ; OPEN: a book clock with no act (RET pop-value 19)
     pop=dl                                  ; pop the immediate's low byte (S+8)
@@ -215,36 +160,24 @@ routine ret_imm op=C2 book="RET pop-value" diff=2 why="OPEN: silicon longer than
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     alu=ADD ax=SIG ay=DISP                  ; SP + 2 + the immediate
     wr=SP wid=WORD ws=SIG alu=PASS ax=TA susp  ; SP <- SP + 2 + imm; the target into SIGMA; SUSP (S+13)
-    open                                    ; OPEN: a book clock with no act (RET pop-value 19)
-    open                                    ; OPEN: a book clock with no act (RET pop-value 19)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ret-imm0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ret-imm0-pE-w0)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (RET pop-value 19) (the call and the shared delay's 3)
     flush                                   ; FLUSH: the stream from the return address
     e                                       ; E: the target's opcode, once the refill's run has ended
 
 ; ---- RETF (CB): V20 RETF_ 00F4-00F7 + RETF 0234-0237 (two stack reads, OPR -> CS, FLUSH E)
 routine retf op=CB book="RET far" diff=2 why="OPEN: silicon longer than the book (F35-push-far-callf-retf-pE-w0: the frozen model's reads issued at S+6 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+6); three book clocks with no act, the offset's read (S+5), SP + 2 with SUSP, SP and the next address, F, four more, the segment's read (S+14), F: PS, SP + 2, SP with the target, five more, FLUSH, E"
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: a book clock with no act (RET far 27)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RET far 27) (the call and the shared delay's 2)
     rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the offset's read (S+5)
     rb=SP wid=WORD alu=INC2 ax=RB susp      ; SP + 2; SUSP (S+6)
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP + 2; the segment's address
     open                                    ; OPEN: a book clock with no act (RET far 27)
     f d1=TA s1=OPR                          ; F: the offset into tmpa (S+9)
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-callf-retf-pE-w0)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (RET far 27) (the call and the shared delay's 3)
     bus=MEMR seg=SS wid=WORD                ; post the segment's read (S+14)
     f wr=PS wid=WORD ws=OPR                 ; F: PS <- the segment (RAM and the flop) (S+18)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG alu=PASS ax=TA    ; SP <- SP + 2; the offset into SIGMA
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-callf-retf-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-callf-retf-pE-w0)
+    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (RET far 27) (the call and the shared delay's 4)
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -252,28 +185,19 @@ routine retf op=CB book="RET far" diff=2 why="OPEN: silicon longer than the book
 ; on the bus; the reservation from the first datum to the second read (the frozen model's
 ; ret_far_fetch=after: the request the immediate's take raised waits for the second read)
 routine retf_imm op=CA book="RET far pop-value" diff=2 why="OPEN: silicon longer than the book (F35-push-far-callf-retf2-pE-w0: the frozen model's reads issued at S+6 and S+16, the immediate taken at S+7 and S+8, a fetch at the second datum (S+19), the flush eight clocks after it, S+27); three book clocks with no act, the offset's read (S+5), SP + 2, the pops with SP and the next address, F with the reservation, five more, the segment's read (S+15), F: PS, SP + 2, + the immediate, SP with the target, SUSP (S+22: the fetch's end), four more, FLUSH, E"
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RET far pop-value 28) (the call and the shared delay's 2)
     rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the offset's read (S+5)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     pop=dl wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG   ; pop the immediate's low byte (S+7); SP <- SP + 2; the segment's address
     pop=dh                                  ; pop its high byte (S+8)
     f d1=TA s1=OPR resv                     ; F: the offset into tmpa (S+9); the reservation (the second read)
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-callf-retf2-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-callf-retf2-pE-w0)
+    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (RET far pop-value 28) (the call and the shared delay's 4)
     bus=MEMR seg=SS wid=WORD                ; post the segment's read (S+15)
     f wr=PS wid=WORD ws=OPR                 ; F: PS <- the segment (S+19)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     alu=ADD ax=SIG ay=DISP                  ; SP + 2 + the immediate
     susp wr=SP wid=WORD ws=SIG alu=PASS ax=TA  ; SUSP (S+22: waits while the fetch at the datum runs); SP <- SP + 2 + imm; the offset into SIGMA
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: a book clock with no act (RET far pop-value 28)
-    open                                    ; OPEN: silicon longer than the book (F35-push-far-callf-retf2-pE-w0)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (RET far pop-value 28) (the call and the shared delay's 3)
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -294,18 +218,11 @@ routine call_far op=9A book="CALL far-proc" diff=-1 why="OPEN: book error of one
     bus=MEMW seg=SS wid=WORD                ; post the first push (PS) at SS:SP (S+13)
     f susp rb=SP wid=WORD alu=DEC2 ax=RB    ; F: the push's end; SUSP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return offset into the write datum
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (CALL far 36) (the call and the shared delay's 2)
     bus=MEMW seg=SS wid=WORD                ; post the second push (PC) (S+22)
     f                                       ; F: the push's end (S+26)
     wr=PS wid=WORD ws=IMM alu=PASS ax=DISP  ; PS <- the segment (RAM and the flop); the offset into SIGMA
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
+    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CALL far 36) (the call and the shared delay's 5)
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -314,13 +231,7 @@ routine br_reg op=FF mod=reg reg=4 book="BR regptr16" diff=2 why="OPEN: silicon 
     ra=RM wid=WORD alu=PASS ax=RA           ; the register: the target into SIGMA
     open                                    ; OPEN: a book clock with no act (BR regptr16 13)
     susp                                    ; SUSP
-    open                                    ; OPEN: a book clock with no act (BR regptr16 13)
-    open                                    ; OPEN: a book clock with no act (BR regptr16 13)
-    open                                    ; OPEN: a book clock with no act (BR regptr16 13)
-    open                                    ; OPEN: a book clock with no act (BR regptr16 13)
-    open                                    ; OPEN: a book clock with no act (BR regptr16 13)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ind-brr-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ind-brr-n0-pE-w0)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (BR regptr16 13) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -329,20 +240,11 @@ routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=4 why="OPEN: sili
     ra=RM wid=WORD d1=TA s1=RA              ; the register (the target) into tmpa
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC resv   ; SP <- SP - 2; the address; the return address into the write datum; the reservation
-    open                                    ; OPEN: a book clock with no act (CALL regptr16 21)
-    open                                    ; OPEN: a book clock with no act (CALL regptr16 21)
-    open                                    ; OPEN: a book clock with no act (CALL regptr16 21)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ind-callr-pE-w0)
+    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (CALL regptr16 21) (the call and the shared delay's 3)
     susp                                    ; SUSP (S+10)
     bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (S+11)
     f alu=PASS ax=TA                        ; F: the push's end; the target into SIGMA
-    open                                    ; OPEN: a book clock with no act (CALL regptr16 21)
-    open                                    ; OPEN: a book clock with no act (CALL regptr16 21)
-    open                                    ; OPEN: a book clock with no act (CALL regptr16 21)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ind-callr-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ind-callr-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ind-callr-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F35-push-ind-callr-pE-w0)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (CALL regptr16 21) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -353,13 +255,7 @@ routine br_mem op=FF mod=mem reg=4 ea=bare book="BR memptr16" diff=m00:1,d8:2,d1
     open                                    ; OPEN: a book clock with no act (BR memptr16)
     bus=MEMR wid=WORD                       ; post the pointer's read (S+7)
     f alu=PASS ax=OPR susp                  ; F: the pointer (the target) into SIGMA; SUSP
-    open                                    ; OPEN: a book clock with no act (BR memptr16)
-    open                                    ; OPEN: a book clock with no act (BR memptr16)
-    open                                    ; OPEN: a book clock with no act (BR memptr16)
-    open                                    ; OPEN: a book clock with no act (BR memptr16)
-    open                                    ; OPEN: a book clock with no act (BR memptr16)
-    open                                    ; OPEN: silicon longer than the book (F37-push-indm-brm-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F37-push-indm-brm-n0-pE-w0)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (BR memptr16) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -376,13 +272,7 @@ routine call_mem op=FF mod=mem reg=2 ea=bare book="CALL memptr16" diff=m00:2,d8:
     open                                    ; OPEN: a book clock with no act (CALL memptr16)
     bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (S+16)
     f alu=PASS ax=TA                        ; F: the push's end; the target into SIGMA
-    open                                    ; OPEN: a book clock with no act (CALL memptr16)
-    open                                    ; OPEN: a book clock with no act (CALL memptr16)
-    open                                    ; OPEN: a book clock with no act (CALL memptr16)
-    open                                    ; OPEN: a book clock with no act (CALL memptr16)
-    open                                    ; OPEN: a book clock with no act (CALL memptr16)
-    open                                    ; OPEN: silicon longer than the book (F37-push-indm-callm-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F37-push-indm-callm-n0-pE-w0)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (CALL memptr16) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the target
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -397,13 +287,7 @@ routine br_far_mem op=FF mod=mem reg=5 ea=bare book="BR memptr32" diff=m00:1,d8:
     open                                    ; OPEN: a book clock with no act (BR memptr32)
     bus=MEMR wid=WORD                       ; post the segment's read (S+14)
     f susp wr=PS wid=WORD ws=OPR alu=PASS ax=TA  ; F: PS <- the segment; the offset into SIGMA; SUSP
-    open                                    ; OPEN: a book clock with no act (BR memptr32)
-    open                                    ; OPEN: a book clock with no act (BR memptr32)
-    open                                    ; OPEN: a book clock with no act (BR memptr32)
-    open                                    ; OPEN: a book clock with no act (BR memptr32)
-    open                                    ; OPEN: a book clock with no act (BR memptr32)
-    open                                    ; OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0)
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (BR memptr32) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -425,18 +309,11 @@ routine call_far_mem op=FF mod=mem reg=3 ea=bare book="CALL memptr32" diff=m00:1
     bus=MEMW seg=SS wid=WORD                ; post the first push (PS) (S+23)
     f rb=SP wid=WORD alu=DEC2 ax=RB         ; F: the push's end; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return offset into the write datum
-    open                                    ; OPEN: a book clock with no act (CALL memptr32)
-    open                                    ; OPEN: a book clock with no act (CALL memptr32)
-    open                                    ; OPEN: a book clock with no act (CALL memptr32)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (CALL memptr32) (the call and the shared delay's 2)
     bus=MEMW seg=SS wid=WORD                ; post the second push (PC) (S+32)
     f                                       ; F: the push's end (S+36)
     wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment; the offset into SIGMA
-    open                                    ; OPEN: a book clock with no act (CALL memptr32)
-    open                                    ; OPEN: a book clock with no act (CALL memptr32)
-    open                                    ; OPEN: a book clock with no act (CALL memptr32)
-    open                                    ; OPEN: a book clock with no act (CALL memptr32)
-    open                                    ; OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0)
+    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CALL memptr32) (the call and the shared delay's 5)
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended
 
@@ -451,21 +328,15 @@ routine brkv op=CE book="BRKV" xc=t diff=t:4 why="OPEN: silicon longer than the 
     e                                       ; E (V clear)
 routine brk3 op=CC resv=e book="BRK 3" diff=4 why="OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0: the frozen model's vector reads issued at S+11 and S+25, PSW pushed at S+17, PS at S+31 and PC at S+40, the flush eight clocks after the third write's end, S+51; the fetch requests held from S+6); book clocks with no act, SUSP (S+6), the offset's read (S+10), F, SP - 2, the PSW's push (S+16), F with CITF, three more, the segment's read (S+24), F, SP - 2, PS's push (S+30), F, SP - 2, SP and the address with PC, two more, PC's push (S+39), F, PS and the target, six more, FLUSH, E"
     open                                    ; OPEN: a book clock with no act (BRK 3 50)
-brk_b1: open                                ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
+brk_b1: open call=w2                        ; OPEN: 3 clocks: a book clock with no act (BRK 3 50) (the call and the shared delay's 2)
     susp                                    ; SUSP (S+6)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (BRK 3 50) (the call and the shared delay's 2)
     d1=ADDR s1=VEC bus=MEMR seg=ZERO wid=WORD   ; the vector's address (4n); post the offset's read at 0:4n (S+10)
     f d1=TC s1=OPR alu=INC2 ax=ADDR         ; F: the offset into tmpc; the vector's address + 2
     d1=TB s1=SIG rb=SP wid=WORD alu=DEC2 ax=RB   ; the segment's address into tmpb; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PSW into the write datum; post its push (S+16)
     f alu=CITF wf                           ; F: the push's end; IE and BRK cleared (CITF)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (BRK 3 50) (the call and the shared delay's 2)
     d1=ADDR s1=TB bus=MEMR seg=ZERO wid=WORD    ; post the segment's read at 0:4n + 2 (S+24)
     f d1=TA s1=OPR                          ; F: the segment into tmpa
     rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
@@ -478,49 +349,29 @@ brk_b1: open                                ; OPEN: a book clock with no act (BR
     bus=MEMW seg=SS wid=WORD                ; post PC's push (S+39)
     f                                       ; F: the push's end (S+43)
     wr=PS wid=WORD ws=TA alu=PASS ax=TC     ; PS <- the vector's segment; the offset into SIGMA
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: a book clock with no act (BRK 3 50)
-    open                                    ; OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0)
+    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (BRK 3 50) (the call and the shared delay's 5)
     flush                                   ; FLUSH: the stream from the vector
     e                                       ; E: the handler's opcode, once the refill's run has ended
 
 ; ---- RETI (CF): V20 IRET_ 0110 + IRET 01E4-01EA (three stack reads: PC, PS, the PSW; FLUSH)
 routine reti op=CF book="RETI" diff=4 why="OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0: the frozen model's reads issued at S+6, S+15 and S+24, the flush fourteen clocks after the third datum, S+41; the fetch requests held from S+6); three book clocks with no act, PC's read (S+5), SP + 2 with SUSP, SP and the next address, F, SP + 2, three more, PS's read (S+14), F, SP and the next address, three more, the PSW's read (S+23), F: the PSW, SP + 2, SP, PS and the target, ten more, FLUSH, E"
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 2)
     rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post PC's read (S+5)
     rb=SP wid=WORD alu=INC2 ax=RB susp      ; SP + 2; SUSP (S+6)
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP + 2; PS's address
     open                                    ; OPEN: a book clock with no act (RETI 40)
     f d1=TA s1=OPR                          ; F: the return offset into tmpa (S+9)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 2)
     bus=MEMR seg=SS wid=WORD                ; post PS's read (S+14)
     f d1=TC s1=OPR                          ; F: the segment into tmpc (S+18)
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP + 2; the PSW's address
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0)
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 2)
     bus=MEMR seg=SS wid=WORD                ; post the PSW's read (S+23)
     f wr=PSW ws=OPR                         ; F: the PSW <- the datum (bits 11:0) (S+27)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2
     wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment; the offset into SIGMA
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: a book clock with no act (RETI 40)
-    open                                    ; OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0)
-    open                                    ; OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0)
+    open call=w9                            ; OPEN: 10 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 9)
     flush                                   ; FLUSH: the stream from the return offset in the new PS
     e                                       ; E: the target's opcode, once the refill's run has ended

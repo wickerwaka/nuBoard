@@ -211,6 +211,14 @@ BRK_VEC = {0xCC: 3, 0xCE: 4}
 FLAG_OP = {0xF8: 0, 0xF9: 1, 0xF5: 2, 0xFA: 3, 0xFB: 4, 0xFC: 5, 0xFD: 6}
 # (MX3b) the adjusts' operation (v35_adjust's aop): 0 ADJ4A, 1 ADJ4S, 2 ADJBA, 3 ADJBS
 ADJUST_OP = {0x27: 0, 0x2F: 1, 0x37: 2, 0x3F: 3}
+# (MX4) the REP prefixes (F3 REP / REPE, F2 REPNE, 65 REPC, 64 REPNC): the E word pops the
+# string opcode behind one with it (the 0F page's structure: `pg`), the dispatch reads the second
+# level on it; the prefix's condition (the decode's xc: the PSW condition a REP compare goes on
+# while it holds, as 70-7F's: Z 4, NZ 5, CY 2, NC 3); the string opcodes (bit 0 the width) and
+# the compares (CMPBK A6 / A7, CMPM AE / AF: the group's CMP, op3 7)
+REP_XC = {0xF3: 4, 0xF2: 5, 0x65: 2, 0x64: 3}
+STR_OPS = set(_ranges("6C-6F,A4-A7,AA-AF"))
+STR_CMP = set(_ranges("A6,A7,AE,AF"))
 # the 0F page (the second byte): ModR/M present, immediate bytes after it
 PAGE1_MODRM = set(_ranges("10-1F,28,2A,31,33,39,3B,2D,94,95"))
 PAGE1_IMM = {**{o: 1 for o in _ranges("18-1F,39,3B,FF")}, 0x9C: 3}
@@ -290,6 +298,13 @@ def fmt_of(op: int) -> dict:
     if op == 0x0F:
         f["len"] = 1                     # the page's second byte
         f["pg"] = 1                      # (MX3c) popped by the E word with the opcode (into mp)
+    if op in REP_XC:
+        f["len"] = 1                     # (MX4) the string opcode behind the prefix
+        f["pg"] = 1                      # ... popped by the E word with the prefix (into mp)
+        f["xc"] = REP_XC[op]             # the compare's repeat condition
+    if op in STR_OPS:
+        f["w"] = op & 1                  # (MX4) the string forms' width
+        f["op3"] = 7 if op in STR_CMP else 0     # the compares: CMP
     return f
 
 
@@ -555,6 +570,12 @@ def assemble(paths: list[Path] | None = None) -> Program:
             for b in ops:
                 cells2.setdefault((0x0F, b), []).append(r.name)
             continue
+        if h.get("page") == "rep":
+            # (MX4) a REP form: the string opcode under every REP prefix
+            for p in REP_XC:
+                for b in ops:
+                    cells2.setdefault((p, b), []).append(r.name)
+            continue
         mods = {"reg": [3], "mem": [0, 1, 2], "any": [0, 1, 2, 3], "m00": [0]}[h.get("mod", "any")]
         regs = _ranges(h["reg"].replace("/", "")) if "reg" in h else list(range(8))
         rms = _ranges(h["rm"]) if "rm" in h else list(range(8))
@@ -585,8 +606,9 @@ def rom_banks(prog: Program) -> list[str]:
 
 def udec1(prog: Program, op: int) -> dict:
     f = fmt_of(op)
-    if op == 0x0F:
+    if op == 0x0F or op in REP_XC:
         # (MX3c) the dispatch reads the second level on the second byte the E word popped
+        # ((MX4) the REP prefixes': the string opcode)
         f["entry"], f["trap"] = prog.labels[TRAP0F], 0
     elif f["has_modrm"]:
         # (the dispatch reads the second level on the ModR/M byte the E word popped)
@@ -611,6 +633,13 @@ def udec2(prog: Program, op: int, b: int) -> dict:
                                  0xF6, 0xF7, 0xFE, 0xFF) else fmt_of(op)["op3"]
     if op == 0x0F:
         op3 = (b >> 1) & 7               # (MX3c) the page's operation: the second byte's bits 3:1
+    if op in REP_XC:
+        # (MX4) the string opcode's format: its width (bit 0) and the compares' CMP
+        g = fmt_of(b)
+        if (op, b) in prog.cells2:
+            return {"entry": prog.labels[prog.cells2[(op, b)]], "trap": 0, "op3": g["op3"],
+                    "ea": 0, "eab": 0, "w": g["w"]}
+        return {"entry": prog.labels[TRAP0F], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0}
     if (op, b) in prog.cells2:
         r = prog.routine(prog.cells2[(op, b)])
         mem = op != 0x0F and is_mem(r) and b >> 6 != 3
@@ -666,7 +695,7 @@ def decode_svh(prog: Program) -> str:
           "        v35_udecm_t f;",
           "        f = '0;",
           "        case (op)"]
-    for op in sorted(MODRM_OPS | {0x0F}):
+    for op in sorted(MODRM_OPS | {0x0F} | set(REP_XC)):
         L.append(f"            8'h{op:02X}: begin")
         # group the 256 byte values by result
         by = {}
@@ -769,6 +798,12 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
         if h is not None:
             pc, retr = prog.labels[h], r.base
     cnt = 0
+    # (MX4) a REP form runs its loop on CW = n: SIGMA's value tracked through the words that
+    # read CW (PASS, DEC) and CW's write from SIGMA; the compare's condition holds (CW runs out)
+    rep = r.head.get("page") == "rep"
+    sig, cw = None, n
+    if rep:
+        conds.setdefault(enum_value("v35_cond_e", "xc"), True)
     done_at = None
     write_pend = False
     refill_at = None
@@ -812,7 +847,20 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
         nxt = pc + 1
         cond_v = {enum_value("v35_cond_e", "cntz"): cnt == 0,
                   enum_value("v35_cond_e", "word"): width == 16}
+        if rep and sig is not None:
+            cond_v[enum_value("v35_cond_e", "snz")] = sig != 0
         cv = cond_v.get(f.get("cond", 0), conds.get(f.get("cond", 0), False))
+        if rep:
+            if f.get("wr") == enum_value("v35_rsel_e", "cw") and \
+                    f.get("ws") == enum_value("v35_src_e", "sig") and sig is not None:
+                cw = sig
+            a = f.get("alu", 0)
+            if a and f.get("ra") == enum_value("v35_rsel_e", "cw") and \
+                    f.get("ax") == enum_value("v35_src_e", "ra") and \
+                    a in (enum_value("v35_alu_e", "pass"), enum_value("v35_alu_e", "dec")):
+                sig = cw - (a == enum_value("v35_alu_e", "dec"))
+            elif a:
+                sig = None
         if seq == enum_value("v35_seq_e", "jmp"):
             nxt = f["tgt"]
         elif seq == enum_value("v35_seq_e", "jc"):

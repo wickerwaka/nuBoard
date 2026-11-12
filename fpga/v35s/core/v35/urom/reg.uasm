@@ -64,16 +64,7 @@ routine flag_di op=FA book="DI" why="OPEN: the book's 4, two clocks with no act 
     alu=FLAG wf e                           ; IE <- 0; E
 
 routine flag_ei op=FB book="EI" why="OPEN: the book's 12, ten clocks with no act (the interrupt controller is not built)"
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
-    open                                    ; OPEN: a book clock with no act (EI 12)
+    open call=w9                            ; OPEN: 10 clocks: a book clock with no act (EI 12) (the call and the shared delay's 9)
     alu=FLAG wf e                           ; IE <- 1; E
 
 routine lahf op=9F book="MOV AH,PSW" why="one word: the book's 2"
@@ -91,11 +82,7 @@ routine cvtbw op=98 book="CVTBW" diff=-1 why="book error: the book's 3 against s
 ; V20 CWD 0064-0067: DW <- AW's sign
 routine cvtwl op=99 book="CVTWL" why="OPEN: the book's 8: a read and a write (V20 CWD), five clocks with no act"
     ra=AW wid=WORD alu=SIGNW ax=RA          ; read AW; its sign as a word (0000 / FFFF)
-    open                                    ; OPEN: a book clock with no act (CVTWL 8)
-    open                                    ; OPEN: a book clock with no act (CVTWL 8)
-    open                                    ; OPEN: a book clock with no act (CVTWL 8)
-    open                                    ; OPEN: a book clock with no act (CVTWL 8)
-    open                                    ; OPEN: a book clock with no act (CVTWL 8)
+    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (CVTWL 8) (the call and the shared delay's 4)
     wr=DW wid=WORD ws=SIG e wb              ; DW <- SIGMA; E
 
 ; ---- immediates (V20 ALU_ACC 0004-0007, MOV r,imm): the immediate's bytes popped one a word,

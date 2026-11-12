@@ -1766,6 +1766,204 @@ bits. The tables: the hand-back's mx3c-table.md, mx3c-runs-t1 / t2, mx3c-misses.
    its operands are temporaries a word earlier, so a register on its output into SIGMA costs a
    word of the loop's OPEN clocks if the levelizer asks for a split.
 
+## MX4: the string forms (urom/str.uasm), the shared delay
+
+The data book's formulas are each routine's first draft (`book=` the single forms', `bookx=` the
+REP note's formula plus the prefix's 2); the clocks beyond or short of it are silicon's, the frozen
+model exact on the run each header names; OPEN words where no act names a clock. No macro was
+added; no port was added to the queue or the bus unit; tick A's request chain is unchanged (the
+REP decode reuses the 0F page's `pg` path, the new ALU step is tick B's).
+
+### The structure
+
+- **The REP prefix (F3 REP / REPE, F2 REPNE, 65 REPC, 64 REPNC) is the 0F page's structure:**
+  its decode sets `pg` and `len` 1, so the E word pops the string opcode behind it with it (into
+  the ModR/M register) and the dispatch reads the second level on it (`page=rep`: a routine's
+  cells under every REP prefix). The first level carries the prefix's condition in `xc` (the PSW
+  condition a REP compare goes on while it holds, as 70-7F's: Z 4 for REPE, NZ 5 for REPNE, CY 2
+  for REPC, NC 3 for REPNC: the jump condition CD_XC already reads it); the second level the
+  string opcode's width (bit 0) and, for the compares, the group's CMP (op3 7). A segment prefix
+  before the REP prefix stands through the routine (cleared by its E as before). A REP prefix
+  before a non-string byte decodes to the trap routine (reported; the corpus and the
+  SingleStepTests have none that run).
+- **The prefix's own word** is the routine's first (c2): SIGMA = CW; the second (c3) is the zero
+  test (`jnc=SNZ`: the V20's JMP Z first). The count is CW in the register RAM (the loop counter's
+  9 bits do not hold it): each element's word decrements it through the ALU (AL_DEC, no flags)
+  and writes it back; the next word tests SIGMA (CD_SNZ).
+- **The element:** the read (the post, its datum on the F word at the post + 4: the W clocks),
+  the write (the post; the F word after it waits for its end: the W clocks, RAMEN = 1), the index
+  steps (AL_STEP, new: x plus the format's width, minus it with PSW.DIR set; the word reads the
+  index as a word; the step `stepk` a register loaded at ce_a from PSW.DIR and the format, y_b
+  loading it for an AL_STEP word, so the step is AL_ADD's adder: no new adder in tick B), the
+  address moves on the cycle's second clock (no wait state yet: MX1g's BW
+  law), the count's decrement and test, the jump back. Per element: STM 9 + W, MOVBK 18 + 2W
+  (the book's), LDM 11 + W (the book's LDMB; the note prints LDMW 10 + W with the sizes swapped),
+  INM / OUTM 14 + W, CMPBK 18 + 2W, CMPM 12 + W (the first gap 10 + W).
+- **A REP compare posts the next element's read(s) before its tests take effect** (silicon's
+  overrun: every REP compare that ran an element reads one more, F24 t-series): CMPM's loop
+  posts the next read, then tests the last element's condition (CD_XC) and the count (the second
+  test word): the first element has no tests before it, so the first gap is two words shorter
+  (10 against 12: F24-out-r-repne-cmpm-w-n2-pE-w0), and the count's exit is a clock after the
+  condition's (F24-out-t-repe-cmpm-w-n4-fill-pE-w0 + 20, the r run + 21). CMPBK's tests sit after
+  the next element's two posts, inside its 18 (the first element's pass skips them). The exit
+  waits for the overrun's datum (F: the W clocks). CW counts every compared element; IX / IY
+  point past the last compared element (the SingleStepTests files pass).
+- **The exits:** E with the write-back flag at the frozen model's done_t (the successor's start):
+  the REP form's last register writes run on past E (MX1f's wb: an OUT imm8 after it stands two
+  clocks, its port take at the model's wb_until + 3; any other successor starts at E: the model's
+  str_exit=wb, xwb 2). The single MOVBK / CMPBK / INM the same (the model's str_single_wb, uwb 2);
+  STM / LDM / CMPM / OUTM plain E. CW = 0: a plain E at c17 (the memory forms), c18 (INM / OUTM).
+- **The REP prologue's setup words:** c2 .. c6 each move the element's first address into the
+  address register, so each waits out a memory cycle's wait states (MX1g's BW law): the first
+  cycle issues at c21 + 2W at pE (the start's two fetches' wait clocks) and + W at pO, as
+  silicon (the frozen model's str_setup=nowait: five setup clocks counted only on clocks no
+  memory cycle is in a wait state). **Provisional** (the sources name the law, not that the
+  prefix's five words are moves): the address is moved again on each. INM (the port first) has
+  three: the model's str_io_setup=run counts the second fetch's first wait clock (+1 / +3 at w1
+  / w2): exact at w1, a clock early at w2 (F24-out-r-rep-inm-w-n1-pE-w2).
+- **The shared delay (`dly`, `sxt`):** a run of K + 1 OPEN clocks is one OPEN word calling the
+  delay ladder (`call=wK`: K OPEN words and a return to the caller's next word; the sequencer's
+  call / return, unused until now except by the dispatch's EA heads, which return before a
+  routine's body); the string exits jump into tails of K OPEN words and the E word. Every
+  existing routine's runs of three or more act-free OPEN words (not in the EA heads, not after an
+  E) were rewritten so (`an/share.py`): the same words on the same clocks (a call or a return is
+  no act and no stall), 720 words saved. The ROM: 1,451 words of 2,048 (UADDR_W 11 unchanged),
+  340 OPEN words in 120 routines (each counted once: the shared ladders' words once).
+
+### The frozen model's string rules, given a reading or recorded
+
+| rule | reading |
+| --- | --- |
+| str_take=sync, quiet | none needed: the E word pops the prefix and the string opcode together (the 0F page's), stalling while the second byte is absent |
+| str_setup=nowait | the prologue's five setup words under MX1g's BW law (provisional, above) |
+| str_io_setup=run | INM's three setup words (provisional; w2 a clock short) |
+| str_overrun=read | the loop's next post before the tests (above): a machine reading |
+| str_exit=wb, str_single_wb | MX1f's wb on the exit's E, placed at the model's done_t |
+| str_last (OUTM 1) | the exit path's word before the last I/O post (OPEN: F24-out-r-rep-outm-w-n2-pE-w0) |
+| cexit / rexit | the count's test is the second test word |
+| str_fetch=hold (fetch_hold / fetch_release, zfetch, xfetch) | **no reading built.** Silicon raises no fetch request inside a REP form even with the queue's room: F31-out-lone-*-b0a4 / b2a4 (the start's fetch aborted on the REP's first clock is not retried until 8 clocks after the last cycle's end: the model's xfetch; the RTL retries it at c3). The candidate: SUSP on the prefix's word (the V20's act), released by a word on the exit path; the sequencer's SUSP ends only at FLUSH or E, so a release act (a word bit clearing `sp` a clock later, off tick A's chain) would be new. The runs it would reach: F31's lone b0a4 / b2a4 cells (12 at pE), and with them the model's zfetch / xfetch after a REP form wherever the queue has room. |
+| chold (a compare's fetch hold after each element) | not built (no run in the gate families isolates it: the queue is full in the loop) |
+| split_floor (str_split=floor) | not built: the a-series' odd last word (F24's a-series at pE: the odd last word's exit (F24-out-a-repne-cmpm-w-n2-iy-pE-w0 the next read 2 early, 6 runs; the rest of the a-series behind item 23's hold)) |
+| str_single_start=write / delivery, ugap | no reading: a single form right after the OUT marker's I/O write issues its first read a clock later than its steady instance (MOVBK / CMPBK / LDM / CMPM / INM; not STM, OUTM whose first post is later): F24-out-s-movbk-w-k1-pE-w0 (the read at the I/O's issue + 9 against the RTL's + 8). About 90 F24 s-series k1 runs (pE, every wait) diverge there. |
+| str_in_io / str_out_rd, str_io_latch | the I/O cycles on the existing laws (the I/O read and write posted on the A1 port with DW in the address register) |
+
+### Measured (the defaults, both spacings)
+
+The corpus (both spacings, `+v35_chk` silent; the per-family tables and the per-run first
+divergences identical at `+v35_ticks=2`): **6,400** exact (cd7bcf3 6,207): 193 gained, **0 lost**.
+The per-run first divergences differ from the base's only in the five families with string
+forms (F24 423, F30 282, F31 114, F33 66, F39 120 runs: t1-mdiff.txt / t2-mdiff.txt); every other
+family's are identical (the shared delay changes no clock).
+
+| family | cd7bcf3 | MX4 |
+| --- | --- | --- |
+| F24 | 0 | 4 |
+| F30 | 219 | 320 (the str shape: REP INM / OUTM / STM behind the six leads) |
+| F31 | 0 | 46 |
+| F33 | 111 | 143 (REPC / REPNC) |
+| F39 | 187 | 197 |
+| F29 | 16 | 16 (not built: below) |
+| the MX0 gate families, F23 F32 F35 F37 | 985; 153 / 128 / 264 / 63 | unchanged |
+
+**F24's ceiling is item 23** (OUT imm8 at an odd port byte, the ruling asked at MX3 part 1): every
+F24 / F31 frame ends with the M1 OUT imm8. The pO half (F24 456, F31 117, F29 225, F30 646, F33
+501) diverges at the M0 OUT's fetch; at pE, behind a string form the queue is full and the M1
+OUT's port pop is followed by the fetch silicon holds 5 clocks to the I/O's lead (item 23's
+hold: F24-out-r-rep-movbk-w-n2-pE-w0, the fetch at the OUT's port take + 5 in the model, the
+RTL's on the take): F24 286 pE runs (every r, t, d series cell whose string events all agree),
+F31 12, F30 191, F33 46. Of F24's 456 pE runs the other 166: the s-series k1 singles after the
+OUT marker (about 90, above), REP OUTM's setup at w1 / w2 (the I/O forms' second-fetch wait
+clock: OUTM uses five setup words where INM's three fit w1; 26), the frame's controls (empty,
+MOV CW,n: missed at the base, 24), the a-series (odd addresses: the split's exit) and the single
+STM's successor OUT at w1 / w2. F31's 59 other: the alf followers MOV AW,DW (the fetch 3 late)
+and MOV AW,[BW] (the read 2 early) after a REP form (the model's write-back clocks seen by those
+successors), the lone b0a4 / b2a4 cells (the fetch hold, above), INM at w2, the controls.
+
+Write data **105,444** / 106,824 (cd7bcf3 99,906: every string form's write now agrees; F24 F31
+F29 7,476 / 7,476). Function: `--regfile` 107,859 vectors 0 bad, `--fn` 19,752 0 bad; the
+SingleStepTests string files A4-AF and 6C-6F all pass (single, REP / REPNE prefixed, DIR set,
+segment prefixes: 70,000 tests; A5 A6 AB AC AF 6C 6F added to test_rtl_vectors' sample).
+Lint clean in the five configurations and with `V35_MX3B_UH` 0, `V35_MX3B_US` 0, `V35_MX3_WBR`
+0, `V35_MX3_IRL` 1; test_uasm, test_v35_struct, test_chain_lane and test_rtl_vectors 48 OK; the nine offline modules 941 tests, the four known failures (test_freeze, test_sim TrackedFit). ROM 1,451 words of 2,048
+(cd7bcf3 1,922; the strings 242 words, the shared delay saved 720); UADDR_W 11; RAM_5K 73.
+
+Timing (`v35_timing.sh top`, 15.625 ns, one create_clock; map 6,517 LUT4 / 403 ADD / 1,346 FF /
+73 RAM_5K, cd7bcf3 6,413 / 403 / 1,345 / 73): worst setup **+0.375 / +0.622 / +0.278 ns** at
+seeds 1 / 2 / 3, no endpoint failing (cd7bcf3 +0.729 / +0.913 / -0.261). Seeds 1 and 3 on tick
+A's existing chain, no MX4 logic on it: seed 1 `b_done_data[5]` -> `loader/z1f` -> `ld_rel[2]`
+-> `g_fetch` -> `useq/tw_n` -> `tw_b` (cd7bcf3's seed 1 ended at `useq/drop_b`, the same chain),
+seed 3 `b_done_data[0]` -> `loader/z1f` -> `ld_rel[1]` -> `q_fetch_req` -> `bus/pk_ma[4]` ->
+`c_mux_address[4]`. **Seed 2's is MX4's:** `q_stored[0]` -> the head byte -> `dec2.entry[6]`
+-> the ROM's read address (the DISPM target: v35_udec2 of the opcode register and the queue's
+head byte), whose function now carries the REP rows (F2 F3 64 65); no DISPM word runs under a
+REP prefix (the REP forms enter by the dispatch on the registered byte, `dm` / `df`), so a
+second-level function without the REP rows for `dec2` would take them off it (not built: the
+gate met). (An intermediate build with AL_STEP its own adder measured +0.559 / -0.384 / +0.490.)
+The modules alone: useq +4.756 (cd7bcf3 +5.026), loader +3.345 (+3.516), queue +5.309 (the
+same), bus +5.396 (the same), eu +3.522 (+4.090), regram +10.093 (the same).
+
+### Landing (the overseer, 2026-11-11)
+
+The hand-back's timing above was measured on a source whose checker reference `y_l` (simulation
+only: the `+v35_chk` operand compare) lacked the AL_STEP term the diff carries; with it, feeding
+only the `unused` reduction, the synthesizer kept 80 more flip-flops in the EU (3,321 LUT4 /
+1,106 FF, +3.350 alone; the top 6,654 LUT4 / 1,355 FF, +0.123 / -0.838 / -0.090 on seeds 1 / 2 / 3).
+Reverting that one term reproduced the hand-back exactly (+3.522, 3,328 / 1,026): same sources and
+seed, same result. The two reference wires `x_l` / `y_l` now live under `ifndef SYNTHESIS`, so no
+checker logic reaches the netlist. **Measured on the landed sources:** EU alone +3.455 (3,338 LUT4 /
+1,035 FF); the top 6,552 LUT4 / 403 ADD / 1,345 FF / 73 RAM_5K, worst setup **-0.669 / -0.958 /
++0.001 / -0.568 / -0.250 ns on seeds 1 .. 5** at 15.625 ns (13 / 46 / 0 / 9 / 9 endpoints of 2,000
+failing); at 17 ns +0.962 / +0.721 on seeds 1 / 2, none failing. Every worst path is the delivery
+chain (`b_done_data` -> the arriving byte's tag, 7 levels, 6.2 to 7.4 ns -> `loader/z1f` -> `ld_rel`
+-> the room, 6 levels, about 6 ns -> the request -> the grant -> a pin register, `grant_len_b` or
+`useq/drop_b`), none on MX4's logic. Three equivalent source texts (the hand-back's, the diff's, the
+landed) span 1.6 ns on one seed: at 15.625 ns the core sits inside the placement spread. The
+longest leg, the arriving byte's tag decoded in tick A from the datum register, is the subject of
+MX5 round 5 (a block-RAM table at the data pins, the user's direction). Behaviour on main as the
+hand-back's: 6,400 / 30,536 at both spacings, chk silent, the per-run first divergences differing
+from cd7bcf3's only in F24 F30 F31 F33 F39 (1,005 runs), write data 105,444, the vectors 0 bad, lint
+clean, 48 fast tests, the nine modules with the four known failures.
+
+### Corrections to the mechanism note (for the overseer; docs/ not edited)
+
+- §3's string row: the REP prefix is the 0F page's structure (the E word pops the string opcode
+  with the prefix; the prefix's condition in the decode's xc), its own word the routine's first
+  (CW into SIGMA), the zero test the second. The count is CW in the register RAM, decremented
+  through the ALU each element (the loop counter's 9 bits are not the count). Per element:
+  STM 9 + W, MOVBK 18 + 2W, LDM 11 + W, INM / OUTM 14 + W, CMPBK 18 + 2W (the book's 23 + 2W five
+  long), CMPM 12 + W (the book's 16 + 2W four long; the first gap 10). The fixed part: 25 (STM,
+  MOVBK), 26 (LDM), 26 / 28 (INM / OUTM) from E to the successor's start; CW = 0 17 / 18.
+- §3's string row, the overrun: a REP compare posts the next element's read(s) before its tests
+  act; CMPM's two test words after the post are the 10 / 12 gap and the count's exit a clock after
+  the condition's.
+- §3.6 / Correction 22 (MX1f's wb): a string form's exit E carries wb at the model's done_t.
+- §3.3 the BW law (MX1g): the REP prologue's setup words (provisional), above.
+- §8 the ROM: the shared OPEN delay (call / return) is the sharing that makes the strings fit.
+
+### Open (MX4)
+
+1. **Item 23 is F24's ceiling** (above): with the ruling, the pE string runs whose events all
+   agree (F24 286, F30 191, F33 46, F31 12) are the ones it would reach.
+2. **The prefetch hold in a REP form** (the model's str_fetch=hold): no reading built; the
+   candidate (SUSP on the prefix's word, a release word on the exit path) needs a release act.
+3. The single forms right after an I/O write (the s-series k1): one clock, no reading.
+4. The REP I/O forms' setup at w2 (INM, OUTM: the model's str_io_setup=run), the a-series'
+   odd exit (split_floor), the alf followers after a REP exit (MOV AW,DW, MOV AW,[BW]).
+5. **F29 (the I/O frames) not built:** 16 / 456 as at the base: 225 pO (item 23), 21 behind
+   item 23's hold at pE, 30 the frame's controls, the rest the DW forms' shapes (the dio
+   series' fetch 3 late, the pi series' I/O write 2 early: F29-out-ec-dio-dw-stbwd8-n0-pE-w0,
+   F29-push-ec-pi-noo-n1-pE-w0) not yet read.
+6. **INS / EXT not built** (0F 31 / 33 / 39 / 3B: 180 F32 runs, SST 0F33 / 0F39): the ROM has
+   597 words free for them.
+7. Depth: AL_STEP written first as its own adder of a constant chosen by PSW.DIR and the
+   format's width in tick B put the EU alone at +1.601 ns (19 levels: the lane select -> the
+   address register's next value -> the request's linear add, the netlist restructured); with
+   the constant a register, +3.443 (its own adder from x_b); sharing AL_ADD's adder through
+   y_b's load, +3.522 (cd7bcf3's +4.090, re-measured today from cd7bcf3's EU: the same).
+   The loader alone +3.345 (cd7bcf3 +3.516): its RTL is unchanged but the decode table's REP
+   rows (2 LUT4), the path the base's (the wrapper's input -> an output, 7 levels): below the
+   +3.5 bar by 0.155, not chased further.
+
 ## MX5: timing at 64 MHz (two ticks a CPU clock, one create_clock, no exception)
 
 The gate is `fpga/v35s/synth/v35_timing.sh top` (and each module alone) at 15.625 ns with one

@@ -2016,3 +2016,35 @@ question, decided from S8's routed numbers with the user.
   choice, no constraint); lower the CPU clock's target below 32 MHz (a 17 ns tick closes every seed with
   about 1.5 ns of margin); or allow a third fabric tick per CPU clock (the arriving word's decode and the
   pop decision in a tick of their own), which the overseer refused on the user's directive.
+- **MX4 landed (2026-11-11): the string forms (urom/str.uasm), the shared OPEN delay; 6,207 → 6,400 / 30,536.**
+  The REP prefix is the 0F page's structure (the E word pops the string opcode with the prefix, the dispatch
+  reads a second decode level on it, the prefix's condition in the first level's xc); the prefix's own word is
+  the routine's first (CW into SIGMA), the zero test the second; CW lives in the register RAM and is
+  decremented through the ALU each element; per element the read with its F, the write with its F (RAMEN),
+  the index steps (AL_STEP, new: x ± the format's width by PSW.DIR, its step `stepk` a ce_a register loaded
+  into y_b so the step is AL_ADD's adder), the count's test, the jump back; the REP compares post the next
+  element's read before their tests (silicon's overrun); the exits E with wb at the model's done_t. A run of
+  K + 1 act-free OPEN clocks is one word calling a shared ladder of K OPEN words that returns (every routine
+  rewritten so: the same words on the same clocks), 720 words saved against the strings' 242: the ROM 1,922 →
+  1,451 of 2,048. No loader or bus-unit change; tick A's request chain untouched. Mechanism note items 35–40.
+  **Verified on main:** F24 0 → 4, F30 219 → 320, F31 0 → 46, F33 111 → 143, F39 187 → 197, every other family
+  unchanged (the MX0 gate families 985), 0 lost, both spacings identical, chk silent, the per-run first
+  divergences differing from cd7bcf3's only in those five families (1,005 runs), write data 99,906 → 105,444
+  (every string write agreeing), register vectors 107,859 and function vectors 19,752 with 0 bad, the
+  SingleStepTests string files added to the sample, lint clean, 48 fast tests, the nine modules with the four
+  known failures. F24's ceiling is item 23 (every F24 / F31 frame ends with the M1 OUT imm8: the pO half at the
+  M0 OUT, 286 pE runs behind the OUT's fetch hold). Not built: F29 (16 / 456, the dio / pi shapes unread), INS /
+  EXT (597 words free), the REP fetch hold (the model's str_fetch=hold: a release act would be a new word bit),
+  chold, split_floor, the single forms right after an I/O write (one clock, about 90 runs).
+  **Timing (the overseer's rerun):** the hand-back's +0.375 / +0.622 / +0.278 came from a source differing from
+  the diff only in a checker reference wire; the diff's text mapped 80 FF heavier in the EU and −0.838 on seed
+  2. The checker's references moved under `ifndef SYNTHESIS` (the landed text): 6,552 LUT4 / 403 ADD / 1,345 FF /
+  73 RAM_5K, worst setup **−0.669 / −0.958 / +0.001 / −0.568 / −0.250 ns on seeds 1 .. 5**, every worst path the
+  delivery chain (the arriving byte's tag 7 levels → z1f → ld_rel → the room 6 levels → request → grant → a pin
+  or drop_b), none MX4's; at 17 ns +0.962 / +0.721. Three equivalent texts span 1.6 ns on one seed: the core
+  sits inside the placement spread at 15.625 ns. The longest leg is the arriving byte's tag decoded in tick A.
+  **User rulings (2026-11-11):** (1) "You can expand the ROM. I never enforced a block ram budget, you did": the
+  core's 80-RAM_5K budget (MX1 item 6, from the harness's 920 of the T120's 1,056) was the overseer's and is
+  dropped; the device's total shared with the harness is the only bound, the harness's capture depth the user's
+  to trim. (2) The arriving byte's decode as a block-RAM table at the data pins (the chip's PLAs are lookup
+  tables): MX5 round 5, launched from this landing.
