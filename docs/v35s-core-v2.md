@@ -2062,3 +2062,9 @@ question, decided from S8's routed numbers with the user.
   still fail on paths from `q_stored` (−0.496) and `q_hlv` (−0.227): the tick-A chain behind the tag is
   itself at the period. The core README gains "Round 5" with the table; the diff is kept at the scratchpad's
   v2/mx5e/. The residual returns to the user's choice (accept a closing seed, lower the target, a third tick).
+- **The clock target lowered (2026-11-11, the user: "Lower it to 17ns").** The fabric period is 17 ns (58.8
+  MHz), the CPU clock two ticks of it (29.4 MHz); two ticks, one create_clock, no exception, as before.
+  `v35_timing.sh` defaults to 17. **Measured at 17 ns on 74a17eb's sources:** worst setup +0.962 / +0.721 /
+  +0.433 / +0.465 / −0.057 ns on seeds 1 .. 5 (0 / 0 / 0 / 0 / 2 endpoints of 2,000 failing; seed 5's is the
+  delivery chain again); alone useq +6.239, loader +4.478, queue +6.339, bus +7.165, eu +4.898, regram
+  +11.951. Four seeds of five close; the margin is about half a nanosecond, inside the placement spread.

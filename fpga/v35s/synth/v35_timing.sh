@@ -2,7 +2,7 @@
 # (S7b) Static timing of one V35S core v2 module, or of the whole core, at the target fabric
 # clock: efx_run compile (map, place, route, timing) of the module inside the timing wrapper
 # (v35_tw.sv: its inputs from a register chain, its outputs into registers folded onto eight
-# pins) on the T120F484 with `create_clock -period 15.625` (64 MHz) and no other constraint.
+# pins) on the T120F484 with `create_clock -period 17` (58.8 MHz fabric, 29.4 MHz CPU: the user's target since 2026-11-11; 15.625 before) and no other constraint.
 #
 #   fpga/v35s/synth/v35_timing.sh MODULE [MODULE ...]
 #
@@ -14,7 +14,7 @@
 #
 # Environment:
 #   TAG=x          a suffix for the output directory
-#   PERIOD=ns      the clock period (default 15.625)
+#   PERIOD=ns      the clock period (default 17)
 #   V35_SRC=dir    the core's sources (default fpga/v35s/core/v35 of this tree)
 #   EFFORT=n       the placer's effort level (default the project's 5)
 #   SEED=n         (MX5b) the place-and-route seed (default the project's 1)
@@ -47,7 +47,7 @@ fi
 set -u
 
 v35=${V35_SRC:-$repo_root/fpga/v35s/core/v35}
-period=${PERIOD:-15.625}
+period=${PERIOD:-17}
 pkgs=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv)
 hdrs=(v35_macros.svh v35_udecode_tbl.svh)
 
