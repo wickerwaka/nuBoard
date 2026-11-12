@@ -12948,6 +12948,6 @@
  ],
  "backend": "sim",
  "core": "v35",
- "binary": "build/f1/f1-sim/Vv35s_harness",
- "date": "2026-11-11T21:18:48"
+ "binary": "build/fpga/v35s/verilator-direct-v35",
+ "date": "2026-11-12T07:51:17"
 }

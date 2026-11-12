@@ -26,7 +26,10 @@ package v35_pkg;
         RS_PS = 5'd16, RS_SS = 5'd17, RS_DS0 = 5'd18, RS_DS1 = 5'd19, RS_PSW = 5'd20,
         RS_BASE = 5'd21, RS_INDEX = 5'd22,
         // (F1) PSWA (write only): the whole PSW, RB and MD included (RETI: the bank switches)
-        RS_PSWA = 5'd23
+        RS_PSWA = 5'd23,
+        // (F3b) a bank's save slots (the bank in PSW.RB): the vector PC (+02), the PSW save
+        // (+04), the PC save (+06): the bank-switch entry, BRKCS, TSKSW, RETRBI, MOVSPA
+        RS_VPC = 5'd24, RS_PSWS = 5'd25, RS_PCS = 5'd26
     } v35_rsel_e;
 
     // ---- the width of this word's register accesses and ALU operation ----
@@ -97,7 +100,20 @@ package v35_pkg;
         // SFRA: {0Fh, x[7:0]} (the SFR offset); BTM: 1 << x[10:8] (the bit of BTCLR's IH);
         // BTC: x & ~y; P14: SIGMA[15] = the P14 pin as POLL reads it
         AL_CITB = 6'd42, AL_LTS = 6'd43, AL_SFRA = 6'd44, AL_BTM = 6'd45, AL_BTC = 6'd46,
-        AL_P14 = 6'd47
+        AL_P14 = 6'd47,
+        // (F3) IVEC: SIGMA <- 4 x the vector the dispatch took (the interrupt controller's
+        // latched take: NMI 2, a maskable source's, the single step 1) and the acknowledge (the
+        // source's IF cleared, its level set in ISPR; NMI's request cleared); FINT: the
+        // highest-priority level in service cleared in ISPR (SIGMA kept)
+        AL_IVEC = 6'd48, AL_FINT = 6'd49,
+        // (F3b) IVEC's SIGMA also names the take's kind: bit 15 a bank-switch take (bits 2:0
+        // the level, the new bank), 0 the INT take (the vector from the acknowledge cycle).
+        // BSW: the bank switch's PSW (RB <- x[2:0], IE and BRK cleared, MD <- N/S: the entry
+        // and BRKCS); RBR: RB <- x[2:0] (TSKSW, MOVSPB: the other bank's slots); RBP: RB <-
+        // x[14:12] (MOVSPA: the PSW save's bank); CITN / CITS: CITF with MD <- 1 / 0 (BRKN /
+        // BRKS); VEC4: SIGMA <- 4 x x[7:0] (the INT acknowledge's vector byte)
+        AL_BSW = 6'd50, AL_RBR = 6'd51, AL_RBP = 6'd52, AL_CITN = 6'd53, AL_CITS = 6'd54,
+        AL_VEC4 = 6'd55
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -108,7 +124,11 @@ package v35_pkg;
 
     // ---- a bus request posted on the A1 port (the address register, the write datum OPRW) ----
     typedef enum logic [2:0] {
-        BQ_NONE = 3'd0, BQ_MEMR = 3'd1, BQ_MEMW = 3'd2, BQ_IOR = 3'd3, BQ_IOW = 3'd4
+        BQ_NONE = 3'd0, BQ_MEMR = 3'd1, BQ_MEMW = 3'd2, BQ_IOR = 3'd3, BQ_IOW = 3'd4,
+        // (F3b) an INT acknowledge cycle: the bus unit's I/O read with /INTAK in place of the
+        // strobes (silicon: two /INTAK pulses, no strobe; the routine posts two, the second's
+        // datum D7-D0 the vector)
+        BQ_INTA = 3'd5
     } v35_bus_e;
 
     // ---- the request's segment: the default (a prefix's, else SS for a BP mode, else DS0),
@@ -206,6 +226,9 @@ package v35_pkg;
         logic       trap;       // the divide error raised
         logic       vk;         // (F2b) SR_VEC reads the word's tgt field as the vector number
         logic       ist;        // (F2b) SR_PC reads the instruction's start (its first prefix's)
+        logic       nb;         // (F3) on an E word: the next instruction's start is no boundary
+                                //   (no interrupt or single step is taken there: a prefix, EI,
+                                //   DI, a segment register's load; f3_step)
     } v35_uword_t;
 
     localparam int UWORD_BITS = $bits(v35_uword_t);

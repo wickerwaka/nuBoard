@@ -36,7 +36,7 @@ routine mov_sr op=8C mod=reg book="MOV reg16,sreg" diff=-1 why="book error: the 
     wr=RM wid=WORD ws=SIG                   ; post-E: the register <- it
 
 routine mov_rs op=8E mod=reg book="MOV sreg,reg16" diff=-2 why="book error: the book's 4 against silicon's 3 (a6 MOV DS1,DW 3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the read on the E word, the segment write after it"
-    rb=RM wid=WORD alu=PASS ax=RB e         ; read the register through the ALU; E
+    rb=RM wid=WORD alu=PASS ax=RB e nb      ; read the register through the ALU; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
     wr=SREG wid=WORD ws=SIG                 ; post-E: the segment register <- it (RAM and the segment flop)
 
 ; ---- short register forms
@@ -61,11 +61,11 @@ routine flag op=F5,F8,F9,FC,FD book="CLR1 CY" why="one word: the book's 2"
 routine flag_di op=FA book="DI" why="OPEN: the book's 4, two clocks with no act (the interrupt controller is not built)"
     open                                    ; OPEN: a book clock with no act (DI 4)
     open                                    ; OPEN: a book clock with no act (DI 4)
-    alu=FLAG wf e                           ; IE <- 0; E
+    alu=FLAG wf e nb                        ; IE <- 0; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 routine flag_ei op=FB book="EI" why="OPEN: the book's 12, ten clocks with no act (the interrupt controller is not built)"
     open call=w9                            ; OPEN: 10 clocks: a book clock with no act (EI 12) (the call and the shared delay's 9)
-    alu=FLAG wf e                           ; IE <- 1; E
+    alu=FLAG wf e nb                        ; IE <- 1; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 routine lahf op=9F book="MOV AH,PSW" why="one word: the book's 2"
     wr=AW wid=HIGH ws=PSW e                 ; AH <- the PSW's low byte; E

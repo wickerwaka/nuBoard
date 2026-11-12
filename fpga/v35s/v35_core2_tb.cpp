@@ -348,6 +348,13 @@ int main(int argc, char** argv) {
                 trapped |= d.o_div_trap;
                 missed |= d.o_miss;
                 dropped |= d.o_drop;
+                // (F3) a divide error now enters vector 0 (urom/trap.uasm dve): the vector stops
+                // at the strobe, before the entry's pushes (the suite's trap: the condition only)
+                if (trapped) {
+                    done = true;
+                    b.half(1);
+                    break;
+                }
                 flushed |= starts >= t.starts && d.o_flush;
                 ++clk;
                 if (d.o_halted && starts >= t.starts) {

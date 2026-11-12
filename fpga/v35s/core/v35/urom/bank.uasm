@@ -1,0 +1,94 @@
+; F3 part B: the register banks (README "F3 (part B)"). Function only: measured on the socket
+; (validation/v35s/banks.py: f3_bins, f3_bsw, f3_brkn, f3_brks; receipts f3-<prog>-socket*.json),
+; no clock here is fitted to silicon's.
+;
+; The bank in use is PSW.RB: the register RAM's address is {RB, slot}. A routine reaches another
+; bank's slots by changing RB (the ALU's BSW / RBR / RBP with wf) and, after a word that reads no
+; register (the early read of the word after a PSW change is formed on the old bank), naming the
+; slot: the save slots VPC (+02), PSWS (+04), PCS (+06). After a bank change the segment flops
+; take the new bank's PS DS0 SS DS1 (sg_c), as F1's RETI does.
+;
+; Silicon (f3_bins, f3_bsw):
+;   the bank-switch entry (ENCS 1, the member's own bit; TB never): the new bank is the group's
+;     level; its PSW save <- the PSW, its PC save <- the interrupted instruction's start (the
+;     vectored entry's PC); PSW: RB the level, IE and BRK cleared, the flags kept; PS:PC from the
+;     new bank's PS and vector PC; no stack; IF cleared and the level set in ISPR (IVEC)
+;   BRKCS reg16: the same with the bank the register's low three bits and the next PC saved
+;   TSKSW reg16: the PC and PSW saved in the bank in use; PC <- bank n's PC save, PSW <- bank n's
+;     PSW save, all 16 bits (bank 4's save naming RB 2 runs bank 2 at bank 4's PC)
+;   RETRBI: PC <- the PC save, PSW <- the PSW save of the bank in use (the bank by its RB)
+;   MOVSPA: SS, SP <- those of the bank the PSW save's RB names (f3_bins movspa_rb5)
+;   MOVSPB reg16: bank (reg & 7)'s SS, SP <- the bank in use's
+
+; ---- the bank-switch entry: from intr (SIGMA {1, the level}); tmpc the instruction's start
+routine bsw why="(F3b) the bank-switch entry: silicon's (f3_bsw); function only"
+bsw_i: d2=TB s2=PSW alu=BSW ax=SIG wf      ; tmpb <- the PSW; PSW: RB <- the level, IE BRK cleared, MD <- N/S
+bs_c: wr=PSWS wid=WORD ws=TB               ; the new bank's PSW save (no register read: the bank changed on the last clock)
+    wr=PCS wid=WORD ws=TC                   ; its PC save
+    ra=VPC wid=WORD alu=PASS ax=RA          ; SIGMA <- its vector PC
+sg_c: rb=PS wr=PS wid=WORD ws=RB            ; PS's flop from the bank's slot
+    rb=DS0 wr=DS0 wid=WORD ws=RB            ; DS0's
+    rb=SS wr=SS wid=WORD ws=RB              ; SS's
+    rb=DS1 wr=DS1 wid=WORD ws=RB            ; DS1's
+    flush                                   ; FLUSH: the stream from SIGMA in the new PS
+    e                                       ; E
+
+; ---- BRKCS reg16 (0F 2D, ModR/M 11 111 rrr): the bank the register's low three bits name
+routine brkcs op=2D page=0f why="(F3b) BRKCS: the bank-switch entry to bank reg & 7 with the next PC (f3_bins); function only"
+    pop=modrm eac=bkc_r                     ; pop the ModR/M byte: the register form
+    e                                       ; a memory form: not measured, nothing done
+bkc_r: ra=RM wid=WORD d1=TC s1=PC d2=TB s2=PSW alu=BSW ax=RA wf jmp=bs_c   ; tmpc <- the next PC; tmpb <- the PSW; PSW: RB <- reg & 7, IE BRK cleared
+
+; ---- TSKSW reg16 (0F 94): the task switch
+routine tsksw op=94 page=0f why="(F3b) TSKSW: PC and PSW saved, bank n's saves loaded (f3_bins tsksw, tsksw_pc); function only"
+    pop=modrm eac=tks_r                     ; pop the ModR/M byte: the register form
+    e                                       ; a memory form: not measured, nothing done
+tks_r: ra=RM wr=PCS wid=WORD ws=PC alu=PASS ax=RA   ; the PC save <- the next PC; SIGMA <- the register
+    wr=PSWS wid=WORD ws=PSW alu=RBR ax=SIG wf   ; the PSW save <- the PSW; RB <- the register's low three bits
+    wid=WORD                                ; no register read: the bank changed on the last clock
+rl_c: ra=PCS rb=PSWS wid=WORD alu=PASS ax=RA d1=TB s1=RB   ; SIGMA <- the PC save; tmpb <- the PSW save
+    wr=PSWA ws=TB                           ; the PSW <- the save, all 16 bits (the bank by its RB)
+    jmp=sg_c                                ; no register read; the segment flops, FLUSH, E
+
+; ---- RETRBI (0F 91)
+routine retrbi op=91 page=0f why="(F3b) RETRBI: PC and PSW from the bank's saves (f3_bins, f3_bsw); function only"
+    jmp=rl_c                                ; the saves of the bank in use
+
+; ---- MOVSPA (0F 25): SS and SP from the bank the PSW save names
+routine movspa op=25 page=0f why="(F3b) MOVSPA: SS SP of the PSW save's bank (f3_bins movspa, movspa_rb5; f3_bsw); function only"
+    rb=PSWS wid=WORD d1=TC s1=PSW alu=RBP ax=RB wf   ; tmpc <- the PSW; RB <- the PSW save's RB
+    wid=WORD                                ; no register read: the bank changed on the last clock
+    ra=SS rb=SP wid=WORD d1=TA s1=RA d2=TB s2=RB   ; that bank's SS and SP
+    wr=PSWA ws=TC                           ; the PSW back
+    wr=SS wid=WORD ws=TA                    ; SS (and its flop) in the bank in use
+    wr=SP wid=WORD ws=TB e                  ; SP; E
+
+; ---- MOVSPB reg16 (0F 95): SS and SP into bank reg & 7
+routine movspb op=95 page=0f why="(F3b) MOVSPB: SS SP into bank reg & 7 (f3_bins movspb); function only"
+    pop=modrm eac=msb_r                     ; pop the ModR/M byte: the register form
+    e                                       ; a memory form: not measured, nothing done
+msb_r: ra=SS rb=SP wid=WORD d1=TA s1=RA d2=TB s2=RB   ; SS and SP
+    ra=RM wid=WORD d1=TC s1=PSW alu=RBR ax=RA wf   ; tmpc <- the PSW; RB <- reg & 7
+    wid=WORD                                ; no register read: the bank changed on the last clock
+    wr=SS wid=WORD ws=TA                    ; that bank's SS
+    wr=SP wid=WORD ws=TB                    ; its SP
+    wr=PSWA ws=TC                           ; the PSW back
+    wid=WORD                                ; no register read
+    rb=SS wr=SS wid=WORD ws=RB e            ; SS's flop from the bank in use; E
+
+; ---- BRKN (63 ib) / BRKS (F1 ib): BRK imm8 with MD set / cleared in the handler's PSW (f3_brkn:
+; the next PC pushed, the PSW as it stood, IE BRK cleared; f3_brks: the NMI taken at BRKS's
+; handler's first byte pushed PSW 7002, MD 0). The secure mode's opcode translation is a
+; pass-through (the user's ruling)
+routine brkn op=63 why="(F3b) BRKN: vector n, MD <- 1 (f3_brkn); function only"
+    pop=port                                ; the type byte (into IL)
+    d1=TC s1=PC d2=TB s2=VEC jmp=brkn_c     ; tmpc <- the next PC; tmpb <- 4n
+routine brks op=F1 why="(F3b) BRKS: vector n, MD <- 0 (f3_brks); function only"
+    pop=port                                ; the type byte (into IL)
+    d1=TC s1=PC d2=TB s2=VEC                ; tmpc <- the next PC; tmpb <- 4n
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the PSW pushed
+    f alu=CITS wf jmp=vt_c                  ; F: IE BRK cleared, MD 0; the common entry
+brkn_c: rb=SP wid=WORD alu=DEC2 ax=RB       ; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the PSW pushed
+    f alu=CITN wf jmp=vt_c                  ; F: IE BRK cleared, MD 1; the common entry

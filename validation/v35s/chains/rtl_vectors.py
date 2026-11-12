@@ -197,7 +197,8 @@ def _random_regs(rnd) -> dict:
     from .funcref import REG16, SREG
     regs = {n: (rnd.choice(EDGES) if rnd.random() < 0.2 else rnd.randrange(1 << 16))
             for n in REG16 + SREG}
-    regs["PSW"] = rnd.randrange(1 << 16)
+    # (F3) BRK clear: with it set the V35 takes the single step (vector 1) after the instruction
+    regs["PSW"] = rnd.randrange(1 << 16) & ~0x0100
     regs["pfx"] = rnd.choice((None, None, None, 0, 1, 2, 3))
     return regs
 
@@ -295,6 +296,8 @@ def c2_case(regs: dict, code6: bytes, ip: int, st, after: dict | None, trap: boo
     kind = code_divergence(code6) or kind
     if io_trap(code, regs["PSW"]):
         kind = IOT_KIND
+    elif (regs["PSW"] >> 8) & 1:
+        kind = STEP_KIND
     # (MX1) the prefix byte is the bench's (the reference holds a pending prefix as state, not
     # as a byte in its memory): an operand read that covers it reads the byte here and the
     # reference's memory there (a random register file's EA on the instruction's own address)
@@ -334,6 +337,10 @@ PFX_OVERLAP = "an operand read covers the bench's prefix byte"
 # vector 19 (silicon, validation/v35s/traps.py f2_iot); the reference (the V20's) does the I/O.
 # Counted apart, not compared (the trap is gated by traps.py against the socket)
 IOT_KIND = "the I/O trap (BRKI 0)"
+# (F3) a vector run with PSW.BRK set: the V35 takes the single step (vector 1) after the
+# instruction (silicon, validation/v35s/intr.py f3_step); the reference does not. Counted apart,
+# not compared (the step is gated by intr.py against the socket)
+STEP_KIND = "the single step (BRK 1)"
 
 
 def io_trap(code: bytes, psw: int) -> bool:
@@ -499,7 +506,7 @@ def check_regfile(families, keep: Path | None = None, mutate: int = 0) -> tuple[
     apart = set(DECODE_DIVERGENCE.values()) | {"on-chip page", PFX_OVERLAP}
     for t in tests:
         r = res.get(t.tid)
-        if t.kind in ("on-chip page", IOT_KIND):
+        if t.kind in ("on-chip page", IOT_KIND, STEP_KIND):
             k = t.kind
         elif r is None:
             k = "pass" if t.kind in apart or t.kind.startswith("8E:") else t.kind

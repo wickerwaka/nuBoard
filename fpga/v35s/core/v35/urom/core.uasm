@@ -32,11 +32,15 @@ trap_end: e                                 ; E: pop the next opcode
 
 ; ---- prefixes: their own instruction (data book: 2)
 routine pfx op=26,2E,36,3E book="segment override prefix" why="the prefix register written on the E word: the book's 2"
-    pfx e                                   ; the segment prefix register <- the prefix's segment (the format's); E
+    pfx e nb                                ; the segment prefix register <- the prefix's segment (the format's); E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 routine lock op=F0 book="BUSLOCK" why="the bus lock pin is not built: its one word is the E word"
-    e                                       ; E: pop the next opcode (BUSLOCK: the lock output not built)
+    e nb                                    ; E: pop the next opcode (BUSLOCK: the lock output not built); (F3) nb: a prefix, no boundary after it
 
-; ---- HALT (data book: N/A): the sequencer stops; the queue fills and the bus idles
-routine halt op=F4
-hlt: halt jmp=hlt                           ; halted: the sequencer stops on this word (the halted stall)
+; ---- HALT (data book: N/A): the sequencer stops; the queue fills and the bus idles. (F3) An
+; unmasked request (an IF with MK 0, or NMI: the controller's registered wake) releases it: the E
+; word then pops the instruction after HALT, whose dispatch takes the interrupt when IE is 1
+; (silicon: the pushed PC is HALT's + 1; with IE 0 execution resumes after HALT, f3_vec)
+routine halt op=F4 why="(F3) HALT's release: the E word after the halted word (f3_vec); function only"
+    halt                                    ; halted: the sequencer stops after this word (the halted stall) until the controller's wake
+    e                                       ; E: the instruction after HALT (its dispatch takes the interrupt)

@@ -196,7 +196,7 @@ MODRM_OPS = set(_ranges("00-03,08-0B,10-13,18-1B,20-23,28-2B,30-33,38-3B,62,69,6
                         "C0,C1,C4-C7,D0-D3,D8-DF,F6,F7,FE,FF"))
 # the immediate bytes of a form without a ModR/M byte
 IMM_PLAIN = {**{o: 1 for o in _ranges("04,0C,14,1C,24,2C,34,3C,6A,70-7F,A8,B0-B7,CD,D4,D5,"
-                                      "E0-E7,EB,63")},
+                                      "E0-E7,EB,63,F1")},
              **{o: 2 for o in _ranges("05,0D,15,1D,25,2D,35,3D,68,A0-A3,A9,B8-BF,C2,CA,E8,"
                                       "E9")},
              0xC8: 3, 0xEA: 4, 0x9A: 4}
@@ -225,6 +225,7 @@ PAGE1_IMM = {**{o: 1 for o in _ranges("18-1F,39,3B,FF")}, 0x9C: 3}
 # (F2b) the I/O forms: with PSW.BRKI 0 the dispatch enters the I/O trap (vector 19)
 IO_OPS = set(_ranges("E4-E7,EC-EF,6C-6F"))
 IOT = "iot"
+INT = "intr"            # (F3) the interrupt entry: the dispatch's target when an interrupt is taken
 
 
 def imm_modrm(op: int, reg: int) -> int:
@@ -345,9 +346,9 @@ class Routine:
 SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac"}
 # (F2b) the trap vectors a word names with vec= (the data book's vector table, docs/v35s-
 # differences.md section 5): CHKIND 5, the FPO escapes 7, the I/O trap 19
-VECTORS = {"CHK": 5, "FPO": 7, "IOT": 19}
+VECTORS = {"CHK": 5, "FPO": 7, "IOT": 19, "DIV": 0, "STEP": 1}
 FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "wb", "susp",
-         "fw", "ist"}
+         "fw", "ist", "nb"}
 
 
 def _tokens(s: str) -> list[str]:
@@ -693,6 +694,9 @@ def decode_svh(prog: Program) -> str:
          f"    localparam logic [UADDR_W-1:0] UROM_RESET = {UADDR_W}'d{prog.labels[RESET]};",
          "    // (F2b) the I/O trap's entry: the dispatch's target for an I/O form with PSW.BRKI 0",
          f"    localparam logic [UADDR_W-1:0] UROM_IOT = {UADDR_W}'d{prog.labels[IOT]};",
+         "    // (F3) the interrupt entry: the dispatch's target when the controller's request, NMI",
+         "    // or the single step is taken at an instruction's start",
+         f"    localparam logic [UADDR_W-1:0] UROM_INT = {UADDR_W}'d{prog.labels[INT]};",
          "    // (MX1) the EA heads: the dispatch's call targets for a ModR/M memory cell (ea.uasm)"]
     for lab, pname in EA_HEADS.items():
         L.append(f"    localparam logic [UADDR_W-1:0] {pname} = {UADDR_W}'d{prog.labels.get(lab, 0)};")

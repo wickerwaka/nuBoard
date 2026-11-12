@@ -102,7 +102,7 @@ routine ld_sr diff=m00:-1,d8:-1,d16:-1,dir:-1 op=8E mod=mem book="MOV sreg,mem16
     open                                    ; OPEN: a book clock with no act (MOV sreg,mem16 EA + 9)
     open                                    ; OPEN: a book clock with no act (MOV sreg,mem16 EA + 9)
     bus=MEMR wid=WORD                       ; post the read (a word)
-    f wr=SREG wid=WORD ws=OPR e             ; F: the segment register <- the datum (RAM and the segment flop); E
+    f wr=SREG wid=WORD ws=OPR e nb          ; F: the segment register <- the datum (RAM and the segment flop); E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 ; LDS / LES (V20 LES 00F8-00FA: OPR -> R, SIGMA -> tmpb, ALU INC2 [F]; SIGMA -> IND, MEMR;
 ; OPR -> ES [FE]): the offset word, the address + 2, the segment word

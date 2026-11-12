@@ -82,6 +82,11 @@ module v35_bus
     input  wire        req_width,   // 1: a word (at an odd memory address: the bus unit's pair)
     input  wire [15:0] req_data,    // a write's datum, taken at B2 (lane-placed for a byte)
     input  wire        req_resv,    // the reservation: no fetch starts while it is up (unless q_low)
+    // (F3b) the request (an RQ_IOR) is an INT acknowledge: the cycle runs as an I/O read with no
+    // strobe on the pins and /INTAK low from mid-B1 to mid-B3 (silicon, f3_int: /INTAK low two
+    // clocks, no /MREQ, /IOSTB or /MSTB); the read latch takes D7-D0 as for any read
+    input  wire        req_ia,
+    output reg         intak_n,
     output wire        req_ack,     // the request's first cycle issued now (S4)
     output wire        req_done,    // its last cycle ended on t-1 (S0; the datum in done_data)
     // the queue (Q1): the request line, the priority hint, the address
@@ -171,6 +176,8 @@ module v35_bus
     reg  [2:0]  c_pos = 3'd0;
     reg  [2:0]  c_len = 3'd0;
     reg         c_internal = 1'b0;
+    reg         c_ia = 1'b0;            // (F3b) the cycle is an INT acknowledge
+    reg         g_ia_b = 1'b0;          // (F3b) ... granted now (the ce_b register)
     reg  [19:0] c_addr = 20'd0;
     reg  [1:0]  c_width = BW_WORD;
     reg  [1:0]  c_half = 2'd0;      // (A1) 0: a cycle of its own, 1: a pair's first, 2: its second
@@ -334,6 +341,7 @@ module v35_bus
             g_start_b <= g_start;
             g_abort_b <= g_abort;
             g_sfr_b <= g_sfr;
+            g_ia_b <= gn.ack && req_ia;     // (F3b) the EU's cycle granted is an acknowledge
             fetch_req_b <= fetch_req;
             b2b_hold_b <= b2b_hold;
             ioh_set_b <= ioh_set;
@@ -373,6 +381,7 @@ module v35_bus
             c_pos <= 3'd0;
             c_len <= 3'd0;
             c_internal <= 1'b0;
+            c_ia <= 1'b0;
             c_run <= 1'b0;
             f_since <= 4'd9;
             io_tail <= 2'd0;
@@ -429,6 +438,7 @@ module v35_bus
                 c_pos <= 3'd0;
                 c_len <= grant_len_b;
                 c_internal <= g_sfr_b;
+                c_ia <= g_ia_b;
                 c_addr <= g_addr_b;
                 c_width <= g_width_b;
                 c_half <= g_half_b;
@@ -475,6 +485,7 @@ module v35_bus
     wire        n_internal = g_start_b ? g_sfr_b : c_internal;
     wire        n_write = n_kind == K_WRITE || n_kind == K_IO_WRITE;
     wire        pins = n_valid && !n_internal;
+    wire        n_ia = g_start_b ? g_ia_b : c_ia;   // (F3b) the cycle on the pins is an acknowledge
     // (MX5c) the registers the pins' edge writes (ce_e) carry no inferred enable: each loads its
     // group's select every fabric clock, the hold folded into the selected values (below)
     (* syn_extract_enable = "false" *) reg        read_write_r = 1'b1;
@@ -569,6 +580,7 @@ module v35_bus
         mstb_n = 1'b1;
         iostb_n = 1'b1;
         refrq_n = 1'b1;
+        intak_n = 1'b1;
     end
 
     always @(posedge clock) begin
@@ -596,12 +608,16 @@ module v35_bus
             mstb_n <= 1'b1;
             iostb_n <= 1'b1;
             refrq_n <= 1'b1;
+            intak_n <= 1'b1;
             data_out <= 16'd0;
         end else begin
+            // (F3b) the acknowledge: /INTAK in place of the strobes, mid-B1 to mid-B3
+            if (ce_mid && pins && n_ia)
+                intak_n <= n_pos == n_len - 3'd1;
             if (ce_a && dp_v)
                 data_out <= dp_half == 2'd0 ? req_data
                           : dp_half == 2'd1 ? {req_data[7:0], 8'd0} : {8'd0, req_data[15:8]};
-            if (ce_mid && pins) begin
+            if (ce_mid && pins && !n_ia) begin
                 if (n_pos == 3'd0) begin
                     if (n_kind == K_REFRESH)
                         refrq_n <= 1'b0;

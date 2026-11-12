@@ -52,7 +52,8 @@ module v35_top
     output reg         mstb_n,
     output reg         iostb_n,
     output reg         read_write,
-    output reg         refrq_n
+    output reg         refrq_n,
+    output wire        intak_n          // (F3b) the INT acknowledge (P13 as /INTAK: PMC1 bit 3)
 );
     // ---------------------------------------------------------------- SFRs
     wire [7:0] prc, rfm, idb;
@@ -70,10 +71,17 @@ module v35_top
     wire [1:0]  psw_f;
     wire        flag_we;
     wire [1:0]  flag_d;
+    // (F3) the interrupt controller's links: the IC registers' bytes, INTM, the IC stores, and
+    // the IF bits and ISPR it owns
+    wire [8*15-1:0] ic_b;
+    wire [7:0]  intm, ispr;
+    wire [14:0] ic_we, ic_wd, ic_if;
+    wire        int_on;                 // (F3b) the INT request (the level, PMC1 bit 4)
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
                  .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd), .psw_f,
-                 .input_levels, .flag_we, .flag_d, .poll_p14);
+                 .input_levels, .flag_we, .flag_d, .poll_p14,
+                 .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on);
 
     // ---------------------------------------------------------------- CPU clock
     reg [2:0] x_count = 3'd0;
@@ -254,6 +262,17 @@ module v35_top
     wire [15:0] ld_ip;                  // (MX2) the instruction pointer
     wire [15:0] ld_ins_ip;              // (F2b) the instruction's start (its first prefix's)
     wire        psw_brki, poll_p14;     // (F2b) PSW.BRKI; the P14 pin as POLL reads it
+    wire        psw_ie, psw_brk;        // (F3) PSW.IE, PSW.BRK
+    wire        ir_v, nmi_v, i_wake;    // (F3) the controller's offer, NMI, HALT's release
+    wire [4:0]  ir_vec, tk_vec;
+    wire        igo;
+    wire        it_v, tk_bs, tk_int;    // (F3b) INT offered; the take's kind (bank switch, INT)
+    wire [2:0]  tk_lv;                  // (F3b) the bank-switch take's level
+    wire        req_ia;                 // (F3b) the EU's request is an INT acknowledge
+    // (F3b) N/S as last sampled (a register: MD at reset and on every interrupt entry)
+    reg         ns_r = 1'b1;
+    always @(posedge clock)
+        ns_r <= input_levels[0];
     wire [7:0]  rb_lo;
     wire [3:0]  sig_lo;                             // (F2a) SIGMA's low four bits (CN_SIG)
     wire [15:0] flush_off;
@@ -305,6 +324,7 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_e, .ce_mid, .wtc, .rfm,
         .idb, .ramen, .oc_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
+        .req_ia, .intak_n,
         .fetch_req(q_fetch_req), .q_low, .q_word, .fetch_addr(q_fetch_addr),
         .t_start, .take_now, .l_pop(ld_load),
         .g_start, .g_kind, .g_addr, .g_width, .g_fetch, .g_eu, .g_abort, .g_b2b,
@@ -393,7 +413,7 @@ module v35_top
         .s_wbs_nx(l_sw_nx), .s_modrm_nx(l_sm_nx), .d1_wbs_nx(l_dw_nx), .d1_hm_nx(l_dh_nx),
         .rmem_nx((fmt_nx.has_modrm || fmt_nx.pg) && ld_modrm_nx[7:6] != 2'd3),
         .fetch_run_nx(b_fir_nx), .bus_wait_nx(b_iw_nx), .fetch_dph_nx(b_fpb_nx),
-        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx),
+        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(i_wake), .igo,
         .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
@@ -404,6 +424,7 @@ module v35_top
         .ra_early, .rb_early, .ex, .ex_b, .resv_e,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
         .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki,
+        .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns(ns_r), .req_ia,
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,
@@ -416,6 +437,48 @@ module v35_top
                    && (pend_a[3:0] == 4'd4 || pend_a[3:0] == 4'd5 || pend_a[3:0] == 4'd7)),
         .oc_seg_s(pend_a[3:0] == 4'd7 ? 2'd0 : pend_a[3:0] == 4'd5 ? 2'd2 : 2'd3),
         .oc_seg_be(pend_be), .oc_seg_d(pend_d)
+    );
+
+    // ---------------------------------------------------------------- (F3) the interrupt take
+    // At a dispatch (the word after E: an instruction's start) the sequencer enters the
+    // interrupt routine (urom/trap.uasm intr) instead of the instruction it popped when, the last
+    // instruction's E word not marking the start as no boundary (`nb`: a prefix, EI, DI, a
+    // segment register's load; f3_step), NMI is pending, or the controller offers a request and
+    // IE is 1 now and was 1 at the last start (`ie_arm`: EI's, POP PSW's and RETI's following
+    // instruction runs; f3_order), or PSW.BRK is 1 now and was at the last start (`brk_arm`: the
+    // single step after each instruction that ran with BRK set; f3_step). NMI first, then the
+    // offer, then the step (f3_step2 step_intp). Every term is a register; `igo` overrides the
+    // sequencer's ROM address last (UROM_INT in place of the DISP word's target: the loader's
+    // decoded entry is not behind it)
+    reg  ie_arm = 1'b0, brk_arm = 1'b0, nb_r = 1'b0;
+    wire g_n = nmi_v;
+    wire g_i = (ir_v || it_v) && psw_ie && ie_arm;     // (F3b) it_v: INT (the controller chooses)
+    wire g_s = psw_brk && brk_arm;
+    assign igo = !nb_r && (g_n || g_i || g_s);
+    wire dsp_x = ex && w_disp;
+    wire take_n = dsp_x && igo && g_n;
+    wire take_i = dsp_x && igo && !g_n && g_i;
+    wire take_s = dsp_x && igo && !g_n && !g_i;
+    always @(posedge clock) begin
+        if (!core_reset_n) begin
+            ie_arm <= 1'b0;
+            brk_arm <= 1'b0;
+            nb_r <= 1'b0;
+        end else if (ce_a) begin
+            if (dsp_x) begin
+                ie_arm <= psw_ie;
+                brk_arm <= psw_brk;
+            end
+            if (ex_pop && word.e)
+                nb_r <= word.nb;
+        end
+    end
+    v35_intc intc (
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .input_levels, .intm, .ic_b,
+        .wr(sfr_wr), .ic_we, .ic_wd, .take_n, .take_i, .take_s,
+        .iack(ex_b && word.alu == AL_IVEC), .fint(ex_b && word.alu == AL_FINT),
+        .ic_if, .ispr, .ir_v, .ir_vec, .nmi_v, .wake(i_wake), .tk_vec,
+        .int_on, .it_v, .tk_bs, .tk_lv, .tk_int
     );
 
     // ---------------------------------------------------------------- the register RAM
@@ -518,7 +581,8 @@ module v35_top
         .take(take_now), .load(ld_load),
         .post(ex_pop && word.bus != BQ_NONE), .post_kind(word.bus == BQ_MEMR ? K_READ
                                            : word.bus == BQ_MEMW ? K_WRITE
-                                           : word.bus == BQ_IOR ? K_IO_READ : K_IO_WRITE),
+                                           : (word.bus == BQ_IOR || word.bus == BQ_INTA) ? K_IO_READ
+                                           : K_IO_WRITE),
         .issue(g_eu), .b2b(fetch_last && q_fetch_req), .abort(g_abort),
         .room(5'sd6 - 5'({2'd0, q_avail} - {2'd0, ld_rd}) - (q_infl_c ? 5'sd2 : 5'sd0)),
         .flag(q_fetch_req), .why, .upc
@@ -550,5 +614,5 @@ module v35_top
                     b_dlv_addr, w3_v, w3_rel, g_fetch, g_b2b, dlv_other, b_free, ld_len,
                     ex_b, why, upc, start_trap, w_popany, halted, div_trap, ir_addr_c, dec2,
                     fetch_last, q_infl_c, ld_op3, ld_op, b_grant_len, g_eu, g_abort,
-                    prc_at[7], prc_at[5:0]};
+                    prc_at[7], prc_at[5:0], ir_vec};
 endmodule

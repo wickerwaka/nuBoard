@@ -97,7 +97,7 @@ dv16_l: alu=DIVS loop=dv16_l                ; one restoring step; the counter st
     jc=DTRAP:dv16_t                         ; the pre-check failed (or a signed quotient out of range): the divide error
     wr=AW wid=WORD ws=SIG                   ; AW <- the quotient
     wr=DW wid=WORD ws=TC e wb               ; DW <- the remainder; E
-dv16_t: trap e wb                           ; the divide error raised (the vector is MX2's); E
+dv16_t: jmp=dve                             ; (F3) the divide error: vector 0, the next instruction pushed (trap.uasm dve)
 
 routine divu8 op=F6 mod=reg reg=6 book="DIVU reg8" width=byte diff=2 why="OPEN: silicon longer than the book by two, as DIVU reg16 (the a6 sweep's 34 against 42; F16-l-push-divu_ix-pE-w0 for the word form); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's seventeen clocks with no act, the finish, the divide error's test, the write" measured="34"
     rb=RM d1=TB s1=RB                       ; the divisor into tmpb
@@ -107,7 +107,7 @@ dv8_l: alu=DIVS loop=dv8_l                  ; one restoring step; the counter st
     alu=DIVF wf                             ; {remainder, quotient} into SIGMA; the flags (W)
     jc=DTRAP:dv8_t                          ; the pre-check failed (or a signed quotient out of range)
     wr=AW wid=WORD ws=SIG e wb              ; AW <- {AH remainder, AL quotient}; E
-dv8_t: trap e wb                            ; the divide error raised; E
+dv8_t: jmp=dve                             ; (F3) the divide error: vector 0, the next instruction pushed (trap.uasm dve)
 
 routine div16 op=F7 mod=reg reg=7 book="DIV reg16" diff=6 why="OPEN: silicon longer than the book (54-64) by six (F33-out-div_cw-ld-k1-pE-w0: 0000:1234h / 001Fh, positive, the frozen model exact; docs/v35s-eu-timing.md DIV r16 61 base against DIVU's 42); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 16 steps, the book's thirty-one clocks with no act; the dividend's negation (+7) on DN, the quotient's (+2) on SGD (F1); the finish, the divide error's test, the writes"
     ra=DW rb=RM wid=WORD d1=TC s1=RA d2=TB s2=RB    ; DW into tmpc, the divisor into tmpb: ports A and B
@@ -124,7 +124,7 @@ di16_f: alu=DIVF wf                         ; the signs applied; the quotient's 
     jc=DTRAP:di16_t                         ; the pre-check failed or out of range: the divide error
     wr=AW wid=WORD ws=SIG                   ; AW <- the quotient
     wr=DW wid=WORD ws=TC e wb               ; DW <- the remainder; E
-di16_t: trap e wb                           ; the divide error raised; E
+di16_t: jmp=dve                             ; (F3) the divide error: vector 0, the next instruction pushed (trap.uasm dve)
 
 routine div8 op=F6 mod=reg reg=7 book="DIV reg8" width=byte diff=6 why="OPEN: silicon longer than the book (46-56) by six, as DIV reg16 (docs/v35s-eu-timing.md DIV r8 53 base against DIVU r8's 34; no corpus run); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's thirty-two clocks with no act; the negations on DN and SGD (F1); the finish, the test, the write"
     rb=RM d1=TB s1=RB                       ; the divisor into tmpb
@@ -140,7 +140,7 @@ di8_q: open jnc=SGD:di8_f                ; OPEN: silicon longer than the book (d
 di8_f: alu=DIVF wf                         ; the signs applied; the quotient's range checked (W)
     jc=DTRAP:di8_t                         ; the pre-check failed or out of range: the divide error
     wr=AW wid=WORD ws=SIG e wb              ; AW <- {AH remainder, AL quotient}; E
-di8_t: trap e wb                           ; the divide error raised; E
+di8_t: jmp=dve                             ; (F3) the divide error: vector 0, the next instruction pushed (trap.uasm dve)
 
 ; ---- (MX3b) the adjusts and the converts: straight routines on AW, the converts through the
 ; multiply / divide loops (V20 AAM / AAD: the divide and the multiply by the byte loop). The

@@ -117,6 +117,15 @@ module v35_eu
     output wire [1:0]  psw_f,
     output wire [2:0]  psw_rb,          // PSW.RB (the on-chip write's bank compare)
     output wire        psw_brki,        // (F2b) PSW.BRKI (the loader's I/O-trap dispatch)
+    output wire        psw_ie,          // (F3) PSW.IE and PSW.BRK (the interrupt take at the dispatch)
+    output wire        psw_brk,
+    input  wire [4:0]  tk_vec,          // (F3) the vector the dispatch took (v35_intc's register)
+    input  wire        tk_bs,           // (F3b) ... a bank-switch take (ENCS 1), its level tk_l
+    input  wire        tk_int,          // (F3b) ... the INT take (the vector from the bus)
+    input  wire [2:0]  tk_l,
+    input  wire        ns,              // (F3b) the N/S pin as last sampled (a register): MD at
+                                        //   reset and on every interrupt entry
+    output wire        req_ia,          // (F3b) the request is an INT acknowledge (with RQ_IOR)
     input  wire        flag_we,
     input  wire [1:0]  flag_d,
     // (F1) an on-chip data write to the current bank's DS0 / SS / DS1 slot (the register RAM
@@ -129,6 +138,7 @@ module v35_eu
 );
     // ------------------------------------------------------------ registered state
     reg [15:0] psw = 16'hF002;
+    reg        rq_ia = 1'b0;            // (F3b) the request posted is an INT acknowledge
     reg [15:0] ds1 = 16'd0, ps = 16'hFFFF, ss = 16'd0, ds0 = 16'd0;
     reg [15:0] ta = 16'd0, tb = 16'd0, tc = 16'd0, sigma = 16'd0, addr = 16'd0, oprw = 16'd0;
     reg        scy = 1'b0, ea_ss = 1'b0, pfx_v = 1'b0, dtrap = 1'b0;
@@ -200,6 +210,10 @@ module v35_eu
                                 ? 3'd5 : md[2:0] == 3'd4 ? 3'd6 : md[2:0] == 3'd5 ? 3'd7
                                 : 3'd3, 1'b1, 1'b0);
             RS_INDEX: rsel_g = fix(md[0] ? 3'd7 : 3'd6, 1'b1, 1'b0);
+            // (F3b) the bank's save slots: words 1-3 (+02 vector PC, +04 PSW, +06 PC)
+            RS_VPC: rsel_g = 7'd1;
+            RS_PSWS: rsel_g = 7'd2;
+            RS_PCS: rsel_g = 7'd3;
             default: rsel_g = 7'd0;
         endcase
     endfunction
@@ -505,18 +519,35 @@ module v35_eu
             AL_CITF: begin
                 pn[V35_PSW_IE] = 1'b0;
                 pn[8] = 1'b0;               // BRK (the single-step flag)
+                pn[15] = ns;                // (F3b) MD <- N/S on every interrupt (the data book)
             end
+            // (F3b) BRKN / BRKS: CITF with MD set / cleared (f3_brkn, f3_brks: BRKS's handler
+            // runs with MD 0, the NMI taken in it with MD 1 again: N/S high)
+            AL_CITN, AL_CITS: begin
+                pn[V35_PSW_IE] = 1'b0;
+                pn[8] = 1'b0;
+                pn[15] = word.alu == AL_CITN;
+            end
+            // (F3b) the bank switch's PSW: RB <- x[2:0], IE and BRK cleared, MD <- N/S, the rest
+            // kept (f3_bins brkcs_aw: FECF -> BCCF; f3_bsw intp0_bank3: F246 -> B046)
+            AL_BSW: pn = {ns, x[2:0], psw[11:10], 2'b00, psw[7:0]};
+            AL_RBR: pn = {psw[15], x[2:0], psw[11:0]};          // (F3b) TSKSW / MOVSPB
+            AL_RBP: pn = {psw[15], x[14:12], psw[11:0]};        // (F3b) MOVSPA (x: the PSW save)
+            AL_VEC4: r = {6'd0, x[7:0], 2'b00};                 // (F3b) the INT vector's address
             // (F2b) the I/O trap's PSW: IE and BRK cleared, BRKI set (f2_iot: the handler's PSW)
             AL_CITB: begin
                 pn[V35_PSW_IE] = 1'b0;
                 pn[8] = 1'b0;
                 pn[1] = 1'b1;
+                pn[15] = ns;                // (F3b) MD <- N/S
             end
             AL_LTS: r = {$signed(x) < $signed(y), 15'd0};      // (F2b) CHKIND's compares
             AL_SFRA: r = 16'h0F00 | {8'd0, x[7:0]};             // (F2b) BTCLR's SFR offset (F00h + x)
             AL_BTM: r = 16'(16'd1 << x[10:8]);                  // (F2b) BTCLR's bit (DH)
             AL_BTC: r = x & ~y;                                 // (F2b) BTCLR's clear
             AL_P14: r = {p14, 15'd0};                           // (F2b) POLL's test
+            // (F3) 4 x the vector taken; (F3b) a bank-switch take: {1, the level}; INT: 0
+            AL_IVEC: r = tk_int ? 16'd0 : tk_bs ? {13'h1000, tk_l} : {9'd0, tk_vec, 2'b00};
             default: ;
         endcase
     end
@@ -547,7 +578,8 @@ module v35_eu
 
     // ------------------------------------------------------------ tick B: the request
     wire        post = ex_b && word.bus != BQ_NONE;
-    wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW;
+    wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW || word.bus == BQ_INTA;
+    wire        b_rd = word.bus == BQ_MEMR || word.bus == BQ_IOR || word.bus == BQ_INTA;
     wire [15:0] segv = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_IDB ? {idb, 8'h00}
                      : word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
                      : pfx_v ? (pfx_s == 2'd0 ? ds1 : pfx_s == 2'd1 ? ps : pfx_s == 2'd2 ? ss
@@ -560,6 +592,7 @@ module v35_eu
     // ------------------------------------------------------------ the port
     assign req_v = rq_v;
     assign req_cyc = rq_cyc;
+    assign req_ia = rq_ia;
     assign req_addr = rq_addr;
     assign req_width = rq_word;
     assign req_data = rq_word ? oprw : {oprw[7:0], oprw[7:0]};
@@ -579,7 +612,7 @@ module v35_eu
     // (MX5c) the same three on the request registers' next values (the ce_a block below)
     wire        rq_v_nx = post ? 1'b1 : ack_b ? 1'b0 : rq_v;
     wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
-    wire        rq_rd_nx = post ? (word.bus == BQ_MEMR || word.bus == BQ_IOR) : rq_rd;
+    wire        rq_rd_nx = post ? b_rd : rq_rd;
     wire        rq_wr_nx = post ? (word.bus == BQ_MEMW || word.bus == BQ_IOW) : rq_wr;
     wire        rq_io_nx = post ? b_io : rq_io;
     wire        opr_v_nx = (ex_b && word.f) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
@@ -619,7 +652,7 @@ module v35_eu
     // ------------------------------------------------------------ the end of the clock (ce_a)
     always_ff @(posedge clock) begin
         if (!reset_n) begin
-            psw <= 16'hF002;
+            psw <= {ns, 15'h7002};      // (F3b) MD from N/S at reset (the data book)
             ds1 <= 16'd0;
             ps <= 16'hFFFF;
             ss <= 16'd0;
@@ -710,14 +743,15 @@ module v35_eu
             if (post) begin
                 rq_v <= 1'b1;
                 rq_cyc <= word.bus == BQ_MEMR ? RQ_MEMR : word.bus == BQ_MEMW ? RQ_MEMW
-                        : word.bus == BQ_IOR ? RQ_IOR : RQ_IOW;
+                        : (word.bus == BQ_IOR || word.bus == BQ_INTA) ? RQ_IOR : RQ_IOW;
                 rq_word <= weff;
                 rq_pair <= weff && !b_io && lin[0];
                 rq_addr <= b_io ? {4'd0, addr_q} : lin;
                 rq_seg <= segv;
                 rq_off <= addr_q;
                 rq_out <= 1'b1;
-                rq_rd <= word.bus == BQ_MEMR || word.bus == BQ_IOR;
+                rq_rd <= b_rd;
+                rq_ia <= word.bus == BQ_INTA;
                 rq_wr <= word.bus == BQ_MEMW || word.bus == BQ_IOW;
                 rq_io <= b_io;
             end else begin
@@ -758,6 +792,8 @@ module v35_eu
     assign psw_f = {psw[5], psw[3]};
     assign psw_rb = psw[14:12];
     assign psw_brki = psw[1];
+    assign psw_ie = psw[V35_PSW_IE];
+    assign psw_brk = psw[8];
 
     wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 

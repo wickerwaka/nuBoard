@@ -2149,3 +2149,48 @@ question, decided from S8's routed numbers with the user.
   built: SAHF's per-form lateness on BRKI (9 measured cases, no machine explanation yet), REP + segment
   prefix + string, FE /2-6's byte-wide stack forms, D6, the 0F holes' internal sequences, the divide
   error's vector 0 (F3 measures its pushed PC).
+- **F3 parts A and B landed (2026-11-12): the interrupt controller, vectored and bank-switch entry, the bank
+  instructions, INT / INTAK, BRKN / BRKS; corpus 6,541 unchanged.** Measured on the socket first
+  (validation/v35s/intr.py, banks.py; programs f3_*.s with their .stim.json schedules; receipts f3-*, two
+  board sessions each, identical). **Against the data book (part A):** a store of IF = 1 with MK = 0 requests
+  the interrupt for every IC register tried and a store of IF = 0 cancels it; the first register of a group
+  sets the level for the whole group (EXIC1/2's PR reads 7); a second NMI nests inside the NMI handler; after
+  HALT with IE = 1 or NMI the pushed PC is HALT + 1 or + 2 by the request's clock phase; the take follows a
+  release by several clocks (EI + 4 INC AW, POP PSW or an IF / MK store + 6 INC + NOP, RETI + 1 INC); no
+  single step after a prefix, EI, DI, MOV sreg or POP SS, one after a whole REP string, and a maskable request
+  at the same end wins and that step is lost; the divide error is vector 0 with the next instruction's PC;
+  the handler keeps MD. **(part B):** TSKSW loads the PC and the whole PSW from bank n's save slots and the
+  bank that runs is that PSW's RB; MOVSPA copies SS:SP from the bank the current bank's PSW save names; the
+  requesting member's own IC register decides vectored against bank switch while the bank is the group
+  leader's PR; TB stays vectored; INT is taken before a pending maskable request of PR 1-7 and after PR 0,
+  sets no ISPR bit, and releases HALT; the INTAK cycle is two /INTAK pulses (2 clocks low, 1 high, 2 low)
+  with no other strobe; BRKS clears MD and the next interrupt (N/S high) restores it; BRKCS keeps BRKI and
+  the flags. A development run entered secure mode by a RETI to a frame with MD 0; the next reset recovered
+  the part completely, on which evidence BRKS was then run alone with N/S left high (N/S was never driven
+  low: its sampling is built from the book, unmeasured). **Built:** v35_intc (in core/v35_sfr.sv: the 15 IF
+  bits and ISPR, INTM edges, a four-stage registered priority resolution, FINT, HALT's wake, the member's
+  ENCS, INT's place), the take at the dispatch in v35_top (`igo`: NMI, then the offer with IE now and at the
+  last start, then the step with BRK now and at the last start; the new word bit `nb` on the E words of the
+  prefixes, EI, DI and the segment loads: the word 96 bits, three banks full), urom/trap.uasm `intr`, FINT,
+  `dve`, 0F 9A; urom/bank.uasm (the bank-switch entry, BRKCS, TSKSW, RETRBI, MOVSPA, MOVSPB, BRKN, BRKS) on
+  new values of existing fields (register selects for the bank's save slots, six ALU ops, the bus request
+  BQ_INTA: no fourth ROM bank); the acknowledge as an I/O read with the strobes held and the new `intak_n`
+  pin; MD from the registered N/S at reset and on every entry, the secure translation a pass-through (the
+  user's ruling). The ROM 1,662 → 1,731 words. **The timing gate sent part A back:** with the take's select
+  in the loader's `dent` the seeds read +0.579 / +0.934 / −0.141; no term had joined the delivery chain, but
+  the mapper shares the delivered byte's decode between the byte's tag and the dispatch's decode of the same
+  byte and chose a form two levels deeper. The repair moves the select into the sequencer's DISP case
+  (`nx_a` in tick A, `ig_b` beside `d1_b` in tick B), the loader's text the base's: part A alone +1.382 /
+  +1.437 / +1.094. **Verified on main (A + B + the repair): +1.303 / +0.392 / +1.249 on seeds 1 / 2 / 3**
+  (the base +1.276 / +1.243 / +1.231; seed 2's worst path is the delivery chain at the base's 14 levels:
+  placement, not depth), 7,952 LUT4 / 423 ADD / 1,892 FF / 79 RAM_5K, alone useq +6.148, loader +4.608,
+  queue +6.339, bus +8.572, eu +5.062, regram +11.738; the corpus 6,541 with 0 runs differing at both
+  spacings, chk silent, write data 106,824 / 106,824, vectors 0 bad, lint clean, 48 fast tests; the program
+  gates equal to the socket: intr 6, banks 5, onchip 6, traps 6, the 101 undefined cases. **Gate masks:**
+  the stack's data (the handler's log holds every frame); the jitter tests' log entries except vector, depth,
+  test, ISPR and IC bytes (the RTL always takes at HALT + 1); the current bank's CW slot during REP MOVBKW
+  (silicon reads the count from before the string, the RTL the live count). **Not built:** macro service
+  (part C: with F4, where its users are); a REP string interrupted between elements; the multi-clock latency
+  after a release and HALT's + 2 take point (timing); whether ISPR holds INT off and INT against NMI and the
+  step (unmeasured: the RTL takes INT on IE alone, below NMI); the memory forms of BRKCS, TSKSW, MOVSPB; a
+  successful DIVU's flags (silicon F002, the RTL sets S P CY).

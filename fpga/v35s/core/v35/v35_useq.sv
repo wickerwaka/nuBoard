@@ -98,6 +98,9 @@ module v35_useq
     input  wire        resv,            // the EU's reservation (a request it asks the bus to hold)
     input  wire        f_grant,
     input  wire        f_dlv,
+    input  wire        wake,            // (F3) HALT's release (v35_intc's register: NMI or an unmasked IF)
+    input  wire        igo,             // (F3) an interrupt is taken at this dispatch (v35_top: an AND-OR
+                                        //   of registers): the DISP word goes to UROM_INT, not dent
     // (MX5c) tick B: the next values of the stall's inputs (the D nets of their ce_a registers,
     // as they stand after the coming ce_a): the loader's, the datapath's, the bus unit's
     input  wire        q_stall_nx,
@@ -423,6 +426,7 @@ module v35_useq
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg [UADDR_W-1:0] d1_b = '0, d2_b = '0, dr_b = '0;
     reg        dc_b = 1'b0;
+    reg        ig_b = 1'b0;                 // (F3) igo, for tick B's DISP target
     reg        ecr_b = 1'b0, ecc_b = 1'b0;      // (MX3c) the EAC word's mode facts
     reg [UADDR_W-1:0] ech_b = '0;
     reg  [1:0] tw_b = 2'd0;
@@ -436,6 +440,7 @@ module v35_useq
         if (ce_b) begin
             ex_b <= ex;
             d1_b <= dent;
+            ig_b <= igo;
             dc_b <= dcall;
             ecr_b <= ec_reg;
             ecc_b <= ec_call;
@@ -465,7 +470,7 @@ module v35_useq
     assign w_dispm_nx = pd_nx.dispm;
     v35_sin_t  si_nx;
     always_comb begin
-        si_nx.halted = halted || (ex_b && word.halt);
+        si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
         si_nx.f = word_nx.f;
         si_nx.e = word_nx.e;
         si_nx.wp = word_nx.wp;
@@ -536,7 +541,7 @@ module v35_useq
                 SQ_RET: upc_n = retr;
                 SQ_LOOP: upc_n = cnt != 9'd1 ? word.tgt : inc;
                 SQ_DISPM: upc_n = d2_b;
-                SQ_DISP: upc_n = d1_b;
+                SQ_DISP: upc_n = ig_b ? UROM_INT : d1_b;     // (F3) the interrupt take
                 // (MX3c) EAC: the register path, the EA head (called), or the next word
                 SQ_EAC: upc_n = ecr_b ? word.tgt : ecc_b ? ech_b : inc;
                 default: upc_n = inc;
@@ -591,7 +596,7 @@ module v35_useq
             SQ_RET: nx_a = retr;
             SQ_LOOP: nx_a = cnt != 9'd1 ? word.tgt : inc;
             SQ_DISPM: nx_a = dec2.entry;
-            SQ_DISP: nx_a = dent;
+            SQ_DISP: nx_a = igo ? UROM_INT : dent;      // (F3) the interrupt take
             SQ_EAC: nx_a = ec_reg ? word.tgt : ec_call ? ec_head : inc;
             default: nx_a = inc;
         endcase
@@ -649,14 +654,13 @@ module v35_useq
                 retr <= inc;
             else if (ex_b && word.seq == SQ_DISP && dc_b)
                 retr <= dr_b;      // (MX1) the dispatch's call of an EA head
-            if (ex_b && word.halt)
-                halted <= 1'b1;
+            halted <= (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
             if (ex_b)
                 at_entry <= word.seq == SQ_DISP;
         end
     end
 
-    wire unused = &{1'b0, dec1, dec2, qw[95:UWORD_BITS], rw[95:UWORD_BITS]};
+    wire unused = &{1'b0, dec1, dec2};     // (F3) the word fills the three banks (96 bits)
 
 `ifndef SYNTHESIS
     // (S7b) chk: the ce_b registers against their sources at ce_a
@@ -683,7 +687,7 @@ module v35_useq
                 if (chk_n <= 20)
                     $display("v35 chk: useq: the ROM's address or the derived bits differ at %0t", $time);
             end
-            if (ex_b !== ex || d1_b !== dent || d2_b !== dec2.entry || len_b !== len
+            if (ex_b !== ex || d1_b !== dent || ig_b !== igo || d2_b !== dec2.entry || len_b !== len
                 || dc_b !== dcall || dr_b !== dret || ecr_b !== ec_reg || ecc_b !== ec_call
                 || ech_b !== ec_head || tw_b !== tw_n || wbn_b !== wbn_n || wpn_b !== wpn_n || wbp_b !== wbp_n
                 || sp_b !== sp_n || un_b !== un_n || drop_b !== drop_n || rf_b !== rf_n || rq_b !== q_req

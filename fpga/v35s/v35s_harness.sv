@@ -170,6 +170,7 @@ module v35s_harness #(
     wire [8:0] model_mux_address;
     wire [15:0] model_data_out;
     wire model_mreq_n, model_mstb_n, model_iostb_n, model_read_write, model_refrq_n;
+    wire model_core_intak_n;          // (F3b) the core v2's /INTAK (V35S_CORE_V35)
     wire [15:0] model_lane_data_in;
     wire model_data_drive, model_ready;
     wire [15:0] model_levels;
@@ -200,6 +201,9 @@ module v35s_harness #(
         .mstb_n(model_mstb_n),
         .iostb_n(model_iostb_n),
         .read_write(model_read_write),
+`ifdef V35S_CORE_V35
+        .intak_n(model_core_intak_n),   // (F3b) the core v2's /INTAK
+`endif
         .refrq_n(model_refrq_n)
     );
 
@@ -235,7 +239,13 @@ module v35s_harness #(
         socket_p0
     };
     wire [31:0] model_pins = 32'd0;
+`ifdef V35S_CORE_V35
+    // (F3b) the core v2 drives /INTAK (P13); the lane answers the vector while it is low and
+    // the model's R2 bank is announced CPU-driven, as for the socket
+    wire model_intak_n = model_core_intak_n;
+`else
     wire model_intak_n = 1'b1;
+`endif
     // Pins a bank in mode D lets the FPGA see.
     function [31:0] observable;
         input [7:0] modes;

@@ -2793,6 +2793,263 @@ build).
 - The word: 93 -> 95 bits (vk, ist; the ROM's three 32-bit banks unchanged); ROM 1,569 -> 1,654
   words. The decode tables gain one bit (io).
 
+## F3 (part A): the interrupt controller, NMI, INTP0-2, vectored entry, priority, FINT, HALT's wake, the single step, the divide error
+
+Stage F3's first part (docs/v35s-function-plan.md). Measured first on the socket
+(validation/v35s/intr.py: the programs validation/v35s/programs/f3_*.s with their `.stim.json`
+schedules; two socket sessions each, validation/v35s/receipts/f3-<prog>-socket.json and
+-socket-2.json, identical), then built so the gated programs give the socket's write and I/O
+sequence and result pages on the RTL in simulation (`intr.py sim` / `gate`). Function only: no
+clock is fitted to silicon's. Parts B (bank-switch entry, BRKCS / TSKSW / MOVSPA / MOVSPB /
+RETRBI, INT / INTAK, BRKS / BRKN) and C (macro service) are not built.
+
+### The programs
+
+One frame for every program: every vector points at a stub that records its number and enters a
+logging handler, which writes a 32-byte entry per interrupt (the vector, the nesting depth, the
+test, the pushed PC / PS / PSW, the handler's PSW, SP, ISPR, EXIC0-2, TMIC0, DIC0, TBIC, SEIC0,
+the interrupted AW CW IX IY DW), calls the test's action routine (default FINT) and returns by
+RETI to the pushed PC. A request is raised by the event port (FF12h) and the harness schedule, or
+by a store of an IF bit, and taken in HALT or behind a mask (DI / MK) released at a known
+instruction followed by an absorber (MULU CL, 24 clocks: longer than the controller's latency on
+silicon). f3_vec (sources, entry, edges, HALT), f3_order (the interrupted point after each kind of
+release), f3_prio (priority, nesting, FINT, ISPR, NMI), f3_trap (the divide error, BRKV, 0F 9A),
+f3_step / f3_step2 (single step) are gated; f3_lat (the take point right after a release, without
+the absorber) is measured only.
+
+### Measured (the socket, uPD70337L-8)
+
+| item | silicon | against the data book |
+| --- | --- | --- |
+| vectors | INTP0-2 24 25 26, NMI 2, TU0-2 28-30, D0/D1 20/21, SER0 12-14, SER1 16-18, TB 31, the step 1, the divide error 0 | as book |
+| the frame | PSW, PS, PC pushed; the handler runs with IE and BRK cleared, the flags and **MD kept** (PSW FED7 pushed: handler FCD7) | as book |
+| the group's level | the group's first register's PR (EXIC1's own PR reads 7: INTP1 runs at EXIC0's level, ISPR 08h with EXIC0 PR 3; DIC1 at DIC0's, SRIC0 at SEIC0's); TB at 7 | the book's "groups" only |
+| default order | equal levels: TU, D, P, SER0, SER1, TB; within a group the first register first (INTP0 > 1 > 2, TU0 > 1 > 2, SER > SR > ST, D0 > D1) | as book |
+| ISPR | the level's bit set on entry; FINT clears the highest-priority (lowest-numbered) bit (24h -> 20h -> 00h); FINT with none in service does nothing; RETI without FINT leaves the bit (80h) and holds back equal and lower levels | as book |
+| nesting | a higher level nests once the handler sets IE; equal and lower levels wait for FINT, then are taken (inside the handler, IE 1) | as book |
+| IF by software | a store of IF 1 (with MK 0) requests the interrupt, for every IC register (EXIC0, TMIC0, DIC1, SRIC0, TBIC tried); a store of IF 0 clears a pending request; MK 1 keeps IF set and holds the request; clearing MK (AND) then takes it | not in the book |
+| edges | INTM ES0 = 1: no request at the fall, one at the rise; ES0 = 0: one request for a level held low, none at the rise; ESNMI = 1: the rise | as book |
+| HALT | an unmasked request releases it: IE 1 vectors with the PC after HALT pushed, IE 0 resumes after HALT with IF kept (EI then takes it); a masked request (MK 1) does not release it (IF set) | as book |
+| HALT's take point | the PC pushed for a request in HALT with IE 1, or an NMI, is HALT + 1 **or HALT + 2** (one NOP of the sled run first) by the request's clock phase, identical run to run for one program layout but moving when the layout or the delay changes (f3_vec intp0_halt + 2, intp1_halt + 1); an NMI in HALT in an NMI handler was taken after the following MULU | not in the book |
+| NMI | not masked by IE; nests in a maskable handler; **a second NMI nests in the NMI handler**; ISPR unchanged; a maskable request with EI in the NMI handler nests | the book's "multiple processing: not accepted" for NMI is not what the socket does |
+| the latency | the take point after a release falls several clocks later: EI then INC x 4 runs before the take, POP PSW then INC x 6 and a NOP, an IF or MK store then INC x 6 and a NOP, RETI then one INC (f3_lat); with MULU CL right after the release the take is after the MULU in every case (f3_order) | the book's 15 + N to 27 + N |
+| EI / POP PSW / RETI | the instruction after the IE-setting instruction always runs (also when it is short: RETI then one INC) | the 8086's rule |
+| HALT with IE set just before (POP PSW, POP AW, HALT) | taken after HALT (HALT + 1): the latency covers POP AW (f3_lat, measured only) | - |
+| the single step | a trap after each instruction that started and ended with BRK set: POP PSW setting BRK: the first trap after the next instruction; POP PSW clearing it: no trap after it; **no trap after a prefix, EI, DI, MOV sreg (SS and DS0), POP SS** (the following instruction's trap covers both); a REP string traps once, after its last element; BRK 3 runs (no trap after it) and the trap follows the instruction after its RETI; SAHF leaves BRK | the 8086's rules, but EI / DI hold it off too |
+| the step against a request | at one instruction's end with both pending the maskable request is taken first; the step for that instruction is lost (the trap follows the instruction after the handler's RETI) | - |
+| the divide error | vector 0, the **next** instruction's PC pushed (after a prefix and a displacement too), the registers unchanged, the flags as the failed divide left them (the RTL's DIVF flags are silicon's on every case tried) | the book names the vector only |
+| a successful DIVU's flags | 0002 before, F002 after on silicon (the RTL's DIVF sets S P CY: F087); measured in f3_lat div_ok, not changed (outside F3) | - |
+| 0F 9A | vector 1 with the next instruction's PC (F2b's undefined series) | - |
+| an accident | one development run of f3_order returned by RETI to a frame whose PSW was 0202h (RB 0, **MD 0**): the part ran in bank 0 in secure mode (the unknown translation table) until the run limit; the next run's reset recovered it fully (every later program passed) | reset sets PSW F002 (MD 1), as the book |
+
+### Built
+
+- **The controller** (`v35_intc`, a module in fpga/v35s/core/v35_sfr.sv beside `v35_sfr`):
+  the IF bits of the 15 IC registers and ISPR are its registers (v35_sfr's read gives them back:
+  an IC register's bit 7, ISPR at FFC); MK, MS / INT, ENCS and PR stay in v35_sfr's storage. IF
+  set by the INTP0-2 edges per INTM, by a store (v35_sfr's `ic_we` / `ic_wd`: the store's byte
+  per IC register), cleared by a store or the acknowledge. NMI's edge per ESNMI into a request
+  register. The resolution: S1 (ce_b) each group's key {level, rank} and first requesting member;
+  S2 (ce_a) three pair minima; S3 (ce_b) the first two pairs' minimum, ISPR's highest level in
+  service; S4 (ce_a) the offer (`ir_v`: the key's level above the level in service; `ir_vec`).
+  MS 1 leaves a source out (macro service is part C); ENCS is not read (part B).
+- **The take** (v35_top): at a dispatch (`ex && w_disp`, the instruction's start) `igo` =
+  !nb_r && (NMI pending || (the offer && IE && ie_arm) || (BRK && brk_arm)), NMI first, then the
+  offer, then the step. `ie_arm` / `brk_arm` are IE and BRK as they stood at the last dispatch
+  (the instruction after an IE-setting or BRK-setting one runs; the step after an instruction that
+  ran with BRK set); `nb_r` is the last E word's new bit `nb` (the routines of the segment
+  prefixes, BUSLOCK, EI, DI, MOV sreg (both forms), POP sreg). `igo` makes the sequencer's
+  DISP target UROM_INT (v35_useq: `nx_a`'s DISP case in tick A, `ig_b` beside `d1_b` for tick
+  B's; the loader's `dent` is the base's text); the take strobes latch the vector and the source
+  in the controller.
+- **The entry** (`intr`, urom/trap.uasm): tmpc <- the instruction's start (ist), IVEC (new ALU
+  op: SIGMA <- 4 x the vector taken, and the acknowledge: IF cleared and the level set in ISPR, or
+  NMI's request cleared), the PSW pushed, CITF, F2b's `vt_c`. **FINT** (0F 92, new ALU op FINT:
+  ISPR's lowest set bit cleared). **The divide error** (`dve`: the four divide routines' error
+  words, which raised an unused trap strobe, jump to it): vector 0 with SR_PC (the next
+  instruction). **0F 9A**: vector 1 with the next PC.
+- **HALT's release** (v35_useq `wake`, the controller's register: NMI or an IF with MK 0 and MS
+  0): `halt` then an E word (core.uasm); the halted stall ends on `wake` and the E word pops the
+  instruction after HALT, whose dispatch takes the interrupt when IE is 1.
+- The word: 95 -> 96 bits (`nb`; the three 32-bit banks are full); ROM 1,662 -> 1,670 words.
+
+### The F3 gate (part A)
+
+`intr.py gate`: f3_vec, f3_order, f3_prio, f3_trap, f3_step, f3_step2 **EQUAL** against both
+socket sessions (the write and I/O sequence, the result pages). Masked: the stack's data
+(7E00-7EFF: the log holds every frame pushed) and, for the tests whose take point follows HALT
+with IE 1 or an NMI (`Test.jitter`: silicon's HALT + 1 / + 2 by the request's phase), their log
+entries but the vector, depth, test, ISPR and IC bytes. On those the RTL takes at HALT + 1 every
+time; silicon had HALT + 2 on intp0_halt, intp2_halt, intp2_halt_b, nmi_halt and later points on
+nmi_in_nmi and int_in_nmi. The deterministic HALT wakes (IE 0, then EI and the absorber:
+halt_ie0, intp1_halt_di, intp2_halt_di, halt_pending_di) are gated in full. f3_lat (measured only):
+the RTL takes a request at the second instruction start after its release (the controller's two
+clocks, `ie_arm`) where silicon's latency runs on for 4-7 INC AW; the RTL's run of f3_lat stops at
+its first case, halt_pending_ie, which it takes before the HALT (HALT's own PC pushed: it then
+stays in HALT).
+
+### The common gate (part A)
+
+Both spacings, `+v35_chk` silent, the per-family tables identical: RTL-exact **6,541** (the
+base's), **0 runs differing** from the base's per-run rows (f2b/land miss files), write data
+106,824 / 106,824. `rtl_vectors --regfile` 0 bad (69,099 + 38,760 vectors, every class count the
+base's) and `--fn` 0 bad; lint clean in the five configurations; test_uasm, test_v35_struct,
+test_chain_lane, test_rtl_vectors OK. The F1 (`onchip.py gate`) and F2b (`traps.py gate`)
+programs still EQUAL on this RTL. Bench changes: the divide error's `dve` word keeps the `trap`
+strobe and the whole-core bench (fpga/v35s/v35_core2_tb.cpp) ends a vector at it (the vector's
+entry would push next); the random register files' PSW has BRK cleared (with it set the V35
+takes the single step; rtl_vectors counts any such vector apart as STEP_KIND, none now).
+
+### Depth (for the overseer's timing run)
+
+- Tick A, the dispatch: the sequencer's DISP case of `nx_a` gains a 2:1 (UROM_INT) on `igo`, an
+  AND-OR of seven registers (nb_r, nmi_v, ir_v, the PSW's IE and BRK, ie_arm, brk_arm): two LUT
+  levels before the select, on the path to the ROM's address only. Not on the delivery chain.
+  (F3t) The first version put the select in the loader's `dent` (`igo ? UROM_INT : ...`). That
+  cost the delivery chain two LUT levels although no term of it joined the chain: the mapper
+  shares the delivered byte's decode between the byte's tag (bt_f, into z1f) and v35_udec1 of the
+  same byte (the dispatch's head), and with `igo` in `dent` it chose a deeper shared form. The
+  map's depth (seed-independent): b_done_data -> z1f 7 at e9f8547, 8 with `igo` in `dent`, 7
+  with it in the sequencer; to the pin selects 16 / 18 / 16; to `q_fetch_req` 13 / 15 / 13.
+  Worst setup (seeds 1..3): e9f8547 +1.276 / +1.243 / +1.231; the first version +0.579 / +0.934
+  / -0.141; this one +1.382 / +1.437 / +1.094 (8,038 LUT4, 1,903 FF).
+- v35_sfr: the read mux's IC bit 7 and ISPR (registers) at the registered read; the store's
+  per-IC write decode (`ic_we`: the store's offset against 15 constants) into the controller's IF
+  flops at ce_a.
+- v35_intc: per tick one stage: S1 a 3-member priority and a 3-bit PR per group from registers;
+  S2 / S3 / S4 a 6-bit key compare and an 11-bit select each.
+- The sequencer: `halted`'s next value gains `&& !wake` (a register).
+- The EU: the ALU gains IVEC (a 5-bit register into SIGMA); FINT and IVEC strobes (the word's ALU
+  field compared, with ex_b) go to the controller's registers.
+- Nothing of F3 feeds bt_f, zt_f, zc_f, hd_f or another function of the arriving byte:
+  `v35_upage`, `v35_umdsp`, `v35_umimm`, `v35_umodrm` are the base's text.
+
+## F3 (part B): the bank-switch entry, BRKCS, TSKSW, MOVSPA, MOVSPB, RETRBI, INT / INTAK, BRKN / BRKS, MD and N/S
+
+Stage F3's second part (docs/v35s-function-plan.md). Measured first on the socket
+(validation/v35s/banks.py: the programs validation/v35s/programs/f3_bins.s, f3_bsw.s, f3_brkn.s,
+f3_int.s (+ .stim.json), f3_brks.s (+ .stim.json); two socket sessions each, receipts
+validation/v35s/receipts/f3-<prog>-socket.json and -socket-2.json, identical), then built so the
+programs give the socket's write and I/O sequence and result pages on the RTL in simulation
+(`banks.py sim` / `gate`). Function only: no clock is fitted to silicon's. Part C (macro service)
+is not built: it waits for F4 (its users are the serial channels and the timers).
+
+### The programs
+
+f3_bins and f3_bsw run in bank 7 (SS 0001h, SP 7EF0h; every register's low three bits distinct)
+and reload banks 0-6 from a table at 6000h at each case (bank n: SS n, SP 7000h + 100h n, the
+PSW save 8002h + RB n, the vector PC and PC save at a failure stub). A case points the slots it
+needs at its target (often every bank's: wherever the instruction lands, the target runs), runs
+the instruction or raises the request (an IF store with IE 0, then EI and MULU CL: the take after
+the MULU, as part A) and takes a snapshot where it lands and after its return: the live AW CW IX
+IY BW DW BP DS0 DS1 PSW SS SP, ISPR and six IC registers, then the eight banks copied from IDB:E00
+(0120h bytes at 4000h + 120h n). Vectored entries go to intr.py's stubs and logging handler.
+f3_brkn and f3_int are intr.py Test programs (vectors 0-63). f3_int hands R2 to the CPU through
+FF10h (Z, then PMC1 18h: P13 /INTAK and P14 INT, PM1 97h, SCM0 04h: CTS0 the receive clock
+output, then D; the reverse at the end), the schedule raising INT, the harness answering /INTAK
+with vector 22h and dropping INT at /INTAK's fall; /INTAK is recorded as a pin. f3_brks raises an
+NMI 600 ticks after the event OUT that precedes BRKS: the NMI is taken at the BRKS handler's
+first byte, before any instruction of the secure mode runs, and its action ends the run.
+
+### Measured (the socket, uPD70337L-8)
+
+| item | silicon | against the data book |
+| --- | --- | --- |
+| bank-switch entry | ENCS 1: the new bank is the group's level (the leader's PR, part A's rule); its PSW save <- the PSW, its PC save <- the interrupted point (the vectored entry's: after the MULU); PSW: RB the level, IE and BRK cleared, MD and the flags kept (F246 -> B046); PS from the new bank's PS slot (0010h used), PC from its vector PC; no stack cycle; IF cleared, the level's ISPR bit set; RETRBI after FINT returns (ISPR 00) | as book |
+| whose ENCS | the requesting member's own bit (EXIC1 ENCS 1 with EXIC0 ENCS 0: bank 5 = EXIC0's PR 5; EXIC1 ENCS 0 with EXIC0 ENCS 1: vectored, vector 25) | the book names the IC register only |
+| TB with ENCS | vectored (vector 31, ISPR 80h); TBIC's bit 4 reads 0 | as book ("except NMI, INT, INTTB") |
+| nesting by banks | in bank 2 (TMIC0 PR 2) with IE set, SEIC0 PR 1 enters bank 1 (its PSW save AA47h: RB 2), RETRBI returns to bank 2, its RETRBI to bank 7 | as book |
+| BRKCS reg16 | the bank the register's low three bits name (IY FFF5h: bank 5; AW 7: bank 7 itself, its saves overwritten); PSW save <- the PSW, PC save <- the next instruction; PSW: RB n, IE and BRK cleared, BRKI and the flags kept (FECF -> BCCF); PC from the vector PC; ISPR untouched | as book |
+| TSKSW reg16 | PC (next) and PSW saved in the bank in use; **PC <- bank n's PC save, PSW <- bank n's PSW save, all 16 bits**: bank 4's save naming RB 2 runs bank 2 at bank 4's PC | the book: "retrieved from the new bank's save areas" |
+| RETRBI | PC <- the bank in use's PC save, PSW <- its PSW save (the bank by that PSW's RB; with no entry first: bank 7's saves naming bank 6 run bank 6) | as book |
+| MOVSPA | SS and SP of the bank the PSW save's RB names (changed to 5 by a store: bank 5's) | the book: "the old register bank" |
+| MOVSPB reg16 | bank (reg & 7)'s SS, SP <- the bank in use's | as book |
+| BRKN imm8 | vector n; PSW, PS, the next PC pushed (with a PS: prefix: the PC after BRKN); IE and BRK cleared; MD 1 | as book |
+| BRKS imm8 | vector n; PSW F002 pushed, PS, the next PC; **the handler's PSW 7002: MD 0** (the NMI's frame); the NMI taken there runs with **MD 1** (N/S high: N/S sampled on the interrupt) | as book |
+| INT | maskable by IE; taken through PMC1 bit 4; **no ISPR bit** (the handler reads 00h); taken before a pending request of PR 1-7 and after one of PR 0 (INTP0 PR 0 first; PR 1, 3, 6, 7 after INT); releases HALT with IE 1 (vectors, HALT + 1) and with IE 0 (resumes after HALT, then EI takes it) | the book gives no INT / controller order |
+| the INTAK cycle | **two /INTAK pulses, each two clocks low with one clock high between, no /MREQ /IOSTB /MSTB and no bus record** (refresh cycles before and after); the vector read from the IVT next (4 x 22h) | the book's 2T low / T high |
+| an observation outside F3 | during REP MOVBKW the bank in use's CW slot read by the string reads the count as it stood before the string (0080h) at every element, where the RTL's reads the live count | - |
+
+### Built
+
+- **No new word bit.** The ROM keeps its three banks (96 bits): every new operation is a new
+  value of an existing field: register selectors RS_VPC / RS_PSWS / RS_PCS (the bank's save
+  slots, words 1-3), ALU ops BSW (RB <- x[2:0], IE and BRK cleared, MD <- N/S), RBR (RB <- x[2:0]),
+  RBP (RB <- x[14:12]), CITN / CITS (CITF with MD 1 / 0), VEC4 (4 x x[7:0]), and the bus request
+  BQ_INTA. A routine reaches another bank by changing RB and, after one word that reads no
+  register, naming the slot (urom/bank.uasm; the segment flops then reload from the bank: sg_c).
+- **The take** (v35_intc): the group key carries the member's ENCS (`bs`, never TB's); at S4
+  the controller registers `ir_bs` beside the level and `it_v` / `it_sel` (INT: the INT level
+  while PMC1 bit 4, chosen over the offer unless the offer's level is 0); the take latches
+  `tk_bs`, `tk_lv` (the level) and `tk_int` beside the vector. IVEC gives SIGMA {1, the level}
+  for a bank-switch take and 0 for INT; `intr` branches on the sign and on zero. INT's take sets
+  no ISPR bit and clears no IF. HALT's wake includes INT. In v35_top g_i is (ir_v || it_v) &&
+  IE && ie_arm (one more register in the AND-OR).
+- **The bank-switch entry** (bsw_i, bs_c): PSW <- BSW(level); the new bank's PSW save and PC save
+  written; SIGMA <- its vector PC; PS DS0 SS DS1 flops from the bank; FLUSH. BRKCS joins it with
+  the register's bank and the next PC. TSKSW, RETRBI (rl_c), MOVSPA, MOVSPB as measured.
+- **INT / INTAK**: `int_a` posts two BQ_INTA requests (the EU: an RQ_IOR with `req_ia`); the bus
+  unit runs each as an I/O read with no strobe and drives the new `intak_n` output low from mid-B1
+  to mid-B3 (`c_ia` / `g_ia_b` beside `c_internal` / `g_sfr_b`); the second's D7-D0 comes in
+  through the datum register as any read; VEC4 and the vectored entry. The harness's model lane
+  takes `intak_n` from the core under V35S_CORE_V35 (fpga/v35s/v35s_harness.sv).
+- **MD and N/S**: `ns_r` (v35_top) registers the N/S level; the PSW resets to {N/S, 7002h};
+  CITF and CITB (every vectored entry, BRK, the traps) and BSW set MD <- N/S; BRKN sets MD 1, BRKS
+  MD 0; RETI / RETRBI / TSKSW load it from the frame or the save. The secure mode's opcode
+  translation table is a pass-through (the user's ruling): with MD 0 the RTL decodes as normal.
+- BRKS (F1) has one immediate byte in the decode now (uasm IMM_PLAIN; udec1's `len`, not a tag
+  function). The memory forms of BRKCS / TSKSW / MOVSPB are not measured: the routines pop the
+  ModR/M byte and end.
+- ROM 1,670 -> 1,731 words; 206 routines. v35_upage, v35_umdsp, v35_umimm, v35_umodrm unchanged.
+
+### BRKS on the socket: the safety reasoning
+
+The data book defines secure mode as an opcode translation at the decoder's input; it has no
+lock-out state, and the bank-modes contract permits N/S low ("LOW only when intentionally testing
+the factory security table": B1, always host-driven toward the CPU). Part A's accident (RETI to a
+frame with MD 0, the part running translated code to the run limit) was recovered completely by
+the next reset. BRKS was therefore run, on its own, one short program (a 2,000,000-tick limit),
+N/S left high: the NMI scheduled during BRKS was taken at the handler's first byte, so no
+translated instruction ran (the receipts show the NMI's pushed PC = the handler's address). N/S
+was never driven low. The N/S sampling at reset is built from the book and is unmeasured (the
+board holds N/S high).
+
+### The F3 gate (part B)
+
+`banks.py gate` (against socket and socket-2): f3_bins, f3_bsw, f3_brkn, f3_int, f3_brks
+**EQUAL** (the write and I/O sequence, the result pages). Masked: in the bank programs only the
+bank in use's CW slot in each snapshot's bank copy (the REP MOVBKW observation above); in the
+Test programs intr.py's masks (the stack's data; the jitter tests' log entries but the vector,
+depth, test, ISPR and IC bytes: int_halt, brks_nmi).
+
+### Not built (measured only, or left)
+
+- Macro service (part C): waits for F4.
+- Part A's measured-only items: a REP string interrupted between elements, the take point after
+  HALT with IE 1 (HALT + 1 / + 2 by phase; the RTL HALT + 1), the latency after a release.
+- INT against ISPR (does a level in service hold INT off?) and INT's place against NMI and the
+  single step are not measured; the RTL takes INT by IE alone, below NMI.
+- The REP MOVBKW CW-slot observation (the string unit, not F3).
+
+### Depth (for the overseer's timing run)
+
+- Tick A (the dispatch): `igo`'s g_i term gains `it_v` (a register) in its OR: one more input
+  to the AND-OR of registers ahead of `dent`. Nothing on the delivery chain.
+- v35_intc: S1's group key gains the member's ENCS (a bit of ic_b per member, beside the member
+  select); S4 registers `ir_bs`, `it_v`, `it_sel` (a compare of the S3 minimum's level with 0 and
+  the existing S4 compare); the take latches three registers beside the vector; `wake` gains
+  int_on (a register).
+- v35_sfr: `int_on` a register (the INT level AND PMC1 bit 4).
+- The EU (tick B): the register selector's case gains three constants; the ALU's case six ops
+  (BSW / RBR / RBP form the PSW from x and registers; VEC4 a shift); IVEC's result a 3-way select
+  of registers; the request decode's IOR term gains BQ_INTA and `rq_ia` is a register.
+- The bus unit: `g_ia_b` (ce_b) is gn.ack AND req_ia (a register) beside g_sfr_b; `c_ia` beside
+  c_internal; the strobe stage's enable gains !n_ia and `intak_n` is a new pin register. The grant
+  (S4, tick A) is unchanged: an acknowledge is granted as an I/O read.
+- The bank change never puts the controller's level on the register RAM's address in the tick it
+  is resolved: the level is `tk_lv` (latched at the take), it reaches the PSW through IVEC's SIGMA
+  and BSW's ALU result at ce_a, and the RAM address reads the PSW register from the next clock.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit
