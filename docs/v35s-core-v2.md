@@ -2048,3 +2048,17 @@ question, decided from S8's routed numbers with the user.
   dropped; the device's total shared with the harness is the only bound, the harness's capture depth the user's
   to trim. (2) The arriving byte's decode as a block-RAM table at the data pins (the chip's PLAs are lookup
   tables): MX5 round 5, launched from this landing.
+- **MX5 round 5 (2026-11-11): the arriving byte's tag as a block-RAM table at the data pins, measured, not
+  kept; the sources stand at 74a17eb.** Built as briefed (two 256 × 6 tables in the bus unit addressed by
+  `data_in` on the datum register's enable, output unregistered, inferred as EFX_RAM_5K, contents checked
+  against bt_f, the loader and the queue reading the table's tag, the checker silent on the whole corpus;
+  behaviour identical, 6,400 / 30,536, 0 per-run differences). Timing worse on every seed: **−1.699 / −1.229 /
+  −1.052 / −1.978 / −1.199 ns** on seeds 1 .. 5 (the base −0.669 / −0.958 / +0.001 / −0.568 / −0.250), 75 RAM_5K.
+  The cause is the device: a Trion RAM_5K's unregistered read is 3.666 ns clock-to-out against a flip-flop's
+  0.366, and the tag's route at fan-out 10 to 16 adds 1.4 to 1.6 ns, so the tag stands at 5.0 to 5.2 ns and
+  z1f (four levels on: the compare against zc and the head select) at 7.9 to 8.5 ns, later than the seven
+  LUT levels it replaced (6.2 to 7.4). The overseer's estimate (the RAM's clock-to-out plus two levels,
+  about +2 ns) was wrong on the RAM's clock-to-out. Also measured: with the tag free, seeds 1 and 4 would
+  still fail on paths from `q_stored` (−0.496) and `q_hlv` (−0.227): the tick-A chain behind the tag is
+  itself at the period. The core README gains "Round 5" with the table; the diff is kept at the scratchpad's
+  v2/mx5e/. The residual returns to the user's choice (accept a closing seed, lower the target, a third tick).

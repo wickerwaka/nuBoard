@@ -2402,6 +2402,58 @@ Notes on the measurements:
 
 Candidates 2 + 3 were replayed together with `+v35_chk` on F3 F4 F16 F33 F34 F38: 5,820 runs, 0 differ from the base, and the check stayed silent. The check compares the cofactor room with round 3's form and z1f with hh.z. Candidate 1 was linted only. Since no candidate is kept, the sources are 64076f3's and the round-3 behaviour gate stands as measured.
 
+### Round 5 (the user's direction: the arriving byte's tag from a block-RAM table at the data pins)
+
+**Built, the behaviour exact, and the timing worse on every seed.** The structure maps as asked: two EFX_RAM_5K, OUTPUT_REG 0, contents equal to `bt_f`. But the RAM's read clock-to-out is 3.666 ns, and its data out routes at fanout 10-16. Together they cost more than the three LUT levels the table removes. Worst setup is **-1.699 / -1.229 / -1.052 / -1.978 / -1.199 ns** on seeds 1..5. The base (74a17eb) is -0.669 / -0.958 / +0.001 / -0.568 / -0.250. Hold is +0.116 / +0.306 / +0.116 / +0.116 / +0.307. No further structure was tried, per the brief.
+
+#### The structure
+
+- **The tables** (`v35_bus`). `bt_lo` / `bt_hi` are 256 x 6 bits each, initialised by an `initial` loop over `v35_pkg::bt_f`. They are addressed by `data_in[7:0]` / `data_in[15:8]` and read under `if (ce_mid && b3_read)`, the datum register's enable. The read data is the new output `done_tag` (high byte's, low byte's), which stands beside `done_r` through the delivery clock's tick A. Nothing but `done_r` and the two RAM address ports reads `data_in`. Power-up: the read registers start at the tags of `done_r`'s FFFFh.
+- **One source.** The typedef `v35_btag_t` and `bt_f` moved from the loader to **v35_pkg**, after the generated decode table. The brief named v35_front_pkg, but `bt_f` calls `v35_umdsp` / `v35_upage`, which v35_pkg includes, and v35_front_pkg compiles first and imports nothing. The bus unit imports only `v35_pkg::v35_btag_t` and `v35_pkg::bt_f`. An elaboration check ties `$bits(v35_btag_t)` to QTAG_W.
+- **The loader reads the tag.** `tg_lo` / `tg_hi` are the input `h_dlvt` (the bus unit's `done_tag`). `hd2` / `hd3` / `z_lo` / `z_hi` are unchanged in form. The loader's `dlv_tag` output is gone.
+- **The queue stores the tables' tag.** Its `dlv_tag` port is now driven by `done_tag` (v35_top `b_done_tag`); the port itself is unchanged.
+- **`w0` (reviewed, kept).** `w0` is the loader's word register, loaded at ce_b. `bt_f(w0)` in `z_st` and in `hd4` is a decode of a register's byte. No endpoint whose worst path starts at `w0` is within 0.5 ns of failing, on the base's five seeds or on round 5's.
+- **The checker.** Under `ifndef SYNTHESIS` and `+v35_chk`, every fabric clock checks that `done_tag` equals `{bt_f(done_r[15:8]), bt_f(done_r[7:0])}`. Every wire it reads is a synthesized net or lives inside the guard. A deliberately corrupted entry (`bt_lo[06h]` bit 0 flipped, F0 F1) fired it 160 times; restored, it is silent on the whole corpus.
+- **test_v35_struct.** A new Ports rule, `test_bus_done_tag_is_the_tables_read_at_the_pins`, checks four things. `done_tag` is `{tg_hi_q, tg_lo_q}`. Those registers load from `bt_lo[data_in[7:0]]` / `bt_hi[data_in[15:8]]` under exactly `ce_mid && b3_read`, and `done_r` loads under the same enable. The tables are initialised from `bt_f`. `data_in` is read in those three places only. So `done_tag` is a registered fact, as the queue's `h_*` are. BUS_INPUTS is unchanged.
+
+#### Measured (whole core, 15.625 ns, one create_clock, no exception)
+
+Map (every seed): 6,553 LUT4 / 403 ADD / 1,355 FF / **75 RAM_5K**; the base was 6,552 / 403 / 1,345 / 73. The map report lists `dut/bus/bt_lo` and `dut/bus/bt_hi` as EFX_RAM_5K with READ_WIDTH 8, OUTPUT_REG 0 and RE the datum's enable. Their INIT strings were compared entry by entry with an independent rendering of `bt_f`: 0 mismatches in 2 x 256.
+
+| seed | worst (base) | worst | failing of 2,000 | start -> end | tag: RAM Tco + route | -> z1f | -> ld_rel | -> the end |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | -0.669 | **-1.699** | 65 | bt_lo -> c_mux_address[4] | 3.666 + 1.450 = 5.116 (fo 16) | 4 LUT, 8.134 | 1 LUT, 9.345 | 8 LUT, 17.015 (room, request, grant, pin) |
+| 2 | -0.958 | **-1.229** | 52 | bt_lo -> grant_len_b[2] | 3.666 + 1.556 = 5.222 (fo 12) | 4 LUT, 8.242 | 1 LUT, 9.560 | 5 LUT -> q_fetch_req 14.975, 1 -> g_fetch 15.899 (fo 28), 2 -> 16.545 |
+| 3 | +0.001 | **-1.052** | 46 | bt_lo -> c_mux_address[0] | 3.666 + 1.367 = 5.033 (fo 16) | 4 LUT, 7.943 | 1 LUT, 9.227 | 8 LUT, 16.368 |
+| 4 | -0.568 | **-1.978** | 56 | bt_hi -> c_a19 | 3.666 + 1.575 = 5.241 (fo 10) | 4 LUT, 8.401 | 1 LUT, 10.019 | 8 LUT, 17.294 |
+| 5 | -0.250 | **-1.199** | 32 | bt_lo -> c_mux_address[3] | 3.666 + 1.544 = 5.210 (fo 16) | 4 LUT, 8.520 | 1 LUT, 9.305 | 8 LUT, 16.515 |
+
+The base's tag leg, for comparison: `b_done_data` FF Tco 0.366 plus route reaches the data at 1.19 - 1.67 ns. Seven LUTs then reach `z1f` at 6.24 - 7.35 ns (seeds 1-3; seed 5 at 8.09 with 5 LUT). The table removes `bt_f`'s three levels but keeps four: `zt_f`'s compare of the tag with `zc` (2-3) and the head select. It adds 3.3 ns of RAM clock-to-out and about 0.4 ns of route, so `z1f` arrives 0.3 - 2.0 ns later. The legs after `z1f` are the base's (1 LUT to `ld_rel`; 8 to the room, the request, the grant and the pin).
+
+The datum register is no longer near the edge: its worst is +3.973 on seed 5. The next starts after the tables: `q_stored` -0.496 / -0.054 / - / +0.003 / +0.139, `ld_op` +0.069 / +3.695 / +3.601 / -0.146 / -0.216, `q_hlv` +2.085 / +0.956 / -0.073 / -0.227 / +0.248 on seeds 1..5. So even a free tag would leave seeds 1 and 4 a few tenths short.
+
+| module alone (round 5) | LUT4 / ADD / FF / RAM_5K | worst setup | hold | levels | the worst path |
+| --- | --- | --- | --- | --- | --- |
+| v35_useq | 488 / 8 / 585 / 47 | +4.756 | +0.307 | 6 | rom0 read data -> an output |
+| v35_loader | 2,095 / 72 / 901 / 40 | +3.453 | +0.307 | 9 | s_b -> an output |
+| v35_queue | 991 / 65 / 361 / 0 | +5.309 | +0.307 | 7 | an input -> an output's enable |
+| v35_bus | 423 / 6 / 450 / **2** | +5.452 | +0.116 | 6 | c_len -> an output |
+| v35_eu | 3,338 / 323 / 1,035 / 0 | +3.455 | +0.307 | 8 | x_b -> dv.trap |
+| v35_regram | 25 / 0 / 56 / 4 | +10.093 | +0.086 | 1 | an input -> the RAM's read enable |
+
+Every module closes alone. The bus unit's tag registers are the RAMs' own read registers: its FF count is unchanged.
+
+#### Behaviour (round 5, against 74a17eb)
+
+The whole refresh-off corpus at both spacings (`+v35_chk`, `+v35_ticks=2 +v35_chk`): **6,400 / 30,536 exact at both.** The per-family tables are identical to the base's. The per-run first divergences are identical: 30,536 runs compared at each spacing, 0 differ. `+v35_chk` is silent (0 lines at either spacing). Write data is 105,444. `--regfile` gives 107,859 vectors (69,099 + 38,760) and `--fn` 19,752, 0 bad. Lint is clean in the five configurations and with `V35_MX3B_UH` 0, `V35_MX3B_US` 0, `V35_MX3_WBR` 0 and `V35_MX3_IRL` 1. test_uasm, test_v35_struct, test_chain_lane and test_rtl_vectors: 49 OK. The nine offline modules: 941 tests, the four known failures (test_sim TrackedFit x3, test_freeze).
+
+#### What remains
+
+At 15.625 ns the table loses to the gates it replaces, because the RAM_5K's unregistered read clock-to-out (3.666 ns, slow corner) is about 3.3 ns slower than a flip-flop's. Each of these is a further structure, which this round does not build:
+- a duplicate table per consumer, to cut the 10-16 fanout and its 1.4-1.6 ns route;
+- `zt_f`'s compare restructured so it stands in about two levels after the data out;
+- the tag read a tick earlier, which would change when the pins are sampled, so it is not available under the rules.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit
