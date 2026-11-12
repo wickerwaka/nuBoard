@@ -244,6 +244,7 @@ module v35_top
     wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
     wire [15:0] ld_ip;                  // (MX2) the instruction pointer
     wire [7:0]  rb_lo;
+    wire [3:0]  sig_lo;                             // (F2a) SIGMA's low four bits (CN_SIG)
     wire [15:0] flush_off;
     wire [19:0] flush_lin, ps_base;
     wire [15:0] sfr_data;
@@ -364,7 +365,7 @@ module v35_top
     v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .ec_reg, .ec_call, .ec_head, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo,
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .fetch_dph(b_fetch_past_b2), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
         .e_rmodrm, .rmem((fmt.has_modrm || fmt.pg) && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
@@ -388,7 +389,7 @@ module v35_top
         .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,
         .req_done_nx(b_done_nx), .ramen_nx(prc_at[6]), .opr_rdy_nx(e_ordy_nx),
         .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx),
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo,
+        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .flush_off, .flush_lin, .ps_base, .sfr_data, .trap_o(div_trap)
     );
 

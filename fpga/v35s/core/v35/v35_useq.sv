@@ -33,7 +33,8 @@
 // memory routine calls (the heads' return frees the register).
 //
 // The loop counter (9 bits) is loaded by a word from port B's low byte (CL), the immediate,
-// the operand's bit count or the trap's remaining byte count, and stepped by LOOP.
+// the operand's bit count, the trap's remaining byte count or (F2a) SIGMA's low four bits, and
+// stepped by LOOP.
 //
 // Depth (by construction, the levelizer's run is the overseer's): tick A: the stall terms
 // (a handful of registered bits, the word's fields) and the decode lookups (the opcode register
@@ -87,6 +88,7 @@ module v35_useq
     input  wire        s_modrm,         // the staged opcode has a ModR/M byte (the loader's decode)
     input  wire        s_wbs,           // (MX1f) the staged opcode's routine reads the accumulator first
     input  wire [7:0]  rb_lo,           // port B's low byte (tick B)
+    input  wire [3:0]  sig_lo,          // (F2a) SIGMA's low four bits (a register)
     // (MX1c) the take sync's facts (tick A): the E word pops a register-mode ModR/M, the
     // running instruction is a memory form, the queue's request line, a fetch in flight (granted
     // on an earlier clock), a fetch granted now, a fetched word delivered now
@@ -552,6 +554,8 @@ module v35_useq
                 CN_LEN: cnt_n = {6'd0, len_b};
                 // (MX3c) (CL + 1) / 2: CL shifted right by one, its low bit the carry-in
                 CN_CLH: cnt_n = {2'd0, rb_lo[7:1]} + {8'd0, rb_lo[0]};
+                // (F2a) SIGMA's low four bits (the bit fields' per-bit loops)
+                CN_SIG: cnt_n = {5'd0, sig_lo};
                 default: cnt_n = word.seq == SQ_LOOP ? cnt - 9'd1 : cnt;
             endcase
         end

@@ -74,7 +74,13 @@ package v35_pkg;
     // (ROL4: the operand's low digit to its high, AL's low digit in; ROR4 the reverse) on the
     // byte x with AL from y (the new operand byte to SIGMA, the new AL to tmpc); (MX4) STEP the
     // string unit's index step: x plus the element's width (1 or 2 by the format's), minus
-    // it with PSW.DIR set, no flags (IX / IY after an element)
+    // it with PSW.DIR set, no flags (IX / IY after an element); (F2a) the bit fields INS / EXT:
+    // BFR / BFL the 32-bit pair {tmpc, tmpb} rotated right / left by one (tmpb the low word,
+    // SIGMA kept), BFI tmpb's low w + 1 bits replaced by x's (w = tmpa's low four bits: the
+    // width field), BFM tmpb masked to its low w + 1 bits, BFK 15 - x into SIGMA with the flags
+    // of the byte subtract 15 - x[7:0] (its sign: the field crosses into the next word), BFU the
+    // offset's step x[3:0] + y[3:0] + 1 into SIGMA (bits 3:0 the new offset, bit 15 the carry:
+    // the pointer steps)
     typedef enum logic [5:0] {
         AL_NONE = 6'd0, AL_PASS = 6'd1, AL_GRP = 6'd2, AL_AND = 6'd3, AL_INC = 6'd4,
         AL_DEC = 6'd5, AL_NOT = 6'd6, AL_NEG = 6'd7, AL_INC2 = 6'd8, AL_DEC2 = 6'd9,
@@ -83,7 +89,8 @@ package v35_pkg;
         AL_DIVF = 6'd20, AL_FLAG = 6'd21, AL_PSWL = 6'd22, AL_ADD = 6'd23, AL_CITF = 6'd24,
         AL_ADJ = 6'd25, AL_CVBI = 6'd26, AL_CVBF = 6'd27, AL_CVDI = 6'd28, AL_CVDF = 6'd29,
         AL_BIT = 6'd30, AL_BCDI = 6'd31, AL_BCDS = 6'd32, AL_BCDF = 6'd33, AL_R4 = 6'd34,
-        AL_STEP = 6'd35
+        AL_STEP = 6'd35, AL_BFR = 6'd36, AL_BFL = 6'd37, AL_BFI = 6'd38, AL_BFM = 6'd39,
+        AL_BFK = 6'd40, AL_BFU = 6'd41
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -115,9 +122,12 @@ package v35_pkg;
     // RB port B's low byte (CL), IL the first immediate byte, BITS the operand's bit count (8 or
     // 16 by the format's width), LEN the instruction's bytes still to pop (the trap routine),
     // (MX3c) CLH (CL + 1) / 2 from port B's low byte: CL shifted right by one with its low bit
-    // as the carry-in (the BCD strings' byte pairs: CL digits)
+    // as the carry-in (the BCD strings' byte pairs: CL digits), (F2a) SIG SIGMA's low four bits
+    // (the bit fields' per-bit loops: the offset, the width's complement, the bits above the
+    // field, the bits spilled into the next word)
     typedef enum logic [2:0] {
-        CN_NONE = 3'd0, CN_RB = 3'd1, CN_IL = 3'd2, CN_BITS = 3'd3, CN_LEN = 3'd4, CN_CLH = 3'd5
+        CN_NONE = 3'd0, CN_RB = 3'd1, CN_IL = 3'd2, CN_BITS = 3'd3, CN_LEN = 3'd4, CN_CLH = 3'd5,
+        CN_SIG = 3'd6
     } v35_cnt_e;
 
     // ---- sequencing ----

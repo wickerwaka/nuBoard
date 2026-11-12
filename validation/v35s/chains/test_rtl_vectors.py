@@ -83,7 +83,9 @@ class SingleStepTests(unittest.TestCase):
              # (WP79) the 0F page and the register miscellany
              "0F15", "0F1A", "0F20", "0F22", "0F26", "0F33", "0F39", "27", "3F", "D4", "D5", "6B",
              # (MX4) the string forms, single and under a REP prefix (each file 5,000 tests)
-             "A5", "A6", "AB", "AC", "AF", "6C", "6F")
+             "A5", "A6", "AB", "AC", "AF", "6C", "6F",
+             # (F2a) the bit fields INS / EXT, both width forms
+             "0F31", "0F3B")
 
     def test_reference_passes(self):
         from validation.v35s.chains import sst
@@ -110,8 +112,8 @@ class SingleStepTests(unittest.TestCase):
     # (MX1) the files whose forms are a later package's (docs/v35s-mechanisms.md section 8):
     # RET, the branch (MX2); the 0F page (MX3; the adjusts, the converts and MUL imm built at
     # MX3 part 2: 27 3F D4 D5 6B pass; the bit operations and the BCD strings at MX3 part 3:
-    # 0F15 0F1A 0F20 0F22 0F26 pass; the bit fields INS / EXT not built)
-    LATER = {"C3": "MX2", "7C": "MX2", "0F33": "MX3", "0F39": "MX3"}
+    # 0F15 0F1A 0F20 0F22 0F26 pass; (F2a) the bit fields INS / EXT: 0F31 0F33 0F39 0F3B pass)
+    LATER = {"C3": "MX2", "7C": "MX2"}
 
 
 @unittest.skipUnless(rtl_vectors.C2BENCH.exists(), "bench not built: fpga/v35s/build_core2_tb.sh")

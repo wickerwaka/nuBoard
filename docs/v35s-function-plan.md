@@ -24,7 +24,7 @@ Standing gates at every landing: the refresh-off corpus loses no exact run; the 
 the register vectors and the function vectors stay at 0 bad; lint and the fast tests pass.
 
 **FPGA timing is a regression gate (the user, 2026-11-11).** Timing accuracy against silicon is set aside,
-but the core is built for the T120F484 at every landing (`v35_timing.sh top`, seeds 1..5, the 17 ns tick, one
+but the core is built for the T120F484 at every landing (`v35_timing.sh top`, seeds 1..3 (the user: three, not five), the 17 ns tick, one
 create_clock, no exception) and compared with the baseline at 74a17eb (+0.962 / +0.721 / +0.433 / +0.465 /
 -0.057 ns; 6,552 LUT4 / 73 RAM_5K). A landing that makes the worst seed materially worse goes back.
 

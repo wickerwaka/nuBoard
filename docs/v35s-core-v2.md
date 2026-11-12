@@ -2087,3 +2087,17 @@ question, decided from S8's routed numbers with the user.
   RAM_5K, the base 920); **not yet loaded on the board** (F1 owns it). Open: silicon's INTAK cycle is
   unmeasured (F3 measures before relying on the answer path); pin recording and the RxD streams have not
   run against the part; the register-map text for docs/v35s-harness.md is at the scratchpad's v2/f0/.
+- **F2a landed (2026-11-11): INS and EXT (urom/bf.uasm); 6,400 → 6,520 / 30,536.** Four routines on the 0F
+  page (0F 31 / 33 / 39 / 3B), the field moving one bit per two-word loop through {tmpc, tmpb} (silicon's
+  per-bit costs: EXT within a word 107 − 2o − 4w, crossing 61 + 2o; INS within a word a constant 94, crossing
+  4 a spilled bit); six ALU operations (BFR BFL BFI BFM BFK BFU), tmpb's ALU write path, the counter loaded
+  from SIGMA's low four bits (a port from the EU to the sequencer): all tick B, nothing on the delivery
+  chain. The ROM 1,451 → 1,569. **Verified on main:** F32 128 → 158, F34 123 → 177, F39 197 → 233, every other
+  family unchanged, 120 gained, 0 lost, both spacings identical, chk silent, write data 106,824 / 106,824 (every
+  write in the corpus now agrees), the four SingleStepTests files passing in full (39,906 tests), vectors 0
+  bad, lint clean, 48 fast tests. **FPGA at 17 ns:** worst setup +2.229 / +0.927 / +1.351 / +1.609 / +2.319 on
+  seeds 1 .. 5 (the baseline +0.962 / +0.721 / +0.433 / +0.465 / −0.057), 6,805 LUT4 / 421 ADD / 1,395 FF / 73
+  RAM_5K, useq alone +6.353, eu +5.587: no regression (the delivery chain mapped at 14 to 15 levels this
+  time). The landing gate is three seeds from here (the user). Open: the bit-field forms behind item 23's OUT
+  frame; the model's fetch-free setup rule (bf_read=fixed) and bf_imm_hold not built; the memory ModR/M
+  forms unmeasured.

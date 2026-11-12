@@ -2454,6 +2454,115 @@ At 15.625 ns the table loses to the gates it replaces, because the RAM_5K's unre
 - `zt_f`'s compare restructured so it stands in about two levels after the data out;
 - the tag read a tick earlier, which would change when the pins are sampled, so it is not available under the rules.
 
+## F2a: the bit fields INS / EXT (urom/bf.uasm)
+
+Stage F2's first part (docs/v35s-function-plan.md). Built: INS (0F 31 the width in the reg field's
+byte register, 0F 39 the imm4 width) and EXT (0F 33, 0F 3B) as microcode routines, register
+ModR/M forms (the V20 forms; a memory mode pops its displacement through the EA head and runs
+the register form on the rm field's byte register: no V20 or V35 behaviour is known for it and
+the SingleStepTests have none). The function is funcref.py's (the V20 suite's): the crossing
+decided on the registers whole (offset + width >= 16: the next word read, and for INS written,
+though no bit of the field lands in it), the offset register stepped to (offset + w + 1) mod 16,
+the pointer (IX for EXT, IY for INS) stepped by 2 when that sum reaches 16, the flags the byte
+subtract 15 - (offset + width) (EXT) / 15 - (offset + width + 1) (INS), EXT's read at DS0:IX or a
+prefix's segment, INS's at DS1:IY whatever the prefix, INS's offset register stepped before AW
+is read, EXT's written after AW. Simulation only; no board or Efinity run.
+
+### The machine
+
+- **The pair {tmpc, tmpb}.** The field moves one bit a loop iteration through the 32-bit pair
+  (tmpc the high word): BFR rotates it right by one, BFL left; each iteration is two words (the
+  rotation and the LOOP word: the V35's iteration, as the shifts'). The loop counter loads from
+  SIGMA's low four bits (CN_SIG, new): the offset, 15 - w, the bits above the field, the spilled
+  bits, each computed into SIGMA by the ALU first. tmpb gains an ALU write path beside its moves
+  (as tmpc has for MULF / DIVF / R4); SIGMA is not touched by the rotations, so a count or the
+  offset's step rides in it through a loop.
+- **EXT within a word:** the word shifted left by the bits above the field (15 - offset - w) and
+  right by the bits not in it (15 - w), tmpc zero both times: the field lands in tmpb's low bits
+  (silicon's 107 - 2o - 4w, docs/v35s-eu-timing.md "EXT and INS": two clocks a bit).
+  **EXT crossing:** the pair {the next word, the word} rotated right by the offset, tmpb masked to
+  w + 1 bits (BFM): silicon's 61 + 2o.
+- **INS** (the subroutine bf_pass, called by both forms): the pair {0, the word} rotated right
+  by the offset, AW's low w + 1 bits merged into tmpb (BFI), rotated on to sixteen rotations
+  (15 - offset, then one): tmpc holds the word with the field, tmpb the field's bits beyond bit
+  15 (silicon's constant 94; 92 at offset 0: two words follow the offset's rotations only when
+  there are any). **INS crossing:** the low word written, the next word read, its low n bits
+  replaced by the n spilled bits: the pair {the next word, the spill} rotated right by n, then
+  the next word alone (tmpb a copy) rotated left by n: silicon's four clocks a spilled bit, 128 +
+  4(o + w - 16).
+- **The new ALU operations** (the field 6 bits, 42 of 64 used now): BFR / BFL (the pair's
+  rotation into tmpb and tmpc), BFI (tmpb's low w + 1 bits from x; w tmpa's low four bits), BFM
+  (tmpb masked to w + 1 bits), BFK (SIGMA = 15 - x, the flags of the byte subtract 15 - x[7:0];
+  SIGMA's sign is the crossing), BFU (SIGMA = {carry, 0, (x[3:0] + y[3:0] + 1) mod 16}: the new
+  offset in the low byte, bit 15 the pointer's step, jumped on with SGN).
+- **The clocks around the loops** with no act are OPEN words (the shared delay, `call=wK`),
+  placed on the frozen model's clocks from the runs it is exact on (F32-out-ext_bl_i7-k1-pE-w0,
+  F32-out-ext_dl_i11-k1-pE-w0, F32-out-ins_bl_i7-k1-pE-w0, F32-out-ins_dl_i11-k1-pE-w0 and the
+  k2 / w1 runs, below): the read's setup (5 + the fetch-free clock of the imm4 form), the gap
+  from the read's end to the loops' end (EXT 19, INS 26 within, 18 ending at bit 15, 21 before
+  the crossing's first write), the crossing's next read (EXT 18 after the first read's end, INS
+  9 after the low write's end), its write (14), the end (EXT two on the path without the
+  pointer's step: the step costs no clock; INS four after the last write's post).
+- **The read's datum is taken at once** (the F word right after the post: every later clock is
+  counted from the read's end, at every wait count); the crossing INS takes the low write's end
+  the same way (F after a write: the RAMEN hold) before the next read's setup. The imm4 forms'
+  setup ends with a fetch-free clock (`fw`: the frozen model's bf_read=fixed counts the setup on
+  clocks no fetch runs; it puts the w2 read on silicon's clock). **EXT's E carries wb** (the
+  frozen model's bf_ext wb 2: AW's write-back runs on past E, so an OUT imm8 after it waits two
+  clocks while a second EXT starts at once). INS's E is on the fifth clock after its last
+  write's post (held to the write's end at w >= 1).
+
+### Measured
+
+The corpus (both spacings, `+v35_chk` silent; the per-family tables identical at
+`+v35_ticks=2`): **6,520** exact (b59d7ed 6,400): 120 gained, **0 lost**. The per-run first
+divergences differ from the base's only in F32 (96 runs), F34 (188) and F39 (81): the families
+with bit-field forms; every other family's are identical.
+
+| family | b59d7ed | F2a |
+| --- | --- | --- |
+| F32 | 128 | 158 (EXT 17, INS 13: the pE out frame, k1 / k2, w0 / w1 / w2) |
+| F34 | 123 | 177 (the bf probe: out 44, push 10) |
+| F39 | 197 | 233 (the page series: push 28, out 2; the ctl series 6) |
+| the rest | 5,952 | unchanged |
+
+Write data **106,824 / 106,824** (b59d7ed 105,444: every bit-field write now agrees). The
+SingleStepTests 0F31 / 0F33 / 0F39 / 0F3B: 39,906 tests pass, none fails (9,960 / 9,997 /
+9,952 / 9,997; the reference's counted-apart classes as before: the on-chip page 3 a file, the
+unlisted addresses 37 / 45); test_rtl_vectors' sample gains 0F31 and 0F3B and its LATER list
+drops 0F33 / 0F39. `--regfile` 107,859 vectors and `--fn` 19,752, 0 bad. Lint clean in the five
+configurations. test_uasm, test_v35_struct, test_chain_lane, test_rtl_vectors OK. ROM **1,569
+words** of 2,048 (b59d7ed 1,451: the bit fields 118, bf_pass shared by both INS forms, the EXT
+and INS bodies by both width forms); the word 93 bits, UADDR_W 11. Not built for timing on
+Efinity here: the new logic is tick B only (below).
+
+Depth (by construction; the overseer's Efinity run): nothing joins tick A. Tick B: BFR / BFL a
+one-level select into tmpb / tmpc; BFI / BFM tmpa[3:0]'s 16-bit mask (one LUT a bit) and an
+and-or into tmpb, from registers (tmpa, tmpb, x_b); BFK a 16-bit 15 - x beside the ALU's adder
+and the existing byte subtract for the flags, from x_b; BFU a 5-bit add of x_b / y_b. tmpb's
+next value gains one source (the bit-field result), tmpc's two, SIGMA's and the PSW's case
+two / one more arm. The sequencer's counter load gains CN_SIG (SIGMA's low four bits: a
+register) in tick B, after the word's cnt field.
+
+### Open (F2a)
+
+1. **The pO half (90 runs) and the k1 register forms at pE:** the OUT frame (item 23). At pE the
+   OUT imm8 after a register-width form fetches four clocks early (the fetch after OUT's port pop
+   that silicon holds to the I/O's lead, item 23's hold); its I/O write is on silicon's clock.
+2. **The imm4 forms' second instance (k2) and the w2 register forms' read:** the frozen model's
+   bf_read=fixed restarts the read's setup count on any fetch that is not a back-to-back commit
+   after the form's start (arbiter.page_free with pfree); the RTL's setup is fixed words (one
+   `fw` word on the imm4 forms). The second imm4 instance's read is 3 (w0) / 4 (w1, w2) clocks
+   early, the register forms' first read a clock early at w2. A reading would be a fetch-free
+   count kept by the sequencer (a word that waits until K clocks have passed with no non-b2b
+   fetch on the bus): not built.
+3. **bf_imm_hold** (the push frame's EXT / INS imm4 at pE, 6 runs): the model raises no fetch
+   request from the width byte's take until two clocks before the end when the width byte is the
+   even half of its word; not built (the RTL fetches 45 clocks early there). It is the same hold
+   as cvt_hold / mul_imm_hold (the MX4 note's str_fetch=hold has the same candidate: a release act).
+4. The memory ModR/M forms are not V20 forms; their behaviour on silicon is unmeasured (a probe
+   on the socket would settle it).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

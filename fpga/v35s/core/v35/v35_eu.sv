@@ -103,6 +103,7 @@ module v35_eu
     output wire        c_f1,            // (MX3b) F1, the units' sign latch (the operands' signs differ)
     output wire        c_dn,            // (MX3b) the divide's dividend negative (DIVI's)
     output wire [7:0]  rb_lo,
+    output wire [3:0]  sig_lo,          // (F2a) SIGMA's low four bits (a register: CN_SIG)
     // the queue's flush (tick A: registers)
     output wire [15:0] flush_off,
     output wire [19:0] flush_lin,
@@ -318,8 +319,9 @@ module v35_eu
     wire [15:0] wsv = src(word.ws);
 
     // ------------------------------------------------------------ tick B: the ALU
-    logic [15:0] r, pn, tc_n;
-    logic        scy_n, dtrap_n, tc_w, bz_n;
+    logic [15:0] r, pn, tc_n, tb_n, bfm;
+    logic        scy_n, dtrap_n, tc_w, tb_w, bz_n;
+    logic [4:0]  bfs;
     logic [9:0]  b10;
     logic [16:0] st;
     logic [31:0] q32;
@@ -334,6 +336,11 @@ module v35_eu
         dtrap_n = dtrap;
         tc_n = tc;
         tc_w = 1'b0;
+        tb_n = tb;
+        tb_w = 1'b0;
+        // (F2a) the bit field's mask: the width field's w + 1 low bits (tmpa's low four bits)
+        bfm = 16'((17'd2 << ta[3:0]) - 17'd1);
+        bfs = 5'd0;
         mul_n = mul;
         dv_n = dv;
         st = 17'd0;
@@ -446,6 +453,37 @@ module v35_eu
                 tc_n = {8'd0, q32[15:8]};
                 tc_w = 1'b1;
             end
+            // (F2a) the bit fields: the pair {tmpc, tmpb} rotated by one (SIGMA kept), the
+            // field merged into or masked out of tmpb, the crossing test with the flags, the
+            // offset's step
+            AL_BFR: begin
+                tb_n = {tc[0], tb[15:1]};
+                tc_n = {tb[0], tc[15:1]};
+                tb_w = 1'b1;
+                tc_w = 1'b1;
+            end
+            AL_BFL: begin
+                tb_n = {tb[14:0], tc[15]};
+                tc_n = {tc[14:0], tb[15]};
+                tb_w = 1'b1;
+                tc_w = 1'b1;
+            end
+            AL_BFI: begin
+                tb_n = (tb & ~bfm) | (x & bfm);
+                tb_w = 1'b1;
+            end
+            AL_BFM: begin
+                tb_n = tb & bfm;
+                tb_w = 1'b1;
+            end
+            AL_BFK: begin
+                q32[15:0] = v35_alu(3'd5, 1'b0, 16'd15, x, psw, pn);
+                r = 16'd15 - x;
+            end
+            AL_BFU: begin
+                bfs = {1'b0, x[3:0]} + {1'b0, y[3:0]} + 5'd1;
+                r = {bfs[4], 11'd0, bfs[3:0]};
+            end
             AL_CITF: begin
                 pn[V35_PSW_IE] = 1'b0;
                 pn[8] = 1'b0;               // BRK (the single-step flag)
@@ -520,6 +558,7 @@ module v35_eu
                       : (opr_v_nx || (req_done_nx && rq_out_nx && rq_rd_nx));
     assign rq_busy_nx = rq_v_nx || (rq_out_nx && !req_done_nx);
     assign c_sgn = sigma[15];
+    assign sig_lo = sigma[3:0];
     assign c_dtrap = dtrap;
     // (MX2) the flush's target: SIGMA (the V20 ROM's SIGMA -> PC on its FLUSH word), in PS
     assign flush_off = sigma;
@@ -587,6 +626,8 @@ module v35_eu
                     f1 <= dv_n.nneg ^ dv_n.dneg;
                 if (tc_w)
                     tc <= tc_n;
+                if (tb_w)
+                    tb <= tb_n;
                 case (word.d1)
                     MD_TA: ta <= s1v;
                     MD_TB: tb <= s1v;
