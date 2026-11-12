@@ -90,13 +90,22 @@ module v35_top
     reg         ms_hlt = 1'b0;
     wire        int_on;                 // (F3b) the INT request (the level, PMC1 bit 4)
     wire [14:0] pf_set;                 // (F4) the peripherals' IF requests
+    // (F4c) DMA: the request and the take's descriptor (v35_dma's registers), the take, the
+    // routine's TC update and last transfer (the EU's), the bus unit's DMA cycle windows
+    wire        dm_v, dm_burst, dm_ch, dm_in, dm_out, dm_w;
+    wire [1:0]  dm_ps, dm_pd;
+    wire        take_d, dm_tend, dm_tlast, dm_last, req_dk, b_dk, b_dkt, dm_rs;
+    reg         tk_dm = 1'b0;           // the last take is a DMA transfer's
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
                  .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd),
                  .rd_go(oc_rdgo && !oc_ram), .psw_f,
                  .input_levels, .flag_we, .flag_d, .poll_p14,
                  .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on, .ms_b, .ms_clr,
-                 .ce_a, .pins_in, .intak_n, .pins, .pf_set);
+                 .ce_a, .pins_in, .intak_n, .pins, .pf_set,
+                 .dm_take(take_d), .dm_tend, .dm_tlast, .dm_rs, .dm_last, .dk(b_dk), .dkt(b_dkt),
+                 .dm_v,
+                 .dm_burst, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd);
 
     // ---------------------------------------------------------------- CPU clock
     reg [2:0] x_count = 3'd0;
@@ -339,7 +348,7 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_e, .ce_mid, .wtc, .rfm,
         .idb, .ramen, .oc_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
-        .req_ia, .intak_n,
+        .req_ia, .intak_n, .req_dk, .dk(b_dk), .dkt(b_dkt),
         .fetch_req(q_fetch_req), .q_low, .q_word, .fetch_addr(q_fetch_addr),
         .t_start, .take_now, .l_pop(ld_load),
         .g_start, .g_kind, .g_addr, .g_width, .g_fetch, .g_eu, .g_abort, .g_b2b,
@@ -428,7 +437,7 @@ module v35_top
         .s_wbs_nx(l_sw_nx), .s_modrm_nx(l_sm_nx), .d1_wbs_nx(l_dw_nx), .d1_hm_nx(l_dh_nx),
         .rmem_nx((fmt_nx.has_modrm || fmt_nx.pg) && ld_modrm_nx[7:6] != 2'd3),
         .fetch_run_nx(b_fir_nx), .bus_wait_nx(b_iw_nx), .fetch_dph_nx(b_fpb_nx),
-        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(i_wake || ms_v), .igo,
+        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(i_wake || ms_v || dm_v), .igo,
         .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
@@ -440,7 +449,8 @@ module v35_top
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
         .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki,
         .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns(ns_r), .req_ia,
-        .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_hlt, .ms_end,
+        .tk_ms, .ms_ch(tk_dm ? {2'b00, dm_ch} : ms_ch), .ms_mode, .ms_dir, .ms_hlt, .ms_end,
+        .tk_dm, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd, .dm_tend, .dm_tlast, .dm_last, .req_dk,
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,
@@ -474,29 +484,59 @@ module v35_top
     // and before the maskable offer (not measured); in HALT the stall ends on it (the sequencer's
     // `wake` OR ms_v) and the routine returns to the HALT (f4_ms ms_halt: no release)
     wire g_m = ms_v;
-    assign igo = !nb_r && (g_n || g_m || g_i || g_s);
+    // (F4c) a DMA request: taken at the start after the one that saw it (`dm_arm`, sampled at
+    // each start: f4_dma step_w / burst_w, the instruction after the TDMA store runs first; a
+    // store clearing EDMA lets one more transfer through: f4_dm3 tdma_io); in single step and
+    // single transfer a take disarms it (one instruction between transfers), in burst and
+    // demand release not (back to back); the last transfer's TC update disarms it. In HALT the
+    // stall ends on the request and the take needs no arm (f4_dma halt_io: transfers in HALT,
+    // no release). After NMI and a macro service, before the maskable offer (not measured)
+    reg  dm_arm = 1'b0;
+    // (F4c) a DMA transfer or a macro service taken out of HALT resumes at the HALT: its start is
+    // no boundary for NMI or an interrupt (`rs_hlt` makes the routine's E word set nb_r), so the
+    // HALT runs, is released by the pending request and the request is taken after it with the
+    // HALT's next offset pushed (f4_dma halt: the DIC1 handler returns after the HALT)
+    reg  rs_hlt = 1'b0;
+    wire g_d = dm_arm || (ms_hlt && dm_v);
+    assign igo = !nb_r && (g_n || g_m || g_d || g_i || g_s);
     wire dsp_x = ex && w_disp;
     wire take_n = dsp_x && igo && g_n;
     wire take_m = dsp_x && igo && !g_n && g_m;
-    wire take_i = dsp_x && igo && !g_n && !g_m && g_i;
-    wire take_s = dsp_x && igo && !g_n && !g_m && !g_i;
+    assign take_d = dsp_x && igo && !g_n && !g_m && g_d;
+    assign dm_rs = dsp_x && !take_d;          // (F4c) the CPU resumes: DIC's IF set here
+    wire take_i = dsp_x && igo && !g_n && !g_m && !g_d && g_i;
+    wire take_s = dsp_x && igo && !g_n && !g_m && !g_d && !g_i;
     always @(posedge clock) begin
         if (!core_reset_n) begin
             ie_arm <= 1'b0;
             brk_arm <= 1'b0;
             nb_r <= 1'b0;
             ms_hlt <= 1'b0;
+            dm_arm <= 1'b0;
+            tk_dm <= 1'b0;
+            rs_hlt <= 1'b0;
         end else if (ce_a) begin
             if (dsp_x) begin
                 ie_arm <= psw_ie;
                 brk_arm <= psw_brk;
+                dm_arm <= dm_v && !(take_d && !dm_burst);
             end
+            if (dm_tend && dm_tlast)
+                dm_arm <= 1'b0;
+            if (take_d)
+                tk_dm <= 1'b1;
+            else if (take_n || take_m || take_i || take_s)
+                tk_dm <= 1'b0;
             if (ex_pop && word.e)
-                nb_r <= word.nb;
+                nb_r <= word.nb || rs_hlt;
+            if (take_d || take_m)
+                rs_hlt <= ms_hlt;
+            else if (ex_pop && word.e)
+                rs_hlt <= 1'b0;
             // (F4b) the stall of a HALT seen since the last start that was not a macro service's
             if (halted)
                 ms_hlt <= 1'b1;
-            else if (dsp_x && !take_m)
+            else if (dsp_x && !take_m && !take_d)
                 ms_hlt <= 1'b0;
         end
     end
@@ -506,7 +546,7 @@ module v35_top
         .iack(ex_b && word.alu == AL_IVEC), .fint(ex_b && word.alu == AL_FINT),
         .ic_if, .ispr, .ir_v, .ir_vec, .nmi_v, .wake(i_wake), .tk_vec,
         .int_on, .it_v, .tk_bs, .tk_lv, .tk_int, .pf_set,
-        .ms_b, .take_m, .ms_end, .ms_v, .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr
+        .ms_b, .take_m, .take_d, .ms_end, .ms_v, .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr
     );
 
     // ---------------------------------------------------------------- the register RAM

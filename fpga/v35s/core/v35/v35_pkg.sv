@@ -123,7 +123,11 @@ package v35_pkg;
         // MSPC SIGMA <- x - 1 when the take followed a HALT (the routine returns to it); MSDR
         // {DIR, 0}
         AL_MSCA = 6'd56, AL_SFRH = 6'd57, AL_MSMD = 6'd58, AL_MSEQ = 6'd59, AL_MSDC = 6'd60,
-        AL_MSPC = 6'd61, AL_MSDR = 6'd62
+        AL_MSPC = 6'd61, AL_MSDR = 6'd62,
+        // (F4c) DMA (urom/dma.uasm): the macro-service ops above read the DMA take's descriptor
+        // while one is taken (v35_eu); DMS SIGMA <- x stepped by DMAC (y 0: SAR by PS, 1: DAR
+        // by PD; 01 +, 10 -, by W)
+        AL_DMS = 6'd63
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +

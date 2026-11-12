@@ -82,7 +82,25 @@ module v35_sfr (
     input  wire [23:0] pins_in,
     input  wire        intak_n,
     output reg  [31:0] pins,
-    output wire [14:0] pf_set
+    output wire [14:0] pf_set,
+    // (F4c) DMA (v35_dma, below): the take and the routine's TC update (v35_top / the EU), the
+    // request and the take's descriptor (registers), the bus unit's DMA cycle on the pins (`dk`:
+    // DMAAK's window, `dkt`: TC's, inside it)
+    input  wire        dm_take,
+    input  wire        dm_tend,
+    input  wire        dm_tlast,
+    input  wire        dm_rs,           // a start that is not a DMA take (DIC's IF is set there)
+    input  wire        dm_last,         // the transfer in flight is the last (the EU's register)
+    input  wire        dk,
+    input  wire        dkt,
+    output wire        dm_v,
+    output wire        dm_burst,
+    output wire        dm_ch,
+    output wire        dm_in,
+    output wire        dm_out,
+    output wire        dm_w,
+    output wire [1:0]  dm_ps,
+    output wire [1:0]  dm_pd
 );
     localparam logic [7:0] PRC_RESET = 8'h4E;
     localparam logic [15:0] WTC_RESET = 16'hFFFF;
@@ -300,9 +318,17 @@ module v35_sfr (
         .brg(st[8'h7A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h38), .rxd_in(input_levels[10]),
         .cts_in(input_levels[12]), .rxb(rxb1), .sce(sce1), .txd(txd1), .sck(sck1), .rsck(rsck1),
         .rsck_oe(rsck_oe1), .sr(sr1), .st(st1), .se(se1));
-    // the IF bits raised: SEIC0 SRIC0 STIC0 (3-5), SEIC1 SRIC1 STIC1 (6-8), TMIC0-2 (9-11), TBIC
-    // (14)
-    assign pf_set = {tbf, 2'b00, tf, st1, sr1, se1, st0, sr0, se0, 3'd0};
+    // (F4c) DMA: DMAM's mode, W and EDMA live in v35_dma (read back from it); DMAC in the storage
+    wire [7:0] dmam0, dmam1;
+    wire [1:0] dic;
+    v35_dma dma (.clock, .reset_n, .ce_a, .we(p_we), .w_off, .w_word, .w_lo, .w_hi(data[15:8]),
+                 .dmac0(st[8'hA0]), .dmac1(st[8'hA2]), .dmarq(input_levels[7:6]),
+                 .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs), .dmam0, .dmam1, .dm_v,
+                 .dm_burst, .tk_ch(dm_ch), .tk_in(dm_in), .tk_out(dm_out), .tk_w(dm_w),
+                 .tk_ps(dm_ps), .tk_pd(dm_pd), .dic);
+    // the IF bits raised: SEIC0 SRIC0 STIC0 (3-5), SEIC1 SRIC1 STIC1 (6-8), TMIC0-2 (9-11), (F4c)
+    // DIC0-1 (12-13), TBIC (14)
+    assign pf_set = {tbf, dic, tf, st1, sr1, se1, st0, sr0, se0, 3'd0};
 
     // the ports (f4_port): a bit in input mode (PM 1) reads its pin, in output mode its latch;
     // P10-P13 are inputs (PM1 bits 3:0 fixed 1), P13 the /INTAK output's level while PMC1 bit 3
@@ -325,10 +351,19 @@ module v35_sfr (
     // keepers: f4_tout, P13 stays high after PMC1 bit 3 is cleared). (F4b) TxD0/1; SCK0 on P16 by
     // PMC1 bit 6; RSCK0 on /CTS0's pin while channel 0's I/O mode drives it (f4_sio). CLKOUT is
     // not built
-    wire [31:0] pv = {5'd0, rsck0, txd1, txd0, 1'b0, ~pm2[6:4] & p2l[6:4], 1'b0,
-                      ~pm2[2:1] & p2l[2:1], 1'b0, ~pm1[7] & p1l[7], pmc1[6] ? sck0 : p1l[6],
+    // (F4c) PMC2 bits 1, 2, 4, 5: DMAAK0, TC0, DMAAK1, TC1 (f4_dma: DMAAK low through the
+    // transfer's cycle in the I/O modes only, TC low inside the last transfer's cycle, every mode)
+    wire [7:0] pmc2 = st[8'h12];
+    wire       dk_io = dk && (dm_in || dm_out);
+    wire       tc_l = dkt && dm_last;
+    wire [7:0] p2f = {1'b0, 1'b1, !(tc_l && dm_ch), !(dk_io && dm_ch), 1'b0, !(tc_l && !dm_ch),
+                      !(dk_io && !dm_ch), 1'b0};
+    wire [7:0] p2v = (pmc2 & p2f) | (~pmc2 & ~pm2 & p2l);
+    wire [7:0] p2d = pmc2 | ~pm2;
+    wire [31:0] pv = {5'd0, rsck0, txd1, txd0, 1'b0, p2v[6:4], 1'b0,
+                      p2v[2:1], 1'b0, ~pm1[7] & p1l[7], pmc1[6] ? sck0 : p1l[6],
                       pmc1[5] ? tout : p1l[5], ~pm1[4] & p1l[4], intak_n, 3'd0, ~pm0 & p0l};
-    wire [31:0] pd = {5'h1F, rsck_oe0, 2'b11, 1'b1, ~pm2[6:4], 1'b1, ~pm2[2:1], 1'b1, ~pm1[7],
+    wire [31:0] pd = {5'h1F, rsck_oe0, 2'b11, 1'b1, p2d[6:4], 1'b1, p2d[2:1], 1'b1, ~pm1[7],
                       pmc1[6] || !pm1[6], pmc1[5] || !pm1[5], ~pm1[4], pmc1[3], 3'b111, ~pm0};
     initial pins = 32'h0300_0000;
     always_ff @(posedge clock)
@@ -364,6 +399,11 @@ module v35_sfr (
             rbyte = sce0;
         if (o == 8'h7B)
             rbyte = sce1;
+        // (F4c) DMAM0/1: the DMA unit's (TDMA reads 0, EDMA cleared at TC 0)
+        if (o == 8'hA1)
+            rbyte = dmam0;
+        if (o == 8'hA3)
+            rbyte = dmam1;
         // (F3) an IC register's IF bit: the controller's
         if (kind(o) == K_ST && ic_idx(o) != 4'd15)
             rbyte[7] = ic_if[ic_idx(o)];
@@ -397,7 +437,7 @@ module v35_sfr (
     initial int_on = 1'b0;
     always_ff @(posedge clock)
         int_on <= input_levels[5] && st[8'h0A][4];
-    wire unused = &{1'b0, input_levels[15:13], input_levels[8:6], input_levels[4:0], rsck1,
+    wire unused = &{1'b0, input_levels[15:13], input_levels[8], input_levels[4:0], rsck1,
                     rsck_oe1, sck1};
 endmodule
 
@@ -449,6 +489,7 @@ module v35_intc (
     // the service's end (the EU's MSDC strobe)
     input  wire [8*15-1:0] ms_b,
     input  wire        take_m,
+    input  wire        take_d,          // (F4c) a DMA take: none of the controller's (IVEC: FFFEh)
     input  wire        ms_end,
     output reg         ms_v,            // a macro-service request is pending
     output reg         tk_ms,           // the last take is a macro service ...
@@ -561,6 +602,12 @@ module v35_intc (
                 ms_ch <= ms_b[8 * ms_i +: 3];
                 ms_dir <= ms_b[8 * ms_i + 4];
                 ms_mode <= ms_b[8 * ms_i + 5 +: 3];
+            end
+            if (take_d) begin
+                tk_k <= 3'd0;
+                tk_int <= 1'b0;
+                tk_bs <= 1'b0;
+                tk_ms <= 1'b0;
             end
             if (take_n || take_i || take_s) begin
                 tk_ms <= 1'b0;
@@ -1147,3 +1194,185 @@ module v35_serial #(parameter bit IO_MODE = 1'b1) (
     end
 endmodule
 /* verilator lint_on DECLFILENAME */
+
+// ============================================================================================
+// (F4c) The DMA controller's request side (README "F4 (part C)"), measured on the socket
+// (validation/v35s/dma.py: f4_dma; receipts validation/v35s/receipts/f4-f4_dm*). The transfers
+// are the EU's: a request here is taken at an instruction start like a macro service (v35_top
+// `take_d`) and urom/dma.uasm moves the data through the channel block in internal RAM
+// (IDB:E00 + 8 x the channel: +0 SAR, +2 DAR, +4 DARH, +5 SARH, +6 TC). This module holds
+// DMAM's mode, W and EDMA, the channels' requests and the take's descriptor (registers only).
+//
+//   DMAM   MD2-0 (7:5), W (4), EDMA (3), TDMA (2, a trigger: reads 0); EDMA cleared at TC 0
+//   000 / 100  memory to memory, single step / burst: started by a TDMA store with EDMA (not by
+//              DMARQ: f4_dm2 burst_rq, step_rq); single step: one instruction between transfers
+//   101 / 110  single transfer, I/O to memory / memory to I/O: one transfer per DMARQ rising edge
+//              (an edge before EDMA's store is not counted: f4_dm3 io_lvl)
+//   001 / 010  demand release: transfers while DMARQ is high after its rising edge
+//   011 / 111  reserved: no request
+// The store of DMAM clears the channel's DMARQ flags (the data book: "When the EDMA bit is set,
+// the internal DMARQ flag is cleared"). Channel 0 is picked before channel 1 (not measured).
+module v35_dma (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce_a,
+    input  wire        we,              // an SFR store (v35_sfr's p_we) ...
+    input  wire [7:0]  w_off,           // ... its offset, width, bytes
+    input  wire        w_word,
+    input  wire [7:0]  w_lo,
+    input  wire [7:0]  w_hi,
+    input  wire [7:0]  dmac0,           // DMAC0 / DMAC1 (v35_sfr's storage): PD 5:4, PS 1:0
+    input  wire [7:0]  dmac1,
+    input  wire [1:0]  dmarq,           // the DMARQ0/1 levels (the input levels 6, 7)
+    input  wire        take,            // v35_top's take_d (a ce_a strobe at the dispatch)
+    input  wire        tend,            // the routine's TC update (a ce_a strobe) ...
+    input  wire        tlast,           // ... TC reached 0
+    input  wire        rs,              // a start that is not a DMA take (v35_top: the CPU resumes)
+    output wire [7:0]  dmam0,           // the DMAM bytes as read
+    output wire [7:0]  dmam1,
+    output reg         dm_v,            // a transfer is requested (a register)
+    output reg         dm_burst,        // ... the picked channel transfers back to back
+    output reg         tk_ch,           // the take's descriptor: the channel ...
+    output reg         tk_in,           // ... I/O to memory (the destination side alone)
+    output reg         tk_out,          // ... memory to I/O (the source side alone)
+    output reg         tk_w,            // ... word transfers
+    output reg  [1:0]  tk_ps,           // ... SAR's step (01 +, 10 -, else none)
+    output reg  [1:0]  tk_pd,           // ... DAR's
+    output reg  [1:0]  dic              // DIC0 / DIC1 IF set (ce_a strobes, pf_set 12 / 13)
+);
+    reg [2:0] md0 = 3'd0, md1 = 3'd0;
+    reg [1:0] w = 2'b00, edma = 2'b00, go = 2'b00, pend = 2'b00, dfl = 2'b00;
+    reg [1:0] rq_s = 2'b00, rq_r = 2'b00, rq_p = 2'b00;
+    reg       pick = 1'b0;              // the channel the next take serves (kept while none asks)
+    reg [1:0] dic_p = 2'b00;            // DIC's IF to be set when the CPU resumes (f4_dma dic: the
+                                        // instruction after the last transfer runs before the
+                                        // interrupt is taken)
+    initial begin
+        dm_v = 1'b0;
+        dm_burst = 1'b0;
+        tk_ch = 1'b0;
+        tk_in = 1'b0;
+        tk_out = 1'b0;
+        tk_w = 1'b0;
+        tk_ps = 2'd0;
+        tk_pd = 2'd0;
+        dic = 2'b00;
+    end
+    assign dmam0 = {md0, w[0], edma[0], 3'b000};
+    assign dmam1 = {md1, w[1], edma[1], 3'b000};
+    wire [1:0] s_m = {we && (w_off == 8'hA3 || (w_word && w_off == 8'hA2)),
+                      we && (w_off == 8'hA1 || (w_word && w_off == 8'hA0))};
+    wire [7:0] v_m0 = w_off == 8'hA1 ? w_lo : w_hi;
+    wire [7:0] v_m1 = w_off == 8'hA3 ? w_lo : w_hi;
+    function automatic logic m2m(input logic [2:0] m);
+        m2m = m[1:0] == 2'b00;
+    endfunction
+    function automatic logic single(input logic [2:0] m);
+        single = m == 3'b101 || m == 3'b110;
+    endfunction
+    function automatic logic demand(input logic [2:0] m);
+        demand = m == 3'b001 || m == 3'b010;
+    endfunction
+    function automatic logic chain(input logic [2:0] m);    // back to back while requested
+        chain = m == 3'b100 || demand(m);
+    endfunction
+    function automatic logic req(input logic [2:0] m, input logic en, input logic g,
+                                 input logic p, input logic d, input logic lvl);
+        req = en && (m2m(m) ? g : single(m) ? p : demand(m) ? d && lvl : 1'b0);
+    endfunction
+    wire [1:0] rq = {req(md1, edma[1], go[1], pend[1], dfl[1], rq_r[1]),
+                     req(md0, edma[0], go[0], pend[0], dfl[0], rq_r[0])};
+    wire [7:0] dmac_p = pick ? dmac1 : dmac0;
+    wire [2:0] md_p = pick ? md1 : md0;
+    always_ff @(posedge clock) begin
+        rq_s <= dmarq;
+        rq_r <= rq_s;
+    end
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            md0 <= 3'd0;
+            md1 <= 3'd0;
+            w <= 2'b00;
+            edma <= 2'b00;
+            go <= 2'b00;
+            pend <= 2'b00;
+            dfl <= 2'b00;
+            rq_p <= 2'b00;
+            pick <= 1'b0;
+            dm_v <= 1'b0;
+            dm_burst <= 1'b0;
+            dic <= 2'b00;
+            dic_p <= 2'b00;
+        end else if (ce_a) begin
+            rq_p <= rq_r;
+            dic <= rs ? dic_p : 2'b00;
+            if (rs)
+                dic_p <= 2'b00;
+            // channel 0
+            if (rq_r[0] && !rq_p[0] && edma[0]) begin
+                if (single(md0))
+                    pend[0] <= 1'b1;
+                if (demand(md0))
+                    dfl[0] <= 1'b1;
+            end
+            if (!rq_r[0])
+                dfl[0] <= 1'b0;
+            if (take && !pick)
+                pend[0] <= 1'b0;
+            if (tend && tlast && !tk_ch) begin
+                edma[0] <= 1'b0;
+                go[0] <= 1'b0;
+                pend[0] <= 1'b0;
+                dfl[0] <= 1'b0;
+                dic_p[0] <= 1'b1;
+            end
+            if (s_m[0]) begin
+                md0 <= v_m0[7:5];
+                w[0] <= v_m0[4];
+                edma[0] <= v_m0[3];
+                go[0] <= v_m0[3] && v_m0[2] && m2m(v_m0[7:5]);
+                pend[0] <= 1'b0;
+                dfl[0] <= 1'b0;
+            end
+            // channel 1
+            if (rq_r[1] && !rq_p[1] && edma[1]) begin
+                if (single(md1))
+                    pend[1] <= 1'b1;
+                if (demand(md1))
+                    dfl[1] <= 1'b1;
+            end
+            if (!rq_r[1])
+                dfl[1] <= 1'b0;
+            if (take && pick)
+                pend[1] <= 1'b0;
+            if (tend && tlast && tk_ch) begin
+                edma[1] <= 1'b0;
+                go[1] <= 1'b0;
+                pend[1] <= 1'b0;
+                dfl[1] <= 1'b0;
+                dic_p[1] <= 1'b1;
+            end
+            if (s_m[1]) begin
+                md1 <= v_m1[7:5];
+                w[1] <= v_m1[4];
+                edma[1] <= v_m1[3];
+                go[1] <= v_m1[3] && v_m1[2] && m2m(v_m1[7:5]);
+                pend[1] <= 1'b0;
+                dfl[1] <= 1'b0;
+            end
+            // the request and the pick (channel 0 first)
+            dm_v <= |rq;
+            if (|rq)
+                pick <= !rq[0];
+            dm_burst <= rq[0] ? chain(md0) : chain(md1);
+            if (take) begin
+                tk_ch <= pick;
+                tk_in <= md_p[0] && !md_p[1];
+                tk_out <= md_p[1] && !md_p[0];
+                tk_w <= pick ? w[1] : w[0];
+                tk_ps <= dmac_p[1:0];
+                tk_pd <= dmac_p[5:4];
+            end
+        end
+    end
+endmodule

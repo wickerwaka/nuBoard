@@ -129,6 +129,21 @@ module v35_eu
     input  wire        ms_dir,
     input  wire        ms_hlt,          // (F4b) the take followed a HALT (v35_top's register)
     output reg         ms_end,          // (F4b) the service's end (a ce_a strobe, MSDC's)
+    // (F4c) a DMA take (v35_top's register; the channel arrives on ms_ch) and its descriptor
+    // (v35_dma's registers): the macro-service ops read it in place of the macro service's
+    // (urom/dma.uasm); the TC update (MSDC: a ce_a strobe, TC reached 0), the last transfer in
+    // flight (a register to the next take), the request's DMA cycle (`req_dk`: a transfer on
+    // the pins, DMAAK's and TC's window)
+    input  wire        tk_dm,
+    input  wire        dm_in,
+    input  wire        dm_out,
+    input  wire        dm_w,
+    input  wire [1:0]  dm_ps,
+    input  wire [1:0]  dm_pd,
+    output reg         dm_tend,
+    output reg         dm_tlast,
+    output reg         dm_last,
+    output wire        req_dk,
     input  wire        ns,              // (F3b) the N/S pin as last sampled (a register): MD at
                                         //   reset and on every interrupt entry
     output wire        req_ia,          // (F3b) the request is an INT acknowledge (with RQ_IOR)
@@ -145,6 +160,18 @@ module v35_eu
     // ------------------------------------------------------------ registered state
     reg [15:0] psw = 16'hF002;
     reg        rq_ia = 1'b0;            // (F3b) the request posted is an INT acknowledge
+    reg        rq_dk = 1'b0;            // (F4c) the request posted is a DMA transfer's cycle
+    initial begin
+        dm_tend = 1'b0;
+        dm_tlast = 1'b0;
+        dm_last = 1'b0;
+    end
+    // (F4c) a DMA address's step (SAR by PS, DAR by PD): 01 +, 10 -, by the width
+    function automatic logic [15:0] dstep(input logic [15:0] a, input logic [1:0] c,
+                                          input logic wd);
+        dstep = c == 2'b01 ? a + (wd ? 16'd2 : 16'd1)
+              : c == 2'b10 ? a - (wd ? 16'd2 : 16'd1) : a;
+    endfunction
     reg [15:0] ds1 = 16'd0, ps = 16'hFFFF, ss = 16'd0, ds0 = 16'd0;
     reg [15:0] ta = 16'd0, tb = 16'd0, tc = 16'd0, sigma = 16'd0, addr = 16'd0, oprw = 16'd0;
     reg        ms_eq = 1'b0;            // (F4b) MSEQ's match
@@ -557,15 +584,22 @@ module v35_eu
             // (F3) 4 x the vector taken; (F3b) a bank-switch take: {1, the level}; INT: 0
             // (F4b) a macro-service take: FFFFh (negative: bank.uasm's bsw_q tells it from a
             // bank switch's 800xh)
-            AL_IVEC: r = tk_ms ? 16'hFFFF : tk_int ? 16'd0 : tk_bs ? {13'h1000, tk_l}
+            // (F4c) a DMA take: FFFEh (bsw_q sends it to urom/dma.uasm)
+            AL_IVEC: r = tk_dm ? 16'hFFFE : tk_ms ? 16'hFFFF : tk_int ? 16'd0
+                       : tk_bs ? {13'h1000, tk_l}
                        : {9'd0, tk_vec, 2'b00};
             // (F4b) macro service (urom/ms.uasm)
             AL_MSCA: r = {10'b0000_1110_00, ms_ch, 3'd0};
-            AL_SFRH: r = 16'h0F00 | {8'd0, x[15:8]};
-            AL_MSMD: r = {15'd0, ms_mode == 3'b001};
-            AL_MSDR: r = {ms_dir, 15'd0};
-            AL_MSEQ: r = x;
-            AL_MSDC: r = ({8'd0, x[7:0]} - 16'd1) & 16'h00FF;
+            // (F4c) with a DMA take: SFRH SARH's segment (x & FF00h, the block's {SARH, DARH}
+            // word), MSEQ DARH's ({x[7:0], 00h}), MSMD the kind {I/O to memory, 0, memory to
+            // I/O}, MSDR {W, 0}, MSDC TC - 1 (16 bits), DMS the address step (y 0 SAR by PS,
+            // 1 DAR by PD)
+            AL_SFRH: r = tk_dm ? x & 16'hFF00 : 16'h0F00 | {8'd0, x[15:8]};
+            AL_MSMD: r = tk_dm ? {dm_in, 14'd0, dm_out} : {15'd0, ms_mode == 3'b001};
+            AL_MSDR: r = {tk_dm ? dm_w : ms_dir, 15'd0};
+            AL_MSEQ: r = tk_dm ? {x[7:0], 8'h00} : x;
+            AL_MSDC: r = tk_dm ? x - 16'd1 : ({8'd0, x[7:0]} - 16'd1) & 16'h00FF;
+            AL_DMS: r = y[0] ? dstep(x, dm_pd, dm_w) : dstep(x, dm_ps, dm_w);
             AL_MSPC: r = x - {15'd0, ms_hlt};
             default: ;
         endcase
@@ -613,6 +647,7 @@ module v35_eu
     assign req_v = rq_v;
     assign req_cyc = rq_cyc;
     assign req_ia = rq_ia;
+    assign req_dk = rq_dk;
     assign req_addr = rq_addr;
     assign req_width = rq_word;
     assign req_data = rq_word ? oprw : {oprw[7:0], oprw[7:0]};
@@ -691,6 +726,9 @@ module v35_eu
             trap_o <= 1'b0;
             ms_end <= 1'b0;
             ms_eq <= 1'b0;
+            dm_tend <= 1'b0;
+            dm_tlast <= 1'b0;
+            dm_last <= 1'b0;
             scy <= 1'b0;
             bz <= 1'b0;
             ea_ss <= 1'b0;
@@ -699,8 +737,14 @@ module v35_eu
             // (F4b) macro service: the character search's match (MSEQ), the end (MSDC: the count
             // reaches 0, or the match)
             if (ex_b && word.alu == AL_MSEQ)
-                ms_eq <= ms_mode == 3'b100 && x[7:0] == y[7:0];
-            ms_end <= ex_b && word.alu == AL_MSDC && ({8'd0, x[7:0]} == 16'd1 || ms_eq);
+                ms_eq <= !tk_dm && ms_mode == 3'b100 && x[7:0] == y[7:0];
+            ms_end <= ex_b && word.alu == AL_MSDC && !tk_dm
+                      && ({8'd0, x[7:0]} == 16'd1 || ms_eq);
+            // (F4c) DMA: the TC update and its end; the last transfer (to the next MSDC)
+            dm_tend <= ex_b && word.alu == AL_MSDC && tk_dm;
+            dm_tlast <= x == 16'd1;
+            if (ex_b && word.alu == AL_MSDC && tk_dm)
+                dm_last <= x == 16'd1;
             // (F1) an on-chip write to a segment's slot (before the word's own writes: a
             // register write on the same clock is later in the program and wins)
             if (oc_seg_we) begin
@@ -779,6 +823,10 @@ module v35_eu
                 rq_out <= 1'b1;
                 rq_rd <= b_rd;
                 rq_ia <= word.bus == BQ_INTA;
+                // (F4c) a DMA transfer's cycle: the routine's cycles at tmpa's segment, the
+                // write, or the read of a memory-to-I/O transfer (the memory-to-memory read is
+                // not one: no DMAAK, no TC)
+                rq_dk <= tk_dm && word.seg == SG_TA && (word.bus == BQ_MEMW || dm_out);
                 rq_wr <= word.bus == BQ_MEMW || word.bus == BQ_IOW;
                 rq_io <= b_io;
             end else begin

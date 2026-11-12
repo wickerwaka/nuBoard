@@ -127,7 +127,8 @@ class Structure(unittest.TestCase):
 # (A1) the bus unit's and the queue's ports
 EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data", "req_resv",   # EU -> bus
            "req_ack", "req_done", "done_data",                                    # bus -> EU
-           "req_ia"}               # (F3b) the request kind's acknowledge bit (with RQ_IOR)
+           "req_ia",               # (F3b) the request kind's acknowledge bit (with RQ_IOR)
+           "req_dk"}               # (F4c) the request is a DMA transfer's cycle (DMAAK, TC)
 BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "rfm", "data_in",
               "fetch_req", "q_low", "q_word", "fetch_addr",       # the queue's port
               "t_start", "take_now", "l_pop",                     # (Q2) the aborted fetch's reads

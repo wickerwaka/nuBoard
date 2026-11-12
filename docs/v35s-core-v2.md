@@ -2244,3 +2244,38 @@ question, decided from S8's routed numbers with the user.
   ADD / 2,319 FF; the margin is watched at part C's landing. **Not built / open:** the reserved MSM hang
   (the RTL runs them as mode 000); macro-service priority among sources and against ISPR (unmeasured: the
   RTL uses the default order and ignores ISPR); which store marks TxD in I/O mode.
+- **F4 part C (DMA) landed (2026-11-12): the two DMA channels; corpus 6,541 unchanged.** Measured on the
+  socket first (validation/v35s/dma.py; program f4_dma gated, f4_dmx / f4_dmi / f4_dm2 / f4_dm3 measured
+  only; two sessions, identical). **Against the data book:** the channel block is in internal RAM, not the
+  SFR page: IDB:E00 + 8 × the channel, +0 SAR, +2 DAR, **+4 DARH, +5 SARH** (the book's figure has the two
+  the other way round), +6 TC; the address is SARH × 1000h + SAR (an add); TDMA reads 0; EDMA is cleared
+  when TC reaches 0; **DMARQ does not start the memory-to-memory modes (only TDMA) and TDMA does nothing in
+  the I/O modes**; transfers are taken at instruction starts (the instruction after the TDMA store runs
+  first; single step alternates one instruction, one transfer; burst runs back to back; a store clearing
+  EDMA lets one more through); I/O to memory is one memory write at DAR with DMAAK low and the data not
+  driven by the CPU, memory to I/O one read at SAR with DMAAK low, memory to memory a read and a write with
+  no DMAAK; TC0 / TC1 are low for 2 clocks inside the last transfer's last cycle; a single transfer follows
+  each DMARQ rising edge by 32-39 clocks (an edge before EDMA's store is not counted); demand release runs
+  while DMARQ is high and resumes on the next high; a transfer in HALT does not release it, and after the
+  last transfer one instruction runs before DIC's interrupt. **Built:** v35_dma (core/v35_sfr.sv: DMAM's
+  MD / W / EDMA, the software start, the pending edge, the demand flag, the request with channel 0 first,
+  EDMA's clear and DIC's IF at TC 0); the take in v35_top after NMI and the macro service and before the
+  maskable offer (`dm_arm` sampled at each start; `rs_hlt` so a take out of HALT resumes the HALT as no
+  boundary); the transfer a 49-word microcode routine (urom/xfer_dma.uasm `dmv`, entered through the
+  bank-switch entry's `dm_q`) over the on-chip path, the macro service's ALU ops reading the DMA
+  descriptor under `tk_dm` and one new op DMS (the address step; the 6-bit ALU op field is now full); the
+  DMA cycle in v35_bus (`req_dk` from the EU, registered at the grant as the INTAK cycle's is) driving
+  DMAAK0/1 and TC0/1 on P21 / P24 / P22 / P25 by PMC2. The word still 96 bits, the ROM 1,794 → 1,848 words.
+  **Gate:** dma 1 program set (15 tests) equal to both socket sessions (writes with the source-page reads
+  in sequence, regions with the undriven I/O-to-memory data masked, settled pin sequences), serial 4,
+  periph 4, intr 6, banks 5, onchip 6, traps 6, the 101 undefined cases; the corpus 6,541 with 0 runs
+  differing at both spacings, write data 106,824 / 106,824, chk silent, vectors 0 bad, lint clean, 48 fast
+  tests. **FPGA at 17 ns: +0.677 / +0.701 / +0.590 on seeds 1 / 2 / 3** (the base +1.005 / +0.733 /
+  +0.493): every seed passes, 9,223 LUT4 / 578 ADD / 2,399 FF / 79 RAM_5K; **the worst paths are now 16
+  levels (the base 14-15), from the bus unit's done data to the grant length and the address mux**; the
+  modules alone: useq +6.238, loader +4.180, queue +6.339, bus +7.991 (was +8.572), eu +5.331, regram
+  +11.738. The margin is 0.6-0.7 ns on every seed; the next landing that deepens the grant path gets a
+  timing pass rather than a waiver. **Not built / open:** channel priority when both request at once
+  (unmeasured: channel 0 first), the demand mode's transfer counts by pulse length (measured only), TC
+  with 0 or 1 programmed waits (unmeasured); bus hold, READY and STOP / STBC were measured in this part
+  (receipts f4-f4_hx-socket.json, f4-f4_rdy-socket.json) and are built in part D.

@@ -3252,6 +3252,141 @@ after the next PUSH by its clock), the I/O receive test claiming R2 without SCK0
 - v35_intc: the MS request's pick (10 sources, a priority of registers), the take's latch of the
   MS register byte (a 10:1 select of storage bytes, at the take only).
 
+## F4 (part C): DMA (bus hold, READY, STBC / STOP measured, not built)
+
+`validation/v35s/dma.py` (program `f4_dma`; `f4_dmx`, `f4_dmi`, `f4_dm2`, `f4_dm3`, `f4_hx`, `f4_rdy`
+measured only) in periph.py's frame (intr.py's Test, slots and handler; the fast stubs; periph's
+run, receipts and gate; serial.py's helpers). Each DMA test sets a channel block through DS1 =
+F000h, starts the channel and writes markers (`cws`: one CPU byte store per instruction) or waits
+in a loop while DMARQ edges arrive from the schedule; the channel block, DMAM and DIC are read
+back into the result region. The sources are at F000h (SARH 0Fh), the destinations at D000h
+(DARH 0Dh). The write sequence carries the DMA's reads of the source page in their places (`dma.py
+_with_dma_reads`), so where every transfer lands among the program's own writes is compared by
+sequence. Receipts `validation/v35s/receipts/f4-f4_dma-socket.json` and `-socket-2.json` (two
+sessions, identical writes, regions and pin sequences), `-sim.json`.
+
+### Measured (the socket, uPD70337L-8, fX/8)
+
+- **The channel block is in internal RAM, not the SFR page** (the data book's figure 24; the brief
+  said SFR page): IDB:E00 + 8 x the channel, **+0 SAR, +2 DAR, +4 DARH, +5 SARH, +6 TC** (the
+  figure's byte order of SARH / DARH is the other way round: f4_dmx read F010h with 0Fh at +5). The
+  address is SARH x 1000h + SAR (0Eh + 1050h is F050h: an add, f4_dma addr). SAR steps by DMAC's PS,
+  DAR by PD (01 +, 10 -, 00 / 11 none) by 1 or 2 (W); TC counts down. DMAM 00h and DIC0/1 47h at
+  reset; DMAM reads its MD, W and EDMA, **TDMA reads 0**, and **EDMA is cleared when TC reaches 0**
+  (8Ch -> 80h). DIC's IF is set at TC 0 (vector 20 / 21 when unmasked).
+- **The transfers are at instruction starts.** Single step (MD 000, TDMA): the instruction after
+  the TDMA store runs, then one transfer, then one instruction, alternately (step_w: W1 D W2 D W3 D
+  W4 D W5 ...). Burst (100): the instruction after the store, then all transfers back to back.
+  A store clearing EDMA lets one more transfer through after it (f4_dm3 tdma_io): a request is
+  served at the start after the start that saw it. **DMARQ does not start the memory-to-memory modes**
+  (burst_rq / step_rq / rq_m2m: no transfer), only TDMA; **TDMA does nothing in the I/O modes**.
+- **Memory to memory:** a read at the source, a write at the destination (bytes: the byte lanes as
+  a CPU byte cycle; words two lanes), no DMAAK; **TC0 / TC1 low inside the last transfer's write**
+  (2 clocks of its 5).
+- **Single transfer (101 I/O to memory, 110 memory to I/O):** one transfer per DMARQ rising edge,
+  32-39 clocks after the edge (the edges were placed inside wait loops). I/O to memory is **one
+  memory write at DAR with DMAAK low** (4.5 clocks of the 5-clock cycle): the CPU does not drive the
+  data (the socket's writes carry the bus keepers' level: masked in the gate, `Test.mask`), SAR
+  unchanged; memory to I/O is one read at SAR with DMAAK low, DAR unchanged. TC low inside the last
+  transfer's cycle, half a clock after DMAAK. An edge before EDMA's store is not counted (io_lvl).
+  Words (W 1): DAR + 2.
+- **Demand release (001 / 010):** back to back while DMARQ is high (6 transfers 16 clocks apart);
+  when DMARQ falls the CPU resumes and a later high continues (f4_dm3 dem_stop: 2, then 3, then 1
+  of TC 6 by the pulse lengths; measured only: the counts depend on the clock).
+- **In HALT** a single transfer runs without releasing it; DIC1 unmasked with IE 1 then wakes it and
+  the handler returns after the HALT (f4_dma halt). **After the last transfer one instruction runs
+  before DIC's interrupt is taken** (f4_dma dic).
+- Channel priority (both channels requested at once) is not measured: the memory-to-memory
+  priority probe (f4_dm2 both) used DMARQ, which does not start those modes.
+
+### Built
+
+- **v35_dma** (core/v35_sfr.sv, beside v35_timer / v35_serial): DMAM's MD / W / EDMA (read back
+  through the page's read; TDMA a trigger), per channel the software start (`go`), the single
+  transfer's pending edge, the demand flag (DMARQ0/1 from the input levels through two flops,
+  their rising edges), the request (`dm_v`, channel 0 first), the take's descriptor registers
+  (channel, kind, W, PS, PD), EDMA's clear and DIC's IF at TC 0 (`pf_set` 12 / 13, raised at the
+  next start that is not a DMA take: `dm_rs`). DMAC stays in the page's storage.
+- **The take (v35_top):** `dm_arm` samples the request at each start; `g_d = dm_arm || (ms_hlt &&
+  dm_v)` joins `igo` after NMI and the macro service, before the maskable offer (not measured);
+  a single-step or single-transfer take disarms it, burst and demand do not; the last transfer's
+  TC update disarms it; the HALT stall also ends on `dm_v`. `tk_dm` marks the last take as a DMA
+  transfer (v35_intc's take state cleared: `take_d`). (F4c) `rs_hlt`: a DMA or macro-service take
+  out of HALT makes the routine's E word set `nb_r`, so the resumed HALT is no boundary and a
+  request it wakes for is taken after it (the handler returns after the HALT; f4_dma halt).
+- **The routine (urom/xfer_dma.uasm `dmv`, 49 words; `dm_q` 4):** entered from intr (IVEC gives
+  FFFEh; bank.uasm's bsw_q jumps to dm_q, which tells it from a bank switch: bank.uasm keeps its
+  word count, xfer_dma.uasm sorts last, so no ROM entry address moved): TC read, counted down and
+  written back first (the last transfer known before its cycle); the source side (SARH's segment
+  into tmpa, SAR read, stepped and written back, the source read at tmpa:SAR) for memory to memory
+  and memory to I/O; the destination side (DARH's segment, DAR read, the write at tmpa:DAR, DAR
+  stepped and written back) for memory to memory and I/O to memory; then MSPC / FLUSH / E as the
+  macro service. The macro-service ALU ops read the DMA take's descriptor while `tk_dm` is set
+  (MSCA the block, SFRH SARH's segment `x & FF00h`, MSEQ DARH's `{x[7:0], 00h}`, MSMD the kind,
+  MSDR W, MSDC TC - 1 on 16 bits); one new op, DMS (63, the last free value of the 6-bit field):
+  the address step by PS (ay 0) or PD (ay 1). The word stays 96 bits; the ROM 1,794 -> 1,848 words.
+- **The DMA cycle (v35_bus):** the EU marks a request at tmpa's segment during a DMA take that is a
+  write, or a read of memory to I/O (`req_dk`, beside `req_ia`); the bus unit registers it at the
+  grant (`g_dk_b`, the F3b acknowledge's pattern) and drives `dk` (mid-B1 to mid-B3) and `dkt`
+  (mid-B2 to the middle of the state before the last wait); v35_sfr's pins: DMAAK0/1 = !(dk and an
+  I/O kind) on P21 / P24, TC0/1 = !(dkt and the last transfer) on P22 / P25, by PMC2 bits 1, 2, 4, 5.
+  With 0 or 1 programmed waits `dkt` is empty (TC not shown: not measured).
+
+### The F4 gate (part C)
+
+`dma.py gate` (after `dma.py sim`; `--ref=socket-2` for the second session): the write sequence
+with the source-page reads, the result regions (masked: the I/O-to-memory data), the settled pin
+sequence (settle 8 ticks: TC falls 16 ticks after DMAAK; the keepers' transients are 2) equal:
+**f4_dma EQUAL against both socket sessions** (15 tests: regs, step_w, burst_w, burst_wd, addr,
+io_in, io_out, demand, halt, io_word, rq_m2m, io_lvl, tdma, dic). The first RTL run differed in
+two places, both fixed by a mechanism: the DIC1 handler returned into the HALT (rs_hlt) and DIC0's
+interrupt was taken right after the last transfer (DIC at the next start).
+
+### Measured, not built (receipts f4-f4_hx-socket.json, f4-f4_rdy-socket.json: one session)
+
+- **Bus hold:** with PMC2 bit 7 (P27 HLDRQ) and bit 6 (P26 HLDAK), HLDRQ high is honoured at the
+  end of the cycle in flight: /HLDAK falls 1.5 clocks after that cycle's end and rises 1.5 clocks
+  before the next cycle; no cycle while held (h_loop: 88 clocks; h_w: the writes wait); in HALT
+  too (h_halt: INTP0 wakes it afterwards); **with PMC2 bit 7 0 HLDRQ is ignored** (h_port: no gap).
+  To build: a registered `hold` bit in v35_bus that the free bus takes at a cycle boundary (no
+  grant while it stands) and /HLDAK on the pin vector (bit 22) by PMC2 bit 6; HLDRQ (input level
+  8) needs PMC2 bit 7. The simulation lane already carries the schedule's HLDRQ.
+- **READY and WTC:** WTC bits 1:0 block 0 (00000-1FFFF), 15:14 the I/O space (rd_wio: memory with
+  READY, I/O 0 waits): 0, 1, 2 waits = cycles of 3, 4, 5 clocks (rd_w0/1/2; the bus unit already
+  does this); setting 3 with PMC1 bit 7 (P17 READY) extends a read or I/O cycle by the time the
+  harness holds READY low (register 0Ah = 160 ticks: 9 + 1 clocks for 4 + 1); PMC1 bit 7 0: no
+  extension (rd_off); **writes are not extended by the harness's READY** (it counts its hold from
+  the column strobe, which a write shows late). To build: READY (P17, the input pins' bit 15, two
+  flops) holding the bus unit's last wait while low with PMC1 bit 7 and the block's field 3; the
+  gate would compare cycle lengths (the program gates ignore time). The harness cannot delay a
+  write's READY.
+- **STOP (0F 9E) and STBC:** STOP stops the CPU; NMI releases it **2^19 clocks later**
+  (524,700-525,000 clocks: the oscillator-stabilisation wait) into the NMI handler, IE 1 or 0
+  (stop, stop_di); INTP0 did not release it before the run limit (stop_intp: the NMI after it fell
+  past the limit: inconclusive). **STBC reads 01h after a STOP, through reset, and a store of 00h
+  or FFh does not change it** (the replay window's second run read 01h; f4_dmx's earlier read was
+  00h). The RTL decodes 0F 9E as F2b left it and reads STBC 00h. To build: STOP as HALT whose
+  release is NMI (or reset) alone, and SBF (STBC bit 0) set by it and kept through reset; a
+  program that runs STOP leaves SBF set for the session's later programs (F1's sweep reads STBC).
+  A STOP program must stay under 2,048 records (each replay window re-runs the 2^19-clock wait).
+
+### Depth (for the overseer's timing run)
+
+- **Tick A:** `igo` gains one OR term `g_d` = `dm_arm || (ms_hlt && dm_v)` (three registers);
+  `take_i` / `take_s` one AND term (`!g_d`). The sequencer's `wake` input gains `dm_v` (a
+  register). The bus unit: `g_dk_b <= gn.ack && req_dk` at ce_b (a new endpoint on the grant's
+  `gn.ack`, beside `g_ia_b`; req_dk is an EU register), `c_dk` loaded with it, `dk` / `dkt` (two
+  registers at ce_mid from `n_dk` and the cycle's position / length, as /INTAK). Nothing in the
+  grant's terms; v35_loader, v35_upage / umdsp / umimm / umodrm untouched (the generated table text
+  changes only UROM_WORDS: no entry address moved).
+- **Tick B:** the EU's ALU: IVEC one more select (tk_dm), SFRH / MSMD / MSDR / MSEQ / MSDC a 2:1
+  select by `tk_dm` (a register) each, DMS a 16-bit add of +-1 / +-2 / 0 by four register bits;
+  `rq_dk`'s next value (tk_dm, word.seg, word.bus, dm_out); `dm_tend` / `dm_tlast` / `dm_last`
+  registers from MSDC and a 16-bit compare of x with 1 (beside ms_end's 8-bit one).
+- v35_dma: registers updated at ce_a from the SFR store's registered offset / data (as v35_timer)
+  and the DMARQ flops; v35_sfr's read gains DMAM0/1 (two offsets) and the pin vector four P2 bits
+  from registers (`dk`, `dkt`, `dm_last`, the descriptor).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

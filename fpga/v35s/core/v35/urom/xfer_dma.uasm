@@ -1,0 +1,83 @@
+; F4c: DMA (README "F4 (part C)"). Function only: measured on the socket (validation/v35s/dma.py
+; f4_dma; receipts validation/v35s/receipts/f4-f4_dm*), no clock in this routine is fitted to
+; silicon's.
+;
+; Silicon (f4_dma): a transfer is taken at an instruction start (single step: one instruction,
+; one transfer, alternately; burst and demand release: back to back; single transfer: one per
+; DMARQ rising edge; in HALT without releasing it). The channel block (internal RAM IDB:E00 +
+; 8 x the channel): +0 SAR, +2 DAR, +4 DARH, +5 SARH, +6 TC; the addresses are SARH x 1000h +
+; SAR and DARH x 1000h + DAR (f4_dma burst_rq: SARH 0Eh + SAR 1020h is F020h); SAR steps by
+; DMAC's PS, DAR by PD (01 +, 10 -), by 1 or 2 (W); TC counts down. Memory to memory: a read
+; at the source, a write at the destination (no DMAAK; TC low in the last write); I/O to memory:
+; one write at the destination with DMAAK (the device drives the data: the CPU does not), SAR
+; unchanged; memory to I/O: one read at the source with DMAAK, DAR unchanged. At TC 0 EDMA is
+; cleared and DIC's IF set (v35_dma).
+;
+; The take (v35_top `take_d`) enters intr, whose IVEC gives FFFEh (bank.uasm's bsw_q, then dm_q
+; below, send it here); the macro-service ops read the DMA take's descriptor (v35_eu: MSCA the block, SFRH
+; SARH's segment, MSEQ DARH's, MSMD the kind, MSDR W, MSDC TC - 1; DMS the address step). The
+; transfer's cycles are at tmpa's segment (the EU marks them as DMA cycles: `req_dk`). tmpc
+; holds the instruction's start: the routine ends by refetching from it (from the HALT when the
+; take followed one: MSPC), so the instruction runs whole after the transfer.
+
+; ---- from bank.uasm's bsw_q (SIGMA the kind + 1): FFFFh a DMA transfer, else a bank switch
+routine dm_q why="(F4c) a negative IVEC after the macro service's: DMA or the bank switch"
+    alu=INC ax=SIG wid=WORD                 ; SIGMA <- the kind + 2 (0: a DMA transfer)
+    jnc=SNZ:dmv                             ; the DMA transfer
+    alu=PASS ax=TB wid=WORD                 ; SIGMA <- the kind again: {1, the level}
+    jmp=bsw_i                               ; the bank switch
+
+routine dmv why="(F4c) DMA: one transfer through the channel block (f4_dma); function only"
+; ---- TC first (the last transfer's TC pin is known before its cycle)
+    alu=MSCA wid=WORD                       ; SIGMA <- the channel block's offset (0E00h + 8 x the channel)
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    alu=INC2 ax=SIG wid=WORD                ; + 6
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post TC's read
+    f alu=MSDC ax=OPR wid=WORD              ; F: SIGMA <- TC - 1; the last transfer latched
+    d1=OPRW s1=SIG bus=MEMW seg=IDB wid=WORD   ; post TC's write-back
+    f alu=MSMD wid=WORD                     ; F: its end; SIGMA <- the kind
+    jc=SGN:dm_d                             ; I/O to memory: the destination side alone
+; ---- the source side (memory to memory, memory to I/O): SAR written back first
+    alu=MSCA wid=WORD                       ; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SARH, DARH}
+    f alu=SFRH ax=OPR wid=WORD              ; F: SIGMA <- SARH's segment
+    d1=TA s1=SIG alu=MSCA wid=WORD          ; tmpa <- it; SIGMA <- the block's offset (SAR)
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post SAR's read
+    f d1=TB s1=OPR alu=DMS ax=OPR ay=ZERO wid=WORD   ; F: tmpb <- SAR; SIGMA <- SAR stepped
+    d1=OPRW s1=SIG bus=MEMW seg=IDB wid=WORD   ; post SAR's write-back
+    f alu=MSDR wid=WORD                     ; F: its end; SIGMA <- {W, 0}
+    jc=SGN:dm_sw                            ; a word
+    d1=ADDR s1=TB bus=MEMR seg=TA wid=BYTE  ; post the source byte's read
+    f d1=OPRW s1=OPR alu=MSMD wid=WORD      ; F: the datum into the write datum; SIGMA <- the kind
+    jc=SNZ:dm_e                             ; memory to I/O: done
+    jmp=dm_d                                ; memory to memory: the destination side
+dm_sw: d1=ADDR s1=TB bus=MEMR seg=TA wid=WORD   ; post the source word's read
+    f d1=OPRW s1=OPR alu=MSMD wid=WORD      ; F: the datum into the write datum; SIGMA <- the kind
+    jc=SNZ:dm_e                             ; memory to I/O: done
+; ---- the destination side (memory to memory, I/O to memory): DAR written back after the write
+dm_d: alu=MSCA wid=WORD                     ; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SARH, DARH}
+    f alu=MSEQ ax=OPR wid=WORD              ; F: SIGMA <- DARH's segment
+    d1=TA s1=SIG alu=MSCA wid=WORD          ; tmpa <- it; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2 (DAR)
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post DAR's read
+    f d1=TB s1=OPR alu=MSDR wid=WORD        ; F: tmpb <- DAR; SIGMA <- {W, 0}
+    jc=SGN:dm_dw                            ; a word
+    d1=ADDR s1=TB bus=MEMW seg=TA wid=BYTE  ; post the destination byte's write
+    f jmp=dm_da                             ; F: its end
+dm_dw: d1=ADDR s1=TB bus=MEMW seg=TA wid=WORD   ; post the destination word's write
+    f                                       ; F: its end
+dm_da: alu=DMS ax=TB ay=ONE wid=WORD        ; SIGMA <- DAR stepped
+    d1=OPRW s1=SIG alu=MSCA wid=WORD        ; the write datum <- it; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    d1=ADDR s1=SIG bus=MEMW seg=IDB wid=WORD   ; post DAR's write-back
+    f                                       ; F: its end
+; ---- the tail: the instruction (or the HALT) again
+dm_e: alu=MSPC ax=TC wid=WORD               ; SIGMA <- the offset to resume at
+    flush                                   ; FLUSH: the stream from it
+    e                                       ; E: the interrupted instruction again

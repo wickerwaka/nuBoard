@@ -23,10 +23,12 @@
 ; ---- the bank-switch entry: from intr (SIGMA {1, the level}); tmpc the instruction's start
 routine bsw why="(F3b) the bank-switch entry: silicon's (f3_bsw); function only"
 ; (F4b) a negative IVEC is a bank switch (800xh) or a macro service (FFFFh: urom/ms.uasm); tmpb
-; holds it (intr's branch word)
+; holds it (intr's branch word); (F4c) or a DMA transfer (FFFEh: urom/xfer_dma.uasm's dm_q
+; tells it from a bank switch and returns to bsw_i; the word count here is unchanged, so the
+; ROM's entries before the DMA routine keep their addresses)
 bsw_q: alu=INC ax=SIG wid=WORD             ; SIGMA <- the kind + 1 (0: a macro service)
     jnc=SNZ:msv                             ; the macro service
-    alu=PASS ax=TB wid=WORD                 ; SIGMA <- the kind again: {1, the level}
+    jmp=dm_q                                ; (F4c) a DMA transfer or a bank switch
 bsw_i: d2=TB s2=PSW alu=BSW ax=SIG wf      ; tmpb <- the PSW; PSW: RB <- the level, IE BRK cleared, MD <- N/S
 bs_c: wr=PSWS wid=WORD ws=TB               ; the new bank's PSW save (no register read: the bank changed on the last clock)
     wr=PCS wid=WORD ws=TC                   ; its PC save
