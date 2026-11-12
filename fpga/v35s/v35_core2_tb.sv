@@ -73,7 +73,7 @@ module v35_core2_tb
     v35_top dut (
         .clock, .x_rise(1'b1), .x_fall(1'b0), .reset_n, .ready(1'b1), .data_in,
         .input_levels(16'd0), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
-        .iostb_n, .read_write, .refrq_n
+        .iostb_n, .read_write, .refrq_n, .pins_in(24'd0), .pins()
     );
 
     assign o_ce = dut.ce;

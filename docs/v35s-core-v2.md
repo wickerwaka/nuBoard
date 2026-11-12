@@ -2194,3 +2194,26 @@ question, decided from S8's routed numbers with the user.
   after a release and HALT's + 2 take point (timing); whether ISPR holds INT off and INT against NMI and the
   step (unmeasured: the RTL takes INT on IE alone, below NMI); the memory forms of BRKCS, TSKSW, MOVSPB; a
   successful DIVU's flags (silicon F002, the RTL sets S P CY).
+- **F4 part A landed (2026-11-12): the ports, the time base, TM0 / TM1 with TOUT; corpus 6,541 unchanged.**
+  Measured on the socket first (validation/v35s/periph.py; programs f4_*.s; receipts f4-*, two sessions).
+  **Against the data book:** interrupts taken in HALT land on a 16-clock grid (a 600-clock source gives
+  intervals of 599 or 615), so exact periods are read from TOUT's pin records; a TMC0 store with TS0 = 1
+  loads TM0 from MD0 and restarts the prescaler even while running, the first count-out 604 clocks after the
+  store and then exactly (MD0 + 1) × 6 or × 128 apart; TOUT is a flop set at reset and at each start from
+  TS0 = 0, toggled at each count-out, the pin ENT0 ? q ^ ALV : ~ALV; each TM1 count-out sets both TMIC1 and
+  TMIC2; one-shot mode counts TM0 and MD0 down from their own values, each raising its request and clearing
+  its own start bit; port bits read the pin in input mode and the latch in output mode, P1 bits 3:0 always
+  the pins, a word store to P0 also writes PM0; the time base fires at 2^10, 2^13, 2^16 clocks (2^20 not
+  timed: longer than a run); PT reads 00h at every PMT threshold on this board (PT0-7 held low: the
+  comparator is unmeasurable here and not built). **Built:** the ports in v35_sfr (reads (PM & pin) | (~PM &
+  latch), `pins_in` through two flops, the registered output vector `pins` with /INTAK on P13 and TOUT on
+  P15), v35_timer (the counters, prescalers, a 4-clock start synchronisation, the TOUT flop, registered
+  count-out strobes), v35_tbc (20 bits with the PRC tap), `pf_set` into v35_intc; the simulation harness
+  gives the core the board's port levels and records the core's pins. **Gate:** the four program sets equal
+  to both socket sessions (writes, result regions, settled pin sequences, stub intervals within the 16-clock
+  grid, 14 / 14 TOUT intervals tick-exact); the corpus 6,541 with 0 runs differing at both spacings, chk
+  silent, vectors 0 bad, lint clean, 48 fast tests; intr 6, banks 5, onchip 6, traps 6 and the 101 undefined
+  cases still equal. **FPGA at 17 ns: +1.400 / +1.098 / +1.200 on seeds 1 / 2 / 3** (the base +1.303 / +0.392
+  / +1.249), 8,509 LUT4 / 511 ADD / 2,110 FF / 79 RAM_5K; the modules alone unchanged. **Not built:**
+  CLKOUT, the PT comparator, the one-shot start's 2-clock residue, whether q toggles with ENT0 = 0
+  (unobservable).

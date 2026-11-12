@@ -68,7 +68,15 @@ module v35_sfr (
     output wire [14:0] ic_we,           // a store writes IC register i now (with `wr`) ...
     output wire [14:0] ic_wd,           // ... its bit 7 (IF)
     input  wire [14:0] ic_if,
-    input  wire [7:0]  ispr
+    input  wire [7:0]  ispr,
+    // (F4) the peripherals: the CPU clock (the timers', the time base's), the port pins the board
+    // drives ({P2, P1, P0}), /INTAK (P13's level while PMC1 bit 3 selects it), the output pin
+    // vector (the harness's order), the IF bits the peripherals raise (v35_intc's order)
+    input  wire        ce_a,
+    input  wire [23:0] pins_in,
+    input  wire        intak_n,
+    output reg  [31:0] pins,
+    output wire [14:0] pf_set
 );
     localparam logic [7:0] PRC_RESET = 8'h4E;
     localparam logic [15:0] WTC_RESET = 16'hFFFF;
@@ -239,22 +247,70 @@ module v35_sfr (
     assign flag_we = wr && in_page && !top && w_off == 8'hEA;
     assign flag_d = {w_lo[5], w_lo[3]};
 
+    // ---- (F4) the peripherals ----------------------------------------------------------------
+    // the store as the peripherals see it: a byte at w_off (w_lo), with a word the next (data hi)
+    wire        p_we = wr && in_page && !top;
+    wire [15:0] tm0, md0, tm1, md1;
+    wire [7:0]  tmc0, tmc1;
+    wire        tout;
+    wire [2:0]  tf;
+    wire        tbf;
+    v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off, .w_word, .w_lo,
+                     .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf);
+    v35_tbc tbc (.clock, .reset_n, .ce_a, .tb(prc[3:2]), .tbf);
+    // the IF bits raised: TMIC0-2 (9-11), TBIC (14)
+    assign pf_set = {tbf, 2'b00, tf, 9'd0};
+
+    // the ports (f4_port): a bit in input mode (PM 1) reads its pin, in output mode its latch;
+    // P10-P13 are inputs (PM1 bits 3:0 fixed 1), P13 the /INTAK output's level while PMC1 bit 3
+    // selects it. The pins the board drives are registered here (two flops, the levels being
+    // asynchronous to the core)
+    reg [23:0] pin_s = 24'd0, pin_r = 24'd0;
+    always_ff @(posedge clock) begin
+        pin_s <= pins_in;
+        pin_r <= pin_s;
+    end
+    wire [7:0] p0l = st[8'h00], p1l = st[8'h08], p2l = st[8'h10];
+    wire [7:0] pm0 = st[8'h01], pm1 = st[8'h09] | 8'h0F, pm2 = st[8'h11];
+    wire [7:0] pmc1 = st[8'h0A];
+    wire [7:0] p1pin = {pin_r[15:12], pmc1[3] ? intak_n : pin_r[11], pin_r[10:8]};
+    wire [7:0] p0 = (pm0 & pin_r[7:0]) | (~pm0 & p0l);
+    wire [7:0] p1 = (pm1 & p1pin) | (~pm1 & p1l);
+    wire [7:0] p2 = (pm2 & pin_r[23:16]) | (~pm2 & p2l);
+    // the output pins: a port bit in output mode drives its latch; P13 /INTAK and P15 TOUT by
+    // PMC1. A pin the CPU does not drive keeps the level it last carried (the board's bus
+    // keepers: f4_tout, P13 stays high after PMC1 bit 3 is cleared). TxD0/1 idle high (the serial
+    // channels are part B); CLKOUT is not built
+    wire [31:0] pv = {6'd0, 2'b11, 1'b0, ~pm2[6:4] & p2l[6:4], 1'b0, ~pm2[2:1] & p2l[2:1],
+                      1'b0, ~pm1[7:6] & p1l[7:6], pmc1[5] ? tout : p1l[5], ~pm1[4] & p1l[4],
+                      intak_n, 3'd0, ~pm0 & p0l};
+    wire [31:0] pd = {8'hFF, 1'b1, ~pm2[6:4], 1'b1, ~pm2[2:1], 1'b1, ~pm1[7:6],
+                      pmc1[5] || !pm1[5], ~pm1[4], pmc1[3], 3'b111, ~pm0};
+    initial pins = 32'h0300_0000;
+    always_ff @(posedge clock)
+        pins <= (pd & pv) | (~pd & pins);
+
     // ---- the read ---------------------------------------------------------------------------
-    // P1: P17 READY high, P16 / P15 low (the harness's R2 bank), P14 INT, P13-P11 INTP2-0, P10 NMI
-    wire [7:0] p1 = {1'b1, 2'b00, input_levels[5], input_levels[4], input_levels[3],
-                     input_levels[2], input_levels[1]};
     function automatic logic [7:0] rbyte(input logic [7:0] o);
         case (kind(o))
             K_ST: rbyte = o == 8'hEB ? prc : o == 8'hE1 ? rfm : o == 8'hE8 ? wtc[7:0]
                         : o == 8'hE9 ? wtc[15:8] : (st[o] & wmask(o)) | ones(o);
             K_ISPR: rbyte = ispr;
-            K_W16: rbyte = st[o];
-            K_PIN: rbyte = o == 8'h08 ? p1 : 8'h00;
+            K_W16: rbyte = o[3] ? (o[1] ? (o[0] ? md1[15:8] : md1[7:0])
+                                        : (o[0] ? tm1[15:8] : tm1[7:0]))
+                                 : (o[1] ? (o[0] ? md0[15:8] : md0[7:0])
+                                         : (o[0] ? tm0[15:8] : tm0[7:0]));
+            K_PIN: rbyte = o == 8'h00 ? p0 : o == 8'h08 ? p1 : o == 8'h10 ? p2 : 8'h00;
             K_FLAG: rbyte = {2'b00, psw_f[1], 1'b0, psw_f[0], 3'b000};
             K_IDB: rbyte = idb;
             K_C: rbyte = cval(o);
             default: rbyte = 8'h00;
         endcase
+        // (F4) TMC0 / TMC1: the timer's (TS0 / MS0 end a one-shot count)
+        if (o == 8'h90)
+            rbyte = tmc0 & 8'hFD;
+        if (o == 8'h91)
+            rbyte = tmc1 & 8'hC0;
         // (F3) an IC register's IF bit: the controller's
         if (kind(o) == K_ST && ic_idx(o) != 4'd15)
             rbyte[7] = ic_if[ic_idx(o)];
@@ -288,7 +344,7 @@ module v35_sfr (
     initial int_on = 1'b0;
     always_ff @(posedge clock)
         int_on <= input_levels[5] && st[8'h0A][4];
-    wire unused = &{1'b0, input_levels[15:6], input_levels[0]};
+    wire unused = &{1'b0, input_levels[15:6], input_levels[4:0]};
 endmodule
 
 // ============================================================================================
@@ -333,6 +389,7 @@ module v35_intc (
     input  wire        iack,            // the entry's IVEC word executes (ce_a strobe)
     input  wire        fint,            // FINT executes (ce_a strobe)
     input  wire        int_on,          // (F3b) the INT request (v35_sfr's register)
+    input  wire [14:0] pf_set,          // (F4) the peripherals' requests (ce_a strobes: IF <- 1)
     output reg         it_v,            // (F3b) INT is offered (the take strobe take_i covers it)
     output reg         tk_bs,           // (F3b) the last take is a bank switch (ENCS 1) ...
     output reg  [2:0]  tk_lv,           // ... at this level (the new bank)
@@ -421,6 +478,8 @@ module v35_intc (
                 else if (iack && tk_k[1] && tk_i == 4'(k))
                     ic_if[k] <= 1'b0;
                 if (k < 3 && edge_c[k + 1])
+                    ic_if[k] <= 1'b1;
+                if (pf_set[k])
                     ic_if[k] <= 1'b1;
             end
             if (iack && tk_k[1])
@@ -527,6 +586,177 @@ module v35_intc (
             it_sel <= int_on && !(kw.v && {1'b0, kw.lvl} < isp_l && kw.lvl == 3'd0);
             nmi_v <= nmi_p && !(iack && tk_k[2]);
             wake <= nmi_p || (|rq) || int_on;  // (F3b) INT releases HALT, IE 0 too (f3_int)
+        end
+    end
+endmodule
+/* verilator lint_on DECLFILENAME */
+
+// ============================================================================================
+// (F4) The timer unit (docs/v35s-differences.md section 8; README "F4"), measured on the
+// socket (validation/v35s/periph.py: f4_tm, f4_tout; receipts validation/v35s/receipts/f4-*).
+// Beside v35_sfr, which decodes the stores and reads the registers through its registered read.
+// Every register counts at ce_a (the CPU clock, SCLK).
+//
+//   interval  TMC0 MOD0 0: TM0 counts down at SCLK/6 (TCLK0 0) or /128; at 0 it reloads from MD0
+//             and raises TMIC0: the period is (MD0 + 1) x the prescale (TOUT: 600 clocks for
+//             MD0 99 at /6). TM1 the same (TMC1; /6 or /128), raising TMIC1 and TMIC2 both
+//   start     a TMC0 store with TS0 1 (also when TS0 was already 1) loads TM0 from MD0 and
+//             restarts the prescaler (f4_tout tout_rs: TM0 20 at the start is not counted; tout_flip:
+//             a rewrite while running moves the next count-out); TMC1 with TS1 likewise
+//   one-shot  MOD0 1: TM0 (TS0; SCLK/12 or /128 by TCLK0) and MD0 (MS0; /12 or /128 by MCLK)
+//             count down from their own values; each at 0 raises TMIC0 / TMIC1 and clears its
+//             start bit (TMC0 reads 01h after both: f4_tm tm0_os)
+//   stopped   the count holds (tm_hold)
+//   TOUT      a flop q (1 at reset and at each start from TS0 0) toggled at TM0's count-outs;
+//             the pin is q ^ ALV while ENT0 is 1, else ~ALV (f4_tout: every store's level)
+// The count-out is a registered strobe (`tf`, one ce_a); v35_intc sets the IF from it.
+/* verilator lint_off DECLFILENAME */
+module v35_timer (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce_a,
+    input  wire        we,              // an SFR store at this ce_a (v35_sfr's decode) ...
+    input  wire [7:0]  w_off,           // ... its offset, width, bytes
+    input  wire        w_word,
+    input  wire [7:0]  w_lo,
+    input  wire [7:0]  w_hi,
+    output reg  [15:0] tm0,
+    output reg  [15:0] md0,
+    output reg  [15:0] tm1,
+    output reg  [15:0] md1,
+    output reg  [7:0]  tmc0,
+    output reg  [7:0]  tmc1,
+    output wire        tout,
+    output reg  [2:0]  tf               // TMIC0-2's request (a ce_a strobe)
+);
+    localparam logic [7:0] O_TM0 = 8'h80, O_MD0 = 8'h82, O_TM1 = 8'h88, O_MD1 = 8'h8A,
+                           O_TMC0 = 8'h90, O_TMC1 = 8'h91;
+    wire os = tmc0[0];                  // one-shot (MOD0)
+    // the prescalers: the clocks to a count, less one
+    wire [6:0] d0 = tmc0[6] ? 7'd127 : os ? 7'd11 : 7'd5;
+    wire [6:0] dm = tmc0[4] ? 7'd127 : 7'd11;
+    wire [6:0] d1 = tmc1[6] ? 7'd127 : 7'd5;
+    reg  [6:0] p0 = 7'd0, pm = 7'd0, p1 = 7'd0;
+    // a start's synchronisation: the count begins SD clocks after the store (f4_tout: the first
+    // count-out 604 clocks after the store's TOUT level, the next 600 apart)
+    localparam logic [2:0] SD = 3'd4;
+    reg  [2:0] s0 = 3'd0, s1 = 3'd0;
+    reg        q = 1'b1;
+    assign tout = tmc0[3] ? q ^ tmc0[2] : !tmc0[2];
+    // a store's bytes at an offset (a word store writes the offset and the next)
+    wire        s_tmc0 = we && (w_off == O_TMC0);
+    wire        s_tmc1 = we && (w_off == O_TMC1 || (w_word && w_off == O_TMC0));
+    wire [7:0]  v_tmc1 = w_off == O_TMC1 ? w_lo : w_hi;
+    initial begin
+        tm0 = 16'hFFFF; md0 = 16'hFFFF; tm1 = 16'hFFFF; md1 = 16'hFFFF;
+        tmc0 = 8'd0; tmc1 = 8'd0; tf = 3'd0;
+    end
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            tm0 <= 16'hFFFF; md0 <= 16'hFFFF; tm1 <= 16'hFFFF; md1 <= 16'hFFFF;
+            tmc0 <= 8'd0; tmc1 <= 8'd0; tf <= 3'd0;
+            p0 <= 7'd0; pm <= 7'd0; p1 <= 7'd0; q <= 1'b1;
+            s0 <= 3'd0; s1 <= 3'd0;
+        end else if (ce_a) begin
+            tf <= 3'd0;
+            // ---- the counts
+            if (s0 != 3'd0)
+                s0 <= s0 - 3'd1;
+            if (s1 != 3'd0)
+                s1 <= s1 - 3'd1;
+            if (tmc0[7] && s0 == 3'd0) begin
+                p0 <= p0 == d0 ? 7'd0 : p0 + 7'd1;
+                if (p0 == d0) begin
+                    if (os ? tm0 == 16'd1 || tm0 == 16'd0 : tm0 == 16'd0) begin
+                        tf[0] <= 1'b1;
+                        q <= !q;
+                        if (os) begin
+                            tmc0[7] <= 1'b0;
+                            tm0 <= 16'd0;
+                        end else
+                            tm0 <= md0;
+                    end else
+                        tm0 <= tm0 - 16'd1;
+                end
+            end
+            if (os && tmc0[5]) begin
+                pm <= pm == dm ? 7'd0 : pm + 7'd1;
+                if (pm == dm) begin
+                    if (md0 == 16'd1 || md0 == 16'd0) begin
+                        tf[1] <= 1'b1;
+                        tmc0[5] <= 1'b0;
+                        md0 <= 16'd0;
+                    end else
+                        md0 <= md0 - 16'd1;
+                end
+            end
+            if (tmc1[7] && s1 == 3'd0) begin
+                p1 <= p1 == d1 ? 7'd0 : p1 + 7'd1;
+                if (p1 == d1) begin
+                    if (tm1 == 16'd0) begin
+                        tf[2:1] <= 2'b11;
+                        tm1 <= md1;
+                    end else
+                        tm1 <= tm1 - 16'd1;
+                end
+            end
+            // ---- the stores (after the counts: a store wins)
+            if (we && w_word && w_off == O_TM0)
+                tm0 <= {w_hi, w_lo};
+            if (we && w_word && w_off == O_MD0)
+                md0 <= {w_hi, w_lo};
+            if (we && w_word && w_off == O_TM1)
+                tm1 <= {w_hi, w_lo};
+            if (we && w_word && w_off == O_MD1)
+                md1 <= {w_hi, w_lo};
+            if (s_tmc0) begin
+                tmc0 <= w_lo & 8'hFD;
+                if (w_lo[7]) begin
+                    p0 <= 7'd0;
+                    s0 <= w_lo[0] ? 3'd0 : SD;
+                    if (!w_lo[0])
+                        tm0 <= md0;
+                    if (!tmc0[7])
+                        q <= 1'b1;
+                end
+                if (w_lo[5])
+                    pm <= 7'd0;
+            end
+            if (s_tmc1) begin
+                tmc1 <= v_tmc1 & 8'hC0;
+                if (v_tmc1[7]) begin
+                    p1 <= 7'd0;
+                    s1 <= SD;
+                    tm1 <= md1;
+                end
+            end
+        end
+    end
+endmodule
+
+// (F4) The time base counter: 20 bits at the CPU clock from reset; PRC TB1-0 picks the tap
+// (2^10, 2^13, 2^16, 2^20 clocks; f4_tb, f4_tbl) whose carry raises TBIC (a ce_a strobe).
+module v35_tbc (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce_a,
+    input  wire [1:0]  tb,
+    output reg         tbf
+);
+    reg [19:0] c = 20'd0;
+    initial tbf = 1'b0;
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            c <= 20'd0;
+            tbf <= 1'b0;
+        end else if (ce_a) begin
+            c <= c + 20'd1;
+            case (tb)
+                2'd0: tbf <= &c[9:0];
+                2'd1: tbf <= &c[12:0];
+                2'd2: tbf <= &c[15:0];
+                default: tbf <= &c;
+            endcase
         end
     end
 endmodule

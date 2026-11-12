@@ -3050,6 +3050,95 @@ depth, test, ISPR and IC bytes: int_halt, brks_nmi).
   is resolved: the level is `tk_lv` (latched at the take), it reaches the PSW through IVEC's SIGMA
   and BSW's ALU result at ce_a, and the RAM address reads the PSW register from the next clock.
 
+
+## F4 (part A): the ports, the time base, the timers (TM0 / TM1, TOUT)
+
+`validation/v35s/periph.py` (programs `f4_port`, `f4_tm`, `f4_tout`, `f4_tb`; `f4_tbl` measured
+only) in intr.py's frame (its Test, slots and logging handler). The timer and time-base
+programs send vectors 28-31 to a short stub (FAST: the store of the vector at 8002h, a count at
+8040h + n, FINT, RETI), because the logging handler takes ~1,750 clocks at fX/8, longer than a
+period. A run keeps the pin records (`pins`) and the ticks of the stub stores (`stubs`, split by
+the test-number store at 8004h). Every program writes RFM ECh first (refresh off, as the corpus).
+Receipts `validation/v35s/receipts/f4-<name>-socket.json` and `-socket-2.json` (two sessions).
+
+### Measured (the socket, uPD70337L-8, fX/8)
+
+- **Ports.** A bit in input mode (PM 1) reads its pin, in output mode its latch (P0 5A/A5/0F/F0
+  read back; P2 FFh written with PM2 89h reads 76h: the output bits' latch, the inputs' pins).
+  P1 bits 3:0 always read pins (PM1's low nibble is fixed 1); P13 reads 1 while PMC1 bit 3 makes
+  it the /INTAK output. A word store to P0 writes PM0 too (F00/F01). The pins follow the latch at
+  the store. Inputs from the schedule read as driven (INTP0 / INTP2 low, INT, DMARQ1, HLDRQ high:
+  P1 95h, P2 88h). PT reads 00h at every PMT threshold: the board holds PT0-7 low with VTH = VDD,
+  so the comparator port is only seen at its zero-input level (the analog function is from the
+  book and not built: PT reads 00h).
+- **A pin the CPU stops driving keeps its level** (the board's bus keepers: P13 stays high when
+  PMC1 bit 3 is cleared). A bank's hand-over shows the keepers' level for 2 ticks while the
+  translator turns: the gate keeps only records that stood 16 ticks (`settle`).
+- **TM0 interval:** the period is (MD0 + 1) x 6 clocks (TCLK0 0) or x 128; TOUT edges exactly
+  600 clocks apart for MD0 99 (19,200 ticks, every one). A TMC0 store with TS0 1 loads TM0 from
+  MD0 (TM0 written 20 is not counted: tout_rs) and restarts the prescaler, also while running
+  (tout_flip: the next count-out 604 clocks after the store). The first count-out is 604 clocks
+  after the store's TOUT level: 4 clocks of start synchronisation. MD0 written while running is
+  taken at the next reload (tm0_md: 600 then 300). A stopped timer holds its count.
+- **TM1:** the same; each count-out raises TMIC1 **and** TMIC2 (both IF bits; with both unmasked
+  silicon's take order after RETI decides whether a HALT consumes one or two, so the gated tests
+  mask one and read its IF after).
+- **TM0 one-shot (MOD0 1):** TM0 (TS0; /12 or /128 by TCLK0) and MD0 (MS0; /12 or /128 by MCLK)
+  count from their own values; at the end each raises TMIC0 / TMIC1 and clears its start bit
+  (TMC0 A1h reads 01h after both); both read 0000h after. The count-out of TM0 50 at /12 is
+  598 clocks after the store (TOUT): about N x 12 with no synchronisation (built: N counts from
+  the store; the RTL's lands 2 clocks later, inside the gate's tolerance). TOUT toggles at TM0's
+  end only.
+- **TOUT:** a flop q, 1 at reset and set to 1 by each start from TS0 0, toggled at TM0's
+  count-outs; the pin is q ^ ALV while ENT0 is 1, else ~ALV. Every store's level in f4_tout
+  (ALV 1/0 starts, ENT0 0 running, ALV rewritten while running, stops with ENT0 1 and 0, TMC0
+  stores while stopped) fits this and nothing simpler (the book's "TOUT initial level" ALV is the
+  level at the start only with q 1). Whether q toggles while ENT0 is 0 is not visible.
+- **The time base:** TBIC at 2^10, 2^13 and 2^16 clocks (PRC TB 00, 01, 10), from the stub
+  ticks' mean (11 periods of 1,024: 1,015 / 1,031 each). 2^20 (one second at fX/8) is longer
+  than the run limit and was not timed.
+- **The interrupt take in HALT is on a 16-clock grid:** stub-to-stub intervals of a 600-clock
+  source read 599 or 615, of 1,024 1,015 or 1,031. Silicon's take, not the sources: the gate
+  compares stub intervals within 16 clocks (`PERIOD_TOL`) and TOUT intervals exactly.
+
+### Built (`core/v35_sfr.sv`)
+
+- **v35_sfr, the ports:** the latches, PM and PMC stay in the page's storage; the read of P0 /
+  P1 / P2 is (PM & pin) | (~PM & latch), the pins the board drives arriving on `v35_top.pins_in`
+  ({P2, P1, P0}) through two flops. The output pin vector `pins` (the harness's order) is a
+  register: the latch where PM makes a bit an output, /INTAK on P13 with PMC1 bit 3, TOUT on P15
+  with PMC1 bit 5, TxD0/1 high; an undriven pin keeps its level (the keepers). CLKOUT (PMC0
+  bit 7), the DMA / hold outputs on P2 and SCK0 are not built (later parts). PT reads 00h.
+- **v35_timer** (beside v35_sfr, in the same file): TM0 MD0 TM1 MD1 TMC0 TMC1, three prescalers,
+  the 4-clock start synchronisation (SD), the TOUT flop; count-outs are registered strobes
+  (`tf`). v35_sfr reads the counters (the K_W16 offsets) and TMC0 / TMC1 (the self-clearing
+  start bits) from it through the registered read.
+- **v35_tbc:** the 20-bit time base at the CPU clock, the tap by PRC TB, a registered strobe.
+- **v35_intc:** `pf_set` (the peripherals' strobes, v35_intc's order: TMIC0-2 9-11, TBIC 14) sets
+  the IF bit at ce_a.
+- **The harness (simulation):** `v35s_harness.sv` under V35S_CORE_V35 passes the board's port
+  levels to the core (`model_pins_in`: P0 the host's levels while T2 is H; P1 NMI, /INTP0-2,
+  INT, READY as nuboard_v35s.v drives them; P2 DMARQ0/1, HLDRQ) and records the core's `pins` as
+  the socket's (`model_pins`). The loaded image is unchanged (socket lane only).
+
+### The F4 gate (part A)
+
+`periph.py gate` (after `periph.py sim`): the write and I/O sequence, the result regions and the
+settled pin sequence equal; stub intervals within 16 clocks; every pin interval that is one TOUT
+half-period on the socket the same number of ticks on the RTL (14 of 14). f4_port, f4_tm,
+f4_tout, f4_tb EQUAL against both socket sessions.
+
+### Depth (for the overseer's timing run)
+
+- Nothing on tick A's delivery chain. The timer's and the time base's registers update at ce_a
+  from the SFR store's registered address / width / datum (`wr` is ce_a AND registers): a 16-bit
+  decrement, a zero compare and a reload select per counter, the 7-bit prescaler compares.
+- The SFR read (registered at ce_rd = ce_b): rbyte's K_W16 case becomes an 8-way select of the
+  timer's registers by the offset's bits 3, 1, 0; K_PIN a 3-way select of (PM & pin) | (~PM &
+  latch); TMC0 / TMC1 two compares. The offset is a register (oc_off).
+- v35_intc: ic_if's next value gains one OR term per source (`pf_set`, a register).
+- `pins` is a register of the page's bytes and the timer's TOUT flop.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

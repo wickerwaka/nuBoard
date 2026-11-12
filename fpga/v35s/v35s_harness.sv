@@ -175,6 +175,18 @@ module v35s_harness #(
     wire model_data_drive, model_ready;
     wire [15:0] model_levels;
     wire model_vector_drive, socket_stim_vector_drive;
+    wire [31:0] model_core_pins;      // (F4) the core v2's output pins (V35S_CORE_V35)
+    // (F4) the port pins as nuboard_v35s.v drives the socket's (each bank while the lane's mode
+    // has it H; 0 otherwise): P0 the host's levels (T2); P1: P10-P12 NMI, /INTP0-1 (B1), P13
+    // /INTP2 (R2), P14 INT and P17 READY (T0), P15 / P16 low (R2); P2: DMARQ0 / DMARQ1 / HLDRQ
+    // (B2, always), the R0 bits low
+    wire [23:0] model_pins_in = {
+        model_levels[8], 3'd0, model_levels[7], 2'd0, model_levels[6],
+        model_port_mode[7:6] == 2'd0 && model_ready, 2'd0,
+        model_port_mode[7:6] == 2'd0 && model_levels[5],
+        model_port_mode[3:2] == 2'd0 && model_levels[4], model_levels[3:1],
+        model_port_mode[1:0] == 2'd0 ? p0_levels : 8'd0
+    };
     // The INTAK answer: the vector on D7..D0 while the lane asks for it.
     wire [15:0] model_data_in = model_vector_drive ?
         {model_lane_data_in[15:8], intak_vector} : model_lane_data_in;
@@ -203,6 +215,8 @@ module v35s_harness #(
         .read_write(model_read_write),
 `ifdef V35S_CORE_V35
         .intak_n(model_core_intak_n),   // (F3b) the core v2's /INTAK
+        .pins_in(model_pins_in),        // (F4) the port pins as the board drives them
+        .pins(model_core_pins),         // (F4) the core v2's output pins
 `endif
         .refrq_n(model_refrq_n)
     );
@@ -238,7 +252,12 @@ module v35s_harness #(
         socket_t0[1], socket_r2[3], socket_r2[2], socket_t0[0], socket_r2[1], 3'd0,
         socket_p0
     };
+`ifdef V35S_CORE_V35
+    // (F4) the core v2's output pins, recorded as the socket's are
+    wire [31:0] model_pins = model_core_pins;
+`else
     wire [31:0] model_pins = 32'd0;
+`endif
 `ifdef V35S_CORE_V35
     // (F3b) the core v2 drives /INTAK (P13); the lane answers the vector while it is low and
     // the model's R2 bank is announced CPU-driven, as for the socket

@@ -53,7 +53,11 @@ module v35_top
     output reg         iostb_n,
     output reg         read_write,
     output reg         refrq_n,
-    output wire        intak_n          // (F3b) the INT acknowledge (P13 as /INTAK: PMC1 bit 3)
+    output wire        intak_n,         // (F3b) the INT acknowledge (P13 as /INTAK: PMC1 bit 3)
+    // (F4) the port pins the board drives ({P2, P1, P0}: an input-mode bit reads its pin) and
+    // the output pin vector in the harness's order (v35s_harness.sv "Pin vector")
+    input  wire [23:0] pins_in,
+    output wire [31:0] pins
 );
     // ---------------------------------------------------------------- SFRs
     wire [7:0] prc, rfm, idb;
@@ -77,11 +81,13 @@ module v35_top
     wire [7:0]  intm, ispr;
     wire [14:0] ic_we, ic_wd, ic_if;
     wire        int_on;                 // (F3b) the INT request (the level, PMC1 bit 4)
+    wire [14:0] pf_set;                 // (F4) the peripherals' IF requests
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
                  .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd), .psw_f,
                  .input_levels, .flag_we, .flag_d, .poll_p14,
-                 .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on);
+                 .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on,
+                 .ce_a, .pins_in, .intak_n, .pins, .pf_set);
 
     // ---------------------------------------------------------------- CPU clock
     reg [2:0] x_count = 3'd0;
@@ -478,7 +484,7 @@ module v35_top
         .wr(sfr_wr), .ic_we, .ic_wd, .take_n, .take_i, .take_s,
         .iack(ex_b && word.alu == AL_IVEC), .fint(ex_b && word.alu == AL_FINT),
         .ic_if, .ispr, .ir_v, .ir_vec, .nmi_v, .wake(i_wake), .tk_vec,
-        .int_on, .it_v, .tk_bs, .tk_lv, .tk_int
+        .int_on, .it_v, .tk_bs, .tk_lv, .tk_int, .pf_set
     );
 
     // ---------------------------------------------------------------- the register RAM
