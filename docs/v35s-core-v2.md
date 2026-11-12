@@ -2068,3 +2068,9 @@ question, decided from S8's routed numbers with the user.
   +0.433 / +0.465 / −0.057 ns on seeds 1 .. 5 (0 / 0 / 0 / 0 / 2 endpoints of 2,000 failing; seed 5's is the
   delivery chain again); alone useq +6.239, loader +4.478, queue +6.339, bus +7.165, eu +4.898, regram
   +11.951. Four seeds of five close; the margin is about half a nanosecond, inside the placement spread.
+- **Full-function plan approved (2026-11-11).** docs/v35s-function-plan.md: timing set aside, every opcode,
+  the interrupt controller and the peripherals built in stages F0 .. F5, each led by a socket measurement and
+  gated on the RTL in simulation equalling the socket's program-visible behaviour. The user's rulings on the
+  Software Guard table (pass-through), the RTL in simulation, refresh (still out) and STOP are recorded there.
+  Launched: F1 (on-chip memory; owns the board), F0 (harness inputs and port capture; simulation and Efinity,
+  no board) and F2's first part (INS / EXT; simulation only).
