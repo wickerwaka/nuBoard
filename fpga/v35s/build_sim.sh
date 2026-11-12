@@ -89,7 +89,7 @@ verilator --cc --exe --timing --build -j 4 -Wno-fatal -Wno-lint -Wno-style \
     --top-module "$top_module" --Mdir "$output_dir" \
     -I"$output_dir" -I"$ucore_dir" \
     "${model_sources[@]}" \
-    "$project_dir/v35s_lane.sv" \
+    "$project_dir/v35s_lane.sv" "$project_dir/v35s_stim.sv" \
     "$shared_dir/m68000_scope.sv" \
     "$shared_dir/scope_encoder.sv" \
     "$project_dir/v35s_harness.sv" \

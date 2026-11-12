@@ -38,6 +38,8 @@ public:
         dut.socket_iostb_n = 1;
         dut.socket_refrq_n = 1;
         dut.socket_read_write = 1;
+        // Idle serial lines.
+        dut.socket_txd = 3;
 #endif
         for (unsigned i = 0; i < 20; ++i)
             tick();

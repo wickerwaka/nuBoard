@@ -152,7 +152,7 @@ module nuboard_v35s (
     };
 
     wire [15:0] cpu_data_in;
-    wire cpu_data_drive, cpu_ready, cpu_reset_n, x1;
+    wire cpu_data_drive, cpu_vector_drive, cpu_ready, cpu_reset_n, x1;
     // power_on switches DUT power; translators and X1 follow powered_on,
     // which rises once the supply has settled.
     wire power_on, powered_on;
@@ -182,8 +182,12 @@ module nuboard_v35s (
         .socket_p0(t2),
         .socket_p2_out({r0[7], r0[6], r0[5], r0[4], r0[3]}),
         .socket_r2(r2[3:0]),
+        // T0 bit 7 is P14 (INT), bit 6 P17 (READY); B0 bits 6/7 are TxD0/TxD1.
+        .socket_t0({t0[6], t0[7]}),
+        .socket_txd({b0[7], b0[6]}),
         .socket_data_in(cpu_data_in),
         .socket_data_drive(cpu_data_drive),
+        .socket_vector_drive(cpu_vector_drive),
         .socket_ready(cpu_ready),
         .socket_reset_n(cpu_reset_n),
         .input_levels(levels),
@@ -209,10 +213,14 @@ module nuboard_v35s (
 
     // Data: drive only while the lane answers a read strobe and the CPU
     // still signals a read. R//W is checked unsynchronized as a final guard.
+    // The INTAK answer drives D7..D0 (L0) only, while /INTAK is low with R2
+    // CPU-driven, R//W high and no refresh (the last two unsynchronized).
     wire data_drive = armed && cpu_data_drive && t1[3];
-    assign l0 = data_drive ? data_swap(cpu_data_in[7:0]) : 8'hzz;
+    wire vector_drive = armed && cpu_vector_drive && t1[3] && t1[2] && r2_d;
+    wire low_drive = data_drive || vector_drive;
+    assign l0 = low_drive ? data_swap(cpu_data_in[7:0]) : 8'hzz;
     assign l1 = data_drive ? data_swap(cpu_data_in[15:8]) : 8'hzz;
-    assign l0_dir = data_drive;
+    assign l0_dir = low_drive;
     assign l1_dir = data_drive;
     assign l0_oe_n = !armed;
     assign l1_oe_n = !armed;

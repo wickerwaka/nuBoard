@@ -49,7 +49,7 @@ for file in "${shared[@]}"; do
     cp "$script_dir/../m68000/$file" "$project_dir/"
 done
 cp "$script_dir"/nuboard_v35s.v "$script_dir"/nuboard_mailbox.v \
-   "$script_dir"/v35s_harness.sv "$script_dir"/v35s_lane.sv \
+   "$script_dir"/v35s_harness.sv "$script_dir"/v35s_lane.sv "$script_dir"/v35s_stim.sv \
    "$script_dir"/v35s.isf "$script_dir"/v35s.sdc "$project_dir/"
 
 macros=""

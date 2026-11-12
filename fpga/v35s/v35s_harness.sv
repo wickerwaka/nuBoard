@@ -25,6 +25,26 @@
 //      6 DMARQ0, 7 DMARQ1, 8 HLDRQ, 9 RxD0, 10 RxD1, 11 /CTS0, 12 /CTS1
 //   90 marker count (socket, model in high byte)   92 last socket marker
 //   94/96 ticks since arm (saturating)
+//   98/9a live P0, {R2, P2 outputs}
+//   (version 2) stimulus and output recording, v35s_stim.sv / v35s_lane.sv:
+//   a0 schedule: 5:0 entry count (0-32), 8 answer INTAK with the vector,
+//      9 drop INT at /INTAK's falling edge
+//   a2 INTAK vector (7:0)
+//   a4/a6 RxD0/RxD1 bit time in ticks (2-65535)
+//   a8/aa RxD0/RxD1 pattern length in bits (0-2048)
+//   ac/ae pin record mask, low/high word (pin vector below; 0 = no records)
+//   b0/b2 socket/model stimulus status: 5:0 entry, 10:8 state, 12/13 RxD0/1
+//      streaming (read)
+//   b4 events {model, socket}   b6 unmatched events {model, socket}
+//   b8 last events {model, socket}
+//   ba/bc live socket pin vector low/high (unmasked)
+//   be/c0 live input levels: socket, model
+//   Pin vector: 7:0 P0, 11 P13//INTAK, 12 P14, 13 P15/TOUT, 14 P16//SCK0,
+//      15 P17, 17 P21//DMAAK0, 18 P22//TC0, 20 P24//DMAAK1, 21 P25//TC1,
+//      22 P26//HLDAK, 24 TxD0, 25 TxD1, 26 /CTS0 pin; a bit records only
+//      while its bank is CPU-driven (T2, R2, T0, R0 = D; TxD always).
+//   0x60000-0x601ff schedule (32 x 8 words), 0x60200-0x602ff RxD0 pattern,
+//   0x60300-0x603ff RxD1 pattern (writes go to both lanes; reads the socket's)
 //   0x1xxxx model RAM (writes broadcast to both lanes), 0x2xxxx socket RAM,
 //   0x3xxxx model trace, 0x4xxxx socket trace
 module v35s_harness #(
@@ -58,11 +78,14 @@ module v35s_harness #(
     input  wire [7:0]   socket_p0,
     input  wire [4:0]   socket_p2_out,     // DMAAK0, TC0, DMAAK1, HLDAK, TC1
     input  wire [3:0]   socket_r2,         // /CTS0, /INTP2, TOUT, /SCK0
+    input  wire [1:0]   socket_t0,         // P14 (INT), P17 (READY) while T0 = D
+    input  wire [1:0]   socket_txd,        // TxD0, TxD1
     output wire [15:0]  socket_data_in,
     output wire         socket_data_drive,
+    output wire         socket_vector_drive,   // D7..D0 only: the INTAK answer
     output wire         socket_ready,
     output wire         socket_reset_n,
-    output reg  [15:0]  input_levels,
+    output wire [15:0]  input_levels,      // the socket's, after its schedule
     output reg  [7:0]   p0_levels,
     output reg  [7:0]   port_mode,
     output reg          socket_armed,
@@ -78,7 +101,6 @@ module v35s_harness #(
         socket_armed = 1'b0;
         x1 = 1'b0;
         complete = 1'b0;
-        input_levels = 16'h1e1f;
         p0_levels = 8'd0;
         port_mode = 8'd0;
     end
@@ -102,6 +124,15 @@ module v35s_harness #(
     reg [7:0] socket_markers = 8'd0;
     reg [7:0] model_markers = 8'd0;
     reg [15:0] last_marker = 16'd0;
+    reg [15:0] base_levels = 16'h1e1f;
+    reg [7:0] model_port_mode = 8'd0;
+    reg [5:0] entry_count = 6'd0;
+    reg intak_enable = 1'b0;
+    reg int_release = 1'b0;
+    reg [7:0] intak_vector = 8'hff;
+    reg [15:0] bit_time0 = 16'd2, bit_time1 = 16'd2;
+    reg [11:0] length0 = 12'd0, length1 = 12'd0;
+    reg [31:0] pin_record_mask = 32'd0;
 
     wire clock_enabled = socket_armed || state != 0;
     wire x_edge = clock_enabled && divider_count == x_half - 1'b1;
@@ -139,8 +170,13 @@ module v35s_harness #(
     wire [8:0] model_mux_address;
     wire [15:0] model_data_out;
     wire model_mreq_n, model_mstb_n, model_iostb_n, model_read_write, model_refrq_n;
-    wire [15:0] model_data_in;
+    wire [15:0] model_lane_data_in;
     wire model_data_drive, model_ready;
+    wire [15:0] model_levels;
+    wire model_vector_drive, socket_stim_vector_drive;
+    // The INTAK answer: the vector on D7..D0 while the lane asks for it.
+    wire [15:0] model_data_in = model_vector_drive ?
+        {model_lane_data_in[15:8], intak_vector} : model_lane_data_in;
 
 `ifdef V35S_CORE_V35
     // the V35S core v2 (docs/v35s-core-v2.md; build_sim.sh direct v35)
@@ -154,7 +190,7 @@ module v35s_harness #(
         .reset_n(executing && mode[0]),
         .ready(model_ready),
         .data_in(model_data_in),
-        .input_levels(input_levels),
+        .input_levels(model_levels),
         .a0(model_a0),
         .a19(model_a19),
         .a18_ube(model_a18_ube),
@@ -184,6 +220,33 @@ module v35s_harness #(
     wire model_marker_valid, socket_marker_valid;
     wire [15:0] model_marker_data, socket_marker_data;
     wire [2:0] model_lane_state, socket_lane_state;
+    wire model_event_valid, socket_event_valid;
+    wire [7:0] model_event_data, socket_event_data;
+    wire [15:0] socket_lane_data_in;
+    wire [15:0] socket_levels;
+
+    // Output pins in the recorder's order (see the map above). The model
+    // cores drive none of these yet; a later stage adds them to v35_top.
+    wire [31:0] socket_pins = {
+        5'd0, socket_r2[0], socket_txd,
+        1'b0, socket_p2_out[3], socket_p2_out[4], socket_p2_out[2], 1'b0,
+        socket_p2_out[1], socket_p2_out[0], 1'b0,
+        socket_t0[1], socket_r2[3], socket_r2[2], socket_t0[0], socket_r2[1], 3'd0,
+        socket_p0
+    };
+    wire [31:0] model_pins = 32'd0;
+    wire model_intak_n = 1'b1;
+    // Pins a bank in mode D lets the FPGA see.
+    function [31:0] observable;
+        input [7:0] modes;
+        begin
+            observable = 32'h0300_0000;
+            if (modes[1:0] == 2'd2) observable = observable | 32'h0000_00ff;   // T2: P0
+            if (modes[3:2] == 2'd2) observable = observable | 32'h0400_6800;   // R2
+            if (modes[7:6] == 2'd2) observable = observable | 32'h0000_9000;   // T0
+            if (modes[5:4] == 2'd2) observable = observable | 32'h0076_0000;   // R0
+        end
+    endfunction
 
     // One 52-bit observation per lane for the scope:
     //   [15:0] data bus, [24:16] multiplexed address pins, 25 A18//UBE,
@@ -246,14 +309,16 @@ module v35s_harness #(
         .mux_address(model_mux_address), .data_out(model_data_out),
         .mreq_n(model_mreq_n), .mstb_n(model_mstb_n), .iostb_n(model_iostb_n),
         .read_write(model_read_write), .refrq_n(model_refrq_n),
-        .data_in(model_data_in), .data_drive(model_data_drive), .ready(model_ready),
+        .data_in(model_lane_data_in), .data_drive(model_data_drive), .ready(model_ready),
         .result(model_result), .overflow(model_overflow),
         .marker_valid(model_marker_valid), .marker_data(model_marker_data),
         .trace_count(model_trace_count), .total_count(model_total),
         .signature(model_signature), .lane_state(model_lane_state),
         .host_address(saved_address[15:0]), .host_write(memory_write),
         .host_data(saved_data), .host_read_data(model_host_data),
-        .trace_address(saved_address[14:1]), .trace_data(model_trace_data)
+        .trace_address(saved_address[14:1]), .trace_data(model_trace_data),
+        .event_valid(model_event_valid), .event_data(model_event_data),
+        .pins(model_pins), .pin_mask(pin_record_mask & observable(model_port_mode))
     );
 
     v35s_lane socket_lane (
@@ -264,15 +329,60 @@ module v35s_harness #(
         .mux_address(socket_mux_address), .data_out(socket_data_out),
         .mreq_n(socket_mreq_n), .mstb_n(socket_mstb_n), .iostb_n(socket_iostb_n),
         .read_write(socket_read_write), .refrq_n(socket_refrq_n),
-        .data_in(socket_data_in), .data_drive(socket_data_drive), .ready(socket_ready),
+        .data_in(socket_lane_data_in), .data_drive(socket_data_drive), .ready(socket_ready),
         .result(socket_result), .overflow(socket_overflow),
         .marker_valid(socket_marker_valid), .marker_data(socket_marker_data),
         .trace_count(socket_trace_count), .total_count(socket_total),
         .signature(socket_signature), .lane_state(socket_lane_state),
         .host_address(saved_address[15:0]), .host_write(memory_write),
         .host_data(saved_data), .host_read_data(socket_host_data),
-        .trace_address(saved_address[14:1]), .trace_data(socket_trace_data)
+        .trace_address(saved_address[14:1]), .trace_data(socket_trace_data),
+        .event_valid(socket_event_valid), .event_data(socket_event_data),
+        .pins(socket_pins), .pin_mask(pin_record_mask & observable(port_mode))
     );
+
+    // ------------------------------------------------------------ stimulus
+    wire stim_write = debug_stage == 2'd1 && saved_write &&
+                      saved_address[19:16] == 4'h6 && saved_address[15:10] == 0 && !busy;
+    wire [15:0] socket_stim_host_data, model_stim_host_data;
+    wire [15:0] socket_stim_status, model_stim_status;
+    wire [7:0] socket_events, model_events, socket_unmatched, model_unmatched;
+    wire [7:0] socket_last_event, model_last_event;
+
+    v35s_stim socket_stim (
+        .clock(clock), .clear(clear_lanes), .running(executing && mode[1]),
+        .base_levels(base_levels),
+        .host_word(saved_address[9:1]), .host_write(stim_write),
+        .host_data(saved_data), .host_read_data(socket_stim_host_data),
+        .entry_count(entry_count), .bit_time0(bit_time0), .bit_time1(bit_time1),
+        .length0(length0), .length1(length1), .intak_enable(intak_enable),
+        .int_release(int_release), .vector(intak_vector),
+        .event_valid(socket_event_valid), .event_number(socket_event_data),
+        .intak_n(socket_r2[1]), .intak_observable(port_mode[3:2] == 2'd2),
+        .levels(socket_levels), .vector_drive(socket_stim_vector_drive),
+        .status(socket_stim_status), .event_count(socket_events),
+        .unmatched_count(socket_unmatched), .last_event(socket_last_event)
+    );
+
+    v35s_stim model_stim (
+        .clock(clock), .clear(clear_lanes), .running(executing && mode[0]),
+        .base_levels(base_levels),
+        .host_word(saved_address[9:1]), .host_write(stim_write),
+        .host_data(saved_data), .host_read_data(model_stim_host_data),
+        .entry_count(entry_count), .bit_time0(bit_time0), .bit_time1(bit_time1),
+        .length0(length0), .length1(length1), .intak_enable(intak_enable),
+        .int_release(int_release), .vector(intak_vector),
+        .event_valid(model_event_valid), .event_number(model_event_data),
+        .intak_n(model_intak_n), .intak_observable(model_port_mode[3:2] == 2'd2),
+        .levels(model_levels), .vector_drive(model_vector_drive),
+        .status(model_stim_status), .event_count(model_events),
+        .unmatched_count(model_unmatched), .last_event(model_last_event)
+    );
+
+    assign input_levels = socket_levels;
+    assign socket_vector_drive = socket_stim_vector_drive;
+    assign socket_data_in = socket_stim_vector_drive ?
+        {socket_lane_data_in[15:8], intak_vector} : socket_lane_data_in;
 
     wire [15:0] status = {
         7'd0, state == 2'd1 && cold_wait, timed_out,
@@ -307,8 +417,10 @@ module v35s_harness #(
             last_marker <= socket_marker_data;
             socket_markers <= socket_markers + 1'b1;
         end
-        if (model_marker_valid && executing)
+        if (model_marker_valid && executing) begin
             model_markers <= model_markers + 1'b1;
+            model_port_mode <= legal_modes(model_marker_data[7:0]);
+        end
 
         if (state == 2'd1) begin
             if (reset_done) begin
@@ -383,6 +495,7 @@ module v35s_harness #(
                                         clear_lanes <= 1'b1;
                                         reset_count <= 32'd0;
                                         port_mode <= start_port_mode;
+                                        model_port_mode <= start_port_mode;
                                         socket_markers <= 8'd0;
                                         model_markers <= 8'd0;
                                         state <= 2'd1;
@@ -416,9 +529,30 @@ module v35s_harness #(
                             8'h88: begin
                                 start_port_mode <= legal_modes(saved_data[7:0]);
                                 port_mode <= legal_modes(saved_data[7:0]);
+                                model_port_mode <= legal_modes(saved_data[7:0]);
                             end
                             8'h8c: p0_levels <= saved_data[7:0];
-                            8'h8e: input_levels <= saved_data & 16'h1fff;
+                            8'h8e: base_levels <= saved_data & 16'h1fff;
+                            8'ha0: begin
+                                if (saved_data[5:0] > 6'd32)
+                                    debug_error <= 1'b1;
+                                else begin
+                                    entry_count <= saved_data[5:0];
+                                    intak_enable <= saved_data[8];
+                                    int_release <= saved_data[9];
+                                end
+                            end
+                            8'ha2: intak_vector <= saved_data[7:0];
+                            8'ha4: if (saved_data < 2) debug_error <= 1'b1;
+                                   else bit_time0 <= saved_data;
+                            8'ha6: if (saved_data < 2) debug_error <= 1'b1;
+                                   else bit_time1 <= saved_data;
+                            8'ha8: if (saved_data > 2048) debug_error <= 1'b1;
+                                   else length0 <= saved_data[11:0];
+                            8'haa: if (saved_data > 2048) debug_error <= 1'b1;
+                                   else length1 <= saved_data[11:0];
+                            8'hac: pin_record_mask[15:0] <= saved_data;
+                            8'hae: pin_record_mask[31:16] <= saved_data;
                             default: begin
                                 if (saved_address >= 20'h40 && saved_address < 20'h60)
                                     page_map[saved_address[4:1] * 16 +: 16] <= saved_data;
@@ -429,7 +563,7 @@ module v35s_harness #(
                     end else begin
                         case (saved_address[7:0])
                             8'h00: debug_read_data <= 16'h7033;
-                            8'h02: debug_read_data <= 16'h0001;
+                            8'h02: debug_read_data <= 16'h0002;
                             8'h04: debug_read_data <= {6'd0, mode, 7'd0, socket_armed};
                             8'h06: debug_read_data <= status;
                             8'h08: debug_read_data <= {8'd0, x_half};
@@ -461,13 +595,31 @@ module v35s_harness #(
                             8'h88: debug_read_data <= {8'd0, start_port_mode};
                             8'h8a: debug_read_data <= {8'd0, port_mode};
                             8'h8c: debug_read_data <= {8'd0, p0_levels};
-                            8'h8e: debug_read_data <= input_levels;
+                            8'h8e: debug_read_data <= base_levels;
                             8'h90: debug_read_data <= {model_markers, socket_markers};
                             8'h92: debug_read_data <= last_marker;
                             8'h94: debug_read_data <= power_ticks[15:0];
                             8'h96: debug_read_data <= power_ticks[31:16];
                             8'h98: debug_read_data <= {8'd0, socket_p0};
                             8'h9a: debug_read_data <= {7'd0, socket_r2, socket_p2_out};
+                            8'ha0: debug_read_data <= {6'd0, int_release, intak_enable,
+                                                       2'd0, entry_count};
+                            8'ha2: debug_read_data <= {8'd0, intak_vector};
+                            8'ha4: debug_read_data <= bit_time0;
+                            8'ha6: debug_read_data <= bit_time1;
+                            8'ha8: debug_read_data <= {4'd0, length0};
+                            8'haa: debug_read_data <= {4'd0, length1};
+                            8'hac: debug_read_data <= pin_record_mask[15:0];
+                            8'hae: debug_read_data <= pin_record_mask[31:16];
+                            8'hb0: debug_read_data <= socket_stim_status;
+                            8'hb2: debug_read_data <= model_stim_status;
+                            8'hb4: debug_read_data <= {model_events, socket_events};
+                            8'hb6: debug_read_data <= {model_unmatched, socket_unmatched};
+                            8'hb8: debug_read_data <= {model_last_event, socket_last_event};
+                            8'hba: debug_read_data <= socket_pins[15:0];
+                            8'hbc: debug_read_data <= socket_pins[31:16];
+                            8'hbe: debug_read_data <= socket_levels;
+                            8'hc0: debug_read_data <= model_levels;
                             default: begin
                                 if (saved_address >= 20'h40 && saved_address < 20'h60)
                                     debug_read_data <= page_map[saved_address[4:1] * 16 +: 16];
@@ -490,6 +642,11 @@ module v35s_harness #(
                         4'h4: begin
                             debug_read_data <= socket_trace_data;
                             debug_error <= saved_write || saved_address[15];
+                        end
+                        4'h6: begin
+                            // Writes were taken at stage 1 (stim_write).
+                            debug_read_data <= socket_stim_host_data;
+                            debug_error <= saved_address[15:10] != 0;
                         end
                         default: debug_error <= 1'b1;
                     endcase

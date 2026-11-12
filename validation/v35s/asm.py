@@ -49,7 +49,14 @@ def _expand(source: str) -> str:
     for line in source.splitlines():
         code = line.split(";", 1)[0].strip()
         key = code.upper().replace(" ", "_")
-        if key in V35_EXTENSIONS:
+        directive = re.fullmatch(r"(?i)DUMPSTATE(?:\s+(.*))?", code)
+        if directive:
+            # The register-bank and SFR dump (validation/v35s/dump.py).
+            from .dump import DEFAULT_SFRS, routine
+            names = directive.group(1)
+            lines.append(routine([n for n in names.split(",") if n.strip()] if names
+                                 else DEFAULT_SFRS))
+        elif key in V35_EXTENSIONS:
             indent = re.match(r"\s*", line).group(0)
             lines.append(f"{indent}DB {V35_EXTENSIONS[key]}")
         else:

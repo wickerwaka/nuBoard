@@ -36,6 +36,8 @@ module v35s_lane (
     output reg          overflow,
     output reg          marker_valid,
     output reg  [15:0]  marker_data,
+    output reg          event_valid,
+    output reg  [7:0]   event_data,
     output reg  [11:0]  trace_count,
     output reg  [31:0]  total_count,
     output reg  [31:0]  signature,
@@ -46,11 +48,17 @@ module v35s_lane (
     input  wire [15:0]  host_data,
     output wire [15:0]  host_read_data,
     input  wire [13:0]  trace_address,
-    output reg  [15:0]  trace_data
+    output reg  [15:0]  trace_data,
+
+    // Output pins recorded on change (flag 9): the raw pins and the mask of
+    // pins to record (zero bits are recorded as zero and never trigger).
+    input  wire [31:0]  pins,
+    input  wire [31:0]  pin_mask
 );
     localparam [15:0] PORT_PASS   = 16'hff00;
     localparam [15:0] PORT_FAIL   = 16'hff02;
     localparam [15:0] PORT_MARKER = 16'hff10;
+    localparam [15:0] PORT_EVENT  = 16'hff12;
 
     initial begin
         data_in = 16'd0;
@@ -60,6 +68,8 @@ module v35s_lane (
         overflow = 1'b0;
         marker_valid = 1'b0;
         marker_data = 16'd0;
+        event_valid = 1'b0;
+        event_data = 8'd0;
         trace_count = 12'd0;
         total_count = 32'd0;
         signature = 32'hffffffff;
@@ -166,9 +176,11 @@ module v35s_lane (
     endfunction
 
     // Flags: 0 read, 1 I/O, 2 refresh, 3 /UBE, 4 unmapped, 5 marker port,
-    // 6 A17/A9 pin in the column phase, 7 strobe seen.
+    // 6 A17/A9 pin in the column phase, 7 strobe seen, 8 event port,
+    // 9 pin record (written by the pin recorder below, never by a cycle).
     wire [11:0] cycle_flags = {
-        4'd0, strobe_seen, col_mux8,
+        3'd0, cycle_io && !cycle_read && cycle_address[15:0] == PORT_EVENT,
+        strobe_seen, col_mux8,
         cycle_io && !cycle_read && cycle_address[15:0] == PORT_MARKER,
         strobe_seen && !cycle_io && !cycle_mapped,
         cycle_ube_n, row_refresh, cycle_io, cycle_read
@@ -183,6 +195,37 @@ module v35s_lane (
     always @(posedge clock)
         capture_enabled <= total_count >= capture_start && trace_count < 12'd2048;
 
+    // ---------------------------------------------------------- pin recorder
+    // A change of the masked, synchronised pins queues {tick, pins}; the queue
+    // drains into the trace between bus records. A record is never written in
+    // states 2 and 5 (the only states before 6) nor on the tick after any
+    // write, so capture_enabled is always current when either write uses it.
+    localparam [11:0] PIN_FLAGS = 12'h200;
+    reg [31:0] pins_meta_r = 32'd0;
+    reg [31:0] pins_sync_r = 32'd0;
+    reg [31:0] pins_last = 32'd0;
+    always @(posedge clock) begin
+        pins_meta_r <= pins;
+        pins_sync_r <= pins_meta_r;
+    end
+    wire [31:0] pins_masked = pins_sync_r & pin_mask;
+    reg [63:0] pin_queue [0:7];
+    reg [2:0] pin_head = 3'd0;
+    reg [2:0] pin_tail = 3'd0;
+    reg [3:0] pin_used = 4'd0;
+    reg wrote_last = 1'b0;
+    wire [63:0] pin_head_entry = pin_queue[pin_head];
+    wire [31:0] pin_head_tick = pin_head_entry[63:32];
+    wire [31:0] pin_head_value = pin_head_entry[31:0];
+    wire pin_change = running && pins_masked != pins_last;
+    wire pin_pop = running && pin_used != 0 && !wrote_last &&
+                   state != 3'd2 && state != 3'd5 && state != 3'd6;
+    always @(posedge clock) begin
+        pins_last <= pins_masked;
+        if (pin_change && pin_used != 4'd8)
+            pin_queue[pin_tail] <= {timestamp, pins_masked};
+    end
+
     (* syn_ramstyle = "block_ram" *) reg [127:0] trace_memory [0:2047];
     reg [127:0] trace_read;
     reg [2:0] trace_half;
@@ -195,12 +238,47 @@ module v35s_lane (
                 timestamp, strobe_offset, normalized_data,
                 cycle_flags, cycle_address, start_time
             };
+        else if (pin_pop && capture_enabled)
+            trace_memory[trace_count[10:0]] <= {
+                pin_head_tick, 16'd0, pin_head_value[31:16],
+                PIN_FLAGS, 4'd0, pin_head_value[15:0], pin_head_tick
+            };
     end
 
     always @(posedge clock) begin
         write_high <= 1'b0;
         write_low <= 1'b0;
         marker_valid <= 1'b0;
+        event_valid <= 1'b0;
+        wrote_last <= (running && state == 3'd6) || pin_pop;
+        if (!running || clear) begin
+            pin_head <= 3'd0;
+            pin_tail <= 3'd0;
+            pin_used <= 4'd0;
+        end else begin
+            if (pin_change && pin_used != 4'd8)
+                pin_tail <= pin_tail + 1'b1;
+            if (pin_pop)
+                pin_head <= pin_head + 1'b1;
+            pin_used <= pin_used + {3'd0, pin_change && pin_used != 4'd8} - {3'd0, pin_pop};
+            if (pin_change && pin_used == 4'd8) begin
+                // A full queue loses a change: fail the run visibly.
+                overflow <= 1'b1;
+                result <= 2'd3;
+            end
+            if (pin_pop) begin
+                if (total_count == 32'hffffffff) begin
+                    overflow <= 1'b1;
+                    result <= 2'd3;
+                end
+                total_count <= total_count + 1'b1;
+                signature <= fold_transaction(signature, {
+                    PIN_FLAGS, pin_head_value[31:16], 4'd0, pin_head_value[15:0]
+                });
+                if (capture_enabled)
+                    trace_count <= trace_count + 1'b1;
+            end
+        end
 
         if (clear) begin
             state <= 3'd0;
@@ -332,6 +410,10 @@ module v35s_lane (
                         if (cycle_address[15:0] == PORT_MARKER) begin
                             marker_valid <= 1'b1;
                             marker_data <= cycle_data;
+                        end
+                        if (cycle_address[15:0] == PORT_EVENT) begin
+                            event_valid <= 1'b1;
+                            event_data <= cycle_data[7:0];
                         end
                     end
                     state <= 3'd7;

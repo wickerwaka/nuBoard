@@ -2074,3 +2074,16 @@ question, decided from S8's routed numbers with the user.
   Software Guard table (pass-through), the RTL in simulation, refresh (still out) and STOP are recorded there.
   Launched: F1 (on-chip memory; owns the board), F0 (harness inputs and port capture; simulation and Efinity,
   no board) and F2's first part (INS / EXT; simulation only).
+- **F0 landed (2026-11-11): the harness's scheduled inputs, output pins in the trace, serial stimulus, the dump
+  routine.** fpga/v35s/v35s_stim.sv (one per lane): a program's OUT to event port FF12h starts host-loaded
+  schedule entries (up to 32: delay, set or pulse N/S, NMI, INTP0-2, INT, DMARQ0/1, HLDRQ, RxD0/1, CTS0/1,
+  start an RxD bit stream); /INTAK answered with a host-set vector on D7-D0 (gated by R//W, /REFRQ and the
+  bank mode); changes on masked CPU-driven pins become trace records (flag bit 9; the mask 0 by default, so
+  existing traces are unchanged); validation/v35s/dump.py and the `DUMPSTATE` line copy the eight banks and
+  listed SFRs to the result region. Harness version 2; the runner accepts 1 or 2. No core source changed
+  (tick A and tick B untouched; the core's timing as 74a17eb's). **Verified on main:** fpga/v35s/test.sh,
+  test_v35s and test_stim (16 + 17), the core's fast tests; the agent's corpus gate 6,400 with 0 runs
+  differing. The socket image built in the agent's worktree meets timing at 30 ns (+6.794 ns; 926 of 1,056
+  RAM_5K, the base 920); **not yet loaded on the board** (F1 owns it). Open: silicon's INTAK cycle is
+  unmeasured (F3 measures before relying on the answer path); pin recording and the RxD streams have not
+  run against the part; the register-map text for docs/v35s-harness.md is at the scratchpad's v2/f0/.

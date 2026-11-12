@@ -3091,6 +3091,26 @@ per-opcode code; decode attributes from `ucgen.py` where the decode was wrong):
 
 The counted-apart table and the scores: "Gate (S6)".
 
+## The harness's pins the core does not have yet (F0)
+
+The harness (version 2, `fpga/v35s/v35s_stim.sv`) drives each lane's inputs from a
+marker-triggered schedule and records output pin changes in the trace. The core already
+receives the scheduled levels on `input_levels` (bit order: 0 N/S, 1 NMI, 2-4 /INTP0-2,
+5 INT, 6-7 DMARQ0/1, 8 HLDRQ, 9-10 RxD0/1, 11-12 /CTS0/1) and ignores them. To take part,
+`v35_top` gains, in the stage that builds each function:
+
+- **outputs, as a 32-bit pin vector** in the harness's order (`v35s_harness.sv`, "Pin vector":
+  7:0 P0, 11 P13 /INTAK, 12 P14, 13 P15/TOUT, 14 P16 /SCK0, 15 P17, 17-18 P21/P22,
+  20-22 P24/P25/P26, 24-25 TxD0/1, 26 the /CTS0 pin as RSCK0), the level the pin carries
+  when the port is an output (the harness gates by the program's bank-mode markers, as it does
+  the socket); the harness's `model_pins` is tied to zero until then (F4);
+- **`intak_n`** (F3): low while the core acknowledges INT; the harness's `model_intak_n` is
+  tied high until then. While it is low (and R2 is announced as CPU-driven) the lane puts the
+  host's vector on `data_in[7:0]`; the core reads it there. How silicon's INTAK cycle looks
+  on the bus (strobes or none, one pulse or two) is F3's socket measurement first;
+- nothing new for the inputs: NMI, INTP0-2, INT, DMARQ, HLDRQ, RxD, /CTS and N/S arrive on
+  `input_levels`, synchronised by the core as the stage that uses them decides.
+
 ## Not built (left out of the first delivery by design)
 
 - **Refresh timing.** `v35_refresh` runs but its request is never served (no refresh-on family is

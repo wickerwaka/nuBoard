@@ -27,6 +27,25 @@ FLAG_UNMAPPED = 1 << 4
 FLAG_MARKER = 1 << 5
 FLAG_COL_A9 = 1 << 6
 FLAG_STROBE = 1 << 7
+FLAG_EVENT = 1 << 8      # an OUT to the event port FF12h
+FLAG_PIN = 1 << 9        # a pin record: address = pins 15:0, data = pins 31:16
+
+# Event port: an OUT of the event number (low byte) starts the schedule
+# entries waiting for it (harness version 2, fpga/v35s/v35s_stim.sv).
+PORT_EVENT = 0xFF12
+
+# Input levels (register 0x8E and schedule masks), fpga/v35s/v35s_harness.sv.
+INPUTS = {"NS": 0, "NMI": 1, "INTP0": 2, "INTP1": 3, "INTP2": 4, "INT": 5,
+          "DMARQ0": 6, "DMARQ1": 7, "HLDRQ": 8, "RXD0": 9, "RXD1": 10,
+          "CTS0": 11, "CTS1": 12}
+# Levels at rest: N/S high, NMI and the active-low requests high, RxD idle high.
+REST_LEVELS = 0x1E1F
+
+# Output pin vector (pin records and register 0xBA), bit by name.
+PINS = {**{f"P0{i}": i for i in range(8)},
+        "P13": 11, "INTAK": 11, "P14": 12, "P15": 13, "TOUT": 13, "P16": 14, "SCK0": 14,
+        "P17": 15, "P21": 17, "DMAAK0": 17, "P22": 18, "TC0": 18, "P24": 20, "DMAAK1": 20,
+        "P25": 21, "TC1": 21, "P26": 22, "HLDAK": 22, "TXD0": 24, "TXD1": 25, "CTS0": 26}
 
 # Bank modes for register 0x88 and marker writes: two bits per bank.
 BANK_H, BANK_Z, BANK_D = 0, 1, 2
@@ -34,6 +53,70 @@ BANK_H, BANK_Z, BANK_D = 0, 1, 2
 
 def port_modes(t2=BANK_H, r2=BANK_H, r0=BANK_H, t0=BANK_H):
     return t2 | (r2 << 2) | (r0 << 4) | (t0 << 6)
+
+
+def pin_mask(*names):
+    """The record mask for named output pins (PINS), or all pins with none."""
+    if not names:
+        names = tuple(PINS)
+    mask = 0
+    for name in names:
+        mask |= 1 << PINS[name.upper()]
+    return mask
+
+
+def level_bits(**levels):
+    """(mask, value) for named input levels, e.g. level_bits(INT=1, NMI=0)."""
+    mask = value = 0
+    for name, level in levels.items():
+        bit = 1 << INPUTS[name.upper()]
+        mask |= bit
+        if level:
+            value |= bit
+    return mask, value
+
+
+@dataclass
+class ScheduleEntry:
+    """One entry of the marker-triggered input schedule.
+
+    event: the event number a program writes to PORT_EVENT, or None to start
+    as soon as the previous entry has ended. After `delay` ticks (30 ns) the
+    levels in `levels` are set; with hold > 0 they take the opposite level
+    after `hold` ticks (a pulse). `serial` names RxD streams (0, 1) to start
+    at the same tick.
+    """
+    event: int | None
+    levels: dict
+    delay: int = 0
+    hold: int = 0
+    serial: tuple = ()
+
+    def words(self):
+        if self.event is not None and not 0 <= self.event < 0xFF:
+            raise ValueError("event numbers are 0-254 (255 means chained)")
+        if not (0 <= self.delay < 1 << 24 and 0 <= self.hold < 1 << 24):
+            raise ValueError("delay and hold are 24-bit tick counts")
+        mask, value = level_bits(**self.levels)
+        flags = sum(1 << (8 + channel) for channel in self.serial)
+        return [(0xFF if self.event is None else self.event) | flags,
+                self.delay & 0xFFFF, self.delay >> 16,
+                self.hold & 0xFFFF, self.hold >> 16, mask, value, 0]
+
+
+def uart_bits(data: bytes, data_bits=8, parity=None, stop_bits=1, idle=1):
+    """Asynchronous frames as RxD levels, first bit first: `idle` mark bits,
+    then per byte a start bit, LSB-first data, optional parity ('even' or
+    'odd') and stop bits."""
+    bits = [1] * idle
+    for byte in data:
+        payload = [(byte >> index) & 1 for index in range(data_bits)]
+        bits += [0] + payload
+        if parity is not None:
+            ones = sum(payload)
+            bits.append(ones & 1 if parity == "even" else 1 - (ones & 1))
+        bits += [1] * stop_bits
+    return bits
 
 
 class SimulationTransport:
@@ -87,7 +170,14 @@ class Transaction:
         return cls(start, low | ((high & 15) << 16), high >> 4, data, strobe, end)
 
     @property
+    def pins(self):
+        """The pin vector of a pin record (FLAG_PIN)."""
+        return (self.address & 0xFFFF) | (self.data << 16)
+
+    @property
     def kind(self):
+        if self.flags & FLAG_PIN:
+            return "pins"
         if self.flags & FLAG_REFRESH:
             return "refresh"
         if not self.flags & FLAG_STROBE:
@@ -103,6 +193,8 @@ class Transaction:
         return self.address, self.data, self.flags & ~FLAG_COL_A9
 
     def describe(self):
+        if self.flags & FLAG_PIN:
+            return f"{self.start:>9}       pins      {self.pins:08x}"
         width = ("lo" if not self.address & 1 else "") + \
                 ("hi" if not self.flags & FLAG_UBE_N else "")
         return (f"{self.start:>9} +{self.end - self.start:<4} {self.kind:<9} "
@@ -138,15 +230,25 @@ def write_sequence(trace):
             if t.flags & FLAG_STROBE and (t.flags & FLAG_IO or not t.flags & FLAG_READ)]
 
 
+def pin_sequence(trace):
+    """The recorded output pin vectors in order (pin records only)."""
+    return [t.pins for t in trace if t.flags & FLAG_PIN]
+
+
 def compare_programs(reference, candidate):
     left, right = write_sequence(reference), write_sequence(candidate)
     first = next((i for i, (a, b) in enumerate(zip(left, right)) if a != b),
                  None if len(left) == len(right) else min(len(left), len(right)))
+    pins_left, pins_right = pin_sequence(reference), pin_sequence(candidate)
     return {"write_sequence_match": left == right, "writes": [len(left), len(right)],
-            "first_difference": first}
+            "first_difference": first,
+            "pin_sequence_match": pins_left == pins_right,
+            "pin_changes": [len(pins_left), len(pins_right)]}
 
 
 RESULT_REGION = (0x00400, 0x100)
+# The dump routine's region (validation/v35s/dump.py).
+DUMP_REGION = (0x00800, 0x210)
 
 
 class Harness:
@@ -156,12 +258,59 @@ class Harness:
         policy may differ); the trace comparison is still reported."""
         self.debug = debug
         self.strict = strict
-        if struct.unpack("<HH", debug.read(0, 4)) != (0x7033, 1):
+        identity, self.version = struct.unpack("<HH", debug.read(0, 4))
+        if identity != 0x7033 or self.version not in (1, 2):
             raise RuntimeError("unexpected V35S harness identity or ABI")
         self.pages = []
 
+    def _need_stimulus(self):
+        if self.version < 2:
+            raise RuntimeError("the input schedule needs harness version 2 (rebuild the image)")
+
+    def load_schedule(self, entries=(), intak_vector=None, int_release=False,
+                      rxd0=None, rxd1=None):
+        """Load the marker-triggered input schedule for the next runs.
+
+        entries: ScheduleEntry list (at most 32), run in order in each lane.
+        intak_vector: answer /INTAK with this byte on D7..D0 (None: no answer).
+        int_release: drop INT at /INTAK's falling edge.
+        rxd0 / rxd1: (bits, bit_time_ticks) streams that entries start.
+        """
+        self._need_stimulus()
+        entries = list(entries)
+        if len(entries) > 32:
+            raise ValueError("the schedule holds 32 entries")
+        words = [word for entry in entries for word in entry.words()]
+        if words:
+            self.debug.write(0x60000, struct.pack(f"<{len(words)}H", *words))
+        for channel, stream in enumerate((rxd0, rxd1)):
+            bits, bit_time = stream if stream is not None else ((), 2)
+            bits = list(bits)
+            if len(bits) > 2048 or not 2 <= bit_time <= 0xFFFF:
+                raise ValueError("an RxD stream is at most 2048 bits at 2+ ticks per bit")
+            if bits:
+                packed = [sum(bit << index for index, bit in enumerate(bits[base:base + 16]))
+                          for base in range(0, len(bits), 16)]
+                self.debug.write(0x60200 + channel * 0x100,
+                                 struct.pack(f"<{len(packed)}H", *packed))
+            self.debug.write16(0xA4 + channel * 2, bit_time)
+            self.debug.write16(0xA8 + channel * 2, len(bits))
+        self.debug.write16(0xA2, 0 if intak_vector is None else intak_vector)
+        self.debug.write16(0xA0, len(entries) | ((intak_vector is not None) << 8)
+                           | (bool(int_release) << 9))
+
+    def clear_schedule(self):
+        if self.version >= 2:
+            self.load_schedule()
+
+    def record_pins(self, mask=0):
+        """Record changes of the output pins in `mask` (pin_mask()) as trace
+        records; a pin records only while its bank is CPU-driven."""
+        self._need_stimulus()
+        self.debug.write(0xAC, struct.pack("<I", mask))
+
     def configure(self, x_half=2, ready_ticks=0, reset_ticks=1_667,
-                  start_ports=port_modes(), p0_levels=0, input_levels=0x1E1F):
+                  start_ports=port_modes(), p0_levels=0, input_levels=REST_LEVELS):
         self.debug.write16(0x08, x_half)
         self.debug.write16(0x0A, ready_ticks)
         self.debug.write(0x84, struct.pack("<I", reset_ticks))
@@ -269,6 +418,15 @@ class Harness:
             "model_trace": [asdict(t) for t in model],
             "socket_trace": [asdict(t) for t in socket],
         }
+        if self.version >= 2:
+            stimulus = self.debug.read(0xB0, 0x0A)
+            socket_status, model_status, events, unmatched, last = struct.unpack("<5H", stimulus)
+            result["stimulus"] = {
+                "socket_status": socket_status, "model_status": model_status,
+                "socket_events": events & 0xFF, "model_events": events >> 8,
+                "socket_unmatched": unmatched & 0xFF, "model_unmatched": unmatched >> 8,
+                "socket_last_event": last & 0xFF, "model_last_event": last >> 8,
+            }
         result["passed"] = not status & 192 and all(
             result[f"{lane}_result"] == 1
             for lane, bit in (("model", 1), ("socket", 2)) if MODES[mode] & bit
@@ -281,6 +439,7 @@ class Harness:
                 result["passed"] &= result["model_total"] == result["socket_total"]
             else:
                 result["passed"] &= result["program_comparison"]["write_sequence_match"]
+                result["passed"] &= result["program_comparison"]["pin_sequence_match"]
         result["trace_complete"] = all(
             result[f"{lane}_total"] <= len(result[f"{lane}_trace"])
             for lane, bit in (("model", 1), ("socket", 2)) if MODES[mode] & bit
@@ -311,12 +470,14 @@ class Harness:
             result["comparison"] = compare_traces(reference, candidate)
             result["program_comparison"] = compare_programs(reference, candidate)
             result["passed"] &= (result["comparison"]["functional_match"] if self.strict
-                                 else result["program_comparison"]["write_sequence_match"])
-            address, length = RESULT_REGION
-            if address >> 12 in self.pages:
-                same = (self.read_memory("model", address, length) ==
-                        self.read_memory("socket", address, length))
-                result["program_comparison"]["result_region_match"] = same
+                                 else result["program_comparison"]["write_sequence_match"]
+                                 and result["program_comparison"]["pin_sequence_match"])
+            for key, (address, length) in (("result_region_match", RESULT_REGION),
+                                           ("dump_region_match", DUMP_REGION)):
+                if address >> 12 in self.pages:
+                    same = (self.read_memory("model", address, length) ==
+                            self.read_memory("socket", address, length))
+                    result["program_comparison"][key] = same
         result["trace_complete"] = True
         return result
 
@@ -328,6 +489,44 @@ def reset_image(code: bytes, origin=0x00100, segment=0x0000):
         raise ValueError("origin is not addressable from the entry segment")
     vector = bytes([0xEA, offset & 0xFF, offset >> 8, segment & 0xFF, segment >> 8])
     return {origin: code, 0xFFFF0: vector}
+
+
+def load_stimulus(harness, spec):
+    """Apply a program's stimulus description (a `<program>.stim.json`
+    beside it), or clear the schedule and pin recording with None.
+
+    {"entries": [{"event": 1, "delay": 100, "hold": 0, "levels": {"INT": 1},
+                  "serial": [0]}, ...],          event null = chained
+     "intak_vector": 32, "int_release": true,
+     "rxd0": {"uart": "55aa", "bit_time": 400, "data_bits": 8, "parity": null,
+              "stop_bits": 1, "idle": 2}  or  {"bits": [1, 0, ...], "bit_time": 400},
+     "pins": ["TXD0", "P00"]  or  "all"}
+    """
+    if spec is None:
+        harness.clear_schedule()
+        if harness.version >= 2:
+            harness.record_pins(0)
+        return
+    entries = [ScheduleEntry(event=row.get("event"), levels=row.get("levels", {}),
+                             delay=row.get("delay", 0), hold=row.get("hold", 0),
+                             serial=tuple(row.get("serial", ())))
+               for row in spec.get("entries", ())]
+    streams = []
+    for name in ("rxd0", "rxd1"):
+        stream = spec.get(name)
+        if stream is None:
+            streams.append(None)
+        elif "uart" in stream:
+            bits = uart_bits(bytes.fromhex(stream["uart"]), stream.get("data_bits", 8),
+                             stream.get("parity"), stream.get("stop_bits", 1),
+                             stream.get("idle", 1))
+            streams.append((bits, stream["bit_time"]))
+        else:
+            streams.append((stream["bits"], stream["bit_time"]))
+    harness.load_schedule(entries, spec.get("intak_vector"), spec.get("int_release", False),
+                          *streams)
+    pins = spec.get("pins", ())
+    harness.record_pins(pin_mask() if pins == "all" else pin_mask(*pins) if pins else 0)
 
 
 IMAGE = ROOT / "build/fpga/v35s/outflow/v35s.hex.bin"
@@ -410,6 +609,8 @@ def main():
             source = path.read_text()
             code = assemble(source, org=0x100)
             harness.load(reset_image(code))
+            stimulus = path.with_suffix(".stim.json")
+            load_stimulus(harness, json.loads(stimulus.read_text()) if stimulus.exists() else None)
             result = harness.run_complete(args.mode, args.limit)
             result.update(name=path.stem, program_sha256=hashlib.sha256(code).hexdigest())
             reports.append(result)

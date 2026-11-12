@@ -12,6 +12,7 @@
         <efx:design_file name="m68000_scope.sv" version="default" library="default" />
         <efx:design_file name="v35s_model_stub.sv" version="default" library="default" />
         <efx:design_file name="v35s_lane.sv" version="default" library="default" />
+        <efx:design_file name="v35s_stim.sv" version="default" library="default" />
         <efx:design_file name="v35s_harness.sv" version="default" library="default" />
         <efx:design_file name="nuboard_v35s.v" version="default" library="default" />
         <efx:top_vhdl_arch name="" />
