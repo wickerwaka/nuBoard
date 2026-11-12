@@ -61,6 +61,9 @@ module v35_eu
     input  wire [7:0]  dl,
     input  wire [7:0]  dh,
     input  wire [15:0] ip,              // (MX2) the instruction pointer (the loader's registers)
+    input  wire [15:0] ins_ip,          // (F2b) the instruction's start: its first prefix's offset
+    input  wire [7:0]  idb,             // (F2b) IDB (v35_sfr's register): SG_IDB's segment
+    input  wire        p14,             // (F2b) the P14 pin as POLL reads it (v35_sfr's register)
     // the register RAM
     output wire [6:0]  ra_next,
     output wire [6:0]  rb_next,
@@ -113,6 +116,7 @@ module v35_eu
     // (F1) the SFR page's FLAG (PSW bits 5 and 3, F1 and F0): read, and a store's bits at ce_a
     output wire [1:0]  psw_f,
     output wire [2:0]  psw_rb,          // PSW.RB (the on-chip write's bank compare)
+    output wire        psw_brki,        // (F2b) PSW.BRKI (the loader's I/O-trap dispatch)
     input  wire        flag_we,
     input  wire [1:0]  flag_d,
     // (F1) an on-chip data write to the current bank's DS0 / SS / DS1 slot (the register RAM
@@ -282,11 +286,13 @@ module v35_eu
             SR_IMM8: src = {8'd0, il};
             SR_OPR: src = oprv;
             SR_PSW: src = psw;
-            SR_VEC: src = {6'd0, fmt.len != 3'd0 ? il : {5'd0, op3}, 2'b00};
+            // (F2b) a trap routine's vector from the word (vk: the tgt field)
+            SR_VEC: src = word.vk ? {6'd0, word.tgt[7:0], 2'b00}
+                                  : {6'd0, fmt.len != 3'd0 ? il : {5'd0, op3}, 2'b00};
             SR_DISP: src = {dh, dl};
             SR_ADDR: src = addr;
             SR_ONE: src = 16'd1;
-            SR_PC: src = ip;
+            SR_PC: src = word.ist ? ins_ip : ip;     // (F2b) ist: the instruction's start
             default: src = 16'd0;
         endcase
     endfunction
@@ -500,6 +506,17 @@ module v35_eu
                 pn[V35_PSW_IE] = 1'b0;
                 pn[8] = 1'b0;               // BRK (the single-step flag)
             end
+            // (F2b) the I/O trap's PSW: IE and BRK cleared, BRKI set (f2_iot: the handler's PSW)
+            AL_CITB: begin
+                pn[V35_PSW_IE] = 1'b0;
+                pn[8] = 1'b0;
+                pn[1] = 1'b1;
+            end
+            AL_LTS: r = {$signed(x) < $signed(y), 15'd0};      // (F2b) CHKIND's compares
+            AL_SFRA: r = 16'h0F00 | {8'd0, x[7:0]};             // (F2b) BTCLR's SFR offset (F00h + x)
+            AL_BTM: r = 16'(16'd1 << x[10:8]);                  // (F2b) BTCLR's bit (DH)
+            AL_BTC: r = x & ~y;                                 // (F2b) BTCLR's clear
+            AL_P14: r = {p14, 15'd0};                           // (F2b) POLL's test
             default: ;
         endcase
     end
@@ -531,7 +548,8 @@ module v35_eu
     // ------------------------------------------------------------ tick B: the request
     wire        post = ex_b && word.bus != BQ_NONE;
     wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW;
-    wire [15:0] segv = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
+    wire [15:0] segv = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_IDB ? {idb, 8'h00}
+                     : word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
                      : pfx_v ? (pfx_s == 2'd0 ? ds1 : pfx_s == 2'd1 ? ps : pfx_s == 2'd2 ? ss
                                 : ds0)
                      : (ea_ss_q && word.seg != SG_DSP) ? ss : ds0;
@@ -739,6 +757,7 @@ module v35_eu
     endfunction
     assign psw_f = {psw[5], psw[3]};
     assign psw_rb = psw[14:12];
+    assign psw_brki = psw[1];
 
     wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 

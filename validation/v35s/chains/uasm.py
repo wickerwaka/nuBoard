@@ -222,6 +222,9 @@ STR_CMP = set(_ranges("A6,A7,AE,AF"))
 # the 0F page (the second byte): ModR/M present, immediate bytes after it
 PAGE1_MODRM = set(_ranges("10-1F,28,2A,31,33,39,3B,2D,94,95"))
 PAGE1_IMM = {**{o: 1 for o in _ranges("18-1F,39,3B,FF")}, 0x9C: 3}
+# (F2b) the I/O forms: with PSW.BRKI 0 the dispatch enters the I/O trap (vector 19)
+IO_OPS = set(_ranges("E4-E7,EC-EF,6C-6F"))
+IOT = "iot"
 
 
 def imm_modrm(op: int, reg: int) -> int:
@@ -340,8 +343,11 @@ class Routine:
 
 
 SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac"}
+# (F2b) the trap vectors a word names with vec= (the data book's vector table, docs/v35s-
+# differences.md section 5): CHKIND 5, the FPO escapes 7, the I/O trap 19
+VECTORS = {"CHK": 5, "FPO": 7, "IOT": 19}
 FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "wb", "susp",
-         "fw"}
+         "fw", "ist"}
 
 
 def _tokens(s: str) -> list[str]:
@@ -364,7 +370,14 @@ def parse_word(text: str, path: str, ln: int) -> Word:
         if "=" in tok:
             k, v = tok.split("=", 1)
             k = k.lower()
-            if k in SEQ_FIELDS:
+            if k == "vec":
+                # (F2b) the trap routines' vector by name (VECTORS): SR_VEC reads it from the
+                # word's tgt field
+                if v.upper() not in VECTORS:
+                    raise UasmError(f"{path}:{ln}: unknown vector {v!r}")
+                fields["vk"] = 1
+                fields["tgt"] = VECTORS[v.upper()]
+            elif k in SEQ_FIELDS:
                 fields["seq"] = enum_value("v35_seq_e", k)
                 if k in ("jc", "jnc"):
                     cond, _, v = v.partition(":")
@@ -617,6 +630,7 @@ def udec1(prog: Program, op: int) -> dict:
         f["entry"], f["trap"] = prog.labels[prog.cells1[op]], 0
     else:
         f["entry"], f["trap"] = prog.labels[TRAP1], 1
+    f["io"] = int(op in IO_OPS)
     # the reservation at the opcode's pop: its routine's header says `resv=e`
     f["rq"] = int(op in prog.cells1 and next(r for r in prog.routines
                                              if r.name == prog.cells1[op]).head.get("resv") == "e")
@@ -638,19 +652,22 @@ def udec2(prog: Program, op: int, b: int) -> dict:
         g = fmt_of(b)
         if (op, b) in prog.cells2:
             return {"entry": prog.labels[prog.cells2[(op, b)]], "trap": 0, "op3": g["op3"],
-                    "ea": 0, "eab": 0, "w": g["w"]}
-        return {"entry": prog.labels[TRAP0F], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0}
+                    "ea": 0, "eab": 0, "w": g["w"], "io": int(b in IO_OPS)}
+        return {"entry": prog.labels[TRAP0F], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0,
+                "io": 0}
     if (op, b) in prog.cells2:
         r = prog.routine(prog.cells2[(op, b)])
         mem = op != 0x0F and is_mem(r) and b >> 6 != 3
         # (MX3c) a 0F routine's EA heads (its EAC word's call) by its header, as a memory cell's
         eab = (mem or op == 0x0F) and r.head.get("ea", "book") == "book"
         return {"entry": prog.labels[r.name], "trap": 0, "op3": op3, "ea": int(mem),
-                "eab": int(eab), "w": page_w(b) if op == 0x0F else 0}
+                "eab": int(eab), "w": page_w(b) if op == 0x0F else 0, "io": 0}
     if op == 0x0F:
         name = TRAP0FM if b in PAGE1_MODRM else TRAP0F
-        return {"entry": prog.labels[name], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0}
-    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0, "w": 0}
+        return {"entry": prog.labels[name], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0,
+                "io": 0}
+    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0, "w": 0,
+            "io": 0}
 
 
 def ulen(op: int, il: int, mb: int) -> int:
@@ -674,6 +691,8 @@ def decode_svh(prog: Program) -> str:
          "",
          f"    localparam int UROM_WORDS = {len(prog.words)};",
          f"    localparam logic [UADDR_W-1:0] UROM_RESET = {UADDR_W}'d{prog.labels[RESET]};",
+         "    // (F2b) the I/O trap's entry: the dispatch's target for an I/O form with PSW.BRKI 0",
+         f"    localparam logic [UADDR_W-1:0] UROM_IOT = {UADDR_W}'d{prog.labels[IOT]};",
          "    // (MX1) the EA heads: the dispatch's call targets for a ModR/M memory cell (ea.uasm)"]
     for lab, pname in EA_HEADS.items():
         L.append(f"    localparam logic [UADDR_W-1:0] {pname} = {UADDR_W}'d{prog.labels.get(lab, 0)};")
@@ -687,7 +706,7 @@ def decode_svh(prog: Program) -> str:
         L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
                  f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, 1'b{f['rq']}, "
-                 f"1'b{f['wbs']}, 1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}}};")
+                 f"1'b{f['wbs']}, 1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte
@@ -701,7 +720,8 @@ def decode_svh(prog: Program) -> str:
         by = {}
         for b in range(256):
             g = udec2(prog, op, b)
-            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"], g["w"]), []).append(b)
+            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"], g["w"], g["io"]),
+                          []).append(b)
         L.append("                case (b)")
         default = max(by, key=lambda k: len(by[k]))
         for k, bs in sorted(by.items()):
@@ -709,12 +729,12 @@ def decode_svh(prog: Program) -> str:
                 continue
             items = ", ".join(f"8'h{b:02X}" for b in bs)
             L.append(f"                    {items}: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, "
-                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}}};")
+                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}}};")
         k = default
         L.append(f"                    default: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, 3'd{k[2]}, "
-                 f"1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}}};")
+                 f"1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}}};")
         L += ["                endcase", "            end"]
-    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0}};",
+    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0, 1'b0}};",
           "        endcase", "        v35_udec2 = f;", "    endfunction", ""]
     # (MX0) the loader's count of the instruction's bytes still to pop from the queue: what a
     # ModR/M byte's pop adds (its displacement and the form's immediate) and what the 0F page's

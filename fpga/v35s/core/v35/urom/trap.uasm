@@ -1,0 +1,144 @@
+; F2b: the traps (the I/O trap, the FPO trap, CHKIND), POLL, BTCLR, the REP prefix before a
+; non-string opcode, and the 8086 register cells the decode sent to the trap routine (README
+; "F2b"). Function only: measured on the socket (validation/v35s/traps.py, receipts
+; validation/v35s/receipts/f2-*), no clock in these routines is fitted to silicon's timing.
+;
+; The vectored entry (vt_c) is BRK's body (xfer.uasm) with the vector from the word (vec=N:
+; SR_VEC reads the tgt field) and the pushed PC from tmpc: each entry loads tmpc with the PC to
+; push (ist: the instruction's start, its first prefix's offset; or the next instruction's),
+; tmpb with the vector's address, pushes the PSW and changes it (CITF; the I/O trap's CITB also
+; sets BRKI), then joins vt_c: PS pushed, the PC pushed, the vector read, PS:PC loaded, FLUSH, E.
+
+; ---- the I/O trap (vector 19): the dispatch enters here for an I/O form with BRKI 0 (the
+; loader's dsp_f: BRKI as it stands at the E pop). Silicon (f2_iot): every IN / OUT / INM / OUTM
+; form and the REP strings trap before any I/O or memory cycle, CW 0 included; the PC pushed is
+; the instruction's own (a prefix's when it has one); the handler runs with IE and BRK cleared
+; and BRKI set
+routine iot why="(F2b) the I/O trap: silicon's frame (f2_iot); function only"
+    d1=TC s1=PC ist d2=TB s2=VEC vec=IOT     ; tmpc <- the instruction's start; tmpb <- the vector's address (4 x 19)
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PSW into the write datum; post its push
+    f alu=CITB wf jmp=vt_c                  ; F: the push's end; IE and BRK cleared, BRKI set; the common entry
+
+; ---- the FPO escapes (vector 7): D8-DF with any ModR/M byte, 66 and 67. Silicon (f2_fpo): no
+; memory cycle for a memory operand; the PC pushed is the escape's own (a prefix's: REP or a
+; segment prefix before it); IE and BRK cleared, BRKI kept. The ModR/M and displacement bytes are
+; not popped: the FLUSH discards them
+routine fpo op=D8-DF mod=any why="(F2b) the FPO trap: silicon's frame (f2_fpo); function only"
+    d1=TC s1=PC ist d2=TB s2=VEC vec=FPO      ; tmpc <- the instruction's start; tmpb <- the vector's address (4 x 7)
+    jmp=fpo_c                               ; the push of the PSW
+
+routine fpo_rep op=D8-DF,66,67 page=rep why="(F2b) a REP prefix before an escape: the trap pushes the prefix's offset (f2_fpo); function only"
+    d1=TC s1=PC ist d2=TB s2=VEC vec=FPO      ; tmpc <- the instruction's start (the REP's); tmpb <- the vector's address (4 x 7)
+    jmp=fpo_c                               ; the push of the PSW
+
+routine fpo2 op=66,67 why="(F2b) the FPO2 escapes: as D8-DF (f2_fpo); function only"
+    d1=TC s1=PC ist d2=TB s2=VEC vec=FPO      ; tmpc <- the instruction's start; tmpb <- the vector's address (4 x 7)
+fpo_c: rb=SP wid=WORD alu=DEC2 ax=RB        ; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PSW into the write datum; post its push
+    f alu=CITF wf jmp=vt_c                  ; F: the push's end; IE and BRK cleared; the common entry
+
+; ---- CHKIND reg16,mem32 (62 /r, a memory operand): the lower bound at the EA, the upper at EA + 2,
+; compared signed (f2_chk: 0 within FFF0..0010, 8000 below 0010); out of range: vector 5 with the
+; next instruction's PC pushed (silicon pushes the PC after CHKIND); the flags kept
+routine chkind op=62 mod=mem ea=bare why="(F2b) CHKIND: silicon's reads, compare and frame (f2_chk); function only"
+    ea=BI ra=BASE rb=INDEX resv             ; the EA: base + index + displacement; the reservation
+    bus=MEMR wid=WORD                       ; post the lower bound's read
+    f d1=TA s1=OPR alu=INC2 ax=ADDR         ; F: the lower bound into tmpa; the upper's address
+    d1=ADDR s1=SIG bus=MEMR wid=WORD        ; post the upper bound's read
+    f d1=TB s1=OPR                          ; F: the upper bound into tmpb
+    ra=REG wid=WORD alu=LTS ax=RA ay=TA     ; SIGMA's sign <- the register < the lower bound (signed)
+    jc=SGN:chk_t                            ; below: the trap
+    ra=REG wid=WORD alu=LTS ax=TB ay=RA     ; SIGMA's sign <- the upper bound < the register (signed)
+    jc=SGN:chk_t                            ; above: the trap
+    e                                       ; E: within the bounds
+chk_t: d1=TC s1=PC d2=TB s2=VEC vec=CHK       ; tmpc <- the next instruction's offset; tmpb <- the vector's address (4 x 5)
+    jmp=fpo_c                               ; the push of the PSW (CITF) and the common entry
+
+; ---- the common entry: PS and the PC (tmpc) pushed, the vector at tmpb read, PS:PC loaded
+vt_c: rb=SP wid=WORD alu=DEC2 ax=RB         ; SP - 2
+    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA bus=MEMW seg=SS   ; SP <- SP - 2; the address; PS into the write datum; post its push
+    f                                       ; F: the push's end
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=TC bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PC (tmpc) into the write datum; post its push
+    f                                       ; F: the push's end
+    d1=ADDR s1=TB bus=MEMR seg=ZERO wid=WORD   ; post the vector's offset read at 0:4n
+    f d1=TC s1=OPR alu=INC2 ax=ADDR         ; F: the offset into tmpc; the segment's address
+    d1=ADDR s1=SIG bus=MEMR seg=ZERO wid=WORD  ; post the segment's read at 0:4n + 2
+    f d1=TA s1=OPR                          ; F: the segment into tmpa
+    wr=PS wid=WORD ws=TA alu=PASS ax=TC     ; PS <- the vector's segment; the offset into SIGMA
+    flush                                   ; FLUSH: the stream from the vector
+    e                                       ; E: the handler's opcode
+
+; ---- POLL (9B): waits while P14 reads high (f2_poll: the INT pin held high, POLL ends after the
+; schedule drops it); P14 reads low unless PM1 bit 4 makes it an input (the data book)
+routine poll op=9B why="(F2b) POLL: the pin tested until it reads low (f2_poll); function only"
+pl_t: alu=P14                               ; SIGMA's sign <- P14
+    jc=SGN:pl_t                             ; high: test again
+    e                                       ; E: low
+
+; ---- BTCLR sfr, bit, disp8 (0F 9C): the SFR at IDB:F00 + sfr read; its bit (the low three bits
+; of the byte) set: cleared, written back, and the branch by disp8 from the next instruction;
+; clear: no write, no branch; the flags kept (f2_btclr)
+routine btclr op=9C page=0f why="(F2b) BTCLR: the read, the test, the write and the branch (f2_btclr); function only"
+    pop=il                                  ; pop the SFR's offset (into IL)
+    pop=dh                                  ; pop the bit number (into DH)
+    pop=dl                                  ; pop the displacement (into DL)
+    alu=SFRA ax=IMM8                        ; SIGMA <- 0F00h + the offset
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=BYTE alu=BTM ax=DISP   ; post the SFR's read at IDB:F00 + the offset; SIGMA <- the bit's mask
+    d1=TB s1=SIG                            ; the mask into tmpb
+    f d1=TA s1=OPR wid=BYTE alu=AND ax=OPR ay=TB   ; F: the SFR into tmpa; SIGMA <- it AND the mask
+    jnc=SNZ:btc_n                           ; the bit clear: no branch
+    wid=BYTE alu=BTC ax=TA ay=TB            ; SIGMA <- the SFR with the bit cleared
+    d1=OPRW s1=SIG bus=MEMW seg=IDB wid=BYTE   ; post its write back
+    f alu=SEXT ax=DISP                      ; F: the write's end; SIGMA <- the displacement sign-extended
+    alu=ADD ax=PC ay=SIG                    ; the target: the next instruction + the displacement
+    flush                                   ; FLUSH: the stream from the target
+    e                                       ; E: the target's opcode
+btc_n: e                                    ; E: the next instruction
+
+; ---- a REP prefix (F2 F3 64 65) before a non-string opcode: silicon runs the opcode once, the
+; prefix ignored, CW kept (traps.py's rep series); the stream is refetched from the opcode's
+; offset (the byte after the prefix) and it runs as an instruction of its own. Not the segment
+; prefixes (REP DS1: MOVBK is a REP string on silicon: not built)
+routine rep_nx op=00-25,27-2D,2F-35,37-3D,3F-65,68-6B,70-A3,A8,A9,B0-D7,E0-FF page=rep why="(F2b) REP before a non-string opcode: the opcode refetched without the prefix (traps.py rep series); function only"
+    wid=WORD alu=DEC ax=PC                  ; SIGMA <- the opcode's offset (the byte before the pointer)
+    flush                                   ; FLUSH: the stream from it
+    e                                       ; E: the opcode, the prefix dropped
+
+; ---- the 0F holes silicon runs as plain NOPs of three and four bytes (traps.py's 0f series: no
+; register, flag or bus effect; the bytes after the second byte consumed). The decode's lengths
+; (v35_upage, the arriving byte's tag) do not know them: the stream is refetched past the extra
+; bytes instead (SR_PC: the byte after the second byte, whether or not the staging slot holds it)
+routine nop0f3 op=30,32,35-38,3A,3D-3F page=0f why="(F2b) a three-byte 0F NOP: the stream refetched past its third byte (traps.py 0f series); function only"
+    wid=WORD alu=INC ax=PC                  ; SIGMA <- the offset after the third byte
+    flush                                   ; FLUSH: the stream from it
+    e                                       ; E: the next instruction
+
+routine nop0f4 op=CA,CC,D2,D4,EA,EC,F2,F4 page=0f why="(F2b) a four-byte 0F NOP: the stream refetched past its fourth byte (traps.py 0f series); function only"
+    wid=WORD alu=INC2 ax=PC                 ; SIGMA <- the offset after the fourth byte
+    flush                                   ; FLUSH: the stream from it
+    e                                       ; E: the next instruction
+
+; ---- the 8086 register cells (f2_legit; the /1-/7 aliases: traps.py's modrm series)
+routine pop_rm op=8F mod=reg why="(F2b) POP reg16 by 8F: every reg field (silicon's /1-/7 are /0); function only"
+    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the read at SS:SP
+    rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
+    wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2
+    f wr=RM wid=WORD ws=OPR e               ; F: the datum into the register; E
+
+routine push_rm op=FF mod=reg reg=6 why="(F2b) PUSH reg16 by FF /6: the register read before SP's write (silicon's PUSH SP by FF /6 pushes SP, 54 pushes SP - 2: f2_legit); function only"
+    ra=RM wid=WORD d1=TA s1=RA              ; the register into tmpa
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=TA   ; SP <- SP - 2; the address; the datum
+    bus=MEMW seg=SS wid=WORD                ; post the write
+    e                                       ; E: held until the write's end
+
+routine mov_rmi8 op=C6 mod=reg why="(F2b) MOV reg8,imm8 by C6: every reg field (silicon's /1-/7 are /0); function only"
+    pop=il                                  ; pop the immediate
+    wr=RM ws=IMM e                          ; the register <- the immediate; E
+
+routine mov_rmi16 op=C7 mod=reg why="(F2b) MOV reg16,imm16 by C7: every reg field (silicon's /1-/7 are /0); function only"
+    pop=il                                  ; pop the immediate's low byte
+    pop=ih                                  ; pop its high byte
+    wr=RM ws=IMM e                          ; the register <- the immediate; E

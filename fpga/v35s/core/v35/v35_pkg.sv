@@ -92,7 +92,12 @@ package v35_pkg;
         AL_ADJ = 6'd25, AL_CVBI = 6'd26, AL_CVBF = 6'd27, AL_CVDI = 6'd28, AL_CVDF = 6'd29,
         AL_BIT = 6'd30, AL_BCDI = 6'd31, AL_BCDS = 6'd32, AL_BCDF = 6'd33, AL_R4 = 6'd34,
         AL_STEP = 6'd35, AL_BFR = 6'd36, AL_BFL = 6'd37, AL_BFI = 6'd38, AL_BFM = 6'd39,
-        AL_BFK = 6'd40, AL_BFU = 6'd41
+        AL_BFK = 6'd40, AL_BFU = 6'd41,
+        // (F2b) CITB: CITF and BRKI set (the I/O trap); LTS: SIGMA[15] = x < y signed (CHKIND);
+        // SFRA: {0Fh, x[7:0]} (the SFR offset); BTM: 1 << x[10:8] (the bit of BTCLR's IH);
+        // BTC: x & ~y; P14: SIGMA[15] = the P14 pin as POLL reads it
+        AL_CITB = 6'd42, AL_LTS = 6'd43, AL_SFRA = 6'd44, AL_BTM = 6'd45, AL_BTC = 6'd46,
+        AL_P14 = 6'd47
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -111,7 +116,8 @@ package v35_pkg;
     // formed without an EA mode: TRANS's table), (MX2) ZERO the segment 0 (a break's vector
     // table) ----
     typedef enum logic [2:0] {
-        SG_DEF = 3'd0, SG_SS = 3'd1, SG_DS1 = 3'd2, SG_DSP = 3'd3, SG_ZERO = 3'd4
+        SG_DEF = 3'd0, SG_SS = 3'd1, SG_DS1 = 3'd2, SG_DSP = 3'd3, SG_ZERO = 3'd4,
+        SG_IDB = 3'd5      // (F2b) the on-chip page: segment {IDB, 00h} (BTCLR's SFR)
     } v35_seg_e;
 
     // ---- a queue pop (one byte from the word register) into a popped-byte register ----
@@ -198,6 +204,8 @@ package v35_pkg;
         logic       flush;      // the queue flushed, the stream from SIGMA in PS
         logic       halt;       // halted
         logic       trap;       // the divide error raised
+        logic       vk;         // (F2b) SR_VEC reads the word's tgt field as the vector number
+        logic       ist;        // (F2b) SR_PC reads the instruction's start (its first prefix's)
     } v35_uword_t;
 
     localparam int UWORD_BITS = $bits(v35_uword_t);
@@ -229,6 +237,8 @@ package v35_pkg;
         logic       pg;         // (MX3c) the 0F page: the E word pops the second opcode byte with
                                 //   the opcode (into the ModR/M register mp); the dispatch reads
                                 //   the second level on it
+        logic       io;         // (F2b) an I/O form (IN OUT INM OUTM): with PSW.BRKI 0 the
+                                //   dispatch enters the I/O trap (vector 19) instead
     } v35_udec_t;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)
@@ -241,6 +251,7 @@ package v35_pkg;
         logic       eab;        // ... the book's EA heads (ea=book); else the pops alone
         logic       w;          // (MX3c) the 0F page's operand width (the second byte's bit 0 for
                                 //   the bit operations; the bit fields' word)
+        logic       io;         // (F2b) a REP I/O string cell (REP INM / OUTM): the I/O trap
     } v35_udecm_t;
 
     `include "v35_udecode_tbl.svh"

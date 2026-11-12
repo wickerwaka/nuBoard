@@ -2671,6 +2671,128 @@ corpus RTL-exact 6,400, 0 runs differing from the base's rows, `+v35_chk` silent
 - The EU: the PSW's D input gains the FLAG store's two bits and the RS_PSWA case; the segment flops'
   D inputs gain the on-chip write's merge.
 
+## F2b: the traps, POLL, BTCLR, the undefined opcodes (urom/trap.uasm)
+
+Stage F2's second part (docs/v35s-function-plan.md). Measured first on the socket
+(validation/v35s/traps.py: the programs validation/v35s/programs/f2_*.s, two socket receipts
+each, validation/v35s/receipts/f2-<prog>-socket.json and -socket-2.json, identical run to run;
+the undefined-opcode series, one short program per case, f2-undef_<series>-socket.json, read by
+validation/v35s/traps_undef.py), then built so the same programs give the socket's write and I/O
+sequence and result pages on the RTL in simulation (`traps.py sim` / `gate`, `traps.py usim` /
+`traps_undef.py gate`). Function only: no clock of these routines is fitted to silicon.
+
+### Measured (the socket, uPD70337L-8)
+
+| item | silicon | against the data book |
+| --- | --- | --- |
+| I/O trap (BRKI 0) | every IN / OUT imm8 and DW form, INM, OUTM, REP INM / OUTM (CW 0 too) traps to vector 19 before any I/O or memory cycle; the PC pushed is the instruction's own, a segment prefix's or REP's when it has one (two prefixes: the first); the handler runs with IE and BRK cleared and **BRKI set** (BRK 19 by software leaves BRKI 0); returning to the pushed PC with BRKI 1 re-executes the whole instruction (REP INM included) | the book names the trap only; BRKI set in the handler and the prefix's PC are not in it |
+| BRKI's timing | POP PSW's and RETI's BRKI act at once; SAHF's: the DW forms, INM / OUTM and a prefixed form right after SAHF see it, the imm8-port forms right after SAHF do not (with either value: SAHF 02 after BRKI 0 still traps an IN imm8), and a DW form after a long instruction (the queue full) does not either | not in the book |
+| FPO escapes | D8-DF (every ModR/M byte) and 66 / 67 trap to vector 7; no memory cycle for a memory operand; the PC pushed is the escape's own (its first prefix's, REP's); IE and BRK cleared, BRKI kept | book: vector 7 (55 + 5W); the PC pushed not stated |
+| CHKIND (62, memory) | reads the lower bound at EA and the upper at EA + 2 (byte cycles at an odd EA), compares **signed**; below or above: vector 5 with the **next** instruction's PC pushed; IE and BRK cleared; the flags kept; inverted bounds always trap | the signedness and the PC pushed are not in the book |
+| CHKIND register form (62 C1) | a two-byte NOP | - |
+| POLL (9B) | waits while P14 (the INT pin) is high: with the pin held high it ends only after the schedule drops it (P1 bit 4 reads 1 before, 0 after) | as book |
+| BTCLR (0F 9C sfr bit disp8) | the SFR at IDB:F00 + sfr; the bit (the byte's low three bits: 8 is bit 0) set: cleared, written back and the branch taken from the next instruction (backward too); clear: no write, no branch; a fixed-0 bit (TMMS0 bit 3) reads clear; the flags kept | as book |
+| 8086 register cells | 8F /0 reg POP, C6 /0 reg MOV r8,imm8, C7 /0 reg MOV r16,imm16, FF /6 reg PUSH: as the 8086; **PUSH SP by FF /6 pushes SP (7F00), PUSH SP by 54 pushes SP - 2 (7EFE)** | - |
+| invalid reg fields | 8F /1-/7 = POP (8F /0), C6 / C7 /1-/7 = MOV imm (/0), reg and memory; FE /3 reg, /5 reg, /7 and FF /7: two-byte NOPs (no bus cycle); FE /2, /4 reg: CALL / BR to the **word** register; FE /2-/6 memory and FE /6 reg: FF's operation, the stack writes **byte-wide** (FE /6 reg pushes CL as a byte; FE /2 reg writes the return address's low byte only) | not in the book |
+| register forms of LDEA, LDS1, LDS0, CALL far, BR far (8D C4 C5 FF /3 FF /5 with mod 11) | two-byte NOPs | - |
+| D6 | takes a ModR/M byte; a byte read and a byte write of the memory operand (00h written on an unmapped page); registers unchanged | not in the book |
+| REP before a non-string opcode | F3 F2 64 65 before INC, NOP, MOV, ADD, IN, CLR1, a 0F form, IDIV (**no quotient negation**: REP IDIV 100 / 7 gives 000E, the V20 suite's reference negates): the opcode runs once, the prefix ignored, CW kept; REP REP MOVBK is REP MOVBK; REP DS1: MOVBK and DS1: REP MOVBK are REP MOVBK with the override | not in the book |
+| 0F holes | (0F 25 2D 91 92 94 95 9E not run: F3's) two-byte NOPs: 23 80 82 88 90 98 A4 A5 AC AD B4 B5 BC BD C8 D0 E8 F0; three bytes: 30 32 35-38 3A 3D-3F; four: CA CC D2 D4 EA EC F2 F4; **0F 00-0F: INC / DEC of a byte register** (bits 1:0 AW CW DW BW, bit 2 the high byte, bit 3 DEC; INC's flags, CY kept); **0F 40, 70-7F: BP <- the second byte** (0F 40: 0000); 0F 9A: vector 1 with the next PC; 0F A0-AB, B0-BB, 81 83 89: stray writes (4D0xx, 020xx, 204xx); 0F 2F, 34, 3C, 86, D3, D9, DB: other register or memory effects; **131 of the 223 run away** (the CPU leaves the program: fetches, stack and data cycles at unrelated addresses until the run limit; the two socket runs differ on 123 of them, the runaways' paths, and agree on the other 100) | the book: 0F FF (BRKEM on the V30) undefined |
+| TEST1 (seen in the REP series) | TEST1 reg8,imm3 keeps AC (CY, V cleared, S Z P of the bit) | the RTL clears AC (the V20 suite's reference): not changed here |
+
+Every undefined case ran in its own program with the run limit, port banks host-driven; the
+socket answered throughout (no case stopped the series).
+
+### Built
+
+- **The vectored entry** `vt_c` (trap.uasm): BRK's body with the vector from the word (`vec=CHK|FPO|IOT`:
+  the new word bit `vk`, SR_VEC reads the tgt field) and the PC to push from tmpc; PS and the PC
+  pushed, the vector read at 0:4n, PS:PC loaded, FLUSH, E. The entries push the PSW and change it:
+  CITF (IE, BRK cleared) or the new CITB (and BRKI set: the I/O trap).
+- **The instruction's start** (`ins_ip`, v35_loader): the offset of the opcode the E word pops,
+  kept through a segment prefix (the E of an instruction following a prefix does not load it);
+  the word bit `ist` makes SR_PC read it. REP is the opcode of its own two-byte instruction, so
+  REP's offset is the start.
+- **The I/O trap's dispatch** (v35_loader `dent`): the decode tables gain `io` (udec1: E4-E7,
+  EC-EF, 6C-6F; udec2: the REP I/O strings); `dent = (df.io && !brki) ? UROM_IOT : df.ent`, BRKI
+  the EU's PSW bit as it stands while the dispatch word runs. POP PSW's and RETI's BRKI act at
+  once as on silicon; SAHF's too (silicon's late cases are not built: below).
+- **FPO** (`fpo`, `fpo2`, `fpo_rep`: D8-DF any ModR/M, 66 / 67, and REP before them): vector 7,
+  the start pushed, nothing popped beyond the opcode and ModR/M byte (the FLUSH discards the rest).
+- **CHKIND** (`chkind`, mod=mem): the two reads, the new ALU op LTS (SIGMA's sign = x < y
+  signed) twice, vector 5 with SR_PC (the next instruction). The register form stays the trap
+  routine's two-byte NOP (silicon's).
+- **POLL** (`poll`): the new ALU op P14 (SIGMA's sign = `v35_sfr.poll_p14`, a register: the INT
+  input level while PM1 bit 4 makes P14 an input) and a jump on the sign until it reads low.
+- **BTCLR** (`btclr`, 0F 9C): the three pops (IL the SFR, DH the bit, DL the displacement), SFRA
+  (F00h + IL), the new segment SG_IDB ({IDB, 00h}: the request reaches the on-chip page wherever
+  IDB is), BTM (1 << DH[2:0]), the byte read, AND, the clear (BTC) and the byte write, the
+  branch from SR_PC + the sign-extended DL.
+- **REP before a non-string opcode** (`rep_nx`, the REP cells of every byte but the strings, the
+  segment prefixes and the escapes): SIGMA = SR_PC - 1 (the opcode's offset), FLUSH, E: the
+  opcode is fetched again and runs as an instruction of its own (REP REP MOVBK runs REP MOVBK).
+- **The register cells** (`pop_rm` 8F mod 11 every reg field, `push_rm` FF /6 reg with the
+  register read before SP's write, `mov_rmi8` / `mov_rmi16` C6 / C7 mod 11 every reg field) and
+  the memory aliases (pop_m, st_imm8, st_imm16 take reg 1-7).
+- **The 0F holes' lengths** (r2): `nop0f3` / `nop0f4`, the second-level cells of the three- and
+  four-byte NOPs: SIGMA = SR_PC + 1 / + 2 (the byte after the second byte, whether or not the
+  staging slot holds the next), FLUSH, E: the stream refetched past the extra bytes. The decode's
+  byte counts (PAGE1_IMM, `v35_upage`, the arriving byte's tag in tick A) are the base's: the
+  first hand-back added the holes there, which widened `v35_upage`'s case from 26 values to 44 on
+  the delivery chain (bt_f; seed 2 at -0.850 ns); r2 restored it byte for byte.
+- **IN acc,DW's read width**: the DW read moved to the routine's first word (same clocks), so the
+  post has the format's width (silicon's IN AL,DW is a byte cycle; the RTL's was a word).
+- **HALT** (F4): built since MX0 (`halt`, core.uasm) and ends every F2b program on both lanes; its
+  wake is F3's.
+
+### The remaining trap cells (uasm: udec1 / udec2 `trap`)
+
+| cells | reason |
+| --- | --- |
+| 63, F1 (BRKN, BRKS) | F3's |
+| 0F 25 2D 91 92 94 95 (the bank instructions), 0F 9E (STOP) | F3's / F4's; not run |
+| 0F holes but the NOP classes (the 2-byte class too: the trap routine is exact) | silicon runs internal sequences (above): not built; the trap routine's two-byte NOP |
+| D6 | silicon: a read-modify-write of the ModR/M operand, the operation unknown (the operand was on an unmapped page): not built |
+| FE /2-/6 | silicon: FF's operation with byte-wide stack writes: not built (FE /3 reg, /5 reg and FE /7 are NOPs: the trap routine is silicon's) |
+| FF /7, 8D C4 C5 FF /3 FF /5 62 register forms | silicon's two-byte NOP: the trap routine is exact |
+| F2 F3 64 65 before 26 2E 36 3E | silicon: a REP string with the override: not built (the trap routine pops REP and the prefix) |
+
+### The F2b gate
+
+`traps.py gate`: f2_iot, f2_fpo, f2_chk, f2_legit, f2_btclr, f2_poll **EQUAL** (the write and
+I/O sequence, the result pages). f2_iot_open (measured only) holds the cases not built: SAHF
+right before an imm8-port form (7 cases) or a DW form after a full queue (1), and REP DS1: OUTM
+(1). `traps_undef.py gate`: the built undefined cases (the 0F NOP classes 36, the 8F / C6 / C7
+aliases 42, the NOP register forms 12, the REP series 11) equal, against both socket runs. (The REP IDIV cases agree in AW and DW; silicon's IDIV leaves AC set where the RTL clears it: an IDIV flag difference outside F2b, measured only, as TEST1's AC.)
+
+The common gate (both spacings, `+v35_chk` silent, the per-family tables identical): RTL-exact
+**6,541** (6,520 at 16538a2): **21 gained, 0 lost**; the per-run rows differ from the base's only
+in F5 (18), F10 (86) and F19 (179): the IN acc,DW runs, whose read is now a byte cycle as on
+silicon. Write data 106,824 / 106,824. The vector benches count two classes apart (rtl_vectors):
+an I/O form run with BRKI 0 (`IOT_KIND`: the V35 traps, the reference does the I/O; the trap is
+gated against the socket here) and, in the SingleStepTests, REP before a non-string opcode (the
+suite's V20 state: REP IDIV's negation, its divide error's vector 0, which the core does not
+build).
+
+### Depth (for the overseer's timing run)
+
+- Tick A / the dispatch: `dent` gains a 2:1 select (UROM_IOT) on two register bits (df.io, the
+  PSW's BRKI) before the useq's SQ_DISP arm (nx_a, the ROM address) and d1_b. This is the change
+  nearest tick A's paths; nothing joins the delivery chain.
+- Tick B: the source mux's SR_VEC arm gains a 2:1 on `vk` (the word register), SR_PC a 2:1 on
+  `ist` (ins_ip / ip, registers); the ALU gains CITB, LTS (a 16-bit signed compare), SFRA, BTM (a
+  3-to-8 decode), BTC, P14; the request's segment mux gains SG_IDB ({idb, 00h}, a register).
+- The loader: ins_ip, a 16-bit register loaded at the E pop. v35_sfr: poll_p14, a register.
+- Nothing of F2b feeds bt_f, zt_f, zc_f, hd_f or another function of the arriving byte or the
+  queue's head: `v35_upage`, `v35_umdsp`, `v35_umimm`, `v35_umodrm` are the base's text. df.io is
+  a bit of the existing dispatch-facts register `df` (loaded at ce_a from dsp_f(op_nx, mp_nx),
+  beside df.ent; the first-level decode's io bit, or udec2's for the REP cells). The decode
+  tables' contents change (new entries; the trap bit of the cells now built) at the same widths
+  plus the io bit; dec2 (v35_udec2 on the head byte for a DISPM word) reads entry, trap and op3
+  as before (its io bit unread).
+- The word: 93 -> 95 bits (vk, ist; the ROM's three 32-bit banks unchanged); ROM 1,569 -> 1,654
+  words. The decode tables gain one bit (io).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

@@ -73,7 +73,7 @@ module v35_top
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
                  .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd), .psw_f,
-                 .input_levels, .flag_we, .flag_d);
+                 .input_levels, .flag_we, .flag_d, .poll_p14);
 
     // ---------------------------------------------------------------- CPU clock
     reg [2:0] x_count = 3'd0;
@@ -252,6 +252,8 @@ module v35_top
     wire        opr_rdy, rq_busy, wr_hold, c_sgn, c_dtrap, div_trap;
     wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
     wire [15:0] ld_ip;                  // (MX2) the instruction pointer
+    wire [15:0] ld_ins_ip;              // (F2b) the instruction's start (its first prefix's)
+    wire        psw_brki, poll_p14;     // (F2b) PSW.BRKI; the P14 pin as POLL reads it
     wire [7:0]  rb_lo;
     wire [3:0]  sig_lo;                             // (F2a) SIGMA's low four bits (CN_SIG)
     wire [15:0] flush_off;
@@ -376,7 +378,7 @@ module v35_top
         .q_odd_nx(q_od_nx), .q_discard_nx(q_dc_nx), .q_dlv_nx(dlv_fetch_nx),
         .flush_w_nx(word_nx.flush), .dispm_nx(w_dispm_nx),
         .q_stall_nx(l_qs_nx), .s_modrm_nx(l_sm_nx), .s_wbs_nx(l_sw_nx), .d1_wbs_nx(l_dw_nx),
-        .d1_hm_nx(l_dh_nx), .ip(ld_ip)
+        .d1_hm_nx(l_dh_nx), .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip)
     );
 
     // ---------------------------------------------------------------- the microsequencer
@@ -401,7 +403,7 @@ module v35_top
         .word, .word_nx(word_nx), .op_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx,
         .ra_early, .rb_early, .ex, .ex_b, .resv_e,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
-        .dh(ld_dh), .ip(ld_ip),
+        .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki,
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,

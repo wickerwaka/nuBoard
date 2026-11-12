@@ -293,6 +293,8 @@ def c2_case(regs: dict, code6: bytes, ip: int, st, after: dict | None, trap: boo
         ram[(base + ((start + i) & 0xFFFF)) & 0xFFFFF] = b
     regs_in = {k: regs[k] for k in C2REGS}
     kind = code_divergence(code6) or kind
+    if io_trap(code, regs["PSW"]):
+        kind = IOT_KIND
     # (MX1) the prefix byte is the bench's (the reference holds a pending prefix as state, not
     # as a byte in its memory): an operand read that covers it reads the byte here and the
     # reference's memory there (a random register file's EA on the instruction's own address)
@@ -328,6 +330,18 @@ def c2_case(regs: dict, code6: bytes, ip: int, st, after: dict | None, trap: boo
 
 
 PFX_OVERLAP = "an operand read covers the bench's prefix byte"
+# (F2b) an I/O form (IN OUT INM OUTM, behind any prefixes) run with PSW.BRKI 0: the V35 traps to
+# vector 19 (silicon, validation/v35s/traps.py f2_iot); the reference (the V20's) does the I/O.
+# Counted apart, not compared (the trap is gated by traps.py against the socket)
+IOT_KIND = "the I/O trap (BRKI 0)"
+
+
+def io_trap(code: bytes, psw: int) -> bool:
+    n = 0
+    while n < len(code) - 1 and code[n] in (0x26, 0x2E, 0x36, 0x3E, 0xF2, 0xF3, 0x64, 0x65, 0xF0):
+        n += 1
+    op = code[n]
+    return not (psw >> 1) & 1 and (0xE4 <= op <= 0xE7 or 0xEC <= op <= 0xEF or 0x6C <= op <= 0x6F)
 
 
 EA_FORMS = (bytes([0x8B]), bytes([0x89]), bytes([0x8D]), bytes([0xC7]), bytes([0x01]),
@@ -485,7 +499,7 @@ def check_regfile(families, keep: Path | None = None, mutate: int = 0) -> tuple[
     apart = set(DECODE_DIVERGENCE.values()) | {"on-chip page", PFX_OVERLAP}
     for t in tests:
         r = res.get(t.tid)
-        if t.kind == "on-chip page":
+        if t.kind in ("on-chip page", IOT_KIND):
             k = t.kind
         elif r is None:
             k = "pass" if t.kind in apart or t.kind.startswith("8E:") else t.kind
@@ -817,6 +831,17 @@ def _sst_test(test: dict, stem: str) -> tuple[str | None, str, C2Test | None]:
     if r.cls in ("unlisted", "on-chip page", "fail"):
         return f"reference {r.cls}", "", None
     want, wip, wram = sst.expected(test)
+    pre = []
+    for b0 in test["bytes"]:
+        if b0 not in (0x26, 0x2E, 0x36, 0x3E, 0xF0, 0xF2, 0xF3, 0x64, 0x65):
+            break
+        pre.append(b0)
+    if r.cls == "not modelled" and any(b0 in (0xF2, 0xF3, 0x64, 0x65) for b0 in pre):
+        # (F2b) a REP prefix before a non-string opcode: the V35 runs the opcode once, the prefix
+        # ignored (silicon, traps.py's rep series, REP IDIV included: no quotient negation; the
+        # core's rep_nx); the suite's (the V20's) state is not the V35's, and its divide error
+        # enters vector 0, which the core does not build: counted apart
+        return "reference not modelled: REP before a non-string opcode (V20)", "", None
     if r.cls == "not modelled":
         b = test["bytes"]
         n = 0

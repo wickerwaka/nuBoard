@@ -2124,3 +2124,28 @@ question, decided from S8's routed numbers with the user.
   421 / 1,395 / 73), alone useq +6.353, loader +4.361, queue +6.339, bus +7.542, eu +4.821, regram +11.738.
   **The harness version 2 image is on the board** (the version 1 image kept as v35s.hex.bin.v1-backup);
   the socket passes smoke, clocks and alu with the cycle counts unchanged (21 / 73 / 368).
+- **F2b landed (2026-11-12): the remaining opcodes and traps (urom/trap.uasm); 6,520 → 6,541.** Measured on the
+  socket first (validation/v35s/traps.py, traps_undef.py; programs f2_*.s; receipts f2-*). Against the data
+  book: with BRKI = 0 every IN / OUT form, INM / OUTM and their REP forms trap to vector 19 before any cycle,
+  pushing the instruction's own PC (its first prefix's), the handler entered with BRKI set, a return
+  re-executing the instruction; the FPO escapes trap to vector 7 with no memory cycle, the escape's own PC
+  pushed; CHKIND compares signed and pushes the next PC; PUSH SP by FF /6 pushes SP, by 54 SP − 2; 8F /1-7
+  are POP, C6 / C7 /1-7 MOV imm; a REP prefix before a non-string opcode is ignored (REP IDIV does not negate
+  the quotient, unlike the V20 suite); of 223 undefined 0F bytes 36 are NOPs of 2 to 4 bytes, 131 run away;
+  silicon's TEST1 reg8,imm3 keeps AC and IDIV leaves it set (the RTL clears it: recorded, not changed).
+  **Built:** the trap body with the vector named in the word (`vk`), the instruction's start offset
+  `ins_ip` in the loader, the I/O trap as the dispatch's select on two register bits (the decode's io bit
+  and BRKI), FPO, CHKIND (a signed compare), POLL on the P14 level, BTCLR over the SFR page, the register
+  cells (pop_rm, push_rm, mov_rmi), REP before a non-string as a refetch; IN acc,DW's read a byte cycle
+  (the 21 corpus gains). The word 93 → 95 bits, the ROM 1,572 → 1,662 words, 79 RAM_5K. **The timing gate
+  sent the first version back:** it gave the undefined 0F NOPs their lengths by widening v35_upage, the
+  arriving byte's tag in tick A, and seed 2 fell to −0.850 ns (the tag 6 levels where the base has 5);
+  the second version restores the tag's functions byte for byte and refetches past the extra bytes in two
+  three-word routines: **+1.276 / +1.243 / +1.231 on seeds 1 / 2 / 3** (the base +1.415 / +1.201 / +1.595),
+  7,995 LUT4 / 423 ADD / 1,740 FF, alone useq +6.804, loader +4.584, queue +6.339, bus +7.542, eu +4.274,
+  regram +11.738. **Verified on main:** the corpus 6,541 with 21 gained and 0 lost at both spacings, chk
+  silent, vectors 0 bad (the I/O-trap vectors counted apart from the V20 reference), lint clean, 48 fast
+  tests, the six F1 and six F2 program sets and the 101 built undefined cases equal to the socket. Not
+  built: SAHF's per-form lateness on BRKI (9 measured cases, no machine explanation yet), REP + segment
+  prefix + string, FE /2-6's byte-wide stack forms, D6, the 0F holes' internal sequences, the divide
+  error's vector 0 (F3 measures its pushed PC).

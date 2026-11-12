@@ -101,8 +101,8 @@ routine out_dw op=EE,EF resv=e book="OUT DW,acc" width=word diff=-1 why="OPEN: b
 
 ; IN acc,DW / IN acc,imm8
 routine in_dw op=EC,ED resv=e book="IN acc,DW" diff=-2 why="OPEN: book error of two: the book's 14 against silicon's 12 (v35s-chains.md F5 IN AL,DW 12; F5-push-in_al_dw-k2-pE-w0: the frozen model's I/O read at S+6, the next S at S+12); three book clocks with no act, DW into the address register with the post (S+5), six more, the F word on the E word"
-    open call=w2                            ; OPEN: 3 clocks: a clock of the model's with no act (IN acc,DW 14) (the call and the shared delay's 2)
-    rb=DW wid=WORD d1=ADDR s1=RB bus=IOR    ; the address register <- DW; post the I/O read (S+5)
+    rb=DW wid=WORD d1=ADDR s1=RB call=w2    ; the address register <- DW (F2b: read here, so the post below has the format's width: silicon's IN AL,DW is a byte cycle, f2_iot) (the call and the shared delay's 2: 3 clocks)
+    bus=IOR                                 ; post the I/O read, the format's width (S+5)
     open call=w5                            ; OPEN: 6 clocks: a clock of the model's with no act (IN acc,DW 14) (the call and the shared delay's 5)
     f wr=AW ws=OPR e                        ; F: the accumulator <- the datum; E
 

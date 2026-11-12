@@ -55,7 +55,9 @@ module v35_sfr (
     input  wire [1:0]  psw_f,           // the EU's PSW {F1 (bit 5), F0 (bit 3)}
     input  wire [15:0] input_levels,
     output wire        flag_we,         // a FLAG store at this write: PSW bits 5 and 3 <- flag_d
-    output wire [1:0]  flag_d
+    output wire [1:0]  flag_d,
+    output reg         poll_p14         // (F2b) the P14 pin as POLL reads it: the INT level while
+                                        //   PM1 bit 4 makes P14 an input, else low (registered)
 );
     localparam logic [7:0] PRC_RESET = 8'h4E;
     localparam logic [15:0] WTC_RESET = 16'hFFFF;
@@ -239,5 +241,8 @@ module v35_sfr (
                                                addr[7:0] | 8'd1, data[15:8])
                   : prc_put(prc, addr[7:0], width == BW_HI ? data[15:8] : data[7:0]);
 
+    initial poll_p14 = 1'b0;
+    always_ff @(posedge clock)
+        poll_p14 <= input_levels[5] && st[8'h09][4];
     wire unused = &{1'b0, input_levels[15:6], input_levels[0]};
 endmodule

@@ -148,6 +148,10 @@ module v35_loader
     output wire        s_wbs_nx,
     output wire        d1_wbs_nx,       // the next v35_udec1(op)'s wbs and has_modrm
     output wire        d1_hm_nx,
+    input  wire        brki,            // (F2b) PSW.BRKI (the EU's register): the I/O trap's dispatch
+    output reg  [15:0] ins_ip,          // (F2b) the instruction's start: the offset of the opcode the
+                                        //   E word popped, kept through a segment prefix (its first
+                                        //   prefix's offset: the I/O and FPO traps push it)
     output wire [15:0] ip               // (MX2) the instruction pointer (registers): the offset of
                                         //   the byte after the last the routine popped
 );
@@ -168,6 +172,7 @@ module v35_loader
     initial begin
         op = 8'h00;
         op_a = 20'd0;
+        ins_ip = 16'd0;
         opc = 8'h00;
         modrm = 8'h00;
         il = 8'h00;
@@ -619,7 +624,7 @@ module v35_loader
     // df is dsp_f(op, mp) on every clock (`+v35_chk`), so the next address reads a register
     typedef struct packed {
         logic [UADDR_W-1:0] ent, ret;
-        logic               call, trap, eab;
+        logic               call, trap, eab, io;
     } v35_dsp_t;
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic v35_dsp_t dsp_f(input logic [7:0] o, input logic [7:0] m);
@@ -641,6 +646,7 @@ module v35_loader
         dsp_f.ent = !l2 ? d1.entry : dsp_f.call ? hd : d2.entry;
         dsp_f.trap = l2 ? d2.trap : d1.trap;
         dsp_f.eab = d2.eab;             // (the EAC word's head choice: dm.eab)
+        dsp_f.io = l2 ? d2.io : d1.io;     // (F2b) an I/O form (no ModR/M: never a call)
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     v35_dsp_t df = '0;
@@ -651,7 +657,11 @@ module v35_loader
     assign hd3 = hd_f(h_dlv[15:8], tg_hi, df.eab);
     assign hd4 = hd_f(w0, bt_f(w0), df.eab);
     assign dret = df.ret;
-    assign dent = df.ent;
+    // (F2b) the I/O trap: an I/O form (the decode's io: IN, OUT, INM, OUTM, the REP I/O strings)
+    // with PSW.BRKI 0 dispatches to the trap's routine instead of its own: BRKI as the PSW
+    // register stands while the dispatch word runs (after the previous instruction's E word's
+    // writes: POP PSW's BRKI acts at once, f2_iot); a 2:1 select on two register bits
+    assign dent = (df.io && !brki) ? UROM_IOT : df.ent;
     assign dtrap = df.trap;
     // (MX3c) the EAC word: the mode of the byte it pops (sb0) picks the register path or the EA
     // head of that mode, as `head` above does for the registered ModR/M (the mode's bits and the
@@ -856,6 +866,8 @@ module v35_loader
             if (epop_b) begin
                 op <= s_b;
                 op_a <= s_a;
+                if (!fmt.seg[2])
+                    ins_ip <= s_ip;
             end
             if (mpop_b && !e2_b)
                 mp <= sb0_b;

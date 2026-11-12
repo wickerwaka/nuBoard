@@ -78,13 +78,13 @@ routine st diff=m00:+1,d8:+1,d16:+1,dir:+1 op=88,89 mod=mem book="MOV mem,reg" w
 
 ; MOV mem,imm (C6 / C7 /0): the immediate popped after the EA (the V20's routine pops it after
 ; the loader's EA), into the write datum, the post
-routine st_imm8 diff=m00:-1,dir:+1 op=C6 mod=mem reg=0 ea=bare book="MOV mem,imm" width=byte why="the add, the immediate's pop, the datum with the post, E held to the write's end: its acts fill the book's EA clocks (ea=bare). A book error of one at mod 00: the book's EA + 6 for both widths against the byte form's write a clock before the word's on silicon (v35s-chains.md F19: C6 07 and 83 /7 one clock earlier than C7 07), the word's 10 (a6 MOV word [BW],0x1234) less the dispatch's fetch stall 9: the byte 8; the direct form +1: the two pops the book's EA 3 does not resolve"
+routine st_imm8 diff=m00:-1,dir:+1 op=C6 mod=mem reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=byte why="the add, the immediate's pop, the datum with the post, E held to the write's end: its acts fill the book's EA clocks (ea=bare). A book error of one at mod 00: the book's EA + 6 for both widths against the byte form's write a clock before the word's on silicon (v35s-chains.md F19: C6 07 and 83 /7 one clock earlier than C7 07), the word's 10 (a6 MOV word [BW],0x1234) less the dispatch's fetch stall 9: the byte 8; the direct form +1: the two pops the book's EA 3 does not resolve"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     pop=il                                  ; pop the immediate byte
     d1=OPRW s1=IMM bus=MEMW                 ; the immediate into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 
-routine st_imm16 diff=d8:+1,d16:+1,dir:+2 op=C7 mod=mem reg=0 ea=bare book="MOV mem,imm" width=word why="the add, the immediate's two pops, the datum with the post, E held to the write's end: the book's EA + 6 at mod 00 (silicon's 10: a6 MOV word [BW],0x1234); the displacement's pops the book's EA does not resolve: d8 +1, d16 +1, the direct form +2 (no OPEN word: ea=bare)"
+routine st_imm16 diff=d8:+1,d16:+1,dir:+2 op=C7 mod=mem reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=word why="the add, the immediate's two pops, the datum with the post, E held to the write's end: the book's EA + 6 at mod 00 (silicon's 10: a6 MOV word [BW],0x1234); the displacement's pops the book's EA does not resolve: d8 +1, d16 +1, the direct form +2 (no OPEN word: ea=bare)"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     pop=il                                  ; pop the immediate's low byte
     pop=ih                                  ; pop its high byte
@@ -335,7 +335,7 @@ routine push_m diff=m00:-1,d8:-1,d16:-1,dir:-1 op=FF mod=mem reg=6 book="PUSH me
 
 ; POP mem16 (8F /0; V20 POP_RM 0058-005B: the EA kept, SP -> IND, MEMR SS; SIGMA -> SP; [F];
 ; SIGMA -> IND [-06-])
-routine pop_m op=8F mod=mem reg=0 book="POP mem16" why="OPEN: the add, the EA into tmpc and SP into the address register with the stack read's post (0058-0059), SP + 2 and its write (005A), F: the datum into the write datum and the EA back into the address register, the write's post (005B), E held to its end: the book's EA + 14 with three book clocks with no act before the write's post"
+routine pop_m op=8F mod=mem reg=0,1,2,3,4,5,6,7 book="POP mem16" why="OPEN: the add, the EA into tmpc and SP into the address register with the stack read's post (0058-0059), SP + 2 and its write (005A), F: the datum into the write datum and the EA back into the address register, the write's post (005B), E held to its end: the book's EA + 14 with three book clocks with no act before the write's post"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
     rb=SP wid=WORD d1=TC s1=ADDR d2=ADDR s2=RB bus=MEMR seg=SS  ; the EA into tmpc (0058); SP into the address register; post the read at SS:SP (0059)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
