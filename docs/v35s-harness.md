@@ -232,6 +232,151 @@ Flags:
 | 6 | A17/A9 pin in the column phase |
 | 7 | strobe seen |
 
+## Harness version 2 (F0, 2026-11-11): schedule, pin records, serial stimulus, dump
+
+The sections below extend the ones above of the same name. The version-2 image is built but not yet loaded on the board.
+
+## Layout table: add a row
+
+| `fpga/v35s/v35s_stim.sv` | Per-lane stimulus: the event-triggered input schedule, the RxD streams, the INTAK answer |
+| `validation/v35s/dump.py` | The `DUMPSTATE` routine (register banks and SFRs to 00800–00A0F) and its reader |
+| `validation/v35s/programs/f0/` | Simulation checks of the schedule (`sched_int.s` + `.stim.json`) and the dump (`dump.s`) |
+
+### Running: add after the program layout list
+
+- `OUT` to I/O port FF12h announces an event; its low byte is the event
+  number. The schedule entries waiting for it start in that lane.
+- A program `foo.s` takes its stimulus from `foo.stim.json` beside it, if
+  present (runner `load_stimulus`): schedule entries, the INTAK vector, RxD
+  streams and the pins to record. Without one the schedule is cleared and no
+  pins are recorded.
+- `DUMPSTATE` (optionally `DUMPSTATE P0, PM0, INTM`) on a line of its own
+  expands to the dump routine; see "Dump routine" below.
+
+A differential run also reports `pin_sequence_match` (the recorded output pin
+vectors in order) and `dump_region_match` (00800–00A0F). With
+`--program-only` a run passes on matching writes *and* matching pin
+sequences.
+
+### Safety: add to the list
+
+- **INTAK answer:** the lane drives D7–D0 (L0 only; L1 stays released) with
+  the host-set vector while the CPU's /INTAK (P13, R2 bit 1) is low, only when
+  answering is enabled (register A0 bit 8), R2 is CPU-driven (D), and R//W and
+  /REFRQ are high at the pins (checked unsynchronized as the final guard, as
+  for read data). `v35s_lane_tb.sv` fails if the vector is ever driven during a
+  write.
+- **Scheduled inputs** reach the CPU only through the banks that already drive
+  them (B1, B2, and T0/R2 while H); the schedule never changes a bank mode.
+  Unused bank bits stay low.
+
+### Debug register map: change and add
+
+| Address | Register |
+| --- | --- |
+| 02 | version 2 (the runner accepts 1 and 2; schedule, pin records and the INTAK answer need 2) |
+| 8E | input levels at rest (each lane starts every run from these): N//S, NMI, /INTP0–2, INT, DMARQ0/1, HLDRQ, RxD0/1, /CTS0/1 |
+| A0 | schedule: bits 5:0 entry count (0–32), 8 answer INTAK with the vector, 9 drop INT at /INTAK's falling edge |
+| A2 | INTAK vector (bits 7:0) |
+| A4/A6 | RxD0 / RxD1 bit time in ticks (2–65535) |
+| A8/AA | RxD0 / RxD1 pattern length in bits (0–2048) |
+| AC/AE | pin record mask, low / high word (0 = no pin records) |
+| B0/B2 | socket / model stimulus status: 5:0 next entry, 10:8 state (0 fetch, 1 wait, 2 delay, 3 hold, 4 done), 12/13 RxD0/RxD1 streaming |
+| B4 | events seen {model, socket} (8 bits each) |
+| B6 | unmatched events {model, socket} |
+| B8 | last event {model, socket} |
+| BA/BC | live socket pin vector, low / high word (unmasked) |
+| BE/C0 | live input levels: socket, model |
+| 0x60000–0x601FF | schedule: 32 entries × 8 words |
+| 0x60200–0x602FF | RxD0 pattern (128 words, word 0 bit 0 first) |
+| 0x60300–0x603FF | RxD1 pattern |
+
+Writes to 0x6xxxx go to both lanes' copies; reads return the socket lane's.
+Like every other register they are refused while a run is busy.
+
+### Schedule entry (8 words)
+
+| Word | Field |
+| --- | --- |
+| 0 | bits 7:0 event (FFh: start as soon as the previous entry has ended); bit 8 start the RxD0 stream, bit 9 start the RxD1 stream |
+| 1–2 | delay in ticks, 24 bits (word 2 bits 7:0 are 23:16) |
+| 3–4 | hold in ticks, 24 bits |
+| 5 | mask, in input-level bit order (bits 12:0) |
+| 6 | value for the masked levels |
+| 7 | reserved |
+
+Each lane runs the entries in order, from entry 0 at every run start, and
+follows only its own program's events. An entry waits for its event, waits
+`delay` ticks, sets the masked levels to `value` and starts the flagged RxD
+streams; with hold 0 the levels stay, otherwise after `hold` ticks the
+masked levels take the inverse of `value` (a pulse of exactly `hold` ticks).
+Latencies, fixed and the same in both lanes: the levels change at the pins
+`delay` + 4 ticks after the lane records the event's OUT cycle; a chained
+entry changes them `delay` + 10 ticks after its predecessor's last change (8
+to fetch the entry, 1 to start, 1 to apply). Both are checked in
+`v35s_lane_tb.sv`. An event latches until an entry waits for it; an
+event the waiting entry does not want, or one that replaces a latched event
+nobody took, is counted in B6 and dropped.
+
+RxD streams: while a stream runs it owns its RxD level (bit 0 of word 0
+first, `bit time` ticks per bit, then RxD returns to the schedule's level).
+The host composes start, data, parity and stop bits (runner `uart_bits`).
+/CTS0 and /CTS1 are ordinary scheduled levels.
+
+### Pin vector (pin records, BA/BC)
+
+| Bits | Pin |
+| --- | --- |
+| 7:0 | P00–P07 (T2) |
+| 11 | P13 / /INTAK (R2) |
+| 12 | P14 (T0) |
+| 13 | P15 / TOUT (R2) |
+| 14 | P16 / /SCK0 (R2) |
+| 15 | P17 (T0) |
+| 17, 18 | P21 / /DMAAK0, P22 / /TC0 (R0) |
+| 20, 21, 22 | P24 / /DMAAK1, P25 / /TC1, P26 / /HLDAK (R0) |
+| 24, 25 | TxD0, TxD1 (B0, always visible) |
+| 26 | /CTS0 pin as an output (RSCK0, R2) |
+
+A pin is recorded only while it is in the mask (AC/AE) and its bank is in
+mode D (CPU-driven); the bank mode each lane uses is the one its own marker
+writes (FF10h) set. P10–P12, P20, P23 and P27 are inputs on this board and
+never recorded. Each lane samples its pins through two flops; a change of the
+masked vector queues a record (8 deep; a lost change fails the run as an
+overflow) that is written between bus records.
+
+### Trace records
+
+Flags: add
+
+| Bit | Meaning |
+| --- | --- |
+| 8 | event port (an OUT to FF12h) |
+| 9 | pin record |
+
+A pin record (flag 9, no other flag) carries the tick of the change in words
+0–1 and 6–7, pins 15:0 in word 2, pins 31:16 in word 4, and zero in word 5
+and A19–A16. It counts in the record count, the total and the fingerprint
+like a bus record. Pin records are off unless a mask is set, so existing
+programs' traces are unchanged.
+
+### Dump routine
+
+`DUMPSTATE` copies, without branches and restoring every register and the
+PSW:
+
+| Address | Content |
+| --- | --- |
+| 00800–008FF | the eight register banks (IDB:E00–EFF); bank n at 0800 + 20h·n in the data book's layout; the bank in use holds the caller's registers as at DUMPSTATE |
+| 00900–009FF | the listed SFRs, SFR offset n at 00900 + n (default list: ports' mode registers, interrupt control, serial and timer modes, DMA modes, STBC, RFM, WTC, FLAG, PRC, TBIC, ISPR, IDB; no receive buffers, timer counts or serial status, whose reads have effects or depend on timing) |
+| 00A00 | IDB, read at FFFFFh |
+| 00A02–00A0D | the caller's AW, CW, IX, IY, DS0, DS1 |
+| 00A0E | the caller's PSW |
+
+It needs PS = 0000 (it addresses its region through PS:) and a valid SS:SP
+(PUSH PSW writes the two bytes below SP). `dump.read(harness, lane)` names a
+lane's dump; `dump.differences` lists the fields two dumps disagree on.
+
 ## Status
 
 **Working on silicon:**
