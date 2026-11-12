@@ -3139,6 +3139,119 @@ f4_tout, f4_tb EQUAL against both socket sessions.
 - v35_intc: ic_if's next value gains one OR term per source (`pf_set`, a register).
 - `pins` is a register of the page's bytes and the timer's TOUT flop.
 
+## F4 (part B): the serial channels, macro service
+
+`validation/v35s/serial.py` (programs `f4_stx`, `f4_srx`, `f4_ms`, `f4_sio`; `f4_sio2` and
+`f4_msr2/3/5/6/7` measured only) in periph.py's frame (intr.py's Test, slots and handler; the fast
+stubs; periph's run, receipts and gate). The programs poll the IC registers' IF bits with the
+sources masked, so each waits for an event whatever clock it lands on; they record what they read
+at C000h + 20h x the test (`RES`) and, for macro service, the buffers at D000h + 40h x the test.
+Transmit is seen on the pin records (TxD0 / TxD1 always; SCK0 on P16 and /CTS0 as RSCK0 while R2
+is claimed); receive is fed from the schedule's RxD streams and, for the I/O mode's external
+clock, scheduled /CTS0 pulses. Receipts `validation/v35s/receipts/f4-<name>-socket.json` and
+`-socket-2.json` (two sessions, identical writes, regions and pin sequences).
+
+### Measured (the socket, uPD70337L-8, fX/8)
+
+- **The baud rate:** a bit is BRG x 2^(n+1) CPU clocks, n = SCC (SCC 0 x 32: 64 clocks, 3 x 5:
+  80, 1 x 13: 52, channel 1 0 x 40: 80, receive 3 x 6: 96); the data book's formula with SCLK the
+  CPU clock. No 16x sampling clock is visible.
+- **The asynchronous frame:** start, 7 or 8 data bits LSB first (bit 7 of TxB not sent with 7),
+  the parity bit (SCM PRTY 01: always 0, the book's "0 parity"; 10 odd; 11 even), 1 or 2 stop bits;
+  a byte written while one is shifting goes out right after its stop bit(s) (back to back).
+- **STIC:** its IF is set when TxB moves to the shift register and when TxRDY is set with TxB
+  empty (an edge: cleared after the last move it stays clear). With /CTS high the move waits (IF
+  stays clear) and happens when /CTS falls; /CTS raised in a character does not stop it. TxRDY
+  cleared in a character lets it finish; a TxB written with TxRDY 0 goes when TxRDY is set again.
+- **Receive:** a start glitch of a quarter bit is ignored; at a character's end RxB holds the
+  data (bit 7 0 with 7 bits) and **SRIC's IF is set even on an error; SEIC's IF too on an error**.
+  SCE = {RxD's level, 0000, ERP, ERF, ERO}: the flags are **replaced at every character** (a good
+  character clears an earlier error) and are not cleared by reading SCE or RxB, nor by clearing
+  RxE. Parity is not checked with PRTY 01. Overrun (ERO) when a character completes before RxB
+  was read: RxB holds the newest.
+- **RxB is kept through reset** (the runner's replays read the previous run's byte; F1's
+  "undefined"): the gated programs read RxB only after a reception.
+- **The I/O interface mode (channel 0, SCM MD 00):** a TxB store with TxRDY 1 starts 8 bits MSB
+  first at once (the TSK bit is not needed and reads 0); SCK0 (P16 with PMC1 bit 6) is low the
+  first half of each bit, the datum changing at its fall; TxD keeps the last bit after the byte
+  (also after SCM is cleared) until an SCC / BRG store (which of the two is not separated). Receive:
+  with RSCK (SCM bit 2) 1 the /CTS0 pin is driven (high idle) and **a store with TSK and RxE**
+  clocks 8 bits in (RSCK low then high, 32 + 32 clocks at a 64-clock bit, the datum at the rise,
+  MSB first); RxE alone, an RxB read or a transmit do not start it (f4_sio2). With RSCK 0, 8 rises
+  of /CTS0 take 8 bits (MSB first) and set SRIC.
+- **The TxD pins** rise at a session's first run start (from power-up) and are otherwise kept by
+  the board through reset: the gate drops pin records before a program's first test.
+- **Macro service** (the data book's figures 11 and 12 read, the encodings measured): the channel
+  block at IDB:E00 + 8 x channel: +0 MSC, +1 SFRP, +2 SCHR, +4 MSP, +6 MSS. The MS register: bits
+  7:5 MSM, 4 DIR (0 memory to SFR, 1 SFR to memory), 2:0 the channel. **MSM 000: a byte; 001: a
+  word (MSP + 2); 100: a byte with the character search.** At each request (IF with MS 1 and MK 0)
+  one transfer, MSP advanced, MSC counted down; at MSC 0 the MS bit is cleared and IF set, so the
+  next take is an ordinary interrupt (IE 1: taken at once, vector of the source; IE 0: pending).
+  With the search, a byte equal to SCHR ends it the same way (MSC counted for it: 3 -> 2). The
+  service runs **with IE 0** and **in HALT without releasing it** (3 transfers in HALT, the wake
+  at the count's end); **MK 1 holds it** (MSC unchanged, IF set). Sources tried: TM0 (TMIC0), INTP0
+  (EXIC0), serial receive (SRIC0: RxB0 to memory, the search on 0Dh), serial transmit (STIC0:
+  memory to TxB0, three bytes on TxD0 then the vector after the count, then once more when the
+  last byte left TxB). The MS register keeps its value. **The reserved MSM values (010 011 101
+  110 111) stop the program**: the CPU stays in the wait loop's DBNZ (its fetches repeat, no data
+  cycle) until the run limit (f4_msr*; the reset value 44h has MSM 010).
+
+### Built
+
+- **v35_serial** (core/v35_sfr.sv, two instances; channel 0 with the I/O mode): the bit time
+  BRG x 2^(n+1) as a register; the transmitter (TxB's full flag, the move on idle + TxRDY + /CTS
+  low, the frame shifter, STIC's strobe at the move and at the TxRDY set); the receiver (the
+  start's fall, the half-bit check, each bit at its middle, RxB / SCE at the first stop bit,
+  SRIC / SEIC strobes; ERO from the full flag, which an on-chip read of RxB clears); the I/O mode
+  (SCK0, MSB first, TxD held until an SCC / BRG store; RSCK0's 8 clocks after a TSK store; the
+  external clock's rises). RxD0/1 and /CTS0/1 from the input levels through two flops.
+- **v35_sfr:** RxB0/1 and SCE0/1 read from the channels; the SCM / TxB stores and the SCC / BRG
+  stores passed down; `pf_set` bits 3-8 (SEIC0 SRIC0 STIC0 SEIC1 SRIC1 STIC1); the pin vector's
+  TxD0/1 (24, 25), SCK0 on P16 by PMC1 bit 6, RSCK0 on bit 26 while driven (else the keeper).
+  `rd_go` (v35_top `oc_rdgo`: an on-chip read cycle captured at the last ce_a) marks RxB reads.
+- **Macro service:** v35_intc picks a request among the MS-capable sources with IF, MK 0 and
+  MS 1 (`ms_v`, `ms_i`: TU, P, SER0, SER1 in order; not measured), latches the source's channel,
+  mode and direction at the take (`take_m`), clears IF at IVEC (ISPR untouched) and at the
+  routine's end sets IF while v35_sfr clears the IC register's MS bit (`ms_clr`). v35_top: `igo`
+  gains `ms_v` (after NMI, before the maskable offer, whatever IE); the HALT stall also ends on
+  `ms_v`; `ms_hlt` marks a take after a HALT. The routine (urom/ms.uasm `msv`, 59 words) is entered
+  from intr (IVEC gives FFFFh for the kind; bank.uasm's new `bsw_q` sends it to msv): the channel's
+  MSP and MSS read through the on-chip path (seg=IDB), the transfer (new segment SG_TA: tmpa holds
+  MSS), the SFR at 0F00h + SFRP, MSP written back, the SCHR compare, MSC counted down and written
+  back, then a refetch from the instruction's start (from the HALT when the take followed one) so
+  the interrupted instruction runs whole. New ALU ops MSCA SFRH MSMD MSDR MSEQ MSDC MSPC (56-62),
+  the EU's `ms_eq` / `ms_end` registers. The reserved modes run as 000 (silicon hangs: not
+  modelled).
+- The word stays 96 bits; the ROM 1,731 -> 1,794 words (ms.uasm 59, bsw_q 3, the
+  rest the assembler's tables).
+
+### The F4 gate (part B)
+
+`serial.py gate` (after `serial.py sim`): the write and I/O sequence, the result regions and the
+settled pin sequence (from the first test on) equal: f4_stx, f4_srx, f4_ms, f4_sio **EQUAL**
+against both socket sessions. Program changes that the first sessions forced: SCE's RxD bit masked
+where frames follow back to back (its level then depends on the clock), the stub counts of the
+timer services cleared or counted only for events the test makes (IE 0 for the timer services),
+INTP0's edge placed inside the wait loop (a transfer right after the event's OUT fell before or
+after the next PUSH by its clock), the I/O receive test claiming R2 without SCK0.
+
+### Depth (for the overseer's timing run)
+
+- Tick A: `igo` gains one OR term (`ms_v`, a register); `take_i` / `take_s` one AND term
+  (`!g_m`). The sequencer's `wake` input is `i_wake || ms_v` (two registers). `oc_rdgo` is a new
+  flop beside `sfr_open` with the same enable (`g_ocmem`, from the grant) and data `g_kind_b ==
+  K_READ`: a new endpoint on the grant's fan-out, no new logic in the chain. Nothing else joins
+  the delivery chain; v35_loader, v35_upage / umdsp / umimm / umodrm untouched.
+- Tick B: the EU's request segment `segv` gains SG_TA (tmpa): one more input in the segment
+  select before `lin`'s add (the request's address register). The ALU gains seven ops from
+  registers (MSCA: the latched channel; SFRH / MSMD / MSDR / MSEQ / MSPC / MSDC: x with a
+  constant or a 1-bit register); `ms_end` a register fed by an 8-bit compare of x.
+- v35_serial: per channel an 18-bit bit counter compared with `per` and `per / 2` (registers),
+  a 4-bit bit count, a 12-bit shifter; `per` <= BRG << (n + 1) (a barrel shift of registers).
+  v35_sfr's read mux gains RxB0/1 and SCE0/1 (four registers at four offsets).
+- v35_intc: the MS request's pick (10 sources, a priority of registers), the take's latch of the
+  MS register byte (a 10:1 select of storage bytes, at the take only).
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

@@ -24,8 +24,11 @@
 //             low byte; of the high offset the bus residue
 //   pins      P0, P2, PT read 00h (the harness holds them low), P1 the NMI / INTP / INT levels
 //             and READY high (input mode: the latch is not read back)
-//   constant  SCE0/1 80h, STBC 00h (writes ignored: STOP / HALT are F4's), ISPR 00h, RxB0/1 00h
-//             (silicon: undefined, kept through reset), FF0/FF1 00h, FF4 02h, FF7 C7h, FF8 4Eh,
+//   (F4b)     SCM / SCC / BRG stay storage, read by the serial channels (v35_serial, below);
+//             RxB0/1 and SCE0/1 are the channels' (RxB kept through reset, as silicon's); the
+//             MS registers are read by the controller at a macro-service take
+//   constant  STBC 00h (writes ignored: STOP / HALT are F4's), ISPR 00h, FF0/FF1 00h, FF4 02h,
+//             FF7 C7h, FF8 4Eh,
 //             FF9 00h (FF7-FF9 change on silicon: hidden live registers, not built), and every
 //             undocumented offset with address bit 2 set F7h (but FF5, FF6, FFD, FFE: residue)
 //   residue   the write-only SFRs and the undocumented offsets with bit 2 clear: silicon returns
@@ -52,6 +55,7 @@ module v35_sfr (
     input  wire [7:0]  rd_off,
     input  wire        rd_word,
     output reg  [15:0] rd_data,
+    input  wire        rd_go,           // (F4b) an SFR read cycle of rd_off (a ce_a strobe)
     input  wire [1:0]  psw_f,           // the EU's PSW {F1 (bit 5), F0 (bit 3)}
     input  wire [15:0] input_levels,
     output wire        flag_we,         // a FLAG store at this write: PSW bits 5 and 3 <- flag_d
@@ -65,6 +69,8 @@ module v35_sfr (
     // the IF bits and ISPR the controller owns, read back here
     output wire [8*15-1:0] ic_b,        // the 15 IC registers' bytes (v35_intc's order), storage
     output wire [7:0]  intm,
+    output wire [8*15-1:0] ms_b,        // (F4b) the macro-service registers (v35_intc's order)
+    input  wire [14:0] ms_clr,          // (F4b) a macro service's end: the IC register's MS cleared
     output wire [14:0] ic_we,           // a store writes IC register i now (with `wr`) ...
     output wire [14:0] ic_wd,           // ... its bit 7 (IF)
     input  wire [14:0] ic_if,
@@ -175,6 +181,7 @@ module v35_sfr (
                 ic_idx = 4'(k);
     endfunction
 
+    genvar gi;
     // ---- the storage: one byte per offset; the bits no write reaches are constants ----------
     // PRC, WTC, RFM and IDB are their own registers (the function bench sets PRC and WTC
     // through them: fpga/v35s/v35_core2_tb.cpp); their bytes in `st` are not read
@@ -228,9 +235,23 @@ module v35_sfr (
             if (w_off == 8'hFF)
                 idb <= w_lo;
         end
+        // (F4b) a macro service's end: the source's MS bit (f4_ms: TMIC0 27h -> 07h)
+        if (reset_n)
+            for (i = 0; i < 15; i = i + 1)
+                if (ms_clr[i])
+                    st[IC_OFF[8*i +: 8]][5] <= 1'b0;
     end
+    // (F4b) the macro-service control registers by source (EMS0-2, SRMS0 STMS0, SRMS1 STMS1,
+    // TMMS0-2)
+    localparam logic [8*15-1:0] MS_OFF = {8'h00, 8'h00, 8'h00, 8'h96, 8'h95, 8'h94, 8'h76,
+                                          8'h75, 8'h00, 8'h66, 8'h65, 8'h00, 8'h46, 8'h45, 8'h44};
+    generate
+        for (gi = 0; gi < 15; gi++) begin : g_ms
+            localparam logic [7:0] MO = MS_OFF[8*gi +: 8];
+            assign ms_b[8*gi +: 8] = MO == 8'h00 ? 8'h00 : st[MO];
+        end
+    endgenerate
     // (F3) the IC registers' bytes and the stores that write them (the IF bit is the controller's)
-    genvar gi;
     generate
         for (gi = 0; gi < 15; gi++) begin : g_ic
             localparam logic [7:0] O = IC_OFF[8*gi +: 8];
@@ -258,8 +279,30 @@ module v35_sfr (
     v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off, .w_word, .w_lo,
                      .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf);
     v35_tbc tbc (.clock, .reset_n, .ce_a, .tb(prc[3:2]), .tbf);
-    // the IF bits raised: TMIC0-2 (9-11), TBIC (14)
-    assign pf_set = {tbf, 2'b00, tf, 9'd0};
+    // (F4b) the serial channels (channel 0 with the I/O interface mode): SCM / SCC / BRG in the
+    // storage; the stores of SCM and TxB, RxB's reads; RxD0/1, /CTS0/1 the input levels 9-12
+    wire [7:0] rxb0, rxb1, sce0, sce1;
+    wire       txd0, txd1, sck0, rsck0, rsck_oe0, rsck1, rsck_oe1, sck1;
+    wire       sr0, st0, se0, sr1, st1, se1;
+    v35_serial #(.IO_MODE(1'b1)) ser0 (
+        .clock, .reset_n, .ce_a, .s_scm(p_we && w_off == 8'h68), .v_scm(w_lo),
+        .s_txb(p_we && w_off == 8'h62), .v_txb(w_lo),
+        .s_bg(p_we && (w_off == 8'h69 || w_off == 8'h6A || (w_word && w_off == 8'h68))),
+        .scm(st[8'h68]), .scc(st[8'h69]),
+        .brg(st[8'h6A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h30), .rxd_in(input_levels[9]),
+        .cts_in(input_levels[11]), .rxb(rxb0), .sce(sce0), .txd(txd0), .sck(sck0), .rsck(rsck0),
+        .rsck_oe(rsck_oe0), .sr(sr0), .st(st0), .se(se0));
+    v35_serial #(.IO_MODE(1'b0)) ser1 (
+        .clock, .reset_n, .ce_a, .s_scm(p_we && w_off == 8'h78), .v_scm(w_lo),
+        .s_txb(p_we && w_off == 8'h72), .v_txb(w_lo),
+        .s_bg(p_we && (w_off == 8'h79 || w_off == 8'h7A || (w_word && w_off == 8'h78))),
+        .scm(st[8'h78]), .scc(st[8'h79]),
+        .brg(st[8'h7A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h38), .rxd_in(input_levels[10]),
+        .cts_in(input_levels[12]), .rxb(rxb1), .sce(sce1), .txd(txd1), .sck(sck1), .rsck(rsck1),
+        .rsck_oe(rsck_oe1), .sr(sr1), .st(st1), .se(se1));
+    // the IF bits raised: SEIC0 SRIC0 STIC0 (3-5), SEIC1 SRIC1 STIC1 (6-8), TMIC0-2 (9-11), TBIC
+    // (14)
+    assign pf_set = {tbf, 2'b00, tf, st1, sr1, se1, st0, sr0, se0, 3'd0};
 
     // the ports (f4_port): a bit in input mode (PM 1) reads its pin, in output mode its latch;
     // P10-P13 are inputs (PM1 bits 3:0 fixed 1), P13 the /INTAK output's level while PMC1 bit 3
@@ -279,13 +322,14 @@ module v35_sfr (
     wire [7:0] p2 = (pm2 & pin_r[23:16]) | (~pm2 & p2l);
     // the output pins: a port bit in output mode drives its latch; P13 /INTAK and P15 TOUT by
     // PMC1. A pin the CPU does not drive keeps the level it last carried (the board's bus
-    // keepers: f4_tout, P13 stays high after PMC1 bit 3 is cleared). TxD0/1 idle high (the serial
-    // channels are part B); CLKOUT is not built
-    wire [31:0] pv = {6'd0, 2'b11, 1'b0, ~pm2[6:4] & p2l[6:4], 1'b0, ~pm2[2:1] & p2l[2:1],
-                      1'b0, ~pm1[7:6] & p1l[7:6], pmc1[5] ? tout : p1l[5], ~pm1[4] & p1l[4],
-                      intak_n, 3'd0, ~pm0 & p0l};
-    wire [31:0] pd = {8'hFF, 1'b1, ~pm2[6:4], 1'b1, ~pm2[2:1], 1'b1, ~pm1[7:6],
-                      pmc1[5] || !pm1[5], ~pm1[4], pmc1[3], 3'b111, ~pm0};
+    // keepers: f4_tout, P13 stays high after PMC1 bit 3 is cleared). (F4b) TxD0/1; SCK0 on P16 by
+    // PMC1 bit 6; RSCK0 on /CTS0's pin while channel 0's I/O mode drives it (f4_sio). CLKOUT is
+    // not built
+    wire [31:0] pv = {5'd0, rsck0, txd1, txd0, 1'b0, ~pm2[6:4] & p2l[6:4], 1'b0,
+                      ~pm2[2:1] & p2l[2:1], 1'b0, ~pm1[7] & p1l[7], pmc1[6] ? sck0 : p1l[6],
+                      pmc1[5] ? tout : p1l[5], ~pm1[4] & p1l[4], intak_n, 3'd0, ~pm0 & p0l};
+    wire [31:0] pd = {5'h1F, rsck_oe0, 2'b11, 1'b1, ~pm2[6:4], 1'b1, ~pm2[2:1], 1'b1, ~pm1[7],
+                      pmc1[6] || !pm1[6], pmc1[5] || !pm1[5], ~pm1[4], pmc1[3], 3'b111, ~pm0};
     initial pins = 32'h0300_0000;
     always_ff @(posedge clock)
         pins <= (pd & pv) | (~pd & pins);
@@ -311,6 +355,15 @@ module v35_sfr (
             rbyte = tmc0 & 8'hFD;
         if (o == 8'h91)
             rbyte = tmc1 & 8'hC0;
+        // (F4b) RxB0/1, SCE0/1: the serial channels'
+        if (o == 8'h60)
+            rbyte = rxb0;
+        if (o == 8'h70)
+            rbyte = rxb1;
+        if (o == 8'h6B)
+            rbyte = sce0;
+        if (o == 8'h7B)
+            rbyte = sce1;
         // (F3) an IC register's IF bit: the controller's
         if (kind(o) == K_ST && ic_idx(o) != 4'd15)
             rbyte[7] = ic_if[ic_idx(o)];
@@ -344,7 +397,8 @@ module v35_sfr (
     initial int_on = 1'b0;
     always_ff @(posedge clock)
         int_on <= input_levels[5] && st[8'h0A][4];
-    wire unused = &{1'b0, input_levels[15:6], input_levels[4:0]};
+    wire unused = &{1'b0, input_levels[15:13], input_levels[8:6], input_levels[4:0], rsck1,
+                    rsck_oe1, sck1};
 endmodule
 
 // ============================================================================================
@@ -361,7 +415,7 @@ endmodule
 //             first register's PR (TMIC0, DIC0, EXIC0, SEIC0, SEIC1; TB 7), members in their
 //             fixed order (f3_prio); a request is offered while its level is above (numerically
 //             below) the highest level in service (ISPR's lowest set bit). MK 1 masks a source,
-//             MS 1 (macro service, not built) leaves it out
+//             MS 1 leaves it out of the offer: (F4b) a macro-service request (ms_v) instead
 //   the take  the sequencer's dispatch takes the offer (v35_loader `go`); `iack` (the entry's
 //             IVEC word) clears the taken source's IF and sets its level in ISPR (NMI: clears
 //             its request); FINT clears ISPR's highest-priority bit (f3_prio)
@@ -390,6 +444,18 @@ module v35_intc (
     input  wire        fint,            // FINT executes (ce_a strobe)
     input  wire        int_on,          // (F3b) the INT request (v35_sfr's register)
     input  wire [14:0] pf_set,          // (F4) the peripherals' requests (ce_a strobes: IF <- 1)
+    // (F4b) macro service: the sources' macro-service control registers (v35_sfr's storage, in
+    // this module's order; 0 where a source has none), the take (a ce_a strobe at the dispatch),
+    // the service's end (the EU's MSDC strobe)
+    input  wire [8*15-1:0] ms_b,
+    input  wire        take_m,
+    input  wire        ms_end,
+    output reg         ms_v,            // a macro-service request is pending
+    output reg         tk_ms,           // the last take is a macro service ...
+    output reg  [2:0]  ms_ch,           // ... its channel, mode (MSM), direction
+    output reg  [2:0]  ms_mode,
+    output reg         ms_dir,
+    output wire [14:0] ms_clr,          // the source's MS bit cleared at the end (v35_sfr's storage)
     output reg         it_v,            // (F3b) INT is offered (the take strobe take_i covers it)
     output reg         tk_bs,           // (F3b) the last take is a bank switch (ENCS 1) ...
     output reg  [2:0]  tk_lv,           // ... at this level (the new bank)
@@ -424,6 +490,19 @@ module v35_intc (
         end
     endgenerate
     wire [14:0] rq = ic_if & ~mk & ~ms;
+    // (F4b) the sources with a macro-service register: EXIC0-2, SRIC0 STIC0, SRIC1 STIC1, TMIC0-2
+    // (not the serial errors, DMA, TB: the data book's table 6)
+    localparam logic [14:0] MS_CAP = 15'b000_1111_1011_0111;
+    wire [14:0] rq_m = ic_if & ~mk & ms & MS_CAP;
+    reg  [3:0]  ms_i = 4'd0;            // the request's source (the groups' default order)
+    function automatic logic [3:0] ms_pick(input logic [14:0] m);
+        ms_pick = 4'd0;
+        for (int b = 8; b >= 7; b--) if (m[b]) ms_pick = 4'(b);
+        for (int b = 5; b >= 4; b--) if (m[b]) ms_pick = 4'(b);
+        for (int b = 2; b >= 0; b--) if (m[b]) ms_pick = 4'(b);
+        for (int b = 11; b >= 9; b--) if (m[b]) ms_pick = 4'(b);
+    endfunction
+    assign ms_clr = ms_end ? 15'(15'd1 << tk_i) : 15'd0;
     function automatic logic [2:0] pr_of(input logic [3:0] i);
         pr_of = ic_b[8*i +: 3];
     endfunction
@@ -460,9 +539,31 @@ module v35_intc (
             tk_int <= 1'b0;
             tk_bs <= 1'b0;
             tk_lv <= 3'd0;
+            tk_ms <= 1'b0;
+            ms_v <= 1'b0;
+            ms_i <= 4'd0;
+            ms_ch <= 3'd0;
+            ms_mode <= 3'd0;
+            ms_dir <= 1'b0;
         end else if (ce_a) begin
             lv <= lvn;
+            // (F4b) the macro-service request (registers: the take at a dispatch is many clocks
+            // after the routine's acknowledge)
+            ms_v <= |rq_m;
+            ms_i <= ms_pick(rq_m);
+            tk_ms <= tk_ms;
+            if (take_m) begin
+                tk_k <= 3'd0;
+                tk_int <= 1'b0;
+                tk_bs <= 1'b0;
+                tk_ms <= 1'b1;
+                tk_i <= ms_i;
+                ms_ch <= ms_b[8 * ms_i +: 3];
+                ms_dir <= ms_b[8 * ms_i + 4];
+                ms_mode <= ms_b[8 * ms_i + 5 +: 3];
+            end
             if (take_n || take_i || take_s) begin
+                tk_ms <= 1'b0;
                 // (F3b) INT chosen over the controller's offer (it_sel) is not the offer's take
                 tk_k <= {take_n, take_i && !take_n && !it_sel, take_s && !take_n && !take_i};
                 tk_int <= take_i && !take_n && it_sel;
@@ -475,8 +576,10 @@ module v35_intc (
             for (int k = 0; k < 15; k++) begin
                 if (wr && ic_we[k])
                     ic_if[k] <= ic_wd[k];
-                else if (iack && tk_k[1] && tk_i == 4'(k))
-                    ic_if[k] <= 1'b0;
+                else if (iack && (tk_k[1] || tk_ms) && tk_i == 4'(k))
+                    ic_if[k] <= 1'b0;   // (F4b) a macro-service take: IF cleared, ISPR kept
+                if (ms_end && tk_i == 4'(k))
+                    ic_if[k] <= 1'b1;   // (F4b) the service's end: the vectored request
                 if (k < 3 && edge_c[k + 1])
                     ic_if[k] <= 1'b1;
                 if (pf_set[k])
@@ -536,6 +639,11 @@ module v35_intc (
         for (j = 0; j < 2; j++) k3[j] = '0;
         ir_v = 1'b0;
         ir_vec = 5'd0;
+        ms_v = 1'b0;
+        tk_ms = 1'b0;
+        ms_ch = 3'd0;
+        ms_mode = 3'd0;
+        ms_dir = 1'b0;
         it_v = 1'b0;
         tk_bs = 1'b0;
         tk_lv = 3'd0;
@@ -757,6 +865,284 @@ module v35_tbc (
                 2'd2: tbf <= &c[15:0];
                 default: tbf <= &c;
             endcase
+        end
+    end
+endmodule
+/* verilator lint_on DECLFILENAME */
+
+// ============================================================================================
+// (F4b) A serial channel (docs/v35s-differences.md section 8; README "F4 (part B)"), measured on
+// the socket (validation/v35s/serial.py: f4_stx, f4_srx, f4_sio; receipts
+// validation/v35s/receipts/f4-f4_s*). Beside v35_sfr, which keeps SCM / SCC / BRG in its storage
+// (read back there) and decodes the stores; this module holds TxB's and RxB's state and SCE.
+// Every register updates at ce_a (the CPU clock).
+//
+//   baud      a bit is BRG x 2^(n+1) clocks, n = SCC (f4_stx: SCC 0 x 32 = 64, 3 x 5 = 80, 1 x 13
+//             = 52, 0 x 40 = 80 on channel 1; f4_srx: 3 x 6 = 96); `per`, a register
+//   transmit  a TxB store fills the buffer; it moves to the shift register when the shifter is
+//             idle, TxRDY (SCM bit 7) is 1 and (asynchronous mode) /CTS is low, raising STIC (the
+//             `st` strobe); a TxRDY store 0 -> 1 with the buffer empty raises it too (f4_stx: IF at
+//             the enable). The asynchronous frame: start, 7 / 8 data bits LSB first, the parity
+//             bit (SCM PRTY 01: 0, 10 odd, 11 even), 1 / 2 stop bits; frames back to back. A
+//             character in flight ends whatever TxRDY or /CTS do (tx_dis, tx_cts); /CTS is
+//             looked at only at the move
+//   I/O mode  channel 0, SCM MD 00 (f4_sio): 8 bits MSB first, SCK0 low the first half of each
+//             bit (the datum changes at its fall), high the second; TxD keeps the last bit until
+//             TxRDY is cleared. Receive: with RSCK (SCM bit 2) 1 a store with TSK (bit 3) 1 and
+//             RxE 1 clocks 8 bits in on the RSCK output (/CTS0's pin: low, high, the datum taken
+//             at the rise; f4_sio2: RxE alone, or a transmit, does not); with RSCK 0 the datum is
+//             taken at each rise of /CTS0 (8 rises a byte)
+//   receive   asynchronous: a fall of RxD starts a frame; half a bit later a high RxD drops it (the
+//             start glitch, rx_glitch); each bit is taken at its middle; at the first stop bit's
+//             middle RxB <- the data (bit 7 0 with 7 bits), SCE's flags <- this character's
+//             (ERP the parity, unless PRTY 01; ERF the stop bit 0; ERO the buffer not read since
+//             the last character), SRIC raised, SEIC too on an error (f4_srx: both IF bits)
+//   SCE       {RxD's level, 0000, ERP, ERF, ERO}; the flags are replaced at each character, not
+//             cleared by a read; an RxB read (`rd_rxb`: the on-chip read cycle of RxB, also macro
+//             service's) empties the buffer. RxB is not reset (silicon keeps it through reset)
+/* verilator lint_off DECLFILENAME */
+module v35_serial #(parameter bit IO_MODE = 1'b1) (
+    input  wire        clock,
+    input  wire        reset_n,
+    input  wire        ce_a,
+    input  wire        s_scm,           // a store of SCM (its value) ...
+    input  wire [7:0]  v_scm,
+    input  wire        s_txb,           // ... of TxB (its value)
+    input  wire [7:0]  v_txb,
+    input  wire        s_bg,            // ... of SCC or BRG
+    input  wire [7:0]  scm,             // the stored SCM / SCC / BRG (v35_sfr's storage)
+    input  wire [7:0]  scc,
+    input  wire [7:0]  brg,
+    input  wire        rd_rxb,          // RxB read (a ce_a strobe)
+    input  wire        rxd_in,          // RxD and /CTS as the board drives them (asynchronous)
+    input  wire        cts_in,
+    output reg  [7:0]  rxb,
+    output wire [7:0]  sce,
+    output reg         txd,
+    output reg         sck,             // SCK0 (the I/O mode's transmit clock)
+    output reg         rsck,            // RSCK0 (/CTS0's pin as the receive clock) ...
+    output wire        rsck_oe,         // ... while it drives it
+    output reg         sr,              // the SRIC / STIC / SEIC requests (ce_a strobes)
+    output reg         st,
+    output reg         se
+);
+    // the inputs, two flops (asynchronous to the core)
+    reg [1:0] rx_s = 2'b11, ct_s = 2'b11;
+    reg       rx_l = 1'b1, ct_l = 1'b1;     // the levels at the last clock (the edges)
+    wire      rxd = rx_s[1];
+    wire      cts = ct_s[1];
+    wire      io = IO_MODE && scm[1:0] == 2'b00;
+    wire      txrdy = scm[7], rxe = scm[6];
+    wire      cl8 = scm[3], sl2 = scm[2];
+    wire [1:0] prty = scm[5:4];
+    assign rsck_oe = io && scm[2];
+
+    // the bit time: BRG x 2^(n+1) clocks (BRG 0 taken as 256, n above 8 as 8)
+    reg  [17:0] per = 18'd2;
+    wire [3:0]  n = scc[3:0] > 4'd8 ? 4'd8 : scc[3:0];
+    always_ff @(posedge clock)
+        if (ce_a)
+            per <= {9'd0, brg == 8'd0, brg} << (n + 4'd1);
+    wire [17:0] half = {1'b0, per[17:1]};
+
+    // ---- the transmitter
+    reg        tbf = 1'b0;              // TxB full
+    reg  [7:0] tb = 8'd0;
+    reg        tbusy = 1'b0;
+    reg  [11:0] tsh = 12'hFFF;          // the frame: LSB first (asynchronous), MSB first (I/O)
+    reg  [3:0] tn = 4'd0;               // the bits left
+    reg  [17:0] tc = 18'd0;             // the bit's clocks
+    reg        tio = 1'b0;              // the frame in flight is an I/O-mode one
+    wire       tgo = !tbusy && tbf && txrdy && (io || !cts);
+    wire [7:0] t_d = tb & (cl8 ? 8'hFF : 8'h7F);
+    wire       t_par = prty == 2'b01 ? 1'b0 : prty[0] ? ^t_d : !(^t_d);
+    // the asynchronous frame: start, data, parity, the stop bits (1s fill)
+    function automatic logic [11:0] aframe(input logic [7:0] d, input logic c8, input logic pe,
+                                           input logic p);
+        logic [11:0] f;
+        f = 12'hFFF;
+        f[0] = 1'b0;
+        if (c8) begin
+            f[8:1] = d;
+            if (pe) f[9] = p;
+        end else begin
+            f[7:1] = d[6:0];
+            if (pe) f[8] = p;
+        end
+        aframe = f;
+    endfunction
+    wire [3:0] t_len = (cl8 ? 4'd9 : 4'd8) + (prty != 2'b00 ? 4'd1 : 4'd0) + (sl2 ? 4'd1 : 4'd0);
+
+    // ---- the receiver
+    localparam logic [2:0] R_IDLE = 3'd0, R_START = 3'd1, R_BITS = 3'd2, R_ICK = 3'd3,
+                           R_ECK = 3'd4;
+    reg  [2:0] rs = R_IDLE;
+    reg  [17:0] rc = 18'd0;
+    reg  [3:0] rn = 4'd0;               // the bits taken
+    reg  [8:0] rsh = 9'd0;              // asynchronous: data then parity, bit n at n; I/O: MSB first
+    reg        rbf = 1'b0;              // RxB full (not read)
+    reg  [2:0] rerr = 3'd0;             // {ERP, ERF, ERO}
+    assign sce = {rxd, 4'd0, rerr};
+    wire       r_pe = prty != 2'b00;
+    wire [3:0] r_all = (cl8 ? 4'd8 : 4'd7) + (r_pe ? 4'd1 : 4'd0);   // the bits before the stop
+    wire [7:0] r_data = cl8 ? rsh[7:0] : {1'b0, rsh[6:0]};
+    wire       r_pb = cl8 ? rsh[8] : rsh[7];
+    wire       r_perr = r_pe && prty != 2'b01 && ((^r_data ^ r_pb) != !prty[0]);
+
+    initial begin
+        rxb = 8'd0; txd = 1'b1; sck = 1'b1; rsck = 1'b1; sr = 1'b0; st = 1'b0; se = 1'b0;
+    end
+    always_ff @(posedge clock) begin
+        rx_s <= {rx_s[0], rxd_in};
+        ct_s <= {ct_s[0], cts_in};
+        if (!reset_n) begin
+            tbf <= 1'b0; tbusy <= 1'b0; tn <= 4'd0; tc <= 18'd0; tio <= 1'b0;
+            txd <= 1'b1; sck <= 1'b1; rsck <= 1'b1; sr <= 1'b0; st <= 1'b0; se <= 1'b0;
+            rs <= R_IDLE; rc <= 18'd0; rn <= 4'd0; rbf <= 1'b0; rerr <= 3'd0;
+            rx_l <= 1'b1; ct_l <= 1'b1;
+        end else if (ce_a) begin
+            sr <= 1'b0;
+            st <= 1'b0;
+            se <= 1'b0;
+            rx_l <= rxd;
+            ct_l <= cts;
+            // ---- transmit
+            if (tgo) begin
+                tbusy <= 1'b1;
+                tbf <= 1'b0;
+                st <= 1'b1;
+                tc <= 18'd0;
+                tio <= io;
+                if (io) begin
+                    tsh <= {4'hF, tb};
+                    tn <= 4'd7;
+                    txd <= tb[7];
+                    sck <= 1'b0;
+                end else begin
+                    tsh <= aframe(tb, cl8, r_pe, t_par);
+                    tn <= t_len;
+                    txd <= 1'b0;
+                end
+            end else if (tbusy) begin
+                tc <= tc + 18'd1;
+                if (tio && tc + 18'd1 == half)
+                    sck <= 1'b1;
+                if (tc + 18'd1 == per) begin
+                    tc <= 18'd0;
+                    if (tn == 4'd0) begin
+                        tbusy <= 1'b0;
+                        if (!tio)
+                            txd <= 1'b1;
+                    end else begin
+                        tn <= tn - 4'd1;
+                        if (tio) begin
+                            tsh <= {tsh[10:0], 1'b1};
+                            txd <= tsh[6];
+                            sck <= 1'b0;
+                        end else begin
+                            tsh <= {1'b1, tsh[11:1]};
+                            txd <= tsh[1];
+                        end
+                    end
+                end
+            end else if (!io || s_bg)
+                txd <= 1'b1;            // the mark: an I/O-mode TxD holds its last bit until an
+                                        // SCC / BRG store (f4_sio: not at SCM's)
+            if (s_scm && v_scm[7] && !txrdy && !tbf)
+                st <= 1'b1;             // the enable with the buffer empty
+            if (s_txb) begin
+                tb <= v_txb;
+                tbf <= 1'b1;
+            end
+            // ---- receive
+            if (rd_rxb)
+                rbf <= 1'b0;
+            case (rs)
+                R_IDLE: begin
+                    rc <= 18'd0;
+                    rn <= 4'd0;
+                    if (rxe && !io && rx_l && !rxd)
+                        rs <= R_START;
+                    else if (rxe && io && !scm[2] && !ct_l && cts) begin
+                        rsh <= {rsh[7:0], rxd};     // I/O mode, the external clock: the first rise
+                        rn <= 4'd1;
+                        rs <= R_ECK;
+                    end
+                end
+                R_START: begin
+                    rc <= rc + 18'd1;
+                    if (rc + 18'd1 == half) begin
+                        rc <= 18'd0;
+                        rs <= rxd ? R_IDLE : R_BITS;
+                    end
+                    if (!rxe)
+                        rs <= R_IDLE;
+                end
+                R_BITS: begin
+                    rc <= rc + 18'd1;
+                    if (rc + 18'd1 == per) begin
+                        rc <= 18'd0;
+                        if (rn == r_all) begin
+                            rxb <= r_data;              // the stop bit's middle
+                            rerr <= {r_perr, !rxd, rbf};
+                            rbf <= 1'b1;
+                            sr <= 1'b1;
+                            se <= r_perr || !rxd || rbf;
+                            rs <= R_IDLE;
+                        end else begin
+                            rsh[rn] <= rxd;
+                            rn <= rn + 4'd1;
+                        end
+                    end
+                    if (!rxe)
+                        rs <= R_IDLE;
+                end
+                R_ICK: begin
+                    rc <= rc + 18'd1;
+                    if (rc + 18'd1 == half) begin
+                        rsck <= 1'b1;
+                        rsh <= {rsh[7:0], rxd};
+                        rn <= rn + 4'd1;
+                    end
+                    if (rc + 18'd1 == per) begin
+                        rc <= 18'd0;
+                        if (rn == 4'd8) begin
+                            rxb <= rsh[7:0];
+                            rerr <= {2'b00, rbf};
+                            rbf <= 1'b1;
+                            sr <= 1'b1;
+                            se <= rbf;
+                            rs <= R_IDLE;
+                        end else
+                            rsck <= 1'b0;
+                    end
+                end
+                R_ECK: begin
+                    if (!ct_l && cts) begin
+                        rsh <= {rsh[7:0], rxd};
+                        rn <= rn + 4'd1;
+                    end
+                    if (rn == 4'd8) begin
+                        rxb <= rsh[7:0];
+                        rerr <= {2'b00, rbf};
+                        rbf <= 1'b1;
+                        sr <= 1'b1;
+                        se <= rbf;
+                        rs <= R_IDLE;
+                    end
+                    if (!rxe)
+                        rs <= R_IDLE;
+                end
+                default: rs <= R_IDLE;
+            endcase
+            // the internal clock's start: a store with TSK and RxE (I/O mode, RSCK 1)
+            if (IO_MODE && s_scm && v_scm[1:0] == 2'b00 && v_scm[2] && v_scm[3] && v_scm[6]
+                && rs != R_ICK) begin
+                rs <= R_ICK;
+                rc <= 18'd0;
+                rn <= 4'd0;
+                rsck <= 1'b0;
+            end
         end
     end
 endmodule

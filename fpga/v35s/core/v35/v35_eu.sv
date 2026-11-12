@@ -123,6 +123,12 @@ module v35_eu
     input  wire        tk_bs,           // (F3b) ... a bank-switch take (ENCS 1), its level tk_l
     input  wire        tk_int,          // (F3b) ... the INT take (the vector from the bus)
     input  wire [2:0]  tk_l,
+    input  wire        tk_ms,           // (F4b) ... a macro-service take; its channel, mode, DIR
+    input  wire [2:0]  ms_ch,
+    input  wire [2:0]  ms_mode,
+    input  wire        ms_dir,
+    input  wire        ms_hlt,          // (F4b) the take followed a HALT (v35_top's register)
+    output reg         ms_end,          // (F4b) the service's end (a ce_a strobe, MSDC's)
     input  wire        ns,              // (F3b) the N/S pin as last sampled (a register): MD at
                                         //   reset and on every interrupt entry
     output wire        req_ia,          // (F3b) the request is an INT acknowledge (with RQ_IOR)
@@ -141,6 +147,8 @@ module v35_eu
     reg        rq_ia = 1'b0;            // (F3b) the request posted is an INT acknowledge
     reg [15:0] ds1 = 16'd0, ps = 16'hFFFF, ss = 16'd0, ds0 = 16'd0;
     reg [15:0] ta = 16'd0, tb = 16'd0, tc = 16'd0, sigma = 16'd0, addr = 16'd0, oprw = 16'd0;
+    reg        ms_eq = 1'b0;            // (F4b) MSEQ's match
+    initial ms_end = 1'b0;
     reg        scy = 1'b0, ea_ss = 1'b0, pfx_v = 1'b0, dtrap = 1'b0;
     // (MX3c) the BCD string's zero term (BCDI sets it, each BCDS step ands its byte's in; the
     // carry / borrow rides the shifter's step latch scy)
@@ -547,7 +555,18 @@ module v35_eu
             AL_BTC: r = x & ~y;                                 // (F2b) BTCLR's clear
             AL_P14: r = {p14, 15'd0};                           // (F2b) POLL's test
             // (F3) 4 x the vector taken; (F3b) a bank-switch take: {1, the level}; INT: 0
-            AL_IVEC: r = tk_int ? 16'd0 : tk_bs ? {13'h1000, tk_l} : {9'd0, tk_vec, 2'b00};
+            // (F4b) a macro-service take: FFFFh (negative: bank.uasm's bsw_q tells it from a
+            // bank switch's 800xh)
+            AL_IVEC: r = tk_ms ? 16'hFFFF : tk_int ? 16'd0 : tk_bs ? {13'h1000, tk_l}
+                       : {9'd0, tk_vec, 2'b00};
+            // (F4b) macro service (urom/ms.uasm)
+            AL_MSCA: r = {10'b0000_1110_00, ms_ch, 3'd0};
+            AL_SFRH: r = 16'h0F00 | {8'd0, x[15:8]};
+            AL_MSMD: r = {15'd0, ms_mode == 3'b001};
+            AL_MSDR: r = {ms_dir, 15'd0};
+            AL_MSEQ: r = x;
+            AL_MSDC: r = ({8'd0, x[7:0]} - 16'd1) & 16'h00FF;
+            AL_MSPC: r = x - {15'd0, ms_hlt};
             default: ;
         endcase
     end
@@ -581,6 +600,7 @@ module v35_eu
     wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW || word.bus == BQ_INTA;
     wire        b_rd = word.bus == BQ_MEMR || word.bus == BQ_IOR || word.bus == BQ_INTA;
     wire [15:0] segv = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_IDB ? {idb, 8'h00}
+                     : word.seg == SG_TA ? ta
                      : word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
                      : pfx_v ? (pfx_s == 2'd0 ? ds1 : pfx_s == 2'd1 ? ps : pfx_s == 2'd2 ? ss
                                 : ds0)
@@ -669,11 +689,18 @@ module v35_eu
             dtrap <= 1'b0;
             f1 <= 1'b0;
             trap_o <= 1'b0;
+            ms_end <= 1'b0;
+            ms_eq <= 1'b0;
             scy <= 1'b0;
             bz <= 1'b0;
             ea_ss <= 1'b0;
         end else if (ce_a) begin
             trap_o <= ex_b && word.trap;
+            // (F4b) macro service: the character search's match (MSEQ), the end (MSDC: the count
+            // reaches 0, or the match)
+            if (ex_b && word.alu == AL_MSEQ)
+                ms_eq <= ms_mode == 3'b100 && x[7:0] == y[7:0];
+            ms_end <= ex_b && word.alu == AL_MSDC && ({8'd0, x[7:0]} == 16'd1 || ms_eq);
             // (F1) an on-chip write to a segment's slot (before the word's own writes: a
             // register write on the same clock is later in the program and wins)
             if (oc_seg_we) begin

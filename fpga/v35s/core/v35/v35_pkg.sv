@@ -113,7 +113,17 @@ package v35_pkg;
         // x[14:12] (MOVSPA: the PSW save's bank); CITN / CITS: CITF with MD <- 1 / 0 (BRKN /
         // BRKS); VEC4: SIGMA <- 4 x x[7:0] (the INT acknowledge's vector byte)
         AL_BSW = 6'd50, AL_RBR = 6'd51, AL_RBP = 6'd52, AL_CITN = 6'd53, AL_CITS = 6'd54,
-        AL_VEC4 = 6'd55
+        AL_VEC4 = 6'd55,
+        // (F4b) macro service (urom/ms.uasm): MSCA SIGMA <- 0E00h + 8 x the channel of the
+        // macro-service take (the channel block's offset in the on-chip page); SFRH 0F00h +
+        // x[15:8] (the channel's SFR pointer, the high byte of its first word); MSMD {DIR, 0,
+        // the 16-bit mode}; MSEQ the character-search match (x's low byte against y's, in mode
+        // 100) latched, SIGMA <- x; MSDC SIGMA <- x[7:0] - 1 (the count), the service's end
+        // latched (the count 0 or the match: the source's MS bit cleared and its IF set);
+        // MSPC SIGMA <- x - 1 when the take followed a HALT (the routine returns to it); MSDR
+        // {DIR, 0}
+        AL_MSCA = 6'd56, AL_SFRH = 6'd57, AL_MSMD = 6'd58, AL_MSEQ = 6'd59, AL_MSDC = 6'd60,
+        AL_MSPC = 6'd61, AL_MSDR = 6'd62
     } v35_alu_e;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
@@ -137,7 +147,8 @@ package v35_pkg;
     // table) ----
     typedef enum logic [2:0] {
         SG_DEF = 3'd0, SG_SS = 3'd1, SG_DS1 = 3'd2, SG_DSP = 3'd3, SG_ZERO = 3'd4,
-        SG_IDB = 3'd5      // (F2b) the on-chip page: segment {IDB, 00h} (BTCLR's SFR)
+        SG_IDB = 3'd5,     // (F2b) the on-chip page: segment {IDB, 00h} (BTCLR's SFR)
+        SG_TA = 3'd6       // (F4b) tmpa (macro service's MSS: the channel's memory segment)
     } v35_seg_e;
 
     // ---- a queue pop (one byte from the word register) into a popped-byte register ----

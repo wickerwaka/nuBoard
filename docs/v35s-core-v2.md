@@ -2217,3 +2217,30 @@ question, decided from S8's routed numbers with the user.
   / +1.249), 8,509 LUT4 / 511 ADD / 2,110 FF / 79 RAM_5K; the modules alone unchanged. **Not built:**
   CLKOUT, the PT comparator, the one-shot start's 2-clock residue, whether q toggles with ENT0 = 0
   (unobservable).
+- **F4 part B landed (2026-11-12): the two serial channels and macro service; corpus 6,541 unchanged.**
+  Measured on the socket first (validation/v35s/serial.py; programs f4_stx, f4_srx, f4_ms, f4_sio, f4_sio2;
+  two sessions, identical). **Against the data book:** macro service needs no IE and runs in HALT without
+  releasing it (the CPU wakes only when the count ends); at MSC 0 or a character match the MS bit is cleared
+  and IF set, the source's next take an ordinary vectored interrupt; MK 1 holds the service; the mode
+  encodings the book leaves unreadable: MSM 000 a byte, 001 a word, 100 a byte with the character search (a
+  match still counts MSC down), DIR 0 memory to SFR, the channel block +0 MSC, +1 SFRP, +2 SCHR, +4 MSP,
+  +6 MSS; **the reserved MSM values (010, 011, 101, 110, 111) hang the program, and the MS registers reset
+  to MSM 010**; a receive error sets both SRIC's and SEIC's IF; SCE's error flags are replaced at every
+  character and not cleared by a read; RxB survives reset; in the I/O interface mode a TxB store with TxRDY
+  starts 8 bits MSB first, SCK0 low then high in each bit, TxD holding its last bit until an SCC or BRG
+  store (which of the two: not separated), reception started only by a store with TSK and RxE. As the book:
+  a bit is BRG × 2^(n+1) clocks (five settings timed exactly from TxD edges), the frame and parity forms,
+  STIC on the move to the shift register, /CTS holding the move, a start glitch under half a bit ignored,
+  overrun keeping the newest byte. **Built:** v35_serial (two instances in core/v35_sfr.sv: the bit timer,
+  transmitter, receiver, the I/O-mode clocks, TxD0/1, SCK0 and RSCK0 on the pin vector); macro service as a
+  take in v35_top after NMI and before the maskable offer whatever IE is (also ending the HALT stall), the
+  pick and the mode latch in v35_intc, the transfer a 59-word microcode routine (urom/ms.uasm) over the
+  on-chip path, seven ALU ops and the segment select SG_TA; the word still 96 bits, the ROM 1,731 → 1,794
+  words. **Gate:** serial 4 program sets equal to both socket sessions (writes, regions, pin sequences),
+  periph 4, intr 6, banks 5, onchip 6, traps 6, the 101 undefined cases; the corpus 6,541 with 0 runs
+  differing at both spacings, chk silent, vectors 0 bad, lint clean, 48 fast tests. **FPGA at 17 ns: +1.005
+  / +0.733 / +0.493 on seeds 1 / 2 / 3** (the base +1.400 / +1.098 / +1.200): every seed passes and the worst
+  paths keep the base's 14-15 levels, but each seed gave up 0.4-0.7 ns as the core grew to 9,165 LUT4 / 528
+  ADD / 2,319 FF; the margin is watched at part C's landing. **Not built / open:** the reserved MSM hang
+  (the RTL runs them as mode 000); macro-service priority among sources and against ISPR (unmeasured: the
+  RTL uses the default order and ignores ISPR); which store marks TxD in I/O mode.

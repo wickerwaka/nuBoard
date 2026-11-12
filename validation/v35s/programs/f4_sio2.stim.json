@@ -1,0 +1,8 @@
+{
+ "entries": [],
+ "pins": [
+  "TXD0",
+  "SCK0",
+  "CTS0"
+ ]
+}

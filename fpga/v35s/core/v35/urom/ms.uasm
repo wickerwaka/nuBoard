@@ -1,0 +1,84 @@
+; F4b: macro service (README "F4 (part B)"). Function only: measured on the socket
+; (validation/v35s/serial.py f4_ms; receipts validation/v35s/receipts/f4-f4_ms-*), no clock in
+; this routine is fitted to silicon's.
+;
+; Silicon (f4_ms): a source whose IC register has MS 1 (and MK 0) does not interrupt; at each
+; request one byte (MSM 000) or word (001) moves between the SFR at IDB:F00 + SFRP and the memory
+; at MSS:MSP (DIR 0: memory to SFR, 1: SFR to memory), MSP advances by the width, MSC counts
+; down; at MSC 0, or (MSM 100, the character search) when the byte moved equals SCHR, the MS bit
+; is cleared and the IF bit set: the request then interrupts as an ordinary one (IE 1: taken;
+; IE 0: pending). The service runs with IE 0 and in HALT (without releasing it); MK 1 holds it.
+; The channel block (internal RAM IDB:E00 + 8 x channel): +0 MSC, +1 SFRP, +2 SCHR, +4 MSP,
+; +6 MSS. The reserved MSM values (010 011 101 110 111) hang silicon's program (f4_msr*): not
+; modelled (they run as 000 here).
+;
+; The dispatch takes a macro-service request like an interrupt (v35_top `take_m`, at a start,
+; whatever IE); intr's IVEC acknowledges it (the IF bit cleared, ISPR kept) and gives FFFFh;
+; bank.uasm's bsw_q sends that here. tmpc holds the instruction's start (intr's first word): the
+; routine ends by refetching from it (from the HALT's own offset when the take followed a HALT:
+; MSPC), so the interrupted instruction runs whole after the service.
+
+routine msv why="(F4b) macro service: one transfer through the channel block (f4_ms); function only"
+    alu=MSCA wid=WORD                       ; SIGMA <- the channel block's offset (0E00h + 8 x the channel)
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD alu=INC2 ax=SIG   ; post MSP's read; SIGMA <- + 6
+    f d1=TB s1=OPR                          ; F: MSP into tmpb
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post MSS's read
+    f d1=TA s1=OPR d2=ADDR s2=TB alu=MSDR wid=WORD   ; F: MSS into tmpa; the address <- MSP; SIGMA <- {DIR, 0}
+    jc=SGN:ms_s                             ; DIR 1: the SFR to memory
+    alu=MSMD wid=WORD                       ; SIGMA <- the 16-bit mode
+    jc=SNZ:ms_mw                            ; a word
+; ---- memory to the SFR, a byte
+    bus=MEMR seg=TA wid=BYTE alu=MSCA       ; post the byte's read at MSS:MSP; SIGMA <- the block's offset
+    f d1=TA s1=OPR                          ; F: the datum into tmpa
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SFRP, MSC}
+    f alu=SFRH ax=OPR wid=WORD              ; F: SIGMA <- 0F00h + SFRP
+    d1=ADDR s1=SIG d2=OPRW s2=TA bus=MEMW seg=IDB wid=BYTE   ; post the SFR's write
+    f jmp=ms_b                              ; F: its end; the byte's tail
+; ---- memory to the SFR, a word
+ms_mw: bus=MEMR seg=TA wid=WORD alu=MSCA    ; post the word's read at MSS:MSP; SIGMA <- the block's offset
+    f d1=TA s1=OPR                          ; F: the datum into tmpa
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SFRP, MSC}
+    f alu=SFRH ax=OPR wid=WORD              ; F: SIGMA <- 0F00h + SFRP
+    d1=ADDR s1=SIG d2=OPRW s2=TA bus=MEMW seg=IDB wid=WORD   ; post the SFR's write
+    f jmp=ms_w                              ; F: its end; the word's tail
+; ---- the SFR to memory
+ms_s: alu=MSMD wid=WORD                     ; SIGMA <- the 16-bit mode
+    jc=SNZ:ms_sw                            ; a word
+    alu=MSCA wid=WORD                       ; SIGMA <- the block's offset
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SFRP, MSC}
+    f alu=SFRH ax=OPR wid=WORD              ; F: SIGMA <- 0F00h + SFRP
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=BYTE   ; post the SFR's read
+    f d1=OPRW s1=OPR d2=ADDR s2=TB          ; F: the datum into the write datum; the address <- MSP
+    bus=MEMW seg=TA wid=BYTE                ; post the write at MSS:MSP
+    f d1=TA s1=OPR jmp=ms_b                 ; F: its end; the datum into tmpa; the byte's tail
+ms_sw: alu=MSCA wid=WORD                    ; SIGMA <- the block's offset
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the read of {SFRP, MSC}
+    f alu=SFRH ax=OPR wid=WORD              ; F: SIGMA <- 0F00h + SFRP
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=WORD   ; post the SFR's read
+    f d1=OPRW s1=OPR d2=ADDR s2=TB          ; F: the datum into the write datum; the address <- MSP
+    bus=MEMW seg=TA wid=WORD                ; post the write at MSS:MSP
+    f d1=TA s1=OPR jmp=ms_w                 ; F: its end; the datum into tmpa; the word's tail
+; ---- the tails: MSP advanced and written back, the match, MSC counted down and written back
+ms_b: alu=MSCA wid=WORD                     ; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    d1=ADDR s1=SIG alu=INC ax=TB wid=WORD   ; the address <- MSP's; SIGMA <- MSP + 1
+    jmp=ms_t                                ; the common tail
+ms_w: alu=MSCA wid=WORD                     ; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    alu=INC2 ax=SIG wid=WORD                ; + 4
+    d1=ADDR s1=SIG alu=INC2 ax=TB wid=WORD  ; the address <- MSP's; SIGMA <- MSP + 2
+ms_t: d1=OPRW s1=SIG bus=MEMW seg=IDB wid=WORD   ; post MSP's write-back
+    f alu=MSCA wid=WORD                     ; F: its end; SIGMA <- the block's offset
+    alu=INC2 ax=SIG wid=WORD                ; + 2
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=BYTE   ; post SCHR's read
+    f alu=MSEQ ax=TA ay=OPR wid=WORD        ; F: the character search's match latched (MSM 100)
+    alu=MSCA wid=WORD                       ; SIGMA <- the block's offset
+    d1=ADDR s1=SIG bus=MEMR seg=IDB wid=BYTE   ; post MSC's read
+    f alu=MSDC ax=OPR wid=WORD              ; F: SIGMA <- MSC - 1; the end latched (0, or the match)
+    d1=OPRW s1=SIG bus=MEMW seg=IDB wid=BYTE   ; post MSC's write-back
+    f alu=MSPC ax=TC wid=WORD               ; F: its end; SIGMA <- the offset to resume at
+    flush                                   ; FLUSH: the stream from it
+    e                                       ; E: the interrupted instruction again

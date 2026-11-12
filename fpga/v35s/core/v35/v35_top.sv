@@ -72,6 +72,7 @@ module v35_top
     wire [15:0] sfr_rd;
     reg  [7:0]  oc_off = 8'd0;
     reg         oc_word = 1'b0;
+    reg         oc_rdgo = 1'b0;         // (F4b) an on-chip read cycle started at the last ce_a
     wire [1:0]  psw_f;
     wire        flag_we;
     wire [1:0]  flag_d;
@@ -80,13 +81,21 @@ module v35_top
     wire [8*15-1:0] ic_b;
     wire [7:0]  intm, ispr;
     wire [14:0] ic_we, ic_wd, ic_if;
+    // (F4b) macro service: the sources' control registers, the end's MS clear, the request, the
+    // take's kind and channel / mode / direction, the end (the EU's strobe)
+    wire [8*15-1:0] ms_b;
+    wire [14:0] ms_clr;
+    wire        ms_v, tk_ms, ms_dir, ms_end;
+    wire [2:0]  ms_ch, ms_mode;
+    reg         ms_hlt = 1'b0;
     wire        int_on;                 // (F3b) the INT request (the level, PMC1 bit 4)
     wire [14:0] pf_set;                 // (F4) the peripherals' IF requests
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
-                 .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd), .psw_f,
+                 .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd),
+                 .rd_go(oc_rdgo && !oc_ram), .psw_f,
                  .input_levels, .flag_we, .flag_d, .poll_p14,
-                 .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on,
+                 .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on, .ms_b, .ms_clr,
                  .ce_a, .pins_in, .intak_n, .pins, .pf_set);
 
     // ---------------------------------------------------------------- CPU clock
@@ -419,7 +428,7 @@ module v35_top
         .s_wbs_nx(l_sw_nx), .s_modrm_nx(l_sm_nx), .d1_wbs_nx(l_dw_nx), .d1_hm_nx(l_dh_nx),
         .rmem_nx((fmt_nx.has_modrm || fmt_nx.pg) && ld_modrm_nx[7:6] != 2'd3),
         .fetch_run_nx(b_fir_nx), .bus_wait_nx(b_iw_nx), .fetch_dph_nx(b_fpb_nx),
-        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(i_wake), .igo,
+        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(i_wake || ms_v), .igo,
         .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
@@ -431,6 +440,7 @@ module v35_top
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
         .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki,
         .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns(ns_r), .req_ia,
+        .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_hlt, .ms_end,
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .done_data(b_done_data), .cpu_end_prev(b_cpu_end_prev), .ramen,
@@ -460,16 +470,22 @@ module v35_top
     wire g_n = nmi_v;
     wire g_i = (ir_v || it_v) && psw_ie && ie_arm;     // (F3b) it_v: INT (the controller chooses)
     wire g_s = psw_brk && brk_arm;
-    assign igo = !nb_r && (g_n || g_i || g_s);
+    // (F4b) a macro-service request: taken at a start whatever IE (f4_ms ms_p0, IE 0), after NMI
+    // and before the maskable offer (not measured); in HALT the stall ends on it (the sequencer's
+    // `wake` OR ms_v) and the routine returns to the HALT (f4_ms ms_halt: no release)
+    wire g_m = ms_v;
+    assign igo = !nb_r && (g_n || g_m || g_i || g_s);
     wire dsp_x = ex && w_disp;
     wire take_n = dsp_x && igo && g_n;
-    wire take_i = dsp_x && igo && !g_n && g_i;
-    wire take_s = dsp_x && igo && !g_n && !g_i;
+    wire take_m = dsp_x && igo && !g_n && g_m;
+    wire take_i = dsp_x && igo && !g_n && !g_m && g_i;
+    wire take_s = dsp_x && igo && !g_n && !g_m && !g_i;
     always @(posedge clock) begin
         if (!core_reset_n) begin
             ie_arm <= 1'b0;
             brk_arm <= 1'b0;
             nb_r <= 1'b0;
+            ms_hlt <= 1'b0;
         end else if (ce_a) begin
             if (dsp_x) begin
                 ie_arm <= psw_ie;
@@ -477,6 +493,11 @@ module v35_top
             end
             if (ex_pop && word.e)
                 nb_r <= word.nb;
+            // (F4b) the stall of a HALT seen since the last start that was not a macro service's
+            if (halted)
+                ms_hlt <= 1'b1;
+            else if (dsp_x && !take_m)
+                ms_hlt <= 1'b0;
         end
     end
     v35_intc intc (
@@ -484,7 +505,8 @@ module v35_top
         .wr(sfr_wr), .ic_we, .ic_wd, .take_n, .take_i, .take_s,
         .iack(ex_b && word.alu == AL_IVEC), .fint(ex_b && word.alu == AL_FINT),
         .ic_if, .ispr, .ir_v, .ir_vec, .nmi_v, .wake(i_wake), .tk_vec,
-        .int_on, .it_v, .tk_bs, .tk_lv, .tk_int, .pf_set
+        .int_on, .it_v, .tk_bs, .tk_lv, .tk_int, .pf_set,
+        .ms_b, .take_m, .ms_end, .ms_v, .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr
     );
 
     // ---------------------------------------------------------------- the register RAM
@@ -531,6 +553,7 @@ module v35_top
             pend_v <= 1'b0;
         end else if (ce_a) begin
             pend_v <= 1'b0;
+            oc_rdgo <= 1'b0;
             // a cycle's end and the next cycle's start can share the clock (an odd word's
             // halves): the end reads the captured cycle, the start captures the new one
             if (sfr_open && dlv_other) begin
@@ -544,6 +567,7 @@ module v35_top
             end
             if (g_ocmem) begin
                 sfr_open <= g_kind_b == K_WRITE;
+                oc_rdgo <= g_kind_b == K_READ;
                 sfr_a <= g_addr_b;
                 sfr_w <= g_width_b;
                 oc_off <= g_top ? '1 : g_addr_b[7:0];
