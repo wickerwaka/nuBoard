@@ -333,6 +333,7 @@ def c2_case(regs: dict, code6: bytes, ip: int, st, after: dict | None, trap: boo
 
 
 PFX_OVERLAP = "an operand read covers the bench's prefix byte"
+SEG_WRAP = "reference: an odd word across the segment's end (V35 linear + 1, the suite's V20 wraps)"
 # (F2b) an I/O form (IN OUT INM OUTM, behind any prefixes) run with PSW.BRKI 0: the V35 traps to
 # vector 19 (silicon, validation/v35s/traps.py f2_iot); the reference (the V20's) does the I/O.
 # Counted apart, not compared (the trap is gated by traps.py against the socket)
@@ -829,7 +830,14 @@ def _sst_test(test: dict, stem: str) -> tuple[str | None, str, C2Test | None]:
     c = sst.classify(test, stem, rtl=True)
     if c is not None:
         return c, "", None
+    from . import funcref as fr
+    fr.WRAP_SEEN = False
     r = sst.reference_v35_or_v20(test, stem)
+    if fr.WRAP_SEEN:
+        # (F5d) an odd word at offset FFFFh: the V35's second half is at the linear address + 1
+        # (silicon, fuzz f5i / f5r wrapw), the suite's V20 wraps to the segment's offset 0000h
+        # and lists no byte at the V35's address: counted apart
+        return SEG_WRAP, "", None
     tid = str(test["idx"])
     r0 = test["initial"]["regs"]
     regs0, ip0 = {n: r0[k] for k, n in sst.REGMAP}, r0["ip"]

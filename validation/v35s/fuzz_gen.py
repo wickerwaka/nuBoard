@@ -1338,6 +1338,18 @@ class Gen:
             rp = bytes([self.r.choice((0xF3, 0xF3, 0xF2, 0x65, 0x64))])
         lock = b"\xF0" if self.r.random() < 0.03 else b""
         data = lock + segpfx + rp + bytes([op])
+        if self.opts.get("gap"):
+            # (F5d) the coverage gaps: REP then the segment prefix (the REP page's prefix cells),
+            # BUSLOCK between them, an override on the destination-only forms, two overrides
+            if not segpfx and self.r.random() < 0.4:
+                segpfx = bytes([self.r.choice((0x26, 0x2E, 0x36, 0x3E))]) if not src else b""
+            if segpfx and self.r.random() < 0.15:
+                segpfx = bytes([self.r.choice((0x26, 0x2E, 0x36, 0x3E))]) + segpfx
+            lock = b"\xF0" if self.r.random() < 0.1 else b""
+            parts = [segpfx, rp] if self.r.random() < 0.5 else [rp, segpfx]
+            if lock:
+                parts.insert(self.r.randrange(3), lock)
+            data = b"".join(parts) + bytes([op])
         self.fz(data, f"{['', 'REP? '][rep]}{names[op]}", self.key(names[op], f"rep{rp.hex()}" if rep else "", "",
                                                                   "bw"[w], "seg" if segpfx else ""))
         for r in (IX, IY, CW):
@@ -1350,6 +1362,116 @@ class Gen:
                 st.set16(AW, None)
             else:
                 st.set8(0, None)
+
+    def f_spld(self):
+        """(F5d) SP loaded: MOV SP,imm16, POP SP, XCH AW,SP, XCH r,SP (an odd value in 3 of 10)."""
+        if self.ctx or "SPN" in self.reserved:
+            raise Retry("sp")
+        st = self.st
+        nsp = self.r.randrange(SP_LO + 0x200, SP_HI - 0x40)
+        if self.r.random() < 0.7:
+            nsp &= ~1
+        kind = self.r.choice(("mov", "pop", "xch", "xchr"))
+        if kind == "mov":
+            self.fz(b"\xBC" + nsp.to_bytes(2, "little"), f"MOV SP, {hx(nsp)}",
+                    self.key("MOV", "sp,imm", "", "w", "SP"))
+        elif kind == "pop":
+            self.need_room(2, 2)
+            self.setup(b"\x68" + nsp.to_bytes(2, "little"), f"PUSH {hx(nsp)}")
+            self.push_known(nsp)
+            self.fz(b"\x5C", "POP SP", self.key("POP", "r16", "", "w", "SP"))
+        else:
+            r = AW if kind == "xch" else self.r.choice([x for x in (0, 1, 2, 3, 5, 6, 7) if x not in self.reserved] or [None])
+            if r is None or r in self.reserved:
+                raise Retry("rsv")
+            old = st.sp
+            self.mov16(r, nsp)
+            if kind == "xch":
+                self.fz(b"\x94", "XCH AW, SP", self.key("XCH", "acc,r", "", "w", "SP"))
+            else:
+                self.fz(bytes([0x87, 0xC0 | r << 3 | SP]), f"XCH {R16[r]}, SP", self.key("XCH", "r,rm", "reg", "w", "SP"))
+            st.set16(r, old)
+        st.set16(SP, nsp)
+        st.stack = {}
+
+    def f_mdedge(self):
+        """(F5d) MUL / MULU / DIV / DIVU by a register with edge operands (0, 1, the sign
+        boundaries, all ones) in AW / DW and the operand."""
+        op = self.r.choice((4, 5, 6, 7))
+        w = self.r.randrange(2)
+        if AW in self.reserved or (w and DW in self.reserved):
+            raise Retry("rsv")
+        edges8 = (0, 1, 2, 0x7F, 0x80, 0x81, 0xFE, 0xFF)
+        edges16 = (0, 1, 2, 0x7FFF, 0x8000, 0x8001, 0xFFFE, 0xFFFF, 0x00FF, 0xFF00, 0x0080, 0xFF80)
+        if w:
+            r = self.r.choice([x for x in (1, 3, 5, 6, 7) if x not in self.reserved] or [None])
+            if r is None:
+                raise Retry("rsv")
+            self.mov16(r, self.r.choice(edges16))
+            self.mov16(AW, self.r.choice(edges16))
+            self.mov16(DW, self.r.choice(edges16))
+            rr = r
+        else:
+            rr = self.r.choice([x for x in (1, 2, 3, 5, 6, 7) if (x & 3) not in self.reserved])
+            self.mov8(rr, self.r.choice(edges8))
+            self.mov16(AW, self.r.choice(edges16))
+        data = bytes([0xF6 + w, 0xC0 | op << 3 | rr])
+        self.fz(data, f"{G3[op]} {(R16 if w else R8)[rr]} (edge)", self.key(G3[op], "edge", "reg", "bw"[w], ""))
+        self.st.set16(AW, None)
+        if w:
+            self.st.set16(DW, None)
+
+    def f_wrap(self):
+        """(F5d) a word at offset FFFFh: its high byte at offset 0000h of the segment (with a
+        segment F401h-F4FFh the low byte also wraps the megabyte into the data window); STMW /
+        LDMW stepping through FFFFh (the page at F4000h loaded for opts["gap"])."""
+        st = self.st
+        sname = self.r.choice([x for x in ("DS0", "DS1") if x not in self.reserved] or [None])
+        if sname is None:
+            raise Retry("rsv")
+        sv = self.r.randrange(0xF401, 0xF500)
+        self.load_seg(sname, sv)
+        pfx = b"" if sname == "DS0" else b"\x26"
+        kind = self.r.choice(("st", "ld", "alu", "inc", "push", "stm", "ldm"))
+        if kind in ("st", "ld", "alu"):
+            r = self.r.choice([x for x in (0, 1, 2, 3, 5, 6, 7) if x not in self.reserved])
+            if st.get16(r) is None:
+                self.mov16(r, self.r.randrange(0x10000))
+            opc = {"st": 0x89, "ld": 0x8B, "alu": self.r.choice((0x01, 0x29, 0x31, 0x11, 0x21))}[kind]
+            self.fz(pfx + bytes([opc, 0x06 | r << 3, 0xFF, 0xFF]), f"{kind} {sname}:[FFFFh], {R16[r]}",
+                    self.key("WRAP", kind, "dir", "w", ""))
+            if kind == "ld":
+                st.set16(r, None)
+        elif kind == "inc":
+            self.fz(pfx + bytes([0xFF, 0x06 | self.r.randrange(2) << 3, 0xFF, 0xFF]), f"INC/DEC {sname}:[FFFFh]",
+                    self.key("WRAP", "incdec", "dir", "w", ""))
+        elif kind == "push":
+            self.need_room()
+            self.fz(pfx + b"\xFF\x36\xFF\xFF", f"PUSH {sname}:[FFFFh]", self.key("WRAP", "push", "dir", "w", ""))
+            self.push_known(None)
+        else:
+            if any(x in self.reserved for x in (CW, IX, IY, AW)) or "DIR" in self.reserved:
+                raise Retry("rsv")
+            if kind == "stm" and sname != "DS1":
+                if "DS1" in self.reserved:
+                    raise Retry("rsv")
+                self.load_seg("DS1", sv)
+            n = self.r.randrange(1, 4)
+            dr = self.r.randrange(2)
+            self.setup(b"\xFD" if dr else b"\xFC", "SET1 DIR" if dr else "CLR1 DIR")
+            st.dir = dr
+            self.mov16(CW, n)
+            start = self.r.choice((0xFFFF, 0xFFFE, 0x0001, 0x0000))
+            if kind == "stm":
+                self.mov16(IY, start)
+                self.fz(b"\xF3\xAB", f"REP STMW (IY {hx(start)})", self.key("WRAP", "stmw", "", "w", ""))
+                st.set16(IY, None)
+            else:
+                self.mov16(IX, start)
+                self.fz(pfx + b"\xF3\xAD", f"REP LDMW (IX {hx(start)})", self.key("WRAP", "ldmw", "", "w", ""))
+                st.set16(IX, None)
+                st.set16(AW, None)
+            st.set16(CW, None)
 
     def f_trans(self):
         if AW in self.reserved or BW in self.reserved:
@@ -2034,8 +2156,13 @@ def build(name, layer, seed, items, opts=None, body=None):
         DUMP: bytes(0x1000),
         0xFFFF0: bytes([0xEA, CODE & 0xFF, CODE >> 8, 0x00, 0x00]),
     }
-    pages = sorted({a >> 12 for a in segs if a != 0xFFFF0} | set(range(CODE >> 12, end >> 12)) | {0xFF})
     results = [(DATA_LO, DATA_HI - DATA_LO), (STK_PAGE, 0x1000), (CNT, 0x100), (DUMP, 0x200)]
+    if opts.get("gap"):
+        # (F5d) the wrap forms' segment base page (F401h-F4FFh: offsets 0000h-0FFFh at F4010h-F5FEFh)
+        segs[0xF4000] = bytes(pr.randrange(256) for _ in range(0x2000))
+        results.append((0xF4000, 0x2000))
+    pages = sorted({a >> 12 for a in segs if a != 0xFFFF0} | set(range(CODE >> 12, end >> 12)) | {0xFF}
+                   | ({0xF5} if opts.get("gap") else set()))
     mask = {DUMP + 0x20 * g.st.rb + 0x1C, DUMP + 0x20 * g.st.rb + 0x1D}
     return Built(name, layer, seed, list(items), code, g.b.ins, segs, pages, results, g.cov,
                  g.st.rb, mask, meta={"K": K, "fuzz": sum(1 for i in g.b.ins if i.tag == "fuzz")})

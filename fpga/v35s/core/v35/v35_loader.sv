@@ -95,6 +95,8 @@ module v35_loader
     input  wire        e_pop,           // the word is an E word
     input  wire        disp,            // a DISP word executes (the format loads)
     input  wire        dispm,           // the word is a DISPM word
+    input  wire        e_rep,           // (F5d) the E word re-enters the REP page (ea=REP; a register)
+    input  wire        e_rep_nx,        // ... the next word's (tick B)
     output wire        q_stall,         // the word's pop finds no byte (stall q)
     // the registers
     output reg  [7:0]  op,              // the opcode the E word popped (the decode's input)
@@ -231,7 +233,10 @@ module v35_loader
     v35_udec_t ds = '0;
     // (MX2) the E word pops the opcode's second byte with it: a ModR/M byte, or (the decode's e2)
     // a short transfer's displacement (into IL; the frozen model's take on the start clock)
-    wire       ds2 = ds.has_modrm || ds.e2 || ds.pg;   // (MX3c) the 0F page's second byte
+    // (F5d) an E word with ea=REP pops the staged opcode alone (the REP page's second byte: its
+    // ModR/M byte, displacement or 0F second byte stay in the queue for the cell's routine;
+    // rep_nx refetches from the opcode); e_rep is the sequencer's registered word fact
+    wire       ds2 = (ds.has_modrm || ds.e2 || ds.pg) && !e_rep;   // (MX3c) the 0F page's second byte
     assign q_stall = (wants_op && sn == 2'd0)
                      || (e_pop && (!s_v || (ds2 && sn == 2'd0)));
     // the lookups the function reads (registers and the queue's head byte: early in tick A)
@@ -675,6 +680,7 @@ module v35_loader
     reg [15:0] foff_b = 16'd0;
     reg        mpop_b = 1'b0, opop_b = 1'b0, epop_b = 1'b0, sload_b = 1'b0, flush_b = 1'b0, disp_b = 1'b0;
     reg        dispm_b = 1'b0;
+    reg        erep_b = 1'b0;           // (F5d) the E pop re-enters the REP page
     v35_pop_e  pop_b = PP_NONE;
     reg [7:0]  qv0_b = 8'h00, qv1_b = 8'h00, sb0_b = 8'h00, sb1_b = 8'h00;
     reg        wload_b = 1'b0;
@@ -693,6 +699,7 @@ module v35_loader
             e2_b <= ds.e2;
             foff_b <= flush_off;
             epop_b <= epop;
+            erep_b <= epop && e_rep;
             sload_b <= sload;
             flush_b <= flush;
             disp_b <= disp;
@@ -730,14 +737,18 @@ module v35_loader
                          + (!arrive_nx ? 4'd0 : q_odd_nx ? 4'd1 : 4'd2);
     wire [2:0] av_nx = av_w_nx > 4'd7 ? 3'd7 : av_w_nx[2:0];
     wire [1:0] sn_nx = sn_f(wn_nx, q_stored_nx, av_nx);
-    wire       ds2_nx = ds_nx.has_modrm || ds_nx.e2 || ds_nx.pg;
+    wire       ds2_nx = (ds_nx.has_modrm || ds_nx.e2 || ds_nx.pg) && !e_rep_nx;
     assign q_stall_nx = (pop_nx != PP_NONE && sn_nx == 2'd0)
                         || (e_pop_nx && (!s_v_nx || (ds2_nx && sn_nx == 2'd0)));
     assign s_modrm_nx = s_v_nx && ds_nx.has_modrm;
     assign s_wbs_nx = s_v_nx && ds_nx.wbs;
     // (MX5) the values op and mp load at ce_a (the dispatch facts' register reads them)
-    wire [7:0] op_nx = epop_b ? s_b : op;
-    wire [7:0] mp_nx = (mpop_b && !e2_b) ? sb0_b : mp;
+    // (F5d) an E word with ea=REP (a REP-page prefix cell's: REP seg / REP BUSLOCK) pops the
+    // staged opcode into the ModR/M register and keeps the opcode register (the REP byte): the
+    // dispatch reads the REP page's cell of the popped opcode (silicon, f5r repsegstr: REP
+    // then segment prefixes and BUSLOCK, then a string opcode, repeats the string)
+    wire [7:0] op_nx = (epop_b && !erep_b) ? s_b : op;
+    wire [7:0] mp_nx = (mpop_b && !e2_b) ? sb0_b : erep_b ? s_b : mp;   // (exclusive: ds2 is 0 on erep)
     // (MX5b) opc, modrm and fmt load exactly these at ce_a (the block below assigns them)
     assign opc_nx = disp_b ? op : opc;
     assign modrm_nx = disp_b ? mp : (opop_b && pop_b == PP_MODRM) ? sb0_b : modrm;
@@ -863,7 +874,7 @@ module v35_loader
                 end else if (epop_b)
                     s_v <= 1'b0;
             end
-            if (epop_b) begin
+            if (epop_b && !erep_b) begin
                 op <= s_b;
                 op_a <= s_a;
                 if (!fmt.seg[2])
@@ -871,6 +882,8 @@ module v35_loader
             end
             if (mpop_b && !e2_b)
                 mp <= sb0_b;
+            else if (erep_b)
+                mp <= s_b;              // (F5d) the REP page's second byte (op_nx, mp_nx above)
             if (mpop_b && e2_b)
                 il <= sb0_b;            // (MX2) the short transfer's displacement
             if (opop_b) begin

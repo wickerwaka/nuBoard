@@ -329,6 +329,34 @@ def case_list(kind, r, n):
                      "nop": b"\x90", "inc": b"\x40", "movbl": bytes([0xB3, imm]),
                      "pushi": bytes([0x6A, imm, 0x58])}[nx]          # PUSH imm8; POP AW
             out.append((f"OUT {out_op:02X} pre {pre.hex() or '-'} nx {nx}", data, regs, [AW]))
+        elif kind == "outd2":
+            # (F5d) which following instructions replace an OUT's datum (batch 3: CVTBD / CVTDB
+            # drive their immediate): the OUT at every alignment (0-3 NOPs before it, a two-byte
+            # MOV), every OUT form, then one of the forms whose first words take an immediate or
+            # a stack datum (the PUSHes: batch 2's `iod` holds the datum against a PUSH)
+            port = r.randrange(0x100)
+            regs[DW] = r.randrange(0x10000)
+            while 0xFF00 <= regs[DW] <= 0xFF20:
+                regs[DW] = r.randrange(0x10000)
+            regs[IX] = regs[IY] = 0x0100 + 2 * r.randrange(0x700)
+            pre = b"\x90" * r.randrange(4) + (bytes([0xB3, r.randrange(256)]) if r.random() < 0.3 else b"")
+            out_op = r.choice((0xE6, 0xE7, 0xEE, 0xEF))
+            data = pre + (bytes([out_op, port]) if out_op < 0xEC else bytes([out_op]))
+            imm = r.randrange(1, 256)
+            i16 = r.randrange(0x10000)
+            ad = 0x0100 + r.randrange(0xE00)
+            fol = {"cvtbd": bytes([0xD4, imm]), "cvtdb": bytes([0xD5, imm]),
+                   "mul3b": bytes([0x6B, 0xC3, imm]), "mul3w": bytes([0x69, 0xC3]) + i16.to_bytes(2, "little"),
+                   "shlimm": bytes([0xC0, 0xE3, imm]), "inimm": bytes([0xE4, imm]),
+                   "test1i": bytes([0x0F, 0x19, 0xC3, imm]),
+                   "pushi16": bytes([0x68]) + i16.to_bytes(2, "little") + b"\x5B",
+                   "pushi8": bytes([0x6A, imm, 0x5B]), "pushr": b"\x53\x5B", "pushpsw": b"\x9C\x5B",
+                   "pushseg": b"\x1E\x5B", "pushm": bytes([0xFF, 0x36]) + ad.to_bytes(2, "little") + b"\x5B",
+                   "pushar": b"\x60\x61", "movmi": bytes([0xC6, 0x06]) + ad.to_bytes(2, "little") + bytes([imm]),
+                   "addri": bytes([0x80, 0xC3, imm]), "movri": bytes([0xB3, imm]), "nop": b"\x90"}
+            nx = r.choice(sorted(fol))
+            data += fol[nx]
+            out.append((f"OUT {out_op:02X} pre {pre.hex() or '-'} nx {nx}", data, regs, [AW, BW]))
         elif kind == "test1bcc":
             # (F5c) TEST1 reg,imm followed by a short transfer (Bcc, DBNZ, DBNZNE / DBNZE, BCWZ,
             # BR short; displacement 0: the same path either way): its E pop loads the
@@ -351,6 +379,43 @@ def case_list(kind, r, n):
             regs[IX] = 0x0100 + 2 * r.randrange(0x700)
             data = bytes([rp, sp_, 0x8B, 0x44, r.randrange(0x80)])
             out.append((f"REP {rp:02X} {sp_:02X} MOV AW,m", data, regs, [AW, CW]))
+        elif kind == "repsegstr":
+            # (F5d) a REP prefix, then segment prefixes (and BUSLOCK), then a string opcode: the
+            # REP page's prefix cells (batch 3's rep_nx ran the string once); every string op,
+            # the four REP forms, counts 0-5, DIR either way (the PSW's random DIR)
+            rp = r.choice((0xF3, 0xF2, 0x65, 0x64))
+            mid = r.choice(([0x26], [0x2E], [0x36], [0x3E], [0x26], [0x2E], [0x36], [0x3E],
+                            [r.choice((0x26, 0x2E, 0x36, 0x3E)), r.choice((0x26, 0x2E, 0x36, 0x3E))],
+                            [0xF0, r.choice((0x26, 0x2E, 0x36, 0x3E))],
+                            [r.choice((0x26, 0x2E, 0x36, 0x3E)), 0xF0]))
+            op = r.choice((0xA4, 0xA5, 0xA6, 0xA7, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+                           0x6C, 0x6D, 0x6E, 0x6F))
+            regs[CW] = r.choice((0, 1, 2, 3, 5))
+            regs[IX] = 0x0100 + 2 * r.randrange(0x700) + r.randrange(2)
+            regs[IY] = 0x0100 + 2 * r.randrange(0x700) + r.randrange(2)
+            regs[DW] = r.randrange(0x10000)
+            while 0xFEF0 <= regs[DW] <= 0xFF20:
+                regs[DW] = r.randrange(0x10000)
+            if r.random() < 0.3:
+                regs[AW] = (regs[AW] & 0xFF00) | r.randrange(256)
+            data = bytes([rp] + mid + [op])
+            out.append((f"REP {rp:02X} {' '.join(f'{b:02X}' for b in mid)} {op:02X}", data, regs,
+                        [AW, CW, IX, IY]))
+        elif kind == "wrapw":
+            # (F5d) a word at offset FFFFh (f5i: silicon's second half at the linear address + 1,
+            # 16 x seg + 10000h, not the segment's offset 0000h): DS1 = F401h-F4FFh (the low byte
+            # wraps the megabyte into the data window, the high byte lands at 04xx0h); a store, a
+            # load, a read-modify-write, INC, PUSH, STMW / LDMW stepping through FFFFh
+            sv = r.randrange(0xF401, 0xF500)
+            pre = [(b"\x68" + sv.to_bytes(2, "little"), f"PUSH {sv:04X}h"), (b"\x07", "POP DS1")]
+            regs[CW] = r.randrange(1, 4)
+            regs[IX] = regs[IY] = r.choice((0xFFFF, 0xFFFE, 0x0001, 0x0000, 0xFFFD))
+            f = r.choice(("st", "ld", "add", "inc", "push", "stm", "ldm"))
+            data = {"st": b"\x26\x89\x06\xFF\xFF", "ld": b"\x26\x8B\x06\xFF\xFF",
+                    "add": b"\x26\x01\x06\xFF\xFF", "inc": b"\x26\xFF\x06\xFF\xFF",
+                    "push": b"\x26\xFF\x36\xFF\xFF\x58", "stm": b"\xF3\xAB",
+                    "ldm": b"\x26\xF3\xAD"}[f]
+            out.append((f"WRAP {f} DS1 {sv:04X}", data, regs, [AW, CW, IX, IY], pre))
         elif kind == "rot4al":
             # (F5b) ROL4 / ROR4 whose operand is AL itself (or AH): which of the two results AL
             # keeps (f5a_004, f5a_037)
@@ -387,8 +452,9 @@ def case_list_str(r, n):
 
 KINDS = ("shift", "shift", "mul", "mul3", "div", "adj", "logic", "arith", "unary", "bit", "rot4",
          "ext", "ins", "prepare", "divovf", "bcd4s", "bitr")
-KINDS_R = ("insal", "io", "strio", "extal", "shm0", "rot4al", "resvodd", "test1bcc", "repseg")
-KINDS_O = ("outd",)
+KINDS_R = ("insal", "io", "strio", "extal", "shm0", "rot4al", "resvodd", "test1bcc", "repseg",
+           "repsegstr", "wrapw")
+KINDS_O = ("outd", "outd2")
 N_CASES = 110
 
 
@@ -429,8 +495,12 @@ def build(name, kind, seed):
         G.DUMP: bytes(0x1000),
         0xFFFF0: bytes([0xEA, G.CODE & 0xFF, G.CODE >> 8, 0x00, 0x00]),
     }
-    pages = sorted({a >> 12 for a in segs if a != 0xFFFF0} | set(range(G.CODE >> 12, end >> 12)) | {0xFF})
     results = [(G.DATA_LO, G.DATA_HI - G.DATA_LO), (G.STK_PAGE, 0x1000), (G.CNT, 0x100), (G.DUMP, 0x200)]
+    if kind == "wrapw":
+        segs[0xF4000] = bytes(pr.randrange(256) for _ in range(0x2000))
+        results.append((0xF4000, 0x2000))
+    pages = sorted({a >> 12 for a in segs if a != 0xFFFF0} | set(range(G.CODE >> 12, end >> 12)) | {0xFF}
+                   | ({0xF5} if kind == "wrapw" else set()))
     mask = {G.DUMP + 0x20 * g.st.rb + 0x1C, G.DUMP + 0x20 * g.st.rb + 0x1D}
     bt = G.Built(name, "x", seed, [], code, g.b.ins, segs, pages, results, g.cov, g.st.rb, mask,
                  meta={"fuzz": len(meta), "cases": meta})
@@ -463,7 +533,7 @@ def makers_o():
     for k, kind in enumerate(KINDS_O):
         for rep in range(2):
             name = f"f5o_{kind}{rep}"
-            seed = 0x5F100000 + 16 * 7 + rep     # (taken first as f5r kind 7)
+            seed = 0x5F100000 + 16 * 7 + rep if k == 0 else 0x5F200000 + 16 * k + rep   # (outd: taken first as f5r kind 7)
             yield name, (lambda name=name, kind=kind, seed=seed: build(name, kind, seed))
 
 
@@ -481,7 +551,7 @@ def parse(prog, rec):
             break
         pin = w[i][1]
         i += 1
-        if op.startswith("INS") or op.startswith("STRIO"):
+        if op.startswith("INS") or op.startswith("STRIO") or op.startswith("REP "):
             # INS writes one or two words (unknown count): skip memory writes outside the stack page
             while i < len(w) and not (G.STK_PAGE <= w[i][0] < G.STK_PAGE + 0x1000):
                 i += 1

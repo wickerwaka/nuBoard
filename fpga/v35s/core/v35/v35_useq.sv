@@ -124,6 +124,8 @@ module v35_useq
     output wire        w_dispm,         // ... seq == SQ_DISPM
     output wire        w_popany,        // ... pop != PP_NONE
     output wire        w_dispm_nx,      // (MX5c) tick B: the next word's seq == SQ_DISPM
+    output wire        w_erep,          // (F5d) the word's derived bit (a register): e && ea == EA_REP
+    output wire        w_erep_nx,       // ... tick B: the next word's
     output wire        ex,              // the word executes this clock (tick A)
     output wire        ex_pop,          // ... but for the dispatch's fetch stall (the pops' view)
     output reg         ex_b,            // ... registered at ce_b (tick B, ce_a)
@@ -178,6 +180,7 @@ module v35_useq
         logic popany;       // pop != PP_NONE
         logic pmodrm;       // pop == PP_MODRM
         logic pilih;        // pop == PP_IL or PP_IH
+        logic erep;         // (F5d) e && ea == EA_REP: the E pop re-enters the REP page
     } v35_upre_t;
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic v35_upre_t pre(input v35_uword_t w);
@@ -195,6 +198,7 @@ module v35_useq
         pre.popany = w.pop != PP_NONE;
         pre.pmodrm = w.pop == PP_MODRM;
         pre.pilih = w.pop == PP_IL || w.pop == PP_IH;
+        pre.erep = w.e && w.ea == EA_REP;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     wire [95:0] rw = {r2, r1, r0};
@@ -203,6 +207,7 @@ module v35_useq
     assign w_disp = pd.disp;
     assign w_dispm = pd.dispm;
     assign w_popany = pd.popany;
+    assign w_erep = pd.erep;
     assign upc_o = upc;
 
     reg [UADDR_W-1:0] retr = '0;
@@ -468,6 +473,7 @@ module v35_useq
     v35_upre_t pd_nx;
     assign pd_nx = pre(word_nx);
     assign w_dispm_nx = pd_nx.dispm;
+    assign w_erep_nx = pd_nx.erep;
     v35_sin_t  si_nx;
     always_comb begin
         si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release

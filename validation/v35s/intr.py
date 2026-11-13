@@ -796,6 +796,84 @@ def f5_step_tests():
     return T
 
 
+def f5_fint_tests():
+    """(F5d) FINT's hold of the maskable interrupt, with the request already pending and
+    unmasked in the controller when FINT runs (a software IF store in INTP0's handler, level 5;
+    TU0 at the lower level 6 waits on ISPR behind two absorbers), so the pin's latency is not in
+    play: AW counts the INC AW run after the release (the TU0 entry logs the interrupted AW).
+    The controls release the same waiting request by EI, by an MK clear and by an IF store."""
+    inc = "    INC AW\n" * 10
+    rel = "    EI\n" + CHAIN
+
+    def act(tag, body):
+        return _vis(0x18, tag + "{k}") + body + inc + "    RET\n" + tag + "{k}:\n    FINT\n"
+    zero = "    MOV AW, 0\n"
+    T = [
+        Test("fh_fint", code=sfr_wr("EXIC0", 0x85) + rel,
+             action=act("ff", sfr_wr("TMIC0", 0x86) + "    EI\n" + ABS + ABS + zero + "    FINT\n"),
+             note="TU0 (6) waiting on ISPR (P at 5), IE 1: FINT, then INC AW x 10"),
+        Test("fh_fint_eq", code=sfr_wr("EXIC0", 0x85) + rel,
+             action=act("fq", sfr_wr("TMIC0", 0x85) + "    EI\n" + ABS + ABS + zero + "    FINT\n"),
+             note="TU0 at the same level 5: FINT, then INC AW x 10"),
+        Test("fh_fint_nop", code=sfr_wr("EXIC0", 0x85) + rel,
+             action=act("fn", sfr_wr("TMIC0", 0x86) + "    EI\n" + ABS + ABS + zero
+                        + "    FINT\n    NOP\n"),
+             note="FINT, NOP, then INC AW x 10"),
+        Test("fh_ei", code=sfr_wr("EXIC0", 0x85) + rel,
+             action=act("fe", sfr_wr("TMIC0", 0x86) + "    DI\n    FINT\n" + ABS + ABS + zero
+                        + "    EI\n"),
+             note="the control: ISPR cleared with IE 0, the request released by EI"),
+        Test("fh_mk", code=sfr_wr("EXIC0", 0x85) + rel,
+             action=act("fm", sfr_wr("TMIC0", 0xC6) + "    EI\n    FINT\n" + ABS + ABS + zero
+                        + "    DB 26h\n    AND byte [0FF9Ch], 0BFh\n"),
+             note="the control: the request released by an MK clear"),
+        Test("fh_if", code=sfr_wr("EXIC0", 0x85) + rel,
+             action=act("fi", sfr_wr("TMIC0", 0x06) + "    EI\n    FINT\n" + ABS + ABS + zero
+                        + "    DB 26h\n    OR byte [0FF9Ch], 80h\n"),
+             note="the control: the request raised by an IF store (nothing in service)"),
+    ]
+    return T
+
+
+def f5_repint_tests():
+    """(F5d) An interrupt taken inside a REP string with prefixes: the request pending, EI, then a
+    64-element string (the take lands inside it, the latency far shorter): the pushed PC (the
+    log) and how the string resumes (the continuation's CW IX IY: 0 and the ends if the whole
+    REP and its override resume)."""
+    R = {"CW": 0x0040, "IX": 0x0000, "IY": 0x0080}
+
+    def t(name, pfx, op=0xA5, note=""):
+        return Test(name, pre=_pend(), code="    EI\n" + _db(pfx + [op]) + INCS, regs=R, stim=_ST,
+                    sfr=False, note=note)
+    return [
+        t("ri_rep", [0xF3], note="REP MOVBKW (the control)"),
+        t("ri_segrep", [0x2E, 0xF3], note="PS: REP MOVBKW"),
+        t("ri_repseg", [0xF3, 0x2E], note="REP PS: MOVBKW"),
+        t("ri_repseg2", [0xF3, 0x26, 0x2E], note="REP DS1: PS: MOVBKW"),
+        t("ri_replock", [0xF3, 0xF0], note="REP BUSLOCK MOVBKW"),
+        t("ri_lockrep", [0xF0, 0xF3], note="BUSLOCK REP MOVBKW"),
+        t("ri_repseg_stm", [0xF3, 0x36], op=0xAB, note="REP SS: STMW"),
+        t("ri_repseg_ldm", [0xF3, 0x2E], op=0xAD, note="REP PS: LDMW"),
+    ]
+
+
+def f5_fint2_tests():
+    """(F5d) FINT's hold measured against the EI release's latency (f5_fint: the take lands four
+    INC AW after EI with the request already in IF): EI, k INC AW, then FINT (or the control:
+    NOP, INC AW, POP PSW, MOV PSW,AH) as the instruction at which that latency runs out, then
+    INC AW x 8. AW at the take counts the INCs run: a held boundary after FINT moves the take
+    one INC later than the control's."""
+    T = []
+    for k in (2, 3, 4):
+        for nm, ins in (("fint", "    FINT\n"), ("nop", "    NOP\n"), ("inc", "    INC AW\n"),
+                        ("popsw", "    POP PSW\n"), ("sahf", "    MOV PSW, AH\n")):
+            pre = _pend() + ("    MOV BW, 0202h\n    PUSH BW\n" if nm == "popsw" else "")
+            T.append(Test(f"k{k}_{nm}", pre=pre, code="    EI\n" + "    INC AW\n" * k + ins
+                          + "    INC AW\n" * 8, regs={"AW": 0x0200}, stim=_ST,
+                          note=f"EI, INC AW x {k}, {ins.strip()}, INC AW x 8"))
+    return T
+
+
 def programs():
     return {
         "f5_step": make_program("f5_step", f5_step_tests()[:5],
@@ -807,6 +885,16 @@ def programs():
                                       "(the take lands after the MULU in every test, the NOP "
                                       "control's too: the controller's latency is longer than "
                                       "the instruction after EI, so these do not tell)"),
+        "f5_fint": make_program("f5_fint", f5_fint_tests(), gate=False,
+                                note="(F5d) measured only: FINT's hold of the maskable interrupt "
+                                     "with the request already pending (AW counts the release's "
+                                     "INC AW run)"),
+        "f5_fint2": make_program("f5_fint2", f5_fint2_tests(), gate=False,
+                                 note="(F5d) measured only: FINT's hold at the boundary where the "
+                                      "EI release's latency runs out"),
+        "f5_repint": make_program("f5_repint", f5_repint_tests(), gate=False,
+                                  note="(F5d) measured only: an interrupt inside a REP string "
+                                       "with prefixes (the pushed PC, the resume)"),
         "f3_vec": make_program("f3_vec", vec_tests(),
                                note="the sources, the entry, the edges, HALT's wake"),
         "f3_order": make_program("f3_order", order_tests(),

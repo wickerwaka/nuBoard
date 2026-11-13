@@ -16,3 +16,16 @@ prep_d: wid=WORD alu=DEC2 ax=TB             ; the display's next word: tmpb - 2
     rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
     f wr=SP wid=WORD ws=SIG d1=OPRW s1=OPR d2=ADDR s2=SIG ; F: SP <- SP - 2; the datum into the write datum; the address register <- SP
     bus=MEMW seg=SS wid=WORD jmp=prep_l     ; post the copy's write at SS:SP
+
+; (F5d) REP, then segment prefixes or BUSLOCK, then the opcode (silicon, f5r repsegstr: 220 cases,
+; every string opcode under F3 / F2 / 65 / 64, one or two prefixes, BUSLOCK before or after one:
+; the string repeats under the REP's condition with the override; batch 3's rep_nx ran it once).
+; The E word pops the next opcode into the REP page (ea=REP: the loader keeps the REP byte in the
+; opcode register and the popped byte in the ModR/M register, so the dispatch reads the REP
+; page's cell: a string's REP routine, another prefix's cell again, or rep_nx for any other
+; opcode). nb: no boundary inside the instruction (the REP's offset stays its start: pist)
+routine rep_sx op=26,2E,36,3E page=rep why="(F5d) REP then a segment prefix: the prefix set from the cell's byte, the next opcode on the REP page (f5r repsegstr); function only"
+    pfx e nb ea=REP                         ; the segment prefix <- the cell's byte's segment; E: the next opcode into the REP page
+
+routine rep_lk op=F0 page=rep why="(F5d) REP then BUSLOCK: the lock pin not built; the next opcode on the REP page, a segment prefix in force kept (f5r repsegstr); function only"
+    e nb ea=REP                             ; E: the next opcode into the REP page

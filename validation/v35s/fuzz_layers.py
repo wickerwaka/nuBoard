@@ -10,6 +10,8 @@
            3 step   the single step (BRK set by POP PSW) over a run of random instructions
     f5d  on-chip state: random stores to the writable SFRs among plain instructions, the SFR
          page (F1's comparable offsets) and the banks dumped at the end
+    f5e-h (F5d) the second generation: f5a-d's layers with fresh seeds
+    f5i  (F5d) the coverage gaps: f5a's layer with the gap forms (fuzz_gen opts["gap"])
     f5x  the flag survey (validation/v35s/fuzz_flags.py)
     f5o  (F5c) measured, not gated: the OUT datum after CVTBD / CVTDB (fuzz_flags "outd")
 
@@ -42,6 +44,16 @@ SETS = {
     "f5b": dict(layer="b", n=150, items=110, seed=0x5B000000, weights=W_B),
     "f5c": dict(layer="c", n=160, items=90, seed=0x5C000000, weights=W_C),
     "f5d": dict(layer="d", n=100, items=90, seed=0x5D000000, weights=W_D),
+    # (F5d) the second generation: the same layers and sizes, fresh seeds (f5a-d kept as they are)
+    "f5e": dict(layer="a", n=300, items=110, seed=0x7E110000, weights=None),
+    "f5f": dict(layer="b", n=150, items=110, seed=0x7F220000, weights=W_B),
+    "f5g": dict(layer="c", n=160, items=90, seed=0x70330000, weights=W_C),
+    "f5h": dict(layer="d", n=100, items=90, seed=0x71440000, weights=W_D),
+    # (F5d) the coverage gaps (fuzz_gen opts["gap"]): REP then segment prefixes / BUSLOCK on
+    # every string form, SP loaded (MOV SP,imm, POP SP, XCH AW,SP, XCH r,SP; odd values), MUL /
+    # DIV edge operands, a word at offset FFFFh and STMW / LDMW through it (the segment wrap)
+    "f5i": dict(layer="a", n=200, items=110, seed=0x72550000, opts={"gap": True},
+                weights=dict(G.WEIGHTS, f_str=12, f_spld=3, f_mdedge=4, f_wrap=4)),
 }
 SCEN_C = ("intp", "nmi", "timer", "step")
 

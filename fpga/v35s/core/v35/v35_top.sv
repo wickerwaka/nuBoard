@@ -281,6 +281,7 @@ module v35_top
     wire        ex, ex_pop, ex_b, start, start_trap, halted;
     wire        w_disp, w_dispm, w_popany;     // (MX5) the word's derived bits (registers)
     wire        w_dispm_nx;                     // (MX5c) tick B: the next word's
+    wire        w_erep, w_erep_nx;              // (F5d) e && ea == EA_REP (useq's registered fact; tick B: the next word's)
     wire [4:0]  why;
     wire [UADDR_W-1:0] upc;
     // (MX0) the datapath
@@ -418,7 +419,7 @@ module v35_top
         .reset_addr(tb_reset_addr), .reset_ip(tb_reset_ip), .flush(t_flush), .flush_w(word.flush), .flush_lin,
         .flush_off,
         .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && w_disp),
-        .dispm(w_dispm), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
+        .dispm(w_dispm), .e_rep(w_erep), .e_rep_nx(w_erep_nx), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
         .dl(ld_dl), .dh(ld_dh), .fmt, .opc_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
         .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret, .dtrap,
         .resv_e, .s_modrm, .e_rmodrm, .s_wbs, .ec_reg, .ec_call, .ec_head,
@@ -443,7 +444,7 @@ module v35_top
         .rmem_nx((fmt_nx.has_modrm || fmt_nx.pg) && ld_modrm_nx[7:6] != 2'd3),
         .fetch_run_nx(b_fir_nx), .bus_wait_nx(b_iw_nx), .fetch_dph_nx(b_fpb_nx),
         .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(h_wake), .igo,
-        .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
+        .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
     // ---------------------------------------------------------------- the datapath

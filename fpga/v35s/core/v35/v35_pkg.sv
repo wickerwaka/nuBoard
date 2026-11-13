@@ -132,8 +132,13 @@ package v35_pkg;
 
     // ---- the EA step: the address register from the popped displacement (DISP), or base +
     // index + displacement of the ModR/M mode (BI: base on port A, index on port B) ----
+    // (F5d) REP: the field's free value, on an E word that posts nothing (a REP-page prefix
+    // cell's): the opcode this E pops enters the running REP prefix's page (the loader keeps
+    // the opcode register and loads the ModR/M register with the popped byte, so the dispatch
+    // reads the REP page's cell of it); with `pfx` the segment prefix is the cell's byte's
+    // (the ModR/M register's bits 4:3), else the prefix in force is kept (REP BUSLOCK)
     typedef enum logic [1:0] {
-        EA_NONE = 2'd0, EA_DISP = 2'd1, EA_BI = 2'd2
+        EA_NONE = 2'd0, EA_DISP = 2'd1, EA_BI = 2'd2, EA_REP = 2'd3
     } v35_ea_e;
 
     // ---- a bus request posted on the A1 port (the address register, the write datum OPRW) ----

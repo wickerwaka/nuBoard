@@ -2404,3 +2404,25 @@ question, decided from S8's routed numbers with the user.
   once on the RTL; f5c_026 takes its timer interrupt twice on all three sides (not traced); batch 3's
   three new regressions were not shown to fail on the earlier RTL. Batch 4: a second generation of
   fuzz sets with fresh seeds (all 710 programs so far are the ones the fixes were found on).
+- **F5 fourth batch landed (2026-11-13): a second generation of fuzz sets with fresh seeds (f5e-h, 710
+  programs) was 707 equal on its first pass, before any fix.** The three that differed are the open
+  OUT + CVTBD / CVTDB datum class. **Measured on silicon and built:** REP followed by segment prefixes
+  or BUSLOCK and then a string instruction repeats the string under the last override (zz_late.uasm
+  rep_sx / rep_lk; an E word with ea=REP hands the popped opcode to the string routine: v35_useq
+  w_erep, v35_loader erep_b; the EU reads the override from the prefix byte); a word at offset FFFFh
+  has its second byte at the linear address + 1, past the segment's end, not at the segment's offset
+  0 (v35_eu lin2; found by the new gap set f5i, 13 → 200 equal; funcref and rtl_vectors follow the
+  socket, the V20 suite's wrap cases listed as the category SEG_WRAP). **Measured, confirming what was
+  built by analogy:** FINT holds the maskable interrupt for one start (intr.py f5_fint2). **Measured,
+  not built:** an interrupt inside a REP string is taken after an element, pushes the first prefix's
+  offset and the string resumes (f5_repint; the RTL takes it after the string). **Traced:** f5c_026's
+  repeated timer take is the fuzz writing MD0 = 0. Batch 3's six regressions (f5r, now 22) fail on the
+  earlier RTL. **Gate:** f5a 299 / 300, f5b 150, f5c 160, f5d 100, f5e 299 / 300, f5f 148 / 150, f5g
+  160, f5h 100, f5i 200, f5x 34, f5r 22 equal on both socket sessions and the RTL (1,616 of 1,620
+  fuzz programs; the four are the one class); intr 8 sets and every earlier program gate equal; corpus
+  6,541 with 0 runs differing at both spacings, write data 106,824 / 106,824, chk silent, vectors 0
+  bad, lint clean, 48 fast tests. **FPGA at 17 ns: +0.884 / +0.740 / +1.084 on seeds 1 / 2 / 3** (the
+  base +1.001 / +0.957 / +1.565), 9,623 LUT4 / 618 ADD / 2,446 FF / 79 RAM_5K. **Open:** the OUT +
+  CVTBD / CVTDB datum (f5a_061, f5e_026, f5f_043, f5f_108: timing-derived, not built); the interrupt
+  inside a REP string; fuzz coverage of SP through 0000h, combined interrupt scenarios, POLL / HALT
+  and the register forms of 62 / 8D / C4 / C5 (batch 5).

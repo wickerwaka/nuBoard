@@ -6216,3 +6216,190 @@ vectors 0 bad, lint clean x5, the four test modules OK; dma (both refs), serial,
 - The interrupt half of the POP PSW / RETI / FINT hold is the data book's for POP PSW and RETI and
   built by analogy for FINT (latency hides it from a measurement: f5_stepi).
 - REP DS1: MOVBK as a REP string (unchanged from F2b).
+
+## F5d: the fuzz's fourth batch (a second generation, the coverage gaps, REP + prefix strings, the odd word's second half)
+
+### Does the equality generalize? The second generation (f5e-h, fresh seeds)
+
+f5a-d (710 programs) were 709 EQUAL, but every fix had been found through them. f5e (plain, 300),
+f5f (banks, 150), f5g (interrupts, 160) and f5h (on-chip state, 100) are the same layers with
+fresh seeds (validation/v35s/fuzz_layers.py SETS; f5a-d unchanged, every program's sha256 equal
+to its receipt's). Taken on the socket in two sessions (socket vs socket-2: 710 EQUAL) and run on
+the base RTL (eb2a8fd + batch 3) **before any change** (the first pass):
+
+| set | socket vs sim | socket-2 vs sim |
+| --- | --- | --- |
+| f5e 300 | 299 EQUAL | 299 EQUAL |
+| f5f 150 | 148 EQUAL | 148 EQUAL |
+| f5g 160 | 160 EQUAL | 160 EQUAL |
+| f5h 100 | 100 EQUAL | 100 EQUAL |
+
+707 of 710. The three differences (f5e_026, f5f_043, f5f_108) are one class, the one batch 3
+left open (f5a_061): an OUT followed by CVTBD / CVTDB (below). No other class appeared.
+
+### The coverage gaps (fuzz cover; build/f5d/gaps.py over f5a-h's fuzzed instructions)
+
+Never emitted by the generator: REP (any of F3 F2 65 64) *followed* by a segment prefix or
+BUSLOCK on a string opcode (the generator always put the override first: 0 of ~4,300 string
+instances); a segment prefix on the destination-only strings (STM, INM, CMPM); POP SP, XCH AW,SP,
+XCH r,SP and MOV SP,imm as fuzzed instructions; a word at offset FFFFh and a string stepping
+through FFFFh (every operand was kept inside its segment); MUL / DIV with edge operands (only
+random values); POLL (9B), HALT (F4), D6, F1 and 0F 9E (STOP) (pins, interrupts or traps.py /
+dma.py cover them); the illegal register forms of 62, 8D, C4, C5 (traps.py's modrm series); SP
+through 0000h (SS is 0: the stack would wrap to 0FFFEh, a page the generator does not load).
+The layers run one asynchronous scenario per program: NMI inside a handler, the single step and
+an interrupt on one boundary, an interrupt at a prefixed instruction or inside a REP string are
+not combined at random (intr.py's directed tests: nmi_in_handler, int_in_nmi, step_intp;
+f5_repint below).
+
+Closed by **f5i** (200 programs, layer a with `opts["gap"]`: fuzz_gen f_str's REP / prefix /
+BUSLOCK orders and overrides on every string, f_spld, f_mdedge, f_wrap; the page at F4000h loaded
+and compared). f5i is socket == socket-2 (200 EQUAL); against the RTL with the REP fix below and
+before the second-half fix: 13 EQUAL, 187 DIFFER (one class: the word at FFFFh); after: 200 EQUAL.
+
+### REP, then segment prefixes or BUSLOCK, then a string (measured, built)
+
+Measured (f5r repsegstr, 220 cases, both sessions: every string opcode under F3 / F2 / 65 / 64,
+one or two prefixes, BUSLOCK before or after one; f5_repint): the string repeats under the REP's
+condition with the override (the last prefix's), as with the override first. Batch 3's rep_nx
+refetched from the prefix: the string ran once.
+
+Built: zz_late.uasm rep_sx (REP-page cells 26 2E 36 3E) and rep_lk (F0): one E word with the
+new value `ea=REP` (the ea field's free value; uasm: only on an E word that posts nothing, seq
+next). Its E pops the staged opcode as the REP page's second byte: the loader keeps the opcode
+register (the REP byte, so `fmt` keeps the REP's condition) and loads the ModR/M register with
+the popped byte, so the dispatch facts (`dsp_f(op, mp)`) read the REP page's cell: a string's
+REP routine, another prefix cell, or rep_nx for any other opcode (which refetches from it). That
+E pops no second byte (`ds2 && !e_rep`: a ModR/M byte, displacement or 0F second byte stays in
+the queue for rep_nx's refetch). With `pfx` the EU's segment prefix is the cell's byte's
+(`modrm[4:3]`: 26 2E 36 3E = DS1 PS SS DS0, pfx_s's order); without (BUSLOCK) the prefix in force
+is kept; `pist` (the instruction's start for a trap) stays the REP's. The four REP-page cells
+leave rep_nx; v35_udec2 changes in those five cells; v35_upage / v35_umdsp / v35_umimm /
+v35_umodrm are byte-identical; the ROM grows to 1,885 words at its end (no entry moves).
+f5r repsegstr0/1 (220 cases) EQUAL on both sessions; they DIFFER on the pre-fix RTL (eb2a8fd:
+the string ran once; build/f5d/f5-f5r-sim-pre-repsegstr.json.gz).
+
+### A word at an odd linear address: the second half at the linear address + 1 (measured, built)
+
+Measured (f5i, 187 programs; f5r wrapw0/1, 220 cases, both sessions): a word at offset FFFFh is
+two byte cycles, the high byte at the first's **linear** address + 1 (16 x seg + 10000h, the
+megabyte wrapping), not at the segment's offset 0000h (the 8086's wrap). STMW / LDMW stepping
+through FFFFh the same per element (the offset steps modulo 64K: the next element at 0001h).
+Built: v35_eu `lin2 = rq_addr + 1` (was `{rq_seg, 0} + (rq_off + 1)`; `rq_seg` removed). I/O
+pairs keep port + 1 in 16 bits (not measured at FFFFh). f5r wrapw EQUAL on both sessions; DIFFER
+on the pre-fix RTL.
+
+### Measured, not built: an interrupt inside a REP string
+
+f5_repint (intr.py, measured only; both sessions): with the request pending before EI, silicon
+takes it after the string's first element (CW 3Fh of 40h), pushes the offset of the
+instruction's **first prefix** (for every order: REP seg, seg REP, REP seg seg, REP BUSLOCK,
+BUSLOCK REP) and resumes the whole prefixed string after RETI (CW 0, IX IY at the ends). The RTL
+takes requests only at instruction starts: after the string (README F3 "Not built"); the end
+state is the same, the take point (timing) is not. The fuzz layers drop the frames, so no program
+compares it.
+
+### FINT's hold of the maskable interrupt (measured)
+
+f5_fint (the release latency of a request already pending in IF, counted in INC AW: EI 4, an IF
+store 7, an MK clear 7, FINT releasing ISPR 5) shows every program-controlled release is several
+boundaries long, so the boundary right after FINT cannot be reached that way. f5_fint2 places
+the instruction under test where EI's latency runs out (EI, INC AW x k, X, INC AW x 8): with
+k = 3 the take lands right after X = NOP or MOV PSW,AH (AW 3) but one INC later after X = FINT or
+POP PSW (AW 4); k = 2 and 4 are the controls (the take before or after X alike, but k4_popsw: 5).
+Both sessions identical. FINT holds the maskable interrupt at the boundary after it, as batch 3
+built by analogy (POP PSW the data book's rule, the method's check). The RTL's latency is shorter
+(the take one INC after EI), so these programs are measured only.
+
+### Measured, not built: an OUT's datum when CVTBD or CVTDB follows (4 programs)
+
+f5o outd2 (220 cases, both sessions: every OUT form at 0-3 NOPs and a two-byte MOV of alignment,
+then one of 18 followers: CVTBD, CVTDB, MUL3 imm8 / imm16, SHL imm, IN imm, TEST1 imm, PUSH imm16 /
+imm8 / reg / PSW / seg / mem / R, MOV mem,imm, ADD r,imm, MOV r,imm, NOP): only CVTBD and CVTDB
+replace the datum: a byte cycle and an even word drive their immediate sign-extended
+({sign, imm}); an odd word's first half (the port, AL on the high lane) keeps AL and its second
+half drives the sign byte (here 3 of 3; batch 3: 17 of 20, AH in 3). Every PUSH form at every
+alignment leaves AL / AW (batch 2's `iod` holds the datum).
+
+The machine explanation: the OUT's write is posted at its E and issued at the next instruction's
+start; the bus unit drives its datum from a register through the cycle; CVTBD's and CVTDB's first
+act pops their immediate (S + 3, after the immediate's latency) into a register that is that
+register (the only first acts among the 18 that do: the other immediate forms pop into IL / IH or
+take the byte later, through a ModR/M byte), so the value on the pins at the strobe is the
+immediate whenever the pop precedes the strobe: always for the single cycle, never for the
+pair's first half, usually for its second half (17 / 20). Which register it is cannot be seen on
+the pins. The RTL could load `iod` from CVTBD's / CVTDB's own pop word (no look-ahead, no fitted
+delay), but the value captured would then be set by the clock relation of that word to the posted
+cycle's strobe in the RTL against silicon's, a timing-derived value (silicon's own odd-pair
+outcome varies with it). Not built; f5a_061, f5e_026, f5f_043, f5f_108 stay DIFFER, attributed.
+
+### Traced: f5c_026's two timer takes (equal on all sides)
+
+A fuzz SHR DS1:[BP+IX+6Ch],CL (DS1 FFE0h, BP + IX + 6Ch = 0182h: MD0 at FFF82h, CL 11h) sets
+MD0 to 0. TM0 counts out once from the layer's MD0 (0ED1h, ~22,700 clocks: the take in the wait
+loop), reloads MD0 = 0 and counts out every 6 clocks, so a second count-out sets TMIC0's IF
+between the take and the handler's TMC0 stop (its first instruction, ~30 clocks later): a second
+take after RETRBI. The count (2) holds whatever the exact clocks while the period (6) is shorter
+than the handler's distance to the stop; it is equal on both sessions and the RTL. A fuzz operand
+can reach MD0 (fuzz_gen SFR_WORD lists it); with a period near the handler's stop distance the
+count would be timing-derived. f5c / f5g are not changed (their receipts stand); a later set
+should keep MD0 out of the timer scenario's random operands.
+
+### The batch 3 regressions on the pre-fix RTL
+
+The eb2a8fd RTL built in a scratch tree (build/f5d/pre; the ROM path made absolute) runs f5r
+resvodd0/1 (hang: FAIL status 0082h, 17 / 50 writes), test1bcc0/1 (the flags differ) and
+repseg0/1 (the data differ): all six DIFFER against the socket; all EQUAL on this RTL.
+
+### FPGA (not run here: what each change adds)
+
+- Tick A (the loader's stall and pop function): `ds2` gains `&& !e_rep`, where `e_rep` is the
+  sequencer's registered word fact (`pd.erep`, loaded with the word at ce_a): one more register
+  input into the LUT that forms `ds2` (has_modrm, e2, pg, e_rep: four inputs), which feeds
+  `q_stall`, `m1` / z1 and the pop function's `ds2` as a side input (not the arriving byte).
+  `erep_b <= epop && e_rep` (a ce_b register beside `epop_b`). Nothing joins the grant.
+- Tick B (ce_b registers to ce_a): `op_nx` gains `!erep_b` in its select; `mp_nx` gains a third
+  source (`s_b` under `erep_b`): one more input level in front of `dsp_f(op_nx, mp_nx)` (df) and
+  `v35_udec1(op_nx)` (d1r). `ds2_nx` gains `&& !e_rep_nx` (three of word_nx's bits, a `pre()`
+  fact) in `q_stall_nx`. **This is the change to look at** (the dispatch facts' inputs; the
+  decode tables and `dent` are untouched).
+- EU: `pist_v` / `pfx_v` / `pfx_s` (registers) gain a compare of `word.ea` and `modrm[4:3]` as a
+  `pfx_s` source; `lin2` is a 20-bit increment of `rq_addr` (was a 16-bit increment and a 20-bit
+  add; `rq_seg`, 16 FF, removed), loaded into `rq_addr` at `ack_b`.
+- useq: `pre()` one more bit (`erep`) in `pd` / `pd_nx`.
+- Microcode: zz_late.uasm rep_sx / rep_lk (4 words), trap.uasm rep_nx's cells; ROM 1,885 words.
+- Reference (no RTL): funcref's odd word's second half at the linear address + 1 (`_lin2`; the
+  V20's wrap behind `V20_UNDEF`); rtl_vectors counts a SingleStepTests test whose odd word
+  crosses its segment's end apart (`SEG_WRAP`: the suite lists no byte at the V35's address).
+
+### Results (the RTL in simulation against both socket sessions; land/verify.out)
+
+| set | socket vs socket-2 | first pass (base RTL) | after |
+| --- | --- | --- | --- |
+| f5a 300 | 300 EQUAL | 299 | 299 EQUAL (f5a_061) |
+| f5b 150 | 150 EQUAL | 150 | 150 EQUAL |
+| f5c 160 | 160 EQUAL | 160 | 160 EQUAL |
+| f5d 100 | 100 EQUAL | 100 | 100 EQUAL |
+| f5e 300 (new) | 300 EQUAL | 299 | 299 EQUAL (f5e_026) |
+| f5f 150 (new) | 150 EQUAL | 148 | 148 EQUAL (f5f_043, f5f_108) |
+| f5g 160 (new) | 160 EQUAL | 160 | 160 EQUAL |
+| f5h 100 (new) | 100 EQUAL | 100 | 100 EQUAL |
+| f5i 200 (gaps) | 200 EQUAL | 13 (with the REP fix) | 200 EQUAL |
+| f5r 22 | 22 EQUAL | 18 of 18 | 22 EQUAL (+ repsegstr, wrapw) |
+| f5x 34 | 34 EQUAL | 34 | 34 EQUAL |
+| f5o 4 | 4 EQUAL | - | measured only (+ outd2) |
+
+The same counts against socket-2. The standing gates: corpus 6,541 exact at both spacings, 0 of
+30,536 runs differing from the base's rows, chk silent, write data 106,824 / 106,824, vectors 0
+bad (after the reference change above), lint clean x5, the four test modules OK; dma (both refs),
+serial, periph, intr, banks, onchip, traps, traps_undef EQUAL; f5_fint, f5_fint2, f5_repint
+socket == socket-2 (measured only).
+
+### Open
+
+- f5a_061, f5e_026, f5f_043, f5f_108: an OUT then CVTBD / CVTDB (measured, not built: above).
+- An interrupt inside a REP string (measured, not built: the RTL takes after the string).
+- SP through 0000h, the interrupt layers' scenario combinations, POLL / HALT / STOP / illegal
+  register forms in the random layers (directed sets only).
+- MD0 in the timer scenario's random operands (f5c_026: deterministic here, a later set should
+  exclude it).

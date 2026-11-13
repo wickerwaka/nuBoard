@@ -30,7 +30,7 @@
 //
 // Registered state (widths): psw 16, ds1 ps ss ds0 4x16, ta tb tc 3x16, sigma 16, scy 1,
 // addr 16, ea_ss 1, oprw 16, pfx_v 1, pfx_s 2, mul (v35_mul_t 51), div (v35_div_t 75), dtrap 1,
-// trap_o 1; the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_seg 16, rq_off
+// trap_o 1; the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_off
 // 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, resv_r 1, opr_v 1, opr 16, plo 8, (F5b) iod 16; the ce_b copies.
 module v35_eu
     import v35_front_pkg::*;
@@ -201,7 +201,7 @@ module v35_eu
     reg        rq_wr = 1'b0, rq_io = 1'b0, resv_r = 1'b0, opr_v = 1'b0;
     reg [1:0]  rq_cyc = RQ_MEMR;
     reg [19:0] rq_addr = 20'd0;
-    reg [15:0] rq_seg = 16'd0, rq_off = 16'd0, opr = 16'd0;
+    reg [15:0] rq_off = 16'd0, opr = 16'd0;
     reg [7:0]  plo = 8'h00;
     // (F5b) an I/O write's datum, taken from OPRW at its post: the write is not waited for (the
     // next instruction runs and may load OPRW before the cycle's B2, f5r io: an odd port's byte
@@ -667,7 +667,10 @@ module v35_eu
                      : (ea_ss_q && word.seg != SG_DSP) ? ss : ds0;
     wire [19:0] lin = {segv, 4'd0} + {4'd0, addr_q};
     wire [15:0] off2 = rq_off + 16'd1;
-    wire [19:0] lin2 = {rq_seg, 4'd0} + {4'd0, off2};
+    // (F5d) a memory word's second half is the first's linear address + 1 (the offset is not
+    // wrapped in the segment: silicon, f5i's words at offset FFFFh write their high byte at
+    // 16 x seg + 10000h, the megabyte wrapping, not at 16 x seg + 0000h)
+    wire [19:0] lin2 = rq_addr + 20'd1;
 
     // ------------------------------------------------------------ the port
     assign req_v = rq_v;
@@ -839,17 +842,24 @@ module v35_eu
                 // (F5b) `pfx` on another prefix's E word (BUSLOCK, a REP before a non-string
                 // opcode) keeps it: silicon's segment override reaches the opcode through them
                 // (f5a_000: PS: REP SUBC [430Ah] at PS:430Ah)
+                // (F5d) an E word with ea=REP (a REP-page prefix cell: REP seg / REP BUSLOCK, the
+                // string after it repeated, f5r repsegstr) keeps both too; with `pfx` its segment
+                // is the cell's byte's (the ModR/M register: 26 2E 36 3E, bits 4:3 = DS1 PS SS
+                // DS0, pfx_s's order)
                 if (word.e) begin
-                    pist_v <= word.pfx;
+                    pist_v <= word.pfx || word.ea == EA_REP;
                     if (word.pfx && !pist_v)
                         pist <= ins_ip;
                 end
                 if (word.pfx) begin
-                    if (fmt.seg[2]) begin
+                    if (word.ea == EA_REP) begin
+                        pfx_v <= 1'b1;
+                        pfx_s <= modrm[4:3];
+                    end else if (fmt.seg[2]) begin
                         pfx_v <= 1'b1;
                         pfx_s <= fmt.seg[1:0];
                     end
-                end else if (word.e && !fmt.seg[2])
+                end else if (word.e && !fmt.seg[2] && word.ea != EA_REP)
                     pfx_v <= 1'b0;
                 if (word.resv)
                     resv_r <= 1'b1;
@@ -864,7 +874,6 @@ module v35_eu
                 // port on the high lane, then port + 1 on the low)
                 rq_pair <= weff && (b_io ? addr_q[0] : lin[0]);
                 rq_addr <= b_io ? {4'd0, addr_q} : lin;
-                rq_seg <= segv;
                 rq_off <= addr_q;
                 rq_out <= 1'b1;
                 rq_rd <= b_rd;

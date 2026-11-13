@@ -98,6 +98,9 @@ def flag(psw: int, bit: int) -> int:
 # half added to itself, DIV's unsigned pre-check flags, EXT / INS's subtract, CVTDB by ten, INS
 # stepping the offset register before AW is read. sst.py sets it for the V20 class V20_UNDEF.
 V20_UNDEF = False
+# (F5d) set when a run met an odd word across its segment's end (offset FFFFh: the V35's second
+# half at the linear address + 1, the V20's wrapped to offset 0000h); sst.py's callers reset it
+WRAP_SEEN = False
 
 
 def alu(op: int, a: int, b: int, w: int, psw: int) -> tuple[int, int]:
@@ -397,6 +400,18 @@ class Cpu:
     def _lin(self, base: int, off: int) -> int:
         return (base + (off & 0xFFFF)) & 0xFFFFF
 
+    def _lin2(self, base: int, off: int, lin: int) -> int:
+        """(F5d) an odd word's second half: the V35's at the first's linear address + 1 (silicon,
+        fuzz f5i / f5r wrapw: offset FFFFh's high byte at 16 x seg + 10000h); the V20's (the
+        suite's) at the segment's offset + 1, wrapped (behind V20_UNDEF)."""
+        global WRAP_SEEN
+        wrapped = self._lin(base, off + 1)
+        if V20_UNDEF:
+            return wrapped
+        if wrapped != (lin + 1) & 0xFFFFF:
+            WRAP_SEEN = True
+        return (lin + 1) & 0xFFFFF
+
     def _word_at(self, lin: int) -> int:
         a = lin & ~1
         return self.mem[a] | (self.mem[(a + 1) & 0xFFFFF] << 8)
@@ -406,7 +421,7 @@ class Cpu:
         req = self.nreq
         self.nreq += 1
         if w == 2 and lin & 1:
-            lin2 = self._lin(base, off + 1)
+            lin2 = self._lin2(base, off, lin)
             self.cyc.append(Cycle("read", lin, "hi", 0, self._word_at(lin), req, False, True))
             self.cyc.append(Cycle("read", lin2, "lo", 0, self._word_at(lin2), req, True, True))
             return self.mem[lin] | (self.mem[lin2] << 8)
@@ -420,7 +435,7 @@ class Cpu:
         self.nreq += 1
         lo, hi = v & 0xFF, (v >> 8) & 0xFF
         if w == 2 and lin & 1:
-            lin2 = self._lin(base, off + 1)
+            lin2 = self._lin2(base, off, lin)
             self.cyc.append(Cycle("write", lin, "hi", lo << 8, 0, req, False, True))
             self.cyc.append(Cycle("write", lin2, "lo", hi, 0, req, True, True))
             self._store(lin, lo)

@@ -102,8 +102,9 @@ btc_n: e                                    ; E: the next instruction
 ; offset (the byte after the prefix) and it runs as an instruction of its own. (F5c) The segment
 ; prefixes too: refetched, the prefix runs as its own (the override reaches the opcode, CW kept:
 ; f5r repseg, 220 cases; the REP's offset is the instruction's start: f5a_030 REP DS1: FPO1 D8
-; pushes it). REP DS1: MOVBK (a REP string on silicon) is not built: the string runs once
-routine rep_nx op=00-65,68-6B,70-A3,A8,A9,B0-D7,E0-FF page=rep why="(F2b) REP before a non-string opcode: the opcode refetched without the prefix (traps.py rep series); function only"
+; pushes it). (F5d) The four segment prefixes and BUSLOCK after a REP are zz_late.uasm's rep_sx /
+; rep_lk: the opcode after them re-enters the REP page (a string repeated, f5r repsegstr)
+routine rep_nx op=00-25,27-2D,2F-35,37-3D,3F-65,68-6B,70-A3,A8,A9,B0-D7,E0-EF,F1-FF page=rep why="(F2b) REP before a non-string opcode: the opcode refetched without the prefix (traps.py rep series); function only"
     wid=WORD alu=DEC ax=PC                  ; SIGMA <- the opcode's offset (the byte before the pointer)
     flush                                   ; FLUSH: the stream from it
     pfx e nb                                ; E: the opcode, the prefix dropped; (F5b) pfx: a segment prefix before the REP kept; nb: REP and the opcode one instruction (no interrupt or single step between them: f5c_007, REP SUBC under the step pushes the next instruction)
