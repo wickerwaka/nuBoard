@@ -302,8 +302,7 @@ shmc_l: alu=SH1 ax=SIG                      ; one shift step of the group's oper
     loop=shmc_l                             ; the counter step (the iteration's second word)
     d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; the result into the write datum; the shift's flags (W); post the write
     e wb                                    ; E: held until the write's end (RAMEN)
-shmc_z: d1=OPRW s1=SIG bus=MEMW             ; the count 0: the datum written back unchanged (the flags kept); post the write
-    e wb                                    ; E: held until the write's end (RAMEN)
+shmc_z: e wb                                ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
 
 routine shm_imm op=C0,C1 mod=mem bookx="EA+15+2n" n=4 why="OPEN: the add, the read, the count's pop and its load under the cycle, F with the shifter's load, the zero test, the two-word iteration, the write's post with the flags, E held: the book's EA + 15 + 2n (its ROL mem,imm8 note) with three book clocks with no act before the zero test"
     ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
@@ -317,8 +316,7 @@ shmi_l: alu=SH1 ax=SIG                      ; one shift step
     loop=shmi_l                             ; the counter step
     d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; the result into the write datum; the shift's flags (W); post the write
     e wb                                    ; E: held until the write's end (RAMEN)
-shmi_z: d1=OPRW s1=SIG bus=MEMW             ; the count 0: the datum written back unchanged; post the write
-    e wb                                    ; E: held until the write's end (RAMEN)
+shmi_z: e wb                                ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
 
 ; ---- the stack's memory forms
 ; PUSH mem16 (FF /6; V20 FF_PUSH 01CC-01CE): the read, SP - 2 under the cycle, F: the datum

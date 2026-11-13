@@ -1,0 +1,18 @@
+; (F5b) Routines and bodies added after F5: this file sorts last, so its words follow every other
+; routine's and no existing entry address moves (the generated decode tables' entries stay as
+; they were; FPGA timing: README "F5b").
+
+; PREPARE's level >= 1 path (stack.uasm prepare jumps here from the word that posts BP's write):
+; the L - 1 display words, then the frame pointer's push and SP <- SP - imm16
+routine prep_lvl why="(F5b) PREPARE's display (f5x prepare): function only, its clocks not fitted"
+prep_l: loop=prep_d                         ; (F5b) the counter's step: a display word to copy while it was not 1
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2 (the frame pointer's push)
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- it; the address register <- it
+    bus=MEMW seg=SS wid=WORD d2=OPRW s2=TA alu=NEG ax=DISP ; the frame into the write datum on the posting word (it waits out the last copy's write: an odd pair's second half reads the datum); post at SS:SP; SIGMA <- 0 - imm16
+    rb=SP wid=WORD alu=ADD ax=RB ay=SIG     ; SP - imm16
+    wr=SP wid=WORD ws=SIG e                 ; SP <- it; E: held until the write's end (RAMEN)
+prep_d: wid=WORD alu=DEC2 ax=TB             ; the display's next word: tmpb - 2
+    d1=TB s1=SIG d2=ADDR s2=SIG wid=WORD bus=MEMR seg=SS ; tmpb <- it; the address register <- it; post the read at SS:[tmpb]
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
+    f wr=SP wid=WORD ws=SIG d1=OPRW s1=OPR d2=ADDR s2=SIG ; F: SP <- SP - 2; the datum into the write datum; the address register <- SP
+    bus=MEMW seg=SS wid=WORD jmp=prep_l     ; post the copy's write at SS:SP

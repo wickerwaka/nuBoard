@@ -31,7 +31,7 @@
 // Registered state (widths): psw 16, ds1 ps ss ds0 4x16, ta tb tc 3x16, sigma 16, scy 1,
 // addr 16, ea_ss 1, oprw 16, pfx_v 1, pfx_s 2, mul (v35_mul_t 51), div (v35_div_t 75), dtrap 1,
 // trap_o 1; the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_seg 16, rq_off
-// 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, resv_r 1, opr_v 1, opr 16, plo 8; the ce_b copies.
+// 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, resv_r 1, opr_v 1, opr 16, plo 8, (F5b) iod 16; the ce_b copies.
 module v35_eu
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -177,10 +177,19 @@ module v35_eu
     reg        ms_eq = 1'b0;            // (F4b) MSEQ's match
     initial ms_end = 1'b0;
     reg        scy = 1'b0, ea_ss = 1'b0, pfx_v = 1'b0, dtrap = 1'b0;
-    // (MX3c) the BCD string's zero term (BCDI sets it, each BCDS step ands its byte's in; the
-    // carry / borrow rides the shifter's step latch scy)
-    reg        bz = 1'b0;
+    // (MX3c) the BCD string's state: the carry / borrow rides the shifter's step latch scy.
+    // (F5b: silicon, f5x bcd4s, 220 cases) the flags after the string are the last byte step's:
+    // CY the carry, Z every byte written zero (bor: the bytes ORed, BCDI clears it), S and P the
+    // last byte's (bl), AC its low digit's adjust decision (bac), V the adjust's overflow (bs7:
+    // the binary sum's bit 7 before the adjust)
+    reg [7:0]  bor = 8'd0, bl = 8'd0;
+    reg        bac = 1'b0, bs7 = 1'b0;
     reg [1:0]  pfx_s = 2'd0;
+    // (F5b) the first prefix's start through BUSLOCK and a REP before a non-string opcode (the
+    // words marked `pfx` on their E): a trap's ist pushes it (silicon, f5a_038: LOCK FPO2 pushes
+    // the LOCK's offset; the loader's ins_ip keeps it through the segment prefixes only)
+    reg [15:0] pist = 16'd0;
+    reg        pist_v = 1'b0;
     v35_mul_t  mul = '0;
     v35_div_t  dv = '0;
     // (MX3b) F1: the multiply's / divide's sign latch, loaded by the unit's init word (MULI: the
@@ -193,6 +202,11 @@ module v35_eu
     reg [19:0] rq_addr = 20'd0;
     reg [15:0] rq_seg = 16'd0, rq_off = 16'd0, opr = 16'd0;
     reg [7:0]  plo = 8'h00;
+    // (F5b) an I/O write's datum, taken from OPRW at its post: the write is not waited for (the
+    // next instruction runs and may load OPRW before the cycle's B2, f5r io: an odd port's byte
+    // and the pair's second half carried the next PUSH's datum); every IOW routine loads OPRW
+    // on a word before its post
+    reg [15:0] iod = 16'd0;
     initial trap_o = 1'b0;
 
     wire [2:0] bank = psw[14:12];
@@ -341,7 +355,7 @@ module v35_eu
             SR_DISP: src = {dh, dl};
             SR_ADDR: src = addr;
             SR_ONE: src = 16'd1;
-            SR_PC: src = word.ist ? ins_ip : ip;     // (F2b) ist: the instruction's start
+            SR_PC: src = word.ist ? (pist_v ? pist : ins_ip) : ip;     // (F2b) ist: the instruction's start
             default: src = 16'd0;
         endcase
     endfunction
@@ -387,7 +401,8 @@ module v35_eu
 
     // ------------------------------------------------------------ tick B: the ALU
     logic [15:0] r, pn, tc_n, tb_n, bfm;
-    logic        scy_n, dtrap_n, tc_w, tb_w, bz_n;
+    logic        scy_n, dtrap_n, tc_w, tb_w, bac_n, bs7_n;
+    logic [7:0]  bor_n, bl_n;
     logic [4:0]  bfs;
     logic [9:0]  b10;
     logic [16:0] st;
@@ -398,7 +413,10 @@ module v35_eu
         r = sigma;
         pn = psw;
         scy_n = scy;
-        bz_n = bz;
+        bor_n = bor;
+        bl_n = bl;
+        bac_n = bac;
+        bs7_n = bs7;
         b10 = 10'd0;
         dtrap_n = dtrap;
         tc_n = tc;
@@ -498,21 +516,27 @@ module v35_eu
                                  weff ? 16'(16'd1 << y[3:0]) : 16'(16'd1 << y[2:0]), weff, psw, pn);
             AL_BCDI: begin
                 scy_n = 1'b0;
-                bz_n = 1'b1;
+                bor_n = 8'd0;
+                bl_n = 8'd0;
+                bac_n = 1'b0;
+                bs7_n = 1'b0;
             end
             AL_BCDS: begin
                 b10 = v35_bcd8(op3 != 3'd0, x[7:0], y[7:0], scy);
                 r = {8'd0, b10[7:0]};
                 scy_n = b10[9];
-                bz_n = bz && b10[8];
+                bor_n = bor | b10[7:0];
+                bl_n = b10[7:0];
+                bac_n = b10[8];
+                bs7_n = v35_bcd8_s7(op3 != 3'd0, x[7:0], y[7:0], scy);
             end
             AL_BCDF: begin
                 pn[V35_PSW_CY] = scy;
-                pn[V35_PSW_Z] = bz;
-                pn[V35_PSW_V] = 1'b0;
-                pn[V35_PSW_S] = scy;
-                pn[V35_PSW_AC] = scy;
-                pn[V35_PSW_P] = bz;
+                pn[V35_PSW_Z] = bor == 8'd0;
+                pn[V35_PSW_V] = op3 != 3'd0 ? bs7 && !bl[7] : !bs7 && bl[7];
+                pn[V35_PSW_S] = bl[7];
+                pn[V35_PSW_AC] = bac;
+                pn[V35_PSW_P] = ~^bl;
             end
             AL_R4: begin
                 q32 = {16'd0, v35_rot4(op3[0], x[7:0], y[7:0])};
@@ -650,7 +674,8 @@ module v35_eu
     assign req_dk = rq_dk;
     assign req_addr = rq_addr;
     assign req_width = rq_word;
-    assign req_data = rq_word ? oprw : {oprw[7:0], oprw[7:0]};
+    wire [15:0] wdat = (rq_io && rq_wr) ? iod : oprw;
+    assign req_data = rq_word ? wdat : {wdat[7:0], wdat[7:0]};
     // the reservation: a request standing, a word's `resv` until the acknowledge, and the E
     // clock that pops a posting routine's opcode (the loader's resv_e: the decode knows)
     assign req_resv = rq_v || resv_r || resv_e;
@@ -714,6 +739,7 @@ module v35_eu
             ds0 <= 16'd0;
             pfx_v <= 1'b0;
             pfx_s <= 2'd0;
+            pist_v <= 1'b0;
             rq_v <= 1'b0;
             rq_out <= 1'b0;
             rq_rd <= 1'b0;
@@ -730,7 +756,10 @@ module v35_eu
             dm_tlast <= 1'b0;
             dm_last <= 1'b0;
             scy <= 1'b0;
-            bz <= 1'b0;
+            bor <= 8'd0;
+            bl <= 8'd0;
+            bac <= 1'b0;
+            bs7 <= 1'b0;
             ea_ss <= 1'b0;
         end else if (ce_a) begin
             trap_o <= ex_b && word.trap;
@@ -760,7 +789,10 @@ module v35_eu
                 if (word.wf)
                     psw <= pn;
                 scy <= scy_n;
-                bz <= bz_n;
+                bor <= bor_n;
+                bl <= bl_n;
+                bac <= bac_n;
+                bs7 <= bs7_n;
                 dtrap <= dtrap_n;
                 mul <= mul_n;
                 dv <= dv_n;
@@ -801,10 +833,20 @@ module v35_eu
                         default: ds0 <= wsv;
                     endcase
                 end
-                // the segment prefix: set by a prefix, cleared by the next instruction's E
+                // the segment prefix: set by a prefix, cleared by the next instruction's E.
+                // (F5b) `pfx` on another prefix's E word (BUSLOCK, a REP before a non-string
+                // opcode) keeps it: silicon's segment override reaches the opcode through them
+                // (f5a_000: PS: REP SUBC [430Ah] at PS:430Ah)
+                if (word.e) begin
+                    pist_v <= word.pfx;
+                    if (word.pfx && !pist_v)
+                        pist <= ins_ip;
+                end
                 if (word.pfx) begin
-                    pfx_v <= fmt.seg[2];
-                    pfx_s <= fmt.seg[1:0];
+                    if (fmt.seg[2]) begin
+                        pfx_v <= 1'b1;
+                        pfx_s <= fmt.seg[1:0];
+                    end
                 end else if (word.e && !fmt.seg[2])
                     pfx_v <= 1'b0;
                 if (word.resv)
@@ -816,7 +858,9 @@ module v35_eu
                 rq_cyc <= word.bus == BQ_MEMR ? RQ_MEMR : word.bus == BQ_MEMW ? RQ_MEMW
                         : (word.bus == BQ_IOR || word.bus == BQ_INTA) ? RQ_IOR : RQ_IOW;
                 rq_word <= weff;
-                rq_pair <= weff && !b_io && lin[0];
+                // (F5b) a word at an odd I/O port is the pair too (silicon, f5r io / strio: the
+                // port on the high lane, then port + 1 on the low)
+                rq_pair <= weff && (b_io ? addr_q[0] : lin[0]);
                 rq_addr <= b_io ? {4'd0, addr_q} : lin;
                 rq_seg <= segv;
                 rq_off <= addr_q;
@@ -829,11 +873,13 @@ module v35_eu
                 rq_dk <= tk_dm && word.seg == SG_TA && (word.bus == BQ_MEMW || dm_out);
                 rq_wr <= word.bus == BQ_MEMW || word.bus == BQ_IOW;
                 rq_io <= b_io;
+                if (word.bus == BQ_IOW)
+                    iod <= oprw;
             end else begin
                 if (ack_b) begin
                     rq_v <= 1'b0;
                     if (rq_pair)
-                        rq_addr <= lin2;
+                        rq_addr <= rq_io ? {4'd0, off2} : lin2;
                 end
                 if (req_done && rq_out)
                     rq_out <= 1'b0;

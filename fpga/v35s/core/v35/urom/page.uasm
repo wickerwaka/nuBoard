@@ -188,8 +188,8 @@ routine rol4 op=28 page=0f book="ROL4 reg8" bookm="ROL4 mem8" diff=r:0,m00:+1,d8
     d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; the byte into the write datum; post the write (the read's end + 10: issued at + 11)
     e                                       ; E: held until the write's end (RAMEN)
 r4l_r: rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate (the take sync's wait first)
-    wr=RM wid=BYTE ws=SIG                   ; the register written
     wr=AW wid=BYTE ws=TC                    ; AL written
+    wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
     open call=w10                           ; OPEN: 11 clocks: a book clock with no act (ROL4 reg8 17) (the call and the shared delay's 10)
     e wb                                    ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)
 
@@ -203,7 +203,7 @@ routine ror4 op=2A page=0f book="ROR4 reg8" bookm="ROR4 mem8" diff=r:0,m00:-1,d8
     d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; the byte into the write datum; post the write (the read's end + 14: issued at + 15)
     e                                       ; E: held until the write's end (RAMEN)
 r4r_r: rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate (the take sync's wait first)
-    wr=RM wid=BYTE ws=SIG                   ; the register written
     wr=AW wid=BYTE ws=TC                    ; AL written
+    wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
     open call=w14                           ; OPEN: 15 clocks: a book clock with no act (ROR4 reg8 21) (the call and the shared delay's 14)
     e wb                                    ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)

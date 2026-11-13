@@ -81,14 +81,17 @@ routine dispose op=C9 resv=e book="DISPOSE" why="OPEN: BP into the address regis
     wr=SP wid=WORD ws=SIG                   ; SP <- BP + 2 (0276)
     f wr=BP wid=WORD ws=OPR e               ; F: BP <- the datum (0277 OPR -> BP); E
 
-; PREPARE imm16,imm8 (C8), the level 0 frame (F25's PREPARE 0,0; the level's loop of the
-; display's pushes is MX4's): the pops, BP pushed, BP <- the frame, SP <- the frame - imm16
-routine prepare op=C8 resv=e book="PREPARE imm16,imm8" bookv=26 why="OPEN: the level 0 frame (the book's imm8 = 0: 26): the three pops, SP - 2, SP, the address and BP's datum on one word, the post, BP <- the frame with 0 - imm16, the frame - imm16, SP on the E word held to the write's end; sixteen book clocks with no act before the post (the level's loop: MX4)"
+; PREPARE imm16,imm8 (C8): the frame (F25's PREPARE 0,0) and (F5b) the level's display. The level
+; byte is used whole (f5x prepare, receipt f5-f5x-socket: 0-255, not reduced mod 32): BP pushed,
+; for level L >= 1 the L - 1 words at SS:[BP - 2], [BP - 4], ... (the old BP) pushed in turn,
+; then the frame pointer (SP after BP's push); BP <- the frame, SP <- SP - imm16. The level 0
+; path is the F25 shape unchanged: the level's path leaves it on the word that posts BP's write.
+routine prepare op=C8 resv=e book="PREPARE imm16,imm8" bookv=26 n=0 why="OPEN: the level 0 frame (the book's imm8 = 0: 26): the three pops, SP - 2, SP, the address and BP's datum on one word, the post, BP <- the frame with 0 - imm16, the frame - imm16, SP on the E word held to the write's end; sixteen book clocks with no act before the post. (F5b) the level's display (function only: its clocks not fitted): the counter from the level on the OPEN word's call, a jump on the post's word when it is not zero"
     pop=dl                                  ; pop imm16's low byte (the frame's size)
     pop=dh                                  ; pop its high byte
-    pop=il rb=SP wid=WORD alu=DEC2 ax=RB    ; pop imm8 (the level: 0 here); read SP; SP - 2
+    pop=il rb=SP wid=WORD alu=DEC2 ax=RB ra=BP d1=TB s1=RA ; pop imm8 (the level); read SP; SP - 2; (F5b) the old BP into tmpb (the display's base)
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG ra=BP d2=OPRW s2=RA resv     ; SP <- SP - 2; the address register <- it; BP into the write datum; the reservation
-    open call=w15                           ; OPEN: 16 clocks: a book clock with no act (PREPARE imm16,0 26) (the call and the shared delay's 15)
-    bus=MEMW seg=SS wid=WORD wr=BP ws=SIG d1=TA s1=SIG alu=NEG ax=DISP    ; post BP's write at SS:SP; BP <- the frame (SP - 2); tmpa <- it; SIGMA <- 0 - imm16
+    open call=w15 cnt=IL                    ; OPEN: 16 clocks: a book clock with no act (PREPARE imm16,0 26) (the call and the shared delay's 15); (F5b) the counter <- the level
+    bus=MEMW seg=SS wid=WORD wr=BP ws=SIG d1=TA s1=SIG alu=NEG ax=DISP jnc=CNTZ:prep_l ; post BP's write at SS:SP; BP <- the frame (SP - 2); tmpa <- it; SIGMA <- 0 - imm16; (F5b) a level >= 1: the display
     wid=WORD alu=ADD ax=TA ay=SIG           ; the frame - imm16
     wr=SP wid=WORD ws=SIG e                 ; SP <- it; E: held until the write's end (RAMEN)

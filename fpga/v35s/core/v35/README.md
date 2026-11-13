@@ -5989,3 +5989,83 @@ funcref.py (the vector gates' reference) carries the same rules; the V20 suite's
   unmapped memory, identical in both sessions; not attributed (not the DMA enable, not the IC
   registers' MS).
 - f5c_117 (NMI): the two socket sessions differ by one write (the take inside a REP string?).
+
+## F5b: the fuzz's second batch (a clean reference, the first-difference histogram, the classes)
+
+### The reference made clean (one generator change, the sets taken again)
+
+- **Undefined reset values** (finding 15): the prologue stores every SFR the book leaves undefined at
+  reset (`fuzz_gen.UNDEF_SFR_BYTE` EMS0-2, SRMS0/1, STMS0/1, TMMS0-2, DMAC0/1; `UNDEF_SFR_WORD` MD0,
+  MD1), values from their own generator so the program's other draws are unchanged. This was also
+  the cause of the first sessions' unstable capture windows (168 of 300 f5a programs had a window
+  run whose signature, 44 whose record count, differed from the first run): the fuzz reads these
+  SFRs as operands, so a program's first run saw the previous program's values. After it no window
+  run differs in any set.
+- **f5d_048 / f5d_055** (finding 14): shrunk on the socket to seven items (logs/shrink-f5d_048.log):
+  a generator flaw, not silicon. `f_sfr` stores a byte register to an SFR through an EA it chose
+  before loading the value; `mem(exclude=...)` only refused an *unknown* excluded register, so with
+  BW known it built `MOV DS1:[BW+IX], BL` and the load of BL moved the store to 0001Fh, the FPO
+  vector's segment byte; the next FPO escape trapped to E600:042A and executed zeros. `exclude` now
+  keeps the register out of the EA.
+- **f5c_117** (finding 21): the boundary-dependent value was the trace's stitching, not the take. A
+  trace longer than one capture window is taken from one run per 2,048 records; session 2's first
+  run had one record more than its window run (2,406 / 2,405), so the stitched trace lost a write.
+  `fuzz.run_prog` now runs a program again (its own end state the start) until every window run is
+  the first run's execution (same total and signature), up to four times, and the gate refuses a
+  record that never stitches (`compare_rec`: "the trace windows are not one execution"). In the
+  re-taken sessions no program needed a second attempt.
+- PREPARE's generator model (`f_prepare`) now uses the level byte whole (measured, below).
+
+Re-taken: f5a 300, f5b 150, f5c 160, f5d 100, f5r 6, f5x 32 (f5x adds the PREPARE, DIV overflow and
+BCD string surveys): socket against socket-2 EQUAL on all 748, no program retried, none failing.
+Receipts: validation/v35s/receipts/f5-<set>-socket(-2).json.gz.
+
+### The histogram (`validation/v35s/fuzz_hist.py`)
+
+For each differing program the RTL runs again with `+v35_trace`, which names the instruction whose
+bus cycle is the first differing write (a trap stub's write is charged to the instruction that
+trapped). An observation's word says what differs (the PSW's bits or a register) and the culprit is
+the window's last fuzzed instruction that writes it. Grouped by mnemonic | form | width x what.
+
+### Measured and built
+
+| class | silicon (rule) | built |
+| --- | --- | --- |
+| PREPARE size, level (finding 16) | the level byte whole (0-255; 33 pushes 34 words): BP pushed; for level L >= 1 the L - 1 words at SS:[BP - 2], [BP - 4], ... (the old BP) pushed in turn, then the frame pointer (SP after BP's push); BP <- the frame; SP <- SP - size (f5x prepare, 218 cases) | stack.uasm prepare: tmpb <- the old BP on the level's pop word, the counter <- the level on the OPEN call word, a jump on the post's word when not zero to urom/zz_late.uasm prep_l / prep_d (each display word: tmpb - 2, the read at SS:tmpb, SP - 2, the copy's write; then the frame's push, SP - size). The level 0 path is unchanged |
+| DIV whose signed quotient is out of range (finding 18) | the trap after the steps leaves the completing divide's flags (S Z P of the remainder's magnitude, AC the pre-check's nibble borrow, CY V 0); the pre-check's trap (DIVU or DIV, divisor 0 included) the six flags of the pre-check SUB |high half| - |divisor| (f5x divovf, 219 cases: 64 DIVU, 72 DIV pre-check, 83 DIV after the steps) | v35_div_fin: the completing PSW computed before the range test |
+| ADD4S / SUB4S / CMP4S flags (finding 17) | the last byte step's: CY its carry, Z every result byte zero, S and P of the last result byte, AC the last byte's low digit adjust decision, V the adjust's overflow (the binary sum's bit 7 0 and the adjusted byte's 1 for an add, the reverse for a subtract) (f5x bcd4s, 220 cases) | v35_eu: bor / bl / bac / bs7 registers loaded by each BCDS step (v35_bcd8's bit 8 is now the low digit's adjust decision; v35_bcd8_s7), read by BCDF |
+| INS with AL / AH as the offset (finding 6) | AW read before the offset register is stepped (f5r insal, F5) | bf.uasm bf_pass: the offset register written on the pass's last word from the address register (the step), after AW is read |
+| a word at an odd I/O port (finding 7) | two byte cycles: the port on the high lane, port + 1 on the low (F5) | the bus pair carries I/O: v35_eu rq_pair for an odd port, the second half's address port + 1 ({4'd0, off2}); v35_bus rq_two drops the memory term (rq_two = req_width && req_addr[0]; the grant's width select loses its rq_mem term) |
+| an I/O write's datum (new) | - (a core bug: OUT is not waited for, the next instruction's PUSH loaded OPRW before the cycle's B2: f5r io0, OUT DW,AL at an odd port wrote the PSW's byte) | v35_eu iod: the datum taken from OPRW at an IOW post; req_data from it while the request is an I/O write |
+| a segment prefix before REP / REPC / REPNC and a non-string opcode, or before BUSLOCK (new; the largest class once the I/O pair was built) | the override reaches the opcode (f5a_000: PS: REP SUBC [430Ah], 3Fh writes PS:430Ah) | v35_eu: `pfx` on another prefix's E word keeps pfx_v (the BUSLOCK routine's E, rep_nx's E); the segment prefix routine's word sets it as before |
+| a trap (FPO, I/O trap) after BUSLOCK or a REP before a non-string opcode | the PC pushed is the first prefix's (f5a_038: LOCK FPO2 pushes the LOCK's offset) | v35_eu pist / pist_v: the first prefix's start held from a `pfx` E word to the next E; SR_PC with ist reads it |
+| a memory operand shifted / rotated by a zero count (CL or imm8) | read, not written back (f5a_011; f5r shm0, 220 cases) | mem.uasm shm_cl / shm_imm: the zero-count path ends at E without the write |
+| EXT with AL / AH as the offset register | the offset register is written first, then AW: the field wins (f5a_000 EXT AH, 10; f5r extal, 220 cases) | bf.uasm: ext_t writes the offset register, then AW (one OPEN clock of the within-word path moved, the clocks unchanged) |
+| ROL4 / ROR4 with AL (or AH) as the operand | AL's digit first, then the operand: ROL4 AL / ROR4 AL keep the operand's result (f5r rot4al, 220 cases) | page.uasm r4l_r / r4r_r: AL written, then the register |
+| f5c intp / timer: the handler's count store | boundary-dependent by construction (the RTL's clocks are not silicon's: the take lands at another instruction) | fuzz_layers: the count byte's store dropped from both write sequences (as the NMI frame); its final value still compared |
+| a REP before a non-string opcode under the single step or an interrupt | REP and the opcode are one instruction: no boundary between them (f5c_007: REP SUBC under the step pushes the next instruction's offset) | trap.uasm rep_nx: `nb` on its E word |
+
+f5r (directed regressions, both sessions EQUAL, socket against socket-2 and the RTL): insal, io,
+strio (batch 1's), extal, shm0, rot4al (F5b). f5x adds prepare, divovf, bcd4s (the surveys the
+rules above were fitted on). funcref carries every rule (the V20 suite's behind `V20_UNDEF`):
+PREPARE's level, the signed DIV range trap's flags, the BCD strings' flags (Z: every byte written
+zero), INS / EXT / ROL4 / ROR4 write order, the zero-count memory shift, a word at an odd port as
+two byte cycles.
+
+### FPGA (not run here: what each change adds)
+
+- Tick A / the delivery chain: nothing new joins it. v35_bus `rq_two` loses its `rq_mem` term and
+  the grant's width select its `(!req_addr[0] || !rq_mem)` term (fewer inputs on the grant's
+  width / half). v35_eu: `rq_pair`'s next value selects the port's bit 0 for an I/O post (a
+  register input beside the post), the pair's second address selects `{4'd0, off2}` for I/O (a
+  register input at the acknowledge), `iod` (16 flops) loads OPRW at an IOW post, `req_data`
+  selects iod while the request is an I/O write (the pins' datum at mid-B2: not the grant).
+  `pist` / `pist_v` (17 flops) load at an E word; SR_PC's ist source gains a 2:1 select.
+- Tick B (the EU's ALU): BCDS feeds bor (OR with the byte), bl, bac (bit 8 of v35_bcd8, now the
+  low digit's adjust decision instead of the zero term: no deeper), bs7 (an 8-bit add/sub of the
+  temporaries, parallel to v35_bcd8); BCDF reads registers only (an 8-input parity, a compare
+  with zero). v35_div_fin: the range test now follows the completing PSW (one select fewer).
+- Microcode: zz_late.uasm (the display loop, after every routine), stack.uasm (prepare: two fields on
+  existing words), bf.uasm, page.uasm, mem.uasm (-2 words), core.uasm / trap.uasm (`pfx` / `nb`
+  bits). The ROM is 1,881 words; the generated decode tables' entry constants move (mem.uasm's
+  two words), v35_umdsp / v35_umimm / v35_umodrm / v35_upage are byte-identical to the base's.

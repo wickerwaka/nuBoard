@@ -79,7 +79,7 @@ module v35_bus
     input  wire        req_v,       // a cycle is wanted (a level: stands until acknowledged)
     input  wire [1:0]  req_cyc,     // RQ_MEMR, RQ_MEMW, RQ_IOR, RQ_IOW
     input  wire [19:0] req_addr,    // the cycle's address (the pair's second half's after req_ack)
-    input  wire        req_width,   // 1: a word (at an odd memory address: the bus unit's pair)
+    input  wire        req_width,   // 1: a word (at an odd address, memory or (F5b) I/O: the bus unit's pair)
     input  wire [15:0] req_data,    // a write's datum, taken at B2 (lane-placed for a byte)
     input  wire        req_resv,    // the reservation: no fetch starts while it is up (unless q_low)
     // (F3b) the request (an RQ_IOR) is an INT acknowledge: the cycle runs as an I/O read with no
@@ -259,7 +259,8 @@ module v35_bus
     wire [2:0]  rq_kind = req_cyc == RQ_MEMR ? K_READ : req_cyc == RQ_MEMW ? K_WRITE
                         : req_cyc == RQ_IOR ? K_IO_READ : K_IO_WRITE;
     wire        rq_mem = !req_cyc[1];
-    wire        rq_two = req_width && req_addr[0] && rq_mem;   // the pair: hi, then lo
+    // the pair: hi, then lo; (F5b) a word at an odd I/O port too (silicon: two byte cycles)
+    wire        rq_two = req_width && req_addr[0];
     // io_recover as the bus unit's turnaround (A1_IOREC 1: no EU memory cycle within io_recover
     // clocks of an I/O cycle; 2: no EU cycle at all; 0: the EU's own wait, not here)
     wire        rq_turn = (`A1_IOREC == 1 && rq_mem) || `A1_IOREC == 2;
@@ -326,7 +327,7 @@ module v35_bus
         gnt_f.start = gnt_f.eu || gnt_f.fetch;
         gnt_f.kind = gnt_f.fetch ? K_FETCH : g_second ? c_kind : rq_kind;
         gnt_f.width = !gnt_f.eu ? BW_WORD : g_second ? BW_LO : rq_two ? BW_HI
-                    : (req_width && (!req_addr[0] || !rq_mem)) ? BW_WORD   // (an I/O word: no pair)
+                    : req_width ? BW_WORD
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_f.half = g_second ? 2'd2 : (gnt_f.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_f.sfr = (gnt_f.kind == K_WRITE || gnt_f.kind == K_READ) && rq_sfr;
@@ -743,7 +744,7 @@ module v35_bus
         gnt_x.start = gnt_x.eu || gnt_x.fetch;
         gnt_x.kind = gnt_x.fetch ? K_FETCH : g_second ? c_kind : rq_kind;
         gnt_x.width = !gnt_x.eu ? BW_WORD : g_second ? BW_LO : rq_two ? BW_HI
-                    : (req_width && (!req_addr[0] || !rq_mem)) ? BW_WORD
+                    : req_width ? BW_WORD
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_x.half = g_second ? 2'd2 : (gnt_x.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_x.sfr = (gnt_x.kind == K_WRITE || gnt_x.kind == K_READ) && rq_sfr;

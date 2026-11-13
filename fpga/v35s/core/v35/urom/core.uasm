@@ -35,7 +35,7 @@ routine pfx op=26,2E,36,3E book="segment override prefix" why="the prefix regist
     pfx e nb                                ; the segment prefix register <- the prefix's segment (the format's); E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 routine lock op=F0 book="BUSLOCK" why="the bus lock pin is not built: its one word is the E word"
-    e nb                                    ; E: pop the next opcode (BUSLOCK: the lock output not built); (F3) nb: a prefix, no boundary after it
+    pfx e nb                                ; E: pop the next opcode (BUSLOCK: the lock output not built); (F3) nb: a prefix, no boundary after it; (F5b) pfx: a segment prefix before it kept
 
 ; ---- HALT (data book: N/A): the sequencer stops; the queue fills and the bus idles. (F3) An
 ; unmasked request (an IF with MK 0, or NMI: the controller's registered wake) releases it: the E

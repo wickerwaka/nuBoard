@@ -218,7 +218,8 @@ def div(signed: bool, num: int, d: int, w: int, psw: int) -> tuple[int, int, int
     remainder truncate toward zero, the remainder takes the dividend's sign
     (undefined_flags.md, Campaign 3). (F5: silicon, f5x) a divide that completes leaves S Z P
     of the remainder's magnitude, AC the pre-check's nibble borrow (|num|_high's low digit <
-    |d|'s), CY and V cleared, for DIVU and DIV alike; the trapping divides as above."""
+    |d|'s), CY and V cleared, for DIVU and DIV alike, and so does a signed quotient out of
+    range (F5b) before it traps; the pre-check's trap keeps its SUB's flags."""
     nb, m = _bits(w), _mask(w)
     d &= m
     if not signed:
@@ -237,10 +238,15 @@ def div(signed: bool, num: int, d: int, w: int, psw: int) -> tuple[int, int, int
         _, psw = alu(5, hi, ad, w, psw)
         return 0, 0, psw, True
     q, r = an // ad, an % ad
-    psw &= ~((1 << CY) | (1 << AC) | (1 << V))
-    psw = _szp(psw, q, w)
-    if q > (1 << (nb - 1)) - 1:
-        return 0, 0, psw, True
+    if V20_UNDEF:
+        psw &= ~((1 << CY) | (1 << AC) | (1 << V))
+        psw = _szp(psw, q, w)
+        if q > (1 << (nb - 1)) - 1:
+            return 0, 0, psw, True
+    elif q > (1 << (nb - 1)) - 1:
+        # (F5b: silicon, f5x divovf, 83 cases) out of range after the steps: the completing
+        # divide's flags
+        return 0, 0, _done(psw, hi, ad, r, w), True
     if (sn < 0) != (sd < 0):
         q = -q
     if not V20_UNDEF:
@@ -437,6 +443,13 @@ class Cpu:
     def io_in(self, port: int, w: int) -> int:
         req = self.nreq
         self.nreq += 1
+        if w == 2 and port & 1:
+            # (F5b: silicon, f5r io) a word at an odd port: two byte cycles, the port on the
+            # high lane, then port + 1 on the low (as a memory word)
+            p2 = (port + 1) & 0xFFFF
+            self.cyc.append(Cycle("io_read", port, "hi", 0, self.io_word, req, False, True))
+            self.cyc.append(Cycle("io_read", p2, "lo", 0, self.io_word, req, True, True))
+            return ((self.io_word >> 8) & 0xFF) | ((self.io_word & 0xFF) << 8)
         width = "word" if w == 2 else "hi" if port & 1 else "lo"
         self.cyc.append(Cycle("io_read", port, width, 0, self.io_word, req, True, w == 2))
         if w == 2:
@@ -446,7 +459,12 @@ class Cpu:
     def io_out(self, port: int, w: int, v: int):
         req = self.nreq
         self.nreq += 1
-        if w == 2:
+        if w == 2 and port & 1:
+            # (F5b) a word at an odd port: the pair (the low byte on the high lane first)
+            p2 = (port + 1) & 0xFFFF
+            self.cyc.append(Cycle("io_write", port, "hi", (v & 0xFF) << 8, 0, req, False, True))
+            self.cyc.append(Cycle("io_write", p2, "lo", (v >> 8) & 0xFF, 0, req, True, True))
+        elif w == 2:
             self.cyc.append(Cycle("io_write", port, "word", v & 0xFFFF, 0, req, True, True))
         else:
             self.cyc.append(Cycle("io_write", port, "hi" if port & 1 else "lo",
@@ -661,12 +679,19 @@ class Cpu:
                     r[k] = v
             return
         if o == 0xC8:                                   # PREPARE imm16,imm8
+            # (F5b: silicon, f5x prepare) the level byte whole (not mod 32): BP pushed, the
+            # level - 1 words at SS:[BP - 2], [BP - 4], ... pushed, then the frame pointer
             st.length = 4
-            if code[3] != 0:
-                raise NotModelled(f"PREPARE level {code[3]}")
             st.sw = (r["SP"] - 2) & 0xFFFF
-            self.push(r["BP"])
-            r["BP"] = r["SP"]
+            bp = r["BP"]
+            self.push(bp)
+            frame = r["SP"]
+            for _ in range(1, code[3]):
+                bp = (bp - 2) & 0xFFFF
+                self.push(self.read(self.seg(2), bp, 2))
+            if code[3]:
+                self.push(frame)
+            r["BP"] = frame
             r["SP"] = (r["SP"] - imm16(1)) & 0xFFFF
             return
         if o == 0xC9:                                   # DISPOSE
@@ -871,7 +896,10 @@ class Cpu:
             st.count = cnt
             a = self._rm_read(mod, rm, off, base, w)
             res, self.psw = shift(reg, a, cnt, w, self.psw)
-            self._rm_write(mod, rm, off, base, w, res)
+            if cnt or V20_UNDEF or mod == 3:
+                # (F5b: silicon, the fuzz) a memory operand shifted by a zero count is read, not
+                # written back
+                self._rm_write(mod, rm, off, base, w, res)
             return
         if o in (0xF6, 0xF7):
             if reg in (0, 1):                           # TEST r/m,imm (1: its alias)
@@ -1005,15 +1033,40 @@ class Cpu:
             src, dst = self.seg(pfx if pfx is not None else 3), self.seg(0)
             ix, iy = r["IX"], r["IY"]
             carry, z = 0, 1
+            last = None
             for i in range(n):
                 b = self.read(src, ix + i, 1)
                 a = self.read(dst, iy + i, 1)
+                cin = carry
                 carry, zt, res = (bcd_add8 if s == 0x20 else bcd_sub8)(a, b, carry)
-                z &= zt
+                z &= zt if V20_UNDEF else int(res == 0)
+                last = (a, b, cin, res)
                 if s != 0x26:
                     self.write(dst, iy + i, 1, res)
             psw = self.psw
-            for bit, v in ((CY, carry), (Z, z), (V, 0), (S, carry), (AC, carry), (P, z)):
+            if V20_UNDEF:
+                fl = ((CY, carry), (Z, z), (V, 0), (S, carry), (AC, carry), (P, z))
+            else:
+                # (F5b: silicon, f5x bcd4s, 220 cases) the last byte step's flags: CY its carry,
+                # Z every byte written zero, S P the last byte's, AC its low digit's adjust
+                # decision, V the adjust's overflow (the binary sum's bit 7 0 and the byte's 1 for
+                # an add, the reverse for a subtract); no byte pair: the cleared state
+                a, b, cin, res = last if last else (0, 0, 0, 0)
+                if s == 0x20:
+                    lo = (a & 15) + (b & 15) + cin
+                    ac = int(lo > 9)
+                    s7 = ((a + b + cin) >> 7) & 1
+                    v = int(not s7 and res >> 7 & 1)
+                else:
+                    lo = (a & 15) - (b & 15) - cin
+                    ac = int(lo < 0 or (lo & 15) > 9)
+                    s7 = ((a - b - cin) >> 7) & 1
+                    v = int(s7 and not res >> 7 & 1)
+                if not last:
+                    ac = v = 0
+                fl = ((CY, carry), (Z, z), (V, v), (S, res >> 7 & 1), (AC, ac),
+                      (P, int(bin(res).count("1") % 2 == 0)))
+            for bit, v in fl:
                 psw = _put(psw, bit, v)
             self.psw = psw
             st.string = (None, ix, iy, 0, n, False)
@@ -1059,8 +1112,14 @@ class Cpu:
                 v, al = ((al & 0xF) << 4) | (a >> 4), (al & 0xF0) | (a & 0xF)
                 if self.v20_digits:
                     al = a
-            self._rm_write(mod, rm, off, base, 1, v)
-            self.set8(0, al)
+            if V20_UNDEF:
+                self._rm_write(mod, rm, off, base, 1, v)
+                self.set8(0, al)
+            else:
+                # (F5b: silicon, f5r rot4al) AL first, then the operand: ROL4 / ROR4 AL keeps
+                # the operand's result
+                self.set8(0, al)
+                self._rm_write(mod, rm, off, base, 1, v)
             return
         if mem:
             raise NotModelled(f"0F {s:02X} with a memory operand")
@@ -1086,11 +1145,14 @@ class Cpu:
             ptr = "IX"
         else:                                           # INS
             dst = self.seg(0)
-            # the offset register is stepped before AW is read (an INS whose offset is AL or
-            # AH inserts the stepped value: the V20 suite; F5 measured the V35 reading AW first,
-            # f5a_000 / f5r_insal: open, not built)
-            self.set8(rm, (o4 + w4 + 1) & 15)
-            field = (r["AW"] & fm) << o4
+            # (F5b: silicon, f5r insal) AW is read before the offset register is stepped (an
+            # INS whose offset is AL or AH inserts AW's bits as they were); the V20 suite steps
+            # first and inserts the stepped value
+            aw = r["AW"]
+            if V20_UNDEF:
+                self.set8(rm, (o4 + w4 + 1) & 15)
+                aw = r["AW"]
+            field = (aw & fm) << o4
             mask = fm << o4
             lo = self.read(dst, r["IY"], 2)
             self.write(dst, r["IY"], 2, ((lo & ~mask) | field) & 0xFFFF)
@@ -1103,6 +1165,8 @@ class Cpu:
             ptr = "IY"
         new = o4 + w4 + 1
         self.set8(rm, new & 15)
+        if s in (0x33, 0x3B) and not V20_UNDEF:
+            r["AW"] = v         # (F5b: silicon, f5r extal) the offset register first, then AW
         if new >= 16:
             r[ptr] = (r[ptr] + 2) & 0xFFFF
 

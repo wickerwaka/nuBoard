@@ -18,7 +18,7 @@ import random
 import sys
 
 from . import fuzz_gen as G
-from .fuzz_gen import AW, BW, CW, DW, IX, IY, R16, R8
+from .fuzz_gen import AW, BP, BW, CW, DW, IX, IY, R16, R8, SP
 
 PSW_MASK = 0x0FD5          # the flag bits (V DIR IE BRK S Z AC P CY) and F0 / F1 below
 FLAG_NAMES = {0: "CY", 2: "P", 3: "F1", 4: "AC", 5: "F0", 6: "Z", 7: "S", 11: "V"}
@@ -178,6 +178,106 @@ def case_list(kind, r, n):
             else:
                 data = bytes([0x0F, 0x39, 0xC0 | rm, wid])
             out.append(("INS al/ah", data, regs, [AW, IY]))
+        elif kind == "prepare":
+            # PREPARE size, level over the whole level byte (the display copies and the frame
+            # pointer's push; F5 finding 16): BP anywhere in the stack page's upper half
+            lvl = r.choice(tuple(range(32)) + (32, 33, 34, 40, 63, 64, 65, 96, 127, 128, 160, 255))
+            size = r.choice((0, 1, 2, 3, 6, 0x10, r.randrange(0x40)))
+            regs[BP] = r.randrange(0x6600, 0x6F00) | (1 if r.random() < 0.2 else 0)
+            data = b"\xC8" + size.to_bytes(2, "little") + bytes([lvl])
+            out.append((f"PREPARE {lvl}", data, regs, [BP, SP]))
+        elif kind == "divovf":
+            # (F5 finding 18) DIV / DIVU whose quotient overflows: the trap (vector 0) and the
+            # PSW it pushes; the stub returns, the observation shows the PSW and AW / DW after
+            op = r.choice((6, 7, 7))
+            w = r.randrange(2)
+            if w:
+                d = r.choice((0, 1, 2, 0x7FFF, 0x8000, 0xFFFF, r.randrange(0x10000), r.randrange(0x100)))
+                if op == 6:
+                    hi = r.randrange(d, 0x10000) if d else r.randrange(0x10000)
+                    regs[DW], regs[BW] = hi, d
+                else:
+                    # a signed quotient outside -32768 .. 32767 (or a zero divisor)
+                    sd = d - 0x10000 if d & 0x8000 else d
+                    q = r.choice((0x8000, 0x8001, -0x8001, -0x8002, 0x10000, -0x10000)) if sd else 1
+                    if r.random() < 0.3 and sd:
+                        q = r.choice((1, -1)) * r.randrange(0x8000, 0x7FFFFFFF // max(1, abs(sd)) + 0x8001)
+                    num = q * sd + (r.randrange(abs(sd)) * (1 if q * sd >= 0 else -1) if sd else r.randrange(-0x40000000, 0x40000000))
+                    num = max(-0x80000000, min(0x7FFFFFFF, num)) & 0xFFFFFFFF
+                    regs[DW], regs[AW], regs[BW] = num >> 16, num & 0xFFFF, d
+            else:
+                d = r.choice((0, 1, 2, 0x7F, 0x80, 0xFF, r.randrange(0x100)))
+                if op == 6:
+                    regs[AW] = (r.randrange(d, 0x100) << 8 if d else r.randrange(0x100) << 8) | r.randrange(0x100)
+                else:
+                    sd = d - 0x100 if d & 0x80 else d
+                    q = r.choice((0x80, 0x81, -0x81, -0x82, 0x100, -0x100)) if sd else 1
+                    if r.random() < 0.3 and sd:
+                        q = r.choice((1, -1)) * r.randrange(0x80, 0x7FFF // max(1, abs(sd)) + 0x81)
+                    num = q * sd + (r.randrange(abs(sd)) * (1 if q * sd >= 0 else -1) if sd else r.randrange(-0x4000, 0x4000))
+                    regs[AW] = max(-0x8000, min(0x7FFF, num)) & 0xFFFF
+                regs[BW] = (regs[BW] & 0xFF00) | d
+            data = bytes([0xF6 + w, 0xC0 | op << 3 | BW])
+            out.append((f"{G.G3[op]}{'bw'[w]} ovf", data, regs, [AW, DW]))
+        elif kind == "bcd4s":
+            # (F5 finding 17) ADD4S / SUB4S / CMP4S: the strings stored first (known digits,
+            # some not BCD), CL 1-16; the observation shows the PSW and CW / IX / IY
+            op = r.choice((0x20, 0x22, 0x26))
+            n = r.choice((1, 2, 3, 4, 5, 8, 15, 16, r.randrange(1, 17)))
+            regs[CW] = (regs[CW] & 0xFF00) | n
+            regs[IX] = 0x0100 + 2 * r.randrange(0x300)
+            regs[IY] = 0x0800 + 2 * r.randrange(0x300)
+            pre = []
+            nb = (n + 1) // 2
+            for base, pfx, rm in ((regs[IX], b"", 0x44), (regs[IY], b"\x26", 0x45)):
+                for k in range(0, nb, 2):
+                    def dig():
+                        return r.randrange(10) if r.random() < 0.85 else r.randrange(16)
+                    v = sum((dig() << (4 * j)) for j in range(4))
+                    if r.random() < 0.08:
+                        v = r.choice((0, 0x9999))
+                    pre.append((pfx + bytes([0xC7, rm, k]) + v.to_bytes(2, "little"),
+                                f"MOV {'DS1:[IY' if pfx else '[IX'}+{k}], {v:04X}h"))
+            nm = {0x20: "ADD4S", 0x22: "SUB4S", 0x26: "CMP4S"}[op]
+            out.append((nm, bytes([0x0F, op]), regs, [CW, IX, IY], pre))
+        elif kind == "extal":
+            # (F5b) EXT with AL / AH as the offset register: the field written to AW and the
+            # stepped offset to AL / AH, which wins (f5a_000: EXT AH, 10)
+            rm = r.choice((0, 4))
+            off, wid = r.randrange(16), r.randrange(16)
+            regs[AW] = (regs[AW] & (0xFF00 if rm == 0 else 0x00FF)) | (off << (0 if rm == 0 else 8))
+            regs[IX] = 0x0100 + 2 * r.randrange(0x700)
+            if r.random() < 0.5:
+                regs[BW] = (regs[BW] & 0xFF00) | wid
+                data = bytes([0x0F, 0x33, 0xC0 | BW << 3 | rm])
+            else:
+                data = bytes([0x0F, 0x3B, 0xC0 | rm, wid])
+            out.append(("EXT al/ah", data, regs, [AW, IX]))
+        elif kind == "shm0":
+            # (F5b) a memory operand shifted / rotated by CL or imm8, the count 0 often: silicon
+            # reads and does not write back at count 0 (f5a_011)
+            op = r.randrange(8)
+            if op == 6:
+                op = 4
+            w = r.randrange(2)
+            cnt = r.choice((0, 0, 0, 1, 2, 8, 16, 31, 32, 33, r.randrange(256)))
+            regs[IX] = 0x0100 + 2 * r.randrange(0x700)
+            d8 = r.randrange(0x80)
+            if r.random() < 0.5:
+                regs[CW] = (regs[CW] & 0xFF00) | cnt
+                data = bytes([0xD2 + w, 0x44 | op << 3, d8])
+                how = "CL"
+            else:
+                data = bytes([0xC0 + w, 0x44 | op << 3, d8, cnt])
+                how = "imm"
+            out.append((f"{G.SHF[op]}{'bw'[w]} mem,{how}", data, regs, [AW]))
+        elif kind == "rot4al":
+            # (F5b) ROL4 / ROR4 whose operand is AL itself (or AH): which of the two results AL
+            # keeps (f5a_004, f5a_037)
+            op = r.choice((0x28, 0x2A))
+            rm = r.choice((0, 0, 0, 4))
+            data = bytes([0x0F, op, 0xC0 | rm])
+            out.append(("ROL4 al" if op == 0x28 else "ROR4 al", data, regs, [AW]))
         elif kind == "io":
             # (F5 regression) word I/O at odd and even ports: a pair of byte cycles at an odd one
             op = r.choice((0xED, 0xEF, 0xE5, 0xE7, 0xEC, 0xEE))
@@ -206,8 +306,8 @@ def case_list_str(r, n):
 
 
 KINDS = ("shift", "shift", "mul", "mul3", "div", "adj", "logic", "arith", "unary", "bit", "rot4",
-         "ext", "ins")
-KINDS_R = ("insal", "io", "strio")
+         "ext", "ins", "prepare", "divovf", "bcd4s")
+KINDS_R = ("insal", "io", "strio", "extal", "shm0", "rot4al")
 N_CASES = 110
 
 
@@ -221,9 +321,11 @@ def build(name, kind, seed):
     g.load_seg("DS0", 0x0400)
     g.load_seg("DS1", 0x0400)
     meta = []
-    for op, data, regs, wr in (case_list_str(r, N_CASES) if kind == "strio" else case_list(kind, r, N_CASES)):
+    for op, data, regs, wr, *pre in (case_list_str(r, N_CASES) if kind == "strio" else case_list(kind, r, N_CASES)):
         for k, v in regs.items():
             g.mov16(k, v)
+        for d, t in (pre[0] if pre else ()):
+            g.setup(d, t)
         psw = (r.randrange(0x1000) & ~0x0300) | 0x0002 | (r.randrange(2) << 10)
         g.setup(b"\x68" + psw.to_bytes(2, "little"), f"PUSH {psw:04X}h")
         g.setup(b"\x9D", "POP PSW")

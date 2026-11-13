@@ -2346,3 +2346,35 @@ question, decided from S8's routed numbers with the user.
   dumps include SFRs with undefined reset values (TMMS0 bit 7 differs between sessions), so every set is
   re-taken once the prologue stores them. Measured, not built: EXT / INS with an offset or width byte
   above 15 can stop the CPU inside the instruction (receipt f5-extins-range-socket.json).
+- **F5 second batch landed (2026-11-13): 660 of 710 fuzz programs equal on both socket sessions and the
+  RTL (the first batch: 0); corpus 6,541 unchanged.** **The reference made clean and re-taken** (f5a 300,
+  f5b 150, f5c 160, f5d 100, f5r 12, f5x 32: socket against socket-2 equal on all 748, none retried;
+  receipts f5-<set>-socket(-2).json.gz): the prologue stores every SFR the book leaves undefined at reset
+  (the fuzz reads them as operands, so a program's first run saw the previous program's values: the
+  cause of the unstable capture windows); the two f5d programs that looped on silicon were a generator
+  flaw (an excluded register still used in an address moved a store onto the FPO vector); a trace
+  longer than one capture window is re-run until every window is the same execution, and the gate
+  refuses one that never stitches; the interrupt handler's count store is dropped from the compared
+  write order (it lands where the take does, and the RTL's clocks are not silicon's). **Measured on
+  silicon and built** (funcref carries each; the V20 suite's rules behind funcref.V20_UNDEF): PREPARE
+  uses its level byte whole (0-255; BP pushed, the L - 1 display words at SS:[old BP - 2], ... copied,
+  then the frame pointer; urom/zz_late.uasm); a signed DIV whose quotient is out of range traps after
+  the steps with the completing divide's flags; ADD4S / SUB4S / CMP4S leave the last byte step's flags
+  (CY its carry, Z every byte zero, S and P of the last byte, AC its low digit's adjust, V the adjust's
+  overflow); a word at an odd I/O port is two byte cycles (the bus pair now carries I/O); an I/O write's
+  datum is held from its post (a core bug: the next instruction's PUSH reloaded it); a segment prefix
+  reaches the opcode through BUSLOCK and through a REP before a non-string opcode, a trap after them
+  pushes the first prefix's offset, and no step or interrupt boundary falls between such a REP and its
+  opcode; a memory shift or rotate by a zero count reads and does not write; INS reads AW before
+  stepping an AL / AH offset register, EXT writes the offset register before AW, ROL4 / ROR4 write AL
+  before the operand. tools: validation/v35s/fuzz_hist.py (the first-difference histogram: 687 programs
+  differing at the base, 50 now). **Gate:** f5d 100 / 100, f5a 294 / 300, f5b 147 / 150, f5c 119 / 160,
+  f5x 32, f5r 12 equal on both sessions; every earlier program gate equal; corpus 6,541 with 0 runs
+  differing at both spacings, write data 106,824 / 106,824, chk silent, vectors 0 bad, lint clean, 48
+  fast tests. **FPGA at 17 ns: +0.216 / +0.773 / +0.605 on seeds 1 / 2 / 3** (the base +0.713 / +1.328 /
+  +1.718; all pass, margin down about 0.5-1.1 ns), 9,425 LUT4 / 600 ADD / 2,444 FF / 79 RAM_5K, seed 1's
+  worst path 15 levels ending at the bus unit's address register. **Open (batch 3, 50 programs):** an
+  RTL hang after a redirect to an odd address (24 programs, also on the earlier RTL: the E word waits on
+  the queue's refill forever); the single step over POP PSW / FINT / MOV PSW,AH (13); NMI programs not
+  yet attributed (9); singles (an FPO1 trap's pushed PC, SET1 DIR / TEST1 / MUL imm flags, one OUT
+  datum).

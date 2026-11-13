@@ -268,21 +268,16 @@ package v35_fn_pkg;
         end
         q = s.w ? s.q : {8'd0, s.q[7:0]};
         r = s.w ? s.r[15:0] : {8'd0, s.r[7:0]};
-        if (s.sgn) begin
-            // a quotient out of range traps with these flags (F3: silicon's on every case)
-            psw = v35_szp(psw0, q, s.w);
-            psw[V35_PSW_CY] = 1'b0;
-            psw[V35_PSW_AC] = 1'b0;
-            psw[V35_PSW_V] = 1'b0;
-            if (s.w ? q > 16'h7FFF : q > 16'h007F) begin
-                trap = 1'b1;
-                return 32'd0;
-            end
-        end
         psw = v35_szp(psw0, r, s.w);
         psw[V35_PSW_CY] = 1'b0;
         psw[V35_PSW_V] = 1'b0;
         psw[V35_PSW_AC] = s.hi[3:0] < s.d[3:0];
+        // (F5b: silicon, f5x divovf, 83 cases) a signed quotient out of range traps after the
+        // steps with the completing divide's flags (above); the pre-check's trap keeps its SUB's
+        if (s.sgn && (s.w ? q > 16'h7FFF : q > 16'h007F)) begin
+            trap = 1'b1;
+            return 32'd0;
+        end
         if (s.sgn && s.nneg != s.dneg)
             q = 16'd0 - q;
         if (s.sgn && s.nneg)
@@ -363,13 +358,13 @@ package v35_fn_pkg;
     endfunction
 
     // ADD4S / SUB4S's byte step (funcref.bcd_add8 / bcd_sub8, nuV30's law): a = the destination
-    // byte, b = the source byte; {the carry / borrow (the high digit's adjust decision), the
-    // byte's zero term (the V30 stage), the byte}
+    // byte, b = the source byte; {the carry / borrow (the high digit's adjust decision), (F5b)
+    // the low digit's adjust decision (c1 or c2: silicon's AC after the string), the byte}
     function automatic logic [9:0] v35_bcd8(input logic sub, input logic [7:0] a,
                                             input logic [7:0] b, input logic cin);
         logic [4:0] lo, hi, dec;
         logic [3:0] dlo0, dlo, dhi0, dhi;
-        logic c1, c2, fl, wrapb, fire, z;
+        logic c1, c2, fl, wrapb, fire;
         if (!sub) begin
             lo = {1'b0, a[3:0]} + {1'b0, b[3:0]} + {4'd0, cin};
             c1 = lo[4];
@@ -380,7 +375,6 @@ package v35_fn_pkg;
             dhi0 = hi[3:0];
             fire = {1'b0, a[7:4]} + {1'b0, b[7:4]} + {4'd0, c1 | c2} > 5'd9;
             dhi = fire ? dhi0 + 4'd6 : dhi0;
-            z = {1'b0, a} + {1'b0, b} + {8'd0, cin} == 9'd0;
         end else begin
             lo = {1'b0, a[3:0]} - {1'b0, b[3:0]} - {4'd0, cin};
             c1 = lo[4];
@@ -394,9 +388,18 @@ package v35_fn_pkg;
             dec = {1'b0, a[7:4]} - {1'b0, b[7:4]} - {4'd0, c1};
             fire = dec[4] || dec > 5'd9 || (dec[3:0] == 4'd9 && c2 && !c1);
             dhi = fire ? dhi0 - 4'd6 : dhi0;
-            z = dec[3:0] == 4'd0 && dlo == 4'd0;
         end
-        v35_bcd8 = {fire, z, dhi, dlo};
+        v35_bcd8 = {fire, c1 || c2, dhi, dlo};
+    endfunction
+
+    // (F5b) bit 7 of the byte step's binary sum / difference a +/- b +/- cin (before the adjust):
+    // the string's V is the adjust's overflow, that bit 0 and the adjusted byte's 1 (an add), or
+    // the reverse (a subtract)
+    function automatic logic v35_bcd8_s7(input logic sub, input logic [7:0] a, input logic [7:0] b,
+                                         input logic cin);
+        logic [7:0] t;
+        t = sub ? a - b - {7'd0, cin} : a + b + {7'd0, cin};
+        v35_bcd8_s7 = t[7];
     endfunction
 
     // TEST1 / CLR1 / SET1 / NOT1 (the 0F second byte's bits 2:1) on the operand a with the

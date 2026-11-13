@@ -80,6 +80,11 @@ SFR_WORD = (0x44, 0x45, 0x94, 0x95, 0x82, 0x8A)
 DUMP_SFR_PLAIN = (0x44, 0x45, 0x46, 0x94, 0x95, 0x96, 0xEA, 0xFC)
 DUMP_SFR_WORD = (0x82, 0x8A)
 
+# the SFRs with an undefined reset value (data book; docs/v35s-sfr-socket.md "book" -) that a
+# dump reads or a layer leaves unwritten: the prologue stores each (finding 15)
+UNDEF_SFR_BYTE = (0x44, 0x45, 0x46, 0x65, 0x66, 0x75, 0x76, 0x94, 0x95, 0x96, 0xA0, 0xA2)
+UNDEF_SFR_WORD = (0x82, 0x8A)
+
 PS_CHOICES = (0x0000, 0x0010, 0x0080, 0x00F0)
 SEG_EXT = (0x0400, 0x0300, 0x03F0, 0x0380, 0x0200, 0x0000, 0x0010, 0x0123, 0x03FF)
 SEG_ONCHIP = (0xFFE0, 0xF000, 0xFF00, 0xFE00)
@@ -390,7 +395,12 @@ class Gen:
                 base = idx = None
                 dseg = "DS0"
             need = [r for r in (base, idx) if r is not None]
-            if any(r in self.reserved or r in exclude for r in need if st.get16(r) is None):
+            if any(r in self.reserved for r in need if st.get16(r) is None):
+                continue
+            # `exclude`: registers the caller loads after the operand is chosen (f_sfr's value
+            # register), so they never form the EA (F5 finding 14: MOV DS1:[BW+IX], BL with BW
+            # known; the value's load moved the store onto the vector table)
+            if any(r in exclude for r in need):
                 continue
             # the segment
             valid = [s for s in SREG if st.seg[s] is not None
@@ -1752,9 +1762,10 @@ class Gen:
         st = self.st
         if BP in self.reserved or self.ctx:
             raise Retry("rsv")
+        # the level byte is not reduced (f5x prepare: 33 levels push 34 words, 255 push 256)
         lvl = self.r.choice((0, 1, 1, 2, 3, 4, 7, 33))
         size = self.r.choice((0, 2, 4, 6, 1, 8))
-        eff = lvl & 31
+        eff = lvl
         need = 2 * (eff + 1) + size + 8
         self.need_room(need + 40, 0)
         if st.get16(BP) is None or not SP_LO + 2 * eff + 4 <= st.get16(BP) <= SP_HI:
@@ -1942,6 +1953,19 @@ def prologue(g, r, table):
         v = r.randrange(0x10000)
         g.setup(b"\x26\xC7\x06" + (0xE0 + o).to_bytes(2, "little") + v.to_bytes(2, "little"),
                 f"MOV DS1:[{hx(0xE0 + o)}], {hx(v)}")
+    # the SFRs whose reset value the book leaves undefined (EMS0-2, TMMS0-2, MD0 / MD1, DMAC0 / 1,
+    # SRMS / STMS) get a defined value, so every dump of them is determined (F5 finding 15: TMMS0's
+    # bit 7 differed between socket sessions). The values come from their own generator, so the
+    # program's other draws are unchanged.
+    rs = random.Random(b"undef-sfr" + bytes(table))
+    for o in UNDEF_SFR_BYTE:
+        v = rs.randrange(0x100)
+        g.setup(b"\x26\xC6\x06" + (0x100 + o).to_bytes(2, "little") + bytes([v]),
+                f"MOV DS1:[{hx(0x100 + o)}], {hx(v, 2)} (SFR {o:02X}h: reset undefined)")
+    for o in UNDEF_SFR_WORD:
+        v = rs.randrange(0x10000)
+        g.setup(b"\x26\xC7\x06" + (0x100 + o).to_bytes(2, "little") + v.to_bytes(2, "little"),
+                f"MOV DS1:[{hx(0x100 + o)}], {hx(v)} (SFR {o:02X}h: reset undefined)")
     st.set16(SP, sp0, dirty=False)
     for bb in range(7):
         st.banks[bb] = {o: table[0x20 * bb + o] for o in range(0x20)}

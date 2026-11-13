@@ -8,8 +8,9 @@
 ; the V20 suite's, funcref.py; the next word is read and written though no bit of the field
 ; lands in it); the offset register becomes (offset + w + 1) mod 16 and the pointer steps by 2
 ; when that sum reaches 16. The flags: none (F5: the V35 leaves the PSW, f5x; the V20 suite's
-; byte subtract 15 - (offset + width) / + 1 was the core's until F5). INS steps the offset register before AW is read (an offset in AL
-; or AH inserts the stepped value); EXT writes AW before the offset register.
+; byte subtract 15 - (offset + width) / + 1 was the core's until F5). (F5b: silicon, f5r insal) INS reads AW before it steps the offset register
+; (an offset in AL or AH inserts AW's bits as they were); (F5b: f5r extal) EXT writes the offset
+; register before AW (an offset in AL or AH is overwritten by the field).
 ;
 ; The machine: the field moves through the 32-bit pair {tmpc, tmpb} one bit a loop iteration
 ; (BFR / BFL, two words: the V35's iteration, as the shifts'), the loop counter loaded from
@@ -55,8 +56,8 @@ ext_wr: cnt=SIG d1=TC s1=ZERO           ; the counter <- 15 - w; tmpc <- 0
     jc=CNTZ:ext_wd                      ; the field fills the word: done
 ext_wrl: alu=BFR                        ; the word shifted right by one (tmpc's zero in)
     loop=ext_wrl                        ; the counter step
-ext_wd: open call=w18                   ; OPEN: 19 clocks with no act (EXT 107 - 2o - 4w) (the call and the shared delay's 18)
-    wr=AW wid=WORD ws=TB alu=PASS ax=ADDR jmp=ext_t; AW <- the field; SIGMA = the offset's step
+ext_wd: open call=w17                   ; OPEN: 18 clocks with no act (EXT 107 - 2o - 4w) (the call and the shared delay's 17)
+    alu=PASS ax=ADDR jmp=ext_t          ; SIGMA = the offset's step
 ; the field crosses into the next word (the registers whole): the word at IX + 2 read too
 ext_x: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG; tmpb <- the low word; tmpc <- the offset's step; SIGMA = the offset
     cnt=SIG ra=IX wid=WORD alu=INC2 ax=RA; the counter <- the offset's low four bits; SIGMA = IX + 2
@@ -68,8 +69,8 @@ ext_xr: alu=BFR                         ; the pair rotated right by one
     loop=ext_xr                         ; the counter step
 ext_xm: open call=w9                    ; OPEN: 10 clocks with no act (EXT 61 + 2o) (the call and the shared delay's 9)
     alu=BFM                             ; tmpb masked to the field's w + 1 bits
-    wr=AW wid=WORD ws=TB                ; AW <- the field
-ext_t: wr=RM wid=BYTE ws=SIG jnc=SGN:ext_n; the offset register <- the new offset (after AW: an offset in AL / AH keeps it); no carry: the pointer stays
+ext_t: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
+    wr=AW wid=WORD ws=TB jnc=SGN:ext_n  ; (F5b: silicon, f5r extal, 220 cases) AW <- the field after the offset register (an offset in AL / AH is overwritten); no carry: the pointer stays
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
     wr=IX wid=WORD ws=SIG               ; IX written
     e wb                                ; E: pop the next opcode; AW's write-back runs on past E (the frozen model's bf_ext wb 2: an OUT imm8 after it waits, MX1f)
@@ -152,12 +153,12 @@ insi_r: open call=w4                    ; OPEN: 5 clocks with no act (the read's
     ra=RM wid=BYTE d1=TA s1=IMM8 d2=TB s2=RA alu=ADD ax=RA ay=IMM8 jmp=ins_c; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width; the common part
 
 ; the insertion pass (INS, called): SIGMA the offset's step, tmpb the offset, tmpa the width,
-; tmpc the word. The offset register is written (before AW is read); the pair
+; tmpc the word. (F5b) The offset register is written on the last word, after AW is read; the pair
 ; {0, the word} rotated right by the offset, AW's low w + 1 bits merged, rotated on to sixteen:
 ; tmpc <- the word with the field, tmpb <- the field's bits beyond bit 15; the address register
 ; <- the offset's step. (No shared delay inside: the return register holds the caller's.)
 routine bf_pass why="OPEN: the INS insertion pass (called by ins / insi): the two words after the offset rotations are OPEN (silicon 92 at offset 0 against 94)"
-    wr=RM wid=BYTE ws=SIG d1=ADDR s1=SIG alu=PASS ax=TB; the offset register <- the new offset; the address register <- the step; SIGMA = the offset
+    d1=ADDR s1=SIG alu=PASS ax=TB       ; the address register <- the step; SIGMA = the offset
     cnt=SIG alu=NOT ax=TB d1=TB s1=TC d2=TC s2=ZERO; the counter <- the offset's low four bits; SIGMA = ~offset; tmpb <- the word; tmpc <- 0
     jc=CNTZ:bfp_m                       ; offset 0: the merge
 bfp_r: alu=BFR                          ; the pair rotated right by one
@@ -168,4 +169,4 @@ bfp_m: ra=AW wid=WORD alu=BFI ax=RA cnt=SIG; AW's low w + 1 bits into tmpb; the 
     jc=CNTZ:bfp_l                       ; none: the last rotation
 bfp_s: alu=BFR                          ; the pair rotated right by one
     loop=bfp_s                          ; the counter step
-bfp_l: alu=BFR ret                      ; the sixteenth rotation; return
+bfp_l: alu=BFR wr=RM wid=BYTE ws=ADDR ret ; the sixteenth rotation; (F5b) the offset register <- the step (after AW is read: an offset in AL / AH inserts AW's bits as they were, f5r insal); return

@@ -15,7 +15,9 @@
 The asynchronous take (intp, nmi, timer) does not depend on the boundary it lands on:
  - the bank-switch handlers (intp, timer) touch nothing but their count byte (SS:7E40h / 7E41h),
    ISPR (FINT) and, for the timer, TMC0; they push nothing. Their bank's PSW save and PC save
-   (which hold the interrupted point) are masked in the bank dump;
+   (which hold the interrupted point) are masked in the bank dump; (F5b) the count byte's store
+   (it sits where the take lands: the RTL's clocks are not silicon's) is dropped from both write
+   sequences, its final value compared in the count page;
  - the NMI's frame (three pushes) and its stub's count store are dropped from both write
    sequences before they are compared (they sit where the take lands); the stack page's final
    contents are not compared (the frame's residue), its every write before and after is;
@@ -214,6 +216,9 @@ def _opts(set_name, k):
             opts["protect_bank"] = p
             opts["keep_ie"] = True
             mask |= {G.DUMP + 0x20 * p + o for o in range(4, 8)}
+            # (F5b) the handler's count store sits where the take lands: dropped from both
+            # write sequences (its final value is still compared in the count page)
+            filt = _count_filter(G.CNT + (0x40 if scen == "intp" else 0x41))
         if scen == "nmi":
             opts["keep_ie"] = False
         body = body_c(scen, r)
@@ -238,6 +243,12 @@ def _nmi_body(inner):
         _items(g, items, K)
         _wait(g, G.CNT + 2)
     return body
+
+
+def _count_filter(cnt):
+    def filt(writes):
+        return [w for w in writes if not (w[0] == cnt and not w[2] & 0x02)]
+    return filt
 
 
 def _nmi_filter(writes):

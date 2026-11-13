@@ -71,14 +71,24 @@ def _stim(harness, prog):
         load_stimulus(harness, getattr(prog, "stim", None))
 
 
-def run_prog(harness, prog, lane):
+def run_prog(harness, prog, lane, attempts=4):
+    """One program's record. A trace longer than one capture window is stitched from separate
+    runs (onchip.run_one: one run per 2,048-record window), which is exact only when every run
+    is the same execution: a window run whose total or signature differs from the first run's
+    (state left by the previous program, an asynchronous take landing elsewhere: F5 finding 21)
+    makes the record unstitchable. The whole program is then run again (its own end state now
+    the starting state) up to `attempts` times; a record that never stitches keeps its replay
+    notes and the gate refuses to compare it."""
     from .onchip import run_one
-    _stim(harness, prog)
-    rec = run_one(harness, prog, lane, limit=prog.limit)
     keep = ("passed", "status", "timeout", "total", "writes", "io_reads", "regions", "replay",
             "trace_tail", "program_sha256")
+    for attempt in range(1, attempts + 1):
+        _stim(harness, prog)
+        rec = run_one(harness, prog, lane, limit=prog.limit)
+        if not rec["replay"]:
+            break
     rec = {k: rec[k] for k in keep}
-    rec.update(seed=prog.seed, fuzz=prog.meta.get("fuzz"))
+    rec.update(seed=prog.seed, fuzz=prog.meta.get("fuzz"), attempts=attempt)
     return rec
 
 
@@ -173,6 +183,9 @@ def compare_rec(a, b, prog=None, mask=None):
                    + (f" (+{len(diffs) - 12})" if len(diffs) > 12 else ""))
     if a["passed"] != b["passed"]:
         msg.append(f"passed {a['passed']}/{b['passed']}")
+    for side, r in (("reference", a), ("candidate", b)):
+        if r.get("replay"):
+            msg.append(f"the {side}'s trace windows are not one execution ({r['replay'][0]})")
     return not msg, "; ".join(msg)
 
 
