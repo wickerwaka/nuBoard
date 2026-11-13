@@ -11,6 +11,7 @@
     f5d  on-chip state: random stores to the writable SFRs among plain instructions, the SFR
          page (F1's comparable offsets) and the banks dumped at the end
     f5x  the flag survey (validation/v35s/fuzz_flags.py)
+    f5o  (F5c) measured, not gated: the OUT datum after CVTBD / CVTDB (fuzz_flags "outd")
 
 The asynchronous take (intp, nmi, timer) does not depend on the boundary it lands on:
  - the bank-switch handlers (intp, timer) touch nothing but their count byte (SS:7E40h / 7E41h),
@@ -252,11 +253,20 @@ def _count_filter(cnt):
 
 
 def _nmi_filter(writes):
-    """Drop the NMI's frame (the three pushes before the stub's count store) and the store."""
+    """Drop the NMI's frame (the three pushes before the stub's count store) and the store.
+    (F5c) The frame is six bytes: three records at an even SP, six byte records at an odd SP (a
+    word at an odd address is two byte cycles; the fuzz's INC SP / DEC SP leave SP odd): the
+    records are counted back by their bytes (one at an odd address or with /UBE high, else
+    two)."""
     out = list(writes)
     for i in range(len(out) - 1, -1, -1):
         if out[i][0] == G.CNT + 2 and not out[i][2] & 0x02:
-            del out[max(0, i - 3):i + 1]
+            j, n = i, 0
+            while j > 0 and n < 6:
+                j -= 1
+                a, _, f = out[j]
+                n += 1 if (a & 1 or f & 0x08) else 2
+            del out[j:i + 1]
             break
     return out
 
@@ -280,9 +290,10 @@ def _mk(set_name, name, seed, items, k):
 
 
 def makers(set_name):
-    if set_name in ("f5x", "f5r"):
+    if set_name in ("f5x", "f5r", "f5o"):
         from . import fuzz_flags
-        yield from (fuzz_flags.makers() if set_name == "f5x" else fuzz_flags.makers_r())
+        yield from {"f5x": fuzz_flags.makers, "f5r": fuzz_flags.makers_r,
+                    "f5o": fuzz_flags.makers_o}[set_name]()
         return
     cfg = SETS[set_name]
     for k in range(cfg["n"]):

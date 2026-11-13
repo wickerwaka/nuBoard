@@ -750,8 +750,63 @@ def step2_tests():
     return T
 
 
+def f5_step_tests():
+    """(F5c) The single step and an interrupt at the boundary after each instruction that loads
+    the PSW or the in-service state: POP PSW, RETI, MOV PSW,AH, FINT, the flag instructions
+    (the fuzz's step programs: no step after POP PSW and FINT on silicon)."""
+    stop = "    PUSH AW\n    MOV AW, 0002h\n    PUSH AW\n    POP PSW\n    POP AW\n"
+    go = "    PUSH AW\n    MOV AW, 0102h\n    PUSH AW\n    POP PSW\n    POP AW\n"
+    ret = ("    MOV AW, {psw}\n    PUSH AW\n    XOR AW, AW\n    PUSH AW\n    CALL rtgt{{k}}\n"
+           "rtgt{{k}}:\n    POP AW\n    ADD AW, {d}\n    PUSH AW\n{mid}    RETI\n")
+    T = [
+        Test("st_popsw_keep", code=go + "    NOP\n    PUSH BW\n    POP PSW\n    INC AW\n    INC AW\n"
+             + stop, regs={"BW": 0x0102}, action="", note="POP PSW keeping BRK 1 stepped"),
+        Test("st_popsw_flags", code=go + "    NOP\n    PUSH BW\n    POP PSW\n    INC AW\n    INC AW\n"
+             + stop, regs={"BW": 0x0DD7}, action="", note="POP PSW BRK 1, DIR and the flags"),
+        Test("st_popsw_twice", code=go + "    NOP\n    PUSH BW\n    PUSH BW\n    POP PSW\n"
+             "    POP PSW\n    INC AW\n" + stop, regs={"BW": 0x0103}, action="",
+             note="two POP PSW in a row stepped"),
+        Test("st_fint", code=go + "    NOP\n    FINT\n    INC AW\n    INC AW\n" + stop, action="",
+             note="FINT stepped (nothing in service)"),
+        Test("st_fint2", code=go + "    NOP\n    FINT\n    FINT\n    INC AW\n" + stop, action="",
+             note="two FINTs stepped"),
+        Test("st_reti", code=go + "    NOP\n" + ret.format(psw="0F103h", d=9, mid="    MOV AW, 1234h\n")
+             + "    INC AW\n    INC AW\n" + stop, action="", note="RETI to BRK 1 stepped"),
+        Test("st_sahf", code=go + "    NOP\n    MOV AH, 0D7h\n    MOV PSW, AH\n    INC AW\n" + stop,
+             action="", note="MOV PSW,AH stepped"),
+        Test("st_flagops", code=go + "    NOP\n" + _db([0xF9, 0xF8, 0xF5, 0xFD, 0xFC]) + "    INC AW\n"
+             + stop, action="", note="SET1 CY, CLR1 CY, NOT1 CY, SET1 DIR, CLR1 DIR stepped"),
+        Test("st_popsw_ie", code=go + "    NOP\n    PUSH BW\n    POP PSW\n    INC AW\n    DI\n"
+             + stop, regs={"BW": 0x0302}, action="", note="POP PSW setting IE with BRK 1"),
+        Test("st_popsw_fint", code=go + "    NOP\n    PUSH BW\n    POP PSW\n    FINT\n    INC AW\n"
+             + stop, regs={"BW": 0x0102}, action="", note="POP PSW then FINT stepped"),
+        Test("in_nop", pre=_pend(), code="    MOV BW, 0202h\n    PUSH BW\n    EI\n    NOP\n" + CHAIN,
+             stim=_ST, note="the control: EI, NOP: taken after the NOP"),
+        Test("in_popsw", pre=_pend(), code="    MOV BW, 0202h\n    PUSH BW\n    EI\n    POP PSW\n"
+             + CHAIN, stim=_ST, note="EI, POP PSW (IE 1): taken after it or after the MULU"),
+        Test("in_fint", pre=_pend(), code="    EI\n    FINT\n" + CHAIN, stim=_ST,
+             note="EI, FINT (nothing in service)"),
+        Test("in_sahf", pre=_pend(), code="    EI\n    MOV PSW, AH\n" + CHAIN, stim=_ST,
+             note="EI, MOV PSW,AH"),
+        Test("in_reti", pre=_pend(), code=ret.format(psw="0F202h", d=7, mid="    EI\n") + CHAIN,
+             stim=_ST, note="EI, RETI (to IE 1): taken after the RETI or the MULU"),
+        Test("in_flag", pre=_pend(), code="    EI\n" + _db([0xF9]) + CHAIN, stim=_ST,
+             note="EI, SET1 CY"),
+    ]
+    return T
+
+
 def programs():
     return {
+        "f5_step": make_program("f5_step", f5_step_tests()[:5],
+                                note="(F5c) the step after the PSW loaders, part 1"),
+        "f5_step2": make_program("f5_step2", f5_step_tests()[5:10],
+                                 note="(F5c) the step after the PSW loaders, part 2"),
+        "f5_stepi": make_program("f5_stepi", f5_step_tests()[10:], gate=False,
+                                 note="(F5c) measured only: an interrupt after the PSW loaders "
+                                      "(the take lands after the MULU in every test, the NOP "
+                                      "control's too: the controller's latency is longer than "
+                                      "the instruction after EI, so these do not tell)"),
         "f3_vec": make_program("f3_vec", vec_tests(),
                                note="the sources, the entry, the edges, HALT's wake"),
         "f3_order": make_program("f3_order", order_tests(),

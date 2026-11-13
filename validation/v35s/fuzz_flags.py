@@ -271,6 +271,86 @@ def case_list(kind, r, n):
                 data = bytes([0xC0 + w, 0x44 | op << 3, d8, cnt])
                 how = "imm"
             out.append((f"{G.SHF[op]}{'bw'[w]} mem,{how}", data, regs, [AW]))
+        elif kind == "bitr":
+            # (F5c) TEST1 on every register operand (SP's word excluded), byte and word, by CL
+            # and by imm8 (any value): the fuzz's TEST1 IX / BW / BH differ in P and Z (f5b_087,
+            # f5c_084, f5c_111; f5a_058's BPO after TEST1 DW)
+            for k in (BP, IX, IY):
+                regs[k] = _rv(r)
+            w = r.randrange(2)
+            rm = r.choice([x for x in range(8) if not (w and x == SP)])
+            if r.random() < 0.5:
+                op = 0x10 | w
+                regs[CW] = (regs[CW] & 0xFF00) | r.randrange(256)
+                imm = b""
+            else:
+                op = 0x18 | w
+                imm = bytes([r.randrange(256)])
+            data = bytes([0x0F, op, 0xC0 | rm]) + imm
+            out.append((f"TEST1{'bw'[w]} {(R16 if w else R8)[rm]},{'imm' if imm else 'CL'}", data, regs, [AW]))
+        elif kind == "resvodd":
+            # (F5c) the reservation left standing by a routine that ends without its write (a
+            # memory shift / rotate by a zero count: the F word's `resv`, no post), then a
+            # transfer to an odd target: the refill's E waited on the request line the
+            # reservation held back once q_low fell (the RTL hung: f5a_011, f5a_158, f5a_299,
+            # f5b_078, f5b_145). Random leading NOPs give both target parities
+            op = r.randrange(8)
+            if op == 6:
+                op = 4
+            w = r.randrange(2)
+            cnt = r.choice((0, 0, 0, 0, 1, 8, r.randrange(256)))
+            regs[IX] = 0x0100 + 2 * r.randrange(0x700)
+            d8 = r.randrange(0x80)
+            if r.random() < 0.5:
+                regs[CW] = (regs[CW] & 0xFF00) | cnt
+                sh = bytes([0xD2 + w, 0x44 | op << 3, d8])
+            else:
+                sh = bytes([0xC0 + w, 0x44 | op << 3, d8, cnt])
+            data = b"\x90" * r.randrange(3) + sh + bytes([0xEB, 1, 0x90]) + b"\x90" * r.randrange(2)
+            out.append((f"{G.SHF[op]}{'bw'[w]} mem,0 + BR odd", data, regs, [AW]))
+        elif kind == "outd":
+            # (F5c) an OUT's datum (f5a_061: OUT 24h after REP? MOVBKB, MOV BL wrote 07h, the
+            # next fetch word's low byte, with AL 1Dh): OUT imm8 / OUT DW, AL or AW, even and odd
+            # ports, after a few preceding forms, a random instruction byte after it
+            port = r.randrange(0x100)
+            regs[DW] = r.randrange(0x10000)
+            while 0xFF00 <= regs[DW] <= 0xFF20:
+                regs[DW] = r.randrange(0x10000)
+            regs[IX] = regs[IY] = 0x0100 + 2 * r.randrange(0x700)
+            pre = r.choice((b"", b"\x90", bytes([0xB3, r.randrange(256)]), b"\x65\xA4", b"\xF3\xA4"))
+            if pre[:1] in (b"\x65", b"\xF3"):
+                regs[CW] = 1
+            out_op = r.choice((0xE6, 0xE7, 0xEE, 0xEF))
+            data = pre + (bytes([out_op, port]) if out_op < 0xEC else bytes([out_op]))
+            nx = r.choice(("cvtbd", "cvtbd", "cvtdb", "mul", "addi", "movi", "nop", "inc", "movbl", "pushi"))
+            imm = r.randrange(1, 256)
+            data += {"cvtbd": bytes([0xD4, imm]), "cvtdb": bytes([0xD5, imm]),
+                     "mul": bytes([0xF6, 0xE3]), "addi": bytes([0x04, imm]), "movi": bytes([0xB0, imm]),
+                     "nop": b"\x90", "inc": b"\x40", "movbl": bytes([0xB3, imm]),
+                     "pushi": bytes([0x6A, imm, 0x58])}[nx]          # PUSH imm8; POP AW
+            out.append((f"OUT {out_op:02X} pre {pre.hex() or '-'} nx {nx}", data, regs, [AW]))
+        elif kind == "test1bcc":
+            # (F5c) TEST1 reg,imm followed by a short transfer (Bcc, DBNZ, DBNZNE / DBNZE, BCWZ,
+            # BR short; displacement 0: the same path either way): its E pop loads the
+            # displacement into IL before TEST1's word after E read the index there (f5c_084,
+            # f5c_111, f5b_087, f5a_058, f5c_027)
+            for k in (BP, IX, IY):
+                regs[k] = _rv(r)
+            regs[CW] = r.choice((0, 1, 2, r.randrange(0x10000)))
+            w = r.randrange(2)
+            rm = r.choice([x for x in range(8) if not (w and x == SP)])
+            nx = r.choice((0x70 + r.randrange(16), 0xE0, 0xE1, 0xE2, 0xE3, 0xEB))
+            data = bytes([0x0F, 0x18 | w, 0xC0 | rm, r.randrange(256), nx, 0x00])
+            out.append((f"TEST1{'bw'[w]} imm + {nx:02X}", data, regs, [AW, CW]))
+        elif kind == "repseg":
+            # (F5c) REP / REPNE / REPC / REPNC then a segment prefix before a non-string opcode
+            # (f5a_030: REP DS1: FPO1): which segment the read uses (the window's pattern at
+            # DS0 = DS1 = 0400h against SS = PS = 0)
+            rp = r.choice((0xF3, 0xF2, 0x65, 0x64))
+            sp_ = r.choice((0x26, 0x2E, 0x36, 0x3E))
+            regs[IX] = 0x0100 + 2 * r.randrange(0x700)
+            data = bytes([rp, sp_, 0x8B, 0x44, r.randrange(0x80)])
+            out.append((f"REP {rp:02X} {sp_:02X} MOV AW,m", data, regs, [AW, CW]))
         elif kind == "rot4al":
             # (F5b) ROL4 / ROR4 whose operand is AL itself (or AH): which of the two results AL
             # keeps (f5a_004, f5a_037)
@@ -306,8 +386,9 @@ def case_list_str(r, n):
 
 
 KINDS = ("shift", "shift", "mul", "mul3", "div", "adj", "logic", "arith", "unary", "bit", "rot4",
-         "ext", "ins", "prepare", "divovf", "bcd4s")
-KINDS_R = ("insal", "io", "strio", "extal", "shm0", "rot4al")
+         "ext", "ins", "prepare", "divovf", "bcd4s", "bitr")
+KINDS_R = ("insal", "io", "strio", "extal", "shm0", "rot4al", "resvodd", "test1bcc", "repseg")
+KINDS_O = ("outd",)
 N_CASES = 110
 
 
@@ -366,11 +447,23 @@ def makers():
 
 def makers_r():
     """f5r: the directed regressions of the F5 fixes that are not flags (INS with AL / AH as the
-    offset register; word I/O, IN / OUT / INMW / OUTMW, at odd and even ports)."""
+    offset register; word I/O, IN / OUT / INMW / OUTMW, at odd and even ports; (F5c) the
+    reservation after a zero-count memory shift with a transfer to an odd target, TEST1 imm
+    before a short transfer, REP then a segment prefix)."""
     for k, kind in enumerate(KINDS_R):
         for rep in range(2):
             name = f"f5r_{kind}{rep}"
             seed = 0x5F100000 + 16 * k + rep
+            yield name, (lambda name=name, kind=kind, seed=seed: build(name, kind, seed))
+
+
+def makers_o():
+    """(F5c) f5o: measured on the socket, not gated against the RTL (README "F5c"): an OUT's
+    datum when CVTBD / CVTDB follows (silicon: their sign-extended immediate replaces it)."""
+    for k, kind in enumerate(KINDS_O):
+        for rep in range(2):
+            name = f"f5o_{kind}{rep}"
+            seed = 0x5F100000 + 16 * 7 + rep     # (taken first as f5r kind 7)
             yield name, (lambda name=name, kind=kind, seed=seed: build(name, kind, seed))
 
 

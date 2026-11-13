@@ -101,10 +101,10 @@ routine b1tim op=18,19 page=0f diff=r:0,m00:+0,d8:+0,d16:+0,dir:+0 book="TEST1 r
     open                                    ; OPEN: a book clock with no act (TEST1 mem,imm EA + 9)
     e                                       ; E: pop the next opcode
 b1tim_r: pop=il                             ; pop the bit index
-    open                                    ; OPEN: a book clock with no act (TEST1 reg,imm 6) (the take sync's wait first)
+    open d1=TB s1=IMM8                      ; OPEN: a book clock with no act (TEST1 reg,imm 6) (the take sync's wait first); (F5c) the index into tmpb (the next E pop's short displacement overwrites IL before the word after E: f5c_084 TEST1 IX, 60h / DBNZNE)
     open                                    ; OPEN: a book clock with no act (TEST1 reg,imm 6)
     e                                       ; E: pop the next opcode
-    rb=RM alu=BIT ax=RB ay=IMM8 wf          ; the word after E: the register, TEST1's flags written (the write port's: MX3's WBR)
+    rb=RM alu=BIT ax=RB ay=TB wf            ; the word after E: the register and the index (tmpb), TEST1's flags written (the write port's: MX3's WBR)
 
 routine b1ccl op=12,13 page=0f diff=r:-2,m00:+0,d8:+0,d16:+0,dir:+0 book="CLR1 reg8,CL" bookm="CLR1 mem8,CL" why="OPEN: the book's CLR1 reg,CL 8 / mem,CL EA + 16, the book's clocks with no act OPEN; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count: the E word pops only the page's second byte), the frozen model exact on F32-push-test1_mw_cl-k1-pE-w0 and F32-push-set1_mw_cl-k1-pE-w0 (16 and 19 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (the ModR/M pop arms it: the register path's operation and the memory path's add wait for the fetch the pop's room asked for, MX1f / Correction 15; the book machine has no sync), F32-out-set1_rw_cl-k1-pE-w0 and F34-push-rbit-set1_rw_cl-l0-k1-pE-w0 (9 S-to-S each)"
     pop=modrm eac=b1ccl_r                   ; pop the ModR/M byte (E + 2)

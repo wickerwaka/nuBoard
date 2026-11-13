@@ -51,6 +51,7 @@ module v35_eu
     input  wire        ex,              // tick A
     input  wire        ex_b,            // tick B / ce_a
     input  wire        resv_e,          // tick A: the reservation rises (the loader's E pop)
+    input  wire        tk_go,           // (F5c) tick A: the dispatch enters the interrupt take
     // the loader's registers
     input  v35_udec_t  fmt,
     input  wire [2:0]  op3,
@@ -314,13 +315,14 @@ module v35_eu
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg  [1:0] la_b = 2'd0, lb_b = 2'd0;
-    reg        ack_b = 1'b0, resv_eb = 1'b0;
+    reg        ack_b = 1'b0, resv_eb = 1'b0, tk_go_b = 1'b0;
     always_ff @(posedge clock) begin
         if (ce_b) begin
             la_b <= sa[5:4];
             lb_b <= sb[5:4];
             ack_b <= req_ack;
             resv_eb <= resv_e;
+            tk_go_b <= tk_go;
         end
     end
 
@@ -892,9 +894,15 @@ module v35_eu
                 opr <= dnow;
                 opr_v <= 1'b1;
             end
+            // (F5c) the reservation ends with its request's acknowledge, and also when there is
+            // no request left to wait for: the routine's E word (a routine that ends without
+            // posting: the zero-count memory shift; a request posted on or before E stands on
+            // rq_v until its acknowledge) and the interrupt take's dispatch (the popped opcode's
+            // routine, whose E pop raised it, is not entered; the bank-switch take posts nothing).
+            // The next routine's rise (resv_eb, the same E clock) wins
             if (resv_eb)
                 resv_r <= 1'b1;
-            else if (ack_b)
+            else if (ack_b || (ex_b && word.e) || tk_go_b)
                 resv_r <= 1'b0;
             if (ex_b && word.f)
                 opr_v <= 1'b0;
@@ -931,7 +939,7 @@ module v35_eu
                     $display("v35 chk: eu: the early operands differ at %0t", $time);
             end
             if (la_b !== sa[5:4] || lb_b !== sb[5:4] || ack_b !== req_ack
-                || resv_eb !== resv_e) begin
+                || resv_eb !== resv_e || tk_go_b !== tk_go) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: eu: a tick A source changed in tick B at %0t", $time);

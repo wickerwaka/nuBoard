@@ -152,7 +152,13 @@ package v35_pkg;
     typedef enum logic [2:0] {
         SG_DEF = 3'd0, SG_SS = 3'd1, SG_DS1 = 3'd2, SG_DSP = 3'd3, SG_ZERO = 3'd4,
         SG_IDB = 3'd5,     // (F2b) the on-chip page: segment {IDB, 00h} (BTCLR's SFR)
-        SG_TA = 3'd6       // (F4b) tmpa (macro service's MSS: the channel's memory segment)
+        SG_TA = 3'd6,      // (F4b) tmpa (macro service's MSS: the channel's memory segment)
+        // (F5c) NBI: the field's last free value, on an E word that posts nothing: the next
+        // instruction's start is no boundary for the maskable interrupt or the single step (the
+        // interrupt arms dropped: v35_top ie_arm / brk_arm; NMI is still taken there). POP PSW,
+        // RETI and FINT (the data book: INT is not accepted between RETI or POP PSW and the next
+        // instruction; silicon, f5_step / f5_step2: nor the single step, after FINT too)
+        SG_NBI = 3'd7
     } v35_seg_e;
 
     // ---- a queue pop (one byte from the word register) into a popped-byte register ----

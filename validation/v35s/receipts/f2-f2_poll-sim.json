@@ -509,7 +509,7 @@
   ]
  ],
  "backend": "sim",
- "date": "2026-11-13T01:32:51",
+ "date": "2026-11-13T04:07:03",
  "core": "v35",
  "binary": "build/fpga/v35s/verilator-direct-v35"
 }

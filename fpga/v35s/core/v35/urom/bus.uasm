@@ -60,7 +60,7 @@ routine pop_psw op=9D resv=e book="POP PSW" why="OPEN: the frozen model's positi
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2 (0079)
     wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2 (007B)
     open call=w4                            ; OPEN: 5 clocks: a book clock with no act (POP PSW 13) (the call and the shared delay's 4)
-    f wr=PSW ws=OPR e                       ; F: the PSW <- the datum (bits 11:0) (007A); E
+    f wr=PSW ws=OPR e seg=NBI               ; F: the PSW <- the datum (bits 11:0) (007A); E; (F5c) NBI: no maskable interrupt or single step at the next start (f5_step)
 
 ; MOV [d16],acc (V20 MOV_DMEM_ACC 0088-008B). F1's store marker: measured 9
 routine st_dir op=A2,A3 book="MOV dmem,acc" diff=1 why="beyond the book: a named act, the post on the word after the address register's load (the request reads the address register a word later, as the EA's add: README MX1); the two pops at S+2 and S+3, the address and the datum, the post at S+5 (the write at S+6), E held to the write's end: 9 (F1-store-m2-pE-w0: the frozen model's T at S+2 S+3, the write at S+6, S-to-S 9; a6 9)"

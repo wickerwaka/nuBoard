@@ -450,7 +450,7 @@ module v35_top
     v35_eu eu (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .word, .word_nx(word_nx), .op_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx,
-        .ra_early, .rb_early, .ex, .ex_b, .resv_e,
+        .ra_early, .rb_early, .ex, .ex_b, .resv_e, .tk_go(ex && w_disp && igo),
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
         .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki,
         .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns(ns_r), .req_ia,
@@ -534,6 +534,13 @@ module v35_top
                 tk_dm <= 1'b0;
             if (ex_pop && word.e)
                 nb_r <= word.nb || rs_hlt;
+            // (F5c) POP PSW, RETI, FINT (seg=NBI on the E word): the interrupt arms dropped, so
+            // the next start takes neither the maskable interrupt nor the single step (NMI,
+            // macro service and DMA are not held); the dispatch reloads them from the PSW
+            if (ex_pop && word.e && word.seg == SG_NBI) begin
+                ie_arm <= 1'b0;
+                brk_arm <= 1'b0;
+            end
             if (take_d || take_m)
                 rs_hlt <= ms_hlt;
             else if (ex_pop && word.e)

@@ -99,9 +99,11 @@ btc_n: e                                    ; E: the next instruction
 
 ; ---- a REP prefix (F2 F3 64 65) before a non-string opcode: silicon runs the opcode once, the
 ; prefix ignored, CW kept (traps.py's rep series); the stream is refetched from the opcode's
-; offset (the byte after the prefix) and it runs as an instruction of its own. Not the segment
-; prefixes (REP DS1: MOVBK is a REP string on silicon: not built)
-routine rep_nx op=00-25,27-2D,2F-35,37-3D,3F-65,68-6B,70-A3,A8,A9,B0-D7,E0-FF page=rep why="(F2b) REP before a non-string opcode: the opcode refetched without the prefix (traps.py rep series); function only"
+; offset (the byte after the prefix) and it runs as an instruction of its own. (F5c) The segment
+; prefixes too: refetched, the prefix runs as its own (the override reaches the opcode, CW kept:
+; f5r repseg, 220 cases; the REP's offset is the instruction's start: f5a_030 REP DS1: FPO1 D8
+; pushes it). REP DS1: MOVBK (a REP string on silicon) is not built: the string runs once
+routine rep_nx op=00-65,68-6B,70-A3,A8,A9,B0-D7,E0-FF page=rep why="(F2b) REP before a non-string opcode: the opcode refetched without the prefix (traps.py rep series); function only"
     wid=WORD alu=DEC ax=PC                  ; SIGMA <- the opcode's offset (the byte before the pointer)
     flush                                   ; FLUSH: the stream from it
     pfx e nb                                ; E: the opcode, the prefix dropped; (F5b) pfx: a segment prefix before the REP kept; nb: REP and the opcode one instruction (no interrupt or single step between them: f5c_007, REP SUBC under the step pushes the next instruction)
@@ -183,7 +185,7 @@ dve: trap d1=TC s1=PC d2=TB s2=VEC vec=DIV   ; the divide error raised (the func
 ; ---- (F3) FINT (0F 92): the highest-priority level in service cleared in ISPR (f3_prio: FINT
 ; with 24h in service leaves 20h, then 00h; with none, nothing)
 routine fint op=92 page=0f book="FINT" why="(F3) FINT: the controller's ISPR (f3_prio); function only"
-    alu=FINT e                              ; ISPR: the highest-priority level cleared; E
+    alu=FINT e seg=NBI                      ; ISPR: the highest-priority level cleared; E; (F5c) NBI: no maskable interrupt or single step at the next start (f5_step)
 
 ; ---- (F3) 0F 9A: vector 1 with the next instruction's offset pushed (F2b's undefined series;
 ; f3_trap op_0f9a: the PSW pushed as it stands, IE and BRK cleared)

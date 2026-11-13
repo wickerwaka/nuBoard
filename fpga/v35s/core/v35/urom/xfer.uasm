@@ -377,4 +377,4 @@ routine reti op=CF book="RETI" diff=4 why="OPEN: silicon longer than the book (F
     open                                    ; OPEN: a book clock with no act (RETI 40)
     open call=w6                            ; OPEN: 7 clocks: a book clock with no act (RETI 40) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the return offset in the new PS
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    e seg=NBI                               ; E: the target's opcode, once the refill's run has ended; (F5c) NBI: no maskable interrupt or single step at the next start (f5_step2)

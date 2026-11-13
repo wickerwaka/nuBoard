@@ -403,6 +403,8 @@ def parse_word(text: str, path: str, ln: int) -> Word:
     if fields.get("ea") == enum_value("v35_ea_e", "bi") and fields.get("bus"):
         raise UasmError(f"{path}:{ln}: the EA's add posts (the request reads the address "
                         "register a word later)")
+    if fields.get("seg") == enum_value("v35_seg_e", "nbi") and (fields.get("bus") or not fields.get("e")):
+        raise UasmError(f"{path}:{ln}: seg=NBI is a fact of an E word that posts nothing")
     if is_open and not act.startswith("OPEN"):
         raise UasmError(f"{path}:{ln}: an open word's comment must start OPEN")
     if act.startswith("OPEN") and not is_open:

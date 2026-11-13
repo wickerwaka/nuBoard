@@ -2378,3 +2378,29 @@ question, decided from S8's routed numbers with the user.
   the queue's refill forever); the single step over POP PSW / FINT / MOV PSW,AH (13); NMI programs not
   yet attributed (9); singles (an FPO1 trap's pushed PC, SET1 DIR / TEST1 / MUL imm flags, one OUT
   datum).
+- **F5 third batch landed (2026-11-13): 709 of 710 fuzz programs equal on both socket sessions and the
+  RTL (f5a 299 / 300, f5b 150, f5c 160, f5d 100).** **The hang (24 programs, an RTL bug since the
+  reservation was built):** the EU's reservation (no fetch starts while a routine's data cycle is
+  announced) was released only by a bus acknowledge; a routine ending without the cycle it announced
+  (the zero-count memory shift) or an interrupt taken in place of the popped opcode's routine left it
+  standing, and after a redirect to an odd address (queue at 5 bytes) or the bank-switch take's flush
+  (queue empty) the E word waited for a fetch the reservation refused. The reservation register now
+  also clears on a routine's E word and on the take's dispatch (v35_eu resv_r; no term added to the
+  grant). **Measured on silicon and built:** no single step is taken at the start after POP PSW, RETI
+  or FINT (intr.py f5_step / f5_step2; the data book: nor a maskable interrupt after RETI / POP PSW):
+  seg=NBI on those E words drops the interrupt and step arms for one start (v35_top; NMI, macro
+  service and DMA not held); a segment prefix after a REP before a non-string opcode reaches the
+  opcode with the REP's offset the instruction's start (rep_nx's cells). **RTL bug fixed:** TEST1
+  reg,imm read its bit index after E from a byte register the next short transfer's pop had reloaded
+  (now from tmpb). **Test flaw fixed:** the NMI frame's exclusion counted 3 records where an odd SP
+  makes 6. **Gate:** as above; f5x 34, f5r 18 equal on both sessions; intr 8 sets and every earlier
+  program gate equal; corpus 6,541 with 0 runs differing at both spacings, write data 106,824 /
+  106,824, chk silent, vectors 0 bad, lint clean, 48 fast tests. **FPGA at 17 ns: +1.001 / +0.957 /
+  +1.565 on seeds 1 / 2 / 3** (the base +0.216 / +0.773 / +0.605), 9,631 LUT4 / 600 ADD / 2,468 FF / 79
+  RAM_5K, worst paths 15 levels. **Open:** f5a_061: an OUT followed by CVTBD / CVTDB drives the
+  follower's immediate as its datum on silicon (f5o, 220 cases on two sessions: measured, not built);
+  FINT's hold of the maskable interrupt is built by analogy with its measured hold of the step (the
+  controller's latency hid it in f5_stepi); REP + segment prefix + a string instruction runs the string
+  once on the RTL; f5c_026 takes its timer interrupt twice on all three sides (not traced); batch 3's
+  three new regressions were not shown to fail on the earlier RTL. Batch 4: a second generation of
+  fuzz sets with fresh seeds (all 710 programs so far are the ones the fixes were found on).

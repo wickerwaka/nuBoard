@@ -6069,3 +6069,150 @@ two byte cycles.
   existing words), bf.uasm, page.uasm, mem.uasm (-2 words), core.uasm / trap.uasm (`pfx` / `nb`
   bits). The ROM is 1,881 words; the generated decode tables' entry constants move (mem.uasm's
   two words), v35_umdsp / v35_umimm / v35_umodrm / v35_upage are byte-identical to the base's.
+
+## F5c: the fuzz's third batch (the reservation hang, the step after the PSW loaders, the NMI frame, TEST1's index)
+
+### The hang (finding 29): the reservation with no request to wait for
+
+The EU's reservation (`resv_r`, README "MX1"; `req_resv = rq_v || resv_r || resv_e`) holds the
+bus unit's fetch back while a routine is about to post (the grant's `fq = fetch_req && (!req_resv
+|| q_low ...)`). It rose at a word's `resv` or at the E pop of an opcode whose routine posts
+(`resv_e`) and fell only at an acknowledge (`ack_b`). Two paths left it standing with no request
+coming:
+
+- a routine that ends without the post its `resv` announced: the memory shift / rotate by a zero
+  count (F5b's `shmc_z` / `shmi_z`: the F word's `resv`, then E without the write; f5a_011
+  SHR SS:[BP+IX+96h], CL with CL 0);
+- the interrupt take: the E word popped an opcode whose routine posts (`resv_e`), the dispatch
+  entered `intr` instead, and the bank-switch take (`bsw_i`) posts no cycle (the f5c intp and
+  timer handlers, 18 programs).
+
+The fetch still went while the queue was low (`q_low`: occupancy 1-4 with the staging byte), so
+the reservation was harmless until the queue had to fill past it with E waiting on the request
+line: after a transfer to an odd target the refill is a byte and two words (occupancy 5: the
+line up, q_low down) and the E word's refill stall (`st_rfl`: the line up at the last clock)
+waited for a fetch the reservation refused, forever; after the bank-switch take's FLUSH the queue
+was empty (occupancy 0: q_low is not 1 at 0 either) and the handler's E waited on the queue. The
+6,541-run corpus never met it: no run has a routine that ends without its announced post, and no
+run has an interrupt take. A redirect to an odd target with no stale reservation refills normally.
+
+Built (v35_eu, the reservation's own register; nothing on the grant or the delivery path):
+
+    before:  resv_r <= resv_eb ? 1 : ack_b ? 0 : (ex_b && word.resv) ? 1 : resv_r
+    after:   resv_r <= resv_eb ? 1 : (ack_b || (ex_b && word.e) || tk_go_b) ? 0
+                     : (ex_b && word.resv) ? 1 : resv_r
+
+`tk_go` is v35_top's `ex && w_disp && igo` (the take's dispatch, tick A), registered at ce_b as
+`tk_go_b` (the EU's ce_b copies; `+v35_chk` compares it). A request posted on or before E keeps
+`req_resv` up through `rq_v` until its acknowledge, so ending `resv_r` at E changes nothing a
+posting routine sees; the next routine's rise (`resv_eb`, the same E clock) wins. f5r resvodd
+(220 cases: a memory shift by a zero count, then BR short with both target parities): socket ==
+socket-2 == RTL.
+
+### The single step after POP PSW, RETI and FINT (13 f5c programs)
+
+Measured (intr.py f5_step, f5_step2; receipts f3-f5_step*-socket.json): the single step is not
+taken at the start that follows POP PSW, RETI or FINT, whatever BRK was before or after (POP PSW
+keeping BRK 1, two POP PSW in a row, two FINTs, POP PSW then FINT: no step until after the next
+ordinary instruction); MOV PSW,AH and SET1 / CLR1 / NOT1 CY, SET1 / CLR1 DIR are stepped as
+usual. The data book (the V-series text, 1991 data book "Interrupt Priorities"): "INT is not
+accepted ... between an RETI or POP PSW and the next instruction" (NMI is). The interrupt half
+cannot be measured with a request taken at that boundary: the controller's latency is longer
+than the instruction after EI (f5_stepi, measured only: every test, the NOP control's too, takes
+after the following MULU).
+
+Rule, built: POP PSW, RETI and FINT drop the interrupt arms at their E word, so the next start
+takes neither the maskable interrupt nor the single step (NMI, macro service and DMA are not
+held); the dispatch reloads the arms from the PSW as before. The fact is a new value of the
+`seg` field, `SG_NBI` (its last free value; meaningful on an E word that posts nothing: uasm
+refuses it elsewhere), on the three E words; v35_top: `if (ex_pop && word.e && word.seg ==
+SG_NBI) {ie_arm <= 0; brk_arm <= 0}` beside `nb_r`. The microword stays 96 bits.
+
+### NMI (9 f5c programs): the frame filter
+
+One class, a test flaw: with SP odd (the fuzz's INC SP / DEC SP) the NMI frame's three pushes are
+six byte records (a word at an odd address is two byte cycles), and `_nmi_filter` dropped three
+records, leaving the rest of the frame where the take lands (f5c_025 06BDF vs 06BDE). The filter
+now counts the frame's six bytes back from the count store (one byte for a record at an odd
+address or with /UBE high, else two). No receipt changes; socket vs socket-2 stays 160 EQUAL.
+
+### TEST1 reg,imm before a short transfer (f5c_084, f5c_111, f5c_027, f5b_087, f5a_058)
+
+An RTL bug: TEST1's register path reads its index on the word after E (`ay=IMM8`, IL), and a
+short transfer's E pop (`e2`: Bcc, DBNZ, DBNZNE / DBNZE, BCWZ, BR short) loads its displacement
+into IL before that word. f5x's TEST1 surveys followed TEST1 with PUSH PSW (f5x bitr, 220 cases
+over every register operand: the rule as built, index modulo the width, S Z P of the masked
+value, AC kept, CY V cleared, fits all). Built: page.uasm b1tim_r copies the index into tmpb on
+its first OPEN word (no clock added) and the word after E reads tmpb. No other post-E word reads
+a popped byte. f5r test1bcc (220 cases: TEST1 reg,imm then a short transfer of displacement 0).
+
+### REP then a segment prefix (f5a_030: REP DS1: FPO1 pushed the PC + 2, then ran away)
+
+Measured (f5r repseg, 220 cases: F3 / F2 / 65 / 64, then 26 / 2E / 36 / 3E, then MOV AW,
+seg:[IX+d8]): the override reaches the opcode and CW is kept, as REP before any non-string
+opcode. The REP page had no cell for the four prefixes (the decode's trap path: the prefix byte
+dropped, the opcode started as an instruction of its own, so an FPO pushed its own offset and
+the FPO handler's return landed mid-instruction). Built: rep_nx (refetch from the byte after the
+REP, `pfx e nb`) covers 26 2E 36 3E too (op=00-65): the prefix then runs as its own routine, and
+`pist` keeps the REP's offset for a trap. The generated v35_udec2 changes in the REP page's four
+cells only; v35_upage / v35_umdsp / v35_umimm / v35_umodrm are byte-identical to the base's.
+REP DS1: MOVBK (a REP string on silicon) is not built: the string runs once.
+
+### Measured, not built: an OUT's datum when CVTBD or CVTDB follows (f5a_061)
+
+f5o outd (220 cases, both sessions): when the instruction after an OUT is CVTBD or CVTDB, the
+datum the write drives is that instruction's immediate, sign-extended (a byte OUT: the immediate;
+a word at an even port: {sign, imm}; an odd word's second half: the sign byte in 17 of 20 cases,
+AH in 3). After NOP, INC, MOV r8,imm, MOV AL,imm, ADD AL,imm, MUL r8 and PUSH imm it is AL / AW.
+The I/O write is posted and its datum read at the cycle's data phase from a register CVTBD /
+CVTDB load with their immediate first; the odd pair's exceptions show a race at the margin. Not
+built: the outcome is the relative timing of the posted cycle and the next routine's first step,
+a timing-derived value the RTL would reproduce only by matching silicon's clocks there.
+f5a_061 stays DIFFER, attributed.
+
+### Checked: the f5c count byte's final value (item 5 of the brief)
+
+The intp / timer handlers' count byte is an INC per take. Its final value is a count of takes the
+stimulus fixes, not where they land: one INTP0 pulse (one edge) or one TM0 count-out (the handler
+stops TM0; MD0 >= 1,500 x 6 clocks a period). It is 1 in 79 of the 80 programs on both sessions
+and the RTL; f5c_026 (timer) reads 2 on all three (two adjacent takes at the end: see "Open").
+
+### FPGA (not run here: what each change adds)
+
+- Tick A: nothing joins the delivery chain or the grant. `req_resv` keeps its three terms
+  (`rq_v || resv_r || resv_e`); the change is in `resv_r`'s next value (a register): its clear
+  gains `ex_b && word.e` (two registered inputs) and `tk_go_b`, a ce_b register of v35_top's
+  `ex && w_disp && igo` (one AND of the tick-A stall `ex` with two registers, beside `ex_b`'s own
+  ce_b copy). v35_top `ie_arm` / `brk_arm`: a clear on `ex_pop && word.e && word.seg == 7` (the
+  stall and three ROM bits, the same depth as `nb_r`'s update next to it).
+- Tick B: nothing. TEST1's post-E word reads tmpb (SR_TB) instead of IL (SR_IMM8): the ALU's
+  source select already has both.
+- Microcode: page.uasm b1tim_r (a move on an existing OPEN word), bus.uasm pop_psw / xfer.uasm
+  reti / trap.uasm fint (`seg=NBI` on the E words), trap.uasm rep_nx (four more REP-page cells).
+  The ROM stays 1,881 words; the entry constants do not move.
+
+### Results (the RTL in simulation against both socket sessions; land/verify.out)
+
+| set | socket vs socket-2 | before (7923bd3 + batch 2) | after |
+| --- | --- | --- | --- |
+| f5a 300 | 300 EQUAL | 294 EQUAL | 299 EQUAL (f5a_061 open) |
+| f5b 150 | 150 EQUAL | 147 EQUAL | 150 EQUAL |
+| f5c 160 | 160 EQUAL | 119 EQUAL | 160 EQUAL |
+| f5d 100 | 100 EQUAL | 100 EQUAL | 100 EQUAL |
+| f5r 18 | 18 EQUAL | 12 EQUAL | 18 EQUAL (+ resvodd, test1bcc, repseg) |
+| f5x 34 | 34 EQUAL | 32 EQUAL | 34 EQUAL (+ bitr) |
+| f5o 2 | 2 EQUAL | - | measured only |
+
+The same counts against socket-2. The standing gates: corpus 6,541 exact at both spacings, 0
+of 30,536 runs differing from the base's rows, chk silent, write data 106,824 / 106,824,
+vectors 0 bad, lint clean x5, the four test modules OK; dma (both refs), serial, periph, intr
+(8 programs: f5_step and f5_step2 added), banks, onchip, traps, traps_undef EQUAL.
+
+### Open
+
+- f5a_061 (OUT 24h, then CVTBD): the datum race above, measured (f5o), not built.
+- f5c_026 (timer): the count byte reads 2 on both sessions and the RTL (equal): two takes at the
+  end; not traced (equal, so not a difference, but the second take is not explained).
+- The interrupt half of the POP PSW / RETI / FINT hold is the data book's for POP PSW and RETI and
+  built by analogy for FINT (latency hides it from a measurement: f5_stepi).
+- REP DS1: MOVBK as a REP string (unchanged from F2b).
