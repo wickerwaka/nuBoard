@@ -2321,3 +2321,28 @@ question, decided from S8's routed numbers with the user.
   (40 clocks an iteration against 37) and instructions storing to the SFR page run about 4 clocks short;
   WTC's per-block memory fields (the bus unit reads field 0 for all memory); SBF on the FPGA clears at
   configuration, not at the socket's power.
+- **F5 first batch landed (2026-11-12): the fuzz, and five flag / function rules it found; corpus 6,541
+  unchanged. The fuzz's main sets do not pass yet.** validation/v35s/fuzz.py (run, gate, triage,
+  shrink, cover), fuzz_gen.py (a seeded generator keeping a model of the registers, segments, SP, the
+  eight banks and the stack, so a program stays self-contained and shrinks by deleting items),
+  fuzz_layers.py (sets f5a 300 plain programs, f5b 150 with bank switching, f5c 160 with INTP0 / TM0 /
+  NMI / single step, f5d 100 with random stores to the writable SFRs), fuzz_flags.py (f5x: a flag survey
+  of register forms; f5r: directed regressions). 105 instruction forms, 85,858 fuzzed executions, each
+  set in two socket sessions. **Measured on silicon and built** (the V20 suite's rules kept behind
+  funcref.V20_UNDEF): AND / OR / XOR / TEST, the shifts, TEST1 and CVTBD keep AC (the core cleared it);
+  signed MUL multiplies magnitudes and leaves S Z AC P when the signs agree, else the flags of 0 - the
+  product's low half; a DIVU / DIV that completes leaves S Z P of the remainder's magnitude, AC the
+  pre-check's nibble borrow, CY = V = 0; EXT / INS leave the PSW; **CVTDB multiplies by its immediate
+  byte** (the core multiplied by 10). **Gate:** f5x 26 programs (2,860 cases) equal on both socket
+  sessions and the RTL; every earlier program gate equal (dma 5 on both sessions, serial 4, periph 4,
+  intr 6, banks 5, onchip 6, traps 6, 101 undefined cases); corpus 6,541 with 0 runs differing at both
+  spacings, chk silent, vectors 0 bad, lint clean, 48 fast tests. **FPGA at 17 ns: +0.713 / +1.328 /
+  +1.718 on seeds 1 / 2 / 3** (the base +0.478 / +0.677 / +1.382), 9,354 LUT4 / 596 ADD / 2,408 FF / 79
+  RAM_5K, worst paths 10-15 levels. **Open (batch 2): f5a-f5d are 0 equal of 710 against the RTL.** Known
+  classes: PREPARE with a level >= 1 is not built (about 58 programs); a word at an odd I/O port runs two
+  byte cycles on silicon; INS with AL / AH as the offset register reads AW before the step; XCH memory,
+  reg where the address uses that register; one program runs away on the RTL only; the flags of ADD4S /
+  SUB4S / CMP4S and of a signed DIV that overflows; two f5d programs loop on silicon (unattributed); the
+  dumps include SFRs with undefined reset values (TMMS0 bit 7 differs between sessions), so every set is
+  re-taken once the prologue stores them. Measured, not built: EXT / INS with an offset or width byte
+  above 15 can stop the CPU inside the instruction (receipt f5-extins-range-socket.json).

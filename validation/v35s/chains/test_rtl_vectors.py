@@ -51,7 +51,8 @@ class FunctionalReference(unittest.TestCase):
         self.assertEqual(r, 0xFF)
         self.assertTrue(f & (1 << fr.CY) and f & (1 << fr.S) and f & (1 << fr.AC))
         _, f = fr.alu(4, 0xFF, 0x0F, 1, 0xFFFF)
-        self.assertEqual(f & ((1 << fr.CY) | (1 << fr.V) | (1 << fr.AC)), 0)
+        self.assertEqual(f & ((1 << fr.CY) | (1 << fr.V)), 0)
+        self.assertTrue(f & (1 << fr.AC))           # (F5) AC kept: the V35 measured (f5x)
         _, f = fr.incdec(False, 0xFFFF, 2, 1 << fr.CY)
         self.assertTrue(f & (1 << fr.CY) and f & (1 << fr.Z))
         r, f = fr.shift(2, 0x80, 1, 1, 0)                       # ROLC 80h: CY 1, AL 0
@@ -62,14 +63,15 @@ class FunctionalReference(unittest.TestCase):
         self.assertEqual((r, f & 1), (0, 0))
         p, f = fr.mul(False, 0xFF, 0xFF, 1, 0x00D5)
         self.assertEqual((p, f & 0x00D4, f & 0x0801), (0xFE01, 0x00D4, 0x0801))
-        p, f = fr.mul(True, 0x80, 0x7F, 1, 0)                   # C080h: lo 80h: Z 1, S 0
-        self.assertEqual(p, 0xC080)
-        self.assertTrue(f & (1 << fr.Z) and not f & (1 << fr.S))
+        p, f = fr.mul(True, 0x80, 0x7F, 1, 0)                   # C080h; (F5) signs differ:
+        self.assertEqual(p, 0xC080)                             # the flags of 0 - 80h (|p|.lo)
+        self.assertTrue(f & (1 << fr.S) and not f & (1 << fr.Z))
         q, rem, f, trap = fr.div(False, 0x0100, 0x01, 1, 0)    # AH 1 >= 1: the trap
         self.assertTrue(trap)
         q, rem, f, trap = fr.div(False, 0x1234, 0x56, 1, 0)
         self.assertEqual((q, rem, trap), (0x1234 // 0x56, 0x1234 % 0x56, False))
-        self.assertTrue(f & (1 << fr.CY))                       # SUB(12h, 56h) borrows
+        # (F5) S Z P of the remainder (10h), AC the pre-check's nibble borrow (2 < 6), CY V 0
+        self.assertEqual(f & fr.ARITH, 1 << fr.AC)
         self.assertTrue(fr.div(True, 0x3C15, 0x88, 1, 0)[3])   # quotient -128 traps
         for cc in range(16):
             self.assertNotEqual(fr.cond(cc, 0), fr.cond(cc ^ 1, 0))
@@ -92,11 +94,15 @@ class SingleStepTests(unittest.TestCase):
         res = sst.check_funcref(self.FILES, show=0)
         for stem, counts in res.items():
             self.assertEqual(counts.get("fail", 0), 0, (stem, counts))
-            self.assertGreater(counts.get("pass", 0), 1900, (stem, counts))
+            # (F5) a test passing with the V20 suite's undefined flags (the V35 measured
+            # otherwise: sst.V20_UNDEF) counts with the passes
+            self.assertGreater(counts.get("pass", 0) + counts.get(sst.V20_UNDEF, 0), 1900,
+                               (stem, counts))
 
     @unittest.skipUnless(rtl_vectors.C2BENCH.exists(),
                          "bench not built: fpga/v35s/build_core2_tb.sh")
     def test_rtl_passes(self):
+        from validation.v35s.chains import sst
         res = rtl_vectors.check_sst(self.FILES, show=0)
         for stem, counts in res.items():
             self.assertFalse([k for k in counts if k.startswith("rtl fail")], (stem, counts))
@@ -107,7 +113,10 @@ class SingleStepTests(unittest.TestCase):
                 self.assertGreater(ran, 1900, (stem, counts))
                 continue
             # (MX1) the memory forms built: the 1900-pass bar, pass alone (sst.py --rtl: MX4)
-            self.assertGreater(counts.get("pass", 0), 1900, (stem, counts))
+            # (F5) a test passing with the V20 suite's undefined flags (the V35 measured
+            # otherwise: sst.V20_UNDEF) counts with the passes
+            self.assertGreater(counts.get("pass", 0) + counts.get(sst.V20_UNDEF, 0), 1900,
+                               (stem, counts))
 
     # (MX1) the files whose forms are a later package's (docs/v35s-mechanisms.md section 8):
     # RET, the branch (MX2); the 0F page (MX3; the adjusts, the converts and MUL imm built at

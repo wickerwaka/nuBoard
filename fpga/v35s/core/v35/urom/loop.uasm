@@ -167,11 +167,12 @@ cvb_l: alu=DIVS loop=cvb_l                  ; one restoring step; the counter st
     ra=AW wid=WORD alu=CVBF ax=RA wf        ; {quotient, remainder} (a zero divisor: AH FFh, AL kept); S Z P of AL (W)
     wr=AW wid=WORD ws=SIG e wb              ; AW <- SIGMA; E
 
-; D5 ib: CVTDB (AAD): AH times ten by the byte multiply's loop, plus AL
+; D5 ib: CVTDB (AAD): AH times the immediate by the byte multiply's loop, plus AL (F5: silicon
+; multiplies by the byte, f5x; the V20 suite's ten was the core's until F5)
 routine cvtdb op=D5 book="CVTDB" width=byte why="OPEN: the book's 20: the immediate's latency, its pop, AH read into the multiply's state, eight steps, the finish with AL's add (W), the write on E; six book clocks with no act"
     open                                    ; OPEN: the immediate's latency before its pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the constant byte (S+3; the V20 multiplies by ten whatever it is)
-    ra=AW wid=WORD alu=CVDI ax=RA cnt=BITS  ; AH and ten into the multiply's state; the counter <- 8
+    pop=il                                  ; pop the multiplier byte (S+3)
+    ra=AW wid=WORD alu=CVDI ax=RA ay=IMM8 cnt=BITS  ; AH and the byte into the multiply's state; the counter <- 8
     open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CVTDB 20) (the call and the shared delay's 5)
 cvd_l: alu=MULS loop=cvd_l                  ; one multiply step; the counter step
     ra=AW wid=WORD alu=CVDF ax=RA wf        ; AL + the product's low byte, AH zero; the add's flags (W)

@@ -93,6 +93,13 @@ def flag(psw: int, bit: int) -> int:
     return (psw >> bit) & 1
 
 
+# (F5) the V20 suite's undefined flags: the rules this reference had before F5 measured the V35
+# (receipts f5-f5x-*): logic ops / shifts / TEST1 / CVTBD clearing AC, MUL's flags of the low
+# half added to itself, DIV's unsigned pre-check flags, EXT / INS's subtract, CVTDB by ten, INS
+# stepping the offset register before AW is read. sst.py sets it for the V20 class V20_UNDEF.
+V20_UNDEF = False
+
+
 def alu(op: int, a: int, b: int, w: int, psw: int) -> tuple[int, int]:
     """The 8 ALU operations of the 00-3F block and the 80-83 group (bits 5:3 / reg field):
     ADD OR ADC SBB AND SUB XOR CMP. (result, psw); CMP's result is the difference."""
@@ -108,9 +115,9 @@ def alu(op: int, a: int, b: int, w: int, psw: int) -> tuple[int, int]:
         psw = _put(psw, CY, r < 0)
         psw = _put(psw, V, (a ^ b) & (a ^ r) & msb)
         psw = _put(psw, AC, (a ^ b ^ r) & 0x10)
-    else:                                               # OR, AND, XOR: CY V AC cleared
-        r = a | b if op == 1 else a & b if op == 4 else a ^ b
-        psw &= ~((1 << CY) | (1 << V) | (1 << AC))
+    else:                                               # OR, AND, XOR: CY V cleared, AC kept
+        r = a | b if op == 1 else a & b if op == 4 else a ^ b   # (F5: silicon, receipts f5-f5x-*)
+        psw &= ~((1 << CY) | (1 << V) | ((1 << AC) if V20_UNDEF else 0))
     r &= m
     return r, _szp(psw, r, w)
 
@@ -167,7 +174,7 @@ def shift(op: int, a: int, n: int, w: int, psw: int) -> tuple[int, int]:
     else:
         psw = _put(psw, V, bool(a & msb) != bool(a & (msb >> 1)))
     if op >= 4:
-        psw = _szp(psw, a, w) & ~(1 << AC)
+        psw = _szp(psw, a, w) & ~((1 << AC) if V20_UNDEF else 0)    # AC kept (F5: silicon)
     return a, psw
 
 
@@ -178,16 +185,23 @@ def _sx(v: int, w: int) -> int:
 
 def mul(signed: bool, a: int, b: int, w: int, psw: int) -> tuple[int, int]:
     """MULU / MUL: the double-width product. CY = V = the high half is not the extension of
-    the low half (zero / sign). MULU leaves S Z AC P; MUL writes them as the flags of the low
-    half added to itself (undefined_flags.md: the last shift stage as an add)."""
+    the low half (zero / sign). MULU leaves S Z AC P. MUL multiplies the magnitudes (S Z AC P
+    left) and, when the signs differ, negates the product: S Z AC P are the flags of the low
+    half's negation, 0 - the magnitude's low half (F5: silicon, f5x, 1,308 cases)."""
     nb = _bits(w)
     if signed:
         p = (_sx(a, w) * _sx(b, w)) & ((1 << (2 * nb)) - 1)
         lo = p & _mask(w)
         ext = (p >> nb) != (_mask(w) if lo & _msb(w) else 0)
-        _, f = alu(0, lo, lo, w, psw)
-        psw = (psw & ~((1 << S) | (1 << Z) | (1 << AC) | (1 << P))) | (
-            f & ((1 << S) | (1 << Z) | (1 << AC) | (1 << P)))
+        if V20_UNDEF:
+            _, f = alu(0, lo, lo, w, psw)
+            psw = (psw & ~((1 << S) | (1 << Z) | (1 << AC) | (1 << P))) | (
+                f & ((1 << S) | (1 << Z) | (1 << AC) | (1 << P)))
+        elif (_sx(a, w) < 0) != (_sx(b, w) < 0):
+            mag = abs(_sx(a, w) * _sx(b, w)) & _mask(w)
+            _, f = alu(5, 0, mag, w, psw)
+            psw = (psw & ~((1 << S) | (1 << Z) | (1 << AC) | (1 << P))) | (
+                f & ((1 << S) | (1 << Z) | (1 << AC) | (1 << P)))
     else:
         p = (a & _mask(w)) * (b & _mask(w))
         ext = (p >> nb) != 0
@@ -202,7 +216,9 @@ def div(signed: bool, num: int, d: int, w: int, psw: int) -> tuple[int, int, int
     |d|) traps and leaves its flags; else the unsigned quotient's S Z P with CY AC V cleared,
     a quotient out of range (symmetric: -2^(n-1) traps too) trapping with those; quotient and
     remainder truncate toward zero, the remainder takes the dividend's sign
-    (undefined_flags.md, Campaign 3)."""
+    (undefined_flags.md, Campaign 3). (F5: silicon, f5x) a divide that completes leaves S Z P
+    of the remainder's magnitude, AC the pre-check's nibble borrow (|num|_high's low digit <
+    |d|'s), CY and V cleared, for DIVU and DIV alike; the trapping divides as above."""
     nb, m = _bits(w), _mask(w)
     d &= m
     if not signed:
@@ -210,6 +226,8 @@ def div(signed: bool, num: int, d: int, w: int, psw: int) -> tuple[int, int, int
         _, psw = alu(5, hi, d, w, psw)
         if hi >= d:
             return 0, 0, psw, True
+        if not V20_UNDEF:
+            psw = _done(psw, hi, d, num % d, w)
         return num // d, num % d, psw, False
     sn = num - (1 << (2 * nb)) if num & (1 << (2 * nb - 1)) else num
     sd = _sx(d, w)
@@ -225,9 +243,18 @@ def div(signed: bool, num: int, d: int, w: int, psw: int) -> tuple[int, int, int
         return 0, 0, psw, True
     if (sn < 0) != (sd < 0):
         q = -q
+    if not V20_UNDEF:
+        psw = _done(psw, hi, ad, r, w)
     if sn < 0:
         r = -r
     return q & m, r & m, psw, False
+
+
+def _done(psw: int, hi: int, d: int, rem: int, w: int) -> int:
+    """(F5) the flags of a divide that completes: S Z P of |rem|, AC the pre-check's nibble
+    borrow, CY V cleared."""
+    psw = _szp(psw & ~((1 << CY) | (1 << V)), rem, w)
+    return _put(psw, AC, (hi & 0xF) < (d & 0xF))
 
 
 def bcd_add8(a: int, b: int, cin: int) -> tuple[int, int, int]:
@@ -954,10 +981,10 @@ class Cpu:
             q, m = divmod(al, imm) if imm else (0xFF, al)
             r["AW"] = ((q & 0xFF) << 8) | m
             psw = _szp(self.psw, m, 1)
-            self.psw = psw & ~((1 << CY) | (1 << AC) | (1 << V))
+            self.psw = psw & ~((1 << CY) | (1 << V) | ((1 << AC) if V20_UNDEF else 0))
             return
-        # CVTDB multiplies by 10 whatever the byte (the V20 suite; CVTBD divides by it)
-        res, self.psw = alu(0, (ah * 10) & 0xFF, al, 1, self.psw)
+        # CVTDB multiplies by the byte (F5: silicon, f5x; the V20 suite multiplies by 10)
+        res, self.psw = alu(0, (ah * (10 if V20_UNDEF else imm)) & 0xFF, al, 1, self.psw)
         r["AW"] = res
 
     def _page0f(self, st: Start, code: bytes, pfx):
@@ -1011,7 +1038,7 @@ class Cpu:
             if op == 0:                                 # TEST1: S Z P of the masked value
                 t = a & m
                 psw = _szp(self.psw, t, w)
-                self.psw = psw & ~((1 << CY) | (1 << AC) | (1 << V))
+                self.psw = psw & ~((1 << CY) | (1 << V) | ((1 << AC) if V20_UNDEF else 0))
                 return
             v = a & ~m if op == 1 else a | m if op == 2 else a ^ m
             self._rm_write(mod, rm, off, base, w, v & _mask(w))
@@ -1052,14 +1079,16 @@ class Cpu:
             hi = self.read(src, r["IX"] + 2, 2) if cross else 0
             v = (((hi << 16) | lo) >> o4) & fm
             r["AW"] = v
-            # the flags: SUB(15, offset + width) at byte width (the V20 suite, 20,000 of 20,000
-            # tests over both forms; its borrow is the crossing decision)
-            _, self.psw = alu(5, 15, (offset + width) & 0xFF, 1, self.psw)
+            # the flags: none (F5: the V35 leaves the PSW, f5x 220 cases; the V20 suite has
+            # SUB(15, offset + width) at byte width, 20,000 of 20,000)
+            if V20_UNDEF:
+                _, self.psw = alu(5, 15, (offset + width) & 0xFF, 1, self.psw)
             ptr = "IX"
         else:                                           # INS
             dst = self.seg(0)
             # the offset register is stepped before AW is read (an INS whose offset is AL or
-            # AH inserts the stepped value: the V20 suite)
+            # AH inserts the stepped value: the V20 suite; F5 measured the V35 reading AW first,
+            # f5a_000 / f5r_insal: open, not built)
             self.set8(rm, (o4 + w4 + 1) & 15)
             field = (r["AW"] & fm) << o4
             mask = fm << o4
@@ -1068,8 +1097,9 @@ class Cpu:
             if cross:
                 hi = self.read(dst, r["IY"] + 2, 2)
                 self.write(dst, r["IY"] + 2, 2, ((hi & ~(mask >> 16)) | (field >> 16)) & 0xFFFF)
-            # the flags: SUB(15, offset + width + 1) at byte width (the V20 suite, 20,000 of 20,000)
-            _, self.psw = alu(5, 15, (offset + width + 1) & 0xFF, 1, self.psw)
+            # the flags: none (F5: the V35, f5x; the V20 suite: SUB(15, offset + width + 1))
+            if V20_UNDEF:
+                _, self.psw = alu(5, 15, (offset + width + 1) & 0xFF, 1, self.psw)
             ptr = "IY"
         new = o4 + w4 + 1
         self.set8(rm, new & 15)

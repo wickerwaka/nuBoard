@@ -36,7 +36,8 @@ package v35_fn_pkg;
 
     // the ALU: op the 00-3F block's / the 80-83 group's bits 5:3 (ADD OR ADC SBB AND SUB XOR
     // CMP), w the word form; the result (CMP's: the difference) and the PSW: CY V AC S Z P
-    // written, the logic operations clearing CY V AC (undefined_flags.md: AC always 0)
+    // written, the logic operations clearing CY V and leaving AC (F5: silicon keeps AC through
+    // AND / OR / XOR / TEST, receipts f5-f5x-*; the V20 suite's note had it cleared)
     function automatic logic [15:0] v35_alu(input logic [2:0] op, input logic w,
                                             input logic [15:0] a0, input logic [15:0] b0,
                                             input logic [15:0] psw0, output logic [15:0] psw);
@@ -50,7 +51,7 @@ package v35_fn_pkg;
         cin = (op == 3'd2 || op == 3'd3) && psw0[V35_PSW_CY];
         cy = 1'b0;
         v = 1'b0;
-        ac = 1'b0;
+        ac = psw0[V35_PSW_AC];
         case (op)
             3'd0, 3'd2: begin
                 r = {1'b0, a} + {1'b0, b} + {16'd0, cin};
@@ -81,7 +82,7 @@ package v35_fn_pkg;
     // changes nothing; the rotates are periodic in the width (ROLC / RORC in the width + 1),
     // the shifts settle after width + 1. CY the last bit out; V from the final state (the
     // shift-V law: left ops MSB ^ CY, right ops the two top bits); the shifts write S Z P and
-    // clear AC, the rotates leave them.
+    // leave AC (F5: silicon, f5x), the rotates leave all three.
     function automatic logic [15:0] v35_shift(input logic [2:0] op, input logic w,
                                               input logic [15:0] a0, input logic [8:0] n,
                                               input logic [15:0] psw0, output logic [15:0] psw);
@@ -141,16 +142,15 @@ package v35_fn_pkg;
             psw[V35_PSW_V] = |(a & msb) ^ cy;
         else
             psw[V35_PSW_V] = |(a & msb) ^ |(a & msb1);
-        if (op[2]) begin
+        if (op[2])
             psw = v35_szp(psw, a, w);
-            psw[V35_PSW_AC] = 1'b0;
-        end
         v35_shift = a;
     endfunction
 
     // MULU / MUL: the double-width product ([15:0] for a byte form). CY = V = the high half is
-    // not the low half's extension; MULU leaves S Z AC P, MUL writes them as the flags of the
-    // low half added to itself (undefined_flags.md)
+    // not the low half's extension; MULU leaves S Z AC P; MUL multiplies the magnitudes and,
+    // when the signs differ, negates: S Z AC P are then the flags of 0 - the magnitude's low
+    // half, else left (F5: silicon, receipts f5-f5x-*, 1,308 cases)
     function automatic logic [31:0] v35_mul(input logic sgn, input logic w,
                                             input logic [15:0] a, input logic [15:0] b,
                                             input logic [15:0] psw0, output logic [15:0] psw);
@@ -171,8 +171,8 @@ package v35_fn_pkg;
             lo = {8'd0, p[7:0]};
             ext = sgn ? p[15:8] != {8{p[7]}} : p[15:8] != 8'd0;
         end
-        if (sgn) begin
-            void'(v35_alu(3'd0, w, lo, lo, psw0, f));
+        if (sgn && ((w ? a[15] : a[7]) != (w ? b[15] : b[7]))) begin
+            void'(v35_alu(3'd5, w, 16'd0, 16'd0 - lo, psw0, f));    // 0 - |p|.lo
             psw[V35_PSW_S] = f[V35_PSW_S];
             psw[V35_PSW_Z] = f[V35_PSW_Z];
             psw[V35_PSW_AC] = f[V35_PSW_AC];
@@ -254,7 +254,9 @@ package v35_fn_pkg;
 
     // the result once the steps are done: {remainder, quotient} ([15:8] / [7:0] of the low
     // word for a byte form), the PSW, the trap (the pre-check, or a signed quotient past
-    // 2^(n-1) - 1)
+    // 2^(n-1) - 1). (F5: silicon, f5x, 1,320 cases) a divide that completes leaves S Z P of the
+    // remainder's magnitude (the last step's), AC the pre-check's nibble borrow (|num|'s high
+    // half's low digit below |d|'s), CY and V cleared; the trapping divides' flags as before
     function automatic logic [31:0] v35_div_fin(input v35_div_t s, input logic [15:0] psw0,
                                                 output logic [15:0] psw, output logic trap);
         logic [15:0] q, r;
@@ -266,9 +268,8 @@ package v35_fn_pkg;
         end
         q = s.w ? s.q : {8'd0, s.q[7:0]};
         r = s.w ? s.r[15:0] : {8'd0, s.r[7:0]};
-        if (!s.sgn) begin
-            void'(v35_alu(3'd5, s.w, s.hi, s.d, psw0, psw));
-        end else begin
+        if (s.sgn) begin
+            // a quotient out of range traps with these flags (F3: silicon's on every case)
             psw = v35_szp(psw0, q, s.w);
             psw[V35_PSW_CY] = 1'b0;
             psw[V35_PSW_AC] = 1'b0;
@@ -277,11 +278,15 @@ package v35_fn_pkg;
                 trap = 1'b1;
                 return 32'd0;
             end
-            if (s.nneg != s.dneg)
-                q = 16'd0 - q;
-            if (s.nneg)
-                r = 16'd0 - r;
         end
+        psw = v35_szp(psw0, r, s.w);
+        psw[V35_PSW_CY] = 1'b0;
+        psw[V35_PSW_V] = 1'b0;
+        psw[V35_PSW_AC] = s.hi[3:0] < s.d[3:0];
+        if (s.sgn && s.nneg != s.dneg)
+            q = 16'd0 - q;
+        if (s.sgn && s.nneg)
+            r = 16'd0 - r;
         v35_div_fin = s.w ? {r, q} : {16'd0, r[7:0], q[7:0]};
     endfunction
 
@@ -395,8 +400,8 @@ package v35_fn_pkg;
     endfunction
 
     // TEST1 / CLR1 / SET1 / NOT1 (the 0F second byte's bits 2:1) on the operand a with the
-    // mask m: the result (TEST1: a) and the PSW (TEST1: S Z P of the masked value, CY AC V
-    // cleared; the others none)
+    // mask m: the result (TEST1: a) and the PSW (TEST1: S Z P of the masked value, CY V
+    // cleared, AC kept (F5, f5x); the others none)
     function automatic logic [15:0] v35_bit1(input logic [7:0] sb, input logic [15:0] a,
                                              input logic [15:0] m, input logic w,
                                              input logic [15:0] psw0, output logic [15:0] psw);
@@ -405,7 +410,6 @@ package v35_fn_pkg;
             2'd0: begin
                 psw = v35_szp(psw0, a & m, w);
                 psw[V35_PSW_CY] = 1'b0;
-                psw[V35_PSW_AC] = 1'b0;
                 psw[V35_PSW_V] = 1'b0;
                 v35_bit1 = a;
             end
@@ -483,7 +487,7 @@ package v35_fn_pkg;
     endfunction
 
     // the flags after the loop (v35_shift's laws): CY the last bit out, V from the final state,
-    // the shifts S Z P with AC cleared
+    // the shifts S Z P with AC kept
     function automatic logic [15:0] v35_shift_fl(input logic [2:0] op, input logic w,
                                                  input logic [15:0] a, input logic cy,
                                                  input logic [15:0] psw0);
@@ -496,10 +500,8 @@ package v35_fn_pkg;
             psw[V35_PSW_V] = |(a & msb) ^ cy;
         else
             psw[V35_PSW_V] = |(a & msb) ^ |(a & msb1);
-        if (op[2]) begin
+        if (op[2])
             psw = v35_szp(psw, a, w);
-            psw[V35_PSW_AC] = 1'b0;
-        end
         v35_shift_fl = psw;
     endfunction
 
@@ -546,7 +548,8 @@ package v35_fn_pkg;
     endfunction
 
     // the product after the steps (word: 16, byte: 8), negated when the signs differ; the
-    // flags as v35_mul's
+    // flags as v35_mul's: the negation's S Z AC P are those of 0 - the magnitude's low half,
+    // which the state holds before the negation (s.lo; the byte form's in s.lo[15:8])
     function automatic logic [31:0] v35_mul_fin(input v35_mul_t s, input logic w,
                                                 input logic [15:0] psw0, output logic [15:0] psw);
         logic [31:0] p;
@@ -567,8 +570,8 @@ package v35_fn_pkg;
             lo = {8'd0, p16[7:0]};
             ext = s.sgn ? p16[15:8] != {8{p16[7]}} : p16[15:8] != 8'd0;
         end
-        if (s.sgn) begin
-            void'(v35_alu(3'd0, w, lo, lo, psw0, f));
+        if (s.sgn && s.neg) begin
+            void'(v35_alu(3'd5, w, 16'd0, w ? s.lo : {8'd0, s.lo[15:8]}, psw0, f));
             psw[V35_PSW_S] = f[V35_PSW_S];
             psw[V35_PSW_Z] = f[V35_PSW_Z];
             psw[V35_PSW_AC] = f[V35_PSW_AC];

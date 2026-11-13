@@ -484,11 +484,11 @@ module v35_eu
             AL_CVBF: begin
                 r = dv.trap ? {{8{1'b1}}, x[7:0]} : {dv.q[7:0], dv.r[7:0]};
                 pn = v35_szp(psw, {8'd0, r[7:0]}, 1'b0);
-                pn[V35_PSW_CY] = 1'b0;
-                pn[V35_PSW_AC] = 1'b0;
+                pn[V35_PSW_CY] = 1'b0;     // AC kept (F5: silicon)
                 pn[V35_PSW_V] = 1'b0;
             end
-            AL_CVDI: mul_n = v35_mul_init(1'b0, 1'b0, {8'd0, x[15:8]}, 16'd10);
+            // (F5) CVTDB multiplies AH by its immediate (silicon, f5x; the V20 suite's 10)
+            AL_CVDI: mul_n = v35_mul_init(1'b0, 1'b0, {8'd0, x[15:8]}, {8'd0, y[7:0]});
             AL_CVDF: begin
                 q32 = v35_mul_fin(mul, 1'b0, psw, pn);
                 r = {8'd0, 8'(v35_alu(3'd0, 1'b0, {8'd0, q32[7:0]}, {8'd0, x[7:0]}, psw, pn))};

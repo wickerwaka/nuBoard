@@ -5909,3 +5909,83 @@ ROM's four banks 7 each, the register RAM's four halves 1 each), 8 MULT. The ban
 register write, a FLUSH row in the P pass, a decode-ahead miss). `+v35_dbg=FILE` writes the sequencer's state per clock (bring-up only,
 `ifndef SYNTHESIS`). The ROM's banks load from `fpga/v35s/core/v35/` relative to the working
 directory (the repository root; `v35_ucode`'s `UCODE_DIR` parameter).
+
+## F5: the closing random-instruction fuzz (validation/v35s/fuzz.py), first batch of fixes
+
+Stage F5 of docs/v35s-function-plan.md: seeded random programs over the built instruction set,
+run on the socket (two sessions) and on the RTL in simulation; the gate is every F stage's (the
+write and I/O sequence and the result region equal, timing ignored).
+
+### The fuzz
+
+- `validation/v35s/fuzz_gen.py`: the generator. A program is a list of items (kind, seed);
+  `build` materializes them with a model of what the generator knows (register values it set,
+  the segment registers, SP, DIR, RB, every bank's slots, the stack it pushed) and inserts the
+  setups an item needs (an address register loaded so a memory operand lands in its window, a
+  count before REP, a valid segment by PUSH imm / POP sreg). Dropping items and materializing
+  again keeps every constraint, which is how `fuzz.py shrink` delta-debugs (both sides re-run).
+  Memory operands land in the external data window (04000-04FFF, any segment value that reaches
+  it, EA wrapping included), in internal RAM (other banks' slots; the current bank's register,
+  DS0 / DS1 and save slots, never PS / SS / SP) or in storage SFRs (EMS0-2, TMMS0-2, FLAG; MD0 /
+  MD1 by word). Control transfers are forward and bounded: Bcc / BCWZ / BTCLR over a short block,
+  BR short / near over junk, BR reg / mem / far / far mem, CALL rel / reg / mem / far / far mem to
+  a body ending in RET / RETF (imm), DBNZ / DBNZE / DBNZNE loops of 1-4, PREPARE / DISPOSE, RETI
+  with a pushed frame. Traps: every vector points at a stub (SS: INC byte [7E00h + n]; RETI);
+  the FPO escape's handler adds the escape's length (stored by the program before it) to the
+  pushed PC. BRKI stays 1 (no I/O trap), BRK 0 outside layer c's step, IE as layer requires.
+- Observation: after every K (1-4) fuzzed instructions PUSH PSW and PUSH of the registers they
+  wrote (every fourth time PUSH R, DS0, DS1), then MOV SP back: the trace carries every
+  observation. At the end the eight banks (REP MOVBKW from IDB:E00; the current bank's CW slot
+  masked: the F3b REP MOVBKW observation) and a list of SFRs go to 0C000h, OUT FF00h passes.
+- `validation/v35s/fuzz_layers.py`: the sets. f5a plain (300 programs x 110 items), f5b register
+  banks (150; TSKSW, BRKCS / RETRBI pairs, RETRBI and RETI one way into another bank, MOVSPA,
+  MOVSPB, FINT, the target bank's SS / PS / SP / vector PC set by on-chip stores first), f5c
+  interrupts (160: INTP0 by the schedule and timer TM0 into bank-switch handlers that push
+  nothing and touch only their count, TMC0 and ISPR; NMI vectored with its frame and stub store
+  dropped from both write sequences and the stack page's final bytes not compared; the single
+  step over 15-30 items; the program waits for the count with IE set, so the take is
+  boundary-independent), f5d on-chip state (100: random stores to the writable SFRs with every
+  function idle: IC MK 1 IF 0 MS 0, serial TxRDY / RxE 0, timers stopped, DMA EDMA / TDMA 0,
+  INTM's ESNMI kept; dump.DEFAULT_SFRS less the residue offsets, plus TM0 / TM1, TBIC's live IF
+  masked by AND).
+- `validation/v35s/fuzz_flags.py`: f5x, the flag survey (26 programs, 2,860 register-form
+  cases with random operands and random preset flags, one observation each, parsed per case);
+  f5r, the directed regressions of the two non-flag findings (measured, not built) (INS with AL / AH as the offset register;
+  word IN / OUT / INMW / OUTMW at odd and even ports).
+- Receipts: validation/v35s/receipts/f5-<set>-<backend>.json.gz (one per set and backend: each
+  program's seed, sha256, write and I/O sequence, I/O reads, result regions, record count);
+  f5-extins-range-socket.json (below).
+
+### Measured (the socket, uPD70337L-8) and built
+
+| class | silicon | before F5 (the V20 suite's) | built |
+| --- | --- | --- | --- |
+| AC after AND / OR / XOR / TEST, the shifts, TEST1, CVTBD | **kept** (465 cases) | cleared | v35_alu's logic ops, v35_shift / v35_shift_fl, v35_bit1, AL_CVBF: AC from the PSW in |
+| MUL / MUL3 (signed) S Z AC P | the magnitudes multiplied: **kept** when the signs agree; when they differ, the flags of the negation's low half, **0 - &#124;p&#124;.lo** (1,308 of 1,308 cases) | the flags of the low half added to itself | v35_mul_fin: `s.sgn && s.neg` -> v35_alu(SUB, 0, the magnitude's low half: s.lo, s.lo[15:8] for a byte) |
+| DIVU / DIV that complete | **S Z P of the remainder's magnitude, AC the pre-check's nibble borrow** (&#124;num&#124;'s high half's low digit < &#124;d&#124;'s), **CY V 0** (1,320 of 1,320) | DIVU: the pre-check SUB's six flags; DIV: S Z P of the quotient | v35_div_fin: the completing path's PSW; the trapping paths unchanged (F3's measurement) |
+| EXT / INS flags | **unchanged** (440 cases, every flag) | the byte subtract 15 - (offset + width) (+ 1) | bf.uasm: the BFK words' `wf` dropped |
+| CVTDB (D5 ib) | AL = AH x **the immediate** + AL (the survey's 38 cases) | x 10 whatever the byte | loop.uasm cvtdb: `ay=IMM8` on the CVDI word; AL_CVDI multiplies by y[7:0] |
+| INS with AL / AH as the offset register | AW's bits **as they were** (the offset register stepped after AW is read) | stepped first | **not built**: a reordering was tried and reverted (it corrupted IY on the crossing path, f5r_insal); open |
+| a word at an odd I/O port (IN / OUT DW, imm8, INMW / OUTMW) | **two byte cycles**: port on the high lane, then port + 1 on the low (as a memory word) | one word cycle | **not built**: the bus / EU pair extended to I/O was tried and reverted (the I/O datum path does not place the pair's bytes as the memory path does: f5r_io); open |
+| EXT / INS offset or width byte beyond the book's 0-15 | most complete; EXT CL,BL with CL 83h BL 0Fh and INS CL,BL with CL B3h BL 07h **stop the CPU inside the instruction** (refresh only, to the run limit), identically in two sessions | - | not built: undefined input; the fuzz keeps 0-15 (receipt f5-extins-range-socket.json) |
+
+funcref.py (the vector gates' reference) carries the same rules; the V20 suite's are kept behind
+`funcref.V20_UNDEF`, and sst.py counts a test that passes only with them as the class
+"V20's undefined flags" (the V20 and this V35 differ there).
+
+### Open (measured by the fuzz, not built in this batch)
+
+- PREPARE with a level >= 1 (urom/stack.uasm builds level 0 only): silicon pushes the display
+  copies and the frame pointer (f5a_008: PREPARE 4, 1 writes the frame 6432h at 6430h).
+- ADD4S / SUB4S / CMP4S: S and other flags (AL_BCDF's S = AC = the carry, P = Z) differ.
+- DIV (signed) whose quotient overflows (the trap path): the flags pushed differ in S / P.
+- XCH with a memory operand whose EA uses the register exchanged (f5a_015: XCH DS0:[BP+IX], BP).
+- f5a_236 runs away on the RTL only.
+- A test flaw, not fixed: the dumps read SFRs whose reset value is undefined (EMS0-2, TMMS0-2,
+  MD0 / MD1) also when the program never wrote them; TMMS0's bit 7 differs between the two
+  socket sessions (every f5r program) and from the RTL's 0 (f5a). The fix (store them in the
+  prologue) changes every program, so every socket session must be taken again.
+- f5d_048, f5d_055: an endless run of byte writes to one address, reads stepping by 2 through
+  unmapped memory, identical in both sessions; not attributed (not the DMA enable, not the IC
+  registers' MS).
+- f5c_117 (NMI): the two socket sessions differ by one write (the take inside a REP string?).

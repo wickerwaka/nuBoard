@@ -113,6 +113,11 @@ V20_DIGITS = "V20's ROL4 / ROR4 AL"
 # word (AH), the V20 forces them (1, 0, 0: funcref.Cpu.v20_flags); counted apart as V20_DIGITS
 V20_FLAG_FILES = frozenset(["9D", "CF", "9E"])
 V20_FLAGS = "V20's fixed PSW bits"
+# (F5) the undefined flags the V35 measured differently from the V20 suite (receipts f5-f5x-*:
+# AC kept by logic ops / shifts / TEST1 / CVTBD, MUL / DIV / EXT / INS flags, CVTDB by its
+# byte, INS's AW read before the offset step): a test failing with the V35's rules and passing
+# with the V20's (funcref.V20_UNDEF) is the class V20_UNDEF, any file
+V20_UNDEF = "V20's undefined flags"
 
 # the forms the old core's decoder gave a template their semantics did not fit (V35_EE_FUNC);
 # (S6) the reference models FF /2-/5 now, the whole-core bench runs them all: the class is
@@ -210,7 +215,17 @@ def run_funcref(test: dict, cpu_class=_CheckedCpu) -> tuple[str, list, object]:
 
 def reference(test: dict, cpu_class=_CheckedCpu) -> RefRun:
     """run_funcref's run with the CPU kept (S6: the expected state of a test the V35 and the
-    V20 end differently, the I/O writes, the starts)."""
+    V20 end differently, the I/O writes, the starts). (F5) the V20 suite's undefined flags while
+    cpu_class says so (funcref.V20_UNDEF)."""
+    prev = fr.V20_UNDEF
+    fr.V20_UNDEF = bool(getattr(cpu_class, "v20_undef", False))
+    try:
+        return _reference(test, cpu_class)
+    finally:
+        fr.V20_UNDEF = prev
+
+
+def _reference(test: dict, cpu_class) -> RefRun:
     regs, mem, ip = initial(test)
     cpu = cpu_class(regs, mem, 0xFFFF, 0)
     starts = []
@@ -271,6 +286,11 @@ class _V20FlagsCpu(_CheckedCpu):
     v20_flags = True
 
 
+class _V20UndefCpu(_CheckedCpu):
+    """(F5) _CheckedCpu with the V20 suite's undefined flags (funcref.V20_UNDEF)."""
+    v20_undef = True
+
+
 def run_v35_or_v20(test: dict, stem: str) -> tuple[str, list, object]:
     """(WP79) run_funcref; a ROL4 / ROR4 test failing with the V35's AL and passing with the
     V20's is the class V20_DIGITS; (S6) a POP PSW / RETI / SAHF test failing with the V35's
@@ -290,6 +310,10 @@ def reference_v35_or_v20(test: dict, stem: str) -> RefRun:
             r2 = reference(test, cpu_class)
             if r2.cls == "pass":
                 return RefRun(name, r2.diffs, r.starts, r.cpu, r.ip)
+    if r.cls == "fail":
+        r2 = reference(test, _V20UndefCpu)
+        if r2.cls == "pass":
+            return RefRun(V20_UNDEF, r2.diffs, r.starts, r.cpu, r.ip)
     return r
 
 
