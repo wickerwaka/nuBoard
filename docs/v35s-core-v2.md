@@ -2426,3 +2426,31 @@ question, decided from S8's routed numbers with the user.
   CVTBD / CVTDB datum (f5a_061, f5e_026, f5f_043, f5f_108: timing-derived, not built); the interrupt
   inside a REP string; fuzz coverage of SP through 0000h, combined interrupt scenarios, POLL / HALT
   and the register forms of 62 / 8D / C4 / C5 (batch 5).
+- **F5 fifth batch landed (2026-11-13): an interrupt is taken inside a REP string; a third generation
+  of fuzz sets with fresh seeds (f5j-n, 1,000 programs) was 993 equal on its first pass.** The seven
+  are the OUT + CVTBD / CVTDB datum class. **Measured on silicon (intr.py f5_si_ops / edge / long /
+  inv / async and f5_repint, both sessions) and built:** NMI and the maskable interrupt are taken at
+  the end of an element after which the string goes on (its bus cycles, index steps, CW's decrement
+  and the exit tests done); an element that ends the string exits first and the take is at the next
+  start; the PC pushed is the first prefix's offset, and RETI re-enters the whole prefixed string with
+  CW / IX / IY as they stand; the single step is not taken inside a string (one trap after its last
+  element); ADD4S / SUB4S / CMP4S, long shifts, PREPARE and DIV are not interruptible. Built as a take
+  point in the microcode: a new sequencing value SQ_TKI (`tki=L`, no microword bit added; v35_useq
+  `sgo`, v35_top `sgo = g_n || g_i`), one TKI word per REP loop in urom/str.uasm after its exit tests,
+  costing no clock when nothing is pending; the grant and delivery path untouched; the ROM 1,885 →
+  1,892 words. **RTL bug fixed:** REP BUSLOCK left `pist` stale (v35_eu). f5_si_async is measured
+  only (which element a scheduled request lands on is decided by the clocks). **Fuzz coverage added**
+  (fuzz_gap2.py): SP through 0000h / FFFFh, combined interrupt scenarios (nesting, NMI inside a
+  handler, step + INT on one boundary, HALT, a take inside a prefixed REP string), POLL, HALT, the
+  illegal register forms of 62 / 8D / C4 / C5 / FE / FF; MD0 / MD1 / TMC kept out of the timer
+  scenario's operands; four generator flaws fixed for the new sets. **Gate:** 2,609 of 2,620 fuzz
+  programs (f5a-n) equal on both socket sessions and the RTL, f5x 34 and f5r 22 equal; intr 13 sets
+  (11 on the second session) and every earlier program gate equal; corpus 6,541 with 0 runs differing
+  at both spacings, write data 106,824 / 106,824, chk silent, vectors 0 bad, lint clean, 48 fast
+  tests. **FPGA at 17 ns: +1.092 / +0.963 / +1.072 on seeds 1 / 2 / 3** (the base +0.884 / +0.740 /
+  +1.084), 9,521 LUT4 / 618 ADD / 2,431 FF / 79 RAM_5K. **Deferred by the user's ruling (2026-11-13):
+  the OUT + CVTBD / CVTDB datum is not built until the timing work resumes** (the 11 differing
+  programs: f5a_061, f5e_026, f5f_043, f5f_108, f5j_062, f5j_134, f5l_140, f5l_145, f5n_088, f5n_138,
+  f5n_146). **Open (batch 6):** macro service and DMA arriving during a long string (the RTL serves
+  them after it; not measured); NMI inside a single-stepped string; D6 not measured; BRKS and STOP not
+  in the fuzz; fuzz_hist stops with an exception on f5j-n.

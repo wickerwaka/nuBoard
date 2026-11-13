@@ -6403,3 +6403,143 @@ socket == socket-2 (measured only).
   register forms in the random layers (directed sets only).
 - MD0 in the timer scenario's random operands (f5c_026: deterministic here, a later set should
   exclude it).
+
+## F5e: the fuzz's fifth batch (the interruptible REP string, the remaining coverage gaps, a third generation)
+
+### An interrupt inside a REP string (measured, built)
+
+Measured (validation/v35s/intr.py, both socket sessions): f5_si_ops (20 tests: every string
+opcode, byte and word, REP / REPZ / REPNZ / REPC / REPNC, DIR 1), f5_si_edge (17: the counts 0 /
+1 / 2, a compare's exit condition met on the interrupted element or the next, POP PSW then a
+string, a prefix before REP), f5_si_long (ADD4S / SUB4S / CMP4S with CL FEh, SHL / ROL by FFh,
+PREPARE 10h,31, DIV; the single step over REP MOVBKW / REPZ CMPBKW; BRK and IE set together
+with a request pending), f5_si_async (NMI and INTP0 at a scheduled point inside 100h-element
+strings, ADD4S), f5_si_inv (20 cases: NMI and INTP0 at an asynchronous point inside REP MOVBKW
+/ MOVBKB / STMW / LDMW / CMPBKW / CMPMW / INMW / OUTMW / PS: REP DS1: MOVBKW / REPNC CMPBKW, the
+stack and the handler's record in internal RAM) and batch 4's f5_repint (8: the prefix orders).
+The rule:
+
+| item | silicon |
+| --- | --- |
+| which requests | NMI and the maskable interrupt (the INTP pins, a request pending in IF released by EI or POP PSW) are taken inside a REP string; the single step is not: one trap per string, after its last element (REP MOVBKW 8, REPZ CMPBKW 8; with an interrupt taken inside the stepped string the trap still follows the string's end) |
+| the take point | the end of an element after which the string goes on: the element's bus cycles, its index steps, CW's decrement and the exit tests are done (the frame: CW = the count - the elements done, IX / IY stepped by as many elements, a compare's flags of the last element: Z 1 under REPZ). The first take point is after the first element (a request pending before EI, or released by POP PSW: CW = count - 1) |
+| the string's last element | an element that ends the string (CW reaches 0, a compare's condition fails: REPZ with a difference, REPNZ with an equal element, REPC / REPNC by CY) is followed by the ordinary boundary: the take after the string, the next instruction's offset pushed (CW 1, every opcode; REPZ CMPBKW with the first element differing) |
+| the PC pushed | the instruction's first prefix's offset, for every prefix order (REP seg, seg REP, REP seg seg, REP BUSLOCK, BUSLOCK REP, PS: REP DS1:) |
+| the resume | RETI re-enters the whole prefixed string with CW, IX, IY as they stand; a compare tests its condition again only after its next element (REPZ CMPBKW, the second element differing: taken after the first, resumed, exits after the second, CW 6 of 8) |
+| the handler's view | the elements done are in memory, the next not yet (f5_si_ops' destination copy, f5_si_inv's checks); LDM's AW the last element loaded |
+| not interruptible | ADD4S / SUB4S / CMP4S (CL FEh), SHL AW,CL and ROL mem,CL by FFh, PREPARE 10h,31 (30 display copies), DIV: the next instruction's offset pushed (the take after the instruction) |
+
+Not measured (stated from the RTL): a macro service and a DMA transfer are taken at an
+instruction's start only (v35_top g_m / g_d: a REP string's end); bus hold is granted between
+bus cycles by the bus unit (F4d), inside a string as anywhere.
+
+**Built** (function, no clock fitted):
+- The sequencer: a new sequencing value `SQ_TKI` (the seq field's eleventh value; no word bit
+  added): `tki=L` jumps to L when an interrupt is taken at this word, else goes on to the next
+  word; no clock when none is (v35_useq: `sgo` beside `igo`, its ce_b copy `sg_b` for tick B's
+  upc_n, `pd.tki` the word fact).
+- v35_top: `sgo = g_n || g_i` (NMI pending, or the controller's offer with IE 1 and armed: IE
+  as it stood at the string's own start; not `nb_r`: a prefix before REP does not hold the take
+  inside the string); the take strobes `take_n` / `take_i` also on an executing TKI word with
+  `sgo` (the controller latches the source as at a dispatch). The single step, a macro service
+  and DMA are not in `sgo`.
+- Microcode (urom/str.uasm, zz_late.uasm): one TKI word per REP loop, after its exit tests, on
+  an OPEN clock or an act with no sequencing: rep_movbk q + 15, rep_stm q + 6, rep_ldm q + 7,
+  rep_inm q + 12, rep_outm q + 9 (the element's I/O write posted: the entry's first post waits
+  for its end), rep_cmpbk q + 12 and rep_cmpm b (the next element's read posted before the tests:
+  si_f waits for it and drops its datum). The loops' displaced OPEN clocks are zz_late.uasm's
+  rmv_t / rst_t / rld_t; the compares' first element enters through rcb_f / rcm_f (no take point
+  before the first element). The target is urom/trap.uasm intr: tmpc <- ist (the first prefix's
+  offset), IVEC, the frame. ROM 1,885 -> 1,892 words (at its end; no entry moves; v35_udecode_tbl
+  changes in UROM_WORDS only).
+- v35_eu: `pist` loads at REP BUSLOCK's E too (rep_lk, ea=REP without pfx: f5_repint ri_replock
+  pushed a stale start once the take was inside the string).
+- uasm.py: `tki=L` (SEQ_FIELDS); the book check runs it as the next word.
+
+Gates: f5_si_ops, f5_si_edge, f5_si_long, f5_si_inv and f5_repint EQUAL against both socket
+sessions (intr.py gate, now gated); on the base RTL f5_si_ops / f5_si_edge / f5_si_long DIFFER
+(the take after the string). f5_si_async (the element the scheduled request lands on is the
+clocks': silicon element 15 of 256 where the RTL takes at 23) is measured only, socket ==
+socket-2. f5_si_inv is designed so no compared value depends on that element: the frame and the
+handler's record are in internal RAM (no pins), the continuation stores invariants only (one
+take; the pushed PC the first prefix; 0 < CW < the count; IX's and IY's advance = the elements
+done x the width; the element at the take moved / stored / loaded and the next not; Z), then the
+final state and memory sums.
+
+### The coverage gaps of batch 4 (validation/v35s/fuzz_gap2.py; fuzz_layers SETS f5j-f5n)
+
+New item kinds, each Retry unless its set's options name it (f5a-i: every program's sha256 still
+its receipt's):
+
+| gap | closed by | state |
+| --- | --- | --- |
+| SP through 0000h / FFFFh: pushes, pops, CALL / RET, PUSH R / POP R, the interrupt frame, PREPARE / DISPOSE | `f_spwrap` (opts gap2): SS 0600h, SP 0000h-000Ah or FFFAh-FFFFh (odd values too); PUSH r / SP (54 and FF /6) / imm / sreg, POP r, PUSH PSW, CALL to a RET, PUSH R (with or without POP R), BRK n (the frame and the stub's RETI through the wrap), PREPARE 0-3 levels / DISPOSE with BP at the wrap; then SS 0, SP back. The pages 15000h-16FFFh (SS:F000h-FFFFh and an odd word's second half at the linear address + 1) and 0DE00h-0DEFFh (the stubs' SS:[7E00h + n] under SS 0600h) loaded and compared | closed (f5j, f5k, f5m, f5n; layer c's step scenario) |
+| the interrupt layer's combinations | layer c scenarios `mix` (two or three of INTP0 bank switch, TM0 bank switch, NMI, INTP1 vectored with an EI window of 1-4 NOPs in its handler, at random chained delays: NMI inside a handler, a higher level nesting in the vectored handler, the bank-switch take inside a vectored handler, nested priorities) and `mixd` (deterministic: `f_stepint` the single step and INTP0 on one boundary, `f_halt1` HALT with IE 1 left by INTP2 vectored, `f_repint` a request pending, EI, a REP string with prefixes: the take after its first element, the handler recording the pushed PC and PSW in the count page), mixed per program with the four old scenarios (k mod 6) | closed (f5l) |
+| POLL | `f_poll` (P14 low: the INT pin at rest) | closed |
+| HALT | `f_halt0` (layers a, b, d): HALT with IE 0 left by INTP1 (EXIC1 MK 0 for the HALT, its IF cleared after; an event and a schedule entry per HALT); `f_halt1` (mixd) | closed |
+| the illegal register forms of 62 / 8D / C4 / C5 (and FF /3 /5 /7, FE /3 /5 /7 reg) | `f_illreg` (silicon's two-byte NOPs) | closed |
+| D6 | not added: silicon's read-modify-write of the operand is not measured (README F2b: not built); building it gives D6 a decode cell, and the generated decode tables stay untouched in this batch | open |
+| F1 (BRKS) | not added: its handler runs in secure mode (the opcode translation): not self-contained (README F3b: run alone, rescued by NMI) | open |
+| MD0 / MD1 / TMC0 in the timer scenarios' random operands | opts `no_md` (f5l): `pick_sfr` leaves MD0 / MD1 out of the word operands; TMC0 / TMC1 were never in the operand lists | closed |
+
+Generator flaws found by the third generation's first socket session (both sides fail alike or
+the operand leaves the map; fixed for the gap2 sets only, the changed programs taken again on
+both sessions):
+- f5k_014: a fuzz store into the BRKCS body's PSW save, then RETRBI loaded BRKI 0 and an IN in
+  the next bank body trapped for ever (both sides ran away): no bank's PSW save is a write
+  operand in layers b / c.
+- f5l_106 (mix): the harness runs its schedule entries in order (docs/v35s-harness.md), so three
+  events announced together lost two: one event, the other sources chained after it.
+- A HALT item's schedule entry left behind by a retried item would hold every later entry:
+  `Gen.one` drops an item's entries with its retry.
+- f5m_097: XCH [BW+IX-1Ch], AH in a DBNZ body wrote IX's low byte (the current bank's slot), so
+  the next pass's operand left the generator's map: no live register slot is a write operand
+  inside a loop.
+
+### The third generation (f5j-f5n, fresh seeds, 1,000 programs)
+
+f5j plain + every gap form (300), f5k banks (150), f5l interrupts (200: intp, nmi, timer, step,
+mix, mixd by k mod 6), f5m on-chip state (100), f5n gap-heavy (250); all with opts gap2 (f5j /
+f5n also batch 4's gap forms). Taken on the socket in two sessions (socket vs socket-2: 1,000
+EQUAL) and run on this batch's RTL **before any change for them** (the first pass; the
+generator flaws above were fixed before the counts, no RTL change was made after the
+generation was taken):
+
+| set | socket vs socket-2 | socket vs sim | socket-2 vs sim |
+| --- | --- | --- | --- |
+| f5j 300 | 300 EQUAL | 298 | 298 |
+| f5k 150 | 150 EQUAL | 150 | 150 |
+| f5l 200 | 200 EQUAL | 198 | 198 |
+| f5m 100 | 100 EQUAL | 100 | 100 |
+| f5n 250 | 250 EQUAL | 247 | 247 |
+
+993 of 1,000 on both sessions. The seven differences (f5j_062, f5j_134, f5l_140, f5l_145,
+f5n_088, f5n_138, f5n_146) are one class, batch 3's f5a_061: an OUT followed by CVTBD / CVTDB
+(measured, not built: README F5d). No other class appeared; the final counts are the first
+pass's.
+
+### FPGA (not run here: what each change adds)
+
+- Tick A: the sequencer's `nx_a` gains a case (`SQ_TKI`: `sgo ? word.tgt : inc`) beside DISP's
+  `igo` select, on the ROM address only; `sgo` = nmi_v || ((ir_v || it_v) && psw_ie &&
+  ie_arm), an AND-OR of registers (igo's terms without nb_r and the step / macro service / DMA
+  terms). v35_top's take strobes `take_n` / `take_i` gain an OR term `ex && pd.tki && ...` into
+  the controller's registers. Nothing joins the delivery chain (arriving byte -> pop -> room ->
+  request -> grant -> pins); v35_upage / v35_umdsp / v35_umimm / v35_umodrm and the loader's
+  decode and dent are untouched.
+- Tick B: `upc_n` gains the same case on `sg_b` (a new ce_b register beside `ig_b`); `pre()`
+  gains one bit (`tki`: seq == SQ_TKI) in `pd` / `pd_nx`.
+- EU: `pist`'s load enable gains `|| word.ea == EA_REP` (already formed for `pist_v`): a register
+  enable, not on a tick-A chain.
+- ROM: 1,885 -> 1,892 words (zz_late.uasm at the end); str.uasm's words keep their addresses
+  (fields changed: seven TKI words, three calls of the shared delay replaced, five jumps re-targeted).
+
+### Open
+
+- f5a_061, f5e_026, f5f_043, f5f_108, f5j_062, f5j_134, f5l_140, f5l_145, f5n_088, f5n_138,
+  f5n_146: an OUT then CVTBD / CVTDB (measured, not built: README F5d).
+- D6 and F1 (BRKS) are not in the random layers (above); 0F 9E (STOP) neither (NMI only, 2^19
+  clocks).
+- An interrupt inside a string, not measured: a macro service or DMA request pending during a
+  long string (the RTL serves them at the string's end); NMI inside a single-stepped string.
+- f5_si_async (the scheduled element) stays measured only; f5_fint / f5_fint2 as in F5d.

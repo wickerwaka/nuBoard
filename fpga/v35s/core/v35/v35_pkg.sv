@@ -194,9 +194,15 @@ package v35_pkg;
     // the target, the register form's path; a memory mode: the EA head of the byte's mode
     // called, returning to the next word, the memory path's add; mod 00 without a head: the
     // next word)
+    // (F5e) TKI a REP string's take point (silicon, intr.py f5_si_*: NMI and the maskable
+    // interrupt are taken at an element's end when the string goes on): the target (the
+    // string's interrupt entry) when an interrupt is taken here (v35_top `sgo`: NMI pending, or
+    // the controller's offer with IE 1 and armed; registers), else the next word: no clock when
+    // none is
     typedef enum logic [3:0] {
         SQ_NEXT = 4'd0, SQ_JMP = 4'd1, SQ_JC = 4'd2, SQ_JNC = 4'd3, SQ_CALL = 4'd4,
-        SQ_RET = 4'd5, SQ_LOOP = 4'd6, SQ_DISPM = 4'd7, SQ_DISP = 4'd8, SQ_EAC = 4'd9
+        SQ_RET = 4'd5, SQ_LOOP = 4'd6, SQ_DISPM = 4'd7, SQ_DISP = 4'd8, SQ_EAC = 4'd9,
+        SQ_TKI = 4'd10
     } v35_seq_e;
 
     // ---- jump conditions (registered state only) ----

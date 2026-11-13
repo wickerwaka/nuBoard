@@ -874,6 +874,388 @@ def f5_fint2_tests():
     return T
 
 
+# ------------------------------------------------------------------ (F5e) interrupts inside strings
+SI_DST = 0xB080          # the destination's first element (DS1 0B00h: IY 80h)
+
+
+def _dcopy():
+    """An action body: the destination's 16 bytes at DS1:80h (0B080h) into the scratch area
+    (the handler-visible memory at the take), the registers kept."""
+    s = "    PUSH AW\n"
+    for i in range(0, 16, 2):
+        s += f"    DB 2Eh\n    MOV AW, [{_h(SI_DST + i, 4)}]\n    DB 2Eh\n    MOV [{{S}}+{i}], AW\n"
+    return s + "    POP AW\n"
+
+
+def _fill_dst(diff_at=None, w=2, n=0x10):
+    """`pre`: the destination (DS1:IY) a copy of the source (DS0:IX) for n elements, the
+    element diff_at's low byte changed; AW CW IX IY DS1 kept."""
+    s = ("    PUSH AW\n    PUSH CW\n    PUSH IX\n    PUSH IY\n    PUSH DS1\n"
+         "    MOV AW, 0B00h\n    MOV DS1, AW\n"
+         f"    MOV CW, {_h(n * w, 4)}\n    DB 0F3h, 0A4h\n    POP DS1\n    POP IY\n    POP IX\n"
+         "    POP CW\n    POP AW\n")
+    if diff_at is not None:
+        s += ("    PUSH DS1\n    PUSH AW\n    MOV AW, 0B00h\n    MOV DS1, AW\n    POP AW\n"
+              f"    DB 26h\n    XOR byte [IY+{_h(diff_at * w, 4)}], 01h\n    POP DS1\n")
+    return s
+
+
+def _stmfill(n=0x10, w=2):
+    """`pre`: the destination's n elements set to AW (CMPM's equal data)."""
+    return ("    PUSH CW\n    PUSH IY\n    PUSH DS1\n    PUSH AW\n    MOV AW, 0B00h\n"
+            "    MOV DS1, AW\n    POP AW\n"
+            f"    MOV CW, {_h(n, 4)}\n    DB 0F3h, {_h(0xAA + (w == 2))}\n    POP DS1\n    POP IY\n"
+            "    POP CW\n")
+
+
+def f5_si_tests():
+    """(F5e) Measured: a maskable interrupt pending before EI, then a string (the take inside
+    it: the first element's end, f5_repint), for every string opcode, REP condition, width, the
+    counts 1 / 2 / 0, a compare whose exit condition is met on the interrupted element, DIR 1,
+    after POP PSW; the frame (the log: the pushed PC, PSW, the interrupted CW IX IY AW) and the
+    handler-visible destination (the action copies DS1:80h-8Fh into the scratch area)."""
+    R = {"CW": 0x0008, "IX": 0x0000, "IY": 0x0080, "AW": 0x1234, "DW": 0x0100}
+    act = _dcopy() + "    FINT\n"
+
+    def t(name, pfx, op, regs=None, pre="", psw=PSW0, code_pre="    EI\n", note=""):
+        return Test(name, pre=_pend() + pre, code=code_pre + _db(pfx + [op]) + INCS,
+                    regs=dict(R, **(regs or {})), stim=_ST, sfr=False, psw=psw, action=act,
+                    note=note)
+    T = {}
+    T["ops"] = [
+        t("movbkb", [0xF3], 0xA4, note="REP MOVBKB 8"),
+        t("movbkw", [0xF3], 0xA5, note="REP MOVBKW 8"),
+        t("cmpbkw_z", [0xF3], 0xA7, pre=_fill_dst(), note="REPZ CMPBKW 8, equal data"),
+        t("cmpbkb_z", [0xF3], 0xA6, pre=_fill_dst(w=1), note="REPZ CMPBKB 8, equal data"),
+        t("cmpbkw_nz", [0xF2], 0xA7, note="REPNZ CMPBKW 8, every element differs"),
+        t("cmpbkw_c", [0x65], 0xA7, note="REPC CMPBKW 8 (the pattern's compares)"),
+        t("cmpbkw_nc", [0x64], 0xA7, note="REPNC CMPBKW 8"),
+        t("cmpmw_z", [0xF3], 0xAF, pre=_stmfill(), note="REPZ CMPMW 8, AW equal"),
+        t("cmpmb_nz", [0xF2], 0xAE, note="REPNZ CMPMB 8, AL differs"),
+        t("ldmw", [0xF3], 0xAD, note="REP LDMW 8"),
+        t("ldmb", [0xF3], 0xAC, note="REP LDMB 8"),
+        t("stmw", [0xF3], 0xAB, note="REP STMW 8"),
+        t("stmb", [0xF3], 0xAA, note="REP STMB 8"),
+        t("inmw", [0xF3], 0x6D, note="REP INMW 8, port 0100h"),
+        t("inmb", [0xF3], 0x6C, note="REP INMB 8"),
+        t("outmw", [0xF3], 0x6F, note="REP OUTMW 8"),
+        t("outmb", [0xF3], 0x6E, note="REP OUTMB 8"),
+        t("movbkw_dir", [0xF3], 0xA5, regs={"IX": 0x000E, "IY": 0x008E}, psw=0x0402,
+          note="REP MOVBKW 8, DIR 1"),
+        t("movbkw_c", [0x65], 0xA5, note="REPC MOVBKW 8 (the condition on a move)"),
+        t("movbkw_nc", [0x64], 0xA5, note="REPNC MOVBKW 8"),
+    ]
+    T["edge"] = [
+        t("movbkw_n1", [0xF3], 0xA5, regs={"CW": 1}, note="REP MOVBKW 1: after the last element"),
+        t("movbkw_n2", [0xF3], 0xA5, regs={"CW": 2}, note="REP MOVBKW 2"),
+        t("movbkw_n0", [0xF3], 0xA5, regs={"CW": 0}, note="REP MOVBKW 0: no element"),
+        t("stmw_n1", [0xF3], 0xAB, regs={"CW": 1}, note="REP STMW 1"),
+        t("ldmw_n1", [0xF3], 0xAD, regs={"CW": 1}, note="REP LDMW 1"),
+        t("inmw_n1", [0xF3], 0x6D, regs={"CW": 1}, note="REP INMW 1"),
+        t("outmw_n1", [0xF3], 0x6F, regs={"CW": 1}, note="REP OUTMW 1"),
+        t("cmpbkw_z_n1", [0xF3], 0xA7, regs={"CW": 1}, pre=_fill_dst(),
+          note="REPZ CMPBKW 1 equal"),
+        t("cmpmw_z_n1", [0xF3], 0xAF, regs={"CW": 1}, pre=_stmfill(), note="REPZ CMPMW 1 equal"),
+        t("cmpbkw_z_d0", [0xF3], 0xA7, pre=_fill_dst(diff_at=0),
+          note="REPZ CMPBKW 8, the first element differs: the exit on the interrupted element"),
+        t("cmpbkw_z_d1", [0xF3], 0xA7, pre=_fill_dst(diff_at=1),
+          note="REPZ CMPBKW 8, the second element differs"),
+        t("cmpbkw_nz_e0", [0xF2], 0xA7, pre=_fill_dst(),
+          note="REPNZ CMPBKW 8, equal data: the exit on the first element"),
+        t("cmpmw_nz_e0", [0xF2], 0xAF, pre=_stmfill(),
+          note="REPNZ CMPMW 8, AW equal: the exit on the first element"),
+        t("cmpmw_z_d0", [0xF3], 0xAF, note="REPZ CMPMW 8, AW differs: the exit on the first"),
+        t("popsw_movbkw", [0xF3], 0xA5, pre="    MOV BW, 0202h\n    PUSH BW\n",
+          code_pre="    POP PSW\n", note="POP PSW (IE 1), then REP MOVBKW 8"),
+        t("seg_movbkw_n1", [0x26, 0xF3], 0xA5, regs={"CW": 1}, note="DS1: REP MOVBKW 1"),
+        t("cmpbkw_z_n2_d1", [0xF3], 0xA7, regs={"CW": 2}, pre=_fill_dst(diff_at=1),
+          note="REPZ CMPBKW 2, the second element differs"),
+    ]
+    stop = "    PUSH AW\n    MOV AW, 0002h\n    PUSH AW\n    POP PSW\n    POP AW\n"
+    go = "    PUSH AW\n    MOV AW, 0102h\n    PUSH AW\n    POP PSW\n    POP AW\n"
+
+    def lg(name, code, regs=None, note=""):
+        return Test(name, pre=_pend(), code="    EI\n" + code + INCS, regs=dict(R, **(regs or {})),
+                    stim=_ST, sfr=False, action=act, note=note)
+    T["long"] = [
+        lg("add4s", _db([0x0F, 0x20]), regs={"CW": 0x00FE, "IX": 0, "IY": 0x80},
+           note="ADD4S, CL FEh (127 byte pairs)"),
+        lg("sub4s", _db([0x0F, 0x22]), regs={"CW": 0x00FE, "IX": 0, "IY": 0x80},
+           note="SUB4S, CL FEh"),
+        lg("cmp4s", _db([0x0F, 0x26]), regs={"CW": 0x00FE, "IX": 0, "IY": 0x80},
+           note="CMP4S, CL FEh"),
+        lg("shl_255", "    SHL AW, CL\n", regs={"CW": 0x00FF}, note="SHL AW,CL by FFh"),
+        lg("rol_255m", "    DB 26h\n    ROL word [IY], CL\n", regs={"CW": 0x00FF},
+           note="DS1: ROL [IY],CL by FFh"),
+        lg("prepare_31", _db([0xC8, 0x10, 0x00, 0x1F]), regs={"BP": 0x7E80},
+           note="PREPARE 10h, 31 (the display: 30 copies)"),
+        lg("div_long", "    DIV CW\n", regs={"AW": 0x1234, "DW": 0x0012, "CW": 0x8765},
+           note="DIV CW (a long divide)"),
+        Test("step_movbkw", code=go + "    NOP\n" + _db([0xF3, 0xA5]) + "    INC AW\n" + stop,
+             regs=R, action="", sfr=False, note="REP MOVBKW 8 single-stepped: once per string?"),
+        Test("step_cmpbkw", code=go + "    NOP\n" + _db([0xF3, 0xA7]) + "    INC AW\n" + stop,
+             regs=R, pre=_fill_dst(), action="", sfr=False,
+             note="REPZ CMPBKW 8 (equal) single-stepped"),
+        Test("step_movbkw_int", pre=_pend(),
+             code="    MOV BW, 0302h\n    PUSH BW\n    POP PSW\n" + _db([0xF3, 0xA5])
+             + "    INC AW\n" + stop, regs=R, stim=_ST, sfr=False,
+             action=_vis(0x18, "sq{k}") + _dcopy() + "    FINT\nsq{k}:\n",
+             note="BRK and IE set by POP PSW with INTP0 pending, REP MOVBKW 8"),
+    ]
+    big = {"CW": 0x0100, "IX": 0x0000, "IY": 0x0000}
+    nmi_act = _dcopy()
+    T["async"] = [
+        Test("nmi_movbkw", pre=ev("E0"), code=_db([0xF3, 0xA5]) + INCS, regs=big, sfr=False,
+             stim=[pulse("E0", "NMI", delay=20000)], action=nmi_act,
+             note="NMI 20,000 ticks after the event, REP MOVBKW 100h"),
+        Test("nmi_stmw", pre=ev("E0"), code=_db([0xF3, 0xAB]) + INCS, regs=big, sfr=False,
+             stim=[pulse("E0", "NMI", delay=20000)], action=nmi_act,
+             note="NMI, REP STMW 100h"),
+        Test("nmi_cmpbkw", pre=_fill_dst(n=0x80) + ev("E0"), code=_db([0xF3, 0xA7]) + INCS,
+             regs=dict(big, CW=0x80), sfr=False,
+             stim=[pulse("E0", "NMI", delay=20000)], action=nmi_act,
+             note="NMI, REPZ CMPBKW 80h (equal data)"),
+        Test("intp_movbkw", pre=sfr_wr("EXIC0", 0x07) + ev("E0"), psw=PSW_IE,
+             code=_db([0xF3, 0xA5]) + INCS, regs=big, sfr=False,
+             stim=[pulse("E0", "INTP0", delay=20000)], action=act,
+             note="INTP0 during REP MOVBKW 100h (IE 1)"),
+        Test("nmi_add4s", pre=ev("E0"), code=_db([0x0F, 0x20]) + INCS,
+             regs={"CW": 0x00FE, "IX": 0, "IY": 0x80}, sfr=False,
+             stim=[pulse("E0", "NMI", delay=8000)], action=nmi_act,
+             note="NMI during ADD4S CL FEh"),
+        Test("nmi_shl", pre=ev("E0"), code="    SHL AW, CL\n" + INCS, regs={"CW": 0x00FF},
+             sfr=False, stim=[pulse("E0", "NMI", delay=3000)], action=nmi_act,
+             note="NMI during SHL AW,CL FFh"),
+    ]
+    return T
+
+
+# (F5e) interrupts at an asynchronous point inside a string, compared in function only: the
+# stack and the handler's records are in internal RAM (SS = FFE0h: IDB:E00h-E7Fh, banks 0-3; no
+# pins), so the write sequence on the pins does not depend on the element the take lands on; the
+# handler (vector 2 NMI, 24 INTP0) records the frame and the interrupted registers there, and the
+# continuation stores only invariants of them (no record of which element it was): one take, the
+# pushed PC the instruction's first prefix, the take inside the string (0 < CW < the count), the
+# elements done ((count - CW) x the width) equal to IX's and IY's advance, the element at the
+# take moved / stored / loaded and the next one not yet, a compare's Z, then the final state.
+SI_SS = 0xFFE0
+SI_SP = 0x0060
+SI_REC = 0x0060          # SS:60h-7Fh the handler's record (internal RAM, bank 3)
+SI_SLOT = 0x9000         # 32 bytes per case
+SI_PRIS = 0xC000         # the destination's pristine copy (DS0 0C00h)
+SI_NMI_H = 0x3800
+SI_INT_H = 0x3A00
+SI_BAD_H = 0x3C00
+
+SI_HANDLER = """\
+    PUSH BP
+    MOV BP, SP
+    DB 36h
+    INC byte [0070h]
+    PUSH AW
+    MOV AW, [BP+2]
+    DB 36h
+    MOV [0072h], AW
+    MOV AW, [BP+6]
+    DB 36h
+    MOV [0074h], AW
+    DB 36h
+    MOV [0076h], CW
+    DB 36h
+    MOV [0078h], IX
+    DB 36h
+    MOV [007Ah], IY
+    POP AW
+    DB 36h
+    MOV [007Ch], AW
+    PUSH AW
+    DB 26h
+    MOV AW, [IY+0FFFEh]
+    DB 36h
+    MOV [0060h], AW
+    DB 26h
+    MOV AW, [IY]
+    DB 36h
+    MOV [0062h], AW
+    MOV AW, [IX+0FFFEh]
+    DB 36h
+    MOV [0064h], AW
+    MOV AW, [IX]
+    DB 36h
+    MOV [0066h], AW
+    POP AW
+    POP BP
+"""
+
+
+def si_vectors():
+    from .asm import assemble
+    ivt = bytearray()
+    for n in range(32):
+        h = SI_NMI_H if n == 2 else SI_INT_H if n == 24 else SI_BAD_H
+        ivt += h.to_bytes(2, "little") + b"\x00\x00"
+    bad = "    MOV AW, 0002h\n    PUSH AW\n    POP PSW\n    MOV DW, 0FF02h\n    OUT DW, AL\n    HALT\nbsp:\n    BR bsp\n"
+    return {0x0000: bytes(ivt),
+            SI_NMI_H: assemble(SI_HANDLER + "    RETI\n", org=SI_NMI_H),
+            SI_INT_H: assemble(SI_HANDLER + "    FINT\n    RETI\n", org=SI_INT_H),
+            SI_BAD_H: assemble(bad, org=SI_BAD_H)}
+
+
+class SiCase:
+    """One asynchronous case: the string (prefix bytes + opcode), the width, which indexes it
+    steps (ix / iy), the element check (`chk`: mv the move, st the store, ld the load, z a
+    compare's Z, None), the source (NMI or INTP0), the count, `pre` (IE 0, before the event)."""
+
+    def __init__(self, name, ops, w, ix, iy, chk, src="NMI", n=0x40, pre="", delay=20000,
+                 aw=0x1234, note=""):
+        self.name, self.ops, self.w, self.ix, self.iy, self.chk = name, ops, w, ix, iy, chk
+        self.src, self.n, self.pre, self.delay, self.aw, self.note = src, n, pre, delay, aw, note
+
+
+def _pred(k, off, test):
+    """A predicate byte (1 / 0) into slot k + off: `test` sets the flags, then BE / BNE named
+    by its first token ('E' or 'NE' the condition for 1)."""
+    cond, code = test
+    s = SI_SLOT + 32 * k + off
+    br = "BNE" if cond == "E" else "BE"
+    return (code + f"    MOV AL, 0\n    {br} pz{k}_{off}\n    MOV AL, 1\npz{k}_{off}:\n"
+            f"    DB 2Eh\n    MOV [{_h(s, 4)}], AL\n")
+
+
+def _rec(off):
+    return f"[{_h(SI_REC + off, 4)}]"
+
+
+def si_case_source(k, c: SiCase, ev_no):
+    L = [f"; ---- case {k}: {c.name} ({c.note})\n"]
+    L.append(f"""\
+    MOV AW, {_h(SI_SS, 4)}
+    MOV SS, AW
+    MOV SP, {_h(SI_SP, 4)}
+    MOV AW, {_h(DS0, 4)}
+    MOV DS0, AW
+    MOV AW, {_h(DS1, 4)}
+    MOV DS1, AW
+    XOR AW, AW
+    MOV IX, 0010h
+""")
+    L.append("    PUSH DS0\n    MOV AW, 0C00h\n    MOV DS0, AW\n    XOR IX, IX\n    XOR IY, IY\n"
+             "    MOV CW, 0050h\n    DB 0F3h, 0A5h\n    POP DS0\n    XOR AW, AW\n")
+    for i in range(0, 0x20, 2):
+        L.append(f"    DB 36h\n    MOV [{_h(SI_REC + i, 4)}], AW\n")
+    L.append(c.pre)
+    L.append(f"    MOV CW, {_h(c.n, 4)}\n    MOV IX, 0010h\n    MOV IY, 0010h\n"
+             f"    MOV DW, 0100h\n    MOV AW, {_h(c.aw, 4)}\n")
+    if c.src == "INTP0":
+        L.append("    PUSH DS1\n    PUSH AW\n    MOV AW, 0F000h\n    MOV DS1, AW\n    POP AW\n"
+                 + sfr_wr("EXIC0", 0x07) + "    POP DS1\n")
+    psw = 0x0202 if c.src == "INTP0" else 0x0002
+    L.append(f"    PUSH AW\n    MOV AW, {_h(psw, 4)}\n    PUSH AW\n    POP PSW\n    POP AW\n")
+    L.append(f"    PUSH AW\n    PUSH DW\n    MOV DW, 0FF12h\n    MOV AL, {_h(ev_no)}\n"
+             "    OUT DW, AL\n    POP DW\n    POP AW\n")
+    L.append(f"str{k}:\n" + _db(c.ops) + "    NOP\n    NOP\n")
+    s = SI_SLOT + 32 * k
+    L.append("    PUSH PSW\n    PUSH AW\n    MOV AW, 0002h\n    PUSH AW\n    POP PSW\n    POP AW\n")
+    for i, r in enumerate(("CW", "IX", "IY", "AW")):
+        L.append(f"    DB 2Eh\n    MOV [{_h(s + 2 * i, 4)}], {r}\n")
+    L.append(f"    POP AW\n    DB 2Eh\n    MOV [{_h(s + 8, 4)}], AW\n")
+    # the invariants
+    L.append(_pred(k, 10, ("E", f"    DB 36h\n    CMP byte {_rec(0x10)}, 1\n")))
+    L.append(_pred(k, 11, ("E", f"    DB 36h\n    MOV AW, {_rec(0x12)}\n    DB 3Dh\n    DW str{k}\n")))
+    # inside: 0 < CW < n
+    L.append(f"    DB 36h\n    MOV BW, {_rec(0x16)}\n    MOV AL, 0\n    TEST BW, BW\n    BE pin{k}\n"
+             f"    CMP BW, {_h(c.n, 4)}\n    BNC pin{k}\n    MOV AL, 1\npin{k}:\n"
+             f"    DB 2Eh\n    MOV [{_h(s + 12, 4)}], AL\n")
+    # the elements done (n - CW) x w against the indexes' advance
+    sh = "    SHL AW, 1\n" if c.w == 2 else ""
+    adv = f"    MOV AW, {_h(c.n, 4)}\n    DB 36h\n    SUB AW, {_rec(0x16)}\n" + sh
+    ixe = adv + "    ADD AW, 0010h\n" if c.ix else "    MOV AW, 0010h\n"
+    iye = adv + "    ADD AW, 0010h\n" if c.iy else "    MOV AW, 0010h\n"
+    L.append(_pred(k, 13, ("E", ixe + f"    DB 36h\n    CMP AW, {_rec(0x18)}\n")))
+    L.append(_pred(k, 14, ("E", iye + f"    DB 36h\n    CMP AW, {_rec(0x1A)}\n")))
+    # the element at the take and the next one
+    lo = "AL" if c.w == 1 else "AW"
+    hi = "1" if c.w == 1 else "2"
+    if c.chk == "mv":
+        # dst[IY - w] == src[IX - w] and dst[IY] != src[IX]
+        t = ("E", f"    DB 36h\n    MOV AW, {_rec(0x00 + (2 - int(hi)))}\n    DB 36h\n"
+             f"    CMP {lo}, {_rec(0x04 + (2 - int(hi)))}\n")
+        L.append(_pred(k, 15, t))
+    elif c.chk == "st":
+        t = ("E", f"    DB 36h\n    MOV AW, {_rec(0x00 + (2 - int(hi)))}\n    CMP {lo}, {_h(c.aw & (0xFF if c.w == 1 else 0xFFFF), 4)}\n")
+        L.append(_pred(k, 15, t))
+    elif c.chk == "ld":
+        t = ("E", f"    DB 36h\n    MOV AW, {_rec(0x1C)}\n    DB 36h\n    CMP {lo}, {_rec(0x04 + (2 - int(hi)))}\n")
+        L.append(_pred(k, 15, t))
+    elif c.chk == "z":
+        t = ("NE", f"    DB 36h\n    TEST word {_rec(0x14)}, 0040h\n")
+        L.append(_pred(k, 15, t))
+    L.append(_pred(k, 16, ("NE", "    DB 36h\n    MOV AW, " + _rec(0x02) + "\n    DB 36h\n    CMP AW, "
+                          + _rec(0x06) + "\n") if c.chk == "mv" else ("E", "    CMP AW, AW\n")))
+    for off, seg in ((18, "26h"), (20, "3Eh")):
+        L.append(f"    XOR BW, BW\n    MOV CW, 0040h\n    MOV IY, 0010h\nsm{k}_{off}:\n    DB {seg}\n"
+                 f"    ADD BW, [IY]\n    INC IY\n    INC IY\n    DBNZ sm{k}_{off}\n"
+                 f"    DB 2Eh\n    MOV [{_h(s + off, 4)}], BW\n")
+    L.append("    XOR AW, AW\n    MOV SS, AW\n    MOV SP, 7F00h\n")
+    return "".join(L)
+
+
+def si_inv_program(name, cases, note=""):
+    entries, srcs = [], []
+    for k, c in enumerate(cases):
+        entries.append(pulse(k + 1, c.src, delay=c.delay))
+        srcs.append(si_case_source(k, c, k + 1))
+    src = "    DI\n" + "".join(srcs) + EPILOGUE
+    data = si_vectors()
+    data[DATA0] = pattern(DATA0, 0x400)
+    data[DATA1] = pattern(DATA1, 0x400)
+    data[SI_PRIS] = pattern(DATA1, 0x400)
+    data[SI_SLOT] = bytes(32 * len(cases))
+    prog = Program(name, src, data=data,
+                   results=[(SI_SLOT, 32 * len(cases)), (DATA0, 0x400), (DATA1, 0x400)],
+                   gate=True, note=note)
+    prog.tests = []
+    prog.cases = cases
+    from .runner import REST_LEVELS
+    prog.levels = REST_LEVELS
+    prog.stim = {"entries": entries}
+    prog.inv = True
+    return prog
+
+
+def si_inv_cases():
+    eqfill = ("    PUSH CW\n    PUSH IX\n    PUSH IY\n    MOV CW, 0080h\n    MOV IX, 0010h\n"
+              "    MOV IY, 0010h\n    DB 0F3h, 0A5h\n    POP IY\n    POP IX\n    POP CW\n")
+    awfill = ("    PUSH CW\n    PUSH IY\n    MOV AW, 1234h\n    MOV CW, 0080h\n    MOV IY, 0010h\n"
+              "    DB 0F3h, 0ABh\n    POP IY\n    POP CW\n")
+    C = []
+    for src, d in (("NMI", 8000), ("INTP0", 8000)):
+        sfx = "n" if src == "NMI" else "i"
+        C += [
+            SiCase(f"movbkw_{sfx}", [0xF3, 0xA5], 2, True, True, "mv", src, delay=d,
+                   note=f"REP MOVBKW 40h, {src}"),
+            SiCase(f"movbkb_{sfx}", [0xF3, 0xA4], 1, True, True, "mv", src, delay=d // 2,
+                   note=f"REP MOVBKB 40h, {src}"),
+            SiCase(f"stmw_{sfx}", [0xF3, 0xAB], 2, False, True, "st", src, delay=d,
+                   note=f"REP STMW 40h, {src}"),
+            SiCase(f"ldmw_{sfx}", [0xF3, 0xAD], 2, True, False, "ld", src, delay=d,
+                   note=f"REP LDMW 40h, {src}"),
+            SiCase(f"cmpbkw_{sfx}", [0xF3, 0xA7], 2, True, True, "z", src, delay=d, pre=eqfill,
+                   note=f"REPZ CMPBKW 80h equal, {src}"),
+            SiCase(f"cmpmw_{sfx}", [0xF3, 0xAF], 2, False, True, "z", src, delay=d, pre=awfill,
+                   note=f"REPZ CMPMW 80h equal, {src}"),
+            SiCase(f"inmw_{sfx}", [0xF3, 0x6D], 2, False, True, None, src, delay=d,
+                   note=f"REP INMW 40h, {src}"),
+            SiCase(f"outmw_{sfx}", [0xF3, 0x6F], 2, True, False, None, src, delay=d,
+                   note=f"REP OUTMW 40h, {src}"),
+            SiCase(f"segmov_{sfx}", [0x2E, 0xF3, 0x26, 0xA5], 2, True, True, None, src, delay=d,
+                   note=f"PS: REP DS1: MOVBKW 80h (the source DS1:IX), {src}"),
+            SiCase(f"cmpbknc_{sfx}", [0x64, 0xA7], 2, True, True, None, src, delay=d, pre=eqfill,
+                   note=f"REPNC CMPBKW 80h equal, {src}"),
+        ]
+    return C
+
+
 def programs():
     return {
         "f5_step": make_program("f5_step", f5_step_tests()[:5],
@@ -892,9 +1274,17 @@ def programs():
         "f5_fint2": make_program("f5_fint2", f5_fint2_tests(), gate=False,
                                  note="(F5d) measured only: FINT's hold at the boundary where the "
                                       "EI release's latency runs out"),
-        "f5_repint": make_program("f5_repint", f5_repint_tests(), gate=False,
-                                  note="(F5d) measured only: an interrupt inside a REP string "
-                                       "with prefixes (the pushed PC, the resume)"),
+        "f5_repint": make_program("f5_repint", f5_repint_tests(),
+                                  note="(F5d) an interrupt inside a REP string with prefixes (the "
+                                       "pushed PC, the resume); (F5e) built, gated"),
+        **{f"f5_si_{g}": make_program(f"f5_si_{g}", ts, gate=g != "async",
+                                      note=f"(F5e) interrupts inside strings ({g})"
+                                      + (": measured only (the element the take lands on is the"
+                                         " clocks')" if g == "async" else ""))
+           for g, ts in f5_si_tests().items()},
+        "f5_si_inv": si_inv_program("f5_si_inv", si_inv_cases(),
+                                    note="(F5e) NMI / INTP0 at an asynchronous point inside a "
+                                         "REP string: the invariants (the stack in internal RAM)"),
         "f3_vec": make_program("f3_vec", vec_tests(),
                                note="the sources, the entry, the edges, HALT's wake"),
         "f3_order": make_program("f3_order", order_tests(),
@@ -1024,6 +1414,16 @@ def show(name, backend="socket", progs=None):
     progs = progs or programs()
     prog = progs[name]
     rec = load(name, backend)
+    if getattr(prog, "inv", False):
+        slots = bytes.fromhex(rec["regions"][f"{SI_SLOT:05X}"])
+        print(f"{name} ({backend}): passed {rec['passed']} status {rec['status']:04x}")
+        print("   case            CW   IX   IY   AW   PSW  take pc in ix iy el nx dsum ssum")
+        for k, c in enumerate(prog.cases):
+            e = slots[32 * k:32 * k + 32]
+            print(f"{k:2d} {c.name:14s} " + " ".join(f"{_w(e, o):04X}" for o in (0, 2, 4, 6, 8))
+                  + "  " + "  ".join(f"{e[o]:02X}" for o in range(10, 17))
+                  + f" {_w(e, 18):04X} {_w(e, 20):04X}")
+        return
     count, entries, slots = decode(rec)
     labels = labels_of(prog)
     print(f"{name} ({backend}): passed {rec['passed']} status {rec['status']:04x} log {count}")
@@ -1055,6 +1455,8 @@ def jitter_bytes(name, ref="socket", progs=None):
     (Test.jitter) but their vector, depth, test, ISPR and IC bytes."""
     progs = progs or programs()
     prog = progs[name]
+    if getattr(prog, "inv", False):
+        return set()
     ex = set(STACK)
     rec = load(name, ref)
     _, entries, _ = decode(rec)

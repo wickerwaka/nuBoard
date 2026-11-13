@@ -37,7 +37,8 @@ The word's fields (one line of a routine is one word, one CPU clock):
     e f         E (the next opcode popped; exactly one word follows) and F (wait for the datum)
     cnt         the loop counter's load (RB IL BITS LEN)
     seq         jmp=L  jc=COND:L  jnc=COND:L  call=L  ret  loop=L  dispm  (the word after E is
-                the dispatch, DISP, set by the assembler)
+                the dispatch, DISP, set by the assembler); (F5e) tki=L a REP string's take point:
+                L when an interrupt is taken there, else the next word (the book check: the next)
     pfx flush halt trap
 
 No field is a count of clocks, a class, an attribute of another instruction or of the bus
@@ -343,7 +344,7 @@ class Routine:
     base: int = 0
 
 
-SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac"}
+SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac", "tki"}
 # (F2b) the trap vectors a word names with vec= (the data book's vector table, docs/v35s-
 # differences.md section 5): CHKIND 5, the FPO escapes 7, the I/O trap 19
 VECTORS = {"CHK": 5, "FPO": 7, "IOT": 19, "DIV": 0, "STEP": 1}

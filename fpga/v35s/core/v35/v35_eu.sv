@@ -848,7 +848,10 @@ module v35_eu
                 // DS0, pfx_s's order)
                 if (word.e) begin
                     pist_v <= word.pfx || word.ea == EA_REP;
-                    if (word.pfx && !pist_v)
+                    // (F5e) REP BUSLOCK (rep_lk: ea=REP without pfx) loads it too: the REP's
+                    // offset (f5_repint ri_replock: an interrupt inside the string pushed a
+                    // stale start)
+                    if ((word.pfx || word.ea == EA_REP) && !pist_v)
                         pist <= ins_ip;
                 end
                 if (word.pfx) begin

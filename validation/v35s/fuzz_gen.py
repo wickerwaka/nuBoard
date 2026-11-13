@@ -266,6 +266,7 @@ class Gen:
         self.obs_n = 0
         self.fuzz_since = 0
         self.r = random.Random(0)
+        self.events = []               # (F5e) schedule entries the items announce (fuzz_gap2)
 
     # -------------------------------------------------------------- emit helpers
     def setup(self, data, text):
@@ -354,16 +355,29 @@ class Gen:
                 bb += b
                 if bb == st.rb and oo not in CUR_OK:
                     ok = False
+                if self.opts.get("gap2") and "loop" in self.ctx and bb == st.rb and oo >= 0x10:
+                    # (F5e) not a live register's slot inside a loop (f5m_097 of the first
+                    # session: XCH [BW+IX-1Ch], AH in a DBNZ body wrote IX's low byte, so the next
+                    # pass's operand left the generator's map: an unloaded page)
+                    ok = ok and not write
+                if self.opts.get("gap2") and self.layer in ("b", "c") and oo in (4, 5):
+                    # (F5e) no bank's PSW save (f5k_014 of the first session: a store into the
+                    # BRKCS body's PSW save, then RETRBI loaded BRKI 0 and an IN trapped for ever)
+                    ok = ok and not write
                 if self.layer in ("b", "c") and bb != st.rb and oo in (2, 3, 0x0A, 0x0B, 0x0C, 0x0D, 0x16, 0x17):
                     # keep the other banks' SS / PS / SP / vector PC as the generator set them
                     ok = ok and not write
-                if bb == self.opts.get("protect_bank"):
+                if bb == self.opts.get("protect_bank") or bb in self.opts.get("protect_banks", ()):
                     ok = False
             if ok:
                 return lin
         raise Retry("iram")
 
     def pick_sfr(self, size):
+        if size == 2 and self.opts.get("no_md"):
+            # (F5e) the timer scenarios: MD0 / MD1 not a random operand (f5c_026: a store of
+            # MD0 = 0 made TM0 count out every 6 clocks)
+            return SFRB + self.r.choice(tuple(o for o in SFR_WORD if o not in (0x82, 0x8A)))
         return SFRB + self.r.choice(SFR_BYTE if size == 1 else SFR_WORD)
 
     def mem(self, size, write=True, onchip=True, sfr=True, region=None, lin=None, exclude=()):
@@ -2161,8 +2175,18 @@ def build(name, layer, seed, items, opts=None, body=None):
         # (F5d) the wrap forms' segment base page (F401h-F4FFh: offsets 0000h-0FFFh at F4010h-F5FEFh)
         segs[0xF4000] = bytes(pr.randrange(256) for _ in range(0x2000))
         results.append((0xF4000, 0x2000))
+    if opts.get("gap2"):
+        # (F5e) SP through 0000h / FFFFh (fuzz_gap2 f_spwrap, SS 0600h): SS:F000h-FFFFh and the odd
+        # word's second half (15000h-16FFFh), the stubs' counts under SS 0600h (0DE00h-0DEFFh)
+        pg = random.Random(seed ^ 0x6A6A)
+        segs[0x15000] = bytes(pg.randrange(256) for _ in range(0x2000))
+        segs[0xDE00] = bytes(0x100)
+        results += [(0x15000, 0x2000), (0xDE00, 0x100)]
     pages = sorted({a >> 12 for a in segs if a != 0xFFFF0} | set(range(CODE >> 12, end >> 12)) | {0xFF}
-                   | ({0xF5} if opts.get("gap") else set()))
+                   | ({0xF5} if opts.get("gap") else set()) | ({0x16} if opts.get("gap2") else set()))
     mask = {DUMP + 0x20 * g.st.rb + 0x1C, DUMP + 0x20 * g.st.rb + 0x1D}
-    return Built(name, layer, seed, list(items), code, g.b.ins, segs, pages, results, g.cov,
-                 g.st.rb, mask, meta={"K": K, "fuzz": sum(1 for i in g.b.ins if i.tag == "fuzz")})
+    bt = Built(name, layer, seed, list(items), code, g.b.ins, segs, pages, results, g.cov,
+               g.st.rb, mask, meta={"K": K, "fuzz": sum(1 for i in g.b.ins if i.tag == "fuzz")})
+    if g.events:
+        bt.stim = {"entries": list(g.events)}      # (F5e) fuzz_gap2's HALT items
+    return bt

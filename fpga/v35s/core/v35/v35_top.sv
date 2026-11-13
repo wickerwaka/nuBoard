@@ -282,6 +282,7 @@ module v35_top
     wire        w_disp, w_dispm, w_popany;     // (MX5) the word's derived bits (registers)
     wire        w_dispm_nx;                     // (MX5c) tick B: the next word's
     wire        w_erep, w_erep_nx;              // (F5d) e && ea == EA_REP (useq's registered fact; tick B: the next word's)
+    wire        w_tki;                          // (F5e) seq == SQ_TKI (useq's registered fact)
     wire [4:0]  why;
     wire [UADDR_W-1:0] upc;
     // (MX0) the datapath
@@ -294,6 +295,7 @@ module v35_top
     wire        ir_v, nmi_v, i_wake;    // (F3) the controller's offer, NMI, HALT's release
     wire [4:0]  ir_vec, tk_vec;
     wire        igo;
+    wire        sgo;                    // (F5e) an interrupt taken at a string's take point
     wire        it_v, tk_bs, tk_int;    // (F3b) INT offered; the take's kind (bank switch, INT)
     wire [2:0]  tk_lv;                  // (F3b) the bank-switch take's level
     wire        req_ia;                 // (F3b) the EU's request is an INT acknowledge
@@ -443,8 +445,8 @@ module v35_top
         .s_wbs_nx(l_sw_nx), .s_modrm_nx(l_sm_nx), .d1_wbs_nx(l_dw_nx), .d1_hm_nx(l_dh_nx),
         .rmem_nx((fmt_nx.has_modrm || fmt_nx.pg) && ld_modrm_nx[7:6] != 2'd3),
         .fetch_run_nx(b_fir_nx), .bus_wait_nx(b_iw_nx), .fetch_dph_nx(b_fpb_nx),
-        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(h_wake), .igo,
-        .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
+        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(h_wake), .igo, .sgo,
+        .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .w_erep, .w_erep_nx, .w_tki, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
     // ---------------------------------------------------------------- the datapath
@@ -505,12 +507,22 @@ module v35_top
     reg  rs_hlt = 1'b0;
     wire g_d = dm_arm || (ms_hlt && dm_v);
     assign igo = !nb_r && (g_n || g_m || g_d || g_i || g_s);
+    // (F5e) a REP string's take point (a TKI word: urom/str.uasm, at an element's end when the
+    // string goes on; silicon, intr.py f5_si_*): NMI or the maskable offer (IE 1 and armed: IE
+    // as it stood at the string's own start) is taken there, whatever the start's `nb` (a
+    // prefix before the REP: f5_repint); the single step is not (one trap per string, after
+    // its last element: f5_si_long); a macro service and DMA wait for the next start (not
+    // measured). The word's target is the string's entry into urom/trap.uasm intr: the take
+    // strobes below latch the source as at a dispatch; the PC pushed is `ist` (the first
+    // prefix's offset), so RETI re-enters the whole prefixed string with CW as it stands
+    assign sgo = g_n || g_i;
+    wire tki_x = ex && w_tki;
     wire dsp_x = ex && w_disp;
-    wire take_n = dsp_x && igo && g_n;
+    wire take_n = (dsp_x && igo && g_n) || (tki_x && g_n);
     wire take_m = dsp_x && igo && !g_n && g_m;
     assign take_d = dsp_x && igo && !g_n && !g_m && g_d;
     assign dm_rs = dsp_x && !take_d;          // (F4c) the CPU resumes: DIC's IF set here
-    wire take_i = dsp_x && igo && !g_n && !g_m && !g_d && g_i;
+    wire take_i = (dsp_x && igo && !g_n && !g_m && !g_d && g_i) || (tki_x && !g_n && g_i);
     wire take_s = dsp_x && igo && !g_n && !g_m && !g_d && !g_i;
     always @(posedge clock) begin
         if (!core_reset_n) begin

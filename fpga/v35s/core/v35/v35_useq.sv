@@ -101,6 +101,8 @@ module v35_useq
     input  wire        wake,            // (F3) HALT's release (v35_intc's register: NMI or an unmasked IF)
     input  wire        igo,             // (F3) an interrupt is taken at this dispatch (v35_top: an AND-OR
                                         //   of registers): the DISP word goes to UROM_INT, not dent
+    input  wire        sgo,             // (F5e) an interrupt is taken at a string's take point (a TKI
+                                        //   word; v35_top: an AND-OR of registers): the word's target
     // (MX5c) tick B: the next values of the stall's inputs (the D nets of their ce_a registers,
     // as they stand after the coming ce_a): the loader's, the datapath's, the bus unit's
     input  wire        q_stall_nx,
@@ -126,6 +128,7 @@ module v35_useq
     output wire        w_dispm_nx,      // (MX5c) tick B: the next word's seq == SQ_DISPM
     output wire        w_erep,          // (F5d) the word's derived bit (a register): e && ea == EA_REP
     output wire        w_erep_nx,       // ... tick B: the next word's
+    output wire        w_tki,           // (F5e) the word's derived bit (a register): seq == SQ_TKI
     output wire        ex,              // the word executes this clock (tick A)
     output wire        ex_pop,          // ... but for the dispatch's fetch stall (the pops' view)
     output reg         ex_b,            // ... registered at ce_b (tick B, ce_a)
@@ -181,6 +184,7 @@ module v35_useq
         logic pmodrm;       // pop == PP_MODRM
         logic pilih;        // pop == PP_IL or PP_IH
         logic erep;         // (F5d) e && ea == EA_REP: the E pop re-enters the REP page
+        logic tki;          // (F5e) seq == SQ_TKI: a string's take point
     } v35_upre_t;
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic v35_upre_t pre(input v35_uword_t w);
@@ -199,6 +203,7 @@ module v35_useq
         pre.pmodrm = w.pop == PP_MODRM;
         pre.pilih = w.pop == PP_IL || w.pop == PP_IH;
         pre.erep = w.e && w.ea == EA_REP;
+        pre.tki = w.seq == SQ_TKI;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     wire [95:0] rw = {r2, r1, r0};
@@ -208,6 +213,7 @@ module v35_useq
     assign w_dispm = pd.dispm;
     assign w_popany = pd.popany;
     assign w_erep = pd.erep;
+    assign w_tki = pd.tki;
     assign upc_o = upc;
 
     reg [UADDR_W-1:0] retr = '0;
@@ -432,6 +438,7 @@ module v35_useq
     reg [UADDR_W-1:0] d1_b = '0, d2_b = '0, dr_b = '0;
     reg        dc_b = 1'b0;
     reg        ig_b = 1'b0;                 // (F3) igo, for tick B's DISP target
+    reg        sg_b = 1'b0;                 // (F5e) sgo, for tick B's TKI target
     reg        ecr_b = 1'b0, ecc_b = 1'b0;      // (MX3c) the EAC word's mode facts
     reg [UADDR_W-1:0] ech_b = '0;
     reg  [1:0] tw_b = 2'd0;
@@ -446,6 +453,7 @@ module v35_useq
             ex_b <= ex;
             d1_b <= dent;
             ig_b <= igo;
+            sg_b <= sgo;
             dc_b <= dcall;
             ecr_b <= ec_reg;
             ecc_b <= ec_call;
@@ -548,6 +556,7 @@ module v35_useq
                 SQ_LOOP: upc_n = cnt != 9'd1 ? word.tgt : inc;
                 SQ_DISPM: upc_n = d2_b;
                 SQ_DISP: upc_n = ig_b ? UROM_INT : d1_b;     // (F3) the interrupt take
+                SQ_TKI: upc_n = sg_b ? word.tgt : inc;          // (F5e) a string's take point
                 // (MX3c) EAC: the register path, the EA head (called), or the next word
                 SQ_EAC: upc_n = ecr_b ? word.tgt : ecc_b ? ech_b : inc;
                 default: upc_n = inc;
@@ -603,6 +612,7 @@ module v35_useq
             SQ_LOOP: nx_a = cnt != 9'd1 ? word.tgt : inc;
             SQ_DISPM: nx_a = dec2.entry;
             SQ_DISP: nx_a = igo ? UROM_INT : dent;      // (F3) the interrupt take
+            SQ_TKI: nx_a = sgo ? word.tgt : inc;        // (F5e) a string's take point
             SQ_EAC: nx_a = ec_reg ? word.tgt : ec_call ? ec_head : inc;
             default: nx_a = inc;
         endcase
@@ -693,7 +703,7 @@ module v35_useq
                 if (chk_n <= 20)
                     $display("v35 chk: useq: the ROM's address or the derived bits differ at %0t", $time);
             end
-            if (ex_b !== ex || d1_b !== dent || ig_b !== igo || d2_b !== dec2.entry || len_b !== len
+            if (ex_b !== ex || d1_b !== dent || ig_b !== igo || sg_b !== sgo || d2_b !== dec2.entry || len_b !== len
                 || dc_b !== dcall || dr_b !== dret || ecr_b !== ec_reg || ecc_b !== ec_call
                 || ech_b !== ec_head || tw_b !== tw_n || wbn_b !== wbn_n || wpn_b !== wpn_n || wbp_b !== wbp_n
                 || sp_b !== sp_n || un_b !== un_n || drop_b !== drop_n || rf_b !== rf_n || rq_b !== q_req

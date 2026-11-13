@@ -29,3 +29,30 @@ routine rep_sx op=26,2E,36,3E page=rep why="(F5d) REP then a segment prefix: the
 
 routine rep_lk op=F0 page=rep why="(F5d) REP then BUSLOCK: the lock pin not built; the next opcode on the REP page, a segment prefix in force kept (f5r repsegstr); function only"
     e nb ea=REP                             ; E: the next opcode into the REP page
+
+; (F5e) an interrupt inside a REP string (silicon, validation/v35s/intr.py f5_si_ops / f5_si_edge /
+; f5_si_long / f5_si_inv, both sessions): NMI and the maskable interrupt are taken at the end of
+; an element after which the string goes on (the element's bus cycles, its index steps, CW's
+; decrement and the exit tests done); an element that ends the string (CW 0, a compare's
+; condition failed) is followed by the ordinary boundary (the next instruction's offset pushed).
+; The PC pushed is the instruction's first prefix's (ist), so RETI re-enters the whole prefixed
+; string with CW, IX, IY as they stand. The take point is a TKI word on an OPEN clock (or an act
+; with no sequencing) of each REP loop after its tests: no clock when no interrupt is taken. The
+; single step is not taken there (one trap per string); the BCD strings, the shifts and PREPARE
+; are not interrupted (f5_si_long). The loop tails the take words displaced:
+routine si_tails why="(F5e) the REP loops' last OPEN clocks displaced by their take points (str.uasm): OPEN words only, no clock changed"
+rmv_t: open jmp=rmv_q                       ; OPEN: rep_movbk's q + 17, a book clock with no act; the next element at q + 18
+rst_t: open jmp=rst_q                       ; OPEN: rep_stm's q + 8; the next element at q + 9
+rld_t: open                                 ; OPEN: rep_ldm's q + 9, the element's clock with no act
+    open jmp=rld_q                          ; OPEN: rep_ldm's q + 10; the next element at q + 11
+
+; the compares' first element enters the element's rest without a take point (silicon takes
+; after the first element, never before it: f5_repint, f5_si_ops)
+routine si_first why="(F5e) REP CMPBK / CMPM: the first element's step word, the loop's own carries the take point; function only"
+rcb_f: ra=IY wid=WORD alu=STEP ax=RA jmp=rcb_u ; c31: SIGMA = IY + the width (rcb_t's act); the element's rest
+rcm_f: ra=IY wid=WORD alu=STEP ax=RA jmp=rcm_u ; b: SIGMA = IY + the width (rcm_b's act); the element's rest
+
+; a compare's take: the next element's read posted before the tests (the overrun) is waited for
+; and its datum dropped, then the interrupt entry (the element is read again after RETI)
+routine si_cmp why="(F5e) a REP compare's take point: the overrun's datum dropped, then the entry; function only"
+si_f: f jmp=intr                            ; F: the outstanding read's datum (discarded); the interrupt entry

@@ -33,6 +33,7 @@ from __future__ import annotations
 import random
 
 from . import fuzz_gen as G
+from . import fuzz_gap2 as G2
 from .fuzz_gen import AW, DW, SLOT, hx
 
 W_B = dict(G.WEIGHTS, f_bank=14)
@@ -54,6 +55,24 @@ SETS = {
     # DIV edge operands, a word at offset FFFFh and STMW / LDMW through it (the segment wrap)
     "f5i": dict(layer="a", n=200, items=110, seed=0x72550000, opts={"gap": True},
                 weights=dict(G.WEIGHTS, f_str=12, f_spld=3, f_mdedge=4, f_wrap=4)),
+    # (F5e) the third generation: fresh seeds, every layer with the gap forms (fuzz_gap2: SP
+    # through 0000h / FFFFh, POLL, the illegal register forms, HALT left by INTP1), layer c with
+    # two more scenarios (mix: two or three asynchronous sources at once, nesting; mixd: the step
+    # and a request on one boundary, HALT with IE 1, a take inside a REP string with prefixes)
+    "f5j": dict(layer="a", n=300, items=110, seed=0x13A70000, opts={"gap": True, "gap2": True},
+                weights=dict(G.WEIGHTS, f_str=8, f_spld=2, f_mdedge=2, f_wrap=2, f_spwrap=3,
+                             f_poll=1, f_illreg=1, f_halt0=1)),
+    "f5k": dict(layer="b", n=150, items=110, seed=0x14B80000, opts={"gap2": True},
+                weights=dict(W_B, f_spwrap=2, f_poll=1, f_illreg=1, f_halt0=1)),
+    "f5l": dict(layer="c", n=200, items=90, seed=0x15C90000, opts={"gap2": True, "no_md": True},
+                scens=("intp", "nmi", "timer", "step", "mix", "mixd"),
+                weights=dict(W_C, f_stepint=3, f_halt1=2, f_repint=4, f_spwrap=2, f_poll=1,
+                             f_illreg=1)),
+    "f5m": dict(layer="d", n=100, items=90, seed=0x16DA0000, opts={"gap2": True},
+                weights=dict(W_D, f_spwrap=2, f_poll=1, f_illreg=1, f_halt0=1)),
+    "f5n": dict(layer="a", n=250, items=110, seed=0x17EB0000, opts={"gap": True, "gap2": True},
+                weights=dict(G.WEIGHTS, f_str=12, f_spld=3, f_mdedge=4, f_wrap=4, f_spwrap=8,
+                             f_poll=2, f_illreg=3, f_halt0=3)),
 }
 SCEN_C = ("intp", "nmi", "timer", "step")
 
@@ -221,8 +240,11 @@ def _opts(set_name, k):
     stim = None
     mask = set()
     filt = None
+    scens = cfg.get("scens", SCEN_C)
+    if cfg["layer"] == "c" and scens[k % len(scens)] in ("mix", "mixd"):
+        return _opts_mix(scens[k % len(scens)], r, opts)
     if cfg["layer"] == "c":
-        scen = SCEN_C[k % 4]
+        scen = scens[k % len(scens)]
         opts["scen"] = scen
         if scen in ("intp", "timer"):
             p = r.randrange(1, 7)
@@ -247,6 +269,115 @@ def _opts(set_name, k):
         opts["dump_sfr"] = (DUMP_D_BYTES, DUMP_D_WORDS)
         body = body_d
     return opts, body, stim, mask, filt
+
+
+# ------------------------------------------------------------------ (F5e) layer c: mix, mixd
+def _vframe_filter(counts):
+    """Drop every vectored take's frame and count store (the take lands where the clocks put
+    it): in the order they appear, each count store of a vectored handler (`counts`: NMI's stub,
+    the INTP1 / INTP2 handlers) and the six frame bytes before it (a nested take's frame lies
+    between an outer frame and the outer count store, and its count store comes first)."""
+    def filt(writes):
+        out = list(writes)
+        i = 0
+        while i < len(out):
+            a, _, f = out[i]
+            if a in counts and not f & 0x02:
+                j, n = i, 0
+                while j > 0 and n < 6:
+                    j -= 1
+                    aa, _, ff = out[j]
+                    n += 1 if (aa & 1 or ff & 0x08) else 2
+                del out[j:i + 1]
+                i = j
+            else:
+                i += 1
+        return out
+    return filt
+
+
+def _chain(*fs):
+    def filt(writes):
+        for f in fs:
+            writes = f(writes)
+        return writes
+    return filt
+
+
+def _opts_mix(scen, r, opts):
+    """mix: two or three of INTP0 (a bank-switch entry, bank p0 = its level), TM0 (bank-switch,
+    bank p1), NMI (vectored: the stub), INTP1 (vectored, its handler enables interrupts for a few
+    NOPs: a higher level or NMI nests there; INTP1 runs at EXIC0's level), each at a random
+    delay; the program waits for every count. mixd: no asynchronous source; the items f_stepint
+    (INTP0's bank switch at a known boundary), f_halt1 (INTP2 vectored, out of HALT), f_repint
+    (INTP1 vectored inside a REP string, its handler recording the pushed PC and PSW)."""
+    opts["scen"] = scen
+    opts["keep_ie"] = True
+    p0 = r.randrange(1, 7)
+    p1 = r.choice([x for x in range(1, 7) if x != p0])
+    mask = set()
+    entries = []
+    if scen == "mixd":
+        srcs = ("p0", "p1v", "p2v")
+        opts["mixd"] = True
+    else:
+        srcs = tuple(sorted(r.sample(("p0", "t0", "nmi", "p1v"), r.choice((2, 2, 3)))))
+    banks = {p0} | ({p1} if "t0" in srcs else set())
+    opts["protect_bank"] = p0
+    opts["protect_banks"] = tuple(sorted(banks))
+    for p in banks:
+        mask |= {G.DUMP + 0x20 * p + o for o in range(4, 8)}
+    cnts = {"p0": G.CNT + 0x40, "t0": G.CNT + 0x41, "nmi": G.CNT + 2, "p1v": G.CNT + 25,
+            "p2v": G.CNT + 26}
+    filts = [_count_filter(cnts[s]) for s in srcs if s in ("p0", "t0")]
+    vec = {cnts[s] for s in srcs if s in ("nmi", "p1v", "p2v")}
+    if vec:
+        filts.append(_vframe_filter(vec))
+        mask |= set(range(G.STK_PAGE, G.STK_PAGE + 0x1000))
+    nest = r.randrange(1, 5)
+    ev = {"p0": (1, "INTP0"), "nmi": (2, "NMI"), "p1v": (3, "INTP1")}
+    if scen == "mix":
+        # the schedule runs its entries in order (docs/v35s-harness.md): one event, the other
+        # sources chained after it (each a random delay after the last one's pulse)
+        first = True
+        for s in srcs:
+            if s in ev:
+                entries.append({"event": 1 if first else None,
+                                "delay": r.randrange(3000, 120000) if first else r.randrange(10, 20000),
+                                "hold": 2000, "levels": {ev[s][1]: 0}})
+                first = False
+    md0 = r.randrange(1500, 6000)
+
+    def body(g, items, K):
+        if "p0" in srcs:
+            _handler(g, p0, cnts["p0"])
+            _onchip_store(g, 0x4C, 0x10 | p0)        # EXIC0: ENCS, MK 0, PR p0
+        else:
+            _onchip_store(g, 0x4C, 0x40 | p0)        # EXIC0: MK 1, PR p0 (INTP1 / INTP2's level)
+        if "t0" in srcs:
+            _handler(g, p1, cnts["t0"], stop_timer=True)
+            _onchip_store(g, 0x82, md0, 2)          # MD0 (>= 9,000 clocks: one count-out)
+            _onchip_store(g, 0x9C, 0x10 | p1)       # TMIC0: ENCS, MK 0, PR p1
+        if "p1v" in srcs:
+            G2._vec_handler(g, 25, record=scen == "mixd", nest=0 if scen == "mixd" else nest)
+            if scen == "mix":
+                _onchip_store(g, 0x4D, 0x07)        # EXIC1: MK 0, vectored
+        if "p2v" in srcs:
+            G2._vec_handler(g, 26)
+        g.setup(b"\xFB", "EI")
+        g.st.ie = 1
+        g.observe(full=True)
+        if scen == "mix":
+            if "t0" in srcs:
+                _onchip_store(g, 0x90, 0x80)        # TMC0: TS0, interval, SCLK/6
+            if any(s in ev for s in srcs):
+                _event(g, 1)
+        _items(g, items, K)
+        if scen == "mix":
+            for s in srcs:
+                _wait(g, cnts[s])
+    stim = {"entries": entries} if entries else None
+    return opts, body, stim, mask, _chain(*filts)
 
 
 def _nmi_body(inner):
@@ -293,7 +424,10 @@ def _mk(set_name, name, seed, items, k):
     cfg = SETS[set_name]
     opts, body, stim, mask, filt = _opts(set_name, k)
     bt = G.build(name, cfg["layer"], seed, items, opts, body)
-    bt.stim = stim
+    if stim and bt.stim:
+        bt.stim = {"entries": stim["entries"] + bt.stim["entries"]}     # (F5e) the items' events
+    elif stim or not bt.stim:
+        bt.stim = stim
     bt.mask |= mask
     if filt:
         bt.write_filter = filt
