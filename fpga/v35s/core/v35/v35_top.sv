@@ -96,6 +96,8 @@ module v35_top
     wire [1:0]  dm_ps, dm_pd;
     wire        take_d, dm_tend, dm_tlast, dm_last, req_dk, b_dk, b_dkt, dm_rs;
     reg         tk_dm = 1'b0;           // the last take is a DMA transfer's
+    // (F4d) bus hold and READY (v35_sfr's registers to the bus unit, /HLDAK back to the pins)
+    wire        b_hrq, b_hlda_n, b_rdy_en, b_rdy_lv;
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
                  .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd),
@@ -105,7 +107,8 @@ module v35_top
                  .ce_a, .pins_in, .intak_n, .pins, .pf_set,
                  .dm_take(take_d), .dm_tend, .dm_tlast, .dm_rs, .dm_last, .dk(b_dk), .dkt(b_dkt),
                  .dm_v,
-                 .dm_burst, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd);
+                 .dm_burst, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd,
+                 .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv));
 
     // ---------------------------------------------------------------- CPU clock
     reg [2:0] x_count = 3'd0;
@@ -349,6 +352,7 @@ module v35_top
         .idb, .ramen, .oc_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .req_ia, .intak_n, .req_dk, .dk(b_dk), .dkt(b_dkt),
+        .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv),
         .fetch_req(q_fetch_req), .q_low, .q_word, .fetch_addr(q_fetch_addr),
         .t_start, .take_now, .l_pop(ld_load),
         .g_start, .g_kind, .g_addr, .g_width, .g_fetch, .g_eu, .g_abort, .g_b2b,
@@ -426,6 +430,7 @@ module v35_top
     );
 
     // ---------------------------------------------------------------- the microsequencer
+    wire h_wake;                        // HALT's release ((F4d) STOP's: below)
     v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .ec_reg, .ec_call, .ec_head, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
@@ -437,7 +442,7 @@ module v35_top
         .s_wbs_nx(l_sw_nx), .s_modrm_nx(l_sm_nx), .d1_wbs_nx(l_dw_nx), .d1_hm_nx(l_dh_nx),
         .rmem_nx((fmt_nx.has_modrm || fmt_nx.pg) && ld_modrm_nx[7:6] != 2'd3),
         .fetch_run_nx(b_fir_nx), .bus_wait_nx(b_iw_nx), .fetch_dph_nx(b_fpb_nx),
-        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(i_wake || ms_v || dm_v), .igo,
+        .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(h_wake), .igo,
         .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
     );
 
@@ -540,8 +545,40 @@ module v35_top
                 ms_hlt <= 1'b0;
         end
     end
+    // (F4d) STOP (urom/xfer_stop.uasm: a halt word with cnt=stop). While it stands (`stp`, set
+    // when that word executes) the halted stall's release is the settling count's end alone: NMI
+    // pending (the controller's nmi_v) counts 2^19 CPU clocks (`st_c`), then `st_rel` releases it
+    // (f4_stop: the first cycle 2^19 + 38 clocks after NMI's edge; IE 1 or 0); the controller's
+    // wake (an unmasked IF, INT), a macro service and DMA do not (f4_stop stop_intp); the INTP
+    // samplers hold (v35_intc `frz`). The release pops the instruction after STOP, whose
+    // dispatch takes NMI. The count is its own 19-bit counter (not the time base's: its taps
+    // keep running, as measured in HALT; the time base in STOP is not measured)
+    reg         stp = 1'b0;
+    reg  [18:0] st_c = 19'd0;
+    reg         st_rel = 1'b0;
+    wire        stp_w = word.halt && word.cnt == CN_STOP;      // the word is STOP's halt
+    always @(posedge clock) begin
+        if (!core_reset_n) begin
+            stp <= 1'b0;
+            st_c <= 19'd0;
+            st_rel <= 1'b0;
+        end else if (ce_a) begin
+            if (stp && st_rel)
+                stp <= 1'b0;
+            else if (ex_b && stp_w)
+                stp <= 1'b1;
+            if (!stp) begin
+                st_c <= 19'd0;
+                st_rel <= 1'b0;
+            end else if (nmi_v && !st_rel) begin
+                st_c <= st_c + 19'd1;
+                st_rel <= &st_c;
+            end
+        end
+    end
+    assign h_wake = (stp || stp_w) ? st_rel : (i_wake || ms_v || dm_v);
     v35_intc intc (
-        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .input_levels, .intm, .ic_b,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .input_levels, .frz(stp), .intm, .ic_b,
         .wr(sfr_wr), .ic_we, .ic_wd, .take_n, .take_i, .take_s,
         .iack(ex_b && word.alu == AL_IVEC), .fint(ex_b && word.alu == AL_FINT),
         .ic_if, .ispr, .ir_v, .ir_vec, .nmi_v, .wake(i_wake), .tk_vec,

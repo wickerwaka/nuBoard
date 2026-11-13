@@ -247,7 +247,10 @@ def tm_tests():
                    + swr("TMC0", 0x80) + wait(10, "a") + swr("TMC0", 0x00)
                    + "    DB 26h\n    MOV BW, [0FF80h]\n" + wait(10, "b") + "    DB 26h\n    MOV AW, [0FF80h]\n"
                    + "    SUB AW, BW\n    DB 2Eh\n    MOV [{S}], AW\n    MOV CL, 0\n    CMP BW, 8000h\n"
-                   + "    BE th{k}\n    MOV CL, 1\nth{k}:\n    DB 2Eh\n    MOV [{S}+2], CL\n    MOV BW, 0010h\n"))
+                   + "    BE th{k}\n    MOV CL, 1\nth{k}:\n    DB 2Eh\n    MOV [{S}+2], CL\n    MOV BW, 0010h\n"
+                   # (F4d) the flags from the stored difference (0 when the stopped count held),
+                   # not from CMP BW: the slot's PSW was the parity of the raw count, a timed value
+                   + "    TEST AW, AW\n"))
     return T
 
 

@@ -94,6 +94,20 @@ module v35_bus
     input  wire        req_dk,
     output reg         dk,
     output reg         dkt,
+    // (F4d) bus hold: HLDRQ as v35_sfr registers it (PMC2 bit 7); /HLDAK (P26). The hold bit
+    // (`hold`, a ce_a register) stops every grant but a pair's second half; /HLDAK falls at the
+    // pins' edge a clock after the bus went idle under it and rises at the edge after HLDRQ
+    // falls, the hold bit staying until then (f4_hold: /HLDAK 1.5 clocks after the cycle in
+    // flight ends, 1.5 clocks before the next)
+    input  wire        hrq,
+    output reg         hlda_n,
+    // (F4d) READY: PMC1 bit 7 and the pin's level (v35_sfr's second flop). A memory or I/O
+    // cycle on the pins whose WTC field is 3 (2 waits) with PMC1 bit 7 holds its first wait
+    // while READY, sampled at the pins' edge (`rdy_q`), is low (f4_rdy rd_on: 160 ticks of the
+    // harness's hold after the column strobe add 5 clocks to a read or an I/O cycle, none to a
+    // write, whose strobe falls after the first wait's samples)
+    input  wire        rdy_en,
+    input  wire        rdy_lv,
     output wire        req_ack,     // the request's first cycle issued now (S4)
     output wire        req_done,    // its last cycle ended on t-1 (S0; the datum in done_data)
     // the queue (Q1): the request line, the priority hint, the address
@@ -187,6 +201,13 @@ module v35_bus
     reg         g_ia_b = 1'b0;          // (F3b) ... granted now (the ce_b register)
     reg         c_dk = 1'b0;            // (F4c) the cycle is a DMA transfer's
     reg         g_dk_b = 1'b0;          // (F4c) ... granted now (the ce_b register)
+    reg         c_rdy = 1'b0;           // (F4d) the cycle waits for READY (WTC field 3, PMC1 bit 7)
+    reg         g_rdy_b = 1'b0;         // (F4d) ... granted now (the ce_b register)
+    reg         rdy_q = 1'b1;           // (F4d) READY at the pins' last edge (a ce_b register)
+    reg         hold = 1'b0;            // (F4d) the bus held: no grant (a ce_a register)
+    reg         hold_e = 1'b0;          // (F4d) the hold bit at the pins' last edge (the state
+                                        //   boundary that enters the hold)
+    reg         hk = 1'b0;              // (F4d) held and idle at the pins' last edge
     reg  [19:0] c_addr = 20'd0;
     reg  [1:0]  c_width = BW_WORD;
     reg  [1:0]  c_half = 2'd0;      // (A1) 0: a cycle of its own, 1: a pair's first, 2: its second
@@ -257,19 +278,24 @@ module v35_bus
     // rise (no dependence on the next start): the hold ends at the end of the first free clock
     wire        ioh_hold = `V35_MX1G_IOH == 2 ? ioh : (`V35_MX1G_IOH != 0 && ioh && !t_start);
     wire        g_second = free && p2_v;
+    // (F4d) the grants but the pair's second half need the bus not held (one registered term)
+    wire        free_h = free && !hold;
     // (MX5c) the grant expanded on the request line (Shannon's expansion on the bus unit's own
     // input): `gnt_f(fr)` is the priority below with fetch_req = fr, every other input as it
     // stands; the grant is `fetch_req ? gnt_f(1) : gnt_f(0)`, the line selecting last. The bus
     // unit reads nothing it did not read before (the same function; `+v35_chk` compares it with
     // the direct form every clock). README "MX5" round 3
     typedef struct packed {
-        logic       start, fetch, eu, abt, b2b, ack, sfr, ioh_set;
+        logic       start, fetch, eu, abt, b2b, ack, sfr, ioh_set, rdy;
         logic [2:0] kind, len;
         logic [1:0] width, half;
     } v35_gnt_t;
-    // lengths: bus.length(kind), the SFR store's I/O waits
-    wire [1:0] waits_mem = wtc[WTC_MEM_LSB +: 2];
-    wire [1:0] waits_io = wtc[WTC_IO_LSB +: 2];
+    // lengths: bus.length(kind), the SFR store's I/O waits. (F4d) A field of 3 is 2 waits, and
+    // READY's with PMC1 bit 7 (f4_rdy rd_off: WTC FFFFh, 5-clock cycles as field 2's)
+    wire [1:0] waits_mem = wtc[WTC_MEM_LSB +: 2] == 2'd3 ? 2'd2 : wtc[WTC_MEM_LSB +: 2];
+    wire [1:0] waits_io = wtc[WTC_IO_LSB +: 2] == 2'd3 ? 2'd2 : wtc[WTC_IO_LSB +: 2];
+    wire       rdy_mem = rdy_en && wtc[WTC_MEM_LSB +: 2] == 2'd3;
+    wire       rdy_io = rdy_en && wtc[WTC_IO_LSB +: 2] == 2'd3;
     // (MX5) a write's address is the request's (a write is never a fetch: g_kind K_WRITE implies
     // g_addr = req_addr), so the SFR page's compare reads the request register, not the grant
     // (F1) an on-chip memory cycle: the request's address in the page IDB:E00-FFF (E00-EFF the
@@ -284,16 +310,16 @@ module v35_bus
         // rule 3: the queue's low hint overrides a memory cycle's reservation only (A1_IOQL 0:
         // any reservation, the strategy's first wording, kept for the record)
         fq = fr && (!req_resv || (q_low && !(`A1_IOQL && !rq_mem))) && !ioh_hold;
-        b2b_go = free && !g_second && b2b && fr;
-        eu_win = free && !g_second && !b2b_go && eu_ok;
+        b2b_go = free_h && !g_second && b2b && fr;
+        eu_win = free_h && !g_second && !b2b_go && eu_ok;
         // (Q2) the triple clock's fetch begun and abandoned; (R3) also with the line down a byte
         // short of a word (q_word's second term)
-        ab_tri = `V35_Q2_TRI && free && !g_second && !eu_win
+        ab_tri = `V35_Q2_TRI && free_h && !g_second && !eu_win
                  && (b2b_go || fq || ((`V35_R3_XRW || `V35_R3_ALAT) && !fr))
                  && tri3 && q_word;
-        ab_b2b = free && !g_second && b2b && !fr && !eu_ok;
+        ab_b2b = free_h && !g_second && b2b && !fr && !eu_ok;
         gnt_f.abt = ab_tri || ab_b2b;
-        gnt_f.fetch = free && !g_second && !gnt_f.abt && !eu_win && (b2b_go || fq);
+        gnt_f.fetch = free_h && !g_second && !gnt_f.abt && !eu_win && (b2b_go || fq);
         gnt_f.b2b = gnt_f.fetch && b2b;
         gnt_f.ack = eu_win && !gnt_f.abt;
         gnt_f.eu = g_second || gnt_f.ack;
@@ -306,6 +332,7 @@ module v35_bus
         gnt_f.sfr = (gnt_f.kind == K_WRITE || gnt_f.kind == K_READ) && rq_sfr;
         gnt_f.len = (k_io(gnt_f.kind) || gnt_f.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
                     3'(BUS_BASE) + 3'(waits_mem);
+        gnt_f.rdy = !gnt_f.sfr && (k_io(gnt_f.kind) ? rdy_io : rdy_mem);
         gnt_f.ioh_set = (`V35_MX1G_IOH != 0) && gnt_f.ack && !rq_mem && l_pop && !take_now
                         && fr && !fr_prev;
     endfunction
@@ -352,6 +379,8 @@ module v35_bus
             g_sfr_b <= g_sfr;
             g_ia_b <= gn.ack && req_ia;     // (F3b) the EU's cycle granted is an acknowledge
             g_dk_b <= gn.ack && req_dk;     // (F4c) ... a DMA transfer's
+            g_rdy_b <= gn.rdy;              // (F4d) the cycle granted waits for READY
+            rdy_q <= rdy_lv;                // (F4d) READY at the pins' edge
             fetch_req_b <= fetch_req;
             b2b_hold_b <= b2b_hold;
             ioh_set_b <= ioh_set;
@@ -366,10 +395,13 @@ module v35_bus
 
     // ------------------------------------------------ the end of the clock (S6)
     wire fetch_x = g_start_b && g_kind_b == K_FETCH;
+    // (F4d) READY's wait: the cycle's first wait (pos 2) repeats while READY was low at the pins'
+    // edge that began it (registers only: c_rdy, the position, rdy_q)
+    wire        rdy_hold = c_rdy && pos_now == 3'd2 && !rdy_q;
     // (MX5c) the next state the stall reads (the always block below loads exactly these)
     wire        c_valid_nx = g_start_b || busy;
     wire [2:0]  c_kind_nx = g_start_b ? g_kind_b : c_kind;
-    wire [2:0]  c_pos_nx = g_start_b ? 3'd0 : busy ? pos_now : c_pos;
+    wire [2:0]  c_pos_nx = g_start_b ? 3'd0 : busy ? (rdy_hold ? c_pos : pos_now) : c_pos;
     wire [2:0]  c_len_nx = g_start_b ? grant_len_b : c_len;
     wire        busy_nx = c_valid_nx && !(c_pos_nx == c_len_nx - 3'd1);
     wire [2:0]  pos_now_nx = c_pos_nx + 3'd1;
@@ -393,6 +425,8 @@ module v35_bus
             c_internal <= 1'b0;
             c_ia <= 1'b0;
             c_dk <= 1'b0;
+            c_rdy <= 1'b0;
+            hold <= 1'b0;
             c_run <= 1'b0;
             f_since <= 4'd9;
             io_tail <= 2'd0;
@@ -451,6 +485,7 @@ module v35_bus
                 c_internal <= g_sfr_b;
                 c_ia <= g_ia_b;
                 c_dk <= g_dk_b;
+                c_rdy <= g_rdy_b;
                 c_addr <= g_addr_b;
                 c_width <= g_width_b;
                 c_half <= g_half_b;
@@ -458,10 +493,13 @@ module v35_bus
                 p2_v <= g_half_b == 2'd1;
             end else begin
                 if (busy)
-                    c_pos <= pos_now;
+                    c_pos <= rdy_hold ? c_pos : pos_now;
                 else
                     c_valid <= 1'b0;
             end
+            // (F4d) the hold bit: HLDRQ, or /HLDAK still low (the bus is taken back a clock
+            // after /HLDAK rises)
+            hold <= hrq || !hlda_n;
             if (g_start_b && k_io(g_kind_b))
                 io_tail <= 2'(FIT_IO_RECOVER);
             else if (!(busy && k_io(c_kind)) && io_tail != 2'd0)
@@ -596,6 +634,7 @@ module v35_bus
         intak_n = 1'b1;
         dk = 1'b0;
         dkt = 1'b0;
+        hlda_n = 1'b1;
     end
 
     always @(posedge clock) begin
@@ -626,8 +665,19 @@ module v35_bus
             intak_n <= 1'b1;
             dk <= 1'b0;
             dkt <= 1'b0;
+            hk <= 1'b0;
+            hold_e <= 1'b0;
+            hlda_n <= 1'b1;
             data_out <= 16'd0;
         end else begin
+            // (F4d) /HLDAK at the pins' edge: low from the second edge with the bus held and idle
+            // (no cycle in flight, no pair's second half to come), high at the first edge after
+            // HLDRQ falls (registers only)
+            if (ce_e) begin
+                hold_e <= hold;
+                hk <= hold_e && hold && hrq && !busy && !p2_v;
+                hlda_n <= !(hk && hold && hrq && !busy && !p2_v);
+            end
             // (F4c) a DMA transfer's cycle: DMAAK's and TC's windows
             if (ce_mid) begin
                 dk <= pins && n_dk && n_pos != n_len - 3'd1;
@@ -677,16 +727,16 @@ module v35_bus
     // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
     // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
     wire        x_fq = fetch_req && (!req_resv || (q_low && !(`A1_IOQL && !rq_mem))) && !ioh_hold;
-    wire        x_b2b_go = free && !g_second && b2b && fetch_req;
-    wire        x_eu_win = free && !g_second && !x_b2b_go && eu_ok;
-    wire        x_ab_tri = `V35_Q2_TRI && free && !g_second && !x_eu_win
+    wire        x_b2b_go = free_h && !g_second && b2b && fetch_req;
+    wire        x_eu_win = free_h && !g_second && !x_b2b_go && eu_ok;
+    wire        x_ab_tri = `V35_Q2_TRI && free_h && !g_second && !x_eu_win
                            && (x_b2b_go || x_fq || ((`V35_R3_XRW || `V35_R3_ALAT) && !fetch_req))
                            && tri3 && q_word;
-    wire        x_ab_b2b = free && !g_second && b2b && !fetch_req && !eu_ok;
+    wire        x_ab_b2b = free_h && !g_second && b2b && !fetch_req && !eu_ok;
     v35_gnt_t   gnt_x;
     always_comb begin
         gnt_x.abt = x_ab_tri || x_ab_b2b;
-        gnt_x.fetch = free && !g_second && !gnt_x.abt && !x_eu_win && (x_b2b_go || x_fq);
+        gnt_x.fetch = free_h && !g_second && !gnt_x.abt && !x_eu_win && (x_b2b_go || x_fq);
         gnt_x.b2b = gnt_x.fetch && b2b;
         gnt_x.ack = x_eu_win && !gnt_x.abt;
         gnt_x.eu = g_second || gnt_x.ack;
@@ -699,6 +749,7 @@ module v35_bus
         gnt_x.sfr = (gnt_x.kind == K_WRITE || gnt_x.kind == K_READ) && rq_sfr;
         gnt_x.len = (k_io(gnt_x.kind) || gnt_x.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
                     3'(BUS_BASE) + 3'(waits_mem);
+        gnt_x.rdy = !gnt_x.sfr && (k_io(gnt_x.kind) ? rdy_io : rdy_mem);
         gnt_x.ioh_set = (`V35_MX1G_IOH != 0) && gnt_x.ack && !rq_mem && l_pop && !take_now
                         && fetch_req && !fr_prev;
     end

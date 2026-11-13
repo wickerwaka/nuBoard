@@ -27,6 +27,8 @@ Receipts: validation/v35s/receipts/f4-<name>-<backend>.json (--tag adds a suffix
 from __future__ import annotations
 
 import argparse
+import datetime
+import os
 import sys
 
 from . import periph, serial
@@ -477,11 +479,96 @@ def rdy_tests():
     return _fix(T)
 
 
+# ------------------------------------------------------------------ hold, READY, STOP (gated)
+def hrq(e, d=100, h=3000):
+    return {"event": e, "delay": d, "hold": h, "levels": {"HLDRQ": 1}}
+
+
+def hold_tests():
+    """f4_hold: f4_hx's bus-hold tests as a gated set (the HLDAK pin records, the writes)."""
+    T = [periph.init_test()]
+    # HLDRQ high ~94 clocks while the CPU waits in a loop (no writes), then writes
+    t = PTest("h_loop", jitter=False, stim=[hrq("E0", 2000)])
+    t.codef = lambda k: ONH + ev("E0") + wait(40, "a") + cws(k, 4) + OFF0
+    T.append(t)
+    # HLDRQ high while the CPU writes
+    t = PTest("h_w", jitter=False, stim=[hrq("E0")])
+    t.codef = lambda k: ONH + ev("E0") + cws(k, 8) + wait(20, "a") + OFF0
+    T.append(t)
+    # HLDRQ with P27 in port mode, P26 /HLDAK (PMC2 40h): ignored (/HLDAK stays high; P26 is
+    # driven, so its records do not depend on the board's keepers)
+    t = PTest("h_port", jitter=False, stim=[hrq("E0")])
+    t.codef = lambda k: (periph.marker(periph.modes(r0=1)) + swr("PMC2", 0x40)
+                         + periph.marker(periph.modes(r0=2)) + ev("E0") + cws(k, 8)
+                         + wait(20, "a") + OFF0)
+    T.append(t)
+    # HLDRQ in HALT; INTP0 (vector 24) wakes it later
+    t = PTest("h_halt", jitter=False, psw=PSW_IE,
+              stim=[hrq("E0", 12000, 3000),
+                    {"event": None, "delay": 6000, "hold": 2000, "levels": {"INTP0": 0}}])
+    t.codef = lambda k: (serial.cnt_clr(24) + swr("EXIC0", 0x07) + ONH + ev("E0")
+                         + "    HALT\n    NOP\n    NOP\n" + cw(k, 0, 0x55) + serial.cnt_rd(24, k, 0)
+                         + swr("EXIC0", 0x47) + OFF0)
+    T.append(t)
+    # HLDRQ during a burst DMA (memory to memory, TDMA, 4 transfers) and CPU writes
+    t = PTest("h_dma", jitter=False, stim=[hrq("E0", 400, 2000)])
+    t.codef = lambda k: (swr("DIC0", 0x47) + ONH + blk_w(0, 0x0060, 0x0060, 0x0F, 0x0D, 4)
+                         + swr("DMAC0", 0x11) + ev("E0") + wait(2, "a") + swr("DMAM0", 0x8C)
+                         + cws(k, 4) + wait(40, "b") + blk_rd(0, k, 0) + rd("DMAM0", k, 8)
+                         + swr("DMAM0", 0x00) + OFF0)
+    T.append(t)
+    return _fix(T)
+
+
+STOP = "    DB 0Fh, 9Eh\n    NOP\n    NOP\n"
+NMI = lambda e, d=12000: {"event": e, "delay": d, "hold": 2000, "levels": {"NMI": 0}}
+
+
+def stop_tests(x=False):
+    """f4_stop: STBC before and after a STOP, STOP released by NMI (IE 1, IE 0), an unmasked
+    INTP0 during STOP (no release), then NMI. Run last in a session (SBF stays set until the
+    socket's power is switched off) and run twice: the second run (`f4_stop_r`, a reset, no power
+    cycle) reads STBC as the first run's STOP left it. x: the first measurement's text (f4_stopx:
+    stbc0 also stores 01h before any STOP, which set SBF)."""
+    T = [periph.init_test()]
+    t = PTest("stbc0", jitter=False)
+    t.codef = lambda k: (rd("STBC", k, 0) + swr("STBC", 0x00) + rd("STBC", k, 1)
+                         + (swr("STBC", 0x01) + rd("STBC", k, 2) if x else ""))
+    T.append(t)
+    t = PTest("stop", jitter=False, psw=PSW_IE, stim=[NMI("E0")])
+    t.codef = lambda k: (serial.cnt_clr(2) + ev("E0") + STOP + cw(k, 0, 0x66)
+                         + serial.cnt_rd(2, k, 1) + rd("STBC", k, 2))
+    T.append(t)
+    t = PTest("stop_di", jitter=False, stim=[NMI("E0")])
+    t.codef = lambda k: (serial.cnt_clr(2) + ev("E0") + STOP + cw(k, 0, 0x77)
+                         + serial.cnt_rd(2, k, 1) + rd("STBC", k, 2))
+    T.append(t)
+    t = PTest("stop_intp", jitter=False, psw=PSW_IE,
+              stim=[{"event": "E0", "delay": 12000, "hold": 2000, "levels": {"INTP0": 0}},
+                    NMI(None)])
+    t.codef = lambda k: (serial.cnt_clr(2) + serial.cnt_clr(24) + swr("EXIC0", 0x07) + ev("E0")
+                         + STOP + cw(k, 0, 0x88) + serial.cnt_rd(2, k, 1)
+                         + serial.cnt_rd(24, k, 2) + rd("EXIC0", k, 3) + swr("EXIC0", 0x47))
+    T.append(t)
+    t = PTest("stbc1", jitter=False)
+    t.codef = lambda k: (rd("STBC", k, 0) + swr("STBC", 0x00) + rd("STBC", k, 1)
+                         + swr("STBC", 0xFF) + rd("STBC", k, 2) + swr("STBC", 0x00)
+                         + rd("STBC", k, 3))
+    T.append(t)
+    return _fix(T)
+
+
 def programs():
     progs = {
         "f4_hx": _prog("f4_hx", hx_tests(), pins=PINS, gate=False, fast=(2, 24),
                        note="explore: bus hold, STBC, STOP"),
-        "f4_rdy": _prog("f4_rdy", rdy_tests(), gate=False, note="explore: READY and WTC"),
+        "f4_rdy": _prog("f4_rdy", rdy_tests(), note="READY and WTC (the cycle lengths gated)"),
+        "f4_hold": _prog("f4_hold", hold_tests(), pins=PINS, fast=(24,),
+                         note="bus hold: HLDRQ / HLDAK"),
+        "f4_stop": _prog("f4_stop", stop_tests(), fast=(2, 24),
+                         note="STBC and STOP (run last in a session, twice)"),
+        "f4_stopx": _prog("f4_stopx", stop_tests(x=True), fast=(2, 24), gate=False,
+                          note="explore: STBC (a 01h store before the STOPs) and STOP"),
         "f4_dma": _prog("f4_dma", dma_tests(), pins=PINS, fast=(20, 21),
                         note="DMA: the modes, the placement, the pins, HALT, DIC"),
         "f4_dmx": _prog("f4_dmx", explore_tests(), gate=False, note="explore: DMA memory to memory"),
@@ -491,7 +578,9 @@ def programs():
         "f4_dm2": _prog("f4_dm2", x2_tests(), pins=PINS, gate=False, fast=(20, 21),
                         note="explore: DMA placement, triggers, HALT, words, priority"),
     }
-    for p in progs.values():
+    progs["f4_stop_r"] = progs["f4_stop"]      # its second run (a reset, no power cycle)
+    progs["f4_stopx_r"] = progs["f4_stopx"]
+    for p in {id(p): p for p in progs.values()}.values():
         p.data.update(pages())
         p.results += [(0xD000, 0x100), (SRC, 0x100), (DST, 0x100), (RES, 0x20 * len(p.tests))]
     return progs
@@ -547,8 +636,9 @@ def _gate_setup(progs):
     periph.settle_ticks = lambda pins, ticks=SETTLE: stt(pins, ticks)
 
 
-def _keep_trace():
-    """periph.run_one with `trace` added: [tick, address, data, flags] of every record."""
+def _keep_trace(only=None):
+    """periph.run_one with `trace` added: [tick, address, data, flags, end] of every record
+    (`only`: for these programs alone)."""
     from . import onchip
     seq, stash = onchip._write_sequence, {}
 
@@ -559,11 +649,201 @@ def _keep_trace():
     onchip._write_sequence = ws
     one = periph.run_one
 
-    def run_one(*a, **k):
-        rec = one(*a, **k)
-        rec["trace"] = stash.pop("tr", [])
+    def run_one(harness, prog, *a, **k):
+        rec = one(harness, prog, *a, **k)
+        tr = stash.pop("tr", [])
+        if only is None or prog.name in only:
+            rec["trace"] = tr
         return rec
     periph.run_one = run_one
+
+
+TRACED = ("f4_rdy", "f4_hold", "f4_stop")    # the receipts keep the trace (the gate reads it)
+STOP_LIMIT = 80_000_000                      # ticks: three STOPs of 2^19 clocks (32 ticks each)
+
+
+def run_stop(backend, tag, progs, base="f4_stop"):
+    """f4_stop in a session of its own, twice: the second run (a reset, no power cycle) is saved
+    as f4_stop_r (STBC as the first run's STOP left it)."""
+    from .traps import _board, _close_board, _sim
+    lane = "socket" if backend == "socket" else "model"
+    transport, harness = _board() if backend == "socket" else _sim()
+    try:
+        for name in (base, base + "_r"):
+            prog = progs[name]
+            periph._stim(harness, prog)
+            rec = periph.run_one(harness, prog, lane, limit=STOP_LIMIT)
+            rec.update(program=name, backend=backend,
+                       date=datetime.datetime.now().isoformat(timespec="seconds"),
+                       stim=prog.stim, levels=prog.levels, p0=prog.p0)
+            if backend == "socket":
+                rec.update(cpu="uPD70337L-8", x_half=2)
+            else:
+                rec.update(core="v35", binary=os.environ.get(
+                    "V35_SIM_BINARY", "build/fpga/v35s/verilator-direct-v35"))
+            periph.save(rec, name, backend + tag)
+            print(f"{name}: {backend} {'PASS' if rec['passed'] else 'FAIL'} "
+                  f"status=0x{rec['status']:04x} writes={len(rec['writes'])} total={rec['total']}"
+                  f" stubs={len(rec['stubs'])} replay={rec['replay']}", flush=True)
+    finally:
+        if backend == "socket":
+            _close_board(transport, harness)
+        else:
+            transport.close()
+
+
+# ------------------------------------------------------------------ the gate's timing checks
+def _test_of(trace):
+    """Per record: the test it belongs to (the stub's number store at LOG + 4)."""
+    from .runner import FLAG_IO, FLAG_READ, FLAG_STROBE
+    k, out = -1, []
+    for t in trace:
+        if t[3] & FLAG_STROBE and not t[3] & (FLAG_READ | FLAG_IO) and t[1] == periph.LOG + 4:
+            k = t[2]
+        out.append(k)
+    return out
+
+
+RDY_TOL = 2             # ticks: a cycle's length (the harness records at 30 ns; the I/O cycles'
+                        # strobe sample differs by one tick between the socket and the RTL)
+
+
+def rdy_cycles(rec):
+    """f4_rdy: per test, the lengths (end - start, ticks) of its writes, I/O cycles and data reads
+    (the page F000h) in order, and the set of its memory reads' lengths in clocks (the fetches)."""
+    from .runner import FLAG_IO, FLAG_PIN, FLAG_READ
+    tr = rec["trace"]
+    seq, rset = {}, {}
+    for k, t in zip(_test_of(tr), tr):
+        if t[3] & FLAG_PIN or k < 0:
+            continue
+        ln = t[4] - t[0]
+        kind = ("io" if t[3] & FLAG_IO else "m") + ("r" if t[3] & FLAG_READ else "w")
+        if kind != "mr" or 0xF000 <= t[1] < 0xF100:
+            seq.setdefault(k, []).append((kind, t[1], ln))
+        if kind == "mr":
+            rset.setdefault(k, set()).add(round(ln / periph.CLK))
+    return seq, rset
+
+
+def check_rdy(a, b, prog):
+    sa, ra = rdy_cycles(a)
+    sb, rb = rdy_cycles(b)
+    bad = []
+    for k in range(len(prog.tests)):
+        x, y = sa.get(k, []), sb.get(k, [])
+        if len(x) != len(y) or any(p[:2] != q[:2] or abs(p[2] - q[2]) > RDY_TOL
+                                   for p, q in zip(x, y)):
+            bad.append(f"{prog.tests[k].name}: {[(p[0], p[2]) for p in x]} / "
+                       f"{[(q[0], q[2]) for q in y]}")
+        if ra.get(k) != rb.get(k):
+            bad.append(f"{prog.tests[k].name} read lengths {sorted(ra.get(k, []))} / "
+                       f"{sorted(rb.get(k, []))}")
+    n = sum(len(v) for v in sa.values())
+    print(f"  f4_rdy cycle lengths ({n} cycles, tolerance {RDY_TOL} ticks): "
+          + ("equal" if not bad else "differ: " + "; ".join(bad[:8])))
+    return not bad
+
+
+STOP_TOL = 64           # clocks: the release's distance from the test's event (the NMI's edge
+                        # against the CPU clock, the handler's entry): 2^19 + ~400 on the socket
+
+
+def stop_gaps(rec):
+    """f4_stop: per test with a STOP, the clocks from its event record (the OUT to FF12h) to the
+    first bus record after the quiet (the release)."""
+    from .runner import FLAG_EVENT
+    tr, out = rec["trace"], {}
+    ks = _test_of(tr)
+    for i in range(1, len(tr)):
+        if tr[i][0] - tr[i - 1][4] > 100_000:
+            ev_t = next(t[0] for t in reversed(tr[:i]) if t[3] & FLAG_EVENT)
+            out[ks[i]] = (tr[i][0] - ev_t) / periph.CLK
+    return out
+
+
+def check_stop(a, b, prog):
+    ga, gb = stop_gaps(a), stop_gaps(b)
+    bad = ([k for k in ga if k not in gb or abs(ga[k] - gb[k]) > STOP_TOL]
+           + [k for k in gb if k not in ga])
+    print("  f4_stop release (clocks after the event): " + ", ".join(
+        f"{prog.tests[k].name} {ga.get(k)}/{gb.get(k)}" for k in sorted(set(ga) | set(gb)))
+          + f" (tolerance {STOP_TOL}): " + ("equal" if not bad else "differ"))
+    return not bad
+
+
+def hold_gaps(rec):
+    """f4_hold: per HLDAK edge (the pin vector's bit 22), its level and the ticks from the bus
+    record before it (its end), to the one after it (its start) and from the last event record
+    (the OUT that started the test's schedule)."""
+    from .runner import FLAG_EVENT, FLAG_PIN
+    tr, out, lvl, ev_t = rec["trace"], [], 1, None
+    for i, t in enumerate(tr):
+        if t[3] & FLAG_EVENT:
+            ev_t = t[0]
+        if t[3] & FLAG_PIN and (t[2] >> 6) & 1 != lvl:
+            lvl = (t[2] >> 6) & 1
+            prv = next((u for u in reversed(tr[:i]) if not u[3] & FLAG_PIN), None)
+            nxt = next((u for u in tr[i + 1:] if not u[3] & FLAG_PIN), None)
+            out.append((lvl, t[0] - prv[4] if prv else None, nxt[0] - t[0] if nxt else None,
+                        t[0] - ev_t if ev_t is not None else None))
+    return out
+
+
+HOLD_TOL = {"end": 4, "next": 4, "event": 32}
+                        # ticks: an edge bound to a cycle (the hold taken as the cycle in flight
+                        # ends; the bus taken back) to 4 ticks; an edge bound to HLDRQ (an
+                        # asynchronous level: its phase against the CPU clock's sample) to a clock
+
+
+def hold_bound(e):
+    """What an HLDAK edge is bound to: a fall within 100 ticks of a cycle's end to that end (the
+    hold taken when the cycle in flight ends), else to the event (the HLDRQ edge the schedule
+    places after it, on an idle bus); a rise within 16 ticks of a record's end to it (a PMC2
+    store), within 100 ticks of the next cycle to it (the bus taken back), else to the event."""
+    lvl, after, to_next, after_ev = e
+    if lvl == 0:
+        return ("end", after) if after < 100 else ("event", after_ev)
+    if after < 16:
+        return ("end", after)
+    return ("next", to_next) if to_next is not None and to_next < 100 else ("event", after_ev)
+
+
+def check_hold(a, b, prog):
+    """The edges bound the same way on both sides within HOLD_TOL; an edge bound differently is
+    listed (a timing difference: the gate's sequences and pins carry the function)."""
+    ha, hb = hold_gaps(a), hold_gaps(b)
+    ba, bb = [hold_bound(e) for e in ha], [hold_bound(e) for e in hb]
+    bad = len(ba) != len(bb)
+    out, other = [], []
+    for n, (x, y) in enumerate(zip(ba, bb)):
+        if x[0] != y[0]:
+            other.append(f"#{n} {x[0]} {x[1]} / {y[0]} {y[1]}")
+            continue
+        ok = abs(x[1] - y[1]) <= HOLD_TOL[x[0]]
+        bad |= not ok
+        out.append(f"{x[0]} {x[1]}/{y[1]}" + ("" if ok else " (!)"))
+    print(f"  f4_hold HLDAK edges ({len(ba)}/{len(bb)}; bound to, ticks; tolerance {HOLD_TOL}): "
+          + "; ".join(out) + (" differ" if bad else " equal")
+          + ("" if not other else "; bound differently (timing, not gated): " + "; ".join(other)))
+    return not bad
+
+
+CHECKS = {"f4_rdy": check_rdy, "f4_stop": check_stop, "f4_stop_r": check_stop,
+          "f4_hold": check_hold}
+
+
+def gate(names, ref, cand, progs):
+    ok = periph.compare_gate(names, ref, cand, progs)
+    for n in names:
+        if n in CHECKS:
+            a, b = periph.load(n, ref), periph.load(n, cand)
+            if "trace" not in a or "trace" not in b:
+                print(f"  {n}: no trace in a receipt: timing not checked")
+                ok = False
+                continue
+            ok &= CHECKS[n](a, b, progs[n])
+    return ok
 
 
 def main():
@@ -576,16 +856,23 @@ def main():
     p.add_argument("--trace", action="store_true")
     a = p.parse_args()
     progs = programs()
-    names = a.names or [n for n, prog in progs.items() if a.action == "socket" or prog.gate]
+    gated = [n for n, prog in progs.items() if prog.gate and not n.endswith("_r")]
+    names = a.names or gated
     if a.action in ("socket", "sim"):
         _with_dma_reads()
         _ready_stim(160)
-        if a.trace:
-            _keep_trace()
-        periph.run_set(names, a.action, a.tag, progs)
+        _keep_trace(None if a.trace else TRACED)
+        stops = [n for n in names if n in ("f4_stop", "f4_stopx")]
+        rest = [n for n in names if n not in stops and not n.endswith("_r")]
+        if rest:
+            periph.run_set(rest, a.action, a.tag, progs)
+        for n in stops:                 # last, each in a session of its own
+            run_stop(a.action, a.tag, progs, n)
     elif a.action == "gate":
         _gate_setup(progs)
-        return 0 if periph.compare_gate(names, a.ref, a.cand, progs) else 1
+        names = names + [n + "_r" for n in names if n in ("f4_stop", "f4_stopx")
+                         and n + "_r" not in names]
+        return 0 if gate(names, a.ref, a.cand, progs) else 1
     elif a.action == "show":
         for n in names:
             serial.show(n, a.ref + a.tag, progs)
@@ -594,7 +881,7 @@ def main():
             code, _, _ = progs[n].image()
             print(n, f"{len(code)} bytes, {len(progs[n].tests)} tests")
     else:
-        periph.emit(progs)
+        periph.emit({n: p_ for n, p_ in progs.items() if not n.endswith("_r")})
     return 0
 
 

@@ -168,9 +168,11 @@ package v35_pkg;
     // as the carry-in (the BCD strings' byte pairs: CL digits), (F2a) SIG SIGMA's low four bits
     // (the bit fields' per-bit loops: the offset, the width's complement, the bits above the
     // field, the bits spilled into the next word)
+    // (F4d) STOP: no load (the field's last free value); on a halt word it makes the halt STOP's
+    // (v35_top: released by NMI alone, 2^19 clocks after it; the INTP samplers held meanwhile)
     typedef enum logic [2:0] {
         CN_NONE = 3'd0, CN_RB = 3'd1, CN_IL = 3'd2, CN_BITS = 3'd3, CN_LEN = 3'd4, CN_CLH = 3'd5,
-        CN_SIG = 3'd6
+        CN_SIG = 3'd6, CN_STOP = 3'd7
     } v35_cnt_e;
 
     // ---- sequencing ----

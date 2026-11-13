@@ -2279,3 +2279,45 @@ question, decided from S8's routed numbers with the user.
   (unmeasured: channel 0 first), the demand mode's transfer counts by pulse length (measured only), TC
   with 0 or 1 programmed waits (unmeasured); bus hold, READY and STOP / STBC were measured in this part
   (receipts f4-f4_hx-socket.json, f4-f4_rdy-socket.json) and are built in part D.
+- **F4 part D landed (2026-11-12): bus hold, READY, STBC / STOP, and the vectored entry in silicon's order;
+  corpus 6,541 unchanged. F4 is complete.** Measured on the socket first (validation/v35s/dma.py; programs
+  f4_hold, f4_rdy, f4_stop and its reset re-run f4_stop_r; two sessions each, equal to the tick).
+  **Against the data book / the earlier reading:** **a WTC field of 3 is 2 waits** (5-clock cycles, as
+  field 2; the core had 3 waits, so every program at the reset WTC ran one clock a cycle long); with PMC1
+  bit 7 a read or an I/O cycle is extended by READY low, a memory write is not (its strobe falls after
+  READY's sample; the harness cannot hold READY early on a write, so that case is built as the mechanism
+  implies, not measured); HLDRQ needs PMC2 bit 7, /HLDAK falls 1.5 clocks after the cycle in flight ends
+  and rises 1.5 clocks before the next, a burst DMA waits under hold as the CPU does, and hold is granted
+  in HALT; **STBC's SBF (bit 0) is set by a store with bit 0 = 1, never cleared by a store, kept through
+  reset, 0 at power-on, and STOP does not set it** (part C's "01h after a STOP" came from earlier stores in
+  the same program); STOP is quiet until NMI, the first cycle 2^19 + 38 clocks after NMI's edge with IE 1
+  or 0, and an unmasked INTP0 pulse during STOP neither releases it nor sets its IF. **Built:** v35_bus
+  `hold` (a ce_a register stopping every grant but a pair's second half) and /HLDAK at the pins' edge;
+  the READY cycle (a grant bit registered beside the INTAK and DMA ones, READY sampled at the pins' edge,
+  the cycle's first wait held while low); v35_sfr: HLDRQ through two CPU-clock flops by PMC2 bit 7, P26
+  /HLDAK by PMC2 bit 6, `sbf` with no reset; STOP as urom/xfer_stop.uasm (a halt word marked by the
+  counter field's last free value), v35_top's `stp` and a 19-bit release counter running while NMI is
+  pending (its own counter: the time base's behaviour in STOP is unmeasured), v35_intc's `frz` holding
+  the INTP samplers. **The vectored hardware entry** (urom/xfer_vt.uasm `iv_x`): the gate's timer program
+  showed silicon reads the vector offset, pushes PSW, reads the vector segment, pushes PS, pushes PC; the
+  corpus's BRK 3 has the same order and the RTL's BRK routine already had it, so the hardware entry is
+  that routine's words with the vector address from the take and the interrupted PC; no clock added, BRK
+  and the trap entries untouched. ROM 1,848 → 1,871 words; the word still 96 bits. **A test flaw found
+  and fixed:** periph's tm_hold saved a PSW whose parity bit was a timer count over a timed loop (equal
+  before only by coincidence); the program now ends on a count-independent flag setting and was
+  re-measured (two sessions). **Gate:** dma 5 program sets equal to both socket sessions with their
+  timing checks (f4_rdy's 218 cycle lengths within a tick; /HLDAK's edges; the STOP release 524,671
+  against 524,701 clocks, tolerance 64), serial 4, periph 4, intr 6, banks 5, onchip 6, traps 6, the 101
+  undefined cases; the corpus 6,541 with 0 runs differing at both spacings, write data 106,824 / 106,824,
+  chk silent, vectors 0 bad, lint clean, 48 fast tests. **FPGA at 17 ns: +0.478 / +0.677 / +1.382 on
+  seeds 1 / 2 / 3** (the base +0.677 / +0.701 / +0.590): every seed passes, the worst paths 16 levels as
+  the base (done data to the address mux / the sequencer), 9,366 LUT4 / 596 ADD / 2,421 FF / 79 RAM_5K;
+  modules alone: useq +6.238, loader +4.689, queue +6.339, bus +7.953, eu +5.331, regram +11.738.
+  **Not built / open (timing, recorded):** the back-to-back interrupt interval is 193 clocks against
+  silicon's 204 (within the gate's 16: the lead-in to the entry 12 against 20, the entry 50 against 48,
+  about 8 on the RETI side where the RTL had prefetched); after a STOP release the RTL fetches one word
+  before the entry (silicon none); under hold during POP's reads silicon keeps the bus idle about 6
+  clocks longer than the 1.5-clock rule (h_w); at 2 waits a taken DBNZ fetches one more word on the RTL
+  (40 clocks an iteration against 37) and instructions storing to the SFR page run about 4 clocks short;
+  WTC's per-block memory fields (the bus unit reads field 0 for all memory); SBF on the FPGA clears at
+  configuration, not at the socket's power.

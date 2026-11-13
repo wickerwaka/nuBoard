@@ -100,7 +100,14 @@ module v35_sfr (
     output wire        dm_out,
     output wire        dm_w,
     output wire [1:0]  dm_ps,
-    output wire [1:0]  dm_pd
+    output wire [1:0]  dm_pd,
+    // (F4d) bus hold and READY (v35_bus): HLDRQ's level while PMC2 bit 7 selects P27's function
+    // (a register), /HLDAK (the bus unit's register: P26 by PMC2 bit 6), PMC1 bit 7 (P17 as
+    // READY) and READY's level (the pin's second flop)
+    output reg         hrq,
+    input  wire        hlda_n,
+    output wire        rdy_en,
+    output wire        rdy_lv
 );
     localparam logic [7:0] PRC_RESET = 8'h4E;
     localparam logic [15:0] WTC_RESET = 16'hFFFF;
@@ -204,6 +211,7 @@ module v35_sfr (
     // PRC, WTC, RFM and IDB are their own registers (the function bench sets PRC and WTC
     // through them: fpga/v35s/v35_core2_tb.cpp); their bytes in `st` are not read
     reg [7:0] st [0:255];
+    reg       sbf = 1'b0;               // (F4d) STBC bit 0 (below: the store's write)
     integer i;
     initial begin
         for (i = 0; i < 256; i = i + 1)
@@ -253,6 +261,11 @@ module v35_sfr (
             if (w_off == 8'hFF)
                 idb <= w_lo;
         end
+        // (F4d) STBC's SBF (bit 0): set by a store with bit 0 = 1, never cleared by a store or by
+        // reset; 0 at power-on (f4_stop: 00h stores leave it, FFh sets it, the second run after a
+        // reset reads 01h; a STOP does not set it). No other STBC bit reads back
+        if (reset_n && wr && in_page && w_off == 8'hE0 && w_lo[0])
+            sbf <= 1'b1;
         // (F4b) a macro service's end: the source's MS bit (f4_ms: TMIC0 27h -> 07h)
         if (reset_n)
             for (i = 0; i < 15; i = i + 1)
@@ -356,7 +369,8 @@ module v35_sfr (
     wire [7:0] pmc2 = st[8'h12];
     wire       dk_io = dk && (dm_in || dm_out);
     wire       tc_l = dkt && dm_last;
-    wire [7:0] p2f = {1'b0, 1'b1, !(tc_l && dm_ch), !(dk_io && dm_ch), 1'b0, !(tc_l && !dm_ch),
+    // (F4d) PMC2 bit 6: /HLDAK (the bus unit's register); bit 7: HLDRQ's input (hrq)
+    wire [7:0] p2f = {1'b0, hlda_n, !(tc_l && dm_ch), !(dk_io && dm_ch), 1'b0, !(tc_l && !dm_ch),
                       !(dk_io && !dm_ch), 1'b0};
     wire [7:0] p2v = (pmc2 & p2f) | (~pmc2 & ~pm2 & p2l);
     wire [7:0] p2d = pmc2 | ~pm2;
@@ -368,6 +382,24 @@ module v35_sfr (
     initial pins = 32'h0300_0000;
     always_ff @(posedge clock)
         pins <= (pd & pv) | (~pd & pins);
+    // (F4d) bus hold's request: HLDRQ (P27) while PMC2 bit 7 selects it (f4_hold h_port: with
+    // PMC2 0 HLDRQ is ignored); READY (P17) and PMC1 bit 7 (f4_rdy rd_off: with bit 7 0 no
+    // extension)
+    // HLDRQ passes two CPU-clock flops (sampled at ce_a: f4_hold, /HLDAK's edges two clocks after
+    // the level's on silicon against a direct sample)
+    reg  h1 = 1'b0;
+    initial hrq = 1'b0;
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            h1 <= 1'b0;
+            hrq <= 1'b0;
+        end else if (ce_a) begin
+            h1 <= pin_r[23] && pmc2[7];
+            hrq <= h1;
+        end
+    end
+    assign rdy_en = pmc1[7];
+    assign rdy_lv = pin_r[15];
 
     // ---- the read ---------------------------------------------------------------------------
     function automatic logic [7:0] rbyte(input logic [7:0] o);
@@ -404,6 +436,9 @@ module v35_sfr (
             rbyte = dmam0;
         if (o == 8'hA3)
             rbyte = dmam1;
+        // (F4d) STBC: SBF
+        if (o == 8'hE0)
+            rbyte = {7'd0, sbf};
         // (F3) an IC register's IF bit: the controller's
         if (kind(o) == K_ST && ic_idx(o) != 4'd15)
             rbyte[7] = ic_if[ic_idx(o)];
@@ -472,6 +507,10 @@ module v35_intc (
     input  wire        ce_a,
     input  wire        ce_b,
     input  wire [15:0] input_levels,    // NMI 1, INTP0-2 2-4
+    // (F4d) STOP stands (v35_top's register): the INTP0-2 samplers hold their last levels (no
+    // edge is seen while stopped: f4_stop stop_intp, an INTP0 pulse in STOP leaves its IF 0);
+    // NMI's keeps sampling (it releases STOP)
+    input  wire        frz,
     input  wire [7:0]  intm,
     input  wire [8*15-1:0] ic_b,
     input  wire        wr,              // the SFR store's write enable (with ic_we)
@@ -552,7 +591,7 @@ module v35_intc (
     reg  [3:0] lv = 4'hF;               // NMI, INTP0-2 as last sampled
     wire [3:0] lvn = input_levels[4:1];
     wire [3:0] es = {intm[6], intm[4], intm[2], intm[0]};
-    wire [3:0] edge_c = (es & lvn & ~lv) | (~es & ~lvn & lv);
+    wire [3:0] edge_c = ((es & lvn & ~lv) | (~es & ~lvn & lv)) & {{3{!frz}}, 1'b1};
     reg        nmi_p = 1'b0;
     reg  [2:0] tk_k = 3'd0;             // the last take: {NMI, the offer, the step}
     reg  [3:0] tk_i = 4'd0;
@@ -587,7 +626,7 @@ module v35_intc (
             ms_mode <= 3'd0;
             ms_dir <= 1'b0;
         end else if (ce_a) begin
-            lv <= lvn;
+            lv <= frz ? {lv[3:1], lvn[0]} : lvn;
             // (F4b) the macro-service request (registers: the take at a dispatch is many clocks
             // after the routine's acknowledge)
             ms_v <= |rq_m;

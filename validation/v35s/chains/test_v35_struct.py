@@ -132,7 +132,8 @@ EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data", "req_resv", 
 BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "rfm", "data_in",
               "fetch_req", "q_low", "q_word", "fetch_addr",       # the queue's port
               "t_start", "take_now", "l_pop",                     # (Q2) the aborted fetch's reads
-              "idb", "ramen", "oc_data"}                          # (F1) the on-chip decision (SFR registers) and datum
+              "idb", "ramen", "oc_data",                          # (F1) the on-chip decision (SFR registers) and datum
+              "hrq", "rdy_en", "rdy_lv"}                          # (F4d) HLDRQ, PMC1 bit 7, READY (v35_sfr's registers: pins)
 INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t", "v35_uword_t",
                "v35_udec_t", "v35_udecm_t")
 INSTR_WORDS = re.compile(r"(fmt|cls|class|row|step|xop|opc|form|instr|setup|lead|detach|grp|"

@@ -1977,6 +1977,7 @@ th11:
     DB 2Eh
     MOV [98B0h+2], CL
     MOV BW, 0010h
+    TEST AW, AW
     DB 90h, 90h, 90h, 90h, 90h, 90h
 cont11:
     DB 2Eh

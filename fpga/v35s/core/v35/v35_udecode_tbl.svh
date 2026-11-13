@@ -3,7 +3,7 @@
 // v35_udec2 (the opcode and the byte a DISPM word pops: the ModR/M byte, the 0F page's second byte -> the second entry and
 // the group's operation), v35_umodrm / v35_upage (the bytes a ModR/M or a 0F second byte's pop adds to the bytes still to pop). Included by v35_pkg.sv.
 
-    localparam int UROM_WORDS = 1848;
+    localparam int UROM_WORDS = 1871;
     localparam logic [UADDR_W-1:0] UROM_RESET = 11'd256;
     // (F2b) the I/O trap's entry: the dispatch's target for an I/O form with PSW.BRKI 0
     localparam logic [UADDR_W-1:0] UROM_IOT = 11'd1384;
@@ -381,6 +381,7 @@
                     8'hCC, 8'hEC: f = '{11'd1452, 1'b0, 3'd6, 1'b0, 1'b1, 1'b0, 1'b0};
                     8'h92: f = '{11'd1487, 1'b0, 3'd1, 1'b0, 1'b1, 1'b0, 1'b0};
                     8'h9A: f = '{11'd1489, 1'b0, 3'd5, 1'b0, 1'b1, 1'b0, 1'b0};
+                    8'h9E: f = '{11'd1848, 1'b0, 3'd7, 1'b0, 1'b1, 1'b0, 1'b0};
                     default: f = '{11'd262, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0, 1'b0};
                 endcase
             end

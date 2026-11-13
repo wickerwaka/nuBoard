@@ -3344,6 +3344,9 @@ interrupt was taken right after the last transfer (DIC at the next start).
 
 ### Measured, not built (receipts f4-f4_hx-socket.json, f4-f4_rdy-socket.json: one session)
 
+(Built in part D, below; its measurements correct the STBC reading here: SBF is set by a
+store, not by STOP, and WTC field 3 is 2 waits.)
+
 - **Bus hold:** with PMC2 bit 7 (P27 HLDRQ) and bit 6 (P26 HLDAK), HLDRQ high is honoured at the
   end of the cycle in flight: /HLDAK falls 1.5 clocks after that cycle's end and rises 1.5 clocks
   before the next cycle; no cycle while held (h_loop: 88 clocks; h_w: the writes wait); in HALT
@@ -3386,6 +3389,155 @@ interrupt was taken right after the last transfer (DIC at the next start).
 - v35_dma: registers updated at ce_a from the SFR store's registered offset / data (as v35_timer)
   and the DMARQ flops; v35_sfr's read gains DMAM0/1 (two offsets) and the pin vector four P2 bits
   from registers (`dk`, `dkt`, `dm_last`, the descriptor).
+
+## F4 (part D): bus hold, READY, STBC / STOP
+
+`validation/v35s/dma.py`: three gated programs beside f4_dma, in the same frame. `f4_hold`
+(h_loop, h_w, h_port, h_halt, h_dma: HLDRQ from the schedule, /HLDAK in the pin records),
+`f4_rdy` (rd_off, rd_on, rd_w2, rd_w1, rd_w0, rd_wio: the harness's READY hold, register 0Ah,
+160 ticks), `f4_stop` (stbc0, stop, stop_di, stop_intp, stbc1). The receipts of these three keep
+the whole trace (`TRACED`) and the gate adds a timing check per program:
+
+- `f4_rdy`: per test, every write, I/O cycle and data read (page F000h) in order with its length
+  (end - start) within 2 ticks (the I/O strobe's sample differs by a tick between socket and
+  RTL), and the set of the test's memory-read lengths in clocks (the fetches);
+- `f4_hold`: every /HLDAK edge with what it is bound to: a fall within 100 ticks of a cycle's end
+  to that end, a rise within 16 ticks of a record's end to it (a PMC2 store), within 100 ticks of
+  the next cycle to that start, else to the test's event (the HLDRQ edge); cycle-bound to 4 ticks,
+  event-bound to 32 (HLDRQ is asynchronous to the CPU clock). Edges bound differently on the two
+  sides are listed, not gated (h_w: below);
+- `f4_stop`: per STOP test, the clocks from its event to the first bus record after the quiet,
+  within 64 clocks.
+
+`f4_stop` runs last in a session of its own and twice (`run_stop`: the second run, `f4_stop_r`,
+is a reset without a power cycle; both receipts gated), limit 80M ticks (three 2^19-clock STOPs);
+1,405 records, under the 2,048 of one window. Receipts: f4-f4_{hold,rdy,stop,stop_r}-socket.json
+and -socket-2.json (two sessions each, equal to the tick on every program), -sim.json;
+f4-f4_stopx{,_r}-socket.json (the first STOP session, program `f4_stopx`: stbc0 also stored 01h,
+which set SBF before any STOP).
+
+### Measured (the socket, uPD70337L-8, fX/8)
+
+- **Bus hold** (as part C read it, now gated): HLDRQ needs PMC2 bit 7 (h_port: with PMC2 40h
+  /HLDAK stays high); /HLDAK falls 47 ticks (1.5 clocks) after the cycle in flight ends and rises
+  48 ticks before the next cycle (h_loop, h_dma: a burst DMA waits as the CPU does); on an idle
+  bus (h_halt) /HLDAK falls 304 ticks after the schedule's HLDRQ edge and rises 216 after its fall,
+  always at the CPU clock's edge. h_w (HLDRQ while the CPU runs POP's reads): /HLDAK falls 111
+  ticks after the last read ends and the next read comes 240 ticks after the rise (not 47 / 48):
+  the bus idle 6 clocks longer than the rule; not built (timing).
+- **READY / WTC:** a WTC field of 3 is **2 waits** (rd_off: WTC FFFFh, 5-clock cycles, as field 2);
+  with PMC1 bit 7 a read or an I/O cycle (read and write) is 9 + 1 clocks for the harness's 160
+  ticks of READY low (5 more); a memory write is not extended (its /MSTB falls after READY's
+  samples). The core had field 3 as 3 waits (6-clock cycles): every program at reset WTC ran one
+  clock a cycle long.
+- **STBC:** bit 0 (SBF) is **set by a store with bit 0 = 1** (stbc1: 00h leaves 00h, FFh gives
+  01h, then 00h leaves 01h), **kept through reset** (f4_stop_r reads 01h first), 0 at power-on;
+  **STOP does not set it** (stop reads 00h after the release). Part C's "STBC reads 01h after a
+  STOP" came from programs that had stored 01h / FFh first.
+- **STOP:** quiet until NMI; the first cycle (the NMI vector's read) 2^19 + 38 clocks after NMI's
+  edge (524,701 clocks after the event for an NMI 375 clocks after it), IE 1 or 0; an unmasked
+  INTP0 pulse during STOP neither releases it nor sets EXIC0's IF (stop_intp: vector 24 count 0,
+  EXIC0 07h; NMI later releases it).
+
+### Built
+
+- **v35_bus:** `hold` (a ce_a register: `hrq || !hlda_n`) stops every grant but a pair's second
+  half (`free_h = free && !hold` in place of `free` in the five grant terms). /HLDAK (`hlda_n`)
+  at the pins' edge: `hold_e` (the hold bit at the last edge), `hk` (held and idle: `hold_e &&
+  hold && hrq && !busy && !p2_v`), /HLDAK low from the edge after `hk`, high at the first edge
+  with HLDRQ low; the hold stays a ce_a after the rise (the next B1 1.5 clocks after it).
+- **READY:** WTC field 3 is 2 waits (`waits_mem` / `waits_io`), and with PMC1 bit 7 the cycle is
+  READY's (`gn.rdy` -> `g_rdy_b` -> `c_rdy`; not an on-chip cycle). READY's level is sampled at
+  the pins' edge (`rdy_q`, ce_b); `rdy_hold = c_rdy && pos_now == 2 && !rdy_q` holds the cycle's
+  position at its first wait (`c_pos` and `c_pos_nx`): a read's or I/O cycle's strobe is down by
+  then, a write's /MSTB not (f4_rdy: lengths equal to the tick, writes unextended).
+- **v35_sfr:** HLDRQ through two CPU-clock flops (`h1`, `hrq` at ce_a) with PMC2 bit 7; P26 =
+  /HLDAK by PMC2 bit 6 (the pin vector's bit 22); `rdy_en` = PMC1 bit 7, `rdy_lv` the P17 level
+  (`pin_r[15]`); STBC: `sbf` set by a store at E0 with bit 0, never reset; read as {0000000, SBF}.
+- **STOP:** urom/xfer_stop.uasm `stop` (0F 9E, 3 words; sorts last: no ROM address moved; the
+  generated v35_udec2 gains the 0F 9E entry, v35_upage / umdsp / umimm / umodrm unchanged):
+  `halt cnt=stop`, `e`. CN_STOP (3'd7) is the counter field's last free value: no load; on a halt
+  word it marks STOP (no fourth ROM bank; the three hex files gain three words at the end).
+  v35_top: `stp` (set when that word executes, cleared at the release), `st_c` (19 bits, its own
+  counter: counts CPU clocks while `stp && nmi_v`), `st_rel` (the count's end); the sequencer's
+  `wake` is `st_rel` while STOP stands (`stp` or the word is STOP's halt), else the controller's
+  wake, a macro service, DMA as before. v35_intc's `frz` (= `stp`): the INTP0-2 samplers hold
+  their levels and see no edge; NMI's keeps sampling. The release pops the instruction after STOP
+  and its dispatch takes NMI. The 2^19 count is built as measured (a counter of its own, not the
+  time base's: the time base's taps keep running as in HALT; its behaviour in STOP is not
+  measured).
+
+- **The vectored entry in silicon's order** (found through f4_tm tm01: the field-3 fix made the
+  RTL's back-to-back interrupt in HALT 180 clocks against silicon's 204). Silicon's entry is BRK
+  3's body: the vector's offset read, the PSW pushed, the segment read, PS pushed, the PC pushed,
+  the handler's fetch 48 clocks after the offset's read (tm01 at +126 / 133 / 143 / 150 / 161,
+  fetch +174; the corpus's F37-out-brk-brk3-pE-w2 the same order and 48 clocks; the take point
+  the same on both: PC F6Ch pushed). The RTL's `iv_c` pushed first and read the vector after
+  (vt_c's order). Now `iv_c` (trap.uasm, the same three words: SUSP, the offset's read, its F)
+  continues in urom/xfer_vt.uasm `iv_x`: xfer.uasm brk3's words one for one from there (its
+  no-act clocks the same shared delays), with the vector's address from tmpb (IVEC's) and the PC
+  pushed by `s2=PC ist` (the interrupted instruction's start). BRK itself, the traps (`vt_c`:
+  I/O trap, FPO, CHKIND, divide error, 0F 9A, BRKN / BRKS) are untouched. ROM 1,851 -> 1,871
+  words, sorted last (only UROM_WORDS changes in the generated tables). tm01: 193 against 204
+  (inside the 16-clock tolerance). Residue, not tuned: the RTL's lead-in (12 clocks from its last
+  refill fetch to the offset's read, after one more refill word, F72) against silicon's 20, and
+  50 clocks from the offset's read to the fetch against 48 (each push one clock later: +8 /
+  +8 against +7 / +7); about 8 clocks on the IRET side (the RTL had prefetched 3620 in the stub).
+- **f4_tm tm_hold** (periph.py): its slot's PSW was the flags of `CMP BW, 8000h`, BW the timer's
+  raw count over a timed window (parity: 87h on silicon, 83h on the RTL; the old 6-clock RTL's
+  87h a one-bit coincidence). The test now ends with `TEST AW, AW` (the stored difference: 0
+  while stopped), its intent carried by the stored bytes. Re-measured: f4-f4_tm-socket{,-2}.json.
+  No other F4 program has the same flaw (the scan: serial.py's `poll` TESTs an IF bit, `rd`'s
+  masks AND SFR bytes; the one-shot tests store a stopped timer's end value).
+
+### The F4 gate (part D)
+
+`dma.py gate` (after `dma.py sim`; `--ref=socket-2` for the second session): **f4_hold, f4_rdy,
+f4_stop, f4_stop_r EQUAL against both sessions** with f4_dma, timing checks included:
+f4_rdy's 218 cycle lengths equal (0-1 tick); f4_hold's /HLDAK edges equal (47/48, 48/47; idle
+12304/12305, 15216/15217), h_w's two edges listed as bound differently (socket: event 464 /
+3312, RTL: the read's end + 48 / the next read - 47); f4_stop's releases 30 clocks earlier on the
+RTL (524,671 against 524,701: its first record after the release is a fetch then the pushes,
+silicon's the vector read first; the NMI entry's order is F3's, the write sequence equal).
+
+### Depth (for the overseer's timing run)
+
+- **Tick A (the grant):** one registered term: `hold` (a ce_a register) ANDed into `free` (`free_h`)
+  in the five grant terms of `gnt_f` (both line values) and the chk's direct form. A new grant
+  struct bit `rdy` (from the granted kind's I/O bit, `sfr`, and two bits of registers: PMC1 bit 7
+  and WTC field = 3), registered at ce_b (`g_rdy_b`, beside `g_ia_b` / `g_dk_b`): a new endpoint,
+  nothing in the grant's terms. The lengths' wait counts map field 3 to 2 from the same WTC bits
+  (no new input to `len`). `rdy_q <= rdy_lv` at ce_b (a register to a register). /HLDAK's
+  `hold_e`, `hk`, `hlda_n` at ce_e from registers (`hold`, `hrq`, `busy`, `p2_v`).
+- **Tick B / ce_a:** `c_pos_nx` (and the ce_a update of `c_pos`) gains a 2:1 select by `rdy_hold`
+  (four register bits): it feeds the bus unit's `*_nx` facts the sequencer's registered stall
+  reads (`fetch_inflight_nx`, `fetch_past_b2_nx`, `in_wait_nx`, `busy_nx`): one level more on that
+  tick-B path. `hold <= hrq || !hlda_n` (ce_a). The sequencer's `wake` input: a 2:1 select by
+  `stp || (word.halt && word.cnt == CN_STOP)` (word register bits) between `st_rel` and the old
+  OR (one level). v35_intc: `edge_c` ANDed with `!frz`, `lv[3:1]` a hold select (register
+  inputs). `st_c` a 19-bit increment at ce_a.
+- The vectored entry (iv_c / iv_x) is microcode only: no RTL term; the ROM grows by 20 words.
+  After it the STOP release's frame is silicon's order too (vector, PSW, vector, PS, PC); the
+  RTL's vector read comes 23 clocks before silicon's and its first record (an extra fetch) 30.
+- v35_sfr: the read gains offset E0 (`sbf`), the pin vector bit 22 from `hlda_n` (a register);
+  `h1` / `hrq` registers. v35_loader and the generated v35_upage / umdsp / umimm / umodrm text
+  untouched; v35_udec2 one case more (0F 9E), as F3's 92 / 9A.
+
+### Not built / differences
+
+- **DBNZ taken at 2 waits fetches one more word** (f4_tm tm_hold's `wait(10)`, receipts
+  f4-f4_tm-{socket,sim}-trace.json): silicon's iteration is 37 clocks with fetches 128F, 1290,
+  1292, 1294; the RTL's 40 with 1296 fetched as well. Corpus-domain timing, not built here.
+- **SFR-store instructions about 4 clocks short at 2 waits** (the same traces: the gaps after
+  the store instructions' fetches, 1274 -> 1276 13 clocks on silicon against 10, 127A -> 127C
+  14 against 10). Not built here.
+- h_w's hold timing (above); the release's first record (fetch first on the RTL).
+- WTC's per-block fields (memory blocks 1-6): the bus unit reads field 0 for all memory, as
+  before (the programs set all fields alike).
+- STBC's SBF is the FPGA model's register: it is cleared by configuration, not by the socket's
+  power; the board's model lane keeps it across sessions.
+- READY on a write (the harness cannot delay it): built as the mechanism implies (a write's
+  first-wait sample comes before its strobe), not measured with READY low early.
 
 ## Generated data
 

@@ -1,0 +1,29 @@
+; (F4d) the vectored interrupt entry's body (README "F4 (part D)"), from trap.uasm's iv_c (the
+; maskable take and INT after its acknowledge; NMI too). Silicon runs it as BRK 3's body: the
+; vector's offset read, the PSW pushed, the segment read, PS pushed, the PC pushed, the handler's
+; fetch 48 clocks after the offset's read (f4_tm tm01, receipts f4-f4_tm-socket-trace.json; the
+; corpus's F37-out-brk-brk3-pE-w2 the same order and the same 48 clocks). The words are
+; xfer.uasm brk3's from its F after the offset's read, one for one (its no-act clocks the same
+; shared delays), with two sources the interrupt needs: the vector's address from tmpb (IVEC's,
+; not the format's VEC) and the PC pushed the interrupted instruction's start (PC with ist, not
+; the return offset). This file sorts last: no other routine's ROM address moves.
+routine ivx why="OPEN: BRK 3's no-act clocks (its shared delays); (F4d) the vectored entry's body in silicon's order (BRK 3's: f4_tm tm01, F37 brk3); function only"
+iv_x: d1=TB s1=SIG rb=SP wid=WORD alu=DEC2 ax=RB   ; the segment's address into tmpb; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PSW into the write datum; post its push
+    f alu=CITF wf                           ; F: the push's end; IE and BRK cleared (CITF)
+    open call=w2                            ; OPEN: 3 clocks: BRK 3's (the call and the shared delay's 2)
+    d1=ADDR s1=TB bus=MEMR seg=ZERO wid=WORD    ; post the segment's read at 0:4n + 2
+    f d1=TA s1=OPR                          ; F: the segment into tmpa
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
+    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA bus=MEMW seg=SS   ; SP <- SP - 2; the address; PS into the write datum; post its push
+    f                                       ; F: the push's end
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC ist   ; SP <- SP - 2; the address; the interrupted instruction's start into the write datum
+    open                                    ; OPEN: BRK 3's
+    open                                    ; OPEN: BRK 3's
+    bus=MEMW seg=SS wid=WORD                ; post the PC's push
+    f                                       ; F: the push's end
+    wr=PS wid=WORD ws=TA alu=PASS ax=TC     ; PS <- the vector's segment; the offset into SIGMA
+    open call=w5                            ; OPEN: 6 clocks: BRK 3's (the call and the shared delay's 5)
+    flush                                   ; FLUSH: the stream from the vector
+    e                                       ; E: the handler's opcode

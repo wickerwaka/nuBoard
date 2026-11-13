@@ -158,9 +158,12 @@ routine intr why="(F3) the interrupt entry: silicon's frame (f3_vec, f3_prio, f3
     d1=TC s1=PC ist alu=IVEC                ; tmpc <- the instruction's start; SIGMA <- 4 x the vector taken (or the kind); the acknowledge
     d1=TB s1=SIG jc=SGN:bsw_q               ; (F3b) a bank-switch take: the bank switch (bank.uasm); (F4b) or a macro service (tmpb <- the kind)
     jnc=SNZ:int_a                           ; (F3b) the INT take: the acknowledge cycles
-iv_c: d1=TB s1=SIG rb=SP wid=WORD alu=DEC2 ax=RB   ; tmpb <- the vector's address; SP - 2
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PSW into the write datum; post its push
-    f alu=CITF wf jmp=vt_c                  ; F: the push's end; IE and BRK cleared; the common entry
+; (F4d) the vectored entry in silicon's order, BRK's body (f4_tm tm01 against F37 brk3: the
+; vector's offset read, the PSW pushed, the segment read, PS pushed, the PC pushed, 48 clocks from
+; the offset's read to the handler's fetch on both); continued in xfer_vt.uasm (iv_x)
+iv_c: d1=TB s1=SIG susp                     ; tmpb <- the vector's address; SUSP (BRK's: no fetch until the FLUSH)
+    d1=ADDR s1=TB bus=MEMR seg=ZERO wid=WORD   ; post the vector's offset read at 0:4n
+    f d1=TC s1=OPR alu=INC2 ax=ADDR jmp=iv_x   ; F: the offset into tmpc; the segment's address; BRK's body
 
 ; ---- (F3b) INT: two acknowledge cycles (silicon, f3_int: two /INTAK pulses, no strobe, the
 ; vector on D7-D0; the harness answers both), the second's byte the vector; then the vectored
