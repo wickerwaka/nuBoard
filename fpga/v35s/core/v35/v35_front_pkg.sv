@@ -7,9 +7,6 @@
 // The constants are the tracked fit's (validation/v35s/chains/fit.json, md5
 // de193740eaf1dee0862d2220ae084909, fit 62), copied by hand for S2; S1's generated
 // v35_consts.svh / v35_class_tbl.svh replace them (the names below are the fit's).
-// The build-time macros (V35_Q2_TRI, V35_R1_*, V35_R2_*, V35_R3_*, V35_R4_*, A1_*) are in
-// v35_macros.svh.
-`include "v35_macros.svh"
 package v35_front_pkg;
 
     // ------------------------------------------------------------ bus cycle kinds and widths

@@ -7046,3 +7046,37 @@ on-chip page 887; reference unlisted 82; reference: an odd word across the segme
 The V20 classes run on the RTL against the V35 reference's state (none is skipped).
 
 The full SST run (`--rtl` and `--all`) is now a standing line of the land gate (verify.sh).
+
+## Clean: the compile-time switches collapsed, the dead ports removed (no behaviour change)
+
+Step one of the structure work (user direction 2026-11-14): nothing that times a clock or a
+datum changed; only what was dead or undecided is gone.
+
+- **The switches.** v35_macros.svh (61 `define switches: V35_Q2_TRI, V35_R1_* .. V35_R4_*,
+  A1_*, V35_MX*) is deleted with every `include of it (and its line in build.sh, synth/v35_map.sh,
+  synth/v35_timing.sh). 37 had no use left in the RTL; the 24 still read are replaced by their
+  built value and the unchosen branches removed: the word register of MX0b / MX1e (w0, w1, wn,
+  its load and refill, the queue's vb2 / vb3), the dispatch laws 0-3 of MX0c (the law on the E
+  word stays; `ex_pop` keeps its own register), the write-back wait's variant 2 (wbp, at_entry's
+  stall use, d1_wbs / d1_hm), IRL's staging-load wait, IOH 2, A1_IOREC 0 / 2, A1_B2BH 0 / 2,
+  A1_IOQL 0. The comments state the rule built; the sections above keep the switch names as the
+  record of what was measured. V35_QUEUE_A (the queue's variant A, set by the fifth lint
+  configuration and V35_SIM_DEFINES) is left as it was.
+- **The ports.** 35 module outputs that no other module's logic read are removed with the logic
+  that only drove them (v35_bus 20, v35_loader 6, v35_useq 5, v35_queue 2, v35_eu 2) and the 8
+  inputs left without a reader. Gone with them: the bus unit's write tracker (w_v, w_ncyc, w_rel),
+  f_since, c_run, the delivery's address and width registers, the grant's b2b field; the loader's
+  linear-address counters (pc, s_a, op_a, flin_b; eu's flush_lin). The trace's and the function
+  bench's views (`start`, `start_trap`, `ir_addr_c`, the trace's B, I, X length, W and M) are
+  now v35_top's simulation-only observation block, read from the modules' own nets; the
+  sequencer's at_entry, the datapath's trap_o and the bus unit's `+v35_diag` check are
+  simulation-only in their modules. The trace file is unchanged byte for byte.
+- **Measured.** The refresh-off corpus at both spacings: 6,541 exact, 0 runs differing against
+  the base rows, and every run's simulated pin record identical to the base commit's; the
+  per-clock trace (+v35_trace, every field) of 718 runs (20 per family) identical at both
+  spacings; lint clean in the five configurations with no new waiver; the standing gate as before.
+- **FPGA (the overseer's).** Everything removed was dead or constant in synthesis already; the
+  tick-A text touched is the grant (gnt_f: constant terms folded, the b2b field gone, `eu` a
+  local), the queue's request line (lat_hold, q_short folded), the loader's ta() (the word
+  register's terms gone) and its head select (hh and z_st lose the never-selected word-register
+  arm), and the sequencer's stall function (constant terms folded).

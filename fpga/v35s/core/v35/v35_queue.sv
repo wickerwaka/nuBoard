@@ -1,5 +1,4 @@
 `timescale 1ns/1ps
-`include "v35_macros.svh"
 
 // V35S core v2: the prefetch queue as a simple machine (docs/v35s-queue-strategy.md, Q1).
 //
@@ -21,7 +20,7 @@
 //               B) <= HOLD_Q (the fit's hold_q = 3): the arbiter's priority hint
 //   fetch_addr  {PS, 0} + pfp with the 16-bit wrap (a flush on this clock: the new stream's);
 //               an odd pfp (an odd transfer target) fetches its word and drops the low byte
-//   vb0..vb3,   the head window and the stored count, this clock's delivery bypassed (S1
+//   vb0, vb1,   the head window and the stored count, this clock's delivery bypassed (S1
 //   avail       before the take)
 //
 // The read / release split (take_commit=at_end, release=byte): a byte read leaves the storage
@@ -74,7 +73,7 @@ module v35_queue
     input  wire [2*QTAG_W-1:0] dlv_tag,
     input  wire        abort_go,        // the bus unit's aborted cycle runs (S0): a word in flight
     // the execution unit
-    output wire [7:0]  vb0, vb1, vb2, vb3,
+    output wire [7:0]  vb0, vb1,
     output wire [2:0]  avail,
     output wire [2:0]  stored,          // (MX0b) the bytes stored (not this clock's delivery,
                                         //   not the latch): the word register loads from these
@@ -166,8 +165,6 @@ module v35_queue
     endfunction
     assign vb0 = seqb(4'd0);
     assign vb1 = seqb(4'd1);
-    assign vb2 = seqb(4'd2);
-    assign vb3 = seqb(4'd3);
 
     // ------------------------------------------------------------ tick A: the request line
     wire       infl_a = (inflight && !dlv_v) || abort_go;
@@ -241,12 +238,12 @@ module v35_queue
     wire       le_low = le_occ(CL + FIT_HOLD_Q);
     wire       le_lo0 = le_occ(CL - 1);
     wire       le_3 = le_occ(CAP - 3);
-    // (MX1e) V35_MX1E_LHOLD: the latch's hold on the request line (the frozen model's
+    // (MX1e) the latch's hold on the request line (the frozen model's
     // latch_hold, queue.py latch_blocks, measured on F3-push-nop-k4-pE-w0 -3: room 3, the line
     // held): a byte delivered on an earlier clock still latched, and on this clock the queue's
     // port is the EU's (a release) or the storage is full, so the byte cannot go in: no fetch is
     // requested until it can (the word would find its second byte's place still taken)
-    wire       lat_hold = `V35_MX1E_LHOLD && lat_v && !arrive && (r0 || c_ge);
+    wire       lat_hold = lat_v && !arrive && (r0 || c_ge);
     assign fetch_req = le_req && phys_ok && !susp && !lat_hold;
     assign fetch_raise = le_req && phys_ok && !susp;
     // (Q2) q_word: the line up with room for exactly a word (the triple clock's abort test).
@@ -254,9 +251,8 @@ module v35_queue
     // read and not yet released (xfer_abort=word: a transfer's displacement byte, released a
     // clock late by the loader) or a byte latched on an earlier clock (abort_latched)
     wire       q_short = le_ful && !le_req && !susp
-                         && ((`V35_R3_XRW && !flush && 4'({1'b0, rd} - {1'b0, rel}) == k_un
-                              && phys_ok)
-                             || (`V35_R3_ALAT && lat_v && !arrive));
+                         && ((!flush && 4'({1'b0, rd} - {1'b0, rel}) == k_un && phys_ok)
+                             || (lat_v && !arrive));
     assign q_word = (fetch_req && le_req && !le_3) || q_short;
     // q_low: occ - (CAP - QUEUE_BYTES) <= FIT_HOLD_Q (5 bits): CL <= occ <= CL + FIT_HOLD_Q
     assign q_low = le_low && !le_lo0;
@@ -274,13 +270,12 @@ module v35_queue
     wire [4:0] occ = {1'b0, cnt_x} + {1'b0, unrel_a} + ((VARIANT_B && stg) ? 5'd1 : 5'd0)
                      - (unc_x ? 5'd1 : 5'd0) + i2;
     wire       phys_x = {1'b0, cnt_x} + i2 <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
-    wire       lhold_x = `V35_MX1E_LHOLD && lat_v && !arrive
+    wire       lhold_x = lat_v && !arrive
                          && (port_a || {1'b0, cnt_x} >= 5'(QUEUE_BYTES));
     wire       freq_x = occ <= 5'(CAP - 2) && phys_x && !susp && !lhold_x;
     wire       frai_x = occ <= 5'(CAP - 2) && phys_x && !susp;
     wire       qsh_x = occ == 5'(CAP - 1) && !susp
-                       && ((`V35_R3_XRW && unrel_a == 4'd1 && phys_x)
-                           || (`V35_R3_ALAT && lat_v && !arrive));
+                       && ((unrel_a == 4'd1 && phys_x) || (lat_v && !arrive));
     wire       qword_x = (freq_x && occ == 5'(CAP - 2)) || qsh_x;
     wire       qlow_x = occ - 5'(CAP - QUEUE_BYTES) <= 5'(FIT_HOLD_Q);
     wire [15:0] pfp_x = flush ? flush_addr : pfp;

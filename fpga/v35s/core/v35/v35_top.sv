@@ -1,5 +1,4 @@
 `timescale 1ns/1ps
-`include "v35_macros.svh"
 
 // V35S core v2: the slot module (docs/v35s-core-v2.md, "Architecture"), stage S3: the front
 // end (bus unit, prefetch queue, loader, (A1) the grant in the bus unit) and the execution unit
@@ -222,28 +221,22 @@ module v35_top
 
     // ---------------------------------------------------------------- the nets between stages
     // bus (S0)
-    wire        b_busy, b_free, b_in_wait, b_fetch_inflight, b_fetch_past_b2, b_fetch_end_prev;
-    wire        b_fetch_run_prev, b_io_win, b_dlv_v, b_abort_busy;
-    wire        b_abort_last, b_abort_done, b_error, b_cpu_end_prev;
-    wire [2:0]  b_cur_kind, b_cur_pos, b_cur_left, b_dlv_kind, b_fetch_len, b_grant_len;
-    wire [3:0]  b_fetch_since;
-    wire [19:0] b_dlv_addr;
-    wire [1:0]  b_dlv_width;
+    wire        b_in_wait, b_fetch_inflight, b_fetch_past_b2;
+    wire        b_dlv_v, b_abort_busy, b_cpu_end_prev;
+    wire [2:0]  b_dlv_kind;
     wire [15:0] b_done_data;
     wire [15:0] b_done_nx16;            // (F5t) its next value and load (the loader's tag register)
     wire        b_done_ld;
-    wire        w3_v;
-    wire signed [4:0] w3_rel;
     // (MX5c) tick B: the next values of the facts the sequencer's stall reads (the D nets of
     // the modules' ce_a registers): the bus unit's, the queue's, the loader's, the datapath's
     wire        b_fir_nx, b_fpb_nx, b_iw_nx, b_b2b_nx, b_dv_nx, b_done_nx;
     wire [2:0]  b_dk_nx;
     wire [2:0]  q_st_nx;
     wire        q_lv_nx, q_od_nx, q_dc_nx;
-    wire        l_qs_nx, l_sm_nx, l_sw_nx, l_dw_nx, l_dh_nx;
+    wire        l_qs_nx, l_sm_nx, l_sw_nx;
     wire        e_ordy_nx, e_rqb_nx, e_wrh_nx;
     // (A1) the grant (S4) and the EU request port
-    wire        g_start, g_fetch, g_eu, g_abort, g_b2b;
+    wire        g_start, g_fetch, g_abort;
     wire [2:0]  g_kind;
     wire [19:0] g_addr;
     wire [1:0]  g_width;
@@ -252,7 +245,7 @@ module v35_top
     wire [19:0] req_addr;
     wire [15:0] req_data;
     // queue (Q1: the simple machine)
-    wire [7:0]  qv0, qv1, qv2, qv3;
+    wire [7:0]  qv0, qv1;
     wire [2:0]  ld_rd, ld_rel;
     wire        ld_stg;
     wire [19:0] q_fetch_addr;
@@ -265,30 +258,27 @@ module v35_top
     wire        q_fetch_raise;
     wire        q_word;                 // (Q2)
     // (MX0) the loader: the word register, the popped bytes, the decode
-    wire        q_stall, dtrap, resv_e, s_modrm, dcall, e_rmodrm, s_wbs;
+    wire        q_stall, resv_e, s_modrm, dcall, e_rmodrm, s_wbs;
     wire        ec_reg, ec_call;                // (MX3c) the EAC word's mode facts
     wire [UADDR_W-1:0] ec_head;
     wire [UADDR_W-1:0] dent, dret;
-    wire [7:0]  ld_op, ld_opc, ld_modrm, ld_il, ld_ih, ld_dl, ld_dh;
-    wire [19:0] op_a;
+    wire [7:0]  ld_opc, ld_modrm, ld_il, ld_ih, ld_dl, ld_dh;
     wire [2:0]  ld_op3, ld_len;
     wire        ld_load;
-    v35_udec_t  fmt, dec1;
+    v35_udec_t  fmt;
     v35_udecm_t dec2;
     // (MX0) the sequencer
     v35_uword_t word, word_nx;
     wire [7:0]  ld_opc_nx, ld_modrm_nx;   // (MX5b) tick B: the values loading at ce_a
     v35_udec_t  fmt_nx;
     wire [6:0]  ra_early, rb_early;
-    wire        ex, ex_pop, ex_b, start, start_trap, halted;
-    wire        w_disp, w_dispm, w_popany;     // (MX5) the word's derived bits (registers)
+    wire        ex, ex_pop, ex_b, halted;
+    wire        w_disp, w_dispm;               // (MX5) the word's derived bits (registers)
     wire        w_dispm_nx;                     // (MX5c) tick B: the next word's
     wire        w_erep, w_erep_nx;              // (F5d) e && ea == EA_REP (useq's registered fact; tick B: the next word's)
     wire        w_tki;                          // (F5e) seq == SQ_TKI (useq's registered fact)
-    wire [4:0]  why;
-    wire [UADDR_W-1:0] upc;
     // (MX0) the datapath
-    wire        opr_rdy, rq_busy, wr_hold, c_sgn, c_dtrap, div_trap;
+    wire        opr_rdy, rq_busy, wr_hold, c_sgn, c_dtrap;
     wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
     wire [15:0] ld_ip;                  // (MX2) the instruction pointer
     wire [15:0] ld_ins_ip;              // (F2b) the instruction's start (its first prefix's)
@@ -308,7 +298,7 @@ module v35_top
     wire [7:0]  rb_lo;
     wire [3:0]  sig_lo;                             // (F2a) SIGMA's low four bits (CN_SIG)
     wire [15:0] flush_off;
-    wire [19:0] flush_lin, ps_base;
+    wire [19:0] ps_base;
     wire [15:0] sfr_data;
     wire [6:0]  ra_next, rb_next, wa_addr;
     wire        wa_en;
@@ -323,12 +313,10 @@ module v35_top
     reg  [1:0]  pend_be = 2'b00;
     reg  [15:0] pend_d = 16'd0;
 
-    // the instruction's start and its address (the trace, the function bench, Q2's strobes)
     // (MX0f) Q2's start is the opcode's read from the queue: the E word's pop, not the routine's
     // entry word (the frozen model's start is that pop; the entry follows the post-E dispatch)
     wire        e_popped;
-    wire        t_start = `V35_MX0F_QSTART ? e_popped : start;
-    wire [19:0] ir_addr_c = op_a;
+    wire        t_start = e_popped;
     wire        t_flush = ex_pop && word.flush;            // tick A: a FLUSH word executes
     wire        take_now;                              // tick A: an operand byte popped
     wire        ramen = prc[6];
@@ -360,18 +348,13 @@ module v35_top
         .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv),
         .fetch_req(q_fetch_req), .q_low, .q_word, .fetch_addr(q_fetch_addr),
         .t_start, .take_now, .l_pop(ld_load),
-        .g_start, .g_kind, .g_addr, .g_width, .g_fetch, .g_eu, .g_abort, .g_b2b,
+        .g_start, .g_kind, .g_addr, .g_width, .g_fetch, .g_abort,
         .b2b_now(b_b2b_now),
-        .busy(b_busy), .free(b_free), .cur_kind(b_cur_kind), .cur_pos(b_cur_pos),
-        .cur_left(b_cur_left), .in_wait(b_in_wait),
+        .in_wait(b_in_wait),
         .fetch_inflight(b_fetch_inflight), .fetch_past_b2(b_fetch_past_b2),
-        .fetch_end_prev(b_fetch_end_prev), .cpu_end_prev(b_cpu_end_prev),
-        .fetch_since(b_fetch_since),
-        .fetch_run_prev(b_fetch_run_prev), .io_win(b_io_win),
-        .dlv_v(b_dlv_v), .dlv_kind(b_dlv_kind), .dlv_addr(b_dlv_addr),
-        .dlv_width(b_dlv_width), .done_data(b_done_data), .done_nx(b_done_nx16), .done_ld(b_done_ld), .abort_busy(b_abort_busy),
-        .abort_last(b_abort_last), .abort_done(b_abort_done), .fetch_len(b_fetch_len),
-        .grant_len(b_grant_len), .error(b_error), .w3_v, .w3_rel,
+        .cpu_end_prev(b_cpu_end_prev),
+        .dlv_v(b_dlv_v), .dlv_kind(b_dlv_kind),
+        .done_data(b_done_data), .done_nx(b_done_nx16), .done_ld(b_done_ld), .abort_busy(b_abort_busy),
         .fetch_inflight_nx(b_fir_nx), .fetch_past_b2_nx(b_fpb_nx), .in_wait_nx(b_iw_nx),
         .b2b_now_nx(b_b2b_nx), .dlv_v_nx(b_dv_nx), .dlv_kind_nx(b_dk_nx), .eu_done_nx(b_done_nx),
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
@@ -381,19 +364,17 @@ module v35_top
     wire dlv_fetch = b_dlv_v && b_dlv_kind == K_FETCH;
     wire dlv_fetch_nx = b_dv_nx && b_dk_nx == K_FETCH;
     wire dlv_other = b_cpu_end_prev;
-    wire fetch_last = b_busy && b_cur_kind == K_FETCH && b_cur_left == 3'd1;
 
     // ---------------------------------------------------------------- the queue
     // (S6) the first fetch's address: FFFF0h (PS FFFFh, IP 0); the function bench
     // (fpga/v35s/v35_core2_tb.sv) sets a test's PS:IP here through `verilator public` hooks
     // (observability and preload only: the harness build keeps the constants). (Q1) The
-    // queue's prefetch pointer is an offset in PS: in reset it loads tb_reset_ip, the loader's
-    // PC the address.
+    // queue's prefetch pointer is an offset in PS: in reset it loads tb_reset_ip (the loader's
+    // offsets too), the observation block's address counter tb_reset_addr.
 `ifndef SYNTHESIS
     reg [19:0] tb_reset_addr = 20'hFFFF0;
     reg [15:0] tb_reset_ip = 16'h0000;
 `else
-    wire [19:0] tb_reset_addr = 20'hFFFF0;
     wire [15:0] tb_reset_ip = 16'h0000;
 `endif
     wire [15:0] q_flush_addr = core_reset_n ? flush_off : tb_reset_ip;
@@ -409,46 +390,44 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .fetch_req(q_fetch_req), .fetch_raise(q_fetch_raise), .fetch_addr(q_fetch_addr), .q_low, .q_word,
         .fetch_go(g_fetch), .dlv_v(dlv_fetch), .dlv_data(b_done_data), .dlv_tag(ld_dlv_tag), .abort_go(b_abort_busy),
-        .vb0(qv0), .vb1(qv1), .vb2(qv2), .vb3(qv3), .avail(q_avail), .stored(q_stored), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_q0t(q_h0t), .h_latt(q_hlt), .rd(ld_rd), .rd_b(3'd0),
+        .vb0(qv0), .vb1(qv1), .avail(q_avail), .stored(q_stored), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_q0t(q_h0t), .h_latt(q_hlt), .rd(ld_rd), .rd_b(3'd0),
         .rel(ld_rel), .stg(ld_stg),
         .flush(t_flush), .flush_addr(q_flush_addr), .susp(q_susp), .ps_base,
         .stored_nx(q_st_nx), .latv_nx(q_lv_nx), .odd_nx(q_od_nx), .discard_nx(q_dc_nx)
     );
-    wire q_infl_c = b_fetch_inflight || b_abort_busy;
 
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .qv0, .qv1, .qv2, .qv3, .q_avail, .q_stored, .q_arrive(dlv_fetch), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .h_latt(q_hlt), .dlv_tag(ld_dlv_tag), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
-        .reset_addr(tb_reset_addr), .reset_ip(tb_reset_ip), .flush(t_flush), .flush_w(word.flush), .flush_lin,
+        .qv0, .qv1, .q_avail, .q_stored, .q_arrive(dlv_fetch), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .h_latt(q_hlt), .dlv_tag(ld_dlv_tag), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
+        .reset_ip(tb_reset_ip), .flush(t_flush), .flush_w(word.flush),
         .flush_off,
         .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && w_disp),
-        .dispm(w_dispm), .e_rep(w_erep), .e_pfx(word.pfx), .e_rep_nx(w_erep_nx), .q_stall, .op(ld_op), .op_a, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
-        .dl(ld_dl), .dh(ld_dh), .fmt, .opc_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx, .op3(ld_op3), .dec1, .dec2, .len(ld_len),
-        .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret, .dtrap,
+        .dispm(w_dispm), .e_rep(w_erep), .e_pfx(word.pfx), .e_rep_nx(w_erep_nx), .q_stall, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
+        .dl(ld_dl), .dh(ld_dh), .fmt, .opc_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx, .op3(ld_op3), .dec2, .len(ld_len),
+        .l_load(ld_load), .o_pop(take_now), .o_epop(e_popped), .dent, .dcall, .dret,
         .resv_e, .s_modrm, .e_rmodrm, .s_wbs, .ec_reg, .ec_call, .ec_head,
         .pop_nx(word_nx.pop), .e_pop_nx(word_nx.e), .q_stored_nx(q_st_nx), .q_latv_nx(q_lv_nx),
         .q_odd_nx(q_od_nx), .q_discard_nx(q_dc_nx), .q_dlv_nx(dlv_fetch_nx),
         .flush_w_nx(word_nx.flush), .dispm_nx(w_dispm_nx),
-        .q_stall_nx(l_qs_nx), .s_modrm_nx(l_sm_nx), .s_wbs_nx(l_sw_nx), .d1_wbs_nx(l_dw_nx),
-        .d1_hm_nx(l_dh_nx), .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip)
+        .q_stall_nx(l_qs_nx), .s_modrm_nx(l_sm_nx), .s_wbs_nx(l_sw_nx), .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip)
     );
 
     // ---------------------------------------------------------------- the microsequencer
     wire h_wake;                        // HALT's release ((F4d) STOP's: below)
     v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .q_stall, .dec1, .dent, .dcall, .dret, .dtrap, .dec2, .ec_reg, .ec_call, .ec_head, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
+        .q_stall, .dent, .dcall, .dret, .dec2, .ec_reg, .ec_call, .ec_head, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .fetch_run(b_fetch_inflight), .bus_wait(b_in_wait), .fetch_dph(b_fetch_past_b2), .b2b_now(b_b2b_now), .s_modrm, .s_wbs,
-        .e_rmodrm, .rmem((fmt.has_modrm || fmt.pg) && ld_modrm[7:6] != 2'd3), .q_req(`V35_MX1F_ASKL ? q_fetch_raise : q_fetch_req), .resv(req_resv),
+        .e_rmodrm, .rmem((fmt.has_modrm || fmt.pg) && ld_modrm[7:6] != 2'd3), .q_req(q_fetch_raise), .resv(req_resv),
         .f_grant(g_fetch), .f_dlv(dlv_fetch),
         .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx),
-        .s_wbs_nx(l_sw_nx), .s_modrm_nx(l_sm_nx), .d1_wbs_nx(l_dw_nx), .d1_hm_nx(l_dh_nx),
+        .s_wbs_nx(l_sw_nx), .s_modrm_nx(l_sm_nx),
         .rmem_nx((fmt_nx.has_modrm || fmt_nx.pg) && ld_modrm_nx[7:6] != 2'd3),
         .fetch_run_nx(b_fir_nx), .bus_wait_nx(b_iw_nx), .fetch_dph_nx(b_fpb_nx),
         .b2b_now_nx(b_b2b_nx), .f_dlv_nx(dlv_fetch_nx), .wake(h_wake), .igo, .sgo,
-        .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_popany, .w_dispm_nx, .w_erep, .w_erep_nx, .w_tki, .ex, .ex_pop, .ex_b, .start, .start_trap, .why, .q_susp, .halted, .upc_o(upc)
+        .f_abort(g_abort), .word, .word_nx, .w_disp, .w_dispm, .w_dispm_nx, .w_erep, .w_erep_nx, .w_tki, .ex, .ex_pop, .ex_b, .q_susp, .halted
     );
 
     // ---------------------------------------------------------------- the datapath
@@ -467,7 +446,7 @@ module v35_top
         .req_done_nx(b_done_nx), .ramen_nx(prc_at[6]), .opr_rdy_nx(e_ordy_nx),
         .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
-        .flush_off, .flush_lin, .ps_base, .sfr_data, .trap_o(div_trap),
+        .flush_off, .ps_base, .sfr_data,
         .psw_f, .psw_rb, .flag_we, .flag_d,
         .oc_seg_we(pend_v && pend_a[6:4] == psw_rb
                    && (pend_a[3:0] == 4'd4 || pend_a[3:0] == 4'd5 || pend_a[3:0] == 4'd7)),
@@ -711,12 +690,50 @@ module v35_top
         end
     end
 
+`ifndef SYNTHESIS
+    // ---------------------------------------------------------------- observation (simulation)
+    // The trace's and the function bench's views (fpga/v35s/v35_core2_tb.sv reads dut.start,
+    // dut.start_trap, dut.ir_addr_c), read from the modules' own nets: no module port carries
+    // them. `start`: a routine's entry word executes (the sequencer's); `start_trap`: and its
+    // instruction has no routine (the opcode, or the ModR/M / 0F head's second-level cell);
+    // `ir_addr_c`: the linear address of the opcode the E word popped, counted as the loader
+    // pops (the next queue byte's address `o_pc`, the staged opcode's `o_sa`, a flush's target
+    // {PS, 0} + SIGMA registered at ce_b)
+    wire        start = useq.start;
+    wire        start_trap = loader.df.trap || (word.seq == SQ_DISPM && dec2.trap);
+    reg  [19:0] o_pc = 20'hFFFF0, o_sa = 20'd0, ir_addr_c = 20'd0, o_flin = 20'd0;
+    wire [19:0] o_pc_pop = o_pc + ((loader.opop_b || loader.mpop_b) ? 20'd1 : 20'd0);
+    always @(posedge clock) begin
+        if (ce_b)
+            o_flin <= ps_base + {4'd0, flush_off};
+        if (!core_reset_n) begin
+            o_pc <= tb_reset_addr;
+            o_sa <= tb_reset_addr;
+        end else if (ce_a) begin
+            if (loader.flush_b)
+                o_pc <= o_flin;
+            else begin
+                o_pc <= o_pc_pop + (loader.sload_b ? 20'd1 : 20'd0);
+                if (loader.sload_b)
+                    o_sa <= o_pc_pop;
+            end
+            if (loader.epop_b && !loader.erep_b)
+                ir_addr_c <= o_sa;
+        end
+    end
+    // (the function bench's hooks, read from outside: the divide error's strobe too)
+    wire        unused_obs = &{1'b0, start, start_trap, ir_addr_c, eu.trap_o};
 `ifdef V35S_CORE_V35
+    // the bus unit's: a fetch's last clock (the trace's B with the line), an EU cycle issued
+    // (either half of a pair: I), the granted cycle's length (X's)
+    wire        fetch_last = bus.busy && bus.c_kind == K_FETCH && bus.c_len - bus.pos_now == 3'd1;
+    wire        g_eu = bus.g_second || req_ack;
+    wire        q_infl_c = b_fetch_inflight || b_abort_busy;
     // ---------------------------------------------------------------- the trace hook
     v35_trace trace (
         .clock, .reset_n(core_reset_n), .ce_a,
-        .g_start, .g_kind, .g_addr, .g_width, .g_len(b_grant_len),
-        .start, .epop(e_popped), .start_trap, .entry(upc), .pc(op_a),
+        .g_start, .g_kind, .g_addr, .g_width, .g_len(bus.grant_len),
+        .start, .epop(e_popped), .start_trap, .entry(useq.upc), .pc(ir_addr_c),
         .take(take_now), .load(ld_load),
         .post(ex_pop && word.bus != BQ_NONE), .post_kind(word.bus == BQ_MEMR ? K_READ
                                            : word.bus == BQ_MEMW ? K_WRITE
@@ -724,34 +741,12 @@ module v35_top
                                            : K_IO_WRITE),
         .issue(g_eu), .b2b(fetch_last && q_fetch_req), .abort(g_abort),
         .room(5'sd6 - 5'({2'd0, q_avail} - {2'd0, ld_rd}) - (q_infl_c ? 5'sd2 : 5'sd0)),
-        .flag(q_fetch_req), .why, .upc
+        .flag(q_fetch_req), .why(useq.st_r.why), .upc(useq.upc)
     );
-
-`ifndef SYNTHESIS
-    // diagnostics (+v35_diag): a bus start on a busy bus on stderr
-    reg diag = 1'b0;
-    reg err_seen = 1'b0;
-    initial diag = $test$plusargs("v35_diag");
-    always @(posedge clock) begin
-        if (!core_reset_n)
-            err_seen <= 1'b0;
-        else if (ce_a) begin
-            if (b_error && !err_seen) begin
-                err_seen <= 1'b1;
-                if (diag)
-                    $display("v35: a bus start on a busy bus");
-            end
-        end
-    end
 `endif
 `endif
 
-    wire unused = &{1'b0, ready, ce, x_fall, prc[7], prc[5:2], qv1, qv2, qv3,
-                    b_cur_pos, b_dlv_width, rf_pending, rf_load, rf_value, rf_state_r, rf_state_e,
-                    b_in_wait, b_fetch_since, b_error, b_fetch_past_b2, b_fetch_end_prev,
-                    b_fetch_run_prev, b_io_win, b_abort_last, b_abort_done, b_fetch_len,
-                    b_dlv_addr, w3_v, w3_rel, g_fetch, g_b2b, dlv_other, b_free, ld_len,
-                    ex_b, why, upc, start_trap, w_popany, halted, div_trap, ir_addr_c, dec2,
-                    fetch_last, q_infl_c, ld_op3, ld_op, b_grant_len, g_eu, g_abort,
+    wire unused = &{1'b0, ready, ce, x_fall, prc[7], prc[5:2],
+                    rf_pending, rf_load, rf_value, rf_state_r, rf_state_e,
                     prc_at[7], prc_at[5:0], ir_vec};
 endmodule

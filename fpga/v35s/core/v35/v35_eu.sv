@@ -1,5 +1,4 @@
 `timescale 1ns/1ps
-`include "v35_macros.svh"
 
 // V35S core v2 (MX0): the datapath, re-plumbed to the microinstruction's fields
 // (docs/v35s-mechanisms.md sections 3.3-3.6; README "MX0"). It keeps the register RAM's ports
@@ -29,8 +28,8 @@
 // request) until the acknowledge.
 //
 // Registered state (widths): psw 16, ds1 ps ss ds0 4x16, ta tb tc 3x16, sigma 16, scy 1,
-// addr 16, ea_ss 1, oprw 16, pfx_v 1, pfx_s 2, mul (v35_mul_t 51), div (v35_div_t 75), dtrap 1,
-// trap_o 1; the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_off
+// addr 16, ea_ss 1, oprw 16, pfx_v 1, pfx_s 2, mul (v35_mul_t 51), div (v35_div_t 75), dtrap 1;
+// the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_off
 // 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, resv_r 1, opr_v 1, opr 16, plo 8, (F5b) iod 16; the ce_b copies.
 module v35_eu
     import v35_front_pkg::*;
@@ -110,10 +109,8 @@ module v35_eu
     output wire [3:0]  sig_lo,          // (F2a) SIGMA's low four bits (a register: CN_SIG)
     // the queue's flush (tick A: registers)
     output wire [15:0] flush_off,
-    output wire [19:0] flush_lin,
     output wire [19:0] ps_base,
     output wire [15:0] sfr_data,
-    output reg         trap_o,          // the divide error raised (a strobe at the word's end)
     // (F1) the SFR page's FLAG (PSW bits 5 and 3, F1 and F0): read, and a store's bits at ce_a
     output wire [1:0]  psw_f,
     output wire [2:0]  psw_rb,          // PSW.RB (the on-chip write's bank compare)
@@ -226,7 +223,6 @@ module v35_eu
     // and the pair's second half carried the next PUSH's datum); every IOW routine loads OPRW
     // on a word before its post
     reg [15:0] iod = 16'd0;
-    initial trap_o = 1'b0;
 
     wire [2:0] bank = psw[14:12];
 
@@ -728,7 +724,6 @@ module v35_eu
     assign c_dtrap = dtrap;
     // (MX2) the flush's target: SIGMA (the V20 ROM's SIGMA -> PC on its FLUSH word), in PS
     assign flush_off = sigma;
-    assign flush_lin = {ps, 4'd0} + {4'd0, sigma};
     // (MX2) the transfer's condition by the format's xc: the PSW's sixteen (the encoding's low
     // nibble: V, CY, Z, CY or Z, S, P, S xor V, (S xor V) or Z, each and its negation), the
     // loop forms' counter test on SIGMA (CW - 1 not zero, or CW zero for BCWZ)
@@ -772,7 +767,6 @@ module v35_eu
             opr_v <= 1'b0;
             dtrap <= 1'b0;
             f1 <= 1'b0;
-            trap_o <= 1'b0;
             ms_end <= 1'b0;
             ms_eq <= 1'b0;
             dm_tend <= 1'b0;
@@ -785,7 +779,6 @@ module v35_eu
             bs7 <= 1'b0;
             ea_ss <= 1'b0;
         end else if (ce_a) begin
-            trap_o <= ex_b && word.trap;
             // (F4b) macro service: the character search's match (MSEQ), the end (MSDC: the count
             // reaches 0, or the match)
             if (ex_b && word.alu == AL_MSEQ)
@@ -957,6 +950,15 @@ module v35_eu
     wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 
 `ifndef SYNTHESIS
+    // the divide error raised (a strobe at the word's end): the function bench's o_div_trap
+    // (fpga/v35s/v35_core2_tb.sv reads eu.trap_o; no port carries it)
+    reg        trap_o = 1'b0;
+    always_ff @(posedge clock) begin
+        if (!reset_n)
+            trap_o <= 1'b0;
+        else if (ce_a)
+            trap_o <= ex_b && word.trap;
+    end
     /* verilator lint_off BLKSEQ */
     reg chk_on = 1'b0;
     integer chk_n = 0;

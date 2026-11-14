@@ -2555,3 +2555,20 @@ question, decided from S8's routed numbers with the user.
   `docs/v35s-core-v2-interfaces.md` (approved): A cleanup, B glue into its owners, C the queue a
   self-contained FIFO, D the rule-only stalls and bus phase outputs removed (the corpus exact count
   falls and is reported, not gated, from D), E timing rebuilt one mechanism at a time.
+- **2026-11-14, interface plan step A: the core cleaned with no behaviour change.** All 61
+  compile-time switches collapsed to their built value and `v35_macros.svh` deleted (37 had no use
+  left in the RTL; 24 replaced, with the branches not built and the logic they left dead: the
+  largest the loader's word register of MX0b). 35 module outputs and 8 inputs removed (v35_bus 60
+  to 40 outputs: 15 with no reader, 5 read only by the trace; loader 6, useq 5, queue 2, eu 2),
+  with the registers that only fed them. The trace and the benches read the modules' own nets from
+  a simulation-only block in v35_top. Core 5,117 to 4,534 lines. Left: `V35_QUEUE_A` (set by lint
+  configuration 5), the dead inputs (bus `rfm`, queue `rd_b`, eu `ex` / `op` / `dh`), `ex_pop`
+  (now the same term as `ex`). **Gate:** corpus 6,541 with 0 runs differing at both spacings; every
+  corpus run's pin record equal to the base's (30,536 runs, 1,849,104 rows a spacing); the
+  per-clock trace byte-identical on 718 runs at both spacings; write data 106,824 / 106,824, chk
+  silent, vectors 0 bad, lint clean, 48 fast tests, SingleStepTests 0 fails, every program and fuzz
+  line as the base. **FPGA at 17 ns: +1.556 / +1.563 / +1.550 on seeds 1 / 2 / 3** (the base
+  +1.648 / +1.374 / +1.968), 9,591 LUT4 / 634 ADD / 2,468 FF / 81 RAM_5K. **Gate size (user,
+  2026-11-14), steps A to C:** the agent's run is the only one (the overseer checks the landed tree
+  equal to the agent's and runs Efinity); programs and fuzz reduced to a short set against the
+  first socket session; the full gate returns at step D.
