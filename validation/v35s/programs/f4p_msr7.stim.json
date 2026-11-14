@@ -1,0 +1,12 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 20000,
+   "hold": 2000,
+   "levels": {
+    "NMI": 0
+   }
+  }
+ ]
+}

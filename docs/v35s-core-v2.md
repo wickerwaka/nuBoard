@@ -2482,3 +2482,30 @@ question, decided from S8's routed numbers with the user.
   a request bit between the EU's request and the grant's on-chip decode); the exact element a macro
   service / DMA / asynchronous interrupt lands on (clock-decided). **Not in the fuzz:** BRKS, STOP
   (its standby flag survives reset into later programs). fuzz_hist's exception on f5j-n fixed.
+- **The macro-service and DMA priorities measured on the socket and built (2026-11-14; the user's
+  request; validation/v35s/prio.py, 13 programs equal on two socket sessions).** **Macro service among
+  sources:** silicon settles macro-service and vectored requests in one priority decision: within a
+  group the first requesting member in its fixed order whatever its kind; between groups the level (the
+  PR of the group's first register), then the default order; with IE 1 a vectored request beats a lower
+  macro service (the RTL had a fixed order, PR ignored, macro service always first). **Against ISPR, IE
+  and NMI:** ISPR holds a macro service as it holds a vectored request (served inside a lower level's
+  handler even with IE 0, waiting at an equal or higher level for FINT); with IE 0 a group whose first
+  requesting member is vectored holds its later members' macro services; NMI's handler holds none, and
+  NMI goes first when both are pending; the count's end is a vectored request at the source's level
+  (confirmed). Built in v35_intc (one winner key for both kinds; the F4b ms_pick chain removed).
+  **DMA:** channel 0 first when both ask, in every mode tried (confirmed); a burst is never broken (the
+  RTL let channel 0 in); an overtaken single-step channel resumes at once after channel 0's last
+  transfer; built in v35_dma (arm / act / gate registers). **Across kinds at one boundary** (an
+  instruction start and a REP string's take point alike): DMA, NMI, macro service, the maskable
+  interrupt, the single step (the RTL had DMA third); built in v35_top's take terms. **TC:** low for 2
+  clocks from mid-B2 at 0, 1 and 2 waits alike (the RTL: none at 0, one clock at 1); built (v35_bus
+  dkt). **Gate:** prio's four gated sets (f4p_ms, f4p_hb, f4p_hr, f4p_dma) equal on both sessions and
+  the RTL, every earlier program and fuzz gate as before (fuzz 3,057 of 3,070), corpus 6,541 with 0
+  runs differing at both spacings, write data 106,824 / 106,824, chk silent, vectors 0 bad, lint clean,
+  48 fast tests. **FPGA at 17 ns: +1.513 / +0.980 / +1.709 on seeds 1 / 2 / 3** (the base +1.061 /
+  +1.600 / +1.849), 9,521 LUT4 / 618 ADD / 2,458 FF / 81 RAM_5K. **Measured, not built:** the reserved
+  macro-service modes 010 and 111 stop the CPU (not even NMI is taken; only reset recovers; the RTL
+  runs them as mode 000); the controller's requests arriving late after a DMA transfer (clock-decided:
+  f4p_x1-x7 measured only). **Found, open (the next batch):** the RTL loses an NMI arriving together
+  with a macro service inside a chain of segment prefixes (f4p_x3; the same before this batch); silicon
+  takes NMI between prefixes (the RTL holds every take to the instruction after the chain).

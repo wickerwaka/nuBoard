@@ -92,9 +92,9 @@ module v35_top
     wire [14:0] pf_set;                 // (F4) the peripherals' IF requests
     // (F4c) DMA: the request and the take's descriptor (v35_dma's registers), the take, the
     // routine's TC update and last transfer (the EU's), the bus unit's DMA cycle windows
-    wire        dm_v, dm_burst, dm_ch, dm_in, dm_out, dm_w;
+    wire        dm_v, dm_go, dm_ch, dm_in, dm_out, dm_w;
     wire [1:0]  dm_ps, dm_pd;
-    wire        take_d, dm_tend, dm_tlast, dm_last, req_dk, b_dk, b_dkt, dm_rs;
+    wire        take_d, dm_smp, dm_tend, dm_tlast, dm_last, req_dk, b_dk, b_dkt, dm_rs;
     reg         tk_dm = 1'b0;           // the last take is a DMA transfer's
     // (F4d) bus hold and READY (v35_sfr's registers to the bus unit, /HLDAK back to the pins)
     wire        b_hrq, b_hlda_n, b_rdy_en, b_rdy_lv;
@@ -105,9 +105,9 @@ module v35_top
                  .input_levels, .flag_we, .flag_d, .poll_p14,
                  .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on, .ms_b, .ms_clr,
                  .ce_a, .pins_in, .intak_n, .pins, .pf_set,
-                 .dm_take(take_d), .dm_tend, .dm_tlast, .dm_rs, .dm_last, .dk(b_dk), .dkt(b_dkt),
-                 .dm_v,
-                 .dm_burst, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd,
+                 .dm_take(take_d), .dm_tend, .dm_tlast, .dm_rs, .dm_smp, .dm_last, .dk(b_dk),
+                 .dkt(b_dkt), .dm_v,
+                 .dm_go, .dm_ch, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd,
                  .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv));
 
     // ---------------------------------------------------------------- CPU clock
@@ -490,24 +490,28 @@ module v35_top
     wire g_n = nmi_v;
     wire g_i = (ir_v || it_v) && psw_ie && ie_arm;     // (F3b) it_v: INT (the controller chooses)
     wire g_s = psw_brk && brk_arm;
-    // (F4b) a macro-service request: taken at a start whatever IE (f4_ms ms_p0, IE 0), after NMI
-    // and before the maskable offer (not measured); in HALT the stall ends on it (the sequencer's
-    // `wake` OR ms_v) and the routine returns to the HALT (f4_ms ms_halt: no release)
+    // (F4b) a macro-service request: taken at a start whatever IE (f4_ms ms_p0, IE 0); in HALT
+    // the stall ends on it (the sequencer's `wake` OR ms_v) and the routine returns to the HALT
+    // (f4_ms ms_halt: no release). (F4p) The controller resolves it with the vectored requests
+    // (v35_intc: ms_v and ir_v never stand together); NMI goes before it (validation/v35s/
+    // prio.py f4p_hb b_nmi_ms: both held by a DMA burst, NMI's frame pushed, then the macro
+    // service at the handler's first instruction)
     wire g_m = ms_v;
-    // (F4c) a DMA request: taken at the start after the one that saw it (`dm_arm`, sampled at
-    // each start: f4_dma step_w / burst_w, the instruction after the TDMA store runs first; a
-    // store clearing EDMA lets one more transfer through: f4_dm3 tdma_io); in single step and
-    // single transfer a take disarms it (one instruction between transfers), in burst and
-    // demand release not (back to back); the last transfer's TC update disarms it. In HALT the
-    // stall ends on the request and the take needs no arm (f4_dma halt_io: transfers in HALT,
-    // no release). After NMI and a macro service, before the maskable offer (not measured)
-    reg  dm_arm = 1'b0;
+    // (F4c) a DMA request: taken at the start after the one that saw it (f4_dma step_w /
+    // burst_w, the instruction after the TDMA store runs first; a store clearing EDMA lets one
+    // more transfer through: f4_dm3 tdma_io); in single step and single transfer a take lets
+    // one instruction run before the next, in burst and demand release not (back to back). In
+    // HALT the stall ends on the request and the take needs no arm (f4_dma halt_io: transfers
+    // in HALT, no release). (F4p) The arms are v35_dma's (`dm_go`, sampled at `dm_smp`: a start
+    // or a string's take point that is not a DMA take); DMA goes first, before NMI, a macro
+    // service and the maskable interrupt (validation/v35s/prio.py f4p_hb, f4p_hr: each
+    // pair held by a DMA burst), so a burst holds every other request to its end
     // (F4c) a DMA transfer or a macro service taken out of HALT resumes at the HALT: its start is
     // no boundary for NMI or an interrupt (`rs_hlt` makes the routine's E word set nb_r), so the
     // HALT runs, is released by the pending request and the request is taken after it with the
     // HALT's next offset pushed (f4_dma halt: the DIC1 handler returns after the HALT)
     reg  rs_hlt = 1'b0;
-    wire g_d = dm_arm || (ms_hlt && dm_v);
+    wire g_d = dm_go || (ms_hlt && dm_v);
     assign igo = !nb_r && (g_n || g_m || g_d || g_i || g_s);
     // (F5e) a REP string's take point (a TKI word: urom/str.uasm, at an element's end when the
     // string goes on; silicon, intr.py f5_si_*): NMI or the maskable offer (IE 1 and armed: IE
@@ -519,7 +523,7 @@ module v35_top
     // a dispatch; the PC pushed is `ist` (the first
     // prefix's offset), so RETI re-enters the whole prefixed string with CW as it stands.
     // (F5f) a macro service and a DMA request are taken there too, in the dispatch's order
-    // (NMI, macro service, DMA, the maskable offer; validation/v35s/dma.py f5_sdma, f5_sms,
+    // ((F4p) DMA, NMI, macro service, the maskable offer: prio.py f4p_hr; validation/v35s/dma.py f5_sdma, f5_sms,
     // f5_sms_inv, f5_sasync: silicon serves both between a long string's elements): their
     // routines resume at tmpc, the string's first prefix, so the string goes on with CW as it
     // stands. A single-step DMA take there disarms the request as at a dispatch (one element
@@ -528,10 +532,11 @@ module v35_top
     assign sgo = g_n || g_m || g_d || g_i;
     wire tki_x = ex && w_tki;
     wire dsp_x = ex && w_disp;
-    wire take_n = (dsp_x && igo && g_n) || (tki_x && g_n);
-    wire take_m = (dsp_x && igo && !g_n && g_m) || (tki_x && !g_n && g_m);
-    assign take_d = (dsp_x && igo && !g_n && !g_m && g_d) || (tki_x && !g_n && !g_m && g_d);
+    assign take_d = (dsp_x && igo && g_d) || (tki_x && g_d);
+    wire take_n = (dsp_x && igo && !g_d && g_n) || (tki_x && !g_d && g_n);
+    wire take_m = (dsp_x && igo && !g_d && !g_n && g_m) || (tki_x && !g_d && !g_n && g_m);
     assign dm_rs = dsp_x && !take_d;          // (F4c) the CPU resumes: DIC's IF set here
+    assign dm_smp = (dsp_x || tki_x) && !take_d;
     wire take_i = (dsp_x && igo && !g_n && !g_m && !g_d && g_i)
                   || (tki_x && !g_n && !g_m && !g_d && g_i);
     wire take_s = dsp_x && igo && !g_n && !g_m && !g_d && !g_i;
@@ -541,22 +546,13 @@ module v35_top
             brk_arm <= 1'b0;
             nb_r <= 1'b0;
             ms_hlt <= 1'b0;
-            dm_arm <= 1'b0;
             tk_dm <= 1'b0;
             rs_hlt <= 1'b0;
         end else if (ce_a) begin
             if (dsp_x) begin
                 ie_arm <= psw_ie;
                 brk_arm <= psw_brk;
-                dm_arm <= dm_v && !(take_d && !dm_burst);
             end
-            // (F5f) a string's take point is a start for the DMA request too: it samples the
-            // request as a dispatch does (the take at the next take point or start), and a
-            // single-step take there disarms it (one element between transfers)
-            if (tki_x)
-                dm_arm <= dm_v && !(take_d && !dm_burst);
-            if (dm_tend && dm_tlast)
-                dm_arm <= 1'b0;
             if (take_d)
                 tk_dm <= 1'b1;
             else if (take_n || take_m || take_i || take_s)
@@ -618,7 +614,7 @@ module v35_top
         .wr(sfr_wr), .ic_we, .ic_wd, .take_n, .take_i, .take_s,
         .iack(ex_b && word.alu == AL_IVEC), .fint(ex_b && word.alu == AL_FINT),
         .ic_if, .ispr, .ir_v, .ir_vec, .nmi_v, .wake(i_wake), .tk_vec,
-        .int_on, .it_v, .tk_bs, .tk_lv, .tk_int, .pf_set,
+        .int_on, .ie(psw_ie), .it_v, .tk_bs, .tk_lv, .tk_int, .pf_set,
         .ms_b, .take_m, .take_d, .ms_end, .ms_v, .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_clr
     );
 

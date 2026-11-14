@@ -90,11 +90,12 @@ module v35_sfr (
     input  wire        dm_tend,
     input  wire        dm_tlast,
     input  wire        dm_rs,           // a start that is not a DMA take (DIC's IF is set there)
+    input  wire        dm_smp,          // (F4p) a start or a string's take point that is not a DMA take
     input  wire        dm_last,         // the transfer in flight is the last (the EU's register)
     input  wire        dk,
     input  wire        dkt,
     output wire        dm_v,
-    output wire        dm_burst,
+    output wire        dm_go,
     output wire        dm_ch,
     output wire        dm_in,
     output wire        dm_out,
@@ -336,8 +337,8 @@ module v35_sfr (
     wire [1:0] dic;
     v35_dma dma (.clock, .reset_n, .ce_a, .we(p_we), .w_off, .w_word, .w_lo, .w_hi(data[15:8]),
                  .dmac0(st[8'hA0]), .dmac1(st[8'hA2]), .dmarq(input_levels[7:6]),
-                 .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs), .dmam0, .dmam1, .dm_v,
-                 .dm_burst, .tk_ch(dm_ch), .tk_in(dm_in), .tk_out(dm_out), .tk_w(dm_w),
+                 .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs), .smp(dm_smp), .dmam0, .dmam1,
+                 .dm_v, .dm_go, .tk_ch(dm_ch), .tk_in(dm_in), .tk_out(dm_out), .tk_w(dm_w),
                  .tk_ps(dm_ps), .tk_pd(dm_pd), .dic);
     // the IF bits raised: SEIC0 SRIC0 STIC0 (3-5), SEIC1 SRIC1 STIC1 (6-8), TMIC0-2 (9-11), (F4c)
     // DIC0-1 (12-13), TBIC (14)
@@ -490,7 +491,10 @@ endmodule
 //             first register's PR (TMIC0, DIC0, EXIC0, SEIC0, SEIC1; TB 7), members in their
 //             fixed order (f3_prio); a request is offered while its level is above (numerically
 //             below) the highest level in service (ISPR's lowest set bit). MK 1 masks a source,
-//             MS 1 leaves it out of the offer: (F4b) a macro-service request (ms_v) instead
+//             MS 1 makes it a macro-service request: (F4p) resolved with the vectored ones
+//             in one pass (a group's first requesting member of either kind; the winner is
+//             `ms_v` when it is in macro service, else the offer `ir_v`; with IE 0 a group
+//             whose first member is vectored drops out: validation/v35s/prio.py)
 //   the take  the sequencer's dispatch takes the offer (v35_loader `go`); `iack` (the entry's
 //             IVEC word) clears the taken source's IF and sets its level in ISPR (NMI: clears
 //             its request); FINT clears ISPR's highest-priority bit (f3_prio)
@@ -522,6 +526,8 @@ module v35_intc (
     input  wire        iack,            // the entry's IVEC word executes (ce_a strobe)
     input  wire        fint,            // FINT executes (ce_a strobe)
     input  wire        int_on,          // (F3b) the INT request (v35_sfr's register)
+    input  wire        ie,              // (F4p) PSW.IE (the EU's register): a group whose first
+                                        // requesting member is vectored competes only with IE 1
     input  wire [14:0] pf_set,          // (F4) the peripherals' requests (ce_a strobes: IF <- 1)
     // (F4b) macro service: the sources' macro-service control registers (v35_sfr's storage, in
     // this module's order; 0 where a source has none), the take (a ce_a strobe at the dispatch),
@@ -574,14 +580,14 @@ module v35_intc (
     // (not the serial errors, DMA, TB: the data book's table 6)
     localparam logic [14:0] MS_CAP = 15'b000_1111_1011_0111;
     wire [14:0] rq_m = ic_if & ~mk & ms & MS_CAP;
-    reg  [3:0]  ms_i = 4'd0;            // the request's source (the groups' default order)
-    function automatic logic [3:0] ms_pick(input logic [14:0] m);
-        ms_pick = 4'd0;
-        for (int b = 8; b >= 7; b--) if (m[b]) ms_pick = 4'(b);
-        for (int b = 5; b >= 4; b--) if (m[b]) ms_pick = 4'(b);
-        for (int b = 2; b >= 0; b--) if (m[b]) ms_pick = 4'(b);
-        for (int b = 11; b >= 9; b--) if (m[b]) ms_pick = 4'(b);
-    endfunction
+    // (F4p) one resolution for both kinds (validation/v35s/prio.py f4p_ms, f4p_x6): each group's
+    // first requesting member in its fixed order, vectored or macro service; the groups by
+    // {level, default order} against ISPR (a macro service at a level equal to or below the
+    // highest in service waits for FINT, IE 0 too: is_eq / is_hi); with IE 0 a group whose first
+    // requesting member is vectored drops out and holds its own later members' macro services
+    // (end_ms_di, y_tu_vm_di) while another group's macro service goes on (x_vm, y_svm_di)
+    wire [14:0] rq_a = rq | rq_m;
+    reg  [3:0]  ms_i = 4'd0;            // the macro service's source (the resolution's winner)
     assign ms_clr = ms_end ? 15'(15'd1 << tk_i) : 15'd0;
     function automatic logic [2:0] pr_of(input logic [3:0] i);
         pr_of = ic_b[8*i +: 3];
@@ -620,17 +626,11 @@ module v35_intc (
             tk_bs <= 1'b0;
             tk_lv <= 3'd0;
             tk_ms <= 1'b0;
-            ms_v <= 1'b0;
-            ms_i <= 4'd0;
             ms_ch <= 3'd0;
             ms_mode <= 3'd0;
             ms_dir <= 1'b0;
         end else if (ce_a) begin
             lv <= frz ? {lv[3:1], lvn[0]} : lvn;
-            // (F4b) the macro-service request (registers: the take at a dispatch is many clocks
-            // after the routine's acknowledge)
-            ms_v <= |rq_m;
-            ms_i <= ms_pick(rq_m);
             tk_ms <= tk_ms;
             if (take_m) begin
                 tk_k <= 3'd0;
@@ -690,6 +690,7 @@ module v35_intc (
         logic [2:0] rank;
         logic [3:0] idx;
         logic       bs;                 // (F3b) the member's ENCS (f3_bsw: the member's own bit)
+        logic       ms;                 // (F4p) the member is in macro service
     } key_t;
     function automatic key_t kmin(input key_t a, input key_t b);
         kmin = (a.v && (!b.v || {a.lvl, a.rank} <= {b.lvl, b.rank})) ? a : b;
@@ -700,13 +701,15 @@ module v35_intc (
         gkey.rank = rank;
         gkey.lvl = fixed7 ? 3'd7 : pr_of(lead);
         for (int m = n - 1; m >= 0; m--)
-            if (rq[i0 + 4'(m)]) begin
+            if (rq_a[i0 + 4'(m)]) begin
                 gkey.v = 1'b1;
+                gkey.ms = rq_m[i0 + 4'(m)];
                 gkey.idx = i0 + 4'(m);
                 // (F3b) the member's ENCS; TB has no bank switching (f3_bsw tb_encs: vector 31
                 // with ENCS written 1, TBIC's bit 4 reads 0)
                 gkey.bs = !fixed7 && ic_b[8 * (i0 + 4'(m)) + 4];
             end
+        gkey.v = gkey.v && (gkey.ms || ie);
     endfunction
     key_t k1 [0:5];
     key_t k2 [0:2];
@@ -764,11 +767,15 @@ module v35_intc (
             wake <= 1'b0;
             it_v <= 1'b0;
             it_sel <= 1'b0;
+            ms_v <= 1'b0;
+            ms_i <= 4'd0;
         end else if (ce_a) begin
             k2[0] <= kmin(k1[0], k1[1]);
             k2[1] <= kmin(k1[2], k1[3]);
             k2[2] <= kmin(k1[4], k1[5]);
-            ir_v <= kw.v && {1'b0, kw.lvl} < isp_l;
+            ir_v <= kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l;
+            ms_v <= kw.v && kw.ms && {1'b0, kw.lvl} < isp_l;
+            ms_i <= kw.idx;
             ir_vec <= vec_of(kw.idx);
             ir_i <= kw.idx;
             ir_l <= kw.lvl;
@@ -777,7 +784,7 @@ module v35_intc (
             // wait for INT's handler's RETI, PR 0 goes first); ISPR plays no part (INT sets no
             // ISPR bit: the data book's "NMI and INT end without FINT"; f3_int: ISPR 00)
             it_v <= int_on;
-            it_sel <= int_on && !(kw.v && {1'b0, kw.lvl} < isp_l && kw.lvl == 3'd0);
+            it_sel <= int_on && !(kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l && kw.lvl == 3'd0);
             nmi_v <= nmi_p && !(iack && tk_k[2]);
             wake <= nmi_p || (|rq) || int_on;  // (F3b) INT releases HALT, IE 0 too (f3_int)
         end
@@ -1250,7 +1257,16 @@ endmodule
 //   001 / 010  demand release: transfers while DMARQ is high after its rising edge
 //   011 / 111  reserved: no request
 // The store of DMAM clears the channel's DMARQ flags (the data book: "When the EDMA bit is set,
-// the internal DMARQ flag is cleared"). Channel 0 is picked before channel 1 (not measured).
+// the internal DMARQ flag is cleared").
+//   (F4p) the order (validation/v35s/prio.py f4p_dma, f4p_x2): at a start that is not a DMA take
+//   (`smp`) the highest requesting channel (channel 0 first) is armed, and so is a channel that
+//   has transferred and still asks (`act`: a single-step channel overtaken by the other one);
+//   the next start takes the highest armed channel. A single-step or single-transfer take
+//   disarms its channel and lets one instruction run (`gate`) unless it was the channel's last
+//   (TC 0: the overtaken channel goes on at once: ss_10, ss1_bu0); a burst or demand take keeps
+//   its channel armed while it asks, so the other channel, macro service, NMI and the maskable
+//   interrupt wait for the burst's end (bu_10, bu1_rq0, f4p_hb) and a channel asking during a
+//   burst is armed at the first start after it (one instruction runs first: bu_01, bu0_rq1)
 module v35_dma (
     input  wire        clock,
     input  wire        reset_n,
@@ -1267,10 +1283,11 @@ module v35_dma (
     input  wire        tend,            // the routine's TC update (a ce_a strobe) ...
     input  wire        tlast,           // ... TC reached 0
     input  wire        rs,              // a start that is not a DMA take (v35_top: the CPU resumes)
+    input  wire        smp,             // (F4p) a start or a string's take point that is not a DMA take
     output wire [7:0]  dmam0,           // the DMAM bytes as read
     output wire [7:0]  dmam1,
     output reg         dm_v,            // a transfer is requested (a register)
-    output reg         dm_burst,        // ... the picked channel transfers back to back
+    output wire        dm_go,           // (F4p) a channel is armed: the next start takes it
     output reg         tk_ch,           // the take's descriptor: the channel ...
     output reg         tk_in,           // ... I/O to memory (the destination side alone)
     output reg         tk_out,          // ... memory to I/O (the source side alone)
@@ -1283,12 +1300,14 @@ module v35_dma (
     reg [1:0] w = 2'b00, edma = 2'b00, go = 2'b00, pend = 2'b00, dfl = 2'b00;
     reg [1:0] rq_s = 2'b00, rq_r = 2'b00, rq_p = 2'b00;
     reg       pick = 1'b0;              // the channel the next take serves (kept while none asks)
+    reg [1:0] arm = 2'b00;              // (F4p) the channels armed at the last sampling start
+    reg [1:0] act = 2'b00;              // (F4p) the channels that have transferred (to TC 0)
+    reg       gate = 1'b0;              // (F4p) a single take: one instruction runs first
     reg [1:0] dic_p = 2'b00;            // DIC's IF to be set when the CPU resumes (f4_dma dic: the
                                         // instruction after the last transfer runs before the
                                         // interrupt is taken)
     initial begin
         dm_v = 1'b0;
-        dm_burst = 1'b0;
         tk_ch = 1'b0;
         tk_in = 1'b0;
         tk_out = 1'b0;
@@ -1322,6 +1341,8 @@ module v35_dma (
     wire [1:0] rq = {req(md1, edma[1], go[1], pend[1], dfl[1], rq_r[1]),
                      req(md0, edma[0], go[0], pend[0], dfl[0], rq_r[0])};
     wire [7:0] dmac_p = pick ? dmac1 : dmac0;
+    wire [1:0] win = rq[0] ? 2'b01 : {rq[1], 1'b0};    // the highest requesting channel
+    assign dm_go = |arm && !gate;
     wire [2:0] md_p = pick ? md1 : md0;
     always_ff @(posedge clock) begin
         rq_s <= dmarq;
@@ -1338,8 +1359,10 @@ module v35_dma (
             dfl <= 2'b00;
             rq_p <= 2'b00;
             pick <= 1'b0;
+            arm <= 2'b00;
+            act <= 2'b00;
+            gate <= 1'b0;
             dm_v <= 1'b0;
-            dm_burst <= 1'b0;
             dic <= 2'b00;
             dic_p <= 2'b00;
         end else if (ce_a) begin
@@ -1399,11 +1422,35 @@ module v35_dma (
                 pend[1] <= 1'b0;
                 dfl[1] <= 1'b0;
             end
-            // the request and the pick (channel 0 first)
+            // the request; (F4p) the arms and the pick: the highest armed channel, else (a take
+            // out of HALT, no start) the highest requesting
             dm_v <= |rq;
-            if (|rq)
+            if (smp) begin
+                arm <= arm | win | (act & rq);
+                gate <= 1'b0;
+            end
+            if (take) begin
+                act[pick] <= 1'b1;
+                if (chain(md_p))
+                    arm[pick] <= rq[pick];
+                else begin
+                    arm[pick] <= 1'b0;
+                    gate <= 1'b1;
+                end
+            end
+            if (tend && tlast) begin
+                arm[tk_ch] <= 1'b0;
+                act[tk_ch] <= 1'b0;
+                gate <= 1'b0;
+            end
+            if (s_m[0])
+                act[0] <= 1'b0;
+            if (s_m[1])
+                act[1] <= 1'b0;
+            if (arm[0] || arm[1])
+                pick <= !arm[0];
+            else if (|rq)
                 pick <= !rq[0];
-            dm_burst <= rq[0] ? chain(md0) : chain(md1);
             if (take) begin
                 tk_ch <= pick;
                 tk_in <= md_p[0] && !md_p[1];

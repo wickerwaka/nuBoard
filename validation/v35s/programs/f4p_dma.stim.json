@@ -1,0 +1,63 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 2000,
+   "hold": 400,
+   "levels": {
+    "DMARQ0": 1,
+    "DMARQ1": 1
+   }
+  },
+  {
+   "event": 2,
+   "delay": 2000,
+   "hold": 400,
+   "levels": {
+    "DMARQ0": 1,
+    "DMARQ1": 1
+   }
+  },
+  {
+   "event": 3,
+   "delay": 2000,
+   "hold": 400,
+   "levels": {
+    "DMARQ0": 1,
+    "DMARQ1": 1
+   }
+  },
+  {
+   "event": 4,
+   "delay": 2000,
+   "hold": 400,
+   "levels": {
+    "DMARQ0": 1,
+    "DMARQ1": 1
+   }
+  },
+  {
+   "event": 5,
+   "delay": 4000,
+   "hold": 400,
+   "levels": {
+    "DMARQ1": 1
+   }
+  },
+  {
+   "event": 6,
+   "delay": 4000,
+   "hold": 400,
+   "levels": {
+    "DMARQ0": 1
+   }
+  }
+ ],
+ "pins": [
+  "DMAAK0",
+  "TC0",
+  "DMAAK1",
+  "TC1",
+  "HLDAK"
+ ]
+}

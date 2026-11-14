@@ -1,0 +1,35 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 12000,
+   "hold": 2000,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 2,
+   "delay": 6000,
+   "hold": 2000,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 3,
+   "delay": 4000,
+   "hold": 2000,
+   "levels": {
+    "INTP0": 0
+   }
+  }
+ ],
+ "pins": [
+  "DMAAK0",
+  "TC0",
+  "DMAAK1",
+  "TC1",
+  "HLDAK"
+ ]
+}

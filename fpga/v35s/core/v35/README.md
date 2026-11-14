@@ -3539,6 +3539,128 @@ silicon's the vector read first; the NMI entry's order is F3's, the write sequen
 - READY on a write (the harness cannot delay it): built as the mechanism implies (a write's
   first-wait sample comes before its strobe), not measured with READY low early.
 
+## F4p: the order of service among macro service, DMA, NMI and the maskable interrupt
+
+`validation/v35s/prio.py` (in dma.py's frame: periph.py's run, receipts and gate; intr.py's
+Test, handler, slots and fast stubs; the DMA's source-page reads in the write sequence). Every
+compared result is an order: which macro-service transfer (an SFR-to-memory byte at the
+channel's buffer D080h + 10h x the channel), which DMA transfer (its write at D0xxh, its read
+at F0xxh), which handler (its stub's store, its frame) and which marker store comes first in
+the write sequence. `prio.py order NAME --ref socket` prints the orders as tokens, `prio.py log`
+the logged handler entries. No clock count is compared; the services are decided before an
+absorber (`MULU CL` x 4, no write), so where a service lands in it does not show.
+
+Simultaneity: two IC registers set by one word store (adjacent registers in one group); the
+requests made inside INTP0's handler at level 0 (every other level held by ISPR) and released
+together by its FINT (across groups); pins moved by one schedule entry while a DMA burst holds
+every other request (NMI, INTP0-2, DMARQ0/1: f4p_hb, and at a REP LDMW's take point f4p_hr);
+a DMA start and a timer request made by one `PUSH R` through SS:SP = F000:FFA4h (f4p_x7).
+
+Programs (receipts `validation/v35s/receipts/f4-<name>-socket.json` and `-socket-2.json`, two
+sessions each, equal on every program):
+
+- gated (EQUAL against both sessions and the RTL): `f4p_ms` (22 tests: the group pairs, the
+  kinds in a group, the levels across groups by ISPR's hold, ISPR against a macro service, NMI's
+  handler, the count's end), `f4p_hb` / `f4p_hr` (9 tests each: the pairs held by a burst, at
+  an instruction start / at a REP string's take point), `f4p_dma` (13 tests: the channels'
+  order in every mode, a burst against the other channel, TC at 0 / 1 / 2 waits);
+- measured only: `f4p_x1`-`f4p_x7` (the exploration; x6 is f4p_ms's cross-group set with IE 1,
+  x7 the PUSH R pairs), `f4p_msr2` / `f4p_msr7` (a reserved macro-service mode and an NMI).
+
+### Measured (the socket, uPD70337L-8, fX/8)
+
+- **Macro service among sources:** one resolution with the vectored requests. Each group's
+  first requesting member in its fixed order (INTP0 > 1 > 2, TU0 > 1 > 2, SR > ST per channel),
+  whatever its kind; the groups by their level (the group's first register's PR), then the
+  default order TU, D, P, SER0, SER1, TB (f4p_ms x_eq: TU, SER0, SER1 at 7; x_lv: SER1 at 2,
+  SER0 at 5, TU at 6; x_lv2: TU at 1 first). A macro service and a vectored request compete by
+  the same key: IE 1, the higher one first whatever the kind (w_p0v_p1m: INTP0's vector before
+  INTP1's macro service; f4p_x6 y_vm_ie / y_svm_ie: a vectored TU at 3 or SER0 at 3 before a
+  macro service at 5).
+- **Against ISPR and IE:** a macro service is held by ISPR as a vectored request is: served
+  inside a handler of a lower level (is_lo: IE 0 there), held to FINT at an equal or a higher
+  level (is_eq, is_hi). IE 0: a group whose first requesting member is vectored holds its own
+  later members' macro services (end_ms_di, y_tu_vm_di: TU0's vectored request holds TU1's
+  macro service until EI) but not another group's (x_vm, y_svm_di: SER0's macro service goes
+  with TU's vectored request pending at a higher level); a masked member holds nothing
+  (y_tu_mk_di). NMI's handler holds nothing (nmi_ms). The count's end: the source's vectored
+  request at its own level, ISPR set on entry (end_isp: ISPR 08h at level 3), and it ranks as
+  that source (end_ms_ie: INTP0's vector before INTP1's macro service). A macro service sets no
+  ISPR bit.
+- **DMA channels:** at once (both DMARQ edges at one tick, both TDMA started) channel 0 first in
+  every mode; single step: one transfer per instruction, channel 0 to its end, then channel 1
+  (ss_01). A channel that has transferred and is overtaken by channel 0 goes on **at once**
+  after channel 0's last transfer, no instruction between (ss_10, ss1_bu0); a channel not yet
+  served waits an instruction (ss_01, bu_01, ss0_bu1). A burst is not broken: channel 0 started
+  after channel 1's burst waits for its end (bu_10), and a DMARQ edge for the other channel in
+  a burst is served after it, an instruction later (bu0_rq1, bu1_rq0). Demand release on both
+  (measured only: the count is the pulse's): channel 0 for its whole TC first. No DMAM mode
+  combination tried changed the order (channel 0 first in every mode pair); no other DMAM or
+  DMAC bit was probed.
+- **DMA, macro service, NMI, the maskable interrupt at one boundary** (held by a burst;
+  f4p_hb and, the same at a REP string's take point, f4p_hr): DMA before each other (b_nmi_dma);
+  NMI before a macro service (b_nmi_ms: NMI's PSW / PS / PC pushed, then the macro service at
+  the handler's first instruction, then the stub's store); NMI before the maskable interrupt;
+  macro service against the maskable interrupt by the sources' order (b_ms_int, b_int_ms).
+  Measured only (clock-decided): after a DMA transfer the controller's requests come late
+  (b_all: W, NMI, then the macro service inside NMI's handler; b_ms_dma / b_dma_int; f4p_x7:
+  DMA single step started with a timer's macro service by one PUSH R: both transfers before
+  the macro service).
+- **TC with 0 / 1 / 2 programmed waits:** TC low 2 clocks from mid-B2 of the last transfer's
+  write at every wait count (64 ticks; tc_w0 / tc_w1 / tc_w2).
+- **The reserved macro-service modes (010, 111):** the CPU stops as F4b found, and an NMI 20,000
+  ticks later is not taken (no frame, no cycle: f4p_msr2 / f4p_msr7); only the harness's reset
+  recovers. Not built: the RTL runs them as 000.
+
+### Built
+
+- **v35_intc:** the groups' keys pick the first requesting member over vectored and
+  macro-service requests (`rq_a`), with the member's kind (`key.ms`); a key with a vectored
+  member counts only with IE 1 (`ie`, PSW.IE, a new input). The fourth stage gives the winner as
+  `ms_v` / `ms_i` (macro service) or `ir_v` (vectored), both against ISPR. The F4b direct pick
+  (`ms_pick`, the default order whatever ISPR) is gone.
+- **v35_top:** the take order DMA, NMI, macro service, the maskable offer, the step (it was NMI,
+  macro service, DMA, the offer), at a dispatch and at a string's take point. `dm_arm` moved
+  into v35_dma; `dm_smp` = a start or a take point that is not a DMA take.
+- **v35_dma:** per channel `arm` (set at `dm_smp` for the highest requesting channel and for a
+  channel that has transferred and still asks: `act`), `gate` (a single-step or single-transfer
+  take: one instruction first; cleared at the next sampling start and at a channel's last
+  transfer); the take serves the highest armed channel (`pick`); a burst or demand take keeps
+  its channel armed while it asks. `dm_go = |arm && !gate` replaces `dm_arm`.
+- **v35_bus:** TC's window (`dkt`) is the cycle's positions 1 and 2 at every length (it was
+  mid-B2 to the state before the last wait: none at 0 waits, 1 clock at 1 wait).
+
+### The F4p gate
+
+`prio.py sim`, `prio.py gate` and `prio.py gate --ref=socket-2`: f4p_ms, f4p_hb, f4p_hr,
+f4p_dma EQUAL; socket against socket-2 EQUAL on all 13 programs. The earlier programs' gates
+(dma, serial, periph, intr, banks, onchip, traps, d6, the fuzz sets) are unchanged.
+
+### Depth (for the overseer's timing run)
+
+- **Tick A:** `igo`'s DMA term is `dm_go || (ms_hlt && dm_v)` with `dm_go = |arm && !gate`
+  (three v35_dma registers where `dm_arm` was one); the take strobes are the same AND-OR of the
+  same registers in another order. `dm_smp` is a new strobe into v35_dma's registers (an
+  endpoint). Nothing joins the delivery chain; v35_loader, v35_upage / umdsp / umimm / umodrm
+  untouched; no microcode changed.
+- **Tick B:** nothing of the EU.
+- v35_intc: S1 (ce_b) each group's pick over `rq_a` (an OR of two 15-bit register terms) and
+  the key's valid ANDed with `ms || ie` (registers); S4 (ce_a) `ms_v` / `ms_i` from the same
+  winner key as `ir_v` (one bit more in the compare's select). The F4b `ms_pick` priority
+  chain (ce_a) is removed.
+- v35_dma: `arm`, `act`, `gate` at ce_a from strobes and `rq`; `pick` from `arm`.
+- v35_bus: `dkt`'s next value is a compare of `n_pos` with two constants (it compared with
+  `n_len`).
+
+### Open (F4p)
+
+- The controller's late requests after a DMA transfer (b_all, b_ms_dma, b_dma_int, f4p_x7) are
+  clock-decided: measured only, not built.
+- The reserved macro-service modes stop silicon past NMI: not modelled.
+- (Found, not built) the RTL loses an NMI that arrives with INTP0's macro service inside a long
+  prefix chain (f4p_x3 a_nmi_ms, a_all, r_all: no NMI frame on the RTL, base c02b558 too);
+  silicon takes it. The prefix chain is outside the gated programs.
+
 ## Generated data
 
 Ten files here are generated by `validation/v35s/chains/ucgen.py` from the tracked fit

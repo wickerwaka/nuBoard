@@ -89,8 +89,8 @@ module v35_bus
     output reg         intak_n,
     // (F4c) the request is a DMA transfer's cycle: an ordinary memory cycle with `dk` high from
     // mid-B1 to mid-B3 (DMAAK's window: f4_dma, DMAAK low 4.5 clocks of a 5-clock cycle) and
-    // `dkt` from mid-B2 to the middle of the state before the last wait (TC's: low 2 clocks,
-    // inside DMAAK)
+    // `dkt` from mid-B2 for two clocks (TC's: low 2 clocks, inside DMAAK; (F4p) two clocks at
+    // 0, 1 and 2 waits alike: validation/v35s/prio.py f4p_dma tc_w0 / tc_w1 / tc_w2)
     input  wire        req_dk,
     output reg         dk,
     output reg         dkt,
@@ -684,7 +684,7 @@ module v35_bus
             // (F4c) a DMA transfer's cycle: DMAAK's and TC's windows
             if (ce_mid) begin
                 dk <= pins && n_dk && n_pos != n_len - 3'd1;
-                dkt <= pins && n_dk && n_pos >= 3'd1 && n_pos + 3'd2 < n_len;
+                dkt <= pins && n_dk && (n_pos == 3'd1 || n_pos == 3'd2);
             end
             // (F3b) the acknowledge: /INTAK in place of the strobes, mid-B1 to mid-B3
             if (ce_mid && pins && n_ia)
