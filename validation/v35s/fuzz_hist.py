@@ -271,7 +271,7 @@ def histogram(sets, ref="socket", cand="sim", jobs=8, show=2, out_json=None):
     for (cul, what), rs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
         print(f"{len(rs):4d}  {cul:28s} {what}")
         for r in rs[:show]:
-            print(f"        {r['name']}: {r.get('at', '')}; {r['msg'][:150]}")
+            print(f"        {r['name']}: {r.get('at', '')}; {r.get('msg', '')[:150]}")
             if r.get("window"):
                 print(f"          window: {' / '.join(r['window'])}")
     if out_json:

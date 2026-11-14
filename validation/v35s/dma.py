@@ -32,7 +32,7 @@ import os
 import sys
 
 from . import periph, serial
-from .intr import PSW_IE, ev, wait
+from .intr import PSW_IE, ev, pulse, wait
 from .periph import PTest, _prog
 from .serial import _fix, rd, swr
 
@@ -407,6 +407,296 @@ def dma_tests():
     return _fix(T)
 
 
+# ------------------------------------------------------------------ (F5f) requests inside a REP string
+# A macro service or a DMA request raised just before (or during) a long REP string: does silicon
+# serve it between the string's elements, or at the next instruction's start (after the string)?
+# The string runs with DS1 = 0B00h (its destination B040h-: DATA1, compared) and DS0 = 0A00h (its
+# source, the pattern); the request is raised by a store through SS = F000h (SS: [FFxxh], the SFR
+# page) placed right before the string, so the string is the instruction after the store; the
+# write sequence carries the string's element writes, the DMA's reads at F0xxh and its writes at
+# D0xxh, and the macro service's memory write, in their places.
+def _sstr(ops, n, store="", ix=0x0000, iy=0x0040, aw=0x1234, dw=0x0100, psw=None, ds0=None,
+          post=""):
+    """The string `ops` (prefix + opcode bytes) with CW n, after `store` (an SFR store through
+    SS: F000h, the instruction before the string); `post` right after the string (SS still
+    F000h: PS-prefixed stores only); the registers, DS0, DS1 and SS restored. `ds0`: the
+    string's source segment (FFE0h: internal RAM)."""
+    h = periph._h
+    s = (("    PUSH DS0\n" if ds0 is not None else "")
+         + "    PUSH DS1\n    PUSH CW\n    PUSH IX\n    PUSH IY\n    PUSH AW\n    PUSH BW\n"
+         "    PUSH DW\n    MOV AW, 0B00h\n    MOV DS1, AW\n"
+         + (f"    MOV AW, {h(ds0, 4)}\n    MOV DS0, AW\n" if ds0 is not None else "") +
+         f"    MOV CW, {h(n, 4)}\n    MOV IX, {h(ix, 4)}\n    MOV IY, {h(iy, 4)}\n"
+         f"    MOV DW, {h(dw, 4)}\n    MOV AW, {h(aw, 4)}\n")
+    if psw is not None:
+        s += f"    MOV BW, {h(psw, 4)}\n    PUSH BW\n    POP PSW\n"
+    s += "    MOV BW, 0F000h\n    MOV SS, BW\n" + store
+    s += "    DB " + ", ".join(h(b) for b in ops) + "\n" + post
+    s += ("    XOR BW, BW\n    MOV SS, BW\n    MOV BW, 0002h\n    PUSH BW\n    POP PSW\n"
+          "    POP DW\n    POP BW\n    POP AW\n    POP IY\n    POP IX\n    POP CW\n    POP DS1\n"
+          + ("    POP DS0\n" if ds0 is not None else ""))
+    return s
+
+
+def ss_wr(name, val):
+    """An SFR byte store through SS (= F000h inside _sstr)."""
+    return f"    DB 36h\n    MOV byte [0FF{SFR[name]:02X}h], {periph._h(val)}\n"
+
+
+MOVW, MOVB, STMW, OUTMW, INMW, CMPW = [0xF3, 0xA5], [0xF3, 0xA4], [0xF3, 0xAB], [0xF3, 0x6F], \
+    [0xF3, 0x6D], [0xF3, 0xA7]
+
+
+def sdma_tests():
+    """(F5f) DMA memory to memory started by TDMA right before a REP string (single step and
+    burst): where the transfers land among the elements."""
+    T = [periph.init_test()]
+
+    def dm(name, mode, ops, n=16, tc=4, ch=0, dmac=0x11, **kw):
+        t = PTest(name, jitter=False)
+        c = str(ch)
+        t.codef = lambda k: (swr("DIC" + c, 0x47) + blk_w(ch, 0x0010 + 0x10 * k, 0x0010 + 0x10 * k,
+                                                          0x0F, 0x0D, tc)
+                             + swr("DMAC" + c, dmac)
+                             + _sstr(ops, n, store=ss_wr("DMAM" + c, mode), **kw)
+                             + cws(k, 4) + blk_rd(ch, k, 0) + rd("DMAM" + c, k, 8)
+                             + rd("DIC" + c, k, 9) + swr("DMAM" + c, 0x00) + swr("DIC" + c, 0x47))
+        return t
+    T += [
+        dm("st_movw", 0x0C, MOVW),                  # single step, REP MOVBKW 16
+        dm("bu_movw", 0x8C, MOVW),                  # burst, REP MOVBKW 16
+        dm("st_movb", 0x0C, MOVB),                  # single step, REP MOVBKB 16
+        dm("st_stmw", 0x0C, STMW),                  # single step, REP STMW 16
+        dm("bu_stmw", 0x8C, STMW, ch=1),            # burst ch1, REP STMW 16
+        dm("st_outmw", 0x0C, OUTMW, n=8),           # single step, REP OUTMW 8 (port 0100h)
+        dm("st_inmw", 0x0C, INMW, n=8),             # single step, REP INMW 8 (into B040h)
+        dm("st_movw_n2", 0x0C, MOVW, n=2),          # single step, REP MOVBKW 2
+        dm("st_movw_tc8", 0x0C, MOVW, n=4, tc=8),   # single step TC 8 over a 4-element string
+    ]
+    return _fix(T)
+
+
+def sms_tests():
+    """(F5f) macro service requested by a store of EXIC0's IF (MS 1, EMS0 channel 5) right
+    before a REP string: SFR (BRG1 5Ah) to memory at D080h + 10h k, or memory (the string's
+    last destination element) to BRG1."""
+    T = [periph.init_test()]
+
+    def ms(name, ops, n=16, ems=0x15, msp=None, mss=0, ic=0xA7, msc=4, **kw):
+        t = PTest(name, jitter=False)
+
+        def code(k):
+            buf = 0xD080 + 0x08 * k if msp is None else msp
+            return (swr("EXIC0", 0x47) + swr("BRG1", 0x5A) + serial.chan(5, msc, 0x7A, 0x00, buf, mss)
+                    + swr("EMS0", ems) + _sstr(ops, n, store=ss_wr("EXIC0", ic), **kw)
+                    + cws(k, 4) + serial.chan_rd(5, k, 0) + rd("EXIC0", k, 8) + rd("EMS0", k, 9)
+                    + rd("BRG1", k, 10) + swr("EXIC0", 0x47) + swr("BRG1", 0x00))
+        t.codef = code
+        return t
+    T += [
+        ms("sw_movw", MOVW),                        # SFR -> memory, REP MOVBKW 16
+        ms("sw_stmw", STMW),                        # SFR -> memory, REP STMW 16
+        ms("sw_outmw", OUTMW, n=8),                 # SFR -> memory, REP OUTMW 8
+        ms("sw_movw_m2s", MOVW, ems=0x05, msp=0x005E, mss=0x0B00),   # B05Eh (the last element's
+                                                    # high half... its first byte) -> BRG1
+        ms("sw_movw_m2s0", MOVW, ems=0x05, msp=0x0040, mss=0x0B00),  # B040h (the first) -> BRG1
+        ms("sw_movw_m2s1", MOVW, ems=0x05, msp=0x0042, mss=0x0B00),  # B042h (the second) -> BRG1
+        ms("sw_movw_n2", MOVW, n=2),                # REP MOVBKW 2
+        ms("sw_cmpw", CMPW, n=16),                  # REPZ CMPBKW 16 (differing data: exits at
+                                                    # the first element)
+    ]
+    return _fix(T)
+
+
+def _rs(k, i, src):
+    """A byte or word register into RES + 0x20 k + i through PS (= 0)."""
+    return f"    DB 2Eh\n    MOV [{periph._h(RES + 0x20 * k + i, 4)}], {src}\n"
+
+
+def _pb(addr, k, i):
+    """The byte at linear addr (< 10000h) into RES + 0x20 k + i through PS (AL clobbered)."""
+    return (f"    DB 2Eh\n    MOV AL, [{periph._h(addr, 4)}]\n" + _rs(k, i, "AL"))
+
+
+def _iram_fill(n=0x10):
+    """FFE0:0040h- (internal RAM) and B040h- both a copy of A000h- (n words)."""
+    return ("    PUSH DS1\n    PUSH CW\n    PUSH IX\n    PUSH IY\n    MOV AW, 0FFE0h\n"
+            f"    MOV DS1, AW\n    XOR IX, IX\n    MOV IY, 0040h\n    MOV CW, {periph._h(n, 4)}\n"
+            "    DB 0F3h, 0A5h\n    MOV AW, 0B00h\n    MOV DS1, AW\n    XOR IX, IX\n"
+            f"    MOV IY, 0040h\n    MOV CW, {periph._h(n, 4)}\n    DB 0F3h, 0A5h\n"
+            "    POP IY\n    POP IX\n    POP CW\n    POP DS1\n")
+
+
+def sms_inv_tests():
+    """(F5f) macro service inside a REP string, compared in function only (the element the
+    service lands on is the clocks': silicon's after the first element of MOVBKW, the second of
+    STMW): the service's memory side is either a read of the string's destination (DIR 0: the
+    byte into BRG1 is the value before the string's write, 3Ch) or a write into the string's
+    source in internal RAM (DIR 1, FFE0:00xxh: no pins; the string then carries BRG1's 5Ah on),
+    so no write on the pins depends on where it lands. After the string (PS stores): CW IX IY
+    AW and the flags (LAHF) at RES + 12."""
+    T = [periph.init_test()]
+    post = lambda k: (_rs(k, 12, "CW") + _rs(k, 14, "IX") + _rs(k, 16, "IY") + _rs(k, 18, "AW")
+                      + "    DB 9Fh\n" + _rs(k, 20, "AH"))
+
+    def ms(name, ops, n=16, ems=0x15, msp=0x005E, mss=0x0B00, mark=(), iram=False, peek=(),
+           **kw):
+        t = PTest(name, jitter=False)
+
+        def code(k):
+            pre = "".join(f"    DB 2Eh\n    MOV byte [{periph._h(a, 4)}], 3Ch\n" for a in mark)
+            if iram:
+                pre = _iram_fill() + pre
+            return (swr("EXIC0", 0x47) + swr("BRG1", 0x5A) + serial.chan(5, 4, 0x7A, 0x00, msp, mss)
+                    + swr("EMS0", ems) + pre
+                    + _sstr(ops, n, store=ss_wr("EXIC0", 0xA7), post=post(k),
+                            **(dict(ds0=0xFFE0, ix=0x0040) if iram else {}), **kw)
+                    + serial.chan_rd(5, k, 0) + rd("EXIC0", k, 8) + rd("BRG1", k, 10)
+                    + "".join(_pb(a, k, 22 + j) for j, a in enumerate(peek))
+                    + swr("EXIC0", 0x47) + swr("BRG1", 0x00))
+        t.codef = code
+        return t
+    T += [
+        ms("m2s_movw", MOVW, ems=0x05, mark=(0xB05E,)),           # B05Eh before the write: 3Ch
+        ms("m2s_movb", MOVB, ems=0x05, msp=0x004F, mark=(0xB04F,)),
+        ms("m2s_stmw", STMW, ems=0x05, mark=(0xB05E,)),
+        ms("m2s_inmw", INMW, ems=0x05, mark=(0xB05E,)),
+        ms("m2s_movw_n2", MOVW, n=2, ems=0x05, msp=0x0042, mark=(0xB042,)),
+        ms("s2m_movw", MOVW, msp=0x005E, mss=0xFFE0, iram=True, peek=(0xB05E,)),
+        ms("s2m_ldmw", [0xF3, 0xAD], msp=0x005E, mss=0xFFE0, iram=True),   # AL 5Ah at the end
+        ms("s2m_cmpz", CMPW, msp=0x0050, mss=0xFFE0, iram=True),     # the 9th element differs:
+                                                                     # CW 7, Z 0
+        ms("s2m_outmw", OUTMW, msp=0x005E, mss=0xFFE0, iram=True),   # the 16th OUT: 5Ah
+        ms("s2m_movw_seg", [0x2E, 0xF3, 0x26, 0xA5], msp=0x005E, mss=0xFFE0, iram=True,
+           peek=(0xB05E,)),                                          # PS: REP DS1: (source DS1)
+    ]
+    # the last: PS: REP DS1: MOVBKW reads DS1:IX = 0B00:0040h (not internal RAM): B05Eh's copy
+    # keeps the pattern (the service's write into internal RAM is not read)
+    # asynchronous: an INTP0 edge, TM0's three services (600 clocks), during REP MOVBKW 80h
+    big = dict(ix=0x0000, iy=0x0000)
+    t = PTest("intp_m2s", jitter=False, stim=[pulse("E0", "INTP0", delay=20000)])
+    t.codef = lambda k: (swr("EXIC0", 0x47) + swr("BRG1", 0x5A) + serial.chan(5, 4, 0x7A, 0x00, 0x00FE, 0x0B00)
+                         + swr("EMS0", 0x05) + swr("EXIC0", 0x27) + "    DB 2Eh\n    MOV byte [0B0FEh], 3Ch\n"
+                         + ev("E0") + _sstr(MOVW, 0x80, post=post(k), **big)
+                         + serial.chan_rd(5, k, 0) + rd("EXIC0", k, 8) + rd("BRG1", k, 10)
+                         + swr("EXIC0", 0x47) + swr("BRG1", 0x00))
+    T.append(t)
+    t = PTest("tm_m2s", jitter=False)
+    t.codef = lambda k: (serial.TM_RUN + serial.chan(0, 3, 0x7A, 0x00, 0x00FC, 0x0B00)
+                         + swr("BRG1", 0x6B) + "    DB 2Eh\n    MOV word [0B0FCh], 3C3Ch\n"
+                         + "    DB 2Eh\n    MOV byte [0B0FEh], 3Ch\n"
+                         + swr("TMMS0", 0x00) + swr("TMIC0", 0x27)
+                         + _sstr(MOVW, 0x80, store=ss_wr("TMC0", 0x80), post=post(k), **big)
+                         + periph.tm_stop() + serial.chan_rd(0, k, 0) + rd("TMIC0", k, 8)
+                         + rd("BRG1", k, 10) + swr("TMIC0", 0x47) + swr("BRG1", 0x00))
+    T.append(t)
+    return _fix(T)
+
+
+def _iram_set(addrs, v=0x5A):
+    """Bytes of internal RAM (FFE0:addr) set to v (DS1 kept)."""
+    return ("    PUSH DS1\n    PUSH AW\n    MOV AW, 0FFE0h\n    MOV DS1, AW\n"
+            + "".join(f"    DB 26h\n    MOV byte [{periph._h(a, 4)}], {periph._h(v)}\n" for a in addrs)
+            + "    POP AW\n    POP DS1\n")
+
+
+def _ext_fill(n=0x10):
+    """A040h- and B040h- both a copy of E000h- (n words: 40h 41h ...)."""
+    return ("    PUSH DS0\n    PUSH DS1\n    PUSH CW\n    PUSH IX\n    PUSH IY\n    MOV AW, 0E00h\n"
+            "    MOV DS0, AW\n    MOV AW, 0A00h\n    MOV DS1, AW\n    XOR IX, IX\n"
+            f"    MOV IY, 0040h\n    MOV CW, {periph._h(n, 4)}\n    DB 0F3h, 0A5h\n"
+            "    MOV AW, 0B00h\n    MOV DS1, AW\n    XOR IX, IX\n"
+            f"    MOV IY, 0040h\n    MOV CW, {periph._h(n, 4)}\n    DB 0F3h, 0A5h\n"
+            "    POP IY\n    POP IX\n    POP CW\n    POP DS1\n    POP DS0\n")
+
+
+def sdma_inv_tests(iram=False):
+    """(F5f) DMA memory to memory inside a REP string, compared in function only (the element
+    of the first transfer is the clocks': silicon's after the first element, the RTL's after
+    the second, the TDMA store's request seen a clock later). The transfer writes into the
+    string's source ahead of the string (F070h- -> A05Eh- etc.: the source A040h-, the
+    destination B040h-), so the string carries the transferred byte on (to B040h-, or AW, or the
+    OUT data, or a compare's exit) when the transfer lands inside it; the gate drops the DMA's
+    cycles (the source page's reads and every write at A040h-A05Fh: `prog.drop`) from both
+    write sequences, the final memory is compared. After the string (PS stores): CW IX IY AW and
+    the flags (LAHF) at RES + 12. With iram (f5_sdma_iram, measured only): the source and the
+    destination at FFE70h- / FFE40h- (SARH / DARH FFh), the string's source in internal RAM:
+    silicon's DMA cycles there go to the pins (an external read and write; internal RAM is not
+    touched), the RTL's to internal RAM."""
+    T = [periph.init_test()]
+    post = lambda k: (_rs(k, 12, "CW") + _rs(k, 14, "IX") + _rs(k, 16, "IY") + _rs(k, 18, "AW")
+                      + "    DB 9Fh\n" + _rs(k, 20, "AH"))
+
+    def dm(name, mode, ops, dar, tc=1, ch=0, peek=(), **kw):
+        t = PTest(name, jitter=False)
+        c = str(ch)
+
+        def code(k):
+            if iram:
+                pre = (_iram_fill() + _iram_set(range(0x70, 0x70 + tc))
+                       + blk_w(ch, 0x0E70, dar, 0xFF, 0xFF, tc))
+                sx = dict(ds0=0xFFE0, ix=0x0040)
+            else:
+                pre = _ext_fill() + blk_w(ch, 0x0070, dar - 0x0E00, 0x0F, 0x0A, tc)
+                sx = dict(ix=0x0040)
+            return (swr("DIC" + c, 0x47) + pre + swr("DMAC" + c, 0x11)
+                    + _sstr(ops, 16, store=ss_wr("DMAM" + c, mode), post=post(k), **sx, **kw)
+                    + blk_rd(ch, k, 0) + rd("DMAM" + c, k, 8) + rd("DIC" + c, k, 9)
+                    + "".join(_pb(a, k, 22 + j) for j, a in enumerate(peek))
+                    + swr("DMAM" + c, 0x00) + swr("DIC" + c, 0x47))
+        t.codef = code
+        return t
+    T += [
+        dm("st_movw", 0x0C, MOVW, 0x0E5E, peek=(0xB05E, 0xB05F)),
+        dm("bu_movw", 0x8C, MOVW, 0x0E5C, tc=2, peek=(0xB05C, 0xB05D)),
+        dm("st_movw_tc4", 0x0C, MOVW, 0x0E56, tc=4, ch=1, peek=(0xB056, 0xB057, 0xB058, 0xB059)),
+        dm("st_movb", 0x0C, MOVB, 0x0E4F, peek=(0xB04F,)),
+        dm("st_ldmw", 0x0C, [0xF3, 0xAD], 0x0E5E),
+        dm("st_cmpz", 0x0C, CMPW, 0x0E50),
+        dm("st_outmw", 0x0C, OUTMW, 0x0E5E),
+        dm("bu_seg", 0x8C, [0x26, 0xF3, 0x3E, 0xA5], 0x0E5C, tc=2, peek=(0xB05C, 0xB05D)),
+    ]
+    # the last: DS1: REP DS0: MOVBKW (the source DS0 = FFE0h under the last override)
+    return _fix(T)
+
+
+def sasync_tests():
+    """(F5f) measured only: asynchronous requests during a REP MOVBKW of 80h words (A000h ->
+    B000h): TM0's macro service (600 clocks), an INTP0 edge's macro service, DMARQ0's single
+    transfer (I/O to memory) and demand release."""
+    T = [periph.init_test()]
+    big = dict(ix=0x0000, iy=0x0000)
+    t = PTest("tm_ms", jitter=False)
+    t.codef = lambda k: (serial.TM_RUN + serial.chan(0, 8, 0x7A, 0x00, 0xD080) + swr("BRG1", 0x6B)
+                         + swr("TMMS0", 0x10) + swr("TMIC0", 0x27)
+                         + _sstr(MOVW, 0x80, store=ss_wr("TMC0", 0x80), **big)
+                         + periph.tm_stop() + cws(k, 2) + serial.chan_rd(0, k, 0)
+                         + rd("TMIC0", k, 8) + swr("TMIC0", 0x47) + swr("BRG1", 0x00))
+    T.append(t)
+    t = PTest("intp_ms", jitter=False, stim=[pulse("E0", "INTP0", delay=20000)])
+    t.codef = lambda k: (swr("EXIC0", 0x47) + swr("BRG1", 0x5A) + serial.chan(5, 4, 0x7A, 0x00, 0xD0C0)
+                         + swr("EMS0", 0x15) + swr("EXIC0", 0x27) + ev("E0")
+                         + _sstr(MOVW, 0x80, **big) + cws(k, 2) + serial.chan_rd(5, k, 0)
+                         + rd("EXIC0", k, 8) + swr("EXIC0", 0x47) + swr("BRG1", 0x00))
+    T.append(t)
+    t = mask_rng(PTest("io_in", jitter=False, stim=[rq("E0", 0, delay=20000)]), DD + 0x60, 3)
+    t.codef = lambda k: (swr("DIC0", 0x47) + ON0 + blk_w(0, 0x0070, 0x0060, 0x0F, 0x0D, 3)
+                         + swr("DMAC0", 0x11) + swr("DMAM0", 0xA8) + ev("E0")
+                         + _sstr(MOVW, 0x80, **big) + cws(k, 2) + blk_rd(0, k, 0)
+                         + rd("DMAM0", k, 8) + rd("DIC0", k, 9)
+                         + swr("DMAM0", 0x00) + swr("DIC0", 0x47) + OFF0)
+    T.append(t)
+    t = mask_rng(PTest("demand", jitter=False, stim=[rq("E0", 0, delay=20000, hold=3000)]),
+                 DD + 0x90, 6)
+    t.codef = lambda k: (swr("DIC0", 0x47) + ON0 + blk_w(0, 0x0090, 0x0090, 0x0F, 0x0D, 6)
+                         + swr("DMAC0", 0x11) + swr("DMAM0", 0x28) + ev("E0")
+                         + _sstr(MOVW, 0x80, **big) + cws(k, 2) + blk_rd(0, k, 0)
+                         + rd("DMAM0", k, 8) + rd("DIC0", k, 9)
+                         + swr("DMAM0", 0x00) + swr("DIC0", 0x47) + OFF0)
+    T.append(t)
+    return _fix(T)
+
+
 # ------------------------------------------------------------------ hold, STOP, STBC (explore)
 ONH = (periph.marker(periph.modes(r0=1)) + swr("PMC2", 0xC0) + periph.marker(periph.modes(r0=2)))
 
@@ -575,9 +865,26 @@ def programs():
         "f4_dmi": _prog("f4_dmi", io_tests(), pins=PINS, gate=False, note="explore: DMA I/O"),
         "f4_dm3": _prog("f4_dm3", x3_tests(), pins=PINS, gate=False,
                         note="explore: DMA pins in m2m, demand stops, levels, TDMA"),
+        "f5_sdma": _prog("f5_sdma", sdma_tests(), pins=PINS, fast=(20, 21), gate=False,
+                         note="(F5f) DMA started by TDMA right before a REP string"),
+        "f5_sms": _prog("f5_sms", sms_tests(), pins=PINS, fast=(20, 21, 24), gate=False,
+                        note="(F5f) macro service requested right before a REP string"),
+        "f5_sms_inv": _prog("f5_sms_inv", sms_inv_tests(), pins=PINS, fast=(20, 21, 24, 28),
+                            gate=True, note="(F5f) macro service inside a REP string: function "
+                                             "only (no write on the pins depends on its element)"),
+        "f5_sdma_inv": _prog("f5_sdma_inv", sdma_inv_tests(), pins=PINS, fast=(20, 21),
+                             gate=True, note="(F5f) DMA inside a REP string: function only "
+                                              "(the DMA's cycles dropped, the memory compared)"),
+        "f5_sdma_iram": _prog("f5_sdma_iram", sdma_inv_tests(iram=True), pins=PINS,
+                              fast=(20, 21), gate=False,
+                              note="(F5f) measured only: DMA at FFExxh (internal RAM's page)"),
+        "f5_sasync": _prog("f5_sasync", sasync_tests(), pins=PINS, fast=(20, 21, 24, 28),
+                           gate=False, note="(F5f) measured only: asynchronous macro service "
+                                            "and DMA requests during a long REP string"),
         "f4_dm2": _prog("f4_dm2", x2_tests(), pins=PINS, gate=False, fast=(20, 21),
                         note="explore: DMA placement, triggers, HALT, words, priority"),
     }
+    progs["f5_sdma_inv"].drop = set(range(0xF000, 0xF100)) | set(range(0xA040, 0xA060))
     progs["f4_stop_r"] = progs["f4_stop"]      # its second run (a reset, no power cycle)
     progs["f4_stopx_r"] = progs["f4_stopx"]
     for p in {id(p): p for p in progs.values()}.values():
@@ -632,6 +939,17 @@ def _gate_setup(progs):
             ex |= getattr(t, "mask", set())
         return ex
     periph._jitter = jitter
+    # (F5f) a program's `drop` addresses: their writes (and the DMA's source reads) left out of
+    # both write sequences (cycles whose place among the program's own is the clocks')
+    load = periph.load
+
+    def ld(name, backend):
+        rec = load(name, backend)
+        drop = getattr(progs.get(name), "drop", None)
+        if drop:
+            rec["writes"] = [w for w in rec["writes"] if w[0] not in drop]
+        return rec
+    periph.load = ld
     periph.settle = lambda pins, ticks=SETTLE: st(pins, ticks)
     periph.settle_ticks = lambda pins, ticks=SETTLE: stt(pins, ticks)
 

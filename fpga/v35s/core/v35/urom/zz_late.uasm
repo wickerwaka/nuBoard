@@ -56,3 +56,34 @@ rcm_f: ra=IY wid=WORD alu=STEP ax=RA jmp=rcm_u ; b: SIGMA = IY + the width (rcm_
 ; and its datum dropped, then the interrupt entry (the element is read again after RETI)
 routine si_cmp why="(F5e) a REP compare's take point: the overrun's datum dropped, then the entry; function only"
 si_f: f jmp=intr                            ; F: the outstanding read's datum (discarded); the interrupt entry
+
+; (F5g) D6 /r: CLR1 r/m8 with the bit number in the ModR/M reg field (silicon, validation/v35s/d6.py
+; f5_d6 / f5_d6b, both sessions): the memory form reads the byte, clears bit reg and always
+; writes the byte back (81h /1 writes 81h); the register form clears bit reg of the byte
+; register rm; the flags and every other register unchanged; the length the opcode, the ModR/M
+; byte and its displacement (no immediate). The decode: D6 a ModR/M opcode whose second level
+; carries the reg field as op3 (uasm D6_BITREG, the groups' rule). The operation is CLR1's
+; (b1cim / b1ccl: the byte's mask, the clear, the write) with the mask built from op3 by the
+; existing vocabulary: VEC's {op3, 00} (the trap vector source: D6 has no immediate, len 0),
+; two x4 steps (VEC4) and two doublings (ADD) put op3 at bits 10:8, BTM makes 1 << op3 (BTCLR's
+; bit), BTC clears it (BTCLR's clear). No microword bit, no ALU or source value added.
+routine d6clr_m op=D6 mod=mem why="(F5g) D6 /r memory: CLR1 mem8 by the reg field (d6.py f5_d6 / f5_d6b): function only, its clocks not fitted (silicon's not measured)"
+    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register; the reservation
+    bus=MEMR                                ; post the byte's read
+    wid=WORD alu=VEC4 ax=VEC                ; SIGMA <- 4 x {op3, 00}: the reg field at bits 6:4
+    wid=WORD alu=VEC4 ax=SIG                ; SIGMA <- 4 x it: bits 8:6
+    wid=WORD alu=ADD ax=SIG ay=SIG          ; x2: bits 9:7
+    wid=WORD alu=ADD ax=SIG ay=SIG          ; x2: bits 10:8
+    wid=WORD alu=BTM ax=SIG                 ; SIGMA <- 1 << the reg field (the mask)
+    f alu=BTC ax=OPR ay=SIG resv            ; F: the datum with the bit cleared (no flags); the reservation
+    d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (always: the bit already 0 too)
+    e                                       ; E: held until the write's end (RAMEN)
+
+routine d6clr_r op=D6 mod=reg why="(F5g) D6 /r register: CLR1 reg8 by the reg field (d6.py f5_d6b r*_CL / AH / BH / AL): function only, its clocks not fitted (silicon's not measured)"
+    wid=WORD alu=VEC4 ax=VEC                ; SIGMA <- 4 x {op3, 00}: the reg field at bits 6:4
+    wid=WORD alu=VEC4 ax=SIG                ; bits 8:6
+    wid=WORD alu=ADD ax=SIG ay=SIG          ; bits 9:7
+    wid=WORD alu=ADD ax=SIG ay=SIG          ; bits 10:8
+    wid=WORD alu=BTM ax=SIG                 ; SIGMA <- 1 << the reg field (the mask)
+    rb=RM alu=BTC ax=RB ay=SIG e            ; the byte register rm with the bit cleared (no flags); E (the E row's operation)
+    wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)

@@ -230,6 +230,8 @@ module v35_top
     wire [19:0] b_dlv_addr;
     wire [1:0]  b_dlv_width;
     wire [15:0] b_done_data;
+    wire [15:0] b_done_nx16;            // (F5t) its next value and load (the loader's tag register)
+    wire        b_done_ld;
     wire        w3_v;
     wire signed [4:0] w3_rel;
     // (MX5c) tick B: the next values of the facts the sequencer's stall reads (the D nets of
@@ -367,7 +369,7 @@ module v35_top
         .fetch_since(b_fetch_since),
         .fetch_run_prev(b_fetch_run_prev), .io_win(b_io_win),
         .dlv_v(b_dlv_v), .dlv_kind(b_dlv_kind), .dlv_addr(b_dlv_addr),
-        .dlv_width(b_dlv_width), .done_data(b_done_data), .abort_busy(b_abort_busy),
+        .dlv_width(b_dlv_width), .done_data(b_done_data), .done_nx(b_done_nx16), .done_ld(b_done_ld), .abort_busy(b_abort_busy),
         .abort_last(b_abort_last), .abort_done(b_abort_done), .fetch_len(b_fetch_len),
         .grant_len(b_grant_len), .error(b_error), .w3_v, .w3_rel,
         .fetch_inflight_nx(b_fir_nx), .fetch_past_b2_nx(b_fpb_nx), .in_wait_nx(b_iw_nx),
@@ -417,7 +419,7 @@ module v35_top
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .qv0, .qv1, .qv2, .qv3, .q_avail, .q_stored, .q_arrive(dlv_fetch), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .h_q0t(q_h0t), .h_latt(q_hlt), .dlv_tag(ld_dlv_tag), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
+        .qv0, .qv1, .qv2, .qv3, .q_avail, .q_stored, .q_arrive(dlv_fetch), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .h_latt(q_hlt), .dlv_tag(ld_dlv_tag), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
         .reset_addr(tb_reset_addr), .reset_ip(tb_reset_ip), .flush(t_flush), .flush_w(word.flush), .flush_lin,
         .flush_off,
         .ex(ex_pop), .pop(word.pop), .e_pop(word.e), .disp(ex && w_disp),
@@ -511,18 +513,27 @@ module v35_top
     // string goes on; silicon, intr.py f5_si_*): NMI or the maskable offer (IE 1 and armed: IE
     // as it stood at the string's own start) is taken there, whatever the start's `nb` (a
     // prefix before the REP: f5_repint); the single step is not (one trap per string, after
-    // its last element: f5_si_long); a macro service and DMA wait for the next start (not
-    // measured). The word's target is the string's entry into urom/trap.uasm intr: the take
-    // strobes below latch the source as at a dispatch; the PC pushed is `ist` (the first
-    // prefix's offset), so RETI re-enters the whole prefixed string with CW as it stands
-    assign sgo = g_n || g_i;
+    // its last element: f5_si_long; NMI inside a stepped string: f5_si_nstep); (F5e) a macro
+    // service and DMA waited for the next start: (F5f) no longer, below. The word's target is
+    // the string's entry into urom/trap.uasm intr: the take strobes below latch the source as at
+    // a dispatch; the PC pushed is `ist` (the first
+    // prefix's offset), so RETI re-enters the whole prefixed string with CW as it stands.
+    // (F5f) a macro service and a DMA request are taken there too, in the dispatch's order
+    // (NMI, macro service, DMA, the maskable offer; validation/v35s/dma.py f5_sdma, f5_sms,
+    // f5_sms_inv, f5_sasync: silicon serves both between a long string's elements): their
+    // routines resume at tmpc, the string's first prefix, so the string goes on with CW as it
+    // stands. A single-step DMA take there disarms the request as at a dispatch (one element
+    // between transfers: f5_sdma st_movw), a burst does not (the transfers back to back after
+    // the first element: bu_movw)
+    assign sgo = g_n || g_m || g_d || g_i;
     wire tki_x = ex && w_tki;
     wire dsp_x = ex && w_disp;
     wire take_n = (dsp_x && igo && g_n) || (tki_x && g_n);
-    wire take_m = dsp_x && igo && !g_n && g_m;
-    assign take_d = dsp_x && igo && !g_n && !g_m && g_d;
+    wire take_m = (dsp_x && igo && !g_n && g_m) || (tki_x && !g_n && g_m);
+    assign take_d = (dsp_x && igo && !g_n && !g_m && g_d) || (tki_x && !g_n && !g_m && g_d);
     assign dm_rs = dsp_x && !take_d;          // (F4c) the CPU resumes: DIC's IF set here
-    wire take_i = (dsp_x && igo && !g_n && !g_m && !g_d && g_i) || (tki_x && !g_n && g_i);
+    wire take_i = (dsp_x && igo && !g_n && !g_m && !g_d && g_i)
+                  || (tki_x && !g_n && !g_m && !g_d && g_i);
     wire take_s = dsp_x && igo && !g_n && !g_m && !g_d && !g_i;
     always @(posedge clock) begin
         if (!core_reset_n) begin
@@ -539,6 +550,11 @@ module v35_top
                 brk_arm <= psw_brk;
                 dm_arm <= dm_v && !(take_d && !dm_burst);
             end
+            // (F5f) a string's take point is a start for the DMA request too: it samples the
+            // request as a dispatch does (the take at the next take point or start), and a
+            // single-step take there disarms it (one element between transfers)
+            if (tki_x)
+                dm_arm <= dm_v && !(take_d && !dm_burst);
             if (dm_tend && dm_tlast)
                 dm_arm <= 1'b0;
             if (take_d)

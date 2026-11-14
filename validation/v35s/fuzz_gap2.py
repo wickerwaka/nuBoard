@@ -27,8 +27,11 @@ name these kinds) are unchanged.
               element (f5_si_ops), the vectored handler (INTP1) records the pushed PC and PSW in
               the count page
 
-Not added: D6 (a read-modify-write whose operation is not measured: not built, README F2b),
-F1 BRKS (the handler runs in secure mode: the opcode translation, not self-contained) and
+    (F5g) f_d6  D6 /r (opts["d6"]): CLR1 r/m8 with the bit number in the ModR/M reg field
+              (silicon, validation/v35s/d6.py; built in F5g): a byte register or a memory
+              operand of the generator's regions, every reg field (set f5v)
+
+Not added: F1 BRKS (the handler runs in secure mode: the opcode translation, not self-contained) and
 0F 9E STOP (released by NMI only after 2^19 clocks).
 """
 
@@ -182,6 +185,22 @@ def f_illreg(self):
             self.key("ILLREG", f"{op:02X}", "reg", "", f"{reg}"))
 
 
+def f_d6(self):
+    """(F5g) D6 /r: CLR1 r/m8, the bit number in the reg field (d6.py: the memory form always
+    writes the byte back; the flags unchanged)."""
+    if not self.opts.get("d6"):
+        raise Retry("d6")
+    m, rr, t = self.rm_operand(1, write=True)
+    reg = self.r.randrange(8)
+    data = (m.pfx if m else b"") + bytes([0xD6]) + self.modrm_bytes(m, rr, reg)
+    self.fz(data, f"D6 /{reg} {t} (CLR1 {t}, {reg})",
+            self.key("D6", f"{reg}", m.mode if m else "reg", "b", m.region if m else ""))
+    if m:
+        self.wrote_mem(m)
+    else:
+        self.reg_write(1, rr)
+
+
 def f_halt0(self):
     if not self.opts.get("gap2") or self.ctx or self.layer == "c":
         raise Retry("halt0")
@@ -310,7 +329,7 @@ def f_repint(self):
     self.opts["n_p1"] = self.opts.get("n_p1", 0) + 1
 
 
-for _f in (f_spwrap, f_poll, f_illreg, f_halt0, f_stepint, f_halt1, f_repint):
+for _f in (f_spwrap, f_poll, f_illreg, f_halt0, f_stepint, f_halt1, f_repint, f_d6):
     setattr(G.Gen, _f.__name__, _f)
 
 _one = G.Gen.one

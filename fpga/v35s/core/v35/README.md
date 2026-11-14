@@ -2752,7 +2752,7 @@ socket answered throughout (no case stopped the series).
 | 63, F1 (BRKN, BRKS) | F3's |
 | 0F 25 2D 91 92 94 95 (the bank instructions), 0F 9E (STOP) | F3's / F4's; not run |
 | 0F holes but the NOP classes (the 2-byte class too: the trap routine is exact) | silicon runs internal sequences (above): not built; the trap routine's two-byte NOP |
-| D6 | silicon: a read-modify-write of the ModR/M operand, the operation unknown (the operand was on an unmapped page): not built |
+| D6 | silicon: a read-modify-write of the ModR/M operand, the operation unknown (the operand was on an unmapped page): not built; (F5f) measured as CLR1 r/m8 by the reg field, (F5g) built (README "F5g") |
 | FE /2-/6 | silicon: FF's operation with byte-wide stack writes: not built (FE /3 reg, /5 reg and FE /7 are NOPs: the trap routine is silicon's) |
 | FF /7, 8D C4 C5 FF /3 FF /5 62 register forms | silicon's two-byte NOP: the trap routine is exact |
 | F2 F3 64 65 before 26 2E 36 3E | silicon: a REP string with the override: not built (the trap routine pops REP and the prefix) |
@@ -6543,3 +6543,273 @@ pass's.
 - An interrupt inside a string, not measured: a macro service or DMA request pending during a
   long string (the RTL serves them at the string's end); NMI inside a single-stepped string.
 - f5_si_async (the scheduled element) stays measured only; f5_fint / f5_fint2 as in F5d.
+
+## F5f: the fuzz's sixth batch (macro service and DMA inside a REP string, the step and NMI in a string, D6)
+
+### Macro service and DMA requests during a long REP string (measured, built)
+
+Measured (validation/v35s/dma.py, periph's frame; both socket sessions equal): f5_sdma (DMA
+memory to memory started by a TDMA store right before REP MOVBKW / MOVBKB / STMW / OUTMW /
+INMW: single step and burst, TC 4 over 16 elements, TC 4 over 2, TC 8 over 4), f5_sms (macro
+service requested by a store of EXIC0's IF (MS 1) right before the string: SFR to memory, memory
+to SFR, the counts 16 / 2, a compare that exits at its first element), f5_sasync (asynchronous:
+TM0's macro service every 600 clocks, an INTP0 edge's, DMARQ0's single transfer and demand
+release, during REP MOVBKW 80h), f5_sms_inv and f5_sdma_inv (function only, below),
+f5_sdma_iram. The write sequences carry the elements' writes, the DMA's reads and writes and
+the macro service's memory write in their places:
+
+| item | silicon |
+| --- | --- |
+| where | both are served **between a string's elements**, at the take point after an element when the string goes on, the string resuming with CW / IX / IY as they stand (f5_sms_inv, f5_sdma_inv: the string carries a byte the service or the transfer wrote into its source ahead of it; a compare exits at the element the transfer changed: CW 7 of 16) |
+| DMA, single step | one transfer after each element (S D S D ...: MOVBKW, MOVBKB, STMW, OUTMW, INMW); TC 4 over 2 elements: one after the first, the rest after the string's end, alternating with the next instructions; TC 8 over 4: one after each of the four, then the next instructions |
+| DMA, burst | after the first element, every transfer back to back, then the string's other elements |
+| DMA, the first transfer | after the string's first element (the TDMA store's request is seen at the string's start and served at the next take point) |
+| DMA, DMARQ | a single transfer and the demand release's transfers land inside the string too (f5_sasync io_in after element 20, demand after 21) |
+| macro service | the transfer after the first element of MOVBKW / OUTMW (REP MOVBKW 2: between its two elements), after the second of STMW (the clocks: the request's latency against the element's length); TM0's services every ~22 elements of an 80h-word MOVBKW, INTP0's after element 21; a compare that exits at its first element: the service after the string (the ordinary boundary) |
+| DMA at IDB's page | **a DMA transfer at FFE5Eh / FFE70h (IDB:E5E, IDB:E70) is an external bus cycle** (a read and a write on the pins, the data 00h from the unmapped read): the DMA does not reach internal RAM (f5_sdma_iram), while the macro service does (f5_sms_inv s2m_*: its write into FFE0:005Eh is read by the string) |
+
+**Built** (v35_top; function, no clock fitted): the take point of F5e (`SQ_TKI`, one word per REP
+loop) takes a macro service and DMA too, in the dispatch's order (NMI, macro service, DMA, the
+maskable offer): `sgo = g_n || g_m || g_d || g_i`; `take_m` / `take_d` gain the `tki_x` term
+(the controller's and the DMA's take latches as at a dispatch); `take_i`'s `tki_x` term gains
+`!g_m && !g_d`. The routines (ms.uasm `msv`, xfer_dma.uasm `dmv`) already resume at tmpc, which
+intr's first word loaded with `ist` (the string's first prefix): the string goes on with CW as it
+stands, the prefixes again. A take point is a start for the DMA request too: `dm_arm` samples
+`dm_v` at a TKI word as at a dispatch (served at the next take point or start), and a
+single-step take there disarms it (one element between transfers); a burst take does not (back
+to back: the routine's resumed dispatch takes the next). No microcode word, decode cell or ROM
+word changes.
+
+Gates: f5_sms_inv (12 tests: memory to SFR reading the string's last destination element
+before its write (3Ch), SFR to memory into the string's source in internal RAM (BRG1's 5Ah
+carried to B05Eh, AW, the 16th OUT, the compare's exit), byte / word / STMW / INMW / LDMW /
+CMPBKW / OUTMW / PS: REP DS1:, an INTP0 edge and TM0's three services during an 80h-word
+string) and f5_sdma_inv (8 tests: the transfer from F070h into the string's source A05Eh- ahead
+of it, single step / burst / TC 4 / byte / LDMW / CMPBKW / OUTMW / DS1: REP DS0:; the DMA's
+cycles dropped from both write sequences, `prog.drop`, the memory and registers compared)
+**EQUAL against both socket sessions** (dma gate, gated); on the base RTL both DIFFER (logs/pre:
+the service and the transfers after the string). Measured only (socket == socket-2): f5_sdma,
+f5_sms, f5_sasync, f5_sdma_iram. On this RTL f5_sdma differs by one element and nothing else
+(the first transfer after the second element: the TDMA store's on-chip write reaches `dm_v`
+after the string's dispatch, three registers on, so the string's start does not see it; the
+rest, the single step's alternation and the burst's run, as silicon's); f5_sms by STMW's
+element (the RTL's after the first); f5_sasync by the elements (the RTL's / silicon's: TM0 27 / 28, INTP0 20 / 21,
+DMARQ0 21 / 20, demand 21 / 21: the clocks). f5_sdma_iram is not built (the DMA's cycle at IDB's page on the
+pins: the bus unit would have to tell a DMA request from the CPU's in its on-chip decode).
+
+### NMI and the maskable interrupt inside a single-stepped REP string (measured; already the RTL's)
+
+intr.py f5_si_step (10 tests, the log frame: INTP0 pending, POP PSW setting BRK and IE, then a
+string; stepped strings alone) and f5_si_nstep (8 cases, function only as f5_si_inv: NMI or
+INTP0 at an asynchronous point inside a stepped REP MOVBKW / STMW / REPZ CMPBKW / PS: REP DS1:
+MOVBKW of 40h-80h elements, the stack and the records in internal RAM; a step handler counting
+its traps, recording its pushed PC and the take count, clearing BRK in its frame), both
+sessions:
+
+- Inside the string: the interrupt (NMI or INTP0) is taken after an element with the string's
+  first prefix pushed and BRK set in the pushed PSW; RETI resumes the string, and **one step
+  trap follows the string's last element** (the next instruction's offset pushed; the trap count
+  1, the take before it). REP MOVBKW 2 with INTP0 pending: the interrupt after the first
+  element (CW 1), the step after the second (CW 0); REPZ CMPBKW with the second element
+  differing: the interrupt after the first, the step after the second (CW 6).
+- At the string's end (REP MOVBKW 1, or REPZ CMPBKW whose first element differs: the request
+  and the step on one boundary): **the interrupt is taken, the step for the string is lost**
+  (the pushed PC the next instruction's, BRK in the pushed PSW; RETI, then the next instruction
+  runs and the step traps after it), as at an ordinary boundary (f3_step2 step_intp).
+- A stepped string alone: one trap after it (REP MOVBKW 0, REP STMW 8, REPZ CMPMW 8, REPZ
+  CMPBKW exiting at its fourth element).
+
+The base RTL is EQUAL on both (gated in intr's set; `sgo` leaves the step out, the TKI take
+pushes BRK as it stands).
+
+### D6 (measured; not built: it needs a decode cell)
+
+d6.py f5_d6 / f5_d6b (40 tests, both sessions):
+
+- **D6 /r is CLR1 r/m8 with the bit number in the ModR/M reg field**: the memory form reads
+  the byte, clears bit r and **always writes it back** (a byte write even when the bit was
+  already 0: 81h /1 writes 81h); the second byte of a word is untouched; the register form clears
+  bit r of the byte register rm (CL FFh -> FEh FDh FBh ... 7Fh for /0 ... /7; AH /7: AW 7FFFh; BH
+  /3: BW F7FFh; AL /5: AW FFDFh).
+- **The flags are unchanged** (PSW 0002h, 0003h, 08D7h kept: CY, V, S, Z, AC, P); CL is not a
+  count (CL 1 or 3 the same); no other register changes.
+- The length is the opcode, the ModR/M byte and its displacement (D6 44 08: [IX+8], the next
+  instruction runs after the disp8); no immediate.
+
+The RTL (base and this batch): D6 is the trap cell's one-byte NOP: its ModR/M byte then runs as
+an instruction (04h: ADD AL, imm8 with the NOP after it as the immediate; 44h: INC SP, and
+f5_d6b runs away). Building it needs a decode cell (udec1 D6 -> a ModR/M routine, and D6 in the
+ModR/M length table `v35_umodrm`, the arriving byte's tag in tick A): left to the overseer. The
+proposed cell: `routine d6clr op=D6 mod=any` sharing page.uasm's CLR1 reg8/mem8,imm3 routine
+(b1cim, 0F 1A) with the bit index taken from the ModR/M reg field instead of the immediate (a
+BTM source: SIGMA = 1 << reg; no immediate pop), the write unconditional (as b1cim's), the flags
+untouched.
+
+### STOP in the fuzz (not added)
+
+Not added: a STOP sets STBC's SBF, which survives reset for the session's later programs (f4_stop
+runs last in a session for it), and each replay window re-runs its 2^19-clock release, so a
+fuzz program with a STOP is not self-contained.
+
+### fuzz_hist
+
+The histogram stopped on f5l_145 (a ValueError in fuzz_layers' write filters, which unpacked
+three fields from the rows fuzz_hist extends with the record's index) and then on the error
+record's missing `msg` (a KeyError): the filters take the first and third fields
+(`_vframe_filter`, `_nmi_filter`), and the print tolerates a record without `msg`. The
+histogram runs over every set (land/hist*.txt).
+
+### The fourth generation (f5p-f5u, fresh seeds, 300 programs)
+
+f5p layer a + both gap generations' forms (100), f5q banks (50), f5s interrupts (70: intp, nmi,
+timer, step, mix, mixd), f5t on-chip state (40), f5u gap-heavy (40). Taken on the socket in two
+sessions and run on this batch's RTL, first pass before any change:
+
+| set | socket vs socket-2 | socket vs sim | socket-2 vs sim |
+| --- | --- | --- | --- |
+| f5p 100 | 100 EQUAL | 100 | 100 |
+| f5q 50 | 50 EQUAL | 50 | 50 |
+| f5s 70 | 70 EQUAL | 70 | 70 |
+| f5t 40 | 40 EQUAL | 39 | 39 |
+| f5u 40 | 40 EQUAL | 40 | 40 |
+
+299 of 300. The difference, f5t_005 (EXIC1's IF set on the RTL only), is a generator flaw: after
+f_halt0's HALT (released by the fall of a 2,000-tick INTP1 pulse) a random INTM store made INTP1
+rising-edge before the pulse ended on the RTL and after it on silicon (the program does not wait
+for the pulse's end). Fixed for f5t alone (opts `intm_fall`: layer d's INTM stores keep ES0-2
+falling, as at reset; the RNG's draws unchanged, so 12 of the 40 programs changed and f5j-n's
+images are untouched); f5t taken again on both sessions: 40 / 40 on both. No RTL change was made
+for the generation.
+
+### FPGA (not run here: what each change adds)
+
+- Tick A: `sgo` (the sequencer's `nx_a` SQ_TKI select, the ROM address only) gains two OR terms,
+  `g_m` (ms_v, a register) and `g_d` (dm_arm || (ms_hlt && dm_v): registers), the same terms
+  `igo` already has. The take strobes `take_m` / `take_d` gain an OR term `tki_x && ...` (ex,
+  pd.tki and registers) into v35_intc's take latch and v35_dma's take / `tk_dm`; `take_i`'s TKI
+  term two more AND terms. `dm_arm` gains a `tki_x` enable. Nothing joins the delivery chain
+  (arriving byte -> pop -> room -> request -> grant -> pins); v35_upage / umdsp / umimm /
+  umodrm, the loader's decode and dent, the ROM and the decode tables are untouched.
+- Tick B: `sg_b` (sgo's ce_b copy for `upc_n`'s SQ_TKI case) has the same two extra inputs.
+
+### Open
+
+- The OUT + CVTBD / CVTDB class (user ruling 2026-11-13: not built until the timing work
+  resumes; not counted).
+- D6: measured (CLR1 r/m8, the bit in the reg field), not built: a decode cell for the overseer.
+- f5_sdma_iram: silicon's DMA at IDB's internal-RAM page goes to the pins; the RTL's reaches
+  internal RAM (not built).
+- f5_sdma / f5_sms / f5_sasync exact (the element a transfer lands on: the clocks), f5_si_async,
+  f5_fint / f5_fint2: measured only.
+- F1 (BRKS) and STOP stay out of the fuzz (above).
+
+## F5t: the delivered word's tags a register (timing repair; no function or cycle change)
+
+F5f's landing build at 17 ns failed seed 2 (-0.230 ns, 2 endpoints; seeds 1 / 3 +0.539 /
++0.763) on the standing worst path, 16 levels: the bus unit's datum register (`b_done_data`) ->
+the delivered word's byte tags (`bt_f`: v35_umdsp, v35_upage and two bit tests of each byte) ->
+the compare with the registered targets (`zt_f`, `zc`) -> the head select (`z1f`) -> the
+registered pop / release outcome it selects (`rel`, `ld_rel`) -> the queue's room thresholds
+(`ge_v` / `le_occ`: fetch_req, q_low, q_word) -> the grant (`gnt_f`) -> the pins' edge
+(`pin_f`, `pk_ma` / `pk_ah`) -> `c_mux_address` / `c_a19`. F5f's own terms (v35_top's take
+strobes, sgo, dm_arm) are not on it: none reaches the loader, the queue or the bus unit's
+grant; the path was the thin one since F4 and F5f's 27 LUTs moved the placement.
+
+The change: the tags of the delivered word are a register beside the datum register (the
+loader's `tg_lo` / `tg_hi`), loaded with the datum register's own enable (`done_ld`: ce_mid at
+a read's B3) from its own next value (`done_nx`: the pins' sampled datum or the on-chip read
+register, both registers at tick B). So the decode runs in tick B behind registers, and tick A
+starts from the tags: `tg_lo` / `tg_hi` are `bt_f(h_dlv)` on every clock (`+v35_chk`, every
+fabric clock; the datum register starts at FFFFh, bt_f(FFh) = 6'b000010, the tags' initial
+value). The register is written as the datum register is (`always @`, enable ce_mid at B3,
+not ce_a, which also needs core_run and b_seen: the twin must load exactly when the datum
+register does). The tags reach the queue's storage unchanged (`dlv_tag`). Every value the core computes
+is the same on every clock, so no cycle moves; the tag functions (v35_upage / umdsp / umimm /
+umodrm), the loader's decode and dent, the ROM are untouched. The bus unit gains two outputs
+(its datum register's D and enable), nothing else.
+
+Result at 17 ns (v35_timing.sh top, seeds 1 / 2 / 3): worst setup +1.851 / +1.363 / +1.674
+(F5f: +0.539 / -0.230 / +0.763; base 3c35ab5 +1.092 / +0.963 / +1.072); the worst path from the
+tags +2.247 / +1.595 / +2.453 at 12 / 14 / 13 levels (from the datum register it was 16 on
+every seed: the tags reach z1f in 4 LUTs, the datum register took 6); the datum register's
+own worst is now a 9-level path into the sequencer's ROM address (+2.6 .. +2.9). The worst
+paths now start at the queue's `q_stored` (the head select `hs`: 10 to 14 levels). Map 9,416
+LUT4 / 618 ADD / 2,436 FF / 79 RAM_5K (F5f 9,548 / 618 / 2,438 / 79: the delivered word's
+decode is no longer duplicated per consumer).
+
+## F5g: D6 built (CLR1 r/m8 by the reg field), DMA at the internal-RAM page (not built), a D6 fuzz set
+
+### D6 (measured in F5f, built)
+
+Silicon (validation/v35s/d6.py f5_d6 / f5_d6b, both sessions; README "F5f"): D6 /r is CLR1 r/m8
+with the bit number in the ModR/M reg field; the memory form reads the byte and always writes it
+back; the register form clears bit reg of the byte register rm; the flags and every other
+register unchanged; the length the opcode, the ModR/M byte and its displacement.
+
+**Decode** (authorised for this opcode only; made by the generator): uasm.py adds D6 to
+`MODRM_OPS` and to the second level's group rule (`D6_BITREG`: op3 = the reg field, as 80-83,
+C0 / C1, D0-D3, F6 / F7, FE / FF). The generated v35_udecode_tbl.svh changes in D6's entries only:
+v35_udec1's 8'hD6 line (entry TRAP1 -> TRAP2, trap 1 -> 0, has_modrm 0 -> 1) and a new 8'hD6
+case in v35_udec2 (mod 11: d6clr_r with op3 = reg; mod 00-10: d6clr_m, ea 1, eab 1); UROM_WORDS
+1892 -> 1910. D6 has no immediate, so v35_umimm gets no line: v35_umdsp, v35_umimm, v35_umodrm
+and v35_upage are byte-identical to the base's, and the loader's text (bt_f, decode, dent) is
+untouched. Every other udec1 / udec2 entry is byte-identical; the three ROM banks only grow
+(zz_late.uasm sorts last: the first 1892 words of each bank are the base's).
+
+**Microcode** (zz_late.uasm `d6clr_m`, `d6clr_r`; no microword bit, no new field value): CLR1's
+datapath (b1cim's: the byte's mask, the clear, the write; the memory form's EA heads, read, F,
+write's post, E held to its end) with the mask made from op3 by existing values: `ax=VEC` (with
+vk 0 and len 0 the source is {op3, 00}, the trap vector's), two `VEC4` (x 4), two `ADD SIG,SIG`
+(x 2) put the reg field at bits 10:8, `BTM` (BTCLR's bit: 1 << x[10:8]) makes the mask, `BTC`
+(BTCLR's clear: x & ~y) clears it; nothing writes flags. The memory form builds the mask while
+the read is out. Function only: its clocks are not fitted (silicon's not measured).
+
+References: funcref executes D6 (CLR1 r/m8 by reg), rtl_vectors' decode set has D6 and --regfile
+adds 256 D6 vectors (every reg field on a register, [BW], [BP+d8] and a direct address; a random
+generator of its own, so every other vector is unchanged).
+
+Gates: d6 f5_d6 / f5_d6b gated (`gate=True`): EQUAL against both socket sessions (on the base
+RTL both differ: D6 ran as a one-byte NOP). traps_undef's uD6 case (not in the gated set BUILT)
+now equals the socket's receipt (writes and result regions); the gate stays 101 / 101.
+
+### The D6 fuzz set f5v (fuzz_gap2 `f_d6`, opts d6)
+
+150 programs, layer a with the gap forms (f5p's weights) and f_d6 10, seed 3F6A0000h: D6 on a
+byte register and on memory operands of the generator's regions (external, internal RAM, SFR),
+every reg field and mode. Taken on the socket in two sessions: socket == socket-2 150; socket vs
+sim and socket-2 vs sim 148 / 150, the two (f5v_017 OUT DW; CVTBD, f5v_120 OUT D0h; CVTDB) the
+OUT + CVTBD / CVTDB class (user ruling: not counted).
+
+### DMA at IDB's internal-RAM page (f5_sdma_iram: not built)
+
+Silicon: a DMA transfer whose address is in IDB:E00-EFF is an external bus cycle, read and
+write (memory to memory: the read too). The bus unit's on-chip decode (`rq_sfr`, from the
+request register, IDB and PRC.RAMEN) has one DMA register, `req_dk`, and it marks only the
+cycles with DMAAK (the write, or a memory-to-I/O read): a memory-to-memory transfer's read is
+not marked, so no register the bus unit already has tells every DMA cycle. The smallest
+mechanism: a request-register bit `rq_dm` in v35_eu (`tk_dm && word.seg == SG_TA` at the post,
+beside `rq_dk`, the same enable), a port `req_dm` to v35_bus, and rq_sfr's RAM term `(req_addr[8]
+|| (ramen && !req_dm))`: one FF and one more input to the register-only compare that joins the
+grant at the length select (gn.sfr -> gn.len / gn.rdy). That is new logic between the request
+and the grant, so by the brief it is left for the overseer's decision; f5_sdma_iram stays
+measured only.
+
+### FPGA (not run here: what each change adds)
+
+- Tick A: no tag function changes (v35_umdsp / umimm / umodrm / upage and bt_f byte-identical;
+  nothing joins arriving byte -> pop -> room -> request -> grant -> pins). The loader's
+  `dec2 = v35_udec2(op, sb0)` (the DISPM word's second level, behind the head select, read by the
+  sequencer's SQ_DISPM next address and start_trap) is the one tick-A reader of a changed
+  function: v35_udec2 gains the 8'hD6 case (op == D6 with b[7:6] / b[5:3]; the shape of the
+  groups' cases). D6 never runs a DISPM word, but the case is in the shared function.
+- Registered / tick B: v35_udec1 (ds_nx -> ds, d1r, d1_nx) changes in one entry (has_modrm gains
+  the D6 minterm, trap loses it, entry bits for D6); dm = v35_udec2(op, mp) and dsp_f(op, mp)
+  (df, a register) gain the D6 case. The ROM grows by 18 words (1910 of 2048: the same depth).
+- No change in v35_eu, v35_bus, v35_loader, v35_useq or v35_top's text.
+
+### Open
+
+- The OUT + CVTBD / CVTDB class (user ruling 2026-11-13; not counted).
+- f5_sdma_iram: not built (the mechanism above, for the overseer).
+- D6's clocks (not measured); f5_sdma / f5_sms / f5_sasync exact, f5_si_async, f5_fint /
+  f5_fint2: measured only. F1 (BRKS) and STOP stay out of the fuzz.

@@ -72,6 +72,8 @@ module v35_loader
     input  wire        h_latv,
     input  wire        h_odd,
     input  wire [15:0] h_dlv,
+    input  wire [15:0] h_dlv_nx,        // (F5t) tick B: h_dlv's next value and its load (the bus
+    input  wire        h_dlv_ld,        //   unit's datum register's D and enable)
     // (MX5c) the byte tags (`bt_f`, below): the queue's stored ones of its first stored byte and
     // its latched byte; the delivered word's, formed here on the delivery clock and stored by the
     // queue beside the bytes (high byte's, low byte's)
@@ -331,9 +333,20 @@ module v35_loader
     endfunction
 `endif
     /* verilator lint_on UNUSEDSIGNAL */
-    v35_btag_t tg_lo, tg_hi;
-    assign tg_lo = bt_f(h_dlv[7:0]);
-    assign tg_hi = bt_f(h_dlv[15:8]);
+    // (F5t) the delivered word's tags are a register beside the bus unit's datum register,
+    // loaded with the same enable from the same next value (tick B: the pins' sampled datum or
+    // the on-chip read register), so no decode table sits between the delivered word and z1:
+    // tg_lo / tg_hi are bt_f(h_dlv) on every clock (`+v35_chk`; the datum register starts at
+    // FFFFh, bt_f(FFh) = 6'b000010). The datum register's twin: its enable is the CPU clock's
+    // middle at a read's B3 (ce_mid, the edge ce_a shares), written as the datum register's
+    // own block is. README "F5t"
+    v35_btag_t tg_lo = v35_btag_t'(6'b000010), tg_hi = v35_btag_t'(6'b000010);
+    always @(posedge clock) begin
+        if (h_dlv_ld) begin
+            tg_lo <= bt_f(h_dlv_nx[7:0]);
+            tg_hi <= bt_f(h_dlv_nx[15:8]);
+        end
+    end
     assign dlv_tag = {tg_hi, tg_lo};
     // the head byte's source: 0 the queue's first stored byte, 1 its latch, 2 / 3 the delivered
     // word's low / high byte (seqb(0): stored bytes first, then the latch, then the arrival at
@@ -930,6 +943,7 @@ module v35_loader
     // (MX5c) every clock: the registered outcomes against the function's
     always @(posedge clock) begin
         if (chk_on && reset_n && ((LRG && lrs !== lrg_f(ltx)) || z1f !== z1
+                                  || tg_lo !== bt_f(h_dlv[7:0]) || tg_hi !== bt_f(h_dlv[15:8])
                                   || zc !== zc_f(ln, flush_w, ims, imo))) begin
             chk_n = chk_n + 1;
             if (chk_n <= 20)

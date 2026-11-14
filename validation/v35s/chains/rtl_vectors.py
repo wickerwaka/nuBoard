@@ -121,7 +121,7 @@ def rtl_decodes(code: bytes) -> bool:
         return True
     if 0x84 <= o <= 0x8F:
         return not (o == 0x8D and mod == 3)
-    if o in (0x81, 0x83, 0xC6, 0xC7, 0xC1, 0xD0, 0xD1, 0xD3, 0xF7, 0xFF):
+    if o in (0x81, 0x83, 0xC6, 0xC7, 0xC1, 0xD0, 0xD1, 0xD3, 0xF7, 0xFF, 0xD6):   # (F5g) D6
         return True
     return o == 0xF6 and reg != 0
 
@@ -480,6 +480,20 @@ def regfile_vectors(families, seed: int = 71, per_code: int = 3, per_alu: int = 
                 regs["PS"] = CODE_SEGMENT
                 regs.update({n: 0 for n in SREG if n != "PS"})
             add(_case(rnd, base_mem, six, regs, operand=operand), "alu")
+    # (F5g) D6 /r (CLR1 r/m8 by the reg field, silicon's: d6.py): every reg field on a register
+    # and on the memory modes alu_codes uses, random operands; a generator of its own, so the
+    # vectors above are unchanged
+    rd6 = random.Random(seed ^ 0xD6)
+    for _ in range(per_alu // 8):
+        for reg in range(8):
+            for m in (0xC0 | rd6.randrange(8), 0x07, 0x46, 0x06):
+                six = (bytes([0xD6, m | reg << 3]) + rd6.randbytes(4))[:6]
+                operand = rd6.choice(EDGES) if rd6.random() < 0.5 else rd6.randrange(1 << 16)
+                regs = _random_regs(rd6)
+                if rd6.random() < 0.5:
+                    regs["PS"] = CODE_SEGMENT
+                    regs.update({n: 0 for n in SREG if n != "PS"})
+                add(_case(rd6, base_mem, six, regs, operand=operand), "alu")
     text = "\n".join(lines) + "\n"
     if mutate:
         text = "\n".join(_mutated(ln, mutate) for ln in lines) + "\n"

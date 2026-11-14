@@ -2454,3 +2454,31 @@ question, decided from S8's routed numbers with the user.
   f5n_146). **Open (batch 6):** macro service and DMA arriving during a long string (the RTL serves
   them after it; not measured); NMI inside a single-stepped string; D6 not measured; BRKS and STOP not
   in the fuzz; fuzz_hist stops with an exception on f5j-n.
+- **F5 sixth and seventh batches and a timing repair landed together (2026-11-14).** **Measured on
+  silicon and built (batch 6):** a macro service and a DMA request are served between a REP string's
+  elements (dma.py f5_sdma / f5_sms / f5_sasync, gated in function by f5_sms_inv / f5_sdma_inv): taken
+  at the string's take point in the dispatch's order (v35_top sgo, take_m, take_d, dm_arm at a TKI
+  word; no microcode change); NMI and the maskable interrupt in a single-stepped string measured
+  (f5_si_step / f5_si_nstep), the RTL already equal. **Batch 7:** D6 measured as CLR1 r/m8 with the bit
+  number in the ModR/M reg field (d6.py f5_d6 / f5_d6b; the memory form always writes the byte back,
+  flags untouched) and built: D6's first-level cell a ModR/M routine and a second-level case, made
+  through the generator with every other entry byte-identical and the arriving-byte tag functions
+  unchanged; routines d6clr_m / d6clr_r in zz_late.uasm, no new microword bit, the ROM 1,892 → 1,910
+  words; its clocks are not measured (function only). **Timing repair:** batch 6 alone failed seed 2 at
+  17 ns (+0.539 / -0.230 / +0.763) on the standing thin path, the bus datum register → the loader's
+  tags → the bytes released → the queue's room → the grant → the bus address register (16 levels);
+  batch 6's terms are not on it (27 more LUT4 moved the placement). The delivered word's tags are now a
+  register loaded with the datum register's own enable, D and initial value (v35_loader tg_lo / tg_hi
+  from v35_bus done_nx / done_ld; a chk term compares them with the decode of the datum on every
+  clock): the decode leaves tick A; no function or clock changed. **Gate (the three together):** corpus
+  6,541 with 0 runs differing at both spacings, write data 106,824 / 106,824, chk silent, vectors 0
+  bad (D6's 256 added), lint clean, 48 fast tests; dma 7, serial 4, periph 4, intr 15, banks 5, onchip
+  6, traps 6, d6 2 sets equal, undefined opcodes 101 / 101; fuzz 3,057 of 3,070 programs equal on both
+  socket sessions and the RTL (a fourth generation f5p-u 300 / 300, 299 on its first pass with the one
+  a generator flaw; f5v with D6 in the pool 148 / 150); the 13 differing are the deferred OUT + CVTBD
+  / CVTDB class. **FPGA at 17 ns: +1.061 / +1.600 / +1.849 on seeds 1 / 2 / 3** (the base +1.092 /
+  +0.963 / +1.072), 9,570 LUT4 / 618 ADD / 2,442 FF / 81 RAM_5K. **Measured, not built:** a DMA
+  transfer addressed at the internal RAM page is an external bus cycle on silicon (f5_sdma_iram; needs
+  a request bit between the EU's request and the grant's on-chip decode); the exact element a macro
+  service / DMA / asynchronous interrupt lands on (clock-decided). **Not in the fuzz:** BRKS, STOP
+  (its standby flag survives reset into later programs). fuzz_hist's exception on f5j-n fixed.

@@ -152,6 +152,8 @@ module v35_bus
     output wire [1:0]  dlv_width,
     output wire [15:0] done_data,       // ... its read datum (on the pins mid-B3: (S7b) live
                                         //   through the delivery clock, then latched)
+    output wire [15:0] done_nx,         // (F5t) tick B: done_data's next value (the datum register's D)
+    output wire        done_ld,         // ... and its load (the register's enable)
     output wire        abort_busy,      // an aborted cycle is in flight (abort_end >= t)
     output wire        abort_last,      // abort_end == t
     output wire        abort_done,      // abort_end == t-1 (queue.abort_done in phase C)
@@ -717,9 +719,11 @@ module v35_bus
     reg  [15:0] done_r = 16'hffff;
     // (F1) an on-chip read's datum at the same point, from the on-chip read register
     wire        b3_read = n_valid && n_pos == n_len - 3'd1 && k_read(n_kind);
+    assign done_nx = n_internal ? oc_data : data_in;
+    assign done_ld = ce_mid && b3_read;
     always @(posedge clock) begin
-        if (ce_mid && b3_read)
-            done_r <= n_internal ? oc_data : data_in;
+        if (done_ld)
+            done_r <= done_nx;
     end
     assign done_data = done_r;
 

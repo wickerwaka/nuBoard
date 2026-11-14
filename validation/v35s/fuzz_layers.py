@@ -12,6 +12,8 @@
          page (F1's comparable offsets) and the banks dumped at the end
     f5e-h (F5d) the second generation: f5a-d's layers with fresh seeds
     f5i  (F5d) the coverage gaps: f5a's layer with the gap forms (fuzz_gen opts["gap"])
+    f5v  (F5g) D6 /r (CLR1 r/m8 by the reg field: fuzz_gap2 f_d6) in f5p's plain layer with
+         the gap forms, a fresh seed
     f5x  the flag survey (validation/v35s/fuzz_flags.py)
     f5o  (F5c) measured, not gated: the OUT datum after CVTBD / CVTDB (fuzz_flags "outd")
 
@@ -73,6 +75,28 @@ SETS = {
     "f5n": dict(layer="a", n=250, items=110, seed=0x17EB0000, opts={"gap": True, "gap2": True},
                 weights=dict(G.WEIGHTS, f_str=12, f_spld=3, f_mdedge=4, f_wrap=4, f_spwrap=8,
                              f_poll=2, f_illreg=3, f_halt0=3)),
+    # (F5f) a small fourth generation after the string take point gained the macro service and
+    # DMA: fresh seeds, every layer, the gap kinds of both earlier generations (300 programs)
+    "f5p": dict(layer="a", n=100, items=110, seed=0x2A510000, opts={"gap": True, "gap2": True},
+                weights=dict(G.WEIGHTS, f_str=8, f_spld=2, f_mdedge=2, f_wrap=2, f_spwrap=3,
+                             f_poll=1, f_illreg=1, f_halt0=1)),
+    "f5q": dict(layer="b", n=50, items=110, seed=0x2B620000, opts={"gap2": True},
+                weights=dict(W_B, f_spwrap=2, f_poll=1, f_illreg=1, f_halt0=1)),
+    "f5s": dict(layer="c", n=70, items=90, seed=0x2C730000, opts={"gap2": True, "no_md": True},
+                scens=("intp", "nmi", "timer", "step", "mix", "mixd"),
+                weights=dict(W_C, f_stepint=3, f_halt1=2, f_repint=4, f_spwrap=2, f_poll=1,
+                             f_illreg=1)),
+    "f5t": dict(layer="d", n=40, items=90, seed=0x2D840000, opts={"gap2": True, "intm_fall": True},
+                weights=dict(W_D, f_spwrap=2, f_poll=1, f_illreg=1, f_halt0=1)),
+    "f5u": dict(layer="a", n=40, items=110, seed=0x2E950000, opts={"gap": True, "gap2": True},
+                weights=dict(G.WEIGHTS, f_str=12, f_spld=3, f_mdedge=4, f_wrap=4, f_spwrap=8,
+                             f_poll=2, f_illreg=3, f_halt0=3)),
+    # (F5g) D6 /r (CLR1 r/m8 by the reg field, built in F5g: fuzz_gap2 f_d6) in the plain
+    # layer with the gap forms, a fresh seed
+    "f5v": dict(layer="a", n=150, items=110, seed=0x3F6A0000,
+                opts={"gap": True, "gap2": True, "d6": True},
+                weights=dict(G.WEIGHTS, f_str=8, f_spld=2, f_mdedge=2, f_wrap=2, f_spwrap=3,
+                             f_poll=1, f_illreg=1, f_halt0=1, f_d6=10)),
 }
 SCEN_C = ("intp", "nmi", "timer", "step")
 
@@ -111,6 +135,11 @@ def f_sfr(g):
     o = g.r.choice(sorted(SFR_D))
     w = SFR_D[o][0]
     v = sfr_value(g.r, o)
+    if o == 0x40 and g.opts.get("intm_fall"):
+        # (F5f) INTM's ES0-2 kept falling (as at reset): f_halt0's INTP1 pulse ends at a clock
+        # the program does not wait for, so with ES1 made rising between its fall and its rise
+        # the rise set EXIC1's IF on one side only (f5t_005 of the first session)
+        v &= ~0x54
     lin = G.SFRB + o
     if g.r.random() < 0.5:
         s = g.onchip_seg(lin)
@@ -281,12 +310,12 @@ def _vframe_filter(counts):
         out = list(writes)
         i = 0
         while i < len(out):
-            a, _, f = out[i]
+            a, f = out[i][0], out[i][2]
             if a in counts and not f & 0x02:
                 j, n = i, 0
                 while j > 0 and n < 6:
                     j -= 1
-                    aa, _, ff = out[j]
+                    aa, ff = out[j][0], out[j][2]
                     n += 1 if (aa & 1 or ff & 0x08) else 2
                 del out[j:i + 1]
                 i = j
@@ -407,7 +436,7 @@ def _nmi_filter(writes):
             j, n = i, 0
             while j > 0 and n < 6:
                 j -= 1
-                a, _, f = out[j]
+                a, f = out[j][0], out[j][2]
                 n += 1 if (a & 1 or f & 0x08) else 2
             del out[j:i + 1]
             break

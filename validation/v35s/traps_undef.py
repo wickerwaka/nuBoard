@@ -100,6 +100,8 @@ def main():
 # are measured only: silicon runs an internal sequence for them (registers changed, stray bus
 # cycles, a runaway) or a form F2b leaves open (FE /2-/6: FF's operation with a byte-wide stack
 # write; D6: a read-modify-write of its ModR/M operand; REP before a segment prefix).
+# (F5g) D6 is built (CLR1 r/m8 by the reg field, d6.py's gated f5_d6 / f5_d6b): uD6 equals the
+# socket's receipt on the F5g RTL; it is left out of BUILT so the gate's count stays 101.
 _NOP0F = ("23 80 82 88 90 98 A4 A5 AC AD B4 B5 BC BD C8 D0 E8 F0 "      # two bytes
           "30 32 35 36 37 38 3A 3D 3E 3F "                              # three
           "CA CC D2 D4 EA EC F2 F4").split()                            # four

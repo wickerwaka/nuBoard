@@ -987,6 +987,14 @@ class Cpu:
                 st.target = ip
                 return
             raise NotModelled(f"{o:02X} /{reg}")
+        if o == 0xD6:
+            # (F5g) D6 /r: CLR1 r/m8 with the bit number in the reg field (silicon,
+            # validation/v35s/d6.py f5_d6 / f5_d6b, both sessions): the byte read, bit reg
+            # cleared, the byte always written back; the register form on the byte register
+            # rm; the flags unchanged; no immediate
+            a = self._rm_read(mod, rm, off, base, 1)
+            self._rm_write(mod, rm, off, base, 1, a & ~(1 << reg) & 0xFF)
+            return
         raise NotModelled(f"opcode {o:02X}")
 
     def _adjust(self, o: int):

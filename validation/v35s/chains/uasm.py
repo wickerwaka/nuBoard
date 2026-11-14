@@ -195,6 +195,12 @@ def _ranges(spec: str) -> list[int]:
 
 MODRM_OPS = set(_ranges("00-03,08-0B,10-13,18-1B,20-23,28-2B,30-33,38-3B,62,69,6B,80-8F,"
                         "C0,C1,C4-C7,D0-D3,D8-DF,F6,F7,FE,FF"))
+# (F5g) D6: CLR1 r/m8 with the bit number in the ModR/M reg field (silicon, validation/v35s/d6.py
+# f5_d6 / f5_d6b, both sessions): a ModR/M byte and its displacement, no immediate (so v35_umimm
+# and v35_umodrm's text are unchanged); its second level carries the reg field as op3, as the
+# groups' do (D6_BITREG below), the bit number the routine's mask is built from (zz_late.uasm d6clr)
+D6_BITREG = 0xD6
+MODRM_OPS.add(D6_BITREG)
 # the immediate bytes of a form without a ModR/M byte
 IMM_PLAIN = {**{o: 1 for o in _ranges("04,0C,14,1C,24,2C,34,3C,6A,70-7F,A8,B0-B7,CD,D4,D5,"
                                       "E0-E7,EB,63,F1")},
@@ -651,7 +657,7 @@ def udec2(prog: Program, op: int, b: int) -> dict:
     """The second level: (op, the popped byte) -> entry, trap, op3, (MX1) ea (a memory cell:
     the dispatch calls the EA head of the byte's mode) and eab (the book's EA heads)."""
     op3 = (b >> 3) & 7 if op in (0x80, 0x81, 0x82, 0x83, 0xC0, 0xC1, 0xD0, 0xD1, 0xD2, 0xD3,
-                                 0xF6, 0xF7, 0xFE, 0xFF) else fmt_of(op)["op3"]
+                                 0xF6, 0xF7, 0xFE, 0xFF, D6_BITREG) else fmt_of(op)["op3"]
     if op == 0x0F:
         op3 = (b >> 1) & 7               # (MX3c) the page's operation: the second byte's bits 3:1
     if op in REP_XC:
