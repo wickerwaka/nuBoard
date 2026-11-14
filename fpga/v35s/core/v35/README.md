@@ -7021,3 +7021,28 @@ measured only.
 - f5_sdma_iram: not built (the mechanism above, for the overseer).
 - D6's clocks (not measured); f5_sdma / f5_sms / f5_sasync exact, f5_si_async, f5_fint /
   f5_fint2: measured only. F1 (BRKS) and STOP stay out of the fuzz.
+
+## SST fix: the SingleStepTests V20 run back to 0 unexplained failures (bench and reference; no RTL change)
+
+The suite through the whole-core bench (`python3 -m validation.v35s.chains.sst --rtl`, 346 files)
+had drifted at a6924ed to 23,869 "rtl fail (pass)", 8,275 "rtl fail (V20's fixed PSW bits)" and
+324 "reference fail". Each class was traced on a failing case; none is an RTL bug. The RTL is
+unchanged; the fixes are in the bench (fpga/v35s/v35_core2_tb.sv / .cpp) and the reference
+(validation/v35s/chains/funcref.py, sst.py).
+
+| class | before | cause (traced) | fix | after |
+| --- | --- | --- | --- | --- |
+| EF (OUT DW,AW) at an odd port | 2,423 rtl fail | Bench. Since F5b a word at an odd I/O port is the bus unit's pair (port on the high lane, then port + 1 on the low: silicon, f5r io / strio). The EU's request is acknowledged at the first half's grant; the second half waits on `v35_bus.p2_v`. The bench's count of posted writes (`o_pend_w`) did not include `p2_v`, so when the first half was still on the pins at the next start the bench stopped after one write (test 1: trace shows `iow 03309 w2 2D00`, then the run ended; with the fix `iow 0330A w1 00CF` follows, as the suite wants). E7 passes because its OUT ends before the next start. | `o_pend_w` + 1 for `p2_v` with a write kind | 0 (EF 10,000 pass) |
+| CC / CD bit 15 | 9,996 / 9,995 rtl fail | Bench. Since F3 part B every vectored entry sets MD <- N/S (`ns_r <= input_levels[0]`); the bench tied input_levels to 0. The board holds N/S high (runner.REST_LEVELS 0x1E1F). | the bench drives `input_levels` at REST_LEVELS (N/S, NMI, /INTP0-2, RxD, /CTS high) | 0 |
+| CF (RETI) MD and RB | 1,147 rtl fail (pass) + 8,275 rtl fail (V20 fixed bits) | Reference. RETI loads all 16 PSW bits, MD and RB too (silicon f1_psw; this README's "F1", "The PSW"; RS_PSWA), and a new RB switches the register bank (PS to the new bank's slot, SP's pops left in the old one). funcref kept MD and RB (bits 15-12). The bench preloaded only the test's bank, so after a switch every register read 0. | funcref's RETI loads the PSW whole and switches `Cpu.banks` (unknown banks: NotModelled); sst.py fills every bank with the test's registers and the bench preloads all eight banks the same; the V20 class "V20's fixed PSW bits" now includes the V20's forced 15-12 = 1 | CF: 9,936 in the V20 class compared with the V35 reference's state (through the new bank), 62 pass, 0 fail |
+| FF.6 PUSH SP by FF /6 | 308 rtl fail | Reference. Silicon pushes SP itself (traps.py push_ff_sp, receipts f2-f2_legit-socket*.json; "8086 register cells": 7F00; 54 pushes SP - 2); the V20 and funcref pushed SP - 2. | funcref pushes SP; new class "V20's PUSH SP by FF /6 (SP - 2)" (file FF.6: a test failing with the V35's datum and passing with the V20's), compared with the V35 reference's state | 308 counted apart, 0 fail |
+| 0F28 ROL4 AL with AL as operand | 324 reference fail | Reference/classification. Since F5b (f5r rot4al) the V35's order is AL first, then the operand; the V20's order (operand, then AL) was tied to V20_UNDEF only, so the V20_DIGITS class (V20's AL value) ended with the V35's order and matched neither machine. | the V20's order is part of the V20's AL rule (`V20_UNDEF or v20_digits`) | 324 now in "V20's ROL4 / ROR4 AL", all pass on the RTL (and 0F2A's 324 AL-operand tests, which had fallen into "V20's undefined flags" by the same cause, move to the ROL4 / ROR4 class) |
+
+After (`sst --rtl`, 346 files): 0 rtl fail, 0 reference fail; pass 2,502,497; counted apart:
+PREPARE level 1,941; V20's PUSH SP by FF /6 (SP - 2) 308; V20's ROL4 / ROR4 AL 18,692; V20's
+fixed PSW bits 27,428; V20's undefined flags 397,403; trap 24,387; trap_nop (FF.7 mem) 7,523,
+(FF.7 reg) 2,477; reference not modelled: REP before a non-string opcode (V20) 1,340; reference
+on-chip page 887; reference unlisted 82; reference: an odd word across the segment's end 35.
+The V20 classes run on the RTL against the V35 reference's state (none is skipped).
+
+The full SST run (`--rtl` and `--all`) is now a standing line of the land gate (verify.sh).

@@ -110,9 +110,18 @@ S6_FILES = tuple(
 V20_DIGIT_FILES = frozenset(["0F28", "0F2A"])
 V20_DIGITS = "V20's ROL4 / ROR4 AL"
 # (S6) POP PSW, RETI, SAHF: the V35 loads the PSW's bits 1, 3 and 5 (BRKI, F0, F1) from the
-# word (AH), the V20 forces them (1, 0, 0: funcref.Cpu.v20_flags); counted apart as V20_DIGITS
+# word (AH), the V20 forces them (1, 0, 0: funcref.Cpu.v20_flags); counted apart as V20_DIGITS.
+# (sstfix) RETI also loads bits 15-12 (MD, RB: silicon f1_psw, the core README's "The PSW"; a
+# new RB switches the register bank, SP's pops left in the old one), where the V20 forces 1:
+# the same class, the RTL compared with the V35 reference's state through the new bank
 V20_FLAG_FILES = frozenset(["9D", "CF", "9E"])
 V20_FLAGS = "V20's fixed PSW bits"
+# (sstfix) PUSH SP by FF /6 (FF F4): the V35 pushes SP (silicon: traps.py push_ff_sp, receipts
+# f2-f2_legit-socket*.json, the core README's "8086 register cells"), the V20 the decremented SP
+# (funcref.Cpu.v20_push_sp); a test failing with the V35's datum and passing with the V20's is
+# counted apart, the RTL compared with the V35 reference's state
+V20_PUSHSP_FILES = frozenset(["FF.6"])
+V20_PUSHSP = "V20's PUSH SP by FF /6 (SP - 2)"
 # (F5) the undefined flags the V35 measured differently from the V20 suite (receipts f5-f5x-*:
 # AC kept by logic ops / shifts / TEST1 / CVTBD, MUL / DIV / EXT / INS flags, CVTDB by its
 # byte, INS's AW read before the offset step): a test failing with the V35's rules and passing
@@ -228,6 +237,9 @@ def reference(test: dict, cpu_class=_CheckedCpu) -> RefRun:
 def _reference(test: dict, cpu_class) -> RefRun:
     regs, mem, ip = initial(test)
     cpu = cpu_class(regs, mem, 0xFFFF, 0)
+    # (sstfix) the V20 has one register set: every V35 bank holds the test's registers (the
+    # whole-core bench preloads all eight so), RETI's new RB selects one of them (funcref.banks)
+    cpu.banks = {b: dict(cpu.r) for b in range(8)}
     starts = []
     trap = False
     try:
@@ -286,6 +298,11 @@ class _V20FlagsCpu(_CheckedCpu):
     v20_flags = True
 
 
+class _V20PushSpCpu(_CheckedCpu):
+    """(sstfix) _CheckedCpu with PUSH SP by FF /6 as the V20 pushes it (SP - 2)."""
+    v20_push_sp = True
+
+
 class _V20UndefCpu(_CheckedCpu):
     """(F5) _CheckedCpu with the V20 suite's undefined flags (funcref.V20_UNDEF)."""
     v20_undef = True
@@ -305,7 +322,8 @@ def reference_v35_or_v20(test: dict, stem: str) -> RefRun:
     reference's (its CPU the V35's state after the test), its class the V20 class."""
     r = reference(test)
     for files, cpu_class, name in ((V20_DIGIT_FILES, _V20DigitsCpu, V20_DIGITS),
-                                   (V20_FLAG_FILES, _V20FlagsCpu, V20_FLAGS)):
+                                   (V20_FLAG_FILES, _V20FlagsCpu, V20_FLAGS),
+                                   (V20_PUSHSP_FILES, _V20PushSpCpu, V20_PUSHSP)):
         if r.cls == "fail" and stem in files:
             r2 = reference(test, cpu_class)
             if r2.cls == "pass":

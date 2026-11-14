@@ -2537,3 +2537,21 @@ question, decided from S8's routed numbers with the user.
   silent, vectors 0 bad, lint clean, 48 fast tests. **FPGA at 17 ns: +1.648 / +1.374 / +1.968 on
   seeds 1 / 2 / 3** (the base +1.513 / +0.980 / +1.709), 9,542 LUT4 / 634 ADD / 2,467 FF / 81 RAM_5K.
   **Open:** the I/O trap with 4 or more prefixes not measured (the same rule built for it).
+- **2026-11-14, the V20 SingleStepTests suite run again and made a standing gate; the interface plan
+  approved.** `sst --rtl` had not run since the bank and trap work: 32,144 RTL fails and 324
+  reference fails, **none of them the RTL's**. The bench held the N/S pin low (now the socket's rest
+  levels, 1E1Fh) and missed the second half of a request pair; the bench preloaded one register bank
+  where RETI switches banks (all eight preloaded now); funcref lagged silicon on RETI (the whole PSW
+  loaded, the bank switched) and on PUSH SP by FF /6 (SP pushed, V20's SP - 2 a listed class); the
+  ROL4 class's AL write order. No RTL changed. After: **pass 2,502,497, 0 RTL fail, 0 reference
+  fail**, every difference in a named class (V20's fixed PSW bits 27,428, ROL4 / ROR4 AL 18,692,
+  PUSH SP FF /6 308, undefined flags 397,403, PREPARE level 1,941, trap 24,387, trap_nop FF /7,
+  REP before a non-string opcode 1,340, on-chip page 887, unlisted 82, odd word across the segment
+  end 35). `sst --rtl` and `sst --all` are lines of the landing gate from here. Every other gate as
+  the previous entry. **Direction (user, 2026-11-14): timing accuracy and simplicity.** The modules
+  were evaluated for coupling that silicon would not have (149 signals crossing six modules, v35_bus
+  with 60 outputs, a 12-term sequencer stall of which 9 are rule-only, loader events read by the bus
+  grant, two fitted integers, ~250 lines of glue in v35_top). The plan is
+  `docs/v35s-core-v2-interfaces.md` (approved): A cleanup, B glue into its owners, C the queue a
+  self-contained FIFO, D the rule-only stalls and bus phase outputs removed (the corpus exact count
+  falls and is reported, not gated, from D), E timing rebuilt one mechanism at a time.

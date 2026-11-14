@@ -247,10 +247,15 @@ int main(int argc, char** argv) {
             r->v35_core2_tb__DOT__dut__DOT__regram__DOT__ao[a] = (v >> 8) & 0xFF;
             r->v35_core2_tb__DOT__dut__DOT__regram__DOT__bo[a] = (v >> 8) & 0xFF;
         };
-        for (unsigned i = 0; i < 8; ++i)
-            put(rword(bank, i), t.in[i]);
-        for (unsigned s = 0; s < 4; ++s)
-            put(sword(bank, s), t.in[8 + s]);
+        // (sstfix) every bank holds the test's registers (a test has one register set; RETI
+        // loads RB from its frame, sst.py's reference reads the new bank as these)
+        (void)bank;
+        for (unsigned bk = 0; bk < 8; ++bk) {
+            for (unsigned i = 0; i < 8; ++i)
+                put(rword(bk, i), t.in[i]);
+            for (unsigned s = 0; s < 4; ++s)
+                put(sword(bk, s), t.in[8 + s]);
+        }
         b.half(0);
         // ---- run: the memory served on the current cycle, the writes off the pins
         int starts = 0;

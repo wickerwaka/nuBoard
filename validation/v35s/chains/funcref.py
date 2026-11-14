@@ -356,6 +356,13 @@ class Cpu:
 
     v20_digits = False              # (WP79) ROL4 / ROR4's AL as the V20 leaves it (sst.py)
     v20_flags = False               # (S6) POP PSW / RETI / SAHF's fixed bits as the V20's (sst.py)
+    v20_push_sp = False             # (sstfix) PUSH SP by FF /6 as the V20's: SP - 2 (sst.py)
+    # (sstfix) the register banks other than the PSW's (RB): {rb: {REG16 + SREG: value}}, or
+    # None (unknown: RETI into another bank is not modelled). RETI loads RB from its frame
+    # (silicon, f1_psw: the core README's "F1", "The PSW"); the new bank's registers are then
+    # the live ones (sst.py: every bank holds the test's registers, as the whole-core bench
+    # fills them)
+    banks = None
 
     def __init__(self, regs: dict, mem: bytearray, io_word: int = IO_WORD, code_org: int = 0):
         self.r = {n: regs.get(n, 0) & 0xFFFF for n in REG16 + SREG}
@@ -731,14 +738,29 @@ class Cpu:
             return
         self._modrm_form(st, code, o)
 
-    def _flags_loaded(self, v: int) -> int:
+    def _flags_loaded(self, v: int, whole: bool = False) -> int:
         """(S6) the PSW as POP PSW / RETI / SAHF leave it from the word v (its bits 11-0; MD and
-        RB stay: the V35's, the chain prelude's POP PSW 0002h keeps RB 7). The V20 forces its fixed
-        bits (1 = 1, 3 = 5 = 0: the V35's BRKI, F0, F1): v20_flags (sst.py's V20 class)."""
-        psw = (self.psw & 0xF000) | (v & 0x0FFF)
+        RB stay: the V35's, the chain prelude's POP PSW 0002h keeps RB 7). (sstfix) RETI (whole)
+        loads all 16 bits, MD and RB too (silicon: f1_psw, the core README's "F1", "The PSW" and
+        "F3 (part B)", "MD and N/S"; the RTL's RS_PSWA). The V20 forces its fixed bits (1 = 1,
+        3 = 5 = 0: the V35's BRKI, F0, F1; 15-12 = 1: the V35's MD and RB): v20_flags (sst.py's
+        V20 class)."""
+        psw = (v if whole else (self.psw & 0xF000) | (v & 0x0FFF)) & 0xFFFF
         if self.v20_flags:
-            psw = (psw & ~((1 << F0) | (1 << F1))) | (1 << BRKI)
+            psw = (psw & ~((1 << F0) | (1 << F1))) | (1 << BRKI) | 0xF000
         return psw
+
+    def _bank_to(self, psw: int):
+        """(sstfix) the PSW psw loaded by RETI: a new RB makes that bank's registers the live
+        ones (self.banks; the old bank keeps its registers as they stand: SP's pops land there,
+        silicon's bank 7 SP reads 7FFE after a RETI into bank 6, the core README's "The PSW")."""
+        old, new = (self.psw >> 12) & 7, (psw >> 12) & 7
+        if old != new:
+            if self.banks is None:
+                raise NotModelled("RETI into another register bank (the other banks unknown)")
+            self.banks[old] = dict(self.r)
+            self.r.update(self.banks[new])          # (in place: the routines hold self.r)
+        self.psw = psw
 
     def _xfer_misc(self, st: Start, code: bytes, o: int) -> bool:
         """(S6) the forms the corpus's F35-F37, F39 and F40 run that the reference lacked: BCWZ
@@ -777,10 +799,13 @@ class Cpu:
             st.length = 3 if o in (0xC2, 0xCA) else 1
             st.sr = r["SP"]
             ip = self.pop()
-            if o != 0xC2:
-                r["PS"] = self.pop()
+            ps = self.pop() if o != 0xC2 else None
             if o == 0xCF:
-                self.psw = self._flags_loaded(self.pop())
+                # (sstfix) the PSW whole (MD, RB): a new RB switches the register bank, PS is
+                # written to the NEW bank's slot (silicon, f1_psw: the core README's "The PSW")
+                self._bank_to(self._flags_loaded(self.pop(), whole=True))
+            if ps is not None:
+                r["PS"] = ps
             if o in (0xC2, 0xCA):
                 r["SP"] = (r["SP"] + imm16(1)) & 0xFFFF
             st.taken = True
@@ -964,9 +989,13 @@ class Cpu:
                 res, self.psw = incdec(reg == 1, a, w, self.psw)
                 self._rm_write(mod, rm, off, base, w, res)
                 return
-            if o == 0xFF and reg == 6:                  # PUSH r/m16 (SP: the decremented SP)
+            if o == 0xFF and reg == 6:                  # PUSH r/m16
+                # (sstfix) SP by FF /6 pushes SP itself (silicon: traps.py push_ff_sp, receipts
+                # f2-f2_legit-socket*.json, the core README's "8086 register cells": 7F00; 54
+                # pushes SP - 2); the V20 pushes the decremented SP (v20_push_sp: sst.py's class)
                 st.sw = (r["SP"] - 2) & 0xFFFF
-                v = st.sw if mod == 3 and rm == 4 else self._rm_read(mod, rm, off, base, 2)
+                v = ((st.sw if self.v20_push_sp else r["SP"]) if mod == 3 and rm == 4
+                     else self._rm_read(mod, rm, off, base, 2))
                 self.push(v)
                 return
             # (S6) CALL / BR near r/m16 (FF /2, /4: the register or the word at the EA), CALL /
@@ -1135,7 +1164,11 @@ class Cpu:
                 v, al = ((al & 0xF) << 4) | (a >> 4), (al & 0xF0) | (a & 0xF)
                 if self.v20_digits:
                     al = a
-            if V20_UNDEF:
+            if V20_UNDEF or self.v20_digits:
+                # the V20's order: the operand, then AL (ROL4 / ROR4 AL ends with the V20's AL;
+                # (sstfix) part of the V20's AL rule too: with V20_DIGITS alone the AL-operand
+                # tests ended with the V35's order, matching neither machine: 324 0F28 tests
+                # "reference fail" since F5b)
                 self._rm_write(mod, rm, off, base, 1, v)
                 self.set8(0, al)
             else:

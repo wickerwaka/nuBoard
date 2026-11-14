@@ -70,9 +70,15 @@ module v35_core2_tb
     wire a0, a19, a18_ube, mreq_n, mstb_n, iostb_n, read_write, refrq_n;
     wire [8:0] mux_address;
     wire [15:0] data_out;
+    // (sstfix) the input pins at the board's rest levels (validation/v35s/runner.py REST_LEVELS
+    // 0x1E1F, register 8E: N/S high, NMI and /INTP0-2 high, RxD and /CTS high; INT, DMARQ and
+    // HLDRQ low): (F3b) every interrupt entry, BRK / RETI's bank switch among them, loads MD from
+    // N/S, so a bench with N/S low left PSW bit 15 clear after CC / CD / CF where the board's
+    // socket (N/S high) sets it
+    localparam logic [15:0] REST_LEVELS = 16'h1E1F;
     v35_top dut (
         .clock, .x_rise(1'b1), .x_fall(1'b0), .reset_n, .ready(1'b1), .data_in,
-        .input_levels(16'd0), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
+        .input_levels(REST_LEVELS), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
         .iostb_n, .read_write, .refrq_n, .pins_in(24'd0), .pins()
     );
 
@@ -112,12 +118,16 @@ module v35_core2_tb
     assign o_stale = 3'b111;
 
     // the write cycles posted and not yet off the pins: the EU's request standing (an odd word:
-    // two), the bus cycle running
+    // two), the bus cycle running, (sstfix) a pair's second half still to come (p2_v: the EU's
+    // request was acknowledged at the first half's grant, the second half is the bus unit's own;
+    // an odd-port word OUT whose first half runs across the next start was cut off at one write)
     wire eu_w = dut.eu.rq_v && (dut.eu.rq_cyc == 2'd1 || dut.eu.rq_cyc == 2'd3);
+    wire p2_w = dut.bus.p2_v && (dut.bus.c_kind == 3'd3 || dut.bus.c_kind == 3'd5);
     assign o_pend_w = (eu_w ? (dut.eu.rq_pair ? 4'd2 : 4'd1) : 4'd0)
                     + ((dut.bus.c_valid && !dut.bus.c_internal
                         && (dut.bus.c_kind == 3'd3 || dut.bus.c_kind == 3'd5)
-                        && dut.bus.c_pos != dut.bus.c_len - 3'd1) ? 4'd1 : 4'd0);
+                        && dut.bus.c_pos != dut.bus.c_len - 3'd1) ? 4'd1 : 4'd0)
+                    + (p2_w ? 4'd1 : 4'd0);
 
     wire unused = &{1'b0, a0, a19, a18_ube, mreq_n, mstb_n, iostb_n, read_write, refrq_n,
                     mux_address};
