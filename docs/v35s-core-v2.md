@@ -2509,3 +2509,31 @@ question, decided from S8's routed numbers with the user.
   f4p_x1-x7 measured only). **Found, open (the next batch):** the RTL loses an NMI arriving together
   with a macro service inside a chain of segment prefixes (f4p_x3; the same before this batch); silicon
   takes NMI between prefixes (the RTL holds every take to the instruction after the chain).
+
+- **2026-11-14, requests among prefixes (F4q), measured on the socket first
+  (validation/v35s/pfxtake.py, 11 programs, two sessions identical).** **The lost NMI (f4p_x3):** the
+  NMI was taken and its frame pushed, but its handler never ran: a take at a segment-prefixed
+  instruction's start ran its routine with the prefix's format still loaded, so the loader kept
+  ins_ip at the interrupted prefix through the routine's E word, and a macro service (or DMA, or a
+  second NMI) at the handler's first instruction resumed at / pushed that stale start. Fixed in the
+  loader: ins_ip is kept only through a prefix's own E word (`epfx_b`, a tick-B register of
+  epop && word.pfx). **Silicon among prefixes:** nothing is taken between prefixes (NMI, the maskable
+  interrupt, macro service, a DMA single transfer, the single step; chains of 8 and 320; segment
+  overrides, REP / REPC before a non-string opcode, BUSLOCK, mixes): each after the prefixed
+  instruction or at a string's first take point, as the RTL's hold already did (the previous entry's
+  "silicon takes NMI between prefixes" was a misreading). **The instruction start silicon pushes or
+  resumes at is the opcode's offset less (the count of its prefix bytes modulo 4)**, every prefix kind
+  counting (swept 1-9, 15-17, 31-33, 63-65, 127-129, 255-257, 320): 1-3 prefixes the first prefix
+  (the RTL before), 4 the opcode itself, 5 the fifth prefix. It holds for NMI and the maskable
+  interrupt at a REP string's take point, where a macro service or DMA transfer resumes the string,
+  and for the FPO trap; the returned-to instruction runs with only the bytes from there on (n mod 4 =
+  1: the override lost, later elements from DS0; n mod 4 = 0: REP lost, one more element, CW left at
+  3Fh). Built: v35_eu `sist` (a ce_a register, ip - 1 - has_modrm - k, k the two-bit distance from
+  the first prefix) read by SR_PC's ist where `pist` was; pist narrowed to 2 bits; no microcode
+  changed. **Gate:** pfxtake's 10 gated sets (f4q_l, f4q_rep1-3, f4q_mix, f4q_ns, f4q_nmi, f4q_step,
+  f4q_fpo, f4q_svc) equal on both sessions and the RTL; f4q_nmis (an NMI landing inside a string:
+  clock-decided element) measured only; every earlier program and fuzz gate as before (fuzz 3,057 of
+  3,070), corpus 6,541 with 0 runs differing at both spacings, write data 106,824 / 106,824, chk
+  silent, vectors 0 bad, lint clean, 48 fast tests. **FPGA at 17 ns: +1.648 / +1.374 / +1.968 on
+  seeds 1 / 2 / 3** (the base +1.513 / +0.980 / +1.709), 9,542 LUT4 / 634 ADD / 2,467 FF / 81 RAM_5K.
+  **Open:** the I/O trap with 4 or more prefixes not measured (the same rule built for it).

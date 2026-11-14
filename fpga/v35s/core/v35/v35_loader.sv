@@ -98,6 +98,7 @@ module v35_loader
     input  wire        disp,            // a DISP word executes (the format loads)
     input  wire        dispm,           // the word is a DISPM word
     input  wire        e_rep,           // (F5d) the E word re-enters the REP page (ea=REP; a register)
+    input  wire        e_pfx,           // (F4q) the E word is a prefix's (pfx: a register)
     input  wire        e_rep_nx,        // ... the next word's (tick B)
     output wire        q_stall,         // the word's pop finds no byte (stall q)
     // the registers
@@ -694,6 +695,7 @@ module v35_loader
     reg        mpop_b = 1'b0, opop_b = 1'b0, epop_b = 1'b0, sload_b = 1'b0, flush_b = 1'b0, disp_b = 1'b0;
     reg        dispm_b = 1'b0;
     reg        erep_b = 1'b0;           // (F5d) the E pop re-enters the REP page
+    reg        epfx_b = 1'b0;           // (F4q) the E pop is a prefix's own (its word has pfx)
     v35_pop_e  pop_b = PP_NONE;
     reg [7:0]  qv0_b = 8'h00, qv1_b = 8'h00, sb0_b = 8'h00, sb1_b = 8'h00;
     reg        wload_b = 1'b0;
@@ -713,6 +715,7 @@ module v35_loader
             foff_b <= flush_off;
             epop_b <= epop;
             erep_b <= epop && e_rep;
+            epfx_b <= epop && e_pfx;
             sload_b <= sload;
             flush_b <= flush;
             disp_b <= disp;
@@ -890,7 +893,12 @@ module v35_loader
             if (epop_b && !erep_b) begin
                 op <= s_b;
                 op_a <= s_a;
-                if (!fmt.seg[2])
+                // (F4q) kept through a segment prefix's own E word only: a take's routine entered
+                // in place of a prefix (intr, msv, the DMA's) pops with the prefix's format
+                // still loaded; its E word (the handler's first opcode, or the prefix again)
+                // starts an instruction (pfxtake.py f4q_l nmi_ms: the macro service at NMI's
+                // handler's first instruction resumed at the interrupted prefix: the handler lost)
+                if (!fmt.seg[2] || !epfx_b)
                     ins_ip <= s_ip;
             end
             if (mpop_b && !e2_b)

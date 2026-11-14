@@ -189,8 +189,26 @@ module v35_eu
     // (F5b) the first prefix's start through BUSLOCK and a REP before a non-string opcode (the
     // words marked `pfx` on their E): a trap's ist pushes it (silicon, f5a_038: LOCK FPO2 pushes
     // the LOCK's offset; the loader's ins_ip keeps it through the segment prefixes only)
-    reg [15:0] pist = 16'd0;
+    reg [1:0]  pist = 2'd0;              // (F4q) its low two bits: all sist reads
     reg        pist_v = 1'b0;
+    // (F4q) silicon's instruction start (validation/v35s/pfxtake.py, both sessions): the opcode's
+    // offset less the count of its prefix bytes modulo 4 (a two-bit prefix count: 1-3 prefixes
+    // give the first prefix's offset, 4 the opcode's own, 5 the fifth prefix's, ...). Every
+    // reader of `ist` with prefixes (pist_v) re-enters the instruction there: the take at a REP
+    // string's take point (NMI, the maskable interrupt, macro service and DMA: f4q_rep1-3,
+    // f4q_mix, f4q_nmi, f4q_svc) and the FPO trap (f4q_fpo). Each reader runs before the routine
+    // pops an operand (a string; an escape, whose ModR/M byte the dispatch has popped; the I/O
+    // trap entered at the dispatch), so the opcode's offset is ip - 1 - hm (hm: the format has
+    // a ModR/M byte; fmt_nx, the format loading at this ce_a, as the dispatch pops it) and the
+    // count modulo 4 the low two bits of its distance from the first prefix (`pist`). A register
+    // beside pist (ce_a): ip - 1 - (hm + k), formed as ip + ~(hm + k) (k the two-bit distance);
+    // the select of SR_PC's ist source unchanged (sist where pist was)
+    reg [15:0] sist = 16'd0;
+    wire [1:0] sist_k = ip[1:0] - 2'd1 - {1'b0, fmt_nx.has_modrm} - pist;
+    wire [2:0] sist_d = {1'b0, sist_k} + {2'b00, fmt_nx.has_modrm};
+    always_ff @(posedge clock)
+        if (ce_a)
+            sist <= ip + {13'h1FFF, ~sist_d};
     v35_mul_t  mul = '0;
     v35_div_t  dv = '0;
     // (MX3b) F1: the multiply's / divide's sign latch, loaded by the unit's init word (MULI: the
@@ -357,7 +375,7 @@ module v35_eu
             SR_DISP: src = {dh, dl};
             SR_ADDR: src = addr;
             SR_ONE: src = 16'd1;
-            SR_PC: src = word.ist ? (pist_v ? pist : ins_ip) : ip;     // (F2b) ist: the instruction's start
+            SR_PC: src = word.ist ? (pist_v ? sist : ins_ip) : ip;     // (F2b) ist: the instruction's start; (F4q) sist
             default: src = 16'd0;
         endcase
     endfunction
@@ -852,7 +870,7 @@ module v35_eu
                     // offset (f5_repint ri_replock: an interrupt inside the string pushed a
                     // stale start)
                     if ((word.pfx || word.ea == EA_REP) && !pist_v)
-                        pist <= ins_ip;
+                        pist <= ins_ip[1:0];
                 end
                 if (word.pfx) begin
                     if (word.ea == EA_REP) begin

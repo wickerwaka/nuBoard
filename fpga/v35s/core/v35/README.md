@@ -3659,7 +3659,93 @@ f4p_dma EQUAL; socket against socket-2 EQUAL on all 13 programs. The earlier pro
 - The reserved macro-service modes stop silicon past NMI: not modelled.
 - (Found, not built) the RTL loses an NMI that arrives with INTP0's macro service inside a long
   prefix chain (f4p_x3 a_nmi_ms, a_all, r_all: no NMI frame on the RTL, base c02b558 too);
-  silicon takes it. The prefix chain is outside the gated programs.
+  silicon takes it. The prefix chain is outside the gated programs. (F4q: found and built.)
+
+## F4q: requests among prefixes; the lost NMI; silicon's instruction start
+
+`validation/v35s/pfxtake.py` (prio.py's frame: periph.py's run, receipts and gate; intr.py's
+logging handler, slots and scratch). Every test labels its chain's first byte `pa{k}` and the
+opcode after it `pz{k}`, so the handler's pushed PC reads as a byte of the chain. Requests made
+pending by: the maskable interrupt behind IE 0 released by EI right before the chain (due
+inside it); an NMI / INTP0 (macro service) / DMARQ0 (single transfer) edge scheduled right
+before a chain of 320 prefixes (the chain is the hold); PSW.BRK. String results show their
+source segment per element (PS:IX the vector table, DS0:IX the pattern; DS1:80h, 82h, 84h, FEh
+into the scratch). Receipts `validation/v35s/receipts/f4-f4q_*-socket.json` and `-socket-2.json`
+(two sessions, equal on all 11 programs).
+
+### The lost NMI (f4q_l, f4p_x3 a_nmi_ms / a_all / r_all)
+
+The cause: NMI was taken, its frame pushed, its handler never ran. NMI and INTP0's macro service
+pending together are taken at the start of the instruction after the chain's NOP, a `PS:` store
+(silicon: the NMI frame, the macro service at the handler's first instruction, then the
+handler). The intr routine runs in place of that segment prefix, so the loader's format is still
+the prefix's when intr's E word pops the handler's first opcode, and `ins_ip` kept the prefix's
+offset ("kept through a segment prefix", F2b). The macro service taken at the handler's first
+instruction reads `ist` = the stale `ins_ip` and resumes there: back at the interrupted `PS:`
+store, NMI's frame left on the stack, its handler skipped. The NMI latch was cleared by NMI's
+own acknowledge (IVEC with tk_k[2]), as it should; no other source's take clears it or an IF bit
+(each take latches its own source in v35_intc). The same stale start would follow any take over
+a segment-prefixed instruction (NMI or a vectored request) when a macro service or DMA transfer
+(which resume at `ist`) or an NMI (which pushes it) is taken at the handler's first instruction.
+
+Built (v35_loader): `ins_ip` is kept only on a prefix's own E word (`epfx_b`: `word.pfx` on the
+E pop, a new input `e_pfx`), so an E word of a routine run in place of a prefix (intr, msv, the
+DMA's) starts an instruction. f4q_l nmi_ms / nmi_ms_ds EQUAL; f4p_x3 a_nmi_ms and r_all now
+show silicon's order (a_all's remaining difference is F4p's clock-decided late request after a
+DMA transfer).
+
+### Requests are never taken between prefixes
+
+Measured (both sessions): the maskable interrupt (f4q_ns), NMI (f4q_nmi), a macro service and a
+DMA transfer (f4q_svc m_* / d_*) and the single step (f4q_step) falling due inside a chain of 8
+or 320 prefixes (segment overrides, REP / REPC before a non-string opcode, BUSLOCK, mixes) are
+taken after the prefixed instruction (the pushed PC is the next instruction's; the step traps
+once for the chain and its opcode). Before a string they are taken at its first take point
+(an element's end). This is the RTL's `nb` hold: unchanged.
+
+### Silicon's instruction start: the opcode less the prefix count modulo 4
+
+Measured (f4q_rep1-3: PS x (n - 1), REP, MOVBKW for n = 1-9, 15-17, 31-33, 63-65, 127-129,
+255-257, 320; f4q_mix: REP first, BUSLOCK, REPC, STMW, DS1 / PS mixes; f4q_nmi; f4q_svc; and the
+FPO trap, f4q_fpo): the PC pushed (or resumed at) is the opcode's offset less (the number of
+prefix bytes before it, of every kind, modulo 4): 1-3 prefixes give the first prefix (as F5d /
+F5e built), 4 the opcode itself, 5 the fifth prefix, 8 the opcode, 9 the ninth prefix... The
+same for NMI and the maskable interrupt (the pushed PC), a macro service and a DMA transfer at a
+string's take point (where the string resumes) and the FPO trap. What the returned-to
+instruction runs with is the bytes from there on: prefixes before it are lost. So on silicon an
+interrupt inside `REP ES: MOVBK` (two prefixes) is safe, but with 4+ prefix bytes the resumed
+string can lose its segment override (n mod 4 = 1: PS lost, the remaining elements from DS0:
+f4q_rep1 s5, s9, s17; f4q_mix ps_l8, ps_r8) or its REP (n mod 4 = 0: one more element, CW left:
+s4, s8, s16 ... s320; svc m_str / d_str), or both.
+
+Built (v35_eu `sist`): a register beside `pist`, loaded at every ce_a with ip - 1 - hm - k (hm:
+the format loading has a ModR/M byte, which the dispatch of an escape pops; k = the low two bits
+of the opcode's distance from `pist`), formed as ip + ~(hm + k). SR_PC's ist reads `sist` where
+it read `pist` (with prefixes: `pist_v`), so 1-3 prefixes give `pist` as before. No microcode
+changed.
+
+### The F4q gate
+
+`pfxtake.py sim`, `pfxtake.py gate`, `pfxtake.py gate --ref=socket-2`: f4q_l, f4q_rep1-3,
+f4q_mix, f4q_ns, f4q_nmi, f4q_step, f4q_fpo, f4q_svc EQUAL; socket against socket-2 EQUAL on all
+11 (f4q_nmis: NMI landing inside a string, measured only: the element is the clocks').
+
+### Depth (for the overseer's timing run)
+
+- v35_loader: `epfx_b` a new ce_b register (`epop && e_pfx`, beside `erep_b`); `ins_ip`'s load
+  enable gains `|| !epfx_b` (registers). Tick B endpoint only; the decode, `dent`, v35_upage /
+  umdsp / umimm / umodrm untouched; nothing on the delivery chain.
+- v35_eu: `sist` (16 flops, ce_a) from `ip` (the loader's register mux), `pist` and
+  `fmt_nx.has_modrm` (the format mux of registers): a 2-bit subtract and a 16-bit add (tick B to
+  ce_a, an endpoint). SR_PC's ist select reads `sist` in place of `pist` (no new select).
+  `pist` keeps only its low two bits (sist's only use of it): 14 flops fewer.
+- v35_top: the loader's `e_pfx` from `word.pfx`.
+
+### Open (F4q)
+
+- The I/O trap with 4+ prefixes is not measured (built by the same rule: the I/O trap is
+  entered at the dispatch, ip = the opcode + 1).
+- An NMI landing inside a string (f4q_nmis) is measured only.
 
 ## Generated data
 
