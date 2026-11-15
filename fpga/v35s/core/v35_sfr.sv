@@ -7,9 +7,10 @@
 // Written by the core's on-chip store at its cycle's end (`wr`: the internal cycle, 3 + the I/O
 // waits, no pins; the address, width and datum as issued). A word store at an even offset
 // writes the offset and the next; a byte store writes its lane (an odd address the high one).
-// Read by the on-chip read: `rd_off` (the cycle's offset, a register) -> `rd_data` registered
-// at `ce_rd`, {the byte at offset | 1, the byte at offset & ~1}; the 16-bit registers (TM0, MD0,
-// TM1, MD1) by word whole.
+// Read by the on-chip read: `rd_off` (the cycle's offset: (step C) the access port's address,
+// the bus unit's register, captured at the cycle's start) -> `rd_data` registered at `ce_rd`,
+// {the byte at offset | 1, the byte at offset & ~1}; the 16-bit registers (TM0, MD0, TM1, MD1)
+// by word whole.
 //
 // What each offset is (measured; README "F1" has the table):
 //   storage   the bits the four patterns (00 FF 55 AA) and the every-value sweep wrote, with the
@@ -50,10 +51,8 @@ module v35_sfr (
     output reg  [15:0] wtc,
     output reg  [7:0]  rfm,
     output reg  [7:0]  idb,
-    // (F1) the on-chip read
+    // (F1) the on-chip read (the offset and width: the access port's addr / width, below)
     input  wire        ce_rd,
-    input  wire [7:0]  rd_off,
-    input  wire        rd_word,
     output reg  [15:0] rd_data,
     input  wire        rd_go,           // (F4b) an SFR read cycle of rd_off (a ce_a strobe)
     input  wire [1:0]  psw_f,           // the EU's PSW {F1 (bit 5), F0 (bit 3)}
@@ -115,6 +114,11 @@ module v35_sfr (
     localparam logic [7:0] RFM_RESET = 8'hFC;
     localparam logic [7:0] IDB_RESET = 8'hFF;
     localparam logic [1:0] BW_WORD = 2'd0, BW_HI = 2'd2;   // as v35/v35_front_pkg.sv (BW_LO 1)
+    // (F1) the on-chip read's offset and word bit: (step C) the access port's address and width
+    // (the bus unit's registers, captured at the cycle's start; its oc_off / oc_word before,
+    // the same values at every clock)
+    wire [7:0] rd_off = addr[7:0];
+    wire       rd_word = width == BW_WORD;
 
     // ---- the offsets (measured) -------------------------------------------------------------
     localparam logic [2:0] K_ST = 3'd0, K_C = 3'd1, K_PIN = 3'd2, K_RES = 3'd3, K_W16 = 3'd4,

@@ -76,10 +76,9 @@ module v35_top
     wire [15:0] sfr_d;
     wire        sfr_wat;                // (MX5c) the store's write at the coming ce_a
     wire [7:0]  prc_at;                 // ... PRC after it (the registered stall's RAMEN)
-    // (F1) the on-chip read (the cycle's offset, the bus unit's register) and FLAG
+    // (F1) the on-chip read (the SFR page reads the cycle's offset and width from its access
+    // port: (step C) the bus unit's sfr_a / sfr_w, its oc_off / oc_word before) and FLAG
     wire [15:0] sfr_rd;
-    wire [7:0]  oc_off;
-    wire        oc_word;
     wire        sfr_rdgo;               // (F4b) an SFR read cycle started at the last ce_a
     wire [1:0]  psw_f;
     wire        flag_we;
@@ -108,7 +107,7 @@ module v35_top
     wire        b_hrq, b_hlda_n, b_rdy_en, b_rdy_lv;
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
-                 .ce_rd(ce_b), .rd_off(oc_off), .rd_word(oc_word), .rd_data(sfr_rd),
+                 .ce_rd(ce_b), .rd_data(sfr_rd),
                  .rd_go(sfr_rdgo), .psw_f,
                  .input_levels, .flag_we, .flag_d, .poll_p14,
                  .ic_b, .intm, .ic_we, .ic_wd, .ic_if, .ispr, .int_on, .ms_b, .ms_clr,
@@ -251,7 +250,8 @@ module v35_top
     wire [15:0] req_data;
     // queue (Q1: the simple machine)
     wire [7:0]  qv0, qv1;
-    wire [2:0]  ld_rd, ld_rel;
+    wire [1:0]  ld_pop;                 // (step C) the pop: 0 to 2 bytes off the queue's head
+    wire [2:0]  ld_rel;                 // legacy room nets, step D: the release, the staging slot
     wire        ld_stg;
     wire [19:0] q_fetch_addr;
     wire [2:0]  q_avail, q_stored;
@@ -300,10 +300,6 @@ module v35_top
     wire        tk_bs, tk_int;          // (F3b) the take's kind (bank switch, INT)
     wire [2:0]  tk_lv;                  // (F3b) the bank-switch take's level
     wire        req_ia;                 // (F3b) the EU's request is an INT acknowledge
-    // (F3b) N/S as last sampled (a register: MD at reset and on every interrupt entry)
-    reg         ns_r = 1'b1;
-    always @(posedge clock)
-        ns_r <= input_levels[0];
     wire [7:0]  rb_lo;
     wire [3:0]  sig_lo;                             // (F2a) SIGMA's low four bits (CN_SIG)
     wire [15:0] flush_off;
@@ -331,7 +327,7 @@ module v35_top
     wire [8:0] c_mux_address;
     wire [15:0] c_data_out;
     v35_bus bus (
-        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_e, .ce_mid, .wtc, .rfm,
+        .clock, .reset_n(core_reset_n), .ce_a, .ce_b, .ce_e, .ce_mid, .wtc,
         .idb, .ramen, .sfr_rd, .oc_rd,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_resv, .req_ack, .req_done,
         .req_ia, .intak_n, .req_dk, .dk(b_dk), .dkt(b_dkt),
@@ -347,7 +343,7 @@ module v35_top
         .done_data(b_done_data), .done_nx(b_done_nx16), .done_ld(b_done_ld), .abort_busy(b_abort_busy),
         .fetch_inflight_nx(b_fir_nx), .fetch_past_b2_nx(b_fpb_nx), .in_wait_nx(b_iw_nx),
         .b2b_now_nx(b_b2b_nx), .dlv_fetch_nx, .eu_done_nx(b_done_nx),
-        .sfr_wr, .sfr_wat, .sfr_a, .sfr_w, .sfr_d, .oc_off, .oc_word, .sfr_rdgo,
+        .sfr_wr, .sfr_wat, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
         .oc_we, .oc_wa, .oc_be, .oc_wd,
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
         .data_out(c_data_out), .mreq_n(c_mreq_n), .mstb_n(c_mstb_n), .iostb_n(c_iostb_n),
@@ -366,20 +362,16 @@ module v35_top
 `else
     wire [15:0] tb_reset_ip = 16'h0000;
 `endif
+    // (step C: left here; as the queue's own select the EU's flush_off would reach the queue
+    // directly, raising the eu -> queue pair of test_v35_struct's budget from 1 to 2)
     wire [15:0] q_flush_addr = core_reset_n ? flush_off : tb_reset_ip;
-    // (Q1) the variant: B (a byte port and a latch) unless V35_QUEUE_A (a word write port)
-`ifdef V35_QUEUE_A
-    localparam bit Q1_VARIANT_B = 1'b0;
-`else
-    localparam bit Q1_VARIANT_B = 1'b1;
-`endif
     // (MX2) the suspend: the V20 ROM's SUSP before a transfer's FLUSH (the sequencer's q_susp: the
     // request line held low from the SUSP word to the FLUSH)
-    v35_queue #(.VARIANT_B(Q1_VARIANT_B)) queue (
+    v35_queue queue (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .fetch_req(q_fetch_req), .fetch_raise(q_fetch_raise), .fetch_addr(q_fetch_addr), .q_low, .q_word,
         .fetch_go(g_fetch), .dlv_v(dlv_fetch), .dlv_data(b_done_data), .dlv_tag(ld_dlv_tag), .abort_go(b_abort_busy),
-        .vb0(qv0), .vb1(qv1), .avail(q_avail), .stored(q_stored), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_q0t(q_h0t), .h_latt(q_hlt), .rd(ld_rd), .rd_b(3'd0),
+        .vb0(qv0), .vb1(qv1), .avail(q_avail), .stored(q_stored), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_q0t(q_h0t), .h_latt(q_hlt), .pop_n(ld_pop),
         .rel(ld_rel), .stg(ld_stg),
         .flush(x_flush), .flush_addr(q_flush_addr), .susp(q_susp), .ps_base,
         .stored_nx(q_st_nx), .latv_nx(q_lv_nx), .odd_nx(q_od_nx), .discard_nx(q_dc_nx)
@@ -388,7 +380,7 @@ module v35_top
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .qv0, .qv1, .q_avail, .q_stored, .q_arrive(dlv_fetch), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .h_latt(q_hlt), .dlv_tag(ld_dlv_tag), .rd(ld_rd), .rel(ld_rel), .stg(ld_stg),
+        .qv0, .qv1, .q_avail, .q_stored, .q_arrive(dlv_fetch), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .h_latt(q_hlt), .dlv_tag(ld_dlv_tag), .pop_n(ld_pop), .rel(ld_rel), .stg(ld_stg),
         .reset_ip(tb_reset_ip), .flush(x_flush), .flush_w(word.flush),
         .flush_off,
         .ex, .pop(word.pop), .e_pop(word.e), .disp(x_disp),
@@ -428,7 +420,7 @@ module v35_top
         .ra_early, .rb_early, .ex_b, .resv_e, .tk_go,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
         .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki,
-        .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns(ns_r), .req_ia,
+        .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns_pin(input_levels[0]), .req_ia,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_hlt, .ms_end,
         .tk_dm, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd, .dm_tend, .dm_tlast, .dm_last, .req_dk,
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
@@ -460,7 +452,7 @@ module v35_top
     // ---------------------------------------------------------------- the register RAM
     v35_regram regram (
         .clock, .ce_a, .ce_b, .ra_next, .ra_early, .rb_early, .wa_en, .wa_addr, .wa_be, .wa_data, .ra_data, .rb_next, .rb_data,
-        .oc_ra(oc_off[7:1]), .oc_rd, .oc_we, .oc_wa, .oc_be, .oc_wd
+        .oc_ra(sfr_a[7:1]), .oc_rd, .oc_we, .oc_wa, .oc_be, .oc_wd
     );
     // ---------------------------------------------------------------- refresh (not served)
     wire rf_pending, rf_load;
@@ -550,7 +542,7 @@ module v35_top
                                            : (word.bus == BQ_IOR || word.bus == BQ_INTA) ? K_IO_READ
                                            : K_IO_WRITE),
         .issue(g_eu), .b2b(fetch_last && q_fetch_req), .abort(g_abort),
-        .room(5'sd6 - 5'({2'd0, q_avail} - {2'd0, ld_rd}) - (q_infl_c ? 5'sd2 : 5'sd0)),
+        .room(5'sd6 - 5'({2'd0, q_avail} - {3'd0, ld_pop}) - (q_infl_c ? 5'sd2 : 5'sd0)),
         .flag(q_fetch_req), .why(useq.st_r.why), .upc(useq.upc)
     );
 `endif

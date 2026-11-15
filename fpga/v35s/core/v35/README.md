@@ -7125,3 +7125,49 @@ datum changed.
   the tags, the head address, the sequencer's `rqp` / `tw` / `drop`, the SFR read offset beside
   `sfr_a` (`oc_off` / `oc_word` are loaded from the same grant fields as `sfr_a` / `sfr_w`), and
   every `_nx` output.
+
+## Step C: the queue / decoder boundary (no behaviour change)
+
+Step C of docs/v35s-core-v2-interfaces.md (section 6; targets 3.2 and 3.3). The queue's port is
+named by what a FIFO owns; nothing moved that would change a clock or a datum, and nothing moved
+that would raise a pair of test_v35_struct's port budget.
+
+- **The pop.** The loader's `rd` (3 bits, at most 2) is `pop_n` (0 to 2 bytes off the queue's
+  head a clock; two bytes a clock kept, the user's decision for step C). The queue's `rd_b`
+  (the tick-B read count, tied to 0 since the P pass went) is gone. `rel` and `stg` stay as the
+  loader's legacy room outputs and the queue's legacy room inputs (comment blocks in both
+  modules): the release a clock late (`hold`, `hold2`) and the staging slot's room (`stg_free`)
+  are rule-only timing that step D deletes.
+- **Fetch in flight, held once.** The bus unit holds the cycle; the queue holds what a FIFO with
+  a word owed must: `inflight` (the room counts the word), `odd` (its parity: which byte to
+  drop) and `discard` (a flushed word still owed). The fetch port is the plan's: `fetch_req` /
+  `fetch_addr` out, `fetch_go` (accepted), `dlv_v` (word valid), `dlv_data` (word) in. Step D
+  removes the duplicates: the bus unit's `fetch_req_b` / `fr_prev` (its copies of the queue's
+  line), its phase outputs (`fetch_inflight`, `fetch_past_b2`, ...), the aborted cycle
+  (`abort_go`, `q_word`), `q_low`, `fetch_raise`, and the sequencer's `rqp` / `tw` / `drop`.
+- **One variant.** The queue's variant A (a word write port) and its switch `V35_QUEUE_A` are
+  removed: no build, bench or synthesis script set it (build_sim.sh, build_core2_tb.sh,
+  build_rf_tb.sh, build.sh, synth/v35_map.sh, synth/v35_timing.sh all build variant B); only the
+  fifth lint configuration did. **The lint gate now has four configurations**
+  (`-DV35S_CORE_V35`, `-DV35S_CORE_V35 -DSYNTHESIS`, none, `-DSYNTHESIS`).
+- **Leftovers of steps A and B.** The bus unit's unread `rfm` input is gone. The N/S pin's
+  sampler (`ns`, every fabric clock) is the EU's, its only reader (`ns_pin` in). The on-chip read's
+  `oc_off` / `oc_word` (registers beside `sfr_a` / `sfr_w`, loaded at the same ce_a from the same
+  grant fields) are gone: `oc_off` was always `sfr_a[7:0]` (its FFFFF case selects FFh, which is
+  the address's low byte there), so the SFR page reads `addr[7:0]` and `width == BW_WORD` from
+  its access port and the register RAM's port C reads `sfr_a[7:1]`; `sfr_w` starts at BW_LO so
+  the word bit is 0 before the first capture, as `oc_word` was (`sfr_w`'s own readers act only on
+  a captured cycle). The EU's `op` and `dh` inputs are read (the register selector's RS_OPR /
+  RS_SOPR, the displacement source and the EA's), so they stay.
+- **Not moved (each would raise a pair of the port budget; the user's ceilings stand).** The
+  head byte's address: the loader keeps `ipo` (the next queue byte's offset), `s_ip` and
+  `ins_ip`; as a queue register `hip` presented to the loader, queue -> loader would go from 14
+  to 15 (eu -> loader 2 to 1, the loader's `flush_off` and `reset_ip` gone). The reset-time
+  flush address `q_flush_addr` stays in v35_top: as the queue's own select, the EU's
+  `flush_off` would reach the queue directly and eu -> queue would go from 1 to 2. The budget's
+  numbers are unchanged; test_v35_struct pins the queue's whole port list (`QUEUE_PORTS`), drops
+  `rfm` from the bus unit's inputs and `ns_r` from v35_top's registers.
+- **Untouched for steps D / E:** the tags (`dlv_tag` formed in the loader from the bus unit's
+  datum register, `h_q0t` / `h_latt` read back), the loader's head select `hs` and its
+  per-candidate head reads (`stored`, `h_q0`, `h_lat`, `h_latv`, `h_odd`, `h_dlv`: MX5b), the
+  queue's `_nx` outputs, the window (`vb0` / `vb1`, the second byte the staging load takes).

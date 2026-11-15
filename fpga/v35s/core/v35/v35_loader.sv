@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 // (MX0b, MX1d) The byte path: every pop takes the queue's window directly (its stored bytes,
-// the latch, this clock's delivery bypassed); the queue's `rd` is the pops, `rel` the bytes
+// the latch, this clock's delivery bypassed); the queue's `pop_n` is the pops, `rel` the bytes
 // released. README "MX0b" and "MX1d" have the word-register laws measured and not built.
 //
 // V35S core v2 (MX0): the loader, shrunk to the opcode's staging register, the pop port and the
@@ -33,7 +33,7 @@
 // a DISPM word pops (the group's reg field: `op3`). No byte is read that the routine does not
 // pop.
 //
-// Two ticks: tick A decides the pops and the load (`rd`, `rel`, `stg` on the queue's port)
+// Two ticks: tick A decides the pops and the load (`pop_n`, `rel`, `stg` on the queue's port)
 // from registers and the sequencer's tick-A word; the ce_a update reads tick A's decisions and
 // the queue's head bytes through the ce_b registers. (MX5c) The outcomes on the queue's port
 // and the bus unit's strobes are registers selected by the registered stall outcome and the
@@ -77,7 +77,11 @@ module v35_loader
     input  wire [QTAG_W-1:0] h_latt,
     output wire [2*QTAG_W-1:0] dlv_tag,
     input  wire        q_arrive,        // (MX1c) a fetched word is delivered on this clock
-    output wire [2:0]  rd,              // the bytes read (tick A): an operand pop, the staging load
+    output wire [1:0]  pop_n,           // (step C) the pop: the bytes leaving the queue's head
+                                        //   (tick A): an operand pop, the staging load (0 to 2)
+    // legacy room outputs, step D: the room rules (a take step's low byte released a clock
+    // late, `hold` / `hold2`; the staging slot counted while the instruction owes bytes,
+    // `stg_free`), the queue's request line's inputs until step D removes the rules
     output wire [2:0]  rel,             // the bytes released (tick A)
     output wire        stg,             // the staging slot is taken after this clock
     // the stream's offset in PS: the reset's first byte, a flush's target
@@ -521,11 +525,11 @@ module v35_loader
     assign e_rmodrm = ltx.e_rmodrm;
     // (ltx: the function's outcomes the registered ones are checked against, `+v35_chk`; df.trap:
     // the trace's and the function bench's start_trap, v35_top's observation block)
-    wire unused = &{1'b0, ds, dm, q_avail, ltx, df.trap};
+    wire unused = &{1'b0, ds, dm, q_avail, ltx, df.trap, lrv.rd[2]};
     wire [2:0] need_n = ltx.need_n;
     wire       sload = ltx.sload;
     assign l_load = lrv.l_load;
-    assign rd = lrv.rd;
+    assign pop_n = lrv.rd[1:0];         // (rd[2]: 0, at most two bytes a clock)
     wire       hold_n = ltx.hold_n;
     wire       hold_r = ltx.hold_r;
     wire       hold2_n = ltx.hold2_n;
@@ -845,7 +849,7 @@ module v35_loader
     always @(posedge clock) begin
         if (lfd != 0 && reset_n && ce_a) begin
             $fdisplay(lfd, "l %0d s_v %0d need %0d need_n %0d epop %0d opop %0d mpop %0d sload %0d np %0d rd %0d rel %0d stg %0d arrive %0d win %0d",
-                      lt, s_v, need, need_n, epop, opop, mpop, sload, ltx.np, rd, rel, stg, q_arrive, q_avail);
+                      lt, s_v, need, need_n, epop, opop, mpop, sload, ltx.np, pop_n, rel, stg, q_arrive, q_avail);
             lt <= lt + 1;
         end
     end

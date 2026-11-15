@@ -139,8 +139,8 @@ module v35_eu
     output reg         dm_tlast,
     output reg         dm_last,
     output wire        req_dk,
-    input  wire        ns,              // (F3b) the N/S pin as last sampled (a register): MD at
-                                        //   reset and on every interrupt entry
+    input  wire        ns_pin,          // (F3b) the N/S pin ((step C) sampled here, `ns`: MD at
+                                        //   reset and on every interrupt entry)
     output wire        req_ia,          // (F3b) the request is an INT acknowledge (with RQ_IOR)
     input  wire        flag_we,
     input  wire [1:0]  flag_d,
@@ -154,6 +154,11 @@ module v35_eu
     input  wire [15:0] oc_wd
 );
     // ------------------------------------------------------------ registered state
+    // (F3b) N/S as last sampled: every fabric clock, no enable (the pin's sampler; (step C) moved
+    // in from v35_top, its only reader the PSW's MD here)
+    reg        ns = 1'b1;
+    always @(posedge clock)
+        ns <= ns_pin;
     reg [15:0] psw = 16'hF002;
     // (F1) the on-chip write's segment hit: the current bank's (PSW.RB) DS0 / SS / DS1 slot,
     // the flops' slot (0 DS1, 2 SS, 3 DS0)

@@ -134,12 +134,30 @@ EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data", "req_resv", 
            "req_ack", "req_done", "done_data",                                    # bus -> EU
            "req_ia",               # (F3b) the request kind's acknowledge bit (with RQ_IOR)
            "req_dk"}               # (F4c) the request is a DMA transfer's cycle (DMAAK, TC)
-BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "rfm", "data_in",
+BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "data_in",   # (step C) rfm gone (unread)
               "fetch_req", "q_low", "q_word", "fetch_addr",       # the queue's port
               "t_start", "take_now", "l_pop",                     # (Q2) the aborted fetch's reads
               "idb", "ramen",                                     # (F1) the on-chip decision (SFR registers)
               "sfr_rd", "oc_rd",                                  # (step B) the on-chip cycle's read data (SFR page, register RAM)
               "hrq", "rdy_en", "rdy_lv"}                          # (F4d) HLDRQ, PMC1 bit 7, READY (v35_sfr's registers: pins)
+# (step C) the queue's whole port list: the FIFO's ports (fetch, read, pop, control), the legacy
+# room inputs and outputs step D removes (rel, stg, abort_go, q_low, q_word, fetch_raise), and
+# the facts step C left in place (the tags, the head facts the loader's head select reads, the
+# next values)
+QUEUE_PORTS = {
+    "input": {"clock", "reset_n", "ce_a", "ce_b",
+              "fetch_go", "dlv_v", "dlv_data",                    # the fetch port's reply
+              "pop_n",                                            # the pop (0 to 2 bytes)
+              "flush", "flush_addr", "susp", "ps_base",           # the control
+              "rel", "stg", "abort_go",                           # legacy, step D
+              "dlv_tag"},                                         # the tags (left by step C)
+    "output": {"fetch_req", "fetch_addr",                         # the fetch port
+               "vb0", "vb1", "avail",                             # the read port
+               "q_low", "q_word", "fetch_raise",                  # legacy, step D
+               "stored", "h_q0", "h_lat", "h_latv", "h_odd",      # the head facts (MX5b)
+               "h_q0t", "h_latt",                                 # the tags
+               "stored_nx", "latv_nx", "odd_nx", "discard_nx"},   # the next values
+}
 INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t", "v35_uword_t",
                "v35_udec_t", "v35_udecm_t")
 INSTR_WORDS = re.compile(r"(fmt|cls|class|row|step|xop|opc|form|instr|setup|lead|detach|grp|"
@@ -201,6 +219,15 @@ class Ports(unittest.TestCase):
         self.assertEqual(outs, {"stored_nx", "latv_nx", "odd_nx", "discard_nx"})
         text = strip((V35 / "v35_queue.sv").read_text())
         self.assertRegex(text, r"cnt\s*<=\s*stored_nx\s*;")
+
+    def test_queue_ports_are_pinned(self):
+        """(step C) the queue's port list as handed back: no port may be added without editing
+        this set (the read-count pair rd / rd_b is the pop `pop_n`; variant A is gone)."""
+        if not (V35 / "v35_queue.sv").exists():
+            return
+        p = ports("v35_queue.sv")
+        for d in ("input", "output"):
+            self.assertEqual({n for dd, _, n in p if dd == d}, QUEUE_PORTS[d], d)
 
     def test_bus_inputs_are_the_ports(self):
         if not (V35 / "v35_bus.sv").exists():
@@ -314,8 +341,11 @@ CORE_INSTANCES = {
     "regram": (V35 / "v35_regram.sv", "v35_regram"),
     "intc": (CORE / "v35_sfr.sv", "v35_intc"),
 }
-# ceilings at step B's hand-back: per module, the outputs read by another core module and the
-# inputs driven by one; per (driver, reader) pair, the reader's inputs the driver feeds
+# ceilings at step B's hand-back, unchanged at step C's (no count fell: step C's removals were
+# inputs from v35_top's glue or the SFR block, renames and merges inside a module; two moves the
+# brief named would have raised a pair, eu -> queue and queue -> loader, and were not made):
+# per module, the outputs read by another core module and the inputs driven by one; per
+# (driver, reader) pair, the reader's inputs the driver feeds
 BUDGET_MODULE = {
     "bus": {"out": 26, "in": 16},
     "queue": {"out": 19, "in": 11},
@@ -346,10 +376,11 @@ NX_OUTPUTS = {
     "useq": {"w_dispm_nx", "w_erep_nx", "word_nx"},
     "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx"},
 }
-# v35_top's registers outside simulation (the divider, the reset exit, the ticks, N/S's sampler,
-# the pins' idle forcing) and its continuous logic (operators on the right-hand side)
+# v35_top's registers outside simulation (the divider, the reset exit, the ticks, the pins' idle
+# forcing; (step C) N/S's sampler is the EU's) and its continuous logic (operators on the
+# right-hand side)
 TOP_REGS = {"x_count", "pck", "state_n", "started", "core_run", "rx_refrq_n", "ceb_age",
-            "b_seen", "ns_r", "a0", "a19", "a18_ube", "mux_address", "data_out", "mreq_n",
+            "b_seen", "a0", "a19", "a18_ube", "mux_address", "data_out", "mreq_n",
             "mstb_n", "iostb_n", "read_write", "refrq_n"}
 TOP_CE_REGS = {"ceb_age", "b_seen"}     # the registers v35_top loads in a block reading ce_a / ce_b
                                         # outside simulation: the ticks' own (b_seen: a ce_b since reset)

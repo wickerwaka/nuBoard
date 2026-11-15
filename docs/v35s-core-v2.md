@@ -2592,3 +2592,22 @@ question, decided from S8's routed numbers with the user.
   programs dma 7 / intr 6 / onchip 3 / banks 5 / traps 6 / prio 4 / pfxtake 10 equal, fuzz f5x f5r
   f5n f5u f5v as the base. **FPGA at 17 ns: +2.286 / +1.613 / +2.355 on seeds 1 / 2 / 3** (the
   base +1.556 / +1.563 / +1.550), 9,481 LUT4 / 634 ADD / 2,475 FF / 81 RAM_5K.
+- **2026-11-14, interface plan step C: the queue boundary, no behaviour change.** The loader's
+  read is a pop count (`pop_n`, 0 to 2 bytes a clock); the queue's dead `rd_b` input, the bus
+  unit's `rfm` input, the queue's variant A with `V35_QUEUE_A` / `VARIANT_B` and lint
+  configuration 5 are gone (the gate has four lint configurations); the N/S pin sampler is in the
+  EU (v35_top keeps no register of its own but the reset hook); the bus unit's `oc_off` /
+  `oc_word` merged into `sfr_a` / `sfr_w`. `rel` / `stg` stand under a "legacy, step D" block.
+  test_v35_struct pins the queue's whole port list. **Not made (each raises a per-pair ceiling;
+  left to step D, where the legacy links fall):** the head address into the queue (queue to loader
+  14 to 15; an ungated patch exists), `q_flush_addr` into the queue (eu to queue 1 to 2). The
+  fetch in flight needed no code change: the queue owns the word owed, the bus the cycle; the
+  duplicates for step D are listed in the core README's step C section (`fetch_req_b`, `fr_prev`,
+  `rqp`, `tw`, `drop`, the phase outputs, `abort_go`, `q_low`, `q_word`, `fetch_raise`).
+  **Gate (the short gate, run once by the agent; the landed tree checked equal to the agent's):**
+  corpus 6,541 with 0 runs differing, pin records (30,536 runs) and 718 per-clock traces identical
+  at both spacings, write data 106,824 / 106,824, chk silent, vectors 0 bad, lint clean (four
+  configurations), 53 fast tests, SingleStepTests 0 fails, programs dma 7 / intr 6 / onchip 3 /
+  banks 5 / traps 6 / prio 4 / pfxtake 10 equal, fuzz f5x f5r f5n f5u f5v as the base. **FPGA at
+  17 ns: +1.996 / +1.768 / +1.875 on seeds 1 / 2 / 3** (the base +2.286 / +1.613 / +2.355),
+  9,454 LUT4 / 634 ADD / 2,465 FF / 81 RAM_5K.

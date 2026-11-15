@@ -13,11 +13,10 @@
 //   fetch_req   the request line, a level: free >= 2 and not suspended, where
 //               free = CAP - cnt - unrel - stg - 2 for a word in flight (a fetch, or the bus
 //               unit's aborted cycle), from the counts after this clock's delivery, tick A's
-//               reads and releases. CAP is 7 in variant B (the IR staging byte is the seventh:
-//               room_ir; `stg` its occupancy as the loader reports it) and 6 in variant A (the
-//               staging byte not counted)
-//   q_low       the bytes counted (as the request line counts them, a word less than CAP in
-//               B) <= HOLD_Q (the fit's hold_q = 3): the arbiter's priority hint
+//               reads and releases. CAP is 7 (the IR staging byte is the seventh: room_ir;
+//               `stg` its occupancy as the loader reports it)
+//   q_low       the bytes counted (as the request line counts them, a word less than CAP)
+//               <= HOLD_Q (the fit's hold_q = 3): the arbiter's priority hint
 //   fetch_addr  {PS, 0} + pfp with the 16-bit wrap (a flush on this clock: the new stream's);
 //               an odd pfp (an odd transfer target) fetches its word and drops the low byte
 //   vb0, vb1,   the head window and the stored count, this clock's delivery bypassed (S1
@@ -27,9 +26,9 @@
 // at once (`cnt`), but the room counts it (`unrel`) until it is released: a FIFO with a read
 // pointer and a release pointer.
 //
-// Variant A (VARIANT_B = 0): a word write port: a delivered word is stored in one clock.
-// Variant B (VARIANT_B = 1): a byte-wide write port shared with the EU, and a one-byte latch.
-// The port's owner on a clock is fixed: the EU's (a clock that releases bytes: a take step's
+// (Step C) One variant: a byte-wide write port shared with the EU, and a one-byte latch (the
+// old variant B; variant A, a word write port, was built by no build, bench or synthesis
+// script, only by a lint configuration, and is removed with its switch). The port's owner on a clock is fixed: the EU's (a clock that releases bytes: a take step's
 // end, a ModR/M byte, the IR load; latch_read=commit) first, else the latched byte drains,
 // else the delivered word's second byte is written. So on a delivery clock that releases the
 // word's first byte goes in and its second waits in the latch (`lat`, `lat_byte`): not counted
@@ -40,19 +39,27 @@
 // latched byte is in the window behind the stored ones. The fit's situational latch rules
 // (latch_midtake, latch_disp, latch_start, modrm_port, arrive_partial) are not built.
 //
-// Registered state (widths): q 6x8, cnt 3, unrel 3, pfp 16, inflight 1, discard 1, odd 1 (25
-// bits beyond the bytes); variant B lat 1, lat_byte 8 (34).
+// Registered state (widths): q 6x8, cnt 3, unrel 3, pfp 16, inflight 1, discard 1, odd 1, lat 1,
+// lat_byte 8 (34 bits beyond the bytes).
 //
 // Two ticks (S7b): tick A (from ce_a) computes the window, the counts after the delivery and
-// tick A's reads and releases (the T pass's takes, the IR load) and the request line; tick B
-// adds the P pass's reads (`rd_b`; its releases reach `rel` on the next clock: the line is
-// sampled once a clock, at the end of tick A). The ce_a update reads tick A's inputs through the
-// ce_b registers.
+// tick A's pops and releases (the operand pops, the IR load) and the request line. The ce_a
+// update reads tick A's inputs through the ce_b registers.
+//
+// (Step C of docs/v35s-core-v2-interfaces.md) The ports by kind. The FIFO's own: the fetch
+// port (fetch_req / fetch_addr out; fetch_go accepted, dlv_v the word valid, dlv_data the word
+// in), the read port (vb0 / vb1 and avail: the head bytes and how many are valid), the pop
+// (`pop_n`, 0 to 2 bytes a clock), the control (flush with the new offset, susp). The fetch in
+// flight is held here as FIFO state: `inflight` (a word owed, the room counts it), `odd` (its
+// parity, the byte the queue drops) and `discard` (a flushed word still owed); the bus unit
+// holds the cycle. Legacy, for step D (the rule-only timing
+// the plan removes there; kept here unchanged): the room inputs `rel` and `stg`, the aborted
+// cycle's `abort_go`, the outputs `q_low`, `q_word`, `fetch_raise`. Untouched (step D / E): the
+// tags (dlv_tag in, h_q0t / h_latt out), the head facts the loader's head select reads (stored,
+// h_q0, h_lat, h_latv, h_odd: MX5b), the next values (stored_nx, latv_nx, odd_nx, discard_nx).
 module v35_queue
     import v35_front_pkg::*;
-#(
-    parameter bit VARIANT_B = 1'b1
-) (
+(
     input  wire        clock,
     input  wire        reset_n,
     input  wire        ce_a,
@@ -78,7 +85,7 @@ module v35_queue
     output wire [2:0]  stored,          // (MX0b) the bytes stored (not this clock's delivery,
                                         //   not the latch): the word register loads from these
     // (MX5b) the queue's own registered facts (the loader's head-byte decode reads them before
-    // the head select): the first stored byte, the latched byte, the latch's bit (variant B),
+    // the head select): the first stored byte, the latched byte, the latch's bit,
     // the in-flight word's parity. Registers of the queue's state, nothing of an instruction
     output wire [7:0]  h_q0,
     output wire [7:0]  h_lat,
@@ -93,16 +100,20 @@ module v35_queue
     output wire        latv_nx,
     output wire        odd_nx,
     output wire        discard_nx,
-    input  wire [2:0]  rd,              // bytes read in tick A (the T pass's takes, the IR load)
-    input  wire [2:0]  rd_b,            // ... in tick B (the P pass's take and IR load)
-    input  wire [2:0]  rel,             // bytes released (tick A; the P pass's a clock later)
+    input  wire [1:0]  pop_n,           // (step C) the pop: bytes leaving the head this clock, 0
+                                        //   to 2 (tick A: an operand pop, the IR load)
+    // legacy room inputs, step D: the loader's room rules (the release a clock late, the
+    // staging slot's room), inputs to the request line until step D removes the rules
+    input  wire [2:0]  rel,             // bytes released (tick A)
     input  wire        stg,             // the EU's IR staging byte is occupied (tick A)
     input  wire        flush,           // clear the queue, the stream from flush_addr (tick A)
     input  wire [15:0] flush_addr,      // (in reset: the first fetch's offset)
     input  wire        susp,            // suspend prefetch: the request line held low (tick A)
     input  wire [19:0] ps_base          // {PS, 0} (after this clock's far transfer)
 );
-    localparam int CAP = VARIANT_B ? QUEUE_BYTES + 1 : QUEUE_BYTES;
+    localparam int CAP = QUEUE_BYTES + 1;
+    // (step C) the pop as the read count the arithmetic below was written for
+    wire [2:0]  rd = {1'b0, pop_n};
 
     // ------------------------------------------------------------ registered state
     reg [7:0]  q [0:5];
@@ -112,12 +123,12 @@ module v35_queue
     reg        inflight = 1'b0;
     reg        discard = 1'b0;
     reg        odd = 1'b0;
-    reg        lat = 1'b0;              // (variant B) the latched byte
+    reg        lat = 1'b0;              // the latched byte
     reg [7:0]  lat_byte = 8'h00;
     // (MX5c) the bytes' tags: each written with its byte, from the same window position
     reg [QTAG_W-1:0] q_t [0:5];
     reg [QTAG_W-1:0] lat_t = '0;
-    wire       lat_v = VARIANT_B && lat;
+    wire       lat_v = lat;
 
     integer i;
     initial for (i = 0; i < 6; i = i + 1) q[i] = 8'h00;
@@ -127,7 +138,7 @@ module v35_queue
     wire       arrive = dlv_v && !discard;
     wire [7:0] a0 = odd ? dlv_data[15:8] : dlv_data[7:0];
     wire [7:0] a1 = dlv_data[15:8];
-    // the window: the stored bytes, the latched one (B), then the delivered ones
+    // the window: the stored bytes, the latched one, then the delivered ones
     wire [2:0] n_arr = !arrive ? 3'd0 : (odd ? 3'd1 : 3'd2);
     wire [3:0] cnt_s = {1'b0, cnt} + (lat_v ? 4'd1 : 4'd0);
     wire [3:0] avail_w = cnt_s + {1'b0, n_arr};
@@ -184,7 +195,7 @@ module v35_queue
     // (not zero, the storage full, the physical room) are compares of rd with thresholds formed
     // from registers ((MX5c); round 1: one value per rd, selected by rd). The laws (fetch_req, fetch_raise, q_word, q_short, q_low, lat_hold, susp)
     // are the same expressions on the same facts. README "MX5"
-    localparam int CL = CAP - QUEUE_BYTES;          // q_low's offset (B 1, A 0)
+    localparam int CL = CAP - QUEUE_BYTES;          // q_low's offset (1)
     wire [4:0] i2 = infl_a ? 5'd2 : 5'd0;
     // E = eq_r + n_arr + 2 infl_a: `eq_r` (cnt + the latch + unrel, the queue's own registers)
     // is a register beside them (loaded at ce_a with their next values: eq_r is always their
@@ -192,7 +203,7 @@ module v35_queue
     // and flight (a2, the bus unit's registers): no adder before the compares
     reg  [4:0] eq_r = 5'd0;
     wire [2:0] a2 = n_arr + (infl_a ? 3'd2 : 3'd0);
-    wire       sg = VARIANT_B && stg;
+    wire       sg = stg;
     // (MX5c) the request's facts with the loader's three inputs (rel, rd, stg) entering at
     // compares against thresholds formed from registers (kept as nodes, so the inputs meet
     // them last). With the queue's invariants (rd <= avail_w, rel <= unrel + rd) the old code's
@@ -204,7 +215,7 @@ module v35_queue
     //   unrel_a == 1:        rd - rel == 1 - unrel
     // (E = eq_r + this clock's arrival and flight: registers.) The same laws on the same facts; `+v35_chk` compares every output with the old arithmetic. README "MX5"
     // round 3
-    localparam int PHC = QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2;
+    localparam int PHC = QUEUE_BYTES + 1 - 2;
     wire [4:0] e_w = eq_r + {2'd0, a2};
     // the thresholds: kv[v + 2] = E - v for v = -2 .. 8 (rel >= E - v: E <= v + rel)
     (* syn_keep = "true" *) wire [76:0] kv;
@@ -225,9 +236,9 @@ module v35_queue
     wire       c_nz = !flush && {1'b0, rd} != k_av;                  // cnt_a != 0
     wire       c_ge = !flush && $signed({3'd0, rd}) <= $signed(k_ge); // cnt_a >= QUEUE_BYTES
     wire       phys_ok = flush ? i2 <= 5'(PHC) : $signed({3'd0, rd}) >= $signed(k_ph);
-    // (variant B) the port: a clock that releases bytes is the EU's. The delivered word's second
-    // byte waits uncounted on such a delivery clock
-    wire       unc_a = VARIANT_B && arrive && n_arr == 3'd2 && r0 && c_nz;
+    // the port: a clock that releases bytes is the EU's. The delivered word's second byte waits
+    // uncounted on such a delivery clock
+    wire       unc_a = arrive && n_arr == 3'd2 && r0 && c_nz;
     // occ <= c (c >= -1): no flush, rel >= E - (c + unc_a - stg); a flush, stg + 2 infl_a <= c
     function automatic logic le_occ(input int c);
         le_occ = flush ? 32'({4'd0, sg} + i2) <= 32'(c) && c >= 0
@@ -266,10 +277,10 @@ module v35_queue
     wire [3:0] unrel_a = flush ? 4'd0 : {1'b0, unrel} + {1'b0, rd} - {1'b0, rel};
     wire [4:0] e_s = {1'b0, avail_w} + {2'd0, unrel} + i2;
     wire [3:0] cnt_x = flush ? 4'd0 : avail_w - {1'b0, rd};
-    wire       unc_x = VARIANT_B && arrive && n_arr == 3'd2 && port_a && cnt_x != 4'd0;
-    wire [4:0] occ = {1'b0, cnt_x} + {1'b0, unrel_a} + ((VARIANT_B && stg) ? 5'd1 : 5'd0)
+    wire       unc_x = arrive && n_arr == 3'd2 && port_a && cnt_x != 4'd0;
+    wire [4:0] occ = {1'b0, cnt_x} + {1'b0, unrel_a} + (stg ? 5'd1 : 5'd0)
                      - (unc_x ? 5'd1 : 5'd0) + i2;
-    wire       phys_x = {1'b0, cnt_x} + i2 <= 5'(QUEUE_BYTES + (VARIANT_B ? 1 : 0) - 2);
+    wire       phys_x = {1'b0, cnt_x} + i2 <= 5'(QUEUE_BYTES + 1 - 2);
     wire       lhold_x = lat_v && !arrive
                          && (port_a || {1'b0, cnt_x} >= 5'(QUEUE_BYTES));
     wire       freq_x = occ <= 5'(CAP - 2) && phys_x && !susp && !lhold_x;
@@ -297,18 +308,18 @@ module v35_queue
     end
 
     // ------------------------------------------------------------ next state (ce_a)
-    wire [2:0]  reads = rd_r + rd_b;
+    wire [2:0]  reads = rd_r;
     wire [3:0]  cnt_e = flush_r ? 4'd0 : avail_w - {1'b0, reads};
     wire [3:0]  unrel_e = flush_r ? 4'd0 : {1'b0, unrel} + {1'b0, reads} - {1'b0, rel_r};
     wire [15:0] pfp_g = flush_r ? faddr_r : pfp;
-    // (variant B) the latch at the clock's end: the window's last byte (a latched byte, or this
+    // the latch at the clock's end: the window's last byte (a latched byte, or this
     // delivery's second byte) waits when the clock released bytes, or when it would be a
     // seventh stored byte
-    wire        lat_e = VARIANT_B && !flush_r && cnt_e != 4'd0
+    wire        lat_e = !flush_r && cnt_e != 4'd0
                         && ((rel_r != 3'd0 && (lat_v || (arrive && n_arr == 3'd2)))
                             || cnt_e > 4'(QUEUE_BYTES));
     assign stored_nx = 3'(cnt_e - (lat_e ? 4'd1 : 4'd0));
-    assign latv_nx = VARIANT_B && lat_e;
+    assign latv_nx = lat_e;
     assign odd_nx = go_r ? pfp_g[0] : odd;
     assign discard_nx = go_r ? 1'b0 : (flush_r && inflight && !dlv_v) ? 1'b1 : dlv_v ? 1'b0
                       : discard;
@@ -331,7 +342,7 @@ module v35_queue
             unrel <= unrel_e[2:0];
             lat <= lat_e;
             // (MX5) the room's registered sum: the three registers' new values added
-            eq_r <= {2'd0, 3'(cnt_e - (lat_e ? 4'd1 : 4'd0))} + ((VARIANT_B && lat_e) ? 5'd1 : 5'd0)
+            eq_r <= {2'd0, 3'(cnt_e - (lat_e ? 4'd1 : 4'd0))} + (lat_e ? 5'd1 : 5'd0)
                     + {2'd0, unrel_e[2:0]};
             if (lat_e) begin
                 lat_byte <= seqb(cnt_e - 4'd1 + {1'b0, reads});
@@ -377,8 +388,8 @@ module v35_queue
     initial if ($value$plusargs("v35_qdbg=%s", qfn)) qfd = $fopen(qfn, "w");
     always @(posedge clock) begin
         if (qfd != 0 && reset_n && ce_a) begin
-            $fdisplay(qfd, "q %0d cnt %0d unrel %0d lat %0d inf %0d dlv %0d rd %0d/%0d rel %0d stg %0d occ %0d req %0d susp %0d go %0d",
-                      qt, cnt, unrel, lat, inflight, dlv_v, rd_r, rd_b, rel_r, stg, occ,
+            $fdisplay(qfd, "q %0d cnt %0d unrel %0d lat %0d inf %0d dlv %0d rd %0d rel %0d stg %0d occ %0d req %0d susp %0d go %0d",
+                      qt, cnt, unrel, lat, inflight, dlv_v, rd_r, rel_r, stg, occ,
                       fetch_req, susp, go_r);
             qt <= qt + 1;
         end

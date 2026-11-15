@@ -64,7 +64,6 @@ module v35_bus
     input  wire        ce_e,        // (S7b) the CPU clock's edge (the pins' B1 / B2)
     input  wire        ce_mid,      // the middle of a CPU clock (strobe edges)
     input  wire [15:0] wtc,
-    input  wire [7:0]  rfm,         // RFM.RFW: a refresh cycle's length
     // (F1) the on-chip decision (registers): IDB, PRC.RAMEN; (step B) the on-chip cycle's two
     // targets' read data (registers: the SFR page's, the register RAM's port C)
     input  wire [7:0]  idb,
@@ -147,15 +146,14 @@ module v35_bus
 
     // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write at its
     // cycle's end: the enable at ce_a, its condition, the address, width and lane-placed datum;
-    // the read: the offset, word, a read cycle's strobe) and the internal RAM's write port (the
-    // register RAM's port C: written at the coming ce_b; the EU's segment flops read it too)
+    // the read: (step C) the same address and width, a read cycle's strobe) and the internal
+    // RAM's write port (the register RAM's port C: written at the coming ce_b; the EU's segment
+    // flops read it too)
     output wire        sfr_wr,
     output wire        sfr_wat,
     output reg  [19:0] sfr_a,
     output reg  [1:0]  sfr_w,
     output wire [15:0] sfr_d,
-    output reg  [7:0]  oc_off,
-    output reg         oc_word,
     output wire        sfr_rdgo,
     output reg         oc_we,
     output reg  [6:0]  oc_wa,
@@ -662,11 +660,15 @@ module v35_bus
     reg         sfr_open = 1'b0;
     reg         oc_ram = 1'b0;          // the cycle's target: the internal RAM (else the SFRs)
     reg         oc_rdgo = 1'b0;         // (F4b) an on-chip read cycle started at the last ce_a
+    // (step C) one capture: the read's offset and word bit were registers beside sfr_a / sfr_w,
+    // loaded at the same ce_a from the same grant fields (oc_off = FFFFF ? FFh : the address's
+    // low byte, which is FFh there too: always sfr_a[7:0]; oc_word = sfr_w == WORD). The SFR
+    // page and the register RAM's port C read sfr_a / sfr_w. sfr_w starts at BW_LO so that the
+    // word bit reads 0 before the first capture as oc_word did; sfr_w's own readers (the lane
+    // swap, the write's byte enables, the SFR store) act only on a captured cycle
     initial begin
         sfr_a = 20'd0;
-        sfr_w = 2'd0;
-        oc_off = 8'd0;
-        oc_word = 1'b0;
+        sfr_w = BW_LO;
         oc_we = 1'b0;               // an internal RAM write, landing at the coming ce_b
         oc_wa = 7'd0;
         oc_be = 2'b00;
@@ -703,8 +705,6 @@ module v35_bus
                 oc_rdgo <= g_kind_b == K_READ;
                 sfr_a <= g_addr_b;
                 sfr_w <= g_width_b;
-                oc_off <= g_top ? '1 : g_addr_b[7:0];
-                oc_word <= g_width_b == BW_WORD;
                 oc_ram <= !g_addr_b[8] && !g_top;
             end
         end
@@ -875,5 +875,5 @@ module v35_bus
     end
 `endif
 
-    wire unused = &{1'b0, ce_b, wtc[13:2], rfm, 1'(FIT_MIN_GAP), n_addr, n_width};
+    wire unused = &{1'b0, ce_b, wtc[13:2], 1'(FIT_MIN_GAP), n_addr, n_width};
 endmodule
