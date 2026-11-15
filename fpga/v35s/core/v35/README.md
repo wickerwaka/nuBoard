@@ -7294,3 +7294,44 @@ change), then two mechanisms built, each one definition in the module that owns 
   every word) give 6 / 6.5 / 7.5, 6 / 7.5 / 9 and 8 / 9.5 / 11: none is silicon's, so none is
   that mechanism. The POP PSW F class has no hardware mechanism of its own (it is the placement
   of F against OPEN words). Stopped there for the overseer's review.
+
+## Step E2: the EU's pace against the fetches (searched, no mechanism kept); the queue's latch removed
+
+Step E of docs/v35s-core-v2-interfaces.md, second part: the open class of E1 (every corpus run
+leaves silicon in the prelude: B the MOV r16,imm16 train, A' the fetch after POP PSW moving one
+clock per wait state, C SHL AW,CL's 12 + 2n).
+
+- **Method.** Each candidate was a throwaway plusarg stall (one act x one registered fact, none
+  in the tree) traced on F0-ls-pO-w0 / w1 / w2 beside the frozen model's internal events,
+  aligned at the POP PSW stack read; the model's start S is the RTL's E word (the opcode leaves
+  the staging register). About 120 act x fact combinations were run (acts: the E word, every
+  pop, every word, the DISP word, the word after an operand pop, E or DISP; facts: a fetch in
+  flight, the request line, both, a request flop set by the pop that makes room and cleared by
+  the delivery of the fetch granted after it, a wait state, the fetch's B2 / waits / B3 /
+  delivery clock and their unions, any cycle's datum phase), with and without mov_ri16's OPEN
+  word, with a seven-place room (the staging register counted) and with a delivery-to-pop
+  latency.
+- **No single definition reproduces the three sites**, so nothing was kept. Nearest: "no word
+  executes while any bus cycle is past its B2" (the datum phase holds the internal bus) gets
+  C exactly at w0 / w1 / w2, A' with the right slope (+1 at every wait: one of pop_psw's OPEN
+  clocks would be redundant under it) and the train's period at w1 / w2, but the train's fetch
+  pattern is wrong (6,6,4 against 8,4,4 at w1) and w0 is one clock short a pair; "the E word
+  waits for the word a pop asked for, or while a fetch runs" gets the train's gaps exactly at
+  w2 and one clock long a pair at w0 / w1, and does not touch A' or C.
+- **Why (a measured constraint, not a candidate).** With the E1 queue (six places, the staging
+  register not counted, the request line from the registered count) and mov_ri16's pops at
+  E+3 / E+4 for every instruction, silicon's fetch clocks in the train force the instruction
+  starts to alternate: 6 / 8 at w0 (the only solution), never 8 / 8 at w1 (5/11, 6/10 or 7/9).
+  The first start of each pair must fall in the fetch's B3 at w0 but in its B2 at w1, so no
+  fetch-phase window gives it; and with the model's starts no uniform pop placement exists
+  under any of the simple room rules (six or seven places, registered or same-clock line).
+  The frozen model gets silicon's bus from a room rule in which the opcode register is a
+  seventh place freed at the start, plus a sync on the count of fetches in flight or asked for
+  at the take: the missing state is on the queue's request side (when the start frees a place)
+  together with a count of words owed to the last operand pop, not a single EU stall.
+- **The queue's latch removed (v35_queue, v35_loader, v35_top).** `lat`, `lat_byte`, `lat_t`,
+  the outputs `h_lat`, `h_latv`, `h_latt`, `latv_nx` and the loader's head-select candidate
+  and its compare are gone (the head select is the first stored byte or the arriving word's
+  byte by parity); `+v35_chk` now checks that no seventh byte is ever held. No clock and no
+  datum changed (the pin records of every corpus run identical to E1's at both spacings).
+  test_v35_struct's queue port set and the queue-loader count (15 -> 11) follow.

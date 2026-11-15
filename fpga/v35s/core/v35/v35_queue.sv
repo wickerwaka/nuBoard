@@ -3,8 +3,8 @@
 // V35S core v2: the prefetch queue as a simple machine (docs/v35s-queue-strategy.md, Q1;
 // (step D) docs/v35s-core-v2-interfaces.md 3.2: a self-contained FIFO).
 //
-// Six storage bytes and a one-byte latch (a seventh byte), a stored count, a prefetch pointer,
-// the head byte's address and a request line. The queue knows nothing of forms, classes, rows
+// Six storage bytes, a stored count, a prefetch pointer, the head byte's address and a request
+// line. The queue knows nothing of forms, classes, rows
 // or the execution unit's steps: the decoder pops the bytes it takes (`pop_n`: the storage is
 // freed, the window moves on), flushes the queue on a transfer (the new stream's offset) and
 // suspends prefetching; the bus unit samples the request line at its decision point (once a
@@ -27,19 +27,18 @@
 //   hip         (step D) the head byte's offset in PS: the next byte the decoder pops (the
 //               instruction pointer's source), counted by the pops, loaded by a flush
 //
-// The latch: the window's seventh byte waits in the latch register (`lat`, `lat_byte`) and is
-// in the window behind the stored ones; it moves into the storage when there is a place.
-// (E1) With the six-byte room (M1) a seventh byte is never held, so the latch never loads
-// (`+v35_chk` checks it every clock); it is left in place, unreachable, for the overseer to
-// remove with the loader's head select (h_lat / h_latv) when the tags are reworked.
+// (E2) The latch is gone: with the six-byte room (E1 M1) a seventh byte is never held, so the
+// latch (`lat`, `lat_byte`, `lat_t`: the window's seventh byte) never loaded; it is removed with
+// the loader's head-select candidates that read it (h_lat / h_latv / h_latt) and the latch's
+// next value (latv_nx). `+v35_chk` checks that no more than six bytes are ever held.
 // (Step D) The rule-only room terms are gone: the read / release split (`unrel`: bytes read and
 // still counted until the loader released them), the staging slot's count (`stg`), the
 // delivered word's second byte uncounted on a releasing clock (`unc_a`) and latched there, the
 // latch's hold of the request line (`lat_hold`), the aborted cycle's word in flight, the fitted
 // low hint (`q_low`) and the triple clock's room test (`q_word`).
 //
-// Registered state (widths): q 6x8, cnt 3, pfp 16, hip 16, inflight 1, discard 1, odd 1, lat 1,
-// lat_byte 8; the tags q_t 6x6, lat_t 6.
+// Registered state (widths): q 6x8, cnt 3, pfp 16, hip 16, inflight 1, discard 1, odd 1; the
+// tags q_t 6x6.
 //
 // Two ticks (S7b): tick A (from ce_a) computes the window, the counts after the delivery and
 // tick A's pops (the operand pops, the IR load) and the request line. The ce_a update reads
@@ -51,10 +50,9 @@
 // a clock), the control (flush with the new offset, susp). The fetch in flight is held here as
 // FIFO state: `inflight` (a word owed, the room counts it), `odd` (its parity, the byte the
 // queue drops) and `discard` (a flushed word still owed); the bus unit holds the cycle.
-// Untouched (step E): the tags (dlv_tag in, h_q0t / h_latt out), the head facts the loader's
-// head select reads (stored, h_q0, h_lat, h_latv, h_odd: MX5b), the next values (stored_nx,
-// latv_nx, odd_nx, discard_nx: the sequencer's registered stall through the loader's
-// q_stall_nx).
+// Untouched (step E): the tags (dlv_tag in, h_q0t out), the head facts the loader's head select
+// reads (stored, h_q0, h_odd: MX5b), the next values (stored_nx, odd_nx, discard_nx: the
+// sequencer's registered stall through the loader's q_stall_nx).
 module v35_queue
     import v35_front_pkg::*;
 (
@@ -76,22 +74,18 @@ module v35_queue
     output wire [7:0]  vb0, vb1,
     output wire [2:0]  avail,
     output reg  [15:0] hip,             // (step D) the head byte's offset in PS
-    output wire [2:0]  stored,          // (MX0b) the bytes stored (not this clock's delivery,
-                                        //   not the latch): the word register loads from these
+    output wire [2:0]  stored,          // (MX0b) the bytes stored (not this clock's delivery):
+                                        //   the word register loads from these
     // (MX5b) the queue's own registered facts (the loader's head-byte decode reads them before
-    // the head select): the first stored byte, the latched byte, the latch's bit,
-    // the in-flight word's parity. Registers of the queue's state, nothing of an instruction
+    // the head select): the first stored byte, the in-flight word's parity. Registers of the
+    // queue's state, nothing of an instruction
     output wire [7:0]  h_q0,
-    output wire [7:0]  h_lat,
-    output wire        h_latv,
     output wire        h_odd,
-    output wire [QTAG_W-1:0] h_q0t,     // (MX5c) the first stored byte's tag, the latched byte's
-    output wire [QTAG_W-1:0] h_latt,
+    output wire [QTAG_W-1:0] h_q0t,     // (MX5c) the first stored byte's tag
     // (MX5c) the next values of its registers the stall's byte counts read (tick B: what the
-    // coming ce_a loads): the stored count, the latch's bit, the in-flight word's parity, the
-    // discard of a flushed word in flight
+    // coming ce_a loads): the stored count, the in-flight word's parity, the discard of a
+    // flushed word in flight
     output wire [2:0]  stored_nx,
-    output wire        latv_nx,
     output wire        odd_nx,
     output wire        discard_nx,
     input  wire [1:0]  pop_n,           // (step C) the pop: bytes leaving the head this clock, 0
@@ -116,12 +110,8 @@ module v35_queue
     reg        inflight = 1'b0;
     reg        discard = 1'b0;
     reg        odd = 1'b0;
-    reg        lat = 1'b0;              // the latched byte
-    reg [7:0]  lat_byte = 8'h00;
     // (MX5c) the bytes' tags: each written with its byte, from the same window position
     reg [QTAG_W-1:0] q_t [0:5];
-    reg [QTAG_W-1:0] lat_t = '0;
-    wire       lat_v = lat;
 
     integer i;
     initial for (i = 0; i < 6; i = i + 1) q[i] = 8'h00;
@@ -131,26 +121,21 @@ module v35_queue
     wire       arrive = dlv_v && !discard;
     wire [7:0] a0 = odd ? dlv_data[15:8] : dlv_data[7:0];
     wire [7:0] a1 = dlv_data[15:8];
-    // the window: the stored bytes, the latched one, then the delivered ones
+    // the window: the stored bytes, then the delivered ones
     wire [2:0] n_arr = !arrive ? 3'd0 : (odd ? 3'd1 : 3'd2);
-    wire [3:0] cnt_s = {1'b0, cnt} + (lat_v ? 4'd1 : 4'd0);
+    wire [3:0] cnt_s = {1'b0, cnt};
     wire [3:0] avail_w = cnt_s + {1'b0, n_arr};
     assign avail = avail_w > 4'd7 ? 3'd7 : avail_w[2:0];
     assign stored = cnt;
     assign h_q0 = q[0];
-    assign h_lat = lat_byte;
-    assign h_latv = lat_v;
     assign h_odd = odd;
     assign h_q0t = q_t[0];
-    assign h_latt = lat_t;
     wire [QTAG_W-1:0] a0t = odd ? dlv_tag[QTAG_W +: QTAG_W] : dlv_tag[0 +: QTAG_W];
     wire [QTAG_W-1:0] a1t = dlv_tag[QTAG_W +: QTAG_W];
 
     function automatic logic [7:0] seqb(input logic [3:0] k);
         if (k < {1'b0, cnt})
             seqb = q[k[2:0]];
-        else if (lat_v && k == {1'b0, cnt})
-            seqb = lat_byte;
         else if (k == cnt_s)
             seqb = a0;
         else
@@ -160,8 +145,6 @@ module v35_queue
     function automatic logic [QTAG_W-1:0] seqt(input logic [3:0] k);
         if (k < {1'b0, cnt})
             seqt = q_t[k[2:0]];
-        else if (lat_v && k == {1'b0, cnt})
-            seqt = lat_t;
         else if (k == cnt_s)
             seqt = a0t;
         else
@@ -210,10 +193,9 @@ module v35_queue
     wire [2:0]  reads = rd_r;
     wire [3:0]  cnt_e = flush_r ? 4'd0 : avail_w - {1'b0, reads};
     wire [15:0] pfp_g = flush_r ? faddr_r : pfp;
-    // the latch at the clock's end: the window's seventh byte waits there
-    wire        lat_e = !flush_r && cnt_e > 4'(QUEUE_BYTES);
-    assign stored_nx = 3'(cnt_e - (lat_e ? 4'd1 : 4'd0));
-    assign latv_nx = lat_e;
+    // (E2) at most six bytes are held (the request line's room, E1 M1: `+v35_chk`)
+    assign stored_nx = cnt_e[2:0];
+    wire        unused_e3 = cnt_e[3];    // (E2) never set (the chk's overflow test reads it)
     assign odd_nx = go_r ? pfp_g[0] : odd;
     assign discard_nx = go_r ? 1'b0 : (flush_r && inflight && !dlv_v) ? 1'b1 : dlv_v ? 1'b0
                       : discard;
@@ -225,20 +207,14 @@ module v35_queue
             inflight <= 1'b0;
             discard <= 1'b0;
             odd <= 1'b0;
-            lat <= 1'b0;
         end else if (ce_a) begin
             for (i = 0; i < 6; i = i + 1) begin
                 q[i] <= seqb(4'(i) + {1'b0, reads});
                 q_t[i] <= seqt(4'(i) + {1'b0, reads});
             end
             cnt <= stored_nx;
-            lat <= lat_e;
             // (step D) the head's offset: a flush's target, else counted by the pops
             hip <= flush_r ? faddr_r : hip + {13'd0, reads};
-            if (lat_e) begin
-                lat_byte <= seqb(cnt_e - 4'd1 + {1'b0, reads});
-                lat_t <= seqt(cnt_e - 4'd1 + {1'b0, reads});
-            end
             if (go_r) begin
                 inflight <= 1'b1;
                 odd <= pfp_g[0];
@@ -276,8 +252,8 @@ module v35_queue
     initial if ($value$plusargs("v35_qdbg=%s", qfn)) qfd = $fopen(qfn, "w");
     always @(posedge clock) begin
         if (qfd != 0 && reset_n && ce_a) begin
-            $fdisplay(qfd, "q %0d cnt %0d lat %0d inf %0d dlv %0d rd %0d occ %0d req %0d susp %0d go %0d",
-                      qt, cnt, lat, inflight, dlv_v, rd_r, occ, fetch_req, susp, go_r);
+            $fdisplay(qfd, "q %0d cnt %0d inf %0d dlv %0d rd %0d occ %0d req %0d susp %0d go %0d",
+                      qt, cnt, inflight, dlv_v, rd_r, occ, fetch_req, susp, go_r);
             qt <= qt + 1;
         end
     end
@@ -291,8 +267,8 @@ module v35_queue
             if (rd_r !== rd || flush_r !== flush || go_r !== fetch_go || faddr_r !== flush_addr
                 // (MX5) the request line against the direct arithmetic
                 || fetch_req !== freq_x || fetch_addr !== faddr_x
-                // (E1 M1) with the six-byte room the latch (a seventh byte) never loads
-                || lat_e) begin
+                // (E1 M1, E2) with the six-byte room no seventh byte is ever held
+                || cnt_e > 4'(QUEUE_BYTES)) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: queue: a tick A input changed in tick B at %0t", $time);

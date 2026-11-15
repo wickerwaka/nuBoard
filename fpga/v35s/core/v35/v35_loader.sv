@@ -66,8 +66,6 @@ module v35_loader
     // (the bus unit's datum register) they are the head byte's candidates, q_stored and the
     // latch's bit its select
     input  wire [7:0]  h_q0,
-    input  wire [7:0]  h_lat,
-    input  wire        h_latv,
     input  wire        h_odd,
     input  wire [15:0] h_dlv,
     input  wire [15:0] h_dlv_nx,        // (F5t) tick B: h_dlv's next value and its load (the bus
@@ -76,7 +74,6 @@ module v35_loader
     // its latched byte; the delivered word's, formed here on the delivery clock and stored by the
     // queue beside the bytes (high byte's, low byte's)
     input  wire [QTAG_W-1:0] h_q0t,
-    input  wire [QTAG_W-1:0] h_latt,
     output wire [2*QTAG_W-1:0] dlv_tag,
     output wire [1:0]  pop_n,           // (step C) the pop: the bytes leaving the queue's head
                                         //   (tick A): an operand pop, the staging load (0 to 2)
@@ -123,7 +120,6 @@ module v35_loader
     input  v35_pop_e   pop_nx,
     input  wire        e_pop_nx,
     input  wire [2:0]  q_stored_nx,
-    input  wire        q_latv_nx,
     input  wire        q_odd_nx,
     input  wire        q_discard_nx,
     input  wire        q_dlv_nx,        // a fetched word is delivered on the next clock
@@ -213,8 +209,8 @@ module v35_loader
     // displacement bytes (v35_umdsp), its reg field being 0 or 1 (mb[5:4] == 0), the 0F page's
     // second byte's added bytes (v35_upage) and the direct form (mod 00 rm 110). The tag is
     // formed on the delivered word (h_dlv, the bus unit's datum register) on its delivery clock
-    // and stored by the queue beside each byte, through its storage and its latch (opaque bits
-    // to the queue: dlv_tag, h_q0t, h_latt). The opcode's share of v35_umodrm (the form's
+    // and stored by the queue beside each byte, through its storage (opaque bits
+    // to the queue: dlv_tag, h_q0t; (E2) the latch's h_latt is gone). The opcode's share of v35_umodrm (the form's
     // immediate bytes, v35_umimm of the opcode and r01) is a register beside s_b (`ims`) and
     // beside op (`imo`), loaded with them (as ds and d1r are). So umodrm(s_b, b) is
     // dsp(tag) + ims[r01(tag)] and no decode table sits between a stored candidate and z; the
@@ -289,12 +285,12 @@ module v35_loader
         end
     end
     assign dlv_tag = {tg_hi, tg_lo};
-    // the head byte's source: 0 the queue's first stored byte, 1 its latch, 2 / 3 the delivered
-    // word's low / high byte (seqb(0): stored bytes first, then the latch, then the arrival at
-    // its parity)
-    wire [2:0] hs = q_stored != 3'd0 ? 3'd0 : h_latv ? 3'd1 : h_odd ? 3'd3 : 3'd2;
-    v35_hd_t hd0, hd1, hd2, hd3, hh;
-    assign hh = hs == 3'd0 ? hd0 : hs == 3'd1 ? hd1 : hs == 3'd2 ? hd2 : hd3;
+    // the head byte's source: 0 the queue's first stored byte, 2 / 3 the delivered word's low /
+    // high byte (seqb(0): stored bytes first, then the arrival at its parity). (E2) The queue's
+    // latch and its candidate (1) are gone: a seventh byte is never held
+    wire [2:0] hs = q_stored != 3'd0 ? 3'd0 : h_odd ? 3'd3 : 3'd2;
+    v35_hd_t hd0, hd2, hd3, hh;
+    assign hh = hs == 3'd0 ? hd0 : hs == 3'd2 ? hd2 : hd3;
     wire [2:0] umr_s = hh.umr_s;
     wire [2:0] umr_o = hh.umr_o;
     wire [2:0] upg_s = hh.upg;
@@ -437,8 +433,7 @@ module v35_loader
     v35_zc_t   zc = '0;
     // the head byte's candidates (hs, above): the stored ones' compares from their tags, each of
     // the delivered word's bytes decoded and compared, the head select last
-    wire       z_st = hs == 3'd0 ? zt_f(zc, v35_btag_t'(h_q0t))
-                    : zt_f(zc, v35_btag_t'(h_latt));
+    wire       z_st = zt_f(zc, v35_btag_t'(h_q0t));
     wire       z_lo = zt_f(zc, tg_lo);
     wire       z_hi = zt_f(zc, tg_hi);
     (* syn_keep = "true" *) wire z1f = hs == 3'd3 ? z_hi : hs == 3'd2 ? z_lo : z_st;
@@ -514,7 +509,6 @@ module v35_loader
     v35_dsp_t df = '0;
     assign dcall = df.call;
     assign hd0 = hd_f(h_q0, v35_btag_t'(h_q0t), df.eab);
-    assign hd1 = hd_f(h_lat, v35_btag_t'(h_latt), df.eab);
     assign hd2 = hd_f(h_dlv[7:0], tg_lo, df.eab);
     assign hd3 = hd_f(h_dlv[15:8], tg_hi, df.eab);
     assign dret = df.ret;
@@ -573,7 +567,7 @@ module v35_loader
     v35_udec_t ds_nx;
     assign ds_nx = (!flush_b && sload_b) ? v35_udec1(s_nb) : ds;
     wire       arrive_nx = q_dlv_nx && !q_discard_nx;
-    wire [3:0] av_w_nx = {1'b0, q_stored_nx} + {3'd0, q_latv_nx}
+    wire [3:0] av_w_nx = {1'b0, q_stored_nx}
                          + (!arrive_nx ? 4'd0 : q_odd_nx ? 4'd1 : 4'd2);
     wire [2:0] av_nx = av_w_nx > 4'd7 ? 3'd7 : av_w_nx[2:0];
     wire [1:0] sn_nx = sn_f(av_nx);
@@ -712,7 +706,7 @@ module v35_loader
         if (chk_on && reset_n && ce_a) begin
             if ((s_v && ds !== v35_udec1(s_b)) || flush !== (ex && flush_w) || df !== dsp_f(op, mp) || hh !== hd_ref(sb0, df.eab) || d1r !== v35_udec1(op)
                 || imo !== im_f(op) || (s_v && ims !== im_f(s_b))
-                || (q_stored != 3'd0 && h_q0t !== bt_f(h_q0)) || (h_latv && h_latt !== bt_f(h_lat))
+                || (q_stored != 3'd0 && h_q0t !== bt_f(h_q0))
                 || (ex ? z1 : need == 3'd0) !== (need_n == 3'd0)
                 || opop_b !== opop || mpop_b !== mpop || e2_b !== ds.e2 || epop_b !== epop || sload_b !== sload || flush_b !== flush
                 || disp_b !== disp || dispm_b !== (ex && dispm) || pop_b !== pop

@@ -2656,3 +2656,21 @@ question, decided from S8's routed numbers with the user.
   SingleStepTests 0 fails, the short program and fuzz set as step D (periph f4_tm timing only).
   **FPGA at 17 ns: +2.561 / +2.676 / +1.984 on seeds 1 / 2 / 3** (the base +1.384 / +2.079 /
   +1.916), 9,230 LUT4 / 629 ADD / 2,444 FF / 79 RAM_5K.
+- **2026-11-15, interface plan step E2: no mechanism found for the EU's pace; the queue's latch
+  removed.** About 120 single-stall candidates (one act x one registered fact: a fetch in flight,
+  the request line, a request flop, a wait state, the fetch's phases, any cycle's datum phase)
+  traced against the frozen model's internal events on the three prelude sites: none reproduces
+  the MOV r16,imm16 train, the POP PSW read's wait slope and SHL's 12 + 2n together. The nearest:
+  "every word waits while any cycle is past B2" (SHL exact, the POP PSW slope right, the train's
+  period right at 1 / 2 waits but its fetch grouping wrong). A solver shows no single EU stall
+  can give silicon's train on the six-byte queue with the present routine shapes (the two starts
+  of a pair depend on two different fetches). The model's own state that is missing: the opcode
+  register as a counted place freed by the start (against E1 M1 at the POP PSW site) and up to
+  two words owed at the last operand take. Nothing kept; corpus 0 exact, 0 lost, 0 gained.
+  **Landed:** the unreachable latch out of v35_queue and the loader's head select (queue to
+  loader 15 to 11 signals); pin records 30,536 / 30,536 identical at both spacings, the short
+  gate as E1 (a lint tie added after the gate run, re-linted clean in four configurations and
+  re-replayed on five families). **FPGA at 17 ns: +2.771 / +2.222 / +2.540 on seeds 1 / 2 / 3**
+  (the base +2.561 / +2.676 / +1.984), 9,095 LUT4 / 629 ADD / 2,411 FF / 79 RAM_5K. Next (E3):
+  an offline structural search with the pop positions and the queue's geometry free, fitted to
+  the pins' bus events only.

@@ -157,9 +157,10 @@ QUEUE_PORTS = {
               "dlv_tag"},                                         # the tags (left by step C)
     "output": {"fetch_req", "fetch_addr",                         # the fetch port
                "vb0", "vb1", "avail", "hip",                      # the read port
-               "stored", "h_q0", "h_lat", "h_latv", "h_odd",      # the head facts (MX5b)
-               "h_q0t", "h_latt",                                 # the tags
-               "stored_nx", "latv_nx", "odd_nx", "discard_nx"},   # the next values
+               "stored", "h_q0", "h_odd",                         # the head facts (MX5b)
+               "h_q0t",                                           # the tags
+               "stored_nx", "odd_nx", "discard_nx"},              # the next values ((E2) the
+                                                                  # latch's facts gone)
 }
 INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t", "v35_uword_t",
                "v35_udec_t", "v35_udecm_t")
@@ -200,26 +201,26 @@ class Ports(unittest.TestCase):
 
     def test_queue_head_facts_are_its_registers(self):
         """(MX5b) the queue's head facts (the loader's head-byte decode before the select) are
-        its own registers, driven directly: the first stored byte, the latched byte, the latch's
-        bit, the in-flight word's parity; (MX5c) the first stored byte's and the latched byte's
-        tags (the bits stored beside each byte, opaque to the queue); nothing else of that kind."""
+        its own registers, driven directly: the first stored byte, the in-flight word's parity;
+        (MX5c) the first stored byte's tag (the bits stored beside each byte, opaque to the
+        queue); nothing else of that kind. ((E2) the latch and its three facts are gone.)"""
         if not (V35 / "v35_queue.sv").exists():
             return
         outs = {n for d, _, n in ports("v35_queue.sv") if d == "output" and n.startswith("h_")}
-        self.assertEqual(outs, {"h_q0", "h_lat", "h_latv", "h_odd", "h_q0t", "h_latt"})
+        self.assertEqual(outs, {"h_q0", "h_odd", "h_q0t"})
         text = strip((V35 / "v35_queue.sv").read_text())
-        for name, reg in (("h_q0", r"q\[0\]"), ("h_lat", "lat_byte"), ("h_latv", "lat_v"),
-                          ("h_odd", "odd"), ("h_q0t", r"q_t\[0\]"), ("h_latt", "lat_t")):
+        for name, reg in (("h_q0", r"q\[0\]"), ("h_odd", "odd"),
+                          ("h_q0t", r"q_t\[0\]")):
             self.assertRegex(text, rf"assign\s+{name}\s*=\s*{reg}\s*;")
 
     def test_queue_next_values_are_its_registers_d(self):
         """(MX5c) the queue's next-value outputs (the sequencer's registered stall reads them in
-        tick B) are exactly the D nets of four of its registers: the count, the latch's bit, the
-        parity, the discard; each loaded with that net at ce_a."""
+        tick B) are exactly the D nets of three of its registers: the count, the parity, the
+        discard; each loaded with that net at ce_a ((E2) the latch's bit is gone)."""
         if not (V35 / "v35_queue.sv").exists():
             return
         outs = {n for d, _, n in ports("v35_queue.sv") if d == "output" and n.endswith("_nx")}
-        self.assertEqual(outs, {"stored_nx", "latv_nx", "odd_nx", "discard_nx"})
+        self.assertEqual(outs, {"stored_nx", "odd_nx", "discard_nx"})
         text = strip((V35 / "v35_queue.sv").read_text())
         self.assertRegex(text, r"cnt\s*<=\s*stored_nx\s*;")
 
@@ -367,20 +368,20 @@ BUDGET_PAIR = {
     ("eu", "regram"): 8, ("eu", "useq"): 14,
     ("intc", "eu"): 10, ("intc", "useq"): 3,
     ("loader", "eu"): 13, ("loader", "queue"): 2, ("loader", "useq"): 12,
-    ("queue", "bus"): 2, ("queue", "loader"): 15,
+    ("queue", "bus"): 2, ("queue", "loader"): 11,
     ("regram", "bus"): 1, ("regram", "eu"): 2,
     ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 14, ("useq", "queue"): 2,
 }
 # the next-value outputs left at step D (none may be added), each with its reader: the bus
 # unit's delivery (loader q_dlv_nx: q_stall_nx's byte count), datum register (loader h_dlv_nx:
 # the tag register) and the EU's cycle end (eu req_done_nx: opr_rdy_nx, rq_busy_nx,
-# wr_hold_nx); the queue's four (loader: q_stall_nx's byte count); the loader's q_stall_nx
+# wr_hold_nx); the queue's three (loader: q_stall_nx's byte count); the loader's q_stall_nx
 # (useq: the registered stall) and opc / modrm / fmt (eu: the early register read); the
 # sequencer's word and two derived bits (eu: the early read; loader: lx); the EU's three (useq:
 # the registered stall)
 NX_OUTPUTS = {
     "bus": {"dlv_fetch_nx", "done_nx", "eu_done_nx"},
-    "queue": {"discard_nx", "latv_nx", "odd_nx", "stored_nx"},
+    "queue": {"discard_nx", "odd_nx", "stored_nx"},
     "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx"},
     "useq": {"w_dispm_nx", "w_erep_nx", "word_nx"},
     "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx"},

@@ -238,7 +238,7 @@ module v35_top
     // the modules' ce_a registers): the bus unit's, the queue's, the loader's, the datapath's
     wire        b_done_nx;
     wire [2:0]  q_st_nx;
-    wire        q_lv_nx, q_od_nx, q_dc_nx;
+    wire        q_od_nx, q_dc_nx;
     wire        l_qs_nx;
     wire        e_ordy_nx, e_rqb_nx, e_wrh_nx;
     // (A1) the grant (S4) and the EU request port
@@ -253,9 +253,9 @@ module v35_top
     wire [19:0] q_fetch_addr;
     wire [2:0]  q_avail, q_stored;
     wire [15:0] q_ip;                   // (step D) the queue's head byte's offset in PS
-    wire [7:0]  q_h0, q_hl;             // (MX5b) the queue's registered head facts
-    wire        q_hlv, q_hod;
-    wire [QTAG_W-1:0] q_h0t, q_hlt;     // (MX5c) the byte tags the queue stores
+    wire [7:0]  q_h0;                   // (MX5b) the queue's registered head facts
+    wire        q_hod;
+    wire [QTAG_W-1:0] q_h0t;            // (MX5c) the byte tag the queue stores
     wire [2*QTAG_W-1:0] ld_dlv_tag;
     wire        q_fetch_req;
     // (MX0) the loader: the word register, the popped bytes, the decode
@@ -352,22 +352,22 @@ module v35_top
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .fetch_req(q_fetch_req), .fetch_addr(q_fetch_addr),
         .fetch_go(g_fetch), .dlv_v(dlv_fetch), .dlv_data(b_done_data), .dlv_tag(ld_dlv_tag),
-        .vb0(qv0), .vb1(qv1), .avail(q_avail), .hip(q_ip), .stored(q_stored), .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_q0t(q_h0t), .h_latt(q_hlt), .pop_n(ld_pop),
+        .vb0(qv0), .vb1(qv1), .avail(q_avail), .hip(q_ip), .stored(q_stored), .h_q0(q_h0), .h_odd(q_hod), .h_q0t(q_h0t), .pop_n(ld_pop),
         .flush(x_flush), .flush_addr(flush_off), .reset_ip(tb_reset_ip), .susp(q_susp), .ps_base,
-        .stored_nx(q_st_nx), .latv_nx(q_lv_nx), .odd_nx(q_od_nx), .discard_nx(q_dc_nx)
+        .stored_nx(q_st_nx), .odd_nx(q_od_nx), .discard_nx(q_dc_nx)
     );
 
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
-        .qv0, .qv1, .q_avail, .q_stored, .h_q0(q_h0), .h_lat(q_hl), .h_latv(q_hlv), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .h_latt(q_hlt), .dlv_tag(ld_dlv_tag), .pop_n(ld_pop),
+        .qv0, .qv1, .q_avail, .q_stored, .h_q0(q_h0), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .dlv_tag(ld_dlv_tag), .pop_n(ld_pop),
         .q_ip, .flush(x_flush), .flush_w(word.flush),
         .ex, .pop(word.pop), .e_pop(word.e), .disp(x_disp),
         .dispm(w_dispm), .e_rep(w_erep), .e_pfx(word.pfx), .e_rep_nx(w_erep_nx), .q_stall, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
         .dl(ld_dl), .dh(ld_dh), .fmt, .opc_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx, .op3(ld_op3), .dec2, .len(ld_len),
         .dent, .dcall, .dret,
         .ec_reg, .ec_call, .ec_head,
-        .pop_nx(word_nx.pop), .e_pop_nx(word_nx.e), .q_stored_nx(q_st_nx), .q_latv_nx(q_lv_nx),
+        .pop_nx(word_nx.pop), .e_pop_nx(word_nx.e), .q_stored_nx(q_st_nx),
         .q_odd_nx(q_od_nx), .q_discard_nx(q_dc_nx), .q_dlv_nx(dlv_fetch_nx),
         .flush_w_nx(word_nx.flush), .dispm_nx(w_dispm_nx),
         .q_stall_nx(l_qs_nx),
