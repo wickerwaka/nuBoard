@@ -2639,3 +2639,20 @@ question, decided from S8's routed numbers with the user.
   last full gate (the same programs differing). **FPGA at 17 ns: +1.384 / +2.079 / +1.916 on
   seeds 1 / 2 / 3** (the base +1.996 / +1.768 / +1.875), 9,209 LUT4 / 629 ADD / 2,421 FF /
   79 RAM_5K.
+- **2026-11-15, interface plan step E1: where the plain machine leaves silicon, and two queue
+  mechanisms.** Measured with no RTL change: every corpus run leaves silicon in the shared
+  prelude, at the first fetch after its POP PSW read (the RTL's queue one word ahead; at 1 / 2
+  waits also 3 / 4 clocks early). **Kept, both in v35_queue, no port added:** M1 the queue is six
+  bytes (the latch no longer a seventh place of room; the latch is now unreachable, removal left
+  for E2); M2 the request line is formed from the registered count (a pop's room reaches the bus
+  unit a clock later; the decoder's pop leaves the request line). Each alone moves the first
+  fetch the wrong way; together it is silicon's word on silicon's clock on all 10,420 zero-wait
+  runs. **Corpus 0 exact (0 lost, 0 gained);** mean matched prefix 1.00 to 2.02 events.
+  **Rejected:** "the E word / every microword / every pop waits while a fetch is in flight"
+  (the MOV r16,imm16 train per two instructions 12 / 13 / 15, 16 / 19 / 22, 12 / 15 / 18 at
+  0 / 1 / 2 waits against silicon's 14 / 16 / 19). **Open:** the EU's pace against the fetches
+  (that train; SHL's 12 + 2n against 11 + 2n), the POP PSW read's one clock per wait state.
+  Gate: write data 106,824 / 106,824, chk silent, vectors 0 bad, lint clean, 54 fast tests,
+  SingleStepTests 0 fails, the short program and fuzz set as step D (periph f4_tm timing only).
+  **FPGA at 17 ns: +2.561 / +2.676 / +1.984 on seeds 1 / 2 / 3** (the base +1.384 / +2.079 /
+  +1.916), 9,230 LUT4 / 629 ADD / 2,444 FF / 79 RAM_5K.

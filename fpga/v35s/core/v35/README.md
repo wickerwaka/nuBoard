@@ -7252,3 +7252,45 @@ brings timing back one mechanism at a time).
   (the room's rel / stg / unc_a thresholds gone); the grant loses the reservation, the low hint,
   the I/O hold, the recovery window and the aborted cycle; the registered stall reads five facts.
   New registers: the bus unit's wd_r / wd_w, the queue's hip (the loader's ipo and foff_b gone).
+
+## Step E1: where the plain machine leaves silicon, and the queue's two mechanisms
+
+Step E of docs/v35s-core-v2-interfaces.md (section 6), first part. Measured first (no RTL
+change), then two mechanisms built, each one definition in the module that owns the resource.
+
+- **Where every run leaves silicon (step D's tree).** The first bus event that differs is the
+  same in all 30,536 corpus runs: the fetch after the prelude's POP PSW read (the first event the
+  normaliser keeps). The RTL fetches `10028` where silicon fetches `10026`: at the read the RTL's
+  queue already held one word more than silicon's. At w0 the clock agrees; at w1 / w2 the RTL is
+  also 3 / 4 clocks early. Seen in the clock-0 frame the same runs leave at the second fill fetch,
+  and in the scored frame at the fetch after the fill (the brief's +71 against +76): the prelude's
+  MOV r16,imm16 train runs at the bus's pace in the RTL (5 clocks an instruction) and at the EU's
+  in silicon (7 / 8 / 9.5 at w0 / w1 / w2), which places the first LS differently against the
+  fill. Table and candidates: stepe1 divergence-table.md.
+- **E1 M1, the queue is six bytes (v35_queue).** The request line's room counts the six storage
+  bytes only (`CAP = QUEUE_BYTES`; it was `QUEUE_BYTES + 1`, the latch counted as a seventh
+  place). The V30's measured geometry (biu_model.md exp 1: depth never above six, no fetch started
+  at five) and the frozen model's QUEUE_BYTES 6 with the opcode latch outside the queue (the
+  loader's staging register here). With a six-byte room no seventh byte is ever held, so the
+  queue's latch never loads (`+v35_chk` checks it every clock); it stays in place, unreachable.
+- **E1 M2, the request line from the registered count (v35_queue).** The line is formed from the
+  queue's count at the start of the clock (this clock's delivery in, this clock's pops not): a
+  pop's room reaches the bus unit's decision on the next clock, a pipeline stage between the
+  queue's read side and the bus unit's request input (the V30: "the second pop restarts
+  fetching, new T1 within ~2 cycles"). The decoder's pop is no longer on the request line
+  (tick A's delivery chain loses the compare of the pop with a threshold, `k_rm`).
+- **Both are needed for the first event, and each alone moves it the other way** (F0 F0w F1 F2,
+  212 runs): M1 alone puts `10026` one clock early at w0 (-1), M2 alone one clock late (+1),
+  together on the clock. No port is added; no module's port list changes.
+- **Result (full corpus, default spacing, `+v35_chk`):** 0 exact (step D 0: none lost, none
+  gained); write data 106,824 / 106,824; chk silent. Every w0 run (10,408) now passes the POP PSW
+  point and leaves silicon three fetches later, in the MOV r16,imm16 train (`1002C` 4 clocks
+  early); the w1 / w2 runs (20,128) still leave at the POP PSW point, now 1 / 2 clocks early: one
+  clock per wait state, the POP PSW routine's F word never waiting for the read's datum (its five
+  OPEN words cover the read at every wait). Mean matched prefix of the whole list 1.00 -> 2.02.
+- **Not built (findings, stepe1-table.md):** the train's coupling of the EU to the fetch (the
+  take sync's measured effect: 7 / 8 / 9.5 clocks per MOV r16,imm16 at w0 / w1 / w2). Three
+  one-definition forms of "an EU act waits while a fetch is in flight" (the E word, every pop,
+  every word) give 6 / 6.5 / 7.5, 6 / 7.5 / 9 and 8 / 9.5 / 11: none is silicon's, so none is
+  that mechanism. The POP PSW F class has no hardware mechanism of its own (it is the placement
+  of F against OPEN words). Stopped there for the overseer's review.

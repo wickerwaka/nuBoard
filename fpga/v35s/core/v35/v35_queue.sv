@@ -10,10 +10,16 @@
 // suspends prefetching; the bus unit samples the request line at its decision point (once a
 // clock, at the end of tick A) and reports a fetch's start and its word's delivery.
 //
-//   fetch_req   the request line, a level: room for a word and not suspended. The room is the
-//               queue's own count: the bytes it holds after this clock's delivery and pops (the
-//               storage and the latch) plus 2 for a word in flight, at most CAP - 2 (CAP 7: six
-//               storage bytes and the latch), so a word issued now always has its two places
+//   fetch_req   the request line, a level: room for a word and not suspended. (E1) The room is
+//               the queue's own count as it stands at the start of the clock: the bytes it holds
+//               (this clock's delivery included, this clock's pops not) plus 2 for a word in
+//               flight, at most QUEUE_BYTES - 2 (the six storage bytes: a word issued now always
+//               has its two places in the storage). Two mechanisms, each one definition:
+//               (E1 M1) the queue is six bytes: nothing beyond the storage counts as room
+//               (the V30's measured geometry, biu_model.md exp 1: depth never above 6, no
+//               fetch started at 5); (E1 M2) the line is formed from the registered count, so
+//               a pop's room reaches the bus unit's decision on the next clock (a pipeline
+//               stage between the queue's read side and the bus unit's request input)
 //   fetch_addr  {PS, 0} + pfp with the 16-bit wrap (a flush on this clock: the new stream's);
 //               an odd pfp (an odd transfer target) fetches its word and drops the low byte
 //   vb0, vb1,   the head window and the stored count, this clock's delivery bypassed (S1
@@ -23,6 +29,9 @@
 //
 // The latch: the window's seventh byte waits in the latch register (`lat`, `lat_byte`) and is
 // in the window behind the stored ones; it moves into the storage when there is a place.
+// (E1) With the six-byte room (M1) a seventh byte is never held, so the latch never loads
+// (`+v35_chk` checks it every clock); it is left in place, unreachable, for the overseer to
+// remove with the loader's head select (h_lat / h_latv) when the tags are reworked.
 // (Step D) The rule-only room terms are gone: the read / release split (`unrel`: bytes read and
 // still counted until the loader released them), the staging slot's count (`stg`), the
 // delivered word's second byte uncounted on a releasing clock (`unc_a`) and latched there, the
@@ -93,7 +102,9 @@ module v35_queue
     input  wire        susp,            // suspend prefetch: the request line held low (tick A)
     input  wire [19:0] ps_base          // {PS, 0} (after this clock's far transfer)
 );
-    localparam int CAP = QUEUE_BYTES + 1;
+    // (E1 M1) the queue's capacity: its six storage bytes (was QUEUE_BYTES + 1, the latch
+    // counted as a seventh place)
+    localparam int CAP = QUEUE_BYTES;
     // (step C) the pop as the read count the arithmetic below was written for
     wire [2:0]  rd = {1'b0, pop_n};
 
@@ -160,15 +171,14 @@ module v35_queue
     assign vb1 = seqb(4'd1);
 
     // ------------------------------------------------------------ tick A: the request line
-    // The occupancy after this clock: the window less the pops (no flush; a flush empties it)
+    // (E1 M2) The occupancy at the start of the clock: the window (this clock's delivery in)
     // plus 2 for a word in flight (a fetch issued on an earlier clock whose word is not
-    // delivered now). The line is up while that is at most CAP - 2. With the decoder's pop (the
-    // one late input) entering last: avail_w - rd + i2 <= CAP - 2 is rd >= avail_w + i2 - (CAP
-    // - 2), a compare of the pop with a threshold formed from registers (kept as a node)
+    // delivered now); this clock's pops are not read (their room is seen on the next clock).
+    // The line is up while that is at most CAP - 2 (a flush empties the queue: only a word in
+    // flight counts). Registers only: the decoder's pop is no longer on the request line
     wire       infl_a = inflight && !dlv_v;
     wire [4:0] i2 = infl_a ? 5'd2 : 5'd0;
-    (* syn_keep = "true" *) wire [5:0] k_rm = 6'({2'd0, avail_w} + {1'b0, i2} - 6'(CAP - 2));
-    wire       room = flush ? i2 <= 5'(CAP - 2) : $signed({3'd0, rd}) >= $signed(k_rm);
+    wire       room = flush ? i2 <= 5'(CAP - 2) : {1'b0, avail_w} + i2 <= 5'(CAP - 2);
     assign fetch_req = room && !susp;
     // (MX5) the fetch address: the two sums formed from registers, the flush selecting last
     wire [19:0] fa_f = ps_base + {4'd0, flush_addr};
@@ -176,7 +186,7 @@ module v35_queue
     assign fetch_addr = flush ? fa_f : fa_n;
 `ifndef SYNTHESIS
     // the direct arithmetic: the reference of `+v35_chk` and the qdbg trace's occ
-    wire [3:0] cnt_x = flush ? 4'd0 : avail_w - {1'b0, rd};
+    wire [3:0] cnt_x = flush ? 4'd0 : avail_w;
     wire [4:0] occ = {1'b0, cnt_x} + i2;
     wire       freq_x = occ <= 5'(CAP - 2) && !susp;
     wire [15:0] pfp_x = flush ? flush_addr : pfp;
@@ -253,7 +263,7 @@ module v35_queue
     reg ovf = 1'b0;
     initial diag = $test$plusargs("v35_diag");
     always @(posedge clock) begin
-        if (reset_n && ce_a && !ovf && cnt_e > 4'(CAP)) begin
+        if (reset_n && ce_a && !ovf && cnt_e > 4'(CAP)) begin   // (E1) more than six held
             ovf <= 1'b1;
             if (diag)
                 $display("v35: queue overflow");
@@ -280,7 +290,9 @@ module v35_queue
         if (chk_on && reset_n && ce_a) begin
             if (rd_r !== rd || flush_r !== flush || go_r !== fetch_go || faddr_r !== flush_addr
                 // (MX5) the request line against the direct arithmetic
-                || fetch_req !== freq_x || fetch_addr !== faddr_x) begin
+                || fetch_req !== freq_x || fetch_addr !== faddr_x
+                // (E1 M1) with the six-byte room the latch (a seventh byte) never loads
+                || lat_e) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: queue: a tick A input changed in tick B at %0t", $time);
