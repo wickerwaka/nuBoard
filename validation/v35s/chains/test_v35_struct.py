@@ -18,6 +18,11 @@ Rules (comments and string literals are stripped first):
    carrying a class, format, row, step, count mode or kind of instruction; the bus unit's inputs
    are its clocking and configuration, the EU request port (exactly the strategy's nine signals),
    the queue's port and the three read strobes of the aborted fetch, nothing else.
+7. (step B, docs/v35s-core-v2-interfaces.md) the port budget: per core module the outputs read
+   and the inputs driven by another core module, per module pair the wires, both as v35_top
+   wires them and both ceilings; v35_top's logic outside simulation is the clock, the reset
+   exit, the ticks, the pins and named nets only, its instance connections plain wiring; no
+   module adds a next-value (`_nx`) output.
 The checks are textual (a lint, not a parser): keep blocks plain `begin ... end`."""
 
 from __future__ import annotations
@@ -132,7 +137,8 @@ EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data", "req_resv", 
 BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "rfm", "data_in",
               "fetch_req", "q_low", "q_word", "fetch_addr",       # the queue's port
               "t_start", "take_now", "l_pop",                     # (Q2) the aborted fetch's reads
-              "idb", "ramen", "oc_data",                          # (F1) the on-chip decision (SFR registers) and datum
+              "idb", "ramen",                                     # (F1) the on-chip decision (SFR registers)
+              "sfr_rd", "oc_rd",                                  # (step B) the on-chip cycle's read data (SFR page, register RAM)
               "hrq", "rdy_en", "rdy_lv"}                          # (F4d) HLDRQ, PMC1 bit 7, READY (v35_sfr's registers: pins)
 INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t", "v35_uword_t",
                "v35_udec_t", "v35_udecm_t")
@@ -284,6 +290,237 @@ class Lint(unittest.TestCase):
         self.assertEqual(h, "posedge clock")
         self.assertIn("q <= d", b)
         self.assertNotIn("settle", t)
+
+
+
+
+# ------------------------------------------------------------------------------------------------
+# (step B, docs/v35s-core-v2-interfaces.md section 6) The port budget: the signals between the
+# core's modules as v35_top wires them, as ceilings (a later batch may lower a count without
+# editing this test, never raise one); v35_top's own logic limited to its named categories (the
+# CPU clock's divider, the reset exit, the two ticks, the pins' idle forcing, wiring, the trace and
+# the simulation's observation); no new next-value (`_nx`) output.
+
+CORE = ROOT / "fpga" / "v35s" / "core"
+TOP = V35 / "v35_top.sv"
+# instance -> (file, module): the core's modules (v35_intc, the interrupt / service unit, lives in
+# ../v35_sfr.sv beside the peripherals)
+CORE_INSTANCES = {
+    "bus": (V35 / "v35_bus.sv", "v35_bus"),
+    "queue": (V35 / "v35_queue.sv", "v35_queue"),
+    "loader": (V35 / "v35_loader.sv", "v35_loader"),
+    "useq": (V35 / "v35_useq.sv", "v35_useq"),
+    "eu": (V35 / "v35_eu.sv", "v35_eu"),
+    "regram": (V35 / "v35_regram.sv", "v35_regram"),
+    "intc": (CORE / "v35_sfr.sv", "v35_intc"),
+}
+# ceilings at step B's hand-back: per module, the outputs read by another core module and the
+# inputs driven by one; per (driver, reader) pair, the reader's inputs the driver feeds
+BUDGET_MODULE = {
+    "bus": {"out": 26, "in": 16},
+    "queue": {"out": 19, "in": 11},
+    "loader": {"out": 38, "in": 35},
+    "useq": {"out": 20, "in": 50},
+    "eu": {"out": 36, "in": 39},
+    "regram": {"out": 3, "in": 13},
+    "intc": {"out": 14, "in": 14},
+}
+BUDGET_PAIR = {
+    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 5, ("bus", "queue"): 4,
+    ("bus", "regram"): 5, ("bus", "useq"): 12,
+    ("eu", "bus"): 8, ("eu", "intc"): 3, ("eu", "loader"): 2, ("eu", "queue"): 1,
+    ("eu", "regram"): 8, ("eu", "useq"): 15,
+    ("intc", "eu"): 11, ("intc", "useq"): 3,
+    ("loader", "bus"): 3, ("loader", "eu"): 14, ("loader", "queue"): 4, ("loader", "useq"): 19,
+    ("queue", "bus"): 4, ("queue", "loader"): 14, ("queue", "useq"): 1,
+    ("regram", "bus"): 1, ("regram", "eu"): 2,
+    ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 14, ("useq", "queue"): 2,
+}
+# the next-value outputs as at step B (none may be added; step D removes them)
+NX_OUTPUTS = {
+    "bus": {"b2b_now_nx", "dlv_fetch_nx", "done_nx", "eu_done_nx", "fetch_inflight_nx",
+            "fetch_past_b2_nx", "in_wait_nx"},
+    "queue": {"discard_nx", "latv_nx", "odd_nx", "stored_nx"},
+    "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx", "rmem_nx", "s_modrm_nx",
+               "s_wbs_nx"},
+    "useq": {"w_dispm_nx", "w_erep_nx", "word_nx"},
+    "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx"},
+}
+# v35_top's registers outside simulation (the divider, the reset exit, the ticks, N/S's sampler,
+# the pins' idle forcing) and its continuous logic (operators on the right-hand side)
+TOP_REGS = {"x_count", "pck", "state_n", "started", "core_run", "rx_refrq_n", "ceb_age",
+            "b_seen", "ns_r", "a0", "a19", "a18_ube", "mux_address", "data_out", "mreq_n",
+            "mstb_n", "iostb_n", "read_write", "refrq_n"}
+TOP_CE_REGS = {"ceb_age", "b_seen"}     # the registers v35_top loads in a block reading ce_a / ce_b
+                                        # outside simulation: the ticks' own (b_seen: a ce_b since reset)
+TOP_LOGIC = {"x_last", "x_mid", "state_start", "state_mid", "state_now", "core_reset_n",
+             "ce_e", "ce_a", "ce_b", "q_flush_addr",
+             "unused"}          # (the lint's sink of unread inputs)
+_OPS = re.compile(r"&&|\|\||==|!=|<=|>=|[?~!^+\-<>|&*/%]")
+
+
+def synth_text(text: str) -> str:
+    """The text a synthesis build reads: `ifndef SYNTHESIS` branches blanked (lines kept)."""
+    out, stack = [], []
+    for line in text.split("\n"):
+        s = line.strip()
+        if s.startswith("`ifndef") or s.startswith("`ifdef"):
+            stack.append(s.split()[0] == "`ifndef" and s.split()[1] == "SYNTHESIS")
+            out.append("")
+            continue
+        if s.startswith("`else"):
+            if stack:
+                stack[-1] = False if stack[-1] else stack[-1]
+            out.append("")
+            continue
+        if s.startswith("`endif"):
+            if stack:
+                stack.pop()
+            out.append("")
+            continue
+        out.append("" if any(stack) else line)
+    return "\n".join(out)
+
+
+def module_ports(path: Path, module: str) -> list:
+    """(direction, type, name) of `module`'s ANSI port list in `path`."""
+    text = strip(path.read_text())
+    m = re.search(rf"\bmodule\s+{module}\b.*?\((\s*(?:input|output|inout)\b.*?)\);", text,
+                  flags=re.S)
+    out = []
+    for decl in re.split(r",\s*(?=(?:input|output|inout)\b)", m.group(1)):
+        d = re.match(r"\s*(input|output|inout)\s+(.*)$", decl.strip(), flags=re.S)
+        if not d:
+            continue
+        names = [n.strip() for n in d.group(2).replace("\n", " ").split(",") if n.strip()]
+        head = names[0].split()
+        typ = " ".join(head[:-1])
+        out.append((d.group(1), typ, head[-1]))
+        out += [(d.group(1), typ, n.split()[-1]) for n in names[1:]]
+    return out
+
+
+def instances(text: str) -> dict:
+    """instance -> {port: expression} for every `v35_* [#(...)] name (...);` in `text`."""
+    out = {}
+    for m in re.finditer(r"\b(v35_\w+)\s*(?:#\s*\((?:[^()]|\([^()]*\))*\))?\s+(\w+)\s*\(", text):
+        i, depth = m.end(), 1
+        while depth:
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            i += 1
+        body = text[m.end():i - 1]
+        conns, j = {}, 0
+        for c in re.finditer(r"\.(\w+)\s*", body):
+            if c.start() < j:
+                continue
+            k = c.end()
+            if k < len(body) and body[k] == "(":
+                d, e = 1, k + 1
+                while d:
+                    d += {"(": 1, ")": -1}.get(body[e], 0)
+                    e += 1
+                conns[c.group(1)] = body[k + 1:e - 1].strip()
+                j = e
+            else:
+                conns[c.group(1)] = c.group(1)
+                j = k
+        out[m.group(2)] = conns
+    return out
+
+
+def idents(expr: str) -> set:
+    """The nets an expression reads (a struct field or hierarchical part is its base name)."""
+    expr = re.sub(r"\d*'[sS]?[bBhHdD][0-9a-fA-F_xXzZ]+|\d+'\(|'\d+", " ", expr)
+    return {n for n in re.findall(r"(?<![.\w])([A-Za-z_]\w*)", expr)}
+
+
+def budget(v35: Path = V35, core: Path = CORE) -> tuple:
+    """(per module {"out": n, "in": n}, per pair {(driver, reader): n}) as v35_top wires them."""
+    top = synth_text(strip((v35 / "v35_top.sv").read_text()))
+    inst = instances(top)
+    dirs = {}
+    for name, (path, module) in CORE_INSTANCES.items():
+        path = (core if path.parent == CORE else v35) / path.name
+        dirs[name] = {n: d for d, _, n in module_ports(path, module)}
+    driver = {}
+    for name in CORE_INSTANCES:
+        for port, expr in inst.get(name, {}).items():
+            if dirs[name].get(port) == "output":
+                for n in idents(expr):
+                    driver[n] = (name, port)
+    mod = {n: {"out": set(), "in": set()} for n in CORE_INSTANCES}
+    pair = {}
+    for name in CORE_INSTANCES:
+        for port, expr in inst.get(name, {}).items():
+            if dirs[name].get(port) != "input":
+                continue
+            src = {driver[n] for n in idents(expr) if n in driver and driver[n][0] != name}
+            for d, dport in src:
+                mod[d]["out"].add(dport)
+            if src:
+                mod[name]["in"].add(port)
+            for d in {d for d, _ in src}:
+                pair[(d, name)] = pair.get((d, name), 0) + 1
+    return ({n: {"out": len(v["out"]), "in": len(v["in"])} for n, v in mod.items()}, pair)
+
+
+def always_bodies(text: str) -> list:
+    """The body of every `always` / `always_ff` / `always_comb` block (its event control
+    skipped): a begin ... end matched by nesting, or a single statement up to its `;`."""
+    out = []
+    for m in re.finditer(r"\balways(?:_ff|_comb|_latch)?\b\s*(?:@\s*(?:\*|\([^)]*\)))?", text):
+        i = m.end()
+        b = re.match(r"\s*begin\b", text[i:])
+        if b:
+            depth, j = 0, i
+            for t_ in re.finditer(r"\b(begin|end)\b", text[i:]):
+                depth += 1 if t_.group(1) == "begin" else -1
+                if depth == 0:
+                    j = i + t_.end()
+                    break
+            out.append(text[i:j])
+        else:
+            out.append(text[i:text.index(";", i) + 1])
+    return out
+
+
+class Budget(unittest.TestCase):
+    def test_module_ports_within_budget(self):
+        mod, _ = budget()
+        for name, lim in BUDGET_MODULE.items():
+            self.assertLessEqual(mod[name]["out"], lim["out"], f"{name} outputs to the core")
+            self.assertLessEqual(mod[name]["in"], lim["in"], f"{name} inputs from the core")
+        self.assertEqual(set(mod) - set(BUDGET_MODULE), set())
+
+    def test_module_pairs_within_budget(self):
+        _, pair = budget()
+        for p, n in pair.items():
+            self.assertLessEqual(n, BUDGET_PAIR.get(p, 0), f"{p[0]} -> {p[1]}")
+
+    def test_no_new_next_value_output(self):
+        for name, (path, module) in CORE_INSTANCES.items():
+            nx = {n for d, _, n in module_ports(path, module) if d == "output" and n.endswith("_nx")}
+            self.assertEqual(nx - NX_OUTPUTS.get(name, set()), set(), name)
+
+    def test_top_holds_no_module_logic(self):
+        """v35_top outside simulation: registers only of the named list (under ce_a / ce_b only
+        the ticks' own), continuous logic only of the named list, instance connections plain wiring (a
+        net, a constant, a bit or field select: no operator)."""
+        text = synth_text(strip(TOP.read_text()))
+        for body in always_bodies(text):
+            regs = set(re.findall(r"([A-Za-z_]\w*)(?:\s*\[[^\]]*\])*\s*<?=(?!=)", body))
+            regs -= _KEYWORDS
+            self.assertEqual(regs - TOP_REGS, set(), body[:200])
+            if re.search(r"\bce_[ab]\b", body):
+                self.assertEqual(regs - TOP_CE_REGS, set(), body[:200])
+        for m in re.finditer(r"\b(?:assign|wire|reg)\b(?:\s+(?:signed|\[[^\]]*\]))*\s+(\w+)\s*=([^;]*);",
+                             text):
+            if _OPS.search(m.group(2)):
+                self.assertIn(m.group(1), TOP_LOGIC, m.group(0))
+        for name, conns in instances(text).items():
+            for port, expr in conns.items():
+                self.assertIsNone(_OPS.search(re.sub(r"\[[^\]]*\]", "", expr)),
+                                  f"{name}.{port}({expr})")
 
 
 if __name__ == "__main__":

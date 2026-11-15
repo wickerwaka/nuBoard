@@ -96,10 +96,10 @@ module v35_useq
     input  wire        f_grant,
     input  wire        f_dlv,
     input  wire        wake,            // (F3) HALT's release (v35_intc's register: NMI or an unmasked IF)
-    input  wire        igo,             // (F3) an interrupt is taken at this dispatch (v35_top: an AND-OR
-                                        //   of registers): the DISP word goes to UROM_INT, not dent
+    input  wire        igo,             // (F3) an interrupt is taken at this dispatch (v35_intc: an
+                                        //   AND-OR of registers): the DISP word goes to UROM_INT, not dent
     input  wire        sgo,             // (F5e) an interrupt is taken at a string's take point (a TKI
-                                        //   word; v35_top: an AND-OR of registers): the word's target
+                                        //   word; v35_intc: an AND-OR of registers): the word's target
     // (MX5c) tick B: the next values of the stall's inputs (the D nets of their ce_a registers,
     // as they stand after the coming ce_a): the loader's, the datapath's, the bus unit's
     input  wire        q_stall_nx,
@@ -117,15 +117,28 @@ module v35_useq
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
     output v35_uword_t word_nx,         // (MX5b) tick B: the next word (the banks' read data)
-    output wire        w_disp,          // (MX5) the word's derived bits (registers): seq == SQ_DISP
-    output wire        w_dispm,         // ... seq == SQ_DISPM
+    output wire        w_dispm,         // (MX5) the word's derived bits (registers): seq == SQ_DISPM
     output wire        w_dispm_nx,      // (MX5c) tick B: the next word's seq == SQ_DISPM
     output wire        w_erep,          // (F5d) the word's derived bit (a register): e && ea == EA_REP
     output wire        w_erep_nx,       // ... tick B: the next word's
-    output wire        w_tki,           // (F5e) the word's derived bit (a register): seq == SQ_TKI
     output wire        ex,              // the word executes this clock (tick A)
-    output wire        ex_pop,          // ... the pops' copy (its own register, the same stall)
     output reg         ex_b,            // ... registered at ce_b (tick B, ce_a)
+    // (step B) the take points and acts the interrupt / service unit (v35_intc) reads, named for
+    // what they are (each an AND of the registered outcome and the word's fields or derived
+    // bits): tick A
+    output wire        x_disp,          // the dispatch word executes: an instruction boundary
+    output wire        x_tki,           // a TKI word executes: a string's take point
+    output wire        x_end,           // an E word executes (the instruction's last word) ...
+    output wire        x_nb,            // ... marking its end no boundary (a prefix, EI, DI, a
+                                        //   segment register's load: `nb`)
+    output wire        x_nbi,           // ... dropping the interrupt arms (POP PSW, RETI, FINT:
+                                        //   seg=NBI)
+    output wire        x_flush,         // a FLUSH word executes (the queue's and the loader's flush)
+    // tick B (ex_b)
+    output wire        w_stop,          // the word is STOP's halt word (halt, cnt=stop; a level)
+    output wire        x_stop,          // ... and it executes
+    output wire        x_ivec,          // the take's IVEC word executes (the controller's acknowledge)
+    output wire        x_fint,          // FINT executes
     output wire        q_susp,          // (MX2) prefetching suspended (the queue's susp)
     output reg         halted
 );
@@ -196,10 +209,8 @@ module v35_useq
     wire [95:0] rw = {r2, r1, r0};
     assign word_nx = v35_uword_t'(rw[UWORD_BITS-1:0]);
     v35_upre_t pd = '0;
-    assign w_disp = pd.disp;
     assign w_dispm = pd.dispm;
     assign w_erep = pd.erep;
-    assign w_tki = pd.tki;
 
     reg [UADDR_W-1:0] retr = '0;
     reg [8:0]  cnt = 9'd0;
@@ -210,7 +221,7 @@ module v35_useq
     // word, its derived bits, the sequencer's counters, the loader's staging slot and byte
     // counts, the datapath's request registers and RAMEN, the bus unit's cycle registers), never
     // tick A's logic. `stall_f(i)` is the five stalls below on the facts `i`; the outcome
-    // (ex, ex_pop, st_oth, why) is `st_r`, a ce_a register loaded with stall_f of the facts' next
+    // (ex, st_oth, why) is `st_r`, a ce_a register loaded with stall_f of the facts' next
     // values (`si_nx`: tick B's word_nx and its derived bits, the ce_b registers the counters
     // load from, the other modules' *_nx outputs: the D nets of their registers), in reset with
     // stall_f of the facts as they stand. So st_r is stall_f(si_now) on every clock
@@ -224,7 +235,7 @@ module v35_useq
         logic       fetch_run, bus_wait, fetch_dph, b2b_now, f_dlv;
     } v35_sin_t;
     typedef struct packed {
-        logic       ex, exp, oth;
+        logic       ex, oth;
         logic [4:0] why;    // the stall's reason (the trace's W): 0 none, 1 q, 2 f, 3 slot, 4 hold,
                             //   5 halt, 6 fetch, 7 sync, (MX2) 8 susp, 9 refill, 10 unit
     } v35_stl_t;
@@ -299,8 +310,8 @@ module v35_useq
                       && !st_uh && !st_sus && !st_rfl && !st_fch;
         base = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_tsy && !st_wbw && !st_bw
                && !st_uh && !st_sus && !st_rfl;
-        // (the pops' copy of ex: with the law on the E word the same term, its own register)
-        stall_f.exp = base && !st_fch;
+        // (step B: one register, one port; the pops' copy of ex, the same term since step A, is
+        // gone)
         stall_f.ex = base && !st_fch;
         stall_f.why = f.halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3
                     : (st_hld || st_wbw) ? 5'd4 : st_bw ? 5'd3
@@ -347,8 +358,18 @@ module v35_useq
     end
     v35_stl_t  st_r = '0;
     wire       st_oth = st_r.oth;
-    assign ex_pop = st_r.exp;
     assign ex = st_r.ex;
+    // (step B) the take points and acts (v35_top's glue before: the same terms)
+    assign x_disp = ex && pd.disp;
+    assign x_tki = ex && pd.tki;
+    assign x_end = ex && word.e;
+    assign x_nb = ex && word.e && word.nb;
+    assign x_nbi = ex && word.e && word.seg == SG_NBI;
+    assign x_flush = ex && word.flush;
+    assign w_stop = word.halt && word.cnt == CN_STOP;
+    assign x_stop = ex_b && w_stop;
+    assign x_ivec = ex_b && word.alu == AL_IVEC;
+    assign x_fint = ex_b && word.alu == AL_FINT;
     // (MX3b) the unit's suspension of a dropped request. A fetch request the bus
     // unit dropped with an aborted cycle (`drop`, from that grant to the next fetch's) is not
     // raised again while the multiply / divide unit runs: prefetching suspended (the queue's
@@ -373,7 +394,7 @@ module v35_useq
     // the arming pop (tick A) and the deliveries owed from it
     // (MX3c) a 0F form's ModR/M byte, popped by its routine's EAC word, arms it as the E word's
     // ModR/M pop does (the frozen model's take sync after the page's operand take)
-    wire arm = ex_pop && ((word.e && e_rmodrm)
+    wire arm = ex && ((word.e && e_rmodrm)
                           || (!word.e && !rmem && pd.pilih)
                           || (!word.e && pd.pmodrm));
     // (a request the EU's own reservation holds back is not counted: the model's take sync
@@ -635,7 +656,7 @@ module v35_useq
     // the instruction start (the trace's S, the function bench's o_t_start; v35_top's observation
     // block reads it, no port carries it): a routine's entry word executes (`at_entry`: the word
     // is a routine's entry, not yet executed; an entry word is never the dispatch word, and an
-    // entry word that is an E word has ex_pop = ex)
+    // entry word that is an E word executes with ex)
     reg        at_entry = 1'b0;
     always_ff @(posedge clock) begin
         if (!reset_n)
@@ -643,7 +664,7 @@ module v35_useq
         else if (ce_a && ex_b)
             at_entry <= word.seq == SQ_DISP;
     end
-    wire       start = at_entry && ex_pop;
+    wire       start = at_entry && ex;
     // (S7b) chk: the ce_b registers against their sources at ce_a
     /* verilator lint_off BLKSEQ */
     reg chk_on = 1'b0;

@@ -141,6 +141,11 @@ module v35_loader
     output wire        q_stall_nx,
     output wire        s_modrm_nx,
     output wire        s_wbs_nx,
+    // (step B) the running instruction is a memory form (a ModR/M or page form whose ModR/M byte
+    // is not register mode: the sequencer's take sync), from the registers; tick B: from the
+    // values they load at the coming ce_a (v35_top's glue before)
+    output wire        rmem,
+    output wire        rmem_nx,
     input  wire        brki,            // (F2b) PSW.BRKI (the EU's register): the I/O trap's dispatch
     output reg  [15:0] ins_ip,          // (F2b) the instruction's start: the offset of the opcode the
                                         //   E word popped, kept through a segment prefix (its first
@@ -846,4 +851,7 @@ module v35_loader
     end
     /* verilator lint_on BLKSEQ */
 `endif
+    // (step B) the memory form (the sequencer's rmem / rmem_nx)
+    assign rmem = (fmt.has_modrm || fmt.pg) && modrm[7:6] != 2'd3;
+    assign rmem_nx = (fmt_nx.has_modrm || fmt_nx.pg) && modrm_nx[7:6] != 2'd3;
 endmodule

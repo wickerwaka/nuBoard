@@ -65,11 +65,12 @@ module v35_bus
     input  wire        ce_mid,      // the middle of a CPU clock (strobe edges)
     input  wire [15:0] wtc,
     input  wire [7:0]  rfm,         // RFM.RFW: a refresh cycle's length
-    // (F1) the on-chip decision (registers): IDB, PRC.RAMEN; the on-chip read's datum (a
-    // register, v35_top: the register RAM's port C or the SFR page, by the cycle's address)
+    // (F1) the on-chip decision (registers): IDB, PRC.RAMEN; (step B) the on-chip cycle's two
+    // targets' read data (registers: the SFR page's, the register RAM's port C)
     input  wire [7:0]  idb,
     input  wire        ramen,
-    input  wire [15:0] oc_data,
+    input  wire [15:0] sfr_rd,
+    input  wire [15:0] oc_rd,
 
     // (A1) the EU's request port (tick A)
     input  wire        req_v,       // a cycle is wanted (a level: stands until acknowledged)
@@ -117,11 +118,8 @@ module v35_bus
     input  wire        take_now,
     input  wire        l_pop,
 
-    // S4: the grant, as the queue, the EU and the sequencer read it
-    output wire        g_start,         // a cycle starts now (a fetch or an EU cycle)
-    output wire [2:0]  g_kind,
-    output wire [19:0] g_addr,
-    output wire [1:0]  g_width,
+    // S4: the grant, as the queue and the sequencer read it ((step B) the cycle granted, its
+    // kind, address and width: this unit's own, the trace's view by name)
     output wire        g_fetch,         // a fetch issued now
     output wire        g_abort,         // the aborted fetch cycle starts now
     output wire        b2b_now,         // (Q1) the line was high at the last clock, a fetch's last
@@ -131,10 +129,10 @@ module v35_bus
     output wire        fetch_inflight,  // bus.fetch_inflight(t)
     output wire        fetch_past_b2,   // a fetch past its second clock (start + 2 <= t)
     output wire        cpu_end_prev,    // a non-fetch cycle ended on t-1 (retry_after)
-    output wire        dlv_v,           // the cycle that ended on t-1 ...
-    output wire [2:0]  dlv_kind,
-    output wire [15:0] done_data,       // ... its read datum (on the pins mid-B3: (S7b) live
-                                        //   through the delivery clock, then latched)
+    output wire        dlv_fetch,       // (step B) a fetch ended on t-1: its word is delivered
+    output wire [15:0] done_data,       // the read datum of the cycle that ended on t-1 (on the
+                                        //   pins mid-B3: (S7b) live through the delivery clock,
+                                        //   then latched)
     output wire [15:0] done_nx,         // (F5t) tick B: done_data's next value (the datum register's D)
     output wire        done_ld,         // ... and its load (the register's enable)
     output wire        abort_busy,      // an aborted cycle is in flight (abort_end >= t)
@@ -144,9 +142,25 @@ module v35_bus
     output wire        fetch_past_b2_nx,
     output wire        in_wait_nx,
     output wire        b2b_now_nx,
-    output wire        dlv_v_nx,
-    output wire [2:0]  dlv_kind_nx,
+    output wire        dlv_fetch_nx,    // (step B) dlv_fetch's
     output wire        eu_done_nx,      // req_done's
+
+    // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write at its
+    // cycle's end: the enable at ce_a, its condition, the address, width and lane-placed datum;
+    // the read: the offset, word, a read cycle's strobe) and the internal RAM's write port (the
+    // register RAM's port C: written at the coming ce_b; the EU's segment flops read it too)
+    output wire        sfr_wr,
+    output wire        sfr_wat,
+    output reg  [19:0] sfr_a,
+    output reg  [1:0]  sfr_w,
+    output wire [15:0] sfr_d,
+    output reg  [7:0]  oc_off,
+    output reg         oc_word,
+    output wire        sfr_rdgo,
+    output reg         oc_we,
+    output reg  [6:0]  oc_wa,
+    output reg  [1:0]  oc_be,
+    output reg  [15:0] oc_wd,
 
     // pins (as v35s_model.sv)
     output wire        a0,
@@ -210,8 +224,7 @@ module v35_bus
     assign cpu_end_prev = d_v && d_kind != K_FETCH;
     assign req_done = cpu_end_prev && !d_p1;
     wire io_win = (busy && k_io(c_kind)) || io_tail != 2'd0;    // t <= last_io_end + io_recover
-    assign dlv_v = d_v;
-    assign dlv_kind = d_kind;
+    assign dlv_fetch = d_v && d_kind == K_FETCH;
     assign abort_busy = ab_v && ab_pos != 2'd2;
 
     // ------------------------------------------------ S4: the grant (one priority)
@@ -291,6 +304,10 @@ module v35_bus
     assign gn1 = gnt_f(1'b1);
     assign gn0 = gnt_f(1'b0);
     assign gn = fetch_req ? gn1 : gn0;
+    wire        g_start;            // a cycle starts now (a fetch or an EU cycle)
+    wire [2:0]  g_kind;
+    wire [19:0] g_addr;
+    wire [1:0]  g_width;
     assign g_abort = gn.abt;
     assign g_fetch = gn.fetch;
     assign req_ack = gn.ack;
@@ -358,8 +375,7 @@ module v35_bus
                          && !b2b_hold_b;
     assign b2b_now_nx = b2b_nx;
     wire        d_v_nx = busy && pos_now == c_len - 3'd1;
-    assign dlv_v_nx = d_v_nx;
-    assign dlv_kind_nx = c_kind;
+    assign dlv_fetch_nx = d_v_nx && c_kind == K_FETCH;
     assign eu_done_nx = d_v_nx && c_kind != K_FETCH && !(c_half == 2'd1);
     always @(posedge clock) begin
         if (!reset_n) begin
@@ -629,6 +645,72 @@ module v35_bus
             end
         end
     end
+
+    // ------------------------------------------------ (F1) the on-chip cycles
+    // (step B: moved in from v35_top; the decision is the grant's own `g_sfr_b`, made once on the
+    // request's address: IDB:E00-EFF with RAMEN = 1, IDB:F00-FFF, FFFFF; v35_top made it again
+    // on its own ce_b copy of the grant: the same value at every ce_a, IDB and PRC being written
+    // at ce_a only) An on-chip memory cycle is captured at its start: its offset (the SFR read's
+    // and the register RAM's port C address: both read at every ce_b, this unit latching the
+    // datum at the cycle's last clock) and its target. A store is written at its cycle's end
+    // with the EU's datum then (a store_imm takes its immediate after the store issued): the SFR
+    // page at that ce_a (as the SFR store always was); the internal RAM at the next ce_b (the
+    // register RAM's ce_a belongs to the EU's write port), and a write to the current bank's
+    // DS0 / SS / DS1 slot updates the segment's flop at the ce_a after (the EU's decode)
+    wire        g_top = g_addr_b == 20'hFFFFF;
+    wire        g_ocmem = g_start_b && g_sfr_b;
+    reg         sfr_open = 1'b0;
+    reg         oc_ram = 1'b0;          // the cycle's target: the internal RAM (else the SFRs)
+    reg         oc_rdgo = 1'b0;         // (F4b) an on-chip read cycle started at the last ce_a
+    initial begin
+        sfr_a = 20'd0;
+        sfr_w = 2'd0;
+        oc_off = 8'd0;
+        oc_word = 1'b0;
+        oc_we = 1'b0;               // an internal RAM write, landing at the coming ce_b
+        oc_wa = 7'd0;
+        oc_be = 2'b00;
+        oc_wd = 16'd0;
+    end
+    assign sfr_wr = ce_a && sfr_open && cpu_end_prev && !oc_ram;
+    assign sfr_wat = sfr_open && cpu_end_prev && !oc_ram;
+    assign sfr_rdgo = oc_rdgo && !oc_ram;
+    // the datum by lane: an odd word's halves (a byte cycle of a word request) carry its low
+    // byte on the high lane (the first, odd address) and its high byte on the low lane (the
+    // second), as this unit places them on the pins (the request's width: the EU port's
+    // req_width as it stands at the store's end, as before)
+    assign sfr_d = (sfr_w != BW_WORD && req_width) ? {req_data[7:0], req_data[15:8]} : req_data;
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            sfr_open <= 1'b0;
+            oc_we <= 1'b0;
+        end else if (ce_a) begin
+            oc_we <= 1'b0;
+            oc_rdgo <= 1'b0;
+            // a cycle's end and the next cycle's start can share the clock (an odd word's
+            // halves): the end reads the captured cycle, the start captures the new one
+            if (sfr_open && cpu_end_prev) begin
+                sfr_open <= 1'b0;
+                if (oc_ram) begin
+                    oc_we <= 1'b1;
+                    oc_wa <= sfr_a[7:1];
+                    oc_be <= sfr_w == BW_WORD ? 2'b11 : sfr_w == BW_HI ? 2'b10 : 2'b01;
+                    oc_wd <= sfr_d;
+                end
+            end
+            if (g_ocmem) begin
+                sfr_open <= g_kind_b == K_WRITE;
+                oc_rdgo <= g_kind_b == K_READ;
+                sfr_a <= g_addr_b;
+                sfr_w <= g_width_b;
+                oc_off <= g_top ? '1 : g_addr_b[7:0];
+                oc_word <= g_width_b == BW_WORD;
+                oc_ram <= !g_addr_b[8] && !g_top;
+            end
+        end
+    end
+    // the on-chip read's datum: the register RAM's port C or the SFR page, by the cycle's target
+    wire [15:0] oc_data = oc_ram ? oc_rd : sfr_rd;
 
     // read data: on the pins by mid-B3, delivered on the same CPU clock (the pins' B3 is the
     // core's delivery clock). (S7b) The datum register is written at mid-B3 (ce_mid, with ce_a):

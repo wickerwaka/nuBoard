@@ -83,7 +83,7 @@ module v35_sfr (
     input  wire        intak_n,
     output reg  [31:0] pins,
     output wire [14:0] pf_set,
-    // (F4c) DMA (v35_dma, below): the take and the routine's TC update (v35_top / the EU), the
+    // (F4c) DMA (v35_dma, below): the take and the routine's TC update (v35_intc / the EU), the
     // request and the take's descriptor (registers), the bus unit's DMA cycle on the pins (`dk`:
     // DMAAK's window, `dkt`: TC's, inside it)
     input  wire        dm_take,
@@ -495,7 +495,9 @@ endmodule
 //             in one pass (a group's first requesting member of either kind; the winner is
 //             `ms_v` when it is in macro service, else the offer `ir_v`; with IE 0 a group
 //             whose first member is vectored drops out: validation/v35s/prio.py)
-//   the take  the sequencer's dispatch takes the offer (v35_loader `go`); `iack` (the entry's
+//   the take  (step B: moved in from v35_top, below) the sequencer's dispatch or a string's take
+//             point takes the offer, NMI, a macro service, DMA or the single step (`igo` /
+//             `sgo`, the take strobes); STOP's settling count and HALT's release; `iack` (the entry's
 //             IVEC word) clears the taken source's IF and sets its level in ISPR (NMI: clears
 //             its request); FINT clears ISPR's highest-priority bit (f3_prio)
 //   HALT      `wake`: NMI or any IF with MK 0 (and MS 0); f3_vec: a masked request does not
@@ -503,7 +505,9 @@ endmodule
 // The resolution is a pipeline of registers (the groups' keys, two minimum stages, the offer),
 // two CPU clocks from an IF / MK / PR / ISPR change to the offer: the latency the sequencer's
 // boundary sees after a store (silicon's is longer: f3_lat; the gate's programs place an
-// absorber after each release). Every output is a ce_a register.
+// absorber after each release). Every output of the resolution is a ce_a register; the take's
+// (igo, sgo, tk_go, take_d, dm_rs, dm_smp, wake, ms_ch) are AND-ORs of registers and the
+// sequencer's take points, as they were in v35_top.
 /* verilator lint_off DECLFILENAME */
 module v35_intc (
     input  wire        clock,
@@ -511,49 +515,74 @@ module v35_intc (
     input  wire        ce_a,
     input  wire        ce_b,
     input  wire [15:0] input_levels,    // NMI 1, INTP0-2 2-4
-    // (F4d) STOP stands (v35_top's register): the INTP0-2 samplers hold their last levels (no
-    // edge is seen while stopped: f4_stop stop_intp, an INTP0 pulse in STOP leaves its IF 0);
-    // NMI's keeps sampling (it releases STOP)
-    input  wire        frz,
     input  wire [7:0]  intm,
     input  wire [8*15-1:0] ic_b,
     input  wire        wr,              // the SFR store's write enable (with ic_we)
     input  wire [14:0] ic_we,
     input  wire [14:0] ic_wd,
-    input  wire        take_n,          // the dispatch took NMI / the offer / the single step
-    input  wire        take_i,          //   (ce_a strobes, one clock)
-    input  wire        take_s,
+    // (step B) the sequencer's take points and acts (v35_useq; tick A unless noted)
+    input  wire        x_disp,          // the dispatch word executes: an instruction boundary
+    input  wire        x_tki,           // a TKI word executes: a string's take point
+    input  wire        x_end,           // an E word executes ...
+    input  wire        x_nb,            // ... marking its end no boundary (nb: a prefix, EI, DI, ...)
+    input  wire        x_nbi,           // ... dropping the arms (seg=NBI: POP PSW, RETI, FINT)
+    input  wire        halted,          // the sequencer's HALT stall (its register)
+    input  wire        w_stop,          // (F4d) the word is STOP's halt word (a level)
+    input  wire        x_stop,          // ... and it executes (tick B)
     input  wire        iack,            // the entry's IVEC word executes (ce_a strobe)
     input  wire        fint,            // FINT executes (ce_a strobe)
     input  wire        int_on,          // (F3b) the INT request (v35_sfr's register)
     input  wire        ie,              // (F4p) PSW.IE (the EU's register): a group whose first
                                         // requesting member is vectored competes only with IE 1
+    input  wire        brk,             // (F3) PSW.BRK (the EU's register): the single step
     input  wire [14:0] pf_set,          // (F4) the peripherals' requests (ce_a strobes: IF <- 1)
     // (F4b) macro service: the sources' macro-service control registers (v35_sfr's storage, in
-    // this module's order; 0 where a source has none), the take (a ce_a strobe at the dispatch),
-    // the service's end (the EU's MSDC strobe)
+    // this module's order; 0 where a source has none), the service's end (the EU's MSDC strobe)
     input  wire [8*15-1:0] ms_b,
-    input  wire        take_m,
-    input  wire        take_d,          // (F4c) a DMA take: none of the controller's (IVEC: FFFEh)
     input  wire        ms_end,
-    output reg         ms_v,            // a macro-service request is pending
+    // (F4c) DMA (v35_dma's registers): the armed request, any request, the requesting channel
+    input  wire        dm_go,
+    input  wire        dm_v,
+    input  wire        dm_ch,
+    // (step B) the take (below): to the sequencer, the dispatch's and the string take point's
+    // take and HALT's release; to the EU, the take at the dispatch and its parameters; to
+    // v35_dma, the DMA take and the starts it samples at
+    output wire        igo,
+    output wire        sgo,
+    output wire        wake,            // HALT's release ((F4d) STOP's: the settling count's end)
+    output wire        tk_go,           // the dispatch enters the interrupt take (tick A)
+    output wire        take_d,          // a DMA take (a ce_a strobe)
+    output wire        dm_rs,           // a start that is not a DMA take
+    output wire        dm_smp,          // a start or a string's take point that is not a DMA take
+    output reg         tk_dm,           // the last take is a DMA transfer's
+    output reg         ms_hlt,          // the stall of a HALT seen since the last start that was
+                                        //   not a macro service's or a DMA take's
     output reg         tk_ms,           // the last take is a macro service ...
-    output reg  [2:0]  ms_ch,           // ... its channel, mode (MSM), direction
-    output reg  [2:0]  ms_mode,
+    output wire [2:0]  ms_ch,           // ... its channel (a DMA take's: the DMA channel), mode
+    output reg  [2:0]  ms_mode,         //   (MSM), direction
     output reg         ms_dir,
     output wire [14:0] ms_clr,          // the source's MS bit cleared at the end (v35_sfr's storage)
-    output reg         it_v,            // (F3b) INT is offered (the take strobe take_i covers it)
     output reg         tk_bs,           // (F3b) the last take is a bank switch (ENCS 1) ...
     output reg  [2:0]  tk_lv,           // ... at this level (the new bank)
     output reg         tk_int,          // (F3b) the last take is INT
     output reg  [14:0] ic_if,
     output reg  [7:0]  ispr,
-    output reg         ir_v,            // a maskable request is offered
-    output reg  [4:0]  ir_vec,
-    output reg         nmi_v,           // NMI is pending
-    output reg         wake,            // HALT's release
     output reg  [4:0]  tk_vec           // the vector of the last take (IVEC's)
 );
+    reg         ms_v;                   // a macro-service request is pending
+    reg  [2:0]  mc_ch;                  // the macro service's channel (the take's)
+    reg         it_v;                   // (F3b) INT is offered (the take strobe take_i covers it)
+    reg         ir_v;                   // a maskable request is offered
+    reg  [4:0]  ir_vec;
+    reg         nmi_v;                  // NMI is pending
+    reg         i_wake;                 // HALT's release: NMI or an unmasked IF, INT
+    // (F4d) STOP stands (`stp`, below): the INTP0-2 samplers hold their last levels (no edge is
+    // seen while stopped: f4_stop stop_intp, an INTP0 pulse in STOP leaves its IF 0); NMI's
+    // keeps sampling (it releases STOP)
+    reg         stp = 1'b0;
+    wire        frz = stp;
+    wire        take_n, take_i, take_s, take_m;
+
     // the sources: (group rank, member) -> IC index and vector
     //   rank 0 TU: 9 10 11 (28 29 30); 1 D: 12 13 (20 21); 2 P: 0 1 2 (24 25 26);
     //   3 SER0: 3 4 5 (12 13 14); 4 SER1: 6 7 8 (16 17 18); 5 TB: 14 (31)
@@ -626,7 +655,7 @@ module v35_intc (
             tk_bs <= 1'b0;
             tk_lv <= 3'd0;
             tk_ms <= 1'b0;
-            ms_ch <= 3'd0;
+            mc_ch <= 3'd0;
             ms_mode <= 3'd0;
             ms_dir <= 1'b0;
         end else if (ce_a) begin
@@ -638,7 +667,7 @@ module v35_intc (
                 tk_bs <= 1'b0;
                 tk_ms <= 1'b1;
                 tk_i <= ms_i;
-                ms_ch <= ms_b[8 * ms_i +: 3];
+                mc_ch <= ms_b[8 * ms_i +: 3];
                 ms_dir <= ms_b[8 * ms_i + 4];
                 ms_mode <= ms_b[8 * ms_i + 5 +: 3];
             end
@@ -730,7 +759,7 @@ module v35_intc (
         ir_vec = 5'd0;
         ms_v = 1'b0;
         tk_ms = 1'b0;
-        ms_ch = 3'd0;
+        mc_ch = 3'd0;
         ms_mode = 3'd0;
         ms_dir = 1'b0;
         it_v = 1'b0;
@@ -738,7 +767,7 @@ module v35_intc (
         tk_lv = 3'd0;
         tk_int = 1'b0;
         nmi_v = 1'b0;
-        wake = 1'b0;
+        i_wake = 1'b0;
     end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
@@ -764,7 +793,7 @@ module v35_intc (
             for (j = 0; j < 3; j++) k2[j] <= '0;
             ir_v <= 1'b0;
             nmi_v <= 1'b0;
-            wake <= 1'b0;
+            i_wake <= 1'b0;
             it_v <= 1'b0;
             it_sel <= 1'b0;
             ms_v <= 1'b0;
@@ -786,9 +815,147 @@ module v35_intc (
             it_v <= int_on;
             it_sel <= int_on && !(kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l && kw.lvl == 3'd0);
             nmi_v <= nmi_p && !(iack && tk_k[2]);
-            wake <= nmi_p || (|rq) || int_on;  // (F3b) INT releases HALT, IE 0 too (f3_int)
+            i_wake <= nmi_p || (|rq) || int_on;  // (F3b) INT releases HALT, IE 0 too (f3_int)
         end
     end
+
+    // ---- (step B) the take and STOP, moved in from v35_top (the same registers, ticks, terms) --
+    // (F3) At a dispatch (the word after E: an instruction's start) the sequencer enters the
+    // interrupt routine (urom/trap.uasm intr) instead of the instruction it popped when, the last
+    // instruction's E word not marking the start as no boundary (`nb`: a prefix, EI, DI, a
+    // segment register's load; f3_step), NMI is pending, or the controller offers a request and
+    // IE is 1 now and was 1 at the last start (`ie_arm`: EI's, POP PSW's and RETI's following
+    // instruction runs; f3_order), or PSW.BRK is 1 now and was at the last start (`brk_arm`: the
+    // single step after each instruction that ran with BRK set; f3_step). NMI first, then the
+    // offer, then the step (f3_step2 step_intp). Every term is a register; `igo` overrides the
+    // sequencer's ROM address last (UROM_INT in place of the DISP word's target: the loader's
+    // decoded entry is not behind it)
+    reg  ie_arm = 1'b0, brk_arm = 1'b0, nb_r = 1'b0;
+    wire g_n = nmi_v;
+    wire g_i = (ir_v || it_v) && ie && ie_arm;      // (F3b) it_v: INT (the controller chooses)
+    wire g_s = brk && brk_arm;
+    // (F4b) a macro-service request: taken at a start whatever IE (f4_ms ms_p0, IE 0); in HALT
+    // the stall ends on it (`wake` OR ms_v) and the routine returns to the HALT (f4_ms ms_halt:
+    // no release). (F4p) The resolution above takes it with the vectored requests (ms_v and
+    // ir_v never stand together); NMI goes before it (validation/v35s/prio.py f4p_hb b_nmi_ms:
+    // both held by a DMA burst, NMI's frame pushed, then the macro service at the handler's
+    // first instruction)
+    wire g_m = ms_v;
+    // (F4c) a DMA request: taken at the start after the one that saw it (f4_dma step_w /
+    // burst_w, the instruction after the TDMA store runs first; a store clearing EDMA lets one
+    // more transfer through: f4_dm3 tdma_io); in single step and single transfer a take lets
+    // one instruction run before the next, in burst and demand release not (back to back). In
+    // HALT the stall ends on the request and the take needs no arm (f4_dma halt_io: transfers
+    // in HALT, no release). (F4p) The arms are v35_dma's (`dm_go`, sampled at `dm_smp`: a start
+    // or a string's take point that is not a DMA take); DMA goes first, before NMI, a macro
+    // service and the maskable interrupt (validation/v35s/prio.py f4p_hb, f4p_hr: each
+    // pair held by a DMA burst), so a burst holds every other request to its end
+    // (F4c) a DMA transfer or a macro service taken out of HALT resumes at the HALT: its start is
+    // no boundary for NMI or an interrupt (`rs_hlt` makes the routine's E word set nb_r), so the
+    // HALT runs, is released by the pending request and the request is taken after it with the
+    // HALT's next offset pushed (f4_dma halt: the DIC1 handler returns after the HALT)
+    reg  rs_hlt = 1'b0;
+    wire g_d = dm_go || (ms_hlt && dm_v);
+    assign igo = !nb_r && (g_n || g_m || g_d || g_i || g_s);
+    // (F5e) a REP string's take point (a TKI word: urom/str.uasm, at an element's end when the
+    // string goes on; silicon, intr.py f5_si_*): NMI or the maskable offer (IE 1 and armed: IE
+    // as it stood at the string's own start) is taken there, whatever the start's `nb` (a
+    // prefix before the REP: f5_repint); the single step is not (one trap per string, after
+    // its last element: f5_si_long; NMI inside a stepped string: f5_si_nstep); (F5e) a macro
+    // service and DMA waited for the next start: (F5f) no longer, below. The word's target is
+    // the string's entry into urom/trap.uasm intr: the take strobes below latch the source as at
+    // a dispatch; the PC pushed is `ist` (the first prefix's offset), so RETI re-enters the
+    // whole prefixed string with CW as it stands.
+    // (F5f) a macro service and a DMA request are taken there too, in the dispatch's order
+    // ((F4p) DMA, NMI, macro service, the maskable offer: prio.py f4p_hr; validation/v35s/dma.py
+    // f5_sdma, f5_sms, f5_sms_inv, f5_sasync: silicon serves both between a long string's
+    // elements): their routines resume at tmpc, the string's first prefix, so the string goes
+    // on with CW as it stands. A single-step DMA take there disarms the request as at a
+    // dispatch (one element between transfers: f5_sdma st_movw), a burst does not (the
+    // transfers back to back after the first element: bu_movw)
+    assign sgo = g_n || g_m || g_d || g_i;
+    assign tk_go = x_disp && igo;
+    assign take_d = (x_disp && igo && g_d) || (x_tki && g_d);
+    assign take_n = (x_disp && igo && !g_d && g_n) || (x_tki && !g_d && g_n);
+    assign take_m = (x_disp && igo && !g_d && !g_n && g_m) || (x_tki && !g_d && !g_n && g_m);
+    assign dm_rs = x_disp && !take_d;           // (F4c) the CPU resumes: DIC's IF set here
+    assign dm_smp = (x_disp || x_tki) && !take_d;
+    assign take_i = (x_disp && igo && !g_n && !g_m && !g_d && g_i)
+                    || (x_tki && !g_n && !g_m && !g_d && g_i);
+    assign take_s = x_disp && igo && !g_n && !g_m && !g_d && !g_i;
+    // (F4c) the parameters from one place: a DMA take's channel in place of the macro service's
+    assign ms_ch = tk_dm ? {2'b00, dm_ch} : mc_ch;
+    initial begin
+        tk_dm = 1'b0;
+        ms_hlt = 1'b0;
+    end
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            ie_arm <= 1'b0;
+            brk_arm <= 1'b0;
+            nb_r <= 1'b0;
+            ms_hlt <= 1'b0;
+            tk_dm <= 1'b0;
+            rs_hlt <= 1'b0;
+        end else if (ce_a) begin
+            if (x_disp) begin
+                ie_arm <= ie;
+                brk_arm <= brk;
+            end
+            if (take_d)
+                tk_dm <= 1'b1;
+            else if (take_n || take_m || take_i || take_s)
+                tk_dm <= 1'b0;
+            if (x_end)
+                nb_r <= x_nb || rs_hlt;
+            // (F5c) POP PSW, RETI, FINT (seg=NBI on the E word): the interrupt arms dropped, so
+            // the next start takes neither the maskable interrupt nor the single step (NMI,
+            // macro service and DMA are not held); the dispatch reloads them from the PSW
+            if (x_nbi) begin
+                ie_arm <= 1'b0;
+                brk_arm <= 1'b0;
+            end
+            if (take_d || take_m)
+                rs_hlt <= ms_hlt;
+            else if (x_end)
+                rs_hlt <= 1'b0;
+            // (F4b) the stall of a HALT seen since the last start that was not a macro service's
+            if (halted)
+                ms_hlt <= 1'b1;
+            else if (x_disp && !take_m && !take_d)
+                ms_hlt <= 1'b0;
+        end
+    end
+    // (F4d) STOP (urom/xfer_stop.uasm: a halt word with cnt=stop). While it stands (`stp`, set
+    // when that word executes) the halted stall's release is the settling count's end alone: NMI
+    // pending (nmi_v) counts 2^19 CPU clocks (`st_c`), then `st_rel` releases it (f4_stop: the
+    // first cycle 2^19 + 38 clocks after NMI's edge; IE 1 or 0); the controller's wake (an
+    // unmasked IF, INT), a macro service and DMA do not (f4_stop stop_intp); the INTP samplers
+    // hold (`frz`). The release pops the instruction after STOP, whose dispatch takes NMI. The
+    // count is its own 19-bit counter (not the time base's: its taps keep running, as measured
+    // in HALT; the time base in STOP is not measured)
+    reg  [18:0] st_c = 19'd0;
+    reg         st_rel = 1'b0;
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            stp <= 1'b0;
+            st_c <= 19'd0;
+            st_rel <= 1'b0;
+        end else if (ce_a) begin
+            if (stp && st_rel)
+                stp <= 1'b0;
+            else if (x_stop)
+                stp <= 1'b1;
+            if (!stp) begin
+                st_c <= 19'd0;
+                st_rel <= 1'b0;
+            end else if (nmi_v && !st_rel) begin
+                st_c <= st_c + 19'd1;
+                st_rel <= &st_c;
+            end
+        end
+    end
+    assign wake = (stp || w_stop) ? st_rel : (i_wake || ms_v || dm_v);
 endmodule
 /* verilator lint_on DECLFILENAME */
 
@@ -1244,7 +1411,7 @@ endmodule
 // ============================================================================================
 // (F4c) The DMA controller's request side (README "F4 (part C)"), measured on the socket
 // (validation/v35s/dma.py: f4_dma; receipts validation/v35s/receipts/f4-f4_dm*). The transfers
-// are the EU's: a request here is taken at an instruction start like a macro service (v35_top
+// are the EU's: a request here is taken at an instruction start like a macro service (v35_intc
 // `take_d`) and urom/dma.uasm moves the data through the channel block in internal RAM
 // (IDB:E00 + 8 x the channel: +0 SAR, +2 DAR, +4 DARH, +5 SARH, +6 TC). This module holds
 // DMAM's mode, W and EDMA, the channels' requests and the take's descriptor (registers only).
@@ -1279,10 +1446,10 @@ module v35_dma (
     input  wire [7:0]  dmac0,           // DMAC0 / DMAC1 (v35_sfr's storage): PD 5:4, PS 1:0
     input  wire [7:0]  dmac1,
     input  wire [1:0]  dmarq,           // the DMARQ0/1 levels (the input levels 6, 7)
-    input  wire        take,            // v35_top's take_d (a ce_a strobe at the dispatch)
+    input  wire        take,            // v35_intc's take_d (a ce_a strobe at the dispatch)
     input  wire        tend,            // the routine's TC update (a ce_a strobe) ...
     input  wire        tlast,           // ... TC reached 0
-    input  wire        rs,              // a start that is not a DMA take (v35_top: the CPU resumes)
+    input  wire        rs,              // a start that is not a DMA take (v35_intc: the CPU resumes)
     input  wire        smp,             // (F4p) a start or a string's take point that is not a DMA take
     output wire [7:0]  dmam0,           // the DMAM bytes as read
     output wire [7:0]  dmam1,

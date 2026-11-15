@@ -3,7 +3,7 @@
 // V35S core v2 (MX0): the datapath, re-plumbed to the microinstruction's fields
 // (docs/v35s-mechanisms.md sections 3.3-3.6; README "MX0"). It keeps the register RAM's ports
 // (v35_regram), the ALU and the functions (v35_fn_pkg), and adds nothing that times a form:
-// every act is a field of the word the sequencer executes (`word`, `ex`).
+// every act is a field of the word the sequencer executes (`word`, `ex_b`).
 //
 // Two ticks (S7b):
 //   tick A  the word's register selectors -> the RAM's read addresses (ra_next / rb_next,
@@ -47,10 +47,9 @@ module v35_eu
     input  wire [7:0]  op_nx,
     input  wire [7:0]  modrm_nx,
     input  v35_udec_t  fmt_nx,
-    input  wire        ex,              // tick A
     input  wire        ex_b,            // tick B / ce_a
     input  wire        resv_e,          // tick A: the reservation rises (the loader's E pop)
-    input  wire        tk_go,           // (F5c) tick A: the dispatch enters the interrupt take
+    input  wire        tk_go,           // (F5c) tick A: the dispatch enters the interrupt take (v35_intc)
     // the loader's registers
     input  v35_udec_t  fmt,
     input  wire [2:0]  op3,
@@ -110,10 +109,8 @@ module v35_eu
     // the queue's flush (tick A: registers)
     output wire [15:0] flush_off,
     output wire [19:0] ps_base,
-    output wire [15:0] sfr_data,
     // (F1) the SFR page's FLAG (PSW bits 5 and 3, F1 and F0): read, and a store's bits at ce_a
     output wire [1:0]  psw_f,
-    output wire [2:0]  psw_rb,          // PSW.RB (the on-chip write's bank compare)
     output wire        psw_brki,        // (F2b) PSW.BRKI (the loader's I/O-trap dispatch)
     output wire        psw_ie,          // (F3) PSW.IE and PSW.BRK (the interrupt take at the dispatch)
     output wire        psw_brk,
@@ -125,9 +122,9 @@ module v35_eu
     input  wire [2:0]  ms_ch,
     input  wire [2:0]  ms_mode,
     input  wire        ms_dir,
-    input  wire        ms_hlt,          // (F4b) the take followed a HALT (v35_top's register)
+    input  wire        ms_hlt,          // (F4b) the take followed a HALT (v35_intc's register)
     output reg         ms_end,          // (F4b) the service's end (a ce_a strobe, MSDC's)
-    // (F4c) a DMA take (v35_top's register; the channel arrives on ms_ch) and its descriptor
+    // (F4c) a DMA take (v35_intc's register; the channel arrives on ms_ch) and its descriptor
     // (v35_dma's registers): the macro-service ops read it in place of the macro service's
     // (urom/dma.uasm); the TC update (MSDC: a ce_a strobe, TC reached 0), the last transfer in
     // flight (a register to the next take), the request's DMA cycle (`req_dk`: a transfer on
@@ -147,16 +144,23 @@ module v35_eu
     output wire        req_ia,          // (F3b) the request is an INT acknowledge (with RQ_IOR)
     input  wire        flag_we,
     input  wire [1:0]  flag_d,
-    // (F1) an on-chip data write to the current bank's DS0 / SS / DS1 slot (the register RAM
-    // written at the ce_b before): the segment's flop takes the slot's bytes at ce_a (a PS slot
-    // write reaches the RAM only: README "F1")
-    input  wire        oc_seg_we,
-    input  wire [1:0]  oc_seg_s,        // as the flops' slots: 0 DS1, 2 SS, 3 DS0
-    input  wire [1:0]  oc_seg_be,
-    input  wire [15:0] oc_seg_d
+    // (F1) the internal RAM's on-chip write (the bus unit's: the register RAM written at the
+    // coming ce_b, registers): (step B) one to the current bank's DS0 / SS / DS1 slot is
+    // decoded here, the segment's flop taking the slot's bytes at ce_a (a PS slot write reaches
+    // the RAM only: README "F1")
+    input  wire        oc_we,
+    input  wire [6:0]  oc_wa,
+    input  wire [1:0]  oc_be,
+    input  wire [15:0] oc_wd
 );
     // ------------------------------------------------------------ registered state
     reg [15:0] psw = 16'hF002;
+    // (F1) the on-chip write's segment hit: the current bank's (PSW.RB) DS0 / SS / DS1 slot,
+    // the flops' slot (0 DS1, 2 SS, 3 DS0)
+    wire [2:0] psw_rb = psw[14:12];
+    wire       oc_seg_we = oc_we && oc_wa[6:4] == psw_rb
+                           && (oc_wa[3:0] == 4'd4 || oc_wa[3:0] == 4'd5 || oc_wa[3:0] == 4'd7);
+    wire [1:0] oc_seg_s = oc_wa[3:0] == 4'd7 ? 2'd0 : oc_wa[3:0] == 4'd5 ? 2'd2 : 2'd3;
     reg        rq_ia = 1'b0;            // (F3b) the request posted is an INT acknowledge
     reg        rq_dk = 1'b0;            // (F4c) the request posted is a DMA transfer's cycle
     initial begin
@@ -698,7 +702,6 @@ module v35_eu
     // the reservation: a request standing, a word's `resv` until the acknowledge, and the E
     // clock that pops a posting routine's opcode (the loader's resv_e: the decode knows)
     assign req_resv = rq_v || resv_r || resv_e;
-    assign sfr_data = req_data;
     // (MX2) F after a memory write (the last request a write): the RAMEN hold (mechanisms 3.3:
     // the EU holds until the write cycle ends, the write may land in the register RAM) placed on
     // that word, not only on E (CALL's push before its FLUSH: the frozen model's write step
@@ -792,7 +795,7 @@ module v35_eu
                 dm_last <= x == 16'd1;
             // (F1) an on-chip write to a segment's slot (before the word's own writes: a
             // register write on the same clock is later in the program and wins)
-            if (oc_seg_we) begin
+            if (oc_seg_we) begin    // (step B: v35_top's decode before, the same terms)
                 case (oc_seg_s)
                     2'd0: ds1 <= seg_merge(ds1);
                     2'd2: ss <= seg_merge(ss);
@@ -938,16 +941,15 @@ module v35_eu
         end
     end
     function automatic logic [15:0] seg_merge(input logic [15:0] old);
-        seg_merge = {oc_seg_be[1] ? oc_seg_d[15:8] : old[15:8],
-                     oc_seg_be[0] ? oc_seg_d[7:0] : old[7:0]};
+        seg_merge = {oc_be[1] ? oc_wd[15:8] : old[15:8],
+                     oc_be[0] ? oc_wd[7:0] : old[7:0]};
     endfunction
     assign psw_f = {psw[5], psw[3]};
-    assign psw_rb = psw[14:12];
     assign psw_brki = psw[1];
     assign psw_ie = psw[V35_PSW_IE];
     assign psw_brk = psw[8];
 
-    wire unused = &{1'b0, ex, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
+    wire unused = &{1'b0, sa[6], sb[6], word_nx, fmt_nx, sa_n[6], sb_n[6], dh, fmt, mul_n.acc[16], q32[31:16], word, op};
 
 `ifndef SYNTHESIS
     // the divide error raised (a strobe at the word's end): the function bench's o_div_trap

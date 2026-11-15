@@ -2572,3 +2572,23 @@ question, decided from S8's routed numbers with the user.
   2026-11-14), steps A to C:** the agent's run is the only one (the overseer checks the landed tree
   equal to the agent's and runs Efinity); programs and fuzz reduced to a short set against the
   first socket session; the full gate returns at step D.
+- **2026-11-14, interface plan step B: the glue out of v35_top into its owners, no behaviour
+  change.** The on-chip cycle (capture, SFR strobes, lane swap, the internal-RAM pending write, the
+  read datum mux) is in v35_bus, the on-chip address decoded once; v35_top's copies of the grant are
+  gone. The take logic and STOP are inside v35_intc (the smaller interface: 11 links become
+  internal), reading named facts from the sequencer (an instruction boundary, a string's take
+  point, an E word and its marks, the halt word, the acknowledge and FINT decodes). `ex_pop` merged
+  into `ex`; `rmem` from the loader, `dlv_fetch` from the bus; the EU decodes the segment write-hit
+  itself. v35_top 752 to 562 lines: clocking, reset exit, pin idling, wiring, the trace and
+  simulation observation (left: the N/S pin sampler, the bench's reset hook). test_v35_struct gains
+  the port budget (per-module and per-pair ceilings, v35_top's registers and logic limited to named
+  lists, no new `_nx` output). Whole port lists: bus 40 to 46 outputs, useq 13 to 20, eu 42 to 40,
+  intc 17 to 20 (the glue's wires became direct ones; steps C and D lower them). Left for C / D:
+  bus `oc_off` / `oc_word` beside `sfr_a` / `sfr_w`, fetch in flight held by bus and queue, the
+  head address, the tags, `rqp` / `tw` / `drop`, every `_nx`. **Gate (the short gate, run once by
+  the agent; the landed tree checked equal to the agent's):** corpus 6,541 with 0 runs differing,
+  pin records (30,536 runs) and 718 per-clock traces identical at both spacings, write data
+  106,824 / 106,824, chk silent, vectors 0 bad, lint clean, 52 fast tests, SingleStepTests 0 fails,
+  programs dma 7 / intr 6 / onchip 3 / banks 5 / traps 6 / prio 4 / pfxtake 10 equal, fuzz f5x f5r
+  f5n f5u f5v as the base. **FPGA at 17 ns: +2.286 / +1.613 / +2.355 on seeds 1 / 2 / 3** (the
+  base +1.556 / +1.563 / +1.550), 9,481 LUT4 / 634 ADD / 2,475 FF / 81 RAM_5K.

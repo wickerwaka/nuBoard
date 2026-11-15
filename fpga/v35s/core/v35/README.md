@@ -3937,7 +3937,7 @@ F40): see "Gate (S5a)" below. S5b on the whole refresh-off corpus (36 families):
 | `v35_ea.sv` | `v35_ea` | (S4) the EA unit inside `v35_eu`: the mode from the format word, the base (port B) and index (port A) latched as `ea_bi`, the displacement from the operand bytes, the segment (prefix / SS for a BP mode / DS0), the physical address |
 | `v35_regram.sv` | `v35_regram` | the register banks in RAM: 256 bytes, even / odd halves, port A read + write, port B read, read addresses registered at `ce` |
 | `v35_trace.sv` | `v35_trace` | `ifndef SYNTHESIS`: one line per CPU clock to `+v35_trace=FILE` (the generated class names) |
-| `v35_top.sv` | `v35_top` | the slot (ports of `../v35s_model.sv`), the CPU clock and reset exit (from `../v35s_chain_model.sv`), `../v35_sfr.sv`, `../v35_refresh.sv` (instantiated, not served), the SFR-store latch, the pins, the trace hook |
+| `v35_top.sv` | `v35_top` | the slot (ports of `../v35s_model.sv`), the CPU clock and reset exit (from `../v35s_chain_model.sv`), `../v35_sfr.sv`, `../v35_refresh.sv` (instantiated, not served), the pins, the trace hook ((step B) the on-chip cycle in `v35_bus`, the take and STOP in `v35_intc`) |
 | `v35_lint.vlt` | | lint waivers for the reused old files and the generated package only |
 
 The S2 stub (`v35_stub_pkg.sv`, `v35_decode_stub.svh`) and the scripted EU (`v35_eu_script.sv`)
@@ -7080,3 +7080,48 @@ datum changed; only what was dead or undecided is gone.
   local), the queue's request line (lat_hold, q_short folded), the loader's ta() (the word
   register's terms gone) and its head select (hh and z_st lose the never-selected word-register
   arm), and the sequencer's stall function (constant terms folded).
+
+## Step B: the glue out of v35_top into its owners (no behaviour change)
+
+Step B of docs/v35s-core-v2-interfaces.md (section 6; targets 3.1 and 3.6). Every block of logic
+v35_top held for a module now sits in that module, with its registers and its tick; no clock or
+datum changed.
+
+- **The on-chip cycle is the bus unit's.** The capture at the cycle's start (`sfr_a`, `sfr_w`,
+  `oc_off`, `oc_word`, `oc_ram`, `oc_rdgo`), the store's write (`sfr_open`, `sfr_wr`, `sfr_wat`),
+  the lane swap, the internal-RAM write (`oc_we` / `oc_wa` / `oc_be` / `oc_wd`, v35_top's
+  `pend_*`) and the read datum's select (`oc_data`) moved into v35_bus. The address is decoded
+  once: the start reads the grant's own `g_start_b && g_sfr_b` (the request's address against
+  IDB / RAMEN at ce_b). v35_top decoded the same address again from its own ce_b copy of the grant.
+  That gives the same value at every ce_a, because IDB and PRC are written only at ce_a, and
+  `+v35_chk` already compares `g_sfr_b` with `g_sfr` there. v35_top's copies of the grant
+  (`g_start_b`, `g_kind_b`, `g_addr_b`, `g_width_b`) are gone. The lane swap reads `req_width`
+  and the datum `req_data`, which the bus unit already had. The EU's `sfr_data` output, a copy
+  of `req_data`, is removed. The bus unit gives v35_sfr its access port, which is unchanged,
+  gives v35_regram port C's write, and takes both read data (`sfr_rd`, `oc_rd`). The
+  segment write-hit (DS0 / SS / DS1 of the current bank) is decoded in the EU from the
+  internal-RAM write port and PSW.RB. The EU's `psw_rb` output is removed.
+- **The take and STOP are the interrupt controller's.** v35_intc (../v35_sfr.sv) now owns
+  ie_arm, brk_arm, nb_r, ms_hlt, tk_dm and rs_hlt, the g_* / take_* / igo / sgo / dm_rs /
+  dm_smp terms, STOP's stp / st_c / st_rel, the HALT release mux and the channel mux (a DMA
+  take's channel on `ms_ch`). The controller was chosen over a new module because the take's
+  interface to it (take_n/i/s/m/d, frz, nmi_v, ir_v, it_v, ms_v, wake) becomes internal.
+  The sequencer gives the take points by name: `x_disp` (an instruction boundary), `x_tki` (a
+  string's take point), `x_end` / `x_nb` / `x_nbi` (an E word, its no-boundary mark, the arms
+  dropped), `halted`, `w_stop` / `x_stop` (STOP's halt word), `x_ivec` / `x_fint`, and
+  `x_flush`, which the queue and the loader use. The controller returns `igo`, `sgo`, `wake`,
+  `tk_go` and the parameters.
+- **State held twice.** `ex_pop` is gone: the sequencer has one register and one port (`ex`).
+  The loader gives `rmem` / `rmem_nx`. The bus unit gives `dlv_fetch` / `dlv_fetch_nx` in place
+  of `dlv_v`, `dlv_kind` and their next values. Its `g_start`, `g_kind`, `g_addr` and `g_width`
+  outputs are now read by the trace only, so the trace reads them by name. No module input is
+  an expression any more.
+- **v35_top** holds the divider, the reset exit, the ticks, N/S's sampler (`ns_r`), the pins'
+  idle forcing, the reset-time flush address (`q_flush_addr`, the bench's hook), the instances,
+  wiring, the trace and the simulation's observation. test_v35_struct's new `Budget` tests
+  enforce this. They also hold the port budget as ceilings, per module and per module pair,
+  and the set of `_nx` outputs.
+- **Left for steps C / D:** fetch-in-flight in the bus unit and the queue (`inflight`, `odd`),
+  the tags, the head address, the sequencer's `rqp` / `tw` / `drop`, the SFR read offset beside
+  `sfr_a` (`oc_off` / `oc_word` are loaded from the same grant fields as `sfr_a` / `sfr_w`), and
+  every `_nx` output.
