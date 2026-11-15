@@ -2674,3 +2674,21 @@ question, decided from S8's routed numbers with the user.
   (the base +2.561 / +2.676 / +1.984), 9,095 LUT4 / 629 ADD / 2,411 FF / 79 RAM_5K. Next (E3):
   an offline structural search with the pop positions and the queue's geometry free, fitted to
   the pins' bus events only.
+- **2026-11-15, interface plan step E3: an offline structural search, no RTL change, nothing
+  found.** An abstract front-end simulator searched jointly over the queue's geometry (6 / 7
+  places, the opcode register none / outside / counted, the room's delay, the restart
+  threshold, the delivered word's clock), the pop positions and step counts per form (the book
+  +/- 2) and up to two resource stalls (the adder, the queue's read port, a wait-state freeze,
+  a cycle's datum phase, the decode register's age), fitted to the pins' bus events only
+  (F0 F0w F1 F2 F3: 1,052 runs, 34,908 events; held-out sets fixed before fitting). **0 of 5,112
+  structures reproduce even the shared prelude at the three wait settings**; 0 waits alone is
+  reproducible. What defeats them is the train's wait dependence with the queue full: silicon's
+  EU waits for particular words (those its own pops asked for), not for a phase of any cycle.
+  Outside the menu, only an owed-word wait (step D's removed take sync as a counter in the
+  queue, with seven counted places and the room from the same clock's pops, against E1's M1 and
+  M2) reproduces the prelude (114 / 114 events, 16 free choices against 54 events) and it fails
+  off the prelude: 23 of 1,012 fit programs exact, 17 of 3,866 and 4 of 1,512 held out; every
+  even-parity run needs a different restart threshold after the PAD NOP, and the long routines
+  are wait-dependent in a way it does not give. Corpus records consistent (0 of 3,171 repeat
+  acquisitions differ; 0 of 26,326 programs with runs differing in pin timing). The direction of
+  step E is with the user.
