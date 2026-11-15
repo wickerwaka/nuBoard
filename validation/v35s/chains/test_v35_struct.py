@@ -16,13 +16,19 @@ Rules (comments and string literals are stripped first):
 5. (A1, docs/v35s-arbiter-strategy.md) no port of v35_bus.sv or v35_queue.sv names or types an
    instruction: no port of a format / class / row / run / request-record type, no port name
    carrying a class, format, row, step, count mode or kind of instruction; the bus unit's inputs
-   are its clocking and configuration, the EU request port (exactly the strategy's nine signals),
-   the queue's port and the three read strobes of the aborted fetch, nothing else.
+   are its clocking and configuration, the EU request port, the queue's fetch port, nothing
+   else ((step D) the aborted fetch's three read strobes, the reservation and the queue's low
+   hint and word room are gone).
 7. (step B, docs/v35s-core-v2-interfaces.md) the port budget: per core module the outputs read
    and the inputs driven by another core module, per module pair the wires, both as v35_top
    wires them and both ceilings; v35_top's logic outside simulation is the clock, the reset
    exit, the ticks, the pins and named nets only, its instance connections plain wiring; no
    module adds a next-value (`_nx`) output.
+8. (step D) the removed rule-only terms (the sequencer's stalls but the four, the EU's RAMEN
+   hold and the reservation, the bus unit's aborted cycle, I/O hold and recovery window and its
+   phase outputs, the queue's room rules and hints, the loader's release and staging-slot room,
+   the microword flags and decode bits only they read, the fitted integers) may not reappear:
+   no identifier of the ban list (BANNED) and no `FIT_` identifier in the core's RTL.
 The checks are textual (a lint, not a parser): keep blocks plain `begin ... end`."""
 
 from __future__ import annotations
@@ -130,30 +136,27 @@ class Structure(unittest.TestCase):
 
 
 # (A1) the bus unit's and the queue's ports
-EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data", "req_resv",   # EU -> bus
+EU_PORT = {"req_v", "req_cyc", "req_addr", "req_width", "req_data",               # EU -> bus
            "req_ack", "req_done", "done_data",                                    # bus -> EU
            "req_ia",               # (F3b) the request kind's acknowledge bit (with RQ_IOR)
            "req_dk"}               # (F4c) the request is a DMA transfer's cycle (DMAAK, TC)
 BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "data_in",   # (step C) rfm gone (unread)
-              "fetch_req", "q_low", "q_word", "fetch_addr",       # the queue's port
-              "t_start", "take_now", "l_pop",                     # (Q2) the aborted fetch's reads
+              "fetch_req", "fetch_addr",                          # the queue's fetch port
               "idb", "ramen",                                     # (F1) the on-chip decision (SFR registers)
               "sfr_rd", "oc_rd",                                  # (step B) the on-chip cycle's read data (SFR page, register RAM)
               "hrq", "rdy_en", "rdy_lv"}                          # (F4d) HLDRQ, PMC1 bit 7, READY (v35_sfr's registers: pins)
-# (step C) the queue's whole port list: the FIFO's ports (fetch, read, pop, control), the legacy
-# room inputs and outputs step D removes (rel, stg, abort_go, q_low, q_word, fetch_raise), and
-# the facts step C left in place (the tags, the head facts the loader's head select reads, the
-# next values)
+# (step C) the queue's whole port list: the FIFO's ports (fetch, read, pop, control) and the
+# facts step C left in place (the tags, the head facts the loader's head select reads, the next
+# values); (step D) the legacy room inputs and outputs (rel, stg, abort_go, q_low, q_word,
+# fetch_raise) gone, the head byte's offset (hip) and the reset's first offset (reset_ip) in
 QUEUE_PORTS = {
     "input": {"clock", "reset_n", "ce_a", "ce_b",
               "fetch_go", "dlv_v", "dlv_data",                    # the fetch port's reply
               "pop_n",                                            # the pop (0 to 2 bytes)
-              "flush", "flush_addr", "susp", "ps_base",           # the control
-              "rel", "stg", "abort_go",                           # legacy, step D
+              "flush", "flush_addr", "reset_ip", "susp", "ps_base",   # the control
               "dlv_tag"},                                         # the tags (left by step C)
     "output": {"fetch_req", "fetch_addr",                         # the fetch port
-               "vb0", "vb1", "avail",                             # the read port
-               "q_low", "q_word", "fetch_raise",                  # legacy, step D
+               "vb0", "vb1", "avail", "hip",                      # the read port
                "stored", "h_q0", "h_lat", "h_latv", "h_odd",      # the head facts (MX5b)
                "h_q0t", "h_latt",                                 # the tags
                "stored_nx", "latv_nx", "odd_nx", "discard_nx"},   # the next values
@@ -341,41 +344,76 @@ CORE_INSTANCES = {
     "regram": (V35 / "v35_regram.sv", "v35_regram"),
     "intc": (CORE / "v35_sfr.sv", "v35_intc"),
 }
-# ceilings at step B's hand-back, unchanged at step C's (no count fell: step C's removals were
-# inputs from v35_top's glue or the SFR block, renames and merges inside a module; two moves the
-# brief named would have raised a pair, eu -> queue and queue -> loader, and were not made):
-# per module, the outputs read by another core module and the inputs driven by one; per
-# (driver, reader) pair, the reader's inputs the driver feeds
+# ceilings at step D's hand-back (step B's and C's were bus 26/16, queue 19/11, loader 38/35,
+# useq 20/50, eu 36/39, regram 3/13, intc 14/14: 156 outputs, 178 inputs; step D's 129 / 146).
+# The rule-only terms went with their ports; two pairs rose with the moves step C left (the head
+# byte's offset: queue -> loader 14 -> 15, eu -> loader 2 -> 1; the flush address straight from
+# the EU: eu -> queue 1 -> 2), the whole budget falling: per module, the outputs read by another
+# core module and the inputs driven by one; per (driver, reader) pair, the reader's inputs the
+# driver feeds
 BUDGET_MODULE = {
-    "bus": {"out": 26, "in": 16},
-    "queue": {"out": 19, "in": 11},
-    "loader": {"out": 38, "in": 35},
-    "useq": {"out": 20, "in": 50},
-    "eu": {"out": 36, "in": 39},
+    "bus": {"out": 16, "in": 10},
+    "queue": {"out": 17, "in": 9},
+    "loader": {"out": 25, "in": 34},
+    "useq": {"out": 20, "in": 29},
+    "eu": {"out": 35, "in": 37},
     "regram": {"out": 3, "in": 13},
-    "intc": {"out": 14, "in": 14},
+    "intc": {"out": 13, "in": 14},
 }
 BUDGET_PAIR = {
-    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 5, ("bus", "queue"): 4,
-    ("bus", "regram"): 5, ("bus", "useq"): 12,
-    ("eu", "bus"): 8, ("eu", "intc"): 3, ("eu", "loader"): 2, ("eu", "queue"): 1,
-    ("eu", "regram"): 8, ("eu", "useq"): 15,
-    ("intc", "eu"): 11, ("intc", "useq"): 3,
-    ("loader", "bus"): 3, ("loader", "eu"): 14, ("loader", "queue"): 4, ("loader", "useq"): 19,
-    ("queue", "bus"): 4, ("queue", "loader"): 14, ("queue", "useq"): 1,
+    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 3,
+    ("bus", "regram"): 5,
+    ("eu", "bus"): 7, ("eu", "intc"): 3, ("eu", "loader"): 1, ("eu", "queue"): 2,
+    ("eu", "regram"): 8, ("eu", "useq"): 14,
+    ("intc", "eu"): 10, ("intc", "useq"): 3,
+    ("loader", "eu"): 13, ("loader", "queue"): 2, ("loader", "useq"): 12,
+    ("queue", "bus"): 2, ("queue", "loader"): 15,
     ("regram", "bus"): 1, ("regram", "eu"): 2,
     ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 14, ("useq", "queue"): 2,
 }
-# the next-value outputs as at step B (none may be added; step D removes them)
+# the next-value outputs left at step D (none may be added), each with its reader: the bus
+# unit's delivery (loader q_dlv_nx: q_stall_nx's byte count), datum register (loader h_dlv_nx:
+# the tag register) and the EU's cycle end (eu req_done_nx: opr_rdy_nx, rq_busy_nx,
+# wr_hold_nx); the queue's four (loader: q_stall_nx's byte count); the loader's q_stall_nx
+# (useq: the registered stall) and opc / modrm / fmt (eu: the early register read); the
+# sequencer's word and two derived bits (eu: the early read; loader: lx); the EU's three (useq:
+# the registered stall)
 NX_OUTPUTS = {
-    "bus": {"b2b_now_nx", "dlv_fetch_nx", "done_nx", "eu_done_nx", "fetch_inflight_nx",
-            "fetch_past_b2_nx", "in_wait_nx"},
+    "bus": {"dlv_fetch_nx", "done_nx", "eu_done_nx"},
     "queue": {"discard_nx", "latv_nx", "odd_nx", "stored_nx"},
-    "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx", "rmem_nx", "s_modrm_nx",
-               "s_wbs_nx"},
+    "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx"},
     "useq": {"w_dispm_nx", "w_erep_nx", "word_nx"},
     "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx"},
 }
+# (step D) the removed rule-only terms: no identifier of these may reappear in the core's RTL
+# (comments and strings stripped), nor any FIT_ integer
+BANNED = {
+    # the sequencer's stalls but q, f, slot, hold, halt, and their facts
+    "st_bw", "st_uh", "st_wp", "st_wbw", "st_tsy", "st_fch", "st_sus", "st_rfl", "st_oth",
+    "tw", "tw_n", "tw_b", "tw_f", "rqp", "drop", "drop_n", "drop_b", "u_sus", "un", "un_n",
+    "wbn", "wpn", "rf", "rf_n", "arm", "ask", "mvbiu", "fetch_run", "bus_wait", "fetch_dph",
+    "f_abort", "f_grant", "f_dlv", "q_req",
+    # the EU's reservation
+    "req_resv", "resv", "resv_e", "resv_r", "resv_eb", "tk_go", "tk_go_b",
+    # the bus unit's aborted cycle, I/O hold, recovery window and phase outputs
+    "ab_tri", "ab_b2b", "ab_v", "ab_pos", "abt", "g_abort", "g_abort_b", "abort_go",
+    "abort_busy", "tri3", "ioh", "ioh_hold", "ioh_set", "ioh_clr_b", "ioh_set_b", "fr_prev",
+    "io_tail", "io_win", "eu_ok", "fetch_inflight", "fetch_past_b2", "in_wait", "b2b_now",
+    "fetch_inflight_nx", "fetch_past_b2_nx", "in_wait_nx", "b2b_now_nx", "cpu_end_prev",
+    "t_start", "take_now", "l_pop",
+    # the queue's room rules and hints
+    "q_low", "q_word", "q_short", "fetch_raise", "lat_hold", "unc_a", "unrel", "eq_r",
+    # the loader's release and staging-slot room, its rule-only facts
+    "rel", "stg", "stg_free", "hold_n", "hold_r", "hold2", "hold2_n", "hold_nb", "hold_rb",
+    "hold2_b", "ipo", "foff_b", "l_load", "o_pop", "o_epop", "s_modrm", "s_wbs", "e_rmodrm",
+    "rmem", "s_modrm_nx", "s_wbs_nx", "rmem_nx", "q_arrive",
+    # the microword flags and decode bits only the removed rules read
+    # (the word's `fw` is checked on the struct below: the loader's zc_f has an argument of that
+    # name, the word's FLUSH)
+    "wb", "wp", "wbs", "rq",
+}
+# (step D) the microword and the decode carry none of the removed rules' fields
+BANNED_FIELDS = {"v35_uword_t": {"resv", "wb", "wp", "fw"}, "v35_udec_t": {"rq", "wbs"}}
 # v35_top's registers outside simulation (the divider, the reset exit, the ticks, the pins' idle
 # forcing; (step C) N/S's sampler is the EU's) and its continuous logic (operators on the
 # right-hand side)
@@ -385,7 +423,7 @@ TOP_REGS = {"x_count", "pck", "state_n", "started", "core_run", "rx_refrq_n", "c
 TOP_CE_REGS = {"ceb_age", "b_seen"}     # the registers v35_top loads in a block reading ce_a / ce_b
                                         # outside simulation: the ticks' own (b_seen: a ce_b since reset)
 TOP_LOGIC = {"x_last", "x_mid", "state_start", "state_mid", "state_now", "core_reset_n",
-             "ce_e", "ce_a", "ce_b", "q_flush_addr",
+             "ce_e", "ce_a", "ce_b",
              "unused"}          # (the lint's sink of unread inputs)
 _OPS = re.compile(r"&&|\|\||==|!=|<=|>=|[?~!^+\-<>|&*/%]")
 
@@ -532,6 +570,25 @@ class Budget(unittest.TestCase):
         for name, (path, module) in CORE_INSTANCES.items():
             nx = {n for d, _, n in module_ports(path, module) if d == "output" and n.endswith("_nx")}
             self.assertEqual(nx - NX_OUTPUTS.get(name, set()), set(), name)
+
+    def test_removed_terms_do_not_reappear(self):
+        """(step D) no banned identifier and no FIT_ integer in the core's RTL (v35/*.sv,
+        *.svh, and v35_sfr.sv's interrupt / service unit), comments and strings stripped."""
+        # (v35_sfr.sv's peripherals have names of their own, `rq` and `arm` among them: there
+        # the interrupt unit's removed output only)
+        files = [(p, BANNED) for p in sources()] + [(CORE / "v35_sfr.sv", {"tk_go"})]
+        for p, ban in files:
+            text = strip(p.read_text())
+            names = set(re.findall(r"(?<![.\w`'])([A-Za-z_]\w*)", text))
+            self.assertEqual(names & ban, set(), p.name)
+            self.assertEqual({n for n in names if n.startswith("FIT_")}, set(), p.name)
+        pkg = strip((V35 / "v35_pkg.sv").read_text())
+        for typ, bad in BANNED_FIELDS.items():
+            body = re.search(r"typedef\s+struct\s+packed\s*\{(.*?)\}\s*" + typ + r"\s*;", pkg,
+                             flags=re.S).group(1)
+            fields = set(re.findall(r"(\w+)\s*;", body))
+            self.assertGreater(len(fields), 5, typ)
+            self.assertEqual(fields & bad, set(), typ)
 
     def test_top_holds_no_module_logic(self):
         """v35_top outside simulation: registers only of the named list (under ce_a / ce_b only

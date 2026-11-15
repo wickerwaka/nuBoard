@@ -510,7 +510,7 @@ endmodule
 // two CPU clocks from an IF / MK / PR / ISPR change to the offer: the latency the sequencer's
 // boundary sees after a store (silicon's is longer: f3_lat; the gate's programs place an
 // absorber after each release). Every output of the resolution is a ce_a register; the take's
-// (igo, sgo, tk_go, take_d, dm_rs, dm_smp, wake, ms_ch) are AND-ORs of registers and the
+// (igo, sgo, take_d, dm_rs, dm_smp, wake, ms_ch) are AND-ORs of registers and the
 // sequencer's take points, as they were in v35_top.
 /* verilator lint_off DECLFILENAME */
 module v35_intc (
@@ -554,7 +554,6 @@ module v35_intc (
     output wire        igo,
     output wire        sgo,
     output wire        wake,            // HALT's release ((F4d) STOP's: the settling count's end)
-    output wire        tk_go,           // the dispatch enters the interrupt take (tick A)
     output wire        take_d,          // a DMA take (a ce_a strobe)
     output wire        dm_rs,           // a start that is not a DMA take
     output wire        dm_smp,          // a start or a string's take point that is not a DMA take
@@ -878,7 +877,6 @@ module v35_intc (
     // dispatch (one element between transfers: f5_sdma st_movw), a burst does not (the
     // transfers back to back after the first element: bu_movw)
     assign sgo = g_n || g_m || g_d || g_i;
-    assign tk_go = x_disp && igo;
     assign take_d = (x_disp && igo && g_d) || (x_tki && g_d);
     assign take_n = (x_disp && igo && !g_d && g_n) || (x_tki && !g_d && g_n);
     assign take_m = (x_disp && igo && !g_d && !g_n && g_m) || (x_tki && !g_d && !g_n && g_m);

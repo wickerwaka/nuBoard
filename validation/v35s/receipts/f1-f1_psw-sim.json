@@ -7,7 +7,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 1699,
+ "total": 1685,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -1265,11 +1265,6 @@
  "replay": [],
  "trace_tail": [
   [
-   33085,
-   0,
-   128
-  ],
-  [
    822,
    61439,
    193
@@ -1380,6 +1375,11 @@
    193
   ],
   [
+   830,
+   0,
+   193
+  ],
+  [
    65280,
    31354,
    194
@@ -1388,5 +1388,5 @@
  "backend": "sim",
  "core": "v35",
  "binary": "build/fpga/v35s/verilator-direct-v35",
- "date": "2026-11-14T16:59:00"
+ "date": "2026-11-15T06:02:14"
 }

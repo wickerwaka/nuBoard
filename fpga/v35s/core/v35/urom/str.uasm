@@ -67,7 +67,7 @@ xb2: open                                   ; OPEN: a book clock with no act (th
 xb1: open                                   ; OPEN: a book clock with no act (the string exit's)
 xbw: open                                   ; OPEN: the write-back's first clock before E (the model's done_t: E with wb at the successor's start)
     open                                    ; OPEN: the write-back's second clock before E
-xb0: e wb                                   ; E: pop the next opcode; the index / count write-back runs on past E (wb)
+xb0: e                                      ; E: pop the next opcode; the index / count write-back runs on past E (wb)
 xe5: open                                   ; OPEN: a book clock with no act (the string exit's)
 xe4: open                                   ; OPEN: a book clock with no act (the string exit's)
 xe3: open                                   ; OPEN: a book clock with no act (the string exit's)

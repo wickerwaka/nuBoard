@@ -15,56 +15,56 @@
 
 ; ---- loads (V20 MOV_RM 004C-004D, the load direction: M -> tmpa, tmpa -> R)
 routine ld diff=m00:+2,d8:+2,d16:+2,dir:+2 op=8A,8B mod=mem book="MOV reg,mem" why="OPEN: the add, the post, five clocks no act names under the cycle, F into tmpa on the clock before E (V20 MOV_RM 004C: the model's next S at S+11 whether the datum lands at S+8 or S+9, F4-push-ld_bw-k1-pE-w0), the register from tmpa on the E word at S+11 (F4-push-ld_bw-k2-pE-w0: S 92, P:read 97, S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     open call=w4                            ; OPEN: 5 clocks: a clock of the model's with no act (MOV reg,mem) (the call and the shared delay's 4)
     f d1=TA s1=OPR                          ; F: the datum into tmpa (004C M -> tmpa)
     wr=REG ws=TA e                          ; the register <- tmpa (004D); E
 ; ---- load + ALU (V20 ALU_RM 0000-0001: M -> tmpb, R -> tmpa; ALU OPC; SIGMA -> R)
 routine ld_alu diff=m00:+2,d8:+2,d16:+2,dir:+2 op=02,03,0A,0B,12,13,1A,1B,22,23,2A,2B,32,33 mod=mem book="ADD reg,mem" why="OPEN: the add, the post, five clocks no act names under the cycle, F with the register's read and the block's ALU op on the clock before E (V20 0000), the write on the E word (F5-push-add_aw_m-k2-pE-w0: S 92, P:read 97, S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     open call=w4                            ; OPEN: 5 clocks: a clock of the model's with no act (ADD reg,mem) (the call and the shared delay's 4)
     f ra=REG alu=GRP ax=RA ay=OPR wf        ; F: the register and the datum; the block's ALU op, flags (W) (0000)
     wr=REG ws=SIG e                         ; the register <- SIGMA (0001); E
 routine cmp_rm diff=m00:+2,d8:+2,d16:+2,dir:+2 op=3A,3B mod=mem book="CMP reg,mem" why="OPEN: ADD reg,mem's routine (five clocks no act names under the cycle, F on the clock before E), its write suppressed (F5-push-cmp_aw_m-k2-pE-w0: S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     open call=w4                            ; OPEN: 5 clocks: a clock of the model's with no act (CMP reg,mem) (the call and the shared delay's 4)
     f ra=REG alu=GRP ax=RA ay=OPR wf        ; F: the register and the datum; CMP, flags (W)
     e                                       ; E: the write-back word, its write suppressed (CMP)
 ; ---- read-modify-write (V20 ALU_RM with the memory destination: SIGMA -> M [-06-])
 routine rmw diff=m00:+1,d8:+1,d16:+1,dir:+1 op=00,01,08,09,10,11,18,19,20,21,28,29,30,31 mod=mem book="ADD mem,reg" why="OPEN: the add, the read's post, F with the ALU (0000), the write's post (0001: the write two clocks after the datum), E held to its end (RAMEN) (F5-push-add_m_aw-k2-pE-w0: S 95, P:read 100, the write 105, S-to-S 13: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f ra=REG alu=GRP ax=OPR ay=RA wf resv   ; F: the datum and the register; the ALU op, flags (W) (0000); the reservation
+    f ra=REG alu=GRP ax=OPR ay=RA wf        ; F: the datum and the register; the ALU op, flags (W) (0000); the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (0001 SIGMA -> M)
     e                                       ; E: held until the write's end (RAMEN)
 
 routine cmp_mr diff=m00:+2,d8:+2,d16:+2,dir:+2 op=38,39 mod=mem book="CMP mem,reg" why="OPEN: the read, five clocks no act names under the cycle, F with CMP on the clock before E (no write) (as F5-push-cmp_aw_m-k2-pE-w0: S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     open call=w4                            ; OPEN: 5 clocks: a clock of the model's with no act (CMP mem,reg) (the call and the shared delay's 4)
     f ra=REG alu=GRP ax=OPR ay=RA wf        ; F: the datum and the register; CMP, flags (W)
     e                                       ; E: the write-back word, its write suppressed (CMP)
 ; TEST mem,reg (V20 TEST_RM 0044-0045: M -> tmpa, R -> tmpb; AND; SIGMA -> NULL)
 routine test_m8 diff=m00:-1,d8:-1,d16:-1,dir:-1 op=84 mod=mem book="TEST mem,reg" width=byte why="OPEN: the read, seven clocks no act names under the cycle, F with the AND on the clock before E (F5-push-test_m_aw-k2-pE-w0: S 94, P:read 99, S-to-S 13: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     open call=w6                            ; OPEN: 7 clocks: a clock of the model's with no act (TEST mem,reg) (the call and the shared delay's 6)
     f ra=REG alu=AND ax=OPR ay=RA wf        ; F: the datum and the register; AND, flags (W) (0044)
     e                                       ; E (TEST writes nothing)
 routine test_m16 op=85 mod=mem book="TEST mem,reg" width=word why="OPEN: the read, seven clocks no act names under the cycle, F with the AND on the clock before E (F5-push-test_m_aw-k2-pE-w0: S 94, P:read 99, S-to-S 13: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     open call=w6                            ; OPEN: 7 clocks: a clock of the model's with no act (TEST mem,reg) (the call and the shared delay's 6)
     f ra=REG alu=AND ax=OPR ay=RA wf        ; F: the datum and the register; AND, flags (W) (0044)
     e                                       ; E (TEST writes nothing)
 ; XCH mem,reg (V20 XCHG_RM 0048-004A: M -> tmpa, R -> tmpb; tmpa -> R [-06-]; tmpb -> M)
 routine xch_m diff=m00:+2,d8:+2,d16:+2,dir:+2 op=86,87 mod=mem book="XCH mem,reg" why="OPEN: the read, F: the register into the write datum and the datum into the register (0048-0049), three clocks no act names, the write's post (004A), E held (F5-push-xch_m_aw-k2-pE-w0: S 96, P:read 101, the write 108, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f ra=REG d1=OPRW s1=RA wr=REG ws=OPR resv   ; F: the register into the write datum (0048), the datum into the register (0049); the reservation
+    f ra=REG d1=OPRW s1=RA wr=REG ws=OPR        ; F: the register into the write datum (0048), the datum into the register (0049); the reservation
     open call=w2                            ; OPEN: 3 clocks: a clock of the model's with no act (XCH mem,reg) (the call and the shared delay's 2)
     bus=MEMW                                ; post the write (004A tmpb -> M)
     e                                       ; E: held until the write's end (RAMEN)
@@ -72,20 +72,20 @@ routine xch_m diff=m00:+2,d8:+2,d16:+2,dir:+2 op=86,87 mod=mem book="XCH mem,reg
 ; ---- stores (V20 MOV_RM 004C-004D, the store direction: R -> tmpa, tmpa -> M; the operand
 ; pre-read suppressed, pla_3 MODRM_STORE)
 routine st diff=m00:+1,d8:+1,d16:+1,dir:+1 op=88,89 mod=mem book="MOV mem,reg" why="OPEN: the add, the register's read with the post (S+4: the write at S+5), E held to the write's end (F5-push-st_bw-k2-pE-w0: S 90, the write 95, S-to-S 8: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     ra=REG d1=OPRW s1=RA bus=MEMW           ; the register into the write datum (004C); post the write (004D)
     e                                       ; E: held until the write's end (RAMEN)
 
 ; MOV mem,imm (C6 / C7 /0): the immediate popped after the EA (the V20's routine pops it after
 ; the loader's EA), into the write datum, the post
 routine st_imm8 diff=m00:-1,dir:+1 op=C6 mod=mem reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=byte why="the add, the immediate's pop, the datum with the post, E held to the write's end: its acts fill the book's EA clocks (ea=bare). A book error of one at mod 00: the book's EA + 6 for both widths against the byte form's write a clock before the word's on silicon (v35s-chains.md F19: C6 07 and 83 /7 one clock earlier than C7 07), the word's 10 (a6 MOV word [BW],0x1234) less the dispatch's fetch stall 9: the byte 8; the direct form +1: the two pops the book's EA 3 does not resolve"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     pop=il                                  ; pop the immediate byte
     d1=OPRW s1=IMM bus=MEMW                 ; the immediate into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 
 routine st_imm16 diff=d8:+1,d16:+1,dir:+2 op=C7 mod=mem reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=word why="the add, the immediate's two pops, the datum with the post, E held to the write's end: the book's EA + 6 at mod 00 (silicon's 10: a6 MOV word [BW],0x1234); the displacement's pops the book's EA does not resolve: d8 +1, d16 +1, the direct form +2 (no OPEN word: ea=bare)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     pop=il                                  ; pop the immediate's low byte
     pop=ih                                  ; pop its high byte
     d1=OPRW s1=IMM bus=MEMW                 ; the immediate into the write datum; post the write
@@ -93,12 +93,12 @@ routine st_imm16 diff=d8:+1,d16:+1,dir:+2 op=C7 mod=mem reg=0,1,2,3,4,5,6,7 ea=b
 
 ; MOV mem16,sreg / MOV sreg,mem16 (V20 MOV_SREG 0050: R -> M [-06-] [E])
 routine st_sr op=8C mod=mem book="MOV mem16,sreg" why="the add, the segment register's read with the post, E held to the write's end: the book's EA + 6"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     rb=SREG wid=WORD d1=OPRW s1=RB bus=MEMW ; the segment register into the write datum; post the write (a word)
     e                                       ; E: held until the write's end (RAMEN)
 
 routine ld_sr diff=m00:-1,d8:-1,d16:-1,dir:-1 op=8E mod=mem book="MOV sreg,mem16" why="OPEN: book error of one: the book's EA + 9 against silicon's MOV DS1,[BW] 11 (a6, docs/v35s-mechanisms/classes.md LOAD_SEG) less the dispatch's fetch stall its method puts under the marker: 10 at mod 00 with the head's book error; the add, the post, the cycle, F: the segment register from the datum on the E word; two book clocks with no act before the post"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     open                                    ; OPEN: a book clock with no act (MOV sreg,mem16 EA + 9)
     open                                    ; OPEN: a book clock with no act (MOV sreg,mem16 EA + 9)
     bus=MEMR wid=WORD                       ; post the read (a word)
@@ -107,19 +107,19 @@ routine ld_sr diff=m00:-1,d8:-1,d16:-1,dir:-1 op=8E mod=mem book="MOV sreg,mem16
 ; LDS / LES (V20 LES 00F8-00FA: OPR -> R, SIGMA -> tmpb, ALU INC2 [F]; SIGMA -> IND, MEMR;
 ; OPR -> ES [FE]): the offset word, the address + 2, the segment word
 routine les op=C4 mod=mem book="MOV DS0/DS1,reg16,memptr32" why="OPEN: the add, the offset's read, the address + 2 under the cycle, F: the register and the address register (00F8), the segment's read (00F9), F: DS1 on the E word (00FA): the book's EA + 17 with six book clocks with no act before the first post"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     open call=w5                            ; OPEN: 6 clocks: a book clock with no act (LES EA + 17) (the call and the shared delay's 5)
     bus=MEMR wid=WORD                       ; post the offset's read (a word)
-    alu=INC2 ax=ADDR resv                   ; the address + 2 into SIGMA (00F8 ALU INC2); the reservation (the second read)
+    alu=INC2 ax=ADDR                        ; the address + 2 into SIGMA (00F8 ALU INC2); the reservation (the second read)
     f wr=REG wid=WORD ws=OPR d1=ADDR s1=SIG ; F: the register <- the offset (00F8 OPR -> R); the address register <- the address + 2
     bus=MEMR wid=WORD                       ; post the segment's read (00F9 SIGMA -> IND; MEMR)
     f wr=DS1 wid=WORD ws=OPR e              ; F: DS1 <- the segment (00FA OPR -> ES); E
 
 routine lds op=C5 mod=mem book="MOV DS0/DS1,reg16,memptr32" why="OPEN: LES's routine with DS0 (V20 LDS 00FC-00FE): the book's EA + 17 with six book clocks with no act before the first post"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     open call=w5                            ; OPEN: 6 clocks: a book clock with no act (LDS EA + 17) (the call and the shared delay's 5)
     bus=MEMR wid=WORD                       ; post the offset's read (a word)
-    alu=INC2 ax=ADDR resv                   ; the address + 2 into SIGMA; the reservation (the second read)
+    alu=INC2 ax=ADDR                        ; the address + 2 into SIGMA; the reservation (the second read)
     f wr=REG wid=WORD ws=OPR d1=ADDR s1=SIG ; F: the register <- the offset; the address register <- the address + 2
     bus=MEMR wid=WORD                       ; post the segment's read
     f wr=DS0 wid=WORD ws=OPR e              ; F: DS0 <- the segment; E
@@ -134,32 +134,32 @@ routine ldea op=8D mod=mem book="LDEA" why="the add, the register from the addre
 ; the one-byte immediate's read a clock before the two-byte one's, v35s-chains.md F19), F with
 ; the group's op, the write's post, E held
 routine grp1_mb diff=m00:+1,d8:+1,d16:+1,dir:+1 op=80,82 mod=mem reg=0-6 bookv=14 book="ADD mem,imm" why="OPEN: the add, the read, F with the immediate's pops after the datum (the model's takes), the group's op, the write's post, E held (F5-push-add_m_imm-k2-pE-w0: S 96, P:read 101, the immediate taken at S+8 S+9, P:write 106, the write 108, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f d1=TB s1=OPR pop=il resv              ; F: the datum into tmpb; pop the immediate's (low) byte (S+8); the reservation
+    f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8); the reservation
     alu=GRP ax=TB ay=IMM wf                 ; the group's ALU op with the immediate, flags (W) (003E)
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (0040)
     e                                       ; E: held until the write's end (RAMEN)
 
 routine grp1_mw8 diff=m00:+3,d8:+3,d16:+3,dir:+3 op=83 mod=mem reg=0-6 book="ADD mem,imm" why="OPEN: the add, the read, F with the immediate's pops after the datum (the model's takes), the group's op, the write's post, E held (F5-push-add_m_imm-k2-pE-w0: S 96, P:read 101, the immediate taken at S+8 S+9, P:write 106, the write 108, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f d1=TB s1=OPR pop=il resv              ; F: the datum into tmpb; pop the immediate's (low) byte (S+8); the reservation
+    f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8); the reservation
     alu=GRP ax=TB ay=IMM wf                 ; the group's ALU op with the immediate, flags (W) (003E)
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (0040)
     e                                       ; E: held until the write's end (RAMEN)
 
 routine grp1_mw diff=m00:+1,d8:+1,d16:+1,dir:+1 op=81 mod=mem reg=0-6 bookv=15 book="ADD mem,imm" why="OPEN: the add, the read, F with the immediate's pops after the datum (the model's takes), the group's op, the write's post, E held (F5-push-add_m_imm-k2-pE-w0: S 96, P:read 101, the immediate taken at S+8 S+9, P:write 106, the write 108, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f d1=TB s1=OPR pop=il resv              ; F: the datum into tmpb; pop the immediate's (low) byte (S+8); the reservation
+    f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8); the reservation
     pop=ih                                  ; pop its high byte (S+9)
     alu=GRP ax=TB ay=IMM wf                 ; the group's ALU op with the immediate, flags (W) (003E)
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (0040)
     e                                       ; E: held until the write's end (RAMEN)
 
 routine grp1_mcb diff=m00:+4,d8:+4,d16:+4,dir:+4 op=80,82 mod=mem reg=7 book="CMP mem,imm" width=byte why="OPEN: the add, the read, F with the immediate's pops after the datum, CMP, the left-out write's four clocks no act names, E (F5-push-cmp_m_imm-k2-pE-w0: S 96, P:read 101, the immediate at S+8 S+9, the left-out write's slot at S+10, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8)
     alu=GRP ax=TB ay=IMM wf                 ; CMP with the immediate, flags (W)
@@ -167,7 +167,7 @@ routine grp1_mcb diff=m00:+4,d8:+4,d16:+4,dir:+4 op=80,82 mod=mem reg=7 book="CM
     e                                       ; E: the write suppressed (CMP)
 
 routine grp1_mcw8 diff=m00:+3,d8:+3,d16:+3,dir:+3 op=83 mod=mem reg=7 book="CMP mem,imm" width=word why="OPEN: the add, the read, F with the immediate's pops after the datum, CMP, the left-out write's four clocks no act names, E (F5-push-cmp_m_imm-k2-pE-w0: S 96, P:read 101, the immediate at S+8 S+9, the left-out write's slot at S+10, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8)
     alu=GRP ax=TB ay=IMM wf                 ; CMP with the immediate, flags (W)
@@ -175,7 +175,7 @@ routine grp1_mcw8 diff=m00:+3,d8:+3,d16:+3,dir:+3 op=83 mod=mem reg=7 book="CMP 
     e                                       ; E: the write suppressed (CMP)
 
 routine grp1_mcw diff=m00:+4,d8:+4,d16:+4,dir:+4 op=81 mod=mem reg=7 book="CMP mem,imm" width=word why="OPEN: the add, the read, F with the immediate's pops after the datum, CMP, the left-out write's four clocks no act names, E (F5-push-cmp_m_imm-k2-pE-w0: S 96, P:read 101, the immediate at S+8 S+9, the left-out write's slot at S+10, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8)
     pop=ih                                  ; pop its high byte (S+9)
@@ -185,43 +185,43 @@ routine grp1_mcw diff=m00:+4,d8:+4,d16:+4,dir:+4 op=81 mod=mem reg=7 book="CMP m
 
 ; ---- the unary group's memory forms (V20 0170-0175: M -> tmpb; the op; SIGMA -> M [-06-])
 routine inc_m diff=m00:-2,d8:-2,d16:-2,dir:-2 op=FE,FF mod=mem reg=0 book="INC mem (word)" why="OPEN: the add, the read, F with the operation, the write's post (the write two clocks after the datum), E held to its end (F5-push-inc_m-k2-pE-w0: P:read at S+5, the write two clocks after the datum, E at the write's end: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f alu=INC ax=OPR wf resv     ; F: the operation on the datum (W where the form writes flags); the reservation
+    f alu=INC ax=OPR wf          ; F: the operation on the datum (W where the form writes flags); the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 
 routine dec_m diff=m00:-2,d8:-2,d16:-2,dir:-2 op=FE,FF mod=mem reg=1 book="DEC mem (word)" why="OPEN: the add, the read, F with the operation, the write's post (the write two clocks after the datum), E held to its end (F5-push-inc_m-k2-pE-w0: P:read at S+5, the write two clocks after the datum, E at the write's end: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f alu=DEC ax=OPR wf resv     ; F: the operation on the datum (W where the form writes flags); the reservation
+    f alu=DEC ax=OPR wf          ; F: the operation on the datum (W where the form writes flags); the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 
 routine not_m diff=m00:-2,d8:-2,d16:-2,dir:-2 op=F6,F7 mod=mem reg=2 book="NOT mem" why="OPEN: the add, the read, F with the operation, the write's post (the write two clocks after the datum), E held to its end (F5-push-inc_m-k2-pE-w0: P:read at S+5, the write two clocks after the datum, E at the write's end: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f alu=NOT ax=OPR resv        ; F: the operation on the datum (W where the form writes flags); the reservation
+    f alu=NOT ax=OPR             ; F: the operation on the datum (W where the form writes flags); the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 
 routine neg_m diff=m00:-2,d8:-2,d16:-2,dir:-2 op=F6,F7 mod=mem reg=3 book="NEG mem" why="OPEN: the add, the read, F with the operation, the write's post (the write two clocks after the datum), E held to its end (F5-push-inc_m-k2-pE-w0: P:read at S+5, the write two clocks after the datum, E at the write's end: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f alu=NEG ax=OPR wf resv     ; F: the operation on the datum (W where the form writes flags); the reservation
+    f alu=NEG ax=OPR wf          ; F: the operation on the datum (W where the form writes flags); the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 
 ; TEST mem,imm (F6 / F7 /0, /1 its alias; not in the book's table)
 routine test_mib op=F6 mod=mem reg=0-1 why="TEST mem8,imm8 (not in the book's table): the add, the immediate's pop, the read, F with the AND, E"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     pop=il                                  ; pop the immediate byte
     bus=MEMR                                ; post the read
     f alu=AND ax=OPR ay=IMM wf              ; F: the datum AND the immediate, flags (W)
     e                                       ; E (TEST writes nothing)
 
 routine test_miw op=F7 mod=mem reg=0-1 why="TEST mem16,imm16 (not in the book's table): as the byte form with the second immediate byte"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     pop=il                                  ; pop the immediate's low byte
     pop=ih                                  ; pop its high byte
     bus=MEMR                                ; post the read
@@ -232,7 +232,7 @@ routine test_miw op=F7 mod=mem reg=0-1 why="TEST mem16,imm16 (not in the book's 
 ; loop (loop.uasm: the one-bit-a-word loops, the finish, the writes) through a jump to the
 ; loop's label (the acts after the operand are the register form's)
 routine mulu_m16 diff=m00:+5,d8:+5,d16:+5,dir:+5 op=F7 mod=mem reg=4 book="MULU mem16" why="OPEN: the add, the read, AW into tmpa, F with the multiplier's load, OPEN clocks, the register form's loop, finish and writes (loop.uasm mu16_l) (F5-push-mulu_m-k2-pE-w0: P:read at S+5, S-to-S 40: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
     ra=AW wid=WORD d1=TA s1=RA              ; AW into tmpa (0179)
     f alu=MULI ax=TA ay=OPR cnt=BITS        ; F: the multiplier (the datum) loaded; the counter <- 16 (017B)
@@ -240,42 +240,42 @@ routine mulu_m16 diff=m00:+5,d8:+5,d16:+5,dir:+5 op=F7 mod=mem reg=4 book="MULU 
     open jmp=mu16_l                         ; OPEN: a clock of the model's with no act (MULU mem16); to the register form's loop
 
 routine mulu_m8 diff=m00:+1,d8:+1,d16:+1,dir:+1 op=F6 mod=mem reg=4 book="MULU mem8" width=byte why="OPEN: as the word form into the byte loop (loop.uasm mu8_l): the add, the read, AL into tmpa, F with the load, the register form's loop and its tail (the book's clocks with no act after the loop and its clock silicon longer than the book, F14-g-push-mulu_aw-pO-w0 for the word form): one over the book's EA + 27, the eleven OPEN words moved behind the loop (MX3 part 2)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     ra=AW wid=WORD d1=TA s1=RA              ; AL (AW) into tmpa
     f alu=MULI ax=TA ay=OPR cnt=BITS       jmp=mu8_l  ; F: the multiplier (the datum) loaded; the counter <- 8
 
 routine mul_m16 op=F7 mod=mem reg=5 why="no book value (a range, EA + 42-51): the natural shape, the read, F with the magnitudes' load, the register form's loop (loop.uasm mi16_l)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     ra=AW wid=WORD d1=TA s1=RA              ; AW into tmpa
     f alu=MULI ax=TA ay=OPR cnt=BITS jmp=mi16_l     ; F: the magnitudes loaded (the datum the multiplier); the counter <- 16; to the loop
 
 routine mul_m8 op=F6 mod=mem reg=5 why="no book value (a range, EA + 34-43): the natural shape (loop.uasm mi8_l)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     ra=AW wid=WORD d1=TA s1=RA              ; AL into tmpa
     f alu=MULI ax=TA ay=OPR cnt=BITS jmp=mi8_l      ; F: the magnitudes loaded; the counter <- 8; to the loop
 
 routine divu_m16 diff=m00:+1,d8:+1,d16:+1,dir:+1 op=F7 mod=mem reg=6 book="DIVU mem16" why="OPEN: silicon longer than the book by one: the register form's tail with its two clocks (F16-l-push-divu_ix-pE-w0), the pre-check's jump and fifteen OPEN words moved behind the loop (MX3 part 2); the add, the read, DW into tmpc under the cycle, F with the dividend's and the divisor's load and the pre-check, the divide error's test, the register form's loop, finish and writes (loop.uasm dv16_l, by a jump): the book's EA + 43 with fifteen book clocks with no act before the loop"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     rb=DW wid=WORD d1=TC s1=RB              ; DW (the dividend's high half) into tmpc
     f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=dv16_l ; F: the dividend DW:AW, the divisor (the datum), the pre-check; the counter <- 16
 
 routine divu_m8 diff=m00:+2,d8:+2,d16:+2,dir:+2 op=F6 mod=mem reg=6 book="DIVU mem8" width=byte why="OPEN: silicon longer than the book by two: the register form's tail with its two clocks (F16-l-push-divu_ix-pE-w0 for the word form), the pre-check's jump and sixteen OPEN words moved behind the loop (MX3 part 2); the add, the read, F with the dividend's and the divisor's load and the pre-check, the divide error's test, the register form's loop (loop.uasm dv8_l): the book's EA + 34 with sixteen book clocks with no act before the loop"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=dv8_l ; F: the dividend AW, the divisor (the datum), the pre-check; the counter <- 8
 
 routine div_m16 op=F7 mod=mem reg=7 why="no book value (a range, EA + 57-67): the natural shape (loop.uasm di16_l)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     rb=DW wid=WORD d1=TC s1=RB              ; DW into tmpc
     f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=di16_l ; F: the magnitudes, the pre-check; the counter <- 16
 
 routine div_m8 op=F6 mod=mem reg=7 why="no book value (a range, EA + 49-59): the natural shape (loop.uasm di8_l)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     f ra=AW wid=WORD alu=DIVI ax=RA ay=OPR cnt=BITS jmp=di8_l ; F: the magnitudes, the pre-check; the counter <- 8
 
@@ -283,50 +283,50 @@ routine div_m8 op=F6 mod=mem reg=7 why="no book value (a range, EA + 49-59): the
 ; written once, the loop on a temporary, two words a count as the register form): the read,
 ; F into the shifter, the loop, the write's post with the flags, E held
 routine shm_1 diff=m00:+1,d8:+1,d16:+1,dir:+1 op=D0,D1 mod=mem book="SHL mem,1" why="OPEN: the add, the read, F with the shifter's load, five clocks no act names, the one step, the write's post with the flags (the write eight clocks after the datum), E held (F5-push-shl_m1-k2-pE-w0: P:read at S+5, the write eight clocks after the datum, S-to-S 21: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f alu=SHI ax=OPR resv                   ; F: the shifter loaded from the datum with CY; the reservation
+    f alu=SHI ax=OPR                        ; F: the shifter loaded from the datum with CY; the reservation
     open call=w4                            ; OPEN: 5 clocks: a clock of the model's with no act (SHL mem,1) (the call and the shared delay's 4)
     alu=SH1 ax=SIG                          ; the one step
     d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; the result into the write datum; the shift's flags (W); post the write
     e                                       ; E: held until the write's end (RAMEN)
 
 routine shm_cl op=D2,D3 mod=mem book="SHL mem,CL" n=4 why="OPEN: the add, the read, CL into the counter under the cycle, F with the shifter's load, the zero test, the two-word iteration, the write's post with the flags (the count 0: the datum written back, no flags), E held: the book's EA + 19 + 2n with seven book clocks with no act before the zero test"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     rb=CW cnt=RB                            ; CL into the loop counter
-    f alu=SHI ax=OPR resv                   ; F: the shifter loaded from the datum with CY; the reservation
+    f alu=SHI ax=OPR                        ; F: the shifter loaded from the datum with CY; the reservation
     open call=w6                            ; OPEN: 7 clocks: a book clock with no act (SHL mem,CL EA + 19 + 2n) (the call and the shared delay's 6)
     jc=CNTZ:shmc_z                          ; a zero count skips the loop (SHIFT 0228 JMP Z)
 shmc_l: alu=SH1 ax=SIG                      ; one shift step of the group's operation
     loop=shmc_l                             ; the counter step (the iteration's second word)
     d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; the result into the write datum; the shift's flags (W); post the write
-    e wb                                    ; E: held until the write's end (RAMEN)
-shmc_z: e wb                                ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
+    e                                       ; E: held until the write's end (RAMEN)
+shmc_z: e                                   ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
 
 routine shm_imm op=C0,C1 mod=mem bookx="EA+15+2n" n=4 why="OPEN: the add, the read, the count's pop and its load under the cycle, F with the shifter's load, the zero test, the two-word iteration, the write's post with the flags, E held: the book's EA + 15 + 2n (its ROL mem,imm8 note) with three book clocks with no act before the zero test"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     pop=il                                  ; pop the count (V20 028C Q -> tmpaL)
     cnt=IL                                  ; the count into the loop counter
-    f alu=SHI ax=OPR resv                   ; F: the shifter loaded from the datum with CY; the reservation
+    f alu=SHI ax=OPR                        ; F: the shifter loaded from the datum with CY; the reservation
     open call=w2                            ; OPEN: 3 clocks: a book clock with no act (SHL mem,imm8 EA + 15 + 2n) (the call and the shared delay's 2)
     jc=CNTZ:shmi_z                          ; a zero count skips the loop
 shmi_l: alu=SH1 ax=SIG                      ; one shift step
     loop=shmi_l                             ; the counter step
     d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; the result into the write datum; the shift's flags (W); post the write
-    e wb                                    ; E: held until the write's end (RAMEN)
-shmi_z: e wb                                ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
+    e                                       ; E: held until the write's end (RAMEN)
+shmi_z: e                                   ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
 
 ; ---- the stack's memory forms
 ; PUSH mem16 (FF /6; V20 FF_PUSH 01CC-01CE): the read, SP - 2 under the cycle, F: the datum
 ; into the write datum, the write at SS:SP, E held
 routine push_m diff=m00:-1,d8:-1,d16:-1,dir:-1 op=FF mod=mem reg=6 book="PUSH mem16" why="OPEN: the add, the read, SP - 2 and the address under the cycle, F: the datum into the write datum, four clocks no act names, the write's post at SS:SP (six clocks after the datum), E held (F5-push-push_m-k2-pE-w0: P:read at S+5, the write six clocks after the datum, S-to-S 19: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register (S+3 at mod 00); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
     bus=MEMR wid=WORD                       ; post the read (a word)
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP - 2; the address register <- it
-    f d1=OPRW s1=OPR resv                   ; F: the datum into the write datum; the reservation
+    f d1=OPRW s1=OPR                        ; F: the datum into the write datum; the reservation
     open call=w3                            ; OPEN: 4 clocks: a clock of the model's with no act (PUSH mem16) (the call and the shared delay's 3)
     bus=MEMW seg=SS wid=WORD                ; post the write at SS:SP
     e                                       ; E: held until the write's end (RAMEN)
@@ -334,10 +334,10 @@ routine push_m diff=m00:-1,d8:-1,d16:-1,dir:-1 op=FF mod=mem reg=6 book="PUSH me
 ; POP mem16 (8F /0; V20 POP_RM 0058-005B: the EA kept, SP -> IND, MEMR SS; SIGMA -> SP; [F];
 ; SIGMA -> IND [-06-])
 routine pop_m op=8F mod=mem reg=0,1,2,3,4,5,6,7 book="POP mem16" why="OPEN: the add, the EA into tmpc and SP into the address register with the stack read's post (0058-0059), SP + 2 and its write (005A), F: the datum into the write datum and the EA back into the address register, the write's post (005B), E held to its end: the book's EA + 14 with three book clocks with no act before the write's post"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     rb=SP wid=WORD d1=TC s1=ADDR d2=ADDR s2=RB bus=MEMR seg=SS  ; the EA into tmpc (0058); SP into the address register; post the read at SS:SP (0059)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    wr=SP wid=WORD ws=SIG resv              ; SP <- SP + 2 (005A); the reservation (the write follows)
+    wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2 (005A); the reservation (the write follows)
     f d1=OPRW s1=OPR d2=ADDR s2=TC          ; F: the datum into the write datum; the address register <- the EA (005A)
     open call=w2                            ; OPEN: 3 clocks: a book clock with no act (POP mem16 EA + 14) (the call and the shared delay's 2)
     bus=MEMW wid=WORD                       ; post the write at the EA (the default segment) (005B [-06-])

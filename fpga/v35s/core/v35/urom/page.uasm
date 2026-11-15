@@ -44,7 +44,7 @@ a4_pair: bus=MEMR seg=DSP wid=BYTE          ; post the source byte's read (E + 1
     loop=a4_pair                            ; the counter step: the next pair (its post at the write's end + 5)
 a4_tail: open call=w5                       ; OPEN: 6 clocks: a book clock with no act (ADD4S 22 + 30n) (the call and the shared delay's 5)
     alu=BCDF wf                             ; the flags: CY S AC the last carry, Z P the zero term, V 0
-    e wb                                    ; E: pop the next opcode (the last write's end + 12, the model's next start); the flags' write-back runs on past E (the model's wb 2: an OUT imm8 after it waits, MX1f)
+    e                                       ; E: pop the next opcode (the last write's end + 12, the model's next start); the flags' write-back runs on past E (the model's wb 2: an OUT imm8 after it waits, MX1f)
 
 routine cmp4s op=26 page=0f book="CMP4S" n=4 diff=2 why="OPEN: silicon longer than the book by two (F32-out-cmp4s-n4-k1-pE-w0: the frozen model exact; the source read issued at E + 17, the destination's at the source's end + 6, the next pair's source at the destination's end + 13, the next start at the last destination's end + 20: 74 for two pairs against the book's 72; F32-out-cmp4s-n2-k2-pE-w1 the same with the waits and the BW law's clock); per pair the book's 25 (two bus cycles, the BCD step, the address moves, OPEN clocks); the fixed part the book's 22 + 2"
     ra=IX rb=CW wid=WORD d1=ADDR s1=RA d2=TC s2=ZERO cnt=CLH alu=BCDI ; the source's address (IX + 0), the pair offset 0 into tmpc, the counter <- (CL + 1) / 2; the borrow cleared, the zero term set (E + 2: the BW law)
@@ -66,7 +66,7 @@ c4_pair: bus=MEMR seg=DSP wid=BYTE          ; post the source byte's read (E + 1
     loop=c4_pair                            ; the counter step: the next pair (its post at the destination's end + 12)
 c4_tail: open call=w6                       ; OPEN: 7 clocks: a book clock with no act (CMP4S 22 + 25n) (the call and the shared delay's 6)
     alu=BCDF wf                             ; the flags
-    e wb                                    ; E: pop the next opcode (the last destination's end + 20, the model's next start); the flags' write-back past E (the model's wb 2, MX1f)
+    e                                       ; E: pop the next opcode (the last destination's end + 20, the model's next start); the flags' write-back past E (the model's wb 2, MX1f)
 
 ; ---- the bit operations TEST1 / CLR1 / SET1 / NOT1 (0F 10-1F: op3 1:0 the operation, the
 ; width the second byte's bit 0, bit 3 an imm3 / imm4 index after the operand, else CL; the
@@ -77,7 +77,7 @@ c4_tail: open call=w6                       ; OPEN: 7 clocks: a book clock with 
 ; after the add; the imm index is popped after the read's issue (the frozen model's takes).
 routine b1tcl op=10,11 page=0f diff=r:-1,m00:+0,d8:+0,d16:+0,dir:+0 book="TEST1 reg8,CL" bookm="TEST1 mem8,CL" why="OPEN: the book's TEST1 reg,CL 7 / mem,CL EA + 12, the book's clocks with no act OPEN; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count: the E word pops only the page's second byte), the frozen model exact on F32-push-test1_mw_cl-k1-pE-w0 and F32-push-set1_mw_cl-k1-pE-w0 (16 and 19 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (the ModR/M pop arms it: the register path's operation and the memory path's add wait for the fetch the pop's room asked for, MX1f / Correction 15; the book machine has no sync), F32-out-set1_rw_cl-k1-pE-w0 and F34-push-rbit-set1_rw_cl-l0-k1-pE-w0 (9 S-to-S each)"
     pop=modrm eac=b1tcl_r                   ; pop the ModR/M byte (E + 2): register mode to the register path; a memory mode calls its EA head
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register; the reservation
     ra=CW d1=TB s1=RA                       ; CL (by the width) into tmpb: the bit index
     open                                    ; OPEN: a book clock with no act (TEST1 mem,CL EA + 12)
     open                                    ; OPEN: a book clock with no act (TEST1 mem,CL EA + 12)
@@ -93,7 +93,7 @@ b1tcl_r: open                              ; OPEN: a book clock with no act (TES
 
 routine b1tim op=18,19 page=0f diff=r:0,m00:+0,d8:+0,d16:+0,dir:+0 book="TEST1 reg8,imm3" bookm="TEST1 mem8,imm3" why="OPEN: the book's TEST1 reg,imm 6 / mem,imm EA + 9, the book's clocks with no act OPEN; the index popped after the read's issue (the frozen model's take)"
     pop=modrm eac=b1tim_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read (E + 7 with the take sync's wait at the add: issued at E + 8, the model's)
     open                                    ; OPEN: a book clock with no act (TEST1 mem,imm EA + 9)
     pop=il                                  ; pop the bit index (the clock after the read's issue: the model's take)
@@ -108,12 +108,12 @@ b1tim_r: pop=il                             ; pop the bit index
 
 routine b1ccl op=12,13 page=0f diff=r:-2,m00:+0,d8:+0,d16:+0,dir:+0 book="CLR1 reg8,CL" bookm="CLR1 mem8,CL" why="OPEN: the book's CLR1 reg,CL 8 / mem,CL EA + 16, the book's clocks with no act OPEN; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count: the E word pops only the page's second byte), the frozen model exact on F32-push-test1_mw_cl-k1-pE-w0 and F32-push-set1_mw_cl-k1-pE-w0 (16 and 19 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (the ModR/M pop arms it: the register path's operation and the memory path's add wait for the fetch the pop's room asked for, MX1f / Correction 15; the book machine has no sync), F32-out-set1_rw_cl-k1-pE-w0 and F34-push-rbit-set1_rw_cl-l0-k1-pE-w0 (9 S-to-S each)"
     pop=modrm eac=b1ccl_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     ra=CW d1=TB s1=RA                       ; CL into tmpb: the bit index
     open                                    ; OPEN: a book clock with no act (CLR1 mem,CL EA + 16)
     open                                    ; OPEN: a book clock with no act (CLR1 mem,CL EA + 16)
     bus=MEMR                                ; post the read (E + 10 with the take sync's wait at the add: issued at E + 11, the model's)
-    f alu=BIT ax=OPR ay=TB resv             ; F: CLR1 on the datum; the reservation
+    f alu=BIT ax=OPR ay=TB                  ; F: CLR1 on the datum; the reservation
     open                                    ; OPEN: a book clock with no act (CLR1 mem,CL EA + 16)
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
@@ -125,11 +125,11 @@ b1ccl_r: open                              ; OPEN: a book clock with no act (CLR
 
 routine b1cim op=1A,1B page=0f diff=r:-1,m00:+0,d8:+0,d16:+0,dir:+0 book="CLR1 reg8,imm3" bookm="CLR1 mem8,imm3" why="OPEN: the book's CLR1 reg,imm 7 / mem,imm EA + 13, the book's clocks with no act OPEN; the index popped after the read's issue; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count), the frozen model exact on F32-push-not1_mb_imm-k1-pE-w0 (16 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (MX1f / Correction 15: the book machine has no sync), F32-out-set1_rw_imm-k1-pE-w0 (9 S-to-S)"
     pop=modrm eac=b1cim_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read (E + 7 with the take sync's wait at the add: issued at E + 8, the model's)
     open                                    ; OPEN: a book clock with no act (CLR1 mem,imm EA + 13)
-    pop=il resv                             ; pop the bit index (the clock after the read's issue: the model's take); the reservation (the write to come: a fetch the pop's room asks for waits unless the queue is low)
-    f alu=BIT ax=OPR ay=IMM8 resv           ; F: CLR1 on the datum; the reservation
+    pop=il                                  ; pop the bit index (the clock after the read's issue: the model's take); the reservation (the write to come: a fetch the pop's room asks for waits unless the queue is low)
+    f alu=BIT ax=OPR ay=IMM8                ; F: CLR1 on the datum; the reservation
     open                                    ; OPEN: a book clock with no act (CLR1 mem,imm EA + 13)
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
@@ -141,12 +141,12 @@ b1cim_r: pop=il                             ; pop the bit index
 
 routine b1scl op=14,15,16,17 page=0f diff=r:-1,m00:+0,d8:+0,d16:+0,dir:+0 book="SET1 reg8,CL" bookm="SET1 mem8,CL" why="OPEN: the book's SET1 / NOT1 reg,CL 7 / mem,CL EA + 15, the book's clocks with no act OPEN; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count: the E word pops only the page's second byte), the frozen model exact on F32-push-test1_mw_cl-k1-pE-w0 and F32-push-set1_mw_cl-k1-pE-w0 (16 and 19 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (the ModR/M pop arms it: the register path's operation and the memory path's add wait for the fetch the pop's room asked for, MX1f / Correction 15; the book machine has no sync), F32-out-set1_rw_cl-k1-pE-w0 and F34-push-rbit-set1_rw_cl-l0-k1-pE-w0 (9 S-to-S each)"
     pop=modrm eac=b1scl_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     ra=CW d1=TB s1=RA                       ; CL into tmpb: the bit index
     open                                    ; OPEN: a book clock with no act (SET1 mem,CL EA + 15)
     open                                    ; OPEN: a book clock with no act (SET1 mem,CL EA + 15)
     bus=MEMR                                ; post the read (E + 10 with the take sync's wait at the add: issued at E + 11, the model's)
-    f alu=BIT ax=OPR ay=TB resv             ; F: SET1 / NOT1 on the datum; the reservation
+    f alu=BIT ax=OPR ay=TB                  ; F: SET1 / NOT1 on the datum; the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 b1scl_r: open                              ; OPEN: a book clock with no act (SET1 reg,CL 7) (the take sync's wait first)
@@ -157,11 +157,11 @@ b1scl_r: open                              ; OPEN: a book clock with no act (SET
 
 routine b1sim op=1C,1D,1E,1F page=0f diff=r:0,m00:+0,d8:+0,d16:+0,dir:+0 book="SET1 reg8,imm3" bookm="SET1 mem8,imm3" why="OPEN: the book's SET1 / NOT1 reg,imm 6 / mem,imm EA + 12, the book's clocks with no act OPEN; the index popped after the read's issue; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count), the frozen model exact on F32-push-not1_mb_imm-k1-pE-w0 (16 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (MX1f / Correction 15: the book machine has no sync), F32-out-set1_rw_imm-k1-pE-w0 (9 S-to-S)"
     pop=modrm eac=b1sim_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read (E + 7 with the take sync's wait at the add: issued at E + 8, the model's)
     open                                    ; OPEN: a book clock with no act (SET1 mem,imm EA + 12)
-    pop=il resv                             ; pop the bit index (the clock after the read's issue: the model's take); the reservation (the write to come: a fetch the pop's room asks for waits unless the queue is low)
-    f alu=BIT ax=OPR ay=IMM8 resv           ; F: SET1 / NOT1 on the datum; the reservation
+    pop=il                                  ; pop the bit index (the clock after the read's issue: the model's take); the reservation (the write to come: a fetch the pop's room asks for waits unless the queue is low)
+    f alu=BIT ax=OPR ay=IMM8                ; F: SET1 / NOT1 on the datum; the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 b1sim_r: pop=il                             ; pop the bit index
@@ -180,7 +180,7 @@ b1sim_r: pop=il                             ; pop the bit index
 ; after it waits, MX1f).
 routine rol4 op=28 page=0f book="ROL4 reg8" bookm="ROL4 mem8" diff=r:0,m00:+1,d8:+1,d16:+1,dir:+1 why="OPEN: the book's ROL4 reg8 17 / mem8 EA + 20 with the take sync's wait (F32-out-rol4_dl-k1-pE-w0: 19 S-to-S, the model exact: the ModR/M pop at E + 2, the fetch it asked for delivered at E + 5; F32-push-rol4_m-k1-pE-w0: the read at E + 8, the write at the read's end + 11, the next start at the write's end); the book's clocks with no act OPEN"
     pop=modrm eac=r4l_r                     ; pop the ModR/M byte (E + 2): register mode to the register path; a memory mode calls its EA head
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add (the take sync's wait first); the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the take sync's wait first); the reservation
     bus=MEMR wid=BYTE                       ; post the byte's read
     f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; F: the digit rotate of the datum with AL (SIGMA the byte, tmpc the new AL)
     wr=AW wid=BYTE ws=TC                    ; AL written
@@ -191,11 +191,11 @@ r4l_r: rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit 
     wr=AW wid=BYTE ws=TC                    ; AL written
     wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
     open call=w10                           ; OPEN: 11 clocks: a book clock with no act (ROL4 reg8 17) (the call and the shared delay's 10)
-    e wb                                    ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)
+    e                                       ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)
 
 routine ror4 op=2A page=0f book="ROR4 reg8" bookm="ROR4 mem8" diff=r:0,m00:-1,d8:-1,d16:-1,dir:-1 why="OPEN: the book's ROR4 reg8 21 with the take sync's wait (F32-push-ror4_dl-k1-pE-w0 / w2: 23 / 27 S-to-S, the model exact: the ModR/M pop at E + 2, the fetch it asked for delivered at E + 5 / E + 9); the memory path ROL4's and four clocks more, as the register forms (F32-out-ror4_m-k1-pE-w0: the write at the read's end + 15, the model exact), book error of two against the book's EA + 26; the book's clocks with no act OPEN"
     pop=modrm eac=r4r_r                     ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR wid=BYTE                       ; post the byte's read
     f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; F: the digit rotate (SIGMA the byte, tmpc the new AL)
     wr=AW wid=BYTE ws=TC                    ; AL written
@@ -206,4 +206,4 @@ r4r_r: rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit 
     wr=AW wid=BYTE ws=TC                    ; AL written
     wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
     open call=w14                           ; OPEN: 15 clocks: a book clock with no act (ROR4 reg8 21) (the call and the shared delay's 14)
-    e wb                                    ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)
+    e                                       ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)

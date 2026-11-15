@@ -2611,3 +2611,31 @@ question, decided from S8's routed numbers with the user.
   banks 5 / traps 6 / prio 4 / pfxtake 10 equal, fuzz f5x f5r f5n f5u f5v as the base. **FPGA at
   17 ns: +1.996 / +1.768 / +1.875 on seeds 1 / 2 / 3** (the base +2.286 / +1.613 / +2.355),
   9,454 LUT4 / 634 ADD / 2,465 FF / 81 RAM_5K.
+- **2026-11-15, interface plan step D: the plain machine (timing changes, function intact).**
+  Measured first on a throwaway build (each rule off alone; all off 0 exact; the
+  take sync and the staging-room rule each move every run; removing the aborted fetch alone gains
+  74 runs net; the I/O recovery window buys nothing). **Removed:** the sequencer stalls (`st_bw`,
+  `st_uh`, `st_wp`, `st_wbw`, `st_tsy` with `tw` / `rqp` / `drop`, `st_fch`, `st_rfl`, the fetch
+  wait of `st_sus`), the reservation with the low-queue hint (alone, removing the hint deadlocks
+  PUSH imm16), the aborted fetch cycle, the bus unit's `ioh` hold, recovery window and phase
+  outputs, the queue's `u_sus` / `lat_hold` / `unc_a` / `q_low` / `q_word`, the loader's hold /
+  hold2 / staging-room rule, the microword flags `wb` / `wp` / `fw` / `resv` (the word is 92
+  bits; the microcode otherwise word for word the same, 1,910 words) and all three `FIT_`
+  integers. **Added (function):** a write-datum latch in the bus unit (datum and width captured at
+  B2; the pair's second half and on-chip stores read it), proven no change before the removals.
+  **Kept:** the RAMEN write hold: function-bearing beyond the latch (RETRBI reads a bank word of
+  the internal RAM while the store to it is still on the bus); its plain form (hold only stores
+  into the internal RAM) is step E's. SUSP and `nb` (function), the bus unit's back-to-back
+  priority, the queue's room on its own count (7 bytes, a word in flight counts 2, request at 5 or
+  fewer). **Structure:** the head offset (`hip`) and the flush address in the queue; bus to useq
+  12 signals to 0, loader to bus 3 to 0, useq inputs 54 to 33, loader outputs 38 to 25; the
+  budget 156 / 178 to 129 / 146 (two pairs up by one: queue to loader 15, eu to queue 2);
+  test_v35_struct bans the removed names and `FIT_`. **Corpus (reported, not gated, from here):
+  0 exact of 30,536 at both spacings** (6,541 before); write data 106,824 / 106,824, chk silent.
+  **Full gate (agent's run and the overseer's on the landed tree, verify.out identical):** vectors
+  0 bad, lint clean (four configurations), 54 fast tests, SingleStepTests 0 fails, every program
+  set equal on both socket sessions but periph f4_tm (timing only: handler entry intervals up to
+  28 to 30 clocks off against a tolerance of 16; writes 563 / 563 and pins equal), fuzz as the
+  last full gate (the same programs differing). **FPGA at 17 ns: +1.384 / +2.079 / +1.916 on
+  seeds 1 / 2 / 3** (the base +1.996 / +1.768 / +1.875), 9,209 LUT4 / 629 ADD / 2,421 FF /
+  79 RAM_5K.

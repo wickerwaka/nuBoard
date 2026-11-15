@@ -196,7 +196,7 @@ class BookCheck(unittest.TestCase):
     def test_a_positive_difference_with_an_open_word_is_rejected(self):
         # the rule's check on a routine written to break it: one OPEN word on a path over the book
         text = ("routine bad op=8A,8B mod=mem book=\"MOV reg,mem\" diff=1 why=\"two pops\"\n"
-                "    ea=BI ra=BASE rb=INDEX resv ; the add\n"
+                "    ea=BI ra=BASE rb=INDEX ; the add\n"
                 "    open ; OPEN: a book clock\n"
                 "    bus=MEMR ; post\n"
                 "    f d1=TA s1=OPR ; F\n"

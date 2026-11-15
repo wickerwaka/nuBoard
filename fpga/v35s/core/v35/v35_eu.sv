@@ -23,14 +23,15 @@
 // until req_done. The address is the segment + the address register as the posting word
 // leaves it; the write datum is OPRW (the bus takes it at B2). A read's datum is latched at
 // req_done (an odd word's first half's byte at its own end); the F word takes it (opr_rdy).
-// A memory write holds the routine's E until its end while RAMEN = 1 (PRC bit 6); an I/O write
-// is posted and not waited for. The reservation (req_resv) is up from a word with `resv` (or a standing
-// request) until the acknowledge.
+// A memory write holds the routine's F and E until its end while RAMEN = 1 (PRC bit 6): with the
+// internal RAM mapped, a store may land in the register RAM the next words read ((step D) kept:
+// function-bearing, README "Step D"); an I/O write is posted and not waited for. (Step D) The
+// reservation is gone; the bus unit latches a write's datum at its B2.
 //
 // Registered state (widths): psw 16, ds1 ps ss ds0 4x16, ta tb tc 3x16, sigma 16, scy 1,
 // addr 16, ea_ss 1, oprw 16, pfx_v 1, pfx_s 2, mul (v35_mul_t 51), div (v35_div_t 75), dtrap 1;
 // the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_off
-// 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, resv_r 1, opr_v 1, opr 16, plo 8, (F5b) iod 16; the ce_b copies.
+// 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, opr_v 1, opr 16, plo 8, (F5b) iod 16; the ce_b copies.
 module v35_eu
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -48,8 +49,6 @@ module v35_eu
     input  wire [7:0]  modrm_nx,
     input  v35_udec_t  fmt_nx,
     input  wire        ex_b,            // tick B / ce_a
-    input  wire        resv_e,          // tick A: the reservation rises (the loader's E pop)
-    input  wire        tk_go,           // (F5c) tick A: the dispatch enters the interrupt take (v35_intc)
     // the loader's registers
     input  v35_udec_t  fmt,
     input  wire [2:0]  op3,
@@ -80,11 +79,10 @@ module v35_eu
     output wire [19:0] req_addr,
     output wire        req_width,
     output wire [15:0] req_data,
-    output wire        req_resv,
     input  wire        req_ack,
     input  wire        req_done,
     input  wire [15:0] done_data,
-    input  wire        cpu_end_prev,    // a non-fetch cycle ended on t-1 (a pair's first half)
+    input  wire        eu_dlv,          // an EU cycle's datum is delivered now (a pair's first half too)
     input  wire        ramen,           // PRC.RAMEN
     // (MX5c) tick B: the next values of the stall inputs (the sequencer's registered stall
     // outcome): from the request registers' next state, the bus unit's next req_done, the
@@ -222,7 +220,7 @@ module v35_eu
     // negative); the signed routines' negation paths jump on it (the 8086 / V20 F1 flag)
     reg        f1 = 1'b0;
     reg        rq_v = 1'b0, rq_word = 1'b0, rq_pair = 1'b0, rq_out = 1'b0, rq_rd = 1'b0;
-    reg        rq_wr = 1'b0, rq_io = 1'b0, resv_r = 1'b0, opr_v = 1'b0;
+    reg        rq_wr = 1'b0, rq_io = 1'b0, opr_v = 1'b0;
     reg [1:0]  rq_cyc = RQ_MEMR;
     reg [19:0] rq_addr = 20'd0;
     reg [15:0] rq_off = 16'd0, opr = 16'd0;
@@ -338,14 +336,12 @@ module v35_eu
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg  [1:0] la_b = 2'd0, lb_b = 2'd0;
-    reg        ack_b = 1'b0, resv_eb = 1'b0, tk_go_b = 1'b0;
+    reg        ack_b = 1'b0;
     always_ff @(posedge clock) begin
         if (ce_b) begin
             la_b <= sa[5:4];
             lb_b <= sb[5:4];
             ack_b <= req_ack;
-            resv_eb <= resv_e;
-            tk_go_b <= tk_go;
         end
     end
 
@@ -704,13 +700,11 @@ module v35_eu
     assign req_width = rq_word;
     wire [15:0] wdat = (rq_io && rq_wr) ? iod : oprw;
     assign req_data = rq_word ? wdat : {wdat[7:0], wdat[7:0]};
-    // the reservation: a request standing, a word's `resv` until the acknowledge, and the E
-    // clock that pops a posting routine's opcode (the loader's resv_e: the decode knows)
-    assign req_resv = rq_v || resv_r || resv_e;
     // (MX2) F after a memory write (the last request a write): the RAMEN hold (mechanisms 3.3:
     // the EU holds until the write cycle ends, the write may land in the register RAM) placed on
-    // that word, not only on E (CALL's push before its FLUSH: the frozen model's write step
-    // waits for the cycle's end); a read's F waits for its datum
+    // that word, not only on E; a read's F waits for its datum. (Step D) Kept: without it a
+    // store into a register bank is read stale by the next words (banks f3_bins: RETRBI's read
+    // of the PSW save the MOV before it stored, README "Step D")
     assign opr_rdy = rq_wr ? !wr_hold : (opr_v || (req_done && rq_out && rq_rd));
     // (MX1) the slot frees on the cycle's end (req_done): a post on that clock stands from the
     // next, the book check's machine (uasm.length: a post waits for the last request's end)
@@ -771,7 +765,6 @@ module v35_eu
             rq_rd <= 1'b0;
             rq_wr <= 1'b0;
             rq_io <= 1'b0;
-            resv_r <= 1'b0;
             opr_v <= 1'b0;
             dtrap <= 1'b0;
             f1 <= 1'b0;
@@ -883,8 +876,6 @@ module v35_eu
                     end
                 end else if (word.e && !fmt.seg[2] && word.ea != EA_REP)
                     pfx_v <= 1'b0;
-                if (word.resv)
-                    resv_r <= 1'b1;
             end
             // the request
             if (post) begin
@@ -916,7 +907,7 @@ module v35_eu
                 end
                 if (req_done && rq_out)
                     rq_out <= 1'b0;
-                else if (cpu_end_prev && rq_out && rq_pair)
+                else if (eu_dlv && rq_out && rq_pair)
                     plo <= done_data[15:8];
             end
             // (MX1) a read's datum latched at its end, also when the clock posts the next
@@ -925,16 +916,6 @@ module v35_eu
                 opr <= dnow;
                 opr_v <= 1'b1;
             end
-            // (F5c) the reservation ends with its request's acknowledge, and also when there is
-            // no request left to wait for: the routine's E word (a routine that ends without
-            // posting: the zero-count memory shift; a request posted on or before E stands on
-            // rq_v until its acknowledge) and the interrupt take's dispatch (the popped opcode's
-            // routine, whose E pop raised it, is not entered; the bank-switch take posts nothing).
-            // The next routine's rise (resv_eb, the same E clock) wins
-            if (resv_eb)
-                resv_r <= 1'b1;
-            else if (ack_b || (ex_b && word.e) || tk_go_b)
-                resv_r <= 1'b0;
             if (ex_b && word.f)
                 opr_v <= 1'b0;
             // (F1) a FLAG store: PSW bits 5 and 3 (after the word's PSW write: the store's
@@ -977,8 +958,7 @@ module v35_eu
                 if (chk_n <= 20)
                     $display("v35 chk: eu: the early operands differ at %0t", $time);
             end
-            if (la_b !== sa[5:4] || lb_b !== sb[5:4] || ack_b !== req_ack
-                || resv_eb !== resv_e || tk_go_b !== tk_go) begin
+            if (la_b !== sa[5:4] || lb_b !== sb[5:4] || ack_b !== req_ack) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: eu: a tick A source changed in tick B at %0t", $time);

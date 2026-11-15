@@ -32,7 +32,6 @@ The word's fields (one line of a routine is one word, one CPU clock):
     ea          the EA step (DISP: the address register from the popped displacement; BI: base
                 + index + displacement)
     bus seg     a bus request on the A1 port (MEMR MEMW IOR IOW) and its segment (DEF SS DS1)
-    resv        the reservation raised
     pop         a queue byte popped into MODRM IL IH DL DH
     e f         E (the next opcode popped; exactly one word follows) and F (wait for the datum)
     cnt         the loop counter's load (RB IL BITS LEN)
@@ -354,8 +353,7 @@ SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac", "tki"}
 # (F2b) the trap vectors a word names with vec= (the data book's vector table, docs/v35s-
 # differences.md section 5): CHKIND 5, the FPO escapes 7, the I/O trap 19
 VECTORS = {"CHK": 5, "FPO": 7, "IOT": 19, "DIV": 0, "STEP": 1}
-FLAGS = {"wf", "resv", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "wb", "susp",
-         "fw", "ist", "nb"}
+FLAGS = {"wf", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "susp", "ist", "nb"}
 
 
 def _tokens(s: str) -> list[str]:
@@ -563,23 +561,6 @@ def assemble(paths: list[Path] | None = None) -> Program:
         for lab in EA_HEADS:
             if lab not in labels:
                 raise UasmError(f"no EA head {lab!r} (ea.uasm)")
-    # (MX3) wp: an E word whose post-E word writes the register file (the result's write after
-    # E holds the write port on the next clock); derived, never written by hand
-    # The routine has taken an operand byte (a ModR/M register form, or an immediate popped):
-    # the frozen model's wlatch counts only a register-only form's last operand byte's take
-    pops_imm = {enum_value("v35_pop_e", "il"), enum_value("v35_pop_e", "ih")}
-    # (MX3c) and a 0F routine's ModR/M byte popped by its EAC word: the register path took an
-    # operand byte as a ModR/M register form does on its E word
-    pops_imm.add(enum_value("v35_pop_e", "modrm"))
-    for r in routines:
-        took = r.head.get("mod") == "reg" or any(x.fields.get("pop") in pops_imm for x in r.words)
-        for i, w in enumerate(r.words[:-1]):
-            # (MX3c) or its flags (TEST1's): the flags' write holds the write port as the
-            # result's does (MX1f's wb reading); no routine before MX3c writes flags after E
-            post = r.words[i + 1].fields
-            if (took and w.fields.get("e") and (post.get("wr", 0) or post.get("wf", 0))
-                    and "wp" in FIELD_TYPE):
-                w.fields["wp"] = 1
     for r, w in words:
         for k, v in w.refs.items():
             if v not in labels:
@@ -644,12 +625,6 @@ def udec1(prog: Program, op: int) -> dict:
     else:
         f["entry"], f["trap"] = prog.labels[TRAP1], 1
     f["io"] = int(op in IO_OPS)
-    # the reservation at the opcode's pop: its routine's header says `resv=e`
-    f["rq"] = int(op in prog.cells1 and next(r for r in prog.routines
-                                             if r.name == prog.cells1[op]).head.get("resv") == "e")
-    # (MX1f) the write-back wait at the opcode's pop: its routine's header says `wbs=e`
-    f["wbs"] = int(op in prog.cells1 and next(r for r in prog.routines
-                                              if r.name == prog.cells1[op]).head.get("wbs") == "e")
     return f
 
 
@@ -721,8 +696,8 @@ def decode_svh(prog: Program) -> str:
         f = udec1(prog, op)
         L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
-                 f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, 1'b{f['rq']}, "
-                 f"1'b{f['wbs']}, 1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}}};")
+                 f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, "
+                 f"1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte

@@ -73,15 +73,15 @@ ext_t: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
     wr=AW wid=WORD ws=TB jnc=SGN:ext_n  ; (F5b: silicon, f5r extal, 220 cases) AW <- the field after the offset register (an offset in AL / AH is overwritten); no carry: the pointer stays
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
     wr=IX wid=WORD ws=SIG               ; IX written
-    e wb                                ; E: pop the next opcode; AW's write-back runs on past E (the frozen model's bf_ext wb 2: an OUT imm8 after it waits, MX1f)
+    e                                   ; E: pop the next opcode; AW's write-back runs on past E (the frozen model's bf_ext wb 2: an OUT imm8 after it waits, MX1f)
 ext_n: open call=w1                     ; OPEN: 2 clocks with no act (EXT's end: the pointer's two clocks) (the call and the shared delay's 1)
-    e wb                                ; E: pop the next opcode; AW's write-back runs on past E (the frozen model's bf_ext wb 2: an OUT imm8 after it waits, MX1f)
+    e                                   ; E: pop the next opcode; AW's write-back runs on past E (the frozen model's bf_ext wb 2: an OUT imm8 after it waits, MX1f)
 
 routine exti op=3B page=0f why="OPEN: the data book prints a range (EXT reg8,imm4 42-122); silicon's per-bit costs (docs/v35s-eu-timing.md: 107 - 2o - 4w within a word, 61 + 2o crossing) are the loops' iterations, two clocks each; the fixed clocks around them with no act OPEN (the frozen model exact on the runs README F2a names)"
     pop=modrm eac=exti_r                ; pop the ModR/M byte (E + 2): register mode to the register form; a memory mode calls its EA head
     jmp=exti_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 exti_r: open call=w4                    ; OPEN: 5 clocks with no act (the read's setup) (the call and the shared delay's 4)
-    open fw                             ; OPEN: a fetch-free clock of the read's setup (fw: the word waits while a fetch cycle runs or delivers its word; the frozen model's bf_read=fixed: the setup's clocks fetch-free)
+    open                                ; OPEN: a fetch-free clock of the read's setup (fw: the word waits while a fetch cycle runs or delivers its word; the frozen model's bf_read=fixed: the setup's clocks fetch-free)
     ra=IX wid=WORD d1=ADDR s1=RA bus=MEMR seg=DSP; post the word's read at IX (a prefix's segment, else DS0)
     pop=il                              ; pop the imm4 width byte (while the read waits)
     f d1=TC s1=OPR                      ; F: tmpc <- the word (the read's end)
@@ -146,7 +146,7 @@ routine insi op=39 page=0f why="OPEN: the data book prints a range (INS reg8,imm
     pop=modrm eac=insi_r                ; pop the ModR/M byte (E + 2): register mode to the register form; a memory mode calls its EA head
     jmp=insi_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 insi_r: open call=w4                    ; OPEN: 5 clocks with no act (the read's setup) (the call and the shared delay's 4)
-    open fw                             ; OPEN: a fetch-free clock of the read's setup (fw: the word waits while a fetch cycle runs or delivers its word; the frozen model's bf_read=fixed: the setup's clocks fetch-free)
+    open                                ; OPEN: a fetch-free clock of the read's setup (fw: the word waits while a fetch cycle runs or delivers its word; the frozen model's bf_read=fixed: the setup's clocks fetch-free)
     ra=IY wid=WORD d1=ADDR s1=RA bus=MEMR seg=DS1; post the word's read at DS1:IY (no prefix)
     pop=il                              ; pop the imm4 width byte (while the read waits)
     f d1=TC s1=OPR                      ; F: tmpc <- the word (the read's end)

@@ -7,7 +7,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 13365,
+ "total": 12696,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -5548,10 +5548,6 @@
   [
    8758,
    0
-  ],
-  [
-   8760,
-   0
   ]
  ],
  "regions": {
@@ -5560,11 +5556,6 @@
  },
  "replay": [],
  "trace_tail": [
-  [
-   34301,
-   0,
-   128
-  ],
   [
    846,
    62703,
@@ -5676,6 +5667,11 @@
    193
   ],
   [
+   854,
+   0,
+   193
+  ],
+  [
    65280,
    0,
    194
@@ -5684,5 +5680,5 @@
  "backend": "sim",
  "core": "v35",
  "binary": "build/fpga/v35s/verilator-direct-v35",
- "date": "2026-11-14T16:58:59"
+ "date": "2026-11-15T06:02:13"
 }

@@ -39,7 +39,7 @@ routine bcond op=70-7F book="BC/BZ/BNZ/BNC short-label (Bcond)" diff=t:2,nt:-1 w
     open                                    ; OPEN: a book clock with no act (Bcond 8 or 15)
     open                                    ; OPEN: a book clock with no act (Bcond 8 or 15)
     jc=XC:bc_t                              ; the decide: the condition on the PSW (the encoding's)
-    fw                                      ; not taken: the decide's wait (a fetch running or delivering)
+    pop=none                                ; not taken: the decide's wait (a fetch running or delivering)
     e                                       ; E
 bc_t: susp                                  ; taken: SUSP
     open call=w6                            ; OPEN: 7 clocks: a book clock with no act (Bcond 15) (the call and the shared delay's 6)
@@ -61,7 +61,7 @@ routine br_near op=E9 book="BR near-label" diff=1 why="OPEN: silicon longer than
 
 ; ---- DBNZ (E2): V20 LOOP 013C-013F, 0138-013B (CX - 1, JMP NZ; SUSP, PC + disp, FLUSH E)
 routine dbnz op=E2 book="DBNZ" diff=t:2 why="OPEN: the book's 8 or 17; not taken the book's 8 (F23-push-dbnz-c1-n0-pE-w0: the frozen model's decide a clock after the take sync's release, the next start six after it); taken silicon longer than the book by two (F23-push-dbnz-c2-n0-pE-w0: the flush fourteen clocks after the sync's release, S+17, the book's 17 placing it at S+14); CW - 1 with the decide's wait, CW written with the count test; not taken four book clocks with no act, E; taken SUSP, eleven, FLUSH, E"
-    rb=CW wid=WORD alu=DEC ax=RB fw         ; CW - 1 (no flags); the decide's wait (a fetch running or delivering)
+    rb=CW wid=WORD alu=DEC ax=RB            ; CW - 1 (no flags); the decide's wait (a fetch running or delivering)
     wr=CW wid=WORD ws=SIG jc=XC:dbnz_t      ; CW <- CW - 1; the count test (taken while not zero)
     open call=w3                            ; OPEN: 4 clocks: a book clock with no act (DBNZ 8) (the call and the shared delay's 3)
     e                                       ; E (not taken)
@@ -73,7 +73,7 @@ dbnz_t: susp                                ; taken: SUSP
 
 ; ---- DBNZNE / DBNZE (E0 / E1): V20 LOOPNZ / LOOPZ 0134-013B (JMP REP: the count and Z)
 routine dbnz_z op=E0,E1 book="DBNZE" diff=t:3,nt:-2 why="OPEN: the book's 8 or 17; not taken on the Z test a book error of two (F35-out-cw-dbnze-c1-cmpad-pE-w0: the frozen model's next start four clocks after the decide, the decide a clock after the take sync's release); not taken on the count seven after it (F35-out-cw-dbnze-c1-cmpaa-pE-w0), taken silicon longer than the book by three (F35-out-cw-dbnze-c2-cmpaa-pE-w0: the flush fifteen clocks after the sync's release); CW - 1 with the decide's wait, CW written with the Z test (the loop continues on the encoding's Z), the count test, SUSP, eleven, FLUSH, E"
-    rb=CW wid=WORD alu=DEC ax=RB fw         ; CW - 1 (no flags); the decide's wait
+    rb=CW wid=WORD alu=DEC ax=RB            ; CW - 1 (no flags); the decide's wait
     wr=CW wid=WORD ws=SIG jnc=XC:dz_z       ; CW <- CW - 1; the Z test (DBNZNE continues on NZ, DBNZE on Z)
     jnc=SNZ:dz_c                            ; the count test (CW - 1 zero: not taken)
     susp                                    ; taken: SUSP
@@ -90,7 +90,7 @@ dz_c: open                                  ; OPEN: a book clock with no act (DB
 
 ; ---- BCWZ (E3): V20 JCXZ 0140-0143 (CX PASS, JMP Z; SUSP, FLUSH E)
 routine bcwz op=E3 book="BCWZ short-label" diff=t:1,nt:-2 why="OPEN: the book's 8 or 15; not taken a book error of two (F35-out-cw-bcwz-nt-n0-pE-w0: the frozen model's next start four clocks after the decide, the decide a clock after the take sync's release); taken silicon longer than the book by one (F35-out-cw-bcwz-t-n0-pE-w0: the flush eleven clocks after the sync's release); CW into SIGMA with the decide's wait, the zero test, not taken two book clocks with no act, E; taken SUSP, eight, FLUSH, E"
-    rb=CW wid=WORD alu=PASS ax=RB fw        ; CW into SIGMA; the decide's wait
+    rb=CW wid=WORD alu=PASS ax=RB           ; CW into SIGMA; the decide's wait
     jc=XC:bcwz_t                            ; the test (taken when CW is zero)
     open                                    ; OPEN: a book clock with no act (BCWZ 8)
     open                                    ; OPEN: a book clock with no act (BCWZ 8)
@@ -108,7 +108,7 @@ bcwz_t: susp                                ; taken: SUSP
 routine call_near op=E8 book="CALL near-proc" diff=3 why="OPEN: silicon longer than the book by three (F23-push-call-pE-w0: the frozen model's displacement taken at S+3 and S+4, the push posted there and written at S+10 (S+10 at one wait too, F23-push-call-pE-w1), the flush eight clocks after the write's end, S+21, where the book's 21 places it at S+18; the fetch requests held from S+10); the immediate's latency, the pops with the reservation, SP - 2, SP and the address with the return address, two book clocks with no act, the push's post (S+9), F for its end with SUSP, the target's add, six more, FLUSH, E"
     open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
     pop=dl                                  ; pop the displacement's low byte (S+3)
-    pop=dh resv                             ; pop its high byte (S+4); the reservation (the push is posted)
+    pop=dh                                  ; pop its high byte (S+4); the reservation (the push is posted)
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address register; the return address into the write datum
     open                                    ; OPEN: a book clock with no act (CALL near 21)
@@ -190,7 +190,7 @@ routine retf_imm op=CA book="RET far pop-value" diff=2 why="OPEN: silicon longer
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     pop=dl wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG   ; pop the immediate's low byte (S+7); SP <- SP + 2; the segment's address
     pop=dh                                  ; pop its high byte (S+8)
-    f d1=TA s1=OPR resv                     ; F: the offset into tmpa (S+9); the reservation (the second read)
+    f d1=TA s1=OPR                          ; F: the offset into tmpa (S+9); the reservation (the second read)
     open call=w4                            ; OPEN: 5 clocks: a book clock with no act (RET far pop-value 28) (the call and the shared delay's 4)
     bus=MEMR seg=SS wid=WORD                ; post the segment's read (S+15)
     f wr=PS wid=WORD ws=OPR                 ; F: PS <- the segment (S+19)
@@ -212,7 +212,7 @@ routine call_far op=9A book="CALL far-proc" diff=-1 why="OPEN: book error of one
     open                                    ; OPEN: a book clock with no act (CALL far 36)
     open                                    ; OPEN: a book clock with no act (CALL far 36)
     pop=il                                  ; pop the segment's low byte (S+7)
-    pop=ih resv                             ; pop its high byte; the reservation (the pushes): the take sync armed
+    pop=ih                                  ; pop its high byte; the reservation (the pushes): the take sync armed
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA   ; SP <- SP - 2; the address register; PS into the write datum
     bus=MEMW seg=SS wid=WORD                ; post the first push (PS) at SS:SP (S+13)
@@ -239,7 +239,7 @@ routine br_reg op=FF mod=reg reg=4 book="BR regptr16" diff=2 why="OPEN: silicon 
 routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=4 why="OPEN: silicon longer than the book (F35-push-ind-callr-pE-w0: the frozen model's ModR/M taken at S, the push written at S+12, the flush eight clocks after its end, S+23; the fetch requests held from S+10); the register into tmpa, SP - 2, SP and the address with the return address, four book clocks with no act, SUSP (S+10), the push's post (S+11), F, the target into SIGMA, six more, FLUSH, E"
     ra=RM wid=WORD d1=TA s1=RA              ; the register (the target) into tmpa
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC resv   ; SP <- SP - 2; the address; the return address into the write datum; the reservation
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC        ; SP <- SP - 2; the address; the return address into the write datum; the reservation
     open call=w3                            ; OPEN: 4 clocks: a book clock with no act (CALL regptr16 21) (the call and the shared delay's 3)
     susp                                    ; SUSP (S+10)
     bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (S+11)
@@ -250,7 +250,7 @@ routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=4 why="OPEN: sili
 
 ; ---- BR [m] (FF /4 memory): V20 FE/FF 01C4 with the operand's pre-read (M -> PC E FLUSH)
 routine br_mem op=FF mod=mem reg=4 ea=bare book="BR memptr16" diff=m00:1,d8:2,d16:2,dir:3 why="OPEN: silicon longer than the book (F37-push-indm-brm-n0-pE-w0: the frozen model's pointer read issued at S+8 (the direct address), the flush eight clocks after its datum, S+20; the fetch requests held from S+10); the add with the reservation, two book clocks with no act, the pointer's read (S+7), F into SIGMA with SUSP, seven more, FLUSH, E"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA: base + index + displacement; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open                                    ; OPEN: a book clock with no act (BR memptr16)
     open                                    ; OPEN: a book clock with no act (BR memptr16)
     bus=MEMR wid=WORD                       ; post the pointer's read (S+7)
@@ -261,7 +261,7 @@ routine br_mem op=FF mod=mem reg=4 ea=bare book="BR memptr16" diff=m00:1,d8:2,d1
 
 ; ---- CALL [m] (FF /2 memory): V20 FE/FF 01BC-01BF with the operand's pre-read
 routine call_mem op=FF mod=mem reg=2 ea=bare book="CALL memptr16" diff=m00:2,d8:3,d16:3,dir:4 why="OPEN: silicon longer than the book (F37-push-indm-callm-n0-pE-w0: the frozen model's pointer read issued at S+8, the push at S+17, the flush eight clocks after its end, S+28; the fetch requests held from S+10); the add with the reservation, two book clocks with no act, the pointer's read (S+7), F into tmpa with SUSP, SP - 2, SP and the address with the return address, two more, the push's post (S+16), F, the target into SIGMA, six more, FLUSH, E"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA: base + index + displacement; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open                                    ; OPEN: a book clock with no act (CALL memptr16)
     open                                    ; OPEN: a book clock with no act (CALL memptr16)
     bus=MEMR wid=WORD                       ; post the pointer's read (S+7)
@@ -278,11 +278,11 @@ routine call_mem op=FF mod=mem reg=2 ea=bare book="CALL memptr16" diff=m00:2,d8:
 
 ; ---- BR far [m] (FF /5 memory): V20 FE/FF 01C8-01CB (OPR -> tmpb, INC2, SUSP MEMR, OPR -> CS, FLUSH E)
 routine br_far_mem op=FF mod=mem reg=5 ea=bare book="BR memptr32" diff=m00:1,d8:2,d16:2,dir:3 why="OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA: base + index + displacement; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open                                    ; OPEN: a book clock with no act (BR memptr32)
     open                                    ; OPEN: a book clock with no act (BR memptr32)
     bus=MEMR wid=WORD                       ; post the offset's read (S+7)
-    f d1=TA s1=OPR alu=INC2 ax=ADDR resv    ; F: the offset into tmpa; the address + 2; the reservation
+    f d1=TA s1=OPR alu=INC2 ax=ADDR         ; F: the offset into tmpa; the address + 2; the reservation
     d1=ADDR s1=SIG                          ; the segment's address
     open                                    ; OPEN: a book clock with no act (BR memptr32)
     bus=MEMR wid=WORD                       ; post the segment's read (S+14)
@@ -293,15 +293,15 @@ routine br_far_mem op=FF mod=mem reg=5 ea=bare book="BR memptr32" diff=m00:1,d8:
 
 ; ---- CALL far [m] (FF /3 memory): V20 FE/FF 01C0-01C3 + CALLF
 routine call_far_mem op=FF mod=mem reg=3 ea=bare book="CALL memptr32" diff=m00:10,d8:11,d16:11,dir:12 why="OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA: base + index + displacement; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open                                    ; OPEN: a book clock with no act (CALL memptr32)
     open                                    ; OPEN: a book clock with no act (CALL memptr32)
     bus=MEMR wid=WORD                       ; post the offset's read (S+7)
-    f d1=TA s1=OPR alu=INC2 ax=ADDR resv    ; F: the offset into tmpa; the address + 2; the reservation
+    f d1=TA s1=OPR alu=INC2 ax=ADDR         ; F: the offset into tmpa; the address + 2; the reservation
     d1=ADDR s1=SIG                          ; the segment's address
     open                                    ; OPEN: a book clock with no act (CALL memptr32)
     bus=MEMR wid=WORD                       ; post the segment's read (S+14)
-    f d1=TC s1=OPR susp resv                ; F: the segment into tmpc; SUSP; the reservation (the pushes)
+    f d1=TC s1=OPR susp                     ; F: the segment into tmpc; SUSP; the reservation (the pushes)
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA   ; SP <- SP - 2; the address; PS into the write datum
     open                                    ; OPEN: a book clock with no act (CALL memptr32)
@@ -321,12 +321,12 @@ routine call_far_mem op=FF mod=mem reg=3 ea=bare book="CALL memptr32" diff=m00:1
 ; (the vector's two reads from segment 0, PSW pushed with IE and BRK cleared (CITF), PS and PC
 ; pushed, PS and PC loaded, FLUSH E). The type byte popped as a port number (no take sync: the
 ; frozen model's chained take); BRKV's V test (the format's condition, 70's)
-routine brk_imm op=CD resv=e book="BRK imm8" diff=3 why="OPEN: silicon longer than the book, as BRK 3 (F37-push-brk-brk3-pE-w0), the type byte popped on the first word (F37-push-brk-brk5-pE-w0)"
+routine brk_imm op=CD book="BRK imm8" diff=3 why="OPEN: silicon longer than the book, as BRK 3 (F37-push-brk-brk3-pE-w0), the type byte popped on the first word (F37-push-brk-brk5-pE-w0)"
     pop=port jmp=brk_b1                     ; pop the type byte (into IL); into BRK's body
 routine brkv op=CE book="BRKV" xc=t diff=t:4 why="OPEN: silicon longer than the book: BRK 4 on V, BRK 3's body (F37-push-brk-brk3-pE-w0); not taken the decide and E (V20 INTO 010C-010D)"
     jc=XC:brk_b1                            ; the V test (taken: the break to vector 4)
     e                                       ; E (V clear)
-routine brk3 op=CC resv=e book="BRK 3" diff=4 why="OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0: the frozen model's vector reads issued at S+11 and S+25, PSW pushed at S+17, PS at S+31 and PC at S+40, the flush eight clocks after the third write's end, S+51; the fetch requests held from S+6); book clocks with no act, SUSP (S+6), the offset's read (S+10), F, SP - 2, the PSW's push (S+16), F with CITF, three more, the segment's read (S+24), F, SP - 2, PS's push (S+30), F, SP - 2, SP and the address with PC, two more, PC's push (S+39), F, PS and the target, six more, FLUSH, E"
+routine brk3 op=CC book="BRK 3" diff=4 why="OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0: the frozen model's vector reads issued at S+11 and S+25, PSW pushed at S+17, PS at S+31 and PC at S+40, the flush eight clocks after the third write's end, S+51; the fetch requests held from S+6); book clocks with no act, SUSP (S+6), the offset's read (S+10), F, SP - 2, the PSW's push (S+16), F with CITF, three more, the segment's read (S+24), F, SP - 2, PS's push (S+30), F, SP - 2, SP and the address with PC, two more, PC's push (S+39), F, PS and the target, six more, FLUSH, E"
     open                                    ; OPEN: a book clock with no act (BRK 3 50)
 brk_b1: open call=w2                        ; OPEN: 3 clocks: a book clock with no act (BRK 3 50) (the call and the shared delay's 2)
     susp                                    ; SUSP (S+6)

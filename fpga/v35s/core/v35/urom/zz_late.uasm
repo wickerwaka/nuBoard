@@ -68,14 +68,14 @@ si_f: f jmp=intr                            ; F: the outstanding read's datum (d
 ; two x4 steps (VEC4) and two doublings (ADD) put op3 at bits 10:8, BTM makes 1 << op3 (BTCLR's
 ; bit), BTC clears it (BTCLR's clear). No microword bit, no ALU or source value added.
 routine d6clr_m op=D6 mod=mem why="(F5g) D6 /r memory: CLR1 mem8 by the reg field (d6.py f5_d6 / f5_d6b): function only, its clocks not fitted (silicon's not measured)"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA's add into the address register; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register; the reservation
     bus=MEMR                                ; post the byte's read
     wid=WORD alu=VEC4 ax=VEC                ; SIGMA <- 4 x {op3, 00}: the reg field at bits 6:4
     wid=WORD alu=VEC4 ax=SIG                ; SIGMA <- 4 x it: bits 8:6
     wid=WORD alu=ADD ax=SIG ay=SIG          ; x2: bits 9:7
     wid=WORD alu=ADD ax=SIG ay=SIG          ; x2: bits 10:8
     wid=WORD alu=BTM ax=SIG                 ; SIGMA <- 1 << the reg field (the mask)
-    f alu=BTC ax=OPR ay=SIG resv            ; F: the datum with the bit cleared (no flags); the reservation
+    f alu=BTC ax=OPR ay=SIG                 ; F: the datum with the bit cleared (no flags); the reservation
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (always: the bit already 0 too)
     e                                       ; E: held until the write's end (RAMEN)
 

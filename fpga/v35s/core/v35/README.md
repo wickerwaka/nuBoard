@@ -7171,3 +7171,84 @@ that would raise a pair of test_v35_struct's port budget.
   datum register, `h_q0t` / `h_latt` read back), the loader's head select `hs` and its
   per-candidate head reads (`stored`, `h_q0`, `h_lat`, `h_latv`, `h_odd`, `h_dlv`: MX5b), the
   queue's `_nx` outputs, the window (`vb0` / `vb1`, the second byte the staging load takes).
+
+## Step D: the plain machine (the rule-only timing terms removed; function kept)
+
+Step D of docs/v35s-core-v2-interfaces.md (section 6). The rule-only timing terms are removed
+with their registers, ports, microword flags and decode bits; function is gated in full, the
+corpus exact count is reported, not gated (the user, 2026-11-14: the drop is accepted; step E
+brings timing back one mechanism at a time).
+
+- **D1, the write datum latch (bus unit).** A write's datum and the request's width are
+  captured at its B2 (`wd_r`, `wd_w`: the clock the pins drive the datum, a cycle's second
+  clock), from the EU's request port as it stands there. The pair's second half drives the
+  latched copy, and an on-chip store (the SFR page at its cycle's end, the internal RAM at the
+  next ce_b) reads it; before, both read the EU's live `req_data` / `req_width`, which the next
+  instruction's words may rewrite (plain-table "Function-bearing: ramen"). Proven no change
+  with the hold still in: the corpus at the default spacing 6,541 exact, 0 runs differing from
+  step C's rows, every pin record identical (30,536 runs), a `+v35_chk` check that the pins' B2
+  is a latch capture silent, and a throwaway latch-against-live probe silent on
+  the on-chip programs (onchip 6 EQUAL).
+- **D2, the bench's OUT pair.** Nothing to change: the bench already waits for a posted pair's
+  second half (sstfix's `p2_w` in o_pend_w, v35_core2_tb.sv); on the plain machine E6 / E7 /
+  EE / EF pass 40,000 / 40,000 (the plain measurement's E7 / EF failures were taken on a tree
+  before sstfix).
+- **D3, removed** (each with what it read): the sequencer's stalls `st_bw` (the bus unit's
+  in_wait, a move into ADDR / OPRW), `st_uh` (fetch_past_b2, MULS / DIVS), `st_wp` / `st_wbw`
+  (the microword's wp / wb, the staged opcode's wbs: OUT imm8 after a write-back), `st_tsy`
+  (the take sync: tw, the queue's fetch_raise, the reservation, the grant and delivery, the
+  loader's e_rmodrm / rmem), `st_fch` (fetch_inflight, b2b_now, the staged opcode's ModR/M),
+  `st_rfl` (rf, rqp: the refill after FLUSH), SUSP's and the decide's fetch wait (`fw`;
+  SUSP's line hold `q_susp` stays), the unit's suspension `u_sus` (drop, un); the EU's
+  reservation (`req_resv`, `resv_r`, the microword's `resv`, the decode's `rq`, the loader's
+  `resv_e`, the interrupt unit's `tk_go` that ended it); the bus unit's aborted fetch cycle
+  (`ab_tri` with the queue's `q_word` and the loader's three events `t_start` / `take_now` /
+  `l_pop`, `ab_b2b`, `ab_v` / `ab_pos`, `g_abort`, `abort_busy` -> the queue's `abort_go`), the
+  I/O issue's hold `ioh` (fr_prev), the I/O recovery window `io_tail` / `eu_ok`
+  (FIT_IO_RECOVER), the reservation's grant term with the queue's `q_low` (FIT_HOLD_Q) and the
+  phase outputs only the stalls read (`in_wait`, `fetch_inflight`, `fetch_past_b2`, `b2b_now`
+  and their `_nx`); the queue's room rules (`unrel`, the loader's `rel` and `stg`, `unc_a`, the
+  latch of a releasing clock, `lat_hold`, `fetch_raise`) and the loader's release a clock late
+  (`hold`, `hold2`) and staging-slot room (`stg_free` <- `q_arrive`); the microword flags `wb`,
+  `wp`, `fw`, `resv` and the decode's `wbs`, `rq` (the word is 92 bits); FIT_HOLD_Q,
+  FIT_IO_RECOVER, FIT_MIN_GAP.
+- **D3, kept: the RAMEN hold (`wr_hold`, `st_hld`, F after a write), function-bearing.**
+  Removed, the banks gate fails (f3_bins: 2,571 / 2,017 writes), as do onchip f1_iram and
+  four dma programs. Traced (a throwaway probe of every register RAM read against an open
+  internal-RAM store, land/trace-ramen-f3_bins-hz.log): RETRBI's first words (`rl_c`, u24 and
+  u28: the PSW save and PC save of bank 3) read word 32h, the PSW save, while the MOV that
+  stores it (FFE64h, IDB FFh, RAMEN 1) is still on the bus: the store lands at its cycle's end,
+  the register RAM is read before it. The latch (D1) does not help: the hazard is the register
+  file's read of a word the bus has not written yet. The plain form (an on-chip internal-RAM
+  store holds the EU's reads until it lands, the target known from the bus unit's decode) is
+  left for step E; the term is kept as it was (every memory write with RAMEN 1), with its
+  `ramen` / `ramen_nx` (v35_sfr's `prc_at` / `wr_at`, the bus unit's `sfr_wat`).
+- **Kept as plain properties.** The bus unit's back-to-back priority (`b2b`: the queue's line
+  sampled at a fetch's last clock with no EU request standing; its own two request inputs);
+  the queue's latch (a seventh byte: the window's byte that has no storage place), its room
+  from its own count (`fetch_req`: the bytes held after the delivery and pops plus 2 for a word
+  in flight, at most CAP - 2 = 5).
+- **D4.** The head byte's offset is the queue's `hip` (the loader's `ipo`, `foff_b`,
+  `reset_ip` and `flush_off` gone: queue -> loader 14 -> 15, eu -> loader 2 -> 1); the flush
+  address reaches the queue from the EU directly with the reset's offset as its own input
+  (`reset_ip`; v35_top's `q_flush_addr` glue gone: eu -> queue 1 -> 2). The bus unit's
+  `cpu_end_prev` (a model name, "ended on t-1") is `eu_dlv`. `_nx` outputs left, each with its
+  reader: bus dlv_fetch_nx (loader q_stall_nx), done_nx (the loader's tag register), eu_done_nx
+  (eu: opr_rdy_nx, rq_busy_nx, wr_hold_nx); queue stored_nx, latv_nx, odd_nx, discard_nx
+  (loader q_stall_nx); loader q_stall_nx (useq), opc_nx / modrm_nx / fmt_nx (eu early read);
+  useq word_nx, w_dispm_nx, w_erep_nx (eu, loader); eu opr_rdy_nx, rq_busy_nx, wr_hold_nx
+  (useq). Two bytes a clock from the queue stay; the tags and the head select are untouched.
+- **D5.** test_v35_struct: the ceilings are the handed-back counts (156 / 178 -> 129 / 146);
+  NX_OUTPUTS reduced; a ban list (`BANNED`, `BANNED_FIELDS`) and no `FIT_` identifier.
+- **Gate (the full gate, once, on this tree).** Corpus at both spacings (`+v35_chk`):
+  **0 exact of 30,536** (step C 6,541: every run lost, none gained; pre exact 0), write data
+  106,824 / 106,824 with 0 runs differing, chk silent, 0 FAIL; the measurement predicted it
+  (the take sync and the staging slot's room each moved every run's start). Lint clean in the
+  four configurations; rf-a, rf-b, fn 0 bad; 54 tests OK; sst --rtl / --all rc 0 (the same
+  lines as step C). Every program gate EQUAL against both socket sessions but periph f4_tm
+  (timing: the timer handlers' intervals, writes and pins equal); the fuzz sets' differing
+  programs are the base's own, their lines byte-identical.
+- **FPGA (not run here).** Tick A's request line is one compare of the pop with a kept threshold
+  (the room's rel / stg / unc_a thresholds gone); the grant loses the reservation, the low hint,
+  the I/O hold, the recovery window and the aborted cycle; the registered stall reads five facts.
+  New registers: the bus unit's wd_r / wd_w, the queue's hip (the loader's ipo and foff_b gone).

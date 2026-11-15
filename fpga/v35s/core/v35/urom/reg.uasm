@@ -76,14 +76,14 @@ routine sahf op=9E book="MOV PSW,AH" why="the read and the PSW write: the book's
 
 ; V20 CBW 0060-0061
 routine cvtbw op=98 book="CVTBW" diff=-1 why="book error: the book's 3 against silicon's 3 (a6 CVTBW 3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the read and the extension on the E word, the write after it"
-    ra=AW wid=WORD alu=SEXT ax=RA e wb      ; read AW; AL sign-extended; E
+    ra=AW wid=WORD alu=SEXT ax=RA e         ; read AW; AL sign-extended; E
     wr=AW wid=WORD ws=SIG                   ; post-E: AW <- SIGMA
 
 ; V20 CWD 0064-0067: DW <- AW's sign
 routine cvtwl op=99 book="CVTWL" why="OPEN: the book's 8: a read and a write (V20 CWD), five clocks with no act"
     ra=AW wid=WORD alu=SIGNW ax=RA          ; read AW; its sign as a word (0000 / FFFF)
     open call=w4                            ; OPEN: 5 clocks: a book clock with no act (CVTWL 8) (the call and the shared delay's 4)
-    wr=DW wid=WORD ws=SIG e wb              ; DW <- SIGMA; E
+    wr=DW wid=WORD ws=SIG e                 ; DW <- SIGMA; E
 
 ; ---- immediates (V20 ALU_ACC 0004-0007, MOV r,imm): the immediate's bytes popped one a word,
 ; into tmpb, the ALU, the write

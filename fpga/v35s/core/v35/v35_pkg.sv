@@ -237,24 +237,16 @@ package v35_pkg;
         v35_ea_e    ea;         // the EA step into the address register
         v35_bus_e   bus;        // a bus request posted
         v35_seg_e   seg;        // ... its segment
-        logic       resv;       // the reservation raised (the routine will post)
         v35_pop_e   pop;        // a queue byte popped
         logic       e;          // E: the next opcode popped (one word follows)
-        logic       wb;         // (MX1f) on an E word: the result's write-back holds the register
-                                //   file's write port through this clock and the next
-        logic       wp;         // (MX3) on an E word: the post-E word writes the register file
-                                //   (the assembler sets it: the result's write after E holds the
-                                //   write port on the clock after this one)
         logic       f;          // F: wait for the requested datum
         v35_cnt_e   cnt;        // the loop counter's load
         v35_seq_e   seq;
         v35_cond_e  cond;
         logic [UADDR_W-1:0] tgt;    // the jump / call / loop target
         logic       pfx;        // the segment prefix set (the format's)
-        logic       susp;       // (MX2) SUSP: prefetching suspended from this word to the FLUSH,
-                                //   the word waiting while a fetch cycle runs (the V20 ROM's SUSP)
-        logic       fw;         // (MX2) the word waits while a fetch cycle runs or delivers its
-                                //   word (a short transfer's decide: the frozen model's untaken)
+        logic       susp;       // (MX2) SUSP: prefetching suspended from this word to the FLUSH
+                                //   (the V20 ROM's SUSP)
         logic       flush;      // the queue flushed, the stream from SIGMA in PS
         logic       halt;       // halted
         logic       trap;       // the divide error raised
@@ -282,10 +274,6 @@ package v35_pkg;
                                 //   vector number of BRK 3 and BRKV)
         logic [2:0] seg;        // a segment prefix: {1, sreg} (0: none)
         logic [2:0] len;        // the bytes after the opcode (no ModR/M form; the trap's)
-        logic       rq;         // the routine posts a request: the reservation rises when the
-                                //   E word pops the opcode (the routine knows it will post)
-        logic       wbs;        // (MX1f) the routine's first act reads the accumulator: the E word
-                                //   that pops the opcode waits for the running write-back
         logic       e2;         // (MX2) the E word pops the opcode's second byte with it (a short
                                 //   transfer's displacement, into IL)
         logic [4:0] xc;         // (MX2) the transfer's condition (CD_XC): 0-15 the PSW condition

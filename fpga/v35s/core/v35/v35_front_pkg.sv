@@ -46,10 +46,5 @@ package v35_front_pkg;
     // byte, opaque to the queue)
     localparam int QTAG_W = 6;
 
-    // ------------------------------------------------------------ fit integers (fit.json)
-    localparam int FIT_HOLD_Q = 3;              // hold_q
-    localparam int FIT_IO_RECOVER = 2;          // io_recover
-    localparam int FIT_MIN_GAP = 0;             // min_gap
-
 
 endpackage

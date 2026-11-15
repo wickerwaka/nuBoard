@@ -42,7 +42,7 @@ fpo_c: rb=SP wid=WORD alu=DEC2 ax=RB        ; SP - 2
 ; compared signed (f2_chk: 0 within FFF0..0010, 8000 below 0010); out of range: vector 5 with the
 ; next instruction's PC pushed (silicon pushes the PC after CHKIND); the flags kept
 routine chkind op=62 mod=mem ea=bare why="(F2b) CHKIND: silicon's reads, compare and frame (f2_chk); function only"
-    ea=BI ra=BASE rb=INDEX resv             ; the EA: base + index + displacement; the reservation
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     bus=MEMR wid=WORD                       ; post the lower bound's read
     f d1=TA s1=OPR alu=INC2 ax=ADDR         ; F: the lower bound into tmpa; the upper's address
     d1=ADDR s1=SIG bus=MEMR wid=WORD        ; post the upper bound's read
