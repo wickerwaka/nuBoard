@@ -2800,3 +2800,31 @@ question, decided from S8's routed numbers with the user.
   90 RAM_5K; the request address is now registered a tick early (`aq_b`, about 184 LUT4), and
   the worst paths are no longer the pace (the loader's second-level decode into the ROM
   address; the EU's flush offset).
+- **2026-11-16, qprobe round 8 built (microcode and one decode bit; no port changed): corpus
+  15,342 of 30,536 exact.** Read on the socket in round 8 (912 runs) and built: the EA modes
+  measured directly (the heads read by analogy hold, except base + index + d16, one word longer,
+  not built: it needs a head name), a routine's second bus cycle two clocks after the first
+  one's datum word (ADD [mem],r16), the group opcodes' bus-idle fourth word and their not
+  waiting for three bytes (the loader's `m3`, from a generated decode bit; FE / F7 excluded),
+  one flush tail for every transfer (the target's fetch 8 clocks after the routine's last
+  input), INT 3's lead, POP sreg's width (a function fault of the first pass, found by the
+  vectors). **Rule applied to by-analogy forms: an extension beyond what was measured stays
+  only if it loses no corpus run**; LDEA's measured form (it needs a head the dispatch cannot
+  name) and the byte / other-op read-modify-write forms were reverted on it. Corpus at both
+  spacings 15,342 exact (13,268): 2,114 gained, 40 lost, 0 FAIL, chk silent, write data
+  106,824 / 106,824; small set rounds 1-8 3,252 of 3,612 (2,985), none lost. The 40 lost are
+  ADD [mem],AW before the OUT imm8 marker at W = 0; round 9 on the socket shows the plain store
+  misses the same way and reads it as the follower's start (the next opcode leaves the queue
+  on the write cycle's first clock: `validation/v35s/qprobe/RESULTS.md` Q23), work order 5.
+  Lint, vectors, 56 fast tests, SST, the program gates and the fuzz subset as before (the same
+  timing-only differing lines). **FPGA at 17 ns: +2.191 / +2.085 / +1.864**, 10,092 LUT4 / 658
+  ADD / 2,580 FF / 90 RAM_5K: 0.7 to 1.0 ns less than the consolidation with no structure
+  changed; the path that moved is to be named before the next build adds to it.
+  **Position against cause (round 9, `validation/v35s/qprobe/DIVERGENCE-r9.md`):** every
+  instruction of every corpus run scored by predecessor and successor class. Of 14,858 misses
+  attributed to an instruction: its own routine 8,297, a neighbour with a clear split 1,902
+  (predecessor 837, successor 694, both 371), undetermined (wait- or alignment-dependent in
+  every frame) 4,659. Forms exact in isolation and still corpus subjects are pair effects:
+  stores and read-modify-writes before OUT imm8 (Q23), a group memory form behind a stack
+  write, SHL r,1 behind an I/O cycle, and CMP / MOV CW,imm16 standing in for the Jcc / DBNZ
+  behind them.

@@ -7604,3 +7604,63 @@ mechanism one owner.
   selected last in the bus unit). A carried further: the request's whole address is a ce_b
   register (`aq_b`), so only the segment's add and the on-chip compare remain in tick B before
   the RAMEN hold reaches the registered stall.
+
+## qprobe round 8: the routine shapes read in round 8, the narrowed three-bytes rule, INT 3's lead
+
+The fourth work order (validation/v35s/qprobe/model_m.py, round 8: results Q18-Q22). Microcode and
+one generated decode bit only: no port, no pace rule and no count changed (test_v35_struct's
+budget as the consolidation left it). Each routine's header names its measurement ("qprobe round 8").
+
+- **A, routine shapes (urom).** INC / DEC r8 and NOT / NEG r (FE / F6 / F7 group register forms)
+  `P . . BN .`, TEST r,r `P . BN .`: the E word bus-idle (`e bi`; INC r8 and NOT r16 measured, DEC
+  and NEG by analogy). LDEA is NOT changed (below). The read-op loads ADD
+  reg,mem (the 02-33 block) and CMP reg,mem (3A / 3B) are the load (`P Y . DN .`: ea=q, the post, F
+  with the ALU op and E; measured ADD AW,[BW], CMP AW,[BW]). PUSH sreg `. . . Y . . . N .` (PUSH r16
+  one word later), POP sreg `. . Y DN . .` (the segment write and N on the F word, E a word later),
+  PUSH PSW as PUSH r16 (`. . Y . . . N .`), TRANS `. . Y DN .`, IN acc,DW `. . X DN .`. The
+  transfers, one tail each (flush word bus-idle, three clocks after the last input; the target's
+  fetch five clocks after it, the queue's flush wait): BR near `. . . . PP . . F N .`, CALL near
+  `. . . . PP . Y D . . F N .`, RET `. . Y D . . F N .`, RET far `. . Y D . Y D . . F N .` (the
+  second request word two clocks after the first datum word), BR far `. . . . PP . . . PP . . F N .`
+  and CALL far `. . . . PP . . . PP . Y D . Y D . . F N .` (the model's Q not built: an open word).
+  No SUSP word in any of them (the flush discards; the F word waits for the pin cycle).
+- **B, a routine's second request (Z) by placement.** The write of a read-modify-write is posted on
+  the word after the F word that waits for the read's datum, so its cycle is due two clocks after
+  that word (the post-to-grant latency of one clock): no new signal, no bus-unit rule. ADD
+  [mem],r16 (op 01 only, ea=q heads: `P Y . . DZ N`, `P Y . P DZ N`; measured [BW] and [BW+d8];
+  its other modes share the routine; the byte form and the other ALU ops keep the round-6
+  routine, `rmw_b`: by analogy they lost corpus runs) and the
+  unary group's memory forms INC / DEC / NOT / NEG mem (ea=bare: `P . . B Y . . DZ N`, measured INC
+  word [BW]; the others and the displacement modes by analogy). N on the boundary word (post-E `ro`).
+- **C, the three-bytes rule narrowed (v35_pkg v35_udec_t `m3`, v35_loader `sf_nx.m3`).** A decode
+  bit of the first byte, generated (uasm.py NO_M3: FE, F7, measured INC r8 / NOT r16 after MOV
+  r16,imm16): the boundary waits for three bytes behind a ModR/M opcode except these. The same
+  stream fact to the bus unit with a narrower meaning; F6, FF and the shift group keep the wait.
+- **D, the flush tail.** The shapes above carry it (the queue's five-clock flush wait unchanged).
+  FLUSH_B2B (the old stream's back-to-back fetch made on the flush word's own clock and discarded,
+  the target's fetch three clocks after its end) is not built: it is the queue's line on the flush
+  clock, the fetch address's select, the discard bookkeeping and a three-clock hold, not a few
+  gates, for 24 small-set runs (jn, fl-jn, fl-jn1 at pE).
+- **E, INT 3's lead.** `lead=3` on brk3 (with OUT / IN imm8).
+- **LDEA not changed.** Its measured [BW] `P . . BN .` is four words, as the corpus's displacement
+  forms are at the old routine (silicon-exact): one length in every mode, as MOV r,mem's q heads
+  (four words each, the m00 head an open word where the others pop). No head set gives a
+  mode-independent four words with this body (book 1 / 2 / 2 / 2, bare 0 / 1 / 2 / 2, q 4 with
+  the request word and the add): it needs a head set of its own (new names). Built by analogy
+  through the bare heads it lost about 170 silicon-exact corpus runs; reverted (the qprobe ld-lea
+  18 runs the known cost).
+- **Not built.** Base + index + d16 (Q18: one word longer, `P . Y . PP DN .`): its cells need a head
+  of their own (the request word a word later than eaq16's) and the dispatch's head choice may
+  read only the mode and the three existing q heads (test_v35_struct MX1's names); the
+  per-cell routine instead would make 8A / 8B / 88 / 89 / the ALU blocks "whole" opcodes of the
+  split second-level decode (the timing repair: at most seven). MOV word [BW],imm16 (C7 /0
+  `P . . BY . . . PPN .`): the direct form (the prelude's C7 06) runs the same routine through
+  ead and is silicon's as it is; the [BW] shape needs C7's entry to depend on the mode (a whole
+  opcode). The far forms' Q, LAG_FIRST, and the work order's "must not be built" list.
+- **Result (scratch v2/qprobe/r8/rtl/verify.out).** Small set r1-r8 (fill to the program's end)
+  3,252 of 3,612 (was 2,985; no run lost); corpus (all families, +v35_chk) 0 FAIL, 0 incomplete,
+  chk 0, write data 106,824 / 106,824, RTL-exact 15,342 (was 13,268: 2,114 gained, 40 lost, all
+  ADD [mem],AW (op 01) at W = 0, the next fetch a clock early: 19 in the measured modes, 21 in the
+  modes that share the routine; an open question for the socket); vectors 0 bad; lint x4 clean;
+  fast tests 56 OK; program gates EQUAL but the known intr f3_vec / f3_order / f3_prio and periph
+  f4_tm / f4_tout; dma hwd EQUAL. Found on the way: POP sreg's read had lost its word width (fixed).

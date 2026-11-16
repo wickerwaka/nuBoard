@@ -5,20 +5,26 @@
 ; pops no byte its request's address needs).
 
 ; PUSH sreg (06 0E 16 1E): measured 10 (a6 PUSH DS0 / PUSH PS: even 9, odd 11)
-routine push_sr op=06,0E,16,1E book="PUSH sreg" diff=-1 why="OPEN: book error of one: the book's 10 against silicon's 10 (a6 PUSH DS0 / PUSH PS, docs/v35s-mechanisms/classes.md PUSH_SEG) less the dispatch's fetch stall its method puts under the marker: 9; PUSH r16's acts (SP - 2, then SP, the address and the segment register's datum on one word, the post, E held to the write's end) and one book clock with no act before the post"
+routine push_sr op=06,0E,16,1E book="PUSH sreg" diff=2 why="OPEN: silicon longer than the book (measured, the qprobe shapes below; the extra words OPEN): (qprobe round 8, Q22) PUSH sreg is PUSH r16 one word later, `. . . Y . . . N .` (the qprobe ld-pushs runs, 18 / 18 in the model): SP - 2, SP, the address and the segment register's datum, a word with no act, Y (the request word: the write due four clocks after it, posted three words later), two words with no act, the post, E with the next opcode's release; the boundary after it waits for the write's last clock (rule 7); two beyond the book in the book check's machine (E held to the write's end: the on-chip timing); before round 8: book error of one: the book's 10 against silicon's 10 (a6 PUSH DS0 / PUSH PS, docs/v35s-mechanisms/classes.md PUSH_SEG) less the dispatch's fetch stall: 9"
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG ra=SOPR d2=OPRW s2=RA        ; SP <- SP - 2; the address register <- it; the segment register (the opcode's bits 4:3) into the write datum; the reservation
-    open                                    ; OPEN: a book clock with no act (PUSH sreg 10)
-    bus=MEMW seg=SS wid=WORD                ; post the write at SS:SP
-    e                                       ; E: held until the write's end (RAMEN)
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG ra=SOPR d2=OPRW s2=RA        ; SP <- SP - 2; the address register <- it; the segment register (the opcode's bits 4:3) into the write datum
+    open                                    ; OPEN: (qprobe round 8) a word with no act (PUSH r16's shape one word later)
+    rl=x bi                                 ; (qprobe round 8) Y: the request word (the write due four clocks after it, posted three words later): waits while a fetch has two clocks or more left
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMW seg=SS wid=WORD                ; post the write at SS:SP (Y + 3)
+    e ro                                    ; E: the next opcode released (N); an on-chip store holds it to the write's end (RAMEN)
 
 ; POP sreg (07 17 1F): measured 12 (a6 POP DS0 / POP DS1: even 11, odd 13)
-routine pop_sr op=07,17,1F book="POP sreg" diff=-1 why="OPEN: book error of one: the book's 12 against silicon's 12 (a6 POP DS0 / POP DS1, docs/v35s-mechanisms/classes.md POP_SEG) less the dispatch's fetch stall its method puts under the marker: 11; POP r16's acts (the post at SS:SP, SP + 2, its write, F: the segment register on the E word) and five book clocks with no act before the post"
-    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (POP sreg 12) (the call and the shared delay's 4)
-    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS    ; SP into the address register; post the read at SS:SP
+routine pop_sr op=07,17,1F book="POP sreg" why="OPEN: (qprobe round 8, Q22) POP sreg is POP r16 with one word more, `. . Y DN . .` (the qprobe ld-pops runs, 18 / 18 in the model): SP into the address register, SP + 2, Y (SP's write: the request word, the read due four clocks after it, posted three words later), two words with no act, the post, D N (F: the segment register <- the datum; the next opcode released), E, the dispatch; before round 8: book error of one: the book's 12 against silicon's 12 (a6 POP DS0 / POP DS1, docs/v35s-mechanisms/classes.md POP_SEG) less the dispatch's fetch stall: 11"
+    rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2
-    f wr=SOPR wid=WORD ws=OPR e nb          ; F: the segment register <- the datum (RAM and the segment flop); E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
+    wr=SP wid=WORD ws=SIG rl=x bi           ; (qprobe round 8) Y: the request word (the read due four clocks after it, posted three words later); SP <- SP + 2
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:SP (a word; the address register: SP before the add) (Y + 3)
+    f wr=SOPR wid=WORD ws=OPR ro            ; D: F: the segment register <- the datum (RAM and the segment flop); (qprobe round 8) N: the next opcode released
+    e nb                                    ; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 ; PUSH R (60): the eight registers (AW CW DW BW, SP's value before, BP IX IY) pushed one a word,
 ; each word the register's read into the write datum with the post at SS:SIGMA and SIGMA - 2
@@ -66,12 +72,14 @@ routine pop_all op=61 book="POP R" why="OPEN: the first read's post, seven F wor
     wr=SP wid=WORD ws=SIG e                 ; SP <- SIGMA (SP + 16); E
 
 ; TRANS (D7; V20 XLAT 012C-012E: AX -> tmpaL, BX -> tmpb; SIGMA -> IND, MEMR; OPR -> AL [FE])
-routine trans op=D7 book="TRANS" why="OPEN: AL into tmpb, BW + tmpb (012C), the sum into the address register with the byte read's post (DS0 or the prefix's: 012D), F: AL on the E word (012E): the book's 11 with three book clocks with no act before the post"
+routine trans op=D7 book="TRANS" why="OPEN: (qprobe round 8, Q22) TRANS is `. . Y DN .` (the qprobe ld-xlat runs): AL into tmpb, BW + AL, the sum into the address register with Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the byte read's post (DS0 or the prefix's), D N (F: AL <- the datum; E): the book's 11 (before round 8: V20 XLAT 012C-012E, three book clocks with no act before the post)"
     ra=AW wid=BYTE d1=TB s1=RA              ; AL into tmpb (zero-extended: the low lane) (012C AX -> tmpaL)
     ra=BW wid=WORD alu=ADD ax=RA ay=TB      ; BW + AL into SIGMA (012C BX -> tmpb; the sum)
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (TRANS 11) (the call and the shared delay's 2)
-    d1=ADDR s1=SIG wid=BYTE bus=MEMR seg=DSP    ; the address register <- the sum; post the byte read (DS0 or the prefix's) (012D)
-    f wr=AW wid=BYTE ws=OPR e               ; F: AL <- the datum (012E OPR -> AL); E
+    d1=ADDR s1=SIG rl=x bi                  ; the address register <- the sum; (qprobe round 8) Y: the request word
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    wid=BYTE bus=MEMR seg=DSP               ; post the byte read (DS0 or the prefix's) (012D) (Y + 3)
+    f wr=AW wid=BYTE ws=OPR e ro            ; D: F: AL <- the datum (012E OPR -> AL); E; N
 
 ; DISPOSE (C9; V20 LEAVE 0274-0277: BP -> IND, BP -> tmpb, MEMR SS; BP + 2; SIGMA -> SP; OPR -> BP)
 routine dispose op=C9 book="DISPOSE" why="OPEN: BP into the address register with the read's post at SS:BP (0274), BP + 2 (0275), SP <- it (0276), F: BP on the E word (0277): the book's 11 with five book clocks with no act before the post"

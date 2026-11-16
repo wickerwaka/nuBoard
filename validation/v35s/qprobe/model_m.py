@@ -97,8 +97,8 @@ from . import read
 
 DEFAULT = dict(
     IDLE_AT=4, B2B_AT=5, REQ_PRI=1, FLUSH_LAT=5,
-    E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2,
-    POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1,
+    SHLI_AS_CL=1, SHLI_ACT="S", E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
+    POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1, Z_LAT=2, FLUSH_B2B=1, FLUSH_GAP=3,
     S_LAG=2, EU_SLOT=1, LAG_ACTS="SXA", LAG_FIRST="A", CHAIN_POP=1,
     LEAD_E6=3, LEAD_SR=2, LEAD_EPRI=1, HALT_STOP=1, HALT_HOLD=1,
     TE=79, TE_W=2, SHL_N=1, SHL_B=4, SHL_BASE=12,
@@ -112,16 +112,30 @@ DEFAULT = dict(
     # I/O (model_e6.py): port byte on word 4; `X . N .` and the cycle after the boundary
     OUT="A . X . N .", E6=". . . BP . . X . N .", IN8=". . . BP . . X DN .",
     # memory: the request (Y), then the datum's wait (D) or, for a write, the boundary's wait
-    PUSH=". . Y . . . N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 N",
+    PUSH=". . Y . . . N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
     PUSHI=". . . . PP2 . Y N", POPF=". . Y D . N .",
     L_BW="P Y . DN .", L_BI="P Y . DN .", L_D8="P Y . P DN .", L_D16="P Y . PP2 DN .",
-    L_DIR="P Y . PP2 DN .", S_BW="P Y . N", S_D8="P Y . P N", S_DIR="P Y . PP2 N",
+    L_DIR="P Y . PP2 DN .", S_BW="P Y . G N .", S_D8="P Y . P G N .", S_DIR="P Y . PP2 G N .",
+    L_A0="P Y . DN .", L_A1="P Y . P DN .", L_A2="P Y . PP2 DN .",
+    S_A0="P Y . G N .", S_A1="P Y . P G N .", S_A2="P Y . PP2 G N .",
+    L_A2X="P . Y . PP2 DN .", S_A2X="P . Y . PP2 G N .",
     # jumps other than JMP short: best shapes found, reproduced in part (not a reading)
-    JN=". . . . PP2 F N", JFAR=". . . . PP2 . . . PP2 . F N",
+    JN=". . . . PP2 . . F N .", JFAR=". . . . PP2 . Q . PP2 . . F N .",
     # not read (placeholders: these groups are not reproduced)
-    SHLI="PN P . .", MUL8="PN . . .", CALL=". . Y PP2 . F N .",
-    RET=". . Y D F N .", XCHRR="PN .", TESTRR="PN . .",
-    INCB="PN . . .", TEST1="PP2N . .", RMW="P Y . . D Y . N .")
+    SHLI="PN P . .", MUL8="PN . . .", CALL=". . . . PP2 . Y D . . F N .",
+    RET=". . Y D . . F N .", XCHRR="PN .", TESTRR="P . BN .",
+    INCB="P . . BN .", TEST1="P . P . . BN .", RMW="P Y . . DZ G N .",
+    ADDIW="P . . B Y . . DPP2Z G N .", ADDIM_D8="P . . B Y . . DPZ G N .",
+    ADDIM_DIR="P . . B Y . . DPZ G N .", CMPIM="P . . B Y . . DPN .", TESTIM="P . . B Y . . DPP2N .",
+    TESTM="P . B Y DN .", XCHM="P Y . . D . Z G N .", STIM_D8="P . . BYP . . . PP2N .",
+    STIMB="P . BY . . . PN .", STIM_D16="P . . BYPP2 . . . PP2N .", NOTM="P . . B Y . . DZ G N .",
+    INCMB="P . . B Y . . DZ G N .", SHLM1="P . . B Y . . DZ G N .", PUSHM="P . . B Y . . DZ G N .",
+    PUSHM_D8="P . . B Y . . DZ G N .", PUSHM_DIR="P . . B Y . . DZ G N .",
+    POPM="P . . B Y . . DZ G N .", POPM_D8="P . . B Y . . DZ G N .", POPM_DIR="P . . B Y . . DZ G N .", CMPRR="PN .", NOTR="P . . BN .", MOVS=". Y . D Z N",
+    STOS=". Y . N", LODS=". Y DN .", INDW=". . X DN .", XLAT=". . Y DN .", LEA="P . . BN .",
+    CALLF=". . . . PP2 . Q . PP2 . Y D . Y D . . F N .", RETF=". . Y D . Y D . . F N .", JR="P . . F N", INT3=". F N", LOOP=". . . P . . . . . . . . . F N .", JCXZ=". . . P . . BN .", PUSHS=". . . Y . . . N .", POPS=". . Y DN . .", ROL4="PP2N . .", SHLI1="PP2N . .",
+    RMW_D8="P Y . P DZ G N .", INCM="P . . B Y . . DZ G N .", ADDIM="P Y . . D P Z . N .",
+    STIM="P . . BY . . . PP2N .", STIM_DIR="P PP2 . PP2 Y N", ADDM="P Y . DN .", CMPM="P Y . DN .")
 
 # opcode -> (routine key, the kind of its bus request, has a ModR/M byte)
 OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
@@ -133,21 +147,43 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
        0xEB: ("JMP", None, 0), 0x93: ("XCHG", None, 0), 0xF8: ("CLC", None, 0),
        0x98: ("CBW", None, 0), 0x05: ("ADDI", None, 0), 0x83: ("ADD83", None, 1),
        0x03: ("ADDRR", None, 1), 0x8A: ("RR8", None, 1), 0x26: ("PFX", None, 0),
-       0xD1: ("SHL1", None, 1), 0xC1: ("SHLI", None, 1), 0xF6: ("MUL8", None, 1),
+       0xD1: ("SHL1", None, 1), 0xC1: ("SHLI", None, 1), 0xC0: ("SHLI", None, 1), 0xF6: ("MUL8", None, 1),
        0xE9: ("JN", None, 0), 0x74: ("JZ", None, 0), 0x75: ("JNZ", None, 0),
        0xA1: ("LD", "R", 0), 0xA3: ("ST", "W", 0), 0x50: ("PUSH", "W", 0),
        0x58: ("POP", "R", 0), 0xD3: ("SHL", None, 1), 0xF4: ("HALT", None, 0),
        0x04: ("ADDAL", None, 0), 0x68: ("PUSHI", "W", 0), 0x9D: ("POPF", "R", 0),
        0x8E: ("SR", None, 1), 0xE8: ("CALL", "W", 0), 0xC3: ("RET", "R", 0),
        0xEA: ("JFAR", None, 0), 0x86: ("XCHRR", None, 1), 0x84: ("TESTRR", None, 1),
-       0xFE: ("INCB", None, 1), 0x0F: ("TEST1", None, 1)}
+       0xFE: ("INCB", None, 0), 0x0F: ("TEST1", None, 1),
+       0x3B: ("CMPRR", None, 1), 0xF7: ("NOTR", None, 0), 0xA4: ("MOVS", "R", 0),
+       0xAA: ("STOS", "W", 0), 0xAC: ("LODS", "R", 0), 0x8C: ("RR", None, 1),
+       0x1E: ("PUSHS", "W", 0), 0x1F: ("POPS", "R", 0), 0x9C: ("PUSH", "W", 0),
+       0xEC: ("INDW", "I", 0), 0xD7: ("XLAT", "R", 0), 0x8D: ("LEA", None, 1),
+       0xE2: ("LOOP", None, 0), 0xE3: ("JCXZ", None, 0), 0x9A: ("CALLF", "W", 0),
+       0xCB: ("RETF", "R", 0), 0xFF: ("JR", None, 1), 0xCC: ("INT3", "W", 0),
+       0xB9: ("RI", None, 0)}
 
 # memory forms: (opcode, ModR/M byte) -> (routine key, bus kind, has ModR/M)
 MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8B, 0x47): ("L_D8", "R", 1),
        (0x8B, 0x87): ("L_D16", "R", 1), (0x8B, 0x00): ("L_BI", "R", 1),
        (0x8B, 0x06): ("L_DIR", "R", 1), (0x89, 0x07): ("S_BW", "W", 1),
        (0x89, 0x47): ("S_D8", "W", 1), (0x89, 0x06): ("S_DIR", "W", 1),
-       (0x01, 0x07): ("RMW", "R", 1)}
+       (0x01, 0x07): ("RMW", "R", 1), (0x01, 0x47): ("RMW_D8", "R", 1),
+       (0xFF, 0x07): ("INCM", "R", 1), (0x83, 0x07): ("ADDIM", "R", 1),
+       (0xC7, 0x07): ("STIM", "W", 1), (0x03, 0x07): ("ADDM", "R", 1),
+       (0x3B, 0x07): ("CMPM", "R", 1), (0xC7, 0x06): ("STIM_D16", "W", 1),
+       # (round 9)
+       (0x81, 0x07): ("ADDIW", "R", 1), (0x83, 0x47): ("ADDIM_D8", "R", 1),
+       (0x83, 0x06): ("ADDIM_DIR", "R", 1), (0x83, 0x3F): ("CMPIM", "R", 1),
+       (0xF7, 0x07): ("TESTIM", "R", 1), (0x85, 0x07): ("TESTM", "R", 1),
+       (0x87, 0x07): ("XCHM", "R", 1), (0xC7, 0x47): ("STIM_D8", "W", 1),
+       (0xC6, 0x07): ("STIMB", "W", 1), (0xC7, 0x00): ("STIM", "W", 1),
+       (0xC7, 0x87): ("STIM_D16", "W", 1), (0xF7, 0x17): ("NOTM", "R", 0),
+       (0xFE, 0x07): ("INCMB", "R", 0), (0xD1, 0x27): ("SHLM1", "R", 1),
+       (0xFF, 0x0F): ("INCM", "R", 1), (0xFF, 0x37): ("PUSHM", "R", 1),
+       (0xFF, 0x77): ("PUSHM_D8", "R", 1), (0xFF, 0x36): ("PUSHM_DIR", "R", 1),
+       (0x8F, 0x07): ("POPM", "R", 1), (0x8F, 0x47): ("POPM_D8", "R", 1),
+       (0x8F, 0x06): ("POPM_DIR", "R", 1)}
 
 # the decode stage's leads: the boundary no sooner than this many clocks after the opcode's pop
 LEADS = {0xE6: "LEAD_E6", 0xE7: "LEAD_E6", 0xE4: "LEAD_E6", 0x8E: "LEAD_SR"}
@@ -158,6 +194,17 @@ def info(code, at):
     op = code[at]
     if (op, code[at + 1]) in MEM:
         return MEM[(op, code[at + 1])]
+    if op == 0x0F and code[at + 1] == 0x28:
+        return ("ROL4", None, 1)
+    if op == 0xC1 and code[at + 2] == 1:
+        return ("SHLI1", None, 1)
+    if op in (0x8B, 0x89) and code[at + 1] < 0xC0:
+        # (round 8) the EA modes not measured one by one: the measured heads by analogy, by
+        # the number of displacement bytes (keys L_A0 / L_A1 / L_A2, S_A0 / S_A1 / S_A2)
+        m = code[at + 1]
+        nd = 2 if (m >> 6) == 2 or (m & 0xC7) == 0x06 else (m >> 6)
+        x = "X" if (m >> 6) == 2 and (m & 7) < 4 else ""     # base + index + d16: one more word
+        return (("L_A" if op == 0x8B else "S_A") + str(nd) + x, "R" if op == 0x8B else "W", 1)
     return OPS[op]
 
 
@@ -184,6 +231,15 @@ def routine(op, o, cl=31, key=None):
         w[0] = {"P"}
         if o["SHL_B"]:
             w[o["SHL_B"] - 1] = w[o["SHL_B"] - 1] | {o["SHL_ACT"]}
+        w[len(w) - 1 - o["SHL_N"]] = w[len(w) - 1 - o["SHL_N"]] | {"N"}
+        return w
+    if op in (0xC0, 0xC1) and key in ("SHLI", "SHLI1") and o["SHLI_AS_CL"]:
+        # (round 9) shift by imm8 on a register: the CL form's routine, 12 + 2n words, the
+        # count byte released on the bus-idle 4th word
+        w = [set() for _ in range(o["SHL_BASE"] + 2 * cl)]
+        w[0] = {"P"}
+        w[3] = {"P"}
+        w[6] = {o["SHLI_ACT"]}
         w[len(w) - 1 - o["SHL_N"]] = w[len(w) - 1 - o["SHL_N"]] | {"N"}
         return w
     if op == 0xF4:
@@ -226,6 +282,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
     halted = False
     halt_pop = None
     calls = []                          # return offsets of the near calls made
+    bw = vec3 = 0
     zf = True                           # Z as the long shift leaves it (JZ taken, JNZ not)
     forced = 0
     lag = o["S_LAG"]
@@ -237,6 +294,9 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         just_ended = f_end is not None and t == f_end + 1
         # ---- the EU's word
         acts = rt[ip]
+        zw = "Z" in acts           # (round 8) Z: a memory write request (Y) of a routine whose
+        if zw:                     # first cycle is a read (read-modify-write)
+            acts = (set(acts) - {"Z"}) | {"Y"}
         is_last = ip == len(rt) - 1
         npop = ("P" in acts) + ("P2" in acts)
         stall = lead_pri = False
@@ -306,7 +366,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 lead_pri = True          # the boundary executes; the fetch gives way a clock
             elif b2b_now or (in_fetch and not last_clock):
                 stall = True
-            elif o["E_EU"] and eu_run and (t != eu_end or o["E_EU"] == 2):
+            elif o["E_EU"] and eu_run and (t != eu_end or o["E_EU"] == 2
+                                              or (led and o["LEAD_EU_END"] and eu_kind in "WR")):
                 stall = True
             elif o["E_PEND"] and eu_due is not None and eu_kind in "WR":
                 stall = True
@@ -331,10 +392,12 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     halt_pop = t
                 pc += 1
                 pops += 1
+            if "Q" in acts:              # (round 8) Q: a word the bus unit sees as a request (no cycle)
+                req_clock = t
             if "X" in acts or "Y" in acts:
                 req_clock = t
-                eu_due = t + o["POST_LAT"]
-                eu_kind = info(code, cur_at)[1]
+                eu_due = t + (o["Z_LAT"] if zw else o["POST_LAT"])
+                eu_kind = "W" if zw else info(code, cur_at)[1]
                 eu_hold = bool(o["EU_HOLD"]) and eu_kind == "O"
                 eu_where = (dw if cur_op in (0xEE, 0xEF)
                             else code[cur_at + 1] if cur_op in (0xE6, 0xE7) else None)
@@ -344,14 +407,29 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     flush_to = pc + d - (65536 if d >= 32768 else 0)
                     if cur_op == 0xE8:
                         calls.append(pc)
-                elif cur_op == 0xEA:                        # far: offset : segment (1000h here)
+                elif cur_op in (0xEA, 0x9A):                # far: offset : segment (1000h here)
                     flush_to = code[pc - 4] | code[pc - 3] << 8
-                elif cur_op == 0xC3:
+                    if cur_op == 0x9A:
+                        calls.append(pc)
+                elif cur_op in (0xC3, 0xCB):                # (round 8) the offset last pushed
                     flush_to = calls.pop()
+                elif cur_op == 0xFF:                        # JMP BW: BW loaded by MOV BW,imm16
+                    flush_to = bw
+                elif cur_op == 0xCC:                        # INT 3: the vector stored at 000Ch
+                    flush_to = vec3
                 else:
                     d = code[pc - 1]
                     flush_to = pc + d - (256 if d >= 128 else 0)
                 flush_due = t + o["FLUSH_LAT"]
+                # (round 8) FLUSH_B2B: a back-to-back fetch of the old stream that starts on the
+                # flush word's own clock is still made (its word discarded), and the target's
+                # fetch then starts no sooner than FLUSH_GAP clocks after its end
+                if (o["FLUSH_B2B"] and just_ended and not eu_run and pfp is not None
+                        and count - pops <= o["B2B_AT"]):
+                    ev.append((t, "F", base + pfp - b))
+                    f_end = t + cyc - 1
+                    f_bytes = 0
+                    flush_due = max(flush_due, f_end + 1 + o["FLUSH_GAP"])
                 count = pops = 0
                 stg = None
                 pc = flush_to
@@ -379,7 +457,13 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     zf = False           # INC / DEC r16 of a register that does not reach zero
                 if cur_op in (0x74, 0x75) and not zf:
                     key = "JNZ" if cur_op == 0x74 else "JZ"     # the other outcome's routine
-                rt = routine(cur_op, o, cl, key)
+                if cur_op == 0x68:
+                    calls.append(code[stg + 1] | code[stg + 2] << 8)
+                if cur_op == 0xBB:
+                    bw = code[stg + 1] | code[stg + 2] << 8
+                if cur_op == 0xC7 and code[stg + 1] == 0x06 and code[stg + 2] == 0x0C:
+                    vec3 = code[stg + 4] | code[stg + 5] << 8
+                rt = routine(cur_op, o, code[stg + 2] & 31 if cur_op in (0xC0, 0xC1) else cl, key)
                 after_flush = False
                 ip = 0
                 stg = None

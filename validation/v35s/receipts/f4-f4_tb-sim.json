@@ -6,7 +6,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 1026,
+ "total": 1027,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -887,15 +887,15 @@
  ],
  "tests": [
   [
-   2964,
+   3060,
    0
   ],
   [
-   42516,
+   42708,
    1
   ],
   [
-   466100,
+   466324,
    2
   ]
  ],
@@ -1033,7 +1033,7 @@
   ]
  ],
  "backend": "sim",
- "date": "2026-11-16T08:22:17",
+ "date": "2026-11-16T11:36:27",
  "stim": null,
  "levels": 7711,
  "p0": 0,

@@ -48,17 +48,16 @@ bc_t: open call=w5                          ; OPEN: 6 clocks: (qprobe rule 6) ta
     e ro                                    ; E: the target's opcode, once delivered; (qprobe) ro: released
 
 ; ---- BR near (E9): V20 JMP near 0154-0157 (Q -> tmpbL, Q -> tmpbH, PC -> tmpa SUSP, FLUSH E)
-routine br_near op=E9 book="BR near-label" diff=1 why="OPEN: silicon longer than the book by one (F23-push-brnear-n0-pE-w0: the frozen model's displacement taken at S+3 and S+4, the flush five clocks after the take sync's release at S+7, S+12, where the book's 12 places it at S+9 with no sync; the flush four after the last fetch's end); the immediate's latency (MX1b), the pops, the target's add, one book clock, SUSP, two more, FLUSH, E"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the displacement's low byte (S+3)
-    pop=ih                                  ; pop its high byte (S+4): the take sync armed
+routine br_near op=E9 book="BR near-label" why="OPEN: (qprobe round 8, Q21) BR near is `. . . . PP . . F N .` (the qprobe fl-jn / fl-jn1 / jn runs): the displacement popped on the fourth and fifth words and released on the fifth, the target's add, two words with no act, F (the flush, bus-idle: waits while a fetch's pin cycle runs) three clocks after the last input, N, the dispatch; the target's fetch five clocks after the flush word (the queue's flush wait): one tail for every transfer; the book's 12 in the book check's machine; before round 8: the immediate's latency, the pops, the add, SUSP, FLUSH, E (F23-push-brnear-n0-pE-w0)"
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    pop=il                                  ; pop the displacement's low byte (its release is the next word's)
+    pop=ih rl=2                             ; pop its high byte; (qprobe round 8) PP: both displacement bytes released
     alu=ADD ax=PC ay=IMM                    ; the target: the instruction pointer + the displacement
-    open                                    ; OPEN: a book clock with no act (BR near 12)
-    susp                                    ; SUSP: prefetching suspended; waits while a fetch cycle runs
-    open                                    ; OPEN: a book clock with no act (BR near 12)
-    open                                    ; OPEN: silicon longer than the book (F23-push-brnear-n0-pE-w0)
-    flush                                   ; FLUSH: the stream from the target
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    flush bi                                ; FLUSH: the stream from the target; (qprobe rule 5) waits while a fetch's pin cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; (qprobe) ro: released
 
 ; ---- DBNZ (E2): V20 LOOP 013C-013F, 0138-013B (CX - 1, JMP NZ; SUSP, PC + disp, FLUSH E)
 routine dbnz op=E2 book="DBNZ" diff=t:2 why="OPEN: the book's 8 or 17; not taken the book's 8 (F23-push-dbnz-c1-n0-pE-w0: the frozen model's decide a clock after the take sync's release, the next start six after it); taken silicon longer than the book by two (F23-push-dbnz-c2-n0-pE-w0: the flush fourteen clocks after the sync's release, S+17, the book's 17 placing it at S+14); CW - 1 with the decide's wait, CW written with the count test; not taken four book clocks with no act, E; taken SUSP, eleven, FLUSH, E"
@@ -106,47 +105,54 @@ bcwz_t: susp                                ; taken: SUSP
 ; The displacement is popped as a displacement (DL DH: no take sync), the push's reservation raised
 ; on its last pop: the frozen model posts the push on the displacement's take (post_on_take: no
 ; take sync; the posted write holds the fetches from then)
-routine call_near op=E8 book="CALL near-proc" diff=3 why="OPEN: silicon longer than the book by three (F23-push-call-pE-w0: the frozen model's displacement taken at S+3 and S+4, the push posted there and written at S+10 (S+10 at one wait too, F23-push-call-pE-w1), the flush eight clocks after the write's end, S+21, where the book's 21 places it at S+18; the fetch requests held from S+10); the immediate's latency, the pops with the reservation, SP - 2, SP and the address with the return address, two book clocks with no act, the push's post (S+9), F for its end with SUSP, the target's add, six more, FLUSH, E"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=dl                                  ; pop the displacement's low byte (S+3)
-    pop=dh                                  ; pop its high byte (S+4); the reservation (the push is posted)
+routine call_near op=E8 book="CALL near-proc" why="OPEN: (qprobe round 8, Q21) CALL near is `. . . . PP . Y D . . F N .` (the qprobe fl-call / cr runs): SP - 2, the displacement popped on the fourth and fifth words and released on the fifth (SP and the address), the return address into the write datum, Y (the request word: the push due four clocks after it, posted three words later), two words with no act, the push's post, D (F: the push's end), the target's add, a word with no act, F (the flush, bus-idle) three clocks after the write's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); the book's 21 in the book check's machine; before round 8: the push posted at S+9, F with SUSP, the target's add, six words, FLUSH, E (F23-push-call-pE-w0)"
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address register; the return address into the write datum
-    open                                    ; OPEN: a book clock with no act (CALL near 21)
-    open                                    ; OPEN: silicon longer than the book (F23-push-call-pE-w0)
-    bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (S+9: written at S+10)
-    f susp                                  ; F: the push's end (RAMEN); SUSP (S+10)
+    pop=dl wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG   ; pop the displacement's low byte; SP <- SP - 2; the address register
+    pop=dh rl=2                             ; pop its high byte; (qprobe round 8) PP: both displacement bytes released
+    d1=OPRW s1=PC                           ; the return address (the byte after the displacement) into the write datum
+    rl=x bi                                 ; (qprobe round 8) Y: the request word (the push due four clocks after it, posted three words later)
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (Y + 3)
+    f                                       ; D: F: the push's end
     alu=ADD ax=PC ay=DISP                   ; the target: the instruction pointer + the displacement
-    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CALL near 21) (the call and the shared delay's 5)
-    flush                                   ; FLUSH: the stream from the target
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    flush bi                                ; FLUSH: the stream from the target; (qprobe rule 5) waits while a fetch's pin cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; ro: released
 
 ; ---- RET (C3): V20 RET 00F0-00F3 (SP -> IND SUSP MEMR SS, INC2, SP, OPR -> PC F E FLUSH)
-routine ret op=C3 book="RET" diff=1 why="OPEN: silicon longer than the book by one (F23-push-callret-pE-w0: the frozen model's stack read issued at S+6, the flush eight clocks after its datum; the fetch requests held from S+6); three book clocks with no act, the read's post (S+5), F with SUSP (S+6), SP + 2, SP with the target, five more, FLUSH, E"
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RET 19) (the call and the shared delay's 2)
-    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the read at SS:SP (S+5)
-    f d1=TA s1=OPR susp                     ; F: the return address into tmpa; SUSP (S+6)
+routine ret op=C3 book="RET" diff=-2 why="OPEN: (qprobe round 8, Q21) RET is `. . Y D . . F N .` (the qprobe fl-ret / ld-ret / cr runs): SP into the address register, SP + 2, SP's write with Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post, D (F: the return address into tmpa), the target into SIGMA, a word with no act, F (the flush, bus-idle) three clocks after the read's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); book error of two in the book check's machine (its refill fetch on the flush's clock); before round 8: the read's post at S+5, F with SUSP, SP, five words, FLUSH, E (F23-push-callret-pE-w0)"
+    rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    wr=SP wid=WORD ws=SIG alu=PASS ax=TA    ; SP <- SP + 2; the target into SIGMA
-    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (RET 19) (the call and the shared delay's 4)
-    flush                                   ; FLUSH: the stream from the return address
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- SP + 2; (qprobe round 8) Y: the request word (the read due four clocks after it, posted three words later)
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:SP (a word; the address register: SP before the add) (Y + 3)
+    f d1=TA s1=OPR                          ; D: F: the return address into tmpa
+    alu=PASS ax=TA                          ; the target into SIGMA
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    flush bi                                ; FLUSH: the stream from the return address; (qprobe rule 5) waits while a fetch's pin cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; ro: released
 
 ; ---- BR far (EA; the reset vector's): V20 JMP far 015C-0161 (four Q pops, tmpa -> CS SUSP,
 ; tmpb -> PC E FLUSH). The offset is popped as a displacement (DL DH: the frozen model's chained
 ; take, no take sync), the segment as an immediate (IL IH: the take sync armed)
-routine br_far op=EA book="BR far-label" diff=2 why="OPEN: silicon longer than the book by two (F35-push-far-brf-n0-pE-w0: the frozen model's offset taken at S+3 and S+4, the segment at S+7 and S+8, the flush five clocks after the take sync's release, where the book's 15 places it at S+12; the flush six after the last fetch's end); the immediate's latency, the offset's pops, two book clocks with no act, the segment's pops, PS with the target and SUSP, three more, FLUSH, E"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=dl                                  ; pop the offset's low byte (S+3)
-    pop=dh                                  ; pop its high byte
-    open                                    ; OPEN: a book clock with no act (BR far 15)
-    open                                    ; OPEN: a book clock with no act (BR far 15)
-    pop=il                                  ; pop the segment's low byte (S+7)
-    pop=ih                                  ; pop its high byte: the take sync armed
-    wr=PS wid=WORD ws=IMM alu=PASS ax=DISP susp ; PS <- the segment (RAM and the flop); the offset into SIGMA; SUSP
-    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (BR far 15) (the call and the shared delay's 3)
-    flush                                   ; FLUSH: the stream from the offset in the new PS
-    e                                       ; E: the target's opcode, once the refill's run has ended
+routine br_far op=EA book="BR far-label" diff=1 why="OPEN: (qprobe round 8, Q21) BR far is `. . . . PP . Q . PP . . F N .` built without Q (the work order: the far forms' Q not built; the qprobe fl / jfar runs at W = 0): the offset popped on the fourth and fifth words and released on the fifth, two words with no act, the segment popped on the eighth and ninth and released on the ninth, PS with the target, a word with no act, F (the flush, bus-idle) three clocks after the last input, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); one beyond the book's 15 in the book check's machine; before round 8: the immediate's latency, the pops, SUSP, FLUSH, E (F35-push-far-brf-n0-pE-w0)"
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    pop=dl                                  ; pop the offset's low byte
+    pop=dh rl=2                             ; pop its high byte; (qprobe round 8) PP: both offset bytes released
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act (the model's Q: not built)
+    pop=il                                  ; pop the segment's low byte
+    pop=ih rl=2                             ; pop its high byte; (qprobe round 8) PP: both segment bytes released
+    wr=PS wid=WORD ws=IMM alu=PASS ax=DISP  ; PS <- the segment (RAM and the flop); the offset into SIGMA
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    flush bi                                ; FLUSH: the stream from the offset in the new PS; (qprobe rule 5) waits while a fetch's pin cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; ro: released
 
 ; ---- RET imm16 (C2): V20 RET_IMM 00E4-00EA (Q, Q, SP -> IND SUSP MEMR, SP + 2 + imm, OPR -> PC F E
 ; FLUSH). The stack read posted, the immediate popped once the read is on the bus (DL DH: the
@@ -166,21 +172,24 @@ routine ret_imm op=C2 book="RET pop-value" diff=2 why="OPEN: silicon longer than
     e                                       ; E: the target's opcode, once the refill's run has ended
 
 ; ---- RETF (CB): V20 RETF_ 00F4-00F7 + RETF 0234-0237 (two stack reads, OPR -> CS, FLUSH E)
-routine retf op=CB book="RET far" diff=2 why="OPEN: silicon longer than the book (F35-push-far-callf-retf-pE-w0: the frozen model's reads issued at S+6 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+6); three book clocks with no act, the offset's read (S+5), SP + 2 with SUSP, SP and the next address, F, four more, the segment's read (S+14), F: PS, SP + 2, SP with the target, five more, FLUSH, E"
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (RET far 27) (the call and the shared delay's 2)
-    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS   ; SP into the address register; post the offset's read (S+5)
-    rb=SP wid=WORD alu=INC2 ax=RB susp      ; SP + 2; SUSP (S+6)
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP + 2; the segment's address
-    open                                    ; OPEN: a book clock with no act (RET far 27)
-    f d1=TA s1=OPR                          ; F: the offset into tmpa (S+9)
-    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (RET far 27) (the call and the shared delay's 3)
-    bus=MEMR seg=SS wid=WORD                ; post the segment's read (S+14)
-    f wr=PS wid=WORD ws=OPR                 ; F: PS <- the segment (RAM and the flop) (S+18)
+routine retf op=CB book="RET far" diff=-1 why="OPEN: (qprobe round 8, Q21) RET far is `. . Y D . Y D . . F N .` (the qprobe fl-retf runs): SP into the address register, SP + 2, SP's write with Y (the offset's read due four clocks after it, posted three words later), two words with no act, the post, D (F: the offset into tmpa), SP and the segment's address with SP + 2, SP's write with the second Y two clocks after the first datum word, two words with no act, the post, D (F: PS <- the segment), the offset into SIGMA, a word with no act, F (the flush, bus-idle) three clocks after the second read's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); book error of one in the book check's machine (its refill fetch on the flush's clock); before round 8: reads posted at S+5 and S+14, SUSP, FLUSH, E (F35-push-far-callf-retf-pE-w0)"
+    rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
-    wr=SP wid=WORD ws=SIG alu=PASS ax=TA    ; SP <- SP + 2; the offset into SIGMA
-    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (RET far 27) (the call and the shared delay's 4)
-    flush                                   ; FLUSH: the stream from the offset in the new PS
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- SP + 2; (qprobe round 8) Y: the request word (the offset's read due four clocks after it, posted three words later)
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMR seg=SS wid=WORD                ; post the offset's read at SS:SP (Y + 3)
+    f d1=TA s1=OPR                          ; D: F: the offset into tmpa
+    rb=SP wid=WORD d1=ADDR s1=RB alu=INC2 ax=RB    ; SP into the address register (the segment's); SP + 2
+    wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- SP + 2; (qprobe round 8) Y: the second request word, two clocks after the first datum word
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMR seg=SS wid=WORD                ; post the segment's read (Y + 3)
+    f wr=PS wid=WORD ws=OPR                 ; D: F: PS <- the segment (RAM and the flop)
+    alu=PASS ax=TA                          ; the offset into SIGMA
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    flush bi                                ; FLUSH: the stream from the offset in the new PS; (qprobe rule 5) waits while a fetch's pin cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; ro: released
 
 ; ---- RETF imm16 (CA): V20 RETF_IMM 00E4-00ED + RETF; the immediate popped once the first read is
 ; on the bus; the reservation from the first datum to the second read (the frozen model's
@@ -206,26 +215,32 @@ routine retf_imm op=CA book="RET far pop-value" diff=2 why="OPEN: silicon longer
 ; PC pushed, PS and PC loaded, FLUSH E). The offset popped as a displacement (no take sync, the
 ; model's chained take), the segment as an immediate (the take sync armed), the reservation for
 ; the pushes from its last pop
-routine call_far op=9A book="CALL far-proc" diff=-1 why="OPEN: book error of one, the take sync's wait after the segment's pop making up the rest (F35-push-far-callf-pE-w0: the frozen model's offset taken at S+3 and S+4, the segment at S+7 and S+8, PS pushed at S+14 and PC at S+23, the flush eight clocks after the second write's end, S+34, three clocks after the take sync's release at S+11); the immediate's latency, the offset's pops, two book clocks with no act, the segment's pops with the reservation, SP - 2, SP and the address with PS, the first push (S+13), F with SUSP and SP - 2, SP and the address with PC, three more, the second push (S+22), F, PS and the target, six more, FLUSH, E"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=dl                                  ; pop the offset's low byte (S+3)
-    pop=dh                                  ; pop its high byte
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    open                                    ; OPEN: a book clock with no act (CALL far 36)
-    pop=il                                  ; pop the segment's low byte (S+7)
-    pop=ih                                  ; pop its high byte; the reservation (the pushes): the take sync armed
+routine call_far op=9A book="CALL far-proc" diff=-2 why="OPEN: (qprobe round 8, Q21) CALL far is `. . . . PP . Q . PP . Y D . Y D . . F N .` built without Q (the work order: the far forms' Q not built; the qprobe fl-callf runs at W = 0): the offset popped on the fourth and fifth words and released on the fifth, two words with no act, the segment popped on the eighth and ninth and released on the ninth, SP - 2, SP and the address with PS and Y (the first push due four clocks after it, posted three words later), two words with no act, the post, D (F: the first push's end) with SP - 2, SP and the address with the return offset, the second Y two clocks after the first datum word, two words with no act, the post, D (F: its end), PS and the target, a word with no act, F (the flush, bus-idle) three clocks after the second write's end, N, the dispatch (the target's fetch five clocks after the flush word: one tail for every transfer); book error of two in the book check's machine (its refill fetch on the flush's clock); before round 8: pushes posted at S+13 and S+22, SUSP, FLUSH, E (F35-push-far-callf-pE-w0)"
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    pop=dl                                  ; pop the offset's low byte
+    pop=dh rl=2                             ; pop its high byte; (qprobe round 8) PP: both offset bytes released
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act (the model's Q: not built)
+    pop=il                                  ; pop the segment's low byte
+    pop=ih rl=2                             ; pop its high byte; (qprobe round 8) PP: both segment bytes released
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
-    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA   ; SP <- SP - 2; the address register; PS into the write datum
-    bus=MEMW seg=SS wid=WORD                ; post the first push (PS) at SS:SP (S+13)
-    f susp rb=SP wid=WORD alu=DEC2 ax=RB    ; F: the push's end; SUSP; SP - 2
+    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA rl=x bi   ; SP <- SP - 2; the address register; PS into the write datum; (qprobe round 8) Y: the first request word
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMW seg=SS wid=WORD                ; post the first push (PS) at SS:SP (Y + 3)
+    f rb=SP wid=WORD alu=DEC2 ax=RB         ; D: F: the push's end; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return offset into the write datum
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (CALL far 36) (the call and the shared delay's 2)
-    bus=MEMW seg=SS wid=WORD                ; post the second push (PC) (S+22)
-    f                                       ; F: the push's end (S+26)
+    rl=x bi                                 ; (qprobe round 8) Y: the second request word, two clocks after the first datum word
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMW seg=SS wid=WORD                ; post the second push (PC) (Y + 3)
+    f                                       ; D: F: the push's end
     wr=PS wid=WORD ws=IMM alu=PASS ax=DISP  ; PS <- the segment (RAM and the flop); the offset into SIGMA
-    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CALL far 36) (the call and the shared delay's 5)
-    flush                                   ; FLUSH: the stream from the offset in the new PS
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    flush bi                                ; FLUSH: the stream from the offset in the new PS; (qprobe rule 5) waits while a fetch's pin cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; ro: released
 
 ; ---- BR r16 (FF /4 register): V20 FE/FF 01C4 (M -> PC E FLUSH)
 routine br_reg op=FF mod=reg reg=4 book="BR regptr16" diff=2 why="OPEN: silicon longer than the book (F35-push-ind-brr-n0-pE-w0: the frozen model's ModR/M taken at S, the flush ten clocks after the take sync's release at S+3, S+13; the flush nine after the last fetch's end); the register into SIGMA, one book clock with no act, SUSP, seven more, FLUSH, E"
@@ -327,7 +342,7 @@ routine brk_imm op=CD book="BRK imm8" diff=3 why="OPEN: silicon longer than the 
 routine brkv op=CE book="BRKV" xc=t diff=t:4 why="OPEN: silicon longer than the book: BRK 4 on V, BRK 3's body (F37-push-brk-brk3-pE-w0); not taken the decide and E (V20 INTO 010C-010D)"
     jc=XC:brk_b1                            ; the V test (taken: the break to vector 4)
     e                                       ; E (V clear)
-routine brk3 op=CC book="BRK 3" diff=4 why="OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0: the frozen model's vector reads issued at S+11 and S+25, PSW pushed at S+17, PS at S+31 and PC at S+40, the flush eight clocks after the third write's end, S+51; the fetch requests held from S+6); book clocks with no act, SUSP (S+6), the offset's read (S+10), F, SP - 2, the PSW's push (S+16), F with CITF, three more, the segment's read (S+24), F, SP - 2, PS's push (S+30), F, SP - 2, SP and the address with PC, two more, PC's push (S+39), F, PS and the target, six more, FLUSH, E"
+routine brk3 op=CC book="BRK 3" diff=4 lead=3 why="(qprobe round 8, Q22) lead 3: the boundary into BRK 3 no sooner than three clocks after its opcode's release (the qprobe ld-int3 runs: the predecessor's tail hidden at every wait, as OUT / IN imm8); the routine itself is not read. OPEN: silicon longer than the book (F37-push-brk-brk3-pE-w0: the frozen model's vector reads issued at S+11 and S+25, PSW pushed at S+17, PS at S+31 and PC at S+40, the flush eight clocks after the third write's end, S+51; the fetch requests held from S+6); book clocks with no act, SUSP (S+6), the offset's read (S+10), F, SP - 2, the PSW's push (S+16), F with CITF, three more, the segment's read (S+24), F, SP - 2, PS's push (S+30), F, SP - 2, SP and the address with PC, two more, PC's push (S+39), F, PS and the target, six more, FLUSH, E"
     open                                    ; OPEN: a book clock with no act (BRK 3 50)
 brk_b1: open call=w2                        ; OPEN: 3 clocks: a book clock with no act (BRK 3 50) (the call and the shared delay's 2)
     susp                                    ; SUSP (S+6)

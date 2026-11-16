@@ -6,7 +6,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 6363,
+ "total": 6364,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -12869,6 +12869,10 @@
  "io_reads": [],
  "data_reads": [
   [
+   10,
+   0
+  ],
+  [
    24576,
    0
   ],
@@ -17717,7 +17721,7 @@
   "model_last_event": 0
  },
  "backend": "sim",
- "date": "2026-11-16T08:16:40",
+ "date": "2026-11-16T11:28:04",
  "stim": null,
  "levels": 7711,
  "core": "v35",

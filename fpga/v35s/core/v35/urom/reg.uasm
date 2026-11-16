@@ -25,10 +25,10 @@ routine xch_rr op=86,87 mod=reg book="XCH reg,reg" diff=-1 why="book error: the 
     ra=REG rb=RM wr=RM ws=RA d1=TB s1=RB e  ; read both; the r/m register <- the reg one; tmpb <- the r/m one; E
     wr=REG ws=TB                            ; post-E: the reg register <- tmpb
 
-routine test_rr op=84,85 mod=reg book="TEST reg,reg" why="the reads, the AND, E: the book's 4"
+routine test_rr op=84,85 mod=reg book="TEST reg,reg" why="(qprobe round 8, Q20) TEST r,r is `P . BN .` (the qprobe t-test / em3-test runs): the reads, the AND, the E word bus-idle (B: waits while a fetch's pin cycle runs) with N: the book's 4"
     ra=REG rb=RM d1=TA s1=RA d2=TB s2=RB    ; read both into tmpa / tmpb
     alu=AND ax=TA ay=TB wf                  ; AND, flags (W)
-    e                                       ; E (TEST writes nothing)
+    e bi                                    ; E (TEST writes nothing); (qprobe round 8, Q20) bi: the bus-idle third word (B N)
 
 ; MOV to / from a segment register (V20 MOV_SREG 0050)
 routine mov_sr op=8C mod=reg book="MOV reg16,sreg" diff=-1 why="book error: the book's 3 against silicon's 3 (a6 MOV CW,SS 3; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 2); the read on the E word, the write after it"
@@ -164,29 +164,29 @@ routine grp1_cw op=81 mod=reg reg=7 book="CMP reg,imm" width=word diff=-1 why="O
     ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; CMP with the immediate (83: sign-extended), flags (W); E
 
 ; ---- the unary group, register form (V20 0174-0175): read, the operation, the write, E
-routine inc_rm op=FE,FF mod=reg reg=0 book="INC reg8" why="read, op, write, E: the book's 5"
+routine inc_rm op=FE,FF mod=reg reg=0 book="INC reg8" why="(qprobe round 8, Q20) `P . . BN .`: read, op, write, the E word bus-idle (B: waits while a fetch's pin cycle runs) with N (measured: INC r8, the qprobe t-incb / em3-incb runs): the book's 5"
     rb=RM d1=TB s1=RB                       ; the operand read into tmpb
     alu=INC ax=TB wf                        ; +1, flags but CY (W)
     wr=RM ws=SIG                            ; the write-back
-    e                                       ; E: pop the next opcode
+    e bi                                    ; E: pop the next opcode; (qprobe round 8, Q20) bi: the group's bus-idle fourth word (B N: waits while a fetch's pin cycle runs)
 
-routine dec_rm op=FE,FF mod=reg reg=1 book="DEC reg8" why="read, op, write, E: the book's 5"
+routine dec_rm op=FE,FF mod=reg reg=1 book="DEC reg8" why="(qprobe round 8, Q20) `P . . BN .`: read, op, write, the E word bus-idle (B: waits while a fetch's pin cycle runs) with N (DEC by analogy with INC r8 (not measured)): the book's 5"
     rb=RM d1=TB s1=RB                       ; the operand read into tmpb
     alu=DEC ax=TB wf                        ; -1, flags but CY (W)
     wr=RM ws=SIG                            ; the write-back
-    e                                       ; E: pop the next opcode
+    e bi                                    ; E: pop the next opcode; (qprobe round 8, Q20) bi: the group's bus-idle fourth word (B N: waits while a fetch's pin cycle runs)
 
-routine not_rm op=F6,F7 mod=reg reg=2 book="NOT reg" why="read, op, write, E: the book's 5"
+routine not_rm op=F6,F7 mod=reg reg=2 book="NOT reg" why="(qprobe round 8, Q20) `P . . BN .`: read, op, write, the E word bus-idle (B: waits while a fetch's pin cycle runs) with N (measured: NOT r16, the qprobe t-notr / em3-notr runs): the book's 5"
     rb=RM d1=TB s1=RB                       ; the operand read into tmpb
     alu=NOT ax=TB                           ; the complement (no flags)
     wr=RM ws=SIG                            ; the write-back
-    e                                       ; E: pop the next opcode
+    e bi                                    ; E: pop the next opcode; (qprobe round 8, Q20) bi: the group's bus-idle fourth word (B N: waits while a fetch's pin cycle runs)
 
-routine neg_rm op=F6,F7 mod=reg reg=3 book="NEG reg" why="read, op, write, E: the book's 5"
+routine neg_rm op=F6,F7 mod=reg reg=3 book="NEG reg" why="(qprobe round 8, Q20) `P . . BN .`: read, op, write, the E word bus-idle (B: waits while a fetch's pin cycle runs) with N (NEG by analogy with NOT r (not measured)): the book's 5"
     rb=RM d1=TB s1=RB                       ; the operand read into tmpb
     alu=NEG ax=TB wf                        ; 0 - the operand, flags (W)
     wr=RM ws=SIG                            ; the write-back
-    e                                       ; E: pop the next opcode
+    e bi                                    ; E: pop the next opcode; (qprobe round 8, Q20) bi: the group's bus-idle fourth word (B N: waits while a fetch's pin cycle runs)
 
 routine test_rib op=F6 mod=reg reg=0-1 why="OPEN: TEST reg,imm8 (not in the book's table): one OPEN word (the immediate's latency, S+3: README MX1b), the pop, the AND on the E word"
     open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)

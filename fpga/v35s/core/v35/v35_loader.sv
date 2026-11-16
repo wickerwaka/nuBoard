@@ -709,7 +709,7 @@ module v35_loader
     // (consol) the stream facts for the next clock's boundary (the bus unit's pace)
     assign sf_nx.ld = lc_nx < {1'b0, d1_nx.lead};                      // (qprobe rule 12)
     assign sf_nx.le = d1_nx.lead != 2'd0 && lc_nx == {1'b0, d1_nx.lead};    // (round 6, E)
-    assign sf_nx.m3 = d1_nx.has_modrm;                                  // (rules 4c, 4d)
+    assign sf_nx.m3 = d1_nx.m3;     // (rules 4c, 4d; qprobe round 8, Q20: the decode's m3, not FE / F7)
     assign sf_nx.hp = hp_nx;                                            // (rule 11)
     assign sf_nx.hc = ro_nx && s_v_nx && ds_nx.hlt;     // (rule 11: hrel on the next clock, but ex)
     wire       ds2_nx = (ds_nx.has_modrm || ds_nx.e2 || ds_nx.pg) && !e_rep_nx;

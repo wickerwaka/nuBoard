@@ -498,6 +498,12 @@ def _finish(r: Routine) -> None:
                             "that nothing reaches")
 
 
+# (qprobe round 8, Q20) the ModR/M opcodes whose boundary does not wait for three bytes behind
+# them (the decode's m3 0): INC r8 (FE) and NOT r16 (F7) measured after MOV r16,imm16 at pE (the
+# qprobe em3-incb / em3-notr runs, 18 / 18 with the rule off, 9 / 18 with it on). F6 and FF are
+# not measured and keep the wait; the shift group (D0-D3) waits (3 round-5 runs)
+NO_M3 = {0xFE, 0xF7}
+
 RL_X = 3      # (qprobe rule 9) rl=x: the request word (X), no byte released
 
 
@@ -710,6 +716,9 @@ def udec1(prog: Program, op: int) -> dict:
     f["io"] = int(op in IO_OPS)
     f["lead"] = (prog.leads or {}).get(op, 0)       # (qprobe rule 12)
     f["hlt"] = int(op in (prog.hlts or set()))      # (qprobe rule 11)
+    # (qprobe round 8, Q20 / Q9) the boundary waits for three bytes behind the staged opcode:
+    # a ModR/M opcode's, except the group opcodes whose first words do not use the ModR/M byte
+    f["m3"] = int(f["has_modrm"] and op not in NO_M3)
     return f
 
 
@@ -795,7 +804,8 @@ def decode_svh(prog: Program) -> str:
         L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
                  f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, "
-                 f"1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}, 2'd{f['lead']}, 1'b{f['hlt']}}};")
+                 f"1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}, 2'd{f['lead']}, 1'b{f['hlt']}, "
+                 f"1'b{f['m3']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte

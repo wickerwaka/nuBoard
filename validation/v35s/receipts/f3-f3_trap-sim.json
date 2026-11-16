@@ -7,7 +7,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 6051,
+ "total": 6067,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -4805,6 +4805,10 @@
  "io_reads": [],
  "data_reads": [
   [
+   10,
+   0
+  ],
+  [
    32508,
    2
   ],
@@ -7014,7 +7018,7 @@
   ]
  ],
  "backend": "sim",
- "date": "2026-11-16T08:08:11",
+ "date": "2026-11-16T11:21:37",
  "stim": null,
  "levels": 7711,
  "core": "v35",

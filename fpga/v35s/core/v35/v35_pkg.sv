@@ -315,6 +315,9 @@ package v35_pkg;
                                 //   routine header's lead= (MOV sreg,r16 2; OUT / IN imm8 3)
         logic       hlt;        // (qprobe rule 11) from the opcode's release nothing more is
                                 //   fetched (HALT: the routine header's hlt=1)
+        logic       m3;         // (qprobe round 8, Q20) the boundary waits for three bytes behind
+                                //   the staged opcode (rule 4d): a ModR/M opcode but the group
+                                //   opcodes FE / F7 (the generator's NO_M3)
     } v35_udec_t;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)

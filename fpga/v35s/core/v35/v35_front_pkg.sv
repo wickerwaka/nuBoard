@@ -78,7 +78,8 @@ package v35_front_pkg;
     } v35_lvq_t;
     // the instruction stream's facts for the next clock's boundary (the loader's, tick B): the
     // opcode register's instruction short of its lead (ld) or at its lead's end (le), its opcode
-    // has a ModR/M byte (m3: three bytes behind it), HALT released and not yet run (hp), and the
+    // waits for three bytes behind it (m3: the decode's m3, a ModR/M opcode but FE / F7; qprobe
+    // round 8, Q20), HALT released and not yet run (hp), and the
     // word then releases a staged HALT (hc: the line drops on that word's execution)
     typedef struct packed {
         logic       ld, le, m3, hp, hc;

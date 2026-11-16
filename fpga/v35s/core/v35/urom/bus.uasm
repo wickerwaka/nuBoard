@@ -21,11 +21,14 @@ routine push_r op=50-57 book="PUSH reg16" diff=-2 why="OPEN: book error of two i
     ra=OPR wid=WORD d1=OPRW s1=RA bus=MEMW seg=SS   ; the register into the write datum, read after SP's write (PUSH SP pushes SP - 2: F36 stack) (002A); post the write at SS:SP (Y + 3: granted on Y + 4, or at the end of a fetch running then)
     e ro                                    ; E: the next opcode popped and released (N); an on-chip store holds it to the write's end (RAMEN)
 
-routine push_psw op=9C book="PUSH PSW" diff=-1 why="book error: the book's 9 against silicon's 9 (a6 PUSH PSW 8 / 10; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 8); the acts merged as PUSH r16's: 8"
+routine push_psw op=9C book="PUSH PSW" diff=2 why="OPEN: (qprobe round 8) beyond the book: a named act, the request word (Y) with the post and E on words of their own: PUSH PSW is PUSH r16's `. . Y . . . N .` (the qprobe ld-pushf runs; model_m.py OPS 9C: PUSH; Q22: no lead): SP - 2, SP, the address and the PSW into the write datum, Y (the request word: the write due four clocks after it, posted three words later), two words with no act, the post, E with the next opcode's release; the boundary after it waits for the write's last clock (rule 7); two beyond the book in the book check's machine (E held to the write's end: the on-chip timing, 11 against the book's 9; before round 8: the a6 PUSH PSW 8 / 10 less the dispatch's fetch stall: 8)"
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2 (0074)
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW        ; SP <- SP - 2; the address register; the PSW into the write datum (0075-0076); the reservation
-    bus=MEMW seg=SS wid=WORD                ; post the write
-    e                                       ; E: held until the write's end
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW        ; SP <- SP - 2; the address register; the PSW into the write datum (0075-0076)
+    rl=x bi                                 ; (qprobe round 8) Y: the request word (the write due four clocks after it, posted three words later)
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=MEMW seg=SS wid=WORD                ; post the write (Y + 3)
+    e ro                                    ; E: the next opcode released (N); an on-chip store holds it to the write's end (RAMEN)
 
 ; PUSH imm (V20 0288-028B): the immediate popped, then the push
 routine push_i16 diff=2 op=68 book="PUSH imm16" why="(qprobe round 6) beyond the book: a named act, the request word (Y) with the post and E on words of their own; two beyond the book in the book check's machine (E held to the write's end: the on-chip timing, the post and E on words of their own; off the chip the boundary on the write's last clock): PUSH imm16 is `. . . . PP . Y N` (the qprobe pi, pre runs: the immediate released on word 5, the request word 7, the write on word 11, N on the boundary word); was: OPEN: book error of one: the book's 13 against silicon's 13 (a6 12 / 14, less the stall: 12); the pops, the push's acts merged, its hold, two book clocks with no act before the post"
@@ -119,11 +122,14 @@ routine out_dw op=EE,EF book="OUT DW,acc" width=word diff=-2 why="OPEN: book err
     bus=IOW                                 ; post-E: (qprobe round 6, EU_HOLD) the boundary posts the I/O write: its cycle no sooner than the clock after the boundary (the write is not waited for)
 
 ; IN acc,DW / IN acc,imm8
-routine in_dw op=EC,ED book="IN acc,DW" diff=-2 why="OPEN: book error of two: the book's 14 against silicon's 12 (v35s-chains.md F5 IN AL,DW 12; F5-push-in_al_dw-k2-pE-w0: the frozen model's I/O read at S+6, the next S at S+12); three book clocks with no act, DW into the address register with the post (S+5), six more, the F word on the E word"
-    rb=DW wid=WORD d1=ADDR s1=RB call=w2    ; the address register <- DW (F2b: read here, so the post below has the format's width: silicon's IN AL,DW is a byte cycle, f2_iot) (the call and the shared delay's 2: 3 clocks)
-    bus=IOR                                 ; post the I/O read, the format's width (S+5)
-    open call=w5                            ; OPEN: 6 clocks: a clock of the model's with no act (IN acc,DW 14) (the call and the shared delay's 5)
-    f wr=AW ws=OPR e                        ; F: the accumulator <- the datum; E
+routine in_dw op=EC,ED book="IN acc,DW" diff=-3 why="OPEN: (qprobe round 8) IN acc,DW is `. . X DN .` (the qprobe ld-indw runs, 18 / 18 in the model; Q22: no lead): DW into the address register, a word with no act, X (the request word: waits while the bus unit's slot is taken; the I/O read due four clocks after it), two words with no act, the post (X + 3), D N (F: the accumulator <- the datum; E): book error of three in the book check's machine (its 11: the read granted on the post's next clock, no fetch in the way), the book's 14 against 12 at W = 0 with no fetch in the way (before round 8: v35s-chains.md F5 IN AL,DW 12; F5-push-in_al_dw-k2-pE-w0)"
+    rb=DW wid=WORD d1=ADDR s1=RB            ; the address register <- DW (F2b: read here, so the post below has the format's width: silicon's IN AL,DW is a byte cycle, f2_iot)
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    rl=x                                    ; (qprobe round 8) X: the request word: waits while the bus unit's slot is taken
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open                                    ; OPEN: (qprobe round 8) a word with no act
+    bus=IOR                                 ; post the I/O read, the format's width (X + 3)
+    f wr=AW ws=OPR e ro                     ; D: F: the accumulator <- the datum; E; N
 
 routine in_i8 op=E4,E5 book="IN acc,imm8" lead=3 why="(qprobe round 6) the book's 15: IN acc,imm8 is `. . . BP . . X DN .` with lead 3 (model_m.py IN8, the qprobe e6i / ld-in8 runs); was: OPEN: book error of one: the book's 15 against the model's 14 at W = 0 with no fetch in the way (silicon a6 15 / 16 with the queue's waits; F5-push-in_al_imm-k2-pE-w0); (qprobe rules 12, 14) IN acc,imm8 is `. . B P . X . . DN .` with lead 3 (the model's; the qprobe ld-in8 runs): two words with no act, B (waits from a fetch's third clock to its last), P (the port's pop and release), the address, X (the request word: waits while a fetch runs, its last clock included; the I/O read due four clocks after it), two words with no act, the post (X + 3), D N (F: the accumulator <- the datum; E), the dispatch: 14 at W = 0; before qprobe: silicon longer than the book by one (F5-push-in_al_imm-k2-pE-w0: the next S at S+16; a6 15 / 16)"
     open                                    ; OPEN: (qprobe round 6) a word with no act
