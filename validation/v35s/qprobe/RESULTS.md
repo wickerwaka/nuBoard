@@ -595,3 +595,187 @@ long shift and across a train).
 
 No incident, no `timeout` wrapper, no program ran away: 1,980 runs and 1,980 repeats, 0 failed,
 0 incomplete. 189 repeats are flagged DIFFERS; every one is the strobe-sample artefact (270 fetch records with `strobe` 7 against 8, no other field differing: `build/qp/repdiff.py 9`), a higher rate than in earlier rounds (51 of 908 in round 8). The board ended powered down.
+
+# Round 10 (114 programs, 684 runs; rounds 1-10: the model reproduces 4,979 of 6,288)
+
+Two acquisitions, both with the board's safety sequence unchanged and no kill timer: `r10`
+(51 programs, 306 runs + 306 repeats, 0 failed, 29 repeats flagged, all strobe-only) and `r10b`
+(63 programs, 378 runs + 378 repeats, 0 failed, 2 flagged, both strobe-only). Board powered down
+at the end (vccb false, failure 0). Receipts: `traces/socket/QPr10-w{0,1,2}.json`,
+`QPr10b-w{0,1,2}.json`, logs `traces/qp-r10-socket.log`, `traces/qp-r10b-socket.log`.
+
+Model score per round (no run lost in any round against the round-9 hand-back; 332 gained in rounds 1-9):
+
+| round | r1 | r2 | r3 | r4 | r5 | r6 | r7 | r8 | r9 | r10 + r10b |
+|---|---|---|---|---|---|---|---|---|---|---|
+| round-9 hand-back | 330/330 | 704/720 | 378/378 | 414/414 | 517/540 | 287/288 | 42/42 | 707/912 | 584/1,980 | - |
+| now | 330 | 708 | 378 | 414 | 520 | 287 | 42 | 740 | 876 | 684/684 |
+
+Rounds 1-8: 3,419 (was 3,379). The RTL of this worktree (the round-8 build) on the round-10 set:
+435 of 684.
+
+## The three neighbour effects (spec 5 item E): one dissolves, one is a corrected condition, one is a routine
+
+### (a) "INC word [BW] behind a stack write": not an effect
+
+Probes `ia-*` (INC word [BW] behind PUSH, a plain store, an accumulator store, PUSH+POP, a load,
+OUT imm8, the long shift, each with 0 / 1 NOP between; 84 runs) and `ip-*` (the corpus's own
+chain: the PUSH marker behind INC word [BW], behind PUSH + INC, store + INC, INC + NOP, INC + INC,
+and behind store / PUSH / XCH mem / ADD mem,r alone; 60 runs). Result: 144 of 144 reproduced by
+the model **with no change**, and 138 of 144 by the round-8 RTL (the six are `ip-xchm`, XCH mem,
+which the RTL does not have yet).
+
+So there is no rule to find. Looking again at the corpus rows that carried the "inc_m behind the
+PUSH marker, 114 of 186" count (table in divergence notes): the plain chain `push-inc_m` is 12 of
+12 equal in the corpus as well. The misses are (1) chains that pair inc_m with a memory form
+that is itself unread (`F15-k-push-{mulu,push,shl1}-inc_x`, `F16-r-push-{div,divu,mul,mulu,rcl,
+rcr,rol,ror,sar,shl1,shlb,shr,test_imm,push}-inc_x`: the positional rule names inc_m because it
+is the oldest instruction in the window, the partner is the cause) and (2) the odd-address
+operand (`F5-*-inc_m-kN-odd`, a word at an odd address: two byte cycles each way, never measured
+here). The cross-tab's "predecessor" label for inc_m was the positional rule's artefact.
+
+### (b) "SHL r,1 behind an I/O cycle": Q13's condition corrected (one rule, no new shape)
+
+Probes `ib-X-P`: X = SHL AW,1 / TEST r,r / INC r8 behind P = OUT imm8, OUT DW, IN imm8, PUSH, a
+store, a load, the long shift (126 runs). The model as handed back in round 9: 102. With one
+correction, 118; with one shape refinement, 126.
+
+**Q26 (corrects Q13). A bus-idle word waits for the EU's own bus cycle as well as for a
+fetch.** Until now the model's bus-idle test looked at fetches only (Q13: from a fetch's second
+clock). On silicon the word also waits while an EU cycle is on the pins. It shows only when an
+instruction with an early bus-idle word (third word: SHL r,1 and TEST r,r) directly follows a
+routine whose cycle runs *after* its end, which is OUT imm8 and OUT DW (Q11) and nothing else
+measured: behind IN (datum wait), a load, a store or PUSH (Q10 / Q23 hold the boundary until the
+cycle is over or starting) the cycle is past before the third word. Hence "behind an I/O cycle".
+INC r8 (bus-idle fourth word) is never caught. In the model: `B_EU`, set for every kind of EU
+cycle (I/O, read, write score alike: only the OUT case discriminates). 16 runs gained, none
+lost in rounds 1-9. This is the answer to "the I/O cycle, or the fetch that follows any EU cycle
+(Q12)": it is the cycle itself; the fetch behind it is already covered.
+
+Shape: SHL r,1 has a second bus-idle word, `P . B . . B . N .` (was `P . B . . . . N .`). Seen
+behind PUSH and a store at one and two waits (the fetch that follows the write is still in flight
+on the sixth word). 8 runs.
+
+### (c) Jcc / DBNZ behind CMP r,r and MOV CW,imm16: the branch's own routine, in bus terms
+
+Probes `ic-P-B` and `id-P-B`: JZ taken, JNZ not taken, DBNZ taken behind 19 predecessors (none,
+1 / 2 / 3 NOPs, CMP r,r, MOV r,r, MOV CW,imm16, MOV r8,imm8, ADD AW,imm16, INC r16, CBW, CLC,
+SHL r,1, TEST r,r, PUSH, a store, a load, OUT imm8, DBNZ); `ie-*`: DBNZ not taken (CW = 1) and
+BCWZ taken / not taken behind none, NOP, two NOPs, MOV r,r, CMP r,r. 414 runs. Model as handed
+back: Jcc most, DBNZ / BCWZ almost none. Now 414 of 414.
+
+The branch's timing depends on the bus state at fixed words of its own routine, not on which
+routine precedes it. The predecessor matters only through (i) the fetch it leaves in flight and
+(ii) for DBNZ how long ago its opcode was taken (a lead). No rule names a predecessor.
+
+**Q27. Every conditional branch has a bus-idle fourth word.** Jcc pops its displacement on that
+word (`. . . BP`), DBNZ and BCWZ wait on it and pop the displacement three words later. Behind a
+short predecessor at an even address the opcode's pop starts a fetch on the branch's first
+clock; at 1 / 2 waits that fetch is still running on the fourth word and the branch is 1 / 2
+clocks later. That is the whole "behind CMP r,r / MOV CW,imm16 / MOV r,r" effect on Jcc (behind
+NOPs and the long shift the queue is full and no fetch runs). Possible mechanism, not tested: the
+target adder is the bus unit's address incrementer.
+
+Routines (word 0 is the first clock after the boundary):
+
+| branch | routine | notes |
+|---|---|---|
+| Jcc not taken | `. . . BP . . BN .` | was `. . . P . . BN .` |
+| Jcc taken | `. . . BP . . . B . . F N .` | a bus-idle word four after the displacement: 22 runs, 8 of them old misses in rounds 2, 5, 8 |
+| DBNZ taken | `. . . B . . P . . B . . F N .` | lead 2 (below); bus-idle three words after the displacement (Q24) |
+| DBNZ not taken | `. . . B . . P . BN .` | lead 2 |
+| BCWZ taken | `. . . B . . P . . F N .` | flush word three after the displacement (Q21's distance) |
+| BCWZ not taken | `. . . B . . PN .` | no lead |
+
+**Q28. DBNZ has a lead of two** (Q15 / Q22's kind: its boundary no sooner than two clocks after
+its opcode's pop into the staging latch). It is the only thing that made DBNZ look
+predecessor-dependent: behind the long shift, INC r16, CLC, a load, OUT imm8, SHL r,1 and
+another DBNZ (next opcode taken one clock before the end) it is one clock later than behind
+NOP, CBW, PUSH and a store (taken two or more before), and the one-clock predecessors lose the
+extra clock again whenever their boundary had to wait for a fetch. 40 W = 0 runs tabulated
+(`build/qp/brtab.py`), every one explained. MOV sreg,r is the other lead-2 opcode.
+
+## Q29. The memory-immediate forms (item 2), read all four ways
+
+| form | routine | score |
+|---|---|---|
+| ADD [BW],imm8 (83 /0) | `P . V DPZ G N .` | 24 / 24 |
+| ADD [BW+d8],imm8 | `P . V P DPZ G N .` | 24 / 24 |
+| ADD [d16],imm8 | `P . V PP2 DPZ G N .` | 21 / 24 (X;X at even alignment: a second back-to-back fetch precedes the second read) |
+| ADD [BW],imm16 (81 /0) | `P . . BY DPP2Z G N .` | 24 / 24 |
+| CMP [BW],imm8 (83 /7) | `P . V DP . BN .` | 24 / 24 |
+| TEST [BW],imm16 (F7 /0) | `P . B . . Y DPP2 . BN .` | 24 / 24 |
+
+Three facts, each used by more than one row:
+
+- **V: a request on the routine's third word is honoured from the running fetch's last clock,
+  not from its last two** (Y's rule), and it does not stop the back-to-back fetch that was
+  already due (the read then follows that fetch with no gap). Both halves are what the slot
+  picture of the merged reading predicts for a request that arrives one clock after the slot's
+  decision; Y on the second word arrives in time, V on the third does not. In the model `V` is
+  Y with those two differences; ADD mem,imm16's request on the fourth word needs the bus idle
+  (`BY`), the next step of the same thing.
+- **The displacement is popped on the word after the request**, as in the loads and stores
+  (Q17 / Q18): the request is made before the address bytes are taken.
+- **The immediate is popped on the datum word** (`DP`, `DPP2`), and a form that does not write
+  ends with a bus-idle commit word two after it (`BN`).
+
+MOV mem,imm with a displacement and the byte form: not improved. `stid8` 21 / 24, `stid16` and
+`stix` 11 / 24, `stib` 9 / 24 as before. What the misses have in common (written down so the
+next round starts there): they are the five- and six-byte forms that drain the queue; the write
+is due exactly at a fetch's end; at W = 0 the write goes first, at W = 1 / 2 a back-to-back fetch
+goes first. A rule in slot terms (the write's slot against the chained fetch's slot) should
+cover them and the 3 `addi8x` misses together. Not found this round.
+
+## Q30. PUSH mem and POP mem
+
+| form | routine | score |
+|---|---|---|
+| PUSH [BW] (FF /6) | `P . B Y D . . . Z G N .` | 24 / 24 |
+| PUSH [BW+d8] | `P . . B Y P D . . . Z G N .` | 24 / 24 |
+| PUSH [d16] | `P . . B Y P P2 D . . . Z G N .` | 24 / 24 |
+| POP [BW] (8F /0) | `P . Y D . . Z G N .` | 24 / 24 |
+| POP [BW+d8] | `P . Y DP . . Z G N .` | 19 / 24 |
+| POP [d16] | `P . Y DPP2 . . Z G N .` | 8 / 24 |
+
+PUSH mem is the group form (bus-idle word, request, datum) with the stack write requested four
+words after the datum and Q23's ending. POP mem requests its stack read on the third word (plain
+Y), and the displacement, which the read does not need, is taken at or after the datum: the two
+displacement forms are partial.
+
+## Q31. The 0F bit forms on a register
+
+TEST1 / SET1 / NOT1 r,CL (0F 10 / 14 / 16, and the word form 0F 11): `P . P . . CN .`, 88 of 96
+(was 72; all of -a, -s, -2; the eight left are NOP;X;SHL at 1 / 2 waits). CLR1 r,CL (0F 12):
+`P . P . . CN . .`, 22 of 24 (was 10): the next opcode is taken on the same word and one more
+word follows. `C` is a bus-idle word that also waits on the clock a back-to-back fetch starts
+(the condition that already holds a boundary, Q8). Applying that to every bus-idle word loses 93
+runs, so it stays the property of this one commit word. 8 old misses of TEST1 in rounds 5 and 8
+come back with it. The imm8 forms (0F 18 / 1C), ROL4 / ROR4, EXT / INS: not read.
+
+## Q24 tested as a rule the model applies itself: no, but the table is simpler than it was
+
+`build/qp/q24.py` lists every bus-idle word of every routine; `build/qp/q24test.py` scores the
+model with the words placed by rule.
+
+- **The first bus-idle word is the routine's fourth word** in 28 of the 36 routines that have
+  one: every accumulator / register immediate, OUT imm8 / IN imm8, every branch, the group forms
+  on register and memory, LEA, MOV mem,imm16, ADD mem,imm16, PUSH mem with a displacement. It
+  is the third word in six (TEST r,r, TEST mem,r, TEST mem,imm16, SHL r,1, PUSH [BW], MOV
+  mem8,imm8) and the fifth in two (MOV r16,imm16 and ADD AW,imm16). For a ModR/M routine "fourth
+  word" and "three after the last queue byte" are the same statement.
+- **A later commit word is three words after the last queue byte before it** in JNZ, DBNZ
+  taken, TEST1 / CLR1, SHL r,CL, SHL r,imm8 and the flush words of JMP near, JMP r16 and BCWZ;
+  two after it in CMP mem,imm8, TEST mem,imm16 and DBNZ not taken; four in Jcc taken.
+- Forcing rule one on the eight exceptions costs 351 runs; forcing rule two on SHL r,1 costs 12.
+  The exceptions are measured, not noise.
+
+So: a default (fourth word; three after the last byte) with a short exception list is a fair
+description and a smaller microcode table, but the model cannot drop the per-routine position.
+
+## Not read (data acquired)
+
+MOV mem,imm with displacement / byte form (above); POP mem with displacement; ADD [d16],imm8
+X;X; SHL [BW],1; PUSHA / POPA; PREPARE; strings and REP (item 3, not reached); the 0F imm8 bit
+forms, ROL4 / ROR4, EXT / INS; MULU / MUL / DIV; the odd-address word operand (not acquired:
+one small test would settle the `-odd` corpus rows). Interrupt recognition: deferred as told.

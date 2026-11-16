@@ -2828,3 +2828,17 @@ question, decided from S8's routed numbers with the user.
   stores and read-modify-writes before OUT imm8 (Q23), a group memory form behind a stack
   write, SHL r,1 behind an I/O cycle, and CMP / MOV CW,imm16 standing in for the Jcc / DBNZ
   behind them.
+- **2026-11-16, qprobe round 10 on the socket (684 runs; reading only, no RTL): two neighbour
+  effects become rules, the third is withdrawn.** (`validation/v35s/qprobe/RESULTS.md` Q26-Q31,
+  `DIVERGENCE-r10.md`; the model reproduces 684 of 684 and 4,979 of 6,288 over all rounds, none
+  lost.) **Q26**: a bus-idle word waits for the EU's own bus cycle too, not only for fetches
+  (SHL r,1 and TEST r,r behind an OUT; corrects Q13). **Q27 / Q28**: every conditional branch
+  has a bus-idle fourth word and DBNZ has a lead of two; with the routines in bus terms no rule
+  names a predecessor ("CMP r,r / MOV CW,imm16 before Jcc / DBNZ" was the branch's own
+  routine). "INC mem behind a stack write" was the positional attribution blaming it for
+  unread partners and for word operands at odd addresses: the probe matches the model and the
+  round-8 RTL unchanged. Read from data already acquired: the memory-immediate forms (a request
+  on the third word keeps the chained fetch its slot), PUSH / POP mem, the 0F CL bit forms on a
+  register (88 of 96). Tested and rejected as a rule: "the commit word is three words after the
+  last queue byte" (8 measured exceptions, 351 runs). Work order 6 needs no new cross-module
+  signal.
