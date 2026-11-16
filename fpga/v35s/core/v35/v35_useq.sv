@@ -20,6 +20,16 @@
 // (step D) Nothing else: the rule-only stalls (the bus wait, the unit hold, the write-back
 // waits, the take sync, the dispatch law, SUSP's and the decide's fetch wait, the refill wait)
 // are removed with the facts only they read (README "Step D").
+// (qprobe) Two measured stalls (README "qprobe"; validation/v35s/qprobe/model.py):
+//   bnd   (rule 4) the dispatch word (the model's E, the instruction boundary) waits (a) while
+//         a fetch cycle started on an earlier clock runs, except on its last clock; (b) on the
+//         clock a back-to-back fetch starts (the loader's b4: a fetch delivered now, the count
+//         at most 4, no EU request standing: the fetch wins); (c, d) the loader's ew: the count
+//         below 3 for the first boundary after a flush or a ModR/M opcode
+//   b     (rule 5) a word marked `bi` waits while a fetch cycle started on an earlier clock runs,
+//         its last clock included
+// Their facts enter as next values (the bus unit's fb_nx / fl_nx, the loader's b4_nx / ew_nx,
+// the EU's req_v_nx) and as their ce_a-registered copies (`qf`: the facts as they stand).
 //
 // The next microaddress (tick B): the same word (stalled), the next, a jump (on a registered
 // condition), a call (one return register: the V20 ROM's FARJMP subroutines nest one level,
@@ -89,6 +99,15 @@ module v35_useq
     input  wire        opr_rdy_nx,
     input  wire        rq_busy_nx,
     input  wire        wr_hold_nx,
+    // (qprobe rules 4, 5) tick B: the next values of the boundary's and the B word's facts: a
+    // fetch cycle started on an earlier clock runs (fb_nx), it is its last clock (fl_nx) (the bus
+    // unit's); a back-to-back fetch at a count of at most 4 (b4_nx), the count short for this
+    // boundary (ew_nx) (the loader's); the EU's request standing (req_v_nx)
+    input  wire        fb_nx,
+    input  wire        fl_nx,
+    input  wire        b4_nx,
+    input  wire        ew_nx,
+    input  wire        req_v_nx,
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
     output v35_uword_t word_nx,         // (MX5b) tick B: the next word (the banks' read data)
@@ -185,22 +204,35 @@ module v35_useq
     typedef struct packed {
         logic       halted, f, e, post;
         logic       q_stall, opr_rdy, rq_busy, wr_hold;
+        logic       disp, bi;           // (qprobe) the word is the dispatch; is a B word
+        logic       fb, fl, b4, ew, rqv;    // (qprobe) the bus unit's, the loader's, the EU's facts
     } v35_sin_t;
     typedef struct packed {
         logic       ex;
         logic [4:0] why;    // the stall's reason (the trace's W): 0 none, 1 q, 2 f, 3 slot, 4 hold,
-                            //   5 halt
+                            //   5 halt, (qprobe) 6 the boundary's, 7 a B word's
     } v35_stl_t;
     function automatic v35_stl_t stall_f(input v35_sin_t f);
-        logic st_q, st_f, st_slt, st_hld;
+        logic st_q, st_f, st_slt, st_hld, st_bnd, st_bi;
         st_q   = f.q_stall;                 // the queue: a pop finds no byte
         st_f   = f.f && !f.opr_rdy;         // the bus cycle: F's datum not here
         st_slt = f.post && f.rq_busy;       // the one request slot taken
         st_hld = f.e && f.wr_hold;          // a memory write outstanding with RAMEN = 1
-        stall_f.ex = !f.halted && !st_q && !st_f && !st_slt && !st_hld;
+        // (qprobe rule 4) the boundary: (a) a fetch running, not on its last clock; (b) a
+        // back-to-back fetch starting now (no EU request to win the bus); (c, d) the count short
+        st_bnd = f.disp && ((f.fb && !f.fl) || (f.b4 && !f.rqv) || f.ew);
+        // (qprobe rule 5) a B word: a fetch running, its last clock included
+        st_bi  = f.bi && f.fb;
+        stall_f.ex = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_bnd && !st_bi;
         stall_f.why = f.halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3
-                    : st_hld ? 5'd4 : 5'd0;
+                    : st_hld ? 5'd4 : st_bnd ? 5'd6 : st_bi ? 5'd7 : 5'd0;
     endfunction
+    // (qprobe) the facts of rules 4 and 5 as they stand: ce_a registers of their next values
+    // (in reset none: no cycle runs, nothing is delivered)
+    typedef struct packed {
+        logic       fb, fl, b4, ew, rqv;
+    } v35_qf_t;
+    v35_qf_t   qf = '0;
     reg        sp = 1'b0;
     v35_sin_t  si_now;
     always_comb begin
@@ -212,6 +244,13 @@ module v35_useq
         si_now.opr_rdy = opr_rdy;
         si_now.rq_busy = rq_busy;
         si_now.wr_hold = wr_hold;
+        si_now.disp = pd.disp;
+        si_now.bi = word.bi;
+        si_now.fb = qf.fb;
+        si_now.fl = qf.fl;
+        si_now.b4 = qf.b4;
+        si_now.ew = qf.ew;
+        si_now.rqv = qf.rqv;
     end
     v35_stl_t  st_r = '0;
     assign ex = st_r.ex;
@@ -279,12 +318,26 @@ module v35_useq
         si_nx.opr_rdy = opr_rdy_nx;
         si_nx.rq_busy = rq_busy_nx;
         si_nx.wr_hold = wr_hold_nx;
+        si_nx.disp = pd_nx.disp;
+        si_nx.bi = word_nx.bi;
+        si_nx.fb = fb_nx;
+        si_nx.fl = fl_nx;
+        si_nx.b4 = b4_nx;
+        si_nx.ew = ew_nx;
+        si_nx.rqv = req_v_nx;
     end
     always_ff @(posedge clock) begin
-        if (!reset_n)
+        if (!reset_n) begin
             st_r <= stall_f(si_now);
-        else if (ce_a)
+            qf <= '0;
+        end else if (ce_a) begin
             st_r <= stall_f(si_nx);
+            qf.fb <= fb_nx;
+            qf.fl <= fl_nx;
+            qf.b4 <= b4_nx;
+            qf.ew <= ew_nx;
+            qf.rqv <= req_v_nx;
+        end
     end
 
     // ------------------------------------------------------------ tick B: the next address
@@ -420,7 +473,8 @@ module v35_useq
 
     // (st_r.why: the stall's reason, the trace's W: v35_top's observation block)
     // ((step D) the word is 92 bits: the banks' top four bits unread)
-    wire unused = &{1'b0, dec2, st_r.why, qw[95:UWORD_BITS], rw[95:UWORD_BITS]};
+    // ((qprobe) the word is 96 bits: the banks' every bit read)
+    wire unused = &{1'b0, dec2, st_r.why};
 
 `ifndef SYNTHESIS
     // the instruction start (the trace's S, the function bench's o_t_start; v35_top's observation

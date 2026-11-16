@@ -92,6 +92,7 @@ module v35_eu
     output wire        opr_rdy_nx,
     output wire        rq_busy_nx,
     output wire        wr_hold_nx,
+    output wire        req_v_nx,        // (qprobe rule 4b) the request port's level's next value
     // to the sequencer (registers; rb_lo tick B)
     output wire        opr_rdy,
     output wire        rq_busy,
@@ -712,6 +713,7 @@ module v35_eu
     assign wr_hold = rq_out && rq_wr && !rq_io && ramen && !req_done;
     // (MX5c) the same three on the request registers' next values (the ce_a block below)
     wire        rq_v_nx = post ? 1'b1 : ack_b ? 1'b0 : rq_v;
+    assign req_v_nx = rq_v_nx;
     wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
     wire        rq_rd_nx = post ? b_rd : rq_rd;
     wire        rq_wr_nx = post ? (word.bus == BQ_MEMW || word.bus == BQ_IOW) : rq_wr;

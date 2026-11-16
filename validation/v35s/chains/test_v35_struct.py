@@ -154,7 +154,10 @@ QUEUE_PORTS = {
               "fetch_go", "dlv_v", "dlv_data",                    # the fetch port's reply
               "pop_n",                                            # the pop (0 to 2 bytes)
               "flush", "flush_addr", "reset_ip", "susp", "ps_base",   # the control
-              "dlv_tag"},                                         # the tags (left by step C)
+              "dlv_tag",                                          # the tags (left by step C)
+              # (qprobe rules 1, 2) the occupancy's other parts (the loader's) and the dispatch
+              # word executing (the back-to-back threshold's)
+              "oadj", "rls", "bnd"},
     "output": {"fetch_req", "fetch_addr",                         # the fetch port
                "vb0", "vb1", "avail", "hip",                      # the read port
                "stored", "h_q0", "h_odd",                         # the head facts (MX5b)
@@ -352,12 +355,16 @@ CORE_INSTANCES = {
 # the EU: eu -> queue 1 -> 2), the whole budget falling: per module, the outputs read by another
 # core module and the inputs driven by one; per (driver, reader) pair, the reader's inputs the
 # driver feeds
+# (qprobe, README "qprobe") raised by the measured front end's ports: the occupancy's parts into
+# the queue (loader -> queue oadj, rls; useq -> queue bnd), the word's releases into the loader
+# (ro, rl, ro_nx), the boundary's and the B words' facts into the sequencer (bus fb_nx, fl_nx;
+# loader b4_nx, ew_nx; eu req_v_nx)
 BUDGET_MODULE = {
-    "bus": {"out": 16, "in": 10},
-    "queue": {"out": 17, "in": 9},
-    "loader": {"out": 25, "in": 34},
-    "useq": {"out": 20, "in": 29},
-    "eu": {"out": 35, "in": 37},
+    "bus": {"out": 18, "in": 10},
+    "queue": {"out": 17, "in": 12},
+    "loader": {"out": 29, "in": 34},
+    "useq": {"out": 20, "in": 34},
+    "eu": {"out": 36, "in": 37},
     "regram": {"out": 3, "in": 13},
     "intc": {"out": 13, "in": 14},
 }
@@ -365,12 +372,12 @@ BUDGET_PAIR = {
     ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 3,
     ("bus", "regram"): 5,
     ("eu", "bus"): 7, ("eu", "intc"): 3, ("eu", "loader"): 1, ("eu", "queue"): 2,
-    ("eu", "regram"): 8, ("eu", "useq"): 14,
+    ("eu", "regram"): 8, ("eu", "useq"): 15, ("bus", "useq"): 2,
     ("intc", "eu"): 10, ("intc", "useq"): 3,
-    ("loader", "eu"): 13, ("loader", "queue"): 2, ("loader", "useq"): 12,
+    ("loader", "eu"): 13, ("loader", "queue"): 4, ("loader", "useq"): 14,
     ("queue", "bus"): 2, ("queue", "loader"): 11,
     ("regram", "bus"): 1, ("regram", "eu"): 2,
-    ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 14, ("useq", "queue"): 2,
+    ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 17, ("useq", "queue"): 3,
 }
 # the next-value outputs left at step D (none may be added), each with its reader: the bus
 # unit's delivery (loader q_dlv_nx: q_stall_nx's byte count), datum register (loader h_dlv_nx:
@@ -379,12 +386,16 @@ BUDGET_PAIR = {
 # (useq: the registered stall) and opc / modrm / fmt (eu: the early register read); the
 # sequencer's word and two derived bits (eu: the early read; loader: lx); the EU's three (useq:
 # the registered stall)
+# (qprobe) the sequencer's two measured stalls (the boundary's, the B word's: README "qprobe")
+# read five more: the bus unit's fb_nx / fl_nx (a fetch running on the next clock, its last), the
+# loader's b4_nx / ew_nx (the occupancy's: a back-to-back fetch at 4, the count short at a
+# boundary), the EU's req_v_nx (the request standing)
 NX_OUTPUTS = {
-    "bus": {"dlv_fetch_nx", "done_nx", "eu_done_nx"},
+    "bus": {"dlv_fetch_nx", "done_nx", "eu_done_nx", "fb_nx", "fl_nx"},
     "queue": {"discard_nx", "odd_nx", "stored_nx"},
-    "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx"},
+    "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx", "b4_nx", "ew_nx"},
     "useq": {"w_dispm_nx", "w_erep_nx", "word_nx"},
-    "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx"},
+    "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx", "req_v_nx"},
 }
 # (step D) the removed rule-only terms: no identifier of these may reappear in the core's RTL
 # (comments and strings stripped), nor any FIT_ integer

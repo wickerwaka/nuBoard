@@ -24,27 +24,28 @@
 ; the word the pop's room asked for (the model's exec clocks start on its delivery).
 
 ; ---- BR short (EB): V20 JMP short 0158-015B (Q -> tmpbL, SUSP, PC -> tmpa, SIGMA -> PC FLUSH)
-routine br_short op=EB book="BR short-label" diff=1 why="OPEN: silicon longer than the book by one (F30-store-br-short-n0-nop-pO-w0: the frozen model's flush eight clocks after the take sync's release at S+3, S+11, where the book's 12 places it at S+9; F23-push-br-n0-pE-w0: the fetch requests held from S+6, the flush six after the last fetch's end); the target's add, two book clocks with no act, SUSP (S+6 with the sync's release at S+3), four more, FLUSH, E"
+routine br_short op=EB book="BR short-label" diff=-1 why="OPEN: book error of one in the book check's machine (nine words, the E word waiting for the refill's first fetch issued on the flush's clock: 11; on silicon the target's fetch starts five clocks after the flush and the dispatch waits for four bytes, the qprobe j0 / j1 runs); (qprobe rule 6) BR short is `. . . P . . F N .`: the displacement released on the fourth word, F (the flush, the seventh) waits while a fetch cycle runs (rule 5: nothing is fetched after it and the target's fetch starts five clocks later, the queue's flush wait), N the eighth (waits for the target's byte), E the ninth (waits for four bytes of the new stream: the sequencer's rule 4c): 9 (the qprobe j0 / j1 runs, all exact; F23-push-br-n0-pE-w0's flush six after the last fetch's end is rule 5's wait and latency); the book's 12 places the flush later; the target's add, two words with no act, the release, two more, FLUSH, E"
     alu=ADD ax=PC ay=IMM                    ; the target: the instruction pointer + the displacement
     open                                    ; OPEN: a book clock with no act (BR short 12)
     open                                    ; OPEN: a book clock with no act (BR short 12)
-    susp                                    ; SUSP: prefetching suspended; waits while a fetch cycle runs
-    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (BR short 12) (the call and the shared delay's 3)
-    flush                                   ; FLUSH: the stream from the target
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    rl=1                                    ; (qprobe rule 3) P: the displacement (popped by the E word with the opcode) released
+    open                                    ; OPEN: a book clock with no act (BR short 12)
+    open                                    ; OPEN: a book clock with no act (BR short 12)
+    flush bi                                ; FLUSH: the stream from the target; (qprobe rule 5) waits while a fetch cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; (qprobe) ro: released
 
 ; ---- Bcond (70-7F): V20 JCC 0034-0039 (Q -> tmpbL ALU ADD, JMP OPC, E; taken SUSP, FLUSH E)
-routine bcond op=70-7F book="BC/BZ/BNZ/BNC short-label (Bcond)" diff=t:2,nt:-1 why="OPEN: the book's 8 or 15; not taken a book error of one (F23-push-bne-n0-k1-pE-w0: the frozen model's next start at S+8, five clocks after the take sync's release at S+3: the book's 8 less the sync's clock); taken silicon longer than the book by two (F23-push-be-n0-pE-w0: the flush twelve clocks after the sync's release, S+15, the book's 15 placing it at S+12); the target's add, two book clocks with no act, the decide; not taken the decide's wait (the next start three clocks after the last fetch's end, F23-push-bne-n0-k1-pE-w1), E; taken SUSP (the flush nine after the last fetch's end, F23-push-be-n0-pE-w1), seven, FLUSH, E"
+routine bcond op=70-7F book="BC/BZ/BNZ/BNC short-label (Bcond)" why="OPEN: (qprobe rule 6) not taken `. . . P . . BN .` (8, the book's), taken `. . . P . . . . . . F N .` (13 words; in the book check's machine 15, its refill fetch issued on the flush's clock: the book's; the qprobe jz / jnz runs); before qprobe: the book's 8 or 15; not taken a book error of one (F23-push-bne-n0-k1-pE-w0: the frozen model's next start at S+8, five clocks after the take sync's release at S+3: the book's 8 less the sync's clock); taken silicon longer than the book by two (F23-push-be-n0-pE-w0: the flush twelve clocks after the sync's release, S+15, the book's 15 placing it at S+12); the target's add, two book clocks with no act, the decide; not taken the decide's wait (the next start three clocks after the last fetch's end, F23-push-bne-n0-k1-pE-w1), E; taken SUSP (the flush nine after the last fetch's end, F23-push-be-n0-pE-w1), seven, FLUSH, E"
     alu=ADD ax=PC ay=IMM                    ; the target: the instruction pointer + the displacement
     open                                    ; OPEN: a book clock with no act (Bcond 8 or 15)
     open                                    ; OPEN: a book clock with no act (Bcond 8 or 15)
-    jc=XC:bc_t                              ; the decide: the condition on the PSW (the encoding's)
-    pop=none                                ; not taken: the decide's wait (a fetch running or delivering)
-    e                                       ; E
-bc_t: susp                                  ; taken: SUSP
-    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (Bcond 15) (the call and the shared delay's 6)
-    flush                                   ; FLUSH: the stream from the target
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    jc=XC:bc_t rl=1                         ; the decide: the condition on the PSW (the encoding's); (qprobe rule 3) P: the displacement released
+    open                                    ; OPEN: (qprobe rule 6) not taken `. . . P . . BN .`: a word with no act
+    open                                    ; OPEN: (qprobe rule 6) not taken: a word with no act
+    e bi ro                                 ; not taken: E; (qprobe) bi: waits while a fetch cycle runs; ro: the next opcode released
+bc_t: open call=w5                          ; OPEN: 6 clocks: (qprobe rule 6) taken `. . . P . . . . . . F N .`: words with no act (the call and the shared delay's 5)
+    flush bi                                ; FLUSH: the stream from the target; (qprobe rule 5) waits while a fetch cycle runs
+    e ro                                    ; E: the target's opcode, once delivered; (qprobe) ro: released
 
 ; ---- BR near (E9): V20 JMP near 0154-0157 (Q -> tmpbL, Q -> tmpbH, PC -> tmpa SUSP, FLUSH E)
 routine br_near op=E9 book="BR near-label" diff=1 why="OPEN: silicon longer than the book by one (F23-push-brnear-n0-pE-w0: the frozen model's displacement taken at S+3 and S+4, the flush five clocks after the take sync's release at S+7, S+12, where the book's 12 places it at S+9 with no sync; the flush four after the last fetch's end); the immediate's latency (MX1b), the pops, the target's add, one book clock, SUSP, two more, FLUSH, E"

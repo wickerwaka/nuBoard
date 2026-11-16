@@ -217,6 +217,11 @@ package v35_pkg;
         CD_SNZ = 3'd5, CD_SGD = 3'd6, CD_DN = 3'd7
     } v35_cond_e;
 
+    // ---- (qprobe rule 3) the operand bytes a word releases from the queue's occupancy ----
+    typedef enum logic [1:0] {
+        RL_0 = 2'd0, RL_1 = 2'd1, RL_2 = 2'd2, RL_3 = 2'd3
+    } v35_rl_e;
+
     localparam int UADDR_W = 11;      // (MX1b) 2,048 words: the ROM passed 1,024
 
     // ---- the microinstruction (MSB first) ----
@@ -255,6 +260,14 @@ package v35_pkg;
         logic       nb;         // (F3) on an E word: the next instruction's start is no boundary
                                 //   (no interrupt or single step is taken there: a prefix, EI,
                                 //   DI, a segment register's load; f3_step)
+        // (qprobe rule 3) the releases: what the word gives back to the queue's occupancy (the
+        // request line's count, v35_loader `oadj` / `rls`), independent of the physical pops.
+        // The assembler fills the default (a pop word releases its byte, the E word the next
+        // opcode) unless the routine names them (README "qprobe")
+        logic       ro;         // the next opcode released (the model's N; default the E word)
+        v35_rl_e    rl;         // operand bytes released (the model's P; 0 to 2)
+        logic       bi;         // (qprobe rule 5) B: the word waits while a fetch cycle started
+                                //   on an earlier clock runs, its last clock included
     } v35_uword_t;
 
     localparam int UWORD_BITS = $bits(v35_uword_t);

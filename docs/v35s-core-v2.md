@@ -2692,3 +2692,45 @@ question, decided from S8's routed numbers with the user.
   are wait-dependent in a way it does not give. Corpus records consistent (0 of 3,171 repeat
   acquisitions differ; 0 of 26,326 programs with runs differing in pin timing). The direction of
   step E is with the user.
+- **2026-11-15, qprobe: targeted socket tests of the front end, read and built.** The user's
+  direction: the corpus is too complex to read the front end from; a small set of tests from a
+  known queue state instead. Frame of every program: the corpus prelude, a marker OUT, a long
+  shift (queue full, bus idle), the body, a marker OUT, a second long shift; 0 / 1 / 2 waits,
+  both alignments, each run twice. Rounds 1-4: 1,842 socket runs and 1,842 repeats, 0 failed,
+  0 repeats differing (receipts `validation/v35s/receipts/qprobe/QPr{1..4}-w{0,1,2}.json.gz`;
+  tools `validation/v35s/qprobe/`: gen, run, read, model, search). **The reading** (model.py, a
+  200-line clocked model, reproduces every bus event from the fill to the second marker on
+  1,214 of the 1,428 runs of rounds 1-3, among them all 378 of round 3 which no rule was read
+  from): at most seven bytes held beyond the running instruction; a fetch starts from idle when
+  the count falls to four, on the pop's own clock (five right after a bus cycle unless a
+  boundary executes on that clock); the next opcode leaves the queue on a particular word of
+  the running routine (NOP 1 of 4, INC 1 of 2, CBW 1 of 3, the immediate forms with the
+  immediate, OUT DW 5 of 8, SHL r,CL the last but one); **an instruction boundary cannot happen
+  while a fetch cycle is in flight, except on its last clock** (this alone gives NOP 4 / 4 /
+  4.5, INC 2.5 / 3 / 3.5, MOV r,r one bus cycle each, MOV r16,imm16 7 / 8 / 9.5 clocks at 0 / 1
+  / 2 waits: the prelude's train steps E1-E3 could not give); some words wait for a running
+  fetch (the word four clocks before an EU cycle, the immediate's pop word, SHL r,CL's 4th word
+  hence 12 + 2n + waits, a jump's flush word, the target's fetch five clocks later); the first
+  instruction after a flush starts when four bytes of the new stream are delivered; a ModR/M
+  instruction's boundary needs three bytes behind its opcode (the count measured on 180 runs,
+  its mechanism not understood); alignment changes only the one byte held at the start; no
+  register-forwarding stall. **Built:** the queue seven bytes, its request line from an
+  occupancy that follows the measured release clocks (E1's registered line and the bus unit's
+  back-to-back commitment removed); microword fields `ro` / `rl` / `bi` (96 bits, the three
+  banks full); sequencer stalls `st_bnd` and `st_bi`; NOP / XCH, CBW, the immediate forms, OUT
+  DW, SHL r,CL, SHL r,1, JMP short and Jcc reshaped. **Small set, fill to marker: round 1 330 /
+  330 (the base 7), round 2 460 / 720, round 3 378 / 378; from the first marker on 0 / 1,428
+  and corpus exact 0 of 30,536** (pre exact 9,736): OUT imm8 (the corpus's marker), PUSH and
+  the memory forms are not read. The five-clock flush wait is applied to every flush, measured
+  on JMP short and Jcc only. Function on the short gate: write data 106,824 / 106,824 at both
+  spacings, 0 FAIL, chk silent, lint clean in four configurations, vectors rf-a 69,464 / rf-b
+  39,103 / fn 19,749 0 bad, 54 fast tests, SST rc 0, the fuzz subset's differing lines the
+  base's (f5n x3, f5v x2). **Three program lines newly differ from the socket, all with the
+  self-check passing on both sides and every write present:** intr f3_vec and f3_prio (the
+  stored result bytes differ: the interrupt is taken at another instruction boundary) and
+  periph f4_tout (a one-shot period 837 against 855 clocks, tolerance 16; f4_tm likewise, a
+  known timing-only line). They are consequences of the timing half rebuilt and are targets of
+  the next rounds. **FPGA at 17 ns: +2.699 / +2.897 / +2.370 on seeds 1 / 2 / 3** (the base
+  +2.771 / +2.222 / +2.540), 9,114 LUT4 / 642 ADD / 2,431 FF / 81 RAM_5K; the request line
+  formed in the clock of the pop costs nothing. Next: OUT imm8, bus-idle words after an EU
+  cycle, the prelude as probe programs, PUSH / POP and memory forms, the other flushes.

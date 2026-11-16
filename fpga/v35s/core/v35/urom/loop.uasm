@@ -5,10 +5,11 @@
 ; the operand's width; the zero count skips the loop (V20 SHIFT 0228 JMP Z).
 
 ; D2 / D3: SHL r,CL (V20 0118-011B, SHIFT 0228-022B). Measured 10 (n = 0), 12 + 2n (n >= 1)
-routine shift_cl op=D2,D3 mod=reg book="SHL reg,CL" n=4 why="OPEN: the book's 11 + 2n, 9 at n = 0; silicon's 12 + 2n (docs/v35s-eu-timing.md M5; F3-push-shl_cl4-k4-pE-w0 S-to-S 20, the frozen model exact) is the book's and the take sync's wait (MX1f: the ModR/M pop on E arms it, the read waits for the word the pop's room asked for, its delivery at E+3 on a fetch issued on E; F3-push-nop-k4-pE-w0 +112 S-to-S 74, the model's exec clocks from the delivery); the read, CL's count, the shifter's load from tmpb on a word of its own, the zero test, the two-word iteration, the write with the flags, E; the book's four clocks with no act (three on both paths, one on the loop's)"
+routine shift_cl op=D2,D3 mod=reg book="SHL reg,CL" n=4 diff=1 why="OPEN: (qprobe rule 6) silicon's 12 + 2n, the book's 11 + 2n and the fourth word a B word of its own (it waits while a fetch cycle runs: the qprobe SHL AW,CL runs, CL = 31, 74 clocks, all exact); before qprobe: the book's 11 + 2n, 9 at n = 0; silicon's 12 + 2n (docs/v35s-eu-timing.md M5; F3-push-shl_cl4-k4-pE-w0 S-to-S 20, the frozen model exact) is the book's and the take sync's wait (MX1f: the ModR/M pop on E arms it, the read waits for the word the pop's room asked for, its delivery at E+3 on a fetch issued on E; F3-push-nop-k4-pE-w0 +112 S-to-S 74, the model's exec clocks from the delivery); the read, CL's count, the shifter's load from tmpb on a word of its own, the zero test, the two-word iteration, the write with the flags, E; the book's four clocks with no act (three on both paths, one on the loop's)"
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (V20 0118 M -> tmpb)
     rb=CW cnt=RB                            ; CL into the loop counter (0119-011A)
     alu=SHI ax=TB                           ; the shifter loaded from tmpb with CY
+    bi                                      ; (qprobe rule 5) the fourth word waits while a fetch cycle runs (its last clock included)
     open call=w2                            ; OPEN: 3 clocks: a book clock with no act (SHL reg,CL 11 + 2n) (the call and the shared delay's 2)
     jc=CNTZ:shcl_z                          ; a zero count skips the loop and the write (SHIFT 0228 JMP Z)
 shcl_l: alu=SH1 ax=SIG                      ; one shift step of the group's operation (0229's R row)
@@ -32,10 +33,10 @@ shim_l: alu=SH1 ax=SIG                      ; one shift step
 shim_z: e                                   ; E: pop the next opcode
 
 ; D0 / D1: by one (V20 0114-0117). Measured 10
-routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" diff=1 why="OPEN: beyond the book: a named act, the iteration's second word (the V35's two-word iteration, mechanisms 3.4, as the CL form's loop word); silicon's 10 (F3-push-shl1-k4-pE-w0 S-to-S 10, the frozen model exact) against the routine's 9: one clock no act names and the book does not charge, open; the read, the load, two book clocks with no act, the step, the write, E"
+routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" diff=1 why="OPEN: beyond the book: a named act, the iteration's second word (the V35's two-word iteration, mechanisms 3.4, as the CL form's loop word); silicon's 10 (F3-push-shl1-k4-pE-w0 S-to-S 10, the frozen model exact) against the routine's 9: one clock no act names and the book does not charge, open; the read, the load, (qprobe rule 6: `P . B . . . . N .`, the qprobe shl1 runs) the B word, one book clock with no act, the step, the write, E"
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (0115 M -> tmpb)
     alu=SHI ax=TB                           ; the shifter loaded with CY
-    open                                    ; OPEN: a book clock with no act (SHL reg,1 8)
+    bi                                      ; (qprobe rule 5) the third word waits while a fetch cycle runs (SHL r,1 is `P . B . . . . N .`)
     open                                    ; OPEN: a book clock with no act (SHL reg,1 8)
     alu=SH1 ax=SIG                          ; the one step (0116's R row, COUNT 1)
     alu=NONE                                ; the iteration's second word (the two-word iteration: the CL form's loop word)

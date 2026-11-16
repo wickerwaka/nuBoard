@@ -17,11 +17,12 @@
 // ports, the EU's and the queue's, by one fixed priority evaluated once a clock on a free bus:
 //   0. the odd word's second half (the bus unit's own pair: a memory word at an odd address
 //      runs hi, then lo);
-//   1. the fetch committed back to back (the line up at the last clock of the fetch that just
-//      ended, no EU request standing then: `b2b`, held by req_v);
-//   2. the EU's request (`req_v`);
-//   3. the queue's fetch, when its line is up;
-//   4. nothing.
+//   1. the EU's request (`req_v`);
+//   2. the queue's fetch, when its line is up;
+//   3. nothing.
+// (qprobe rule 2) The back-to-back commitment (`b2b`: the line sampled at a fetch's last clock,
+// winning over the EU) is gone: on the clock after a fetch's last clock the queue's line reads
+// its own count against a threshold of 5 (the queue's), and an EU request standing wins.
 // (step D) The rule-only terms are gone: the aborted fetch cycle (the triple clock's, and the
 // committed b2b fetch whose line fell), the I/O issue's hold of a rising line (`ioh`), the I/O
 // recovery window (a fitted integer), the EU's reservation with the queue's low hint
@@ -31,7 +32,7 @@
 // unit answers `req_ack` (the request's first cycle issued now) and `req_done` (its last cycle
 // ended on the last clock, the datum in `done_data`). Nothing on the port names an instruction:
 // the bus unit knows no form, class, row, step or count. The grant is a handful of terms on
-// registered facts (the cycle's position, b2b, the pair's half) and the two request lines.
+// registered facts (the cycle's position, the pair's half) and the two request lines.
 // (MX5c) It is formed for each value of the queue's line and selected by the line last, and the
 // pins' registers load per group from the line's select (README "MX5" round 3).
 //
@@ -49,9 +50,6 @@
 //                                            the cycle that ended on t-1 (bus.completed), its
 //                                            read datum (latched mid-B3); d_p1: the pair's first
 //   wd_r 16, wd_w 1                          (step D) the write datum latch (B2)
-//   (Q1) b2b 1                               the request line sampled high at a fetch's last
-//                                            clock, no EU request standing: the next fetch back
-//                                            to back (b2b_at)
 module v35_bus
     import v35_front_pkg::*;
 (
@@ -124,6 +122,10 @@ module v35_bus
     // loader's q_stall_nx and the EU's opr_rdy_nx / rq_busy_nx)
     output wire        dlv_fetch_nx,    // (step B) dlv_fetch's
     output wire        eu_done_nx,      // req_done's
+    // (qprobe rules 4, 5) tick B: on the next clock a fetch cycle started on an earlier clock
+    // runs (fb_nx), and that clock is its last (fl_nx): the sequencer's boundary and B words
+    output wire        fb_nx,
+    output wire        fl_nx,
 
     // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write at its
     // cycle's end: the enable at ce_a, its condition, the address, width and lane-placed datum;
@@ -186,7 +188,6 @@ module v35_bus
     reg         d_v = 1'b0;
     reg  [2:0]  d_kind = K_NONE;
     reg         d_p1 = 1'b0;
-    reg         b2b = 1'b0;
 
     // ------------------------------------------------ S0
     wire last_clock = c_valid && c_pos == c_len - 3'd1;
@@ -231,9 +232,8 @@ module v35_bus
     wire rq_sfr = (req_addr[19:12] == idb && req_addr[11:9] == 3'b111 && (req_addr[8] || ramen))
                   || req_addr == 20'hFFFFF;
     function automatic v35_gnt_t gnt_f(input logic fr);
-        logic b2b_go, eu_win, eu;
-        b2b_go = free_h && !g_second && b2b && fr;
-        eu_win = free_h && !g_second && !b2b_go && req_v;
+        logic eu_win, eu;
+        eu_win = free_h && !g_second && req_v;
         gnt_f.fetch = free_h && !g_second && !eu_win && fr;
         gnt_f.ack = eu_win;
         eu = g_second || gnt_f.ack;         // an EU cycle issued now (either half of a pair)
@@ -263,8 +263,6 @@ module v35_bus
     assign g_addr = gn.fetch ? fetch_addr : req_addr;
     assign g_width = gn.width;
     wire [1:0]  g_half = gn.half;
-    // the back-to-back sample's hold: an EU request standing at the fetch's last clock
-    wire        b2b_hold = req_v;
 
     wire g_sfr = gn.sfr;
     wire [2:0] grant_len = gn.len;      // the length of the granted cycle
@@ -273,7 +271,6 @@ module v35_bus
     // the grant (S4), registered at the end of tick A: the end of the clock (the cycle's start,
     // the pins at ce_a) reads these, never tick A's logic
     reg         g_start_b = 1'b0, g_sfr_b = 1'b0, fetch_req_b = 1'b0;
-    reg         b2b_hold_b = 1'b0;
     reg  [2:0]  g_kind_b = K_NONE, grant_len_b = 3'd0;
     reg  [19:0] g_addr_b = 20'd0;
     reg  [1:0]  g_width_b = BW_WORD, g_half_b = 2'd0;
@@ -288,7 +285,6 @@ module v35_bus
             g_rdy_b <= gn.rdy;              // (F4d) the cycle granted waits for READY
             rdy_q <= rdy_lv;                // (F4d) READY at the pins' edge
             fetch_req_b <= fetch_req;
-            b2b_hold_b <= b2b_hold;
             g_kind_b <= g_kind;
             grant_len_b <= grant_len;
             g_addr_b <= g_addr;
@@ -301,12 +297,20 @@ module v35_bus
     // (F4d) READY's wait: the cycle's first wait (pos 2) repeats while READY was low at the pins'
     // edge that began it (registers only: c_rdy, the position, rdy_q)
     wire        rdy_hold = c_rdy && pos_now == 3'd2 && !rdy_q;
-    // (MX5c) the next values the always block below loads (b2b, the delivery's)
-    wire        b2b_nx = busy && c_kind == K_FETCH && pos_now == c_len - 3'd1 && fetch_req_b
-                         && !b2b_hold_b;
+    // (MX5c) the next values the always block below loads (the delivery's)
     wire        d_v_nx = busy && pos_now == c_len - 3'd1;
     assign dlv_fetch_nx = d_v_nx && c_kind == K_FETCH;
     assign eu_done_nx = d_v_nx && c_kind != K_FETCH && !(c_half == 2'd1);
+    // (qprobe rules 4, 5) the cycle registers' next values (the block below loads these) and
+    // what they say of the next clock: a fetch started on an earlier clock runs then (fb_nx),
+    // and it is its last clock (fl_nx)
+    wire        cv_nx = g_start_b || busy;
+    wire [2:0]  ck_nx = g_start_b ? g_kind_b : c_kind;
+    wire [2:0]  cp_nx = g_start_b ? 3'd0 : rdy_hold ? c_pos : pos_now;
+    wire [2:0]  cl_nx = g_start_b ? grant_len_b : c_len;
+    wire        bz_nx = cv_nx && cp_nx != cl_nx - 3'd1;
+    assign fb_nx = bz_nx && ck_nx == K_FETCH;
+    assign fl_nx = cp_nx + 3'd1 == cl_nx - 3'd1;
     always @(posedge clock) begin
         if (!reset_n) begin
             c_valid <= 1'b0;
@@ -326,10 +330,7 @@ module v35_bus
             p2_v <= 1'b0;
             d_kind <= K_NONE;
             d_p1 <= 1'b0;
-            b2b <= 1'b0;
         end else if (ce_a) begin
-            // (Q1) the request line sampled at a fetch's last clock, no EU request standing
-            b2b <= b2b_nx;
             // the delivery registers: the cycle whose last clock is this one
             d_v <= d_v_nx;
             d_kind <= c_kind;
@@ -658,8 +659,7 @@ module v35_bus
 `ifndef SYNTHESIS
     // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
     // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
-    wire        x_b2b_go = free_h && !g_second && b2b && fetch_req;
-    wire        x_eu_win = free_h && !g_second && !x_b2b_go && req_v;
+    wire        x_eu_win = free_h && !g_second && req_v;
     v35_gnt_t   gnt_x;
     logic       x_eu;
     always_comb begin
@@ -721,12 +721,6 @@ module v35_bus
                 if (chk_n <= 20)
                     $display("v35 chk: bus.fetch_req changed in tick B: %h -> %h at %0t",
                              fetch_req_b, fetch_req, $time);
-            end
-            if (b2b_hold_b !== b2b_hold) begin
-                chk_n = chk_n + 1;
-                if (chk_n <= 20)
-                    $display("v35 chk: bus.b2b_hold changed in tick B: %h -> %h at %0t",
-                             b2b_hold_b, b2b_hold, $time);
             end
             if (g_kind_b !== g_kind) begin
                 chk_n = chk_n + 1;
@@ -791,13 +785,13 @@ module v35_bus
     initial if ($value$plusargs("v35_gdbg=%s", gdbg_n)) gdbg = $fopen(gdbg_n, "w");
     always @(posedge clock) begin
         if (gdbg != 0 && reset_n && ce_a) begin
-            $fdisplay(gdbg, "g %0d free%0d rv%0d fr%0d b2b%0d g%0d",
-                      gdbg_t, free, req_v, fetch_req, b2b,
-                      g_second ? 5 : g_fetch ? (b2b ? 1 : 3) : req_ack ? 2 : 0);
+            $fdisplay(gdbg, "g %0d free%0d rv%0d fr%0d g%0d",
+                      gdbg_t, free, req_v, fetch_req,
+                      g_second ? 5 : g_fetch ? 3 : req_ack ? 2 : 0);
             gdbg_t <= gdbg_t + 1;
         end
     end
 `endif
 
-    wire unused = &{1'b0, ce_b, wtc[13:2], n_addr, n_width};
+    wire unused = &{1'b0, ce_b, wtc[13:2], n_addr, n_width, fetch_req_b};   // (fetch_req_b: the chk's)
 endmodule

@@ -126,6 +126,23 @@ module v35_loader
     input  wire        flush_w_nx,      // the next word's FLUSH, its DISPM
     input  wire        dispm_nx,
     output wire        q_stall_nx,
+    // (qprobe rules 1, 3, 4c, 4d) the queue's occupancy for the request line: the bytes fetched
+    // and not yet released. The word's releases (`ro` the next opcode, `rl` operand bytes: the
+    // sequencer's word, tick A; ro_nx the next word's, tick B), the ModR/M byte's on the first
+    // word after the dispatch (`mra`); the queue adds its own window to `oadj` (the staging
+    // register plus the bytes popped and not released, less those released and not popped: a
+    // register) and subtracts `rls` (this clock's releases, tick A)
+    input  wire        ro,
+    input  v35_rl_e    rl,
+    input  wire        ro_nx,
+    output reg  [3:0]  oadj,            // (two's complement, -1 to 4)
+    output wire [2:0]  rls,
+    // (qprobe rule 4) tick B: the boundary's facts on the next clock (the sequencer's registered
+    // stall): a fetched word delivered then with the count at most 4 (b4_nx: a back-to-back
+    // fetch starts at threshold 4), the count below 3 for the first boundary after a flush or
+    // a ModR/M opcode's (ew_nx)
+    output wire        b4_nx,
+    output wire        ew_nx,
     input  wire        brki,            // (F2b) PSW.BRKI (the EU's register): the I/O trap's dispatch
     output reg  [15:0] ins_ip,          // (F2b) the instruction's start: the offset of the opcode the
                                         //   E word popped, kept through a segment prefix (its first
@@ -180,7 +197,8 @@ module v35_loader
     // rep_nx refetches from the opcode); e_rep is the sequencer's registered word fact
     wire       ds2 = (ds.has_modrm || ds.e2 || ds.pg) && !e_rep;   // (MX3c) the 0F page's second byte
     assign q_stall = (wants_op && sn == 2'd0)
-                     || (e_pop && (!s_v || (ds2 && sn == 2'd0)));
+                     || (e_pop && (!s_v || (ds2 && sn == 2'd0)))
+                     || (ro && !s_v);       // (qprobe) N releases the staged opcode: none yet
     // the lookups the function reads (registers and the queue's head byte: early in tick A)
     wire       o1 = wants_op && !flush_w;
     wire       m1 = e_pop && ds2;
@@ -536,8 +554,12 @@ module v35_loader
     v35_udec_t dec1_b = '0;
     reg [2:0]  op3m_b = 3'd0;
     reg        dmw_b = 1'b0;
+    reg  [2:0] rls_b = 3'd0;            // (qprobe) this clock's releases
+    reg        ex_lb = 1'b0;            // (qprobe) the word executes
     always_ff @(posedge clock) begin
         if (ce_b) begin
+            rls_b <= rls;
+            ex_lb <= ex;
             opop_b <= opop;
             mpop_b <= mpop;
             e2_b <= ds.e2;
@@ -558,6 +580,32 @@ module v35_loader
         end
     end
 
+    // ------------------------------------------------------------ (qprobe) the occupancy
+    // The model's count (validation/v35s/qprobe/model.py) is the bytes fetched and not released:
+    // the queue's window, the staging register, plus `d` = the bytes popped (into the opcode,
+    // ModR/M, immediate and displacement registers) less the bytes released. The pops and the
+    // releases are each the machine's own events; d returns to the E word's second byte (a
+    // ModR/M byte, a short transfer's displacement, the 0F / REP page's byte: popped, released
+    // by the routine) at every dispatch, and to 0 at a flush, where it is set so (a routine
+    // whose releases do not match its pops cannot carry the count past its instruction:
+    // `+v35_chk` counts the dispatches where it would).
+    //   mra  (rule 3) the ModR/M (or page) byte the E word popped is released on the first word
+    //        executed after the dispatch (the routine's first word, or its EA head's)
+    //   aft  (rule 4c) a flush executed and no dispatch since: the first boundary of the stream
+    reg  [2:0] d = 3'd0;                // two's complement, -1 to 3
+    reg        mpp = 1'b0;              // the last E word popped a second byte
+    reg        mpm = 1'b0;              // ... a ModR/M or page byte (not a displacement)
+    reg        mra = 1'b0;
+    reg        aft = 1'b0;
+    initial oadj = 4'd0;
+    assign rls = !ex ? 3'd0 : {2'd0, ro} + {1'd0, rl} + {2'd0, mra};
+    wire [2:0] pops_b = {2'd0, opop_b} + {2'd0, mpop_b} + {2'd0, epop_b};
+    wire [2:0] d_run = d + pops_b - rls_b;
+    wire [2:0] d_nx = flush_b ? 3'd0 : disp_b ? {2'd0, mpp} : d_run;
+    wire       mpp_nx = epop_b ? mpop_b : mpp;
+    wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : mpm;
+    wire       mra_nx = flush_b ? 1'b0 : disp_b ? mpm : ex_lb ? 1'b0 : mra;
+    wire       aft_nx = flush_b ? 1'b1 : disp_b ? 1'b0 : aft;
     // ------------------------------------------------------------ the end of the clock (ce_a)
     wire [7:0] s_nb = (opop_b || mpop_b) ? sb1_b : sb0_b;     // the staging load's byte
     // (MX5c) the next values the sequencer's registered stall reads (tick B; the block below
@@ -571,9 +619,17 @@ module v35_loader
                          + (!arrive_nx ? 4'd0 : q_odd_nx ? 4'd1 : 4'd2);
     wire [2:0] av_nx = av_w_nx > 4'd7 ? 3'd7 : av_w_nx[2:0];
     wire [1:0] sn_nx = sn_f(av_nx);
+    // (qprobe) the occupancy's adjustment and the count on the next clock (before its releases:
+    // a dispatch word releases nothing, and mra is never set on a dispatch's clock)
+    wire [3:0] oadj_nx = {3'd0, s_v_nx} + {d_nx[2], d_nx};
+    wire [4:0] occ_nx = {1'b0, av_w_nx} + {oadj_nx[3], oadj_nx};
+    assign b4_nx = arrive_nx && $signed(occ_nx) <= 5'sd4;     // (qprobe rule 4b: the threshold 4)
+    assign ew_nx = $signed(occ_nx) < 5'sd3                     // (qprobe rules 4c, 4d: 3 bytes)
+                   && (aft_nx || d1_nx.has_modrm);
     wire       ds2_nx = (ds_nx.has_modrm || ds_nx.e2 || ds_nx.pg) && !e_rep_nx;
     assign q_stall_nx = (pop_nx != PP_NONE && sn_nx == 2'd0)
-                        || (e_pop_nx && (!s_v_nx || (ds2_nx && sn_nx == 2'd0)));
+                        || (e_pop_nx && (!s_v_nx || (ds2_nx && sn_nx == 2'd0)))
+                        || (ro_nx && !s_v_nx);
     // (MX5) the values op and mp load at ce_a (the dispatch facts' register reads them)
     // (F5d) an E word with ea=REP (a REP-page prefix cell's: REP seg / REP BUSLOCK) pops the
     // staged opcode into the ModR/M register and keeps the opcode register (the REP byte): the
@@ -637,6 +693,23 @@ module v35_loader
             df <= dsp_f(op_nx, mp_nx);
             d1r <= d1_nx;
             imo <= imo_nx;
+        end
+    end
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            d <= 3'd0;
+            mpp <= 1'b0;
+            mpm <= 1'b0;
+            mra <= 1'b0;
+            aft <= 1'b0;
+            oadj <= 4'd0;
+        end else if (ce_a) begin
+            d <= d_nx;
+            mpp <= mpp_nx;
+            mpm <= mpm_nx;
+            mra <= mra_nx;
+            aft <= aft_nx;
+            oadj <= oadj_nx;
         end
     end
     always_ff @(posedge clock) begin
@@ -729,8 +802,28 @@ module v35_loader
                 $display("v35 chk: loader: the registered outcomes differ at %0t", $time);
         end
     end
+    // (qprobe) a dispatch where the releases did not match the pops (d set back), the stored
+    // adjustment against its parts, and the release count's ce_b copy
+    integer rsync_n = 0;
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (disp_b && !flush_b && d_run != {2'd0, mpp}) begin
+                rsync_n = rsync_n + 1;
+                if (rsync_n <= 20)
+                    $display("v35 chk: loader: releases against pops off by %0d at a dispatch at %0t",
+                             $signed(d_run) - $signed({1'b0, mpp}), $time);
+            end
+            if (rls_b !== rls || ex_lb !== ex || oadj !== {3'd0, s_v} + {d[2], d}) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: loader: the occupancy's sources changed in tick B at %0t", $time);
+            end
+        end
+    end
     final if (chk_on && chk_n != 0)
         $display("v35 chk: loader: %0d changes in tick B", chk_n);
+    final if (chk_on && rsync_n != 0)
+        $display("v35 chk: loader: %0d dispatches with the releases off the pops", rsync_n);
     // +v35_ldbg=FILE: the loader's room facts each clock (bring-up; clock as the queue's qdbg)
     integer lfd = 0;
     string lfn;

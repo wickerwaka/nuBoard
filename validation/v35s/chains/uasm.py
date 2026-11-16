@@ -39,6 +39,14 @@ The word's fields (one line of a routine is one word, one CPU clock):
                 the dispatch, DISP, set by the assembler); (F5e) tki=L a REP string's take point:
                 L when an interrupt is taken there, else the next word (the book check: the next)
     pfx flush halt trap
+    ro rl=K bi  (qprobe rules 3 and 5) the releases: ro the next opcode released from the
+                queue's occupancy (the model's N), rl=K operand bytes released (its P); bi the
+                word waits while a fetch cycle started on an earlier clock runs (its last clock
+                included). A routine that names no `ro` and no `rl` gets the default: every pop
+                word releases its byte, every E word the next opcode, and a short transfer's
+                displacement (popped by the E word with the opcode) is released by the routine's
+                first word; a routine that names either states all of its releases (checked:
+                one `ro` per E, the `rl` sum the pops' bytes)
 
 No field is a count of clocks, a class, an attribute of another instruction or of the bus
 unit; the loop counter is loaded only from CL (RB), an immediate (IL), the operand's bit count
@@ -105,7 +113,8 @@ UADDR_W = int(re.search(r"localparam\s+int\s+UADDR_W\s*=\s*(\d+)", PKG.read_text
 # the enum prefix and the field names of the word (read from the package)
 PREFIX = {"v35_rsel_e": "RS_", "v35_wid_e": "WD_", "v35_src_e": "SR_", "v35_mvd_e": "MD_",
           "v35_alu_e": "AL_", "v35_ea_e": "EA_", "v35_bus_e": "BQ_", "v35_seg_e": "SG_",
-          "v35_pop_e": "PP_", "v35_cnt_e": "CN_", "v35_seq_e": "SQ_", "v35_cond_e": "CD_"}
+          "v35_pop_e": "PP_", "v35_cnt_e": "CN_", "v35_seq_e": "SQ_", "v35_cond_e": "CD_",
+          "v35_rl_e": "RL_"}
 
 
 class UasmError(RuntimeError):
@@ -353,7 +362,8 @@ SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac", "tki"}
 # (F2b) the trap vectors a word names with vec= (the data book's vector table, docs/v35s-
 # differences.md section 5): CHKIND 5, the FPO escapes 7, the I/O trap 19
 VECTORS = {"CHK": 5, "FPO": 7, "IOT": 19, "DIV": 0, "STEP": 1}
-FLAGS = {"wf", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "susp", "ist", "nb"}
+FLAGS = {"wf", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "susp", "ist", "nb",
+         "ro", "bi"}
 
 
 def _tokens(s: str) -> list[str]:
@@ -454,9 +464,10 @@ def _finish(r: Routine) -> None:
             nxt = Word({}, "the word after E: nothing left (the successor's decode)", r.words[i].line)
             r.words.insert(i + 1, nxt)
         if nxt.fields.get("pop") or nxt.fields.get("bus") or nxt.fields.get("e") \
-                or nxt.fields.get("f") or nxt.fields.get("seq"):
-            raise UasmError(f"{r.path}:{nxt.line}: the word after E pops, posts, waits or "
-                            "sequences")
+                or nxt.fields.get("f") or nxt.fields.get("seq") or nxt.fields.get("ro") \
+                or nxt.fields.get("rl") or nxt.fields.get("bi"):
+            raise UasmError(f"{r.path}:{nxt.line}: the word after E pops, posts, waits, "
+                            "releases or sequences")
         nxt.fields["seq"] = enum_value("v35_seq_e", "disp")
         nxt.post_e = True
         i += 2
@@ -466,6 +477,32 @@ def _finish(r: Routine) -> None:
         if last + 2 < len(r.words) and not any(w.label for w in r.words[last + 2:]):
             raise UasmError(f"{r.path}:{r.words[last + 2].line}: a word after the post-E word "
                             "that nothing reaches")
+
+
+def _releases(r: Routine) -> None:
+    """(qprobe rule 3) the words' releases (`ro`, `rl`): the default unless the routine names
+    them. A short transfer's displacement (the decode's e2: popped by the E word with its
+    opcode) is the routine's to release; a ModR/M byte or the 0F / REP page's second byte is
+    released by the loader on the first word after the dispatch (v35_loader `mra`)."""
+    e2 = r.head.get("page") is None and "op" in r.head \
+        and any(o in SHORT_XFER for o in _ranges(r.head["op"]))
+    pops = sum(1 for w in r.words if w.fields.get("pop"))
+    es = sum(1 for w in r.words if w.fields.get("e"))
+    if any("ro" in w.fields or "rl" in w.fields for w in r.words):
+        ro = sum(1 for w in r.words if w.fields.get("ro"))
+        rl = sum(w.fields.get("rl", 0) for w in r.words)
+        if ro != es or rl != pops + int(e2):
+            raise UasmError(f"{r.path}:{r.line}: {r.name}: the releases ({ro} ro, rl {rl}) are "
+                            f"not the pops ({es} E, {pops + int(e2)} operand bytes)")
+        return
+    for w in r.words:
+        if w.fields.get("pop"):
+            w.fields["rl"] = 1
+        if w.fields.get("e"):
+            w.fields["ro"] = 1
+    if e2 and r.words:
+        w = r.words[0]
+        w.fields["rl"] = w.fields.get("rl", 0) + 1
 
 
 @dataclass
@@ -546,6 +583,7 @@ def assemble(paths: list[Path] | None = None) -> Program:
     words, labels = [], {}
     for r in routines:
         _finish(r)
+        _releases(r)
         r.base = len(words)
         labels[r.name] = r.base
         for w in r.words:

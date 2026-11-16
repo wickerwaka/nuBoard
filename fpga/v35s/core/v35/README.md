@@ -7335,3 +7335,53 @@ clock per wait state, C SHL AW,CL's 12 + 2n).
   byte by parity); `+v35_chk` now checks that no seventh byte is ever held. No clock and no
   datum changed (the pin records of every corpus run identical to E1's at both spacings).
   test_v35_struct's queue port set and the queue-loader count (15 -> 11) follow.
+
+## qprobe: the measured front end (occupancy, releases, the boundary's and the B words' waits)
+
+The work order's specification is validation/v35s/qprobe/model.py (1,428 socket runs, rounds
+r1-r3: the bus events from the end of the first long shift to M1). Built as mechanisms, each
+named in the RTL with "qprobe" and the rule number.
+
+- **Rule 1, 3: the occupancy (v35_loader, v35_queue).** The request line counts the bytes fetched
+  and not *released*: the queue's window (this clock's delivery in), plus the loader's `oadj`
+  (a register: the staging register's byte, plus `d` = the bytes popped less the bytes
+  released), less this clock's releases `rls` (tick A: the word's `ro` + `rl` + the loader's
+  `mra`). Releases are microword fields: `ro` (the next opcode, the model's N), `rl` (0-2 operand
+  bytes, its P); the ModR/M / page byte the E word pops is released on the first word executed
+  after the dispatch (`mra`). The assembler gives every routine that names none the default (a
+  pop word releases its byte, the E word the opcode, a short transfer's displacement the first
+  word) and checks a routine that names them (one `ro` per E, the `rl` sum the pop bytes).
+  `d` is set to the E word's second byte at every dispatch and to 0 at a flush; `+v35_chk`
+  counts the dispatches where the releases did not match the pops (none in the qprobe set).
+  A `ro` word stalls while the staging register is empty (N releases the staged opcode).
+  **The storage is seven bytes** (QN = QUEUE_BYTES + 1): with operand bytes owed the staging
+  register is empty and the occupancy (at most 7) can be all queue bytes (the six-byte queue
+  overflowed in the prelude's MOV r16,imm16 train with a fetch started back to back at 5).
+- **Rule 2: the line (v35_queue) and the grant (v35_bus).** Up when the occupancy after this
+  clock's releases is at most 4, or at most 5 on the clock after a fetch's last clock (a word
+  delivered now) unless the dispatch word executes now (`bnd` = x_disp). The bus unit's b2b
+  commitment is gone: an EU request standing wins over a fetch. E1 M2's registered line is
+  replaced (the line reads this clock's releases).
+- **Rule 4: the boundary (v35_useq st_bnd).** The dispatch word (the model's E) waits (a) while
+  a fetch cycle started on an earlier clock runs, not on its last clock (the bus unit's `fb_nx`
+  / `fl_nx`); (b) when a back-to-back fetch starts now at threshold 4 (the loader's `b4_nx`: a
+  word delivered, the count at most 4) and no EU request stands (the EU's `req_v_nx`); (c, d)
+  the loader's `ew_nx`: the count below 3 for the first dispatch after a flush (`aft`) or for a
+  ModR/M opcode. Registered like the other stalls (tick B from `_nx` facts; the facts' now
+  values are the sequencer's ce_a copies `qf`). Stall reason 6 in the trace's W.
+- **Rule 5: B words (`bi`, v35_useq st_bi)** wait while a fetch cycle started on an earlier clock
+  runs, its last clock included (reason 7). The queue's flush wait (`flw`): the line is low on a
+  flush and the four clocks after it (the target's fetch five clocks after the flush).
+- **Rule 6: routine shapes.** NOP / XCH AW (ro on word 0), CBW (3 words), MOV r8,imm8 / MOV
+  r16,imm16 / ADD AW,imm16 / ADD r,imm8 (83 reg) (`. . . BNP .`, `. . . . BNPP .`, `P . . BNP .`:
+  the pops a word or two before the B / release / E word), OUT DW (`. . X . N . . .`: X a B word,
+  the post on the sixth word granted on the seventh), SHL r,CL (a B word fourth: 12 + 2n), BR
+  short (`. . . P . . F N .`, no SUSP), and from the model's round-2 shapes SHL r,1 (`P . B . . .
+  . N .`) and Bcond (not taken `. . . P . . BN .`, taken `. . . P . . . . . . F N .`). INC/DEC,
+  CLC, MOV/ADD r,r and the prefix are the defaults.
+- **Microword** 96 bits (`ro`, `rl` (v35_rl_e), `bi`: the banks' last four bits).
+- **Result (read cmp, in window from the fill to M1):** r1 330 / 330, r2 the mix 96 / 96 and the
+  trains mi8 addrr xchg clc cbw addi add83 rr8 pfx shl1 jnz 30 or 24 / all, jz 20 / 24 (the
+  model's 20 / 24); r3 378 / 378. Not built (memory forms, OUT imm8, BR near, SHL imm, MUL): pun,
+  mm, e6*, push, pop, ld, st, jn, shli, mul. From M0 on: 0 (M0 is OUT imm8 and the prelude, not
+  read).
