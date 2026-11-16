@@ -47,6 +47,16 @@ The word's fields (one line of a routine is one word, one CPU clock):
                 displacement (popped by the E word with the opcode) is released by the routine's
                 first word; a routine that names either states all of its releases (checked:
                 one `ro` per E, the `rl` sum the pops' bytes)
+                (qprobe round 6) the bus waits by the word's kind: `bi` (B, F) while a
+                fetch's pin cycle started on an earlier clock runs (its last clock included);
+                rl=x (X, S, A: a word that releases nothing) while the bus unit's slot is
+                taken; rl=x with bi (Y, a memory request word) while a fetch started earlier
+                has two clocks or more left. The word after E may post an I/O write (the
+                cycle after the boundary: EU_HOLD)
+    (qprobe rule 12) a routine header's lead=K: the boundary into its opcode comes no sooner
+                than K clocks after the opcode's release (the decode's `lead`)
+    (qprobe rule 11) a routine header's hlt=1: from its opcode's release nothing more is
+                fetched and a request posted is granted a clock later (the decode's `hlt`)
 
 No field is a count of clocks, a class, an attribute of another instruction or of the bus
 unit; the loop counter is loaded only from CL (RB), an immediate (IL), the operand's bit count
@@ -463,11 +473,20 @@ def _finish(r: Routine) -> None:
         if nxt is None or nxt.label is not None:
             nxt = Word({}, "the word after E: nothing left (the successor's decode)", r.words[i].line)
             r.words.insert(i + 1, nxt)
-        if nxt.fields.get("pop") or nxt.fields.get("bus") or nxt.fields.get("e") \
-                or nxt.fields.get("f") or nxt.fields.get("seq") or nxt.fields.get("ro") \
-                or nxt.fields.get("rl") or nxt.fields.get("bi"):
+        # (qprobe round 6) it may release the opcode the E word popped (`ro`: a store's N on
+        # the model's boundary word), nothing else
+        if nxt.fields.get("pop") or nxt.fields.get("e") \
+                or nxt.fields.get("f") or nxt.fields.get("seq") or nxt.fields.get("rl"):
             raise UasmError(f"{r.path}:{nxt.line}: the word after E pops, posts, waits, "
-                            "releases or sequences")
+                            "releases operand bytes or sequences")
+        # (qprobe round 6, EU_HOLD) the word after E may post an I/O write (OUT's: the cycle no
+        # sooner than the clock after the routine's boundary); it never waits by `bi` (rule
+        # 10's G is withdrawn) nor posts a memory or read request (E_PEND: the boundary waits
+        # for a posted memory request; a read's datum needs an F word)
+        if nxt.fields.get("bi") or (nxt.fields.get("bus") and nxt.fields["bus"]
+                                    != enum_value("v35_bus_e", "iow")):
+            raise UasmError(f"{r.path}:{nxt.line}: the word after E waits (bi) or posts other "
+                            "than an I/O write")
         nxt.fields["seq"] = enum_value("v35_seq_e", "disp")
         nxt.post_e = True
         i += 2
@@ -477,6 +496,9 @@ def _finish(r: Routine) -> None:
         if last + 2 < len(r.words) and not any(w.label for w in r.words[last + 2:]):
             raise UasmError(f"{r.path}:{r.words[last + 2].line}: a word after the post-E word "
                             "that nothing reaches")
+
+
+RL_X = 3      # (qprobe rule 9) rl=x: the request word (X), no byte released
 
 
 def _releases(r: Routine) -> None:
@@ -490,7 +512,7 @@ def _releases(r: Routine) -> None:
     es = sum(1 for w in r.words if w.fields.get("e"))
     if any("ro" in w.fields or "rl" in w.fields for w in r.words):
         ro = sum(1 for w in r.words if w.fields.get("ro"))
-        rl = sum(w.fields.get("rl", 0) for w in r.words)
+        rl = sum(w.fields.get("rl", 0) for w in r.words if w.fields.get("rl", 0) != RL_X)
         if ro != es or rl != pops + int(e2):
             raise UasmError(f"{r.path}:{r.line}: {r.name}: the releases ({ro} ro, rl {rl}) are "
                             f"not the pops ({es} E, {pops + int(e2)} operand bytes)")
@@ -512,6 +534,8 @@ class Program:
     labels: dict
     cells1: dict          # opcode -> routine name (first level, no ModR/M)
     cells2: dict          # (opcode, modrm or second byte) -> routine name
+    leads: dict = None    # (qprobe rule 12) opcode -> the routine header's lead=
+    hlts: set = None      # (qprobe rule 11) the opcodes whose routine header says hlt=1
 
     def routine(self, name: str):
         return next(r for r in self.routines if r.name == name)
@@ -525,7 +549,9 @@ RESET = "reset"
 # (MX1) the EA heads (ea.uasm): the dispatch's targets for a ModR/M memory cell with a
 # displacement (or, ea=book, at mod 00 too); each returns to the routine's entry (its add)
 EA_HEADS = {"eab0": "UROM_EAB0", "eab8": "UROM_EAB8", "eab16": "UROM_EAB16", "ea8": "UROM_EA8",
-            "ead": "UROM_EAD"}
+            "ead": "UROM_EAD",
+            # (qprobe round 6) ea=q: the measured MOV r,mem / MOV mem,r heads, one per mode
+            "eaq0": "UROM_EAQ0", "eaq8": "UROM_EAQ8", "eaq16": "UROM_EAQ16"}
 PATHS = ("m00", "d8", "d16", "dir")
 RPATH = "r"               # (MX3c) a 0F routine's register path (its EAC word's jump)
 # (MX2) a transfer's two paths: its condition true (taken) and false (not taken); a routine whose
@@ -549,6 +575,8 @@ def is_pmem(r) -> bool:
 def ea_head(r, path: str) -> str | None:
     """The head the dispatch calls for routine r on path (None: the routine's entry)."""
     book = r.head.get("ea", "book") == "book"
+    if r.head.get("ea") == "q":
+        return {"m00": "eaq0", "d8": "eaq8"}.get(path, "eaq16")
     if path == "m00":
         return "eab0" if book else None
     if path == "d8":
@@ -578,8 +606,8 @@ def assemble(paths: list[Path] | None = None) -> Program:
         if need not in names:
             raise UasmError(f"no routine {need!r}")
     for r in routines:
-        if is_mem(r) and r.head.get("ea", "book") not in ("book", "bare"):
-            raise UasmError(f"{r.path}:{r.line}: ea={r.head['ea']!r} (book or bare)")
+        if is_mem(r) and r.head.get("ea", "book") not in ("book", "bare", "q"):
+            raise UasmError(f"{r.path}:{r.line}: ea={r.head['ea']!r} (book, bare or q)")
     words, labels = [], {}
     for r in routines:
         _finish(r)
@@ -635,8 +663,25 @@ def assemble(paths: list[Path] | None = None) -> Program:
     for k, v in list(cells1.items()) + list(cells2.items()):
         if len(v) > 1:
             raise UasmError(f"decode cell {k} claimed by {v}")
+    # (qprobe rule 12) the boundary's lead: a routine header's lead=K (1 to 3) for its opcodes
+    # (the opcode's decode: a ModR/M opcode's routines must agree or name none)
+    leads = {}
+    for r in routines:
+        h = r.head
+        if "lead" not in h or "op" not in h:
+            continue
+        k = int(h["lead"])
+        if not 1 <= k <= 3 or h.get("page"):
+            raise UasmError(f"{r.path}:{r.line}: lead={h['lead']} (1 to 3, a first-byte opcode)")
+        for op in _ranges(h["op"]):
+            if leads.get(op, k) != k:
+                raise UasmError(f"{r.path}:{r.line}: opcode {op:02X} has two leads")
+            leads[op] = k
+    # (qprobe rule 11) a routine header's hlt=1: its opcode's release stops prefetching (HALT)
+    hlts = {op for r in routines if r.head.get("hlt") == "1" and "op" in r.head
+            for op in _ranges(r.head["op"])}
     return Program(routines, words, labels, {k: v[0] for k, v in cells1.items()},
-                   {k: v[0] for k, v in cells2.items()})
+                   {k: v[0] for k, v in cells2.items()}, leads, hlts)
 
 
 # ------------------------------------------------------------------ outputs
@@ -663,6 +708,8 @@ def udec1(prog: Program, op: int) -> dict:
     else:
         f["entry"], f["trap"] = prog.labels[TRAP1], 1
     f["io"] = int(op in IO_OPS)
+    f["lead"] = (prog.leads or {}).get(op, 0)       # (qprobe rule 12)
+    f["hlt"] = int(op in (prog.hlts or set()))      # (qprobe rule 11)
     return f
 
 
@@ -678,22 +725,35 @@ def udec2(prog: Program, op: int, b: int) -> dict:
         g = fmt_of(b)
         if (op, b) in prog.cells2:
             return {"entry": prog.labels[prog.cells2[(op, b)]], "trap": 0, "op3": g["op3"],
-                    "ea": 0, "eab": 0, "w": g["w"], "io": int(b in IO_OPS)}
-        return {"entry": prog.labels[TRAP0F], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0,
-                "io": 0}
+                    "ea": 0, "eab": 0, "eaq": 0, "w": g["w"], "io": int(b in IO_OPS)}
+        return {"entry": prog.labels[TRAP0F], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "eaq": 0,
+                "w": 0, "io": 0}
     if (op, b) in prog.cells2:
         r = prog.routine(prog.cells2[(op, b)])
         mem = op != 0x0F and is_mem(r) and b >> 6 != 3
         # (MX3c) a 0F routine's EA heads (its EAC word's call) by its header, as a memory cell's
         eab = (mem or op == 0x0F) and r.head.get("ea", "book") == "book"
+        eaq = mem and r.head.get("ea") == "q"       # (qprobe round 6)
         return {"entry": prog.labels[r.name], "trap": 0, "op3": op3, "ea": int(mem),
-                "eab": int(eab), "w": page_w(b) if op == 0x0F else 0, "io": 0}
+                "eab": int(eab), "eaq": int(eaq), "w": page_w(b) if op == 0x0F else 0, "io": 0}
     if op == 0x0F:
         name = TRAP0FM if b in PAGE1_MODRM else TRAP0F
-        return {"entry": prog.labels[name], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "w": 0,
-                "io": 0}
-    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0, "w": 0,
-            "io": 0}
+        return {"entry": prog.labels[name], "trap": 1, "op3": 0, "ea": 0, "eab": 0, "eaq": 0,
+                "w": 0, "io": 0}
+    return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0, "eaq": 0,
+            "w": 0, "io": 0}
+
+
+def udec2_class(b: int) -> int:
+    """(qprobe round 6, timing) the byte's class for the second level's entry: the first byte
+    with its mode being 3 (or not) and its reg field ({mod 3 ? 11 : 00, reg, 000})."""
+    return (0xC0 if b >> 6 == 3 else 0x00) | (b & 0x38)
+
+
+def udec2_by_class(prog: Program, op: int) -> bool:
+    """The opcode's second-level entry is a function of the byte's class alone."""
+    return all(udec2(prog, op, b)["entry"] == udec2(prog, op, udec2_class(b))["entry"]
+               for b in range(256))
 
 
 def ulen(op: int, il: int, mb: int) -> int:
@@ -735,7 +795,7 @@ def decode_svh(prog: Program) -> str:
         L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
                  f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, "
-                 f"1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}}};")
+                 f"1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}, 2'd{f['lead']}, 1'b{f['hlt']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte
@@ -749,7 +809,8 @@ def decode_svh(prog: Program) -> str:
         by = {}
         for b in range(256):
             g = udec2(prog, op, b)
-            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"], g["w"], g["io"]),
+            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"], g["eaq"], g["w"],
+                           g["io"]),
                           []).append(b)
         L.append("                case (b)")
         default = max(by, key=lambda k: len(by[k]))
@@ -758,13 +819,37 @@ def decode_svh(prog: Program) -> str:
                 continue
             items = ", ".join(f"8'h{b:02X}" for b in bs)
             L.append(f"                    {items}: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, "
-                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}}};")
+                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}, 1'b{k[7]}}};")
         k = default
         L.append(f"                    default: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, 3'd{k[2]}, "
-                 f"1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}}};")
+                 f"1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}, 1'b{k[7]}}};")
         L += ["                endcase", "            end"]
-    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0, 1'b0}};",
+    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0}};",
           "        endcase", "        v35_udec2 = f;", "    endfunction", ""]
+    # (qprobe round 6, timing) the second level's entry split for the sequencer's ROM address
+    # (the loader's d2ent): an opcode whose entry is a function of the byte's mode being 3 and
+    # its reg field alone reads v35_udec2 at that class's byte ({mod 3 ? 11 : 00, reg, 000});
+    # the others (the opcodes whose second byte is a whole opcode) are numbered here
+    # (v35_udec2_fx, 1..7) and read v35_udec2_fe
+    whole = [op for op in sorted(MODRM_OPS | {0x0F} | set(REP_XC)) if not udec2_by_class(prog, op)]
+    assert len(whole) <= 7, whole
+    L += ["    // (qprobe round 6, timing) the second level's entry for an opcode whose second byte "
+          "selects it whole:",
+          "    // 0 the entry is v35_udec2 of the byte's class ({mod 3 ? 11 : 00, reg, 000}), else "
+          "the opcode's number for v35_udec2_fe",
+          "    function automatic logic [2:0] v35_udec2_fx(input logic [7:0] op);",
+          "        case (op)"]
+    for i, op in enumerate(whole):
+        L.append(f"            8'h{op:02X}: v35_udec2_fx = 3'd{i + 1};")
+    L += ["            default: v35_udec2_fx = 3'd0;", "        endcase", "    endfunction", "",
+          "    function automatic logic [UADDR_W-1:0] v35_udec2_fe(input logic [2:0] fx, "
+          "input logic [7:0] b);",
+          "        v35_udecm_t f;",
+          "        case (fx)"]
+    for i, op in enumerate(whole):
+        L.append(f"            3'd{i + 1}: f = v35_udec2(8'h{op:02X}, b);")
+    L += ["            default: f = '0;", "        endcase", "        v35_udec2_fe = f.entry;",
+          "    endfunction", ""]
     # (MX0) the loader's count of the instruction's bytes still to pop from the queue: what a
     # ModR/M byte's pop adds (its displacement and the form's immediate) and what the 0F page's
     # second byte's pop adds (its ModR/M byte and its immediate)
@@ -825,7 +910,9 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
            limit: int = 4000, path: str = "m00", trace: list | None = None) -> int:
     """The routine's clocks from its entry to the successor's first word at EA = 3, W = 0, no
     queue stall: one word a clock; a request posted on clock p is granted on p + 1 and done on
-    p + 1 + BUS_CYCLE (the F word and a RAMEN write's E wait for it); the counter's loads read
+    p + 1 + BUS_CYCLE (the F word and a RAMEN write's E wait for it: (qprobe rule 7) in the
+    RTL the on-chip store's hold only, an external write holding the dispatch to its last clock
+    instead: the book check keeps the on-chip timing); the counter's loads read
     n (CL, the immediate) or the width's bit count; conditions from `conds`. A 0F routine counts the
     page head's word. (MX1) A memory routine (`mod=mem`) runs from the EA head of `path` (the
     dispatch's call, returning to the routine's entry); `trace` collects (clock, address, word)."""

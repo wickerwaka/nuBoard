@@ -28,6 +28,20 @@
 //         below 3 for the first boundary after a flush or a ModR/M opcode
 //   b     (rule 5) a word marked `bi` waits while a fetch cycle started on an earlier clock runs,
 //         its last clock included
+// (qprobe round 5) and their refinements:
+//   bnd   (rule 7) also while any bus cycle started on an earlier clock runs (the EU's own: a
+//         memory read or write, an I/O cycle), not on its last clock (the bus unit's cb_nx /
+//         fl_nx); (rule 12) while the clocks since the opcode register's release are fewer
+//         than its decode's lead (the loader's ld_nx)
+// (qprobe round 6: validation/v35s/qprobe/model_m.py, README "qprobe round 6") rule 9 (a `bi`
+// word from a fetch's third clock) and rule 10 (G, a `bi` word that posts) are withdrawn:
+//   bnd   also while a memory request is posted and not yet granted (E_PEND: the EU's rqm_nx);
+//         the count short now includes any boundary's two bytes (EMIN, the loader's ew_nx);
+//         (b) does not hold the boundary whose lead ends now (LEAD_EPRI: le_nx), the fetch
+//         gives way a clock instead (`lpri` to the queue)
+//   b     by the word's kind: `bi` (B, F) the pin cycle of a fetch started earlier, its last
+//         clock included (fb); rl=x (X, S, A) the bus unit's slot (sl_nx); rl=x with bi (Y,
+//         a memory request word) a fetch with two clocks or more left (fy_nx)
 // Their facts enter as next values (the bus unit's fb_nx / fl_nx, the loader's b4_nx / ew_nx,
 // the EU's req_v_nx) and as their ce_a-registered copies (`qf`: the facts as they stand).
 //
@@ -108,6 +122,25 @@ module v35_useq
     input  wire        b4_nx,
     input  wire        ew_nx,
     input  wire        req_v_nx,
+    // (qprobe rules 7, 12) tick B: a cycle of any kind started earlier runs on the next clock
+    // (cb_nx, the bus unit's); the boundary short of its lead (ld_nx, the loader's)
+    input  wire        cb_nx,
+    input  wire        ld_nx,
+    // (qprobe round 6) tick B: the bus unit's slot taken on the next clock (sl_nx: rl=x words),
+    // a fetch with two clocks or more left then (fy_nx: rl=x bi words, the memory request
+    // words); the boundary's lead ending then (le_nx, the loader's: LEAD_EPRI); a memory request
+    // posted and not granted then (rqm_nx, the EU's: E_PEND)
+    input  wire        sl_nx,
+    input  wire        fy_nx,
+    input  wire        le_nx,
+    input  wire        rqm_nx,
+    // (qprobe round 6, E) tick A: the boundary executes on its lead's last clock over a
+    // back-to-back fetch (the queue's line gives way one clock: LEAD_EPRI)
+    output wire        lpri,
+    // (qprobe round 6) the word is the dispatch (the derived bit, a register; tick B: the next
+    // word's): the loader's release on the dispatch word
+    output wire        w_disp,
+    output wire        w_disp_nx,
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
     output v35_uword_t word_nx,         // (MX5b) tick B: the next word (the banks' read data)
@@ -186,6 +219,7 @@ module v35_useq
     assign word_nx = v35_uword_t'(rw[UWORD_BITS-1:0]);
     v35_upre_t pd = '0;
     assign w_dispm = pd.dispm;
+    assign w_disp = pd.disp;
     assign w_erep = pd.erep;
 
     reg [UADDR_W-1:0] retr = '0;
@@ -206,6 +240,9 @@ module v35_useq
         logic       q_stall, opr_rdy, rq_busy, wr_hold;
         logic       disp, bi;           // (qprobe) the word is the dispatch; is a B word
         logic       fb, fl, b4, ew, rqv;    // (qprobe) the bus unit's, the loader's, the EU's facts
+        logic       rlx;                // (qprobe rule 9) rl=X
+        logic       cb, ld;             // (qprobe rules 7, 12) the bus unit's, the loader's
+        logic       sl, fy, le, pm;     // (qprobe round 6) the slot, the late wait, the lead's end, E_PEND
     } v35_sin_t;
     typedef struct packed {
         logic       ex;
@@ -217,12 +254,19 @@ module v35_useq
         st_q   = f.q_stall;                 // the queue: a pop finds no byte
         st_f   = f.f && !f.opr_rdy;         // the bus cycle: F's datum not here
         st_slt = f.post && f.rq_busy;       // the one request slot taken
-        st_hld = f.e && f.wr_hold;          // a memory write outstanding with RAMEN = 1
+        st_hld = f.e && f.wr_hold;          // a memory write outstanding with RAMEN = 1 ((qprobe rule 7) into the on-chip page)
         // (qprobe rule 4) the boundary: (a) a fetch running, not on its last clock; (b) a
-        // back-to-back fetch starting now (no EU request to win the bus); (c, d) the count short
-        st_bnd = f.disp && ((f.fb && !f.fl) || (f.b4 && !f.rqv) || f.ew);
-        // (qprobe rule 5) a B word: a fetch running, its last clock included
-        st_bi  = f.bi && f.fb;
+        // back-to-back fetch starting now (no EU request to win the bus) unless the boundary's
+        // lead ends now (round 6, LEAD_EPRI: the boundary executes, the fetch gives way a
+        // clock); (c, d) the count short (round 6: EMIN, any boundary two bytes); (rule 7) any
+        // cycle running, not on its last clock; (rule 12) the lead; (round 6, D: E_PEND) a
+        // memory request posted and not yet granted
+        st_bnd = f.disp && ((f.cb && !f.fl) || (f.b4 && !f.rqv && !f.le) || f.ew || f.ld || f.pm);
+        // (round 6, A, B, C) the bus waits by the word's kind (the ROM's bi and rl=x):
+        //   bi            B, F: a fetch's pin cycle started earlier runs (its last clock included)
+        //   rl=x          X, S, A: the bus unit's slot is taken (sl)
+        //   rl=x and bi   Y: a fetch started earlier runs with two clocks or more left (fy)
+        st_bi  = (f.bi && !f.rlx && f.fb) || (f.rlx && !f.bi && f.sl) || (f.rlx && f.bi && f.fy);
         stall_f.ex = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_bnd && !st_bi;
         stall_f.why = f.halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3
                     : st_hld ? 5'd4 : st_bnd ? 5'd6 : st_bi ? 5'd7 : 5'd0;
@@ -231,6 +275,7 @@ module v35_useq
     // (in reset none: no cycle runs, nothing is delivered)
     typedef struct packed {
         logic       fb, fl, b4, ew, rqv;
+        logic       cb, ld, sl, fy, le, pm;
     } v35_qf_t;
     v35_qf_t   qf = '0;
     reg        sp = 1'b0;
@@ -251,11 +296,19 @@ module v35_useq
         si_now.b4 = qf.b4;
         si_now.ew = qf.ew;
         si_now.rqv = qf.rqv;
+        si_now.rlx = word.rl == RL_X;
+        si_now.cb = qf.cb;
+        si_now.ld = qf.ld;
+        si_now.sl = qf.sl;
+        si_now.fy = qf.fy;
+        si_now.le = qf.le;
+        si_now.pm = qf.pm;
     end
     v35_stl_t  st_r = '0;
     assign ex = st_r.ex;
     // (step B) the take points and acts (v35_top's glue before: the same terms)
     assign x_disp = ex && pd.disp;
+    assign lpri = x_disp && qf.b4 && !qf.rqv && qf.le;     // (qprobe round 6, E: LEAD_EPRI)
     assign x_tki = ex && pd.tki;
     assign x_end = ex && word.e;
     assign x_nb = ex && word.e && word.nb;
@@ -307,6 +360,7 @@ module v35_useq
     v35_upre_t pd_nx;
     assign pd_nx = pre(word_nx);
     assign w_dispm_nx = pd_nx.dispm;
+    assign w_disp_nx = pd_nx.disp;
     assign w_erep_nx = pd_nx.erep;
     v35_sin_t  si_nx;
     always_comb begin
@@ -325,6 +379,13 @@ module v35_useq
         si_nx.b4 = b4_nx;
         si_nx.ew = ew_nx;
         si_nx.rqv = req_v_nx;
+        si_nx.rlx = word_nx.rl == RL_X;
+        si_nx.cb = cb_nx;
+        si_nx.ld = ld_nx;
+        si_nx.sl = sl_nx;
+        si_nx.fy = fy_nx;
+        si_nx.le = le_nx;
+        si_nx.pm = rqm_nx;
     end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
@@ -337,6 +398,12 @@ module v35_useq
             qf.b4 <= b4_nx;
             qf.ew <= ew_nx;
             qf.rqv <= req_v_nx;
+            qf.cb <= cb_nx;
+            qf.ld <= ld_nx;
+            qf.sl <= sl_nx;
+            qf.fy <= fy_nx;
+            qf.le <= le_nx;
+            qf.pm <= rqm_nx;
         end
     end
 
@@ -415,6 +482,8 @@ module v35_useq
             default: cond_a = 1'b0;
         endcase
     end
+`ifndef SYNTHESIS
+    // (qprobe round 6, timing) the reference: raddr below is `!reset_n ? UROM_RESET : upc_a`
     logic [UADDR_W-1:0] nx_a;
     always_comb begin
         case (word.seq)
@@ -432,11 +501,44 @@ module v35_useq
         endcase
     end
     wire [UADDR_W-1:0] upc_a = ex ? nx_a : upc;
+`endif
 
     // ------------------------------------------------------------ the end of the clock (ce_a)
     // (MX5) the banks read at ce_b (in reset: the reset word, every clock); the word register
     // loads their data at ce_a, the derived bits with it
-    wire [UADDR_W-1:0] raddr = !reset_n ? UROM_RESET : upc_a;
+    // (qprobe round 6, timing) the same address, `!reset_n ? UROM_RESET : upc_a`, with the late
+    // candidates (the second level's entry, the EAC head, the dispatch's interrupt take, the
+    // string's take point, the condition) selected last by facts of registers alone (reset,
+    // ex, the word's seq), the rest formed beside them (`ra_e`); `+v35_chk` compares the two
+    logic [UADDR_W-1:0] ra_e;
+    always_comb begin
+        if (!reset_n)
+            ra_e = UROM_RESET;
+        else if (!ex)
+            ra_e = upc;
+        else begin
+            case (word.seq)
+                SQ_JMP, SQ_CALL: ra_e = word.tgt;
+                SQ_RET: ra_e = retr;
+                SQ_LOOP: ra_e = cnt != 9'd1 ? word.tgt : inc;
+                default: ra_e = inc;
+            endcase
+        end
+    end
+    wire               r_go = reset_n && ex;
+    wire               s_dm = r_go && word.seq == SQ_DISPM;
+    wire               s_ds = r_go && word.seq == SQ_DISP;
+    wire               s_ec = r_go && word.seq == SQ_EAC;
+    wire               s_tk = r_go && word.seq == SQ_TKI;
+    wire               s_jc = r_go && word.seq == SQ_JC;
+    wire               s_jn = r_go && word.seq == SQ_JNC;
+    wire [UADDR_W-1:0] raddr = s_dm ? dec2.entry
+                             : s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
+                             : s_ds ? (igo ? UROM_INT : dent)
+                             : s_tk ? (sgo ? word.tgt : inc)
+                             : s_jc ? (cond_a ? word.tgt : inc)
+                             : s_jn ? (cond_a ? inc : word.tgt)
+                             : ra_e;
     always_ff @(posedge clock) begin
         if (!reset_n || ce_b) begin
             r0 <= rom0[raddr];
@@ -497,6 +599,12 @@ module v35_useq
     // (MX5) the address read at ce_b against tick B's, and the derived bits against the word
     reg [UADDR_W-1:0] upc_ab = '0;
     always @(posedge clock) if (ce_b) upc_ab <= upc_a;
+    // (qprobe round 6, timing) the ROM's address as formed against upc_a
+    reg [UADDR_W-1:0] ra_ab = '0, ra_rb = '0;
+    always @(posedge clock) if (ce_b) begin
+        ra_ab <= raddr;
+        ra_rb <= !reset_n ? UROM_RESET : upc_a;
+    end
     // (MX5c) the registered stall outcome against the stalls of the facts as they stand, every
     // clock
     always @(posedge clock) begin
@@ -508,7 +616,7 @@ module v35_useq
     end
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
-            if (upc_ab !== upc_n || pd !== pre(word)) begin
+            if (upc_ab !== upc_n || pd !== pre(word) || ra_ab !== ra_rb) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: useq: the ROM's address or the derived bits differ at %0t", $time);

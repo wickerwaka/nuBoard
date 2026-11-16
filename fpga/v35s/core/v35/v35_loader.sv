@@ -104,7 +104,7 @@ module v35_loader
     output wire [7:0]  modrm_nx,
     output v35_udec_t  fmt_nx,
     output reg  [2:0]  op3,
-    output v35_udecm_t dec2,            // tick A: v35_udec2(op, the byte this word pops)
+    output v35_udecm_t dec2,            // tick A: v35_udec2(op, the byte this word pops) (its entry: d2ent)
     output wire [2:0]  len,             // tick A: the bytes still to pop after this clock (LEN)
     output wire [UADDR_W-1:0] dent,     // tick A: the DISP word's target
     output wire        dcall,           // tick A: (MX1) ... an EA head, called: the return is dret
@@ -135,6 +135,11 @@ module v35_loader
     input  wire        ro,
     input  v35_rl_e    rl,
     input  wire        ro_nx,
+    // (qprobe round 6) the word is the dispatch (the sequencer's registered derived bit; tick B:
+    // the next word's): a release on the dispatch word (a store's N, the model's boundary word)
+    // releases the opcode the E word popped, never waits for the staging register
+    input  wire        w_disp,
+    input  wire        w_disp_nx,
     output reg  [3:0]  oadj,            // (two's complement, -1 to 4)
     output wire [2:0]  rls,
     // (qprobe rule 4) tick B: the boundary's facts on the next clock (the sequencer's registered
@@ -143,6 +148,28 @@ module v35_loader
     // a ModR/M opcode's (ew_nx)
     output wire        b4_nx,
     output wire        ew_nx,
+    // (qprobe rule 12) tick B: the boundary into the opcode register's instruction short of its
+    // lead (ld_nx: fewer clocks since its release than the decode's `lead`); (qprobe round 6, E)
+    // its lead ending on that clock (le_nx: LEAD_EPRI)
+    output wire        ld_nx,
+    output wire        le_nx,
+    // (qprobe round 6, B) tick B: the count on the next clock (before its releases) at most 4,
+    // at most 5, with the running fetch's bytes at most 5, each with the stream not waiting for
+    // a flush's target (the queue's pv_nx): the bus unit's stage; (E) a request word (rl=x)
+    // executed on the last clock (rqx, a register: the queue's REQ_PRI)
+    input  wire        pv_nx,
+    output wire        c4_nx,
+    output wire        c5_nx,
+    output wire        cf_nx,
+    output reg         rqx,
+    // (qprobe rule 11) HALT: the word is a halt word (the sequencer's word), the sequencer is
+    // halted (a register); the request line held low from HALT's release (tick A: `fstop`), and
+    // HALT released and not yet run (a ce_b register: the EU's request posted then is granted a
+    // clock later)
+    input  wire        w_halt,
+    input  wire        halted,
+    output wire        fstop,
+    output reg         hp_b,
     input  wire        brki,            // (F2b) PSW.BRKI (the EU's register): the I/O trap's dispatch
     output reg  [15:0] ins_ip,          // (F2b) the instruction's start: the offset of the opcode the
                                         //   E word popped, kept through a segment prefix (its first
@@ -198,7 +225,7 @@ module v35_loader
     wire       ds2 = (ds.has_modrm || ds.e2 || ds.pg) && !e_rep;   // (MX3c) the 0F page's second byte
     assign q_stall = (wants_op && sn == 2'd0)
                      || (e_pop && (!s_v || (ds2 && sn == 2'd0)))
-                     || (ro && !s_v);       // (qprobe) N releases the staged opcode: none yet
+                     || (ro && !s_v && !w_disp);    // (qprobe) N releases the staged opcode: none yet
     // the lookups the function reads (registers and the queue's head byte: early in tick A)
     wire       o1 = wants_op && !flush_w;
     wire       m1 = e_pop && ds2;
@@ -296,10 +323,15 @@ module v35_loader
     // middle at a read's B3 (ce_mid, the edge ce_a shares), written as the datum register's
     // own block is. README "F5t"
     v35_btag_t tg_lo = v35_btag_t'(6'b000010), tg_hi = v35_btag_t'(6'b000010);
+    // (qprobe round 6, timing) the second level's numbered-opcode entries of the two bytes
+    // (d2ent above), the datum register's start FFFFh's
+    reg [7*UADDR_W-1:0] fe_lo = d2fe_all('1), fe_hi = d2fe_all('1);
     always @(posedge clock) begin
         if (h_dlv_ld) begin
             tg_lo <= bt_f(h_dlv_nx[7:0]);
             tg_hi <= bt_f(h_dlv_nx[15:8]);
+            fe_lo <= d2fe_all(h_dlv_nx[7:0]);
+            fe_hi <= d2fe_all(h_dlv_nx[15:8]);
         end
     end
     assign dlv_tag = {tg_hi, tg_lo};
@@ -482,7 +514,60 @@ module v35_loader
     assign dec1 = d1r;
     // (the second level's lookup stays behind the head select: replicated per candidate it maps
     // into 72 more RAM blocks; its reader is the DISPM target, README "MX5" round 2)
-    assign dec2 = v35_udec2(op, sb0);
+    // (qprobe round 6, timing) the entry (the DISPM word's target, on the ROM's address in tick
+    // A) split over the ticks: for an opcode the assembler numbers 0 (v35_udec2_fx: all but the
+    // few whose second byte is a whole opcode, 0F's page and the REP pages) the entry is a
+    // function of the byte's class (its mode being 3, its reg field: uasm.udec2_by_class), so
+    // the opcode's sixteen entries are registers beside it (`d2row`, loaded at ce_a with op's
+    // next value, in reset from op, as df) and the byte's class selects among them; the
+    // numbered opcodes read their own lookup (v35_udec2_fe, a constant opcode each). Each is
+    // formed per candidate head byte (the queue's first stored byte, the delivered word's low /
+    // high byte) and selected by the registered facts that select the byte itself (hs: sb0 is
+    // that choice, the queue's seqb(0)). d2ent is v35_udec2(op, sb0).entry on every clock
+    // (`+v35_chk`)
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic logic [UADDR_W-1:0] d2row_f(input logic [7:0] o, input logic [3:0] k);
+        v35_udecm_t t;
+        t = v35_udec2(o, {k[3] ? 2'b11 : 2'b00, k[2:0], 3'b000});
+        d2row_f = t.entry;
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    // (one vector: flops, never inferred as a RAM block: the select is in tick A)
+    reg [16*UADDR_W-1:0] d2row = '0;
+    reg [2:0]  d2f = 3'd0;
+    integer    d2i;
+    /* verilator lint_off UNUSEDSIGNAL */
+    function automatic logic [UADDR_W-1:0] d2r_f(input logic [7:0] b);
+        d2r_f = d2row[{b[7:6] == 2'b11, b[5:3]}*UADDR_W +: UADDR_W];
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
+    // the numbered opcodes' entries of a byte, all seven (v35_udec2_fe), and their choice by d2f
+    function automatic logic [7*UADDR_W-1:0] d2fe_all(input logic [7:0] b);
+        for (int k = 0; k < 7; k = k + 1)
+            d2fe_all[k*UADDR_W +: UADDR_W] = v35_udec2_fe(3'(k + 1), b);
+    endfunction
+    function automatic logic [UADDR_W-1:0] d2fe_sel(input logic [7*UADDR_W-1:0] e);
+        d2fe_sel = '0;
+        for (int k = 0; k < 7; k = k + 1)
+            if (d2f == 3'(k + 1))
+                d2fe_sel = e[k*UADDR_W +: UADDR_W];
+    endfunction
+    function automatic logic [UADDR_W-1:0] d2e_f(input logic [7:0] b);
+        d2e_f = d2f != 3'd0 ? v35_udec2_fe(d2f, b) : d2r_f(b);
+    endfunction
+    wire [UADDR_W-1:0] d2e0 = d2e_f(h_q0);
+    // the delivered word's two bytes: their numbered-opcode entries are registers beside the
+    // bus unit's datum register (`fe_lo` / `fe_hi`, loaded with its enable from its next value,
+    // as the tags tg_lo / tg_hi below): d2fe_all(h_dlv) on every clock (`+v35_chk`)
+    wire [UADDR_W-1:0] d2e2 = d2f != 3'd0 ? d2fe_sel(fe_lo) : d2r_f(h_dlv[7:0]);
+    wire [UADDR_W-1:0] d2e3 = d2f != 3'd0 ? d2fe_sel(fe_hi) : d2r_f(h_dlv[15:8]);
+    wire [UADDR_W-1:0] d2ent = hs == 3'd0 ? d2e0 : hs == 3'd2 ? d2e2 : d2e3;
+    v35_udecm_t dec2r;
+    assign dec2r = v35_udec2(op, sb0);
+    always_comb begin
+        dec2 = dec2r;
+        dec2.entry = d2ent;
+    end
     // the dispatch's (DISP) entry: the second level on the registered ModR/M byte for an
     // opcode with one, else the first
     v35_udecm_t dm;
@@ -512,11 +597,14 @@ module v35_loader
         mdir = m[7:6] == 2'd0 && m[2:0] == 3'd6;
         mea = d1.has_modrm && d2.ea;
         l2 = d1.has_modrm || d1.pg;
-        hd = m[7:6] == 2'd1 ? (d2.eab ? UROM_EAB8 : UROM_EA8)
+        // (qprobe round 6) ea=q: the measured heads, one per mode (mod 00 too)
+        hd = d2.eaq ? (m[7:6] == 2'd1 ? UROM_EAQ8 : (m[7:6] == 2'd2 || mdir) ? UROM_EAQ16
+                       : UROM_EAQ0)
+           : m[7:6] == 2'd1 ? (d2.eab ? UROM_EAB8 : UROM_EA8)
            : (m[7:6] == 2'd2 && d2.eab) ? UROM_EAB16
            : (m[7:6] == 2'd2 || mdir) ? UROM_EAD
            : UROM_EAB0;
-        dsp_f.call = mea && (m[7:6] != 2'd0 || mdir || d2.eab);
+        dsp_f.call = mea && (m[7:6] != 2'd0 || mdir || d2.eab || d2.eaq);
         dsp_f.ret = d2.entry;
         dsp_f.ent = !l2 ? d1.entry : dsp_f.call ? hd : d2.entry;
         dsp_f.trap = l2 ? d2.trap : d1.trap;
@@ -556,10 +644,20 @@ module v35_loader
     reg        dmw_b = 1'b0;
     reg  [2:0] rls_b = 3'd0;            // (qprobe) this clock's releases
     reg        ex_lb = 1'b0;            // (qprobe) the word executes
+    reg        ro_b = 1'b0;             // (qprobe rule 12) the next opcode released now
+    reg        rx_b = 1'b0;             // (qprobe round 6, E) a request word (rl=x) executes now
+    initial rqx = 1'b0;
+    reg        hrel_b = 1'b0, hw_b = 1'b0;     // (qprobe rule 11) HALT released now; the halt word
+    initial hp_b = 1'b0;
     always_ff @(posedge clock) begin
         if (ce_b) begin
             rls_b <= rls;
             ex_lb <= ex;
+            ro_b <= ex && ro;
+            rx_b <= ex && rl == RL_X;
+            hrel_b <= hrel;
+            hw_b <= ex && w_halt;
+            hp_b <= hp || hrel;
             opop_b <= opop;
             mpop_b <= mpop;
             e2_b <= ds.e2;
@@ -598,7 +696,21 @@ module v35_loader
     reg        mra = 1'b0;
     reg        aft = 1'b0;
     initial oadj = 4'd0;
-    assign rls = !ex ? 3'd0 : {2'd0, ro} + {1'd0, rl} + {2'd0, mra};
+    //   lc   (rule 12) the clocks since the last release of a next opcode (`ro`), at most 3: the
+    //        dispatch into the opcode register's instruction waits while lc is below the
+    //        decode's lead (the staged opcode released at t, its boundary at t + lead at the
+    //        earliest: MOV sreg,r16 2, OUT / IN imm8 3)
+    //   hp   (rule 11) HALT's opcode released and the halt word not yet run (cleared there, or
+    //        at a flush: an interrupt taken at HALT's dispatch). From the release (`hrel`: a
+    //        word releasing the staged opcode HALT: the staged opcode's decode `hlt`) the request line
+    //        is low (`fstop`, with the halted state after it), and a request the EU posts is
+    //        granted a clock later (the EU's, from hp_b)
+    reg  [2:0] lc = 3'd4;           // (qprobe round 6) to 4: a lead of 3 ending is seen once
+    reg        hp = 1'b0;
+    wire       hrel = ex && ro && s_v && ds.hlt;
+    assign fstop = hp || hrel || halted;
+    // (rl=X: a request word, no byte released)
+    assign rls = !ex ? 3'd0 : {2'd0, ro} + ((rl == RL_X) ? 3'd0 : {1'd0, rl}) + {2'd0, mra};
     wire [2:0] pops_b = {2'd0, opop_b} + {2'd0, mpop_b} + {2'd0, epop_b};
     wire [2:0] d_run = d + pops_b - rls_b;
     wire [2:0] d_nx = flush_b ? 3'd0 : disp_b ? {2'd0, mpp} : d_run;
@@ -606,6 +718,8 @@ module v35_loader
     wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : mpm;
     wire       mra_nx = flush_b ? 1'b0 : disp_b ? mpm : ex_lb ? 1'b0 : mra;
     wire       aft_nx = flush_b ? 1'b1 : disp_b ? 1'b0 : aft;
+    wire [2:0] lc_nx = ro_b ? 3'd1 : lc == 3'd4 ? 3'd4 : lc + 3'd1;
+    wire       hp_nx = hrel_b ? 1'b1 : (flush_b || hw_b) ? 1'b0 : hp;
     // ------------------------------------------------------------ the end of the clock (ce_a)
     wire [7:0] s_nb = (opop_b || mpop_b) ? sb1_b : sb0_b;     // the staging load's byte
     // (MX5c) the next values the sequencer's registered stall reads (tick B; the block below
@@ -622,14 +736,43 @@ module v35_loader
     // (qprobe) the occupancy's adjustment and the count on the next clock (before its releases:
     // a dispatch word releases nothing, and mra is never set on a dispatch's clock)
     wire [3:0] oadj_nx = {3'd0, s_v_nx} + {d_nx[2], d_nx};
+    // (qprobe round 6, timing) the compares on the count (occ_nx, below) moved ahead of the
+    // queue's late next count: occ_nx <= t is q_stored_nx <= t - oadj_nx - the arriving bytes
+    // (by arrive_nx), the right side formed from the loader's ce_b registers and the arrival's
+    // parity; the same integers (6-bit signed: no wrap), `+v35_chk` compares them with occ_nx's
+    wire signed [5:0] oa_s = {{2{oadj_nx[3]}}, oadj_nx};
+    wire signed [5:0] ar_s = q_odd_nx ? 6'sd1 : 6'sd2;
+    wire signed [5:0] st_s = {3'b000, q_stored_nx};
+    function automatic logic ole(input logic signed [5:0] t);   // occ_nx <= t
+        ole = arrive_nx ? (st_s <= t - oa_s - ar_s) : (st_s <= t - oa_s);
+    endfunction
+    assign b4_nx = arrive_nx && ole(6'sd4);     // (qprobe rule 4b: the threshold 4)
+    assign ew_nx = ((ole(6'sd2)                 // (qprobe rules 4c, 4d: 3 bytes)
+                     && (aft_nx || d1_nx.has_modrm))
+                    // (qprobe round 6, D) any boundary: two bytes behind the staged opcode (EMIN)
+                    || ole(6'sd1))
+                   // (qprobe rule 11) not for bytes that will not come: HALT released, the
+                   // line low (a take routine's refetch of HALT after its flush)
+                   && !hp_nx;
+    assign ld_nx = lc_nx < {1'b0, d1_nx.lead};              // (qprobe rule 12)
+    assign le_nx = d1_nx.lead != 2'd0 && lc_nx == {1'b0, d1_nx.lead};   // (qprobe round 6, E)
+    assign c4_nx = pv_nx && ole(6'sd4);         // (qprobe round 6, B)
+    assign c5_nx = pv_nx && ole(6'sd5);
+    assign cf_nx = pv_nx && ole(6'sd5 - ar_s);
+`ifndef SYNTHESIS
+    // the reference: the count itself and the compares on it
     wire [4:0] occ_nx = {1'b0, av_w_nx} + {oadj_nx[3], oadj_nx};
-    assign b4_nx = arrive_nx && $signed(occ_nx) <= 5'sd4;     // (qprobe rule 4b: the threshold 4)
-    assign ew_nx = $signed(occ_nx) < 5'sd3                     // (qprobe rules 4c, 4d: 3 bytes)
-                   && (aft_nx || d1_nx.has_modrm);
+    wire       occ_ok = b4_nx == (arrive_nx && $signed(occ_nx) <= 5'sd4)
+                        && ew_nx == ((($signed(occ_nx) < 5'sd3 && (aft_nx || d1_nx.has_modrm))
+                                      || $signed(occ_nx) < 5'sd2) && !hp_nx)
+                        && c4_nx == (pv_nx && $signed(occ_nx) <= 5'sd4)
+                        && c5_nx == (pv_nx && $signed(occ_nx) <= 5'sd5)
+                        && cf_nx == (pv_nx && $signed(occ_nx) + (q_odd_nx ? 5'sd1 : 5'sd2) <= 5'sd5);
+`endif
     wire       ds2_nx = (ds_nx.has_modrm || ds_nx.e2 || ds_nx.pg) && !e_rep_nx;
     assign q_stall_nx = (pop_nx != PP_NONE && sn_nx == 2'd0)
                         || (e_pop_nx && (!s_v_nx || (ds2_nx && sn_nx == 2'd0)))
-                        || (ro_nx && !s_v_nx);
+                        || (ro_nx && !s_v_nx && !w_disp_nx);
     // (MX5) the values op and mp load at ce_a (the dispatch facts' register reads them)
     // (F5d) an E word with ea=REP (a REP-page prefix cell's: REP seg / REP BUSLOCK) pops the
     // staged opcode into the ModR/M register and keeps the opcode register (the REP byte): the
@@ -695,6 +838,14 @@ module v35_loader
             imo <= imo_nx;
         end
     end
+    // (qprobe round 6, timing) the opcode's sixteen second-level entries (d2ent, above)
+    always_ff @(posedge clock) begin
+        if (!reset_n || ce_a) begin
+            for (d2i = 0; d2i < 16; d2i = d2i + 1)
+                d2row[d2i*UADDR_W +: UADDR_W] <= d2row_f(!reset_n ? op : op_nx, d2i[3:0]);
+            d2f <= v35_udec2_fx(!reset_n ? op : op_nx);
+        end
+    end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             d <= 3'd0;
@@ -703,13 +854,19 @@ module v35_loader
             mra <= 1'b0;
             aft <= 1'b0;
             oadj <= 4'd0;
+            lc <= 3'd4;
+            hp <= 1'b0;
+            rqx <= 1'b0;
         end else if (ce_a) begin
+            rqx <= rx_b;
             d <= d_nx;
             mpp <= mpp_nx;
             mpm <= mpm_nx;
             mra <= mra_nx;
             aft <= aft_nx;
             oadj <= oadj_nx;
+            lc <= lc_nx;
+            hp <= hp_nx;
         end
     end
     always_ff @(posedge clock) begin
@@ -794,7 +951,8 @@ module v35_loader
     end
     // (MX5c) every clock: the registered outcomes against the function's
     always @(posedge clock) begin
-        if (chk_on && reset_n && (lrs !== lrg_f(ltx) || z1f !== z1
+        if (chk_on && reset_n && (lrs !== lrg_f(ltx) || z1f !== z1 || d2ent !== dec2r.entry || !occ_ok
+                                  || fe_lo !== d2fe_all(h_dlv[7:0]) || fe_hi !== d2fe_all(h_dlv[15:8])
                                   || tg_lo !== bt_f(h_dlv[7:0]) || tg_hi !== bt_f(h_dlv[15:8])
                                   || zc !== zc_f(ln, flush_w, ims, imo))) begin
             chk_n = chk_n + 1;
@@ -813,7 +971,8 @@ module v35_loader
                     $display("v35 chk: loader: releases against pops off by %0d at a dispatch at %0t",
                              $signed(d_run) - $signed({1'b0, mpp}), $time);
             end
-            if (rls_b !== rls || ex_lb !== ex || oadj !== {3'd0, s_v} + {d[2], d}) begin
+            if (rls_b !== rls || ex_lb !== ex || oadj !== {3'd0, s_v} + {d[2], d}
+                || ro_b !== (ex && ro) || hrel_b !== hrel || hw_b !== (ex && w_halt)) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: loader: the occupancy's sources changed in tick B at %0t", $time);

@@ -41,6 +41,6 @@ routine lock op=F0 book="BUSLOCK" why="the bus lock pin is not built: its one wo
 ; unmasked request (an IF with MK 0, or NMI: the controller's registered wake) releases it: the E
 ; word then pops the instruction after HALT, whose dispatch takes the interrupt when IE is 1
 ; (silicon: the pushed PC is HALT's + 1; with IE 0 execution resumes after HALT, f3_vec)
-routine halt op=F4 why="(F3) HALT's release: the E word after the halted word (f3_vec); function only"
+routine halt op=F4 hlt=1 why="(F3) HALT's release: the E word after the halted word (f3_vec); function only"
     halt                                    ; halted: the sequencer stops after this word (the halted stall) until the controller's wake
     e                                       ; E: the instruction after HALT (its dispatch takes the interrupt)

@@ -2734,3 +2734,44 @@ question, decided from S8's routed numbers with the user.
   +2.771 / +2.222 / +2.540), 9,114 LUT4 / 642 ADD / 2,431 FF / 81 RAM_5K; the request line
   formed in the clock of the pop costs nothing. Next: OUT imm8, bus-idle words after an EU
   cycle, the prelude as probe programs, PUSH / POP and memory forms, the other flushes.
+- **2026-11-15, qprobe rounds 5-7: the merged reading built; corpus 13,268 of 30,536 exact.**
+  Three more socket rounds (870 runs, each twice, 0 failed; receipts QPr5..7 beside the others;
+  the cumulative reading in `validation/v35s/qprobe/RESULTS.md`, the merged model `model_m.py`
+  reproducing 2,596 of 2,712 small-set runs to the program's end and predicting the corpus
+  prelude behind a long shift 6 of 6 unfitted). **Read:** the boundary waits for any bus cycle
+  in flight, the EU's own included, except on its last clock, and while a memory cycle is
+  posted and not started; HALT acts when its opcode is popped (prefetch stops, an EU cycle not
+  yet started is held one clock: the one-clock lateness of every chain's END); OUT imm8 / IN
+  imm8 start no sooner than three clocks after their own opcode's pop and MOV sreg two, the
+  others one (a decode stage at the pop: the count measured, why these forms take longer a
+  guess); the bus unit has a sequencing stage two clocks ahead of the pins which request words,
+  OUT DW's first word and SHL r,CL's fourth wait for, while the boundary, the immediate's pop
+  word and the flush wait for the pin cycle; a memory cycle comes four clocks after its request
+  word, the word taken only in a running fetch's last two clocks; OUT DW is six words; JMP
+  far's fetch comes three clocks after the flush, not five. **Built:** all of it but the JMP
+  near / far and CALL / RET shapes (not a reading yet; the five-clock flush wait still applies
+  to every flush) and a three-run corner (no free word encoding); the word still 96 bits in
+  three banks. **Function faults found and fixed on the way:** (1) round 5 removed the wait
+  after an external memory write and CALL far's second push overwrote the datum register
+  before the bus unit took the first (31 corpus runs running away): F again waits for its
+  write's end; (2) the same overwrite across an instruction boundary under a held-back grant:
+  the datum now travels with the request, taken at the post (`rq_d`), with a sim-only test
+  (`dma hwd`, HLDRQ at 24 offsets over write trains: the old path differs on 15 writes); (3) a
+  store posted on its routine's last word let MOVSPA read a stale PSW save (banks f3_bins):
+  stores post one word earlier. **Small set: 2,580 of 2,712 to the end, 2,576 from the first
+  marker on. Corpus at both spacings: 13,268 exact, 0 lost, 0 FAIL, write data 106,824 /
+  106,824**; lint clean in four configurations, vectors 0 bad, 56 fast tests, SST rc 0; dma,
+  onchip, banks, traps, prio, pfxtake, serial equal; intr f3_vec / f3_prio, periph f4_tm /
+  f4_tout and the fuzz subset's five lines differ as before. **FPGA at 17 ns failed as built
+  (-0.259 / -1.047 / -0.330)** on the on-chip write hold's address path (register RAM, segment
+  add, page hit, stall), the second-level decode in front of the ROM address, the zero test
+  into the condition, and the delivery-to-count-to-stall chain; a behaviour-neutral repair
+  (operand captures for the request address, the second-level entry split over the two ticks,
+  the ROM address's late candidates selected last, the count's compares from registers; small
+  set receipts byte-identical, corpus 13,268, each old expression kept as a `+v35_chk`
+  reference) gives **+2.253 / +2.014 / +1.387**, 10,010 LUT4 / 675 ADD / 2,620 FF / 90 RAM_5K.
+  **The interface budget grew over rounds 1-6** (bus in 10 to 18, queue in 9 to 17, sequencer in
+  29 to 40, loader out 25 to 37; bus to sequencer 0 to 5): each rule was built as its own
+  next-clock fact between modules. A consolidation step (one owner for the queue's count, one
+  place for the pace rules, one stall back to the sequencer, the budget not to be raised) is
+  in progress on this tree.

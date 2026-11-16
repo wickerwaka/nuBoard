@@ -14,12 +14,9 @@
 ; the declared difference; an OPEN word is a book clock no act names.
 
 ; ---- loads (V20 MOV_RM 004C-004D, the load direction: M -> tmpa, tmpa -> R)
-routine ld diff=m00:+2,d8:+2,d16:+2,dir:+2 op=8A,8B mod=mem book="MOV reg,mem" why="OPEN: the add, the post, five clocks no act names under the cycle, F into tmpa on the clock before E (V20 MOV_RM 004C: the model's next S at S+11 whether the datum lands at S+8 or S+9, F4-push-ld_bw-k1-pE-w0), the register from tmpa on the E word at S+11 (F4-push-ld_bw-k2-pE-w0: S 92, P:read 97, S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
-    bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    open call=w4                            ; OPEN: 5 clocks: a clock of the model's with no act (MOV reg,mem) (the call and the shared delay's 4)
-    f d1=TA s1=OPR                          ; F: the datum into tmpa (004C M -> tmpa)
-    wr=REG ws=TA e                          ; the register <- tmpa (004D); E
+routine ld diff=d16:-1 op=8A,8B mod=mem ea=q book="MOV reg,mem" why="book error of one at mod 10 (the book's EA 4; the qprobe ld16 runs: MOV AW,[BW+d16] in the four words of every mode); OPEN: (qprobe round 6) MOV r,mem is `P Y . DN .`, `P Y . P DN .`, `P Y . PP DN .` (the qprobe lbw, lbi, ld8, ld16, ldir runs; model_m.py L_*): the measured heads (ea=q, ea.uasm: the ModR/M byte released on word 1, the request word Y on word 2, the add on word 3, the displacement released on word 4), the read's post on word 5 (Y + 3), D: F with the register's write and N, the boundary; book error where the routine is shorter, silicon longer than the book where it is longer"
+    bus=MEMR                                ; post the read (Y + 3: granted on Y + 4, or later)
+    f wr=REG ws=OPR e ro                    ; D: F: the register <- the datum (004C-004D); E; N
 ; ---- load + ALU (V20 ALU_RM 0000-0001: M -> tmpb, R -> tmpa; ALU OPC; SIGMA -> R)
 routine ld_alu diff=m00:+2,d8:+2,d16:+2,dir:+2 op=02,03,0A,0B,12,13,1A,1B,22,23,2A,2B,32,33 mod=mem book="ADD reg,mem" why="OPEN: the add, the post, five clocks no act names under the cycle, F with the register's read and the block's ALU op on the clock before E (V20 0000), the write on the E word (F5-push-add_aw_m-k2-pE-w0: S 92, P:read 97, S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
@@ -71,10 +68,10 @@ routine xch_m diff=m00:+2,d8:+2,d16:+2,dir:+2 op=86,87 mod=mem book="XCH mem,reg
 
 ; ---- stores (V20 MOV_RM 004C-004D, the store direction: R -> tmpa, tmpa -> M; the operand
 ; pre-read suppressed, pla_3 MODRM_STORE)
-routine st diff=m00:+1,d8:+1,d16:+1,dir:+1 op=88,89 mod=mem book="MOV mem,reg" why="OPEN: the add, the register's read with the post (S+4: the write at S+5), E held to the write's end (F5-push-st_bw-k2-pE-w0: S 90, the write 95, S-to-S 8: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
+routine st diff=m00:+2,d8:+2,d16:+1,dir:+2 op=88,89 mod=mem ea=q book="MOV mem,reg" why="beyond the book: a named act, the request word (Y) and the post on words of their own (the qprobe sbw, sd8, sdir runs); beyond the book by two at EA 3 and one at mod 10 in the book check's machine (E held to the write's end: the on-chip timing, the post and E on words of their own); OPEN: (qprobe round 6) MOV mem,r is `P Y . N`, `P Y . P N`, `P Y . PP N` (the qprobe sbw, sd8, sdir runs; model_m.py S_*): the measured heads (ea=q), the register's read with the post on word 5 (Y + 3), E, the boundary with N (the model's last word) on the write's last clock (rule 7, E_PEND); book error where the routine is shorter, silicon longer than the book where it is longer"
     ra=REG d1=OPRW s1=RA bus=MEMW           ; the register into the write datum (004C); post the write (004D)
-    e                                       ; E: held until the write's end (RAMEN)
+    e                                       ; E: an on-chip store holds it to the write's end (RAMEN: the function-bearing hold)
+    ro                                      ; post-E: N on the boundary word (the model's): released when the dispatch executes, on the write's last clock
 
 ; MOV mem,imm (C6 / C7 /0): the immediate popped after the EA (the V20's routine pops it after
 ; the loader's EA), into the write datum, the post

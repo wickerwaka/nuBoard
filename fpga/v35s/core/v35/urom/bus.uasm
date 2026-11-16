@@ -12,12 +12,14 @@
 ; reservation stops every fetch (A1's rule 3) and the port byte may still be on its way.
 
 ; PUSH r16 (V20 PUSH_R16 0028-002A, its acts one a word). Measured 9 (RAMEN = 1), 6 (RAMEN = 0)
-routine push_r op=50-57 book="PUSH reg16" diff=-4 why="OPEN: book error of four: the book's 13 against silicon's 9 (the a6 sweep's cost, docs/v35s-mechanisms/classes.md; F3-push-nop-k4-pE-w0: the frozen model's PUSH S 72, the write at S+6, the next S at S+9); SP - 2, SP and the address, one book clock with no act, the register's read with the post (S+5: the write at S+6), E held to the write's end (RAMEN): 9"
+routine push_r op=50-57 book="PUSH reg16" diff=-2 why="OPEN: book error of two in the book check's machine (its E held to the write's end: an on-chip store's timing, 11; silicon's 9, the a6 sweep's cost, docs/v35s-mechanisms/classes.md, and the qprobe runs: the boundary on the write's last clock); (qprobe rule 14) PUSH r16 is `. . Y . . . N .` (the qprobe pun, bp, push runs): SP - 2, SP and the address, Y (the request word, no act: the write due four clocks after it, posted on the third word after it: the bus unit's one-clock post-to-grant latency), two words with no act, the register's read with the post, E with the next opcode's release; the boundary after it waits for the write's last clock (rule 7: the sequencer's, not the RAMEN hold, which an on-chip store keeps): 8 words; before qprobe: book error of four: the book's 13 against silicon's 9 (the a6 sweep's cost, docs/v35s-mechanisms/classes.md)"
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2 (0028)
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG        ; SP <- SP - 2; the address register <- it (0029); the reservation
-    open                                    ; OPEN: a book clock with no act (PUSH reg16 13)
-    ra=OPR wid=WORD d1=OPRW s1=RA bus=MEMW seg=SS   ; the register into the write datum, read after SP's write (PUSH SP pushes SP - 2: F36 stack) (002A); post the write at SS:SP
-    e                                       ; E: held until the write's end (RAMEN)
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG        ; SP <- SP - 2; the address register <- it (0029)
+    rl=x bi                                 ; (qprobe round 6, C) Y: the request word (the write due four clocks after it, posted three words later): waits while a fetch has two clocks or more left
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    ra=OPR wid=WORD d1=OPRW s1=RA bus=MEMW seg=SS   ; the register into the write datum, read after SP's write (PUSH SP pushes SP - 2: F36 stack) (002A); post the write at SS:SP (Y + 3: granted on Y + 4, or at the end of a fetch running then)
+    e ro                                    ; E: the next opcode popped and released (N); an on-chip store holds it to the write's end (RAMEN)
 
 routine push_psw op=9C book="PUSH PSW" diff=-1 why="book error: the book's 9 against silicon's 9 (a6 PUSH PSW 8 / 10; the a6 sweep's cost (docs/v35s-mechanisms/classes.md) less the dispatch's fetch stall its method puts under the marker: 8); the acts merged as PUSH r16's: 8"
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2 (0074)
@@ -26,15 +28,19 @@ routine push_psw op=9C book="PUSH PSW" diff=-1 why="book error: the book's 9 aga
     e                                       ; E: held until the write's end
 
 ; PUSH imm (V20 0288-028B): the immediate popped, then the push
-routine push_i16 op=68 book="PUSH imm16" diff=-1 why="OPEN: book error of one: the book's 13 against silicon's 13 (a6 12 / 14, less the stall: 12); the pops, the push's acts merged, its hold, two book clocks with no act before the post"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's low byte
-    pop=ih                                  ; pop its high byte
+routine push_i16 diff=2 op=68 book="PUSH imm16" why="(qprobe round 6) beyond the book: a named act, the request word (Y) with the post and E on words of their own; two beyond the book in the book check's machine (E held to the write's end: the on-chip timing, the post and E on words of their own; off the chip the boundary on the write's last clock): PUSH imm16 is `. . . . PP . Y N` (the qprobe pi, pre runs: the immediate released on word 5, the request word 7, the write on word 11, N on the boundary word); was: OPEN: book error of one: the book's 13 against silicon's 13 (a6 12 / 14, less the stall: 12); the pops, the push's acts merged, its hold, two book clocks with no act before the post"
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open                                    ; OPEN: (qprobe round 6) a word with no act
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=IMM        ; SP <- SP - 2; the address register; the immediate into the write datum; the reservation
-    open                                    ; OPEN: a book clock with no act (PUSH imm16 13)
-    bus=MEMW seg=SS wid=WORD                ; post the write
-    e                                       ; E: held until the write's end
+    pop=il wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG     ; pop the immediate's low byte; SP <- SP - 2; the address register
+    pop=ih rl=2                             ; pop its high byte; (qprobe round 6) PP: both immediate bytes released
+    d1=OPRW s1=IMM                          ; the immediate into the write datum
+    rl=x bi                                 ; (qprobe round 6, C) Y: the request word (the write due four clocks after it): waits while a fetch has two clocks or more left
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    bus=MEMW seg=SS wid=WORD                ; post the write (Y + 3)
+    e                                       ; E: an on-chip store holds it to the write's end (RAMEN: the function-bearing hold)
+    ro                                      ; post-E: (qprobe round 6) N on the boundary word (the model's): the next opcode released when the dispatch executes, on the write's last clock (rule 7, E_PEND)
 
 routine push_i8 op=6A book="PUSH imm8" diff=-1 why="OPEN: book error of one: the book's 12 against silicon's 12 (a6, less the stall: 11); the pop, the push's acts merged, its hold, two book clocks with no act before the post"
     open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
@@ -46,61 +52,71 @@ routine push_i8 op=6A book="PUSH imm8" diff=-1 why="OPEN: book error of one: the
     e                                       ; E: held until the write's end
 
 ; POP (V20 POP_R16 002C-002F, POPF 0078-007B)
-routine pop_r op=58-5F book="POP reg16" why="OPEN: the frozen model's positions (F5-push-pop_aw-k2-pE-w0: the stack read at S+6, the next S at S+11): three book clocks with no act before the post (S+5), SP + 2, SP, three more, F: the register on the E word (S+11): the book's 11"
-    open call=w2                            ; OPEN: 3 clocks: a clock of the model's with no act (POP reg16 11) (the call and the shared delay's 2)
-    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS    ; SP into the address register; post the read at SS:SP (002C; S+5)
+routine pop_r op=58-5F book="POP reg16" why="OPEN: (qprobe rule 14) POP r16 is `. . Y DN .` (the qprobe pop runs): SP into the address register, SP + 2, Y (SP's write: the request word, the read due four clocks after it, posted on the third word after it), two words with no act, the post, D N (F: the datum into the register; E), the dispatch: S to S 11 at W = 0 with no fetch in the way: the book's 11; before qprobe: three book clocks with no act before the post (S+5)"
+    rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register (002C)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2 (002D)
-    wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2 (002E)
-    open call=w2                            ; OPEN: 3 clocks: a clock of the model's with no act (POP reg16 11) (the call and the shared delay's 2)
-    f wr=OPR wid=WORD ws=OPR e              ; F: the datum into the register (002F); E
+    wr=SP wid=WORD ws=SIG rl=x bi           ; (qprobe rule 13, round 6 C) Y: the request word (the read due four clocks after it, posted three words later; waits while a fetch has two clocks or more left); SP <- SP + 2 (002E)
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    bus=MEMR seg=SS                         ; post the read at SS:SP (the address register: SP before the add) (Y + 3: granted on Y + 4, or at the end of a fetch running then)
+    f wr=OPR wid=WORD ws=OPR e ro           ; D: F: the datum into the register (002F); E (N)
 
 routine pop_psw op=9D book="POP PSW" why="OPEN: the frozen model's positions (the prelude's POP PSW, F3-push-nop-k4-pE-w0: its stack read seven clocks before the next start, posted at S+5 as POP r16's): three book clocks with no act, the post at SS:SP, SP + 2, SP, five more, F: the PSW on the E word: the book's 13"
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (POP PSW 13) (the call and the shared delay's 2)
-    rb=SP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS    ; SP into the address register; post the read (0078; S+5)
+    rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register (0078)
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2 (0079)
-    wr=SP wid=WORD ws=SIG                   ; SP <- SP + 2 (007B)
-    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (POP PSW 13) (the call and the shared delay's 4)
-    f wr=PSW ws=OPR e seg=NBI               ; F: the PSW <- the datum (bits 11:0) (007A); E; (F5c) NBI: no maskable interrupt or single step at the next start (f5_step)
+    wr=SP wid=WORD ws=SIG rl=x bi           ; (qprobe round 6) Y: the request word (the read due four clocks after it); SP <- SP + 2 (007B)
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    bus=MEMR seg=SS                         ; post the read at SS:SP (Y + 3)
+    f wr=PSW ws=OPR                         ; D: F: the PSW <- the datum (bits 11:0) (007A)
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    e ro seg=NBI                            ; E; (qprobe round 6) N; (F5c) NBI: no maskable interrupt or single step at the next start (f5_step)
 
 ; MOV [d16],acc (V20 MOV_DMEM_ACC 0088-008B). F1's store marker: measured 9
-routine st_dir op=A2,A3 book="MOV dmem,acc" diff=1 why="beyond the book: a named act, the post on the word after the address register's load (the request reads the address register a word later, as the EA's add: README MX1); the two pops at S+2 and S+3, the address and the datum, the post at S+5 (the write at S+6), E held to the write's end: 9 (F1-store-m2-pE-w0: the frozen model's T at S+2 S+3, the write at S+6, S-to-S 9; a6 9)"
-    pop=dl                                  ; pop the address's low byte (0088 Q -> tmpbL)
-    pop=dh                                  ; pop its high byte (0089); the reservation (MX2: the frozen model posts the write on this take, F37-push-ctl-ptr-pE-w0: the fetch at S on the opcode's room, the write after the fetch at S+3)
+routine st_dir diff=3 op=A2,A3 book="MOV dmem,acc" why="(qprobe round 6) beyond the book: a named act, the request word (Y) with the post and E on words of their own; MOV [d16],acc is `. . Y PP N` (the qprobe sacc, st runs, model_m.py ST): the write on Y + 4, N on the boundary word, E held to the write's end in the book check's machine (the on-chip timing, the post and E on words of their own), three beyond the book; was: OPEN: silicon longer than the book by one (F1-store-m2-pE-w0: S-to-S 9; a6 9), the book check's machine two more (its E held to the write's end: an on-chip store's timing); (qprobe rule 14) MOV [d16],acc is `. . Y PP2 G . . N` (the qprobe sacc, st runs): two words with no act, Y (the request word: the write due four clocks after it) with the address's first pop, the second pop with both bytes' release, the address and the datum, G (the post, waiting until the bus will be free for it on the next clock: Y + 3, the write on Y + 4), a word with no act, E with the release (N: the model's on the last word, a clock later; the write's cycle runs on both clocks, no fetch can start), the dispatch waiting for the write's last clock (rule 7): 9 at W = 0 (the book's 9); before qprobe: the post at S+5, E held to the write's end"
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    pop=dl rl=x bi                          ; (qprobe round 6, C) Y: the request word (the write due four clocks after it; waits while a fetch has two clocks or more left); pop the address's low byte (0088 Q -> tmpbL)
+    pop=dh rl=2                             ; pop its high byte (0089); (qprobe rule 3) PP: both address bytes released
     ea=DISP ra=AW d1=OPRW s1=RA             ; the address register <- the displacement; the accumulator into the write datum
-    bus=MEMW                                ; post the write (008A MEMW)
-    e                                       ; E: held until the write's end (RAMEN)
+    bus=MEMW                                ; post the write (008A MEMW) (Y + 3: the write on Y + 4)
+    e                                       ; E: an on-chip store holds it to the write's end (RAMEN: the function-bearing hold)
+    ro                                      ; post-E: (qprobe round 6) N on the boundary word (the model's): the next opcode released when the dispatch executes, on the write's last clock (rule 7, E_PEND)
 
 ; MOV acc,[d16] (V20 MOV_ACC_DMEM 0084-0087)
-routine ld_dir op=A0,A1 book="MOV acc,dmem" why="OPEN: the book's 10: the pops, the EA step, the post, the F word; one book clock with no act before the post"
-    pop=dl                                  ; pop the address's low byte (0084)
-    pop=dh                                  ; pop its high byte (0085)
-    ea=DISP                                 ; the address register <- the displacement; the reservation
-    open                                    ; OPEN: a book clock with no act (MOV acc,dmem 10)
-    bus=MEMR                                ; post the read (0086)
-    f wr=AW ws=OPR e                        ; F: the accumulator <- the datum (0087); E
+routine ld_dir op=A0,A1 book="MOV acc,dmem" diff=1 why="OPEN: silicon longer than the book by one (the qprobe lacc / ld runs, F-family style: 11 at W = 0 with no fetch in the way); (qprobe rule 14) MOV acc,[d16] is `. . Y PP2 DN .` (the qprobe lacc, ld runs): two words with no act, Y (the request word: the read due four clocks after it) with the address's first pop, the second pop with both bytes' release, the address, a word with no act, the post (Y + 3), D N (F: the accumulator <- the datum; E), the dispatch: 11 at W = 0 with no fetch in the way; before qprobe: the book's 10"
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    pop=dl rl=x bi                          ; (qprobe rule 13, round 6 C) Y: the request word (the read due four clocks after it, posted three words later; waits while a fetch has two clocks or more left); pop the address's low byte (0084)
+    pop=dh rl=2                             ; pop its high byte (0085); (qprobe rule 3) PP: both address bytes released
+    ea=DISP                                 ; the address register <- the displacement
+    bus=MEMR                                ; post the read (0086) (Y + 3: granted on Y + 4, or at the end of a fetch running then)
+    f wr=AW ws=OPR e ro                     ; D: F: the accumulator <- the datum (0087); E; (qprobe rule 3) N: released
 
 ; MOV [d16],imm (C6 / C7 06, the prelude's SFR stores): (MX1) mem.uasm's st_imm8 / st_imm16
 ; in every mode, the direct form's two pops in the EA head (ea.uasm ead)
 
 ; OUT imm8,acc (E6 / E7): the OUT marker. Measured 10 (a6 10 / 11; F1 10-12)
-routine out_i8 op=E6,E7 book="OUT imm8,acc" width=byte diff=-1 why="OPEN: book error of one: the book's 11 against silicon's 10 (a6 OUT 0x40,AL 10 / 11; F3-out-nop-k2-pE-w0: the frozen model's port take at S+3, the I/O write at S+10 and the next S at S+10, S+5 / S+12 when the port byte waits); one OPEN word before the pop (the immediate's latency, README MX1b), the pop, the address, the datum, three book clocks with no act, the post (S+9: the write at S+10), E"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=port                                ; pop the port number (S+3)
+routine out_i8 op=E6,E7 book="OUT imm8,acc" width=byte diff=-1 lead=3 why="OPEN: book error of one: the book's 11 against silicon's 10 (a6 OUT 0x40,AL 10 / 11; F3-out-nop-k2-pE-w0); (qprobe rules 12, 14) OUT imm8,acc is `. . B P . X . . N .` with lead 3 (the boundary into it no sooner than three clocks after its opcode's release; the qprobe e6r runs): two words with no act, B (waits from a fetch's third clock to its last), P (the port's pop and release), the address, X (the request word: waits while a fetch runs, its last clock included; the I/O cycle due four clocks after it) with the datum, two words with no act, the post with E and N (X + 3: granted on X + 4, or at the end of a fetch running then), the dispatch: 10; before qprobe: book error of one: the book's 11 against silicon's 10 (a6 OUT 0x40,AL 10 / 11)"
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    bi pop=port rl=1                        ; (qprobe round 6) B P: waits while a fetch's pin cycle runs; pop the port number, released
     d1=ADDR s1=IMM8                         ; the address register <- the port
     ra=AW d1=OPRW s1=RA                     ; the accumulator into the write datum
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (OUT imm8,AL 11) (the call and the shared delay's 2)
-    bus=IOW                                 ; post the I/O write (it leaves on the E clock)
-    e                                       ; E (the write is not waited for)
+    rl=x                                    ; (qprobe round 6, B) X: the request word: waits while the bus unit's slot is taken
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    e ro                                    ; E: the next opcode popped; (qprobe rule 3) N: released
+    bus=IOW                                 ; post-E: (qprobe round 6, EU_HOLD) the boundary posts the I/O write: its cycle no sooner than the clock after the boundary (X + 4 at the earliest; the write is not waited for)
 
 ; OUT DW,acc (EE / EF): END's OUT DW,AW. Measured 7 (F5 OUT DW,AW 7; a6 6.5)
-routine out_dw op=EE,EF book="OUT DW,acc" width=word why="OPEN: (qprobe rule 6) OUT DW,acc is `. . X . N . . .`: X (the third word) waits while a fetch runs, the I/O cycle starts four clocks after it (the post on the sixth word, granted on the seventh: the bus unit's one-clock post-to-grant latency, or at the end of a fetch that started in between), N on the fifth word, E the seventh: 8; DW into the address register, the datum, X, one word with no act, the release, the post, E"
-    rb=DW wid=WORD d1=ADDR s1=RB            ; the address register <- DW
+routine out_dw op=EE,EF book="OUT DW,acc" width=word diff=-2 why="OPEN: book error of two: the book's 8 against silicon's 6 to the dispatch G (F5 OUT DW,AW 7 S to S, the G's wait for the I/O cycle's grant; a6 6.5); (qprobe rules 10, 14) OUT DW,acc is `. . X . N G`: DW into the address register, the datum, X (the request word: waits while a fetch cycle runs, its last clock included; the I/O cycle due four clocks after it), a word with no act, E with N, the dispatch G (it posts the I/O write and waits until the bus will be free for it on the next clock: the next instruction's first word on the I/O cycle's first clock, X + 4, or later when a fetch was in the way); the qprobe rounds 1 and 3 whole traces; before qprobe: book error of one, the book's 8 against silicon's 7"
+    rb=DW wid=WORD d1=ADDR s1=RB rl=x       ; (qprobe round 6, B) A: waits while the bus unit's slot is taken; the address register <- DW
     ra=AW d1=OPRW s1=RA                     ; the accumulator into the write datum
-    bi                                      ; (qprobe rule 5) X: waits while a fetch cycle runs (its last clock included); the I/O cycle starts four clocks after it
-    open                                    ; OPEN: (qprobe rule 6) a word with no act between X and the release
-    ro                                      ; (qprobe rule 3) N: the next opcode released
-    bus=IOW                                 ; post the I/O write (granted on the next clock, X + 4, or at the end of a fetch running then)
-    e                                       ; E (the write is not waited for)
+    rl=x                                    ; (qprobe round 6, B) X: the request word: waits while the bus unit's slot is taken
+    open                                    ; OPEN: (qprobe rule 14) a word with no act between X and the release
+    e ro                                    ; E: the next opcode popped; (qprobe rule 3) N: released
+    bus=IOW                                 ; post-E: (qprobe round 6, EU_HOLD) the boundary posts the I/O write: its cycle no sooner than the clock after the boundary (the write is not waited for)
 
 ; IN acc,DW / IN acc,imm8
 routine in_dw op=EC,ED book="IN acc,DW" diff=-2 why="OPEN: book error of two: the book's 14 against silicon's 12 (v35s-chains.md F5 IN AL,DW 12; F5-push-in_al_dw-k2-pE-w0: the frozen model's I/O read at S+6, the next S at S+12); three book clocks with no act, DW into the address register with the post (S+5), six more, the F word on the E word"
@@ -109,14 +125,18 @@ routine in_dw op=EC,ED book="IN acc,DW" diff=-2 why="OPEN: book error of two: th
     open call=w5                            ; OPEN: 6 clocks: a clock of the model's with no act (IN acc,DW 14) (the call and the shared delay's 5)
     f wr=AW ws=OPR e                        ; F: the accumulator <- the datum; E
 
-routine in_i8 op=E4,E5 book="IN acc,imm8" diff=1 why="OPEN: silicon longer than the book by one (F5-push-in_al_imm-k2-pE-w0: the frozen model's port take at S+3, the I/O read at S+10, the next S at S+16; a6 15 / 16): one OPEN word before the pop (the immediate's latency, README MX1b), the pop, the address, four clocks with no act, the post (S+9), six more, the F word on the E word"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=port                                ; pop the port number (S+3)
+routine in_i8 op=E4,E5 book="IN acc,imm8" lead=3 why="(qprobe round 6) the book's 15: IN acc,imm8 is `. . . BP . . X DN .` with lead 3 (model_m.py IN8, the qprobe e6i / ld-in8 runs); was: OPEN: book error of one: the book's 15 against the model's 14 at W = 0 with no fetch in the way (silicon a6 15 / 16 with the queue's waits; F5-push-in_al_imm-k2-pE-w0); (qprobe rules 12, 14) IN acc,imm8 is `. . B P . X . . DN .` with lead 3 (the model's; the qprobe ld-in8 runs): two words with no act, B (waits from a fetch's third clock to its last), P (the port's pop and release), the address, X (the request word: waits while a fetch runs, its last clock included; the I/O read due four clocks after it), two words with no act, the post (X + 3), D N (F: the accumulator <- the datum; E), the dispatch: 14 at W = 0; before qprobe: silicon longer than the book by one (F5-push-in_al_imm-k2-pE-w0: the next S at S+16; a6 15 / 16)"
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    bi pop=port rl=1                        ; (qprobe round 6) B P: waits while a fetch's pin cycle runs; pop the port number, released
     d1=ADDR s1=IMM8                         ; the address register <- the port
-    open call=w3                            ; OPEN: 4 clocks: a clock of the model's with no act (IN acc,imm8 15) (the call and the shared delay's 3)
-    bus=IOR                                 ; post the I/O read (S+9)
-    open call=w5                            ; OPEN: 6 clocks: a clock of the model's with no act (IN acc,imm8 15) (the call and the shared delay's 5)
-    f wr=AW ws=OPR e                        ; F: the accumulator <- the datum; E
+    open                                    ; OPEN: (qprobe round 6) a word with no act
+    rl=x                                    ; (qprobe round 6, B) X: the request word: waits while the bus unit's slot is taken
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    open                                    ; OPEN: (qprobe rule 14) a word with no act
+    bus=IOR                                 ; post the I/O read (X + 3: granted on X + 4, or later)
+    f wr=AW ws=OPR e ro                     ; D: F: the accumulator <- the datum; E; (qprobe rule 3) N: released
 
 ; BR far (EA, the reset vector's): (MX2) xfer.uasm
 

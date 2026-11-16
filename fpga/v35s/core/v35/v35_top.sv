@@ -243,6 +243,14 @@ module v35_top
     wire        e_ordy_nx, e_rqb_nx, e_wrh_nx;
     // (qprobe) the boundary's and the B words' facts (tick B), the occupancy's parts
     wire        b_fb_nx, b_fl_nx, l_b4_nx, l_ew_nx, e_rqv_nx;
+    // (qprobe round 5) any cycle running (the bus unit's); the lead, HALT's line hold and its
+    // request delay (the loader's)
+    wire        b_cb_nx, l_ld_nx, l_fstop, l_hp_b;
+    // (qprobe round 6) the bus unit's slot and late wait, its stage's pend; the loader's count
+    // facts, lead end and request word; the queue's give-way, count facts and flush wait; the
+    // sequencer's lead-priority boundary; the EU's memory request standing
+    wire        b_sl_nx, b_fy_nx, b_pend, l_c4_nx, l_c5_nx, l_cf_nx, l_le_nx, l_rqx;
+    wire        q_gwy, q_c4, q_cf, q_pv_nx, s_lpri, e_rqm_nx, s_wdisp, s_wdisp_nx;
     wire [3:0]  l_oadj;
     wire [2:0]  l_rls;
     // (A1) the grant (S4) and the EU request port
@@ -331,6 +339,9 @@ module v35_top
         .dlv_fetch,
         .done_data(b_done_data), .done_nx(b_done_nx16), .done_ld(b_done_ld),
         .dlv_fetch_nx, .eu_done_nx(b_done_nx), .fb_nx(b_fb_nx), .fl_nx(b_fl_nx),
+        .cb_nx(b_cb_nx),
+        .sl_nx(b_sl_nx), .fy_nx(b_fy_nx), .eu_rq_nx(e_rqv_nx), .c4_nx(l_c4_nx), .c5_nx(l_c5_nx),
+        .cf_nx(l_cf_nx), .rls(l_rls), .c4_q(q_c4), .cf_q(q_cf), .gwy(q_gwy), .pend(b_pend),
         .sfr_wr, .sfr_wat, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
         .oc_we, .oc_wa, .oc_be, .oc_wd,
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
@@ -359,7 +370,9 @@ module v35_top
         .vb0(qv0), .vb1(qv1), .avail(q_avail), .hip(q_ip), .stored(q_stored), .h_q0(q_h0), .h_odd(q_hod), .h_q0t(q_h0t), .pop_n(ld_pop),
         .flush(x_flush), .flush_addr(flush_off), .reset_ip(tb_reset_ip), .susp(q_susp), .ps_base,
         .stored_nx(q_st_nx), .odd_nx(q_od_nx), .discard_nx(q_dc_nx),
-        .oadj(l_oadj), .rls(l_rls), .bnd(x_disp)
+        .oadj(l_oadj), .rls(l_rls), .bnd(x_disp), .fstop(l_fstop),
+        .pend(b_pend), .eud(b_eu_dlv), .lpri(s_lpri), .rqx(l_rqx), .gwy(q_gwy), .c4_q(q_c4),
+        .cf_q(q_cf), .pv_nx(q_pv_nx)
     );
 
     // ---------------------------------------------------------------- the loader
@@ -376,8 +389,10 @@ module v35_top
         .q_odd_nx(q_od_nx), .q_discard_nx(q_dc_nx), .q_dlv_nx(dlv_fetch_nx),
         .flush_w_nx(word_nx.flush), .dispm_nx(w_dispm_nx),
         .q_stall_nx(l_qs_nx),
-        .ro(word.ro), .rl(word.rl), .ro_nx(word_nx.ro), .oadj(l_oadj), .rls(l_rls),
-        .b4_nx(l_b4_nx), .ew_nx(l_ew_nx),
+        .ro(word.ro), .rl(word.rl), .ro_nx(word_nx.ro), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx), .oadj(l_oadj), .rls(l_rls),
+        .b4_nx(l_b4_nx), .ew_nx(l_ew_nx), .ld_nx(l_ld_nx), .le_nx(l_le_nx),
+        .pv_nx(q_pv_nx), .c4_nx(l_c4_nx), .c5_nx(l_c5_nx), .cf_nx(l_cf_nx), .rqx(l_rqx),
+        .w_halt(word.halt), .halted, .fstop(l_fstop), .hp_b(l_hp_b),
         .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip)
     );
 
@@ -389,6 +404,8 @@ module v35_top
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx),
         .fb_nx(b_fb_nx), .fl_nx(b_fl_nx), .b4_nx(l_b4_nx), .ew_nx(l_ew_nx), .req_v_nx(e_rqv_nx),
+        .cb_nx(b_cb_nx), .ld_nx(l_ld_nx), .sl_nx(b_sl_nx), .fy_nx(b_fy_nx), .le_nx(l_le_nx),
+        .rqm_nx(e_rqm_nx), .lpri(s_lpri), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx),
         .wake(h_wake), .igo, .sgo,
         .word, .word_nx, .w_dispm, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_b, .q_susp, .halted,
         .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .x_flush, .w_stop, .x_stop, .x_ivec, .x_fint
@@ -408,7 +425,7 @@ module v35_top
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_ack, .req_done,
         .done_data(b_done_data), .eu_dlv(b_eu_dlv), .ramen,
         .req_done_nx(b_done_nx), .ramen_nx(prc_at[6]), .opr_rdy_nx(e_ordy_nx),
-        .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx), .req_v_nx(e_rqv_nx),
+        .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx), .req_v_nx(e_rqv_nx), .rqm_nx(e_rqm_nx), .hp_b(l_hp_b),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .flush_off, .ps_base,
         .psw_f, .flag_we, .flag_d,

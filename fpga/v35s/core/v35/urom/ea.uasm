@@ -39,3 +39,27 @@ routine ea8
 routine ead
     pop=dl                                  ; pop the displacement's (the direct address's) low byte
     pop=dh ret                              ; pop its high byte; return to the routine's add
+
+; (qprobe round 6) ea=q: the measured heads of MOV r,mem / MOV mem,r (validation/v35s/qprobe/
+; model_m.py L_BW L_BI L_D8 L_D16 L_DIR S_BW S_D8 S_DIR; the qprobe lbw lbi ld8 ld16 ldir sbw
+; sd8 sdir runs): word 1 releases the ModR/M byte (the loader's mra), word 2 is the request word
+; (Y: the cycle four clocks after it, posted by the routine's first word), word 3 the add, word 4
+; releases the displacement (popped on words 1 and 2), in every mode (mod 00 too: m00 and
+; [BW+IX] measured; [BP+..] and the other bases by the same pattern, measured only for BW, IX)
+routine eaq0
+    open                                    ; OPEN: (qprobe round 6) word 1, the ModR/M byte released (mra)
+    rl=x bi                                 ; Y: the request word
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    ret                                     ; no displacement; return to the routine (the post)
+
+routine eaq8
+    pop=dl                                  ; the ModR/M byte released (mra); pop the displacement byte
+    rl=x bi                                 ; Y: the request word
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=1 ret                                ; the displacement released; return to the routine (the post)
+
+routine eaq16
+    pop=dl                                  ; the ModR/M byte released (mra); pop the displacement's (the direct address's) low byte
+    pop=dh rl=x bi                          ; Y: the request word; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=2 ret                                ; both displacement bytes released; return to the routine (the post)

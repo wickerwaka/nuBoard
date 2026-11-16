@@ -15,7 +15,8 @@
 //               releases `rls`) at most 4, or at most 5 on the clock after a fetch's last clock
 //               (a word delivered now) unless the dispatch word executes now (`bnd`); low on a
 //               flush and the four clocks after it (rule 5: the target's fetch starts five
-//               clocks after the flush), and while suspended. Replaces (E1 M2) below: the line
+//               clocks after the flush), and while suspended; (rule 11) low from the clock
+//               HALT's opcode is released (the loader's `fstop`). Replaces (E1 M2) below: the line
 //               reads this clock's releases, not the registered count.
 //   (was)       the request line, a level: room for a word and not suspended. (E1) The room is
 //               the queue's own count as it stands at the start of the clock: the bytes it holds
@@ -107,6 +108,23 @@ module v35_queue
     input  wire [3:0]  oadj,
     input  wire [2:0]  rls,
     input  wire        bnd,
+    // (qprobe rule 11) prefetching stopped (the loader's, tick A: HALT released): nothing more is fetched
+    input  wire        fstop,
+    // (qprobe round 6, E) the line's give-way and the five-held continuation's exception: the
+    // bus unit's stage (`pend`: a fetch wanted while an EU cycle held the bus; `eud`: an EU
+    // cycle ended on the last clock), the sequencer's boundary released by its lead on a
+    // back-to-back fetch's clock (`lpri`), the loader's request word executed on the last clock
+    // (`rqx`); out: the line given way now (gwy), and the facts of the bus unit's stage: the
+    // count after this clock's releases at most 4, with the word in flight at most 5 (c4_q,
+    // cf_q: tick A), the stream not waiting for a flush's target on the next clock (pv_nx: tick B)
+    input  wire        pend,
+    input  wire        eud,
+    input  wire        lpri,
+    input  wire        rqx,
+    output wire        gwy,
+    output wire        c4_q,
+    output wire        cf_q,
+    output wire        pv_nx,
     input  wire [19:0] ps_base          // {PS, 0} (after this clock's far transfer)
 );
     // ((E1 M1) the six-byte room, CAP = QUEUE_BYTES, is replaced by the occupancy's thresholds)
@@ -181,10 +199,18 @@ module v35_queue
     // flight holds the bus: the line is read on a free bus only); none during the flush wait
     reg  [2:0] flw = 3'd0;              // (qprobe rule 5) the clocks of the flush wait left
     wire [4:0] occ = {1'b0, avail_w} + {oadj[3], oadj} - {2'd0, rls};
-    wire       b2b_c = dlv_v && !discard && !bnd;
-    wire       room = !flush && flw == 3'd0
-                      && $signed(occ) <= (b2b_c ? 5'sd5 : 5'sd4);
-    assign fetch_req = room && !susp;
+    // (qprobe round 6, E) REQ_PRI: no five-held continuation when a request word executed on
+    // the fetch's last clock (`rqx`); EU_EPRI / LEAD_EPRI: the fetch gives way for one clock to
+    // a boundary executing now on the clock after an EU cycle that held it (`eud`, `pend`), or
+    // released by its lead on this back-to-back clock (`lpri`)
+    wire       b2b_c = dlv_v && !discard && !bnd && !rqx;
+    wire       pv = !flush && flw == 3'd0;
+    wire       room = pv && $signed(occ) <= (b2b_c ? 5'sd5 : 5'sd4);
+    wire       gw = bnd && ((eud && pend) || lpri);
+    assign fetch_req = room && !gw && !susp && !fstop;
+    assign gwy = room && gw && !susp && !fstop;
+    assign c4_q = pv && $signed(occ) <= 5'sd4;
+    assign cf_q = pv && $signed(occ) + (odd ? 5'sd1 : 5'sd2) <= 5'sd5;
     // (MX5) the fetch address: the two sums formed from registers, the flush selecting last
     wire [19:0] fa_f = ps_base + {4'd0, flush_addr};
     wire [19:0] fa_n = ps_base + {4'd0, pfp};
@@ -192,8 +218,8 @@ module v35_queue
 `ifndef SYNTHESIS
     // the direct arithmetic: the reference of `+v35_chk` and the qdbg trace's occ
     wire [4:0] occ_x = {1'b0, avail_w} + {oadj[3], oadj} - {2'd0, rls};
-    wire       freq_x = !flush && flw == 3'd0 && !susp
-                        && $signed(occ_x) <= ((dlv_v && !discard && !bnd) ? 5'sd5 : 5'sd4);
+    wire       freq_x = !flush && flw == 3'd0 && !susp && !fstop && !(bnd && ((eud && pend) || lpri))
+                        && $signed(occ_x) <= ((dlv_v && !discard && !bnd && !rqx) ? 5'sd5 : 5'sd4);
     wire [15:0] pfp_x = flush ? flush_addr : pfp;
     wire [19:0] faddr_x = ps_base + {4'd0, pfp_x};
 `endif
@@ -219,6 +245,8 @@ module v35_queue
     assign stored_nx = cnt_e[2:0];
     wire        unused_e3 = cnt_e[3];    // (E2) never set (the chk's overflow test reads it)
     assign odd_nx = go_r ? pfp_g[0] : odd;
+    wire [2:0]  flw_nx = flush_r ? 3'd4 : flw != 3'd0 ? flw - 3'd1 : 3'd0;
+    assign pv_nx = flw_nx == 3'd0;              // (qprobe round 6) the flush wait over on the next clock
     assign discard_nx = go_r ? 1'b0 : (flush_r && inflight && !dlv_v) ? 1'b1 : dlv_v ? 1'b0
                       : discard;
     always @(posedge clock) begin
@@ -237,7 +265,7 @@ module v35_queue
             end
             cnt <= stored_nx;
             // (qprobe rule 5) the flush wait: the line low four clocks after the flush's
-            flw <= flush_r ? 3'd4 : flw != 3'd0 ? flw - 3'd1 : 3'd0;
+            flw <= flw_nx;
             // (step D) the head's offset: a flush's target, else counted by the pops
             hip <= flush_r ? faddr_r : hip + {13'd0, reads};
             if (go_r) begin
@@ -277,8 +305,8 @@ module v35_queue
     initial if ($value$plusargs("v35_qdbg=%s", qfn)) qfd = $fopen(qfn, "w");
     always @(posedge clock) begin
         if (qfd != 0 && reset_n && ce_a) begin
-            $fdisplay(qfd, "q %0d cnt %0d inf %0d dlv %0d rd %0d occ %0d req %0d susp %0d go %0d",
-                      qt, cnt, inflight, dlv_v, rd_r, $signed(occ), fetch_req, susp, go_r);
+            $fdisplay(qfd, "q %0d cnt %0d inf %0d dlv %0d rd %0d occ %0d req %0d susp %0d go %0d rqx %0d bnd %0d pend %0d eud %0d lpri %0d rls %0d",
+                      qt, cnt, inflight, dlv_v, rd_r, $signed(occ), fetch_req, susp, go_r, rqx, bnd, pend, eud, lpri, rls);
             qt <= qt + 1;
         end
     end

@@ -810,6 +810,48 @@ def hold_tests():
     return _fix(T)
 
 
+# (qprobe round 6) a write's datum against a held-back grant (sim only, no silicon receipt): a
+# train of writes each followed by a routine that loads OPRW for its own write before its post
+# (PUSH PSW, PUSH sreg, MOV [d16],AW, MOV [BW],CW, PUSH r16, OUT DW), run under HLDRQ (50
+# clocks) landing at 24 offsets two clocks apart (32 ticks a clock) from the event's I/O write,
+# so that some write's grant is held while the next routine runs. The data written must not depend on the hold: `hwd_check` compares the write
+# sequence's addresses and data (not their times) with f4_hwd0's (the same tests with P27 in
+# port mode, PMC2 40h: HLDRQ ignored, as f4_hold's h_port).
+HWD_TRAIN = ("    PUSH AW\n    PUSH PSW\n    PUSH DS0\n    DB 2Eh\n    MOV [{a}], AW\n"
+             "    PUSH CW\n    DB 2Eh\n    MOV [BW], CW\n    PUSH DW\n    PUSH SS\n"
+             "    PUSH AW\n    MOV DW, 0FF40h\n    OUT DW, AW\n    PUSH BW\n    PUSH PSW\n")
+
+
+def hwd_tests(hold=True):
+    T = [periph.init_test()]
+    for i in range(24):
+        st = [{"event": "E0", "delay": 300 + 64 * i, "hold": 1600, "levels": {"HLDRQ": 1}}]
+        t = PTest(f"hwd{i}", jitter=False, stim=st,
+                  regs=dict(AW=0x1111 * (i % 7 + 1), CW=0xC0C0 ^ i, BW=0xC000 + 0x20 * (i + 1) + 8))
+        on = ONH if hold else (periph.marker(periph.modes(r0=1)) + swr("PMC2", 0x40)
+                               + periph.marker(periph.modes(r0=2)))
+        t.codef = (lambda k, on=on: on + ev("E0")
+                   + "".join(HWD_TRAIN.format(a=periph._h(RES + 0x20 * k + 2 * j, 4))
+                             for j in range(3))
+                   + "    ADD SP, 54\n" + wait(10, "a") + OFF0)
+        T.append(t)
+    return _fix(T)
+
+
+def hwd_check():
+    """f4_hwd against f4_hwd0 (sim receipts): the same writes (address, datum) in the same order."""
+    a, b = periph.load("f4_hwd", "sim"), periph.load("f4_hwd0", "sim")
+    wa = [tuple(w[:2]) for w in a["writes"]]
+    wb = [tuple(w[:2]) for w in b["writes"]]
+    bad = [i for i, (x, y) in enumerate(zip(wa, wb)) if x != y]
+    ok = len(wa) == len(wb) and not bad and a.get("passed") and b.get("passed")
+    print(f"f4_hwd: {len(wa)} / {len(wb)} writes, {len(bad)} differing, "
+          f"passed {a.get('passed')} / {b.get('passed')}: {'EQUAL' if ok else 'DIFFER'}")
+    for i in bad[:10]:
+        print(f"  write {i}: hold {wa[i][0]:05X}={wa[i][1]:04X}  no hold {wb[i][0]:05X}={wb[i][1]:04X}")
+    return ok
+
+
 STOP = "    DB 0Fh, 9Eh\n    NOP\n    NOP\n"
 NMI = lambda e, d=12000: {"event": e, "delay": d, "hold": 2000, "levels": {"NMI": 0}}
 
@@ -883,6 +925,10 @@ def programs():
                                             "and DMA requests during a long REP string"),
         "f4_dm2": _prog("f4_dm2", x2_tests(), pins=PINS, gate=False, fast=(20, 21),
                         note="explore: DMA placement, triggers, HALT, words, priority"),
+        "f4_hwd": _prog("f4_hwd", hwd_tests(), pins=PINS, fast=(24,), gate=False,
+                        note="(sim only) write data under a held-back grant (hwd_check)"),
+        "f4_hwd0": _prog("f4_hwd0", hwd_tests(False), pins=PINS, fast=(24,), gate=False,
+                         note="(sim only) f4_hwd without HLDRQ (hwd_check's reference)"),
     }
     progs["f5_sdma_inv"].drop = set(range(0xF000, 0xF100)) | set(range(0xA040, 0xA060))
     progs["f4_stop_r"] = progs["f4_stop"]      # its second run (a reset, no power cycle)
@@ -1166,7 +1212,7 @@ def gate(names, ref, cand, progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "gate", "show", "emit", "size"))
+    p.add_argument("action", choices=("socket", "sim", "gate", "show", "emit", "size", "hwd"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
@@ -1191,6 +1237,8 @@ def main():
         names = names + [n + "_r" for n in names if n in ("f4_stop", "f4_stopx")
                          and n + "_r" not in names]
         return 0 if gate(names, a.ref, a.cand, progs) else 1
+    elif a.action == "hwd":
+        return 0 if hwd_check() else 1
     elif a.action == "show":
         for n in names:
             serial.show(n, a.ref + a.tag, progs)

@@ -9,14 +9,14 @@ routine shift_cl op=D2,D3 mod=reg book="SHL reg,CL" n=4 diff=1 why="OPEN: (qprob
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (V20 0118 M -> tmpb)
     rb=CW cnt=RB                            ; CL into the loop counter (0119-011A)
     alu=SHI ax=TB                           ; the shifter loaded from tmpb with CY
-    bi                                      ; (qprobe rule 5) the fourth word waits while a fetch cycle runs (its last clock included)
+    rl=x                                    ; (qprobe round 6, B) S: the fourth word waits while the bus unit's slot is taken
     open call=w2                            ; OPEN: 3 clocks: a book clock with no act (SHL reg,CL 11 + 2n) (the call and the shared delay's 2)
     jc=CNTZ:shcl_z                          ; a zero count skips the loop and the write (SHIFT 0228 JMP Z)
 shcl_l: alu=SH1 ax=SIG                      ; one shift step of the group's operation (0229's R row)
     loop=shcl_l                             ; the counter step (the V35's second word of the iteration)
     open                                    ; OPEN: a book clock with no act (SHL reg,CL 11 + 2n)
     wr=RM ws=SIG alu=SHF ax=SIG wf          ; the result written; the shift's flags (W) (022A)
-shcl_z: e                                   ; E: pop the next opcode (022B)
+shcl_z: e ro                                ; E: pop the next opcode (022B); (qprobe round 6) N
 
 ; C0 / C1: SHL r,imm8 (V20 028C-028F): the count popped. Measured as the CL form
 routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 diff=1 why="OPEN: beyond the book: a named act, the shifter's load on a word of its own; the count byte popped at S+3 after one OPEN word (the immediate's latency, README MX1b; F3-push-shl_imm4-k4-pE-w0: T at S and S+3, S-to-S 20 against the routine's 18: silicon's 12 + 2n, two clocks no act names and the book does not charge, open); the read, the count's load, the zero test, the two-word iteration, the write, E; one more book clock with no act"

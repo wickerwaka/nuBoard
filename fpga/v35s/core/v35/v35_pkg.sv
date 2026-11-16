@@ -218,8 +218,12 @@ package v35_pkg;
     } v35_cond_e;
 
     // ---- (qprobe rule 3) the operand bytes a word releases from the queue's occupancy ----
+    // (qprobe rule 9) X: the field's free value (a word releasing no byte): the word is a bus
+    // request's request word (the model's X: OUT DW's, OUT / IN imm8's), it waits while a fetch
+    // cycle started on an earlier clock runs, its last clock included (the `bi` word's wait
+    // before rule 9: a `bi` word now waits only from the fetch's third clock on)
     typedef enum logic [1:0] {
-        RL_0 = 2'd0, RL_1 = 2'd1, RL_2 = 2'd2, RL_3 = 2'd3
+        RL_0 = 2'd0, RL_1 = 2'd1, RL_2 = 2'd2, RL_X = 2'd3
     } v35_rl_e;
 
     localparam int UADDR_W = 11;      // (MX1b) 2,048 words: the ROM passed 1,024
@@ -265,9 +269,16 @@ package v35_pkg;
         // The assembler fills the default (a pop word releases its byte, the E word the next
         // opcode) unless the routine names them (README "qprobe")
         logic       ro;         // the next opcode released (the model's N; default the E word)
-        v35_rl_e    rl;         // operand bytes released (the model's P; 0 to 2)
-        logic       bi;         // (qprobe rule 5) B: the word waits while a fetch cycle started
-                                //   on an earlier clock runs, its last clock included
+        v35_rl_e    rl;         // operand bytes released (the model's P; 0 to 2); (qprobe rule
+                                //   9) RL_X: none, the word is a request word (X, below)
+        logic       bi;         // (qprobe rule 5, 9) B: the word waits while a fetch cycle runs
+                                //   from its third clock to its last, inclusive; on a FLUSH
+                                //   word (F) while a fetch cycle started on an earlier clock
+                                //   runs, its last clock included (a word with rl=X waits so
+                                //   too, bi or not); (rule 10) G:
+                                //   on a word that posts, the word waits until the bus will be
+                                //   free for its request on the next clock (no cycle running
+                                //   then, no fetch starting now)
     } v35_uword_t;
 
     localparam int UWORD_BITS = $bits(v35_uword_t);
@@ -297,6 +308,12 @@ package v35_pkg;
                                 //   the second level on it
         logic       io;         // (F2b) an I/O form (IN OUT INM OUTM): with PSW.BRKI 0 the
                                 //   dispatch enters the I/O trap (vector 19) instead
+        logic [1:0] lead;       // (qprobe rule 12) the instruction's boundary comes no sooner
+                                //   than `lead` clocks after its opcode's release (0: no bound,
+                                //   the dispatch on the clock after it at the earliest); the
+                                //   routine header's lead= (MOV sreg,r16 2; OUT / IN imm8 3)
+        logic       hlt;        // (qprobe rule 11) from the opcode's release nothing more is
+                                //   fetched (HALT: the routine header's hlt=1)
     } v35_udec_t;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)
@@ -307,6 +324,10 @@ package v35_pkg;
         logic       ea;         // (MX1) a memory cell: the dispatch calls the EA head of the
                                 //   ModR/M byte's mode, the routine's entry (its add) the return
         logic       eab;        // ... the book's EA heads (ea=book); else the pops alone
+        logic       eaq;        // (qprobe round 6) ... the measured heads (ea=q: MOV r,mem / MOV
+                                //   mem,r, validation/v35s/qprobe/model_m.py L_* / S_*): the
+                                //   ModR/M byte's release, the request word, the add, the
+                                //   displacement's release, one a word, in every mode
         logic       w;          // (MX3c) the 0F page's operand width (the second byte's bit 0 for
                                 //   the bit operations; the bit fields' word)
         logic       io;         // (F2b) a REP I/O string cell (REP INM / OUTM): the I/O trap

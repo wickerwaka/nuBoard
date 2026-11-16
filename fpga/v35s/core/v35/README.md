@@ -7385,3 +7385,180 @@ named in the RTL with "qprobe" and the rule number.
   model's 20 / 24); r3 378 / 378. Not built (memory forms, OUT imm8, BR near, SHL imm, MUL): pun,
   mm, e6*, push, pop, ld, st, jn, shli, mul. From M0 on: 0 (M0 is OUT imm8 and the prelude, not
   read).
+
+## qprobe round 5: the EU's own cycles, the B words' window, the request words, HALT, the leads
+
+The second work order (rules 7-14; validation/v35s/qprobe/model.py's DEFAULT and simulate() the
+specification). Each mechanism is named in the RTL with "qprobe" and its rule number.
+
+- **Rule 7: the boundary waits for the EU's own cycle (v35_useq st_bnd, v35_bus `cb_nx`).** The
+  dispatch word waits while any bus cycle started on an earlier clock runs (a fetch, a memory
+  read or write, an I/O cycle), not on its last clock: rule 4a's term on the bus unit's `cb_nx`
+  (a cycle of any kind running on the next clock) with `fl_nx` (that clock its last). An odd
+  word's first half passes on its own last clock. **The RAMEN hold** (the EU's `wr_hold`: E and
+  an F word after a write until the clock after its end) is now the on-chip store's only: the
+  request's address in the on-chip page (IDB:E00-FFF, or FFFFFh, the bus unit's on-chip cycle
+  compare) is registered at the post (`rq_oc`, from the posted linear address). An external
+  write holds nothing but the boundary (rule 7); a store into the internal RAM (the register
+  banks) still holds its readers until it lands (Step D's plain form). The book check's machine
+  (uasm.length) keeps the E hold for every write: it is the on-chip timing, and the declared
+  differences of the routines changed here say so.
+- **Rule 8.** Nothing to change: the threshold 5 follows a fetch's delivery only (`dlv_v`).
+- **Rule 9: the B words' window (v35_useq st_bi, v35_bus `f3_nx`).** A `bi` word waits only from
+  a fetch's third clock to its last (`f3_nx`: a fetch on the next clock at position 2 or more).
+  A FLUSH word with `bi` (F) and a request word (X) wait for the whole fetch started earlier,
+  its last clock included (`fb_nx`). X is the microword's `rl` field's free value `RL_X` (a
+  word that releases no byte; `rl=x` in the source; the loader's `rls` counts it 0, the
+  assembler's release check leaves it out): no ROM bit is added.
+- **Rule 10: G, a `bi` word that posts (v35_useq st_bi).** It waits until the bus will be free
+  for its request on the next clock: no cycle started earlier runs past this clock (`cb`, `fl`)
+  and no fetch starts now (a free bus, the loader's `f4_nx`: the count at most 4 with no HALT
+  released, and no EU request standing). The grant follows on the next clock (the one-clock
+  post-to-grant latency). OUT DW,acc is `. . X . N G`: its dispatch word is G (the assembler
+  lets the word after E post with `bi` and nothing else of the kind: test_uasm pins it), so
+  the next instruction's first word runs on the I/O cycle's first clock. MOV [d16],acc's G is a
+  routine word (below).
+- **Rule 11: HALT (v35_loader `hp`, `fstop`, `hp_b`; v35_queue; v35_eu `rq_hd`).** The decode
+  has a bit `hlt` (the routine header's `hlt=1`: HALT). `hrel`: a word releasing (`ro`) the staged
+  opcode whose decode says hlt; `hp`: released and the halt word not yet run (cleared there or at
+  a flush: an interrupt taken at HALT's dispatch). From the release clock the queue's line is
+  low (`fstop` = hp, hrel or the halted state); a request posted while hp (or by the releasing
+  word) holds the EU's port level low one clock (`rq_hd`: the grant a clock later). The model's
+  G does not see the halt (its fetch start is formal); here G's fetch start reads the line's
+  own hold, else OUT DW before HALT would wait for a fetch that never starts. For the same
+  reason the boundary's count wait (rule 4c / 4d, the loader's `ew_nx`) does not apply with
+  HALT released: the DMA take at HALT's wake (f4_dma's halt test) ends with a flush to HALT's
+  own address and its E re-releasing HALT, and the first boundary after that flush would wait
+  for bytes the stopped line never brings (found by the dma gate: a hang, fixed so).
+- **Rule 12: the leads (v35_loader `lc`, `ld_nx`; the decode's `lead`).** A 2-bit count of the
+  clocks since the last `ro` (saturating at 3); the dispatch waits while it is below the opcode
+  register's decode `lead` (the routine header's `lead=K`: MOV sreg,r16 2, OUT imm8 / IN imm8 3).
+  The lead is the opcode's (the first byte's decode): MOV sreg,mem (8E's memory form, not read)
+  has it too.
+- **Rule 13, 14: the request words and the shapes (urom/bus.uasm, reg.uasm).** A request word
+  (X or Y) is a position: the post is the word three clocks after it (granted on the fourth, or
+  at the end of a fetch running then). Y has no act (memory requests do not wait for a fetch);
+  a D (the datum waited for) is the routine's F word on the word after the post (a word cannot
+  post and wait for its own datum: the routine has one more word than the model's shape, the
+  clocks the same). PUSH r16 `. . Y . . . N .` (the dispatch waits for the write's last clock:
+  rule 7); POP r16 `. . Y DN .`; MOV acc,[d16] `. . Y PP2 DN .` (the address's pops on Y and the
+  word after it, both released there); MOV [d16],acc `. . Y PP2 G . . N` (G the post on Y + 3;
+  N on the E word, a clock before the model's: the write's cycle runs on both clocks, no fetch
+  can start, the count is not read); OUT imm8 `. . B P . X . . N .` (lead 3; the post on the E
+  word); IN imm8 `. . B P . X . . DN .` (lead 3); OUT DW `. . X . N G`; ADD AL,imm8 (the 04 row)
+  as MOV r8,imm8; MOV sreg,r16 `PN .` with lead 2 (the shape was already the routine's).
+- **Ports.** Bus: `cb_nx`, `f3_nx`; loader: `f4_nx`, `ld_nx`, `fstop`, `hp_b` out, `w_halt`,
+  `halted` in; queue: `fstop`; EU: `hp_b`; sequencer: the four facts in (test_v35_struct's
+  budget and next-value pins raised with these names).
+- **Result (read cmp; rounds r1 r2 r3 r4 r5 r7 simulated).** Rounds r1-r3 (1,428): fill to the
+  program's end 1,291 (was 0), from M0 on 659 (was 0), fill to M1 1,323 (was 1,168). Rounds r1
+  r2 r3 r5 r7 (2,010): 1,593 / 819 / 1,625 (was 6 / 0 / 1,321). All six (2,424): 1,918 / 994 /
+  1,950. Whole traces against the model's (fill to the end): the model 1,912, the RTL 1,918; 23
+  runs the model has and the RTL not (jn: BR near, not built; ld8 / ld16 / ldir: the ModR/M
+  memory loads, not built; em2-incb-pE-w1: INC r8 is `PN . . .` in the model, the routine
+  5 words). Every round-1 and round-3 group, the mix, pun, bp, fw, ow, sr, lacc, sacc, ld (r2),
+  st, pop, fy, fx whole; e6r / e6n / e6i to M1 as the model (18 / 26 / 3).
+
+## qprobe round 6: the merged reading (the bus unit's stage, the request words, the boundary)
+
+The third work order: validation/v35s/qprobe/model_m.py (the merged reading: its DEFAULT and
+`simulate()` the specification; 2,596 of 2,712 small-set runs to M1 and to the program's end).
+Each mechanism is named in the RTL with "qprobe round 6" and the work order's letter.
+
+- **A: two round-5 readings withdrawn.** Rule 10's G (a `bi` word that posts and waits for its
+  grant) and rule 9 (a `bi` word only from a fetch's third clock) are gone with their facts (the
+  bus unit's `f3_nx`, the loader's `f4_nx`). A `bi` word (B, the flush word F) waits for the pin
+  cycle of a fetch started earlier, its last clock included (rule 5 as first built). OUT DW,acc
+  is `A . X . N .` and its I/O write is posted by the dispatch word (`bus=IOW` on the word after
+  E, no `bi`): the cycle starts no sooner than the clock after the routine's boundary (the
+  model's EU_HOLD) and four clocks after the request word at the earliest, the next
+  instruction's first word on the I/O cycle's first clock as a consequence (Q11's fact). The
+  assembler lets the word after E post an I/O write and nothing else of the kind.
+- **B: the bus unit's sequencing stage, the "slot" (v35_bus `lg`, `nl`, `pend`; `sl_nx`).**
+  The bus unit sequences a cycle in a stage ahead of its pins. From an idle bus the stage is
+  the pin cycle; an EU cycle's stage runs two clocks ahead of its pins (from the request's
+  standing to two clocks before its last pin clock: EU_SLOT), and so does the stage of a fetch
+  wanted while an EU cycle held the bus (`pend`) and of every fetch chained behind it back to
+  back (`lg`, the running fetch is lagged; `nl`, decided on its next-to-last clock: the
+  queue's count with the word in flight at most 5), until the bus goes idle; a chained fetch
+  whose first clock carries a release is an ordinary fetch (CHAIN_POP). Three registers, their
+  next values formed in tick A and registered at ce_b, so the next clock's slot (`sl_nx`) is
+  formed in tick B from the cycle registers' next values, the EU's request (`eu_rq_nx`) and the
+  loader's count facts (`c4_nx`, `c5_nx`, `cf_nx`: the count before the next clock's releases at
+  most 4, at most 5, with the running fetch's bytes at most 5, each false while the stream waits
+  for a flush's target, the queue's `pv_nx`). The words that wait by the slot are `rl=x`
+  without `bi`: the I/O request words X (OUT / IN imm8, OUT DW), OUT DW's first word A, SHL
+  r,CL's fourth word S. No ROM bit is added: the kinds are the combinations of `bi` and the
+  `rl` field's free value.
+- **C: the memory request word (Y, `rl=x` with `bi`; the bus unit's `fy_nx`).** It is taken
+  only when no fetch runs or the running fetch has at most one clock left after this one
+  (Y_LEFT). PUSH r16, POP r16, POP PSW, PUSH imm16, MOV acc,[d16], MOV [d16],acc and the
+  ModR/M heads (below) carry it.
+- **D: the boundary.** It waits while a memory request is posted and not yet granted (E_PEND:
+  the EU's `rqm_nx`), and any boundary needs two bytes behind the staged opcode (EMIN: the
+  loader's `ew_nx`, with the ModR/M three and the first after a flush as built; not while
+  HALT is released). A routine whose E word posts a store (MOV mem,r, MOV [d16],acc, PUSH
+  imm16) holds its dispatch while an on-chip store is outstanding (the RAMEN hold moved from E
+  to the boundary for these: the function-bearing hold of Step D, f3_bins).
+- **E: the fetch start.** REQ_PRI: the five-held continuation is not made when a request word
+  (`rl=x`) executed on the fetch's last clock (the loader's `rqx`, the queue's `b2b_c`).
+  EU_EPRI: on the clock after an EU cycle, a boundary that executes keeps the fetch pending
+  under that cycle from starting (the queue's line gives way one clock: `gw` from the bus
+  unit's `pend` and `eu_dlv`). LEAD_EPRI: a boundary whose lead ends on the clock a
+  back-to-back fetch would start executes (the loader's `le_nx`: the 3-bit count since the
+  release equals the decode's lead), and the fetch gives way one clock (the sequencer's
+  `lpri`). The stage's `sk_b` keeps a fetch that gave way in its slot.
+- **F: the routine shapes (model_m.py DEFAULT).** OUT imm8 `. . . BP . . X . N .` and IN imm8
+  `. . . BP . . X DN .` (lead 3); OUT DW `A . X . N .`; PUSH imm16 `. . . . PP . Y N`; POP PSW
+  `. . Y D . N .`; PUSH r16 / POP r16 / MOV acc,[d16] with the Y word; MOV [d16],acc `. . Y PP
+  N`. N on the model's boundary word (PUSH imm16, MOV [d16],acc, MOV mem,r) is a release on the
+  dispatch word (`ro` after E: the opcode the E word popped, never a staging wait: the loader's
+  `w_disp`). **The ModR/M memory forms of MOV r,mem / MOV mem,r** take a third head set
+  (`ea=q`, the decode's `eaq`, ea.uasm `eaq0` / `eaq8` / `eaq16`): word 1 releases the ModR/M
+  byte, word 2 is the request word, word 3 the add, word 4 releases the displacement (popped
+  on words 1-2), the routine's first word posts (word 5: Y + 3); a load is then `f wr=REG e ro`,
+  a store the register's read with the post, E (the RAMEN hold of an on-chip store stays on
+  E: banks f3_bins), N on the boundary. The stores' post and E are on words of their own for
+  that hold (MOV mem,r, MOV [d16],acc, PUSH imm16): off the chip the boundary waits for the
+  write's last clock anyway (rule 7, E_PEND), so the extra word costs no clock there. Measured:
+  [BW], [BW+IX],
+  [BW+d8], [BW+d16], [d16]; the other bases and BP modes take the same heads by analogy
+  (`eaq0` every mod 00 but the direct form, `eaq8` every mod 01, `eaq16` every mod 10 and the
+  direct form). The other memory routines keep the book / bare heads.
+- **G: the flush-to-fetch distance** stays the queue's flush wait (`flw`, 5 clocks) for every
+  flush: JMP far's measured 3 is not built (no machine reason found; not keyed on the opcode).
+  Far transfers, RET and the interrupt entry flush through the same wait.
+- **H: the decode stage's leads (rule 12, as built).** The boundary comes no sooner than the
+  decode's lead after the opcode's release: 1 clock for most forms, 2 for MOV sreg,r16, 3 for
+  OUT imm8 / OUT imm8,AW / IN imm8, and HALT acts there (rule 11). The stage is measured (the
+  qprobe tests `ld-*`, `sr-*`, `o6s-{i,c,n}`, `fy-*`); *why* these forms take longer is a guess
+  (candidates: the segment register's write-inhibit decode for MOV sreg; the port byte fetched
+  by the decode stage for the immediate-port forms). Guess, not reading.
+- **The request's datum (`rq_d`, v35_eu).** A write's datum is part of its request, taken at
+  the post like its address (OPRW as the posting word leaves it), for memory writes as for I/O
+  writes (`iod` before). The words after the post may load OPRW for the next request at once:
+  the bus unit's grant can be held back (a fetch, HLDRQ, a DMA take) without the datum being
+  overtaken (CALL far's second push, a store followed by PUSH PSW / PUSH sreg / OUT DW). Test:
+  `python3 -m validation.v35s.dma sim f4_hwd f4_hwd0; ... dma hwd` (24 HLDRQ offsets over a
+  train of such pairs: the write sequence's addresses and data equal to the run without the
+  hold; with the datum read live at B2 it differs on 15 writes). F's wait on a memory write
+  (`wr_run`) stays: F waits for its request's cycle, as a read's F for its datum.
+- **Not built:** LAG_FIRST (OUT DW's first word not waiting on the first clock of a lagged
+  fetch's slot: it needs one more word kind, 3 runs of `bo-rr`); JMP near / JMP far / CALL /
+  RET shapes (the model's are "best found, not a reading"); SHL r,imm8, MULU, the
+  read-modify-write forms (unread).
+- **Result (read cmp, all seven rounds simulated).** Rounds 1-3 (1,428): fill to the program's
+  end 1,362 (was 1,291), from M0 on 1,361 (was 659), fill to M1 1,362 (was 1,323). All rounds
+  (2,712): 2,580 / 2,576 / 2,580 (the model 2,596 / - / 2,596). Per round (end / M0 / M1): r1
+  330 / 330 / 330, r2 654 / 653 / 654, r3 378 / 378 / 378, r4 411 / 411 / 411, r5 478 / 475 /
+  478, r6 287 / 287 / 287, r7 42 / 42 / 42. Every group at the model's count but `bo` 117 / 120
+  (LAG_FIRST, not built), `jn` 0 / 24 (the model 12), `jfar` 0 / 18 (the model 9); `em2` 33
+  (the model 32); shli, mul, rmw, cr unread in both.
+- **Function (once, on this tree).** uasm, lint x4 0 warnings; rf-a 69,464 / rf-b 39,103 / fn
+  19,749 vectors 0 bad; the fast tests 55 OK (test_uasm's ea=q head test added); corpus (30,536
+  runs, `+v35_chk`): 0 failed, 0 incomplete, write data 106,824 / 106,824, RTL-exact 13,268 (the
+  round-5 tree 4,958); the program gates in simulation against both socket sessions: banks,
+  onchip, dma, traps EQUAL; intr f3_vec / f3_order / f3_prio and periph f4_tm / f4_tout differ
+  on timing exactly as on the round-5 tree; `dma hwd` EQUAL. Found on the way: an on-chip
+  store whose E word also posted lost the RAMEN hold (banks f3_bins DIFFER: MOVSPA read the PSW
+  save before MOV [d16],AW's store landed); the stores' post and E are on separate words.

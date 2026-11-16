@@ -112,7 +112,8 @@ def main(argv=None):
             print(f"{cid:<24} {strip(events(run))}")
         return 0
     sim = load(args.sim, args.root)
-    n = same = same_w = 0
+    n = same = same_w = same_all = 0
+    allg = {}
     rows = []
     groups = {}
     for cid, run in select(runs, args.ids, args.waits, args.parity):
@@ -123,6 +124,11 @@ def main(argv=None):
         wa, wb = window(run, a), window(run, b)
         eq_w = wa == wb
         same_w += eq_w
+        ta = [(c - a40[0][0], k, wh) for c, k, wh in a40] if (a40 := [e for e in a if e[0] >= 40]) else []
+        tb = [(c - b40[0][0], k, wh) for c, k, wh in b40] if (b40 := [e for e in b if e[0] >= 40]) else []
+        same_all += ta == tb
+        groups.setdefault(g_all := cid.split("-")[0][2:] + ":" + cid.split("-")[1], [0, 0, 0])
+        allg[g_all] = allg.get(g_all, 0) + (ta == tb)
         g = cid.split("-")[0][2:] + ":" + cid.split("-")[1]
         groups.setdefault(g, [0, 0, 0])
         groups[g][2] += 1
@@ -142,6 +148,8 @@ def main(argv=None):
         if args.v or tag not in ("=", "w="):
             print(f"{cid:<24} {tag:<7} {text}")
     print(" ".join(f"{g}:{x}/{y}/{z}" for g, (x, y, z) in groups.items()))
+    print("fill to the end, per group: " + " ".join(f"{g}:{x}" for g, x in allg.items()))
+    print(f"{same_all} / {n} identical from the fill to the program's end (aligned likewise)")
     print(f"{same} / {n} identical from M0 on; {same_w} / {n} identical from the fill to M1 "
           f"(aligned at the first event after the fill)")
     return 0

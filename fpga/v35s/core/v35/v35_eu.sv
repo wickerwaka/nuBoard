@@ -21,7 +21,7 @@
 // The bus request (mechanisms 3.6): a word posts a request on the A1 port; the request stands
 // (req_v) from the next clock until the bus unit acknowledges it (req_ack); it is outstanding
 // until req_done. The address is the segment + the address register as the posting word
-// leaves it; the write datum is OPRW (the bus takes it at B2). A read's datum is latched at
+// leaves it; the write datum is OPRW as the posting word leaves it (rq_d, taken at the post). A read's datum is latched at
 // req_done (an odd word's first half's byte at its own end); the F word takes it (opr_rdy).
 // A memory write holds the routine's F and E until its end while RAMEN = 1 (PRC bit 6): with the
 // internal RAM mapped, a store may land in the register RAM the next words read ((step D) kept:
@@ -31,7 +31,7 @@
 // Registered state (widths): psw 16, ds1 ps ss ds0 4x16, ta tb tc 3x16, sigma 16, scy 1,
 // addr 16, ea_ss 1, oprw 16, pfx_v 1, pfx_s 2, mul (v35_mul_t 51), div (v35_div_t 75), dtrap 1;
 // the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_off
-// 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, opr_v 1, opr 16, plo 8, (F5b) iod 16; the ce_b copies.
+// 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, opr_v 1, opr 16, plo 8, (F5b, qprobe round 6) rq_d 16; the ce_b copies.
 module v35_eu
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -93,6 +93,12 @@ module v35_eu
     output wire        rq_busy_nx,
     output wire        wr_hold_nx,
     output wire        req_v_nx,        // (qprobe rule 4b) the request port's level's next value
+    // (qprobe round 6, D) tick B: a memory request posted and not yet granted on the next clock
+    // (the boundary's E_PEND)
+    output wire        rqm_nx,
+    // (qprobe rule 11) HALT's opcode released and HALT not yet run (the loader's ce_b register):
+    // a request posted now is granted a clock later (the port's level held low a clock)
+    input  wire        hp_b,
     // to the sequencer (registers; rb_lo tick B)
     output wire        opr_rdy,
     output wire        rq_busy,
@@ -222,15 +228,27 @@ module v35_eu
     reg        f1 = 1'b0;
     reg        rq_v = 1'b0, rq_word = 1'b0, rq_pair = 1'b0, rq_out = 1'b0, rq_rd = 1'b0;
     reg        rq_wr = 1'b0, rq_io = 1'b0, opr_v = 1'b0;
+    // (qprobe rule 7) the request's address is on the chip (the page IDB:E00-FFF, or FFFFFh:
+    // the internal RAM and the SFRs, the bus unit's on-chip cycle): the RAMEN hold's (below)
+    reg        rq_oc = 1'b0;
+    // (qprobe rule 11) the request posted while HALT was released: the port's level held low
+    // on the clock after the post (the grant a clock later)
+    reg        rq_hd = 1'b0;
     reg [1:0]  rq_cyc = RQ_MEMR;
     reg [19:0] rq_addr = 20'd0;
     reg [15:0] rq_off = 16'd0, opr = 16'd0;
     reg [7:0]  plo = 8'h00;
-    // (F5b) an I/O write's datum, taken from OPRW at its post: the write is not waited for (the
-    // next instruction runs and may load OPRW before the cycle's B2, f5r io: an odd port's byte
-    // and the pair's second half carried the next PUSH's datum); every IOW routine loads OPRW
-    // on a word before its post
-    reg [15:0] iod = 16'd0;
+    // (F5b, qprobe round 6) the request's datum: a write's datum is part of its request, taken
+    // at the post like its address (`rq_d`: OPRW as the posting word leaves it, the posting
+    // word's own load of OPRW included: a store's immediate moved into OPRW on its post word).
+    // The words after the post may load OPRW for the next request at once: nothing the EU does
+    // after the post reaches the cycle's datum, however long the bus unit holds the request
+    // back (a fetch, a refresh, a DMA take, HLDRQ). Before: an I/O write's datum only (`iod`,
+    // f5r io: an odd port's pair carried the next PUSH's datum); a memory write's datum was OPRW
+    // live until the bus unit's B2 latch, overtaken when the next words loaded OPRW first (CALL
+    // far's second push; across a boundary a store followed by PUSH PSW / a store / OUT DW with
+    // the write's grant held back)
+    reg [15:0] rq_d = 16'd0;
 
     wire [2:0] bank = psw[14:12];
 
@@ -359,27 +377,33 @@ module v35_eu
                      : !rq_word ? (rq_addr[0] ? {8'd0, done_data[15:8]} : {8'd0, done_data[7:0]})
                      : done_data;
     wire [15:0] oprv = opr_v ? opr : dnow;
-    function automatic logic [15:0] src(input v35_src_e s);
+    // (qprobe round 6, timing) the ports' values as arguments: src reads va / vb, srcq (the
+    // request's address) the early data's registers va_q / vb_q (below), each its own mux
+    function automatic logic [15:0] src_v(input v35_src_e s, input logic [15:0] pa,
+                                          input logic [15:0] pb);
         case (s)
-            SR_RA: src = va;
-            SR_RB: src = vb;
-            SR_TA: src = ta;
-            SR_TB: src = tb;
-            SR_TC: src = tc;
-            SR_SIG: src = sigma;
-            SR_IMM: src = imm;
-            SR_IMM8: src = {8'd0, il};
-            SR_OPR: src = oprv;
-            SR_PSW: src = psw;
+            SR_RA: src_v = pa;
+            SR_RB: src_v = pb;
+            SR_TA: src_v = ta;
+            SR_TB: src_v = tb;
+            SR_TC: src_v = tc;
+            SR_SIG: src_v = sigma;
+            SR_IMM: src_v = imm;
+            SR_IMM8: src_v = {8'd0, il};
+            SR_OPR: src_v = oprv;
+            SR_PSW: src_v = psw;
             // (F2b) a trap routine's vector from the word (vk: the tgt field)
-            SR_VEC: src = word.vk ? {6'd0, word.tgt[7:0], 2'b00}
+            SR_VEC: src_v = word.vk ? {6'd0, word.tgt[7:0], 2'b00}
                                   : {6'd0, fmt.len != 3'd0 ? il : {5'd0, op3}, 2'b00};
-            SR_DISP: src = {dh, dl};
-            SR_ADDR: src = addr;
-            SR_ONE: src = 16'd1;
-            SR_PC: src = word.ist ? (pist_v ? sist : ins_ip) : ip;     // (F2b) ist: the instruction's start; (F4q) sist
-            default: src = 16'd0;
+            SR_DISP: src_v = {dh, dl};
+            SR_ADDR: src_v = addr;
+            SR_ONE: src_v = 16'd1;
+            SR_PC: src_v = word.ist ? (pist_v ? sist : ins_ip) : ip;     // (F2b) ist: the instruction's start; (F4q) sist
+            default: src_v = 16'd0;
         endcase
+    endfunction
+    function automatic logic [15:0] src(input v35_src_e s);
+        src = src_v(s, va, vb);
     endfunction
     // (MX5) the ALU's operands with the register RAM's data (read at ce_b, the latest source)
     // entering last: the word's choice among the other sources is formed beside the read
@@ -417,8 +441,33 @@ module v35_eu
     end
     wire [15:0] x = x_b;
     wire [15:0] y = y_b;
+    // (qprobe round 6, timing) the two ports' early data as registers (captured at ce_b with
+    // x_b / y_b, the same argument: the early read is the ce_b read's data through tick B) for
+    // the request's address alone: the RAM's clock-to-out is not on the path through the
+    // segment add to the on-chip compare (rq_oc_nx -> wr_hold_nx -> the registered stall).
+    // `+v35_chk` compares the address formed on them with the one formed on va / vb at every
+    // post (the only clock the address is read)
+    reg  [15:0] va_q = 16'd0, vb_q = 16'd0;
+    always_ff @(posedge clock) begin
+        if (ce_b) begin
+            va_q <= va_e;
+            vb_q <= vb_e;
+        end
+    end
+    function automatic logic [15:0] srcq(input v35_src_e s);
+        srcq = src_v(s, va_q, vb_q);
+    endfunction
     wire [15:0] s1v = src(word.s1);
     wire [15:0] s2v = src(word.s2);
+    // (qprobe round 6) OPRW as this word leaves it: the request's datum at a write's post
+    logic [15:0] oprw_nx;
+    always_comb begin
+        oprw_nx = oprw;
+        if (ex_b && word.d1 == MD_OPRW)
+            oprw_nx = s1v;
+        if (ex_b && word.d2 == MD_OPRW)
+            oprw_nx = s2v;
+    end
     wire [15:0] wsv = src(word.ws);
 
     // ------------------------------------------------------------ tick B: the ALU
@@ -663,8 +712,9 @@ module v35_eu
     // through the EA's add (the assembler rejects a word with ea=BI that posts: the add's
     // 3-input sum ends in the address register, the request reads it a word later; README
     // "MX1", depth); the direct form's displacement (ea=DISP) is a register
+    // (qprobe round 6, timing) the ports' data from va_q / vb_q (above): the same value
     wire [15:0] addr_q = word.ea == EA_DISP ? {dh, dl}
-                       : word.d1 == MD_ADDR ? s1v : word.d2 == MD_ADDR ? s2v : addr;
+                       : word.d1 == MD_ADDR ? srcq(word.s1) : word.d2 == MD_ADDR ? srcq(word.s2) : addr;
     wire        ea_ss_q = word.ea == EA_NONE && ea_ss;
 
     // ------------------------------------------------------------ tick B: the write port
@@ -693,34 +743,49 @@ module v35_eu
     wire [19:0] lin2 = rq_addr + 20'd1;
 
     // ------------------------------------------------------------ the port
-    assign req_v = rq_v;
+    assign req_v = rq_v && !rq_hd;
     assign req_cyc = rq_cyc;
     assign req_ia = rq_ia;
     assign req_dk = rq_dk;
     assign req_addr = rq_addr;
     assign req_width = rq_word;
-    wire [15:0] wdat = (rq_io && rq_wr) ? iod : oprw;
-    assign req_data = rq_word ? wdat : {wdat[7:0], wdat[7:0]};
+    assign req_data = rq_word ? rq_d : {rq_d[7:0], rq_d[7:0]};
     // (MX2) F after a memory write (the last request a write): the RAMEN hold (mechanisms 3.3:
     // the EU holds until the write cycle ends, the write may land in the register RAM) placed on
     // that word, not only on E; a read's F waits for its datum. (Step D) Kept: without it a
     // store into a register bank is read stale by the next words (banks f3_bins: RETRBI's read
     // of the PSW save the MOV before it stored, README "Step D")
-    assign opr_rdy = rq_wr ? !wr_hold : (opr_v || (req_done && rq_out && rq_rd));
+    // (qprobe rule 7 fix) F's wait on a memory write is the write's own (`wr_run`: until the
+    // clock after its end, any memory write, RAMEN or not, on the chip or off it), as a read's F
+    // waits for its datum: F is the routine's wait for its request's cycle. Not the RAMEN hold,
+    // which rule 7 narrowed to the on-chip store and to E. (Found as CALL far's runaway: with F
+    // free on an external write the second push's PC load overtook the first push's datum, then
+    // OPRW live until B2; the datum is now the request's own, `rq_d`, so that is no longer what
+    // F protects: F35 / F40's far call / return timing is what it keeps)
+    wire        wr_run = rq_out && rq_wr && !rq_io && !req_done;
+    assign opr_rdy = rq_wr ? !wr_run : (opr_v || (req_done && rq_out && rq_rd));
     // (MX1) the slot frees on the cycle's end (req_done): a post on that clock stands from the
     // next, the book check's machine (uasm.length: a post waits for the last request's end)
     assign rq_busy = rq_v || (rq_out && !req_done);
-    assign wr_hold = rq_out && rq_wr && !rq_io && ramen && !req_done;
+    // (qprobe rule 7) the hold is the on-chip store's only: an external write is waited for
+    // by the boundary alone (the sequencer's: the dispatch until the cycle's last clock), not
+    // here; a store into the on-chip page (the register banks are the internal RAM) still
+    // holds E and an F word until the clock after its end (its datum lands a clock later)
+    wire        oc_hit = (lin[19:12] == idb && lin[11:9] == 3'b111) || lin == 20'hFFFFF;
+    assign wr_hold = rq_out && rq_wr && !rq_io && ramen && rq_oc && !req_done;
     // (MX5c) the same three on the request registers' next values (the ce_a block below)
     wire        rq_v_nx = post ? 1'b1 : ack_b ? 1'b0 : rq_v;
-    assign req_v_nx = rq_v_nx;
+    assign req_v_nx = rq_v_nx && !(post && hp_b);
+    wire        rq_oc_nx = post ? (oc_hit && !b_io) : rq_oc;
     wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
     wire        rq_rd_nx = post ? b_rd : rq_rd;
     wire        rq_wr_nx = post ? (word.bus == BQ_MEMW || word.bus == BQ_IOW) : rq_wr;
     wire        rq_io_nx = post ? b_io : rq_io;
+    assign rqm_nx = rq_v_nx && !rq_io_nx;
     wire        opr_v_nx = (ex_b && word.f) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
-    assign wr_hold_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && ramen_nx && !req_done_nx;
-    assign opr_rdy_nx = rq_wr_nx ? !wr_hold_nx
+    assign wr_hold_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && ramen_nx && rq_oc_nx && !req_done_nx;
+    wire        wr_run_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && !req_done_nx;
+    assign opr_rdy_nx = rq_wr_nx ? !wr_run_nx
                       : (opr_v_nx || (req_done_nx && rq_out_nx && rq_rd_nx));
     assign rq_busy_nx = rq_v_nx || (rq_out_nx && !req_done_nx);
     assign c_sgn = sigma[15];
@@ -765,6 +830,8 @@ module v35_eu
             rq_v <= 1'b0;
             rq_out <= 1'b0;
             rq_rd <= 1'b0;
+            rq_oc <= 1'b0;
+            rq_hd <= 1'b0;
             rq_wr <= 1'b0;
             rq_io <= 1'b0;
             opr_v <= 1'b0;
@@ -880,6 +947,8 @@ module v35_eu
                     pfx_v <= 1'b0;
             end
             // the request
+            rq_oc <= rq_oc_nx;
+            rq_hd <= post && hp_b;
             if (post) begin
                 rq_v <= 1'b1;
                 rq_cyc <= word.bus == BQ_MEMR ? RQ_MEMR : word.bus == BQ_MEMW ? RQ_MEMW
@@ -899,8 +968,8 @@ module v35_eu
                 rq_dk <= tk_dm && word.seg == SG_TA && (word.bus == BQ_MEMW || dm_out);
                 rq_wr <= word.bus == BQ_MEMW || word.bus == BQ_IOW;
                 rq_io <= b_io;
-                if (word.bus == BQ_IOW)
-                    iod <= oprw;
+                if (word.bus == BQ_IOW || word.bus == BQ_MEMW)
+                    rq_d <= oprw_nx;
             end else begin
                 if (ack_b) begin
                     rq_v <= 1'b0;
@@ -959,6 +1028,13 @@ module v35_eu
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: eu: the early operands differ at %0t", $time);
+            end
+            // (qprobe round 6, timing) the request's address on the early data against va / vb
+            if (post && addr_q !== (word.ea == EA_DISP ? {dh, dl}
+                                    : word.d1 == MD_ADDR ? s1v : word.d2 == MD_ADDR ? s2v : addr)) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: eu: the request's address on the early data differs at %0t", $time);
             end
             if (la_b !== sa[5:4] || lb_b !== sb[5:4] || ack_b !== req_ack) begin
                 chk_n = chk_n + 1;

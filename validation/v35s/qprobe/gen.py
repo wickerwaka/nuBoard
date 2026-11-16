@@ -141,7 +141,71 @@ def round4():
     return v
 
 
-ROUNDS = {"r1": round1, "r2": round2, "r3": round3, "r4": round4}
+M1W = bytes([0xEF])                 # the marker as OUT DW,AW (a word to port 20h)
+BODY_AT = {"even": 0x47 + 1 + 6, "odd": 0x47 + 6}   # the body's offset in PS (prelude 47h)
+
+
+def round5():
+    """Round 5: the word-wide OUT; the corpus prelude's instructions behind the long shift;
+    memory operands one variable at a time; other flushes (CALL / RET near, JMP far); which
+    instructions hide their predecessor's tail as OUT imm8 does (`ld-*`: identical traces after
+    INC / CBW / NOP mean a lead of three clocks or more); which ModR/M forms wait for three
+    bytes (`em2-*`, after MOV r16,imm16 at pE)."""
+    v = []
+    v += [(f"ow-{n}", (train(NOP, "nop", n), M1W)) for n in range(4)]
+    pushi, popf = [0x68, 0x02, 0x00], [0x9D]
+    v.append(("pp-0", [q(pushi, "pushi"), q(popf, "popf")]))
+    v.append(("pp-1", [q(pushi, "pushi"), q(popf, "popf"), q(NOP, "nop")]))
+    v.append(("pp-2", [q(pushi, "pushi"), q(NOP, "nop"), q(popf, "popf")]))
+    v.append(("pi-1", [q(pushi, "pushi")]))
+    v += [(f"sr-{n}", train([0x8E, 0xD8], "mov_ds0", n)) for n in (1, 2, 3)]
+    mov0 = [0xB8, 0x00, 0x00]
+    v.append(("pre", [q(pushi, "pushi"), q(popf, "popf"), q(mov0, "ri"), q([0x8E, 0xD8], "sr"),
+                      q(mov0, "ri"), q([0x8E, 0xC0], "sr"), q(mov0, "ri"), q([0x8E, 0xD0], "sr"),
+                      q(RI, "ri"), q(RI, "ri")]))
+    mem = {"lbw": [0x8B, 0x07], "ld8": [0x8B, 0x47, 0x10], "ld16": [0x8B, 0x87, 0x00, 0x02],
+           "lbi": [0x8B, 0x00], "ldir": [0x8B, 0x06, 0x00, 0x0C], "lacc": [0xA1, 0x00, 0x0C],
+           "sbw": [0x89, 0x07], "sd8": [0x89, 0x47, 0x10], "sdir": [0x89, 0x06, 0x00, 0x0C],
+           "sacc": [0xA3, 0x00, 0x0C]}
+    for name, code in mem.items():
+        v += [(f"{name}-{n}", train(code, name, n)) for n in (1, 2, 3)]
+    v += [(f"rmw-{n}", train([0x01, 0x07], "rmw", n)) for n in (1, 2)]
+    v.append(("pq-0", [q([0x50], "push"), q([0x58], "pop")]))
+    v.append(("pq-1", [q([0x50], "push"), q(NOP, "nop"), q([0x58], "pop")]))
+    v.append(("pq-2", [q([0x50], "push"), q([0x50], "push"), q([0x58], "pop"), q([0x58], "pop")]))
+    # CALL near to a RET three bytes on, back to a NOP, a JMP short over the RET
+    v.append(("cr", [q([0xE8, 0x03, 0x00], "call"), q(NOP, "nop"), q([0xEB, 0x01], "jmp"),
+                     q([0xC3], "ret")]))
+    for n in range(3):
+        def far(parity, n=n):
+            at = BODY_AT[parity] + 5
+            return [q([0xEA, at & 0xFF, at >> 8, 0x00, 0x10], "jmpfar")] + train(NOP, "nop", n)
+        v.append((f"jfar-{n}", far))
+    leads = {"in8": [0xE4, 0x40], "outw8": [0xE7, 0x22], "pushi": pushi, "addal": [0x04, 0x00],
+             "lacc": [0xA1, 0x00, 0x0C], "sacc": [0xA3, 0x00, 0x0C], "jmp": [0xEB, 0x00],
+             "jz": [0x74, 0x00], "out8": [0xE6, 0x22], "mi8": RI8}
+    for name, code in leads.items():
+        for pn, pc in (("i", INC), ("c", [0x98]), ("n", NOP)):
+            v.append((f"ld-{name}-{pn}", [q(pc, "prev"), q(code, name)]))
+    em2 = {"shl1": [0xD1, 0xE0], "incb": [0xFE, 0xC3], "mulu": [0xF6, 0xE3],
+           "test1": [0x0F, 0x10, 0xC0], "pfxrr": [0x26, 0x8B, 0xC3], "sr": [0x8E, 0xD8],
+           "xch": [0x86, 0xC3], "test": [0x84, 0xC3], "lbw": [0x8B, 0x07]}
+    for name, code in em2.items():
+        v.append((f"em2-{name}", [q(RI, "ri"), q(code, name)] + train(NOP, "nop", 2)))
+    return v
+
+
+ROUNDS = {"r1": round1, "r2": round2, "r3": round3, "r4": round4, "r5": round5}
+
+
+def _more_rounds():
+    """Rounds kept in their own files (gen_*.py beside this one, each with a ROUNDS dict)."""
+    import importlib
+    import pkgutil
+    from pathlib import Path
+    for m in pkgutil.iter_modules([str(Path(__file__).parent)]):
+        if m.name.startswith("gen_"):
+            ROUNDS.update(importlib.import_module(f"{__package__}.{m.name}").ROUNDS)
 
 
 def frame_of(body):
@@ -152,12 +216,14 @@ def frame_of(body):
 
 
 def chains(rounds=("r1",), waits=WAITS, parities=PARITIES, ids=None):
+    _more_rounds()
     out = []
     for r in rounds:
         for name, body in ROUNDS[r]():
             for w in waits:
                 for p in parities:
-                    c = make_chain(f"QP{r}", name, {"round": r, "name": name}, frame_of(body),
+                    b = body(p) if callable(body) else body
+                    c = make_chain(f"QP{r}", name, {"round": r, "name": name}, frame_of(b),
                                    w, p, regs=REGS)
                     if ids and not any(s in c.id for s in ids):
                         continue

@@ -7,7 +7,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 3131,
+ "total": 3112,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -4410,7 +4410,7 @@
   ]
  ],
  "backend": "sim",
- "date": "2026-11-15T16:24:16",
+ "date": "2026-11-15T21:39:37",
  "core": "v35",
  "binary": "build/fpga/v35s/verilator-direct-v35"
 }

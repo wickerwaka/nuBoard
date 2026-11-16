@@ -126,6 +126,29 @@ module v35_bus
     // runs (fb_nx), and that clock is its last (fl_nx): the sequencer's boundary and B words
     output wire        fb_nx,
     output wire        fl_nx,
+    // (qprobe rule 7) ... a cycle of any kind started on an earlier clock runs then (cb_nx: the
+    // boundary's wait for the EU's own cycle, fl_nx its last clock)
+    output wire        cb_nx,
+    // (qprobe round 6, B, C) tick B: on the next clock the sequencing stage (the slot, below) is
+    // taken (sl_nx: the request words', SHL r,CL's fourth word's, OUT DW's first word's wait),
+    // a fetch started earlier runs then with two clocks or more after it (fy_nx: a memory
+    // request word's wait); the facts it reads: the EU's request standing then (eu_rq_nx), the
+    // loader's count then (before its releases) at most 4, at most 5, with the running fetch's
+    // bytes at most 5 (c4_nx, c5_nx, cf_nx; each false while the stream waits for a flush's
+    // target); tick A: this clock's releases (rls, the loader's), the queue's count after them at most 4 and
+    // with the word in flight at most 5 (c4_q, cf_q), the line given way (gwy); the stage's
+    // `pend` (a register: a fetch wanted while an EU cycle held the bus) to the queue
+    output wire        sl_nx,
+    output wire        fy_nx,
+    input  wire        eu_rq_nx,
+    input  wire        c4_nx,
+    input  wire        c5_nx,
+    input  wire        cf_nx,
+    input  wire [2:0]  rls,
+    input  wire        c4_q,
+    input  wire        cf_q,
+    input  wire        gwy,
+    output reg         pend,
 
     // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write at its
     // cycle's end: the enable at ce_a, its condition, the address, width and lane-placed datum;
@@ -311,6 +334,76 @@ module v35_bus
     wire        bz_nx = cv_nx && cp_nx != cl_nx - 3'd1;
     assign fb_nx = bz_nx && ck_nx == K_FETCH;
     assign fl_nx = cp_nx + 3'd1 == cl_nx - 3'd1;
+    assign cb_nx = bz_nx;
+
+    // ------------------------------------------------ (qprobe round 6, B) the sequencing stage
+    // The bus unit sequences a cycle in a stage ahead of its pins (the "slot",
+    // validation/v35s/qprobe/model_m.py S_LAG / EU_SLOT / CHAIN_POP: the qprobe groups o6*, gb,
+    // gd, gf, mm, ld-out8). From an idle bus the slot is the pin cycle itself; an EU cycle's slot
+    // runs two clocks ahead of its pins (from the request's standing to two clocks before its
+    // last pin clock), and so does the slot of a fetch wanted while an EU cycle held the bus
+    // (`pend`) and of every fetch chained behind such a fetch back to back (`lg`: the running
+    // fetch is "lagged"; `nl`: on a lagged fetch's next-to-last clock the stage has decided to
+    // chain the next fetch, the queue's count with the word in flight at most 5), until the bus
+    // goes idle; a chained fetch whose first clock carries a release is an ordinary fetch again
+    // (the release restarts the request). The words that wait by the slot: the I/O request
+    // words, OUT DW's first word, SHL r,CL's fourth word (rl=x without bi); the boundary, the
+    // bus-idle words and the flush wait for the pin cycle. `sk`: the fetch gave way to a
+    // boundary on this clock (rule E: EU_EPRI / LEAD_EPRI), the pending fetch keeps its slot.
+    // Three registers (lg, nl, pend), their next values formed in tick A and registered at ce_b
+    // (`*_b`, with sk_b), so the slot of the next clock (sl_nx) is formed in tick B like the
+    // other stall facts.
+    reg         lg = 1'b0, nl = 1'b0;
+    initial pend = 1'b0;
+    reg         lg_b = 1'b0, nl_b = 1'b0, pd_b = 1'b0, sk_b = 1'b0;
+    wire        in_f = busy && c_kind == K_FETCH;           // a fetch started earlier runs now
+    wire        eu_r = busy && c_kind != K_FETCH;           // an EU cycle started earlier runs now
+    wire        sec_last = pos_now == c_len - 3'd2;         // the running cycle's next-to-last clock
+    wire        gave = gwy && free_h && !g_second && !req_v;    // the fetch that gave way now
+    wire        lg_a = g_fetch ? (pend || (lg && nl && dlv_fetch && rls == 3'd0)) : lg;
+    wire        nl_a = g_fetch ? 1'b0 : (lg && in_f && sec_last) ? cf_q : nl;
+    wire        pd_a = (eu_r || req_ack || g_second) ? (pend || c4_q) : gave ? pend : 1'b0;
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            lg_b <= 1'b0;
+            nl_b <= 1'b0;
+            pd_b <= 1'b0;
+            sk_b <= 1'b0;
+        end else if (ce_b) begin
+            lg_b <= lg_a;
+            nl_b <= nl_a;
+            pd_b <= pd_a;
+            sk_b <= gave;
+        end
+    end
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            lg <= 1'b0;
+            nl <= 1'b0;
+            pend <= 1'b0;
+        end else if (ce_a) begin
+            lg <= lg_b;
+            nl <= nl_b;
+            pend <= pd_b;
+        end
+    end
+    // the next clock's view (tick B): its position's clocks left after it (rm_nx, while a
+    // cycle started earlier runs then), the cycle that ends now (the delivery then)
+    wire [3:0]  rm_nx = {1'b0, cl_nx} - {1'b0, cp_nx} - 4'd2;
+    wire        r2_nx = bz_nx && !rm_nx[3] && rm_nx >= 4'd2;
+    wire        r1_nx = bz_nx && rm_nx == 4'd1;
+    wire        euf_nx = bz_nx && ck_nx != K_FETCH;
+    wire        aeu_nx = d_v_nx && c_kind != K_FETCH;
+    wire        idle_nx = !bz_nx && !eu_rq_nx;
+    wire        slot_nx = (fb_nx && lg_b) ? (r2_nx || (r1_nx ? cf_nx : nl_b))
+                        : (!fb_nx && pd_b && c4_nx) ? ((euf_nx && !r2_nx) || (idle_nx && (aeu_nx || sk_b)))
+                        : (!fb_nx && lg_b && nl_b && idle_nx && dlv_fetch_nx && c5_nx) ? 1'b1
+                        : fb_nx;
+    // (EU_SLOT) the EU cycle's own slot: from its request's standing to two clocks before its
+    // last pin clock
+    assign sl_nx = slot_nx || eu_rq_nx || (euf_nx && r2_nx);
+    // (qprobe round 6, C) a memory request word waits while a fetch has two clocks or more left
+    assign fy_nx = fb_nx && r2_nx;
     always @(posedge clock) begin
         if (!reset_n) begin
             c_valid <= 1'b0;

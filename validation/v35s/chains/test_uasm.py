@@ -60,8 +60,15 @@ class Bounds(unittest.TestCase):
             if w.fields.get("e"):
                 nxt = prog.words[i + 1][1]
                 self.assertEqual(nxt.fields.get("seq"), disp, f"{r.name}:{w.line}")
-                for k in ("pop", "bus", "e", "f"):
+                # (qprobe round 6) it may release the opcode the E word popped (ro: a store's N
+                # on the model's boundary word), nothing else
+                for k in ("pop", "e", "f", "rl"):
                     self.assertFalse(nxt.fields.get(k), f"{r.name}:{nxt.line} {k}")
+                # (qprobe round 6, EU_HOLD) it posts an I/O write only (OUT's: the cycle after the
+                # boundary), and never waits by bi (rule 10's G withdrawn)
+                self.assertFalse(nxt.fields.get("bi"), f"{r.name}:{nxt.line} bi")
+                self.assertIn(nxt.fields.get("bus", 0), (0, uasm.enum_value("v35_bus_e", "iow")),
+                              f"{r.name}:{nxt.line} bus")
 
     def test_every_word_names_its_act(self):
         prog = uasm.assemble()
@@ -76,6 +83,24 @@ class Bounds(unittest.TestCase):
             if f["has_modrm"] or op == 0x0F:
                 for b in range(256):
                     self.assertLess(uasm.udec2(prog, op, b)["entry"], len(prog.words))
+
+    def test_second_level_entry_split(self):
+        # (qprobe round 6, timing) the loader's d2ent: every opcode's entry is a function of the
+        # byte's class (mode 3, reg) but the few numbered by v35_udec2_fx (at most seven), each
+        # of which v35_udec2_fe reads whole
+        prog = uasm.assemble()
+        svh = uasm.decode_svh(prog)
+        fx = svh[svh.index("function automatic logic [2:0] v35_udec2_fx"):]
+        fx = fx[:fx.index("endfunction")]
+        whole = [int(h, 16) for h in re.findall(r"8'h([0-9A-F]{2}): v35_udec2_fx", fx)]
+        self.assertLessEqual(len(whole), 7)
+        for op in range(256):
+            if op in whole:
+                continue
+            for b in range(256):
+                self.assertEqual(uasm.udec2(prog, op, b)["entry"],
+                                 uasm.udec2(prog, op, uasm.udec2_class(b))["entry"],
+                                 f"{op:02X} {b:02X}")
 
 
 class NoCounts(unittest.TestCase):
@@ -179,7 +204,10 @@ class BookCheck(unittest.TestCase):
         for name, form, bv, ln, diff, why, _, path, opens in rows:
             self.assertNotRegex(why, r"\bfit", name)
             if diff < 0:
-                self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9])", f"{name} {path}")
+                # (qprobe round 6) the qprobe socket runs are silicon's direct measurement too
+                # (validation/v35s/qprobe, the receipts named by group: "the qprobe ld16 runs")
+                self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9]|the qprobe \w+)",
+                                 f"{name} {path}")
                 self.assertIn("book error", why, f"{name} {path}")
             else:
                 # (MX1b) the words beyond the book are named acts, declared as such: the pops
@@ -227,7 +255,8 @@ class BookCheck(unittest.TestCase):
         for r in prog.routines:
             why = r.head.get("why", "")
             if "diff" in r.head and "measured" in why:
-                self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9]|M[0-9])", r.name)
+                self.assertRegex(why, r"(a6|v35s-eu-timing|v35s-chains|F[0-9]|M[0-9]|the qprobe \w+)",
+                                 r.name)
 
 
 class EA(unittest.TestCase):
@@ -236,11 +265,30 @@ class EA(unittest.TestCase):
     def test_heads_pop_and_return_only(self):
         prog = uasm.assemble()
         allowed = {"pop", "seq", "tgt", "rl"}     # (qprobe rule 3) rl: a pop releases its byte
+        # (qprobe round 6) the ea=q heads also carry the request word (rl=x with bi) and the add
+        allowed_q = allowed | {"bi", "ea", "ra", "rb"}
         for name in uasm.EA_HEADS:
             r = prog.routine(name)
             for w in r.words:
-                self.assertEqual(set(w.fields) - allowed, set(), f"{name}:{w.line}")
+                self.assertEqual(set(w.fields) - (allowed_q if name.startswith("eaq") else allowed),
+                                 set(), f"{name}:{w.line}")
             self.assertEqual(r.words[-1].fields.get("seq"), uasm.enum_value("v35_seq_e", "ret"))
+
+    def test_q_heads_are_the_measured_shape(self):
+        """(qprobe round 6) ea=q: four words in every mode, the request word (rl=x bi) second,
+        the add third, the displacement's release (0, 1, 2 bytes: its pops') on the fourth."""
+        prog = uasm.assemble()
+        bi = uasm.enum_value("v35_ea_e", "bi")
+        for name, n in (("eaq0", 0), ("eaq8", 1), ("eaq16", 2)):
+            r = prog.routine(name)
+            self.assertEqual(len(r.words), 4, name)
+            self.assertEqual(r.words[1].fields.get("rl"), uasm.RL_X, name)
+            self.assertTrue(r.words[1].fields.get("bi"), name)
+            self.assertEqual(r.words[2].fields.get("ea"), bi, name)
+            self.assertEqual(sum(1 for w in r.words if w.fields.get("pop")), n, name)
+            self.assertEqual(r.words[3].fields.get("rl", 0), n, name)
+            self.assertEqual(sum(w.fields.get("rl", 0) for w in r.words[:3]
+                                 if w.fields.get("rl") != uasm.RL_X), 0, name)
 
     def test_head_lengths_are_the_pops_and_the_book(self):
         prog = uasm.assemble()
@@ -257,7 +305,12 @@ class EA(unittest.TestCase):
         bi = uasm.enum_value("v35_ea_e", "bi")
         disp = (uasm.enum_value("v35_pop_e", "dl"), uasm.enum_value("v35_pop_e", "dh"))
         for r in prog.routines:
-            if uasm.is_mem(r):
+            if uasm.is_mem(r) and r.head.get("ea") == "q":
+                # (qprobe round 6) the add is the head's (word 3); the routine's first word posts
+                self.assertTrue(r.words[0].fields.get("bus"), r.name)
+                self.assertFalse(any(w.fields.get("ea") for w in r.words), r.name)
+                self.assertFalse(any(w.fields.get("pop") in disp for w in r.words), r.name)
+            elif uasm.is_mem(r):
                 self.assertEqual(r.words[0].fields.get("ea"), bi, r.name)
                 self.assertFalse(r.words[0].fields.get("bus"), r.name)
                 self.assertFalse(any(w.fields.get("pop") in disp for w in r.words), r.name)
@@ -272,14 +325,18 @@ class EA(unittest.TestCase):
             mem = uasm.is_mem(r) and b >> 6 != 3
             self.assertEqual(d["ea"], int(mem), (hex(op), hex(b), name))
             self.assertEqual(d["eab"], int(mem and r.head.get("ea", "book") == "book"))
+            self.assertEqual(d["eaq"], int(mem and r.head.get("ea") == "q"))   # (qprobe round 6)
 
     def test_path_ea_clocks(self):
         # the EA's clocks per path: the book's EA (3 3 4 3) with mod 00's book error (2), or
         # the pops and the add alone (1 2 3 3)
         prog = uasm.assemble()
         # (MX1b) ld and st on the model's positions: [BW] 11 / 8, a displacement +1
-        for name, want in (("ld", {"m00": 11, "d8": 12, "d16": 12, "dir": 12}),
-                           ("st", {"m00": 8, "d8": 9, "d16": 9, "dir": 9})):
+        # (qprobe round 6) ea=q: the measured shapes, every mode alike (model_m.py L_* / S_*:
+        # the read four clocks after the request word on word 2, F, E: 10; the store's post on
+        # word 5, E on word 6 held to the write's end at W = 0 on the chip: 10)
+        for name, want in (("ld", {"m00": 10, "d8": 10, "d16": 10, "dir": 10}),
+                           ("st", {"m00": 10, "d8": 10, "d16": 10, "dir": 10})):
             for path, n in want.items():
                 self.assertEqual(uasm.length(prog, name, path=path), n, (name, path))
 

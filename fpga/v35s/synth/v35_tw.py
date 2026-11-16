@@ -10,6 +10,9 @@ import sys
 
 src, name, out = sys.argv[1:]
 text = open(src).read()
+# comments out first: a port's comment may hold ");" (v35_useq's "(the loader's);")
+text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
+text = re.sub(r'//[^\n]*', '', text)
 m = re.search(r'\bmodule\s+' + re.escape(name) + r'\b(.*?)\);', text, re.S)
 if not m:
     raise SystemExit(f'{name}: no module header in {src}')
