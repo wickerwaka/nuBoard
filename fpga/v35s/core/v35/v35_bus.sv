@@ -49,7 +49,8 @@
 //   dlv_v 1, dlv_kind 3, d_p1 1, done_data 16
 //                                            the cycle that ended on t-1 (bus.completed), its
 //                                            read datum (latched mid-B3); d_p1: the pair's first
-//   wd_r 16, wd_w 1                          (step D) the write datum latch (B2)
+//   ((consol) the write datum latch wd_r / wd_w is gone: the EU's request datum is its own
+//   register from the post to the cycle's end, `rq_d`, qprobe round 6)
 module v35_bus
     import v35_front_pkg::*;
 (
@@ -122,33 +123,26 @@ module v35_bus
     // loader's q_stall_nx and the EU's opr_rdy_nx / rq_busy_nx)
     output wire        dlv_fetch_nx,    // (step B) dlv_fetch's
     output wire        eu_done_nx,      // req_done's
-    // (qprobe rules 4, 5) tick B: on the next clock a fetch cycle started on an earlier clock
-    // runs (fb_nx), and that clock is its last (fl_nx): the sequencer's boundary and B words
-    output wire        fb_nx,
-    output wire        fl_nx,
-    // (qprobe rule 7) ... a cycle of any kind started on an earlier clock runs then (cb_nx: the
-    // boundary's wait for the EU's own cycle, fl_nx its last clock)
-    output wire        cb_nx,
-    // (qprobe round 6, B, C) tick B: on the next clock the sequencing stage (the slot, below) is
-    // taken (sl_nx: the request words', SHL r,CL's fourth word's, OUT DW's first word's wait),
-    // a fetch started earlier runs then with two clocks or more after it (fy_nx: a memory
-    // request word's wait); the facts it reads: the EU's request standing then (eu_rq_nx), the
-    // loader's count then (before its releases) at most 4, at most 5, with the running fetch's
-    // bytes at most 5 (c4_nx, c5_nx, cf_nx; each false while the stream waits for a flush's
-    // target); tick A: this clock's releases (rls, the loader's), the queue's count after them at most 4 and
-    // with the word in flight at most 5 (c4_q, cf_q), the line given way (gwy); the stage's
-    // `pend` (a register: a fetch wanted while an EU cycle held the bus) to the queue
-    output wire        sl_nx,
-    output wire        fy_nx,
+    // (consol, README "consol") The pace: the bus unit owns the front end's measured waits and
+    // returns one registered hold to the sequencer (ph_nx, tick B: the word executing on the
+    // next clock waits). It reads the next word's kind (wk_nx, the sequencer's: the dispatch
+    // word, a FLUSH word, the bus-wait kind's bits) and whether the word executes now (ex, the
+    // sequencer's registered stall outcome); the EU's request standing next and its memory
+    // request posted and not granted next (eu_rq_nx, rqm_nx); the queue's count compares (lv_q
+    // tick A, lv_nx tick B); the loader's instruction-stream facts (sf_nx). Round 6 exported
+    // fb_nx, cb_nx, fl_nx, sl_nx and fy_nx from here, the loader b4_nx, ew_nx, ld_nx and le_nx,
+    // the EU req_v_nx and rqm_nx into the sequencer, which formed the stall and the give-way
+    // (lpri) there; the give-way, REQ_PRI's request word (rqx) and HALT's stop (fstop) were the
+    // queue's and the loader's, the count's compares the loader's (c4_nx, c5_nx, cf_nx) and the
+    // queue's (c4_q, cf_q)
+    input  v35_wk_t    wk_nx,
+    input  wire        ex,
     input  wire        eu_rq_nx,
-    input  wire        c4_nx,
-    input  wire        c5_nx,
-    input  wire        cf_nx,
-    input  wire [2:0]  rls,
-    input  wire        c4_q,
-    input  wire        cf_q,
-    input  wire        gwy,
-    output reg         pend,
+    input  wire        rqm_nx,
+    input  v35_lvq_t   lv_q,
+    input  v35_lvn_t   lv_nx,
+    input  v35_sf_t    sf_nx,
+    output wire        ph_nx,
 
     // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write at its
     // cycle's end: the enable at ce_a, its condition, the address, width and lane-placed datum;
@@ -274,7 +268,7 @@ module v35_bus
     v35_gnt_t gn1, gn0, gn;
     assign gn1 = gnt_f(1'b1);
     assign gn0 = gnt_f(1'b0);
-    assign gn = fetch_req ? gn1 : gn0;
+    assign gn = fr ? gn1 : gn0;
     wire        g_start;            // a cycle starts now (a fetch or an EU cycle)
     wire [2:0]  g_kind;
     wire [19:0] g_addr;
@@ -307,7 +301,7 @@ module v35_bus
             g_dk_b <= gn.ack && req_dk;     // (F4c) ... a DMA transfer's
             g_rdy_b <= gn.rdy;              // (F4d) the cycle granted waits for READY
             rdy_q <= rdy_lv;                // (F4d) READY at the pins' edge
-            fetch_req_b <= fetch_req;
+            fetch_req_b <= fr;
             g_kind_b <= g_kind;
             grant_len_b <= grant_len;
             g_addr_b <= g_addr;
@@ -326,15 +320,15 @@ module v35_bus
     assign eu_done_nx = d_v_nx && c_kind != K_FETCH && !(c_half == 2'd1);
     // (qprobe rules 4, 5) the cycle registers' next values (the block below loads these) and
     // what they say of the next clock: a fetch started on an earlier clock runs then (fb_nx),
-    // and it is its last clock (fl_nx)
+    // a cycle of any kind runs then, not on its last clock (cb_nx)
     wire        cv_nx = g_start_b || busy;
     wire [2:0]  ck_nx = g_start_b ? g_kind_b : c_kind;
     wire [2:0]  cp_nx = g_start_b ? 3'd0 : rdy_hold ? c_pos : pos_now;
     wire [2:0]  cl_nx = g_start_b ? grant_len_b : c_len;
     wire        bz_nx = cv_nx && cp_nx != cl_nx - 3'd1;
-    assign fb_nx = bz_nx && ck_nx == K_FETCH;
-    assign fl_nx = cp_nx + 3'd1 == cl_nx - 3'd1;
-    assign cb_nx = bz_nx;
+    wire        fb_nx = bz_nx && ck_nx == K_FETCH;
+    wire        fl_n = cp_nx + 3'd1 == cl_nx - 3'd1;        // the next clock is the cycle's last
+    wire        cb_nx = bz_nx && !fl_n;
 
     // ------------------------------------------------ (qprobe round 6, B) the sequencing stage
     // The bus unit sequences a cycle in a stage ahead of its pins (the "slot",
@@ -353,16 +347,15 @@ module v35_bus
     // Three registers (lg, nl, pend), their next values formed in tick A and registered at ce_b
     // (`*_b`, with sk_b), so the slot of the next clock (sl_nx) is formed in tick B like the
     // other stall facts.
-    reg         lg = 1'b0, nl = 1'b0;
-    initial pend = 1'b0;
+    reg         lg = 1'b0, nl = 1'b0, pend = 1'b0;
     reg         lg_b = 1'b0, nl_b = 1'b0, pd_b = 1'b0, sk_b = 1'b0;
     wire        in_f = busy && c_kind == K_FETCH;           // a fetch started earlier runs now
     wire        eu_r = busy && c_kind != K_FETCH;           // an EU cycle started earlier runs now
     wire        sec_last = pos_now == c_len - 3'd2;         // the running cycle's next-to-last clock
     wire        gave = gwy && free_h && !g_second && !req_v;    // the fetch that gave way now
-    wire        lg_a = g_fetch ? (pend || (lg && nl && dlv_fetch && rls == 3'd0)) : lg;
-    wire        nl_a = g_fetch ? 1'b0 : (lg && in_f && sec_last) ? cf_q : nl;
-    wire        pd_a = (eu_r || req_ack || g_second) ? (pend || c4_q) : gave ? pend : 1'b0;
+    wire        lg_a = g_fetch ? (pend || (lg && nl && dlv_fetch && lv_q.nrl)) : lg;
+    wire        nl_a = g_fetch ? 1'b0 : (lg && in_f && sec_last) ? lv_q.cf : nl;
+    wire        pd_a = (eu_r || req_ack || g_second) ? (pend || lv_q.c4) : gave ? pend : 1'b0;
     always @(posedge clock) begin
         if (!reset_n) begin
             lg_b <= 1'b0;
@@ -389,21 +382,87 @@ module v35_bus
     end
     // the next clock's view (tick B): its position's clocks left after it (rm_nx, while a
     // cycle started earlier runs then), the cycle that ends now (the delivery then)
+    // (consol) the queue's compares for the next clock, by this unit's own delivery then
+    v35_lvc_t   lv;
+    assign lv = dlv_fetch_nx ? lv_nx.a : lv_nx.n;
     wire [3:0]  rm_nx = {1'b0, cl_nx} - {1'b0, cp_nx} - 4'd2;
     wire        r2_nx = bz_nx && !rm_nx[3] && rm_nx >= 4'd2;
     wire        r1_nx = bz_nx && rm_nx == 4'd1;
     wire        euf_nx = bz_nx && ck_nx != K_FETCH;
     wire        aeu_nx = d_v_nx && c_kind != K_FETCH;
     wire        idle_nx = !bz_nx && !eu_rq_nx;
-    wire        slot_nx = (fb_nx && lg_b) ? (r2_nx || (r1_nx ? cf_nx : nl_b))
-                        : (!fb_nx && pd_b && c4_nx) ? ((euf_nx && !r2_nx) || (idle_nx && (aeu_nx || sk_b)))
-                        : (!fb_nx && lg_b && nl_b && idle_nx && dlv_fetch_nx && c5_nx) ? 1'b1
+    wire        slot_nx = (fb_nx && lg_b) ? (r2_nx || (r1_nx ? lv.cf : nl_b))
+                        : (!fb_nx && pd_b && lv.c4) ? ((euf_nx && !r2_nx) || (idle_nx && (aeu_nx || sk_b)))
+                        : (!fb_nx && lg_b && nl_b && idle_nx && dlv_fetch_nx && lv.c5) ? 1'b1
                         : fb_nx;
     // (EU_SLOT) the EU cycle's own slot: from its request's standing to two clocks before its
     // last pin clock
-    assign sl_nx = slot_nx || eu_rq_nx || (euf_nx && r2_nx);
+    wire        sl_nx = slot_nx || eu_rq_nx || (euf_nx && r2_nx);
     // (qprobe round 6, C) a memory request word waits while a fetch has two clocks or more left
-    assign fy_nx = fb_nx && r2_nx;
+    wire        fy_nx = fb_nx && r2_nx;
+
+    // ------------------------------------------------ (consol) the pace
+    // Registers (ce_a; the kind also in reset, as the sequencer's word): the word's kind now
+    // (`wk`, the word executing this clock), the first boundary of a stream (`aft`: a FLUSH
+    // word executed and no dispatch since, rule 4c), a request word executed on the last clock
+    // (`rqx`, REQ_PRI), and the boundary's facts as they stand now (the back-to-back fetch at a
+    // count of 4, the EU's request standing, the lead's end: the give-way's; HALT released and
+    // the word releasing a staged HALT: the line's stop)
+    reg         wkd = 1'b0, wkf = 1'b0, wkr = 1'b0;    // (the kind's disp, flush, rlx)
+    reg         aft = 1'b0, rqx = 1'b0, b4r = 1'b0, rqvr = 1'b0, ler = 1'b0, hpr = 1'b0, hcr = 1'b0;
+    wire        xd = ex && wkd;                 // the dispatch word executes now (the boundary)
+    wire        xf = ex && wkf;                // a FLUSH word executes now
+    // tick A: the give-way (round 6, E: the boundary executing now takes this clock from the
+    // fetch: on the clock the EU cycle that held a fetch back delivers, EU_EPRI; on its lead's
+    // last clock over a back-to-back fetch, LEAD_EPRI); HALT's stop (rule 11: from the word
+    // releasing the staged HALT to the halt word); the five-held continuation allowed (rule 2,
+    // REQ_PRI: no dispatch word now, no request word on the last clock); the line as the grant
+    // reads it (`fr`) and the fetch given way (`gwy`)
+    wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler));
+    wire        fstop = hpr || (ex && hcr);
+    wire        line = fetch_req || (lv_q.r5 && !xd && !rqx);
+    wire        fr = line && !gw && !fstop;
+    wire        gwy = line && gw && !fstop;
+    // tick B: the stream's first boundary after this clock, and the hold
+    wire        aft_n = xf ? 1'b1 : xd ? 1'b0 : aft;
+    // (rules 4c, 4d, EMIN; rule 11) the boundary waits for the stream: the count below 3 for the
+    // first boundary of a stream or a ModR/M opcode's, below 2 for any; not for bytes that will
+    // not come (HALT released)
+    wire        ews = ((lv.lt3 && (aft_n || sf_nx.m3)) || lv.lt2) && !sf_nx.hp;
+    // (rules 4, 7, 12; round 6 D, E) the boundary: a cycle started earlier running, not on its
+    // last clock; a back-to-back fetch starting (no EU request to win the bus) unless the lead
+    // ends then (LEAD_EPRI: the give-way instead); the stream short; the lead short; a memory
+    // request posted and not granted (E_PEND)
+    wire        bnd_w = cb_nx || (lv.b4 && !eu_rq_nx && !sf_nx.le) || ews || sf_nx.ld || rqm_nx;
+    // (round 6, A, B, C) the bus waits by the word's kind: B (bi) a fetch's pin cycle started
+    // earlier (its last clock included), S (rl=x) the slot, Y (both) a fetch with two clocks or
+    // more left
+    assign ph_nx = (wk_nx.disp && bnd_w) || (wk_nx.bi && !wk_nx.rlx && fb_nx)
+                   || (wk_nx.rlx && !wk_nx.bi && sl_nx) || (wk_nx.rlx && wk_nx.bi && fy_nx);
+    always @(posedge clock) begin
+        if (!reset_n || ce_a) begin
+            wkd <= wk_nx.disp;
+            wkf <= wk_nx.flush;
+            wkr <= wk_nx.rlx;
+        end
+        if (!reset_n) begin
+            aft <= 1'b0;
+            rqx <= 1'b0;
+            b4r <= 1'b0;
+            rqvr <= 1'b0;
+            ler <= 1'b0;
+            hpr <= 1'b0;
+            hcr <= 1'b0;
+        end else if (ce_a) begin
+            aft <= aft_n;
+            rqx <= ex && wkr;
+            b4r <= lv.b4;
+            rqvr <= eu_rq_nx;
+            ler <= sf_nx.le;
+            hpr <= sf_nx.hp;
+            hcr <= sf_nx.hc;
+        end
+    end
     always @(posedge clock) begin
         if (!reset_n) begin
             c_valid <= 1'b0;
@@ -453,13 +512,14 @@ module v35_bus
         end
     end
 
-    // ------------------------------------------------ (step D) the write datum latch
-    // A write's datum and the request's width are captured at its B2 (the clock the pins drive
-    // the datum: a cycle's second clock, the ce_a that ends it), from the EU's request port as it
-    // stands there (the EU presents a late result by then: a store's immediate moved into OPRW
-    // after the post). The pair's second half and an on-chip store (its datum written at the
-    // cycle's end: the SFR page, the internal RAM) read the captured copy, never the EU's live
-    // request, which the EU may have moved on from (the next instruction's words rewrite OPRW)
+    // ------------------------------------------------ (consol) the write datum
+    // (step D's write datum latch, wd_r / wd_w, captured at B2, is gone) The EU's request datum
+    // and width are its registers from the post (`rq_d`: OPRW as the posting word leaves it,
+    // qprobe round 6) to the cycle's end: the EU posts nothing new before req_done (its one
+    // request slot), so the pair's second half and an on-chip store (its datum written at the
+    // cycle's end) read the request port itself. `+v35_chk` keeps the B2 capture as the
+    // reference and compares it wherever the latch was read
+`ifndef SYNTHESIS
     reg  [15:0] wd_r = 16'd0;
     reg         wd_w = 1'b0;
     wire        wd_cap = busy && pos_now == 3'd1 && c_half != 2'd2
@@ -470,6 +530,7 @@ module v35_bus
             wd_w <= req_width;
         end
     end
+`endif
 
     // ------------------------------------------------ pins (v35_biu.sv:290-350)
     // (S7b) The pins keep the model's timing while the core's clock sits half a CPU clock later
@@ -574,12 +635,12 @@ module v35_bus
     assign ph = {read_write_r, mux_address_r, a0_r, a19_r, a18_ube_r, refresh_row, dp_v, dp_half};
     assign pn1 = ce_e ? pin_f(gn1) : ph;
     assign pn0 = ce_e ? pin_f(gn0) : ph;
-    (* syn_keep = "true" *) wire       pk_rw = fetch_req ? pn1.rw : pn0.rw;
-    (* syn_keep = "true" *) wire [8:0] pk_ma = fetch_req ? pn1.ma : pn0.ma;
-    (* syn_keep = "true" *) wire [2:0] pk_ah = fetch_req ? {pn1.a0, pn1.a19, pn1.a18}
+    (* syn_keep = "true" *) wire       pk_rw = fr ? pn1.rw : pn0.rw;
+    (* syn_keep = "true" *) wire [8:0] pk_ma = fr ? pn1.ma : pn0.ma;
+    (* syn_keep = "true" *) wire [2:0] pk_ah = fr ? {pn1.a0, pn1.a19, pn1.a18}
                                                          : {pn0.a0, pn0.a19, pn0.a18};
-    (* syn_keep = "true" *) wire [8:0] pk_rr = fetch_req ? pn1.rr : pn0.rr;
-    (* syn_keep = "true" *) wire [2:0] pk_dp = fetch_req ? {pn1.dpv, pn1.dph} : {pn0.dpv, pn0.dph};
+    (* syn_keep = "true" *) wire [8:0] pk_rr = fr ? pn1.rr : pn0.rr;
+    (* syn_keep = "true" *) wire [2:0] pk_dp = fr ? {pn1.dpv, pn1.dph} : {pn0.dpv, pn0.dph};
 
     initial begin
         data_out = 16'd0;
@@ -644,7 +705,7 @@ module v35_bus
                 intak_n <= n_pos == n_len - 3'd1;
             if (ce_a && dp_v)
                 data_out <= dp_half == 2'd0 ? req_data
-                          : dp_half == 2'd1 ? {req_data[7:0], 8'd0} : {8'd0, wd_r[15:8]};
+                          : dp_half == 2'd1 ? {req_data[7:0], 8'd0} : {8'd0, req_data[15:8]};
             if (ce_mid && pins && !n_ia) begin
                 if (n_pos == 3'd0) begin
                     if (n_kind == K_REFRESH)
@@ -703,7 +764,7 @@ module v35_bus
     // byte on the high lane (the first, odd address) and its high byte on the low lane (the
     // second), as this unit places them on the pins (the request's width: the EU port's
     // req_width as it stands at the store's end, as before)
-    assign sfr_d = (sfr_w != BW_WORD && wd_w) ? {wd_r[7:0], wd_r[15:8]} : wd_r;
+    assign sfr_d = (sfr_w != BW_WORD && req_width) ? {req_data[7:0], req_data[15:8]} : req_data;
     always @(posedge clock) begin
         if (!reset_n) begin
             sfr_open <= 1'b0;
@@ -756,7 +817,7 @@ module v35_bus
     v35_gnt_t   gnt_x;
     logic       x_eu;
     always_comb begin
-        gnt_x.fetch = free_h && !g_second && !x_eu_win && fetch_req;
+        gnt_x.fetch = free_h && !g_second && !x_eu_win && fr;
         gnt_x.ack = x_eu_win;
         x_eu = g_second || gnt_x.ack;
         gnt_x.start = x_eu || gnt_x.fetch;
@@ -787,6 +848,16 @@ module v35_bus
                          $time);
         end
     end
+    // (consol) the request datum where the B2 latch was read: the pair's second half's drive
+    // and an on-chip store's write
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a && ((dp_v && dp_half == 2'd2 && req_data[15:8] !== wd_r[15:8])
+                                          || (sfr_open && eu_dlv && (req_data !== wd_r || req_width !== wd_w)))) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: bus: the request datum differs from its B2 capture at %0t", $time);
+        end
+    end
     // (step D) the pins' B2 (dp_v at ce_a, not the pair's second half) is a latch capture
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a && dp_v && dp_half != 2'd2 && !wd_cap) begin
@@ -809,11 +880,11 @@ module v35_bus
                     $display("v35 chk: bus.g_sfr changed in tick B: %h -> %h at %0t",
                              g_sfr_b, g_sfr, $time);
             end
-            if (fetch_req_b !== fetch_req) begin
+            if (fetch_req_b !== fr) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: bus.fetch_req changed in tick B: %h -> %h at %0t",
-                             fetch_req_b, fetch_req, $time);
+                             fetch_req_b, fr, $time);
             end
             if (g_kind_b !== g_kind) begin
                 chk_n = chk_n + 1;

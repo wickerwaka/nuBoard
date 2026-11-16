@@ -42,8 +42,11 @@
 //   b     by the word's kind: `bi` (B, F) the pin cycle of a fetch started earlier, its last
 //         clock included (fb); rl=x (X, S, A) the bus unit's slot (sl_nx); rl=x with bi (Y,
 //         a memory request word) a fetch with two clocks or more left (fy_nx)
-// Their facts enter as next values (the bus unit's fb_nx / fl_nx, the loader's b4_nx / ew_nx,
-// the EU's req_v_nx) and as their ce_a-registered copies (`qf`: the facts as they stand).
+// (consol, README "consol") These waits are the bus unit's now, the pace's owner: the sequencer
+// presents the next word's kind (`wk_nx`: the dispatch word, a FLUSH word, rl == RL_X, bi) and
+// reads one registered hold back (`ph_nx`, the D of `ph`): the stall `pace`. Round 6 read eleven
+// facts here (the bus unit's fb_nx / fl_nx / cb_nx / sl_nx / fy_nx, the loader's b4_nx / ew_nx /
+// ld_nx / le_nx, the EU's req_v_nx / rqm_nx) and formed the give-way (`lpri`) for the queue.
 //
 // The next microaddress (tick B): the same word (stalled), the next, a jump (on a registered
 // condition), a call (one return register: the V20 ROM's FARJMP subroutines nest one level,
@@ -70,6 +73,7 @@
 // Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9, halted 1; the ce_b
 // copies ex_b 1, d1_b 10, d2_b 10, (MX1) dc_b 1, dr_b 10.
 module v35_useq
+    import v35_front_pkg::*;
     import v35_pkg::*;
 #(
     parameter string UROM_DIR = "fpga/v35s/core/v35/"
@@ -113,30 +117,10 @@ module v35_useq
     input  wire        opr_rdy_nx,
     input  wire        rq_busy_nx,
     input  wire        wr_hold_nx,
-    // (qprobe rules 4, 5) tick B: the next values of the boundary's and the B word's facts: a
-    // fetch cycle started on an earlier clock runs (fb_nx), it is its last clock (fl_nx) (the bus
-    // unit's); a back-to-back fetch at a count of at most 4 (b4_nx), the count short for this
-    // boundary (ew_nx) (the loader's); the EU's request standing (req_v_nx)
-    input  wire        fb_nx,
-    input  wire        fl_nx,
-    input  wire        b4_nx,
-    input  wire        ew_nx,
-    input  wire        req_v_nx,
-    // (qprobe rules 7, 12) tick B: a cycle of any kind started earlier runs on the next clock
-    // (cb_nx, the bus unit's); the boundary short of its lead (ld_nx, the loader's)
-    input  wire        cb_nx,
-    input  wire        ld_nx,
-    // (qprobe round 6) tick B: the bus unit's slot taken on the next clock (sl_nx: rl=x words),
-    // a fetch with two clocks or more left then (fy_nx: rl=x bi words, the memory request
-    // words); the boundary's lead ending then (le_nx, the loader's: LEAD_EPRI); a memory request
-    // posted and not granted then (rqm_nx, the EU's: E_PEND)
-    input  wire        sl_nx,
-    input  wire        fy_nx,
-    input  wire        le_nx,
-    input  wire        rqm_nx,
-    // (qprobe round 6, E) tick A: the boundary executes on its lead's last clock over a
-    // back-to-back fetch (the queue's line gives way one clock: LEAD_EPRI)
-    output wire        lpri,
+    // (consol) the pace: the next word's kind (tick B, to the bus unit) and the bus unit's hold
+    // for the next clock (tick B, ph_nx: the D of the registered fact)
+    output v35_wk_t    wk_nx,
+    input  wire        ph_nx,
     // (qprobe round 6) the word is the dispatch (the derived bit, a register; tick B: the next
     // word's): the loader's release on the dispatch word
     output wire        w_disp,
@@ -238,11 +222,8 @@ module v35_useq
     typedef struct packed {
         logic       halted, f, e, post;
         logic       q_stall, opr_rdy, rq_busy, wr_hold;
-        logic       disp, bi;           // (qprobe) the word is the dispatch; is a B word
-        logic       fb, fl, b4, ew, rqv;    // (qprobe) the bus unit's, the loader's, the EU's facts
-        logic       rlx;                // (qprobe rule 9) rl=X
-        logic       cb, ld;             // (qprobe rules 7, 12) the bus unit's, the loader's
-        logic       sl, fy, le, pm;     // (qprobe round 6) the slot, the late wait, the lead's end, E_PEND
+        logic       disp;               // (qprobe) the word is the dispatch (the boundary)
+        logic       ph;                 // (consol) the bus unit's pace holds the word
     } v35_sin_t;
     typedef struct packed {
         logic       ex;
@@ -250,34 +231,22 @@ module v35_useq
                             //   5 halt, (qprobe) 6 the boundary's, 7 a B word's
     } v35_stl_t;
     function automatic v35_stl_t stall_f(input v35_sin_t f);
-        logic st_q, st_f, st_slt, st_hld, st_bnd, st_bi;
+        logic st_q, st_f, st_slt, st_hld, st_pc;
         st_q   = f.q_stall;                 // the queue: a pop finds no byte
         st_f   = f.f && !f.opr_rdy;         // the bus cycle: F's datum not here
         st_slt = f.post && f.rq_busy;       // the one request slot taken
         st_hld = f.e && f.wr_hold;          // a memory write outstanding with RAMEN = 1 ((qprobe rule 7) into the on-chip page)
-        // (qprobe rule 4) the boundary: (a) a fetch running, not on its last clock; (b) a
-        // back-to-back fetch starting now (no EU request to win the bus) unless the boundary's
-        // lead ends now (round 6, LEAD_EPRI: the boundary executes, the fetch gives way a
-        // clock); (c, d) the count short (round 6: EMIN, any boundary two bytes); (rule 7) any
-        // cycle running, not on its last clock; (rule 12) the lead; (round 6, D: E_PEND) a
-        // memory request posted and not yet granted
-        st_bnd = f.disp && ((f.cb && !f.fl) || (f.b4 && !f.rqv && !f.le) || f.ew || f.ld || f.pm);
-        // (round 6, A, B, C) the bus waits by the word's kind (the ROM's bi and rl=x):
-        //   bi            B, F: a fetch's pin cycle started earlier runs (its last clock included)
-        //   rl=x          X, S, A: the bus unit's slot is taken (sl)
-        //   rl=x and bi   Y: a fetch started earlier runs with two clocks or more left (fy)
-        st_bi  = (f.bi && !f.rlx && f.fb) || (f.rlx && !f.bi && f.sl) || (f.rlx && f.bi && f.fy);
-        stall_f.ex = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_bnd && !st_bi;
+        // (consol) the pace: the measured front-end waits (the boundary's, the bus-wait kinds'),
+        // the bus unit's (ph_nx)
+        st_pc  = f.ph;
+        stall_f.ex = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_pc;
+        // (the boundary's, 6, or a bus-wait kind's, 7: the dispatch word has no bus-wait kind)
         stall_f.why = f.halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3
-                    : st_hld ? 5'd4 : st_bnd ? 5'd6 : st_bi ? 5'd7 : 5'd0;
+                    : st_hld ? 5'd4 : (st_pc && f.disp) ? 5'd6 : st_pc ? 5'd7 : 5'd0;
     endfunction
     // (qprobe) the facts of rules 4 and 5 as they stand: ce_a registers of their next values
     // (in reset none: no cycle runs, nothing is delivered)
-    typedef struct packed {
-        logic       fb, fl, b4, ew, rqv;
-        logic       cb, ld, sl, fy, le, pm;
-    } v35_qf_t;
-    v35_qf_t   qf = '0;
+    reg        ph = 1'b0;               // (consol) the pace's hold as it stands
     reg        sp = 1'b0;
     v35_sin_t  si_now;
     always_comb begin
@@ -290,25 +259,12 @@ module v35_useq
         si_now.rq_busy = rq_busy;
         si_now.wr_hold = wr_hold;
         si_now.disp = pd.disp;
-        si_now.bi = word.bi;
-        si_now.fb = qf.fb;
-        si_now.fl = qf.fl;
-        si_now.b4 = qf.b4;
-        si_now.ew = qf.ew;
-        si_now.rqv = qf.rqv;
-        si_now.rlx = word.rl == RL_X;
-        si_now.cb = qf.cb;
-        si_now.ld = qf.ld;
-        si_now.sl = qf.sl;
-        si_now.fy = qf.fy;
-        si_now.le = qf.le;
-        si_now.pm = qf.pm;
+        si_now.ph = ph;
     end
     v35_stl_t  st_r = '0;
     assign ex = st_r.ex;
     // (step B) the take points and acts (v35_top's glue before: the same terms)
     assign x_disp = ex && pd.disp;
-    assign lpri = x_disp && qf.b4 && !qf.rqv && qf.le;     // (qprobe round 6, E: LEAD_EPRI)
     assign x_tki = ex && pd.tki;
     assign x_end = ex && word.e;
     assign x_nb = ex && word.e && word.nb;
@@ -320,7 +276,9 @@ module v35_useq
     assign x_fint = ex_b && word.alu == AL_FINT;
     // (MX2) SUSP suspends prefetching (the queue's request line held low from the clock the word
     // is reached until the FLUSH: `sp` once it has executed)
-    assign q_susp = (sp && !word.flush) || word.susp;     // (the FLUSH word issues the target's fetch)
+    // (consol) and halted: no prefetch while the sequencer is halted (the loader's fstop read
+    // the halted state before; the queue's line is low for either)
+    assign q_susp = (sp && !word.flush) || word.susp || halted;     // (the FLUSH word issues the target's fetch)
     // (MX2) the suspension stands from the SUSP word's execution to the FLUSH (or an E)
     wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && word.susp) ? 1'b1 : sp;
 
@@ -362,6 +320,11 @@ module v35_useq
     assign w_dispm_nx = pd_nx.dispm;
     assign w_disp_nx = pd_nx.disp;
     assign w_erep_nx = pd_nx.erep;
+    // (consol) the next word's kind for the bus unit's pace
+    assign wk_nx.disp = pd_nx.disp;
+    assign wk_nx.flush = word_nx.flush;
+    assign wk_nx.rlx = word_nx.rl == RL_X;
+    assign wk_nx.bi = word_nx.bi;
     v35_sin_t  si_nx;
     always_comb begin
         si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
@@ -373,37 +336,15 @@ module v35_useq
         si_nx.rq_busy = rq_busy_nx;
         si_nx.wr_hold = wr_hold_nx;
         si_nx.disp = pd_nx.disp;
-        si_nx.bi = word_nx.bi;
-        si_nx.fb = fb_nx;
-        si_nx.fl = fl_nx;
-        si_nx.b4 = b4_nx;
-        si_nx.ew = ew_nx;
-        si_nx.rqv = req_v_nx;
-        si_nx.rlx = word_nx.rl == RL_X;
-        si_nx.cb = cb_nx;
-        si_nx.ld = ld_nx;
-        si_nx.sl = sl_nx;
-        si_nx.fy = fy_nx;
-        si_nx.le = le_nx;
-        si_nx.pm = rqm_nx;
+        si_nx.ph = ph_nx;
     end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             st_r <= stall_f(si_now);
-            qf <= '0;
+            ph <= 1'b0;
         end else if (ce_a) begin
             st_r <= stall_f(si_nx);
-            qf.fb <= fb_nx;
-            qf.fl <= fl_nx;
-            qf.b4 <= b4_nx;
-            qf.ew <= ew_nx;
-            qf.rqv <= req_v_nx;
-            qf.cb <= cb_nx;
-            qf.ld <= ld_nx;
-            qf.sl <= sl_nx;
-            qf.fy <= fy_nx;
-            qf.le <= le_nx;
-            qf.pm <= rqm_nx;
+            ph <= ph_nx;
         end
     end
 

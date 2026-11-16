@@ -241,17 +241,16 @@ module v35_top
     wire        q_od_nx, q_dc_nx;
     wire        l_qs_nx;
     wire        e_ordy_nx, e_rqb_nx, e_wrh_nx;
-    // (qprobe) the boundary's and the B words' facts (tick B), the occupancy's parts
-    wire        b_fb_nx, b_fl_nx, l_b4_nx, l_ew_nx, e_rqv_nx;
-    // (qprobe round 5) any cycle running (the bus unit's); the lead, HALT's line hold and its
-    // request delay (the loader's)
-    wire        b_cb_nx, l_ld_nx, l_fstop, l_hp_b;
-    // (qprobe round 6) the bus unit's slot and late wait, its stage's pend; the loader's count
-    // facts, lead end and request word; the queue's give-way, count facts and flush wait; the
-    // sequencer's lead-priority boundary; the EU's memory request standing
-    wire        b_sl_nx, b_fy_nx, b_pend, l_c4_nx, l_c5_nx, l_cf_nx, l_le_nx, l_rqx;
-    wire        q_gwy, q_c4, q_cf, q_pv_nx, s_lpri, e_rqm_nx, s_wdisp, s_wdisp_nx;
-    wire [3:0]  l_oadj;
+    // (consol) the pace (the bus unit's): the next word's kind (the sequencer's), the hold back;
+    // the EU's request standing and memory request standing next; the queue's count compares;
+    // the loader's stream facts; the loader's releases (to the queue), HALT's request delay (to
+    // the EU); the sequencer's dispatch bit (the loader's)
+    v35_wk_t    s_wk_nx;
+    wire        b_ph_nx, e_rqv_nx, e_rqm_nx;
+    v35_lvq_t   q_lv;
+    v35_lvn_t   q_lv_nx;
+    v35_sf_t    l_sf_nx;
+    wire        l_hp_b, s_wdisp, s_wdisp_nx;
     wire [2:0]  l_rls;
     // (A1) the grant (S4) and the EU request port
     wire        g_fetch;
@@ -338,10 +337,9 @@ module v35_top
         .eu_dlv(b_eu_dlv),
         .dlv_fetch,
         .done_data(b_done_data), .done_nx(b_done_nx16), .done_ld(b_done_ld),
-        .dlv_fetch_nx, .eu_done_nx(b_done_nx), .fb_nx(b_fb_nx), .fl_nx(b_fl_nx),
-        .cb_nx(b_cb_nx),
-        .sl_nx(b_sl_nx), .fy_nx(b_fy_nx), .eu_rq_nx(e_rqv_nx), .c4_nx(l_c4_nx), .c5_nx(l_c5_nx),
-        .cf_nx(l_cf_nx), .rls(l_rls), .c4_q(q_c4), .cf_q(q_cf), .gwy(q_gwy), .pend(b_pend),
+        .dlv_fetch_nx, .eu_done_nx(b_done_nx),
+        .wk_nx(s_wk_nx), .ex, .eu_rq_nx(e_rqv_nx), .rqm_nx(e_rqm_nx), .lv_q(q_lv), .lv_nx(q_lv_nx),
+        .sf_nx(l_sf_nx), .ph_nx(b_ph_nx),
         .sfr_wr, .sfr_wat, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
         .oc_we, .oc_wa, .oc_be, .oc_wd,
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
@@ -370,17 +368,15 @@ module v35_top
         .vb0(qv0), .vb1(qv1), .avail(q_avail), .hip(q_ip), .stored(q_stored), .h_q0(q_h0), .h_odd(q_hod), .h_q0t(q_h0t), .pop_n(ld_pop),
         .flush(x_flush), .flush_addr(flush_off), .reset_ip(tb_reset_ip), .susp(q_susp), .ps_base,
         .stored_nx(q_st_nx), .odd_nx(q_od_nx), .discard_nx(q_dc_nx),
-        .oadj(l_oadj), .rls(l_rls), .bnd(x_disp), .fstop(l_fstop),
-        .pend(b_pend), .eud(b_eu_dlv), .lpri(s_lpri), .rqx(l_rqx), .gwy(q_gwy), .c4_q(q_c4),
-        .cf_q(q_cf), .pv_nx(q_pv_nx)
+        .rls(l_rls), .lv_q(q_lv), .lv_nx(q_lv_nx)
     );
 
     // ---------------------------------------------------------------- the loader
     v35_loader loader (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .qv0, .qv1, .q_avail, .q_stored, .h_q0(q_h0), .h_odd(q_hod), .h_dlv(b_done_data), .h_dlv_nx(b_done_nx16), .h_dlv_ld(b_done_ld), .h_q0t(q_h0t), .dlv_tag(ld_dlv_tag), .pop_n(ld_pop),
-        .q_ip, .flush(x_flush), .flush_w(word.flush),
-        .ex, .pop(word.pop), .e_pop(word.e), .disp(x_disp),
+        .q_ip, .flush_w(word.flush),
+        .ex, .pop(word.pop), .e_pop(word.e),
         .dispm(w_dispm), .e_rep(w_erep), .e_pfx(word.pfx), .e_rep_nx(w_erep_nx), .q_stall, .opc(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih),
         .dl(ld_dl), .dh(ld_dh), .fmt, .opc_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx, .op3(ld_op3), .dec2, .len(ld_len),
         .dent, .dcall, .dret,
@@ -389,10 +385,8 @@ module v35_top
         .q_odd_nx(q_od_nx), .q_discard_nx(q_dc_nx), .q_dlv_nx(dlv_fetch_nx),
         .flush_w_nx(word_nx.flush), .dispm_nx(w_dispm_nx),
         .q_stall_nx(l_qs_nx),
-        .ro(word.ro), .rl(word.rl), .ro_nx(word_nx.ro), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx), .oadj(l_oadj), .rls(l_rls),
-        .b4_nx(l_b4_nx), .ew_nx(l_ew_nx), .ld_nx(l_ld_nx), .le_nx(l_le_nx),
-        .pv_nx(q_pv_nx), .c4_nx(l_c4_nx), .c5_nx(l_c5_nx), .cf_nx(l_cf_nx), .rqx(l_rqx),
-        .w_halt(word.halt), .halted, .fstop(l_fstop), .hp_b(l_hp_b),
+        .ro(word.ro), .rl(word.rl), .ro_nx(word_nx.ro), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx), .rls(l_rls),
+        .sf_nx(l_sf_nx), .w_halt(word.halt), .hp_b(l_hp_b),
         .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip)
     );
 
@@ -403,9 +397,7 @@ module v35_top
         .q_stall, .dent, .dcall, .dret, .dec2, .ec_reg, .ec_call, .ec_head, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
         .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx),
-        .fb_nx(b_fb_nx), .fl_nx(b_fl_nx), .b4_nx(l_b4_nx), .ew_nx(l_ew_nx), .req_v_nx(e_rqv_nx),
-        .cb_nx(b_cb_nx), .ld_nx(l_ld_nx), .sl_nx(b_sl_nx), .fy_nx(b_fy_nx), .le_nx(l_le_nx),
-        .rqm_nx(e_rqm_nx), .lpri(s_lpri), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx),
+        .wk_nx(s_wk_nx), .ph_nx(b_ph_nx), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx),
         .wake(h_wake), .igo, .sgo,
         .word, .word_nx, .w_dispm, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_b, .q_susp, .halted,
         .x_disp, .x_tki, .x_end, .x_nb, .x_nbi, .x_flush, .w_stop, .x_stop, .x_ivec, .x_fint
@@ -489,6 +481,24 @@ module v35_top
     end
 
 `ifndef SYNTHESIS
+    // (consol) `+v35_chk`: the queue's count (`ob`, its own register: the bytes fetched and not
+    // released, this clock's delivery not counted) against round 6's parts, the queue's stored
+    // bytes and the loader's bytes taken out and not released (`oadj_ref`, the loader's
+    // simulation reference), at every ce_a
+    /* verilator lint_off BLKSEQ */
+    reg chk_ob = 1'b0;
+    integer chk_obn = 0;
+    initial chk_ob = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_ob && core_reset_n && ce_a
+            && queue.ob !== $signed({2'b00, queue.cnt}) + $signed({loader.oadj_ref[3], loader.oadj_ref})) begin
+            chk_obn = chk_obn + 1;
+            if (chk_obn <= 20)
+                $display("v35 chk: top: the queue's count differs from the window and the loader's part at %0t", $time);
+        end
+    end
+    /* verilator lint_on BLKSEQ */
+
     // ---------------------------------------------------------------- observation (simulation)
     // The trace's and the function bench's views (fpga/v35s/v35_core2_tb.sv reads dut.start,
     // dut.start_trap, dut.ir_addr_c), read from the modules' own nets: no module port carries

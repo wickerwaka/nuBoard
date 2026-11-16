@@ -378,7 +378,8 @@ module v35_eu
                      : done_data;
     wire [15:0] oprv = opr_v ? opr : dnow;
     // (qprobe round 6, timing) the ports' values as arguments: src reads va / vb, srcq (the
-    // request's address) the early data's registers va_q / vb_q (below), each its own mux
+    // request's address) the early read's data va_e / vb_e (below, captured at ce_b), each its
+    // own mux
     function automatic logic [15:0] src_v(input v35_src_e s, input logic [15:0] pa,
                                           input logic [15:0] pb);
         case (s)
@@ -447,16 +448,21 @@ module v35_eu
     // segment add to the on-chip compare (rq_oc_nx -> wr_hold_nx -> the registered stall).
     // `+v35_chk` compares the address formed on them with the one formed on va / vb at every
     // post (the only clock the address is read)
-    reg  [15:0] va_q = 16'd0, vb_q = 16'd0;
-    always_ff @(posedge clock) begin
-        if (ce_b) begin
-            va_q <= va_e;
-            vb_q <= vb_e;
-        end
-    end
+    // (consol) and the address itself: the choice below formed in tick A on the early read
+    // (va_e / vb_e, as x_b / y_b) and on the other sources (ce_a registers, the bus unit's datum
+    // register among them: OPR, an address read from memory), registered at ce_b (`aq_b`): the
+    // r6t repair captured the ports' data alone (va_q / vb_q), which left the read datum's lane
+    // (`dnow`, from the request's address) and the source mux on the tick-B path to the
+    // segment add, the on-chip compare and the registered stall
     function automatic logic [15:0] srcq(input v35_src_e s);
-        srcq = src_v(s, va_q, vb_q);
+        srcq = src_v(s, va_e, vb_e);
     endfunction
+    reg  [15:0] aq_b = 16'd0;
+    always_ff @(posedge clock) begin
+        if (ce_b)
+            aq_b <= word.ea == EA_DISP ? {dh, dl}
+                  : word.d1 == MD_ADDR ? srcq(word.s1) : word.d2 == MD_ADDR ? srcq(word.s2) : addr;
+    end
     wire [15:0] s1v = src(word.s1);
     wire [15:0] s2v = src(word.s2);
     // (qprobe round 6) OPRW as this word leaves it: the request's datum at a write's post
@@ -712,9 +718,8 @@ module v35_eu
     // through the EA's add (the assembler rejects a word with ea=BI that posts: the add's
     // 3-input sum ends in the address register, the request reads it a word later; README
     // "MX1", depth); the direct form's displacement (ea=DISP) is a register
-    // (qprobe round 6, timing) the ports' data from va_q / vb_q (above): the same value
-    wire [15:0] addr_q = word.ea == EA_DISP ? {dh, dl}
-                       : word.d1 == MD_ADDR ? srcq(word.s1) : word.d2 == MD_ADDR ? srcq(word.s2) : addr;
+    // (qprobe round 6, timing; consol) the address registered at ce_b (aq_b, above): the same value
+    wire [15:0] addr_q = aq_b;
     wire        ea_ss_q = word.ea == EA_NONE && ea_ss;
 
     // ------------------------------------------------------------ tick B: the write port

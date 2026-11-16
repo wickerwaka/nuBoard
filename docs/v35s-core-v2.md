@@ -2775,3 +2775,28 @@ question, decided from S8's routed numbers with the user.
   next-clock fact between modules. A consolidation step (one owner for the queue's count, one
   place for the pace rules, one stall back to the sequencer, the budget not to be raised) is
   in progress on this tree.
+- **2026-11-16, the front end consolidated: one owner for the count, one for the pace; no
+  behaviour change.** The user asked whether the modules were being coupled again: they were
+  (see the entry above). Now **the queue owns the count** (`ob`: bytes fetched and not
+  released, every threshold compare, the request line; the loader exports only this word's
+  releases `rls` and its stream facts `sf_nx`; the loader's duplicate count register and its
+  dispatch-time reset, which never acted, are gone) and **the bus unit owns the pace rules and
+  returns one hold** (`ph_nx`) to the sequencer, which presents a four-bit word-kind code
+  (`wk_nx`: dispatch, flush, release, bus-idle) decoded from the existing microword fields; the
+  facts about cycles in flight, the sequencing stage, the give-way, REQ_PRI and HALT's line
+  stop are internal to it. The bus unit's B2 write-datum latch is removed (the datum travels
+  with the request). 8 port names added, 30 removed; module outputs / inputs **152 / 178 to
+  136 / 156**: bus 22 / 18 to 17 / 17 (66e9ff7: 16 / 10), queue 17 / 17 to 15 / 10 (17 / 9),
+  loader 37 / 38 to 28 / 34 (25 / 34), sequencer 23 / 40 to 23 / 30 (20 / 29). The budget test
+  was edited with the user's approval (sequencer to bus 0 to 2, the stall bus to sequencer 5 to
+  1, EU to bus 8 to 9 with EU to sequencer 16 to 14); **from here agents may lower the budget
+  and may not raise it.** A loader reference check that fired between the ticks (a five-bit
+  reference wrapping on values nothing reads) was corrected. Proof: the small set's 21 sim
+  receipts byte-identical; corpus at both spacings 13,268 exact with 0 of 30,536 rows differing
+  from the previous landing, pin records identical run by run at the default spacing, write
+  data 106,824 / 106,824, 0 FAIL, chk silent; lint, vectors, 56 fast tests, SST, the program
+  gates and the fuzz subset line for line as before; `dma hwd` equal. **FPGA at 17 ns: +3.041
+  / +2.846 / +2.907** (the base +2.253 / +2.014 / +1.387), 10,035 LUT4 / 658 ADD / 2,582 FF /
+  90 RAM_5K; the request address is now registered a tick early (`aq_b`, about 184 LUT4), and
+  the worst paths are no longer the pace (the loader's second-level decode into the ROM
+  address; the EU's flush offset).

@@ -46,5 +46,43 @@ package v35_front_pkg;
     // byte, opaque to the queue)
     localparam int QTAG_W = 6;
 
+    // ------------------------------------------------------------ (consol) the pace's ports
+    // The bus unit owns the front end's pace (README "consol"): the sequencer presents the word's
+    // kind, the queue its count's compares, the loader the instruction stream's facts; the bus
+    // unit returns the one registered hold (ph_nx).
+    // the word's kind (the sequencer's, of the next word: wk_nx): the dispatch word (the
+    // boundary), a FLUSH word, the bus-wait kinds' two bits (rl == RL_X, bi: B bi alone, S rl=x
+    // alone, Y both)
+    typedef struct packed {
+        logic       disp, flush, rlx, bi;
+    } v35_wk_t;
+    // the queue's count against its thresholds (the bytes fetched and not released), for one
+    // clock: at most 4 / 5 (c4, c5) and with the running fetch's bytes at most 5 (cf), each with
+    // the stream not waiting for a flush's target; below 3 / 2 (lt3, lt2); b4: a word delivered
+    // with the count at most 4 (rule 4b)
+    typedef struct packed {
+        logic       c4, c5, cf, b4, lt3, lt2;
+    } v35_lvc_t;
+    // tick B: the next clock's compares before its releases, for both cases of the next clock's
+    // delivery (a: a fetched word delivered then, n: none; the bus unit selects by its own
+    // dlv_fetch_nx: the arrival's bytes and the discard of a flushed word are the queue's)
+    typedef struct packed {
+        v35_lvc_t   a, n;
+    } v35_lvn_t;
+    // tick A: this clock's count after its releases at most 4 (c4) and with the word in flight at
+    // most 5 (cf), the line at the five-held threshold (r5: the count after the releases at most
+    // 5 with a fetched word delivered now and not discarded, not suspended: the back-to-back
+    // continuation, which the bus unit allows or bars), and no byte released now (nrl)
+    typedef struct packed {
+        logic       c4, cf, r5, nrl;
+    } v35_lvq_t;
+    // the instruction stream's facts for the next clock's boundary (the loader's, tick B): the
+    // opcode register's instruction short of its lead (ld) or at its lead's end (le), its opcode
+    // has a ModR/M byte (m3: three bytes behind it), HALT released and not yet run (hp), and the
+    // word then releases a staged HALT (hc: the line drops on that word's execution)
+    typedef struct packed {
+        logic       ld, le, m3, hp, hc;
+    } v35_sf_t;
+
 
 endpackage

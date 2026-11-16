@@ -78,13 +78,13 @@ module v35_loader
     output wire [1:0]  pop_n,           // (step C) the pop: the bytes leaving the queue's head
                                         //   (tick A): an operand pop, the staging load (0 to 2)
     input  wire [15:0] q_ip,            // (step D) the queue's head byte's offset in PS (hip)
-    input  wire        flush,           // tick A: a FLUSH word executes
-    input  wire        flush_w,         // (MX5) the word's FLUSH (a register: flush = ex && flush_w)
+    input  wire        flush_w,         // (MX5) the word's FLUSH (a register; (consol) the loader
+                                        //   forms `flush` = ex && flush_w itself, as the sequencer
+                                        //   did for it: the flush input gone)
     // the sequencer (tick A)
     input  wire        ex,
     input  v35_pop_e   pop,
     input  wire        e_pop,           // the word is an E word
-    input  wire        disp,            // a DISP word executes (the format loads)
     input  wire        dispm,           // the word is a DISPM word
     input  wire        e_rep,           // (F5d) the E word re-enters the REP page (ea=REP; a register)
     input  wire        e_pfx,           // (F4q) the E word is a prefix's (pfx: a register)
@@ -126,49 +126,33 @@ module v35_loader
     input  wire        flush_w_nx,      // the next word's FLUSH, its DISPM
     input  wire        dispm_nx,
     output wire        q_stall_nx,
-    // (qprobe rules 1, 3, 4c, 4d) the queue's occupancy for the request line: the bytes fetched
-    // and not yet released. The word's releases (`ro` the next opcode, `rl` operand bytes: the
-    // sequencer's word, tick A; ro_nx the next word's, tick B), the ModR/M byte's on the first
-    // word after the dispatch (`mra`); the queue adds its own window to `oadj` (the staging
-    // register plus the bytes popped and not released, less those released and not popped: a
-    // register) and subtracts `rls` (this clock's releases, tick A)
+    // (qprobe rules 1, 3) the releases from the queue's occupancy (the bytes fetched and not yet
+    // released: the queue's count): the word's (`ro` the next opcode, `rl` operand bytes: the
+    // sequencer's word, tick A; ro_nx the next word's, tick B: the staging wait) and the ModR/M
+    // byte's on the first word after the dispatch (`mra`), counted into `rls`
     input  wire        ro,
     input  v35_rl_e    rl,
     input  wire        ro_nx,
     // (qprobe round 6) the word is the dispatch (the sequencer's registered derived bit; tick B:
     // the next word's): a release on the dispatch word (a store's N, the model's boundary word)
-    // releases the opcode the E word popped, never waits for the staging register
+    // releases the opcode the E word popped, never waits for the staging register; (consol)
+    // the dispatch executing (`disp`, the format's load) is ex && w_disp, formed here (the
+    // disp input gone)
     input  wire        w_disp,
     input  wire        w_disp_nx,
-    output reg  [3:0]  oadj,            // (two's complement, -1 to 4)
+    // (consol) this clock's releases (tick A) to the queue, which owns the count
     output wire [2:0]  rls,
-    // (qprobe rule 4) tick B: the boundary's facts on the next clock (the sequencer's registered
-    // stall): a fetched word delivered then with the count at most 4 (b4_nx: a back-to-back
-    // fetch starts at threshold 4), the count below 3 for the first boundary after a flush or
-    // a ModR/M opcode's (ew_nx)
-    output wire        b4_nx,
-    output wire        ew_nx,
-    // (qprobe rule 12) tick B: the boundary into the opcode register's instruction short of its
-    // lead (ld_nx: fewer clocks since its release than the decode's `lead`); (qprobe round 6, E)
-    // its lead ending on that clock (le_nx: LEAD_EPRI)
-    output wire        ld_nx,
-    output wire        le_nx,
-    // (qprobe round 6, B) tick B: the count on the next clock (before its releases) at most 4,
-    // at most 5, with the running fetch's bytes at most 5, each with the stream not waiting for
-    // a flush's target (the queue's pv_nx): the bus unit's stage; (E) a request word (rl=x)
-    // executed on the last clock (rqx, a register: the queue's REQ_PRI)
-    input  wire        pv_nx,
-    output wire        c4_nx,
-    output wire        c5_nx,
-    output wire        cf_nx,
-    output reg         rqx,
-    // (qprobe rule 11) HALT: the word is a halt word (the sequencer's word), the sequencer is
-    // halted (a register); the request line held low from HALT's release (tick A: `fstop`), and
-    // HALT released and not yet run (a ce_b register: the EU's request posted then is granted a
-    // clock later)
+    // (consol) tick B: the instruction stream's facts for the next clock's boundary, to the bus
+    // unit's pace (v35_front_pkg v35_sf_t): the lead (rule 12: short of it, ld; ending, le), a
+    // ModR/M opcode (three bytes behind it, rules 4c / 4d), HALT released and not yet run, and
+    // the next word releasing a staged HALT (rule 11's line stop on that word's clock). Round 6
+    // exported the count's compares from here (b4_nx, ew_nx, c4_nx, c5_nx, cf_nx: the queue's
+    // now), the lead's two facts, the request word (rqx) and HALT's stop (fstop: the bus unit's)
+    output v35_sf_t    sf_nx,
+    // (qprobe rule 11) HALT: the word is a halt word (the sequencer's word); HALT released and
+    // not yet run (`hp`; sf_nx, the bus unit's line stop), and a ce_b register of it for the EU
+    // (a request posted then is granted a clock later)
     input  wire        w_halt,
-    input  wire        halted,
-    output wire        fstop,
     output reg         hp_b,
     input  wire        brki,            // (F2b) PSW.BRKI (the EU's register): the I/O trap's dispatch
     output reg  [15:0] ins_ip,          // (F2b) the instruction's start: the offset of the opcode the
@@ -177,6 +161,10 @@ module v35_loader
     output wire [15:0] ip               // (MX2) the instruction pointer (registers): the offset of
                                         //   the byte after the last the routine popped
 );
+    // (consol) the word executing a FLUSH, the dispatch executing (ex: the sequencer's registered
+    // stall outcome; the word's bits registers)
+    wire       flush = ex && flush_w;
+    wire       disp = ex && w_disp;
     reg        s_v = 1'b0;
     reg [7:0]  s_b = 8'h00;
     reg [7:0]  op = 8'h00;              // the opcode the E word popped (the decode's input)
@@ -499,7 +487,7 @@ module v35_loader
     wire       mpop = lrv.mpop;
     // (ltx: the function's outcomes the registered ones are checked against, `+v35_chk`; df.trap:
     // the trace's and the function bench's start_trap, v35_top's observation block)
-    wire unused = &{1'b0, ds, dm, q_avail, ltx, df.trap, lrv.rd[2]};
+    wire unused = &{1'b0, rls_b, ds, dm, q_avail, ltx, df.trap, lrv.rd[2]};
     wire [2:0] need_n = ltx.need_n;
     wire       sload = ltx.sload;
     assign pop_n = lrv.rd[1:0];         // (rd[2]: 0, at most two bytes a clock)
@@ -645,8 +633,6 @@ module v35_loader
     reg  [2:0] rls_b = 3'd0;            // (qprobe) this clock's releases
     reg        ex_lb = 1'b0;            // (qprobe) the word executes
     reg        ro_b = 1'b0;             // (qprobe rule 12) the next opcode released now
-    reg        rx_b = 1'b0;             // (qprobe round 6, E) a request word (rl=x) executes now
-    initial rqx = 1'b0;
     reg        hrel_b = 1'b0, hw_b = 1'b0;     // (qprobe rule 11) HALT released now; the halt word
     initial hp_b = 1'b0;
     always_ff @(posedge clock) begin
@@ -654,7 +640,6 @@ module v35_loader
             rls_b <= rls;
             ex_lb <= ex;
             ro_b <= ex && ro;
-            rx_b <= ex && rl == RL_X;
             hrel_b <= hrel;
             hw_b <= ex && w_halt;
             hp_b <= hp || hrel;
@@ -678,24 +663,18 @@ module v35_loader
         end
     end
 
-    // ------------------------------------------------------------ (qprobe) the occupancy
-    // The model's count (validation/v35s/qprobe/model.py) is the bytes fetched and not released:
-    // the queue's window, the staging register, plus `d` = the bytes popped (into the opcode,
-    // ModR/M, immediate and displacement registers) less the bytes released. The pops and the
-    // releases are each the machine's own events; d returns to the E word's second byte (a
-    // ModR/M byte, a short transfer's displacement, the 0F / REP page's byte: popped, released
-    // by the routine) at every dispatch, and to 0 at a flush, where it is set so (a routine
-    // whose releases do not match its pops cannot carry the count past its instruction:
-    // `+v35_chk` counts the dispatches where it would).
+    // ------------------------------------------------------------ (qprobe) the releases
+    // The model's count (validation/v35s/qprobe/model.py) is the bytes fetched and not released.
+    // (consol) The queue owns it (v35_queue `ob`); the loader counts the releases (`rls`: the
+    // word's ro and rl, and the ModR/M byte's below) and the stream facts the boundary reads
+    // (sf_nx). Round 6 kept the bytes taken out of the queue and not released here (`oadj`, with
+    // its dispatch-time reset to the staging register and the E word's second byte): that
+    // register is now the simulation's reference (`oadj_ref`, below), against which the queue's
+    // count is compared every clock.
     //   mra  (rule 3) the ModR/M (or page) byte the E word popped is released on the first word
     //        executed after the dispatch (the routine's first word, or its EA head's)
-    //   aft  (rule 4c) a flush executed and no dispatch since: the first boundary of the stream
-    reg  [2:0] d = 3'd0;                // two's complement, -1 to 3
-    reg        mpp = 1'b0;              // the last E word popped a second byte
-    reg        mpm = 1'b0;              // ... a ModR/M or page byte (not a displacement)
+    reg        mpm = 1'b0;              // the last E word popped a ModR/M or page byte (not a displacement)
     reg        mra = 1'b0;
-    reg        aft = 1'b0;
-    initial oadj = 4'd0;
     //   lc   (rule 12) the clocks since the last release of a next opcode (`ro`), at most 3: the
     //        dispatch into the opcode register's instruction waits while lc is below the
     //        decode's lead (the staged opcode released at t, its boundary at t + lead at the
@@ -703,21 +682,15 @@ module v35_loader
     //   hp   (rule 11) HALT's opcode released and the halt word not yet run (cleared there, or
     //        at a flush: an interrupt taken at HALT's dispatch). From the release (`hrel`: a
     //        word releasing the staged opcode HALT: the staged opcode's decode `hlt`) the request line
-    //        is low (`fstop`, with the halted state after it), and a request the EU posts is
-    //        granted a clock later (the EU's, from hp_b)
+    //        is low (the bus unit's, from sf_nx: hp, and hc for the releasing word's own
+    //        clock), and a request the EU posts is granted a clock later (the EU's, from hp_b)
     reg  [2:0] lc = 3'd4;           // (qprobe round 6) to 4: a lead of 3 ending is seen once
     reg        hp = 1'b0;
     wire       hrel = ex && ro && s_v && ds.hlt;
-    assign fstop = hp || hrel || halted;
     // (rl=X: a request word, no byte released)
     assign rls = !ex ? 3'd0 : {2'd0, ro} + ((rl == RL_X) ? 3'd0 : {1'd0, rl}) + {2'd0, mra};
-    wire [2:0] pops_b = {2'd0, opop_b} + {2'd0, mpop_b} + {2'd0, epop_b};
-    wire [2:0] d_run = d + pops_b - rls_b;
-    wire [2:0] d_nx = flush_b ? 3'd0 : disp_b ? {2'd0, mpp} : d_run;
-    wire       mpp_nx = epop_b ? mpop_b : mpp;
     wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : mpm;
     wire       mra_nx = flush_b ? 1'b0 : disp_b ? mpm : ex_lb ? 1'b0 : mra;
-    wire       aft_nx = flush_b ? 1'b1 : disp_b ? 1'b0 : aft;
     wire [2:0] lc_nx = ro_b ? 3'd1 : lc == 3'd4 ? 3'd4 : lc + 3'd1;
     wire       hp_nx = hrel_b ? 1'b1 : (flush_b || hw_b) ? 1'b0 : hp;
     // ------------------------------------------------------------ the end of the clock (ce_a)
@@ -733,42 +706,12 @@ module v35_loader
                          + (!arrive_nx ? 4'd0 : q_odd_nx ? 4'd1 : 4'd2);
     wire [2:0] av_nx = av_w_nx > 4'd7 ? 3'd7 : av_w_nx[2:0];
     wire [1:0] sn_nx = sn_f(av_nx);
-    // (qprobe) the occupancy's adjustment and the count on the next clock (before its releases:
-    // a dispatch word releases nothing, and mra is never set on a dispatch's clock)
-    wire [3:0] oadj_nx = {3'd0, s_v_nx} + {d_nx[2], d_nx};
-    // (qprobe round 6, timing) the compares on the count (occ_nx, below) moved ahead of the
-    // queue's late next count: occ_nx <= t is q_stored_nx <= t - oadj_nx - the arriving bytes
-    // (by arrive_nx), the right side formed from the loader's ce_b registers and the arrival's
-    // parity; the same integers (6-bit signed: no wrap), `+v35_chk` compares them with occ_nx's
-    wire signed [5:0] oa_s = {{2{oadj_nx[3]}}, oadj_nx};
-    wire signed [5:0] ar_s = q_odd_nx ? 6'sd1 : 6'sd2;
-    wire signed [5:0] st_s = {3'b000, q_stored_nx};
-    function automatic logic ole(input logic signed [5:0] t);   // occ_nx <= t
-        ole = arrive_nx ? (st_s <= t - oa_s - ar_s) : (st_s <= t - oa_s);
-    endfunction
-    assign b4_nx = arrive_nx && ole(6'sd4);     // (qprobe rule 4b: the threshold 4)
-    assign ew_nx = ((ole(6'sd2)                 // (qprobe rules 4c, 4d: 3 bytes)
-                     && (aft_nx || d1_nx.has_modrm))
-                    // (qprobe round 6, D) any boundary: two bytes behind the staged opcode (EMIN)
-                    || ole(6'sd1))
-                   // (qprobe rule 11) not for bytes that will not come: HALT released, the
-                   // line low (a take routine's refetch of HALT after its flush)
-                   && !hp_nx;
-    assign ld_nx = lc_nx < {1'b0, d1_nx.lead};              // (qprobe rule 12)
-    assign le_nx = d1_nx.lead != 2'd0 && lc_nx == {1'b0, d1_nx.lead};   // (qprobe round 6, E)
-    assign c4_nx = pv_nx && ole(6'sd4);         // (qprobe round 6, B)
-    assign c5_nx = pv_nx && ole(6'sd5);
-    assign cf_nx = pv_nx && ole(6'sd5 - ar_s);
-`ifndef SYNTHESIS
-    // the reference: the count itself and the compares on it
-    wire [4:0] occ_nx = {1'b0, av_w_nx} + {oadj_nx[3], oadj_nx};
-    wire       occ_ok = b4_nx == (arrive_nx && $signed(occ_nx) <= 5'sd4)
-                        && ew_nx == ((($signed(occ_nx) < 5'sd3 && (aft_nx || d1_nx.has_modrm))
-                                      || $signed(occ_nx) < 5'sd2) && !hp_nx)
-                        && c4_nx == (pv_nx && $signed(occ_nx) <= 5'sd4)
-                        && c5_nx == (pv_nx && $signed(occ_nx) <= 5'sd5)
-                        && cf_nx == (pv_nx && $signed(occ_nx) + (q_odd_nx ? 5'sd1 : 5'sd2) <= 5'sd5);
-`endif
+    // (consol) the stream facts for the next clock's boundary (the bus unit's pace)
+    assign sf_nx.ld = lc_nx < {1'b0, d1_nx.lead};                      // (qprobe rule 12)
+    assign sf_nx.le = d1_nx.lead != 2'd0 && lc_nx == {1'b0, d1_nx.lead};    // (round 6, E)
+    assign sf_nx.m3 = d1_nx.has_modrm;                                  // (rules 4c, 4d)
+    assign sf_nx.hp = hp_nx;                                            // (rule 11)
+    assign sf_nx.hc = ro_nx && s_v_nx && ds_nx.hlt;     // (rule 11: hrel on the next clock, but ex)
     wire       ds2_nx = (ds_nx.has_modrm || ds_nx.e2 || ds_nx.pg) && !e_rep_nx;
     assign q_stall_nx = (pop_nx != PP_NONE && sn_nx == 2'd0)
                         || (e_pop_nx && (!s_v_nx || (ds2_nx && sn_nx == 2'd0)))
@@ -848,23 +791,13 @@ module v35_loader
     end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
-            d <= 3'd0;
-            mpp <= 1'b0;
             mpm <= 1'b0;
             mra <= 1'b0;
-            aft <= 1'b0;
-            oadj <= 4'd0;
             lc <= 3'd4;
             hp <= 1'b0;
-            rqx <= 1'b0;
         end else if (ce_a) begin
-            rqx <= rx_b;
-            d <= d_nx;
-            mpp <= mpp_nx;
             mpm <= mpm_nx;
             mra <= mra_nx;
-            aft <= aft_nx;
-            oadj <= oadj_nx;
             lc <= lc_nx;
             hp <= hp_nx;
         end
@@ -934,7 +867,7 @@ module v35_loader
     initial chk_on = $test$plusargs("v35_chk");
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
-            if ((s_v && ds !== v35_udec1(s_b)) || flush !== (ex && flush_w) || df !== dsp_f(op, mp) || hh !== hd_ref(sb0, df.eab) || d1r !== v35_udec1(op)
+            if ((s_v && ds !== v35_udec1(s_b)) || df !== dsp_f(op, mp) || hh !== hd_ref(sb0, df.eab) || d1r !== v35_udec1(op)
                 || imo !== im_f(op) || (s_v && ims !== im_f(s_b))
                 || (q_stored != 3'd0 && h_q0t !== bt_f(h_q0))
                 || (ex ? z1 : need == 3'd0) !== (need_n == 3'd0)
@@ -951,7 +884,7 @@ module v35_loader
     end
     // (MX5c) every clock: the registered outcomes against the function's
     always @(posedge clock) begin
-        if (chk_on && reset_n && (lrs !== lrg_f(ltx) || z1f !== z1 || d2ent !== dec2r.entry || !occ_ok
+        if (chk_on && reset_n && (lrs !== lrg_f(ltx) || z1f !== z1 || d2ent !== dec2r.entry
                                   || fe_lo !== d2fe_all(h_dlv[7:0]) || fe_hi !== d2fe_all(h_dlv[15:8])
                                   || tg_lo !== bt_f(h_dlv[7:0]) || tg_hi !== bt_f(h_dlv[15:8])
                                   || zc !== zc_f(ln, flush_w, ims, imo))) begin
@@ -960,18 +893,37 @@ module v35_loader
                 $display("v35 chk: loader: the registered outcomes differ at %0t", $time);
         end
     end
-    // (qprobe) a dispatch where the releases did not match the pops (d set back), the stored
-    // adjustment against its parts, and the release count's ce_b copy
+    // (qprobe) a dispatch where the releases did not match the pops (the count set back), the
+    // stored adjustment against its parts ((consol) the removed register `d`, the bytes popped
+    // into the registers less the releases, kept here as the reference), and the release
+    // count's ce_b copy
+    reg  [2:0] d_ref = 3'd0;
+    reg  [3:0] oadj_ref = 4'd0;         // (consol) round 6's oadj (the queue's count's reference)
+    reg        mpp = 1'b0;              // the last E word popped a second byte
+    wire [2:0] pops_rb = {2'd0, opop_b} + {2'd0, mpop_b} + {2'd0, epop_b};
+    wire [3:0] np_b = {3'd0, opop_b || mpop_b} + {3'd0, sload_b};
+    wire [3:0] oadj_run = oadj_ref + np_b - {1'b0, rls_b};
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            d_ref <= 3'd0;
+            oadj_ref <= 4'd0;
+            mpp <= 1'b0;
+        end else if (ce_a) begin
+            d_ref <= flush_b ? 3'd0 : disp_b ? {2'd0, mpp} : d_ref + pops_rb - rls_b;
+            oadj_ref <= flush_b ? 4'd0 : disp_b ? {3'd0, s_v_nx} + {3'd0, mpp} : oadj_run;
+            mpp <= epop_b ? mpop_b : mpp;
+        end
+    end
     integer rsync_n = 0;
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
-            if (disp_b && !flush_b && d_run != {2'd0, mpp}) begin
+            if (disp_b && !flush_b && oadj_run != {3'd0, s_v_nx} + {3'd0, mpp}) begin
                 rsync_n = rsync_n + 1;
                 if (rsync_n <= 20)
                     $display("v35 chk: loader: releases against pops off by %0d at a dispatch at %0t",
-                             $signed(d_run) - $signed({1'b0, mpp}), $time);
+                             $signed(oadj_run) - $signed({3'd0, s_v_nx} + {3'd0, mpp}), $time);
             end
-            if (rls_b !== rls || ex_lb !== ex || oadj !== {3'd0, s_v} + {d[2], d}
+            if (rls_b !== rls || ex_lb !== ex || oadj_ref !== {3'd0, s_v} + {d_ref[2], d_ref}
                 || ro_b !== (ex && ro) || hrel_b !== hrel || hw_b !== (ex && w_halt)) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)

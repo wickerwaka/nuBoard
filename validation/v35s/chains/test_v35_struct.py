@@ -147,7 +147,9 @@ BUS_INPUTS = {"clock", "reset_n", "ce_a", "ce_b", "ce_e", "ce_mid", "wtc", "data
               "hrq", "rdy_en", "rdy_lv",                          # (F4d) HLDRQ, PMC1 bit 7, READY (v35_sfr's registers: pins)
               # (qprobe round 6) the sequencing stage's facts: the EU's request standing next,
               # the loader's count next and this clock's releases, the queue's count and give-way
-              "eu_rq_nx", "c4_nx", "c5_nx", "cf_nx", "rls", "c4_q", "cf_q", "gwy"}
+              # (consol) the pace's owner: the next word's kind, the word executing, the EU's
+              # memory request standing next, the queue's count compares, the loader's stream facts
+              "eu_rq_nx", "wk_nx", "ex", "rqm_nx", "lv_q", "lv_nx", "sf_nx"}
 # (step C) the queue's whole port list: the FIFO's ports (fetch, read, pop, control) and the
 # facts step C left in place (the tags, the head facts the loader's head select reads, the next
 # values); (step D) the legacy room inputs and outputs (rel, stg, abort_go, q_low, q_word,
@@ -160,12 +162,12 @@ QUEUE_PORTS = {
               "dlv_tag",                                          # the tags (left by step C)
               # (qprobe rules 1, 2) the occupancy's other parts (the loader's) and the dispatch
               # word executing (the back-to-back threshold's)
-              "oadj", "rls", "bnd",
+              "rls",
               # (qprobe rule 11) prefetching stopped (the loader's: HALT released)
-              "fstop",
-              # (qprobe round 6) the give-way and REQ_PRI: the bus unit's stage (pend, an EU
-              # cycle's end), the sequencer's lead priority, the loader's request word
-              "pend", "eud", "lpri", "rqx"},
+              # (qprobe round 6) the give-way and REQ_PRI: the sequencer's give-way, the
+              # loader's request word ((consol) the bus unit's pend and EU delivery gone: the
+              # sequencer forms the whole give-way, EU_EPRI with LEAD_EPRI)
+              },
     "output": {"fetch_req", "fetch_addr",                         # the fetch port
                "vb0", "vb1", "avail", "hip",                      # the read port
                "stored", "h_q0", "h_odd",                         # the head facts (MX5b)
@@ -174,7 +176,7 @@ QUEUE_PORTS = {
                                                                   # latch's facts gone)
                # (qprobe round 6) the bus unit's stage's facts: the line given way, the count's
                # compares (tick A), the flush wait's end next (pv_nx)
-               "gwy", "c4_q", "cf_q", "pv_nx"},
+               "lv_q", "lv_nx"},
 }
 INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t", "v35_uword_t",
                "v35_udec_t", "v35_udecm_t")
@@ -235,7 +237,7 @@ class Ports(unittest.TestCase):
             return
         outs = {n for d, _, n in ports("v35_queue.sv") if d == "output" and n.endswith("_nx")}
         # (qprobe round 6) and the flush wait's end on the next clock (flw's D net, below)
-        self.assertEqual(outs, {"stored_nx", "odd_nx", "discard_nx", "pv_nx"})
+        self.assertEqual(outs, {"stored_nx", "odd_nx", "discard_nx", "lv_nx"})
         text = strip((V35 / "v35_queue.sv").read_text())
         self.assertRegex(text, r"cnt\s*<=\s*stored_nx\s*;")
 
@@ -381,25 +383,29 @@ CORE_INSTANCES = {
 # give-way; out: sl_nx, fy_nx to the sequencer, pend to the queue), the queue's give-way and
 # REQ_PRI inputs (pend, eud, lpri, rqx) and pv_nx, the loader's le_nx / c*_nx / rqx and the
 # sequencer's dispatch bit into it, the EU's rqm_nx (E_PEND); rules 9 and 10's f3_nx / f4_nx gone
+# (consol, README "consol") lowered: bus 22/18 -> 21/18, queue 17/17 -> 17/15, loader 37/38 ->
+# 36/35, useq 23/40 -> 23/39; bus -> queue 5 -> 3, loader -> useq 16 -> 15, useq -> loader 21 -> 18
+# (fl_nx into cb_nx, ld_nx into ew_nx; the give-way whole in the sequencer, the queue's pend /
+# eud gone; halted into q_susp; the loader forms flush and disp itself)
 BUDGET_MODULE = {
-    "bus": {"out": 22, "in": 18},
-    "queue": {"out": 17, "in": 17},
-    "loader": {"out": 37, "in": 38},
-    "useq": {"out": 23, "in": 40},
+    "bus": {"out": 17, "in": 17},
+    "queue": {"out": 15, "in": 10},
+    "loader": {"out": 28, "in": 34},
+    "useq": {"out": 23, "in": 30},
     "eu": {"out": 37, "in": 38},
     "regram": {"out": 3, "in": 13},
     "intc": {"out": 13, "in": 14},
 }
 BUDGET_PAIR = {
-    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 5,
+    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 3,
     ("bus", "regram"): 5,
-    ("eu", "bus"): 8, ("eu", "intc"): 3, ("eu", "loader"): 1, ("eu", "queue"): 2,
-    ("eu", "regram"): 8, ("eu", "useq"): 16, ("bus", "useq"): 5,
+    ("eu", "bus"): 9, ("eu", "intc"): 3, ("eu", "loader"): 1, ("eu", "queue"): 2,
+    ("eu", "regram"): 8, ("eu", "useq"): 14, ("bus", "useq"): 1, ("useq", "bus"): 2,
     ("intc", "eu"): 10, ("intc", "useq"): 3,
-    ("loader", "bus"): 4, ("loader", "eu"): 14, ("loader", "queue"): 6, ("loader", "useq"): 16,
-    ("queue", "bus"): 5, ("queue", "loader"): 12,
+    ("loader", "bus"): 1, ("loader", "eu"): 14, ("loader", "queue"): 3, ("loader", "useq"): 12,
+    ("queue", "bus"): 4, ("queue", "loader"): 11,
     ("regram", "bus"): 1, ("regram", "eu"): 2,
-    ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 21, ("useq", "queue"): 4,
+    ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 18, ("useq", "queue"): 2,
 }
 # the next-value outputs left at step D (none may be added), each with its reader: the bus
 # unit's delivery (loader q_dlv_nx: q_stall_nx's byte count), datum register (loader h_dlv_nx:
@@ -420,12 +426,12 @@ BUDGET_PAIR = {
 # facts), the loader's lead end and count facts (le_nx: useq; c4_nx, c5_nx, cf_nx: the bus
 # unit's stage), the sequencer's dispatch bit (w_disp_nx: the loader's q_stall_nx), the EU's
 # memory request standing (rqm_nx: useq, E_PEND)
+# (consol) fl_nx folded into cb_nx (the boundary read them only together), ld_nx into ew_nx
 NX_OUTPUTS = {
-    "bus": {"dlv_fetch_nx", "done_nx", "eu_done_nx", "fb_nx", "fl_nx", "cb_nx", "sl_nx", "fy_nx"},
-    "queue": {"discard_nx", "odd_nx", "stored_nx", "pv_nx"},
-    "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx", "b4_nx", "ew_nx", "ld_nx", "le_nx",
-               "c4_nx", "c5_nx", "cf_nx"},
-    "useq": {"w_dispm_nx", "w_erep_nx", "word_nx", "w_disp_nx"},
+    "bus": {"dlv_fetch_nx", "done_nx", "eu_done_nx", "ph_nx"},
+    "queue": {"discard_nx", "odd_nx", "stored_nx", "lv_nx"},
+    "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx", "sf_nx"},
+    "useq": {"w_dispm_nx", "w_erep_nx", "word_nx", "w_disp_nx", "wk_nx"},
     "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx", "req_v_nx", "rqm_nx"},
 }
 # (step D) the removed rule-only terms: no identifier of these may reappear in the core's RTL

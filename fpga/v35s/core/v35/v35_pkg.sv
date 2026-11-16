@@ -226,6 +226,7 @@ package v35_pkg;
         RL_0 = 2'd0, RL_1 = 2'd1, RL_2 = 2'd2, RL_X = 2'd3
     } v35_rl_e;
 
+
     localparam int UADDR_W = 11;      // (MX1b) 2,048 words: the ROM passed 1,024
 
     // ---- the microinstruction (MSB first) ----

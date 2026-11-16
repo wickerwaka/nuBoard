@@ -7562,3 +7562,45 @@ Each mechanism is named in the RTL with "qprobe round 6" and the work order's le
   on timing exactly as on the round-5 tree; `dma hwd` EQUAL. Found on the way: an on-chip
   store whose E word also posted lost the RAMEN hold (banks f3_bins DIFFER: MOVSPA read the PSW
   save before MOV [d16],AW's store landed); the stores' post and E are on separate words.
+
+## consol: the front end's pace consolidated (no behaviour change)
+
+Round 6 built each measured front-end rule as its own next-clock fact, exported from the module
+that knew it to the module that needed it, with the stall formed in the sequencer. This step
+keeps every CPU-clock-visible behaviour (the qprobe small set's sim receipts byte-identical, the
+corpus pin records identical run by run, the program gates' lines unchanged) and gives each
+mechanism one owner.
+
+- **The count: the queue's.** `ob` (v35_queue) is the bytes fetched and not released, this
+  clock's delivery not yet counted: plus the delivered bytes, less the releases (`rls`, the
+  loader's count of the word's ro / rl and the ModR/M byte's), 0 at a flush. The queue forms
+  every compare on it: the line (at most 4), and for the pace this clock's after the releases
+  (`lv_q`: c4, cf, the five-held line r5, no release nrl) and the next clock's before them for
+  either delivery (`lv_nx`: c4, c5, cf, b4, lt3, lt2; the bus unit selects by its own
+  dlv_fetch_nx). Round 6 split it: the window here, `oadj` in the loader (the bytes taken out of
+  the queue and not released, with a dispatch-time reset that never acted), compared in two
+  modules at two ticks. `+v35_chk` compares `ob` with the window and the loader's simulation
+  reference (`oadj_ref`) at every ce_a (v35_top).
+- **The pace: the bus unit's.** It reads the next word's kind (`wk_nx`, v35_front_pkg v35_wk_t:
+  the dispatch word, a FLUSH word, rl == RL_X, bi) and the stall outcome (`ex`) from the
+  sequencer, the EU's request standing and memory request standing next, the queue's compares,
+  the loader's stream facts (`sf_nx`: the lead short / ending, a ModR/M opcode, HALT released, the
+  next word releasing a staged HALT), and returns one registered hold (`ph_nx`: the boundary's
+  waits, the B / S / Y words' waits). Inside it: the slot stage as before, the stream's first
+  boundary (`aft`), REQ_PRI's request word (`rqx`), the give-way (EU_EPRI, LEAD_EPRI), HALT's line
+  stop, the five-held continuation's exceptions. Round 6 exported fb_nx, fl_nx, cb_nx, sl_nx,
+  fy_nx from here, b4_nx, ew_nx, ld_nx, le_nx, c4_nx, c5_nx, cf_nx, rqx and fstop from the
+  loader, c4_q, cf_q, gwy, pv_nx from the queue, and formed the stall and `lpri` in the
+  sequencer. The sequencer's stall is now q, f, slot, hold, halt and `pace` (the trace's W keeps
+  6 for a dispatch word's, 7 for a bus-wait kind's).
+- **Halted suspends prefetch** (`q_susp`); the loader forms `flush` and `disp` from the bits it
+  reads; the bus unit's B2 write-datum latch is gone (the request datum `rq_d` is stable from
+  the post to the cycle's end; `+v35_chk` keeps the capture as the reference).
+- **The loader's chk** fired on its tick-B count reference between ce_a and ce_b, where those
+  nets mix new and stale registers (a don't-care): a 5-bit wrap in the reference. Now 6 bits,
+  and the count is the queue's.
+- **Timing (behaviour-neutral).** The r6t repair's fixes A-C and the timing wrapper's parser fix
+  are taken (D's compares are the queue's lv_nx, formed from its registers, the delivery
+  selected last in the bus unit). A carried further: the request's whole address is a ce_b
+  register (`aq_b`), so only the segment's add and the on-chip compare remain in tick B before
+  the RAMEN hold reaches the registered stall.
