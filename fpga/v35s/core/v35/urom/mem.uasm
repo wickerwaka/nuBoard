@@ -31,8 +31,7 @@ routine rmw diff=m00:+2,d8:+2,d16:+1,dir:+2 op=01 mod=mem ea=q book="ADD mem,reg
     bus=MEMR                                ; post the read (Y + 3)
     f ra=REG alu=GRP ax=OPR ay=RA wf        ; D: F: the datum and the register; the ALU op, flags (W) (0000)
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (0001 SIGMA -> M: the write two clocks after the datum word)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN)
-    ro                                      ; post-E: N on the boundary word (the model's): released when the dispatch executes
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 routine rmw_b diff=m00:+1,d8:+1,d16:+1,dir:+1 op=00,08,09,10,11,18,19,20,21,28,29,30,31 mod=mem book="ADD mem,reg" why="(qprobe round 8: the round-6 routine kept for the byte form and the other ALU ops; the measured ADD [mem],AW shape is rmw's, op 01 only: by analogy these lost corpus runs) OPEN: the add, the read's post, F with the ALU (0000), the write's post (0001: the write two clocks after the datum), E held to its end (RAMEN) (F5-push-add_m_aw-k2-pE-w0: S 95, P:read 100, the write 105, S-to-S 13: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
@@ -48,33 +47,38 @@ routine cmp_mr diff=m00:+2,d8:+2,d16:+2,dir:+2 op=38,39 mod=mem book="CMP mem,re
     f ra=REG alu=GRP ax=OPR ay=RA wf        ; F: the datum and the register; CMP, flags (W)
     e                                       ; E: the write-back word, its write suppressed (CMP)
 ; TEST mem,reg (V20 TEST_RM 0044-0045: M -> tmpa, R -> tmpb; AND; SIGMA -> NULL)
-routine test_m8 diff=m00:-1,d8:-1,d16:-1,dir:-1 op=84 mod=mem book="TEST mem,reg" width=byte why="OPEN: the read, seven clocks no act names under the cycle, F with the AND on the clock before E (F5-push-test_m_aw-k2-pE-w0: S 94, P:read 99, S-to-S 13: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
-    bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    open call=w6                            ; OPEN: 7 clocks: a clock of the model's with no act (TEST mem,reg) (the call and the shared delay's 6)
-    f ra=REG alu=AND ax=OPR ay=RA wf        ; F: the datum and the register; AND, flags (W) (0044)
-    e                                       ; E (TEST writes nothing)
-routine test_m16 op=85 mod=mem book="TEST mem,reg" width=word why="OPEN: the read, seven clocks no act names under the cycle, F with the AND on the clock before E (F5-push-test_m_aw-k2-pE-w0: S 94, P:read 99, S-to-S 13: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
-    bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    open call=w6                            ; OPEN: 7 clocks: a clock of the model's with no act (TEST mem,reg) (the call and the shared delay's 6)
-    f ra=REG alu=AND ax=OPR ay=RA wf        ; F: the datum and the register; AND, flags (W) (0044)
-    e                                       ; E (TEST writes nothing)
+routine test_m8 diff=m00:-3,d8:-2,d16:-2,dir:-1 op=84 mod=mem ea=bare book="TEST mem,reg" width=byte why="OPEN: book error where the routine is shorter (silicon's measured shape below): (qprobe round 9, Q25) TEST [BW],AW is `P . B Y DN .` (the qprobe testm runs, 24 / 24 in the model): TEST r,r's bus-idle third word, then a load: the add (the ModR/M byte released by the loader), a word with no act, B (bus-idle: waits while a fetch's pin cycle runs), Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post (Y + 3), D N (F: AND, flags; E); measured: the word form at [BW]; the byte form and the displacement modes (the bare heads' pops before the add) by analogy; before round 9: the read, seven clocks no act names under the cycle, F with the AND on the clock before E (F5-push-test_m_aw-k2-pE-w0)"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    bi                                      ; (qprobe round 9, Q25) B: TEST's bus-idle third word (waits while a fetch's pin cycle runs)
+    rl=x bi                                 ; (qprobe round 9) Y: the request word (the read due four clocks after it, posted three words later)
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    bus=MEMR                                ; post the read (Y + 3)
+    f ra=REG alu=AND ax=OPR ay=RA wf e ro   ; D N: F: the datum and the register; AND, flags (W) (0044); E (TEST writes nothing); N
+routine test_m16 diff=m00:-2,d8:-1,d16:-1 op=85 mod=mem ea=bare book="TEST mem,reg" width=word why="OPEN: book error where the routine is shorter (silicon's measured shape below): (qprobe round 9, Q25) TEST [BW],AW is `P . B Y DN .` (the qprobe testm runs, 24 / 24 in the model): TEST r,r's bus-idle third word, then a load: the add (the ModR/M byte released by the loader), a word with no act, B (bus-idle: waits while a fetch's pin cycle runs), Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post (Y + 3), D N (F: AND, flags; E); measured: the word form at [BW]; the byte form and the displacement modes (the bare heads' pops before the add) by analogy; before round 9: the read, seven clocks no act names under the cycle, F with the AND on the clock before E (F5-push-test_m_aw-k2-pE-w0)"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    bi                                      ; (qprobe round 9, Q25) B: TEST's bus-idle third word (waits while a fetch's pin cycle runs)
+    rl=x bi                                 ; (qprobe round 9) Y: the request word (the read due four clocks after it, posted three words later)
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    bus=MEMR                                ; post the read (Y + 3)
+    f ra=REG alu=AND ax=OPR ay=RA wf e ro   ; D N: F: the datum and the register; AND, flags (W) (0044); E (TEST writes nothing); N
 ; XCH mem,reg (V20 XCHG_RM 0048-004A: M -> tmpa, R -> tmpb; tmpa -> R [-06-]; tmpb -> M)
-routine xch_m diff=m00:+2,d8:+2,d16:+2,dir:+2 op=86,87 mod=mem book="XCH mem,reg" why="OPEN: the read, F: the register into the write datum and the datum into the register (0048-0049), three clocks no act names, the write's post (004A), E held (F5-push-xch_m_aw-k2-pE-w0: S 96, P:read 101, the write 108, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
-    bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f ra=REG d1=OPRW s1=RA wr=REG ws=OPR        ; F: the register into the write datum (0048), the datum into the register (0049); the reservation
-    open call=w2                            ; OPEN: 3 clocks: a clock of the model's with no act (XCH mem,reg) (the call and the shared delay's 2)
-    bus=MEMW                                ; post the write (004A tmpb -> M)
-    e                                       ; E: held until the write's end (RAMEN)
+routine xch_m diff=m00:+2,d8:+2,d16:+1,dir:+2 op=86,87 mod=mem ea=q book="XCH mem,reg" why="OPEN: silicon longer than the book (measured; the extra words OPEN): (qprobe round 9, Q25) XCH [BW],AW is `P Y . . D . Z G N .` (the qprobe xchm runs, 24 / 24 in the model): the read as a load (the measured heads, ea=q: the request word on word 2), the read's post (Y + 3), D (F: the register into the write datum, the datum into the register, 0048-0049), two words with no act, Z (the write's post: the write four clocks after the datum word, ADD [BW],r's two later), E with N (G N: a bus-idle word, it waits while a fetch's pin cycle runs: the posted write wins the bus on the first clock no fetch runs, so N is released on the write's first clock; an on-chip store holds it to the write's end: RAMEN); measured: the word form at [BW]; the byte form and the other EA modes by analogy (the heads); before round 9: the read, F, three clocks no act names, the write's post, E held (F5-push-xch_m_aw-k2-pE-w0)"
+    bus=MEMR                                ; post the read (Y + 3)
+    f ra=REG d1=OPRW s1=RA wr=REG ws=OPR    ; D: F: the register into the write datum (0048), the datum into the register (0049)
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    bus=MEMW                                ; Z: post the write (004A tmpb -> M: four clocks after the datum word)
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 ; ---- stores (V20 MOV_RM 004C-004D, the store direction: R -> tmpa, tmpa -> M; the operand
 ; pre-read suppressed, pla_3 MODRM_STORE)
 routine st diff=m00:+2,d8:+2,d16:+1,dir:+2 op=88,89 mod=mem ea=q book="MOV mem,reg" why="beyond the book: a named act, the request word (Y) and the post on words of their own (the qprobe sbw, sd8, sdir runs); beyond the book by two at EA 3 and one at mod 10 in the book check's machine (E held to the write's end: the on-chip timing, the post and E on words of their own); OPEN: (qprobe round 6) MOV mem,r is `P Y . N`, `P Y . P N`, `P Y . PP N` (the qprobe sbw, sd8, sdir runs; model_m.py S_*): the measured heads (ea=q), the register's read with the post on word 5 (Y + 3), E, the boundary with N (the model's last word) on the write's last clock (rule 7, E_PEND); book error where the routine is shorter, silicon longer than the book where it is longer"
     ra=REG d1=OPRW s1=RA bus=MEMW           ; the register into the write datum (004C); post the write (004D)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN: the function-bearing hold)
-    ro                                      ; post-E: N on the boundary word (the model's): released when the dispatch executes, on the write's last clock
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 ; MOV mem,imm (C6 / C7 /0): the immediate popped after the EA (the V20's routine pops it after
 ; the loader's EA), into the write datum, the post
@@ -84,12 +88,22 @@ routine st_imm8 diff=m00:-1,dir:+1 op=C6 mod=mem reg=0,1,2,3,4,5,6,7 ea=bare boo
     d1=OPRW s1=IMM bus=MEMW                 ; the immediate into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
 
-routine st_imm16 diff=d8:+1,d16:+1,dir:+2 op=C7 mod=mem reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=word why="the add, the immediate's two pops, the datum with the post, E held to the write's end: the book's EA + 6 at mod 00 (silicon's 10: a6 MOV word [BW],0x1234); the displacement's pops the book's EA does not resolve: d8 +1, d16 +1, the direct form +2 (no OPEN word: ea=bare)"
+routine st_imm16 diff=d8:+1,d16:+1,dir:+2 op=C7 mod=mem paths=d8,d16,dir reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=word why="(qprobe round 9: the displacement modes keep this routine; the modes without a displacement are st_imm16z) the add, the immediate's two pops, the datum with the post, E held to the write's end: the book's EA + 6 at mod 00 (silicon's 10: a6 MOV word [BW],0x1234); the displacement's pops the book's EA does not resolve: d8 +1, d16 +1, the direct form +2 (no OPEN word: ea=bare)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     pop=il                                  ; pop the immediate's low byte
     pop=ih                                  ; pop its high byte
     d1=OPRW s1=IMM bus=MEMW                 ; the immediate into the write datum; post the write
     e                                       ; E: held until the write's end (RAMEN)
+
+routine st_imm16z diff=m00:+3 op=C7 mod=mem reg=0,1,2,3,4,5,6,7 paths=m00 ea=bare book="MOV mem,imm" width=word why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 9, Q25, item C) MOV word [BW],imm16 and [BW+IX],imm16 are `P . . BY . . . PPN .` (the qprobe rw-movi / stibi runs; model_m.py STIM): the add (the ModR/M byte released by the loader), two words with no act, BY (bus-idle: waits while a fetch's pin cycle runs; it is the request word too: the write due four clocks after it), the immediate's two pops, the datum with the post (Y + 3), E with the immediate's two bytes and the next opcode released (PPN, on the write's first clock: the post's grant); the immediate's pops before their release (the boundary waited for three bytes behind C7: m3); the modes without a displacement only (mod 00 but the direct address): the displacement modes and the byte form are not read (st_imm16, st_imm8), so C7's entry depends on the whole ModR/M byte (a whole opcode of the split second-level decode)"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the ModR/M byte released by the loader: P); the reservation
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    bi                                      ; (qprobe round 9) BY: bus-idle (waits while a fetch's pin cycle runs, its last clock included: so never on a fetch's last clock, where a request word's REQ_PRI would act); the write due four clocks after it
+    pop=il                                  ; pop the immediate's low byte (released on E)
+    pop=ih                                  ; pop its high byte (released on E)
+    d1=OPRW s1=IMM bus=MEMW                 ; the immediate into the write datum; post the write (Y + 3)
+    e ro rl=2                               ; E: PPN: the immediate's two bytes and the next opcode released (the write's first clock); held until the write's end (RAMEN)
 
 ; MOV mem16,sreg / MOV sreg,mem16 (V20 MOV_SREG 0050: R -> M [-06-] [E])
 routine st_sr op=8C mod=mem book="MOV mem16,sreg" why="the add, the segment register's read with the post, E held to the write's end: the book's EA + 6"
@@ -195,8 +209,7 @@ routine inc_m op=FE,FF mod=mem reg=0 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 boo
     bus=MEMR                                ; post the read (Y + 3)
     f alu=INC ax=OPR wf               ; D: F: the operation on the datum
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN)
-    ro                                      ; post-E: N on the boundary word (the model's): released when the dispatch executes
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 routine dec_m op=FE,FF mod=mem reg=1 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 book="DEC mem (word)" why="OPEN: (qprobe round 8, Q19 / Q20) INC word [BW] is `P . . B Y . . DZ N` (DEC by analogy with INC; the byte form, the other unary ops and EA modes by analogy, the displacement's pops in the bare heads before it): the add (the ModR/M byte released by the loader), two words with no act, B (the group's bus-idle fourth word: waits while a fetch's pin cycle runs), Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post, D (F: the operation on the datum), Z (the write's post on the word after the datum word: the write two clocks after it), E (an on-chip store holds it to the write's end: RAMEN), N on the boundary word; beyond the book in the book check's machine (E held to the write's end: the on-chip timing; the bare heads' pops at d8, d16 and the direct address); before round 8: the add, the read's post (S+4), F, the write's post, E held (F5-push-inc_m-k2-pE-w0)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
@@ -209,8 +222,7 @@ routine dec_m op=FE,FF mod=mem reg=1 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 boo
     bus=MEMR                                ; post the read (Y + 3)
     f alu=DEC ax=OPR wf               ; D: F: the operation on the datum
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN)
-    ro                                      ; post-E: N on the boundary word (the model's): released when the dispatch executes
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 routine not_m op=F6,F7 mod=mem reg=2 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 book="NOT mem" why="OPEN: (qprobe round 8, Q19 / Q20) INC word [BW] is `P . . B Y . . DZ N` (NOT by analogy with INC; the byte form, the other unary ops and EA modes by analogy, the displacement's pops in the bare heads before it): the add (the ModR/M byte released by the loader), two words with no act, B (the group's bus-idle fourth word: waits while a fetch's pin cycle runs), Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post, D (F: the operation on the datum), Z (the write's post on the word after the datum word: the write two clocks after it), E (an on-chip store holds it to the write's end: RAMEN), N on the boundary word; beyond the book in the book check's machine (E held to the write's end: the on-chip timing; the bare heads' pops at d8, d16 and the direct address); before round 8: the add, the read's post (S+4), F, the write's post, E held (F5-push-inc_m-k2-pE-w0)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
@@ -223,8 +235,7 @@ routine not_m op=F6,F7 mod=mem reg=2 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 boo
     bus=MEMR                                ; post the read (Y + 3)
     f alu=NOT ax=OPR                  ; D: F: the operation on the datum
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN)
-    ro                                      ; post-E: N on the boundary word (the model's): released when the dispatch executes
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 routine neg_m op=F6,F7 mod=mem reg=3 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 book="NEG mem" why="OPEN: (qprobe round 8, Q19 / Q20) INC word [BW] is `P . . B Y . . DZ N` (NEG by analogy with INC; the byte form, the other unary ops and EA modes by analogy, the displacement's pops in the bare heads before it): the add (the ModR/M byte released by the loader), two words with no act, B (the group's bus-idle fourth word: waits while a fetch's pin cycle runs), Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post, D (F: the operation on the datum), Z (the write's post on the word after the datum word: the write two clocks after it), E (an on-chip store holds it to the write's end: RAMEN), N on the boundary word; beyond the book in the book check's machine (E held to the write's end: the on-chip timing; the bare heads' pops at d8, d16 and the direct address); before round 8: the add, the read's post (S+4), F, the write's post, E held (F5-push-inc_m-k2-pE-w0)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
@@ -237,8 +248,7 @@ routine neg_m op=F6,F7 mod=mem reg=3 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 boo
     bus=MEMR                                ; post the read (Y + 3)
     f alu=NEG ax=OPR wf               ; D: F: the operation on the datum
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN)
-    ro                                      ; post-E: N on the boundary word (the model's): released when the dispatch executes
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 ; TEST mem,imm (F6 / F7 /0, /1 its alias; not in the book's table)
 routine test_mib op=F6 mod=mem reg=0-1 why="TEST mem8,imm8 (not in the book's table): the add, the immediate's pop, the read, F with the AND, E"

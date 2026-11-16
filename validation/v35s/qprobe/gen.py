@@ -211,7 +211,7 @@ def _more_rounds():
 def frame_of(body):
     """body: a list of Instr (framed with the default M1) or (list, m1 bytes)."""
     if isinstance(body, tuple):
-        return frame(body[0], body[1])
+        return frame(body[0], body[1] if body[1] is not None else M1)
     return frame(body)
 
 
@@ -223,8 +223,28 @@ def chains(rounds=("r1",), waits=WAITS, parities=PARITIES, ids=None):
             for w in waits:
                 for p in parities:
                     b = body(p) if callable(body) else body
-                    c = make_chain(f"QP{r}", name, {"round": r, "name": name}, frame_of(b),
-                                   w, p, regs=REGS)
+                    regs, extra = REGS, {}
+                    if isinstance(b, tuple) and len(b) == 3:    # (round 11) (list, m1, regs)
+                        regs = {**REGS, **{k: v for k, v in b[2].items() if k[0] != "_"}}
+                        # (round 12) "_pre": instructions before M0, "_post": after END,
+                        # "_stim": the run's schedule (runner.load_stimulus's form)
+                        extra = {k: v for k, v in b[2].items() if k[0] == "_"}
+                        b = b[:2]
+                    if "_waits" in extra and w not in extra["_waits"]:
+                        continue
+                    fr = list(extra.get("_pre", [])) + frame_of(b) + list(extra.get("_post", []))
+                    knobs = {"round": r, "name": name}
+                    if "_stim" in extra:
+                        knobs["stim"] = extra["_stim"]
+                    c = make_chain(f"QP{r}", name, knobs, fr, w, p, regs=regs)
+                    if any(i.form == "vec" for i in c.instrs):
+                        # the handler's offset in the code segment goes into the vector store
+                        from ..chains.image import build_image
+                        h = next(i for i in c.instrs if i.form == "handler")
+                        at = build_image(c).chain_base + h.offset - 0x10000
+                        fr = [Instr(0, i.code[:4] + bytes([at & 255, at >> 8]), "vec", i.role)
+                              if i.form == "vec" else i for i in fr]
+                        c = make_chain(f"QP{r}", name, knobs, fr, w, p, regs=regs)
                     if ids and not any(s in c.id for s in ids):
                         continue
                     out.append(c)

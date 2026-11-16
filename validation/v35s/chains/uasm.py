@@ -592,6 +592,20 @@ def ea_head(r, path: str) -> str | None:
     return "ead"
 
 
+def mem_paths(r) -> tuple:
+    """(qprobe round 9) the EA paths a memory routine's header claims: `paths=m00,d8,...`
+    (m00: mod 00 but the direct address; d8; d16; dir), all four by default. A form whose
+    routine differs by the mode (MOV mem,imm16: the modes without a displacement measured) is
+    two routines on one opcode; the dispatch's entry then depends on the whole ModR/M byte (the
+    opcode is a "whole" opcode of the split second-level decode, v35_udec2_fx)."""
+    if "paths" not in r.head:
+        return PATHS
+    ps = tuple(x for x in r.head["paths"].split(","))
+    if not ps or any(x not in PATHS for x in ps):
+        raise UasmError(f"{r.path}:{r.line}: paths={r.head['paths']!r} (of {PATHS})")
+    return tuple(x for x in PATHS if x in ps)
+
+
 def modrm_path(mb: int) -> str:
     md, rm = mb >> 6, mb & 7
     if md == 0:
@@ -658,12 +672,16 @@ def assemble(paths: list[Path] | None = None) -> Program:
         mods = {"reg": [3], "mem": [0, 1, 2], "any": [0, 1, 2, 3], "m00": [0]}[h.get("mod", "any")]
         regs = _ranges(h["reg"].replace("/", "")) if "reg" in h else list(range(8))
         rms = _ranges(h["rm"]) if "rm" in h else list(range(8))
+        paths = mem_paths(r)
         for op in ops:
             if op in MODRM_OPS:
                 for md in mods:
                     for reg in regs:
                         for rm in rms:
-                            cells2.setdefault((op, md << 6 | reg << 3 | rm), []).append(r.name)
+                            mb = md << 6 | reg << 3 | rm
+                            if md != 3 and modrm_path(mb) not in paths:
+                                continue
+                            cells2.setdefault((op, mb), []).append(r.name)
             else:
                 cells1.setdefault(op, []).append(r.name)
     for k, v in list(cells1.items()) + list(cells2.items()):
@@ -1095,7 +1113,7 @@ def book_paths(r) -> tuple:
     taken / not-taken paths of a transfer whose book form prints two values (or `xc=t`: the
     taken one), else the one path m00."""
     if is_mem(r):
-        return PATHS
+        return mem_paths(r)
     if is_pmem(r):
         return (RPATH,) + PATHS if "book" in r.head else PATHS
     if r.head.get("xc") == "t":

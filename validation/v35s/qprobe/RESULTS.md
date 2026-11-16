@@ -779,3 +779,408 @@ MOV mem,imm with displacement / byte form (above); POP mem with displacement; AD
 X;X; SHL [BW],1; PUSHA / POPA; PREPARE; strings and REP (item 3, not reached); the 0F imm8 bit
 forms, ROL4 / ROR4, EXT / INS; MULU / MUL / DIV; the odd-address word operand (not acquired:
 one small test would settle the `-odd` corpus rows). Interrupt recognition: deferred as told.
+
+# Round 11 (228 programs, 1,368 runs; rounds 1-11: the model reproduces 7,184 of 7,656)
+
+One acquisition (`r11a` 192 runs, `r11b` 420, `r11c` 468, `r11d` 288; each run repeated), safety
+sequence unchanged, no kill timer: 1,368 runs + 1,368 repeats, 0 failed, 97 repeats flagged, all
+strobe-only (`repdiff.py`). Board powered down at the end (vccb false, failure 0). Receipts:
+`traces/socket/QPr11{a,b,c,d}-w{0,1,2}.json`, log `traces/qp-r11-socket.log`. Every program was
+run in the RTL simulation first (1,368 of 1,368 reach the end; the divide operands are chosen so
+that no divide error can occur).
+
+Model score per round (no run lost in any round; rounds 1-10 gained 839):
+
+| round | r1 | r2 | r3 | r4 | r5 | r6 | r7 | r8 | r9 | r10 | r11 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| round-10 hand-back | 330/330 | 708/720 | 378/378 | 414/414 | 520/540 | 287/288 | 42/42 | 740/912 | 876/1,980 | 684/684 | - |
+| now | 330 | 720 | 378 | 414 | 523 | 287 | 42 | 800 | 1,640 | 684 | 1,366/1,368 |
+
+The RTL of this worktree is now the spec-5 build (nine files copied from the main tree; corpus
+replay 16,673 of 30,536 exact, the coordinator's number). On the round-11 set it has 319 of
+1,368 (odd operands 102 of 192, the write probes 73 of 420, strings and REP 0 of 468, MUL / DIV
+144 of 288).
+
+## Q32. A word operand at an odd address: one cycle of twice the length
+
+Probes `ob-*` (BW = 0801h: load, store, ADD mem,r, INC mem; the byte load and store as the
+one-cycle control) and `os-*` (SP = 0EFFh: PUSH, POP), each four ways. The word is moved in two
+byte cycles, the odd (low) address first, the second starting on the clock after the first
+ends; no fetch and no idle clock ever comes between them, at any wait or alignment. Everything
+else is unchanged: the request word, the datum wait (it ends with the second byte), Q23's ending
+(the next opcode is taken on the first byte cycle's first clock), the read-modify-write's two
+pairs. In the model: the EU cycle is 2 x (3 + W) clocks long and nothing else is touched.
+192 of 192 (144 word runs + 48 byte controls). This is the whole of the corpus's `-odd` rows.
+
+## Q33. The write that falls due at a fetch's end: the slot decision, with two corrections
+
+Probes `w-*` (420 runs): MOV mem,imm16 with d8 / d16 / direct, the byte form, POP mem with d8 /
+direct, behind seven pads (nothing, CLC, two CLC, one / two / three NOPs, a segment prefix on
+the instruction itself), followed by M1 or by a long shift. The pads walk the instruction over
+every queue phase. Tabulated against the instruction's own boundary b (`build/qp/wtab.py`) the
+picture is regular. For MOV [BW+d16],imm16 the request word is b+4 and the write is nominally at
+b+8:
+
+| queue at b | W = 0 | W = 1 | W = 2 |
+|---|---|---|---|
+| a fetch at b+1, chained one at b+4 / 5 / 6 | write b+8 | write at the chained fetch's end + 1 | same |
+| full; fetch at b+4 (from the displacement's pop), count then allows another | **write b+8, no fetch at b+7** | **fetch at b+8, write b+12** | **fetch b+9, write b+14** |
+| the same, count does not allow another | write b+8 | write b+8 | write b+9 (fetch's end + 1) |
+
+So "write first at W = 0, fetch first at W = 1 / 2" is the second row only, and it is the slot
+decision of spec 6 A4 seen from the other side, with two facts added:
+
+1. **The chained fetch is decided two clocks before its pins, from the count on that clock**
+   (count + bytes in flight <= 5). Already in the merged reading; here it is what separates rows
+   two and three (the immediate's pop two clocks later must not be counted).
+2. **A request raised on the decision's eve holds the decision.** At W = 0 the request word
+   (b+4) is the clock before the decision (b+5): no chained fetch, the bus stays idle one clock,
+   the write starts at b+8. At W = 1 / 2 the decision (b+6, b+7) is later than that and the
+   request no longer holds it.
+3. **A posted write whose datum has not been taken yet does not compete.** MOV mem,imm takes
+   its immediate on its eighth word (b+8). Until then a chained fetch that the count allows goes
+   first and the write follows it; this is the W = 1 / 2 column. A store of a register (datum
+   there from the start: MOV [d16],AW, 66 runs in rounds 2, 5, 10) is never overtaken; that is
+   the control that fixed this statement (the first version, "an old request loses", lost
+   exactly those 66 runs).
+
+In the model: `ARB` (facts 2 and 3) and the act `K` on the immediate's word. MOV mem,imm16 d8 /
+d16 / direct: 252 of 252 here, and the round-9 probes 23 of 24 each (were 21, 11, 11). No
+routine changed.
+
+Two shapes fell out of the same table:
+
+- **MOV mem8,imm8 (C6): `P . V . . . KPN .`** - its request is on the third word and is
+  honoured from the fetch's last clock (V, Q29), not a bus-idle word. 108 of 108 (84 here, 24 in
+  round 9; was 9 of 24).
+- **POP mem with a displacement: the displacement is taken on the write's request word**:
+  `P . Y D . . PZ G N .` (d8), `P . Y D . . PP2Z G N .` (direct / d16). The stack read needs no
+  address bytes; the fetch that this late pop starts is what delayed the write. 66 of 66 each
+  (were 19 and 8 of 24).
+
+## Q34. Strings, single element (round-9 data, read now; all four ways, 24 / 24 or 48 / 48)
+
+| instruction | routine |
+|---|---|
+| LDM (AC / AD) | `. . . . Y DN .` |
+| STM (AA / AB) | `. . B . . . Y G N .` |
+| MOVBK (A4 / A5) | `. . . . . Y D . . . Z DN .` |
+| CMPM (AE / AF) | `. . . . . . Y D . . N . .` |
+| CMPBK (A6 / A7) | `. . . . . Y D . . . U D . N .` (U: the second read, [IX] after [IY]) |
+| INM (6C / 6D) | `. . . . . X D Z DN .` |
+| OUTM (6E / 6F) | `. . . . . . Y D . X . . . N .` (46 of 48) |
+
+Byte and word forms are the same routine. MOVBK and INM end at their write's end (`Z DN .`),
+not on its first clock: the exception to Q23, and the shape the REP iteration has.
+
+## Q35. REP: a head, CW iterations, a tail
+
+Probes: round 9 (CW = 0, 1, 2, 5; MOVBK byte / word, STM, LDM, CMPM; -a and -s) and round 11c
+(CW = 1, 2, 3; those plus STM byte, CMPBK, INM, OUTM; -a, -s and behind a NOP). 660 runs, all
+reproduced. The prefix is its own two-word routine (as a segment prefix). Behind it:
+
+- **CW = 0:** 12 words, `. . . B . . . . . . N .`.
+- **Head:** 14 words with a bus-idle fourth word, then the first request (first cycle 19 clocks
+  after the string opcode's boundary). CMPBK's head is 13 words, OUTM's 15; INM and OUTM have
+  the bus-idle word fifth.
+- **Iteration** (period at W = 0; every cycle's waits add):
+
+| form | iteration | period | tail after the last iteration |
+|---|---|---|---|
+| MOVBK | `Y D . . . Z D .` | 18 | `. . . . . . N .` |
+| STM | `Y D .` | 9 | `. . . . . . N .` |
+| LDM | `Y D . . .` | 11 | `. . . . . . . N .` |
+| CMPM | `Y D . .` | 10 | 14 words, N next to last |
+| CMPBK | `Y D . . . U D .` | 18 | 16 words, N next to last |
+| INM | `X D Z D` | 14 | `. . . . . . . N .` |
+| OUTM | `Y D X . . . . .`, the last one `Y D . X . . . . .` | 14 | `. . . . . . . N .` |
+
+- **The compare forms read one element ahead.** REPE CMPBK over equal data makes CW + 1 pairs
+  of reads (CW = 1: four reads). REPNE CMPM ended by its first element still makes a second
+  read, and CW - 1 is left (seen as the length of the shift by CL behind it). The RTL's function
+  makes the same reads; only the timing is open.
+- **SHL r,CL with CL = 0 is two words shorter** (10, not 12): seen behind every REP, which
+  leaves CW = 0.
+
+Each iteration waits for its own cycles (D), so a fetch can only fall between iterations where
+the queue has room; none does in these programs (the queue is full when the REP starts).
+Interrupt sampling between iterations: not examined (deferred with interrupt recognition).
+
+## Q36. MULU / MUL / DIVU / DIV on a register: fixed lengths, sign fix-ups only
+
+Round 9 (8 probes) and round 11d (48 programs: six operand pairs each, chosen to expose operand
+dependence: 0, 1, FFFFh, 5555h x AAAAh, mixed signs). Every one has a bus-idle third word (as
+TEST and SHL r,1), takes the next opcode on its next-to-last word and is exempt from the
+three-bytes rule like the other F6 / F7 group members.
+
+| instruction | words | operand dependence |
+|---|---|---|
+| MULU r8 | 25 | none (10 operand pairs) |
+| MULU r16 | 33 | none |
+| MUL r8 | 36 | + 8 when the product is negative (operand signs differ) |
+| MUL r16 | 43 | + 8 likewise |
+| DIVU r8 | 33 | none (9 pairs) |
+| DIVU r16 | 41 | none in six pairs with DW = 0 (one round-9 probe with DW = 20h is 2 shorter at even alignment only: open) |
+| DIV r8 | 52 | + 2 when the quotient is negative, + 7 when the dividend is negative |
+| DIV r16 | 60 | + 2 when the quotient is negative (dividend negative: not probed) |
+
+No dependence on the operand's bit pattern: the multiply and divide loops run a fixed count.
+The three sign terms are separate (a negative divisor alone costs nothing: 127 / -1 is base + 2,
+-1 / -1 is base + 7, -1 / 1 is base + 9). 288 of 288 here, 162 of 168 in round 9.
+Not measured: the memory forms, MUL r,r/m,imm (69 / 6B), divide errors.
+
+## Also read from round-9 data (each 24 / 24)
+
+- SHL [BW],1: `P . B Y D . . . . . Z G N .`.
+- PUSH R (60): `. . B .`, then seven `Y D .`, then `Y G N .` (period 9, the STM iteration).
+- POP R (61): `. .`, then seven `Y D .`, then `Y DN .`.
+
+## The cross-tab on the spec-5 corpus, with "partner unread"
+
+`build/qp/tab11.py` (table in divergence-notes.md): 13,875 diverging runs; 940 of them re-filed
+from the positional subject to an unread partner in the window. Causes now: own 11,109,
+undetermined 1,550, pair 355, predecessor 273, successor 194. By family, the diverging runs sit
+in: REP strings 1,575, ALU / CMP / TEST mem,imm 1,318, the 0F bit forms 1,065, MOV mem,imm with
+displacement / byte 1,060, POP mem 984, EXT / INS 672, MUL / DIV 620, the transfer forms 586,
+ADD r16,imm (81 /0) 468, single strings 408. The first, second, fourth and fifth are read as of
+this round (and POP mem, MUL / DIV on registers).
+
+## Not read (data acquired)
+
+The 0F memory bit forms and the imm8 forms, EXT / INS, ROL4 / ROR4, ADD4S, PREPARE, MUL
+r,r/m,imm; ADD [d16],imm8 twice in a row (3 runs); OUTM twice in a row at even alignment (2
+runs); DIVU r16 at even alignment with DW not 0; NOP;X;SHL for the CL bit forms and the shifts
+by imm8 at one wait (round 9, 14 runs). Not acquired: MUL / DIV on memory, signed DIV r16 with
+a negative dividend, REP with a segment override, REP interrupted. Interrupt recognition:
+deferred as told.
+
+# Round 12 (4,834 runs: 1,134 on the unread families, 3,700 interrupt probes)
+
+Four acquisitions, safety sequence unchanged, no kill timer: `r12a` 990 runs (165 programs),
+`r12b` 144 (the EXT / INS grid), the interrupt probes at W = 0 with the first windows (1,064)
+and at W = 0 / 1 with the edge 20 clocks earlier (2,636). 0 failed, 0 incomplete; 2,059
+repeats, every flagged one strobe-only (also in the interrupt rounds: the scheduled edge is
+synchronous to the CPU clock, so a run and its repeat take the interrupt on the same clock).
+Board powered down at the end (vccb false, failure 0). Every family program was run in the RTL
+simulation first; the interrupt programs at all three waits with the first windows (3,984
+runs) and a one-in-seven subset with the second (676): all reach their end.
+
+New in the package: a run can carry its own stimulus (`knobs.stim`, loaded with the runner's
+`load_stimulus` before the run and cleared for every other run), instructions before M0 and
+behind END, and a handler address patched into a vector store. The interrupt programs use the
+event port (OUT FF12h) once, before M0; NMI and INTP0 are driven only by the schedule.
+
+Model score (no run lost in any round; rounds 1-11 gained 300):
+
+| round | r1 | r2 | r3 | r4 | r5 | r6 | r7 | r8 | r9 | r10 | r11 | r12a + r12b |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| round-11 hand-back | 330 | 720 | 378 | 414 | 523 | 287 | 42 | 800 | 1,640 | 684 | 1,366 | - |
+| now | 330/330 | 720/720 | 378/378 | 414/414 | 523/540 | 287/288 | 42/42 | 848/912 | 1,892/1,980 | 684/684 | 1,366/1,368 | 837/1,134 |
+
+Rounds 1-11: 7,484 of 7,656. The 297 round-12 family runs the model does not reproduce are the
+memory MUL / DIV (144: read directly, below), the word-crossing EXT / INS (36), MUL r,m,imm
+(48), MUL r,r,imm (26), the register-indirect transfers at odd alignment and BRK imm8 behind
+two stores (20) and X;X / NOP;X residues of the bit forms (23). The RTL (spec-5 build) has 186 of 1,134. The interrupt probes are read
+from the traces directly (the model gives the uninterrupted program's boundaries).
+
+## Q37. The 80 / 81 / 83 / F6 / F7 immediate forms on a register
+
+| instruction | routine | score |
+|---|---|---|
+| ADD ... CMP r8/r16,imm8 (80, 83, every operation) | `P . . BNP .` | 96 / 96 |
+| ADD ... CMP r16,imm16 (81) | `P . . . BNPP2 .` | 96 / 96 |
+| TEST r8,imm8 (F6 /0) | `P . B . . NP .` | 24 / 24 |
+| TEST r16,imm16 (F7 /0) | `P . B . . . NPP2 .` | 24 / 24 |
+
+No dependence on the immediate's value (81 C2 0000h and 2A01h are the same) or on the
+operation (CMP = ADD). The imm16 forms have their bus-idle word fifth, as MOV r16,imm16 and the
+accumulator form. The corpus's add_dw_imm rows are the RTL's, not the chip's.
+
+## Q38. The 0F page
+
+One head for every form: `P . P`, and the commit word C (bus idle and no chained fetch starting)
+three words after the ModR/M byte.
+
+| instruction | routine | score |
+|---|---|---|
+| TEST1 / SET1 / NOT1 r,CL | `P . P . . CN .` (Q31) | |
+| CLR1 r,CL | `P . P . . CN . .` | |
+| TEST1 / SET1 / NOT1 r,imm | `P . P . . CPN .` | 51 / 72 (-a, -s all; X;X not) |
+| CLR1 r,imm | `P . P . . CPN . .` | 17 / 24 |
+| TEST1 mem,CL | `P . P . C Y DN .` | 44 / 48 |
+| SET1 / NOT1 mem,CL | `P . P . C Y DZ G N .` | 44 / 48 |
+| CLR1 mem,CL | `P . P . C Y D Z G N .` | 22 / 24 |
+| TEST1 mem,imm | `P . PC Y DPN .` | 24 / 24 |
+| SET1 mem,imm | `P . PC Y DPZ G N .` | 21 / 24 |
+| ROL4 r8 / ROR4 r8 | head + 12 / 16 words: 18 / 22 words | 22 / 24 each |
+| ROL4 mem / ROR4 mem | `P . PC Y D`, 8 / 12 words, `Z G N .` | 24 / 24 each |
+
+The immediate of the r,imm forms is taken on the commit word; the routines are the CL forms'
+lengths. What misses is X;X and NOP;X;SHL at one or two runs each (the second instruction's
+entry), as for the CL forms. ROR4 is four words longer than ROL4 in both forms.
+
+**EXT and INS** (grid: bit offset 0 / 5 / 12 x length 1 / 4 / 8 / 16, immediate count; round 9's
+register-count probes): the head, the operand word's read on the ninth word, then
+
+- EXT, field inside one word: 24 words + 2 x (16 - offset - length) + 2 x (16 - length), plus 4
+  when length < 16, then the immediate and the next opcode on the next-to-last word. 54 of 54.
+  Two shift loops at two words a bit: the field is moved to the top of the word and then down.
+- INS, field inside one word: 70 words (72 with a non-zero offset, 8 fewer when the field ends
+  at bit 15), then the write and Q23's ending. 54 of 54. A fixed 16-step structure: the length
+  does not change it.
+- The register-count forms are the same with the count in the second register and no immediate
+  byte (round 9: 16 of 24 each, the rest X;X whose second count is the first's result).
+- A field that crosses the word (offset + length > 16) reads / writes a second word: 6 grid
+  points acquired (second read 29 clocks after the first; EXT 64 to 79 clocks from the first
+  read to the marker), not fitted.
+
+**ADD4S / SUB4S / CMP4S** (digit counts 1, 2, 4, 8 in CL): 144 of 144.
+
+- one iteration per byte, ceil(CL / 2) of them; a 13-word head with a bus-idle fourth word;
+- ADD4S / SUB4S iteration `Y D . . . U D . . . . . . Z D .` (read source, read destination,
+  write destination; 30 clocks at W = 0), tail 10 words;
+- CMP4S iteration `Y D . . . U D . . . . . . . .` (25 clocks), tail 11 words;
+- ADD and SUB are the same routine; no data dependence seen (the memory image's bytes).
+
+## Q39. MUL / DIV: what the lengths say about the machine
+
+Round 11's register lengths, with this round's additions:
+
+- **memory forms** (8 forms x 3 frames x 6): the operand's read (bus-idle third word, request,
+  datum) in front of the register routine: read-to-marker = the register form's length + 11
+  clocks at W = 0 for all eight (13 / 14 at W = 1, 15 / 17 at W = 2: the read's own waits), at
+  both alignments (`build/qp/mmtab.py`). The model does not score them only because the setup
+  in front (MOV [BW],imm16; MOV AW,imm16) is one of its known misses.
+- **DIV r16 with a negative dividend** (4 pairs): the model's prediction from the 8-bit terms
+  holds: + 7, and + 2 for a negative quotient. 24 of 24.
+- **DIVU r16 with DW not 0** (3 pairs incl. the round-9 one): 41 words, no dependence. 18 of 18
+  (the round-9 residue was the frame in front, not the divide).
+- **MUL r16,r16,imm16 / imm8** (69 / 6B): 42 / 41 words, the immediate on word 4 / 3, + 8 for a
+  negative product. imm8: 32 of 48 (the positive immediate 23 of 24, the negative one 9); imm16:
+  14 of 24 (odd alignment 1 to 3 clocks late when a chained fetch follows the immediate's pop:
+  open).
+
+Structure these imply:
+
+| | words (8 / 16 bit) | reading |
+|---|---|---|
+| MULU | 25 / 33 | one word per multiplier bit (8 more for 8 more bits), 17 words of entry and exit |
+| DIVU | 33 / 41 | one word per quotient bit, 25 of entry and exit |
+| MUL | 36 / 43 | the unsigned loop on magnitudes: + 11 / + 10 for the two sign tests and negations in front; + 8 to negate a negative product (the same 8 at both sizes: a double-word negate) |
+| DIV | 52 / 60 | DIVU + 19; + 2 to negate the quotient; + 7 for a negative dividend (negate it in front, fix the remainder's sign behind); a negative divisor costs nothing by itself |
+| MUL r,r,imm | 41 / 42 | the 16-bit signed routine, one or two words shorter (no accumulator high half) |
+
+All are counted loops with no early exit and no dependence on the operands' bit patterns
+(0, 1, FFFFh, 5555h x AAAAh, mixed signs: 6 to 10 pairs per form).
+
+## Q40. PREPARE / DISPOSE; the transfer residue
+
+- PREPARE imm16,0: `. . Y D . . . PP2 P . . C . . . . . . . . N .` (push BP first; the three
+  operand bytes behind it; commit three words after the last byte). PREPARE with level L >= 1:
+  the same head, L - 1 frame-pointer copies `U D . . . Z D . .` (read, push; 18 clocks) and the
+  push of the new frame pointer. Levels 0, 1, 2: 72 of 72.
+- DISPOSE: `. . Y DN .` (the POP routine). 24 of 24.
+- **INT 3** (round-8 data) and **BRK imm8**: vector offset read, PSW push, vector segment read,
+  PS push, PC push, flush: R W R W W. Each push is requested so that it starts 6 clocks after
+  the read before it or on the third clock after that read's end, whichever is later;
+  `. . . B . . . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .` (first read
+  13 clocks after the boundary). INT 3: 6 of 12 (odd alignment all waits; even alignment is
+  blocked by the two vector stores in front, a known miss). BRK imm8 is one word longer; 2 of
+  12 for the same reason plus a wait at 1 / 2 waits not placed.
+- RET imm16: `. . . Y DPP2 . . F N .` - the immediate is taken at the datum, after the read.
+  12 of 12.
+- JMP mem16: `P PP2 B Y D . . F N .`, CALL mem16: `P PP2 B Y D . . . Z D . . F N .`: 10 of 12
+  each.
+- CALL r16: `P . . B . Y D . . F N .`, JMP r16: `P . . B . . F N .`: 6 of 12 each: at odd
+  alignment behind MOV BW,imm16 silicon is 2 clocks later than the model at every wait. Not a
+  count rule (four bytes held does not fit); open.
+
+What is left of the transfer family in the corpus: BRK 3 / BRK imm (the routine above, not
+verified at even alignment), CALL / JMP through a register at odd alignment, CALL far at even
+alignment with waits (4 runs), the far forms through memory (not probed), RETI (not probed:
+needs a frame that survives the mode bit).
+
+## Q41. Interrupt recognition (NMI, INTP0)
+
+Design: an edge on the pin a programmed number of ticks after the event OUT, stepped one clock
+at a time across nine targets (the long shift's end, 20 CLC, 12 NOP, REP MOVBK with CW = 3,
+four ADD [BW],AW, a prefixed load, MOV SS,AW, MOV DS0,AW, two MULU), for NMI and INTP0, both
+alignments, W = 0 and 1. For every run the trace gives the acknowledge's five cycles and the
+pushed PC, which names the instruction not executed; the model gives that instruction's
+boundary B and the clock P its opcode entered the staging latch; e is the edge's clock at the
+pin (event record's end + delay + 4 ticks; a constant of up to half a clock is not known).
+Tables: `itab-all.txt` (every group), `istate-nmi.txt`; tools `build/qp/itab.py`, `istate.py`.
+
+**What is settled**
+
+1. **The acknowledge** is the INT sequence: vector offset read, PSW push, vector segment read,
+   PS push, PC push, then the handler's fetch. Its first cycle starts **16 clocks after the
+   boundary** it is taken at (14 to 18 with a fetch in flight; INT 3 is 13: three clocks of
+   entry more), at every target, both sources, W = 0 and 1. The spacing inside is INT 3's.
+2. **Where it can be taken.** Only at an instruction boundary; never inside the long shift
+   (edges up to 35 clocks before its end are all taken at its end), MULU, or a read-modify-write.
+   Never between a segment prefix and its instruction. **Never at the boundary behind MOV
+   sreg,r16: the next instruction always runs first, for DS0 as for SS** (the same tables for
+   8E D8 and 8E D0), and only that one.
+3. **A REP string is broken between iterations**, and the pushed PC is the prefix's address.
+   The break is decided before an iteration's write: an NMI edge at least 15.5 clocks before
+   the write cycle of iteration k starts stops the string after iteration k; later than that,
+   iteration k + 1 runs (or, on the last one, the string ends normally and the interrupt is
+   taken at its boundary). **A broken REP's acknowledge starts 48 clocks after its last write
+   ends** (W = 0; the normal boundary is 16), a long exit path.
+4. **Latency from the pin.** With the bus quiet (the long shift's end, a REP iteration, the
+   first instruction after either) an NMI edge is taken in front of instruction X when it is at
+   the pin **14.5 clocks before X's opcode enters the staging latch** (15.5 before the boundary
+   for routines that take the next opcode on their next-to-last word). The RTL of this
+   worktree takes it about 10 clocks sooner (in simulation the same programs acknowledge 11 to
+   13 clocks after the edge; silicon 31 to 36).
+5. **INTP0 is sampled on a 16-clock grid** that runs from reset (the thresholds are 16 clocks
+   apart at W = 0 and at W = 1, and move by one clock with the frame's alignment pad): an edge
+   is seen at the next grid point and from there behaves as an NMI edge at about that point.
+   So a maskable request's latency is the NMI's plus 0 to 16 clocks.
+
+**What is not settled**
+
+- In trains of short instructions the 14.5 grows: 15.5, 16.5, and 17.5 in a steady NOP train
+  (an NMI edge must be 20.5 clocks before the boundary it is taken at; the first NOP behind a
+  long shift 17.5, the second 18.5, then 20.5), 16.5 to 18.5 in the CLC train, 16.5 in the
+  RMW train. I could not tie the extra 0 to 3 clocks to one state variable: the queue count,
+  a fetch in flight at the pop, the time since the last fetch, a fixed number of instructions
+  or staging pops after a delayed recognition were each tried on the 532 W = 0 NMI runs
+  (`irule.py`, `icount.py`) and none reproduces more than 73 %. In the CLC train the edge
+  thresholds repeat with the fetch pattern's 10-clock period, which says the bus unit takes
+  part in the sampling. Rejected, so the builder does not try them: a pure delay to the
+  boundary; a pure delay to the staging pop; "N more instructions after recognition".
+- INTP0 across the RMW train: edges up to 27.5 clocks before the second boundary are taken
+  there; every later edge in the window (30 clocks of them) is not taken at any of the next
+  five boundaries but only behind the frame's second long shift, at W = 0 and 1, both
+  alignments (NMI on the same programs is regular). Reproducible, not understood; the pulse was
+  50 clocks wide in every run, a width dependence is the first thing to test.
+- NMI and INTP0 arriving together, INT, the priority and vector lines (f3_vec / f3_order /
+  f3_prio), HALT release: not probed here.
+
+## The cross-tab split by what the model reads (item 4)
+
+`build/qp/tab12.py` on the spec-5 rows (table in divergence-notes.md). A corpus form counts as
+read when the small set holds probes of the same instruction signature and the model
+reproduces at least 90 % of the runs that contain it and nothing unread. Of the 13,481
+diverging runs filed under a form:
+
+| | runs |
+|---|---|
+| own routine, read by the model (expected to clear when the specs are built) | 8,069 |
+| other causes on read forms (the neighbour rows: branches behind CMP, SHL r,1 behind OUT, ...; also expected to clear) | 2,149 |
+| own, partly read (EXT / INS word-crossing, CALL / JMP mem, BRK, SET1 mem,imm, CALL far) | 1,205 |
+| own, not probed (CMP mem,imm16; DBNZE / DBNZNE; CLR1 mem,imm; REPC / REPNC; other encodings) | 1,447 |
+| own, probed and not read by the model (MUL / DIV on memory: measured directly, Q39) | 388 |
+| other causes, not probed or partly read | 223 |
+
+So about 10,200 of the 13,500 are in forms the model has; about 3,300 are left, 388 of them
+measured.
+
+## Not read
+
+EXT / INS across a word; MUL r,m,imm and MUL r,r,imm16 at odd alignment; the register-indirect
+transfers at odd alignment; BRK imm8 at waits; MOV mem,imm16 followed by MOV r,imm16 (the
+fetch behind the write is not chained on silicon: it costs the memory MUL / DIV their model
+score); the residues named in the tables. Interrupts: the two open items above.

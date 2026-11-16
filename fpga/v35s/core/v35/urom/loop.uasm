@@ -19,18 +19,20 @@ shcl_l: alu=SH1 ax=SIG                      ; one shift step of the group's oper
 shcl_z: e ro                                ; E: pop the next opcode (022B); (qprobe round 6) N
 
 ; C0 / C1: SHL r,imm8 (V20 028C-028F): the count popped. Measured as the CL form
-routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 diff=1 why="OPEN: beyond the book: a named act, the shifter's load on a word of its own; the count byte popped at S+3 after one OPEN word (the immediate's latency, README MX1b; F3-push-shl_imm4-k4-pE-w0: T at S and S+3, S-to-S 20 against the routine's 18: silicon's 12 + 2n, two clocks no act names and the book does not charge, open); the read, the count's load, the zero test, the two-word iteration, the write, E; one more book clock with no act"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the count (V20 028C Q -> tmpaL) (S+3)
-    rb=RM d1=TB s1=RB                       ; the operand into tmpb (028D)
-    cnt=IL                                  ; the count into the loop counter (028E)
+routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 diff=3 why="silicon longer than the book (measured, the extra words OPEN): OPEN: (qprobe round 9, Q24) SHL / SHR / SAR r,imm8 is the CL form's routine, 12 + 2n words, with its own head (the qprobe shli1 / shli2 / shli4 / shli8 / shlbi4 / sari4 runs, 23 / 24 each in the model; model_m.py SHLI_AS_CL): the operand into tmpb (the ModR/M byte released by the loader on word 1), the shifter's load, a word with no act, the count byte popped and released on word 4, a word with no act, the count into the loop counter, S on word 7 (the CL form's fourth-word wait: the bus unit's slot; three words after the routine's last queue byte, as the CL form's is three after its ModR/M byte), the zero test, the two-word iteration, a book clock with no act, the write with the flags, E with N; the book's 9 + 2n: silicon's 12 + 2n; before round 9: the count popped at S+3 after one OPEN word, 18 against silicon's 20 at n = 4 (F3-push-shl_imm4-k4-pE-w0)"
+    rb=RM d1=TB s1=RB                       ; the operand into tmpb (028D) (the ModR/M byte released by the loader: P)
     alu=SHI ax=TB                           ; the shifter loaded with CY
-    open                                    ; OPEN: a book clock with no act (SHL reg,imm8 9 + 2n)
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    pop=il rl=1                             ; pop the count (V20 028C Q -> tmpaL) and release it (P, word 4)
+    open                                    ; OPEN: (qprobe round 9) a word with no act
+    cnt=IL                                  ; the count into the loop counter (028E)
+    rl=x                                    ; (qprobe round 9, Q24) S: the seventh word waits while the bus unit's slot is taken (the CL form's fourth word's wait)
     jc=CNTZ:shim_z                          ; a zero count skips the loop and the write
 shim_l: alu=SH1 ax=SIG                      ; one shift step
     loop=shim_l                             ; the counter step
+    open                                    ; OPEN: a book clock with no act (as the CL form's)
     wr=RM ws=SIG alu=SHF ax=SIG wf          ; the result written; the shift's flags (W)
-shim_z: e                                   ; E: pop the next opcode
+shim_z: e ro                                ; E: pop the next opcode; (qprobe round 9) N
 
 ; D0 / D1: by one (V20 0114-0117). Measured 10
 routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" diff=1 why="OPEN: beyond the book: a named act, the iteration's second word (the V35's two-word iteration, mechanisms 3.4, as the CL form's loop word); silicon's 10 (F3-push-shl1-k4-pE-w0 S-to-S 10, the frozen model exact) against the routine's 9: one clock no act names and the book does not charge, open; the read, the load, (qprobe rule 6: `P . B . . . . N .`, the qprobe shl1 runs) the B word, one book clock with no act, the step, the write, E"

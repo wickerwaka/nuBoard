@@ -83,8 +83,7 @@ routine st_dir diff=3 op=A2,A3 book="MOV dmem,acc" why="(qprobe round 6) beyond 
     pop=dh rl=2                             ; pop its high byte (0089); (qprobe rule 3) PP: both address bytes released
     ea=DISP ra=AW d1=OPRW s1=RA             ; the address register <- the displacement; the accumulator into the write datum
     bus=MEMW                                ; post the write (008A MEMW) (Y + 3: the write on Y + 4)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN: the function-bearing hold)
-    ro                                      ; post-E: (qprobe round 6) N on the boundary word (the model's): the next opcode released when the dispatch executes, on the write's last clock (rule 7, E_PEND)
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 ; MOV acc,[d16] (V20 MOV_ACC_DMEM 0084-0087)
 routine ld_dir op=A0,A1 book="MOV acc,dmem" diff=1 why="OPEN: silicon longer than the book by one (the qprobe lacc / ld runs, F-family style: 11 at W = 0 with no fetch in the way); (qprobe rule 14) MOV acc,[d16] is `. . Y PP2 DN .` (the qprobe lacc, ld runs): two words with no act, Y (the request word: the read due four clocks after it) with the address's first pop, the second pop with both bytes' release, the address, a word with no act, the post (Y + 3), D N (F: the accumulator <- the datum; E), the dispatch: 11 at W = 0 with no fetch in the way; before qprobe: the book's 10"

@@ -2842,3 +2842,39 @@ question, decided from S8's routed numbers with the user.
   register (88 of 96). Tested and rejected as a rule: "the commit word is three words after the
   last queue byte" (8 measured exceptions, 351 runs). Work order 6 needs no new cross-module
   signal.
+- **2026-11-16, work order 5 built (microcode and decode content only, no `.sv` file, no port):
+  corpus 16,673 of 30,536 exact.** The next opcode released on the write cycle's first clock
+  (Q23) needed no new signal: the E word after the write's post became a bus-idle release word
+  (`e ro bi`), and since a posted EU request wins the bus and a bus-idle word waits out a
+  fetch's pin cycle, it follows the write when a fetch delays it (`c40` 168 of 168; a write
+  delayed by refresh or HLDRQ, not a fetch, would still release early: no run shows it). Also
+  XCH mem,r, TEST mem,r, SHL / SHR / SAR r,imm8 (the CL routine with its own head), and C7 as
+  the sixth whole opcode for the modes without a displacement. Corpus at both spacings 16,673
+  (15,342): 1,332 gained, 1 lost (XCH [d16],AW, a mode by analogy that gains 5 and cannot be
+  split from the measured [BW] form), 0 FAIL, chk silent, write data 106,824 / 106,824; small
+  set rounds 1-9 3,959 of 5,592, none lost; everything else line for line as before, `dma hwd`
+  equal. **FPGA at 17 ns: +3.169 / +2.557 / +3.198**, 10,220 LUT4 / 658 ADD / 2,596 FF / 90
+  RAM_5K. The round-8 margin loss was two paths with no RTL change (the EU request into the
+  stall; the second-level decode into the ROM address): placement, and it came back.
+  **Process (user, 2026-11-16): larger batches per validation.** Work orders 6 and 7 and the
+  head name UROM_EAQ16X (approved by the user; an allow-list entry, no port) are one build with
+  one gate.
+- **2026-11-16, qprobe rounds 11 and 12 on the socket (reading only;
+  `validation/v35s/qprobe/RESULTS.md` Q32-Q41, `DIVERGENCE-r11.md`, `DIVERGENCE-r12.md`,
+  `INTR-r12.txt`).** Round 11 (1,368 runs): a word at an odd address is two back-to-back byte
+  cycles behaving as one EU cycle (Q32); the write that falls due at a fetch's end is the slot
+  decision with two corrections (a request on the clock before the decision holds it; a posted
+  write whose datum is not yet taken does not compete: Q33); single strings, REP (a prefix
+  routine, a 14-word head, a period per form, a tail; Q34 / Q35) and register MUL / DIV (fixed
+  lengths with sign terms, no operand dependence; Q36). Round 12 (4,834 runs): the register
+  immediate forms, the 0F memory and imm8 bit forms, ROL4 / ROR4, EXT / INS inside one word,
+  the 4S forms, MUL / DIV on memory and with an immediate, PREPARE / DISPOSE. **Interrupt
+  recognition measured**: taken only at instruction boundaries (never inside a long shift,
+  MULU or an RMW, never between a prefix and its instruction), the acknowledge 16 clocks after
+  the boundary, MOV sreg holding it off for exactly one instruction, REP breaking between
+  iterations; with the bus quiet an NMI edge must be at the pin 14.5 clocks before the staging
+  pop of the instruction that will not run (the RTL takes it about 10 clocks sooner). Open: 0
+  to 3 further clocks in trains of short instructions, and INTP0 across an RMW train. The
+  model reproduces 7,484 of 7,656 runs of rounds 1-11. Of 13,481 diverging corpus runs on the
+  work-order-5 tree about 10,200 are on forms now read and about 3,300 are not read or not
+  probed.

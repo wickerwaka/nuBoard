@@ -55,15 +55,27 @@ def main(argv=None):
                   repeat_fraction=rep, limit=acquire.DEFAULT_LIMIT)
     from nuboard.debug import DebugClient
     from ..runner import Harness, open_board
+    from ..chains.image import build_image
+    from ..runner import load_stimulus
+
+    def builder(harness):
+        """(round 12) build_image, and the run's schedule loaded (or cleared) before it runs."""
+        def build(chain):
+            if harness.version >= 2:
+                load_stimulus(harness, chain.knobs.get("stim"))
+            elif chain.knobs.get("stim"):
+                raise SystemExit("this harness has no schedule (version < 2)")
+            return build_image(chain)
+        return build
     if args.backend == "sim":
         binary = acquire.SIM_CORES["v35"][0]
         if not binary.exists():
             raise SystemExit(f"{binary} missing")
         transport = acquire.sim_transport("v35", False)
         try:
-            stats = acquire.sweep(Harness(DebugClient(transport.exchange)), chains,
-                                  board_state=None, core="v35", log=lambda *a, **k: None,
-                                  **common)
+            h = Harness(DebugClient(transport.exchange))
+            stats = acquire.sweep(h, chains, board_state=None, core="v35",
+                                  log=lambda *a, **k: None, build=builder(h), **common)
         finally:
             transport.close()
     else:
@@ -72,7 +84,8 @@ def main(argv=None):
             transport.vccb_enable()
             harness.arm()
             time.sleep(0.05)
-            stats = acquire.sweep(harness, chains, board_state=state, **common)
+            stats = acquire.sweep(harness, chains, board_state=state, build=builder(harness),
+                                  **common)
         finally:
             try:
                 harness.arm(False)

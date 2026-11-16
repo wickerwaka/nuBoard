@@ -7664,3 +7664,52 @@ budget as the consolidation left it). Each routine's header names its measuremen
   modes that share the routine; an open question for the socket); vectors 0 bad; lint x4 clean;
   fast tests 56 OK; program gates EQUAL but the known intr f3_vec / f3_order / f3_prio and periph
   f4_tm / f4_tout; dma hwd EQUAL. Found on the way: POP sreg's read had lost its word width (fixed).
+
+## qprobe round 9: the release on the write's first clock, the round-9 shapes, C7 by mode
+
+The fifth work order (validation/v35s/qprobe/model_m.py, round 9: results Q23-Q25). Microcode, the
+assembler's `paths=` header and the generated decode table only: no port, no pace rule, no count
+changed (test_v35_struct's budget and allow-lists as the consolidation left them). Each routine's
+header names its measurement ("qprobe round 9").
+
+- **A, the next opcode on the write cycle's first clock (Q23; G N).** A routine that ends in a
+  memory write posts the write on the word before its E word; its E word carries the release
+  (`ro`) and is a bus-idle word (`e ro bi`). Machine facts: a posted EU request wins the bus over
+  a fetch, so the write's cycle starts on the first clock no fetch's pin cycle runs (one clock
+  after the post when the bus is free); a `bi` word waits while a fetch's pin cycle started
+  earlier runs, its last clock included (rule 5, the bus unit's `fb_nx`). The two waits end on
+  the same clock: the E word, and with it the release, executes on the write's first clock,
+  whether or not a fetch delayed the write (the model's G N). The boundary (the dispatch word
+  after E) still waits for the write's last clock (rule 7, E_PEND). The release cannot precede
+  the byte it releases: an `ro` word waits while the staging register is empty, as every `ro`
+  word does. Routines: MOV mem,r (88 / 89, every mode), MOV [d16],acc (A2 / A3), ADD [mem],r16
+  (op 01, rmw), the group's INC / DEC / NOT / NEG mem, XCH mem,r. Not: the store immediate
+  (its immediate follows the request), rmw_b, the memory forms with an immediate, PUSH / POP mem,
+  SHL mem (not read). A write delayed by something other than a fetch (a refresh cycle, HLDRQ)
+  releases early: the B word knows only fetches. Result: the qprobe c40 runs 168 / 168 (136).
+- **B, shapes (urom/mem.uasm, loop.uasm).** XCH mem,r `P Y . . D . Z G N .` (ea=q heads; the
+  write's post two words after F: four clocks after the datum word); TEST mem,r `P . B Y DN .`
+  (ea=bare: the add, an open word, B, Y, two open words, the post, F with AND and E); SHL / SHR /
+  SAR r,imm8 (C0 / C1 register forms) the CL form's 12 + 2n with its own head: the count popped
+  and released on word 4, the slot wait (rl=x, the CL form's fourth word's kind) on word 7.
+  DEC / NOT / NEG mem and INC byte mem (built by analogy in round 8) exact on the round-9 groups.
+- **C, C7 by mode (uasm `paths=`; v35_udec2_fx).** A memory routine's header may claim a subset
+  of the EA paths (`paths=m00,d8,d16,dir`; m00 is mod 00 but the direct address). MOV mem,imm16
+  without a displacement ([BW], [BW+IX], ...) is st_imm16z `P . . BY . . . PPN .` (ea=bare: the
+  add, two open words, B (bus-idle; never on a fetch's last clock, so it is the request word
+  too), the immediate's two pops, the post, E releasing the immediate's two bytes and the next
+  opcode); the displacement modes keep st_imm16. C7's entry then depends on the whole ModR/M
+  byte: the assembler numbers it among the whole opcodes of the split second-level decode
+  (six of seven: 0F, 64, 65, C7, F2, F3). The byte form C6 and the displacement modes are not read.
+- **Not built.** Base + index + d16 (UROM_EAQ16X): the dispatch's head choice may name only the
+  names test_v35_struct MX1's allowed sets hold, and UROM_EAQ16X is not one of them. LAG_FIRST
+  (OUT DW's first word on a lagged fetch's first slot clock): the remaining stibi / rw-movi runs
+  (OUT DW behind C7) are exactly the model's LAG_FIRST runs. FLUSH_B2B, the do-not-build list.
+- **Result (scratch v2/qprobe/r9/rtl/verify.out).** Small set r1-r9 (fill to the program's end)
+  3,959 of 5,592 (r1-r8 3,314 of 3,612, was 3,252; r9 645 of 1,980, was 424; no run lost); c40
+  168 / 168, xchm testm decm notm incmb 24 each, shli1 / 2 / 4 / 8, shlbi4, sari4 23 each, stibi 15
+  (the other 9 are the model's LAG_FIRST runs); corpus (all families, +v35_chk) 0 FAIL, chk 0,
+  write data 106,824 / 106,824, RTL-exact 16,673 (was 15,342: 1,332 gained, 1 lost: XCH [d16],AW
+  at pE W = 0, the write a clock early, the direct mode by analogy and not separable from the
+  measured mode within the seven whole opcodes); vectors 0 bad; lint x4 clean; fast tests 56 OK;
+  program gates as round 8 (the known intr / periph DIFFER lines); dma hwd EQUAL.
