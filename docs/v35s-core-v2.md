@@ -3207,3 +3207,28 @@ question, decided from S8's routed numbers with the user.
   inferred); under NMI, MOVBK needs no new event words (144 of 144), STMB's words 1-5 are
   events, DIV byte signed fits MULU's offsets (134 of 136), LDMB and the REP exits are not
   closed. Not started: the vectored rule in front of jump targets, scan figures at W = 1 / 2.
+- **2026-11-17, qprobe round 21 on the socket (3,918 runs; a reading, a fresh split and a build
+  check of ce9ea43; `validation/v35s/qprobe/RESULTS.md` Q95-Q99, `DIVERGENCE-r21.md`).**
+  **Split of the 4,874 diverging corpus runs**, per encoding, scored by model and RTL sim:
+  read with the RTL also differing on the probes 1,856 (carried by specs 13-17); read with
+  the RTL exact on the probes 1,628 (the corpus state is not the probes'); partly read 492;
+  probed, not read 439 (REP compares 462 by their own scorer, C7 [d16], EI); not probed 171
+  (from 903); thin 11; not filed 277. 2,250 of the diverging runs have the subject directly
+  behind the frame's marker (OUT imm8 1,610, PUSH 640), 1,697 of them at even alignment.
+  **A state neither model nor RTL has**: X directly behind OUT imm8 at even alignment (frame
+  OUT ; X ; OUT even: model 24 of 84, RTL 20; odd 69 / 66; behind PUSH 168 of 168 both);
+  about 1,150 corpus runs; no rule yet (the first fetch behind the I/O cycle a clock later,
+  or an early bus-idle word passing on that fetch's second-last clock: inferred from six
+  traces). **Build fault**: OR / AND / SUB / XOR / ADC / SBB [BW],r16 and ADD / OR / SUB
+  [BW],r8 run ADD [BW],r16's routine on silicon (66 of 66 each); the RTL 3 of 66 except ADD
+  word; 189 corpus runs. **Reads behind an EU cycle (Q96; closes round 20's ADD mem,imm8
+  state)**: once the first fetch behind an EU cycle is on the pins, a read requested from
+  then on is not arbitrated against the chain: the chain runs until more than five bytes are
+  held, then the read goes (+75, none lost; `r21m` 492 of 498, RTL 423); not so for writes.
+  **EXT / INS r,imm4**: the imm4 leaves on the datum word, a bus-idle word two (EXT) or three
+  (INS) words behind it (+29). The strict bus-idle word is a word kind, not a byte count (no
+  run of 16,224 changes with "every word-wide pop"). New shapes: RMW with d16 / direct / two
+  registers, XCH [d16], DEC and SHL 1 with d16, C7 with two registers + displacement, SET1
+  word on memory by CL, TEST / CMP AW,imm16, CVTDB (19 words), DI, far transfers through
+  [BW], CMP r,[BW+d16], CMP [d16],imm8. Model: 17,532 of 18,972 non-interrupt socket runs.
+  Unknown: the corpus divergence behind the PUSH marker (the frame is exact in both).

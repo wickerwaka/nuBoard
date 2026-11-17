@@ -2860,3 +2860,202 @@ bytes and waits; MOV r8,imm8's release word releases two bytes and does not).
 Also from the search, thin (3 runs, W = 0, one frame): OUT DW's N word as a strict word gains
 `QPr13a-fw-c7-*-nop` 3 and loses nothing. Not installed.
 
+
+# Round 21
+
+Socket runs this round: see the table at the end of the round. The RTL copy in the worktree was
+re-based to main's ce9ea43 (16 files from `git archive ce9ea43`: `fpga/v35s/**`,
+`validation/v35s/chains/{uasm,test_uasm}.py`; nothing under `chains/sim`), the direct sim rebuilt
+and the corpus replayed once; the split is in `divergence-notes.md`.
+
+## Q95. A read against the fetch chain behind an EU cycle: no arbitration inside the chain
+
+This closes round 20's open state (ADD mem,imm8 with d16 / direct, "four bytes held with the bus
+idle", Q91) and shows it is not a property of that instruction.
+
+**The state.** An EU bus cycle (PUSH's write, a store, OUT, the write of a read-modify-write
+instruction) ends with four or fewer bytes held, so a fetch was wanted under it; that fetch (A)
+starts on the clock after the cycle and further fetches (B, C) follow back to back while five or
+fewer are held: the *chain behind an EU cycle* (the model's S_LAG chain, rounds 6 to 12).
+The subject's read request is made while the chain is on the pins.
+
+**Measured (probes `QPr21m`, 498 runs: ten subjects behind eight leads; and rounds 9, 16, 17, 20):**
+
+| request made (model's request word) | fetch at whose end the read is ripe | held then | silicon | runs |
+|---|---|---|---|---|
+| two clocks before A's first pin clock (under the EU cycle) | A | 5 | the read goes behind A | `QPr9-c40-add8-o*` 24, `QPr21m-m-add8-o`, `-ld16-o`, `-ldir-o` |
+| on A's first pin clock or later | A or B, ripe 0 to 3 clocks before its end | 5 | **the chain goes on (B, then C) and the read follows the last fetch**, 3 + W clocks later per fetch | ADD [d16] / [BW+d16],imm8 behind PUSH, a store, two PUSHes, OUT ; NOP (`QPr21m-m-addi8x-*`, `QPr20b-m-addi8*`, 21 + 27 runs), MOV r,[BW+d16] and MOV r,[d16] behind the same leads (`QPr21m-m-ld16-*`, `-ldir-*`, 24 runs) |
+| the clock before A's first pin clock | A, ripe on the clock after its end | 5 | the read goes behind A | `QPr21m-m-addi88-o` E (3) |
+| the clock before A's first pin clock | A, ripe on the clock after its end | 4 | fetch B first | `QPr21m-m-addi8x-o` E, `-cmpi8x-o` E (6): **not in the rule** |
+
+- **Rule (model option `LCH=3`, `LCH_Y=0`, installed):** once the first fetch behind an EU cycle
+  is on the pins, a read requested from then on is not arbitrated against the chain: the chain
+  runs until more than five bytes are held, then the read's cycle starts. A read requested before
+  that clock is arbitrated as before (it goes behind A). Whole socket set: **+75, 0 lost**
+  (rounds 1 to 20: +30, the 21 runs of Q91's state, `QPr16a-a3-3` 6, `QPr9-addi8x-2` 3; round 21: 45).
+- **Two readings were separated on the way.** "From the chain's second fetch on, a read not ripe
+  one clock before the fetch's end loses" (`LCH=1;LCH_MIN=2`) and "behind a memory write only"
+  (`LCH=1;LCH_AFTER=W`) both read rounds 1 to 20 (+30, 0 lost). `QPr21m-m-addi8x-on` (OUT ; NOP ;
+  ADD, the chain behind an I/O cycle) is read by the first and not the second: **the kind of the
+  EU cycle in front does not matter** (measured, 3 runs + the loads' `-on` 6). The loads at W = 2
+  (`-ld16-p`, `-st`, `-pp`, `-on`, `-ldir-*`: 8 runs, the read ripe three clocks before B's end
+  and still behind C) are read by neither threshold and by the installed rule: **there is no
+  ripeness threshold inside the chain** (measured).
+- **Not the rule for writes:** the same act for a write request loses 86 runs (the stores of
+  rounds 2, 5, 8, 9, 12); the stores keep Q33 / Q69.
+- **Nothing behind the imm8 matters** (`-p-fn`, `-p-fri`, `-p-fs`: a NOP, MOV r16,imm16 or a long
+  shift behind ADD [d16],imm8: 9 of 9 with the rule) **and the instruction does not either**: MOV
+  r,[BW+d16] in the same frames behaves the same. Round 20's three failed rules were all on the
+  ADD's own words; the cause is in the bus unit.
+- **Mechanism, inferred:** behind an EU cycle the bus unit's sequencing runs two clocks ahead of
+  the pins (S_LAG, measured in rounds 6 to 12 on the S / A / X words). In that mode the next
+  cycle is chosen before the EU's request can be seen: the request is only looked at when the
+  chain stops (queue full) and the bus unit is idle again. What register holds "the chain is
+  running" is unknown; the outcome table above is measured.
+- **Open (6 runs):** the fourth row: a request one clock before A's first pin clock with four
+  held loses to B, with five held it wins. Read as the four-held fetch's priority over a read
+  ripe on the very clock (`RIPE4`): +1 of 6 only; not installed.
+
+Two shapes read on the way (no key before): **CMP r,[BW+d16] (3B 87): `P Y . PP2 DN .`** (the
+load's routine; 48 of 48, `QPr21m-m-cmpm-*`); **CMP byte/word [d16],imm8 (83 3E): `P . V PP2 DP . BN .`**
+(45 of 48, the 3 misses the open row above; `QPr21m-m-cmpi8x-*`).
+
+## Q96. EXT / INS r,imm4: the imm4 leaves on the datum word; a bus-idle word two (EXT) or three (INS) words behind it
+
+Round 20 left 22 misses (EXT / INS r,imm4 behind two or three one-byte instructions at one
+alignment) with "the imm4 byte has left the queue by the read's last clock; the length is not
+closed". On the same traces (`QPr20b-e-*`, `QPr16a-ph-*`; no new probe):
+
+- In the failing runs the pop of the imm4 on the datum word starts a fetch (five held becomes
+  four) and the next opcode's pop is a fixed 62 clocks behind **that fetch's end**; in the passing
+  runs (no fetch there) it is 62 behind the read's end. So a word behind the datum word waits
+  for the bus to be idle: the fetch (3 + W clocks from the datum word's clock) costs 1 + W clocks
+  for EXT and W for INS.
+- **EXT r,imm4: `P . BP . C . . Y DP . B` + (22 + v) words + `N .`** (v as Q59; the same total
+  length as before, the pop moved from the last-but-one word to the datum word).
+  **INS r,imm4: `P . BP . C . . Y DP . . B` + (67 + v) words + `Z G N .`**.
+  Whole set **+29, 0 lost** (EXT 18: `QPr20b-e-exti-{kn,rn,kkk,nnn}` 11, `QPr16a-ph-{cc,nc,nn}-exti` 7;
+  INS 11). B one word either side: EXT 0 / 30 and INS 19 / 30 of the 30-run subset. Measured.
+- The register forms (EXT r,r8 / INS r,r8) pop nothing on the datum word; whether they have the
+  same bus-idle word cannot be seen (inferred to: same routine body).
+- Remaining EXT / INS misses: only the INC BW lead artefact (`-ii`, `-in`, `-ni`).
+
+## Q97. The strict bus-idle word: the word kind, not a byte count; no exception among the routines
+
+- `P2_Q=2` (act `I` on **every** bus-idle word that pops a word-wide operand, by rule rather than
+  per key) changes no run of 16,224: every `B` + `PP2` word of the model already carries the act
+  and none contradicts it. With Q94's counter-example (the far forms' segment word releases two
+  bytes and waits; MOV r8,imm8's release word releases two bytes, opcode + imm8, and does not)
+  the reading is the word kind: **a bus-idle word that reads two bytes of the queue for one
+  16-bit operand**. Measured as far as the routines go.
+- `P2_Q=1` (every word-wide pop, bus-idle or not, waits on the clock a chained fetch starts)
+  also changes no run: on the words that are not bus-idle (the displacement word of the loads and
+  stores, `P Y . PP2 D..`) the wait is hidden behind the datum wait. The two routines where it
+  would show (PUSH imm16's fifth word, MUL r,r,imm16) cannot be put in the state: `r21q` (480
+  programs: 20 leads x 2 routines x 2 markers) was run in the direct sim and through the model
+  under both options; no program's prediction differs, so the family was **not acquired**.
+- No routine pops a 16-bit operand in two halves on different words with the second on a
+  bus-idle word, so "a 16-bit release with one byte already popped" has no probe. **Unknown**
+  stays: whether the cause is the queue's two-byte read path (inferred, Q94).
+
+## Q98. The corpus encodings that had no probe (`QPr21f`, 2,748 runs): shapes per form
+
+The round's split (`divergence-notes.md`) found 903 diverging corpus runs on 94 encodings with no
+socket probe of the same opcode / ModR/M mode. `r21f` probes the 36 largest in round 20's frames
+(four leads, the four probe programs, behind PUSH, behind OUT imm8, in front of the OUT imm8 and
+PUSH markers; 72 runs a form), the transfers through [BW] and REP INM / OUTM word with CW = 0 to 2.
+Scores leave out the INC BW lead (6 runs a form: the known artefact). "RTL" is the direct sim of
+ce9ea43 on the same programs (all 2,748).
+
+| instruction | routine (model notation) | score | status |
+|---|---|---|---|
+| OR / AND / SUB / XOR / ADC / SBB [BW],r16 (09 / 21 / 29 / 31 / 11 / 19 07) | ADD [BW],r's: `P Y . . DZ G N .` | 66 / 66 each | measured: one routine for all eight ALU operations. **The RTL has 3 of 66 on each (ADD word: 66 of 66): a build fault** |
+| ADD / OR / SUB byte [BW],r8 (00 / 08 / 28 07) | the same | 66 / 66 each | measured |
+| ADD [BW+d16],r ; ADD [d16],r (01 87 / 06) | `P Y . PP2 DZ G N .` | 66 / 66 each | measured (the d8 form's routine with the word-wide pop) |
+| ADD [BW+IX+d16],r (01 80) | `P . Y . PP2 DZ G N .` | 63 / 66 | measured; 3 behind OUT imm8 at even alignment |
+| XCH [d16],r (87 06) | `P Y . PP2 D . Z G N .` | 63 / 66 | measured; the same 3 |
+| DEC word [BW+d16] (FF 8F) | INC's: `P . . B Y . PP2 . DZ G N .` | 66 / 66 | measured |
+| SHL word [BW+d16],1 (D1 A7) | `P . B Y . PP2 D . . . . . Z G N .` | 66 / 66 | measured |
+| MOV [BW+d16],r ; [BW+IX+d16],r ; [d16],r (89 87 / 80 / 06) | by the model's mode rule (no change) | 60, 59, 60 / 66 | the misses: twice, behind PUSH (the store against the chain, Q33) and 3 behind OUT |
+| MOV r,[BP+IY+d16] ; r,[IX+d16] (8B 83 / 84) | by rule | 63, 66 / 66 | |
+| MOV word [BW+IX+d16],imm16 (C7 80) | `P . . . BIYPP2 . . . KPP2N .` (one word more than [BW+d16], as LEA and the load) | 61 / 66 | measured; misses twice / behind OUT |
+| MOV word [BW+IX+d8],imm16 (C7 40) | the [BW+d8] routine | 65 / 66 | measured: two registers with d8 cost nothing |
+| SET1 / NOT1 / CLR1 word [BW],CL ; [BW+IX],CL ; CLR1 word [BW],imm4 | the byte forms' (`S1M`, `C1M`, `C1MI`) | 63, 63, 63, 63, 66 / 66 | measured; 3 each behind OUT at even alignment |
+| SET1 word [BW+d8],CL (0F 15 47) | `P . BP . . C Y . P DZ G N .` | 63 / 66 | measured: the displacement two words behind the request, as the loads |
+| SET1 word [BW+d16],CL ; [d16],CL (0F 15 87 / 06) | `P . BP . . C Y . PP2 DZ G N .` | 126 / 132 | measured (the shape with the displacement in front of the request: 0) |
+| TEST AW,imm16 ; CMP AW,imm16 (A9 / 3D) | ADD AW,imm16's: `. . . . BINPP2 .` | 66 / 66 each | measured |
+| CVTDB (D5 0A) | `. . . BP C` + 12 words + `N .` (19 words; the fifth word waits one clock when the operand's pop starts a fetch: C, I or S, not separated) | 63 / 66 | measured; 3 in front of OUT imm8 at even alignment |
+| DI (FA) | `. . BN .` (four words, the last-but-one bus-idle; CLC's `N .` 0) | 66 / 66 | measured |
+| CMPBK word alone (A7) | no change | 64 / 66 | |
+| JMP far [BW], CALL far [BW] (FF 2F / 1F) | `P . B Y D . U D . . F N .`, `P . B Y D . U D . . . Z D . . . Z D . . F N .` (the [d16] forms' with the displacement word and one head word gone) | 10 / 12 each | measured at W = 1, 2; the W = 0 misses are the setup store's |
+| JMP near [BW], CALL near [BW] (FF 27 / 17) | even alignment `P . B Y D . . F N .` / `P . B Y D . . . Z D . . F N .`; odd alignment the request two words earlier (`P Y . D ..`) | 6 / 12 each with either | **partly read**: no one shape; at odd alignment a fetch chained behind the setup store's write is on the pins over the first words |
+| REP INM / OUTM word, CW = 1, 2 | no change | 72 / 72 | |
+| REP INM / OUTM word, CW = 0 | one word more than the string forms' zero-count routine (`. . . B . . . . . . . N .`) | 28 / 36 (the 11-word routine 8 / 36: the 8 others) | **partly read** |
+
+- Common residual, **open**: behind OUT imm8 at even alignment, 3 runs a form on eleven forms
+  (the memory forms of SET1 / CLR1 / NOT1, XCH [d16], the two-register d16 forms): in the SET1
+  rows the commit word does not wait for the second fetch of the chain behind the I/O cycle
+  (the same observation as round 20's A2 for the register forms, here on the memory forms'
+  `C`); in the load the first fetch behind the I/O cycle is one clock later. Not chased.
+- **The RTL (ce9ea43, direct sim) on the same programs, of 66 a form:** ADD word [BW],r 66; OR / AND
+  / SUB / XOR / ADC / SBB word and ADD / OR / SUB byte [BW],r **3 each** (the build fault: only
+  01 07 takes the routine); SHL 1 d16 2, DEC d16 1, TEST / CMP AW,imm16 2 each, CVTDB 0, SET1
+  word [d16] / [BW+d16],CL 0, [BW+d8],CL 30, C7 [BW+IX+d16] 30, C7 [BW+IX+d8] 64, XCH [d16] 57, DI
+  57, ADD [d16] / [BW+d16] / [BW+IX+d16],r 60 / 60 / 59, the d16 stores and loads 59 to 63 (the
+  model's own misses), SET1 / CLR1 / NOT1 word [BW],CL 63 (as the model), CLR1 [BW],imm4 60; the
+  transfers through [BW] 0 of 12 each; REP INM / OUTM word 18 of 18 at CW = 1, 2 and 4 of 18 at 0.
+- Model: keys added for every row above (`model_m.info` / the MEM table); the model's default
+  set now reads 17,532 of 18,972 non-interrupt socket runs (rounds 1 to 20: 14,528 of 15,726, from
+  14,469, none lost; `r21m` 492 of 498; `r21f` 2,512 of 2,748, 216 of them the INC BW lead).
+
+## Q99. The corpus frame itself: the unread state is "directly behind OUT imm8 at even alignment" (`QPr21c`, 672 runs)
+
+The split's largest class (about 1,150 diverging corpus runs on about 110 forms) has every probe
+of its encodings exact in the model **and** in the RTL, and diverges in the corpus almost only
+with the subject directly behind the frame's marker at even alignment. `r21c` runs 28 of those
+forms in the corpus's own frame (long shift ; marker ; X ; marker ; long shift) and in the
+small set's (X ; marker):
+
+| frame | alignment | runs | model exact | RTL exact (direct sim) |
+|---|---|---|---|---|
+| OUT imm8 ; X ; OUT imm8 | even | 84 | **24** | **20** |
+| OUT imm8 ; X ; OUT imm8 | odd | 84 | 69 | 66 |
+| PUSH ; X ; PUSH | even / odd | 168 | 168 | 168 |
+| X ; OUT imm8 | even / odd | 168 | 157 | 147 |
+| X ; PUSH | even / odd | 168 | 159 | 147 |
+
+- **Measured: the state is real and neither the model nor the RTL has it.** Behind OUT imm8 at
+  even alignment 20 of the 28 forms miss at every wait (MULU / MUL, ADD DW,imm16, POP [BW],
+  TEST1 [BW],CL, ROL4, EXT / INS, SHL r,imm8, the two-register d16 load; IN, CVTWL and ADD4S at
+  both alignments). The two-byte register forms (CMP / MOV r,r) and the three-byte SET1 r,CL
+  are exact.
+- **Two symptoms, read from six traces only (inferred, not a rule):** (1) for the forms whose
+  first word pops a ModR/M byte or an operand, the first fetch behind the I/O cycle starts one
+  clock later than the model's (two clocks behind the cycle's last clock, not one:
+  `-add_dw_imm0-oo`, `-pop_m-oo`); (2) for the forms with an early bus-idle word (MULU's third
+  word, SHL r,imm8's sixth) that fetch starts on time and the word, which the model lets pass
+  on the fetch's first clock, passes on the fetch's second-last clock (1 + W clocks later).
+  Both say the same thing: **on the first fetch behind an I/O cycle the EU and the bus unit
+  are one decision apart from where the model puts them**, the other way round from Q95's open
+  row. No rule; the probes are the material for round 22.
+- **The PUSH frame is exact in model and RTL (168 of 168)** for these forms, yet corpus rows
+  such as mulu_dw diverge behind the PUSH marker at even alignment (24 of 24, the RTL's second
+  marker write one clock early). The frame alone does not reproduce it: the operand values
+  (DW, AW) or the chain's start differ between the corpus program and the probe. **Unknown,
+  not diagnosed** (MULU's length against its operand was not varied).
+- `-ext_dl_bh` and `-add4s` miss in every frame: their operands in the corpus frame (BH as
+  the length, the string registers) are not what the model carries; not scored.
+
+## Socket runs of round 21
+
+| family | what | runs | repeats that differ |
+|---|---|---|---|
+| r21m | a read against the fetch chain behind an EU cycle (ten subjects x eight leads) | 498 | 12 |
+| r21f | the corpus encodings with no probe (36 forms, transfers through [BW], REP INM / OUTM word) | 2,748 | 292 |
+| r21c | the corpus frame for 28 forms | 672 | 97 |
+
+3,918 runs, each twice; 0 failed, 0 incomplete; the 401 repeats that differ, compared field by
+field (`build/qp/rep20.py r21m|r21f|r21c`), differ in the strobe field only. `r21q` (480 programs)
+was run in the direct sim only (Q97). Sim: corpus replay once (30,536 runs), the non-interrupt
+small set (15,726 runs, `build/qp/sim21.sh`), `r21m`, `r21f`, `r21c`. No interrupt family was run.
+Board left with vccb false, failure 0.

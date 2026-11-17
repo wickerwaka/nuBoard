@@ -123,9 +123,9 @@ DEFAULT = dict(
     RSV_KEYS="", B_EU="OIWR", B_EU_LAST="", B_EU_OF=0, B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
     PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . . B . . . . . . . . .",
     I_ADD4S="Y D . . . U D . . . . . . Z D .", T_ADD4S=". . . . . . . . N .",
-    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y D", EXTI_TAIL="PN .", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", SHLI_W3="BP", SHLI_AT=5, SHLI_D=-1, E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
+    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y DP . B", EXTI_TAIL="N .", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", SHLI_W3="BP", SHLI_AT=5, SHLI_D=-1, E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
     POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1, Z_LAT=2, FLUSH_B2B=1, FLUSH_GAP=3,
-    S_LAG=2, EU_SLOT=1, LAG_ACTS="SXA", LAG_FIRST="A", CHAIN_POP=1,
+    S_LAG=2, EU_SLOT=1, V_LAG=0, INSI_HEAD="P . BP . C . . Y DP . . B", EXTI_D=2, INSI_D=3, P2_Q=0, LCH=3, LCH_K="R", LCH_MIN=1, RIPE4=0, LCH_Y=0, LCH_AFTER="WROI", LAG_ACTS="SXA", LAG_FIRST="A", CHAIN_POP=1,
     LEAD_E6=3, LEAD_SR=2, LEAD_CC=0, LEAD_FF=0, LEAD_E2=2, LEAD_EPRI=1, HALT_STOP=1, HALT_HOLD=1,
     TE=79, TE_W=2, SHL_N=1, SHL_B=4, SHL_BASE=12,
     # the rejected rivals (see the docstring)
@@ -157,7 +157,7 @@ DEFAULT = dict(
     RET=". . Y D . . F N .", XCHRR="PN .", TESTRR="P . BN .",
     INCB="P . . BN .", TEST1="P . BP . . BN .", CLR1="P . BP . . BN . .", RMW="P Y . . DZ G N .",
     ADDIW="P . . BY DPP2Z G N .", ADDIM_D8="P . V P DPZ G N .", ADDIW_D8="P . . BYP DPP2Z G N .", ADDIW_D16="P . . BIYPP2 DPP2Z G N .", ADDIW_DIR="P . . BIYPP2 DPP2Z G N .", CMPIW_D16="P . . BIYPP2 DPP2 . BN .", CMPIW_DIR="P . . BIYPP2 DPP2 . BN .", ADDIM_D16="P . V PP2 DPZ G N .",
-    ADDIM_DIR="P . V PP2 DPZ G N .", CMPIM="P . V DP . BN .", TESTIM="P . B . . Y DPP2 . BN .",
+    ADDIM_DIR="P . V PP2 DPZ G N .", CALLMB="P . B Y D . . . Z D . . F N .", JMPMB="P . B Y D . . F N .", CALLFMB="P . B Y D . U D . . . Z D . . . Z D . . F N .", JMPFMB="P . B Y D . U D . . F N .", S1M_D8="P . BP . . C Y . P DZ G N .", S1M_D16="P . BP . . C Y . PP2 DZ G N .", C1M_D8="P . BP . . C Y . P D Z G N .", C1M_D16="P . BP . . C Y . PP2 D Z G N .", T1M_D8="P . BP . . C Y . P DN .", T1M_D16="P . BP . . C Y . PP2 DN .", SHLM1_D16="P . B Y . PP2 D . . . . . Z G N .", RMW_D16="P Y . PP2 DZ G N .", RMW_X16="P . Y . PP2 DZ G N .", XCHM_DIR="P Y . PP2 D . Z G N .", STIM_X16="P . . . BIYPP2 . . . KPP2N .", TESTAI=". . . . BINPP2 .", CVTDB=". . . BP C . . . . . . . . . . . . N .", DIK=". . BN .", CMPIM_DIR="P . V PP2 DP . BN .", CMPM_D16="P Y . PP2 DN .", CMPIM="P . V DP . BN .", TESTIM="P . B . . Y DPP2 . BN .",
     TESTM="P . B Y DN .", XCHM="P Y . . D . Z G N .", STIM_D8="P . . BYP . . . KPP2N .",
     STIMB="P . V . . . KPN .", STIM_D16="P . . BIYPP2 . . . KPP2N .", NOTM="P . . B Y . . DZ G N .",
     INCMB="P . . B Y . . DZ G N .", SHLM1="P . B Y D . . . . . Z G N .", PUSHM="P . B Y D . . . Z G N .",
@@ -197,7 +197,7 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
        0xE6: ("E6", "O", 0), 0xE7: ("E6", "O", 0), 0xE4: ("IN8", "I", 0),
        0xBB: ("RI", None, 0), 0xBA: ("RI", None, 0), 0xB8: ("RI", None, 0),
        0xB1: ("MOVI8", None, 0), 0xB3: ("MOVI8", None, 0), 0xB0: ("MOVI8", None, 0), 0xB2: ("MOVI8", None, 0),
-       0xEB: ("JMP", None, 0), 0x93: ("XCHG", None, 0), 0xF8: ("CLC", None, 0), 0xFB: ("EI", None, 0), 0xFA: ("CLC", None, 0),
+       0xEB: ("JMP", None, 0), 0x93: ("XCHG", None, 0), 0xF8: ("CLC", None, 0), 0xFB: ("EI", None, 0), 0xFA: ("DIK", None, 0), 0xA9: ("TESTAI", None, 0), 0x3D: ("TESTAI", None, 0), 0xD5: ("CVTDB", None, 0),
        0x98: ("CBW", None, 0), 0x99: ("CVTWL", None, 0), 0x92: ("XCHG", None, 0), 0xED: ("INDW", "I", 0), 0xA8: ("ADDAL", None, 0), 0x3C: ("ADDAL", None, 0),
        0x9F: ("LAHF", None, 0), 0x27: ("ADJ4", None, 0), 0x37: ("ADJB", None, 0), 0x3F: ("ADJB", None, 0),
        0xD4: ("CVTBD", None, 0), 0x6A: ("PUSHI8", "W", 0), 0x05: ("ADDI", None, 0), 0x83: ("ADD83", None, 1),
@@ -229,7 +229,11 @@ MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x
        (0x3B, 0x07): ("CMPM", "R", 1), (0xC7, 0x06): ("STIM_D16", "W", 1),
        # (round 9)
        (0x81, 0x07): ("ADDIW", "R", 1), (0x81, 0x3F): ("CMPIW", "R", 1), (0x81, 0x7F): ("CMPIW_D8", "R", 1), (0x83, 0x47): ("ADDIM_D8", "R", 1),
-       (0x83, 0x06): ("ADDIM_DIR", "R", 1), (0x83, 0x3F): ("CMPIM", "R", 1),
+       (0x83, 0x06): ("ADDIM_DIR", "R", 1), (0x08, 0x07): ("RMW", "R", 1), (0x28, 0x07): ("RMW", "R", 1), (0x10, 0x07): ("RMW", "R", 1), (0x18, 0x07): ("RMW", "R", 1),
+       (0x20, 0x07): ("RMW", "R", 1), (0x30, 0x07): ("RMW", "R", 1), (0x09, 0x07): ("RMW", "R", 1), (0x11, 0x07): ("RMW", "R", 1),
+       (0x31, 0x07): ("RMW", "R", 1), (0xFF, 0x8F): ("INCD16", "R", 1), (0xD1, 0xA7): ("SHLM1_D16", "R", 1),
+       (0x01, 0x87): ("RMW_D16", "R", 1), (0x01, 0x80): ("RMW_X16", "R", 1), (0x01, 0x06): ("RMW_D16", "R", 1),
+       (0x87, 0x06): ("XCHM_DIR", "R", 1), (0xC7, 0x80): ("STIM_X16", "W", 1), (0xC7, 0x40): ("STIM_D8", "W", 1), (0x83, 0x3E): ("CMPIM_DIR", "R", 1), (0x3B, 0x87): ("CMPM_D16", "R", 1), (0x83, 0x3F): ("CMPIM", "R", 1),
        # (round 17) the 81 / 83 group with a displacement
        (0x81, 0x47): ("ADDIW_D8", "R", 1), (0x81, 0x87): ("ADDIW_D16", "R", 1),
        (0x81, 0x06): ("ADDIW_DIR", "R", 1), (0x81, 0xBF): ("CMPIW_D16", "R", 1),
@@ -289,6 +293,9 @@ def info(code, at):
         k = {**k, 0x20: "ADD4S", 0x22: "SUB4S", 0x26: "CMP4S", 0x31: "INS", 0x33: "EXT",
              0x39: "INSI", 0x3B: "EXTI"}
         if sub in k:
+            if mem and k[sub] in ("S1M", "C1M", "T1M") and code[at + 2] & 0xC7 not in (0x00, 0x07, 0x01, 0x02, 0x03, 0x04, 0x05):
+                md = code[at + 2] & 0xC7     # (round 21) the memory forms by CL with a displacement
+                return (k[sub] + ("_D16" if md == 0x06 or md >= 0x80 else "_D8"), "R", 1)
             return (k[sub], "R" if mem or sub in (0x20, 0x22, 0x26, 0x31, 0x33, 0x39, 0x3B) else None, 0 if sub in (0x20, 0x22, 0x26) else 1)
     if op == 0x0F and code[at + 1] in (0x12, 0x13) and code[at + 2] >= 0xC0:
         return ("CLR1", None, 1)        # (round 10) CLR1 r,CL: one word longer than TEST1
@@ -297,6 +304,8 @@ def info(code, at):
     if op in (0xF6, 0xF7) and code[at + 1] < 0xC0 and (code[at + 1] >> 3) & 7 >= 4:
         # (round 12) MULU / MUL / DIVU / DIV on memory: the register routine behind a read
         return (f"MM{(code[at + 1] >> 3) & 7}{'BW'[op & 1]}", "R", 0)
+    if op == 0xFF and code[at + 1] in (0x17, 0x27, 0x1F, 0x2F):     # (round 21) CALL / JMP near / far [BW]
+        return ({0x17: "CALLMB", 0x27: "JMPMB", 0x1F: "CALLFMB", 0x2F: "JMPFMB"}[code[at + 1]], "R", 1)
     if op == 0xFF and code[at + 1] in (0x1E, 0x2E):       # (round 13) CALL / JMP far [d16]
         return ("CALLFM" if code[at + 1] == 0x1E else "JMPFM", "R", 1)
     if op == 0xFF and (code[at + 1] >> 3) & 7 in (2, 4) and (code[at + 1] >= 0xC0
@@ -440,6 +449,9 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
     req_clock = -9                      # the clock of the latest request word
     pend = False                        # a fetch is wanted while an EU cycle holds the bus
     skipped = False                     # that fetch gave way to a boundary on the last clock
+    ch_start = 0
+    y_clock = -9
+    f_chx = 0                       # (round 21) the latest fetch is in a chain behind an EU cycle
     f_lag = False                       # the latest fetch's slot is ahead of its pin cycle
     next_lag = False                    # ... and another fetch is chained behind it
     halted = False
@@ -487,7 +499,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         cw_ = "C" in acts          # (round 10) C: a bus-idle word (B) that also waits on the
         if cw_:                    # clock a back-to-back fetch starts (the commit word, Q24)
             acts = (set(acts) - {"C"}) | {"B"}
-        iw = "I" in acts           # (round 20) I: a bus-idle word (B) that also waits on the
+        iw = "I" in acts or (o["P2_Q"] == 2 and "P2" in acts and "B" in acts)   # (round 21) P2_Q=2: every bus-idle word-wide pop
+        iw_ = "I" in acts           # (round 20) I: a bus-idle word (B) that also waits on the
         if iw:                     # clock any back-to-back fetch starts, with no exemption
             acts = (set(acts) - {"I"}) | {"B"}   # (LEA with d16 / direct: the release word)
         lw = "L" in acts           # (round 14) L: a bus-idle word that passes from a fetch's
@@ -532,6 +545,10 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 busy = (slot and not (first and act in o["LAG_FIRST"])) or eu_slot
             elif kind == "late":
                 busy = in_fetch and f_end - t >= (1 if vw else o["Y_LEFT"])
+                if vw and o["V_LAG"] and in_fetch and f_lag and lag:
+                    # (round 21, trial) V behind an EU cycle's fetch chain waits by the slot:
+                    # honoured on the slot's last clock (the pin cycle's, S_LAG clocks earlier)
+                    busy = (t != f_end - lag) if o["V_LAG"] == 1 else (t > f_end - lag)
             elif kind == "pin":
                 busy = in_fetch and (act not in o["B_ACTS"] or t >= f_end - cyc + o["B_FROM"])
                 if act == "B" and lw:
@@ -566,6 +583,11 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             else:
                 busy = False
             stall = stall or busy
+        # (round 21, trial) P2_Q: any word that pops a word-wide operand waits on the clock a
+        # back-to-back fetch starts (a property of the queue's 16-bit read, not of the B word)
+        if (o["P2_Q"] and "P2" in acts and just_ended and not eu_run and pfp is not None
+                and not (eu_due is not None and t >= eu_due) and count <= o["B2B_AT"]):
+            stall = True
         if acts & set("XSABFY"):
             # measurement hook (not a rule): FORCE = (instruction number, word, n) makes that
             # word's bus wait exactly n clocks; DBG collects (instruction, word, clock, waited)
@@ -679,6 +701,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             if "X" in acts or "Y" in acts:
                 unarmed = any("K" in x for x in rt[ip:])
                 armed_t = t if "K" in acts else None
+                y_clock = t
                 if not (vw and o["V_NOPRI"]):
                     req_clock = t
                 eu_due = t + (o["Z_LAT"] if (zw or uw) else o["POST_LAT"])
@@ -707,6 +730,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     flush_to = calls.pop()
                 elif cur_op == 0xCF:                        # (round 13) RETI: the third push back
                     flush_to = calls[-1]
+                elif cur_op == 0xFF and code[cur_at + 1] in (0x17, 0x27, 0x1F, 0x2F):   # (round 21) through [BW]
+                    flush_to = m16["bw"]
                 elif cur_op == 0xFF and code[cur_at + 1] < 0xC0:    # (round 12) CALL / JMP mem
                     flush_to = m16[code[cur_at + 2] | code[cur_at + 3] << 8]
                 elif cur_op == 0xCD:                        # (round 12) BRK imm8: its vector
@@ -789,6 +814,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     bw = code[stg + 1] | code[stg + 2] << 8
                 if cur_op == 0xC7 and code[stg + 1] == 0x06 and code[stg + 2] == 0x0C:
                     vec3 = code[stg + 4] | code[stg + 5] << 8
+                if cur_op == 0xC7 and code[stg + 1] == 0x07:      # (round 21) MOV word [BW],imm16
+                    m16["bw"] = code[stg + 2] | code[stg + 3] << 8
                 if cur_op == 0xC7 and code[stg + 1] == 0x06:      # MOV word [d16],imm16
                     m16[code[stg + 2] | code[stg + 3] << 8] = code[stg + 4] | code[stg + 5] << 8
                 cur_key = key
@@ -815,19 +842,21 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     immf = key in ("EXTI", "INSI")
                     n = ((code[stg + 3] if immf else r8[(m_ >> 3) & 7]) & 15) + 1
                     off = r8[m_ & 7] & 15
-                    head = o["EXT_HEAD"] if immf else o["EXTR_HEAD"]
-                    tailp = o["EXTI_TAIL"] if immf else "N ."
                     ext = key in ("EXT", "EXTI")
+                    head = (o["EXT_HEAD"] if ext or not o["INSI_HEAD"] else o["INSI_HEAD"]) if immf else o["EXTR_HEAD"]
+                    tailp = o["EXTI_TAIL"] if immf else "N ."
+                    # (round 21) the imm4 forms' heads carry words of the body: bases shortened
+                    xd = (o["EXTI_D"] if ext else o["INSI_D"]) if immf else 0
                     if off + n <= 16 and ext:
                         # two shift loops of two words a bit, 16 - off - n and 16 - n long, the
                         # second with a four-word entry
                         v = (o["EXT_K"] if n < 16 else 0) + 2 * (16 - off - n) + 2 * (16 - n)
-                        rt = (words(head) + [set() for _ in range(o["EXT_BASE" if immf else "EXTR_BASE"] + v)]
+                        rt = (words(head) + [set() for _ in range(o["EXT_BASE" if immf else "EXTR_BASE"] + v - xd)]
                               + words(tailp))
                     elif ext:
                         # (round 13) across the word: a second read, then 2 words per bit of
                         # offset (one more when n < 16)
-                        rt = (words(head) + [set() for _ in range(o["EXTX_GAP"] + (0 if immf else o["EXTRX_D"]))]
+                        rt = (words(head) + [set() for _ in range(o["EXTX_GAP"] - xd + (0 if immf else o["EXTRX_D"]))]
                               + words("U D")
                               + [set() for _ in range(o["EXTX_BASE"] + 2 * off + (n < 16))]
                               + words(tailp))
@@ -835,11 +864,11 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                         # INS inside one word: a fixed length, two words more for a non-zero
                         # offset, eight fewer when the field ends at bit 15
                         v = 2 * (off > 0) - 8 * (off + n == 16)
-                        rt = (words(head) + [set() for _ in range(o["INS_BASE" if immf else "INSR_BASE"] + v)]
+                        rt = (words(head) + [set() for _ in range(o["INS_BASE" if immf else "INSR_BASE"] + v - xd)]
                               + words("Z G " + tailp))
                     else:
                         mm_ = off + n - 16
-                        rt = (words(head) + [set() for _ in range(o["INSX_1"] + (0 if immf else o["INSRX_D"]))]
+                        rt = (words(head) + [set() for _ in range(o["INSX_1"] - xd + (0 if immf else o["INSRX_D"]))]
                               + words("Z D") + [set() for _ in range(o["INSX_GAP"])]
                               + words("U D") + [set() for _ in range(o["INSX_BASE"] + 4 * mm_)]
                               + words("Z G " + tailp))
@@ -942,6 +971,26 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         old_loses = (o["ARB"] & 1 and just_ended and eu_due is not None and eu_kind in o["ARB_K"]
                      and unarmed and (armed_t is None or armed_t > t - 2) and pfp is not None
                      and not halted and hist.get(t - 2, 99) + f_bytes <= o["B2B_AT"])
+        # (round 21) LCH: a fetch chained behind an EU cycle's fetch (the lagged chain, S_LAG) is
+        # committed at its slot's first clock, S_LAG - 1 clocks before the pins: a memory request
+        # that is not ripe before that clock does not stop it (the EU cycle follows the fetch)
+        if o.get("DBGL") and o["DBGL"][0] <= t <= o["DBGL"][1]: print(t, "je", just_ended, "flag", f_lag, "nl", next_lag, "due", eu_due, "fend", f_end, "cnt", count, "hold", eu_hold, "pend", pend, "in_f", in_fetch, "req", req_clock)
+        if (o["LCH"] and just_ended and f_chx >= o["LCH_MIN"] and last_kind in o["LCH_AFTER"] and eu_due is not None and eu_kind in o["LCH_K"]
+                and eu_due >= f_end - o["S_LAG"] + o["LCH"] and pfp is not None and not halted
+                and count <= o["B2B_AT"] and not eu_hold and o["LCH"] < 3):
+            old_loses = True
+        # LCH=3: no arbitration inside the chain: a read requested at or after the clock before
+        # the chain's first pin clock (LCH_Y) waits until the chain ends (more than five held)
+        if (o["LCH"] == 3 and just_ended and f_chx >= 1 and eu_due is not None and eu_kind in o["LCH_K"]
+                and y_clock >= ch_start - o["LCH_Y"] and pfp is not None
+                and not halted and count <= o["B2B_AT"] and not eu_hold):
+            old_loses = True
+        # (round 21) RIPE4: a fetch at four or fewer held beats a read that becomes ripe on this
+        # very clock (1: on the fetch chain behind an EU cycle only; 2: after any fetch)
+        if (o["RIPE4"] and just_ended and eu_due == t and eu_kind in o["LCH_K"] and pfp is not None
+                and not halted and count <= o["IDLE_AT"] and not eu_hold
+                and (o["RIPE4"] == 2 or f_chx >= 1)):
+            old_loses = True
         if bus_free and eu_due is not None and t >= eu_due and not eu_hold and not old_loses:
             ev.append((t, eu_kind, eu_where))
             eu_end = t + (2 if eu_kind in ("O", "I") else cyc - 1)
@@ -988,6 +1037,9 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 ev.append((t, "F", addr - b))
                 # the slot stays ahead of the pins for a fetch that was pending under an EU
                 # cycle and for one chained to such a fetch (unless a pop falls on this clock)
+                if pend:
+                    ch_start = t
+                f_chx = 1 if pend else (f_chx + 1 if (f_chx and f_end is not None and t == f_end + 1) else 0)
                 f_lag = pend or (f_lag and next_lag and f_end is not None and t == f_end + 1
                                  and not (o["CHAIN_POP"] and pops))
                 after_w = (t + cyc - 1) if (eu_end is not None and t == eu_end + 1
