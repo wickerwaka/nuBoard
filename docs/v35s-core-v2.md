@@ -3150,3 +3150,11 @@ question, decided from S8's routed numbers with the user.
   HALT probes of stage 4. Open for the user: building the unexplained 7-clock line for INT;
   two signals across the EU / bus-unit boundary for the occupation handshake against the
   port budget; building the event list with DIV / strings / REP left without events.
+- **2026-11-17, rulings (user) on the interrupt build after round 19.** (1) INT may be built
+  as a seven-clock line of measured length between the two-sample level and the IE-gated
+  latch at the loader, its purpose recorded as unknown (an explicit exception to the
+  "every delay needs a machine explanation" rule, for this line only). (2) The port budget
+  may be raised by the two signals of the vectored sources' occupation handshake across the
+  EU / bus-unit boundary (request, done), and by no more. (3) The event-word list may be
+  built as measured, with DIV, strings and REP left without events until they are read (a
+  known difference for NMI / INTPn timing across those routines).
