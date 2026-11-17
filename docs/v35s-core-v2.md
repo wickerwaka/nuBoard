@@ -3329,3 +3329,12 @@ question, decided from S8's routed numbers with the user.
   encodings, none a build fault. Not built, awaiting a ruling: spec 18 A1 (the late first
   fetch behind OUT) and A2 (the commit word against the chain's second fetch); designs in
   the hand-back `r22/rtl/rtl.md`. The next landing is a full gate.
+- **2026-11-17, rulings (user) after round 22.** (1) Spec 18 A1, the late first fetch behind
+  OUT, may be built as a gating rule on the fetch start, recorded as measured with the
+  register's identity unknown. (2) Spec 18 A2, the commit word passing on the third-last
+  clock of the chain's second fetch, may be built: an explicit exception to the "every delay
+  needs a machine explanation" rule for this constant, backed out if timing falls under
+  +2.0 ns. (3) The three free codes used in work order 18 in place of ports are accepted,
+  with the unmeasured memory forms of BRKCS, TSKSW and MOVSPB on the bare heads. (4)
+  Stopping line: every state or form carrying more than 20 corpus runs is read and built;
+  the rest is listed as known differences.
