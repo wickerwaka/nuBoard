@@ -3281,3 +3281,14 @@ question, decided from S8's routed numbers with the user.
   timing run every third landing, one spacing and seed 1 in between. Corpus tools added
   (`validation/v35s/qprobe/tools/`): the reading model on the corpus, clustering of
   divergences by state, a ROM-against-model routine check.
+- **2026-11-17, the interrupt rebuild handed back and held (rulings, user).** Built in a
+  worktree on top of 0272563 as spec 15 I's stage machine with spec 16's event words
+  (hand-back `r19/rtl`): interrupt probes all-exact 1,634 -> 3,083 of 6,278, pc-exact 2,476
+  -> 4,486, the short-pulse hang fixed, NMI_DLY / INTP_DLY / `ird` removed. Rulings: the two
+  extra bits (`ev`, `pop`) on the existing `wk_nx` port are allowed beside the two handshake
+  signals (`oc_rq`, `oc_dn`); the batch is not landed while f4_dma differs (silicon takes the
+  DMA-end vector one instruction earlier than the rebuilt path, which has never been measured
+  for that source): a socket probe of the DMA-end request comes first. Open in the batch:
+  INTP0 one instruction late in CBW / INC trains and INT 2 clocks early in front of HALT
+  (attributed by the builder to where the RTL pops the next opcode in NOP / INC / CBW; not
+  verified).
