@@ -3123,3 +3123,30 @@ question, decided from S8's routed numbers with the user.
   waits is not identified. Not started: NEG [BW+d16], EXT across a word, ADD [d16],imm8 with
   four bytes held, CALL far with waits, OUTM twice. Open for the user: whether a seven-stage
   delay of measured length and unknown purpose may be built for INT.
+- **2026-11-17, qprobe round 19 on the socket (4,370 runs in 35 families; a reading, no RTL
+  change; `validation/v35s/qprobe/RESULTS.md` Q82-Q87, `DIVERGENCE-r19.md`).** **The vectored
+  sources' EU side is a mechanism, not a delay (Q82, Q83)**: in NMI runs the bus unit is
+  occupied for 2 clocks with nothing on the pins (332 of 332 EU cycles whose first clock is c
+  or c + 1 are exactly 2 late, c = the first clock the level stands at the EU, e + 8.875;
+  0 of 163 at c + 2; none in 632 INT runs; present in INTP0 and timer runs). The rule, 5,092
+  of 5,128 NMI runs of rounds 17-19 at W = 0 to 2: (1) the event is the first clock >= c on
+  which the microcode's current word is an instruction's first word, its N word (executing or
+  waiting), a word waiting for the EU's own cycle, or a loop word (SHL by CL, MULU); (2) the
+  occupation starts at the event; (3) five clocks after its first clock the first pop is
+  replaced and the vector read follows 17 later. Round 18's opcode-only rule is the special
+  case where the only events are pops. INTPn goes through the same stage (78 of 78, a test);
+  the timer shows the occupation (rule not scored). Inferred: the occupation is the internal
+  acknowledge. Unknown: the 3 clocks behind it, loop words of DIV / strings / REP, 36 misses,
+  the rule in front of jump targets (507 of 576). **INT's stage 4 (Q85)** is a line carrying
+  the level and then a request latch at the loader: a 2- or 3-clock pulse is taken by the
+  first pop >= e + 9.125 at every phase and up to 68 clocks later; IE gates the latch, not
+  the line's input (a request that entered before DI is never taken behind it and is cleared,
+  not masked; a held level is taken at the second pop behind EI). What the seven clocks are
+  is still unknown. **br_n1 (Q86)**: JMP short's displacement word is a bus-idle word
+  (`. . . BP . . F N .`); `r18j` 60 of 60 from 48, the non-interrupt socket set 12,215 of
+  13,404 from 12,203, none lost; spec 14 A2 withdrawn. **REP compares with waits (Q87)**:
+  each read's waits add serially (CMPBK 9 + W, CMPM 10 + W then 12 + W); the RTL's later CMPM
+  iterations are 12 at every wait. Not started: the unread forms of spec 13 D, HLDRQ / PRC /
+  HALT probes of stage 4. Open for the user: building the unexplained 7-clock line for INT;
+  two signals across the EU / bus-unit boundary for the occupation handshake against the
+  port budget; building the event list with DIV / strings / REP left without events.

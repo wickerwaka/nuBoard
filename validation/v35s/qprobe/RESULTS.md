@@ -2357,3 +2357,262 @@ FF10h was written only by the INT halves of the `r18t*` families, with gen_r15's
 handler hand-back; the first INT program was run alone and its vector read (0100h) checked.
 Scout runs (34, `build/qp/r18/scout`) are not counted. Model change this round: `BLOG` (a log of
 instruction starts) only; no rule or shape changed, so round 17's 11,834 of 12,396 stands.
+
+
+# Round 19
+
+## Q82. NMI and INTP0 occupy the bus unit for two clocks with nothing on the pins; INT does not
+
+Found while reading `r19nld1`: with the NMI edge at some positions a prefetch or an EU cycle of
+the train is on the pins 2 to 4 clocks later than in the control run of the same program (the
+edge at d2000, never taken), **before** anything of the interrupt is on the bus, and with no
+record in between (no strobe, no refresh record). Tools: `build/qp/hs19.py` (table per cycle
+kind and distance to the level's arrival), `hd19.py` (is anything displaced), `h19.py` / `ev19.py`
+(one program, run beside control).
+
+- **Measured, every NMI family of rounds 17 to 19 (38 families, W = 0, 1, 2; `build/qp/r19/hs-nmi.txt`):** let c be the
+  first clock on which the level stands at the EU (the clock containing e + 8.875: stage 4's
+  end). A bus cycle of the control whose first pin clock T is before c is never moved. A cycle
+  with T = c or c + 1 is moved: an EU read or write by **2 clocks at every wait** (332 of 332
+  runs with such a cycle behind an idle bus, and 0 of 163 with T = c + 2), a prefetch from an idle bus in a train with EU cycles by 3 (W = 0: also 4), a prefetch started by a pop by 2 or 4, a prefetch chained behind another cycle by 2 to
+  5 (the chain is re-formed). A cycle with T >= c + 2 behind an idle bus is not moved; one
+  chained to a cycle that was in flight at c is (the occupation waits for the cycle in flight
+  and runs in front of the chained one).
+- So **the bus unit is taken for 2 clocks** by something that is not a pin cycle, with
+  priority over a cycle that has not reached its first pin clock (also over one already in its
+  two set-up clocks, S_LAG), and behind a cycle that has. The EU's cycle keeps its place in
+  the queue and starts when the 2 clocks are over; a prefetch is decided again.
+- **INT: none.** No cycle is displaced in any INT run of `r18tld0`, `r18tmi80`, `r18tmm0`,
+  `r18tnop2`, `r17r` (632 runs; the same trains show it in NMI's half). **INTP0: yes**, in round 17's trains (`r17p`, `r17q`, `r17r`: prefetches 2, 3 and 4
+  clocks late 11 to 16 clocks after the edge, 93 of 251 runs; NMI in the same CBW train: 46 of
+  96 at 9 to 11 clocks). The occupation belongs to the sources the interrupt controller
+  vectors, not to the pin INT, whose vector comes by INTAK on the pins.
+- Inferred: it is the EU fetching the request's vector / priority from the interrupt
+  controller over the internal bus (an acknowledge that needs the bus unit but no pin cycle;
+  2 clocks, no wait states at W = 1, 2). What is transferred is not observable on the pins.
+- This is what makes round 18's "A - P = 17 to 19": the vector read is 17 clocks behind the
+  replaced pop where nothing is displaced; the 18s and 19s are runs where the last EU cycle
+  or the pop's own fetch was moved.
+
+## Q83. NMI's second stage: one rule for opcode-only trains, bus cycles and long instructions
+
+`r19n*` (25 families, NMI alone, the edge in half-clock steps, quarter steps in `r19nld0`):
+MOV AW,[BW] at W = 0 / 1 / 2, with [BW+d8], a direct address and [BW+IX]; with 1, 2, 3 NOPs
+between; MOV [BW],AW at W = 0 / 2 and with a NOP between; PUSH, POP, PUSH ; POP, PUSH ; NOP;
+ADD [BW],AW; MULU BL; SHL AW,CL with CL = 0, 1, 2, 3, 4, 6, 9. Tool: `build/qp/sc19.py hid=2
+ev=F <rounds>` (prediction of the pushed instruction per run from the model's word log,
+`o["WLOG"]`, new this round).
+
+**The rule (measured as a whole: 5,092 of 5,128 runs of rounds 17 to 19, W = 0, 1, 2):**
+
+1. c = the first clock the level stands at the EU (stage 4, INT's 7 clocks: e + 8.875 for NMI).
+2. **Event:** the first clock t >= c on which the microcode's current word is (a) the first
+   word of an instruction, (b) its N word, executing **or waiting** (MOV r,[m]'s N word waits
+   on the datum of the read from the word behind the request), (c) a word waiting for the
+   EU's own cycle (`D`: ADD [BW],AW's read), or (d) a loop word of a long routine (SHL by CL:
+   every second clock back from the word in front of N; MULU: 2 and 7 clocks in front of N;
+   other words of those routines are not events).
+3. **The hidden occupation (Q82)** starts at the event: at once if the bus unit is free, on
+   the first pin clock of a cycle that is in its set-up (that cycle then 2 late), behind a
+   cycle in flight; one clock later when the event is a pop that starts a prefetch on its own
+   clock.
+4. **Five clocks after the occupation's first clock the request stands at the loader; the
+   first pop at or after that clock is replaced** (not loaded: its opcode's address is what
+   is pushed). Vector read 17 clocks after the replaced pop.
+
+What this replaces. Round 18's "S = first pop >= e + 8.875; the pop replaced is the first one
+at least 5 clocks after S that is not made on the first word of the instruction S loaded" is
+the special case of an opcode-only train, where the only events are pops (a NOP's N word is
+its first word; MOV r,imm's is its fourth or fifth with no event between). Its exception
+clause ("not on the first word") is the fifth clock: a first-word pop is 4 clocks behind the
+pop before it. Its failures (404 of 904 runs across bus cycles and long instructions, "3 to
+7 clocks with no pop") are events that are not pops: a waiting N word (3 clocks in front of
+the datum pop of a read at W = 0, which the occupation then moves by 2), a loop word (5 or 7).
+
+Evidence for each element (each is a threshold read to half a clock, both alignments):
+
+| element | probe | reading |
+|---|---|---|
+| a waiting N word is an event on every clock | `r18tld0`, `r19nld1/2`, `r19nld80`, `r19nldd0`, `r19nlbi0` | level by the cycle's first pin clock T (c <= T): this instruction's datum pop is replaced; c = T - 1 or T: the read is 2 clocks late and its pop is still the one replaced; c = T + 1: the next instruction's. Same at W = 1, 2 (pop at T + 4, T + 5): the 5 clocks are counted from the event, not back from the pop |
+| the first word is an event, the words behind it are not | `r19nst0` (c on the store's first word: its own pop, 5 clocks later, is replaced), `r19npush0`, `r19npq0` (c on PUSH's second word: not this pop, the next), `r18tmm0` (MOV r16,imm16: first word yes, second and third no) | scores with (a) alone / (a)+(b)+(c): see below |
+| a word waiting for the EU's cycle is an event | `r19nrmw0` | c on the read's first pin clock: the pop on the write's first clock, 5 later, is replaced |
+| loop words | `r18tshl0`, `r19nsh*`, `r18tmul0`, `r19nmul80` | SHL by CL at CL = 0, 2, 3, 4, 6, 9, 31 (even / odd): level 5 clocks in front of N: the shift's own pop; 3 in front: the pop behind it; later: the second pop behind. CL = 1: 7 and 3 (8 runs miss: the model's place for N at CL = 1 is not verified by an INT sweep). MULU BW / BL: 7 and 2 in front of N at even alignment, 7 and 4 at odd (12 runs miss; the routine's length differs by a clock between the alignments, so by operand or queue state: not read) |
+| 5 clocks, from the occupation | every family; `r18tnop2`, `r18tinc2`, `r18tmm2` | with the pop-and-prefetch clock of step 3: W = 2 trains exact; without it 66 / 79 / 99 of 120 / 144 / 168 |
+
+Scores by event set (`ev=`), delay 5, all families: N word executing only (round 18's S)
+3,865; N word current 4,723; every word up to N 5,037; first word + N current
++ D 5,092 (of 5,128).
+
+Status. Measured: steps 1, 3 (as displacement of pin cycles), 4 (the 5 and "first pop"), the
+event list as a list. **Inferred: what the events have in common.** Every event word is one
+on which the EU hands something to, or waits for, the loader or the bus unit (the boundary's
+first word, the pop, a wait for its cycle), and the words that are not events are words
+executed inside the EU (the tail behind the pop, the ALU words of PUSH and MOV r,imm16). The
+reading that fits: the EU's request for the internal acknowledge can only be issued on a
+clock on which the EU's sequencer is synchronised with the front end, and the loop words of
+SHL / MULU are such clocks because the loop counts through the loader's side (not shown;
+**unknown**). Not measured: DIV, the string routines, REP, the 0F page, I/O instructions,
+transfers (the two jump families of round 18 still miss in front of a target: `r18tjmp0` 136 of 168, `r18tjch0` 165 of 192, `r18tjch2` 206 of 216).
+The 36 misses left are the second and third instruction behind the frame's long shift
+at odd alignment in three trains and MULU's successor at odd alignment (6 runs).
+
+## Q84. INTP0 goes through NMI's second stage (a test); a timer request shows the same occupation
+
+`r19pnmi`, `r19pp0`, `r19ptm`, `r19pint` (78 runs each: the request at one fixed clock, the
+trains NOP / MOV r8,imm8 / MOV AW,[BW] moved against it by pads of 0 to 13 clocks) and
+`r19qnmi`, `r19qp0`, `r19qtm`, `r19qtn` (the same with the request 34 clocks later, when the pad
+is long over). Tools: `build/qp/p19.py` (for every candidate clock c, the runs each rule
+reproduces), `g19.py` (the read / prefetch gaps of the load train in front of the vector read).
+
+- **Design note.** The first set is weak: its request stands at the EU while the pad itself
+  executes, where an event comes almost at once, and both rules fit NMI's own control (INT's
+  rule with c = 85 for all three trains). The second set is the test: in a steady train
+  NMI's rule looks like INT's with a lead that depends on the train.
+- **NMI control (measured):** Q83's rule reproduces 78 of 78 with one clock, c = 113 (the edge
+  at 104 + 8.875, as predicted). INT's rule needs c = 116 for the load train, 119 for MOV
+  r8,imm8, 121 for NOP: 3, 6 and 8 clocks late, by train.
+- **INTP0 (measured): the same.** Q83's rule: 78 of 78 with c = 114 at even alignment and 115
+  at odd (the edge at 92: 22 to 23 clocks from the pin through the sampler, the flag, the
+  scan and stage 4). INT's rule would need 117 / 118, 120 / 121, 122 / 123 by train, the
+  spread NMI has. In the first set: Q83's rule 78 of 78 at c = 83, INT's rule 74 of 78 at
+  best. With the hidden occupation seen in INTP0's runs of round 17 (Q82) this is no longer
+  "compatible": **an INTPn request stands at the EU like NMI's and is taken by the same
+  second stage.**
+- **INT control:** the first pop at or after c = 80, 78 of 78; Q83's rule fits no c.
+- **Timer 0 (measured in part):** the model cannot place the pops of these programs (it does
+  not know the store to TMC0 that starts the timer), so the rule is not scored. In the load
+  train at even alignment, where undisturbed reads are 10 clocks apart, 18 of the 26 runs of
+  `r19qtm` / `r19qtn` have a read 1 to 3 clocks late in front of the take, the classes NMI's
+  and INTP0's runs have in the same frame (9 of 13 and 8 of 13); the occupation is there.
+  That the take then follows Q83's rule for the timer is **inferred**.
+
+## Q85. INT's stage 4: a delay in front of a request latch at the loader; IE acts at the latch
+
+`r19d` (224 runs): a NOP train with a DI in it (DI popped at 92, its boundary at 95, its first
+word, which pops the next opcode, at 96), INT raised in half-clock steps and held 30 clocks;
+the same with an EI 16 clocks behind the DI and the pin high for 2 clocks only, or held.
+`r19s` (200 runs): INT high for 2 and for 3 clocks across the MOV AW,[BW] train (pops 10
+clocks apart) in half-clock steps, and at 96 and 136 inside SHL AW,CL (76 clocks).
+`r19pint` (78 runs): the edge fixed, the train moved by pads of 0 to 13 clocks. Tool:
+`build/qp/d19.py <round> [pE|pO]`.
+
+- **A short pulse is carried and kept (measured).** INT high for 2 clocks is acknowledged in
+  front of the instruction whose pop is the first at or after e + 9.125, at every one of the
+  44 half-clock positions and both alignments in the load train (the pin is low again up to
+  17 clocks before that pop), and at the shift's own pop when the pulse was 68 and 28 clocks
+  earlier (8 of 8). 3 clocks: the same. So the 7 clocks are **not a counter that needs the
+  level standing**, and what arrives is **held at the loader until a pop takes it**: a delay
+  that carries the accepted level, then a set-and-hold request latch. (Round 17 had this for
+  the NOP train only, where a pop comes every 4 clocks.)
+- **IE does not gate the input of the delay; it gates the latch (measured).** With DI in the
+  train the latest edge acknowledged is 82.5 (in front of the DI itself: 82.5 + 9.125 <= 92,
+  its pop); an edge at 83.0 to 97.5 is never acknowledged, at either alignment, though for
+  83.0 to 86.5 the level was accepted by the two samples 7 to 11 clocks before the pop at 96
+  with IE = 1 all that time and the level stays for 30 clocks. A line whose input is ANDed
+  with IE would deliver those to the pops at 96 and 99. So spec 14 I-2 item 1 ("ANDed with IE
+  at the input") is wrong: **the request latch at the loader is set by the delayed level
+  only while IE = 1 and is cleared when IE = 0.**
+- **Cleared, not masked (measured):** the 2-clock pulse that entered before the DI is not
+  acknowledged behind the EI 16 clocks later (30 of 30 edges from 83 to 97, both alignments);
+  the held level is, in front of the second instruction behind the EI at every edge (the
+  first one's opcode is popped by the EI's own N word before IE is seen set: 30 of 30).
+- **DI is in effect at its own first-word pop** (the pop at 96 is not replaced with the
+  request standing since 92.1): IE is clear at the loader no later than the boundary of DI.
+- With the level standing at EI, the EU-side wait is under 2 clocks from the pop the EI makes
+  (126) to the pop that is replaced (128): the seven clocks are not run again when IE is set.
+  They sit between the two samples and the latch, whatever IE is (inferred from the two
+  bullets above: a delay behind an IE gate would cost 7 clocks after EI; "EI sets IE 7 clocks
+  before its end" would fit the EI runs alone, and the DI runs exclude a gate at the input).
+- The pad control: one rule, the first pop at or after c = 80 (e = 70 + 9.125), 78 of 78; no
+  bus cycle displaced in any INT run (Q82).
+
+**What the seven clocks are: still unknown.** Excluded by measurement so far: the divided
+clock (round 17), a microcode sample point, the bus unit, the queue (round 18), a counter on
+the standing level, an IE-gated input (this round). Not tried: HALT (round 17's release
+lattice is the only data), HLDRQ (the schedule can drive the pin, but PMC2 and the port-bank
+hand-over of validation/v35s/dma.py's frame are needed, not gen_r15's: not attempted), PRC
+(a write changes the CPU clock under the capture: not attempted).
+
+## Q86. br_n1: the word that waits is the displacement word (model corrected)
+
+No new acquisition: round 18's `r18j` (60 runs) decides it. The transfer in the 12 differing
+runs is always a JMP short whose routine starts while fetches of the new stream are still
+running (the first flush fetch has brought its opcode, with or without the displacement; the
+model's boundary is on the last clock of the third fetch behind the flush and the fourth fetch
+starts under the routine's first words).
+
+- **Measured (on the model's word grid): the fourth word of JMP short, the one that pops the
+  displacement, does not execute while a fetch's pin cycle is in flight** (a bus-idle word, the
+  model's `B`: the same act JZ / JNZ already carry on their displacement word). With it the
+  flush word comes W clocks later at W = 1, 2 in exactly the 12 runs and nowhere else:
+  `JMP = ". . . BP . . F N ."` gives `r18j` 60 of 60 (from 48).
+- **The rivals are excluded by the same 60 runs**: the wait on the routine's second word 30 of
+  60, on the third 30, on the fifth 32 (they move W = 0 runs that are exact today). So "the
+  transfer's first word waits" is wrong and "its displacement word waits" is right; no probe
+  that moves the displacement fetch against the opcode pop was needed (the W = 0 / 1 / 2
+  triple at both alignments already moves the fetch by 0 / 1 / 2 clocks against the routine).
+- Round 18's wording "its flush fetch starts 8 clocks after the end of the fetch that brings
+  its displacement" was a coincidence of the two alignments read: in `j0j0` at even alignment
+  the displacement arrives with the opcode in the first flush fetch, and the fetch that
+  counts is the one in flight under the displacement word (the fourth behind the flush).
+- `model_m.py` corrected (the one default string). The whole non-interrupt socket set:
+  **12,215 of 13,404 exact (from 12,203); 0 runs lost, 12 gained (all `r18j`)**. In round 17's
+  frame (rounds 8 to 17) nothing changes: 11,834 of 12,396.
+- Inferred, not measured: that CALL near, JMP near and the far forms carry the same wait on
+  their displacement word. Their `r18j` runs are exact without it (the CALL is always the
+  first transfer of the program, with the queue full), and a `B` there was not tried against
+  a probe that would show it. The corpus rows call_n2 / ret (partners of br_n1 in `fd17`'s
+  count) differ only at the JMP of the sequence in the 60 runs.
+
+## Q87. The REP compares at W = 1 and 2: the difference is the RTL's, in CMPM's later iterations only
+
+`build/qp/rc18.py socket|sim18 <w> <pE|pO>` on round 18's `r18c` (768 runs silicon, 768 sim).
+
+- **Silicon (measured, all 128 programs an alignment and wait):** every read's waits are added
+  once, serially. CMPBK: reads 9 + W apart (9 / 10 / 11). CMPM: the second read 10 + W after the
+  first (10 / 11 / 12), every later read 12 + W after the one before (12 / 13 / 14). The
+  exit lengths grow by the waits of the cycles in them only (26 / 27 at W = 0 as Q80).
+- **RTL copy (2a30b50):** CMPBK right at every wait. CMPM: 10 + W for the second read (right),
+  then **12 at every wait** (12 / 12 / 12): the two words by which a later iteration is longer
+  than the first run concurrently with the read cycle in the RTL, so one or two waits are
+  absorbed; on silicon they are words behind the datum word (`Y D . . . .`: the four idle
+  words follow the cycle whatever its length). The 28 of 64 programs an alignment that
+  differ at W = 2 are exactly the CMPM / CMPMW programs with three or more reads (14 + 14);
+  at W = 1 the same 28 differ by one clock a later read.
+- Rule for the builder: in the CMPM loop the wait for the read cycle (`D`) is the second word
+  of every iteration and the remaining words (2 in the first iteration, 4 in every later one)
+  execute after it, none of them a wait for the same cycle.
+- model_m's REP compare code was not generalised (it still takes the element count from the
+  prefix: 144 of 768 on `r18c`); the silicon side is the table above and Q80.
+
+## Round 19 in numbers
+
+| family | what | runs | flagged repeats (all strobe-only) |
+|---|---|---|---|
+| r19nld1, r19nld2, r19nld80, r19nldd0, r19nlbi0, r19nld0 | NMI across MOV AW,[m]: W = 1, 2; d8, direct, [BW+IX]; quarter-clock edges | 114, 130, 106, 106, 106, 98 | 0, 1, 8, 8, 11, 25 |
+| r19nln10, r19nln20, r19nln30 | the load with 1, 2, 3 NOPs between | 122, 154, 170 | 14, 30, 28 |
+| r19nst0, r19nst2, r19nsn0 | MOV [BW],AW at W = 0, 2; with a NOP | 106, 130, 122 | 19, 37, 28 |
+| r19npush0, r19npop0, r19npq0, r19npn0 | PUSH, POP, PUSH ; POP, PUSH ; NOP | 106, 106, 122, 122 | 20, 18, 31, 21 |
+| r19nrmw0, r19nmul80 | ADD [BW],AW; MULU BL | 154, 138 | 39, 25 |
+| r19nsh00 .. r19nsh90 | SHL AW,CL, CL = 0, 1, 2, 3, 4, 6, 9 | 130, 138, 146, 154, 162, 178, 202 | 24, 26, 22, 32, 31, 40, 37 |
+| r19pnmi, r19pp0, r19ptm, r19pint | fixed request, padded trains | 78 each | 17, 22, 20, 18 |
+| r19qnmi, r19qp0, r19qtm, r19qtn | the same, the request 34 clocks later | 78 each | 21, 18, 28, 23 |
+| r19d, r19s | INT against DI / DI .. EI; INT pulses of 2 and 3 clocks | 224, 200 | 63, 52 |
+
+4,370 runs, 0 failed, 0 incomplete, 857 flagged repeats, every one strobe-only
+(`build/qp/rep19.py r19`: both traces field by field). FF10h was written by `r19pint`, `r19d`,
+`r19s` only (gen_r15's INT_HEAD and hand-back); the first INT program was run alone and its
+vector read at 0100h checked before the batch (`build/qp/r19/scout-int.txt`). One scout run.
+Board left with vccb false, failure 0. No sim was run and the RTL copy was not re-based (no
+new "Land" commit on v35s-harness during the round).
+
+Model: `o["WLOG"]` (every clock's word, acts, stalled or not; a log) and one rule change, JMP
+short's displacement word a bus-idle word (Q86): 12,215 of 13,404 non-interrupt socket runs
+exact (from 12,203; none lost). Interrupt families are scored by `build/qp/sc19.py`, not by
+model_m (5,092 of 5,128 NMI runs of rounds 17 to 19).
+
+Not started: every "unread form" of the brief's item 5 (NEG [BW+d16], EXT across a word's
+extra word, ADD [d16],imm8 with four bytes held, CALL far with waits, OUTM twice, the five
+"twice" runs, the three CVTBD runs, SET1 word behind OUT at even alignment), the scan figures
+at W = 1 / 2, `r18tjch2`'s INT half; HLDRQ, PRC and HALT against INT's seven clocks; the
+generalisation of model_m's REP compare code.

@@ -128,7 +128,7 @@ DEFAULT = dict(
     # routines, read in rounds 1-3 (model.py)
     NOP="N...", INC="N.", RR="PN .", RI=". . . . BNPP2 .", MOVI8=". . . BNP .", XCHG="N...",
     CLC="N.", CBW="N..", ADDI=". . . . BNPP2 .", ADD83="P . . BNP .", ADDRR="PN .", RR8="PN .",
-    PFX="N.", SHL1="P . B . . B . N .", JMP="...P..FN.", JZ=". . . BP . . . B . . F N .",
+    PFX="N.", SHL1="P . B . . B . N .", JMP=". . . BP . . F N .", JZ=". . . BP . . . B . . F N .",
     JNZ=". . . BP . . BN .", ADDAL=". . . BNP .", SR="PN .",
     # I/O (model_e6.py): port byte on word 4; `X . N .` and the cycle after the boundary
     OUT="A . X . N .", E6=". . . BP . . X . N .", IN8=". . . BP . . X DN .",
@@ -622,6 +622,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         if is_last and stall:
             last_first = t
         waited = (cur_at, ip) if stall else None      # this word stalled on this clock
+        if o.get("WLOG") is not None:      # (round 19) every clock: the word, its acts, stalled or not
+            o["WLOG"].append((t, cur_at, ip, "".join(sorted(acts)), stall, is_last))
         if cw_ and "N" in acts and not stall:
             # (round 14) the clock a commit word that had waited released the next opcode
             cn_t = t if (c_wait == (cur_at, ip) or o["E_C"] >= 4) else None
