@@ -2916,3 +2916,24 @@ question, decided from S8's routed numbers with the user.
   the 6 and 7 rows: read and not built 8,610, partly read 1,096, not probed 299. Not measured:
   the INT pin with INTAK and TOUT's edge (they need marker writes to FF10h; the user lifted
   that limit for round 15).
+- **2026-11-16, qprobe round 15 on the socket (1,533 runs; reading only; marker writes to FF10h
+  allowed by the user for this; `validation/v35s/qprobe/RESULTS.md` Q55-Q60, `DIVERGENCE-r15.md`,
+  `INTR-r15.txt`, `INT-r15.txt`).** **INT / INTAK**: INT bypasses the level scan (thresholds
+  as the NMI's from the second instruction on; after EI one instruction later); from the pop P
+  of the first instruction not executed, INTAK is low P+8..P+10, high one clock, low
+  P+11..P+13, and the table read starts at P+23 (P+19 for a vectored source); the RTL has
+  three clocks between the pulses and the table read 5 after the second. INT is first against
+  INTP0 and against an NMI on the same edge (the NMI then at the handler's entry). **TOUT**:
+  the start store acts 13.5 clocks after its instruction begins, first edge 3.9 + 6(n+1)
+  clocks later; the request flag behaves as a pin edge 2.9 to 4.9 clocks before TOUT's edge
+  and then waits for the scan. **The scan confirmed**: INTP0 at levels 5, 2, 0 is exactly two
+  clocks a level earlier than level 7. **The held-back request, class closed**: every
+  two-operand ALU instruction with a memory first operand (00-3F with the direction bit
+  clear, 80-83 on memory, CMP included; not DEC, NEG, TEST); the timer's request is held too,
+  so it is the setting of the request flag that waits, not the pin's edge detector. Building
+  it needs a hold level from the EU to the controller (a new cross-module signal): not
+  ordered, the user's decision. Open: the late HALT release (16 programs, no rule; INT never
+  shows it). **Forms**: CMP mem,AW / AL, TEST / CMP AL,imm, XCH AW,DW, IN AW,DW, ADJ4A,
+  ADJBA / ADJBS read (249 of 288; NEG [BW+d16] and LAHF partly, CVTBD not). **Harness note**:
+  in the direct sim build the INTAK answer does not reach the core, so INT probes cannot be
+  scored in sim yet.

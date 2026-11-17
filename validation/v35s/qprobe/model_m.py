@@ -116,7 +116,8 @@ DEFAULT = dict(
     OUT="A . X . N .", E6=". . . BP . . X . N .", IN8=". . . BP . . X DN .",
     # memory: the request (Y), then the datum's wait (D) or, for a write, the boundary's wait
     PUSH=". . Y . . . N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
-    PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", EI=". . . . . . . . . . . N .", CVTWL=". . . . . . . N .",
+    PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", LAHF="N . .", CMPMR="P Y . D . N .", NEGD16="P . . . B Y P P2 . DZ G N .", ADJ4=". . . . . . . . N .", ADJB=". . . . . . . . . . . . . . . N .",
+    CVTBD=". . . P . . . . . . . . . . . . . . . . . . . . . N .", EI=". . . . . . . . . . . N .", CVTWL=". . . . . . . N .",
     SHMI_HEAD="P . V DP . B", SHMI_BASE=4, SHMCL_HEAD="P . . B . . . Y D", SHMCL_BASE=3,
     LDS="P Y . D . U . D . . N .", MOVMS="P . V . G N .", MOVSM="P Y . DN . .",
     MI16M="P . . BY DPP2 . B . B . . . . . . . . . . . . . . . . . . . . . . . . . . . . N .",
@@ -167,7 +168,9 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
        0xBB: ("RI", None, 0), 0xBA: ("RI", None, 0), 0xB8: ("RI", None, 0),
        0xB1: ("MOVI8", None, 0), 0xB3: ("MOVI8", None, 0), 0xB0: ("MOVI8", None, 0), 0xB2: ("MOVI8", None, 0),
        0xEB: ("JMP", None, 0), 0x93: ("XCHG", None, 0), 0xF8: ("CLC", None, 0), 0xFB: ("EI", None, 0), 0xFA: ("CLC", None, 0),
-       0x98: ("CBW", None, 0), 0x99: ("CVTWL", None, 0), 0x6A: ("PUSHI8", "W", 0), 0x05: ("ADDI", None, 0), 0x83: ("ADD83", None, 1),
+       0x98: ("CBW", None, 0), 0x99: ("CVTWL", None, 0), 0x92: ("XCHG", None, 0), 0xED: ("INDW", "I", 0), 0xA8: ("ADDAL", None, 0), 0x3C: ("ADDAL", None, 0),
+       0x9F: ("LAHF", None, 0), 0x27: ("ADJ4", None, 0), 0x37: ("ADJB", None, 0), 0x3F: ("ADJB", None, 0),
+       0xD4: ("CVTBD", None, 0), 0x6A: ("PUSHI8", "W", 0), 0x05: ("ADDI", None, 0), 0x83: ("ADD83", None, 1),
        0x03: ("ADDRR", None, 1), 0x8A: ("RR8", None, 1), 0x26: ("PFX", None, 0), 0xF3: ("PFX", None, 0), 0xF2: ("PFX", None, 0),
        0xD1: ("SHL1", None, 1), 0xC1: ("SHLI", None, 1), 0xC0: ("SHLI", None, 1), 0xF6: ("MUL8", None, 1),
        0xE9: ("JN", None, 0), 0x74: ("JZ", None, 0), 0x75: ("JNZ", None, 0),
@@ -217,7 +220,9 @@ MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x
        # by analogy only (the interrupt class trains; not form probes): ALU m,r as ADD m,r
        (0x00, 0x07): ("RMW", "R", 1), (0x29, 0x07): ("RMW", "R", 1), (0x21, 0x07): ("RMW", "R", 1),
        (0x31, 0x07): ("RMW", "R", 1), (0x11, 0x07): ("RMW", "R", 1), (0x09, 0x07): ("RMW", "R", 1),
-       (0x39, 0x07): ("ADDM", "R", 1)}
+       (0x39, 0x07): ("CMPMR", "R", 1), (0x38, 0x07): ("CMPMR", "R", 1), (0x19, 0x07): ("RMW", "R", 1),
+       (0xFF, 0x0F): ("INCM", "R", 1), (0xF7, 0x1F): ("NOTM", "R", 0),
+       (0xF7, 0x9F): ("NEGD16", "R", 1)}
 
 # the decode stage's leads: the boundary no sooner than this many clocks after the opcode's pop
 LEADS = {0xE6: "LEAD_E6", 0xE7: "LEAD_E6", 0xE4: "LEAD_E6", 0x8E: "LEAD_SR", 0xE2: "LEAD_E2"}

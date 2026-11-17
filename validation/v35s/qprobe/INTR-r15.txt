@@ -1,0 +1,842 @@
+== c80 intp0 w0 even  (34 runs)
+   before +3   (90) B=93   e   68.5 ..   71.5  B-e  21.5 ..  24.5  A-B [16.0]
+   before +7   (90) B=111  e   72.5 ..   77.5  B-e  33.5 ..  38.5  A-B [16.0]
+   before +11  (90) B=129  e   78.5 ..   95.5  B-e  33.5 ..  50.5  A-B [16.0]
+   before +15  (90) B=147  e   96.5 ..  101.5  B-e  45.5 ..  50.5  A-B [16.0]
+== c80 intp0 w0 odd  (34 runs)
+   before +3   (90) B=94   e   68.5 ..   72.5  B-e  21.5 ..  25.5  A-B [16.0]
+   before +7   (90) B=113  e   73.5 ..   78.5  B-e  34.5 ..  39.5  A-B [16.0]
+   before +11  (90) B=132  e   79.5 ..   96.5  B-e  35.5 ..  52.5  A-B [16.0]
+   before +15  (90) B=151  e   97.5 ..  101.5  B-e  49.5 ..  53.5  A-B [15.0]
+== c81 intp0 w0 even  (34 runs)
+   before +4   (90) B=95   e   68.5 ..   71.5  B-e  23.5 ..  26.5  A-B [16.0]
+   before +9   (90) B=115  e   72.5 ..   77.5  B-e  37.5 ..  42.5  A-B [16.0]
+   before +14  (90) B=135  e   78.5 ..   97.5  B-e  37.5 ..  56.5  A-B [16.0]
+   before +15  (81) B=139  e   98.5 ..  101.5  B-e  37.5 ..  40.5  A-B [15.0]
+== c81 intp0 w0 odd  (34 runs)
+   before +4   (90) B=95   e   68.5 ..   72.5  B-e  22.5 ..  26.5  A-B [16.0]
+   before +9   (90) B=115  e   73.5 ..   78.5  B-e  36.5 ..  41.5  A-B [16.0]
+   before +14  (90) B=135  e   79.5 ..   98.5  B-e  36.5 ..  55.5  A-B [15.0]
+   before +15  (81) B=139  e   99.5 ..  101.5  B-e  37.5 ..  39.5  A-B [18.0]
+== ccmpi intp0 w0 even  (34 runs)
+   before +3   (90) B=93   e   68.5 ..   71.5  B-e  21.5 ..  24.5  A-B [15.0]
+   before +7   (90) B=111  e   72.5 ..   77.5  B-e  33.5 ..  38.5  A-B [15.0]
+   before +11  (90) B=129  e   78.5 ..   95.5  B-e  33.5 ..  50.5  A-B [15.0]
+   before +15  (90) B=147  e   96.5 ..  101.5  B-e  45.5 ..  50.5  A-B [15.0]
+== ccmpi intp0 w0 odd  (34 runs)
+   before +3   (90) B=94   e   68.5 ..   72.5  B-e  21.5 ..  25.5  A-B [15.0]
+   before +7   (90) B=113  e   73.5 ..   78.5  B-e  34.5 ..  39.5  A-B [15.0]
+   before +11  (90) B=132  e   79.5 ..   96.5  B-e  35.5 ..  52.5  A-B [15.0]
+   before +15  (90) B=151  e   97.5 ..  101.5  B-e  49.5 ..  53.5  A-B [15.0]
+== cdec intp0 w0 even  (34 runs)
+   before +2   (90) B=95   e   68.5 ..   71.5  B-e  23.5 ..  26.5  A-B [16.0]
+   before +5   (90) B=115  e   72.5 ..   87.5  B-e  27.5 ..  42.5  A-B [16.0]
+   before +8   (90) B=135  e   88.5 ..  101.5  B-e  33.5 ..  46.5  A-B [16.0]
+== cdec intp0 w0 odd  (34 runs)
+   before +2   (90) B=95   e   68.5 ..   72.5  B-e  22.5 ..  26.5  A-B [16.0]
+   before +5   (90) B=115  e   73.5 ..   88.5  B-e  26.5 ..  41.5  A-B [16.0]
+   before +8   (90) B=135  e   89.5 ..  101.5  B-e  33.5 ..  45.5  A-B [16.0]
+== cneg intp0 w0 even  (34 runs)
+   before +2   (90) B=95   e   68.5 ..   71.5  B-e  23.5 ..  26.5  A-B [16.0]
+   before +5   (90) B=115  e   72.5 ..   87.5  B-e  27.5 ..  42.5  A-B [16.0]
+   before +8   (90) B=135  e   88.5 ..  101.5  B-e  33.5 ..  46.5  A-B [16.0]
+== cneg intp0 w0 odd  (34 runs)
+   before +2   (90) B=95   e   68.5 ..   72.5  B-e  22.5 ..  26.5  A-B [16.0]
+   before +5   (90) B=115  e   73.5 ..   88.5  B-e  26.5 ..  41.5  A-B [16.0]
+   before +8   (90) B=135  e   89.5 ..  101.5  B-e  33.5 ..  45.5  A-B [16.0]
+== csbb intp0 w0 even  (34 runs)
+   before +2   (90) B=92   e   68.5 ..   71.5  B-e  20.5 ..  23.5  A-B [16.0]
+   before +5   (90) B=109  e   72.5 ..   77.5  B-e  31.5 ..  36.5  A-B [16.0]
+   before +8   (90) B=126  e   78.5 ..   95.5  B-e  30.5 ..  47.5  A-B [17.0]
+   before +11  (90) B=143  e   96.5 ..  101.5  B-e  41.5 ..  46.5  A-B [16.0]
+== csbb intp0 w0 odd  (34 runs)
+   before +2   (90) B=92   e   68.5 ..   72.5  B-e  19.5 ..  23.5  A-B [16.0]
+   before +5   (90) B=109  e   73.5 ..   78.5  B-e  30.5 ..  35.5  A-B [16.0]
+   before +8   (90) B=126  e   79.5 ..   94.5  B-e  31.5 ..  46.5  A-B [16.0]
+   before +11  (90) B=143  e   95.5 ..  101.5  B-e  41.5 ..  47.5  A-B [17.0]
+== ctesti intp0 w0 even  (34 runs)
+   before +4   (90) B=98   e   68.5 ..   71.5  B-e  26.5 ..  29.5  A-B [15.0]
+   before +9   (90) B=120  e   72.5 ..   87.5  B-e  32.5 ..  47.5  A-B [16.0]
+   before +10  (F7) B=124  e   88.5 ..  101.5  B-e  22.5 ..  35.5  A-B [15.0]
+== ctesti intp0 w0 odd  (34 runs)
+   before +4   (90) B=97   e   68.5 ..   72.5  B-e  24.5 ..  28.5  A-B [16.0]
+   before +9   (90) B=119  e   73.5 ..   88.5  B-e  30.5 ..  45.5  A-B [15.0]
+   before +14  (90) B=141  e   89.5 ..  101.5  B-e  39.5 ..  51.5  A-B [15.0]
+== lv0 intp0 w0 even  (40 runs)
+   before +4   (90) B=95   e   58.5 ..   73.5  B-e  21.5 ..  36.5  A-B [16.0]
+   before +8   (90) B=111  e   74.5 ..   89.5  B-e  21.5 ..  36.5  A-B [16.0]
+   before +12  (90) B=127  e   90.5 ..   97.5  B-e  29.5 ..  36.5  A-B [16.0]
+== lv0 intp0 w0 odd  (40 runs)
+   before +0   (90) B=79   e   58.5 ..   58.5  B-e  20.5 ..  20.5  A-B [16.0]
+   before +5   (90) B=99   e   59.5 ..   74.5  B-e  24.5 ..  39.5  A-B [16.0]
+   before +9   (90) B=115  e   75.5 ..   90.5  B-e  24.5 ..  39.5  A-B [16.0]
+   before +13  (90) B=131  e   91.5 ..   97.5  B-e  33.5 ..  39.5  A-B [16.0]
+== lv2 intp0 w0 even  (40 runs)
+   before +0   (90) B=79   e   58.5 ..   61.5  B-e  17.5 ..  20.5  A-B [16.0]
+   before +5   (90) B=99   e   62.5 ..   77.5  B-e  21.5 ..  36.5  A-B [16.0]
+   before +9   (90) B=115  e   78.5 ..   93.5  B-e  21.5 ..  36.5  A-B [16.0]
+   before +13  (90) B=131  e   94.5 ..   97.5  B-e  33.5 ..  36.5  A-B [16.0]
+== lv2 intp0 w0 odd  (40 runs)
+   before +0   (90) B=79   e   58.5 ..   62.5  B-e  16.5 ..  20.5  A-B [16.0]
+   before +6   (90) B=103  e   63.5 ..   78.5  B-e  24.5 ..  39.5  A-B [16.0]
+   before +10  (90) B=119  e   79.5 ..   94.5  B-e  24.5 ..  39.5  A-B [16.0]
+   before +14  (EE) B=135  e   95.5 ..   97.5  B-e  37.5 ..  39.5  A-B [16.0]
+== lv5 intp0 w0 even  (40 runs)
+   before +2   (90) B=87   e   58.5 ..   67.5  B-e  19.5 ..  28.5  A-B [16.0]
+   before +7   (90) B=107  e   68.5 ..   83.5  B-e  23.5 ..  38.5  A-B [16.0]
+   before +11  (90) B=123  e   84.5 ..   97.5  B-e  25.5 ..  38.5  A-B [16.0]
+== lv5 intp0 w0 odd  (40 runs)
+   before +3   (90) B=91   e   58.5 ..   68.5  B-e  22.5 ..  32.5  A-B [16.0]
+   before +7   (90) B=107  e   69.5 ..   84.5  B-e  22.5 ..  37.5  A-B [16.0]
+   before +11  (90) B=123  e   85.5 ..   97.5  B-e  25.5 ..  37.5  A-B [16.0]
+
+## timer across trains, HALT predecessors, EI at two waits (sw14.py)
+QPr15e-sw-npad0-nop-pE-w2
+   socket   A=126 v60 pc=x4 P=107 A-P=19
+QPr15e-sw-npad0-nop-pO-w2
+   socket   A=141 v60 pc=x7 P=122 A-P=19
+QPr15e-sw-npad1-nop-pE-w2
+   socket   A=148 v60 pc=x9 P=129 A-P=19
+QPr15e-sw-npad1-nop-pO-w2
+   socket   A=148 v60 pc=x9 P=129 A-P=19
+QPr15e-sw-npad10-nop-pE-w2
+   socket   A=179 v60 pc=x18 P=160 A-P=19
+QPr15e-sw-npad10-nop-pO-w2
+   socket   A=180 v60 pc=x18 P=161 A-P=19
+QPr15e-sw-npad11-nop-pE-w2
+   socket   A=179 v60 pc=x18 P=160 A-P=19
+QPr15e-sw-npad11-nop-pO-w2
+   socket   A=183 v60 pc=x19 P=164 A-P=19
+QPr15e-sw-npad12-nop-pE-w2
+   socket   A=186 v60 pc=x20 P=167 A-P=19
+QPr15e-sw-npad12-nop-pO-w2
+   socket   A=183 v60 pc=x19 P=164 A-P=19
+QPr15e-sw-npad13-nop-pE-w2
+   socket   A=190 v60 pc=x21 P=171 A-P=19
+QPr15e-sw-npad13-nop-pO-w2
+   socket   A=190 v60 pc=x21 P=171 A-P=19
+QPr15e-sw-npad2-nop-pE-w2
+   socket   A=151 v60 pc=x10 P=132 A-P=19
+QPr15e-sw-npad2-nop-pO-w2
+   socket   A=152 v60 pc=x10 P=133 A-P=19
+QPr15e-sw-npad3-nop-pE-w2
+   socket   A=151 v60 pc=x10 P=132 A-P=19
+QPr15e-sw-npad3-nop-pO-w2
+   socket   A=155 v60 pc=x11 P=136 A-P=19
+QPr15e-sw-npad4-nop-pE-w2
+   socket   A=158 v60 pc=x12 P=139 A-P=19
+QPr15e-sw-npad4-nop-pO-w2
+   socket   A=155 v60 pc=x11 P=136 A-P=19
+QPr15e-sw-npad5-nop-pE-w2
+   socket   A=162 v60 pc=x13 P=143 A-P=19
+QPr15e-sw-npad5-nop-pO-w2
+   socket   A=162 v60 pc=x13 P=143 A-P=19
+QPr15e-sw-npad6-nop-pE-w2
+   socket   A=165 v60 pc=x14 P=146 A-P=19
+QPr15e-sw-npad6-nop-pO-w2
+   socket   A=166 v60 pc=x14 P=147 A-P=19
+QPr15e-sw-npad7-nop-pE-w2
+   socket   A=165 v60 pc=x14 P=146 A-P=19
+QPr15e-sw-npad7-nop-pO-w2
+   socket   A=169 v60 pc=x15 P=150 A-P=19
+QPr15e-sw-npad8-nop-pE-w2
+   socket   A=172 v60 pc=x16 P=153 A-P=19
+QPr15e-sw-npad8-nop-pO-w2
+   socket   A=169 v60 pc=x15 P=150 A-P=19
+QPr15e-sw-npad9-nop-pE-w2
+   socket   A=176 v60 pc=x17 P=157 A-P=19
+QPr15e-sw-npad9-nop-pO-w2
+   socket   A=176 v60 pc=x17 P=157 A-P=19
+QPr15gnop-g-nop-n10-k0-pE-w0
+   socket   A=201 v70 pc=x24
+QPr15gnop-g-nop-n10-k0-pO-w0
+   socket   A=204 v70 pc=x24
+QPr15gnop-g-nop-n10-k1-pE-w0
+   socket   A=219 v70 pc=x28
+QPr15gnop-g-nop-n10-k1-pO-w0
+   socket   A=204 v70 pc=x25
+QPr15gnop-g-nop-n10-k2-pE-w0
+   socket   A=219 v70 pc=x29
+QPr15gnop-g-nop-n10-k2-pO-w0
+   socket   A=218 v70 pc=x28
+QPr15gnop-g-nop-n11-k0-pE-w0
+   socket   A=217 v70 pc=x28
+QPr15gnop-g-nop-n11-k0-pO-w0
+   socket   A=220 v70 pc=x28
+QPr15gnop-g-nop-n11-k1-pE-w0
+   socket   A=219 v70 pc=x28
+QPr15gnop-g-nop-n11-k1-pO-w0
+   socket   A=220 v70 pc=x29
+QPr15gnop-g-nop-n11-k2-pE-w0
+   socket   A=219 v70 pc=x29
+QPr15gnop-g-nop-n11-k2-pO-w0
+   socket   A=218 v70 pc=x28
+QPr15gnop-g-nop-n2-k0-pE-w0
+   socket   A=153 v70 pc=x12
+QPr15gnop-g-nop-n2-k0-pO-w0
+   socket   A=156 v70 pc=x12
+QPr15gnop-g-nop-n2-k1-pE-w0
+   socket   A=171 v70 pc=x16
+QPr15gnop-g-nop-n2-k1-pO-w0
+   socket   A=156 v70 pc=x13
+QPr15gnop-g-nop-n2-k2-pE-w0
+   socket   A=171 v70 pc=x17
+QPr15gnop-g-nop-n2-k2-pO-w0
+   socket   A=170 v70 pc=x16
+QPr15gnop-g-nop-n3-k0-pE-w0
+   socket   A=169 v70 pc=x16
+QPr15gnop-g-nop-n3-k0-pO-w0
+   socket   A=172 v70 pc=x16
+QPr15gnop-g-nop-n3-k1-pE-w0
+   socket   A=171 v70 pc=x16
+QPr15gnop-g-nop-n3-k1-pO-w0
+   socket   A=172 v70 pc=x17
+QPr15gnop-g-nop-n3-k2-pE-w0
+   socket   A=171 v70 pc=x17
+QPr15gnop-g-nop-n3-k2-pO-w0
+   socket   A=170 v70 pc=x16
+QPr15gnop-g-nop-n4-k0-pE-w0
+   socket   A=169 v70 pc=x16
+QPr15gnop-g-nop-n4-k0-pO-w0
+   socket   A=172 v70 pc=x16
+QPr15gnop-g-nop-n4-k1-pE-w0
+   socket   A=171 v70 pc=x16
+QPr15gnop-g-nop-n4-k1-pO-w0
+   socket   A=172 v70 pc=x17
+QPr15gnop-g-nop-n4-k2-pE-w0
+   socket   A=171 v70 pc=x17
+QPr15gnop-g-nop-n4-k2-pO-w0
+   socket   A=170 v70 pc=x16
+QPr15gnop-g-nop-n5-k0-pE-w0
+   socket   A=169 v70 pc=x16
+QPr15gnop-g-nop-n5-k0-pO-w0
+   socket   A=172 v70 pc=x16
+QPr15gnop-g-nop-n5-k1-pE-w0
+   socket   A=187 v70 pc=x20
+QPr15gnop-g-nop-n5-k1-pO-w0
+   socket   A=172 v70 pc=x17
+QPr15gnop-g-nop-n5-k2-pE-w0
+   socket   A=187 v70 pc=x21
+QPr15gnop-g-nop-n5-k2-pO-w0
+   socket   A=186 v70 pc=x20
+QPr15gnop-g-nop-n6-k0-pE-w0
+   socket   A=185 v70 pc=x20
+QPr15gnop-g-nop-n6-k0-pO-w0
+   socket   A=188 v70 pc=x20
+QPr15gnop-g-nop-n6-k1-pE-w0
+   socket   A=187 v70 pc=x20
+QPr15gnop-g-nop-n6-k1-pO-w0
+   socket   A=188 v70 pc=x21
+QPr15gnop-g-nop-n6-k2-pE-w0
+   socket   A=187 v70 pc=x21
+QPr15gnop-g-nop-n6-k2-pO-w0
+   socket   A=186 v70 pc=x20
+QPr15gnop-g-nop-n7-k0-pE-w0
+   socket   A=185 v70 pc=x20
+QPr15gnop-g-nop-n7-k0-pO-w0
+   socket   A=188 v70 pc=x20
+QPr15gnop-g-nop-n7-k1-pE-w0
+   socket   A=187 v70 pc=x20
+QPr15gnop-g-nop-n7-k1-pO-w0
+   socket   A=188 v70 pc=x21
+QPr15gnop-g-nop-n7-k2-pE-w0
+   socket   A=187 v70 pc=x21
+QPr15gnop-g-nop-n7-k2-pO-w0
+   socket   A=202 v70 pc=x24
+QPr15gnop-g-nop-n8-k0-pE-w0
+   socket   A=185 v70 pc=x20
+QPr15gnop-g-nop-n8-k0-pO-w0
+   socket   A=204 v70 pc=x24
+QPr15gnop-g-nop-n8-k1-pE-w0
+   socket   A=203 v70 pc=x24
+QPr15gnop-g-nop-n8-k1-pO-w0
+   socket   A=204 v70 pc=x25
+QPr15gnop-g-nop-n8-k2-pE-w0
+   socket   A=203 v70 pc=x25
+QPr15gnop-g-nop-n8-k2-pO-w0
+   socket   A=202 v70 pc=x24
+QPr15gnop-g-nop-n9-k0-pE-w0
+   socket   A=201 v70 pc=x24
+QPr15gnop-g-nop-n9-k0-pO-w0
+   socket   A=204 v70 pc=x24
+QPr15gnop-g-nop-n9-k1-pE-w0
+   socket   A=203 v70 pc=x24
+QPr15gnop-g-nop-n9-k1-pO-w0
+   socket   A=204 v70 pc=x25
+QPr15gnop-g-nop-n9-k2-pE-w0
+   socket   A=203 v70 pc=x25
+QPr15gnop-g-nop-n9-k2-pO-w0
+   socket   A=202 v70 pc=x24
+QPr15grmw-g-rmw-n10-k0-pE-w0
+   socket   A=208 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n10-k0-pO-w0
+   socket   A=198 v70 pc=x11 dR=25
+QPr15grmw-g-rmw-n10-k1-pE-w0
+   socket   A=216 v70 pc=x13 dR=21
+QPr15grmw-g-rmw-n10-k1-pO-w0
+   socket   A=199 v70 pc=x12 dR=27
+QPr15grmw-g-rmw-n10-k2-pE-w0
+   socket   A=216 v70 pc=x14 dR=21
+QPr15grmw-g-rmw-n10-k2-pO-w0
+   socket   A=217 v70 pc=x14 dR=21
+QPr15grmw-g-rmw-n11-k0-pE-w0
+   socket   A=225 v70 pc=x14 dR=21
+QPr15grmw-g-rmw-n11-k0-pO-w0
+   socket   A=215 v70 pc=x13 dR=25
+QPr15grmw-g-rmw-n11-k1-pE-w0
+   socket   A=231 v70 pc=x15 dR=21
+QPr15grmw-g-rmw-n11-k1-pO-w0
+   socket   A=214 v70 pc=x14 dR=25
+QPr15grmw-g-rmw-n11-k2-pE-w0
+   socket   A=231 v70 pc=x16 dR=21
+QPr15grmw-g-rmw-n11-k2-pO-w0
+   socket   A=234 v70 pc=x16 dR=21
+QPr15grmw-g-rmw-n2-k0-pE-w0
+   socket   A=173 v70 pc=x8 dR=21
+QPr15grmw-g-rmw-n2-k0-pO-w0
+   socket   A=161 v70 pc=x6 dR=21
+QPr15grmw-g-rmw-n2-k1-pE-w0
+   socket   A=167 v70 pc=x8 dR=25
+QPr15grmw-g-rmw-n2-k1-pO-w0
+   socket   A=177 v70 pc=x9 dR=21
+QPr15grmw-g-rmw-n2-k2-pE-w0
+   socket   A=167 v70 pc=x9 dR=25
+QPr15grmw-g-rmw-n2-k2-pO-w0
+   socket   A=168 v70 pc=x8 dR=21
+QPr15grmw-g-rmw-n3-k0-pE-w0
+   socket   A=173 v70 pc=x8 dR=21
+QPr15grmw-g-rmw-n3-k0-pO-w0
+   socket   A=166 v70 pc=x7 dR=27
+QPr15grmw-g-rmw-n3-k1-pE-w0
+   socket   A=167 v70 pc=x8 dR=25
+QPr15grmw-g-rmw-n3-k1-pO-w0
+   socket   A=177 v70 pc=x9 dR=21
+QPr15grmw-g-rmw-n3-k2-pE-w0
+   socket   A=167 v70 pc=x9 dR=25
+QPr15grmw-g-rmw-n3-k2-pO-w0
+   socket   A=183 v70 pc=x10 dR=21
+QPr15grmw-g-rmw-n4-k0-pE-w0
+   socket   A=173 v70 pc=x8 dR=21
+QPr15grmw-g-rmw-n4-k0-pO-w0
+   socket   A=166 v70 pc=x7 dR=27
+QPr15grmw-g-rmw-n4-k1-pE-w0
+   socket   A=167 v70 pc=x8 dR=25
+QPr15grmw-g-rmw-n4-k1-pO-w0
+   socket   A=177 v70 pc=x9 dR=21
+QPr15grmw-g-rmw-n4-k2-pE-w0
+   socket   A=167 v70 pc=x9 dR=25
+QPr15grmw-g-rmw-n4-k2-pO-w0
+   socket   A=183 v70 pc=x10 dR=21
+QPr15grmw-g-rmw-n5-k0-pE-w0
+   socket   A=191 v70 pc=x10 dR=21
+QPr15grmw-g-rmw-n5-k0-pO-w0
+   socket   A=183 v70 pc=x9 dR=27
+QPr15grmw-g-rmw-n5-k1-pE-w0
+   socket   A=199 v70 pc=x11 dR=21
+QPr15grmw-g-rmw-n5-k1-pO-w0
+   socket   A=182 v70 pc=x10 dR=27
+QPr15grmw-g-rmw-n5-k2-pE-w0
+   socket   A=199 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n5-k2-pO-w0
+   socket   A=200 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n6-k0-pE-w0
+   socket   A=191 v70 pc=x10 dR=21
+QPr15grmw-g-rmw-n6-k0-pO-w0
+   socket   A=183 v70 pc=x9 dR=27
+QPr15grmw-g-rmw-n6-k1-pE-w0
+   socket   A=199 v70 pc=x11 dR=21
+QPr15grmw-g-rmw-n6-k1-pO-w0
+   socket   A=182 v70 pc=x10 dR=27
+QPr15grmw-g-rmw-n6-k2-pE-w0
+   socket   A=199 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n6-k2-pO-w0
+   socket   A=200 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n7-k0-pE-w0
+   socket   A=191 v70 pc=x10 dR=21
+QPr15grmw-g-rmw-n7-k0-pO-w0
+   socket   A=183 v70 pc=x9 dR=27
+QPr15grmw-g-rmw-n7-k1-pE-w0
+   socket   A=199 v70 pc=x11 dR=21
+QPr15grmw-g-rmw-n7-k1-pO-w0
+   socket   A=182 v70 pc=x10 dR=27
+QPr15grmw-g-rmw-n7-k2-pE-w0
+   socket   A=199 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n7-k2-pO-w0
+   socket   A=200 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n8-k0-pE-w0
+   socket   A=208 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n8-k0-pO-w0
+   socket   A=198 v70 pc=x11 dR=25
+QPr15grmw-g-rmw-n8-k1-pE-w0
+   socket   A=216 v70 pc=x13 dR=21
+QPr15grmw-g-rmw-n8-k1-pO-w0
+   socket   A=199 v70 pc=x12 dR=27
+QPr15grmw-g-rmw-n8-k2-pE-w0
+   socket   A=216 v70 pc=x14 dR=21
+QPr15grmw-g-rmw-n8-k2-pO-w0
+   socket   A=217 v70 pc=x14 dR=21
+QPr15grmw-g-rmw-n9-k0-pE-w0
+   socket   A=208 v70 pc=x12 dR=21
+QPr15grmw-g-rmw-n9-k0-pO-w0
+   socket   A=198 v70 pc=x11 dR=25
+QPr15grmw-g-rmw-n9-k1-pE-w0
+   socket   A=216 v70 pc=x13 dR=21
+QPr15grmw-g-rmw-n9-k1-pO-w0
+   socket   A=199 v70 pc=x12 dR=27
+QPr15grmw-g-rmw-n9-k2-pE-w0
+   socket   A=216 v70 pc=x14 dR=21
+QPr15grmw-g-rmw-n9-k2-pO-w0
+   socket   A=217 v70 pc=x14 dR=21
+QPr15h-h-clc-intp0-d784-pE-w0
+   socket   A=127 v60 pc=LS2
+QPr15h-h-clc-intp0-d784-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-clc-intp0-d832-pE-w0
+   socket   A=143 v60 pc=LS2
+QPr15h-h-clc-intp0-d832-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-clc-intp0-d960-pE-w0
+   socket   A=159 v60 pc=LS2
+QPr15h-h-clc-intp0-d960-pO-w0
+   socket   A=138 v60 pc=M1
+QPr15h-h-cn-intp0-d784-pE-w0
+   socket   A=127 v60 pc=LS2
+QPr15h-h-cn-intp0-d784-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-cn-intp0-d832-pE-w0
+   socket   A=143 v60 pc=LS2
+QPr15h-h-cn-intp0-d832-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-cn-intp0-d960-pE-w0
+   socket   A=159 v60 pc=LS2
+QPr15h-h-cn-intp0-d960-pO-w0
+   socket   A=144 v60 pc=LS2
+QPr15h-h-inc-intp0-d784-pE-w0
+   socket   A=127 v60 pc=LS2
+QPr15h-h-inc-intp0-d784-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-inc-intp0-d832-pE-w0
+   socket   A=143 v60 pc=LS2
+QPr15h-h-inc-intp0-d832-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-inc-intp0-d960-pE-w0
+   socket   A=159 v60 pc=LS2
+QPr15h-h-inc-intp0-d960-pO-w0
+   socket   A=138 v60 pc=M1
+QPr15h-h-jc-intp0-d784-pE-w0
+   socket   A=131 v60 pc=M1
+QPr15h-h-jc-intp0-d784-pO-w0
+   socket   A=133 v60 pc=M1
+QPr15h-h-jc-intp0-d832-pE-w0
+   socket   A=143 v60 pc=LS2
+QPr15h-h-jc-intp0-d832-pO-w0
+   socket   A=133 v60 pc=M1
+QPr15h-h-jc-intp0-d960-pE-w0
+   socket   A=159 v60 pc=LS2
+QPr15h-h-jc-intp0-d960-pO-w0
+   socket   A=144 v60 pc=LS2
+QPr15h-h-ld-intp0-d784-pE-w0
+   socket   A=128 v60 pc=LS2 dR=41
+QPr15h-h-ld-intp0-d784-pO-w0
+   socket   A=122 v60 pc=M1 dR=35
+QPr15h-h-ld-intp0-d832-pE-w0
+   socket   A=144 v60 pc=LS2 dR=57
+QPr15h-h-ld-intp0-d832-pO-w0
+   socket   A=122 v60 pc=M1 dR=35
+QPr15h-h-ld-intp0-d960-pE-w0
+   socket   A=160 v60 pc=LS2 dR=73
+QPr15h-h-ld-intp0-d960-pO-w0
+   socket   A=138 v60 pc=M1 dR=51
+QPr15h-h-movcl-intp0-d784-pE-w0
+   socket   A=127 v60 pc=LS2
+QPr15h-h-movcl-intp0-d784-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-movcl-intp0-d832-pE-w0
+   socket   A=143 v60 pc=LS2
+QPr15h-h-movcl-intp0-d832-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-movcl-intp0-d960-pE-w0
+   socket   A=159 v60 pc=LS2
+QPr15h-h-movcl-intp0-d960-pO-w0
+   socket   A=144 v60 pc=LS2
+QPr15h-h-movi-intp0-d784-pE-w0
+   socket   A=121 v60 pc=M1
+QPr15h-h-movi-intp0-d784-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-movi-intp0-d832-pE-w0
+   socket   A=137 v60 pc=M1
+QPr15h-h-movi-intp0-d832-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-movi-intp0-d960-pE-w0
+   socket   A=153 v60 pc=M1
+QPr15h-h-movi-intp0-d960-pO-w0
+   socket   A=144 v60 pc=LS2
+QPr15h-h-nn-intp0-d784-pE-w0
+   socket   A=121 v60 pc=M1
+QPr15h-h-nn-intp0-d784-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-nn-intp0-d832-pE-w0
+   socket   A=137 v60 pc=M1
+QPr15h-h-nn-intp0-d832-pO-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-nn-intp0-d960-pE-w0
+   socket   A=153 v60 pc=M1
+QPr15h-h-nn-intp0-d960-pO-w0
+   socket   A=144 v60 pc=LS2
+QPr15h-h-nnn-intp0-d784-pE-w0
+   socket   A=121 v60 pc=M1
+QPr15h-h-nnn-intp0-d784-pO-w0
+   socket   A=129 v60 pc=LS2
+QPr15h-h-nnn-intp0-d832-pE-w0
+   socket   A=137 v60 pc=M1
+QPr15h-h-nnn-intp0-d832-pO-w0
+   socket   A=129 v60 pc=LS2
+QPr15h-h-nnn-intp0-d960-pE-w0
+   socket   A=153 v60 pc=M1
+QPr15h-h-nnn-intp0-d960-pO-w0
+   socket   A=145 v60 pc=LS2
+QPr15h-h-none-intp0-d784-pE-w0
+   socket   A=128 v60 pc=LS2
+QPr15h-h-none-intp0-d784-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-none-intp0-d832-pE-w0
+   socket   A=144 v60 pc=LS2
+QPr15h-h-none-intp0-d832-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-none-intp0-d960-pE-w0
+   socket   A=160 v60 pc=LS2
+QPr15h-h-none-intp0-d960-pO-w0
+   socket   A=138 v60 pc=M1
+QPr15h-h-push-intp0-d784-pE-w0
+   socket   A=121 v60 pc=M1
+QPr15h-h-push-intp0-d784-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-push-intp0-d832-pE-w0
+   socket   A=137 v60 pc=M1
+QPr15h-h-push-intp0-d832-pO-w0
+   socket   A=122 v60 pc=M1
+QPr15h-h-push-intp0-d960-pE-w0
+   socket   A=153 v60 pc=M1
+QPr15h-h-push-intp0-d960-pO-w0
+   socket   A=138 v60 pc=M1
+QPr15h-h-xchg-intp0-d784-pE-w0
+   socket   A=121 v60 pc=M1
+QPr15h-h-xchg-intp0-d784-pO-w0
+   socket   A=129 v60 pc=LS2
+QPr15h-h-xchg-intp0-d832-pE-w0
+   socket   A=137 v60 pc=M1
+QPr15h-h-xchg-intp0-d832-pO-w0
+   socket   A=129 v60 pc=LS2
+QPr15h-h-xchg-intp0-d960-pE-w0
+   socket   A=153 v60 pc=M1
+QPr15h-h-xchg-intp0-d960-pO-w0
+   socket   A=145 v60 pc=LS2
+## INT / INTAK / TOUT (int15.py)
+x-int-ei-k0-pE-w0 | e:INT@-14.5 | pins 102:it 104:It 105:it 107:It 202.25:it | A=117 v100 pc=x2 P=94 A-P=23 | f 91 157 160 163 166
+x-int-ei-k0-pO-w0 | e:INT@-14.5 | pins 101:it 103:It 104:it 106:It 197.25:it | A=116 v100 pc=x2 P=93 A-P=23 | f 156 159 162 169 180
+x-int-ei-k1-pE-w0 | e:INT@-14.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=x3 P=96 A-P=23 | f 80 159 162 165 172
+x-int-ei-k1-pO-w0 | e:INT@-14.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=x3 P=96 A-P=23 | f 93 159 162 165 168
+x-int-ei-k10-pE-w0 | e:INT@-14.5 | pins 127:it 129:It 130:it 132:It 227.25:it | A=142 v100 pc=x12 P=119 A-P=23 | f 80 83 90 93 100
+x-int-ei-k10-pO-w0 | e:INT@-14.5 | pins 126:it 128:It 129:it 131:It 222.25:it | A=141 v100 pc=x12 P=118 A-P=23 | f 82 85 92 95 102
+x-int-ei-k11-pE-w0 | e:INT@-14.5 | pins 129:it 131:It 132:it 134:It 225.25:it | A=144 v100 pc=x13 P=121 A-P=23 | f 80 83 90 93 100
+x-int-ei-k11-pO-w0 | e:INT@-14.5 | pins 129:it 131:It 132:it 134:It 229.25:it | A=144 v100 pc=x13 P=121 A-P=23 | f 82 85 92 95 102
+x-int-ei-k12-pE-w0 | e:INT@-14.5 | pins 132:it 134:It 135:it 137:It 232.25:it | A=147 v100 pc=x14 P=124 A-P=23 | f 80 83 90 93 100
+x-int-ei-k12-pO-w0 | e:INT@-14.5 | pins 131:it 133:It 134:it 136:It 227.25:it | A=146 v100 pc=x14 P=123 A-P=23 | f 82 85 92 95 102
+x-int-ei-k13-pE-w0 | e:INT@-14.5 | pins 134:it 136:It 137:it 139:It 230.25:it | A=149 v100 pc=x15 P=126 A-P=23 | f 80 83 90 93 100
+x-int-ei-k13-pO-w0 | e:INT@-14.5 | pins 134:it 136:It 137:it 139:It 234.25:it | A=149 v100 pc=x15 P=126 A-P=23 | f 82 85 92 95 102
+x-int-ei-k2-pE-w0 | e:INT@-14.5 | pins 107:it 109:It 110:it 112:It 207.25:it | A=122 v100 pc=x4 P=99 A-P=23 | f 80 83 162 165 168
+x-int-ei-k2-pO-w0 | e:INT@-14.5 | pins 106:it 108:It 109:it 111:It 202.25:it | A=121 v100 pc=x4 P=98 A-P=23 | f 82 161 164 167 174
+x-int-ei-k3-pE-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 205.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 80 83 164 167 170
+x-int-ei-k3-pO-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 209.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 82 85 164 167 170
+x-int-ei-k4-pE-w0 | e:INT@-14.5 | pins 112:it 114:It 115:it 117:It 212.25:it | A=127 v100 pc=x6 P=104 A-P=23 | f 80 83 101 167 170
+x-int-ei-k4-pO-w0 | e:INT@-14.5 | pins 111:it 113:It 114:it 116:It 207.25:it | A=126 v100 pc=x6 P=103 A-P=23 | f 82 85 166 169 172
+x-int-ei-k5-pE-w0 | e:INT@-14.5 | pins 114:it 116:It 117:it 119:It 210.25:it | A=129 v100 pc=x7 P=106 A-P=23 | f 80 83 90 169 172
+x-int-ei-k5-pO-w0 | e:INT@-14.5 | pins 114:it 116:It 117:it 119:It 214.25:it | A=129 v100 pc=x7 P=106 A-P=23 | f 82 85 103 169 172
+x-int-ei-k6-pE-w0 | e:INT@-14.5 | pins 117:it 119:It 120:it 122:It 217.25:it | A=132 v100 pc=x8 P=109 A-P=23 | f 80 83 90 93 172
+x-int-ei-k6-pO-w0 | e:INT@-14.5 | pins 116:it 118:It 119:it 121:It 212.25:it | A=131 v100 pc=x8 P=108 A-P=23 | f 82 85 92 171 174
+x-int-ei-k7-pE-w0 | e:INT@-14.5 | pins 119:it 121:It 122:it 124:It 215.25:it | A=134 v100 pc=x9 P=111 A-P=23 | f 80 83 90 93 174
+x-int-ei-k7-pO-w0 | e:INT@-14.5 | pins 119:it 121:It 122:it 124:It 219.25:it | A=134 v100 pc=x9 P=111 A-P=23 | f 82 85 92 95 174
+x-int-ei-k8-pE-w0 | e:INT@-14.5 | pins 122:it 124:It 125:it 127:It 222.25:it | A=137 v100 pc=x10 P=114 A-P=23 | f 80 83 90 93 111
+x-int-ei-k8-pO-w0 | e:INT@-14.5 | pins 121:it 123:It 124:it 126:It 217.25:it | A=136 v100 pc=x10 P=113 A-P=23 | f 82 85 92 95 176
+x-int-ei-k9-pE-w0 | e:INT@-14.5 | pins 124:it 126:It 127:it 129:It 220.25:it | A=139 v100 pc=x11 P=116 A-P=23 | f 80 83 90 93 100
+x-int-ei-k9-pO-w0 | e:INT@-14.5 | pins 124:it 126:It 127:it 129:It 224.25:it | A=139 v100 pc=x11 P=116 A-P=23 | f 82 85 92 95 113
+x-int-eip0-l0-k0-pE-w0 | e:INT@-14.5 | pins 201.25:it | A=116 v060 pc=x3 P=98 A-P=18 | f 93 156 159 162 165
+x-int-eip0-l0-k0-pO-w0 | e:INT@-14.5 | pins 197.25:it | A=116 v060 pc=x3 P=97 A-P=19 | f 93 156 159 162 169
+x-int-eip0-l0-k3-pE-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 205.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 80 83 164 167 170
+x-int-eip0-l0-k3-pO-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 209.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 82 85 164 167 170
+x-int-eip0-l2-k0-pE-w0 | e:INT@-14.5 | pins 102:it 104:It 105:it 107:It 202.25:it | A=117 v100 pc=x2 P=94 A-P=23 | f 91 157 160 163 166
+x-int-eip0-l2-k0-pO-w0 | e:INT@-14.5 | pins 101:it 103:It 104:it 106:It 197.25:it | A=116 v100 pc=x2 P=93 A-P=23 | f 156 159 162 169 180
+x-int-eip0-l2-k3-pE-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 205.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 80 83 164 167 170
+x-int-eip0-l2-k3-pO-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 209.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 82 85 164 167 170
+x-int-eip0-l5-k0-pE-w0 | e:INT@-14.5 | pins 101:it 103:It 104:it 106:It 201.25:it | A=116 v100 pc=x2 P=94 A-P=22 | f 93 156 159 162 165
+x-int-eip0-l5-k0-pO-w0 | e:INT@-14.5 | pins 101:it 103:It 104:it 106:It 197.25:it | A=116 v100 pc=x2 P=93 A-P=23 | f 156 159 162 169 180
+x-int-eip0-l5-k3-pE-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 205.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 80 83 164 167 170
+x-int-eip0-l5-k3-pO-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 209.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 82 85 164 167 170
+x-int-eip0-l7-k0-pE-w0 | e:INT@-14.5 | pins 102:it 104:It 105:it 107:It 202.25:it | A=117 v100 pc=x2 P=94 A-P=23 | f 91 157 160 163 166
+x-int-eip0-l7-k0-pO-w0 | e:INT@-14.5 | pins 101:it 103:It 104:it 106:It 197.25:it | A=116 v100 pc=x2 P=93 A-P=23 | f 156 159 162 169 180
+x-int-eip0-l7-k3-pE-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 205.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 80 83 164 167 170
+x-int-eip0-l7-k3-pO-w0 | e:INT@-14.5 | pins 109:it 111:It 112:it 114:It 209.25:it | A=124 v100 pc=x5 P=101 A-P=23 | f 82 85 164 167 170
+x-int-halt-d592-pE-w0 | e:INT@58.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-halt-d592-pO-w0 | e:INT@58.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-halt-d608-pE-w0 | e:INT@60.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-halt-d608-pO-w0 | e:INT@60.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-halt-d624-pE-w0 | e:INT@62.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-halt-d624-pO-w0 | e:INT@62.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-halt-d640-pE-w0 | e:INT@64.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-halt-d640-pO-w0 | e:INT@64.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-halt-d656-pE-w0 | e:INT@66.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-halt-d656-pO-w0 | e:INT@66.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-halt-d672-pE-w0 | e:INT@68.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-halt-d672-pO-w0 | e:INT@68.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-halt-d688-pE-w0 | e:INT@70.5 | pins 88:it 90:It 91:it 93:It 184.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 156 167
+x-int-halt-d688-pO-w0 | e:INT@70.5 | pins 88:it 90:It 91:it 93:It 188.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 152 164
+x-int-halt-d704-pE-w0 | e:INT@72.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=M1 | f 80 155 158 161 168
+x-int-halt-d704-pO-w0 | e:INT@72.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=M1 | f 155 158 161 164 176
+x-int-halt-d720-pE-w0 | e:INT@74.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=M1 | f 80 155 158 161 168
+x-int-halt-d720-pO-w0 | e:INT@74.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=M1 | f 155 158 161 164 176
+x-int-halt-d736-pE-w0 | e:INT@76.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=M1 | f 80 155 158 161 168
+x-int-halt-d736-pO-w0 | e:INT@76.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=M1 | f 155 158 161 164 176
+x-int-halt-d752-pE-w0 | e:INT@78.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=M1 | f 80 155 158 161 168
+x-int-halt-d752-pO-w0 | e:INT@78.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=M1 | f 155 158 161 164 176
+x-int-halt-d768-pE-w0 | e:INT@80.5 | pins 102:it 104:It 105:it 107:It 198.25:it | A=117 v100 pc=M1 | f 80 157 160 163 170
+x-int-halt-d768-pO-w0 | e:INT@80.5 | pins 102:it 104:It 105:it 107:It 202.25:it | A=117 v100 pc=M1 | f 157 160 163 166 178
+x-int-halt-d784-pE-w0 | e:INT@82.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=M1 | f 80 159 162 165 172
+x-int-halt-d784-pO-w0 | e:INT@82.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=M1 | f 159 162 165 168 180
+x-int-halt-d800-pE-w0 | e:INT@84.5 | pins 106:it 108:It 109:it 111:It 202.25:it | A=121 v100 pc=M1 | f 80 161 164 167 174
+x-int-halt-d800-pO-w0 | e:INT@84.5 | pins 106:it 108:It 109:it 111:It 206.25:it | A=121 v100 pc=M1 | f 161 164 167 170 182
+x-int-halt-d816-pE-w0 | e:INT@86.5 | pins 108:it 110:It 111:it 113:It 204.25:it | A=123 v100 pc=M1 | f 80 163 166 169 176
+x-int-halt-d816-pO-w0 | e:INT@86.5 | pins 108:it 110:It 111:it 113:It 208.25:it | A=123 v100 pc=M1 | f 163 166 169 172 184
+x-int-halt-d832-pE-w0 | e:INT@88.5 | pins 110:it 112:It 113:it 115:It 206.25:it | A=125 v100 pc=M1 | f 80 165 168 171 178
+x-int-halt-d832-pO-w0 | e:INT@88.5 | pins 110:it 112:It 113:it 115:It 210.25:it | A=125 v100 pc=M1 | f 165 168 171 174 186
+x-int-halt-d848-pE-w0 | e:INT@90.5 | pins 112:it 114:It 115:it 117:It 208.25:it | A=127 v100 pc=M1 | f 80 167 170 173 180
+x-int-halt-d848-pO-w0 | e:INT@90.5 | pins 112:it 114:It 115:it 117:It 212.25:it | A=127 v100 pc=M1 | f 167 170 173 176 188
+x-int-halt-d864-pE-w0 | e:INT@92.5 | pins 114:it 116:It 117:it 119:It 210.25:it | A=129 v100 pc=M1 | f 80 169 172 175 182
+x-int-halt-d864-pO-w0 | e:INT@92.5 | pins 114:it 116:It 117:it 119:It 214.25:it | A=129 v100 pc=M1 | f 169 172 175 178 190
+x-int-halt-d880-pE-w0 | e:INT@94.5 | pins 116:it 118:It 119:it 121:It 212.25:it | A=131 v100 pc=M1 | f 80 171 174 177 184
+x-int-halt-d880-pO-w0 | e:INT@94.5 | pins 116:it 118:It 119:it 121:It 216.25:it | A=131 v100 pc=M1 | f 171 174 177 180 192
+x-int-halt-d896-pE-w0 | e:INT@96.5 | pins 118:it 120:It 121:it 123:It 214.25:it | A=133 v100 pc=M1 | f 80 173 176 179 186
+x-int-halt-d896-pO-w0 | e:INT@96.5 | pins 118:it 120:It 121:it 123:It 218.25:it | A=133 v100 pc=M1 | f 173 176 179 182 194
+x-int-nmi-d592-pE-w0 | e:INT+NMI@58.5 | pins 84:it 86:It 87:it 89:It 246.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=165 v008 pc=h+0 | f 141 144 147 205 208
+x-int-nmi-d592-pO-w0 | e:INT+NMI@58.5 | pins 84:it 86:It 87:it 89:It 253.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=168 v008 pc=h+0 | f 141 144 147 150 208
+x-int-nmi-d608-pE-w0 | e:INT+NMI@60.5 | pins 84:it 86:It 87:it 89:It 246.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=165 v008 pc=h+0 | f 141 144 147 205 208
+x-int-nmi-d608-pO-w0 | e:INT+NMI@60.5 | pins 84:it 86:It 87:it 89:It 253.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=168 v008 pc=h+0 | f 141 144 147 150 208
+x-int-nmi-d624-pE-w0 | e:INT+NMI@62.5 | pins 84:it 86:It 87:it 89:It 246.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=165 v008 pc=h+0 | f 141 144 147 205 208
+x-int-nmi-d624-pO-w0 | e:INT+NMI@62.5 | pins 84:it 86:It 87:it 89:It 253.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=168 v008 pc=h+0 | f 141 144 147 150 208
+x-int-nmi-d640-pE-w0 | e:INT+NMI@64.5 | pins 84:it 86:It 87:it 89:It 246.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=165 v008 pc=h+0 | f 141 144 147 205 208
+x-int-nmi-d640-pO-w0 | e:INT+NMI@64.5 | pins 84:it 86:It 87:it 89:It 253.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=168 v008 pc=h+0 | f 141 144 147 150 208
+x-int-nmi-d656-pE-w0 | e:INT+NMI@66.5 | pins 84:it 86:It 87:it 89:It 246.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=165 v008 pc=h+0 | f 141 144 147 205 208
+x-int-nmi-d656-pO-w0 | e:INT+NMI@66.5 | pins 84:it 86:It 87:it 89:It 253.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=168 v008 pc=h+0 | f 141 144 147 150 208
+x-int-nmi-d672-pE-w0 | e:INT+NMI@68.5 | pins 84:it 86:It 87:it 89:It 246.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=165 v008 pc=h+0 | f 141 144 147 205 208
+x-int-nmi-d672-pO-w0 | e:INT+NMI@68.5 | pins 84:it 86:It 87:it 89:It 253.25:it | A=101 v100 pc=x0 P=78 A-P=23 | A=168 v008 pc=h+0 | f 141 144 147 150 208
+x-int-nmi-d688-pE-w0 | e:INT+NMI@70.5 | pins 88:it 90:It 91:it 93:It 250.25:it | A=105 v100 pc=x1 P=80 A-P=25 | A=169 v008 pc=h+0 | f 145 148 151 209 212
+x-int-nmi-d688-pO-w0 | e:INT+NMI@70.5 | pins 88:it 90:It 91:it 93:It 257.25:it | A=105 v100 pc=x1 P=80 A-P=25 | A=172 v008 pc=h+0 | f 145 148 151 154 212
+x-int-nmi-d704-pE-w0 | e:INT+NMI@72.5 | pins 92:it 94:It 95:it 97:It 254.25:it | A=109 v100 pc=x2 P=84 A-P=25 | A=173 v008 pc=h+0 | f 80 149 152 155 213
+x-int-nmi-d704-pO-w0 | e:INT+NMI@72.5 | pins 92:it 94:It 95:it 97:It 261.25:it | A=109 v100 pc=x2 P=84 A-P=25 | A=176 v008 pc=h+0 | f 149 152 155 158 216
+x-int-nmi-d720-pE-w0 | e:INT+NMI@74.5 | pins 92:it 94:It 95:it 97:It 254.25:it | A=109 v100 pc=x2 P=84 A-P=25 | A=173 v008 pc=h+0 | f 80 149 152 155 213
+x-int-nmi-d720-pO-w0 | e:INT+NMI@74.5 | pins 92:it 94:It 95:it 97:It 261.25:it | A=109 v100 pc=x2 P=84 A-P=25 | A=176 v008 pc=h+0 | f 149 152 155 158 216
+x-int-nmi-d736-pE-w0 | e:INT+NMI@76.5 | pins 96:it 98:It 99:it 101:It 258.25:it | A=113 v100 pc=x3 P=88 A-P=25 | A=177 v008 pc=h+0 | f 80 153 156 159 217
+x-int-nmi-d736-pO-w0 | e:INT+NMI@76.5 | pins 96:it 98:It 99:it 101:It 265.25:it | A=113 v100 pc=x3 P=88 A-P=25 | A=180 v008 pc=h+0 | f 84 153 156 159 162
+x-int-nmi-d752-pE-w0 | e:INT+NMI@78.5 | pins 96:it 98:It 99:it 101:It 258.25:it | A=113 v100 pc=x3 P=88 A-P=25 | A=177 v008 pc=h+0 | f 80 153 156 159 217
+x-int-nmi-d752-pO-w0 | e:INT+NMI@78.5 | pins 96:it 98:It 99:it 101:It 265.25:it | A=113 v100 pc=x3 P=88 A-P=25 | A=180 v008 pc=h+0 | f 84 153 156 159 162
+x-int-nmi-d768-pE-w0 | e:INT+NMI@80.5 | pins 100:it 102:It 103:it 105:It 262.25:it | A=117 v100 pc=x4 P=92 A-P=25 | A=181 v008 pc=h+0 | f 80 88 157 160 163
+x-int-nmi-d768-pO-w0 | e:INT+NMI@80.5 | pins 100:it 102:It 103:it 105:It 269.25:it | A=117 v100 pc=x4 P=92 A-P=25 | A=184 v008 pc=h+0 | f 84 157 160 163 166
+x-int-nmi-d784-pE-w0 | e:INT+NMI@82.5 | pins 100:it 102:It 103:it 105:It 262.25:it | A=117 v100 pc=x4 P=92 A-P=25 | A=181 v008 pc=h+0 | f 80 88 157 160 163
+x-int-nmi-d784-pO-w0 | e:INT+NMI@82.5 | pins 100:it 102:It 103:it 105:It 269.25:it | A=117 v100 pc=x4 P=92 A-P=25 | A=184 v008 pc=h+0 | f 84 157 160 163 166
+x-int-nmi-d800-pE-w0 | e:INT+NMI@84.5 | pins 104:it 106:It 107:it 109:It 266.25:it | A=121 v100 pc=x5 P=96 A-P=25 | A=185 v008 pc=h+0 | f 80 88 161 164 167
+x-int-nmi-d800-pO-w0 | e:INT+NMI@84.5 | pins 104:it 106:It 107:it 109:It 273.25:it | A=121 v100 pc=x5 P=96 A-P=25 | A=188 v008 pc=h+0 | f 84 92 161 164 167
+x-int-nmi-d816-pE-w0 | e:INT+NMI@86.5 | pins 104:it 106:It 107:it 109:It 266.25:it | A=121 v100 pc=x5 P=96 A-P=25 | A=185 v008 pc=h+0 | f 80 88 161 164 167
+x-int-nmi-d816-pO-w0 | e:INT+NMI@86.5 | pins 104:it 106:It 107:it 109:It 273.25:it | A=121 v100 pc=x5 P=96 A-P=25 | A=188 v008 pc=h+0 | f 84 92 161 164 167
+x-int-nmi-d832-pE-w0 | e:INT+NMI@88.5 | pins 108:it 110:It 111:it 113:It 270.25:it | A=125 v100 pc=x6 P=100 A-P=25 | A=189 v008 pc=h+0 | f 80 88 96 165 168
+x-int-nmi-d832-pO-w0 | e:INT+NMI@88.5 | pins 108:it 110:It 111:it 113:It 277.25:it | A=125 v100 pc=x6 P=100 A-P=25 | A=192 v008 pc=h+0 | f 84 92 165 168 171
+x-int-nop-d576-pE-w0 | e:INT@56.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d576-pO-w0 | e:INT@56.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d584-pE-w0 | e:INT@57.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d584-pO-w0 | e:INT@57.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d592-pE-w0 | e:INT@58.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d592-pO-w0 | e:INT@58.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d600-pE-w0 | e:INT@59.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d600-pO-w0 | e:INT@59.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d608-pE-w0 | e:INT@60.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d608-pO-w0 | e:INT@60.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d616-pE-w0 | e:INT@61.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d616-pO-w0 | e:INT@61.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d624-pE-w0 | e:INT@62.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d624-pO-w0 | e:INT@62.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d632-pE-w0 | e:INT@63.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d632-pO-w0 | e:INT@63.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d640-pE-w0 | e:INT@64.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d640-pO-w0 | e:INT@64.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d648-pE-w0 | e:INT@65.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d648-pO-w0 | e:INT@65.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d656-pE-w0 | e:INT@66.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d656-pO-w0 | e:INT@66.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d664-pE-w0 | e:INT@67.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d664-pO-w0 | e:INT@67.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d672-pE-w0 | e:INT@68.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-nop-d672-pO-w0 | e:INT@68.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-nop-d680-pE-w0 | e:INT@69.5 | pins 88:it 90:It 91:it 93:It 184.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 156 167
+x-int-nop-d680-pO-w0 | e:INT@69.5 | pins 88:it 90:It 91:it 93:It 188.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 152 164
+x-int-nop-d688-pE-w0 | e:INT@70.5 | pins 88:it 90:It 91:it 93:It 184.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 156 167
+x-int-nop-d688-pO-w0 | e:INT@70.5 | pins 88:it 90:It 91:it 93:It 188.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 152 164
+x-int-nop-d696-pE-w0 | e:INT@71.5 | pins 92:it 94:It 95:it 97:It 188.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 80 147 150 153 160
+x-int-nop-d696-pO-w0 | e:INT@71.5 | pins 92:it 94:It 95:it 97:It 192.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 147 150 153 156 168
+x-int-nop-d704-pE-w0 | e:INT@72.5 | pins 92:it 94:It 95:it 97:It 188.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 80 147 150 153 160
+x-int-nop-d704-pO-w0 | e:INT@72.5 | pins 92:it 94:It 95:it 97:It 192.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 147 150 153 156 168
+x-int-nop-d712-pE-w0 | e:INT@73.5 | pins 92:it 94:It 95:it 97:It 188.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 80 147 150 153 160
+x-int-nop-d712-pO-w0 | e:INT@73.5 | pins 92:it 94:It 95:it 97:It 192.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 147 150 153 156 168
+x-int-nop-d720-pE-w0 | e:INT@74.5 | pins 92:it 94:It 95:it 97:It 188.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 80 147 150 153 160
+x-int-nop-d720-pO-w0 | e:INT@74.5 | pins 92:it 94:It 95:it 97:It 192.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 147 150 153 156 168
+x-int-nop-d728-pE-w0 | e:INT@75.5 | pins 96:it 98:It 99:it 101:It 192.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 80 151 154 157 164
+x-int-nop-d728-pO-w0 | e:INT@75.5 | pins 96:it 98:It 99:it 101:It 196.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 84 151 154 157 160
+x-int-nop-d736-pE-w0 | e:INT@76.5 | pins 96:it 98:It 99:it 101:It 192.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 80 151 154 157 164
+x-int-nop-d736-pO-w0 | e:INT@76.5 | pins 96:it 98:It 99:it 101:It 196.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 84 151 154 157 160
+x-int-nop-d744-pE-w0 | e:INT@77.5 | pins 96:it 98:It 99:it 101:It 192.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 80 151 154 157 164
+x-int-nop-d744-pO-w0 | e:INT@77.5 | pins 96:it 98:It 99:it 101:It 196.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 84 151 154 157 160
+x-int-nop-d752-pE-w0 | e:INT@78.5 | pins 96:it 98:It 99:it 101:It 192.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 80 151 154 157 164
+x-int-nop-d752-pO-w0 | e:INT@78.5 | pins 96:it 98:It 99:it 101:It 196.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 84 151 154 157 160
+x-int-nop-d760-pE-w0 | e:INT@79.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 80 88 155 158 161
+x-int-nop-d760-pO-w0 | e:INT@79.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 84 155 158 161 164
+x-int-nop-d768-pE-w0 | e:INT@80.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 80 88 155 158 161
+x-int-nop-d768-pO-w0 | e:INT@80.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 84 155 158 161 164
+x-int-nop-d776-pE-w0 | e:INT@81.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 80 88 155 158 161
+x-int-nop-d776-pO-w0 | e:INT@81.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 84 155 158 161 164
+x-int-nop-d784-pE-w0 | e:INT@82.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 80 88 155 158 161
+x-int-nop-d784-pO-w0 | e:INT@82.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 84 155 158 161 164
+x-int-nop-d792-pE-w0 | e:INT@83.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 80 88 159 162 165
+x-int-nop-d792-pO-w0 | e:INT@83.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 84 92 159 162 165
+x-int-nop-d800-pE-w0 | e:INT@84.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 80 88 159 162 165
+x-int-nop-d800-pO-w0 | e:INT@84.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 84 92 159 162 165
+x-int-nop-d808-pE-w0 | e:INT@85.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 80 88 159 162 165
+x-int-nop-d808-pO-w0 | e:INT@85.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 84 92 159 162 165
+x-int-nop-d816-pE-w0 | e:INT@86.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 80 88 159 162 165
+x-int-nop-d816-pO-w0 | e:INT@86.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 84 92 159 162 165
+x-int-nop-d824-pE-w0 | e:INT@87.5 | pins 108:it 110:It 111:it 113:It 204.25:it | A=123 v100 pc=x6 P=100 A-P=23 | f 80 88 96 163 166
+x-int-nop-d824-pO-w0 | e:INT@87.5 | pins 108:it 110:It 111:it 113:It 208.25:it | A=123 v100 pc=x6 P=100 A-P=23 | f 84 92 163 166 169
+x-int-p0-d592-pE-w0 | e:INT+INTP0@58.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-p0-d592-pO-w0 | e:INT+INTP0@58.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-p0-d608-pE-w0 | e:INT+INTP0@60.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-p0-d608-pO-w0 | e:INT+INTP0@60.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-p0-d624-pE-w0 | e:INT+INTP0@62.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-p0-d624-pO-w0 | e:INT+INTP0@62.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-p0-d640-pE-w0 | e:INT+INTP0@64.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-p0-d640-pO-w0 | e:INT+INTP0@64.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-p0-d656-pE-w0 | e:INT+INTP0@66.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-p0-d656-pO-w0 | e:INT+INTP0@66.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-p0-d672-pE-w0 | e:INT+INTP0@68.5 | pins 84:it 86:It 87:it 89:It 180.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 152 163
+x-int-p0-d672-pO-w0 | e:INT+INTP0@68.5 | pins 84:it 86:It 87:it 89:It 184.25:it | A=99 v100 pc=x0 P=78 A-P=21 | f 139 142 145 148 160
+x-int-p0-d688-pE-w0 | e:INT+INTP0@70.5 | pins 88:it 90:It 91:it 93:It 184.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 156 167
+x-int-p0-d688-pO-w0 | e:INT+INTP0@70.5 | pins 88:it 90:It 91:it 93:It 188.25:it | A=103 v100 pc=x1 P=80 A-P=23 | f 143 146 149 152 164
+x-int-p0-d704-pE-w0 | e:INT+INTP0@72.5 | pins 92:it 94:It 95:it 97:It 188.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 80 147 150 153 160
+x-int-p0-d704-pO-w0 | e:INT+INTP0@72.5 | pins 196.25:it | A=111 v060 pc=x4 P=92 A-P=19 | f 88 151 154 157 160
+x-int-p0-d720-pE-w0 | e:INT+INTP0@74.5 | pins 92:it 94:It 95:it 97:It 188.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 80 147 150 153 160
+x-int-p0-d720-pO-w0 | e:INT+INTP0@74.5 | pins 92:it 94:It 95:it 97:It 192.25:it | A=107 v100 pc=x2 P=84 A-P=23 | f 147 150 153 156 168
+x-int-p0-d736-pE-w0 | e:INT+INTP0@76.5 | pins 96:it 98:It 99:it 101:It 192.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 80 151 154 157 164
+x-int-p0-d736-pO-w0 | e:INT+INTP0@76.5 | pins 96:it 98:It 99:it 101:It 196.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 84 151 154 157 160
+x-int-p0-d752-pE-w0 | e:INT+INTP0@78.5 | pins 96:it 98:It 99:it 101:It 192.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 80 151 154 157 164
+x-int-p0-d752-pO-w0 | e:INT+INTP0@78.5 | pins 96:it 98:It 99:it 101:It 196.25:it | A=111 v100 pc=x3 P=88 A-P=23 | f 84 151 154 157 160
+x-int-p0-d768-pE-w0 | e:INT+INTP0@80.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 80 88 155 158 161
+x-int-p0-d768-pO-w0 | e:INT+INTP0@80.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 84 155 158 161 164
+x-int-p0-d784-pE-w0 | e:INT+INTP0@82.5 | pins 100:it 102:It 103:it 105:It 196.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 80 88 155 158 161
+x-int-p0-d784-pO-w0 | e:INT+INTP0@82.5 | pins 100:it 102:It 103:it 105:It 200.25:it | A=115 v100 pc=x4 P=92 A-P=23 | f 84 155 158 161 164
+x-int-p0-d800-pE-w0 | e:INT+INTP0@84.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 80 88 159 162 165
+x-int-p0-d800-pO-w0 | e:INT+INTP0@84.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 84 92 159 162 165
+x-int-p0-d816-pE-w0 | e:INT+INTP0@86.5 | pins 104:it 106:It 107:it 109:It 200.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 80 88 159 162 165
+x-int-p0-d816-pO-w0 | e:INT+INTP0@86.5 | pins 104:it 106:It 107:it 109:It 204.25:it | A=119 v100 pc=x5 P=96 A-P=23 | f 84 92 159 162 165
+x-int-p0-d832-pE-w0 | e:INT+INTP0@88.5 | pins 108:it 110:It 111:it 113:It 204.25:it | A=123 v100 pc=x6 P=100 A-P=23 | f 80 88 96 163 166
+x-int-p0-d832-pO-w0 | e:INT+INTP0@88.5 | pins 212.25:it | A=127 v060 pc=x8 P=108 A-P=19 | f 84 92 104 167 170
+t-tout-halt-n10-pE-w0 | pins 278.25:it | A=197 v070 pc=M1 | f 80 83 86 94 237
+t-tout-halt-n10-pO-w0 | pins 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-tout-halt-n3-pE-w0 | pins 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-tout-halt-n3-pO-w0 | pins 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-tout-halt-n4-pE-w0 | pins 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-tout-halt-n4-pO-w0 | pins 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-tout-halt-n5-pE-w0 | pins 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-tout-halt-n5-pO-w0 | pins 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-tout-halt-n6-pE-w0 | pins 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-tout-halt-n6-pO-w0 | pins 174.25:it | A=188 v070 pc=LS2 | f 82 85 97 163 228
+t-tout-halt-n7-pE-w0 | pins 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-tout-halt-n7-pO-w0 | pins 174.25:it | A=188 v070 pc=LS2 | f 82 85 97 163 228
+t-tout-halt-n8-pE-w0 | pins 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-tout-halt-n8-pO-w0 | pins 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-tout-halt-n9-pE-w0 | pins 278.25:it | A=197 v070 pc=M1 | f 80 83 86 94 237
+t-tout-halt-n9-pO-w0 | pins 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-tout-nop-n10-pE-w0 | pins 282.25:it | A=201 v070 pc=x24 | f 80 83 86 94 102
+t-tout-nop-n10-pO-w0 | pins 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-tout-nop-n3-pE-w0 | pins 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-tout-nop-n3-pO-w0 | pins 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-tout-nop-n4-pE-w0 | pins 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-tout-nop-n4-pO-w0 | pins 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-tout-nop-n5-pE-w0 | pins 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-tout-nop-n5-pO-w0 | pins 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-tout-nop-n6-pE-w0 | pins 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-tout-nop-n6-pO-w0 | pins 273.25:it | A=188 v070 pc=x20 | f 82 85 97 101 109
+t-tout-nop-n7-pE-w0 | pins 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-tout-nop-n7-pO-w0 | pins 273.25:it | A=188 v070 pc=x20 | f 82 85 97 101 109
+t-tout-nop-n8-pE-w0 | pins 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-tout-nop-n8-pO-w0 | pins 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-tout-nop-n9-pE-w0 | pins 282.25:it | A=201 v070 pc=x24 | f 80 83 86 94 102
+t-tout-nop-n9-pO-w0 | pins 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-tout4-halt-n10-pE-w0 | pins 92.5:It 278.25:it | A=197 v070 pc=M1 | f 80 83 86 94 237
+t-tout4-halt-n10-pO-w0 | pins 95.5:It 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-tout4-halt-n3-pE-w0 | pins 92.5:It 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-tout4-halt-n3-pO-w0 | pins 95.5:It 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-tout4-halt-n4-pE-w0 | pins 92.5:It 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-tout4-halt-n4-pO-w0 | pins 95.5:It 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-tout4-halt-n5-pE-w0 | pins 92.5:It 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-tout4-halt-n5-pO-w0 | pins 95.5:It 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-tout4-halt-n6-pE-w0 | pins 92.5:It 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-tout4-halt-n6-pO-w0 | pins 95.5:It 174.25:it | A=188 v070 pc=LS2 | f 82 85 97 163 228
+t-tout4-halt-n7-pE-w0 | pins 92.5:It 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-tout4-halt-n7-pO-w0 | pins 95.5:It 174.25:it | A=188 v070 pc=LS2 | f 82 85 97 163 228
+t-tout4-halt-n8-pE-w0 | pins 92.5:It 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-tout4-halt-n8-pO-w0 | pins 95.5:It 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-tout4-halt-n9-pE-w0 | pins 92.5:It 278.25:it | A=197 v070 pc=M1 | f 80 83 86 94 237
+t-tout4-halt-n9-pO-w0 | pins 95.5:It 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-tout4-nop-n10-pE-w0 | pins 92.5:It 282.25:it | A=201 v070 pc=x24 | f 80 83 86 94 102
+t-tout4-nop-n10-pO-w0 | pins 95.5:It 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-tout4-nop-n3-pE-w0 | pins 92.5:It 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-tout4-nop-n3-pO-w0 | pins 95.5:It 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-tout4-nop-n4-pE-w0 | pins 92.5:It 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-tout4-nop-n4-pO-w0 | pins 95.5:It 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-tout4-nop-n5-pE-w0 | pins 92.5:It 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-tout4-nop-n5-pO-w0 | pins 95.5:It 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-tout4-nop-n6-pE-w0 | pins 92.5:It 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-tout4-nop-n6-pO-w0 | pins 95.5:It 273.25:it | A=188 v070 pc=x20 | f 82 85 97 101 109
+t-tout4-nop-n7-pE-w0 | pins 92.5:It 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-tout4-nop-n7-pO-w0 | pins 95.5:It 273.25:it | A=188 v070 pc=x20 | f 82 85 97 101 109
+t-tout4-nop-n8-pE-w0 | pins 92.5:It 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-tout4-nop-n8-pO-w0 | pins 95.5:It 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-tout4-nop-n9-pE-w0 | pins 92.5:It 282.25:it | A=201 v070 pc=x24 | f 80 83 86 94 102
+t-tout4-nop-n9-pO-w0 | pins 95.5:It 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-toutc-halt-n10-pE-w0 | pins 92.5:It 162.375:IT 228.5:It 278.25:it | A=197 v070 pc=M1 | f 80 83 86 94 237
+t-toutc-halt-n10-pO-w0 | pins 95.5:It 165.375:IT 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-toutc-halt-n3-pE-w0 | pins 92.5:It 120.375:IT 144.5:It 168.375:IT 192.5:It 216.375:IT 240.5:It 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-toutc-halt-n3-pO-w0 | pins 95.5:It 123.375:IT 147.5:It 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-toutc-halt-n4-pE-w0 | pins 92.5:It 126.375:IT 156.5:It 186.375:IT 216.5:It 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-toutc-halt-n4-pO-w0 | pins 95.5:It 129.375:IT 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-toutc-halt-n5-pE-w0 | pins 92.5:It 132.375:IT 168.5:It 204.375:IT 240.5:It 246.25:it | A=165 v070 pc=M1 | f 80 83 86 94 205
+t-toutc-halt-n5-pO-w0 | pins 95.5:It 135.375:IT 158.25:it | A=172 v070 pc=LS2 | f 82 85 97 147 212
+t-toutc-halt-n6-pE-w0 | pins 92.5:It 138.375:IT 180.5:It 222.375:IT 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-toutc-halt-n6-pO-w0 | pins 95.5:It 141.375:IT 174.25:it | A=188 v070 pc=LS2 | f 82 85 97 163 228
+t-toutc-halt-n7-pE-w0 | pins 92.5:It 144.375:IT 192.5:It 240.375:IT 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-toutc-halt-n7-pO-w0 | pins 95.5:It 147.375:IT 174.25:it | A=188 v070 pc=LS2 | f 82 85 97 163 228
+t-toutc-halt-n8-pE-w0 | pins 92.5:It 150.375:IT 204.5:It 258.375:IT 262.25:it | A=181 v070 pc=M1 | f 80 83 86 94 221
+t-toutc-halt-n8-pO-w0 | pins 95.5:It 153.375:IT 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-toutc-halt-n9-pE-w0 | pins 92.5:It 156.375:IT 216.5:It 276.375:IT 278.25:it | A=197 v070 pc=M1 | f 80 83 86 94 237
+t-toutc-halt-n9-pO-w0 | pins 95.5:It 159.375:IT 190.25:it | A=204 v070 pc=LS2 | f 82 85 97 179 244
+t-toutc-nop-n10-pE-w0 | pins 92.5:It 162.375:IT 228.5:It 282.25:it | A=201 v070 pc=x24 | f 80 83 86 94 102
+t-toutc-nop-n10-pO-w0 | pins 95.5:It 165.375:IT 231.5:It 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-toutc-nop-n3-pE-w0 | pins 92.5:It 120.375:IT 144.5:It 168.375:IT 192.5:It 216.375:IT 240.5:It 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-toutc-nop-n3-pO-w0 | pins 95.5:It 123.375:IT 147.5:It 171.375:IT 195.5:It 219.375:IT 243.5:It 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-toutc-nop-n4-pE-w0 | pins 92.5:It 126.375:IT 156.5:It 186.375:IT 216.5:It 246.375:IT 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-toutc-nop-n4-pO-w0 | pins 95.5:It 129.375:IT 159.5:It 189.375:IT 219.5:It 249.375:IT 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-toutc-nop-n5-pE-w0 | pins 92.5:It 132.375:IT 168.5:It 204.375:IT 240.5:It 250.25:it | A=169 v070 pc=x16 | f 80 83 86 94 102
+t-toutc-nop-n5-pO-w0 | pins 95.5:It 135.375:IT 171.5:It 207.375:IT 243.5:It 257.25:it | A=172 v070 pc=x16 | f 82 85 97 101 109
+t-toutc-nop-n6-pE-w0 | pins 92.5:It 138.375:IT 180.5:It 222.375:IT 264.5:It 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-toutc-nop-n6-pO-w0 | pins 95.5:It 141.375:IT 183.5:It 225.375:IT 267.5:It 273.25:it | A=188 v070 pc=x20 | f 82 85 97 101 109
+t-toutc-nop-n7-pE-w0 | pins 92.5:It 144.375:IT 192.5:It 240.375:IT 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-toutc-nop-n7-pO-w0 | pins 95.5:It 147.375:IT 195.5:It 243.375:IT 273.25:it | A=188 v070 pc=x20 | f 82 85 97 101 109
+t-toutc-nop-n8-pE-w0 | pins 92.5:It 150.375:IT 204.5:It 258.375:IT 266.25:it | A=185 v070 pc=x20 | f 80 83 86 94 102
+t-toutc-nop-n8-pO-w0 | pins 95.5:It 153.375:IT 207.5:It 261.375:IT 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109
+t-toutc-nop-n9-pE-w0 | pins 92.5:It 156.375:IT 216.5:It 276.375:IT 282.25:it | A=201 v070 pc=x24 | f 80 83 86 94 102
+t-toutc-nop-n9-pO-w0 | pins 95.5:It 159.375:IT 219.5:It 279.375:IT 289.25:it | A=204 v070 pc=x24 | f 82 85 97 101 109

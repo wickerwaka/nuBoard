@@ -1611,3 +1611,144 @@ So the hypothesis holds: for an instruction that releases the next opcode on its
 decision for its successor is made at its own pop. In machine terms the request is looked at
 when an opcode leaves the queue; a one-word-release instruction has already taken its successor
 when it starts.
+
+# Round 15
+
+1,533 socket runs (1,245 interrupt probes, 288 form probes), 0 failed, flagged repeats
+strobe-only, the board powered down at the end. FF10h marker writes were used from this round
+(authorised), only to hand port bank R2 to the CPU and back, exactly as `banks.py` INT_HEAD /
+INT_TAIL and `periph.py`'s TOUT set-up do it; the first INT program was run alone and its vector
+read checked before the batch.
+
+**Scope actually covered:** item 1 (INT / INTAK, TOUT) and item 2 (class, timer under the
+window, levels, HALT predecessors, the EI outlier) in full; of item 3 only the not-probed small
+forms (Q60). **Not done this round:** the partly-read block (EXT / INS frames, MUL / DIV on
+memory in the missing frame, CALL mem16, BRK 3 / INT 3 remainder, SET1 mem,imm), and item 4
+(CALL far with waits, ADD [d16],imm8 twice, OUTM twice, the word-level diagnosis of JMP near
+and LEA in the RTL). No corpus replay was needed (the RTL in my worktree is still the 6+7
+copy), so the split table is round 14's.
+
+One thing for the builder outside the core: **in the direct sim build the INTAK answer does not
+reach the core** (the RTL reads its vector from the idle bus, 90h, and goes through 0240h), so
+INT programs cannot be sim-checked with `qprobe.run --backend sim`; on the socket the same
+programs read 0100h as set. The RTL's INTAK cycles themselves are visible there (below).
+
+## Q55. The INT pin: it does not go through the scan; INTAK is 2 low, 1 high, 2 low
+
+INT raised a clock at a time across a NOP train and into HALT, with INTP0 and with NMI on the
+same edge, and held high behind IE = 0 and released by EI (212 runs; /INTAK recorded).
+
+- **No scan, no grid.** The thresholds move with every instruction (even alignment, NOP train:
+  68.5, 70.5, 74.5, 78.5, 82.5, 86.5), the same clocks as the NMI's from the second
+  instruction on (Q54: 70.5, 74.5, 78.5, 82.5), 5 clocks later than the NMI's for the first.
+  INT is level-sensed and goes to the EU directly; the decision is at the pop, as for the NMI.
+- **The acknowledge.** Counted from the pop P of the first instruction not executed (NOP
+  train): /INTAK low P + 8 to P + 10, high one clock, low P + 11 to P + 13; the vector table's
+  offset read starts at P + 23 (a vectored source: P + 19), then the usual four cycles. For the
+  first instruction behind the long shift everything is 2 clocks earlier. The vector byte is
+  the one on D7 to D0 during the pulses (40h answered, 0100h read, every run). The RTL: 2 low,
+  **3 high**, 2 low, and the table read 5 clocks after the second pulse where silicon has 10.
+- **Out of HALT**: /INTAK falls 21.5 clocks after the INT edge and the table read starts 36.5
+  after it, at every clock of the edge and **at both alignments**: the "one instruction late"
+  release of Q52 does not happen for INT.
+- **Released by EI** (INT high since before the long shift, the EI moved by 0 to 13 CLCs, both
+  alignments): always one instruction after the EI (28 of 28). No level latency.
+- **Against INTP0**: on one edge, INT is acknowledged first at every position (it does not
+  wait for the scan). With both pending behind IE = 0 and released by EI: INT first when INTP0
+  is at level 7, 5 or 2; with INTP0 at level 0 INTP0 is first at one EI position and INT at the
+  other (the level-0 request arrives 8 to 12 clocks after the EI, INT's one instruction after:
+  whichever is raised first is taken, Q50's rule).
+- **Against NMI on one edge**: INT is acknowledged first (it reaches the EU about 5 clocks
+  sooner than the NMI), its vector read 2 clocks later than without the NMI, and the NMI is
+  taken in front of the handler's first instruction, 64 clocks after: Q50's pattern exactly.
+
+## Q56. TOUT against the underflow and the request flag
+
+Timer 0, SCLK / 6, TOUT enabled (TMC0 = 8Ch), P15 recorded (64 runs).
+
+- The start store's effect reaches the pin 13.5 clocks after its instruction begins (TOUT
+  takes its level at 92.5 with the instruction at 79).
+- **TOUT's first edge is 3.9 clocks + 6 (n + 1) after that** (120.4, 126.4, 132.4 ... for n = 3,
+  4, 5 ...), and every 6 (n + 1) after.
+- **The request flag**: the underflow acts on the scan like an INTP0 pin edge 2.9 to 4.9 clocks
+  before TOUT's recorded edge (five scan thresholds between n = 5 and 17 agree). So the flag is
+  set at the underflow, and TOUT toggles 3 to 5 clocks later less whatever the pin's own
+  synchroniser adds to an INTP0 edge (at least one sample of the 2-clock detector). Pin times
+  are as the harness records them (two flops, a quarter to half a clock).
+- TOUT's edges do not move with the acknowledge (in HALT or in a NOP train): the pin follows
+  the counter, the request waits for the scan.
+
+## Q57. Pin requests at other levels: two clocks a level, to the clock
+
+INTP0 at level 5, 2 and 0 across the NOP train (240 runs). Scan thresholds of the edge, even
+alignment: level 7 71.5 and 87.5 (round 14); level 5 67.5 and 83.5; level 2 61.5 and 77.5;
+level 0 73.5 and 89.5 (= 57.5 + 16). Odd alignment one clock later throughout. **Exactly
+2 clocks a level earlier, modulo the 16-clock round**: Q49's prediction. The scan visits level
+0 first and level 7 last, 2 clocks each.
+
+## Q58. The held-back request: the class is closed, and the timer is held too
+
+- **Class** (seven more trains, 476 runs): the window is opened by ADD [BW],imm16 (81 /0),
+  ADD byte [BW],imm8 (80 /0), **CMP [BW],imm8 (83 /7)** and SBB [BW],AW; not by DEC [BW]
+  (FF /1), NEG [BW] (F7 /3) or TEST [BW],imm16 (F7 /0). With round 14: every two-operand ALU
+  instruction whose first operand is memory (00 to 3F with the direction bit clear, and the 80
+  to 83 group on memory), CMP included; nothing else tried (TEST, the unary groups, shifts,
+  XCH, MOV, the reversed direction).
+- **Timer 0's request across `ADD [BW],AW; NOP`** against the same across NOPs (120 runs, the
+  count n from 2 to 11, the start moved by 0, 1, 2 CLCs): in the NOP train the counts fall into
+  the scan's groups (16 clocks). In the ADD train counts that share a scan group in the NOP
+  train are taken at different boundaries (n = 3, 4 at one, n = 5 at a later one; n = 2 apart
+  from 3, 4), in four of the six start / alignment combinations. A pure scan
+  cannot split one group. **So the timer's request is held by the same window**: what is held
+  is not the pin's edge detector but the setting of the request flag (or its passage to the
+  scan), for any source.
+- The scan itself is not stopped: thresholds behind a window are still on the original 16-clock
+  round (round 14's g4 train).
+
+## Q59. HALT release one instruction late: a table of 16 programs, still no rule
+
+INTP0 into `X; HALT` for twelve predecessors (72 runs), with round 14's:
+
+| in front of HALT | even | odd |
+|---|---|---|
+| nothing (HALT first behind the long shift) | late | normal |
+| CLC; INC AW | late | normal |
+| NOP; XCHG AW,BW | normal | late |
+| PUSH AW | normal | normal |
+| CLC, NOP; MOV CL,imm8 | late | late |
+| NOP, NOP; MOV AW,imm16; NOP, NOP, NOP | normal | late |
+| MOV AW,[BW] | late | normal |
+| JMP | late | normal |
+| JMP; 1 to 6 NOPs | normal | normal |
+| JMP; CLC | late | late |
+
+"Late" = the instruction behind HALT runs before the acknowledge, at every scan point. What is
+new: (1) **INT never does it** (Q55), so it belongs to scan-sourced requests, not to the HALT
+exit as such; (2) it is not the HALT's address parity, not the predecessor's length in bytes
+(one-byte predecessors go both ways) and not simply its length in clocks. With the scan's
+2-clock steps and phase set by the last EI, the natural candidate is the clock at which the EU
+halts against the scan's 2-clock phase, combined with whether the next opcode had been taken;
+the instruction lengths here are not known to the clock in this frame well enough to test it.
+A probe that would: one predecessor, the EI (which sets the scan) moved a clock at a time by
+the wait setting of an earlier fetch. Open.
+
+Also: EI behind a NOP at two waits, moved by 0 to 13 CLCs (28 runs): the latency is 5 or 6 NOPs
+everywhere except the one position round 14 found (no CLC, even alignment: 2 NOPs). The outlier
+is reproducible and isolated; the other two of round 14 were not re-probed.
+
+## Q60. The not-probed small forms
+
+| form | routine | runs |
+|---|---|---|
+| CMP [BW],AW / AL (39 / 38) | `P Y . D . N .` | 48 / 48 |
+| TEST AL,imm8 (A8), CMP AL,imm8 (3C) | ADD AL,imm8's (`. . . BNP .`) | 48 / 48 |
+| XCH AW,DW (92) | XCHG's | 24 / 24 |
+| IN AW,DW (ED) | IN AL,DW's | 24 / 24 |
+| ADJ4A (27) | ten words, the next opcode on the ninth | 24 / 24 |
+| ADJBA / ADJBS (37 / 3F) | seventeen words, the next opcode on the sixteenth | 48 / 48 |
+| NEG [BW+d16] (F7 /3) | `P . . . B Y P P2 . DZ G N .` | 19 / 24 |
+| LAHF (9F) | `N . .` | 14 / 24 |
+| CVTBD (D4 0A) | not fitted (the immediate is taken by the third or fourth word; about 29 words) | 0 / 24 |
+
+LAHF is three words in 14 runs and four in the rest (the X;SHL and X;X variants); NEG with a
+displacement misses the NOP;X;SHL variant. Neither followed up.
