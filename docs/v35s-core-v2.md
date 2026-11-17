@@ -3232,3 +3232,25 @@ question, decided from S8's routed numbers with the user.
   word on memory by CL, TEST / CMP AW,imm16, CVTDB (19 words), DI, far transfers through
   [BW], CMP r,[BW+d16], CMP [d16],imm8. Model: 17,532 of 18,972 non-interrupt socket runs.
   Unknown: the corpus divergence behind the PUSH marker (the frame is exact in both).
+- **2026-11-17, qprobe round 22 on the socket (4,026 runs; a reading, no RTL change;
+  `validation/v35s/qprobe/RESULTS.md` Q100-Q107, `DIVERGENCE-r22.md`).** Read with the new
+  corpus tools (`validation/v35s/qprobe/tools/`): the model on the corpus 24,101 -> 25,396
+  exact of 30,536 (-12); runs both model and RTL miss 1,828 -> 899. **"X directly behind OUT
+  imm8 at even alignment" is three things**: (A1, Q101a) the fetch wanted under OUT's I/O
+  cycle starts on c3 + 1 but gives way a clock when a request word executed on c3 (or a V
+  request executes on c3 + 1), or when the EU executed act-less words on c3 and c3 + 1 with
+  no request outstanding (identical on all 23,670 socket runs to "not started on a clock
+  whose executed word is followed by a bus-idle word"); it is the phase, not the form; the
+  same behind OUT imm8,AW and OUT DW, never behind PUSH, a store, IN or POP; an outcome rule,
+  the register unknown; corpus 256 runs. (A2, Q101b) the 0F page's commit word and SHL
+  r,imm8's sixth word pass on the chain's second fetch's third-last clock (corpus 335; why
+  three is unknown; not so for slot words). (B, Q102) missing bus-idle words: MULU / MUL /
+  DIV r a second one (the fifth), CVTWL, IN AL / AW,DW, LODS, ADJ4, TEST m,imm16, XCH
+  [d16],r (corpus 344). **Behind the PUSH marker**: a comparison artefact: the model's and
+  the reader's window cut a PUSH-marker run at the first write, the lead's, in front of X;
+  with the cut at the marker's own write the frame is 158 of 168 (the corrected cut is in
+  `build/qp/cmp22.py` / `bc22.py` of the package). JMP / CALL near [BW]: for FF /2../5 on
+  memory the three-byte test counts the bytes a fetch delivers on its last clock (A3). REP
+  INM / OUTM word with CW = 0: 12 words, bus-idle fifth. Socket set: 22,378 of 23,670 (+952,
+  none lost). Unread: EXT / INS behind OUT at even alignment with waits (114 corpus runs),
+  stores against a chained fetch (Q33's table), Q95's open row (9 runs). No interrupt probes.
