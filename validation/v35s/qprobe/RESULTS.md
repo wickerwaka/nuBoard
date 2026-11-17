@@ -2616,3 +2616,247 @@ extra word, ADD [d16],imm8 with four bytes held, CALL far with waits, OUTM twice
 "twice" runs, the three CVTBD runs, SET1 word behind OUT at even alignment), the scan figures
 at W = 1 / 2, `r18tjch2`'s INT half; HLDRQ, PRC and HALT against INT's seven clocks; the
 generalisation of model_m's REP compare code.
+
+# Round 20
+
+Acquired: `QPr20l` 648, `QPr20t` 270, `QPr20a` 678, `QPr20b` 726 (non-interrupt, 2,322), `QPr20h` 240 and eight NMI sweeps `QPr20n*` 1,160 (interrupt, 1,400): 3,722 runs, each twice; 606 repeats differ, all strobe-only (`build/qp/rep20.py r20`). No failures, no incomplete runs. Board left with vccb false, failure 0.
+
+## Q88. LEA with d16 / direct at even alignment, four bytes held: the release word waits for a chained fetch that starts on its own clock (and so does MOV r16,imm16's)
+
+Probes `QPr20l` (648 runs): LEA AW,[BW+d16] / [BP+d16] / [d16] and, as the control, [BW+d8]; nine
+programs a mode (alone, NOP before, NOP after, PUSH before, OUT imm8 before, OUT imm8 ; NOP before,
+PUSH ; NOP before, PUSH after, twice) with each of the three markers (PUSH AW, OUT imm8, OUT DW).
+The corpus's lost frames are in it: F25 `push-ldea-*` and F30 `push-lea-*-k1` = `pb-mp`, F30
+`out-lea-*-nopb` = `onb-mi`.
+
+- **Measured: the two shapes of Q68 are both wrong in one state and the five-word one is right
+  everywhere else.** `P . . BNPP2 .` 603 of 648 at first; the six-word `P . . PP2 N .` 166 of the
+  first 216 against 196. All 45 misses are one state (`build/qp/tab20.py 8D ...`): the LEA's boundary
+  finds exactly **four bytes held with the bus idle** (ModR/M, d16, next opcode; the fetch that was
+  held off by the PUSH's write or the OUT's cycle then starts on the LEA's first word, and the
+  fetch chained behind it starts on the LEA's fourth word, the release word). There silicon's next
+  boundary is 3 clocks later at every wait (W = 0, 1, 2): the chained fetch starts on time, the
+  release word does not execute on its first clock and waits to the clock after it; the boundary
+  then falls on the last clock of the fetch the release pop itself starts.
+  Every other state (5 or 6 held idle; 3 or 4 held on a fetch's last clock) is exact: 495 / 495.
+- **Measured: LEA with d8 in the same frames does not wait** (108 of 108 with the plain `B`; 93 of
+  108 with the stricter word). LEA without displacement and with two registers and d16 were not put in the state.
+- **The same act on MOV r16,imm16's release word (`. . . . BNPP2 .`) reads round 12's oldest open
+  rows**: MUL / DIV on memory at even alignment, W = 1 / 2 (`QPr12a-mm-*`, 24 stems x 2 = 48 runs,
+  open since Q63). There the MOV AW,imm16 behind the frame's `C7 07` store has its release word on
+  the first clock of the fetch chained behind the store's fetch. At W = 0 in the same frame the
+  release word is the EU's *next* word on that clock and the chained fetch is not started (Q42's
+  CH_BNEXT, unchanged): the two cases separate "the word the EU has reached" from "the word it
+  reaches next".
+- Model: act `I` (a bus-idle word that also waits on the clock a back-to-back / chained fetch
+  starts, with none of the exemptions `C_NOCH` gives the commit word; CH_BNEXT does not hold the
+  fetch back for an `I` word already stalled). `LEA_D16 = LEA_DIR = "P . . BINPP2 ."`,
+  `RI = ". . . . BINPP2 ."`. Whole non-interrupt socket set: **+101, 0 lost** (LEA 45, mm 56).
+  The same act on ADD AW,imm16 / ALU r,imm16 / LEA [BW+IX+d16]: no run changes (not in the state:
+  inferred by analogy, not measured). On the two-byte release words (`BNP`: MOV r8,imm8, ADD r,imm8
+  83, ADD AL,imm8): +5, -12 (`QPr13a-fw-c7-*-i8`), so not a rule for them; LEA d8 says no (15 runs).
+- **Unknown:** why the three-byte release differs from the two-byte one. Two readings fit all
+  1,368 runs of the families: (a) the word kind (the imm16 / d16 release is a strict bus-idle
+  word); (b) a count (the release leaves two bytes behind the staged opcode when the chained
+  fetch was decided at five held; the two-byte release leaves three). No probe here separates them.
+
+## Q89. Transfers at a flush target: the far forms wait on their segment word; the near forms need nothing
+
+Probes `QPr20t` (270 runs): JMP short (the control), JMP near, CALL near, JMP far, CALL far, each
+as the first instruction, behind a NOP, at the target of a JMP short (`j0`, `j1`, `j0n`, `j0nn`,
+`nj0`, behind OUT imm8 ; JMP), and twice in a row. Repeats: 80 differ, strobe only.
+
+- **JMP short (control): 54 of 54** with Q86's bus-idle displacement word; without it 44 (the ten
+  runs are the `j0` / `j1` / `oj0` / `nj0` / twice frames at W = 1, 2: the frame works as designed).
+- **JMP near, CALL near: 108 of 108 with the shapes as they are (no wait).** Measured: a waiting
+  word in JMP short's position (word 4, in front of the displacement pop) is excluded (182 of 204
+  with rounds 8 and 18); a bus-idle or strict bus-idle displacement word (word 5) changes no run of
+  any round (204 of 204 either way): in none of these programs does a fetch start or run on that
+  word. **Not separable here; do not build a wait.**
+- **JMP far, CALL far: the word that pops the segment (the second pointer word, word 9) is a
+  strict bus-idle word, Q88's act `I`.** `JFAR = ". . . . PP2 . Q . BIPP2 . . F N ."` 72 of 72
+  (`QPr20t-t-jf-*` 54, `QPr5-jfar-*` 18; was 60); `CALLF = ". . . . PP2 . Q . BIPP2 . Y D . Y D . .
+  F N ."` 114 of 114 (`QPr20t-t-cf-*`, `QPr8-fl-callf-*`, `QPr13a-tj-callf-*`; was 91). Single
+  placements of B, BI and the T wait on each of the eleven words of JMP far: the next best is 60.
+  This is the whole of "CALL far with waits" (open since round 8) and of `QPr5-jfar` at W = 1, 2:
+  from a full queue at even alignment the fetch chained at five held starts on the segment word's
+  clock at W >= 1 (silicon: everything behind is 2 clocks late at W = 1 and at W = 2) and not at
+  W = 0. A plain B on the offset word or on the segment word gains 5 of the 35.
+- Inferred, not measured: the memory forms (JMP / CALL far [d16]) and RET far / RETI are not in
+  these frames.
+
+## Q90. The forms that had no probe: TEST with a displacement, POP to [BW+IX+d16], NEG / NOT / INC with a displacement
+
+Probes `QPr20a` (678 runs): each form behind INC BW / CBW / NOP / CLC (the lead frame) and as the
+four probe programs; NEG [BW+d16] also behind MOV BW,imm16, MOV AW,BW, two NOPs, two INCs, OUT imm8.
+(The INC BW lead changes the address register of the [BW+..] modes one clock before it is used:
+the known artefact of round 17; those 13 stems are not scored.)
+
+| form (corpus row) | routine | score |
+|---|---|---|
+| TEST [d16],AW (85 06; test_dir_aw) | `P . B Y . PP2 DN .` | 42 / 42 (`f-testd-*`, `fl-testd-{c,k,n}`) |
+| TEST [BW+d16],AW (85 87; test_m_aw_bw_d16) | `P . B Y . PP2 DN .` | 42 / 42 |
+| TEST word [BW+d8],imm16 (F7 47) | `P . B . . BYP DPP2 . BN .` | 42 / 42 |
+| TEST word [BW+d16],imm16 (F7 87; test_m_imm_d16), [d16],imm16 (F7 06) | `P . B . . BYPP2 DPP2 . BN .` with Q69's reserving request | 84 / 84 (72 without the B on the request word: the 12 are the first instance at odd alignment, W = 1 / 2, where a second fetch goes ahead of the read) |
+| POP [BW+d16] (8F 87) | `P . Y D . . PP2Z G N .` (the direct form's) | 42 / 42 |
+| POP [BW+IX+d8] (8F 40) | `P . Y D . . PZ G N .` (the d8 form's: two registers cost nothing) | 42 / 42 |
+| POP [BW+IX+d16] (8F 80; pop_m_bw_ix_d16) | `P . Y D . . . PP2Z G N .`: one word more, behind the stack read and in front of the release | 42 / 42 (the direct form's shape 0 / 42) |
+| NEG / NOT word [BW+d16], NEG [d16], INC word [BW+d16] (F7 9F / 97 / 1E, FF 87) | `P . . B Y . PP2 . DZ G N .` | 213 / 216 with `QPr15a-negd16` (was 19 / 24 on round 15's 24 and 0 for the rest) |
+| NEG word [BW+d8] (F7 5F) | `P . . B Y . P . DZ G N .` | 42 / 42 |
+
+- TEST m,r with a displacement is TEST [BW],AW's head (`P . B`) in front of the load's body
+  (`Y . PP2 DN .`). A second `.` in front of `DN` scores the same (hidden under the read).
+- NEG [BW+d16]: Q66's "no single shape gives both" is closed. The old shape had the request one
+  word late and the two displacement bytes on words of their own; the reading is INC [BW]'s head
+  (`P . . B Y`) with the displacement released as one word two words behind the request. All
+  five W = 0 misses of round 15 are exact. NOT, INC and the direct mode are the same routine
+  (measured, 48 runs each). The 3 misses are `fp-negd16-ri` at even alignment (behind MOV
+  BW,imm16), all waits: the "behind MOV r16,imm16" family (CVTBD, the 0F forms of `em2` / `em3`).
+- POP [BW+IX+d16]: where the extra word sits is not fixed by these runs beyond "between the
+  datum and the write's boundary" (five shapes tie; the simplest is given).
+
+## Q91. The second-instance family, one item at a time (`QPr20b`, 726 runs)
+
+**SHL / SAR r,imm8 (the shl_imm rows): one word shorter, the count byte on a bus-idle word, the
+waiting word one place earlier.** Probes `h-shli{1,4,8}-*` (162 runs: behind INC / CBW / CLC /
+two NOPs, a NOP behind, and alone or behind a NOP in front of the OUT imm8 and PUSH markers) with
+rounds 2 and 9. Routine: `P . . BP . S`, then the count loop, `N .`; 11 + 2n words (was 12 + 2n
+with the count byte on a plain fourth word and the waiting word seventh). **360 of 360** (was
+321). Each element is needed: without the bus-idle pop 249, with the old length 297, the waiting
+word one place either side 87. Measured; the waiting word is the CL form's (`S`, the bus unit's
+slot), B / BI / BC there score the same.
+
+**CVTBD: the operand byte's word is bus-idle too.** `. . . BP . B` + thirteen words + `N .` (21
+words, as Q70, with the fourth word a bus-idle word): **120 of 120** (`QPr15a-cvtbd`, `QPr17d`,
+`QPr20b-c-*`: behind MOV r16,imm16, ADD AW,imm16, MOV r8,imm8, ADD r,imm8, MOV r,r and three
+two-instruction leads); Q70's shape 95. The three runs behind MOV BW,imm16 are in it.
+
+**SET1 / TEST1 word and byte behind OUT (set1 behind OUT at even alignment): the commit word is a
+plain bus-idle word.** Probes `s-*` (78 runs: SET1 AW,CL behind OUT imm8 byte and word, PUSH, a
+store, IN, a load, OUT ; NOP, NOP ; OUT, two OUTs; SET1 AL,CL, TEST1 AW,CL, SET1 with CL = 3 and
+SET1 AW,imm4 behind OUT). Round 10's `C` (a commit word that also waits on the clock a
+back-to-back fetch starts) on the r,CL and r,imm forms' N word is wrong behind an I/O cycle (27
+runs, 2 clocks late in the model at every wait) and needed nowhere: `TEST1 = "P . BP . . BN ."`,
+`CLR1 = "P . BP . . BN . ."`, `TEST1I = "P . BP . BPN ."`, `CLR1I = "P . BP . BPN . ."` gain 27
+and lose 0 on the whole set. (The memory forms keep their `C` word: not re-tested.)
+
+**OUTM twice: the fifth word is bus-idle.** `OUTM = ". . . . B . Y D . X . . . N ."`: **108 of
+108** (`QPr20b-o-*`, `QPr11c-outm*`; was 94). All 14 misses were W = 2 second instances: the
+fetch started by the first instance's last pop is still on the pins on the second's fifth word
+only when it is five clocks long. The REP form's head already has the word (`RH_OUTM`).
+
+**ADD mem,imm with d16 / direct, "four bytes held": the state is closed, the rule is not.**
+Probes `m-*` (38 programs). Every miss of the 83 forms (ADD [d16],imm8, ADD [BW+d16],imm8: 30
+runs, all waits) and of the 81 forms (imm16: 8 runs, W = 0 only) is an instance whose boundary
+finds **four bytes held with the bus idle** (`build/qp/tab20.py 83 ...`: 0 of 30 exact there, 138
+of 138 in the nine other states); a PUSH in front makes the state directly (`m-*-p`, even
+alignment). Measured: the fetch that starts on the first word is followed by two chained fetches
+and the read comes behind the second (3 + W clocks later than the model, which lets the read go
+at its due clock against a fetch at five held). It is Q88's state, but neither Q88's strict
+bus-idle word on the displacement word, nor Q69's reserving request on these keys (`RSV_KEYS`: -7),
+nor REQ_PRI off reads it. **Open, with the state as the description.** The "five twice runs" of
+round 17 (`mi-addi816-2` E0-E2, `mi-addiw16-2` / `mi-addiwx-2` O0) are this state.
+
+**EXT / INS r,imm4 behind two or three short instructions: partly read.** `e-*` (the stems
+without INC BW, which moves the offset): in the 22 round-20 misses (looked at: the EXT ones) the only difference is one
+fetch: silicon makes a fetch on the clock after the field's read, the model 60 clocks later, and
+the ends agree. So the imm4 byte has left the queue by the read's last clock (measured: the count
+allows the fetch). Moving the pop to the datum word (`EXT_HEAD = "P . BP . C . . Y DP"`, tail `N .`)
+puts that fetch right and the end one clock early (+3 runs net); with round 16's seven "one clock
+early" runs this says the routine is also one word longer somewhere behind the read, but no
+single placement tried gives both (`EXTI_TAIL` variants). **Open.**
+
+## Q92. INT and NMI stepped across the entry into HALT
+
+Probes `QPr20h` (240 runs, W = 0, both alignments; even alignment read): four NOPs and HALT, the
+edge stepped half a clock from 74 to 103.5 (HALT's pop is at clock 92; `build/qp/h20.py r20h`).
+Columns: edge e, vector read's first clock A, the return offset pushed (4 = HALT itself, 5 = the
+byte behind it).
+
+| source | e | pushed | A | reading |
+|---|---|---|---|---|
+| INT | <= 82.5 | the NOP or HALT popped first at or after e + 9.125 (HALT for 79 to 82.5) | pop + 21 to 23 | Q75's rule holds up to HALT's own pop: e = 82.5 (at the loader 91.6) replaces HALT, e = 83.0 (92.1) does not. **Measured: HALT's pop is an ordinary pop for the latch at the loader; nothing re-times the 7-clock line in front of a HALT** |
+| INT | 83 to 90.5 | 5 (HALT executed, then released) | **127 for every edge** (A - e from 44 down to 36.5) | a request that reaches the loader behind HALT's pop is not taken before a fixed point: vector read 35 clocks after HALT's pop however long it has stood |
+| INT | >= 91 | 5 | 129, 131, ... : a 2-clock lattice, A - e = 36.5 to 38 (thresholds between e = x.5 and x + 1, x even) | round 17's lattice (Q74), now tied to the entry: the slot that serves e = 83 to 90.5 is the first one |
+| NMI | <= 75 | 4 (HALT's pop replaced) | | the running path (stage 6a to 6c) |
+| NMI | 75.5 to 90 | 5 | **123 for every edge** | as INT, 4 clocks earlier |
+| NMI | >= 90.5 | 5 | 125, 127, ... , A - e = 33 to 34.5 (thresholds between x and x.5, x even) | the lattice, half a clock ahead of INT's (the filter against the two samples, as round 17) |
+
+- **Measured: in the same lattice slot NMI's vector read is exactly 4 clocks ahead of INT's**
+  (123 / 127, 125 / 129, ...). From one pop INT's vector read is 21 clocks behind (two INTAK cycles in front of it)
+  and NMI's 17: so **the pop that leaves HALT is on the same clock for both sources** (inferred
+  from the two figures; the pop itself is not on the pins). Running, NMI's pop is 5 or more clocks
+  behind INT's for the same edge (stage 6a to 6c). So the vectored source's event / occupation /
+  five-clock stage is not passed on the way out of HALT, or INT waits for the same time there.
+- **Measured:** release latency, edge to the releasing pop: NMI 16 to 17.5 clocks, INT 15.5 to
+  17 (running: 9.125 for INT). The extra is the lattice (0 to 2) and about 6.4 clocks.
+- **Unknown:** what the 6.4 clocks are (the restart of the EU's clock, the line re-run, or the
+  occupation), and whether stage 4's seven stages are clocked during HALT. A request that entered
+  the line before HALT's pop (e = 83 to 90.5) and one that enters in HALT are served by the same
+  lattice, which says the release does not depend on where the request is in the line: the
+  release looks at the sampled level, not at the line's output (inferred).
+- What this does for "the line's identity": nothing re-times INT in front of HALT, and HALT's
+  release does not use the line's output. The identity of the seven stages is still unknown.
+
+## Q93. NMI's event words in DIVU / DIV byte, the string instructions and REP
+
+Probes `QPr20n<train>` (1,160 runs, W = 0, both alignments): the NMI edge stepped half a clock
+(one clock for the REP trains and DIV) across DIVU BH (F6 F7), DIV BH (F6 FF), trains of MOVBK,
+STMB, LDMB, and REP MOVBK / STMB / LDMB with CW = 6 or 8. c = the first clock the request stands
+at the EU (e + 8.875, spec 15). Scored with spec 15's rule (`build/qp/sc20.py hid=2 ev=F`: the
+pushed instruction per run) where the pushed address says something; for REP it never does (the
+prefix's address is pushed whatever the iteration) and the vector read's clock A is read instead
+(`build/qp/h20.py`).
+
+| train | score with spec 15's rule | what is measured |
+|---|---|---|
+| MOVBK x 10 | **144 / 144** (first word, N word, the words waiting for the EU's cycles) | nothing new needed |
+| STMB x 12 | 86 / 120 | a request with c up to the instruction's fifth word (N - 6; the 13-clock routine's N word is its ninth) is taken by this instruction's pop; c on the sixth word, the request word or the write's wait is not. With every word from the first to the N word an event: 110 / 120 (the 10: c on the sixth word, which is not an event). So: **words 1 to 5 are events, word 6, the request word and the write's wait are not** (measured as thresholds; scored 110, the exact list not re-scored) |
+| LDMB x 12 | 85 / 120 | the 35 misses are c = 94 to 96 in every period: the read's own wait; silicon takes the pop on the datum word one instruction earlier than the rule. The occupation in front of this read (Q82) moves the datum word, and with it the pop, behind the request: **not closed** |
+| DIVU BH (33 clocks) | 192 / 200 with MULU's two offsets (N - 2, N - 7); 194 / 200 with one event at N - 5 | **inside the routine every edge from c = 89 to c = 118 is taken at the routine's end** (A constant at 140 for 60 edges; N = 123), c = 119 is not: the last event that still reaches the end pop is at N - 5. The 6 left are at even alignment, c = 119 to 121 (a further event in N - 4 to N - 1 at even alignment only): not read |
+| DIV BH (signed, 52 clocks) | **134 / 136** with MULU's offsets (N - 2, N - 7); N - 5 alone 131 | MULU's two loop words fit signed DIV; DIVU's fit is not separated from them (192 against 194) |
+| REP MOVBK (18 clocks an iteration: read, write 9 later) | - | **the loop ends with the iteration whose write starts at W when c <= W - 6** (= the read's first clock + 3: the datum word's clock), every 18 clocks (thresholds e = 117, 135, 153; both alignments). Vector read **50 clocks after that write's first clock** (17 after a pop outside REP) |
+| REP STMB (9 clocks) | - | ends with the write at W when the request stands by W - 6 + a fraction (threshold between e = W - 14.5 and W - 14: half a clock later than c's lattice); vector read W + 47 |
+| REP LDMB (11 clocks) | - | ends with the read at R when c <= R (threshold between e = R - 8.5 and R - 8); vector read R + 50 |
+
+- **Measured in all three REP trains:** the hidden two-clock occupation (Q82) is there: for the
+  two edges whose c is the first clock of an EU cycle or the clock before, A is 2 later (e.g.
+  REP MOVBK e = 121, 122 and 130, 131 in each period).
+- **Inferred (one reading of the three thresholds with spec 15's "event, then five clocks"):**
+  the events are the wait / datum words of the iteration's cycles (as outside REP), and the loop
+  looks at the request once an iteration: for MOVBK and STMB on a word 1 clock either side of
+  the write's first clock (W - 1 to W + 1), for LDMB on the iteration's last-but-one word (R +
+  5). It is a window, not a word, in each case; the three are not one offset from the
+  iteration's end. **Do not build from this; the thresholds are the data.**
+- **Unknown:** what the 47 to 50 clocks between the last cycle and the vector read are (33 more
+  than behind an ordinary pop: the prefix's address is recovered and pushed; no pin activity was
+  looked at in that interval).
+- Not run: REP with compares (CMPBK / CMPM), INM / OUTM under NMI, any of this at W = 1 / 2, and
+  INT in the same trains.
+
+## Q94. The strict bus-idle word, generalised: every bus-idle word that releases a 16-bit operand
+
+A search over every routine of the model (`build/qp/isearch20.py`: act `I` added to each word
+that pops, one word at a time, the whole non-interrupt set re-scored; 54 variants change a run)
+found two more words that gain and lose nothing, and both are of Q88's kind:
+
+- MOV word [d16] / [BW+d16],imm16: the request word that releases the d16
+  (`STIM_D16 = "P . . BIYPP2 . . . KPP2N ."`): +9, 0 lost.
+- With it, the same word of ADD word mem,imm16 with d16 / direct (`ADDIW_D16`, `ADDIW_DIR`):
+  +8, 0 lost: these are the 81 forms' runs of Q91's "four bytes held" state.
+- The request word with a d8 (+1, -3) or with no displacement (-6) does not carry it; nor do
+  the release words of the two-byte immediates (Q88) and LEA d8.
+
+**Measured, as one statement:** a bus-idle word whose release is a word-wide operand (d16,
+imm16, the far pointer's segment) also waits on the clock a chained fetch starts; one that
+releases a byte or nothing does not. Six instruction groups measured (LEA d16 / direct, MOV
+r16,imm16, JMP far, CALL far, MOV mem,imm16, ADD mem,imm16), 0 runs lost in any round; the
+other words of the kind (CMP / TEST mem,imm16 with d16 / direct, ADD AW,imm16, the 81 group on
+a register, LEA [two registers + d16]) are installed the same way and change no run (inferred).
+Whole set: **14,469 of 15,726; rounds 1 to 19 alone 12,322 of 13,404 (from 12,215, none lost)**.
+The byte-count reading of Q88 is weakened by the far forms (their segment word releases two
+bytes and waits; MOV r8,imm8's release word releases two bytes and does not).
+
+Also from the search, thin (3 runs, W = 0, one frame): OUT DW's N word as a strict word gains
+`QPr13a-fw-c7-*-nop` 3 and loses nothing. Not installed.
+

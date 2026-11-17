@@ -104,6 +104,11 @@ with a displacement (ADDIW_D8 / _D16 / _DIR, CMPIW_D16 / _DIR, ADDIM_D16). YP_UN
 ARB_K="WR": a read whose request word also releases the displacement is treated as Q33 treats
 the unarmed write (it competes from its due clock; Q69). CVTBD is 21 words with a bus-idle
 sixth word.
+
+(round 20) act I: a bus-idle word that also waits on the clock a back-to-back / chained fetch
+starts (no exemption), and for which a chained fetch is not held back once the word is reached.
+It is the release word of LEA with d16 / direct and of MOV r16,imm16, and the segment word of
+JMP far / CALL far (results Q88, Q89).
 """
 
 from __future__ import annotations
@@ -115,10 +120,10 @@ from . import read
 
 DEFAULT = dict(
     IDLE_AT=4, B2B_AT=5, REQ_PRI=1, FLUSH_LAT=5, H_B2B=1, H_EU=1, B_CH=0, B_CH_W=1, EMIN_K=0, EMIN_KEYS="ADDIM_DIR", OF2=0, OF_PFX="N .", OF_DROP=2, LEAD_0F=2, OF_EMIN=0, BF_OFF=1, EXTRX_D=0, INSRX_D=0,
-    B_EU="OIWR", B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
+    RSV_KEYS="", B_EU="OIWR", B_EU_LAST="", B_EU_OF=0, B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
     PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . . B . . . . . . . . .",
     I_ADD4S="Y D . . . U D . . . . . . Z D .", T_ADD4S=". . . . . . . . N .",
-    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y D", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
+    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y D", EXTI_TAIL="PN .", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", SHLI_W3="BP", SHLI_AT=5, SHLI_D=-1, E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
     POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1, Z_LAT=2, FLUSH_B2B=1, FLUSH_GAP=3,
     S_LAG=2, EU_SLOT=1, LAG_ACTS="SXA", LAG_FIRST="A", CHAIN_POP=1,
     LEAD_E6=3, LEAD_SR=2, LEAD_CC=0, LEAD_FF=0, LEAD_E2=2, LEAD_EPRI=1, HALT_STOP=1, HALT_HOLD=1,
@@ -126,16 +131,16 @@ DEFAULT = dict(
     # the rejected rivals (see the docstring)
     B_FROM=1, B_ACTS="B", SHL_ACT="S", Y_MODE="late",
     # routines, read in rounds 1-3 (model.py)
-    NOP="N...", INC="N.", RR="PN .", RI=". . . . BNPP2 .", MOVI8=". . . BNP .", XCHG="N...",
-    CLC="N.", CBW="N..", ADDI=". . . . BNPP2 .", ADD83="P . . BNP .", ADDRR="PN .", RR8="PN .",
+    NOP="N...", INC="N.", RR="PN .", RI=". . . . BINPP2 .", MOVI8=". . . BNP .", XCHG="N...",
+    CLC="N.", CBW="N..", ADDI=". . . . BINPP2 .", ADD83="P . . BNP .", ADDRR="PN .", RR8="PN .",
     PFX="N.", SHL1="P . B . . B . N .", JMP=". . . BP . . F N .", JZ=". . . BP . . . B . . F N .",
     JNZ=". . . BP . . BN .", ADDAL=". . . BNP .", SR="PN .",
     # I/O (model_e6.py): port byte on word 4; `X . N .` and the cycle after the boundary
     OUT="A . X . N .", E6=". . . BP . . X . N .", IN8=". . . BP . . X DN .",
     # memory: the request (Y), then the datum's wait (D) or, for a write, the boundary's wait
     PUSH=". . Y . . . N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
-    PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . . B Y P P2 . DZ G N .", ADJ4=". . . . . . . . N .", ADJB=". . . . . . . . . . . . . . . N .",
-    CVTBD=". . . P . B . . . . . . . . . . . . . N .", EI=". . . . . . . . . . . N .", CVTWL=". . . . . . . N .",
+    PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . B Y . PP2 . DZ G N .", ADJ4=". . . . . . . . N .", ADJB=". . . . . . . . . . . . . . . N .",
+    CVTBD=". . . BP . B . . . . . . . . . . . . . N .", EI=". . . . . . . . . . . N .", CVTWL=". . . . . . . N .",
     SHMI_HEAD="P . V DP . B", SHMI_BASE=4, SHMCL_HEAD="P . . B . . . Y D", SHMCL_BASE=3,
     LDS="P Y . D . U . D . . N .", MOVMS="P . V . G N .", MOVSM="P Y . DN . .",
     MI16M="P . . BY DPP2 . B . B . . . . . . . . . . . . . . . . . . . . . . . . . . . . N .",
@@ -146,37 +151,44 @@ DEFAULT = dict(
     S_A0="P Y . G N .", S_A1="P Y . P G N .", S_A2="P Y . PP2 G N .",
     L_A2X="P . Y . PP2 DN .", S_A2X="P . Y . PP2 G N .",
     # jumps other than JMP short: best shapes found, reproduced in part (not a reading)
-    JN=". . . . PP2 . . F N .", JFAR=". . . . PP2 . Q . PP2 . . F N .",
+    JN=". . . . PP2 . . F N .", JFAR=". . . . PP2 . Q . BIPP2 . . F N .",
     # not read (placeholders: these groups are not reproduced)
     SHLI="PN P . .", MUL8="PN . . .", CALL=". . . . PP2 . Y D . . F N .",
     RET=". . Y D . . F N .", XCHRR="PN .", TESTRR="P . BN .",
-    INCB="P . . BN .", TEST1="P . BP . . CN .", CLR1="P . BP . . CN . .", RMW="P Y . . DZ G N .",
-    ADDIW="P . . BY DPP2Z G N .", ADDIM_D8="P . V P DPZ G N .", ADDIW_D8="P . . BYP DPP2Z G N .", ADDIW_D16="P . . BYPP2 DPP2Z G N .", ADDIW_DIR="P . . BYPP2 DPP2Z G N .", CMPIW_D16="P . . BYPP2 DPP2 . BN .", CMPIW_DIR="P . . BYPP2 DPP2 . BN .", ADDIM_D16="P . V PP2 DPZ G N .",
+    INCB="P . . BN .", TEST1="P . BP . . BN .", CLR1="P . BP . . BN . .", RMW="P Y . . DZ G N .",
+    ADDIW="P . . BY DPP2Z G N .", ADDIM_D8="P . V P DPZ G N .", ADDIW_D8="P . . BYP DPP2Z G N .", ADDIW_D16="P . . BIYPP2 DPP2Z G N .", ADDIW_DIR="P . . BIYPP2 DPP2Z G N .", CMPIW_D16="P . . BIYPP2 DPP2 . BN .", CMPIW_DIR="P . . BIYPP2 DPP2 . BN .", ADDIM_D16="P . V PP2 DPZ G N .",
     ADDIM_DIR="P . V PP2 DPZ G N .", CMPIM="P . V DP . BN .", TESTIM="P . B . . Y DPP2 . BN .",
     TESTM="P . B Y DN .", XCHM="P Y . . D . Z G N .", STIM_D8="P . . BYP . . . KPP2N .",
-    STIMB="P . V . . . KPN .", STIM_D16="P . . BYPP2 . . . KPP2N .", NOTM="P . . B Y . . DZ G N .",
+    STIMB="P . V . . . KPN .", STIM_D16="P . . BIYPP2 . . . KPP2N .", NOTM="P . . B Y . . DZ G N .",
     INCMB="P . . B Y . . DZ G N .", SHLM1="P . B Y D . . . . . Z G N .", PUSHM="P . B Y D . . . Z G N .",
     PUSHM_D8="P . . B Y P D . . . Z G N .", PUSHM_DIR="P . . B Y P P2 D . . . Z G N .",
     POPM="P . Y D . . Z G N .", POPM_D8="P . Y D . . PZ G N .", POPM_DIR="P . Y D . . PP2Z G N .", CMPRR="PN .", NOTR="P . . BN .", MOVS=". . . . . Y D . . . Z DN .",
-    STOS=". . B . . . Y G N .", LODS=". . . . Y DN .", INDW=". . X DN .", XLAT=". . Y DN .", LEA="P . . BN .", LEAX="P . . BN .", LEA_D8="P . . BNP .", LEAX_D8="P . . BNP .", LEA_D16="P . . BNPP2 .", LEAX_D16="P . . . BNPP2 .", LEA_DIR="P . . BNPP2 .",
-    CALLF=". . . . PP2 . Q . PP2 . Y D . Y D . . F N .", RETF=". . Y D . Y D . . F N .", JR="P . B . B . . F N .", INT3=". . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", LOOP=". . . B . . P . . B . . F N .", CMPBK=". . . . . Y D . . . U D . N .", SCAS=". . . . . . Y D . . N . .", INM=". . . . . X D Z DN .", OUTM=". . . . . . Y D . X . . . N .", REP_ZERO=". . . B . . . . . . N .", REP_HEAD=". . . B . . . . . . . . . .",
+    STOS=". . B . . . Y G N .", LODS=". . . . Y DN .", INDW=". . X DN .", XLAT=". . Y DN .", LEA="P . . BN .", LEAX="P . . BN .", LEA_D8="P . . BNP .", LEAX_D8="P . . BNP .", LEA_D16="P . . BINPP2 .", LEAX_D16="P . . . BINPP2 .", LEA_DIR="P . . BINPP2 .",
+    CALLF=". . . . PP2 . Q . BIPP2 . Y D . Y D . . F N .", RETF=". . Y D . Y D . . F N .", JR="P . B . B . . F N .", INT3=". . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", LOOP=". . . B . . P . . B . . F N .", CMPBK=". . . . . Y D . . . U D . N .", SCAS=". . . . . . Y D . . N . .", INM=". . . . . X D Z DN .", OUTM=". . . . B . Y D . X . . . N .", REP_ZERO=". . . B . . . . . . N .", REP_HEAD=". . . B . . . . . . . . . .",
     RI_MOVS="Y D . . . Z D .", RT_MOVS=". . . . . . N .", RI_STOS="Y D .",
     RT_STOS=". . . . . . N .", RI_LODS="Y D . . .", RT_LODS=". . . . . . . N .",
     RI_SCAS="Y D . .", RT_SCAS=". . . . . . . . . . . . N .", RH_CMPBK=". . . B . . . . . . . . .", RH_OUTM=". . . . B . . . . . . . . . .", RI_CMPBK="Y D . . . U D .",
     RT_CMPBK=". . . . . . . . . . . . . . N .", RH_INM=". . . . B . . . . . . . . .", RI_INM="X D Z D", RT_INM=". . . . . . . N .",
     RI_OUTM="Y D X . . . . .", RL_OUTM="Y D . X . . . . .", RT_OUTM=". . . . . . . N .",
-    PUSHA=". . B . " + "Y D . " * 7 + "Y G N .", POPA=". . " + "Y D . " * 7 + "Y DN .", TEST1I="P . BP . CPN .", T1M="P . BP . . C Y DN .", C1M="P . BP . . C Y D Z G N .", S1M="P . BP . . C Y DZ G N .",
+    PUSHA=". . B . " + "Y D . " * 7 + "Y G N .", POPA=". . " + "Y D . " * 7 + "Y DN .", TEST1I="P . BP . BPN .", T1M="P . BP . . C Y DN .", C1M="P . BP . . C Y D Z G N .", S1M="P . BP . . C Y DZ G N .",
     T1MI="P . PC Y DPN .", C1MI="P . PC Y DP Z G N .", S1MI="P . PC Y DPZ G N .",
-    CLR1I="P . BP . CPN . .", ROR4="P . BP . C . . . . . . . . . . . . . . N .", ROL4M="P . PC Y D . . . . . . . . Z G N .", ROR4M="P . PC Y D . . . . . . . . . . . . Z G N .",
+    CLR1I="P . BP . BPN . .", ROR4="P . BP . C . . . . . . . . . . . . . . N .", ROL4M="P . PC Y D . . . . . . . . Z G N .", ROR4M="P . PC Y D . . . . . . . . . . . . Z G N .",
     ADD4S="P N .", SUB4S="P N .", CMP4S="P N .", INS="PP2N .", EXT="PP2N .", INSI="PP2N .", EXTI="PP2N .",
-    PREP=". . Y D . . . PP2 P . . C . . . . . . . . N .", DISP=". . Y DN .", BRK=". . . BP . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", AI16R="P . . . BNPP2 .", TI16R="P . B . . . NPP2 .", TI8R="P . B . . NP .", CALLR="P . B . . B . Y D . . F N .", CALLM="P . B Y . PP2 D . . . Z D . . F N .",
+    PREP=". . Y D . . . PP2 P . . C . . . . . . . . N .", DISP=". . Y DN .", BRK=". . . BP . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", AI16R="P . . . BINPP2 .", TI16R="P . B . . . NPP2 .", TI8R="P . B . . NP .", CALLR="P . B . . B . Y D . . F N .", CALLM="P . B Y . PP2 D . . . Z D . . F N .",
     JMPM="P . B Y . PP2 D . . F N .", RETI=". . . Y DPP2 . . F N .", CMPIW="P . . BY DPP2 . BN .", CMPIW_D8="P . . BYP DPP2 . BN .",
     RI_SCAS_C="Y D . . . .", RT_SCAS_C=". . . . . . . . . . . N .",
     RT_CMPBK_C=". . . . . . . . . . . . . N .", LOOPZ=". . . B . . . P . . B . . F N .", LOOPZF=". . . B . . PN .", LOOPZ0=". . . B . . . P . BN .", LOOPZ00=". . . B P . BN .",
     JMPFM="P . B . Y PP2 D . U D . . F N .", CALLFM="P . B . Y PP2 D . U D . . . Z D . . . Z D . . F N .",
     IRET=". . Y D . . . U D . . . U D . . . . . . . . F N .", LOOPN=". . . B . . P . BN .", JCXZT=". . . B . . P . . F N .", JCXZ=". . . B . . PN .", PUSHS=". . . Y . . . N .", POPS=". . Y DN . .", ROL4="P . BP . C . . . . . . . . . . N .", SHLI1="PP2N . .",
     RMW_D8="P Y . P DZ G N .", INCM="P . . B Y . . DZ G N .", ADDIM="P . V DPZ G N .",
-    STIM="P . . BY . . . KPP2N .", STIM_DIR="P PP2 . PP2 Y N", ADDM="P Y . DN .", CMPM="P Y . DN .")
+    STIM="P . . BY . . . KPP2N .", STIM_DIR="P PP2 . PP2 Y N", ADDM="P Y . DN .", CMPM="P Y . DN .",
+    # (round 20, Q90) read from QPr20a
+    TESTM_DIR="P . B Y . PP2 DN .", TESTM_D16="P . B Y . PP2 DN .",
+    TESTIM_D16="P . B . . BIYPP2 DPP2 . BN .", TESTIM_D8="P . B . . BYP DPP2 . BN .",
+    TESTIM_DIR="P . B . . BIYPP2 DPP2 . BN .", NEGD8="P . . B Y . P . DZ G N .",
+    NEGDIR="P . . B Y . PP2 . DZ G N .", NOTD16="P . . B Y . PP2 . DZ G N .",
+    INCD16="P . . B Y . PP2 . DZ G N .", POPM_X16="P . Y D . . . PP2Z G N .",
+    POPM_D16="P . Y D . . PP2Z G N .", POPM_X8="P . Y D . . PZ G N .")
 
 # opcode -> (routine key, the kind of its bus request, has a ModR/M byte)
 OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
@@ -204,7 +216,7 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
        0xEC: ("INDW", "I", 0), 0xD7: ("XLAT", "R", 0), 0x8D: ("LEA", None, 1),
        0xE2: ("LOOP", None, 0), 0xE0: ("LOOP", None, 0), 0xE1: ("LOOP", None, 0), 0x64: ("PFX", None, 0), 0xF0: ("PFX", None, 0), 0x65: ("PFX", None, 0), 0xCF: ("IRET", "R", 0), 0xE3: ("JCXZ", None, 0), 0x9A: ("CALLF", "W", 0),
        0xCB: ("RETF", "R", 0), 0xC2: ("RETI", "R", 0), 0xFF: ("JR", None, 1), 0xCC: ("INT3", "R", 0), 0xCD: ("BRK", "R", 0),
-       0xB9: ("RI", None, 0)}
+       0xB9: ("RI", None, 0), 0xBE: ("RI", None, 0), 0xBF: ("RI", None, 0)}
 
 # memory forms: (opcode, ModR/M byte) -> (routine key, bus kind, has ModR/M)
 MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x07): ("S_BW", "W", 1), (0x8B, 0x47): ("L_D8", "R", 1),
@@ -244,7 +256,14 @@ MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x
        (0x31, 0x07): ("RMW", "R", 1), (0x11, 0x07): ("RMW", "R", 1), (0x09, 0x07): ("RMW", "R", 1),
        (0x39, 0x07): ("CMPMR", "R", 1), (0x38, 0x07): ("CMPMR", "R", 1), (0x19, 0x07): ("RMW", "R", 1),
        (0xFF, 0x0F): ("INCM", "R", 1), (0xF7, 0x1F): ("NOTM", "R", 0),
-       (0xF7, 0x9F): ("NEGD16", "R", 1)}
+       (0xF7, 0x9F): ("NEGD16", "R", 1),
+       # (round 20) forms that had no probe of their own
+       (0x85, 0x06): ("TESTM_DIR", "R", 1), (0x85, 0x87): ("TESTM_D16", "R", 1),
+       (0xF7, 0x87): ("TESTIM_D16", "R", 1), (0xF7, 0x47): ("TESTIM_D8", "R", 1),
+       (0xF7, 0x06): ("TESTIM_DIR", "R", 1), (0xF7, 0x5F): ("NEGD8", "R", 1),
+       (0xF7, 0x1E): ("NEGDIR", "R", 1), (0xF7, 0x97): ("NOTD16", "R", 1),
+       (0xFF, 0x87): ("INCD16", "R", 1), (0x8F, 0x80): ("POPM_X16", "R", 1),
+       (0x8F, 0x87): ("POPM_D16", "R", 1), (0x8F, 0x40): ("POPM_X8", "R", 1)}
 
 # the decode stage's leads: the boundary no sooner than this many clocks after the opcode's pop
 LEADS = {0xE6: "LEAD_E6", 0xE7: "LEAD_E6", 0xE4: "LEAD_E6", 0x8E: "LEAD_SR", 0xE2: "LEAD_E2"}
@@ -351,10 +370,11 @@ def routine(op, o, cl=31, key=None):
     if op in (0xC0, 0xC1) and key in ("SHLI", "SHLI1") and o["SHLI_AS_CL"]:
         # (round 9) shift by imm8 on a register: the CL form's routine, 12 + 2n words, the
         # count byte released on the bus-idle 4th word
-        w = [set() for _ in range(o["SHL_BASE"] + 2 * cl)]
+        w = [set() for _ in range(o["SHL_BASE"] + 2 * cl + o["SHLI_D"])]
         w[0] = {"P"}
-        w[3] = {"P"}
-        w[6] = {o["SHLI_ACT"]}
+        w[3] = set(o["SHLI_W3"])
+        if o["SHLI_ACT"]:
+            w[o["SHLI_AT"]] = w[o["SHLI_AT"]] | set(o["SHLI_ACT"])
         w[len(w) - 1 - o["SHL_N"]] = w[len(w) - 1 - o["SHL_N"]] | {"N"}
         return w
     if key in ("MI16", "MI8"):          # (round 12) MUL r,r/m,imm on a register
@@ -404,6 +424,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
     stg_t = -9                          # the clock of its pop
     rt, ip = [set(), {"N"}, set()], 1   # the SHL's tail: NXT, then the E word
     cur_op, cur_at = 0xD3, None
+    cur_key = ""
     regs = run["chain"].get("regs", {})
     cl, dw = 31, regs.get("DW", 0x20)   # CL and DW as the program sets them
     e_n = 0                             # boundaries so far
@@ -466,6 +487,9 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         cw_ = "C" in acts          # (round 10) C: a bus-idle word (B) that also waits on the
         if cw_:                    # clock a back-to-back fetch starts (the commit word, Q24)
             acts = (set(acts) - {"C"}) | {"B"}
+        iw = "I" in acts           # (round 20) I: a bus-idle word (B) that also waits on the
+        if iw:                     # clock any back-to-back fetch starts, with no exemption
+            acts = (set(acts) - {"I"}) | {"B"}   # (LEA with d16 / direct: the release word)
         lw = "L" in acts           # (round 14) L: a bus-idle word that passes from a fetch's
         if lw:                     # second-last clock on (the bus unit's "idle next" level)
             acts = (set(acts) - {"L"}) | {"B"}
@@ -516,8 +540,9 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                         and not (eu_due is not None and t >= eu_due) and count <= o["B2B_AT"])
                 # (round 10) B_EU: a bus-idle word also waits while an EU cycle of these kinds
                 # is on the pins (the bus unit is not idle whatever the cycle is)
-                if act == "B" and eu_run and eu_kind in o["B_EU"]:
-                    busy = True
+                if act == "B" and eu_run and eu_kind in o["B_EU"] and not (
+                        t == eu_end and eu_kind in o["B_EU_LAST"] and (o["B_EU_OF"] == 0 or cur_op == 0x0F)):
+                    busy = True     # (round 20) B_EU_LAST: ... except on that cycle's last clock
                 # (round 10) B_B2B: nor is the bus idle on the clock a back-to-back fetch
                 # starts (the same condition that holds a boundary, Q8)
                 if (act == "B" and (o["B_B2B"] or cw_) and just_ended and not eu_run and pfp is not None
@@ -527,6 +552,9 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                         and not (o["C_NOCH"] == 4 and npop)):
                     busy = True     # (round 14) C_NOCH: not for the fetch chained behind an
                     #                 EU cycle's fetch (Q42's fetch): the commit word passes
+                if (act == "B" and iw and just_ended and not eu_run and pfp is not None
+                        and not (eu_due is not None and t >= eu_due) and count <= o["B2B_AT"]):
+                    busy = True
                 # (round 16) B_CH: a bus-idle word does wait on the clock the fetch chained
                 # behind an EU cycle's fetch starts (that fetch's slot was taken two clocks
                 # ahead of the pins, S_LAG: the word comes too late to stop it); kinds CH_K
@@ -656,7 +684,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 eu_due = t + (o["Z_LAT"] if (zw or uw) else o["POST_LAT"])
                 eu_kind = "W" if zw else "R" if uw else info(code, cur_at)[1]
                 eu_hold = bool(o["EU_HOLD"]) and eu_kind == "O"
-                if o["YP_UN"] and eu_kind == "R" and ("P" in acts or o["YP_UN"] > 1) and "B" in acts:
+                if o["YP_UN"] and eu_kind == "R" and ((("P" in acts or o["YP_UN"] > 1) and "B" in acts)
+                                                      or cur_key in o["RSV_KEYS"].split(",")):
                     # (round 17, experimental) a read whose request word also releases the
                     # displacement: Q33's table for the unarmed write holds for it too
                     unarmed, armed_t = True, eu_due
@@ -762,6 +791,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     vec3 = code[stg + 4] | code[stg + 5] << 8
                 if cur_op == 0xC7 and code[stg + 1] == 0x06:      # MOV word [d16],imm16
                     m16[code[stg + 2] | code[stg + 3] << 8] = code[stg + 4] | code[stg + 5] << 8
+                cur_key = key
                 rt = routine(cur_op, o, code[stg + 2] & 31 if cur_op in (0xC0, 0xC1) else cl, key)
                 # (round 11) operands of the signed multiply / divide: the sign fix-ups are
                 # extra words (MD_NEG: the product's or the quotient's; MD_DNEG: a negative
@@ -786,7 +816,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     n = ((code[stg + 3] if immf else r8[(m_ >> 3) & 7]) & 15) + 1
                     off = r8[m_ & 7] & 15
                     head = o["EXT_HEAD"] if immf else o["EXTR_HEAD"]
-                    tailp = "PN ." if immf else "N ."
+                    tailp = o["EXTI_TAIL"] if immf else "N ."
                     ext = key in ("EXT", "EXTI")
                     if off + n <= 16 and ext:
                         # two shift loops of two words a bit, 16 - off - n and 16 - n long, the
@@ -947,7 +977,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             # (round 13) CH_BNEXT: nor is that chained fetch started when the EU's next word is
             # a bus-idle word (the word would have to wait for the whole fetch)
             if (o["CH_BNEXT"] and just_ended and after_w is not None and f_end == after_w
-                    and last_kind in o["CH_K"] and ip < len(rt) and "B" in rt[ip]
+                    and last_kind in o["CH_K"] and ip < len(rt) and "B" in rt[ip] and not (iw and stall)
                     and not pops):
                 lim = -1
             give_way = ((o["EU_EPRI"] and after_eu and pend and e_clock == t)

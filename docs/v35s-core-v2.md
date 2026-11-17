@@ -3182,3 +3182,28 @@ question, decided from S8's routed numbers with the user.
   clocks (narrowing the RAMEN hold to internal-RAM stores recovers 3 but breaks f4_dma's
   write order; reverted), REP compares, EXT across a word, SET1 / CLR1 / NOT1 twice,
   PUSH [d16], CALL far [d16]: all in the next batch (work order 14).
+- **2026-11-17, qprobe round 20 on the socket (3,722 runs; a reading, no RTL change;
+  `validation/v35s/qprobe/RESULTS.md` Q88-Q94, `DIVERGENCE-r20.md`).** **The strict bus-idle
+  word (Q88, Q89, Q94)**: a bus-idle word that releases a 16-bit operand (d16, imm16, a far
+  pointer's segment) also waits on the clock a chained fetch starts: the fetch runs and the
+  word executes the clock after its last clock; a bus-idle word releasing one byte or nothing
+  does not. Measured on LEA d16 / direct (1,224 of 1,224, from 1,179; the 11 corpus runs lost
+  in ce9ea43 are this state: the boundary finds four bytes held with the bus idle), MOV
+  r16,imm16 (closes round 12's MUL / DIV-on-memory rows, 48 runs), JMP far and CALL far (the
+  segment word: 72 of 72, 114 of 114), MOV / ADD word mem,imm16 with d16; inferred by the same
+  statement on CMP / TEST mem,imm16, ADD AW,imm16, the 81 group on a register, LEA [two
+  registers + d16] (no run changes). Why three bytes differ from two is unknown. **Read**: NEG
+  / NOT / INC [BW+d16] and [BW+d8], OUTM twice (bus-idle fifth word), CVTBD's operand word
+  bus-idle, the 0F page's register commit word a plain bus-idle word (+27), TEST [d16],AW,
+  TEST word mem,imm16, POP [BW+IX+d16] (one extra word behind the stack read), SHL / SAR
+  r,imm8 (11 + 2n words, 360 of 360). Model on rounds 1-19: 12,322 of 13,404 (from 12,215,
+  none lost). **Open**: ADD mem,imm8 with d16 / direct when the boundary finds four bytes
+  held with the bus idle (two chained fetches then the read; three candidate rules fail), EXT
+  r,imm4 behind short instructions (22 misses). **Transfers (Q90)**: JMP near / CALL near have
+  no wait on the displacement word (108 of 108); the far forms wait on the segment word.
+  **Interrupts (Q92, Q93)**: INT's 9.125 clocks hold right up to HALT's own pop; a request
+  behind that pop releases HALT at a fixed first slot (vector read 35 clocks after HALT's pop
+  for INT, 31 for NMI: NMI's event / occupation stage is not passed on the way out of HALT,
+  inferred); under NMI, MOVBK needs no new event words (144 of 144), STMB's words 1-5 are
+  events, DIV byte signed fits MULU's offsets (134 of 136), LDMB and the REP exits are not
+  closed. Not started: the vectored rule in front of jump targets, scan figures at W = 1 / 2.
