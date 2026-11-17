@@ -2937,3 +2937,20 @@ question, decided from S8's routed numbers with the user.
   ADJBA / ADJBS read (249 of 288; NEG [BW+d16] and LAHF partly, CVTBD not). **Harness note**:
   in the direct sim build the INTAK answer does not reach the core, so INT probes cannot be
   scored in sim yet.
+- **2026-11-16, qprobe round 16 on the socket (790 runs, a fresh agent; reading only;
+  `validation/v35s/qprobe/RESULTS.md` Q61-Q67, `DIVERGENCE-r16.md`).** **The 0F page**: every
+  0F instruction releases its ModR/M byte on a bus-idle third word (r,imm / ROL4 / ROR4 / EXT
+  / INS one word shorter than modelled, m,CL one longer); this one fact explains the
+  "NOP;X;SHL at even alignment with waits" misses across 19 forms and "TEST1 r,imm twice",
+  with no new wait kind. EXT / INS with a register count had no timing rule missing (the
+  probe's count register was reloaded by EXT). MUL / DIV on memory, INT 3 / BRK imm8 confirmed
+  in clean frames; CALL / JMP [d16] reshaped (48 of 48 each); LAHF is CLC's routine. Not read:
+  NEG [BW+d16] (19 of 24), CVTBD. **Two RTL diagnoses for the builder**: JMP near at even
+  alignment is the queue's flush gating (`!flush` cancels the back-to-back fetch silicon
+  still makes on the flush clock and discards; the target's fetch follows 4 clocks after that
+  fetch's last clock), not the routine; LEA is one empty word short and lacks the bus-idle E
+  word. Open: ADD [d16],imm8 late when its boundary finds four bytes held (a byte-count rule
+  tested and rejected), CALL far with waits, OUTM twice, the EI scan-phase outliers (three
+  positions now, reproducible), the late HALT release. The model reproduces 10,175 of 10,700
+  form runs of rounds 1-15 and 761 of 774 of round 16. Round 14's rows re-classified: read
+  and not built 9,553, partly read 344, not probed 90, probed and not read 30.

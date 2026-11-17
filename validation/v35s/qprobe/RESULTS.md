@@ -1752,3 +1752,191 @@ is reproducible and isolated; the other two of round 14 were not re-probed.
 
 LAHF is three words in 14 runs and four in the rest (the X;SHL and X;X variants); NEG with a
 displacement misses the NOP;X;SHL variant. Neither followed up.
+
+# Round 16
+
+790 socket runs in two acquisitions (`r16a` 774 form probes, `r16e` 16 interrupt probes), each
+run twice; 0 failed; 93 repeats flagged DIFFERS, every one strobe-only (compared field by field,
+start and end normalised by the repeat's shift). All 790 programs reached their end in the RTL
+simulation first. The board ended powered down (status query: vccb false, failure 0). No FF10h
+write and no pin stimulus other than round 14's INTP0 schedule in `r16e`.
+
+Model (`model_m.py`): rounds 1 to 15 forms **10,175 of 10,700** (was 10,073: 105 gained, 3
+lost: `QPr5-em2-test1-pE-w2`, `QPr8-em3-test1-pE-w2`, `QPr8-em3-rol4-pE-w2`, all "MOV BW,imm16 ;
+0F form" at even alignment and two waits); round 16 forms **761 of 774**. Pass set:
+`build/qp/r10/r16final.txt`; failing stems `traces/logs/fail-final.txt`.
+
+Scope covered: item 1 except CVTBD (not attempted) and NEG [BW+d16] (a fact, no shape); item 2:
+the two RTL diagnoses, and new data on ADD [d16],imm8 (no rule); CALL far with waits and OUTM
+twice were **not** re-probed; item 3: the EI outliers only; item 4: no replay (the worktree's RTL
+is still the 6+7 copy), round 14's rows re-classified with this round's model.
+
+Note for the reader: `validation/v35s/qprobe/RESULTS.md` named in the hand-over does not exist
+in the worktree; this file (and its predecessors under `r15/`, `r14/`) is the cumulative record.
+
+## Q61. The 0F page: the ModR/M byte leaves on a bus-idle third word (one fact, all forms)
+
+Probes `ph-<pred>-<form>` (288 runs): pred ; X ; SHL AW,CL with six predecessors (NOP, CLC, CLC
+CLC, NOP CLC, NOP NOP, MOV AW,BW), which put the fetch started by the predecessor's pops on a
+different clock of X in each. With rounds 9 and 12's probes of the same forms.
+
+What rounds 9 to 15 had as "the NOP ; X ; SHL variant misses at even alignment with waits" (19
+forms, 38 runs) and "TEST1 r,imm twice" (Q48) is one thing: **the third word of every 0F
+instruction, the one that releases the ModR/M byte, waits while a fetch's pin cycle runs** (a B
+word). From a full queue no fetch is in flight on that clock, which is why the `-a` and `-s`
+probes never showed it. With it the routines are:
+
+| form | routine (was) | score |
+|---|---|---|
+| TEST1 / SET1 / NOT1 r,CL (0F 10 / 11 / 14-17, register) | `P . BP . . CN .` (`P . P . . CN .`) | 198 of 204 with CLR1 and the round-5 / 8 trains |
+| CLR1 r,CL (0F 12 / 13) | `P . BP . . CN . .` | (in the row above) |
+| TEST1 / SET1 / NOT1 r,imm (0F 18 / 19 / 1C-1F) | `P . BP . CPN .` (`P . P . . CPN .`: **one word shorter**) | 108 / 108 |
+| CLR1 r,imm (0F 1A / 1B) | `P . BP . CPN . .` | 24 / 24 |
+| ROL4 r (0F 28) | `P . BP . C`, ten words, `N .` (17 words; was 18) | 81 / 84 |
+| ROR4 r (0F 2A) | `P . BP . C`, fourteen words, `N .` (21 words; was 22) | 24 / 24 |
+| TEST1 m,CL (0F 10 / 11 memory) | `P . BP . . C Y DN .` (`P . P . C Y DN .`: **one word longer**) | 156 / 156 with the two rows below |
+| SET1 / NOT1 m,CL | `P . BP . . C Y DZ G N .` | |
+| CLR1 m,CL | `P . BP . . C Y D Z G N .` | |
+| TEST1 / SET1 / CLR1 / NOT1 m,imm, ROL4 / ROR4 m | unchanged (`P . PC Y D...`: the third word was already the bus-idle commit word) | 264 / 264 |
+| EXT / INS r,r | head `P . BP . C . Y D` (`P . P . . C . Y D`) | 204 / 204 (Q62) |
+| EXT / INS r,imm4 | head `P . BP . C . . Y D` (`P . P . . C . . Y D`) | 365 / 372 |
+
+- How it was read: behind NOP at even alignment the 0F byte's boundary falls on a fetch's last
+  clock and a fetch is chained on the instruction's first clock (cycle E+1 to E+3+w). Silicon's
+  later events are 2 / 3 clocks late for the r,CL forms and 1 / 2 for the r,imm forms at W = 1 /
+  2 against the old shapes. A wait on word 3 until the clock after the fetch gives the CL forms
+  directly; the imm, ROL4 and EXT forms then fit only with one word fewer in front of the
+  commit word. That shorter shape is confirmed where nothing waits (behind CLC CLC, NOP CLC,
+  NOP NOP at even alignment the next pop is 5 clocks after the boundary, not 6: 28 runs) and it
+  is what Q48 saw as "TEST1 r,imm twice, one clock early" (12 runs, now exact).
+- The memory CL forms in the same frames are 2 / 3 / 3 clocks late (W = 0 / 1 / 2) against the
+  old shape and 1 clock late where no fetch runs: one more word in front of the commit word,
+  and the same third-word wait.
+- **Verified**: every score above; no run of rounds 1 to 15 is lost except the three named at
+  the top. **Not separable in this data**: for the r,CL forms a wait of the boundary's kind on
+  word 2 scores the same as the bus-idle word 3 (on rounds 1 to 15 and the first two wait settings of this round; not re-scored on the final set); word 3 is kept because it is
+  one description for the whole page.
+- Tested and not kept: a word that waits as a boundary does on word 3 of the imm forms (`act
+  H`: +20, but leaves the 40 "one clock early" runs); the 0F byte as a two-word routine of its
+  own with a second boundary (`OF2`: right for the r,CL forms only, 601 runs lost elsewhere).
+- Left open: EXT r,imm4 behind CLC CLC / NOP CLC / NOP NOP at even alignment is one clock early
+  (7 runs; EXT r,r in the same frames is exact); the three lost runs behind MOV BW,imm16.
+
+## Q62. EXT / INS with the count in a register (the corpus forms)
+
+Probes `xd-*` (120 runs): EXT BL,DH / DL,DH / DL,BH and INS BL,DH / DL,BH with DW = 0608h (the
+corpus's values), each alone, before a long shift, twice, and behind NOP; marker OUT imm8.
+
+- **120 of 120** with the register-count routines of round 12 and Q61's head. The length is the
+  reg-field register's low nibble + 1 and the offset the r/m register's low nibble, whatever
+  the registers; nothing depends on which register holds them.
+- **The offset register is left at offset + length** (mod 16). That, and not a timing effect,
+  is why `ext-2` / `ins-2` / `exti-2` / `insi-2` of round 9 were 0 of 6 each: the second
+  instance runs at another offset (and, with the count in AL, EXT reloads AL). With the update
+  in the model all four are 6 of 6, and X ; X here (same length twice, offsets 0 then 7, 8 then
+  15, 8 then 1 with the word crossed) is 30 of 30. The crossing case of EXT DL,DH twice (offset
+  15, length 7) uses round 13's across-a-word routine unchanged.
+- So the "frame that does not chain the counts" needed no new rule. Corpus rows ext_bl_dh,
+  ext_dl_dh, ext_dl_bh, ins_bl_dh, ins_dl_bh (360 diverging runs) are read.
+
+## Q63. MUL / DIV on memory in a clean frame
+
+Probes `mq-*` (144 runs): the operand stored before M0, then MOV AW,5 ; X (; SHL) and MOV AW,5 ;
+NOP ; X ; SHL for the eight forms F6 / F7 /4 to /7 [BW], DW = 0.
+
+- **144 of 144** with Q42's routine (`P . B Y D`, the register form's length in all). Nothing
+  new about the instruction.
+- Round 12's 48 misses (`mm-*`, even alignment, W = 1 / 2) are all in front of the MUL / DIV:
+  in MOV [BW],imm16 ; MOV AW,imm16 ; MOV DW,imm16 the fetch of +14 starts 4 clocks later on
+  silicon, and everything after it is shifted by exactly that. Two readings fit those runs and
+  were not separated: MOV AW,imm16's pop word loses to the fetch chained behind the post-write
+  fetch, or MOV [BW],imm16's boundary is taken one fetch later. The first as a general rule
+  (`B_CH`: a bus-idle word waits when a fetch chained behind a post-write fetch starts on its
+  clock) gains 0 and loses 172: **rejected**. Open; it is Q42's residue (`fw-c7-*-ri`).
+- By tab12's 90 % rule the corpus rows mulu_m, divu_m, mul_m, div_m and the byte forms stay
+  "partly read" because round 12's runs are counted with these; the routine itself is read.
+
+## Q64. INT 3 and BRK imm8 behind other instructions
+
+Probes `i3-*`, `bk-*` (96 runs): vector stored before M0; the instruction behind nothing, NOP,
+CLC, NOP NOP; 0 or 1 NOP at the handler.
+
+- **96 of 96** with round 13's routines (INT 3: bus-idle words 3 and 5, first vector read 12
+  clocks after the boundary; BRK imm8: its byte on the bus-idle fourth word). No lead beyond
+  Q22's, no dependence on the predecessor.
+- The remainder of rounds 8 and 12 (`fl-int3`, `ld-int3`, `tr-brk`: 7 runs at even alignment,
+  W = 0) is the two vector stores in the body: the second store's write comes one chained fetch
+  later on silicon (100 against 97), before INT 3 starts. Q33's residue, not the transfer's.
+
+## Q65. CALL / JMP through a direct word
+
+Probes `cm-*`, `jm-*` (96 runs): pointer stored before M0; FF /2 and FF /4 with mod 00 r/m 110
+behind nothing, NOP, CLC, NOP NOP; 0 or 1 NOP at the target.
+
+| instruction | routine (was) | score |
+|---|---|---|
+| JMP [d16] (FF 26) | `P . B Y . PP2 D . . F N .` (`P PP2 B Y D . . F N .`) | 48 / 48, and 10 / 12 of round 12's |
+| CALL [d16] (FF 16) | `P . B Y . PP2 D . . . Z D . . F N .` | 48 / 48, and 10 / 12 of round 12's |
+
+- Round 12's shapes were read behind MOV [d16],imm16 in the body and were wrong: 0 of 96 here.
+  The displacement leaves on the sixth word (two bytes at once), after the request word; the
+  third word is bus-idle as in every FF-group member (Q27 / Q47). JMP far [d16] (Q44) differs
+  only in the request's place (`P . B . Y PP2`); not re-probed.
+- The four round-12 misses (odd alignment, W = 0) are again the store in front.
+- Corpus row call_m_dir (96 runs) is read.
+
+## Q66. LAHF, NEG [BW+d16], ADD [d16],imm8 three times; CVTBD not attempted
+
+- **LAHF is `N .`** (CLC's routine), not `N . .`: 42 of 42 (round 15's 24 and `la-*`: behind
+  CLC, behind two NOPs, three in a row). Round 15's "three words in 14 runs and four in the
+  rest" was the third word hiding under a boundary wait.
+- **NEG [BW+d16]**: still 19 of 24 (the five misses are all W = 0). The fact: with the bus idle
+  the second displacement byte leaves 7 clocks after the boundary and the read starts 10 after;
+  the shape that fits W = 1 / 2 has the byte 8 after with the request word in the same place. No single shape gives both;
+  ten tried (`build/qp/tryshapes.py NEGD16 negd16 ...`). Open.
+- **ADD [d16],imm8 three times** (`a3-3`, 0 of 6; with a NOP between, `a3-n`, 6 of 6). What Q48
+  called "twice at even alignment" is not about the alignment or the second instance: the read
+  comes one chained fetch late on the **second instance at even and the third at odd
+  alignment**, and on time on the third at even and the second at odd. In the model's terms
+  those are the instances whose boundary finds four bytes held (five in the on-time ones). A
+  byte-count condition at the boundary (`EMIN_K=5`) gains 0 and loses 6: rejected. Open, with
+  that description.
+- CVTBD: not attempted this round (round 15's 24 runs, 0 fitted). OUTM twice, CALL far with
+  waits: not re-probed.
+
+## Q67. The EI outliers
+
+`r16e` (16 runs): round 14's two outliers at all three waits, and with INC BW in place of the
+CLCs in front of the EI.
+
+| program | W = 0 | W = 1 | W = 2 |
+|---|---|---|---|
+| level 0, 6 CLCs, even | 6 NOPs after EI (16 clocks late), as round 14 | 2 (normal) | 2 |
+| level 0, 6 CLCs, odd | 2 | 2 | 2 |
+| level 5, 10 CLCs, odd | 2 NOPs (16 early), as round 14 | 5 (normal) | **2 (16 early)** |
+| level 5, 10 CLCs, even | 4 | 5 | 4 |
+
+- Both reproduce to the clock, and INC BW in place of CLC (the same clocks) gives the same
+  result at both alignments: the cause is in the clocks, not in the instruction.
+- A third outlier: level 5, 10 CLCs, odd, W = 2.
+- A wait changes the outcome, so "EI restarts the scan" (Q49) is not the whole rule: when the
+  EI falls at certain clocks the request is found a round early or late. With four outlier positions in about 210 EI runs there is no rule; the table is the test for one.
+
+## The corpus split with this round's model
+
+No replay (the RTL in the worktree is the unlanded 6+7 copy with its known REP MOVBK fault);
+round 14's rows (`fd14-tab11.json`, 10,017 diverging runs filed) re-classified by
+`build/qp/tab12.py` with the round-16 model and small set:
+
+| cause | model status | round 14 | now |
+|---|---|---|---|
+| own + other | read | 8,610 | 9,553 |
+| own + other | partly read | 1,096 | 344 |
+| own + other | not probed | 299 | 90 |
+| own + other | probed, not read | 12 | 30 |
+
+(Round 15's reads account for 132 of the move out of "not probed"; cvtbd moved to "probed, not
+read".) Partly read now: mulu_m 102, divu_m 48, mul_m 36, div_m 30, mulub_m 18 and the other
+byte forms (Q63: the routine is read, the old frame's runs keep the signature under 90 %),
+lds_aw_ix 36 (the LDS ; LDS probe loads DS0: a probe artefact, Q46), neg_m_bw_d16 21,
+mul_aw_cw_imm8 18 (MUL r,r,imm8 at two waits), the far transfers' rows 21.

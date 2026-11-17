@@ -86,6 +86,16 @@ RIVALS (rejected; kept as switches so the deciding counts can be re-run, build/q
   SHL_ACT=S     model.py's long shift waited as a B word ("B")
   Y_MODE=late   model.py's Y "none" (no wait); model_e6.py's "slot" (as X); "pin" (whole cycle)
   act G         model.py's OUT DW / store ending: the word completes the clock before the cycle
+
+ROUND 16 (results Q61-Q67)
+  The 0F page: every form releases its ModR/M byte on its third word, a bus-idle word (`P . BP`);
+  the r,imm / ROL4 / ROR4 / EXT / INS forms are one word shorter in front of the commit word than
+  rounds 9-12 had them, the m,CL forms one word longer. EXT / INS take offset and length from
+  any 8-bit register and leave the offset register at offset + length (BF_OFF). LAHF is `N .`.
+  CALL / JMP [d16]: `P . B Y . PP2 D ...`. Tested and not kept (switches left in): act H (a word
+  that waits as a boundary does), OF2 (0F as a routine of its own with a second boundary),
+  EMIN_K (a per-form byte count at the boundary), B_CH (a bus-idle word losing to the fetch
+  chained behind a post-write fetch).
 """
 
 from __future__ import annotations
@@ -96,11 +106,11 @@ import sys
 from . import read
 
 DEFAULT = dict(
-    IDLE_AT=4, B2B_AT=5, REQ_PRI=1, FLUSH_LAT=5,
+    IDLE_AT=4, B2B_AT=5, REQ_PRI=1, FLUSH_LAT=5, H_B2B=1, H_EU=1, B_CH=0, B_CH_W=1, EMIN_K=0, EMIN_KEYS="ADDIM_DIR", OF2=0, OF_PFX="N .", OF_DROP=2, LEAD_0F=2, OF_EMIN=0, BF_OFF=1, EXTRX_D=0, INSRX_D=0,
     B_EU="OIWR", B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
     PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . . B . . . . . . . . .",
     I_ADD4S="Y D . . . U D . . . . . . Z D .", T_ADD4S=". . . . . . . . N .",
-    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . P . . C . . Y D", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . P . . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="W", MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
+    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y D", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="W", MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
     POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1, Z_LAT=2, FLUSH_B2B=1, FLUSH_GAP=3,
     S_LAG=2, EU_SLOT=1, LAG_ACTS="SXA", LAG_FIRST="A", CHAIN_POP=1,
     LEAD_E6=3, LEAD_SR=2, LEAD_CC=0, LEAD_FF=0, LEAD_E2=2, LEAD_EPRI=1, HALT_STOP=1, HALT_HOLD=1,
@@ -116,7 +126,7 @@ DEFAULT = dict(
     OUT="A . X . N .", E6=". . . BP . . X . N .", IN8=". . . BP . . X DN .",
     # memory: the request (Y), then the datum's wait (D) or, for a write, the boundary's wait
     PUSH=". . Y . . . N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
-    PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", LAHF="N . .", CMPMR="P Y . D . N .", NEGD16="P . . . B Y P P2 . DZ G N .", ADJ4=". . . . . . . . N .", ADJB=". . . . . . . . . . . . . . . N .",
+    PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . . B Y P P2 . DZ G N .", ADJ4=". . . . . . . . N .", ADJB=". . . . . . . . . . . . . . . N .",
     CVTBD=". . . P . . . . . . . . . . . . . . . . . . . . . N .", EI=". . . . . . . . . . . N .", CVTWL=". . . . . . . N .",
     SHMI_HEAD="P . V DP . B", SHMI_BASE=4, SHMCL_HEAD="P . . B . . . Y D", SHMCL_BASE=3,
     LDS="P Y . D . U . D . . N .", MOVMS="P . V . G N .", MOVSM="P Y . DN . .",
@@ -132,7 +142,7 @@ DEFAULT = dict(
     # not read (placeholders: these groups are not reproduced)
     SHLI="PN P . .", MUL8="PN . . .", CALL=". . . . PP2 . Y D . . F N .",
     RET=". . Y D . . F N .", XCHRR="PN .", TESTRR="P . BN .",
-    INCB="P . . BN .", TEST1="P . P . . CN .", CLR1="P . P . . CN . .", RMW="P Y . . DZ G N .",
+    INCB="P . . BN .", TEST1="P . BP . . CN .", CLR1="P . BP . . CN . .", RMW="P Y . . DZ G N .",
     ADDIW="P . . BY DPP2Z G N .", ADDIM_D8="P . V P DPZ G N .",
     ADDIM_DIR="P . V PP2 DPZ G N .", CMPIM="P . V DP . BN .", TESTIM="P . B . . Y DPP2 . BN .",
     TESTM="P . B Y DN .", XCHM="P Y . . D . Z G N .", STIM_D8="P . . BYP . . . KPP2N .",
@@ -147,16 +157,16 @@ DEFAULT = dict(
     RI_SCAS="Y D . .", RT_SCAS=". . . . . . . . . . . . N .", RH_CMPBK=". . . B . . . . . . . . .", RH_OUTM=". . . . B . . . . . . . . . .", RI_CMPBK="Y D . . . U D .",
     RT_CMPBK=". . . . . . . . . . . . . . N .", RH_INM=". . . . B . . . . . . . . .", RI_INM="X D Z D", RT_INM=". . . . . . . N .",
     RI_OUTM="Y D X . . . . .", RL_OUTM="Y D . X . . . . .", RT_OUTM=". . . . . . . N .",
-    PUSHA=". . B . " + "Y D . " * 7 + "Y G N .", POPA=". . " + "Y D . " * 7 + "Y DN .", TEST1I="P . P . . CPN .", T1M="P . P . C Y DN .", C1M="P . P . C Y D Z G N .", S1M="P . P . C Y DZ G N .",
+    PUSHA=". . B . " + "Y D . " * 7 + "Y G N .", POPA=". . " + "Y D . " * 7 + "Y DN .", TEST1I="P . BP . CPN .", T1M="P . BP . . C Y DN .", C1M="P . BP . . C Y D Z G N .", S1M="P . BP . . C Y DZ G N .",
     T1MI="P . PC Y DPN .", C1MI="P . PC Y DP Z G N .", S1MI="P . PC Y DPZ G N .",
-    CLR1I="P . P . . CPN . .", ROR4="P . P . . C . . . . . . . . . . . . . . N .", ROL4M="P . PC Y D . . . . . . . . Z G N .", ROR4M="P . PC Y D . . . . . . . . . . . . Z G N .",
+    CLR1I="P . BP . CPN . .", ROR4="P . BP . C . . . . . . . . . . . . . . N .", ROL4M="P . PC Y D . . . . . . . . Z G N .", ROR4M="P . PC Y D . . . . . . . . . . . . Z G N .",
     ADD4S="P N .", SUB4S="P N .", CMP4S="P N .", INS="PP2N .", EXT="PP2N .", INSI="PP2N .", EXTI="PP2N .",
-    PREP=". . Y D . . . PP2 P . . C . . . . . . . . N .", DISP=". . Y DN .", BRK=". . . BP . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", AI16R="P . . . BNPP2 .", TI16R="P . B . . . NPP2 .", TI8R="P . B . . NP .", CALLR="P . B . . B . Y D . . F N .", CALLM="P PP2 B Y D . . . Z D . . F N .",
-    JMPM="P PP2 B Y D . . F N .", RETI=". . . Y DPP2 . . F N .", CMPIW="P . . BY DPP2 . BN .", CMPIW_D8="P . . BYP DPP2 . BN .",
+    PREP=". . Y D . . . PP2 P . . C . . . . . . . . N .", DISP=". . Y DN .", BRK=". . . BP . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", AI16R="P . . . BNPP2 .", TI16R="P . B . . . NPP2 .", TI8R="P . B . . NP .", CALLR="P . B . . B . Y D . . F N .", CALLM="P . B Y . PP2 D . . . Z D . . F N .",
+    JMPM="P . B Y . PP2 D . . F N .", RETI=". . . Y DPP2 . . F N .", CMPIW="P . . BY DPP2 . BN .", CMPIW_D8="P . . BYP DPP2 . BN .",
     RI_SCAS_C="Y D . . . .", RT_SCAS_C=". . . . . . . . . . . N .",
     RT_CMPBK_C=". . . . . . . . . . . . . N .", LOOPZ=". . . B . . . P . . B . . F N .", LOOPZF=". . . B . . PN .", LOOPZ0=". . . B . . . P . BN .", LOOPZ00=". . . B P . BN .",
     JMPFM="P . B . Y PP2 D . U D . . F N .", CALLFM="P . B . Y PP2 D . U D . . . Z D . . . Z D . . F N .",
-    IRET=". . Y D . . . U D . . . U D . . . . . . . . F N .", LOOPN=". . . B . . P . BN .", JCXZT=". . . B . . P . . F N .", JCXZ=". . . B . . PN .", PUSHS=". . . Y . . . N .", POPS=". . Y DN . .", ROL4="P . P . . C . . . . . . . . . . N .", SHLI1="PP2N . .",
+    IRET=". . Y D . . . U D . . . U D . . . . . . . . F N .", LOOPN=". . . B . . P . BN .", JCXZT=". . . B . . P . . F N .", JCXZ=". . . B . . PN .", PUSHS=". . . Y . . . N .", POPS=". . Y DN . .", ROL4="P . BP . C . . . . . . . . . . N .", SHLI1="PP2N . .",
     RMW_D8="P Y . P DZ G N .", INCM="P . . B Y . . DZ G N .", ADDIM="P . V DPZ G N .",
     STIM="P . . BY . . . KPP2N .", STIM_DIR="P PP2 . PP2 Y N", ADDM="P Y . DN .", CMPM="P Y . DN .")
 
@@ -228,6 +238,7 @@ MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x
 LEADS = {0xE6: "LEAD_E6", 0xE7: "LEAD_E6", 0xE4: "LEAD_E6", 0x8E: "LEAD_SR", 0xE2: "LEAD_E2"}
 
 
+OF_LEAD2 = set(range(0x18, 0x20)) | {0x28, 0x2A, 0x31, 0x33, 0x39, 0x3B}
 STACK_OPS = (0x9C, 0x9D, 0xE8, 0xC3, 0x9A, 0xCB, 0x68, 0x06, 0x07, 0x0E, 0x16, 0x17, 0x1E, 0x1F)
 REPS = ("MOVS", "STOS", "LODS", "SCAS", "CMPBK", "INM", "OUTM")
 
@@ -414,6 +425,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             if (c_[2] | c_[3] << 8) == 0x0C:
                 vec3 = c_[4] | c_[5] << 8
     hist = {}                           # the count at each clock's end (before a delivery)
+    of_stage = False                    # (round 16) the 0F byte has run: its second byte is staged
     rep_op = 0
     rep = False                         # a REP prefix precedes the instruction
     cw = 31                             # CW as the long shift's MOV CL,31 leaves it
@@ -495,6 +507,14 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                         and not (o["C_NOCH"] == 4 and npop)):
                     busy = True     # (round 14) C_NOCH: not for the fetch chained behind an
                     #                 EU cycle's fetch (Q42's fetch): the commit word passes
+                # (round 16) B_CH: a bus-idle word does wait on the clock the fetch chained
+                # behind an EU cycle's fetch starts (that fetch's slot was taken two clocks
+                # ahead of the pins, S_LAG: the word comes too late to stop it); kinds CH_K
+                if (act == "B" and o["B_CH"] and just_ended and not eu_run and pfp is not None
+                        and after_w is not None and f_end == after_w and last_kind in o["CH_K"]
+                        and not (eu_due is not None and t >= eu_due)
+                        and count <= o["B2B_AT"] and cyc >= 3 + o["B_CH_W"]):
+                    busy = True
             else:
                 busy = False
             stall = stall or busy
@@ -507,6 +527,17 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 forced += 1
             if o.get("DBG") is not None:
                 o["DBG"].append((e_n, ip, t, stall, cur_op))
+        if "H" in acts:
+            # (round 16) H: a word that waits as a boundary does: not while a fetch's pin cycle
+            # is in flight, except on its last clock; nor (H_B2B) on the clock a back-to-back
+            # fetch would start with four or fewer held
+            if in_fetch and not last_clock:
+                stall = True
+            elif (o["H_B2B"] and just_ended and not eu_run and pfp is not None
+                  and not (eu_due is not None and t >= eu_due) and count <= o["IDLE_AT"]):
+                stall = True
+            elif o["H_EU"] and eu_run and t != eu_end:
+                stall = True
         if "D" in acts and (eu_due is not None or eu_run):
             stall = True
         if count < npop + ("N" in acts):
@@ -523,15 +554,18 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             # would a back-to-back fetch start this clock without this word's pops?
             b2b_now = (just_ended and not eu_run and pfp is not None
                        and not (eu_due is not None and t >= eu_due) and count <= o["IDLE_AT"])
-            led = stg is not None and code[stg] in LEADS
+            sstg = stg - 1 if (of_stage and stg is not None) else stg
+            led = stg is not None and not of_stage and code[stg] in LEADS
             lead_t = stg_t + o[LEADS[code[stg]]] if led else None
+            if of_stage and stg is not None and code[stg] in OF_LEAD2:
+                led, lead_t = True, stg_t + o["LEAD_0F"]
             if stg is None and "N" not in acts:
                 stall = True
             elif b2b_now and o["LEAD_EPRI"] and led and t == lead_t:
                 lead_pri = True          # the boundary executes; the fetch gives way a clock
             elif (b2b_now and o["CH_EPRI"] and after_w is not None and f_end == after_w
                   and last_kind in o["CH_K"] and stg is not None and count >= o["EMIN"]
-                  and not (info(code, stg)[2] and count < o["EMIN_M"])
+                  and not (info(code, sstg)[2] and count < o["EMIN_M"])
                   and last_first != t - 1):
                 # (round 13) CH_EPRI: the fetch that would be chained to the fetch right behind
                 # an EU cycle gives way to a boundary on its clock (EU_EPRI one fetch further)
@@ -549,12 +583,17 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 stall = True
             elif after_flush and delivered < o["FIRST_MIN"]:
                 stall = True
-            elif (stg is not None and info(code, stg)[0] in ("JR", "CALLR")
+            elif (stg is not None and info(code, sstg)[0] in ("JR", "CALLR")
                   and count < o["EMIN_J"]):     # (round 12) JMP / CALL r16: four bytes held
                 stall = True
-            elif stg is not None and info(code, stg)[2] and count < o["EMIN_M"]:
+            elif (stg is not None and o["EMIN_K"] and info(code, sstg)[0] in o["EMIN_KEYS"].split(",")
+                  and count < o["EMIN_K"]):
+                stall = True    # (round 16, tested, not kept by default) a per-form byte count
+            elif stg is not None and of_stage and count < o["OF_EMIN"]:
                 stall = True
-            elif stg is not None and count < o["EMIN"]:
+            elif stg is not None and not of_stage and info(code, sstg)[2] and count < o["EMIN_M"]:
+                stall = True
+            elif stg is not None and not of_stage and count < o["EMIN"]:
                 stall = True
             elif led and t < lead_t:
                 stall = True
@@ -646,7 +685,12 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     eu_hold = False
                 e_clock = t
                 e_n += 1
+                second = of_stage
+                if second:               # (round 16) the 0F page's own boundary: back to the 0F byte
+                    stg -= 1
+                of_stage = False
                 cur_op, cur_at = code[stg], stg
+                first0f = bool(o["OF2"]) and cur_op == 0x0F and not second
                 if log is not None:
                     log.append((t, f"E{e_n} {cur_op:02X}@{stg + base - b:+d} c={count - pops}"
                                    f"{'L' if last_clock else 'f' if in_fetch else 'i'}"))
@@ -702,24 +746,54 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     bw = (bw & 0xFF00) | code[stg + 1]
                 if cur_op == 0xD3 and code[stg + 1] == 0xE0 and cl >= 16:
                     aw = 0
-                if key == "EXTI":
-                    # (round 12) EXT reg8,imm4: n = imm4 + 1 bits at bit offset o (the register's
-                    # low nibble) of the word at DS0:IX. Field inside the word: two shift loops
-                    # of two words a bit, 16 - o - n and 16 - n long, the second with a
-                    # four-word entry; the immediate is taken on the next-to-last word.
-                    n = (code[stg + 3] & 15) + 1
-                    off = bw & 15
-                    if off + n <= 16:
+                if key in ("EXT", "INS", "EXTI", "INSI"):
+                    # EXT / INS: n bits at bit offset `off` of the word at DS0:IX / DS1:IY. The
+                    # offset is the r/m register's low nibble; the length is imm4 + 1 (EXTI /
+                    # INSI, round 12) or the reg-field register's low nibble + 1 (round 16: any
+                    # 8-bit register, not only AL). The offset register is left at off + n
+                    # (round 16), which is what the same instruction twice runs on.
+                    m_ = code[stg + 2]
+                    r8 = [aw & 255, cl, dw & 255, bw & 255, aw >> 8, cw >> 8, dw >> 8, bw >> 8]
+                    immf = key in ("EXTI", "INSI")
+                    n = ((code[stg + 3] if immf else r8[(m_ >> 3) & 7]) & 15) + 1
+                    off = r8[m_ & 7] & 15
+                    head = o["EXT_HEAD"] if immf else o["EXTR_HEAD"]
+                    tailp = "PN ." if immf else "N ."
+                    ext = key in ("EXT", "EXTI")
+                    if off + n <= 16 and ext:
+                        # two shift loops of two words a bit, 16 - off - n and 16 - n long, the
+                        # second with a four-word entry
                         v = (o["EXT_K"] if n < 16 else 0) + 2 * (16 - off - n) + 2 * (16 - n)
-                        rt = (words(o["EXT_HEAD"]) + [set() for _ in range(o["EXT_BASE"] + v)]
-                              + words("PN ."))
-                    else:
-                        # (round 13) across the word: a second read 29 clocks after the first,
-                        # then 2 words per bit of offset (one more when n < 16)
-                        rt = (words(o["EXT_HEAD"]) + [set() for _ in range(o["EXTX_GAP"])]
+                        rt = (words(head) + [set() for _ in range(o["EXT_BASE" if immf else "EXTR_BASE"] + v)]
+                              + words(tailp))
+                    elif ext:
+                        # (round 13) across the word: a second read, then 2 words per bit of
+                        # offset (one more when n < 16)
+                        rt = (words(head) + [set() for _ in range(o["EXTX_GAP"] + (0 if immf else o["EXTRX_D"]))]
                               + words("U D")
                               + [set() for _ in range(o["EXTX_BASE"] + 2 * off + (n < 16))]
-                              + words("PN ."))
+                              + words(tailp))
+                    elif off + n <= 16:
+                        # INS inside one word: a fixed length, two words more for a non-zero
+                        # offset, eight fewer when the field ends at bit 15
+                        v = 2 * (off > 0) - 8 * (off + n == 16)
+                        rt = (words(head) + [set() for _ in range(o["INS_BASE" if immf else "INSR_BASE"] + v)]
+                              + words("Z G " + tailp))
+                    else:
+                        mm_ = off + n - 16
+                        rt = (words(head) + [set() for _ in range(o["INSX_1"] + (0 if immf else o["INSRX_D"]))]
+                              + words("Z D") + [set() for _ in range(o["INSX_GAP"])]
+                              + words("U D") + [set() for _ in range(o["INSX_BASE"] + 4 * mm_)]
+                              + words("Z G " + tailp))
+                    if o["BF_OFF"] and not first0f:
+                        no = (off + n) & 15
+                        ri = m_ & 7
+                        if ri == 3:
+                            bw = (bw & 0xFF00) | no
+                        elif ri == 2:
+                            dw = (dw & 0xFF00) | no
+                        elif ri == 0:
+                            aw = (aw & 0xFF00) | no
                 if key == "PREP" and code[stg + 3] & 31:
                     # (round 12) PREPARE with a nesting level L >= 1: L - 1 frame-pointer
                     # copies (a read and a push each), then the push of the new frame pointer
@@ -732,39 +806,6 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     it = max(1, (cl + 1) // 2)
                     kk = "CMP4S" if key == "CMP4S" else "ADD4S"
                     rt = (words(o["H_4S"]) + it * words(o["I_" + kk]) + words(o["T_" + kk]))
-                if key in ("EXT", "INS"):
-                    # the register-count forms: the count in the second register's low nibble
-                    # (AL here), no immediate byte
-                    n = (aw & 15) + 1
-                    off = bw & 15
-                    if off + n <= 16:
-                        if key == "EXT":
-                            v = (o["EXT_K"] if n < 16 else 0) + 2 * (16 - off - n) + 2 * (16 - n)
-                            rt = (words(o["EXTR_HEAD"])
-                                  + [set() for _ in range(o["EXTR_BASE"] + v)] + words("N ."))
-                        else:
-                            v = 2 * (off > 0) - 8 * (off + n == 16)
-                            rt = (words(o["EXTR_HEAD"])
-                                  + [set() for _ in range(o["INSR_BASE"] + v)]
-                                  + words("Z G N ."))
-                if key == "INSI":
-                    # (round 12) INS reg8,imm4 inside one word: a fixed length, two words more
-                    # for a non-zero offset, eight fewer when the field ends at bit 15
-                    n = (code[stg + 3] & 15) + 1
-                    off = bw & 15
-                    if off + n <= 16:
-                        v = 2 * (off > 0) - 8 * (off + n == 16)
-                        rt = (words(o["EXT_HEAD"]) + [set() for _ in range(o["INS_BASE"] + v)]
-                              + words("Z G PN ."))
-                    else:
-                        # (round 13) across the word: the first word written as a field that
-                        # ends at bit 15, the second word read 14 clocks later and written
-                        # after 4 words per bit that falls in it
-                        m_ = off + n - 16
-                        rt = (words(o["EXT_HEAD"]) + [set() for _ in range(o["INSX_1"])]
-                              + words("Z D") + [set() for _ in range(o["INSX_GAP"])]
-                              + words("U D") + [set() for _ in range(o["INSX_BASE"] + 4 * m_)]
-                              + words("Z G PN ."))
                 if key in ("MI16", "MI8"):
                     im = (code[stg + 2] | code[stg + 3] << 8) if key == "MI16" else code[stg + 2]
                     si_ = (im >> 15) & 1 if key == "MI16" else (im >> 7) & 1
@@ -815,6 +856,13 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                             left = cmp_left or 0
                         cw = left
                     cl = cw & 0xFF
+                if first0f:
+                    # (round 16) OF2: the 0F byte is a two-word routine of its own that takes the
+                    # second byte as an opcode (N); the instruction proper starts at a boundary
+                    rt = words(o["OF_PFX"])
+                    of_stage = True
+                elif second:
+                    rt = rt[o["OF_DROP"]:]
                 rep = cur_op in (0xF2, 0xF3, 0x64, 0x65)
                 rep_op = cur_op
                 after_flush = False
