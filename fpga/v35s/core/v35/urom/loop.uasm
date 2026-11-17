@@ -181,14 +181,15 @@ cvb_l: alu=DIVS loop=cvb_l                  ; one restoring step; the counter st
 
 ; D5 ib: CVTDB (AAD): AH times the immediate by the byte multiply's loop, plus AL (F5: silicon
 ; multiplies by the byte, f5x; the V20 suite's ten was the core's until F5)
-routine cvtdb op=D5 book="CVTDB" width=byte why="OPEN: the book's 20: the immediate's latency, its pop, AH read into the multiply's state, eight steps, the finish with AL's add (W), the write on E; six book clocks with no act"
-    open                                    ; OPEN: the immediate's latency before its pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the multiplier byte (S+3)
-    ra=AW wid=WORD alu=CVDI ax=RA ay=IMM8 cnt=BITS  ; AH and the byte into the multiply's state; the counter <- 8
-    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CVTDB 20) (the call and the shared delay's 5)
+routine cvtdb op=D5 book="CVTDB" width=byte diff=-1 why="book error of one: (qprobe round 21, spec 17 B, Q98) CVTDB is `. . . BP C` + 12 words + `N .` (19 words; the qprobe cvtdb runs, QPr21f: 63 / 66 in the model): two words, the pop, the byte released on a bus-idle fourth word with the set-up, the commit word C, three words, the eight steps, the finish, E (N) on the eighteenth; OPEN: the book's 20: the immediate's latency, its pop, AH read into the multiply's state, eight steps, the finish with AL's add (W), the write on E; six book clocks with no act"
+    open call=w1                            ; OPEN: (qprobe round 21) two words with no act (the call and the shared delay's 1)
+    pop=il                                  ; pop the multiplier byte (its release is the fourth word's)
+    ra=AW wid=WORD alu=CVDI ax=RA ay=IMM8 cnt=BITS bi rl=1  ; (qprobe round 21) B P: bus-idle, the byte released; AH and the byte into the multiply's state; the counter <- 8
+    bi alt                                  ; (qprobe round 21) C: the fifth word (the commit word's wait: it waits one clock when the byte's release starts a fetch)
+    open call=w2                            ; OPEN: (qprobe round 21) three words with no act (the call and the shared delay's 2)
 cvd_l: alu=MULS loop=cvd_l                  ; one multiply step; the counter step
     ra=AW wid=WORD alu=CVDF ax=RA wf        ; AL + the product's low byte, AH zero; the add's flags (W)
-    wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E
+    wr=AW wid=WORD ws=SIG e ro              ; AW <- SIGMA; E; N (the eighteenth word)
 
 ; ---- (MX3b) 69 / 6B: MUL r16,r/m16,imm16 / imm8 (signed, the decode's op3 5): the immediate's
 ; pops, the operand and the immediate into the unit (F1 the signs' difference), 16 steps, the

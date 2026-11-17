@@ -97,7 +97,7 @@ ext_t2: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
 ext_n2: open call=w1                     ; OPEN: two words with no act (the pointer's two clocks) (the call and the shared delay's 1)
 ext_e2: e ro                             ; E: pop the next opcode (N; the imm4 forms' P: the width byte, released here)
 
-routine exti op=3B page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,imm4 (the qprobe exti runs, r12b / r13a): the head, the two counted shifts, `PN .`; across a word the next word's read and the offset's rotation"
+routine exti op=3B page=0f why="(qprobe round 21, spec 17 B, Q96) EXT r,imm4 is `P . BP . C . . Y DP . B` + (22 + v) words + `N .` (QPr20b e-exti, QPr16a ph-*-exti: the model +18, 0 lost): the imm4 released on the datum word, the second word behind it bus-idle, the length unchanged; OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,imm4 (the qprobe exti runs, r12b / r13a): the head, the two counted shifts, `PN .`; across a word the next word's read and the offset's rotation"
     pop=modrm eac=exti_r                ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=exti_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 exti_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
@@ -109,9 +109,9 @@ exti_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) 
     rl=x bi                             ; Y: the request word (the read posted three words later)
     open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
     bus=MEMR seg=DSP                    ; post the word's read at IX (a prefix's segment, else DS0)
-    f d1=TC s1=OPR                      ; D: F: tmpc <- the word
+    f d1=TC s1=OPR rl=1                 ; D: F: tmpc <- the word; (qprobe round 21, spec 17 B, Q96) P: the imm4 width byte released on the datum word
     ra=RM wid=BYTE d1=TA s1=IMM8 d2=TB s2=RA alu=ADD ax=RA ay=IMM8 ; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width
-ext_c: alu=BFK ax=SIG                   ; SIGMA = 15 - (offset + width): the bits above the field
+ext_c: alu=BFK ax=SIG bi                ; SIGMA = 15 - (offset + width): the bits above the field; (qprobe round 21, Q96) B: the second word behind the datum word bus-idle
     cnt=SIG alu=BFU ax=TB ay=TA jc=SGN:ext_x ; the counter <- the bits above the field; SIGMA = the offset's step (the new offset, the carry); crossing: the two-word path
     d1=ADDR s1=SIG d2=TB s2=TC alu=NOT ax=TA ; the address register <- the step; tmpb <- the word; SIGMA = ~width (low four bits: the bits not in the field)
     d1=TC s1=ZERO jc=CNTZ:ext_wr        ; tmpc <- 0; no bit above the field: the second shift
@@ -141,7 +141,7 @@ ext_t: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
     wr=IX wid=WORD ws=SIG jmp=ext_e     ; IX written
 ext_n: open call=w1                     ; OPEN: two words with no act (the pointer's two clocks) (the call and the shared delay's 1)
-ext_e: e ro rl=1                        ; E: P N: the width byte and the next opcode released
+ext_e: e ro                             ; E: N (qprobe round 21, Q96: the width byte released on the datum word)
 
 routine ins op=31 page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`Z G N .`; the qprobe ins runs, round 9)"
     pop=modrm eac=ins_r                 ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
@@ -199,7 +199,7 @@ ins_xs2: open call=w11                   ; OPEN: twelve words with no act (the c
 ins_xo2: d1=OPRW s1=TC                   ; Z's word: the write datum <- the high word
     bus=MEMW seg=DS1 wid=WORD jmp=ins_e2 ; Z: post the high word's write
 
-routine insi op=39 page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,imm4 (the qprobe insi runs, r12b / r13a): the head, the sixteen rotations, `Z G PN .`; across a word the first word written, the next read and written"
+routine insi op=39 page=0f why="(qprobe round 21, spec 17 B, Q96) INS r,imm4 is `P . BP . C . . Y DP . . B` + (67 + v) words + `Z G N .` (QPr20b e-insi: the model +11, 0 lost): the imm4 released on the datum word, the third word behind it bus-idle; OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,imm4 (the qprobe insi runs, r12b / r13a): the head, the sixteen rotations, `Z G PN .`; across a word the first word written, the next read and written"
     pop=modrm eac=insi_r                ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=insi_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
 insi_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
@@ -211,10 +211,10 @@ insi_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) 
     rl=x bi                             ; Y: the request word (the read posted three words later)
     open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
     bus=MEMR seg=DS1                    ; post the word's read at DS1:IY (no prefix)
-    f d1=TC s1=OPR                      ; D: F: tmpc <- the word
+    f d1=TC s1=OPR rl=1                 ; D: F: tmpc <- the word; (qprobe round 21, spec 17 B, Q96) P: the imm4 width byte released on the datum word
     ra=RM wid=BYTE d1=TA s1=IMM8 d2=TB s2=RA alu=ADD ax=RA ay=IMM8 ; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width
 ins_c: alu=INC ax=SIG                   ; SIGMA = offset + width + 1
-    alu=BFK ax=SIG                      ; SIGMA = 14 - (offset + width); no flags
+    alu=BFK ax=SIG bi                   ; SIGMA = 14 - (offset + width); no flags; (qprobe round 21, Q96) B: the third word behind the datum word bus-idle
     alu=INC ax=SIG                      ; SIGMA = 15 - (offset + width): its sign the crossing
     alu=BFU ax=TB ay=TA jc=SGN:ins_x    ; SIGMA = the offset's step; crossing: the two-word path
     call=bf_pass                        ; the insertion into the word (tmpc)
@@ -227,7 +227,7 @@ ins_n: open call=w24                    ; OPEN: twenty-five words with no act (t
     open                                ; OPEN: a word with no act
     ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC ; Z's word: the address register <- IY; the write datum <- the word
     bus=MEMW seg=DS1 wid=WORD           ; Z: post the word's write
-ins_e: e ro bi rl=1                     ; E: G P N (the width byte); held until the write's end (RAMEN)
+ins_e: e ro bi                          ; E: G N (qprobe round 21, Q96: the width byte released on the datum word); held until the write's end (RAMEN)
 ; the field crosses into the next word: the word at IY + 2 read and written
 ins_x: call=bf_pass                     ; the insertion into the low word (tmpc); tmpb <- the spilled bits
     open call=w20                       ; OPEN: twenty-one words with no act (the call and the shared delay's 20)

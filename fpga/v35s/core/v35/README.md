@@ -8154,3 +8154,32 @@ Work orders 13 (A1), 14 (B, B2), 15 (A1, A2) and 16 (A1 with its addendum, A2, B
   2,144): caused by the strict word on C7's direct form alone (every frame's vector stores; the
   fitted pin latencies against the moved frame). Program gates and fuzz sets unchanged. FPGA at
   17 ns +3.331 / +3.367 / +3.088, 9,532 LUT4, 2,538 FF, 108 RAM_5K.
+
+## qprobe round 21: reads in the fetch chain behind an EU cycle, the ALU group on memory as one routine, C_NOCH, the round-21 shapes
+
+Work order 17 (A1, B1, B2) and spec 10 A1 / Q42's second half (validation/v35s/qprobe/RESULTS.md
+Q95-Q99). Inside the existing ports (test_v35_struct unchanged).
+
+- **Reads behind an EU cycle (spec 17 A1 / Q95).** v35_bus `lc` (the latest fetch was granted
+  with a fetch pending under an EU cycle, or back to back behind such a fetch), `ych` (a memory
+  request word, Y / V, executed while lc stood, the chain's first grant clock included; cleared
+  by the EU's grant and by a new chain's first grant), `wkm` (the word's kind, rlx with bi).
+  On the clock after a chain fetch's last clock, a read whose request word executed inside the
+  chain does not compete with the fetch: the grant's term `!(lcr && (fetch_req || lv_q.r5))`
+  (the chain runs while five or fewer are held). Not for writes. A request made before the
+  chain's first pin clock keeps its place. r21m 423 -> 492 of 498 (the model's 492).
+- **The write-back ALU group on memory (spec 17 B1).** `rmw` takes 00, 01, 08-11, 18-21, 28-31
+  (byte and word); the round-6 routine `rmw_b` is retired.
+- **C_NOCH (spec 10 A1 / Q42 second half).** The commit word that releases a byte (`rl=1 bi
+  alt`, `P C`) presents the kind's free code (alt alone; v35_useq: alt is vk on a bus-wait word
+  only, so an SR_VEC word's vk is no kind); v35_bus waits it as C except on the clock the fetch
+  chained behind the fetch that followed a memory write starts (`lw`, `few`). The strict word
+  (rl=2) keeps C's code.
+- **Shapes (spec 17 B2).** SHL-group mem,1 with d16 / direct as cells (`P . B Y . PP2 D ...`);
+  C7 [base+index+d16] one word more in front of the reserving word; JMP / CALL far [reg] without
+  a displacement (`P . B Y D . U D ...`; their d8 / d16 forms as cells keeping the old path);
+  TEST / CMP AW,imm16 as ADD AW,imm16 (strict E); CVTDB 19 words (`. . . BP C` + 12 + `N .`);
+  DI's E bus-idle; EXT / INS r,imm4 release the width byte on the datum word, a bus-idle word
+  two / three words behind it.
+- **Not built:** SET1 / CLR1 / TEST1 / NOT1 mem,CL with a displacement (the release behind the
+  request needs a mode-dependent release after the EAC head; see the hand-back).

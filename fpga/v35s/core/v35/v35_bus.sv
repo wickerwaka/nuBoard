@@ -263,7 +263,10 @@ module v35_bus
         // Nor does a request that was only announced when the decision was taken (`dr`: a
         // read or a write of the C7 / 81 displacement cells, reserved on the word releasing
         // the displacement): it competes from its due clock, the decided fetch first
-        eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex);
+        // (qprobe round 21, spec 17 A1 / Q95) nor does a read requested inside the fetch chain
+        // behind an EU cycle (`lcr`, registers): the chain runs while five or fewer are held
+        eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex)
+                 && !(lcr && (fetch_req || lv_q.r5));
         gnt_f.fetch = free_h && !g_second && !eu_win && fr;
         gnt_f.ack = eu_win;
         eu = g_second || gnt_f.ack;         // an EU cycle issued now (either half of a pair)
@@ -447,6 +450,53 @@ module v35_bus
             pend <= pd_b;
         end
     end
+    // (qprobe round 21, spec 17 A1 / Q95) the fetch chain behind an EU cycle: a read requested
+    // from the chain's first pin clock on is not arbitrated against it. `lc`: the latest fetch
+    // was granted with a fetch pending under an EU cycle (pend), or back to back behind such a
+    // fetch (dlv_fetch at its grant); `ych`: a memory request word (Y / V: rlx with bi) executed
+    // while lc stood (the chain's first grant clock included), cleared by the EU's grant and by
+    // a new chain's first grant; `lcr`: on the clock after a chain fetch's last clock (lc,
+    // dlv_fetch) the EU's request is that word's read: it does not compete with the fetch (the
+    // grant's term with the line: the chain continues while five or fewer are held). A request
+    // whose word executed before the chain's first pin clock keeps its place (behind it). Not
+    // for writes (Q95: the stores keep spec 13 A1 / Q33). Registers only (wkm: the word's kind,
+    // as wkr), the grant's term one AND
+    reg         lc = 1'b0, lc_b = 1'b0, ych = 1'b0, ych_b = 1'b0, wkm = 1'b0;
+    // (qprobe round 21, C_NOCH) `lw`: the last EU cycle granted was a memory write; `few`: the
+    // fetch last granted was granted with a fetch pending under that write (fe with lw)
+    reg         lw = 1'b0, lw_b = 1'b0, few = 1'b0, few_b = 1'b0;
+    wire        lw_a = req_ack ? (req_cyc == RQ_MEMW) : lw;
+    wire        lc_a = g_fetch ? (pend || (lc && dlv_fetch)) : lc;
+    wire        ych_a = (ex && wkm && lc_a) ? 1'b1 : (req_ack || (g_fetch && pend)) ? 1'b0 : ych;
+    wire        lcr = lc && dlv_fetch && ych && req_cyc == RQ_MEMR;
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            lc_b <= 1'b0;
+            ych_b <= 1'b0;
+            lw_b <= 1'b0;
+            few_b <= 1'b0;
+        end else if (ce_b) begin
+            lc_b <= lc_a;
+            ych_b <= ych_a;
+            lw_b <= lw_a;
+            few_b <= g_fetch ? (pend && lw) : few;
+        end
+    end
+    always @(posedge clock) begin
+        if (!reset_n) begin
+            lc <= 1'b0;
+            ych <= 1'b0;
+            lw <= 1'b0;
+            few <= 1'b0;
+            wkm <= 1'b0;
+        end else if (ce_a) begin
+            lc <= lc_b;
+            ych <= ych_b;
+            lw <= lw_b;
+            few <= few_b;
+            wkm <= wk_nx.rlx && wk_nx.bi;
+        end
+    end
     // the next clock's view (tick B): its position's clocks left after it (rm_nx, while a
     // cycle started earlier runs then), the cycle that ends now (the delivery then)
     // (consol) the queue's compares for the next clock, by this unit's own delivery then
@@ -528,7 +578,13 @@ module v35_bus
     // REQ_PRI (`rqx` is Y's and the X / S words'). (LAG_FIRST) A (rl=x alone with alt): the
     // slot but its first clock ahead of the pins (sla_nx)
     wire        b2s_nx = dlv_fetch_nx && lv.c5 && !eu_rq_nx;
+    // (qprobe round 21, spec 10 A1 / Q42's second half, model_m C_NOCH=3) the commit word that
+    // releases a byte (`P C`, the kind's alt-alone code: v35_useq) waits as C, except on the
+    // clock the fetch chained behind the fetch that followed a write starts (`few`: the fetch
+    // delivered then was granted with a fetch pending under an EU write cycle): it passes
+    wire        cr_k = wk_nx.alt && !wk_nx.bi && !wk_nx.rlx;
     assign ph_nx = (wk_nx.disp && bnd_w) || (wk_nx.bi && !wk_nx.rlx && (bp_nx || (wk_nx.alt && b2s_nx)))
+                   || (cr_k && (bp_nx || (b2s_nx && !few_b)))
                    || (wk_nx.rlx && !wk_nx.bi && (wk_nx.alt ? sla_nx : sl_nx))
                    || (wk_nx.rlx && wk_nx.bi && (wk_nx.alt ? (fb_nx && !fl_n) : fy_nx));
     always @(posedge clock) begin
@@ -907,7 +963,8 @@ module v35_bus
 `ifndef SYNTHESIS
     // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
     // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
-    wire        x_eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex);     // (qprobe round 12, A2)
+    wire        x_eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex)
+                           && !(lcr && (fetch_req || lv_q.r5));     // (qprobe round 12, A2; round 21, spec 17 A1)
     v35_gnt_t   gnt_x;
     logic       x_eu;
     always_comb begin

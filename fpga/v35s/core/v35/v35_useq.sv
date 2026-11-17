@@ -341,8 +341,14 @@ module v35_useq
     assign wk_nx.disp = pd_nx.disp;
     assign wk_nx.flush = word_nx.flush;
     assign wk_nx.rlx = word_nx.rl == RL_X;
-    assign wk_nx.bi = word_nx.bi;
-    assign wk_nx.alt = word_nx.vk;     // (qprobe round 10) the wait's second kind (C, V)
+    // (qprobe round 21, spec 10 A1 / Q42's second half, C_NOCH) the commit word that releases a
+    // byte (bi with vk and rl == RL_1: `P C`) presents the kind's free code, alt alone (bi
+    // low): the bus unit's C wait without the fetch chained behind a write's fetch. alt is the
+    // vk bit on a bus-wait word only (bi or rl == RL_X: an SR_VEC word's vk is not a kind), so
+    // alt alone has this one meaning; the strict word (bi vk rl == RL_2) stays C's code
+    wire        wk_cr = word_nx.bi && word_nx.vk && word_nx.rl == RL_1;
+    assign wk_nx.bi = word_nx.bi && !wk_cr;
+    assign wk_nx.alt = word_nx.vk && (word_nx.bi || word_nx.rl == RL_X);     // (qprobe round 10) the wait's second kind (C, V)
     v35_sin_t  si_nx;
     always_comb begin
         si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release

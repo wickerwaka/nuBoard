@@ -58,9 +58,9 @@ routine xch_aw op=90-97 book="XCH AW,reg16" why="OPEN: the reads, one book clock
 routine flag op=F5,F8,F9,FC,FD book="CLR1 CY" why="one word: the book's 2"
     alu=FLAG wf e                           ; the format's flag operation on the PSW; E
 
-routine flag_di op=FA book="DI" why="OPEN: the book's 4, two clocks with no act (the interrupt controller is not built)"
+routine flag_di op=FA book="DI" why="(qprobe round 21) the E word bus-idle (`. . BN .`); OPEN: the book's 4, two clocks with no act (the interrupt controller is not built)"
     open call=w1                            ; OPEN: a book clock with no act (DI 4) (2 clocks: the call and the shared delay's 1)
-    alu=FLAG wf e nb                        ; IE <- 0; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
+    alu=FLAG wf e nb bi                     ; IE <- 0; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step); (qprobe round 21, spec 17 B, Q98) B N: DI is `. . BN .` (QPr21f di, 66 / 66 in the model): the E word bus-idle
 
 routine flag_ei op=FB book="EI" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 14, spec 10 B) EI is `. . . . . . . . . . . N .` (the qprobe QPr14s sw-ei runs: the fetches in front of the acknowledge; the RTL's was one clock short); the book's 12, eleven clocks with no act (the interrupt controller is not built)"
     open call=w10                           ; OPEN: 11 clocks with no act (EI: the book's 12 + 1, measured) (the call and the shared delay's 10)
@@ -115,22 +115,22 @@ routine cmp_ai8 op=3C book="CMP acc,imm" width=byte why="OPEN: (qprobe round 15,
     pop=il                                  ; pop the immediate's byte (its release is the E word's)
     ra=AW alu=GRP ax=RA ay=IMM wf e bi ro rl=1  ; read AL; CMP with the immediate, flags (W); E; B N P: the next opcode and the immediate released
 
-routine cmp_ai16 op=3D book="CMP acc,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_aw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 5; the book's value against silicon's (F3-push-add_aw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's (low) byte (S+3)
-    pop=ih                                  ; pop its high byte (S+4)
-    ra=AW alu=GRP ax=RA ay=IMM wf e         ; read AW; CMP with the immediate, flags (W); E
+routine cmp_ai16 op=3D book="CMP acc,imm" width=word why="(qprobe round 21, spec 17 B, Q98) CMP AW,imm16 is ADD AW,imm16's `. . . . BINPP2 .` (QPr21f cmpai runs, 66 / 66 in the model): two words with no act, the immediate's pops, the strict bus-idle E word releasing both bytes and the next opcode; before round 21: OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_aw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 5; the book's value against silicon's (F3-push-add_aw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
+    open call=w1                            ; OPEN: (qprobe round 21) a word with no act before the immediate's release (2 clocks: the call and the shared delay's 1)
+    pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
+    pop=ih                                  ; pop its high byte (its release is the E word's)
+    ra=AW alu=GRP ax=RA ay=IMM wf e strict ro rl=2  ; (spec 16 A1) strict; read AW; CMP with the immediate, flags (W); E; B I N P P2: the next opcode and both immediate bytes released
 
 routine test_ai8 op=A8 book="TEST acc,imm" width=byte why="OPEN: (qprobe round 15, spec 11 B) TEST AL,imm8 is ADD AL,imm8's `. . . BNP .` (the qprobe testal runs, 24 / 24 in the model): two words, the immediate's pop, E bus-idle with the next opcode and the immediate released"
     open call=w1                            ; OPEN: (qprobe round 15) a word with no act before the immediate's release (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's byte (its release is the E word's)
     ra=AW alu=AND ax=RA ay=IMM wf e bi ro rl=1  ; read AL; TEST with the immediate, flags (W); E; B N P: the next opcode and the immediate released
 
-routine test_ai16 op=A9 book="TEST acc,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_aw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the AND on the E word: 5; the book's value against silicon's (F3-push-add_aw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's (low) byte (S+3)
-    pop=ih                                  ; pop its high byte (S+4)
-    ra=AW alu=AND ax=RA ay=IMM wf e         ; read AW; AND with the immediate, flags (W); E
+routine test_ai16 op=A9 book="TEST acc,imm" width=word why="(qprobe round 21, spec 17 B, Q98) TEST AW,imm16 is ADD AW,imm16's `. . . . BINPP2 .` (QPr21f testai runs, 66 / 66 in the model): two words with no act, the immediate's pops, the strict bus-idle E word releasing both bytes and the next opcode; before round 21: OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_aw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the AND on the E word: 5; the book's value against silicon's (F3-push-add_aw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
+    open call=w1                            ; OPEN: (qprobe round 21) a word with no act before the immediate's release (2 clocks: the call and the shared delay's 1)
+    pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
+    pop=ih                                  ; pop its high byte (its release is the E word's)
+    ra=AW alu=AND ax=RA ay=IMM wf e strict ro rl=2  ; (spec 16 A1) strict; read AW; TEST with the immediate, flags (W); E; B I N P P2: the next opcode and both immediate bytes released
 
 ; ---- the 80-83 group, register form (V20 GRP1 003C-0040)
 routine grp1_rb op=80,82,83 mod=reg reg=0-6 bookv=5 book="ADD reg,imm" why="OPEN: (qprobe rule 6) ADD r16,imm8 (83 /0, register) is `P . . BNP .`: the ModR/M byte released on the first word (the loader's), two words, the B / release / E word with the ALU, the dispatch with the write: 5; two words with no act"

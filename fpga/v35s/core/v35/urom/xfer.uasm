@@ -364,7 +364,25 @@ routine call_far_mem_d op=FF mod=m00 rm=6 reg=3 why="OPEN: silicon longer than t
     flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine br_far_mem op=FF mod=mem reg=5 ea=bare paths=m00,d8,d16 book="BR memptr32" diff=m00:1,d8:2,d16:2 why="OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
+routine br_far_mem op=FF mod=mem reg=5 ea=bare paths=m00 book="BR memptr32" diff=m00:-1 why="OPEN: book error of one where the measured routine is shorter; silicon longer than the book (measured, the extra words OPEN): (qprobe round 21, spec 17 B, Q98) JMP far [BW] is `P . B Y D . U D . . F N .` (the qprobe jfmb runs, QPr21f / r20b: the model's 10 / 12, W = 1 and 2 all): JMP far [d16]'s routine without the displacement's pops and release (`P . B . Y PP2 D . U D . . F N .`): the add (the ModR/M byte released by the loader: P), a word, B, Y, the offset's read (Y + 3), F, the segment's address, U's word, U: the segment's read, F with PS, two words, FLUSH (bus-idle), E; the other registers without a displacement by analogy"
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index into the address register (the ModR/M byte released by the loader: P)
+    open                                    ; OPEN: (qprobe round 21) a word with no act
+    bi                                      ; (qprobe round 21) B: bus-idle (the third word)
+    rl=x bi                                 ; (qprobe round 21) Y: the request word (the offset's read posted three words later)
+    alu=INC2 ax=ADDR                        ; the address + 2 (the segment's)
+    open                                    ; OPEN: a word with no act
+    bus=MEMR wid=WORD                       ; post the offset's read (Y + 3)
+    f d1=TA s1=OPR                          ; D: F: the offset into tmpa
+    d1=ADDR s1=SIG                          ; the segment's address
+    open                                    ; OPEN: U's word
+    bus=MEMR wid=WORD                       ; U: post the segment's read
+    f wr=PS wid=WORD ws=OPR alu=PASS ax=TA  ; D: F: PS <- the segment; the offset into SIGMA
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
+    e ro                                    ; E: the target's opcode, once delivered
+
+routine br_far_mem_d8 op=FF mod=m01 reg=5 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pop, then the routine) OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
+    pop=dl rl=1                             ; pop the displacement byte (as the bare head: released by its pop)
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open call=w1                            ; OPEN: a book clock with no act (BR memptr32) (2 clocks: the call and the shared delay's 1)
     bus=MEMR wid=WORD                       ; post the offset's read (S+7)
@@ -375,10 +393,53 @@ routine br_far_mem op=FF mod=mem reg=5 ea=bare paths=m00,d8,d16 book="BR memptr3
     f susp wr=PS wid=WORD ws=OPR alu=PASS ax=TA  ; F: PS <- the segment; the offset into SIGMA; SUSP
     open call=w6                            ; OPEN: 7 clocks: a book clock with no act (BR memptr32) (the call and the shared delay's 6)
     flush                                   ; FLUSH: the stream from the offset in the new PS
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    e ro                                    ; E: the target's opcode, once the refill's run has ended
+
+routine br_far_mem_d16 op=FF mod=m10 reg=5 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pops, then the routine) OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
+    pop=dl rl=1                             ; pop the displacement's low byte (as the bare head: released by its pop)
+    pop=dh rl=1                             ; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
+    open call=w1                            ; OPEN: a book clock with no act (BR memptr32) (2 clocks: the call and the shared delay's 1)
+    bus=MEMR wid=WORD                       ; post the offset's read (S+7)
+    f d1=TA s1=OPR alu=INC2 ax=ADDR         ; F: the offset into tmpa; the address + 2; the reservation
+    d1=ADDR s1=SIG                          ; the segment's address
+    open                                    ; OPEN: a book clock with no act (BR memptr32)
+    bus=MEMR wid=WORD                       ; post the segment's read (S+14)
+    f susp wr=PS wid=WORD ws=OPR alu=PASS ax=TA  ; F: PS <- the segment; the offset into SIGMA; SUSP
+    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (BR memptr32) (the call and the shared delay's 6)
+    flush                                   ; FLUSH: the stream from the offset in the new PS
+    e ro                                    ; E: the target's opcode, once the refill's run has ended
 
 ; ---- CALL far [m] (FF /3 memory): V20 FE/FF 01C0-01C3 + CALLF
-routine call_far_mem op=FF mod=mem reg=3 ea=bare paths=m00,d8,d16 book="CALL memptr32" diff=m00:10,d8:11,d16:11 why="OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
+routine call_far_mem op=FF mod=mem reg=3 ea=bare paths=m00 book="CALL memptr32" diff=m00:8 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 21, spec 17 B, Q98) CALL far [BW] is `P . B Y D . U D . . . Z D . . . Z D . . F N .` (the qprobe cfmb runs, QPr21f / r20b: the model's 10 / 12, W = 1 and 2 all): CALL far [d16]'s routine without the displacement's pops and release: the add (P), a word, B, Y, the offset's read (Y + 3), F, the segment's address, U's word, U: the segment's read, F, the two pushes five words apart, F, PS with the target, a word, FLUSH (bus-idle), E; the other registers without a displacement by analogy"
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index into the address register (the ModR/M byte released by the loader: P)
+    open                                    ; OPEN: (qprobe round 21) a word with no act
+    bi                                      ; (qprobe round 21) B: bus-idle (the third word)
+    rl=x bi                                 ; (qprobe round 21) Y: the request word (the offset's read posted three words later)
+    alu=INC2 ax=ADDR                        ; the address + 2 (the segment's)
+    open                                    ; OPEN: a word with no act
+    bus=MEMR wid=WORD                       ; post the offset's read (Y + 3)
+    f d1=TA s1=OPR                          ; D: F: the offset into tmpa
+    d1=ADDR s1=SIG                          ; the segment's address
+    open                                    ; OPEN: U's word
+    bus=MEMR wid=WORD                       ; U: post the segment's read
+    f d1=TC s1=OPR                          ; D: F: the segment into tmpc
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
+    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA   ; SP <- SP - 2; the address; PS into the write datum
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; Z: post the push of PS
+    f rb=SP wid=WORD alu=DEC2 ax=RB         ; D: F: the push's end; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return offset into the write datum
+    open call=w2                            ; OPEN: three words with no act (the call and the shared delay's 2): the second push's post five words after its D as the first's
+    bus=MEMW seg=SS wid=WORD                ; Z: post the push of PC
+    f                                       ; D: F: the push's end
+    wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment; the offset into SIGMA
+    open                                    ; OPEN: a word with no act
+    flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
+    e ro                                    ; E: the target's opcode, once delivered
+
+routine call_far_mem_d8 op=FF mod=m01 reg=3 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pop, then the routine) OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
+    pop=dl rl=1                             ; pop the displacement byte (as the bare head: released by its pop)
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open call=w1                            ; OPEN: a book clock with no act (CALL memptr32) (2 clocks: the call and the shared delay's 1)
     bus=MEMR wid=WORD                       ; post the offset's read (S+7)
@@ -399,7 +460,32 @@ routine call_far_mem op=FF mod=mem reg=3 ea=bare paths=m00,d8,d16 book="CALL mem
     wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment; the offset into SIGMA
     open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CALL memptr32) (the call and the shared delay's 5)
     flush                                   ; FLUSH: the stream from the offset in the new PS
-    e                                       ; E: the target's opcode, once the refill's run has ended
+    e ro                                    ; E: the target's opcode, once the refill's run has ended
+
+routine call_far_mem_d16 op=FF mod=m10 reg=3 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pops, then the routine) OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
+    pop=dl rl=1                             ; pop the displacement's low byte (as the bare head: released by its pop)
+    pop=dh rl=1                             ; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
+    open call=w1                            ; OPEN: a book clock with no act (CALL memptr32) (2 clocks: the call and the shared delay's 1)
+    bus=MEMR wid=WORD                       ; post the offset's read (S+7)
+    f d1=TA s1=OPR alu=INC2 ax=ADDR         ; F: the offset into tmpa; the address + 2; the reservation
+    d1=ADDR s1=SIG                          ; the segment's address
+    open                                    ; OPEN: a book clock with no act (CALL memptr32)
+    bus=MEMR wid=WORD                       ; post the segment's read (S+14)
+    f d1=TC s1=OPR susp                     ; F: the segment into tmpc; SUSP; the reservation (the pushes)
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
+    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA   ; SP <- SP - 2; the address; PS into the write datum
+    open call=w1                            ; OPEN: a book clock with no act (CALL memptr32) (2 clocks: the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the first push (PS) (S+23)
+    f rb=SP wid=WORD alu=DEC2 ax=RB         ; F: the push's end; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return offset into the write datum
+    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (CALL memptr32) (the call and the shared delay's 2)
+    bus=MEMW seg=SS wid=WORD                ; post the second push (PC) (S+32)
+    f                                       ; F: the push's end (S+36)
+    wr=PS wid=WORD ws=TC alu=PASS ax=TA     ; PS <- the segment; the offset into SIGMA
+    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CALL memptr32) (the call and the shared delay's 5)
+    flush                                   ; FLUSH: the stream from the offset in the new PS
+    e ro                                    ; E: the target's opcode, once the refill's run has ended
 
 ; ---- BRK 3 (CC) / BRK imm8 (CD) / BRKV (CE): V20 INT3 0104, INT_N 0108, INTO 010C + INT 01EC-01FC
 ; (the vector's two reads from segment 0, PSW pushed with IE and BRK cleared (CITF), PS and PC

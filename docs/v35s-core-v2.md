@@ -3292,3 +3292,20 @@ question, decided from S8's routed numbers with the user.
   INTP0 one instruction late in CBW / INC trains and INT 2 clocks early in front of HALT
   (attributed by the builder to where the RTL pops the next opcode in NOP / INC / CBW; not
   verified).
+- **2026-11-17, work order 17 landed (light gate: one spacing, seed 1).** **Built**: the
+  whole write-back ALU group on memory through `rmw` (`rmw_b` removed; a build fault found
+  by round 21 and by the ROM check); reads behind an EU cycle (Q95: `lc`, `ych`, `wkm` in the
+  bus unit: a read whose request word executed inside the chain behind an EU cycle does not
+  compete with the fetch on the clock after a chain fetch's last clock); C_NOCH inside the
+  existing ports (a commit word that releases one byte presents the word-kind's unused code,
+  "alt alone"; the bus unit waits it as a commit word except on the clock the fetch chained
+  behind the fetch after a memory write starts: `lw`, `few`); SHL-group mem,1 with d16 /
+  direct, C7 [base+index+d16], JMP / CALL far through [BW], TEST / CMP AW,imm16, CVTDB (19
+  words), DI, EXT / INS r,imm4. ROM 2,763 words. No port added. **Gate**: corpus 28,127 of
+  30,536 exact (from 27,604; 524 gained, 1 lost: F33 out-cvtdb at even alignment), writes
+  106,824 / 106,824, chk silent; vectors 0 bad; 56 tests; SST; program gates as the previous
+  landing with the same timing-only lines; f4_hwd equal. **FPGA at 17 ns, seed 1: +3.529**;
+  9,505 LUT4, 2,545 FF, 108 RAM_5K; loader 3.956, useq 5.954. Builder's fast loop: small set
+  15,167 of 15,384, interrupt probes pushed 2,947 of 7,122 (from 2,702, the ALU frames), ROM
+  check 35 -> 16 mismatched encodings. Not built: SET1 / CLR1 / TEST1 / NOT1 mem,CL with a
+  displacement (next batch).
