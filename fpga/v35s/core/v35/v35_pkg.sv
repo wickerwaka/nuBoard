@@ -182,7 +182,10 @@ package v35_pkg;
     // ---- a queue pop (one byte from the word register) into a popped-byte register ----
     typedef enum logic [2:0] {
         PP_NONE = 3'd0, PP_MODRM = 3'd1, PP_IL = 3'd2, PP_IH = 3'd3, PP_DL = 3'd4, PP_DH = 3'd5,
-        PP_PORT = 3'd6      // (MX1c) the port number (into IL: no take sync, the model's port_sync)
+        PP_PORT = 3'd6,     // (MX1c) the port number (into IL: no take sync, the model's port_sync)
+        PP_RD = 3'd7        // (qprobe round 22) no byte popped: the displacement the EAC word's hold
+                            //   head popped (eas8 / eas16) released, its bytes by the EAC's ModR/M
+                            //   byte's mode (v35_loader rls)
     } v35_pop_e;
 
     // ---- the loop counter's load ----

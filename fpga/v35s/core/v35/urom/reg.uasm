@@ -81,7 +81,9 @@ routine cvtbw op=98 book="CVTBW" why="the book's 3 (qprobe rule 6: CVTBW is `N .
 ; V20 CWD 0064-0067: DW <- AW's sign
 routine cvtwl op=99 book="CVTWL" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 14, spec 10 B) CVTWL is `. . . . . . . N .` (the qprobe cvtwl runs, 24 / 24 in the model); the book's 8: a read and a write (V20 CWD), five clocks with no act"
     ra=AW wid=WORD alu=SIGNW ax=RA          ; read AW; its sign as a word (0000 / FFFF)
-    open call=w5                            ; OPEN: 6 clocks with no act (CVTWL: the book's 8 + 1, measured) (the call and the shared delay's 5)
+    open                                    ; OPEN: a word with no act
+    bi                                      ; (qprobe round 22, spec 18 B, Q102) B: CVTWL's bus-idle third word (`. . B . . . . N .`)
+    open call=w3                            ; OPEN: 4 clocks with no act (CVTWL: the book's 8 + 1, measured) (the call and the shared delay's 3)
     wr=DW wid=WORD ws=SIG e                 ; DW <- SIGMA; E
 
 ; ---- immediates (V20 ALU_ACC 0004-0007, MOV r,imm): the immediate's bytes popped one a word,

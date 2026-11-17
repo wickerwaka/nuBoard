@@ -62,7 +62,7 @@ routine xch_m diff=m00:+2,d8:+2,d16:+1,dir:+2 op=86,87 mod=mem ea=q book="XCH me
     bus=MEMR                                ; post the read (Y + 3)
     f ra=REG d1=OPRW s1=RA wr=REG ws=OPR    ; D: F: the register into the write datum (0048), the datum into the register (0049)
     open                                    ; OPEN: (qprobe round 9) a word with no act
-    open                                    ; OPEN: (qprobe round 9) a word with no act
+    bi                                      ; (qprobe round 22, spec 18 B, Q102) B Z: the word in front of the write's post is bus-idle (XCH [BW],r `P Y . . D . BZ G N .`, [d16],r `P Y . PP2 D . BZ G N .`; the other modes by the heads)
     bus=MEMW                                ; Z: post the write (004A tmpb -> M: four clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
@@ -386,7 +386,7 @@ routine test_miw op=F7 mod=mem reg=0-1 ea=bare paths=m00 why="OPEN: (qprobe roun
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
     open                                    ; OPEN: (qprobe round 10) a word with no act
     bi call=w2                              ; (qprobe round 10) B: the bus-idle third word; OPEN: two words with no act (the call and the shared delay's 2)
-    rl=x bi                                 ; (qprobe round 10) Y: the request word (the read due four clocks after it, posted three words later)
+    bi                                      ; (qprobe round 22, spec 18 B, Q102) B Y: the request word is bus-idle (`P . B . . BY DPP2 . BN .`; the other placement `P . B S . Y` scores the same: the first taken): the read posted three words later
 tmi_i: pop=il                                  ; pop the immediate's low byte (released on the datum word)
     pop=ih                                  ; pop its high byte (released on the datum word)
     bus=MEMR                                ; post the read (Y + 3)

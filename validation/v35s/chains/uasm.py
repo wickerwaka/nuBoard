@@ -58,6 +58,10 @@ The word's fields (one line of a routine is one word, one CPU clock):
                 than K clocks after the opcode's release (the decode's `lead`)
     (qprobe rule 11) a routine header's hlt=1: from its opcode's release nothing more is
                 fetched and a request posted is granted a clock later (the decode's `hlt`)
+    (qprobe round 22, spec 18 A3) a routine header's ml=1 (ModR/M memory cells only): the
+                boundary's three-byte test behind the staged opcode counts the bytes a fetch
+                delivers on its last clock (the decode's `v35_uml`, of the opcode and the ModR/M
+                byte: CALL / JMP near and far through memory)
 
 No field is a count of clocks, a class, an attribute of another instruction or of the bus
 unit; the loop counter is loaded only from CL (RB), an immediate (IL), the operand's bit count
@@ -589,7 +593,7 @@ def _releases_by_path(r: Routine, e2: int) -> bool:
         w = rr.words[k]
         if w.fields.get("rl", 0) != RL_X:
             rl += w.fields.get("rl", 0)
-        pops += 1 if w.fields.get("pop") else 0
+        pops += 1 if w.fields.get("pop") and w.fields["pop"] != PP_RD else 0
         ro += 1 if w.fields.get("ro") else 0
         if w.fields.get("e"):
             if ro != 1 or rl != pops + e2:
@@ -617,6 +621,10 @@ def _releases_by_path(r: Routine, e2: int) -> bool:
     return True
 
 
+# (qprobe round 22) pop=rd: no byte popped; the displacement a hold head popped released
+PP_RD = enum_value("v35_pop_e", "rd")
+
+
 def _releases(r: Routine) -> None:
     """(qprobe rule 3) the words' releases (`ro`, `rl`): the default unless the routine names
     them. A short transfer's displacement (the decode's e2: popped by the E word with its
@@ -624,7 +632,12 @@ def _releases(r: Routine) -> None:
     released by the loader on the first word after the dispatch (v35_loader `mra`)."""
     e2 = r.head.get("page") is None and "op" in r.head \
         and any(o in SHORT_XFER for o in _ranges(r.head["op"]))
-    pops = sum(1 for w in r.words if w.fields.get("pop"))
+    if r.head.get("hold") == "1":
+        # (qprobe round 22) a hold head (eas*): its pops released by its caller's pop=rd word
+        if any("ro" in w.fields or "rl" in w.fields or w.fields.get("pop") == PP_RD for w in r.words):
+            raise UasmError(f"{r.path}:{r.line}: {r.name}: a hold head releases nothing")
+        return
+    pops = sum(1 for w in r.words if w.fields.get("pop") and w.fields["pop"] != PP_RD)
     es = sum(1 for w in r.words if w.fields.get("e"))
     if any("ro" in w.fields or "rl" in w.fields for w in r.words):
         ro = sum(1 for w in r.words if w.fields.get("ro"))
@@ -633,6 +646,8 @@ def _releases(r: Routine) -> None:
             raise UasmError(f"{r.path}:{r.line}: {r.name}: the releases ({ro} ro, rl {rl}) are "
                             f"not the pops ({es} E, {pops + int(e2)} operand bytes)")
         return
+    if any(w.fields.get("pop") == PP_RD for w in r.words):
+        raise UasmError(f"{r.path}:{r.line}: {r.name}: pop=rd in a routine that names no release")
     for w in r.words:
         if w.fields.get("pop"):
             w.fields["rl"] = 1
@@ -669,7 +684,10 @@ EA_HEADS = {"eab0": "UROM_EAB0", "eab8": "UROM_EAB8", "eab16": "UROM_EAB16", "ea
             # (qprobe round 6) ea=q: the measured MOV r,mem / MOV mem,r heads, one per mode
             "eaq0": "UROM_EAQ0", "eaq8": "UROM_EAQ8", "eaq16": "UROM_EAQ16",
             # (qprobe round 10, approved) base + index + d16 (Q18): one word more
-            "eaq16x": "UROM_EAQ16X"}
+            "eaq16x": "UROM_EAQ16X",
+            # (qprobe round 22) the 0F page's hold heads (ea=s: the EAC word's call): two words in
+            # every mode, the displacement popped and not released (the routine's pop=rd word)
+            "eas0": "UROM_EAS0", "eas8": "UROM_EAS8", "eas16": "UROM_EAS16"}
 PATHS = ("m00", "d8", "d16", "dir")
 RPATH = "r"               # (MX3c) a 0F routine's register path (its EAC word's jump)
 # (MX2) a transfer's two paths: its condition true (taken) and false (not taken); a routine whose
@@ -695,6 +713,8 @@ def ea_head(r, path: str) -> str | None:
     book = r.head.get("ea", "book") == "book"
     if r.head.get("ea") == "q":
         return {"m00": "eaq0", "d8": "eaq8"}.get(path, "eaq16")
+    if r.head.get("ea") == "s":
+        return {"m00": "eas0", "d8": "eas8"}.get(path, "eas16")
     if path == "m00":
         return "eab0" if book else None
     if path == "d8":
@@ -739,6 +759,9 @@ def assemble(paths: list[Path] | None = None) -> Program:
     for r in routines:
         if is_mem(r) and r.head.get("ea", "book") not in ("book", "bare", "q"):
             raise UasmError(f"{r.path}:{r.line}: ea={r.head['ea']!r} (book, bare or q)")
+        # (qprobe round 22) ea=s: the 0F page's hold heads (a page routine's EAC word)
+        if r.head.get("ea") == "s" and r.head.get("page") != "0f":
+            raise UasmError(f"{r.path}:{r.line}: ea=s on a routine of no 0F page")
     words, labels = [], {}
     global _ALL
     _ALL = routines
@@ -815,6 +838,14 @@ def assemble(paths: list[Path] | None = None) -> Program:
             if leads.get(op, k) != k:
                 raise UasmError(f"{r.path}:{r.line}: opcode {op:02X} has two leads")
             leads[op] = k
+    # (qprobe round 22, spec 18 A3) ml=1 only on a ModR/M opcode's memory cells
+    for r in routines:
+        if r.head.get("ml") not in (None, "1") or (r.head.get("ml") and (
+                r.head.get("page") or not all(op in MODRM_OPS for op in _ranges(r.head.get("op", ""))))):
+            raise UasmError(f"{r.path}:{r.line}: ml={r.head['ml']} (1, a ModR/M opcode's memory cells)")
+    for r in routines:
+        if r.head.get("ml") and any(op in leads for op in _ranges(r.head.get("op", ""))):
+            raise UasmError(f"{r.path}:{r.line}: ml=1 on an opcode with a lead (the stream facts' free code)")
     # (qprobe rule 11) a routine header's hlt=1: its opcode's release stops prefetching (HALT)
     hlts = {op for r in routines if r.head.get("hlt") == "1" and "op" in r.head
             for op in _ranges(r.head["op"])}
@@ -872,8 +903,9 @@ def udec2(prog: Program, op: int, b: int) -> dict:
     if (op, b) in prog.cells2:
         r = prog.routine(prog.cells2[(op, b)])
         mem = op != 0x0F and is_mem(r) and b >> 6 != 3
-        # (MX3c) a 0F routine's EA heads (its EAC word's call) by its header, as a memory cell's
-        eab = (mem or op == 0x0F) and r.head.get("ea", "book") == "book"
+        # (MX3c) a 0F routine's EA heads (its EAC word's call) by its header, as a memory cell's;
+        # (qprobe round 22) on the 0F page the bit selects the hold heads (ea=s; else the bare)
+        eab = (mem and r.head.get("ea", "book") == "book") or (op == 0x0F and r.head.get("ea") == "s")
         eaq = mem and r.head.get("ea") == "q"       # (qprobe round 6)
         return {"entry": prog.labels[r.name], "trap": 0, "op3": op3, "ea": int(mem),
                 "eab": int(eab), "eaq": int(eaq), "w": page_w(b) if op == 0x0F else 0, "io": 0}
@@ -883,6 +915,14 @@ def udec2(prog: Program, op: int, b: int) -> dict:
                 "w": 0, "io": 0}
     return {"entry": prog.labels[TRAP2], "trap": 1, "op3": op3, "ea": 0, "eab": 0, "eaq": 0,
             "w": 0, "io": 0}
+
+
+def uml(prog: Program, op: int, b: int) -> int:
+    """(qprobe round 22, spec 18 A3) the cell's routine counts a fetch's last-clock bytes in the
+    boundary's three-byte test (header ml=1; memory cells only)."""
+    if op not in MODRM_OPS or b >> 6 == 3 or (op, b) not in prog.cells2:
+        return 0
+    return int(prog.routine(prog.cells2[(op, b)]).head.get("ml") == "1")
 
 
 def udec2_class(b: int) -> int:
@@ -996,6 +1036,18 @@ def decode_svh(prog: Program) -> str:
           "    function automatic logic [2:0] v35_umodrm(input logic [7:0] op, input logic [7:0] mb);",
           "        v35_umodrm = v35_umdsp(mb) + v35_umimm(op, mb[5:4] == 2'd0);",
           "    endfunction", "",
+          "    // (qprobe round 22, spec 18 A3) the boundary's three-byte test counts the bytes a",
+          "    // fetch delivers on its last clock (routine header ml=1)",
+          "    function automatic logic v35_uml(input logic [7:0] op, input logic [7:0] b);",
+          "        v35_uml = 1'b0;",
+          "        case (op)"]
+    for op in sorted(MODRM_OPS):
+        bs = [b for b in range(256) if uml(prog, op, b)]
+        if bs:
+            L += [f"            8'h{op:02X}: case (b)",
+                  f"                {', '.join(f"8'h{x:02X}" for x in bs)}: v35_uml = 1'b1;",
+                  "                default: v35_uml = 1'b0;", "            endcase"]
+    L += ["            default: v35_uml = 1'b0;", "        endcase", "    endfunction", "",
           "    function automatic logic [2:0] v35_upage(input logic [7:0] b);",
           "        case (b)"]
     by = {}

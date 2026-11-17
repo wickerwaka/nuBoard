@@ -260,7 +260,7 @@ routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=1 why="OPEN: sili
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- BR [m] (FF /4 memory): V20 FE/FF 01C4 with the operand's pre-read (M -> PC E FLUSH)
-routine br_mem_d op=FF mod=m00 rm=6 reg=4 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) JMP [d16] is `P PP2 B Y D . . F N .` (the qprobe tr-jmpm runs): the displacement popped and released on the second word, bus-idle, Y, the pointer's read, Q21's flush tail"
+routine br_mem_d op=FF ml=1 mod=m00 rm=6 reg=4 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) JMP [d16] is `P PP2 B Y D . . F N .` (the qprobe tr-jmpm runs): the displacement popped and released on the second word, bus-idle, Y, the pointer's read, Q21's flush tail"
     pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
     pop=dh                                  ; pop its high byte (released two words after Y: (qprobe round 16, Q65))
     ea=DISP bi                              ; the address register <- the direct address; B: bus-idle
@@ -273,7 +273,7 @@ routine br_mem_d op=FF mod=m00 rm=6 reg=4 why="OPEN: (qprobe round 16, Q65: the 
     flush bi                                ; FLUSH: the stream from the target (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine br_mem op=FF mod=mem reg=4 ea=bare paths=m00,d8,d16 book="BR memptr16" diff=m00:-3,d8:-2,d16:-2 why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below), silicon longer than the book on its other paths; the base / index modes (not probed: the direct form is br_mem_d's): JMP [d16]'s routine behind the bare heads"
+routine br_mem op=FF ml=1 mod=mem reg=4 ea=bare paths=d8,d16 book="BR memptr16" diff=d8:-2,d16:-2 why="(qprobe round 22: the modes without a displacement are br_mem_m0) OPEN: book error where the measured routine is shorter than the book (the qprobe shape below), silicon longer than the book on its other paths; the base / index modes (not probed: the direct form is br_mem_d's): JMP [d16]'s routine behind the bare heads"
     ea=BI ra=BASE rb=INDEX bi               ; the EA: base + index + displacement; B
     rl=x bi                                 ; Y: the request word
     open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
@@ -283,8 +283,20 @@ routine br_mem op=FF mod=mem reg=4 ea=bare paths=m00,d8,d16 book="BR memptr16" d
     flush bi                                ; FLUSH: the stream from the target (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
+routine br_mem_m0 op=FF ml=1 mod=m00 rm=0-5,7 reg=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 22, spec 18 A3, Q104) JMP near [BW] is `P . B Y D . . F N .` at both alignments with the boundary's three-byte test counting a fetch's last-clock bytes (the qprobe QPr21f-t-jmpmbw and QPr12a-tr-jmpm runs; spec 17 C's first item); the other modes without a displacement by analogy; the displacement modes keep br_mem"
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index (the ModR/M byte released by the loader: P)
+    open                                    ; OPEN: (qprobe round 22, spec 18 A3, Q104) a word with no act
+    bi                                      ; (qprobe round 22, spec 18 A3, Q104) B: the bus-idle third word
+    rl=x bi                                 ; Y: the request word (the fourth)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR wid=WORD                       ; post the pointer's read (Y + 3)
+    f alu=PASS ax=OPR                       ; D: F: the pointer (the target) into SIGMA
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    flush bi                                ; FLUSH: the stream from the target (bus-idle)
+    e ro                                    ; E: the target's opcode, once delivered
+
 ; ---- CALL [m] (FF /2 memory): V20 FE/FF 01BC-01BF with the operand's pre-read
-routine call_mem_d op=FF mod=m00 rm=6 reg=2 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) CALL [d16] is `P PP2 B Y D . . . Z D . . F N .` (the qprobe tr-callm runs): JMP [d16]'s head, the push four words after the datum, Q21's flush tail"
+routine call_mem_d op=FF ml=1 mod=m00 rm=6 reg=2 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) CALL [d16] is `P PP2 B Y D . . . Z D . . F N .` (the qprobe tr-callm runs): JMP [d16]'s head, the push four words after the datum, Q21's flush tail"
     pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
     pop=dh                                  ; pop its high byte (released two words after Y: (qprobe round 16, Q65))
     ea=DISP bi                              ; the address register <- the direct address; B: bus-idle
@@ -302,9 +314,26 @@ routine call_mem_d op=FF mod=m00 rm=6 reg=2 why="OPEN: (qprobe round 16, Q65: th
     flush bi                                ; FLUSH: the stream from the target (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine call_mem op=FF mod=mem reg=2 ea=bare paths=m00,d8,d16 book="CALL memptr16" diff=m00:-2,d8:-1,d16:-1 why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below), silicon longer than the book on its other paths; the base / index modes (not probed: the direct form is call_mem_d's): CALL [d16]'s routine behind the bare heads"
+routine call_mem op=FF ml=1 mod=mem reg=2 ea=bare paths=d8,d16 book="CALL memptr16" diff=d8:-1,d16:-1 why="(qprobe round 22: the modes without a displacement are call_mem_m0) OPEN: book error where the measured routine is shorter than the book (the qprobe shape below), silicon longer than the book on its other paths; the base / index modes (not probed: the direct form is call_mem_d's): CALL [d16]'s routine behind the bare heads"
     ea=BI ra=BASE rb=INDEX bi               ; the EA: base + index + displacement; B
     rl=x bi                                 ; Y: the request word
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR wid=WORD                       ; post the pointer's read (Y + 3)
+    f d1=TA s1=OPR                          ; D: F: the pointer (the target) into tmpa
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC   ; SP <- SP - 2; the address; the return address into the write datum
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; Z: post the push at SS:SP
+    f alu=PASS ax=TA                        ; D: F: the push's end; the target into SIGMA
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    flush bi                                ; FLUSH: the stream from the target (bus-idle)
+    e ro                                    ; E: the target's opcode, once delivered
+
+routine call_mem_m0 op=FF ml=1 mod=m00 rm=0-5,7 reg=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 22, spec 18 A3, Q104) CALL near [BW] is `P . B Y D . . . Z D . . F N .` at both alignments with the boundary's three-byte test counting a fetch's last-clock bytes (the qprobe QPr21f-t-callmbw and QPr12a-tr-callm runs; spec 17 C's first item); the other modes without a displacement by analogy; the displacement modes keep call_mem"
+    ea=BI ra=BASE rb=INDEX                  ; the EA: base + index (the ModR/M byte released by the loader: P)
+    open                                    ; OPEN: (qprobe round 22, spec 18 A3, Q104) a word with no act
+    bi                                      ; (qprobe round 22, spec 18 A3, Q104) B: the bus-idle third word
+    rl=x bi                                 ; Y: the request word (the fourth)
     open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
     bus=MEMR wid=WORD                       ; post the pointer's read (Y + 3)
     f d1=TA s1=OPR                          ; D: F: the pointer (the target) into tmpa
@@ -318,7 +347,7 @@ routine call_mem op=FF mod=mem reg=2 ea=bare paths=m00,d8,d16 book="CALL memptr1
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- BR far [m] (FF /5 memory): V20 FE/FF 01C8-01CB (OPR -> tmpb, INC2, SUSP MEMR, OPR -> CS, FLUSH E)
-routine br_far_mem_d op=FF mod=m00 rm=6 reg=5 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) JMP far [d16] is `P . B . Y PP2 D . U D . . F N .` (the qprobe jfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); the offset's read, the segment's (U), Q21's flush tail"
+routine br_far_mem_d op=FF ml=1 mod=m00 rm=6 reg=5 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) JMP far [d16] is `P . B . Y PP2 D . U D . . F N .` (the qprobe jfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); the offset's read, the segment's (U), Q21's flush tail"
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act (the ModR/M byte released by the loader: P)
     pop=dl                                  ; pop the direct address's low byte
     pop=dh bi                               ; pop its high byte; (qprobe round 13, Q44) B: bus-idle (the third word)
@@ -336,7 +365,7 @@ routine br_far_mem_d op=FF mod=m00 rm=6 reg=5 why="OPEN: silicon longer than the
     flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine call_far_mem_d op=FF mod=m00 rm=6 reg=3 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) CALL far [d16] is `P . B . Y PP2 D . U D . . . Z D . . . Z D . . F N .` (the qprobe cfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); JMP far [d16]'s reads, the pushes of PS and PC (Z four words after each datum), Q21's flush tail"
+routine call_far_mem_d op=FF ml=1 mod=m00 rm=6 reg=3 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) CALL far [d16] is `P . B . Y PP2 D . U D . . . Z D . . . Z D . . F N .` (the qprobe cfm runs, 12 / 12): the direct address popped and released by the routine itself (no EA head: a mod 00 rm 6 cell of FF, already a whole opcode); JMP far [d16]'s reads, the pushes of PS and PC (Z four words after each datum), Q21's flush tail"
     open                                    ; OPEN: (qprobe round 13, Q44) a word with no act (the ModR/M byte released by the loader: P)
     pop=dl                                  ; pop the direct address's low byte
     pop=dh bi                               ; pop its high byte; (qprobe round 13, Q44) B: bus-idle (the third word)
@@ -364,7 +393,7 @@ routine call_far_mem_d op=FF mod=m00 rm=6 reg=3 why="OPEN: silicon longer than t
     flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine br_far_mem op=FF mod=mem reg=5 ea=bare paths=m00 book="BR memptr32" diff=m00:-1 why="OPEN: book error of one where the measured routine is shorter; silicon longer than the book (measured, the extra words OPEN): (qprobe round 21, spec 17 B, Q98) JMP far [BW] is `P . B Y D . U D . . F N .` (the qprobe jfmb runs, QPr21f / r20b: the model's 10 / 12, W = 1 and 2 all): JMP far [d16]'s routine without the displacement's pops and release (`P . B . Y PP2 D . U D . . F N .`): the add (the ModR/M byte released by the loader: P), a word, B, Y, the offset's read (Y + 3), F, the segment's address, U's word, U: the segment's read, F with PS, two words, FLUSH (bus-idle), E; the other registers without a displacement by analogy"
+routine br_far_mem op=FF ml=1 mod=mem reg=5 ea=bare paths=m00 book="BR memptr32" diff=m00:-1 why="OPEN: book error of one where the measured routine is shorter; silicon longer than the book (measured, the extra words OPEN): (qprobe round 21, spec 17 B, Q98) JMP far [BW] is `P . B Y D . U D . . F N .` (the qprobe jfmb runs, QPr21f / r20b: the model's 10 / 12, W = 1 and 2 all): JMP far [d16]'s routine without the displacement's pops and release (`P . B . Y PP2 D . U D . . F N .`): the add (the ModR/M byte released by the loader: P), a word, B, Y, the offset's read (Y + 3), F, the segment's address, U's word, U: the segment's read, F with PS, two words, FLUSH (bus-idle), E; the other registers without a displacement by analogy"
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index into the address register (the ModR/M byte released by the loader: P)
     open                                    ; OPEN: (qprobe round 21) a word with no act
     bi                                      ; (qprobe round 21) B: bus-idle (the third word)
@@ -381,7 +410,7 @@ routine br_far_mem op=FF mod=mem reg=5 ea=bare paths=m00 book="BR memptr32" diff
     flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine br_far_mem_d8 op=FF mod=m01 reg=5 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pop, then the routine) OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
+routine br_far_mem_d8 op=FF ml=1 mod=m01 reg=5 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pop, then the routine) OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
     pop=dl rl=1                             ; pop the displacement byte (as the bare head: released by its pop)
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open call=w1                            ; OPEN: a book clock with no act (BR memptr32) (2 clocks: the call and the shared delay's 1)
@@ -395,7 +424,7 @@ routine br_far_mem_d8 op=FF mod=m01 reg=5 why="(qprobe round 21: the displacemen
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e ro                                    ; E: the target's opcode, once the refill's run has ended
 
-routine br_far_mem_d16 op=FF mod=m10 reg=5 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pops, then the routine) OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
+routine br_far_mem_d16 op=FF ml=1 mod=m10 reg=5 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pops, then the routine) OPEN: silicon longer than the book (F37-push-farm-brfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, the flush eight clocks after the second datum, S+26; the fetch requests held from S+16); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F: PS with the target and SUSP, seven more, FLUSH, E"
     pop=dl rl=1                             ; pop the displacement's low byte (as the bare head: released by its pop)
     pop=dh rl=1                             ; pop its high byte
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
@@ -411,7 +440,7 @@ routine br_far_mem_d16 op=FF mod=m10 reg=5 why="(qprobe round 21: the displaceme
     e ro                                    ; E: the target's opcode, once the refill's run has ended
 
 ; ---- CALL far [m] (FF /3 memory): V20 FE/FF 01C0-01C3 + CALLF
-routine call_far_mem op=FF mod=mem reg=3 ea=bare paths=m00 book="CALL memptr32" diff=m00:8 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 21, spec 17 B, Q98) CALL far [BW] is `P . B Y D . U D . . . Z D . . . Z D . . F N .` (the qprobe cfmb runs, QPr21f / r20b: the model's 10 / 12, W = 1 and 2 all): CALL far [d16]'s routine without the displacement's pops and release: the add (P), a word, B, Y, the offset's read (Y + 3), F, the segment's address, U's word, U: the segment's read, F, the two pushes five words apart, F, PS with the target, a word, FLUSH (bus-idle), E; the other registers without a displacement by analogy"
+routine call_far_mem op=FF ml=1 mod=mem reg=3 ea=bare paths=m00 book="CALL memptr32" diff=m00:8 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 21, spec 17 B, Q98) CALL far [BW] is `P . B Y D . U D . . . Z D . . . Z D . . F N .` (the qprobe cfmb runs, QPr21f / r20b: the model's 10 / 12, W = 1 and 2 all): CALL far [d16]'s routine without the displacement's pops and release: the add (P), a word, B, Y, the offset's read (Y + 3), F, the segment's address, U's word, U: the segment's read, F, the two pushes five words apart, F, PS with the target, a word, FLUSH (bus-idle), E; the other registers without a displacement by analogy"
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index into the address register (the ModR/M byte released by the loader: P)
     open                                    ; OPEN: (qprobe round 21) a word with no act
     bi                                      ; (qprobe round 21) B: bus-idle (the third word)
@@ -438,7 +467,7 @@ routine call_far_mem op=FF mod=mem reg=3 ea=bare paths=m00 book="CALL memptr32" 
     flush bi                                ; FLUSH: the stream from the offset in the new PS (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
-routine call_far_mem_d8 op=FF mod=m01 reg=3 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pop, then the routine) OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
+routine call_far_mem_d8 op=FF ml=1 mod=m01 reg=3 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pop, then the routine) OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
     pop=dl rl=1                             ; pop the displacement byte (as the bare head: released by its pop)
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation
     open call=w1                            ; OPEN: a book clock with no act (CALL memptr32) (2 clocks: the call and the shared delay's 1)
@@ -462,7 +491,7 @@ routine call_far_mem_d8 op=FF mod=m01 reg=3 why="(qprobe round 21: the displacem
     flush                                   ; FLUSH: the stream from the offset in the new PS
     e ro                                    ; E: the target's opcode, once the refill's run has ended
 
-routine call_far_mem_d16 op=FF mod=m10 reg=3 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pops, then the routine) OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
+routine call_far_mem_d16 op=FF ml=1 mod=m10 reg=3 why="(qprobe round 21: the displacement modes as cells of their own, the round-8 path kept: the pops, then the routine) OPEN: silicon longer than the book (F37-push-farm-callfm-n0-pE-w0: the frozen model's reads issued at S+8 and S+15, PS pushed at S+24 and PC at S+33, the flush eight clocks after the second write's end, S+44); the add with the reservation, two book clocks with no act, the offset's read (S+7), F with the next address's add, the address, one more, the segment's read (S+14), F into tmpc with SUSP, SP - 2, SP and the address with PS, two more, the first push (S+23), F with SP - 2, SP and the address with PC, three more, the second push (S+32), F, PS and the target, six more, FLUSH, E"
     pop=dl rl=1                             ; pop the displacement's low byte (as the bare head: released by its pop)
     pop=dh rl=1                             ; pop its high byte
     ea=BI ra=BASE rb=INDEX                  ; the EA: base + index + displacement; the reservation

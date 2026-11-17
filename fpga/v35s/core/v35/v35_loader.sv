@@ -186,7 +186,7 @@ module v35_loader
     end
 
     // ------------------------------------------------------------ tick A
-    wire       wants_op = pop != PP_NONE;
+    wire       wants_op = pop != PP_NONE && pop != PP_RD;     // (PP_RD pops nothing)
     // (MX0b) the byte source the pops take from: the queue's window (`avail`), (MX1d) a
     // delivered word's bytes usable on its delivery clock (the frozen model's
     // queue.arrive(addr, t, t): usable <= t)
@@ -280,11 +280,14 @@ module v35_loader
         hd_f.umr_o = {1'b0, t.dsp} + (t.r01 ? imo[5:3] : imo[2:0]);
         hd_f.upg = {1'b0, t.upg};
         hd_f.ecr = b[7:6] == 2'd3;
+        // (qprobe round 22) the EAC word's two head sets by the cell's eab: the bare heads (ea8 /
+        // ead: the pops, each releasing its byte; mod 00 enters the add) or the hold heads (eas0 /
+        // eas8 / eas16, ea=s: two words in every mode, the displacement popped and not released,
+        // released later by the routine's PP_RD word). The book's heads are no EAC head
         hd_f.ecc = !hd_f.ecr && (b[7:6] != 2'd0 || t.edir || eab);
-        hd_f.ech = b[7:6] == 2'd1 ? (eab ? UROM_EAB8 : UROM_EA8)
-                 : (b[7:6] == 2'd2 && eab) ? UROM_EAB16
-                 : (b[7:6] == 2'd2 || t.edir) ? UROM_EAD
-                 : UROM_EAB0;
+        hd_f.ech = b[7:6] == 2'd1 ? (eab ? UROM_EAS8 : UROM_EA8)
+                 : (b[7:6] == 2'd2 || t.edir) ? (eab ? UROM_EAS16 : UROM_EAD)
+                 : UROM_EAS0;
         hd_f.z = z1_f(hd_f.umr_s, hd_f.umr_o, hd_f.upg);
     endfunction
 `ifndef SYNTHESIS
@@ -297,10 +300,9 @@ module v35_loader
         edir = b[7:6] == 2'd0 && b[2:0] == 3'd6;
         hd_ref.ecr = b[7:6] == 2'd3;
         hd_ref.ecc = !hd_ref.ecr && (b[7:6] != 2'd0 || edir || eab);
-        hd_ref.ech = b[7:6] == 2'd1 ? (eab ? UROM_EAB8 : UROM_EA8)
-                   : (b[7:6] == 2'd2 && eab) ? UROM_EAB16
-                   : (b[7:6] == 2'd2 || edir) ? UROM_EAD
-                   : UROM_EAB0;
+        hd_ref.ech = b[7:6] == 2'd1 ? (eab ? UROM_EAS8 : UROM_EA8)
+                   : (b[7:6] == 2'd2 || edir) ? (eab ? UROM_EAS16 : UROM_EAD)
+                   : UROM_EAS0;
         hd_ref.z = z1_f(hd_ref.umr_s, hd_ref.umr_o, hd_ref.upg);
     endfunction
 `endif
@@ -639,7 +641,13 @@ module v35_loader
     reg        hp = 1'b0;
     wire       hrel = ex && ro && s_v && ds.hlt;
     // (rl=X: a request word, no byte released)
-    assign rls = !ex ? 3'd0 : {2'd0, ro} + ((rl == RL_X) ? 3'd0 : {1'd0, rl}) + {2'd0, mra};
+    // (qprobe round 22, the round-21 decision 1) a PP_RD word releases the displacement the EAC
+    // word's hold head popped and did not release (SET1 / CLR1 / TEST1 / NOT1 mem,CL: released
+    // two words behind the request word): its bytes by the mode of the ModR/M byte the EAC word
+    // popped (the modrm register): mod 01 one, mod 10 and the direct form two, else none
+    wire [1:0] rdc = pop != PP_RD ? 2'd0 : modrm[7:6] == 2'd1 ? 2'd1
+                   : (modrm[7:6] == 2'd2 || (modrm[7:6] == 2'd0 && modrm[2:0] == 3'd6)) ? 2'd2 : 2'd0;
+    assign rls = !ex ? 3'd0 : {2'd0, ro} + ((rl == RL_X) ? 3'd0 : {1'd0, rl}) + {2'd0, mra} + {1'b0, rdc};
     wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : mpm;
     wire       mra_nx = flush_b ? 1'b0 : disp_b ? mpm : ex_lb ? 1'b0 : mra;
     wire [2:0] lc_nx = ro_b ? 3'd1 : lc == 3'd4 ? 3'd4 : lc + 3'd1;
@@ -658,13 +666,19 @@ module v35_loader
     wire [2:0] av_nx = av_w_nx > 4'd7 ? 3'd7 : av_w_nx[2:0];
     wire [1:0] sn_nx = sn_f(av_nx);
     // (consol) the stream facts for the next clock's boundary (the bus unit's pace)
-    assign sf_nx.ld = lc_nx < {1'b0, d1_nx.lead};                      // (qprobe rule 12)
-    assign sf_nx.le = d1_nx.lead != 2'd0 && lc_nx == {1'b0, d1_nx.lead};    // (round 6, E)
+    // (qprobe round 22, spec 18 A3) the opcode and its ModR/M byte (the E word popped both) whose
+    // boundary waits for three bytes behind it counting the bytes a fetch delivers on its last
+    // clock (CALL / JMP near and far through memory: the decode's v35_uml; the FF group's own m3
+    // is 0), presented on the stream facts' free code: ld and le both (never otherwise: le is
+    // the count at the lead, ld below it; the uml opcodes have no lead, uasm)
+    wire       ml_nx = d1_nx.has_modrm && v35_uml(op_nx, mp_nx);
+    assign sf_nx.ld = lc_nx < {1'b0, d1_nx.lead} || ml_nx;             // (qprobe rule 12)
+    assign sf_nx.le = (d1_nx.lead != 2'd0 && lc_nx == {1'b0, d1_nx.lead}) || ml_nx;    // (round 6, E)
     assign sf_nx.m3 = d1_nx.m3;     // (rules 4c, 4d; qprobe round 8, Q20: the decode's m3, not FE / F7)
     assign sf_nx.hp = hp_nx;                                            // (rule 11)
     assign sf_nx.hc = ro_nx && s_v_nx && ds_nx.hlt;     // (rule 11: hrel on the next clock, but ex)
     wire       ds2_nx = (ds_nx.has_modrm || ds_nx.e2 || (ds_nx.pg && !ds_nx.rp)) && !e_rep_nx;
-    assign q_stall_nx = (pop_nx != PP_NONE && sn_nx == 2'd0)
+    assign q_stall_nx = (pop_nx != PP_NONE && pop_nx != PP_RD && sn_nx == 2'd0)
                         || (e_pop_nx && (!s_v_nx || (ds2_nx && sn_nx == 2'd0)))
                         || (ro_nx && !s_v_nx && !w_disp_nx);
     // (MX5) the values op and mp load at ce_a (the dispatch facts' register reads them)
@@ -693,7 +707,7 @@ module v35_loader
     v35_lin_t  lx;
     always_comb begin
         lx = '0;                        // (the head byte's lookups: not read by lrg_f's fields)
-        lx.wants_op = pop_nx != PP_NONE;
+        lx.wants_op = pop_nx != PP_NONE && pop_nx != PP_RD;
         lx.e_pop = e_pop_nx;
         lx.dispm = dispm_nx;
         lx.d1hm = d1_nx.has_modrm;

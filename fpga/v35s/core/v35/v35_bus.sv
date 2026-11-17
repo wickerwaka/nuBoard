@@ -558,12 +558,20 @@ module v35_bus
     // (rules 4c, 4d, EMIN; rule 11) the boundary waits for the stream: the count below 3 for the
     // first boundary of a stream or a ModR/M opcode's, below 2 for any; not for bytes that will
     // not come (HALT released)
-    wire        ews = ((lv.lt3 && (aft_n || sf_nx.m3)) || lv.lt2) && !sf_nx.hp;
+    // (qprobe round 22, spec 18 A3, Q104) the stream facts' free code ld and le both (`sml`): the
+    // staged instruction (CALL / JMP near and far through memory: the FF group's m3 is 0, Q44)
+    // waits for three bytes behind it, counting the bytes a fetch delivers on its last clock; with
+    // one byte or more arriving and the count below 2 already a wait (lt2), that is the three-byte
+    // term dropped on a fetch's last clock (fb_nx && fl_n: the next clock is a fetch's last)
+    wire        sml = sf_nx.ld && sf_nx.le;
+    wire        sld = sf_nx.ld && !sf_nx.le;
+    wire        sle = sf_nx.le && !sf_nx.ld;
+    wire        ews = ((lv.lt3 && (aft_n || sf_nx.m3 || (sml && !(fb_nx && fl_n)))) || lv.lt2) && !sf_nx.hp;
     // (rules 4, 7, 12; round 6 D, E) the boundary: a cycle started earlier running, not on its
     // last clock; a back-to-back fetch starting (no EU request to win the bus) unless the lead
     // ends then (LEAD_EPRI: the give-way instead); the stream short; the lead short; a memory
     // request posted and not granted (E_PEND)
-    wire        bnd_w = cb_nx || (lv.b4 && !eu_rq_nx && !sf_nx.le) || ews || sf_nx.ld || rqm_nx;
+    wire        bnd_w = cb_nx || (lv.b4 && !eu_rq_nx && !sle) || ews || sld || rqm_nx;
     // (round 6, A, B, C) the bus waits by the word's kind: B (bi) a fetch's pin cycle started
     // earlier (its last clock included), S (rl=x) the slot, Y (both) a fetch with two clocks or
     // more left
@@ -608,7 +616,7 @@ module v35_bus
             dst <= wkd && !ex;
             b4r <= lv.b4;
             rqvr <= eu_rq_nx;
-            ler <= sf_nx.le;
+            ler <= sle;
             hpr <= sf_nx.hp;
             hcr <= sf_nx.hc;
         end

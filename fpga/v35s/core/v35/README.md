@@ -8183,3 +8183,39 @@ Q95-Q99). Inside the existing ports (test_v35_struct unchanged).
   two / three words behind it.
 - **Not built:** SET1 / CLR1 / TEST1 / NOT1 mem,CL with a displacement (the release behind the
   request needs a mode-dependent release after the EAC head; see the hand-back).
+
+## qprobe round 22: the missing bus-idle words, the FF memory forms' three-byte test, the 0F page's hold heads
+
+Work order 18 (B, A3; A1 / A2 not built: designs in the hand-back) and the round-21 builder's
+decision 1 (validation/v35s/qprobe/RESULTS.md Q100-Q107). Inside the existing ports
+(test_v35_struct unchanged).
+
+- **The missing bus-idle words (spec 18 B, Q102).** MULU / MUL / DIVU / DIV r8 / r16: a second
+  bus-idle word, the fifth (`P . B . B`), the loop a word later and the delay behind it two words
+  shorter (the lengths unchanged); CVTWL `. . B . . . . N .`; ADJ4A / ADJ4S `. . . B . . . . N .`;
+  LODS `. . B . Y DN .`; IN AL / AW,DW `. . BX DN .` (the request word bus-idle: `bi` with the I/O
+  read posted three words later, as BY's read is); TEST word [mem],imm16 (mod 00) `P . B . . BY
+  DPP2 . BN .`; XCH mem,r `... D . BZ G N .` (the word in front of the write's post bus-idle, every
+  mode by the heads); REP INM / OUTM with CW = 0 `. . . . B . . . . . . N .` (`rz_iox`: one word in
+  front of rep_z's). Where the spec names two placements scoring the same, the first is built.
+- **The FF memory forms' three-byte test (spec 18 A3, Q104).** CALL / JMP near and far through
+  memory (FF /2 /3 /4 /5, every memory mode; header `ml=1`, the decode's `v35_uml` of the opcode
+  and the ModR/M byte) wait at their boundary for three bytes behind the staged opcode (the FF
+  group's own m3 stays 0: Q44's register forms), the bytes a fetch delivers on its last clock
+  counted: as the count below 2 already waits, the three-byte term is dropped on a fetch's last
+  clock (v35_bus `ews`: `sml && !(fb_nx && fl_n)`). The loader presents the cell on the stream
+  facts' free code (sf_nx ld and le both; never otherwise: le is the count at the lead, ld below
+  it, and the uml opcodes have no lead, uasm). JMP / CALL near without a displacement
+  (`br_mem_m0`, `call_mem_m0`, m00 cells) are `P . B Y D . . F N .` / `P . B Y D . . . Z D ...` at
+  both alignments (spec 17 C's first item); their displacement modes keep br_mem / call_mem.
+- **The 0F page's hold heads (the round-21 decision 1; model_m S1M_D8 / S1M_D16, C1M_ / T1M_).**
+  TEST1 / CLR1 / SET1 / NOT1 mem,CL with a displacement are as long as mod 00, the displacement
+  released two words behind the request word (`P . BP . . C Y . P D ...`). ea=s (the 0F cell's eab
+  bit, which on the page now selects the EAC word's head set: the bare heads or the hold heads; no
+  page routine used the book heads through EAC): eas0 / eas8 / eas16, two words in every mode, the
+  displacement popped and not released. The routines pop the ModR/M byte on the bus-idle third
+  word (the EAC word, `P . BP`), call the head, then C, Y, the add, and `pop=rd` (v35_pop_e PP_RD,
+  the enum's free value: no byte popped; v35_loader adds the displacement's bytes by the EAC
+  ModR/M byte's mode to the word's releases, `rdc`). The register paths keep their shapes.
+- **Not built:** spec 18 A1 and A2 (outcome rules, awaiting the user's ruling: the designs are in
+  the hand-back), spec 18 C / D, interrupts.

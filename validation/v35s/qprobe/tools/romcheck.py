@@ -155,6 +155,9 @@ def dispatch_head(r, m):
 
 def eac_head(r, m):
     """The 0F page's EAC word's call (v35_loader.sv's `ech` / `ecc`), or None (go on)."""
+    if r.head.get("ea") == "s":      # (r22 builder's scratch patch) the hold heads
+        md, mdir = m >> 6, (m >> 6) == 0 and (m & 7) == 6
+        return "eas8" if md == 1 else "eas16" if md == 2 or mdir else "eas0"
     eab = r.head.get("ea", "book") == "book"
     md, mdir = m >> 6, (m >> 6) == 0 and (m & 7) == 6
     if not (md != 0 or mdir or eab):
@@ -291,6 +294,8 @@ def rom_acts(code: bytes, cl: int, taken: bool):
         rl = f.get("rl", 0)
         if rl in (1, 2):
             rel[i] += rl
+        if f.get("pop") == getattr(U, "PP_RD", -1) and getattr(U, "PP_RD", None) is not None:
+            rel[i] += U.disp_bytes(code[2]) if op == 0x0F else U.disp_bytes(code[1])
         alt = bool(f.get("vk"))
         if rl == RLX:
             wait[i] = ("V" if alt else "Y") if f.get("bi") else ("A" if alt else "X")
@@ -568,8 +573,9 @@ def check_one(item):
         if ml != rl:
             d.append(f"lead model {ml} ROM {rl}")
         mm3 = bool(mk[2])
-        if mm3 != bool(f1.get("m3")):
-            d.append(f"three-bytes wait model {int(mm3)} ROM {f1.get('m3')}")
+        rm3 = bool(f1.get("m3")) or (len(code) > 1 and hasattr(U, "uml") and bool(U.uml(PROG, op, code[1])))
+        if mm3 != rm3:
+            d.append(f"three-bytes wait model {int(mm3)} ROM {int(rm3)}")
     row["decode"] = d
     # the sim check
     tot = dif = err = 0

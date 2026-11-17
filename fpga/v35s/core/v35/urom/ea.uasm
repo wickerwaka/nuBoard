@@ -74,3 +74,20 @@ routine eaq16x
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
     rl=2 ret                                ; both displacement bytes released; return to the routine (the post)
 
+
+; (qprobe round 22, the round-21 builder's decision 1) ea=s: the 0F page's hold heads, the EAC
+; word's call for TEST1 / CLR1 / SET1 / NOT1 mem,CL (spec 17 B2 / validation/v35s/qprobe/model_m.py
+; S1M_D8 / S1M_D16, the qprobe s1md8 / s1md16 / s1mdir runs): two words in every mode (mod 00
+; too), the displacement popped and not released (the routine's pop=rd word releases it, two
+; words behind the request word: `P . BP . . C Y . P DZ ...`); no register read, no post
+routine eas0 hold=1
+    open                                    ; OPEN: (qprobe round 22) no displacement: a word with no act
+    open ret                                ; OPEN: (qprobe round 22) a word with no act; return to the routine
+
+routine eas8 hold=1
+    pop=dl                                  ; pop the displacement byte (held: not released)
+    open ret                                ; OPEN: (qprobe round 22) a word with no act; return to the routine
+
+routine eas16 hold=1
+    pop=dl                                  ; pop the displacement's (the direct address's) low byte (held)
+    pop=dh ret                              ; pop its high byte (held); return to the routine

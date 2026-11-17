@@ -128,7 +128,9 @@ routine stm op=AA,AB book="STM" diff=2 why="OPEN: silicon longer than the book (
 
 routine ldm op=AC,AD book="LDM" diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) LDM is `. . . . Y DN .` (the qprobe ldmb / ldmw runs): the source's address, three words with no act, Y (the request word: the read due four clocks after it), IX stepped under the wait, the read's post, F with E (D N)"
     ra=IX wid=WORD d1=ADDR s1=RA            ; the source's address IX
-    open call=w2                            ; OPEN: (qprobe round 11) three words with no act (the call and the shared delay's 2)
+    open                                    ; OPEN: (qprobe round 11) a word with no act
+    bi                                      ; (qprobe round 22, spec 18 B, Q102) B: LODS's bus-idle third word (`. . B . Y DN .`)
+    open                                    ; OPEN: (qprobe round 11) a word with no act
     rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
     ra=IX wid=WORD alu=STEP ax=RA           ; SIGMA = IX + the width
     wr=IX ws=SIG wid=WORD                   ; IX stepped
@@ -185,6 +187,7 @@ routine outm op=6E,6F bookx="19+2W" diff=2 why="OPEN: silicon longer than the bo
 ; element done: its cycles, the index steps, CW written, the count's test), so an interrupt is
 ; taken between elements only (F5e). CW = 0: rep_z, `. . . B . . . . . . N .`.
 routine rep_z why="OPEN: a REP form with CW = 0 (no element): c4 on, E at c17 (the memory forms), c18 (INM / OUTM: the port's word first); the frozen model's zexit (F24-out-r-rep-*-n0-pE-w0 S-to-S 17 / 18); (qprobe round 11) Q35's `. . . B . . . . . . N .` from c4 was built and lost ten round-9 runs (r*0 at pO, W = 2: the prefix's boundary waits, not made here): kept as it was"
+rz_iox: open                                ; OPEN: (qprobe round 22, spec 18 B, Q102) REP INM / OUTM with CW = 0 is `. . . . B . . . . . . N .` (12 words, the bus-idle fifth; QPr21f r{inm,outm}w0): c6, one word more in front of the bus-idle word
 rz_io: open                                 ; OPEN: (qprobe round 12, spec 7 A3) CW = 0 is `. . . B . . . . . . N .` behind the prefix (every form; the qprobe r*0 runs): c6, a word with no act
 rz_m: bi call=w6                            ; B: the bus-idle fourth word (c7); OPEN: c8 .. c13 (the call and the shared delay's 6)
     e ro                                    ; E: pop the next opcode (c14); ro: released
@@ -244,7 +247,7 @@ rld_b: ra=IX wid=WORD alu=STEP ax=RA        ; Y + 1: SIGMA = IX + the width
 
 routine rep_inm op=6C,6D page=rep bookx="2+18+(13+2W)n" n=4 diff=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP INM: the head (14 words, B the fifth), the iteration `X D Z D` (14 + the cycles' waits), the tail `. . . . . . . N .` (the qprobe r11c runs; F24-out-r-rep-inm-w-n2-pE-w0)"
     ra=CW rb=DW wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the port DW into the address register
-    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z)
+    jnc=SNZ:rz_iox                           ; c5: CW = 0: no element (rep_z)
     open call=w1                            ; OPEN: c6 c7 (the call and the shared delay's 1)
     bi call=w9                              ; B: the head's bus-idle fifth word (c8); OPEN: c9 .. c17 (the call and the shared delay's 9)
     rl=x jmp=rin_b                          ; X: the first element's I/O request word (c18: the slot)
@@ -261,7 +264,7 @@ rin_b: ra=IY wid=WORD d1=TC s1=RA alu=STEP ax=RA ; X + 1: the destination's addr
 
 routine rep_outm op=6E,6F page=rep bookx="2+18+(13+2W)n" n=4 diff=9 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP OUTM: the head (15 words, B the fifth), the iteration `Y D X . . . . .`, the last `Y D . X . . . . .`, the tail `. . . . . . . N .` (the qprobe r11c runs; F24-out-r-rep-outm-w-n2-pE-w0)"
     ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the first source address IX
-    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z)
+    jnc=SNZ:rz_iox                           ; c5: CW = 0: no element (rep_z)
     open call=w1                            ; OPEN: c6 c7 (the call and the shared delay's 1)
     bi call=w10                             ; B: the head's bus-idle fifth word (c8); OPEN: c9 .. c18 (the call and the shared delay's 10)
     rl=x bi jmp=rou_b                       ; Y: the first element's request word (c19)

@@ -3309,3 +3309,23 @@ question, decided from S8's routed numbers with the user.
   15,167 of 15,384, interrupt probes pushed 2,947 of 7,122 (from 2,702, the ALU frames), ROM
   check 35 -> 16 mismatched encodings. Not built: SET1 / CLR1 / TEST1 / NOT1 mem,CL with a
   displacement (next batch).
+- **2026-11-17, work order 18 landed in part (light gate: one spacing, seed 1).** **Built**:
+  the missing bus-idle words of spec 18 B (MULU / MUL / DIVU / DIV r a second one as the
+  fifth word, CVTWL, ADJ4A / ADJ4S, LODS, XCH mem,r, IN DW, TEST mem,imm16; REP INM / OUTM
+  with CW = 0); spec 18 A3 (a decode attribute `ml` on the FF /2../5 memory cells, passed to
+  the bus unit on a free code of the existing `sf_nx` port: the three-byte wait applies to
+  them except on a fetch's last clock; JMP / CALL near [BW] as `P . B Y D`); SET1 / CLR1 /
+  TEST1 / NOT1 mem,CL with a displacement (hold heads `eas0` / `eas8` / `eas16` that pop
+  without releasing, selected by the 0F cell's `eab` bit; the release on a later word by the
+  pop field's free value `PP_RD`, the loader adding the displacement's bytes by mode). ROM
+  2,813 words. No port added (three free codes of existing signals used; the unmeasured
+  memory forms of BRKCS, TSKSW and MOVSPB now take the bare heads). **Gate**: corpus 28,539
+  of 30,536 exact (from 28,127; 424 gained, 12 lost: the predicted OUT ; MOV r,r ; IN DW
+  runs at even alignment, against 123 IN DW runs gained), writes 106,824 / 106,824, chk
+  silent; vectors 0 bad; 56 tests; SST; program gates as the previous landing; f4_hwd equal.
+  **FPGA at 17 ns, seed 1: +2.924** (from +3.529); 9,550 LUT4, 2,535 FF, 108 RAM_5K; loader
+  3.791. Small set (corrected PUSH-marker cut) 22,585 of 23,328. The ROM check
+  (`tools/romcheck.py`, patched for hold heads, `pop=rd` and the `ml` decode): 7 mismatched
+  encodings, none a build fault. Not built, awaiting a ruling: spec 18 A1 (the late first
+  fetch behind OUT) and A2 (the commit word against the chain's second fetch); designs in
+  the hand-back `r22/rtl/rtl.md`. The next landing is a full gate.
