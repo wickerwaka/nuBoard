@@ -3066,3 +3066,28 @@ question, decided from S8's routed numbers with the user.
   build. ROM 2,509 words. Not built: the commit word passing the Q42 fetch (needs the next
   word's release a tick earlier), EXT across a word's extra word, the REP compares'
   read-ahead, Q42's second half.
+- **2026-11-17, qprobe round 17 on the socket (3,398 runs; reading and a build check of
+  2a30b50; `validation/v35s/qprobe/RESULTS.md` Q68-Q74, `DIVERGENCE-r17.md`).** Re-based: the
+  corpus replays to 25,422 on the agent's copy too. Split of the 5,114 diverging runs (4,775
+  filed): read and not built 4,628, partly read 85, not probed 50. **LEA per mode** (576 of
+  576): every mode is five words and the displacement leaves on the bus-idle fourth word with
+  the next opcode (`P . . BN .`, `P . . BNP .`, `P . . BNPP2 .`; two registers + d16 one word
+  more); the landed RTL has the extra word twice on the displaced modes. **Q33 restated
+  (Q69)**: ADD / CMP word [d16],imm16 follow Q33's table and are reads, so "unarmed write
+  datum" is withdrawn: a request made on the word that releases the displacement only
+  reserves the bus and competes from its due clock (request word + 4); a request on the
+  decision's eve still holds the chained-fetch decision (model 8,286 of 8,496 on rounds 8-17,
+  none lost). CVTBD is 21 words with a bus-idle sixth. **Build check**: C7 with a
+  displacement at odd alignment W = 2 (the K word clears the unarmed state on the fetch's
+  last clock, so the grant no longer honours the decided chained fetch: one register in the
+  bus unit), C7 at W = 0 (Q33 fact 2 not built: 148 of 175 runs on the displaced store
+  forms), SET1 / CLR1 / NOT1 mem,imm twice, PUSH [d16] at even alignment, CALL far [d16];
+  on-chip SFR stores take 3 to 5 clocks longer in the RTL than on silicon. **Interrupt
+  latencies decomposed (W = 0 only)**: INT and INTPn are sampled every clock and a level
+  counts after two equal samples; the INTP flag is set on the divided clock 4.1 to 6.1 clocks
+  after the edge (the RTL's 11 lumps 5 to 7 clocks that belong to the EU side); NMI passes a
+  filter in time (never at 1.75 clocks, always at 2.0, at every phase), not a clocked
+  sampler; INT needs 9.125 clocks from pin to the pop it pre-empts; HALT release is on a
+  2-clock lattice. Unknown and marked so: what makes the 7 to 8 clocks on the EU side common
+  to every source, NMI's 3 to 4 further clocks and their bus dependence, whether NMI's filter
+  is a time or a count on a faster clock.

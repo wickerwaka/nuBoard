@@ -1940,3 +1940,219 @@ read".) Partly read now: mulu_m 102, divu_m 48, mul_m 36, div_m 30, mulub_m 18 a
 byte forms (Q63: the routine is read, the old frame's runs keep the signature under 90 %),
 lds_aw_ix 36 (the LDS ; LDS probe loads DS0: a probe artefact, Q46), neg_m_bw_d16 21,
 mul_aw_cw_imm8 18 (MUL r,r,imm8 at two waits), the far transfers' rows 21.
+
+# Round 17
+
+Socket runs: see the table at the end of this round (every run with its repeat; 0 failed; the
+repeats flagged DIFFERS compared field by field: strobe field only). The RTL in the worktree is
+now the work-order 10 to 12 tree (copied from main's working tree, 77 files, `uasm --check`
+clean, sim rebuilt, the small set re-simulated, the corpus replayed once): the build check and
+the split are in `build-check.md` and `divergence-notes.md`.
+
+Clock convention for the interrupt items of this round: e is the clock (from M0) at which the
+stimulus edge is scheduled at the pin, `event record's end + delay + 4 ticks`, 8 ticks a clock,
+as in rounds 12 to 16; the edges were stepped a quarter clock (2 ticks) at a time, so a
+threshold "x.875" means "taken at x.75, not at x + 1.0". The absolute constant (harness output
+delay, the event record's own latency) is not known to better than half a clock; differences
+between pins and between programs are exact.
+
+## Q68. LEA per addressing mode: five words in every mode; the displacement leaves on the last-but-one word
+
+Probes `QPr17a` (576 runs): twelve modes ([BW], [BW+IX], [BP+IY], [IX]; the same four kinds with
+d8; [BW+d16], [BP+d16], [BW+IX+d16]; direct), each behind INC / CBW / NOP / CLC (round 8's lead
+frame) and as the four probe programs (alone, in front of a long shift, twice, behind a NOP).
+Shapes enumerated per mode (`build/qp/lea17.py`: the displacement's word, the next opcode's
+word, a bus-idle wait on either, one or two words behind; 48 runs a mode):
+
+| mode | routine | score |
+|---|---|---|
+| no displacement, one or two registers | `P . . BN .` | 192 / 192 (next best 34 / 48) |
+| d8, one or two registers | `P . . BNP .` | 192 / 192 (next best without the wait 42 / 48) |
+| d16 on one register, direct | `P . . BNPP2 .` | 144 / 144 |
+| [BW+IX+d16] (two registers and d16) | `P . . . BNPP2 .` | 48 / 48 (the five-word shape 26 / 48) |
+
+- **The length does not depend on the displacement.** The displacement bytes are not taken on
+  words of their own: they leave the queue on the bus-idle fourth word, with the next opcode.
+  (For d16 on one register the probes do not separate "released on the fourth word" from
+  "released on a word of their own in front of an unwaited N": `P . . PP2 N .` is also 48 / 48
+  at six words; the d8 modes do separate them, 38 / 48, and the five-word form is the one rule
+  that covers every row.)
+- **Two registers and a d16 cost one more word** in front of the release word, as round 8 read
+  for MOV r,[BW+IX+d16] (`L_A2X`). Two registers with d8 or with nothing do not.
+- Spec 12 C2 ("one more word and bi", read from [BW] alone) is right for the modes without a
+  displacement and wrong as a rule for the others: the builder's EA heads already spend a word
+  per displacement path, so the extra word made those six long.
+
+The model: keys `LEA`, `LEAX`, `LEA_D8`, `LEAX_D8`, `LEA_D16`, `LEAX_D16`, `LEA_DIR`
+(`model_m.info`, op 8D). 576 / 576, and round 8's `ld-lea` 18 / 18 unchanged.
+
+## Q69. The 81 / 83 group on memory with a displacement; Q33's rule is not about the write's datum
+
+Probes `QPr17b` (288 runs; the corpus's add_m_imm_d16 / add_m_imm_dir / the F22 d16 forms had no
+probe of their own). Six forms in the lead frame and the four probe programs. The lead frame's
+INC here was INC BW, which makes [BW+d] an odd address: those 24 runs show Q32's double cycle
+and are a probe artefact for the shapes (the direct-address forms are not affected).
+
+| form | routine | score (artefact runs left out) |
+|---|---|---|
+| ADD word [BW+d8],imm16 (81 /0, mod 01) | `P . . BYP DPP2Z G N .` | 42 / 42 |
+| ADD word [BW+d16],imm16; [d16],imm16 | `P . . BYPP2 DPP2Z G N .` | 41 / 42, 47 / 48 with the rule below (31 / 42 without) |
+| CMP word [BW+d16],imm16; [d16],imm16 (81 /7) | `P . . BYPP2 DPP2 . BN .` | 42 / 42, 48 / 48 with the rule (31 / 42 without) |
+| ADD word [BW+d16],imm8 (83 /0, mod 10) | `P . V PP2 DPZ G N .` (the direct form's, round 9) | 39 / 42 |
+
+- **The d16 / direct forms of 81 obey Q33's table, and they are reads.** With the request word
+  at b+4 (it releases the displacement, which starts a fetch on the same clock) the read is at
+  b+8 at W = 0 with no chained fetch in front of it, and at W = 1 / 2 the chained fetch goes
+  first (fetch b+8 / b+9, read b+12 / b+14): the three columns of Q33's second row, to the
+  clock. Q33 explained that row by the write's datum ("a posted write whose datum has not been
+  taken does not compete", the K word). A read has no datum to wait for, so that is not the
+  reason. What the two routines share is the request word: **a request made on the word that
+  releases the displacement competes for the bus only from its due clock (request word + 4);
+  until then a chained fetch that the count allows goes first, and a request made on the
+  decision's eve still holds that decision** (Q33 facts 1 and 2 unchanged; fact 3 restated).
+  The machine reading: the request is posted before the address exists (the displacement
+  bytes leave the queue on that very word and the EA's add takes the words between), so it
+  cannot start; it can only reserve.
+- In the model: `YP_UN=1` (a read whose request word carries B and a P is treated as Q33
+  treats the unarmed write, armed at its due clock) and `ARB_K="WR"`. Over rounds 8 to 17b:
+  8,286 of 8,496 with it, 8,244 without, **0 runs lost in any round** (`build/qp/r17/ypun.txt`,
+  `fail-17b.txt`). Whether the condition is "releases a displacement" or "any bus-idle request
+  word" cannot be told from the small set (`YP_UN=2`: the same 8,286): no probe has a
+  bus-idle read request with no displacement and a chained fetch pending at its due clock.
+- Still open here: the second instance of the d16 forms at odd alignment, W = 0 (2 runs) and
+  ADD [BW+d16],imm8 twice at even alignment (3 runs): Q66's "four bytes held" family.
+
+## Q70. CVTBD
+
+`QPr15a-cvtbd` (24) and `QPr17d` (42: behind INC, CBW, NOP, CLC, two NOPs, two CLCs, MOV
+BW,imm16; a long shift behind). **`. . . P . B . . . . . . . . . . . . . N .`**: 21 words, the
+operand byte on the fourth, a bus-idle sixth word, the next opcode on the twentieth. 63 of 66
+(round 15's 24 of 24; the 22-word alternative that also fitted round 15 is 59 of 66). The three
+misses are `cv-cvtbd-r` (behind MOV BW,imm16) at W = 1 odd and W = 2 both alignments: not read.
+
+## Q71. The pins' front ends: pulse widths, polarity, sampling instants
+
+`r17wn`, `r17wp`, `r17wi` (968 runs): a pulse of 0.25 to 4 clocks at 16 quarter-clock positions
+(INT: 0.5 to 3 clocks at half-clock positions) in front of the NOP train. `r17n`, `r17p`,
+`r17i`, `r17nr`, `r17pr` (440 runs): the edge stepped a quarter clock at a time across the NOP
+train, falling and (INTM = 05h, the pin pulled low 25 clocks earlier) rising. Table:
+`build/qp/r17int.py <round>`.
+
+| pin | pulse seen | threshold phase | rising against falling |
+|---|---|---|---|
+| INTP0 | never at <= 1.0 clock; at 1.25 / 1.5 / 1.75 clocks only when it starts at phase .75 / .5 or .75 / .25 to .75; always at >= 2.0. The pattern repeats every clock, the same at both alignments | x.875 | identical to the quarter clock (thresholds 71.875 / 87.875 even, 72.875 / 88.875 odd, both polarities); the first edge of the wrong polarity does nothing |
+| INT | never at <= 1.0; at 1.5 clocks only from phase .5; always at >= 2.0 | x.875 | (level, high) |
+| NMI | never at <= 1.75 clocks at any of the 16 positions; always at >= 2.0 | x.125 | identical to the quarter clock (69.125, 71.125, 75.125, 79.125 both) |
+
+- **INTP0 and INT are sampled every clock, and a level counts when two consecutive samples
+  hold it.** A pulse that starts at phase p is seen exactly when its width exceeds 1.875 - p:
+  two samples one clock apart at phase .875. This is not "sampled every second clock" (Q53):
+  the 2-clock lattice of Q53 is downstream of the sampler (Q72).
+- **NMI is not filtered by a clocked sampler.** The limit between 1.75 and 2.0 clocks does not
+  move with the phase at all (a two- or three-sample rule would pass some 1.25 to 1.75 pulses
+  or fail some 2.0 ones). It is a filter in time (an analogue noise eliminator, or one clocked
+  faster than the CPU clock). Its delay is the 0.75 clock (mod 1) by which NMI's threshold
+  phase (.125) leads INT's and INTP0's (.875): about 1.75 to 2 clocks. Whether the length is
+  a time or a clock count needs a run at another clock frequency; not possible on this board.
+- **The edge detectors are symmetric**: same latency for either polarity, to the quarter clock.
+- **A short INT pulse is enough when IE = 1.** INT high for 2 clocks is acknowledged in front of
+  exactly the instruction a held level with the same rising edge is (200 runs, `r17wi`),
+  though the pin is low again 6 to 8 clocks before that instruction's pop. With IE = 0 the
+  same pulses are forgotten (EI 25 clocks later: no acknowledge; the held level: acknowledged
+  one instruction behind the EI; `r17s`, 16 runs). So the accepted level is not kept in a
+  request latch of its own; it is taken, with IE, into the EU's decision within about two
+  clocks, and that decision then stands.
+
+## Q72. The INTP0 request flag read by the program: set 4 to 6 clocks after the edge, on the divided clock
+
+`r17f`, `r17g` (452 runs): EXIC0 = 47h (masked), no EI; the body reads EXIC0 and stores the byte
+to RAM five times (`MOV AL,DS1:[FF4Ch] ; MOV [BW],AL`, and the same with a CBW in each group so
+that successive reads are 25 clocks apart); the edge stepped half a clock at a time. The stored
+byte is C7h when the read saw the flag. Two controls with the load reading RAM show the read
+cycle on the pins (the fetches around it are identical with the SFR read's).
+
+| alignment | read cycle's first clock (control) | latest edge the read sees | difference |
+|---|---|---|---|
+| even | 89, 113, 139 | 84.875, 108.875, 134.875 | 4.125 |
+| odd | 88, 114, 138 | 82.875, 108.875, 132.875 | 5.125 |
+
+- **The flag is set on a 2-clock lattice**: the reads are 25 clocks apart and the thresholds
+  24 and 26. Edges at x.875 with x even set it in time for a read cycle that starts 4.125 (odd
+  clock) or 5.125 (even clock) later. This is Q53's lattice: the pin is sampled every clock
+  (Q71) but the edge is turned into the flag by a stage on the divided clock.
+- **Pin to flag is 4.1 to 6.1 clocks** counted to the reading cycle's first clock (plus
+  whatever part of the read cycle passes before the register is sampled: at most 2 clocks; not
+  known). A machine that gives this: two samples (1.1 to 2.1 clocks to the accepted level),
+  the edge detector and the flag on the divided clock (2 to 4 clocks, by the lattice).
+- The RTL has 11 clocks here (`INTP_DLY`). Six of them are not in front of the flag.
+
+## Q73. INT, NMI and INTP0 side by side: how long before the pop
+
+Fine-step probes across trains of NOP (4 clocks), CBW (3), INC AW (2 to 3, fetch-limited):
+`r17i/n/p`, `r17q`, `r17r` (812 runs). P = the pop of the first instruction not executed
+(vector read - 17 behind INC, - 18 behind CBW, - 19 behind NOP for a vectored source; 4 more
+for INT's acknowledge cycle), threshold = the latest edge that is taken in front of it.
+
+| source | NOP train | CBW train | INC train | RTL (same probes, sim) |
+|---|---|---|---|---|
+| INT | 9.125 (every instruction) | 9.125 (every instruction) | 9.125 (every instruction) | about 0.6 (CBW), under 2.1 (NOP) |
+| NMI | 14.875 (first), then 16.875 | 13.875 (first), then 14.875 | 13.875 and 14.875; one of every four instructions is never the take point | 11.6 (CBW) |
+| INTP0, level 7, the scan's latest edge | 20.1 / 19.1 (even / odd) | 17.1 / 16.1 | 16.1 / 17.1 | CBW 17.5 / 18.5; NOP 16.5 / 18.5 |
+
+- **INT needs 9.125 clocks to the pop, in every train, at every instruction, both
+  alignments**: a path of fixed length in clocks, made every clock (the thresholds step by 3
+  in the CBW train). About 1.1 to 2.1 of it is the two-sample acceptance; the other 7 to 8
+  clocks are between the accepted level and the pop of the instruction it replaces. The RTL
+  takes INT straight to the EU: 8.5 clocks sooner. **The 7 to 8 clocks are a property of the
+  EU's decision, common to every source, and it is not in the RTL**; the RTL's `NMI_DLY` (10)
+  and `INTP_DLY` (11) each hold a copy of it.
+- **NMI is 4.75 to 5.75 clocks behind INT** (7.75 in the NOP train): 1.75 to 2 of filter
+  (Q71), 3 to 4 more, and a part that depends on the bus: in the INC train an NMI is never
+  taken in front of the instructions whose pop falls in one particular place of the 10-clock
+  fetch pattern (x5, x9 at even alignment, x2, x6, x10 at odd: the edges that would select them
+  go to the next one), and INT on the
+  same train has no such gaps. Something between the NMI's edge detector and the EU waits
+  for the bus unit. What: not read.
+- **INTP0 at the scan's latest edge is 7 to 8 clocks behind INT** (16.1 to 17.1 to the pop
+  where boundaries are dense). Of these, pin to flag is 4.1 to 6.1 (Q72), of which the
+  acceptance (1.1 to 2.1) is INT's too; so from the flag at the scan's level-7 point to the
+  point where an accepted INT level stands is about 3 to 5 clocks: the scan's compare and
+  the passage on the divided clock (the RTL's `ird`, 3 to 4 clocks, is the right size).
+- The absolute constant in these figures (harness edge to pin) is the same for all three pins
+  to within the quarter-clock steps: all three are driven by the same schedule.
+
+## Q74. HALT: the release is on a 2-clock lattice for NMI and for INT
+
+`r17h` (64 runs): the edge 20 clocks into the HALT, a quarter clock at a time. The vector read
+moves 2 clocks for every 2 clocks of edge: INT thresholds 90.875, 92.875 (vector read 36.1 to
+38.1 clocks after the edge), NMI 90.125, 92.125 (32.9 to 34.9), the same at both alignments.
+In the trains the same pins are taken every clock (Q73: NMI thresholds at odd x there, even x
+here), so the lattice is the release's, not the samplers': the stopped EU is restarted by
+something that runs every second clock (the divided clock of Q72, or a two-word wait loop).
+The RTL releases every clock, INT 12 clocks sooner than silicon (24.6 after the edge) and NMI
+2 sooner (31.6).
+
+## Round 17 in numbers
+
+| round | what | runs | flagged repeats (all strobe-only) |
+|---|---|---|---|
+| r17a | LEA, twelve modes | 576 | 47 |
+| r17b | 81 / 83 group with a displacement | 288 | 69 |
+| r17d | CVTBD | 42 | 5 |
+| r17i, r17n, r17p | INT / NMI / INTP0, quarter-clock edge, NOP train | 80, 96, 84 | 0, 22, 19 |
+| r17nr, r17pr | the same, rising edge selected | 96, 84 | 20, 28 |
+| r17wn, r17wp, r17wi | pulse widths | 384, 384, 200 | 93, 131, 115 |
+| r17f, r17g | the request flag read by the program | 192, 260 | 56, 94 |
+| r17h | NMI / INT into HALT | 64 | 18 |
+| r17q, r17r | the three sources across INC and CBW trains | 276, 276 | 94, 98 |
+| r17s | INT pulse behind IE = 0 | 16 | 8 |
+
+3,398 runs, each run twice, 0 failed, 0 incomplete; 917 repeats flagged DIFFERS, every one
+differing in the strobe field only (`build/qp/repdiff.py`, `build/qp/r17/repdiff-*.txt`).
+FF10h was written only by the INT rounds (`r17i`, `r17wi`, `r17h`, `r17q`, `r17r`, `r17s`),
+with gen_r15's INT_HEAD / hand-back sequences; in `r17wi` and `r17s`, where the interrupt may
+not be taken, the body ends with the same hand-back sequence so that every run restores the
+port bank. The first INT round was run alone and its vector read (0100h) checked first.
+
+The model after this round: 11,834 of 12,396 non-interrupt runs (`build/qp/fail17.py`; was 10,936 of
+11,490), no run lost against the round-16 model.

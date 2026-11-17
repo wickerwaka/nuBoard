@@ -96,6 +96,14 @@ ROUND 16 (results Q61-Q67)
   that waits as a boundary does), OF2 (0F as a routine of its own with a second boundary),
   EMIN_K (a per-form byte count at the boundary), B_CH (a bus-idle word losing to the fetch
   chained behind a post-write fetch).
+
+(round 17) LEA per EA mode: five words in every mode, the displacement released with the next
+opcode on the bus-idle fourth word (P . . BN<disp> .), one word more for two registers and a
+d16 (keys LEA / LEAX / LEA_D8 / LEAX_D8 / LEA_D16 / LEAX_D16 / LEA_DIR). The 81 group on memory
+with a displacement (ADDIW_D8 / _D16 / _DIR, CMPIW_D16 / _DIR, ADDIM_D16). YP_UN=1 with
+ARB_K="WR": a read whose request word also releases the displacement is treated as Q33 treats
+the unarmed write (it competes from its due clock; Q69). CVTBD is 21 words with a bus-idle
+sixth word.
 """
 
 from __future__ import annotations
@@ -110,7 +118,7 @@ DEFAULT = dict(
     B_EU="OIWR", B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
     PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . . B . . . . . . . . .",
     I_ADD4S="Y D . . . U D . . . . . . Z D .", T_ADD4S=". . . . . . . . N .",
-    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y D", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="W", MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
+    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y D", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, MD_B=2, MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="S", E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
     POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1, Z_LAT=2, FLUSH_B2B=1, FLUSH_GAP=3,
     S_LAG=2, EU_SLOT=1, LAG_ACTS="SXA", LAG_FIRST="A", CHAIN_POP=1,
     LEAD_E6=3, LEAD_SR=2, LEAD_CC=0, LEAD_FF=0, LEAD_E2=2, LEAD_EPRI=1, HALT_STOP=1, HALT_HOLD=1,
@@ -127,7 +135,7 @@ DEFAULT = dict(
     # memory: the request (Y), then the datum's wait (D) or, for a write, the boundary's wait
     PUSH=". . Y . . . N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
     PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . . B Y P P2 . DZ G N .", ADJ4=". . . . . . . . N .", ADJB=". . . . . . . . . . . . . . . N .",
-    CVTBD=". . . P . . . . . . . . . . . . . . . . . . . . . N .", EI=". . . . . . . . . . . N .", CVTWL=". . . . . . . N .",
+    CVTBD=". . . P . B . . . . . . . . . . . . . N .", EI=". . . . . . . . . . . N .", CVTWL=". . . . . . . N .",
     SHMI_HEAD="P . V DP . B", SHMI_BASE=4, SHMCL_HEAD="P . . B . . . Y D", SHMCL_BASE=3,
     LDS="P Y . D . U . D . . N .", MOVMS="P . V . G N .", MOVSM="P Y . DN . .",
     MI16M="P . . BY DPP2 . B . B . . . . . . . . . . . . . . . . . . . . . . . . . . . . N .",
@@ -143,14 +151,14 @@ DEFAULT = dict(
     SHLI="PN P . .", MUL8="PN . . .", CALL=". . . . PP2 . Y D . . F N .",
     RET=". . Y D . . F N .", XCHRR="PN .", TESTRR="P . BN .",
     INCB="P . . BN .", TEST1="P . BP . . CN .", CLR1="P . BP . . CN . .", RMW="P Y . . DZ G N .",
-    ADDIW="P . . BY DPP2Z G N .", ADDIM_D8="P . V P DPZ G N .",
+    ADDIW="P . . BY DPP2Z G N .", ADDIM_D8="P . V P DPZ G N .", ADDIW_D8="P . . BYP DPP2Z G N .", ADDIW_D16="P . . BYPP2 DPP2Z G N .", ADDIW_DIR="P . . BYPP2 DPP2Z G N .", CMPIW_D16="P . . BYPP2 DPP2 . BN .", CMPIW_DIR="P . . BYPP2 DPP2 . BN .", ADDIM_D16="P . V PP2 DPZ G N .",
     ADDIM_DIR="P . V PP2 DPZ G N .", CMPIM="P . V DP . BN .", TESTIM="P . B . . Y DPP2 . BN .",
     TESTM="P . B Y DN .", XCHM="P Y . . D . Z G N .", STIM_D8="P . . BYP . . . KPP2N .",
     STIMB="P . V . . . KPN .", STIM_D16="P . . BYPP2 . . . KPP2N .", NOTM="P . . B Y . . DZ G N .",
     INCMB="P . . B Y . . DZ G N .", SHLM1="P . B Y D . . . . . Z G N .", PUSHM="P . B Y D . . . Z G N .",
     PUSHM_D8="P . . B Y P D . . . Z G N .", PUSHM_DIR="P . . B Y P P2 D . . . Z G N .",
     POPM="P . Y D . . Z G N .", POPM_D8="P . Y D . . PZ G N .", POPM_DIR="P . Y D . . PP2Z G N .", CMPRR="PN .", NOTR="P . . BN .", MOVS=". . . . . Y D . . . Z DN .",
-    STOS=". . B . . . Y G N .", LODS=". . . . Y DN .", INDW=". . X DN .", XLAT=". . Y DN .", LEA="P . . BN .",
+    STOS=". . B . . . Y G N .", LODS=". . . . Y DN .", INDW=". . X DN .", XLAT=". . Y DN .", LEA="P . . BN .", LEAX="P . . BN .", LEA_D8="P . . BNP .", LEAX_D8="P . . BNP .", LEA_D16="P . . BNPP2 .", LEAX_D16="P . . . BNPP2 .", LEA_DIR="P . . BNPP2 .",
     CALLF=". . . . PP2 . Q . PP2 . Y D . Y D . . F N .", RETF=". . Y D . Y D . . F N .", JR="P . B . B . . F N .", INT3=". . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", LOOP=". . . B . . P . . B . . F N .", CMPBK=". . . . . Y D . . . U D . N .", SCAS=". . . . . . Y D . . N . .", INM=". . . . . X D Z DN .", OUTM=". . . . . . Y D . X . . . N .", REP_ZERO=". . . B . . . . . . N .", REP_HEAD=". . . B . . . . . . . . . .",
     RI_MOVS="Y D . . . Z D .", RT_MOVS=". . . . . . N .", RI_STOS="Y D .",
     RT_STOS=". . . . . . N .", RI_LODS="Y D . . .", RT_LODS=". . . . . . . N .",
@@ -210,6 +218,10 @@ MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x
        # (round 9)
        (0x81, 0x07): ("ADDIW", "R", 1), (0x81, 0x3F): ("CMPIW", "R", 1), (0x81, 0x7F): ("CMPIW_D8", "R", 1), (0x83, 0x47): ("ADDIM_D8", "R", 1),
        (0x83, 0x06): ("ADDIM_DIR", "R", 1), (0x83, 0x3F): ("CMPIM", "R", 1),
+       # (round 17) the 81 / 83 group with a displacement
+       (0x81, 0x47): ("ADDIW_D8", "R", 1), (0x81, 0x87): ("ADDIW_D16", "R", 1),
+       (0x81, 0x06): ("ADDIW_DIR", "R", 1), (0x81, 0xBF): ("CMPIW_D16", "R", 1),
+       (0x81, 0x3E): ("CMPIW_DIR", "R", 1), (0x83, 0x87): ("ADDIM_D16", "R", 1),
        (0xF7, 0x07): ("TESTIM", "R", 1), (0x85, 0x07): ("TESTM", "R", 1),
        (0x87, 0x07): ("XCHM", "R", 1), (0xC7, 0x47): ("STIM_D8", "W", 1),
        (0xC6, 0x07): ("STIMB", "W", 1), (0xC7, 0x00): ("STIM", "W", 1),
@@ -288,6 +300,14 @@ def info(code, at):
         return ("ROL4", None, 1)
     if op == 0xC1 and code[at + 2] == 1:
         return ("SHLI1", None, 1)
+    if op == 0x8D:
+        # (round 17) LEA per EA mode: LEA (no displacement), LEA_D8, LEA_D16 (direct too),
+        # with X appended for the two-register modes
+        m = code[at + 1]
+        nd = 2 if (m >> 6) == 2 or (m & 0xC7) == 0x06 else (m >> 6)
+        x = "X" if (m & 7) < 4 else ""
+        d = "_DIR" if (m & 0xC7) == 0x06 else ("", "_D8", "_D16")[nd]
+        return ("LEA" + x + d, None, 1)
     if op in (0x8B, 0x89) and code[at + 1] < 0xC0:
         # (round 8) the EA modes not measured one by one: the measured heads by analogy, by
         # the number of displacement bytes (keys L_A0 / L_A1 / L_A2, S_A0 / S_A1 / S_A2)
@@ -634,6 +654,10 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 eu_due = t + (o["Z_LAT"] if (zw or uw) else o["POST_LAT"])
                 eu_kind = "W" if zw else "R" if uw else info(code, cur_at)[1]
                 eu_hold = bool(o["EU_HOLD"]) and eu_kind == "O"
+                if o["YP_UN"] and eu_kind == "R" and ("P" in acts or o["YP_UN"] > 1) and "B" in acts:
+                    # (round 17, experimental) a read whose request word also releases the
+                    # displacement: Q33's table for the unarmed write holds for it too
+                    unarmed, armed_t = True, eu_due
                 eu_where = (dw if cur_op in (0xEE, 0xEF)
                             else code[cur_at + 1] if cur_op in (0xE6, 0xE7) else None)
                 if cur_op in (0x6E, 0x6F) and "X" in acts:      # (round 11) OUTM's port cycle
