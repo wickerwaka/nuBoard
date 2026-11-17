@@ -84,32 +84,16 @@ class Bounds(unittest.TestCase):
                 for b in range(256):
                     self.assertLess(uasm.udec2(prog, op, b)["entry"], len(prog.words))
 
-    def test_second_level_entry_split(self):
-        # (qprobe round 6, timing) the loader's d2ent: every opcode's entry is a function of the
-        # byte's class (mode 3, reg) but the few numbered by v35_udec2_fx (at most seven), each
-        # of which v35_udec2_fe reads whole
+    def test_no_dispm(self):
+        # (qprobe round 17, timing) the sequencer has no DISPM source (the second level on the
+        # byte a word pops, the loader's d2ent): no ROM word is DISPM, uasm rejects the flag, and
+        # the generated decode has no whole-opcode numbers
         prog = uasm.assemble()
-        svh = uasm.decode_svh(prog)
-        fx = svh[svh.index("function automatic logic [2:0] v35_udec2_fx"):]
-        fx = fx[:fx.index("endfunction")]
-        num = {int(h, 16): int(n) for h, n in re.findall(r"8'h([0-9A-F]{2}): v35_udec2_fx = 3'd(\d)", fx)}
-        whole = list(num)
-        # (qprobe round 16) opcodes with the same second-level table share a number: at most
-        # seven numbers, and every opcode of a number reads that table
-        self.assertLessEqual(len(set(num.values())), 7)
-        for op, n in num.items():
-            rep = min(o for o, m in num.items() if m == n)
-            for b in range(256):
-                self.assertEqual(uasm.udec2(prog, op, b)["entry"], uasm.udec2(prog, rep, b)["entry"],
-                                 f"{op:02X} {b:02X} (number {n})")
-        for op in range(256):
-            if op in whole:
-                continue
-            for b in range(256):
-                self.assertEqual(uasm.udec2(prog, op, b)["entry"],
-                                 uasm.udec2(prog, op, uasm.udec2_class(b))["entry"],
-                                 f"{op:02X} {b:02X}")
-
+        dm = uasm.enum_value("v35_seq_e", "dispm")
+        self.assertFalse([r.name for r, w in prog.words if w.fields.get("seq") == dm])
+        with self.assertRaises(uasm.UasmError):
+            uasm.parse_word("dispm", "t", 1)
+        self.assertNotIn("v35_udec2_fx", uasm.decode_svh(prog))
 
 class NoCounts(unittest.TestCase):
     """The ROM word has no count field; no .uasm word names an opcode."""

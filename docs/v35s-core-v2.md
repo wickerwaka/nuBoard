@@ -3158,3 +3158,27 @@ question, decided from S8's routed numbers with the user.
   EU / bus-unit boundary (request, done), and by no more. (3) The event-word list may be
   built as measured, with DIV, strings and REP left without events until they are read (a
   known difference for NMI / INTPn timing across those routines).
+- **2026-11-17, the round-17 build landed (work order 13 in part, a timing repair).** One
+  gate, one three-seed timing run. **Timing repair, behaviour-neutral** (12,054 small-set pin
+  traces identical): the sequencer's DISPM source withdrawn (no ROM word used it, but the ROM
+  address select carried the loader's whole second-level entry path; `uasm` now rejects
+  `dispm` and no longer generates the second-level entry tables, so the limit of seven
+  whole-opcode numbers is gone; the `dec2` port stays with its entry field unread); the
+  multiply's finish formed a tick earlier (`mf_b` / `mfn_b`); the segment value captured at
+  ce_b (`segv_b`), removing the `word.ea` to `ex` chain; the new registers compared every
+  clock under `+v35_chk`. **Built**: LEA per mode as cells of 8D (`ldea`, `ldea_d8`,
+  `ldea_d16`, `ldea_dir`, `ldea_d16x`; the extra word of [base+index+d16] placed before the
+  add by analogy), CVTBD (21 words, bus-idle sixth), C7 with a displacement at odd alignment
+  W = 2 (one register `dcu` in the bus unit: the write was still unarmed on the running
+  fetch's last clock). **Gate**: corpus 25,662 of 30,536 exact at both spacings (from 25,422;
+  251 gained, 11 lost: LEA with d16 or the direct address at even alignment W = 0 in
+  PUSH / OUT frames, a frame Q68 does not separate; kept, the same forms gain 84), writes
+  106,824 / 106,824, chk silent; vectors 0 bad; 56 fast tests; SST; program gates as the
+  previous landing (periph f4_tm / f4_tout, f5n x3, f5v x2 the same timing-only lines);
+  f4_hwd equal. **FPGA at 17 ns: +2.815 / +3.217 / +3.230** (from +1.317 / +0.971 / +0.859);
+  9,438 LUT4, 642 ADD, 2,541 FF, 98 RAM_5K; per module useq 6.106, loader 4.042, eu 4.397,
+  queue 7.135, bus 6.393. ROM 2,532 words. No port added. **Not built**: the reserving
+  request (spec 13 A1; a sketch within the existing ports), the on-chip SFR store's extra
+  clocks (narrowing the RAMEN hold to internal-RAM stores recovers 3 but breaks f4_dma's
+  write order; reverted), REP compares, EXT across a word, SET1 / CLR1 / NOT1 twice,
+  PUSH [d16], CALL far [d16]: all in the next batch (work order 14).

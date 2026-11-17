@@ -169,14 +169,16 @@ routine adjb op=37,3F book="ADJBA" why="OPEN: the book's 17: the read and the ad
     wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E
 
 ; D4 ib: CVTBD (AAM): AL divided by the byte, eight restoring steps (the byte divide's loop)
-routine cvtbd op=D4 book="CVTBD" width=byte diff=1 why="OPEN: silicon longer than the book by one (F33-out-cvtbd-k1-pE-w0: the OUT's port at +111, the frozen model exact; 12 of the 18 runs exact, the six pO OUT frames the ruling's); the book's 19: the immediate's latency, its pop, AL read into the divide's state, eight steps, the finish (W), the write on E; five book clocks with no act"
-    open                                    ; OPEN: the immediate's latency before its pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the divisor byte (S+3)
+routine cvtbd op=D4 book="CVTBD" width=byte diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 17, Q70, spec 13 B) CVTBD is `. . . P . B . . . . . . . . . . . . . N .` (QPr15a cvtbd, QPr17d: 63 / 66 in the model): three words with no act, the divisor's pop and release on the fourth, AL read into the divide's state, a bus-idle sixth word, four words with no act, eight steps, the finish (W), E with the next opcode on the twentieth; was: silicon longer than the book by one (F33-out-cvtbd-k1-pE-w0)"
+    open call=w1                            ; OPEN: (qprobe round 17) two words with no act (the call and the shared delay's 1)
+    open                                    ; OPEN: (qprobe round 17) a word with no act
+    pop=il                                  ; pop the divisor byte and release it (the fourth word)
     ra=AW wid=WORD alu=CVBI ax=RA ay=IMM8 cnt=BITS  ; AL the dividend, the byte the divisor; the counter <- 8
-    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (CVTBD 19) (the call and the shared delay's 5)
+    bi                                      ; (qprobe round 17) B: the bus-idle sixth word
+    open call=w3                            ; OPEN: (qprobe round 17) four words with no act (the call and the shared delay's 3)
 cvb_l: alu=DIVS loop=cvb_l                  ; one restoring step; the counter step
     ra=AW wid=WORD alu=CVBF ax=RA wf        ; {quotient, remainder} (a zero divisor: AH FFh, AL kept); S Z P of AL (W)
-    wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E
+    wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E (the twentieth word): N
 
 ; D5 ib: CVTDB (AAD): AH times the immediate by the byte multiply's loop, plus AL (F5: silicon
 ; multiplies by the byte, f5x; the V20 suite's ten was the core's until F5)

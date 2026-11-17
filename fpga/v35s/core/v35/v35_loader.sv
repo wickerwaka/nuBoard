@@ -104,7 +104,7 @@ module v35_loader
     output wire [7:0]  modrm_nx,
     output v35_udec_t  fmt_nx,
     output reg  [2:0]  op3,
-    output v35_udecm_t dec2,            // tick A: v35_udec2(op, the byte this word pops) (its entry: d2ent)
+    output v35_udecm_t dec2,            // tick A: v35_udec2(op, the byte this word pops)
     output wire [2:0]  len,             // tick A: the bytes still to pop after this clock (LEN)
     output wire [UADDR_W-1:0] dent,     // tick A: the DISP word's target
     output wire        dcall,           // tick A: (MX1) ... an EA head, called: the return is dret
@@ -313,15 +313,10 @@ module v35_loader
     // middle at a read's B3 (ce_mid, the edge ce_a shares), written as the datum register's
     // own block is. README "F5t"
     v35_btag_t tg_lo = v35_btag_t'(6'b000010), tg_hi = v35_btag_t'(6'b000010);
-    // (qprobe round 6, timing) the second level's numbered-opcode entries of the two bytes
-    // (d2ent above), the datum register's start FFFFh's
-    reg [7*UADDR_W-1:0] fe_lo = d2fe_all('1), fe_hi = d2fe_all('1);
     always @(posedge clock) begin
         if (h_dlv_ld) begin
             tg_lo <= bt_f(h_dlv_nx[7:0]);
             tg_hi <= bt_f(h_dlv_nx[15:8]);
-            fe_lo <= d2fe_all(h_dlv_nx[7:0]);
-            fe_hi <= d2fe_all(h_dlv_nx[15:8]);
         end
     end
     assign dlv_tag = {tg_hi, tg_lo};
@@ -502,62 +497,13 @@ module v35_loader
     v35_udec_t d1r = '0;
     v35_udec_t dec1;
     assign dec1 = d1r;
-    // (the second level's lookup stays behind the head select: replicated per candidate it maps
-    // into 72 more RAM blocks; its reader is the DISPM target, README "MX5" round 2)
-    // (qprobe round 6, timing) the entry (the DISPM word's target, on the ROM's address in tick
-    // A) split over the ticks: for an opcode the assembler numbers 0 (v35_udec2_fx: all but the
-    // few whose second byte is a whole opcode, 0F's page and the REP pages) the entry is a
-    // function of the byte's class (its mode being 3, its reg field: uasm.udec2_by_class), so
-    // the opcode's sixteen entries are registers beside it (`d2row`, loaded at ce_a with op's
-    // next value, in reset from op, as df) and the byte's class selects among them; the
-    // numbered opcodes read their own lookup (v35_udec2_fe, a constant opcode each). Each is
-    // formed per candidate head byte (the queue's first stored byte, the delivered word's low /
-    // high byte) and selected by the registered facts that select the byte itself (hs: sb0 is
-    // that choice, the queue's seqb(0)). d2ent is v35_udec2(op, sb0).entry on every clock
-    // (`+v35_chk`)
-    /* verilator lint_off UNUSEDSIGNAL */
-    function automatic logic [UADDR_W-1:0] d2row_f(input logic [7:0] o, input logic [3:0] k);
-        v35_udecm_t t;
-        t = v35_udec2(o, {k[3] ? 2'b11 : 2'b00, k[2:0], 3'b000});
-        d2row_f = t.entry;
-    endfunction
-    /* verilator lint_on UNUSEDSIGNAL */
-    // (one vector: flops, never inferred as a RAM block: the select is in tick A)
-    reg [16*UADDR_W-1:0] d2row = '0;
-    reg [2:0]  d2f = 3'd0;
-    integer    d2i;
-    /* verilator lint_off UNUSEDSIGNAL */
-    function automatic logic [UADDR_W-1:0] d2r_f(input logic [7:0] b);
-        d2r_f = d2row[{b[7:6] == 2'b11, b[5:3]}*UADDR_W +: UADDR_W];
-    endfunction
-    /* verilator lint_on UNUSEDSIGNAL */
-    // the numbered opcodes' entries of a byte, all seven (v35_udec2_fe), and their choice by d2f
-    function automatic logic [7*UADDR_W-1:0] d2fe_all(input logic [7:0] b);
-        for (int k = 0; k < 7; k = k + 1)
-            d2fe_all[k*UADDR_W +: UADDR_W] = v35_udec2_fe(3'(k + 1), b);
-    endfunction
-    function automatic logic [UADDR_W-1:0] d2fe_sel(input logic [7*UADDR_W-1:0] e);
-        d2fe_sel = '0;
-        for (int k = 0; k < 7; k = k + 1)
-            if (d2f == 3'(k + 1))
-                d2fe_sel = e[k*UADDR_W +: UADDR_W];
-    endfunction
-    function automatic logic [UADDR_W-1:0] d2e_f(input logic [7:0] b);
-        d2e_f = d2f != 3'd0 ? v35_udec2_fe(d2f, b) : d2r_f(b);
-    endfunction
-    wire [UADDR_W-1:0] d2e0 = d2e_f(h_q0);
-    // the delivered word's two bytes: their numbered-opcode entries are registers beside the
-    // bus unit's datum register (`fe_lo` / `fe_hi`, loaded with its enable from its next value,
-    // as the tags tg_lo / tg_hi below): d2fe_all(h_dlv) on every clock (`+v35_chk`)
-    wire [UADDR_W-1:0] d2e2 = d2f != 3'd0 ? d2fe_sel(fe_lo) : d2r_f(h_dlv[7:0]);
-    wire [UADDR_W-1:0] d2e3 = d2f != 3'd0 ? d2fe_sel(fe_hi) : d2r_f(h_dlv[15:8]);
-    wire [UADDR_W-1:0] d2ent = hs == 3'd0 ? d2e0 : hs == 3'd2 ? d2e2 : d2e3;
+    // (qprobe round 17, timing) the second level's entry of the byte a word pops (the old
+    // d2ent: d2row / d2f / fe_lo / fe_hi, the opcodes' numbers v35_udec2_fx / _fe) is gone with
+    // the sequencer's DISPM source, which no routine used (README "qprobe round 17"); dec2's
+    // other fields (op3, trap) are v35_udec2 of the opcode register and the head byte as before
     v35_udecm_t dec2r;
     assign dec2r = v35_udec2(op, sb0);
-    always_comb begin
-        dec2 = dec2r;
-        dec2.entry = d2ent;
-    end
+    assign dec2 = dec2r;
     // the dispatch's (DISP) entry: the second level on the registered ModR/M byte for an
     // opcode with one, else the first
     v35_udecm_t dm;
@@ -788,14 +734,6 @@ module v35_loader
             imo <= imo_nx;
         end
     end
-    // (qprobe round 6, timing) the opcode's sixteen second-level entries (d2ent, above)
-    always_ff @(posedge clock) begin
-        if (!reset_n || ce_a) begin
-            for (d2i = 0; d2i < 16; d2i = d2i + 1)
-                d2row[d2i*UADDR_W +: UADDR_W] <= d2row_f(!reset_n ? op : op_nx, d2i[3:0]);
-            d2f <= v35_udec2_fx(!reset_n ? op : op_nx);
-        end
-    end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             mpm <= 1'b0;
@@ -891,8 +829,7 @@ module v35_loader
     end
     // (MX5c) every clock: the registered outcomes against the function's
     always @(posedge clock) begin
-        if (chk_on && reset_n && (lrs !== lrg_f(ltx) || z1f !== z1 || d2ent !== dec2r.entry
-                                  || fe_lo !== d2fe_all(h_dlv[7:0]) || fe_hi !== d2fe_all(h_dlv[15:8])
+        if (chk_on && reset_n && (lrs !== lrg_f(ltx) || z1f !== z1
                                   || tg_lo !== bt_f(h_dlv[7:0]) || tg_hi !== bt_f(h_dlv[15:8])
                                   || zc !== zc_f(ln, flush_w, ims, imo))) begin
             chk_n = chk_n + 1;

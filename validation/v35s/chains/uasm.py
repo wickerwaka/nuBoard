@@ -35,7 +35,8 @@ The word's fields (one line of a routine is one word, one CPU clock):
     pop         a queue byte popped into MODRM IL IH DL DH
     e f         E (the next opcode popped; exactly one word follows) and F (wait for the datum)
     cnt         the loop counter's load (RB IL BITS LEN)
-    seq         jmp=L  jc=COND:L  jnc=COND:L  call=L  ret  loop=L  dispm  (the word after E is
+    seq         jmp=L  jc=COND:L  jnc=COND:L  call=L  ret  loop=L  ((qprobe round 17) dispm
+                withdrawn)  (the word after E is
                 the dispatch, DISP, set by the assembler); (F5e) tki=L a REP string's take point:
                 L when an interrupt is taken there, else the next word (the book check: the next)
     pfx flush halt trap
@@ -104,7 +105,8 @@ the memory shift by imm8).
 memory cells: the dispatch enters the routine directly (no EA head), and the routine pops its
 own displacement and releases it where the measured shape does (JMP / CALL [d16] and the far
 forms, POP mem with a displacement). The opcode's second-level entry then depends on the mode:
-it is a whole opcode of the split decode (v35_udec2_fx). `trap` is the sequencing value TRAP (the
+(the dispatch reads v35_udec2 of the registered ModR/M byte whole; (qprobe round 17) no
+limit on such opcodes). `trap` is the sequencing value TRAP (the
 next word; the divide error's strobe). `bus=MEMWD` posts a write whose datum is armed by a later
 word (K: the first that loads OPRW): v35_eu rq_un, spec 7 A2.
 """
@@ -438,7 +440,9 @@ def parse_word(text: str, path: str, ln: int) -> Word:
             elif k == "ret":
                 fields["seq"] = enum_value("v35_seq_e", "ret")
             elif k == "dispm":
-                fields["seq"] = enum_value("v35_seq_e", "dispm")
+                # (qprobe round 17) withdrawn: the sequencer has no DISPM source (no routine used
+                # it; the second level's entry on the ROM address was the core's worst path)
+                raise UasmError(f"{path}:{ln}: dispm is withdrawn (the sequencer has no DISPM source)")
             elif k == "trap":
                 # (qprobe round 12) the divide error raised: the sequencing's TRAP (the next word;
                 # the word's own bit freed for the ROM's twelfth address bit)
@@ -684,8 +688,7 @@ def mem_paths(r) -> tuple:
     """(qprobe round 9) the EA paths a memory routine's header claims: `paths=m00,d8,...`
     (m00: mod 00 but the direct address; d8; d16; dir), all four by default. A form whose
     routine differs by the mode (MOV mem,imm16: the modes without a displacement measured) is
-    two routines on one opcode; the dispatch's entry then depends on the whole ModR/M byte (the
-    opcode is a "whole" opcode of the split second-level decode, v35_udec2_fx)."""
+    two routines on one opcode; the dispatch's entry then depends on the whole ModR/M byte."""
     if "paths" not in r.head:
         return PATHS
     ps = tuple(x for x in r.head["paths"].split(","))
@@ -947,37 +950,10 @@ def decode_svh(prog: Program) -> str:
         L += ["                endcase", "            end"]
     L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0}};",
           "        endcase", "        v35_udec2 = f;", "    endfunction", ""]
-    # (qprobe round 6, timing) the second level's entry split for the sequencer's ROM address
-    # (the loader's d2ent): an opcode whose entry is a function of the byte's mode being 3 and
-    # its reg field alone reads v35_udec2 at that class's byte ({mod 3 ? 11 : 00, reg, 000});
-    # the others (the opcodes whose second byte is a whole opcode) are numbered here
-    # (v35_udec2_fx, 1..7) and read v35_udec2_fe
-    whole = [op for op in sorted(MODRM_OPS | {0x0F} | set(REP_XC)) if not udec2_by_class(prog, op)]
-    # (qprobe round 16) opcodes whose second-level entries are the same table share one number
-    # (the four REP pages: one routine set, the condition in the first level's xc; 80 and 82)
-    tbl, fxn = {}, {}
-    for op in whole:
-        t = tuple(udec2(prog, op, b)["entry"] for b in range(256))
-        fxn[op] = tbl.setdefault(t, len(tbl) + 1)
-    rep = {n: next(op for op in whole if fxn[op] == n) for n in sorted(set(fxn.values()))}
-    assert len(rep) <= 7, whole
-    L += ["    // (qprobe round 6, timing) the second level's entry for an opcode whose second byte "
-          "selects it whole:",
-          "    // 0 the entry is v35_udec2 of the byte's class ({mod 3 ? 11 : 00, reg, 000}), else "
-          "the opcode's number for v35_udec2_fe",
-          "    function automatic logic [2:0] v35_udec2_fx(input logic [7:0] op);",
-          "        case (op)"]
-    for op in whole:
-        L.append(f"            8'h{op:02X}: v35_udec2_fx = 3'd{fxn[op]};")
-    L += ["            default: v35_udec2_fx = 3'd0;", "        endcase", "    endfunction", "",
-          "    function automatic logic [UADDR_W-1:0] v35_udec2_fe(input logic [2:0] fx, "
-          "input logic [7:0] b);",
-          "        v35_udecm_t f;",
-          "        case (fx)"]
-    for n, op in rep.items():
-        L.append(f"            3'd{n}: f = v35_udec2(8'h{op:02X}, b);")
-    L += ["            default: f = '0;", "        endcase", "        v35_udec2_fe = f.entry;",
-          "    endfunction", ""]
+    # (qprobe round 17) the second level's entry split for the sequencer's ROM address (the
+    # loader's d2ent: v35_udec2_fx / v35_udec2_fe, the whole opcodes' numbers) is withdrawn with
+    # the sequencer's DISPM source: the dispatch reads v35_udec2 of the registered ModR/M byte
+    # alone (the loader's df), so the numbers' limit of seven is gone
     # (MX0) the loader's count of the instruction's bytes still to pop from the queue: what a
     # ModR/M byte's pop adds (its displacement and the form's immediate) and what the 0F page's
     # second byte's pop adds (its ModR/M byte and its immediate)

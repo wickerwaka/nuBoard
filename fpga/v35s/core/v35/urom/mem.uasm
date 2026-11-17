@@ -139,10 +139,39 @@ routine lds op=C5 mod=mem ea=q book="MOV DS0/DS1,reg16,memptr32" diff=m00:0,d8:0
     e ro                                    ; E; N
 
 ; LDEA (V20 LEA 0054-0055: the EA, then SIGMA -> R after the E row)
-routine ldea op=8D mod=mem book="LDEA" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 16, spec 12 C2) LEA is `P . . BN .` (the qprobe ld-lea runs; model_m.py LEA): the add, a word with no act, the register from the address register on a bus-idle E word; the book's EA + 2 + 1 on every path but mod 00's EA book error (the head)"
+routine ldea op=8D mod=mem paths=m00 book="LDEA" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 16, spec 12 C2; round 17, Q68) LEA without a displacement ([reg], [base+index]) is `P . . BN .` (the qprobe ld-lea and QPr17a bw / bwix / bpiy / ix runs; model_m.py LEA, LEAX): the add, a word with no act, the register from the address register on a bus-idle E word; the book's EA + 2 + 1; (qprobe round 17) the displacement modes are cells of their own (ldea_d8 / ldea_d16 / ldea_d16x / ldea_dir)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
     open                                    ; OPEN: (qprobe round 16, spec 12 C2) a word with no act
     wr=REG wid=WORD ws=ADDR e bi            ; the register <- the address (0055 SIGMA -> R); E: (qprobe round 16) B N: bus-idle
+
+; (qprobe round 17, spec 13 B, Q68) LEA with a displacement: five words in every mode, the
+; displacement bytes released on the bus-idle E word with the next opcode (`P . . BNP .`,
+; `P . . BNPP2 .`), [base+index+d16] one word more (`P . . . BNPP2 .`); cells of their own (mod=m01 /
+; m10 / m00 rm=6: no EA head), the routine popping its own displacement
+routine ldea_d8 op=8D mod=m01 why="OPEN: (qprobe round 17, Q68) LEA r,[.. + d8] is `P . . BNP .` (QPr17a bwd8 / bpd8 / bwixd8 / ixd8, 192 / 192 in the model, LEA_D8 / LEAX_D8): the displacement's pop, the add, a word with no act, the register from the address register on the bus-idle E word that releases the displacement and the next opcode"
+    pop=dl                                  ; pop the displacement byte (the ModR/M byte released by the loader: P)
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    open                                    ; OPEN: (qprobe round 17) a word with no act
+    wr=REG wid=WORD ws=ADDR e bi ro rl=1    ; the register <- the address; E: B N P: bus-idle, the next opcode and the displacement released
+
+routine ldea_d16 op=8D mod=m10 rm=4-7 why="OPEN: (qprobe round 17, Q68) LEA r,[one register + d16] is `P . . BNPP2 .` (QPr17a bwd16 / bpd16, 96 / 96 in the model, LEA_D16): the displacement's two pops, the add, the register from the address register on the bus-idle E word that releases the displacement and the next opcode"
+    pop=dl                                  ; pop the displacement's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    wr=REG wid=WORD ws=ADDR e bi ro rl=2    ; the register <- the address; E: B N P P2: bus-idle, the next opcode and both displacement bytes released
+
+routine ldea_d16x op=8D mod=m10 rm=0-3 why="OPEN: (qprobe round 17, Q68) LEA r,[base + index + d16] is `P . . . BNPP2 .` (QPr17a bwixd16, 48 / 48 in the model, LEAX_D16; the other pairs by analogy: a guess): one word more than the one-register form, as MOV r,[BW+IX+d16] (round 8, L_A2X); the word's place in front of the add by analogy with eaq16x"
+    pop=dl                                  ; pop the displacement's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    open                                    ; OPEN: (qprobe round 17) a word with no act (two registers and a d16)
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    wr=REG wid=WORD ws=ADDR e bi ro rl=2    ; the register <- the address; E: B N P P2: bus-idle, the next opcode and both displacement bytes released
+
+routine ldea_dir op=8D mod=m00 rm=6 why="OPEN: (qprobe round 17, Q68) LEA r,[d16] is `P . . BNPP2 .` (QPr17a dir, 48 / 48 in the model, LEA_DIR): the direct address's two pops, the address register from it, the register from the address register on the bus-idle E word that releases the address and the next opcode"
+    pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=DISP                                 ; the EA into the address register
+    wr=REG wid=WORD ws=ADDR e bi ro rl=2    ; the register <- the address; E: B N P P2: bus-idle, the next opcode and both address bytes released
 
 ; ---- the group 1 memory forms (V20 GRP1 003C-0040: Q -> tmpbL, Q -> tmpbH, tmpb -> tmpa; ALU
 ; OPC; M -> tmpb; SIGMA -> M [-06-]): the immediate popped after the EA, then the read (silicon:

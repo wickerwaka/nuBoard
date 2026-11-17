@@ -8009,3 +8009,71 @@ Microcode, the assembler, and RTL inside the existing ports (test_v35_struct unc
   (from 1,175); the program gates intr 7 EQUAL (f3_vec, f3_order, f3_prio newly),
   periph timing-only as before. Vectors, banks, f5x unchanged (0 bad, 5 / 0, 34 / 0).
 
+
+## qprobe round 17: the DISPM source withdrawn (timing), LEA per mode, CVTBD, the decision against a late-armed write, the SFR store's hold
+
+Work order 13 (validation/v35s/qprobe/RESULTS.md Q68-Q70; spec 13 A2, B; build check items 1, 3, 5)
+and the timing repair asked before it. RTL inside the existing ports (test_v35_struct unchanged).
+Top level at 17 ns after: +2.815 / +3.217 / +3.230 (seeds 1-3; before +1.317 / +0.971 / +0.859), 9,438 LUT4,
+2,541 FF, 98 RAM_5K; modules useq 6.106, loader 4.042, eu 4.397. Corpus 25,662 of 30,536 exact (from 25,422);
+small set 11,322 of 12,054 (from 11,096, none lost); ROM 2,532 words.
+
+- **Timing: the sequencer's DISPM source is withdrawn.** No routine had a `dispm` word (the ROM
+  had none since the second level moved into the dispatch's `df`), but the address select kept
+  the source, and with it the loader's second-level entry of the head byte (`d2ent`: the
+  opcode's sixteen class entries `d2row`, the whole opcodes' numbers `d2f` and their entries of
+  the delivered word's bytes `fe_lo` / `fe_hi`, read from block RAM and selected by the number,
+  the head's source and the dispatch kind in front of the ROM's address): the worst path of the
+  core at 17 ns (fe_lo's RAM -> 7 LUT levels -> the ROM's RADDR, +1.317 / +0.971 / +0.859). The
+  select, `d2_b`, `d2row`, `d2f`, `fe_lo` / `fe_hi` and the generated `v35_udec2_fx` /
+  `v35_udec2_fe` are removed; uasm rejects `dispm`, test_uasm checks that no word is DISPM, and
+  `+v35_chk` reports a DISPM word executed. `dec2` (v35_udec2 of the opcode register and the head
+  byte) stays on the port for its other fields (op3, trap). The limit of seven whole-opcode
+  numbers goes with it: a ModR/M opcode can have cells of its own (mod=m00 / m01 / m10) without
+  sharing a table. Behaviour-neutral (the small set's 12,054 pin traces and the replay of F5 and
+  F22, 2,160 runs, identical to the starting tree's).
+- **Timing: the multiply's finish a tick earlier.** v35_mul_fin (the product's negation and the
+  extension test: CY / V, and S Z AC P of a negative signed product) is formed in tick A from ce_a
+  registers alone (mul, the format's width, the PSW, the word) and captured at ce_b (`mf_b`,
+  `mfn_b`); AL_MULF / AL_CVDF in tick B read the register (the next worst path, mul.lo -> psw.V,
+  9 LUT levels). `+v35_chk` compares the registers with the function every clock.
+- **Timing: the segment's value a tick earlier.** v35_eu's `segv` (the word's segment, the
+  prefix's, SS for a BP mode: a select of ce_a registers alone) is captured at ce_b (`segv_b`, as
+  the address `aq_b` already was), so the linear address's add starts from registers (the
+  select was 7 LUT levels in front of add -> on-chip compare -> rq_oc_nx -> the registered stall
+  -> ex; with the ROM path gone it was the worst path on seed 1, +1.377). `+v35_chk` compares
+  segv_b with the select every clock.
+- **LEA per mode (Q68, spec 13 B).** Every mode is five words, the displacement released on the
+  bus-idle E word with the next opcode: [reg] / [base+index] `P . . BN .` (ldea, the m00 path as
+  before), d8 `P . . BNP .` (ldea_d8), one register + d16 `P . . BNPP2 .` (ldea_d16, mod 10 rm 4-7),
+  the direct address `P . . BNPP2 .` (ldea_dir), base + index + d16 `P . . . BNPP2 .` (ldea_d16x,
+  mod 10 rm 0-3; the word before the add by analogy with eaq16x). Cells of 8D (no EA head: the
+  routine pops its own displacement), possible now that the whole-opcode numbers are gone.
+- **CVTBD (Q70).** `. . . P . B . . . . . . . . . . . . . N .`: three words with no act, the
+  divisor's pop on the fourth, the divide's set-up, a bus-idle sixth word, four words with no
+  act, the eight steps, the finish, E with the next opcode on the twentieth.
+- **The chained fetch's decision against a write armed after it (spec 13 A2, build check item
+  1).** v35_bus `dcu`: the EU's posted write still unarmed (req_ia on a memory write) on the
+  running fetch's last clock, latched with `dc` (cleared by the fetch's grant); the unarmed
+  write's give-way to the decided chained fetch (`fr && dlv_fetch && dc`) reads `un_w || dcu`,
+  so a K executing on the fetch's last clock (the write armed one clock before the grant) no
+  longer takes the chained fetch's clock. One register, no port.
+- **The SFR store's extra clocks (build check item 5): found in part, not built.** In the
+  interrupt frames' `ES: MOV byte [FF4Ch],imm8` the RTL's E waits through the on-chip cycle (the
+  RAMEN hold, `wr_hold`: E and an F word until the clock after the store's end, for any store
+  into IDB:E00-FFF / FFFFFh) for three clocks. Narrowing the hold to the internal RAM's stores
+  (IDB:E00-EFF) takes those three of the five to six extra clocks away, but f4_dma's write order
+  then differs from silicon's at write 711 (the dma gate EQUAL -> DIFFER), so it is not kept: the
+  hold's scope for SFR stores needs its own measurement. The rest (around the prefix / direct
+  form and EI) is not found.
+- **Not built:** spec 13 A1 (the reserving request on the word that releases a displacement).
+  Today the BY word of the C7 / 81 cells is invisible to the bus unit: it releases bytes (rl=1 /
+  2), so it is not an rl=x request word, and it posts nothing. What it would take inside the
+  existing ports: the BY word posting a reservation (the microword's bus field has one free
+  value, 7) into an EU register whose level reaches the bus unit as req_ia with req_v low (the
+  level an unarmed MEMWD write already presents between its post and K); the following post
+  (Y + 3) keeping req_ia on a read as on the unarmed write (the EU never sends req_ia with
+  RQ_MEMR, but v35_bus's `g_ia` takes req_ia on any cycle but a write as the acknowledge: it
+  would have to name RQ_IOR); in v35_bus the give-way (`un_w`) widened to reads and a
+  register that holds the chained fetch's decision when the reservation rose on the decision's
+  eve. Not attempted in this batch (see the hand-back for the risks).

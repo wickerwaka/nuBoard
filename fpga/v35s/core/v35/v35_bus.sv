@@ -256,7 +256,7 @@ module v35_bus
         // and not against a chained fetch (a fetch asked for on the clock after a fetch's last,
         // dlv_fetch, decided on that fetch's next-to-last clock from the count, dc: registers):
         // the unarmed posted write does not compete with it
-        eu_win = free_h && !g_second && req_v && !(un_w && ((fr && dlv_fetch && dc) || !ex));
+        eu_win = free_h && !g_second && req_v && !((un_w || dcu) && fr && dlv_fetch && dc) && !(un_w && !ex);
         gnt_f.fetch = free_h && !g_second && !eu_win && fr;
         gnt_f.ack = eu_win;
         eu = g_second || gnt_f.ack;         // an EU cycle issued now (either half of a pair)
@@ -373,7 +373,13 @@ module v35_bus
     // next-to-last clock from the count then (the queue's cf: the count with the word in flight at
     // most 5): `dc`, the decision an unarmed write gives way to (any fetch, not only a lagged one)
     reg         dc = 1'b0, dc_b = 1'b0;
+    // (qprobe round 17, spec 13 A2) the decision stands against a write armed after it: `dcu`,
+    // the EU's posted write still unarmed on the running fetch's last clock (its K not executed
+    // before that clock), so a K on the fetch's last clock (the write armed one clock before the
+    // grant) does not take the decided chained fetch's clock (build check item 1)
+    reg         dcu = 1'b0, dcu_b = 1'b0;
     wire        in_f = busy && c_kind == K_FETCH;           // a fetch started earlier runs now
+    wire        f_last = in_f && pos_now == c_len - 3'd1;      // the running fetch's last clock
     wire        eu_r = busy && c_kind != K_FETCH;           // an EU cycle started earlier runs now
     wire        sec_last = pos_now == c_len - 3'd2;         // the running cycle's next-to-last clock
     wire        gave = gwy && free_h && !g_second && !req_v;    // the fetch that gave way now
@@ -385,6 +391,7 @@ module v35_bus
             lg_b <= 1'b0;
             fe_b <= 1'b0;
             dc_b <= 1'b0;
+            dcu_b <= 1'b0;
             nl_b <= 1'b0;
             pd_b <= 1'b0;
             sk_b <= 1'b0;
@@ -392,6 +399,7 @@ module v35_bus
             lg_b <= lg_a;
             fe_b <= g_fetch ? pend : fe;
             dc_b <= g_fetch ? 1'b0 : (in_f && sec_last) ? lv_q.cf : dc;
+            dcu_b <= g_fetch ? 1'b0 : f_last ? un_w : dcu;
             nl_b <= nl_a;
             pd_b <= pd_a;
             sk_b <= gave;
@@ -402,12 +410,14 @@ module v35_bus
             lg <= 1'b0;
             fe <= 1'b0;
             dc <= 1'b0;
+            dcu <= 1'b0;
             nl <= 1'b0;
             pend <= 1'b0;
         end else if (ce_a) begin
             lg <= lg_b;
             fe <= fe_b;
             dc <= dc_b;
+            dcu <= dcu_b;
             nl <= nl_b;
             pend <= pd_b;
         end
@@ -870,7 +880,7 @@ module v35_bus
 `ifndef SYNTHESIS
     // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
     // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
-    wire        x_eu_win = free_h && !g_second && req_v && !(un_w && ((fr && dlv_fetch && dc) || !ex));     // (qprobe round 12, A2)
+    wire        x_eu_win = free_h && !g_second && req_v && !((un_w || dcu) && fr && dlv_fetch && dc) && !(un_w && !ex);     // (qprobe round 12, A2)
     v35_gnt_t   gnt_x;
     logic       x_eu;
     always_comb begin

@@ -52,8 +52,8 @@
 // condition), a call (one return register: the V20 ROM's FARJMP subroutines nest one level,
 // V20UC.TXT 0000-04FF has no FARJMP from inside a FARJMP target), a return, a loop on the
 // counter, or a dispatch from the decode registered at the end of tick A: DISP (the word after
-// E) on the opcode the E word popped (v35_udec1 of the loader's opcode register), DISPM on the
-// byte this word pops (v35_udec2 of the opcode register and the word register's byte). No
+// E) on the opcode the E word popped (v35_udec1 of the loader's opcode register); (qprobe round
+// 17) DISPM (the second level on the byte a word pops) withdrawn: no routine used it. No
 // queue byte reaches the address except through those registers.
 // (MX1) The dispatch of a ModR/M memory cell is a call: the target is the EA head of the
 // registered ModR/M byte's mode (the loader's dent), the return register loads the routine's
@@ -71,7 +71,7 @@
 // registered ex) into the ROM's read address. The ROM output is a register.
 //
 // Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9, halted 1; the ce_b
-// copies ex_b 1, d1_b 10, d2_b 10, (MX1) dc_b 1, dr_b 10.
+// copies ex_b 1, d1_b 10, (MX1) dc_b 1, dr_b 10 ((qprobe round 17) d2_b removed with DISPM).
 module v35_useq
     import v35_front_pkg::*;
     import v35_pkg::*;
@@ -87,7 +87,7 @@ module v35_useq
     input  wire [UADDR_W-1:0] dent,     // the DISP word's target (the loader's)
     input  wire        dcall,           // (MX1) ... an EA head, called (the return register <- dret)
     input  wire [UADDR_W-1:0] dret,     // ... the routine's entry (the head's return)
-    input  v35_udecm_t dec2,            // v35_udec2(the opcode register, the word register's byte)
+    input  v35_udecm_t dec2,            // v35_udec2(the opcode register, the word register's byte): (qprobe round 17) unread (DISPM withdrawn)
     input  wire        ec_reg,          // (MX3c) the EAC word's popped byte: register mode
     input  wire        ec_call,         // ... a memory mode with an EA head (called)
     input  wire [UADDR_W-1:0] ec_head,  // ... the head
@@ -301,7 +301,7 @@ module v35_useq
     wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && word.susp) ? 1'b1 : sp;
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
-    reg [UADDR_W-1:0] d1_b = '0, d2_b = '0, dr_b = '0;
+    reg [UADDR_W-1:0] d1_b = '0, dr_b = '0;
     reg        dc_b = 1'b0;
     reg        ig_b = 1'b0;                 // (F3) igo, for tick B's DISP target
     reg        sg_b = 1'b0;                 // (F5e) sgo, for tick B's TKI target
@@ -323,7 +323,6 @@ module v35_useq
             ech_b <= ec_head;
             sp_b <= sp_n;
             dr_b <= dret;
-            d2_b <= dec2.entry;
             len_b <= len;
             il_b <= il;
             w_b <= fmt_w;
@@ -395,7 +394,6 @@ module v35_useq
                 SQ_CALL: upc_n = word.tgt;
                 SQ_RET: upc_n = retr;
                 SQ_LOOP: upc_n = cnt != 9'd1 ? word.tgt : inc;
-                SQ_DISPM: upc_n = d2_b;
                 SQ_DISP: upc_n = ig_b ? UROM_INT : d1_b;     // (F3) the interrupt take
                 SQ_TKI: upc_n = sg_b ? word.tgt : inc;          // (F5e) a string's take point
                 // (MX3c) EAC: the register path, the EA head (called), or the next word
@@ -424,7 +422,7 @@ module v35_useq
 
     // ------------------------------------------------------------ (MX5) tick A: the ROM's address
     // The next address as tick B's upc_n computes it, on the tick-A sources of its ce_b registers
-    // (ex for ex_b, dent for d1_b, dec2.entry for d2_b, the EAC facts for ecr_b / ecc_b / ech_b,
+    // (ex for ex_b, dent for d1_b, the EAC facts for ecr_b / ecc_b / ech_b,
     // fmt_w for w_b; the word, upc, retr, cnt and the datapath's conditions are ce_a registers):
     // each ce_b register holds its source's tick-A value (`+v35_chk`), so upc_a at ce_b is upc_n
     // at ce_a. The candidate (`nx_a`) is formed from the word and registers; ex selects last.
@@ -453,7 +451,6 @@ module v35_useq
             SQ_CALL: nx_a = word.tgt;
             SQ_RET: nx_a = retr;
             SQ_LOOP: nx_a = cnt != 9'd1 ? word.tgt : inc;
-            SQ_DISPM: nx_a = dec2.entry;
             SQ_DISP: nx_a = igo ? UROM_INT : dent;      // (F3) the interrupt take
             SQ_TKI: nx_a = sgo ? word.tgt : inc;        // (F5e) a string's take point
             SQ_EAC: nx_a = ec_reg ? word.tgt : ec_call ? ec_head : inc;
@@ -486,14 +483,12 @@ module v35_useq
         end
     end
     wire               r_go = reset_n && ex;
-    wire               s_dm = r_go && word.seq == SQ_DISPM;
     wire               s_ds = r_go && word.seq == SQ_DISP;
     wire               s_ec = r_go && word.seq == SQ_EAC;
     wire               s_tk = r_go && word.seq == SQ_TKI;
     wire               s_jc = r_go && word.seq == SQ_JC;
     wire               s_jn = r_go && word.seq == SQ_JNC;
-    wire [UADDR_W-1:0] raddr = s_dm ? dec2.entry
-                             : s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
+    wire [UADDR_W-1:0] raddr = s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
                              : s_ds ? (igo ? UROM_INT : dent)
                              : s_tk ? (sgo ? word.tgt : inc)
                              : s_jc ? (cond_a ? word.tgt : inc)
@@ -501,8 +496,7 @@ module v35_useq
                              : ra_e;
     // the high part's address: the same select kept apart (the low part's 36 blocks and the high
     // part's 24 each on their own copy of the last stage)
-    (* syn_keep = "true" *) wire [UADDR_W-1:0] rah = s_dm ? dec2.entry
-                             : s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
+    (* syn_keep = "true" *) wire [UADDR_W-1:0] rah = s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
                              : s_ds ? (igo ? UROM_INT : dent)
                              : s_tk ? (sgo ? word.tgt : inc)
                              : s_jc ? (cond_a ? word.tgt : inc)
@@ -589,12 +583,18 @@ module v35_useq
     end
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
+            // (qprobe round 17) the DISPM source is withdrawn (no routine had one; uasm rejects it)
+            if (ex && word.seq == SQ_DISPM) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: useq: a DISPM word executed at %0t (the source is withdrawn)", $time);
+            end
             if (upc_ab !== upc_n || pd !== pre(word) || ra_ab !== ra_rb) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: useq: the ROM's address or the derived bits differ at %0t", $time);
             end
-            if (ex_b !== ex || d1_b !== dent || ig_b !== igo || sg_b !== sgo || d2_b !== dec2.entry || len_b !== len
+            if (ex_b !== ex || d1_b !== dent || ig_b !== igo || sg_b !== sgo || len_b !== len
                 || dc_b !== dcall || dr_b !== dret || ecr_b !== ec_reg || ecc_b !== ec_call
                 || ech_b !== ec_head || sp_b !== sp_n
                 || il_b !== il || w_b !== fmt_w) begin

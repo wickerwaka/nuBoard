@@ -483,6 +483,23 @@ module v35_eu
     end
     wire [15:0] wsv = src(word.ws);
 
+    // (qprobe round 17, timing) the multiply's finish (the product's negation and the extension
+    // test, v35_mul_fin) formed in tick A from ce_a registers alone (mul, the format's width,
+    // the PSW, the word) and captured at ce_b (`mf_b`, `mfn_b`), so tick B's ALU reads a
+    // register: the AL_MULF / AL_CVDF word reads the same values as the function of mul gives
+    // through tick B (mul, fmt and psw load at ce_a only; `+v35_chk` compares them)
+    logic [31:0] mf_q;
+    logic [15:0] mf_f;
+    always_comb mf_q = v35_mul_fin(mul, word.alu == AL_MULF ? mdw : 1'b0, psw, mf_f);
+    reg   [31:0] mf_b = 32'd0;
+    reg   [15:0] mfn_b = 16'd0;
+    always_ff @(posedge clock) begin
+        if (ce_b) begin
+            mf_b <= mf_q;
+            mfn_b <= mf_f;
+        end
+    end
+
     // ------------------------------------------------------------ tick B: the ALU
     logic [15:0] r, pn, tc_n, tb_n, bfm;
     logic        scy_n, dtrap_n, tc_w, tb_w, bac_n, bs7_n;
@@ -548,7 +565,8 @@ module v35_eu
             AL_MULI: mul_n = v35_mul_init(op3[0], mdw, x, y);
             AL_MULS: mul_n = v35_mul_step(mul);
             AL_MULF: begin
-                q32 = v35_mul_fin(mul, mdw, psw, pn);
+                q32 = mf_b;         // v35_mul_fin(mul, mdw, psw, pn): its ce_b register
+                pn = mfn_b;
                 r = q32[15:0];
                 tc_n = q32[31:16];
                 tc_w = 1'b1;
@@ -592,7 +610,8 @@ module v35_eu
             // (F5) CVTDB multiplies AH by its immediate (silicon, f5x; the V20 suite's 10)
             AL_CVDI: mul_n = v35_mul_init(1'b0, 1'b0, {8'd0, x[15:8]}, {8'd0, y[7:0]});
             AL_CVDF: begin
-                q32 = v35_mul_fin(mul, 1'b0, psw, pn);
+                q32 = mf_b;         // v35_mul_fin(mul, 1'b0, psw, pn): its ce_b register
+                pn = mfn_b;
                 r = {8'd0, 8'(v35_alu(3'd0, 1'b0, {8'd0, q32[7:0]}, {8'd0, x[7:0]}, psw, pn))};
             end
             // (MX3c) the 0F page
@@ -745,12 +764,23 @@ module v35_eu
     // (A2) the current word loads OPRW (K for an unarmed write), and the next word's (tick B)
     wire        k_cur = word.d1 == MD_OPRW || word.d2 == MD_OPRW;
     wire        k_nx = word_nx.d1 == MD_OPRW || word_nx.d2 == MD_OPRW;
-    wire [15:0] segv = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_IDB ? {idb, 8'h00}
+    // (qprobe round 17, timing) the segment's value (`segv`, the word's segment, the prefix's,
+    // SS for a BP mode) formed in tick A from ce_a registers alone (the word, the segment flops,
+    // TA, IDB, the prefix, ea_ss) and captured at ce_b (`segv_b`, as aq_b), so the linear
+    // address's add starts from registers: the segment select was 7 LUT levels in front of the
+    // add -> the on-chip compare -> rq_oc_nx -> the registered stall -> ex. segv_b is segv
+    // through tick B (`+v35_chk` compares them every clock)
+    wire [15:0] segv_e = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_IDB ? {idb, 8'h00}
                      : word.seg == SG_TA ? ta
                      : word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
                      : pfx_v ? (pfx_s == 2'd0 ? ds1 : pfx_s == 2'd1 ? ps : pfx_s == 2'd2 ? ss
                                 : ds0)
                      : (ea_ss_q && word.seg != SG_DSP) ? ss : ds0;
+    reg  [15:0] segv_b = 16'd0;
+    always_ff @(posedge clock)
+        if (ce_b)
+            segv_b <= segv_e;
+    wire [15:0] segv = segv_b;
     wire [19:0] lin = {segv, 4'd0} + {4'd0, addr_q};
     wire [15:0] off2 = rq_off + 16'd1;
     // (F5d) a memory word's second half is the first's linear address + 1 (the offset is not
@@ -1053,7 +1083,7 @@ module v35_eu
     initial chk_on = $test$plusargs("v35_chk");
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
-            if (x_b !== x_l || y_b !== y_l) begin
+            if (x_b !== x_l || y_b !== y_l || mf_b !== mf_q || mfn_b !== mf_f || segv_b !== segv_e) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: eu: the early operands differ at %0t", $time);
