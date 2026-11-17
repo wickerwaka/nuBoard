@@ -3091,3 +3091,35 @@ question, decided from S8's routed numbers with the user.
   2-clock lattice. Unknown and marked so: what makes the 7 to 8 clocks on the EU side common
   to every source, NMI's 3 to 4 further clocks and their bus dependence, whether NMI's filter
   is a time or a count on a faster clock.
+- **2026-11-17, qprobe round 18 on the socket (6,036 runs in 20 families; a reading, no RTL
+  change; `validation/v35s/qprobe/RESULTS.md` Q75-Q81, `DIVERGENCE-r18.md`).** **INT (Q75)**:
+  the instruction pushed is the one whose pop is the first at or after edge + 9.125 clocks, on
+  1,760 of 1,760 runs (NOP / INC trains at W = 1 and 2, CBW, MOV r,imm, a read cycle per
+  instruction, inside MULU, inside a 76-clock shift, mixed trains at W = 0 and 2): a fixed 7
+  CPU clocks behind the two-sample level to a level the next pop reads; not the divided
+  clock, not a microcode sample point, not the bus unit, not the queue. What the seven stages
+  are is unknown. Behind a jump the pop that counts is 2 clocks before the last word in front
+  of the target. **NMI (Q76)**: the request stands 8.875 clocks after the edge like INT's;
+  then a second stage INT lacks. In opcode-only trains one rule fits every steady-state run
+  (806 of 856): the first pop S after the request stands loads normally and the pop replaced
+  is the first at least 5 clocks after S not made on the first word of the instruction S
+  loaded. Across EU bus cycles and long instructions silicon takes it earlier (3 to 7 clocks,
+  404 of 904 by the rule): unknown, not to be built. **NMI filter (Q77)**: never at 1.75
+  clocks, always at 1.875, at 16 eighth-clock positions: a time. **Scan (Q78)**: the 16-clock
+  grid is locked to EI (the cut-off moves exactly 3.0 clocks with a CBW in front of EI); the
+  scan's level-7 look cuts off 4 clocks earlier than a program read of the flag; with the
+  request set by a store to EXIC0 the vector read is 50 clocks after the store's cycle at 23
+  positions with no grid (inferred: a store to a request control register restarts the scan
+  as EI does). **Q79**: the two readings of the reserving request predict identical traces on
+  1,872 candidate programs, so spec 13 A1 stands. **REP compares (Q80, 768 runs)**: one loop
+  for all eight forms and four prefixes; k compared, k + 1 read, CW - k left; CMPM iterations
+  10 clocks once then 12 whatever ends the loop; the count exit is one word longer than the
+  condition exit. The landed RTL has the head one word short and one exit length; at W = 2
+  the spacing differs in part of the forms (not diagnosed). **Q81**: set1_rw_cl (156 corpus
+  runs) is a build fault (silicon's SET1 / NOT1 r16,CL is the byte forms' routine; the RTL
+  keeps a short `b1sclw_r`); br_n1 (211) is shared by model and RTL: a transfer whose opcode
+  arrives alone behind a previous flush starts W clocks early at W = 1 and 2 (silicon: second
+  flush fetch 8 clocks after the end of the fetch bringing the displacement); the word that
+  waits is not identified. Not started: NEG [BW+d16], EXT across a word, ADD [d16],imm8 with
+  four bytes held, CALL far with waits, OUTM twice. Open for the user: whether a seven-stage
+  delay of measured length and unknown purpose may be built for INT.

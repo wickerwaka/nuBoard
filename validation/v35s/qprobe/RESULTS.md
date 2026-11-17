@@ -2156,3 +2156,204 @@ port bank. The first INT round was run alone and its vector read (0100h) checked
 
 The model after this round: 11,834 of 12,396 non-interrupt runs (`build/qp/fail17.py`; was 10,936 of
 11,490), no run lost against the round-16 model.
+
+# Round 18
+
+6,036 socket runs in 20 families (table at the end), each run twice, 0 failed, 0 incomplete;
+1,849 repeats flagged DIFFERS, every one differing in the strobe field only
+(`build/qp/r18/repdiff-18.txt`). Plus 2,880 runs in simulation of the worktree's RTL copy (main
+at 2a30b50; not re-based this round). Board powered down at the end (vccb false, failure 0).
+All interrupt items: the edge clock e is as in round 17 (`event record's end + delay + 4
+ticks`, 8 ticks a clock); edges were stepped half a clock, INT at x.5 and NMI at x.0 / x.5, so
+with round 17's phases (INT sampled at x.875, NMI's threshold at x.125) "INT taken up to P - 9.5"
+reads as a true threshold of P - 9.125 and "NMI up to P - 9.0" as P - 8.875.
+
+P is the model's staging pop of an instruction (the clock its opcode leaves the queue on an N
+word; `model_m` with `NLOG`); "start" is the clock of its first word (`BLOG`, added this round).
+Tools: `build/qp/r18int.py` (thresholds per pushed instruction), `fit18.py` (rules scored on
+every run), `dump18.py` (pops, starts and thresholds of one train).
+
+## Q75. INT: the request is taken by the first pop at least 9.125 clocks after the edge, whatever the EU and the bus are doing
+
+`r18tnop1/2`, `r18tinc1/2` (NOP and INC BW trains at W = 1, 2), `r18tmi80`, `r18tmi160` (MOV
+r8,imm8 and MOV r16,imm16 trains: pops 5 to 7 clocks apart, on a bus-idle fourth / fifth word),
+`r18tld0` (MOV AW,[BW]: a read cycle per instruction), `r18tmul0` (MULU BW, 35 clocks),
+`r18tshl0` (SHL AW,CL with CL = 31, 76 clocks: a microcode loop), `r18tmm0/2` (a mix of INC, NOP,
+CBW, MOV r,imm8 / imm16 at W = 0 and 2), with round 17's CBW train.
+
+- **One rule, 1,760 of 1,760 runs: the instruction pushed is the one whose pop is the first at
+  or after e + 9.125.** The next best cell of the grid (lead 0 to 20 clocks, a second stage of 0 to
+  12 clocks, pops or instruction starts as the anchor) is a lead half a clock off, at 88 %. The lead is the same at
+  W = 0, 1, 2, with pops 2 to 10 clocks apart, across a read cycle per instruction, and inside
+  MULU and the 76-clock shift (the pop made by the long instruction's own N word, 35 and 76
+  clocks after the pop before it, is replaced for exactly the edges up to 9.125 before it).
+- So the 7 to 8 clocks behind the two samples are **not** a microcode sample point a fixed
+  number of words in front of the pop (the shift's loop cannot know it is 7 words from its end),
+  **not** on the divided clock (round 17: thresholds step with every clock), not a bus or queue
+  synchronisation (W, fetch pattern and EU cycles do not move it). It is a fixed number of
+  CPU clocks between the accepted level and a level at the loader that the next pop reads.
+- **Behind a flush the pop that counts is late.** `r18tjmp0` (one JMP $+2 in a NOP train),
+  `r18tjch0` (eight in a row): the edge is taken in front of the first jump's target up to 6
+  clocks later than the model's nominal pop of the target allows: the threshold is 11.5 clocks
+  before the last word in front of the target (four thresholds: two families, two alignments;
+  with the nominal pops the rule scores 150 of 168 and 168 of 192, every miss in front of a
+  target). The model stages the target as soon as its byte arrives and holds the boundary until
+  two more bytes are in (`EMIN`); for the interrupt the opcode leaves the queue 2 clocks before
+  that last word. Read from the first target of each program only (the windows end there).
+  `r18tjch2` (W = 2): 186 of 216 with the nominal pops, not looked at further.
+- The vector read follows the replaced pop by 21 to 23 clocks (INTAK first), as round 15.
+
+## Q76. NMI: stands at the EU 8.875 clocks after the edge, like INT; then a second stage that INT does not have
+
+The same families, NMI beside INT.
+
+- **Opcode-only trains** (NOP at W = 0, 1, 2; INC at W = 1, 2; CBW; MOV r8,imm8; MOV
+  r16,imm16): one two-stage rule reproduces every run except the first two instructions behind
+  the frame's long shift (806 of 856; the 50 are those). (1) S = the first pop at or after
+  e + 8.875. (2) The pop replaced is the first one at least 5 clocks after S that is not made
+  on the first word of the instruction S took out of the queue. In a NOP train that is the
+  second pop behind S (round 14's "the pop that matters is one instruction earlier", Q54, and
+  round 17's "4.75 to 7.75 behind INT" are this); in the INC train it makes one instruction in
+  four unreachable (round 17's gaps: no bus dependence is needed for them); in the MOV r8,imm8
+  train (pops 5 or 6 apart on a fourth word) it is the next pop. "At least 6 clocks, any pop"
+  is 762 of 856 (it fails the 5-clock steps of MOV r8,imm8).
+- **Stage 1 is INT's.** 8.875 against 9.125, of which the filter is 1.75 to 1.875 (Q77) where
+  INT has its two samples (1.1 to 2.1): the same 7 clocks behind the front end.
+- **The rule does not hold where the EU makes bus cycles or runs long** (404 of the other 904
+  runs differ, always silicon earlier than the rule):
+
+  | context (even alignment) | the pop replaced comes this long after e + 8.875, with no pop in between |
+  |---|---|
+  | MOV AW,[BW] train (pops 10 apart, on the datum word of a read) | 3 clocks |
+  | first instruction behind the frame's long shift | 5 |
+  | behind SHL AW,CL (76 clocks): the shift's own pop / the pop after | 5 / 6 |
+  | behind MULU BW: MULU's own pop / the pop after | 7 / 5 |
+  | first jump's target (JMP $+2) | 6 from the nominal pop |
+  | mixed train: the pop behind MOV r16,imm16 | 7 (rule: 10 or more) |
+
+  So the second stage is armed by something other than a pop when there is no pop, and can
+  then end 3 clocks later. What arms it (a microcode word kind, the bus unit's state at a
+  cycle's start, both): **not read**. The table is the data for whoever continues.
+- From the replaced pop to the vector read: 17 to 19 clocks, as before.
+
+## Q77. NMI's filter to an eighth of a clock
+
+`r18w` (96 runs): NMI low for 14, 15, 16 ticks at 16 consecutive tick positions (the schedule's
+resolution is one tick, an eighth of a CPU clock, a quarter of the oscillator period). 14 ticks
+(1.75 clocks): never taken, 32 of 32. 15 ticks (1.875): always, 32 of 32. 16: always. The limit
+is between 1.75 and 1.875 clocks and does not move with the phase at this resolution, and both
+repeats agree on every run. A count on the CPU clock or on the oscillator (two edges a clock)
+would pass some 1.75 pulses or fail some 1.875 ones; this is a time (or a count on a clock at
+least eight times the CPU clock, which the chip does not have). Whether it tracks the clock
+frequency still needs another oscillator.
+
+## Q78. The scan against EI and against a store to the request register
+
+`r18f` (304 runs): INTP0 unmasked at level 7, IE = 0; the body reads EXIC0 and stores the byte
+twice, then EI (with and without a CBW in front), then six more read / store pairs; the edge a
+clock at a time. `r18s` (92 runs): EI, a pad of 0 to 24 clocks (NOP / CBW / CLC), `ES: MOV byte
+[EXIC0],87h`, NOPs; and the same with the store going to RAM, which shows the write cycle.
+
+- **The 16-clock grid is locked to EI.** The latest edge acknowledged in the first round is
+  137.5 without the CBW and 140.5 with it (EI 3 clocks later), at both alignments; the next
+  cut is 16 later in each (153.5, 156.5). Any edge up to the cut, however long before the EI,
+  is acknowledged at one fixed clock (vector read 37.5 after the cut-off edge in this train).
+- **The scan's look at level 7 is 4 clocks earlier than a program's read of the same flag
+  would have to be.** The read behind the EI stores the flag as set for edges up to 141.5
+  (144.5 with the CBW): for edges 138.5 to 141.5 the program sees the flag set and the scan of
+  that round has already missed it. With round 17's pin-to-flag figure the level-7 look is at
+  about the clock a read cycle starting at 142 would sample, i.e. about 19 clocks after EI's
+  start and 6 after its end (EI's start is placed from the store's write cycle in front of
+  it, to 2 clocks: **inferred**; the model does not know the body's MOV AL,[d16]). So EI
+  restarts the scan from one of its early words, not its last (spec 13's inference, now with
+  a measurement behind it).
+- **A store to the request control register restarts the scan too.** With the request set by
+  the store, the vector read is 50 clocks after the store's write cycle at every one of the 23
+  pads, both alignments (46 of 46): no 16-clock steps at all as the store moves through 24
+  clocks behind the EI. A free-running round would give steps. 50 = 3 (the cycle) + 14 (levels
+  0 to 7) + 33 (level-7 look to vector read, as in `r18f`: 32 to 33). The arithmetic is
+  consistent; that it is a restart, and from level 0, is **inferred** from it.
+
+## Q79. Q69's reserving request: no probe can separate the two readings
+
+The candidates for "a bus-idle request word that releases no displacement" in the model's
+tables are `BY` words: ADD / CMP word [BW],imm16, C7 [BW], MUL r,[BW],imm16. For the two reads,
+behind every one of 156 predecessor pairs (NOP, INC, CBW, CLC, MOV r,imm8 / imm16, JMP, a
+load, a store, PUSH, XCHG, MULU), three waits, both alignments, the model's prediction with
+`YP_UN=1` (only a word that releases a displacement) and `YP_UN=2` (any bus-idle request word)
+is the same trace on all 1,872 runs (`build/qp/yp18.py sim18`). The reason is structural: a
+bus-idle word executes only when the bus unit has no fetch sequenced, a new fetch needs a pop,
+and between such a request word and its datum word nothing is popped; only a request word
+that itself releases bytes can have a fetch start under it. **In the model's terms the two
+readings are the same machine**; nothing was acquired for this item. (Model-derived, not a
+silicon measurement.)
+
+## Q80. The REP compares over data that ends the loop anywhere
+
+`r18c` (768 runs): REPE / REPNE / REPNC / REPC with CMPBK and CMPM, byte and word, CW = 4, over
+data that satisfies the exit condition at element 1, 2, 3, 4 or never; alone and with a shift
+by CL behind (its length shows the count left). Rounds 9 to 13 had only "never" and "at the
+first element". Table: `build/qp/rc18.py`.
+
+- **One loop for all eight forms and all four prefixes.** The prefix only selects the flag
+  tested (Z or CY, and its sense); byte and word differ by nothing at even addresses.
+- **k elements compared, k + 1 read**, in every case: ended by the condition at element k
+  (k = 1 to 4) or by the count (k = 4). CMPBK: 2 (k + 1) reads 9 clocks apart at W = 0; CMPM:
+  k + 1 reads, the second 10 clocks after the first and every later one 12 after the one
+  before (rounds 9 / 13 read "10 when the condition ends it, 12 to the count": it is "10 once,
+  then 12", whatever ends it).
+- **The count left is CW - k** (shift lengths 19, 17, 15, 11 for k = 1 to 4: 13 + 2 CL, and
+  the two-word-shorter CL = 0 form).
+- **The exit:** from the last read to the marker 26 clocks when the condition ended it (also
+  when that was at the last element) and 27 when the count ended it with the condition still
+  holding. One word, by which exit.
+- At W = 2 the same with each cycle's waits (reads 11 apart, CMPM 12 then 14).
+- The RTL copy makes the same number of reads in all 768 runs. At W = 0 (both alignments)
+  the spacing is silicon's, its first read is one clock early (head one word short) and its
+  exit is the same length on both paths (one word long on the count exit, two on the
+  condition exit). At W = 2 the first read is 1 to 3 clocks early and the spacing differs in
+  28 of the 64 programs of each alignment; not diagnosed. The model as it stands reproduces only the two data shapes it was read from (144 of
+  768): its REP compare code takes the element count from the prefix, not from the data. Not
+  generalised this round.
+
+## Q81. Two corpus rows diagnosed
+
+- **set1_rw_cl (156 corpus runs).** `r18b` (180 runs): SET1 AW,CL with CL = 0, 1, 2, 3, 7, 8,
+  15, 16, 31, alone, twice, behind OUT; SET1 AL,CL at the same nine counts; TEST1 / CLR1 / NOT1
+  word at three. Silicon: **the word forms are the byte forms' routine, and no length depends on
+  CL** (model 177 of 180; the 3 are SET1 word behind OUT at even alignment, silicon 2 clocks
+  shorter, not read). The RTL keeps a separate short routine for 0F 15 / 0F 17 on a register
+  (`b1sclw_r`, "the round-9 register routine", kept because the byte shape once lost nine F39
+  runs): every SET1 / NOT1 word r,CL run differs (0 of 90 in the sim against the model; next
+  fetch 10 clocks early at even alignment, the marker 3 early). CLR1 and TEST1 word are right.
+- **br_n1 (211).** The corpus sequence is CALL $+5 ; JMP $+3 ; RET executed as CALL, RET, JMP:
+  a transfer whose opcode is the first byte behind another transfer's flush. `r18j` (60 runs:
+  that sequence alone, behind NOP, behind OUT, twice; JMP behind JMP; JMP behind OUT): model 48
+  of 60, **RTL = model on all 60**. The 12: the second transfer at W = 1 and 2 at the alignment
+  where the first flush fetch brings its opcode alone. Silicon's second flush fetch starts 8
+  clocks after the fetch that brings the displacement ends, at every wait; the model and the
+  RTL have 8 - W. JMP behind OUT, behind NOP, and the first transfer are exact. This is one
+  shared misreading (the transfer's start against a fetch still in progress behind a flush),
+  not an RTL build fault; the corpus count is larger at W = 1 / 2 (197 of 242 by `fd17`) as it
+  predicts. The model is not corrected this round.
+
+## Round 18 in numbers
+
+| family | what | runs | flagged repeats (all strobe-only) |
+|---|---|---|---|
+| r18tnop1, r18tnop2 | INT / NMI across NOPs, W = 1, 2 | 228, 244 | 8, 52 |
+| r18tinc1, r18tinc2 | across INC BW, W = 1, 2 | 260, 292 | 71, 99 |
+| r18tmi80, r18tmi160 | across MOV r8,imm8 / MOV r16,imm16 | 260, 260 | 71, 83 |
+| r18tld0 | across MOV AW,[BW] | 292 | 110 |
+| r18tmul0, r18tshl0 | behind MULU BW / SHL AW,CL (31) | 484, 420 | 142, 162 |
+| r18tjmp0, r18tjch0, r18tjch2 | behind one jump / eight / eight at W = 2 | 340, 388, 436 | 114, 133, 149 |
+| r18tmm0, r18tmm2 | a mixed train, W = 0, 2 | 292, 340 | 97, 122 |
+| r18w | NMI widths in eighth-clock steps | 96 | 19 |
+| r18f, r18s | flag reads with EI; request set by a store | 304, 92 | 114, 23 |
+| r18j, r18b, r18c | transfer pairs; bit forms by CL; REP compares | 60, 180, 768 | 11, 38, 231 |
+
+6,036 runs (5,028 + 1,008), 0 failed, 0 incomplete, 1,849 flagged repeats, all strobe-only.
+FF10h was written only by the INT halves of the `r18t*` families, with gen_r15's INT_HEAD and
+handler hand-back; the first INT program was run alone and its vector read (0100h) checked.
+Scout runs (34, `build/qp/r18/scout`) are not counted. Model change this round: `BLOG` (a log of
+instruction starts) only; no rule or shape changed, so round 17's 11,834 of 12,396 stands.

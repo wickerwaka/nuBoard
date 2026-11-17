@@ -714,6 +714,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     stg -= 1
                 of_stage = False
                 cur_op, cur_at = code[stg], stg
+                if o.get("BLOG") is not None:       # (round 18) the boundaries: (clock of the
+                    o["BLOG"].append((t, stg + base - b))   # predecessor's last word, instruction)
                 first0f = bool(o["OF2"]) and cur_op == 0x0F and not second
                 if log is not None:
                     log.append((t, f"E{e_n} {cur_op:02X}@{stg + base - b:+d} c={count - pops}"
