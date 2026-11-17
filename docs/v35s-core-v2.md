@@ -2878,3 +2878,41 @@ question, decided from S8's routed numbers with the user.
   model reproduces 7,484 of 7,656 runs of rounds 1-11. Of 13,481 diverging corpus runs on the
   work-order-5 tree about 10,200 are on forms now read and about 3,300 are not read or not
   probed.
+- **2026-11-16, qprobe round 13 on the socket (reading only;
+  `validation/v35s/qprobe/RESULTS.md` Q42-Q45, `DIVERGENCE-r13.md`, `INTR-r13.txt`).**
+  **Q42** replaces Q33's "armed" condition: after an EU write at W = 0 the fetch chained to
+  the fetch behind the write gives way to a boundary arriving fresh on its clock, and is not
+  started when the EU's next word is bus-idle; nothing depends on the queue count or the
+  store. **Q43**: CMP mem,imm16, the mem,imm bit forms, DBNZE / DBNZNE (four routines of
+  their own, 60 of 60), REPC / REPNC (REPNE / REPE on the carry). **Q44**: EXT / INS across
+  a word, JMP / CALL r16 (the "two clocks late at odd alignment" was a wrong shape, not a
+  rule), INT 3, BRK imm8, far JMP / CALL through memory, RETI, MUL r,r,imm. **Q45,
+  interrupts**: an NMI edge is taken in front of X when at the pin 15.5 clocks before X's
+  opcode leaves the queue, 14.5 from an idle bus with a full queue (149 of 278 thresholds;
+  a train of NOPs alone shows 17.5, open); INTP0 is edge-latched (pulse width has no
+  effect) on a 16-clock grid, and is not presented while read-modify-writes run back to
+  back (the NMI is); NMI wins over INTP0 on the same clock. The model reproduces 7,495 of
+  7,656 runs of rounds 1-11 and 819 of 852 of round 13's family probes. Split of the 13,481
+  diverging runs of the work-order-5 rows: read and not built 11,182, partly or not read
+  1,468, not probed 831.
+- **2026-11-16, qprobe round 14 on the socket (3,826 runs; reading only;
+  `validation/v35s/qprobe/RESULTS.md` Q46-Q54, `DIVERGENCE-r14.md`, `INTR-r14.txt`).** Read
+  against the work-order 6 and 7 tree (not yet landed: see the next entry). **Interrupts**: the
+  "16-clock grid" is a scan over the eight priority levels, two clocks a level, and EI sets its
+  phase (POP PSW and a mask clear do not); a raised request is taken in front of the first
+  instruction whose opcode has not left the queue, the vector read 17 clocks after that pop
+  (19 behind NOP / XCH AW,r); EI is 13 clocks; an NMI arriving after a maskable request has
+  been raised does not displace it (first come; replaces round 13's "NMI wins"); timer 0 goes
+  through the same scan; order and vectors are the RTL's, only the timing differs. The INTP0
+  edge "held back by read-modify-writes" is an instruction class (ALU mem,reg including CMP
+  mem,reg, ADD mem,imm8; not INC / NOT / SHL / XCH on memory, not BUSLOCK): mechanism open,
+  and it would need a new level at the EU / controller boundary, so it is not ordered. Open:
+  HALT released one instruction late in two programs; three EI runs one round off. **Forms**:
+  the not-probed block read (451 of 456): the 80 group on memory, shifts on memory by imm8 and
+  CL, LDS / LES, MOV mem,sreg and sreg,mem, PUSH imm8, CVTWL, MUL r,mem,imm; JMP / CALL r16
+  have a second bus-idle word (the "four bytes held" stall withdrawn). **Build check of the
+  6 and 7 tree**: PUSH with a displacement reads 5 clocks early, one DBNZ-taken run one clock
+  late; older: JMP near at even alignment, LEA. Split of the 10,017 diverging runs filed on
+  the 6 and 7 rows: read and not built 8,610, partly read 1,096, not probed 299. Not measured:
+  the INT pin with INTAK and TOUT's edge (they need marker writes to FF10h; the user lifted
+  that limit for round 15).

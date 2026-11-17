@@ -1184,3 +1184,430 @@ EXT / INS across a word; MUL r,m,imm and MUL r,r,imm16 at odd alignment; the reg
 transfers at odd alignment; BRK imm8 at waits; MOV mem,imm16 followed by MOV r,imm16 (the
 fetch behind the write is not chained on silicon: it costs the memory MUL / DIV their model
 score); the residues named in the tables. Interrupts: the two open items above.
+
+# Round 13 (1,960 runs: 852 on the families, 1,108 interrupt probes)
+
+Two acquisitions, safety sequence unchanged, no kill timer: `r13a` 852 runs + 852 repeats, the
+twelve interrupt rounds 1,108 runs + 277 repeats; 0 failed, every flagged repeat strobe-only.
+Board powered down at the end (vccb false, failure 0). Every program ran in the RTL simulation
+first (all 1,960 reach their end, RETI with PSW F002h included).
+
+Model: rounds 1-11 7,495 of 7,656 (was 7,484); round 13a 819 of 852; the RTL (spec-5 build)
+has 193 of 852. Against the round-12 hand-back the model gains 1,182 runs and gives up 19: 7
+MUL r,r,imm8 runs (the new two-wait shape is better on 26 others) and 12 JMP / CALL r16
+directly behind MOV BW,imm16 at even alignment (the old shape had those and missed 36 clean
+ones; see Q44).
+
+## Q42. The fetch behind a write (item 1): not Q33's "armed" condition; a new, small fact
+
+Probes `fw-*`: MOV [BW],imm16 / MOV [BW],AW / PUSH, behind four pads, followed by MOV r,imm16,
+MOV r8,imm8, NOP, MOV r,r, CLC or the marker (192 runs). The fetch that was waiting under the
+write starts on the clock after the write (W+3 at W = 0). What follows it:
+
+| follower | W = 0 | W = 1, 2 |
+|---|---|---|
+| MOV r,r; CLC; MOV r8,imm8; the marker (OUT DW) | next fetch chained (W+6) | chained |
+| NOP | **one idle clock, fetch at W+7** | chained |
+| MOV r16,imm16 | **one idle clock, fetch at W+7** | chained |
+
+It does not depend on the queue count (both alignments, all four pads, counts 1 to 3 at the
+decision) nor on the store (the same after MOV [BW],AW and PUSH where the phase is the same):
+only on what the EU does on the two clocks where the chained fetch would begin.
+
+- NOP's boundary falls on that clock (W+6). The boundary executes and the fetch gives way one
+  clock. Q8 says the opposite for an ordinary chained fetch (the boundary waits); **the fetch
+  chained to the fetch that followed an EU cycle yields to a boundary that arrives fresh on its
+  clock** (a boundary that was already waiting, as MOV r,r's for its byte count, does not win).
+  This is EU_EPRI of the merged reading (the boundary wins against the fetch pending under an
+  EU cycle) carried one fetch further.
+- MOV r16,imm16 has its bus-idle word on the next clock (W+7). **That chained fetch is not
+  started when the EU's next word is a bus-idle word** (the word would have to wait the whole
+  fetch). MOV r8,imm8's bus-idle word is on W+6 itself and pops there: no conflict.
+- At W = 1 / 2 the first fetch is longer, both events fall inside it and wait as usual: no case.
+
+In the model: `CH_EPRI`, `CH_BNEXT`. Together: the `fw` probes 176 of 192 (the rest are tails behind MOV r,imm16 / MOV r8,imm8
+at one alignment), nothing lost elsewhere, and the memory MUL / DIV probes can be
+scored (their setup was the MOV [BW],imm16 ; MOV AW,imm16 case).
+
+**MUL / DIV on memory, scored:** `P . B Y D` in front and the register form's word count in
+total (the read replaces five of its words; with the datum wait that is the + 4 clocks of
+Q39). 96 of 144 (4 of 6 in every form; the two that miss are one wait / alignment of the frame).
+
+## Q43. The not-probed block
+
+| instruction | routine | score |
+|---|---|---|
+| CMP [BW],imm16 (81 /7) | `P . . BY DPP2 . BN .` | 24 / 24 |
+| CMP [BW+d8],imm16 | `P . . BYP DPP2 . BN .` | 24 / 24 |
+| CLR1 mem,imm | `P . PC Y DP Z G N .` | 21 / 24 |
+| NOT1 / SET1 mem,imm, byte and word | `P . PC Y DPZ G N .` | 21 / 24 each |
+| TEST1 mem16,imm | `P . PC Y DPN .` | 24 / 24 |
+
+**DBNZE / DBNZNE (E1 / E0): not DBNZ's routine and no lead.** 60 of 60.
+
+| case | routine |
+|---|---|
+| taken | `. . . B . . . P . . B . . F N .` (DBNZ's with the displacement one word later; 19 clocks to the target's fetch behind every predecessor) |
+| not taken, flag false, count not 0 | `. . . B . . PN .` (BCWZ's not-taken routine) |
+| not taken, count 0, flag true | `. . . B . . . P . BN .` |
+| not taken, count 0, flag false | `. . . B P . BN .` |
+
+**REPC / REPNC (65 / 64)** are REPNE / REPE with the carry as the condition: the same head,
+iterations and one-element read-ahead. REPC CMPBK over equal data ends at the first pair (two
+pairs read, CW - 1 left; tail 15 words, one fewer than the count-ended exit); REPNC CMPM runs to
+the count with CW + 1 reads, the first 10 clocks apart and the rest 12 (`Y D . . . .`), tail 13
+words. 72 of 72 (with REPNC CMPBK and REPC CMPM, which needed nothing).
+
+## Q44. The partly-read block
+
+**EXT / INS across a word** (12 grid points each): 144 of 144.
+
+- EXT: the second word is read 29 clocks after the first; then 12 + 2 x offset words (one more
+  when the length is under 16), the immediate and the next opcode. The length does not matter.
+- INS: the first word is written as a field ending at bit 15 (write 71 clocks after the read),
+  the second word read 14 clocks later and written after 17 + 4 x m words, m = the bits that
+  fall in the second word.
+
+**Transfers.**
+
+| instruction | routine | score |
+|---|---|---|
+| JMP r16 | `P . B . . . . F N .` | 36 / 36 clean, 6 / 12 behind MOV BW,imm16 |
+| CALL r16 | `P . B . . . . Y D . . F N .` | 36 / 36 clean, 6 / 12 behind MOV BW,imm16 |
+| INT 3 | `. . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .` | 37 / 42 |
+| BRK imm8 | `. . . BP . B . . Y ...` (the same from the first request on) | 22 / 24 |
+| JMP far [d16] | `P . B . Y PP2 D . U D . . F N .` | 12 / 12 |
+| CALL far [d16] | `P . B . Y PP2 D . U D . . . Z D . . . Z D . . F N .` | 12 / 12 |
+| RETI | `. . Y D . . . U D . . . U D . . . . . . . . F N .` | 12 / 12 |
+
+- **The "two clocks late at odd alignment" of JMP / CALL r16 was the shape, not a rule**: with
+  BW loaded before M0 (so that the transfer stands alone behind the long shift) and with one or
+  two NOPs between, the routine is one word longer than round 12's and its bus-idle word is the
+  third (Q27's word, one earlier, as in the other FF-group members and in TEST). The flush tail
+  is Q21's. The old shape was right only where the frame's own stall hid the difference. What
+  is left (12 runs) is the transfer directly behind MOV BW,imm16 at even alignment: silicon runs
+  it 3 clocks earlier than the model, i.e. MOV BW's boundary does not wait there as the model
+  has it. They are also exempt from the three-bytes rule (as F6 / F7 / FE).
+- INT 3 behind the long shift: first vector read 12 clocks after the boundary; bus-idle words
+  third and fifth. BRK imm8 takes its byte on the fourth word (bus idle) and has a second
+  bus-idle word two later; both then run the same sequence.
+- RETI: three stack reads 9 clocks apart, then 8 words to the flush. PSW F002h (MD = 1, register
+  bank 7, the reset bank) returns cleanly on the chip.
+- CALL far behind CLC / NOP at odd alignment, 1 / 2 waits (8 runs): the first push is two
+  clocks later than the model when three fetches chain in front of it. A bus-idle word in the
+  routine does not fit; open.
+
+**MUL r16,r16,imm** (round-12 data): 41 words (imm16) / 40 (imm8), bus-idle words two and four
+words after the immediate's; imm16 24 of 24, imm8 34 of 48.
+
+Not done: the X;X and NOP;X entry misses of the 0F forms; ADD [d16],imm8 twice; OUTM twice.
+
+## Q45. Interrupts, continued
+
+1,108 probes: NMI across four more trains (CBW, MOV r,r, NOP / CLC alternating, MOV r8,imm8)
+and the NOP / CLC trains at W = 2; INTP0 across RMW / load / store trains with pulses of 10, 50
+and 500 clocks; HALT release; NMI and INTP0 on the same clock. Tables: `itab13.txt`;
+`build/qp/ievt.py` lists every threshold against candidate decision events.
+
+**(a) The 0 to 3 extra clocks: one rule now covers most of it.**
+
+*An NMI edge is taken in front of instruction X when it is at the pin 15.5 clocks before X's
+opcode leaves the queue* (the model's pop P). Over the 278 thresholds of rounds 12 and 13:
+15.5 in 81, 14.5 in 68, 17.5 in 71, 16.5 in 31, other 27.
+
+- 15.5 is the steady value of every train but one: CBW, MOV r,r, MOV r8,imm8, NOP / CLC
+  alternating, RMW, and most of the CLC train. Put the other way: the request is examined one
+  clock before the next opcode is taken, and the opcode that is taken then runs.
+- 14.5 when the bus has been idle and the queue full (the long shift's end, a REP iteration, the
+  first instruction behind them, and the first two instructions of any train).
+- 17.5 in a train of NOPs only (NOPs alternating with CLC have 15.5), and 17.5 to 19.5 in the
+  NOP train at W = 2, moving with the fetch's phase against the train. So the bus unit does
+  take part, but only there.
+- The first three thresholds behind the long shift are the same in every train, at every wait
+  (edge + 14.5 = one clock after the long shift's end, then three clocks later, then two), whatever
+  the instructions' lengths: for those the decision follows the queue's own refill, not the
+  EU's routine. After them the thresholds step with the instructions.
+- Tested and rejected: sampling on a particular clock of a fetch cycle (first, last, start of
+  the last fetch before the pop, end of it); the pop that follows a completed fetch; "the opcode
+  already staged runs, the next is replaced" as a two-deep rule (decision at the previous pop
+  + 1: it fits the NOP train alone). None is constant across trains.
+
+What I would build: 15.5 before the pop, 14.5 from an idle bus; and leave the NOP train's two
+extra clocks.
+
+**(b) INTP0 across the RMW train: it is the read-modify-write, not the pulse.**
+
+- The pulse width makes no difference at all (10, 50, 500 clocks: the same three ranges to the
+  clock, in the RMW train and in the NOP train). INTP0 is edge-latched.
+- A train of loads and a train of stores are regular: thresholds on the 16-clock grid, each
+  taken at the first boundary 16 to 24 clocks behind its grid point.
+- Only the train of ADD [BW],AW shows the gap: edges up to 7.5 clocks before the first RMW's
+  read are taken (at the first or second RMW's boundary); every later edge is delivered only
+  after the train has ended and a further grid point has passed, which in this frame is behind
+  the second long shift. The edge is not lost.
+- The RMW's operand is DS0:0800h, external RAM, not the on-chip page; nothing the program does
+  touches the SFR area after the setup.
+
+So: while read-modify-write instructions run back to back, the maskable request is not
+presented to the CPU (the NMI is). The simplest machine that does this is a scan that is
+restarted (or held) by the read-modify-write's locked read-to-write window: with RMWs every 13
+clocks no 16-clock scan completes. Not proved: it needs a train with idle gaps of chosen length
+between the RMWs.
+
+**(c) First facts on the rest.**
+
+- NMI and INTP0 on the same clock: the NMI's vector is taken (8 runs).
+- HALT release: the acknowledge's first cycle is 34.5 clocks after an NMI edge at W = 0 and 33.5
+  at W = 1 / 2 (the edge 10 to 30 clocks into the HALT), pushed PC the instruction behind HALT.
+  INTP0: 33.5 clocks after its grid point. One INTP0 case at odd alignment releases the HALT and
+  is taken one instruction later; not followed up.
+- An interrupt edge that arrives before the HALT's boundary is taken in front of the HALT.
+- Priority and vector order among maskable sources, INT / INTAK: not probed.
+
+# Round 14
+
+3,826 socket runs in four batches (456 form probes, 3,370 interrupt probes), 0 failed, every
+flagged repeat strobe-only; the board ended powered down. Model: rounds 1 to 11 7,501 / 7,656
+(was 7,495), round 12 1,446 (was 1,396), round 13a 819 / 852, round 14 forms 451 / 456.
+
+Two things could not be done under the standing limits and are reported, not worked around:
+**the INT pin with INTAK** and **TOUT's edge on the pin trace**. Both need the port bank R2
+handed to the CPU, which the harness does only through marker writes to FF10h
+(`docs/v35s-harness.md`: the INTAK answer drives only while R2 is CPU-driven; a pin is recorded
+only while its bank is in mode D), and FF10h is excluded for my programs. Without the answer
+the CPU would read its vector from an undriven bus, so the INT pin was not pulsed at all. The
+timer's latency is given against the timer's own count instead (Q51).
+
+## Q46. The small not-probed forms (item 3): all read
+
+| form | routine | runs |
+|---|---|---|
+| 80 group on memory, byte (ADD / OR ... [BW],imm8; CMP) | the 83 group's (`P . V DPZ G N .`, `P . V DP . BN .`) | 72 / 72 |
+| SHL / SHR ... word or byte [BW],imm8 (C1 / C0) | `P . V DP . B`, 4 + 2n words, `Z G N .` | 96 / 96 |
+| the same by CL (D3 / D2) | `P . . B . . . Y D`, 3 + 2n words, `Z G N .` | 96 / 96 |
+| LDS / LES r,[BW] | `P Y . D . U . D . . N .` | 44 / 48 |
+| MOV [BW],sreg | `P . V . G N .` | 24 / 24 |
+| MOV sreg,[BW] | `P Y . DN . .` (and the MOV sreg lead of two) | 24 / 24 |
+| PUSH imm8 (6A) | `. . . P . Y N` (PUSH imm16 less one word) | 23 / 24 |
+| CVTWL (99) | `. . . . . . . N .`: nine words, the next opcode on the eighth | 24 / 24 |
+| MUL r16,[BW],imm16 (69 mem) | `P . . BY DPP2 . B . B`, 39 words in all, next opcode on word 38 | 47 / 48 |
+| MUL r16,[BW],imm8 (6B mem) | `P . V DP . B . B`, 38 words in all, next opcode on word 37 | 47 / 48 |
+| EI | `. . . . . . . . . . . N .`: thirteen words, the next opcode on the twelfth | from the interrupt probes |
+
+- **The shift on memory is the register shift's count loop between a read and a write.** The
+  count was probed at 3 and 4 first, the routine written as "2 words a count", and the counts 1
+  and 8 then acquired: 96 / 96 as predicted. The CL form waits on its fourth word like the
+  register form and reads after it; the imm8 form reads first (the 83 group's head, the count
+  byte taken with the datum) and has the bus-idle word behind the read.
+- **MUL r,m,imm has the ALU-immediate heads**: the imm16 form the 81 group's (`P . . BY DPP2`),
+  the imm8 form the 83 group's (`P . V DP`), then the register form's two bus-idle words (two
+  and four words behind the immediate) and a body two words shorter than the register form's.
+  One of 48 each is open (NOP;X;SHL at odd alignment, W = 0, 3 clocks).
+- LDS;LDS misses 4 runs for a reason that is the probe's: the first LDS loads DS0, so the
+  second reads from another segment (LES;LES is exact). Not a timing fact.
+- CVTWL and EI are long for what they do (9 and 13 clocks from a full queue) and release the
+  next opcode late: neither is CBW- or CLC-shaped.
+
+## Q47. JMP / CALL r16 at even alignment: a second bus-idle word, not a byte count
+
+`JMP r16` is `P . B . B . . F N .` and `CALL r16` is `P . B . . B . Y D . . F N .`; the "four
+bytes in the queue" stall of round 12 is removed (96 / 96; the 12 runs behind MOV BW,imm16 that
+were 3 clocks late are exact). The second bus-idle word is what made the old shape right
+everywhere except where a chained fetch was in flight on that word: it is Q26's rule (the word
+waits for the bus), on the fifth word of JMP and the sixth of CALL. So the answer to "is it the
+bus-idle word against the chained fetch?" is yes, and the word had been missing.
+
+## Q48. Same instruction twice (item 4): two different things, one rule each, one withdrawn
+
+- **0F memory bit forms with an imm8 (SET1 / CLR1 / NOT1 mem,imm), X;X at odd alignment,
+  12 runs**: the second instance's commit word was held by a chained fetch that silicon lets
+  pass. Rule kept: *a commit word that also pops is not held by the fetch chained behind an EU
+  cycle's fetch* (the fetch Q42 is about). 12 gained, 0 lost over 14,450 runs. The boundary fact
+  is one the bus unit already has for Q42 ("this fetch is the one chained behind the post-cycle
+  fetch"); no new level.
+- **TEST1 r,imm twice at even alignment (3 runs)**: silicon's second instance starts one clock
+  earlier than the model's at all three waits: its boundary goes on the second-last clock of the
+  fetch that started on the clock the first instance's commit word passed. Written as a rule
+  ("behind a commit word the boundary goes one clock before the fetch's last") it gains these 3
+  and 8 more and loses 46 (the CL forms at one and two waits, where the boundary does wait for
+  the last clock). **Withdrawn as a rule**; the three runs stay open with that description.
+- **ADD [d16],imm8 twice at even alignment (3 runs)**: silicon's second read loses to one more
+  chained fetch than the model's (read at 103 against 100 at W = 0), which needs the second
+  instance's boundary one clock later than the write's last clock, where the model puts it.
+  Lengthening the routine's tail does not do it (the tail is absorbed by the write). Not the
+  same thing as the TEST1 case (that one is early, this one late). Open.
+- **OUTM twice at two waits (2 runs)**: one clock, unchanged. Open.
+
+So the coordinator's "one rule about a routine following itself" does not exist in this data:
+the three families miss in three directions. What they share is only that X;X is the one
+neighbour whose first word is sensitive to the boundary's clock (SHL, OUT and NOP behind X wait
+on a slot and hide it).
+
+CALL far at even alignment with waits and at odd alignment (12 runs, the first push 2 clocks
+late in the model's terms at W = 1 / 2): the push starts 3 clocks after the end of the third
+fetch where the model has 1. Six shapes with a bus-idle word in front of the request tried,
+none kept. Open.
+
+## Q49. Interrupts: the maskable request is found by a level scan, two clocks a level
+
+Requests set by software (a store of IF into the request-control register with IE = 0), then
+released at a known instruction; no pin is involved, so the result is exact to the instruction
+(90 + 140 runs, `r14s`, `r14u`, `r14v`).
+
+- **Order and vectors are the RTL's**: INTP0, INTP1, INTP2 in that order at one level; timer 0
+  before INTP0 at one level; a level-2 request before a level-5 one; a request of higher level
+  set inside a handler nests after EI, one of equal level waits for FINT. Two and three pins
+  pulled on one grid point: INTP0, then INTP1, then INTP2. Two pins one grid point (16 clocks)
+  apart: the earlier wins whatever its place in the order (nothing can displace it: the later
+  request is not seen until the next grid point, after the decision).
+- **The latency after EI depends on the request's level** (EI in front of a NOP train, moved in
+  2.5-clock steps by 0 to 13 CLCs, both alignments; NOPs executed between the EI and the
+  acknowledge):
+
+  | level | NOPs executed after EI (28 positions each) |
+  |---|---|
+  | 0 | 2 at 27 positions, 6 at one |
+  | 2 | 3 at 9, 4 at 19 |
+  | 5 | 4 at 3, 5 at 24, 2 at one |
+  | 7 (INTP0), 7 (timer 0) | 6 at all 28 |
+
+  In clocks: level 0 is seen 8 to 12 clocks after EI's last word, level 2 about 6 clocks later
+  than level 0, level 5 about 12 later, level 7 16 later. **Two clocks a level and a 16-clock
+  round: this is the 16-clock "grid" of Q41 / Q45.** The grid on which a pin's edge becomes a
+  request is the scan passing that source's level; a level-7 source is looked at once every 16
+  clocks.
+- **EI starts the scan; POP PSW and clearing the mask do not.** After EI the latency is the same
+  at every position (the table: no 16-clock jumps as the EI moves through 32 clocks). After
+  POP PSW it is 4 to 8 NOPs, after `AND byte [EXIC0],0BFh` 7 to 8, i.e. a round that was already
+  running. Three EI runs of about 170 are a round off (`nei-nop` at even alignment, W = 2, and level 5
+  with 10 CLCs at odd alignment, 16 clocks early; level 0 with 6 CLCs at even alignment, 16
+  late): noted, not explained.
+- **What the gate programs see.** `f3_order` releases a pending request (EI, POP PSW, a mask
+  clear, RETI, FINT) in front of MULU absorbers; `f3_prio` sets several requests and releases
+  them the same way. Behind a MULU (24 clocks and more) silicon and the RTL take the request
+  in front of the same instruction (`sw-ei-mul`: both after the first MULU, silicon's vector
+  read 11 clocks later), so those programs differ on clocks only; behind short instructions
+  (the INC AW chains of the latency tests) silicon is 1 to 7 instructions later than the RTL,
+  by the level and the instructions' length.
+- **RTL against silicon**: the RTL takes every one of these one instruction after the release;
+  silicon 2 to 8 instructions after. After a handler's FINT; RETI the next pending request is
+  taken after 2 or 3 instructions of the interrupted stream (RTL: 1); from the RETI's last
+  stack read to the next vector read 47 to 51 clocks (RTL 37 to 41).
+- **From the deciding pop to the acknowledge**: the vector read starts 17 clocks after the pop
+  of the first instruction not executed (CLC, INC, MULU trains) and 19 in NOP / XCHG trains, at
+  every wait, alignment and release kind (every run where the model gives the pop). This is the constant behind Q41's
+  "16 clocks after the boundary".
+- **EI itself is 13 clocks** from a full queue and releases the next opcode on its twelfth word
+  (RTL: one clock shorter). The corpus form `sti` (12 runs) is this.
+
+## Q50. NMI against a maskable request, and nesting
+
+- **First come, first served at the request latch, not "NMI wins".** INTP0's edge fixed, the
+  NMI's stepped a clock at a time from 6 clocks after it to 111 after: an NMI that is in before
+  INTP0's grid point is taken first (its own vector, at whichever boundary it reaches); an NMI
+  that arrives after INTP0's request has been raised does not displace it, even where the NMI
+  alone would have made the same boundary (NMI edges 1 to 6 clocks after the grid point):
+  INTP0's acknowledge runs, **two clocks later than without the NMI** (vector read 18 clocks
+  behind the boundary, not 16) for every NMI edge up to about 11 clocks before that vector read,
+  and the NMI is acknowledged in front of the handler's first instruction (pushed PC = the
+  handler's entry). Round 13's "the NMI's vector is taken" on a common edge was the NMI being
+  earlier (it does not wait for the grid).
+- **The end of an acknowledge is an ordinary boundary.** The NMI's own vector read comes 64
+  clocks after INTP0's at even alignment and 67 at odd (2 more at two of every eight edge
+  positions); an NMI edge up to 18 clocks
+  before the handler's first boundary is taken in front of the handler's first instruction,
+  later edges behind the first, second, third instruction by the usual threshold. Nothing is
+  special about "during the acknowledge" or "during the handler's first instruction".
+
+## Q51. Timer 0's request goes through the same scan
+
+Timer 0 as an interval timer (SCLK / 6), the count n from 3 to 18, the timer started by a store
+in front of NOP; HALT, the request releasing the HALT (r14t, 56 runs, W = 0).
+
+- The acknowledge moves in steps of 16 clocks, one step every 16 / 6 counts (n = 3, 4, 5: 165;
+  6, 7, 8: 181; 9, 10: 197; 11, 12, 13: 213; 14, 15, 16: 229; 17, 18: 245, even alignment):
+  the underflow sets the request flag and the scan finds it at its level-7 point, as for a pin.
+  The RTL's acknowledge moves 6 clocks a count (135 + 6(n - 3)): no scan, and 18 to 30 clocks
+  earlier.
+- In pin terms: the underflow of count n acts like an INTP0 edge at clock 97.5 to 99.5 + 6n from
+  M0 in this frame (the start store's instruction begins at 79), i.e. **the flag is set 12.5 to
+  14.5 clocks after the start store's instruction begins, plus 6(n + 1) clocks**, to within the
+  2 clocks the thresholds leave. NOPs in front of the start store move it 4 clocks each (6
+  positions): the count starts at the store, not on a free-running divider, at this resolution.
+- The same request in a NOP train: taken 27 to 31 clocks later than the RTL (6 NOPs).
+- TOUT's edge against the underflow: not measured (see the top of this round).
+
+## Q52. The HALT release taken an instruction late: not alignment; two programs do it
+
+INTP0 into `NOP; HALT`, one clock at a time (88 runs), timer 0 into the same (32 runs) and
+INTP0 into HALT behind a jump with 0, 1, 2, 3, 4, 6 NOPs between (72 runs).
+
+| program | alignment | released by a request raised while halted |
+|---|---|---|
+| NOP; HALT | even | acknowledge 33.5 clocks after the grid point, pushed PC = the instruction behind HALT |
+| NOP; HALT | odd | **the instruction behind HALT runs first** (a fetch 15.5 clocks after the grid point, the marker's cycle, then the acknowledge 40.5 after the grid point; pushed PC one instruction on); every grid point, INTP0 and timer alike |
+| JMP; HALT | even | **late in the same way** (no fetch at the release: the queue is full) |
+| JMP; HALT | odd | normal |
+| JMP; 1 to 6 NOPs; HALT | both | normal |
+
+So it is not the alignment and not "a fetch starts on the release". In the two late programs
+the HALT is the second instruction behind a queue that was just refilled (the long shift's
+end, a jump) with nothing between; what they have that the others lack was not found. The
+queue's content, whether the next opcode had been taken before the halt (it had, in one late
+and one normal program), the HALT's address parity (even in both late programs and in one
+normal one) were each checked against the table and do not separate the rows. Open, with the
+table as the test for any rule. The RTL never runs the instruction first.
+
+## Q53. INTP0 held back: it is one instruction class, from its request word to its end
+
+Twenty-eight trains, INTP0's edge stepped a clock at a time across each (2,480 runs).
+
+- **The window.** Against `ADD [BW],AW; NOP`, with one, two and four NOPs between, with CLC
+  between, with a displacement, with a BUSLOCK prefix: an edge that arrives from about the
+  instruction's first clock (half a clock before to half a clock after its boundary, on the
+  2-clock lattice below) is **not seen by the next scan point; it is seen by the one after the
+  instruction has ended**. Every threshold in these trains is either a scan point (16 apart) or
+  an ADD's start, to the clock. The edge is never lost. Back to back (round 13) the windows
+  touch and the edge waits for the train's end: the same fact.
+- **Which instructions** (each as `X; NOP` four times; "window" = a threshold at X's start,
+  "none" = thresholds on the 16-clock scan only):
+
+  | window | none |
+  |---|---|
+  | ADD / OR / ADC / AND / SUB / XOR [BW],AW (01, 09, 11, 21, 29, 31) | ADD AW,[BW] (03) |
+  | ADD [BW],AL (00) | TEST [BW],AW (85) |
+  | **CMP [BW],AW (39): no write at all** | MOV [BW],AW (89), MOV AW,[BW] (8B) |
+  | ADD [BW],imm8 (83 /0) | INC [BW] (FF /0), NOT [BW] (F7 /2), SHL [BW],1 (D1 /4) |
+  | ADD [BW+2],AW; BUSLOCK ADD [BW],AW | XCH [BW],AW (87); BUSLOCK MOV AW,[BW] |
+
+  So it is **not the read-modify-write** (CMP does it; INC, NOT, SHL, XCH do not) and **not a
+  bus lock** (the prefix changes nothing either way). It is the two-operand ALU instruction
+  with memory as its first operand: opcodes 00 to 3F with the direction bit clear, and the 83
+  group on memory. Those are one routine family in any microcoded 86 (the result or the flags
+  come from "memory operand, then source"); the unary groups, TEST and the reversed direction
+  are other families.
+- **The pin is sampled every second clock.** Every threshold of every train lies on one 2-clock
+  lattice per alignment (x.5 with x odd at even alignment, x even at odd alignment): the
+  edge detector runs on a divided clock, and the scan's 16 is 8 of its periods.
+- In all these trains the request is taken at the boundary behind the memory instruction (in
+  front of the NOP), almost never in front of the memory instruction: consistent with Q54 (the
+  deciding pop for the instruction behind a NOP is the NOP's own first word, two clocks after
+  the previous decision).
+
+## Q54. The NOP train's 17.5: the pop that matters is one instruction earlier
+
+NMI stepped across a train of XCHG AW,BW and a train of NOP, NOP, CLC (120 runs).
+
+- XCHG AW,BW (the same routine shape as NOP) gives NOP's figure: 17.5 clocks before the model's
+  pop of the first instruction not executed, where the general figure is 15.5.
+- Measured against the pop of the instruction **before** it, the threshold is constant: 13.5
+  clocks before the pop of X - 1 in the XCHG train (4 of 4 steady positions) and in the mixed
+  train (4 of 5; the fifth 12.5), against 2 of 5 for the pop of X. The first two instructions
+  behind the long shift (popped back to back from a full queue) are the exception both ways.
+- The six earliest thresholds are the same clock in both trains although the instructions
+  differ in length: the threshold follows the pops, not the boundaries.
+
+So the hypothesis holds: for an instruction that releases the next opcode on its first word the
+decision for its successor is made at its own pop. In machine terms the request is looked at
+when an opcode leaves the queue; a one-word-release instruction has already taken its successor
+when it starts.

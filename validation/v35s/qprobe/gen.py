@@ -244,6 +244,11 @@ def chains(rounds=("r1",), waits=WAITS, parities=PARITIES, ids=None):
                         at = build_image(c).chain_base + h.offset - 0x10000
                         fr = [Instr(0, i.code[:4] + bytes([at & 255, at >> 8]), "vec", i.role)
                               if i.form == "vec" else i for i in fr]
+                        h2 = [i for i in c.instrs if i.form == "handler2"]
+                        if h2:           # (round 14) a second handler for "vec2" stores
+                            at = build_image(c).chain_base + h2[0].offset - 0x10000
+                            fr = [Instr(0, i.code[:4] + bytes([at & 255, at >> 8]), "vec2", i.role)
+                                  if i.form == "vec2" else i for i in fr]
                         c = make_chain(f"QP{r}", name, knobs, fr, w, p, regs=regs)
                     if ids and not any(s in c.id for s in ids):
                         continue
