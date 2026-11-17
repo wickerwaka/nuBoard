@@ -2954,3 +2954,12 @@ question, decided from S8's routed numbers with the user.
   positions now, reproducible), the late HALT release. The model reproduces 10,175 of 10,700
   form runs of rounds 1-15 and 761 of 774 of round 16. Round 14's rows re-classified: read
   and not built 9,553, partly read 344, not probed 90, probed and not read 30.
+- **2026-11-16, ruling (user): the held-back maskable request is a known difference, not
+  built.** On the chip a two-operand ALU instruction with a memory first operand (00-3F with
+  the direction bit clear, 80-83 on memory, CMP included) keeps a maskable request (INTPn,
+  timer 0) from setting its request flag until the instruction ends; NMI and INT are not
+  affected (qprobe Q53, Q58). The core does not do this: building it needs a hold level from
+  the EU to the interrupt controller (a new cross-module signal) for an effect whose
+  mechanism is not known. Effect of the difference: a maskable interrupt arriving during
+  such an instruction (or a back-to-back train of them) is taken at an earlier boundary than
+  on the chip. Revisit only if a socket round finds the mechanism.
