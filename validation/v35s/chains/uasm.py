@@ -537,9 +537,10 @@ def _finish(r: Routine) -> None:
 # them (the decode's m3 0): INC r8 (FE) and NOT r16 (F7) measured after MOV r16,imm16 at pE (the
 # qprobe em3-incb / em3-notr runs, 18 / 18 with the rule off, 9 / 18 with it on). F6 and FF are
 # not measured and keep the wait; the shift group (D0-D3) waits (3 round-5 runs)
-NO_M3 = {0xFE, 0xF7, 0xFF}      # (qprobe round 13, Q44) FF: JMP / CALL r16 exempt (the FF group as F6 / F7 / FE)
+NO_M3 = {0xF6, 0xFE, 0xF7, 0xFF}      # (qprobe round 13, Q44) FF: JMP / CALL r16 exempt (the FF group as F6 / F7 / FE); (qprobe round 16) F6 too (the byte MUL / DIV on memory, QPr16a mq: the model reads the group without the three-bytes wait)
 
 RL_X = 3      # (qprobe rule 9) rl=x: the request word (X), no byte released
+_ALL: list = []   # (qprobe round 16) the routines being assembled (_releases_by_path's shared tails)
 
 
 def _releases_by_path(r: Routine, e2: int) -> bool:
@@ -549,16 +550,19 @@ def _releases_by_path(r: Routine, e2: int) -> bool:
     bytes as it pops (plus a short transfer's displacement). The paths follow the sequence: a
     jc / jnc both ways, a jmp to its label, a call (the shared delay) to the next word."""
     seq = {enum_value("v35_seq_e", k): k for k in ("jmp", "jc", "jnc", "call", "ret", "eac")}
-    at = {w.label: k for k, w in enumerate(r.words) if w.label}
-    todo, seen = [(0, 0, 0, 0)], set()
+    at = {w.label: (r, k) for k, w in enumerate(r.words) if w.label}
+    # (qprobe round 16) a jump into another routine's words (a shared tail: the displacement
+    # cells of 80-83 / C7 continue in their [BW] routine) carries the counts on into it
+    ext = {w.label: (x, k) for x in _ALL for k, w in enumerate(x.words) if w.label and x is not r}
+    todo, seen = [(r, 0, 0, 0, 0)], set()
     while todo:
-        k, rl, pops, ro = todo.pop()
-        if (k, rl, pops, ro) in seen or k >= len(r.words) or rl > 8:
-            if k >= len(r.words):
+        rr, k, rl, pops, ro = todo.pop()
+        if (rr.name, k, rl, pops, ro) in seen or k >= len(rr.words) or rl > 8:
+            if k >= len(rr.words):
                 return False
             continue
-        seen.add((k, rl, pops, ro))
-        w = r.words[k]
+        seen.add((rr.name, k, rl, pops, ro))
+        w = rr.words[k]
         if w.fields.get("rl", 0) != RL_X:
             rl += w.fields.get("rl", 0)
         pops += 1 if w.fields.get("pop") else 0
@@ -572,16 +576,20 @@ def _releases_by_path(r: Routine, e2: int) -> bool:
         if kind == "ret":
             return False
         if kind in ("jmp", "jc", "jnc", "eac"):
-            if tgt not in at:
+            if rr is r:
+                loc = at.get(tgt) or (ext.get(tgt) if kind == "jmp" and (rl != pops + e2 or ro) else None)
+            else:
+                loc = ext.get(tgt) if tgt in ext else at.get(tgt)
+            if loc is None:
                 if rl != pops + e2 or ro:
                     return False
             else:
-                todo.append((at[tgt], rl, pops, ro))
+                todo.append((loc[0], loc[1], rl, pops, ro))
             if kind == "jmp":
                 continue
         elif kind is not None and kind != "call":
             return False
-        todo.append((k + 1, rl, pops, ro))
+        todo.append((rr, k + 1, rl, pops, ro))
     return True
 
 
@@ -709,8 +717,11 @@ def assemble(paths: list[Path] | None = None) -> Program:
         if is_mem(r) and r.head.get("ea", "book") not in ("book", "bare", "q"):
             raise UasmError(f"{r.path}:{r.line}: ea={r.head['ea']!r} (book, bare or q)")
     words, labels = [], {}
+    global _ALL
+    _ALL = routines
     for r in routines:
         _finish(r)
+    for r in routines:
         _releases(r)
         r.base = len(words)
         labels[r.name] = r.base
@@ -942,22 +953,29 @@ def decode_svh(prog: Program) -> str:
     # the others (the opcodes whose second byte is a whole opcode) are numbered here
     # (v35_udec2_fx, 1..7) and read v35_udec2_fe
     whole = [op for op in sorted(MODRM_OPS | {0x0F} | set(REP_XC)) if not udec2_by_class(prog, op)]
-    assert len(whole) <= 7, whole
+    # (qprobe round 16) opcodes whose second-level entries are the same table share one number
+    # (the four REP pages: one routine set, the condition in the first level's xc; 80 and 82)
+    tbl, fxn = {}, {}
+    for op in whole:
+        t = tuple(udec2(prog, op, b)["entry"] for b in range(256))
+        fxn[op] = tbl.setdefault(t, len(tbl) + 1)
+    rep = {n: next(op for op in whole if fxn[op] == n) for n in sorted(set(fxn.values()))}
+    assert len(rep) <= 7, whole
     L += ["    // (qprobe round 6, timing) the second level's entry for an opcode whose second byte "
           "selects it whole:",
           "    // 0 the entry is v35_udec2 of the byte's class ({mod 3 ? 11 : 00, reg, 000}), else "
           "the opcode's number for v35_udec2_fe",
           "    function automatic logic [2:0] v35_udec2_fx(input logic [7:0] op);",
           "        case (op)"]
-    for i, op in enumerate(whole):
-        L.append(f"            8'h{op:02X}: v35_udec2_fx = 3'd{i + 1};")
+    for op in whole:
+        L.append(f"            8'h{op:02X}: v35_udec2_fx = 3'd{fxn[op]};")
     L += ["            default: v35_udec2_fx = 3'd0;", "        endcase", "    endfunction", "",
           "    function automatic logic [UADDR_W-1:0] v35_udec2_fe(input logic [2:0] fx, "
           "input logic [7:0] b);",
           "        v35_udecm_t f;",
           "        case (fx)"]
-    for i, op in enumerate(whole):
-        L.append(f"            3'd{i + 1}: f = v35_udec2(8'h{op:02X}, b);")
+    for n, op in rep.items():
+        L.append(f"            3'd{n}: f = v35_udec2(8'h{op:02X}, b);")
     L += ["            default: f = '0;", "        endcase", "        v35_udec2_fe = f.entry;",
           "    endfunction", ""]
     # (MX0) the loader's count of the instruction's bytes still to pop from the queue: what a

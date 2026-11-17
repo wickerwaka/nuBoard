@@ -575,7 +575,9 @@ module v35_intc (
     reg         ms_v;                   // a macro-service request is pending
     reg  [2:0]  mc_ch;                  // the macro service's channel (the take's)
     reg         it_v;                   // (F3b) INT is offered (the take strobe take_i covers it)
-    reg         ir_v;                   // a maskable request is offered
+    reg         ir_h;                   // (qprobe round 14-16) a maskable request is raised by the scan (held)
+    reg  [1:0]  ird = 2'd0;             // ... and its passage to the EU: two registers on the divided clock (ph)
+    wire        ir_v = ir_h && ird[1];  // a maskable request is offered
     reg  [4:0]  ir_vec;
     reg         nmi_v;                  // NMI is pending
     reg         i_wake;                 // HALT's release: NMI or an unmasked IF, INT
@@ -629,39 +631,36 @@ module v35_intc (
     reg  [3:0] lv = 4'hF;               // NMI, INTP0-2 as last sampled
     wire [3:0] lvn = input_levels[4:1];
     wire [3:0] es = {intm[6], intm[4], intm[2], intm[0]};
-    wire [3:0] edge_c = ((es & lvn & ~lv) | (~es & ~lvn & lv)) & {{3{!frz}}, 1'b1};
+    // (qprobe round 14, spec 10 I1) INTP0-2 are sampled every second clock (`ph`: the edge
+    // detector's divided clock; the scan's round is eight of its periods); NMI every clock
+    reg        ph = 1'b0;
+    wire [3:0] edge_c = ((es & lvn & ~lv) | (~es & ~lvn & lv)) & {{3{!frz && ph}}, 1'b1};
     reg        nmi_p = 1'b0;
-    // (qprobe rounds 12-13, spec 8 A3 / spec 9 C3-C4) the pin-to-request path, counts inside this
-    // block: NMI's edge reaches its request (nmi_p) NMI_DLY clocks after it is sampled (`nd`, a
-    // down-count loaded by the edge); INTP0-2's edges are latched (`ipl`: edge-latched, a held
-    // level changes nothing) and sampled on a free-running 16-clock grid from reset (`gc`), the
-    // sampled set (`ipg`) then taking the same delay (`idl`) to its IF bit. Registers only; no
-    // port. The delays are the measured latency less the request's own path to the take
-    // (NMI: the edge 15.5 clocks before the opcode that does not run leaves the queue, the
-    // request examined on the E word that takes it: `ne` below)
+    // (qprobe rounds 12-13, spec 8 A3 / spec 9 C3-C4) NMI's edge reaches its request (nmi_p)
+    // NMI_DLY clocks after it is sampled (`nd`, a down-count loaded by the edge). (qprobe round
+    // 16) the round-12 free-running grid is gone: it is the level scan below, which every
+    // maskable source goes through. NMI_DLY is the round-12 figure, not re-derived
+    // INTP0-2's edge reaches its IF bit INTP_DLY clocks after it is sampled (`idl`, one
+    // down-count a pin): the pin path's latency measured on the socket (QPr14ninc: the
+    // instruction a pin edge is taken in front of moves at the edge 72.5 clocks from M0 on
+    // silicon, 83.5 without the delay), the request then going through the level scan as a
+    // software request does. A measured latency, not a read mechanism (as NMI_DLY)
     localparam logic [3:0] NMI_DLY = 4'd10;
-    localparam logic [3:0] INTP_DLY = 4'd10;
-    reg  [3:0] nd = 4'd0, idl = 4'd0, gc = 4'd0;
-    reg  [2:0] ipl = 3'd0, ipg = 3'd0;
-    wire [2:0] ip_set = idl == 4'd1 ? ipg : 3'd0;
+    localparam logic [3:0] INTP_DLY = 4'd11;
+    reg  [3:0] nd = 4'd0;
+    reg  [3:0] idl [0:2];
+    initial for (int k = 0; k < 3; k++) idl[k] = 4'd0;
+    wire [2:0] ip_set = {idl[2] == 4'd1, idl[1] == 4'd1, idl[0] == 4'd1};
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             nd <= 4'd0;
-            idl <= 4'd0;
-            gc <= 4'd0;
-            ipl <= 3'd0;
-            ipg <= 3'd0;
+            ph <= 1'b0;
+            for (int k = 0; k < 3; k++) idl[k] <= 4'd0;
         end else if (ce_a) begin
-            gc <= gc + 4'd1;
+            ph <= !ph;
             nd <= edge_c[0] ? NMI_DLY : (nd != 4'd0 ? nd - 4'd1 : 4'd0);
-            if (gc == 4'd15) begin
-                ipg <= ipl | edge_c[3:1];
-                ipl <= 3'd0;
-                idl <= (|(ipl | edge_c[3:1])) ? INTP_DLY : (idl != 4'd0 ? idl - 4'd1 : 4'd0);
-            end else begin
-                ipl <= ipl | edge_c[3:1];
-                idl <= idl != 4'd0 ? idl - 4'd1 : 4'd0;
-            end
+            for (int k = 0; k < 3; k++)
+                idl[k] <= edge_c[k + 1] ? INTP_DLY : (idl[k] != 4'd0 ? idl[k] - 4'd1 : 4'd0);
         end
     end
     reg  [2:0] tk_k = 3'd0;             // the last take: {NMI, the offer, the step}
@@ -695,7 +694,7 @@ module v35_intc (
             ms_mode <= 3'd0;
             ms_dir <= 1'b0;
         end else if (ce_a) begin
-            lv <= frz ? {lv[3:1], lvn[0]} : lvn;
+            lv <= (frz || !ph) ? {lv[3:1], lvn[0]} : lvn;
             tk_ms <= tk_ms;
             if (take_m) begin
                 tk_k <= 3'd0;
@@ -732,7 +731,7 @@ module v35_intc (
                 if (ms_end && tk_i == 4'(k))
                     ic_if[k] <= 1'b1;   // (F4b) the service's end: the vectored request
                 if (k < 3 && ip_set[k])
-                    ic_if[k] <= 1'b1;   // (qprobe round 12-13) INTP0-2: the grid's sample, then the pin's delay
+                    ic_if[k] <= 1'b1;   // (qprobe round 16) INTP0-2: the pin's edge (sampled every second clock) after the pin path's latency
                 if (pf_set[k])
                     ic_if[k] <= 1'b1;
             end
@@ -791,7 +790,7 @@ module v35_intc (
         for (j = 0; j < 6; j++) k1[j] = '0;
         for (j = 0; j < 3; j++) k2[j] = '0;
         for (j = 0; j < 2; j++) k3[j] = '0;
-        ir_v = 1'b0;
+        ir_h = 1'b0;
         ir_vec = 5'd0;
         ms_v = 1'b0;
         tk_ms = 1'b0;
@@ -824,34 +823,72 @@ module v35_intc (
     end
     key_t kw;
     assign kw = kmin(k3[0], k3[1]);
+    // (qprobe round 14, spec 10 I1) the scan's counter and EI's restart of it: IE rising after
+    // an E word that marks no boundary (nb: EI's, and not a PSW load's, nbi: POP PSW, RETI)
+    reg  [3:0] sc = 4'd0;
+    reg        ie_q = 1'b0, ei_w = 1'b0;
+    wire       ei_set = ie && !ie_q && ei_w;
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            ie_q <= 1'b0;
+            ei_w <= 1'b0;
+        end else if (ce_a) begin
+            ie_q <= ie;
+            if (x_end)
+                ei_w <= x_nb && !x_nbi;
+        end
+    end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             for (j = 0; j < 3; j++) k2[j] <= '0;
-            ir_v <= 1'b0;
+            ir_h <= 1'b0;
+            ird <= 2'd0;
             nmi_v <= 1'b0;
             i_wake <= 1'b0;
             it_v <= 1'b0;
             it_sel <= 1'b0;
             ms_v <= 1'b0;
             ms_i <= 4'd0;
+            sc <= 4'd0;
         end else if (ce_a) begin
             k2[0] <= kmin(k1[0], k1[1]);
             k2[1] <= kmin(k1[2], k1[3]);
             k2[2] <= kmin(k1[4], k1[5]);
-            ir_v <= kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l;
+            // (qprobe round 14-16, spec 10 I1 / I3) the level scan: a vectored request is raised
+            // to the EU (ir_v) when the scan (`sc`: level sc[3:1], two clocks a level, 16 a
+            // round; EI restarts it at level 0, `ei_set`) is at the resolution's winner's level;
+            // once raised it is the one pending request (its source, vector, level and bank bit
+            // held) until its IF, its mask, IE or the level against ISPR takes it away (the take
+            // clears IF): a later request of any level does not displace it
+            sc <= ei_set ? 4'd0 : sc + 4'd1;
+            // the raised request reaches the EU through two registers clocked on the pins'
+            // divided clock (`ph`, every second clock: 3 to 4 clocks; Q49's 8 to 12 clocks from
+            // EI's last word to level 0 is this and the resolution's stages)
+            if (ph)
+                ird <= {ird[0], ir_h} & {2{ir_h}};
+            else if (!ir_h)
+                ird <= 2'd0;
+            if (ir_h)
+                ir_h <= rq[ir_i] && ie && {1'b0, ir_l} < isp_l;
+            else begin
+                ir_h <= kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l && kw.lvl == sc[3:1];
+                ir_vec <= vec_of(kw.idx);
+                ir_i <= kw.idx;
+                ir_l <= kw.lvl;
+                ir_bs <= kw.bs;
+            end
             ms_v <= kw.v && kw.ms && {1'b0, kw.lvl} < isp_l;
             ms_i <= kw.idx;
-            ir_vec <= vec_of(kw.idx);
-            ir_i <= kw.idx;
-            ir_l <= kw.lvl;
-            ir_bs <= kw.bs;
             // (F3b) INT (f3_int): taken before a pending request of any level but 0 (PR 1-7
             // wait for INT's handler's RETI, PR 0 goes first); ISPR plays no part (INT sets no
             // ISPR bit: the data book's "NMI and INT end without FINT"; f3_int: ISPR 00)
             it_v <= int_on;
             it_sel <= int_on && !(kw.v && !kw.ms && {1'b0, kw.lvl} < isp_l && kw.lvl == 3'd0);
             nmi_v <= nmi_p && !(iack && tk_k[2]);
-            i_wake <= nmi_p || (|rq) || int_on;  // (F3b) INT releases HALT, IE 0 too (f3_int)
+            // (F3b) INT releases HALT, IE 0 too (f3_int); (qprobe round 16) with IE 1 a maskable
+            // request releases it when the scan raises it to the EU (the release and the take
+            // in front of the instruction after HALT: QPr14t), with IE 0 when its IF is set
+            i_wake <= nmi_p || (ie ? ir_v : (|rq)) || int_on;
         end
     end
 
@@ -872,7 +909,16 @@ module v35_intc (
     // next opcode saw it (`ne`, loaded when an E word executes): the opcode taken then runs
     reg  ne = 1'b0;
     wire g_nd = ne;
-    wire g_i = (ir_v || it_v) && ie && ie_arm;      // (F3b) it_v: INT (the controller chooses)
+    // (qprobe round 14-16, spec 10 I2 / I3, spec 11 I7) the maskable offer and INT at a dispatch
+    // are the requests as the E word that took the next opcode saw them (`ie_e`, as NMI's `ne`;
+    // also loaded in the HALT stall, whose release dispatches without an E word); a maskable
+    // request or INT raised before NMI is taken first (`mf`: first come at the request latch;
+    // `mf_e` as the E word saw it), NMI then at the handler's first instruction. The string's
+    // take point (sgo, x_tki) reads the offer as it stands
+    reg  ie_e = 1'b0, mf = 1'b0, mf_e = 1'b0;
+    wire g_i = ie_e && ie && ie_arm;      // (F3b) it_v: INT (the controller chooses)
+    wire g_it = (ir_v || it_v) && ie && ie_arm;
+    wire g_nd_f = g_nd && !(g_i && mf_e);
     wire g_s = brk && brk_arm;
     // (F4b) a macro-service request: taken at a start whatever IE (f4_ms ms_p0, IE 0); in HALT
     // the stall ends on it (`wake` OR ms_v) and the routine returns to the HALT (f4_ms ms_halt:
@@ -913,15 +959,15 @@ module v35_intc (
     // on with CW as it stands. A single-step DMA take there disarms the request as at a
     // dispatch (one element between transfers: f5_sdma st_movw), a burst does not (the
     // transfers back to back after the first element: bu_movw)
-    assign sgo = g_n || g_m || g_d || g_i;
+    assign sgo = g_n || g_m || g_d || g_it;
     assign take_d = (x_disp && igo && g_d) || (x_tki && g_d);
-    assign take_n = (x_disp && igo && !g_d && g_nd) || (x_tki && !g_d && g_n);
-    assign take_m = (x_disp && igo && !g_d && !g_nd && g_m) || (x_tki && !g_d && !g_n && g_m);
+    assign take_n = (x_disp && igo && !g_d && g_nd_f) || (x_tki && !g_d && g_n);
+    assign take_m = (x_disp && igo && !g_d && !g_nd_f && g_m) || (x_tki && !g_d && !g_n && g_m);
     assign dm_rs = x_disp && !take_d;           // (F4c) the CPU resumes: DIC's IF set here
     assign dm_smp = (x_disp || x_tki) && !take_d;
-    assign take_i = (x_disp && igo && !g_nd && !g_m && !g_d && g_i)
-                    || (x_tki && !g_n && !g_m && !g_d && g_i);
-    assign take_s = x_disp && igo && !g_nd && !g_m && !g_d && !g_i;
+    assign take_i = (x_disp && igo && !g_nd_f && !g_m && !g_d && g_i)
+                    || (x_tki && !g_n && !g_m && !g_d && g_it);
+    assign take_s = x_disp && igo && !g_nd_f && !g_m && !g_d && !g_i;
     // (F4c) the parameters from one place: a DMA take's channel in place of the macro service's
     assign ms_ch = tk_dm ? {2'b00, dm_ch} : mc_ch;
     initial begin
@@ -934,6 +980,9 @@ module v35_intc (
             brk_arm <= 1'b0;
             nb_r <= 1'b0;
             ne <= 1'b0;
+            ie_e <= 1'b0;
+            mf <= 1'b0;
+            mf_e <= 1'b0;
             ms_hlt <= 1'b0;
             tk_dm <= 1'b0;
             rs_hlt <= 1'b0;
@@ -953,6 +1002,16 @@ module v35_intc (
                 ne <= 1'b0;
             else if (x_end)
                 ne <= nmi_v;
+            // (qprobe round 14-16) the maskable offer / INT and its order against NMI, as the E
+            // word (or the HALT stall) sees them; cleared by their take
+            mf <= (ir_v || it_v) && (mf || !nmi_v);
+            if (take_i) begin
+                ie_e <= 1'b0;
+                mf_e <= 1'b0;
+            end else if (x_end || halted) begin
+                ie_e <= ir_v || it_v;
+                mf_e <= mf;
+            end
             // (F5c) POP PSW, RETI, FINT (seg=NBI on the E word): the interrupt arms dropped, so
             // the next start takes neither the maskable interrupt nor the single step (NMI,
             // macro service and DMA are not held); the dispatch reloads them from the PSW

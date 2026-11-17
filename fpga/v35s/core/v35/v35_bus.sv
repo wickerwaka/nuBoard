@@ -289,6 +289,11 @@ module v35_bus
 
     wire g_sfr = gn.sfr;
     wire [2:0] grant_len = gn.len;      // the length of the granted cycle
+    // (qprobe round 15, spec 11 I7) the INT acknowledge is one cycle of six clocks with two
+    // /INTAK pulses (silicon, Q55: low two clocks, high one, low two; the vector byte read at the
+    // second pulse's end): its length set at the grant's register, the pulses below
+    wire       g_ia = gn.ack && req_ia && req_cyc != RQ_MEMW;
+    localparam logic [2:0] IA_LEN = 3'd6;
 
     // ------------------------------------------------ (S7b) the ce_b registers
     // the grant (S4), registered at the end of tick A: the end of the clock (the cycle's start,
@@ -303,13 +308,13 @@ module v35_bus
         else if (ce_b) begin
             g_start_b <= g_start;
             g_sfr_b <= g_sfr;
-            g_ia_b <= gn.ack && req_ia && req_cyc != RQ_MEMW;     // (F3b) the EU's cycle granted is an acknowledge (req_ia on a read)
+            g_ia_b <= g_ia;     // (F3b) the EU's cycle granted is an acknowledge (req_ia on a read)
             g_dk_b <= gn.ack && req_dk;     // (F4c) ... a DMA transfer's
             g_rdy_b <= gn.rdy;              // (F4d) the cycle granted waits for READY
             rdy_q <= rdy_lv;                // (F4d) READY at the pins' edge
             fetch_req_b <= fr;
             g_kind_b <= g_kind;
-            grant_len_b <= grant_len;
+            grant_len_b <= g_ia ? IA_LEN : grant_len;
             g_addr_b <= g_addr;
             g_width_b <= g_width;
             g_half_b <= g_half;
@@ -754,7 +759,7 @@ module v35_bus
             end
             // (F3b) the acknowledge: /INTAK in place of the strobes, mid-B1 to mid-B3
             if (ce_mid && pins && n_ia)
-                intak_n <= n_pos == n_len - 3'd1;
+                intak_n <= n_pos == 3'd2 || n_pos == n_len - 3'd1;
             if (ce_a && dp_v)
                 data_out <= dp_half == 2'd0 ? req_data
                           : dp_half == 2'd1 ? {req_data[7:0], 8'd0} : {8'd0, req_data[15:8]};
@@ -944,7 +949,7 @@ module v35_bus
                     $display("v35 chk: bus.g_kind changed in tick B: %h -> %h at %0t",
                              g_kind_b, g_kind, $time);
             end
-            if (grant_len_b !== grant_len) begin
+            if (grant_len_b !== (g_ia ? IA_LEN : grant_len)) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: bus.grant_len changed in tick B: %h -> %h at %0t",

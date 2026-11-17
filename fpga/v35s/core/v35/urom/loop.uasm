@@ -157,9 +157,9 @@ di8_t: jmp=dve                             ; (F3) the divide error: vector 0, th
 ; multiply / divide loops (V20 AAM / AAD: the divide and the multiply by the byte loop). The
 ; adjust's operation is the decode's op3 (ADJ4A 0, ADJ4S 1, ADJBA 2, ADJBS 3).
 
-routine adj4 op=27,2F book="ADJ4A" why="OPEN: the book's 9: the read and the adjust (W), the write on E with the write-back's hold (the model's wb 2); six book clocks with no act (F33-out-adj4a-k1-pE-w0: the fetch after it 3 late, the OUT's port 1 early: open, README MX3 (part 2))"
+routine adj4 op=27,2F book="ADJ4A" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 15, spec 11 B) ADJ4A is `. . . . . . . . N .` (ten words; the qprobe adj4a runs; ADJ4S by analogy: a guess, not measured); the book's 9: the read and the adjust (W), the write on E with the write-back's hold (the model's wb 2); six book clocks with no act (F33-out-adj4a-k1-pE-w0: the fetch after it 3 late, the OUT's port 1 early: open, README MX3 (part 2))"
     ra=AW wid=WORD alu=ADJ ax=RA wf         ; read AW; the adjust of AL by AC, CY and the digits (W)
-    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (ADJ4A 9) (the call and the shared delay's 5)
+    open call=w6                            ; OPEN: 7 clocks with no act (ADJ4A: the book's 9 + 1, measured) (the call and the shared delay's 6)
     wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E
 
 ; 37 / 3F: ADJBA / ADJBS (AAA / AAS)
@@ -203,7 +203,7 @@ mir_s: bi                                   ; (qprobe round 13, Q44) B: a bus-id
     bi                                      ; (qprobe round 13, Q44) B: a bus-idle word four words after the immediate's release
 mir_l: alu=MULS loop=mir_l                  ; one multiply step; the counter step (the unit hold)
     open call=w11                           ; OPEN: (qprobe round 13) twelve words with no act (the call and the shared delay's 11)
-    alu=MULF wf                             ; the product, negated when the signs differ (W)
+mir_f: alu=MULF wf                          ; the product, negated when the signs differ (W)
     wr=REG wid=WORD ws=SIG jnc=SGD:mir_e     ; the register <- the low half; the signs equal: to the end
     open call=w6                            ; OPEN: 7 clocks: the product's negation (+8 with the signs differing) (the call and the shared delay's 6)
     open alu=PASS ax=TC jc=SNZ:mir_e        ; OPEN: the negation's eighth clock; the low half not zero: to the end
@@ -217,17 +217,27 @@ routine mulimm_rb op=6B mod=reg why="OPEN: silicon longer than the book (measure
     rl=1                                    ; (qprobe round 12, Q39) P: the immediate released (word 3)
     rb=RM alu=MULI ax=RB ay=IMM cnt=BITS jmp=mir_s  ; the operand and the immediate (sign-extended), magnitudes, F1; the counter <- 16; the slot word and the loop
 
-routine mulimm_mw op=69 mod=mem why="no book value: the add, the read, the immediate's pops under the cycle, F with the magnitudes' load, the register form's loop and tail (mir_l)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR                                ; post the read
-    pop=il                                  ; the immediate's low byte
+routine mulimm_mw op=69 mod=mem ea=bare why="OPEN: (qprobe round 14, spec 10 B) MUL r16,mem,imm16 is `P . . BY DPP2 . B . B`, 39 words in all, N on word 38 (the qprobe mi16m runs, [BW]; the sign term, + 8 words when the signs differ, as on the register form: not exercised on memory); no book value: the add, the read, the immediate's pops under the cycle, F with the magnitudes' load, the register form's loop and tail (mir_l)"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the ModR/M byte released by the loader: P)
+    open call=w1                            ; OPEN: (qprobe round 14) two words with no act (the call and the shared delay's 1)
+    bi                                      ; (qprobe round 14) BY: bus-idle (the read due four clocks after it)
+    pop=il                                  ; the immediate's low byte (released on the datum word)
     pop=ih                                  ; its high byte
-    f alu=MULI ax=OPR ay=IMM cnt=BITS call=w4      ; F: the datum and the immediate, magnitudes, F1; the counter <- 16; (qprobe round 13) the register form's tail is five words shorter: five words here keep this form's clocks (not built: spec 8 D)
-    jmp=mir_l                               ; to the loop
+    bus=MEMR                                ; post the read (BY + 3)
+    f alu=MULI ax=OPR ay=IMM cnt=BITS rl=2  ; D P P2: F: the datum and the immediate, magnitudes, F1; the counter <- 16; the immediate released
+    open                                    ; OPEN: a word with no act
+mim_s: bi                                   ; (qprobe round 14) B: a bus-idle word two words after the datum word
+    open                                    ; OPEN: a word with no act
+    bi                                      ; (qprobe round 14) B: a bus-idle word four words after the datum word
+mim_l: alu=MULS loop=mim_l                  ; one multiply step; the counter step (the unit hold)
+    open call=w8                            ; OPEN: (qprobe round 14) nine words with no act (the call and the shared delay's 8)
+    open jmp=mir_f                          ; OPEN: a word with no act (the memory forms' wait two words shorter than the register form's: measured); the register form's finish
 
-routine mulimm_mb op=6B mod=mem why="no book value: as 69 with one immediate byte"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR                                ; post the read
-    pop=il                                  ; the immediate byte
-    f alu=MULI ax=OPR ay=IMM cnt=BITS call=w4      ; F: the datum and the immediate, magnitudes, F1; the counter <- 16; (qprobe round 13) the register form's tail is five words shorter: five words here keep this form's clocks (not built: spec 8 D)
-    jmp=mir_l                               ; to the loop
+routine mulimm_mb op=6B mod=mem ea=bare why="OPEN: (qprobe round 14, spec 10 B) MUL r16,mem,imm8 is `P . V DP . B . B`, 38 words in all, N on word 37 (the qprobe mi8m runs, [BW]; the sign term as on the register form, not exercised on memory); no book value: as 69 with one immediate byte"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the ModR/M byte released by the loader: P)
+    pop=il                                  ; the immediate byte (released on the datum word)
+    rl=x bi alt                             ; (qprobe round 14) V: the late request word (the read due four clocks after it)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR                                ; post the read (V + 3)
+    f alu=MULI ax=OPR ay=IMM cnt=BITS rl=1  ; D P: F: the datum and the immediate, magnitudes, F1; the counter <- 16; the immediate released
+    open jmp=mim_s                          ; OPEN: a word with no act; 69's memory words from the first bus-idle word

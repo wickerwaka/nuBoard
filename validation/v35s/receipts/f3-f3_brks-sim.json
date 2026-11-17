@@ -6,7 +6,7 @@
  "passed": true,
  "status": 6,
  "timeout": false,
- "total": 235,
+ "total": 236,
  "markers": 0,
  "last_marker": 0,
  "writes": [
@@ -296,6 +296,10 @@
   [
    12324,
    50734
+  ],
+  [
+   12326,
+   518
   ],
   [
    14336,
@@ -938,7 +942,7 @@
   "model_last_event": 1
  },
  "backend": "sim",
- "date": "2026-11-16T22:14:44",
+ "date": "2026-11-17T01:05:24",
  "stim": {
   "entries": [
    {

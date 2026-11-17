@@ -92,8 +92,16 @@ class Bounds(unittest.TestCase):
         svh = uasm.decode_svh(prog)
         fx = svh[svh.index("function automatic logic [2:0] v35_udec2_fx"):]
         fx = fx[:fx.index("endfunction")]
-        whole = [int(h, 16) for h in re.findall(r"8'h([0-9A-F]{2}): v35_udec2_fx", fx)]
-        self.assertLessEqual(len(whole), 7)
+        num = {int(h, 16): int(n) for h, n in re.findall(r"8'h([0-9A-F]{2}): v35_udec2_fx = 3'd(\d)", fx)}
+        whole = list(num)
+        # (qprobe round 16) opcodes with the same second-level table share a number: at most
+        # seven numbers, and every opcode of a number reads that table
+        self.assertLessEqual(len(set(num.values())), 7)
+        for op, n in num.items():
+            rep = min(o for o, m in num.items() if m == n)
+            for b in range(256):
+                self.assertEqual(uasm.udec2(prog, op, b)["entry"], uasm.udec2(prog, rep, b)["entry"],
+                                 f"{op:02X} {b:02X} (number {n})")
         for op in range(256):
             if op in whole:
                 continue

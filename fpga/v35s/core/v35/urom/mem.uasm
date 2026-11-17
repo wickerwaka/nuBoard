@@ -40,12 +40,11 @@ routine rmw_b diff=m00:+1,d8:+1,d16:+1,dir:+1 op=00,08,09,10,11,18,19,20,21,28,2
     d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (0001 SIGMA -> M)
     e                                       ; E: held until the write's end (RAMEN)
 
-routine cmp_mr diff=m00:+2,d8:+2,d16:+2,dir:+2 op=38,39 mod=mem book="CMP mem,reg" why="OPEN: the read, five clocks no act names under the cycle, F with CMP on the clock before E (no write) (as F5-push-cmp_aw_m-k2-pE-w0: S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
-    bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    open call=w4                            ; OPEN: 5 clocks: a clock of the model's with no act (CMP mem,reg) (the call and the shared delay's 4)
-    f ra=REG alu=GRP ax=OPR ay=RA wf        ; F: the datum and the register; CMP, flags (W)
-    e                                       ; E: the write-back word, its write suppressed (CMP)
+routine cmp_mr op=38,39 mod=mem ea=q book="CMP mem,reg" diff=m00:+2,d8:+2,d16:+1,dir:+2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 15, spec 11 B) CMP mem,reg is `P Y . D . N .` (the qprobe cmpmr / cmpmr8 runs, 48 / 48 in the model): the measured heads (ea=q), the read (Y + 3), D (F with CMP), a word, E with N; OPEN: the read, five clocks no act names under the cycle, F with CMP on the clock before E (no write) (as F5-push-cmp_aw_m-k2-pE-w0: S-to-S 11: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
+    bus=MEMR                                ; post the read (Y + 3)
+    f ra=REG alu=GRP ax=OPR ay=RA wf        ; D: F: the datum and the register; CMP, flags (W)
+    open                                    ; OPEN: (qprobe round 15) a word with no act
+    e ro                                    ; E: the write suppressed (CMP); N
 ; TEST mem,reg (V20 TEST_RM 0044-0045: M -> tmpa, R -> tmpb; AND; SIGMA -> NULL)
 routine test_m8 diff=m00:-3,d8:-2,d16:-2,dir:-1 op=84 mod=mem ea=bare book="TEST mem,reg" width=byte why="OPEN: book error where the routine is shorter (silicon's measured shape below): (qprobe round 9, Q25) TEST [BW],AW is `P . B Y DN .` (the qprobe testm runs, 24 / 24 in the model): TEST r,r's bus-idle third word, then a load: the add (the ModR/M byte released by the loader), a word with no act, B (bus-idle: waits while a fetch's pin cycle runs), Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post (Y + 3), D N (F: AND, flags; E); measured: the word form at [BW]; the byte form and the displacement modes (the bare heads' pops before the add) by analogy; before round 9: the read, seven clocks no act names under the cycle, F with the AND on the clock before E (F5-push-test_m_aw-k2-pE-w0)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
@@ -90,115 +89,203 @@ routine st_imm8 diff=m00:+2,dir:+4,d8:+3,d16:+3 op=C6 mod=mem reg=0,1,2,3,4,5,6,
     d1=OPRW s1=IMM bus=MEMWD                ; (qprobe round 12, spec 7 A2) the immediate into the write datum; post the write (V + 3), not armed (MEMWD: it competes from K on)
     d1=OPRW s1=IMM e ro rl=1                ; E: K P N: the immediate into the write datum (the write armed: K), the immediate and the next opcode released (the write's first clock); held until the write's end (RAMEN)
 
-routine st_imm16z diff=m00:3,d8:4,d16:4,dir:5 op=C7 mod=mem reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=word why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 9, Q25, item C) MOV word [BW],imm16 and [BW+IX],imm16 are `P . . BY . . . PPN .` (the qprobe rw-movi / stibi runs; model_m.py STIM): the add (the ModR/M byte released by the loader), two words with no act, BY (bus-idle: waits while a fetch's pin cycle runs; it is the request word too: the write due four clocks after it), the immediate's two pops, the datum with the post (Y + 3), E with the immediate's two bytes and the next opcode released (PPN, on the write's first clock: the post's grant); the immediate's pops before their release (the boundary waited for three bytes behind C7: m3); the modes without a displacement only (mod 00 but the direct address): the displacement modes and the byte form are not read (st_imm16, st_imm8), so C7's entry depends on the whole ModR/M byte (a whole opcode of the split second-level decode)"
+routine st_imm16z diff=m00:3 op=C7 mod=mem paths=m00 reg=0,1,2,3,4,5,6,7 ea=bare book="MOV mem,imm" width=word why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 9, Q25, item C) MOV word [BW],imm16 and [BW+IX],imm16 are `P . . BY . . . PPN .` (the qprobe rw-movi / stibi runs; model_m.py STIM): the add (the ModR/M byte released by the loader), two words with no act, BY (bus-idle: waits while a fetch's pin cycle runs; it is the request word too: the write due four clocks after it), the immediate's two pops, the datum with the post (Y + 3), E with the immediate's two bytes and the next opcode released (PPN, on the write's first clock: the post's grant); the immediate's pops before their release (the boundary waited for three bytes behind C7: m3); the modes without a displacement only (mod 00 but the direct address): the displacement modes and the byte form are not read (st_imm16, st_imm8), so C7's entry depends on the whole ModR/M byte (a whole opcode of the split second-level decode)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add (the ModR/M byte released by the loader: P); the reservation
     open                                    ; OPEN: (qprobe round 9) a word with no act
     open                                    ; OPEN: (qprobe round 9) a word with no act
     bi                                      ; (qprobe round 9) BY: bus-idle (waits while a fetch's pin cycle runs, its last clock included: so never on a fetch's last clock, where a request word's REQ_PRI would act); the write due four clocks after it
-    pop=il                                  ; pop the immediate's low byte (released on E)
+c7_i: pop=il                                  ; pop the immediate's low byte (released on E)
     pop=ih                                  ; pop its high byte (released on E)
     d1=OPRW s1=IMM bus=MEMWD                ; (qprobe round 12, spec 7 A2) the immediate into the write datum; post the write (Y + 3), not armed (MEMWD: it competes from K on)
     d1=OPRW s1=IMM e ro rl=2                ; E: K P P2 N: the immediate into the write datum (the write armed: K), its two bytes and the next opcode released (the write's first clock); held until the write's end (RAMEN)
 
 ; MOV mem16,sreg / MOV sreg,mem16 (V20 MOV_SREG 0050: R -> M [-06-] [E])
-routine st_sr op=8C mod=mem book="MOV mem16,sreg" why="the add, the segment register's read with the post, E held to the write's end: the book's EA + 6"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    rb=SREG wid=WORD d1=OPRW s1=RB bus=MEMW ; the segment register into the write datum; post the write (a word)
-    e                                       ; E: held until the write's end (RAMEN)
+routine st_sr op=8C mod=mem ea=bare book="MOV mem16,sreg" diff=m00:+2,d8:+3,d16:+3,dir:+4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 14, spec 10 B) MOV mem,sreg is `P . V . G N .` (the qprobe movms runs, [BW]; the other modes behind the bare heads): the add (P), a word, V (the late request word), the register into the datum, a word, the post (V + 3), E G N; the add, the segment register's read with the post, E held to the write's end: the book's EA + 6"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the ModR/M byte released by the loader: P)
+    open                                    ; OPEN: (qprobe round 14) a word with no act
+    rl=x bi alt                             ; (qprobe round 14) V: the late request word (the write due four clocks after it)
+    rb=SREG wid=WORD d1=OPRW s1=RB          ; the segment register into the write datum
+    open                                    ; OPEN: (qprobe round 14) a word with no act
+    bus=MEMW wid=WORD                       ; post the write (V + 3: a word)
+    e ro bi                                 ; E: G N (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
-routine ld_sr diff=m00:-1,d8:-1,d16:-1,dir:-1 op=8E mod=mem book="MOV sreg,mem16" why="OPEN: book error of one: the book's EA + 9 against silicon's MOV DS1,[BW] 11 (a6, docs/v35s-mechanisms/classes.md LOAD_SEG) less the dispatch's fetch stall its method puts under the marker: 10 at mod 00 with the head's book error; the add, the post, the cycle, F: the segment register from the datum on the E word; two book clocks with no act before the post"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    open                                    ; OPEN: a book clock with no act (MOV sreg,mem16 EA + 9)
-    open                                    ; OPEN: a book clock with no act (MOV sreg,mem16 EA + 9)
-    bus=MEMR wid=WORD                       ; post the read (a word)
-    f wr=SREG wid=WORD ws=OPR e nb          ; F: the segment register <- the datum (RAM and the segment flop); E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
+routine ld_sr op=8E mod=mem ea=q book="MOV sreg,mem16" diff=m00:-1,d8:-1,d16:-2,dir:-1 why="OPEN: book error where the measured routine is shorter than the book: (qprobe round 14, spec 10 B) MOV sreg,mem is `P Y . DN . .` with MOV sreg's lead of two (the qprobe movsm runs, [BW]): the heads (ea=q), the read (Y + 3), D N (the segment register from the datum, the next opcode released), a word, E; OPEN: book error of one: the book's EA + 9 against silicon's MOV DS1,[BW] 11 (a6, docs/v35s-mechanisms/classes.md LOAD_SEG) less the dispatch's fetch stall its method puts under the marker: 10 at mod 00 with the head's book error; the add, the post, the cycle, F: the segment register from the datum on the E word; two book clocks with no act before the post"
+    bus=MEMR wid=WORD                       ; post the read (Y + 3: a word)
+    f wr=SREG wid=WORD ws=OPR ro            ; D N: F: the segment register <- the datum (RAM and the segment flop); the next opcode released
+    e nb                                    ; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 ; LDS / LES (V20 LES 00F8-00FA: OPR -> R, SIGMA -> tmpb, ALU INC2 [F]; SIGMA -> IND, MEMR;
 ; OPR -> ES [FE]): the offset word, the address + 2, the segment word
-routine les op=C4 mod=mem book="MOV DS0/DS1,reg16,memptr32" why="OPEN: the add, the offset's read, the address + 2 under the cycle, F: the register and the address register (00F8), the segment's read (00F9), F: DS1 on the E word (00FA): the book's EA + 17 with six book clocks with no act before the first post"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (LES EA + 17) (the call and the shared delay's 5)
-    bus=MEMR wid=WORD                       ; post the offset's read (a word)
-    alu=INC2 ax=ADDR                        ; the address + 2 into SIGMA (00F8 ALU INC2); the reservation (the second read)
-    f wr=REG wid=WORD ws=OPR d1=ADDR s1=SIG ; F: the register <- the offset (00F8 OPR -> R); the address register <- the address + 2
-    bus=MEMR wid=WORD                       ; post the segment's read (00F9 SIGMA -> IND; MEMR)
-    f wr=DS1 wid=WORD ws=OPR e              ; F: DS1 <- the segment (00FA OPR -> ES); E
-
-routine lds op=C5 mod=mem book="MOV DS0/DS1,reg16,memptr32" why="OPEN: LES's routine with DS0 (V20 LDS 00FC-00FE): the book's EA + 17 with six book clocks with no act before the first post"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    open call=w5                            ; OPEN: 6 clocks: a book clock with no act (LDS EA + 17) (the call and the shared delay's 5)
-    bus=MEMR wid=WORD                       ; post the offset's read (a word)
+routine les op=C4 mod=mem ea=q book="MOV DS0/DS1,reg16,memptr32" diff=m00:0,d8:0,d16:-1,dir:0 why="OPEN: book error where the measured routine is shorter than the book: (qprobe round 14, spec 10 B) LDS / LES r,mem is `P Y . D . U . D . . N .` (the qprobe lds / les runs, [BW]; the other modes by the measured heads): the heads (ea=q), the offset's read (Y + 3), D, a word, U (the segment's read posted), a word, D, two words, E with N; OPEN: the add, the offset's read, the address + 2 under the cycle, F: the register and the address register (00F8), the segment's read (00F9), F: DS1 on the E word (00FA): the book's EA + 17 with six book clocks with no act before the first post"
+    bus=MEMR wid=WORD                       ; post the offset's read (Y + 3: a word)
     alu=INC2 ax=ADDR                        ; the address + 2 into SIGMA; the reservation (the second read)
-    f wr=REG wid=WORD ws=OPR d1=ADDR s1=SIG ; F: the register <- the offset; the address register <- the address + 2
-    bus=MEMR wid=WORD                       ; post the segment's read
-    f wr=DS0 wid=WORD ws=OPR e              ; F: DS0 <- the segment; E
+    f wr=REG wid=WORD ws=OPR d1=ADDR s1=SIG ; D: F: the register <- the offset; the address register <- the address + 2
+    open call=w1                            ; OPEN: (qprobe round 14) two words with no act (the call and the shared delay's 1: the model's U is the post's word less one)
+    bus=MEMR wid=WORD                       ; U: post the segment's read
+    open                                    ; OPEN: (qprobe round 14) a word with no act
+    f wr=DS1 wid=WORD ws=OPR              ; D: F: DS1 <- the segment
+    open call=w1                            ; OPEN: (qprobe round 14) two words with no act (the call and the shared delay's 1)
+    e ro                                    ; E; N
+
+routine lds op=C5 mod=mem ea=q book="MOV DS0/DS1,reg16,memptr32" diff=m00:0,d8:0,d16:-1,dir:0 why="OPEN: book error where the measured routine is shorter than the book: (qprobe round 14, spec 10 B) LDS / LES r,mem is `P Y . D . U . D . . N .` (the qprobe lds / les runs, [BW]; the other modes by the measured heads): the heads (ea=q), the offset's read (Y + 3), D, a word, U (the segment's read posted), a word, D, two words, E with N; OPEN: LES's routine with DS0 (V20 LDS 00FC-00FE): the book's EA + 17 with six book clocks with no act before the first post"
+    bus=MEMR wid=WORD                       ; post the offset's read (Y + 3: a word)
+    alu=INC2 ax=ADDR                        ; the address + 2 into SIGMA; the reservation (the second read)
+    f wr=REG wid=WORD ws=OPR d1=ADDR s1=SIG ; D: F: the register <- the offset; the address register <- the address + 2
+    open call=w1                            ; OPEN: (qprobe round 14) two words with no act (the call and the shared delay's 1: the model's U is the post's word less one)
+    bus=MEMR wid=WORD                       ; U: post the segment's read
+    open                                    ; OPEN: (qprobe round 14) a word with no act
+    f wr=DS0 wid=WORD ws=OPR              ; D: F: DS0 <- the segment
+    open call=w1                            ; OPEN: (qprobe round 14) two words with no act (the call and the shared delay's 1)
+    e ro                                    ; E; N
 
 ; LDEA (V20 LEA 0054-0055: the EA, then SIGMA -> R after the E row)
-routine ldea op=8D mod=mem book="LDEA" why="the add, the register from the address register on the E word: the book's EA + 2 on every path but mod 00's EA book error (the head)"
+routine ldea op=8D mod=mem book="LDEA" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 16, spec 12 C2) LEA is `P . . BN .` (the qprobe ld-lea runs; model_m.py LEA): the add, a word with no act, the register from the address register on a bus-idle E word; the book's EA + 2 + 1 on every path but mod 00's EA book error (the head)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
-    wr=REG wid=WORD ws=ADDR e               ; the register <- the address (0055 SIGMA -> R); E
+    open                                    ; OPEN: (qprobe round 16, spec 12 C2) a word with no act
+    wr=REG wid=WORD ws=ADDR e bi            ; the register <- the address (0055 SIGMA -> R); E: (qprobe round 16) B N: bus-idle
 
 ; ---- the group 1 memory forms (V20 GRP1 003C-0040: Q -> tmpbL, Q -> tmpbH, tmpb -> tmpa; ALU
 ; OPC; M -> tmpb; SIGMA -> M [-06-]): the immediate popped after the EA, then the read (silicon:
 ; the one-byte immediate's read a clock before the two-byte one's, v35s-chains.md F19), F with
 ; the group's op, the write's post, E held
-routine grp1_mb diff=m00:+1,d8:+1,d16:+1,dir:+1 op=80,82 mod=mem reg=0-6 bookv=14 book="ADD mem,imm" why="OPEN: the add, the read, F with the immediate's pops after the datum (the model's takes), the group's op, the write's post, E held (F5-push-add_m_imm-k2-pE-w0: S 96, P:read 101, the immediate taken at S+8 S+9, P:write 106, the write 108, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
-    bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8); the reservation
-    alu=GRP ax=TB ay=IMM wf                 ; the group's ALU op with the immediate, flags (W) (003E)
-    d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write (0040)
-    e                                       ; E: held until the write's end (RAMEN)
-
-routine grp1_mw8 diff=m00:+4,d8:+5,d16:+5,dir:+6 op=83 mod=mem reg=0-6 ea=bare book="ADD mem,imm" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 10, Q29) ADD [BW],imm8 is `P . V DPZ G N .` (the qprobe addi8 runs; [BW+d8] `P . V P DPZ G N .` and [d16] `P . V PP2 DPZ G N .` read but their displacement after V needs a head the dispatch may not name: the bare heads' pops before the add, V one or two words late); the add (the ModR/M byte released by the loader: P), the immediate's pop (released at the datum), V (the late request word: a fetch's last clock is its earliest; the read due four clocks after it), two words with no act, the read's post, F with the group's op (D P), the write's post two clocks after the datum (Z), E bus-idle on the write's first clock (G N); the other operations of the group and the modes by analogy"
+routine grp1_mw8 diff=m00:+4 op=80,82,83 mod=mem reg=0-6 ea=bare paths=m00 book="ADD mem,imm" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 10, Q29) ADD [BW],imm8 is `P . V DPZ G N .` (the qprobe addi8 runs; [BW+d8] `P . V P DPZ G N .` and [d16] `P . V PP2 DPZ G N .` read but their displacement after V needs a head the dispatch may not name: the bare heads' pops before the add, V one or two words late); the add (the ModR/M byte released by the loader: P), the immediate's pop (released at the datum), V (the late request word: a fetch's last clock is its earliest; the read due four clocks after it), two words with no act, the read's post, F with the group's op (D P), the write's post two clocks after the datum (Z), E bus-idle on the write's first clock (G N); the other operations of the group and the modes by analogy"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
     pop=il                                  ; pop the immediate byte (released on the datum word)
     rl=x bi alt                             ; (qprobe round 10, A4) V: the late request word (waits while a fetch runs then, not on its last clock; no REQ_PRI): the read due four clocks after it
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
-    bus=MEMR                                ; post the read (V + 3)
+g8w_p: bus=MEMR                                ; post the read (V + 3)
     f alu=GRP ax=OPR ay=IMM wf rl=1         ; D P: F: the datum and the immediate; the group's op, flags (W); the immediate released
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
-routine grp1_mw diff=m00:+2,d8:+3,d16:+3,dir:+4 op=81 mod=mem reg=0-6 ea=bare bookv=15 book="ADD mem,imm" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 10, Q29) ADD [BW],imm16 is `P . . BY DPP2Z G N .` (the qprobe addi16 runs): the add (P), two words with no act, BY (bus-idle; never on a fetch's last clock, so it is the request word too: the read due four clocks after it), the immediate's two pops (released at the datum), the read's post, F with the group's op (D P P2), the write's post (Z), E bus-idle (G N); the other operations and the displacement modes by analogy"
+routine grp1_mw diff=m00:+2 op=81 mod=mem reg=0-6 ea=bare paths=m00 bookv=15 book="ADD mem,imm" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 10, Q29) ADD [BW],imm16 is `P . . BY DPP2Z G N .` (the qprobe addi16 runs): the add (P), two words with no act, BY (bus-idle; never on a fetch's last clock, so it is the request word too: the read due four clocks after it), the immediate's two pops (released at the datum), the read's post, F with the group's op (D P P2), the write's post (Z), E bus-idle (G N); the other operations and the displacement modes by analogy"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
     bi                                      ; (qprobe round 10) BY: bus-idle (waits while a pin cycle started earlier runs); the read due four clocks after it
-    pop=il                                  ; pop the immediate's low byte (released on the datum word)
+g16w_i: pop=il                                  ; pop the immediate's low byte (released on the datum word)
     pop=ih                                  ; pop its high byte (released on the datum word)
     bus=MEMR                                ; post the read (Y + 3)
     f alu=GRP ax=OPR ay=IMM wf rl=2         ; D P P2: F: the datum and the immediate; the group's op, flags (W); the immediate released
     d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write (two clocks after the datum word)
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
-routine grp1_mcb diff=m00:+4,d8:+4,d16:+4,dir:+4 op=80,82 mod=mem reg=7 book="CMP mem,imm" width=byte why="OPEN: the add, the read, F with the immediate's pops after the datum, CMP, the left-out write's four clocks no act names, E (F5-push-cmp_m_imm-k2-pE-w0: S 96, P:read 101, the immediate at S+8 S+9, the left-out write's slot at S+10, S-to-S 15: the frozen model's read, write, takes and next S); book error where the routine is shorter, silicon longer than the book where it is longer (the frozen model exact on the run)"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (S+3 at mod 00); the reservation
-    bus=MEMR                                ; post the read (S+4: it issues at S+5 on a free bus, the model's P:read)
-    f d1=TB s1=OPR pop=il                   ; F: the datum into tmpb; pop the immediate's (low) byte (S+8)
-    alu=GRP ax=TB ay=IMM wf                 ; CMP with the immediate, flags (W)
-    open call=w3                            ; OPEN: 4 clocks: a clock of the model's with no act (CMP mem,imm: the left-out write's slot) (the call and the shared delay's 3)
-    e                                       ; E: the write suppressed (CMP)
-
-routine grp1_mcw8 diff=m00:+1,d8:+2,d16:+2,dir:+3 op=83 mod=mem reg=7 ea=bare book="CMP mem,imm" width=word why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 10, Q29) CMP [BW],imm8 is `P . V DP . BN .` (the qprobe cmpi8 runs): the add (P), the immediate's pop, V (the late request word), two words with no act, the read's post, F with CMP (D P), a word with no act, E bus-idle (B N, the commit word two after the immediate); the displacement modes by analogy (the bare heads)"
+routine grp1_mcw8 diff=m00:+1 op=80,82,83 mod=mem reg=7 ea=bare paths=m00 book="CMP mem,imm" width=word why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 10, Q29) CMP [BW],imm8 is `P . V DP . BN .` (the qprobe cmpi8 runs): the add (P), the immediate's pop, V (the late request word), two words with no act, the read's post, F with CMP (D P), a word with no act, E bus-idle (B N, the commit word two after the immediate); the displacement modes by analogy (the bare heads)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
     pop=il                                  ; pop the immediate byte (released on the datum word)
     rl=x bi alt                             ; (qprobe round 10, A4) V: the late request word (waits while a fetch runs then, not on its last clock; no REQ_PRI): the read due four clocks after it
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
-    bus=MEMR                                ; post the read (V + 3)
+g8c_p: bus=MEMR                                ; post the read (V + 3)
     f alu=GRP ax=OPR ay=IMM wf rl=1         ; D P: F: the datum and the immediate; CMP, flags (W); the immediate released
     open                                    ; OPEN: (qprobe round 10) a word with no act
     e bi ro                                 ; E (CMP writes nothing): B N: bus-idle; the next opcode released
 
-routine grp1_mcw diff=m00:2,d8:3,d16:3,dir:4 op=81 mod=mem reg=7 ea=bare book="CMP mem,imm" width=word why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q43) CMP [BW],imm16 is `P . . BY DPP2 . BN .` (the qprobe cmpi16 runs, 24 / 24): ADD [BW],imm16's head, D with CMP and the immediate's release, a word, the E word bus-idle; [BW+d8] `P . . BYP DPP2 . BN .` (24 / 24: the displacement released on Y; behind the bare head it is released at its pop)"
+routine grp1_mcw diff=m00:2 op=81 mod=mem reg=7 ea=bare paths=m00 book="CMP mem,imm" width=word why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q43) CMP [BW],imm16 is `P . . BY DPP2 . BN .` (the qprobe cmpi16 runs, 24 / 24): ADD [BW],imm16's head, D with CMP and the immediate's release, a word, the E word bus-idle; [BW+d8] `P . . BYP DPP2 . BN .` (24 / 24: the displacement released on Y; behind the bare head it is released at its pop)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)
     open call=w1                            ; OPEN: (qprobe round 13, Q43) two words with no act (the call and the shared delay's 1)
     bi                                      ; (qprobe round 13, Q43) BY: bus-idle; the read due four clocks after it
-    pop=il                                  ; pop the immediate's low byte (released on the datum word)
+g16c_i: pop=il                                  ; pop the immediate's low byte (released on the datum word)
     pop=ih                                  ; pop its high byte
     bus=MEMR                                ; post the read (Y + 3)
     f alu=GRP ax=OPR ay=IMM wf rl=2         ; D P P2: F: the datum and the immediate; CMP, flags (W); the immediate released
     open                                    ; OPEN: (qprobe round 13, Q43) a word with no act
     e bi ro                                 ; E (CMP writes nothing): B N
+
+; (qprobe rounds 14-16, item A) the displacement modes of 80 / 82 / 83 and C7 as cells of their own (mod=m01 / m10 / m00 rm=6)
+routine grp1_mw8_d8 op=80,82,83 mod=m01 reg=0-6 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) ADD [BW+d8],imm8 is `P . V P DPZ G N .` (the qprobe addi8d / addi8x runs, spec 6 B3; 80 / 82 by spec 10 B): the routine pops its own displacement (no EA head: 80 / 82 / 83 a whole opcode of the split decode, one number for the three) and releases it on the word after V; the rest as [BW]'s"
+    pop=dl                                  ; pop the displacement byte (the ModR/M byte released by the loader: P)
+    ea=BI ra=BASE rb=INDEX pop=il          ; the EA's add; pop the immediate byte (released on the datum word)
+    rl=x bi alt                             ; V: the late request word (the read due four clocks after it)
+    rl=1                                    ; P: the displacement released
+    open jmp=g8w_p                          ; OPEN: a word with no act; the [BW] routine's read (g8w_p) and the rest of its words
+
+routine grp1_mw8_d16 op=80,82,83 mod=m10 reg=0-6 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) ADD [BW+d16],imm8 is `P . V PP2 DPZ G N . (by analogy with [d16])` (the qprobe addi8d / addi8x runs, spec 6 B3; 80 / 82 by spec 10 B): the routine pops its own displacement (no EA head: 80 / 82 / 83 a whole opcode of the split decode, one number for the three) and releases it on the word after V; the rest as [BW]'s"
+    pop=dl                                  ; pop the displacement's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=BI ra=BASE rb=INDEX rl=x bi alt     ; V: the late request word (the read due four clocks after it); the EA into the address register
+    pop=il rl=2                             ; P P2: the displacement released; pop the immediate byte (released on the datum word)
+    open jmp=g8w_p                          ; OPEN: a word with no act; the [BW] routine's read (g8w_p) and the rest of its words
+
+routine grp1_mw8_dir op=80,82,83 mod=m00 rm=6 reg=0-6 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) ADD [d16],imm8 is `P . V PP2 DPZ G N .` (the qprobe addi8d / addi8x runs, spec 6 B3; 80 / 82 by spec 10 B): the routine pops its own displacement (no EA head: 80 / 82 / 83 a whole opcode of the split decode, one number for the three) and releases it on the word after V; the rest as [BW]'s"
+    pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=DISP                rl=x bi alt     ; V: the late request word (the read due four clocks after it); the EA into the address register
+    pop=il rl=2                             ; P P2: the displacement released; pop the immediate byte (released on the datum word)
+    open jmp=g8w_p                          ; OPEN: a word with no act; the [BW] routine's read (g8w_p) and the rest of its words
+
+routine grp1_mcw8_d8 op=80,82,83 mod=m01 reg=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) CMP mem,imm8 with a displacement is `P . V P DP . BN .` (by analogy with ADD's displacement forms and CMP [BW],imm8 `P . V DP . BN .`): the routine pops its own displacement and releases it on the word after V"
+    pop=dl                                  ; pop the displacement byte (the ModR/M byte released by the loader: P)
+    ea=BI ra=BASE rb=INDEX pop=il          ; the EA's add; pop the immediate byte (released on the datum word)
+    rl=x bi alt                             ; V: the late request word (the read due four clocks after it)
+    rl=1                                    ; P: the displacement released
+    open jmp=g8c_p                          ; OPEN: a word with no act; the [BW] routine's read (g8c_p) and the rest of its words
+
+routine grp1_mcw8_d16 op=80,82,83 mod=m10 reg=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) CMP mem,imm8 with a displacement is `P . V PP2 DP . BN .` (by analogy with ADD's displacement forms and CMP [BW],imm8 `P . V DP . BN .`): the routine pops its own displacement and releases it on the word after V"
+    pop=dl                                  ; pop the displacement's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=BI ra=BASE rb=INDEX rl=x bi alt     ; V: the late request word (the read due four clocks after it); the EA into the address register
+    pop=il rl=2                             ; P P2: the displacement released; pop the immediate byte (released on the datum word)
+    open jmp=g8c_p                          ; OPEN: a word with no act; the [BW] routine's read (g8c_p) and the rest of its words
+
+routine grp1_mcw8_dir op=80,82,83 mod=m00 rm=6 reg=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) CMP mem,imm8 with a displacement is `P . V PP2 DP . BN .` (by analogy with ADD's displacement forms and CMP [BW],imm8 `P . V DP . BN .`): the routine pops its own displacement and releases it on the word after V"
+    pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=DISP                rl=x bi alt     ; V: the late request word (the read due four clocks after it); the EA into the address register
+    pop=il rl=2                             ; P P2: the displacement released; pop the immediate byte (released on the datum word)
+    open jmp=g8c_p                          ; OPEN: a word with no act; the [BW] routine's read (g8c_p) and the rest of its words
+
+routine st_imm16_d8 op=C7 mod=m01 reg=0,1,2,3,4,5,6,7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) MOV word mem,imm16 with a displacement is `P . . BYP . . . KPP2N .` (model_m.py STIM_D8 / STIM_D16; the qprobe w-sd8 / w-sd16 / w-sdir / stid8 / stid16 / stix runs): the routine pops its own displacement (no EA head: C7 a whole opcode again, its slot freed by the REP pages sharing one number) and releases it on BY; then [BW]'s words (the immediate's pops, the unarmed post, K)"
+    pop=dl                                  ; pop the displacement byte (the ModR/M byte released by the loader: P)
+    ea=BI ra=BASE rb=INDEX                 ; the EA's add
+    open                                    ; OPEN: a word with no act
+    bi rl=1 jmp=c7_i                        ; BY P: bus-idle (the write due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (c7_i)
+
+routine st_imm16_d16 op=C7 mod=m10 reg=0,1,2,3,4,5,6,7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) MOV word mem,imm16 with a displacement is `P . . BYPP2 . . . KPP2N .` (model_m.py STIM_D8 / STIM_D16; the qprobe w-sd8 / w-sd16 / w-sdir / stid8 / stid16 / stix runs): the routine pops its own displacement (no EA head: C7 a whole opcode again, its slot freed by the REP pages sharing one number) and releases it on BY; then [BW]'s words (the immediate's pops, the unarmed post, K)"
+    pop=dl                                  ; pop the displacement's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=BI ra=BASE rb=INDEX                 ; the EA into the address register
+    bi rl=2 jmp=c7_i                        ; BY P: bus-idle (the write due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (c7_i)
+
+routine st_imm16_dir op=C7 mod=m00 rm=6 reg=0,1,2,3,4,5,6,7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) MOV word mem,imm16 with a displacement is `P . . BYPP2 . . . KPP2N .` (model_m.py STIM_D8 / STIM_D16; the qprobe w-sd8 / w-sd16 / w-sdir / stid8 / stid16 / stix runs): the routine pops its own displacement (no EA head: C7 a whole opcode again, its slot freed by the REP pages sharing one number) and releases it on BY; then [BW]'s words (the immediate's pops, the unarmed post, K)"
+    pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=DISP                                ; the EA into the address register
+    bi rl=2 jmp=c7_i                        ; BY P: bus-idle (the write due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (c7_i)
+
+routine grp1_mw_d8 op=81 mod=m01 reg=0-6 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) ADD mem,imm16 with a displacement is `P . . BYP DPP2Z G N .` (by analogy with CMP [BW+d8],imm16 `P . . BYP DPP2 . BN .`, model_m.py CMPIW_D8, the qprobe cmpi16 d8 runs): the routine pops its own displacement (81 a whole opcode of the split decode) and releases it on BY"
+    pop=dl                                  ; pop the displacement byte (the ModR/M byte released by the loader: P)
+    ea=BI ra=BASE rb=INDEX                 ; the EA's add
+    open                                    ; OPEN: a word with no act
+    bi rl=1 jmp=g16w_i                      ; BY P: bus-idle (the read due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (g16w_i)
+
+routine grp1_mcw_d8 op=81 mod=m01 reg=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) CMP mem,imm16 with a displacement is `P . . BYP DPP2 . BN .` (model_m.py CMPIW_D8, the qprobe cmpi16 d8 runs; d16 and the direct address by its two bytes): the routine pops its own displacement (81 a whole opcode) and releases it on BY"
+    pop=dl                                  ; pop the displacement byte (the ModR/M byte released by the loader: P)
+    ea=BI ra=BASE rb=INDEX                 ; the EA's add
+    open                                    ; OPEN: a word with no act
+    bi rl=1 jmp=g16c_i                      ; BY P: bus-idle (the read due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (g16c_i)
+
+routine grp1_mw_d16 op=81 mod=m10 reg=0-6 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) ADD mem,imm16 with a displacement is `P . . BYPP2 DPP2Z G N .` (by analogy with CMP [BW+d8],imm16 `P . . BYP DPP2 . BN .`, model_m.py CMPIW_D8; mod 10 by its two bytes): the routine pops its own displacement (81 a whole opcode of the split decode) and releases it on BY"
+    pop=dl                                  ; pop the displacement's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA into the address register
+    bi rl=2 jmp=g16w_i                      ; BY PP2: bus-idle (the read due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (g16w_i)
+
+routine grp1_mcw_d16 op=81 mod=m10 reg=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) CMP mem,imm16 with a displacement is `P . . BYPP2 DPP2 . BN .` (model_m.py CMPIW_D8 by its two bytes): the routine pops its own displacement (81 a whole opcode) and releases it on BY"
+    pop=dl                                  ; pop the displacement's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=BI ra=BASE rb=INDEX                  ; the EA into the address register
+    bi rl=2 jmp=g16c_i                      ; BY PP2: bus-idle (the read due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (g16c_i)
+
+routine grp1_mw_dir op=81 mod=m00 rm=6 reg=0-6 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) ADD mem,imm16 with a displacement is `P . . BYPP2 DPP2Z G N .` (by analogy with CMP [BW+d8],imm16 `P . . BYP DPP2 . BN .`, model_m.py CMPIW_D8, the qprobe cmpi16 d8 runs): the routine pops its own displacement (81 a whole opcode of the split decode) and releases it on BY"
+    pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=DISP                                ; the EA into the address register
+    bi rl=2 jmp=g16w_i                      ; BY PP2: bus-idle (the read due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (g16w_i)
+
+routine grp1_mcw_dir op=81 mod=m00 rm=6 reg=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe rounds 14-16, item A) CMP mem,imm16 with a displacement is `P . . BYPP2 DPP2 . BN .` (model_m.py CMPIW_D8, the qprobe cmpi16 d8 runs; d16 and the direct address by its two bytes): the routine pops its own displacement (81 a whole opcode) and releases it on BY"
+    pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
+    pop=dh                                  ; pop its high byte
+    ea=DISP                                ; the EA into the address register
+    bi rl=2 jmp=g16c_i                      ; BY PP2: bus-idle (the read due four clocks after it); the displacement released; then the [BW] routine's words from the immediate's pops (g16c_i)
 
 ; ---- the unary group's memory forms (V20 0170-0175: M -> tmpb; the op; SIGMA -> M [-06-])
 routine inc_m op=FE,FF mod=mem reg=0 ea=bare diff=m00:+2,d8:+3,d16:+3,dir:+4 book="INC mem (word)" why="OPEN: (qprobe round 8, Q19 / Q20) INC word [BW] is `P . . B Y . . DZ N` (measured: INC word [BW], the qprobe rw-incm runs; the byte form, the other unary ops and EA modes by analogy, the displacement's pops in the bare heads before it): the add (the ModR/M byte released by the loader), two words with no act, B (the group's bus-idle fourth word: waits while a fetch's pin cycle runs), Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the read's post, D (F: the operation on the datum), Z (the write's post on the word after the datum word: the write two clocks after it), E (an on-chip store holds it to the write's end: RAMEN), N on the boundary word; beyond the book in the book check's machine (E held to the write's end: the on-chip timing; the bare heads' pops at d8, d16 and the direct address); before round 8: the add, the read's post (S+4), F, the write's post, E held (F5-push-inc_m-k2-pE-w0)"
@@ -396,32 +483,40 @@ routine shm_1 diff=m00:+4,d8:+5,d16:+5,dir:+6 op=D0,D1 mod=mem ea=bare book="SHL
     bus=MEMW                                ; Z: post the write (the datum + 7)
     e ro bi                                 ; E: (Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
-routine shm_cl op=D2,D3 mod=mem book="SHL mem,CL" n=4 why="OPEN: the add, the read, CL into the counter under the cycle, F with the shifter's load, the zero test, the two-word iteration, the write's post with the flags (the count 0: the datum written back, no flags), E held: the book's EA + 19 + 2n with seven book clocks with no act before the zero test"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR                                ; post the read
+routine shm_cl op=D2,D3 mod=mem ea=bare book="SHL mem,CL" n=4 diff=m00:+3,d8:+4,d16:+4,dir:+5 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 14, Q46, spec 10 B) SHL mem,CL is `P . . B . . . Y D`, 3 + 2n words, `Z G N .` (the qprobe shmcl / shmbcl / shmcl1 / shmcl8 runs, [BW]; the other modes by the mode rules behind the bare heads): the add (P), two words with no act, B (the bus-idle fourth word), three words, Y (the request word: the read posted three words later), D (F with the shifter's load), two words and the zero test, the two-word iteration, Z (the write's post with the flags), G N; the add, the read, CL into the counter under the cycle, F with the shifter's load, the zero test, the two-word iteration, the write's post with the flags (the count 0: the datum written back, no flags), E held: the book's EA + 19 + 2n with seven book clocks with no act before the zero test"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the ModR/M byte released by the loader: P)
+    open call=w1                            ; OPEN: (qprobe round 14) two words with no act (the call and the shared delay's 1)
+    bi                                      ; (qprobe round 14) B: the bus-idle fourth word
+    open call=w2                            ; OPEN: (qprobe round 14) three words with no act (the call and the shared delay's 2)
+    rl=x bi                                 ; (qprobe round 14) Y: the request word (the read posted three words later)
     rb=CW cnt=RB                            ; CL into the loop counter
-    f alu=SHI ax=OPR                        ; F: the shifter loaded from the datum with CY; the reservation
-    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (SHL mem,CL EA + 19 + 2n) (the call and the shared delay's 6)
-    jc=CNTZ:shmc_z                          ; a zero count skips the loop (SHIFT 0228 JMP Z)
+    open                                    ; OPEN: a word with no act
+    bus=MEMR                                ; post the read (Y + 3)
+    f alu=SHI ax=OPR                        ; D: F: the shifter loaded from the datum with CY
+    open call=w2                            ; OPEN: (qprobe round 14) three words with no act (the call and the shared delay's 2: the model's Z is the post's word less one)
+    jc=CNTZ:shmc_z                          ; a zero count skips the loop (SHIFT 0228 JMP Z): the third of the 3 + 2n words
 shmc_l: alu=SH1 ax=SIG                      ; one shift step of the group's operation
     loop=shmc_l                             ; the counter step (the iteration's second word)
-    d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; the result into the write datum; the shift's flags (W); post the write
-    e                                       ; E: held until the write's end (RAMEN)
-shmc_z: e                                   ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
+    d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; Z: the result into the write datum; the shift's flags (W); post the write
+    e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+shmc_z: e ro bi                             ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E (bus-idle: not measured)
 
-routine shm_imm op=C0,C1 mod=mem bookx="EA+15+2n" n=4 why="OPEN: the add, the read, the count's pop and its load under the cycle, F with the shifter's load, the zero test, the two-word iteration, the write's post with the flags, E held: the book's EA + 15 + 2n (its ROL mem,imm8 note) with three book clocks with no act before the zero test"
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR                                ; post the read
-    pop=il                                  ; pop the count (V20 028C Q -> tmpaL)
+routine shm_imm op=C0,C1 mod=mem ea=bare bookx="EA+15+2n" n=4 diff=m00:+5,d8:+6,d16:+6,dir:+7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 14, Q46, spec 10 B) SHL mem,imm8 is `P . V DP . B`, 4 + 2n words, `Z G N .` (the qprobe shmi / shmbi / shmi1 / shmi8 runs, [BW]; n the count and 1Fh; the other modes by the mode rules behind the bare heads): the add (P), the count's pop, V (the late request word), the read (V + 3), D P (F with the shifter's load; the count released), a word, B (bus-idle), three words and the zero test, the two-word iteration, Z (the write's post with the flags), G N; the add, the read, the count's pop and its load under the cycle, F with the shifter's load, the zero test, the two-word iteration, the write's post with the flags, E held: the book's EA + 15 + 2n (its ROL mem,imm8 note) with three book clocks with no act before the zero test"
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the ModR/M byte released by the loader: P)
+    pop=il                                  ; pop the count (V20 028C Q -> tmpaL; released on the datum word)
+    rl=x bi alt                             ; (qprobe round 14) V: the late request word (the read due four clocks after it)
+    open call=w1                            ; OPEN: (qprobe round 14) two words with no act (the call and the shared delay's 1)
+    bus=MEMR                                ; post the read (V + 3)
+    f alu=SHI ax=OPR rl=1                   ; D P: F: the shifter loaded from the datum with CY; the count released
     cnt=IL                                  ; the count into the loop counter
-    f alu=SHI ax=OPR                        ; F: the shifter loaded from the datum with CY; the reservation
-    open call=w2                            ; OPEN: 3 clocks: a book clock with no act (SHL mem,imm8 EA + 15 + 2n) (the call and the shared delay's 2)
-    jc=CNTZ:shmi_z                          ; a zero count skips the loop
+    bi                                      ; (qprobe round 14) B: bus-idle
+    open call=w3                            ; OPEN: (qprobe round 14) four words with no act (the call and the shared delay's 3: the model's Z is the post's word less one, Z_LAT 2 against the RTL's post-to-grant 1)
+    jc=CNTZ:shmi_z                          ; a zero count skips the loop: the fourth of the 4 + 2n words
 shmi_l: alu=SH1 ax=SIG                      ; one shift step
     loop=shmi_l                             ; the counter step
-    d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; the result into the write datum; the shift's flags (W); post the write
-    e                                       ; E: held until the write's end (RAMEN)
-shmi_z: e                                   ; (F5b: silicon, the fuzz's first differences: f5a_011 SHR SS:[BP+IX+96h], CL with CL 0) the count 0: no write (the flags kept); E
+    d1=OPRW s1=SIG alu=SHF ax=SIG wf bus=MEMW   ; Z: the result into the write datum; the shift's flags (W); post the write
+    e ro bi                                 ; E: G N (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+shmi_z: e ro bi                             ; (F5b) the count 0: no write (the flags kept); E (bus-idle: not measured)
 
 ; ---- the stack's memory forms
 ; PUSH mem16 (FF /6; V20 FF_PUSH 01CC-01CE): the read, SP - 2 under the cycle, F: the datum

@@ -3029,3 +3029,40 @@ question, decided from S8's routed numbers with the user.
   the 83 group's request ahead of a displacement, Q42's second half, the build-check items
   (DBNZ taken, JMP near at even alignment, LEA). The next build (work orders 10 to 12) takes
   the kept losses first.
+- **2026-11-17, work orders 10 to 12 landed as one batch: corpus 25,422 of 30,536 exact.**
+  **The `ex` chain** of the last landing was the posted-write term reading the on-chip
+  compare of the post's linear address; it now reads the unarmed state without the compare (a
+  MEMWD post is always on the word before K, where the term is 0 either way; a `+v35_chk`
+  assertion, silent over the corpus, says so). **The whole-opcode limit is lifted**: opcodes
+  with identical second-level tables share a number (the four REP pages; 80 / 82 / 83), so C7
+  and the 80-83 group with a displacement have their own cells; a cell may end in another
+  routine's words (the assembler's release check follows the jump). **Built**: the 0F page's
+  bus-idle third word, CALL / JMP [d16], LEA, the forms of rounds 14 and 15 (the 80 group and
+  shifts on memory, LDS / LES, MOV mem,sreg / sreg,mem, PUSH imm8, CVTWL, MUL r,mem,imm, EI,
+  CMP mem,AW / AL, TEST / CMP AL,imm, XCH AW,DW, IN AW,DW, ADJ4A, ADJBA / ADJBS), F6 exempt
+  from the three-bytes wait. **The queue's flush**: on the clock a flush word executes the
+  fetch the ordinary rule would make is still made at the old address and its word discarded
+  (a register `fdb` holds the request line until it arrives, then the flush wait); no flush
+  probe lost. **Interrupts** (all inside v35_intc): pins sampled every second clock, the
+  level scan (`sc`, two clocks a level, reset by EI), the request raised when the winner's
+  level equals the scan's and held with its source, first come between a maskable request /
+  INT and NMI, HALT released by the scan's raise; the INT acknowledge is one 6-clock cycle
+  with both INTAK pulses; the acknowledge's vector read loads address 0 (it had used a stale
+  address: the "INTAK answer not reaching the core" in sim was this core fault). **Measured
+  latencies without a mechanism, to be explained or removed (socket round 17): INTP_DLY = 11
+  (pin edge to request flag), two register stages between the scan's raise and the EU,
+  NMI_DLY = 10.** The held-back request, the late HALT release and the EI outliers are not
+  built. Corpus at both spacings 25,422 (23,702): 1,941 gained, 221 lost (149 LEA with a
+  displacement: the [BW] shape applied to modes that were never probed, the same change
+  gaining 214; 72 in the new displacement cells, each outweighed on its form but 81 [d16],
+  4 gained / 10 lost, whose cell gains 139 elsewhere), 0 FAIL, chk silent, write data
+  106,824 / 106,824; small set rounds 1-13 9,006 of 9,630 (8,576), 4 lost; interrupt probes
+  clock-exact 1,715 of 4,630 (1,175). **Program gates: f3_vec, f3_order / f3_prio now equal
+  (intr 6 equal, 0 differ);** f4_tm and f4_tout still differ on periods only; everything else
+  as before, fuzz as before, `dma hwd` equal. **FPGA at 17 ns: +1.317 / +0.971 / +0.859**
+  (all pass), 10,631 LUT4 / 642 ADD / 2,627 FF / 108 RAM_5K; the worst path is now the
+  loader's decode RAM into the ROM address (8 levels between two block RAMs; loader 3.529 and
+  useq 5.846 per module, both under their earlier floors): a timing repair leads the next
+  build. ROM 2,509 words. Not built: the commit word passing the Q42 fetch (needs the next
+  word's release a tick earlier), EXT across a word's extra word, the REP compares'
+  read-ahead, Q42's second half.

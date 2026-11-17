@@ -28,7 +28,7 @@
 //               fetch started at 5); (E1 M2) the line is formed from the registered count, so
 //               a pop's room reaches the bus unit's decision on the next clock (a pipeline
 //               stage between the queue's read side and the bus unit's request input)
-//   fetch_addr  {PS, 0} + pfp with the 16-bit wrap (a flush on this clock: the new stream's);
+//   fetch_addr  {PS, 0} + pfp with the 16-bit wrap (on a flush's clock the old stream's: qprobe round 16);
 //               an odd pfp (an odd transfer target) fetches its word and drops the low byte
 //   vb0, vb1,   the head window and the stored count, this clock's delivery bypassed (S1
 //   avail       before the pop)
@@ -200,20 +200,29 @@ module v35_queue
     // on the clock after a fetch's last clock (lv_q.r5) when the bus unit allows the
     // continuation (no dispatch word executes now and no request word executed on the last
     // clock: REQ_PRI); none during the flush wait or while suspended
-    wire       pv = !flush && flw == 3'd0;
+    // (qprobe round 16, spec 12 C1; the model's FLUSH_B2B / FLUSH_GAP) the flush's own clock: the
+    // back-to-back fetch the five-held continuation would start there (a word delivered now, five
+    // or fewer held after this clock's releases) is still made, from the old stream's offset; its
+    // word is discarded (`fdb`: a flushed stream's back-to-back fetch in flight, the line low
+    // while it runs) and the target's fetch waits three clocks after its delivery (flw reloaded
+    // with 2 there). Every other line stays low on the flush clock and in the flush wait
+    reg        fdb = 1'b0;
+    wire       pv = !flush && flw == 3'd0 && !fdb;
+    wire       pvf = flush && flw == 3'd0 && !fdb;
     assign fetch_req = pv && occ <= 5'sd4 && !susp;
-    assign lv_q.r5 = pv && occ <= 5'sd5 && dlv_v && !discard && !susp;
+    assign lv_q.r5 = (pv || pvf) && occ <= 5'sd5 && dlv_v && !discard && !susp;
     assign lv_q.c4 = pv && occ <= 5'sd4;
     assign lv_q.cf = pv && occ + (odd ? 5'sd1 : 5'sd2) <= 5'sd5;
     assign lv_q.nrl = rls == 3'd0;
-    // (MX5) the fetch address: the two sums formed from registers, the flush selecting last
-    wire [19:0] fa_f = ps_base + {4'd0, flush_addr};
+    // (MX5) the fetch address from pfp. (qprobe round 16) No fetch of the new stream is granted on
+    // the flush's clock (the line is low there but for the old stream's continuation, which
+    // fetches at pfp), so the flush's offset no longer selects here (its sum fa_f is gone)
     wire [19:0] fa_n = ps_base + {4'd0, pfp};
-    assign fetch_addr = flush ? fa_f : fa_n;
+    assign fetch_addr = fa_n;
 `ifndef SYNTHESIS
     // the direct arithmetic: the reference of `+v35_chk`
-    wire       freq_x = !flush && flw == 3'd0 && !susp && $signed(ob + n_ab - $signed({2'b00, rls})) <= 5'sd4;
-    wire [15:0] pfp_x = flush ? flush_addr : pfp;
+    wire       freq_x = !flush && flw == 3'd0 && !fdb && !susp && $signed(ob + n_ab - $signed({2'b00, rls})) <= 5'sd4;
+    wire [15:0] pfp_x = pfp;
     wire [19:0] faddr_x = ps_base + {4'd0, pfp_x};
 `endif
 
@@ -239,8 +248,9 @@ module v35_queue
     assign stored_nx = cnt_e[2:0];
     wire        unused_e3 = cnt_e[3];    // (E2) never set (the chk's overflow test reads it)
     assign odd_nx = go_r ? pfp_g[0] : odd;
-    wire [2:0]  flw_nx = flush_r ? 3'd4 : flw != 3'd0 ? flw - 3'd1 : 3'd0;
-    wire       pv_nx = flw_nx == 3'd0;          // (qprobe round 6) the flush wait over on the next clock
+    wire        fdb_nx = (go_r && flush_r) ? 1'b1 : dlv_v ? 1'b0 : fdb;
+    wire [2:0]  flw_nx = flush_r ? 3'd4 : (fdb && dlv_v) ? 3'd2 : flw != 3'd0 ? flw - 3'd1 : 3'd0;
+    wire       pv_nx = flw_nx == 3'd0 && !fdb_nx;          // (qprobe round 6) the flush wait over on the next clock
     // (consol) the count on the next clock before its releases (`ob` as the coming ce_a loads
     // it, with the next clock's delivery for lv_nx.a) and its compares (the loader's c4_nx,
     // c5_nx, cf_nx, b4_nx and ew_nx's counts before)
@@ -257,7 +267,7 @@ module v35_queue
     endfunction
     assign lv_nx.n = lvc_f(ob_nx, 1'b0);
     assign lv_nx.a = discard_nx ? lvc_f(ob_nx, 1'b0) : lvc_f(ob_nx + ar_nx, 1'b1);
-    assign discard_nx = go_r ? 1'b0 : (flush_r && inflight && !dlv_v) ? 1'b1 : dlv_v ? 1'b0
+    assign discard_nx = go_r ? flush_r : (flush_r && inflight && !dlv_v) ? 1'b1 : dlv_v ? 1'b0
                       : discard;
     always @(posedge clock) begin
         if (!reset_n) begin
@@ -268,6 +278,7 @@ module v35_queue
             hip <= reset_ip;
             inflight <= 1'b0;
             discard <= 1'b0;
+            fdb <= 1'b0;
             odd <= 1'b0;
         end else if (ce_a) begin
             for (i = 0; i < QN; i = i + 1) begin
@@ -278,13 +289,16 @@ module v35_queue
             ob <= ob_nx;
             // (qprobe rule 5) the flush wait: the line low four clocks after the flush's
             flw <= flw_nx;
+            fdb <= fdb_nx;
             // (step D) the head's offset: a flush's target, else counted by the pops
             hip <= flush_r ? faddr_r : hip + {13'd0, reads};
             if (go_r) begin
                 inflight <= 1'b1;
                 odd <= pfp_g[0];
-                pfp <= (pfp_g | 16'd1) + 16'd1;
-                discard <= 1'b0;
+                // (qprobe round 16) the old stream's continuation granted on the flush's clock:
+                // its word discarded, the stream from the flush's offset
+                pfp <= flush_r ? faddr_r : (pfp_g | 16'd1) + 16'd1;
+                discard <= flush_r;
             end else begin
                 if (dlv_v)
                     inflight <= 1'b0;

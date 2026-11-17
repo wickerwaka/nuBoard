@@ -7933,3 +7933,79 @@ spec 9 wins where it differs from spec 8). Microcode, the assembler, and RTL ins
   [n < 16] word across a word, ADD [BW+d8] / [d16],imm8's request before the displacement's release
   (no whole-opcode slot left: 0F 64 65 F2 F3 FF 8F), Q42's second half, the 0 to 3 extra clocks and
   the INTP0 hold-off in RMW trains (spec 8 D, spec 9 C5).
+
+## qprobe rounds 14 to 16: the displacement cells of 80-83 / C7, the 0F page's bus-idle third word, the flush's back-to-back fetch, the level scan, the INT acknowledge
+
+Work orders 10, 11 and 12 (validation/v35s/qprobe/RESULTS.md Q46-Q67; model_m.py at round 16).
+Microcode, the assembler, and RTL inside the existing ports (test_v35_struct unchanged).
+
+- **The whole-opcode numbers are shared by table (uasm, v35_udec2_fx).** Opcodes whose second
+  level is the same table share one number: the four REP pages (one routine set, the condition
+  in the first level's xc) and 80 / 82 / 83 (one routine set, the width from the opcode). Used:
+  0F, REP (64 65 F2 F3), 80 / 82 / 83, 8F, C7, FF, 81: seven numbers. test_uasm checks that the
+  opcodes of a number read one table. The loader's text is unchanged (its lookups are per number).
+- **The displacement modes as cells of their own (item A).** C7 MOV mem,imm16 with a displacement
+  `P . . BYP . . . KPP2N .` / `P . . BYPP2 . . . KPP2N .` (st_imm16_d8 / _d16 / _dir: the cell pops
+  its displacement, the add, BY releasing it, then [BW]'s words from the immediate's pops, c7_i);
+  ADD..XOR mem,imm8 (80 / 82 / 83) `P . V P DPZ G N .` / `P . V PP2 DPZ G N .` and CMP `P . V P DP . BN .`
+  (the displacement released on the word after V, then [BW]'s read, g8w_p / g8c_p); 81 ADD / CMP
+  mem,imm16 `P . . BYP DPP2Z G N .` / `P . . BYP DPP2 . BN .` (g16w_i / g16c_i); mod 10 by analogy
+  (`P . . BYPP2 ...`: corpus F22 add_d16 / cmp_d16 139 gained, F5 add_m_imm_d16 10 lost). The 80 group on
+  memory takes the 83 routines (spec 10 B). The cells end in the [BW] routine's words: the
+  assembler's release check follows a jump into another routine's words with the counts it has.
+- **The 0F page (Q61).** The word releasing the ModR/M byte (the third) is bus-idle in every
+  register path, EXT / INS and ROL4 / ROR4: `P . BP`; the r,imm forms (`P . BP . CPN .`), ROL4 /
+  ROR4 r and the EXT / INS heads (`P . BP . C . Y D`, `P . BP . C . . Y D`) one word shorter in front
+  of the commit word, the m,CL forms one word longer (`P . BP . . C Y ...`).
+- **Shapes (spec 10 B, spec 11 B, spec 12 B / C2).** JMP r16 `P . B . B . . F N .`, CALL r16
+  `P . B . . B . Y D . . F N .`; JMP / CALL [d16] `P . B Y . PP2 D ...` (the direct address released
+  two words after Y); SHL mem,imm8 `P . V DP . B` + 4 + 2n + `Z G N .`, SHL mem,CL `P . . B . . . Y D`
+  + 3 + 2n + `Z G N .` (ea=bare); LDS / LES `P Y . D . U . D . . N .` (ea=q); MOV mem,sreg
+  `P . V . G N .`; MOV sreg,mem `P Y . DN . .`; PUSH imm8 `. . . P . Y N`; CVTWL eight words; EI
+  thirteen clocks; MUL r16,mem,imm16 / imm8 (39 / 38 words: the memory forms' own head and a tail
+  two words shorter than the register form's, then its finish, mir_f; the sign term as on the
+  register form, not measured on memory); CMP mem,reg `P Y . D . N .`; TEST / CMP AL,imm8 as ADD
+  AL,imm8; ADJ4A ten words (ADJ4S by analogy: a guess); LEA `P . . BN .` (the extra word on every
+  path: measured on [BW]; the displacement modes, behind the book heads' own OPEN word, are one
+  word long now: corpus ldea / lea 214 gained, 149 lost, a kept loss: per-mode LEA cells would
+  need an eighth whole-opcode number); F6 joins F7 / FE / FF without the three-bytes wait at its
+  boundary (the byte MUL / DIV on memory, QPr16a mq).
+- **The flush's own clock (spec 12 C1; model FLUSH_B2B / FLUSH_GAP).** v35_queue: on the clock a
+  flush word executes, the five-held continuation the ordinary rule would start there (a word
+  delivered now, five or fewer held after the clock's releases) is still made, at the old
+  stream's offset; its word is discarded (`discard`, the path an in-flight word at a flush
+  takes) and `fdb` (a register: the flushed stream's back-to-back fetch in flight) holds the line
+  low until it is delivered, where the flush wait is reloaded with 2: the target's fetch three
+  clocks after that delivery. The fetch address is pfp always (no new-stream fetch is granted on
+  a flush's clock: fa_f removed).
+- **Interrupts (spec 10 I1-I4, spec 11 I7).** In v35_intc: INTP0-2 sampled every second clock
+  (`ph`), their edges setting IF directly (the round-12 grid and INTP_DLY removed); the level scan
+  `sc` (four bits, level sc[3:1], two clocks a level) restarted at level 0 by EI (`ei_set`: IE
+  rising after an E word with nb and without nbi: EI's, not POP PSW's or RETI's); a vectored
+  request is raised (`ir_v`) when the scan is at the resolution winner's level and then held with
+  its source, vector, level and bank bit until IF / the mask / IE / ISPR take it away (no
+  displacement by a later request). The dispatch takes the offer and INT as the E word that took
+  the next opcode saw them (`ie_e`, as NMI's `ne`; also loaded in the HALT stall), and a maskable
+  request or INT raised before NMI goes first (`mf`, `mf_e`), NMI at the handler's first
+  instruction. The REP take point reads the offer as it stands. The raised request reaches the
+  EU through two registers on the divided clock (`ird`, 3 to 4 clocks); with IE 1 HALT is released
+  by the raised request (`i_wake`: the release and the take in front of the instruction after
+  HALT), with IE 0 by the IF bit as before. INTP0-2's edge reaches IF INTP_DLY = 11 clocks after it
+  is sampled (per pin `idl`): the pin path's measured latency (QPr14ninc thresholds), as NMI_DLY
+  (10, the round-12 figure) a measured latency without a read mechanism. The INT acknowledge is one bus cycle of six clocks with both /INTAK pulses (2
+  low, 1 high, 2 low, the byte read at its end: v35_bus IA_LEN, the pulses at positions 2 and 5
+  high) and the table read four words later than before INT 3's request word; the address
+  register is 0 for it (an odd address left there selected D15-D8: the direct sim's 90h vector).
+  Not built: the hold level of spec 10 I5 / spec 11 (user ruling 2026-11-16), the HALT late
+  release, the EI outliers.
+- **Timing repair (top level).** v35_eu's req_v_nx no longer reads the on-chip compare of the
+  post's linear address (rq_un_nx's oc_hit): a MEMWD post is on the word before K, where the
+  unarmed term is 0 either way (`+v35_chk` reports a MEMWD post not followed by K). The segment
+  add -> compare -> req_v_nx -> b_ph_nx -> ex chain (19-29 levels) is gone.
+- **Result.** Corpus 25,422 of 30,536 exact (from 23,702: 1,941 gained, 221 lost: LEA with a
+  displacement 149, the new displacement cells 72), chk silent, write data all agreeing. Small set
+  r1-r9 5,468 of 5,592 (from 5,298), r14a 355 / 360, r14b 96 / 96, r15a 249 / 288, r16a 729 / 774.
+  Interrupt probes (first four acknowledges): pushed instruction 2,437 of 4,630 (from 2,098), clock 1,715
+  (from 1,175); the program gates intr 7 EQUAL (f3_vec, f3_order, f3_prio newly),
+  periph timing-only as before. Vectors, banks, f5x unchanged (0 bad, 5 / 0, 34 / 0).
+

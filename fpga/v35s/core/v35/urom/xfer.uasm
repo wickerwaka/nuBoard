@@ -232,11 +232,13 @@ routine call_far op=9A book="CALL far-proc" diff=-2 why="OPEN: (qprobe round 8, 
     e ro                                    ; E: the target's opcode, once delivered; ro: released
 
 ; ---- BR r16 (FF /4 register): V20 FE/FF 01C4 (M -> PC E FLUSH)
-routine br_reg op=FF mod=reg reg=4 book="BR regptr16" diff=-1 why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below); silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) JMP r16 is `P . B . . . . F N .` (the qprobe tr-jmpr runs, 36 / 36 clean): the bus-idle word third, four words, Q21's flush tail; exempt from the three-bytes rule (FF: uasm NO_M3)"
+routine br_reg op=FF mod=reg reg=4 book="BR regptr16" diff=-1 why="OPEN: (qprobe round 14, spec 10 B) JMP r16 is `P . B . B . . F N .` (the qprobe fl-jr / tj-jr runs: the second bus-idle word replaces spec 9's stall);  book error where the measured routine is shorter than the book (the qprobe shape below); silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q44) JMP r16 is `P . B . . . . F N .` (the qprobe tr-jmpr runs, 36 / 36 clean): the bus-idle word third, four words, Q21's flush tail; exempt from the three-bytes rule (FF: uasm NO_M3)"
     ra=RM wid=WORD alu=PASS ax=RA           ; the register: the target into SIGMA (the ModR/M byte released by the loader: P)
-    open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
-    bi                                      ; (qprobe round 13, Q44) B: the bus-idle third word
-    open call=w3                            ; OPEN: (qprobe round 13, Q44) four words with no act (the call and the shared delay's 3)
+    open                                    ; OPEN: a word with no act
+    bi                                      ; B: the bus-idle third word
+    open                                    ; OPEN: a word with no act
+    bi                                      ; (qprobe round 14) B: the second bus-idle word (the fifth)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
     flush bi                                ; FLUSH: the stream from the target (bus-idle)
     e ro                                    ; E: the target's opcode, once delivered
 
@@ -245,7 +247,10 @@ routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=1 why="OPEN: sili
     ra=RM wid=WORD d1=TA s1=RA              ; the register (the target) into tmpa (the ModR/M byte released by the loader: P)
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC bi ; (qprobe round 13, Q44) B: the bus-idle third word; SP <- SP - 2; the address; the return address into the write datum
-    open call=w3                            ; OPEN: (qprobe round 13, Q44) four words with no act (the call and the shared delay's 3)
+    open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
+    open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
+    bi                                      ; (qprobe round 14, spec 10 B) B: CALL r16's second bus-idle word (`P . B . . B . Y D . . F N .`)
+    open                                    ; OPEN: (qprobe round 13, Q44) a word with no act
     rl=x bi                                 ; (qprobe round 13, Q44) Y: the request word (the push posted three words later)
     open call=w1                            ; OPEN: (qprobe round 13, Q44) two words with no act (the call and the shared delay's 1)
     bus=MEMW seg=SS wid=WORD                ; post the push at SS:SP (Y + 3)
@@ -255,12 +260,13 @@ routine call_reg op=FF mod=reg reg=2 book="CALL regptr16" diff=1 why="OPEN: sili
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- BR [m] (FF /4 memory): V20 FE/FF 01C4 with the operand's pre-read (M -> PC E FLUSH)
-routine br_mem_d op=FF mod=m00 rm=6 reg=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) JMP [d16] is `P PP2 B Y D . . F N .` (the qprobe tr-jmpm runs): the displacement popped and released on the second word, bus-idle, Y, the pointer's read, Q21's flush tail"
+routine br_mem_d op=FF mod=m00 rm=6 reg=4 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) JMP [d16] is `P PP2 B Y D . . F N .` (the qprobe tr-jmpm runs): the displacement popped and released on the second word, bus-idle, Y, the pointer's read, Q21's flush tail"
     pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
-    pop=dh rl=2                             ; pop its high byte; P P2: both released
+    pop=dh                                  ; pop its high byte (released two words after Y: (qprobe round 16, Q65))
     ea=DISP bi                              ; the address register <- the direct address; B: bus-idle
     rl=x bi                                 ; Y: the request word (the read posted three words later)
-    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    open                                    ; OPEN: a word with no act
+    rl=2                                    ; (qprobe round 16, Q65) P P2: the direct address released (`P . B Y . PP2 D`)
     bus=MEMR wid=WORD                       ; post the pointer's read (Y + 3)
     f alu=PASS ax=OPR                       ; D: F: the pointer (the target) into SIGMA
     open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
@@ -278,12 +284,13 @@ routine br_mem op=FF mod=mem reg=4 ea=bare paths=m00,d8,d16 book="BR memptr16" d
     e ro                                    ; E: the target's opcode, once delivered
 
 ; ---- CALL [m] (FF /2 memory): V20 FE/FF 01BC-01BF with the operand's pre-read
-routine call_mem_d op=FF mod=m00 rm=6 reg=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) CALL [d16] is `P PP2 B Y D . . . Z D . . F N .` (the qprobe tr-callm runs): JMP [d16]'s head, the push four words after the datum, Q21's flush tail"
+routine call_mem_d op=FF mod=m00 rm=6 reg=2 why="OPEN: (qprobe round 16, Q65: the shape `P . B Y . PP2 D ...`, the QPr16a jm / cm runs, 48 / 48 each; replaces round 12's `P PP2 B Y D ...`) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q40 / Q44; the direct address popped by the routine itself: no EA head, mod=m00 rm=6 of FF, already a whole opcode) CALL [d16] is `P PP2 B Y D . . . Z D . . F N .` (the qprobe tr-callm runs): JMP [d16]'s head, the push four words after the datum, Q21's flush tail"
     pop=dl                                  ; pop the direct address's low byte (the ModR/M byte released by the loader: P)
-    pop=dh rl=2                             ; pop its high byte; P P2: both released
+    pop=dh                                  ; pop its high byte (released two words after Y: (qprobe round 16, Q65))
     ea=DISP bi                              ; the address register <- the direct address; B: bus-idle
     rl=x bi                                 ; Y: the request word (the read posted three words later)
-    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    open                                    ; OPEN: a word with no act
+    rl=2                                    ; (qprobe round 16, Q65) P P2: the direct address released (`P . B Y . PP2 D`)
     bus=MEMR wid=WORD                       ; post the pointer's read (Y + 3)
     f d1=TA s1=OPR                          ; D: F: the pointer (the target) into tmpa
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2

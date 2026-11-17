@@ -791,8 +791,13 @@ module v35_eu
     assign wr_hold = rq_out && rq_wr && !rq_io && ramen && rq_oc && !req_done;
     // (MX5c) the same three on the request registers' next values (the ce_a block below)
     wire        rq_v_nx = post ? 1'b1 : ack_b ? 1'b0 : rq_v;
-    wire        rq_un_nx = post ? (word.bus == BQ_MEMWD && !oc_hit) : (ex_b && k_cur) ? 1'b0 : rq_un;
-    assign req_v_nx = rq_v_nx && !(post && hp_b) && !(rq_un_nx && !k_nx);
+    // (qprobe round 16, timing) the port level's next value reads the unarmed state without the
+    // on-chip compare: the segment add and the compare (oc_hit, on the post's linear address)
+    // were on the path into the sequencer's execute register (ex, through b_ph_nx). A MEMWD
+    // write is posted on the word before K (k_nx), where the term is 0 either way: the same
+    // value on every clock (`+v35_chk`: a MEMWD post with the next word not K is reported)
+    wire        rq_unv_nx = post ? (word.bus == BQ_MEMWD) : (ex_b && k_cur) ? 1'b0 : rq_un;
+    assign req_v_nx = rq_v_nx && !(post && hp_b) && !(rq_unv_nx && !k_nx);
     wire        rq_oc_nx = post ? (oc_hit && !b_io) : rq_oc;
     wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
     wire        rq_rd_nx = post ? b_rd : rq_rd;
@@ -1068,8 +1073,14 @@ module v35_eu
         end
     end
     // (qprobe round 12, A2) an unarmed write is granted only on the clock its datum is loaded
-    // (K executes): never on the pins before its datum
+    // (K executes): never on the pins before its datum; (qprobe round 16) a MEMWD post is on the
+    // word before K (req_v_nx's unarmed term above reads it so)
     always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a && post && word.bus == BQ_MEMWD && !k_nx) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: eu: a MEMWD post not followed by K at %0t", $time);
+        end
         if (chk_on && reset_n && ce_a && ack_b && rq_un && !(ex_b && k_cur)) begin
             chk_n = chk_n + 1;
             if (chk_n <= 20)
