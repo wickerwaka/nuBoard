@@ -10,8 +10,7 @@ routine push_sr op=06,0E,16,1E book="PUSH sreg" diff=2 why="OPEN: silicon longer
     wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG ra=SOPR d2=OPRW s2=RA        ; SP <- SP - 2; the address register <- it; the segment register (the opcode's bits 4:3) into the write datum
     open                                    ; OPEN: (qprobe round 8) a word with no act (PUSH r16's shape one word later)
     rl=x bi                                 ; (qprobe round 8) Y: the request word (the write due four clocks after it, posted three words later): waits while a fetch has two clocks or more left
-    open                                    ; OPEN: (qprobe round 8) a word with no act
-    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
     bus=MEMW seg=SS wid=WORD                ; post the write at SS:SP (Y + 3)
     e ro                                    ; E: the next opcode released (N); an on-chip store holds it to the write's end (RAMEN)
 
@@ -20,8 +19,7 @@ routine pop_sr op=07,17,1F book="POP sreg" why="OPEN: (qprobe round 8, Q22) POP 
     rb=SP wid=WORD d1=ADDR s1=RB            ; SP into the address register
     rb=SP wid=WORD alu=INC2 ax=RB           ; SP + 2
     wr=SP wid=WORD ws=SIG rl=x bi           ; (qprobe round 8) Y: the request word (the read due four clocks after it, posted three words later); SP <- SP + 2
-    open                                    ; OPEN: (qprobe round 8) a word with no act
-    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
     bus=MEMR seg=SS wid=WORD                ; post the read at SS:SP (a word; the address register: SP before the add) (Y + 3)
     f wr=SOPR wid=WORD ws=OPR ro            ; D: F: the segment register <- the datum (RAM and the segment flop); (qprobe round 8) N: the next opcode released
     e nb                                    ; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
@@ -29,77 +27,154 @@ routine pop_sr op=07,17,1F book="POP sreg" why="OPEN: (qprobe round 8, Q22) POP 
 ; PUSH R (60): the eight registers (AW CW DW BW, SP's value before, BP IX IY) pushed one a word,
 ; each word the register's read into the write datum with the post at SS:SIGMA and SIGMA - 2
 ; (the next one waits for the last write's end: the one request), SP <- SP - 16 on the last
-routine push_all op=60 book="PUSH R" why="OPEN: SP into tmpc and SP - 2, eight posts (each the register's read, the address, the next address: the slot's wait for the last write's end), SP on the last, E held to its end: the book's 74 with sixty book clocks with no act (eight before each post but the first, four before the first: silicon's 9.25 a word, mechanisms section 5)"
-    rb=SP wid=WORD d1=TC s1=RB alu=DEC2 ax=RB      ; SP into tmpc (the value pushed for SP); SP - 2 into SIGMA
-    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 3)
-    ra=AW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG bus=MEMW seg=SS; AW into the write datum; the address register <- SIGMA; post the write; SIGMA - 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 7)
-    ra=CW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG bus=MEMW seg=SS; CW into the write datum; the address register <- SIGMA; post the write; SIGMA - 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 7)
-    ra=DW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG bus=MEMW seg=SS; DW into the write datum; the address register <- SIGMA; post the write; SIGMA - 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 7)
-    ra=BW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG bus=MEMW seg=SS; BW into the write datum; the address register <- SIGMA; post the write; SIGMA - 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 7)
-    wid=WORD d1=OPRW s1=TC d2=ADDR s2=SIG alu=DEC2 ax=SIG bus=MEMW seg=SS; SP's value before into the write datum; the address register <- SIGMA; post the write; SIGMA - 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 7)
-    ra=BP wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG bus=MEMW seg=SS; BP into the write datum; the address register <- SIGMA; post the write; SIGMA - 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 7)
-    ra=IX wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG bus=MEMW seg=SS; IX into the write datum; the address register <- SIGMA; post the write; SIGMA - 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (PUSH R 74) (the call and the shared delay's 7)
-    ra=IY wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG wr=SP ws=SIG bus=MEMW seg=SS; IY into the write datum; the address register <- SIGMA; post the write; SP <- SIGMA (SP - 16)
-    e                                       ; E: held until the last write's end (RAMEN)
+routine push_all op=60 book="PUSH R" diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34 'also read': PUSH R / POP R; the ROM's growth, user 2026-11-16) PUSH R is `. . B .`, seven `Y D .`, `Y G N .` (the qprobe pusha runs: period 9, the STM iteration): eight pushes, each its own request word, the write three words later, D its end; SP's pushed value the one before the instruction (tmpc), SP written with the last request"
+    rb=SP wid=WORD d1=TC s1=RB alu=DEC2 ax=RB ; SP into tmpc (the value pushed for SP); SIGMA = SP - 2
+    open                                    ; OPEN: a word with no act
+    bi                                      ; B: the bus-idle third word
+    open                                    ; OPEN: a word with no act
+    ra=AW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi ; Y: AW into the write datum; the address register <- SIGMA; SIGMA - 2
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    f                                       ; D: F: the push's end
+    open                                    ; OPEN: a word with no act
+    ra=CW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi ; Y: CW into the write datum; the address register <- SIGMA; SIGMA - 2
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    f                                       ; D: F: the push's end
+    open                                    ; OPEN: a word with no act
+    ra=DW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi ; Y: DW into the write datum; the address register <- SIGMA; SIGMA - 2
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    f                                       ; D: F: the push's end
+    open                                    ; OPEN: a word with no act
+    ra=BW wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi ; Y: BW into the write datum; the address register <- SIGMA; SIGMA - 2
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    f                                       ; D: F: the push's end
+    open                                    ; OPEN: a word with no act
+    wid=WORD d1=OPRW s1=TC d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi ; Y: SP before into the write datum; the address register <- SIGMA; SIGMA - 2
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    f                                       ; D: F: the push's end
+    open                                    ; OPEN: a word with no act
+    ra=BP wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi ; Y: BP into the write datum; the address register <- SIGMA; SIGMA - 2
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    f                                       ; D: F: the push's end
+    open                                    ; OPEN: a word with no act
+    ra=IX wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi ; Y: IX into the write datum; the address register <- SIGMA; SIGMA - 2
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    f                                       ; D: F: the push's end
+    open                                    ; OPEN: a word with no act
+    ra=IY wid=WORD d1=OPRW s1=RA d2=ADDR s2=SIG alu=DEC2 ax=SIG rl=x bi wr=SP ws=SIG ; Y: IY into the write datum; the address register <- SIGMA; SIGMA - 2; SP <- SP - 16 (SIGMA before the step: the last address)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post the push (Y + 3)
+    e ro bi                                 ; E: G N (held to the write's end on the on-chip page: RAMEN)
 
 ; POP R (61): eight reads at SS:SP up (IY IX BP, SP's word read and discarded, BW DW CW AW),
 ; each F word the register's write with the next read's post and SIGMA + 2, SP <- SP + 16
-routine pop_all op=61 book="POP R" why="OPEN: the first read's post, seven F words each with the next read (the register's write, the address, the next address), AW's F, SP on the E word: the book's 74 with OPEN words between the reads (silicon's 9.3 a word, mechanisms section 5)"
-    rb=SP wid=WORD d1=ADDR s1=RB alu=INC2 ax=RB bus=MEMR seg=SS     ; SP into the address register; post IY's read at SS:SP; SP + 2 into SIGMA
-    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 6)
-    f wr=IY wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG bus=MEMR seg=SS; F: IY <- the datum; the address register <- SIGMA; post the next read; SIGMA + 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 7)
-    f wr=IX wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG bus=MEMR seg=SS; F: IX <- the datum; the address register <- SIGMA; post the next read; SIGMA + 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 7)
-    f wr=BP wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG bus=MEMR seg=SS; F: BP <- the datum; the address register <- SIGMA; post the next read; SIGMA + 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 7)
-    f wid=WORD d1=ADDR s1=SIG alu=INC2 ax=SIG bus=MEMR seg=SS                ; F: SP's word discarded; the address register <- SIGMA; post the next read; SIGMA + 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 7)
-    f wr=BW wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG bus=MEMR seg=SS; F: BW <- the datum; the address register <- SIGMA; post the next read; SIGMA + 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 7)
-    f wr=DW wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG bus=MEMR seg=SS; F: DW <- the datum; the address register <- SIGMA; post the next read; SIGMA + 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 7)
-    f wr=CW wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG bus=MEMR seg=SS; F: CW <- the datum; the address register <- SIGMA; post the next read; SIGMA + 2
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (POP R 74) (the call and the shared delay's 7)
-    f wr=AW wid=WORD ws=OPR                 ; F: AW <- the datum
-    wr=SP wid=WORD ws=SIG e                 ; SP <- SIGMA (SP + 16); E
+routine pop_all op=61 book="POP R" diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34 'also read': PUSH R / POP R; the ROM's growth, user 2026-11-16) POP R is `. .`, seven `Y D .`, `Y DN .` (the qprobe popa runs): eight reads at SS:SP up, each its request word, the read three words later, D with the register's write (SP's word discarded); SP <- SP + 16 with the last request"
+    rb=SP wid=WORD d1=ADDR s1=RB alu=INC2 ax=RB ; SP into the address register; SIGMA = SP + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi                                 ; Y: the request word (the read three words later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wr=IY wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG ; D: F: IY <- the datum; the next address; SIGMA + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi                                 ; Y: the request word (the read three words later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wr=IX wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG ; D: F: IX <- the datum; the next address; SIGMA + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi                                 ; Y: the request word (the read three words later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wr=BP wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG ; D: F: BP <- the datum; the next address; SIGMA + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi                                 ; Y: the request word (the read three words later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wid=WORD d1=ADDR s1=SIG alu=INC2 ax=SIG ; D: F: SP word discarded; the next address; SIGMA + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi                                 ; Y: the request word (the read three words later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wr=BW wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG ; D: F: BW <- the datum; the next address; SIGMA + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi                                 ; Y: the request word (the read three words later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wr=DW wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG ; D: F: DW <- the datum; the next address; SIGMA + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi                                 ; Y: the request word (the read three words later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wr=CW wid=WORD ws=OPR d1=ADDR s1=SIG alu=INC2 ax=SIG ; D: F: CW <- the datum; the next address; SIGMA + 2
+    open                                    ; OPEN: a word with no act
+    rl=x bi wr=SP wid=WORD ws=SIG                                 ; Y: the request word (the read three words later); SP <- SP + 16
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:[address] (Y + 3)
+    f wr=AW wid=WORD ws=OPR e ro            ; D N: F: AW <- the datum; E
 
 ; TRANS (D7; V20 XLAT 012C-012E: AX -> tmpaL, BX -> tmpb; SIGMA -> IND, MEMR; OPR -> AL [FE])
 routine trans op=D7 book="TRANS" why="OPEN: (qprobe round 8, Q22) TRANS is `. . Y DN .` (the qprobe ld-xlat runs): AL into tmpb, BW + AL, the sum into the address register with Y (the request word: the read due four clocks after it, posted three words later), two words with no act, the byte read's post (DS0 or the prefix's), D N (F: AL <- the datum; E): the book's 11 (before round 8: V20 XLAT 012C-012E, three book clocks with no act before the post)"
     ra=AW wid=BYTE d1=TB s1=RA              ; AL into tmpb (zero-extended: the low lane) (012C AX -> tmpaL)
     ra=BW wid=WORD alu=ADD ax=RA ay=TB      ; BW + AL into SIGMA (012C BX -> tmpb; the sum)
     d1=ADDR s1=SIG rl=x bi                  ; the address register <- the sum; (qprobe round 8) Y: the request word
-    open                                    ; OPEN: (qprobe round 8) a word with no act
-    open                                    ; OPEN: (qprobe round 8) a word with no act
+    open call=w1                            ; OPEN: (qprobe round 8) a word with no act (2 clocks: the call and the shared delay's 1)
     wid=BYTE bus=MEMR seg=DSP               ; post the byte read (DS0 or the prefix's) (012D) (Y + 3)
     f wr=AW wid=BYTE ws=OPR e ro            ; D: F: AL <- the datum (012E OPR -> AL); E; N
 
 ; DISPOSE (C9; V20 LEAVE 0274-0277: BP -> IND, BP -> tmpb, MEMR SS; BP + 2; SIGMA -> SP; OPR -> BP)
-routine dispose op=C9 book="DISPOSE" why="OPEN: BP into the address register with the read's post at SS:BP (0274), BP + 2 (0275), SP <- it (0276), F: BP on the E word (0277): the book's 11 with five book clocks with no act before the post"
-    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (DISPOSE 11) (the call and the shared delay's 4)
-    rb=BP wid=WORD d1=ADDR s1=RB bus=MEMR seg=SS    ; BP into the address register; post the read at SS:BP (0274)
+routine dispose op=C9 book="DISPOSE" diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q40) DISPOSE is `. . Y DN .` (the POP routine; the qprobe disp runs): BP into the address register, BP + 2, SP <- it with Y, the read at SS:BP (Y + 3), F: BP <- the datum with E"
+    rb=BP wid=WORD d1=ADDR s1=RB            ; BP into the address register (0274)
     rb=BP wid=WORD alu=INC2 ax=RB           ; BP + 2 (0275)
-    wr=SP wid=WORD ws=SIG                   ; SP <- BP + 2 (0276)
-    f wr=BP wid=WORD ws=OPR e               ; F: BP <- the datum (0277 OPR -> BP); E
+    wr=SP wid=WORD ws=SIG rl=x bi           ; SP <- BP + 2 (0276); (qprobe round 12, Q40) Y: the request word (the read posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 12, Q40) two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=SS wid=WORD                ; post the read at SS:BP (Y + 3)
+    f wr=BP wid=WORD ws=OPR e ro            ; D N: F: BP <- the datum (0277 OPR -> BP); E
 
 ; PREPARE imm16,imm8 (C8): the frame (F25's PREPARE 0,0) and (F5b) the level's display. The level
 ; byte is used whole (f5x prepare, receipt f5-f5x-socket: 0-255, not reduced mod 32): BP pushed,
 ; for level L >= 1 the L - 1 words at SS:[BP - 2], [BP - 4], ... (the old BP) pushed in turn,
 ; then the frame pointer (SP after BP's push); BP <- the frame, SP <- SP - imm16. The level 0
 ; path is the F25 shape unchanged: the level's path leaves it on the word that posts BP's write.
-routine prepare op=C8 book="PREPARE imm16,imm8" bookv=26 n=0 why="OPEN: the level 0 frame (the book's imm8 = 0: 26): the three pops, SP - 2, SP, the address and BP's datum on one word, the post, BP <- the frame with 0 - imm16, the frame - imm16, SP on the E word held to the write's end; sixteen book clocks with no act before the post. (F5b) the level's display (function only: its clocks not fitted): the counter from the level on the OPEN word's call, a jump on the post's word when it is not zero"
+routine prepare op=C8 book="PREPARE imm16,imm8" bookv=26 n=0 diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q40) PREPARE imm16,0 is `. . Y D . . . PP2 P . . C . . . . . . . . N .` (the qprobe prep runs): BP's push first (Y, the write three words later, D its end), the three operand bytes released behind it, the commit word three words after the last; level L >= 1: the same head, seven words, L - 1 copies `U D . . . Z D . .` (read the display word, push it: 18 clocks), the frame pointer's push `. Z D . . . . N .`"
+    rb=SP wid=WORD alu=DEC2 ax=RB ra=BP d1=TB s1=RA ; read SP; SP - 2; (F5b) the old BP into tmpb (the display's base)
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG ra=BP d2=OPRW s2=RA ; SP <- SP - 2; the address register <- it; BP into the write datum
+    d1=TA s1=SIG rl=x bi                    ; the frame (SP - 2) into tmpa; (qprobe round 12, Q40) Y: the request word (BP's push posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 12, Q40) two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=SS wid=WORD                ; post BP's push at SS:SP (Y + 3)
+    f wr=BP wid=WORD ws=TA                  ; D: F: the push's end; BP <- the frame
     pop=dl                                  ; pop imm16's low byte (the frame's size)
     pop=dh                                  ; pop its high byte
-    pop=il rb=SP wid=WORD alu=DEC2 ax=RB ra=BP d1=TB s1=RA ; pop imm8 (the level); read SP; SP - 2; (F5b) the old BP into tmpb (the display's base)
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG ra=BP d2=OPRW s2=RA          ; SP <- SP - 2; the address register <- it; BP into the write datum; the reservation
-    open call=w15 cnt=IL                    ; OPEN: 16 clocks: a book clock with no act (PREPARE imm16,0 26) (the call and the shared delay's 15); (F5b) the counter <- the level
-    bus=MEMW seg=SS wid=WORD wr=BP ws=SIG d1=TA s1=SIG alu=NEG ax=DISP jnc=CNTZ:prep_l ; post BP's write at SS:SP; BP <- the frame (SP - 2); tmpa <- it; SIGMA <- 0 - imm16; (F5b) a level >= 1: the display
-    wid=WORD alu=ADD ax=TA ay=SIG           ; the frame - imm16
-    wr=SP wid=WORD ws=SIG e                 ; SP <- it; E: held until the write's end (RAMEN)
+    pop=il                                  ; pop imm8 (the level, used whole: f5x prepare)
+    rl=2                                    ; (qprobe round 12, Q40) P P2: imm16 released
+    rl=1 cnt=IL                             ; (qprobe round 12, Q40) P: the level released; (F5b) the counter <- the level
+    wid=WORD alu=NEG ax=DISP                ; SIGMA <- 0 - imm16 (a word)
+    wid=WORD alu=ADD ax=TA ay=SIG d1=TC s1=SIG ; the frame - imm16 (level 0's SP); 0 - imm16 kept in tmpc (the level path's last step)
+    bi alt jnc=CNTZ:prep_l                  ; (qprobe round 12, Q40) C: the commit word (three words after the last byte's release); a level >= 1: the display
+    wr=SP wid=WORD ws=SIG                   ; SP <- the frame - imm16
+    open call=w6                            ; OPEN: (qprobe round 12, Q40) seven words with no act (the call and the shared delay's 6)
+    e ro                                    ; E: pop the next opcode (N)
+; level L >= 1: seven words, the L - 1 copies, the frame pointer's push (the counter: L, a copy
+; while it is not 1 at the loop word)
+prep_l: open call=w5                        ; OPEN: (qprobe round 12, Q40) six words with no act after the commit word (the call and the shared delay's 5)
+prep_lp: loop=prep_d                        ; the counter's step: a display word to copy while it was not 1 (the seventh word; a copy's ninth)
+    rb=SP wid=WORD alu=DEC2 ax=RB           ; the tail's first word: SP - 2 (the frame pointer's push)
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=TA ; Z: SP <- it; the address register <- it; the frame into the write datum
+    bus=MEMW seg=SS wid=WORD                ; post the frame pointer's push at SS:SP
+    f                                       ; D: F: the push's end
+    rb=SP wid=WORD alu=ADD ax=RB ay=TC      ; SP - imm16 (tmpc: 0 - imm16)
+    wr=SP wid=WORD ws=SIG                   ; SP <- it
+    open call=w1                            ; OPEN: (qprobe round 12, Q40) two words with no act (the call and the shared delay's 1)
+    e ro                                    ; E: pop the next opcode (N)
+prep_d: wid=WORD alu=DEC2 ax=TB             ; U: the display's next word: tmpb - 2
+    d1=TB s1=SIG d2=ADDR s2=SIG wid=WORD bus=MEMR seg=SS ; tmpb <- it; the address register <- it; post the read at SS:[tmpb]
+    f d1=OPRW s1=OPR rb=SP wid=WORD alu=DEC2 ax=RB ; D: F: the datum into the write datum; SP - 2
+    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG    ; SP <- SP - 2; the address register <- it
+    open call=w2                            ; OPEN: (qprobe round 12, Q40) three words with no act (the call and the shared delay's 2)
+    bus=MEMW seg=SS wid=WORD                ; Z: post the copy's push at SS:SP
+    f                                       ; D: F: the push's end
+    open jmp=prep_lp                        ; OPEN: (qprobe round 12, Q40) a word with no act; the loop word (the copy's ninth)

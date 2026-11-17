@@ -35,13 +35,13 @@ shim_l: alu=SH1 ax=SIG                      ; one shift step
 shim_z: e ro                                ; E: pop the next opcode; (qprobe round 9) N
 
 ; D0 / D1: by one (V20 0114-0117). Measured 10
-routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" diff=1 why="OPEN: beyond the book: a named act, the iteration's second word (the V35's two-word iteration, mechanisms 3.4, as the CL form's loop word); silicon's 10 (F3-push-shl1-k4-pE-w0 S-to-S 10, the frozen model exact) against the routine's 9: one clock no act names and the book does not charge, open; the read, the load, (qprobe rule 6: `P . B . . . . N .`, the qprobe shl1 runs) the B word, one book clock with no act, the step, the write, E"
+routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" diff=1 why="OPEN: beyond the book: a named act, the iteration's second word (the V35's two-word iteration, mechanisms 3.4, as the CL form's loop word); silicon's 10 (F3-push-shl1-k4-pE-w0 S-to-S 10, the frozen model exact) against the routine's 9: one clock no act names and the book does not charge, open; the read, the load, (qprobe rule 6: `P . B . . . . N .`, the qprobe shl1 runs; qprobe round 10, Q26: `P . B . . B . N .`, the ib-shl1 runs) the B word, one book clock with no act, the step, the iteration's second word (B), the write, E"
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (0115 M -> tmpb)
     alu=SHI ax=TB                           ; the shifter loaded with CY
     bi                                      ; (qprobe rule 5) the third word waits while a fetch cycle runs (SHL r,1 is `P . B . . . . N .`)
     open                                    ; OPEN: a book clock with no act (SHL reg,1 8)
     alu=SH1 ax=SIG                          ; the one step (0116's R row, COUNT 1)
-    alu=NONE                                ; the iteration's second word (the two-word iteration: the CL form's loop word)
+    alu=NONE bi                             ; the iteration's second word (the two-word iteration: the CL form's loop word); (qprobe round 10, Q26) B: the second bus-idle word (SHL r,1 is `P . B . . B . N .`)
     wr=RM ws=SIG alu=SHF ax=SIG wf       ; the result written; the flags (W) (0117)
     e                                       ; E: pop the next opcode
 
@@ -49,18 +49,20 @@ routine shift_1 op=D0,D1 mod=reg book="SHL reg,1" diff=1 why="OPEN: beyond the b
 routine mulu16 op=F7 mod=reg reg=4 book="MULU reg16" diff=1 why="OPEN: silicon longer than the book by one (F14-g-push-mulu_aw-pO-w0: the PUSH's write at +121 with no fetch under the loop, the frozen model exact; 33 at pO, 34 at pE w0 with the unit hold, F16-l-push-mulu_aw-pE-w0 +122, +3 a wait state); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 16 steps, the book's ten clocks with no act after the loop, the finish, the two writes" measured="34"
     ra=AW rb=RM d1=TA s1=RA d2=TC s2=RB     ; AW into tmpa (0179), the multiplier into tmpc (0178): ports A and B
     alu=MULI ax=TA ay=TC cnt=BITS           ; the multiplier loaded; the counter <- 16 (017B)
+mu16_b: bi                                  ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 mu16_l: alu=MULS loop=mu16_l                ; one multiply step (017C's R row); the counter step (the unit hold: a fetch's datum phase)
-    open call=w10                           ; OPEN: 11 clocks: a book clock with no act (MULU reg16 32) (the call and the shared delay's 10)
-    alu=MULF wf                             ; the product: low half to SIGMA, high to tmpc; CY V (W)
+    open call=w9                           ; OPEN: 11 clocks: a book clock with no act (MULU reg16 32) (the call and the shared delay's 10)
+mu16_f: alu=MULF wf                             ; the product: low half to SIGMA, high to tmpc; CY V (W)
     wr=AW wid=WORD ws=SIG                   ; AW <- the low half (017E)
     wr=DW wid=WORD ws=TC e                  ; DW <- the high half (017F); E
 
 routine mulu8 op=F6 mod=reg reg=4 book="MULU reg8" width=byte diff=1 why="OPEN: silicon longer than the book by one, as MULU reg16 (the a6 sweep's 26 against 34: the same two; F14-g-push-mulu_aw-pO-w0 for the word form); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's eleven clocks with no act after the loop, the finish, the write" measured="26"
     ra=AW rb=RM d1=TA s1=RA d2=TC s2=RB     ; AL (AW) into tmpa, the multiplier into tmpc: ports A and B
     alu=MULI ax=TA ay=TC cnt=BITS           ; the multiplier loaded; the counter <- 8 (017A)
+mu8_b: bi                                   ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 mu8_l: alu=MULS loop=mu8_l                  ; one multiply step; the counter step (the unit hold: a fetch's datum phase)
-    open call=w11                           ; OPEN: 12 clocks: a book clock with no act (MULU reg8 24) (the call and the shared delay's 11)
-    alu=MULF wf                             ; the 16-bit product into SIGMA; CY V (W)
+    open call=w10                           ; OPEN: 12 clocks: a book clock with no act (MULU reg8 24) (the call and the shared delay's 11)
+mu8_f: alu=MULF wf                             ; the 16-bit product into SIGMA; CY V (W)
     wr=AW wid=WORD ws=SIG e                 ; AW <- the product; E
 
 ; F6 / F7 /5: MUL (signed): the magnitudes into the unit (F1 the signs' difference), the
@@ -70,9 +72,10 @@ mu8_l: alu=MULS loop=mu8_l                  ; one multiply step; the counter ste
 routine mul16 op=F7 mod=reg reg=5 book="MUL reg16" diff=4 why="OPEN: silicon longer than the book (39-48) by four (F33-out-mul_cw-ld-k1-pE-w0: 1234h x 001Fh, the signs equal, the frozen model exact; docs/v35s-eu-timing.md MUL r16 44 with the signs equal against MULU's 34); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 16 steps, the book's seventeen clocks with no act, the finish; the negation (+8, +1, +1) on SGD (F1) and SIGMA's zero test"
     ra=AW rb=RM d1=TA s1=RA d2=TC s2=RB     ; AW into tmpa, the multiplier into tmpc: ports A and B
     alu=MULI ax=TA ay=TC cnt=BITS           ; the magnitudes loaded, F1 the signs' difference; the counter <- 16
+mi16_b: bi                                  ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 mi16_l: alu=MULS loop=mi16_l                ; one multiply step; the counter step (the unit hold)
-    open call=w20                           ; OPEN: 21 clocks: a book clock with no act (MUL reg16 39-48) (the call and the shared delay's 20)
-    alu=MULF wf                             ; the product, negated when the signs differ; CY V S Z P AC (W)
+    open call=w19                           ; OPEN: 21 clocks: a book clock with no act (MUL reg16 39-48) (the call and the shared delay's 20)
+mi16_f: alu=MULF wf                             ; the product, negated when the signs differ; CY V S Z P AC (W)
     wr=AW wid=WORD ws=SIG jnc=SGD:mi16_e     ; AW <- the low half; the signs equal: to the end
     open call=w6                            ; OPEN: 7 clocks: the book's range: the product's negation (MUL reg16 39-48: +8 with the signs differing) (the call and the shared delay's 6)
     open alu=PASS ax=TC jc=SNZ:mi16_e       ; OPEN: the book's range: the negation's eighth clock; the low half not zero: to the end (SIGMA <- the high half)
@@ -83,9 +86,10 @@ mi16_e: wr=DW wid=WORD ws=TC e              ; DW <- the high half; E
 routine mul8 op=F6 mod=reg reg=5 book="MUL reg8" width=byte diff=5 why="OPEN: silicon longer than the book (31-40) by five (docs/v35s-eu-timing.md MUL r8 37 with the signs equal against MULU r8's 26; no corpus run); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's eighteen clocks with no act, the finish; the negation (+8) on SGD (F1)"
     ra=AW rb=RM d1=TA s1=RA d2=TC s2=RB     ; AL (AW) into tmpa, the multiplier into tmpc: ports A and B
     alu=MULI ax=TA ay=TC cnt=BITS           ; the magnitudes loaded, F1 the signs' difference; the counter <- 8
+mi8_b: bi                                   ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 mi8_l: alu=MULS loop=mi8_l                  ; one multiply step; the counter step (the unit hold)
-    open call=w22                           ; OPEN: 23 clocks: a book clock with no act (MUL reg8 31-40) (the call and the shared delay's 22)
-    alu=MULF wf jnc=SGD:mi8_e                ; the product, negated when the signs differ (W); the signs equal: to the end
+    open call=w21                           ; OPEN: 23 clocks: a book clock with no act (MUL reg8 31-40) (the call and the shared delay's 22)
+mi8_f: alu=MULF wf jnc=SGD:mi8_e                ; the product, negated when the signs differ (W); the signs equal: to the end
     open call=w7                            ; OPEN: 8 clocks: the book's range: the product's negation (MUL reg8 31-40: +8 with the signs differing; the zero halves' clocks not built for the byte form) (the call and the shared delay's 7)
 mi8_e: wr=AW wid=WORD ws=SIG e              ; AW <- the product; E
 
@@ -94,9 +98,10 @@ mi8_e: wr=AW wid=WORD ws=SIG e              ; AW <- the product; E
 routine divu16 op=F7 mod=reg reg=6 book="DIVU reg16" diff=2 why="OPEN: silicon longer than the book by two (F16-l-push-divu_ix-pE-w0: the PUSH's write at +130, the frozen model exact; F33-out-divu_cw-ld-k1-pE-w0); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 16 steps, the book's sixteen clocks with no act, the finish, the divide error's test (the pre-check's and the range's, one jump after the finish), the two writes" measured="42"
     ra=DW rb=RM wid=WORD d1=TC s1=RA d2=TB s2=RB    ; DW (the dividend's high half) into tmpc, the divisor into tmpb: ports A and B
     ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the dividend DW:AW, the pre-check; the counter <- 16
+dv16_b: bi                                  ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 dv16_l: alu=DIVS loop=dv16_l                ; one restoring step; the counter step (the unit hold: a fetch's datum phase)
-    open call=w17                           ; OPEN: 18 clocks: a book clock with no act (DIVU reg16 39) (the call and the shared delay's 17)
-    alu=DIVF wf                             ; the quotient into SIGMA, the remainder into tmpc; the flags (W)
+    open call=w16                           ; OPEN: 18 clocks: a book clock with no act (DIVU reg16 39) (the call and the shared delay's 17)
+dv16_f: alu=DIVF wf                             ; the quotient into SIGMA, the remainder into tmpc; the flags (W)
     jc=DTRAP:dv16_t                         ; the pre-check failed (or a signed quotient out of range): the divide error
     wr=AW wid=WORD ws=SIG                   ; AW <- the quotient
     wr=DW wid=WORD ws=TC e                  ; DW <- the remainder; E
@@ -105,9 +110,10 @@ dv16_t: jmp=dve                             ; (F3) the divide error: vector 0, t
 routine divu8 op=F6 mod=reg reg=6 book="DIVU reg8" width=byte diff=2 why="OPEN: silicon longer than the book by two, as DIVU reg16 (the a6 sweep's 34 against 42; F16-l-push-divu_ix-pE-w0 for the word form); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's seventeen clocks with no act, the finish, the divide error's test, the write" measured="34"
     rb=RM d1=TB s1=RB                       ; the divisor into tmpb
     ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the dividend AW, the pre-check; the counter <- 8
+dv8_b: bi                                   ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 dv8_l: alu=DIVS loop=dv8_l                  ; one restoring step; the counter step (the unit hold: a fetch's datum phase)
-    open call=w18                           ; OPEN: 19 clocks: a book clock with no act (DIVU reg8 31) (the call and the shared delay's 18)
-    alu=DIVF wf                             ; {remainder, quotient} into SIGMA; the flags (W)
+    open call=w17                           ; OPEN: 19 clocks: a book clock with no act (DIVU reg8 31) (the call and the shared delay's 18)
+dv8_f: alu=DIVF wf                             ; {remainder, quotient} into SIGMA; the flags (W)
     jc=DTRAP:dv8_t                          ; the pre-check failed (or a signed quotient out of range)
     wr=AW wid=WORD ws=SIG e                 ; AW <- {AH remainder, AL quotient}; E
 dv8_t: jmp=dve                             ; (F3) the divide error: vector 0, the next instruction pushed (trap.uasm dve)
@@ -115,10 +121,11 @@ dv8_t: jmp=dve                             ; (F3) the divide error: vector 0, th
 routine div16 op=F7 mod=reg reg=7 book="DIV reg16" diff=6 why="OPEN: silicon longer than the book (54-64) by six (F33-out-div_cw-ld-k1-pE-w0: 0000:1234h / 001Fh, positive, the frozen model exact; docs/v35s-eu-timing.md DIV r16 61 base against DIVU's 42); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 16 steps, the book's thirty-one clocks with no act; the dividend's negation (+7) on DN, the quotient's (+2) on SGD (F1); the finish, the divide error's test, the writes"
     ra=DW rb=RM wid=WORD d1=TC s1=RA d2=TB s2=RB    ; DW into tmpc, the divisor into tmpb: ports A and B
     ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the magnitudes, the pre-check, F1 the quotient's sign, DN the dividend's; the counter <- 16
+di16_b: bi                                  ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 di16_l: alu=DIVS loop=di16_l                ; one restoring step; the counter step (the unit hold)
-    open call=w24                           ; OPEN: 25 clocks: a book clock with no act (DIV reg16 54-64) (the call and the shared delay's 24)
+    open call=w23                           ; OPEN: 25 clocks: a book clock with no act (DIV reg16 54-64) (the call and the shared delay's 24)
     open call=w9                            ; OPEN: 10 clocks: a book clock with no act (DIV reg16 54-64) (the call and the shared delay's 9)
-    open jnc=DN:di16_q                     ; OPEN: silicon longer than the book (F33-out-div_cw-ld-k1-pE-w0); a positive dividend: on
+di16_n: open jnc=DN:di16_q                     ; OPEN: silicon longer than the book (F33-out-div_cw-ld-k1-pE-w0); a positive dividend: on
     open call=w6                            ; OPEN: 7 clocks: the book's range: the dividend's negation (DIV: +7 with a negative dividend, docs/v35s-eu-timing.md Divide) (the call and the shared delay's 6)
 di16_q: open jnc=SGD:di16_f                ; OPEN: silicon longer than the book (F33-out-div_cw-ld-k1-pE-w0); the quotient positive: on
     open                                    ; OPEN: the book's range: the quotient's negation (DIV: +2 with the quotient negative)
@@ -132,10 +139,11 @@ di16_t: jmp=dve                             ; (F3) the divide error: vector 0, t
 routine div8 op=F6 mod=reg reg=7 book="DIV reg8" width=byte diff=6 why="OPEN: silicon longer than the book (46-56) by six, as DIV reg16 (docs/v35s-eu-timing.md DIV r8 53 base against DIVU r8's 34; no corpus run); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's thirty-two clocks with no act; the negations on DN and SGD (F1); the finish, the test, the write"
     rb=RM d1=TB s1=RB                       ; the divisor into tmpb
     ra=AW wid=WORD alu=DIVI ax=RA ay=TB cnt=BITS    ; the magnitudes, the pre-check, F1 the quotient's sign, DN the dividend's; the counter <- 8
+di8_b: bi                                   ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
 di8_l: alu=DIVS loop=di8_l                ; one restoring step; the counter step (the unit hold)
-    open call=w24                           ; OPEN: 25 clocks: a book clock with no act (DIV reg8 46-56) (the call and the shared delay's 24)
+    open call=w23                           ; OPEN: 25 clocks: a book clock with no act (DIV reg8 46-56) (the call and the shared delay's 24)
     open call=w10                           ; OPEN: 11 clocks: a book clock with no act (DIV reg8 46-56) (the call and the shared delay's 10)
-    open jnc=DN:di8_q                     ; OPEN: silicon longer than the book (docs/v35s-eu-timing.md DIV r8 53); a positive dividend: on
+di8_n: open jnc=DN:di8_q                     ; OPEN: silicon longer than the book (docs/v35s-eu-timing.md DIV r8 53); a positive dividend: on
     open call=w6                            ; OPEN: 7 clocks: the book's range: the dividend's negation (DIV: +7 with a negative dividend, docs/v35s-eu-timing.md Divide) (the call and the shared delay's 6)
 di8_q: open jnc=SGD:di8_f                ; OPEN: silicon longer than the book (docs/v35s-eu-timing.md DIV r8 53); the quotient positive: on
     open                                    ; OPEN: the book's range: the quotient's negation (DIV: +2 with the quotient negative)
@@ -184,35 +192,42 @@ cvd_l: alu=MULS loop=cvd_l                  ; one multiply step; the counter ste
 ; ---- (MX3b) 69 / 6B: MUL r16,r/m16,imm16 / imm8 (signed, the decode's op3 5): the immediate's
 ; pops, the operand and the immediate into the unit (F1 the signs' difference), 16 steps, the
 ; finish, the low half into the ModR/M reg register; the negation path as MUL r16's
-routine mulimm_rw op=69 mod=reg book="MUL reg16,reg16,imm16" why="OPEN: the book's range (40-50) at its low end: the immediate's latency and pops, the operand and the immediate into the unit, 16 steps, seventeen book clocks with no act, the finish, the write, the negation path as MUL reg16's (F33-out-mul_aw_cw_imm16-k1-pE-w0: the fetch after the pops a clock early, open: the frozen model's mul_imm_reg=gap)"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; the immediate's low byte (S+3)
-    pop=ih                                  ; its high byte (S+4)
-    rb=RM alu=MULI ax=RB ay=IMM cnt=BITS    ; the operand and the immediate, magnitudes, F1; the counter <- 16
+routine mulimm_rw op=69 mod=reg why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q39) MUL r16,r16,imm16 (69, register) is 41 words, + 8 for a negative product (the qprobe mi16 runs; qprobe round 13, Q44): the immediate released on word 4, bus-idle words two and four words after it, the 16-bit signed routine's loop, the next opcode on the next-to-last word"
+    open call=w1                            ; OPEN: (qprobe round 12, Q39) two words with no act (the ModR/M byte released by the loader on the first) (the call and the shared delay's 1)
+    pop=il                                  ; the immediate's low byte (released on word 4)
+    pop=ih                                  ; its high byte
+    rl=2                                    ; (qprobe round 12, Q39) P P2: the immediate released (word 4)
+    rb=RM alu=MULI ax=RB ay=IMM cnt=BITS jmp=mir_s ; the operand and the immediate, magnitudes, F1; the counter <- 16
+mir_s: bi                                   ; (qprobe round 13, Q44) B: a bus-idle word two words after the immediate's release
+    open                                    ; OPEN: (qprobe round 13) a word with no act
+    bi                                      ; (qprobe round 13, Q44) B: a bus-idle word four words after the immediate's release
 mir_l: alu=MULS loop=mir_l                  ; one multiply step; the counter step (the unit hold)
-    open call=w16                           ; OPEN: 17 clocks: a book clock with no act (MUL reg16,reg16,imm 39-50) (the call and the shared delay's 16)
+    open call=w11                           ; OPEN: (qprobe round 13) twelve words with no act (the call and the shared delay's 11)
     alu=MULF wf                             ; the product, negated when the signs differ (W)
     wr=REG wid=WORD ws=SIG jnc=SGD:mir_e     ; the register <- the low half; the signs equal: to the end
-    open call=w6                            ; OPEN: 7 clocks: the book's range: the product's negation (+8 with the signs differing) (the call and the shared delay's 6)
-    open alu=PASS ax=TC jc=SNZ:mir_e        ; OPEN: the book's range: the negation's eighth clock; the low half not zero: to the end
+    open call=w6                            ; OPEN: 7 clocks: the product's negation (+8 with the signs differing) (the call and the shared delay's 6)
+    open alu=PASS ax=TC jc=SNZ:mir_e        ; OPEN: the negation's eighth clock; the low half not zero: to the end
     open jc=SNZ:mir_e                       ; OPEN: the book's range: the low half zero (+1); the high half not zero: to the end
     open                                    ; OPEN: the book's range: the high half zero too (+1)
-mir_e: e                                    ; E
+mir_e: e ro                                 ; E (N: the next-to-last word)
 
-routine mulimm_rb op=6B mod=reg book="MUL reg16,reg16,imm8" why="OPEN: the book's range (39-49) at its low end: as 69 with one immediate byte (F33-out-mul_aw_cw_imm8-k1-pE-w0: the OUT's write right, the fetch before it four early: silicon holds the fetch under the multiply, open)"
-    open                                    ; OPEN: the immediate's latency before its pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; the immediate byte (S+3)
-    rb=RM alu=MULI ax=RB ay=IMM cnt=BITS jmp=mir_l  ; the operand and the immediate (sign-extended), magnitudes, F1; the counter <- 16; to the loop
+routine mulimm_rb op=6B mod=reg why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q39) MUL r16,r16,imm8 (6B, register) is 40 words, + 8 for a negative product (the qprobe mi8 runs; qprobe round 13, Q44): the immediate released on word 3, bus-idle words two and four words after it, 69's loop and tail"
+    open call=w1                            ; OPEN: (qprobe round 12, Q39) two words with no act (the call and the shared delay's 1)
+    pop=il                                  ; the immediate byte (released on word 3)
+    rl=1                                    ; (qprobe round 12, Q39) P: the immediate released (word 3)
+    rb=RM alu=MULI ax=RB ay=IMM cnt=BITS jmp=mir_s  ; the operand and the immediate (sign-extended), magnitudes, F1; the counter <- 16; the slot word and the loop
 
 routine mulimm_mw op=69 mod=mem why="no book value: the add, the read, the immediate's pops under the cycle, F with the magnitudes' load, the register form's loop and tail (mir_l)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     pop=il                                  ; the immediate's low byte
     pop=ih                                  ; its high byte
-    f alu=MULI ax=OPR ay=IMM cnt=BITS jmp=mir_l     ; F: the datum and the immediate, magnitudes, F1; the counter <- 16; to the loop
+    f alu=MULI ax=OPR ay=IMM cnt=BITS call=w4      ; F: the datum and the immediate, magnitudes, F1; the counter <- 16; (qprobe round 13) the register form's tail is five words shorter: five words here keep this form's clocks (not built: spec 8 D)
+    jmp=mir_l                               ; to the loop
 
 routine mulimm_mb op=6B mod=mem why="no book value: as 69 with one immediate byte"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
     bus=MEMR                                ; post the read
     pop=il                                  ; the immediate byte
-    f alu=MULI ax=OPR ay=IMM cnt=BITS jmp=mir_l     ; F: the datum and the immediate, magnitudes, F1; the counter <- 16; to the loop
+    f alu=MULI ax=OPR ay=IMM cnt=BITS call=w4      ; F: the datum and the immediate, magnitudes, F1; the counter <- 16; (qprobe round 13) the register form's tail is five words shorter: five words here keep this form's clocks (not built: spec 8 D)
+    jmp=mir_l                               ; to the loop

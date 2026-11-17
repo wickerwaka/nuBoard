@@ -104,7 +104,7 @@ btc_n: e                                    ; E: the next instruction
 ; f5r repseg, 220 cases; the REP's offset is the instruction's start: f5a_030 REP DS1: FPO1 D8
 ; pushes it). (F5d) The four segment prefixes and BUSLOCK after a REP are zz_late.uasm's rep_sx /
 ; rep_lk: the opcode after them re-enters the REP page (a string repeated, f5r repsegstr)
-routine rep_nx op=00-25,27-2D,2F-35,37-3D,3F-65,68-6B,70-A3,A8,A9,B0-D7,E0-EF,F1-FF page=rep why="(F2b) REP before a non-string opcode: the opcode refetched without the prefix (traps.py rep series); function only"
+routine rep_nx op=00-25,27-2D,2F-35,37-3D,3F-63,68-6B,70-A3,A8,A9,B0-D7,E0-EF,F1,F4-FF page=rep why="(F2b) REP before a non-string opcode: the opcode refetched without the prefix (traps.py rep series); function only"
     wid=WORD alu=DEC ax=PC                  ; SIGMA <- the opcode's offset (the byte before the pointer)
     flush                                   ; FLUSH: the stream from it
     pfx e nb                                ; E: the opcode, the prefix dropped; (F5b) pfx: a segment prefix before the REP kept; nb: REP and the opcode one instruction (no interrupt or single step between them: f5c_007, REP SUBC under the step pushes the next instruction)
@@ -157,16 +157,20 @@ routine mov_rmi16 op=C7 mod=reg why="(F2b) MOV reg16,imm16 by C7: every reg fiel
 ; (F3b) IVEC's SIGMA names the take's kind as well: bit 15 set a bank-switch take (ENCS 1: the
 ; level in bits 2:0, the new bank; urom/bank.uasm bsw_i), 0 the INT take (the vector from the two
 ; acknowledge cycles: int_a), else 4 x the vector
-routine intr why="(F3) the interrupt entry: silicon's frame (f3_vec, f3_prio, f3_step); (F3b) the bank switch (f3_bsw), INT (f3_int); function only"
+routine intr why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12) the acknowledge's entry words before INT 3's request word; (F3) the interrupt entry: silicon's frame (f3_vec, f3_prio, f3_step); (F3b) the bank switch (f3_bsw), INT (f3_int); function only"
     d1=TC s1=PC ist alu=IVEC                ; tmpc <- the instruction's start; SIGMA <- 4 x the vector taken (or the kind); the acknowledge
     d1=TB s1=SIG jc=SGN:bsw_q               ; (F3b) a bank-switch take: the bank switch (bank.uasm); (F4b) or a macro service (tmpb <- the kind)
     jnc=SNZ:int_a                           ; (F3b) the INT take: the acknowledge cycles
 ; (F4d) the vectored entry in silicon's order, BRK's body (f4_tm tm01 against F37 brk3: the
 ; vector's offset read, the PSW pushed, the segment read, PS pushed, the PC pushed, 48 clocks from
 ; the offset's read to the handler's fetch on both); continued in xfer_vt.uasm (iv_x)
-iv_c: d1=TB s1=SIG susp                     ; tmpb <- the vector's address; SUSP (BRK's: no fetch until the FLUSH)
-    d1=ADDR s1=TB bus=MEMR seg=ZERO wid=WORD   ; post the vector's offset read at 0:4n
-    f d1=TC s1=OPR alu=INC2 ax=ADDR jmp=iv_x   ; F: the offset into tmpc; the segment's address; BRK's body
+; (qprobe round 12-13, spec 8 A1 / spec 9 C1) the acknowledge is INT 3's sequence from its
+; request word (xfer.uasm brk_y), entered so that the first cycle starts 16 clocks after the
+; boundary (INT 3's: 12; three words more of entry); tmpc holds the interrupted instruction's
+; start (pushed last), the address register the vector's address
+iv_c: d1=ADDR s1=SIG                        ; the vector's address (IVEC's or the INT acknowledge's) into the address register
+    open call=w5                            ; OPEN: (qprobe round 12) six words with no act (the call and the shared delay's 5)
+    open jmp=brk_y                          ; OPEN: (qprobe round 12) a word with no act; INT 3's request word (the eleventh: the cycle 16 clocks after the boundary)
 
 ; ---- (F3b) INT: two acknowledge cycles (silicon, f3_int: two /INTAK pulses, no strobe, the
 ; vector on D7-D0; the harness answers both), the second's byte the vector; then the vectored

@@ -147,7 +147,13 @@ package v35_pkg;
         // (F3b) an INT acknowledge cycle: the bus unit's I/O read with /INTAK in place of the
         // strobes (silicon: two /INTAK pulses, no strobe; the routine posts two, the second's
         // datum D7-D0 the vector)
-        BQ_INTA = 3'd5
+        BQ_INTA = 3'd5,
+        // (qprobe round 12, spec 7 A2 / Q33) MEMWD: a memory write posted before its datum (the
+        // store-immediate forms: the immediate taken by a later word, K). The request stands
+        // from the post; it is granted only on the clock the word that loads OPRW (K) executes,
+        // and then only when no fetch asks for the bus (an unarmed write does not compete); from
+        // K's execution on it is an ordinary write (v35_eu rq_un)
+        BQ_MEMWD = 3'd6
     } v35_bus_e;
 
     // ---- the request's segment: the default (a prefix's, else SS for a BP mode, else DS0),
@@ -202,7 +208,11 @@ package v35_pkg;
     typedef enum logic [3:0] {
         SQ_NEXT = 4'd0, SQ_JMP = 4'd1, SQ_JC = 4'd2, SQ_JNC = 4'd3, SQ_CALL = 4'd4,
         SQ_RET = 4'd5, SQ_LOOP = 4'd6, SQ_DISPM = 4'd7, SQ_DISP = 4'd8, SQ_EAC = 4'd9,
-        SQ_TKI = 4'd10
+        SQ_TKI = 4'd10,
+        // (qprobe round 12, the ROM grown to 4,096 words) TRAP: the next word, the divide error
+        // raised (the function bench's strobe, v35_eu trap_o); it was the word's own `trap` bit,
+        // freed for the twelfth address bit
+        SQ_TRAP = 4'd11
     } v35_seq_e;
 
     // ---- jump conditions (registered state only) ----
@@ -227,7 +237,9 @@ package v35_pkg;
     } v35_rl_e;
 
 
-    localparam int UADDR_W = 11;      // (MX1b) 2,048 words: the ROM passed 1,024
+    localparam int UADDR_W = 12;      // (MX1b) 2,048 words: the ROM passed 1,024; (qprobe round 12)
+                                      //   4,096 words: the ROM passed 2,048 (the word's `trap` bit
+                                      //   became SQ_TRAP so the word stays 96 bits)
 
     // ---- the microinstruction (MSB first) ----
     typedef struct packed {
@@ -259,8 +271,11 @@ package v35_pkg;
                                 //   (the V20 ROM's SUSP)
         logic       flush;      // the queue flushed, the stream from SIGMA in PS
         logic       halt;       // halted
-        logic       trap;       // the divide error raised
         logic       vk;         // (F2b) SR_VEC reads the word's tgt field as the vector number
+                                //   (qprobe round 10) on a bus-wait word (bi or rl=X; no SR_VEC
+                                //   source) the wait's second kind, `alt` (v35_wk_t): bi alone
+                                //   C (the commit word), rl=X with bi V (the late request word),
+                                //   rl=X alone A (LAG_FIRST)
         logic       ist;        // (F2b) SR_PC reads the instruction's start (its first prefix's)
         logic       nb;         // (F3) on an E word: the next instruction's start is no boundary
                                 //   (no interrupt or single step is taken there: a prefix, EI,
@@ -318,6 +333,11 @@ package v35_pkg;
         logic       m3;         // (qprobe round 8, Q20) the boundary waits for three bytes behind
                                 //   the staged opcode (rule 4d): a ModR/M opcode but the group
                                 //   opcodes FE / F7 (the generator's NO_M3)
+        logic       rp;         // (qprobe round 12, spec 7 A3) a REP prefix: its E pop takes the
+                                //   prefix alone (into the ModR/M register too), so its dispatch
+                                //   reads the REP page at the prefix's own byte (urom rep_p, the
+                                //   prefix's two-word routine), whose E word (ea=REP) pops the
+                                //   string opcode into the page
     } v35_udec_t;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)

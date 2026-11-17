@@ -631,6 +631,39 @@ module v35_intc (
     wire [3:0] es = {intm[6], intm[4], intm[2], intm[0]};
     wire [3:0] edge_c = ((es & lvn & ~lv) | (~es & ~lvn & lv)) & {{3{!frz}}, 1'b1};
     reg        nmi_p = 1'b0;
+    // (qprobe rounds 12-13, spec 8 A3 / spec 9 C3-C4) the pin-to-request path, counts inside this
+    // block: NMI's edge reaches its request (nmi_p) NMI_DLY clocks after it is sampled (`nd`, a
+    // down-count loaded by the edge); INTP0-2's edges are latched (`ipl`: edge-latched, a held
+    // level changes nothing) and sampled on a free-running 16-clock grid from reset (`gc`), the
+    // sampled set (`ipg`) then taking the same delay (`idl`) to its IF bit. Registers only; no
+    // port. The delays are the measured latency less the request's own path to the take
+    // (NMI: the edge 15.5 clocks before the opcode that does not run leaves the queue, the
+    // request examined on the E word that takes it: `ne` below)
+    localparam logic [3:0] NMI_DLY = 4'd10;
+    localparam logic [3:0] INTP_DLY = 4'd10;
+    reg  [3:0] nd = 4'd0, idl = 4'd0, gc = 4'd0;
+    reg  [2:0] ipl = 3'd0, ipg = 3'd0;
+    wire [2:0] ip_set = idl == 4'd1 ? ipg : 3'd0;
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            nd <= 4'd0;
+            idl <= 4'd0;
+            gc <= 4'd0;
+            ipl <= 3'd0;
+            ipg <= 3'd0;
+        end else if (ce_a) begin
+            gc <= gc + 4'd1;
+            nd <= edge_c[0] ? NMI_DLY : (nd != 4'd0 ? nd - 4'd1 : 4'd0);
+            if (gc == 4'd15) begin
+                ipg <= ipl | edge_c[3:1];
+                ipl <= 3'd0;
+                idl <= (|(ipl | edge_c[3:1])) ? INTP_DLY : (idl != 4'd0 ? idl - 4'd1 : 4'd0);
+            end else begin
+                ipl <= ipl | edge_c[3:1];
+                idl <= idl != 4'd0 ? idl - 4'd1 : 4'd0;
+            end
+        end
+    end
     reg  [2:0] tk_k = 3'd0;             // the last take: {NMI, the offer, the step}
     reg  [3:0] tk_i = 4'd0;
     reg  [2:0] tk_l = 3'd0;
@@ -698,8 +731,8 @@ module v35_intc (
                     ic_if[k] <= 1'b0;   // (F4b) a macro-service take: IF cleared, ISPR kept
                 if (ms_end && tk_i == 4'(k))
                     ic_if[k] <= 1'b1;   // (F4b) the service's end: the vectored request
-                if (k < 3 && edge_c[k + 1])
-                    ic_if[k] <= 1'b1;
+                if (k < 3 && ip_set[k])
+                    ic_if[k] <= 1'b1;   // (qprobe round 12-13) INTP0-2: the grid's sample, then the pin's delay
                 if (pf_set[k])
                     ic_if[k] <= 1'b1;
             end
@@ -707,8 +740,8 @@ module v35_intc (
                 ispr <= ispr | (8'd1 << tk_l);
             else if (fint)
                 ispr <= fint_f(ispr);
-            if (edge_c[0])
-                nmi_p <= 1'b1;
+            if (nd == 4'd1)
+                nmi_p <= 1'b1;          // (qprobe round 12-13) NMI's edge after the pin's delay
             else if (iack && tk_k[2])
                 nmi_p <= 1'b0;
         end
@@ -835,6 +868,10 @@ module v35_intc (
     // decoded entry is not behind it)
     reg  ie_arm = 1'b0, brk_arm = 1'b0, nb_r = 1'b0;
     wire g_n = nmi_v;
+    // (qprobe round 13, spec 9 C3) NMI at a dispatch is the request as the E word that took the
+    // next opcode saw it (`ne`, loaded when an E word executes): the opcode taken then runs
+    reg  ne = 1'b0;
+    wire g_nd = ne;
     wire g_i = (ir_v || it_v) && ie && ie_arm;      // (F3b) it_v: INT (the controller chooses)
     wire g_s = brk && brk_arm;
     // (F4b) a macro-service request: taken at a start whatever IE (f4_ms ms_p0, IE 0); in HALT
@@ -859,7 +896,7 @@ module v35_intc (
     // HALT's next offset pushed (f4_dma halt: the DIC1 handler returns after the HALT)
     reg  rs_hlt = 1'b0;
     wire g_d = dm_go || (ms_hlt && dm_v);
-    assign igo = !nb_r && (g_n || g_m || g_d || g_i || g_s);
+    assign igo = !nb_r && (g_nd || g_m || g_d || g_i || g_s);
     // (F5e) a REP string's take point (a TKI word: urom/str.uasm, at an element's end when the
     // string goes on; silicon, intr.py f5_si_*): NMI or the maskable offer (IE 1 and armed: IE
     // as it stood at the string's own start) is taken there, whatever the start's `nb` (a
@@ -878,13 +915,13 @@ module v35_intc (
     // transfers back to back after the first element: bu_movw)
     assign sgo = g_n || g_m || g_d || g_i;
     assign take_d = (x_disp && igo && g_d) || (x_tki && g_d);
-    assign take_n = (x_disp && igo && !g_d && g_n) || (x_tki && !g_d && g_n);
-    assign take_m = (x_disp && igo && !g_d && !g_n && g_m) || (x_tki && !g_d && !g_n && g_m);
+    assign take_n = (x_disp && igo && !g_d && g_nd) || (x_tki && !g_d && g_n);
+    assign take_m = (x_disp && igo && !g_d && !g_nd && g_m) || (x_tki && !g_d && !g_n && g_m);
     assign dm_rs = x_disp && !take_d;           // (F4c) the CPU resumes: DIC's IF set here
     assign dm_smp = (x_disp || x_tki) && !take_d;
-    assign take_i = (x_disp && igo && !g_n && !g_m && !g_d && g_i)
+    assign take_i = (x_disp && igo && !g_nd && !g_m && !g_d && g_i)
                     || (x_tki && !g_n && !g_m && !g_d && g_i);
-    assign take_s = x_disp && igo && !g_n && !g_m && !g_d && !g_i;
+    assign take_s = x_disp && igo && !g_nd && !g_m && !g_d && !g_i;
     // (F4c) the parameters from one place: a DMA take's channel in place of the macro service's
     assign ms_ch = tk_dm ? {2'b00, dm_ch} : mc_ch;
     initial begin
@@ -896,6 +933,7 @@ module v35_intc (
             ie_arm <= 1'b0;
             brk_arm <= 1'b0;
             nb_r <= 1'b0;
+            ne <= 1'b0;
             ms_hlt <= 1'b0;
             tk_dm <= 1'b0;
             rs_hlt <= 1'b0;
@@ -910,6 +948,11 @@ module v35_intc (
                 tk_dm <= 1'b0;
             if (x_end)
                 nb_r <= x_nb || rs_hlt;
+            // (qprobe round 13) NMI as the E word sees it; cleared by its take
+            if (take_n)
+                ne <= 1'b0;
+            else if (x_end)
+                ne <= nmi_v;
             // (F5c) POP PSW, RETI, FINT (seg=NBI on the E word): the interrupt arms dropped, so
             // the next start takes neither the maskable interrupt nor the single step (NMI,
             // macro service and DMA are not held); the dispatch reloads them from the PSW

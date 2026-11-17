@@ -7,23 +7,5 @@
 ; shared delays), with two sources the interrupt needs: the vector's address from tmpb (IVEC's,
 ; not the format's VEC) and the PC pushed the interrupted instruction's start (PC with ist, not
 ; the return offset). This file sorts last: no other routine's ROM address moves.
-routine ivx why="OPEN: BRK 3's no-act clocks (its shared delays); (F4d) the vectored entry's body in silicon's order (BRK 3's: f4_tm tm01, F37 brk3); function only"
-iv_x: d1=TB s1=SIG rb=SP wid=WORD alu=DEC2 ax=RB   ; the segment's address into tmpb; SP - 2
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PSW bus=MEMW seg=SS   ; SP <- SP - 2; the address; the PSW into the write datum; post its push
-    f alu=CITF wf                           ; F: the push's end; IE and BRK cleared (CITF)
-    open call=w2                            ; OPEN: 3 clocks: BRK 3's (the call and the shared delay's 2)
-    d1=ADDR s1=TB bus=MEMR seg=ZERO wid=WORD    ; post the segment's read at 0:4n + 2
-    f d1=TA s1=OPR                          ; F: the segment into tmpa
-    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
-    ra=PS wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=RA bus=MEMW seg=SS   ; SP <- SP - 2; the address; PS into the write datum; post its push
-    f                                       ; F: the push's end
-    rb=SP wid=WORD alu=DEC2 ax=RB           ; SP - 2
-    wr=SP wid=WORD ws=SIG d1=ADDR s1=SIG d2=OPRW s2=PC ist   ; SP <- SP - 2; the address; the interrupted instruction's start into the write datum
-    open                                    ; OPEN: BRK 3's
-    open                                    ; OPEN: BRK 3's
-    bus=MEMW seg=SS wid=WORD                ; post the PC's push
-    f                                       ; F: the push's end
-    wr=PS wid=WORD ws=TA alu=PASS ax=TC     ; PS <- the vector's segment; the offset into SIGMA
-    open call=w5                            ; OPEN: 6 clocks: BRK 3's (the call and the shared delay's 5)
-    flush                                   ; FLUSH: the stream from the vector
-    e                                       ; E: the handler's opcode
+; (qprobe round 12) the body above is gone: the acknowledge now runs INT 3's own words from
+; their request word (trap.uasm iv_c, xfer.uasm brk_y).

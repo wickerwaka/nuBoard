@@ -507,7 +507,22 @@ module v35_top
     // `ir_addr_c`: the linear address of the opcode the E word popped, counted as the loader
     // pops (the next queue byte's address `o_pc`, the staged opcode's `o_sa`, a flush's target
     // {PS, 0} + SIGMA registered at ce_b)
-    wire        start = useq.start;
+    // (qprobe round 12) a REP prefix is its own routine (rep_p) whose E word pops the string
+    // opcode: the instruction's start is the prefix's (its routine's entry, at the prefix's
+    // address), not the string routine's entry after it (`rp_e`: rep_p's E executed, the next
+    // start not counted), as before the prefix had its routine
+    reg         rp_e = 1'b0;
+    always @(posedge clock) begin
+        if (!reset_n)
+            rp_e <= 1'b0;
+        else if (ce_a) begin
+            if (useq.ex && word.e && useq.upc == UROM_REPP)
+                rp_e <= 1'b1;
+            else if (useq.start)
+                rp_e <= 1'b0;
+        end
+    end
+    wire        start = useq.start && !rp_e;
     wire        t_flush = x_flush;      // (the function bench's o_flush)
     wire        start_trap = loader.df.trap || (word.seq == SQ_DISPM && dec2.trap);
     reg  [19:0] o_pc = 20'hFFFF0, o_sa = 20'd0, ir_addr_c = 20'd0, o_flin = 20'd0;
@@ -546,7 +561,7 @@ module v35_top
         .start, .epop(loader.epop), .start_trap, .entry(useq.upc), .pc(ir_addr_c),
         .take(loader.opop || loader.mpop), .load(loader.sload),
         .post(ex && word.bus != BQ_NONE), .post_kind(word.bus == BQ_MEMR ? K_READ
-                                           : word.bus == BQ_MEMW ? K_WRITE
+                                           : (word.bus == BQ_MEMW || word.bus == BQ_MEMWD) ? K_WRITE
                                            : (word.bus == BQ_IOR || word.bus == BQ_INTA) ? K_IO_READ
                                            : K_IO_WRITE),
         .issue(g_eu), .b2b(fetch_last && q_fetch_req), .abort(1'b0),     // (step D: no aborted cycle)

@@ -2963,3 +2963,69 @@ question, decided from S8's routed numbers with the user.
   mechanism is not known. Effect of the difference: a maskable interrupt arriving during
   such an instruction (or a back-to-back train of them) is taken at an earlier boundary than
   on the chip. Revisit only if a socket round finds the mechanism.
+- **2026-11-16, work orders 6 and 7 built as one batch (one gate): corpus 20,154 of 30,536
+  exact.** Built from rounds 10 and 11: a bus-idle word waits for any running cycle, the EU's
+  own included (`bz_nx`, a subset of the old fetch level, registers only; Q26); a word at an
+  odd address is one EU cycle to the boundary and the bus-idle level (`bp_nx`; Q32); the
+  conditional branches' bus-idle fourth word, DBNZ's lead of two, BCWZ (Q27 / Q28); the
+  memory-immediate forms with the request on the third word (Q29); PUSH / POP [BW], SHL
+  [BW],1, MOV [BW],imm8, the 0F CL bit forms; the seven single strings and REP for MOVBK /
+  STM / LDM / INM / OUTM (Q34 / Q35); the bus-idle third word of MUL / DIV (Q36); the EA head
+  UROM_EAQ16X for [BW+d16]-class modes (one loader compare). **A second wait kind, `alt`**:
+  the microword is full at 96 bits, so the kind's fifth bit reuses the word's `vk` bit (read
+  only by vector words; the assembler refuses `alt` on a word with a vector source); the
+  useq-to-bus port is one bit wider, no port added. **FF is the seventh and last whole
+  opcode** (the measured PUSH [BW] apart from the displacement modes that keep the round-9
+  routine). ROM 2,025 of 2,048 words. Corpus at both spacings 20,154 (16,673): 3,483 gained,
+  2 lost, 0 FAIL, chk silent, write data 106,824 / 106,824; small set rounds 1-9 4,747 of
+  5,592, round 10 683 of 684, round 11 805 of 1,368; vectors 0 bad, lint clean, the program
+  gates and fuzz line for line as before, `dma hwd` equal. Not landed on its own (the gate found a function fault, next entry). **FPGA at 17 ns for this tree alone: +2.496 / +2.553 /
+  +2.260**, 10,226 LUT4 / 657 ADD / 2,577 FF / 90 RAM_5K. **Kept losses:** ADD [d16],imm8
+  (2 corpus and 4 small-set runs lost, 30 corpus gained; splitting the mode needs an eighth
+  whole opcode); MULU r8 behind MOV BW,imm16 at one alignment (1 small-set run; the reading
+  model misses it too). **Reverted by the corpus:** DBNZE / DBNZNE as DBNZ (they have their
+  own routines, Q43), SET1 / NOT1 r16,CL by analogy. **Not built:** the chained fetch against
+  a posted write (Q33: every RTL store loads its datum on the posting word, so "unarmed" has
+  no state to read; round 13 replaces the rule, Q42); REP as a real prefix routine with its
+  boundary waits, the CW = 0 exit and the REPE / REPNE compare loops (the previous E word
+  pops prefix and string opcode together: a loader / decode change); POP mem and the 83
+  forms with a displacement (the bare heads release the displacement before the request
+  word); PUSH R / POP R (ROM room); the F6 three-bytes exemption (no probe moves).
+- **2026-11-16/17, work orders 6 to 9 landed as one batch: corpus 23,702 of 30,536 exact.**
+  The landing gate of the 6 and 7 tree found a function fault the vectors and the corpus do
+  not see: the rebuilt REP MOVBK read on-chip RAM before writing IX back, so the snapshot copy
+  that runs over its own IX slot stored the old value (two bank programs and every fuzz
+  program, one byte). Fixed (IX stepped and written on the two words between the request and
+  the read's post, IY before the write; no bus clock moved); the builder's loop now includes
+  the bank gate and one fuzz set. **Work orders 8 and 9 on top**: the register-immediate
+  forms, CMP mem,imm16, the 0F page (r,imm, mem,CL, mem,imm bit forms, ROL4 / ROR4, ADD4S /
+  SUB4S / CMP4S, EXT / INS including across a word), MUL / DIV on memory, MUL r,r,imm,
+  PREPARE / DISPOSE, JMP / CALL r16, RET imm16, INT 3, BRK imm8, RETI, the [d16] transfers,
+  DBNZE / DBNZNE's four routines, PUSH R / POP R (unrolled). **REP is a real prefix routine**
+  (`rep_p`, a decode bit `rp`: the prefix's E pops the prefix alone, its own E the string
+  opcode, so the string's boundary gets every boundary wait). **The posted write (Q33)**: C6 /
+  C7 post with a bus value MEMWD and the word that takes the immediate arms the write; the
+  existing port bit `req_ia` on a memory write now means "datum loaded by this word" (an
+  overloaded meaning, to review); Q42's first half built. **Displacement cells**: assembler
+  cell kinds that skip the EA head so a routine pops and releases its own displacement (PUSH /
+  POP mem with a displacement, the [d16] transfers) without a new head name. **ROM**: the
+  address is 12 bits (the user: growth to 4,096 is fine while developing), 2,426 words in two
+  physical parts chosen by the registered top address bit; the word stays 96 bits (`trap`
+  became a sequencing value). The whole opcodes are 0F 64 65 F2 F3 FF 8F. **Interrupts**:
+  the acknowledge runs INT 3's words 16 clocks after the boundary, a broken REP leaves through
+  its own exit; the NMI / INTP delays are two untuned 10-clock constants and a free-running
+  grid, placeholders that work order 10's level scan replaces. Corpus at both spacings 23,702
+  (6 and 7 tree 20,154; last landing 16,673): against the 6 and 7 rows 3,678 gained, 130
+  lost (103 MOV mem,imm16 with a displacement, mostly one wait: its whole-opcode slot went to
+  8F; 16 REP INM / OUTM with CW = 0; 10 bit-imm register forms; 1), 0 FAIL, chk silent, write
+  data 106,824 / 106,824; small set 1,980 gained, 56 lost (the same MOV form); vectors 0 bad,
+  fast tests and SST pass, banks 5 equal, fuzz as before (f5n 3 and f5v 2 timing-only), the
+  program gates line for line as at the last landing, `dma hwd` equal. (The gate's first
+  default-spacing replay lost a simulator process and was rerun: complete and identical.)
+  **FPGA at 17 ns: +1.297 / +1.274 / +1.450**, 10,559 LUT4 / 657 ADD / 2,601 FF / 107 RAM_5K:
+  all pass, about 1 ns lost to a new chain from the segment select through the address add
+  into the sequencer's `ex` register (19 to 29 levels); breaking it is in the next build.
+  Not built: the REP compares' read-ahead and REPC / REPNC, EXT across a word's extra word,
+  the 83 group's request ahead of a displacement, Q42's second half, the build-check items
+  (DBNZ taken, JMP near at even alignment, LEA). The next build (work orders 10 to 12) takes
+  the kept losses first.

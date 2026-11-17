@@ -248,9 +248,15 @@ module v35_bus
     // the grant, joining it at the length's select as the old SFR compare did
     wire rq_sfr = (req_addr[19:12] == idb && req_addr[11:9] == 3'b111 && (req_addr[8] || ramen))
                   || req_addr == 20'hFFFFF;
+    wire un_w = req_ia && req_cyc == RQ_MEMW;
     function automatic v35_gnt_t gnt_f(input logic fr);
         logic eu_win, eu;
-        eu_win = free_h && !g_second && req_v;
+        // (qprobe round 12, spec 7 A2 / Q33) req_ia on a memory write: its datum is loaded by
+        // the EU's current word (K, not yet armed): granted only if that word executes now (ex),
+        // and not against a chained fetch (a fetch asked for on the clock after a fetch's last,
+        // dlv_fetch, decided on that fetch's next-to-last clock from the count, dc: registers):
+        // the unarmed posted write does not compete with it
+        eu_win = free_h && !g_second && req_v && !(un_w && ((fr && dlv_fetch && dc) || !ex));
         gnt_f.fetch = free_h && !g_second && !eu_win && fr;
         gnt_f.ack = eu_win;
         eu = g_second || gnt_f.ack;         // an EU cycle issued now (either half of a pair)
@@ -297,7 +303,7 @@ module v35_bus
         else if (ce_b) begin
             g_start_b <= g_start;
             g_sfr_b <= g_sfr;
-            g_ia_b <= gn.ack && req_ia;     // (F3b) the EU's cycle granted is an acknowledge
+            g_ia_b <= gn.ack && req_ia && req_cyc != RQ_MEMW;     // (F3b) the EU's cycle granted is an acknowledge (req_ia on a read)
             g_dk_b <= gn.ack && req_dk;     // (F4c) ... a DMA transfer's
             g_rdy_b <= gn.rdy;              // (F4d) the cycle granted waits for READY
             rdy_q <= rdy_lv;                // (F4d) READY at the pins' edge
@@ -328,7 +334,15 @@ module v35_bus
     wire        bz_nx = cv_nx && cp_nx != cl_nx - 3'd1;
     wire        fb_nx = bz_nx && ck_nx == K_FETCH;
     wire        fl_n = cp_nx + 3'd1 == cl_nx - 3'd1;        // the next clock is the cycle's last
-    wire        cb_nx = bz_nx && !fl_n;
+    // (qprobe round 11, Q32 / A1) an odd word's two byte cycles are one EU cycle: on the first
+    // half's last clock the cycle is not ending (its second half is due: c_half 1), and the
+    // second half's first clock is a cycle running (p2_v: the second half is next and nothing
+    // runs; it is granted on that clock, nothing between). Registers only (c_half, the grant's
+    // ce_b register, p2_v)
+    wire        ch1_nx = (g_start_b ? g_half_b : c_half) == 2'd1;
+    wire        pr_nx = p2_v && !bz_nx;
+    wire        bp_nx = bz_nx || pr_nx;
+    wire        cb_nx = (bz_nx && (!fl_n || ch1_nx)) || pr_nx;
 
     // ------------------------------------------------ (qprobe round 6, B) the sequencing stage
     // The bus unit sequences a cycle in a stage ahead of its pins (the "slot",
@@ -349,6 +363,11 @@ module v35_bus
     // other stall facts.
     reg         lg = 1'b0, nl = 1'b0, pend = 1'b0;
     reg         lg_b = 1'b0, nl_b = 1'b0, pd_b = 1'b0, sk_b = 1'b0;
+    reg         fe = 1'b0, fe_b = 1'b0;     // (qprobe round 13, Q42) the running fetch followed an EU cycle
+    // (qprobe round 12, spec 7 A2 / Q33 fact 1) the chained fetch is decided on the running fetch's
+    // next-to-last clock from the count then (the queue's cf: the count with the word in flight at
+    // most 5): `dc`, the decision an unarmed write gives way to (any fetch, not only a lagged one)
+    reg         dc = 1'b0, dc_b = 1'b0;
     wire        in_f = busy && c_kind == K_FETCH;           // a fetch started earlier runs now
     wire        eu_r = busy && c_kind != K_FETCH;           // an EU cycle started earlier runs now
     wire        sec_last = pos_now == c_len - 3'd2;         // the running cycle's next-to-last clock
@@ -359,11 +378,15 @@ module v35_bus
     always @(posedge clock) begin
         if (!reset_n) begin
             lg_b <= 1'b0;
+            fe_b <= 1'b0;
+            dc_b <= 1'b0;
             nl_b <= 1'b0;
             pd_b <= 1'b0;
             sk_b <= 1'b0;
         end else if (ce_b) begin
             lg_b <= lg_a;
+            fe_b <= g_fetch ? pend : fe;
+            dc_b <= g_fetch ? 1'b0 : (in_f && sec_last) ? lv_q.cf : dc;
             nl_b <= nl_a;
             pd_b <= pd_a;
             sk_b <= gave;
@@ -372,10 +395,14 @@ module v35_bus
     always @(posedge clock) begin
         if (!reset_n) begin
             lg <= 1'b0;
+            fe <= 1'b0;
+            dc <= 1'b0;
             nl <= 1'b0;
             pend <= 1'b0;
         end else if (ce_a) begin
             lg <= lg_b;
+            fe <= fe_b;
+            dc <= dc_b;
             nl <= nl_b;
             pend <= pd_b;
         end
@@ -398,6 +425,12 @@ module v35_bus
     // (EU_SLOT) the EU cycle's own slot: from its request's standing to two clocks before its
     // last pin clock
     wire        sl_nx = slot_nx || eu_rq_nx || (euf_nx && r2_nx);
+    // (qprobe round 10, LAG_FIRST) the slot's first clock when it runs ahead of the pins: a
+    // lagged fetch's next-to-last pin clock with the chained fetch decided (cf), or the last but
+    // one clock of the EU cycle a pending fetch waits behind; the A word (rl=x with alt, OUT
+    // DW's first) does not wait on it
+    wire        sf_first = (fb_nx && lg_b) ? (r1_nx && lv.cf) : (pd_b && lv.c4 && euf_nx && r1_nx);
+    wire        sla_nx = (slot_nx && !sf_first) || eu_rq_nx || (euf_nx && r2_nx);
     // (qprobe round 6, C) a memory request word waits while a fetch has two clocks or more left
     wire        fy_nx = fb_nx && r2_nx;
 
@@ -410,6 +443,7 @@ module v35_bus
     // the word releasing a staged HALT: the line's stop)
     reg         wkd = 1'b0, wkf = 1'b0, wkr = 1'b0;    // (the kind's disp, flush, rlx)
     reg         aft = 1'b0, rqx = 1'b0, b4r = 1'b0, rqvr = 1'b0, ler = 1'b0, hpr = 1'b0, hcr = 1'b0;
+    reg         dst = 1'b0;                 // (qprobe round 13) the dispatch word waited on the last clock
     wire        xd = ex && wkd;                 // the dispatch word executes now (the boundary)
     wire        xf = ex && wkf;                // a FLUSH word executes now
     // tick A: the give-way (round 6, E: the boundary executing now takes this clock from the
@@ -418,7 +452,11 @@ module v35_bus
     // releasing the staged HALT to the halt word); the five-held continuation allowed (rule 2,
     // REQ_PRI: no dispatch word now, no request word on the last clock); the line as the grant
     // reads it (`fr`) and the fetch given way (`gwy`)
-    wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler));
+    // (qprobe round 13, Q42 / spec 9 A1, first half) carried one fetch further: the fetch chained
+    // to the fetch that followed an EU cycle (`fe`: the fetch delivered now was granted with a
+    // fetch pending under an EU cycle) gives way to a boundary that arrives fresh on its clock
+    // (`dst`: the dispatch word did not wait on the clock before). Registers only
+    wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler) || (fe && dlv_fetch && !dst));
     wire        fstop = hpr || (ex && hcr);
     wire        line = fetch_req || (lv_q.r5 && !xd && !rqx);
     wire        fr = line && !gw && !fstop;
@@ -437,17 +475,30 @@ module v35_bus
     // (round 6, A, B, C) the bus waits by the word's kind: B (bi) a fetch's pin cycle started
     // earlier (its last clock included), S (rl=x) the slot, Y (both) a fetch with two clocks or
     // more left
-    assign ph_nx = (wk_nx.disp && bnd_w) || (wk_nx.bi && !wk_nx.rlx && fb_nx)
-                   || (wk_nx.rlx && !wk_nx.bi && sl_nx) || (wk_nx.rlx && wk_nx.bi && fy_nx);
+    // (qprobe round 10, Q26 / A1) B: a pin cycle of any kind started earlier (its last clock
+    // included; an odd word's pair as one cycle, bp_nx): the EU's own cycle as well as a fetch
+    // (bz_nx, the cycle registers' next values:
+    // registered state only, never this clock's request). (Q31 / B4) C (bi with alt, the commit
+    // word): B's wait, and also on the clock a back-to-back fetch starts (the delivery with the
+    // count at most 5, no EU request standing: the slot's continuation, slot_nx's c5 term).
+    // (Q29 / A4) V (rl=x and bi with alt, the late request word): a fetch running then, not on
+    // its last clock (the fetch's last clock is the earliest; Y's is its last two), and no
+    // REQ_PRI (`rqx` is Y's and the X / S words'). (LAG_FIRST) A (rl=x alone with alt): the
+    // slot but its first clock ahead of the pins (sla_nx)
+    wire        b2s_nx = dlv_fetch_nx && lv.c5 && !eu_rq_nx;
+    assign ph_nx = (wk_nx.disp && bnd_w) || (wk_nx.bi && !wk_nx.rlx && (bp_nx || (wk_nx.alt && b2s_nx)))
+                   || (wk_nx.rlx && !wk_nx.bi && (wk_nx.alt ? sla_nx : sl_nx))
+                   || (wk_nx.rlx && wk_nx.bi && (wk_nx.alt ? (fb_nx && !fl_n) : fy_nx));
     always @(posedge clock) begin
         if (!reset_n || ce_a) begin
             wkd <= wk_nx.disp;
             wkf <= wk_nx.flush;
-            wkr <= wk_nx.rlx;
+            wkr <= wk_nx.rlx && !wk_nx.alt;
         end
         if (!reset_n) begin
             aft <= 1'b0;
             rqx <= 1'b0;
+            dst <= 1'b0;
             b4r <= 1'b0;
             rqvr <= 1'b0;
             ler <= 1'b0;
@@ -456,6 +507,7 @@ module v35_bus
         end else if (ce_a) begin
             aft <= aft_n;
             rqx <= ex && wkr;
+            dst <= wkd && !ex;
             b4r <= lv.b4;
             rqvr <= eu_rq_nx;
             ler <= sf_nx.le;
@@ -813,7 +865,7 @@ module v35_bus
 `ifndef SYNTHESIS
     // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
     // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
-    wire        x_eu_win = free_h && !g_second && req_v;
+    wire        x_eu_win = free_h && !g_second && req_v && !(un_w && ((fr && dlv_fetch && dc) || !ex));     // (qprobe round 12, A2)
     v35_gnt_t   gnt_x;
     logic       x_eu;
     always_comb begin

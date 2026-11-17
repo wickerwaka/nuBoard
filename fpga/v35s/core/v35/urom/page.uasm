@@ -20,53 +20,57 @@
 ; after the write's end. F after the write: the EU holds until the write's end (RAMEN = 1, the
 ; write may land in the registers' RAM: mechanisms 3.3).
 
-routine add4s op=20,22 page=0f book="ADD4S" n=4 diff=1 why="OPEN: silicon longer than the book by one (F32-push-add4s-n4-k1-pE-w0: the frozen model exact; the start at +87 on the fetch's grant, the source read issued at +104 (E + 17), the destination's at done + 6, the write at done + 9, the next pair's source at the write's end + 6, the next start at the last write's end + 12: 83 clocks for two pairs against the book's 82; F32-out-add4s-n2-k2-pE-w0 53 for one pair, F32-out-add4s-n4-k1-pE-w2 the same clocks with the bus cycles' waits and the source read's setup + 2: the address move under the start's fetch's wait states, MX1g's BW law); per pair the book's 30 (three bus cycles, the BCD step, the address moves and the book's clocks with no act, OPEN); the fixed part the book's 22 + 1"
-    ra=IX rb=CW wid=WORD d1=ADDR s1=RA d2=TC s2=ZERO cnt=CLH alu=BCDI ; the source's address (IX + 0), the pair offset 0 into tmpc, the counter <- (CL + 1) / 2; the carry cleared, the zero term set (E + 2: the move waits out the start's fetch's wait states, MX1g's BW law)
-    open                                    ; OPEN: a book clock with no act (ADD4S 22 + 30n)
+routine add4s op=20,22 page=0f book="ADD4S" n=4 diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ADD4S / SUB4S are a byte loop with no data-dependent exit (the qprobe add4s / sub4s runs, CL 1 2 4 8): a 13-word head with a bus-idle fourth word, ceil(CL / 2) iterations `Y D . . . U D . . . . . . Z D .` (read the source, read the destination, write the destination: 30 clocks at W = 0), a 10-word tail `. . . . . . . . N .`"
+    ra=IX rb=CW wid=WORD d1=ADDR s1=RA d2=TC s2=ZERO cnt=CLH alu=BCDI ; the source's address (IX + 0), the pair offset 0 into tmpc, the counter <- (CL + 1) / 2; the carry cleared, the zero term set
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bi                                      ; (qprobe round 12, Q38) B: the head's bus-idle fourth word
     jc=CNTZ:a4_tail                         ; no byte pair: the flags
-    open call=w10                           ; OPEN: 11 clocks: a book clock with no act (ADD4S 22 + 30n) (the call and the shared delay's 10)
-a4_pair: bus=MEMR seg=DSP wid=BYTE          ; post the source byte's read (E + 16: it issues at E + 17, the model's)
-    ra=IY wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IY + i
-    d1=ADDR s1=SIG                          ; the destination's address (the read's second clock: no wait state yet)
+    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the head's 13) (the call and the shared delay's 7)
+a4_pair: rl=x bi                            ; (qprobe round 12, Q38) Y: the request word (the source's read posted three words later)
+    ra=IY wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IY + i (the destination's address)
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bus=MEMR seg=DSP wid=BYTE               ; post the source byte's read (Y + 3)
+    f d1=TA s1=OPR d2=ADDR s2=SIG           ; D: F: the source byte into tmpa; the destination's address into the address register (the read's datum taken)
     alu=ADD ax=TC ay=ONE                    ; SIGMA = i + 1
-    f d1=TA s1=OPR d2=TC s2=SIG             ; F: the source byte into tmpa; tmpc <- i + 1 (the read's end)
-    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (ADD4S 30 a pair) (the call and the shared delay's 3)
-    bus=MEMR seg=DS1 wid=BYTE               ; post the destination byte's read (the source's end + 5: issued at + 6, the model's)
-    f d1=TB s1=OPR                          ; F: the destination byte into tmpb (the read's end)
+    d1=TC s1=SIG                            ; tmpc <- i + 1
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=DS1 wid=BYTE               ; U: post the destination byte's read (the datum + 5)
+    f d1=TB s1=OPR                          ; D: F: the destination byte into tmpb
     alu=BCDS ax=TB ay=TA wid=BYTE           ; the BCD byte step (the add / the subtract by op3; the carry in and out, the zero term)
     d1=OPRW s1=SIG                          ; the result into the write datum
-    open call=w4                            ; OPEN: 5 clocks: a book clock with no act (ADD4S 30 a pair) (the call and the shared delay's 4)
-    bus=MEMW seg=DS1 wid=BYTE               ; post the write (the destination's end + 8: issued at + 9, the model's)
-    f                                       ; F: the write's end (the RAMEN hold)
-    ra=IX wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IX + i (the next pair)
-    d1=ADDR s1=SIG                          ; the next source's address
-    open                                    ; OPEN: a book clock with no act (ADD4S 30 a pair)
-    loop=a4_pair                            ; the counter step: the next pair (its post at the write's end + 5)
-a4_tail: open call=w5                       ; OPEN: 6 clocks: a book clock with no act (ADD4S 22 + 30n) (the call and the shared delay's 5)
+    ra=IX wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IX + i + 1 (the next pair's source)
+    open call=w3                            ; OPEN: (qprobe round 12, Q38) four words with no act (the call and the shared delay's 3)
+    bus=MEMW seg=DS1 wid=BYTE               ; Z: post the write (the datum + 8)
+    f d1=ADDR s1=SIG                        ; D: F: the write's end; the next source's address
+    loop=a4_pair                            ; the counter step: the next pair
+a4_tail: open call=w6                       ; OPEN: (qprobe round 12, Q38) seven words with no act (the tail's ten) (the call and the shared delay's 6)
     alu=BCDF wf                             ; the flags: CY S AC the last carry, Z P the zero term, V 0
-    e                                       ; E: pop the next opcode (the last write's end + 12, the model's next start); the flags' write-back runs on past E (the model's wb 2: an OUT imm8 after it waits, MX1f)
+    e ro                                    ; E: pop the next opcode (N)
 
-routine cmp4s op=26 page=0f book="CMP4S" n=4 diff=2 why="OPEN: silicon longer than the book by two (F32-out-cmp4s-n4-k1-pE-w0: the frozen model exact; the source read issued at E + 17, the destination's at the source's end + 6, the next pair's source at the destination's end + 13, the next start at the last destination's end + 20: 74 for two pairs against the book's 72; F32-out-cmp4s-n2-k2-pE-w1 the same with the waits and the BW law's clock); per pair the book's 25 (two bus cycles, the BCD step, the address moves, OPEN clocks); the fixed part the book's 22 + 2"
-    ra=IX rb=CW wid=WORD d1=ADDR s1=RA d2=TC s2=ZERO cnt=CLH alu=BCDI ; the source's address (IX + 0), the pair offset 0 into tmpc, the counter <- (CL + 1) / 2; the borrow cleared, the zero term set (E + 2: the BW law)
-    open                                    ; OPEN: a book clock with no act (CMP4S 22 + 25n)
+routine cmp4s op=26 page=0f book="CMP4S" n=4 diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) CMP4S is ADD4S's head, iterations `Y D . . . U D . . . . . . . .` (25 clocks at W = 0) and an 11-word tail (the qprobe cmp4s runs)"
+    ra=IX rb=CW wid=WORD d1=ADDR s1=RA d2=TC s2=ZERO cnt=CLH alu=BCDI ; the source's address (IX + 0), the pair offset 0 into tmpc, the counter <- (CL + 1) / 2; the borrow cleared, the zero term set
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bi                                      ; (qprobe round 12, Q38) B: the head's bus-idle fourth word
     jc=CNTZ:c4_tail                         ; no byte pair: the flags
-    open call=w10                           ; OPEN: 11 clocks: a book clock with no act (CMP4S 22 + 25n) (the call and the shared delay's 10)
-c4_pair: bus=MEMR seg=DSP wid=BYTE          ; post the source byte's read (E + 16: issued at E + 17)
-    ra=IY wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IY + i
-    d1=ADDR s1=SIG                          ; the destination's address (the read's second clock)
+    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the head's 13) (the call and the shared delay's 7)
+c4_pair: rl=x bi                            ; (qprobe round 12, Q38) Y: the request word (the source's read posted three words later)
+    ra=IY wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IY + i (the destination's address)
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bus=MEMR seg=DSP wid=BYTE               ; post the source byte's read (Y + 3)
+    f d1=TA s1=OPR d2=ADDR s2=SIG           ; D: F: the source byte into tmpa; the destination's address
     alu=ADD ax=TC ay=ONE                    ; SIGMA = i + 1
-    f d1=TA s1=OPR d2=TC s2=SIG             ; F: the source byte into tmpa; tmpc <- i + 1
-    open call=w3                            ; OPEN: 4 clocks: a book clock with no act (CMP4S 25 a pair) (the call and the shared delay's 3)
-    bus=MEMR seg=DS1 wid=BYTE               ; post the destination byte's read (the source's end + 5)
-    f d1=TB s1=OPR                          ; F: the destination byte into tmpb
+    d1=TC s1=SIG                            ; tmpc <- i + 1
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=DS1 wid=BYTE               ; U: post the destination byte's read (the datum + 5)
+    f d1=TB s1=OPR                          ; D: F: the destination byte into tmpb
     alu=BCDS ax=TB ay=TA wid=BYTE           ; the BCD byte step (the subtract: the borrow and the zero term; nothing written)
-    ra=IX wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IX + i (the next pair)
+    ra=IX wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IX + i + 1 (the next pair's source)
     d1=ADDR s1=SIG                          ; the next source's address
-    open call=w6                            ; OPEN: 7 clocks: a book clock with no act (CMP4S 25 a pair) (the call and the shared delay's 6)
-    loop=c4_pair                            ; the counter step: the next pair (its post at the destination's end + 12)
-c4_tail: open call=w6                       ; OPEN: 7 clocks: a book clock with no act (CMP4S 22 + 25n) (the call and the shared delay's 6)
+    open call=w3                            ; OPEN: (qprobe round 12, Q38) four words with no act (the call and the shared delay's 3)
+    loop=c4_pair                            ; the counter step: the next pair
+c4_tail: open call=w7                       ; OPEN: (qprobe round 12, Q38) eight words with no act (the tail's eleven) (the call and the shared delay's 7)
     alu=BCDF wf                             ; the flags
-    e                                       ; E: pop the next opcode (the last destination's end + 20, the model's next start); the flags' write-back past E (the model's wb 2, MX1f)
+    e ro                                    ; E: pop the next opcode (N)
 
 ; ---- the bit operations TEST1 / CLR1 / SET1 / NOT1 (0F 10-1F: op3 1:0 the operation, the
 ; width the second byte's bit 0, bit 3 an imm3 / imm4 index after the operand, else CL; the
@@ -75,99 +79,119 @@ c4_tail: open call=w6                       ; OPEN: 7 clocks: a book clock with 
 ; a memory operand calls the EA head of its mode and returns to the add, the read, F with the
 ; bit operation, the write's post, E held to its end (RAMEN). The CL index is read into tmpb
 ; after the add; the imm index is popped after the read's issue (the frozen model's takes).
-routine b1tcl op=10,11 page=0f diff=r:-1,m00:+0,d8:+0,d16:+0,dir:+0 book="TEST1 reg8,CL" bookm="TEST1 mem8,CL" why="OPEN: the book's TEST1 reg,CL 7 / mem,CL EA + 12, the book's clocks with no act OPEN; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count: the E word pops only the page's second byte), the frozen model exact on F32-push-test1_mw_cl-k1-pE-w0 and F32-push-set1_mw_cl-k1-pE-w0 (16 and 19 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (the ModR/M pop arms it: the register path's operation and the memory path's add wait for the fetch the pop's room asked for, MX1f / Correction 15; the book machine has no sync), F32-out-set1_rw_cl-k1-pE-w0 and F34-push-rbit-set1_rw_cl-l0-k1-pE-w0 (9 S-to-S each)"
-    pop=modrm eac=b1tcl_r                   ; pop the ModR/M byte (E + 2): register mode to the register path; a memory mode calls its EA head
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register; the reservation
-    ra=CW d1=TB s1=RA                       ; CL (by the width) into tmpb: the bit index
-    open                                    ; OPEN: a book clock with no act (TEST1 mem,CL EA + 12)
-    open                                    ; OPEN: a book clock with no act (TEST1 mem,CL EA + 12)
-    bus=MEMR                                ; post the read (E + 10 with the take sync's wait at the add: issued at E + 11, the model's)
-    f alu=BIT ax=OPR ay=TB wf               ; F: TEST1 on the datum at the bit CL names (S Z P; CY AC V cleared)
-    open                                    ; OPEN: a book clock with no act (TEST1 mem,CL EA + 12)
-    e                                       ; E: pop the next opcode (TEST1 writes nothing)
-b1tcl_r: open                              ; OPEN: a book clock with no act (TEST1 reg,CL 7) (the take sync's wait first)
-    open                                    ; OPEN: a book clock with no act (TEST1 reg,CL 7)
-    open                                    ; OPEN: a book clock with no act (TEST1 reg,CL 7)
-    e                                       ; E: pop the next opcode
+routine b1tcl op=10,11 page=0f ea=bare diff=r:0,m00:-1,d8:0,d16:0,dir:1 book="TEST1 reg8,CL" bookm="TEST1 mem8,CL" why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below); silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) TEST1 mem,CL is `P . P . C Y DN .` (the qprobe t1wmcl runs): the add, the ModR/M byte released and CL into tmpb, a word with no act, the commit word C, the request word Y, the read (Y + 3), D with TEST1 and E; the register form `P . P . . CN .` (Q31)"
+    pop=modrm eac=b1tcl_r                   ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head (the pops)
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    ra=CW d1=TB s1=RA rl=1                  ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word); CL (by the width) into tmpb: the bit index
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bi alt                                  ; (qprobe round 12, Q38) C: the commit word (bus-idle, and held on the clock a back-to-back fetch starts)
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (the read due four clocks after it, posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bus=MEMR                                ; post the read (Y + 3)
+    f alu=BIT ax=OPR ay=TB wf e ro          ; D N: F: TEST1 on the datum at the bit CL names (S Z P; CY AC V cleared); E (TEST1 writes nothing)
+b1tcl_r: open                              ; OPEN: (qprobe round 10, Q31) TEST1 r,CL is `P . P . . CN .`: the second word with no act
+    rl=1                                    ; (qprobe round 10) P: the ModR/M byte released (the third word)
+    open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
+    e ro bi alt                             ; E: pop the next opcode; (qprobe round 10, B4) C N: the commit word (bus-idle, and held on the clock a back-to-back fetch starts); ro: released
     ra=CW rb=RM alu=BIT ax=RB ay=RA wf      ; the word after E: the register and CL, TEST1's flags written (the write port's: MX3's WBR)
 
-routine b1tim op=18,19 page=0f diff=r:0,m00:+0,d8:+0,d16:+0,dir:+0 book="TEST1 reg8,imm3" bookm="TEST1 mem8,imm3" why="OPEN: the book's TEST1 reg,imm 6 / mem,imm EA + 9, the book's clocks with no act OPEN; the index popped after the read's issue (the frozen model's take)"
-    pop=modrm eac=b1tim_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR                                ; post the read (E + 7 with the take sync's wait at the add: issued at E + 8, the model's)
-    open                                    ; OPEN: a book clock with no act (TEST1 mem,imm EA + 9)
-    pop=il                                  ; pop the bit index (the clock after the read's issue: the model's take)
-    f alu=BIT ax=OPR ay=IMM8 wf             ; F: TEST1 on the datum at the bit the index names
-    open                                    ; OPEN: a book clock with no act (TEST1 mem,imm EA + 9)
-    e                                       ; E: pop the next opcode
-b1tim_r: pop=il                             ; pop the bit index
-    open d1=TB s1=IMM8                      ; OPEN: a book clock with no act (TEST1 reg,imm 6) (the take sync's wait first); (F5c) the index into tmpb (the next E pop's short displacement overwrites IL before the word after E: f5c_084 TEST1 IX, 60h / DBNZNE)
-    open                                    ; OPEN: a book clock with no act (TEST1 reg,imm 6)
-    e                                       ; E: pop the next opcode
+routine b1tim op=18,19 page=0f ea=bare diff=r:1,m00:0,d8:1,d16:1,dir:2 book="TEST1 reg8,imm3" bookm="TEST1 mem8,imm3" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) TEST1 mem,imm is `P . PC Y DPN .` (the qprobe runs: 24 / 24): the add, the ModR/M byte's release on the commit word C, Y, the index popped under the wait and released on D; TEST1 r,imm `P . P . . CPN .` (the qprobe t1 r,imm runs): the CL form's with the index released on the commit word"
+    pop=modrm eac=b1tim_r                   ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=1 bi alt                             ; (qprobe round 12, Q38) P C: the ModR/M byte released; the commit word
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (the read due four clocks after it, posted three words later)
+    pop=il                                  ; pop the bit index (released on the datum word)
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bus=MEMR                                ; post the read (Y + 3)
+    f alu=BIT ax=OPR ay=IMM8 wf e ro rl=1   ; D P N: F: TEST1 on the datum at the bit the index names; the index released; E
+b1tim_r: open                              ; OPEN: (qprobe round 12, Q38) TEST1 r,imm is `P . P . . CPN .`: the second word with no act
+    rl=1                                    ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word)
+    pop=il                                  ; pop the bit index (released on the commit word)
+    open d1=TB s1=IMM8                      ; OPEN: (qprobe round 12, Q38) a word with no act; (F5c) the index into tmpb (the next E pop's short displacement overwrites IL before the word after E)
+    e ro bi alt rl=1                        ; E: pop the next opcode; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
     rb=RM alu=BIT ax=RB ay=TB wf            ; the word after E: the register and the index (tmpb), TEST1's flags written (the write port's: MX3's WBR)
 
-routine b1ccl op=12,13 page=0f diff=r:-2,m00:+0,d8:+0,d16:+0,dir:+0 book="CLR1 reg8,CL" bookm="CLR1 mem8,CL" why="OPEN: the book's CLR1 reg,CL 8 / mem,CL EA + 16, the book's clocks with no act OPEN; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count: the E word pops only the page's second byte), the frozen model exact on F32-push-test1_mw_cl-k1-pE-w0 and F32-push-set1_mw_cl-k1-pE-w0 (16 and 19 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (the ModR/M pop arms it: the register path's operation and the memory path's add wait for the fetch the pop's room asked for, MX1f / Correction 15; the book machine has no sync), F32-out-set1_rw_cl-k1-pE-w0 and F34-push-rbit-set1_rw_cl-l0-k1-pE-w0 (9 S-to-S each)"
-    pop=modrm eac=b1ccl_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    ra=CW d1=TB s1=RA                       ; CL into tmpb: the bit index
-    open                                    ; OPEN: a book clock with no act (CLR1 mem,CL EA + 16)
-    open                                    ; OPEN: a book clock with no act (CLR1 mem,CL EA + 16)
-    bus=MEMR                                ; post the read (E + 10 with the take sync's wait at the add: issued at E + 11, the model's)
-    f alu=BIT ax=OPR ay=TB                  ; F: CLR1 on the datum; the reservation
-    open                                    ; OPEN: a book clock with no act (CLR1 mem,CL EA + 16)
-    d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
-    e                                       ; E: held until the write's end (RAMEN)
-b1ccl_r: open                              ; OPEN: a book clock with no act (CLR1 reg,CL 8) (the take sync's wait first)
-    open                                    ; OPEN: a book clock with no act (CLR1 reg,CL 8)
-    open                                    ; OPEN: a book clock with no act (CLR1 reg,CL 8)
-    ra=CW rb=RM alu=BIT ax=RB ay=RA e       ; the register and CL: CLR1; E (the E row's operation, a register form's)
+routine b1ccl op=12,13 page=0f ea=bare diff=r:0,m00:1,d8:2,d16:2,dir:3 book="CLR1 reg8,CL" bookm="CLR1 mem8,CL" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) CLR1 mem,CL is `P . P . C Y D Z G N .` (the qprobe c1mcl runs): TEST1 mem,CL's head, D with CLR1, a word, Z (the write's post), G N; the register form `P . P . . CN . .` (Q31)"
+    pop=modrm eac=b1ccl_r                   ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    ra=CW d1=TB s1=RA rl=1                  ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word); CL into tmpb: the bit index
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bi alt                                  ; (qprobe round 12, Q38) C: the commit word
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bus=MEMR                                ; post the read (Y + 3)
+    f alu=BIT ax=OPR ay=TB                  ; D: F: CLR1 on the datum
+    d1=OPRW s1=SIG                          ; the result into the write datum ((qprobe round 12, Q38) the word before Z)
+    bus=MEMW                                ; Z: post the write
+    e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+b1ccl_r: open                              ; OPEN: (qprobe round 10, Q31) CLR1 r,CL is `P . P . . CN . .`: the second word with no act
+    rl=1                                    ; (qprobe round 10) P: the ModR/M byte released (the third word)
+    open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
+    ro bi alt                               ; (qprobe round 10, B4) C N: the commit word (bus-idle, and held on the clock a back-to-back fetch starts); ro: the next opcode released
+    ra=CW rb=RM alu=BIT ax=RB ay=RA e       ; the register and CL: CLR1; E (the E row's operation, a register form's; one word after the release)
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
-routine b1cim op=1A,1B page=0f diff=r:-1,m00:+0,d8:+0,d16:+0,dir:+0 book="CLR1 reg8,imm3" bookm="CLR1 mem8,imm3" why="OPEN: the book's CLR1 reg,imm 7 / mem,imm EA + 13, the book's clocks with no act OPEN; the index popped after the read's issue; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count), the frozen model exact on F32-push-not1_mb_imm-k1-pE-w0 (16 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (MX1f / Correction 15: the book machine has no sync), F32-out-set1_rw_imm-k1-pE-w0 (9 S-to-S)"
-    pop=modrm eac=b1cim_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR                                ; post the read (E + 7 with the take sync's wait at the add: issued at E + 8, the model's)
-    open                                    ; OPEN: a book clock with no act (CLR1 mem,imm EA + 13)
-    pop=il                                  ; pop the bit index (the clock after the read's issue: the model's take); the reservation (the write to come: a fetch the pop's room asks for waits unless the queue is low)
-    f alu=BIT ax=OPR ay=IMM8                ; F: CLR1 on the datum; the reservation
-    open                                    ; OPEN: a book clock with no act (CLR1 mem,imm EA + 13)
-    d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
-    e                                       ; E: held until the write's end (RAMEN)
-b1cim_r: pop=il                             ; pop the bit index
-    open                                    ; OPEN: a book clock with no act (CLR1 reg,imm 7) (the take sync's wait first)
-    open                                    ; OPEN: a book clock with no act (CLR1 reg,imm 7)
+routine b1cim op=1A,1B page=0f ea=bare diff=r:1,m00:2,d8:3,d16:3,dir:4 book="CLR1 reg8,imm3" bookm="CLR1 mem8,imm3" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) CLR1 r,imm is `P . P . . CPN . .` (the qprobe c1i runs); CLR1 mem,imm by analogy (not probed: kept only while the corpus rows confirm it, spec 8 D) SET1 mem,imm's `P . PC Y DPZ G N .` with one word more before Z (as the CL forms)"
+    pop=modrm eac=b1cim_r                   ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=1 bi alt                             ; (qprobe round 12, Q38) P C: the ModR/M byte released; the commit word
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
+    pop=il                                  ; pop the bit index (released on the datum word)
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bus=MEMR                                ; post the read (Y + 3)
+    f alu=BIT ax=OPR ay=IMM8 rl=1           ; D P: F: CLR1 on the datum; the index released
+    d1=OPRW s1=SIG                          ; the result into the write datum (CLR1's word before Z, by analogy)
+    bus=MEMW                                ; Z: post the write
+    e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+b1cim_r: open                              ; OPEN: (qprobe round 12, Q38) CLR1 r,imm is `P . P . . CPN . .`: the second word with no act
+    rl=1                                    ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word)
+    pop=il                                  ; pop the bit index (released on the commit word)
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    ro bi alt rl=1                          ; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
     rb=RM alu=BIT ax=RB ay=IMM8 e           ; the register: CLR1; E (the E row's operation)
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
-routine b1scl op=14,15,16,17 page=0f diff=r:-1,m00:+0,d8:+0,d16:+0,dir:+0 book="SET1 reg8,CL" bookm="SET1 mem8,CL" why="OPEN: the book's SET1 / NOT1 reg,CL 7 / mem,CL EA + 15, the book's clocks with no act OPEN; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count: the E word pops only the page's second byte), the frozen model exact on F32-push-test1_mw_cl-k1-pE-w0 and F32-push-set1_mw_cl-k1-pE-w0 (16 and 19 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (the ModR/M pop arms it: the register path's operation and the memory path's add wait for the fetch the pop's room asked for, MX1f / Correction 15; the book machine has no sync), F32-out-set1_rw_cl-k1-pE-w0 and F34-push-rbit-set1_rw_cl-l0-k1-pE-w0 (9 S-to-S each)"
-    pop=modrm eac=b1scl_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    ra=CW d1=TB s1=RA                       ; CL into tmpb: the bit index
-    open                                    ; OPEN: a book clock with no act (SET1 mem,CL EA + 15)
-    open                                    ; OPEN: a book clock with no act (SET1 mem,CL EA + 15)
-    bus=MEMR                                ; post the read (E + 10 with the take sync's wait at the add: issued at E + 11, the model's)
-    f alu=BIT ax=OPR ay=TB                  ; F: SET1 / NOT1 on the datum; the reservation
-    d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
-    e                                       ; E: held until the write's end (RAMEN)
-b1scl_r: open                              ; OPEN: a book clock with no act (SET1 reg,CL 7) (the take sync's wait first)
-    open                                    ; OPEN: a book clock with no act (SET1 reg,CL 7)
-    open                                    ; OPEN: a book clock with no act (SET1 reg,CL 7)
-    ra=CW rb=RM alu=BIT ax=RB ay=RA e       ; the register and CL: SET1 / NOT1; E (the E row's operation, a register form's)
+routine b1scl op=14,16 page=0f ea=bare diff=r:0,m00:1,d8:2,d16:2,dir:3 book="SET1 reg8,CL" bookm="SET1 mem8,CL" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) SET1 / NOT1 mem,CL is `P . P . C Y DZ G N .` (the qprobe n1mcl runs): TEST1 mem,CL's head, D with the operation, Z on the word after it, G N; the register form `P . P . . CN .` (Q31)"
+    pop=modrm eac=b1scl_r                   ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+b1scl_m2: ra=CW d1=TB s1=RA rl=1            ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word); CL into tmpb: the bit index
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bi alt                                  ; (qprobe round 12, Q38) C: the commit word
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bus=MEMR                                ; post the read (Y + 3)
+    f alu=BIT ax=OPR ay=TB                  ; D: F: SET1 / NOT1 on the datum
+    d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write
+    e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+b1scl_r: open                              ; OPEN: (qprobe round 10, Q31) SET1 / NOT1 r,CL is `P . P . . CN .`: the second word with no act
+    rl=1                                    ; (qprobe round 10) P: the ModR/M byte released (the third word)
+    open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
+    ra=CW rb=RM alu=BIT ax=RB ay=RA e ro bi alt  ; the register and CL: SET1 / NOT1; E (the E row's operation, a register form's); (qprobe round 10, B4) C N: the commit word (bus-idle, held on the clock a back-to-back fetch starts); ro: released
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
-routine b1sim op=1C,1D,1E,1F page=0f diff=r:0,m00:+0,d8:+0,d16:+0,dir:+0 book="SET1 reg8,imm3" bookm="SET1 mem8,imm3" why="OPEN: the book's SET1 / NOT1 reg,imm 6 / mem,imm EA + 12, the book's clocks with no act OPEN; the index popped after the read's issue; the memory paths one over the book's EA: the ModR/M byte's pop on a word of its own (the EAC word, a pop the book's EA does not count), the frozen model exact on F32-push-not1_mb_imm-k1-pE-w0 (16 S-to-S at mod 00); book error: silicon's clocks are the routine's words and the take sync's wait (MX1f / Correction 15: the book machine has no sync), F32-out-set1_rw_imm-k1-pE-w0 (9 S-to-S)"
-    pop=modrm eac=b1sim_r                   ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR                                ; post the read (E + 7 with the take sync's wait at the add: issued at E + 8, the model's)
-    open                                    ; OPEN: a book clock with no act (SET1 mem,imm EA + 12)
-    pop=il                                  ; pop the bit index (the clock after the read's issue: the model's take); the reservation (the write to come: a fetch the pop's room asks for waits unless the queue is low)
-    f alu=BIT ax=OPR ay=IMM8                ; F: SET1 / NOT1 on the datum; the reservation
-    d1=OPRW s1=SIG bus=MEMW                 ; the result into the write datum; post the write
-    e                                       ; E: held until the write's end (RAMEN)
-b1sim_r: pop=il                             ; pop the bit index
-    open                                    ; OPEN: a book clock with no act (SET1 reg,imm 6) (the take sync's wait first)
-    open                                    ; OPEN: a book clock with no act (SET1 reg,imm 6)
-    rb=RM alu=BIT ax=RB ay=IMM8 e           ; the register: SET1 / NOT1; E (the E row's operation)
+routine b1sclw op=15,17 page=0f ea=bare diff=r:-1,m00:1,d8:2,d16:2,dir:3 book="SET1 reg8,CL" bookm="SET1 mem8,CL" why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below), silicon longer than the book on its other paths; (qprobe round 10) SET1 / NOT1 r16,CL (0F 15 / 17) keep the round-9 register routine: built as the byte forms' `P . P . . CN .` (Q31 measured on the byte forms) they lost nine corpus runs (F39 page-set1); (qprobe round 12, Q38) the memory forms are SET1 mem,CL's `P . P . C Y DZ G N .` (n1mcl measured on 0F 16)"
+    pop=modrm eac=b1sclw_r                  ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX jmp=b1scl_m2     ; the EA's add; SET1 mem,CL's words (b1scl)
+b1sclw_r: rl=1 open call=w2                 ; OPEN: 3 clocks: book clocks with no act (SET1 reg,CL 7) (the call and the shared delay's 2); the ModR/M byte released (the round-9 register path)
+    ra=CW rb=RM alu=BIT ax=RB ay=RA e ro    ; the register and CL: SET1 / NOT1; E (the E row's operation, a register form's); ro: released
+    wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
+
+routine b1sim op=1C,1D,1E,1F page=0f ea=bare diff=r:1,m00:2,d8:3,d16:3,dir:4 book="SET1 reg8,imm3" bookm="SET1 mem8,imm3" why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) SET1 / NOT1 mem,imm is `P . PC Y DPZ G N .` (the qprobe s1mi runs) and r,imm `P . P . . CPN .` (the qprobe n1i runs): TEST1's heads, the write's post on the word after the datum"
+    pop=modrm eac=b1sim_r                   ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=1 bi alt                             ; (qprobe round 12, Q38) P C: the ModR/M byte released; the commit word
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
+    pop=il                                  ; pop the bit index (released on the datum word)
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    bus=MEMR                                ; post the read (Y + 3)
+    f alu=BIT ax=OPR ay=IMM8 rl=1           ; D P: F: SET1 / NOT1 on the datum; the index released
+    d1=OPRW s1=SIG bus=MEMW                 ; Z: the result into the write datum; post the write
+    e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+b1sim_r: open                              ; OPEN: (qprobe round 12, Q38) SET1 / NOT1 r,imm is `P . P . . CPN .`: the second word with no act
+    rl=1                                    ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word)
+    pop=il                                  ; pop the bit index (released on the commit word)
+    open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
+    rb=RM alu=BIT ax=RB ay=IMM8 e ro bi alt rl=1  ; the register: SET1 / NOT1; E; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
 ; ---- the digit rotates ROL4 / ROR4 (0F 28 / 2A: op3 0 / 1) on a byte register or at [m]
@@ -178,32 +202,46 @@ b1sim_r: pop=il                             ; pop the bit index
 ; read's end to the write's issue 11 and 15: F32-out-rol4_m-k1-pE-w0, F32-out-ror4_m-k1-pE-w0).
 ; The result's write-back runs past E on the register path (the model's wb 2: an OUT imm8
 ; after it waits, MX1f).
-routine rol4 op=28 page=0f book="ROL4 reg8" bookm="ROL4 mem8" diff=r:0,m00:+1,d8:+1,d16:+1,dir:+1 why="OPEN: the book's ROL4 reg8 17 / mem8 EA + 20 with the take sync's wait (F32-out-rol4_dl-k1-pE-w0: 19 S-to-S, the model exact: the ModR/M pop at E + 2, the fetch it asked for delivered at E + 5; F32-push-rol4_m-k1-pE-w0: the read at E + 8, the write at the read's end + 11, the next start at the write's end); the book's clocks with no act OPEN"
-    pop=modrm eac=r4l_r                     ; pop the ModR/M byte (E + 2): register mode to the register path; a memory mode calls its EA head
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add (the take sync's wait first); the reservation
-    bus=MEMR wid=BYTE                       ; post the byte's read
-    f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; F: the digit rotate of the datum with AL (SIGMA the byte, tmpc the new AL)
+routine rol4 op=28 page=0f ea=bare book="ROL4 reg8" bookm="ROL4 mem8" diff=r:1,m00:3,d8:4,d16:4,dir:5 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ROL4 r8 is `P . P . . C`, ten words, `N .` (18; the qprobe rol4 runs) and ROL4 mem `P . PC Y D`, eight words, `Z G N .` (the qprobe rol4m runs): the 0F head, the commit word, the rotate on its fixed words (ROR4 four words more in both forms)"
+    pop=modrm eac=r4l_r                     ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=1 bi alt                             ; (qprobe round 12, Q38) P C: the ModR/M byte released; the commit word
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bus=MEMR wid=BYTE                       ; post the byte's read (Y + 3)
+    f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; D: F: the digit rotate of the datum with AL (SIGMA the byte, tmpc the new AL)
     wr=AW wid=BYTE ws=TC                    ; AL written
-    open call=w7                            ; OPEN: 8 clocks: a book clock with no act (ROL4 mem8 EA + 20) (the call and the shared delay's 7)
-    d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; the byte into the write datum; post the write (the read's end + 10: issued at + 11)
-    e                                       ; E: held until the write's end (RAMEN)
-r4l_r: rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate (the take sync's wait first)
+    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the call and the shared delay's 7)
+    d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; Z: the byte into the write datum; post the write (nine words after the datum: the model's eight)
+    e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+r4l_r: open                                ; OPEN: (qprobe round 12, Q38) a word with no act
+    rl=1                                    ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word)
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bi alt                                  ; (qprobe round 12, Q38) C: the commit word
+    rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate
     wr=AW wid=BYTE ws=TC                    ; AL written
     wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
-    open call=w10                           ; OPEN: 11 clocks: a book clock with no act (ROL4 reg8 17) (the call and the shared delay's 10)
-    e                                       ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)
+    open call=w6                            ; OPEN: (qprobe round 12, Q38) seven words with no act (the call and the shared delay's 6)
+    e ro                                    ; E: pop the next opcode (N: ten words after the commit word)
 
-routine ror4 op=2A page=0f book="ROR4 reg8" bookm="ROR4 mem8" diff=r:0,m00:-1,d8:-1,d16:-1,dir:-1 why="OPEN: the book's ROR4 reg8 21 with the take sync's wait (F32-push-ror4_dl-k1-pE-w0 / w2: 23 / 27 S-to-S, the model exact: the ModR/M pop at E + 2, the fetch it asked for delivered at E + 5 / E + 9); the memory path ROL4's and four clocks more, as the register forms (F32-out-ror4_m-k1-pE-w0: the write at the read's end + 15, the model exact), book error of two against the book's EA + 26; the book's clocks with no act OPEN"
-    pop=modrm eac=r4r_r                     ; pop the ModR/M byte (E + 2)
-    ea=BI ra=BASE rb=INDEX                  ; the EA's add; the reservation
-    bus=MEMR wid=BYTE                       ; post the byte's read
-    f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; F: the digit rotate (SIGMA the byte, tmpc the new AL)
+routine ror4 op=2A page=0f ea=bare book="ROR4 reg8" bookm="ROR4 mem8" diff=r:1,m00:1,d8:2,d16:2,dir:3 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ROR4 is ROL4's routines with four words more (r8: 22, the qprobe runs; mem: twelve words before Z, the qprobe ror4m runs)"
+    pop=modrm eac=r4r_r                     ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=1 bi alt                             ; (qprobe round 12, Q38) P C: the ModR/M byte released; the commit word
+    rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bus=MEMR wid=BYTE                       ; post the byte's read (Y + 3)
+    f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; D: F: the digit rotate (SIGMA the byte, tmpc the new AL)
     wr=AW wid=BYTE ws=TC                    ; AL written
-    open call=w11                           ; OPEN: 12 clocks: a book clock with no act (ROR4 mem8 EA + 26) (the call and the shared delay's 11)
-    d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; the byte into the write datum; post the write (the read's end + 14: issued at + 15)
-    e                                       ; E: held until the write's end (RAMEN)
-r4r_r: rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate (the take sync's wait first)
+    open call=w11                           ; OPEN: (qprobe round 12, Q38) twelve words with no act (the call and the shared delay's 11)
+    d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; Z: the byte into the write datum; post the write (thirteen words after the datum: the model's twelve)
+    e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
+r4r_r: open                                ; OPEN: (qprobe round 12, Q38) a word with no act
+    rl=1                                    ; (qprobe round 12, Q38) P: the ModR/M byte released (the third word)
+    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
+    bi alt                                  ; (qprobe round 12, Q38) C: the commit word
+    rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate
     wr=AW wid=BYTE ws=TC                    ; AL written
     wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
-    open call=w14                           ; OPEN: 15 clocks: a book clock with no act (ROR4 reg8 21) (the call and the shared delay's 14)
-    e                                       ; E: pop the next opcode; the write-back past E (the model's wb 2, MX1f)
+    open call=w10                           ; OPEN: (qprobe round 12, Q38) eleven words with no act (the call and the shared delay's 10)
+    e ro                                    ; E: pop the next opcode (N: fourteen words after the commit word)

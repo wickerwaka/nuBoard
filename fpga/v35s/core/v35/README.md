@@ -7713,3 +7713,223 @@ header names its measurement ("qprobe round 9").
   at pE W = 0, the write a clock early, the direct mode by analogy and not separable from the
   measured mode within the seven whole opcodes); vectors 0 bad; lint x4 clean; fast tests 56 OK;
   program gates as round 8 (the known intr / periph DIFFER lines); dma hwd EQUAL.
+
+## qprobe round 10: the bus-idle word and the EU's cycle, the branches, the memory-immediate forms, the commit word, base + index + d16, LAG_FIRST
+
+The sixth work order (validation/v35s/qprobe/model_m.py, round 10: results Q26-Q31, and the
+approved budget request of round 9). Microcode, the generated table and ROM, the assembler, and
+two pieces of RTL inside existing ports: the bus unit's pace (ph_nx) and the loader's EA-head
+choice. No port added or widened in count (test_v35_struct's budget as it stood; MX1's allowed
+sets carry UROM_EAQ16X, the user's approval).
+
+- **A1, a bus-idle word waits for the EU's own cycle (Q26).** A `bi` word (B, and the FLUSH
+  word's wait) now waits while a pin cycle of any kind started earlier runs, its last clock
+  included: the bus unit's `bz_nx` in place of `fb_nx` (the cycle registers' next values: the
+  ce_b grant register and the running cycle's position, registered state only; never this
+  clock's request). Machine fact: the bus unit is not idle while any cycle is on the pins. It
+  shows only behind OUT imm8 / OUT DW (the only routines whose cycle runs past their end) and
+  only for a third-word bus-idle word (SHL r,1, TEST r,r). The Y word's wait stays fetch-only.
+- **The wait's second kind (`alt`).** The microword is full (96 bits): the kind's fifth bit is
+  the word's `vk` bit, which only SR_VEC reads, on a bus-wait word that reads no SR_VEC (the
+  assembler's `alt` flag checks it). v35_wk_t gains `alt` (the same useq -> bus port). Three
+  words use it:
+  - **C, the commit word (Q31, B4):** `bi alt`: B's wait, and also on the clock a back-to-back
+    fetch starts (a fetched word delivered with the count at most 5 and no EU request standing:
+    the slot stage's continuation, `dlv_fetch_nx && lv.c5`, the level the slot already reads).
+  - **V, the late request word (Q29, A4):** `rl=x bi alt`: waits while a fetch runs then and it
+    is not the fetch's last clock (Y waits only until its last two), and it is not a REQ_PRI
+    request word (`rqx` is not set by it): the request arrives after the slot's decision for
+    the next cycle, so the chained fetch keeps its slot and the read follows it.
+  - **A, OUT DW's first word (LAG_FIRST):** `rl=x alt`: the slot's wait but not on the slot's
+    first clock when the slot runs ahead of the pins (a lagged fetch's next-to-last pin clock
+    with the chained fetch decided, or the clock before the last of the EU cycle a pending
+    fetch waits behind); and, like S, not a REQ_PRI word.
+- **A2 / A3 / B1, the branches (Q27, Q28; urom/xfer.uasm).** Jcc `. . . BP . . BN .` /
+  `. . . BP . . . B . . F N .`; DBNZ `. . . B . . P . BN .` / `. . . B . . P . . B . . F N .` with
+  lead 2 (the header's `lead=`, the decode's: MOV sreg,r's mechanism); BCWZ `. . . B . . PN .` /
+  `. . . B . . P . . F N .`. The fourth word is bus-idle in every conditional branch. DBNZ's count
+  test moved to the displacement's release word (on SIGMA, CW - 1 since the first word: `SNZ`,
+  the same test as the encoding's for E2). DBNZE / DBNZNE (E0 / E1) are built as DBNZ (lead 2,
+  DBNZ's words from the fourth on through a jump; their Z test on the second word to DBNZ's
+  not-taken tail): not measured, kept by the corpus rows (below). SUSP is no longer used by the
+  short branches. The assembler checks the releases per path when the two outcomes release in
+  different words (BCWZ: P N on the not-taken E word, P on the taken path's add).
+- **B2, SHL / SHR / ... r,1 (Q26):** `P . B . . B . N .`, the iteration's second word bus-idle.
+- **B3, the memory forms (Q29, Q30; urom/mem.uasm, ea=bare):** ADD ... [BW],imm8 (83 /0-6)
+  `P . V DPZ G N .`; CMP [BW],imm8 (83 /7) `P . V DP . BN .`; ADD ... [BW],imm16 (81 /0-6)
+  `P . . BY DPP2Z G N .`; TEST [BW],imm16 (F7 /0-1) `P . B . . Y DPP2 . BN .` (TEST mem8,imm8
+  F6 /0-1 by analogy, one byte); PUSH [BW] (FF /6) `P . B Y D . . . Z G N .` (its displacement
+  modes keep the round-9 routine, push_md: built behind the bare heads they lost ten round-9
+  runs, so FF's PUSH is split by mode with `paths=` and FF becomes the seventh whole opcode of
+  the split second-level decode: 0F, 64, 65, C7, F2, F3, FF); POP [BW] (8F)
+  `P . Y D . . Z G N .`. The immediates are popped ahead of their release, released on the datum
+  word. The displacement modes follow the bare heads (their pops and releases before the add):
+  the measured [BW+d8] / [d16] forms of 83 and of PUSH need the request before the displacement's
+  release, which no head the dispatch may name provides (V on the third word of a head); they
+  are one or two words late.
+- **B4, TEST1 / SET1 / NOT1 / CLR1 r,CL (Q31; urom/page.uasm):** `P . P . . CN .` and CLR1
+  `P . P . . CN . .`: the ModR/M byte released on the third word (the register path's own
+  release; the memory path's release moved to its add, after the head), the commit word C.
+  SET1 / NOT1 r16,CL (0F 15 / 17, not measured) keep the round-9 register path (b1sclw): built
+  as the byte forms they lost nine corpus runs (F39 page-set1).
+- **UROM_EAQ16X (approved; Q18):** base + index + d16 (mod 10, rm 0-3) of the ea=q routines has
+  its own head `eaq16x` (`P . Y . PP`: both displacement pops, the request word on the third
+  word, the add, the release); the loader's head choice gains one compare on the ModR/M byte
+  (`m[7:6] == 2 && !m[2]`), on df.ent's logic.
+- **Not built:** the do-not-build list (D). XCH [d16],AW's one lost corpus run (round 9) is
+  left as it was: no rule here explains it.
+
+
+## qprobe round 11: the odd word as one cycle, the strings and REP, MUL / DIV, SHL mem,1, MOV mem8,imm8
+
+The seventh work order (model_m.py round 11: results Q32-Q36), folded into the same batch.
+
+- **A1, a word at an odd address is one EU cycle (Q32; v35_bus.sv).** The pair was already two
+  back-to-back byte cycles with nothing between (the second half's grant first) and one datum
+  strobe (the second's). What changed is the bus unit's "cycle running" levels: on the first
+  half's last clock the cycle is not ending (`ch1_nx`: the next clock's c_half is 1), and the
+  second half's first clock is a cycle running (`pr_nx`: p2_v with nothing running). cb_nx (the
+  boundary) and the B word's level (bp_nx) read them. Registers only (c_half, the ce_b grant
+  register, p2_v). The slot stage still sees the halves separately (no probe needs it).
+- **A2, the chained fetch against a posted write (Q33): not built.** Its first condition needs
+  the request's kind at the decision (a write, not a read: the bus unit sees the posted kind a
+  clock after the post); its second needs "armed" (the write's datum taken after its post),
+  and every write here loads its datum on the posting word. MOV mem,imm16 keeps its round-9
+  routines.
+- **B1, the single strings (Q34; urom/str.uasm):** LDM `. . . . Y DN .`, STM `. . B . . . Y G N .`,
+  MOVBK `. . . . . Y D . . . Z DN .`, CMPM `. . . . . . Y D . . N . .`, CMPBK
+  `. . . . . Y D . . . U D . N .`, INM `. . . . . X D Z DN .`, OUTM `. . . . . . Y D . X . . . N .`:
+  request words (Y, X) and F waits; a write's F waits for its end (MOVBK, INM). A read's address
+  is taken at its grant: the address register keeps the source until the datum (MOVBK, CMPBK).
+- **B2 / A3, REP (Q35):** REP MOVBK / STM / LDM / INM / OUTM: the prefix's word and the zero test
+  (c2, c3), the head from c4 (14 words, bus-idle fourth; INM / OUTM fifth, OUTM 15 words), the
+  iterations (`Y D . . . Z D .`, `Y D .`, `Y D . . .`, `X D Z D`, `Y D X . . . . .` and OUTM's last
+  `Y D . X . . . . .`), the tails; CW = 0: the round-9 zero exit (Q35's `. . . B . . . . . . N .` from c4 lost ten
+  round-9 runs at pO, W = 2: the prefix's boundary waits, below). Each later element
+  starts on its take point (F5e: an interrupt between elements, after CW's write and the count's
+  test; the first element has none). The REP prefix is not its own routine here (the REP page:
+  the previous E pops the prefix and the string opcode; rep's c2 / c3 stand for the prefix's two
+  words), so the prefix's boundary waits (a fetch in flight, the bytes behind the string opcode)
+  are not made: the runs where they act are early. REPE / REPNE CMPBK / CMPM keep their round-9
+  loops (the read-ahead structure not rebuilt).
+- **B3:** MOV mem8,imm8 (C6) `P . V . . . KPN .` (V; the datum on the posting word: K not
+  separate); SHL / SHR / ... [BW],1 `P . B Y D . . . . . Z G N .` (ea=bare). Not built: POP mem with
+  a displacement (the displacement taken on the write's request word: the bare heads pop and
+  release it before the add), PUSH R / POP R (eight elements of six words each: beyond the ROM).
+- **B4, MUL / DIV on a register (Q36; urom/loop.uasm):** the lengths were already the loop's
+  count plus a fixed entry and exit with the sign words (MULU 25 / 33, MUL 36 / 43 + 8, DIVU 33 /
+  41, DIV 52 / 60 + 2 + 7); built: the bus-idle third word (a `bi` word before the loop, the
+  delay after it one word shorter; the memory forms enter at that word, their length unchanged)
+  (the three-bytes exemption for F6, Q36, was tried: no probe moves either way, so F6 keeps the
+  rule; QPr5-em2-mulu-pE-w1, which the model misses too, is lost to the bus-idle third word).
+- **ROM:** 2,025 of 2,048 words. The string tails no routine reaches were removed, the compares'
+  exit chain is one delay call, and the runs of OPEN words in the transfers, the stack and register
+  routines and OUT / IN imm8 became delay calls (the same clocks).
+
+
+## qprobe rounds 12 and 13: the ROM at 4,096 words, the immediates and the 0F page, MUL / DIV, PREPARE, the transfers, the REP prefix, the posted write, the interrupt latencies
+
+The eighth and ninth work orders (validation/v35s/qprobe/model_m.py at round 13: results Q37-Q45;
+spec 9 wins where it differs from spec 8). Microcode, the assembler, and RTL inside existing ports.
+
+- **The ROM: 4,096 words** (UADDR_W 12). The word stays 96 bits: its `trap` bit (one word used it,
+  the divide error's strobe for the function bench) became the sequencing value SQ_TRAP (the next
+  word, the strobe raised: v35_eu trap_o). Every ROM address, the decode tables' entries and the
+  return register are one bit wider; no port name changed.
+- **Immediates on a register (Q37):** 80 / 83 r,imm8 `P . . BNP .` (CMP as ADD), 81 r16,imm16
+  `P . . . BNPP2 .`, F6 TEST r8,imm8 `P . B . . NP .`, F7 TEST r16,imm16 `P . B . . . NPP2 .`.
+- **The 0F page (Q38, Q43):** one head `P . P` with the commit word C (`bi alt`) three words after
+  the ModR/M byte; r,imm forms `P . P . . CPN .` (CLR1 one word more); TEST1 mem,CL `P . P . C Y DN .`,
+  SET1 / NOT1 mem,CL `... Y DZ G N .`, CLR1 mem,CL `... Y D Z G N .`; mem,imm `P . PC Y DPN .`,
+  `P . PC Y DPZ G N .`, CLR1 `P . PC Y DP Z G N .`; ROL4 / ROR4 r8 `P . P . . C` + 10 / 14 words,
+  mem `P . PC Y D` + 8 / 12 words + `Z G N .`. The memory forms are ea=bare (mod 00 enters the
+  add directly). ADD4S / SUB4S / CMP4S: a 13-word head with a bus-idle fourth word, a byte loop
+  with no data-dependent exit (`Y D . . . U D . . . . . . Z D .`, CMP4S `Y D . . . U D . . . . . . . .`),
+  tails of 10 / 11 words. EXT / INS: the head `P . P . . C . . Y D` (the register-count forms one
+  word shorter), two counted shifts at two words a bit (EXT: the second with a four-word entry
+  skipped for a full-word field), INS's sixteen rotations; across a word the next word's read
+  (EXT) or the first word written as a field ending at bit 15, the next read and written (INS).
+  The register-count forms have their own copy of the body (their E releases no immediate).
+- **MUL / DIV (Q39, Q42, Q44):** the memory forms are `P . B Y D` in front and the register
+  form's word count in total (the read replaces five of its words): their own loop word and the
+  register form's finish (its sign steps and exit unchanged). MUL r16,r16,imm16 / imm8: 41 / 40
+  words, the immediate on word 4 / 3, bus-idle words two and four words after it, + 8 for a
+  negative product (the memory forms keep their clocks: five words before their loop).
+- **PREPARE / DISPOSE (Q40):** PREPARE `. . Y D . . . PP2 P . . C . . . . . . . . N .` (BP's push
+  first; level L >= 1: seven words, L - 1 copies `U D . . . Z D . .`, the frame pointer's push
+  `. Z D . . . . N .`); DISPOSE `. . Y DN .`.
+- **The transfers (Q40, Q44):** JMP r16 `P . B . . . . F N .`, CALL r16 `P . B . . . . Y D . . F N .`
+  (FF exempt from the three-bytes rule: NO_M3), RET imm16 `. . . Y DPP2 . . F N .`, INT 3
+  `. . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .`, BRK imm8 `. . . BP . B . . Y`
+  then INT 3's words, RETI `. . Y D . . . U D . . . U D . . . . . . . . F N .`. The direct forms
+  JMP / CALL [d16] (`P PP2 B Y D . . F N .`, `P PP2 B Y D . . . Z D . . F N .`) and JMP / CALL far
+  [d16] (`P . B . Y PP2 D . U D . . F N .`, `... . . . Z D . . . Z D . . F N .`) pop and release
+  their own displacement: their cells (mod 00 rm 110 of FF, already a whole opcode) are not
+  memory cells (no EA head: the assembler's `mod=m00 rm=6`, the address by ea=DISP). DBNZE /
+  DBNZNE (Q43): their own four paths, no lead.
+- **CMP mem,imm16 (Q43):** `P . . BY DPP2 . BN .`.
+- **POP mem with a displacement (spec 7 B3):** `P . Y D . . PZ G N .` / `P . Y D . . PP2Z G N .`: the
+  displacement released on the write's request word. Built by the same mechanism as the direct
+  transfers: POP [BW+d8] / [BW+d16] / [d16] are cells of mod 01 / 10 / 00 rm 110 that are not
+  memory cells (the assembler's `mod=m01` / `m10` / `m00 rm=6`): the routine pops the displacement,
+  forms the EA after SP's read and releases the bytes on Z's word. 8F becomes a whole opcode of
+  the split decode, in the slot C7 no longer needs (below).
+- **The REP prefix is its own routine (spec 7 A3; Q35).** A REP prefix (F3 F2 65 64) has the
+  decode bit `rp` (v35_udec_t, no port): its E pop takes the prefix alone and also loads it into
+  the ModR/M register, so its dispatch reads the REP page at the prefix's own byte: rep_p, two
+  words (`e nb ea=REP`: F5d's mechanism pops the string opcode into the page, the prefix kept in
+  the opcode register; nb: no interrupt between the prefix and its instruction, the prefix's
+  offset the start). The string's boundary is then a dispatch with every boundary wait (a fetch
+  in flight, the bytes behind the staged opcode). The REP routines lost their two stand-in words
+  (c2, c3): the count's test is on c4 / c5; CW = 0 is `. . . B . . . . . . N .`. REP then a REP
+  prefix enters rep_p again (rep_nx no longer claims 64 65 F2 F3).
+- **The posted write armed by its datum (spec 7 A2; Q33).** BQ_MEMWD: a write posted before the
+  word that takes its datum (K). MOV mem,imm (C6, C7) post with MEMWD on the request's word and
+  take the immediate again on K (their E word). In v35_eu an external MEMWD write is not armed
+  (`rq_un`) until K executes: while K is not the current word the request is not presented
+  (req_v low); while K is the current word it is presented with req_ia set (on a memory write the
+  port's existing bit means "the datum is loaded by the current word"); the bus unit grants such
+  a request only if that word executes now (`ex`, its input already) and no fetch asks for the bus
+  (the unarmed write does not compete with a chained fetch: one asked for on the clock after a
+  fetch's last clock, `dlv_fetch`, decided on that fetch's next-to-last clock from the count, `dc`,
+  the queue's cf there: registers). From K on it
+  is an ordinary write. Every write's datum is in rq_d before its B2 (`+v35_chk`: an unarmed write
+  granted on a clock K does not execute is reported). An on-chip store is armed at its post (its E
+  keeps the RAMEN hold). C7's two routines (by mode) became one: C7 left the split decode.
+- **The fetch behind the fetch behind an EU cycle (spec 9 A1, first half; Q42).** The give-way the
+  boundary has over the fetch pending under an EU cycle (EU_EPRI) is kept for one more fetch: the
+  fetch chained to the fetch that followed an EU cycle (`fe`) gives way when the dispatch word
+  executes on that clock and did not wait on the clock before (`dst`). Registers only. The second
+  half (no chained fetch when the next word is a bus-idle word) needs the next word's kind in tick
+  A, which the bus unit has only in tick B (wk_nx): not built.
+- **Interrupts (spec 8 A1-A3, spec 9 C1-C4).** The acknowledge is INT 3's sequence entered from
+  its request word: the entry (IVEC, the kind's tests, the vector's address) and six words, so the
+  first cycle is 16 clocks after the boundary; the PC pushed is tmpc (the interrupted
+  instruction's start; INT 3 and BRK put the return offset there). A broken REP leaves through
+  rep_brk (about 30 words: the acknowledge 48 clocks after the last write's end). In the interrupt
+  block (v35_intc, registers only): NMI's edge reaches its request NMI_DLY clocks after it is
+  sampled; INTP0-2 are edge-latched and sampled on a free-running 16-clock grid from reset, then
+  take the same delay to their IF bits (the peripherals' requests are not on the grid: tried, the
+  gate's f4_tm / f4_tout periods moved further from the socket's); NMI at a dispatch is the request as the E word that took
+  the next opcode saw it (`ne`). MOV sreg already held off every segment register (nb). Not built
+  (spec 8 D, spec 9 C5): the extra clocks of short trains, the INTP0 hold-off in RMW trains.
+- **The ROM's two parts (timing).** With 4,096 words in 4,096 x 1 blocks every address bit drove
+  96 blocks and the sequencer's address path fell to 5.36 ns of slack. The ROM is now two parts:
+  words 0-2047 in rom0..rom2 (v35_urom_b0..b2.hex, 2,048 x 2 blocks) and the words from 2048 on in
+  rom3..rom5 (v35_urom_b3..b5.hex, 512 words); both are read at ce_b with the same address (the
+  high part's last select kept apart, `rah`), the part chosen on the read data by the address's
+  top bit registered with the read (`hi_b`). 60 RAM blocks (48 before the growth).
+- **PUSH R / POP R (round 11 'also read'; the ROM's growth):** `. . B .`, seven `Y D .`, `Y G N .` and
+  `. .`, seven `Y D .`, `Y DN .`: one request word per register, unrolled (a loop over a register
+  index needs a selector indexed by a count, which the EU does not have).
+- **PUSH [BW+d8] / [BW+d16] / [d16] (spec 6 B3):** `P . . B Y P D . . . Z G N .` / `... Y P P2 D ...`:
+  the self-popping cells (FF is whole already), the displacement released after the request word.
+- **REP MOVBK's index write-back (function).** The rebuilt iteration had stepped IX after the
+  read's datum: a source running over the on-chip RAM reads its own IX slot, and silicon (f3_bins,
+  the fuzz snapshots) reads it stepped. IX is now stepped and written on the two words between Y
+  and the read's post (Y + 1, Y + 2), IY before the write's post; the bus clocks are unchanged.
+- **Not built** (each in the hand-back with its reason): the REP compares' read-ahead structure and the
+  REPC / REPNC tails (spec 9 B2: the routines are REPE / REPNE's with the carry, unchanged), EXT's
+  [n < 16] word across a word, ADD [BW+d8] / [d16],imm8's request before the displacement's release
+  (no whole-opcode slot left: 0F 64 65 F2 F3 FF 8F), Q42's second half, the 0 to 3 extra clocks and
+  the INTP0 hold-off in RMW trains (spec 8 D, spec 9 C5).

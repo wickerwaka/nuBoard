@@ -39,124 +39,225 @@
 ; after the ModR/M byte's take; the imm4 width byte taken while it waits), the field's
 ; arithmetic under it; the pointer's step on two of the end's clocks.
 
-routine ext op=33 page=0f why="OPEN: the data book prints a range (EXT reg8,reg8 41-121); silicon's per-bit costs (docs/v35s-eu-timing.md: 107 - 2o - 4w within a word, 61 + 2o crossing) are the loops' iterations, two clocks each; the fixed clocks around them with no act OPEN (the frozen model exact on the runs README F2a names)"
-    pop=modrm eac=ext_r                 ; pop the ModR/M byte (E + 2): register mode to the register form; a memory mode calls its EA head
+; (qprobe round 12-13, Q38 / Q44) the head of every form: `P . P . . C . . Y D` (the imm4 forms; the register-count forms one
+; word shorter, `P . P . . C . Y D`): the ModR/M byte released on the third word, the commit word
+; C, the word's read (Y, posted three words later), D. Then the field's two counted shifts at two
+; words a bit (EXT: up by the bits above the field, down by the bits not in it, the second with
+; a four-word entry skipped for a full-word field; INS: sixteen rotations), each structure's fixed
+; words, and the end: EXT `PN .` (24 + 4 [n < 16] + 2 (16 - o - n) + 2 (16 - n) words after D),
+; INS `Z G PN .` (70 + 2 [o > 0] - 8 [o + n = 16]). Across a word (o + n > 16, spec 9 B3): EXT
+; 23 words, `U D` (the next word's read), 12 + 2 o + [n < 16] words (the [n < 16] word not built: a
+; full-word field crossing is one word long), `PN .`; INS 65 words, `Z D` (the first word written
+; as a field ending at bit 15), 8 words, `U D`, 17 + 4 m words (m = o + n - 16), `Z G PN .`.
+
+routine ext op=33 page=0f why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`P . P . C . Y D` ... `N .`; the qprobe ext runs, round 9)"
+    pop=modrm eac=ext_r                 ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=ext_r                           ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
-ext_r: open call=w4                     ; OPEN: 5 clocks with no act (the read's setup) (the call and the shared delay's 4)
-    ra=IX wid=WORD d1=ADDR s1=RA bus=MEMR seg=DSP; post the word's read at IX (a prefix's segment, else DS0)
-    f d1=TC s1=OPR                      ; F: tmpc <- the word (the read's end)
-    ra=RM rb=REG wid=BYTE d1=TA s1=RB d2=TB s2=RA alu=ADD ax=RA ay=RB; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width
-ext_c: alu=BFK ax=SIG                   ; SIGMA = 15 - (offset + width); no flags (F5: silicon leaves the PSW, f5x)
-    cnt=SIG alu=BFU ax=TB ay=TA jc=SGN:ext_x; the counter <- the bits above the field; SIGMA = the offset's step (the new offset, the carry); crossing: the two-word path
-    d1=ADDR s1=SIG d2=TB s2=TC alu=NOT ax=TA; the address register <- the step; tmpb <- the word; SIGMA = ~width (the bits not in the field)
-    d1=TC s1=ZERO jc=CNTZ:ext_wr        ; tmpc <- 0; no bit above the field: the right shift
-ext_wl: alu=BFL                         ; the word shifted left by one (tmpc's zero in)
-    loop=ext_wl                         ; the counter step
-ext_wr: cnt=SIG d1=TC s1=ZERO           ; the counter <- 15 - w; tmpc <- 0
-    jc=CNTZ:ext_wd                      ; the field fills the word: done
-ext_wrl: alu=BFR                        ; the word shifted right by one (tmpc's zero in)
-    loop=ext_wrl                        ; the counter step
-ext_wd: open call=w17                   ; OPEN: 18 clocks with no act (EXT 107 - 2o - 4w) (the call and the shared delay's 17)
-    alu=PASS ax=ADDR jmp=ext_t          ; SIGMA = the offset's step
-; the field crosses into the next word (the registers whole): the word at IX + 2 read too
-ext_x: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG; tmpb <- the low word; tmpc <- the offset's step; SIGMA = the offset
-    cnt=SIG ra=IX wid=WORD alu=INC2 ax=RA; the counter <- the offset's low four bits; SIGMA = IX + 2
+ext_r: open                             ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
+    rl=1                                ; P: the ModR/M byte released (the third word)
+    open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
+    bi alt                              ; C: the commit word
+    ra=IX wid=WORD d1=ADDR s1=RA        ; the word's address IX
+    rl=x bi                             ; Y: the request word (the read posted three words later)
+    open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=DSP                    ; post the word's read at IX (a prefix's segment, else DS0)
+    f d1=TC s1=OPR                      ; D: F: tmpc <- the word
+    ra=RM rb=REG wid=BYTE d1=TA s1=RB d2=TB s2=RA alu=ADD ax=RA ay=RB jmp=ext_c2 ; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width; the common part
+
+; (the register-count form's own copy of the body: its E word releases no immediate)
+ext_c2: alu=BFK ax=SIG                   ; SIGMA = 15 - (offset + width): the bits above the field
+    cnt=SIG alu=BFU ax=TB ay=TA jc=SGN:ext_x2 ; the counter <- the bits above the field; SIGMA = the offset's step (the new offset, the carry); crossing: the two-word path
+    d1=ADDR s1=SIG d2=TB s2=TC alu=NOT ax=TA ; the address register <- the step; tmpb <- the word; SIGMA = ~width (low four bits: the bits not in the field)
+    d1=TC s1=ZERO jc=CNTZ:ext_wr2        ; tmpc <- 0; no bit above the field: the second shift
+ext_wl2: alu=BFL                         ; the word shifted up by one (tmpc's zero in)
+    loop=ext_wl2                         ; the counter step (two words a bit)
+ext_wr2: cnt=SIG d1=TC s1=ZERO           ; the counter <- 16 - n; tmpc <- 0
+    jc=CNTZ:ext_wd2                      ; a full-word field: no second shift (its entry skipped)
+    open call=w2                        ; OPEN: (qprobe round 12-13, Q38 / Q44) the second shift's four-word entry (the call and the shared delay's 2)
+    open                                ; OPEN: (qprobe round 12-13, Q38 / Q44) the entry's fourth word
+ext_wrl2: alu=BFR                        ; the word shifted down by one (tmpc's zero in)
+    loop=ext_wrl2                        ; the counter step (two words a bit)
+ext_wd2: open call=w11                   ; OPEN: (qprobe round 12-13, Q38 / Q44) twelve words with no act (the call and the shared delay's 11)
+    alu=PASS ax=ADDR jmp=ext_t2          ; SIGMA = the offset's step
+; the field crosses into the next word: the word at IX + 2 read too
+ext_x2: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG ; tmpb <- the low word; tmpc <- the offset's step; SIGMA = the offset
+    cnt=SIG ra=IX wid=WORD alu=INC2 ax=RA ; the counter <- the offset's low four bits; SIGMA = IX + 2
     d1=ADDR s1=SIG alu=PASS ax=TC       ; the address register <- IX + 2; SIGMA = the offset's step
-    open call=w17                       ; OPEN: 18 clocks with no act (the next read's setup: EXT 61 + 2o) (the call and the shared delay's 17)
-    bus=MEMR seg=DSP wid=WORD           ; post the next word's read
-    f d1=TC s1=OPR jc=CNTZ:ext_xm       ; F: tmpc <- the high word; offset 0: the mask
+    open call=w17                       ; OPEN: (qprobe round 12-13, Q38 / Q44) eighteen words with no act (the next read 29 clocks after the first at W = 0) (the call and the shared delay's 17)
+    bus=MEMR seg=DSP wid=WORD           ; U: post the next word's read
+    f d1=TC s1=OPR jc=CNTZ:ext_xm2       ; D: F: tmpc <- the high word; offset 0: the mask
+ext_xr2: alu=BFR                         ; the pair rotated right by one
+    loop=ext_xr2                         ; the counter step (two words a bit of the offset)
+ext_xm2: open call=w6                    ; OPEN: (qprobe round 12-13, Q38 / Q44) seven words with no act (the call and the shared delay's 6)
+    alu=BFM                             ; tmpb masked to the field's w + 1 bits
+ext_t2: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
+    wr=AW wid=WORD ws=TB jnc=SGN:ext_n2  ; (F5b: silicon, f5r extal) AW <- the field after the offset register; no carry: the pointer stays
+    ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
+    wr=IX wid=WORD ws=SIG jmp=ext_e2     ; IX written
+ext_n2: open call=w1                     ; OPEN: two words with no act (the pointer's two clocks) (the call and the shared delay's 1)
+ext_e2: e ro                             ; E: pop the next opcode (N; the imm4 forms' P: the width byte, released here)
+
+routine exti op=3B page=0f why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,imm4 (the qprobe exti runs, r12b / r13a): the head, the two counted shifts, `PN .`; across a word the next word's read and the offset's rotation"
+    pop=modrm eac=exti_r                ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
+    jmp=exti_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
+exti_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
+    rl=1                                ; P: the ModR/M byte released (the third word)
+    pop=il                              ; pop the imm4 width byte (released on the E word)
+    open                                ; OPEN: a word with no act
+    bi alt                              ; C: the commit word
+    open                                ; OPEN: a word with no act
+    ra=IX wid=WORD d1=ADDR s1=RA        ; the word's address IX
+    rl=x bi                             ; Y: the request word (the read posted three words later)
+    open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=DSP                    ; post the word's read at IX (a prefix's segment, else DS0)
+    f d1=TC s1=OPR                      ; D: F: tmpc <- the word
+    ra=RM wid=BYTE d1=TA s1=IMM8 d2=TB s2=RA alu=ADD ax=RA ay=IMM8 ; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width
+ext_c: alu=BFK ax=SIG                   ; SIGMA = 15 - (offset + width): the bits above the field
+    cnt=SIG alu=BFU ax=TB ay=TA jc=SGN:ext_x ; the counter <- the bits above the field; SIGMA = the offset's step (the new offset, the carry); crossing: the two-word path
+    d1=ADDR s1=SIG d2=TB s2=TC alu=NOT ax=TA ; the address register <- the step; tmpb <- the word; SIGMA = ~width (low four bits: the bits not in the field)
+    d1=TC s1=ZERO jc=CNTZ:ext_wr        ; tmpc <- 0; no bit above the field: the second shift
+ext_wl: alu=BFL                         ; the word shifted up by one (tmpc's zero in)
+    loop=ext_wl                         ; the counter step (two words a bit)
+ext_wr: cnt=SIG d1=TC s1=ZERO           ; the counter <- 16 - n; tmpc <- 0
+    jc=CNTZ:ext_wd                      ; a full-word field: no second shift (its entry skipped)
+    open call=w2                        ; OPEN: (qprobe round 12-13, Q38 / Q44) the second shift's four-word entry (the call and the shared delay's 2)
+    open                                ; OPEN: (qprobe round 12-13, Q38 / Q44) the entry's fourth word
+ext_wrl: alu=BFR                        ; the word shifted down by one (tmpc's zero in)
+    loop=ext_wrl                        ; the counter step (two words a bit)
+ext_wd: open call=w11                   ; OPEN: (qprobe round 12-13, Q38 / Q44) twelve words with no act (the call and the shared delay's 11)
+    alu=PASS ax=ADDR jmp=ext_t          ; SIGMA = the offset's step
+; the field crosses into the next word: the word at IX + 2 read too
+ext_x: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG ; tmpb <- the low word; tmpc <- the offset's step; SIGMA = the offset
+    cnt=SIG ra=IX wid=WORD alu=INC2 ax=RA ; the counter <- the offset's low four bits; SIGMA = IX + 2
+    d1=ADDR s1=SIG alu=PASS ax=TC       ; the address register <- IX + 2; SIGMA = the offset's step
+    open call=w17                       ; OPEN: (qprobe round 12-13, Q38 / Q44) eighteen words with no act (the next read 29 clocks after the first at W = 0) (the call and the shared delay's 17)
+    bus=MEMR seg=DSP wid=WORD           ; U: post the next word's read
+    f d1=TC s1=OPR jc=CNTZ:ext_xm       ; D: F: tmpc <- the high word; offset 0: the mask
 ext_xr: alu=BFR                         ; the pair rotated right by one
-    loop=ext_xr                         ; the counter step
-ext_xm: open call=w9                    ; OPEN: 10 clocks with no act (EXT 61 + 2o) (the call and the shared delay's 9)
+    loop=ext_xr                         ; the counter step (two words a bit of the offset)
+ext_xm: open call=w6                    ; OPEN: (qprobe round 12-13, Q38 / Q44) seven words with no act (the call and the shared delay's 6)
     alu=BFM                             ; tmpb masked to the field's w + 1 bits
 ext_t: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
-    wr=AW wid=WORD ws=TB jnc=SGN:ext_n  ; (F5b: silicon, f5r extal, 220 cases) AW <- the field after the offset register (an offset in AL / AH is overwritten); no carry: the pointer stays
+    wr=AW wid=WORD ws=TB jnc=SGN:ext_n  ; (F5b: silicon, f5r extal) AW <- the field after the offset register; no carry: the pointer stays
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
-    wr=IX wid=WORD ws=SIG               ; IX written
-    e                                   ; E: pop the next opcode; AW's write-back runs on past E (the frozen model's bf_ext wb 2: an OUT imm8 after it waits, MX1f)
-ext_n: open call=w1                     ; OPEN: 2 clocks with no act (EXT's end: the pointer's two clocks) (the call and the shared delay's 1)
-    e                                   ; E: pop the next opcode; AW's write-back runs on past E (the frozen model's bf_ext wb 2: an OUT imm8 after it waits, MX1f)
+    wr=IX wid=WORD ws=SIG jmp=ext_e     ; IX written
+ext_n: open call=w1                     ; OPEN: two words with no act (the pointer's two clocks) (the call and the shared delay's 1)
+ext_e: e ro rl=1                        ; E: P N: the width byte and the next opcode released
 
-routine exti op=3B page=0f why="OPEN: the data book prints a range (EXT reg8,imm4 42-122); silicon's per-bit costs (docs/v35s-eu-timing.md: 107 - 2o - 4w within a word, 61 + 2o crossing) are the loops' iterations, two clocks each; the fixed clocks around them with no act OPEN (the frozen model exact on the runs README F2a names)"
-    pop=modrm eac=exti_r                ; pop the ModR/M byte (E + 2): register mode to the register form; a memory mode calls its EA head
-    jmp=exti_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
-exti_r: open call=w4                    ; OPEN: 5 clocks with no act (the read's setup) (the call and the shared delay's 4)
-    open                                ; OPEN: a fetch-free clock of the read's setup (fw: the word waits while a fetch cycle runs or delivers its word; the frozen model's bf_read=fixed: the setup's clocks fetch-free)
-    ra=IX wid=WORD d1=ADDR s1=RA bus=MEMR seg=DSP; post the word's read at IX (a prefix's segment, else DS0)
-    pop=il                              ; pop the imm4 width byte (while the read waits)
-    f d1=TC s1=OPR                      ; F: tmpc <- the word (the read's end)
-    ra=RM wid=BYTE d1=TA s1=IMM8 d2=TB s2=RA alu=ADD ax=RA ay=IMM8 jmp=ext_c; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width; the common part
-
-; ---- INS (0F 31: the width in the reg field's byte register; 0F 39: the imm4 byte), the read
-; posted first as EXT's.
-
-routine ins op=31 page=0f why="OPEN: the data book prints a range (INS reg8,reg8 63-155); silicon's per-bit costs (docs/v35s-eu-timing.md: 94 within a word, 86 ending at its boundary, 128 + 4(o + w - 16) crossing) are the loops' iterations, two clocks each; the fixed clocks around them with no act OPEN (the frozen model exact on the runs README F2a names)"
-    pop=modrm eac=ins_r                 ; pop the ModR/M byte (E + 2): register mode to the register form; a memory mode calls its EA head
+routine ins op=31 page=0f why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`Z G N .`; the qprobe ins runs, round 9)"
+    pop=modrm eac=ins_r                 ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
     jmp=ins_r                           ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
-ins_r: open call=w4                     ; OPEN: 5 clocks with no act (the read's setup) (the call and the shared delay's 4)
-    ra=IY wid=WORD d1=ADDR s1=RA bus=MEMR seg=DS1; post the word's read at DS1:IY (no prefix)
-    f d1=TC s1=OPR                      ; F: tmpc <- the word (the read's end)
-    ra=RM rb=REG wid=BYTE d1=TA s1=RB d2=TB s2=RA alu=ADD ax=RA ay=RB; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width
+ins_r: open                             ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
+    rl=1                                ; P: the ModR/M byte released (the third word)
+    open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
+    bi alt                              ; C: the commit word
+    ra=IY wid=WORD d1=ADDR s1=RA        ; the word's address IY
+    rl=x bi                             ; Y: the request word (the read posted three words later)
+    open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=DS1                    ; post the word's read at DS1:IY (no prefix)
+    f d1=TC s1=OPR                      ; D: F: tmpc <- the word
+    ra=RM rb=REG wid=BYTE d1=TA s1=RB d2=TB s2=RA alu=ADD ax=RA ay=RB jmp=ins_c2 ; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width; the common part
+
+; (the register-count form's own copy of the body: its E word releases no immediate)
+ins_c2: alu=INC ax=SIG                   ; SIGMA = offset + width + 1
+    alu=BFK ax=SIG                      ; SIGMA = 14 - (offset + width); no flags
+    alu=INC ax=SIG                      ; SIGMA = 15 - (offset + width): its sign the crossing
+    alu=BFU ax=TB ay=TA jc=SGN:ins_x2    ; SIGMA = the offset's step; crossing: the two-word path
+    call=bf_pass                        ; the insertion into the word (tmpc)
+    alu=PASS ax=ADDR                    ; SIGMA = the offset's step
+    jnc=SGN:ins_n2                       ; the field ends below bit 15: the long path
+    open call=w17                       ; OPEN: eighteen words with no act (the field ending at bit 15: eight words fewer) (the call and the shared delay's 17)
+    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC alu=INC2 ax=RA ; Z's word: the address register <- IY; the write datum <- the word; SIGMA = IY + 2
+    bus=MEMW seg=DS1 wid=WORD wr=IY ws=SIG jmp=ins_e2 ; Z: post the word's write; IY written (the field ended at bit 15)
+ins_n2: open call=w24                    ; OPEN: twenty-five words with no act (the call and the shared delay's 24)
+    open                                ; OPEN: a word with no act
+    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC ; Z's word: the address register <- IY; the write datum <- the word
+    bus=MEMW seg=DS1 wid=WORD           ; Z: post the word's write
+ins_e2: e ro bi                          ; E: G N (the imm4 forms' P: the width byte); held until the write's end (RAMEN)
+; the field crosses into the next word: the word at IY + 2 read and written
+ins_x2: call=bf_pass                     ; the insertion into the low word (tmpc); tmpb <- the spilled bits
+    open call=w20                       ; OPEN: twenty-one words with no act (the call and the shared delay's 20)
+    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC alu=PASS ax=ADDR ; Z's word: the address register <- IY; the write datum <- the low word; SIGMA = the offset's step
+    ra=IY wid=WORD d1=TC s1=SIG alu=INC2 ax=RA bus=MEMW seg=DS1 ; Z: post the low word's write; tmpc <- the step; SIGMA = IY + 2
+    f d1=ADDR s1=SIG alu=PASS ax=TC     ; D: F: the low word's write's end; the address register <- IY + 2; SIGMA = the offset's step
+    open call=w8                        ; OPEN: nine words with no act (the call and the shared delay's 8)
+    bus=MEMR seg=DS1 wid=WORD           ; U: post the next word's read
+    f d1=TC s1=OPR jnc=SGN:ins_xw2       ; D: F: tmpc <- the high word; no carry: no bit spilled
+    cnt=SIG                             ; the counter <- the spilled bits m
+    jc=CNTZ:ins_xw2                      ; none
+ins_xr2: alu=BFR                         ; the pair {the high word, the spill} rotated right by one
+    loop=ins_xr2                         ; the counter step
+    cnt=SIG d1=TB s1=TC                 ; the counter <- m; tmpb <- tmpc (the high word rotated alone)
+ins_xl2: alu=BFL                         ; the high word rotated left by one
+    loop=ins_xl2                         ; the counter step
+ins_xw2: open jnc=SGN:ins_xs2             ; OPEN: a word with no act; no carry: the pointer stays
+    ra=IY wid=WORD alu=INC2 ax=RA       ; SIGMA = IY + 2
+    wr=IY wid=WORD ws=SIG               ; IY written
+    open call=w9                        ; OPEN: ten words with no act (the call and the shared delay's 9)
+    open jmp=ins_xo2                     ; OPEN: a word with no act
+ins_xs2: open call=w11                   ; OPEN: twelve words with no act (the call and the shared delay's 11)
+    open                                ; OPEN: a word with no act
+ins_xo2: d1=OPRW s1=TC                   ; Z's word: the write datum <- the high word
+    bus=MEMW seg=DS1 wid=WORD jmp=ins_e2 ; Z: post the high word's write
+
+routine insi op=39 page=0f why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) INS reg8,imm4 (the qprobe insi runs, r12b / r13a): the head, the sixteen rotations, `Z G PN .`; across a word the first word written, the next read and written"
+    pop=modrm eac=insi_r                ; pop the ModR/M byte: register mode to the register form; a memory mode calls its EA head
+    jmp=insi_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
+insi_r: open                            ; OPEN: (qprobe round 12-13, Q38 / Q44) a word with no act
+    rl=1                                ; P: the ModR/M byte released (the third word)
+    pop=il                              ; pop the imm4 width byte (released on the E word)
+    open                                ; OPEN: a word with no act
+    bi alt                              ; C: the commit word
+    open                                ; OPEN: a word with no act
+    ra=IY wid=WORD d1=ADDR s1=RA        ; the word's address IY
+    rl=x bi                             ; Y: the request word (the read posted three words later)
+    open call=w1                        ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=DS1                    ; post the word's read at DS1:IY (no prefix)
+    f d1=TC s1=OPR                      ; D: F: tmpc <- the word
+    ra=RM wid=BYTE d1=TA s1=IMM8 d2=TB s2=RA alu=ADD ax=RA ay=IMM8 ; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width
 ins_c: alu=INC ax=SIG                   ; SIGMA = offset + width + 1
-    alu=BFK ax=SIG                      ; SIGMA = 14 - (offset + width); no flags (F5: silicon leaves the PSW, f5x)
+    alu=BFK ax=SIG                      ; SIGMA = 14 - (offset + width); no flags
     alu=INC ax=SIG                      ; SIGMA = 15 - (offset + width): its sign the crossing
     alu=BFU ax=TB ay=TA jc=SGN:ins_x    ; SIGMA = the offset's step; crossing: the two-word path
     call=bf_pass                        ; the insertion into the word (tmpc)
     alu=PASS ax=ADDR                    ; SIGMA = the offset's step
     jnc=SGN:ins_n                       ; the field ends below bit 15: the long path
-    open call=w17                       ; OPEN: 18 clocks with no act (INS 86 at the word's end) (the call and the shared delay's 17)
-    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC alu=INC2 ax=RA; the address register <- IY; the write datum <- the word; SIGMA = IY + 2
-    bus=MEMW seg=DS1 wid=WORD           ; post the word's write
-    wr=IY wid=WORD ws=SIG               ; IY written (the field ended at bit 15)
-    open call=w2                        ; OPEN: 3 clocks with no act (INS's end after the write) (the call and the shared delay's 2)
-    e                                   ; E: held until the write's end (RAMEN)
-ins_n: open call=w24                    ; OPEN: 25 clocks with no act (INS 94) (the call and the shared delay's 24)
-    open                                ; OPEN: a clock with no act (INS 94)
-    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC; the address register <- IY; the write datum <- the word
-    bus=MEMW seg=DS1 wid=WORD           ; post the word's write
-ins_e: open call=w3                     ; OPEN: 4 clocks with no act (INS's end after the write) (the call and the shared delay's 3)
-    e                                   ; E: held until the write's end (RAMEN)
-; the field crosses into the next word (the registers whole): the word at IY + 2 read and written
+    open call=w17                       ; OPEN: eighteen words with no act (the field ending at bit 15: eight words fewer) (the call and the shared delay's 17)
+    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC alu=INC2 ax=RA ; Z's word: the address register <- IY; the write datum <- the word; SIGMA = IY + 2
+    bus=MEMW seg=DS1 wid=WORD wr=IY ws=SIG jmp=ins_e ; Z: post the word's write; IY written (the field ended at bit 15)
+ins_n: open call=w24                    ; OPEN: twenty-five words with no act (the call and the shared delay's 24)
+    open                                ; OPEN: a word with no act
+    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC ; Z's word: the address register <- IY; the write datum <- the word
+    bus=MEMW seg=DS1 wid=WORD           ; Z: post the word's write
+ins_e: e ro bi rl=1                     ; E: G P N (the width byte); held until the write's end (RAMEN)
+; the field crosses into the next word: the word at IY + 2 read and written
 ins_x: call=bf_pass                     ; the insertion into the low word (tmpc); tmpb <- the spilled bits
-    open call=w20                       ; OPEN: 21 clocks with no act (INS 128 + 4(o + w - 16)) (the call and the shared delay's 20)
-    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC alu=PASS ax=ADDR; the address register <- IY; the write datum <- the low word; SIGMA = the offset's step
-    ra=IY wid=WORD d1=TC s1=SIG alu=INC2 ax=RA bus=MEMW seg=DS1; post the low word's write; tmpc <- the step; SIGMA = IY + 2
-    f d1=ADDR s1=SIG alu=PASS ax=TC     ; F: the low word's write's end (the RAMEN hold); the address register <- IY + 2; SIGMA = the offset's step
-    open call=w8                        ; OPEN: 9 clocks with no act (the next read's setup) (the call and the shared delay's 8)
-    bus=MEMR seg=DS1 wid=WORD           ; post the next word's read
-    f d1=TC s1=OPR jnc=SGN:ins_xw       ; F: tmpc <- the high word; no carry: no bit spilled
-    cnt=SIG                             ; the counter <- the spilled bits n
+    open call=w20                       ; OPEN: twenty-one words with no act (the call and the shared delay's 20)
+    ra=IY wid=WORD d1=ADDR s1=RA d2=OPRW s2=TC alu=PASS ax=ADDR ; Z's word: the address register <- IY; the write datum <- the low word; SIGMA = the offset's step
+    ra=IY wid=WORD d1=TC s1=SIG alu=INC2 ax=RA bus=MEMW seg=DS1 ; Z: post the low word's write; tmpc <- the step; SIGMA = IY + 2
+    f d1=ADDR s1=SIG alu=PASS ax=TC     ; D: F: the low word's write's end; the address register <- IY + 2; SIGMA = the offset's step
+    open call=w8                        ; OPEN: nine words with no act (the call and the shared delay's 8)
+    bus=MEMR seg=DS1 wid=WORD           ; U: post the next word's read
+    f d1=TC s1=OPR jnc=SGN:ins_xw       ; D: F: tmpc <- the high word; no carry: no bit spilled
+    cnt=SIG                             ; the counter <- the spilled bits m
     jc=CNTZ:ins_xw                      ; none
 ins_xr: alu=BFR                         ; the pair {the high word, the spill} rotated right by one
     loop=ins_xr                         ; the counter step
-    cnt=SIG d1=TB s1=TC                 ; the counter <- n; tmpb <- tmpc (the high word rotated alone)
+    cnt=SIG d1=TB s1=TC                 ; the counter <- m; tmpb <- tmpc (the high word rotated alone)
 ins_xl: alu=BFL                         ; the high word rotated left by one
     loop=ins_xl                         ; the counter step
-ins_xw: open call=w13                   ; OPEN: 14 clocks with no act (INS 128 + 4(o + w - 16)) (the call and the shared delay's 13)
-    d1=OPRW s1=TC                       ; the write datum <- the high word
-    bus=MEMW seg=DS1 wid=WORD jnc=SGN:ins_xn; post the high word's write; no carry: the pointer stays
+ins_xw: open jnc=SGN:ins_xs             ; OPEN: a word with no act; no carry: the pointer stays
     ra=IY wid=WORD alu=INC2 ax=RA       ; SIGMA = IY + 2
     wr=IY wid=WORD ws=SIG               ; IY written
-ins_xe: open call=w1                    ; OPEN: 2 clocks with no act (INS's end after the write) (the call and the shared delay's 1)
-    e                                   ; E: held until the write's end (RAMEN)
-ins_xn: open call=w3                    ; OPEN: 4 clocks with no act (INS's end after the write: the pointer's two clocks) (the call and the shared delay's 3)
-    e                                   ; E: held until the write's end (RAMEN)
-
-routine insi op=39 page=0f why="OPEN: the data book prints a range (INS reg8,imm4 64-156); silicon's per-bit costs (docs/v35s-eu-timing.md: 94 within a word, 86 ending at its boundary, 128 + 4(o + w - 16) crossing) are the loops' iterations, two clocks each; the fixed clocks around them with no act OPEN (the frozen model exact on the runs README F2a names)"
-    pop=modrm eac=insi_r                ; pop the ModR/M byte (E + 2): register mode to the register form; a memory mode calls its EA head
-    jmp=insi_r                          ; (a memory mode, returned from its EA head) the register form on the rm field's byte register
-insi_r: open call=w4                    ; OPEN: 5 clocks with no act (the read's setup) (the call and the shared delay's 4)
-    open                                ; OPEN: a fetch-free clock of the read's setup (fw: the word waits while a fetch cycle runs or delivers its word; the frozen model's bf_read=fixed: the setup's clocks fetch-free)
-    ra=IY wid=WORD d1=ADDR s1=RA bus=MEMR seg=DS1; post the word's read at DS1:IY (no prefix)
-    pop=il                              ; pop the imm4 width byte (while the read waits)
-    f d1=TC s1=OPR                      ; F: tmpc <- the word (the read's end)
-    ra=RM wid=BYTE d1=TA s1=IMM8 d2=TB s2=RA alu=ADD ax=RA ay=IMM8 jmp=ins_c; tmpa <- the width, tmpb <- the offset; SIGMA = offset + width; the common part
+    open call=w9                        ; OPEN: ten words with no act (the call and the shared delay's 9)
+    open jmp=ins_xo                     ; OPEN: a word with no act
+ins_xs: open call=w11                   ; OPEN: twelve words with no act (the call and the shared delay's 11)
+    open                                ; OPEN: a word with no act
+ins_xo: d1=OPRW s1=TC                   ; Z's word: the write datum <- the high word
+    bus=MEMW seg=DS1 wid=WORD jmp=ins_e ; Z: post the high word's write
 
 ; the insertion pass (INS, called): SIGMA the offset's step, tmpb the offset, tmpa the width,
-; tmpc the word. (F5b) The offset register is written on the last word, after AW is read; the pair
-; {0, the word} rotated right by the offset, AW's low w + 1 bits merged, rotated on to sixteen:
-; tmpc <- the word with the field, tmpb <- the field's bits beyond bit 15; the address register
-; <- the offset's step. (No shared delay inside: the return register holds the caller's.)
+; tmpc the word. (F5b) The offset register is written on the last word, after AW is read.
 routine bf_pass why="OPEN: the INS insertion pass (called by ins / insi): the two words after the offset rotations are OPEN (silicon 92 at offset 0 against 94)"
     d1=ADDR s1=SIG alu=PASS ax=TB       ; the address register <- the step; SIGMA = the offset
     cnt=SIG alu=NOT ax=TB d1=TB s1=TC d2=TC s2=ZERO; the counter <- the offset's low four bits; SIGMA = ~offset; tmpb <- the word; tmpc <- 0

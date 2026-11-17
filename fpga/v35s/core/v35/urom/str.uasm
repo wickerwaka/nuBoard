@@ -50,35 +50,9 @@ w1: open ret                                ; OPEN: a book clock with no act (th
 ; register writes, CW and the index, run on past E: MX1f's wb; the frozen model's str_exit=wb /
 ; str_single_wb, xwb 2: only a successor that waits for a write-back sees the clocks)
 routine sxt why="OPEN: the string forms' shared tails: the exit's book clocks with no act, then E (the caller's routine names its run)"
-xb15: open                                  ; OPEN: a book clock with no act (the string exit's)
-xb14: open                                  ; OPEN: a book clock with no act (the string exit's)
-xb13: open                                  ; OPEN: a book clock with no act (the string exit's)
-xb12: open                                  ; OPEN: a book clock with no act (the string exit's)
-xb11: open                                  ; OPEN: a book clock with no act (the string exit's)
-xb10: open                                  ; OPEN: a book clock with no act (the string exit's)
-xb9: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb8: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb7: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb6: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb5: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb4: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb3: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb2: open                                   ; OPEN: a book clock with no act (the string exit's)
-xb1: open                                   ; OPEN: a book clock with no act (the string exit's)
-xbw: open                                   ; OPEN: the write-back's first clock before E (the model's done_t: E with wb at the successor's start)
+xb14: open call=w14                         ; OPEN: the compares' exit: fifteen book clocks with no act (the call and the shared delay's 14)
     open                                    ; OPEN: the write-back's second clock before E
-xb0: e                                      ; E: pop the next opcode; the index / count write-back runs on past E (wb)
-xe5: open                                   ; OPEN: a book clock with no act (the string exit's)
-xe4: open                                   ; OPEN: a book clock with no act (the string exit's)
-xe3: open                                   ; OPEN: a book clock with no act (the string exit's)
-xe2: open                                   ; OPEN: a book clock with no act (the string exit's)
-xe1: open                                   ; OPEN: a book clock with no act (the string exit's)
-xe0: e                                      ; E: pop the next opcode
-; a REP form with CW = 0 (no element): c4 on, E at c17 (the memory forms), c18 (INM / OUTM: the
-; port's word first); the frozen model's zexit (F24-out-r-rep-*-n0-pE-w0 S-to-S 17 / 18)
-rz_io: open                                 ; OPEN: the I/O form's zero exit a clock longer (F24-out-r-rep-inm-w-n0-pE-w0 18 against 17)
-rz_m: open call=w12                         ; OPEN: the zero exit's book clocks with no act (c4 .. c16)
-    e                                       ; E: pop the next opcode (c17)
+    e                                       ; E: pop the next opcode; the index / count write-back runs on past E (wb)
 ; a REP compare's exits: the overrun read issued on the clock before (q + 10), its datum waited
 ; for (F: the W clocks), E 18 (+ W) clocks after its issue on the condition's exit and 19 on the
 ; count's (the count's test is the second word: F24-out-t-repe-cmpm-w-n4-fill-pE-w0 S at the
@@ -87,187 +61,226 @@ sx_c: open                                  ; OPEN: the exit's book clock with n
 sx_w: open                                  ; OPEN: the exit's book clock with no act (the count's)
     f jmp=xb14                              ; F: the overrun's datum (discarded); the tail
 
+; (qprobe round 12, spec 7 A3) the REP prefixes (F3 REP / REPE, F2 REPNE, 65 REPC, 64 REPNC) are their own two-word
+; routine, as a segment prefix: the E word pops the string opcode into the REP page (ea=REP: the
+; loader keeps the prefix in the opcode register and loads the popped byte into the ModR/M
+; register, F5d's mechanism), so the string's boundary is a dispatch with the boundary's waits (a
+; fetch in flight, the bytes behind the staged opcode); nb: no interrupt between the prefix and
+; its instruction (the prefix's offset stays the start)
+routine rep_p op=F2,F3,64,65 page=rep why="(qprobe round 12, spec 7 A3) the REP prefix is its own routine of two words (the qprobe rep runs: the string's head 14 words from c4, the zero exit 12)"
+    e nb ea=REP                             ; E: the string opcode into the REP page; nb: no boundary for an interrupt (the prefix's offset kept: pist)
+
+; (qprobe round 12, spec 8 A2 / spec 9 C1) a REP string broken between iterations: the take
+; point (TKI) enters this exit, whose acknowledge's first cycle is 48 clocks after the last
+; write's end at W = 0 (an unbroken boundary's is 16): about 30 words of exit in front of the
+; interrupt entry (silicon's broken exit; the mechanism behind its length is not read)
+routine rep_brk why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q41.3) a broken REP's exit: the acknowledge 48 clocks after the last write's end (the qprobe irep / jrep runs)"
+    open call=w24                           ; OPEN: the broken REP's exit (the call and the shared delay's 24)
+    open call=w2                            ; OPEN: the broken REP's exit (the call and the shared delay's 2)
+    jmp=intr                                ; the interrupt entry (the acknowledge: INT 3's sequence)
+
 ; ---- the single forms (no prefix): the element once. Clocks from the steady instance (the k2
 ; runs' second form, the frozen model exact): its first cycle's post at c7 / c8 / c9 / c10
-routine movbk op=A4,A5 book="MOVBK" diff=0 why="OPEN words where no act names a clock; silicon's 22 (F24-out-s-movbk-w-k2-pE-w0: the second MOVBK's read at its start + 8, the write + 17, the next start + 22 behind OUT, which waits out the last two clocks' write-back: MX1f's wb, the model's str_single_wb uwb 2): the routine's 20 to E and its wb; OPEN words where no act names a clock"
-    ra=IX wid=WORD d1=ADDR s1=RA            ; c2: the source's address IX
-    open call=w3                            ; OPEN: c3 .. c6, the book's clocks with no act (MOVBK 22)
-    bus=MEMR seg=DSP                        ; c7: post the source read (DS0 or a prefix's: issued c8)
-    ra=IX wid=WORD alu=STEP ax=RA           ; c8: SIGMA = IX + the width (- with DIR)
-    ra=IY wr=IX ws=SIG wid=WORD d1=ADDR s1=RA ; c9: IX stepped; the destination's address IY (the read's second clock: no wait state yet)
-    open                                    ; OPEN: c10, a book clock with no act (MOVBK 22)
-    f d1=OPRW s1=OPR                        ; c11: F: the datum into the write datum
-    open call=w3                            ; OPEN: c12 .. c15, the book's clocks with no act (MOVBK 22)
-    bus=MEMW seg=DS1                        ; c16: post the destination write (issued c17)
-    ra=IY wid=WORD alu=STEP ax=RA           ; c17: SIGMA = IY + the width
-    wr=IY ws=SIG wid=WORD jmp=xb1           ; c18: IY stepped; c19 OPEN, E at c20 (wb)
+routine movbk op=A4,A5 book="MOVBK" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) MOVBK is `. . . . . Y D . . . Z DN .` (the qprobe movb / movw runs): the source's address, four words with no act, Y (the request word), IX stepped and the destination's address under the wait, the read's post, F (D: the datum into the write datum), IY stepped, two words with no act, the write's post (Z, four words after the datum), F with E (D N: the write's end, not its first clock)"
+    ra=IX wid=WORD d1=ADDR s1=RA            ; the source's address IX
+    open call=w3                            ; OPEN: (qprobe round 11) four words with no act (the call and the shared delay's 3)
+    rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
+    ra=IX wid=WORD alu=STEP ax=RA           ; SIGMA = IX + the width
+    wr=IX ws=SIG wid=WORD                   ; IX stepped
+    bus=MEMR seg=DSP                        ; post the source read (Y + 3; its address taken at the grant: the address register kept until the datum)
+    f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
+    ra=IY wid=WORD d1=ADDR s1=RA alu=STEP ax=RA ; the destination's address IY; SIGMA = IY + the width
+    wr=IY ws=SIG wid=WORD                   ; IY stepped
+    open call=w1                            ; OPEN: (qprobe round 11) two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=DS1                        ; Z: post the destination write (the datum + 5)
+    f e ro                                  ; D N: F: the write's end; E; ro: released
 
-routine cmpbk op=A6,A7 book="CMPBK" width=word diff=-1 why="OPEN words where no act names a clock; the book error by one, silicon's direct measurement 24 (F24-out-s-cmpbk-w-k2-pE-w0: the destination read first at the start + 8, the source's + 17, the next start + 24 behind OUT, the last two clocks a write-back, uwb 2): 22 to E and its wb; the compare [IX] - [IY] (the group's CMP, the decode's op3 7)"
-    ra=IY wid=WORD d1=ADDR s1=RA            ; c2: the destination's address IY (CMPBK reads it first: F24 silicon)
-    open call=w3                            ; OPEN: c3 .. c6, the book's clocks with no act (CMPBK 25)
-    bus=MEMR seg=DS1                        ; c7: post the destination read (issued c8)
-    ra=IY wid=WORD alu=STEP ax=RA           ; c8: SIGMA = IY + the width
-    ra=IX wr=IY ws=SIG wid=WORD d1=ADDR s1=RA ; c9: IY stepped; the source's address IX
-    open                                    ; OPEN: c10, a book clock with no act (CMPBK 25)
-    f d1=TB s1=OPR                          ; c11: F: the destination's datum into tmpb
-    open call=w3                            ; OPEN: c12 .. c15, the book's clocks with no act (CMPBK 25)
-    bus=MEMR seg=DSP                        ; c16: post the source read (issued c17)
-    ra=IX wid=WORD alu=STEP ax=RA           ; c17: SIGMA = IX + the width
-    wr=IX ws=SIG wid=WORD                   ; c18: IX stepped
-    open                                    ; OPEN: c19, a book clock with no act (CMPBK 25)
-    f d1=TA s1=OPR                          ; c20: F: the source's datum into tmpa
-    alu=GRP ax=TA ay=TB wf jmp=xbw          ; c21: the compare [IX] - [IY] (W); c22 c23 OPEN, E at c24 (wb)
+routine cmpbk op=A6,A7 book="CMPBK" width=word diff=0 why="OPEN: book error of one (F24-out-s-cmpbk-w-k2-pE-w0); (qprobe round 11, Q34) CMPBK is `. . . . . Y D . . . U D . N .` (the qprobe cmpbk runs): [IY] first, then [IX]: the destination's address, four words with no act, Y, IY stepped and the source's address under the wait, the read's post, F (D), IX stepped, two words with no act, the second read's post (U, Z's timing: four words after the datum), F (D), the compare, E"
+    ra=IY wid=WORD d1=ADDR s1=RA            ; the destination's address IY (CMPBK reads it first)
+    open call=w3                            ; OPEN: (qprobe round 11) four words with no act (the call and the shared delay's 3)
+    rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
+    ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
+    wr=IY ws=SIG wid=WORD                   ; IY stepped
+    bus=MEMR seg=DS1                        ; post the destination read (Y + 3; the address register kept until the datum)
+    f d1=TB s1=OPR                          ; D: F: the destination's datum into tmpb
+    ra=IX wid=WORD d1=ADDR s1=RA alu=STEP ax=RA ; the source's address IX; SIGMA = IX + the width
+    wr=IX ws=SIG wid=WORD                   ; IX stepped
+    open call=w1                            ; OPEN: (qprobe round 11) two words with no act (the call and the shared delay's 1)
+    bus=MEMR seg=DSP                        ; U: post the source read (the datum + 5)
+    f d1=TA s1=OPR                          ; D: F: the source's datum into tmpa
+    alu=GRP ax=TA ay=TB wf                  ; the compare [IX] - [IY] (W)
+    e ro                                    ; E (N); ro: released
 
-routine stm op=AA,AB book="STM" diff=2 why="OPEN: silicon longer than the book by two (F24-out-s-stm-w-k2-pE-w0: the second STM's write at its start + 11, the next start + 15): OPEN words where no act names a clock"
-    ra=IY wid=WORD d1=ADDR s1=RA            ; c2: the destination's address IY
-    ra=AW d1=OPRW s1=RA                     ; c3: AW (AL) into the write datum
-    open call=w5                            ; OPEN: c4 .. c9, the book's clocks with no act (STM 13)
-    bus=MEMW seg=DS1                        ; c10: post the write (issued c11)
-    ra=IY wid=WORD alu=STEP ax=RA           ; c11: SIGMA = IY + the width
-    wr=IY ws=SIG wid=WORD jmp=xe2           ; c12: IY stepped; c13 c14 OPEN, E at c15
+routine stm op=AA,AB book="STM" diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) STM is `. . B . . . Y G N .` (the qprobe stmb / stmw runs): the destination's address, AW into the write datum, B (the bus-idle third word), IY stepped, a word with no act, Y (the request word), two words with no act, the write's post, E bus-idle on the write's first clock (G N, Q23)"
+    ra=IY wid=WORD d1=ADDR s1=RA            ; the destination's address IY
+    ra=AW d1=OPRW s1=RA                     ; AW (AL) into the write datum
+    bi                                      ; (qprobe round 11) B: the bus-idle third word
+    ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
+    wr=IY ws=SIG wid=WORD                   ; IY stepped
+    open                                    ; OPEN: (qprobe round 11) a word with no act
+    rl=x bi                                 ; (qprobe round 11) Y: the request word (the write due four clocks after it, posted three words later)
+    open call=w1                            ; OPEN: (qprobe round 11) two words with no act (the call and the shared delay's 1)
+    bus=MEMW seg=DS1                        ; post the write (Y + 3)
+    e ro bi                                 ; E: (Q23) G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 
-routine ldm op=AC,AD book="LDM" diff=2 why="OPEN: silicon longer than the book by two (F24-out-s-ldm-w-k2-pE-w0: the second LDM's read at its start + 8, the next start + 15)"
-    ra=IX wid=WORD d1=ADDR s1=RA            ; c2: the source's address IX
-    open call=w3                            ; OPEN: c3 .. c6, the book's clocks with no act (LDM 13)
-    bus=MEMR seg=DSP                        ; c7: post the read (issued c8)
-    ra=IX wid=WORD alu=STEP ax=RA           ; c8: SIGMA = IX + the width
-    wr=IX ws=SIG wid=WORD                   ; c9: IX stepped
-    open                                    ; OPEN: c10, a book clock with no act (LDM 13)
-    f wr=AW ws=OPR                          ; c11: F: the datum into AW (AL)
-    open jmp=xe2                            ; OPEN: c12 .. c14, the book's clocks with no act; E at c15
+routine ldm op=AC,AD book="LDM" diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) LDM is `. . . . Y DN .` (the qprobe ldmb / ldmw runs): the source's address, three words with no act, Y (the request word: the read due four clocks after it), IX stepped under the wait, the read's post, F with E (D N)"
+    ra=IX wid=WORD d1=ADDR s1=RA            ; the source's address IX
+    open call=w2                            ; OPEN: (qprobe round 11) three words with no act (the call and the shared delay's 2)
+    rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
+    ra=IX wid=WORD alu=STEP ax=RA           ; SIGMA = IX + the width
+    wr=IX ws=SIG wid=WORD                   ; IX stepped
+    bus=MEMR seg=DSP                        ; post the read (Y + 3)
+    f wr=AW ws=OPR e ro                     ; D N: F: the datum into AW (AL); E; ro: released
 
-routine cmpm op=AE,AF book="CMPM" width=word why="the book's 19 (word; F24-out-s-cmpm-w-k2-pE-w0: the second CMPM's read at its start + 9, the next start + 19; the byte form the same, the book's 18 a clock short: OPEN); the compare AW - [IY] (the group's CMP, op3 7)"
-    ra=IY wid=WORD d1=ADDR s1=RA            ; c2: the destination's address IY
-    open call=w4                            ; OPEN: c3 .. c7, the book's clocks with no act (CMPM 19)
-    bus=MEMR seg=DS1                        ; c8: post the read (issued c9)
-    ra=IY wid=WORD alu=STEP ax=RA           ; c9: SIGMA = IY + the width
-    wr=IY ws=SIG wid=WORD                   ; c10: IY stepped
-    open                                    ; OPEN: c11, a book clock with no act (CMPM 19)
-    f d1=TA s1=OPR                          ; c12: F: the datum into tmpa
-    ra=AW alu=GRP ax=RA ay=TA wf jmp=xe5    ; c13: the compare AW - [IY] (W); c14 .. c18 OPEN, E at c19
+routine cmpm op=AE,AF book="CMPM" width=word diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) CMPM is `. . . . . . Y D . . N . .` (the qprobe cmpm runs): the destination's address, five words with no act, Y, IY stepped under the wait, the read's post, F (D), the compare, a word with no act, the next opcode released (N), E a word later"
+    ra=IY wid=WORD d1=ADDR s1=RA            ; the destination's address IY
+    open call=w4                            ; OPEN: (qprobe round 11) five words with no act (the call and the shared delay's 4)
+    rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
+    ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
+    wr=IY ws=SIG wid=WORD                   ; IY stepped
+    bus=MEMR seg=DS1                        ; post the read (Y + 3)
+    f d1=TA s1=OPR                          ; D: F: the datum into tmpa
+    ra=AW alu=GRP ax=RA ay=TA wf            ; the compare AW - [IY] (W)
+    open                                    ; OPEN: (qprobe round 11) a word with no act
+    ro                                      ; N: the next opcode released
+    e                                       ; E, a word after the release
 
-routine inm op=6C,6D bookx="19+2W" diff=0 why="OPEN words where no act names a clock; silicon's 19 (F24-out-s-inm-w-k2-pE-w0: the I/O read at the start + 8, the write + 14, the next start + 19 behind OUT, the last two clocks a write-back, uwb 2): 17 to E and its wb; the book's INM mem16 19 + 2W (the note's row)"
-    ra=DW wid=WORD d1=ADDR s1=RA            ; c2: the port DW into the address register
-    open call=w3                            ; OPEN: c3 .. c6, the book's clocks with no act (INM 19)
-    bus=IOR                                 ; c7: post the I/O read (issued c8)
-    ra=IY wid=WORD d1=ADDR s1=RA            ; c8: the destination's address IY
-    open call=w1                            ; OPEN: c9 c10, the book's clocks with no act (INM 19)
-    f d1=OPRW s1=OPR                        ; c11: F: the port's datum into the write datum
-    open                                    ; OPEN: c12, a book clock with no act (INM 19)
-    bus=MEMW seg=DS1                        ; c13: post the write (issued c14)
-    ra=IY wid=WORD alu=STEP ax=RA           ; c14: SIGMA = IY + the width
-    wr=IY ws=SIG wid=WORD jmp=xb1           ; c15: IY stepped; c16 OPEN, E at c17 (wb)
+routine inm op=6C,6D bookx="19+2W" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) INM is `. . . . . X D Z DN .` (the qprobe inm runs): the port DW, four words with no act, X (the I/O request word: the slot), the destination's address, IY stepped, the I/O read's post, F (D), the write's post (Z: the datum + 2), F with E (D N: the write's end)"
+    ra=DW wid=WORD d1=ADDR s1=RA            ; the port DW into the address register
+    open call=w3                            ; OPEN: (qprobe round 11) four words with no act (the call and the shared delay's 3)
+    rl=x                                    ; (qprobe round 11) X: the I/O request word (waits while the bus unit's slot is taken; the cycle four clocks after it)
+    ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
+    open                                    ; OPEN: (qprobe round 11) a word with no act
+    bus=IOR                                 ; post the I/O read (X + 3)
+    f d1=OPRW s1=OPR                        ; D: F: the port's datum into the write datum
+    ra=IY wid=WORD d1=ADDR s1=RA            ; the destination's address IY
+    bus=MEMW seg=DS1                        ; Z: post the write (the datum + 2; the format's width)
+    f wr=IY ws=SIG wid=WORD e ro            ; D N: F: the write's end; IY stepped; E; ro: released
 
-routine outm op=6E,6F bookx="19+2W" diff=4 why="OPEN: silicon longer than the book by four (F24-out-s-outm-w-k2-pE-w0: the read at the start + 10, the I/O write + 19, the next start + 23)"
-    ra=IX wid=WORD d1=ADDR s1=RA            ; c2: the source's address IX
-    open call=w5                            ; OPEN: c3 .. c8, the book's clocks with no act (OUTM 19)
-    bus=MEMR seg=DSP                        ; c9: post the read (issued c10)
-    ra=DW wid=WORD d1=ADDR s1=RA            ; c10: the port DW into the address register
-    ra=IX wid=WORD alu=STEP ax=RA           ; c11: SIGMA = IX + the width
-    wr=IX ws=SIG wid=WORD                   ; c12: IX stepped
-    f d1=OPRW s1=OPR                        ; c13: F: the datum into the write datum
-    open call=w3                            ; OPEN: c14 .. c17, the book's clocks with no act (OUTM 19)
-    bus=IOW jmp=xe4                         ; c18: post the I/O write (issued c19); c19 .. c22 OPEN, E at c23
+routine outm op=6E,6F bookx="19+2W" diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) OUTM is `. . . . . . Y D . X . . . N .` (the qprobe outmb / outmw runs): the source's address, five words with no act, Y, IX stepped, the read's post, F (D), the port DW, X (the I/O request word, two after the datum), two words with no act, the I/O write's post (X + 3), E"
+    ra=IX wid=WORD d1=ADDR s1=RA            ; the source's address IX
+    open call=w4                            ; OPEN: (qprobe round 11) five words with no act (the call and the shared delay's 4)
+    rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
+    ra=IX wid=WORD alu=STEP ax=RA           ; SIGMA = IX + the width
+    wr=IX ws=SIG wid=WORD                   ; IX stepped
+    bus=MEMR seg=DSP                        ; post the read (Y + 3)
+    f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum
+    ra=DW wid=WORD d1=ADDR s1=RA            ; the port DW into the address register
+    rl=x                                    ; (qprobe round 11) X: the I/O request word (the slot)
+    open call=w1                            ; OPEN: (qprobe round 11) two words with no act (the call and the shared delay's 1)
+    bus=IOW                                 ; post the I/O write (X + 3)
+    e ro                                    ; E (N); ro: released
 
 ; ---- the REP forms. c2 the prefix's word (SIGMA = CW), c3 the zero test; the elements from q
-routine rep_movbk op=A4,A5 page=rep bookx="2+16+(18+2W)n" n=4 diff=7 why="OPEN: silicon longer than the book: silicon's 25 + 18n (F24-out-r-rep-movbk-w-n2-pE-w0: the first read issued at c21, the write 9 (+ W) after it, the next read 9 (+ W) after that, E 11 (+ W) after the last write and its wb; n = 0 17): the fixed part 7 longer than the book's 2 + 16 (OPEN), the element the book's 18 + 2W"
-    ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c2: the REP prefix's word: SIGMA = CW (the count's test); the element's first address IX (the setup's first word: each waits out a memory wait state, MX1g's BW law)
-    rb=IX wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_m ; c3: CW = 0: no element; the address again (the setup's second word)
-    rb=IX wid=WORD d1=ADDR s1=RB            ; c4: the address again (the setup's third word)
-    rb=IX wid=WORD d1=ADDR s1=RB            ; c5: the address again (the setup's fourth word)
-    rb=IX wid=WORD d1=ADDR s1=RB call=w13   ; c6: the address again (the setup's fifth word); c7 .. c19 OPEN, the fixed part's clocks with no act
-rmv_q: bus=MEMR seg=DSP                     ; q: post the element's read (issued q + 1: c21 first)
-    ra=IX wid=WORD alu=STEP ax=RA           ; q + 1: SIGMA = IX + the width
-    ra=IY wr=IX ws=SIG wid=WORD d1=ADDR s1=RA ; q + 2: IX stepped; the destination's address
-    open                                    ; OPEN: q + 3, a book clock with no act (18 + 2W an element)
-    f d1=OPRW s1=OPR                        ; q + 4: F: the datum into the write datum (the W clocks)
-    open call=w3                            ; OPEN: q + 5 .. q + 8, the element's clocks with no act
-    bus=MEMW seg=DS1                        ; q + 9: post the write (issued q + 10)
-    ra=IY wid=WORD alu=STEP ax=RA           ; q + 10: SIGMA = IY + the width
-    ra=IX wr=IY ws=SIG wid=WORD d1=ADDR s1=RA ; q + 11: IY stepped; the next source's address
-    ra=CW wid=WORD alu=DEC ax=RA            ; q + 12: SIGMA = CW - 1
-    f wr=CW ws=SIG wid=WORD                 ; q + 13: F: the write's end (the W clocks); CW written
-    jnc=SNZ:xb6                             ; q + 14: CW = 0: the exit (q + 15 .. q + 20 OPEN, E at q + 21, wb)
-    open tki=intr                           ; OPEN: q + 15, the element's clock with no act; (F5e) the take point: NMI or an interrupt taken here (intr, the first prefix's offset pushed)
-    open jmp=rmv_t                          ; OPEN: q + 16, the element's clock with no act (zz_late.uasm: q + 17)
+; ---- (qprobe round 11, Q35) the REP forms: the prefix's word (c2, CW into SIGMA), the zero test
+; (c3: the prefix's own two words, the model's), then the string routine's words from c4: a head
+; (14 words, the fourth bus-idle; INM / OUTM the fifth, OUTM 15 words), CW iterations that wait
+; for their own cycles (Y / X request words, F the datum or the write's end), the tail. The first
+; iteration is entered past the take point; every later one starts on its take point (the previous
+; element done: its cycles, the index steps, CW written, the count's test), so an interrupt is
+; taken between elements only (F5e). CW = 0: rep_z, `. . . B . . . . . . N .`.
+routine rep_z why="OPEN: a REP form with CW = 0 (no element): c4 on, E at c17 (the memory forms), c18 (INM / OUTM: the port's word first); the frozen model's zexit (F24-out-r-rep-*-n0-pE-w0 S-to-S 17 / 18); (qprobe round 11) Q35's `. . . B . . . . . . N .` from c4 was built and lost ten round-9 runs (r*0 at pO, W = 2: the prefix's boundary waits, not made here): kept as it was"
+rz_io: open                                 ; OPEN: (qprobe round 12, spec 7 A3) CW = 0 is `. . . B . . . . . . N .` behind the prefix (every form; the qprobe r*0 runs): c6, a word with no act
+rz_m: bi call=w6                            ; B: the bus-idle fourth word (c7); OPEN: c8 .. c13 (the call and the shared delay's 6)
+    e ro                                    ; E: pop the next opcode (c14); ro: released
 
-routine rep_stm op=AA,AB page=rep bookx="2+16+(9+W)n" n=4 diff=7 why="OPEN: silicon longer than the book: silicon's 25 + 9n (F24-out-r-rep-stm-w-n2-pE-w0: the first write issued at c21, the next 9 (+ W) after it, E 11 (+ W) after the last and its wb; n = 0 17): the fixed part 7 longer than the book's 2 + 16 (OPEN), the element the book's 9 + W"
-    ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c2: the REP prefix's word: SIGMA = CW (the count's test); the element's first address IY (the setup's first word: each waits out a memory wait state, MX1g's BW law)
-    rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_m ; c3: CW = 0: no element; the address again (the setup's second word)
-    rb=IY wid=WORD d1=ADDR s1=RB            ; c4: the address again (the setup's third word)
-    ra=AW d1=OPRW s1=RA                     ; c5: AW (AL) into the write datum (the setup's fourth word)
-    rb=IY wid=WORD d1=ADDR s1=RB call=w13   ; c6: the address again (the setup's fifth word); c7 .. c19 OPEN, the fixed part's clocks with no act
-rst_q: bus=MEMW seg=DS1                     ; q: post the element's write (issued q + 1: c21 first)
-    ra=IY wid=WORD alu=STEP ax=RA           ; q + 1: SIGMA = IY + the width
-    wr=IY ws=SIG wid=WORD d1=ADDR s1=SIG    ; q + 2: IY stepped; the next address
-    ra=CW wid=WORD alu=DEC ax=RA            ; q + 3: SIGMA = CW - 1
-    f wr=CW ws=SIG wid=WORD                 ; q + 4: F: the write's end (the W clocks); CW written
-    jnc=SNZ:xb6                             ; q + 5: CW = 0: the exit (q + 6 .. q + 11 OPEN, E at q + 12, wb)
-    open tki=intr                           ; OPEN: q + 6, the element's clock with no act; (F5e) the take point
-    open jmp=rst_t                          ; OPEN: q + 7, the element's clock with no act (zz_late.uasm: q + 8)
+routine rep_movbk op=A4,A5 page=rep bookx="2+16+(18+2W)n" n=4 diff=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP MOVBK: the head (14 words from c4, B the fourth), the iteration `Y D . . . Z D .` (18 + the cycles' waits), the tail `. . . . . . N .` (the qprobe rmovb / rmovw, r11c runs; F24-out-r-rep-movbk-w-n2-pE-w0)"
+    ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix's two words are its own routine, rep_p: c2 c3): SIGMA = CW (the count's test); the first source address IX
+    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z)
+    open                                    ; OPEN: c6, the head's word with no act
+    bi call=w10                             ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c17 (the call and the shared delay's 10)
+    rl=x bi jmp=rmv_b                       ; Y: the first element's request word (c18; no take point before the first element)
+rmv_y: ra=IX wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its source address IX; (F5e) the take point (the previous element done)
+rmv_b: ra=IX wid=WORD alu=STEP ax=RA         ; Y + 1: SIGMA = IX + the width
+    wr=IX ws=SIG wid=WORD                   ; Y + 2: IX stepped (written back before the read's datum is taken: a source over the on-chip RAM reads its own IX slot stepped, silicon f3_bins / the fuzz snapshots)
+    bus=MEMR seg=DSP                        ; Y + 3: post the source read
+    f d1=OPRW s1=OPR                        ; D: F: the datum into the write datum (Y + 7 at W = 0)
+    ra=IY wid=WORD d1=ADDR s1=RA alu=STEP ax=RA ; the destination's address IY; SIGMA = IY + the width
+    wr=IY ws=SIG wid=WORD                   ; IY stepped (before the write: STM / INM / MOVBK over IY's own slot)
+    ra=CW wid=WORD alu=DEC ax=RA            ; SIGMA = CW - 1
+    open                                    ; OPEN: a word with no act
+    bus=MEMW seg=DS1                        ; Z: post the destination write (the datum + 5)
+    f wr=CW ws=SIG wid=WORD                 ; D: F: the write's end; CW written
+    jc=SNZ:rmv_y                            ; the count's test (CW - 1 not zero: the next element)
+    open call=w5                            ; OPEN: the tail's six words with no act (the call and the shared delay's 5)
+    e ro                                    ; E (N); ro: released
 
-routine rep_ldm op=AC,AD page=rep bookx="2+16+(11+W)n" n=4 diff=8 why="OPEN: silicon longer than the book: silicon's 26 + 11n (F24-out-r-rep-ldm-w-n2-pE-w0: the first read issued at c21, the next 11 (+ W) after it, E 14 (+ W) after the last and its wb; n = 0 17): the fixed part 8 longer than the book's 2 + 16 (OPEN); the element the book's LDMB 11 + W (the note's LDMW 10 + W printed with the sizes swapped)"
-    ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c2: the REP prefix's word: SIGMA = CW (the count's test); the element's first address IX (the setup's first word: each waits out a memory wait state, MX1g's BW law)
-    rb=IX wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_m ; c3: CW = 0: no element; the address again (the setup's second word)
-    rb=IX wid=WORD d1=ADDR s1=RB            ; c4: the address again (the setup's third word)
-    rb=IX wid=WORD d1=ADDR s1=RB            ; c5: the address again (the setup's fourth word)
-    rb=IX wid=WORD d1=ADDR s1=RB call=w13   ; c6: the address again (the setup's fifth word); c7 .. c19 OPEN, the fixed part's clocks with no act
-rld_q: bus=MEMR seg=DSP                     ; q: post the element's read (issued q + 1: c21 first)
-    ra=IX wid=WORD alu=STEP ax=RA           ; q + 1: SIGMA = IX + the width
-    wr=IX ws=SIG wid=WORD d1=ADDR s1=SIG    ; q + 2: IX stepped; the next address
-    ra=CW wid=WORD alu=DEC ax=RA            ; q + 3: SIGMA = CW - 1
-    f wr=AW ws=OPR                          ; q + 4: F: the datum into AW (AL) (the W clocks)
-    wr=CW ws=SIG wid=WORD                   ; q + 5: CW written
-    jnc=SNZ:xb8                             ; q + 6: CW = 0: the exit (q + 7 .. q + 14 OPEN, E at q + 15, wb)
-    open tki=intr                           ; OPEN: q + 7, the element's clock with no act; (F5e) the take point
-    open jmp=rld_t                          ; OPEN: q + 8, the element's clock with no act (zz_late.uasm: q + 9 q + 10)
+routine rep_stm op=AA,AB page=rep bookx="2+16+(9+W)n" n=4 diff=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP STM: the head (14 words, B the fourth), the iteration `Y D .` (9 + the write's waits), the tail `. . . . . . N .` (the qprobe rstmw, r11c runs; F24-out-r-rep-stm-w-n2-pE-w0)"
+    ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the first destination address IY
+    ra=AW d1=OPRW s1=RA jnc=SNZ:rz_io       ; c5: AW (AL) into the write datum; CW = 0: no element (rep_z)
+    open                                    ; OPEN: c6, the head's word with no act
+    bi call=w10                             ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c17 (the call and the shared delay's 10)
+    rl=x bi jmp=rst_b                       ; Y: the first element's request word (c18)
+rst_y: ra=IY wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its address IY; (F5e) the take point
+rst_b: ra=IY wid=WORD alu=STEP ax=RA        ; Y + 1: SIGMA = IY + the width
+    ra=CW wr=IY ws=SIG wid=WORD alu=DEC ax=RA ; Y + 2: IY stepped; SIGMA = CW - 1
+    bus=MEMW seg=DS1                        ; Y + 3: post the write (the format's width)
+    f wr=CW ws=SIG wid=WORD                 ; D: F: the write's end; CW written
+    jc=SNZ:rst_y                            ; the count's test (the next element)
+    open call=w5                            ; OPEN: the tail's six words with no act (the call and the shared delay's 5)
+    e ro                                    ; E (N); ro: released
 
-routine rep_inm op=6C,6D page=rep bookx="2+18+(13+2W)n" n=4 diff=10 why="OPEN: silicon longer than the book: silicon's 26 + 14n (F24-out-r-rep-inm-w-n2-pE-w0: the first I/O read issued at c21, the write 6 after it, the next I/O read 8 (+ W) after the write, E 11 (+ W) after the last write and its wb; n = 0 18): the fixed part 4 longer than the book's 2 + 18, the element one (OPEN)"
-    ra=CW rb=DW wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c2: the REP prefix's word: SIGMA = CW; the port DW into the address register (the I/O form's setup: three words, each waits out a memory wait state; provisional: the model's str_io_setup=run counts the second fetch's first wait clock, F24-out-r-rep-inm-w-n1-pE-w2)
-    rb=DW wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c3: CW = 0: no element; the port again (the setup's second word)
-    ra=DW wid=WORD d1=ADDR s1=RA            ; c4: the port DW into the address register
-    open call=w14                           ; OPEN: c5 .. c19, the fixed part's clocks with no act
-rin_q: bus=IOR                              ; q: post the element's I/O read (issued q + 1: c21 first)
-    ra=IY wid=WORD d1=ADDR s1=RA            ; q + 1: the destination's address IY
-    open call=w1                            ; OPEN: q + 2 q + 3, the element's clocks with no act
-    f d1=OPRW s1=OPR                        ; q + 4: F: the port's datum into the write datum
-    open                                    ; OPEN: q + 5, a book clock with no act
-    bus=MEMW seg=DS1                        ; q + 6: post the write (issued q + 7)
-    ra=IY wid=WORD alu=STEP ax=RA           ; q + 7: SIGMA = IY + the width
-    ra=DW wr=IY ws=SIG wid=WORD d1=ADDR s1=RA ; q + 8: IY stepped; the port again
-    ra=CW wid=WORD alu=DEC ax=RA            ; q + 9: SIGMA = CW - 1
-    f wr=CW ws=SIG wid=WORD                 ; q + 10: F: the write's end (the W clocks); CW written
-    jnc=SNZ:xb6                             ; q + 11: CW = 0: the exit (q + 12 .. q + 17 OPEN, E at q + 18, wb)
-    open tki=intr                           ; OPEN: q + 12, a book clock with no act; (F5e) the take point
-    open jmp=rin_q                          ; OPEN: q + 13; the next element at q + 14
+routine rep_ldm op=AC,AD page=rep bookx="2+16+(11+W)n" n=4 diff=5 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP LDM: the head (14 words, B the fourth), the iteration `Y D . . .` (11 + the read's waits), the tail `. . . . . . . N .` (the qprobe rldmw, r11c runs; F24-out-r-rep-ldm-w-n2-pE-w0)"
+    ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the first source address IX
+    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z)
+    open                                    ; OPEN: c6
+    bi call=w10                             ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c17 (the call and the shared delay's 10)
+    rl=x bi jmp=rld_b                       ; Y: the first element's request word (c18)
+rld_y: ra=IX wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its address IX; (F5e) the take point
+rld_b: ra=IX wid=WORD alu=STEP ax=RA        ; Y + 1: SIGMA = IX + the width
+    ra=CW wr=IX ws=SIG wid=WORD alu=DEC ax=RA ; Y + 2: IX stepped; SIGMA = CW - 1
+    bus=MEMR seg=DSP                        ; Y + 3: post the read (the format's width)
+    f wr=AW ws=OPR                          ; D: F: the datum into AW (AL)
+    wr=CW ws=SIG wid=WORD                   ; CW written
+    open                                    ; OPEN: a word with no act
+    jc=SNZ:rld_y                            ; the count's test (the next element)
+    open call=w6                            ; OPEN: the tail's seven words with no act (the call and the shared delay's 6)
+    e ro                                    ; E (N); ro: released
 
-routine rep_outm op=6E,6F page=rep bookx="2+18+(13+2W)n" n=4 diff=12 why="OPEN: silicon longer than the book: silicon's 28 + 14n (F24-out-r-rep-outm-w-n2-pE-w0: the first read issued at c22, the I/O write 8 (+ W) after it, the last element's 9, the next read 6 after the write, E 9 after the last write and its wb; n = 0 18): the fixed part 6 longer than the book's 2 + 18 and the element one (OPEN), the last element's clock the exit path's word"
-    ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c2: the REP prefix's word: SIGMA = CW (the count's test); the element's first address IX (the setup's first word: each waits out a memory wait state, MX1g's BW law)
-    rb=IX wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c3: CW = 0: no element; the address again (the setup's second word)
-    rb=IX wid=WORD d1=ADDR s1=RB            ; c4: the address again (the setup's third word)
-    rb=IX wid=WORD d1=ADDR s1=RB            ; c5: the address again (the setup's fourth word)
-    rb=IX wid=WORD d1=ADDR s1=RB call=w14   ; c6: the address again (the setup's fifth word); c7 .. c20 OPEN, the fixed part's clocks with no act
-rou_q: bus=MEMR seg=DSP                     ; q: post the element's read (issued q + 1: c22 first)
-    ra=DW wid=WORD d1=ADDR s1=RA            ; q + 1: the port DW into the address register
-    ra=IX wid=WORD alu=STEP ax=RA           ; q + 2: SIGMA = IX + the width
-    wr=IX ws=SIG wid=WORD                   ; q + 3: IX stepped
-    f d1=OPRW s1=OPR                        ; q + 4: F: the datum into the write datum (the W clocks)
-    ra=CW wid=WORD alu=DEC ax=RA            ; q + 5: SIGMA = CW - 1
-    wr=CW ws=SIG wid=WORD                   ; q + 6: CW written
-    jnc=SNZ:rou_l                           ; q + 7: CW = 0: the last element's path
-    bus=IOW                                 ; q + 8: post the I/O write (issued q + 9)
-    ra=IX wid=WORD d1=ADDR s1=RA tki=intr   ; q + 9: the next source's address; (F5e) the take point (the element's I/O write posted: the entry's first post waits for its end)
-    open call=w2                            ; OPEN: q + 10 .. q + 12, the element's clocks with no act
-    open jmp=rou_q                          ; OPEN: q + 13; the next element at q + 14
-rou_l: open                                 ; OPEN: q + 8, the exit path's clock before the last I/O write (F24-out-r-rep-outm-w-n2-pE-w0: the last write 9 after its read, the others 8)
-    bus=IOW jmp=xb9                         ; q + 9: post the last I/O write (issued q + 10); q + 10 .. q + 18 OPEN, E at q + 19 (wb)
+routine rep_inm op=6C,6D page=rep bookx="2+18+(13+2W)n" n=4 diff=7 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP INM: the head (14 words, B the fifth), the iteration `X D Z D` (14 + the cycles' waits), the tail `. . . . . . . N .` (the qprobe r11c runs; F24-out-r-rep-inm-w-n2-pE-w0)"
+    ra=CW rb=DW wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the port DW into the address register
+    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z)
+    open call=w1                            ; OPEN: c6 c7 (the call and the shared delay's 1)
+    bi call=w9                              ; B: the head's bus-idle fifth word (c8); OPEN: c9 .. c17 (the call and the shared delay's 9)
+    rl=x jmp=rin_b                          ; X: the first element's I/O request word (c18: the slot)
+rin_y: ra=DW wid=WORD d1=ADDR s1=RA rl=x tki=rep_brk ; X: the next element's I/O request word, the port DW; (F5e) the take point
+rin_b: ra=IY wid=WORD d1=TC s1=RA alu=STEP ax=RA ; X + 1: the destination's address IY into tmpc; SIGMA = IY + the width
+    ra=CW wr=IY ws=SIG wid=WORD alu=DEC ax=RA ; X + 2: IY stepped; SIGMA = CW - 1
+    bus=IOR                                 ; X + 3: post the I/O read (the format's width)
+    f d1=OPRW s1=OPR                        ; D: F: the port's datum into the write datum
+    wr=CW ws=SIG wid=WORD d1=ADDR s1=TC     ; CW written; the destination's address
+    bus=MEMW seg=DS1                        ; Z: post the write (the datum + 2)
+    f jc=SNZ:rin_y                          ; D: F: the write's end; the count's test (the next element)
+    open call=w6                            ; OPEN: the tail's seven words with no act (the call and the shared delay's 6)
+    e ro                                    ; E (N); ro: released
 
-routine rep_cmpbk op=A6,A7 page=rep bookx="2+16+(23+2W)n" n=4 diff=11 why="OPEN: silicon longer than the book: silicon's 32 + 18n + the overrun (F24-out-r-repe-cmpbk-w-n2-pE-w0: the destination read first, issued at c20, the source's 9 (+ W) after it, the next element's 9 (+ W) after that; the next element's two reads posted before the tests take effect (the overrun); E 18 (+ W) after the overrun's source read on the condition's exit, 19 on the count's, and the wb; n = 0 17): the element 18 + 2W, five short of the book's 23 + 2W (silicon's), the fixed part and the overrun longer (OPEN)"
-    ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c2: the REP prefix's word: SIGMA = CW (the count's test); the element's first address IY (the setup's first word: each waits out a memory wait state, MX1g's BW law)
-    rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_m ; c3: CW = 0: no element; the address again (the setup's second word)
-    rb=IY wid=WORD d1=ADDR s1=RB            ; c4: the address again (the setup's third word)
-    rb=IY wid=WORD d1=ADDR s1=RB            ; c5: the address again (the setup's fourth word)
-    rb=IY wid=WORD d1=ADDR s1=RB call=w12   ; c6: the address again (the setup's fifth word); c7 .. c18 OPEN, the fixed part's clocks with no act
+routine rep_outm op=6E,6F page=rep bookx="2+18+(13+2W)n" n=4 diff=9 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP OUTM: the head (15 words, B the fifth), the iteration `Y D X . . . . .`, the last `Y D . X . . . . .`, the tail `. . . . . . . N .` (the qprobe r11c runs; F24-out-r-rep-outm-w-n2-pE-w0)"
+    ra=CW rb=IX wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the first source address IX
+    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z)
+    open call=w1                            ; OPEN: c6 c7 (the call and the shared delay's 1)
+    bi call=w10                             ; B: the head's bus-idle fifth word (c8); OPEN: c9 .. c18 (the call and the shared delay's 10)
+    rl=x bi jmp=rou_b                       ; Y: the first element's request word (c19)
+rou_y: ra=IX wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its address IX; (F5e) the take point (the previous element's I/O write posted)
+rou_b: ra=IX wid=WORD alu=STEP ax=RA        ; Y + 1: SIGMA = IX + the width
+    ra=CW wr=IX ws=SIG wid=WORD alu=DEC ax=RA ; Y + 2: IX stepped; SIGMA = CW - 1
+    bus=MEMR seg=DSP                        ; Y + 3: post the read (the format's width)
+    f d1=OPRW s1=OPR jnc=SNZ:rou_l          ; D: F: the datum into the write datum; CW - 1 zero: the last element's path
+    ra=DW wid=WORD d1=ADDR s1=RA wr=CW ws=SIG rl=x ; X: the I/O request word; the port DW; CW written
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=IOW                                 ; X + 3: post the I/O write
+    open                                    ; OPEN: a word with no act
+    open jmp=rou_y                          ; OPEN: a word with no act; the next element
+rou_l: ra=DW wid=WORD d1=ADDR s1=RA wr=CW ws=SIG ; the last element: a word with no act; the port DW; CW written
+    rl=x                                    ; X: the last I/O request word (one word later)
+    open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
+    bus=IOW                                 ; X + 3: post the I/O write
+    open call=w8                            ; OPEN: two words with no act, then the tail's seven (the call and the shared delay's 8)
+    e ro                                    ; E (N); ro: released
+
+routine rep_cmpbk op=A6,A7 page=rep bookx="2+16+(23+2W)n" n=4 diff=9 why="OPEN: silicon longer than the book: silicon's 32 + 18n + the overrun (F24-out-r-repe-cmpbk-w-n2-pE-w0: the destination read first, issued at c20, the source's 9 (+ W) after it, the next element's 9 (+ W) after that; the next element's two reads posted before the tests take effect (the overrun); E 18 (+ W) after the overrun's source read on the condition's exit, 19 on the count's, and the wb; n = 0 17): the element 18 + 2W, five short of the book's 23 + 2W (silicon's), the fixed part and the overrun longer (OPEN)"
+    ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW (the count's test); the element's first address IY
+    rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c5: CW = 0: no element; the address again
+    rb=IY wid=WORD d1=ADDR s1=RB call=w12   ; c6: the address again; c7 .. OPEN, the fixed part's clocks with no act
     bus=MEMR seg=DS1                        ; c19: post the first destination read (issued c20)
     ra=IX wid=WORD d1=ADDR s1=RA call=w2    ; c20: the source's address IX; c21 c22 OPEN
     f d1=TB s1=OPR                          ; c23: F: the destination's datum into tmpb
@@ -290,12 +303,10 @@ rcb_u: f d1=TA s1=OPR wr=IY ws=SIG wid=WORD ; q + 13: F: the source's datum into
     alu=GRP ax=TA ay=TB wf                  ; q + 16: the compare [IX] - [IY] (W)
     ra=CW wid=WORD alu=DEC ax=RA jmp=rcb_q  ; q + 17: SIGMA = CW - 1; the next element at q + 18
 
-routine rep_cmpm op=AE,AF page=rep bookx="2+16+(16+2W)n" n=4 diff=5 why="OPEN: silicon longer than the book: silicon's (F24-out-r-repne-cmpm-w-n2-pE-w0): the first read issued at c21, the second 10 (+ W) after it, the rest 12 (+ W): the next element's read posted before the tests take effect (the overrun), then the two tests' words (the first element has none before it); E 18 (+ W) after the last read on the condition's exit, 19 on the count's, and the wb; n = 0 17: the element 12 + W against the book's 16 + 2W (silicon's), the fixed part longer (OPEN)"
-    ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c2: the REP prefix's word: SIGMA = CW (the count's test); the element's first address IY (the setup's first word: each waits out a memory wait state, MX1g's BW law)
-    rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_m ; c3: CW = 0: no element; the address again (the setup's second word)
-    rb=IY wid=WORD d1=ADDR s1=RB            ; c4: the address again (the setup's third word)
-    rb=IY wid=WORD d1=ADDR s1=RB            ; c5: the address again (the setup's fourth word)
-    rb=IY wid=WORD d1=ADDR s1=RB call=w13   ; c6: the address again (the setup's fifth word); c7 .. c19 OPEN, the fixed part's clocks with no act
+routine rep_cmpm op=AE,AF page=rep bookx="2+16+(16+2W)n" n=4 diff=3 why="OPEN: silicon longer than the book: silicon's (F24-out-r-repne-cmpm-w-n2-pE-w0): the first read issued at c21, the second 10 (+ W) after it, the rest 12 (+ W): the next element's read posted before the tests take effect (the overrun), then the two tests' words (the first element has none before it); E 18 (+ W) after the last read on the condition's exit, 19 on the count's, and the wb; n = 0 17: the element 12 + W against the book's 16 + 2W (silicon's), the fixed part longer (OPEN)"
+    ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW (the count's test); the element's first address IY
+    rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c5: CW = 0: no element; the address again
+    rb=IY wid=WORD d1=ADDR s1=RB call=w13   ; c6: the address again; c7 .. OPEN, the fixed part's clocks with no act
     bus=MEMR seg=DS1 jmp=rcm_f              ; c20: post the first read (issued c21); (F5e) zz_late.uasm rcm_f: the first element's b has no take point
 rcm_q: bus=MEMR seg=DS1                     ; b + 9: post the next element's read (issued b + 10)
     jnc=XC:sx_c                             ; b + 10: the last element's condition failed: the exit (the read the overrun)

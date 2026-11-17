@@ -153,22 +153,35 @@ module v35_useq
     output wire        q_susp,          // (MX2) prefetching suspended (the queue's susp: SUSP)
     output reg         halted
 );
-    localparam int ROM_N = 1 << UADDR_W;
-
-    // ------------------------------------------------------------ the ROM
-    reg [31:0] rom0 [0:ROM_N-1];
-    reg [31:0] rom1 [0:ROM_N-1];
-    reg [31:0] rom2 [0:ROM_N-1];
+    // (qprobe round 12) the ROM in two parts (uasm ROM_LO / ROM_HI): words 0-2047 in rom0..rom2
+    // (2,048 x 2 blocks), the words from 2048 on in rom3..rom5 (512 words); both read at ce_b with
+    // the same address, the part chosen by the address's top bit registered with the read (`hi_b`)
+    // on the read data. No address bit drives a 4,096-deep block
+    localparam int ROM_LO = 2048, ROM_HI = 512;
+    reg [31:0] rom0 [0:ROM_LO-1];
+    reg [31:0] rom1 [0:ROM_LO-1];
+    reg [31:0] rom2 [0:ROM_LO-1];
+    reg [31:0] rom3 [0:ROM_HI-1];
+    reg [31:0] rom4 [0:ROM_HI-1];
+    reg [31:0] rom5 [0:ROM_HI-1];
     integer i;
     initial begin
-        for (i = 0; i < ROM_N; i = i + 1) begin
+        for (i = 0; i < ROM_LO; i = i + 1) begin
             rom0[i] = 32'd0;
             rom1[i] = 32'd0;
             rom2[i] = 32'd0;
         end
-        $readmemh({UROM_DIR, "v35_urom_b0.hex"}, rom0, 0, UROM_WORDS - 1);
-        $readmemh({UROM_DIR, "v35_urom_b1.hex"}, rom1, 0, UROM_WORDS - 1);
-        $readmemh({UROM_DIR, "v35_urom_b2.hex"}, rom2, 0, UROM_WORDS - 1);
+        for (i = 0; i < ROM_HI; i = i + 1) begin
+            rom3[i] = 32'd0;
+            rom4[i] = 32'd0;
+            rom5[i] = 32'd0;
+        end
+        $readmemh({UROM_DIR, "v35_urom_b0.hex"}, rom0, 0, ROM_LO - 1);
+        $readmemh({UROM_DIR, "v35_urom_b1.hex"}, rom1, 0, ROM_LO - 1);
+        $readmemh({UROM_DIR, "v35_urom_b2.hex"}, rom2, 0, ROM_LO - 1);
+        $readmemh({UROM_DIR, "v35_urom_b3.hex"}, rom3, 0, ROM_HI - 1);
+        $readmemh({UROM_DIR, "v35_urom_b4.hex"}, rom4, 0, ROM_HI - 1);
+        $readmemh({UROM_DIR, "v35_urom_b5.hex"}, rom5, 0, ROM_HI - 1);
     end
 
     reg [UADDR_W-1:0] upc = UROM_RESET;
@@ -176,7 +189,12 @@ module v35_useq
     // with the next address decided in tick A (`upc_a`), the word a plain register (`q0`..`q2`)
     // loaded from the read data at ce_a. The word a clock executes is the one the old ce_a read
     // gave: the address is the same function of the same values (README "MX5")
-    reg [31:0] r0 = 32'd0, r1 = 32'd0, r2 = 32'd0;
+    reg [31:0] l0 = 32'd0, l1 = 32'd0, l2 = 32'd0;     // the low part's read data
+    reg [31:0] h0 = 32'd0, h1 = 32'd0, h2 = 32'd0;     // the high part's
+    reg        hi_b = 1'b0;                            // the address read was in the high part
+    wire [31:0] r0 = hi_b ? h0 : l0;
+    wire [31:0] r1 = hi_b ? h1 : l1;
+    wire [31:0] r2 = hi_b ? h2 : l2;
     reg [31:0] q0 = 32'd0, q1 = 32'd0, q2 = 32'd0;
     wire [95:0] qw = {q2, q1, q0};
     assign word = v35_uword_t'(qw[UWORD_BITS-1:0]);
@@ -325,6 +343,7 @@ module v35_useq
     assign wk_nx.flush = word_nx.flush;
     assign wk_nx.rlx = word_nx.rl == RL_X;
     assign wk_nx.bi = word_nx.bi;
+    assign wk_nx.alt = word_nx.vk;     // (qprobe round 10) the wait's second kind (C, V)
     v35_sin_t  si_nx;
     always_comb begin
         si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
@@ -480,11 +499,24 @@ module v35_useq
                              : s_jc ? (cond_a ? word.tgt : inc)
                              : s_jn ? (cond_a ? inc : word.tgt)
                              : ra_e;
+    // the high part's address: the same select kept apart (the low part's 36 blocks and the high
+    // part's 24 each on their own copy of the last stage)
+    (* syn_keep = "true" *) wire [UADDR_W-1:0] rah = s_dm ? dec2.entry
+                             : s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
+                             : s_ds ? (igo ? UROM_INT : dent)
+                             : s_tk ? (sgo ? word.tgt : inc)
+                             : s_jc ? (cond_a ? word.tgt : inc)
+                             : s_jn ? (cond_a ? inc : word.tgt)
+                             : ra_e;
     always_ff @(posedge clock) begin
         if (!reset_n || ce_b) begin
-            r0 <= rom0[raddr];
-            r1 <= rom1[raddr];
-            r2 <= rom2[raddr];
+            l0 <= rom0[raddr[10:0]];
+            l1 <= rom1[raddr[10:0]];
+            l2 <= rom2[raddr[10:0]];
+            h0 <= rom3[rah[8:0]];
+            h1 <= rom4[rah[8:0]];
+            h2 <= rom5[rah[8:0]];
+            hi_b <= raddr[11];
         end
     end
     always_ff @(posedge clock) begin
@@ -517,7 +549,7 @@ module v35_useq
     // (st_r.why: the stall's reason, the trace's W: v35_top's observation block)
     // ((step D) the word is 92 bits: the banks' top four bits unread)
     // ((qprobe) the word is 96 bits: the banks' every bit read)
-    wire unused = &{1'b0, dec2, st_r.why};
+    wire unused = &{1'b0, dec2, st_r.why, rah[UADDR_W-1:9]};
 
 `ifndef SYNTHESIS
     // the instruction start (the trace's S, the function bench's o_t_start; v35_top's observation

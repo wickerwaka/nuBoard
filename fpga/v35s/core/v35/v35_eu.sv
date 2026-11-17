@@ -172,6 +172,13 @@ module v35_eu
                            && (oc_wa[3:0] == 4'd4 || oc_wa[3:0] == 4'd5 || oc_wa[3:0] == 4'd7);
     wire [1:0] oc_seg_s = oc_wa[3:0] == 4'd7 ? 2'd0 : oc_wa[3:0] == 4'd5 ? 2'd2 : 2'd3;
     reg        rq_ia = 1'b0;            // (F3b) the request posted is an INT acknowledge
+    // (qprobe round 12, spec 7 A2) the write posted is not yet armed (BQ_MEMWD: its datum is
+    // loaded by a later word, K: the first word after the post that loads OPRW). While it stands
+    // the request is presented only while K is the current word (`k_cur`), with req_ia set:
+    // the bus unit grants such a write only on a clock K executes (its ex) and no fetch asks for
+    // the bus; K's load writes the request's datum (rq_d) and arms it. A write never reaches the
+    // pins before its datum (`+v35_chk` below)
+    reg        rq_un = 1'b0;
     reg        rq_dk = 1'b0;            // (F4c) the request posted is a DMA transfer's cycle
     initial begin
         dm_tend = 1'b0;
@@ -734,6 +741,10 @@ module v35_eu
     wire        post = ex_b && word.bus != BQ_NONE;
     wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW || word.bus == BQ_INTA;
     wire        b_rd = word.bus == BQ_MEMR || word.bus == BQ_IOR || word.bus == BQ_INTA;
+    wire        b_mw = word.bus == BQ_MEMW || word.bus == BQ_MEMWD;
+    // (A2) the current word loads OPRW (K for an unarmed write), and the next word's (tick B)
+    wire        k_cur = word.d1 == MD_OPRW || word.d2 == MD_OPRW;
+    wire        k_nx = word_nx.d1 == MD_OPRW || word_nx.d2 == MD_OPRW;
     wire [15:0] segv = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_IDB ? {idb, 8'h00}
                      : word.seg == SG_TA ? ta
                      : word.seg == SG_SS ? ss : word.seg == SG_DS1 ? ds1
@@ -748,9 +759,9 @@ module v35_eu
     wire [19:0] lin2 = rq_addr + 20'd1;
 
     // ------------------------------------------------------------ the port
-    assign req_v = rq_v && !rq_hd;
+    assign req_v = rq_v && !rq_hd && !(rq_un && !k_cur);
     assign req_cyc = rq_cyc;
-    assign req_ia = rq_ia;
+    assign req_ia = rq_ia || rq_un;      // (A2) on a write: the datum is loaded by the current word
     assign req_dk = rq_dk;
     assign req_addr = rq_addr;
     assign req_width = rq_word;
@@ -780,11 +791,12 @@ module v35_eu
     assign wr_hold = rq_out && rq_wr && !rq_io && ramen && rq_oc && !req_done;
     // (MX5c) the same three on the request registers' next values (the ce_a block below)
     wire        rq_v_nx = post ? 1'b1 : ack_b ? 1'b0 : rq_v;
-    assign req_v_nx = rq_v_nx && !(post && hp_b);
+    wire        rq_un_nx = post ? (word.bus == BQ_MEMWD && !oc_hit) : (ex_b && k_cur) ? 1'b0 : rq_un;
+    assign req_v_nx = rq_v_nx && !(post && hp_b) && !(rq_un_nx && !k_nx);
     wire        rq_oc_nx = post ? (oc_hit && !b_io) : rq_oc;
     wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
     wire        rq_rd_nx = post ? b_rd : rq_rd;
-    wire        rq_wr_nx = post ? (word.bus == BQ_MEMW || word.bus == BQ_IOW) : rq_wr;
+    wire        rq_wr_nx = post ? (b_mw || word.bus == BQ_IOW) : rq_wr;
     wire        rq_io_nx = post ? b_io : rq_io;
     assign rqm_nx = rq_v_nx && !rq_io_nx;
     wire        opr_v_nx = (ex_b && word.f) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
@@ -833,6 +845,7 @@ module v35_eu
             pfx_s <= 2'd0;
             pist_v <= 1'b0;
             rq_v <= 1'b0;
+            rq_un <= 1'b0;
             rq_out <= 1'b0;
             rq_rd <= 1'b0;
             rq_oc <= 1'b0;
@@ -956,7 +969,7 @@ module v35_eu
             rq_hd <= post && hp_b;
             if (post) begin
                 rq_v <= 1'b1;
-                rq_cyc <= word.bus == BQ_MEMR ? RQ_MEMR : word.bus == BQ_MEMW ? RQ_MEMW
+                rq_cyc <= word.bus == BQ_MEMR ? RQ_MEMR : b_mw ? RQ_MEMW
                         : (word.bus == BQ_IOR || word.bus == BQ_INTA) ? RQ_IOR : RQ_IOW;
                 rq_word <= weff;
                 // (F5b) a word at an odd I/O port is the pair too (silicon, f5r io / strio: the
@@ -970,12 +983,18 @@ module v35_eu
                 // (F4c) a DMA transfer's cycle: the routine's cycles at tmpa's segment, the
                 // write, or the read of a memory-to-I/O transfer (the memory-to-memory read is
                 // not one: no DMAAK, no TC)
-                rq_dk <= tk_dm && word.seg == SG_TA && (word.bus == BQ_MEMW || dm_out);
-                rq_wr <= word.bus == BQ_MEMW || word.bus == BQ_IOW;
+                rq_dk <= tk_dm && word.seg == SG_TA && (b_mw || dm_out);
+                rq_wr <= b_mw || word.bus == BQ_IOW;
                 rq_io <= b_io;
-                if (word.bus == BQ_IOW || word.bus == BQ_MEMW)
+                if (word.bus == BQ_IOW || b_mw)
                     rq_d <= oprw_nx;
+                rq_un <= word.bus == BQ_MEMWD && !oc_hit;     // (an on-chip store: armed, its E held: RAMEN)
             end else begin
+                // (A2) K: the deferred datum loaded, the write armed
+                if (rq_un && ex_b && k_cur) begin
+                    rq_d <= oprw_nx;
+                    rq_un <= 1'b0;
+                end
                 if (ack_b) begin
                     rq_v <= 1'b0;
                     if (rq_pair)
@@ -1021,7 +1040,7 @@ module v35_eu
         if (!reset_n)
             trap_o <= 1'b0;
         else if (ce_a)
-            trap_o <= ex_b && word.trap;
+            trap_o <= ex_b && word.seq == SQ_TRAP;     // (qprobe round 12) the word's TRAP
     end
     /* verilator lint_off BLKSEQ */
     reg chk_on = 1'b0;
@@ -1046,6 +1065,15 @@ module v35_eu
                 if (chk_n <= 20)
                     $display("v35 chk: eu: a tick A source changed in tick B at %0t", $time);
             end
+        end
+    end
+    // (qprobe round 12, A2) an unarmed write is granted only on the clock its datum is loaded
+    // (K executes): never on the pins before its datum
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a && ack_b && rq_un && !(ex_b && k_cur)) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: eu: an unarmed write granted before its datum at %0t", $time);
         end
     end
     final if (chk_on && chk_n != 0)

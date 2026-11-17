@@ -59,8 +59,7 @@ routine flag op=F5,F8,F9,FC,FD book="CLR1 CY" why="one word: the book's 2"
     alu=FLAG wf e                           ; the format's flag operation on the PSW; E
 
 routine flag_di op=FA book="DI" why="OPEN: the book's 4, two clocks with no act (the interrupt controller is not built)"
-    open                                    ; OPEN: a book clock with no act (DI 4)
-    open                                    ; OPEN: a book clock with no act (DI 4)
+    open call=w1                            ; OPEN: a book clock with no act (DI 4) (2 clocks: the call and the shared delay's 1)
     alu=FLAG wf e nb                        ; IE <- 0; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 routine flag_ei op=FB book="EI" why="OPEN: the book's 12, ten clocks with no act (the interrupt controller is not built)"
@@ -88,28 +87,24 @@ routine cvtwl op=99 book="CVTWL" why="OPEN: the book's 8: a read and a write (V2
 ; ---- immediates (V20 ALU_ACC 0004-0007, MOV r,imm): the immediate's bytes popped one a word,
 ; into tmpb, the ALU, the write
 routine mov_ri8 op=B0-B7 book="MOV reg,imm" width=byte why="OPEN: (qprobe rule 6) MOV r8,imm8 is `. . . BNP .`: three words, then the word that waits while a fetch runs (B), releases the immediate and the next opcode (P, N) and is the E word, then the dispatch: 5; the byte is popped a word before its release (the loader's IL is loaded before the E word that writes it); two words with no act"
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`)
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`)
+    open call=w1                            ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`) (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
     wr=OPR ws=IMM e bi ro rl=1              ; the register <- the immediate; E; (qprobe) bi: waits while a fetch runs; ro rl=1: the next opcode and the immediate released
 
 routine mov_ri16 op=B8-BF book="MOV reg,imm" width=word why="OPEN: (qprobe rule 6) MOV r16,imm16 is `. . . . BNPP .`: four words, then the word that waits while a fetch runs (B), releases both immediate bytes and the next opcode and is the E word, then the dispatch: 6; the bytes are popped on the two words before it; two words with no act"
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`)
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`)
+    open call=w1                            ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`) (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
     pop=ih                                  ; pop its high byte (its release is the E word's)
     wr=OPR ws=IMM e bi ro rl=2              ; the register <- the immediate; E; (qprobe) bi: waits while a fetch runs; ro rl=2: the next opcode and both immediate bytes released
 
 routine alu_ai8 op=04,0C,14,1C,24,2C,34 book="ADD acc,imm" width=byte why="OPEN: (qprobe rule 14) ADD AL,imm8 is `. . . BNP .` (as MOV r8,imm8; the qprobe ld-addal runs): two words with no act, the immediate's pop, the B / release / E word with the ALU, the dispatch with the write: 5; before qprobe: book error of one, the book's 4 one short of silicon's"
-    open                                    ; OPEN: (qprobe rule 14) a word with no act before the immediate's release (`. . . BNP .`)
-    open                                    ; OPEN: (qprobe rule 14) a word with no act before the immediate's release (`. . . BNP .`)
+    open call=w1                            ; OPEN: (qprobe rule 14) a word with no act before the immediate's release (`. . . BNP .`) (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's byte (its release is the E word's)
     ra=AW alu=GRP ax=RA ay=IMM wf e bi ro rl=1  ; read AL; the block's ALU op with the immediate, flags (W); E; (qprobe) bi; ro rl=1: the next opcode and the immediate released
     wr=AW ws=SIG                            ; post-E: AL <- SIGMA
 
 routine alu_ai16 op=05,0D,15,1D,25,2D,35 book="ADD acc,imm" width=word why="OPEN: (qprobe rule 6) ADD AW,imm16 is `. . . . BNPP .` (as MOV r16,imm16): four words, the B / release / E word with the ALU, the dispatch with the write: 6; two words with no act"
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`)
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`)
+    open call=w1                            ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`) (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
     pop=ih                                  ; pop its high byte (its release is the E word's)
     ra=AW alu=GRP ax=RA ay=IMM wf e bi ro rl=2  ; read AW; the block's ALU op with the immediate, flags (W); E; (qprobe) bi; ro rl=2: the next opcode and both immediate bytes released
@@ -139,29 +134,28 @@ routine test_ai16 op=A9 book="TEST acc,imm" width=word diff=-1 why="OPEN: book e
 
 ; ---- the 80-83 group, register form (V20 GRP1 003C-0040)
 routine grp1_rb op=80,82,83 mod=reg reg=0-6 bookv=5 book="ADD reg,imm" why="OPEN: (qprobe rule 6) ADD r16,imm8 (83 /0, register) is `P . . BNP .`: the ModR/M byte released on the first word (the loader's), two words, the B / release / E word with the ALU, the dispatch with the write: 5; two words with no act"
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`P . . BNP .`; the ModR/M byte released here by the loader)
-    open                                    ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`)
+    open call=w1                            ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`P . . BNP .`; the ModR/M byte released here by the loader) (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
     ra=RM alu=GRP ax=RA ay=IMM wf e bi ro rl=1  ; read the register; the group's ALU op with the immediate (83: sign-extended), flags (W); E; (qprobe) bi; ro rl=1: the next opcode and the immediate released
     wr=RM ws=SIG                            ; post-E: the register <- SIGMA
 
-routine grp1_rw op=81 mod=reg reg=0-6 book="ADD reg,imm" diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_dw_imm-k4-pE-w0: S 98, T 98 101 102): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, the ALU on the E word, the write after it: 5; the book's value against silicon's (F3-push-add_dw_imm-k4-pE-w0: S 98, T 98 101 102, the frozen model exact) one short"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's (low) byte (S+3)
-    pop=ih                                  ; pop its high byte (S+4)
-    ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; the group's ALU op with the immediate (83: sign-extended), flags (W); E
+routine grp1_rw op=81 mod=reg reg=0-6 book="ADD reg,imm" diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q37) ADD ... r16,imm16 (81, register) is `P . . . BNPP2 .` (the qprobe ai16dw / ai16bw runs): two words with no act, the two pops, the B / release / E word with the ALU, the dispatch with the write: 6"
+    open call=w1                            ; OPEN: (qprobe round 12) two words with no act (the ModR/M byte released on the first by the loader) (the call and the shared delay's 1)
+    pop=il                                  ; pop the immediate's low byte (its release is the E word's)
+    pop=ih                                  ; pop its high byte (its release is the E word's)
+    ra=RM alu=GRP ax=RA ay=IMM wf e bi ro rl=2  ; read the register; the group's ALU op with the immediate, flags (W); E; (qprobe round 12) B N P P2: bus-idle, the next opcode and both immediate bytes released
     wr=RM ws=SIG                            ; post-E: the register <- SIGMA
 
-routine grp1_cb op=80,82,83 mod=reg reg=7 book="CMP reg,imm" width=byte diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 4; the book's value against silicon's (F3-push-mov_cl_imm-k4-pE-w0: S 81, T 84, S-to-S 4 unstalled (the IMM class), the frozen model exact) one short"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's (low) byte (S+3)
-    ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; CMP with the immediate (83: sign-extended), flags (W); E
+routine grp1_cb op=80,82,83 mod=reg reg=7 book="CMP reg,imm" width=byte diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q37) CMP r,imm8 (80 / 83 /7, register) is ADD's `P . . BNP .` (the qprobe ci8bw / ci8bl runs: CMP = ADD): two words with no act, the pop, the B / release / E word with CMP, the dispatch: 5"
+    open call=w1                            ; OPEN: (qprobe round 12) two words with no act (the call and the shared delay's 1)
+    pop=il                                  ; pop the immediate's byte (its release is the E word's)
+    ra=RM alu=GRP ax=RA ay=IMM wf e bi ro rl=1  ; read the register; CMP with the immediate (83: sign-extended), flags (W); E; B N P
 
-routine grp1_cw op=81 mod=reg reg=7 book="CMP reg,imm" width=word diff=-1 why="OPEN: book error of one: the immediate's first byte popped at S+3, the next at S+4 and E on the clock after the last pop (the frozen model's takes and starts, F3-push-add_dw_imm-k4-pE-w0 (the IMM class)): one OPEN word before the pops (the immediate's latency: the same three clocks after S in every immediate form, README MX1b), the pops, CMP on the E word: 5; the book's value against silicon's (F3-push-add_dw_imm-k4-pE-w0 (the IMM class), the frozen model exact) one short"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's (low) byte (S+3)
-    pop=ih                                  ; pop its high byte (S+4)
-    ra=RM alu=GRP ax=RA ay=IMM wf e         ; read the register; CMP with the immediate (83: sign-extended), flags (W); E
+routine grp1_cw op=81 mod=reg reg=7 book="CMP reg,imm" width=word diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q37) CMP r16,imm16 is ADD's `P . . . BNPP2 .` (the qprobe ci16bw runs): two words with no act, the two pops, the B / release / E word with CMP, the dispatch: 6"
+    open call=w1                            ; OPEN: (qprobe round 12) two words with no act (the call and the shared delay's 1)
+    pop=il                                  ; pop the immediate's low byte (its release is the E word's)
+    pop=ih                                  ; pop its high byte (its release is the E word's)
+    ra=RM alu=GRP ax=RA ay=IMM wf e bi ro rl=2  ; read the register; CMP with the immediate, flags (W); E; B N P P2
 
 ; ---- the unary group, register form (V20 0174-0175): read, the operation, the write, E
 routine inc_rm op=FE,FF mod=reg reg=0 book="INC reg8" why="(qprobe round 8, Q20) `P . . BN .`: read, op, write, the E word bus-idle (B: waits while a fetch's pin cycle runs) with N (measured: INC r8, the qprobe t-incb / em3-incb runs): the book's 5"
@@ -188,13 +182,19 @@ routine neg_rm op=F6,F7 mod=reg reg=3 book="NEG reg" why="(qprobe round 8, Q20) 
     wr=RM ws=SIG                            ; the write-back
     e bi                                    ; E: pop the next opcode; (qprobe round 8, Q20) bi: the group's bus-idle fourth word (B N: waits while a fetch's pin cycle runs)
 
-routine test_rib op=F6 mod=reg reg=0-1 why="OPEN: TEST reg,imm8 (not in the book's table): one OPEN word (the immediate's latency, S+3: README MX1b), the pop, the AND on the E word"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's (low) byte (S+3)
-    rb=RM alu=AND ax=RB ay=IMM wf e         ; read the register; AND with the immediate, flags (W); E
+routine test_rib op=F6 mod=reg reg=0-1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q37) TEST r8,imm8 is `P . B . . NP .` (the qprobe ti8bl runs): a word with no act, the bus-idle third word, a word with no act, the pop, the release / E word with the AND, the dispatch"
+    open                                    ; OPEN: (qprobe round 12) a word with no act (the ModR/M byte released by the loader)
+    open                                    ; OPEN: (qprobe round 12) a word with no act
+    bi                                      ; (qprobe round 12) B: the bus-idle third word
+    open                                    ; OPEN: (qprobe round 12) a word with no act
+    pop=il                                  ; pop the immediate's byte (its release is the E word's)
+    rb=RM alu=AND ax=RB ay=IMM wf e ro rl=1 ; read the register; AND with the immediate, flags (W); E; N P
 
-routine test_riw op=F7 mod=reg reg=0-1 why="OPEN: TEST reg,imm16: as the byte form with the second byte"
-    open                                    ; OPEN: the immediate's latency before its first pop (S+3 in every immediate form: MX1b)
-    pop=il                                  ; pop the immediate's (low) byte (S+3)
-    pop=ih                                  ; pop its high byte (S+4)
-    rb=RM alu=AND ax=RB ay=IMM wf e         ; read the register; AND with the immediate, flags (W); E
+routine test_riw op=F7 mod=reg reg=0-1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q37) TEST r16,imm16 is `P . B . . . NPP2 .` (the qprobe ti16bw runs): as the byte form with the second byte"
+    open                                    ; OPEN: (qprobe round 12) a word with no act (the ModR/M byte released by the loader)
+    open                                    ; OPEN: (qprobe round 12) a word with no act
+    bi                                      ; (qprobe round 12) B: the bus-idle third word
+    open                                    ; OPEN: (qprobe round 12) a word with no act
+    pop=il                                  ; pop the immediate's low byte (its release is the E word's)
+    pop=ih                                  ; pop its high byte
+    rb=RM alu=AND ax=RB ay=IMM wf e ro rl=2 ; read the register; AND with the immediate, flags (W); E; N P P2

@@ -99,6 +99,14 @@ the direct address: EA 3). `diff=K` declares K on every path; `diff=m00:K,d8:K,d
 path (a path not named: 0). A head's own `diff=` (eab0's) adds to the routine's on its path.
 `bookx=` is the book's formula where its table has no row of its own (a note's formula, e.g.
 the memory shift by imm8).
+
+(qprobe round 12) `mod=m00` / `m01` / `m10` (with `rm=`): ModR/M cells of one mode that are not
+memory cells: the dispatch enters the routine directly (no EA head), and the routine pops its
+own displacement and releases it where the measured shape does (JMP / CALL [d16] and the far
+forms, POP mem with a displacement). The opcode's second-level entry then depends on the mode:
+it is a whole opcode of the split decode (v35_udec2_fx). `trap` is the sequencing value TRAP (the
+next word; the divide error's strobe). `bus=MEMWD` posts a write whose datum is armed by a later
+word (K: the first that loads OPRW): v35_eu rq_un, spec 7 A2.
 """
 
 from __future__ import annotations
@@ -117,7 +125,12 @@ PKG = V35 / "v35_pkg.sv"
 BOOK = ROOT / "build" / "validation" / "v35s" / "v35_book_clocks.json"
 BANK_BITS = 32
 BANKS = 3
-OUT_FILES = tuple(f"v35_urom_b{b}.hex" for b in range(BANKS)) + ("v35_udecode_tbl.svh",)
+# (qprobe round 12) the ROM in two parts: words 0-2047 in v35_urom_b0..b2.hex (2,048 x 2 blocks), the
+# words from 2048 on in v35_urom_b3..b5.hex (a 512-word part: v35_useq's rom3..rom5), so that no
+# address bit drives 4,096 x 1 blocks (the sequencer's address timing)
+ROM_LO = 2048
+ROM_HI = 512
+OUT_FILES = tuple(f"v35_urom_b{b}.hex" for b in range(2 * BANKS)) + ("v35_udecode_tbl.svh",)
 UADDR_W = int(re.search(r"localparam\s+int\s+UADDR_W\s*=\s*(\d+)", PKG.read_text()).group(1))
 
 # the enum prefix and the field names of the word (read from the package)
@@ -274,7 +287,7 @@ def disp_bytes(modrm: int) -> int:
 def fmt_of(op: int) -> dict:
     """The first level's format bits of an opcode (the encoding, not a routine's attribute)."""
     f = {"has_modrm": op in MODRM_OPS, "w": 0, "d": 0, "immw": 0, "sx": 0, "op3": 0, "seg": 0,
-         "len": IMM_PLAIN.get(op, 0), "e2": 0, "xc": 0, "pg": 0}
+         "len": IMM_PLAIN.get(op, 0), "e2": 0, "xc": 0, "pg": 0, "rp": 0}
     if op < 0x40 and op & 7 < 6:
         f["w"], f["d"], f["op3"] = op & 1, (op >> 1) & 1, (op >> 3) & 7
         f["immw"] = int(op & 7 == 5)
@@ -328,8 +341,13 @@ def fmt_of(op: int) -> dict:
         f["len"] = 1                     # the page's second byte
         f["pg"] = 1                      # (MX3c) popped by the E word with the opcode (into mp)
     if op in REP_XC:
-        f["len"] = 1                     # (MX4) the string opcode behind the prefix
-        f["pg"] = 1                      # ... popped by the E word with the prefix (into mp)
+        # (qprobe round 12, spec 7 A3) the REP prefix is its own two-word routine (str.uasm rep_p,
+        # as a segment prefix): `rp` makes its E pop take the prefix alone (into the ModR/M
+        # register as well), the dispatch reads the REP page (`pg`) at the prefix's own byte
+        # (rep_p's cell), and rep_p's E word (ea=REP, F5d's mechanism) pops the string opcode
+        # into the page; nothing else after the prefix belongs to it (len 0)
+        f["pg"] = 1
+        f["rp"] = 1
         f["xc"] = REP_XC[op]             # the compare's repeat condition
     if op in STR_OPS:
         f["w"] = op & 1                  # (MX4) the string forms' width
@@ -372,7 +390,7 @@ SEQ_FIELDS = {"jmp", "jc", "jnc", "call", "loop", "eac", "tki"}
 # (F2b) the trap vectors a word names with vec= (the data book's vector table, docs/v35s-
 # differences.md section 5): CHKIND 5, the FPO escapes 7, the I/O trap 19
 VECTORS = {"CHK": 5, "FPO": 7, "IOT": 19, "DIV": 0, "STEP": 1}
-FLAGS = {"wf", "e", "f", "pfx", "flush", "halt", "trap", "ret", "dispm", "susp", "ist", "nb",
+FLAGS = {"wf", "e", "f", "pfx", "flush", "halt", "ret", "dispm", "susp", "ist", "nb",
          "ro", "bi"}
 
 
@@ -421,6 +439,18 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 fields["seq"] = enum_value("v35_seq_e", "ret")
             elif k == "dispm":
                 fields["seq"] = enum_value("v35_seq_e", "dispm")
+            elif k == "trap":
+                # (qprobe round 12) the divide error raised: the sequencing's TRAP (the next word;
+                # the word's own bit freed for the ROM's twelfth address bit)
+                if "seq" in fields:
+                    raise UasmError(f"{path}:{ln}: trap is a sequencing value (no other seq)")
+                fields["seq"] = enum_value("v35_seq_e", "trap")
+            elif k == "alt":
+                # (qprobe round 10) the bus wait's second kind, in the word's vk bit (read by
+                # SR_VEC alone): with bi C (the commit word), with rl=x and bi V (the late
+                # request word), with rl=x alone A (LAG_FIRST: not on a lagged slot's first clock)
+                fields["vk"] = 1
+                fields["alt"] = 1
             elif k in FLAGS and FIELD_TYPE.get(k) == "bit":
                 fields[k] = 1
             else:
@@ -433,6 +463,11 @@ def parse_word(text: str, path: str, ln: int) -> Word:
     if fields.get("ea") == enum_value("v35_ea_e", "rep") and (fields.get("bus") or not fields.get("e")
                                                               or fields.get("seq")):
         raise UasmError(f"{path}:{ln}: ea=REP is a fact of an E word that posts nothing (F5d)")
+    if fields.pop("alt", 0):
+        vec = enum_value("v35_src_e", "vec")
+        if not (fields.get("bi") or fields.get("rl") == RL_X) or "tgt" in fields or vec in (fields.get(k) for k in ("ws", "s1", "s2", "ax", "ay")):
+            raise UasmError(f"{path}:{ln}: alt is a bus-wait word's (bi or rl=x) and shares the vk bit: "
+                            "no vector, no SR_VEC source")
     if is_open and not act.startswith("OPEN"):
         raise UasmError(f"{path}:{ln}: an open word's comment must start OPEN")
     if act.startswith("OPEN") and not is_open:
@@ -502,9 +537,52 @@ def _finish(r: Routine) -> None:
 # them (the decode's m3 0): INC r8 (FE) and NOT r16 (F7) measured after MOV r16,imm16 at pE (the
 # qprobe em3-incb / em3-notr runs, 18 / 18 with the rule off, 9 / 18 with it on). F6 and FF are
 # not measured and keep the wait; the shift group (D0-D3) waits (3 round-5 runs)
-NO_M3 = {0xFE, 0xF7}
+NO_M3 = {0xFE, 0xF7, 0xFF}      # (qprobe round 13, Q44) FF: JMP / CALL r16 exempt (the FF group as F6 / F7 / FE)
 
 RL_X = 3      # (qprobe rule 9) rl=x: the request word (X), no byte released
+
+
+def _releases_by_path(r: Routine, e2: int) -> bool:
+    """(qprobe round 10) a routine whose two outcomes release in different words (BCWZ: P N on
+    the not-taken E word, P with the taken path's add): every path from the entry to an E word
+    (or out of the routine by a jump) releases the opcode once at its E and as many operand
+    bytes as it pops (plus a short transfer's displacement). The paths follow the sequence: a
+    jc / jnc both ways, a jmp to its label, a call (the shared delay) to the next word."""
+    seq = {enum_value("v35_seq_e", k): k for k in ("jmp", "jc", "jnc", "call", "ret", "eac")}
+    at = {w.label: k for k, w in enumerate(r.words) if w.label}
+    todo, seen = [(0, 0, 0, 0)], set()
+    while todo:
+        k, rl, pops, ro = todo.pop()
+        if (k, rl, pops, ro) in seen or k >= len(r.words) or rl > 8:
+            if k >= len(r.words):
+                return False
+            continue
+        seen.add((k, rl, pops, ro))
+        w = r.words[k]
+        if w.fields.get("rl", 0) != RL_X:
+            rl += w.fields.get("rl", 0)
+        pops += 1 if w.fields.get("pop") else 0
+        ro += 1 if w.fields.get("ro") else 0
+        if w.fields.get("e"):
+            if ro != 1 or rl != pops + e2:
+                return False
+            continue
+        kind = seq.get(w.fields.get("seq"))
+        tgt = w.refs.get("tgt")
+        if kind == "ret":
+            return False
+        if kind in ("jmp", "jc", "jnc", "eac"):
+            if tgt not in at:
+                if rl != pops + e2 or ro:
+                    return False
+            else:
+                todo.append((at[tgt], rl, pops, ro))
+            if kind == "jmp":
+                continue
+        elif kind is not None and kind != "call":
+            return False
+        todo.append((k + 1, rl, pops, ro))
+    return True
 
 
 def _releases(r: Routine) -> None:
@@ -519,7 +597,7 @@ def _releases(r: Routine) -> None:
     if any("ro" in w.fields or "rl" in w.fields for w in r.words):
         ro = sum(1 for w in r.words if w.fields.get("ro"))
         rl = sum(w.fields.get("rl", 0) for w in r.words if w.fields.get("rl", 0) != RL_X)
-        if ro != es or rl != pops + int(e2):
+        if (ro != es or rl != pops + int(e2)) and not _releases_by_path(r, int(e2)):
             raise UasmError(f"{r.path}:{r.line}: {r.name}: the releases ({ro} ro, rl {rl}) are "
                             f"not the pops ({es} E, {pops + int(e2)} operand bytes)")
         return
@@ -557,7 +635,9 @@ RESET = "reset"
 EA_HEADS = {"eab0": "UROM_EAB0", "eab8": "UROM_EAB8", "eab16": "UROM_EAB16", "ea8": "UROM_EA8",
             "ead": "UROM_EAD",
             # (qprobe round 6) ea=q: the measured MOV r,mem / MOV mem,r heads, one per mode
-            "eaq0": "UROM_EAQ0", "eaq8": "UROM_EAQ8", "eaq16": "UROM_EAQ16"}
+            "eaq0": "UROM_EAQ0", "eaq8": "UROM_EAQ8", "eaq16": "UROM_EAQ16",
+            # (qprobe round 10, approved) base + index + d16 (Q18): one word more
+            "eaq16x": "UROM_EAQ16X"}
 PATHS = ("m00", "d8", "d16", "dir")
 RPATH = "r"               # (MX3c) a 0F routine's register path (its EAC word's jump)
 # (MX2) a transfer's two paths: its condition true (taken) and false (not taken); a routine whose
@@ -669,7 +749,7 @@ def assemble(paths: list[Path] | None = None) -> Program:
                 for b in ops:
                     cells2.setdefault((p, b), []).append(r.name)
             continue
-        mods = {"reg": [3], "mem": [0, 1, 2], "any": [0, 1, 2, 3], "m00": [0]}[h.get("mod", "any")]
+        mods = {"reg": [3], "mem": [0, 1, 2], "any": [0, 1, 2, 3], "m00": [0], "m01": [1], "m10": [2]}[h.get("mod", "any")]
         regs = _ranges(h["reg"].replace("/", "")) if "reg" in h else list(range(8))
         rms = _ranges(h["rm"]) if "rm" in h else list(range(8))
         paths = mem_paths(r)
@@ -722,7 +802,7 @@ def udec1(prog: Program, op: int) -> dict:
     f = fmt_of(op)
     if op == 0x0F or op in REP_XC:
         # (MX3c) the dispatch reads the second level on the second byte the E word popped
-        # ((MX4) the REP prefixes': the string opcode)
+        # ((MX4) the REP prefixes': (qprobe round 12) the prefix's own byte, then the string opcode)
         f["entry"], f["trap"] = prog.labels[TRAP0F], 0
     elif f["has_modrm"]:
         # (the dispatch reads the second level on the ModR/M byte the E word popped)
@@ -806,6 +886,8 @@ def decode_svh(prog: Program) -> str:
          f"    localparam logic [UADDR_W-1:0] UROM_RESET = {UADDR_W}'d{prog.labels[RESET]};",
          "    // (F2b) the I/O trap's entry: the dispatch's target for an I/O form with PSW.BRKI 0",
          f"    localparam logic [UADDR_W-1:0] UROM_IOT = {UADDR_W}'d{prog.labels[IOT]};",
+         "    // (qprobe round 12) the REP prefix's own routine (the observation's start: v35_top)",
+         f"    localparam logic [UADDR_W-1:0] UROM_REPP = {UADDR_W}'d{prog.labels.get('rep_p', 0)};",
          "    // (F3) the interrupt entry: the dispatch's target when the controller's request, NMI",
          "    // or the single step is taken at an instruction's start",
          f"    localparam logic [UADDR_W-1:0] UROM_INT = {UADDR_W}'d{prog.labels[INT]};",
@@ -823,7 +905,7 @@ def decode_svh(prog: Program) -> str:
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
                  f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, "
                  f"1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}, 2'd{f['lead']}, 1'b{f['hlt']}, "
-                 f"1'b{f['m3']}}};")
+                 f"1'b{f['m3']}, 1'b{f['rp']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
     # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte
@@ -913,8 +995,15 @@ def decode_svh(prog: Program) -> str:
 
 
 def outputs(prog: Program) -> dict:
-    banks = rom_banks(prog)
-    out = {f"v35_urom_b{b}.hex": banks[b] for b in range(BANKS)}
+    banks = [b.split() for b in rom_banks(prog)]
+    if len(prog.words) > ROM_LO + ROM_HI:
+        raise UasmError(f"{len(prog.words)} words: more than the two parts' {ROM_LO + ROM_HI}")
+    out = {}
+    for b in range(BANKS):
+        lo, hi = banks[b][:ROM_LO], banks[b][ROM_LO:]
+        hi = hi + ["00000000"] * (ROM_HI - len(hi))
+        out[f"v35_urom_b{b}.hex"] = "\n".join(lo) + "\n"
+        out[f"v35_urom_b{b + BANKS}.hex"] = "\n".join(hi) + "\n"
     out["v35_udecode_tbl.svh"] = decode_svh(prog)
     return out
 
@@ -993,7 +1082,7 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
             if done_at is not None and t < done_at:      # one request at a time
                 t = done_at
             done_at = t + 1 + BUS_CYCLE
-            write_pend = f["bus"] == enum_value("v35_bus_e", "memw")
+            write_pend = f["bus"] in (enum_value("v35_bus_e", "memw"), enum_value("v35_bus_e", "memwd"))
         if trace is not None:
             trace.append((t, pc, w))
         if f.get("e"):

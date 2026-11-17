@@ -53,8 +53,10 @@ package v35_front_pkg;
     // the word's kind (the sequencer's, of the next word: wk_nx): the dispatch word (the
     // boundary), a FLUSH word, the bus-wait kinds' two bits (rl == RL_X, bi: B bi alone, S rl=x
     // alone, Y both)
+    // (qprobe round 10) alt: the wait's second kind (the word's vk bit on a word that reads no
+    // SR_VEC): with bi alone C, the commit word; with rl == RL_X and bi V, the late request word
     typedef struct packed {
-        logic       disp, flush, rlx, bi;
+        logic       disp, flush, rlx, bi, alt;
     } v35_wk_t;
     // the queue's count against its thresholds (the bytes fetched and not released), for one
     // clock: at most 4 / 5 (c4, c5) and with the running fetch's bytes at most 5 (cf), each with

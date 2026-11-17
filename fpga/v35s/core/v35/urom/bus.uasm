@@ -100,9 +100,7 @@ routine ld_dir op=A0,A1 book="MOV acc,dmem" diff=1 why="OPEN: silicon longer tha
 
 ; OUT imm8,acc (E6 / E7): the OUT marker. Measured 10 (a6 10 / 11; F1 10-12)
 routine out_i8 op=E6,E7 book="OUT imm8,acc" width=byte diff=-1 lead=3 why="OPEN: book error of one: the book's 11 against silicon's 10 (a6 OUT 0x40,AL 10 / 11; F3-out-nop-k2-pE-w0); (qprobe rules 12, 14) OUT imm8,acc is `. . B P . X . . N .` with lead 3 (the boundary into it no sooner than three clocks after its opcode's release; the qprobe e6r runs): two words with no act, B (waits from a fetch's third clock to its last), P (the port's pop and release), the address, X (the request word: waits while a fetch runs, its last clock included; the I/O cycle due four clocks after it) with the datum, two words with no act, the post with E and N (X + 3: granted on X + 4, or at the end of a fetch running then), the dispatch: 10; before qprobe: book error of one: the book's 11 against silicon's 10 (a6 OUT 0x40,AL 10 / 11)"
-    open                                    ; OPEN: (qprobe round 6) a word with no act
-    open                                    ; OPEN: (qprobe round 6) a word with no act
-    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open call=w2                            ; OPEN: (qprobe round 6) a word with no act (3 clocks: the call and the shared delay's 2)
     bi pop=port rl=1                        ; (qprobe round 6) B P: waits while a fetch's pin cycle runs; pop the port number, released
     d1=ADDR s1=IMM8                         ; the address register <- the port
     ra=AW d1=OPRW s1=RA                     ; the accumulator into the write datum
@@ -113,7 +111,7 @@ routine out_i8 op=E6,E7 book="OUT imm8,acc" width=byte diff=-1 lead=3 why="OPEN:
 
 ; OUT DW,acc (EE / EF): END's OUT DW,AW. Measured 7 (F5 OUT DW,AW 7; a6 6.5)
 routine out_dw op=EE,EF book="OUT DW,acc" width=word diff=-2 why="OPEN: book error of two: the book's 8 against silicon's 6 to the dispatch G (F5 OUT DW,AW 7 S to S, the G's wait for the I/O cycle's grant; a6 6.5); (qprobe rules 10, 14) OUT DW,acc is `. . X . N G`: DW into the address register, the datum, X (the request word: waits while a fetch cycle runs, its last clock included; the I/O cycle due four clocks after it), a word with no act, E with N, the dispatch G (it posts the I/O write and waits until the bus will be free for it on the next clock: the next instruction's first word on the I/O cycle's first clock, X + 4, or later when a fetch was in the way); the qprobe rounds 1 and 3 whole traces; before qprobe: book error of one, the book's 8 against silicon's 7"
-    rb=DW wid=WORD d1=ADDR s1=RB rl=x       ; (qprobe round 6, B) A: waits while the bus unit's slot is taken; the address register <- DW
+    rb=DW wid=WORD d1=ADDR s1=RB rl=x alt   ; (qprobe round 6, B) A: waits while the bus unit's slot is taken; (qprobe round 10, LAG_FIRST) alt: not on a lagged slot's first clock; the address register <- DW
     ra=AW d1=OPRW s1=RA                     ; the accumulator into the write datum
     rl=x                                    ; (qprobe round 6, B) X: the request word: waits while the bus unit's slot is taken
     open                                    ; OPEN: (qprobe rule 14) a word with no act between X and the release
@@ -131,9 +129,7 @@ routine in_dw op=EC,ED book="IN acc,DW" diff=-3 why="OPEN: (qprobe round 8) IN a
     f wr=AW ws=OPR e ro                     ; D: F: the accumulator <- the datum; E; N
 
 routine in_i8 op=E4,E5 book="IN acc,imm8" lead=3 why="(qprobe round 6) the book's 15: IN acc,imm8 is `. . . BP . . X DN .` with lead 3 (model_m.py IN8, the qprobe e6i / ld-in8 runs); was: OPEN: book error of one: the book's 15 against the model's 14 at W = 0 with no fetch in the way (silicon a6 15 / 16 with the queue's waits; F5-push-in_al_imm-k2-pE-w0); (qprobe rules 12, 14) IN acc,imm8 is `. . B P . X . . DN .` with lead 3 (the model's; the qprobe ld-in8 runs): two words with no act, B (waits from a fetch's third clock to its last), P (the port's pop and release), the address, X (the request word: waits while a fetch runs, its last clock included; the I/O read due four clocks after it), two words with no act, the post (X + 3), D N (F: the accumulator <- the datum; E), the dispatch: 14 at W = 0; before qprobe: silicon longer than the book by one (F5-push-in_al_imm-k2-pE-w0: the next S at S+16; a6 15 / 16)"
-    open                                    ; OPEN: (qprobe round 6) a word with no act
-    open                                    ; OPEN: (qprobe round 6) a word with no act
-    open                                    ; OPEN: (qprobe round 6) a word with no act
+    open call=w2                            ; OPEN: (qprobe round 6) a word with no act (3 clocks: the call and the shared delay's 2)
     bi pop=port rl=1                        ; (qprobe round 6) B P: waits while a fetch's pin cycle runs; pop the port number, released
     d1=ADDR s1=IMM8                         ; the address register <- the port
     open                                    ; OPEN: (qprobe round 6) a word with no act

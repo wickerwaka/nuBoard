@@ -63,3 +63,14 @@ routine eaq16
     pop=dh rl=x bi                          ; Y: the request word; pop its high byte
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
     rl=2 ret                                ; both displacement bytes released; return to the routine (the post)
+
+; (qprobe round 10, Q18) base + index + d16 (mod 10, rm 0-3: [BW+IX+d16] and the other pairs):
+; `P . Y . PP DN .` / `P . Y . PP G N .` (the qprobe r8 ea-m80 runs): one word more than eaq16,
+; the request word on word 3 (after both displacement pops), the add, the release
+routine eaq16x
+    pop=dl                                  ; the ModR/M byte released (mra); pop the displacement's low byte
+    pop=dh                                  ; pop its high byte
+    rl=x bi                                 ; Y: the request word (the third word)
+    ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
+    rl=2 ret                                ; both displacement bytes released; return to the routine (the post)
+
