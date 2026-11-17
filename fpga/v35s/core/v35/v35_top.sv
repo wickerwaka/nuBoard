@@ -560,7 +560,7 @@ module v35_top
         .g_len(bus.grant_len),
         .start, .epop(loader.epop), .start_trap, .entry(useq.upc), .pc(ir_addr_c),
         .take(loader.opop || loader.mpop), .load(loader.sload),
-        .post(ex && word.bus != BQ_NONE), .post_kind(word.bus == BQ_MEMR ? K_READ
+        .post(ex && word.bus != BQ_NONE && word.bus != BQ_RSV), .post_kind(word.bus == BQ_MEMR ? K_READ
                                            : (word.bus == BQ_MEMW || word.bus == BQ_MEMWD) ? K_WRITE
                                            : (word.bus == BQ_IOR || word.bus == BQ_INTA) ? K_IO_READ
                                            : K_IO_WRITE),

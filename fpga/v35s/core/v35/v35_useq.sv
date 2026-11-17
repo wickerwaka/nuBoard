@@ -154,10 +154,10 @@ module v35_useq
     output reg         halted
 );
     // (qprobe round 12) the ROM in two parts (uasm ROM_LO / ROM_HI): words 0-2047 in rom0..rom2
-    // (2,048 x 2 blocks), the words from 2048 on in rom3..rom5 (512 words); both read at ce_b with
+    // (2,048 x 2 blocks), the words from 2048 on in rom3..rom5 (1,024 words since qprobe round 20: 512 before); both read at ce_b with
     // the same address, the part chosen by the address's top bit registered with the read (`hi_b`)
     // on the read data. No address bit drives a 4,096-deep block
-    localparam int ROM_LO = 2048, ROM_HI = 512;
+    localparam int ROM_LO = 2048, ROM_HI = 1024;
     reg [31:0] rom0 [0:ROM_LO-1];
     reg [31:0] rom1 [0:ROM_LO-1];
     reg [31:0] rom2 [0:ROM_LO-1];
@@ -202,7 +202,7 @@ module v35_useq
     // read), decoded from the next word's read data in tick B and registered with the word
     // at ce_a: `pd` is always the function `pre(word)` of the word it sits beside
     typedef struct packed {
-        logic post;         // bus != BQ_NONE
+        logic post;         // bus != BQ_NONE, BQ_RSV
         logic disp;         // seq == SQ_DISP
         logic dispm;        // seq == SQ_DISPM
         logic erep;         // (F5d) e && ea == EA_REP: the E pop re-enters the REP page
@@ -210,7 +210,7 @@ module v35_useq
     } v35_upre_t;
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic v35_upre_t pre(input v35_uword_t w);
-        pre.post = w.bus != BQ_NONE;
+        pre.post = w.bus != BQ_NONE && w.bus != BQ_RSV;   // (round 18) RSV posts nothing
         pre.disp = w.seq == SQ_DISP;
         pre.dispm = w.seq == SQ_DISPM;
         pre.erep = w.e && w.ea == EA_REP;
@@ -507,9 +507,9 @@ module v35_useq
             l0 <= rom0[raddr[10:0]];
             l1 <= rom1[raddr[10:0]];
             l2 <= rom2[raddr[10:0]];
-            h0 <= rom3[rah[8:0]];
-            h1 <= rom4[rah[8:0]];
-            h2 <= rom5[rah[8:0]];
+            h0 <= rom3[rah[9:0]];
+            h1 <= rom4[rah[9:0]];
+            h2 <= rom5[rah[9:0]];
             hi_b <= raddr[11];
         end
     end
@@ -543,7 +543,7 @@ module v35_useq
     // (st_r.why: the stall's reason, the trace's W: v35_top's observation block)
     // ((step D) the word is 92 bits: the banks' top four bits unread)
     // ((qprobe) the word is 96 bits: the banks' every bit read)
-    wire unused = &{1'b0, dec2, st_r.why, rah[UADDR_W-1:9]};
+    wire unused = &{1'b0, dec2, st_r.why, rah[UADDR_W-1:10]};
 
 `ifndef SYNTHESIS
     // the instruction start (the trace's S, the function bench's o_t_start; v35_top's observation

@@ -108,7 +108,12 @@ forms, POP mem with a displacement). The opcode's second-level entry then depend
 (the dispatch reads v35_udec2 of the registered ModR/M byte whole; (qprobe round 17) no
 limit on such opcodes). `trap` is the sequencing value TRAP (the
 next word; the divide error's strobe). `bus=MEMWD` posts a write whose datum is armed by a later
-word (K: the first that loads OPRW): v35_eu rq_un, spec 7 A2.
+word (K: the first that loads OPRW): v35_eu rq_un, spec 7 A2. (qprobe round 18) `bus=RSV` is
+the reserving word of a request posted later in the routine (spec 13 A1 / Q69: the C7 / 81 cells'
+word that releases the displacement): it posts nothing (v35_eu rq_rs, to the post; the bus unit
+reads it as an announced request); it is a bus-idle word's (`bi`). (qprobe round 20) `strict`
+is the strict bus-idle word (spec 16 A1): `bi` with the wait's second kind (as the commit word C),
+on every bus-idle word that releases a word-wide operand (rl=2: d16, imm16, a far segment).
 """
 
 from __future__ import annotations
@@ -131,7 +136,7 @@ BANKS = 3
 # words from 2048 on in v35_urom_b3..b5.hex (a 512-word part: v35_useq's rom3..rom5), so that no
 # address bit drives 4,096 x 1 blocks (the sequencer's address timing)
 ROM_LO = 2048
-ROM_HI = 512
+ROM_HI = 1024   # (qprobe round 20) the high part 1,024 words (512 before)
 OUT_FILES = tuple(f"v35_urom_b{b}.hex" for b in range(2 * BANKS)) + ("v35_udecode_tbl.svh",)
 UADDR_W = int(re.search(r"localparam\s+int\s+UADDR_W\s*=\s*(\d+)", PKG.read_text()).group(1))
 
@@ -449,6 +454,16 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 if "seq" in fields:
                     raise UasmError(f"{path}:{ln}: trap is a sequencing value (no other seq)")
                 fields["seq"] = enum_value("v35_seq_e", "trap")
+            elif k == "strict":
+                # (qprobe round 20, spec 16 A1, Q88 / Q89 / Q94) the strict bus-idle word: a
+                # bus-idle word (bi) that releases a word-wide operand (d16, imm16, the far
+                # pointer's segment: rl=2) also waits on the clock a back-to-back / chained fetch
+                # starts. In the word: bi with the wait's second kind (vk), the level the commit
+                # word C already waits on (v35_bus ph_nx: b2s_nx); no other bit
+                fields["bi"] = 1
+                fields["vk"] = 1
+                fields["alt"] = 1
+                fields["_strict"] = 1
             elif k == "alt":
                 # (qprobe round 10) the bus wait's second kind, in the word's vk bit (read by
                 # SR_VEC alone): with bi C (the commit word), with rl=x and bi V (the late
@@ -459,6 +474,11 @@ def parse_word(text: str, path: str, ln: int) -> Word:
                 fields[k] = 1
             else:
                 raise UasmError(f"{path}:{ln}: unknown flag {tok!r}")
+    if fields.pop("_strict", 0) and (fields.get("rl") != 2):
+        raise UasmError(f"{path}:{ln}: strict is the bus-idle word that releases a word-wide "
+                        "operand (rl=2)")
+    if fields.get("bus") == enum_value("v35_bus_e", "rsv") and not fields.get("bi"):
+        raise UasmError(f"{path}:{ln}: bus=RSV is a bus-idle word's (bi): the reserving word")
     if fields.get("ea") == enum_value("v35_ea_e", "bi") and fields.get("bus"):
         raise UasmError(f"{path}:{ln}: the EA's add posts (the request reads the address "
                         "register a word later)")
@@ -1072,7 +1092,7 @@ def length(prog: Program, name: str, n: int = 4, conds: dict | None = None,
             t = refill_at
         if f.get("flush"):
             refill_at = t + BUS_CYCLE
-        if f.get("bus"):
+        if f.get("bus") and f["bus"] != enum_value("v35_bus_e", "rsv"):   # (round 18) RSV posts nothing
             if done_at is not None and t < done_at:      # one request at a time
                 t = done_at
             done_at = t + 1 + BUS_CYCLE

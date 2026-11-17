@@ -179,6 +179,12 @@ module v35_eu
     // the bus; K's load writes the request's datum (rq_d) and arms it. A write never reaches the
     // pins before its datum (`+v35_chk` below)
     reg        rq_un = 1'b0;
+    // (qprobe round 18, spec 13 A1 / Q69) the request announced and not yet posted: set by the
+    // reserving word (bus=RSV: the word releasing a C7 / 81 cell's displacement), cleared by the
+    // post three words later. Its level reaches the bus unit as req_ia with req_v low (the
+    // address is not formed: the cycle may not start; the bus unit holds or yields the chained
+    // fetch's decision by it). No request register is loaded by the reserving word
+    reg        rq_rs = 1'b0;
     reg        rq_dk = 1'b0;            // (F4c) the request posted is a DMA transfer's cycle
     initial begin
         dm_tend = 1'b0;
@@ -757,7 +763,8 @@ module v35_eu
     assign wa_data = sw[5:4] == 2'd0 ? wsv : {wsv[7:0], wsv[7:0]};
 
     // ------------------------------------------------------------ tick B: the request
-    wire        post = ex_b && word.bus != BQ_NONE;
+    wire        post = ex_b && word.bus != BQ_NONE && word.bus != BQ_RSV;
+    wire        rsv_w = ex_b && word.bus == BQ_RSV;     // (round 18, A1) the reserving word
     wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW || word.bus == BQ_INTA;
     wire        b_rd = word.bus == BQ_MEMR || word.bus == BQ_IOR || word.bus == BQ_INTA;
     wire        b_mw = word.bus == BQ_MEMW || word.bus == BQ_MEMWD;
@@ -791,7 +798,10 @@ module v35_eu
     // ------------------------------------------------------------ the port
     assign req_v = rq_v && !rq_hd && !(rq_un && !k_cur);
     assign req_cyc = rq_cyc;
-    assign req_ia = rq_ia || rq_un;      // (A2) on a write: the datum is loaded by the current word
+    // (A2) on a write: the datum is loaded by the current word; (F3b) with RQ_IOR: an INT
+    // acknowledge, while it is presented; (qprobe round 18, A1) with req_v low: a request
+    // announced (rq_rs: the reserving word executed, the post not yet: "may not start")
+    assign req_ia = (rq_ia && rq_v && !rq_hd) || rq_un || rq_rs;
     assign req_dk = rq_dk;
     assign req_addr = rq_addr;
     assign req_width = rq_word;
@@ -881,6 +891,7 @@ module v35_eu
             pist_v <= 1'b0;
             rq_v <= 1'b0;
             rq_un <= 1'b0;
+            rq_rs <= 1'b0;
             rq_out <= 1'b0;
             rq_rd <= 1'b0;
             rq_oc <= 1'b0;
@@ -1002,6 +1013,11 @@ module v35_eu
             // the request
             rq_oc <= rq_oc_nx;
             rq_hd <= post && hp_b;
+            // (round 18, A1) the announcement: from the reserving word to the post
+            if (rsv_w)
+                rq_rs <= 1'b1;
+            else if (post)
+                rq_rs <= 1'b0;
             if (post) begin
                 rq_v <= 1'b1;
                 rq_cyc <= word.bus == BQ_MEMR ? RQ_MEMR : b_mw ? RQ_MEMW
@@ -1110,6 +1126,13 @@ module v35_eu
             chk_n = chk_n + 1;
             if (chk_n <= 20)
                 $display("v35 chk: eu: a MEMWD post not followed by K at %0t", $time);
+        end
+        // (qprobe round 18, A1) the announcement ends at its post, inside the routine: a second
+        // reserving word, or an E word, while it stands is reported
+        if (chk_on && reset_n && ce_a && rq_rs && ex_b && (word.bus == BQ_RSV || word.e)) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: eu: a reservation not ended by its post at %0t", $time);
         end
         if (chk_on && reset_n && ce_a && ack_b && rq_un && !(ex_b && k_cur)) begin
             chk_n = chk_n + 1;

@@ -50,16 +50,19 @@ w1: open ret                                ; OPEN: a book clock with no act (th
 ; register writes, CW and the index, run on past E: MX1f's wb; the frozen model's str_exit=wb /
 ; str_single_wb, xwb 2: only a successor that waits for a write-back sees the clocks)
 routine sxt why="OPEN: the string forms' shared tails: the exit's book clocks with no act, then E (the caller's routine names its run)"
-xb14: open call=w14                         ; OPEN: the compares' exit: fifteen book clocks with no act (the call and the shared delay's 14)
+xb12: open call=w12                         ; OPEN: the compares' exit: thirteen book clocks with no act (the call and the shared delay's 12)
     open                                    ; OPEN: the write-back's second clock before E
     e                                       ; E: pop the next opcode; the index / count write-back runs on past E (wb)
 ; a REP compare's exits: the overrun read issued on the clock before (q + 10), its datum waited
-; for (F: the W clocks), E 18 (+ W) clocks after its issue on the condition's exit and 19 on the
-; count's (the count's test is the second word: F24-out-t-repe-cmpm-w-n4-fill-pE-w0 S at the
-; last read + 20, F24-out-r-repne-cmpm-w-n2-pE-w0 + 21)
-sx_c: open                                  ; OPEN: the exit's book clock with no act (the condition's)
-sx_w: open                                  ; OPEN: the exit's book clock with no act (the count's)
-    f jmp=xb14                              ; F: the overrun's datum (discarded); the tail
+; for (F: the W clocks: the datum's clock at q + 13 at W = 0 on either path), E 18 (+ W) clocks
+; after its issue on the condition's exit and 19 on the count's. (qprobe round 18, Q80, spec 14 B2)
+; Silicon: from the last read to the next instruction 26 clocks when the condition ended the loop
+; (at any element, the last one too) and 27 when the count did: the count's exit one word longer
+; behind the datum (sx_w's word), the tail two words shorter than round 12's (whose F word,
+; reached on q + 13 by both paths, gave both exits the same length: 28)
+sx_c: f jmp=xb12                            ; F: the overrun's datum (discarded); the tail
+sx_w: f                                     ; F: the overrun's datum (discarded)
+    open jmp=xb12                           ; OPEN: the count's exit's word with no act; the tail
 
 ; (qprobe round 12, spec 7 A3) the REP prefixes (F3 REP / REPE, F2 REPNE, 65 REPC, 64 REPNC) are their own two-word
 ; routine, as a segment prefix: the E word pops the string opcode into the REP page (ea=REP: the
@@ -159,7 +162,9 @@ routine inm op=6C,6D bookx="19+2W" diff=1 why="OPEN: silicon longer than the boo
 
 routine outm op=6E,6F bookx="19+2W" diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) OUTM is `. . . . . . Y D . X . . . N .` (the qprobe outmb / outmw runs): the source's address, five words with no act, Y, IX stepped, the read's post, F (D), the port DW, X (the I/O request word, two after the datum), two words with no act, the I/O write's post (X + 3), E"
     ra=IX wid=WORD d1=ADDR s1=RA            ; the source's address IX
-    open call=w4                            ; OPEN: (qprobe round 11) five words with no act (the call and the shared delay's 4)
+    open call=w2                            ; OPEN: (qprobe round 11) three words with no act (the call and the shared delay's 2)
+    bi                                      ; (qprobe round 20, spec 16 B, Q90) B: OUTM's bus-idle fifth word (`. . . . B . Y D . X . . . N .`)
+    open                                    ; OPEN: a word with no act
     rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
     ra=IX wid=WORD alu=STEP ax=RA           ; SIGMA = IX + the width
     wr=IX ws=SIG wid=WORD                   ; IX stepped
@@ -280,14 +285,15 @@ rou_l: ra=DW wid=WORD d1=ADDR s1=RA wr=CW ws=SIG ; the last element: a word with
 routine rep_cmpbk op=A6,A7 page=rep bookx="2+16+(23+2W)n" n=4 diff=9 why="OPEN: silicon longer than the book: silicon's 32 + 18n + the overrun (F24-out-r-repe-cmpbk-w-n2-pE-w0: the destination read first, issued at c20, the source's 9 (+ W) after it, the next element's 9 (+ W) after that; the next element's two reads posted before the tests take effect (the overrun); E 18 (+ W) after the overrun's source read on the condition's exit, 19 on the count's, and the wb; n = 0 17): the element 18 + 2W, five short of the book's 23 + 2W (silicon's), the fixed part and the overrun longer (OPEN)"
     ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW (the count's test); the element's first address IY
     rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c5: CW = 0: no element; the address again
-    rb=IY wid=WORD d1=ADDR s1=RB call=w12   ; c6: the address again; c7 .. OPEN, the fixed part's clocks with no act
-    bus=MEMR seg=DS1                        ; c19: post the first destination read (issued c20)
-    ra=IX wid=WORD d1=ADDR s1=RA call=w2    ; c20: the source's address IX; c21 c22 OPEN
-    f d1=TB s1=OPR                          ; c23: F: the destination's datum into tmpb
-    open call=w3                            ; OPEN: c24 .. c27, the element's clocks with no act
-    bus=MEMR seg=DSP                        ; c28: post the first source read (issued c29)
-    open                                    ; OPEN: c29, the tests' clock (no element before the first)
-    open jmp=rcb_f                          ; OPEN: c30, the tests' clock; the element's rest at c31 (zz_late.uasm rcb_f: the first element's c31 has no take point)
+    rb=IY wid=WORD d1=ADDR s1=RB            ; c6: the address again
+    bi call=w12                             ; (qprobe round 18, Q80, spec 14 B2) c7: B, the head's bus-idle fourth word (silicon's head 13 words, the first read a word later than round 12's); c8 .. OPEN, the fixed part's clocks with no act
+    bus=MEMR seg=DS1                        ; c20: post the first destination read (issued c21)
+    ra=IX wid=WORD d1=ADDR s1=RA call=w2    ; c21: the source's address IX; c22 c23 OPEN
+    f d1=TB s1=OPR                          ; c24: F: the destination's datum into tmpb
+    open call=w3                            ; OPEN: c25 .. c28, the element's clocks with no act
+    bus=MEMR seg=DSP                        ; c29: post the first source read (issued c30)
+    open                                    ; OPEN: c30, the tests' clock (no element before the first)
+    open jmp=rcb_f                          ; OPEN: c31, the tests' clock; the element's rest at c32 (zz_late.uasm rcb_f: the first element's c32 has no take point)
 rcb_q: bus=MEMR seg=DS1                     ; q: post the destination read (issued q + 1)
     ra=IX wr=CW ws=SIG wid=WORD d1=ADDR s1=RA ; q + 1: the source's address IX; CW written (the last element's decrement)
     open call=w1                            ; OPEN: q + 2 q + 3, the element's clocks with no act
@@ -306,12 +312,20 @@ rcb_u: f d1=TA s1=OPR wr=IY ws=SIG wid=WORD ; q + 13: F: the source's datum into
 routine rep_cmpm op=AE,AF page=rep bookx="2+16+(16+2W)n" n=4 diff=3 why="OPEN: silicon longer than the book: silicon's (F24-out-r-repne-cmpm-w-n2-pE-w0): the first read issued at c21, the second 10 (+ W) after it, the rest 12 (+ W): the next element's read posted before the tests take effect (the overrun), then the two tests' words (the first element has none before it); E 18 (+ W) after the last read on the condition's exit, 19 on the count's, and the wb; n = 0 17: the element 12 + W against the book's 16 + 2W (silicon's), the fixed part longer (OPEN)"
     ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW (the count's test); the element's first address IY
     rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c5: CW = 0: no element; the address again
-    rb=IY wid=WORD d1=ADDR s1=RB call=w13   ; c6: the address again; c7 .. OPEN, the fixed part's clocks with no act
-    bus=MEMR seg=DS1 jmp=rcm_f              ; c20: post the first read (issued c21); (F5e) zz_late.uasm rcm_f: the first element's b has no take point
+    rb=IY wid=WORD d1=ADDR s1=RB            ; c6: the address again
+    bi call=w13                             ; (qprobe round 18, Q80, spec 14 B2) c7: B, the head's bus-idle fourth word (silicon's head 14 words, the first read a word later than round 12's); c8 .. OPEN, the fixed part's clocks with no act
+    bus=MEMR seg=DS1 jmp=rcm_f              ; c21: post the first read (issued c22); (F5e) zz_late.uasm rcm_f: the first element's b has no take point
 rcm_q: bus=MEMR seg=DS1                     ; b + 9: post the next element's read (issued b + 10)
     jnc=XC:sx_c                             ; b + 10: the last element's condition failed: the exit (the read the overrun)
     jnc=SNZ:sx_w                            ; b + 11: CW = 0: the exit
 rcm_b: ra=IY wid=WORD alu=STEP ax=RA tki=si_f ; b: SIGMA = IY + the width; (F5e) the take point after the tests (the element's read outstanding: si_f takes its datum first)
+    f d1=TA s1=OPR wr=IY ws=SIG wid=WORD    ; (qprobe round 19, Q87, spec 15 A2) b + 1: F: the datum into tmpa, the iteration's second word (`Y D . . . .`: the words behind it serial with the read, 12 + W); IY stepped
+    ra=AW alu=GRP ax=RA ay=TA wf            ; b + 2: the compare AW - [IY] (W)
+    ra=IY wid=WORD d1=ADDR s1=RA            ; b + 3: the next address (IY as stepped)
+    ra=CW wid=WORD alu=DEC ax=RA            ; b + 4: SIGMA = CW - 1
+    wr=CW ws=SIG wid=WORD call=w2           ; b + 5: CW written; OPEN: b + 6, b + 7 (the call and the shared delay's 2)
+    open jmp=rcm_q                          ; OPEN: b + 8; the next read at b + 9
+; the first element (zz_late.uasm rcm_f, from the head's read: `Y D . .`, 10 + W)
 rcm_u: wr=IY ws=SIG wid=WORD d1=ADDR s1=SIG ; b + 1: IY stepped; the next address
     open                                    ; OPEN: b + 2, a book clock with no act
     f d1=TA s1=OPR                          ; b + 3: F: the datum into tmpa (the W clocks)

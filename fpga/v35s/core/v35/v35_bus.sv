@@ -248,15 +248,22 @@ module v35_bus
     // the grant, joining it at the length's select as the old SFR compare did
     wire rq_sfr = (req_addr[19:12] == idb && req_addr[11:9] == 3'b111 && (req_addr[8] || ramen))
                   || req_addr == 20'hFFFFF;
-    wire un_w = req_ia && req_cyc == RQ_MEMW;
+    // req_ia with req_v: on a memory write the write is not armed (its datum loaded by the EU's
+    // current word, K); with req_v low (qprobe round 18, spec 13 A1 / Q69): a request announced
+    // by its reserving word and not yet posted (`rsv`: its address not formed, it may not start)
+    wire un_w = req_ia && req_v && req_cyc == RQ_MEMW;
+    wire rsv = req_ia && !req_v;
     function automatic v35_gnt_t gnt_f(input logic fr);
         logic eu_win, eu;
         // (qprobe round 12, spec 7 A2 / Q33) req_ia on a memory write: its datum is loaded by
         // the EU's current word (K, not yet armed): granted only if that word executes now (ex),
         // and not against a chained fetch (a fetch asked for on the clock after a fetch's last,
         // dlv_fetch, decided on that fetch's next-to-last clock from the count, dc: registers):
-        // the unarmed posted write does not compete with it
-        eu_win = free_h && !g_second && req_v && !((un_w || dcu) && fr && dlv_fetch && dc) && !(un_w && !ex);
+        // the unarmed posted write does not compete with it. (qprobe round 18, spec 13 A1 / Q69)
+        // Nor does a request that was only announced when the decision was taken (`dr`: a
+        // read or a write of the C7 / 81 displacement cells, reserved on the word releasing
+        // the displacement): it competes from its due clock, the decided fetch first
+        eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex);
         gnt_f.fetch = free_h && !g_second && !eu_win && fr;
         gnt_f.ack = eu_win;
         eu = g_second || gnt_f.ack;         // an EU cycle issued now (either half of a pair)
@@ -378,6 +385,14 @@ module v35_bus
     // before that clock), so a K on the fetch's last clock (the write armed one clock before the
     // grant) does not take the decided chained fetch's clock (build check item 1)
     reg         dcu = 1'b0, dcu_b = 1'b0;
+    // (qprobe round 18, spec 13 A1 / Q69, Q33 facts 1 and 2) the reserving request against the
+    // decision: `dr`, the EU's request announced (rsv) on the decision's clock (it gives way to
+    // the decided chained fetch at its due clock, as the unarmed write does); `rh`, the
+    // announcement rose on the decision's clock (its reserving word executed on the clock
+    // before: the decision's eve), which holds the decision: no chained fetch on the clock after
+    // the running fetch's end, the bus idle, the EU's cycle on its due clock. `rs1`: rsv on the
+    // last clock (a ce_a register). Registers only, beside dc
+    reg         dr = 1'b0, dr_b = 1'b0, rh = 1'b0, rh_b = 1'b0, rs1 = 1'b0;
     wire        in_f = busy && c_kind == K_FETCH;           // a fetch started earlier runs now
     wire        f_last = in_f && pos_now == c_len - 3'd1;      // the running fetch's last clock
     wire        eu_r = busy && c_kind != K_FETCH;           // an EU cycle started earlier runs now
@@ -392,6 +407,8 @@ module v35_bus
             fe_b <= 1'b0;
             dc_b <= 1'b0;
             dcu_b <= 1'b0;
+            dr_b <= 1'b0;
+            rh_b <= 1'b0;
             nl_b <= 1'b0;
             pd_b <= 1'b0;
             sk_b <= 1'b0;
@@ -400,6 +417,8 @@ module v35_bus
             fe_b <= g_fetch ? pend : fe;
             dc_b <= g_fetch ? 1'b0 : (in_f && sec_last) ? lv_q.cf : dc;
             dcu_b <= g_fetch ? 1'b0 : f_last ? un_w : dcu;
+            dr_b <= g_fetch ? 1'b0 : (in_f && sec_last) ? rsv : dr;
+            rh_b <= g_fetch ? 1'b0 : (in_f && sec_last) ? (rsv && !rs1) : rh;
             nl_b <= nl_a;
             pd_b <= pd_a;
             sk_b <= gave;
@@ -411,6 +430,9 @@ module v35_bus
             fe <= 1'b0;
             dc <= 1'b0;
             dcu <= 1'b0;
+            dr <= 1'b0;
+            rh <= 1'b0;
+            rs1 <= 1'b0;
             nl <= 1'b0;
             pend <= 1'b0;
         end else if (ce_a) begin
@@ -418,6 +440,9 @@ module v35_bus
             fe <= fe_b;
             dc <= dc_b;
             dcu <= dcu_b;
+            dr <= dr_b;
+            rh <= rh_b;
+            rs1 <= rsv;
             nl <= nl_b;
             pend <= pd_b;
         end
@@ -474,7 +499,9 @@ module v35_bus
     wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler) || (fe && dlv_fetch && !dst));
     wire        fstop = hpr || (ex && hcr);
     wire        line = fetch_req || (lv_q.r5 && !xd && !rqx);
-    wire        fr = line && !gw && !fstop;
+    // (qprobe round 18, spec 13 A1) the decision held by a reservation on its eve (`rh`): no
+    // fetch on the clock after the running fetch's end (dlv_fetch)
+    wire        fr = line && !gw && !fstop && !(rh && dlv_fetch);
     wire        gwy = line && gw && !fstop;
     // tick B: the stream's first boundary after this clock, and the hold
     wire        aft_n = xf ? 1'b1 : xd ? 1'b0 : aft;
@@ -880,7 +907,7 @@ module v35_bus
 `ifndef SYNTHESIS
     // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
     // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
-    wire        x_eu_win = free_h && !g_second && req_v && !((un_w || dcu) && fr && dlv_fetch && dc) && !(un_w && !ex);     // (qprobe round 12, A2)
+    wire        x_eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex);     // (qprobe round 12, A2)
     v35_gnt_t   gnt_x;
     logic       x_eu;
     always_comb begin

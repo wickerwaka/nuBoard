@@ -8077,3 +8077,80 @@ small set 11,322 of 12,054 (from 11,096, none lost); ROM 2,532 words.
   would have to name RQ_IOR); in v35_bus the give-way (`un_w`) widened to reads and a
   register that holds the chained fetch's decision when the reservation rose on the decision's
   eve. Not attempted in this batch (see the hand-back for the risks).
+
+## qprobe rounds 18 to 20: the reserving request, the strict bus-idle word, SET1 / NOT1 r16,CL, the REP compares, JMP short, the round-20 shapes, the ROM's high part at 1,024 words
+
+Work orders 13 (A1), 14 (B, B2), 15 (A1, A2) and 16 (A1 with its addendum, A2, B) and two build-check items
+(validation/v35s/qprobe/RESULTS.md Q33, Q69, Q79-Q81, Q86-Q91, Q94). RTL inside the existing ports (test_v35_struct unchanged).
+
+- **The reserving request (spec 13 A1, Q69 / Q79).** A new bus field value, `RSV` (BQ_RSV, the last
+  free value of the 3-bit field): the word of the C7 and 81 displacement cells (d8 / d16 / direct)
+  that releases the displacement (`BYP`, `BYPP2`) announces the request posted three words later.
+  It posts nothing (useq's post, the trace's and uasm's book machine skip it; uasm accepts it on a
+  `bi` word only). v35_eu `rq_rs`: set by the RSV word, cleared by the post; on the port it is
+  req_ia with req_v low ("announced, may not start": the address is not formed). req_ia now
+  carries the INT acknowledge only while that request is presented (`rq_ia && rq_v && !rq_hd`),
+  so req_ia with req_v low has the one meaning. v35_bus, beside `dc` (registers): `dr` = the
+  announcement on the chained fetch's decision clock (the running fetch's next-to-last): the
+  request, read or write, gives way to the decided fetch at its due clock as the unarmed write
+  does (Q33 fact 1); `rh` = the announcement rose on the decision clock (its word executed on the
+  decision's eve): no fetch on the clock after the running fetch's end, the bus idle a clock, the
+  EU cycle on its due clock (Q33 fact 2); `rs1` the level a clock before. `un_w` now reads req_v
+  (the unarmed write presented). The C7 on-chip store, the `req_v_nx` simplification and the
+  `+v35_chk` MEMWD checks are untouched (the reservation does not change req_v or rq_un);
+  `+v35_chk` reports a reservation not ended by its post.
+- **SET1 / NOT1 r16,CL (spec 14 B, Q81).** 0F 15 / 17 are cells of the byte forms' routine b1scl
+  (`P . BP . . CN .` on a register, no length depending on CL); b1sclw and its round-9 register
+  path removed.
+- **The REP compares (spec 14 B2, Q80).** The head one word longer with its fourth word bus-idle
+  (c7 `bi`, the first read a clock later: silicon's 13 / 14 words); the exits: the overrun's datum
+  F reached on the condition's exit one word after the test and on the count's exit one word
+  later, then the tail two words shorter: 26 clocks from the last read to the next instruction on
+  the condition's exit and 27 on the count's at W = 0 (both were 28). (Spec 15 A2, Q87) CMPM's later
+  iterations take the datum (F) on their second word, the four words behind it serial with the
+  read (`Y D . . . .`: 12 + W; the first iteration's `Y D . .` already was 10 + W): they were 12 at
+  every wait, the words overlapping the read. Function unchanged (the loop already compared k, read
+  k + 1 and left CW - k). r18c 768 / 768 at W = 0, 1, 2.
+- **JMP short (spec 15 A1, Q86).** The fourth word (the displacement's release) is bus-idle,
+  `. . . BP . . F N .` as Bcond's decide: r18j 60 / 60 (br_n1 / call_n2 / ret corpus rows). CALL /
+  JMP near and the far forms not changed (inferred only).
+- **The strict bus-idle word (spec 16 A1 and addendum, Q88 / Q89 / Q94).** uasm `strict`: `bi` with
+  the wait's second kind (the word's vk bit), the level the commit word C already waits on in
+  v35_bus (`b2s_nx`: also on the clock a back-to-back / chained fetch starts); no new bit, no new
+  port; uasm accepts it only on a word releasing two bytes (rl=2). On every bus-idle word that
+  releases a word-wide operand: LEA d16 / direct (and [two registers + d16]), MOV r16,imm16, ADD
+  AW,imm16 and the 81 group on a register, the C7 and 81 cells' d16 / direct reserving words, TEST
+  word [d16 modes],imm16, and the segment word of JMP far / CALL far (now `pop=ih rl=2 strict`).
+  The RTL's C has no exemption (the model's C_NOCH is not built), so C and the strict word are one
+  level here.
+- **The 0F page's register commit word (spec 16 A2, Q91).** TEST1 / SET1 / NOT1 / CLR1 r,CL and
+  r,imm: the word popping the next opcode is a plain bus-idle word (`alt` removed); the memory
+  forms' C unchanged.
+- **Round 20's shapes (spec 16 B, Q90).** SHL / SHR / SAR r,imm8 `P . . BP . S` + the loop + `N .`
+  (11 + 2n: the count released on a bus-idle fourth word, S the sixth); CVTBD's operand word
+  bus-idle (`. . . BP . B`); OUTM's fifth word bus-idle; TEST [BW+d16],AW / [d16],AW `P . B Y . PP2
+  DN .`, TEST word [BW+d8],imm16 `P . B . . BYP DPP2 . BN .` and [BW+d16] / [d16] `... BYPP2 ...`
+  (reserving, the d16 ones strict) as cells of 85 / F7 (the [BW] and d8 forms of 85 keep the
+  bare heads); POP [BW+IX+d16] one word more behind the stack read (pop_m16x, mod 10 rm 0-3);
+  NEG / NOT / INC / DEC with d16 / direct `P . . B Y . PP2 . DZ G N .` and d8 `P . . B Y . P . DZ G
+  N .` as cells (the routine pops its own displacement, then the [BW] routine's F, Z, E; measured
+  on NEG / NOT / INC word d16, NEG [d16] and NEG d8, the rest by analogy).
+- **The ROM's high part 1,024 words** (uasm ROM_HI, v35_useq rom3..rom5, `rah[9:0]`): 2,669 words
+  in use (2,532 at the start of round 18).
+- **PUSH [d16] / [BW+d16] (build check item 5).** The displacement's two bytes released on two
+  words (`Y P P2 D`, the model's PUSHM_DIR): the fetch behind them a clock later at even alignment.
+- **CALL far [d16] (build check item 6).** The PC push's post five words after the PS push's D as
+  the first's (`Z D . . . Z D`): the two writes 9 clocks apart at W = 0 (were 8).
+- **Not built:** spec 16 C and D, spec 15 / 16 I; spec 10 A1 / Q42's second half and the SET1 / CLR1 / NOT1 mem,imm "twice" item
+  (build check item 4: the model's C_NOCH / CH_BNEXT): the commit word passes the clock the fetch
+  chained behind the fetch after an EU cycle starts only when it releases bytes, which the bus
+  unit cannot see (the word's release is not in wk_nx: a new port bit; stopped as the budget
+  rule requires). EXT across a word's extra word (spec 14 D), spec 14 A2 (replaced by spec 15 A1), the LEA d16
+  even-alignment losses, SFR store timing, everything of spec 14 D / I and spec 15 I.
+- **Result.** Corpus 27,604 of 30,536 exact (from 25,662: 1,948 gained, 6 lost: SET1 AW,CL behind OUT
+  in F34's sep frame, SHL r,imm8 by 8 in three PUSH frames), chk silent, writes all agreeing; the
+  r17 batch's 11 LEA losses exact. Small set 15,080 of 15,384 (rounds 1-20; 2,116 gained, 0 lost).
+  Interrupt probes (first four acknowledges) pushed 2,702 / clock 1,968 of 7,122 (from 2,960 /
+  2,144): caused by the strict word on C7's direct form alone (every frame's vector stores; the
+  fitted pin latencies against the moved frame). Program gates and fuzz sets unchanged. FPGA at
+  17 ns +3.331 / +3.367 / +3.088, 9,532 LUT4, 2,538 FF, 108 RAM_5K.

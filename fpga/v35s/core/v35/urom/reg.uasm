@@ -95,7 +95,7 @@ routine mov_ri16 op=B8-BF book="MOV reg,imm" width=word why="OPEN: (qprobe rule 
     open call=w1                            ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`) (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
     pop=ih                                  ; pop its high byte (its release is the E word's)
-    wr=OPR ws=IMM e bi ro rl=2              ; the register <- the immediate; E; (qprobe) bi: waits while a fetch runs; ro rl=2: the next opcode and both immediate bytes released
+    wr=OPR ws=IMM e strict ro rl=2          ; (qprobe round 20, spec 16 A1 / Q88 / Q94) strict: the release of a word-wide operand also waits on the clock a chained fetch starts; the register <- the immediate; E; (qprobe) bi: waits while a fetch runs; ro rl=2: the next opcode and both immediate bytes released
 
 routine alu_ai8 op=04,0C,14,1C,24,2C,34 book="ADD acc,imm" width=byte why="OPEN: (qprobe rule 14) ADD AL,imm8 is `. . . BNP .` (as MOV r8,imm8; the qprobe ld-addal runs): two words with no act, the immediate's pop, the B / release / E word with the ALU, the dispatch with the write: 5; before qprobe: book error of one, the book's 4 one short of silicon's"
     open call=w1                            ; OPEN: (qprobe rule 14) a word with no act before the immediate's release (`. . . BNP .`) (2 clocks: the call and the shared delay's 1)
@@ -107,7 +107,7 @@ routine alu_ai16 op=05,0D,15,1D,25,2D,35 book="ADD acc,imm" width=word why="OPEN
     open call=w1                            ; OPEN: (qprobe rule 6) a word with no act before the immediate's release (`. . . BNP .`) (2 clocks: the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's (low) byte (its release is the E word's)
     pop=ih                                  ; pop its high byte (its release is the E word's)
-    ra=AW alu=GRP ax=RA ay=IMM wf e bi ro rl=2  ; read AW; the block's ALU op with the immediate, flags (W); E; (qprobe) bi; ro rl=2: the next opcode and both immediate bytes released
+    ra=AW alu=GRP ax=RA ay=IMM wf e strict ro rl=2  ; (qprobe round 20, spec 16 A1 / Q94, inferred: the rule stated on the word) strict; read AW; the block's ALU op with the immediate, flags (W); E; (qprobe) bi; ro rl=2: the next opcode and both immediate bytes released
     wr=AW ws=SIG                            ; post-E: AW <- SIGMA
 
 routine cmp_ai8 op=3C book="CMP acc,imm" width=byte why="OPEN: (qprobe round 15, spec 11 B) CMP AL,imm8 is ADD AL,imm8's `. . . BNP .` (the qprobe cmpal runs, 24 / 24 in the model): two words, the immediate's pop, E bus-idle with the next opcode and the immediate released"
@@ -143,7 +143,7 @@ routine grp1_rw op=81 mod=reg reg=0-6 book="ADD reg,imm" diff=0 why="OPEN: silic
     open call=w1                            ; OPEN: (qprobe round 12) two words with no act (the ModR/M byte released on the first by the loader) (the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's low byte (its release is the E word's)
     pop=ih                                  ; pop its high byte (its release is the E word's)
-    ra=RM alu=GRP ax=RA ay=IMM wf e bi ro rl=2  ; read the register; the group's ALU op with the immediate, flags (W); E; (qprobe round 12) B N P P2: bus-idle, the next opcode and both immediate bytes released
+    ra=RM alu=GRP ax=RA ay=IMM wf e strict ro rl=2  ; (qprobe round 20, spec 16 A1 / Q94, inferred: the rule stated on the word) strict; read the register; the group's ALU op with the immediate, flags (W); E; (qprobe round 12) B N P P2: bus-idle, the next opcode and both immediate bytes released
     wr=RM ws=SIG                            ; post-E: the register <- SIGMA
 
 routine grp1_cb op=80,82,83 mod=reg reg=7 book="CMP reg,imm" width=byte diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q37) CMP r,imm8 (80 / 83 /7, register) is ADD's `P . . BNP .` (the qprobe ci8bw / ci8bl runs: CMP = ADD): two words with no act, the pop, the B / release / E word with CMP, the dispatch: 5"
@@ -155,7 +155,7 @@ routine grp1_cw op=81 mod=reg reg=7 book="CMP reg,imm" width=word diff=0 why="OP
     open call=w1                            ; OPEN: (qprobe round 12) two words with no act (the call and the shared delay's 1)
     pop=il                                  ; pop the immediate's low byte (its release is the E word's)
     pop=ih                                  ; pop its high byte (its release is the E word's)
-    ra=RM alu=GRP ax=RA ay=IMM wf e bi ro rl=2  ; read the register; CMP with the immediate, flags (W); E; B N P P2
+    ra=RM alu=GRP ax=RA ay=IMM wf e strict ro rl=2  ; (qprobe round 20, spec 16 A1 / Q94, inferred: the rule stated on the word) strict; read the register; CMP with the immediate, flags (W); E; B N P P2
 
 ; ---- the unary group, register form (V20 0174-0175): read, the operation, the write, E
 routine inc_rm op=FE,FF mod=reg reg=0 book="INC reg8" why="(qprobe round 8, Q20) `P . . BN .`: read, op, write, the E word bus-idle (B: waits while a fetch's pin cycle runs) with N (measured: INC r8, the qprobe t-incb / em3-incb runs): the book's 5"

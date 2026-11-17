@@ -153,7 +153,14 @@ package v35_pkg;
         // from the post; it is granted only on the clock the word that loads OPRW (K) executes,
         // and then only when no fetch asks for the bus (an unarmed write does not compete); from
         // K's execution on it is an ordinary write (v35_eu rq_un)
-        BQ_MEMWD = 3'd6
+        BQ_MEMWD = 3'd6,
+        // (qprobe round 18, spec 13 A1 / Q69 / Q79) RSV: the reserving request word. A word that
+        // releases the displacement of a memory form whose request is posted three words later
+        // (the C7 and 81 cells with d8 / d16 / direct: `BYP`, `BYPP2`) announces that request:
+        // the EU's rq_rs from this word to the post, seen by the bus unit as req_ia with req_v
+        // low ("announced, may not start": the address is not formed yet). Not a post: no
+        // request register is loaded, nothing waits for a previous request
+        BQ_RSV = 3'd7
     } v35_bus_e;
 
     // ---- the request's segment: the default (a prefix's, else SS for a BP mode, else DS0),

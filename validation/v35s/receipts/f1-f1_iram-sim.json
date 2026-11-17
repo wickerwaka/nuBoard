@@ -5410,10 +5410,6 @@
  "io_reads": [],
  "data_reads": [
   [
-   10,
-   0
-  ],
-  [
    40704,
    34
   ],
@@ -5688,5 +5684,5 @@
  "backend": "sim",
  "core": "v35",
  "binary": "build/fpga/v35s/verilator-direct-v35",
- "date": "2026-11-17T05:30:28"
+ "date": "2026-11-17T11:50:41"
 }

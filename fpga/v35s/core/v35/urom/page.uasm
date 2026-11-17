@@ -93,7 +93,7 @@ routine b1tcl op=10,11 page=0f ea=bare diff=r:0,m00:0,d8:+1,d16:+1,dir:+2 book="
 b1tcl_r: open                              ; OPEN: (qprobe round 10, Q31) TEST1 r,CL is `P . P . . CN .`: the second word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); (qprobe round 10) P: the ModR/M byte released (the third word)
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
-    e ro bi alt                             ; E: pop the next opcode; (qprobe round 10, B4) C N: the commit word (bus-idle, and held on the clock a back-to-back fetch starts); ro: released
+    e ro bi                                 ; (qprobe round 20, spec 16 A2 / Q91) a plain bus-idle word (B), not the commit word C; E: pop the next opcode; (qprobe round 10, B4) C N: the commit word (bus-idle, and held on the clock a back-to-back fetch starts); ro: released
     ra=CW rb=RM alu=BIT ax=RB ay=RA wf      ; the word after E: the register and CL, TEST1's flags written (the write port's: MX3's WBR)
 
 routine b1tim op=18,19 page=0f ea=bare diff=r:0,m00:0,d8:1,d16:1,dir:2 book="TEST1 reg8,imm3" bookm="TEST1 mem8,imm3" why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) TEST1 mem,imm is `P . PC Y DPN .` (the qprobe runs: 24 / 24): the add, the ModR/M byte's release on the commit word C, Y, the index popped under the wait and released on D; TEST1 r,imm `P . P . . CPN .` (the qprobe t1 r,imm runs): the CL form's with the index released on the commit word"
@@ -108,7 +108,7 @@ routine b1tim op=18,19 page=0f ea=bare diff=r:0,m00:0,d8:1,d16:1,dir:2 book="TES
 b1tim_r: open                              ; OPEN: (qprobe round 12, Q38) TEST1 r,imm is `P . P . . CPN .`: the second word with no act
     rl=1 bi pop=il                          ; (qprobe round 16, Q61) B P: the ModR/M byte released on a bus-idle third word; pop the bit index (released on the commit word) (`P . BP . CPN .`: one word fewer)
     open d1=TB s1=IMM8                      ; OPEN: (qprobe round 12, Q38) a word with no act; (F5c) the index into tmpb (the next E pop's short displacement overwrites IL before the word after E)
-    e ro bi alt rl=1                        ; E: pop the next opcode; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
+    e ro bi rl=1                            ; (qprobe round 20, spec 16 A2 / Q91) a plain bus-idle word (B), not the commit word C; E: pop the next opcode; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
     rb=RM alu=BIT ax=RB ay=TB wf            ; the word after E: the register and the index (tmpb), TEST1's flags written (the write port's: MX3's WBR)
 
 routine b1ccl op=12,13 page=0f ea=bare diff=r:0,m00:+2,d8:+3,d16:+3,dir:+4 book="CLR1 reg8,CL" bookm="CLR1 mem8,CL" why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) CLR1 mem,CL is `P . P . C Y D Z G N .` (the qprobe c1mcl runs): TEST1 mem,CL's head, D with CLR1, a word, Z (the write's post), G N; the register form `P . P . . CN . .` (Q31)"
@@ -128,7 +128,7 @@ routine b1ccl op=12,13 page=0f ea=bare diff=r:0,m00:+2,d8:+3,d16:+3,dir:+4 book=
 b1ccl_r: open                              ; OPEN: (qprobe round 10, Q31) CLR1 r,CL is `P . P . . CN . .`: the second word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); (qprobe round 10) P: the ModR/M byte released (the third word)
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
-    ro bi alt                               ; (qprobe round 10, B4) C N: the commit word (bus-idle, and held on the clock a back-to-back fetch starts); ro: the next opcode released
+    ro bi                                   ; (qprobe round 20, spec 16 A2 / Q91) a plain bus-idle word (B), not the commit word C; (qprobe round 10, B4) C N: the commit word (bus-idle, and held on the clock a back-to-back fetch starts); ro: the next opcode released
     ra=CW rb=RM alu=BIT ax=RB ay=RA e       ; the register and CL: CLR1; E (the E row's operation, a register form's; one word after the release)
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
@@ -147,11 +147,11 @@ routine b1cim op=1A,1B page=0f ea=bare diff=r:0,m00:2,d8:3,d16:3,dir:4 book="CLR
 b1cim_r: open                              ; OPEN: (qprobe round 12, Q38) CLR1 r,imm is `P . P . . CPN . .`: the second word with no act
     rl=1 bi pop=il                          ; (qprobe round 16, Q61) B P: the ModR/M byte released on a bus-idle third word; pop the bit index (released on the commit word) (`P . BP . CPN .`: one word fewer)
     open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
-    ro bi alt rl=1                          ; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
+    ro bi rl=1                              ; (qprobe round 20, spec 16 A2 / Q91) a plain bus-idle word (B), not the commit word C; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
     rb=RM alu=BIT ax=RB ay=IMM8 e           ; the register: CLR1; E (the E row's operation)
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
-routine b1scl op=14,16 page=0f ea=bare diff=r:0,m00:+2,d8:+3,d16:+3,dir:+4 book="SET1 reg8,CL" bookm="SET1 mem8,CL" why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) SET1 / NOT1 mem,CL is `P . P . C Y DZ G N .` (the qprobe n1mcl runs): TEST1 mem,CL's head, D with the operation, Z on the word after it, G N; the register form `P . P . . CN .` (Q31)"
+routine b1scl op=14,15,16,17 page=0f ea=bare diff=r:0,m00:+2,d8:+3,d16:+3,dir:+4 book="SET1 reg8,CL" bookm="SET1 mem8,CL" why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) SET1 / NOT1 mem,CL is `P . P . C Y DZ G N .` (the qprobe n1mcl runs): TEST1 mem,CL's head, D with the operation, Z on the word after it, G N; the register form `P . P . . CN .` (Q31); (qprobe round 18, Q81, spec 14 B) SET1 / NOT1 r16,CL (0F 15 / 17) are the byte forms' routine, with no length depending on CL (the qprobe r18b runs): their round-9 register routine (b1sclw) removed"
     pop=modrm eac=b1scl_r                   ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
 b1scl_m2: ra=CW d1=TB s1=RA rl=1 bi         ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); (qprobe round 12, Q38) P: the ModR/M byte released (the third word); CL into tmpb: the bit index
@@ -167,14 +167,7 @@ b1scl_m2: ra=CW d1=TB s1=RA rl=1 bi         ; (qprobe round 16, Q61) B: bus-idle
 b1scl_r: open                              ; OPEN: (qprobe round 10, Q31) SET1 / NOT1 r,CL is `P . P . . CN .`: the second word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); (qprobe round 10) P: the ModR/M byte released (the third word)
     open call=w1                            ; OPEN: (qprobe round 10) two words with no act (the call and the shared delay's 1)
-    ra=CW rb=RM alu=BIT ax=RB ay=RA e ro bi alt  ; the register and CL: SET1 / NOT1; E (the E row's operation, a register form's); (qprobe round 10, B4) C N: the commit word (bus-idle, held on the clock a back-to-back fetch starts); ro: released
-    wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
-
-routine b1sclw op=15,17 page=0f ea=bare diff=r:-1,m00:+2,d8:+3,d16:+3,dir:+4 book="SET1 reg8,CL" bookm="SET1 mem8,CL" why="OPEN: book error where the measured routine is shorter than the book (the qprobe shape below), silicon longer than the book on its other paths; (qprobe round 10) SET1 / NOT1 r16,CL (0F 15 / 17) keep the round-9 register routine: built as the byte forms' `P . P . . CN .` (Q31 measured on the byte forms) they lost nine corpus runs (F39 page-set1); (qprobe round 12, Q38) the memory forms are SET1 mem,CL's `P . P . C Y DZ G N .` (n1mcl measured on 0F 16)"
-    pop=modrm eac=b1sclw_r                  ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
-    ea=BI ra=BASE rb=INDEX jmp=b1scl_m2     ; the EA's add; SET1 mem,CL's words (b1scl)
-b1sclw_r: rl=1 open call=w2                 ; OPEN: 3 clocks: book clocks with no act (SET1 reg,CL 7) (the call and the shared delay's 2); the ModR/M byte released (the round-9 register path)
-    ra=CW rb=RM alu=BIT ax=RB ay=RA e ro    ; the register and CL: SET1 / NOT1; E (the E row's operation, a register form's); ro: released
+    ra=CW rb=RM alu=BIT ax=RB ay=RA e ro bi      ; (qprobe round 20, spec 16 A2 / Q91) a plain bus-idle word (B), not the commit word C; the register and CL: SET1 / NOT1; E (the E row's operation, a register form's); (qprobe round 10, B4) C N: the commit word (bus-idle, held on the clock a back-to-back fetch starts); ro: released
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
 routine b1sim op=1C,1D,1E,1F page=0f ea=bare diff=r:0,m00:2,d8:3,d16:3,dir:4 book="SET1 reg8,imm3" bookm="SET1 mem8,imm3" why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) SET1 / NOT1 mem,imm is `P . PC Y DPZ G N .` (the qprobe s1mi runs) and r,imm `P . P . . CPN .` (the qprobe n1i runs): TEST1's heads, the write's post on the word after the datum"
@@ -191,7 +184,7 @@ routine b1sim op=1C,1D,1E,1F page=0f ea=bare diff=r:0,m00:2,d8:3,d16:3,dir:4 boo
 b1sim_r: open                              ; OPEN: (qprobe round 12, Q38) SET1 / NOT1 r,imm is `P . P . . CPN .`: the second word with no act
     rl=1 bi pop=il                          ; (qprobe round 16, Q61) B P: the ModR/M byte released on a bus-idle third word; pop the bit index (released on the commit word) (`P . BP . CPN .`: one word fewer)
     open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
-    rb=RM alu=BIT ax=RB ay=IMM8 e ro bi alt rl=1  ; the register: SET1 / NOT1; E; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
+    rb=RM alu=BIT ax=RB ay=IMM8 e ro bi rl=1      ; (qprobe round 20, spec 16 A2 / Q91) a plain bus-idle word (B), not the commit word C; the register: SET1 / NOT1; E; (qprobe round 12, Q38) C P N: the commit word, the index and the next opcode released
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
 
 ; ---- the digit rotates ROL4 / ROR4 (0F 28 / 2A: op3 0 / 1) on a byte register or at [m]

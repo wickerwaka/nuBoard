@@ -19,14 +19,13 @@ shcl_l: alu=SH1 ax=SIG                      ; one shift step of the group's oper
 shcl_z: e ro                                ; E: pop the next opcode (022B); (qprobe round 6) N
 
 ; C0 / C1: SHL r,imm8 (V20 028C-028F): the count popped. Measured as the CL form
-routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 diff=3 why="silicon longer than the book (measured, the extra words OPEN): OPEN: (qprobe round 9, Q24) SHL / SHR / SAR r,imm8 is the CL form's routine, 12 + 2n words, with its own head (the qprobe shli1 / shli2 / shli4 / shli8 / shlbi4 / sari4 runs, 23 / 24 each in the model; model_m.py SHLI_AS_CL): the operand into tmpb (the ModR/M byte released by the loader on word 1), the shifter's load, a word with no act, the count byte popped and released on word 4, a word with no act, the count into the loop counter, S on word 7 (the CL form's fourth-word wait: the bus unit's slot; three words after the routine's last queue byte, as the CL form's is three after its ModR/M byte), the zero test, the two-word iteration, a book clock with no act, the write with the flags, E with N; the book's 9 + 2n: silicon's 12 + 2n; before round 9: the count popped at S+3 after one OPEN word, 18 against silicon's 20 at n = 4 (F3-push-shl_imm4-k4-pE-w0)"
+routine shift_imm op=C0,C1 mod=reg book="SHL reg,imm8" n=4 diff=2 why="silicon longer than the book (measured, the extra words OPEN): OPEN: (qprobe round 9, Q24) SHL / SHR / SAR r,imm8 is the CL form's routine, 12 + 2n words, with its own head (the qprobe shli1 / shli2 / shli4 / shli8 / shlbi4 / sari4 runs, 23 / 24 each in the model; model_m.py SHLI_AS_CL): the operand into tmpb (the ModR/M byte released by the loader on word 1), the shifter's load, a word with no act, the count byte popped and released on word 4, a word with no act, the count into the loop counter, S on word 7 (the CL form's fourth-word wait: the bus unit's slot; three words after the routine's last queue byte, as the CL form's is three after its ModR/M byte), the zero test, the two-word iteration, a book clock with no act, the write with the flags, E with N; the book's 9 + 2n: silicon's 12 + 2n; before round 9: the count popped at S+3 after one OPEN word, 18 against silicon's 20 at n = 4 (F3-push-shl_imm4-k4-pE-w0)"
     rb=RM d1=TB s1=RB                       ; the operand into tmpb (028D) (the ModR/M byte released by the loader: P)
     alu=SHI ax=TB                           ; the shifter loaded with CY
     open                                    ; OPEN: (qprobe round 9) a word with no act
-    pop=il rl=1                             ; pop the count (V20 028C Q -> tmpaL) and release it (P, word 4)
-    open                                    ; OPEN: (qprobe round 9) a word with no act
+    pop=il rl=1 bi                          ; pop the count (V20 028C Q -> tmpaL) and release it (P, word 4); (qprobe round 20, spec 16 B, Q90) B: bus-idle (`P . . BP . S`, the count's release as OUT imm8's port byte)
     cnt=IL                                  ; the count into the loop counter (028E)
-    rl=x                                    ; (qprobe round 9, Q24) S: the seventh word waits while the bus unit's slot is taken (the CL form's fourth word's wait)
+    rl=x                                    ; (qprobe round 9, Q24; round 20, spec 16 B) S: the sixth word waits while the bus unit's slot is taken (the CL form's fourth word's wait); 11 + 2n words (one fewer than round 9's analogy)
     jc=CNTZ:shim_z                          ; a zero count skips the loop and the write
 shim_l: alu=SH1 ax=SIG                      ; one shift step
     loop=shim_l                             ; the counter step
@@ -172,7 +171,7 @@ routine adjb op=37,3F book="ADJBA" why="OPEN: the book's 17: the read and the ad
 routine cvtbd op=D4 book="CVTBD" width=byte diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 17, Q70, spec 13 B) CVTBD is `. . . P . B . . . . . . . . . . . . . N .` (QPr15a cvtbd, QPr17d: 63 / 66 in the model): three words with no act, the divisor's pop and release on the fourth, AL read into the divide's state, a bus-idle sixth word, four words with no act, eight steps, the finish (W), E with the next opcode on the twentieth; was: silicon longer than the book by one (F33-out-cvtbd-k1-pE-w0)"
     open call=w1                            ; OPEN: (qprobe round 17) two words with no act (the call and the shared delay's 1)
     open                                    ; OPEN: (qprobe round 17) a word with no act
-    pop=il                                  ; pop the divisor byte and release it (the fourth word)
+    pop=il bi                               ; pop the divisor byte and release it (the fourth word); (qprobe round 20, spec 16 B, Q90) B: bus-idle (`. . . BP . B`: the operand's release as OUT imm8's port byte)
     ra=AW wid=WORD alu=CVBI ax=RA ay=IMM8 cnt=BITS  ; AL the dividend, the byte the divisor; the counter <- 8
     bi                                      ; (qprobe round 17) B: the bus-idle sixth word
     open call=w3                            ; OPEN: (qprobe round 17) four words with no act (the call and the shared delay's 3)

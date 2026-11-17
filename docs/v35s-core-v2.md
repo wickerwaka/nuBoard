@@ -3254,3 +3254,30 @@ question, decided from S8's routed numbers with the user.
   INM / OUTM word with CW = 0: 12 words, bus-idle fifth. Socket set: 22,378 of 23,670 (+952,
   none lost). Unread: EXT / INS behind OUT at even alignment with waits (114 corpus runs),
   stores against a chained fetch (Q33's table), Q95's open row (9 runs). No interrupt probes.
+- **2026-11-17, work order 14 landed with the round 19 and 20 non-interrupt rules (full
+  gate).** **Built**: the reserving request (spec 13 A1: bus value `BQ_RSV` on the word that
+  releases the displacement in the C7, 81 and TEST displacement cells; `rq_rs` in the EU,
+  shown as `req_ia` with `req_v` low, `req_ia` carrying the INT acknowledge only while the
+  request is presented; `dr`, `rh`, `rs1` beside `dc` in the bus unit); SET1 / NOT1 r16,CL
+  through the byte routine (`b1sclw` removed); the REP compares (head one word longer, exits
+  26 / 27 clocks, later CMPM iterations 12 + W); JMP short's bus-idle displacement word; the
+  strict bus-idle word as a `uasm` flag (the bus-idle bit plus the level the commit word
+  already waits on; on every word releasing a 16-bit operand); the 0F page's register commit
+  word a plain bus-idle word; SHL / SAR r,imm8, CVTBD, OUTM, the TEST cells, POP
+  [BW+IX+d16], NEG / NOT / INC / DEC with displacement; PUSH [d16], CALL far [d16]. ROM
+  2,669 words (the high part 1,024). No port added. **Gate**: corpus 27,604 of 30,536 exact
+  at both spacings (from 25,662; 1,948 gained, 6 lost: SET1 AW,CL behind OUT at even
+  alignment x3, the unread state of round 22; SHL r,imm8 by 8 as a CALL target with RET
+  behind x3, a post-flush state), writes 106,824 / 106,824, chk silent; vectors 0 bad; 56
+  tests; SST; program gates as before (f4_tm's timer periods move by a clock inside the same
+  timing-only line; f4_tout, f5n x3, f5v x2 unchanged); f4_hwd equal. **FPGA at 17 ns:
+  +3.331 / +3.367 / +3.088**; 9,532 LUT4, 642 ADD, 2,538 FF, 108 RAM_5K. Small set 15,080 of
+  15,384 (builder). **Known**: the interrupt probes drop (pushed 2,960 -> 2,702 of 7,122)
+  because the strict bit on MOV [d16],imm16 moves every interrupt frame's vector stores
+  toward silicon against the fitted interrupt delays, which the interrupt rebuild removes.
+  Not built: C_NOCH (next batch, inside the ports).
+- **2026-11-17, process rulings (user).** Builders verify with the fast loop only and the
+  overseer runs the one full gate at landing; the second-spacing replay and three-seed
+  timing run every third landing, one spacing and seed 1 in between. Corpus tools added
+  (`validation/v35s/qprobe/tools/`): the reading model on the corpus, clustering of
+  divergences by state, a ROM-against-model routine check.
