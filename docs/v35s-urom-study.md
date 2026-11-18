@@ -481,3 +481,20 @@ first; then the divide's finish. INS / EXT last or never.
 - The memory forms, 69 / 6B and the per-routine split of the 294 were estimated from the
   register forms, not walked word by word.
 - Family 5 was not studied.
+
+## 9. Rulings (the user, 2026-11-18)
+
+- **R1: yes.** Where the pins cannot date an act, a named small operation is preferred to an
+  OPEN hold. The word's comment says the act is inferred, not measured.
+- **First build: yes**, ROL4 / ROR4 as a rotate loop with the count from the opcode.
+- **R3: no tie to sharing.** Short-term ROM growth is accepted; depth is recovered by the
+  later sharing steps (options D1 / D2).
+- **The V20 listing is a guide to NEC's general architecture, not a thing to clone.** The
+  V35's microcode must differ from the V20 / V30's because the instruction timings differ.
+  The listing is read for the techniques that keep a ROM small (the repeat flag, shared
+  finishes, width by condition, the word format), and those are applied to our routines
+  where the V35's measured clocks allow; no routine is copied because the V20 has it. So R2
+  ("where two sequences fit, follow the V20") is answered: prefer the sequence that leaves
+  the smaller residual and the smaller ROM, with the V20's as a tie-break only.
+- R4 (EU datapath for multiply / divide) and R5 (divide and bit-field residuals stay counted
+  delay calls) were not ruled on; R5 stays as it is today.
