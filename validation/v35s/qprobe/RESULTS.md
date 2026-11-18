@@ -3952,3 +3952,250 @@ session (24.4 minutes of socket time). Ports used: 20h to 22h (markers, as every
 read, as the corpus). No sim of the RTL, no corpus replay (the work order is against land17's miss
 list). No interrupt family. Board left with vccb false, both rails off, failure 0 (read back after
 the last run and again at hand-back).
+
+# Round 26: the wait behind the last pair, the store's release, INT 3, MOV [d16],acc, EI's scan
+
+Brief: five questions in order (Q120's level; the lead behind a store's pair, Q119; INT 3's decode lead; Q124
+against f4_dma; EI's scan restart). 5,042 programs x settings on the socket, each twice. Tools of this round
+(worktree `build/qp/r26/`, copied to `validation/v35s/qprobe/tools/r26/`): `t26.py` (a family against the model, per
+run), `e26.py` (the INT-step families: the pop each edge replaces), `es26.py` / `sc26.py` / `sim26.py` (the main
+tree's RTL build on a family, compared with the socket), `h26b.py` (the DMA families), `i26*.py` (EI), `cm26.sh` /
+`off26.py` (the corpus model against land21's miss list). Statements are marked **measured** / **inferred** /
+**unknown**. Notation as round 25; s = the first clock of an EU cycle, s2 = the first clock of a pair's second
+byte cycle, "last" = the pair's last pin clock.
+
+A method new to this package: **INT stepped one clock at a time across an instruction gives the clock of its pop**
+(Q75: the pop replaced is the first at or after the edge + 9.125; with whole-clock edges, pop = the last edge that
+still replaces it + 10). The pushed return offset names the pop. Calibrated in every program by the two NOPs in
+front (pops 80 and 84) and the NOP train behind.
+
+## Q127. A store releases the next opcode on the first clock of the write's LAST byte cycle: the pop itself moves (Q119 and Q125's `W_LEAD` are one fact, and it is not a lead)
+
+`r26e` (384 runs) and `r26j` (424 runs), W = 0, both alignments (identical at both: the queue is full), INT's edge
+68 to 111 from M0 a clock at a time. Body: NOP ; NOP ; X ; NOP x 8. (In these two families DS1 is F000h, the
+interrupt frame's: IY's element is at F0C40h / F0C41h, unmapped, no wait; the clocks agree with `r26a`'s.)
+
+| X | EU cycles (first clocks) | pop of the opcode behind X | = |
+|---|---|---|---|
+| MOV [BW],AW, BW even | W 93 | **93** | the write's first clock |
+| MOV [BW],AW, BW odd | W 93, 96 | **96** | the second byte cycle's first clock |
+| the same ; OUT 22h, BW even / odd | 93 / 93, 96 | 93 / 96; OUT's own N 105 / 108 | OUT's boundary = pop + 3 in both: the lead counts from the pop, as always |
+| ADD [BW],AW, BW even / odd | W 98 / 101, 104 | 98 / **104** | |
+| STM, IY even / odd | W 98 / 98, 101 | 98 / **101** | STM single is a store tail |
+| OUT 22h ; MOV [d16],imm16 (Q125's state, even alignment) | datum word 99, fetch 99, W 102 | **102** | the write's first clock, three clocks behind the datum word |
+| the same at odd alignment | W 100 | 100 | |
+| NOP behind the store, BW odd | | 99 (even: 96) | the store's boundary on the pair's last clock |
+
+- **Measured.** The store-type tail's N word executes on the first clock of the write's last byte cycle: of the
+  single cycle, of a pair's second half, of a write that starts behind a fetch. 10 programs x 2 alignments x 16
+  to 32 edges; every threshold is one clock wide and the same at both alignments.
+- **So** Q119 ("the lead counts from the pair's second cycle") and Q125's `W_LEAD` ("from the write's first clock
+  when the write starts later than N") are the ordinary rule, boundary no sooner than pop + lead, with the pop
+  where it really is. SPEC21's "the queue count would differ by one for three clocks: no run shows it" stands for
+  the bus (nothing can start under the pair), but **the interrupt shows it**: for three edges (84 to 86 here) the
+  instruction behind a store through an odd pointer is replaced where a lead counter restarted behind a pop on
+  the pair's first clock would let it run.
+- **Inferred (mechanism).** The store's last-but-one word waits on a level of the bus unit, "the last byte cycle
+  of the EU's write starts on this clock"; for a single cycle that is the grant the `G N` tail already has. The
+  datum word of MOV [m],imm (`KPP2N`) is then two words in silicon, the pops and the release, the release with
+  the write.
+- Model: unchanged in its events (`SPLIT_LEAD`, `W_LEAD` kept: N on the pair's first clock and the lead's origin
+  moved give the same bus events); the docstring says what the options stand for.
+- The main tree's RTL build (20a078b's binary) run on `r26e` (`es26.py`) pushes the same instruction as silicon
+  in 102 of 384 runs: its interrupt path is not lined up in this frame at all (the interrupt rebuild is held),
+  so the socket runs are the reference for this item, not a sim comparison.
+
+## Q128. Q120's wait (`J`): where it is, where it is not, and the level as far as it can be stated
+
+**Where (measured; every run is one clock out with `SPLIT_J=0` and exact with it; W = 0 only, a pair as the
+element's last cycle):**
+
+| place | this round | 
+|---|---|
+| MOVBK's write, CMPBK's second read, INM's write, single, behind eight leads (INC BW, CLC, CBW, NOP, JMP $+2, OUT imm8, PUSH, a store), follower none / NOP | `r26a` 96 runs |
+| REP MOVBK (IY odd, both odd), REP STM, REP INM: the last element; REP CMPBK (IX odd): the read-ahead pair's second read; **CW = 1, 2, 3** | `r26c` 30 runs |
+| MOVBK's N word by INT's edge: pop 109 with IY even (write 106: last + 1), **113** with IY odd (pair 106, 109: last + 2); CMPBK 111 / 115 | `r26j` |
+
+**Where not (measured; exact with `D` or the store tail, one clock out if a `J` is put there):**
+
+| place | runs at W = 0 (all W in brackets) |
+|---|---|
+| STM single (store tail: N on s2, Q127), LDM, CMPM, OUTM (IX odd: the read) behind the same eight leads | 128 (384) |
+| **REP STM with CW = 1 has it and STM single has not**; REP LDM, REP CMPM (REPE over equal data, AW = 9090h), REP OUTM, REP MOVBK with IX odd only, REP CMPBK with IY odd only, CW = 1, 2, 3 | 30 (90) |
+| the byte forms at odd pointers (one byte cycle at an odd address is not a pair): MOVBKB, CMPBKB, STMB, INMB, LDMB, CMPMB, OUTMB | 40 (120): `r26b` 120 of 120 with no rule |
+| every element at even pointers (the control of each program) | 224 (672) |
+| the earlier iterations' writes (REP n = 2, 3: spacing 12 = 9 + 3), PUSHA's eight pushes with SP odd (12 apart), PUSH imm16, PUSH PSW, PUSH [BW], POP [BW], CALL far's two pushes, PUSHA ; POPA | `r26d` 28 (84) |
+| W = 1 and W = 2, everywhere | |
+
+**The level, as far as measured.**
+
+- **Measured: the timing law.** A `J` word executes on the later of last + 1 and **s2 + 4**: four clocks from the
+  first clock of the pair's second byte cycle (W = 0: s2 + 4 = last + 2; W = 1: s2 + 4 = last + 1; W = 2:
+  s2 + 5 = last + 1). "Seven clocks from the pair's first clock" gives the same three numbers and cannot be
+  separated with one wait setting for both halves. A single cycle has no such floor (s + 3 at W = 0).
+- **Measured: it is the wait word itself that is late**, not a later word: the N pop behind it is 1, 3 or about 9
+  words further on (MOVBK `JN`, CMPBK `J . N`, the REP tails) and every one is late by exactly one.
+- **Measured: SPEC21's probe cannot be built.** No string form can have a fetch pending under its last pair: the
+  routine's bus-idle word lets the queue fill before the first request and nothing pops until the N word. In
+  all 96 `r26a` runs the first fetch behind the pair is the one the N pop starts (2, 4 or more clocks behind the
+  pair); behind a flush (`j-*`) the same. CALL near (Q129) behind a flush or behind two MOV r,imm16 (`jcall`,
+  `rcall`): prefetch stops in the transfer, no fetch stands under the pair either.
+- **Measured: it is not a state of the bus unit.** REP STM's last element (n = 2: write pair, 7 clocks, write
+  pair, queue full, no fetch before or behind) has the long wait; CALL far's second push (write pair, 7 clocks,
+  write pair, no fetch before or behind) has not (`r26d` `callf-o`: last + 9 to the target's fetch with SP even and
+  odd, every W). CALL near has it and CALL r16 has not (Q129). The pins in front of and under the two pairs are
+  the same; what differs is the routine. **Inferred: the ROM has two kinds of "wait for the EU's cycle" word.**
+  One (`D`) ends with the pair's last pin clock; the other (`J`) asks for something the bus unit gives one clock
+  later when the pair's second cycle has no wait state.
+- **Unknown: which level `J` asks for.** One candidate fits the transfers exactly (Q129: the only transfer with
+  the long wait is the only one whose words behind the push form PC + displacement): the bus unit's address
+  path (the adder / address register that stepped to the second byte) is released four clocks into the second
+  cycle. For the string forms that reading would mean the exit path of the writes and of CMPBK uses the address
+  path on the word behind the wait and LDM's / CMPM's / OUTM's does not; nothing on the pins says so. Rejected
+  by this round: "bus idle" / "no request left" (the bus is free on last + 1 in every case, and REP STM against
+  CALL far has the same requests), "the last element" (CALL far's last push; LDM's only read), "a write" (CMPBK's
+  read has it, CALL far's and CALL r16's pushes have not), "a request posted with the short latency" (REP STM's
+  and CALL near's are `Y`), "a single-element form" (REP with CW = 1 against STM single).
+- Model: unchanged (`SPLIT_J`: the word `J`); CALL near gets it (Q129).
+
+## Q129. CALL near's push has the long wait; no other transfer has (SP odd against SP even)
+
+`r26d` (204 runs), `r26m` (264 runs): SP = 0F01h against 0F00h, every W, followers none / NOP.
+
+| instruction | pair's last clock to the target's first fetch, SP even -> SP odd (W = 0) | wait |
+|---|---|---|
+| CALL near (E8), alone, behind NOP, behind JMP $+2, behind two MOV r,imm16, behind PUSH, with RET behind it | 9 -> **10** (W = 1, 2: 9 -> 9) | `J`: 22 runs |
+| CALL r16 (FF D3) | 9 -> 9 | `D` |
+| CALL [d16] (FF 16: a `Z` request) | 9 -> 9 | `D` |
+| CALL far (9A), alone and behind NOP: both pushes | 9 -> 9 (7 between the pushes, both) | `D` |
+| INT 3, BRK 40h: three pushes, the vector reads between | 9 -> 9 (every interval the same) | `D` |
+| RET, RETF, RET imm16 (reads) | the same | `D` |
+
+- **Measured.** CALL near is `. . . . PP2 . Y J . . F N .`; with `J` 468 of 468 (`r26d` + `r26m`), with `D` the 22
+  CALL near runs at SP odd, W = 0 are one clock early. No corpus row has CALL with SP odd (corpus unchanged).
+- **Measured (control, `r26n`, 156 runs).** A relative transfer as the *next instruction* directly behind a
+  store's pair (JMP short, JMP near, JZ taken, LOOP, CALL near behind MOV [BW],AW with BW odd; JMP short behind
+  PUSH with SP odd): no wait, 156 of 156 with the model as it is.
+- **Inferred.** See Q128: the long wait belongs to the word, and among the transfers it is the word in front of
+  the PC + displacement step.
+
+## Q130. INT 3 has no decode lead. Q22's reading was the routine's bus-idle words; the run the RTL lost is `CH_EPRI`'s state, not INT 3's
+
+- **Measured.** `r26f` (192 runs): INT 3 behind sixteen predecessors (nothing, INC, CBW, NOP, CLC, MOV r,r, MOV
+  r,imm16, a store through [d16], a load, PUSH, OUT imm8, JMP $+2, JMP $+2 ; NOP, two NOPs, two INCs, a store
+  through [BW]), 0 / 1 NOP at the handler, every W, both alignments: **192 of 192** with the routine of round 13
+  (`. . B . B . . Y ...`: bus-idle third and fifth words) and no lead. The 90 earlier INT 3 runs (rounds 8, 13,
+  16): 90 of 90. Q22's "0,0 at every wait" (CBW / NOP against INC in front change nothing) is the third word
+  waiting for the fetch the predecessor's pop started: a lead of 3 gives the same M1 in that frame and is wrong
+  behind anything that leaves no fetch in flight. `LEAD_CC` stays unwired.
+- **Measured (the RTL).** The main tree's build on the same runs (`sim26.py`, `sc26.py`): 192 of 192 on `r26f`, 89
+  of 90 on the earlier runs. The one, `QPr8-ld-int3-n-pE-w0`: the body's second vector store (MOV [000Eh],imm16)
+  writes on 100, the fetch behind it runs 103 to 105, the NOP's boundary is due on 106 with four held: silicon
+  executes the boundary and starts the chained fetch on 107 (`CH_EPRI`, round 13); the RTL starts the fetch on
+  106 and the boundary waits. The model with `CH_EPRI=0` gives the RTL's trace event for event.
+- **Measured (`r26l`, 216 runs): the state is the frame's.** The same two stores and predecessor with nine
+  subjects in INT 3's place (INT 3, NOP, INC, CLC, MOV r,r, PUSH, OUT imm8, a load, MOV r,imm16) x four
+  predecessors: model 216 of 216; RTL 208: the eight it misses are the predecessor NOP at even alignment, W = 0
+  with every subject but OUT. The old lead of 3 on INT 3 compensated in one of them.
+
+## Q131. MOV [d16],AL / AW (A2 / A3): the request word is the second, on the pins, for both; a DMA transfer is taken at an instruction boundary and does not arbitrate against the request
+
+- **Measured (the pins).** With no fetch starting on the displacement's pop P the write is on P + 2:
+  `r25b` 19 runs; `r26g` (the store behind INC x 1 / 2 / 3, MOV r,r x 1 / 2, MOV r,imm16, JMP $+2 and JMP $+2 with
+  a pad; with and without a long shift behind: 324 runs, 324 of 324) 24 more; `r26k` (A2, A3, 88 06, 89 06 behind
+  a load or PUSH and a pad, behind the long shift and behind two NOPs, once and twice: 480 runs, 480 of 480) 76
+  more, **38 with A2 and 38 with A3, the same programs**: the byte form is the word form. With the request word
+  third (`ST=. . Y PP2 G N .`) exactly those 119 runs are one clock late; the main tree's RTL (which has it
+  third) misses exactly `r26g`'s 24 and `r26k`'s 76 (and 6 `r26g` runs that are Q127's: a store through
+  [BW + d8] with BW made odd by INC BW, the marker behind it). 89 06 / 88 06 keep `P Y . PP2 G N .` (240 of 240).
+- **Measured (`r26h*`, 444 runs): a DMA transfer does not see the request word.** DMARQ0's edge stepped a clock
+  at a time (60 to 96) across trains of A3, A2, 89 06, [BW + d8] stores and A3 / 89 06 with a NOP between, DIC0
+  masked. In all four store trains the transfer's write is **13 clocks behind the first clock of the store's
+  write in front of it, in 240 of 240 runs** (60 a train; the 14 edges that put the transfer in front of the
+  train's first store aside; the store's N is on that clock, its boundary 2 later: boundary
+  + 11); with a NOP between, 13 or 17 (behind the store or behind the NOP: boundary + 11 again; 36 / 24 in each
+  train). The transfer is taken where an interrupt is, at a pop, and the routine's first cycle comes from there.
+  The A2 and A3 trains are clock for clock the same (stores 86, 95, 106, 115 undisturbed; the same transfer
+  clocks for the same edges).
+- **Inferred (f4_dma).** The receipt's difference at write 711 is an interrupt's push (07EFEh, the PSW; DIC0's
+  interrupt behind a transfer) on the socket where the RTL with the request word second writes the next store
+  (0C1DAh): one more store ran before the take. That is a pop one clock earlier against the scan's lattice, and
+  the RTL's lattice is 3 clocks late (Q132): the old shape's lateness hid part of it. f4_dma's order at 711 is a
+  gate for the lattice, not evidence about the store. **Unknown:** not replayed here (the model has no DMA).
+
+## Q132. EI: the scan's lattice counts from EI's first word; the request stands at the EU 24 clocks behind it
+
+`r26i` (184 runs): INTP0 at level 7 requested at clock 20 with IE = 0 (the edge long gone); in the body EI
+behind a pad of 0 to 17 clocks and behind JMP $+2 / OUT imm8 with and without a pad; behind EI a train of MOV
+AW,[BW], INC BW or NOP; the masked twin of each load-train run. The model reads all 46 twins exactly (to clock
+160), which gives the clock of each of EI's words: E1 the first, E3 the bus-idle third executing, EN the N word,
+EB the boundary (EB - E1 = 12, or 13 / 14 where the third word or the boundary waits: 18 of 46 cells).
+
+- **Measured.** The replaced pop P (the vector read less 17, less 19 in the NOP train: the vector read is 16
+  behind the boundary) moves with EI through all 18 pads: no step of 16 against M0. So the lattice is restarted
+  by this EI (Q78, now with EI's clocks known).
+- **Measured: the anchor is EI's first word.** With "the request stands at the EU on c = X + C; the event is the
+  first word or N word executing at or after c; the first N word executing at or after the event + 5 is
+  replaced" scored over the opcode-only trains (92 runs, `i26d.py`): **X = E1, C = 24: 87**; E3 + 22: 83; EN + 13:
+  83; EB + 12 or 13: 72. The cells where EI's third word or boundary waits decide (INC train: P - EB = 16 or 17
+  there, 19 elsewhere; P - E1 the same to a clock). A stall inside EI does not move the lattice.
+- **Measured: two cells are 20 clocks early** (even alignment with no pad, E1 = 80; odd alignment behind CBW,
+  E1 = 83; all three trains each): the pop of the second instruction behind EI is replaced (the first clock a
+  take is possible). **Unknown** why: a request standing from before EI that this EI's restart did not clear in
+  those two phases. Not periodic in 16 (pad 16 at even alignment, E1 = 96, is ordinary). The fifth miss of
+  E1 + 24 is one INC run one pop late.
+- **Inferred for the RTL.** The lattice of Q108 (2 / 3 mod 16 from M0 with EI in the event tail) is E1 + 8 mod
+  16, and for a request pending at EI the first usable clock is E1 + 24. An RTL lattice 3 clocks late is a
+  restart three words into EI (or on a word behind its bus-idle word, where a wait moves it further).
+
+## Q133. Function the model lacked (no rule)
+
+- With SP odd the stack side of PUSH [m], CALL [m], CALL r16 (the write), POP [m] (the read), INT 3 / BRK imm8
+  (three pushes) and RET imm16 is a pair (`SP_ODD2`): `r26d` `pushm-*`, `popm-*` 0 of 24 before, 24 of 24.
+- MOV [d16],AL (A2), MOV AL,[d16] (A0), 88 /r with d8 and direct: the word forms' routines. Corpus **+24**
+  (F36 `mov-ld_al_dir`, `mov-st_al_dir`), 0 lost.
+
+## Q134. What was not read
+
+- Which level `J` asks for (Q128). The two early cells of Q132. EI's restart to the word (first or second:
+  one clock is the resolution of the trains). The other scanned levels and a store to the request register
+  were not rerun.
+- The store's release against an interrupt in the RTL (Q127): the RTL's interrupt path is not comparable yet.
+- f4_dma was not replayed (Q131). OUTM with DW odd, PUSH [m] / POP [m] with BW odd on the memory side.
+- No work on the 109 corpus rows both the model and the RTL miss (the list: `traces/logs/unread26.txt`).
+
+## Round 26 in numbers
+
+| | round 25's model | this round's |
+|---|---|---|
+| corpus, model-exact (of 30,536) | 27,467 | **27,491** (+24, 0 lost) |
+| RTL miss rows of land21 (355) the model reads exactly | 240 | 240: `J` 88, the store's release 24 (8 of them with `ARB_IDLE`), 128 with no rule of rounds 24 to 26 (112 of them the bit-field head's second commit word, ruled) |
+| RTL miss rows the model misses too / not parsed | 109 / 6 | 109 / 6 |
+| socket, rounds 1 to 25 by `cmp22.compare` (26,634 runs without a schedule) | 25,451 | 25,451 (0 lost) |
+| socket, round 26, runs without a schedule (3,606) | 3,260 (240 of the 346 misses: no routine for A2 / 88 06) | **3,606** |
+| socket, round 26, schedule families (1,436) | | read by their own tools (Q127, Q131, Q132); the 46 masked twins of `r26i` exact |
+
+## Socket runs of round 26
+
+| family | what | runs | model before / now | repeats that differ |
+|---|---|---|---|---|
+| r26a | seven word string forms, last cycle at an odd / even pointer, eight leads, follower none / NOP | 1,344 | 1,344 / 1,344 | 141 |
+| r26b | the byte string forms at odd pointers | 120 | 120 / 120 | 0 |
+| r26c | REP forms, CW = 1, 2, 3, odd / even pointers | 306 | 306 / 306 | 12 |
+| r26d | stack cycles with SP odd / even: PUSHA, POPA, CALL near, CALL far, PUSH imm / PSW / [m], POP [m] | 204 | 174 / 204 | 7 |
+| r26m | the other transfers with SP odd / even; CALL near behind four leads | 264 | 188 / 264 | 30 |
+| r26n | relative transfers directly behind a store's pair | 156 | 156 / 156 | 8 |
+| r26f | INT 3 behind sixteen predecessors | 192 | 192 / 192 | 3 |
+| r26l | round 8's vector-store frame with nine subjects | 216 | 216 / 216 | 26 |
+| r26g | A3 / 89 06 / [BW + d8] stores behind pads at more queue fills | 324 | 324 / 324 | 19 |
+| r26k | A2 / A3 / 88 06 / 89 06 with no fetch on the displacement's pop | 480 | 240 / 480 | 52 |
+| r26e, r26j | INT stepped across stores, RMW, the string forms (the pop's clock) | 384 + 424 | by `e26.py` | 1 + 71 |
+| r26h (six trains) | a DMA transfer stepped across store trains, DIC0 masked | 444 | by `h26b.py` | 97 |
+| r26i | EI in the body, INTP0 pending; three trains; masked twins | 184 | by `i26*.py` | 30 |
+
+5,042 runs, each twice; 0 failed, 0 incomplete; the 497 repeats that differ, compared field by field
+(`build/qp/rep20.py r26`), differ in the strobe field only. Three acquisition sessions (about 55 minutes of
+socket time). Ports used: 20h to 23h (markers), 40h (INM / OUTM), FF10h / FF12h (the frame's bank and event
+markers in the schedule families). The RTL was simulated only for comparison (the main tree's build, nothing
+written in the main tree): `r26f`, `r26g`, `r26k`, `r26l`, `r26e` and the earlier INT 3 runs. Board left with vccb
+false, both rails off, failure 0 (read back after each session).

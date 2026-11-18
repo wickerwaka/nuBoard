@@ -165,6 +165,20 @@ Round 25 (results Q118 to Q126):
   Shapes: MOVBK / CMPBK / CMPM single have a bus-idle fourth word, INM a fifth (Q121); the 4S head
   is `P . B . . . B . . . . .` (Q122); ADJ4S is `. . B . . . . N .`, one word shorter than ADJ4A
   (Q122); MOV [d16],AW requests on its second word (Q124).
+
+Round 26 (results Q127 to Q134):
+  SPLIT_LEAD    is the pop itself: the store's N word executes on the first clock of the write's LAST byte
+                cycle (INT stepped across the store, Q127: the pop the interrupt replaces is on the pair's
+                second cycle). The model keeps N on the pair's first clock and moves the lead's origin: the
+                two give the same bus events (the queue count differs only while the pair holds the bus).
+  J             the second wait kind (SPLIT_J) is also CALL near's (E8) wait behind its push: `Y J . . F N .`
+                (Q129). Not CALL r16 / CALL [m] / CALL far / INT 3 / BRK / PUSHA / RET / RETF / RET imm16
+                (their waits are D), nor REP LDM / CMPM / OUTM. Still a described wait kind: behind a pair
+                at W = 0 it ends one clock after the pins (four clocks from the second cycle's first).
+  SP_ODD2=1     with SP odd the stack side of PUSH [m] / CALL [m] / CALL r16 (the write), POP [m] (the read),
+                INT 3 / BRK imm8 (the three pushes) and RET imm16 is a pair (function the model lacked).
+  INT 3         has no decode lead (LEAD_CC is not wired and stays so): its routine's bus-idle third and
+                fifth words hide the predecessor's tail (Q130).
 """
 
 from __future__ import annotations
@@ -176,7 +190,7 @@ from . import read
 
 DEFAULT = dict(
     IDLE_AT=4, B2B_AT=5, REQ_PRI=5, FLUSH_LAT=5, H_B2B=1, H_EU=1, B_CH=0, B_CH_W=1, EMIN_K=0, EMIN_KEYS="ADDIM_DIR", OF2=0, OF_PFX="N .", OF_DROP=2, LEAD_0F=2, OF_EMIN=0, BF_OFF=1, EXTRX_D=0, INSRX_D=0,
-    STR_ODD=1, LCHW=1, LCHW_MIN=1, ARB_IDLE=1, W_LEAD=1, SPLIT_J=1, SPLIT_LEAD=1, RSV_KEYS="", B_EU="OIWR", B_EU_LAST="", B_EU_OF=0, B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
+    STR_ODD=1, SP_ODD2=1, LCHW=1, LCHW_MIN=1, ARB_IDLE=1, W_LEAD=1, SPLIT_J=1, SPLIT_LEAD=1, RSV_KEYS="", B_EU="OIWR", B_EU_LAST="", B_EU_OF=0, B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
     PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . B . . . B . . . . .",
     I_ADD4S="Y D . . . U D . . . . . . Z D .", T_ADD4S=". . . . . . . . N .",
     I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y DP . B", EXTI_TAIL="N .", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, EU_BNEXT=0, EU_WPRI=7, EU_WPRI_K="O", BW_TRACK=1, CH3=2, CH3_K="OIWR", CH3_N=1, CH3_NK="EXT,INS,EXTI,INSI", B_LATE=0, B_LATE_K="WROI", LCH_POP=0, LEAD_FM=1, EMIN_L=0, EMIN_L_SET=0, EMIN_L_GW=1, B_I4=4, B_I4_K="WROI", REQ_PRI_K="", EMIN_ML="JMPMB,CALLMB,JMPFMB,CALLFMB,JMPM,CALLM,JMPFM,CALLFM", MD_B=2, MD_B2=4, MD_ACT="B", B_SLOT=0, B_SLOT_KEYS="", MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="C", SHLI_W3="BP", SHLI_W2="", SHLI_W1="", SHLI_W4="", SHLI_AT=5, SHLI_D=-1, E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
@@ -209,7 +223,7 @@ DEFAULT = dict(
     # jumps other than JMP short: best shapes found, reproduced in part (not a reading)
     JN=". . . . PP2 . . F N .", JFAR=". . . . PP2 . Q . BIPP2 . . F N .",
     # not read (placeholders: these groups are not reproduced)
-    SHLI="PN P . .", MUL8="PN . . .", CALL=". . . . PP2 . Y D . . F N .",
+    SHLI="PN P . .", MUL8="PN . . .", CALL=". . . . PP2 . Y J . . F N .",
     RET=". . Y D . . F N .", XCHRR="PN .", TESTRR="P . BN .",
     INCB="P . . BN .", TEST1="P . BP . . BN .", CLR1="P . BP . . BN . .", RMW="P Y . . DZ G N .",
     ADDIW="P . . BY DPP2Z G N .", ADDIM_D8="P . V P DPZ G N .", ADDIW_D8="P . . BYP DPP2Z G N .", ADDIW_D16="P . . BIYPP2 DPP2Z G N .", ADDIW_DIR="P . . BIYPP2 DPP2Z G N .", CMPIW_D16="P . . BIYPP2 DPP2 . BN .", CMPIW_DIR="P . . BIYPP2 DPP2 . BN .", ADDIM_D16="P . V PP2 DPZ G N .",
@@ -263,7 +277,8 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
        # (round 24) the other conditions: the same two routines, the outcome from the chain's knobs
        **{c_: ("JCC", None, 0) for c_ in (0x70, 0x71, 0x72, 0x73, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F)},
        0x9E: ("SAHF", None, 0), 0x2F: ("ADJ4S", None, 0), 0xCA: ("RETFI", "R", 0),
-       0xA1: ("LD", "R", 0), 0xA3: ("ST", "W", 0), 0x50: ("PUSH", "W", 0),
+       0xA1: ("LD", "R", 0), 0xA3: ("ST", "W", 0), 0xA0: ("LD", "R", 0), 0xA2: ("ST", "W", 0),   # (round 26) the byte forms: as the word forms (Q131)
+        0x50: ("PUSH", "W", 0),
        0x58: ("POP", "R", 0), 0xD3: ("SHL", None, 1), 0xF4: ("HALT", None, 0),
        0x04: ("ADDAL", None, 0), 0x68: ("PUSHI", "W", 0), 0x9D: ("POPF", "R", 0),
        0x8E: ("SR", None, 1), 0xE8: ("CALL", "W", 0), 0xC3: ("RET", "R", 0),
@@ -281,7 +296,7 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
 MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x07): ("S_BW", "W", 1), (0x8B, 0x47): ("L_D8", "R", 1),
        (0x8B, 0x87): ("L_D16", "R", 1), (0x8B, 0x00): ("L_BI", "R", 1),
        (0x8B, 0x06): ("L_DIR", "R", 1), (0x89, 0x07): ("S_BW", "W", 1),
-       (0x89, 0x47): ("S_D8", "W", 1), (0x89, 0x06): ("S_DIR", "W", 1),
+       (0x89, 0x47): ("S_D8", "W", 1), (0x89, 0x06): ("S_DIR", "W", 1), (0x88, 0x47): ("S_D8", "W", 1), (0x88, 0x06): ("S_DIR", "W", 1),
        (0x01, 0x07): ("RMW", "R", 1), (0x01, 0x47): ("RMW_D8", "R", 1),
        (0xFF, 0x07): ("INCM", "R", 1), (0x83, 0x07): ("ADDIM", "R", 1),
        (0xC7, 0x07): ("STIM", "W", 1), (0x03, 0x07): ("ADDM", "R", 1),
@@ -1188,6 +1203,12 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             # cycle of twice the length (nothing between them)
             if eu_kind in "RW" and cur_op is not None and (
                     (regs.get("SP", 0) & 1 and (0x50 <= cur_op <= 0x61 or cur_op in STACK_OPS))
+                    # (round 26) the stack side of PUSH [m] / CALL [m] / CALL r16 (FF /6, /2: the write) and of
+                    # POP [m] (8F: the read), INT 3 / BRK imm8's three pushes, RET imm16's read
+                    or (o["SP_ODD2"] and regs.get("SP", 0) & 1 and cur_at is not None and (
+                        (cur_op == 0xFF and (code[cur_at + 1] >> 3) & 7 in (2, 6) and eu_kind == "W")
+                        or (cur_op == 0x8F and eu_kind == "R") or (cur_op in (0xCC, 0xCD) and eu_kind == "W")
+                        or cur_op == 0xC2))
                     or ((bw if o["BW_TRACK"] else regs.get("BW", 0)) & 1 and cur_at is not None and cur_op & 1
                         and cur_op in (0x8B, 0x89, 0x01, 0x03, 0xFF, 0x87, 0x85, 0x3B, 0xC7,
                                        0x81, 0x83, 0xF7, 0xD1) + ((0x8F, 0x09, 0x11, 0x19, 0x21, 0x29, 0x31, 0x39) if o["BW_TRACK"] else ())

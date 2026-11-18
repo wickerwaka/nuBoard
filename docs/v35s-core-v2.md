@@ -3522,3 +3522,24 @@ question, decided from S8's routed numbers with the user.
   level carries it, a ruling on a bus-to-loader bit is asked; Q124 (MOV [d16],AW's
   request word second) was built and backed out: no corpus row moves and f4_dma's write
   order then differs from the socket at write 711: to be read against round 25's runs.
+- **2026-11-18, socket round 26 (the open items of work order 21, INT 3, Q124, EI).** 5,042
+  runs, each twice, 0 failed. RESULTS.md Q127 to Q134; work order 22
+  (`qprobe/tools/r26/SPEC22.md`, C1 to C6). The reading model: corpus 27,491 (+24, none
+  lost); round 26's unscheduled runs 3,606 of 3,606; of the RTL's 355 miss rows 240 are
+  model-exact. **Read**: (Q127) the "lead from the pair's second byte cycle" is the pop:
+  a store's N word executes on the first clock of the write's last byte cycle (INT
+  stepped a clock at a time, 808 runs; for three edges an interrupt replaces a
+  different instruction, so it is functional). It needs a bus-to-sequencer bit "the
+  second byte cycle of an EU pair starts now": a ruling is asked; (Q128) Q120 is a second
+  kind of wait word, `J`: it executes on the later of last + 1 and four clocks after the
+  pair's second cycle starts (MOVBK / INM single's write, CMPBK's second read, the last
+  element of REP MOVBK / STM / INM / CMPBK, and CALL near's push at SP odd). Not a bus
+  state: REP STM's last element and CALL far's second push stand in the same state and
+  differ. What `J` asks the bus unit for is unknown; (Q130) INT 3 has no decode lead
+  (192 new runs, 16 predecessors; Q22 was its bus-idle third and fifth words); the run
+  lost at the last landing is a `CH_EPRI` build fault behind MOV [d16],imm16, the same
+  for eight other subjects; (Q124, Q131) MOV [d16],AL / AW have the request word second
+  (119 runs on the pins); a DMA transfer never arbitrates against the store, f4_dma's
+  write 711 is DIC0's interrupt push (inferred: the late scan lattice was hiding a
+  clock); (Q132) EI restarts the interrupt scan on its first word: the request stands
+  at the EU on E1 + 24 (87 of 92; two cells 20 clocks early unexplained).

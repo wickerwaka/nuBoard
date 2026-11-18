@@ -1,0 +1,474 @@
+{
+"F32-out-ins_bl_dh-k2-pE-w2": [],
+"F39-out-ctl-extdl-bf-pE-w2": [],
+"F30-out-odd-movbk-ixiy-n1-end-pO-w0": [
+"J"
+],
+"F32-out-ins_bl_dh-k1-pE-w1": [],
+"F24-out-a-rep-inm-w-n1-iy-pO-w0": [
+"J"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-freg-pE-w1": [],
+"F5-out-st_bw-k1-odd-pO-w0": [
+"LEAD"
+],
+"F5-out-st_imm_bw-k1-odd-pE-w0": [
+"LEAD"
+],
+"F34-out-bf-ext_dl_bh-l0-k1-pE-w1": [],
+"F40-push-xfer-callfretf-k2-pO-w0": [],
+"F30-out-odd-movbk-iy-n1-end-pE-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n1-end-pE-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-end-pE-w0": [
+"J"
+],
+"F32-out-ins_bl_i7-k1-pE-w2": [],
+"F34-out-bf-ins_dl_bh-l0-k1-pE-w1": [],
+"F32-out-ext_dl_i7-k2-pE-w1": [],
+"F30-out-odd-inm-iy-n1-nop-pE-w0": [
+"J"
+],
+"F5-out-shl_m1-k1-odd-pE-w0": [
+"LEAD"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-fnop-pE-w2": [],
+"F30-out-odd-stm-iy-n1-end-pE-w0": [
+"J"
+],
+"F32-out-ins_dl_bh-k2-pE-w1": [],
+"F24-out-a-rep-movbk-w-n2-iy-pO-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ix-n1-end-pO-w0": [
+"J"
+],
+"F5-out-add_m_aw-k1-odd-pO-w0": [
+"LEAD"
+],
+"F30-out-odd-cmpbk-ixiy-n1-end-pO-w0": [
+"J"
+],
+"F30-out-odd-movbk-iy-n1-rep-pO-w0": [
+"J"
+],
+"F35-out-far-callf-retf-pE-w0": [],
+"F34-out-bf-ext_bl_i7-l0-k1-fnop-pE-w1": [],
+"F24-out-a-rep-movbk-w-n4-ixiy-pE-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n2-end-pO-w0": [
+"J"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-fld-pE-w2": [],
+"F34-out-bf-ext_bl_i7-l0-k1-freg-pE-w2": [],
+"F24-out-a-rep-stm-w-n2-iy-pE-w0": [
+"J"
+],
+"F39-out-page-ext-push-pE-w1": [],
+"F34-out-bf-ins_bl_i7-l0-k1-pE-w1": [],
+"F30-out-odd-movbk-iy-n1-nop-pO-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ix-n2-end-pE-w0": [
+"J"
+],
+"F32-out-ins_bl_i7-k2-pE-w1": [],
+"F39-out-page-extdl-push-pE-w2": [],
+"F32-out-ext_bl_i7-k2-pE-w1": [],
+"F30-out-odd-stm-iy-n2-end-pE-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-fnop-pE-w1": [],
+"F32-out-ext_dl_dh-k1-pE-w2": [],
+"F40-out-xfer-callfretf-k4-pE-w0": [],
+"F32-out-ins_dl_i11-k1-pE-w2": [],
+"F30-out-odd-cmpbk-ixiy-n1-reg-pE-w0": [
+"J"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-fnop-pE-w2": [],
+"F32-out-ins_bl_dh-k2-pE-w1": [],
+"F39-out-page-extdl-st-pE-w2": [],
+"F32-out-ins_dl_bh-k2-pE-w2": [],
+"F24-out-a-repe-cmpbk-w-n2-ixiy-pE-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ixiy-n2-end-pE-w0": [
+"J"
+],
+"F24-out-a-rep-stm-w-n2-iy-pO-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ix-n1-end-pE-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-freg-pE-w2": [],
+"F39-out-page-ext-out-pE-w1": [],
+"F32-out-ins_bl_i7-k1-pE-w1": [],
+"F24-out-a-rep-movbk-w-n4-iy-pO-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n2-end-pE-w0": [
+"J"
+],
+"F34-out-bf-ins_dl_bh-l0-k1-pE-w2": [],
+"F34-out-bf-ins_bl_i7-l0-k1-pE-w2": [],
+"F30-out-odd-stm-iy-n1-nop-pO-w0": [
+"J"
+],
+"F30-out-odd-movbk-iy-n1-end-pO-w0": [
+"J"
+],
+"F32-out-ins_dl_i11-k2-pE-w2": [],
+"F34-out-bf-ext_bl_dh-l0-k1-pE-w1": [],
+"F5-out-add_m_imm-k1-odd-pO-w0": [
+"LEAD"
+],
+"F30-out-odd-stm-iy-n2-rep-pO-w0": [
+"J"
+],
+"F32-out-ext_dl_i7-k1-pE-w2": [],
+"F32-out-ins_dl_i11-k1-pE-w1": [],
+"F30-out-odd-movbk-iy-n2-end-pE-w0": [
+"J"
+],
+"F30-out-odd-stm-iy-n1-ld-pE-w0": [
+"J"
+],
+"F5-out-st_bw-k1-odd-pE-w0": [
+"LEAD"
+],
+"F24-out-a-rep-movbk-w-n2-iy-pE-w0": [
+"J"
+],
+"F39-out-page-ext-out-pE-w2": [],
+"F34-out-bf-ins_bl_i7-l0-k1-fld-pE-w1": [],
+"F32-out-ext_dl_i11-k1-pE-w2": [],
+"F34-out-bf-ins_dl_i11-l0-k1-pE-w1": [],
+"F5-out-inc_m-k1-odd-pE-w0": [
+"LEAD"
+],
+"F32-out-ins_dl_i11-k2-pE-w1": [],
+"F30-out-odd-movbk-iy-n2-end-pO-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n1-rep-pO-w0": [
+"J"
+],
+"F32-out-ext_dl_dh-k2-pE-w2": [],
+"F34-out-bf-ext_bl_dh-l0-k1-fld-pE-w1": [],
+"F39-out-page-extdl-ld-pE-w1": [],
+"F39-out-page-extdl-movr-pE-w1": [],
+"F32-out-ext_dl_dh-k1-pE-w1": [],
+"F32-out-ext_bl_dh-k2-pE-w2": [],
+"F5-out-st_imm_bw-k1-odd-pO-w0": [
+"LEAD"
+],
+"F30-out-odd-stm-iy-n1-reg-pO-w0": [
+"J"
+],
+"F32-out-ext_bl_i7-k1-pE-w1": [],
+"F30-out-odd-stm-iy-n2-nop-pO-w0": [
+"J"
+],
+"F39-out-page-ext-push-pE-w2": [],
+"F21-out-l0-sti-dir-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F32-out-ins_dl_bh-k1-pE-w2": [],
+"F5-out-not_m-k1-odd-pO-w0": [
+"LEAD"
+],
+"F32-out-ext_bl_dh-k1-pE-w2": [],
+"F34-out-bf-ext_dl_bh-l0-k1-pE-w2": [],
+"F34-out-bf-ins_bl_dh-l0-k1-pE-w1": [],
+"F39-out-page-ext-movr-pE-w2": [],
+"F24-out-a-rep-movbk-w-n2-ixiy-pE-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-fnop-pE-w1": [],
+"F39-out-page-extdl-out-pE-w1": [],
+"F32-out-ins_bh_bl-k1-pE-w2": [],
+"F34-out-bf-ext_bl_i7-l0-k1-fld-pE-w1": [],
+"F30-out-odd-inm-iy-n1-rep-pE-w0": [
+"J"
+],
+"F21-out-l0-sti-bw_ix_d16-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F24-out-a-rep-inm-w-n2-iy-pO-w0": [
+"J"
+],
+"F24-out-a-rep-inm-w-n2-iy-pE-w0": [
+"J"
+],
+"F39-out-page-extdl-ld-pE-w2": [],
+"F34-out-bf-ins_bl_dh-l0-k1-fnop-pE-w2": [],
+"F35-push-far-brf-n0-pO-w0": [],
+"F24-out-a-rep-inm-w-n4-iy-pE-w0": [
+"J"
+],
+"F24-out-a-rep-movbk-w-n1-iy-pE-w0": [
+"J"
+],
+"F24-out-a-rep-movbk-w-n2-ixiy-pO-w0": [
+"J"
+],
+"F24-out-a-rep-movbk-w-n1-ixiy-pE-w0": [
+"J"
+],
+"F40-push-xfer-callfretf-k4-pO-w0": [],
+"F32-out-ext_dl_bh-k1-pE-w1": [],
+"F5-out-st_imm_bw_d16-k1-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-pE-w2": [],
+"F32-out-ext_dl_i7-k2-pE-w2": [],
+"F32-out-ext_bl_i7-k2-pE-w2": [],
+"F30-out-odd-movbk-iy-n1-ld-pE-w0": [
+"J"
+],
+"F40-push-xfer-brf-k4-pO-w0": [],
+"F5-out-inc_m-k1-odd-pO-w0": [
+"LEAD"
+],
+"F32-out-ext_bh_bl-k1-pE-w2": [],
+"F5-out-add_m_aw-k1-odd-pE-w0": [
+"LEAD"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-fld-pE-w2": [],
+"F32-out-ins_dl_dh-k1-pE-w1": [],
+"F34-out-bf-ext_bl_dh-l0-k1-fnop-pE-w1": [],
+"F24-out-a-repe-cmpbk-w-n1-ixiy-pE-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-reg-pO-w0": [
+"J"
+],
+"F39-out-ctl-extdl-bf-pE-w1": [],
+"F34-out-bf-ext_bl_dh-l0-k1-freg-pE-w2": [],
+"F24-out-a-rep-stm-w-n1-iy-pO-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ix-n2-end-pO-w0": [
+"J"
+],
+"F32-out-ext_dl_i7-k1-pE-w1": [],
+"F34-out-bf-ins_bl_dh-l0-k1-fld-pE-w2": [],
+"F32-out-ext_bl_i7-k1-pE-w2": [],
+"F30-out-odd-cmpbk-ixiy-n1-ld-pO-w0": [
+"J"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-fld-pE-w2": [],
+"F30-out-odd-movbk-ixiy-n1-end-pE-w0": [
+"J"
+],
+"F30-out-odd-movbk-iy-n1-nop-pE-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-nop-pE-w0": [
+"J"
+],
+"F39-out-page-extdl-out-pE-w2": [],
+"F32-out-ins_dl_i7-k1-pE-w2": [],
+"F24-out-a-repe-cmpbk-w-n1-ixiy-pO-w0": [
+"J"
+],
+"F30-out-odd-movbk-ixiy-n2-end-pE-w0": [
+"J"
+],
+"F30-out-odd-stm-iy-n1-ld-pO-w0": [
+"J"
+],
+"F32-out-ins_bl_i7-k2-pE-w2": [],
+"F39-out-page-extdl-push-pE-w1": [],
+"F32-out-ins_dl_bh-k1-pE-w1": [],
+"F32-out-ext_dl_dh-k2-pE-w1": [],
+"F30-out-odd-movbk-iy-n1-reg-pE-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-freg-pE-w1": [],
+"F32-out-ext_bl_dh-k2-pE-w1": [],
+"F32-out-ins_dl_dh-k1-pE-w2": [],
+"F40-out-xfer-brf-k4-pE-w0": [],
+"F5-out-xch_m_aw-k1-odd-pO-w0": [
+"LEAD"
+],
+"F32-out-ins_bh_bl-k2-pE-w2": [],
+"F32-out-ins_dl_i7-k2-pE-w2": [],
+"F34-out-bf-ext_bl_dh-l0-k1-pE-w2": [],
+"F32-out-ext_bh_bl-k1-pE-w1": [],
+"F5-out-not_m-k1-odd-pE-w0": [
+"LEAD"
+],
+"F30-out-odd-cmpbk-ixiy-n1-nop-pO-w0": [
+"J"
+],
+"F32-out-ext_dl_bh-k2-pE-w2": [],
+"F32-out-ins_bh_bl-k2-pE-w1": [],
+"F5-out-add_m_imm-k1-odd-pE-w0": [
+"LEAD"
+],
+"F35-out-far-brf-n1-pE-w0": [],
+"F40-out-xfer-callfretf-k2-pE-w0": [],
+"F24-out-a-rep-inm-w-n4-iy-pO-w0": [
+"J"
+],
+"F32-out-ext_dl_bh-k1-pE-w2": [],
+"F40-out-xfer-brf-k2-pE-w0": [],
+"F24-out-a-repe-cmpbk-w-n4-ixiy-pO-w0": [
+"J"
+],
+"F30-out-odd-stm-iy-n1-reg-pE-w0": [
+"J"
+],
+"F32-out-ext_dl_i11-k2-pE-w1": [],
+"F30-out-odd-movbk-ixiy-n2-end-pO-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n1-end-pO-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n1-reg-pO-w0": [
+"J"
+],
+"F21-out-l0-sti-bw_d16-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F26-out-fib-bixd16-n0-k1-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F24-out-a-rep-stm-w-n4-iy-pE-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-fld-pE-w1": [],
+"F34-out-bf-ext_dl_i11-l0-k1-pE-w2": [],
+"F30-out-odd-inm-iy-n1-reg-pE-w0": [
+"J"
+],
+"F5-out-xch_m_aw-k1-odd-pE-w0": [
+"LEAD"
+],
+"F35-push-far-callf-retf-pO-w0": [],
+"F30-out-odd-movbk-iy-n1-rep-pE-w0": [
+"J"
+],
+"F34-out-bf-ext_dl_i11-l0-k1-pE-w1": [],
+"F30-out-odd-movbk-iy-n1-ld-pO-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n1-ld-pO-w0": [
+"J"
+],
+"F30-out-odd-stm-iy-n1-rep-pO-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-fnop-pE-w2": [],
+"F32-out-ins_dl_dh-k2-pE-w1": [],
+"F24-out-a-rep-stm-w-n4-iy-pO-w0": [
+"J"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-pE-w1": [],
+"F32-out-ins_bh_bl-k1-pE-w1": [],
+"F24-out-a-rep-movbk-w-n1-ixiy-pO-w0": [
+"J"
+],
+"F32-out-ins_dl_i7-k1-pE-w1": [],
+"F24-out-a-rep-inm-w-n1-iy-pE-w0": [
+"J"
+],
+"F34-out-bf-ins_dl_i11-l0-k1-pE-w2": [],
+"F30-out-odd-stm-iy-n1-rep-pE-w0": [
+"J"
+],
+"F32-out-ext_dl_i11-k1-pE-w1": [],
+"F22-out-l0-sti_dir-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F39-out-page-ext-movr-pE-w1": [],
+"F32-out-ext_bl_dh-k1-pE-w1": [],
+"F30-out-odd-inm-iy-n1-ld-pE-w0": [
+"J"
+],
+"F32-out-ins_bl_dh-k1-pE-w2": [],
+"F30-out-odd-stm-iy-n1-nop-pE-w0": [
+"J"
+],
+"F39-out-page-extdl-st-pE-w1": [],
+"F24-out-a-repe-cmpbk-w-n2-ixiy-pO-w0": [
+"J"
+],
+"F24-out-a-rep-movbk-w-n4-iy-pE-w0": [
+"J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-ld-pE-w0": [
+"J"
+],
+"F22-out-l0-sti_d16-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F30-out-odd-cmpbk-ixiy-n2-end-pO-w0": [
+"J"
+],
+"F35-out-far-callf-pE-w0": [],
+"F19-i-out-l0-stimmd16-pE-w0": [
+"LEAD",
+"ARB_IDLE"
+],
+"F5-out-shl_m1-k1-odd-pO-w0": [
+"LEAD"
+],
+"F30-out-odd-stm-iy-n2-end-pO-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-freg-pE-w1": [],
+"F39-out-page-extdl-movr-pE-w2": [],
+"F30-out-odd-movbk-iy-n1-reg-pO-w0": [
+"J"
+],
+"F24-out-a-rep-movbk-w-n4-ixiy-pO-w0": [
+"J"
+],
+"F32-out-ext_dl_bh-k2-pE-w1": [],
+"F24-out-a-rep-movbk-w-n1-iy-pO-w0": [
+"J"
+],
+"F35-push-far-brf-n1-pO-w0": [],
+"F34-out-bf-ext_bl_dh-l0-k1-freg-pE-w1": [],
+"F32-out-ext_dl_i11-k2-pE-w2": [],
+"F32-out-ins_dl_i7-k2-pE-w1": [],
+"F35-push-far-callf-pO-w0": [],
+"F32-out-ins_dl_dh-k2-pE-w2": [],
+"F35-out-far-brf-n0-pE-w0": [],
+"F30-out-odd-stm-iy-n1-end-pO-w0": [
+"J"
+],
+"F24-out-a-rep-stm-w-n1-iy-pE-w0": [
+"J"
+],
+"F30-out-odd-stm-iy-n2-nop-pE-w0": [
+"J"
+],
+"F30-out-odd-inm-iy-n1-nop-pO-w0": [
+"J"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-freg-pE-w2": [],
+"F34-out-bf-ext_bl_i7-l0-k1-pE-w2": [],
+"F30-out-odd-stm-iy-n2-rep-pE-w0": [
+"J"
+],
+"F40-push-xfer-brf-k2-pO-w0": [],
+"F24-out-a-repe-cmpbk-w-n4-ixiy-pE-w0": [
+"J"
+]
+}
