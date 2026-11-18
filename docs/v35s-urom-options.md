@@ -69,3 +69,55 @@ words, not distinct words); D2 would shrink the table as well, by an amount not 
 
 W3 is the alternative to W2 if a single-level ROM is wanted for its likeness to the
 original; it costs more and endangers the 63 widest words' clocks.
+
+## Hold slots against smaller operations (2026-11-18; `urom_stats/split40.py`)
+
+Lens (the user's): the original microcode had no words whose only purpose is delay, so a hold
+slot marks work the present words do in too large a step. Target word: 40 bits (3-bit format
+tag + 37 payload).
+
+**Supply.** Along the routines there are 3,897 clocks (ROM words plus the clocks spent in the
+shared delay routine). **2,426 are hold slots** (62 %), against 1,471 words that act:
+
+| Hold slots | Kind |
+|---|---|
+| 1,073 | clocks inside the delay routine (266 calls: 139 of one clock, 38 of two, the rest 3 to 24) |
+| 574 | pacing words carrying word-kind bits (bus-idle, release, boundary marks) |
+| 341 | words that only sequence (jump, dispatch, return) |
+| 244 | the calling words of the delay routine |
+| 194 | empty words |
+
+**Demand at 40 bits.** A piece may move to a hold slot in the same straight-line segment of
+its routine if it is a register read, move, ALU step or register write and the slot has room.
+
+| Split rule | Words split | Pieces | Fill a hold slot | Find no slot |
+|---|---|---|---|---|
+| Only what does not fit 37 bits | 75 | 91 | 60 (2 % of the slots) | 31, and 12 words stay too wide |
+| One datapath operation per word | 425 | 557 | 445 (18 %) | 112 |
+| One primitive step per word (each register read, move, ALU step, write apart) | 511 | 674 | 538 (22 %) | 136 |
+
+At 32 bits the first rule sheds 291 pieces, of which 169 find a slot. Pieces are assumed
+movable without checking each routine's data dependencies, so the fill figures are upper
+bounds; "find no slot" means a new clock unless the routine is reshaped.
+
+**Reading.** The 40-bit width itself is cheap (75 words) but fills almost nothing. Even the
+finest split of the present operations fills about a fifth of the holds. The other four
+fifths sit where one ALU code stands for a whole algorithm, or where the routine waits on
+the bus:
+
+| Where | Hold slots | Acting words | What the hold stands for |
+|---|---|---|---|
+| bf.uasm (INS / EXT) | 338 | 110 | bit-field shift and mask done in single ALU codes (ins / insi 115 holds each, ext / exti 51) |
+| loop.uasm (MUL, DIV, shifts) | 331 | 92 | MUL / DIV in three ALU codes each (div8 50 holds for 5 acting words, mul8 32 for 5) |
+| page.uasm (4S, ROL4 / ROR4) | 164 | 97 | the BCD string and digit rotates (ror4 35, cmp4s 30, add4s 29) |
+| str.uasm | 284 | 125 | REP heads and element loops (rep_outm 33, rep_cmpbk 29) |
+| mem.uasm | 500 | 360 | memory forms, including the MUL / DIV memory forms (div_m8 38, mul_m8 24) and bus waits |
+| xfer.uasm | 387 | 237 | transfers: flush, vector and stack sequences |
+| stack.uasm | 113 | 75 | PUSH R / POP R, PREPARE |
+
+93 routines with eight or more hold clocks carry 1,872 of the 2,426. So the holds are
+concentrated: the iterative operations (multiply, divide, bit fields, BCD strings, digit
+rotates, multi-bit shifts) are the "too macro" words, and a microcode loop of a few words
+per iteration would both fill their holds and delete their long delay calls. About 650
+holds carry bus or queue marks; those are waits on the bus unit rather than idle steps and
+belong to the pacing-by-level question (D4), not to operation size.
