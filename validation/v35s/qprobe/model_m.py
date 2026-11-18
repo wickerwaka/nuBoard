@@ -146,6 +146,25 @@ entry takes the entry of the measured mode of its class.
   Tried and not kept (switches left in, default off): EMIN_L (a three-byte test at OUT / IN imm8's
   boundary: reads the same runs as B_I4 and 38 fewer), B_LATE, REQ_PRI=2 / 3 / 4, LCH_K=RW with
   LCH_POP (no arbitration inside the chain for a register store: +34, -28), SHLI_W1 / W2 / W4.
+
+Round 25 (results Q118 to Q126):
+  STR_ODD=1     a word string element at an odd pointer is a pair of byte cycles (IY: MOVBK's write,
+                CMPBK's first read, STM, CMPM, INM's write; IX: the others) (Q118)
+  SPLIT_LEAD=1  the opcode a store releases on a pair's first clock: its decode lead counts from the
+  W_LEAD=1      pair's second cycle; and from the write's first clock when the write starts later
+                than the store's N (Q119, Q125)
+  SPLIT_J=1     J: the wait behind the last string element (MOVBK / INM single write, CMPBK single
+                second read, the REP routines' last iteration: RL_*) ends one clock after a pair's
+                pins at W = 0. Measured, NO MECHANISM (Q120)
+  LCHW=1        round 21's LCH for a write: a write whose request word executed at or after the
+                first pin clock of the chain behind an EU cycle does not stop the chain's next
+                fetch at five or fewer held (before the clock's pops); the store's G waits with it
+                (Q123; LCHW_MIN, the chain index asked for, is 1 as for reads: 2 scores the same)
+  ARB_IDLE=1    a request armed on the clock it is due does not stop a fetch from the idle bus at
+                four or fewer held (Q125)
+  Shapes: MOVBK / CMPBK / CMPM single have a bus-idle fourth word, INM a fifth (Q121); the 4S head
+  is `P . B . . . B . . . . .` (Q122); ADJ4S is `. . B . . . . N .`, one word shorter than ADJ4A
+  (Q122); MOV [d16],AW requests on its second word (Q124).
 """
 
 from __future__ import annotations
@@ -157,8 +176,8 @@ from . import read
 
 DEFAULT = dict(
     IDLE_AT=4, B2B_AT=5, REQ_PRI=5, FLUSH_LAT=5, H_B2B=1, H_EU=1, B_CH=0, B_CH_W=1, EMIN_K=0, EMIN_KEYS="ADDIM_DIR", OF2=0, OF_PFX="N .", OF_DROP=2, LEAD_0F=2, OF_EMIN=0, BF_OFF=1, EXTRX_D=0, INSRX_D=0,
-    RSV_KEYS="", B_EU="OIWR", B_EU_LAST="", B_EU_OF=0, B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
-    PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . . B . . . . . . . . .",
+    STR_ODD=1, LCHW=1, LCHW_MIN=1, ARB_IDLE=1, W_LEAD=1, SPLIT_J=1, SPLIT_LEAD=1, RSV_KEYS="", B_EU="OIWR", B_EU_LAST="", B_EU_OF=0, B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
+    PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . B . . . B . . . . .",
     I_ADD4S="Y D . . . U D . . . . . . Z D .", T_ADD4S=". . . . . . . . N .",
     I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y DP . B", EXTI_TAIL="N .", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, EU_BNEXT=0, EU_WPRI=7, EU_WPRI_K="O", BW_TRACK=1, CH3=2, CH3_K="OIWR", CH3_N=1, CH3_NK="EXT,INS,EXTI,INSI", B_LATE=0, B_LATE_K="WROI", LCH_POP=0, LEAD_FM=1, EMIN_L=0, EMIN_L_SET=0, EMIN_L_GW=1, B_I4=4, B_I4_K="WROI", REQ_PRI_K="", EMIN_ML="JMPMB,CALLMB,JMPFMB,CALLFMB,JMPM,CALLM,JMPFM,CALLFM", MD_B=2, MD_B2=4, MD_ACT="B", B_SLOT=0, B_SLOT_KEYS="", MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="C", SHLI_W3="BP", SHLI_W2="", SHLI_W1="", SHLI_W4="", SHLI_AT=5, SHLI_D=-1, E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
     POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1, Z_LAT=2, FLUSH_B2B=1, FLUSH_GAP=3,
@@ -175,8 +194,8 @@ DEFAULT = dict(
     # I/O (model_e6.py): port byte on word 4; `X . N .` and the cycle after the boundary
     OUT="A . X . N .", E6=". . . BP . . X . N .", IN8=". . . BP . . X DN .",
     # memory: the request (Y), then the datum's wait (D) or, for a write, the boundary's wait
-    PUSH=". . Y . . G N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
-    PUSHI=". . . . PP2 . Y . . . N .", PUSHI8=". . . P . Y . . . N .", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . B Y . PP2 . DZ G N .", ADJ4=". . . B . . . . N .", ADJB=". . B . . . . . . . . . . . . N .",
+    PUSH=". . Y . . G N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". Y . PP2 G N .",
+    PUSHI=". . . . PP2 . Y . . . N .", PUSHI8=". . . P . Y . . . N .", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . B Y . PP2 . DZ G N .", ADJ4=". . . B . . . . N .", ADJ4S=". . B . . . . N .", ADJB=". . B . . . . . . . . . . . . N .",
     CVTBD=". . . BP . B . . . . . . . . . . . . . N .", EI=". . B . . . . . . . . N .", CVTWL=". . B . . . . N .",
     SHMI_HEAD="P . V DP . B", SHMI_BASE=4, SHMCL_HEAD="P . . B . . . Y D", SHMCL_BASE=3,
     LDS="P Y . D . U . D . . N .", MOVMS="P . V . G N .", MOVSM="P Y . DN . .",
@@ -199,13 +218,13 @@ DEFAULT = dict(
     STIMB="P . V . . . KPN .", STIM_D16="P . . BIYPP2 . . . KPP2N .", NOTM="P . . B Y . . DZ G N .",
     INCMB="P . . B Y . . DZ G N .", SHLM1="P . B Y D . . . . . Z G N .", PUSHM="P . B Y D . . . Z G N .",
     PUSHM_D8="P . . B Y P D . . . Z G N .", PUSHM_DIR="P . . B Y P P2 D . . . Z G N .",
-    POPM="P . Y D . . Z G N .", POPM_D8="P . Y D . . PZ G N .", POPM_DIR="P . Y D . . PP2Z G N .", CMPRR="PN .", NOTR="P . . BN .", MOVS=". . . . . Y D . . . Z DN .",
+    POPM="P . Y D . . Z G N .", POPM_D8="P . Y D . . PZ G N .", POPM_DIR="P . Y D . . PP2Z G N .", CMPRR="PN .", NOTR="P . . BN .", MOVS=". . . B . Y D . . . Z JN .",
     STOS=". . B . . . Y G N .", LODS=". . B . Y DN .", INDW=". . BX DN .", XLAT=". . Y DN .", LEA="P . . BN .", LEAX="P . . BN .", LEA_D8="P . . BNP .", LEAX_D8="P . . BNP .", LEA_D16="P . . BINPP2 .", LEAX_D16="P . . . BINPP2 .", LEA_DIR="P . . BINPP2 .",
-    CALLF=". . . . PP2 . Q . BIPP2 . Y D . Y D . . F N .", RETF=". . Y D . Y D . . F N .", JR="P . B . B . . F N .", INT3=". . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", LOOP=". . . B . . P . . B . . F N .", CMPBK=". . . . . Y D . . . U D . N .", SCAS=". . . . . . Y D . . N . .", INM=". . . . . X D Z DN .", OUTM=". . . . B . Y D . X . . . N .", REP_ZERO=". . . B . . . . . . N .", REP_ZERO_IO=". . . . B . . . . . . N .", REP_HEAD=". . . B . . . . . . . . . .",
-    RI_MOVS="Y D . . . Z D .", RT_MOVS=". . . . . . N .", RI_STOS="Y D .",
+    CALLF=". . . . PP2 . Q . BIPP2 . Y D . Y D . . F N .", RETF=". . Y D . Y D . . F N .", JR="P . B . B . . F N .", INT3=". . B . B . . Y . . . . . . . DZ D . . U . . . . . DZ D . . . Z D . . F N .", LOOP=". . . B . . P . . B . . F N .", CMPBK=". . . B . Y D . . . U J . N .", SCAS=". . . B . . Y D . . N . .", INM=". . . . B X D Z JN .", OUTM=". . . . B . Y D . X . . . N .", REP_ZERO=". . . B . . . . . . N .", REP_ZERO_IO=". . . . B . . . . . . N .", REP_HEAD=". . . B . . . . . . . . . .",
+    RI_MOVS="Y D . . . Z D .", RL_MOVS="Y D . . . Z J .", RT_MOVS=". . . . . . N .", RI_STOS="Y D .", RL_STOS="Y J .",
     RT_STOS=". . . . . . N .", RI_LODS="Y D . . .", RT_LODS=". . . . . . . N .",
-    RI_SCAS="Y D . .", RT_SCAS=". . . . . . . . . . . . N .", RH_CMPBK=". . . B . . . . . . . . .", RH_OUTM=". . . . B . . . . . . . . . .", RI_CMPBK="Y D . . . U D .",
-    RT_CMPBK=". . . . . . . . . . . . . . N .", RH_INM=". . . . B . . . . . . . . .", RI_INM="X D Z D", RT_INM=". . . . . . . N .",
+    RI_SCAS="Y D . .", RT_SCAS=". . . . . . . . . . . . N .", RH_CMPBK=". . . B . . . . . . . . .", RH_OUTM=". . . . B . . . . . . . . . .", RI_CMPBK="Y D . . . U D .", RL_CMPBK="Y D . . . U J .",
+    RT_CMPBK=". . . . . . . . . . . . . . N .", RH_INM=". . . . B . . . . . . . . .", RI_INM="X D Z D", RL_INM="X D Z J", RT_INM=". . . . . . . N .",
     RI_OUTM="Y D X . . . . .", RL_OUTM="Y D . X . . . . .", RT_OUTM=". . . . . . . N .",
     PUSHA=". . B . " + "Y D . " * 7 + "Y G N .", POPA=". . " + "Y D . " * 7 + "Y DN .", TEST1I="P . BP . BPN .", T1M="P . BP . . C Y DN .", C1M="P . BP . . C Y D Z G N .", S1M="P . BP . . C Y DZ G N .",
     T1MI="P . PC Y DPN .", C1MI="P . PC Y DP Z G N .", S1MI="P . PC Y DPZ G N .",
@@ -243,7 +262,7 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
        0xE9: ("JN", None, 0), 0x74: ("JZ", None, 0), 0x75: ("JNZ", None, 0),
        # (round 24) the other conditions: the same two routines, the outcome from the chain's knobs
        **{c_: ("JCC", None, 0) for c_ in (0x70, 0x71, 0x72, 0x73, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F)},
-       0x9E: ("SAHF", None, 0), 0x2F: ("ADJ4", None, 0), 0xCA: ("RETFI", "R", 0),
+       0x9E: ("SAHF", None, 0), 0x2F: ("ADJ4S", None, 0), 0xCA: ("RETFI", "R", 0),
        0xA1: ("LD", "R", 0), 0xA3: ("ST", "W", 0), 0x50: ("PUSH", "W", 0),
        0x58: ("POP", "R", 0), 0xD3: ("SHL", None, 1), 0xF4: ("HALT", None, 0),
        0x04: ("ADDAL", None, 0), 0x68: ("PUSHI", "W", 0), 0x9D: ("POPF", "R", 0),
@@ -519,6 +538,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
     f_lag = False                       # the latest fetch's slot is ahead of its pin cycle
     fm_t = None
     io_split = False
+    str_split = False
+    d_end = j_end = -9
     f_late = False       # (round 24) the chain's first fetch had given way a clock
     next_lag = False                    # ... and another fetch is chained behind it
     halted = False
@@ -713,7 +734,11 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 stall = True
             elif o["H_EU"] and eu_run and t != eu_end:
                 stall = True
-        if "D" in acts and (eu_due is not None or eu_run):
+        if "D" in acts and (eu_due is not None or (eu_run and t <= d_end)):
+            stall = True
+        if "J" in acts and (eu_due is not None or eu_run or t <= j_end):
+            # (round 25) J: a wait for the EU's cycle that ends with the bus (the pair's idle
+            # clock at W = 0 included), not with the datum as D does
             stall = True
         if count < npop + ("N" in acts):
             stall = True
@@ -725,6 +750,14 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             if (eu_due is None or eu_due > t + 1 or f_now
                     or (f_end is not None and f_end > t) or (eu_run and eu_end > t)):
                 stall = True
+            elif (o["LCHW"] and last_clock and f_chx >= o["LCHW_MIN"] and eu_kind == "W" and not unarmed
+                  and y_clock >= ch_start - o["LCH_Y"] and pfp is not None and not halted
+                  and count + f_bytes <= o["B2B_AT"] and not eu_hold):
+                stall = True      # (round 25) the write will give way to the chain's next fetch
+            elif (o["LCHW"] and just_ended and f_chx >= o["LCHW_MIN"] and eu_kind == "W" and not unarmed
+                  and y_clock >= ch_start - o["LCH_Y"] and pfp is not None and not halted
+                  and count <= o["B2B_AT"] and not eu_hold):
+                stall = True      # ... and gives way on this clock
         if is_last and not stall:
             # would a back-to-back fetch start this clock without this word's pops?
             b2b_now = (just_ended and not eu_run and pfp is not None
@@ -837,6 +870,13 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 eu_where = (dw if cur_op in (0xEE, 0xEF)
                             else code[cur_at + 1] if cur_op in (0xE6, 0xE7) else None)
                 io_split = cur_op == 0xE7 and eu_where is not None and bool(eu_where & 1)
+                # (round 25) a word string element at an odd pointer: two byte cycles back to
+                # back, as every other word at an odd address (IY: MOVBK's write, CMPBK's first
+                # read, STM, CMPM, INM's write; IX: the others). The pointers stay odd (+-2).
+                str_split = bool(o["STR_ODD"] and cur_op in (0xA5, 0xA7, 0xAB, 0xAD, 0xAF, 0x6D, 0x6F)
+                                 and eu_kind in "RW" and "X" not in acts
+                                 and regs.get("IY" if (cur_op in (0xAB, 0xAF, 0x6D) or (cur_op == 0xA5 and zw)
+                                                       or (cur_op == 0xA7 and not uw)) else "IX", 0) & 1)
                 if cur_op in (0x6E, 0x6F) and "X" in acts:      # (round 11) OUTM's port cycle
                     eu_kind, eu_where, eu_hold = "O", dw, False
             if "F" in acts:
@@ -1121,6 +1161,19 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 and y_clock >= ch_start - o["LCH_Y"] and pfp is not None and not (eu_kind == "W" and unarmed)
                 and not halted and count + (pops if (o["LCH_POP"] == 2 or (o["LCH_POP"] == 1 and eu_kind == "W")) else 0) <= o["B2B_AT"] and not eu_hold):
             old_loses = True
+        # (round 25) ARB_IDLE: a request that is armed on this very clock (the datum word, or the
+        # displacement's release for a read) does not stop a fetch that starts from the idle bus
+        # with four or fewer held (the count before this clock's pops)
+        if (o["ARB_IDLE"] and not just_ended and not in_fetch and eu_due is not None and eu_due <= t
+                and eu_kind in o["ARB_K"] and unarmed and armed_t == t and pfp is not None
+                and not halted and count + pops <= o["IDLE_AT"] and not eu_hold):
+            old_loses = True
+        # (round 25) LCHW: the same for a write (requested at or after the chain's first pin
+        # clock), the count taken before this clock's pops
+        if (o["LCHW"] and just_ended and f_chx >= o["LCHW_MIN"] and eu_due is not None and eu_kind == "W"
+                and y_clock >= ch_start - o["LCH_Y"] and pfp is not None and not unarmed
+                and not halted and count + pops <= o["B2B_AT"] and not eu_hold):
+            old_loses = True
         # (round 21) RIPE4: a fetch at four or fewer held beats a read that becomes ripe on this
         # very clock (1: on the fetch chain behind an EU cycle only; 2: after any fetch)
         if (o["RIPE4"] and just_ended and eu_due == t and eu_kind in o["LCH_K"] and pfp is not None
@@ -1130,6 +1183,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         if bus_free and eu_due is not None and t >= eu_due and not eu_hold and not old_loses:
             ev.append((t, eu_kind, eu_where))
             eu_end = t + (2 if eu_kind in ("O", "I") else cyc - 1)
+            split_now = False
             # (round 11) a word at an odd address: two byte cycles back to back, the pair one
             # cycle of twice the length (nothing between them)
             if eu_kind in "RW" and cur_op is not None and (
@@ -1144,10 +1198,30 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                         and code[cur_at + 2] < 0xC0 and (code[cur_at + 2] & 7) in (0, 1, 7))):
                 ev.append((t + cyc, eu_kind, eu_where))
                 eu_end = t + 2 * cyc - 1
+                split_now = True
+            if eu_kind in "RW" and str_split:
+                ev.append((t + cyc, eu_kind, eu_where))
+                eu_end = t + 2 * cyc - 1
+                str_split = False
+                split_now = True
             if eu_kind == "O" and io_split:
                 # (round 24) OUT imm8,AW to an odd port: two byte cycles back to back
                 ev.append((t + 3, eu_kind, eu_where + 1))
                 eu_end = t + 5
+            d_end = eu_end
+            if split_now and o["SPLIT_J"] and cyc == 3:
+                # (round 25) behind a pair of byte cycles at W = 0 a J wait ends one clock
+                # after the pins (no mechanism read; D and the bus itself end with the pins)
+                j_end = eu_end + 1
+            if o["W_LEAD"] and eu_kind == "W" and stg is not None and stg_t < t:
+                # (round 25) the opcode a store released before its write could start (the
+                # datum word's N, the write behind a fetch): its decode lead counts from the
+                # write's first clock, where the stores' N stands otherwise
+                stg_t = t
+            if split_now and o["SPLIT_LEAD"] and stg_t == t:
+                # (round 25) the opcode released on a pair's first clock (the stores' N): its
+                # decode lead counts from the pair's second cycle
+                stg_t = t + cyc
             last_kind = eu_kind
             eu_due = None
             eu_started = True

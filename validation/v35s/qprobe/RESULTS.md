@@ -3708,3 +3708,247 @@ against the chain (78), the BCD strings (39), the single string forms behind PUS
 of socket time). No sim of the RTL and no corpus replay were run (the work order is against land17's
 miss list). No interrupt family. Board left with vccb false, rails off, failure 0 (read back after
 the last run and again at hand-back).
+
+# Round 25: the four states over 20 runs (Q117)
+
+Brief: new probes for the four unread states that carry more than 20 corpus runs. The bit-field
+head's second commit word (Q110) and CVTDB behind an EU cycle stay known differences (not worked
+on). Result in one line: three of the four states were not timing states at all (the model lacked
+function or had a routine shape fitted on one frame); the fourth (d16 stores against the chain) has
+a rule that loses nothing. Notation as before: a routine is words, one a clock; `Y` / `Z` / `U` / `X`
+request words, `D` the wait for the datum, `G` the word that completes on the clock before the
+write starts, `N` the pop of the next opcode, `B` a bus-idle word; "pair" = the two byte cycles of
+a word at an odd address.
+
+## Q118. "REP successors" (88 rows) is not a REP state: a word string element at an odd pointer is a pair of byte cycles, and the model did not split it (item 1)
+
+All 88 rows (F24 `out-a-*`, F30 `out-odd-*`) have IX, IY or both odd. The REP routines themselves
+(head, iterations, count test, exit, CW = 0 / 1 / 2 / 3, both alignments) were read in rounds 11,
+13 and 18 and are exact on the even-pointer corpus rows (F24 `out-r-*`: all exact, every W); nothing
+in them moved this round.
+
+- **Measured (corpus addresses, then socket).** Which pointer: MOVBK reads DS0:IX and writes DS1:IY;
+  **CMPBK reads DS1:IY first, then DS0:IX** (`F30-out-odd-cmpbk-ix-n2-end`: C40h, then A41h / A42h);
+  STM, CMPM and INM's write use IY; LDM (and OUTM's read: not run) IX. The pair is back to back
+  (the second byte cycle on the clock after the first's last clock: 3 + 3, 4 + 4, 5 + 5 clocks);
+  a wait for the datum (`D`) ends with the pair's last pin clock. The pointers stay odd (+-2).
+- Model: `STR_ODD` (the same pair the model already made for [BW] and the stack). Corpus **+302
+  runs by this alone, 0 lost** (the W = 1 / 2 rows and the IX-only forms, which the RTL already has
+  exact); the 88 RTL rows are all W = 0 and stayed one clock out: Q119 and Q120.
+- Socket `r25a` (294 runs): 144 need the split; with Q119 and Q120 294 of 294.
+
+## Q119. A store's next opcode behind a pair: the decode lead counts from the pair's second byte cycle (W = 0; `SPLIT_LEAD`)
+
+A store-type tail is `G N .`: `N` (the pop of the next opcode) on the write's first clock, the
+boundary on the write's last clock, and for an opcode with a decode lead (OUT imm8: 3) not before
+`N` + 3. With a single cycle at W = 0 the lead decides (boundary on write start + 3); with a pair
+the boundary would be on the pair's last clock (start + 5). Silicon: start + 6 = second cycle + 3.
+
+- **Measured, one variable at a time** (`r25a`, BW = 0801h, W = 0, both alignments):
+
+| store through [BW] odd, then | W = 0 | W = 1 / 2 |
+|---|---|---|
+| OUT imm8 (the marker; OUT 22h; a second store, then the marker) | one clock later than the pair's last clock (6 runs; with RMW, INC [m], MOV [m],imm16, XCH, PUSH with SP odd, STM with IY odd and the store behind a flush: **20 runs, 10 programs**) | on the pair's last clock |
+| NOP, INC DW, CLC, MOV AW,imm16, MOV AW,[d16], MOV [d16],AW, PUSH | on the pair's last clock (14 runs; 8 more for RMW, MOV [m],imm16, STM and PUSH with NOP behind) | the same |
+
+  `QPr25a-so-0-pE-w0`: W 85, 88; port fetch 95; I/O 102 (the boundary on 91; the model had 90, fetch 94,
+  I/O 101). `QPr25a-so-nop-pE-w0`: W 85, 88; **the next fetch on 91** (the bus is free on the clock
+  after the pair); I/O 106 as the model had it.
+- **Inferred:** the next opcode is released (or its decode started) on the first clock of the
+  write's last byte cycle. The model keeps `N` where it was and moves the lead's origin. At W = 1 / 2
+  second cycle + 3 is not later than the pair's last clock: nothing shows (and nothing changes).
+- **Unknown:** the other opcodes with a lead behind a pair (OUT imm8,AW, IN imm8: lead 3; MOV sreg,
+  RET: lead 2, which cannot show). Corpus: 16 rows (F5 `out-*-odd`, 8 forms); socket rounds 1 to 23:
+  +50 (programs of rounds 21 / 22 whose stores run with BW odd), 0 lost.
+- **Rejected:** "the pair holds the bus one clock longer" (every bus-end rule one clock later):
+  corpus +102, -27 (loads, compares and the PUSH-marker rows at odd BW); `so-nop` shows the fetch on
+  the clock after the pair.
+
+## Q120. The wait behind the last element's pair ends one clock after the pins at W = 0 (`J`; `SPLIT_J`): measured, **no mechanism**
+
+- **Measured.** At W = 0 only, one clock more than the pair's own six, whatever follows (NOP or the
+  marker), in these places and no others:
+
+| place | runs (`r25a`, W = 0) | corpus rows |
+|---|---|---|
+| MOVBK single, the write a pair (IY odd, both odd) | 8 | - |
+| CMPBK single, the second read (IX) a pair (IX odd, both odd) | 8 | - |
+| INM single, the write a pair | 4 | - |
+| REP MOVBK / STM / INM: the **last** iteration's write | 4 (count 2) | 68 |
+| REP CMPBK: the read-ahead pair's second read | 2 | 20 |
+
+  Not there (measured the same way): a first read that is a pair (MOVBK with IX odd only, CMPBK with
+  IY odd only, LDM, CMPM, MOV r,[BW]: 72 runs, 24 of them at W = 0); **the writes of the iterations before the last**
+  (`rep2-movbk-iy`: W 117 / 120, next read 129 = 9 + 3; `rep2-stm-iy`: W 108 / 111, next W 120; corpus
+  n = 2 / 4); W = 1 and 2 everywhere.
+- Model: a word `J` in place of `D` in those five places (`RL_MOVS`, `RL_STOS`, `RL_INM`, `RL_CMPBK`, and the
+  single MOVBK / CMPBK / INM routines), one clock longer than `D` behind a pair at W = 0. It reproduces
+  every run (26 socket, 88 corpus rows with Q118) and loses none. **It is a description, not a
+  mechanism**: nothing read says why the last element's wait differs from the earlier ones', nor why
+  only at W = 0. Reported as such; in the model it is the option `SPLIT_J` (off: the 88 rows and the 26
+  runs are one clock early, nothing else moves).
+- **Rejected:** `D` one clock later behind every pair (the mid-iteration spacing says no); the bus
+  held one clock longer (Q119). A reading that would join Q119 and Q120 ("something counts 3 or 4
+  clocks from the second byte cycle's first clock") fits the single cycle only for Q119.
+
+## Q121. The single string forms have the REP head's bus-idle word (item 4, 25 rows)
+
+Read from the corpus traces first, as the brief asked: behind PUSH at even alignment the marker's
+fetch is in flight over the routine's first words at W = 1 / 2 and the first request came 1 / 2
+clocks late. That is a bus-idle word, in the place the REP heads have it.
+
+| instruction | routine now | was |
+|---|---|---|
+| MOVBK (A4 / A5) | `. . . B . Y D . . . Z JN .` | no `B` |
+| CMPBK (A6 / A7) | `. . . B . Y D . . . U J . N .` | no `B` |
+| CMPM (AE / AF) | `. . . B . . Y D . . N . .` | no `B` |
+| INM (6C / 6D) | `. . . . B X D Z JN .` | no `B` |
+| STM, LDM | `. . B . . . Y G N .`, `. . B . Y DN .` | unchanged (a fourth word instead: 221 of 252) |
+
+- **Measured:** corpus 25 of 25 (F39 `push-ctl-*-s`, `push-str-*`), 0 lost. Socket `r25c` (seven forms
+  behind PUSH, PUSH ; CLC, OUT, OUT ; CLC, OUT ; NOP and a store, 252 runs): 207 before, **252 of 252**;
+  CMPM's word was found there (no corpus row needs it: 10 runs, pE at W = 1 / 2).
+- **Unknown:** `B` on that word or a word one earlier that waits as a boundary does (`H`): identical
+  on all 277 runs. Built as `B` because the REP heads have `B` there.
+
+## Q122. ADD4S / SUB4S / CMP4S: a 12-word head; ADJ4S is 9 words (item 3, 33 + 6 rows)
+
+The model does carry what the routine needs (the count in CL, one iteration per byte, two reads and
+a write, CMP4S no write: Q38, unchanged). The 39 rows were the **second** instruction of a pair, or
+one behind a prefix: one clock early in silicon.
+
+- **Measured:** the head is `P . B . . . B . . . . .` (12 words; was 13 with the bus-idle word
+  fourth). Every earlier run had MOV CL,imm8 directly in front, whose queue refill is in flight on
+  the third word: the stall was read as a word. Behind another 4S, a prefix, NOP or CLC no fetch is
+  there and the head is 12 clocks. Corpus **33 of 33** (F32 `*-k2`, `pfx_add4s`, F40 `page-add4s`), 0
+  lost. Socket `r25d` (15 programs: itself two and three times, NOP / CLC / PUSH / OUT / a prefix in
+  front, CL = 2 and 4): 90 of 90.
+- **Inferred from two runs:** the second bus-idle word (the seventh): `add-co1` / `cmp-co1` at pE,
+  W = 2 (the fetch behind OUT still on the pins on the head's seventh clock; one clock late without
+  it). A boundary-type word on the sixth scores the same.
+- **ADJ4S (2F) is one word shorter than ADJ4A (27):** `. . B . . . . N .`. `r25d`: 11 programs, one /
+  two / three in a row, AL and the flags set four ways (no adjust, low digit, high digit, both)
+  in front, follower NOP: 66 of 66 one clock shorter than the same program with ADJ4A, **no data
+  dependence**. The corpus k = 1 rows could not see it (the marker's lead hides one clock); the
+  bus-idle word is third by the corpus k = 2 rows (fourth or second: -6). Corpus +6, 0 lost.
+- The entry and exit words, the successor and the OUT-behind cases need no rule: `r25d` behind OUT
+  and PUSH is exact with the new head.
+
+## Q123. d16 / direct stores against the fetch chain: a write requested once the chain is running does not stop it (item 2; `LCHW`: round 21's rule for reads holds for writes)
+
+New angle as asked: `r25b` does not start from the corpus frame. Nine store forms x three EU cycles
+in front (OUT imm8, PUSH, MOV AW,[d16]) x six pads (none, CLC, CBW, NOP, CLC CLC, NOP NOP), each form
+also alone behind the long shift; 1,026 runs. Read against the clock **P** on which the store pops
+its last address byte (silicon only, no model verdict in the table):
+
+| state at P (W = 0; the same at W = 1 / 2 with 4 / 5-clock cycles) | runs | then |
+|---|---|---|
+| no fetch starts on P (5 or 6 held behind the pop) | 137 | write on P + 2: the unobstructed latency (d8 forms 118, MOV [d16],AW 19: Q124; the ModR/M d16 forms always have a fetch on P in this set) |
+| a fetch starts on P (the pop makes room), 4 or more held behind the pop | 435 | write on that fetch's end + 1 (6 or more held then: no fetch is possible) |
+| a fetch starts on P with 3 or fewer held, and that fetch is **the first behind the EU cycle, or starts from the idle bus**: the store's request word (P - 2) executed before the chain's first pin clock, or there is no chain | 76 | **write first** on its end + 1, although five or fewer are held; the next fetch behind the write |
+| a fetch starts on P with 3 held, and that fetch is **the chain's second** (EU cycle, fetch, fetch at P): the request word executed on or after the chain's first pin clock | 36 | **fetch first**: a third fetch on its end + 1, the write behind it |
+
+  (684 runs: the six displaced forms without an immediate; P from the model's word log, the
+  fetches and the write from the pins. The split 76 / 36 is clean: no back-to-back case writes
+  first, no other case fetches first.) The 36: MOV [BW+d16],AW, MOV [d16],AW (89 06) and MOV [BW+d16],BW at even alignment behind
+  OUT + one pad (CLC / CBW / NOP) and behind PUSH directly, every W. `QPr25b-oc-s16-pE-w0`: OUT 92;
+  fetches 95, 98; displacement popped 98; **fetch 101**; write 104. Beside it `o0-s16-pE` (OUT, fetch at P
+  with 2 held, write on P + 3) and `pn-s16-pO` (the fetch at P from the idle bus, 3 held: write first).
+- **What the five variables say.** (a) Bytes held: necessary (five or fewer at the fetch's end,
+  counted before that clock's pops), not sufficient. (b) Phase: CLC and CBW (2 and 3 clocks) give the
+  same pattern, and so does every W: what counts is whether the request word falls inside the
+  chain, not a clock distance. (c) Displacement size: only through the pop (two bytes at P leave room for a chained
+  fetch; with d8 at the same total length (`ps8`) four or more are held and the state does not
+  arise). (d) Datum: AW and BW the same; an immediate goes by Q33 / Q125. (e) The EU cycle in front:
+  OUT and PUSH the same; behind the load the chain is shorter by one (its own displacement) and the
+  state does not arise in this set.
+- **Rule (`LCHW`):** round 21's "no arbitration inside the chain" (Q95, reads), for a write: a write
+  whose request word executed at or after the first pin clock of the fetch chain behind an EU
+  cycle does not stop the chain's next fetch while five or fewer are held (counted before that
+  clock's pops); it starts when the chain ends. A request made before the chain's first pin clock
+  keeps its place (the write goes behind the chain's first fetch), and a fetch from the idle bus is
+  no chain. The store's `G` waits with the write, so `N` stays on the write's first clock.
+  Round 24 rejected this reading at +34, -28 (`LCH_K=RW`): the losses were the tail (the `G` word
+  completing before a write that then gave way: the successor one clock early), not the order.
+  "The chain's second fetch or later" in place of the request clock scores the same on every run
+  (`LCHW_MIN` 1 or 2: 0 gained, 0 lost on corpus and socket): the two cannot be separated here, and
+  the request clock is the reading that needs no second rule.
+- **Measured:** `r25b` 36 runs; socket rounds 1 to 23 **+44**, 0 lost; corpus **48 rows**, 0 lost
+  (F21 `st-bw_d16` / `st-dir` / `st-bw_ix_d16` behind OUT, NOP and PUSH, F29 `ec-dio-st*`).
+- **Inferred (mechanism):** as for reads: the bus unit takes an EU request into its order only
+  between chains; one that arrives while the chain behind an EU cycle is on the pins waits for the
+  chain's end. One rule for reads and writes. **Unknown:** the same state behind a chain that did
+  not start behind an EU cycle (not in this set).
+
+## Q124. MOV [d16],AW (A3): the request word is the second, as in the ModR/M stores
+
+`. Y . PP2 G N .` (was `. . Y PP2 G N .`). With nothing on the bus the write is on P + 2, as MOV
+[BW+d8],AW's; the model had P + 3, right only when a fetch starts on P (the usual case: three or four
+held). **Measured:** 19 `r25b` runs (behind the load with a pad, behind PUSH ; CLC ; CLC), every W;
+corpus and the earlier socket rounds unchanged (0 gained, 0 lost).
+
+## Q125. Stores with an immediate behind OUT at even alignment, W = 0 (Q33's remainder): a request armed on this very clock does not stop a fetch from the idle bus (`ARB_IDLE`); the lead counts from the write's first clock (`W_LEAD`)
+
+- `QPr25b-o0-stidir-pE-w0` (MOV [d16],imm16 directly behind OUT): OUT 92; fetch 95; the address word 95;
+  nothing on 98 (the slot is kept for the request, as before); the datum word on 99 with four held;
+  **fetch 99, write 102**. At odd alignment five are held on 99 and the write goes on 99.
+- **Rule 1 (`ARB_IDLE`):** a request whose arming word (the datum word of a store; the displacement's
+  release of a read-modify-write with an immediate) executes on the clock the cycle is due does not
+  stop a fetch that starts from the idle bus with four or fewer held (before that clock's pops). It
+  is Q33's rule for the back-to-back fetch, extended to the idle start. **Measured:** corpus 23 rows
+  (F5 / F19 / F21 / F22 / F26 `sti-*d16`, `sti-dir`, `add_d16`, `add_dir`, `cmp_d16` behind OUT, pE, W = 0), 0 lost;
+  socket +6 earlier runs and this one.
+- **Rule 2 (`W_LEAD`):** when the write starts later than the store's `N` (here: the datum word's `N`
+  on 99, the write on 102), the next opcode's decode lead counts from the write's first clock.
+  It is Q119's reading seen from another side: the stores' `N` belongs to the write's first clock.
+  **Measured:** 8 corpus rows (the k = 1 rows of rule 1, where the marker follows), 5 earlier socket
+  runs, this one; 0 lost. **Inferred:** one statement for Q119 and this: "the lead of an opcode a
+  store releases counts from the first clock of the write's last byte cycle".
+
+## Q126. What was not read
+
+- Item 2's remainder: MOV [BW+IX+d16],r / imm16 and the F26 `fib-bixd16` rows (13 RTL rows), ADD byte
+  [d16],imm8 behind OUT (4): the two-register d16 forms were not in `r25b` (their address word is another routine). Under the line.
+- OUTM and the REP LDM / CMPM last element with a pair (no J seen for a first read; REPNE CMPM is
+  not exact in the model at any pointer, on rows the RTL has exact: a model fault from before
+  this round).
+- PUSH [m] / POP [m] at an odd BW (F5 `push_m` / `pop_m`-odd: the model does not split the memory side;
+  2 RTL rows).
+- The list of every remaining RTL row: `divergence-notes.md` (118 rows, the largest state 15).
+
+## Round 25 in numbers
+
+| | round 24's model | this round's |
+|---|---|---|
+| corpus, model-exact (of 30,536) | 26,926 | **27,467** (+541, 0 lost) |
+| RTL miss rows (1,369) the model reads exactly | 1,006 | **1,245** |
+| RTL miss rows the model misses too | 357 | 118 |
+| RTL miss rows not parsed | 6 | 6 |
+| socket, rounds 1 to 23 by `cmp22.compare` (23,670) | 22,426 | **22,529** (+103, 0 lost: rounds 21 / 22 97, round 5 6) |
+| socket, round 24 (1,170) | 1,128 | 1,128 (the 42: CVTDB, Q110) |
+| socket, round 25 (1,794) | 1,421 | **1,794** |
+
+RTL miss rows each rule carries (the rule switched off alone): Q118 + Q120 (`STR_ODD`, `SPLIT_J`) 88
+(each needs the other); Q123 (`LCHW`) 48; Q122 the 4S head 33, ADJ4S 6; Q121 25; Q125 (`ARB_IDLE`) 23, of
+which 8 also need `W_LEAD`; Q119 (`SPLIT_LEAD`) 16: **239 rows**. No rule of this round moves a corpus
+run the RTL has exact away from silicon (the model misses 1,041 RTL-exact runs, as before the round).
+
+Against the stopping line: the four states are read (88; 71 rows of the d16 class, 17 of it left in two smaller states; 39; 25). No state over 20 runs
+is left unread; the largest are SHL [m],CL behind a marker (15), the two-register d16 stores (13),
+IN behind MOV r,r (12), RETF imm16 behind CALLF (12).
+
+## Socket runs of round 25
+
+| family | what | runs | exact before / now | repeats that differ |
+|---|---|---|---|---|
+| r25a | words at odd addresses: stores, loads, RMW, PUSH, the string forms single and REP, followers | 294 | 132 / 294 | 0 |
+| r25b | nine store forms x three EU cycles x six pads, and alone | 1,026 | 970 / 1,026 | 110 |
+| r25c | the string forms single behind six leads | 252 | 207 / 252 | 1 |
+| r25d | ADD4S / SUB4S / CMP4S and ADJ4A / ADJ4S, what stands in front varied | 222 | 112 / 222 | 7 |
+
+1,794 runs, each twice; 0 failed, 0 incomplete; the 118 repeats that differ, compared field by
+field (`build/qp/rep20.py r25a|r25b|r25c|r25d`), differ in the strobe field only. One acquisition
+session (24.4 minutes of socket time). Ports used: 20h to 22h (markers, as every round), 40h (INM's
+read, as the corpus). No sim of the RTL, no corpus replay (the work order is against land17's miss
+list). No interrupt family. Board left with vccb false, both rails off, failure 0 (read back after
+the last run and again at hand-back).

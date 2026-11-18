@@ -3428,3 +3428,24 @@ question, decided from S8's routed numbers with the user.
   (the dispatch waits for an opcode byte it will not use); f4_tm now differs in writes;
   FPGA seed 1 +2.032 (worst path bus `d_kind` to `ex`). The pop reaches the interrupt
   controller on the unused code of the existing `x_nb` port (a ruling is asked).
+- **2026-11-18, socket round 25 (the four unread states over the line, by new probes).**
+  1,794 runs, each twice, 0 failed. RESULTS.md Q118 to Q126; work order 21
+  (`qprobe/tools/r25/SPEC21.md`, B1 to B7, with `rtl-miss-model-exact.json` for 1,245 of
+  the RTL's 1,369 miss rows and `unread25.txt`). The reading model: corpus 27,467 exact
+  (from 26,926, none lost); small set 22,529 of 23,670; round 25 1,794 of 1,794. No state
+  over 20 rows is left unread (largest: SHL [m],CL behind a marker 15). **Read**: (Q118)
+  the "REP successors" were word string elements at an odd pointer: a pair of byte cycles
+  (IY for MOVBK's write, CMPBK's first read, STM, CMPM, INM's write; IX for the others);
+  (Q119) behind a store whose write is a pair at W = 0 an opcode with a decode lead starts
+  one clock later (the lead counts from the pair's second byte cycle); (Q120, measured, no
+  mechanism) at W = 0 the wait behind the last string element's pair is one clock longer
+  (not behind a first read, an earlier iteration's write, or at W = 1 / 2; 88 corpus rows
+  with Q118: a ruling is asked before it is built); (Q123) a write whose request word ran
+  at or after the chain's first pin clock does not stop the chain's next fetch at five or
+  fewer held: round 21's rule for reads, now for writes (the store's `G` word waits with
+  the write; 48 rows); (Q125) a request armed on the clock it is due does not stop a fetch
+  from the idle bus at four or fewer held (23); (Q124) MOV [d16],AW has its request word
+  second; (Q122) ADD4S / SUB4S / CMP4S: a 12-word head with a bus-idle third word (the
+  13-word head was a stall under MOV CL,imm8's refill), ADJ4S 9 words; a seventh-word
+  bus-idle act is inferred from 2 runs; (Q121) the single MOVBK / CMPBK / CMPM / INM
+  lack the bus-idle word the REP heads have (fourth word; INM fifth).

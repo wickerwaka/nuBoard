@@ -1,0 +1,3284 @@
+{
+"F3-push-add_dw_imm-k1-pE-w0": [],
+"F3-push-add_dw_imm-k2-pE-w0": [],
+"F3-push-add_dw_imm-k4-pE-w0": [],
+"F5-out-st_imm_bw-k1-pO-w0": [
+"Q111 B_I4"
+],
+"F5-out-st_imm_bw_d16-k1-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F5-out-st_imm_bw_d16-k1-pO-w0": [
+"Q111 B_I4"
+],
+"F5-out-st_imm_bw_d16-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F5-out-add_m_imm_d16-k1-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F5-out-add_m_imm_d16-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F5-out-st_bw-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-st_bw-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-st_imm_bw-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-st_imm_bw-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-add_m_aw-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-add_m_aw-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-inc_m-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-inc_m-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-not_m-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-not_m-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-shl_m1-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-shl_m1-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-add_m_imm-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-add_m_imm-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-xch_m_aw-k1-odd-pE-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-xch_m_aw-k1-odd-pO-w0": [
+"Q119 SPLIT_LEAD"
+],
+"F5-out-st_imm_bw-k1-pO-w1": [
+"Q111 B_I4"
+],
+"F5-out-st_imm_bw-k1-odd-pO-w1": [
+"Q111 B_I4"
+],
+"F5-out-st_imm_bw-k1-pO-w2": [
+"Q111 B_I4"
+],
+"F5-out-st_imm_bw-k1-odd-pO-w2": [
+"Q111 B_I4"
+],
+"F6-push-ld_bw-n2d4-pE-w0": [],
+"F6-push-ld_bw-n4d4-pE-w0": [],
+"F6-push-st_bw-n2d4-pE-w0": [],
+"F6-push-st_bw-n4d4-pE-w0": [],
+"F6-push-out_imm_al-n2d4-pE-w0": [],
+"F6-push-out_imm_al-n4d4-pE-w0": [],
+"F10-push-adddwi-outdw-pE-w0": [],
+"F10-push-adddwi-indw-pE-w0": [],
+"F12-b-push-n0-addi-pE-w0": [],
+"F12-b-push-n0-addiaw-pE-w0": [],
+"F19-i-push-n1-stimm-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-n2-stimm-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-n3-stimm-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-es-stimm-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-l0-stimmd8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F19-i-push-es-stimmd8-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-n1-stimmd16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-n2-stimmd16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-n3-stimmd16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F19-i-push-es-stimmd16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F19-d-push-adddwi-outb-pE-w0": [],
+"F19-d-push-adddwi_nop-outb-pE-w0": [],
+"F19-d-push-adddwi-outw-pE-w0": [],
+"F19-d-push-adddwi_nop-outw-pE-w0": [],
+"F19-d-push-adddwi-inb-pE-w0": [],
+"F19-d-push-adddwi_nop-inb-pE-w0": [],
+"F19-d-push-adddwi-inw-pE-w0": [],
+"F19-d-push-adddwi_nop-inw-pE-w0": [],
+"F19-i-out-l0-stimm-pO-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-n2-stimm-pO-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-n3-stimm-pE-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-es-stimm-pO-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-l0-stimmd8-pE-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-l0-stimmd8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-l0-stimmd16-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F19-i-out-l0-stimmd16-pO-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-l0-stimmd16-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F19-i-out-n2-stimmd16-pO-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-n3-stimmd16-pE-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-es-stimmd16-pO-w0": [
+"Q111 B_I4"
+],
+"F19-i-out-l0-stimm-pO-w1": [
+"Q111 B_I4"
+],
+"F19-i-out-n3-stimmd8-pO-w1": [
+"Q111 B_I4"
+],
+"F19-i-out-l0-stimm-pO-w2": [
+"Q111 B_I4"
+],
+"F19-i-out-n3-stimmd8-pO-w2": [
+"Q111 B_I4"
+],
+"F20-r-push-l0-adddwi-ld-pE-w0": [],
+"F20-r-push-l0-adddwi-st-pE-w0": [],
+"F20-r-push-l0-adddwi-outdw-pE-w0": [],
+"F20-r-push-l0-adddwi-outimm-pE-w0": [],
+"F20-r-push-l0-adddwi-movr-pE-w0": [],
+"F21-push-l0-st-bw_d16-pE-w0": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-dir-pE-w0": [
+"Q123 LCHW"
+],
+"F21-push-l0-sti-bw_ix_d16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n1-sti-bw-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n1-sti-bw_d16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n1-sti-bw_ix-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n1-sti-bw_ix_d16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n1-sti-dir-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n2-sti-bw-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n2-sti-bw_d16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n2-sti-bw_ix-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n2-sti-bw_ix_d16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n2-sti-dir-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n3-sti-bw-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n3-sti-bw_d16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n3-sti-bw_ix-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n3-sti-bw_ix_d16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-n3-sti-dir-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-es-sti-bw-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-es-sti-bw_d8-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-es-sti-bw_d16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-es-sti-bw_ix-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-es-sti-bw_ix_d8-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-es-sti-bw_ix_d16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-es-sti-dir-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-push-l0-st-bw_d16-k2-pE-w0": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-dir-k2-pE-w0": [
+"Q123 LCHW"
+],
+"F21-push-l0-sti-bw_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F21-push-l0-sti-bw_ix_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F21-push-l0-sti-bw_ix_d16-k2-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F21-out-l0-sti-bw-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_d8-pE-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_d16-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F21-out-l0-sti-bw_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_ix-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_ix_d8-pE-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_ix_d16-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F21-out-l0-sti-bw_ix_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-dir-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F21-out-l0-sti-dir-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-n1-st-bw_d16-pE-w0": [
+"Q123 LCHW"
+],
+"F21-out-n1-st-dir-pE-w0": [
+"Q123 LCHW"
+],
+"F21-out-n2-sti-bw-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-n2-sti-bw_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-n2-sti-bw_ix-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-n2-sti-bw_ix_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-n2-sti-dir-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-n3-sti-bw-pE-w0": [
+"Q111 B_I4"
+],
+"F21-out-n3-sti-bw_d16-pE-w0": [
+"Q111 B_I4"
+],
+"F21-out-n3-sti-bw_ix-pE-w0": [
+"Q111 B_I4"
+],
+"F21-out-n3-sti-bw_ix_d16-pE-w0": [
+"Q111 B_I4"
+],
+"F21-out-n3-sti-dir-pE-w0": [
+"Q111 B_I4"
+],
+"F21-out-es-sti-bw-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-es-sti-bw_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-es-sti-bw_ix-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-es-sti-bw_ix_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-es-sti-dir-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-st-bw_d16-k2-pE-w0": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-bw_d16-k2-pO-w0": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-dir-k2-pE-w0": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-dir-k2-pO-w0": [
+"Q123 LCHW"
+],
+"F21-out-l0-sti-bw_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_d16-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F21-out-l0-sti-bw_ix_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_ix_d16-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-dir-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F21-push-l0-st-bw_d16-pE-w1": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-bw_ix_d16-pE-w1": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-dir-pE-w1": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-bw_d16-k2-pE-w1": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-bw_ix_d16-k2-pE-w1": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-dir-k2-pE-w1": [
+"Q123 LCHW"
+],
+"F21-out-l0-sti-bw-pO-w1": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_ix-pO-w1": [
+"Q111 B_I4"
+],
+"F21-out-n1-st-bw_d16-pE-w1": [
+"Q123 LCHW"
+],
+"F21-out-n1-st-bw_ix_d16-pE-w1": [
+"Q123 LCHW"
+],
+"F21-out-n1-st-dir-pE-w1": [
+"Q123 LCHW"
+],
+"F21-out-n3-sti-bw_d8-pO-w1": [
+"Q111 B_I4"
+],
+"F21-out-n3-sti-bw_ix_d8-pO-w1": [
+"Q111 B_I4"
+],
+"F21-out-l0-st-bw_d16-k2-pE-w1": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-bw_d16-k2-pO-w1": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-bw_ix_d16-k2-pE-w1": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-bw_ix_d16-k2-pO-w1": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-dir-k2-pE-w1": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-dir-k2-pO-w1": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-bw_d16-pE-w2": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-bw_ix_d16-pE-w2": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-dir-pE-w2": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-bw_d16-k2-pE-w2": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-bw_ix_d16-k2-pE-w2": [
+"Q123 LCHW"
+],
+"F21-push-l0-st-dir-k2-pE-w2": [
+"Q123 LCHW"
+],
+"F21-out-l0-sti-bw-pO-w2": [
+"Q111 B_I4"
+],
+"F21-out-l0-sti-bw_ix-pO-w2": [
+"Q111 B_I4"
+],
+"F21-out-n1-st-bw_d16-pE-w2": [
+"Q123 LCHW"
+],
+"F21-out-n1-st-bw_ix_d16-pE-w2": [
+"Q123 LCHW"
+],
+"F21-out-n1-st-dir-pE-w2": [
+"Q123 LCHW"
+],
+"F21-out-n3-sti-bw_d8-pO-w2": [
+"Q111 B_I4"
+],
+"F21-out-n3-sti-bw_ix_d8-pO-w2": [
+"Q111 B_I4"
+],
+"F21-out-l0-st-bw_d16-k2-pE-w2": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-bw_d16-k2-pO-w2": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-bw_ix_d16-k2-pE-w2": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-bw_ix_d16-k2-pO-w2": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-dir-k2-pE-w2": [
+"Q123 LCHW"
+],
+"F21-out-l0-st-dir-k2-pO-w2": [
+"Q123 LCHW"
+],
+"F22-push-l0-sti_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F22-push-n1-sti_d16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n1-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-push-n1-sti_bw-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n1-sti_dir-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n2-sti_d16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n2-sti_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F22-push-n2-sti_bw-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n2-sti_dir-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n3-sti_d16-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n3-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-push-n3-sti_bw-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-n3-sti_dir-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-es-sti_d16-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-es-sti_d8-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-es-sti_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F22-push-es-sti_bw-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F22-push-es-sti_dir-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F22-out-l0-add_d16-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-l0-add_d16-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-l0-add_dir-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-l0-add_dir-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-l0-cmp_d16-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-l0-cmp_d16-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-l0-sti_d16-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F22-out-l0-sti_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-l0-sti_d16-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-l0-sti_d8-pE-w0": [
+"Q111 B_I4"
+],
+"F22-out-l0-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-l0-sti_bw-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-l0-sti_dir-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F22-out-l0-sti_dir-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-l0-sti_dir-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F22-out-n1-sti_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F22-out-n2-sti_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-n2-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-n2-sti_bw-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-n2-sti_dir-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-n3-sti_d16-pE-w0": [
+"Q111 B_I4"
+],
+"F22-out-n3-sti_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F22-out-n3-sti_bw-pE-w0": [
+"Q111 B_I4"
+],
+"F22-out-n3-sti_dir-pE-w0": [
+"Q111 B_I4"
+],
+"F22-out-es-sti_d16-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-es-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-es-sti_bw-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-es-sti_dir-pO-w0": [
+"Q111 B_I4"
+],
+"F22-none-l0-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-none-n1-sti_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F22-none-n2-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-none-n3-sti_d8-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F22-none-es-sti_d8-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F22-out-l0-sti_bw-pO-w1": [
+"Q111 B_I4"
+],
+"F22-out-n3-sti_d8-pO-w1": [
+"Q111 B_I4"
+],
+"F23-out-be-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n3-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n3-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n5-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n5-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n6-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n6-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n7-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n7-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n3-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n3-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n5-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n5-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n6-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n6-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n7-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-br-n7-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n3-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-brnear-n3-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-dbnz-c2-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-dbnz-c2-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-dbnz-c2-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-dbnz-c2-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-call-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-call-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-callret-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-callret-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F23-out-be-n0-pE-w1": [],
+"F23-out-be-n1-pO-w1": [],
+"F23-out-be-n2-pE-w1": [],
+"F23-out-be-n3-pO-w1": [],
+"F23-out-be-n4-pE-w1": [],
+"F23-out-be-n5-pO-w1": [],
+"F23-out-be-n6-pE-w1": [],
+"F23-out-be-n7-pO-w1": [],
+"F23-out-br-n0-pE-w1": [],
+"F23-out-br-n1-pO-w1": [],
+"F23-out-br-n2-pE-w1": [],
+"F23-out-br-n3-pO-w1": [],
+"F23-out-br-n4-pE-w1": [],
+"F23-out-br-n5-pO-w1": [],
+"F23-out-br-n6-pE-w1": [],
+"F23-out-br-n7-pO-w1": [],
+"F23-out-brnear-n0-pO-w1": [],
+"F23-out-brnear-n1-pE-w1": [],
+"F23-out-brnear-n2-pO-w1": [],
+"F23-out-brnear-n3-pE-w1": [],
+"F23-out-dbnz-c2-n0-pO-w1": [],
+"F23-out-dbnz-c2-n2-pO-w1": [],
+"F23-out-call-pO-w1": [],
+"F23-out-callret-pE-w1": [],
+"F24-out-a-rep-movbk-w-n1-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n1-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n2-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n2-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n4-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n4-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n1-ixiy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n1-ixiy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n2-ixiy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n2-ixiy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n4-ixiy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-movbk-w-n4-ixiy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-repe-cmpbk-w-n1-ixiy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-repe-cmpbk-w-n1-ixiy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-repe-cmpbk-w-n2-ixiy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-repe-cmpbk-w-n2-ixiy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-repe-cmpbk-w-n4-ixiy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-repe-cmpbk-w-n4-ixiy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-stm-w-n1-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-stm-w-n1-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-stm-w-n2-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-stm-w-n2-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-stm-w-n4-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-stm-w-n4-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-inm-w-n1-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-inm-w-n1-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-inm-w-n2-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-inm-w-n2-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-inm-w-n4-iy-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F24-out-a-rep-inm-w-n4-iy-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F25-push-ldea-bw_ix_d16-pE-w0": [],
+"F25-push-ldea-bw_iy_d16-pE-w0": [],
+"F25-push-ldea-bp_ix_d16-pE-w0": [],
+"F25-push-ldea-bp_iy_d16-pE-w0": [],
+"F25-out-push_imm16-pE-w0": [
+"Q115 PUSH imm"
+],
+"F25-out-push_imm16-pO-w0": [
+"Q115 PUSH imm"
+],
+"F25-out-push_imm16-k2-pE-w0": [
+"Q115 PUSH imm"
+],
+"F25-out-push_imm16-k2-pO-w0": [
+"Q115 PUSH imm"
+],
+"F25-out-push_imm8-pE-w0": [
+"Q115 PUSH imm"
+],
+"F25-out-push_imm8-pO-w0": [
+"Q115 PUSH imm"
+],
+"F25-out-push_imm8-k2-pE-w0": [
+"Q115 PUSH imm"
+],
+"F25-out-push_imm8-k2-pO-w0": [
+"Q115 PUSH imm"
+],
+"F26-push-fib-bixd16-n0-k1-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F26-push-fib-bixd16-n0-k2-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F26-push-fib-bixd16-n0-k3-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F26-push-fib-bixd16-n1-k2-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F26-push-fib-bixd16-n2-k2-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F26-push-fib-bixd8-n0-k2-pE-w0": [
+"Q111 B_I4"
+],
+"F26-out-fib-bixd16-n0-k1-pE-w0": [
+"Q125 ARB_IDLE",
+"Q125 W_LEAD"
+],
+"F26-out-fib-bixd16-n0-k1-pO-w0": [
+"Q111 B_I4"
+],
+"F26-out-fib-bixd16-n0-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F26-out-fib-bixd16-n0-k3-pO-w0": [
+"Q111 B_I4"
+],
+"F26-out-fib-bixd16-n2-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F26-out-fib-bd16-n0-k2-pE-w0": [
+"Q125 ARB_IDLE"
+],
+"F26-out-fib-bixd8-n0-k2-pO-w0": [
+"Q111 B_I4"
+],
+"F29-out-ec-dio-stbwd16-n1-pE-w0": [
+"Q123 LCHW"
+],
+"F29-out-ec-dio-stdir-n1-pE-w0": [
+"Q123 LCHW"
+],
+"F29-out-ec-dio-stbwd16-n1-pE-w1": [
+"Q123 LCHW"
+],
+"F29-out-ec-dio-stdir-n1-pE-w1": [
+"Q123 LCHW"
+],
+"F29-out-ec-dio-stbixd16-n1-pE-w1": [
+"Q123 LCHW"
+],
+"F29-out-ec-dio-stbwd16-n1-pE-w2": [
+"Q123 LCHW"
+],
+"F29-out-ec-dio-stdir-n1-pE-w2": [
+"Q123 LCHW"
+],
+"F29-out-ec-dio-stbixd16-n1-pE-w2": [
+"Q123 LCHW"
+],
+"F30-out-odd-movbk-iy-n1-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n2-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n2-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-ixiy-n1-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-ixiy-n1-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-ixiy-n2-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-ixiy-n2-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ix-n1-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ix-n1-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ix-n2-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ix-n2-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n2-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n2-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n2-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n2-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n2-end-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n2-end-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-nop-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-nop-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-reg-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-reg-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-ld-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-ld-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-rep-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n1-rep-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n2-nop-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n2-nop-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n2-rep-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-stm-iy-n2-rep-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-nop-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-nop-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-reg-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-reg-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-ld-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-ld-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-rep-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-inm-iy-n1-rep-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-nop-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-nop-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-reg-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-reg-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-ld-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-ld-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-rep-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-movbk-iy-n1-rep-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-nop-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-nop-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-reg-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-reg-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-ld-pE-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-odd-cmpbk-ixiy-n1-ld-pO-w0": [
+"Q118 STR_ODD",
+"Q120 SPLIT_J"
+],
+"F30-out-br-short-n0-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n0-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n1-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n1-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n2-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n2-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n3-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n3-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-near-n0-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-near-n0-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-near-n1-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-near-n1-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n0-pad1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n0-pad1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n1-pad1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n1-pad1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n0-pad2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n0-pad2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n1-pad2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n1-pad2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n0-l0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-br-short-n0-l0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-cr-a0-b0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-cr-a0-b0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-cr-a1-b0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-cr-a1-b0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-cr-a2-b0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-cr-a2-b0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F30-out-cr-shl8-pE-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F30-out-cr-shl8-pO-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F30-push-cr-shl8-pE-w0": [
+"Q114 LEAD_RET"
+],
+"F30-push-cr-shl8-pO-w0": [
+"Q114 LEAD_RET"
+],
+"F30-push-lea-bw_ix_d16-k2-pE-w0": [],
+"F30-push-lea-bw-d4-pE-w0": [],
+"F30-store-br-short-n0-l0-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F30-store-br-short-n1-l0-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F30-store-br-short-n2-l0-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F30-store-br-short-n3-l0-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F30-store-br-short-n0-nop-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F30-out-br-short-n0-nop-pO-w1": [],
+"F30-out-br-short-n1-nop-pE-w1": [],
+"F30-out-br-short-n2-nop-pO-w1": [],
+"F30-out-br-short-n3-nop-pE-w1": [],
+"F30-out-br-near-n0-nop-pE-w1": [],
+"F30-out-br-near-n1-nop-pO-w1": [],
+"F30-out-br-short-n0-pad1-pO-w1": [],
+"F30-out-br-short-n1-pad1-pE-w1": [],
+"F30-out-br-short-n0-pad2-pE-w1": [],
+"F30-out-br-short-n1-pad2-pO-w1": [],
+"F30-out-br-short-n0-l0-pE-w1": [],
+"F30-out-cr-a0-b0-pE-w1": [],
+"F30-out-cr-a1-b0-pO-w1": [],
+"F30-out-cr-a2-b0-pE-w1": [],
+"F30-out-cr-shl8-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F30-out-cr-shl8-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F30-push-cr-shl8-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F30-push-cr-shl8-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F30-out-cr-shl8-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F30-out-cr-shl8-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F30-push-cr-shl8-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F30-push-cr-shl8-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F32-out-add4s-n2-k2-pO-w0": [
+"Q122 H_4S"
+],
+"F32-out-sub4s-n2-k2-pO-w0": [
+"Q122 H_4S"
+],
+"F32-out-cmp4s-n2-k2-pO-w0": [
+"Q122 H_4S"
+],
+"F32-out-add4s-n4-k2-pO-w0": [
+"Q122 H_4S"
+],
+"F32-out-sub4s-n4-k2-pO-w0": [
+"Q122 H_4S"
+],
+"F32-out-cmp4s-n4-k2-pO-w0": [
+"Q122 H_4S"
+],
+"F32-out-ext_dl_dh-k2-pE-w0": [],
+"F32-out-ext_dl_dh-k2-pO-w0": [],
+"F32-out-ext_dl_bh-k1-pE-w0": [],
+"F32-out-ext_dl_bh-k1-pO-w0": [],
+"F32-out-ext_dl_bh-k2-pE-w0": [],
+"F32-out-ext_dl_bh-k2-pO-w0": [],
+"F32-out-ext_dl_i11-k1-pE-w0": [],
+"F32-out-ext_dl_i11-k1-pO-w0": [],
+"F32-out-ext_dl_i11-k2-pE-w0": [],
+"F32-out-ext_dl_i11-k2-pO-w0": [],
+"F32-out-pfx_add4s-n4-k1-pO-w0": [
+"Q122 H_4S"
+],
+"F32-out-add4s-n2-k2-pO-w1": [
+"Q122 H_4S"
+],
+"F32-out-sub4s-n2-k2-pO-w1": [
+"Q122 H_4S"
+],
+"F32-out-cmp4s-n2-k2-pO-w1": [
+"Q122 H_4S"
+],
+"F32-out-add4s-n4-k2-pO-w1": [
+"Q122 H_4S"
+],
+"F32-out-sub4s-n4-k2-pO-w1": [
+"Q122 H_4S"
+],
+"F32-out-cmp4s-n4-k2-pO-w1": [
+"Q122 H_4S"
+],
+"F32-out-ext_bl_dh-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_bl_dh-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_dh-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_dh-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_dh-k2-pO-w1": [],
+"F32-out-ext_dl_bh-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_bh-k1-pO-w1": [],
+"F32-out-ext_dl_bh-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_bh-k2-pO-w1": [],
+"F32-out-ext_bh_bl-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_bl_i7-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_bl_i7-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i7-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i7-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i11-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i11-k1-pO-w1": [],
+"F32-out-ext_dl_i11-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i11-k2-pO-w1": [],
+"F32-out-ins_bl_dh-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bl_dh-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_dh-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_dh-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_bh-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_bh-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bh_bl-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bh_bl-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bl_i7-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bl_i7-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i7-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i7-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i11-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i11-k2-pE-w1": [
+"Q110 CH3_N"
+],
+"F32-out-pfx_add4s-n4-k1-pO-w1": [
+"Q122 H_4S"
+],
+"F32-out-add4s-n2-k2-pO-w2": [
+"Q122 H_4S"
+],
+"F32-out-sub4s-n2-k2-pO-w2": [
+"Q122 H_4S"
+],
+"F32-out-cmp4s-n2-k2-pO-w2": [
+"Q122 H_4S"
+],
+"F32-out-add4s-n4-k2-pO-w2": [
+"Q122 H_4S"
+],
+"F32-out-sub4s-n4-k2-pO-w2": [
+"Q122 H_4S"
+],
+"F32-out-cmp4s-n4-k2-pO-w2": [
+"Q122 H_4S"
+],
+"F32-out-ext_bl_dh-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_bl_dh-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_dh-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_dh-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_dh-k2-pO-w2": [],
+"F32-out-ext_dl_bh-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_bh-k1-pO-w2": [],
+"F32-out-ext_dl_bh-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_bh-k2-pO-w2": [],
+"F32-out-ext_bh_bl-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_bl_i7-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_bl_i7-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i7-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i7-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i11-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i11-k1-pO-w2": [],
+"F32-out-ext_dl_i11-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ext_dl_i11-k2-pO-w2": [],
+"F32-out-ins_bl_dh-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bl_dh-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_dh-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_dh-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_bh-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_bh-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bh_bl-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bh_bl-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bl_i7-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_bl_i7-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i7-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i7-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i11-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-ins_dl_i11-k2-pE-w2": [
+"Q110 CH3_N"
+],
+"F32-out-pfx_add4s-n4-k1-pO-w2": [
+"Q122 H_4S"
+],
+"F33-out-adj4s-k2-pE-w0": [
+"Q122 ADJ4S"
+],
+"F33-out-adj4s-k2-pO-w0": [
+"Q122 ADJ4S"
+],
+"F33-out-adjba-k1-pE-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k1-pO-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k2-pE-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k2-pO-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k1-pE-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k1-pO-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k2-pE-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k2-pO-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k1-pE-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k1-pO-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k2-pE-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k2-pO-w0": [
+"Q115 ADJB/EI"
+],
+"F33-out-adj4s-k2-pE-w1": [
+"Q122 ADJ4S"
+],
+"F33-out-adj4s-k2-pO-w1": [
+"Q122 ADJ4S"
+],
+"F33-out-adjba-k1-pE-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k1-pO-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k2-pE-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k2-pO-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k1-pE-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k1-pO-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k2-pE-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k2-pO-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k1-pE-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k1-pO-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k2-pE-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k2-pO-w1": [
+"Q115 ADJB/EI"
+],
+"F33-out-adj4s-k2-pE-w2": [
+"Q122 ADJ4S"
+],
+"F33-out-adj4s-k2-pO-w2": [
+"Q122 ADJ4S"
+],
+"F33-out-adjba-k1-pE-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k1-pO-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k2-pE-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjba-k2-pO-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k1-pE-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k1-pO-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k2-pE-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-adjbs-k2-pO-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k1-pE-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k1-pO-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k2-pE-w2": [
+"Q115 ADJB/EI"
+],
+"F33-out-sti-k2-pO-w2": [
+"Q115 ADJB/EI"
+],
+"F34-out-bf-ext_dl_bh-l0-k1-pE-w0": [],
+"F34-out-bf-ext_dl_bh-l0-k1-pO-w0": [],
+"F34-out-bf-ext_dl_bh-nop-k1-pE-w0": [],
+"F34-out-bf-ext_dl_bh-nop-k1-pO-w0": [],
+"F34-out-bf-ext_dl_bh-nop2-k1-pE-w0": [],
+"F34-out-bf-ext_dl_bh-nop2-k1-pO-w0": [],
+"F34-out-bf-ext_dl_bh-d-k1-pO-w0": [],
+"F34-out-bf-ext_dl_bh-sep-k1-pE-w0": [],
+"F34-out-bf-ext_dl_bh-sep-k1-pO-w0": [],
+"F34-out-bf-ext_dl_bh-nop-k2-pE-w0": [],
+"F34-out-bf-ext_dl_bh-nop-k2-pO-w0": [],
+"F34-out-bf-ext_dl_i11-l0-k1-pE-w0": [],
+"F34-out-bf-ext_dl_i11-l0-k1-pO-w0": [],
+"F34-out-bf-ext_dl_i11-nop-k1-pE-w0": [],
+"F34-out-bf-ext_dl_i11-nop-k1-pO-w0": [],
+"F34-out-bf-ext_dl_i11-nop2-k1-pE-w0": [],
+"F34-out-bf-ext_dl_i11-nop2-k1-pO-w0": [],
+"F34-out-bf-ext_dl_i11-d-k1-pO-w0": [],
+"F34-out-bf-ext_dl_i11-sep-k1-pE-w0": [],
+"F34-out-bf-ext_dl_i11-sep-k1-pO-w0": [],
+"F34-out-bf-ext_dl_i11-nop-k2-pE-w0": [],
+"F34-out-bf-ext_dl_i11-nop-k2-pO-w0": [],
+"F34-out-cr-none-l0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-none-l0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-none-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-none-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-nop-l0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-nop-l0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-nop-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-nop-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-shl8-l0-pE-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-l0-pO-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-nop-pE-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-nop-pO-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8nop-l0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-shl8nop-l0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-shl8nop-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-shl8nop-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-nopshl8-l0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-nopshl8-l0-pO-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-nopshl8-nop-pE-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-nopshl8-nop-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F34-out-cr-shl4-l0-pE-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-l0-pO-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-nop-pE-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-nop-pO-w0": [
+"Q113 LEAD_FM",
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-l0-pE-w0": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-l0-pO-w0": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-nop-pE-w0": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-nop-pO-w0": [
+"Q114 LEAD_RET"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-fld-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-fld-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-fld-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-fld-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-fnop-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-freg-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_bh-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_bh-l0-k1-pO-w1": [],
+"F34-out-bf-ext_dl_bh-nop-k1-pE-w1": [],
+"F34-out-bf-ext_dl_bh-nop-k1-pO-w1": [],
+"F34-out-bf-ext_dl_bh-nop2-k1-pE-w1": [],
+"F34-out-bf-ext_dl_bh-nop2-k1-pO-w1": [],
+"F34-out-bf-ext_dl_bh-d-k1-pO-w1": [],
+"F34-out-bf-ext_dl_bh-sep-k1-pE-w1": [],
+"F34-out-bf-ext_dl_bh-sep-k1-pO-w1": [],
+"F34-out-bf-ext_dl_bh-nop-k2-pE-w1": [],
+"F34-out-bf-ext_dl_bh-nop-k2-pO-w1": [],
+"F34-out-bf-ext_bl_i7-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-fnop-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-freg-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_i11-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_i11-l0-k1-pO-w1": [],
+"F34-out-bf-ext_dl_i11-nop-k1-pE-w1": [],
+"F34-out-bf-ext_dl_i11-nop-k1-pO-w1": [],
+"F34-out-bf-ext_dl_i11-nop2-k1-pE-w1": [],
+"F34-out-bf-ext_dl_i11-nop2-k1-pO-w1": [],
+"F34-out-bf-ext_dl_i11-d-k1-pO-w1": [],
+"F34-out-bf-ext_dl_i11-sep-k1-pE-w1": [],
+"F34-out-bf-ext_dl_i11-sep-k1-pO-w1": [],
+"F34-out-bf-ext_dl_i11-nop-k2-pE-w1": [],
+"F34-out-bf-ext_dl_i11-nop-k2-pO-w1": [],
+"F34-out-bf-ins_bl_dh-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-fnop-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-freg-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_dl_bh-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-fnop-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-freg-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_dl_i11-l0-k1-pE-w1": [
+"Q110 CH3_N"
+],
+"F34-out-cr-none-l0-pE-w1": [],
+"F34-out-cr-none-nop-pO-w1": [],
+"F34-out-cr-nop-l0-pO-w1": [],
+"F34-out-cr-nop-nop-pE-w1": [],
+"F34-out-cr-shl8-l0-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-l0-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-nop-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-nop-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8nop-l0-pE-w1": [],
+"F34-out-cr-shl8nop-nop-pO-w1": [],
+"F34-out-cr-nopshl8-l0-pE-w1": [],
+"F34-out-cr-nopshl8-l0-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-nopshl8-nop-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-nopshl8-nop-pO-w1": [],
+"F34-out-cr-shl4-l0-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-l0-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-nop-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-nop-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-l0-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-l0-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-nop-pE-w1": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-nop-pO-w1": [
+"Q114 LEAD_RET"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-fnop-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-freg-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_dh-l0-k1-fld-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_bh-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_bh-l0-k1-pO-w2": [],
+"F34-out-bf-ext_dl_bh-nop-k1-pE-w2": [],
+"F34-out-bf-ext_dl_bh-nop-k1-pO-w2": [],
+"F34-out-bf-ext_dl_bh-nop2-k1-pE-w2": [],
+"F34-out-bf-ext_dl_bh-nop2-k1-pO-w2": [],
+"F34-out-bf-ext_dl_bh-d-k1-pO-w2": [],
+"F34-out-bf-ext_dl_bh-sep-k1-pE-w2": [],
+"F34-out-bf-ext_dl_bh-sep-k1-pO-w2": [],
+"F34-out-bf-ext_dl_bh-nop-k2-pE-w2": [],
+"F34-out-bf-ext_dl_bh-nop-k2-pO-w2": [],
+"F34-out-bf-ext_bl_i7-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-fnop-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-freg-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_bl_i7-l0-k1-fld-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_i11-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ext_dl_i11-l0-k1-pO-w2": [],
+"F34-out-bf-ext_dl_i11-nop-k1-pE-w2": [],
+"F34-out-bf-ext_dl_i11-nop-k1-pO-w2": [],
+"F34-out-bf-ext_dl_i11-nop2-k1-pE-w2": [],
+"F34-out-bf-ext_dl_i11-nop2-k1-pO-w2": [],
+"F34-out-bf-ext_dl_i11-d-k1-pO-w2": [],
+"F34-out-bf-ext_dl_i11-sep-k1-pE-w2": [],
+"F34-out-bf-ext_dl_i11-sep-k1-pO-w2": [],
+"F34-out-bf-ext_dl_i11-nop-k2-pE-w2": [],
+"F34-out-bf-ext_dl_i11-nop-k2-pO-w2": [],
+"F34-out-bf-ins_bl_dh-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-fnop-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-freg-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_dh-l0-k1-fld-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_dl_bh-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-fnop-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-freg-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_bl_i7-l0-k1-fld-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-bf-ins_dl_i11-l0-k1-pE-w2": [
+"Q110 CH3_N"
+],
+"F34-out-cr-shl8-l0-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-l0-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-nop-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl8-nop-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-nopshl8-l0-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-nopshl8-nop-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-l0-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-l0-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-nop-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F34-out-cr-shl4-nop-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-l0-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-l0-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-nop-pE-w2": [
+"Q114 LEAD_RET"
+],
+"F34-push-cr-shl8-nop-pO-w2": [
+"Q114 LEAD_RET"
+],
+"F35-out-cc-bv-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bv-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bv-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bv-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnv-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnv-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnv-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnv-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bc-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bc-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bc-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bc-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnc-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnc-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnc-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnc-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-be-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-be-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-be-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-be-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bne-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bne-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bne-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bne-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnh-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnh-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnh-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bnh-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bh-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bh-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bh-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bh-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bn-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bn-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bn-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bn-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bp-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bp-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bp-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bp-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpe-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpe-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpe-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpe-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpo-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpo-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpo-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bpo-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-blt-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-blt-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-blt-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-blt-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bge-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bge-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bge-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bge-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-ble-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-ble-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-ble-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-ble-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bgt-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bgt-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bgt-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cc-bgt-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cw-bcwz-t-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cw-bcwz-t-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cw-bcwz-t-n2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cw-bcwz-t-n2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cw-dbnze-c2-cmpaa-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-cw-dbnze-c2-cmpaa-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ret-callret-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ret-callret-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ret-imm0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ret-imm0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ret-imm2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ret-imm2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-callr-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-callr-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-callr-ret-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-callr-ret-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-brr-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-brr-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-brr-n1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-ind-brr-n1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-brf-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-brf-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-brf-n1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-brf-n1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-callf-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-callf-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-callf-retf-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F35-out-far-callf-retf-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F35-push-ctl-adddw-pE-w0": [],
+"F35-push-cc-bv-t-n0-pE-w0": [],
+"F35-push-cc-bnv-nt-n0-pE-w0": [],
+"F35-push-cc-bnh-nt-n0-pE-w0": [],
+"F35-push-cc-bh-t-n0-pE-w0": [],
+"F35-push-cc-bpe-nt-n0-pE-w0": [],
+"F35-push-cc-bpo-t-n0-pE-w0": [],
+"F35-push-cc-ble-nt-n0-pE-w0": [],
+"F35-push-cc-bgt-t-n0-pE-w0": [],
+"F35-push-far-brf-n0-pO-w0": [],
+"F35-push-far-brf-n1-pO-w0": [],
+"F35-push-far-callf-pO-w0": [],
+"F35-push-far-callf-retf-pO-w0": [],
+"F35-out-cc-bv-t-n0-pE-w1": [],
+"F35-out-cc-bv-t-n2-pE-w1": [],
+"F35-out-cc-bnv-t-n0-pE-w1": [],
+"F35-out-cc-bnv-t-n2-pE-w1": [],
+"F35-out-cc-bc-t-n0-pE-w1": [],
+"F35-out-cc-bc-t-n2-pE-w1": [],
+"F35-out-cc-bnc-t-n0-pE-w1": [],
+"F35-out-cc-bnc-t-n2-pE-w1": [],
+"F35-out-cc-be-t-n0-pE-w1": [],
+"F35-out-cc-be-t-n2-pE-w1": [],
+"F35-out-cc-bne-t-n0-pE-w1": [],
+"F35-out-cc-bne-t-n2-pE-w1": [],
+"F35-out-cc-bnh-t-n0-pE-w1": [],
+"F35-out-cc-bnh-t-n2-pE-w1": [],
+"F35-out-cc-bh-t-n0-pE-w1": [],
+"F35-out-cc-bh-t-n2-pE-w1": [],
+"F35-out-cc-bn-t-n0-pE-w1": [],
+"F35-out-cc-bn-t-n2-pE-w1": [],
+"F35-out-cc-bp-t-n0-pE-w1": [],
+"F35-out-cc-bp-t-n2-pE-w1": [],
+"F35-out-cc-bpe-t-n0-pE-w1": [],
+"F35-out-cc-bpe-t-n2-pE-w1": [],
+"F35-out-cc-bpo-t-n0-pE-w1": [],
+"F35-out-cc-bpo-t-n2-pE-w1": [],
+"F35-out-cc-blt-t-n0-pE-w1": [],
+"F35-out-cc-blt-t-n2-pE-w1": [],
+"F35-out-cc-bge-t-n0-pE-w1": [],
+"F35-out-cc-bge-t-n2-pE-w1": [],
+"F35-out-cc-ble-t-n0-pE-w1": [],
+"F35-out-cc-ble-t-n2-pE-w1": [],
+"F35-out-cc-bgt-t-n0-pE-w1": [],
+"F35-out-cc-bgt-t-n2-pE-w1": [],
+"F35-out-cw-bcwz-t-n0-pO-w1": [],
+"F35-out-cw-bcwz-t-n2-pO-w1": [],
+"F35-out-cw-dbnze-c2-cmpaa-pO-w1": [],
+"F35-out-ret-callret-pE-w1": [],
+"F35-out-ret-imm0-pE-w1": [],
+"F35-out-ret-imm2-pO-w1": [],
+"F35-out-ind-callr-pO-w1": [],
+"F35-out-ind-callr-ret-pE-w1": [],
+"F35-out-ind-brr-n0-pO-w1": [],
+"F35-out-ind-brr-n1-pE-w1": [],
+"F35-out-far-brf-n0-pO-w1": [],
+"F35-out-far-brf-n1-pE-w1": [],
+"F35-out-far-callf-pO-w1": [],
+"F35-out-far-callf-retf-pE-w1": [],
+"F36-out-psw-lahf-sahf-pE-w0": [],
+"F36-out-psw-lahf-sahf-pO-w0": [],
+"F36-push-psw-lahf-sahf-pO-w0": [],
+"F36-out-psw-lahf-sahf-pE-w1": [],
+"F36-out-psw-lahf-sahf-pO-w1": [],
+"F36-push-psw-lahf-sahf-pO-w1": [],
+"F36-out-psw-lahf-sahf-pO-w2": [],
+"F36-push-psw-lahf-sahf-pO-w2": [],
+"F37-out-ctl-ptr-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-ptr-sep-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-ptrbw-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-far-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-far-sep-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-farbw-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-vec3-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-vec3-sep-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-vec5-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-ctl-vec5-sep-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-indm-callm-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-callm-n0-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-callm-ret-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-callm-ret-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-callm-sep-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-callm-sep-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-brm-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-brm-n0-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-brm-n1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-brm-n1-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-brm-sep-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-brm-sep-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-callbw-n0-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-callbw-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-callbw-ret-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-callbw-ret-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-brbw-n0-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-brbw-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-indm-brbw-n1-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-indm-brbw-n1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-brfm-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-brfm-n0-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-brfm-n1-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-brfm-n1-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-brfm-sep-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-brfm-sep-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-callfm-n0-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-callfm-n0-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-callfm-retf-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-callfm-retf-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-callfbw-n0-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-callfbw-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-callfbw-retf-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-callfbw-retf-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-brfbw-n0-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-brfbw-n0-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-farm-brfbw-n1-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-farm-brfbw-n1-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-brk-brk3-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-brk-brk3-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-brk-brk3-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-brk-brk3-nop-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-brk-brk3-sep-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-brk-brk3-sep-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-brk-brk5-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-brk-brk5-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-brk-brk5-nop-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-brk-brk5-nop-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-out-brk-brk5-sep-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F37-out-brk-brk5-sep-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-ptr-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-ptr-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-ptrbw-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-far-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-far-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-farbw-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-vec3-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-vec3-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-vec5-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-ctl-vec5-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-callm-n0-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-callm-ret-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-callm-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-brm-n0-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-brm-n1-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-brm-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-callbw-n0-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-callbw-ret-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-brbw-n0-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-indm-brbw-n1-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-brfm-n0-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-brfm-n1-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-brfm-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-callfm-n0-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-callfm-retf-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-callfbw-n0-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-callfbw-retf-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-brfbw-n0-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-farm-brfbw-n1-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-brk-brk3-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-brk-brk3-pO-w0": [],
+"F37-push-brk-brk3-nop-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-brk-brk3-nop-pO-w0": [],
+"F37-push-brk-brk3-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-brk-brk5-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-brk-brk5-nop-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-push-brk-brk5-sep-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F37-out-indm-callm-n0-pE-w1": [],
+"F37-out-indm-callm-ret-pO-w1": [],
+"F37-out-indm-callm-sep-pO-w1": [],
+"F37-out-indm-brm-n0-pE-w1": [],
+"F37-out-indm-brm-n1-pO-w1": [],
+"F37-out-indm-brm-sep-pO-w1": [],
+"F37-out-indm-callbw-n0-pO-w1": [],
+"F37-out-indm-callbw-ret-pE-w1": [],
+"F37-out-indm-brbw-n0-pO-w1": [],
+"F37-out-indm-brbw-n1-pE-w1": [],
+"F37-out-farm-brfm-n0-pE-w1": [],
+"F37-out-farm-brfm-n1-pO-w1": [],
+"F37-out-farm-brfm-sep-pO-w1": [],
+"F37-out-farm-callfm-n0-pE-w1": [],
+"F37-out-farm-callfm-retf-pO-w1": [],
+"F37-out-farm-callfbw-n0-pO-w1": [],
+"F37-out-farm-callfbw-retf-pE-w1": [],
+"F37-out-farm-brfbw-n0-pO-w1": [],
+"F37-out-farm-brfbw-n1-pE-w1": [],
+"F37-out-brk-brk3-pE-w1": [],
+"F37-out-brk-brk3-nop-pO-w1": [],
+"F37-out-brk-brk3-sep-pO-w1": [],
+"F37-out-brk-brk5-pO-w1": [],
+"F37-out-brk-brk5-nop-pE-w1": [],
+"F37-out-brk-brk5-sep-pE-w1": [],
+"F39-out-xfer-be-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-xfer-be-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-xfer-callret-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-xfer-callret-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-xfer-brbw-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-xfer-brbw-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-stack-pushr-callret-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-stack-pushr-callret-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-stack-frame-callret-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-stack-frame-callret-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-stack-ds0-callret-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-stack-ds0-callret-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-ind-callm-ld-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F39-out-ind-callm-push-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F39-out-ind-callm-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-ind-callm-out-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F39-out-ind-brk3-ld-pE-w0": [],
+"F39-out-ind-brk3-ld-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F39-out-ind-brk3-push-pE-w0": [],
+"F39-out-ind-brk3-push-pO-w0": [
+"Q112 REQ_PRI"
+],
+"F39-out-ind-brk3-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-ind-brk3-out-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F39-push-xfer-be-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-push-xfer-be-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-push-xfer-callret-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-push-xfer-callret-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-push-xfer-brbw-out-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F39-push-xfer-brbw-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-push-ind-callm-ld-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F39-push-ind-callm-push-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F39-push-ind-callm-out-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F39-push-ind-callm-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-push-ind-brk3-ld-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F39-push-ind-brk3-ld-pO-w0": [],
+"F39-push-ind-brk3-push-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F39-push-ind-brk3-push-pO-w0": [],
+"F39-push-ind-brk3-out-pE-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F39-push-ind-brk3-out-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F39-out-ctl-extdl-bf-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-xfer-be-out-pE-w1": [],
+"F39-out-xfer-callret-out-pE-w1": [],
+"F39-out-xfer-brbw-out-pO-w1": [],
+"F39-out-page-ext-push-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-page-ext-out-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-page-ext-movr-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-ld-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-st-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-push-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-out-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-movr-pE-w1": [
+"Q110 CH3_N"
+],
+"F39-out-stack-pushr-callret-pE-w1": [],
+"F39-out-stack-frame-callret-pO-w1": [],
+"F39-out-stack-ds0-callret-pE-w1": [],
+"F39-out-ind-callm-out-pO-w1": [],
+"F39-out-ind-brk3-out-pE-w1": [],
+"F39-push-ctl-movbk-s-pE-w1": [
+"Q121 string B"
+],
+"F39-push-ctl-cmpbk-s-pE-w1": [
+"Q121 string B"
+],
+"F39-push-xfer-be-out-pO-w1": [],
+"F39-push-xfer-callret-out-pO-w1": [],
+"F39-push-xfer-brbw-out-pE-w1": [],
+"F39-push-str-movbk-ld-pE-w1": [
+"Q121 string B"
+],
+"F39-push-str-movbk-push-pE-w1": [
+"Q121 string B"
+],
+"F39-push-str-movbk-out-pE-w1": [
+"Q121 string B"
+],
+"F39-push-str-movbk-ldea-pE-w1": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-ld-pE-w1": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-push-pE-w1": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-out-pE-w1": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-ldea-pE-w1": [
+"Q121 string B"
+],
+"F39-push-ind-callm-out-pE-w1": [],
+"F39-push-ind-brk3-out-pO-w1": [],
+"F39-out-ctl-extdl-bf-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-ext-push-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-ext-out-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-ext-movr-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-ld-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-st-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-push-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-out-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-out-page-extdl-movr-pE-w2": [
+"Q110 CH3_N"
+],
+"F39-push-ctl-movbk-s-pE-w2": [
+"Q121 string B"
+],
+"F39-push-ctl-cmpbk-s-pE-w2": [
+"Q121 string B"
+],
+"F39-push-ctl-inm-s-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-movbk-ld-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-movbk-push-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-movbk-out-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-movbk-ldea-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-ld-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-push-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-out-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-cmpbk-ldea-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-inm-ld-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-inm-push-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-inm-out-pE-w2": [
+"Q121 string B"
+],
+"F39-push-str-inm-ldea-pE-w2": [
+"Q121 string B"
+],
+"F40-out-xfer-be-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-be-k2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-be-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-be-k4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callret-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callret-k2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callret-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callret-k4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-bcwz-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-bcwz-k2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-bcwz-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-bcwz-k4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brbw-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brbw-k2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brbw-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brbw-k4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-retimm-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-retimm-k2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-retimm-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-retimm-k4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brf-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brf-k2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brf-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-brf-k4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callfretf-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callfretf-k2-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callfretf-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-xfer-callfretf-k4-pO-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-ind-callm-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-ind-callm-k2-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F40-out-ind-callm-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-ind-callm-k4-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F40-out-ind-brk3-k2-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-ind-brk3-k2-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F40-out-ind-brk3-k4-pE-w0": [
+"Q113 LEAD_FM"
+],
+"F40-out-ind-brk3-k4-pO-w0": [
+"Q113 LEAD_FM",
+"Q112 REQ_PRI"
+],
+"F40-out-page-add4s-k2-pO-w0": [
+"Q122 H_4S"
+],
+"F40-out-page-add4s-k4-pO-w0": [
+"Q122 H_4S"
+],
+"F40-push-xfer-brf-k2-pO-w0": [],
+"F40-push-xfer-brf-k4-pO-w0": [],
+"F40-push-xfer-callfretf-k2-pO-w0": [],
+"F40-push-xfer-callfretf-k4-pO-w0": [],
+"F40-push-ind-callm-k2-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F40-push-ind-callm-k4-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F40-push-ind-brk3-k2-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F40-push-ind-brk3-k2-pO-w0": [],
+"F40-push-ind-brk3-k4-pE-w0": [
+"Q112 REQ_PRI"
+],
+"F40-push-ind-brk3-k4-pO-w0": [],
+"F40-push-page-add4s-k2-pE-w0": [
+"Q122 H_4S"
+],
+"F40-push-page-add4s-k4-pE-w0": [
+"Q122 H_4S"
+],
+"F40-out-xfer-be-k2-pE-w1": [],
+"F40-out-xfer-be-k4-pE-w1": [],
+"F40-out-xfer-callret-k2-pE-w1": [],
+"F40-out-xfer-callret-k4-pE-w1": [],
+"F40-out-xfer-bcwz-k2-pO-w1": [],
+"F40-out-xfer-bcwz-k4-pO-w1": [],
+"F40-out-xfer-brbw-k2-pE-w1": [],
+"F40-out-xfer-brbw-k4-pE-w1": [],
+"F40-out-xfer-retimm-k2-pE-w1": [],
+"F40-out-xfer-retimm-k4-pE-w1": [],
+"F40-out-xfer-brf-k2-pE-w1": [],
+"F40-out-xfer-brf-k4-pE-w1": [],
+"F40-out-xfer-callfretf-k2-pE-w1": [],
+"F40-out-xfer-callfretf-k4-pE-w1": [],
+"F40-out-ind-callm-k2-pE-w1": [],
+"F40-out-ind-callm-k4-pE-w1": [],
+"F40-out-ind-brk3-k2-pE-w1": [],
+"F40-out-ind-brk3-k4-pE-w1": [],
+"F40-out-page-add4s-k2-pO-w1": [
+"Q122 H_4S"
+],
+"F40-out-page-add4s-k4-pO-w1": [
+"Q122 H_4S"
+],
+"F40-push-ind-brk3-k2-pO-w1": [],
+"F40-push-ind-brk3-k4-pO-w1": [],
+"F40-push-page-add4s-k2-pE-w1": [
+"Q122 H_4S"
+],
+"F40-push-page-add4s-k4-pE-w1": [
+"Q122 H_4S"
+],
+"F40-out-page-add4s-k2-pO-w2": [
+"Q122 H_4S"
+],
+"F40-out-page-add4s-k4-pO-w2": [
+"Q122 H_4S"
+],
+"F40-push-page-add4s-k2-pE-w2": [
+"Q122 H_4S"
+],
+"F40-push-page-add4s-k4-pE-w2": [
+"Q122 H_4S"
+]
+}

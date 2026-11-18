@@ -1,0 +1,72 @@
+3 F14-g-out-shl_bw_cl | pE-w0:read_early_by_1 pE-w1:read_early_by_2 pE-w2:read_early_by_3
+3 F14-g-push-shl_bw_cl | pE-w0:read_early_by_1 pE-w1:read_early_by_2 pE-w2:read_early_by_3
+3 F14-g-push-shl_bw_cl-k2 | pE-w0:read_early_by_1 pE-w1:read_early_by_2 pE-w2:read_early_by_3
+3 F19-d-out-movawdw-inb | pE-w0:io-read_late_by_2 pE-w1:io-read_late_by_2 pE-w2:io-read_late_by_2
+3 F19-d-out-movawdw-inw | pE-w0:io-read_late_by_2 pE-w1:io-read_late_by_2 pE-w2:io-read_late_by_2
+1 F19-d-out-movawdw_nop-inb | pE-w0:fetch_early_by_1
+1 F19-d-out-movawdw_nop-inw | pE-w0:fetch_early_by_1
+1 F19-d-out-movawdw_nop-outb | pE-w0:fetch_early_by_1
+1 F19-d-out-movawdw_nop-outw | pE-w0:fetch_early_by_1
+3 F19-d-out-movcwaw-inb | pE-w0:io-read_late_by_2 pE-w1:io-read_late_by_2 pE-w2:io-read_late_by_2
+3 F19-d-out-movdwaw-inb | pE-w0:io-read_late_by_2 pE-w1:io-read_late_by_2 pE-w2:io-read_late_by_2
+1 F20-r-out-n1-adddwi-ld | pE-w0:fetch_early_by_1
+1 F20-r-out-n1-adddwi-movr | pE-w0:fetch_early_by_1
+1 F20-r-out-n1-adddwi-outdw | pE-w0:fetch_early_by_1
+1 F20-r-out-n1-adddwi-outimm | pE-w0:fetch_early_by_1
+1 F20-r-out-n1-adddwi-rmw | pE-w0:fetch_early_by_1
+1 F20-r-out-n1-adddwi-st | pE-w0:fetch_early_by_1
+1 F21-out-l0-st-bw_ix_d16-k2 | pE-w0:extra_write
+1 F21-out-l0-sti-bw_ix_d16-k2 | pE-w0:fetch_late_by_1
+1 F21-out-n1-sti-bw_ix_d16 | pE-w0:fetch_early_by_1
+1 F21-push-l0-sti-bw_ix_d16-k2 | pO-w0:fetch_late_by_1
+2 F22-out-l0-add8_d16 | pE-w0:extra_read pE-w1:extra_read
+2 F22-out-l0-add8_d16-k2 | pE-w0:extra_read pE-w1:extra_read
+1 F25-out-push_imm8-k2 | pO-w2:write_early_by_2
+1 F25-push-push_ds0 | pE-w2:write_early_by_1
+1 F25-push-push_ds0_pop_ds0 | pE-w2:write_early_by_1
+1 F25-push-push_imm8 | pE-w2:write_early_by_2
+1 F25-push-push_imm8-k2 | pE-w2:write_early_by_2
+1 F26-out-fib-bixd16-n0-k2 | pE-w0:fetch_late_by_1
+1 F26-out-fib-bixd16-n0-k3 | pE-w0:fetch_late_by_1
+2 F26-out-fib-bixd16-n1-k2 | pE-w0:fetch_early_by_1 pO-w0:fetch_late_by_1
+1 F26-out-fib-bixd16-n2-k2 | pE-w0:fetch_late_by_1
+1 F26-push-fib-bixd16-n0-k2 | pO-w0:fetch_late_by_1
+1 F26-push-fib-bixd16-n0-k3 | pO-w0:fetch_late_by_1
+1 F26-push-fib-bixd16-n1-k2 | pE-w0:fetch_late_by_1
+1 F26-push-fib-bixd16-n2-k2 | pO-w0:fetch_late_by_1
+1 F29-out-ec-pi-oo-adddwi-n1 | pE-w0:fetch_early_by_1
+1 F29-push-ec-pi-oo-adddwi-n1 | pO-w0:fetch_early_by_1
+1 F30-out-lea-bw_ix_d16-nopb | pE-w0:fetch_early_by_1
+2 F32-out-ext_bh_bl-k2 | pE-w1:fetch_late_by_2 pE-w2:fetch_late_by_2
+3 F33-out-cvtdb-k1 | pE-w0:fetch_late_by_1 pE-w1:fetch_late_by_1 pE-w2:fetch_late_by_1
+3 F33-out-cvtdb-k2 | pE-w0:fetch_late_by_1 pE-w1:fetch_late_by_1 pE-w2:fetch_late_by_1
+1 F33-out-mul_aw_cw_imm8-k2 | pO-w2:fetch_early_by_2
+3 F33-push-mul_aw_cw_imm16-k1 | pE-w0:fetch_early_by_1 pE-w1:write_early_by_2 pE-w2:fetch_late_by_1
+3 F34-out-bf-ext_dl_bh-d-k1 | pE-w0:read_late_by_2 pE-w1:read_late_by_2 pE-w2:read_late_by_2
+3 F34-out-bf-ext_dl_i11-d-k1 | pE-w0:read_late_by_2 pE-w1:read_late_by_2 pE-w2:read_late_by_2
+3 F34-out-mbit-clr1_mw_imm-d-k1 | pE-w0:read_late_by_3 pE-w1:read_late_by_3 pE-w2:read_late_by_3
+3 F34-out-mbit-set1_mw_imm-d-k1 | pE-w0:read_late_by_3 pE-w1:read_late_by_3 pE-w2:read_late_by_3
+3 F35-out-cw-dbnzne-c2-cmpad | pE-w0:fetch_address_differs pO-w0:fetch_address_differs pO-w1:fetch_address_differs
+6 F35-out-far-callf-retf2 | pE-w0:read_late_by_1 pO-w0:read_late_by_1 pE-w1:read_late_by_1 pO-w1:read_late_by_1 pE-w2:read_early_by_1 pO-w2:read_late_by_1
+1 F35-out-ret-imm0 | pO-w2:read_early_by_1
+1 F35-out-ret-imm2 | pE-w2:read_early_by_1
+6 F35-push-far-callf-retf2 | pE-w0:read_late_by_1 pO-w0:read_late_by_1 pE-w1:read_late_by_1 pO-w1:read_late_by_1 pE-w2:read_late_by_1 pO-w2:read_early_by_1
+1 F35-push-ret-imm0 | pE-w2:read_early_by_1
+1 F35-push-ret-imm2 | pO-w2:read_early_by_1
+3 F36-out-shift-shlb_m_cl | pE-w0:read_early_by_1 pE-w1:read_early_by_2 pE-w2:read_early_by_3
+3 F36-push-shift-shlb_m_cl | pE-w0:read_early_by_1 pE-w1:read_early_by_2 pE-w2:read_early_by_3
+2 F37-out-farm-brfm-sep | pE-w1:read_late_by_1 pE-w2:read_late_by_1
+2 F37-push-farm-brfm-sep | pO-w1:read_late_by_1 pO-w2:read_late_by_1
+1 F39-push-stack-ds0-callret | pE-w2:write_early_by_1
+1 F39-push-stack-ds0-ld | pE-w2:write_early_by_1
+1 F39-push-stack-ds0-out | pE-w2:write_early_by_1
+1 F40-out-xfer-retimm-k2 | pO-w2:read_early_by_1
+1 F40-out-xfer-retimm-k4 | pO-w2:read_early_by_1
+1 F40-push-xfer-retimm-k2 | pE-w2:read_early_by_1
+1 F40-push-xfer-retimm-k4 | pE-w2:read_early_by_1
+2 F5-out-pop_m-k1-odd | pE-w0:extra_read pO-w0:extra_read
+2 NOT PARSED F15-a-out-cmp_dir_aw | pE-w0:- pE-w2:-
+1 NOT PARSED F25-push-push_ds1 | pE-w2:-
+1 NOT PARSED F25-push-push_ds1_pop_ds1 | pE-w2:-
+1 NOT PARSED F25-push-push_ps | pE-w2:-
+1 NOT PARSED F30-push-seg-pair-ss-n0 | pE-w2:-
