@@ -121,6 +121,31 @@ boundary's three-byte test counts the bytes a fetch delivers on its last clock. 
 DIV r have a second bus-idle word (the fifth). BW_TRACK: BW's parity through INC / DEC BW. Shapes:
 CVTWL, INDW, LODS, ADJ4, TESTIM, XCHM / XCHM_DIR, REP_ZERO_IO, ADDIM_X16; an EA mode with no
 entry takes the entry of the measured mode of its class.
+
+(round 24, results Q110-Q117)
+  B_I4=4        a bus-idle word that pops (P, P2 or N) waits on the clock a fetch starts back to back
+                with four or fewer held before the word's own pop: that fetch is needed, it is not
+                the five-held continuation the word may pass on (Q111). A bus-idle word with no pop
+                (a store immediate's BY) passes as before.
+  REQ_PRI=5     (was 1) a request word executed on a fetch's last clock cancels the back-to-back
+                continuation whatever the count; a pop on the next clock raises it again (five
+                held); with no pop no fetch starts on that clock, one starts a clock later (Q112)
+  LEAD_FM=1     at a flush target the decode lead runs from the clock the new stream's fourth byte
+                is in the queue (FIRST_MIN) when that is later than the opcode's pop (Q113)
+  LEAD_RET=2    RET near: boundary no sooner than 2 clocks after the pop, as MOV sreg (Q114)
+  CH3_N=1       the commit word of the bit-field head (keys CH3_NK: EXT / INS, r and imm4) passes
+                against the chain's second fetch one clock earlier than ROL4's and SHL r,imm8's:
+                on the fourth-last clock, not before the fetch's first (Q110: a word kind, measured;
+                why the two commit words differ is not known)
+  Shapes: ADJBA / ADJBS and EI have a bus-idle third word; PUSH imm16 / imm8 end `Y . . . N .` as
+  PUSH does; PUSH's N goes on the write's first clock (`. . Y . . G N .`); OUT imm8,AW to an odd
+  port is two byte cycles (Q115).
+  Function (the corpus's setup forms, Q116): Jcc 70-7F by the chain's `taken` knob (the JZ / JNZ
+  routines), SAHF, ADJ4S, RETF imm16 (shape by analogy, not read), MOV [d16],AW into the pointer
+  table, the return offsets of BRK and CALL r / m.
+  Tried and not kept (switches left in, default off): EMIN_L (a three-byte test at OUT / IN imm8's
+  boundary: reads the same runs as B_I4 and 38 fewer), B_LATE, REQ_PRI=2 / 3 / 4, LCH_K=RW with
+  LCH_POP (no arbitration inside the chain for a register store: +34, -28), SHLI_W1 / W2 / W4.
 """
 
 from __future__ import annotations
@@ -131,28 +156,28 @@ import sys
 from . import read
 
 DEFAULT = dict(
-    IDLE_AT=4, B2B_AT=5, REQ_PRI=1, FLUSH_LAT=5, H_B2B=1, H_EU=1, B_CH=0, B_CH_W=1, EMIN_K=0, EMIN_KEYS="ADDIM_DIR", OF2=0, OF_PFX="N .", OF_DROP=2, LEAD_0F=2, OF_EMIN=0, BF_OFF=1, EXTRX_D=0, INSRX_D=0,
+    IDLE_AT=4, B2B_AT=5, REQ_PRI=5, FLUSH_LAT=5, H_B2B=1, H_EU=1, B_CH=0, B_CH_W=1, EMIN_K=0, EMIN_KEYS="ADDIM_DIR", OF2=0, OF_PFX="N .", OF_DROP=2, LEAD_0F=2, OF_EMIN=0, BF_OFF=1, EXTRX_D=0, INSRX_D=0,
     RSV_KEYS="", B_EU="OIWR", B_EU_LAST="", B_EU_OF=0, B_B2B=0, SHL_ZERO=2, CH_EPRI=1, CH_BNEXT=1, C_NOCH=3, E_C=0, CH_K="W", EMIN_J=2, PREP_HEAD=". . Y D . . . PP2 P . . C . . . . . . .",
     PREP_COPY="U D . . . Z D . .", PREP_HEAD2=". . Y D . . . PP2 P . . C . . . . . .", PREP_TAIL=". Z D . . . . N .", H_4S="P . . B . . . . . . . . .",
     I_ADD4S="Y D . . . U D . . . . . . Z D .", T_ADD4S=". . . . . . . . N .",
-    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y DP . B", EXTI_TAIL="N .", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, EU_BNEXT=0, EU_WPRI=7, EU_WPRI_K="O", BW_TRACK=1, CH3=2, CH3_K="OIWR", EMIN_ML="JMPMB,CALLMB,JMPFMB,CALLFMB,JMPM,CALLM,JMPFM,CALLFM", MD_B=2, MD_B2=4, MD_ACT="B", B_SLOT=0, B_SLOT_KEYS="", MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="C", SHLI_W3="BP", SHLI_AT=5, SHLI_D=-1, E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
+    I_CMP4S="Y D . . . U D . . . . . . . .", T_CMP4S=". . . . . . . . . N .", EXT_HEAD="P . BP . C . . Y DP . B", EXTI_TAIL="N .", EXT_BASE=24, EXT_K=4, EXTX_GAP=23, EXTX_BASE=12, INSX_1=65, INSX_GAP=8, INSX_BASE=17, INS_BASE=70, EXTR_HEAD="P . BP . C . Y D", EXTR_BASE=24, INSR_BASE=70, LAG_B2B=0, LAG_K="W", ARB=3, ARB_K="WR", YP_UN=1, MD4B=25, MD5B=36, MD6B=33, MD7B=52, MD4W=33, MD5W=43, MD6W=41, MD7W=60, EU_BNEXT=0, EU_WPRI=7, EU_WPRI_K="O", BW_TRACK=1, CH3=2, CH3_K="OIWR", CH3_N=1, CH3_NK="EXT,INS,EXTI,INSI", B_LATE=0, B_LATE_K="WROI", LCH_POP=0, LEAD_FM=1, EMIN_L=0, EMIN_L_SET=0, EMIN_L_GW=1, B_I4=4, B_I4_K="WROI", REQ_PRI_K="", EMIN_ML="JMPMB,CALLMB,JMPFMB,CALLFMB,JMPM,CALLM,JMPFM,CALLFM", MD_B=2, MD_B2=4, MD_ACT="B", B_SLOT=0, B_SLOT_KEYS="", MM_ADD=0, MI16=41, MI8=40, MI_P=4, MI_ACTS="2:B,4:B", T_N=2, MD_MNEG=8, MD_QNEG=2, MD_DNEG=7, REP_CMP_N=2, V_NOPRI=1, SHLI_AS_CL=1, SHLI_ACT="C", SHLI_W3="BP", SHLI_W2="", SHLI_W1="", SHLI_W4="", SHLI_AT=5, SHLI_D=-1, E_EU=1, E_PEND=1, FIRST_MIN=4, EMIN_M=3, EMIN=2, LEAD_EU_END=0,
     POST_LAT=4, Y_LEFT=2, EU_HOLD=1, EU_EPRI=1, Z_LAT=2, FLUSH_B2B=1, FLUSH_GAP=3,
     S_LAG=2, EU_SLOT=1, V_LAG=0, INSI_HEAD="P . BP . C . . Y DP . . B", EXTI_D=2, INSI_D=3, P2_Q=0, LCH=3, LCH_K="R", LCH_MIN=1, RIPE4=0, LCH_Y=0, LCH_AFTER="WROI", LAG_ACTS="SXA", LAG_FIRST="A", CHAIN_POP=1,
-    LEAD_E6=3, LEAD_SR=2, LEAD_CC=0, LEAD_FF=0, LEAD_E2=2, LEAD_EPRI=1, HALT_STOP=1, HALT_HOLD=1,
+    LEAD_E6=3, LEAD_SR=2, LEAD_RET=2, LEAD_CC=0, LEAD_FF=0, LEAD_E2=2, LEAD_EPRI=1, HALT_STOP=1, HALT_HOLD=1,
     TE=79, TE_W=2, SHL_N=1, SHL_B=4, SHL_BASE=12,
     # the rejected rivals (see the docstring)
     B_FROM=1, B_ACTS="B", SHL_ACT="S", Y_MODE="late",
     # routines, read in rounds 1-3 (model.py)
-    NOP="N...", INC="N.", RR="PN .", RI=". . . . BINPP2 .", MOVI8=". . . BNP .", XCHG="N...",
+    NOP="N...", INC="N.", SAHF="N .", RETFI=". . . Y DPP2 . Y D . . F N .", RR="PN .", RI=". . . . BINPP2 .", MOVI8=". . . BNP .", XCHG="N...",
     CLC="N.", CBW="N..", ADDI=". . . . BINPP2 .", ADD83="P . . BNP .", ADDRR="PN .", RR8="PN .",
     PFX="N.", SHL1="P . B . . B . N .", JMP=". . . BP . . F N .", JZ=". . . BP . . . B . . F N .",
     JNZ=". . . BP . . BN .", ADDAL=". . . BNP .", SR="PN .",
     # I/O (model_e6.py): port byte on word 4; `X . N .` and the cycle after the boundary
     OUT="A . X . N .", E6=". . . BP . . X . N .", IN8=". . . BP . . X DN .",
     # memory: the request (Y), then the datum's wait (D) or, for a write, the boundary's wait
-    PUSH=". . Y . . . N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
-    PUSHI=". . . . PP2 . Y N", PUSHI8=". . . P . Y N", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . B Y . PP2 . DZ G N .", ADJ4=". . . B . . . . N .", ADJB=". . . . . . . . . . . . . . . N .",
-    CVTBD=". . . BP . B . . . . . . . . . . . . . N .", EI=". . . . . . . . . . . N .", CVTWL=". . B . . . . N .",
+    PUSH=". . Y . . G N .", POP=". . Y DN .", LD=". . Y PP2 DN .", ST=". . Y PP2 G N .",
+    PUSHI=". . . . PP2 . Y . . . N .", PUSHI8=". . . P . Y . . . N .", LAHF="N.", CMPMR="P Y . D . N .", NEGD16="P . . B Y . PP2 . DZ G N .", ADJ4=". . . B . . . . N .", ADJB=". . B . . . . . . . . . . . . N .",
+    CVTBD=". . . BP . B . . . . . . . . . . . . . N .", EI=". . B . . . . . . . . N .", CVTWL=". . B . . . . N .",
     SHMI_HEAD="P . V DP . B", SHMI_BASE=4, SHMCL_HEAD="P . . B . . . Y D", SHMCL_BASE=3,
     LDS="P Y . D . U . D . . N .", MOVMS="P . V . G N .", MOVSM="P Y . DN . .",
     MI16M="P . . BY DPP2 . B . B . . . . . . . . . . . . . . . . . . . . . . . . . . . . N .",
@@ -216,6 +241,9 @@ OPS = {0x90: ("NOP", None, 0), 0x43: ("INC", None, 0), 0x4B: ("INC", None, 0),
        0x03: ("ADDRR", None, 1), 0x8A: ("RR8", None, 1), 0x26: ("PFX", None, 0), 0xF3: ("PFX", None, 0), 0xF2: ("PFX", None, 0),
        0xD1: ("SHL1", None, 1), 0xC1: ("SHLI", None, 1), 0xC0: ("SHLI", None, 1), 0xF6: ("MUL8", None, 1),
        0xE9: ("JN", None, 0), 0x74: ("JZ", None, 0), 0x75: ("JNZ", None, 0),
+       # (round 24) the other conditions: the same two routines, the outcome from the chain's knobs
+       **{c_: ("JCC", None, 0) for c_ in (0x70, 0x71, 0x72, 0x73, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F)},
+       0x9E: ("SAHF", None, 0), 0x2F: ("ADJ4", None, 0), 0xCA: ("RETFI", "R", 0),
        0xA1: ("LD", "R", 0), 0xA3: ("ST", "W", 0), 0x50: ("PUSH", "W", 0),
        0x58: ("POP", "R", 0), 0xD3: ("SHL", None, 1), 0xF4: ("HALT", None, 0),
        0x04: ("ADDAL", None, 0), 0x68: ("PUSHI", "W", 0), 0x9D: ("POPF", "R", 0),
@@ -282,10 +310,12 @@ MEM = {(0x8B, 0x07): ("L_BW", "R", 1), (0x8A, 0x07): ("L_BW", "R", 1), (0x88, 0x
        (0x8F, 0x87): ("POPM_D16", "R", 1), (0x8F, 0x40): ("POPM_X8", "R", 1)}
 
 # the decode stage's leads: the boundary no sooner than this many clocks after the opcode's pop
-LEADS = {0xE6: "LEAD_E6", 0xE7: "LEAD_E6", 0xE4: "LEAD_E6", 0x8E: "LEAD_SR", 0xE2: "LEAD_E2"}
+LEADS = {0xE6: "LEAD_E6", 0xE7: "LEAD_E6", 0xE4: "LEAD_E6", 0x8E: "LEAD_SR", 0xE2: "LEAD_E2",
+         0xC3: "LEAD_RET"}      # (round 24) RET near: 2, as MOV sreg (the other RET forms: not read)
 
 
 NO_EMIN_M = set()
+EMIN_L_OPS = {0: (0xE6, 0xE7, 0xE4), 1: (0xE6, 0xE7), 2: (0xE6, 0xE7, 0xE4, 0x8E, 0xE2)}
 OF_LEAD2 = set(range(0x18, 0x20)) | {0x28, 0x2A, 0x31, 0x33, 0x39, 0x3B}
 STACK_OPS = (0x9C, 0x9D, 0xE8, 0xC3, 0x9A, 0xCB, 0x68, 0x06, 0x07, 0x0E, 0x16, 0x17, 0x1E, 0x1F)
 REPS = ("MOVS", "STOS", "LODS", "SCAS", "CMPBK", "INM", "OUTM")
@@ -406,6 +436,12 @@ def routine(op, o, cl=31, key=None):
         w = [set() for _ in range(o["SHL_BASE"] + 2 * cl + o["SHLI_D"])]
         w[0] = {"P"}
         w[3] = set(o["SHLI_W3"])
+        if o["SHLI_W2"]:
+            w[2] = set(o["SHLI_W2"])     # (round 24) a bus-idle third word, as the 0F page's
+        if o["SHLI_W1"]:
+            w[1] = set(o["SHLI_W1"])
+        if o["SHLI_W4"]:
+            w[4] = set(o["SHLI_W4"])
         if o["SHLI_ACT"]:
             w[o["SHLI_AT"]] = w[o["SHLI_AT"]] | set(o["SHLI_ACT"])
         w[len(w) - 1 - o["SHL_N"]] = w[len(w) - 1 - o["SHL_N"]] | {"N"}
@@ -461,6 +497,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
     cur_op, cur_at = 0xD3, None
     cur_key = ""
     regs = run["chain"].get("regs", {})
+    knobs = run["chain"].get("knobs", {})
     cl, dw = 31, regs.get("DW", 0x20)   # CL and DW as the program sets them
     e_n = 0                             # boundaries so far
     e_clock = -9                        # the clock of the latest boundary
@@ -480,6 +517,9 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
     prev_plain = prev_y = False
     f_chx = 0                       # (round 21) the latest fetch is in a chain behind an EU cycle
     f_lag = False                       # the latest fetch's slot is ahead of its pin cycle
+    fm_t = None
+    io_split = False
+    f_late = False       # (round 24) the chain's first fetch had given way a clock
     next_lag = False                    # ... and another fetch is chained behind it
     halted = False
     halt_pop = None
@@ -541,7 +581,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             acts = (set(acts) - {"Z"}) | {"Y"}
         is_last = ip == len(rt) - 1
         npop = ("P" in acts) + ("P2" in acts)
-        stall = lead_pri = False
+        stall = lead_pri = lead_stall = bi4_stall = False
         # the setup slot of the fetch in flight or about to start (S_LAG): `first` its first clock
         bus_idle = not in_fetch and not eu_run and not (eu_due is not None and t >= eu_due)
         slot, first = in_fetch, False
@@ -568,11 +608,11 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         ch3 = bool(o["CH3"]) and lag and in_fetch and f_lag and f_chx >= 2 and last_kind in o["CH3_K"]
         slot_s = slot
         if ch3:
-            slot_s = t <= f_end - lag - 1 or (t > f_end - lag + 1 and next_lag) or (
+            slot_s = t <= f_end - lag - 1 - (o["CH3_N"] if (cw_ and (not o["CH3_NK"] or cur_key in o["CH3_NK"].split(","))) else 0) or (t > f_end - lag + 1 and next_lag) or (
                 t == f_end - lag + 1 and pfp is not None and count + f_bytes <= o["B2B_AT"])
         # ... and on the clock such a fetch starts, with no wait state (its third-last clock)
         ch3_now = (bool(o["CH3"]) and lag and not in_fetch and f_lag and f_chx >= 1 and just_ended
-                   and cyc - 1 < lag + 1 and last_kind in o["CH3_K"])
+                   and cyc - 1 < lag + 1 + (o["CH3_N"] if (cw_ and (not o["CH3_NK"] or cur_key in o["CH3_NK"].split(","))) else 0) and last_kind in o["CH3_K"])
         if ch3_now:
             slot_s = False
         if "T" in acts and in_fetch and t - (f_end - cyc + 1) < o["T_N"]:
@@ -619,6 +659,23 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     #                 EU cycle's fetch (Q42's fetch): the commit word passes
                 if (act == "B" and iw and just_ended and not eu_run and pfp is not None
                         and not (eu_due is not None and t >= eu_due) and count <= o["B2B_AT"]):
+                    busy = True
+                # (round 24) B_I4: a bus-idle word waits on the clock a fetch starts back to back with
+                # four or fewer held before the word's own pop (the fetch is needed, not the
+                # five-held continuation: it was decided before this clock). 1: any such fetch;
+                # 2: in a chain behind an EU cycle (f_chx); 3: f_lag
+                if (act == "B" and o["B_I4"] and just_ended and not eu_run and pfp is not None
+                        and not (eu_due is not None and t >= eu_due) and count <= o["IDLE_AT"]
+                        and (o["B_I4"] == 1 or (o["B_I4"] == 2 and f_chx >= 1) or (o["B_I4"] == 3 and f_lag)
+                             or (o["B_I4"] == 4 and npop + ("N" in acts) > 0) or (o["B_I4"] == 5 and npop + ("N" in acts) > 0 and f_chx >= 1))
+                        and (f_chx >= 1 and last_kind in o["B_I4_K"] or o["B_I4"] in (1, 4))):
+                    busy = bi4_stall = True
+                # (round 24) B_LATE: a bus-idle word waits on the clock a fetch starts back to back
+                # behind a fetch that had given way a clock to a boundary behind an EU cycle
+                # (EU_EPRI / EU_WPRI's late fetch) of kinds B_LATE_K
+                if (act == "B" and o["B_LATE"] and just_ended and f_late and not eu_run and pfp is not None
+                        and not (eu_due is not None and t >= eu_due) and count <= o["B2B_AT"]
+                        and last_kind in o["B_LATE_K"] and (o["B_LATE"] == 1 or f_chx == 1)):
                     busy = True
                 # (round 16) B_CH: a bus-idle word does wait on the clock the fetch chained
                 # behind an EU cycle's fetch starts (that fetch's slot was taken two clocks
@@ -675,6 +732,12 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             sstg = stg - 1 if (of_stage and stg is not None) else stg
             led = stg is not None and not of_stage and code[stg] in LEADS
             lead_t = stg_t + o[LEADS[code[stg]]] if led else None
+            if led and o["LEAD_FM"] and after_flush and fm_t is not None:
+                # (round 24) LEAD_FM: at a flush target the lead runs from the clock the new stream's
+                # fourth byte is in the queue (FIRST_MIN), when that is later than the opcode's pop
+                lead_t = max(stg_t, fm_t) + o[LEADS[code[stg]]]
+            elif led and o["LEAD_FM"] and after_flush:
+                lead_t = t + 99
             if of_stage and stg is not None and code[stg] in OF_LEAD2:
                 led, lead_t = True, stg_t + o["LEAD_0F"]
             if stg is None and "N" not in acts:
@@ -709,11 +772,21 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 stall = True    # (round 16, tested, not kept by default) a per-form byte count
             elif stg is not None and of_stage and count < o["OF_EMIN"]:
                 stall = True
+            elif (stg is not None and not of_stage and o["EMIN_L"] and code[sstg] in EMIN_L_OPS[o["EMIN_L_SET"]]
+                  and count + (f_bytes if last_clock else 0) < o["EMIN_L"]):
+                # (round 24) EMIN_L: the boundary of OUT imm8 / IN imm8 (the opcodes with a decode
+                # lead) waits for three bytes behind the staged opcode, a fetch's last-clock
+                # delivery counted; a lead that ends on the clock after an EU cycle still holds
+                # the pending fetch for that clock (lead_stall)
+                stall = True
+                lead_stall = (o["EMIN_L_GW"] == 1 and led and t == lead_t) or o["EMIN_L_GW"] >= 2
             elif (stg is not None and not of_stage and info(code, sstg)[2]
                   and count + (f_bytes if (last_clock and (o["EMIN_ML"] == "*" or info(code, sstg)[0] in o["EMIN_ML"].split(","))) else 0) < o["EMIN_M"]):
                 stall = True
+                lead_stall = o["EMIN_L_GW"] >= 3
             elif stg is not None and not of_stage and count < o["EMIN"]:
                 stall = True
+                lead_stall = o["EMIN_L_GW"] >= 3
             elif led and t < lead_t:
                 stall = True
         if is_last and stall and last_first_ip != (cur_at, ip):
@@ -763,6 +836,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     unarmed, armed_t = True, eu_due
                 eu_where = (dw if cur_op in (0xEE, 0xEF)
                             else code[cur_at + 1] if cur_op in (0xE6, 0xE7) else None)
+                io_split = cur_op == 0xE7 and eu_where is not None and bool(eu_where & 1)
                 if cur_op in (0x6E, 0x6F) and "X" in acts:      # (round 11) OUTM's port cycle
                     eu_kind, eu_where, eu_hold = "O", dw, False
             if "F" in acts:
@@ -775,12 +849,12 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     flush_to = code[pc - 4] | code[pc - 3] << 8
                     if cur_op == 0x9A:
                         calls.append(pc)
-                elif cur_op in (0xC3, 0xCB, 0xC2):          # (round 8) the offset last pushed
+                elif cur_op in (0xC3, 0xCB, 0xC2, 0xCA):          # (round 8) the offset last pushed
                     flush_to = calls.pop()
                 elif cur_op == 0xCF:                        # (round 13) RETI: the third push back
                     flush_to = calls[-1]
                 elif cur_op == 0xFF and code[cur_at + 1] in (0x17, 0x27, 0x1F, 0x2F):   # (round 21) through [BW]
-                    flush_to = m16["bw"]
+                    flush_to = m16["bw"] if "bw" in m16 else m16[bw]
                 elif cur_op == 0xFF and code[cur_at + 1] < 0xC0:    # (round 12) CALL / JMP mem
                     flush_to = m16[code[cur_at + 2] | code[cur_at + 3] << 8]
                 elif cur_op == 0xCD:                        # (round 12) BRK imm8: its vector
@@ -792,6 +866,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 else:
                     d = code[pc - 1]
                     flush_to = pc + d - (256 if d >= 128 else 0)
+                if cur_op in (0xCC, 0xCD) or (cur_op == 0xFF and (code[cur_at + 1] >> 3) & 7 in (2, 3)):
+                    calls.append(pc)     # (round 24) the return offset of BRK and of CALL r / m
                 flush_due = t + o["FLUSH_LAT"]
                 # (round 8) FLUSH_B2B: a back-to-back fetch of the old stream that starts on the
                 # flush word's own clock is still made (its word discarded), and the target's
@@ -803,6 +879,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     f_bytes = 0
                     flush_due = max(flush_due, f_end + 1 + o["FLUSH_GAP"])
                 count = pops = 0
+                fm_t = None
                 stg = None
                 pc = flush_to
                 pfp = None
@@ -842,6 +919,10 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                     bw = (bw + (1 if cur_op == 0x43 else -1)) & 0xFFFF      # (round 22) BW's parity
                 if cur_op in (0x74, 0x75) and not zf:
                     key = "JNZ" if cur_op == 0x74 else "JZ"     # the other outcome's routine
+                if 0x70 <= cur_op <= 0x7F and knobs.get("cond") and knobs.get("taken") is not None:
+                    key = "JZ" if knobs["taken"] else "JNZ"     # (round 24) the corpus chain says
+                elif key == "JCC":
+                    raise KeyError("JCC: no outcome")
                 if cur_op == 0xE3 and cw == 0:      # (round 10) BCWZ taken
                     key = "JCXZT"
                 if cur_op == 0xE2:       # (round 10) DBNZ: CW counts down; not taken at zero
@@ -876,6 +957,10 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 # dividend's)
                 if cur_op == 0xB8:
                     aw = code[stg + 1] | code[stg + 2] << 8
+                if cur_op == 0xA3:       # (round 24) MOV [d16],AW: pointers and vectors
+                    m16[code[stg + 1] | code[stg + 2] << 8] = aw
+                    if (code[stg + 1] | code[stg + 2] << 8) == 0x0C:
+                        vec3 = aw
                 if cur_op == 0xB0:
                     aw = (aw & 0xFF00) | code[stg + 1]
                 if cur_op == 0xB3:
@@ -1033,8 +1118,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
         # LCH=3: no arbitration inside the chain: a read requested at or after the clock before
         # the chain's first pin clock (LCH_Y) waits until the chain ends (more than five held)
         if (o["LCH"] == 3 and just_ended and f_chx >= 1 and eu_due is not None and eu_kind in o["LCH_K"]
-                and y_clock >= ch_start - o["LCH_Y"] and pfp is not None
-                and not halted and count <= o["B2B_AT"] and not eu_hold):
+                and y_clock >= ch_start - o["LCH_Y"] and pfp is not None and not (eu_kind == "W" and unarmed)
+                and not halted and count + (pops if (o["LCH_POP"] == 2 or (o["LCH_POP"] == 1 and eu_kind == "W")) else 0) <= o["B2B_AT"] and not eu_hold):
             old_loses = True
         # (round 21) RIPE4: a fetch at four or fewer held beats a read that becomes ripe on this
         # very clock (1: on the fetch chain behind an EU cycle only; 2: after any fetch)
@@ -1059,6 +1144,10 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                         and code[cur_at + 2] < 0xC0 and (code[cur_at + 2] & 7) in (0, 1, 7))):
                 ev.append((t + cyc, eu_kind, eu_where))
                 eu_end = t + 2 * cyc - 1
+            if eu_kind == "O" and io_split:
+                # (round 24) OUT imm8,AW to an odd port: two byte cycles back to back
+                ev.append((t + 3, eu_kind, eu_where + 1))
+                eu_end = t + 5
             last_kind = eu_kind
             eu_due = None
             eu_started = True
@@ -1069,6 +1158,11 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             lim = o["IDLE_AT"]
             if just_ended and e_clock != t and not (o["REQ_PRI"] and req_clock == t - 1):
                 lim = o["B2B_AT"]
+            if o["REQ_PRI"] >= 2 and just_ended and req_clock == t - 1 and (not o["REQ_PRI_K"] or eu_kind in o["REQ_PRI_K"]) and not (
+                    (o["REQ_PRI"] in (3, 5) and pops) or (o["REQ_PRI"] == 4 and count <= 3)):
+                lim = -1            # (round 24, trial) no back-to-back fetch at all behind a request word
+            if o["REQ_PRI"] == 5 and just_ended and req_clock == t - 1 and pops and e_clock != t:
+                lim = o["B2B_AT"]   # ... and a pop on this clock raises the continuation again
             if (o["ARB"] & 2 and just_ended and eu_due is not None and eu_kind in o["ARB_K"]
                     and req_clock == t - 3):
                 lim = -1
@@ -1081,11 +1175,11 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             # (round 13) CH_BNEXT: nor is that chained fetch started when the EU's next word is
             # a bus-idle word (the word would have to wait for the whole fetch)
             if (o["CH_BNEXT"] and just_ended and after_w is not None and f_end == after_w
-                    and last_kind in o["CH_K"] and ip < len(rt) and "B" in rt[ip] and not (iw and stall)
+                    and last_kind in o["CH_K"] and ip < len(rt) and "B" in rt[ip] and not (iw and stall) and not bi4_stall
                     and not pops):
                 lim = -1
             give_way = ((o["EU_EPRI"] and after_eu and pend and e_clock == t)
-                        or (lead_pri and e_clock == t))
+                        or (lead_pri and e_clock == t) or (lead_stall and after_eu and pend))
             # (round 22) EU_WPRI: the fetch wanted under an I/O cycle also gives way one clock when
             # a memory request word (Y, not V) executed on the cycle's last clock, or when the EU
             # executed plain words (no act, not a routine's last) on that clock and on this one
@@ -1106,6 +1200,7 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
                 ev.append((t, "F", addr - b))
                 # the slot stays ahead of the pins for a fetch that was pending under an EU
                 # cycle and for one chained to such a fetch (unless a pop falls on this clock)
+                f_late = (pend and skipped) or (f_late and bool(f_chx) and f_end is not None and t == f_end + 1 and not pend)
                 if pend:
                     ch_start = t
                 f_chx = 1 if pend else (f_chx + 1 if (f_chx and f_end is not None and t == f_end + 1) else 0)
@@ -1136,6 +1231,8 @@ def simulate(run, o=DEFAULT, limit=600, log=None):
             o["HIST"][t] = count
         if f_end is not None and t == f_end:    # delivered at the end of the last clock
             count += f_bytes
+            if delivered < o["FIRST_MIN"] <= delivered + f_bytes:
+                fm_t = t + 1
             delivered += f_bytes
         t += 1
     return ev

@@ -3384,3 +3384,25 @@ question, decided from S8's routed numbers with the user.
   78 of 78 against 50 to 62. For the held interrupt rebuild: keep its scanned path for DIC
   and move only where DIC's flag is set (from the resume to the terminal cycle); read the
   latches on the pop and hold the decision to the boundary.
+- **2026-11-17, socket round 24 (the clusters over the stopping line).** 1,170 runs, each
+  twice, 0 failed. RESULTS.md Q110 to Q117; work order 20 (`qprobe/tools/r24/SPEC20.md`,
+  with `rtl-miss-model-exact.json`: per RTL miss row the rules that carry it). The reading
+  model is now exact on 26,926 corpus runs (from 25,396, none lost) and on 1,006 of the
+  RTL's 1,369 misses (from 207); small set 22,426 of 23,670. **Read**: (A1, Q113) at a
+  flush target the decode lead of OUT / IN imm8 and RET runs from the clock the new
+  stream's fourth byte is in the queue, not from the pop (306 rows; the "frame trailer"
+  cluster was the marker OUT at a flush target); (A3, Q112) a request word on a fetch's
+  last clock cancels the back-to-back fetch at any count, and a pop on the next clock
+  raises it again (146); (A4, Q111) a bus-idle word that pops does not pass on the first
+  clock of a fetch that starts with four or fewer held (92; a bus-idle word without a pop
+  passes as before); (A5, Q114) RET near has a decode lead of 2 (54); (B, Q115) ADJBA /
+  ADJBS / EI have a bus-idle third word (36), PUSH imm ends as PUSH r (8); (A6, Q110) the
+  bit-field head's commit word (EXT / INS behind an I/O write at even alignment, W = 1 / 2)
+  passes on the chain's second fetch's fourth-last clock, where ROL4 / ROR4 / SHL r,imm8
+  stay on the third-last (112; three decompositions fit and no probe separates them: a
+  ruling is asked before it is built). The 277 runs the model did not parse needed parser
+  forms only (249 now exact). Section C: 297 rows the model reads with no new rule (build
+  items; 152 are "fetch late by 1" at W = 1 / 2 around transfers). **Over the line and not
+  read**: REP string successors 88, d16 / direct stores against the chain 78 (two more
+  readings rejected), ADD4S / SUB4S / CMP4S 39, single string forms behind PUSH at W = 1 /
+  2 25. CVTDB behind an EU cycle is open (42 socket runs, 6 corpus rows).
