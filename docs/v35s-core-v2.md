@@ -3406,3 +3406,8 @@ question, decided from S8's routed numbers with the user.
   read**: REP string successors 88, d16 / direct stores against the chain 78 (two more
   readings rejected), ADD4S / SUB4S / CMP4S 39, single string forms behind PUSH at W = 1 /
   2 25. CVTDB behind an EU cycle is open (42 socket runs, 6 corpus rows).
+- **2026-11-17, rulings (user) after round 24.** (1) The bit-field head's second commit-word
+  kind (spec 20 A6, 112 corpus runs) is not built: a known difference. (2) CVTDB behind an
+  EU cycle is left as a known difference. (3) The four unread states over the stopping
+  line (REP string successors, d16 / direct stores against the chain, ADD4S / SUB4S /
+  CMP4S, single string forms behind PUSH with waits) are to be explored with new probes.
