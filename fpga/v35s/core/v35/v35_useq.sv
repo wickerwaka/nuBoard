@@ -72,9 +72,12 @@
 //
 // Registered state (widths): upc 10, the ROM word 86 (96), retr 10, cnt 9, halted 1; the ce_b
 // copies ex_b 1, d1_b 10, (MX1) dc_b 1, dr_b 10 ((qprobe round 17) d2_b removed with DISPM).
+// Quartus 17.1 reads one import in a module header, so the imports sit in $unit scope
+// verilator lint_off IMPORTSTAR
+import v35_front_pkg::*;
+import v35_pkg::*;
+// verilator lint_on IMPORTSTAR
 module v35_useq
-    import v35_front_pkg::*;
-    import v35_pkg::*;
 #(
     parameter string UROM_DIR = "fpga/v35s/core/v35/"
 ) (

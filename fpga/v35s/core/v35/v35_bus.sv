@@ -230,7 +230,7 @@ module v35_bus
     // the direct form every clock). README "MX5" round 3
     typedef struct packed {
         logic       start, fetch, ack, sfr, rdy;
-        logic [2:0] kind, len;
+        logic [2:0] kind, blen;
         logic [1:0] width, half;
     } v35_gnt_t;
     // lengths: bus.length(kind), the SFR store's I/O waits. (F4d) A field of 3 is 2 waits, and
@@ -277,7 +277,7 @@ module v35_bus
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_f.half = g_second ? 2'd2 : (gnt_f.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_f.sfr = (gnt_f.kind == K_WRITE || gnt_f.kind == K_READ) && rq_sfr;
-        gnt_f.len = (k_io(gnt_f.kind) || gnt_f.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
+        gnt_f.blen = (k_io(gnt_f.kind) || gnt_f.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
                     3'(BUS_BASE) + 3'(waits_mem);
         gnt_f.rdy = !gnt_f.sfr && (k_io(gnt_f.kind) ? rdy_io : rdy_mem);
     endfunction
@@ -298,7 +298,7 @@ module v35_bus
     wire [1:0]  g_half = gn.half;
 
     wire g_sfr = gn.sfr;
-    wire [2:0] grant_len = gn.len;      // the length of the granted cycle
+    wire [2:0] grant_len = gn.blen;      // the length of the granted cycle
     // (qprobe round 15, spec 11 I7) the INT acknowledge is one cycle of six clocks with two
     // /INTAK pulses (silicon, Q55: low two clocks, high one, low two; the vector byte read at the
     // second pulse's end): its length set at the grant's register, the pulses below
@@ -1037,7 +1037,7 @@ module v35_bus
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_x.half = g_second ? 2'd2 : (gnt_x.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_x.sfr = (gnt_x.kind == K_WRITE || gnt_x.kind == K_READ) && rq_sfr;
-        gnt_x.len = (k_io(gnt_x.kind) || gnt_x.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
+        gnt_x.blen = (k_io(gnt_x.kind) || gnt_x.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
                     3'(BUS_BASE) + 3'(waits_mem);
         gnt_x.rdy = !gnt_x.sfr && (k_io(gnt_x.kind) ? rdy_io : rdy_mem);
     end

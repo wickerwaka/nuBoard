@@ -83,6 +83,8 @@ module v35_refresh #(
         logic [7:0] w_value;        // ... with this value
     } v35_rst_t;
 
+`ifndef SYNTHESIS    // elaboration checks ($error is not synthesisable everywhere)
+    generate
     if ($bits(v35_rst_t) != STATE_W) begin : g_state_width
         $error("v35_refresh: the state is %0d bits, STATE_W %0d", $bits(v35_rst_t), STATE_W);
     end
@@ -90,6 +92,8 @@ module v35_refresh #(
             || FIT_RFM_DELAY < 1 || FIT_RFM_DELAY > 3) begin : g_fit
         $error("v35_refresh: refresh_interval or rfm_delay out of the controller's range");
     end
+    endgenerate
+`endif
 
     v35_rst_t r;                            // the end of the last model clock
     v35_rst_t s_r, s_e;

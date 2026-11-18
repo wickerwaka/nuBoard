@@ -10,3 +10,4 @@ lint_off -rule UNUSEDPARAM -file "*v35/v35_pkg.sv"
 lint_off -rule UNUSEDPARAM -file "*v35/v35_udecode_tbl.svh"
 lint_off -rule UNUSEDSIGNAL -file "*v35/v35_pkg.sv"
 lint_off -rule UNUSEDSIGNAL -file "*v35/v35_udecode_tbl.svh"
+lint_off -rule VARHIDDEN -file "*v35_sfr.sv"    // its BW_* localparams hide the $unit-scope package imports

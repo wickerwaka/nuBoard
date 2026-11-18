@@ -48,9 +48,12 @@
 // staged opcode's offset; (step D) the next queue byte's is the queue's `hip`); the ce_b
 // copies. (The linear addresses of the next queue byte, the staged opcode and the popped
 // opcode, the trace's and the function bench's, are v35_top's observation block's.)
+// Quartus 17.1 reads one import in a module header, so the imports sit in $unit scope
+// verilator lint_off IMPORTSTAR
+import v35_front_pkg::*;
+import v35_pkg::*;
+// verilator lint_on IMPORTSTAR
 module v35_loader
-    import v35_front_pkg::*;
-    import v35_pkg::*;
 (
     input  wire        clock,
     input  wire        reset_n,
@@ -161,6 +164,14 @@ module v35_loader
     output wire [15:0] ip               // (MX2) the instruction pointer (registers): the offset of
                                         //   the byte after the last the routine popped
 );
+    // declared first: Quartus reads a name only after its declaration
+    v35_udec_t dec1;
+    typedef struct packed {
+        logic [UADDR_W-1:0] ent, ret;
+        logic               call, trap, eab, io;
+    } v35_dsp_t;
+    v35_dsp_t  df = '0;
+    v35_udec_t d1_nx;
     // (consol) the word executing a FLUSH, the dispatch executing (ex: the sequencer's registered
     // stall outcome; the word's bits registers)
     wire       flush = ex && flush_w;
@@ -497,7 +508,6 @@ module v35_loader
     // (MX5b) the opcode register's decode is a register beside it, loaded with op's next value
     // at ce_a (in reset from op): dec1 is v35_udec1(op) on every clock (`+v35_chk`)
     v35_udec_t d1r = '0;
-    v35_udec_t dec1;
     assign dec1 = d1r;
     // (qprobe round 17, timing) the second level's entry of the byte a word pops (the old
     // d2ent: d2row / d2f / fe_lo / fe_hi, the opcodes' numbers v35_udec2_fx / _fe) is gone with
@@ -520,10 +530,6 @@ module v35_loader
     // (MX5) the dispatch's facts are a function of op and mp alone (`dsp_f`), held in a register
     // beside them (`df`: loaded at ce_a from the values op and mp load, in reset from op and mp):
     // df is dsp_f(op, mp) on every clock (`+v35_chk`), so the next address reads a register
-    typedef struct packed {
-        logic [UADDR_W-1:0] ent, ret;
-        logic               call, trap, eab, io;
-    } v35_dsp_t;
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic v35_dsp_t dsp_f(input logic [7:0] o, input logic [7:0] m);
         v35_udec_t  d1;
@@ -551,7 +557,6 @@ module v35_loader
         dsp_f.io = l2 ? d2.io : d1.io;     // (F2b) an I/O form (no ModR/M: never a call)
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
-    v35_dsp_t df = '0;
     assign dcall = df.call;
     assign hd0 = hd_f(h_q0, v35_btag_t'(h_q0t), df.eab);
     assign hd2 = hd_f(h_dlv[7:0], tg_lo, df.eab);
@@ -701,7 +706,6 @@ module v35_loader
                 fmt_nx.w = dmw_b;   // (MX3c) the 0F form's width (the second level's)
         end
     end
-    v35_udec_t d1_nx;
     assign d1_nx = v35_udec1(op_nx);
     // the function's facts after the coming ce_a (the block below loads these)
     v35_lin_t  lx;

@@ -154,6 +154,7 @@ package v35_fn_pkg;
     function automatic logic [31:0] v35_mul(input logic sgn, input logic w,
                                             input logic [15:0] a, input logic [15:0] b,
                                             input logic [15:0] psw0, output logic [15:0] psw);
+        logic [15:0] vdrop;     // the unused result (a void cast is not portable)
         logic [31:0] p, sa, sb;
         logic [15:0] lo, f;
         logic ext;
@@ -172,7 +173,7 @@ package v35_fn_pkg;
             ext = sgn ? p[15:8] != {8{p[7]}} : p[15:8] != 8'd0;
         end
         if (sgn && ((w ? a[15] : a[7]) != (w ? b[15] : b[7]))) begin
-            void'(v35_alu(3'd5, w, 16'd0, 16'd0 - lo, psw0, f));    // 0 - |p|.lo
+            vdrop = v35_alu(3'd5, w, 16'd0, 16'd0 - lo, psw0, f);    // 0 - |p|.lo
             psw[V35_PSW_S] = f[V35_PSW_S];
             psw[V35_PSW_Z] = f[V35_PSW_Z];
             psw[V35_PSW_AC] = f[V35_PSW_AC];
@@ -259,11 +260,12 @@ package v35_fn_pkg;
     // half's low digit below |d|'s), CY and V cleared; the trapping divides' flags as before
     function automatic logic [31:0] v35_div_fin(input v35_div_t s, input logic [15:0] psw0,
                                                 output logic [15:0] psw, output logic trap);
+        logic [15:0] vdrop;     // the unused result (a void cast is not portable)
         logic [15:0] q, r;
         psw = psw0;
         trap = s.trap;
         if (s.trap) begin
-            void'(v35_alu(3'd5, s.w, s.hi, s.d, psw0, psw));
+            vdrop = v35_alu(3'd5, s.w, s.hi, s.d, psw0, psw);
             return 32'd0;
         end
         q = s.w ? s.q : {8'd0, s.q[7:0]};
@@ -326,6 +328,7 @@ package v35_fn_pkg;
     // correction, CY and AC the decisions. Returns {PSW, AW}.
     function automatic logic [31:0] v35_adjust(input logic [1:0] aop, input logic [15:0] aw,
                                                input logic [15:0] psw0);
+        logic [15:0] vdrop;     // the unused result (a void cast is not portable)
         logic [15:0] res, psw;
         logic [7:0] al, ah;
         logic sub, lo, hi, af, cf;
@@ -345,7 +348,7 @@ package v35_fn_pkg;
         end else begin
             lo = al[3:0] > 4'd9 || af;
             hi = lo;
-            void'(v35_alu(sub ? 3'd5 : 3'd0, 1'b0, {8'd0, al}, lo ? 16'd6 : 16'd0, psw0, psw));
+            vdrop = v35_alu(sub ? 3'd5 : 3'd0, 1'b0, {8'd0, al}, lo ? 16'd6 : 16'd0, psw0, psw);
             if (lo) begin
                 ah = sub ? ah - 1'b1 : ah + 1'b1;
                 al = sub ? al - 8'(6) : al + 8'(6);
@@ -555,6 +558,7 @@ package v35_fn_pkg;
     // which the state holds before the negation (s.lo; the byte form's in s.lo[15:8])
     function automatic logic [31:0] v35_mul_fin(input v35_mul_t s, input logic w,
                                                 input logic [15:0] psw0, output logic [15:0] psw);
+        logic [15:0] vdrop;     // the unused result (a void cast is not portable)
         logic [31:0] p;
         logic [15:0] lo, f, p16;
         logic ext;
@@ -574,7 +578,7 @@ package v35_fn_pkg;
             ext = s.sgn ? p16[15:8] != {8{p16[7]}} : p16[15:8] != 8'd0;
         end
         if (s.sgn && s.neg) begin
-            void'(v35_alu(3'd5, w, 16'd0, w ? s.lo : {8'd0, s.lo[15:8]}, psw0, f));
+            vdrop = v35_alu(3'd5, w, 16'd0, w ? s.lo : {8'd0, s.lo[15:8]}, psw0, f);
             psw[V35_PSW_S] = f[V35_PSW_S];
             psw[V35_PSW_Z] = f[V35_PSW_Z];
             psw[V35_PSW_AC] = f[V35_PSW_AC];

@@ -730,7 +730,7 @@ module v35_intc (
                     ic_if[k] <= 1'b0;   // (F4b) a macro-service take: IF cleared, ISPR kept
                 if (ms_end && tk_i == 4'(k))
                     ic_if[k] <= 1'b1;   // (F4b) the service's end: the vectored request
-                if (k < 3 && ip_set[k])
+                if (k < 3 && ip_set[k % 3])
                     ic_if[k] <= 1'b1;   // (qprobe round 16) INTP0-2: the pin's edge (sampled every second clock) after the pin path's latency
                 if (pf_set[k])
                     ic_if[k] <= 1'b1;

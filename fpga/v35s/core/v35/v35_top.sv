@@ -36,9 +36,12 @@
 //           register and the queue's line
 //   tick B  the RAM's data, the sources, the ALU, the EA step, the write port, the request's
 //           next state, the next microaddress (the ROM read at ce_a)
+// Quartus 17.1 reads one import in a module header, so the imports sit in $unit scope
+// verilator lint_off IMPORTSTAR
+import v35_front_pkg::*;
+import v35_pkg::*;
+// verilator lint_on IMPORTSTAR
 module v35_top
-    import v35_front_pkg::*;
-    import v35_pkg::*;
 #(
     parameter int RESET_REFRESH_STATE = 15,     // A3: first refresh 118-128 X1 (/REFRQ mid-B1)
     parameter int RESET_FETCH_STATE = 25        // A3: first fetch 198-208 X1 (/MREQ mid-B1)

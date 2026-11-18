@@ -3449,3 +3449,18 @@ question, decided from S8's routed numbers with the user.
   13-word head was a stall under MOV CL,imm8's refill), ADJ4S 9 words; a seventh-word
   bus-idle act is inferred from 2 runs; (Q121) the single MOVBK / CMPBK / CMPM / INM
   lack the bus-idle word the REP heads have (fourth word; INM fifth).
+- **2026-11-18, the core builds with Quartus (light gate).** Quartus Prime 17.1 Lite,
+  Cyclone V 5CSEBA6U23I7, project `fpga/v35s/synth/quartus/` (`run.sh [map|fit|sta]`, the
+  Efinity top's file list and wrapper, one clock at 17 ns): 6,795 ALMs, 4,665 registers,
+  36 M10K (the microcode ROM 30, the register RAM's six 128 x 8 copies 6), no DSP; Fmax
+  73.6 MHz, +3.42 ns at 17 ns. Syntax edits for the 17.1 parser, none of behaviour:
+  package imports in front of the module header, four `void'()` casts replaced, the
+  refresh unit's `$error` checks out of synthesis, the grant struct's `len` renamed
+  `blen`, declarations ahead of use in the loader, one dead-branch index kept in range.
+  ROM recognition is off for the loader instance (Quartus crashes extracting a ROM from a
+  decode table; which one is not isolated). Quartus warns of don't-care values on three
+  struct fields in the loader (lines 382, 470, 471) and a truncation at 376: not checked
+  in the netlist. **Gate**: corpus 29,167, identical run for run; vectors, tests, SST,
+  program gates and f4_hwd as the previous landing. Efinity seed 1 at 17 ns +2.397 (from
+  +3.124 with no logic change: 9,701 LUT4 from 9,571; seed-to-seed spread of this size is
+  to be expected of the tool).

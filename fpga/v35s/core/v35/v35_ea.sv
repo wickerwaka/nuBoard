@@ -11,9 +11,12 @@
 // -> the address register; a request reads the address register a word later (the assembler
 // rejects a posting word with ea=BI), so the sum never reaches the request's 20-bit address in
 // the same tick. About 10 levels with two carry chains: README "MX1".
+// Quartus 17.1 reads one import in a module header, so the imports sit in $unit scope
+// verilator lint_off IMPORTSTAR
+import v35_pkg::*;
+import v35_fn_pkg::*;
+// verilator lint_on IMPORTSTAR
 module v35_ea
-    import v35_pkg::*;
-    import v35_fn_pkg::*;
 (
     input  v35_ea_e    step,
     input  wire [7:0]  modrm,

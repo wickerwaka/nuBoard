@@ -32,10 +32,13 @@
 // addr 16, ea_ss 1, oprw 16, pfx_v 1, pfx_s 2, mul (v35_mul_t 51), div (v35_div_t 75), dtrap 1;
 // the request: rq_v 1, rq_cyc 2, rq_word 1, rq_pair 1, rq_addr 20, rq_off
 // 16, rq_out 1, rq_rd 1, rq_wr 1, rq_io 1, opr_v 1, opr 16, plo 8, (F5b, qprobe round 6) rq_d 16; the ce_b copies.
+// Quartus 17.1 reads one import in a module header, so the imports sit in $unit scope
+// verilator lint_off IMPORTSTAR
+import v35_front_pkg::*;
+import v35_pkg::*;
+import v35_fn_pkg::*;
+// verilator lint_on IMPORTSTAR
 module v35_eu
-    import v35_front_pkg::*;
-    import v35_pkg::*;
-    import v35_fn_pkg::*;
 (
     input  wire        clock,
     input  wire        reset_n,
