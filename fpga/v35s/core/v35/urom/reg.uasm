@@ -63,15 +63,17 @@ routine flag_di op=FA book="DI" why="(qprobe round 21) the E word bus-idle (`. .
     alu=FLAG wf e nb bi                     ; IE <- 0; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step); (qprobe round 21, spec 17 B, Q98) B N: DI is `. . BN .` (QPr21f di, 66 / 66 in the model): the E word bus-idle
 
 routine flag_ei op=FB book="EI" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 14, spec 10 B) EI is `. . . . . . . . . . . N .` (the qprobe QPr14s sw-ei runs: the fetches in front of the acknowledge; the RTL's was one clock short); the book's 12, eleven clocks with no act (the interrupt controller is not built)"
-    open call=w10                           ; OPEN: 11 clocks with no act (EI: the book's 12 + 1, measured) (the call and the shared delay's 10)
-    alu=FLAG wf e nb                        ; IE <- 1; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
+    open call=w1                            ; OPEN: two clocks with no act (EI: the book's 12 + 1, measured) (the call and the shared delay's 1)
+    bi jmp=ei_z                             ; (r24, work order 20 B, Q115) B: the bus-idle third word (`. . B` + 8 + `N .`); the rest in zz_late.uasm (no entry address moves)
+    open                                    ; OPEN: (r24) unused (the dispatch word's place kept so no address moves)                        ; IE <- 1; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
 
 routine lahf op=9F book="MOV AH,PSW" why="one word: the book's 2"
     wr=AW wid=HIGH ws=PSW e                 ; AH <- the PSW's low byte; E
 
-routine sahf op=9E book="MOV PSW,AH" why="the read and the PSW write: the book's 3"
-    ra=AW wid=WORD d1=TB s1=RA              ; read AW into tmpb
-    alu=PSWL ax=TB wf e                     ; the PSW's low byte <- AH; E
+routine sahf op=9E book="MOV PSW,AH" diff=-1 why="OPEN: (r24, work order 20 C, model_m SAHF `N .`; F36-out-psw-lahf-sahf: 8 corpus runs) book error of one: silicon shorter than the book: the read and the PSW write on the E word, 2 against the book's 3; was: the read and the PSW write: the book's 3"
+    ra=AW wid=WORD alu=PSWL ax=RA wf e      ; (r24, work order 20 C, model_m SAHF `N .`: 8 corpus rows) read AW; the PSW's low byte <- AH; E
+    open                                    ; OPEN: the dispatch word (the word after E)
+sahf_u: open                                ; OPEN: (r24) unused (the word kept so no address moves)
 
 ; V20 CBW 0060-0061
 routine cvtbw op=98 book="CVTBW" why="the book's 3 (qprobe rule 6: CVTBW is `N . .`, the next opcode released on the first word, three words to the dispatch); the read and the extension with the release, the write on the E word"

@@ -182,8 +182,9 @@ routine adj4 op=27,2F book="ADJ4A" diff=1 why="OPEN: silicon longer than the boo
 ; 37 / 3F: ADJBA / ADJBS (AAA / AAS)
 routine adjb op=37,3F book="ADJBA" why="OPEN: the book's 17: the read and the adjust (W), the write on E; fourteen book clocks with no act (F33-out-adjba-k1-pE-w0: the fetch after it 1 late, the OUT's write 4 early: open, README MX3 (part 2))"
     ra=AW wid=WORD alu=ADJ ax=RA wf         ; read AW; the adjust of AL and AH (W)
-    open call=w13                           ; OPEN: 14 clocks: a book clock with no act (ADJBA 17) (the call and the shared delay's 13)
-    wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E
+    open jmp=adjb_z                         ; OPEN: a book clock with no act (ADJBA 17); (r24, work order 20 B, Q115) the rest in zz_late.uasm (no entry address moves)
+    open                                    ; OPEN: (r24) unused (the word kept so no address moves)
+    open                                    ; OPEN: (r24) unused (the dispatch word's place kept)
 
 ; D4 ib: CVTBD (AAM): AL divided by the byte, eight restoring steps (the byte divide's loop)
 routine cvtbd op=D4 book="CVTBD" width=byte diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 17, Q70, spec 13 B) CVTBD is `. . . P . B . . . . . . . . . . . . . N .` (QPr15a cvtbd, QPr17d: 63 / 66 in the model): three words with no act, the divisor's pop and release on the fourth, AL read into the divide's state, a bus-idle sixth word, four words with no act, eight steps, the finish (W), E with the next opcode on the twentieth; was: silicon longer than the book by one (F33-out-cvtbd-k1-pE-w0)"

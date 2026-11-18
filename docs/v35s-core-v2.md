@@ -3464,3 +3464,27 @@ question, decided from S8's routed numbers with the user.
   program gates and f4_hwd as the previous landing. Efinity seed 1 at 17 ns +2.397 (from
   +3.124 with no logic change: 9,701 LUT4 from 9,571; seed-to-seed spread of this size is
   to be expected of the tool).
+- **2026-11-18, the build-fault batch and work order 20 (light gate, three seeds).** Corpus
+  30,054 of 30,536 (from 29,167: +887, none lost; F37 +122, F34 +132, F35 +146, F23 +72,
+  F30 +61), writes 106,824 of 106,824; vectors 0 bad, 56 tests, SST, every program gate
+  and f4_hwd as the previous landing. ROM 2,832 words. **Built**: (1) EXT across a word
+  with DL as the offset: the `[n < 16]` word (88 runs; a full-word field skips it on the
+  counter); (2) CH_BNEXT: the fetch chained behind a memory write does not start on the
+  clock of a word that releases nothing and is followed by a bus-idle word (41). The
+  assembler marks such words (`nb`, 200 words, from the ROM's static successors); the
+  mark travels on the word-kind port's free code flush+alt without bi. One microword of
+  look-ahead inside the routine, not the next opcode; (3) transfers to OUT imm8 with one
+  wait (151): the lead counter starts at 2 when the E word waited for the staging slot
+  alone (`ew`). **A compensation, not the mechanism**: silicon's word pops the arriving
+  opcode on its delivery clock, the RTL's slot loads at the end of it; (4) work order 20:
+  A1 the lead at a flush target, A3 the request word on a fetch's last clock (memory
+  requests only), A4 the popping bus-idle word (free code disp+bi), A5 RET's lead 2, the
+  ADJBA / ADJBS / EI and PUSH imm shapes, SAHF one word. INT 3's decode lead is removed
+  (22 corpus runs and 8 socket runs gained, QPr8-ld-int3-n-pE-w0 lost; Q22 had measured a
+  lead of 3: to be probed again). **Not built**: A6 (ruled), JMP / CALL far's request
+  word without a cycle (16 runs). **Timing at 17 ns**: seeds 1 / 2 / 3 +2.423 / +1.935 /
+  +1.543, 9,611 LUT4, 2,548 FF, 108 RAM_5K. All pass, but two seeds are under the +2.0 ns
+  line set for spec 18 A2. The three worst paths are three different ones and none is
+  A2's (seed 1 loader `mra` to the address mux, seed 2 the DMA gate to the ROM address,
+  seed 3 the loader's staged byte to `ex`). A timing repair with no change of behaviour
+  is ordered; whether A2 stays is the user's ruling.

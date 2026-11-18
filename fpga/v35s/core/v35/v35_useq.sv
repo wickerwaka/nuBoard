@@ -341,13 +341,24 @@ module v35_useq
     assign w_disp_nx = pd_nx.disp;
     assign w_erep_nx = pd_nx.erep;
     // (consol) the next word's kind for the bus unit's pace
-    assign wk_nx.disp = pd_nx.disp;
+    // (r24, work order 20 A4, Q111) a bus-idle word that releases a byte (bi, no vk, not FLUSH, rl 1 /
+    // 2 or ro) presents the kind's free code dispatch with bi (the dispatch word never has bi): the
+    // bus unit's wait against a back-to-back fetch at four or fewer held (`kbp`)
+    wire        wk_bp = word_nx.bi && !word_nx.vk && !word_nx.flush && word_nx.rl != RL_X
+                        && (word_nx.rl != RL_0 || word_nx.ro);
+    assign wk_nx.disp = pd_nx.disp || wk_bp;
     // (qprobe round 23, spec 18 A2) the strict word (bi vk rl == RL_2) presents C's code with
     // the flush bit: the kind's free code flush with alt (a FLUSH word never carries vk), so
     // the bus unit tells it from the commit word C, which passes on the third-last clock of the
     // chain's second fetch and the strict word does not
     wire        wk_st = word_nx.bi && word_nx.vk && word_nx.rl == RL_2;
-    assign wk_nx.flush = word_nx.flush || wk_st;
+    // (r24, model_m CH_BNEXT, Q42's second half) nb on a word that is not an E word: a word with
+    // no bus-wait kind followed by a bus-idle word (the assembler's mark, uasm _mark_bnext). It
+    // presents the kind's free code flush with alt and no bi (the strict word has bi; a FLUSH
+    // word never carries vk), so the bus unit can keep the fetch chained behind a write's fetch
+    // from starting on the clock this word executes
+    wire        wk_bn = word_nx.nb && !word_nx.e;
+    assign wk_nx.flush = word_nx.flush || wk_st || wk_bn;
     assign wk_nx.rlx = word_nx.rl == RL_X;
     // (qprobe round 21, spec 10 A1 / Q42's second half, C_NOCH) the commit word that releases a
     // byte (bi with vk and rl == RL_1: `P C`) presents the kind's free code, alt alone (bi
@@ -357,7 +368,7 @@ module v35_useq
     // the flush bit (below)
     wire        wk_cr = word_nx.bi && word_nx.vk && word_nx.rl == RL_1;
     assign wk_nx.bi = word_nx.bi && !wk_cr;
-    assign wk_nx.alt = word_nx.vk && (word_nx.bi || word_nx.rl == RL_X);     // (qprobe round 10) the wait's second kind (C, V)
+    assign wk_nx.alt = (word_nx.vk && (word_nx.bi || word_nx.rl == RL_X)) || wk_bn;     // (qprobe round 10) the wait's second kind (C, V); (r24) wk_bn's code
     v35_sin_t  si_nx;
     always_comb begin
         si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release

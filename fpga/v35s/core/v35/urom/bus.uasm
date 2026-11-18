@@ -42,8 +42,7 @@ routine push_i16 diff=2 op=68 book="PUSH imm16" why="(qprobe round 6) beyond the
     open                                    ; OPEN: (qprobe round 6) a word with no act
     open                                    ; OPEN: (qprobe round 6) a word with no act
     bus=MEMW seg=SS wid=WORD                ; post the write (Y + 3)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN: the function-bearing hold)
-    ro                                      ; post-E: (qprobe round 6) N on the boundary word (the model's): the next opcode released when the dispatch executes, on the write's last clock (rule 7, E_PEND)
+    e ro                                    ; E: an on-chip store holds it to the write's end (RAMEN: the function-bearing hold); (r24, work order 20 B, Q115) N here, as PUSH r's (`. . . . PP2 . Y . . . N .`): the next opcode released four words behind the request word
 
 routine push_i8 op=6A book="PUSH imm8" diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 14, spec 10 B) PUSH imm8 is `. . . P . Y N` (the qprobe pushi8 runs, 23 / 24 in the model; PUSH imm16's `. . . . PP2 . Y N` one byte shorter): SP - 2, the immediate popped and released on the fourth word, its datum, Y (the request word), the post (Y + 3), E, N on the boundary word; OPEN: book error of one: the book's 12 against silicon's 12 (a6, less the stall: 11); the pop, the push's acts merged, its hold, two book clocks with no act before the post"
     open                                    ; OPEN: (qprobe round 14) a word with no act
@@ -54,8 +53,7 @@ routine push_i8 op=6A book="PUSH imm8" diff=2 why="OPEN: silicon longer than the
     rl=x bi                                 ; (qprobe round 14) Y: the request word (the write due four clocks after it)
     open call=w1                            ; OPEN: two words with no act (the call and the shared delay's 1)
     bus=MEMW seg=SS wid=WORD                ; post the write (Y + 3)
-    e                                       ; E: an on-chip store holds it to the write's end (RAMEN)
-    ro                                      ; post-E: N on the boundary word (the model's), as PUSH imm16
+    e ro                                    ; E: an on-chip store holds it to the write's end (RAMEN); (r24, work order 20 B, Q115) N here, as PUSH r's (`. . . P . Y . . . N .`)
 
 ; POP (V20 POP_R16 002C-002F, POPF 0078-007B)
 routine pop_r op=58-5F book="POP reg16" why="OPEN: (qprobe rule 14) POP r16 is `. . Y DN .` (the qprobe pop runs): SP into the address register, SP + 2, Y (SP's write: the request word, the read due four clocks after it, posted on the third word after it), two words with no act, the post, D N (F: the datum into the register; E), the dispatch: S to S 11 at W = 0 with no fetch in the way: the book's 11; before qprobe: three book clocks with no act before the post (S+5)"

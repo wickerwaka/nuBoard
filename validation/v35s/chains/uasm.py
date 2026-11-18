@@ -744,6 +744,46 @@ def modrm_path(mb: int) -> str:
     return {1: "d8", 2: "d16"}[md]
 
 
+def _bus_idle(f: dict) -> bool:
+    """(r24) the word waits as the model's B: bi without rl=X, not a FLUSH word, and not the
+    commit word C (bi with vk on rl 0 / 1); the strict word (bi vk rl=2) is one."""
+    rl = f.get("rl", 0)
+    return (bool(f.get("bi")) and rl != enum_value("v35_rl_e", "x") and not f.get("flush")
+            and not (f.get("vk") and rl != enum_value("v35_rl_e", "2")))
+
+
+def _mark_bnext(words: list) -> None:
+    """(r24, model_m CH_BNEXT, results Q42's second half) nb on a word that is not an E word
+    marks it "followed by a bus-idle word": a word with no bus-wait kind (no bi, rl not X, no
+    FLUSH, not the dispatch) whose every static successor is a bus-idle word (_bus_idle). The
+    sequencer presents it to the bus unit as the word kind's free code (v35_useq wk_bn): the
+    fetch chained behind the fetch that followed a memory write is not started on the clock
+    such a word executes without a release. nb keeps its own meaning on E words (no
+    boundary); the successors of a RET, DISP, DISPM, EAC or TRAP word are not static (no mark).
+    An explicit nb on a non-E word is an error (the bit is the assembler's there)."""
+    sq = {k: enum_value("v35_seq_e", k) for k in ("next", "jmp", "jc", "jnc", "call", "loop", "tki")}
+    rlx = enum_value("v35_rl_e", "x")
+    for i, (r, w) in enumerate(words):
+        f = w.fields
+        if f.get("e"):
+            continue
+        if f.get("nb"):
+            raise UasmError(f"{r.path}:{w.line}: nb on a word that is not an E word")
+        if f.get("bi") or f.get("rl", 0) == rlx or f.get("flush"):
+            continue
+        seq = f.get("seq", 0)
+        if seq == sq["next"]:
+            succ = [i + 1]
+        elif seq in (sq["jmp"], sq["call"]):
+            succ = [f.get("tgt", 0)]
+        elif seq in (sq["jc"], sq["jnc"], sq["loop"], sq["tki"]):
+            succ = [f.get("tgt", 0), i + 1]
+        else:
+            continue
+        if all(j < len(words) and _bus_idle(words[j][1].fields) for j in succ):
+            f["nb"] = 1
+
+
 def assemble(paths: list[Path] | None = None) -> Program:
     paths = paths if paths is not None else sorted(UROM.glob("*.uasm"))
     routines = []
@@ -789,6 +829,7 @@ def assemble(paths: list[Path] | None = None) -> Program:
             if v not in labels:
                 raise UasmError(f"{r.path}:{w.line}: no label {v!r}")
             w.fields[k] = labels[v]
+    _mark_bnext(words)
     # the decode cells
     cells1, cells2 = {}, {}
     for r in routines:

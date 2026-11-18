@@ -655,7 +655,22 @@ module v35_loader
     assign rls = !ex ? 3'd0 : {2'd0, ro} + ((rl == RL_X) ? 3'd0 : {1'd0, rl}) + {2'd0, mra} + {1'b0, rdc};
     wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : mpm;
     wire       mra_nx = flush_b ? 1'b0 : disp_b ? mpm : ex_lb ? 1'b0 : mra;
-    wire [2:0] lc_nx = ro_b ? 3'd1 : lc == 3'd4 ? 3'd4 : lc + 3'd1;
+    // (r24, model_m LEAD_*: the lead counts from the clock the opcode leaves the queue, the
+    // model's N) `ew`: the E word waited on this clock for the staging slot alone (empty, not
+    // executed) and the slot loaded the arriving opcode now (sload: the byte left the queue on
+    // its delivery clock, the model's N). The E word then executes one clock behind that pop
+    // (the staging register is written at the clock's end), so its release starts the count at
+    // 2: the boundary at the pop + lead, as the model has it (W = 1 / 2 transfers to OUT imm8:
+    // the fetch the lead's end gives way to)
+    reg        ew = 1'b0;
+    // (r24, work order 20 A1, Q113, model_m LEAD_FM) at a flush target the decode lead runs from the
+    // clock the new stream's fourth byte is in the queue (the stream-valid level, FIRST_MIN's) when
+    // that is later than the opcode's release: `dfl` counts the bytes delivered since the last
+    // flush (through this clock, saturating at 4; 4 from reset), and while it is below 4 the count
+    // is held at 0, so it reads 1 on the clock after the fourth byte's delivery clock
+    reg  [2:0] dfl = 3'd4;
+    wire [2:0] lc_nx = dfl != 3'd4 ? 3'd0
+                     : ro_b ? ((ew && epop_b) ? 3'd2 : 3'd1) : lc == 3'd4 ? 3'd4 : lc + 3'd1;
     wire       hp_nx = hrel_b ? 1'b1 : (flush_b || hw_b) ? 1'b0 : hp;
     // ------------------------------------------------------------ the end of the clock (ce_a)
     wire [7:0] s_nb = (opop_b || mpop_b) ? sb1_b : sb0_b;     // the staging load's byte
@@ -666,6 +681,10 @@ module v35_loader
     v35_udec_t ds_nx;
     assign ds_nx = (!flush_b && sload_b) ? v35_udec1(s_nb) : ds;
     wire       arrive_nx = q_dlv_nx && !q_discard_nx;
+    // (r24, A1) the bytes delivered since the flush as the coming ce_a leaves them (the next clock's
+    // delivery counted: dfl is then this clock's, the delivery included)
+    wire [3:0] dfl_s = {1'b0, dfl} + (!arrive_nx ? 4'd0 : q_odd_nx ? 4'd1 : 4'd2);
+    wire [2:0] dfl_nx = flush_b ? 3'd0 : dfl_s >= 4'd4 ? 3'd4 : dfl_s[2:0];
     wire [3:0] av_w_nx = {1'b0, q_stored_nx}
                          + (!arrive_nx ? 4'd0 : q_odd_nx ? 4'd1 : 4'd2);
     wire [2:0] av_nx = av_w_nx > 4'd7 ? 3'd7 : av_w_nx[2:0];
@@ -758,10 +777,14 @@ module v35_loader
             mra <= 1'b0;
             lc <= 3'd4;
             hp <= 1'b0;
+            ew <= 1'b0;
+            dfl <= 3'd4;
         end else if (ce_a) begin
+            dfl <= dfl_nx;
             mpm <= mpm_nx;
             mra <= mra_nx;
             lc <= lc_nx;
+            ew <= e_pop && !ex_lb && !s_v && sload_b && !flush_b;
             hp <= hp_nx;
         end
     end

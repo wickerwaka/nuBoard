@@ -852,7 +852,7 @@ write-back runs on past E (the model's wb 2: shift_cl, shift_imm and the memory 
 multiplies and divides, CVTBW, CVTWL), and a decode bit `wbs` (the header `wbs=e`) on OUT
 imm8,acc: its routine's first act is the accumulator's read into the write datum.
 - 1 (the default): the E word that pops a `wbs` opcode waits out its own write-back's two
-  clocks (`wbn`): the result's write, then the flags'. That is the model's placement (the
+  clocks (`wkbn`): the result's write, then the flags'. That is the model's placement (the
   write-back [done_t, done_t + 2) on the E clock and the next; OUT's three clocks before its
   port take start at wb_until).
 - 2 (the coordinator's fallback): OUT's entry word waits, the write-back counted as the two
@@ -8255,3 +8255,64 @@ Q101). Inside the existing ports (test_v35_struct unchanged).
   mismatched encodings 7 -> 5 (SHLI cleared). Interrupt probes pushed 2,947 / clock 2,157 of 7,122,
   none moved. FPGA at 17 ns seed 1 +3.124 (from +2.924), 9,571 LUT4, 2,542 FF, 108 RAM_5K; v35_bus
   +6.605, v35_useq +6.055 (fast loop; the full gate is the overseer's).
+
+## r24: runs the reading model has and the RTL lacked (CH_BNEXT, EXT's [n < 16] word, the lead from the opcode's pop)
+
+The 207 corpus runs the model (validation/v35s/qprobe/model_m.py) reproduced and the RTL did not
+at 9614ced, read side by side (the model's word trace, `WLOG`, against `+v35_trace`). Inside the
+existing ports (test_v35_struct unchanged; one more free code of wk_t).
+
+- **CH_BNEXT (results Q42's second half, round 13; 33 runs: add_dw_imm / D4 / LEA d16 / MOV
+  r,mem behind PUSH at W = 0).** The fetch chained to the fetch that followed a memory write is
+  not started on the clock the EU executes a word that releases nothing and is followed by a
+  bus-idle word. Not built before because the next word's kind is not known on the grant's tick
+  A. Built as a static property of the ROM: the assembler (uasm `_mark_bnext`) sets `nb` on every
+  word that is not an E word, has no bus-wait kind and whose static successors (the next word,
+  a jump or call target, both arms of a conditional) are all bus-idle words (bi without rl=X, not
+  a FLUSH word, not the commit word C; the strict word is one); `nb` keeps its meaning on E words
+  (an explicit `nb` on another word is an assembler error). v35_useq presents such a word on
+  wk_t's free code flush with alt and no bi (`wk_bn`); v35_bus decodes it (`wkbn`; `kst` now needs
+  bi, `cr_k` excludes flush, `wkp` counts it as a word with no act) and drops the line on
+  `bnx = dlv_fetch && few && ex && wkbn && lv_q.nrl` (registers but the release; no give-way: the
+  slot is not kept). 200 words marked. A successor reached by RET (the shared delay's last word)
+  is not static: such a word is not marked.
+- **EXT across a word: the [n < 16] word (model_m EXTX_BASE + 2 o + [n < 16]; 82 runs, F32 / F34
+  EXT with DL as the offset register, offset 8, every wait).** After the mask (bf.uasm ext_xm /
+  ext_xm2, now `alu=BFM jmp=ext_xq`) the end runs in zz_late.uasm (no entry address moves): the
+  offset's step parked in tmpa, the counter loaded with 15 - w (CN_SIG of BFK on tmpa), the step
+  back in SIGMA, and a word skipped when the counter is zero (a full-word field). The end is 12
+  words for a full-word field and 13 for a narrower one.
+- **The lead from the opcode's pop (model_m LEAD_*: the boundary no sooner than the lead after
+  the N pop; 80 runs: Bcc / BR / CALL / RET to OUT imm8 at W = 1, both parities).** After a
+  transfer the E word waits for the target's opcode on an empty staging slot; the opcode leaves
+  the queue into the slot on its delivery clock (the model's N) and the E word pops the slot one
+  clock later (the slot is written at the clock's end). The lead counter (v35_loader `lc`) now
+  starts at 2 on that release (`ew`: the E word waited on this clock for the slot alone and the
+  slot loaded now), so the boundary comes at the pop + lead and the lead's end meets the fetch
+  (LEAD_EPRI) on the model's clock. Only the lead's count moves; the release itself (the count's
+  occupancy) is still on the E word's clock, which after a transfer is never at a threshold.
+- **Work order 20 (socket round 24, results Q111-Q115; validation/v35s/qprobe/tools/r24/SPEC20.md).**
+  A1 (Q113, model_m LEAD_FM): at a flush target the decode lead runs from the clock the new
+  stream's fourth byte is in the queue: v35_loader `dfl` counts the bytes delivered since the last
+  flush (saturating at 4, 4 from reset) and holds `lc` at 0 while it is below 4. A2: the RTL's
+  boundary already keeps the stream's byte test (`ews`) apart from the lead's give-way (`sle`
+  lifts only the back-to-back term), so nothing more. A3 (Q112, REQ_PRI=5): behind a memory
+  request word Y executed on a fetch's last clock (`ry1` on that fetch's delivery) no
+  back-to-back fetch starts, four or fewer held too, unless the word now releases a byte (then
+  the line and the five-held continuation as usual, not on the boundary's clock); X / S keep the
+  five-held bar alone (their kind code is one). A4 (Q111, B_I4=4): a bus-idle word that releases
+  a byte waits on the clock a fetch starts back to back with four or fewer held (`lv.b4`, no EU
+  request): v35_useq presents such a word (bi, no vk, not FLUSH, rl 1 / 2 or ro) on the kind's
+  free code dispatch with bi (`wk_bp`; the dispatch word never has bi), v35_bus decodes it
+  (`kbp`; `wkd` and the boundary term exclude bi) and adds `b4w_nx` to its B wait; the commit
+  word that releases a byte (the alt-alone code) waits on it too; the strict word already waited
+  on the five-held start. A5 (Q114): RET near (C3) lead 2. B (Q115): ADJBA / ADJBS and EI have a
+  bus-idle third word (tails in zz_late.uasm, no entry address moves); PUSH imm16 / imm8 release
+  the next opcode on their E word (`. . . . PP2 . Y . . . N .`); PUSH r's G and OUT imm8,AW to an
+  odd port: already so (the bus unit's pair covers an odd I/O port). C (the model's build items):
+  SAHF one word (`N .`: AW read and the PSW written on the E word); INT 3 without a lead (model_m
+  has none, LEAD_CC 0; romcheck's "lead model 1 ROM 3"). A6 (the bit-field head's second commit
+  word) is not built: it awaits a ruling.
+- **Not built:** JMP far / CALL far's Q act (a word the bus unit sees as a request, REQ_PRI, with
+  no cycle: 16 corpus runs at W = 0, behind PUSH at odd and OUT at even alignment; below the
+  stopping line, and it needs a further free code of wk_t).

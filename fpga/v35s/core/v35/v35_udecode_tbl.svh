@@ -3,7 +3,7 @@
 // v35_udec2 (the opcode and the byte a DISPM word pops: the ModR/M byte, the 0F page's second byte -> the second entry and
 // the group's operation), v35_umodrm / v35_upage (the bytes a ModR/M or a 0F second byte's pop adds to the bytes still to pop). Included by v35_pkg.sv.
 
-    localparam int UROM_WORDS = 2813;
+    localparam int UROM_WORDS = 2832;
     localparam logic [UADDR_W-1:0] UROM_RESET = 12'd365;
     // (F2b) the I/O trap's entry: the dispatch's target for an I/O form with PSW.BRKI 0
     localparam logic [UADDR_W-1:0] UROM_IOT = 12'd2115;
@@ -225,7 +225,7 @@
             8'hC0: f = '{12'd369, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};
             8'hC1: f = '{12'd369, 1'b0, 1'b1, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};
             8'hC2: f = '{12'd2332, 1'b0, 1'b0, 1'b1, 1'b0, 1'b1, 1'b0, 3'd0, 3'd0, 3'd2, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
-            8'hC3: f = '{12'd2310, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
+            8'hC3: f = '{12'd2310, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd2, 1'b0, 1'b0, 1'b0};
             8'hC4: f = '{12'd369, 1'b0, 1'b1, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};
             8'hC5: f = '{12'd369, 1'b0, 1'b1, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};
             8'hC6: f = '{12'd369, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};
@@ -234,7 +234,7 @@
             8'hC9: f = '{12'd1807, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'hCA: f = '{12'd2361, 1'b0, 1'b0, 1'b1, 1'b0, 1'b1, 1'b0, 3'd0, 3'd0, 3'd2, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'hCB: f = '{12'd2345, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
-            8'hCC: f = '{12'd2671, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd3, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd3, 1'b0, 1'b0, 1'b0};
+            8'hCC: f = '{12'd2671, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd3, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'hCD: f = '{12'd2661, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd1, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'hCE: f = '{12'd2668, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd4, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'hCF: f = '{12'd2704, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 3'd0, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};

@@ -67,3 +67,32 @@ routine d6clr_r op=D6 mod=reg why="(F5g) D6 /r register: CLR1 reg8 by the reg fi
     wid=WORD alu=BTM ax=SIG                 ; SIGMA <- 1 << the reg field (the mask)
     rb=RM alu=BTC ax=RB ay=SIG e            ; the byte register rm with the bit cleared (no flags); E (the E row's operation)
     wr=RM ws=SIG                            ; the register written on the word after E (its write port: MX3's WBR)
+
+; (r24, model_m EXTX_BASE + 2 o + [n < 16]: the 82 corpus runs of EXT across a word with DL as the
+; offset register, F32 / F34) EXT across a word, after the mask (bf.uasm ext_xm / ext_xm2): the
+; end is 12 words for a full-word field and 13 for a narrower one. The counter is loaded with
+; 15 - w (zero for a full-word field) and tested; the offset's step goes through tmpa and back
+; to SIGMA, which the end (ext_t / ext_t2) writes to the offset register.
+routine ext_xq_body why="OPEN: (r24) the [n < 16] word of EXT across a word (model_m EXTX_BASE + 2 o + [n < 16])"
+ext_xq2: alu=BFK ax=TA d1=TA s1=SIG     ; tmpa <- the offset's step; SIGMA = 15 - width
+    cnt=SIG alu=PASS ax=TA              ; the counter <- 15 - width (low four bits: 0 for a full-word field); SIGMA = the offset's step
+    jc=CNTZ:ext_xf2                     ; a full-word field: the [n < 16] word skipped
+    open                                ; OPEN: the [n < 16] word (a field narrower than the word)
+ext_xf2: open call=w2                   ; OPEN: three words with no act (the call and the shared delay's 2)
+    open jmp=ext_t2                     ; OPEN: a word with no act; the end
+ext_xq: alu=BFK ax=TA d1=TA s1=SIG      ; (the imm4 form's copy) tmpa <- the offset's step; SIGMA = 15 - width
+    cnt=SIG alu=PASS ax=TA              ; the counter <- 15 - width; SIGMA = the offset's step
+    jc=CNTZ:ext_xf                      ; a full-word field: the [n < 16] word skipped
+    open                                ; OPEN: the [n < 16] word
+ext_xf: open call=w2                    ; OPEN: three words with no act (the call and the shared delay's 2)
+    open jmp=ext_t                      ; OPEN: a word with no act; the end
+
+; (r24, work order 20 B, Q115) ADJBA / ADJBS and EI: a bus-idle third word (`. . B` + 12 / 8 + `N .`,
+; the lengths unchanged); the words behind the first two of each routine are here so that no entry
+; address moves (loop.uasm adjb, reg.uasm flag_ei)
+routine adjb_ei_tail why="OPEN: (r24) the tails of ADJBA / ADJBS and EI behind their bus-idle third word (model_m ADJB, EI)"
+adjb_z: bi                              ; B: the bus-idle third word
+    open call=w11                       ; OPEN: 12 clocks: book clocks with no act (ADJBA 17) (the call and the shared delay's 11)
+    wr=AW wid=WORD ws=SIG e             ; AW <- SIGMA; E
+ei_z: open call=w7                      ; OPEN: eight clocks with no act (the call and the shared delay's 7)
+    alu=FLAG wf e nb                    ; IE <- 1; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)

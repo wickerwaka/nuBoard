@@ -46,8 +46,8 @@
 ; a four-word entry skipped for a full-word field; INS: sixteen rotations), each structure's fixed
 ; words, and the end: EXT `PN .` (24 + 4 [n < 16] + 2 (16 - o - n) + 2 (16 - n) words after D),
 ; INS `Z G PN .` (70 + 2 [o > 0] - 8 [o + n = 16]). Across a word (o + n > 16, spec 9 B3): EXT
-; 23 words, `U D` (the next word's read), 12 + 2 o + [n < 16] words (the [n < 16] word not built: a
-; full-word field crossing is one word long), `PN .`; INS 65 words, `Z D` (the first word written
+; 23 words, `U D` (the next word's read), 12 + 2 o + [n < 16] words ((r24) the [n < 16] word built in zz_late.uasm
+; ext_xq / ext_xq2: a full-word field crossing skips it), `PN .`; INS 65 words, `Z D` (the first word written
 ; as a field ending at bit 15), 8 words, `U D`, 17 + 4 m words (m = o + n - 16), `Z G PN .`.
 
 routine ext op=33 page=0f why="OPEN: (qprobe round 16, Q61 / Q62: the head `P . BP . C . Y D` (r,r) / `P . BP . C . . Y D` (r,imm4), replacing the round-12 head quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12-13, Q38 / Q44) EXT reg8,reg8: the imm4 form's routine with the head one word shorter and no immediate (`P . P . C . Y D` ... `N .`; the qprobe ext runs, round 9)"
@@ -88,8 +88,8 @@ ext_x2: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG ; tmpb <- the low word; tmpc <- 
     f d1=TC s1=OPR jc=CNTZ:ext_xm2       ; D: F: tmpc <- the high word; offset 0: the mask
 ext_xr2: alu=BFR                         ; the pair rotated right by one
     loop=ext_xr2                         ; the counter step (two words a bit of the offset)
-ext_xm2: open call=w6                    ; OPEN: (qprobe round 12-13, Q38 / Q44) seven words with no act (the call and the shared delay's 6)
-    alu=BFM                             ; tmpb masked to the field's w + 1 bits
+ext_xm2: alu=BFM jmp=ext_xq2             ; tmpb masked to the field's w + 1 bits (the whole word for a full-word field); (r24) the rest in zz_late.uasm (ext_xq2: no entry address moves)
+    open                                ; OPEN: (r24) unused (the word kept so no address moves)
 ext_t2: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
     wr=AW wid=WORD ws=TB jnc=SGN:ext_n2  ; (F5b: silicon, f5r extal) AW <- the field after the offset register; no carry: the pointer stays
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
@@ -134,8 +134,8 @@ ext_x: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG ; tmpb <- the low word; tmpc <- t
     f d1=TC s1=OPR jc=CNTZ:ext_xm       ; D: F: tmpc <- the high word; offset 0: the mask
 ext_xr: alu=BFR                         ; the pair rotated right by one
     loop=ext_xr                         ; the counter step (two words a bit of the offset)
-ext_xm: open call=w6                    ; OPEN: (qprobe round 12-13, Q38 / Q44) seven words with no act (the call and the shared delay's 6)
-    alu=BFM                             ; tmpb masked to the field's w + 1 bits
+ext_xm: alu=BFM jmp=ext_xq             ; tmpb masked to the field's w + 1 bits (the whole word for a full-word field); (r24) the rest in zz_late.uasm (ext_xq: no entry address moves)
+    open                                ; OPEN: (r24) unused (the word kept so no address moves)
 ext_t: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
     wr=AW wid=WORD ws=TB jnc=SGN:ext_n  ; (F5b: silicon, f5r extal) AW <- the field after the offset register; no carry: the pointer stays
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
