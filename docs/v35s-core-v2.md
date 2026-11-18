@@ -3411,3 +3411,20 @@ question, decided from S8's routed numbers with the user.
   EU cycle is left as a known difference. (3) The four unread states over the stopping
   line (REP string successors, d16 / direct stores against the chain, ADD4S / SUB4S /
   CMP4S, single string forms behind PUSH with waits) are to be explored with new probes.
+- **2026-11-18, the interrupt rebuild reworked to work order 19: handed back, still held.**
+  Hand-back `r23/rtl/` (diff against 9614ced; worktree agent-a543213fcd602d45f). Re-based
+  onto the landed tree (the corpus unchanged row by row: 29,167, none lost or gained). I-5
+  built: requests read on the pop word and held to the boundary; the probe set (8,952
+  runs) pc-exact 6,689 to 7,868, all-exact 4,309 to 5,084 (HEAD: 4,448 / 2,812); INT and
+  NMI gain (NOP, CBW, INT before HALT now exact rows), INTP0 falls (1,102 to 903 pc-exact):
+  with the late read gone the sim's scan lattice shows 3 clocks late against silicon's
+  (5 / 6 against 2 / 3 mod 16) for INTP0 and DIC alike. I-4 built: DIC's flag set on the
+  first clock of the terminal-count window (the TC pin's signal; no port, one intc output
+  fewer); f4_dma is now one instruction early instead of one late: **the landing condition
+  is not met**. The DMA transfer itself is not silicon's: the RTL's is an EU routine with a
+  flush and refetch (terminal write 17 to 140 clocks late against the socket), silicon
+  steals bus cycles; the round-23 families cannot be judged until that is built. Also
+  open: the vector read 1 to 3 clocks late after a correct take in fetch-limited trains
+  (the dispatch waits for an opcode byte it will not use); f4_tm now differs in writes;
+  FPGA seed 1 +2.032 (worst path bus `d_kind` to `ex`). The pop reaches the interrupt
+  controller on the unused code of the existing `x_nb` port (a ruling is asked).
