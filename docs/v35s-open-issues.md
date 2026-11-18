@@ -33,7 +33,7 @@ The rework to work order 19 is not landed (hand-back in the session scratchpad, 
 - The vector read is 1 to 3 clocks late in fetch-limited trains; the byte wait at the take
   is held until timing allows; f4_tm differs in writes under the rework.
 
-## 3. In build now (no ruling needed)
+## 3. Work order 22 C4 to C6: C5 landed; C4 and C6 wait on the interrupt rebuild
 
 Work order 22 C4 to C6: the `CH_EPRI` build fault behind MOV [d16],imm16 (9 socket runs),
 EI's scan restart, MOV [d16],AL / AW with the request word second (only if f4_dma stays
