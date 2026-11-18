@@ -8219,3 +8219,39 @@ decision 1 (validation/v35s/qprobe/RESULTS.md Q100-Q107). Inside the existing po
   ModR/M byte's mode to the word's releases, `rdc`). The register paths keep their shapes.
 - **Not built:** spec 18 A1 and A2 (outcome rules, awaiting the user's ruling: the designs are in
   the hand-back), spec 18 C / D, interrupts.
+
+## qprobe round 23: the fetch under an I/O write gives way (A1), the commit word against the chain's second fetch (A2)
+
+Work order 18 A1 / A2, built under the user's rulings of 2026-11-17 (validation/v35s/qprobe/RESULTS.md
+Q101). Inside the existing ports (test_v35_struct unchanged).
+
+- **A1 (Q101a, model_m EU_WPRI=7, EU_WPRI_K "O").** Built as measured; the register is not
+  identified. v35_bus `lo` / `lo_b`: the last EU cycle granted was an I/O write (lw's twin). On the
+  clock that cycle's delivery is seen with a fetch pending under it (EU_EPRI's clock, c3 + 1) the
+  fetch gives way one clock, keeping its slot as after EU_EPRI (`gave`, so `pend` stands and the
+  fetch starts from the idle state on c3 + 2), when (case 1) a memory request word Y executed on
+  c3 (`ry1`) or a V word executes now (wkm and not wkr), or (case 2) words with no act executed on
+  c3 and now (`pl1`, `wkp`: no kind, not the dispatch word, not a FLUSH word, no byte released)
+  with no request outstanding: none standing (req_v), none reserved (rsv), and no memory request
+  word executed whose cycle has not been granted (`rqo`, model_m eu_due: without it the ALU / load
+  / store forms with the request word on c1 or c2 lose, 147 small-set runs). Case 2 is built in
+  its outcome form (registers only); the "followed by a bus-idle word" form needs the next word's
+  kind on the grant's tick A (a look-ahead). The two cases are switchable (`A1_C1`, `A1_C2`).
+  Registers added: lo, lo_b, wkp, ry1, pl1, rqo.
+- **A2 (Q101b, model_m CH3=2, SHLI_ACT C).** Against the second and later fetches of the chain
+  behind an EU cycle (`c3_nx`: the fetch lagged, lg, and not the chain's first, fe) the commit
+  word C (bi with alt, and the alt-alone code) waits as the slot does one clock earlier: while
+  three or more clocks are left after the next, on the second-last clock if the chained fetch is
+  decided (cf), on the last if it was (nl); on the clock such a fetch starts at W = 0 the
+  back-to-back term is dropped (`c3n_nx`). The third-last clock is the user's **explicit
+  exception** to the machine-explanation rule (a measured constant; to be backed out if the top's
+  seed-1 slack at 17 ns falls under +2.0 ns; a comment at the term says so). The strict word
+  (bi vk rl=2) is not a commit word for A2 (model: CH3 on it loses 184 socket runs): v35_useq
+  presents it with the flush bit as well (wk_t's free code flush with alt; a FLUSH word never
+  carries vk) and v35_bus decodes it (`kst`; wkf is flush without alt). SHL / SHR / SAR r,imm8's
+  sixth word is the commit word C (`bi alt`, was S `rl=x`).
+- **Result (fast loop).** Small set 22,842 of 23,328 (from 22,585; +257, 0 lost). Corpus 29,167
+  of 30,536 exact (from 28,539; +628, 0 lost), chk silent, writes 106,824 / 106,824. romcheck
+  mismatched encodings 7 -> 5 (SHLI cleared). Interrupt probes pushed 2,947 / clock 2,157 of 7,122,
+  none moved. FPGA at 17 ns seed 1 +3.124 (from +2.924), 9,571 LUT4, 2,542 FF, 108 RAM_5K; v35_bus
+  +6.605, v35_useq +6.055 (fast loop; the full gate is the overseer's).

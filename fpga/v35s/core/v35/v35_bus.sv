@@ -466,6 +466,10 @@ module v35_bus
     // fetch last granted was granted with a fetch pending under that write (fe with lw)
     reg         lw = 1'b0, lw_b = 1'b0, few = 1'b0, few_b = 1'b0;
     wire        lw_a = req_ack ? (req_cyc == RQ_MEMW) : lw;
+    // (qprobe round 23, spec 18 A1) `lo`: the last EU cycle granted was an I/O write (lw's twin;
+    // model_m EU_WPRI_K "O")
+    reg         lo = 1'b0, lo_b = 1'b0;
+    wire        lo_a = req_ack ? (req_cyc == RQ_IOW) : lo;
     wire        lc_a = g_fetch ? (pend || (lc && dlv_fetch)) : lc;
     wire        ych_a = (ex && wkm && lc_a) ? 1'b1 : (req_ack || (g_fetch && pend)) ? 1'b0 : ych;
     wire        lcr = lc && dlv_fetch && ych && req_cyc == RQ_MEMR;
@@ -474,11 +478,13 @@ module v35_bus
             lc_b <= 1'b0;
             ych_b <= 1'b0;
             lw_b <= 1'b0;
+            lo_b <= 1'b0;
             few_b <= 1'b0;
         end else if (ce_b) begin
             lc_b <= lc_a;
             ych_b <= ych_a;
             lw_b <= lw_a;
+            lo_b <= lo_a;
             few_b <= g_fetch ? (pend && lw) : few;
         end
     end
@@ -487,12 +493,14 @@ module v35_bus
             lc <= 1'b0;
             ych <= 1'b0;
             lw <= 1'b0;
+            lo <= 1'b0;
             few <= 1'b0;
             wkm <= 1'b0;
         end else if (ce_a) begin
             lc <= lc_b;
             ych <= ych_b;
             lw <= lw_b;
+            lo <= lo_b;
             few <= few_b;
             wkm <= wk_nx.rlx && wk_nx.bi;
         end
@@ -532,6 +540,12 @@ module v35_bus
     // count of 4, the EU's request standing, the lead's end: the give-way's; HALT released and
     // the word releasing a staged HALT: the line's stop)
     reg         wkd = 1'b0, wkf = 1'b0, wkr = 1'b0;    // (the kind's disp, flush, rlx)
+    // (qprobe round 23, spec 18 A1) `wkp`: the word now has no kind at all (no wait, not the
+    // dispatch word, not a FLUSH word); `ry1`: a memory request word Y (rlx with bi, not alt)
+    // executed on the last clock; `pl1`: a word with no act executed on the last clock (wkp,
+    // no byte released); `rqo`: a memory request word (Y / V: rlx with bi) executed and its
+    // cycle not yet granted (model_m eu_due: the request outstanding from its word on)
+    reg         wkp = 1'b0, ry1 = 1'b0, pl1 = 1'b0, rqo = 1'b0;
     reg         aft = 1'b0, rqx = 1'b0, b4r = 1'b0, rqvr = 1'b0, ler = 1'b0, hpr = 1'b0, hcr = 1'b0;
     reg         dst = 1'b0;                 // (qprobe round 13) the dispatch word waited on the last clock
     wire        xd = ex && wkd;                 // the dispatch word executes now (the boundary)
@@ -551,8 +565,20 @@ module v35_bus
     wire        line = fetch_req || (lv_q.r5 && !xd && !rqx);
     // (qprobe round 18, spec 13 A1) the decision held by a reservation on its eve (`rh`): no
     // fetch on the clock after the running fetch's end (dlv_fetch)
-    wire        fr = line && !gw && !fstop && !(rh && dlv_fetch);
-    wire        gwy = line && gw && !fstop;
+    // (qprobe round 23, spec 18 A1 / Q101a; the user's ruling 2026-11-17: built as measured, the
+    // register's identity unknown) behind an I/O write (`lo`), on the clock its delivery is seen
+    // with a fetch pending under it (EU_EPRI's clock, c3 + 1), the fetch also gives way one
+    // clock (keeping its slot, as EU_EPRI's) when (case 1) a memory request word Y executed on
+    // the cycle's last clock (`ry1`) or a V word executes now, or (case 2) words with no act
+    // executed on the last clock and now (`pl1`, `wkp`, no release) with no request
+    // outstanding (none standing, none reserved). Registers only, beside gw; the two cases
+    // separately switchable (A1_C1, A1_C2)
+    localparam bit A1_C1 = 1'b1, A1_C2 = 1'b1;
+    wire        a1p = ex && wkp && lv_q.nrl;        // a word with no act executes now
+    wire        a1g = pend && eu_dlv && lo && ((A1_C1 && (ry1 || (ex && wkm && !wkr)))
+                      || (A1_C2 && pl1 && a1p && !req_v && !rsv && !rqo));
+    wire        fr = line && !gw && !a1g && !fstop && !(rh && dlv_fetch);
+    wire        gwy = line && (gw || a1g) && !fstop;
     // tick B: the stream's first boundary after this clock, and the hold
     wire        aft_n = xf ? 1'b1 : xd ? 1'b0 : aft;
     // (rules 4c, 4d, EMIN; rule 11) the boundary waits for the stream: the count below 3 for the
@@ -591,19 +617,41 @@ module v35_bus
     // clock the fetch chained behind the fetch that followed a write starts (`few`: the fetch
     // delivered then was granted with a fetch pending under an EU write cycle): it passes
     wire        cr_k = wk_nx.alt && !wk_nx.bi && !wk_nx.rlx;
-    assign ph_nx = (wk_nx.disp && bnd_w) || (wk_nx.bi && !wk_nx.rlx && (bp_nx || (wk_nx.alt && b2s_nx)))
-                   || (cr_k && (bp_nx || (b2s_nx && !few_b)))
+    // (qprobe round 23, spec 18 A2 / Q101b, model_m CH3=2) against the second and later fetches of
+    // the chain behind an EU cycle (`c3_nx`: a lagged fetch, lg, not the chain's first, fe) the
+    // commit word C (bi with alt; and the alt-alone code) waits by the slot one clock earlier:
+    // while three clocks or more are left after the next, on the second-last clock if the
+    // chained fetch is decided (cf) and on the last if it was (nl); so it passes from the
+    // fetch's third-last clock. On the clock such a fetch starts with no wait state (its first
+    // clock is its third-last: `c3n_nx`, the fetch ending now lagged) the back-to-back term is
+    // dropped. Not the strict word (flush with alt, v35_useq), not the slot words S / A / X.
+    // EXCEPTION to "every delay needs a machine explanation" (the user's ruling 2026-11-17):
+    // the third-last clock is a measured constant with no mechanism read (S_LAG is two); it is
+    // to be backed out if the top's seed-1 slack at 17 ns falls under +2.0 ns
+    wire        c3_nx = fb_nx && lg_b && !fe_b;
+    wire        c3s_nx = !rm_nx[3] && (rm_nx >= 4'd3 || (rm_nx == 4'd1 && lv.cf) || (rm_nx == 4'd0 && nl_b));
+    wire        cbw_nx = c3_nx ? c3s_nx : bp_nx;
+    wire        c3n_nx = lg_b && waits_mem == 2'd0;
+    wire        kst = wk_nx.flush && wk_nx.alt;     // the strict word
+    assign ph_nx = (wk_nx.disp && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && bp_nx)
+                   || (kst && (bp_nx || b2s_nx))
+                   || (wk_nx.bi && wk_nx.alt && !wk_nx.rlx && !kst && (cbw_nx || (b2s_nx && !c3n_nx)))
+                   || (cr_k && (cbw_nx || (b2s_nx && !few_b && !c3n_nx)))
                    || (wk_nx.rlx && !wk_nx.bi && (wk_nx.alt ? sla_nx : sl_nx))
                    || (wk_nx.rlx && wk_nx.bi && (wk_nx.alt ? (fb_nx && !fl_n) : fy_nx));
     always @(posedge clock) begin
         if (!reset_n || ce_a) begin
             wkd <= wk_nx.disp;
-            wkf <= wk_nx.flush;
+            wkf <= wk_nx.flush && !wk_nx.alt;     // (round 23: flush with alt is the strict word)
             wkr <= wk_nx.rlx && !wk_nx.alt;
+            wkp <= !(wk_nx.disp || wk_nx.flush || wk_nx.rlx || wk_nx.bi || wk_nx.alt);
         end
         if (!reset_n) begin
             aft <= 1'b0;
             rqx <= 1'b0;
+            ry1 <= 1'b0;
+            pl1 <= 1'b0;
+            rqo <= 1'b0;
             dst <= 1'b0;
             b4r <= 1'b0;
             rqvr <= 1'b0;
@@ -613,6 +661,9 @@ module v35_bus
         end else if (ce_a) begin
             aft <= aft_n;
             rqx <= ex && wkr;
+            ry1 <= ex && wkm && wkr;
+            pl1 <= a1p;
+            rqo <= (ex && wkm) ? 1'b1 : req_ack ? 1'b0 : rqo;
             dst <= wkd && !ex;
             b4r <= lv.b4;
             rqvr <= eu_rq_nx;

@@ -339,13 +339,19 @@ module v35_useq
     assign w_erep_nx = pd_nx.erep;
     // (consol) the next word's kind for the bus unit's pace
     assign wk_nx.disp = pd_nx.disp;
-    assign wk_nx.flush = word_nx.flush;
+    // (qprobe round 23, spec 18 A2) the strict word (bi vk rl == RL_2) presents C's code with
+    // the flush bit: the kind's free code flush with alt (a FLUSH word never carries vk), so
+    // the bus unit tells it from the commit word C, which passes on the third-last clock of the
+    // chain's second fetch and the strict word does not
+    wire        wk_st = word_nx.bi && word_nx.vk && word_nx.rl == RL_2;
+    assign wk_nx.flush = word_nx.flush || wk_st;
     assign wk_nx.rlx = word_nx.rl == RL_X;
     // (qprobe round 21, spec 10 A1 / Q42's second half, C_NOCH) the commit word that releases a
     // byte (bi with vk and rl == RL_1: `P C`) presents the kind's free code, alt alone (bi
     // low): the bus unit's C wait without the fetch chained behind a write's fetch. alt is the
     // vk bit on a bus-wait word only (bi or rl == RL_X: an SR_VEC word's vk is not a kind), so
-    // alt alone has this one meaning; the strict word (bi vk rl == RL_2) stays C's code
+    // alt alone has this one meaning; the strict word (bi vk rl == RL_2) keeps C's code, marked by
+    // the flush bit (below)
     wire        wk_cr = word_nx.bi && word_nx.vk && word_nx.rl == RL_1;
     assign wk_nx.bi = word_nx.bi && !wk_cr;
     assign wk_nx.alt = word_nx.vk && (word_nx.bi || word_nx.rl == RL_X);     // (qprobe round 10) the wait's second kind (C, V)

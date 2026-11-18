@@ -3338,3 +3338,29 @@ question, decided from S8's routed numbers with the user.
   with the unmeasured memory forms of BRKCS, TSKSW and MOVSPB on the bare heads. (4)
   Stopping line: every state or form carrying more than 20 corpus runs is read and built;
   the rest is listed as known differences.
+- **2026-11-17, landed: spec 18 A1 and A2 (full gate: both spacings, three seeds).**
+  **Built** (v35_bus, two lines of v35_useq, one ROM word): A1, the late first fetch behind
+  an I/O write: on the clock the write's result is delivered with a fetch pending, the fetch
+  gives way one clock (keeping its slot, as EU_EPRI's) when (case 1) a memory request word
+  ran on the cycle's last clock or a V word runs now, or (case 2) words with no act ran on
+  the last clock and now and no request is outstanding. Registers `lo` / `lo_b`, `wkp`,
+  `ry1`, `pl1`, `rqo` (`rqo`: a memory request word has run and its cycle is not granted;
+  not in the design, needed: without it 147 small-set runs were lost). Case 2 is the
+  outcome form; the "followed by a bus-idle word" form needs the next word's kind and was
+  not built. A2, the commit word against the chain's second and later fetches: it passes
+  from the fetch's third-last clock (the ruled exception; the comment and the back-out
+  condition are at the constant); SHL r,imm8's sixth word is a commit word. The strict
+  bus-idle word had shared the commit word's kind code and must not take A2 (226 socket
+  runs lost in the model): it now presents the kind's free code flush with alt (no ROM word
+  has both), the port unchanged; a fourth free-code use, of the kind ruled acceptable for
+  work order 18. ROM 2,813 words. **Gate**: corpus 29,167 of 30,536 exact at both spacings
+  (from 28,539; 628 gained, 0 lost; per-family tables identical), writes 106,824 / 106,824,
+  chk silent; vectors 0 bad; 56 tests; SST; program gates as the previous landing (dma 7/0,
+  intr 6/0, onchip 3/0, banks 5/0, traps 6/0, prio 4/0, pfxtake 10/0, serial 4/0, f5x 34/0,
+  f5r 22/0, f5u 40/0; the known period-only lines periph 2, f5n 3, f5v 2); f4_hwd equal.
+  **FPGA at 17 ns: +3.124 / +2.842 / +2.072** (all pass; seed 3 the lowest so far); 9,571
+  LUT4, 2,542 FF, 108 RAM_5K; bus 6.605, useq 6.055, loader 3.791. Small set 22,842 of
+  23,328. ROM check: 5 mismatched encodings. Runs the model has and the RTL lacks: 785 to
+  207 (EXT / INS with DL about 110; forms behind PUSH at W = 0 about 30; Bcc / BR short
+  behind RET or OUT at W = 1 about 35). The frame-trailer cluster (172 runs) is not carried
+  by A1: the model misses it too, so it is an unread rule.
