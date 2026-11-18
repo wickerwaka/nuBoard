@@ -172,7 +172,7 @@ di8_t: jmp=dve                             ; (F3) the divide error: vector 0, th
 ; multiply / divide loops (V20 AAM / AAD: the divide and the multiply by the byte loop). The
 ; adjust's operation is the decode's op3 (ADJ4A 0, ADJ4S 1, ADJBA 2, ADJBS 3).
 
-routine adj4 op=27,2F book="ADJ4A" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 15, spec 11 B) ADJ4A is `. . . . . . . . N .` (ten words; the qprobe adj4a runs; ADJ4S by analogy: a guess, not measured); the book's 9: the read and the adjust (W), the write on E with the write-back's hold (the model's wb 2); six book clocks with no act (F33-out-adj4a-k1-pE-w0: the fetch after it 3 late, the OUT's port 1 early: open, README MX3 (part 2))"
+routine adj4 op=27 book="ADJ4A" diff=1 why="OPEN: silicon longer than the book (measured, the extra word OPEN): (qprobe round 15, spec 11 B) ADJ4A is `. . . . . . . . N .` (ten words; the qprobe adj4a runs; ADJ4S (2F) is nine words since r25: zz_late.uasm adj4s); the book's 9: the read and the adjust (W), the write on E with the write-back's hold (the model's wb 2); six book clocks with no act (F33-out-adj4a-k1-pE-w0: the fetch after it 3 late, the OUT's port 1 early: open, README MX3 (part 2))"
     ra=AW wid=WORD alu=ADJ ax=RA wf         ; read AW; the adjust of AL by AC, CY and the digits (W)
     open call=w1                            ; OPEN: 2 clocks with no act (the call and the shared delay's 1)
     bi                                      ; (qprobe round 22, spec 18 B, Q102) B: ADJ4's bus-idle fourth word (`. . . B . . . . N .`)

@@ -20,12 +20,12 @@
 ; after the write's end. F after the write: the EU holds until the write's end (RAMEN = 1, the
 ; write may land in the registers' RAM: mechanisms 3.3).
 
-routine add4s op=20,22 page=0f book="ADD4S" n=4 diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ADD4S / SUB4S are a byte loop with no data-dependent exit (the qprobe add4s / sub4s runs, CL 1 2 4 8): a 13-word head with a bus-idle fourth word, ceil(CL / 2) iterations `Y D . . . U D . . . . . . Z D .` (read the source, read the destination, write the destination: 30 clocks at W = 0), a 10-word tail `. . . . . . . . N .`"
+routine add4s op=20,22 page=0f book="ADD4S" n=4 diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ADD4S / SUB4S are a byte loop with no data-dependent exit (the qprobe add4s / sub4s runs, CL 1 2 4 8): a 12-word head with a bus-idle third word (r25, Q122; was 13 with the fourth), ceil(CL / 2) iterations `Y D . . . U D . . . . . . Z D .` (read the source, read the destination, write the destination: 30 clocks at W = 0), a 10-word tail `. . . . . . . . N .`"
     ra=IX rb=CW wid=WORD d1=ADDR s1=RA d2=TC s2=ZERO cnt=CLH alu=BCDI ; the source's address (IX + 0), the pair offset 0 into tmpc, the counter <- (CL + 1) / 2; the carry cleared, the zero term set
-    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
-    bi                                      ; (qprobe round 12, Q38) B: the head's bus-idle fourth word
+    open                                    ; OPEN: (r25, work order 21 B5, Q122) a word with no act (the head is `P . B . . . . . . . . .`, 12 words)
+    bi                                      ; (r25, work order 21 B5, Q122) B: the head's bus-idle third word (was the fourth of 13: MOV CL,imm8's refill read as a word)
     jc=CNTZ:a4_tail                         ; no byte pair: the flags
-    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the head's 13) (the call and the shared delay's 7)
+    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the head's 12) (the call and the shared delay's 7)
 a4_pair: rl=x bi                            ; (qprobe round 12, Q38) Y: the request word (the source's read posted three words later)
     ra=IY wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IY + i (the destination's address)
     open                                    ; OPEN: (qprobe round 12, Q38) a word with no act
@@ -47,12 +47,12 @@ a4_tail: open call=w6                       ; OPEN: (qprobe round 12, Q38) seven
     alu=BCDF wf                             ; the flags: CY S AC the last carry, Z P the zero term, V 0
     e ro                                    ; E: pop the next opcode (N)
 
-routine cmp4s op=26 page=0f book="CMP4S" n=4 diff=2 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) CMP4S is ADD4S's head, iterations `Y D . . . U D . . . . . . . .` (25 clocks at W = 0) and an 11-word tail (the qprobe cmp4s runs)"
+routine cmp4s op=26 page=0f book="CMP4S" n=4 diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) CMP4S is ADD4S's head, iterations `Y D . . . U D . . . . . . . .` (25 clocks at W = 0) and an 11-word tail (the qprobe cmp4s runs)"
     ra=IX rb=CW wid=WORD d1=ADDR s1=RA d2=TC s2=ZERO cnt=CLH alu=BCDI ; the source's address (IX + 0), the pair offset 0 into tmpc, the counter <- (CL + 1) / 2; the borrow cleared, the zero term set
-    open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
-    bi                                      ; (qprobe round 12, Q38) B: the head's bus-idle fourth word
+    open                                    ; OPEN: (r25, work order 21 B5, Q122) a word with no act (the head is `P . B . . . . . . . . .`, 12 words)
+    bi                                      ; (r25, work order 21 B5, Q122) B: the head's bus-idle third word (was the fourth of 13: MOV CL,imm8's refill read as a word)
     jc=CNTZ:c4_tail                         ; no byte pair: the flags
-    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the head's 13) (the call and the shared delay's 7)
+    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the head's 12) (the call and the shared delay's 7)
 c4_pair: rl=x bi                            ; (qprobe round 12, Q38) Y: the request word (the source's read posted three words later)
     ra=IY wid=WORD alu=ADD ax=RA ay=TC      ; SIGMA = IY + i (the destination's address)
     open                                    ; OPEN: (qprobe round 12, Q38) a word with no act

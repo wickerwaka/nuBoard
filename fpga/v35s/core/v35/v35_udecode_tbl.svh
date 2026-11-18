@@ -3,7 +3,7 @@
 // v35_udec2 (the opcode and the byte a DISPM word pops: the ModR/M byte, the 0F page's second byte -> the second entry and
 // the group's operation), v35_umodrm / v35_upage (the bytes a ModR/M or a 0F second byte's pop adds to the bytes still to pop). Included by v35_pkg.sv.
 
-    localparam int UROM_WORDS = 2832;
+    localparam int UROM_WORDS = 2848;
     localparam logic [UADDR_W-1:0] UROM_RESET = 12'd365;
     // (F2b) the I/O trap's entry: the dispatch's target for an I/O form with PSW.BRKI 0
     localparam logic [UADDR_W-1:0] UROM_IOT = 12'd2115;
@@ -77,7 +77,7 @@
             8'h2C: f = '{12'd1618, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 3'd5, 3'd0, 3'd1, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'h2D: f = '{12'd1622, 1'b0, 1'b0, 1'b1, 1'b0, 1'b1, 1'b0, 3'd5, 3'd0, 3'd2, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'h2E: f = '{12'd378, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 3'd0, 3'd5, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
-            8'h2F: f = '{12'd559, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 3'd1, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
+            8'h2F: f = '{12'd2842, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 3'd1, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b0, 1'b0};
             8'h30: f = '{12'd369, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, 3'd6, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};
             8'h31: f = '{12'd369, 1'b0, 1'b1, 1'b1, 1'b0, 1'b0, 1'b0, 3'd6, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};
             8'h32: f = '{12'd369, 1'b0, 1'b1, 1'b0, 1'b1, 1'b0, 1'b0, 3'd6, 3'd0, 3'd0, 1'b0, 5'd0, 1'b0, 1'b0, 2'd0, 1'b0, 1'b1, 1'b0};

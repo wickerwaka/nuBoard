@@ -3505,3 +3505,20 @@ question, decided from S8's routed numbers with the user.
   simulator's stderr without `--diag`, so "chk silent" was never checked at earlier
   landings; the gate replays with `--diag` from this landing on (0 checker lines at both
   spacings).
+- **2026-11-18, work order 21 (light gate, three seeds).** Corpus 30,181 of 30,536 (from
+  30,054: +127, none lost), writes all agreeing, checker silent (`--diag`); vectors, 56
+  tests, SST, every program gate and f4_hwd as before. 17 ns: +3.565 / +3.413 / +3.268;
+  9,711 LUT4, 2,619 FF, 108 RAM_5K; ROM 2,848 words. **Built**: B4 the single string
+  forms' bus-idle word (25 rows; bodies `sb3` / `sb4` / `sb5`); B5 the 4S 12-word head
+  with the bus-idle third word and ADJ4S as its own nine-word routine (39; the
+  seventh-word act not built and not needed); B6 an armed write requested inside the
+  fetch chain behind an EU cycle does not stop the chain's next fetch at five or fewer
+  held (48; a write posted unarmed excluded as in the model; PUSH r16's first word
+  became the model's `e ro bi` shape, without which 28 runs were lost); B7 a request
+  armed on the clock it is due gives way to a fetch from the idle bus at four or fewer
+  held (15 of 23). **Not built**: B1 gains nothing (the pair is already in the RTL; its
+  88 rows are B3's clock, Q120, awaiting a ruling); B2 and B7's other 8 rows (24) need
+  the first clock of a write's last byte cycle in the loader's lead counter: no existing
+  level carries it, a ruling on a bus-to-loader bit is asked; Q124 (MOV [d16],AW's
+  request word second) was built and backed out: no corpus row moves and f4_dma's write
+  order then differs from the socket at write 711: to be read against round 25's runs.

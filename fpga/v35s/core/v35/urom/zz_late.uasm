@@ -96,3 +96,27 @@ adjb_z: bi                              ; B: the bus-idle third word
     wr=AW wid=WORD ws=SIG e             ; AW <- SIGMA; E
 ei_z: open call=w7                      ; OPEN: eight clocks with no act (the call and the shared delay's 7)
     alu=FLAG wf e nb                    ; IE <- 1; E; (F3) nb: no interrupt or single step at the next instruction's start (f3_step)
+
+; (r25, work order 21 B4, Q121) the single string forms have the REP head's bus-idle word: MOVBK /
+; CMPBK `. . . B . Y`, CMPM `. . . B . . Y`, INM `. . . . B X` (STM / LDM already `. . B`). The
+; routine's second word calls one of these in place of the shared delay (no entry address moves)
+routine str_b why="OPEN: words with no act around the bus-idle word: (r25, work order 21 B4, Q121) the single string forms' bus-idle word (model_m MOVS, CMPBK, SCAS, INM)"
+sb3: open                               ; OPEN: a word with no act
+    bi                                  ; B: the bus-idle fourth word (MOVBK, CMPBK)
+    open ret                            ; OPEN: a word with no act; back to the request word
+sb4: open                               ; OPEN: a word with no act
+    bi                                  ; B: the bus-idle fourth word (CMPM)
+    open                                ; OPEN: a word with no act
+    open ret                            ; OPEN: a word with no act; back to the request word
+sb5: open                               ; OPEN: a word with no act
+    open                                ; OPEN: a word with no act
+    bi ret                              ; B: the bus-idle fifth word (INM); back to the I/O request word
+
+; (r25, work order 21 B5, Q122) ADJ4S (2F) is `. . B . . . . N .`, one word shorter than ADJ4A
+; (27, loop.uasm adj4); the operation is the decode's op3 as before
+routine adj4s op=2F book="ADJ4S" diff=0 why="OPEN: words with no act (measured): (r25, work order 21 B5, Q122) ADJ4S is `. . B . . . . N .` (nine words; QPr25d 66 runs, no data dependence; F33-out-adj4s-k2): the read and the adjust (W), a word with no act, the bus-idle third word, four words with no act, the write on E"
+    ra=AW wid=WORD alu=ADJ ax=RA wf         ; read AW; the adjust of AL by AC, CY and the digits (W)
+    open                                    ; OPEN: a clock with no act
+    bi                                      ; B: ADJ4S's bus-idle third word
+    open call=w3                            ; OPEN: 4 clocks with no act (the call and the shared delay's 3)
+    wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E

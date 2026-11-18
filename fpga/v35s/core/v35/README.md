@@ -8369,3 +8369,51 @@ unit's hold, now the worst family at +2.76 .. +3.4) needs the kind out of the RO
 fourth bank, uasm) or a per-kind expansion in the bus unit; the loader's dispatch entry
 (`df.ent`, the dsp_f table behind op_nx / mp_nx) needs the table duplicated per source, which
 the F3 lesson forbids.
+
+## r25: work order 21 (socket round 25, results Q118-Q126; validation/v35s/qprobe/tools/r25/SPEC21.md)
+
+Inside the existing ports (test_v35_struct unchanged; no wk_t code added). Corpus 30,181 of 30,536
+exact with `+v35_chk` (from 30,054: +127, none lost).
+
+- **B1 (Q118: a word string element at an odd pointer is a pair, by the element's own pointer).**
+  Already the RTL's: the request's address is the routine's own (IX / IY as the element names
+  it) and the bus unit's pair covers every word at an odd address; F's wait ends with the pair's
+  last cycle. The 88 corpus rows (F24 `out-a-*`, F30 `out-odd-*`, all W = 0) are one clock early
+  by exactly B3's clock (Q120, the last element's `J`: measured with no mechanism, not built,
+  awaiting the user's ruling); their first divergence equals model_m's with SPLIT_J=0 on every row.
+- **B2 (Q119 / Q125's W_LEAD: the lead of the opcode a store releases counts from the first clock of
+  the write's last byte cycle): not built.** The lead counter is the loader's (`lc`, from the
+  release `ro`); the clock a write's last byte cycle starts is the bus unit's (a pair's second
+  half, or a write granted later than the store's N). No existing level carries it to the loader,
+  and the store's G N word cannot wait for the pair instead (its wait is formed on the clock
+  before the write's grant, when the request's address is not yet in the bus unit). 24 rows remain
+  (F5 `out-*-odd` 16; 8 of B7's). It needs a bus-to-loader bit (the clock a write's last byte cycle starts): the user's ruling.
+- **B4 (Q121).** MOVBK / CMPBK `. . . B . Y`, CMPM `. . . B . . Y`, INM `. . . . B X`: the routine's
+  second word calls a short body in zz_late.uasm (`sb3`, `sb4`, `sb5`) in place of the shared delay,
+  the bus-idle word in it (no entry address moves).
+- **B5 (Q122).** ADD4S / SUB4S / CMP4S: the head is 12 words with the bus-idle third word
+  (page.uasm, the same word count: no address moves); the seventh word's bus-idle act (inferred
+  from two runs) is not built: the corpus rows are exact without it. ADJ4S (2F) is its own routine
+  `adj4s` in zz_late.uasm, `. . B . . . . N .` (the decode's 2F entry moves there; ADJ4A keeps
+  loop.uasm adj4).
+- **B6 (Q123, model_m LCHW; Q124).** v35_bus `lcw`: an armed write whose request word executed
+  inside the fetch chain behind an EU cycle (`ych`, as round 21's reads) does not stop the chain's
+  next fetch while five or fewer are held before the clock's releases (`c5r`: the queue's c5 as the
+  last tick B left it); the grant's term `(lcw || aid) && fr` beside the unarmed write's (fr: the
+  grant's own Shannon input). A write posted unarmed (MEMWD, a K word later: `wur`, set by un_w and
+  cleared at the EU's grant) keeps Q33's rules (model_m: LCHW only for a write without K). The
+  store's G word (kbp's code: bi with the release) waits with it (`lcw_nx`: the same terms as the
+  next clock will have them). PUSH r16's E word is now G N (`e ro bi`, model_m PUSH `. . Y . . G N
+  .`, Q115): with the old E word the next opcode was released under a running fetch and the count
+  read one byte short (the stores with an immediate behind PUSH at W = 1 / 2 lost without it).
+  MOV [d16],acc (A2 / A3) with the request word second (`. Y . PP2 G N .`, Q124: the write two clocks
+  behind the release) was built and backed out: no corpus row moves with it and the dma gate's
+  f4_dma differs from both socket sessions with it (the write order around a DMA transfer at write
+  711); the routine stays `. . Y PP2 . . G N .`.
+- **B7 (Q125, model_m ARB_IDLE).** v35_bus `aid`: a request armed on the clock it is due does not stop
+  a fetch from the idle bus with four or fewer held before the clock's releases (`c4r`): the
+  unarmed write whose K word executes now (un_w with ex) and the read announced by its reserving
+  word and posted on the last clock (rs1 with req_v: model_m YP_UN's read). Not on the clock after a
+  fetch's last (dlv_fetch: Q33's own case). The 8 of its rows that also need W_LEAD stay (B2).
+- New terms: bus `lcw`, `aid` (registers but ex; joined to eu_win with the grant's fr argument),
+  `lcw_nx` (tick B, into ph_nx's kbp term), registers c4r, c5r, wur / wur_b.

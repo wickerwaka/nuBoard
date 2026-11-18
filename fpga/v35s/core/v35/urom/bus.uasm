@@ -19,7 +19,7 @@ routine push_r op=50-57 book="PUSH reg16" diff=-2 why="OPEN: book error of two i
     open                                    ; OPEN: (qprobe rule 14) a word with no act
     open                                    ; OPEN: (qprobe rule 14) a word with no act
     ra=OPR wid=WORD d1=OPRW s1=RA bus=MEMW seg=SS   ; the register into the write datum, read after SP's write (PUSH SP pushes SP - 2: F36 stack) (002A); post the write at SS:SP (Y + 3: granted on Y + 4, or at the end of a fetch running then)
-    e ro                                    ; E: the next opcode popped and released (N); an on-chip store holds it to the write's end (RAMEN)
+    e ro bi                                 ; E: (r25, work order 21 B6, Q115 / Q123) G N: the next opcode released on the write cycle's first clock (bus-idle: it waits while a fetch's pin cycle runs, and with a write that gives way to the chain's next fetch); an on-chip store holds it to the write's end (RAMEN)
 
 routine push_psw op=9C book="PUSH PSW" diff=2 why="OPEN: (qprobe round 8) beyond the book: a named act, the request word (Y) with the post and E on words of their own: PUSH PSW is PUSH r16's `. . Y . . . N .` (the qprobe ld-pushf runs; model_m.py OPS 9C: PUSH; Q22: no lead): SP - 2, SP, the address and the PSW into the write datum, Y (the request word: the write due four clocks after it, posted three words later), two words with no act, the post, E with the next opcode's release; the boundary after it waits for the write's last clock (rule 7); two beyond the book in the book check's machine (E held to the write's end: the on-chip timing, 11 against the book's 9; before round 8: the a6 PUSH PSW 8 / 10 less the dispatch's fetch stall: 8)"
     rb=SP wid=WORD alu=DEC2 ax=RB           ; read SP; SP - 2 (0074)
@@ -87,6 +87,7 @@ routine st_dir diff=3 op=A2,A3 book="MOV dmem,acc" why="(qprobe round 6) beyond 
     e ro bi                                 ; E: (qprobe round 9, Q23) G N: the next opcode released on the write cycle's first clock: a bus-idle word (it waits while a fetch's pin cycle runs, its last clock included); the write posted on the word before wins the bus on the first clock no fetch runs, so this word executes on that clock; an on-chip store holds it to the write's end (RAMEN)
 
 ; MOV acc,[d16] (V20 MOV_ACC_DMEM 0084-0087)
+
 routine ld_dir op=A0,A1 book="MOV acc,dmem" diff=1 why="OPEN: silicon longer than the book by one (the qprobe lacc / ld runs, F-family style: 11 at W = 0 with no fetch in the way); (qprobe rule 14) MOV acc,[d16] is `. . Y PP2 DN .` (the qprobe lacc, ld runs): two words with no act, Y (the request word: the read due four clocks after it) with the address's first pop, the second pop with both bytes' release, the address, a word with no act, the post (Y + 3), D N (F: the accumulator <- the datum; E), the dispatch: 11 at W = 0 with no fetch in the way; before qprobe: the book's 10"
     open                                    ; OPEN: (qprobe rule 14) a word with no act
     open                                    ; OPEN: (qprobe rule 14) a word with no act

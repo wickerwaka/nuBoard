@@ -86,7 +86,7 @@ routine rep_brk why="OPEN: silicon longer than the book (measured, the extra wor
 ; runs' second form, the frozen model exact): its first cycle's post at c7 / c8 / c9 / c10
 routine movbk op=A4,A5 book="MOVBK" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) MOVBK is `. . . . . Y D . . . Z DN .` (the qprobe movb / movw runs): the source's address, four words with no act, Y (the request word), IX stepped and the destination's address under the wait, the read's post, F (D: the datum into the write datum), IY stepped, two words with no act, the write's post (Z, four words after the datum), F with E (D N: the write's end, not its first clock)"
     ra=IX wid=WORD d1=ADDR s1=RA            ; the source's address IX
-    open call=w3                            ; OPEN: (qprobe round 11) four words with no act (the call and the shared delay's 3)
+    open call=sb3                           ; OPEN: (r25, work order 21 B4, Q121) four words, the fourth bus-idle (`. . . B . Y`: zz_late.uasm sb3)
     rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
     ra=IX wid=WORD alu=STEP ax=RA           ; SIGMA = IX + the width
     wr=IX ws=SIG wid=WORD                   ; IX stepped
@@ -100,7 +100,7 @@ routine movbk op=A4,A5 book="MOVBK" diff=1 why="OPEN: silicon longer than the bo
 
 routine cmpbk op=A6,A7 book="CMPBK" width=word diff=0 why="OPEN: book error of one (F24-out-s-cmpbk-w-k2-pE-w0); (qprobe round 11, Q34) CMPBK is `. . . . . Y D . . . U D . N .` (the qprobe cmpbk runs): [IY] first, then [IX]: the destination's address, four words with no act, Y, IY stepped and the source's address under the wait, the read's post, F (D), IX stepped, two words with no act, the second read's post (U, Z's timing: four words after the datum), F (D), the compare, E"
     ra=IY wid=WORD d1=ADDR s1=RA            ; the destination's address IY (CMPBK reads it first)
-    open call=w3                            ; OPEN: (qprobe round 11) four words with no act (the call and the shared delay's 3)
+    open call=sb3                           ; OPEN: (r25, work order 21 B4, Q121) four words, the fourth bus-idle (`. . . B . Y`: zz_late.uasm sb3)
     rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
     ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
     wr=IY ws=SIG wid=WORD                   ; IY stepped
@@ -139,7 +139,7 @@ routine ldm op=AC,AD book="LDM" diff=0 why="OPEN: silicon longer than the book (
 
 routine cmpm op=AE,AF book="CMPM" width=word diff=0 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) CMPM is `. . . . . . Y D . . N . .` (the qprobe cmpm runs): the destination's address, five words with no act, Y, IY stepped under the wait, the read's post, F (D), the compare, a word with no act, the next opcode released (N), E a word later"
     ra=IY wid=WORD d1=ADDR s1=RA            ; the destination's address IY
-    open call=w4                            ; OPEN: (qprobe round 11) five words with no act (the call and the shared delay's 4)
+    open call=sb4                           ; OPEN: (r25, work order 21 B4, Q121) five words, the fourth bus-idle (`. . . B . . Y`: zz_late.uasm sb4)
     rl=x bi                                 ; (qprobe round 11) Y: the request word (the read due four clocks after it, posted three words later)
     ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
     wr=IY ws=SIG wid=WORD                   ; IY stepped
@@ -152,7 +152,7 @@ routine cmpm op=AE,AF book="CMPM" width=word diff=0 why="OPEN: silicon longer th
 
 routine inm op=6C,6D bookx="19+2W" diff=1 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q34) INM is `. . . . . X D Z DN .` (the qprobe inm runs): the port DW, four words with no act, X (the I/O request word: the slot), the destination's address, IY stepped, the I/O read's post, F (D), the write's post (Z: the datum + 2), F with E (D N: the write's end)"
     ra=DW wid=WORD d1=ADDR s1=RA            ; the port DW into the address register
-    open call=w3                            ; OPEN: (qprobe round 11) four words with no act (the call and the shared delay's 3)
+    open call=sb5                           ; OPEN: (r25, work order 21 B4, Q121) four words, the fifth of the routine bus-idle (`. . . . B X`: zz_late.uasm sb5)
     rl=x                                    ; (qprobe round 11) X: the I/O request word (waits while the bus unit's slot is taken; the cycle four clocks after it)
     ra=IY wid=WORD alu=STEP ax=RA           ; SIGMA = IY + the width
     open                                    ; OPEN: (qprobe round 11) a word with no act

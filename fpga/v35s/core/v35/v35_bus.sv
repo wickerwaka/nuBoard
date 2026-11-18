@@ -266,7 +266,7 @@ module v35_bus
         // (qprobe round 21, spec 17 A1 / Q95) nor does a read requested inside the fetch chain
         // behind an EU cycle (`lcr`, registers): the chain runs while five or fewer are held
         eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex)
-                 && !(lcr && (fetch_req || lv_q.r5));
+                 && !(lcr && (fetch_req || lv_q.r5)) && !((lcw || aid) && fr);
         gnt_f.fetch = free_h && !g_second && !eu_win && fr;
         gnt_f.ack = eu_win;
         eu = g_second || gnt_f.ack;         // an EU cycle issued now (either half of a pair)
@@ -473,15 +473,34 @@ module v35_bus
     wire        lc_a = g_fetch ? (pend || (lc && dlv_fetch)) : lc;
     wire        ych_a = (ex && wkm && lc_a) ? 1'b1 : (req_ack || (g_fetch && pend)) ? 1'b0 : ych;
     wire        lcr = lc && dlv_fetch && ych && req_cyc == RQ_MEMR;
+    // (r25, work order 21 B6, Q123, model_m LCHW) the same for an armed write: a write whose
+    // request word executed inside the chain (ych) does not stop the chain's next fetch while
+    // five or fewer are held, counted before this clock's releases (`c5r`: the queue's c5 as the
+    // last tick B left it for this clock); it starts when the chain ends. Registers only (the
+    // grant's term with the line, as the unarmed write's)
+    // A write posted unarmed (K later: un_w seen, `wur`) keeps Q33's rules (model_m LCHW "not
+    // unarmed": the write's routine has a K word); wur is cleared by the EU's grant
+    reg         c4r = 1'b0, c5r = 1'b0, wur = 1'b0, wur_b = 1'b0;
+    wire        wur_a = req_ack ? 1'b0 : (un_w || wur);
+    wire        lcw = lc && dlv_fetch && ych && req_cyc == RQ_MEMW && !un_w && !wur && c5r;
+    // (r25, work order 21 B7, Q125, model_m ARB_IDLE) a request armed on the clock it is due does
+    // not stop a fetch that starts from the idle bus with four or fewer held before this clock's
+    // releases (`c4r`): the unarmed write whose datum word K executes now (un_w with ex), and the
+    // read announced by its reserving word and posted on the last clock (rs1: the announcement
+    // stood then; Q33's table holds for it as for the unarmed write, round 17). Not on the clock
+    // after a fetch's last (dlv_fetch: the back-to-back case is Q33's, dc). Registers but ex
+    wire        aid = !dlv_fetch && c4r && ((un_w && ex) || (rs1 && req_cyc == RQ_MEMR));
     always @(posedge clock) begin
         if (!reset_n) begin
             lc_b <= 1'b0;
+            wur_b <= 1'b0;
             ych_b <= 1'b0;
             lw_b <= 1'b0;
             lo_b <= 1'b0;
             few_b <= 1'b0;
         end else if (ce_b) begin
             lc_b <= lc_a;
+            wur_b <= wur_a;
             ych_b <= ych_a;
             lw_b <= lw_a;
             lo_b <= lo_a;
@@ -491,6 +510,7 @@ module v35_bus
     always @(posedge clock) begin
         if (!reset_n) begin
             lc <= 1'b0;
+            wur <= 1'b0;
             ych <= 1'b0;
             lw <= 1'b0;
             lo <= 1'b0;
@@ -498,6 +518,7 @@ module v35_bus
             wkm <= 1'b0;
         end else if (ce_a) begin
             lc <= lc_b;
+            wur <= wur_b;
             ych <= ych_b;
             lw <= lw_b;
             lo <= lo_b;
@@ -654,6 +675,11 @@ module v35_bus
     // no EU request standing): that fetch is needed, not the five-held continuation the release
     // would complete
     wire        b4w_nx = lv.b4 && !eu_rq_nx;
+    // (r25, work order 21 B6, Q123 (3)) the store's G word (a bus-idle word that releases the
+    // next opcode: kbp's code) waits with a write that gives way to the chain's next fetch on
+    // that clock (lcw as the next clock will have it: the chain fetch delivered then, the count
+    // then at most 5 before its releases, the armed write posted and standing)
+    wire        lcw_nx = lc_b && ych_b && dlv_fetch_nx && lv.c5 && req_v && req_cyc == RQ_MEMW && !req_ia && !wur_b;
     wire        kbp = wk_nx.disp && wk_nx.bi;
     // (qprobe round 21, spec 10 A1 / Q42's second half, model_m C_NOCH=3) the commit word that
     // releases a byte (`P C`, the kind's alt-alone code: v35_useq) waits as C, except on the
@@ -676,7 +702,7 @@ module v35_bus
     wire        cbw_nx = c3_nx ? c3s_nx : bp_nx;
     wire        c3n_nx = lg_b && waits_mem == 2'd0;
     wire        kst = wk_nx.flush && wk_nx.alt && wk_nx.bi;     // the strict word ((r24) flush with alt and no bi: wkbn's code)
-    assign ph_nx = (wk_nx.disp && !wk_nx.bi && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && (bp_nx || (kbp && b4w_nx)))
+    assign ph_nx = (wk_nx.disp && !wk_nx.bi && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && (bp_nx || (kbp && (b4w_nx || lcw_nx))))
                    || (kst && (bp_nx || b2s_nx))
                    || (wk_nx.bi && wk_nx.alt && !wk_nx.rlx && !kst && (cbw_nx || (b2s_nx && !c3n_nx)))
                    || (cr_k && (cbw_nx || b4w_nx || (b2s_nx && !few_b && !c3n_nx)))
@@ -698,6 +724,8 @@ module v35_bus
             rqo <= 1'b0;
             dst <= 1'b0;
             b4r <= 1'b0;
+            c4r <= 1'b0;
+            c5r <= 1'b0;
             rqvr <= 1'b0;
             ler <= 1'b0;
             hpr <= 1'b0;
@@ -710,6 +738,8 @@ module v35_bus
             rqo <= (ex && wkm) ? 1'b1 : req_ack ? 1'b0 : rqo;
             dst <= wkd && !ex;
             b4r <= lv.b4;
+            c4r <= lv.c4;       // (r25 B7)
+            c5r <= lv.c5;       // (r25 B6)
             rqvr <= eu_rq_nx;
             ler <= sle;
             hpr <= sf_nx.hp;
@@ -1067,7 +1097,7 @@ module v35_bus
     // (MX5c) the direct form (the grant as written before the expansion, the pins' edge from it):
     // the reference `+v35_chk` compares the expanded grant and pin_f(gn) with
     wire        x_eu_win = free_h && !g_second && req_v && !((un_w || dcu || dr) && fr && dlv_fetch && dc) && !(un_w && !ex)
-                           && !(lcr && (fetch_req || lv_q.r5));     // (qprobe round 12, A2; round 21, spec 17 A1)
+                           && !(lcr && (fetch_req || lv_q.r5)) && !((lcw || aid) && fr);     // (qprobe round 12, A2; round 21, spec 17 A1; r25 B6 / B7)
     v35_gnt_t   gnt_x;
     logic       x_eu;
     always_comb begin
