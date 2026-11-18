@@ -3364,3 +3364,23 @@ question, decided from S8's routed numbers with the user.
   207 (EXT / INS with DL about 110; forms behind PUSH at W = 0 about 30; Bcc / BR short
   behind RET or OUT at W = 1 about 35). The frame-trailer cluster (172 runs) is not carried
   by A1: the model misses it too, so it is an unread rule.
+- **2026-11-17, socket round 23 (the DMA-end request; the word a request is read on).**
+  1,500 runs, each twice, 0 failed (171 repeats differ in the strobe field only). RESULTS.md
+  Q108, Q109; work order 19 (`qprobe/tools/r23/SPEC19.md`, with the round's analysis tools).
+  **Q108**: DIC0 / DIC1 is a scanned source like INTPn, entering at the request flag: the
+  request stands at the EU on the first clock of the level's 16-clock scan lattice (the one
+  EI restarts; INTP0's, to the clock) that is at least 7 clocks behind the terminal write's
+  first pin clock, then the event, the 2-clock occupation, 5 clocks and the replaced pop as
+  for INTPn. Memory-to-memory burst on channel 0 at level 7: 104 of 104; channel 1: 104 of
+  104; level 5: 104 of 104 (lattice 4 clocks earlier, as INTP0's); I/O to memory single: 74
+  of 74 (threshold bracketed 5 to 8). A fixed path from the terminal cycle is rejected (56
+  of 104 at best). TC0 on the pin is low from the terminal write + 0.5 to + 2.38 clocks.
+  Inferred: the flag is set by the terminal count (TC0's fall lies inside the window) or by
+  the word that posts the terminal write; the socket does not separate them. Not run:
+  W = 1 / 2, DMA in HALT, demand release. **Q109** (existing traces): INT's latch and the
+  vectored take's "replace this pop" are read on the clock the pop word runs (NOP word 1
+  of 4, INC 1 of 2, CBW 1 of 3, MOV r,[BW] 4 of 5), not on the boundary word: one lead of
+  9.125 clocks fits every train with the pop as anchor, none with the boundary; `r19qp0`
+  78 of 78 against 50 to 62. For the held interrupt rebuild: keep its scanned path for DIC
+  and move only where DIC's flag is set (from the resume to the terminal cycle); read the
+  latches on the pop and hold the decision to the boundary.

@@ -3314,3 +3314,131 @@ to 21: 18,518 of 19,644 (18,076 with round 21's options: **+442, 0 lost**; the I
 lost. Misses of rounds 1 to 21 by family: `r18c` 624 (REP compares), the interrupt-frame stems
 of `r14s` to `r16e` 330, `r21c` 49, `r21f` 30, `r8` 26, `r20a` 21, others under 20.
 
+# Round 23
+
+## Q108. The DMA-end request (DIC0 / DIC1): a scanned source. It enters at the request flag, 3 to 4 clocks in front of the terminal cycle's first pin clock, and passes every stage INTPn passes behind the pin
+
+Families (`gen_r23.py`, W = 0, both alignments, every program twice; the control of each run is
+its **masked twin**: the same program with DIC0 = 47h, so the same transfer and no interrupt):
+
+- `r23b<train>`: a burst, memory to memory, TC 2, started by the TDMA store (DMAM0 = 8Ch) in the
+  body; behind the store a pad of 0 to 13 clocks and the train (MOV AW,[BW] / NOP / INC BW); 0 to
+  3 CLCs in front of the store. The transfer is taken at an instruction start about 30 clocks
+  behind the store, so the pads and CLCs move **the whole transfer** against the clock from M0
+  (tw = the first pin clock of the terminal write: 129 to 150), not the train against the
+  transfer: behind the transfer the train always resumes the same way (first read at tw + 14 / 15).
+- `r23a<train>`: a single transfer, I/O to memory, TC 1, started by a DMARQ0 edge stepped one
+  clock (60 to 96 from M0); the transfer lands on the train's instruction starts (tw every 10
+  clocks in the load train).
+- `r23dld`: `r23bld` with DIC0 at level 5. `r23eld`: `r23bld` on channel 1 (DIC1, vector 21).
+  `r23c`: `r23ald` at six edges with the pins TC0 and DMAAK0 recorded.
+
+Tools: `build/qp/an23.py` (per run: tw, the vector read, the instruction pushed, the first event
+that differs from the twin), `c23.py` (load trains: the clocks c for which Q83's rule reproduces
+the run, the train's cycles and pops taken from the twin), `l23.py` (any train: distributions),
+`pc23.py` (the same lattice read from INTP0's edge sweeps of rounds 17 and 19), `ev23.py`.
+
+**Measured.**
+
+1. **Not a fixed path from the terminal cycle (H2, H3 rejected).** In `r23bld` the vector read is
+   34 to 45 clocks behind tw and the clock c on which the request stands at the EU (read by
+   Q83's rule from the pushed instruction, the vector-read clock and the displaced cycles) is 7
+   to 22 clocks behind tw. The best single value of c - tw reproduces 56 of 104 runs.
+2. **c is on a 16-clock lattice that is fixed against M0, not against the transfer: c = the
+   first clock == 2 (even alignment) / 3 (odd) mod 16 that is at least 7 clocks behind tw.**
+   `r23bld`: 104 of 104, and (L, m) = (2, 7) / (3, 7) is the only cell of the grid L = 0..15,
+   m = -4..29 that does it (tw + 7 is served by the lattice clock: 5 runs; tw + 6 is not: the 7
+   runs with c - tw = 22). `r23ald` (I/O to memory, one write): 74 of 74 with the same lattice;
+   its tw takes few values, so m is only bracketed there (5 to 8 at even alignment).
+   **Channel 1** (`r23eld`, DIC1, vector 21): 104 of 104, (2, 7) / (3, 7) the only cells.
+   **Level 5** (`r23dld`): 104 of 104 with the lattice 14 / 15 mod 16 and m = 7 (even alignment:
+   7 or 8), 4 clocks earlier, as INTP0's level-5 lattice is. Opcode-only trains (`r23bnop`,
+   `r23anop`, `r23binc`, `r23ami8`, 504 unmasked runs; no model of the pops behind a transfer, so
+   a weaker check, `l23.py`): the replaced pop is 5 to 11 clocks behind the lattice clock in
+   every run (NOP 8 to 11, and 6 where c = tw + 7 falls on the resuming words; INC 5 to 9; MOV
+   r8,imm8 6 to 11), as Q83's rule gives for those trains; **consistent, not scored run by run**.
+3. **It is INTP0's lattice, to the clock.** `pc23.py` on round 17's and 19's INTP0 families
+   (level 7, the same EI directly in front of the event port's OUT): c = the first clock == 2 / 3
+   mod 16 (even / odd) at or after e + 10.2 (e = the pin edge; 10.125 to 10.25 is the only lead
+   that does `r17r`, `r17p` and `r19qp0`, 246 of 246). INTP0 at level 5 (`r15l5`): 14 / 15 mod
+   16, 4 clocks earlier (2 clocks a level), and DIC0 at level 5 moves with it (item 2). So the 16-clock lattice is the level scan's
+   round as EI restarted it (stage 3), and DIC0's request is looked at where INTP0's is.
+4. **The hidden occupation is there** (Q82's displacements against the masked twin): in
+   `r23bld` the first cycle of the twin that is moved is a read with its first clock at c or
+   c + 1, 2 clocks late (10 runs), or a prefetch at c, c + 1 (3 late, 2 late) or chained at c + 2
+   (2 late) (30 runs); none before c in any run. In `r23ald` 33 of 74 runs (reads 2 late: 20).
+   `r23dld` 32 of 104 (reads 12), `r23eld` 40 of 104 (reads 10), all at c, c + 1 (chained
+   prefetch c + 2). A prefetch moved by the occupation either starts at c + 3 with the read
+   behind it waiting for it, or is not made in front of that read; which of the two: not read
+   (`c23.py` accepts either).
+5. **Behind c the rule is Q83's unchanged**: event (first word, the datum word current), the
+   occupation, 5 clocks, the first pop replaced, vector read 17 clocks behind that pop. With the
+   lattice of 2 nothing else is free: `r23bld` 104 of 104, `r23ald` 74 of 74, `r23dld` 104 of 104, `r23eld` 104 of 104 (pushed
+   instruction, vector-read clock and every read in front of it; the words of the DMA routine
+   in front of the first resumed instruction are taken as events on every clock: not read).
+6. **TC0 on the pin** (`r23c`, 12 runs, `tc23.py`, I/O to memory): DMAAK0 low from the write's
+   first clock (tw + 0.0) to tw + 2.5; TC0 low from tw + 0.5 to tw + 2.38, identical in all 12. f4_dma's "one instruction runs before
+   DIC's interrupt" is this: c >= tw + 7, then at least the event and 5 clocks.
+
+**The rule as stages.**
+
+| # | stage | clock | length | status |
+|---|---|---|---|---|
+| D1 | DIC's request flag is set by the transfer whose count ends | the bus unit's terminal cycle (or the DMA routine's word that posts it) | so that the scan sees it as it sees INTP0's flag for a pin edge 3.125 to 4.25 clocks in front of tw (10.2 - 7, tw a whole clock) | threshold: measured. What sets it: **inferred**, two candidates not separated: (i) the terminal-count signal that drives TC0 low at tw + 0.5 (item 6): INTP0's flag is readable 4.1 to 6.1 clocks behind its pin edge (Q72), i.e. at tw - 0.15 to tw + 2.975 for the equivalent edge, which contains tw + 0.5; (ii) the routine's word that posts the terminal write, 4 clocks in front of tw (POST_LAT). Not the cycle's end, not the routine's end (the RTL's `dm_rs`). The exact clock: **unknown** |
+| 3 | the level scan, as INTPn | divided clock | 0 to 15 clocks (the lattice) | measured (item 2, 3) |
+| 4 | the 7-clock line | CPU clock | 7 | inferred (same lattice clock as INTP0's, whose line is measured) |
+| 6a-6c | event, 2-clock occupation, 5 clocks, the first pop | as spec 15 | | measured (items 4, 5) |
+
+No sampler (1a) and no edge detector (2): what is shorter than INTPn's path is only what is in
+front of the flag. H1 holds with that correction; H2 (behind the scan) and H3 (the DMA cycle
+as the event / occupation) are rejected: the occupation is a separate 2 clocks 7 to 22 clocks
+behind the terminal cycle, and the terminal cycle displaces nothing by itself.
+
+## Q109. On which word the request is read: the pop (the N word executing), for INT's latch and for the vectored take alike
+
+From existing traces only (`build/qp/w23.py`, `pc23.py anc=E`). Model notation: NOP `N...`
+(4 words, the pop on word 1, the boundary word E = word 4), INC `N.` (pop on word 1, E word 2),
+CBW `N..` (pop on word 1, E word 3), MOV AW,[BW] `P Y . DN .` (pop on word 4, the datum word, E
+word 5), MOV r8,imm8 `. . . BNP .` (pop on word 4).
+
+- **(a) INT's latch (stage 5), measured.** For each train the interval of leads (from the pin
+  edge) that puts the replaced instruction's anchor first at or after e + lead: with the pop as
+  anchor the interval is (9.0, 9.25] in the NOP train (`r17i`) and (9.0, 9.5] in CBW (`r17r`),
+  INC at W = 1, 2, NOP at W = 1, 2, MOV AW,[BW], the mixed train (`r18t*`): one lead, 9.125,
+  everywhere. With the boundary word E as anchor: NOP (12.0, 12.25], CBW (11.0, 11.5], MOV
+  AW,[BW] (10.0, 10.5] at even alignment and no lead at odd, INC and the mixed train no single lead (lower bound 12 to 13
+  above upper bound 10.5 to 11.5). **The latch is read on the clock the N word executes**: word 1 of NOP /
+  INC / CBW, word 4 of MOV r,[BW] (the datum word, when the datum arrives). The instruction
+  that holds that N word then runs to its E word (3 / 1 / 2 / 1 clocks later) without loading
+  the popped opcode; a request arriving in those clocks is not seen until the next pop.
+- **(b) The vectored take (6a to 6c), measured.** The event words are the first word and the N
+  word (executing or waiting); in NOP / INC / CBW these are the same word 1; in MOV r,[BW]
+  word 1 and word 4 from the clock it becomes current. The pop replaced is the first N word
+  executing at or after the occupation's first clock + 5. Test of the anchor: `r19qp0` (NOP,
+  MOV r8,imm8, MOV AW,[BW] moved by pads) with the pop: 78 of 78 on the lattice of Q108; with
+  the E word in the pop's place (0 to 3 clocks allowed for): 62, 57, 50, 60 of 78.
+- **For the RTL (inferred from the builder's figures).** The RTL reads at its E word (`x_end`),
+  which it reports 2 clocks behind silicon's pop in NOP, 1 in INC / CBW, 0 in a load: that is
+  the model's E - N distance less one (3, 2, 1 less one; INC's 1 against 0 is the fetch-limited
+  train's stall). So the RTL's `x_end` is the model's E word less one clock in all four, and
+  the difference is not in the routines' lengths: it is that stage 5 and 6c's "replace this
+  pop" must be read on the pop word (the sequencer's existing `wk_nx.pop`, registered, not
+  stalled), the decision held to the boundary.
+
+## Socket runs of round 23
+
+| family | what | runs | repeats that differ |
+|---|---|---|---|
+| r23t | the first DMA program alone (check against f4_dma: one write at D060h, vector 20 behind it, two instructions run) | 4 | 0 |
+| r23bld / r23bnop / r23binc | TDMA burst, memory to memory, pads and CLCs; trains MOV AW,[BW] / NOP / INC BW | 208 each | 0 / 25 / 39 |
+| r23ald / r23anop / r23ami8 | DMARQ0 single transfer, I/O to memory, edge 60 to 96 | 148 each | 4 / 33 / 36 |
+| r23c | r23ald at six edges, TC0 and DMAAK0 recorded | 12 | 0 |
+| r23dld | r23bld, DIC0 at level 5 | 208 | 0 |
+| r23eld | r23bld on channel 1 | 208 | 34 |
+
+1,500 runs, each twice; 0 failed, 0 incomplete; the 171 repeats that differ, compared field by
+field (`build/qp/rep20.py r23...`), differ in the strobe field only (r23c: not put through
+rep20, its repeats are identical). Half of the runs of the a / b / d / e families are the masked
+twins. No sim of the RTL was run; no corpus work; item 3 (EXT / INS behind OUT imm8 with
+waits) was not started. W = 1 / 2 not run. Board left with vccb False (read back by
+`nuboard.cli status` after the last run), failure 0.
