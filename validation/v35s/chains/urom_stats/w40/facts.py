@@ -1,0 +1,15 @@
+"""Small facts of the present ROM used in w40-layout.md. usage: python3 -B facts.py > facts.txt"""
+import lib, layout, collections
+ws = lib.flat(lib.present())
+print("words that pop and read a register:", sum(1 for w in ws if w.f.get("pop") and layout.is_reg(w.f)))
+print("words that read a register:", sum(1 for w in ws if layout.is_reg(w.f)), "; words with a target:", sum(1 for w in ws if layout.has_tgt(w.f)))
+print("ra: used values", len(set(w.f.get("ra",0) for w in ws)), "; rb:", len(set(w.f.get("rb",0) for w in ws)), "; the highest selector code", max(v for v in lib.uasm.ENUMS["v35_rsel_e"][1].values()))
+print("E words by sequencing:", dict(collections.Counter(layout.sq(w.f) for w in ws if w.f.get("e"))))
+print("words whose B is a vector number:", sum(1 for w in ws if layout.is_vec(w.f)), "; E words with ea=REP:", sum(1 for w in ws if w.f.get("e") and w.f.get("ea")==layout.EA_REP))
+print("words that post a request:", sum(1 for w in ws if layout.posts(w.f)), "by form", dict(collections.Counter(layout.context(w) for w in ws if layout.posts(w.f))))
+print("words with a late payload:", sum(1 for w in ws if layout.nz(layout.xp(w.f)) or layout.nz(layout.yp(w.f))), "; with X and Y both:", sum(1 for w in ws if layout.nz(layout.xp(w.f)) and layout.nz(layout.yp(w.f))))
+print("K bits (e f nb bi vk ro rl flush) all zero:", sum(1 for w in ws if not any(w.f.get(a) for a in layout.KF)), "; distinct K values:", len(set(tuple(w.f.get(a,0) for a in layout.KF) for w in ws)))
+print("(seq, cond) values used:", len(set((w.f.get('seq',0), w.f.get('cond',0)) for w in ws)))
+print("take entries (TKI targets):", sorted(set(lib.R0[w.f['tgt']].name + '+' + str(w.f['tgt'] - lib.R0[w.f['tgt']].base) for w in ws if layout.sq(w.f) == 'TKI')), "; TKI words:", sum(1 for w in ws if layout.sq(w.f) == 'TKI'))
+print("words that load OPRW:", sum(1 for w in ws if layout.kw(w.f)), "; arming words of an unarmed write:", sorted(lib.R0[i].name + '+' + str(i - lib.R0[i].base) for i in layout.KW_MEMBERS))
+print("hold counts over 16 after tail sharing + hold counts:", sum(1 for w in lib.flat(lib.shared(True)[0]) if w.hold > 16))
