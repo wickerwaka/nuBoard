@@ -593,8 +593,27 @@ module v35_bus
     // a bus-idle word (`wkbn`: the word would have to wait the whole fetch); the bus is idle this
     // clock and the fetch is wanted again from the next (no give-way: the slot is not kept).
     // Registers but the release (lv_q.nrl, as a1p's)
-    wire        bnx = dlv_fetch && few && ex && wkbn && lv_q.nrl;
-    wire        fr = line && !gw && !a1g && !fstop && !(rh && dlv_fetch) && !bnx;
+`ifndef SYNTHESIS
+    wire        bnx = dlv_fetch && few && ex && wkbn && lv_q.nrl;     // (timing repair 1: in fr's arms, bnx1)
+`endif
+    // (timing repair 1) the line as the grant reads it, Shannon's expansion on the queue's three
+    // late facts: the request line, the five-held continuation (lv_q.r5) and the release (nrl);
+    // each arm a function of registers (kept), the late facts selecting last. The same function
+    // as `line && !gw && !a1g && !fstop && !(rh && dlv_fetch) && !bnx` (`+v35_chk` every clock)
+    wire        g_c = !gw && !fstop && !(rh && dlv_fetch);
+    wire        a1g1 = pend && eu_dlv && lo && ((A1_C1 && (ry1 || (ex && wkm && !wkr)))
+                       || (A1_C2 && pl1 && ex && wkp && !req_v && !rsv && !rqo));
+    wire        a1g0 = pend && eu_dlv && lo && A1_C1 && (ry1 || (ex && wkm && !wkr));
+    wire        bnx1 = dlv_fetch && few && ex && wkbn;
+    (* syn_keep = "true" *) wire f1_1 = !rq1 && g_c && !a1g1 && !bnx1;            // nrl 1: fetch_req's arm
+    (* syn_keep = "true" *) wire f2_1 = !rq1 && !xd && !rqx && g_c && !a1g1 && !bnx1;     // ... r5's
+    (* syn_keep = "true" *) wire f1_0 = g_c && !a1g0;                             // nrl 0
+    (* syn_keep = "true" *) wire f2_0 = !xd && (rq1 || !rqx) && g_c && !a1g0;
+    wire        fr = lv_q.nrl ? ((fetch_req && f1_1) || (lv_q.r5 && f2_1))
+                              : ((fetch_req && f1_0) || (lv_q.r5 && f2_0));
+`ifndef SYNTHESIS
+    wire        fr_x = line && !gw && !a1g && !fstop && !(rh && dlv_fetch) && !bnx;
+`endif
     wire        gwy = line && (gw || a1g) && !fstop;
     // tick B: the stream's first boundary after this clock, and the hold
     wire        aft_n = xf ? 1'b1 : xd ? 1'b0 : aft;
@@ -1076,7 +1095,7 @@ module v35_bus
     // (MX5c) every fabric clock: the expanded grant against the direct form, the pins' selected
     // values against the update from it
     always @(posedge clock) begin
-        if (chk_on && reset_n && (gn !== gnt_x || pn_x !== (ce_e ? pin_f(gn) : ph))) begin
+        if (chk_on && reset_n && (gn !== gnt_x || pn_x !== (ce_e ? pin_f(gn) : ph) || fr !== fr_x)) begin
             chk_n = chk_n + 1;
             if (chk_n <= 20)
                 $display("v35 chk: bus: the expanded grant differs from the direct form at %0t",

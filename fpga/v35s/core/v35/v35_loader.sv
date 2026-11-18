@@ -215,7 +215,7 @@ module v35_loader
     // loaded into s_b, decoded in tick B from the ce_b registers and loaded with s_b at ce_a;
     // in reset with s_b, which a reset does not change): ds is v35_udec1(s_b) whenever s_v
     // (`+v35_chk`), and nothing reads it without s_v (the E pop stalls on an empty slot)
-    v35_udec_t ds = '0;
+    v35_udec_t ds = v35_udec1(8'h00);       // (timing repair 1) v35_udec1(s_b) from the start
     // (MX2) the E word pops the opcode's second byte with it: a ModR/M byte, or (the decode's e2)
     // a short transfer's displacement (into IL; the frozen model's take on the start clock)
     // (F5d) an E word with ea=REP pops the staged opcode alone (the REP page's second byte: its
@@ -507,7 +507,7 @@ module v35_loader
     assign ip = s_v ? s_ip : q_ip;
     // (MX5b) the opcode register's decode is a register beside it, loaded with op's next value
     // at ce_a (in reset from op): dec1 is v35_udec1(op) on every clock (`+v35_chk`)
-    v35_udec_t d1r = '0;
+    v35_udec_t d1r = v35_udec1(8'h00);      // (timing repair 1) v35_udec1(op) from the start
     assign dec1 = d1r;
     // (qprobe round 17, timing) the second level's entry of the byte a word pops (the old
     // d2ent: d2row / d2f / fe_lo / fe_hi, the opcodes' numbers v35_udec2_fx / _fe) is gone with
@@ -582,6 +582,7 @@ module v35_loader
     reg        rpop_b = 1'b0;           // (qprobe round 12) the E pop is a REP prefix's own (mp <- the prefix)
     reg        epfx_b = 1'b0;           // (F4q) the E pop is a prefix's own (its word has pfx)
     v35_pop_e  pop_b = PP_NONE;
+    reg        mmr_b = 1'b0;            // (timing repair 1) opop && pop == PP_MODRM, with pop_b
     reg [7:0]  sb0_b = 8'h00, sb1_b = 8'h00;
     reg [2:0]  need_b = 3'd0;
     v35_udec_t dec1_b = '0;
@@ -612,6 +613,7 @@ module v35_loader
             disp_b <= disp;
             dispm_b <= ex && dispm;
             pop_b <= pop;
+            mmr_b <= opop && pop == PP_MODRM;
             sb0_b <= sb0;
             sb1_b <= sb1;
             need_b <= need_n;
@@ -650,9 +652,17 @@ module v35_loader
     // word's hold head popped and did not release (SET1 / CLR1 / TEST1 / NOT1 mem,CL: released
     // two words behind the request word): its bytes by the mode of the ModR/M byte the EAC word
     // popped (the modrm register): mod 01 one, mod 10 and the direct form two, else none
-    wire [1:0] rdc = pop != PP_RD ? 2'd0 : modrm[7:6] == 2'd1 ? 2'd1
-                   : (modrm[7:6] == 2'd2 || (modrm[7:6] == 2'd0 && modrm[2:0] == 3'd6)) ? 2'd2 : 2'd0;
-    assign rls = !ex ? 3'd0 : {2'd0, ro} + ((rl == RL_X) ? 3'd0 : {1'd0, rl}) + {2'd0, mra} + {1'b0, rdc};
+    function automatic logic [1:0] mcnt_f(input logic [1:0] md, input logic [2:0] rm);
+        mcnt_f = md == 2'd1 ? 2'd1 : (md == 2'd2 || (md == 2'd0 && rm == 3'd6)) ? 2'd2 : 2'd0;
+    endfunction
+    // (timing repair 1) the release count's registered part: `rp` = ro + mra + rdc of the word
+    // and registers as they stand, loaded with exactly the values those load (the word's ro and
+    // pop from word_nx with the word register: at ce_a and in reset; mra at ce_a, 0 in reset;
+    // rdm, the modrm register's mode count, with modrm at ce_a); rls is then ex and rl over it
+    // (`+v35_chk` compares rls with the direct sum every clock)
+    reg  [1:0] rdm = 2'd0;              // mcnt_f(modrm), loaded with modrm
+    reg  [2:0] rp = 3'd0;               // {2'd0, ro} + {2'd0, mra} + {1'b0, rdc}
+    assign rls = !ex ? 3'd0 : rp + ((rl == RL_X) ? 3'd0 : {1'd0, rl});
     wire       mpm_nx = epop_b ? (mpop_b && !e2_b) : mpm;
     wire       mra_nx = flush_b ? 1'b0 : disp_b ? mpm : ex_lb ? 1'b0 : mra;
     // (r24, model_m LEAD_*: the lead counts from the clock the opcode leaves the queue, the
@@ -695,7 +705,13 @@ module v35_loader
     // clock (CALL / JMP near and far through memory: the decode's v35_uml; the FF group's own m3
     // is 0), presented on the stream facts' free code: ld and le both (never otherwise: le is
     // the count at the lead, ld below it; the uml opcodes have no lead, uasm)
-    wire       ml_nx = d1_nx.has_modrm && v35_uml(op_nx, mp_nx);
+    // (timing repair 1) v35_uml of op_nx and mp_nx by its sources' cases (op_nx: s_b or op;
+    // mp_nx: sb0_b, s_b or mp), each lookup on registers, the selects last
+    wire       um_s = (mpop_b && !e2_b) ? v35_uml(s_b, sb0_b) : (erep_b || rpop_b) ? v35_uml(s_b, s_b)
+                    : v35_uml(s_b, mp);
+    wire       um_o = (mpop_b && !e2_b) ? v35_uml(op, sb0_b) : (erep_b || rpop_b) ? v35_uml(op, s_b)
+                    : v35_uml(op, mp);
+    wire       ml_nx = (epop_b && !erep_b) ? (ds.has_modrm && um_s) : (d1r.has_modrm && um_o);
     assign sf_nx.ld = lc_nx < {1'b0, d1_nx.lead} || ml_nx;             // (qprobe rule 12)
     assign sf_nx.le = (d1_nx.lead != 2'd0 && lc_nx == {1'b0, d1_nx.lead}) || ml_nx;    // (round 6, E)
     assign sf_nx.m3 = d1_nx.m3;     // (rules 4c, 4d; qprobe round 8, Q20: the decode's m3, not FE / F7)
@@ -716,7 +732,7 @@ module v35_loader
     wire [7:0] mp_nx = (mpop_b && !e2_b) ? sb0_b : (erep_b || rpop_b) ? s_b : mp;   // (exclusive: ds2 is 0 on erep and on a prefix's pop)
     // (MX5b) opc, modrm and fmt load exactly these at ce_a (the block below assigns them)
     assign opc_nx = disp_b ? op : opc;
-    assign modrm_nx = disp_b ? mp : (opop_b && pop_b == PP_MODRM) ? sb0_b : modrm;
+    assign modrm_nx = disp_b ? mp : mmr_b ? sb0_b : modrm;
     always_comb begin
         fmt_nx = fmt;
         if (disp_b) begin
@@ -725,7 +741,11 @@ module v35_loader
                 fmt_nx.w = dmw_b;   // (MX3c) the 0F form's width (the second level's)
         end
     end
-    assign d1_nx = v35_udec1(op_nx);
+    // (timing repair 1) the decode of op_nx from the two registered decodes beside its sources:
+    // ds is v35_udec1(s_b) and d1r v35_udec1(op) on every clock (each loaded with its byte, both
+    // in reset: `+v35_chk`), so the mux of the decodes is the decode of the mux, and tick B's
+    // stream facts (sf_nx: the bus unit's boundary, the sequencer's stall) start from registers
+    assign d1_nx = (epop_b && !erep_b) ? ds : d1r;
     // the function's facts after the coming ce_a (the block below loads these)
     v35_lin_t  lx;
     always_comb begin
@@ -771,6 +791,14 @@ module v35_loader
             imo <= imo_nx;
         end
     end
+    // (timing repair 1) rp: the word register's ro / pop load at ce_a and in every reset clock
+    // (v35_useq), mra is 0 in reset, rdm (modrm) holds in reset
+    always_ff @(posedge clock) begin
+        if (!reset_n)
+            rp <= {2'd0, ro_nx} + ((pop_nx == PP_RD) ? {1'b0, rdm} : 3'd0);
+        else if (ce_a)
+            rp <= {2'd0, ro_nx} + {2'd0, mra_nx} + ((pop_nx == PP_RD) ? {1'b0, mcnt_f(modrm_nx[7:6], modrm_nx[2:0])} : 3'd0);
+    end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             mpm <= 1'b0;
@@ -783,6 +811,7 @@ module v35_loader
             dfl <= dfl_nx;
             mpm <= mpm_nx;
             mra <= mra_nx;
+            rdm <= mcnt_f(modrm_nx[7:6], modrm_nx[2:0]);
             lc <= lc_nx;
             ew <= e_pop && !ex_lb && !s_v && sload_b && !flush_b;
             hp <= hp_nx;
@@ -859,6 +888,7 @@ module v35_loader
                 || (ex ? z1 : need == 3'd0) !== (need_n == 3'd0)
                 || opop_b !== opop || mpop_b !== mpop || e2_b !== ds.e2 || epop_b !== epop || sload_b !== sload || flush_b !== flush
                 || disp_b !== disp || dispm_b !== (ex && dispm) || pop_b !== pop
+                || mmr_b !== (opop && pop == PP_MODRM)
                 || sb0_b !== sb0 || sb1_b !== sb1
                 || need_b !== need_n
                 || dec1_b !== dec1 || dmw_b !== dm.w) begin
@@ -916,6 +946,29 @@ module v35_loader
             end
         end
     end
+    integer trp_n = 0;
+    // (timing repair 1) the next opcode's decode and v35_uml against the direct lookups
+    always @(posedge clock) begin
+        if (chk_on && reset_n && (d1_nx !== v35_udec1(op_nx) || ds !== v35_udec1(s_b)
+                                  || ml_nx !== (v35_udec1(op_nx).has_modrm && v35_uml(op_nx, mp_nx)))) begin
+            trp_n = trp_n + 1;
+            if (trp_n <= 20)
+                $display("v35 chk: loader: the next opcode's decode off the lookup at %0t", $time);
+        end
+    end
+    // (timing repair 1) the registered release part against the direct sum, every clock
+    wire [1:0] rdc_x = pop != PP_RD ? 2'd0 : modrm[7:6] == 2'd1 ? 2'd1
+                     : (modrm[7:6] == 2'd2 || (modrm[7:6] == 2'd0 && modrm[2:0] == 3'd6)) ? 2'd2 : 2'd0;
+    wire [2:0] rls_x = !ex ? 3'd0 : {2'd0, ro} + ((rl == RL_X) ? 3'd0 : {1'd0, rl}) + {2'd0, mra} + {1'b0, rdc_x};
+    always @(posedge clock) begin
+        if (chk_on && reset_n && (rls !== rls_x || rdm !== mcnt_f(modrm[7:6], modrm[2:0]))) begin
+            trp_n = trp_n + 1;
+            if (trp_n <= 20)
+                $display("v35 chk: loader: rls %0d against the direct sum %0d at %0t", rls, rls_x, $time);
+        end
+    end
+    final if (chk_on && trp_n != 0)
+        $display("v35 chk: loader: %0d clocks with rls off the direct sum", trp_n);
     final if (chk_on && chk_n != 0)
         $display("v35 chk: loader: %0d changes in tick B", chk_n);
     final if (chk_on && rsync_n != 0)

@@ -514,20 +514,24 @@ module v35_useq
     wire               s_tk = r_go && word.seq == SQ_TKI;
     wire               s_jc = r_go && word.seq == SQ_JC;
     wire               s_jn = r_go && word.seq == SQ_JNC;
-    wire [UADDR_W-1:0] raddr = s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
-                             : s_ds ? (igo ? UROM_INT : dent)
-                             : s_tk ? (sgo ? word.tgt : inc)
-                             : s_jc ? (cond_a ? word.tgt : inc)
-                             : s_jn ? (cond_a ? inc : word.tgt)
-                             : ra_e;
+    // (timing repair 1) the late one-bit facts (the take point's sgo, the dispatch's igo, the
+    // EAC word's ec_reg, the condition) are exclusive by the word's seq, so they are merged into
+    // one bit (`lt`) that selects last between the two addresses formed beside it without them
+    // (`a1` with the fact 1, `a0` with it 0): the same select as before (`+v35_chk` compares
+    // raddr with upc_a), each fact one LUT from the ROM's address instead of the select chain.
+    // The low part's 36 blocks and the high part's 24 each have their own copy of `lt` and of
+    // the last stage
+    wire [UADDR_W-1:0] ec0 = ec_call ? ec_head : inc;
+    (* syn_keep = "true" *) wire [UADDR_W-1:0] a1 = s_ec ? word.tgt : s_ds ? UROM_INT
+                                                   : (s_tk || s_jc) ? word.tgt : s_jn ? inc : ra_e;
+    (* syn_keep = "true" *) wire [UADDR_W-1:0] a0 = s_ec ? ec0 : s_ds ? dent
+                                                   : (s_tk || s_jc) ? inc : s_jn ? word.tgt : ra_e;
+    (* syn_keep = "true" *) wire lt_l = s_tk ? sgo : s_ds ? igo : s_ec ? ec_reg : cond_a;
+    (* syn_keep = "true" *) wire lt_h = s_tk ? sgo : s_ds ? igo : s_ec ? ec_reg : cond_a;
+    (* syn_keep = "true" *) wire [UADDR_W-1:0] raddr = lt_l ? a1 : a0;
     // the high part's address: the same select kept apart (the low part's 36 blocks and the high
     // part's 24 each on their own copy of the last stage)
-    (* syn_keep = "true" *) wire [UADDR_W-1:0] rah = s_ec ? (ec_reg ? word.tgt : ec_call ? ec_head : inc)
-                             : s_ds ? (igo ? UROM_INT : dent)
-                             : s_tk ? (sgo ? word.tgt : inc)
-                             : s_jc ? (cond_a ? word.tgt : inc)
-                             : s_jn ? (cond_a ? inc : word.tgt)
-                             : ra_e;
+    (* syn_keep = "true" *) wire [UADDR_W-1:0] rah = lt_h ? a1 : a0;
     always_ff @(posedge clock) begin
         if (!reset_n || ce_b) begin
             l0 <= rom0[raddr[10:0]];
@@ -597,6 +601,14 @@ module v35_useq
     always @(posedge clock) if (ce_b) begin
         ra_ab <= raddr;
         ra_rb <= !reset_n ? UROM_RESET : upc_a;
+    end
+    // (timing repair 1) the two copies of the address, every clock
+    always @(posedge clock) begin
+        if (chk_on && (raddr !== rah || raddr !== (!reset_n ? UROM_RESET : upc_a))) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: useq: the ROM's address copies differ at %0t", $time);
+        end
     end
     // (MX5c) the registered stall outcome against the stalls of the facts as they stand, every
     // clock

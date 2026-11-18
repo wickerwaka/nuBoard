@@ -236,6 +236,35 @@ module v35_sfr (
     endfunction
     wire        w_word = width == BW_WORD && !top;
     wire [7:0]  w_lo = width == BW_HI ? data[15:8] : data[7:0];
+    // (timing repair 1) the store's decode registered at ce_b (ce_rd): the address, width and
+    // IDB are ce_a registers, so at ce_b they hold the values the coming ce_a's store reads; every
+    // store reader below is enabled by `wr` (ce_a) and reads these (`+v35_chk`: against the direct
+    // decode at every store). prc_at (tick B, without the enable) keeps the direct decode
+    reg         ip_b = 1'b0, tp_b = 1'b0, ww_b = 1'b0;
+    reg  [7:0]  wo_b = 8'h00;
+    always @(posedge clock) begin
+        if (ce_rd) begin
+            ip_b <= in_page;
+            tp_b <= top;
+            wo_b <= w_off;
+            ww_b <= w_word;
+        end
+    end
+`ifndef SYNTHESIS
+    /* verilator lint_off BLKSEQ */
+    integer trw_n = 0;
+    always @(posedge clock) begin
+        if ($test$plusargs("v35_chk") && reset_n && wr
+            && (ip_b !== in_page || tp_b !== top || wo_b !== w_off || ww_b !== w_word)) begin
+            trw_n = trw_n + 1;
+            if (trw_n <= 20)
+                $display("v35 chk: sfr: the store's registered decode off the address at %0t", $time);
+        end
+    end
+    final if ($test$plusargs("v35_chk") && trw_n != 0)
+        $display("v35 chk: sfr: %0d stores with the registered decode off", trw_n);
+    /* verilator lint_on BLKSEQ */
+`endif
     always @(posedge clock) begin
         if (!reset_n) begin
             for (i = 0; i < 256; i = i + 1)
@@ -244,32 +273,32 @@ module v35_sfr (
             wtc <= WTC_RESET;
             rfm <= RFM_RESET;
             idb <= IDB_RESET;
-        end else if (wr && (top || in_page)) begin
-            if (byte_ok(w_off, w_word))
-                st[w_off] <= w_lo & wmask(w_off);
-            if (w_word && byte_ok(w_off | 8'd1, 1'b1))
-                st[w_off | 8'd1] <= data[15:8] & wmask(w_off | 8'd1);
-            if (w_off == 8'hEB)
+        end else if (wr && (tp_b || ip_b)) begin
+            if (byte_ok(wo_b, ww_b))
+                st[wo_b] <= w_lo & wmask(wo_b);
+            if (ww_b && byte_ok(wo_b | 8'd1, 1'b1))
+                st[wo_b | 8'd1] <= data[15:8] & wmask(wo_b | 8'd1);
+            if (wo_b == 8'hEB)
                 prc <= w_lo & 8'h4F;
-            if (w_word && (w_off | 8'd1) == 8'hEB)
+            if (ww_b && (wo_b | 8'd1) == 8'hEB)
                 prc <= data[15:8] & 8'h4F;
-            if (w_off == 8'hE1)
+            if (wo_b == 8'hE1)
                 rfm <= w_lo;
-            if (w_word && (w_off | 8'd1) == 8'hE1)
+            if (ww_b && (wo_b | 8'd1) == 8'hE1)
                 rfm <= data[15:8];
-            if (w_off == 8'hE8)
+            if (wo_b == 8'hE8)
                 wtc[7:0] <= w_lo;
-            if (w_off == 8'hE9)
+            if (wo_b == 8'hE9)
                 wtc[15:8] <= w_lo;
-            if (w_word && (w_off | 8'd1) == 8'hE9)
+            if (ww_b && (wo_b | 8'd1) == 8'hE9)
                 wtc[15:8] <= data[15:8];
-            if (w_off == 8'hFF)
+            if (wo_b == 8'hFF)
                 idb <= w_lo;
         end
         // (F4d) STBC's SBF (bit 0): set by a store with bit 0 = 1, never cleared by a store or by
         // reset; 0 at power-on (f4_stop: 00h stores leave it, FFh sets it, the second run after a
         // reset reads 01h; a STOP does not set it). No other STBC bit reads back
-        if (reset_n && wr && in_page && w_off == 8'hE0 && w_lo[0])
+        if (reset_n && wr && ip_b && wo_b == 8'hE0 && w_lo[0])
             sbf <= 1'b1;
         // (F4b) a macro service's end: the source's MS bit (f4_ms: TMIC0 27h -> 07h)
         if (reset_n)
@@ -292,27 +321,27 @@ module v35_sfr (
         for (gi = 0; gi < 15; gi++) begin : g_ic
             localparam logic [7:0] O = IC_OFF[8*gi +: 8];
             assign ic_b[8*gi +: 8] = st[O];
-            wire lo_hit = w_off == O;
-            wire hi_hit = w_word && (w_off | 8'd1) == O;
-            assign ic_we[gi] = wr && in_page && !top && (lo_hit || hi_hit);
+            wire lo_hit = wo_b == O;
+            wire hi_hit = ww_b && (wo_b | 8'd1) == O;
+            assign ic_we[gi] = wr && ip_b && !tp_b && (lo_hit || hi_hit);
             assign ic_wd[gi] = lo_hit ? w_lo[7] : data[15];
         end
     endgenerate
     assign intm = st[8'h40];
 
     // FLAG: the store's byte (bits 5 and 3) into the PSW
-    assign flag_we = wr && in_page && !top && w_off == 8'hEA;
+    assign flag_we = wr && ip_b && !tp_b && wo_b == 8'hEA;
     assign flag_d = {w_lo[5], w_lo[3]};
 
     // ---- (F4) the peripherals ----------------------------------------------------------------
     // the store as the peripherals see it: a byte at w_off (w_lo), with a word the next (data hi)
-    wire        p_we = wr && in_page && !top;
+    wire        p_we = wr && ip_b && !tp_b;
     wire [15:0] tm0, md0, tm1, md1;
     wire [7:0]  tmc0, tmc1;
     wire        tout;
     wire [2:0]  tf;
     wire        tbf;
-    v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off, .w_word, .w_lo,
+    v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_word(ww_b), .w_lo,
                      .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf);
     v35_tbc tbc (.clock, .reset_n, .ce_a, .tb(prc[3:2]), .tbf);
     // (F4b) the serial channels (channel 0 with the I/O interface mode): SCM / SCC / BRG in the
@@ -321,17 +350,17 @@ module v35_sfr (
     wire       txd0, txd1, sck0, rsck0, rsck_oe0, rsck1, rsck_oe1, sck1;
     wire       sr0, st0, se0, sr1, st1, se1;
     v35_serial #(.IO_MODE(1'b1)) ser0 (
-        .clock, .reset_n, .ce_a, .s_scm(p_we && w_off == 8'h68), .v_scm(w_lo),
-        .s_txb(p_we && w_off == 8'h62), .v_txb(w_lo),
-        .s_bg(p_we && (w_off == 8'h69 || w_off == 8'h6A || (w_word && w_off == 8'h68))),
+        .clock, .reset_n, .ce_a, .s_scm(p_we && wo_b == 8'h68), .v_scm(w_lo),
+        .s_txb(p_we && wo_b == 8'h62), .v_txb(w_lo),
+        .s_bg(p_we && (wo_b == 8'h69 || wo_b == 8'h6A || (ww_b && wo_b == 8'h68))),
         .scm(st[8'h68]), .scc(st[8'h69]),
         .brg(st[8'h6A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h30), .rxd_in(input_levels[9]),
         .cts_in(input_levels[11]), .rxb(rxb0), .sce(sce0), .txd(txd0), .sck(sck0), .rsck(rsck0),
         .rsck_oe(rsck_oe0), .sr(sr0), .st(st0), .se(se0));
     v35_serial #(.IO_MODE(1'b0)) ser1 (
-        .clock, .reset_n, .ce_a, .s_scm(p_we && w_off == 8'h78), .v_scm(w_lo),
-        .s_txb(p_we && w_off == 8'h72), .v_txb(w_lo),
-        .s_bg(p_we && (w_off == 8'h79 || w_off == 8'h7A || (w_word && w_off == 8'h78))),
+        .clock, .reset_n, .ce_a, .s_scm(p_we && wo_b == 8'h78), .v_scm(w_lo),
+        .s_txb(p_we && wo_b == 8'h72), .v_txb(w_lo),
+        .s_bg(p_we && (wo_b == 8'h79 || wo_b == 8'h7A || (ww_b && wo_b == 8'h78))),
         .scm(st[8'h78]), .scc(st[8'h79]),
         .brg(st[8'h7A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h38), .rxd_in(input_levels[10]),
         .cts_in(input_levels[12]), .rxb(rxb1), .sce(sce1), .txd(txd1), .sck(sck1), .rsck(rsck1),
@@ -339,7 +368,7 @@ module v35_sfr (
     // (F4c) DMA: DMAM's mode, W and EDMA live in v35_dma (read back from it); DMAC in the storage
     wire [7:0] dmam0, dmam1;
     wire [1:0] dic;
-    v35_dma dma (.clock, .reset_n, .ce_a, .we(p_we), .w_off, .w_word, .w_lo, .w_hi(data[15:8]),
+    v35_dma dma (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_word(ww_b), .w_lo, .w_hi(data[15:8]),
                  .dmac0(st[8'hA0]), .dmac1(st[8'hA2]), .dmarq(input_levels[7:6]),
                  .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs), .smp(dm_smp), .dmam0, .dmam1,
                  .dm_v, .dm_go, .tk_ch(dm_ch), .tk_in(dm_in), .tk_out(dm_out), .tk_w(dm_w),

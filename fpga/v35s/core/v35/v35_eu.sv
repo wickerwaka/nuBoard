@@ -202,6 +202,7 @@ module v35_eu
     endfunction
     reg [15:0] ds1 = 16'd0, ps = 16'hFFFF, ss = 16'd0, ds0 = 16'd0;
     reg [15:0] ta = 16'd0, tb = 16'd0, tc = 16'd0, sigma = 16'd0, addr = 16'd0, oprw = 16'd0;
+    reg        sz = 1'b1;               // (timing repair 1) sigma == 0, loaded with sigma
     reg        ms_eq = 1'b0;            // (F4b) MSEQ's match
     initial ms_end = 1'b0;
     reg        scy = 1'b0, ea_ss = 1'b0, pfx_v = 1'b0, dtrap = 1'b0;
@@ -271,7 +272,13 @@ module v35_eu
     // ------------------------------------------------------------ the register selectors
     // {seg 1, lane 2 (0 word, 1 low, 2 high), slot 4}; slot: REG16[i] at 15 - i, the segment
     // s (0 DS1, 1 PS, 2 SS, 3 DS0) at 7 - s
-    wire weff = word.wid == WD_WORD ? 1'b1 : (word.wid == WD_FMT ? fmt.w : 1'b0);
+    // (timing repair 1) the word's effective width is a register: loaded with exactly what its
+    // sources load (the word: at ce_a and in every reset clock, v35_useq; fmt: at ce_a, held in
+    // reset, v35_loader), so it is the same function of them on every clock (`+v35_chk`)
+    function automatic logic wf(input logic [1:0] wid, input logic w);
+        wf = wid == WD_WORD ? 1'b1 : (wid == WD_FMT ? w : 1'b0);
+    endfunction
+    reg  weff = 1'b0;
     // the multiply's and the divide's width is the format's (their words read AW whole)
     wire mdw = fmt.w;
     function automatic logic [6:0] num(input logic [2:0] r, input logic w);
@@ -336,7 +343,13 @@ module v35_eu
     // (MX5b) the early read: the next word's selectors on the values its fields will read at
     // ce_a. The bank is psw.RB as it stands: no write changes PSW's bits 14:12 (the ALU's flag
     // results and POP PSW's write keep them; `+v35_chk` checks the address against ra_next)
-    wire       weff_n = word_nx.wid == WD_WORD ? 1'b1 : (word_nx.wid == WD_FMT ? fmt_nx.w : 1'b0);
+    wire       weff_n = wf(word_nx.wid, fmt_nx.w);
+    always @(posedge clock) begin
+        if (!reset_n)
+            weff <= wf(word_nx.wid, fmt.w);
+        else if (ce_a)
+            weff <= weff_n;
+    end
     wire [6:0] sa_n = rsel_g(word_nx.ra, word_nx.wid, modrm_nx, op_nx, fmt_nx.d, weff_n);
     wire [6:0] sb_n = rsel_g(word_nx.rb, word_nx.wid, modrm_nx, op_nx, fmt_nx.d, weff_n);
     assign ra_early = {bank, sa_n[3:0]};
@@ -874,7 +887,7 @@ module v35_eu
             default: xcv = (psw[V35_PSW_S] ^ psw[V35_PSW_V]) || psw[V35_PSW_Z];
         endcase
     end
-    wire       sz = sigma == 16'd0;
+    // (timing repair 1) `sz` (SIGMA is zero) is a register loaded with SIGMA (`+v35_chk`)
     assign c_xc = !fmt.xc[4] ? (xcv ^ fmt.xc[0]) : (sz ^ !fmt.xc[0]);
     assign c_snz = !sz;
     assign c_f1 = f1;
@@ -939,6 +952,7 @@ module v35_eu
             end
             if (ex_b) begin
                 sigma <= r;
+                sz <= r == 16'd0;       // (timing repair 1) SIGMA's zero test, loaded with it
                 if (word.wf)
                     psw <= pn;
                 scy <= scy_n;
@@ -1100,6 +1114,13 @@ module v35_eu
     reg chk_on = 1'b0;
     integer chk_n = 0;
     initial chk_on = $test$plusargs("v35_chk");
+    always @(posedge clock) begin
+        if (chk_on && (weff !== wf(word.wid, fmt.w) || sz !== (sigma == 16'd0)) && reset_n) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: eu: the registered width off the word at %0t", $time);
+        end
+    end
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
             if (x_b !== x_l || y_b !== y_l || mf_b !== mf_q || mfn_b !== mf_f || segv_b !== segv_e) begin

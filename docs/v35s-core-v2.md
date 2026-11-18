@@ -3488,3 +3488,20 @@ question, decided from S8's routed numbers with the user.
   A2's (seed 1 loader `mra` to the address mux, seed 2 the DMA gate to the ROM address,
   seed 3 the loader's staged byte to `ex`). A timing repair with no change of behaviour
   is ordered; whether A2 stays is the user's ruling.
+- **2026-11-18, timing repair 1 (FULL gate, no change of behaviour).** 17 ns, seeds 1 / 2 /
+  3: +2.760 / +3.402 / +3.221 (from +2.423 / +1.935 / +1.543); 9,759 LUT4, 2,608 FF, 108
+  RAM_5K. Corpus 30,054 at both spacings, 0 rows differing from the previous landing;
+  vectors, 56 tests, SST, every program gate and f4_hwd as before. Eight restructurings
+  (core README "Timing repair 1"): the loader's release count precomputed into registers;
+  the queue's occupancy thresholds formed in tick B; the bus unit's `fr` expanded on the
+  queue's three late signals; the sequencer's ROM address select merged into one late
+  bit; the EU's effective width and SIGMA-zero as registers; the loader's `d1_nx` from the
+  registered decodes and the ModR/M pop's decode registered; the SFR store decode
+  registered at ce_b. No port added or widened. **Measured, not in the tree**: with spec
+  18 A2 removed the seeds are +3.690 / +3.479 / +2.880, so A2 costs about 0.9 ns on seed
+  1 and nothing measurable on the others; with A2 in every seed is over its +2.0 line.
+  Left: the pace path (ROM word, word kind, the bus hold `ph_nx`, `ex`), which needs the
+  kind in ROM bits (a fourth bank). **Gate fault found**: the replay drops the
+  simulator's stderr without `--diag`, so "chk silent" was never checked at earlier
+  landings; the gate replays with `--diag` from this landing on (0 checker lines at both
+  spacings).

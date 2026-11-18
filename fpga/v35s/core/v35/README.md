@@ -8316,3 +8316,56 @@ existing ports (test_v35_struct unchanged; one more free code of wk_t).
 - **Not built:** JMP far / CALL far's Q act (a word the bus unit sees as a request, REQ_PRI, with
   no cycle: 16 corpus runs at W = 0, behind PUSH at odd and OUT at even alignment; below the
   stopping line, and it needs a further free code of wk_t).
+
+## Timing repair 1: the long paths restructured (no behaviour change)
+
+At e6fe501 the top (17 ns, seeds 1 / 2 / 3) met at +2.423 / +1.935 / +1.543 ns. Every change
+below computes the same value on every clock as before (each has a `+v35_chk` comparison with
+the direct form, every fabric clock unless named; the refresh-off corpus replays with pin
+records identical run for run to the base's). No port is added or widened, no timing exception,
+the generated decode text is untouched. Result: +2.760 / +3.402 / +3.221 ns, 9,759 LUT4,
+2,608 FF (from 9,611 / 2,548).
+
+- **The release count's registered part** (v35_loader `rp`, `rdm`). `rls` was ex over the sum of
+  the word's ro and rl, `mra` and the PP_RD word's displacement count from the modrm register's
+  mode. `rdm` (the mode's count) is a register loaded with modrm; `rp` = ro + mra + rdc is a
+  register loaded with exactly what its sources load (the word's ro / pop from word_nx at ce_a
+  and in every reset clock, mra_nx at ce_a and 0 in reset, rdm with modrm); `rls = ex ? rp + rl : 0`.
+- **The queue's compares without the count's sum** (v35_queue `k4n k4a k5a kfn kfa`). `occ <= T`
+  is `rls >= ob + n_ab - T`; ob, odd and discard are ce_a registers, so the bound is formed in
+  tick B from ob_nx / odd_nx and registered beside ob, once without a delivery and once with
+  (ob + the word's bytes), as {<= 0, > 7, low three bits}; the delivery selects. fetch_req,
+  lv_q.r5, lv_q.c4 and lv_q.cf are then a three-bit compare of rls. (`occ` remains for the
+  reference and +v35_qdbg only.)
+- **The grant's line expanded on the queue's late facts** (v35_bus `f1_1 f2_1 f1_0 f2_0`). `fr`
+  is `nrl ? (fetch_req && f1_1 || r5 && f2_1) : (fetch_req && f1_0 || r5 && f2_0)`, the four
+  arms registers-only (kept): the give-way, HALT's stop, rh, a1g and bnx folded in by nrl.
+- **The ROM's address: the late facts merged and selected last** (v35_useq `lt_l lt_h a1 a0`).
+  The take point's sgo, the dispatch's igo, the EAC word's ec_reg and the jump condition are
+  exclusive by the word's seq; one bit (`lt`, a copy per ROM part) selects between the two
+  addresses formed without them. sgo (the DMA arm and gate, the controller's requests) and the
+  condition now reach the 60 blocks' address through one LUT.
+- **SIGMA's zero test a register** (v35_eu `sz`, loaded with sigma): c_xc and c_snz, the
+  conditions of the ROM address, start from a register.
+- **The word's effective width a register** (v35_eu `weff`: loaded at ce_a from weff_n and in
+  reset from the next word and the held format, as its sources are), off the ALU's fan-out.
+- **The next opcode's decode from the registered decodes** (v35_loader). `d1_nx` was
+  `v35_udec1(op_nx)`; it is `epop_b && !erep_b ? ds : d1r` (ds is v35_udec1(s_b) and d1r
+  v35_udec1(op) on every clock: both now start at v35_udec1(00h), their bytes' initial value).
+  `ml_nx` reads v35_uml on each case of op_nx (s_b, op) and mp_nx (sb0_b, s_b, mp), the selects
+  last. The stream facts (sf_nx: the bus unit's boundary, the sequencer's pace) and the stall's
+  `ex` no longer sit behind the opcode table.
+- **The ModR/M pop's select a register** (v35_loader `mmr_b` = opop && pop == PP_MODRM, loaded
+  with pop_b at ce_b): modrm_nx and the register RAM's early read address.
+- **The SFR store's decode registered at ce_b** (v35_sfr `ip_b tp_b wo_b ww_b`): the access
+  port's address and width (the bus unit's sfr_a / sfr_w) and IDB are ce_a registers, so at ce_b
+  they hold what the coming ce_a's store reads; every store reader (the storage, PRC, RFM, WTC,
+  IDB, SBF, the IC bits, FLAG, the timers, the serial channels, DMA) is enabled by `wr` (ce_a)
+  and reads these (`+v35_chk` at every store). prc_at (tick B, no enable) and the read keep the
+  direct decode.
+
+Not done (tried or considered): the pace `ph_nx` (the ROM's word -> v35_useq's kind -> the bus
+unit's hold, now the worst family at +2.76 .. +3.4) needs the kind out of the ROM's data (a
+fourth bank, uasm) or a per-kind expansion in the bus unit; the loader's dispatch entry
+(`df.ent`, the dsp_f table behind op_nx / mp_nx) needs the table duplicated per source, which
+the F3 lesson forbids.

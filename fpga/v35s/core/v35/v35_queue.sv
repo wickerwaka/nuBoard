@@ -195,7 +195,9 @@ module v35_queue
     // acted: `+v35_chk` compares ob with the window and the loader's reference every clock.)
     reg  signed [4:0] ob = 5'sd0;
     wire signed [4:0] n_ab = {2'b00, n_arr};
-    wire signed [4:0] occ = ob + n_ab - $signed({2'b00, rls});
+`ifndef SYNTHESIS
+    wire signed [4:0] occ = ob + n_ab - $signed({2'b00, rls});      // (the reference's and qdbg's)
+`endif
     // (qprobe rules 1, 2) the line: the count after this clock's releases at most 4; at most 5
     // on the clock after a fetch's last clock (lv_q.r5) when the bus unit allows the
     // continuation (no dispatch word executes now and no request word executed on the last
@@ -209,10 +211,31 @@ module v35_queue
     reg        fdb = 1'b0;
     wire       pv = !flush && flw == 3'd0 && !fdb;
     wire       pvf = flush && flw == 3'd0 && !fdb;
-    assign fetch_req = pv && occ <= 5'sd4 && !susp;
-    assign lv_q.r5 = (pv || pvf) && occ <= 5'sd5 && dlv_v && !discard && !susp;
-    assign lv_q.c4 = pv && occ <= 5'sd4;
-    assign lv_q.cf = pv && occ + (odd ? 5'sd1 : 5'sd2) <= 5'sd5;
+    // (timing repair 1) the compares on the count without its sum: `occ <= T` is
+    // `rls >= ob + n_ab - T`, and ob, odd and discard are ce_a registers, so the right-hand side
+    // is formed in tick B from their next values (ob_nx, odd_nx) and registered beside them at
+    // ce_a, once for no delivery (`*n`) and once for a delivered word (`*a`, ob + its bytes);
+    // the delivery (arrive: dlv_v and not discard) selects. A bound is kept as {<= 0, > 7, its
+    // low three bits} (`v35_qk_t`); `+v35_chk` compares each compare with the direct
+    // arithmetic every clock
+    typedef struct packed {
+        logic       z, b;
+        logic [2:0] v;
+    } v35_qk_t;
+    function automatic v35_qk_t qk_f(input logic signed [5:0] k);
+        qk_f.z = k <= 6'sd0;
+        qk_f.b = k > 6'sd7;
+        qk_f.v = k[2:0];
+    endfunction
+    function automatic logic qge(input logic [2:0] r, input v35_qk_t k);
+        qge = k.z || (!k.b && r >= k.v);
+    endfunction
+    v35_qk_t   k4n, k4a, k5a, kfn, kfa;
+    wire       le4 = arrive ? qge(rls, k4a) : qge(rls, k4n);
+    assign fetch_req = pv && le4 && !susp;
+    assign lv_q.r5 = (pv || pvf) && qge(rls, k5a) && arrive && !susp;
+    assign lv_q.c4 = pv && le4;
+    assign lv_q.cf = pv && (arrive ? qge(rls, kfa) : qge(rls, kfn));
     assign lv_q.nrl = rls == 3'd0;
     // (MX5) the fetch address from pfp. (qprobe round 16) No fetch of the new stream is granted on
     // the flush's clock (the line is low there but for the old stream's continuation, which
@@ -266,6 +289,21 @@ module v35_queue
         lvc_f.lt2 = o < 5'sd2;
     endfunction
     assign lv_nx.n = lvc_f(ob_nx, 1'b0);
+    // (timing repair 1) the bounds as the coming ce_a leaves ob and odd (in reset: ob 0, odd 0)
+    function automatic logic [24:0] qkb_f(input logic signed [4:0] o, input logic signed [4:0] ar);
+        logic signed [5:0] sn, sa, a6;
+        sn = {o[4], o};
+        a6 = {ar[4], ar};
+        sa = sn + a6;
+        qkb_f = {qk_f(sn - 6'sd4),             // k4n
+                 qk_f(sa - 6'sd4),             // k4a
+                 qk_f(sa - 6'sd5),             // k5a
+                 qk_f(sn + a6 - 6'sd5),        // kfn
+                 qk_f(sa + a6 - 6'sd5)};       // kfa
+    endfunction
+    wire [24:0] qkb_nx = qkb_f(ob_nx, ar_nx);
+    localparam logic [24:0] QKB_RST = qkb_f(5'sd0, 5'sd2);
+    initial {k4n, k4a, k5a, kfn, kfa} = QKB_RST;
     assign lv_nx.a = discard_nx ? lvc_f(ob_nx, 1'b0) : lvc_f(ob_nx + ar_nx, 1'b1);
     assign discard_nx = go_r ? flush_r : (flush_r && inflight && !dlv_v) ? 1'b1 : dlv_v ? 1'b0
                       : discard;
@@ -273,6 +311,7 @@ module v35_queue
         if (!reset_n) begin
             cnt <= 3'd0;
             ob <= 5'sd0;
+            {k4n, k4a, k5a, kfn, kfa} <= QKB_RST;
             flw <= 3'd0;
             pfp <= reset_ip;
             hip <= reset_ip;
@@ -287,6 +326,7 @@ module v35_queue
             end
             cnt <= stored_nx;
             ob <= ob_nx;
+            {k4n, k4a, k5a, kfn, kfa} <= qkb_nx;
             // (qprobe rule 5) the flush wait: the line low four clocks after the flush's
             flw <= flw_nx;
             fdb <= fdb_nx;
@@ -354,6 +394,22 @@ module v35_queue
             end
         end
     end
+    // (timing repair 1) the registered bounds against the direct arithmetic, every clock
+    integer tqk_n = 0;
+    wire signed [4:0] occ_x = occ;
+    always @(posedge clock) begin
+        if (chk_on && reset_n
+            && (fetch_req !== (pv && occ_x <= 5'sd4 && !susp)
+                || lv_q.r5 !== ((pv || pvf) && occ_x <= 5'sd5 && dlv_v && !discard && !susp)
+                || lv_q.c4 !== (pv && occ_x <= 5'sd4)
+                || lv_q.cf !== (pv && occ_x + (odd ? 5'sd1 : 5'sd2) <= 5'sd5))) begin
+            tqk_n = tqk_n + 1;
+            if (tqk_n <= 20)
+                $display("v35 chk: queue: the registered bounds off the count at %0t", $time);
+        end
+    end
+    final if (chk_on && tqk_n != 0)
+        $display("v35 chk: queue: %0d clocks with the bounds off the count", tqk_n);
     final if (chk_on && chk_n != 0)
         $display("v35 chk: queue: %0d changes in tick B", chk_n);
     /* verilator lint_on BLKSEQ */
