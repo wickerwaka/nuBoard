@@ -3543,3 +3543,25 @@ question, decided from S8's routed numbers with the user.
   write 711 is DIC0's interrupt push (inferred: the late scan lattice was hiding a
   clock); (Q132) EI restarts the interrupt scan on its first word: the request stands
   at the EU on E1 + 24 (87 of 92; two cells 20 clocks early unexplained).
+- **2026-11-18, work order 22 C5 (light gate, three seeds); C4 and C6 not built.** The
+  `CH_EPRI` give-way behind a memory write's fetch (v35_bus `fx` / `fx_b`, `chx_nx`): the
+  boundary's back-to-back hold no longer holds the dispatch word in front of the rule, and
+  the rule covers a fetch granted behind the write, not only one pending under the EU
+  cycle. Socket: `QPr8-ld-int3-n-pE-w0` exact, `QPr26l` 216 of 216 (from 208). Corpus
+  30,181, no run changed; every program gate and f4_hwd as before; checker silent. 17 ns:
+  +3.623 / +3.307 / +3.114; 9,737 LUT4, 2,624 FF. **C6 (EI's scan restart on its first
+  word) cannot be built in the present controller**: the stages behind the scan are
+  shorter than silicon's and the late restart is what aligns them; every phase tried that
+  gains round 26's EI runs loses round 17 / 19 INTP0 runs, and the take rule is not Q83's.
+  It belongs to the held interrupt rebuild. **C4 (MOV [d16],AL / AW's request word
+  second)** was built on trial (QPr26k 480 of 480, QPr26g 318 of 324, QPr25b 1,025 of
+  1,026) and backed out: f4_dma still differs at write 711 without C6.
+- **2026-11-18, microcode size: measurements and a study (no build).** The user's goal: a
+  ROM nearer the V30 / V35 class. `docs/v35s-urom-options.md` (the ROM measured: 758
+  distinct words in 2,848, 2,426 hold slots in 3,897 routine clocks; width and depth
+  options; a 40-bit word splits only 75 words and fills 2 % of the holds),
+  `docs/v35s-urom-study.md` (the iterative operations against the V20's own microcode,
+  `build/deps/nuV30/docs/V20UC.TXT`, 1,028 words of 29 bits: the per-bit steps are
+  already loops; the set-up and finish codes are the macro ones; about 294 of 1,073 holds
+  in four families explained, the divide's and the bit fields' stretches not),
+  `docs/v35s-open-issues.md` (the rulings awaited).

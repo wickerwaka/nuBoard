@@ -465,6 +465,12 @@ module v35_bus
     // (qprobe round 21, C_NOCH) `lw`: the last EU cycle granted was a memory write; `few`: the
     // fetch last granted was granted with a fetch pending under that write (fe with lw)
     reg         lw = 1'b0, lw_b = 1'b0, few = 1'b0, few_b = 1'b0;
+    // (r26, work order 22 C5, Q130, model_m CH_EPRI's after_w with CH_K "W") `fx`: the fetch
+    // last granted followed a memory write: granted with a fetch pending under it (few), or on
+    // the clock the write's last cycle delivers (req_done with lw: the fetch starts on the clock
+    // after the write's last pin clock, back to back behind it, with nothing pending under the
+    // write: the count stood above four through it). Registers only
+    reg         fx = 1'b0, fx_b = 1'b0;
     wire        lw_a = req_ack ? (req_cyc == RQ_MEMW) : lw;
     // (qprobe round 23, spec 18 A1) `lo`: the last EU cycle granted was an I/O write (lw's twin;
     // model_m EU_WPRI_K "O")
@@ -498,6 +504,7 @@ module v35_bus
             lw_b <= 1'b0;
             lo_b <= 1'b0;
             few_b <= 1'b0;
+            fx_b <= 1'b0;
         end else if (ce_b) begin
             lc_b <= lc_a;
             wur_b <= wur_a;
@@ -505,6 +512,7 @@ module v35_bus
             lw_b <= lw_a;
             lo_b <= lo_a;
             few_b <= g_fetch ? (pend && lw) : few;
+            fx_b <= g_fetch ? (lw && (pend || req_done)) : fx;
         end
     end
     always @(posedge clock) begin
@@ -515,6 +523,7 @@ module v35_bus
             lw <= 1'b0;
             lo <= 1'b0;
             few <= 1'b0;
+            fx <= 1'b0;
             wkm <= 1'b0;
         end else if (ce_a) begin
             lc <= lc_b;
@@ -523,6 +532,7 @@ module v35_bus
             lw <= lw_b;
             lo <= lo_b;
             few <= few_b;
+            fx <= fx_b;
             wkm <= wk_nx.rlx && wk_nx.bi;
         end
     end
@@ -583,8 +593,10 @@ module v35_bus
     // (qprobe round 13, Q42 / spec 9 A1, first half) carried one fetch further: the fetch chained
     // to the fetch that followed an EU cycle (`fe`: the fetch delivered now was granted with a
     // fetch pending under an EU cycle) gives way to a boundary that arrives fresh on its clock
-    // (`dst`: the dispatch word did not wait on the clock before). Registers only
-    wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler) || (fe && dlv_fetch && !dst));
+    // (`dst`: the dispatch word did not wait on the clock before). Registers only. (r26, C5)
+    // `fx` beside fe: also the fetch that started back to back behind a memory write with
+    // nothing pending under it (Q130: MOV [d16],imm16 ; NOP, the NOP's boundary on t + 6)
+    wire        gw = xd && ((pend && eu_dlv) || (b4r && !rqvr && ler) || ((fe || fx) && dlv_fetch && !dst));
     wire        fstop = hpr || (ex && hcr);
     // (r24, work order 20 A3, Q112, model_m REQ_PRI=5) behind a memory request word Y executed on a
     // fetch's last clock (`ry1`, on that fetch's delivery) no back-to-back fetch starts at all,
@@ -654,7 +666,13 @@ module v35_bus
     // last clock; a back-to-back fetch starting (no EU request to win the bus) unless the lead
     // ends then (LEAD_EPRI: the give-way instead); the stream short; the lead short; a memory
     // request posted and not granted (E_PEND)
-    wire        bnd_w = cb_nx || (lv.b4 && !eu_rq_nx && !sle) || ews || sld || rqm_nx;
+    // (r26, work order 22 C5, Q130, model_m CH_EPRI) nor when the fetch delivered then followed a
+    // memory write (`fx` as the next clock will have it: fx_b; no fetch is granted on a fetch's
+    // last pin clock) and the boundary arrives fresh (`wkd`: the dispatch word is not the word
+    // now, so it did not wait on this clock): the boundary executes and the chained fetch gives
+    // way (gw). Registers only
+    wire        chx_nx = fx_b && !wkd;
+    wire        bnd_w = cb_nx || (lv.b4 && !eu_rq_nx && !sle && !chx_nx) || ews || sld || rqm_nx;
     // (round 6, A, B, C) the bus waits by the word's kind: B (bi) a fetch's pin cycle started
     // earlier (its last clock included), S (rl=x) the slot, Y (both) a fetch with two clocks or
     // more left

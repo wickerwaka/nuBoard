@@ -8417,3 +8417,41 @@ exact with `+v35_chk` (from 30,054: +127, none lost).
   fetch's last (dlv_fetch: Q33's own case). The 8 of its rows that also need W_LEAD stay (B2).
 - New terms: bus `lcw`, `aid` (registers but ex; joined to eu_win with the grant's fr argument),
   `lcw_nx` (tick B, into ph_nx's kbp term), registers c4r, c5r, wur / wur_b.
+
+## r26: work order 22 (socket round 26, results Q127-Q134; validation/v35s/qprobe/tools/r26/SPEC22.md)
+
+Inside the existing ports (test_v35_struct unchanged; no wk_t code added). Built: C5 only.
+
+- **C5 (Q130, model_m CH_EPRI).** Round 13's rule (the fetch chained to the fetch that followed an
+  EU cycle gives way to a boundary that arrives fresh on its clock) was built only for a fetch that
+  was pending under the EU cycle (`fe`) and only where the boundary was not held by the
+  back-to-back term (`lv.b4`: a fetch starting with four or fewer held). In the frame of round 8's
+  `ld-int3` (MOV [d16],imm16 writes on t, the fetch behind it on t + 3 to t + 5, NOP's boundary due
+  on t + 6 with four held) the boundary was held and the chained fetch started on t + 6; silicon
+  executes the boundary on t + 6 and starts the fetch on t + 7. v35_bus `fx` (registered with the
+  grant, as fe / few): the fetch was granted behind a memory write, pending under it or on the
+  clock the write's last cycle delivers (back to back behind it, nothing pending: `req_done` with
+  `lw`); `chx_nx = fx_b && !wkd` drops the back-to-back term of the boundary's hold (bnd_w) when the
+  fetch delivered on the next clock is such a fetch and the dispatch word is not the word now (it
+  did not wait: the boundary arrives fresh); gw's CH_EPRI term reads `fe || fx`. model_m's CH_K is
+  "W": the new exemption is for writes only. INT 3 keeps no lead (as at the base).
+  `QPr8-ld-int3-n-pE-w0` exact; `QPr26l` 208 -> 216 of 216; `QPr26f` 192 of 192.
+- **C6 (Q132, EI's scan restart on its first word): not built.** The controller's scan (`sc`) is
+  restarted by IE rising behind EI's nb E word (EN + 1, i.e. E1 + 12 when nothing in EI waits); the
+  stages behind it (ir_h, the two ph registers, ie_e at the E word, the take at the dispatch) are
+  shorter than silicon's (Q108: the 7-clock line, the event, the occupation, 5 clocks), and the
+  late restart is what lines the present stages up with silicon. Tried (an anchored counter `se`,
+  0 on the instruction's first word, loaded into sc at the restart, so a wait inside EI does not
+  move the lattice; the load's phase varied): the phase of the present restart (anchor only)
+  r26i 47 of 138 (base 49); the lattice 3 clocks earlier 46, with r17pr 38 -> 0, r17r 82 -> 24,
+  r19pp0 34 -> 21 (the vector read and the PC pushed, `tk.py`); a literal restart at E1 2 of 138.
+  Every phase that moves r26i moves round 17's / 19's INTP0 runs (EI in front of the event) the
+  other way: the restart cannot move in the present controller without the stages behind it
+  (the held interrupt rework).
+- **C4 (Q124, Q131): not built (it rests on C6).** Tried again (`pop=dl`, `pop=dh rl=x bi`, the EA,
+  `rl=2`, the post, `e ro bi`: `. Y . PP2 G N .`): QPr25b 1006 -> 1025 of 1026, QPr26g 294 -> 318
+  of 324 (the 6 left are Q127's), QPr26k 404 -> 480 of 480; f4_dma DIFFERs from the socket at write
+  711 (07EFE against 0C1DA, DIC0's push), as work order 22 expects without C6.
+- New terms (C5): registers fx, fx_b (ce_b from g_fetch, lw, pend, req_done: tick A's grant, as
+  few_b); `chx_nx` (two registers) one more input of the b4 term in bnd_w (tick B, ph_nx); gw's
+  third term reads `fe || fx` (two registers). Nothing joins tick A's delivery chain.
