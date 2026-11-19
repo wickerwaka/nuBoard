@@ -88,7 +88,7 @@ mi16_f: alu=MULF wf                             ; the product, negated when the 
     open                                    ; OPEN: the book's range: the high half zero too (+1)
 mi16_e: wr=DW wid=WORD ws=TC e              ; DW <- the high half; E
 
-routine mul8 op=F6 mod=reg reg=5 book="MUL reg8" width=byte diff=5 why="OPEN: silicon longer than the book (31-40) by five (docs/v35s-eu-timing.md MUL r8 37 with the signs equal against MULU r8's 26; no corpus run); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's eighteen clocks with no act, the finish; the negation (+8) on SGD (F1)"
+routine mul8 op=F6 mod=reg reg=5 book="MUL reg8" width=byte diff=5 why="OPEN: silicon longer than the book (31-40) by five (docs/v35s-eu-timing.md MUL r8 37 with the signs equal against MULU r8's 26; no corpus run); the reads on ports A and B, the unit's load, the loop at the entry's third clock (the unit hold: a step waits while a fetch is past its second clock, V35_MX3B_UH, README MX3 (part 2)), 8 steps, the book's eighteen clocks with no act, the finish; the negation (+8, +1, +1: qprobe round 27, Q136, r27b) on SGD (F1) and SIGMA's zero test (the low half, then the product)"
     ra=AW rb=RM d1=TA s1=RA d2=TC s2=RB     ; AL (AW) into tmpa, the multiplier into tmpc: ports A and B
     alu=MULI ax=TA ay=TC cnt=BITS           ; the magnitudes loaded, F1 the signs' difference; the counter <- 8
 mi8_b: bi                                   ; (qprobe round 11, Q36) B: the bus-idle third word (the loop's entry a word later; the delay after it a word shorter)
@@ -97,7 +97,11 @@ mi8_b: bi                                   ; (qprobe round 11, Q36) B: the bus-
 mi8_l: alu=MULS loop=mi8_l                  ; one multiply step; the counter step (the unit hold)
     open call=w19                           ; OPEN: 21 clocks (two moved in front of the loop: spec 18 B): a book clock with no act (MUL reg8 31-40) (the call and the shared delay's 20)
 mi8_f: alu=MULF wf jnc=SGD:mi8_e                ; the product, negated when the signs differ (W); the signs equal: to the end
-    open call=w7                            ; OPEN: 8 clocks: the book's range: the product's negation (MUL reg8 31-40: +8 with the signs differing; the zero halves' clocks not built for the byte form) (the call and the shared delay's 7)
+    open d1=TB s1=SIG call=w5               ; OPEN: 6 clocks: the book's range: the product's negation (MUL reg8 31-40: +8 with the signs differing); tmpb <- the product (the call and the shared delay's 5)
+    open alu=AND ax=SIG ay=SIG wid=BYTE     ; OPEN: the negation's seventh clock; (qprobe round 27, Q136) SIGMA <- the product's low half (AL)
+    open alu=PASS ax=TB jc=SNZ:mi8_e        ; OPEN: the negation's eighth clock; the low half not zero: to the end (SIGMA <- the product again)
+    open jc=SNZ:mi8_e                       ; OPEN: (Q136) the low half zero (+1); the product not zero: to the end
+    open                                    ; OPEN: (Q136) the product zero too (+1)
 mi8_e: wr=AW wid=WORD ws=SIG e              ; AW <- the product; E
 
 ; F6 / F7 /6 /7: DIVU / DIV (V20 0188-0197): the pre-check, one restoring step a word, the

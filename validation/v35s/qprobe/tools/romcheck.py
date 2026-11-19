@@ -640,9 +640,14 @@ def main(argv=None):
     ap.add_argument("--out", type=Path, default=Path("romcheck.json"))
     ap.add_argument("--top", type=int, default=40)
     ap.add_argument("-v", action="store_true", help="print every encoding")
+    ap.add_argument("--l40", action="store_true",
+                    help="(work order 26) read the ROM's fields back from the 40-bit image "
+                         "(uasm.l40_program: the 40-bit words through their X / Y tables)")
     a = ap.parse_args(argv)
     U = load_uasm(a.rom_root.resolve())
     PROG = U.assemble()
+    if a.l40:
+        PROG = U.l40_program(PROG)
     fams = a.families
     if not fams:
         from validation.v35s import corpus

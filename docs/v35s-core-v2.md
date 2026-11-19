@@ -3617,3 +3617,19 @@ question, decided from S8's routed numbers with the user.
   (tables in block RAM in place of the word register for the late fields: +2.362 /
   +3.105 / +3.132 with five one-bit flops beside the word, 64 RAM_5K; the same tables as
   logic +1.44 to +1.69, rejected).
+- **2026-11-18, work order 26 (FULL gate, three seeds): the 40-bit packer (check only),
+  the high ROM part removed, MUL r8's zero terms.** (A) `uasm.py` packs every stored word
+  into the L40 form (`docs/v35s-urom-w40-layout.md`: 40 bits plus an X / Y table entry),
+  decodes it back and compares field for field, early bits included; the sharing pass
+  refuses a jump or middle call on a word that cannot carry one. **The ROM is 1,877 words
+  in this layout (1,704 without it), margin 171 of 2,048**; the 96-bit ROM uses the same
+  layout so the two images can be compared address for address. X 148 of 256, Y 174 of
+  512; the NT pages are full. TRAP's B carries the vector number. Three source edits
+  (rep_stm, rep_cmpbk, rep_cmpm c5) and two delay calls taking their first clock as a
+  word; no clock moved. (B) v35_useq has one 2,048-word ROM (`hi_b`, `rah`, banks b3..b5
+  gone); the assembler fails above 2,048. (C) mul8's negation path has the two + 1 zero
+  terms by mul16's mechanism: round 27's r27b 756 of 756 (from 708); mul_m8 unchanged
+  (not measured). Gate: corpus 30,181 at both spacings, no run changed, 0 failed, 0
+  incomplete; pin records 0 of 30,536 differ; program gates, f4_hwd, vectors, SST as
+  before; checker silent. 17 ns: +2.921 / +2.943 / +2.846; 9,574 LUT4, 2,625 FF, 87
+  RAM_5K.

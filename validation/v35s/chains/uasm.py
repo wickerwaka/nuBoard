@@ -1,6 +1,7 @@
 """The V35S core v2 microprogram assembler (MX0; docs/v35s-mechanisms.md section 4).
 
-    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.uasm [--check] [--list]
+    PYTHONPATH=host/src:. python3 -m validation.v35s.chains.uasm [--check] [--list] [--l40]
+        [--l40-report]
 
 Reads the routines in fpga/v35s/core/v35/urom/*.uasm and writes, beside them in
 fpga/v35s/core/v35/:
@@ -15,6 +16,12 @@ fpga/v35s/core/v35/:
                                       v35_umodrm / v35_upage (the bytes a ModR/M byte's or the
                                       0F second byte's pop adds to the instruction's bytes still
                                       to pop), the ROM's size and the reset entry.
+
+(Work order 26) the ROM is one part of 2,048 words (ROM_WORDS; a larger program fails), laid
+out for the 40-bit word L40 (docs/v35s-urom-w40-layout.md) and checked against it on every
+build (the L40 section below). With --l40 it also writes v35_l40_rom.hex (2,048 x 40),
+v35_l40_x.hex / v35_l40_y.hex (the X / Y tables) and v35_l40.svh (the layout's constants);
+--l40-report prints the packing.
 
 The word (v35_pkg::v35_uword_t) is read from fpga/v35s/core/v35/v35_pkg.sv: its enums and
 its struct are the single source of the layout; this module packs by them.
@@ -136,12 +143,11 @@ PKG = V35 / "v35_pkg.sv"
 BOOK = ROOT / "build" / "validation" / "v35s" / "v35_book_clocks.json"
 BANK_BITS = 32
 BANKS = 3
-# (qprobe round 12) the ROM in two parts: words 0-2047 in v35_urom_b0..b2.hex (2,048 x 2 blocks), the
-# words from 2048 on in v35_urom_b3..b5.hex (a 512-word part: v35_useq's rom3..rom5), so that no
-# address bit drives 4,096 x 1 blocks (the sequencer's address timing)
-ROM_LO = 2048
-ROM_HI = 1024   # (qprobe round 20) the high part 1,024 words (512 before)
-OUT_FILES = tuple(f"v35_urom_b{b}.hex" for b in range(2 * BANKS)) + ("v35_udecode_tbl.svh",)
+# (work order 26) the ROM is one part of 2,048 words (v35_useq ROM_WORDS): v35_urom_b0..b2.hex.
+# (qprobe round 12 to work order 25 a second, high part of 512 / 1,024 words in v35_urom_b3..b5.hex;
+# work order 25's sharing left it empty and work order 26 removed it.) A larger ROM fails the build
+ROM_WORDS = 2048
+OUT_FILES = tuple(f"v35_urom_b{b}.hex" for b in range(BANKS)) + ("v35_udecode_tbl.svh",)
 UADDR_W = int(re.search(r"localparam\s+int\s+UADDR_W\s*=\s*(\d+)", PKG.read_text()).group(1))
 
 # the enum prefix and the field names of the word (read from the package)
@@ -1096,7 +1102,7 @@ def _live(G: list, starts) -> None:
             todo += [s for s in G[u].succ() if s is not None]
 
 
-def _share_middles(G: list, entries: set, starts: set) -> tuple:
+def _share_middles(G: list, entries: set, starts: set, notgt=lambda x: False) -> tuple:
     """(work order 25) the middle shares on the class graph G (changed in place; stored runs
     appended). Returns (alias: a removed node -> the stored node holding its word, shares:
     [(m, stored nodes, [(callers, run nodes, return node)])])."""
@@ -1120,7 +1126,8 @@ def _share_middles(G: list, entries: set, starts: set) -> tuple:
 
     def caller_ok(u):
         x = G[u]
-        return not x.dead and x.free() and not x.f.get("e") and not x.pin and not x.live
+        return not x.dead and x.free() and not x.f.get("e") and not x.pin and not x.live \
+            and not notgt(x)     # (work order 26) the call's target fits beside the word's acts
 
     def fin(u):
         return sum(1 for p, e in preds[u] if e == "ft" and G[p].forced())
@@ -1239,10 +1246,13 @@ def _share_middles(G: list, entries: set, starts: set) -> tuple:
     return alias, shares
 
 
-def _layout(nodes: list) -> tuple:
+def _layout(nodes: list, notgt=lambda x: False) -> tuple:
     """The words' addresses (work order 24's placement on a node graph): returns (seqv: the node
     at each address, node_cls: a placed node's class node (copies after the classes), outl: the
-    fall-through links, addr: a class node's stored address)."""
+    fall-through links, addr: a class node's stored address, ucopy: (work order 26) the free nodes
+    that run on into a copy of their successor). (Work order 26) a free word that cannot carry a
+    jump in L40 (`notgt`) is placed in front of its successor before any other free word; where
+    the place is taken it runs on into a copy (L40's way out U: stored words only)."""
     ncls = len(nodes)
     node_cls = list(range(ncls))
     inl, outl = {}, {}
@@ -1264,7 +1274,7 @@ def _layout(nodes: list) -> tuple:
         k = len(node_cls)
         node_cls.append(cl)
         link(pnode, k)
-        if nodes[cl].forced():
+        if nodes[cl].forced() or (nodes[cl].free() and notgt(nodes[cl])):
             copy_after(k, nodes[cl].ft)
 
     for cl in range(ncls):
@@ -1287,14 +1297,37 @@ def _layout(nodes: list) -> tuple:
     for cl in range(ncls):
         if nodes[cl].free():
             cand.setdefault(nodes[cl].ft, []).append((nodes[cl].ordk, cl))
-    for s in sorted(cand, key=lambda s: nodes[s].first):
-        if s in inl:
-            continue
-        for _, p in sorted(cand[s]):
-            if p not in outl and find(p) != find(s):
-                link(p, s)
-                par[find(s)] = find(p)
-                break
+    # ((work order 26) first the words that cannot jump, then the others: a cycle of fall-through
+    # links is then cut at a word that can jump)
+    for only in ((True, False) if any(notgt(x) for x in nodes) else (None,)):
+        for s in sorted(cand, key=lambda s: nodes[s].first):
+            if s in inl:
+                continue
+            for _, p in sorted(cand[s], key=lambda t: (not notgt(nodes[t[1]]), t[0])):
+                if only is True and not notgt(nodes[p]):
+                    continue
+                if p not in outl and find(p) != find(s):
+                    link(p, s)
+                    par[find(s)] = find(p)
+                    break
+
+    # 3b. (work order 26) a free word that cannot jump and found no place: a copy of its
+    #     successor behind it (and of the copy's own successor while the copy cannot jump either)
+    ucopy = set()
+
+    def ucopy_after(pnode, cl, depth=0):
+        if depth > 64:
+            raise UasmError("sharing (L40): a run of words that cannot jump has no end")
+        k = len(node_cls)
+        node_cls.append(cl)
+        par.append(k)
+        link(pnode, k)
+        if nodes[cl].forced() or (nodes[cl].free() and notgt(nodes[cl])):
+            ucopy_after(k, nodes[cl].ft, depth + 1)
+    for cl in range(ncls):
+        if nodes[cl].free() and notgt(nodes[cl]) and cl not in outl:
+            ucopy.add(cl)
+            ucopy_after(cl, nodes[cl].ft)
 
     # 4. the chains, in the order of their first words' first flat occurrence; addresses
     heads = [k for k in range(len(node_cls)) if k not in inl]
@@ -1310,15 +1343,23 @@ def _layout(nodes: list) -> tuple:
             k = outl.get(k)
     if len(seqv) != len(node_cls):
         raise UasmError("sharing: a fall-through cycle")
-    return seqv, node_cls, outl, addr
+    return seqv, node_cls, outl, addr, ucopy
 
 
-def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = False) -> Program:
+def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = False,
+                l40: bool = True, noj=frozenset()) -> Program:
     """The shared layout of a flat program (see the section's head): tails, and (middles,
-    work order 25) middle runs through CALL / RET."""
+    work order 25) middle runs through CALL / RET. (Work order 26, `l40`) no jump or middle call
+    is given to a word that could not carry it in the 40-bit word (l40_tgt_ok; an arming word;
+    the flat words in `noj`, the packer's feedback): such a word falls through, or runs on into a
+    copy of its successor."""
     W = flat.words
     n = len(W)
     pinned = {flat.labels[x] for x in pinned_routines if x in flat.labels}
+    bad = (arming_words(W, _succs) | set(noj)) if l40 else set()
+
+    def notgt(x):
+        return l40 and (l40_tgt_ok(x.f) is not None or any(i in bad for i in x.src))
     nodes0 = _flat_nodes(W, pinned)
     G, m1 = _quotient(nodes0, _refine(nodes0))
     fmap = m1                                   # flat word -> its node in G
@@ -1329,7 +1370,7 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
         call_t = {W[i][1].fields.get("tgt", 0) for i in range(n) if _seqk(W[i][1].fields) == "call"}
         starts = {fmap[i] for i in call_t} | {fmap[flat.labels[h]] for h in EA_HEADS
                                                if h in flat.labels}
-        alias, shares = _share_middles(G, entries, starts)
+        alias, shares = _share_middles(G, entries, starts, notgt)
         G0 = G
 
         def fsucc(i):
@@ -1364,7 +1405,7 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
         fmap = [m2[u] for u in fmap]
     nodes = G
     ncls = len(nodes)
-    seqv, node_cls, outl, addr = _layout(nodes)
+    seqv, node_cls, outl, addr, ucopy = _layout(nodes, notgt)
 
     # the words
     words = []
@@ -1399,6 +1440,15 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
         if _seqk(W[j][1].fields) != "jmp" and _succs(W[j][1].fields, j)[-1:] == [i] \
                 and x.forced() and x.ft == fmap[i]:
             fp[i] = j
+    # (work order 26) a word that cannot jump has its successor right behind it (the stored
+    # word, or the copy it runs on into)
+    for j in range(n):
+        x = nodes[fmap[j]]
+        if x.free() and notgt(x):
+            f0 = W[j][1].fields
+            i = f0.get("tgt", 0) if _seqk(f0) == "jmp" else j + 1
+            if 0 <= i < n and fmap[i] == x.ft:
+                fp.setdefault(i, j)
     for i, s in sorted(mcalls):
         if nodes[fmap[i]].k != "call" or nodes[fmap[i]].ft != fmap[s]:
             raise UasmError(f"sharing: {W[i][0].name}: a middle call's return is not its run's continuation")
@@ -1429,9 +1479,18 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
     owners = {}
     for i in range(n):
         owners.setdefault(where[i], []).append(flat_k[i])
+    # (work order 26) a word that cannot jump runs on into a copy of its successor: the source
+    # words then sit on the copy (`where` names one address a source word is on), and the stored
+    # word, still entered from its other predecessors, is named by its class's source words
+    named_twice = 0
+    for a, k in enumerate(seqv):
+        if a not in owners and ucopy:
+            owners[a] = [flat_k[i] for i in nodes[node_cls[k]].src]
+            named_twice += len(owners[a])
     dead = [a for a in range(len(words)) if a not in owners]
     if dead:
-        raise UasmError(f"sharing: words no source word reaches: {dead[:8]}")
+        raise UasmError(f"sharing: words no source word reaches: {dead[:8]} "
+                        f"{[(a, seqv[a] >= ncls, nodes[node_cls[seqv[a]]].src[:4], [flat_k[i] for i in nodes[node_cls[seqv[a]]].src[:3]]) for a in dead[:8]]}")
     for a, (r, w) in enumerate(words):
         name, _ = owners[a][0]
         words[a] = (flat.routine(name), w)
@@ -1456,13 +1515,22 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = Fal
                     for m, allw, sel in shares]
     prog.mcall_sites = sorted(mcalls)
     prog.share_mode = "full" if middles else "tail"
+    # (work order 26) the L40 ways out in the layout: the free words that cannot jump and run on
+    # into a copy of their successor (U), the words those copies add, the source words named on
+    # a second address (a stored word whose source words sit on such a copy)
+    prog.l40_ucopy = {addr[cl] for cl in ucopy}
+    prog.l40_named_twice = named_twice
     return prog
 
 
-def assemble(paths: list[Path] | None = None, share=None) -> Program:
+def assemble(paths: list[Path] | None = None, share=None, l40: bool | None = None) -> Program:
     """The program: the sources assembled (assemble_flat), then laid out by `share` (default
     SHARE_DEFAULT): "full" (or True) tails and (work order 25) middles shared, "tail" (work
-    order 24) tails only, False the flat layout (each routine contiguous)."""
+    order 24) tails only, False the flat layout (each routine contiguous). (Work order 26, `l40`,
+    a shared layout) the layout gives no word a jump or a call it could not carry in the 40-bit
+    word, and the result is packed and checked (l40_pack: `prog.l40`); a word the packer finds
+    in a full table page sends its source words back to the layout as words that must not jump
+    (repeated until nothing changes); a word that still does not fit fails the build."""
     flat = assemble_flat(paths)
     mode = SHARE_DEFAULT if share is None else share
     if mode is True:
@@ -1479,7 +1547,31 @@ def assemble(paths: list[Path] | None = None, share=None) -> Program:
         return flat
     if mode not in SHARE_MODES:
         raise UasmError(f"share={mode!r} (of {SHARE_MODES}, or False)")
-    return share_tails(flat, middles=mode == "full")
+    if l40 is None:
+        l40 = mode == "full"        # (work order 24's tail-only layout is over 2,048 words)
+    if not l40:
+        return share_tails(flat, middles=mode == "full", l40=False)
+    noj, rounds = set(), []
+    while True:
+        prog = share_tails(flat, middles=mode == "full", noj=noj)
+        img = l40_pack(prog, strict=False)
+        rounds.append((len(prog.words), len(img.misfits)))
+        new = set()
+        for a, _, why in img.misfits:
+            if "page" not in why and "table is full" not in why:
+                continue
+            for i, ad in enumerate(prog.where):
+                if ad == a and _seqk(flat.words[i][1].fields) in ("next", "jmp"):
+                    new.add(i)
+        if not new - noj or len(rounds) > 16:
+            break
+        noj |= new
+    prog.l40, prog.l40_noj, prog.l40_rounds = img, noj, rounds
+    if img.misfits:
+        raise UasmError("L40 (work order 26): words that do not fit the 40-bit word and have no "
+                        "way out (the layout's placement, a copy, the take-entry codes):\n" + "\n".join(
+                            f"  {a:4d} {nm}: {why}" for a, nm, why in img.misfits[:40]))
+    return prog
 
 
 def share_report(prog: Program) -> str:
@@ -1553,6 +1645,645 @@ def share_report(prog: Program) -> str:
         L.append(f"{p:16s} {nw:6d} {len(ads):9d} {stored.get(p, 0):6d}")
     L.append(f"{'all':16s} {len(flat.words):6d} {'':9s} {len(prog.words):6d}   "
              f"({len(prog.copies)} copies)")
+    return "\n".join(L) + "\n"
+
+
+# ------------------------------------------------------------------ (work order 26) L40
+# The 40-bit microword of docs/v35s-urom-w40-layout.md ("L40"), as a check-only pass behind the
+# sharing layout: every stored word packed to 40 bits plus an entry of two generated tables (X:
+# the ALU's fields, Y: the moves', the write's and the bus's), then decoded back through the table
+# address select the w40 trial's RTL used (docs/v35s-urom-w40-trial.md) and compared with the
+# 96-bit word field for field, with the early bits the sequencer reads from the ROM data before
+# the word register. Hold counts are not part of it (SEQ codes 3 and 12 unused).
+#
+#     39..35 SEQ   sequencing and condition in one code (L40_SEQ)
+#     34..26 K     e f nb bi vk ro rl[2] flush, raw
+#     25..23 POP   raw          22..21 WID   raw
+#     20..16 RA    a register selector (0..26), raw; 28..31: the word reads no register and
+#                  P = {RA[1:0], RB} (7 bits) is payload
+#     15..11 RB    a register selector, raw; or payload
+#     10..0  B     SEQ >= 8: the target, or the vector number (VEC, TRAP); else payload, B[10] =
+#                  POST. (Work order 26: TRAP's B is the vector too: the divide error's TRAP word
+#                  reads SR_VEC; the expand stage loads tgt from B on every SEQ >= 8.)
+#
+#  form  (RA >= 28: N, else R; SEQ >= 8: T)
+#  N   B[10] POST, B[9:2] Y (8, the half by POST), {P, B[1]} X (8), B[0] KW
+#  NT  P < 48: X at 128 + P; 48..95: Y at 128 + P, half 0; 96..127: Y at 128 + P, half 1 (POST)
+#  R   B[1:0] = 00: X (8) at B[9:2]; 10: B[10] POST, Y (8) at B[9:2]; B[0] = 1: B[10] POST,
+#      Y (5) at 32 + B[9:5], X (4) at 16 + B[4:1]
+#  RT  no payload
+L40_BITS = 40
+L40_XF = ("alu", "ax", "ay", "wf", "cnt")
+L40_YF = ("d1", "s1", "d2", "s2", "wr", "ws", "ea", "bus", "seg", "pfx", "susp", "halt", "ist")
+L40_KF = ("e", "f", "nb", "bi", "vk", "ro", "rl", "flush")
+L40_POS = {"SEQ": (35, 5), "K": (26, 9), "POP": (23, 3), "WID": (21, 2), "RA": (16, 5),
+           "RB": (11, 5), "B": (0, 11)}
+L40_SEQ = {"NEXT": 0, "EREP": 1, "RET": 2, "HOLD": 3, "TKI0": 4, "TKI1": 5, "DISP": 6,
+           "JMP": 8, "CALL": 9, "LOOP": 10, "EAC": 11, "HJMP": 12, "TRAP": 13, "VEC": 14,
+           "JC": 16, "JNC": 24}
+L40_ESC = 28                     # RA >= 28: no register; RA[1:0] is payload
+L40_XN, L40_YN = 256, 256        # X entries; Y entries per half (two halves: POST)
+# the pages (a base is an address prefix: the table address is the prefix and the code)
+L40_XPAGE = {"R": (16, 16), "NT": (128, 48)}
+L40_YPAGE = {"R": (32, 32), "NT": (176, 48), "NT1": (224, 32)}
+_FW = {n: w for n, _, w in FIELDS}
+L40_XBITS = sum(_FW[a] for a in L40_XF)
+L40_YBITS = sum(_FW[a] for a in L40_YF)
+_BUS_NONE = 0
+_BUS_RSV = ENUMS["v35_bus_e"][1].get("BQ_RSV")
+_BUS_MEMWD = ENUMS["v35_bus_e"][1].get("BQ_MEMWD")
+_EA_REP = ENUMS["v35_ea_e"][1].get("EA_REP")
+_MD_OPRW = ENUMS["v35_mvd_e"][1].get("MD_OPRW")
+_RS_MAX = max(ENUMS["v35_rsel_e"][1].values())
+_T_SEQ = ("jmp", "call", "loop", "eac", "jc", "jnc", "trap")     # B is not payload (+ VEC)
+
+
+def _xp(f): return tuple(f.get(a, 0) for a in L40_XF)
+def _yp(f): return tuple(f.get(a, 0) for a in L40_YF)
+def _posts(f): return f.get("bus", 0) not in (_BUS_NONE, _BUS_RSV)
+def _yposts(p): return p[L40_YF.index("bus")] not in (_BUS_NONE, _BUS_RSV)
+def _kw(f): return f.get("d1", 0) == _MD_OPRW or f.get("d2", 0) == _MD_OPRW
+def _isreg(f): return bool(f.get("ra") or f.get("rb"))
+def _erep(f): return bool(f.get("e") and f.get("ea") == _EA_REP)
+
+
+def l40_tgt_ok(f: dict) -> str | None:
+    """(work order 26) whether a word with these fields (no sequencing) can also carry a target
+    (a JMP or a middle share's CALL) in L40: None, or why not. The sharing pass asks it before it
+    gives a word a jump or a call."""
+    x, y = any(_xp(f)), any(_yp(f))
+    if _erep(f):
+        return "the E word re-entering the REP page (SEQ EREP) cannot also jump"
+    if _isreg(f) and (x or y):
+        return "a register read with a payload has no room for a target (form RT)"
+    if x and y:
+        return "X and Y payloads have no room beside a target (form NT: one code)"
+    return None
+
+
+def arming_words(words: list, succs) -> set:
+    """The words that arm an unarmed write (bus=MEMWD: v35_eu rq_un): the first word on every
+    path behind a MEMWD word that loads OPRW. Its KW bit is read early (form N only)."""
+    out, seen = set(), set()
+    todo = [(s, None) for i, (_, w) in enumerate(words) if w.fields.get("bus") == _BUS_MEMWD
+            for s in succs(w.fields, i)]
+    while todo:
+        i, _ = todo.pop()
+        if i in seen or not 0 <= i < len(words):
+            continue
+        seen.add(i)
+        f = words[i][1].fields
+        if _kw(f):
+            out.add(i)
+            continue
+        todo += [(s, None) for s in succs(f, i)]
+    return out
+
+
+class L40Image:
+    """The packed ROM: `rom` (40-bit words by address), `xtab` (L40_XN X payloads, () = none),
+    `ytab` (two halves of L40_YN Y payloads), `tki` (the take entries), `forms` per address."""
+
+    def __init__(self, prog):
+        self.prog = prog
+        self.rom, self.forms, self.misfits = [], [], []
+        self.xtab = [None] * L40_XN
+        self.ytab = [[None] * L40_YN, [None] * L40_YN]
+        self.xtab[0] = ()
+        self.xtab[L40_XPAGE["NT"][0]] = ()     # NT with no payload: P = 0
+        self.ytab[0][0] = ()
+        self.xwhere, self.ywhere = {}, {}
+        self.lost = []
+        self.tki = []
+
+    # ---- the tables
+    def _put(self, tab, where, p, rng):
+        if any(q in rng for q in where.get(p, ())):
+            return True
+        for q in rng:
+            if tab[q] is None:
+                tab[q] = p
+                where.setdefault(p, []).append(q)
+                return True
+        return False
+
+    @staticmethod
+    def _full(pages, size):
+        """A full code's places: outside every page first (the pages' room kept for their forms)."""
+        inp = {q for b, n in pages.values() for q in range(b, b + n)}
+        return [q for q in range(size) if q not in inp] + sorted(inp)
+
+    def xput(self, p, page=None):
+        rng = range(*(lambda b, n: (b, b + n))(*L40_XPAGE[page])) if page else \
+            self._full(L40_XPAGE, L40_XN)
+        return self._put(self.xtab, self.xwhere, p, rng)
+
+    def yput(self, p, page=None):
+        h = int(_yposts(p))
+        if page == "NT" and h:
+            page = "NT1"
+        rng = range(*(lambda b, n: (b, b + n))(*L40_YPAGE[page])) if page else \
+            self._full(L40_YPAGE, L40_YN)
+        return self._put(self.ytab[h], self.ywhere.setdefault(h, {}), p, rng)
+
+    def xcode(self, p, page=None):
+        if not any(p):
+            return 0
+        b, n = L40_XPAGE[page] if page else (0, L40_XN)
+        return next((q - b for q in self.xwhere.get(p, ()) if b <= q < b + n), None)
+
+    def ycode(self, p, page=None):
+        if not any(p):
+            return 0
+        h = int(_yposts(p))
+        if page == "NT" and h:
+            page = "NT1"
+        b, n = L40_YPAGE[page] if page else (0, L40_YN)
+        return next((q - b for q in self.ywhere.get(h, {}).get(p, ()) if b <= q < b + n), None)
+
+    # ---- the form of a stored word
+    @staticmethod
+    def seqk(f):
+        return _SQN[f.get("seq", 0)]
+
+    def is_vec(self, f):
+        return _tgt_data(f)
+
+    def target_half(self, f):
+        k = self.seqk(f)
+        return k in _T_SEQ or (k == "next" and self.is_vec(f))
+
+    def form(self, f):
+        return ("R" if _isreg(f) else "N") + ("T" if self.target_half(f) else "")
+
+    def fit(self, f, arming):
+        """None when the word fits, else the conflict."""
+        k = self.seqk(f)
+        c = self.form(f)
+        x, y = _xp(f), _yp(f)
+        hx, hy = any(x), any(y)
+        if f.get("cond") and k not in ("jc", "jnc"):
+            return "a condition without a conditional jump"
+        if k == "dispm":
+            return "DISPM (withdrawn)"
+        if f.get("ra", 0) >= L40_ESC:
+            return "a port A register selector of 28 or more (RA >= 28 is the escape)"
+        if f.get("tgt", 0) >= 1 << 11:
+            return "a target or vector beyond 11 bits"
+        if arming and c != "N":
+            return "the arming word of an unarmed write: the early KW bit is in form N only"
+        if k == "tki" and self.tki.index(f.get("tgt", 0)) > 1:
+            return "a third take entry (two TKI codes)"
+        if self.is_vec(f) and k not in ("next", "trap"):
+            return f"a vector number and the sequencing {k.upper()}"
+        if _erep(f) and k != "next":
+            return f"the E word re-entering the REP page (EREP) and the sequencing {k.upper()}"
+        if f.get("e") and k not in ("next", "jmp"):
+            return f"an E word's sequencing {k.upper()} (NEXT, EREP or JMP)"
+        what = ("register read + " if _isreg(f) else "") + (
+            "vector number" if self.is_vec(f) else "TRAP" if k == "trap" else
+            "target" if c.endswith("T") else "")
+        what = what.strip(" +")
+        pl = " + ".join(n for n, h in (("X", hx), ("Y", hy)) if h)
+        if c == "RT":
+            return None if not (hx or hy) else f"{what} + {pl}: no payload bits (form RT)"
+        if c == "NT":
+            if hx and hy:
+                return f"{what} + {pl}: one payload code only (form NT)"
+            if hx and self.xcode(x, "NT") is None:
+                return f"{what} + X: the X page of form NT is full"
+            if hy and self.ycode(y, "NT") is None:
+                return f"{what} + Y: the Y page of form NT is full"
+            return None
+        if c == "R" and hx and hy:
+            if self.xcode(x, "R") is None:
+                return "register read + X + Y: the X page of form R (16) is full"
+            if self.ycode(y, "R") is None:
+                return "register read + X + Y: the Y page of form R (32) is full"
+            return None
+        if hx and self.xcode(x) is None:
+            return "the X table is full"
+        if hy and self.ycode(y) is None:
+            return "the Y table is full"
+        return None
+
+    def seq5(self, f):
+        k = self.seqk(f)
+        if k in ("jc", "jnc"):
+            return L40_SEQ[k.upper()] | f.get("cond", 0)
+        if k == "tki":
+            return L40_SEQ["TKI1" if self.tki.index(f.get("tgt", 0)) else "TKI0"]
+        if k == "next" and self.is_vec(f):
+            return L40_SEQ["VEC"]
+        if k == "next" and _erep(f):
+            return L40_SEQ["EREP"]
+        return L40_SEQ[k.upper()]
+
+    def encode(self, f):
+        c = self.form(f)
+        x, y = _xp(f), _yp(f)
+        kv = 0
+        for a in L40_KF:
+            kv = (kv << _FW[a]) | f.get(a, 0)
+        post = int(_posts(f))
+        ra, rb, b, p7 = f.get("ra", 0), f.get("rb", 0), 0, None
+        if c == "N":
+            xc = self.xcode(x)
+            b = (post << 10) | (self.ycode(y) << 2) | ((xc & 1) << 1) | int(_kw(f))
+            p7 = xc >> 1
+        elif c == "NT":
+            p7 = ((96 if post else 48) + self.ycode(y, "NT")) if any(y) else self.xcode(x, "NT")
+            b = f.get("tgt", 0)
+        elif c == "R":
+            if any(x) and any(y):
+                b = (post << 10) | (self.ycode(y, "R") << 5) | (self.xcode(x, "R") << 1) | 1
+            elif any(y):
+                b = (post << 10) | (self.ycode(y) << 2) | 2
+            else:
+                b = self.xcode(x) << 2
+        else:                                   # RT
+            b = f.get("tgt", 0)
+        if p7 is not None:
+            ra, rb = L40_ESC | (p7 >> 5), p7 & 31
+        v = self.seq5(f)
+        for val, wd in ((kv, 9), (f.get("pop", 0), 3), (f.get("wid", 0), 2), (ra, 5), (rb, 5),
+                        (b, 11)):
+            v = (v << wd) | val
+        return v
+
+
+def l40_fields(v: int) -> dict:
+    """The raw fields of a 40-bit word (L40_POS)."""
+    return {n: (v >> p) & ((1 << w) - 1) for n, (p, w) in L40_POS.items()}
+
+
+def l40_table_addr(v: int) -> tuple:
+    """(X address, Y address {half, index}) of a 40-bit word: the w40 trial's RTL address select
+    (its gen/check_addr.py), without the hold forms."""
+    r = l40_fields(v)
+    s5, ra, rb, b = r["SEQ"], r["RA"], r["RB"], r["B"]
+    esc, tf = ra >= L40_ESC, bool(s5 & 24)
+    p7 = ((ra & 3) << 5) | rb
+    bit = lambda n: (b >> n) & 1
+    xa = ya = 0
+    if esc:
+        if tf:
+            if p7 < 48:
+                xa = 128 | p7
+            else:
+                ya = ((1 if p7 >= 96 else 0) << 8) | 128 | p7
+        else:
+            xa = (p7 << 1) | bit(1)
+            ya = (bit(10) << 8) | ((b >> 2) & 255)
+    elif not tf:
+        if bit(0):
+            xa = 16 | ((b >> 1) & 15)
+            ya = (bit(10) << 8) | 32 | ((b >> 5) & 31)
+        elif bit(1):
+            ya = (bit(10) << 8) | ((b >> 2) & 255)
+        else:
+            xa = (b >> 2) & 255
+    return xa, ya
+
+
+def l40_early(v: int) -> dict:
+    """The one-bit facts the tick-B logic reads from the raw word (no table): the dispatch, the
+    take point, the REP re-entry, POST (the word posts a request), KW (the word loads OPRW: read
+    for the arming word of an unarmed write)."""
+    r = l40_fields(v)
+    s5, ra, b = r["SEQ"], r["RA"], r["B"]
+    tf, esc = s5 >= 8, ra >= L40_ESC
+    return dict(disp=(s5 >> 1) == 3, tki=(s5 >> 1) == 2, erep=bool((r["K"] >> 8) & 1 and s5 & 1),
+                post=(esc and (ra & 3) == 3) if tf else bool(b >> 10),
+                kw=esc and s5 < 8 and s5 != L40_SEQ["HOLD"] and bool(b & 1))
+
+
+def l40_unpack(v: int, img: "L40Image") -> dict:
+    """(work order 26) a 40-bit word and its tables -> the 96-bit word's fields (unpack's dict):
+    the expand stage. Tools read ROM fields through this or unpack."""
+    r = l40_fields(v)
+    s5, kv, ra, rb, b = r["SEQ"], r["K"], r["RA"], r["RB"], r["B"]
+    out = {n: 0 for n, _, _ in FIELDS}
+    for a in reversed(L40_KF):
+        out[a] = kv & ((1 << _FW[a]) - 1)
+        kv >>= _FW[a]
+    out["pop"], out["wid"] = r["POP"], r["WID"]
+    if s5 & 16:
+        out["seq"], out["cond"] = _SQ["jnc" if s5 & 8 else "jc"], s5 & 7
+        out["tgt"] = b
+    else:
+        n = {v_: k for k, v_ in L40_SEQ.items()}.get(s5)
+        if n in (None, "HOLD", "HJMP"):
+            raise UasmError(f"L40: SEQ code {s5} not used")
+        if n in ("TKI0", "TKI1"):
+            out["seq"], out["tgt"] = _SQ["tki"], img.tki[s5 & 1]
+        elif n == "VEC":
+            out["tgt"] = b
+        elif n not in ("NEXT", "EREP"):
+            out["seq"] = _SQ[n.lower()]
+            if s5 >= 8:
+                out["tgt"] = b
+    if ra < L40_ESC:
+        out["ra"], out["rb"] = ra, rb
+    xa, ya = l40_table_addr(v)
+    x = img.xtab[xa] or (0,) * len(L40_XF)
+    y = img.ytab[ya >> 8][ya & 255] or (0,) * len(L40_YF)
+    for a, val in zip(L40_XF, x):
+        out[a] = val
+    for a, val in zip(L40_YF, y):
+        out[a] = val
+    return out
+
+
+def l40_program(prog) -> "Program":
+    """(work order 26) a copy of the shared program whose words' fields are read back from the
+    L40 image (l40_unpack): the ROM as the 40-bit word and its tables give it. For the tools
+    that read ROM fields (romcheck --l40, the listing, test_uasm's walk)."""
+    import copy
+    import dataclasses
+    img = prog.l40
+    out = copy.copy(prog)
+    out.words = [(r, dataclasses.replace(w, fields={k: v for k, v in l40_unpack(img.rom[a], img).items() if v}))
+                 for a, (r, w) in enumerate(prog.words)]
+    return out
+
+
+def l40_pack(prog, strict: bool = True) -> L40Image:
+    """The L40 image of the shared program: tables, packed words, the round trip checked. With
+    `strict` a word that does not fit raises UasmError naming it; else `misfits` lists them
+    ((address, routine words, reason))."""
+    img = L40Image(prog)
+    W = prog.words
+    fs = [w.fields for _, w in W]
+    for f in fs:
+        if _SQN[f.get("seq", 0)] == "tki" and f.get("tgt", 0) not in img.tki:
+            img.tki.append(f.get("tgt", 0))
+    arm = arming_words(W, _succs)
+    img.arming = arm
+    # the table demand: the pages first (R with X and Y, NT), then the full codes
+    need = []
+    mcalls = getattr(prog, "mcalls", None) or set()
+    for a, f in enumerate(fs):
+        c = img.form(f)
+        x, y = _xp(f), _yp(f)
+        if c == "R" and any(x) and any(y):
+            need.append((0, "x", x, "R"))
+            need.append((0, "y", y, "R"))
+        elif c == "NT" and not (any(x) and any(y)):
+            # the pages go first to the words whose target the source gives (a condition, a
+            # loop, a call: no way out), then to the layout's jumps and middle calls
+            k = _SQN[f.get("seq", 0)]
+            pri = 2 if k == "jmp" or (k == "call" and a in mcalls) else 1
+            if any(x):
+                need.append((pri, "x", x, "NT"))
+            if any(y):
+                need.append((pri, "y", y, "NT"))
+    cnt = {}
+    for t in need:
+        cnt[t] = cnt.get(t, 0) + 1
+    for (pri, t, p, page), n in sorted(cnt.items(), key=lambda kv: (kv[0][0], -kv[1], str(kv[0]))):
+        if not (img.xput(p, page) if t == "x" else img.yput(p, page)):
+            img.lost.append((t, page, p))
+    allp = {}
+    for f in fs:
+        for t, p in (("x", _xp(f)), ("y", _yp(f))):
+            if any(p):
+                allp[(t, p)] = allp.get((t, p), 0) + 1
+    for (t, p), n in sorted(allp.items(), key=lambda kv: (-kv[1], str(kv[0]))):
+        if t == "x" and not img.xwhere.get(p):
+            if not img.xput(p):
+                img.lost.append((t, None, p))
+        elif t == "y" and not img.ywhere.get(int(_yposts(p)), {}).get(p):
+            if not img.yput(p):
+                img.lost.append((t, None, p))
+    for a, f in enumerate(fs):
+        why = img.fit(f, a in arm)
+        img.forms.append(img.form(f))
+        if why:
+            img.misfits.append((a, prog.name_of(a), why))
+            img.rom.append(0)
+            continue
+        v = img.encode(f)
+        img.rom.append(v)
+        bad = l40_check_word(img, a, f, v, a in arm)
+        if bad:
+            img.misfits.append((a, prog.name_of(a), "round trip: " + bad))
+    if strict and img.misfits:
+        raise UasmError("L40: words that do not fit and have no way out:\n" + "\n".join(
+            f"  {a:4d} {nm}: {why}" for a, nm, why in img.misfits[:40]))
+    return img
+
+
+def l40_check_word(img, a, f, v, arming) -> str | None:
+    """The 40-bit word against the 96-bit word: every field through the expand stage, and the
+    early bits from the raw word (K, POP, WID, a named register, the one-bit facts)."""
+    if not 0 <= v < 1 << L40_BITS:
+        return "not 40 bits"
+    ref = unpack(pack(f))
+    got = l40_unpack(v, img)
+    if not _tgt_data(f) and _SQN[f.get("seq", 0)] not in _TGT_ADDR:
+        ref["tgt"] = 0                      # tgt is neither an address nor data: unread
+    diff = [n for n in ref if ref[n] != got[n]]
+    if diff:
+        return "fields differ: " + ", ".join(f"{n} {ref[n]} -> {got[n]}" for n in diff)
+    r = l40_fields(v)
+    kv = 0
+    for n in L40_KF:
+        kv = (kv << _FW[n]) | ref[n]
+    if r["K"] != kv or r["POP"] != ref["pop"] or r["WID"] != ref["wid"]:
+        return "an early raw field differs"
+    if _isreg(f) and (r["RA"] != ref["ra"] or r["RB"] != ref["rb"]):
+        return "the early register read differs"
+    e = l40_early(v)
+    k = _SQN[f.get("seq", 0)]
+    if e["disp"] != (k == "disp") or e["tki"] != (k == "tki") or e["erep"] != _erep(f) \
+            or e["post"] != _posts(f):
+        return f"an early bit differs: {e}"
+    if e["kw"] and not _kw(f) or arming and not e["kw"]:
+        return "the early KW bit differs"
+    if f.get("e") and r["SEQ"] not in (0, 1, 8):
+        return "an E word's SEQ is not NEXT, EREP or JMP"
+    return None
+
+
+def l40_outputs(img: L40Image) -> dict:
+    """The L40 files (beside the 96-bit ones; nothing reads them yet): v35_l40_rom.hex (ROM_WORDS
+    x 40), v35_l40_x.hex (256 x L40_XBITS), v35_l40_y.hex (512 x L40_YBITS: {POST half, index}),
+    v35_l40.svh (the layout's constants)."""
+    check_rom_size(len(img.rom))
+
+    def packp(names, p):
+        v = 0
+        for a, val in zip(names, p or (0,) * len(names)):
+            v = (v << _FW[a]) | val
+        return v
+    rom = img.rom + [0] * (ROM_WORDS - len(img.rom))
+    xs = [packp(L40_XF, p) for p in img.xtab]
+    ys = [packp(L40_YF, p) for h in range(2) for p in img.ytab[h]]
+    out = {"v35_l40_rom.hex": "".join(f"{v:010x}\n" for v in rom),
+           "v35_l40_x.hex": "".join(f"{v:0{(L40_XBITS + 3) // 4}x}\n" for v in xs),
+           "v35_l40_y.hex": "".join(f"{v:0{(L40_YBITS + 3) // 4}x}\n" for v in ys)}
+    L = ["// generated by validation/v35s/chains/uasm.py --l40 (work order 26): the 40-bit",
+         "// microword L40 (docs/v35s-urom-w40-layout.md), its fields and codes. Nothing reads",
+         "// this yet: the RTL step (v35_useq's expand stage) is the next one.",
+         f"localparam int L40_BITS = {L40_BITS};",
+         f"localparam int L40_WORDS = {ROM_WORDS};          // v35_l40_rom.hex"]
+    for n, (p, w) in L40_POS.items():
+        L.append(f"localparam int L40_{n}_LSB = {p}, L40_{n}_W = {w};")
+    L.append("// K: {" + ", ".join(L40_KF) + "} (rl two bits), MSB first")
+    for n, v in L40_SEQ.items():
+        L.append(f"localparam logic [4:0] L40_SQ_{n} = 5'd{v};" + (
+            "   // + cond" if n in ("JC", "JNC") else "   // (hold counts: unused)" if n in ("HOLD", "HJMP") else ""))
+    L.append(f"localparam logic [4:0] L40_ESC = 5'd{L40_ESC};          // RA >= ESC: no register, P = {{RA[1:0], RB}}")
+    for n, (b, s) in L40_XPAGE.items():
+        L.append(f"localparam int L40_XPAGE_{n} = {b};      // the X address prefix; {s} entries")
+    for n, (b, s) in L40_YPAGE.items():
+        L.append(f"localparam int L40_YPAGE_{n} = {b};      // the Y index prefix; {s} entries")
+    L.append(f"localparam int L40_XBITS = {L40_XBITS};   // v35_l40_x.hex: {{" + ", ".join(L40_XF) + "}")
+    L.append(f"localparam int L40_YBITS = {L40_YBITS};   // v35_l40_y.hex: {{" + ", ".join(L40_YF) + "}")
+    for k in range(2):
+        t = img.tki[k] if k < len(img.tki) else 0
+        L.append(f"localparam logic [UADDR_W-1:0] L40_TKI{k} = {UADDR_W}'d{t};   // take entry {k}"
+                 + (f" ({img.prog.name_of(t)})" if k < len(img.tki) else " (unused)"))
+    # the table entries the w40 trial's repairs compare the table address with (one-bit flops
+    # beside the word: SUSP from Y; the interrupt controller's IVEC / FINT from X)
+    def entries(tab, pred, w):
+        return [q for q in range(len(tab)) if tab[q] and pred(dict(zip(w, tab[q])))]
+    yall = img.ytab[0] + img.ytab[1]
+    for nm, tab, names, pred, bits in (
+            ("ysusp", yall, L40_YF, lambda d: d["susp"], 9),
+            ("xivec", img.xtab, L40_XF, lambda d: d["alu"] == ENUMS["v35_alu_e"][1]["AL_IVEC"], 8),
+            ("xfint", img.xtab, L40_XF, lambda d: d["alu"] == ENUMS["v35_alu_e"][1]["AL_FINT"], 8)):
+        qs = entries(tab, pred, names)
+        L += [f"// the {'Y' if nm[0] == 'y' else 'X'} entries with {nm[1:].upper()} ({len(qs)})",
+              f"function automatic logic v35_l40_{nm}(input logic [{bits - 1}:0] a);",
+              f"    case ({{{32 - bits}'d0, a}})     // (no 8-bit literal: test_v35_struct's opcode rule)"]
+        if qs:
+            L.append("        " + ", ".join(f"{q}" for q in qs) + f": v35_l40_{nm} = 1'b1;")
+        L += [f"        default: v35_l40_{nm} = 1'b0;", "    endcase", "endfunction"]
+    out["v35_l40.svh"] = "\n".join(L) + "\n"
+    return out
+
+
+# (work order 26) the L40 ways out written in the sources (each was a word that did not fit:
+# a register read, a payload and a target in one word)
+L40_SOURCE_EDITS = (
+    ("rep_stm", "c5", "register read + Y + JNC", "the write datum's load (AW into OPRW) moved to "
+     "c6, the head's empty word (way out a)"),
+    ("rep_cmpbk", "c5", "register read + Y + JNC", "the address load dropped: c4 and c6 make the "
+     "same load (way out a)"),
+    ("rep_cmpm", "c5", "register read + Y + JNC", "the same (way out a)"),
+    ("rep_cmpbk", "c21", "register read + Y + CALL w2", "the delay call takes its own first clock "
+     "as a word (call=w1 on a word of its own)"),
+    ("bcwz", "0", "register read + X + CALL w2", "the same"),
+)
+
+
+def l40_report(prog) -> str:
+    """--l40-report: the words; the sharing layout without the L40 ways out and its misfits, each
+    with the way out the L40 layout used; the final count; the tables' use; the pages' room."""
+    img = prog.l40
+    flat = prog.flat
+    p0 = share_tails(flat, middles=prog.share_mode == "full", l40=False)
+    i0 = l40_pack(p0, strict=False)
+    L = [f"L40 (work order 26): the ROM as laid out for the 40-bit word, {len(img.rom)} words "
+         f"(ROM {ROM_WORDS}: {ROM_WORDS - len(img.rom)} to spare)",
+         "",
+         f"1. The sharing layout without the L40 ways out (work order 25's, these sources): "
+         f"{len(p0.words)} words; {len(p0.words) - len(i0.misfits)} fit as they stand, "
+         f"{len(i0.misfits)} do not. Each, and the way out the L40 layout took:"]
+    ways = {}
+    for a, nm, why in i0.misfits:
+        srcs = [i for i, ad in enumerate(p0.where) if ad == a]
+        b = prog.where[srcs[0]]
+        k = _SQN[prog.words[b][1].fields.get("seq", 0)]
+        k0 = _SQN[p0.words[a][1].fields.get("seq", 0)]
+        if b in prog.l40_ucopy:
+            w = "U: runs on into a copy of its successor"
+        elif a in p0.mcalls and b not in prog.mcalls:
+            w = "no middle call on it (its run stays in line)"
+        elif any(i in prog.l40_noj for i in srcs):
+            w = "placement (a full NT page sent it back): falls through"
+        elif k0 in ("jmp", "call") and k == "next":
+            w = "placement: falls through into its successor"
+        else:
+            w = f"fits in the L40 layout as {img.form(prog.words[b][1].fields)} ({k})"
+        ways[w] = ways.get(w, 0) + 1
+        L.append(f"   {nm[:60]:60s} {why}")
+        L.append(f"   {'':60s} -> {w}")
+    L.append("   totals: " + "; ".join(f"{w}: {n}" for w, n in sorted(ways.items(), key=lambda t: -t[1])))
+    L.append("")
+    L.append("2. The ways out in the sources (each word did not fit; no clock moved):")
+    for r, wd, what, how in L40_SOURCE_EDITS:
+        L.append(f"   {r} {wd}: {what}: {how}")
+    ntki = sum(1 for _, w in prog.words if _SQN[w.fields.get("seq", 0)] == "tki")
+    L.append(f"   the take-entry codes TKI0 / TKI1: {ntki} TKI words, the take point beside a "
+             f"register read and a payload; the two entries "
+             f"{', '.join(prog.name_of(t) for t in img.tki)}")
+    L.append("")
+    L.append(f"3. The L40 layout: {len(prog.words)} words ({len(prog.words) - len(p0.words):+d} "
+             f"against the layout without the ways out): {len(prog.copies)} copies "
+             f"({len(p0.copies)} without), {len(prog.l40_ucopy)} words running on into a copy "
+             f"(U), {len(prog.mcalls)} middle call words ({len(p0.mcalls)} without), "
+             f"{len(prog.l40_noj)} source words sent back by a full page; the packer's rounds "
+             f"(words, misfits) {prog.l40_rounds}")
+    L.append(f"   final: {len(img.rom)} words, every one packed, decoded through the tables' "
+             f"address select and compared with the 96-bit word field for field and early bit "
+             f"for early bit ({len(img.misfits)} misfits); margin {ROM_WORDS - len(img.rom)} "
+             f"words of {ROM_WORDS}")
+    L.append("   forms: " + ", ".join(f"{c} {img.forms.count(c)}" for c in ("N", "NT", "R", "RT")))
+    L.append("")
+    xu = sum(1 for q in img.xtab if q)
+    yu = [sum(1 for q in img.ytab[h] if q) for h in range(2)]
+    L.append(f"4. Tables: X {xu} of {L40_XN} entries used ({len(img.xwhere)} distinct "
+             f"payloads); Y {sum(yu)} of {2 * L40_YN} (no post {yu[0]}, post {yu[1]}; "
+             f"{sum(len(v) for v in img.ywhere.values())} distinct); take entries "
+             f"{len(img.tki)} of 2")
+    L.append("   pages (used / size; free: how many more distinct entries the page can take):")
+    rows = [("X R (X4, beside Y)", L40_XPAGE["R"], img.xtab), ("X NT", L40_XPAGE["NT"], img.xtab),
+            ("Y R (Y5, beside X), no post", L40_YPAGE["R"], img.ytab[0]),
+            ("Y R (Y5, beside X), post", L40_YPAGE["R"], img.ytab[1]),
+            ("Y NT, no post", L40_YPAGE["NT"], img.ytab[0]),
+            ("Y NT1, post", L40_YPAGE["NT1"], img.ytab[1])]
+    for nm, (b, n), tab in rows:
+        used = sum(1 for q in range(b, b + n) if tab[q])
+        rsv = sum(1 for q in range(b, b + n) if tab[q] == ())
+        L.append(f"   {nm:30s} {b:3d}..{b + n - 1:3d}: {used:3d} / {n:3d}"
+                 f"{f' (+{rsv} reserved: no payload)' if rsv else ''}, {n - used - rsv:3d} free")
+    L.append(f"   X full codes (N, R with X alone): {sum(1 for q in img.xtab if q is None)} of "
+             f"{L40_XN} free")
+    for h in range(2):
+        L.append(f"   Y half {h} full codes (N, R with Y alone): "
+                 f"{sum(1 for q in img.ytab[h] if q is None)} of {L40_YN} free")
+    dem = {}
+    for _, w in prog.words:
+        f = w.fields
+        c = img.form(f)
+        x, y = _xp(f), _yp(f)
+        if c == "R" and any(x) and any(y):
+            dem.setdefault("X R", set()).add(x)
+            dem.setdefault(f"Y R half {int(_yposts(y))}", set()).add(y)
+        elif c == "NT" and any(x) and not any(y):
+            dem.setdefault("X NT", set()).add(x)
+        elif c == "NT" and any(y) and not any(x):
+            dem.setdefault("Y NT" + ("1" if _yposts(y) else ""), set()).add(y)
+    L.append("   distinct payloads the page forms need: " + ", ".join(
+        f"{k} {len(v)}" for k, v in sorted(dem.items())))
+    inh = {}
+    for a, (_, w) in enumerate(prog.words):
+        f = w.fields
+        k = _SQN[f.get("seq", 0)]
+        if img.form(f) != "NT" or k == "jmp" or (k == "call" and a in prog.mcalls):
+            continue
+        x, y = _xp(f), _yp(f)
+        if any(x) and not any(y):
+            inh.setdefault("X NT", set()).add(x)
+        elif any(y) and not any(x):
+            inh.setdefault("Y NT" + ("1" if _yposts(y) else ""), set()).add(y)
+    L.append("   ... of them on the NT pages by a word whose target the source gives (a condition, "
+             "a loop, a take point, EAC, TRAP, a vector, a delay call: no way out; the rest are the layout's "
+             "jumps and calls, which fall through or run on into a copy when a page is full): "
+             + ", ".join(f"{k} {len(v)}" for k, v in sorted(inh.items())))
     return "\n".join(L) + "\n"
 
 
@@ -1763,26 +2494,30 @@ def decode_svh(prog: Program) -> str:
     return "\n".join(L)
 
 
+def check_rom_size(n: int) -> None:
+    """(work order 26) the ROM is one part of ROM_WORDS words: a larger program fails the build."""
+    if n > ROM_WORDS:
+        raise UasmError(f"{n} words: more than the ROM's {ROM_WORDS} (v35_useq ROM_WORDS; the high "
+                        f"part was removed in work order 26)")
+
+
 def outputs(prog: Program) -> dict:
+    check_rom_size(len(prog.words))
     banks = [b.split() for b in rom_banks(prog)]
-    if len(prog.words) > ROM_LO + ROM_HI:
-        raise UasmError(f"{len(prog.words)} words: more than the two parts' {ROM_LO + ROM_HI}")
     out = {}
     for b in range(BANKS):
-        lo, hi = banks[b][:ROM_LO], banks[b][ROM_LO:]
-        hi = hi + ["00000000"] * (ROM_HI - len(hi))
-        out[f"v35_urom_b{b}.hex"] = "\n".join(lo) + "\n"
-        out[f"v35_urom_b{b + BANKS}.hex"] = "\n".join(hi) + "\n"
+        out[f"v35_urom_b{b}.hex"] = "\n".join(banks[b]) + "\n"
     out["v35_udecode_tbl.svh"] = decode_svh(prog)
     return out
 
 
-def listing(prog: Program) -> str:
+def listing(prog: Program, l40w: bool = False) -> str:
     """The ROM by address: a routine's header where its entry is, each word's bits, its label
     and act; (work order 24) a word stored for several routines lists every owner (`= name+k`),
     a copy is marked `copy`; (work order 25) a middle share's call and its stored run's words
-    are marked."""
+    are marked. (Work order 26, `l40w`) the 40-bit word beside the 96-bit one."""
     flat = prog.flat or prog
+    l40w = l40w and getattr(prog, "l40", None) is not None
     entries, labs = {}, {}
     for r in flat.routines:
         entries.setdefault(prog.labels[r.name], []).append(r)
@@ -1802,7 +2537,8 @@ def listing(prog: Program) -> str:
             tag += " (calls a stored run)"
         if addr in (getattr(prog, "mruns", None) or ()):
             tag += " (stored run" + (", returns)" if addr in prog.mrets else ")")
-        L.append(f"{addr:4d} {pack(w.fields):024x} {lab + ':' if lab else '':10s} "
+        l40 = f"{prog.l40.rom[addr]:010x} " if l40w else ""
+        L.append(f"{addr:4d} {pack(w.fields):024x} {l40}{lab + ':' if lab else '':10s} "
                  f"{w.act}{tag}")
     return "\n".join(L) + "\n"
 
@@ -2054,14 +2790,20 @@ def open_words(prog: Program) -> dict:
             if any(w.open for w in r.words)}
 
 
-def write(prog: Program) -> None:
-    for name, text in outputs(prog).items():
+def write(prog: Program, l40: bool = False) -> None:
+    out = outputs(prog)
+    if l40:
+        out.update(l40_outputs(prog.l40))
+    for name, text in out.items():
         (V35 / name).write_text(text)
 
 
-def check(prog: Program) -> list[str]:
+def check(prog: Program, l40: bool = False) -> list[str]:
     bad = []
-    for name, text in outputs(prog).items():
+    out = outputs(prog)
+    if l40:
+        out.update(l40_outputs(prog.l40))
+    for name, text in out.items():
         p = V35 / name
         if not p.exists() or p.read_text() != text:
             bad.append(name)
@@ -2080,15 +2822,27 @@ def main(argv=None) -> int:
     ap.add_argument("--tail-only", action="store_true",
                     help="(work order 25) share tails only (work order 24's layout; for "
                          "comparison: the checked-in ROM shares tails and middles)")
+    ap.add_argument("--l40", action="store_true",
+                    help="(work order 26) also write the 40-bit ROM (v35_l40_rom.hex, 2,048 x 40), "
+                         "its X / Y tables (v35_l40_x.hex, v35_l40_y.hex) and v35_l40.svh; with "
+                         "--check: diff them too; with --list: the 40-bit word in the listing")
+    ap.add_argument("--l40-report", action="store_true",
+                    help="(work order 26) print the L40 packing: words, misfits and their ways "
+                         "out, the final count, the tables' and pages' use")
     ap.add_argument("--report", action="store_true",
                     help="(work order 24) per routine: its words' addresses, its own words and "
                          "the stored tail it joins; the totals per file")
     args = ap.parse_args(argv)
     prog = assemble(share=False if args.no_share else "tail" if args.tail_only else None)
+    if (args.l40 or args.l40_report) and getattr(prog, "l40", None) is None:
+        raise SystemExit("--l40 / --l40-report: the L40 image is of the default layout (tails and "
+                         "middles shared)")
     if args.report:
         print(share_report(prog), end="")
+    if args.l40_report:
+        print(l40_report(prog), end="")
     if args.list:
-        print(listing(prog), end="")
+        print(listing(prog, l40w=args.l40), end="")
     if args.book:
         for row in book_rows(prog):
             name, form, bv, ln, diff, why, meas, path, opens = row
@@ -2098,10 +2852,10 @@ def main(argv=None) -> int:
         ow = open_words(prog)
         print(f"OPEN words: {sum(ow.values())} in {len(ow)} routines")
     if args.check:
-        bad = check(prog)
+        bad = check(prog, l40=args.l40)
         print("uasm: up to date" if not bad else f"uasm: stale {bad}")
         return 1 if bad else 0
-    write(prog)
+    write(prog, l40=args.l40)
     print(f"uasm: {len(prog.routines)} routines, {len(prog.words)} words"
           + (f" ({len(prog.flat.words)} unshared, {len(prog.copies)} copies, "
              f"{len(prog.mshares)} stored runs called from {len(prog.mcalls)} words)" if prog.flat else

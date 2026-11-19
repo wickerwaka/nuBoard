@@ -8643,3 +8643,160 @@ register). Allowing E words in runs would save one word. A two-level return regi
 words `(stored run)` / `(stored run, returns)`. `--report` adds, per routine, the words that
 call and the stored run they call, and lists every stored run (length, address, new words,
 callers) with the totals.
+
+## Work order 26: the L40 packer (check only), the ROM in one part, MUL r8's zero terms
+
+Three separable parts. Part A changes the assembler and the ROM's layout (no RTL), part B
+the sequencer's ROM (v35_useq), part C the microcode of MUL r8.
+
+### Part A: the 40-bit word in the assembler (docs/v35s-urom-w40-layout.md, "L40")
+
+`uasm.assemble()` now lays the ROM out for the 40-bit word and checks it on every build.
+Every stored word is packed to 40 bits plus an entry in each of the two generated tables (X:
+`alu ax ay wf cnt`, 18 bits, 256 entries; Y: `d1 s1 d2 s2 wr ws ea bus seg pfx susp halt
+ist`, 35 bits, two halves of 256 chosen by POST). It is then decoded back through the table
+address select of the w40 trial's RTL (`l40_table_addr`, the trial's gen/check_addr.py
+without the hold forms) and compared with the 96-bit word field for field. The early bits are
+compared too: K, POP and WID raw at fixed places, a named register's RA / RB raw, and the
+one-bit facts the tick-B logic reads from the raw word (dispatch, take point, the REP
+re-entry, POST, and KW on every arming word). A word that does not fit and has no way out
+fails the build with its routine and the reason. Hold counts are not used: SEQ codes 3 and
+12 stay free.
+
+**The layout cooperates.** Work order 25's layout would give 205 of its 1,712 words a jump or
+a middle call that the 40-bit word cannot carry: a register read with a payload has no
+target bits (form RT), and a target leaves room for one payload code only (form NT). The
+pass now asks `l40_tgt_ok` before it gives a word a jump or a call. These words cannot take
+one: X and Y together, a register read with a payload, the REP re-entry E word, and the
+arming word of an unarmed write (its KW bit exists in form N only).
+
+- **Middle shares.** Such a word is not made a caller (`_share_middles`, `caller_ok`). This
+  cleared 139 of the 205; their runs stay in line.
+- **Placement.** Such a word is laid in front of its successor before any other free word,
+  in a first pass, so a cycle of fall-through links is cut at a word that can jump. This
+  cleared 10.
+- **U, a copy.** Where the place is already taken, the word runs on into a copy of its
+  successor. The copy chain continues while the copy cannot jump either. This cleared 53.
+  These include 29 copies of the post-E DISP word, behind E words that read a register and
+  carry a payload.
+- **A full table page.** The packer sends the source words of a jump or call it cannot place
+  back to the layout as words that must not jump, and the pass repeats: 16 source words over
+  three rounds. Two more misfits went away when the pages were filled again.
+- **Source edits** (way out a, and the delay call). No clock moved; the corpus and the
+  program gates show it:
+  - `rep_stm` c5: AW is loaded into OPRW on c6, the head's empty word.
+  - `rep_cmpbk` / `rep_cmpm` c5: the address load is dropped, since c4 and c6 make the same
+    load.
+  - `rep_cmpbk` c21 and `bcwz`'s first word: the `call=w2` becomes a word of its own with
+    `call=w1`, so the delay call takes its own first clock.
+- **TKI0 / TKI1**: the take point's entry comes from a two-entry constant (`rep_brk`,
+  `si_cmp`). This frees B for the payload of the seven TKI words.
+- **TRAP** (a layout change, minimal): B on a TRAP word carries the vector number, as on VEC.
+  The divide error's TRAP word reads SR_VEC (vector 0). So the expand stage loads `tgt` from
+  B on every SEQ >= 8 code.
+
+| | words |
+| --- | --- |
+| work order 25's layout, these sources | 1,712: 1,507 fit as they stand, 205 do not |
+| **L40 layout** | **1,877**, all packed, decoded and compared equal: 171 words to spare of 2,048 |
+| copies | 96 (36 without L40), 56 of them words running on into a copy |
+| middle call words | 370 (446 without L40) |
+| forms | N 559, NT 987, R 331, RT 0 |
+| X table | 148 of 256 entries |
+| Y table | 174 of 512 (140 no post, 34 post) |
+| take entries | 2 of 2 |
+
+The 96-bit ROM (`v35_urom_b0..b2.hex`, the default build) is this same layout. The L40
+image and the 96-bit ROM hold the same words at the same addresses, which the RTL step's
+`+v35_chk` compare needs.
+
+**Page room** (`--l40-report`; free means how many more distinct entries the page can take):
+
+| page | room |
+| --- | --- |
+| X R (X4, beside Y) | 15 of 16 used, 1 free |
+| X NT | 47 of 48 (plus 1 reserved), 0 free |
+| Y R, no post | 20 of 32 |
+| Y R, post | 1 of 32 |
+| Y NT, no post | 48 of 48, 0 free |
+| Y NT1, post | 21 of 32 |
+| full codes | X 106 free; Y half 0 115, half 1 222 |
+
+The NT pages are full because the layout's own jumps and calls fill them. The words whose
+target the source gives need only 9 X and 11 Y entries on them. A new jump or call that
+finds its page full falls through or runs on into a copy, at the cost of a stored word. A
+new conditional word with a new NT payload fails the build. The ways out then are another
+payload already in the page, or moving the page boundaries (P < 48 / < 96 are constants of
+the decode).
+
+**Use.** `uasm --l40` also writes `v35_l40_rom.hex` (2,048 x 40), `v35_l40_x.hex` (256 x 18),
+`v35_l40_y.hex` (512 x 35: {POST, index}) and `v35_l40.svh`. The svh holds the field
+positions, the SEQ codes, ESC, the page prefixes, the take entries, and the X / Y entries with
+SUSP / IVEC / FINT for the trial's one-bit flops. Nothing reads these files yet. `--l40-report`
+prints the report. `--list --l40` adds the 40-bit word to the listing. `uasm.l40_unpack(v,
+img)` is the expand stage in Python, and `uasm.l40_program(prog)` is the program read back from
+the image. `romcheck.py --l40` reads the ROM's fields through it. `assemble(l40=False)` is the
+layout without L40, and the tail-only mode has no L40, since it is over 2,048 words.
+`test_uasm.L40` checks:
+
+- every word's round trip and early bits;
+- the work order 24 / 25 walk on the ROM as the L40 image gives it, against the unshared
+  ROM: every word of both reached, and a changed table entry caught;
+- a misfit with no way out fails the build;
+- no jump or middle call on a word that cannot carry it;
+- the L40 files are current where they exist.
+
+**The RTL step next.** It is section 8 of the layout document with the trial's
+findings:
+
+1. v35_useq reads `v35_l40_rom.hex` (one 2,048 x 40 ROM at ce_b). The X / Y tables are block
+   RAMs read at `!reset_n || ce_a` from the trial's address select (the svh's constants). The
+   early bits come from the raw word.
+2. `tgt` is loaded from B on SEQ >= 8, from L40_TKI0 / 1 on the TKI codes.
+3. `v35_uword_t` stays the registered word, so the next-address path is unchanged.
+4. The three repair flops (KW for `k_cur`, POST for the EU's post, SUSP from the Y address)
+   and the IVEC / FINT compares use the svh's functions.
+5. The 96-bit ROM stays in simulation, with `+v35_chk` comparing the expanded word every
+   clock.
+6. The `+v35_chk` compare of the early read address applies only when RA < 28.
+7. Then the 17 ns runs of useq alone and of the top.
+
+### Part B: the ROM in one part
+
+The high part (`v35_urom_b3..b5.hex`, `ROM_HI`, `rom3..rom5`, `h0..h2`, `hi_b`, the second
+address copy `lt_h` / `rah`) is removed. v35_useq reads one ROM of `ROM_WORDS` = 2,048 words.
+`r0..r2` are the read data registers themselves, with no select behind them. The assembler
+writes three banks and fails above 2,048 words (`check_rom_size`).
+
+UADDR_W stays 12. It is the width of the loader's `dent` / `dret` / `ec_head` ports and of the
+trace's: narrowing it to 11 would change unit ports. The address's top bit is unread
+(`unused`), and `+v35_chk` checks that it stays 0.
+
+- **Tick B:** the read data no longer passes the `hi_b ? h : l` select. Inferred, not measured:
+  with the high part all zero, synthesis had probably reduced it to an AND with `!hi_b` (at
+  5b36a67 the core held 87 RAM_5K against 108 before, so the empty part's blocks were already
+  gone). That gate now leaves every path from the ROM data. The overseer's Efinity run decides.
+- **Tick A:** the last stage of the address select loses its second copy.
+
+### Part C: MUL r8's two zero terms (qprobe round 27, Q136)
+
+`mul8`'s negation path is built as `mul16`'s, with the same mechanism: SIGMA's zero test
+(SNZ) on the words after the + 8. The steps:
+
+1. The call word moves the product into tmpb (6 clocks with the delay).
+2. Clock 7: SIGMA takes the product's low half (`alu=AND ax=SIG ay=SIG wid=BYTE`).
+3. Clock 8: the low half not zero goes to the end, and SIGMA takes the product again
+   (`alu=PASS ax=TB jc=SNZ`).
+4. + 1 word: the product not zero goes to the end.
+5. + 1 word.
+
+AW is written from SIGMA at the end, as before.
+
+| form | change | evidence |
+| --- | --- | --- |
+| MUL r8 (`mul8`) | the two + 1 terms added | r27b: 21 pairs x 2 leads x 6 frames, F0x10 / 10xF0 + 9, 00xFF / FFx00 + 10. The simulation runs `r27b` 756 of 756 (was 708) |
+| MUL mem8 (`mul_m8`) | none | not covered (round 13's memory probes ran one operand pair). It keeps the former tail (+ 8 alone) as its own words (`mm8_f`), no longer jumping into `mi8_f` |
+| MUL r16 / MUL mem16 | none | MUL r16 already has the three terms (r27b, 378 of 378). MUL mem16 shares that tail as before |
+| MUL r16,r/m,imm (69 / 6B) | none | the products are 16-bit. `mir_f` already has the three terms |
+
+`r27a` / `r27d` / `r27e` stay 1,200 / 636 / 780.

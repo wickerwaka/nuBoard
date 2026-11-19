@@ -478,7 +478,10 @@ routine mul_m8 op=F6 mod=mem reg=5 ea=bare  diff=m00:0,d8:0,d16:0,dir:0 why="OPE
     f alu=MULI ax=TA ay=OPR cnt=BITS ; D: F: the datum loaded into the unit; the counter <- the bits
 mul_m8_l: alu=MULS loop=mul_m8_l                ; one step; the counter step
     open call=w18                          ; OPEN: (qprobe round 13, Q42) words with no act (the register form's delay two words shorter: the read replaces five of its words)
-    jmp=mi8_f                              ; the register form's finish
+    jmp=mm8_f                              ; the register form's finish as it was before round 27 (work order 26: Q136's two zero terms are measured on the register form only; MUL mem8 keeps the + 8 alone)
+mm8_f: alu=MULF wf jnc=SGD:mm8_e           ; the product, negated when the signs differ (W); the signs equal: to the end
+    open call=w7                            ; OPEN: 8 clocks: the product's negation (+8 with the signs differing; the zero halves' clocks not measured on memory) (the call and the shared delay's 7)
+mm8_e: wr=AW wid=WORD ws=SIG e ro           ; AW <- the product; E (N: the routine states its releases)
 
 routine divu_m16 op=F7 mod=mem reg=6 ea=bare book="DIVU mem16" diff=m00:1,d8:2,d16:2,dir:3 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 13, Q42) MULU / MUL / DIVU / DIV on memory are `P . B Y D` in front and the register form's word count in total (the read replaces five of its words; with the datum wait the + 4 clocks of Q39; the qprobe mm runs): the add, a word, the bus-idle word, Y, the read, F with the unit's load, the loop, the register form's tail from its finish (its count, sign steps and exit unchanged)"
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register (the ModR/M byte released by the loader: P)

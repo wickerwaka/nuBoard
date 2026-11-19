@@ -95,7 +95,8 @@ dz_d: rl=1                                  ; (qprobe round 13, Q43) CW 0, the f
 
 ; ---- BCWZ (E3): V20 JCXZ 0140-0143 (CX PASS, JMP Z; FLUSH E)
 routine bcwz op=E3 book="BCWZ short-label" diff=t:-1,nt:+0 why="OPEN: (qprobe round 10, Q27) BCWZ is taken `. . . B . . P . . F N .`, not taken `. . . B . . PN .` (no lead; the qprobe ie-cxz / ie-cxn runs; taken one under the book: book error of one, F35-out-cw-bcwz-t-n0-pE-w0): CW into SIGMA, two words with no act, B (the bus-idle fourth word), two words with no act and the zero test; not taken E with the displacement released (P N); taken the displacement released with the target's add, two words with no act, FLUSH (F) three words after the displacement, E"
-    rb=CW wid=WORD alu=PASS ax=RB call=w2   ; CW into SIGMA; OPEN: (qprobe round 10) the second and third words with no act (the call and the shared delay's 2)
+    rb=CW wid=WORD alu=PASS ax=RB           ; CW into SIGMA
+    open call=w1                            ; OPEN: (qprobe round 10) the second and third words with no act ((work order 26) the delay call takes its own first clock as a word: L40) (the call and the shared delay's 1)
     bi call=w1                              ; (qprobe round 10, Q27) B: the bus-idle fourth word; OPEN: a word with no act (the call and the shared delay's 1)
     jc=XC:bcwz_t                            ; the test (taken when CW is zero)
     e ro rl=1                               ; E (not taken): P N: the displacement and the next opcode released

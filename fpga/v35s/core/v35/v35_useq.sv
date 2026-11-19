@@ -156,35 +156,25 @@ module v35_useq
     output wire        q_susp,          // (MX2) prefetching suspended (the queue's susp: SUSP)
     output reg         halted
 );
-    // (qprobe round 12) the ROM in two parts (uasm ROM_LO / ROM_HI): words 0-2047 in rom0..rom2
-    // (2,048 x 2 blocks), the words from 2048 on in rom3..rom5 (1,024 words since qprobe round 20: 512 before); both read at ce_b with
-    // the same address, the part chosen by the address's top bit registered with the read (`hi_b`)
-    // on the read data. No address bit drives a 4,096-deep block
-    localparam int ROM_LO = 2048, ROM_HI = 1024;
-    reg [31:0] rom0 [0:ROM_LO-1];
-    reg [31:0] rom1 [0:ROM_LO-1];
-    reg [31:0] rom2 [0:ROM_LO-1];
-    reg [31:0] rom3 [0:ROM_HI-1];
-    reg [31:0] rom4 [0:ROM_HI-1];
-    reg [31:0] rom5 [0:ROM_HI-1];
+    // (work order 26) the ROM in one part of 2,048 words (uasm ROM_WORDS): rom0..rom2 (2,048 x 2
+    // blocks), read at ce_b. (qprobe round 12 to work order 25: a second, high part of 512 / 1,024
+    // words in rom3..rom5 selected by the address's top bit registered with the read; work order
+    // 25's sharing left it empty and it is gone, with its select on the read data.) The address
+    // stays UADDR_W bits wide (the loader's dent / dret / ec_head ports); its top bit is 0
+    localparam int ROM_WORDS = 2048;
+    reg [31:0] rom0 [0:ROM_WORDS-1];
+    reg [31:0] rom1 [0:ROM_WORDS-1];
+    reg [31:0] rom2 [0:ROM_WORDS-1];
     integer i;
     initial begin
-        for (i = 0; i < ROM_LO; i = i + 1) begin
+        for (i = 0; i < ROM_WORDS; i = i + 1) begin
             rom0[i] = 32'd0;
             rom1[i] = 32'd0;
             rom2[i] = 32'd0;
         end
-        for (i = 0; i < ROM_HI; i = i + 1) begin
-            rom3[i] = 32'd0;
-            rom4[i] = 32'd0;
-            rom5[i] = 32'd0;
-        end
-        $readmemh({UROM_DIR, "v35_urom_b0.hex"}, rom0, 0, ROM_LO - 1);
-        $readmemh({UROM_DIR, "v35_urom_b1.hex"}, rom1, 0, ROM_LO - 1);
-        $readmemh({UROM_DIR, "v35_urom_b2.hex"}, rom2, 0, ROM_LO - 1);
-        $readmemh({UROM_DIR, "v35_urom_b3.hex"}, rom3, 0, ROM_HI - 1);
-        $readmemh({UROM_DIR, "v35_urom_b4.hex"}, rom4, 0, ROM_HI - 1);
-        $readmemh({UROM_DIR, "v35_urom_b5.hex"}, rom5, 0, ROM_HI - 1);
+        $readmemh({UROM_DIR, "v35_urom_b0.hex"}, rom0, 0, ROM_WORDS - 1);
+        $readmemh({UROM_DIR, "v35_urom_b1.hex"}, rom1, 0, ROM_WORDS - 1);
+        $readmemh({UROM_DIR, "v35_urom_b2.hex"}, rom2, 0, ROM_WORDS - 1);
     end
 
     reg [UADDR_W-1:0] upc = UROM_RESET;
@@ -192,12 +182,7 @@ module v35_useq
     // with the next address decided in tick A (`upc_a`), the word a plain register (`q0`..`q2`)
     // loaded from the read data at ce_a. The word a clock executes is the one the old ce_a read
     // gave: the address is the same function of the same values (README "MX5")
-    reg [31:0] l0 = 32'd0, l1 = 32'd0, l2 = 32'd0;     // the low part's read data
-    reg [31:0] h0 = 32'd0, h1 = 32'd0, h2 = 32'd0;     // the high part's
-    reg        hi_b = 1'b0;                            // the address read was in the high part
-    wire [31:0] r0 = hi_b ? h0 : l0;
-    wire [31:0] r1 = hi_b ? h1 : l1;
-    wire [31:0] r2 = hi_b ? h2 : l2;
+    reg [31:0] r0 = 32'd0, r1 = 32'd0, r2 = 32'd0;     // the ROM's read data
     reg [31:0] q0 = 32'd0, q1 = 32'd0, q2 = 32'd0;
     wire [95:0] qw = {q2, q1, q0};
     assign word = v35_uword_t'(qw[UWORD_BITS-1:0]);
@@ -519,28 +504,20 @@ module v35_useq
     // one bit (`lt`) that selects last between the two addresses formed beside it without them
     // (`a1` with the fact 1, `a0` with it 0): the same select as before (`+v35_chk` compares
     // raddr with upc_a), each fact one LUT from the ROM's address instead of the select chain.
-    // The low part's 36 blocks and the high part's 24 each have their own copy of `lt` and of
-    // the last stage
+    // ((work order 26) the high part's copy of `lt` and of the last stage, `lt_h` / `rah`, went
+    // with the high part)
     wire [UADDR_W-1:0] ec0 = ec_call ? ec_head : inc;
     (* syn_keep = "true" *) wire [UADDR_W-1:0] a1 = s_ec ? word.tgt : s_ds ? UROM_INT
                                                    : (s_tk || s_jc) ? word.tgt : s_jn ? inc : ra_e;
     (* syn_keep = "true" *) wire [UADDR_W-1:0] a0 = s_ec ? ec0 : s_ds ? dent
                                                    : (s_tk || s_jc) ? inc : s_jn ? word.tgt : ra_e;
     (* syn_keep = "true" *) wire lt_l = s_tk ? sgo : s_ds ? igo : s_ec ? ec_reg : cond_a;
-    (* syn_keep = "true" *) wire lt_h = s_tk ? sgo : s_ds ? igo : s_ec ? ec_reg : cond_a;
     (* syn_keep = "true" *) wire [UADDR_W-1:0] raddr = lt_l ? a1 : a0;
-    // the high part's address: the same select kept apart (the low part's 36 blocks and the high
-    // part's 24 each on their own copy of the last stage)
-    (* syn_keep = "true" *) wire [UADDR_W-1:0] rah = lt_h ? a1 : a0;
     always_ff @(posedge clock) begin
         if (!reset_n || ce_b) begin
-            l0 <= rom0[raddr[10:0]];
-            l1 <= rom1[raddr[10:0]];
-            l2 <= rom2[raddr[10:0]];
-            h0 <= rom3[rah[9:0]];
-            h1 <= rom4[rah[9:0]];
-            h2 <= rom5[rah[9:0]];
-            hi_b <= raddr[11];
+            r0 <= rom0[raddr[10:0]];
+            r1 <= rom1[raddr[10:0]];
+            r2 <= rom2[raddr[10:0]];
         end
     end
     always_ff @(posedge clock) begin
@@ -573,7 +550,8 @@ module v35_useq
     // (st_r.why: the stall's reason, the trace's W: v35_top's observation block)
     // ((step D) the word is 92 bits: the banks' top four bits unread)
     // ((qprobe) the word is 96 bits: the banks' every bit read)
-    wire unused = &{1'b0, dec2, st_r.why, rah[UADDR_W-1:10]};
+    // ((work order 26) the address's top bit: 0, the ROM is one part of 2,048 words)
+    wire unused = &{1'b0, dec2, st_r.why, raddr[UADDR_W-1:11]};
 
 `ifndef SYNTHESIS
     // the instruction start (the trace's S, the function bench's o_t_start; v35_top's observation
@@ -602,12 +580,13 @@ module v35_useq
         ra_ab <= raddr;
         ra_rb <= !reset_n ? UROM_RESET : upc_a;
     end
-    // (timing repair 1) the two copies of the address, every clock
+    // (timing repair 1) the address against its reference, every clock; ((work order 26) the
+    // high part's copy is gone) and the address inside the one part
     always @(posedge clock) begin
-        if (chk_on && (raddr !== rah || raddr !== (!reset_n ? UROM_RESET : upc_a))) begin
+        if (chk_on && (raddr !== (!reset_n ? UROM_RESET : upc_a) || raddr[UADDR_W-1:11] != '0)) begin
             chk_n = chk_n + 1;
             if (chk_n <= 20)
-                $display("v35 chk: useq: the ROM's address copies differ at %0t", $time);
+                $display("v35 chk: useq: the ROM's address differs from its reference or leaves the ROM at %0t", $time);
         end
     end
     // (MX5c) the registered stall outcome against the stalls of the facts as they stand, every

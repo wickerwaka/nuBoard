@@ -484,7 +484,10 @@ class TailSharing(unittest.TestCase):
                 else:
                     self.assertEqual(self.kind(w.fields), kb, i)
             n = sum(len(v) for v in sh.owners.values())
-            self.assertEqual(n, len(flat.words))
+            # ((work order 26) a word that cannot jump in L40 runs on into a copy of its successor:
+            # the source words sit on the copy and the stored word is named by them too)
+            self.assertEqual(n, len(flat.words) + getattr(sh, "l40_named_twice", 0))
+            self.assertEqual(len({x for v in sh.owners.values() for x in v}), len(flat.words))
             shared = [a for a, v in sh.owners.items() if len({x for x, _ in v}) > 1]
             self.assertGreater(len(shared), 100)
             self.assertIn("|", sh.name_of(shared[0]))
@@ -542,8 +545,113 @@ class TailSharing(unittest.TestCase):
             uasm.assemble(share="middle")
 
     def test_rom_fits_the_low_part(self):
-        # (work order 25) the ROM fits ROM_LO: the high part (ROM_HI) holds no word
-        self.assertLessEqual(len(uasm.assemble().words), uasm.ROM_LO)
+        # (work order 25) the ROM fits ROM_LO: the high part (ROM_HI) holds no word; (work order
+        # 26) the high part is gone: the ROM is one part of ROM_WORDS
+        self.assertLessEqual(len(uasm.assemble().words), uasm.ROM_WORDS)
+        uasm.check_rom_size(uasm.ROM_WORDS)
+        with self.assertRaisesRegex(uasm.UasmError, "more than the ROM's 2048"):
+            uasm.check_rom_size(uasm.ROM_WORDS + 1)
+
+
+class L40(unittest.TestCase):
+    """(work order 26) the 40-bit word (docs/v35s-urom-w40-layout.md): every stored word packed,
+    decoded through the tables' address select and compared with the 96-bit word; the walk of
+    work orders 24 / 25 on the ROM as the 40-bit image gives it, against the unshared ROM; a
+    word with no way out fails the build."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.prog = uasm.assemble()
+        cls.img = cls.prog.l40
+
+    def test_every_word_round_trips(self):
+        prog, img = self.prog, self.img
+        self.assertEqual(img.misfits, [])
+        self.assertEqual(len(img.rom), len(prog.words))
+        self.assertLessEqual(len(img.rom), uasm.ROM_WORDS)
+        arm = uasm.arming_words(prog.words, uasm._succs)
+        self.assertTrue(arm)
+        for a, (_, w) in enumerate(prog.words):
+            v = img.rom[a]
+            self.assertLess(v, 1 << uasm.L40_BITS)
+            self.assertIsNone(uasm.l40_check_word(img, a, w.fields, v, a in arm), prog.name_of(a))
+            got = uasm.l40_unpack(v, img)
+            ref = uasm.unpack(uasm.pack(w.fields))
+            for k in ref:
+                if k != "tgt":
+                    self.assertEqual(got[k], ref[k], (prog.name_of(a), k))
+            # the early bits from the raw word, at fixed positions
+            r = uasm.l40_fields(v)
+            self.assertEqual(r["POP"], ref["pop"])
+            self.assertEqual(r["WID"], ref["wid"])
+            self.assertEqual((r["K"] >> 8) & 1, ref["e"])
+            e = uasm.l40_early(v)
+            self.assertEqual(e["post"], uasm._posts(w.fields), prog.name_of(a))
+            self.assertNotIn(r["SEQ"], (uasm.L40_SEQ["HOLD"], uasm.L40_SEQ["HJMP"]))
+            if a in arm:
+                self.assertTrue(e["kw"], prog.name_of(a))
+        self.assertEqual(len(img.tki), 2)
+        print(f"\n(work order 26) L40: {len(img.rom)} words round-trip; X "
+              f"{sum(1 for q in img.xtab if q)} of 256, Y {sum(1 for h in img.ytab for q in h if q)} "
+              f"of 512; {len(arm)} arming words")
+
+    def test_the_l40_rom_expands_to_the_unshared_words(self):
+        # the walk of work orders 24 / 25 (TailSharing) on the ROM read back from the L40 image:
+        # the 40-bit ROM is the unshared program, clock for clock, through every branch
+        flat = uasm.assemble(share=False)
+        dec = uasm.l40_program(self.prog)
+        t = TailSharing()
+        seen = t.walk(flat, dec)
+        self.assertEqual({a for a, *_ in seen}, set(range(len(flat.words))))
+        self.assertEqual({b for _, b, *_ in seen}, set(range(len(dec.words))))
+        # and a broken table entry is caught by it
+        img = self.prog.l40
+        q = next(q for q in range(1, 256) if img.xtab[q])
+        keep = img.xtab[q]
+        try:
+            img.xtab[q] = tuple(keep[:-1]) + (keep[-1] ^ 1,)
+            with self.assertRaises(AssertionError):
+                t.walk(flat, uasm.l40_program(self.prog))
+        finally:
+            img.xtab[q] = keep
+
+    def test_a_misfit_with_no_way_out_fails_the_build(self):
+        # a conditional jump on a word that reads a register and carries an ALU payload: no
+        # room for the target (form RT), and no way out (the target is the source's)
+        import tempfile
+        from pathlib import Path as P
+        with tempfile.TemporaryDirectory() as d:
+            files = []
+            for p in sorted(uasm.UROM.glob("*.uasm")):
+                q = P(d) / p.name
+                t = p.read_text()
+                if p.name == "str.uasm":
+                    old = "    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z) ("
+                    self.assertIn(old, t)
+                    t = t.replace(old, "    rb=IY wid=WORD alu=PASS ax=RB jnc=SNZ:rz_io ; c5 (", 1)
+                q.write_text(t)
+                files.append(q)
+            with self.assertRaisesRegex(uasm.UasmError, r"(?s)L40.*rep_stm\+1: register read \+ "
+                                        r"target \+ X: no payload bits \(form RT\)"):
+                uasm.assemble(files)
+            # the 96-bit layout alone still assembles (the check is L40's)
+            self.assertGreater(len(uasm.assemble(files, l40=False).words), 0)
+
+    def test_words_that_cannot_jump_are_not_given_one(self):
+        # the layout's ways out: no jump or middle call on a word that could not carry it
+        for a, (_, w) in enumerate(self.prog.words):
+            k = uasm._SQN[w.fields.get("seq", 0)]
+            if k == "jmp" or a in self.prog.mcalls:
+                f = {x: v for x, v in w.fields.items() if x not in ("seq", "tgt")}
+                self.assertIsNone(uasm.l40_tgt_ok(f), self.prog.name_of(a))
+
+    def test_checked_in_l40_files_are_the_assembly(self):
+        out = uasm.l40_outputs(self.img)
+        for name, text in out.items():
+            p = uasm.V35 / name
+            if p.exists():
+                self.assertEqual(p.read_text(), text,
+                                 f"{name}: run python -m validation.v35s.chains.uasm --l40")
 
 
 if __name__ == "__main__":

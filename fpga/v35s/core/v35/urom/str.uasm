@@ -215,8 +215,8 @@ rmv_b: ra=IX wid=WORD alu=STEP ax=RA         ; Y + 1: SIGMA = IX + the width
 
 routine rep_stm op=AA,AB page=rep bookx="2+16+(9+W)n" n=4 diff=4 why="OPEN: silicon longer than the book (measured, the extra words OPEN): (qprobe round 11, Q35) REP STM: the head (14 words, B the fourth), the iteration `Y D .` (9 + the write's waits), the tail `. . . . . . N .` (the qprobe rstmw, r11c runs; F24-out-r-rep-stm-w-n2-pE-w0)"
     ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW; the first destination address IY
-    ra=AW d1=OPRW s1=RA jnc=SNZ:rz_io       ; c5: AW (AL) into the write datum; CW = 0: no element (rep_z)
-    open                                    ; OPEN: c6, the head's word with no act
+    jnc=SNZ:rz_io                           ; c5: CW = 0: no element (rep_z) ((work order 26) the write datum's load moved to c6: L40 has no room for a register read, a payload and a target in one word)
+    ra=AW d1=OPRW s1=RA                     ; c6: AW (AL) into the write datum ((work order 26) from c5; the datum is first used by the element's write, c18 + 3)
     bi call=w10                             ; B: the head's bus-idle fourth word (c7); OPEN: c8 .. c17 (the call and the shared delay's 10)
     rl=x bi jmp=rst_b                       ; Y: the first element's request word (c18)
 rst_y: ra=IY wid=WORD d1=ADDR s1=RA rl=x bi tki=rep_brk ; Y: the next element's request word, its address IY; (F5e) the take point
@@ -287,11 +287,12 @@ rou_l: ra=DW wid=WORD d1=ADDR s1=RA wr=CW ws=SIG ; the last element: a word with
 
 routine rep_cmpbk op=A6,A7 page=rep bookx="2+16+(23+2W)n" n=4 diff=9 why="OPEN: silicon longer than the book: silicon's 32 + 18n + the overrun (F24-out-r-repe-cmpbk-w-n2-pE-w0: the destination read first, issued at c20, the source's 9 (+ W) after it, the next element's 9 (+ W) after that; the next element's two reads posted before the tests take effect (the overrun); E 18 (+ W) after the overrun's source read on the condition's exit, 19 on the count's, and the wb; n = 0 17): the element 18 + 2W, five short of the book's 23 + 2W (silicon's), the fixed part and the overrun longer (OPEN)"
     ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW (the count's test); the element's first address IY
-    rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c5: CW = 0: no element; the address again
+    jnc=SNZ:rz_io                           ; c5: CW = 0: no element ((work order 26) the address's load dropped here: c4 and c6 make the same load; L40 has no room for a register read, a payload and a target in one word)
     rb=IY wid=WORD d1=ADDR s1=RB            ; c6: the address again
     bi call=w12                             ; (qprobe round 18, Q80, spec 14 B2) c7: B, the head's bus-idle fourth word (silicon's head 13 words, the first read a word later than round 12's); c8 .. OPEN, the fixed part's clocks with no act
     bus=MEMR seg=DS1                        ; c20: post the first destination read (issued c21)
-    ra=IX wid=WORD d1=ADDR s1=RA call=w2    ; c21: the source's address IX; c22 c23 OPEN
+    ra=IX wid=WORD d1=ADDR s1=RA            ; c21: the source's address IX
+    open call=w1                            ; OPEN: c22 c23 ((work order 26) the delay call takes its own first clock as a word: L40 has no room for a register read, a payload and a target in one word) (the call and the shared delay's 1)
     f d1=TB s1=OPR                          ; c24: F: the destination's datum into tmpb
     open call=w3                            ; OPEN: c25 .. c28, the element's clocks with no act
     bus=MEMR seg=DSP                        ; c29: post the first source read (issued c30)
@@ -314,7 +315,7 @@ rcb_u: f d1=TA s1=OPR wr=IY ws=SIG wid=WORD ; q + 13: F: the source's datum into
 
 routine rep_cmpm op=AE,AF page=rep bookx="2+16+(16+2W)n" n=4 diff=3 why="OPEN: silicon longer than the book: silicon's (F24-out-r-repne-cmpm-w-n2-pE-w0): the first read issued at c21, the second 10 (+ W) after it, the rest 12 (+ W): the next element's read posted before the tests take effect (the overrun), then the two tests' words (the first element has none before it); E 18 (+ W) after the last read on the condition's exit, 19 on the count's, and the wb; n = 0 17: the element 12 + W against the book's 16 + 2W (silicon's), the fixed part longer (OPEN)"
     ra=CW rb=IY wid=WORD alu=PASS ax=RA d1=ADDR s1=RB ; c4 ((qprobe round 12, spec 7 A3): the prefix is rep_p, c2 c3): SIGMA = CW (the count's test); the element's first address IY
-    rb=IY wid=WORD d1=ADDR s1=RB jnc=SNZ:rz_io ; c5: CW = 0: no element; the address again
+    jnc=SNZ:rz_io                           ; c5: CW = 0: no element ((work order 26) the address's load dropped here: c4 and c6 make the same load; L40)
     rb=IY wid=WORD d1=ADDR s1=RB            ; c6: the address again
     bi call=w13                             ; (qprobe round 18, Q80, spec 14 B2) c7: B, the head's bus-idle fourth word (silicon's head 14 words, the first read a word later than round 12's); c8 .. OPEN, the fixed part's clocks with no act
     bus=MEMR seg=DS1 jmp=rcm_f              ; c21: post the first read (issued c22); (F5e) zz_late.uasm rcm_f: the first element's b has no take point
