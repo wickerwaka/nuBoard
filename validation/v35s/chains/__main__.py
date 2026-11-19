@@ -89,12 +89,12 @@ def main(argv=None) -> int:
     uasm = sub.add_parser("uasm", help="(MX0) assemble the core v2's microprogram "
                                        "(fpga/v35s/core/v35/urom/*.uasm: the ROM banks, the "
                                        "decode table)")
-    for flag in ("--check", "--list", "--book", "--no-share", "--report"):
+    for flag in ("--check", "--list", "--book", "--no-share", "--tail-only", "--report"):
         uasm.add_argument(flag, action="store_true")
 
     def _uasm(args):
         from .uasm import main as uasm_main
-        return uasm_main([f for f in ("--check", "--list", "--book", "--no-share", "--report")
+        return uasm_main([f for f in ("--check", "--list", "--book", "--no-share", "--tail-only", "--report")
                           if getattr(args, f[2:].replace("-", "_"))])
     uasm.set_defaults(func=_uasm)
     from .evtrace import build_parser as evtrace_parser, main as evtrace_main

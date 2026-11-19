@@ -3601,3 +3601,19 @@ question, decided from S8's routed numbers with the user.
   sequence leaves. **RTL differences found:** MUL r8 lacks the two +1 zero terms (48
   runs; MUL r16 has them); READY at fX/2 never lengthens a cycle in the RTL (silicon: one
   clock per 8 ticks of hold).
+- **2026-11-18, work order 25 (FULL gate, three seeds): middle sharing; ROM 2,160 to 1,704
+  words, no RTL change.** The assembler stores 70 repeated runs once, each ending in RET;
+  the run's first word at each use becomes the CALL (one return register, no nesting:
+  nothing reachable from a callee before its RET takes part; vector words cannot call; E
+  words and the `UROM_REPP` word are left out). `--tail-only` reproduces the last
+  landing's ROM bit for bit; `test_uasm.TailSharing` walks both ROMs with their return
+  registers (3,998 states) and catches a call aimed one word late. Six unreachable
+  placeholder words deleted (the five named and `sahf_u`). The high ROM part is empty.
+  Gate: corpus 30,181 at both spacings, no run changed; **pin records 0 of 30,536 differ
+  against the last landing** (the first real pin comparison since land 20); program
+  gates, f4_hwd, vectors, SST as before; checker silent. 17 ns: +3.079 / +3.073 / +3.753;
+  9,771 LUT4, 2,618 FF, **87 RAM_5K** (from 108: the mapper drops the empty high part).
+  Also recorded: `docs/v35s-urom-w40-trial.md`, the timing trial of the 2,048 x 40 word
+  (tables in block RAM in place of the word register for the late fields: +2.362 /
+  +3.105 / +3.132 with five one-bit flops beside the word, 64 RAM_5K; the same tables as
+  logic +1.44 to +1.69, rejected).

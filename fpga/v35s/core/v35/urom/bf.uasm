@@ -89,7 +89,6 @@ ext_x2: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG ; tmpb <- the low word; tmpc <- 
 ext_xr2: alu=BFR                         ; the pair rotated right by one
     loop=ext_xr2                         ; the counter step (two words a bit of the offset)
 ext_xm2: alu=BFM jmp=ext_xq2             ; tmpb masked to the field's w + 1 bits (the whole word for a full-word field); (r24) the rest in zz_late.uasm (ext_xq2: no entry address moves)
-    open                                ; OPEN: (r24) unused (the word kept so no address moves)
 ext_t2: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
     wr=AW wid=WORD ws=TB jnc=SGN:ext_n2  ; (F5b: silicon, f5r extal) AW <- the field after the offset register; no carry: the pointer stays
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)
@@ -135,7 +134,6 @@ ext_x: alu=PASS ax=TB d1=TB s1=TC d2=TC s2=SIG ; tmpb <- the low word; tmpc <- t
 ext_xr: alu=BFR                         ; the pair rotated right by one
     loop=ext_xr                         ; the counter step (two words a bit of the offset)
 ext_xm: alu=BFM jmp=ext_xq             ; tmpb masked to the field's w + 1 bits (the whole word for a full-word field); (r24) the rest in zz_late.uasm (ext_xq: no entry address moves)
-    open                                ; OPEN: (r24) unused (the word kept so no address moves)
 ext_t: wr=RM wid=BYTE ws=SIG            ; the offset register <- the new offset
     wr=AW wid=WORD ws=TB jnc=SGN:ext_n  ; (F5b: silicon, f5r extal) AW <- the field after the offset register; no carry: the pointer stays
     ra=IX wid=WORD alu=INC2 ax=RA       ; SIGMA = IX + 2 (the step on two of the end's clocks)

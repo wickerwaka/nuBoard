@@ -51,6 +51,8 @@ that pops the instruction's bytes (counter from the loader's count) and ends (re
 executed; the function bench counts it `trap_nop`). (Work order 24) The ROM is laid out with
 identical tails stored once (`--no-share` for the unshared layout, `--report` per routine);
 a routine is no longer contiguous in the ROM: see "Work order 24: tail sharing" at the end.
+(Work order 25) Repeated middle runs are stored once too, called through the one return
+register (`--tail-only` for work order 24's layout): see "Work order 25: middle sharing".
 
 **The book check** (`test_uasm.BookCheck`): the routine's length, run by `uasm.length` from its
 entry at EA = 3, W = 0 with no queue stall (a request granted the clock after its post, a bus
@@ -8563,3 +8565,81 @@ families holding ROL4 / ROR4 (F32 F39 F40) and of every qprobe run holding them 
 - **Timing**: ROL12 is a wire permutation of tmpb / tmpc in tick B (as BFL), its write
   enables decoded from the word register like BFL's; nothing joins tick A's delivery chain.
   R4's 8-bit nibble mux into SIGMA and tmpc goes away.
+
+## Work order 25: middle sharing (the assembler's layout pass; no RTL change)
+
+The ROM is 1,704 words (2,853 unshared; 2,155 with tails alone): it fits the low part
+(ROM_LO 2,048) with 344 words to spare, and the high part (ROM_HI, v35_urom_b3..b5) holds no
+word (all zero). The high part can be removed; it is not removed here (UADDR_W 12, ROM_LO /
+ROM_HI and v35_useq's address path unchanged). `uasm.assemble()` (and `uasm` with no switch)
+shares tails and middles; `assemble(share="tail")` / `--tail-only` is work order 24's layout,
+`share=False` / `--no-share` the flat one. In the default `share="full"` mode the work order 24
+tails come first, then the middles, then the same placement.
+
+**CALL / RET as found** (v35_useq, unchanged). One return register `retr`, loaded at ce_a
+when the word executes (`ex_b`): CALL (upc + 1), EAC's head call (upc + 1), and the dispatch
+of a ModR/M memory cell (the routine's entry, for the EA head's RET). RET reads it. A stalled
+word changes nothing (upc_n = upc, retr does not load) and is read again. Nothing else reads the
+sequencing field except the derived bits of DISP, DISPM, TKI and TRAP (`pre`, v35_eu trap_o)
+and the field compares of the address select. So any word may carry CALL or RET beside its acts.
+CALL needs its tgt as an address, so a vector word (SR_VEC reads tgt) cannot call, though it
+can end a stored run (RET does not read tgt). There is one level: a CALL inside a called
+routine overwrites the return that routine still needs. So no word reachable from a call
+target or an EA head before its RET (77 source words: the `dly` ladders, the EA heads, the
+other callees) may call or be stored in a run.
+
+**What is shared.** A run w2 .. wk of NEXT / JMP words (no E word, none pinned) may recur
+after the tail pass with different continuations. It is stored once, with RET on wk. At each
+use the word before the run (w1, a NEXT / JMP word) becomes CALL to the stored run, keeping
+its own acts. Its next address, the forced return point, holds the run's continuation. A use
+needs every predecessor of w2 to be such a word, w3 .. wk entered from their predecessor
+alone, and no run word labelled or a decode entry (the run leaves the use site). A stored run
+may end in an existing RET tail (`dly`'s last words, a stored run's): the call then enters
+that tail, and the run costs no new words. The shares are chosen greedily by words saved: a
+use saves the run's length less the copies its return point forces when another word
+already falls into it; the stored words are paid once. Ties go to the longer run, then the
+earlier word, and the graph is recomputed after each choice, so the ROM is reproducible.
+
+| | words |
+| --- | --- |
+| unshared (285 routines; the 6 placeholder words deleted) | 2,853 |
+| tails (work order 24) | 2,155 (34 copies) |
+| **tails and middles** | **1,704** (36 copies) |
+| stored runs | 70 (54 of one word, 12 of two, 3 of three, 1 of four): 82 new words, 8 ending in an existing RET tail |
+| calls | 446 call words (479 source words; 115 of them a routine's entry word) |
+
+Sequencing values, tails alone -> with middles: NEXT 1,493 -> 535, JMP 288 -> 290, CALL 223 ->
+669, RET 8 -> 67; the others are unchanged.
+
+**The placeholders.** The six source words kept "so no address moves" (ext / exti's word after
+the jump to their tails, adjb's two, flag_ei's, sahf's labelled `sahf_u`) are deleted. No entry
+reaches them (`sahf_u`'s label is referenced by nothing). Addresses move at every assembly
+anyway.
+
+**Proof.** `test_uasm.TailSharing`, run for both modes: from every label and decode cell
+(the cells' other fields equal) the unshared and the shared ROM are expanded side by side
+through every branch, together with both return registers. A middle call (NEXT / JMP against
+CALL) is allowed only with no return outstanding. The stored run's RET is allowed only against
+a NEXT / JMP word inside such a call, and must return to the word the unshared program goes
+on to. A real CALL / RET pairs the two return addresses. Labels that are call targets or EA
+heads start with a return outstanding. Every word is compared field for field (3,998 states),
+and every word of both ROMs is reached. A middle call aimed one word late or turned into a
+jump fails it (`test_a_broken_middle_call_is_caught`), and so does the pass with its liveness
+rule switched off (a run inside a callee: "a middle call with a return outstanding"; work
+order 25's break_live.py). Also: every source word sits on an equal word, the derived `nb` marks
+re-derive the same (but on a stored run's RET, which has no static successor: its nb is the
+source words'), the book rows are the unshared ones, and the REPP word is rep_p's alone and in
+no run. The tail-only mode assembles the 031367d sources to the 031367d ROM bit for bit. The
+generated decode text differs only in entry numbers and UROM_WORDS.
+
+**What blocks more.** Of the 1,704 words, 533 distinct field values remain. Most repeats are
+the call words themselves (566), whose return point must be their own next address. Then come
+the words right after a call, a conditional or a loop (forced: they cannot be called through a
+word that is itself a CALL or a branch), and the 64 addresses of callee words (the one return
+register). Allowing E words in runs would save one word. A two-level return register or a
+"call, returning to tgt2" field would be the next step: neither is needed for the 2,048 target.
+
+**Listing and report.** `--list` marks a middle call `(calls a stored run)` and the stored
+words `(stored run)` / `(stored run, returns)`. `--report` adds, per routine, the words that
+call and the stored run they call, and lists every stored run (length, address, new words,
+callers) with the totals.

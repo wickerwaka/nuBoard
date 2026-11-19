@@ -337,127 +337,213 @@ class EA(unittest.TestCase):
 
 
 class TailSharing(unittest.TestCase):
-    """(work order 24) the shared ROM executes, from every entry, the same words as the unshared
-    one, clock for clock: the two expanded side by side through every branch (both outcomes of
-    every condition, loop, take point and EAC, a call's callee and its return point, every
-    decode cell's entry, every label) and compared field for field. The only freedom is the
-    one the sequencer gives for nothing: a word whose successor is reached by NEXT may reach it
-    by JMP (the same next-address clock), and the target fields name the shared addresses."""
+    """(work orders 24, 25) the shared ROM executes, from every entry, the same words as the
+    unshared one, clock for clock: the two expanded side by side through every branch (both
+    outcomes of every condition, loop, take point and EAC, a call into its callee and back
+    through the return register, every decode cell's entry, every label) and compared field for
+    field. The only freedoms are the ones the sequencer gives for nothing: a word whose
+    successor is reached by NEXT may reach it by JMP (the same next-address clock), the target
+    fields name the shared addresses, and (work order 25) a NEXT / JMP word may be a CALL to a
+    stored run whose last word, a NEXT / JMP word in the unshared program, is a RET back to the
+    call's next address, while the return register holds no other return."""
 
     # the next-address rule of v35_useq (upc_n), written out here apart from uasm's pass
     SQ = {k[3:].lower(): v for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
+    SQN = {v: k for k, v in SQ.items()}
+    MODES = ("full", "tail")
 
-    def succ(self, f: dict, a: int) -> list:
-        sq = {v: k for k, v in self.SQ.items()}[f.get("seq", 0)]
-        t = f.get("tgt", 0)
-        if sq == "next" or sq == "trap":
-            return [a + 1]
-        if sq == "jmp":
-            return [t]
-        if sq in ("jc", "jnc", "loop", "tki", "eac", "call"):
-            return [t, a + 1]
-        self.assertIn(sq, ("ret", "disp"))
-        return []
+    def kind(self, f: dict) -> str:
+        k = self.SQN[f.get("seq", 0)]
+        return "next" if k == "jmp" else k
 
     def norm(self, f: dict) -> dict:
-        sq = f.get("seq", 0)
+        sq = self.SQN[f.get("seq", 0)]
         g = {k: v for k, v in f.items() if v and k not in ("seq", "tgt")}
-        g["seq"] = self.SQ["next"] if sq == self.SQ["jmp"] else sq
         # tgt as data (a vector; zero on a word with no vector) unless the word's sequencing
         # reads it as an address
-        addr = {self.SQ[k] for k in ("jmp", "jc", "jnc", "loop", "tki", "eac", "call")}
-        g["tgt"] = 0 if sq in addr else f.get("tgt", 0)
+        g["tgt"] = 0 if sq in ("jmp", "jc", "jnc", "loop", "tki", "eac", "call") else f.get("tgt", 0)
         return g
 
     def entries(self, flat, sh):
-        """(flat entry, shared entry) of every label and every decode cell; the cells' other
-        fields equal."""
-        pairs = [(flat.labels[k], sh.labels[k]) for k in flat.labels]
+        """(flat entry, shared entry, return registers) of every label and every decode cell;
+        the cells' other fields equal. A label a call or the dispatch enters with a return
+        outstanding (a call target, an EA head) starts with the return register taken ("ext")."""
+        called = {w.fields.get("tgt") for _, w in flat.words if self.kind(w.fields) == "call"}
+        called |= {flat.labels[h] for h in uasm.EA_HEADS if h in flat.labels}
+        pairs = []
+        for k in flat.labels:
+            r = "ext" if flat.labels[k] in called else None
+            pairs.append((flat.labels[k], sh.labels[k], r, r))
         for op in range(256):
             a, b = uasm.udec1(flat, op), uasm.udec1(sh, op)
-            pairs.append((a.pop("entry"), b.pop("entry")))
+            pairs.append((a.pop("entry"), b.pop("entry"), None, None))
             self.assertEqual(a, b, hex(op))
             if a["has_modrm"] or op == 0x0F or op in uasm.REP_XC:
                 for x in range(256):
                     a, b = uasm.udec2(flat, op, x), uasm.udec2(sh, op, x)
-                    pairs.append((a.pop("entry"), b.pop("entry")))
+                    pairs.append((a.pop("entry"), b.pop("entry"), None, None))
                     self.assertEqual(a, b, (hex(op), hex(x)))
         return pairs
 
-    def test_every_entry_expands_to_the_same_words(self):
-        sh = uasm.assemble()
-        flat = uasm.assemble(share=False)
-        self.assertIsNotNone(sh.flat)
-        self.assertEqual(len(flat.words), len(sh.flat.words))
+    def step(self, fa, a, ra, fb, b, rb) -> list:
+        """The successor states of the pair (a, b) with the return registers ra / rb (None:
+        nothing outstanding; "ext": a return to whatever entered the label; an address pair;
+        rb ("M", x): a stored run called, returning to x)."""
+        ka, kb = self.kind(fa), self.kind(fb)
+        ta, tb = fa.get("tgt", 0), fb.get("tgt", 0)
+        sa = ta if self.SQN[fa.get("seq", 0)] == "jmp" else a + 1
+        sb = tb if self.SQN[fb.get("seq", 0)] == "jmp" else b + 1
+        mid = isinstance(rb, tuple)
+        if ka == "next" and kb == "call":           # (work order 25) a middle call
+            self.assertTrue(ra is None and rb is None, "a middle call with a return outstanding")
+            return [(sa, tb, None, ("M", b + 1))]
+        if ka == "next" and kb == "ret":            # (work order 25) the stored run's end
+            self.assertTrue(mid and ra is None, "a stored run's RET not called")
+            return [(sa, rb[1], None, None)]
+        self.assertEqual(ka, kb)
+        if ka == "next":
+            return [(sa, sb, ra, rb)]
+        if ka == "trap":
+            return [(a + 1, b + 1, ra, rb)]
+        if ka in ("jc", "jnc", "loop", "tki"):
+            return [(ta, tb, ra, rb), (a + 1, b + 1, ra, rb)]
+        self.assertFalse(mid, f"a {ka} inside a stored run")
+        if ka == "call":
+            self.assertTrue(ra is None and rb is None, "a call with a return outstanding")
+            return [(ta, tb, a + 1, b + 1)]
+        if ka == "eac":
+            self.assertTrue(ra is None and rb is None, "an EAC with a return outstanding")
+            return [(ta, tb, None, None), (a + 1, b + 1, None, None)]
+        if ka == "ret":
+            if ra in (None, "ext") and rb == ra:
+                return []                       # back to the entry's caller
+            self.assertTrue(isinstance(ra, int) and isinstance(rb, int), (ra, rb))
+            return [(ra, rb, None, None)]
+        self.assertEqual(ka, "disp")
+        return []
+
+    def walk(self, flat, sh):
         todo = self.entries(flat, sh)
         seen = set()
         while todo:
-            a, b = todo.pop()
-            if (a, b) in seen:
+            st = todo.pop()
+            if st in seen:
                 continue
-            seen.add((a, b))
+            seen.add(st)
+            a, b, ra, rb = st
             fa, fb = flat.words[a][1].fields, sh.words[b][1].fields
             self.assertEqual(self.norm(fa), self.norm(fb), (flat.name_of(a), b, sh.name_of(b)))
-            sa, sb = self.succ(fa, a), self.succ(fb, b)
-            self.assertEqual(len(sa), len(sb))
-            todo += zip(sa, sb)
-        # every shared word is reached from an entry, or holds only unshared words no entry
-        # reaches (the placeholders "kept so no address moves")
-        reach = {a for a, _ in seen}
-        dead = {sh.where[a] for a in range(len(flat.words)) if a not in reach}
-        self.assertEqual(set(range(len(sh.words))) - {b for _, b in seen}, dead - {b for _, b in seen})
-        print(f"\n(work order 24) {len(flat.words)} words -> {len(sh.words)} "
-              f"({len(sh.copies)} copies); {len(seen)} (unshared, shared) pairs expanded; "
-              f"{len(flat.words) - len(reach)} unshared words reached from no entry")
+            todo += self.step(fa, a, ra, fb, b, rb)
+        return seen
+
+    def test_every_entry_expands_to_the_same_words(self):
+        flat = uasm.assemble(share=False)
+        for mode in self.MODES:
+            sh = uasm.assemble(share=mode)
+            self.assertIsNotNone(sh.flat)
+            self.assertEqual(len(flat.words), len(sh.flat.words))
+            seen = self.walk(flat, sh)
+            # every word of both reached from an entry ((work order 25) the placeholders "kept
+            # so no address moves" deleted)
+            self.assertEqual({a for a, *_ in seen}, set(range(len(flat.words))), mode)
+            self.assertEqual({b for _, b, *_ in seen}, set(range(len(sh.words))), mode)
+            print(f"\n(work orders 24, 25: {mode}) {len(flat.words)} words -> {len(sh.words)} "
+                  f"({len(sh.copies)} copies, {len(sh.mcalls)} middle calls, "
+                  f"{len(sh.mshares)} stored runs); {len(seen)} states expanded")
+
+    def test_a_broken_middle_call_is_caught(self):
+        # (work order 25) the walk sees a stored run entered one word late, and a middle call
+        # made a jump (the run's RET then reached with no call)
+        flat = uasm.assemble(share=False)
+        for brk in ("tgt", "jmp"):
+            sh = uasm.assemble()
+            a = min(sh.mcalls)
+            f = sh.words[a][1].fields
+            if brk == "tgt":
+                f["tgt"] += 1
+            else:
+                f["seq"] = self.SQ["jmp"]
+            with self.assertRaises(AssertionError, msg=brk):
+                self.walk(flat, sh)
 
     def test_each_source_word_sits_on_an_equal_word(self):
         # the address map (where) puts every source word on a word equal to it, the fall-through
-        # pairs adjacent, and the owners list every source word on its address
-        sh = uasm.assemble()
-        flat = sh.flat
-        for i, (r, w) in enumerate(flat.words):
-            self.assertEqual(self.norm(w.fields), self.norm(sh.words[sh.where[i]][1].fields), i)
-        n = sum(len(v) for v in sh.owners.values())
-        self.assertEqual(n, len(flat.words))
-        shared = [a for a, v in sh.owners.items() if len({x for x, _ in v}) > 1]
-        self.assertGreater(len(shared), 100)
-        self.assertIn("|", sh.name_of(shared[0]))
+        # pairs adjacent, and the owners list every source word on its address; (work order 25)
+        # a NEXT / JMP word may sit on a middle call or a stored run's RET
+        for mode in self.MODES:
+            sh = uasm.assemble(share=mode)
+            flat = sh.flat
+            for i, (r, w) in enumerate(flat.words):
+                b = sh.where[i]
+                fb = sh.words[b][1].fields
+                self.assertEqual(self.norm(w.fields), self.norm(fb), i)
+                kb = self.kind(fb)
+                if (b in sh.mcalls and kb == "call") or (b in sh.mrets and kb == "ret"):
+                    # (a stored run may end in a callee's RET tail: its RET holds both)
+                    self.assertIn(self.kind(w.fields), ("next", kb), i)
+                else:
+                    self.assertEqual(self.kind(w.fields), kb, i)
+            n = sum(len(v) for v in sh.owners.values())
+            self.assertEqual(n, len(flat.words))
+            shared = [a for a, v in sh.owners.items() if len({x for x, _ in v}) > 1]
+            self.assertGreater(len(shared), 100)
+            self.assertIn("|", sh.name_of(shared[0]))
+            # a middle call's return point holds the run's continuation
+            for i, s in sh.mcall_sites:
+                if sh.where[i] in sh.mcalls:
+                    self.assertEqual(self.kind(sh.words[sh.where[i]][1].fields), "call", i)
 
     def test_the_repp_word_is_rep_p_alone(self):
         # v35_top compares the address with UROM_REPP: rep_lk's and rep_sx's E words are the same
         # bits as rep_p's, so rep_p's word is never shared or copied
-        sh = uasm.assemble()
-        a = sh.labels["rep_p"]
-        self.assertEqual([x for x, _ in sh.owners[a]], ["rep_p"])
-        self.assertNotIn(a, sh.copies)
-        for x in ("rep_lk", "rep_sx"):
-            if x in sh.labels:
-                self.assertNotEqual(sh.labels[x], a, x)
-                self.assertNotIn("rep_p", [y for y, _ in sh.owners[sh.labels[x]]], x)
+        for mode in self.MODES:
+            sh = uasm.assemble(share=mode)
+            a = sh.labels["rep_p"]
+            self.assertEqual([x for x, _ in sh.owners[a]], ["rep_p"])
+            self.assertNotIn(a, sh.copies)
+            self.assertNotIn(a, sh.mcalls | sh.mruns)
+            for x in ("rep_lk", "rep_sx"):
+                if x in sh.labels:
+                    self.assertNotEqual(sh.labels[x], a, x)
+                    self.assertNotIn("rep_p", [y for y, _ in sh.owners[sh.labels[x]]], x)
 
     def test_book_rows_are_the_unshared_ones(self):
-        sh = uasm.assemble()
-        self.assertEqual(uasm.book_rows(sh), uasm.book_rows(sh.flat))
+        for mode in self.MODES:
+            sh = uasm.assemble(share=mode)
+            self.assertEqual(uasm.book_rows(sh), uasm.book_rows(sh.flat))
 
     def test_derived_bnext_marks_are_unchanged(self):
         # nb on a non-E word is derived from its successors' kinds; on the shared layout the
-        # derivation gives the same marks
-        sh = uasm.assemble()
-        words = []
-        for r, w in sh.words:
-            f = dict(w.fields)
-            if not f.get("e"):
-                f.pop("nb", None)
-            words.append((r, uasm.Word(f, w.act, w.line)))
-        uasm._mark_bnext(words)
-        for (_, a), (_, b) in zip(sh.words, words):
-            self.assertEqual(a.fields.get("nb", 0), b.fields.get("nb", 0))
+        # derivation gives the same marks ((work order 25) but on a stored run's RET, which has
+        # no static successor: its nb is its source words', test_each_source_word_...)
+        for mode in self.MODES:
+            sh = uasm.assemble(share=mode)
+            words = []
+            for r, w in sh.words:
+                f = dict(w.fields)
+                if not f.get("e"):
+                    f.pop("nb", None)
+                words.append((r, uasm.Word(f, w.act, w.line)))
+            uasm._mark_bnext(words)
+            for b, ((_, x), (_, y)) in enumerate(zip(sh.words, words)):
+                if b in sh.mrets:
+                    continue
+                self.assertEqual(x.fields.get("nb", 0), y.fields.get("nb", 0), b)
 
     def test_unshared_switch(self):
         flat = uasm.assemble(share=False)
         self.assertIsNone(flat.flat)
         self.assertEqual(flat.where, list(range(len(flat.words))))
-        self.assertLess(len(uasm.assemble().words), len(flat.words))
+        tail = uasm.assemble(share="tail")
+        self.assertFalse(tail.mcalls)
+        self.assertLess(len(uasm.assemble().words), len(tail.words))
+        self.assertLess(len(tail.words), len(flat.words))
+        with self.assertRaises(uasm.UasmError):
+            uasm.assemble(share="middle")
+
+    def test_rom_fits_the_low_part(self):
+        # (work order 25) the ROM fits ROM_LO: the high part (ROM_HI) holds no word
+        self.assertLessEqual(len(uasm.assemble().words), uasm.ROM_LO)
 
 
 if __name__ == "__main__":

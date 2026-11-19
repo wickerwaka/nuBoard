@@ -912,11 +912,10 @@ def assemble_flat(paths: list[Path] | None = None) -> Program:
                    {k: v[0] for k, v in cells2.items()}, leads, hlts)
 
 
-# ------------------------------------------------------------------ (work order 24) tail sharing
-# The layout pass: every word identical to another together with its whole continuation is
-# stored once. The sources stay as written (each routine complete); the pass runs on the flat
-# assembly and changes only where words sit and, on a word whose successor is the next word by
-# NEXT / JMP, whether it reaches it by falling through (NEXT) or by its target field (JMP).
+# ------------------------------------------------------------------ (work orders 24, 25) sharing
+# The layout pass: the sources stay as written (each routine complete); the pass runs on the
+# flat assembly and changes only where words sit and their sequencing fields, never what a path
+# executes: every path runs the same words, field for field, clock for clock.
 #
 # The sequencer's next-address rule (v35_useq upc_n / raddr), which decides what is free:
 #   NEXT, TRAP                   the next address (upc + 1)
@@ -926,24 +925,46 @@ def assemble_flat(paths: list[Path] | None = None) -> Program:
 #   RET                          retr
 #   DISP                         the decode's entry (or UROM_INT; the dispatch's EA-head call
 #                                loads retr from the decode)
-# So a word joins a stored tail for free when its successor is reached by NEXT or JMP and its
-# tgt field is not read as data (SR_VEC reads tgt as the vector on a vk word): NEXT becomes JMP,
-# same clock. A word whose successor is upc + 1 under any other sequencing value (the
-# conditional / loop / take-point / EAC / TRAP words, a call's return point, a vector word)
-# needs that successor at the next address: of several such words before one stored tail, one
-# falls into it and each other gets its own copy (and the copy's own upc + 1 successor, while
-# that is again forced). Nothing else changes: no word is added to any path.
+# A stalled word changes nothing (upc_n = upc, retr loads only with ex_b) and is read again.
+# Nothing else in the RTL reads the sequencing field but the derived bits of DISP, DISPM, TKI
+# and TRAP (v35_useq `pre`, v35_eu trap_o): CALL and RET are pure sequencing, so any word may
+# carry them beside its acts; tgt is read as data only by SR_VEC (a vk word's vector).
+#
+# (work order 24) Tails. Every word identical to another together with its whole continuation is
+# stored once (the coarsest partition: identical fields, NEXT = JMP, successors in one class,
+# pairwise). A word joins a stored tail for free when its successor is reached by NEXT or JMP
+# and its tgt field is not data: NEXT becomes JMP, the same clock. A word whose successor is
+# upc + 1 under any other sequencing value (JC JNC LOOP TKI EAC TRAP, a call's return point, a
+# vector word) needs that successor at the next address: of several such words before one
+# stored word one falls into it and each other gets its own copy (and the copy's own forced
+# successor in turn).
+#
+# (work order 25) Middles, through the one return register. A run w2 .. wk of plain words
+# (NEXT / JMP, no E) that recurs with different continuations is stored once, wk carrying RET;
+# at each use the word before the run, w1 (a NEXT / JMP word whose tgt is not data), becomes
+# CALL to the stored run (its own acts kept) and its return point, upc + 1, holds the run's
+# continuation there (a forced successor, as a call's return point always was). The executed
+# words are the same in the same order. The return register is one level: retr must be dead
+# at w1 and through the run in the unshared program, so no word reachable from a call target or
+# an EA head before its RET (the `dly` ladders, the EA heads, every callee) is w1 or in a run,
+# and no run holds a CALL, RET, EAC or dispatch. The run's words after w2 are entered from their
+# predecessor alone and no run word is a label or a decode entry (the run is gone from the use
+# site). A stored run may end in an existing RET tail (a callee's last words): the call then
+# enters that tail. Chosen greedily by the words saved (the copies a busy return point forces
+# counted), in a fixed order; the layout is then made as for tails.
 #
 # Addresses that mean something beyond the sequencing keep their own word: the word at
 # UROM_REPP (v35_top's observation compares the address with rep_p's E word: rep_lk's and
-# rep_sx's E words are the same bits) is never shared.
-SHARE_DEFAULT = True
+# rep_sx's E words are the same bits) is never shared, called or stored in a run.
+SHARE_DEFAULT = "full"      # "full": tails and middles; "tail": (work order 24) tails only
+SHARE_MODES = ("full", "tail")
 _SQ = {k[3:].lower(): v for k, v in ENUMS["v35_seq_e"][1].items()}
 _SQN = {v: k for k, v in _SQ.items()}
 _TGT_ADDR = {"jmp", "jc", "jnc", "call", "loop", "eac", "tki"}    # tgt is an address
 _FT_FORCED = {"jc", "jnc", "call", "loop", "eac", "tki", "trap"}   # upc + 1 is a successor
 _SR_VEC = ENUMS["v35_src_e"][1].get("SR_VEC")
 SHARE_PINNED = ("rep_p",)        # routines whose entry word's address is read (UROM_REPP)
+MID_MAX = 48                     # (work order 25) the longest middle run considered
 
 
 def _seqk(f: dict) -> str:
@@ -970,26 +991,68 @@ def _succs(f: dict, i: int) -> list:
     return []           # RET, DISP (DISPM is withdrawn)
 
 
-def tail_classes(words: list, pinned: set = frozenset()) -> list:
-    """The class of every word: two words are one class when every field is equal (NEXT and
-    JMP being the same step, a target compared by its class) and their successors are one
-    class, pairwise. The coarsest such partition (refined from the fields until stable)."""
-    n = len(words)
-    key0 = []
-    for i, (_, w) in enumerate(words):
-        f = w.fields
-        k = _seqk(f)
-        if k == "jmp" and _tgt_data(f):
-            raise UasmError(f"word {i}: a jump whose tgt is also read as data")
-        items = tuple(sorted((a, v) for a, v in f.items()
-                             if v and a != "seq" and not (a == "tgt" and k in _TGT_ADDR)))
-        key0.append((items, "n" if k in ("next", "jmp") else k, _tgt_data(f),
-                     i if i in pinned else None))
+class _Node:
+    """A word of the layout graph: its fields without the sequencing (`f`: no seq; no tgt where
+    tgt is an address), its sequencing kind `k` (JMP folded into NEXT: `ft` is then the one
+    successor), `tgt` / `ft` the target and the next-address successor (node numbers), `data`
+    the tgt is a vector, `first` the first flat word it holds (the order), `ordk` the order of
+    its fall-through candidates (a flat word that fell through first), `src` the flat words."""
+    __slots__ = ("f", "k", "tgt", "ft", "data", "pin", "first", "ordk", "src", "live", "dead",
+                 "mid")
+
+    def __init__(self, f, k, tgt, ft, data, pin, first, ordk, src):
+        self.f, self.k, self.tgt, self.ft, self.data, self.pin = f, k, tgt, ft, data, pin
+        self.first, self.ordk, self.src = first, ordk, src
+        self.live = self.dead = False
+        self.mid = None             # (work order 25) "call" / "run" / "ret": a middle share's word
+
+    def succ(self) -> list:
+        if self.k in ("next", "trap"):
+            return [self.ft]
+        if self.k in ("jc", "jnc", "loop", "tki", "eac", "call"):
+            return [self.tgt, self.ft]
+        return []
+
+    def forced(self) -> bool:       # upc + 1 must hold the successor
+        return self.k in _FT_FORCED or (self.k == "next" and self.data)
+
+    def free(self) -> bool:         # NEXT / JMP: falls through or jumps, as the layout likes
+        return self.k == "next" and not self.data
+
+    def fkey(self) -> tuple:
+        return tuple(sorted((a, v) for a, v in self.f.items() if v)), self.data
+
+
+def _flat_nodes(W: list, pinned: set) -> list:
+    n = len(W)
+    out = []
+    for i, (r, w) in enumerate(W):
+        f0 = w.fields
+        k = _seqk(f0)
+        f = {a: v for a, v in f0.items() if a != "seq" and not (a == "tgt" and k in _TGT_ADDR)}
+        tgt = ft = None
+        if k == "jmp":
+            k, ft = "next", f0.get("tgt", 0)
+        elif k in ("next", "trap"):
+            ft = i + 1
+        elif k in _TGT_ADDR:
+            tgt, ft = f0.get("tgt", 0), i + 1
+        for s in (tgt, ft):
+            if s is not None and not 0 <= s < n:
+                raise UasmError(f"{r.name}: the word at {i} falls off the ROM")
+        out.append(_Node(f, k, tgt, ft, _tgt_data(f0), i in pinned, i,
+                         (0 if _seqk(f0) == "next" else 1, i), [i]))
+    return out
+
+
+def _refine(nodes: list) -> list:
+    """The class of every node: two nodes are one class when their fields and kind are equal
+    and their successors are one class, pairwise (the coarsest such partition)."""
+    key0 = [(x.fkey(), x.k, x.first if x.pin else None) for x in nodes]
     ids = {}
     c = [ids.setdefault(k, len(ids)) for k in key0]
     while True:
-        sig = [(c[i], tuple(c[s] if 0 <= s < n else -1 for s in _succs(w.fields, i)))
-               for i, (_, w) in enumerate(words)]
+        sig = [(c[i], tuple(c[s] for s in x.succ())) for i, x in enumerate(nodes)]
         ids = {}
         c2 = [ids.setdefault(s, len(ids)) for s in sig]
         if len(ids) == len(set(c)):
@@ -997,37 +1060,190 @@ def tail_classes(words: list, pinned: set = frozenset()) -> list:
         c = c2
 
 
-def share_tails(flat: Program, pinned_routines=SHARE_PINNED) -> Program:
-    """The shared layout of a flat program (see the section's head)."""
-    W = flat.words
-    n = len(W)
-    pinned = {flat.labels[x] for x in pinned_routines if x in flat.labels}
-    c = tail_classes(W, pinned)
-    ncls = max(c) + 1
-    rep = [None] * ncls                         # a class's first word (flat index)
-    for i in range(n):
-        if rep[c[i]] is None:
-            rep[c[i]] = i
+def _quotient(nodes: list, c: list) -> tuple:
+    """One node a class, numbered in the order of the first flat word each holds; returns the
+    nodes and the map old node -> new node."""
+    m = max(c) + 1
+    mem = [[] for _ in range(m)]
+    for i, x in enumerate(nodes):
+        mem[c[i]].append(i)
+    first = [min(nodes[i].first for i in mem[cl]) for cl in range(m)]
+    order = sorted(range(m), key=lambda cl: (first[cl], cl))
+    num = {cl: j for j, cl in enumerate(order)}
+    out = []
+    for cl in order:
+        x = nodes[min(mem[cl], key=lambda i: (nodes[i].first, i))]
+        y = _Node(dict(x.f), x.k, None if x.tgt is None else num[c[x.tgt]],
+                  None if x.ft is None else num[c[x.ft]], x.data, x.pin, first[cl],
+                  min(nodes[i].ordk for i in mem[cl]),
+                  sorted(s for i in mem[cl] for s in nodes[i].src))
+        y.live = any(nodes[i].live for i in mem[cl])
+        y.mid = next((nodes[i].mid for i in mem[cl] if nodes[i].mid), None)
+        out.append(y)
+    return out, [num[c[i]] for i in range(len(nodes))]
 
-    def kind(cl):
-        return _seqk(W[rep[cl]][1].fields)
 
-    def forced(cl):        # upc + 1 must hold the successor
-        f = W[rep[cl]][1].fields
-        return kind(cl) in _FT_FORCED or (kind(cl) == "next" and _tgt_data(f))
+def _live(G: list, starts) -> None:
+    """(work order 25) mark every node the return register is live at: reachable from a call
+    target or an EA head before a RET."""
+    todo = list(starts)
+    while todo:
+        u = todo.pop()
+        if G[u].live:
+            continue
+        G[u].live = True
+        if G[u].k != "ret":
+            todo += [s for s in G[u].succ() if s is not None]
 
-    def free(cl):          # NEXT / JMP: falls through or jumps, as the layout likes
-        return kind(cl) in ("next", "jmp") and not forced(cl)
 
-    def ftsucc(cl):        # the class at upc + 1 (forced) or the one step's class (free)
-        i = rep[cl]
-        f = W[i][1].fields
-        s = f.get("tgt", 0) if kind(cl) == "jmp" else i + 1
-        if not 0 <= s < n:
-            raise UasmError(f"{W[i][0].name}: the word at {i} falls off the ROM")
-        return c[s]
+def _share_middles(G: list, entries: set, starts: set) -> tuple:
+    """(work order 25) the middle shares on the class graph G (changed in place; stored runs
+    appended). Returns (alias: a removed node -> the stored node holding its word, shares:
+    [(m, stored nodes, [(callers, run nodes, return node)])])."""
+    _live(G, starts)
+    preds = {u: [] for u in range(len(G))}
+    for u, x in enumerate(G):
+        if x.k in _TGT_ADDR:
+            preds[x.tgt].append((u, "tgt"))
+        if x.ft is not None:
+            preds[x.ft].append((u, "ft"))
+    fk = {}
 
-    # nodes: one per class (its stored word), then the copies; inl / outl the fall-through links
+    def fid(u):
+        k = G[u].fkey()
+        return fk.setdefault(k, len(fk))
+
+    def run_ok(u):
+        x = G[u]
+        return (not x.dead and x.k == "next" and not x.f.get("e") and not x.pin and not x.live
+                and u not in entries)
+
+    def caller_ok(u):
+        x = G[u]
+        return not x.dead and x.free() and not x.f.get("e") and not x.pin and not x.live
+
+    def fin(u):
+        return sum(1 for p, e in preds[u] if e == "ft" and G[p].forced())
+
+    def chain_len(u):           # the words a copy of u brings (u and its forced successors)
+        n, seen = 0, set()
+        while u is not None and u not in seen:
+            seen.add(u)
+            n += 1
+            u = G[u].ft if G[u].forced() else None
+        return n
+
+    alias, shares = {}, []
+    while True:
+        # the RET tails a stored run may end in: key (fields, from the run's first word) -> node
+        retsuf = {}
+        for z, x in enumerate(G):
+            if x.dead or x.k != "ret" or not x.live:
+                continue
+            stack = [(z, (fid(z),))]
+            while stack:
+                u, key = stack.pop()
+                retsuf.setdefault(key, u)
+                if len(key) >= MID_MAX:
+                    continue
+                for p, e in sorted(preds[u], reverse=True):
+                    if e == "ft" and G[p].k == "next" and G[p].live and not G[p].dead \
+                            and not G[p].f.get("e"):
+                        stack.append((p, (fid(p),) + key))
+        # the candidate uses, by the run's fields
+        groups = {}
+        for c2 in range(len(G)):
+            if not run_ok(c2):
+                continue
+            P = preds[c2]
+            if not P or any(e != "ft" or not caller_ok(p) for p, e in P):
+                continue
+            P = sorted({p for p, _ in P})
+            ch = [c2]
+            while len(ch) < MID_MAX:
+                nx = G[ch[-1]].ft
+                if nx in ch or not run_ok(nx) or len(preds[nx]) != 1:
+                    break
+                ch.append(nx)
+            key = ()
+            for m in range(1, len(ch) + 1):
+                key = key + (fid(ch[m - 1]),)
+                N = G[ch[m - 1]].ft
+                if N in ch[:m] or N in P:
+                    continue
+                groups.setdefault(key, []).append((P, ch[:m], N))
+        best = None
+        for key, uses in groups.items():
+            m = len(key)
+            j = max((t for t in range(m, 0, -1) if key[m - t:] in retsuf), default=0)
+            stored = m - j
+            covered, rets, removed, sel, gain = set(), set(), set(), [], 0
+            for P, ch, N in uses:
+                if (set(P) | set(ch)) & covered or N in removed or set(ch) & rets:
+                    continue
+                f0 = fin(N)
+                fa = f0 - (1 if G[ch[-1]].forced() else 0) + len(P)
+                g = m - chain_len(N) * (max(0, fa - 1) - max(0, f0 - 1))
+                if g <= 0:
+                    continue
+                sel.append((P, ch, N))
+                covered |= set(P) | set(ch)
+                removed |= set(ch)
+                rets.add(N)
+                gain += g
+            total = gain - stored
+            if total > 0:
+                cand = (total, m, -min(G[ch[0]].first for _, ch, _ in sel))
+                if best is None or cand > best[0]:
+                    best = (cand, key, sel, j)
+        if best is None:
+            break
+        _, key, sel, j = best
+        m = len(key)
+        # the stored run: new words for key[:m - j], then the RET tail found (or RET on the last)
+        S = []
+        for t in range(m - j):
+            x = G[sel[0][1][t]]
+            y = _Node(dict(x.f), "next", None, None, x.data, False,
+                      min(G[ch[t]].first for _, ch, _ in sel), None, [])
+            y.ordk = (0, y.first)
+            y.live, y.mid = True, "run"
+            G.append(y)
+            preds[len(G) - 1] = []
+            S.append(len(G) - 1)
+        tail = []
+        if j:
+            u = retsuf[key[m - j:]]
+            while len(tail) < j:
+                tail.append(u)
+                u = G[u].ft
+        else:
+            G[S[-1]].k, G[S[-1]].mid = "ret", "ret"
+        allw = S + tail
+        for t in range(len(S)):
+            if t + 1 < len(allw):
+                G[S[t]].ft = allw[t + 1]
+                preds[allw[t + 1]].append((S[t], "ft"))
+        for P, ch, N in sel:
+            for t, u in enumerate(ch):
+                G[u].dead = True
+                alias[u] = allw[t]
+                preds[u] = []
+            preds[N] = [(p, e) for p, e in preds[N] if p != ch[-1]]
+            for p in P:
+                x = G[p]
+                x.k, x.tgt, x.ft, x.mid = "call", allw[0], N, "call"
+                preds[allw[0]].append((p, "tgt"))
+                preds[N].append((p, "ft"))
+        shares.append((m, allw, sel))
+    return alias, shares
+
+
+def _layout(nodes: list) -> tuple:
+    """The words' addresses (work order 24's placement on a node graph): returns (seqv: the node
+    at each address, node_cls: a placed node's class node (copies after the classes), outl: the
+    fall-through links, addr: a class node's stored address)."""
+    ncls = len(nodes)
     node_cls = list(range(ncls))
     inl, outl = {}, {}
 
@@ -1038,22 +1254,22 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED) -> Program:
     #    flat occurrence is earliest falls into the stored word (the source order kept)
     fpred = {}
     for cl in range(ncls):
-        if forced(cl):
-            fpred.setdefault(ftsucc(cl), []).append(cl)
+        if nodes[cl].forced():
+            fpred.setdefault(nodes[cl].ft, []).append(cl)
     for s, ps in fpred.items():
-        link(min(ps, key=lambda p: rep[p]), s)
+        link(min(ps, key=lambda p: nodes[p].first), s)
 
     # 2. the others: a copy of the successor after each, and of its own forced successor in turn
     def copy_after(pnode, cl):
         k = len(node_cls)
         node_cls.append(cl)
         link(pnode, k)
-        if forced(cl):
-            copy_after(k, ftsucc(cl))
+        if nodes[cl].forced():
+            copy_after(k, nodes[cl].ft)
 
     for cl in range(ncls):
-        if forced(cl) and outl.get(cl) is None:
-            copy_after(cl, ftsucc(cl))
+        if nodes[cl].forced() and outl.get(cl) is None:
+            copy_after(cl, nodes[cl].ft)
 
     # 3. the free words: a stored word with no word falling into it takes one free predecessor
     #    (the one a flat word falls through to it from, earliest first; then one that jumped),
@@ -1068,16 +1284,13 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED) -> Program:
     for a, b in outl.items():
         par[find(b)] = find(a)
     cand = {}
-    for i in range(n):
-        cl = c[i]
-        if free(cl):
-            s = ftsucc(cl)
-            fell = _seqk(W[i][1].fields) == "next"
-            cand.setdefault(s, []).append((0 if fell else 1, i, cl))
-    for s in sorted(cand, key=lambda s: rep[s]):
+    for cl in range(ncls):
+        if nodes[cl].free():
+            cand.setdefault(nodes[cl].ft, []).append((nodes[cl].ordk, cl))
+    for s in sorted(cand, key=lambda s: nodes[s].first):
         if s in inl:
             continue
-        for _, _, p in sorted(cand[s]):
+        for _, p in sorted(cand[s]):
             if p not in outl and find(p) != find(s):
                 link(p, s)
                 par[find(s)] = find(p)
@@ -1086,51 +1299,129 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED) -> Program:
     # 4. the chains, in the order of their first words' first flat occurrence; addresses
     heads = [k for k in range(len(node_cls)) if k not in inl]
     if any(h >= ncls for h in heads):
-        raise UasmError("tail sharing: a copy heads a chain")
-    order_key = {h: rep[h] for h in heads}      # where the chain's first word first occurs
+        raise UasmError("sharing: a copy heads a chain")
     addr = {}
     seqv = []
-    for h in sorted(heads, key=lambda h: (order_key[h], h)):
+    for h in sorted(heads, key=lambda h: (nodes[h].first, h)):
         k = h
         while k is not None:
             addr[k] = len(seqv)
             seqv.append(k)
             k = outl.get(k)
     if len(seqv) != len(node_cls):
-        raise UasmError("tail sharing: a fall-through cycle")
+        raise UasmError("sharing: a fall-through cycle")
+    return seqv, node_cls, outl, addr
 
-    # 5. the words
+
+def share_tails(flat: Program, pinned_routines=SHARE_PINNED, middles: bool = False) -> Program:
+    """The shared layout of a flat program (see the section's head): tails, and (middles,
+    work order 25) middle runs through CALL / RET."""
+    W = flat.words
+    n = len(W)
+    pinned = {flat.labels[x] for x in pinned_routines if x in flat.labels}
+    nodes0 = _flat_nodes(W, pinned)
+    G, m1 = _quotient(nodes0, _refine(nodes0))
+    fmap = m1                                   # flat word -> its node in G
+    shares, alias, mcalls = [], {}, []
+    G0 = G
+    if middles:
+        entries = {fmap[i] for i in flat.labels.values()}
+        call_t = {W[i][1].fields.get("tgt", 0) for i in range(n) if _seqk(W[i][1].fields) == "call"}
+        starts = {fmap[i] for i in call_t} | {fmap[flat.labels[h]] for h in EA_HEADS
+                                               if h in flat.labels}
+        alias, shares = _share_middles(G, entries, starts)
+        G0 = G
+
+        def fsucc(i):
+            f0 = W[i][1].fields
+            return f0.get("tgt", 0) if _seqk(f0) == "jmp" else i + 1
+        for _, _, sel in shares:                # (caller, return point) flat words
+            for P, ch, N in sel:
+                for p in P:
+                    for i in G[p].src:
+                        s = i
+                        for _ in range(len(ch) + 1):
+                            s = fsucc(s)
+                        mcalls.append((i, s))
+        live = [u for u, x in enumerate(G) if not x.dead]
+        ren = {u: j for j, u in enumerate(live)}
+        G2 = []
+        for u in live:
+            x = G[u]
+            x.tgt = None if x.tgt is None else ren[x.tgt]
+            x.ft = None if x.ft is None else ren[x.ft]
+            G2.append(x)
+        for u in alias:                         # a stored word is ordered by the words it holds
+            a = alias[u]
+            G[a].first = min(G[a].first, G[u].first)
+            G[a].src = G[a].src + G[u].src
+        inrun = [u in alias for u in fmap]     # the flat words a stored run now holds
+        fmap = [ren[alias.get(u, u)] for u in fmap]
+        for x in G2:
+            if x.mid == "run" or x.mid == "ret":
+                x.ordk = (0, x.first)
+        G, m2 = _quotient(G2, _refine(G2))
+        fmap = [m2[u] for u in fmap]
+    nodes = G
+    ncls = len(nodes)
+    seqv, node_cls, outl, addr = _layout(nodes)
+
+    # the words
     words = []
     for a, k in enumerate(seqv):
         cl = node_cls[k]
-        r, w0 = W[rep[cl]]
-        f = dict(w0.fields)
-        kd = kind(cl)
+        x = nodes[cl]
+        r, w0 = W[x.first]
+        f = dict(x.f)
+        f.pop("seq", None)
         nxt = outl.get(k)
-        if free(cl):
-            t = ftsucc(cl)
+        if x.free():
             f.pop("tgt", None)
-            if nxt is not None and node_cls[nxt] == t:
-                f.pop("seq", None)
-            else:
-                f["seq"], f["tgt"] = _SQ["jmp"], addr[t]
+            if not (nxt is not None and node_cls[nxt] == x.ft):
+                f["seq"], f["tgt"] = _SQ["jmp"], addr[x.ft]
         else:
-            if forced(cl) and (nxt is None or node_cls[nxt] != ftsucc(cl) or addr[nxt] != a + 1):
-                raise UasmError(f"tail sharing: {r.name}: a forced successor not at the next address")
-            if kd in _TGT_ADDR:
-                f["tgt"] = addr[c[w0.fields.get("tgt", 0)]]
+            if x.forced() and (nxt is None or node_cls[nxt] != x.ft or a + 1 >= len(seqv)
+                               or seqv[a + 1] != nxt):
+                raise UasmError(f"sharing: {r.name}: a forced successor not at the next address")
+            if x.k != "next":
+                f["seq"] = _SQ[x.k]
+            if x.k in _TGT_ADDR:
+                f["tgt"] = addr[x.tgt]
         words.append((r, Word(f, w0.act, w0.line, None, {}, w0.post_e, w0.open)))
 
-    # 6. every source word's address, the owners, the labels and entries
+    # every source word's address: at its node's stored word, or (a forced successor: the word
+    # after a JC / LOOP / call / vector word, and (work order 25) a middle call's return point)
+    # right after the address of the source word that forces it (a copy where it is one)
+    fp = {}
+    for i in range(1, n):
+        j = i - 1
+        x = nodes[fmap[j]]
+        if _seqk(W[j][1].fields) != "jmp" and _succs(W[j][1].fields, j)[-1:] == [i] \
+                and x.forced() and x.ft == fmap[i]:
+            fp[i] = j
+    for i, s in sorted(mcalls):
+        if nodes[fmap[i]].k != "call" or nodes[fmap[i]].ft != fmap[s]:
+            raise UasmError(f"sharing: {W[i][0].name}: a middle call's return is not its run's continuation")
+        # (a flat word reached from several callers, e.g. through a source JMP into a common
+        # word: the first caller places it; `where` names one address a source word is on)
+        fp.setdefault(s, i)
     where = [None] * n
+
+    def place(i):
+        if where[i] is None:
+            if i in fp:
+                where[i] = -1                   # (a cycle guard)
+                a = place(fp[i]) + 1
+            else:
+                a = addr[fmap[i]]
+            where[i] = a
+        if where[i] < 0:
+            raise UasmError("sharing: a cycle of forced successors")
+        return where[i]
     for i in range(n):
-        if i and _seqk(W[i - 1][1].fields) != "jmp" and _succs(W[i - 1][1].fields, i - 1)[-1:] == [i] \
-                and outl.get(seqv[where[i - 1]]) is not None:
-            where[i] = where[i - 1] + 1
-        else:
-            where[i] = addr[c[i]]
-        if node_cls[seqv[where[i]]] != c[i]:
-            raise UasmError(f"tail sharing: word {i} placed on another class")
+        place(i)
+        if node_cls[seqv[where[i]]] != fmap[i]:
+            raise UasmError(f"sharing: word {i} placed on another class")
     flat_k = {}
     for r in flat.routines:
         for k in range(len(r.words)):
@@ -1140,44 +1431,65 @@ def share_tails(flat: Program, pinned_routines=SHARE_PINNED) -> Program:
         owners.setdefault(where[i], []).append(flat_k[i])
     dead = [a for a in range(len(words)) if a not in owners]
     if dead:
-        raise UasmError(f"tail sharing: words no source word reaches: {dead[:8]}")
+        raise UasmError(f"sharing: words no source word reaches: {dead[:8]}")
     for a, (r, w) in enumerate(words):
         name, _ = owners[a][0]
         words[a] = (flat.routine(name), w)
-    labels = {lab: addr[c[i]] for lab, i in flat.labels.items()}
+    labels = {lab: addr[fmap[i]] for lab, i in flat.labels.items()}
     import dataclasses
     routines = [dataclasses.replace(r, base=labels[r.name]) for r in flat.routines]
     byname = {r.name: r for r in routines}
     words = [(byname[r.name], w) for r, w in words]
     for x in pinned:
-        if len(owners[addr[c[x]]]) != 1 or sum(1 for k in node_cls if k == c[x]) != 1:
-            raise UasmError(f"tail sharing: the pinned word {x} is shared")
+        if len(owners[addr[fmap[x]]]) != 1 or sum(1 for k in node_cls if k == fmap[x]) != 1:
+            raise UasmError(f"sharing: the pinned word {x} is shared")
     copies = {a for a, k in enumerate(seqv) if k >= ncls}
-    return Program(routines, words, labels, flat.cells1, flat.cells2, flat.leads, flat.hlts,
+    prog = Program(routines, words, labels, flat.cells1, flat.cells2, flat.leads, flat.hlts,
                    flat=flat, where=where, owners=owners, copies=copies)
+    # (work order 25) the middle shares: the calls' and the stored runs' addresses
+    # (the stored runs' words: new ones, or a callee's RET tail a run ends in)
+    prog.mcalls = {where[i] for i, _ in mcalls}
+    prog.mruns = {where[i] for i in range(n) if inrun[i]} if middles else set()
+    prog.mrets = {a for a in prog.mruns if _seqk(words[a][1].fields) == "ret"}
+    prog.mshares = [{"m": m, "stored": sum(1 for u in allw if G0[u].mid in ("run", "ret")),
+                     "callers": sorted(i for P, _, _ in sel for p in P for i in G0[p].src)}
+                    for m, allw, sel in shares]
+    prog.mcall_sites = sorted(mcalls)
+    prog.share_mode = "full" if middles else "tail"
+    return prog
 
 
-def assemble(paths: list[Path] | None = None, share: bool | None = None) -> Program:
-    """The program: the sources assembled (assemble_flat), then (share, the default
-    SHARE_DEFAULT) laid out with identical tails stored once (share_tails)."""
+def assemble(paths: list[Path] | None = None, share=None) -> Program:
+    """The program: the sources assembled (assemble_flat), then laid out by `share` (default
+    SHARE_DEFAULT): "full" (or True) tails and (work order 25) middles shared, "tail" (work
+    order 24) tails only, False the flat layout (each routine contiguous)."""
     flat = assemble_flat(paths)
-    if not (SHARE_DEFAULT if share is None else share):
+    mode = SHARE_DEFAULT if share is None else share
+    if mode is True:
+        mode = "full"
+    if not mode:
         flat.where = list(range(len(flat.words)))
         flat.owners = {}
         for r in flat.routines:
             for k in range(len(r.words)):
                 flat.owners[r.base + k] = [(r.name, k)]
         flat.copies = set()
+        flat.mcalls, flat.mrets, flat.mruns, flat.mshares, flat.mcall_sites = set(), set(), set(), [], []
+        flat.share_mode = None
         return flat
-    return share_tails(flat)
+    if mode not in SHARE_MODES:
+        raise UasmError(f"share={mode!r} (of {SHARE_MODES}, or False)")
+    return share_tails(flat, middles=mode == "full")
 
 
 def share_report(prog: Program) -> str:
     """Per routine: its words' addresses, which are its own and where it joins a stored tail
-    (the first word stored with another routine's), and the totals per file."""
+    (the first word stored with another routine's), (work order 25) its words that call a
+    stored run; the totals per file; the stored runs (their length, address and callers)."""
     flat = prog.flat or prog
     L = []
     per_file = {}
+    callers = {i for i, _ in (getattr(prog, "mcall_sites", None) or [])}
     for r in flat.routines:
         ad = [prog.where[r.base + k] for k in range(len(r.words))]
         own = [k for k, a in enumerate(ad) if len({nm for nm, _ in prog.owners[a]}) == 1]
@@ -1199,9 +1511,38 @@ def share_report(prog: Program) -> str:
             others = sorted({f"{nm}+{kk}" for nm, kk in prog.owners[a] if nm != r.name})
             join = f"; joins at word {shared[0]} -> {a} (with {', '.join(others[:6])}" \
                    f"{', ...' if len(others) > 6 else ''})"
+        calls = ""
+        mc = [k for k in range(len(ad)) if (r.base + k) in callers]
+        if mc:      # (work order 25) the words that call a stored run
+            calls = "; calls " + ", ".join(
+                f"word {k} -> {prog.words[ad[k]][1].fields['tgt']}" for k in mc)
         L.append(f"{r.name} ({r.path}:{r.line}) {len(ad)} words, {len(own)} own, "
-                 f"{len(shared)} shared: {' '.join(runs)}{join}")
+                 f"{len(shared)} shared: {' '.join(runs)}{join}{calls}")
     L.append("")
+    if prog.mshares:
+        # (work order 25) the stored runs, in the order chosen
+        tail = share_tails(flat, middles=False)
+        saved = len(tail.words) - len(prog.words)
+        L.append(f"(work order 25) middle shares: {len(prog.mshares)} stored runs, "
+                 f"{len(prog.mcall_sites)} calling source words on {len(prog.mcalls)} call words; "
+                 f"tails alone {len(tail.words)} words ({len(tail.copies)} copies), with the "
+                 f"middles {len(prog.words)} ({len(prog.copies)} copies): {saved} saved")
+        bym = {}
+        for sh in prog.mshares:
+            b = bym.setdefault(sh["m"], [0, 0, 0])
+            b[0] += 1
+            b[1] += sh["stored"]
+            b[2] += len({prog.where[i] for i in sh["callers"]})
+        for m in sorted(bym):
+            n, st, cw = bym[m]
+            L.append(f"  run of {m:2d}: {n:3d} stored ({st} new words), {cw:4d} call words")
+        for x, sh in enumerate(prog.mshares):
+            a = prog.where[sh["callers"][0]]
+            t = prog.words[a][1].fields["tgt"]
+            who = sorted({flat.name_of(i) for i in sh["callers"]})
+            L.append(f"  {x:3d} run of {sh['m']} at {t} ({sh['stored']} new): called by "
+                     f"{len(who)}: {' '.join(who[:8])}{' ...' if len(who) > 8 else ''}")
+        L.append("")
     stored = {}
     for r, _ in prog.words:
         stored[r.path] = stored.get(r.path, 0) + 1
@@ -1439,7 +1780,8 @@ def outputs(prog: Program) -> dict:
 def listing(prog: Program) -> str:
     """The ROM by address: a routine's header where its entry is, each word's bits, its label
     and act; (work order 24) a word stored for several routines lists every owner (`= name+k`),
-    a copy is marked `copy`."""
+    a copy is marked `copy`; (work order 25) a middle share's call and its stored run's words
+    are marked."""
     flat = prog.flat or prog
     entries, labs = {}, {}
     for r in flat.routines:
@@ -1456,6 +1798,10 @@ def listing(prog: Program) -> str:
         tag = (" = " + " ".join(f"{nm}+{k}" for nm, k in own)) if len(own) > 1 else ""
         if prog.copies and addr in prog.copies:
             tag += " copy"
+        if addr in (getattr(prog, "mcalls", None) or ()):
+            tag += " (calls a stored run)"
+        if addr in (getattr(prog, "mruns", None) or ()):
+            tag += " (stored run" + (", returns)" if addr in prog.mrets else ")")
         L.append(f"{addr:4d} {pack(w.fields):024x} {lab + ':' if lab else '':10s} "
                  f"{w.act}{tag}")
     return "\n".join(L) + "\n"
@@ -1731,11 +2077,14 @@ def main(argv=None) -> int:
     ap.add_argument("--no-share", action="store_true",
                     help="(work order 24) lay the routines out unshared, each contiguous (for "
                          "comparison; the checked-in ROM is the shared one)")
+    ap.add_argument("--tail-only", action="store_true",
+                    help="(work order 25) share tails only (work order 24's layout; for "
+                         "comparison: the checked-in ROM shares tails and middles)")
     ap.add_argument("--report", action="store_true",
                     help="(work order 24) per routine: its words' addresses, its own words and "
                          "the stored tail it joins; the totals per file")
     args = ap.parse_args(argv)
-    prog = assemble(share=not args.no_share)
+    prog = assemble(share=False if args.no_share else "tail" if args.tail_only else None)
     if args.report:
         print(share_report(prog), end="")
     if args.list:
@@ -1754,7 +2103,8 @@ def main(argv=None) -> int:
         return 1 if bad else 0
     write(prog)
     print(f"uasm: {len(prog.routines)} routines, {len(prog.words)} words"
-          + (f" ({len(prog.flat.words)} unshared, {len(prog.copies)} copies)" if prog.flat else
+          + (f" ({len(prog.flat.words)} unshared, {len(prog.copies)} copies, "
+             f"{len(prog.mshares)} stored runs called from {len(prog.mcalls)} words)" if prog.flat else
              " (unshared)") + f", {WORD_BITS} bits a word")
     return 0
 
