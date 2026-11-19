@@ -189,46 +189,61 @@ b1sim_r: open                              ; OPEN: (qprobe round 12, Q38) SET1 /
 ; read's end to the write's issue 11 and 15: F32-out-rol4_m-k1-pE-w0, F32-out-ror4_m-k1-pE-w0).
 ; The result's write-back runs past E on the register path (the model's wb 2: an OUT imm8
 ; after it waits, MX1f).
-routine rol4 op=28 page=0f ea=bare book="ROL4 reg8" bookm="ROL4 mem8" diff=r:0,m00:3,d8:4,d16:4,dir:5 why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ROL4 r8 is `P . P . . C`, ten words, `N .` (18; the qprobe rol4 runs) and ROL4 mem `P . PC Y D`, eight words, `Z G N .` (the qprobe rol4m runs): the 0F head, the commit word, the rotate on its fixed words (ROR4 four words more in both forms)"
+; (WO23) The rotate is a loop of one-bit steps (docs/v35s-urom-study.md 4.1, hypothesis A; the
+; V20's COUNT / ROL12 technique, V20UC.TXT 02EC-02FB): the operand byte into tmpb and AL into
+; tmpc, then ROL12 (the 12-bit ring {tmpb[7:0], tmpc[3:0]}: the byte above AL's low digit,
+; rotated left by one bit a clock) four times (ROL4: a digit left) or eight times (ROR4: a
+; digit right is eight bits left on twelve), AL written from tmpc (its high digit untouched),
+; then the operand from tmpb. ROR4's four words more are the loop's four steps more. ROR4's
+; eight steps are the one-word repeat under the counter loaded with the byte's bit count
+; (CN_BITS: the 0F page's width bit is 0 for 0F 2A); ROL4's four are four words (no counter
+; source gives 4, the counter field has no free value: README "WO23"). The acts are inferred,
+; not measured: the pins date only the commit word, the datum, the write's post and E. What the
+; steps and the moves do not fill stays OPEN: three words on the register path, four on the
+; memory path, the same for both opcodes. The register paths end in zz_late.uasm (r4l_rt,
+; r4r_rt): no routine's ROM address moves (the decode tables unchanged).
+routine rol4 op=28 page=0f ea=bare width=byte book="ROL4 reg8" bookm="ROL4 mem8" diff=r:0,m00:3,d8:4,d16:4,dir:5 why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ROL4 r8 is `P . P . . C`, ten words, `N .` (18; the qprobe rol4 runs) and ROL4 mem `P . PC Y D`, eight words, `Z G N .` (the qprobe rol4m runs): the 0F head, the commit word, the rotate on its fixed words (ROR4 four words more in both forms); (WO23) the rotate four ROL12 steps (inferred, not measured), the register path's last three words and the memory path's four before Z OPEN"
     pop=modrm eac=r4l_r                     ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
     rl=1 bi alt                             ; (qprobe round 12, Q38) P C: the ModR/M byte released; the commit word
     rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
     open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
     bus=MEMR wid=BYTE                       ; post the byte's read (Y + 3)
-    f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; D: F: the digit rotate of the datum with AL (SIGMA the byte, tmpc the new AL)
-    wr=AW wid=BYTE ws=TC                    ; AL written
-    open call=w7                            ; OPEN: (qprobe round 12, Q38) eight words with no act (the call and the shared delay's 7)
-    d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; Z: the byte into the write datum; post the write (nine words after the datum: the model's eight)
+    f ra=AW wid=BYTE d1=TB s1=OPR d2=TC s2=RA ; D: F: (WO23, inferred, not measured) the datum into tmpb, AL into tmpc (the ring's byte and low digit)
+    alu=ROL12                               ; (WO23, inferred, not measured) the ring left by one: step 1 of 4
+    alu=ROL12                               ; (WO23, inferred, not measured) step 2 of 4
+    alu=ROL12                               ; (WO23, inferred, not measured) step 3 of 4
+    alu=ROL12                               ; (WO23, inferred, not measured) step 4 of 4: the digit rotated left
+    wr=AW wid=BYTE ws=TC                    ; (WO23, inferred, not measured) AL written (its high digit kept, the operand's high digit in)
+    open call=w3                            ; OPEN: (WO23; qprobe round 12, Q38) four words with no act (the call and the shared delay's 3)
+    d1=OPRW s1=TB bus=MEMW wid=BYTE         ; Z: the byte into the write datum; post the write (nine words after the datum: the model's eight)
     e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 r4l_r: open                                ; OPEN: (qprobe round 12, Q38) a word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); (qprobe round 12, Q38) P: the ModR/M byte released (the third word)
     open                                    ; OPEN: (qprobe round 16, Q61) a word with no act (one word fewer in front of the commit word: `P . BP . C`)
     bi alt                                  ; (qprobe round 12, Q38) C: the commit word
-    rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate
-    wr=AW wid=BYTE ws=TC                    ; AL written
-    wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
-    open call=w6                            ; OPEN: (qprobe round 12, Q38) seven words with no act (the call and the shared delay's 6)
-    e ro                                    ; E: pop the next opcode (N: ten words after the commit word)
+    rb=RM ra=AW wid=BYTE d1=TB s1=RB d2=TC s2=RA ; (WO23, inferred, not measured) the register into tmpb, AL into tmpc (the ring's byte and low digit)
+    alu=ROL12 jmp=r4l_rt                    ; (WO23, inferred, not measured) the ring left by one: step 1 of 4; the rest in zz_late.uasm (r4l_rt: no entry address moves)
 
-routine ror4 op=2A page=0f ea=bare book="ROR4 reg8" bookm="ROR4 mem8" diff=r:0,m00:1,d8:2,d16:2,dir:3 why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ROR4 is ROL4's routines with four words more (r8: 22, the qprobe runs; mem: twelve words before Z, the qprobe ror4m runs)"
+routine ror4 op=2A page=0f ea=bare width=byte book="ROR4 reg8" bookm="ROR4 mem8" diff=r:0,m00:1,d8:2,d16:2,dir:3 why="OPEN: (qprobe round 16, Q61, spec 12 A1 / B: the ModR/M byte released on a bus-idle third word, `P . BP`; the r,imm / ROL4 / ROR4 register forms one word shorter in front of the commit word, the m,CL forms one word longer: the shapes of spec 12 B replace the round-12 ones quoted below) silicon longer than the book (measured, the extra words OPEN): (qprobe round 12, Q38) ROR4 is ROL4's routines with four words more (r8: 22, the qprobe runs; mem: twelve words before Z, the qprobe ror4m runs); (WO23) the four words more are the rotate's four steps more: eight ROL12 steps under the counter (inferred, not measured), the register path's last three words and the memory path's four before Z OPEN, as ROL4's"
     pop=modrm eac=r4r_r                     ; pop the ModR/M byte: register mode to the register path; a memory mode with a displacement calls its EA head
     ea=BI ra=BASE rb=INDEX                  ; the EA's add into the address register
     rl=1 bi alt                             ; (qprobe round 12, Q38) P C: the ModR/M byte released; the commit word
     rl=x bi                                 ; (qprobe round 12, Q38) Y: the request word (posted three words later)
     open call=w1                            ; OPEN: (qprobe round 12, Q38) two words with no act (the call and the shared delay's 1)
     bus=MEMR wid=BYTE                       ; post the byte's read (Y + 3)
-    f ra=AW wid=BYTE alu=R4 ax=OPR ay=RA    ; D: F: the digit rotate (SIGMA the byte, tmpc the new AL)
-    wr=AW wid=BYTE ws=TC                    ; AL written
-    open call=w11                           ; OPEN: (qprobe round 12, Q38) twelve words with no act (the call and the shared delay's 11)
-    d1=OPRW s1=SIG bus=MEMW wid=BYTE        ; Z: the byte into the write datum; post the write (thirteen words after the datum: the model's twelve)
+    f ra=AW wid=BYTE d1=TB s1=OPR d2=TC s2=RA cnt=BITS ; D: F: (WO23, inferred, not measured) the datum into tmpb, AL into tmpc (the ring's byte and low digit); the counter <- 8 (the byte's bits)
+r4r_ml: alu=ROL12 loop=r4r_ml               ; (WO23, inferred, not measured) the ring left by one, eight times (a digit right); the counter step
+    wr=AW wid=BYTE ws=TC                    ; (WO23, inferred, not measured) AL written (its high digit kept, the operand's low digit in)
+    open call=w3                            ; OPEN: (WO23; qprobe round 12, Q38) four words with no act (the call and the shared delay's 3)
+    d1=OPRW s1=TB bus=MEMW wid=BYTE         ; Z: the byte into the write datum; post the write (thirteen words after the datum: the model's twelve)
     e ro bi                                 ; E: G N: the next opcode released on the write cycle's first clock (bus-idle); an on-chip store holds it to the write's end (RAMEN)
 r4r_r: open                                ; OPEN: (qprobe round 12, Q38) a word with no act
     rl=1 bi                                 ; (qprobe round 16, Q61) B: bus-idle (waits while a fetch's pin cycle runs); (qprobe round 12, Q38) P: the ModR/M byte released (the third word)
     open                                    ; OPEN: (qprobe round 16, Q61) a word with no act (one word fewer in front of the commit word: `P . BP . C`)
     bi alt                                  ; (qprobe round 12, Q38) C: the commit word
-    rb=RM ra=AW wid=BYTE alu=R4 ax=RB ay=RA ; the register and AL: the digit rotate
-    wr=AW wid=BYTE ws=TC                    ; AL written
-    wr=RM wid=BYTE ws=SIG                   ; the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
-    open call=w10                           ; OPEN: (qprobe round 12, Q38) eleven words with no act (the call and the shared delay's 10)
-    e ro                                    ; E: pop the next opcode (N: fourteen words after the commit word)
+    rb=RM ra=AW wid=BYTE d1=TB s1=RB d2=TC s2=RA cnt=BITS ; (WO23, inferred, not measured) the register into tmpb, AL into tmpc (the ring's byte and low digit); the counter <- 8 (the byte's bits)
+r4r_rl: alu=ROL12 loop=r4r_rl               ; (WO23, inferred, not measured) the ring left by one, eight times (a digit right); the counter step
+    wr=AW wid=BYTE ws=TC                    ; (WO23, inferred, not measured) AL written (its high digit kept, the operand's low digit in)
+    wr=RM wid=BYTE ws=TB                    ; (WO23, inferred, not measured) the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
+    open jmp=r4r_rt                         ; OPEN: (WO23; qprobe round 12, Q38) a word with no act (the first of three); the rest in zz_late.uasm (r4r_rt: no entry address moves)

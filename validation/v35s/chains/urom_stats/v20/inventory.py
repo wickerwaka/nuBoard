@@ -1,7 +1,7 @@
 """Routine inventory: file, name, header selectors, words, acting words, dly clocks. Read-only."""
 import collections, sys
 from validation.v35s.chains import uasm
-p = uasm.assemble()
+p = uasm.assemble(share=False)
 sq = {v: k[3:] for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
 DP = ("ra","rb","wr","ws","d1","s1","d2","s2","alu","ax","ay","wf","ea","bus","seg","cnt","pop")
 dly = p.routine("dly"); d0 = dly.base

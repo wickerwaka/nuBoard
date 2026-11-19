@@ -1,6 +1,6 @@
 import math, collections
 from validation.v35s.chains import uasm
-p = uasm.assemble(); F = uasm.FIELDS
+p = uasm.assemble(share=False); F = uasm.FIELDS
 W = [x for r, x in p.words]; n = len(W)
 seqn = {v: k for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
 print("seq usage", collections.Counter(seqn[x.fields.get("seq", 0)] for x in W).most_common())

@@ -2,7 +2,7 @@
 target field. Read-only.  usage: PYTHONPATH=host/src:. python3 format_stats.py"""
 import collections, math
 from validation.v35s.chains import uasm
-p = uasm.assemble(); F = uasm.FIELDS
+p = uasm.assemble(share=False); F = uasm.FIELDS
 E = {k: {v: n for n, v in d.items()} for k, (w, d) in uasm.ENUMS.items()}
 SR = E["v35_src_e"]; SQ = E["v35_seq_e"]
 W = [x for r, x in p.words]; n = len(W)

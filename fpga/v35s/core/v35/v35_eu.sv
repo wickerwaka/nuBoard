@@ -663,10 +663,14 @@ module v35_eu
                 pn[V35_PSW_AC] = bac;
                 pn[V35_PSW_P] = ~^bl;
             end
-            AL_R4: begin
-                q32 = {16'd0, v35_rot4(op3[0], x[7:0], y[7:0])};
-                r = {8'd0, q32[7:0]};
-                tc_n = {8'd0, q32[15:8]};
+            // (WO23) the digit rotates' step: the 12-bit ring {tmpb[7:0], tmpc[3:0]} (the
+            // operand byte, AL's low digit) rotated left by one; tmpb's high byte and tmpc[15:4]
+            // (AL's high digit) kept, SIGMA kept. A wire permutation of two registers (tick B,
+            // as BFL's), nothing of the delivery chain
+            AL_ROL12: begin
+                tb_n = {tb[15:8], tb[6:0], tc[3]};
+                tc_n = {tc[15:4], tc[2:0], tb[7]};
+                tb_w = 1'b1;
                 tc_w = 1'b1;
             end
             // (F2a) the bit fields: the pair {tmpc, tmpb} rotated by one (SIGMA kept), the

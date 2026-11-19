@@ -12,7 +12,7 @@ Steps (each an option; the table at the end stacks them):
 """
 import collections, sys, os
 from validation.v35s.chains import uasm
-p = uasm.assemble(); F = uasm.FIELDS
+p = uasm.assemble(share=False); F = uasm.FIELDS
 SQ = {v: k[3:] for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
 DP = ("ra","rb","wr","ws","d1","s1","d2","s2","alu","ax","ay","wf","ea","bus","seg","cnt","pop")
 dly = p.routine("dly"); d0 = dly.base

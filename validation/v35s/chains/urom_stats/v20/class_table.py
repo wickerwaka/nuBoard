@@ -4,7 +4,7 @@ import collections, re, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import v20_stats as V
 from validation.v35s.chains import uasm
-p = uasm.assemble()
+p = uasm.assemble(share=False)
 sq = {v: k[3:] for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
 DP = ("ra","rb","wr","ws","d1","s1","d2","s2","alu","ax","ay","wf","ea","bus","seg","cnt","pop")
 KIND = ("e","f","nb","bi","vk","flush","pop","rl","ro")

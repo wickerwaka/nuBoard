@@ -120,3 +120,17 @@ routine adj4s op=2F book="ADJ4S" diff=0 why="OPEN: words with no act (measured):
     bi                                      ; B: ADJ4S's bus-idle third word
     open call=w3                            ; OPEN: 4 clocks with no act (the call and the shared delay's 3)
     wr=AW wid=WORD ws=SIG e                 ; AW <- SIGMA; E
+
+; (WO23) the register paths' ends of ROL4 / ROR4 (urom/page.uasm rol4 / ror4, README "WO23"): the
+; rotate's loop grew the two routines by ten words; their memory paths and register heads stay
+; on their addresses and the rest is here, so no entry address moves
+routine r4_tail why="OPEN: (WO23; qprobe round 12, Q38) the register paths' ends of ROL4 / ROR4: steps 2 to 4 of ROL4's rotate, the writes (inferred, not measured), the residual words with no act before E"
+r4l_rt: alu=ROL12                           ; (WO23, inferred, not measured) ROL4: step 2 of 4
+    alu=ROL12                               ; (WO23, inferred, not measured) step 3 of 4
+    alu=ROL12                               ; (WO23, inferred, not measured) step 4 of 4: the digit rotated left
+    wr=AW wid=BYTE ws=TC                    ; (WO23, inferred, not measured) AL written (its high digit kept, the operand's high digit in)
+    wr=RM wid=BYTE ws=TB                    ; (WO23, inferred, not measured) the register written (F5b: after AL: with AL the operand, the operand's result stays, silicon f5r rot4al)
+    open call=w2                            ; OPEN: (WO23; qprobe round 12, Q38) three words with no act (the call and the shared delay's 2)
+    e ro                                    ; E: pop the next opcode (N: ten words after the commit word)
+r4r_rt: open call=w1                        ; OPEN: (WO23; qprobe round 12, Q38) ROR4: the second and third words with no act (the call and the shared delay's 1)
+    e ro                                    ; E: pop the next opcode (N: fourteen words after the commit word)

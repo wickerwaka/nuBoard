@@ -56,9 +56,12 @@ class Bounds(unittest.TestCase):
     def test_one_word_after_each_e_and_it_is_the_dispatch(self):
         prog = uasm.assemble()
         disp = uasm.enum_value("v35_seq_e", "disp")
+        jmp = uasm.enum_value("v35_seq_e", "jmp")
         for i, (r, w) in enumerate(prog.words):
             if w.fields.get("e"):
-                nxt = prog.words[i + 1][1]
+                # (work order 24) the word after E is the E word's successor: the next address,
+                # or a stored post-E word reached by the E word's jump (tail sharing)
+                nxt = prog.words[w.fields["tgt"] if w.fields.get("seq") == jmp else i + 1][1]
                 self.assertEqual(nxt.fields.get("seq"), disp, f"{r.name}:{w.line}")
                 # (qprobe round 6) it may release the opcode the E word popped (ro: a store's N
                 # on the model's boundary word), nothing else
@@ -331,6 +334,130 @@ class EA(unittest.TestCase):
                            ("st", {"m00": 10, "d8": 10, "d16": 10, "dir": 10})):
             for path, n in want.items():
                 self.assertEqual(uasm.length(prog, name, path=path), n, (name, path))
+
+
+class TailSharing(unittest.TestCase):
+    """(work order 24) the shared ROM executes, from every entry, the same words as the unshared
+    one, clock for clock: the two expanded side by side through every branch (both outcomes of
+    every condition, loop, take point and EAC, a call's callee and its return point, every
+    decode cell's entry, every label) and compared field for field. The only freedom is the
+    one the sequencer gives for nothing: a word whose successor is reached by NEXT may reach it
+    by JMP (the same next-address clock), and the target fields name the shared addresses."""
+
+    # the next-address rule of v35_useq (upc_n), written out here apart from uasm's pass
+    SQ = {k[3:].lower(): v for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
+
+    def succ(self, f: dict, a: int) -> list:
+        sq = {v: k for k, v in self.SQ.items()}[f.get("seq", 0)]
+        t = f.get("tgt", 0)
+        if sq == "next" or sq == "trap":
+            return [a + 1]
+        if sq == "jmp":
+            return [t]
+        if sq in ("jc", "jnc", "loop", "tki", "eac", "call"):
+            return [t, a + 1]
+        self.assertIn(sq, ("ret", "disp"))
+        return []
+
+    def norm(self, f: dict) -> dict:
+        sq = f.get("seq", 0)
+        g = {k: v for k, v in f.items() if v and k not in ("seq", "tgt")}
+        g["seq"] = self.SQ["next"] if sq == self.SQ["jmp"] else sq
+        # tgt as data (a vector; zero on a word with no vector) unless the word's sequencing
+        # reads it as an address
+        addr = {self.SQ[k] for k in ("jmp", "jc", "jnc", "loop", "tki", "eac", "call")}
+        g["tgt"] = 0 if sq in addr else f.get("tgt", 0)
+        return g
+
+    def entries(self, flat, sh):
+        """(flat entry, shared entry) of every label and every decode cell; the cells' other
+        fields equal."""
+        pairs = [(flat.labels[k], sh.labels[k]) for k in flat.labels]
+        for op in range(256):
+            a, b = uasm.udec1(flat, op), uasm.udec1(sh, op)
+            pairs.append((a.pop("entry"), b.pop("entry")))
+            self.assertEqual(a, b, hex(op))
+            if a["has_modrm"] or op == 0x0F or op in uasm.REP_XC:
+                for x in range(256):
+                    a, b = uasm.udec2(flat, op, x), uasm.udec2(sh, op, x)
+                    pairs.append((a.pop("entry"), b.pop("entry")))
+                    self.assertEqual(a, b, (hex(op), hex(x)))
+        return pairs
+
+    def test_every_entry_expands_to_the_same_words(self):
+        sh = uasm.assemble()
+        flat = uasm.assemble(share=False)
+        self.assertIsNotNone(sh.flat)
+        self.assertEqual(len(flat.words), len(sh.flat.words))
+        todo = self.entries(flat, sh)
+        seen = set()
+        while todo:
+            a, b = todo.pop()
+            if (a, b) in seen:
+                continue
+            seen.add((a, b))
+            fa, fb = flat.words[a][1].fields, sh.words[b][1].fields
+            self.assertEqual(self.norm(fa), self.norm(fb), (flat.name_of(a), b, sh.name_of(b)))
+            sa, sb = self.succ(fa, a), self.succ(fb, b)
+            self.assertEqual(len(sa), len(sb))
+            todo += zip(sa, sb)
+        # every shared word is reached from an entry, or holds only unshared words no entry
+        # reaches (the placeholders "kept so no address moves")
+        reach = {a for a, _ in seen}
+        dead = {sh.where[a] for a in range(len(flat.words)) if a not in reach}
+        self.assertEqual(set(range(len(sh.words))) - {b for _, b in seen}, dead - {b for _, b in seen})
+        print(f"\n(work order 24) {len(flat.words)} words -> {len(sh.words)} "
+              f"({len(sh.copies)} copies); {len(seen)} (unshared, shared) pairs expanded; "
+              f"{len(flat.words) - len(reach)} unshared words reached from no entry")
+
+    def test_each_source_word_sits_on_an_equal_word(self):
+        # the address map (where) puts every source word on a word equal to it, the fall-through
+        # pairs adjacent, and the owners list every source word on its address
+        sh = uasm.assemble()
+        flat = sh.flat
+        for i, (r, w) in enumerate(flat.words):
+            self.assertEqual(self.norm(w.fields), self.norm(sh.words[sh.where[i]][1].fields), i)
+        n = sum(len(v) for v in sh.owners.values())
+        self.assertEqual(n, len(flat.words))
+        shared = [a for a, v in sh.owners.items() if len({x for x, _ in v}) > 1]
+        self.assertGreater(len(shared), 100)
+        self.assertIn("|", sh.name_of(shared[0]))
+
+    def test_the_repp_word_is_rep_p_alone(self):
+        # v35_top compares the address with UROM_REPP: rep_lk's and rep_sx's E words are the same
+        # bits as rep_p's, so rep_p's word is never shared or copied
+        sh = uasm.assemble()
+        a = sh.labels["rep_p"]
+        self.assertEqual([x for x, _ in sh.owners[a]], ["rep_p"])
+        self.assertNotIn(a, sh.copies)
+        for x in ("rep_lk", "rep_sx"):
+            if x in sh.labels:
+                self.assertNotEqual(sh.labels[x], a, x)
+                self.assertNotIn("rep_p", [y for y, _ in sh.owners[sh.labels[x]]], x)
+
+    def test_book_rows_are_the_unshared_ones(self):
+        sh = uasm.assemble()
+        self.assertEqual(uasm.book_rows(sh), uasm.book_rows(sh.flat))
+
+    def test_derived_bnext_marks_are_unchanged(self):
+        # nb on a non-E word is derived from its successors' kinds; on the shared layout the
+        # derivation gives the same marks
+        sh = uasm.assemble()
+        words = []
+        for r, w in sh.words:
+            f = dict(w.fields)
+            if not f.get("e"):
+                f.pop("nb", None)
+            words.append((r, uasm.Word(f, w.act, w.line)))
+        uasm._mark_bnext(words)
+        for (_, a), (_, b) in zip(sh.words, words):
+            self.assertEqual(a.fields.get("nb", 0), b.fields.get("nb", 0))
+
+    def test_unshared_switch(self):
+        flat = uasm.assemble(share=False)
+        self.assertIsNone(flat.flat)
+        self.assertEqual(flat.where, list(range(len(flat.words))))
+        self.assertLess(len(uasm.assemble().words), len(flat.words))
 
 
 if __name__ == "__main__":

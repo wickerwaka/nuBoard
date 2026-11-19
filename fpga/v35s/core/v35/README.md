@@ -48,7 +48,9 @@ ModR/M byte, or the 0F second byte -> the entry and the group's op; `v35_umodrm`
 the bytes a ModR/M or 0F second byte adds to the instruction's bytes still to pop). The format
 bits are the encoding's (`uasm.fmt_of`); every cell without a routine decodes to a trap routine
 that pops the instruction's bytes (counter from the loader's count) and ends (reported, not
-executed; the function bench counts it `trap_nop`).
+executed; the function bench counts it `trap_nop`). (Work order 24) The ROM is laid out with
+identical tails stored once (`--no-share` for the unshared layout, `--report` per routine);
+a routine is no longer contiguous in the ROM: see "Work order 24: tail sharing" at the end.
 
 **The book check** (`test_uasm.BookCheck`): the routine's length, run by `uasm.length` from its
 entry at EA = 3, W = 0 with no queue stall (a request granted the clock after its post, a bus
@@ -1629,7 +1631,8 @@ header); the probes and traces are in the hand-back (`an/`, `tr*/`).
   bit operation of op3 1:0 on x at the bit y names, modulo the width; TEST1 S Z P of the masked
   value, CY AC V cleared), BCDI / BCDS / BCDF (the BCD string's latches, the packed-BCD byte
   step, the flags: v35_fn_pkg's `v35_bcd8`, nuV30's law), R4 (`v35_rot4`: the new byte to
-  SIGMA, the new AL to tmpc). **The microword is 93 bits** (92 at part 2); three banks still.
+  SIGMA, the new AL to tmpc; (WO23) replaced by the one-bit step ROL12 under a loop: README
+  "WO23"). **The microword is 93 bits** (92 at part 2); three banks still.
   The BCD string's carry rides the shifter's step latch `scy`, its zero term a new flop `bz`.
 - **The loop counter's (CL + 1) / 2** (`CN_CLH`): `{rb_lo[7:1]} + rb_lo[0]`, CL shifted right
   by one with its low bit as the carry-in; a word's act, no compare. Depth: a 7-bit
@@ -8455,3 +8458,108 @@ Inside the existing ports (test_v35_struct unchanged; no wk_t code added). Built
 - New terms (C5): registers fx, fx_b (ce_b from g_fetch, lw, pend, req_done: tick A's grant, as
   few_b); `chx_nx` (two registers) one more input of the b4 term in bnd_w (tick B, ph_nx); gw's
   third term reads `fe || fx` (two registers). Nothing joins tick A's delivery chain.
+
+## Work order 24: tail sharing (the assembler's layout pass; no RTL change)
+
+The ROM is 2,152 words (was 2,848; 284 routines, the sources unchanged). `uasm.assemble()`
+assembles the sources as before (`assemble_flat`: every routine contiguous) and then lays the
+words out with every identical tail stored once (`share_tails`); `assemble(share=False)` and
+`python -m validation.v35s.chains uasm --no-share` give the unshared layout (2,848 words) for
+comparison. `--report` prints, per routine, its words' addresses, which are its own and where it
+joins a stored tail, and the totals per file; `--list` names every owner of a stored word
+(`= name+k name+k ...`) and marks the copies.
+
+**What is shared.** Two words are one stored word when every field is equal and their
+successors are one stored word, pairwise (the coarsest such partition, refined from the fields;
+NEXT and JMP count as the same step, a target is compared by the class it names). 2,117
+classes. The next-address rule (v35_useq `upc_n` / `raddr`, unchanged) decides which joins are
+free:
+
+| Sequencing | Next address | In the layout |
+| --- | --- | --- |
+| NEXT | upc + 1 | free: falls through, or becomes JMP to the stored successor (the same clock) |
+| JMP | tgt | free: as NEXT |
+| JC JNC LOOP TKI EAC | tgt or upc + 1 | the target is free; upc + 1 is forced |
+| CALL (and EAC's head call, retr <- upc + 1) | tgt, the return at upc + 1 | the callee is free; the return point is forced |
+| TRAP | upc + 1 | forced |
+| RET, DISP | retr, the decode | nothing follows |
+
+A word whose tgt is read as data (SR_VEC's vector on a vk word: the trap vectors) cannot take a
+jump: its upc + 1 is forced too. Where several words force the same stored successor, one falls
+into it and each other gets a copy (and the copy's forced successor in turn): 35 copies (19
+behind a call's return point, 7 behind a conditional jump, 2 EAC, 2 vector words, 1 LOOP, 1
+TRAP, 3 behind a copy). No word is added to any path: 404 source NEXT words now sit on a JMP
+word, 31 source JMP words fall through, 210 of the 223 post-E (DISP) words are gone (78 E words
+jump to a stored one), and every routine executes the same words in the same order.
+
+**Pinned.** v35_top's observation compares the ROM address with `UROM_REPP` (rep_p's E word);
+rep_lk's and rep_sx's E words are the same bits, so rep_p's word is never shared or copied
+(`uasm.SHARE_PINNED`; checked).
+
+**Addresses.** `prog.where` maps every source word to its address, `prog.owners` every address to
+its source words (several for a stored tail), `prog.name_of(addr)` names them all
+(`ext+35|exti+36`). The labels, the routine entries, the decode's entries and the `UROM_*`
+constants are the stored words' addresses. `r.words` are the source words (their `tgt` fields
+are the unshared addresses: read the ROM through `prog.words`). The book check runs on the shared
+ROM; its OPEN count per path on the unshared program (OPEN marks a source word; a stored word may
+be an OPEN clock in one routine and a named act's clock in another). The trace's `S:u<n>` names
+an entry address (two routines that are identical from their first word share it).
+`validation/v35s/qprobe/tools/romcheck.py` follows the E word's jump to its post-E word; the
+`urom_stats` scripts measure the unshared ROM (`share=False`).
+
+**Proof.** `test_uasm.TailSharing`: from every label and every decode cell (the cells' other
+fields equal) the unshared and the shared ROM are expanded side by side through every branch
+(both outcomes of each condition, loop, take point and EAC, a call's callee and return point)
+and compared field for field (2,847 address pairs; the 5 placeholder words "kept so no address
+moves" are reached from no entry in either); every source word sits on an equal word; the derived
+`nb` marks re-derive the same on the shared layout; the book rows are the unshared ones. The
+corpus sample and the program gates are unchanged run for run (work order 24's hand-back).
+
+**What it leaves.** 2,152 words still need the high part (ROM_LO 2,048): 104 words in it. The
+widths (UADDR_W 12, ROM_HI 1,024) are left as they were; the high part could be sized to 128 or
+256 words. The options paper's 2,134 counted 12 merges of trap-vector words whose vectors differ
+(merge.py ignores tgt also where it is data) and one copy per extra forcing predecessor (30, not
+the chained 35), and had no pin.
+
+## WO23: ROL4 / ROR4 as a rotate loop (ROL12 replaces R4)
+
+The study `docs/v35s-urom-study.md` 4.1 (hypothesis A) and the user's rulings of 2026-11-18
+(its section 9: a named small operation is preferred to an OPEN hold where the pins cannot
+date the act; ROM growth accepted). No measured clock moved: every pin record of the corpus
+families holding ROL4 / ROR4 (F32 F39 F40) and of every qprobe run holding them is unchanged.
+
+- **ROL12** (`AL_ROL12`, the value R4 had, 6'd34): one step of the 12-bit ring
+  {tmpb[7:0], tmpc[3:0]} (the operand byte above AL's low digit) rotated left by one bit;
+  tmpb[15:8], tmpc[15:4] (AL's high digit) and SIGMA kept. Four steps are ROL4 (the byte ends
+  as {its low digit, AL's low digit}, AL's low digit as the byte's high digit), eight are ROR4
+  (a digit right is eight bits left on twelve: the byte {AL's low digit, its high digit}, AL's
+  low digit the byte's low digit). Proved against the retired `v35_rot4` for every operand
+  byte and every AL, both opcodes (131,072 cases, 0 bad; the WO23 hand-back's
+  `rol12_check.sv`). `v35_rot4` and the R4 code are deleted; no ALU value is freed (the field
+  stays full: ROL12 took R4's).
+- **The routines** (urom/page.uasm `rol4`, `ror4`; entries and the head words unmoved). After
+  the commit word C (register path) or with the datum D (memory path): the operand into tmpb
+  and AL into tmpc (one word: ports B and A, or the datum and port A), the steps, AL written
+  from tmpc, then the register from tmpb (F5b's order: f5r `rot4al`) or Z (the write datum
+  from tmpb, the write posted). The acts are inferred, not measured. What is left stays OPEN:
+  three words before E on the register path, four before Z on the memory path, the same for
+  both opcodes (they were 7 / 11 and 8 / 12 hold words). ROR4's four words more are the
+  loop's four steps more.
+- **The count.** ROR4's eight steps are the one-word repeat (`alu=ROL12 loop=`) under the
+  counter loaded with the byte's bit count (`cnt=BITS`, 8: the 0F page's width bit is 0 for
+  0F 2A; the header's `width=byte` gives `uasm.length` the same count). ROL4's four steps are
+  four words: the counter field has no free value (`CN_STOP` took the last), op3 does not
+  reach the sequencer (a new port would raise the interface budget), and the ALU field has no
+  free value for a count set-up, so no source can give 4. One routine for both opcodes would
+  need such a source; the two routines stay. If a counter value is freed later (for example
+  STOP's halt marked by another inert bit), `CN_DIG` (4) would make ROL4 the same one-word
+  loop and save three words.
+- **ROM, no address moved**: `rol4` and `ror4` keep 22 words each on their addresses (the memory
+  paths whole, the register paths' heads); the register paths go on in `zz_late.uasm` (routine
+  `r4_tail`, 11 words: ROL4's steps 2 to 4, the writes, the residual and E; ROR4's last two
+  residual words and E), entered by a jump on a word that acts anyway (ROL4's first step,
+  ROR4's first residual word), so no clock is added. The digit rotates 44 -> 55 words; the
+  ROM 2,848 -> 2,859. The generated decode tables are unchanged but for `UROM_WORDS`.
+- **Timing**: ROL12 is a wire permutation of tmpb / tmpc in tick B (as BFL), its write
+  enables decoded from the word register like BFL's; nothing joins tick A's delivery chain.
+  R4's 8-bit nibble mux into SIGMA and tmpc goes away.

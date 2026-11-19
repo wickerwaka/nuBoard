@@ -8,7 +8,7 @@ Pieces that may move (register read, move, ALU, register write) look for a hold 
 same straight-line segment of the routine, within D clocks, with room for them."""
 import collections, sys
 from validation.v35s.chains import uasm
-p = uasm.assemble(); F = uasm.FIELDS
+p = uasm.assemble(share=False); F = uasm.FIELDS
 sq = {v: k[3:] for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
 G = {"regrd": ["ra", "rb"], "regwr": ["wr", "ws"], "mv1": ["d1", "s1"], "mv2": ["d2", "s2"],
      "alu": ["alu", "ax", "ay", "wf"], "bus": ["ea", "bus", "seg"], "queue": ["pop", "rl", "ro"],

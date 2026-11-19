@@ -1,6 +1,6 @@
 import math, collections, sys
 from validation.v35s.chains import uasm
-p = uasm.assemble()
+p = uasm.assemble(share=False)
 F = uasm.FIELDS
 W = [(r, w) for r, w in p.words]
 n = len(W)

@@ -3,7 +3,7 @@ paths summed: every word once, every dly call's clocks once). Read-only.
 usage: PYTHONPATH=host/src:. python3 routine_holds.py [regex of routine names | --src file.uasm]"""
 import collections, re, sys
 from validation.v35s.chains import uasm
-p = uasm.assemble()
+p = uasm.assemble(share=False)
 sq = {v: k[3:] for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
 G = {"regrd": ["ra", "rb"], "regwr": ["wr", "ws"], "mv1": ["d1", "s1"], "mv2": ["d2", "s2"],
      "alu": ["alu", "ax", "ay", "wf"], "bus": ["ea", "bus", "seg"], "queue": ["pop", "rl", "ro"],

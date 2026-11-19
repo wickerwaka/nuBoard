@@ -3,7 +3,8 @@
 // V35S core v2: the function package (docs/v35s-core-v2.md, "Function path"; stage S3). The
 // pure functions of the datapath (v35_eu.sv), copied from the old core's v35_eu_pkg
 // (fpga/v35s/core/v35_eu.sv: v35_szp 1186, v35_alu 1199, v35_shift 1247, v35_mul 1316,
-// v35_cond 1404, v35_bcd8 1652, v35_bit1 1699, v35_rot4 1713) with the `mut` (mutation) argument
+// v35_cond 1404, v35_bcd8 1652, v35_bit1 1699; (WO23) v35_rot4 1713 retired: the digit
+// rotates are microcode loops of v35_eu's AL_ROL12 step) with the `mut` (mutation) argument
 // removed, and rewritten where the old function read opcode bytes or the flat register file:
 //   v35_adjust   ADJ4A / ADJ4S / ADJBA / ADJBS (1609) by the decode's sub-operation (fmt.aop),
 //                on AW and the PSW instead of v35_rf_t;
@@ -423,13 +424,6 @@ package v35_fn_pkg;
             2'd2: v35_bit1 = a | m;
             default: v35_bit1 = a ^ m;
         endcase
-    endfunction
-
-    // ROL4 / ROR4 on the byte a with AL: {AL, the operand} after (the data book's, the V35's:
-    // AL's high digit kept; funcref.Cpu._page0f)
-    function automatic logic [15:0] v35_rot4(input logic ror, input logic [7:0] a,
-                                             input logic [7:0] al);
-        v35_rot4 = ror ? {al[7:4], a[3:0], al[3:0], a[7:4]} : {al[7:4], a[7:4], a[3:0], al[3:0]};
     endfunction
 
     // The memory operand's offset of a ModR/M form (templates.RM): md / rm the ModR/M fields,

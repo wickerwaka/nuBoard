@@ -4,7 +4,7 @@ import collections, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import v20_stats as V
 from validation.v35s.chains import uasm
-p = uasm.assemble()
+p = uasm.assemble(share=False)
 per_op = collections.defaultdict(set)
 for op, nm in p.cells1.items(): per_op[op].add(nm)
 for (op, b), nm in p.cells2.items():

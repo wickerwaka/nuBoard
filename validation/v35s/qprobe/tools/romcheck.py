@@ -204,7 +204,9 @@ def rom_walk(code: bytes, cl: int, taken: bool, limit: int = 4000):
         f = w.fields
         out.append((rr.name, f))
         if f.get("e"):
-            rr2, w2 = PROG.words[pc + 1]
+            # (work order 24) the post-E word: the next address, or the stored one the E word
+            # jumps to (uasm's tail sharing)
+            rr2, w2 = PROG.words[f["tgt"] if f.get("seq") == E("v35_seq_e", "jmp") else pc + 1]
             out.append((rr2.name, w2.fields))
             return out, notes
         if f.get("halt"):

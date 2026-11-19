@@ -1,6 +1,6 @@
 import collections
 from validation.v35s.chains import uasm
-p = uasm.assemble(); W = [x for r, x in p.words]; n = len(W)
+p = uasm.assemble(share=False); W = [x for r, x in p.words]; n = len(W)
 sq = {v: k[3:] for k, v in uasm.ENUMS["v35_seq_e"][1].items()}
 DP = ("ra","rb","wr","ws","d1","s1","d2","s2","alu","ax","ay","wf","ea","bus","seg","cnt","pop")
 tg = set(x.fields.get("tgt", 0) for x in W if sq[x.fields.get("seq",0)] != "NEXT") | set(r.base for r in p.routines)

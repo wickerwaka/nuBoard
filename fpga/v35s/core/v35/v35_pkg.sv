@@ -75,9 +75,11 @@ package v35_pkg;
     // value, CY AC V cleared), BCDI the BCD string's carry cleared and its zero term set, BCDS
     // one packed-BCD byte step (x the destination byte, y the source byte, op3 0 the add, else
     // the subtract, the carry / borrow in and out on the step latch, the zero term
-    // accumulated), BCDF the string's flags from the two latches, R4 the digit rotate of op3 0
-    // (ROL4: the operand's low digit to its high, AL's low digit in; ROR4 the reverse) on the
-    // byte x with AL from y (the new operand byte to SIGMA, the new AL to tmpc); (MX4) STEP the
+    // accumulated), BCDF the string's flags from the two latches, (WO23) ROL12 one step of the
+    // digit rotates ROL4 / ROR4: the 12-bit ring {tmpb[7:0], tmpc[3:0]} (the operand byte above
+    // AL's low digit) rotated left by one bit, tmpb[15:8] and tmpc[15:4] (AL's high digit) kept,
+    // SIGMA kept (four steps ROL4, eight ROR4: a digit right is eight bits left on twelve; it
+    // replaced R4, the whole rotate in one code); (MX4) STEP the
     // string unit's index step: x plus the element's width (1 or 2 by the format's), minus
     // it with PSW.DIR set, no flags (IX / IY after an element); (F2a) the bit fields INS / EXT:
     // BFR / BFL the 32-bit pair {tmpc, tmpb} rotated right / left by one (tmpb the low word,
@@ -93,7 +95,7 @@ package v35_pkg;
         AL_MULI = 6'd15, AL_MULS = 6'd16, AL_MULF = 6'd17, AL_DIVI = 6'd18, AL_DIVS = 6'd19,
         AL_DIVF = 6'd20, AL_FLAG = 6'd21, AL_PSWL = 6'd22, AL_ADD = 6'd23, AL_CITF = 6'd24,
         AL_ADJ = 6'd25, AL_CVBI = 6'd26, AL_CVBF = 6'd27, AL_CVDI = 6'd28, AL_CVDF = 6'd29,
-        AL_BIT = 6'd30, AL_BCDI = 6'd31, AL_BCDS = 6'd32, AL_BCDF = 6'd33, AL_R4 = 6'd34,
+        AL_BIT = 6'd30, AL_BCDI = 6'd31, AL_BCDS = 6'd32, AL_BCDF = 6'd33, AL_ROL12 = 6'd34,
         AL_STEP = 6'd35, AL_BFR = 6'd36, AL_BFL = 6'd37, AL_BFI = 6'd38, AL_BFM = 6'd39,
         AL_BFK = 6'd40, AL_BFU = 6'd41,
         // (F2b) CITB: CITF and BRKI set (the I/O trap); LTS: SIGMA[15] = x < y signed (CHKIND);

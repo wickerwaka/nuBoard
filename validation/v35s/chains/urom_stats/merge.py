@@ -1,7 +1,7 @@
 import math, collections, os
 IGN = set(("tgt,seq," + os.environ.get("IGN", "")).split(","))
 from validation.v35s.chains import uasm
-p = uasm.assemble(); F = uasm.FIELDS
+p = uasm.assemble(share=False); F = uasm.FIELDS
 W = [x for r, x in p.words]; n = len(W)
 SQ = uasm.ENUMS["v35_seq_e"][1]; sq = {v: k[3:] for k, v in SQ.items()}
 def succ(i):

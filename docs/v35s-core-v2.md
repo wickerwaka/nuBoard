@@ -3565,3 +3565,26 @@ question, decided from S8's routed numbers with the user.
   already loops; the set-up and finish codes are the macro ones; about 294 of 1,073 holds
   in four families explained, the divide's and the bit fields' stretches not),
   `docs/v35s-open-issues.md` (the rulings awaited).
+- **2026-11-18, work orders 23 and 24 (FULL gate, three seeds): the microcode-size round's
+  first two builds.** The user's rulings are in `docs/v35s-urom-study.md` section 9.
+  **WO23, ROL4 / ROR4 as one-bit rotate steps:** the composite `R4` / `v35_rot4` is gone;
+  `AL_ROL12` rotates {tmpb[7:0], tmpc[3:0]} left by one (131,072 cases against the old
+  function, 0 bad); ROR4 is the one-word repeat under `cnt=BITS` (8), ROL4 four step
+  words (a count of 4 from the opcode needs a free `cnt` value or op3 in the sequencer:
+  not granted); the register paths end in `r4_tail`; clocks with no act 38 to 14, the new
+  acts marked inferred. Round 27's Q135 (1,200 socket runs): no operand dependence, ROR4
+  minus ROL4 = 4 in 600 of 600. **WO24, tail sharing in the assembler:** `uasm.py`'s
+  layout pass emits each identical tail once (NEXT becomes JMP at the same clock; forced
+  `upc + 1` successors get copies; rep_p's E word pinned); `--no-share` gives the
+  unshared ROM; `test_uasm.TailSharing` walks both ROMs from every entry through every
+  branch. No RTL text changed. **ROM 2,848 to 2,160 words** (2,859 unshared, 34 copies);
+  still over 2,048, so the high part stays (about 110 words used). Gate: corpus 30,181 at
+  both spacings, no run changed; every program gate, f4_hwd, vectors and SST as before;
+  checker silent (the builder showed it does not catch a mis-pointed shared jump: the
+  per-run rows and the assembler test do). 17 ns: +3.029 / +2.588 / +3.356; 9,932 LUT4,
+  2,629 FF, 108 RAM_5K (the decode table's entry numbers moved; seed 2 is 0.7 ns under
+  the last landing). The gate's pin-record line has compared against step E1's records
+  since then and says nothing; a reference from this landing is kept for the next.
+  Documents of the round: `docs/v35s-urom-v20-techniques.md` (what keeps the V20 ROM
+  small and what each technique saves here), `docs/v35s-urom-w40-layout.md` (a 2,048 x 40
+  layout; its expansion in logic is judged too deep, tables in block RAM to be tried).
