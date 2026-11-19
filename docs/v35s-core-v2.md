@@ -3699,3 +3699,16 @@ question, decided from S8's routed numbers with the user.
   work order 28's); checker silent; secure.py's 14 benches all as predicted. 17 ns:
   +3.221 / +3.314 / +3.179; 9,568 LUT4, 2,617 FF, 36 RAM_5K. The EU mapped alone reads
   +2.350 (from +4.515): a module-alone figure, not seen in the top (not looked into).
+- **2026-11-19, the WTC's memory blocks measured (validation/v35s/wtc.py, programs
+  f4_wtc_*; socket receipts taken twice, equal).** The user's finding: the core reads one
+  WTC field (bits 1:0) for every memory cycle and fetch, and READY (PMC1 bit 7) through
+  that field alone. The silicon follows the data book: the field is chosen per bus cycle
+  from that cycle's own address (fields 0..5 the 128K blocks from 00000h, field 6
+  C0000h-FFFFFh, field 7 all I/O), for fetches, data reads and writes, each half of a
+  word that straddles a block boundary, stack and string cycles, DMA cycles; READY
+  lengthens only cycles in a block whose field is 3; on-chip accesses take no waits from
+  any field; refresh waits are RFM's alone. "By block" predicts 95,082 of 95,082 measured
+  cycles. In simulation all eight programs differ in the windows with a non-uniform WTC.
+  Also found: the core gives on-chip accesses field 7's waits (the silicon none). Not
+  measured: READY on memory writes (the harness lane cannot place it), the interrupt
+  acknowledge, DMA with an I/O side. The fix is the next work order.
