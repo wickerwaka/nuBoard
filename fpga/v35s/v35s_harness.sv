@@ -39,6 +39,9 @@
 //   b8 last events {model, socket}
 //   ba/bc live socket pin vector low/high (unmasked)
 //   be/c0 live input levels: socket, model
+//   c2 (core v2 builds, write) the secure mode's translation table: {address 15:8, byte 7:0},
+//      one entry a write, refused while busy; the core never initialises it (256 writes load
+//      it). Model lane only: the socket's table is its mask's
 //   Pin vector: 7:0 P0, 11 P13//INTAK, 12 P14, 13 P15/TOUT, 14 P16//SCK0,
 //      15 P17, 17 P21//DMAAK0, 18 P22//TC0, 20 P24//DMAAK1, 21 P25//TC1,
 //      22 P26//HLDAK, 24 TxD0, 25 TxD1, 26 /CTS0 pin; a bit records only
@@ -217,10 +220,18 @@ module v35s_harness #(
         .intak_n(model_core_intak_n),   // (F3b) the core v2's /INTAK
         .pins_in(model_pins_in),        // (F4) the port pins as the board drives them
         .pins(model_core_pins),         // (F4) the core v2's output pins
+        .tt_we(model_tt_we),            // (work order 29) the translation table's load port
+        .tt_a(model_tt_a),
+        .tt_d(model_tt_d),
 `endif
         .refrq_n(model_refrq_n)
     );
 
+`ifdef V35S_CORE_V35
+    // (work order 29) register c2: one write a table entry, a one-clock tt_we
+    reg model_tt_we = 1'b0;
+    reg [7:0] model_tt_a = 8'd0, model_tt_d = 8'd0;
+`endif
     reg [1:0] debug_stage = 2'd0;
     reg debug_accept = 1'b1;
     reg [19:0] saved_address = 20'd0;
@@ -433,6 +444,9 @@ module v35s_harness #(
 
     always @(posedge clock) begin
         clear_lanes <= 1'b0;
+`ifdef V35S_CORE_V35
+        model_tt_we <= 1'b0;
+`endif
         debug_ready <= 1'b0;
         debug_error <= 1'b0;
         if (!debug_valid)
@@ -582,6 +596,13 @@ module v35s_harness #(
                                    else length1 <= saved_data[11:0];
                             8'hac: pin_record_mask[15:0] <= saved_data;
                             8'hae: pin_record_mask[31:16] <= saved_data;
+`ifdef V35S_CORE_V35
+                            8'hc2: begin
+                                model_tt_we <= 1'b1;
+                                model_tt_a <= saved_data[15:8];
+                                model_tt_d <= saved_data[7:0];
+                            end
+`endif
                             default: begin
                                 if (saved_address >= 20'h40 && saved_address < 20'h60)
                                     page_map[saved_address[4:1] * 16 +: 16] <= saved_data;

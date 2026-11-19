@@ -120,6 +120,8 @@ module v35_eu
     // (F1) the SFR page's FLAG (PSW bits 5 and 3, F1 and F0): read, and a store's bits at ce_a
     output wire [1:0]  psw_f,
     output wire        psw_brki,        // (F2b) PSW.BRKI (the loader's I/O-trap dispatch)
+    output wire        psw_md,          // (work order 29) PSW.MD (the loader's staging load: 0 the
+                                        //   secure mode's translation table)
     output wire        psw_ie,          // (F3) PSW.IE and PSW.BRK (the interrupt take at the dispatch)
     output wire        psw_brk,
     input  wire [4:0]  tk_vec,          // (F3) the vector the dispatch took (v35_intc's register)
@@ -1113,6 +1115,7 @@ module v35_eu
     endfunction
     assign psw_f = {psw[5], psw[3]};
     assign psw_brki = psw[1];
+    assign psw_md = psw[15];
     assign psw_ie = psw[V35_PSW_IE];
     assign psw_brk = psw[8];
 

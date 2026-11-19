@@ -78,6 +78,11 @@ module v35_loader
     // queue beside the bytes (high byte's, low byte's)
     input  wire [QTAG_W-1:0] h_q0t,
     output wire [2*QTAG_W-1:0] dlv_tag,
+    // (work order 29, secure mode) the queue's table reading of its two head bytes ({T[qv1],
+    // T[qv0]}, a block RAM's read data: valid in tick A) and PSW.MD (the EU's register: 1 normal
+    // mode, 0 secure mode). The staging load takes the table's byte in secure mode
+    input  wire [15:0] tq,
+    input  wire        psw_md,
     output wire [1:0]  pop_n,           // (step C) the pop: the bytes leaving the queue's head
                                         //   (tick A): an operand pop, the staging load (0 to 2)
     input  wire [15:0] q_ip,            // (step D) the queue's head byte's offset in PS (hip)
@@ -588,7 +593,21 @@ module v35_loader
     reg        epfx_b = 1'b0;           // (F4q) the E pop is a prefix's own (its word has pfx)
     v35_pop_e  pop_b = PP_NONE;
     reg        mmr_b = 1'b0;            // (timing repair 1) opop && pop == PP_MODRM, with pop_b
-    reg [7:0]  sb0_b = 8'h00, sb1_b = 8'h00;
+    reg [7:0]  sb0_b = 8'h00;
+    // (work order 29) the staging load's twins of sb0_b / sb1_b: the head bytes as the decode
+    // reads an opcode (secure mode: the table's reading; normal mode: the bytes themselves).
+    // Every other reader of a head byte (the ModR/M and 0F second byte, operands) keeps sb0_b /
+    // sb1_b: raw
+    reg [7:0]  sx0_b = 8'h00, sx1_b = 8'h00;
+`ifndef SYNTHESIS
+    // (work order 29) the second head byte raw: since the staging load reads sx1_b, only the
+    // checks read it (`+v35_chk`, here and v35_top's translation check)
+    reg [7:0]  sb1_b = 8'h00;
+    always_ff @(posedge clock) begin
+        if (ce_b)
+            sb1_b <= sb1;
+    end
+`endif
     reg [2:0]  need_b = 3'd0;
     v35_udec_t dec1_b = '0;
     reg [2:0]  op3m_b = 3'd0;
@@ -620,7 +639,8 @@ module v35_loader
             pop_b <= pop;
             mmr_b <= opop && pop == PP_MODRM;
             sb0_b <= sb0;
-            sb1_b <= sb1;
+            sx0_b <= psw_md ? sb0 : tq[7:0];
+            sx1_b <= psw_md ? sb1 : tq[15:8];
             need_b <= need_n;
             dec1_b <= dec1;
             op3m_b <= dispm ? dec2.op3 : d2l ? df.op3 : dec1.op3;
@@ -688,7 +708,8 @@ module v35_loader
                      : ro_b ? ((ew && epop_b) ? 3'd2 : 3'd1) : lc == 3'd4 ? 3'd4 : lc + 3'd1;
     wire       hp_nx = hrel_b ? 1'b1 : (flush_b || hw_b) ? 1'b0 : hp;
     // ------------------------------------------------------------ the end of the clock (ce_a)
-    wire [7:0] s_nb = (opop_b || mpop_b) ? sb1_b : sb0_b;     // the staging load's byte
+    // the staging load's byte ((work order 29) the twins: translated in secure mode)
+    wire [7:0] s_nb = (opop_b || mpop_b) ? sx1_b : sx0_b;
     // (MX5c) the next values the sequencer's registered stall reads (tick B; the block below
     // loads s_v, ds and d1r with exactly these): q_stall and the opcode register's decode bits
     // as they stand after the coming ce_a
@@ -897,6 +918,7 @@ module v35_loader
                 || disp_b !== disp || dispm_b !== (ex && dispm) || pop_b !== pop
                 || mmr_b !== (opop && pop == PP_MODRM)
                 || sb0_b !== sb0 || sb1_b !== sb1
+                || sx0_b !== (psw_md ? sb0 : tq[7:0]) || sx1_b !== (psw_md ? sb1 : tq[15:8])
                 || need_b !== need_n
                 || dec1_b !== dec1 || dmw_b !== v35_udec2_ref(op, mp).w) begin
                 chk_n = chk_n + 1;

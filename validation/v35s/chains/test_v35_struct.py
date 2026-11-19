@@ -163,6 +163,9 @@ QUEUE_PORTS = {
               # (qprobe rules 1, 2) the occupancy's other parts (the loader's) and the dispatch
               # word executing (the back-to-back threshold's)
               "rls",
+              # (work order 29, the user's ruling 2026-11-19) the secure mode's translation table:
+              # the datum register's D (the next head bytes' read address) and the load port
+              "dlv_nx", "tt_we", "tt_a", "tt_d",
               # (qprobe rule 11) prefetching stopped (the loader's: HALT released)
               # (qprobe round 6) the give-way and REQ_PRI: the sequencer's give-way, the
               # loader's request word ((consol) the bus unit's pend and EU delivery gone: the
@@ -176,7 +179,9 @@ QUEUE_PORTS = {
                                                                   # latch's facts gone)
                # (qprobe round 6) the bus unit's stage's facts: the line given way, the count's
                # compares (tick A), the flush wait's end next (pv_nx)
-               "lv_q", "lv_nx"},
+               "lv_q", "lv_nx",
+               "tq"},                                             # (work order 29) the table's
+                                                                  # reading of the head bytes
 }
 INSTR_TYPES = ("v35_fmt_t", "v35_cls_t", "uc_row_t", "v35_run_t", "req_t", "v35_uword_t",
                "v35_udec_t", "v35_udecm_t")
@@ -387,23 +392,27 @@ CORE_INSTANCES = {
 # 36/35, useq 23/40 -> 23/39; bus -> queue 5 -> 3, loader -> useq 16 -> 15, useq -> loader 21 -> 18
 # (fl_nx into cb_nx, ld_nx into ew_nx; the give-way whole in the sequencer, the queue's pend /
 # eud gone; halted into q_susp; the loader forms flush and disp itself)
+# (work order 29, the user's ruling 2026-11-19) raised by the secure mode's translation table's
+# three ports: bus -> queue dlv_nx, queue -> loader tq, eu -> loader psw_md (queue 15/10 ->
+# 16/11, loader in 34 -> 36, eu out 37 -> 38; bus -> queue 3 -> 4, queue -> loader 11 -> 12,
+# eu -> loader 1 -> 2)
 BUDGET_MODULE = {
     "bus": {"out": 17, "in": 17},
-    "queue": {"out": 15, "in": 10},
-    "loader": {"out": 28, "in": 34},
+    "queue": {"out": 16, "in": 11},
+    "loader": {"out": 28, "in": 36},
     "useq": {"out": 23, "in": 30},
-    "eu": {"out": 37, "in": 38},
+    "eu": {"out": 38, "in": 38},
     "regram": {"out": 3, "in": 13},
     "intc": {"out": 13, "in": 14},
 }
 BUDGET_PAIR = {
-    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 3,
+    ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 4,
     ("bus", "regram"): 5,
-    ("eu", "bus"): 9, ("eu", "intc"): 3, ("eu", "loader"): 1, ("eu", "queue"): 2,
+    ("eu", "bus"): 9, ("eu", "intc"): 3, ("eu", "loader"): 2, ("eu", "queue"): 2,
     ("eu", "regram"): 8, ("eu", "useq"): 14, ("bus", "useq"): 1, ("useq", "bus"): 2,
     ("intc", "eu"): 10, ("intc", "useq"): 3,
     ("loader", "bus"): 1, ("loader", "eu"): 14, ("loader", "queue"): 3, ("loader", "useq"): 12,
-    ("queue", "bus"): 4, ("queue", "loader"): 11,
+    ("queue", "bus"): 4, ("queue", "loader"): 12,
     ("regram", "bus"): 1, ("regram", "eu"): 2,
     ("useq", "eu"): 3, ("useq", "intc"): 10, ("useq", "loader"): 18, ("useq", "queue"): 2,
 }

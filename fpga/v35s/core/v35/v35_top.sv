@@ -67,7 +67,13 @@ module v35_top
     // (F4) the port pins the board drives ({P2, P1, P0}: an input-mode bit reads its pin) and
     // the output pin vector in the harness's order (v35s_harness.sv "Pin vector")
     input  wire [23:0] pins_in,
-    output wire [31:0] pins
+    output wire [31:0] pins,
+    // (work order 29) the secure mode's translation table's load port (v35_queue): one fabric
+    // clock of tt_we writes tt_d at tt_a. Load it while the core is held in reset; the core
+    // never initialises it
+    input  wire        tt_we,
+    input  wire [7:0]  tt_a,
+    input  wire [7:0]  tt_d
 );
     // ---------------------------------------------------------------- SFRs
     wire [7:0] prc, rfm, idb;
@@ -299,6 +305,8 @@ module v35_top
     wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
     wire [15:0] ld_ip;                  // (MX2) the instruction pointer
     wire [15:0] ld_ins_ip;              // (F2b) the instruction's start (its first prefix's)
+    wire        psw_md;                 // (work order 29) PSW.MD
+    wire [15:0] q_tq;                   // (work order 29) the queue's table reading of its head bytes
     wire        psw_brki, poll_p14;     // (F2b) PSW.BRKI; the P14 pin as POLL reads it
     wire        psw_ie, psw_brk;        // (F3) PSW.IE, PSW.BRK
     wire [4:0]  tk_vec;
@@ -371,7 +379,8 @@ module v35_top
         .vb0(qv0), .vb1(qv1), .avail(q_avail), .hip(q_ip), .stored(q_stored), .h_q0(q_h0), .h_odd(q_hod), .h_q0t(q_h0t), .pop_n(ld_pop),
         .flush(x_flush), .flush_addr(flush_off), .reset_ip(tb_reset_ip), .susp(q_susp), .ps_base,
         .stored_nx(q_st_nx), .odd_nx(q_od_nx), .discard_nx(q_dc_nx),
-        .rls(l_rls), .lv_q(q_lv), .lv_nx(q_lv_nx)
+        .rls(l_rls), .lv_q(q_lv), .lv_nx(q_lv_nx),
+        .dlv_nx(b_done_nx16), .tt_we, .tt_a, .tt_d, .tq(q_tq)
     );
 
     // ---------------------------------------------------------------- the loader
@@ -390,7 +399,7 @@ module v35_top
         .q_stall_nx(l_qs_nx),
         .ro(word.ro), .rl(word.rl), .ro_nx(word_nx.ro), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx), .rls(l_rls),
         .sf_nx(l_sf_nx), .w_halt(word.halt), .hp_b(l_hp_b),
-        .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip)
+        .ip(ld_ip), .brki(psw_brki), .ins_ip(ld_ins_ip), .tq(q_tq), .psw_md
     );
 
     // ---------------------------------------------------------------- the microsequencer
@@ -412,7 +421,7 @@ module v35_top
         .word, .word_nx(word_nx), .op_nx(ld_opc_nx), .modrm_nx(ld_modrm_nx), .fmt_nx,
         .ra_early, .rb_early, .ex_b,
         .fmt, .op3(ld_op3), .op(ld_opc), .modrm(ld_modrm), .il(ld_il), .ih(ld_ih), .dl(ld_dl),
-        .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki,
+        .dh(ld_dh), .ip(ld_ip), .ins_ip(ld_ins_ip), .idb, .p14(poll_p14), .psw_brki, .psw_md,
         .psw_ie, .psw_brk, .tk_vec, .tk_bs, .tk_int, .tk_l(tk_lv), .ns_pin(input_levels[0]), .req_ia,
         .tk_ms, .ms_ch, .ms_mode, .ms_dir, .ms_hlt, .ms_end,
         .tk_dm, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd, .dm_tend, .dm_tlast, .dm_last, .req_dk,
@@ -500,6 +509,24 @@ module v35_top
                 $display("v35 chk: top: the queue's count differs from the window and the loader's part at %0t", $time);
         end
     end
+    // (work order 29) `+v35_chk`: at every staging load (ce_a), the byte loaded into the staging
+    // register against the book's rule: the head byte itself in normal mode (MD 1), the
+    // translation table's entry for it in secure mode (MD 0), the table read here from the
+    // queue's memory directly. MD is the EU's ce_a register: as it stood when the loader's twin
+    // flops took the byte (tick A of this clock)
+    integer chk_ttn = 0;
+    wire [7:0] chk_raw = (loader.opop_b || loader.mpop_b) ? loader.sb1_b : loader.sb0_b;
+    always @(posedge clock) begin
+        if (chk_ob && core_reset_n && ce_a && loader.sload_b && !loader.flush_b
+            && loader.s_nb !== (eu.psw[15] ? chk_raw : queue.tt0[chk_raw])) begin
+            chk_ttn = chk_ttn + 1;
+            if (chk_ttn <= 20)
+                $display("v35 chk: top: the staged opcode %02x is not the table's reading of %02x (MD %0d) at %0t",
+                         loader.s_nb, chk_raw, eu.psw[15], $time);
+        end
+    end
+    final if (chk_ob && chk_ttn != 0)
+        $display("v35 chk: top: %0d staging loads off the translation rule", chk_ttn);
     /* verilator lint_on BLKSEQ */
 
     // ---------------------------------------------------------------- observation (simulation)

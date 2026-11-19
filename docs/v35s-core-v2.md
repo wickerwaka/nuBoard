@@ -3671,3 +3671,25 @@ question, decided from S8's routed numbers with the user.
   seed's worst before too; loader alone +4.164 from +3.670). 9,543 LUT4, 2,599 FF,
   **34 RAM_5K** (64 before): loader 3 (one udec1 copy 2, the REP page 1), useq 25,
   regram 6.
+- **2026-11-19, work order 29: the secure mode's opcode translation table** (committed on
+  the builder's fast gate at the user's request; the FULL gate's result is the next
+  entry). The user's rulings: the table is a block RAM loaded a byte at a time through a
+  top-level port (`tt_we`, `tt_a[7:0]`, `tt_d[7:0]`); the core does not initialize it (no
+  1:1 default, no loaded flag: a user who does not want the feature holds N/S at N; in
+  the FPGA an unloaded table reads 00h); prefixes and the opcode behind a prefix / REP /
+  BUSLOCK are translated, the 0F page's second byte, ModR/M bytes and operands are not
+  (the data book: "only the first byte of each opcode is decoded"); the interface budget
+  raised for exactly bus -> queue `dlv_nx`, queue -> loader `tq[15:0]`, eu -> loader
+  `psw_md`. Site (design: the staging load, the table read one tick early): two 256 x 8
+  RAMs in v35_queue addressed at ce_a from the next clock's two head bytes; the loader's
+  twin flops `sx0_b` / `sx1_b` take `MD ? raw : table` at ce_b beside `sb0_b`; the staging
+  load picks between flops at the depth it had. Every MD writer is followed by a flush.
+  Harness debug register C2h writes one entry; the runner refuses N/S low on a socket
+  lane; the program gates and the vector bench load the 1:1 table as stimulus (the vector
+  bench directly into the arrays: its snapshot driver cannot use the port).
+  validation/v35s/secure.py: 1:1 table in secure mode equals normal mode on every bus
+  cycle (no clock cost); a permutation table with the program encoded through its inverse
+  equals the plain program, N/S low from reset and entered through BRKS; eight negative
+  controls differ as predicted. Builder's fast gate: corpus subset 8,313 of 8,502, 0 rows
+  and 0 pin records differ with the table unloaded and with the permutation loaded;
+  vectors 0 bad; 17 ns +3.221 / +3.314 / +3.179; 9,568 LUT4, 2,617 FF, 36 RAM_5K.

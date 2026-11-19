@@ -79,8 +79,21 @@ module v35_core2_tb
     v35_top dut (
         .clock, .x_rise(1'b1), .x_fall(1'b0), .reset_n, .ready(1'b1), .data_in,
         .input_levels(REST_LEVELS), .a0, .a19, .a18_ube, .mux_address, .data_out, .mreq_n, .mstb_n,
-        .iostb_n, .read_write, .refrq_n, .pins_in(24'd0), .pins()
+        .iostb_n, .read_write, .refrq_n, .pins_in(24'd0), .pins(),
+        // (work order 29) the load port idle: the table is preloaded below
+        .tt_we(1'b0), .tt_a(8'd0), .tt_d(8'd0)
     );
+    // (work order 29) the 1:1 translation table, bench stimulus (the core never initialises it):
+    // the driver preloads each test's PSW from its vector, and the vectors' PSW has MD (bit 15)
+    // clear in most cases, so the tests run in secure mode; with the 1:1 table they decode as
+    // before. Loaded here in the initial blocks, before the driver's snapshot (which it restores
+    // for every test), straight into the queue's two copies
+    initial begin
+        for (int k = 0; k < 256; k++) begin
+            dut.queue.tt0[k] = 8'(k);
+            dut.queue.tt1[k] = 8'(k);
+        end
+    end
 
     assign o_ce = dut.ce;
     assign o_ce_mid = dut.ce_mid;

@@ -691,6 +691,13 @@ def _sim():
     transport = sim_transport("v35")
     harness = Harness(DebugClient(transport.exchange), strict=False)
     harness.configure(x_half=2)
+    # (work order 29) the program gates load the 1:1 translation table (test stimulus: the core
+    # never initialises it; f3_brks stages the BRKS handler's first opcode in secure mode);
+    # V35_TTAB names another (none: unloaded)
+    from .secure import env_table
+    table = env_table("identity")
+    if table is not None:
+        harness.load_table(table)
     return transport, harness
 
 

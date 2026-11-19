@@ -258,6 +258,8 @@ class Harness:
         policy may differ); the trace comparison is still reported."""
         self.debug = debug
         self.strict = strict
+        # (work order 29) set by open_board: a harness on the board, where N/S low is refused
+        self.board = False
         identity, self.version = struct.unpack("<HH", debug.read(0, 4))
         if identity != 0x7033 or self.version not in (1, 2):
             raise RuntimeError("unexpected V35S harness identity or ABI")
@@ -317,6 +319,27 @@ class Harness:
         self.debug.write16(0x88, start_ports)
         self.debug.write16(0x8C, p0_levels)
         self.debug.write16(0x8E, input_levels)
+
+    def load_table(self, table: bytes):
+        """(work order 29) Load the core v2's secure-mode translation table (256 bytes, entry
+        k = the opcode the encoded byte k decodes to) through register C2h, one entry a write.
+        The core never initialises it; load it between runs (a write while busy is refused).
+        Simulation (model lane) only: the socket's table is in its mask."""
+        if self.board:
+            raise RuntimeError("the translation table is loaded in simulation only")
+        table = bytes(table)
+        if len(table) != 256:
+            raise ValueError("the translation table is 256 bytes")
+        for address, value in enumerate(table):
+            self.debug.write16(0xC2, address << 8 | value)
+
+    def _check_levels(self, mode):
+        """(work order 29, the user's ruling 2026-11-19) N/S low (secure mode from reset, register
+        8Eh bit 0) is for simulation's model lane only: refused on the board and on any run with
+        the socket lane."""
+        levels = self.debug.read16(0x8E)
+        if not levels & 1 << INPUTS["NS"] and (self.board or MODES[mode] & 2):
+            raise RuntimeError("N/S low (secure mode) is simulation only: refused on a socket lane")
 
     def arm(self, armed=True):
         self.debug.write16(0x04, 1 if armed else 0)
@@ -381,6 +404,7 @@ class Harness:
         return bytes(result)
 
     def run(self, mode="socket", limit=50_000_000, capture_start=0):
+        self._check_levels(mode)
         self.debug.write(0x2A, struct.pack("<I", capture_start))
         self.debug.write(0x0C, struct.pack("<I", limit))
         self.debug.write16(4, (MODES[mode] << 8) | 2)
@@ -557,6 +581,7 @@ def open_board(socket_needed: bool, image: Path | None = IMAGE):
         if state["selector_mv"] != 5000:
             raise RuntimeError("the uPD70337 requires the exclusive 5 V selector")
     harness = Harness(DebugClient(lambda data: transport.fpga_exchange(CHANNEL, data)))
+    harness.board = True
     return transport, harness, state
 
 

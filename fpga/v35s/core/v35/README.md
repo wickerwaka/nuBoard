@@ -3001,7 +3001,8 @@ first byte, before any instruction of the secure mode runs, and its action ends 
 - **MD and N/S**: `ns_r` (v35_top) registers the N/S level; the PSW resets to {N/S, 7002h};
   CITF and CITB (every vectored entry, BRK, the traps) and BSW set MD <- N/S; BRKN sets MD 1, BRKS
   MD 0; RETI / RETRBI / TSKSW load it from the frame or the save. The secure mode's opcode
-  translation table is a pass-through (the user's ruling): with MD 0 the RTL decodes as normal.
+  translation table was a pass-through then (the user's ruling of that stage); since work order 29
+  it is a loadable block RAM at the staging load (section "Work order 29").
 - BRKS (F1) has one immediate byte in the decode now (uasm IMM_PLAIN; udec1's `len`, not a tag
   function). The memory forms of BRKCS / TSKSW / MOVSPB are not measured: the routines pop the
   ModR/M byte and end.
@@ -8977,3 +8978,118 @@ base +4.047 / +3.883 / +3.075 / +3.227 / +3.798, now +4.305 / +3.847 / +3.012 / 
 the arriving tag -> the sequencer's ROM address (+2.688, 7 LUTs, long routes; base seeds' worst
 of that chain +3.205 on s2). Neither path's logic changed; the placement did (30 blocks fewer).
 Mean of the five seeds +3.165 (base +3.023); the worst seed is worse (+2.344 against +2.668).
+
+## Work order 29: secure mode, the opcode translation table
+
+The V35S's secure mode translates "the first byte of each opcode" through a 256-byte table
+held on the die ([DB] L163708-163727; the worked example "4A 34 12" decodes as "A1 34 12",
+with the address bytes passing unchanged). It is in the core as a block RAM that is loaded
+through a port. Design study: scratchpad v2/sec/design.md. The site is its recommended (d).
+The user's rulings of 2026-11-19 decide the readings.
+
+**What is translated (the rulings).**
+
+- Translated: every byte loaded into the staging register. That covers the first byte of an
+  instruction, every prefix (segment 26 2E 36 3E, REP F2 F3, REPC 65, REPNC 64, BUSLOCK F0),
+  and the opcode behind a prefix or behind REP. Each prefix is an instruction with its own E
+  word, so the byte behind it is the next staging load.
+- Not translated: the 0F page's second byte, ModR/M bytes (the group opcodes' reg field
+  included), immediates, displacements, and the type byte of BRKS / BRKN / INT. These are read
+  from `sb0_b` raw: by `mp`, `il ih dl dh`, `modrm_nx` and the `v35_uml` second byte.
+- The byte tags (`bt_f`, the queue's `q_t`) stay raw. The opcode's share of the tags (`ims` /
+  `imo`) is formed from `s_b` / `op`, so it follows the translated byte.
+
+**The mechanism, tick by tick.**
+
+- Clock n-1, tick B: v35_queue forms the next clock's two head bytes. Its inputs are the D nets
+  of q[0] / q[1] (`seqb(reads)`, `seqb(reads + 1)`), the next count and parity
+  (`stored_nx`, `odd_nx`) and the bus unit's datum register D (`dlv_nx` = `done_nx`):
+  - `tn0 = stored_nx != 0 ? seqb(reads) : a0n`
+  - `tn1 = stored_nx > 1 ? seqb(reads + 1) : stored_nx == 1 ? a0n : dlv_nx[15:8]`
+  - `a0n = odd_nx ? dlv_nx[15:8] : dlv_nx[7:0]`
+- Clock n-1 to n, at ce_a: the two table copies `tt0` and `tt1` (256 x 8 each, written
+  together) register their read addresses `tn0` and `tn1`. The queue's own registers update
+  on the same edge.
+- Clock n, tick A: `tq = {T[vb1], T[vb0]}` is the RAMs' read data. The loader selects
+  `sx0 = psw_md ? sb0 : tq[7:0]` and `sx1 = psw_md ? sb1 : tq[15:8]`, one LUT level, and
+  registers them as `sx0_b` / `sx1_b` at ce_b, beside `sb0_b`. MD is the EU's PSW bit 15
+  (`psw_md`). Nothing on tick A's delivery chain (pops, `z1f`, tags, room, request, grant)
+  reads `tq`.
+- Clock n, tick B: `s_nb = (opop_b || mpop_b) ? sx1_b : sx0_b`. This is the same depth as
+  before, from flops. `ds_nx`, `ims_nx`, `lx`, `zc`, `lr*`, `q_stall_nx` and `sf_nx` read
+  `s_nb` as before.
+- At the next ce_a: `s_b <= s_nb`. Everything downstream (op, d1r, fmt, the dispatch) inherits
+  the translated byte.
+
+**No cycle changes, and normal mode is unaffected.** With MD 1 the twins equal `sb0_b` and
+`sb1_b` on every clock, so the table is never selected. Since `sx1_b` is the only reader of
+`sb1`, `sb1_b` is now simulation-only.
+
+Every MD writer (BRKS, BRKN, the vectored entries, BSW, RETI, RETRBI, TSKSW) is followed by a
+FLUSH before the next E word. That leaves no case of MD changing under a staged byte.
+
+**The load port.**
+
+- v35_top has three new ports: `tt_we`, `tt_a[7:0]`, `tt_d[7:0]`. One fabric clock of `tt_we`
+  writes `tt_d` at `tt_a`.
+- The write is a plain `always @(posedge clock)` in the queue. The queue reads the table blind:
+  it knows nothing of MD or of instructions.
+- The core never initialises the table. There is no `initial`, no init file and no "loaded"
+  flag (ruling 4).
+- The map report says `Memory 'tt0' is not initialized, assuming empty initial contents`. The
+  netlist's INIT_0 .. INIT_13 are all zero. So on this device an unloaded table powers up 00h:
+  in secure mode every opcode would decode as ADD r/m8,r8. Nothing relies on this.
+- Harness: debug register C2h (V35S_CORE_V35 builds only), `{address, byte}`, one entry per
+  write, refused while busy. `runner.Harness.load_table(256 bytes)` loads it.
+- The runner refuses N/S low (8Eh bit 0) on the board and on any run with a socket lane
+  (ruling 6). `Harness.board` is set by `open_board`.
+- The 1:1 table is bench stimulus. The program gates' `_sim` (traps.py) loads it; f3_brks
+  stages BRKS's handler's first opcode in secure mode. The replay loads the table named by
+  `V35_TTAB` (identity, perm, a hex file; default none).
+
+**Interface budget (the user's ruling 1).**
+
+- Three new core-to-core ports: bus -> queue `dlv_nx`, queue -> loader `tq`, eu -> loader
+  `psw_md`.
+- test_v35_struct: queue {out 16, in 11}, loader in 36, eu out 38; pairs (bus, queue) 4,
+  (queue, loader) 12, (eu, loader) 2.
+- QUEUE_PORTS gains `dlv_nx tt_we tt_a tt_d` (inputs) and `tq` (output).
+
+**Checks (`+v35_chk`, all under `ifndef SYNTHESIS`).**
+
+- Queue, every ce_b: for each valid head byte (k < avail), `tq_k === tt[vb_k]`, and the two
+  copies agree.
+- Loader: the twins against their sources.
+- v35_top, at every staging load: the staged byte is `MD ? raw : tt0[raw]`.
+- Planted faults:
+  - The `stored_nx == 1` leg of `tn1` read the wrong byte. The queue check fired in normal
+    mode with a table loaded, with the results unchanged. In secure mode the top check fired
+    too and the run failed.
+  - `sx1_b` took the wrong half of `tq`. The loader and top checks fired in secure mode, and
+    normal mode stayed silent and equal.
+- The whole-core function bench (v35_core2_tb) preloads each test's PSW from its vector, and
+  most vectors have MD clear, so those tests run in secure mode. The bench therefore loads the
+  1:1 table in its initial blocks, before the driver's snapshot (bench stimulus, ruling 5).
+  With the table unloaded, --regfile read 18,908 bad.
+
+**The secure benches (validation/v35s/secure.py, simulation only).**
+
+- One program holds every prefix kind, the opcode behind each, REP / REPNE / REPC / REPNC with
+  a string opcode (and with a segment prefix on either side), BUSLOCK, three 0F forms (a
+  ModR/M, an immediate, a displacement, a prefix), group opcodes, immediates and
+  displacements, BRKN and its RETI, INT n and its RETI, and the FPO trap (D8, vector 7) and its
+  RETI.
+- The encoder classes every byte with a length decoder of its own. That decoder is written
+  from the opcode map, not from the core's tables.
+- Bench A: N/S low from reset, all code secure except BRKN's handler.
+- Bench B: N/S high, BRKS enters the body, every handler runs normal and its RETI restores
+  MD 0.
+- The comparison is every bus cycle at the same relative clock with the same kind, address and
+  data. The only exemptions are the code fetches' data and a PSW image's bit 15 on the stack.
+  The results page must match byte for byte.
+- The identity table in secure mode equals normal mode.
+- The permutation table T(x) = rotl8(x, 3) ^ A7h (no fixed point) with the encoded image
+  equals the plain program, in A and in B.
+- Seven negative controls DIFFER, as registered beforehand: the 0F second byte encoded,
+  ModR/M encoded, operands encoded, prefixes plain, the byte behind a segment prefix plain,
+  behind REP plain, behind BUSLOCK plain.

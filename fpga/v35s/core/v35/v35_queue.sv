@@ -113,7 +113,18 @@ module v35_queue
     // request word, the give-way and HALT's stop here)
     output v35_lvq_t   lv_q,
     output v35_lvn_t   lv_nx,
-    input  wire [19:0] ps_base          // {PS, 0} (after this clock's far transfer)
+    input  wire [19:0] ps_base,         // {PS, 0} (after this clock's far transfer)
+    // (work order 29, secure mode) the translation table: 256 bytes, written from the load port
+    // (any fabric clock: tt_we writes tt_d at tt_a), read one tick early at the next clock's two
+    // head bytes. The queue reads it blind: `tq` is the table's reading of the window's first two
+    // bytes (vb0 in [7:0], vb1 in [15:8]), whatever they are; who uses it and when is the
+    // loader's. dlv_nx is the bus unit's datum register's D (done_nx): the delivered word's
+    // bytes as the coming ce_a leaves them in dlv_data
+    input  wire [15:0] dlv_nx,
+    input  wire        tt_we,
+    input  wire [7:0]  tt_a,
+    input  wire [7:0]  tt_d,
+    output wire [15:0] tq
 );
     // ((E1 M1) the six-byte room, CAP = QUEUE_BYTES, is replaced by the occupancy's thresholds)
     // (qprobe rule 1) the storage: seven bytes (the model's six and one). The occupancy (the bytes fetched and not
@@ -352,6 +363,34 @@ module v35_queue
         end
     end
 
+    // ------------------------------------------------------------ (work order 29) the table
+    // Two copies of the 256 x 8 table (one read each), written together from the load port. No
+    // initial contents and no reset: an unloaded table is whatever the block RAM powers up with
+    // (the user's ruling; normal mode never selects it). The read addresses are the next clock's
+    // head bytes, formed in tick B from the D nets of q[0] / q[1], the next count and parity and
+    // the datum register's D; registered at ce_a with the queue's state, so `tq` is
+    // {T[vb1], T[vb0]} through the whole of the next clock (+v35_chk: below)
+    reg [7:0]  tt0 [0:255];
+    reg [7:0]  tt1 [0:255];
+    reg [7:0]  tq0, tq1;                // the read ports' registers (the block RAM's own)
+    always @(posedge clock) begin
+        if (tt_we) begin
+            tt0[tt_a] <= tt_d;
+            tt1[tt_a] <= tt_d;
+        end
+    end
+    wire [7:0] dn0 = odd_nx ? dlv_nx[15:8] : dlv_nx[7:0];      // the next clock's a0
+    wire [7:0] tn0 = stored_nx != 3'd0 ? seqb({1'b0, reads}) : dn0;
+    wire [7:0] tn1 = stored_nx > 3'd1 ? seqb(4'd1 + {1'b0, reads})
+                   : stored_nx == 3'd1 ? dn0 : dlv_nx[15:8];
+    always @(posedge clock) begin
+        if (ce_a) begin
+            tq0 <= tt0[tn0];
+            tq1 <= tt1[tn1];
+        end
+    end
+    assign tq = {tq1, tq0};
+
 `ifndef SYNTHESIS
     // +v35_diag: more than seven bytes held
     reg diag = 1'b0;
@@ -412,6 +451,20 @@ module v35_queue
         $display("v35 chk: queue: %0d clocks with the bounds off the count", tqk_n);
     final if (chk_on && chk_n != 0)
         $display("v35 chk: queue: %0d changes in tick B", chk_n);
+    // (work order 29) +v35_chk: every clock at ce_b (tick A's end, where the loader registers
+    // its reading), each valid head byte's table reading against the memory
+    integer ttc_n = 0;
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_b
+            && ((avail != 3'd0 && tq0 !== tt0[vb0]) || (avail > 3'd1 && tq1 !== tt1[vb1])
+                || tt0[vb0] !== tt1[vb0] || tt0[vb1] !== tt1[vb1])) begin
+            ttc_n = ttc_n + 1;
+            if (ttc_n <= 20)
+                $display("v35 chk: queue: the table's reading off the head bytes at %0t", $time);
+        end
+    end
+    final if (chk_on && ttc_n != 0)
+        $display("v35 chk: queue: %0d clocks with the table's reading off the head bytes", ttc_n);
     /* verilator lint_on BLKSEQ */
 `endif
 endmodule

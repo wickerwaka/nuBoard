@@ -158,7 +158,15 @@ def _open_lane(core: str = "ucore", diag: bool = False):
     from nuboard.debug import DebugClient
     from ..runner import Harness
     transport = sim_transport(core, diag)
-    return transport, Harness(DebugClient(transport.exchange))
+    harness = Harness(DebugClient(transport.exchange))
+    if core == "v35":
+        # (work order 29) V35_TTAB: a secure-mode translation table the bench loads once into
+        # the lane (identity, perm, a hex file; default none: the core's table unloaded)
+        from ..secure import env_table
+        table = env_table()
+        if table is not None:
+            harness.load_table(table)
+    return transport, harness
 
 
 def _init_worker(core: str = "ucore", diag: bool = False):
