@@ -3588,3 +3588,16 @@ question, decided from S8's routed numbers with the user.
   Documents of the round: `docs/v35s-urom-v20-techniques.md` (what keeps the V20 ROM
   small and what each technique saves here), `docs/v35s-urom-w40-layout.md` (a 2,048 x 40
   layout; its expansion in logic is judged too deep, tables in block RAM to be tried).
+- **2026-11-18, qprobe round 27 installed (Q135–Q141; about 10,000 socket runs, each
+  twice).** For the microcode-size round. ROL4 / ROR4: no operand dependence, 4 clocks
+  apart in 600 of 600. MULU: no data-dependent clock (r8 25, r16 33 words). MUL: 36 / 43,
+  +8 when the operand signs differ, +1 when that product's low half is zero, +1 more when
+  the whole product is zero. DIVU r16 41 words for every high half tried (round 9's "2
+  shorter" was the old reading model). DIV: +7 for a negative dividend, +2 when the signs
+  differ, nothing else. A prefetch reaches only clocks 1 to 5 of these instructions
+  (clocks 3 and 5 hold for it). A refresh cycle, used as a stimulus only, reaches every
+  clock: it costs one clock except in fixed two-clock windows (MULU r16 one at clock 24,
+  DIVU r16 one at 34, DIV r8 five, INS nine, ROR4 none), read as the words where a counted
+  sequence leaves. **RTL differences found:** MUL r8 lacks the two +1 zero terms (48
+  runs; MUL r16 has them); READY at fX/2 never lengthens a cycle in the RTL (silicon: one
+  clock per 8 ticks of hold).

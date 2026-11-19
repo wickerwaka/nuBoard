@@ -4199,3 +4199,414 @@ socket time). Ports used: 20h to 23h (markers), 40h (INM / OUTM), FF10h / FF12h 
 markers in the schedule families). The RTL was simulated only for comparison (the main tree's build, nothing
 written in the main tree): `r26f`, `r26g`, `r26k`, `r26l`, `r26e` and the earlier INT 3 runs. Board left with vccb
 false, both rails off, failure 0 (read back after each session).
+
+# Round 27 (the microcode-size round's probes: `docs/v35s-urom-study.md` section 7)
+
+Programs `validation/v35s/qprobe/gen_r27.py`; tools `validation/v35s/qprobe/tools/r27/`. Frame of the operand
+rounds: loads (MOV r,imm: the same byte count whatever the operand value), a lead, the subject, the marker
+`OUT 20h,AW` (E7 20: AW's value is on the pins). Leads: `q` = SHL IX,CL with CL = 31 (queue full and bus idle
+at the subject), `d` = none (the subject directly behind the loads, fetches interleaved). Both alignments,
+W = 0 / 1 / 2. A "strip" is the run's whole list of bus events (clock, kind, address) from M0 to the marker's
+own cycle. [M] = on the pins; [I] = inferred. "T" is the routine's length in words as `model_m` carries it; a
+T is called confirmed when the model with that T reproduces the run's strip exactly (the model is the ruler,
+not the evidence: the evidence is that programs differing in operand values only give the same strip).
+
+## Q135. ROL4 / ROR4: no operand dependence at all; ROR4 - ROL4 = 4 in every form (probe 5 of the study, gate of the rotate-loop build)
+
+Programs (`r27a`, 200): ROL4 BL, ROR4 BL, ROL4 [BW], ROR4 [BW] x AL in {00, 0F, F0, FF, A5} x the operand byte
+in {00, 0F, F0, FF, A5} (all 25 pairs; AH = 5Ah) x leads `q`, `d`. 1,200 runs.
+
+Measured [M]:
+
+- 48 groups (form x lead x alignment x W) of 25 programs each: **one strip a group**. No bus event, fetch
+  address or marker clock moves with AL or the operand byte; so neither the length nor any queue pop that a
+  fetch shows moves.
+- **ROR4 - ROL4 = 4 clocks in 600 of 600 pairs** (register and memory, both leads, both alignments, three
+  waits). In the memory form the write moves by the same 4 (the read stays).
+- Marker clocks from M0 (pE / pO at W = 0, 1, 2), for reference:
+
+  | form | `q` pE | `q` pO | `d` pE | `d` pO |
+  |---|---|---|---|---|
+  | ROL4 BL | 197 205 213 | 199 207 215 | 123 130 137 | 123 129 136 |
+  | ROR4 BL | 201 209 217 | 203 211 219 | 127 134 141 | 127 133 140 |
+  | ROL4 [BW] | 213 224 237 | 214 225 238 | 139 149 161 | 140 150 162 |
+  | ROR4 [BW] | 217 228 241 | 218 229 242 | 143 153 165 | 144 154 166 |
+
+- Function: AL and the memory byte are the digit rotate's in 1,200 of 1,200 (`f27.py`; the register form's BL
+  is not on the pins).
+- The reading model (ROL4 18 / ROR4 22 words, memory `P . PC Y D`, 8 / 12 words, `Z G N .`) is exact on
+  1,200 of 1,200. RTL (74c2b30, simulated): 1,200 of 1,200 identical to silicon.
+
+Rule: **ROL4 and ROR4 take a fixed number of clocks; the only variable is the opcode (4 clocks).** A count of
+4 / 8 from the opcode is compatible; a loop with an early exit on any data condition is not.
+Inferred [I]: nothing about which of the 10 / 14 words after the commit word rotate; the pins carry no event there.
+
+## Q136. MULU has no data-dependent clock; MUL has three terms: + 8 when the operand signs differ, + 1 more when that product's low half is zero, + 1 more when the high half is zero too (probe 4 of the study)
+
+Programs (`r27b`, 126): MULU BL (10 pairs), MULU BW (11), MUL BL (21), MUL BW (21), leads `q`, `d`. 756 runs.
+
+Measured [M], the marker's clock against the group's earliest, the same in all 12 groups of a form:
+
+| form | T | operands (AL x BL or AW x BW) |
+|---|---|---|
+| MULU r8 | **25** | 01x01, 00x00, FFxFF, 80x80, 01xFF, FFx01, 00xFF, 55xAA, 10x10, 0Fx0F: one strip |
+| MULU r16 | **33** | 1x1, 0x0, FFFFxFFFF, 8000x8000, 1xFFFF, FFFFx1, 0xFFFF, 5555xAAAA, 00FFx00FF, 0100x0100, 8000x2: one strip |
+| MUL r8 | **36** | 03x05, FDxFB, 00x00, 01x01, FFxFF, 7Fx7F, 80x80, 80xFF, 10x10 (= 0100h), F0xF0 (= 0100h) |
+| | **44** (+ 8) | FDx05, 03xFB, FFx01, 01xFF, 80x01, 7Fx80, 80x7F |
+| | **45** (+ 9) | F0x10, 10xF0 (product FF00h: negative, low half zero) |
+| | **46** (+ 10) | 00xFF, FFx00 (signs differ, product zero) |
+| MUL r16 | **43** | 3x5, FFFDxFFFB, 0x0, 1x1, FFFFxFFFF, 7FFFx7FFF, 8000x8000, 8000xFFFF, 0100x0100, FF00xFF00 |
+| | **51** (+ 8) | FFFDx5, 3xFFFB, FFFFx1, 1xFFFF, 8000x1, 7FFFx8000, 8000x7FFF |
+| | **52** (+ 9) | FF00x0100, 0100xFF00 (product FFFF0000h) |
+| | **53** (+ 10) | 0xFFFF, FFFFx0 |
+
+- The V20's 29 / 30 split of the unsigned form does not exist on the V35: zero, one, all-ones, a zero high
+  half, a zero low half all give the same strip. [M]
+- The + 8 is keyed by the operands' sign bits, not by the product's sign: 0 x -1 takes it (and both zero
+  terms) although the product is zero. [M] The two + 1 terms appear only with the + 8: 10h x 10h and 0 x 0
+  (same signs, low half zero / all zero) are base. [M] So they belong to the negation of the product
+  (two's complement by halves: a zero low half, then a zero high half, each cost a clock). [I]
+- The terms are at the end: with the `q` lead the strips of a form differ only in the marker's clock and in the
+  fetch that the next opcode's release starts (it moves with the marker). [M]
+- T: the model's lengths with + 8 reproduce every run except the zero-term pairs (which are + 1 / + 2 late): 660 of
+  756; MULU 252 of 252. Function right in 756 of 756.
+- **RTL differs**: MUL r16 has all three terms (378 of 378 as silicon); **MUL r8 has the + 8 only** (F0x10,
+  10xF0 one clock short, 00xFF, FFx00 two short: 48 of 378 runs differ, all of these four pairs).
+
+Rule: **MULU r8 / r16 = 25 / 33 words for every operand; MUL r8 / r16 = 36 / 43, + 8 if the operand signs
+differ, then + 1 if the low half of the product is zero, + 1 more if the whole product is zero.**
+
+## Q137. DIVU r16 with a non-zero high half: 41 words for every operand; the "2 shorter" run of round 9 is closed (probe 2 of the study)
+
+Programs (`r27d`, 106): DIVU BW with DW in {0000, 0001, 0020, 00FF, 7FFF} x BW in {DW + 1, DW + 2, FFFF} x AW in
+{0000, FFFF, 1234}; DIVU BL with AH in {00, 01, 20, 7F} x BL in {AH + 1, FF}; leads `q`, `d`. 636 runs, no
+divide error.
+
+Measured [M]: 24 groups, **one strip a group** (45 operand triples for the word form, 8 pairs for the byte
+form). The model with DIVU r16 = 41 / r8 = 33 is exact on 636 of 636. Function right. RTL: 636 of 636 as silicon.
+
+The open run (Q36: "one round-9 probe with DW = 20h is 2 shorter at even alignment only") was `QPr9-divuw-a/-s`
+(MOV AW,1234h ; DIVU BW with BW = 0800h, DW = 0020h, directly behind the first long shift at pE). Today's model
+reproduces all twelve of those runs exactly with T = 41: the two clocks were the model's of round 9 (the second
+bus-idle word, the fifth, came with round 22), not the chip's. [M for the runs; I for the cause]
+
+Rule: **DIVU r16 is 41 words whatever DW:AW and the divisor are; DIVU r8 33.**
+
+## Q138. DIV: + 7 for a negative dividend, + 2 when the operand signs differ, nothing else; the word, byte and memory forms alike (probe 3 of the study)
+
+Programs (`r27e`, 130): DIV BW and DIV word [BW] over 23 (dividend, divisor) pairs, DIV BL over 19: the four sign
+combinations of 100 / 7 (a remainder), 98 / 7 (none), 3 / 7 (quotient zero), 0 / +-7, 12345678h / 7FFFh in four signs,
++-10000h / 3, -1 / 1, -1 / -1, 127 / -1; leads `q`, `d`. 780 runs, no divide error.
+
+Measured [M], the marker against the group's earliest, the same in every group:
+
+| signs (dividend, divisor) | DIV r16 | DIV r8 | DIV mem16 | pairs |
+|---|---|---|---|---|
+| (+, +) | **60** | **52** | base | 100/7, 98/7, 3/7, 0/7, 12345678h/7FFFh, 10000h/3 |
+| (+, -) | **62** (+ 2) | **54** | + 2 | 100/-7, 98/-7, 3/-7, 0/-7, 12345678h/-7FFFh, 127/-1 |
+| (-, -) | **67** (+ 7) | **59** | + 7 | -100/-7, -98/-7, -3/-7, -12345678h/-7FFFh, -1/-1 |
+| (-, +) | **69** (+ 9) | **61** | + 9 | -100/7, -98/7, -3/7, -12345678h/7FFFh, -10000h/3, -1/1 |
+
+- **The word form has the byte form's + 7** (the study's open item), and the memory form has both terms. [M]
+- A zero remainder, a zero quotient and a zero dividend change nothing: no term like the multiply's + 1. [M]
+  The + 2 is keyed by the sign bits, not by the quotient: 3 / -7 and 0 / -7 (quotient 0) take it. [M]
+- The model (DIV r16 60, r8 52, + 2, + 7) is exact on 504 of 504 register runs; it has no sign terms for the memory
+  form (72 of 276: the (+, +) pairs), which is the model's gap. Function right in 780 of 780.
+- RTL: 780 of 780 as silicon (it has the terms in all three forms).
+
+Rule: **DIV = base + 7 (dividend negative) + 2 (signs differ), base 60 / 52 for r16 / r8; data never enters otherwise.**
+
+## Q139. The stall map by prefetch: a fetch can be put on clocks 1 to 5 of these instructions and nowhere else; clocks 3 and 5 wait for it, 1, 2 and 4 do not (probe 1 of the study, as far as a fetch reaches)
+
+Method. A fetch starts only while the queue has room, and a boundary falls only on an idle bus or a fetch's last
+clock, so a train of NOPs cannot starve the queue; what lowers it at the subject's boundary is a predecessor that
+releases immediate bytes on its last words. Leads (23): the long shift, or JMP $+2, followed by up to three
+fillers of MOV AW,imm16 / MOV BL,imm8 / NOP (the operands' own values). To make one fetch cover many clocks the
+fetch cycle itself is lengthened: W = 0 / 1 / 2 (3 / 4 / 5 clocks), and **WTC block 0 = 3 with PMC1 bit 7 and the
+harness's READY hold** of 8 to 248 ticks from the column strobe: fetch cycles of L = 6, 8, 12, 16, 20, 24, 28, 32,
+36 clocks at the frame's fX/2 (measured: L = 5 + ticks / 8; I/O cycles stay at 3 clocks; repeats identical but for
+the strobe field). `tools/r27/run27.py` sets WTC and the hold from the run's name; `s27.py` lays the model on each
+run with waits = L - 3 (the model as ruler: 197 of 198 calibration runs and all runs below up to L = 28 are exact),
+`p27.py` sorts the runs by where fetch cycles start. An offline search of the model over every lead of up to three
+fillers out of eleven (`search27.py`) finds no lead that starts a fetch on a clock of MULU r16 later than the second
+back-to-back one.
+
+Clock numbering: clock 0 is the subject's boundary clock, clock n its n-th word when nothing waits. "Length" is
+boundary to the next boundary (the marker's): 35 for MULU r16 and 23 for ROR4 r8 with no fetch inside (T + 2 with the
+marker's decode lead; the model's T is 33 / 21).
+
+**MULU BW** (`r27s`, 552 runs, 525 model-exact with a fetch in or at the subject and tabled; `P . B . B` then 26 words, `N .`) [M]:
+
+| fetch cycles inside the subject | runs | length at L = 3, 4, 5, 6, 8, 12, 16, 20, 24, 28, 32, 36 | reading |
+|---|---|---|---|
+| none (a fetch may end on clock 0) | 67 | 35 at every L | |
+| one, on clocks 1 .. L | 406 | 36 37 38 39 41 45 49 53 57 61 65 69 = 33 + L | clocks 1, 2 pass; the word of clock 3 runs on clock L + 1 |
+| two, on 1 .. L and L + 1 .. 2L | 25 | 37 39 41 43 47 55 63 71 79 87 95 103 = 31 + 2L | and the word of clock 5 waits for the second likewise; clock 4 passes |
+| the fetch the next opcode's release starts (clock 32), alone | 27 | 35 35 36 37 39 43 47 51 55 59 63 67 = max(35, 31 + L) | the boundary waits for that fetch's last clock |
+
+**ROR4 BL** (`r27s`, 552 runs, 508 tabled; `P . BP . C` then 14 words, `N .`) [M]:
+
+| fetch cycles inside the subject | runs | length at the same L | reading |
+|---|---|---|---|
+| none besides the release's (clock 20) | 69 | 23 23 24 25 27 31 35 39 43 47 51 55 = max(23, 19 + L) | the boundary and that fetch |
+| one, on 1 .. L | 217 | 24 25 26 27 29 33 37 41 45 49 53 57 = 21 + L | the word of clock 3 (bus-idle, releases the third byte) runs on L + 1 |
+| one, on 3 .. L + 2 (started by the third byte's release) | 27 | the same | clock 4 passes; the commit word (clock 5) runs on L + 3 |
+| two, on 1 .. L and L + 1 .. 2L | 195 | 25 27 29 31 35 43 51 59 67 75 83 91 = 19 + 2L | both |
+
+**DIVU BW** (DW:AW = 00012345h, BW = 7777h) and **DIV BL** (100 / 7) (`r27t`, 552 runs each; 487 and 514
+tabled; both `P . B . B`, then T - 7 words, `N .` with T = 41 / 52) [M]:
+
+| fetch cycles inside the subject | runs DIVU / DIV | DIVU r16 length | DIV r8 length |
+|---|---|---|---|
+| none | 62 / 66 | 43 | 54 |
+| one, on 1 .. L | 376 / 396 | 41 + L (44 at L = 3 ... 77 at L = 36) | 52 + L (55 ... 88) |
+| two, on 1 .. L and L + 1 .. 2L | 23 / 25 | 39 + 2L (45 ... 103 at L = 32) | 50 + 2L (56 ... 122) |
+| the release's fetch (clock 40 / 51), alone | 26 / 27 | max(43, 39 + L) | max(54, 50 + L) |
+
+The same four placements and the same arithmetic as MULU r16: the words of clocks 3 and 5 wait, 1, 2 and 4 do
+not, and **no fetch can be put on clocks 6 to 39 (DIVU r16) or 6 to 50 (DIV r8)**.
+
+Per clock, a fetch cycle in flight on that clock stretches the instruction by:
+
+| clock (word) | MULU r16, DIVU r16, DIV r8 | ROR4 r8 |
+|---|---|---|
+| 1, 2 | 0 | 0 |
+| 3 | until the clock after the fetch's last | the same |
+| 4 | 0 | 0 |
+| 5 | until the clock after the fetch's last | the same (the commit word) |
+| 6 .. T - 2 | **cannot be reached**: the instruction releases one byte (MULU) or two (ROR4) after its boundary, so at most two fetches start inside it, and the words of clocks 3 and 5 hold it until each has ended; then the queue is full | the same |
+| T - 1 (the release of the next opcode) | starts a fetch when four or fewer bytes are left; the word itself is not held | the same |
+| the boundary | waits for the last clock of a fetch in flight | the same |
+
+Had clock 1, 2 or 4 waited, the single-fetch length would be 35 + L, 34 + L or (two fetches) 32 + 2L: excluded at
+every L. [M]
+
+Not read by the model (69 of the 1,104 runs; none enters the tables): 44 at L = 32 / 36 behind leads with two or
+three MOV AW,imm16 (the model's reading of the lead at such cycle lengths; 13 of them it does not finish), and 25
+where **silicon is 2 clocks earlier than the model at every L**: ROR4 BL behind `q3` at pO and behind `qn3` at pE
+(the long shift, [NOP,] MOV AW,imm16, ROR4: 12 cycle lengths each) and `jnn3` at pO, W = 0. The model's gap, not
+the RTL's (below).
+In `r27t` 99 of 1,104 are not read, all at L = 28 (3), 32 (29) and 36 (67): the same leads, and the model's clock
+limit on the longest runs.
+RTL: the 276 + 276 runs at W = 0 / 1 / 2 (`r27s`, `r27t`) are identical to silicon. **The READY-held runs cannot be simulated: the RTL does
+not lengthen a cycle for READY at fX/2 at all** (silicon: + 1 clock per 8 ticks of hold), and at fX/4 / fX/8 it is one
+clock longer than silicon at some holds (calibration `r27cal`: e.g. fX/4, 8 ticks: silicon 5 clocks, RTL 6; 255
+ticks: 21 both; `cal27.py`).
+
+Rule: **the only words of MULU r16, DIVU r16, DIV r8 and ROR4 r8 that a fetch can reach are the first five, and of those only the two
+known bus-idle / commit words (3 and 5) wait; whether a later word would wait cannot be asked with a fetch.**
+
+## Q140. The stall map by refresh: a refresh cycle reaches every clock; it costs the instruction exactly one clock on most of them and nothing in a few fixed windows, and the windows differ by instruction (not asked for: the other interleaved bus event, used because a fetch cannot reach clock 6 on)
+
+This uses refresh as a stimulus only (RFM = F3h: a cycle every 128 clocks, RFW = 0; F2h, every 64, in `r27ra`); the
+no-refresh focus of the corpus is not touched and nothing here is a statement about the refresh rules.
+
+Method. Body: `[x] OUT 22h,AL ; MOV CL,k ; SHL IX,CL ; subject ; OUT 20h,AW`, k = 4 .. 31 (the shift slides the
+subject against the refresh timer two clocks a step), x = nothing / NOP / a long shift / a long shift and NOP in front
+of the first marker (the other phases), both alignments, W = 0. Each program runs with refresh off and on. The
+window is OUT 22h's cycle to the marker's; **stretch** = its length with refresh minus its length without. Only
+runs with exactly one refresh cycle between 16 clocks before OUT 22h and the marker are used (period 128: 192, 168,
+222 and 224 of 224 programs for MULU, ROR4, DIVU, DIV; the others have none in the window and stretch 0). The refresh's place i = dE - ceil(d) + stretch, d = clocks from /REFRQ's fall to the
+marker's cycle, dE = the same distance for the subject's boundary clock in the no-refresh run (the boundary is the
+model's; every no-refresh run is model-exact): i is the clock of the subject, in its own unstretched clocks (1 =
+first word), on which the refresh cycle starts. `tools/r27/r27.py`. Rounds `r27ra`, `r27rd` (MULU BW, ROR4 BL),
+`r27rb` (DIVU BW, DIV BL); 2,016 runs.
+
+Measured [M] (stretch per place; "none" = no refresh cycle was seen to start on that clock in any phase; N = the
+word that releases the next opcode, T - 1):
+
+| instruction | place: stretch |
+|---|---|
+| the lead, SHL IX,CL (boundary at 0, N at -1; 328 runs with the refresh in its loop) | -53 .. -7: **+1** at every odd place, **none at any even place**; -5: **0**; -4, -3: none; -2: +1; -1: none; 0: +1 |
+| MULU r16 (T = 33, N = 32) | 1: none; 2 .. 23: **+1** at each; **24, 25: 0**; 26: none; 27 .. 30: +1; 31: -1; 32: 0 |
+| DIVU r16 (T = 41, N = 40) | 1: none; 2 .. 33: **+1** at each; **34, 35: 0**; 36: none; 37, 38: +1; 39: -1; 40: 0 |
+| DIV r8, both operands positive (T = 52, N = 51) | 1: none; 2 .. 9: +1; **10, 11: 0**; 12, 13: none; 14 .. 17: +1; **18, 19: 0**; 20: none; 21 .. 24: +1; **25, 26: 0**; 27, 28: none; 29 .. 36: +1; **37, 38: 0**; 39: none; 40 .. 43: +1; **44, 45: 0**; 46, 47: none; 48, 49: +1; 50: -1; 51: 0 |
+| ROR4 r8 (T = 21, N = 20; behind the full queue the third byte's release starts a fetch on clock 3) | 0: 0 / +1; 1: none; **2, 3, 5, 6: 0**; 4, 7: none; 8 .. 19: **+1** at each; 20, 21: 0 |
+
+Behind the subject's boundary (the marker's own words and its I/O cycle) the stretch is 0, +1, +2 or +3 by place:
+bus arithmetic of the marker, not read.
+
+- **A refresh cycle that starts while the execution unit works without the bus delays the instruction by exactly one
+  clock**, wherever it starts: the bus-idle words (3, 5), the words behind them, and every clock of the long stretch
+  alike. So the refresh does not tell a loop step from a hold slot inside a stretch. [M]
+- **Each instruction has places where the refresh costs nothing, always two adjacent start clocks followed by one or
+  two clocks on which no refresh starts.** The long shift, MULU r16 and DIVU r16 have exactly one, shortly before the
+  release of the next opcode: N - 4 (shift), N - 8 (MULU r16), N - 6 (DIVU r16). DIV r8 has five: at 10, 18, 25, 37
+  and 44 (the last at N - 7). ROR4 r8 has none between its commit word and N: clocks 8 to 19 are twelve + 1 clocks
+  (its zero at 2 to 6 is the fetch and the commit word's wait, which the refresh displaces). [M]
+- **In the long shift's loop (two words a bit) a refresh cycle starts on every other clock only** (328 of 328 at odd
+  places, each + 1), although both phases against the subject are swept (the subjects' own places are sampled
+  contiguously). In the long stretches of MULU r16 (2 .. 23), DIVU r16 (2 .. 33) and ROR4 (8 .. 19) a refresh
+  starts on every clock. So those stretches are not built like the shift's loop (a step word and a loop word in
+  turn): every clock of them is the same kind of word to the refresh. [M]
+- Between the windows the + 1 runs are: MULU r16 22 clocks (2 .. 23) then 4; DIVU r16 32 (2 .. 33) then 2; DIV r8
+  8, 4, 4, **8**, 4, 2. [M]
+
+- Clocks on which no refresh cycle starts: the subject's first word (1), the word that releases the next opcode in the
+  shift (-1), one word of each shift iteration, and the one or two clocks behind each window. [M]
+
+Inferred [I] (none of this is on the pins as an event):
+
+- The clocks with no start would be the words whose successor is not the next word (the shift's loop word, the
+  dispatch into a routine, the word behind a taken micro-jump): a request arriving there starts one clock later.
+
+- A window is a word (or pair) in which the microprogram does nothing the refresh can delay. The one window of the
+  shift sits where its loop ends, and DIV r8's fourth window ends a run of exactly eight + 1 clocks: the windows
+  look like **the words where a count-controlled or conditional sequence leaves (a micro-jump with a dead clock)**,
+  not like data words.
+- Read that way: MULU r16 runs from clock 6 to 23 (18 clocks) with no such word, leaves once at 24, and has 4
+  words of finish before N; **DIVU r16 runs from 6 to 33 (28 clocks = 16 + 12) with no such word**, leaves at 34, 2
+  words of finish. If the divide's loop is one clock a bit and ends at the window, twelve clocks stand in front of
+  it with no branch in them (the study's "16 clocks without a V20 counterpart" are then one unbroken straight
+  sequence, not a second loop with its own exit); a loop of two clocks a bit would not fit 28 either.
+  DIV r8, (+, +): 8 clocks, branch, 4, branch, 4, branch, **8 (the loop, one clock a bit)**, branch, 4, branch, 2:
+  the four extra windows are where the sign tests would be.
+- ROR4: the twelve clocks 8 .. 19 between the commit word and N hold no window: a rotate loop of eight single-clock
+  steps with no separate exit word fits; a loop that needs a dead exit clock in that span would show a zero there
+  and does not.
+
+Not done: the windows of DIV with negative operands (do the + 7 and + 2 sit behind a window), MUL, ROL4, EXT. INS and
+MULU r8: Q141. RTL: refresh is not modelled (the -rf / -rg runs simulate as the refresh-off runs); nothing to compare.
+
+Rule: **one refresh cycle = one clock of the instruction, except in fixed two-clock windows: one before the end
+of MULU / DIVU / the long shift, five in signed DIV r8, none in ROR4's stretch.**
+
+## Q141. The refresh map of INS BL,2 (offset 3, width 3) and of MULU r8 (Q140's method)
+
+`r27rf`: INS reg8,imm4 (0F 39 C3 02; BL = 3, AW = 0005h, DS1:IY = 00C40h), six phases (two long shifts in front of the
+first marker for the late clocks), 672 runs. Boundary to the next boundary 94 / 95 without refresh (the model is
+exact on the no-refresh runs). Places 0 to 65 from the 201 programs with one refresh in the window; places 59 to
+105 from the 135 with two, the first of them in the lead's shift loop (an odd place there costs 1: Q140) and taken
+as 1 (`r27.py -v` into `r27two.py`; where the two sets overlap, 59 to 65, they agree).
+
+Measured [M], place: stretch ("none" as in Q140):
+
+| places | stretch |
+|---|---|
+| 2, 3, 5, 6, 9, 10 (the head: `P . BP . C . . Y DP . . B`, its fetch and its read) | 0; none at 1, 4, 7, 8, 11 |
+| 12, 13 | + 3 (the refresh against the operand word's read) |
+| 15, 16 | **0**; none at 14, 17 |
+| 18, 19 | + 1 |
+| 20, 21 | **0**; none at 22, 23 |
+| 24 .. 27 | + 1 (four) |
+| 28, 29 | **0**; none at 30, 31 |
+| 32 .. 35 | + 1 (four) |
+| 36, 37 | **0**; none at 38, 39 |
+| 40, 41 | **0**; none at 42 |
+| 43 .. 50 | + 1 (eight) |
+| 51, 52 | **0**; none at 53 |
+| 54 .. 75 | + 1 at each (twenty-two; 64 seen in the two-refresh set only) |
+| 76, 77 | **0**; none at 78 |
+| 79, 80 | **0**; none at 81 |
+| 82, 83 | + 1 |
+| 84, 85 | **0**; none at 86, 87 |
+| 88, 89 | + 1 |
+| 90, 91 | + 3 (the refresh against the write); none at 92, 93 |
+| 94 on | the next instruction's (+ 1, 0, + 1, + 2, + 1 ..., + 3 at 104, 105) |
+
+- INS has **nine** zero windows behind its head (15, 20, 28, 36, 40, 51, 76, 79, 84) against one in MULU r16 and DIVU
+  r16 and five in DIV r8. Its + 1 runs are 2, 4, 4, 8, **22**, 2, 2. [M]
+- One long unbroken run only (54 .. 75): if a window is where a counted sequence leaves (Q140, [I]), INS (o = 3, w = 3)
+  has one long counted stretch of 22 clocks and one of 8, not two passes of 16; the fixed 94 would be many short
+  sequences and those two. [I]
+
+`r27rg`: MULU BL (AL = 12h, BL = 34h), four phases, 448 runs, 176 programs with one refresh in the window. [M]
+
+| instruction | place: stretch |
+|---|---|
+| MULU r8 (T = 25, N = 24) | 1: none; 2 .. 15: **+1** at each (fourteen); **16, 17: 0**; 18: none; 19 .. 22: +1 (four); 23: -1; 24: 0 |
+| MULU r16 (T = 33, N = 32), from Q140 | 1: none; 2 .. 23: **+1** at each (twenty-two); **24, 25: 0**; 26: none; 27 .. 30: +1 (four); 31: -1; 32: 0 |
+
+- **The byte and word forms differ only in the + 1 run in front of the window: 14 against 22 clocks. The window is at
+  N - 8 in both, and the four clocks, the - 1 and the 0 behind it are the same.** [M]
+- So the eight clocks of difference are eight more clocks of one unbroken sequence that ends at the window: the
+  multiply's loop is one clock a bit and the window is where it leaves; with the loop taken as the 8 / 16 clocks in
+  front of the window (8 .. 15 / 8 .. 23), clocks 6 and 7 are set-up, 16 - 18 / 24 - 26 the exit, 19 - 22 / 27 - 30
+  four words of finish before N. [I]
+
+Rule: **INS's fixed 94 clocks are seven + 1 runs (2, 4, 4, 8, 22, 2, 2) between nine zero windows; MULU's window
+moves with the operand width, eight clocks for eight bits.**
+
+## Where the RTL (74c2b30, simulated in the probe worktree's own build) differs from silicon
+
+| what | silicon | RTL |
+|---|---|---|
+| MUL r8, operand signs differ and the product's low byte is zero (F0h x 10h, 10h x F0h) | 45 words (+ 9) | 44 (+ 8) |
+| MUL r8, operand signs differ and the product is zero (00h x FFh, FFh x 00h) | 46 (+ 10) | 44 (+ 8) |
+| READY at fX/2 (WTC field 3, PMC1 bit 7, the harness's hold from the column strobe) | a cycle is 5 clocks + 1 per 8 ticks of hold (8 ticks: 6 clocks ... 255: 37) | never lengthened (5 clocks at every hold) |
+| READY at fX/4 | 5, 5, 6, 6, 6, 7, 11, 17, 21 clocks at 1, 8, 16, 17, 24, 40, 100, 200, 255 ticks | 6, 6, 7, 7, 7, 8, 12, 18, 21 |
+| READY at fX/8 | 5, 5, 5, 5, 5, 6, 8, 11, 13 clocks at the same holds | 5, 6, 6, 6, 6, 7, 8, 12, 13 |
+| refresh | Q140 | not modelled (known) |
+
+Everything else simulated is identical to silicon: `r27a` 1,200 of 1,200, `r27b` 708 of 756 (the 48 are the MUL r8
+rows above), `r27d` 636 of 636, `r27e` 780 of 780, the W = 0 / 1 / 2 runs of `r27s` and `r27t` 552 of 552; function
+(AW at the marker, the memory byte) right in all 3,372 operand runs in both.
+
+The READY rows are from the calibration `r27cal` (198 runs, `cal27.py`: the ticks between two back-to-back fetch
+starts). At fX/4 and fX/8 the repeat of a run differs from the first by single ticks in time (the hold is not
+synchronous to the slower CPU clock); at fX/2 the repeats are identical but for the strobe field, and only fX/2 is
+used in Q139.
+
+## Not acquired / not read in round 27
+
+- INS (o = 3, w = 3) by prefetch (`r27u` holds ROL4 r8 and MULU r8 only; `insi` is defined in `S_SUBJ`): its head
+  has the same bus-idle and commit words, and a fetch reaches no further (Q139's argument; not run).
+- The refresh map of DIV with negative operands, of MUL, of ROL4, of DIVU r8 and DIV r16, of EXT and of INS at other
+  offsets and widths.
+- The marker's own words under a refresh (the places behind each subject's boundary in Q140).
+- Why a refresh costs the execution unit a clock at all (Q140 is a map, not a mechanism).
+- The reading model's misses listed under Q139 (ROR4 behind MOV AW,imm16 two clocks early; leads of several
+  imm16 loads at fetch cycles of 28 clocks and more).
+
+## Round 27 in numbers
+
+| | |
+|---|---|
+| operand rounds (`r27a`, `r27b`, `r27d`, `r27e`) | 3,372 runs; model-exact 3,120 (the 252 are MUL's zero terms, 48, and the memory DIV's sign terms, 204: neither is in the model) |
+| ROL4 / ROR4 strips that move with the operands | 0 of 48 groups |
+| MULU / DIVU strips that move with the operands | 0 of 48 groups |
+| stall map by prefetch (`r27s`, `r27t`) | 2,208 runs; 2,040 model-exact (2,034 tabled), 168 not read: 143 at fetch cycles of 28 clocks or more, 25 ROR4 behind MOV AW,imm16 |
+| stall map by refresh (`r27ra`, `r27rb`, `r27rd`, `r27rf`, `r27rg`) | 3,136 runs; 1,183 single-refresh pairs tabled, 135 two-refresh pairs for INS's late clocks |
+| calibrations (`r27cal`, `r27rcal`) | 238 runs |
+
+## Socket runs of round 27
+
+| family | what | runs | repeats that differ |
+|---|---|---|---|
+| r27a | ROL4 / ROR4, register and memory, 25 operand pairs, two leads | 1,200 | 1 |
+| r27b | MULU / MUL r8 / r16, 63 operand pairs, two leads | 756 | 25 |
+| r27d | DIVU r16 with DW not zero (45 triples), DIVU r8 (8) | 636 | 35 |
+| r27e | DIV r16 / mem16 / r8 sign grid | 780 | 66 |
+| r27cal | READY hold at fX/2, fX/4, fX/8 (MULU r16 behind three leads) | 198 | 115 (see below) |
+| r27s | MULU r16, ROR4 r8 behind 23 leads, fetch cycles of 3 to 36 clocks | 1,104 | 63 |
+| r27t | DIVU r16, DIV r8, the same | 1,104 | 148 |
+| r27rcal | refresh every 64 clocks, MULU r16 (first look) | 40 | 1 |
+| r27ra | MULU r16, ROR4 r8: refresh off / every 64 / every 128 clocks | 672 | 60 |
+| r27rb | DIVU r16, DIV r8: refresh off / every 128, four phases | 896 | 158 |
+| r27rd | MULU r16, ROR4 r8: refresh off / every 128, the later phases | 448 | 59 |
+| r27rf | INS BL,2: refresh off / every 128, six phases | 672 | 93 |
+| r27rg | MULU r8: refresh off / every 128, four phases | 448 | 71 |
+
+Every run twice; 0 failed, 0 incomplete. The repeats that differ were compared field by field (`build/qp/rep20.py`):
+strobe field only in every family except `r27cal`, where the fX/4 and fX/8 runs (110 of the 115) also differ in time
+by single ticks (above; the fX/2 runs of `r27cal` differ in the strobe only). Five acquisition sessions, about three
+hours of socket time. Ports used: 20h to 22h (markers). SFRs written besides the frame's: PMC1 = 80h
+(P17 as READY: an input; the READY-held runs only, DS0 = F000h in them), WTC = 0003h, RFM = F2h / F3h. Board left
+with vccb false, both rails off, failure 0 (read back after each session).
+
+## Files of round 27 (this hand-back directory)
+
+- `qprobe/gen_r27.py`: the programs (drop into `validation/v35s/qprobe/`). Rounds run: r27a, b, d, e, cal, s, t, rcal,
+  ra, rb, rd, rf, rg. Defined and not run: r27u, r27v, r27x, r27re.
+- `qprobe/tools/r27/`: `acq27.sh` / `acq27b.sh` (the socket sessions; the second through `run27.py`), `run27.py` (the
+  runner with WTC = 3 and the READY hold for `-yNNN` / `-zNNN` / `-xNNN` runs and RFM = F2h / F3h for `-rf` / `-rg` runs;
+  `--backend sim` works the same), `t27.py` (operand dependence), `f27.py` (function), `m27.py` (the model on the
+  operand rounds), `cal27.py` (cycle lengths), `s27.py` and `p27.py` (the prefetch stall map), `search27.py` (the
+  offline lead search), `r27.py` and `r27two.py` (the refresh maps), and copies of `rep20.py` / `cmp22.py` from
+  `build/qp/`. All run from the repository root with `PYTHONPATH=host/src:.`; they read
+  `build/validation/v35s/qprobe/{socket,sim}/QPr27*.json`.
+- `receipts/`: the 27 socket files, gzip JSON, each run with its repeat. `receipts-sim/`: the RTL's (74c2b30).
+  A run's WTC, RFM and PRC are in its `chain` record; the READY hold in ticks is the number in its name.
+- `logs/`: the tools' listings behind every table here, and `acq-all.out` (one line a session round).
+- `pre-reset-backup/`: three generated `v35_urom_b[345].hex` files that were untracked in the probe worktree and
+  differed from 74c2b30's; copied before the reset, not otherwise used.
