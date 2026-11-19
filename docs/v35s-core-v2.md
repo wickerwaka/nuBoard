@@ -3693,3 +3693,9 @@ question, decided from S8's routed numbers with the user.
   controls differ as predicted. Builder's fast gate: corpus subset 8,313 of 8,502, 0 rows
   and 0 pin records differ with the table unloaded and with the permutation loaded;
   vectors 0 bad; 17 ns +3.221 / +3.314 / +3.179; 9,568 LUT4, 2,617 FF, 36 RAM_5K.
+- **2026-11-19, work order 29's FULL gate (three seeds).** Corpus 30,181 at both spacings,
+  no run changed, 0 failed, 0 incomplete; pin records 0 of 30,536 differ against the last
+  landing; program gates, f4_hwd, vectors, SST as before (every line of the gate equal to
+  work order 28's); checker silent; secure.py's 14 benches all as predicted. 17 ns:
+  +3.221 / +3.314 / +3.179; 9,568 LUT4, 2,617 FF, 36 RAM_5K. The EU mapped alone reads
+  +2.350 (from +4.515): a module-alone figure, not seen in the top (not looked into).
