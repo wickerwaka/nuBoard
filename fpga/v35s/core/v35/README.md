@@ -8800,3 +8800,104 @@ AW is written from SIGMA at the end, as before.
 | MUL r16,r/m,imm (69 / 6B) | none | the products are 16-bit. `mir_f` already has the three terms |
 
 `r27a` / `r27d` / `r27e` stay 1,200 / 636 / 780.
+
+## Work order 27: the core reads the 2,048 x 40 ROM (L40)
+
+v35_useq reads the L40 image of work order 26 (docs/v35s-urom-w40-layout.md) instead of the
+96-bit ROM. The layout, the addresses and every word are the same; only the storage changes.
+Every simulation result is identical to the base, pin for pin.
+
+**The read.** One ROM of 2,048 x 40 (`v35_l40_rom.hex`) is read at ce_b as before (`rd`, the
+RAM's read data). The early fields sit at fixed places in every word and are read raw in tick
+B: SEQ, K (`e f nb bi vk ro rl flush`), POP, WID, RA / RB, B. Tick B decodes from them, with no
+table, `word_nx` (what the loader, the EU's early read and the pace read), the derived bits
+`pd_nx` (dispatch, take point, REP re-entry, POST) and KW. The two tables are block RAMs, X
+(256 x 18: `alu ax ay wf cnt`) and Y (512 x 35: `d1 s1 d2 s2 wr ws ea bus seg pfx susp halt
+ist`, {POST half, index}). They are read at `!reset_n || ce_a`, the word register's own enable,
+at the address the word's form gives (`xa`, `ya`: uasm `l40_table_addr`, formed in tick B from
+the ROM's read data). Reset, stall, dispatch, the take entries and TRAP / VEC are unchanged:
+the word register had no hold, flush or forced value, so a RAM read at its enable is the same
+register.
+
+**The word.** `word` is the same `v35_uword_t` as before, field for field, so no reader in the
+EU, the bus unit, the loader or the top changed its expression:
+
+| fields | from |
+| --- | --- |
+| `e f nb bi vk ro rl flush pop wid` | flops of the raw fields (`qe`) |
+| `ra rb` | flops of RA / RB, loaded 0 (RS_NONE) when RA >= 28 (the word names no register) |
+| `seq cond` | flops of SEQ's decode (JC / JNC + cond, RET, TKI, DISP, JMP, CALL, LOOP, EAC, TRAP; NEXT for NEXT / EREP / VEC) |
+| `tgt` | flop: L40_TKI0 / 1 on the TKI codes, B on SEQ >= 8 (targets, TRAP's and VEC's vector), else 0 |
+| `alu ax ay wf cnt` | X's read data (`xq`) |
+| `d1 s1 d2 s2 wr ws ea bus seg pfx susp halt ist` | Y's read data (`yq`) |
+
+`word_nx` carries the early fields raw (RA / RB too: selector 28..31 is `rsel_g`'s default,
+address 0, the same as RS_NONE's, so the early read needs no gate). Of the late fields it
+carries only the two facts tick B reads, as their fields' codes: `d1 = OPRW` for KW and
+`bus = MEMR` for POST, every other late field 0.
+
+**The one-bit flops (the w40 trial's repair 3).** The late facts that head paths into the bus
+grant and the interrupt controller are flops loaded with the word, from tick-B facts:
+
+| fact | flop | from |
+| --- | --- | --- |
+| the word posts (EU `post`) | eu `p_q` | `word_nx.bus` (POST) |
+| the word loads OPRW (EU `k_cur`, read only while an unarmed write stands) | eu `k_q` | `word_nx.d1` (KW) |
+| SUSP (`q_susp`, `sp_n`) | useq `su_q` | `v35_l40_ysusp(ya)` |
+| IVEC / FINT (`x_ivec`, `x_fint`) | useq `iv_q`, `fi_q` | `v35_l40_xivec(xa)`, `v35_l40_xfint(xa)` |
+
+The entries are generated into v35_l40.svh by the assembler; none is written by hand. No unit
+port was added: the EU's flops read `word_nx`, which it already had. The budget in
+test_v35_struct.py is unchanged.
+
+**The reference (`+v35_chk`, simulation only).** The 96-bit ROM (`v35_urom_b0..b2.hex`, still
+generated) is read at the same address with the same enables, `ifndef SYNTHESIS`. Every clock
+the checker compares:
+- the word the core uses with the 96-bit word, whole;
+- the early facts of tick B: `word_nx`'s raw fields with the 96-bit read data (RA / RB when
+  RA < 28, else the reference's must be 0), `pd_nx` with `pre()` of it, and KW implies that
+  the word loads OPRW;
+- `su_q` / `iv_q` / `fi_q` with `susp` / `alu == IVEC` / `alu == FINT`;
+- in the EU, `p_q` with the word's `bus` posting, `k_q` with `d1` / `d2 == OPRW` while an
+  unarmed write stands, and KW only on a word that loads OPRW.
+
+A synthesis build holds no 96-bit ROM. A planted fault fires the checker: one bit of the reset
+word's K field gives "an early field or fact of the L40 read differs"; one bit of X entry 20
+gives "the L40 word differs from the 96-bit ROM's".
+
+**The assembler.** The L40 files (`v35_l40_rom.hex`, `v35_l40_x.hex`, `v35_l40_y.hex`,
+`v35_l40.svh`) are part of the default build and of `--check`. `--l40` now only adds the
+40-bit word to `--list`. A layout without an L40 image (`--no-share`, `--tail-only`) is not
+written. fpga/v35s/build.sh, synth/v35_timing.sh, synth/v35_map.sh and synth/quartus/run.sh
+copy the L40 files.
+
+**One error found on the way.** The NT page codes address the tables at 128 + P (X NT, Y NT
+and Y NT1 alike), not at the svh's page constants OR'ed with P. The first build used the
+constants and every run timed out. The replay log held no `v35 chk` line for those runs
+(inferred: a lane killed at its timeout loses its buffered output; the planted faults above,
+on runs that end, do print). An elaboration check in simulation now ties the svh's page bases
+to the address select.
+
+**Timing (Efinity 2026.1, T120F484, 17 ns, `fpga/v35s/synth/v35_timing.sh`, no exception).**
+
+| build | s1 | s2 | s3 | LUT4 | FF | RAM_5K |
+| --- | --- | --- | --- | --- | --- | --- |
+| base (work order 26 tree, the overseer's gate) | +2.921 | +2.943 | +2.846 | 9,574 | 2,625 | 87 |
+| **L40, ROM 2,048 x 2 blocks (built)** | **+3.432** | **+3.174** | **+2.968** | 9,603 | 2,568 | **64** |
+| L40, ROM forced to 1,024 x 5 (two halves, a registered select; not built) | +3.257 | +3.002 | +3.088 | 9,633 | 2,574 | 60 |
+
+- RAM_5K of the built core: main ROM 20 (2,048 x 2 each), X 1, Y 4, the rest 39 (the
+  loader's decode tables 33, the register RAM 6). The 1,024 x 5 arrangement takes 16 for the
+  ROM; its worst seed is 0.034 ns better, its other two seeds 0.175 / 0.172 worse, its mean
+  0.075 worse, and its select sits on every early-field path. The 2,048 x 2 ROM is kept.
+- Worst paths: s1 ROM -> `useq/ph` (the word kind to the pace, a base-type path, 8 levels);
+  s2 and s3 X -> `c_snz` (the ALU's zero test, 8 / 7 levels). From Y the worst is the segment
+  write enables (`wr` -> `eu/ds0` / `ss` CE: +3.961 / +3.532 / +3.417). Among the 2,000
+  worst endpoints no table-headed path ends in the bus unit or at the pins; the nearest into
+  the sequencer's pace and stall are Y -> `useq/ph` +4.030 (s3) and -> `ex` +4.676 / +5.051,
+  into the interrupt controller Y -> `intc/brk_arm` / `ie_arm` +6.356 and up.
+- Into a table's address (ROM -> the form select -> RADDR): +5.768 / +5.151 / +5.700 (X),
+  +5.306 / +4.869 / +5.589 (Y).
+- Modules alone: useq +5.697 (594 LUT4, 383 FF, 25 RAM_5K; ROM -> `su_q`, 5 levels; base
+  +6.472), eu +4.916 (4,249 LUT4, 1,303 FF; a wrapper input -> output path, 7 levels; base
+  +5.152).

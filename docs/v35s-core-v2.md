@@ -3633,3 +3633,21 @@ question, decided from S8's routed numbers with the user.
   incomplete; pin records 0 of 30,536 differ; program gates, f4_hwd, vectors, SST as
   before; checker silent. 17 ns: +2.921 / +2.943 / +2.846; 9,574 LUT4, 2,625 FF, 87
   RAM_5K.
+- **2026-11-19, work order 27 (FULL gate, three seeds): the core reads the 2,048 x 40
+  microcode ROM.** v35_useq reads `v35_l40_rom.hex` (40 bits) with the X table (256 x 18:
+  alu ax ay wf cnt) and the Y table (512 x 35) in block RAM, clocked at `!reset_n || ce_a`
+  in place of the word register for the late fields; the early fields (K's bits, POP, WID,
+  RA, RB, SEQ's decode, the target) are flops of the ROM read as before. Five one-bit
+  flops stand beside the word for the facts read before the tables answer: POST and KW
+  (EU), SUSP, IVEC, FINT (sequencer). No port added; the interface budget is unchanged.
+  The 96-bit ROM remains as a simulation-only reference: under `+v35_chk` the assembled
+  word is compared whole with it every clock (shown to fire on one planted ROM bit and
+  one planted X bit). The checker's limit: a run that hangs loses its output, so the gate
+  also requires 0 failed and 0 incomplete. The assembler writes the L40 files in every
+  build and `--check` covers them. Gate: corpus 30,181 at both spacings, no run changed,
+  0 failed, 0 incomplete; pin records 0 of 30,536 differ against the last landing;
+  program gates, f4_hwd, vectors, SST as before; checker silent. 17 ns: +3.432 / +3.174 /
+  +2.968; 9,603 LUT4, 2,568 FF, **64 RAM_5K** (87 before; 108 at the start of the
+  round): main ROM 20, X 1, Y 4, the rest 39. Not built in: the main ROM forced to
+  1,024 x 5 blocks (16 blocks in place of 20; the builder measured +3.257 / +3.002 /
+  +3.088, 60 RAM_5K).

@@ -646,12 +646,16 @@ class L40(unittest.TestCase):
                 self.assertIsNone(uasm.l40_tgt_ok(f), self.prog.name_of(a))
 
     def test_checked_in_l40_files_are_the_assembly(self):
+        # (work order 27) the core reads them: part of every build and of --check
         out = uasm.l40_outputs(self.img)
+        self.assertEqual(set(out), {"v35_l40_rom.hex", "v35_l40_x.hex", "v35_l40_y.hex",
+                                    "v35_l40.svh"})
         for name, text in out.items():
             p = uasm.V35 / name
-            if p.exists():
-                self.assertEqual(p.read_text(), text,
-                                 f"{name}: run python -m validation.v35s.chains.uasm --l40")
+            self.assertTrue(p.exists(), name)
+            self.assertEqual(p.read_text(), text,
+                             f"{name}: run python -m validation.v35s.chains.uasm")
+        self.assertEqual(uasm.check(self.prog), [])
 
 
 if __name__ == "__main__":

@@ -783,14 +783,28 @@ module v35_eu
     assign wa_data = sw[5:4] == 2'd0 ? wsv : {wsv[7:0], wsv[7:0]};
 
     // ------------------------------------------------------------ tick B: the request
-    wire        post = ex_b && word.bus != BQ_NONE && word.bus != BQ_RSV;
+    // (work order 27) the word posts (`p_q`) and the word loads OPRW (`k_q`, K for an unarmed
+    // write) are flops of the next word's facts (word_nx: v35_useq's early POST and KW bits from
+    // the raw ROM word) loaded with the word (`!reset_n || ce_a`): the late fields `bus` / `d1` /
+    // `d2` are a table RAM's read data, and these two head the request's valid, the slot and the
+    // bus unit's grant. `+v35_chk` compares them with the fields
+    reg         p_q = 1'b0, k_q = 1'b0;
+    wire        post = ex_b && p_q;
     wire        rsv_w = ex_b && word.bus == BQ_RSV;     // (round 18, A1) the reserving word
     wire        b_io = word.bus == BQ_IOR || word.bus == BQ_IOW || word.bus == BQ_INTA;
     wire        b_rd = word.bus == BQ_MEMR || word.bus == BQ_IOR || word.bus == BQ_INTA;
     wire        b_mw = word.bus == BQ_MEMW || word.bus == BQ_MEMWD;
     // (A2) the current word loads OPRW (K for an unarmed write), and the next word's (tick B)
-    wire        k_cur = word.d1 == MD_OPRW || word.d2 == MD_OPRW;
+    // ((work order 27) k_cur is read only while an unarmed write stands, where the word that
+    // loads OPRW is its arming word, the word with KW: uasm arming_words)
     wire        k_nx = word_nx.d1 == MD_OPRW || word_nx.d2 == MD_OPRW;
+    wire        k_cur = k_q;
+    always_ff @(posedge clock) begin
+        if (!reset_n || ce_a) begin
+            p_q <= word_nx.bus != BQ_NONE && word_nx.bus != BQ_RSV;
+            k_q <= k_nx;
+        end
+    end
     // (qprobe round 17, timing) the segment's value (`segv`, the word's segment, the prefix's,
     // SS for a BP mode) formed in tick A from ce_a registers alone (the word, the segment flops,
     // TA, IDB, the prefix, ea_ss) and captured at ce_b (`segv_b`, as aq_b), so the linear
@@ -1166,6 +1180,17 @@ module v35_eu
             chk_n = chk_n + 1;
             if (chk_n <= 20)
                 $display("v35 chk: eu: an unarmed write granted before its datum at %0t", $time);
+        end
+    end
+    // (work order 27) the POST and KW flops against the word's fields: POST always; KW is a
+    // word that loads OPRW, and while an unarmed write stands it is exactly that
+    wire        k_word = word.d1 == MD_OPRW || word.d2 == MD_OPRW;
+    always @(posedge clock) begin
+        if (chk_on && reset_n && (p_q !== (word.bus != BQ_NONE && word.bus != BQ_RSV)
+                                  || (k_q && !k_word) || (rq_un && k_q !== k_word))) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: eu: the word's POST / KW flop differs from its fields at %0t", $time);
         end
     end
     final if (chk_on && chk_n != 0)

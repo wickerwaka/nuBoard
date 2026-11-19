@@ -1,8 +1,10 @@
 `timescale 1ns/1ps
 
 // V35S core v2 (MX0): the microsequencer (docs/v35s-mechanisms.md sections 3.1, 4; README
-// "MX0"). One microinstruction a CPU clock from a registered ROM word: the ROM (three 32-bit
-// banks, v35_urom_b?.hex, assembled by validation/v35s/chains/uasm.py) is read at ce_a with the
+// "MX0"). One microinstruction a CPU clock from a registered ROM word: the ROM ((work order 27)
+// the 40-bit word L40, v35_l40_rom.hex, and its tables v35_l40_x.hex / v35_l40_y.hex, assembled
+// by validation/v35s/chains/uasm.py; before, three 32-bit banks v35_urom_b?.hex, now the
+// simulation's reference) is read at ce_a with the
 // next microaddress computed in tick B, so the word a clock executes is a register from its
 // first tick on. The microaddress is a register.
 //
@@ -130,7 +132,8 @@ module v35_useq
     output wire        w_disp_nx,
     // the word and its execution
     output v35_uword_t word,            // the current microinstruction (a register)
-    output v35_uword_t word_nx,         // (MX5b) tick B: the next word (the banks' read data)
+    output v35_uword_t word_nx,         // (MX5b) tick B: the next word (the ROM's read data; (work
+                                        //   order 27) its early fields, and KW / POST as d1 / bus codes)
     output wire        w_dispm,         // (MX5) the word's derived bits (registers): seq == SQ_DISPM
     output wire        w_dispm_nx,      // (MX5c) tick B: the next word's seq == SQ_DISPM
     output wire        w_erep,          // (F5d) the word's derived bit (a register): e && ea == EA_REP
@@ -156,36 +159,141 @@ module v35_useq
     output wire        q_susp,          // (MX2) prefetching suspended (the queue's susp: SUSP)
     output reg         halted
 );
-    // (work order 26) the ROM in one part of 2,048 words (uasm ROM_WORDS): rom0..rom2 (2,048 x 2
-    // blocks), read at ce_b. (qprobe round 12 to work order 25: a second, high part of 512 / 1,024
-    // words in rom3..rom5 selected by the address's top bit registered with the read; work order
-    // 25's sharing left it empty and it is gone, with its select on the read data.) The address
-    // stays UADDR_W bits wide (the loader's dent / dret / ec_head ports); its top bit is 0
-    localparam int ROM_WORDS = 2048;
-    reg [31:0] rom0 [0:ROM_WORDS-1];
-    reg [31:0] rom1 [0:ROM_WORDS-1];
-    reg [31:0] rom2 [0:ROM_WORDS-1];
-    integer i;
+    // (work order 27) the ROM is the 40-bit word L40 (docs/v35s-urom-w40-layout.md; uasm.py's
+    // L40 section, v35_l40.svh): one ROM of 2,048 x 40 (v35_l40_rom.hex), read at ce_b with the
+    // address formed in tick A as before. Its early fields (SEQ, K, POP, WID, RA / RB, B) are at
+    // fixed positions in every word and are read raw in tick B; the late fields are two codes
+    // into the tables X (256 x {alu ax ay wf cnt}) and Y (512 x {d1 s1 d2 s2 wr ws ea bus seg
+    // pfx susp halt ist}: {POST half, index}), block RAMs read at `!reset_n || ce_a` (the word
+    // register's own enable) at the address the word's form gives (`xa`, `ya`, formed from the
+    // ROM's read data in tick B). The word a clock executes is the early fields' flops (`qe`)
+    // and the tables' read data (`xq`, `yq`): `word` is the same v35_uword_t as before, field
+    // for field. (work order 26 and before: three 32-bit banks of the 96-bit word, read the same
+    // way; in simulation they remain the reference, `+v35_chk` below.) The address stays
+    // UADDR_W bits wide (the loader's dent / dret / ec_head ports); its top bit is 0
+    /* verilator lint_off UNUSEDPARAM */
+    `include "v35_l40.svh"
+    /* verilator lint_on UNUSEDPARAM */
+    localparam int ROM_WORDS = L40_WORDS;
+    reg [L40_BITS-1:0]  rom  [0:ROM_WORDS-1];
+    reg [L40_XBITS-1:0] xtab [0:255];
+    reg [L40_YBITS-1:0] ytab [0:511];
     initial begin
-        for (i = 0; i < ROM_WORDS; i = i + 1) begin
-            rom0[i] = 32'd0;
-            rom1[i] = 32'd0;
-            rom2[i] = 32'd0;
-        end
-        $readmemh({UROM_DIR, "v35_urom_b0.hex"}, rom0, 0, ROM_WORDS - 1);
-        $readmemh({UROM_DIR, "v35_urom_b1.hex"}, rom1, 0, ROM_WORDS - 1);
-        $readmemh({UROM_DIR, "v35_urom_b2.hex"}, rom2, 0, ROM_WORDS - 1);
+        $readmemh({UROM_DIR, "v35_l40_rom.hex"}, rom);
+        $readmemh({UROM_DIR, "v35_l40_x.hex"}, xtab);
+        $readmemh({UROM_DIR, "v35_l40_y.hex"}, ytab);
     end
 
     reg [UADDR_W-1:0] upc = UROM_RESET;
-    // (MX5) the ROM is read a tick earlier: the banks at ce_b (`r0`..`r2`, the RAM's read data)
-    // with the next address decided in tick A (`upc_a`), the word a plain register (`q0`..`q2`)
-    // loaded from the read data at ce_a. The word a clock executes is the one the old ce_a read
-    // gave: the address is the same function of the same values (README "MX5")
-    reg [31:0] r0 = 32'd0, r1 = 32'd0, r2 = 32'd0;     // the ROM's read data
-    reg [31:0] q0 = 32'd0, q1 = 32'd0, q2 = 32'd0;
-    wire [95:0] qw = {q2, q1, q0};
-    assign word = v35_uword_t'(qw[UWORD_BITS-1:0]);
+    // (MX5) the ROM is read a tick earlier: at ce_b (`rd`, the RAM's read data) with the next
+    // address decided in tick A (`upc_a`), the word a plain register loaded from the read data
+    // at ce_a. The word a clock executes is the one the old ce_a read gave: the address is the
+    // same function of the same values (README "MX5")
+    reg [L40_BITS-1:0] rd = '0;                         // the ROM's read data (ce_b)
+    wire [4:0]  s5  = rd[L40_SEQ_LSB +: L40_SEQ_W];     // SEQ
+    wire [8:0]  kk  = rd[L40_K_LSB +: L40_K_W];         // {e f nb bi vk ro rl[1:0] flush}
+    wire [2:0]  rpp = rd[L40_POP_LSB +: L40_POP_W];
+    wire [1:0]  rwd = rd[L40_WID_LSB +: L40_WID_W];
+    wire [4:0]  rra = rd[L40_RA_LSB +: L40_RA_W];
+    wire [4:0]  rrb = rd[L40_RB_LSB +: L40_RB_W];
+    wire [10:0] rbb = rd[L40_B_LSB +: L40_B_W];
+    wire        esc = rra >= L40_ESC;                   // no register: {RA[1:0], RB} is payload P
+    wire        tf  = s5[4] || s5[3];                   // B is the target (or the vector number)
+    wire [6:0]  p7  = {rra[1:0], rrb};
+    // the early one-bit facts (layout 2.6): the word posts a request; KW, the word loads OPRW
+    // (read for the arming word of an unarmed write: form N's B[0])
+    wire        e_post = tf ? (esc && rra[1:0] == 2'd3) : rbb[10];
+    wire        e_kw = esc && !tf && s5 != L40_SQ_HOLD && rbb[0];
+    // SEQ -> seq, cond, tgt (TKI: the take entry, generated; SEQ >= 8: B)
+    logic [3:0] e_seq;
+    always_comb begin
+        if (s5[4])
+            e_seq = s5[3] ? SQ_JNC : SQ_JC;
+        else begin
+            case (s5)
+                L40_SQ_RET: e_seq = SQ_RET;
+                L40_SQ_TKI0, L40_SQ_TKI1: e_seq = SQ_TKI;
+                L40_SQ_DISP, L40_SQ_DISP + 5'd1: e_seq = SQ_DISP;
+                L40_SQ_JMP: e_seq = SQ_JMP;
+                L40_SQ_CALL: e_seq = SQ_CALL;
+                L40_SQ_LOOP: e_seq = SQ_LOOP;
+                L40_SQ_EAC: e_seq = SQ_EAC;
+                L40_SQ_TRAP: e_seq = SQ_TRAP;
+                default: e_seq = SQ_NEXT;               // NEXT, EREP, VEC (B the vector)
+            endcase
+        end
+    end
+    wire [UADDR_W-1:0] e_tgt = s5 == L40_SQ_TKI0 ? L40_TKI0 : s5 == L40_SQ_TKI1 ? L40_TKI1
+                             : tf ? {{(UADDR_W - L40_B_W){1'b0}}, rbb} : '0;
+    // the next word as tick B has it (`word_nx`): the early fields raw from the ROM's read data
+    // (RA / RB too: a word that names no register reads selector 28..31, which v35_eu's rsel_g
+    // reads as RS_NONE's address 0: no gate in front of the early read); of the late fields only
+    // the one-bit facts tick B reads, each as its field's code: d1 = OPRW for KW (the EU's k_nx),
+    // bus = MEMR for POST (the EU's post flop); every other late field 0
+    v35_uword_t wnx;
+    always_comb begin
+        wnx = '0;
+        {wnx.e, wnx.f, wnx.nb, wnx.bi, wnx.vk, wnx.ro} = kk[8:3];
+        wnx.rl = v35_rl_e'(kk[2:1]);
+        wnx.flush = kk[0];
+        wnx.pop = v35_pop_e'(rpp);
+        wnx.wid = v35_wid_e'(rwd);
+        wnx.ra = v35_rsel_e'(rra);
+        wnx.rb = v35_rsel_e'(rrb);
+        wnx.seq = v35_seq_e'(e_seq);
+        wnx.cond = v35_cond_e'(s5[4] ? s5[2:0] : 3'd0);
+        wnx.tgt = e_tgt;
+        wnx.d1 = e_kw ? MD_OPRW : MD_NONE;
+        wnx.bus = e_post ? BQ_MEMR : BQ_NONE;
+    end
+    assign word_nx = wnx;
+    // the tables' addresses by the word's form (layout 2.4; uasm l40_table_addr): N (no register,
+    // no target) X {P, B[1]}, Y {B[10], B[9:2]}; NT (target) one page code in P; R (a register,
+    // no target) X B[9:2], or Y {B[10], B[9:2]}, or both pages; RT none. Address 0 of each table
+    // is the empty payload
+    logic [7:0] xa;
+    logic [8:0] ya;
+    always_comb begin
+        xa = 8'd0;
+        ya = 9'd0;
+        if (esc) begin
+            if (tf) begin
+                if (p7 < 7'd48)
+                    xa = {1'b1, p7};                        // X NT (L40_XPAGE_NT = 128)
+                else
+                    ya = {p7[6] && p7[5], 1'b1, p7};      // 48..95: Y NT, 96..127: Y NT1 (posts)
+            end else begin
+                xa = {p7, rbb[1]};
+                ya = {rbb[10], rbb[9:2]};
+            end
+        end else if (!tf) begin
+            if (rbb[0]) begin
+                xa = 8'(L40_XPAGE_R) | {4'd0, rbb[4:1]};
+                ya = {rbb[10], 8'(L40_YPAGE_R) | {3'd0, rbb[9:5]}};
+            end else if (rbb[1])
+                ya = {rbb[10], rbb[9:2]};
+            else
+                xa = rbb[9:2];
+        end
+    end
+    // the registered word: the early fields' flops (`qe`, RA / RB 0 when the word names no
+    // register, as the 96-bit word has them) and the tables' read data (`xq`, `yq`), all loaded
+    // at `!reset_n || ce_a` as the 96-bit word register was
+    v35_uword_t qe = '0;
+    reg [L40_XBITS-1:0] xq = '0;
+    reg [L40_YBITS-1:0] yq = '0;
+    // (the w40 trial's repair 3) one-bit flops beside the word for the late facts that head
+    // paths into the bus grant and the interrupt controller, from the table address in tick B
+    // (the svh's functions: the entries the assembler placed): SUSP (q_susp, sp_n), IVEC /
+    // FINT (x_ivec, x_fint). (KW for k_cur and POST for the EU's post are the EU's flops of
+    // word_nx; `pd.post` here)
+    reg        su_q = 1'b0, iv_q = 1'b0, fi_q = 1'b0;
+    always_comb begin
+        word = qe;
+        {word.alu, word.ax, word.ay, word.wf, word.cnt} = xq;
+        {word.d1, word.s1, word.d2, word.s2, word.wr, word.ws, word.ea, word.bus, word.seg,
+         word.pfx, word.susp, word.halt, word.ist} = yq;
+    end
     // (MX5) the word's derived bits (the field compares the stall terms and the take points
     // read), decoded from the next word's read data in tick B and registered with the word
     // at ce_a: `pd` is always the function `pre(word)` of the word it sits beside
@@ -205,8 +313,6 @@ module v35_useq
         pre.tki = w.seq == SQ_TKI;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
-    wire [95:0] rw = {r2, r1, r0};
-    assign word_nx = v35_uword_t'(rw[UWORD_BITS-1:0]);
     v35_upre_t pd = '0;
     assign w_dispm = pd.dispm;
     assign w_disp = pd.disp;
@@ -278,15 +384,15 @@ module v35_useq
     assign x_flush = ex && word.flush;
     assign w_stop = word.halt && word.cnt == CN_STOP;
     assign x_stop = ex_b && w_stop;
-    assign x_ivec = ex_b && word.alu == AL_IVEC;
-    assign x_fint = ex_b && word.alu == AL_FINT;
+    assign x_ivec = ex_b && iv_q;       // (work order 27) word.alu == AL_IVEC, a flop
+    assign x_fint = ex_b && fi_q;       // ... AL_FINT
     // (MX2) SUSP suspends prefetching (the queue's request line held low from the clock the word
     // is reached until the FLUSH: `sp` once it has executed)
     // (consol) and halted: no prefetch while the sequencer is halted (the loader's fstop read
     // the halted state before; the queue's line is low for either)
-    assign q_susp = (sp && !word.flush) || word.susp || halted;     // (the FLUSH word issues the target's fetch)
+    assign q_susp = (sp && !word.flush) || su_q || halted;     // (the FLUSH word issues the target's fetch; su_q: word.susp, a flop)
     // (MX2) the suspension stands from the SUSP word's execution to the FLUSH (or an E)
-    wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && word.susp) ? 1'b1 : sp;
+    wire       sp_n = (ex && (word.flush || word.e)) ? 1'b0 : (ex && su_q) ? 1'b1 : sp;
 
     // ------------------------------------------------------------ (S7b) the ce_b registers
     reg [UADDR_W-1:0] d1_b = '0, dr_b = '0;
@@ -320,8 +426,16 @@ module v35_useq
     // (MX5c) the stall's facts as they stand after the coming ce_a (tick B: the next word and
     // its derived bits, the ce_b registers the counters load, the other modules' next values)
     // and the registered outcome
+    // (work order 27) from the raw word (layout 2.6): `pre(word_nx)` of the 96-bit word
+    // (`+v35_chk`)
     v35_upre_t pd_nx;
-    assign pd_nx = pre(word_nx);
+    always_comb begin
+        pd_nx.post = e_post;
+        pd_nx.disp = s5[4:1] == L40_SQ_DISP[4:1];
+        pd_nx.dispm = 1'b0;                 // (qprobe round 17) DISPM withdrawn
+        pd_nx.erep = kk[8] && s5[0];        // an E word's SEQ is NEXT, EREP or JMP (uasm)
+        pd_nx.tki = s5[4:1] == L40_SQ_TKI0[4:1];
+    end
     assign w_dispm_nx = pd_nx.dispm;
     assign w_disp_nx = pd_nx.disp;
     assign w_erep_nx = pd_nx.erep;
@@ -514,17 +628,21 @@ module v35_useq
     (* syn_keep = "true" *) wire lt_l = s_tk ? sgo : s_ds ? igo : s_ec ? ec_reg : cond_a;
     (* syn_keep = "true" *) wire [UADDR_W-1:0] raddr = lt_l ? a1 : a0;
     always_ff @(posedge clock) begin
-        if (!reset_n || ce_b) begin
-            r0 <= rom0[raddr[10:0]];
-            r1 <= rom1[raddr[10:0]];
-            r2 <= rom2[raddr[10:0]];
-        end
+        if (!reset_n || ce_b)
+            rd <= rom[raddr[10:0]];
     end
     always_ff @(posedge clock) begin
         if (!reset_n || ce_a) begin
-            q0 <= r0;
-            q1 <= r1;
-            q2 <= r2;
+            qe <= wnx;
+            if (esc) begin
+                qe.ra <= RS_NONE;
+                qe.rb <= RS_NONE;
+            end
+            xq <= xtab[xa];
+            yq <= ytab[ya];
+            su_q <= v35_l40_ysusp(ya);
+            iv_q <= v35_l40_xivec(xa);
+            fi_q <= v35_l40_xfint(xa);
             pd <= pd_nx;
         end
     end
@@ -618,6 +736,82 @@ module v35_useq
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: useq: a tick A source changed in tick B at %0t", $time);
+            end
+        end
+    end
+    // (work order 27) the reference: the 96-bit ROM (v35_urom_b0..b2.hex, the same layout,
+    // the same addresses), read at the same address with the same enables as the 40-bit ROM
+    // and its tables. Every clock the word the core uses (the early fields' flops and the
+    // tables' read data) is compared with the 96-bit word, whole; the early facts of tick B
+    // (the raw fields word_nx carries, the derived bits pd_nx, KW) with the 96-bit read data's;
+    // and the one-bit flops beside the word with the fields they stand for
+    // the page bases the address select builds in (X NT and Y NT / NT1 at 128 + P, X R at 16 +,
+    // Y R at 32 +) against the generated constants
+    if (L40_XPAGE_NT != 128 || L40_YPAGE_NT != 128 + 48 || L40_YPAGE_NT1 != 128 + 96
+        || L40_XPAGE_R != 16 || L40_YPAGE_R != 32) begin : g_pages
+        $error("v35_useq: the L40 page bases differ from the address select's");
+    end
+    reg [31:0] rom0 [0:ROM_WORDS-1];
+    reg [31:0] rom1 [0:ROM_WORDS-1];
+    reg [31:0] rom2 [0:ROM_WORDS-1];
+    integer i;
+    initial begin
+        for (i = 0; i < ROM_WORDS; i = i + 1) begin
+            rom0[i] = 32'd0;
+            rom1[i] = 32'd0;
+            rom2[i] = 32'd0;
+        end
+        $readmemh({UROM_DIR, "v35_urom_b0.hex"}, rom0, 0, ROM_WORDS - 1);
+        $readmemh({UROM_DIR, "v35_urom_b1.hex"}, rom1, 0, ROM_WORDS - 1);
+        $readmemh({UROM_DIR, "v35_urom_b2.hex"}, rom2, 0, ROM_WORDS - 1);
+    end
+    reg [31:0] r0 = 32'd0, r1 = 32'd0, r2 = 32'd0;     // the reference's read data (ce_b)
+    reg [31:0] q0 = 32'd0, q1 = 32'd0, q2 = 32'd0;     // ... its word register (ce_a)
+    always @(posedge clock) begin
+        if (!reset_n || ce_b) begin
+            r0 <= rom0[raddr[10:0]];
+            r1 <= rom1[raddr[10:0]];
+            r2 <= rom2[raddr[10:0]];
+        end
+        if (!reset_n || ce_a) begin
+            q0 <= r0;
+            q1 <= r1;
+            q2 <= r2;
+        end
+    end
+    wire [95:0] rw_ref = {r2, r1, r0};
+    wire [95:0] qw_ref = {q2, q1, q0};
+    v35_uword_t nx_ref, w_ref;
+    assign nx_ref = v35_uword_t'(rw_ref[UWORD_BITS-1:0]);
+    assign w_ref = v35_uword_t'(qw_ref[UWORD_BITS-1:0]);
+    wire       kw_ref = nx_ref.d1 == MD_OPRW || nx_ref.d2 == MD_OPRW;
+    always @(posedge clock) begin
+        if (chk_on) begin
+            // the word, whole
+            if (word !== w_ref) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: useq: the L40 word differs from the 96-bit ROM's at upc %0d at %0t",
+                             upc, $time);
+            end
+            // the early facts of tick B
+            if (pd_nx !== pre(nx_ref) || (e_kw && !kw_ref)
+                || {wnx.e, wnx.f, wnx.nb, wnx.bi, wnx.vk, wnx.ro, wnx.rl, wnx.flush, wnx.pop, wnx.wid,
+                    wnx.seq, wnx.cond, wnx.tgt}
+                   !== {nx_ref.e, nx_ref.f, nx_ref.nb, nx_ref.bi, nx_ref.vk, nx_ref.ro, nx_ref.rl,
+                        nx_ref.flush, nx_ref.pop, nx_ref.wid, nx_ref.seq, nx_ref.cond, nx_ref.tgt}
+                || (esc ? (nx_ref.ra != RS_NONE || nx_ref.rb != RS_NONE)
+                        : (wnx.ra !== nx_ref.ra || wnx.rb !== nx_ref.rb))) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: useq: an early field or fact of the L40 read differs from the 96-bit ROM's at %0t",
+                             $time);
+            end
+            // the one-bit flops beside the word
+            if (su_q !== word.susp || iv_q !== (word.alu == AL_IVEC) || fi_q !== (word.alu == AL_FINT)) begin
+                chk_n = chk_n + 1;
+                if (chk_n <= 20)
+                    $display("v35 chk: useq: a flop beside the word differs from its field at %0t", $time);
             end
         end
     end

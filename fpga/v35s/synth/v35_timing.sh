@@ -49,7 +49,7 @@ set -u
 v35=${V35_SRC:-$repo_root/fpga/v35s/core/v35}
 period=${PERIOD:-17}
 pkgs=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv)
-hdrs=(v35_udecode_tbl.svh)
+hdrs=(v35_udecode_tbl.svh v35_l40.svh)   # (work order 27) the L40 layout v35_useq includes
 
 time_one() {
     local name=$1 top files
@@ -82,7 +82,7 @@ time_one() {
     done
     for f in "${hdrs[@]}"; do cp "$v35/$f" "$project_dir/"; done
     mkdir -p "$project_dir/fpga/v35s/core/v35"
-    cp "$v35"/v35_urom_b?.hex "$project_dir/fpga/v35s/core/v35/"
+    cp "$v35"/v35_urom_b?.hex "$v35"/v35_l40_*.hex "$project_dir/fpga/v35s/core/v35/"
     cp "$script_dir/v35_tw.sv" "$project_dir/"
     local mfile=${files[-1]}
     python3 "$script_dir/v35_tw.py" "$v35/$mfile" "$top" "$project_dir/v35_tw_top.sv" > /dev/null

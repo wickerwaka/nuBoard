@@ -4410,7 +4410,7 @@
   ]
  ],
  "backend": "sim",
- "date": "2026-11-18T23:14:25",
+ "date": "2026-11-19T00:43:34",
  "core": "v35",
  "binary": "build/fpga/v35s/verilator-direct-v35"
 }

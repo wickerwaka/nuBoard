@@ -42,7 +42,7 @@ set -u
 
 v35=${V35_SRC:-$repo_root/fpga/v35s/core/v35}
 pkgs=(v35_front_pkg.sv v35_pkg.sv v35_fn_pkg.sv)
-hdrs=(v35_udecode_tbl.svh)
+hdrs=(v35_udecode_tbl.svh v35_l40.svh)   # (work order 27) the L40 layout v35_useq includes
 
 map_one() {
     local name=$1 top files
@@ -72,7 +72,7 @@ map_one() {
     for f in "${hdrs[@]}"; do cp "$v35/$f" "$project_dir/"; done
     # the ROM's banks where v35_useq's UROM_DIR default names them (relative to the project)
     mkdir -p "$project_dir/fpga/v35s/core/v35"
-    cp "$v35"/v35_urom_b?.hex "$project_dir/fpga/v35s/core/v35/"
+    cp "$v35"/v35_urom_b?.hex "$v35"/v35_l40_*.hex "$project_dir/fpga/v35s/core/v35/"
     : > "$project_dir/v35s.sdc"
     if [[ -n "${PATCH:-}" ]]; then python3 "$PATCH" "$project_dir"; fi
     python3 - "$repo_root/fpga/v35s/v35s.xml" "$project_dir/v35s.xml" "$top" "${names[@]}" <<'PY'
