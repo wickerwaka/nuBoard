@@ -252,6 +252,10 @@ package v35_pkg;
     localparam int UADDR_W = 12;      // (MX1b) 2,048 words: the ROM passed 1,024; (qprobe round 12)
                                       //   4,096 words: the ROM passed 2,048 (the word's `trap` bit
                                       //   became SQ_TRAP so the word stays 96 bits)
+    // (work order 28) the decode tables' entries (v35_udec_t, v35_udecm_t): the ROM's 2,048 words
+    // (the assembler fails above); the sequencer's address and the word's target stay UADDR_W
+    // wide (the 96-bit reference word's layout is unchanged), the loader zero-extends
+    localparam int UENT_W = 11;
 
     // ---- the microinstruction (MSB first) ----
     typedef struct packed {
@@ -315,7 +319,7 @@ package v35_pkg;
     // ---- the decode (generated tables in v35_udecode_tbl.svh) ----
     // the opcode's entry and format bits (the first level, from the E pop's opcode register)
     typedef struct packed {
-        logic [UADDR_W-1:0] entry;
+        logic [UENT_W-1:0] entry;
         logic       trap;       // no routine (the trap routine pops the instruction's bytes)
         logic       has_modrm;
         logic       w;          // the operand width
@@ -354,7 +358,7 @@ package v35_pkg;
 
     // the second level, on the popped ModR/M byte (or the 0F page's second byte)
     typedef struct packed {
-        logic [UADDR_W-1:0] entry;
+        logic [UENT_W-1:0] entry;
         logic       trap;
         logic [2:0] op3;        // the group's operation (the reg field), or the block's
         logic       ea;         // (MX1) a memory cell: the dispatch calls the EA head of the

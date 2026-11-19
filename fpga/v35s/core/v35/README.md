@@ -8901,3 +8901,79 @@ to the address select.
 - Modules alone: useq +5.697 (594 LUT4, 383 FF, 25 RAM_5K; ROM -> `su_q`, 5 levels; base
   +6.472), eu +4.916 (4,249 LUT4, 1,303 FF; a wrapper input -> output path, 7 levels; base
   +5.152).
+
+## Work order 28: the loader's decode tables out of block RAM (no behaviour change)
+
+At 3432ce1 the loader held 33 of the core's 64 RAM_5K though its source has no memory: the
+mapper inferred ROMs from the generated `case` tables. What they were (the map report's Memory
+Mapping and the netlist's INIT contents matched column by column against the tables):
+
+- **29 blocks, the dispatch's second level** (`df <= dsp_f(op_nx, mp_nx)`). Every one is
+  256 x 20 (one 256 x 16), read at `mp_nx` (the ModR/M register's next value; the enable folded
+  into the address) and registered: the mapper pushed df's register back through the opcode's
+  select, so each opcode's `case (b)` became 256-deep columns of the byte, and `dret` / `dcall`
+  were the RAMs' read data behind an opcode mux. 15 single blocks and one 14-block ROM (the
+  report's `v35_udecode_tbl.svh:585`, the case mux's line) are those columns packed 20 a block:
+  per-opcode entries (FF, FE, F6, F7, 80-83, 81, 85, 8D, 8F, C7, D0, D1, the REP page) and many
+  copies of columns that are only of the mode (mod != 3, the direct form), the group's op3
+  (the reg field), constant 0 columns (the entry's twelfth bit) among them. `dm` (op3, w) and
+  `dec2` (op3) were LUTs.
+- **4 blocks, the first level** twice: `ds <= v35_udec1(s_nb)` (2 x 256 x 20) and d1r's
+  (2 x 256 x 20, read at op_nx: the reset branch's `d1r <= v35_udec1(op)` with d1_nx made the
+  register a ROM of the opcode).
+
+**The second level, compact (uasm `udec2_forms`, `v35_udec2`).** The generator proves, per
+opcode, the fewest bits of the popped byte its cells are a function of, in order:
+`k4 = {mod == 3, reg}` (60 opcodes: the ALU rows, the MOV forms, shifts by CL, the groups whose
+memory cells call the EA heads), `k6 = {mod, x, reg}` with x the direct form (mod 00 rm 110) or
+the based-indexed d16 (mod 10 rm 0xx) (the 14 opcodes with a routine per mode: 80-83, 85, 8D,
+8F, C7, D0, D1, F6, F7, FE, FF), else the whole byte (the 0F page and the REP page of 64 65 F2
+F3). Opcodes with equal tables share one case item (00 01, ..., 64 65 F2 F3, D8-DF). The old
+full table is emitted beside it as `v35_udec2_ref`, under `ifndef SYNTHESIS`.
+test_uasm `CompactDecode` reads both functions back from the svh and compares them for all
+65,536 (opcode, byte) pairs and every field (and the generator's model with udec2 of every
+pair; a mutated entry is caught). The REP page's successor rows stay of the whole byte: their
+op3 / w / io are v35_udec1 facts of the byte, but the entry is not, and the byte is the ModR/M
+register's in every clock but the pop's, so a registered class beside `mp` would rest on
+an invariant, not a table; it costs one block (below).
+
+**The readers.**
+- `dsp_f(d1, d2, m)`: the first level is given, `d1_nx` (the mux of the registered decodes ds /
+  d1r beside op_nx's sources; it was v35_udec1(op_nx), a copy behind the opcode's select) and
+  d1r in reset; the second the compact v35_udec2.
+- One lookup of (op, mp): df carries the second level's op3 and w, which op3m_b / dmw_b read
+  (the old `dm = v35_udec2(op, mp)` is gone; df is dsp_f(op, mp) on every clock). `dec2`
+  (op, the head byte; DISPM's op3) reads the compact function as before.
+- d1r holds in reset (it is v35_udec1(op) on every clock: both start at 00h's, hold in reset
+  and load at ce_a together), so no lookup of op is read and its two blocks go.
+- Entries are `UENT_W` = 11 bits (v35_udec_t, v35_udecm_t: the ROM's 2,048 words). UADDR_W stays
+  12: it is also the 96-bit reference word's target field (v35_urom_b0..b2.hex would change);
+  the loader zero-extends into df.
+- `+v35_chk`: df against dsp_f of the full tables (v35_udec1(op), v35_udec2_ref(op, mp)) at
+  every ce_a, dec2 against v35_udec2_ref(op, sb0) and d1r against v35_udec1(op) every clock
+  (reset included), dmw_b against the reference's w.
+
+No port added (dent / dret / ec_head stay UADDR_W), no opcode compare outside the generated
+table, the arriving byte's tag functions (v35_upage / v35_umdsp / v35_umimm / v35_umodrm) and
+v35_udec1's text unchanged, the ROM / X / Y hex files bit-identical.
+
+**Result (Efinity 2026.1, T120F484, 17 ns, `fpga/v35s/synth/v35_timing.sh`, no exception).**
+
+| build | RAM_5K | LUT4 | FF | s1 | s2 | s3 | s4 | s5 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| base 3432ce1, top | 64 | 9,603 | 2,568 | +3.432 | +3.174 | +2.968 | +2.871 | +2.668 |
+| **work order 28, top** | **34** | 9,543 | 2,599 | +3.227 | +3.672 | +2.344 | +3.320 | +3.263 |
+| base, loader in the top | 33 | 1,859 | 308 | | | | | |
+| **work order 28, loader in the top** | **3** | 1,812 | 334 | | | | | |
+| base, loader alone | 62 | 2,481 | 391 | +3.670 | | | | |
+| **work order 28, loader alone** | **4** | 2,317 | 391 | +4.164 | | | | |
+
+(base s4 / s5 run here on the base's sources; FF: the loader's df.ret / df.call are flops now,
+not RAM read data, and df carries op3 / w.) The loader's three blocks: ds's first level (2) and
+the REP page of the dispatch's second level (1). The worst path touching the loader, per seed:
+base +4.047 / +3.883 / +3.075 / +3.227 / +3.798, now +4.305 / +3.847 / +3.012 / +3.851 /
++3.784 (op / mp / s_b -> df.ent, dret). The worst paths of the top are elsewhere: s3's
++2.344 is X -> `c_snz` (the EU's zero test, 7 levels; base s3's worst +2.968 the same path), then
+the arriving tag -> the sequencer's ROM address (+2.688, 7 LUTs, long routes; base seeds' worst
+of that chain +3.205 on s2). Neither path's logic changed; the placement did (30 blocks fewer).
+Mean of the five seeds +3.165 (base +3.023); the worst seed is worse (+2.344 against +2.668).

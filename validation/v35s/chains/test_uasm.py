@@ -658,5 +658,129 @@ class L40(unittest.TestCase):
         self.assertEqual(uasm.check(self.prog), [])
 
 
+
+def _svh_udec2(text: str, name: str) -> dict:
+    """(work order 28) the generated function `name` (v35_udec2 / v35_udec2_ref) read back from
+    the svh: {"idx": {index name: SV expression}, "items": [(ops, index name, [(values or None
+    for default, row)])], "default": row}."""
+    m = re.search(rf"function automatic v35_udecm_t {name}\(.*?\n(.*?)endfunction", text, flags=re.S)
+    assert m, name
+    body = m.group(1)
+    idx = dict(re.findall(r"^\s*(k\d) = (.*);$", body, flags=re.M))
+    lit = re.compile(r"'\{(\d+)'d(\d+), 1'b(\d), 3'd(\d), 1'b(\d), 1'b(\d), 1'b(\d), 1'b(\d), 1'b(\d)\}")
+
+    def row(s):
+        g = lit.search(s)
+        assert g, s
+        assert int(g.group(1)) == uasm.UENT_W
+        return tuple(int(x) for x in g.groups()[1:])
+
+    items, dflt, cur = [], None, None
+    for line in body.splitlines():
+        s = line.strip()
+        a = re.match(r"((?:8'h[0-9A-F]{2}, )*8'h[0-9A-F]{2}): begin$", s)
+        if a:
+            cur = ([int(x, 16) for x in re.findall(r"8'h([0-9A-F]{2})", a.group(1))], None, [])
+            items.append(cur)
+            continue
+        c = re.match(r"case \((\w+)\)$", s)
+        if c and cur is not None:
+            items[-1] = cur = (cur[0], c.group(1), cur[2])
+            continue
+        if s.startswith("default: f = "):
+            if cur is not None:
+                cur[2].append((None, row(s)))
+            else:
+                dflt = row(s)
+            continue
+        v = re.match(r"(.*?): f = ", s)
+        if v and cur is not None:
+            vals = [int(x.split("'")[1][1:], 16 if "'h" in x else 10) for x in v.group(1).split(", ")]
+            cur[2].append((set(vals), row(s)))
+            continue
+        if s == "end":
+            cur = None
+    return {"idx": idx, "items": items, "default": dflt}
+
+
+def _svh_eval(f: dict, op: int, b: int) -> tuple:
+    ix = {"b": b, "k4": uasm.k4_of(b), "k6": uasm.k6_of(b)}
+    for ops, name, rows in f["items"]:
+        if op in ops:
+            for vals, r in rows:
+                if vals is None or ix[name] in vals:
+                    return r
+    return f["default"]
+
+
+class CompactDecode(unittest.TestCase):
+    """(work order 28) the second level held compactly (uasm udec2_forms): the forms are proved
+    per opcode, and the emitted v35_udec2 equals the full table (v35_udec2_ref, the old form) for
+    all 65,536 (opcode, byte) pairs and every field."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.prog = uasm.assemble()
+        cls.forms = uasm.udec2_forms(cls.prog)
+        text = (uasm.V35 / "v35_udecode_tbl.svh").read_text()
+        cls.cmp = _svh_udec2(text, "v35_udec2")
+        cls.ref = _svh_udec2(text, "v35_udec2_ref")
+        cls.text = text
+
+    def test_the_model_is_the_table(self):
+        table_ops = uasm.MODRM_OPS | {0x0F} | set(uasm.REP_XC)
+        for op in range(256):
+            for b in range(256):
+                want = (uasm.udec2_row(uasm.udec2(self.prog, op, b)) if op in table_ops
+                        else self.forms[1])
+                self.assertEqual(uasm.udec2_compact(self.forms, op, b), want, f"{op:02X} {b:02X}")
+
+    def test_the_emitted_function_equals_the_full_table(self):
+        n = 0
+        for op in range(256):
+            for b in range(256):
+                self.assertEqual(_svh_eval(self.cmp, op, b), _svh_eval(self.ref, op, b),
+                                 f"{op:02X} {b:02X}")
+                n += 1
+        self.assertEqual(n, 65536)
+        # the reference is one case of the whole byte per opcode (the old form)
+        self.assertEqual({name for _, name, _ in self.ref["items"]}, {"b"})
+        self.assertEqual(self.ref["idx"], {})
+
+    def test_the_index_expressions_are_the_forms(self):
+        forms = {name: expr for name, _, _, expr in uasm.UDEC2_FORMS}
+        self.assertTrue(self.cmp["idx"])
+        for name, expr in self.cmp["idx"].items():
+            self.assertEqual(expr, forms[name])
+        # the SV expressions against the Python index functions, every byte
+        for b in range(256):
+            mod, reg, rm = b >> 6, (b >> 3) & 7, b & 7
+            self.assertEqual(uasm.k4_of(b), (int(mod == 3) << 3) | reg)
+            x = (mod == 0 and rm == 6) or (mod == 2 and not (rm >> 2) & 1)
+            self.assertEqual(uasm.k6_of(b), (mod << 4) | (int(x) << 3) | reg)
+
+    def test_most_opcodes_read_the_reg_field_and_mode_3(self):
+        by = {}
+        for ops, name, _ in self.forms[0]:
+            for op in ops:
+                by[op] = name
+        self.assertEqual({op for op, n in by.items() if n == "b"}, {0x0F} | set(uasm.REP_XC))
+        self.assertGreater(sum(1 for n in by.values() if n == "k4"), 50)
+
+    def test_a_wrong_form_is_caught(self):
+        # an opcode whose cells depend on the mode, read on k4 alone, differs from the table
+        op = 0x80
+        rows = [uasm.udec2_row(uasm.udec2(self.prog, op, b)) for b in range(256)]
+        k4tab = {}
+        for b in range(256):
+            k4tab.setdefault(uasm.k4_of(b), rows[b])
+        self.assertTrue(any(k4tab[uasm.k4_of(b)] != rows[b] for b in range(256)))
+
+    def test_entries_fit_the_entry_width(self):
+        self.assertEqual(1 << uasm.UENT_W, uasm.ROM_WORDS)
+        for op in range(256):
+            self.assertLess(uasm.udec1(self.prog, op)["entry"], 1 << uasm.UENT_W)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3651,3 +3651,23 @@ question, decided from S8's routed numbers with the user.
   round): main ROM 20, X 1, Y 4, the rest 39. Not built in: the main ROM forced to
   1,024 x 5 blocks (16 blocks in place of 20; the builder measured +3.257 / +3.002 /
   +3.088, 60 RAM_5K).
+- **2026-11-19, work order 28 (FULL gate, three seeds): the loader's decode tables out of
+  block RAM.** The loader's source has no memory, but the mapper had built 33 RAM_5K from
+  the generated `case` tables: 29 for the dispatch's second level (`df <= dsp_f(op_nx,
+  mp_nx)`, retimed into 256-entry columns of the second byte per opcode, about 276 columns
+  in one 14-block ROM, duplicates not merged) and 4 for two copies of `v35_udec1`. The
+  generator (`uasm udec2_forms`) now proves per opcode which bits of the second byte the
+  second decode reads: {mod is 3, reg} for 60 opcodes, {mod, one mode bit, reg} for 14,
+  the whole byte only for the 0F page and the REP page; equal tables share a case item
+  (45 items); entries are 11 bits (`UENT_W`; `UADDR_W` stays 12, it is the 96-bit
+  reference word's target width). The dispatch reads the registered first decode
+  (`d1_nx`), `df` carries op3 and w (`dm` gone), `d1r` holds in reset. The old table stays
+  as `v35_udec2_ref` for `+v35_chk`; `test_uasm.CompactDecode` compares both on all 65,536
+  (opcode, byte) pairs. No port added; ROM / X / Y images identical. Gate: corpus 30,181
+  at both spacings, no run changed, 0 failed, 0 incomplete; pin records 0 of 30,536
+  differ; program gates, f4_hwd, vectors, SST as before; checker silent. 17 ns: +3.227 /
+  +3.672 / +2.344 (the builder's seeds 4 and 5: +3.320 / +3.263; the base on five seeds
+  +2.668 to +3.432; seed 3's worst path is the EU's X -> c_snz, untouched, and that
+  seed's worst before too; loader alone +4.164 from +3.670). 9,543 LUT4, 2,599 FF,
+  **34 RAM_5K** (64 before): loader 3 (one udec1 copy 2, the REP page 1), useq 25,
+  regram 6.

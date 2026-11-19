@@ -151,6 +151,9 @@ BANKS = 3
 ROM_WORDS = 2048
 OUT_FILES = tuple(f"v35_urom_b{b}.hex" for b in range(BANKS)) + ("v35_udecode_tbl.svh",)
 UADDR_W = int(re.search(r"localparam\s+int\s+UADDR_W\s*=\s*(\d+)", PKG.read_text()).group(1))
+# (work order 28) the decode tables' entry width: the ROM's 2,048 words (ROM_WORDS); the
+# sequencer's address and the word's target stay UADDR_W wide (the 96-bit reference word's layout)
+UENT_W = int(re.search(r"localparam\s+int\s+UENT_W\s*=\s*(\d+)", PKG.read_text()).group(1))
 
 # the enum prefix and the field names of the word (read from the package)
 PREFIX = {"v35_rsel_e": "RS_", "v35_wid_e": "WD_", "v35_src_e": "SR_", "v35_mvd_e": "MD_",
@@ -2382,6 +2385,143 @@ def ulen(op: int, il: int, mb: int) -> int:
     return fmt_of(op)["len"]
 
 
+# (work order 28) the second level's compact form. The dispatch reads v35_udec2 of the opcode
+# and the byte its E word popped (the ModR/M byte; the 0F page's second byte; a REP prefix's
+# successor). Most opcodes' cells are a function of the ModR/M byte's reg field and its mode being
+# 3 (K4); the memory forms with a routine per mode (the _dir / _d8 / _d16 / _d16x cells) of the
+# mode, the direct form or the based-indexed d16 form (mod 10, rm 0-3) and reg (K6); the 0F page
+# and the REP pages of the whole byte (B8). The generator proves the form per opcode from its own
+# table (the first that holds) and opcodes whose tables are equal share one case item.
+UDEC2_FIELDS = ("entry", "trap", "op3", "ea", "eab", "eaq", "w", "io")
+
+
+def k4_of(b: int) -> int:
+    """{mod == 3, reg}"""
+    return (int(b >> 6 == 3) << 3) | ((b >> 3) & 7)
+
+
+def k6_of(b: int) -> int:
+    """{mod, x, reg}: x the direct form (mod 00 rm 110) or the based-indexed d16 (mod 10 rm 0xx)"""
+    mod, rm = b >> 6, b & 7
+    x = (mod == 0 and rm == 6) or (mod == 2 and rm < 4)
+    return (mod << 4) | (int(x) << 3) | ((b >> 3) & 7)
+
+
+# (name, index function, index width, its SV expression of b)
+UDEC2_FORMS = (
+    ("k4", k4_of, 4, "{b[7:6] == 2'd3, b[5:3]}"),
+    ("k6", k6_of, 6, "{b[7:6], (b[7:6] == 2'd0 && b[2:0] == 3'd6) || (b[7:6] == 2'd2 && !b[2]), b[5:3]}"),
+    ("b", lambda b: b, 8, "b"),
+)
+
+
+def udec2_row(g: dict) -> tuple:
+    return tuple(g[f] for f in UDEC2_FIELDS)
+
+
+def udec2_forms(prog: Program) -> tuple:
+    """([(ops, form name, {index: row}), ...] in opcode order, the default row): each listed
+    opcode's table as a function of its form's index (proved here against udec2 of every byte),
+    opcodes with equal (form, table) grouped; every other opcode reads the default row."""
+    items = {}
+    order = []
+    for op in sorted(MODRM_OPS | {0x0F} | set(REP_XC)):
+        rows = [udec2_row(udec2(prog, op, b)) for b in range(256)]
+        for name, fn, w, _ in UDEC2_FORMS:
+            tab = {}
+            if all(tab.setdefault(fn(b), rows[b]) == rows[b] for b in range(256)):
+                break
+        else:       # (the byte itself always holds)
+            raise UasmError(f"udec2 {op:02X}: no form")
+        key = (name, tuple(sorted(tab.items())))
+        if key not in items:
+            items[key] = []
+            order.append(key)
+        items[key].append(op)
+    out = [(items[k], k[0], dict(k[1])) for k in order]
+    dflt = udec2_row({"entry": prog.labels[TRAP2], "trap": 1, "op3": 0, "ea": 0, "eab": 0,
+                      "eaq": 0, "w": 0, "io": 0})
+    return out, dflt
+
+
+def udec2_compact(forms: tuple, op: int, b: int) -> tuple:
+    """The compact form's row of (op, b) (the test's model of the emitted function)."""
+    items, dflt = forms
+    fn = {name: f for name, f, _, _ in UDEC2_FORMS}
+    for ops, name, tab in items:
+        if op in ops:
+            return tab[fn[name](b)]
+    return dflt
+
+
+def _udec2_lit(k: tuple) -> str:
+    return (f"'{{{UENT_W}'d{k[0]}, 1'b{k[1]}, 3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, "
+            f"1'b{k[6]}, 1'b{k[7]}}}")
+
+
+def udec2_svh(prog: Program) -> list:
+    items, dflt = udec2_forms(prog)
+    used = {name for _, name, _ in items}
+    L = ["    // (work order 28) the second level, compact: each opcode's cells on the index its",
+         "    // table is a function of (the generator proves it: uasm udec2_forms): k4 {mod == 3,",
+         "    // reg}, k6 {mod, the direct form or the based-indexed d16, reg}, or the byte b;",
+         "    // opcodes with equal tables share an item",
+         "    function automatic v35_udecm_t v35_udec2(input logic [7:0] op, input logic [7:0] b);",
+         "        v35_udecm_t f;"]
+    for name, _, w, _ in UDEC2_FORMS:
+        if name in used and name != "b":
+            L.append(f"        logic [{w - 1}:0] {name};")
+    for name, _, w, expr in UDEC2_FORMS:
+        if name in used and name != "b":
+            L.append(f"        {name} = {expr};")
+    L += ["        f = '0;", "        case (op)"]
+    widths = {name: w for name, _, w, _ in UDEC2_FORMS}
+    for ops, name, tab in items:
+        L.append(f"            {', '.join(f'8{chr(39)}h{o:02X}' for o in ops)}: begin")
+        by = {}
+        for ix, k in sorted(tab.items()):
+            by.setdefault(k, []).append(ix)
+        default = max(by, key=lambda k: (len(by[k]), -by[k][0]))
+        L.append(f"                case ({name})")
+        w = widths[name]
+        fmt = (lambda v: f"8'h{v:02X}") if w == 8 else (lambda v: f"{w}'d{v}")
+        for k, ixs in sorted(by.items(), key=lambda kv: kv[1][0]):
+            if k == default:
+                continue
+            L.append(f"                    {', '.join(fmt(v) for v in ixs)}: f = {_udec2_lit(k)};")
+        L.append(f"                    default: f = {_udec2_lit(default)};")
+        L += ["                endcase", "            end"]
+    L += [f"            default: f = {_udec2_lit(dflt)};",
+          "        endcase", "        v35_udec2 = f;", "    endfunction", ""]
+    return L
+
+
+def udec2_ref_svh(prog: Program) -> list:
+    """The full table, one case per opcode on the whole byte (the form before work order 28):
+    the simulation's reference for the compact v35_udec2 (`+v35_chk`)."""
+    L = ["    // (work order 28) the reference: the full table of every byte (simulation only)",
+         "    function automatic v35_udecm_t v35_udec2_ref(input logic [7:0] op, input logic [7:0] b);",
+         "        v35_udecm_t f;",
+         "        f = '0;",
+         "        case (op)"]
+    for op in sorted(MODRM_OPS | {0x0F} | set(REP_XC)):
+        L.append(f"            8'h{op:02X}: begin")
+        by = {}
+        for b in range(256):
+            by.setdefault(udec2_row(udec2(prog, op, b)), []).append(b)
+        L.append("                case (b)")
+        default = max(by, key=lambda k: len(by[k]))
+        for k, bs in sorted(by.items()):
+            if k == default:
+                continue
+            L.append(f"                    {', '.join(f'8{chr(39)}h{b:02X}' for b in bs)}: f = {_udec2_lit(k)};")
+        L.append(f"                    default: f = {_udec2_lit(default)};")
+        L += ["                endcase", "            end"]
+    L += [f"            default: f = {_udec2_lit(udec2_forms(prog)[1])};",
+          "        endcase", "        v35_udec2_ref = f;", "    endfunction"]
+    return L
+
+
 def decode_svh(prog: Program) -> str:
     L = ["// GENERATED by `python -m validation.v35s.chains.uasm` from fpga/v35s/core/v35/urom/"
          "*.uasm; do not edit.",
@@ -2411,41 +2551,18 @@ def decode_svh(prog: Program) -> str:
          "        case (op)"]
     for op in range(256):
         f = udec1(prog, op)
-        L.append(f"            8'h{op:02X}: f = '{{{UADDR_W}'d{f['entry']}, 1'b{f['trap']}, "
+        L.append(f"            8'h{op:02X}: f = '{{{UENT_W}'d{f['entry']}, 1'b{f['trap']}, "
                  f"1'b{int(f['has_modrm'])}, 1'b{f['w']}, 1'b{f['d']}, 1'b{f['immw']}, "
                  f"1'b{f['sx']}, 3'd{f['op3']}, 3'd{f['seg']}, 3'd{f['len']}, "
                  f"1'b{f['e2']}, 5'd{f['xc']}, 1'b{f['pg']}, 1'b{f['io']}, 2'd{f['lead']}, 1'b{f['hlt']}, "
                  f"1'b{f['m3']}, 1'b{f['rp']}}};")
     L += ["            default: f = '0;", "        endcase", "        v35_udec1 = f;",
           "    endfunction", ""]
-    # the second level: one case per opcode with a ModR/M byte (and 0F), on the byte
-    L += ["    function automatic v35_udecm_t v35_udec2(input logic [7:0] op, input logic [7:0] b);",
-          "        v35_udecm_t f;",
-          "        f = '0;",
-          "        case (op)"]
-    for op in sorted(MODRM_OPS | {0x0F} | set(REP_XC)):
-        L.append(f"            8'h{op:02X}: begin")
-        # group the 256 byte values by result
-        by = {}
-        for b in range(256):
-            g = udec2(prog, op, b)
-            by.setdefault((g["entry"], g["trap"], g["op3"], g["ea"], g["eab"], g["eaq"], g["w"],
-                           g["io"]),
-                          []).append(b)
-        L.append("                case (b)")
-        default = max(by, key=lambda k: len(by[k]))
-        for k, bs in sorted(by.items()):
-            if k == default:
-                continue
-            items = ", ".join(f"8'h{b:02X}" for b in bs)
-            L.append(f"                    {items}: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, "
-                     f"3'd{k[2]}, 1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}, 1'b{k[7]}}};")
-        k = default
-        L.append(f"                    default: f = '{{{UADDR_W}'d{k[0]}, 1'b{k[1]}, 3'd{k[2]}, "
-                 f"1'b{k[3]}, 1'b{k[4]}, 1'b{k[5]}, 1'b{k[6]}, 1'b{k[7]}}};")
-        L += ["                endcase", "            end"]
-    L += [f"            default: f = '{{{UADDR_W}'d{prog.labels[TRAP2]}, 1'b1, 3'd0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0}};",
-          "        endcase", "        v35_udec2 = f;", "    endfunction", ""]
+    # (work order 28) the second level held compactly (udec2_forms): per opcode the byte's
+    # fewest bits it is a function of; the full table of every byte (the old form) is the
+    # simulation's reference, v35_udec2_ref (`+v35_chk`), not built
+    L += udec2_svh(prog)
+    L += ["`ifndef SYNTHESIS"] + udec2_ref_svh(prog) + ["`endif", ""]
     # (qprobe round 17) the second level's entry split for the sequencer's ROM address (the
     # loader's d2ent: v35_udec2_fx / v35_udec2_fe, the whole opcodes' numbers) is withdrawn with
     # the sequencer's DISPM source: the dispatch reads v35_udec2 of the registered ModR/M byte

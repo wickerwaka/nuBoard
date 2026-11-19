@@ -169,6 +169,8 @@ module v35_loader
     typedef struct packed {
         logic [UADDR_W-1:0] ent, ret;
         logic               call, trap, eab, io;
+        logic [2:0]         op3;        // (work order 28) the second level's op3 and w of (op, mp),
+        logic               w;          //   the dispatch's op3m_b / dmw_b (the old dm's two fields)
     } v35_dsp_t;
     v35_dsp_t  df = '0;
     v35_udec_t d1_nx;
@@ -497,7 +499,7 @@ module v35_loader
     wire       mpop = lrv.mpop;
     // (ltx: the function's outcomes the registered ones are checked against, `+v35_chk`; df.trap:
     // the trace's and the function bench's start_trap, v35_top's observation block)
-    wire unused = &{1'b0, rls_b, ds, dm, q_avail, ltx, df.trap, lrv.rd[2]};
+    wire unused = &{1'b0, rls_b, ds, q_avail, ltx, df.trap, lrv.rd[2]};
     wire [2:0] need_n = ltx.need_n;
     wire       sload = ltx.sload;
     assign pop_n = lrv.rd[1:0];         // (rd[2]: 0, at most two bytes a clock)
@@ -517,9 +519,9 @@ module v35_loader
     assign dec2r = v35_udec2(op, sb0);
     assign dec2 = dec2r;
     // the dispatch's (DISP) entry: the second level on the registered ModR/M byte for an
-    // opcode with one, else the first
-    v35_udecm_t dm;
-    assign dm = v35_udec2(op, mp);
+    // opcode with one, else the first. (work order 28) The second level of (op, mp) is read
+    // once, into df (below): the old `dm` (v35_udec2(op, mp): its op3 and w for op3m_b and
+    // dmw_b) is df's op3 and w, df being dsp_f(op, mp) on every clock
     // (MX1) a memory cell (dm.ea) dispatches to the EA head of the registered ModR/M byte's
     // mode and returns to the routine's entry (its add): mod 01 one displacement pop, mod 10 and
     // the direct form (mod 00 rm 110) two; with the book's heads (dm.eab) each head ends with
@@ -531,13 +533,13 @@ module v35_loader
     // beside them (`df`: loaded at ce_a from the values op and mp load, in reset from op and mp):
     // df is dsp_f(op, mp) on every clock (`+v35_chk`), so the next address reads a register
     /* verilator lint_off UNUSEDSIGNAL */
-    function automatic v35_dsp_t dsp_f(input logic [7:0] o, input logic [7:0] m);
-        v35_udec_t  d1;
-        v35_udecm_t d2;
+    // (work order 28) the two levels are given: d1 v35_udec1 of the opcode (the registered
+    // decodes beside its sources, d1_nx / d1r: no copy of the first level sits behind the
+    // opcode's select), d2 the compact second level of (the opcode, m); `+v35_chk` compares df
+    // with the function of the full tables (v35_udec1, v35_udec2_ref) every dispatch clock
+    function automatic v35_dsp_t dsp_f(input v35_udec_t d1, input v35_udecm_t d2, input logic [7:0] m);
         logic       mdir, mea, l2;
         logic [UADDR_W-1:0] hd;
-        d1 = v35_udec1(o);
-        d2 = v35_udec2(o, m);
         mdir = m[7:6] == 2'd0 && m[2:0] == 3'd6;
         mea = d1.has_modrm && d2.ea;
         l2 = d1.has_modrm || d1.pg;
@@ -550,11 +552,14 @@ module v35_loader
            : (m[7:6] == 2'd2 || mdir) ? UROM_EAD
            : UROM_EAB0;
         dsp_f.call = mea && (m[7:6] != 2'd0 || mdir || d2.eab || d2.eaq);
-        dsp_f.ret = d2.entry;
-        dsp_f.ent = !l2 ? d1.entry : dsp_f.call ? hd : d2.entry;
+        dsp_f.ret = {{(UADDR_W - UENT_W){1'b0}}, d2.entry};
+        dsp_f.ent = !l2 ? {{(UADDR_W - UENT_W){1'b0}}, d1.entry} : dsp_f.call ? hd
+                  : {{(UADDR_W - UENT_W){1'b0}}, d2.entry};
         dsp_f.trap = l2 ? d2.trap : d1.trap;
         dsp_f.eab = d2.eab;             // (the EAC word's head choice: dm.eab)
         dsp_f.io = l2 ? d2.io : d1.io;     // (F2b) an I/O form (no ModR/M: never a call)
+        dsp_f.op3 = d2.op3;
+        dsp_f.w = d2.w;
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
     assign dcall = df.call;
@@ -618,8 +623,8 @@ module v35_loader
             sb1_b <= sb1;
             need_b <= need_n;
             dec1_b <= dec1;
-            op3m_b <= dispm ? dec2.op3 : d2l ? dm.op3 : dec1.op3;
-            dmw_b <= dm.w;
+            op3m_b <= dispm ? dec2.op3 : d2l ? df.op3 : dec1.op3;
+            dmw_b <= df.w;
         end
     end
 
@@ -782,11 +787,13 @@ module v35_loader
     end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
-            df <= dsp_f(op, mp);
-            d1r <= v35_udec1(op);
+            // (work order 28) d1r holds in reset: it is v35_udec1(op) on every clock (both start at
+            // 00h's, both hold in reset, both load at ce_a: op with s_b, d1r with ds at an E pop,
+            // ds being v35_udec1(s_b) then; `+v35_chk` every clock), so no lookup of op is read
+            df <= dsp_f(d1r, v35_udec2(op, mp), mp);
             imo <= im_f(op);
         end else if (ce_a) begin
-            df <= dsp_f(op_nx, mp_nx);
+            df <= dsp_f(d1_nx, v35_udec2(op_nx, mp_nx), mp_nx);
             d1r <= d1_nx;
             imo <= imo_nx;
         end
@@ -882,7 +889,7 @@ module v35_loader
     initial chk_on = $test$plusargs("v35_chk");
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_a) begin
-            if ((s_v && ds !== v35_udec1(s_b)) || df !== dsp_f(op, mp) || hh !== hd_ref(sb0, df.eab) || d1r !== v35_udec1(op)
+            if ((s_v && ds !== v35_udec1(s_b)) || df !== dsp_f(v35_udec1(op), v35_udec2_ref(op, mp), mp) || hh !== hd_ref(sb0, df.eab) || d1r !== v35_udec1(op)
                 || imo !== im_f(op) || (s_v && ims !== im_f(s_b))
                 || (q_stored != 3'd0 && h_q0t !== bt_f(h_q0))
                 || (ex ? z1 : need == 3'd0) !== (need_n == 3'd0)
@@ -891,13 +898,35 @@ module v35_loader
                 || mmr_b !== (opop && pop == PP_MODRM)
                 || sb0_b !== sb0 || sb1_b !== sb1
                 || need_b !== need_n
-                || dec1_b !== dec1 || dmw_b !== dm.w) begin
+                || dec1_b !== dec1 || dmw_b !== v35_udec2_ref(op, mp).w) begin
                 chk_n = chk_n + 1;
                 if (chk_n <= 20)
                     $display("v35 chk: loader: a tick A source changed in tick B at %0t", $time);
             end
         end
     end
+    // (work order 28) every clock, reset included: d1r is the first level of op (it holds in reset)
+    integer d1_n = 0;
+    always @(posedge clock) begin
+        if (chk_on && d1r !== v35_udec1(op)) begin
+            d1_n = d1_n + 1;
+            if (d1_n <= 20)
+                $display("v35 chk: loader: d1r is not the first level of op at %0t", $time);
+        end
+    end
+    final if (chk_on && d1_n != 0)
+        $display("v35 chk: loader: %0d clocks with d1r off the first level of op", d1_n);
+    // (work order 28) every clock: the compact second level of the head byte against the full table
+    integer d2_n = 0;
+    always @(posedge clock) begin
+        if (chk_on && reset_n && dec2r !== v35_udec2_ref(op, sb0)) begin
+            d2_n = d2_n + 1;
+            if (d2_n <= 20)
+                $display("v35 chk: loader: the compact second level differs from the full table at %0t", $time);
+        end
+    end
+    final if (chk_on && d2_n != 0)
+        $display("v35 chk: loader: %0d clocks with the compact second level off the full table", d2_n);
     // (MX5c) every clock: the registered outcomes against the function's
     always @(posedge clock) begin
         if (chk_on && reset_n && (lrs !== lrg_f(ltx) || z1f !== z1
