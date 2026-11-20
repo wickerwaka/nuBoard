@@ -15,6 +15,11 @@ module v35s_lane (
     input  wire         running,
     input  wire [31:0]  timestamp,
     input  wire [7:0]   ready_ticks,
+    // (version 3) READY timed from /MREQ's fall: {start on a write cycle, start on a read
+    // cycle, delay[11:0]} and hold[11:0], in ticks; hold 0 or no start bit = off
+    input  wire [13:0]  ready_m_delay,
+    input  wire [11:0]  ready_m_hold,
+    input  wire [7:0]   ready_m_blocks,    // bit n: cycles of block n (A19-A17) start a window
     input  wire [31:0]  capture_start,
     input  wire [255:0] page_map,
 
@@ -32,6 +37,7 @@ module v35s_lane (
     output reg  [15:0]  data_in,
     output reg          data_drive,
     output reg          ready,
+    output wire         ready_out,     // (version 3) `ready` and the /MREQ-timed term
     output reg  [1:0]   result,
     output reg          overflow,
     output reg          marker_valid,
@@ -98,6 +104,42 @@ module v35s_lane (
 
     reg [2:0] state = 3'd0;
     assign lane_state = state;
+
+    // (version 3) READY from /MREQ's fall. A window starts on a cycle whose /MREQ falls
+    // while no window runs, of a selected direction (R//W) and a selected 128K block (the row
+    // address's A19-A17, read one tick after the fall is seen, as the row latch reads it; an
+    // I/O cycle's are 0). READY's /MREQ-timed term is then low from `delay` to `delay + hold`
+    // ticks after the start tick (two ticks after the fall is seen), whatever the cycle does
+    // meanwhile: it is not cut by the strobe or the cycle's end, and a cycle that starts
+    // inside a window starts none.
+    reg        m_prev = 1'b1;
+    reg        m_fall_d = 1'b0;
+    reg        m_run = 1'b0;
+    reg [12:0] m_count = 13'd0;
+    reg        ready_m = 1'b1;
+    wire       m_fall = m_prev && !s_mreq_n && s_refrq_n;
+    wire       m_sel = (s_read ? ready_m_delay[12] : ready_m_delay[13]) &&
+                       ready_m_blocks[{s_a19, s_a18_ube, s_mux[8]}];
+    wire [12:0] m_end = {1'b0, ready_m_delay[11:0]} + {1'b0, ready_m_hold};
+    wire [12:0] m_next = m_count + 1'b1;
+    always @(posedge clock) begin
+        m_prev <= s_mreq_n;
+        m_fall_d <= m_fall && !m_run;
+        if (clear || !running) begin
+            m_run <= 1'b0;
+            ready_m <= 1'b1;
+        end else if (m_run) begin
+            m_count <= m_next;
+            ready_m <= !(m_next >= {1'b0, ready_m_delay[11:0]} && m_next < m_end);
+            if (m_next >= m_end)
+                m_run <= 1'b0;
+        end else if (m_fall_d && m_sel && ready_m_hold != 0) begin
+            m_run <= 1'b1;
+            m_count <= 13'd0;
+            ready_m <= ready_m_delay[11:0] != 0;
+        end
+    end
+    assign ready_out = ready && ready_m;
     reg bus_qualified = 1'b0;
     reg idle_sample_seen = 1'b0;
     reg [31:0] start_time = 32'd0;

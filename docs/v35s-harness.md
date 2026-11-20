@@ -410,3 +410,70 @@ lane's dump; `dump.differences` lists the fields two dumps disagree on.
 1. A V35 bus unit to replace the V30 prefetch policy.
 2. The directed corpus and vector campaigns from the 68000 harness.
 3. The open refresh-in-HALT item.
+
+# Harness version 3: READY from /MREQ's fall, READY held low as a scheduled level
+
+Text for the overseer to fold into `docs/v35s-harness.md` (after "Harness version 2").
+Files changed: `fpga/v35s/v35s_lane.sv`, `v35s_harness.sv`, `v35s_stim.sv`, `v35s_lane_tb.sv` (the
+version check only), `validation/v35s/runner.py` (accepts version 3; input level `READYLOW`).
+
+## What is new
+
+- **READY timed from the cycle's start.** A second READY term, per lane: low for a programmed
+  window counted from the tick the lane sees /MREQ fall. It does not depend on the strobe, so
+  READY can be low before /MSTB falls (where a memory write is sampled), and both of its edges are
+  placed in single 30 ns ticks anywhere in the cycle and past its end.
+- **READY held low as a scheduled level** (input level bit 13). Built and compiled into both lanes;
+  not exercised by any program yet, on the board or in simulation.
+- The pin's READY is the AND of three terms: the strobe-timed one (register 0Ah, unchanged), the
+  /MREQ-timed one, and not level 13. With the new registers at their reset values the lane
+  behaves as version 2: old programs and receipts stay valid (checked: `logs/regression-v3.txt`).
+
+## Debug register map: change and add
+
+| Address | Register |
+| --- | --- |
+| 02 | version 3 (the runner accepts 1, 2 and 3; the registers below need 3) |
+| 8E | input levels at rest: bit 13 added, READY held low (the mask is now 3FFFh; `REST_LEVELS` leaves it 0) |
+| C2 | READY from /MREQ: bits 11:0 delay in ticks; bit 12 start on read cycles (R/W high at the start); bit 13 start on write cycles. Reset 0000h |
+| C4 | READY from /MREQ: bits 11:0 hold in ticks (0 = off). Reset 0000h |
+| C6 | READY from /MREQ: bits 7:0, bit n = cycles in 128K block n start a window (n = A19-A17 of the row address; an I/O cycle's row is block 0). Reset 00FFh |
+
+Like every other register they are refused while a run is busy.
+
+## The /MREQ-timed window
+
+- A window starts on a cycle whose /MREQ falls (not a refresh) while no window is running, if the
+  cycle's direction is selected (C2 bits 13:12) and its block is selected (C6). The block is read
+  from the row address one tick after the fall is seen, as the lane's row latch reads it.
+- READY's /MREQ-timed term is low from `delay` to `delay + hold` ticks after the start tick.
+- **Placement, measured on the board and equal in simulation** (scope ticks from the tick the
+  scope sees /MREQ fall): READY's output register falls at `delay + 4` and rises at
+  `delay + hold + 4`. So the earliest fall is 4 ticks (120 ns) after /MREQ's fall; both edges move
+  in single ticks.
+- The window is not cut by the strobe or by the cycle's end. A cycle that starts while a window
+  is running starts none: the running window carries into it. This is how a low READY is carried
+  from one cycle's tail into the next cycle's start.
+- To keep code fetches from starting windows, run the probe code in a block that is not selected
+  (`ready.py` puts it in block 2 and selects blocks 0 and 1: the data block, I/O, the stack).
+- Both lanes run the same logic from their own pins, so the simulation lane gives the core the
+  same stimulus.
+
+## Schedule entry: change
+
+Words 5 and 6 (mask, value) are 14 bits: bit 13 is READY held low. An entry
+`{"levels": {"READYLOW": 1}, "hold": n}` would pull READY low for n ticks from the event.
+
+## Runner and ready.py
+
+- `runner.INPUTS["READYLOW"] = 13`; `Harness` accepts version 3.
+- `ready.set_m(harness, (delay, hold, trigger, blocks))` writes C2 / C4 / C6; `set_m(harness,
+  None)` restores the reset values. `run_one` and `scope_one` restore them after every run. On a
+  version-2 image `set_m(None)` does nothing and a request for the mode raises.
+
+## Image
+
+`image/v35s.hex.bin`, sha256 in `image/sha256.txt`: the socket-only build (`fpga/v35s/build.sh`,
+model lane the idle stub). Timing met: clk_sys setup slack +8.663 ns, hold +0.086 ns at 30 ns.
+It is the image on the board now. I could not tell which variant the previous board image was
+(socket-only or `V35S_MODEL=1`); if the board needs a model lane, rebuild with that option.

@@ -114,8 +114,8 @@ module v35s_stim (
     reg [1:0] entry_serial = 2'd0;
     reg [23:0] entry_delay = 24'd0;
     reg [23:0] entry_hold = 24'd0;
-    reg [12:0] entry_mask = 13'd0;
-    reg [12:0] entry_value = 13'd0;
+    reg [13:0] entry_mask = 14'd0;      // (version 3) bit 13: READY held low
+    reg [13:0] entry_value = 14'd0;
     reg [23:0] count = 24'd0;
     reg pending = 1'b0;
     reg [7:0] pending_event = 8'd0;
@@ -184,9 +184,9 @@ module v35s_stim (
                             4'd3: entry_delay[23:16] <= schedule_q[7:0];
                             4'd4: entry_hold[15:0] <= schedule_q;
                             4'd5: entry_hold[23:16] <= schedule_q[7:0];
-                            4'd6: entry_mask <= schedule_q[12:0];
+                            4'd6: entry_mask <= schedule_q[13:0];
                             4'd7: begin
-                                entry_value <= schedule_q[12:0];
+                                entry_value <= schedule_q[13:0];
                                 word_count <= 4'd0;
                                 state <= S_WAIT;
                             end
@@ -203,7 +203,7 @@ module v35s_stim (
                     if (count != 0) begin
                         count <= count - 1'b1;
                     end else begin
-                        schedule_levels[12:0] <= (schedule_levels[12:0] & ~entry_mask) |
+                        schedule_levels[13:0] <= (schedule_levels[13:0] & ~entry_mask) |
                                                  (entry_value & entry_mask);
                         start_serial <= entry_serial;
                         if (entry_hold == 0) begin
@@ -219,7 +219,7 @@ module v35s_stim (
                     if (count != 0) begin
                         count <= count - 1'b1;
                     end else begin
-                        schedule_levels[12:0] <= (schedule_levels[12:0] & ~entry_mask) |
+                        schedule_levels[13:0] <= (schedule_levels[13:0] & ~entry_mask) |
                                                  (~entry_value & entry_mask);
                         pointer <= pointer + 1'b1;
                         state <= S_LOAD;

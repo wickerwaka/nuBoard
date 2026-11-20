@@ -37,7 +37,8 @@ PORT_EVENT = 0xFF12
 # Input levels (register 0x8E and schedule masks), fpga/v35s/v35s_harness.sv.
 INPUTS = {"NS": 0, "NMI": 1, "INTP0": 2, "INTP1": 3, "INTP2": 4, "INT": 5,
           "DMARQ0": 6, "DMARQ1": 7, "HLDRQ": 8, "RXD0": 9, "RXD1": 10,
-          "CTS0": 11, "CTS1": 12}
+          "CTS0": 11, "CTS1": 12,
+          "READYLOW": 13}       # (harness version 3) 1 = READY held low (0 at rest)
 # Levels at rest: N/S high, NMI and the active-low requests high, RxD idle high.
 REST_LEVELS = 0x1E1F
 
@@ -261,7 +262,7 @@ class Harness:
         # (work order 29) set by open_board: a harness on the board, where N/S low is refused
         self.board = False
         identity, self.version = struct.unpack("<HH", debug.read(0, 4))
-        if identity != 0x7033 or self.version not in (1, 2):
+        if identity != 0x7033 or self.version not in (1, 2, 3):
             raise RuntimeError("unexpected V35S harness identity or ABI")
         self.pages = []
 

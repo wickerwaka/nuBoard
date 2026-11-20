@@ -3864,3 +3864,20 @@ question, decided from S8's routed numbers with the user.
   sampling edge and a late READY fall (the harness's fall is fixed at strobe + 120 ns), READY
   at reset release, DMA with a stretched cycle. Seen in passing: a byte write's idle lane and
   idle address pins differ; RETF's pops 10.5 clocks apart on silicon at fX/2 against 9.
+- **2026-11-20, READY measured from /MREQ (harness version 3: READY low from `delay` to
+  `delay + hold` ticks after a cycle's /MREQ falls, single ticks, by direction and block;
+  docs/v35s-harness.md; programs rdy_m*, every capture twice).** One rule for every external
+  cycle (read, fetch, IN, OUT, memory write byte / word / odd halves, at fX/8, fX/4, fX/2):
+  READY is sampled on CLKOUT's falling edge 2.0 clocks after the falling edge on which /MREQ
+  falls, then on every following falling edge; a point sample (30 ns or less at fX/4 and
+  fX/2), bracketed from both sides (fX/8: latest rise that ends the cycle +63 ticks, earliest
+  that stretches +64, latest fall that stretches +62, earliest that does not +63). One sample
+  low is one wait. Nothing is sampled after the first high sample (a READY low after a
+  write's /MSTB fell does nothing); the cycle ends 2.0 clocks after it. A write's /MSTB falls
+  1.0 clock after the first high sample and rises 1.0 later; address, data and R/W stand from
+  the start. No carry-over between cycles. The core at ac17084 samples half a clock early,
+  reads and writes alike; with the one-line fix (`rdy_hold` reads the pin flop at ce_a; not
+  landed) all 12 sweeps are equal (1,950 run-windows, 44 within a tick of an edge), one tick
+  early from the pin flops. The previous image is kept as build/.../v35s-harness-v2.hex.bin.
+  Not measured: READY at reset release, with DMA, with refresh; the scheduled READY level
+  (built, not run).

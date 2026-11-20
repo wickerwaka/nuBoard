@@ -239,7 +239,7 @@ module v35s_lane_tb;
     task stimulus_tests;
         begin
             access(0, 20'h02, 0, got);
-            check(got == 16'h0002, $sformatf("harness version 2, got %h", got));
+            check(got == 16'h0003, $sformatf("harness version 3, got %h", got));
             // Bit time 4 ticks: rejected below 2.
             rejected(20'ha4, 16'd1);
             rejected(20'ha0, 16'd33);

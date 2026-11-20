@@ -21,6 +21,7 @@ the window's begin marker, identical windows stored once).
     ... ready edges [NAME ...] [--cand sim]          the sweep's steps side by side
     ... ready follow [NAME ...] [--cand sim]         what a stretched cycle moves (window growth)
     ... ready scope [--backend socket|sim] [--socket-fitted] ; ready scopetable [--backend ...] [-v]
+    ... ready msocket / msim / msummary / mrepeat / mgate / mscopetable   READY from /MREQ's fall
     ... ready static [--backend socket|sim] [--socket-fitted] ; staticreport ; staticgate
 
     rdy_e8 / rdy_e4 / rdy_e2   the edge probe (one cycle of each kind) at fX/8, fX/4, fX/2, every N
@@ -31,6 +32,8 @@ the window's begin marker, identical windows stored once).
     rdy_i8                     INTP0 landing among READY-governed reads
     rdy_r2                     refresh among READY-governed cycles (silicon only)
     rdy_s8 / rdy_s2            the scope probe: one READY window, the pins at 30 ns (action `scope`)
+    rdy_m8 / m4 / m2           READY timed from /MREQ's fall (harness version 3): both edges swept
+    rdy_ms8 / ms4 / ms2        the same with the scope
     rdy_x_*                    READY as a level (action `static`): see "READY as a level" below
 
 Receipts: validation/v35s/receipts/rdy-<name>-<backend>.json.
@@ -529,10 +532,23 @@ def blob(store, rows):
     return h
 
 
-def run_one(harness, prog, lane, n, x, limit=60_000_000):
+def set_m(harness, m):
+    """The /MREQ-timed READY (harness version 3): m = (delay, hold, trigger, blocks) or None."""
+    if harness.version < 3:
+        if m:
+            raise RuntimeError("READY from /MREQ needs harness version 3 (rebuild the image)")
+        return
+    d, h, trig, blocks = m or (0, 0, 0, 0xFF)
+    harness.debug.write16(0xC2, (trig & 3) << 12 | d)
+    harness.debug.write16(0xC4, h)
+    harness.debug.write16(0xC6, blocks)
+
+
+def run_one(harness, prog, lane, n, x, limit=60_000_000, m=None):
     b = prog.build()
     harness.debug.write16(0x08, x)
     harness.debug.write16(0x0A, n)
+    set_m(harness, m)
     mode = "socket" if lane == "socket" else "model"
     harness.load(b["segments"])
     result = harness.run(mode, limit)
@@ -547,6 +563,7 @@ def run_one(harness, prog, lane, n, x, limit=60_000_000):
         trace.extend(window[f"{lane}_trace"])
     harness.debug.write16(0x0A, 0)
     harness.debug.write16(0x08, 2)
+    set_m(harness, None)
     rows = [[t["start"], t["address"], t["data"], t["flags"], t["end"], t["strobe"]] for t in trace]
     return dict(passed=result["passed"], status=result["status"], timeout=result["timeout"],
                 total=total, replay=replay), rows
@@ -783,7 +800,7 @@ SCOPE_SIGNALS = ("mreq_n", "mstb_n", "iostb_n", "rw", "ready", "drive", "clkout"
 FULL_EVERY = 8          # the runs whose every edge is kept (the others: the digest only)
 
 
-def scope_one(harness, prog, lane, n, x, limit=60_000_000):
+def scope_one(harness, prog, lane, n, x, limit=60_000_000, m=None, full=None):
     """One run with the scope on the lane: per probe cycle of window 0 the pins' edges. Ticks
     are relative to the tick /MREQ's fall is seen (the scope's own samples: every pin through
     the same two flops, READY the harness's own output register)."""
@@ -791,6 +808,7 @@ def scope_one(harness, prog, lane, n, x, limit=60_000_000):
     b = prog.build()
     harness.debug.write16(0x08, x)
     harness.debug.write16(0x0A, n)
+    set_m(harness, m)
     mode = "socket" if lane == "socket" else "model"
     harness.load(b["segments"])
     scope = Scope(harness.debug)
@@ -799,6 +817,7 @@ def scope_one(harness, prog, lane, n, x, limit=60_000_000):
     capture = scope.download()
     harness.debug.write16(0x0A, 0)
     harness.debug.write16(0x08, 2)
+    set_m(harness, None)
     rows = [[t["start"], t["address"], t["data"], t["flags"], t["end"], t["strobe"]]
             for t in result[f"{lane}_trace"]]
     code = b["code"]
@@ -830,13 +849,15 @@ def scope_one(harness, prog, lane, n, x, limit=60_000_000):
         rf = first("ready", 0)
         item = dict(kind=kind, address=row[1], length=row[4] - row[0], trace_strobe=row[5],
                     stb_fall=sf, stb_rise=first(stb, 1, t0 + (sf or 0)),
+                    rdy_edges=[[e.tick - t0, e.value] for e in ev if e.signal == "ready"],
+                    data_edges=[e.tick - t0 for e in ev if e.signal == "data"],
                     mreq_rise=first("mreq_n", 1),
                     rdy_fall=rf, rdy_rise=first("ready", 1, t0 + (rf or 0)),
                     rw_fall=first("rw", 0, t0 - clk), rw_rise=first("rw", 1, t0 + 1),
                     clk_rise=[e.tick - t0 for e in ev if e.signal == "clkout" and e.value == 1],
                     clk_fall=[e.tick - t0 for e in ev if e.signal == "clkout" and e.value == 0],
                     next_mreq_fall=first("mreq_n", 0, t0 + 1))
-        if n % FULL_EVERY == 0:
+        if (n % FULL_EVERY == 0) if full is None else full:
             item["edges"] = [[e.tick - t0, e.signal, e.value] for e in ev if e.signal != "clkout"]
         out.append(item)
     return dict(passed=result["passed"], status=result["status"], total=result[f"{lane}_total"],
@@ -1273,8 +1294,379 @@ def static_gate(names, ref, cand):
     return ok
 
 
+
+# ------------------------------------------------------------------ READY from /MREQ's fall (rdy_m*)
+# Harness version 3 (registers C2h / C4h / C6h): READY low from `delay` to `delay + hold` ticks
+# after a cycle's start tick, for cycles of the selected blocks; a cycle that starts inside a
+# window starts none. The probe routine runs in block 2 (40200h, 0 waits, not selected), so only
+# the data block's cycles (block 1) and the I/O cycles and the main program's cycles (block 0:
+# the markers, the stack) start windows. A sweep is a list of (delay, hold); a run's key is
+# "<sweep>:<delay>:<hold>".
+M_PROBE = 0x40200
+M_BLOCKS = 0x03
+M_TRIG = 3                  # read and write cycles
+
+
+def sub_medge(a: Asm, mem):
+    """sub_edge's cycles (each after idle), then pairs with no idle between."""
+    p = Probe(a, lambda x: mem[x])
+    p.set_ds0(DSEG)
+    a.mov_r("DW", 0x0040)
+    gap(a, 8)
+    p.rd(0x0100, check=False)
+    gap(a, 8)
+    p.wr(0x0130)
+    gap(a, 8)
+    p.rd(0x0102, word=True, check=False)
+    gap(a, 8)
+    p.wr(0x0132, word=True)
+    gap(a, 8)
+    p.rd(0x0105, word=True, check=False)        # odd: two byte cycles
+    gap(a, 8)
+    p.wr(0x0135, word=True)
+    gap(a, 8)
+    a.op([0xFE, 0x06, 0x60, 0x01], f"INC byte [0160h]   ; {D0 + 0x60:05X}",
+         [("mr", D0 + 0x60), ("mw", D0 + 0x60)])
+    gap(a, 8)
+    a.op([0xEC], "IN AL, DW   ; 0040", [("ior", 0x40)])
+    gap(a, 8)
+    a.op([0xEE], "OUT DW, AL   ; 0040", [("iow", 0x40)])
+    gap(a, 8)
+    a.op([0xED], "IN AW, DW   ; 0040", [("ior", 0x40)])
+    gap(a, 8)
+    a.op([0xEF], "OUT DW, AW   ; 0040", [("iow", 0x40)])
+    gap(a, 8)
+    a.op([0x9A, 0x80, 0x01, CSEG & 0xFF, CSEG >> 8], f"CALL FAR {CSEG:04X}h:0180h   ; the stub in the data block")
+    gap(a, 8)
+    # pairs: read then write, write then read, read then read, write then write
+    for first, second in (("r", "w"), ("w", "r"), ("r", "r"), ("w", "w")):
+        for k, kind in enumerate((first, second)):
+            off = 0x0170 + 0x10 * "rw".index(kind) + 2 * k + 8 * ("rw".index(first) * 2 + "rw".index(second))
+            if kind == "r":
+                p.rd(off, check=False)
+            else:
+                p.wr(off)
+        gap(a, 8)
+    a.seg("DS0", 0)
+
+
+def sub_mscope(a: Asm, mem):
+    p = Probe(a, lambda x: mem[x])
+    p.set_ds0(DSEG)
+    a.mov_r("DW", 0x0040)
+    gap(a, 8)
+    p.rd(0x0100, check=False)
+    gap(a, 8)
+    p.wr(0x0130)
+    gap(a, 8)
+    a.op([0xEC], "IN AL, DW   ; 0040", [("ior", 0x40)])
+    gap(a, 8)
+    a.op([0xEE], "OUT DW, AL   ; 0040", [("iow", 0x40)])
+    gap(a, 8)
+    p.wr(0x0135, word=True)
+    gap(a, 8)
+    a.seg("DS0", 0)
+
+
+class MProgram(Program):
+    """A program whose probe routine runs in block 2 (CALL FAR 4000h:0200h) and whose runs are
+    sweeps of the /MREQ-timed READY."""
+
+    def __init__(self, name, windows, sub, note="", prc=None, sweeps=None, clkout=False):
+        super().__init__(name, windows, sub, note, prc=prc, clkout=clkout)
+        self.sweeps = sweeps or {}
+
+    def mruns(self):
+        return [(f"{sw}:{d}:{h}", d, h) for sw, pts in self.sweeps.items() for d, h in pts]
+
+    def build(self):
+        if self._built:
+            return self._built
+        mem, code = base_image(True)
+        a = Asm()
+        a.op([0xFA], "DI")
+        a.mov_r("AW", 0)
+        a.mov_sr("SS")
+        a.mov_r("SP", STACK_TOP)
+        a.mov_sr("DS0")
+        a.seg("DS1", 0xF000)
+        a.sfr_w(0xE1, 0xEC)
+        if self.clkout:
+            a.out_w(M_BANK, 0x0001)
+            a.sfr_w(0x00, 0x55)
+            a.sfr_w(0x01, 0x00)
+            a.sfr_w(0x02, 0x80)
+            a.out_w(M_BANK, 0x0002)
+        if self.prc is not None:
+            a.sfr_w(0xEB, self.prc)
+        pmc1 = 0x00
+        for k, w in enumerate(self.windows):
+            a.lines.append((b"", f"; ---- window {k}: WTC {w.wtc:04X}h PMC1 {w.pmc1:02X}h ({w.name()}) {w.note}"))
+            if w.pmc1 != pmc1:
+                a.sfr_w(0x0A, w.pmc1)
+                pmc1 = w.pmc1
+            a.sfr_w(0xE8, w.wtc, word=True)
+            a.out_w(M_BEGIN, k)
+            a.op([0x9A, M_PROBE & 0xFF, M_PROBE >> 8 & 0xFF, 0x00, M_PROBE >> 16 << 4],
+                 f"CALL FAR {M_PROBE >> 16 << 12:04X}h:{M_PROBE & 0xFFFF:04X}h   ; the probe routine, in block 2")
+            a.nop(8)
+            a.out_w(M_END, k)
+        a.sfr_w(0xE8, 0xFFFF, word=True)
+        a.sfr_w(0x0A, 0x00)
+        a.mov_r("DW", 0xFF00)
+        a.op([0xEE], "OUT DW, AL")
+        a.op([0xF4], "HALT")
+        a.label("done")
+        a.rel([0xEB], "done", "BR")
+        text = a.finish()
+        for i, v in enumerate(text):
+            mem[ORG + i] = v
+        for i, v in enumerate(bytes([0xEA, ORG & 0xFF, ORG >> 8, 0, 0])):
+            mem[0xFFFF0 + i] = v
+        pa = Asm(M_PROBE)
+        pa.groups = []
+        self.sub(pa, mem)
+        pa.nop(8)
+        pa.op([0xCB], "RETF")
+        ptext = pa.finish()
+        for i, v in enumerate(ptext):
+            mem[M_PROBE + i] = v
+        a.lines.append((b"", f"; the probe routine at {M_PROBE:05X}h:"))
+        a.lines += pa.lines
+        segments = {}
+        for pg in sorted({x >> 12 for x in mem}):
+            segments[pg << 12] = bytes(mem[pg << 12 | o] for o in range(0x1000))
+        self._built = dict(text=text + ptext, lines=a.lines, segments=segments, groups=pa.groups,
+                           code=[(ORG, ORG + len(text)), (0xFFFF0, 0xFFFF5),
+                                 (M_PROBE, M_PROBE + len(ptext))] + code)
+        return self._built
+
+
+def m_sweeps(clk):
+    step = max(1, clk // 8)
+    return {"rise": [(0, h) for h in range(1, 5 * clk + 1)],
+            "fall": [(d, clk) for d in range(0, 15 * clk // 4 + 1)],
+            "pulse": [(d, 2) for d in range(0, 15 * clk // 4 + 1)],
+            "carry": [(d, 2 * clk) for d in range(0, 12 * clk + 1, step)]}
+
+
+def s_sweeps(clk):
+    return {"rise": [(0, h) for h in range(3 * clk // 2, 7 * clk // 2 + 1)],
+            "fall": [(d, clk) for d in range(3 * clk // 2, 7 * clk // 2 + 1)],
+            "stall": [(0, 6 * clk)]}
+
+
+def mprograms():
+    win = [Window(0, 2, 2, note="fixed 2 waits"), Window(0, 3, 3, note="READY: data and I/O")]
+    progs = []
+    for tag, prc, clk in (("8", None, 32), ("4", 0x4D, 16), ("2", 0x4C, 8)):
+        progs.append(MProgram(f"rdy_m{tag}", win, sub_medge, f"READY from /MREQ's fall: the edge "
+                              f"probe at fX/{tag}", prc=prc, sweeps=m_sweeps(clk)))
+        progs.append(MProgram(f"rdy_ms{tag}", win[1:], sub_mscope, f"READY from /MREQ's fall: the "
+                              f"scope probe at fX/{tag}, CLKOUT on P07", prc=prc, sweeps=s_sweeps(clk),
+                              clkout=True))
+    return {p.name: p for p in progs}
+
+
+def _m_job(args):
+    name, key, d, h, scope = args
+    from .traps import _sim, _stim
+    prog = mprograms()[name]
+    transport, harness = _sim()
+    try:
+        _stim(harness, prog)
+        if scope:
+            return key, scope_one(harness, prog, "model", 0, 2, m=(d, h, M_TRIG, M_BLOCKS), full=True)
+        return key, run_one(harness, prog, "model", 0, 2, m=(d, h, M_TRIG, M_BLOCKS))
+    finally:
+        transport.close()
+
+
+def m_run_set(names, backend, tag, jobs=8, sweeps=None):
+    """Trace receipts for rdy_m8 / m4 / m2, scope receipts for rdy_ms8 / ms4 / ms2."""
+    from .traps import _board, _close_board, _stim
+    progs = mprograms()
+
+    def save(prog, results):
+        if prog.clkout:
+            rec = dict(program=prog.name, note=prog.note, clk_ticks=prog.clk, backend=backend,
+                       program_sha256=hashlib.sha256(prog.build()["text"]).hexdigest(),
+                       date=datetime.datetime.now().isoformat(timespec="seconds"),
+                       ticks="relative to the tick /MREQ's fall is sampled; 30 ns", runs=results)
+            receipt_path(prog.name, f"{backend}{tag}-scope").write_text(json.dumps(rec, separators=(",", ":")) + "\n")
+            bad = [k for k, r in results.items() if not r["passed"] or r["capture"] != "complete"]
+            print(f"{prog.name}: scope {backend}{tag} {len(results)} runs, not passed / incomplete: {bad or 'none'}",
+                  flush=True)
+        else:
+            write(prog, results, backend, tag)
+
+    todo = {n: [(k, d, h) for k, d, h in progs[n].mruns() if sweeps is None or k.split(":")[0] in sweeps]
+            for n in names or list(progs)}
+    if backend == "socket":
+        transport, harness = _board()
+        try:
+            for name, runs in todo.items():
+                prog = progs[name]
+                _stim(harness, prog)
+                res = {}
+                for key, d, h in runs:
+                    m = (d, h, M_TRIG, M_BLOCKS)
+                    res[key] = (scope_one(harness, prog, "socket", 0, 2, m=m, full=True) if prog.clkout
+                                else run_one(harness, prog, "socket", 0, 2, m=m))
+                save(prog, res)
+        finally:
+            _close_board(transport, harness)
+    else:
+        from multiprocessing import Pool
+        with Pool(jobs) as pool:
+            for name, runs in todo.items():
+                prog = progs[name]
+                save(prog, dict(pool.map(_m_job, [(name, k, d, h, prog.clkout) for k, d, h in runs])))
+
+
+def m_labels(rows, clk):
+    """A window's cycles named: {label: (waits, start offset, length)}; the fetches of block 1
+    as one entry (the set of their waits)."""
+    out, seen, fw = {}, Counter(), set()
+    for r in rows:
+        if r[0] in DATA:
+            seen[(r[0], r[1])] += 1
+            lb = f"{r[0]} {r[1]:05X}" + (f" #{seen[(r[0], r[1])]}" if seen[(r[0], r[1])] > 1 else "")
+            out[lb] = (waits(r[3], clk), r[5], r[3])
+        elif r[0] == "fetch" and r[1] >> 17 == 1:
+            fw.add(waits(r[3], clk))
+    out["fetch block 1"] = ("/".join(str(v) for v in sorted(fw)), 0, 0)
+    return out
+
+
+def m_table(rec, prog, sweep, k=None):
+    """{label: steps} for a sweep: the waits against the swept value (hold for `rise`, delay
+    otherwise), window k (default the last, the READY window)."""
+    k = len(prog.windows) - 1 if k is None else k
+    per = {}
+    for d, h in prog.sweeps[sweep]:
+        key = f"{sweep}:{d}:{h}"
+        if key not in rec["runs"]:
+            continue
+        rows = windows_of(rec, key).get(k)
+        if rows is None:
+            continue
+        for lb, (w, st, ln) in m_labels(rows, prog.clk).items():
+            per.setdefault(lb, []).append((h if sweep == "rise" else d, w))
+    return {lb: steps(seq) for lb, seq in per.items()}
+
+
+def m_summary(names, backend, verbose=False):
+    progs = mprograms()
+    for name in names or [n for n in progs if not progs[n].clkout]:
+        prog = progs[name]
+        rec = load(name, backend)
+        clk = prog.clk
+        print(f"{name} [{backend}]: {prog.note}; a clock is {clk} ticks; READY low from delay to delay + hold "
+              f"ticks after the cycle's start tick")
+        for sweep in prog.sweeps:
+            what = {"rise": "low from 0, the rise at `hold` swept", "fall": f"a pulse of {clk} ticks (one clock), its fall swept",
+                    "pulse": "a pulse of 2 ticks, its place swept",
+                    "carry": f"a pulse of {2 * clk} ticks from the first cycle's start (a pair's second cycle starts no window inside it)"}[sweep]
+            print(f"  {sweep} ({what}): waits@first value")
+            groups = {}
+            for lb, st in m_table(rec, prog, sweep).items():
+                groups.setdefault(fmt_steps(st), []).append(lb)
+            for st, lbs in groups.items():
+                print(f"      {', '.join(lbs) if verbose or len(lbs) <= 6 else str(len(lbs)) + ' cycles: ' + ', '.join(lbs[:6]) + ' ...'}: {st}")
+        ctl = {fmt_steps(st) for sw in prog.sweeps for st in m_table(rec, prog, sw, 0).values()}
+        print(f"  window 0 (fixed 2 waits), every sweep: {sorted(ctl)}")
+
+
+def m_compare(names, ref, cand, quiet=False):
+    """Run by run, the READY window's and the fixed window's cycles (kind, address, waits) in
+    order; a run whose waits are the reference's at a swept value within EDGE_TICKS counts as
+    the edge."""
+    progs = mprograms()
+    ok = True
+    for name in names or [n for n in progs if not progs[n].clkout]:
+        prog, a, b = progs[name], load(name, ref), load(name, cand)
+        if a["program_sha256"] != b["program_sha256"]:
+            print(f"{name}: the receipts are of different programs")
+            ok = False
+            continue
+        for sweep, pts in prog.sweeps.items():
+            same = edge = 0
+            diff = []
+
+            def cyc(rec, d, h, k):
+                key = f"{sweep}:{d}:{h}"
+                if key not in rec["runs"] or str(k) not in rec["runs"][key]["wins"]:
+                    return None
+                rows = rec["blobs"][rec["runs"][key]["wins"][str(k)]]
+                return [(r[0], r[1], waits(r[3], prog.clk)) for r in rows if r[0] in DATA] + \
+                       [("fetch", 0, tuple(sorted({waits(r[3], prog.clk) for r in rows
+                                                   if r[0] == "fetch" and r[1] >> 17 == 1})))]
+
+            stepv = pts[1][1] - pts[0][1] if sweep == "rise" else pts[1][0] - pts[0][0]
+            for d, h in pts:
+                for k in range(len(prog.windows)):
+                    x, y = cyc(a, d, h, k), cyc(b, d, h, k)
+                    if x is None or y is None:
+                        continue
+                    if x == y:
+                        same += 1
+                        continue
+                    near = [cyc(a, d + (0 if sweep == "rise" else e * stepv), h + (e * stepv if sweep == "rise" else 0), k)
+                            for e in range(-EDGE_TICKS, EDGE_TICKS + 1) if e]
+                    near = [n for n in near if n is not None]
+                    if [v[:2] for v in x] == [v[:2] for v in y] and all(
+                            p == q or any(n[i] == q for n in near) for i, (p, q) in enumerate(zip(x, y))):
+                        edge += 1
+                    else:
+                        i = next((i for i, (p, q) in enumerate(zip(x, y)) if p != q), 0)
+                        diff.append((d, h, k, x[i], y[i]))
+            ok &= not diff
+            print(f"{name} {sweep}: {ref} / {cand}: {'EQUAL' if not diff else 'DIFFER'} ({same} run-windows equal, "
+                  f"{edge} within {EDGE_TICKS} step(s) of an edge, {len(diff)} differ)")
+            if not quiet:
+                for d, h, k, p, q in diff[:4]:
+                    print(f"    delay {d} hold {h} w{k}: {p} / {q}")
+    return ok
+
+
+def m_scope_table(names, backend):
+    """Per scope program and cycle: the sweep's steps with READY's edges, the strobe's and
+    CLKOUT's as ticks from /MREQ's fall."""
+    progs = mprograms()
+    for name in names or [n for n in progs if progs[n].clkout]:
+        prog = progs[name]
+        rec = load(name, backend + "-scope")
+        clk = prog.clk
+        print(f"{name} [{backend}] scope: a clock is {clk} ticks; ticks from the tick /MREQ's fall is seen")
+        for sweep, pts in prog.sweeps.items():
+            ncyc = max(len(rec["runs"][f"{sweep}:{d}:{h}"]["cycles"]) for d, h in pts)
+            for c in range(ncyc):
+                last, prev, lines, head = None, None, [], None
+                for d, h in pts:
+                    cy = rec["runs"][f"{sweep}:{d}:{h}"]["cycles"]
+                    if c >= len(cy) or "error" in cy[c]:
+                        continue
+                    cy = cy[c]
+                    w = waits(cy["length"], clk)
+                    if head is None:
+                        head = f"{cy['kind']} {cy['address']:05X}"
+                    if w != last:
+                        cf = [t for t in cy["clk_fall"] if -clk < t < 5 * clk]
+                        line = (f"      delay {d} hold {h}: {w} waits; READY edges {cy['rdy_edges'][:4]}; strobe "
+                                f"falls +{cy['stb_fall']} rises +{cy['stb_rise']}; CLKOUT falls {cf}")
+                        if prev is not None:
+                            line += f" | one step before: READY edges {prev['rdy_edges'][:4]}, {last} waits"
+                        lines.append(line)
+                        last = w
+                    prev = cy
+                print(f"  {sweep}, {head}:")
+                for ln in lines:
+                    print(ln)
+
+
 def emit(progs):
-    for name, prog in list(progs.items()) + list(xprograms().items()):
+    for name, prog in list(progs.items()) + list(xprograms().items()) + list(mprograms().items()):
         (PROGRAMS_DIR / f"{name}.s").write_text(prog.source())
         print(f"{name}: {len(prog.build()['text'])} bytes, {len(prog.windows)} windows")
         if getattr(prog, "stim", None):
@@ -1283,7 +1675,8 @@ def emit(progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "summary", "repeat", "gate", "emit", "scope", "scopetable", "static", "staticreport", "staticgate", "edges", "follow"))
+    p.add_argument("action", choices=("socket", "sim", "summary", "repeat", "gate", "emit", "scope", "scopetable", "static", "staticreport", "staticgate", "edges", "follow",
+                                     "msocket", "msim", "msummary", "mrepeat", "mgate", "mscopetable"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
@@ -1291,6 +1684,7 @@ def main():
     p.add_argument("--jobs", type=int, default=8)
     p.add_argument("--backend", default="socket", help="scope: socket or sim")
     p.add_argument("--edge-ticks", type=int, default=1, help="gate / repeat: the edge allowance")
+    p.add_argument("--sweeps", nargs="*", help="msocket / msim: only these sweeps")
     p.add_argument("--only", type=int, nargs="*", help="only these READY holds")
     p.add_argument("--socket-fitted", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -1325,6 +1719,20 @@ def main():
     elif a.action == "edges":
         for n in names:
             edges_compare(n, a.ref, a.cand, progs)
+    elif a.action == "msocket":
+        if not a.socket_fitted:
+            p.error("the socket action needs --socket-fitted")
+        m_run_set(a.names, "socket", a.tag, sweeps=a.sweeps)
+    elif a.action == "msim":
+        m_run_set(a.names, "sim", a.tag, a.jobs, sweeps=a.sweeps)
+    elif a.action == "msummary":
+        m_summary(a.names, a.ref + a.tag, a.verbose)
+    elif a.action == "mrepeat":
+        return 0 if m_compare(a.names, "socket", "socket-2") else 1
+    elif a.action == "mgate":
+        return 0 if m_compare(a.names, a.ref, a.cand) else 1
+    elif a.action == "mscopetable":
+        m_scope_table(a.names, a.backend + a.tag)
     elif a.action == "staticgate":
         return 0 if static_gate(a.names, a.ref, a.cand) else 1
     elif a.action == "follow":

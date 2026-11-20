@@ -11,6 +11,9 @@
 //               6 overflow, 7 timed out, 8 cold-reset wait active
 //   08 X1 half period in 30 ns ticks (2..255; X1 = 16.67 MHz / value)
 //   0a READY hold in ticks after the column strobe (0 = always ready)
+//   (version 3) c2 READY from /MREQ's fall: 11:0 delay ticks, 12 start on read cycles,
+//      13 start on write cycles; c4 11:0 hold ticks (0 = off); c6 7:0 the 128K blocks
+//      (A19-A17 of the row) whose cycles start a window (reset FFh); 8e bit 13: READY held low
 //   0c/0e run limit          10/12 run ticks
 //   14/16 model/socket trace count
 //   18 live socket pins (read)
@@ -111,6 +114,9 @@ module v35s_harness #(
     reg [1:0] mode = 2'd2;
     reg [7:0] x_half = 8'd2;
     reg [7:0] ready_ticks = 8'd0;
+    reg [13:0] ready_m_delay = 14'd0;   // (version 3) register C2h
+    reg [11:0] ready_m_hold = 12'd0;    // (version 3) register C4h
+    reg [7:0] ready_m_blocks = 8'hff;   // (version 3) register C6h
     reg [31:0] run_limit = 32'd50_000_000;
     reg [31:0] capture_start = 32'd0;
     reg [31:0] reset_ticks = 32'd1_667;
@@ -341,15 +347,23 @@ module v35s_harness #(
         .selected_lane(scope_lane)
     );
 
+    // (version 3) READY at each lane's CPU: the lane's (strobe-timed and /MREQ-timed) and the
+    // schedule's level 13 (1 = READY held low)
+    wire model_lane_ready, socket_lane_ready;
+    assign model_ready = model_lane_ready && !model_levels[13];
+    assign socket_ready = socket_lane_ready && !socket_levels[13];
+
     v35s_lane model_lane (
         .clock(clock), .clear(clear_lanes), .running(executing && mode[0]),
         .timestamp(run_ticks), .ready_ticks(ready_ticks),
+        .ready_m_delay(ready_m_delay), .ready_m_hold(ready_m_hold),
+        .ready_m_blocks(ready_m_blocks),
         .capture_start(capture_start), .page_map(page_map),
         .a0(model_a0), .a19(model_a19), .a18_ube(model_a18_ube),
         .mux_address(model_mux_address), .data_out(model_data_out),
         .mreq_n(model_mreq_n), .mstb_n(model_mstb_n), .iostb_n(model_iostb_n),
         .read_write(model_read_write), .refrq_n(model_refrq_n),
-        .data_in(model_lane_data_in), .data_drive(model_data_drive), .ready(model_ready),
+        .data_in(model_lane_data_in), .data_drive(model_data_drive), .ready(), .ready_out(model_lane_ready),
         .result(model_result), .overflow(model_overflow),
         .marker_valid(model_marker_valid), .marker_data(model_marker_data),
         .trace_count(model_trace_count), .total_count(model_total),
@@ -364,12 +378,14 @@ module v35s_harness #(
     v35s_lane socket_lane (
         .clock(clock), .clear(clear_lanes), .running(executing && mode[1]),
         .timestamp(run_ticks), .ready_ticks(ready_ticks),
+        .ready_m_delay(ready_m_delay), .ready_m_hold(ready_m_hold),
+        .ready_m_blocks(ready_m_blocks),
         .capture_start(capture_start), .page_map(page_map),
         .a0(socket_a0), .a19(socket_a19), .a18_ube(socket_a18_ube),
         .mux_address(socket_mux_address), .data_out(socket_data_out),
         .mreq_n(socket_mreq_n), .mstb_n(socket_mstb_n), .iostb_n(socket_iostb_n),
         .read_write(socket_read_write), .refrq_n(socket_refrq_n),
-        .data_in(socket_lane_data_in), .data_drive(socket_data_drive), .ready(socket_ready),
+        .data_in(socket_lane_data_in), .data_drive(socket_data_drive), .ready(), .ready_out(socket_lane_ready),
         .result(socket_result), .overflow(socket_overflow),
         .marker_valid(socket_marker_valid), .marker_data(socket_marker_data),
         .trace_count(socket_trace_count), .total_count(socket_total),
@@ -575,7 +591,10 @@ module v35s_harness #(
                                 model_port_mode <= legal_modes(saved_data[7:0]);
                             end
                             8'h8c: p0_levels <= saved_data[7:0];
-                            8'h8e: base_levels <= saved_data & 16'h1fff;
+                            8'h8e: base_levels <= saved_data & 16'h3fff;
+                            8'hc2: ready_m_delay <= saved_data[13:0];
+                            8'hc4: ready_m_hold <= saved_data[11:0];
+                            8'hc6: ready_m_blocks <= saved_data[7:0];
                             8'ha0: begin
                                 if (saved_data[5:0] > 6'd32)
                                     debug_error <= 1'b1;
@@ -613,7 +632,7 @@ module v35s_harness #(
                     end else begin
                         case (saved_address[7:0])
                             8'h00: debug_read_data <= 16'h7033;
-                            8'h02: debug_read_data <= 16'h0002;
+                            8'h02: debug_read_data <= 16'h0003;
                             8'h04: debug_read_data <= {6'd0, mode, 7'd0, socket_armed};
                             8'h06: debug_read_data <= status;
                             8'h08: debug_read_data <= {8'd0, x_half};
@@ -670,6 +689,9 @@ module v35s_harness #(
                             8'hbc: debug_read_data <= socket_pins[31:16];
                             8'hbe: debug_read_data <= socket_levels;
                             8'hc0: debug_read_data <= model_levels;
+                            8'hc2: debug_read_data <= {2'd0, ready_m_delay};
+                            8'hc4: debug_read_data <= {4'd0, ready_m_hold};
+                            8'hc6: debug_read_data <= {8'd0, ready_m_blocks};
                             default: begin
                                 if (saved_address >= 20'h40 && saved_address < 20'h60)
                                     debug_read_data <= page_map[saved_address[4:1] * 16 +: 16];
