@@ -3731,3 +3731,8 @@ question, decided from S8's routed numbers with the user.
   2,617 FF, 36 RAM_5K. Remaining against silicon (the next work order, measured by
   validation/v35s/onchip_t.py): the first WTC store takes effect one fetch late (an SFR
   word is two byte cycles on silicon); periph's one-shot period 829 against 855.
+- **2026-11-19, work order 30's FULL gate.** The rest of the gate as the last landing's:
+  program sets (dma 7, intr 6, onchip 3, banks 5, traps 6, prio 4, pfxtake 10, serial 4
+  equal; periph 2 equal 2 differ, the differing periods moved: the one-shot 829 clocks
+  against silicon's 855), the fuzz sets unchanged, f4_hwd equal; wtc 8 of 8 equal by
+  window; secure.py's 15 benches as predicted; wtc_ps 4 pass. Sim receipts refreshed.
