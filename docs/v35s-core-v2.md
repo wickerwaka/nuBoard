@@ -3801,3 +3801,24 @@ question, decided from S8's routed numbers with the user.
   programs equal and puts two TOUT periods outside tolerance. Not measured: the scan
   counter's phase from reset, NMI and INT against phase, the /128 tick to better than 4
   clocks. The committed f5_si_edge sim receipt predates 5e17029 (stale).
+- **2026-11-20, work order 32 landed (user ruling: land with the stated losses).** v35_intc:
+  the free-running `ph` toggle is gone; the request's passage is one register on the scan
+  counter's low bit, the INTP0-2 sampler runs on the same bit, and a store to a request
+  control register restarts the scan as EI does. v35_timer: the count clocks are one chain
+  from reset (a copy of the bus unit's divide-by-six, halved for /12, a seven-bit count whose
+  carry is held to the next /12 edge for /128); a start is taken by the first edge of its
+  clock instead of restarting the prescalers. G_REL moved to v35_front_pkg, still 0. No port,
+  no microcode change. Full gate: corpus 30,181 exact at both spacings, pin records 0 differ;
+  intr 15 of 15 equal (f5_si_edge with them; the gate now runs the whole set); phase takes in
+  front of silicon's instruction 177 of 192 (was 21), the rest the 18-clock phases; one-shot
+  /12 count-out 76 or 82 after its start and /128 count-outs 132 132 120 apart, as silicon;
+  onchip_t, wtc (8 by window), wtc_ps, secure, f4_hwd, fuzz sets, vectors, lint, tests, SST as
+  the last landing. **Lost:** periph period tests tm0_i6, tm0_md, tm0_os, tm0_os128 and the
+  three TOUT tests leave the 16-clock tolerance (tm1_i6 enters it); 95 qprobe schedule runs
+  (160 gained; 1,632 of 13,950 exact). One cause for the periph rows: the take's lattice is the
+  core's 16-clock scan round restarted by the TMIC store, where silicon's is locked to the
+  timer; not built. Also not built: the 18-clock round, EI's restart at its first word (a
+  port), a second stage for INTP_DLY (the flag read wants 5, the takes 11). 17 ns: +3.239 /
+  +2.718 / +3.199 (seeds 4, 5: +3.589 / +3.296; seed 2's worst path is in the loader,
+  untouched); 9,404 LUT4, 2,606 FF, 36 RAM_5K. User ruling of the same day: the grid constant
+  goes to silicon's 3 in the next build.

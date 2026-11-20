@@ -88,5 +88,12 @@ package v35_front_pkg;
         logic       ld, le, m3, hp, hc;
     } v35_sf_t;
 
+    // ------------------------------------------------------------ (WO31, WO32) the timer grid
+    // G_REL: the phase of the free-running divide-by-six (`gph`, ce_a from reset; one counter in
+    // v35_bus, an equal copy in v35_timer) at which a timer register's byte cycle's wait ends
+    // (v35_bus tm_hold; README "Work order 31"). v35_timer states its count edges relative to the
+    // same point (README "Work order 32"), so both read the one constant
+    localparam logic [2:0] G_REL = 3'd0;
+
 
 endpackage

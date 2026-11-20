@@ -589,8 +589,8 @@ module v35_intc (
     reg  [2:0]  mc_ch;                  // the macro service's channel (the take's)
     reg         it_v;                   // (F3b) INT is offered (the take strobe take_i covers it)
     reg         ir_h;                   // (qprobe round 14-16) a maskable request is raised by the scan (held)
-    reg  [1:0]  ird = 2'd0;             // ... and its passage to the EU: two registers on the divided clock (ph)
-    wire        ir_v = ir_h && ird[1];  // a maskable request is offered
+    reg         ird = 1'b0;             // ... and its passage to the EU: one register on the scan's divided clock (sc[0])
+    wire        ir_v = ir_h && ird;     // a maskable request is offered
     reg  [4:0]  ir_vec;
     reg         nmi_v;                  // NMI is pending
     reg         i_wake;                 // HALT's release: NMI or an unmasked IF, INT
@@ -644,10 +644,16 @@ module v35_intc (
     reg  [3:0] lv = 4'hF;               // NMI, INTP0-2 as last sampled
     wire [3:0] lvn = input_levels[4:1];
     wire [3:0] es = {intm[6], intm[4], intm[2], intm[0]};
-    // (qprobe round 14, spec 10 I1) INTP0-2 are sampled every second clock (`ph`: the edge
-    // detector's divided clock; the scan's round is eight of its periods); NMI every clock
-    reg        ph = 1'b0;
-    wire [3:0] edge_c = ((es & lvn & ~lv) | (~es & ~lvn & lv)) & {{3{!frz && ph}}, 1'b1};
+    // (qprobe round 14, spec 10 I1) INTP0-2 are sampled every second clock, NMI every clock.
+    // (WO32) The divided clock is the level scan's: its counter's low bit (`sc[0]`, below; the
+    // scan's round is eight of its periods), which EI and a store to a request control register
+    // restart, so the two-clock lattice of the latest edge a read of the IF sees follows the
+    // distance from the last such store, not reset (validation/v35s/phase.py f5_ph_e / e1: the
+    // lattice moves with the sled's parity, never with the absolute parity). It was a toggle
+    // from reset (`ph`), which no program restarts
+    reg  [3:0] sc = 4'd0;               // the scan's counter (the scan below)
+    wire       dv = sc[0];              // the scan's divided clock
+    wire [3:0] edge_c = ((es & lvn & ~lv) | (~es & ~lvn & lv)) & {{3{!frz && dv}}, 1'b1};
     reg        nmi_p = 1'b0;
     // (qprobe rounds 12-13, spec 8 A3 / spec 9 C3-C4) NMI's edge reaches its request (nmi_p)
     // NMI_DLY clocks after it is sampled (`nd`, a down-count loaded by the edge). (qprobe round
@@ -657,7 +663,12 @@ module v35_intc (
     // down-count a pin): the pin path's latency measured on the socket (QPr14ninc: the
     // instruction a pin edge is taken in front of moves at the edge 72.5 clocks from M0 on
     // silicon, 83.5 without the delay), the request then going through the level scan as a
-    // software request does. A measured latency, not a read mechanism (as NMI_DLY)
+    // software request does. A measured latency, not a read mechanism (as NMI_DLY).
+    // (WO32) Not re-derived: with the sampler on `dv` the program's read of the IF (phase.py
+    // f5_ph_e / e1) wants 5 (the only value with silicon's lattice parity within the half-clock
+    // pin phase), the pin's takes want 11 (qprobe r14n / r12j / r26i schedule families: 5 loses
+    // 155 runs of 13,950 that 11 matches). The six clocks lie between the flag and the take
+    // (Q72); one delay cannot hold both, so 11 (the takes') is kept
     localparam logic [3:0] NMI_DLY = 4'd10;
     localparam logic [3:0] INTP_DLY = 4'd11;
     reg  [3:0] nd = 4'd0;
@@ -667,10 +678,8 @@ module v35_intc (
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             nd <= 4'd0;
-            ph <= 1'b0;
             for (int k = 0; k < 3; k++) idl[k] <= 4'd0;
         end else if (ce_a) begin
-            ph <= !ph;
             nd <= edge_c[0] ? NMI_DLY : (nd != 4'd0 ? nd - 4'd1 : 4'd0);
             for (int k = 0; k < 3; k++)
                 idl[k] <= edge_c[k + 1] ? INTP_DLY : (idl[k] != 4'd0 ? idl[k] - 4'd1 : 4'd0);
@@ -707,7 +716,7 @@ module v35_intc (
             ms_mode <= 3'd0;
             ms_dir <= 1'b0;
         end else if (ce_a) begin
-            lv <= (frz || !ph) ? {lv[3:1], lvn[0]} : lvn;
+            lv <= (frz || !dv) ? {lv[3:1], lvn[0]} : lvn;
             tk_ms <= tk_ms;
             if (take_m) begin
                 tk_k <= 3'd0;
@@ -836,11 +845,15 @@ module v35_intc (
     end
     key_t kw;
     assign kw = kmin(k3[0], k3[1]);
-    // (qprobe round 14, spec 10 I1) the scan's counter and EI's restart of it: IE rising after
-    // an E word that marks no boundary (nb: EI's, and not a PSW load's, nbi: POP PSW, RETI)
-    reg  [3:0] sc = 4'd0;
+    // (qprobe round 14, spec 10 I1) the scan's counter (`sc`, declared with the samplers above)
+    // and EI's restart of it: IE rising after an E word that marks no boundary (nb: EI's, and
+    // not a PSW load's, nbi: POP PSW, RETI). (WO32, Q78) A store to a request control register
+    // restarts it too (`ic_st`: the IF write's own strobe; f5_ph_a / b / c: the period of the
+    // takes after EI counts from the store; Q78 r18s: the vector read a fixed 50 clocks after
+    // the store's write cycle as the store moves through 24 clocks)
     reg        ie_q = 1'b0, ei_w = 1'b0;
     wire       ei_set = ie && !ie_q && ei_w;
+    wire       ic_st = wr && (|ic_we);
     always_ff @(posedge clock) begin
         if (!reset_n) begin
             ie_q <= 1'b0;
@@ -855,7 +868,7 @@ module v35_intc (
         if (!reset_n) begin
             for (j = 0; j < 3; j++) k2[j] <= '0;
             ir_h <= 1'b0;
-            ird <= 2'd0;
+            ird <= 1'b0;
             nmi_v <= 1'b0;
             i_wake <= 1'b0;
             it_v <= 1'b0;
@@ -869,18 +882,24 @@ module v35_intc (
             k2[2] <= kmin(k1[4], k1[5]);
             // (qprobe round 14-16, spec 10 I1 / I3) the level scan: a vectored request is raised
             // to the EU (ir_v) when the scan (`sc`: level sc[3:1], two clocks a level, 16 a
-            // round; EI restarts it at level 0, `ei_set`) is at the resolution's winner's level;
+            // round; EI and a request control store restart it at level 0, `ei_set`, `ic_st`)
+            // is at the resolution's winner's level;
             // once raised it is the one pending request (its source, vector, level and bank bit
             // held) until its IF, its mask, IE or the level against ISPR takes it away (the take
             // clears IF): a later request of any level does not displace it
-            sc <= ei_set ? 4'd0 : sc + 4'd1;
-            // the raised request reaches the EU through two registers clocked on the pins'
-            // divided clock (`ph`, every second clock: 3 to 4 clocks; Q49's 8 to 12 clocks from
-            // EI's last word to level 0 is this and the resolution's stages)
-            if (ph)
-                ird <= {ird[0], ir_h} & {2{ir_h}};
+            sc <= (ei_set || ic_st) ? 4'd0 : sc + 4'd1;
+            // the raised request reaches the EU through one register clocked on the scan's
+            // divided clock (`dv` = sc[0] == 1: 1 to 2 clocks by the raise's phase; Q49's 8 to 12
+            // clocks from EI's last word to level 0 is this and the resolution's stages).
+            // (WO32) It was two registers on the free-running toggle `ph` (3 or 4 clocks by the
+            // parity of EI's absolute clock, which silicon never shows: phase.py f5_ph_a / b / c /
+            // s, every absolute phase gives one take; RESULTS section 8 trial S1). With the
+            // restart at IE's rise (not EI's first word, which this module does not see) one
+            // register gives silicon's clock after EI (50 at level 7)
+            if (dv)
+                ird <= ir_h;
             else if (!ir_h)
-                ird <= 2'd0;
+                ird <= 1'b0;
             if (ir_h)
                 ir_h <= rq[ir_i] && ie && {1'b0, ir_l} < isp_l;
             else begin
@@ -1085,9 +1104,9 @@ endmodule
 //   interval  TMC0 MOD0 0: TM0 counts down at SCLK/6 (TCLK0 0) or /128; at 0 it reloads from MD0
 //             and raises TMIC0: the period is (MD0 + 1) x the prescale (TOUT: 600 clocks for
 //             MD0 99 at /6). TM1 the same (TMC1; /6 or /128), raising TMIC1 and TMIC2 both
-//   start     a TMC0 store with TS0 1 (also when TS0 was already 1) loads TM0 from MD0 and
-//             restarts the prescaler (f4_tout tout_rs: TM0 20 at the start is not counted; tout_flip:
-//             a rewrite while running moves the next count-out); TMC1 with TS1 likewise
+//   start     a TMC0 store with TS0 1 (also when TS0 was already 1) loads TM0 from MD0 (f4_tout
+//             tout_rs: TM0 20 at the start is not counted; tout_flip: a rewrite while running
+//             moves the next count-out); TMC1 with TS1 likewise
 //   one-shot  MOD0 1: TM0 (TS0; SCLK/12 or /128 by TCLK0) and MD0 (MS0; /12 or /128 by MCLK)
 //             count down from their own values; each at 0 raises TMIC0 / TMIC1 and clears its
 //             start bit (TMC0 reads 01h after both: f4_tm tm0_os)
@@ -1095,6 +1114,24 @@ endmodule
 //   TOUT      a flop q (1 at reset and at each start from TS0 0) toggled at TM0's count-outs;
 //             the pin is q ^ ALV while ENT0 is 1, else ~ALV (f4_tout: every store's level)
 // The count-out is a registered strobe (`tf`, one ce_a); v35_intc sets the IF from it.
+//
+// (WO32) The count clocks are one chain from reset (validation/v35s/phase.py f5_ph_g / g1 / g2 /
+// g3, RESULTS sections 5, 6), not prescalers restarted at the store:
+//   /6    the count edge of the bus unit's grid: a copy of its divide-by-six (`gph`, the same
+//         reset and enable as v35_bus's, so no wire joins them), the edge K6 = 4 clocks after
+//         the clock at which a timer register's wait ends (gph == G_REL): 2.5 clocks after the
+//         grid point on silicon's pins (a timer register's cycle ends on the grid point), the
+//         RTL's pin half a clock earlier (its pin phase, README "Work order 31")
+//   /12   every second /6 edge from reset (`h12` halves the grid count: {h12, gph} is the
+//         clock count mod 12): silicon's one-shot count-out at n = 8.5 mod 12
+//   /128  a seven-bit count of the clock from reset (`t128`) whose carry (`k128`) is held until
+//         the next /12 edge (silicon's count-outs 132, 132, 120 clocks apart, all on /12 edges)
+//   Each phase is stated against the grid's point (G_REL + K mod 6, 12, 128), so the chain
+//   moves with the grid's constant.
+//   A start (or the MD0 one-shot's MS0) is taken on the first edge of its clock after the
+//   store, which does not count (`s0`, `sm`, `s1`): TM0's first count is the second edge (f4_tout:
+//   the first count-out 604 clocks after the start's TOUT level at /6; f5_ph_g: 76 or 82
+//   clocks to the one-shot's count-out at /12 by the grid point the start lands on)
 /* verilator lint_off DECLFILENAME */
 module v35_timer (
     input  wire        clock,
@@ -1117,15 +1154,34 @@ module v35_timer (
     localparam logic [7:0] O_TM0 = 8'h80, O_MD0 = 8'h82, O_TM1 = 8'h88, O_MD1 = 8'h8A,
                            O_TMC0 = 8'h90, O_TMC1 = 8'h91;
     wire os = tmc0[0];                  // one-shot (MOD0)
-    // the prescalers: the clocks to a count, less one
-    wire [6:0] d0 = tmc0[6] ? 7'd127 : os ? 7'd11 : 7'd5;
-    wire [6:0] dm = tmc0[4] ? 7'd127 : 7'd11;
-    wire [6:0] d1 = tmc1[6] ? 7'd127 : 7'd5;
-    reg  [6:0] p0 = 7'd0, pm = 7'd0, p1 = 7'd0;
-    // a start's synchronisation: the count begins SD clocks after the store (f4_tout: the first
-    // count-out 604 clocks after the store's TOUT level, the next 600 apart)
-    localparam logic [2:0] SD = 3'd4;
-    reg  [2:0] s0 = 3'd0, s1 = 3'd0;
+    // ---- (WO32) the count clocks: one chain from reset, phased against the grid's point
+    // K: each clock's edge in clocks after the ce_a at which a timer register's wait ends
+    // (gph == G_REL), modulo the chain's period; with silicon's grid against reset (G_REL = 3)
+    // the counters' phases are silicon's n (clock boundaries after the release: n = t + 25 for
+    // the t-th ce_a, the FFFF0h fetch at n = 25 on both): /6 at n = 2 mod 6, /12 at n = 8 mod 12,
+    // the /128 carry at n = 73 mod 128 (the pins a half clock before silicon's 2.5, 8.5; the
+    // carry anywhere in n = 72 .. 75 gives silicon's count-outs, 76.5 / 80.5 / 84.5 mod 128:
+    // RESULTS section 5's 4-clock window). With another G_REL the chain moves with the grid
+    localparam int K6 = 4;              // /6: 2 clocks after the grid point (the wait's last clock is the next)
+    localparam int K12 = K6;            // /12: the /6 edge at n = 8 mod 12, not 2
+    localparam int K128 = 45;           // the /128 carry
+    localparam int P12 = (int'(v35_front_pkg::G_REL) + K12) % 12;
+    localparam logic [2:0] P6 = 3'(P12 % 6);
+    localparam logic       H12 = 1'(P12 / 6);
+    localparam logic [6:0] P128 = 7'((int'(v35_front_pkg::G_REL) + K128) % 128);
+    reg  [2:0] gph = 3'd0;              // the grid's divide-by-six (v35_bus's copy)
+    reg        h12 = 1'b0;              // ... halved: {h12, gph} counts the clock mod 12
+    reg  [6:0] t128 = 7'd0;             // the clock mod 128
+    reg        k128 = 1'b0;             // its carry, held to the next /12 edge
+    wire       e6 = gph == P6;
+    wire       e12 = e6 && h12 == H12;
+    wire       e128 = e12 && k128;
+    // each count's clock: TM0 /6, /12 (one-shot) or /128 (TCLK0); MD0 /12 or /128 (MCLK); TM1 /6
+    // or /128 (TCLK1)
+    wire       c0 = tmc0[6] ? e128 : os ? e12 : e6;
+    wire       cm = tmc0[4] ? e128 : e12;
+    wire       c1 = tmc1[6] ? e128 : e6;
+    reg        s0 = 1'b0, sm = 1'b0, s1 = 1'b0;    // a start not yet taken by its clock's edge
     reg        q = 1'b1;
     assign tout = tmc0[3] ? q ^ tmc0[2] : !tmc0[2];
     // a store's byte at its offset ((WO31) a word is two byte stores, low offset first)
@@ -1138,20 +1194,29 @@ module v35_timer (
     end
     always_ff @(posedge clock) begin
         if (!reset_n) begin
+            gph <= 3'd0; h12 <= 1'b0; t128 <= 7'd0; k128 <= 1'b0;
+        end else if (ce_a) begin
+            gph <= gph == 3'd5 ? 3'd0 : gph + 3'd1;
+            if (gph == 3'd5)
+                h12 <= !h12;
+            t128 <= t128 + 7'd1;
+            if (t128 == P128)
+                k128 <= 1'b1;
+            else if (e12)
+                k128 <= 1'b0;
+        end
+    end
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
             tm0 <= 16'hFFFF; md0 <= 16'hFFFF; tm1 <= 16'hFFFF; md1 <= 16'hFFFF;
-            tmc0 <= 8'd0; tmc1 <= 8'd0; tf <= 3'd0;
-            p0 <= 7'd0; pm <= 7'd0; p1 <= 7'd0; q <= 1'b1;
-            s0 <= 3'd0; s1 <= 3'd0;
+            tmc0 <= 8'd0; tmc1 <= 8'd0; tf <= 3'd0; q <= 1'b1;
+            s0 <= 1'b0; sm <= 1'b0; s1 <= 1'b0;
         end else if (ce_a) begin
             tf <= 3'd0;
             // ---- the counts
-            if (s0 != 3'd0)
-                s0 <= s0 - 3'd1;
-            if (s1 != 3'd0)
-                s1 <= s1 - 3'd1;
-            if (tmc0[7] && s0 == 3'd0) begin
-                p0 <= p0 == d0 ? 7'd0 : p0 + 7'd1;
-                if (p0 == d0) begin
+            if (tmc0[7] && c0) begin
+                s0 <= 1'b0;
+                if (!s0) begin
                     if (os ? tm0 == 16'd1 || tm0 == 16'd0 : tm0 == 16'd0) begin
                         tf[0] <= 1'b1;
                         q <= !q;
@@ -1164,9 +1229,9 @@ module v35_timer (
                         tm0 <= tm0 - 16'd1;
                 end
             end
-            if (os && tmc0[5]) begin
-                pm <= pm == dm ? 7'd0 : pm + 7'd1;
-                if (pm == dm) begin
+            if (os && tmc0[5] && cm) begin
+                sm <= 1'b0;
+                if (!sm) begin
                     if (md0 == 16'd1 || md0 == 16'd0) begin
                         tf[1] <= 1'b1;
                         tmc0[5] <= 1'b0;
@@ -1175,9 +1240,9 @@ module v35_timer (
                         md0 <= md0 - 16'd1;
                 end
             end
-            if (tmc1[7] && s1 == 3'd0) begin
-                p1 <= p1 == d1 ? 7'd0 : p1 + 7'd1;
-                if (p1 == d1) begin
+            if (tmc1[7] && c1) begin
+                s1 <= 1'b0;
+                if (!s1) begin
                     if (tm1 == 16'd0) begin
                         tf[2:1] <= 2'b11;
                         tm1 <= md1;
@@ -1198,21 +1263,19 @@ module v35_timer (
             if (s_tmc0) begin
                 tmc0 <= w_lo & 8'hFD;
                 if (w_lo[7]) begin
-                    p0 <= 7'd0;
-                    s0 <= w_lo[0] ? 3'd0 : SD;
+                    s0 <= 1'b1;
                     if (!w_lo[0])
                         tm0 <= md0;
                     if (!tmc0[7])
                         q <= 1'b1;
                 end
                 if (w_lo[5])
-                    pm <= 7'd0;
+                    sm <= 1'b1;
             end
             if (s_tmc1) begin
                 tmc1 <= v_tmc1 & 8'hC0;
                 if (v_tmc1[7]) begin
-                    p1 <= 7'd0;
-                    s1 <= SD;
+                    s1 <= 1'b1;
                     tm1 <= md1;
                 end
             end

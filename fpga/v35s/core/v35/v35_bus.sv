@@ -395,9 +395,8 @@ module v35_bus
     // (WO31) a timer register's byte cycle: its wait (pos 2) repeats until the clock before its
     // last is the grid's G_REL (the cycle then ends on the grid point: its last clock is the
     // next, the following cycle starts on the grid). Registers only (c_tmw, the position, gph).
-    // G_REL: the grid's phase against reset, a property of the silicon (README "Work order 31":
-    // read from the f4_oc_t / f4_oc_e receipts, one value for every window)
-    localparam logic [2:0] G_REL = 3'd0;
+    // G_REL (v35_front_pkg, shared with v35_timer): the grid's phase against reset (README "Work
+    // order 31": read from the f4_oc_t / f4_oc_e receipts, one value for every window)
     wire        tm_hold = c_tmw && pos_now == 3'd2 && gph != G_REL;
     wire        pos_hold = rdy_hold || tm_hold;     // the cycle's first wait repeats
     // (MX5c) the next values the always block below loads (the delivery's)

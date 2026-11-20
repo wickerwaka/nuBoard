@@ -9422,3 +9422,178 @@ Other gates:
   - the EU's post gains the `sfr_pg` compare into `rq_pair`, and `dnow` / `plo` a lane select by
     `rq_addr[0]`;
   - the sequencer's registered stall loses a term.
+
+## Work order 32: the interrupt request's phase from the scan counter, the timer's count chain from reset
+
+Silicon (validation/v35s/phase.py, programs f5_ph_*, two socket captures each; the phase study's
+RESULTS sections 2 to 6):
+
+- The take after EI with a request pending does not depend on the absolute clock: one clock after
+  EI at every phase (50 clocks after the anchor at level 7, 37 at level 0).
+- The two-clock lattice of the latest INTP0 edge a read of EXIC0 sees follows the store in front
+  of it, not reset.
+- The timer's count clocks are one chain from reset: /6 edges 2.5 clocks after the grid point,
+  /12 every second /6 edge (the one-shot's count-out at n = 8.5 mod 12), /128 a divide-by-128
+  from reset whose tick is delivered on the /12 clock (count-outs 132, 132, 120 clocks apart).
+
+Before this work order the core clocked the request's passage and the INTP0-2 sampler on a
+free-running toggle from reset (`ph`), restarted the scan at EI only, and restarted the timer's
+prescalers at each start. No port was added, no microcode changed, no per-opcode compare was
+added, the struct test's budget is unchanged.
+
+### A. The request's passage and the pin sampler on the scan counter (v35_intc)
+
+- **`ph` is gone.** The scan counter's low bit (`dv` = `sc[0]`, phase 1) is the divided clock of
+  both:
+  - the passage to the EU: one register (`ird`, loaded with the raised request on `dv`; the
+    offer `ir_v = ir_h && ird`). It was two registers on `ph` (3 or 4 clocks by the parity of
+    EI's absolute clock, which silicon never shows). With the restart at IE's rise (this module
+    does not see EI's first word; that would be a port: the phase study's T1) one register
+    gives silicon's 50 clocks at level 7 (trial S1);
+  - the INTP0-2 sampler and edge detector (`lv`, `edge_c`). NMI's sampler is unchanged (every
+    clock).
+- **A store to a request control register restarts the scan** as EI does (`ic_st = wr &&
+  |ic_we`, the IF write's own strobe; Q78). The pin's lattice then follows the distance from
+  the last such store (f5_ph_e / e1: the threshold of the third read moves by one clock with the
+  sled's parity, never with the absolute parity; the RTL's thresholds 22.1 / 21.1 clocks for an
+  even / odd sled against silicon's 15.6 / 14.6, the same order).
+- **`INTP_DLY` stays 11.** The receipts give two values for one delay:
+  - the program's read of the IF (f5_ph_e / e1, swept in simulation with `--delays`): only an
+    odd count gives silicon's lattice parity, and 5 lands within the half-clock pin phase of
+    silicon's thresholds (16.1 / 15.1 against 15.6 / 14.6; 4 inverts the parity, 3 and 7 are 2
+    clocks off);
+  - the pin's takes (the qprobe schedule families, simulated against their socket receipts):
+    with 5 the sample loses 155 of the runs 11 matches (QPr14n* 40 to 85 a family, QPr12jrep,
+    QPr26i) and gains QPr17f's flag reads (163 to 190 of 192).
+
+  Q72's six clocks lie between the flag and the take; one countdown cannot hold both and no
+  mechanism for the second stage is established, so the takes' 11 is kept (the read of the IF
+  sees the edge 6 to 7 clocks later than silicon).
+- **Not built:** the 18-clock round (RESULTS section 9 A item 5, inferred) and EI's restart at
+  its first word (a port).
+
+### B. The timer's count chain from reset (v35_timer)
+
+- **The clocks.** A copy of the bus unit's divide-by-six (`gph`: the same reset, the same ce_a,
+  so no wire joins them), halved (`h12`: {h12, gph} is the clock count mod 12) and a seven-bit
+  count of the clock (`t128`) whose carry (`k128`) is held until the next /12 edge. The strobes
+  are compares of registers: `e6` (gph), `e12` (e6 and h12), `e128` (e12 and k128).
+- **The phases relative to the grid point** (G_REL, now in v35_front_pkg so that v35_bus and
+  v35_timer read the one constant): /6 at K6 = 4 clocks after the ce_a at which a timer
+  register's wait ends (2 clocks after the grid point; silicon's 2.5 on its pins, the RTL's pin
+  half a clock earlier, as WO31's), /12 at the same point mod 12 (K12 = 4), the /128 carry at
+  K128 = 45 mod 128. With silicon's grid constant (G_REL = 3) these are silicon's n: /6 at 2 mod
+  6, /12 at 8 mod 12, the carry at n = 73 mod 128 (anywhere in 72 to 75 gives silicon's
+  count-outs: RESULTS section 5's four-clock window, so this one is placed, not measured); with
+  another G_REL the chain moves with the grid.
+- **The start.** A start (TMC0 with TS0, TMC1 with TS1, MS0 for MD0's one-shot) is taken on the
+  first edge of its clock after the store, which does not count (`s0`, `s1`, `sm`); the count
+  begins on the next edge. This replaces the prescalers' restart and the sync delay SD = 4: at
+  /6 the first count-out is 604 clocks after the start's TOUT level, as before (every store to a
+  timer register lands on the grid, so the store-to-edge distance is fixed); the one-shot at /12
+  now counts out 76 or 82 clocks after its start by the grid point it lands on (silicon; it was
+  72 always).
+- **Not measured on silicon** and built the same way: TM1's and MD0's own /12 and /128 (MCLK),
+  a TMC store while running at /128 (the carry is not disturbed: it runs from reset).
+
+### Measured (simulation against the socket; `+v35_chk` silent in every run)
+
+- **intr** (the 15 gated programs): 15 EQUAL, f5_si_edge with them (base 14; f5_si_edge DIFFERed at
+  08144, 04AD / 04AE). Ungated: f5_stepi EQUAL as at the base; f3_lat stops at its first case as at
+  the base (44 writes of 1,293, the same first difference).
+- **phase.py, the takes** (windows whose take is in front of silicon's instruction, pushed PC
+  equal; "clock" also the vector read's clock):
+
+  | series | base | now | the windows that still differ |
+  | --- | --- | --- | --- |
+  | x7 | 0 / 48 | 42 / 48 (clock 42) | s 10, 11, 28, 29, 46, 47: the period-18 phases |
+  | y7 | 0 / 24 | 24 / 24 (clock 24) | - |
+  | x0 | 0 / 24 | 22 / 24 (clock 0) | s 14, 15: the period-18 phases; all: the vector read 1 clock late (38 against 37) |
+  | px7 | 0 / 32 | 28 / 32 (clock 28) | s 5, 6, 23, 24: the period-18 phases |
+  | py7 | 0 / 16 | 16 / 16 (clock 16) | - |
+  | pr7 | 8 / 16 | 15 / 16 (clock 0) | s 5: the period-18 phase; all: 1 clock late (53 against 52) |
+  | se (f5_ph_s) | 13 / 32 | 30 / 32 (clock 30) | s 4, 22: the period-18 phases |
+
+  f5_si_edge's take is now the same at every absolute phase (se: 30 of 32, the other two silicon's
+  period-18 phase). The one-clock lateness at level 0 and behind the empty string is the restart
+  at IE's rise rather than EI's first word (RESULTS section 8: T1 and S1 differ in this only).
+- **phase.py, windows equal** (records the same, ticks within 1, pins within 4), base / now:
+  f5_ph_a 0 / 0 of 96, b 0 / 0 of 32, c 0 / 0 of 32, s 0 / 0 of 32, d 8 / 8 of 8, g 23 / 23 of 46,
+  g1 23 / 23, g2 0 / 0, g3 24 / 24, t 0 / 0 of 8, e and e1 0 / 0 of 32. By cause:
+  - a, b, c, s: every window keeps Q82's two held clocks in front of the vector read and the
+    FINT ; RETI handler 3 clocks short (handler length); beside those, only the period-18 phases
+    (the 18-clock round) and x0 / pr7's one clock (the restart point) remain;
+  - g, g1, g3: the TOUT windows (22 each) by the half-clock pin phase; the first sweep window of g
+    and g1 by the grid's phase (missing refresh in the prelude: G_REL = 0 is the corpus's 33
+    clocks); g2 throughout by missing refresh;
+  - t: the take lattice (16 clocks) is the scan's, restarted by the TMIC0 store, not silicon's
+    (locked to the timer's start or the first request: not built);
+  - e, e1: every window one clock long (the prefixed read in a run, the oct study's out-of-scope
+    form); the read sees the edge 6 to 7 clocks later than silicon (`INTP_DLY`, above).
+- **The count chain** (validation/v35s/phase.py receipts, n = clock boundaries after the release;
+  the RTL's pins 0.47 clocks before silicon's):
+
+  | | /6 edges mod 6 | start / stop mod 6 | /12 count-out mod 12 | one-shot start to count-out | /128 count-outs mod 128, intervals |
+  | --- | --- | --- | --- | --- | --- |
+  | silicon (g, g1, g3) | 2.5 | 4.5 | 8.5 | 76 or 82 | 76.5 80.5 84.5; 132 132 120 |
+  | base (G_REL 0) | 5.03 | 1.03 | 1.03 or 7.03 | 72 always | no fixed residue; 128 |
+  | now (G_REL 0) | 5.03 | 1.03 | 5.03 | 76 or 82 | 73.03 77.03 81.03; 132 132 120 |
+  | throwaway G_REL 3 | 2.03 | 4.03 | 8.03 | 76 or 82 | 76.03 80.03 84.03; 132 132 120 |
+
+  Under G_REL 0 the whole chain sits 3 clocks before silicon's from reset, as the grid does.
+  Which windows get 76 and which 82 follows the program's timeline mod 12 (the missing refresh),
+  not the chain. f5_ph_g / g1 / g3 windows equal under G_REL 3: 23 / 23 / 23 (g3 loses its
+  first sweep window: its prelude is the 3 mod 6 case). onchip_t under G_REL 3: a 215, s 162, k 51,
+  t 519, v 1,153, e 74 (s, t and v each lose their first timer access: the 33-clock preludes).
+- **onchip_t** (G_REL 0): a 215 / 239, s 163 / 187, k 51 / 55, t 520 / 552, v 1,154 / 1,154,
+  e 74 / 118: every window as at the base. f4_oc_e's trace is identical to the base's record for
+  record (its 30 TOUT windows are /6: equal but for the half clock, the closing C6 06 form +3).
+- **periph** (handler-to-handler intervals through HALT's wake, clocks; tolerance 16):
+
+  | test | silicon | base | now |
+  | --- | --- | --- | --- |
+  | tm0_i6 | 599 599 615 599 599 | 605 595 605 595 605 | 589 611 589 611 589 (out) |
+  | tm0_md | 599 599 311 295 295 | 608 592 301 307 287 | 592 608 285 307 301 (out) |
+  | tm0_os | 855 | 845 | 829 (out) |
+  | tm0_os128 | 519 | 512 | 496 (out) |
+  | tm1_i6 | 599 599 599 599 615 | 589 611 589 611 589 (out) | 605 595 605 595 605 |
+  | tm01 | 311 279 599 204 410 ... | 334 269 597 ... (out) | 320 269 611 ... (out) |
+  | tout_alv1, alv0, ent0 | 599 599 615 599 | 605 595 605 595 | 589 611 589 611 (out) |
+  | tout_os | 855 | 829 (out) | 829 (out) |
+  | tm0_i128, tm1_i128, tb | | in | in |
+
+  f4_port and f4_tb EQUAL, f4_tm and f4_tout DIFFER, as at the base. Item A alone moves
+  tm0_i6, tm0_md, tm1_i6 and the three TOUT tests (a build with the base's timer gives the same
+  rows); item B alone moves tout_os inside (843) and tm0_os outside (829). The cause of every
+  row outside: the take's lattice. A 600-clock source against the RTL's 16-clock scan round
+  (600 = 8 mod 16) alternates between two lattice points (+-5 or +-11 by where the round was
+  restarted: now the TMIC store before the start, at the base EI); silicon never alternates
+  (599 599 615 599: one point, a 16-clock step every fourth take). That is RESULTS section 4's
+  lattice locked to the timer's start or the first request, which neither item builds; the
+  one-shot rows are the same lattice point taken on another phase.
+- **wtc** 8 of 8 EQUAL by window; **wtc_ps** 4 PASS; **secure bench** all 15 as predicted, chk 0;
+  banks 5, dma 7, onchip 6, traps 6 (usim rc 0, traps_undef 101 / 101), prio 4, pfxtake 10,
+  serial 4 EQUAL; f4_hwd EQUAL: all as at the base.
+- **Corpus sample** (F3 F5 F9 F12 F19 F24 F31 F32 F34 F39, `+v35_chk --diag`): RTL-exact 8,313 of
+  8,502 (unchanged), pre exact 8,502, 0 FAIL, chk 0, per-run rows 0 differ, pin records 0 differ
+  against the base's own replay (8,502 runs). The chain corpus has no interrupt schedule.
+- **qprobe schedule families** (simulated against their socket receipts: a run is exact when its
+  bus events from M0 and every write's datum are the socket's; 13,950 runs of 86 family files:
+  QPr12inop, 12jrep, 13nld, 13nrmw, the 34 QPr14n*, the six QPr15i*, 17f g n p q r wn wp, 18f, 18s,
+  the 14 QPr18t*, the eight QPr19p* / q*, 20h, 20ndiv8, 23bld bnop dld, 26e, 26i, 26j):
+  base 1,567 exact, now 1,632 (160 gained, 95 lost). Gained: QPr14nlock 30, 20ndiv8 35, 14naddmn
+  / 14nldn / 13nld 15 each, 14nrmwc 13, 17wp 24 (and 24 lost: the pin's lattice moved). Lost:
+  QPr12jrep 23 (a pin-edge sweep whose threshold moved by a clock with the sampler's phase),
+  QPr26i 12 (the nop train: matched by `ph`'s parity at the base, as f5_si_edge was), the rest
+  one to four a family. Not diagnosed further.
+
+### Timing (Efinity, T120F484, 17 ns, no exception; work order 31 in brackets)
+
+- Top: seed 1 +3.239 (+2.997), seed 2 +2.718 (+3.424), seed 3 +3.199 (+3.402); seed 2 under
+  +2.8, so seeds 4 +3.589 and 5 +3.296.
+- Resources: 9,404 LUT4 (9,397), 569 ADD (587), 2,606 FF (2,628), 36 RAM_5K.
+- Seed 2's worst path is the loader's (erep_b -> df.ent, 9 levels), untouched here; no path of
+  v35_intc or v35_timer is among the 2,000 reported endpoints of any seed.
+- Paths touched: the scan counter's next value gains the request control store's strobe (an OR
+  of ic_we with wr: v35_sfr's store decode); the passage and the samplers read `sc[0]`; the timer's
+  strobes are compares of its own registers.
