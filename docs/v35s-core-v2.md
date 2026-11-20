@@ -3842,3 +3842,25 @@ question, decided from S8's routed numbers with the user.
   word's read. Unexplained: four windows where EI lands in the second clock of one level's
   slot beside another pending level. Not measured: a request blocked by the in-service level,
   macro service, NMI and INT, the time base as a source, a control store inside a slot.
+- **2026-11-20, READY measured (validation/v35s/ready.py, 20 programs rdy_*, every capture
+  twice).** READY is looked at only under wait field 3 with PMC1 bit 7; fields 0, 1, 2 and
+  on-chip cycles ignore it. **Sampling point:** CLKOUT's falling edge in the middle of the
+  cycle's third state (the first built-in wait), 1.0 clock after the strobe's fall (/MSTB on a
+  read or fetch, /IOSTB on I/O), then every clock; the strobe rises 2.0 clocks after the first
+  sample that finds READY high. The built-in waits are not counted first; a low pulse ending
+  before the first sample is ignored. Latest READY-high that still ends the cycle / earliest
+  that stretches, ticks after the strobe's fall: fX/8 +31 / +32, fX/4 +14 / +15, fX/2 +7 / +8.
+  **Memory writes obey READY** (the earlier "not extended" was the harness timing READY from
+  the strobe, which on a write falls only after a high sample): with READY low as a level the
+  write stalls with /MREQ low, address and data out, /MSTB high. **The core at f72264a samples
+  half a clock early** (`rdy_q` loaded at ce_b, used at the next ce_a): steps 17 ticks early at
+  fX/8, and at fX/2 it never sees the harness's READY; the earlier equality at a 160-tick hold
+  was a coincidence. Trial (one line, `rdy_hold` reads the pin flop at ce_a; not landed): all
+  sweep and kind programs equal within 2 ticks (the two pin flops). Equal in the core already:
+  one wait per clock of READY low (to 34 waits), all access kinds, per-block and I/O fields,
+  pins frozen during the extension, the next cycle 1.0 clock after the end, an interrupt
+  waiting for the stretched cycle. Second difference: a near CALL behind a cycle of 4 or more
+  waits pushes 2 to 3 clocks early in the core; mechanism not found. Not measured: a write's
+  sampling edge and a late READY fall (the harness's fall is fixed at strobe + 120 ns), READY
+  at reset release, DMA with a stretched cycle. Seen in passing: a byte write's idle lane and
+  idle address pins differ; RETF's pops 10.5 clocks apart on silicon at fX/2 against 9.
