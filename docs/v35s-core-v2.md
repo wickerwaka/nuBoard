@@ -3780,3 +3780,24 @@ question, decided from S8's routed numbers with the user.
   pass. 17 ns: +2.997 / +3.424 / +3.402; 9,397 LUT4, 2,628 FF, 36 RAM_5K. Not measured
   on silicon: word reads of a running timer (two byte reads 6 clocks apart), words at
   odd SFR offsets, the /12 and /128 count-out phases.
+- **2026-11-20, from-reset phases measured (validation/v35s/phase.py, programs f5_ph_*;
+  every capture twice).** Reset to the first fetch is 25 CPU clocks on silicon and in the
+  core (the chip's clock divider is not reset; a refresh cycle at boundary 15, the fetch at
+  25). DI is 4 clocks, equal to the core, so it is not the cause of f5_si_edge's clock.
+  **The interrupt request's path is not on a free-running phase from reset:** with a
+  request pending, the take after EI is at one fixed clock at every absolute phase (136
+  windows, store-set and INTP0 requests); the core alternates with absolute parity, from
+  v35_intc's `ph` toggle against a scan counter EI restarts. The pin's two-clock lattice
+  follows the distance from the store before it, not reset. **The timer chain is fixed to
+  reset and refresh does not move it:** a timer register's cycle ends at 0 mod 6 clocks
+  from the first clock after the release, /6 count edges at 2.5 mod 6, the /12 one-shot
+  count-out at 8.5 mod 12, /128 count-outs on /12 edges (132, 132, 120 apart); the core
+  restarts its prescalers at the store (72 and 128 exactly). Silicon's grid constant from
+  reset is 3; the core's is offset for the corpus prelude's missing refresh, and that
+  offset differs by prelude. Also seen: an 18-clock period from the request-control store
+  while a request is pending with IE 0 (two phases of it take early / 18 late); a periodic
+  TM0 request taken on a 16-clock lattice locked to the timer, not EI. Trial (not landed):
+  the request's passage as one register on the scan counter's low bit makes all 15 intr
+  programs equal and puts two TOUT periods outside tolerance. Not measured: the scan
+  counter's phase from reset, NMI and INT against phase, the /128 tick to better than 4
+  clocks. The committed f5_si_edge sim receipt predates 5e17029 (stale).
