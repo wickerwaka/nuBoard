@@ -1,0 +1,9 @@
+{
+ "entries": [],
+ "pins": [
+  "P13",
+  "P15"
+ ],
+ "intak_vector": 11,
+ "int_release": true
+}

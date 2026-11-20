@@ -3881,3 +3881,29 @@ question, decided from S8's routed numbers with the user.
   early from the pin flops. The previous image is kept as build/.../v35s-harness-v2.hex.bin.
   Not measured: READY at reset release, with DMA, with refresh; the scheduled READY level
   (built, not run).
+- **2026-11-20, the request's passage to the EU measured (validation/v35s/passage.py, 90
+  programs f5_pa_*, 2,742 windows, every capture twice). Work order 33 is held by the user
+  for this (its 8-clock passage had no mechanism).** The eight clocks are silicon's and are
+  not the controller's: the INT pin, which bypasses the level scan, has them too (INT's
+  rise to the first /INTAK 15 clocks at the earliest, 10 to the boundary; the core 9). The
+  cut-off is a count of CPU clocks in front of the instruction boundary, sharp to one clock
+  over 36 sled lengths and 13 instruction kinds, the same against a 2-clock INC and a
+  40-clock DIVU and at fX/8, /4, /2. IE sits in front of the passage: with INT standing,
+  POP PSW ; INC ; INC takes after the second INC (one instruction when it is long enough);
+  the core takes after one. EI raises IE in its first to third clock of 13 (its eight idle
+  words are the passage); POP PSW and RETI load IE at the PSW word's read: work order 33's
+  move of EI's IE to its third word is silicon. NMI and controller requests need 4 clocks
+  more than INT (14 to the boundary), and in those clocks the bus unit shows a two-clock hold
+  6 to 8 clocks before the earliest boundary (every NMI and controller program, 0 of 128 INT
+  windows; no single rule found). The last stage is a sample at a point of the ending
+  instruction: the earliest vector read moves by 0 (INC, ROL, DIVU, shift by CL, memory
+  read), +1 (CVTBW, a REP string's end), +2 (store, PUSH, NOP, MULU), +4 (BR); the core has
+  +1, +1, +4 for store, MULU, BR. A taken request's vector read is 3 clocks behind BRK 3's
+  from the same boundary; no fetch starts from two clocks before a boundary that takes. A
+  standing HALT is left 16 to 17 clocks after the request (INT and NMI). Work order 33 as
+  built reproduces the scan-side tables but places its 8 wrongly (the slot 4 to 5 late after
+  a restart, the passage 4 to 5 short). **Still without a mechanism:** what the 8-clock line
+  is (three independent readings give 8; nothing shows on the pins). Tests named to decide
+  it: an INT edge against a level-0 slot, IE cleared inside the passage, FINT releasing a
+  blocked request. Not measured: register-bank response, macro service, INTP0 against a
+  boundary. "Boundary" here is the vector read less 16.
