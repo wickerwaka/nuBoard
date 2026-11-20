@@ -8,7 +8,7 @@
 // Two ticks (S7b):
 //   tick A  the word's register selectors -> the RAM's read addresses (ra_next / rb_next,
 //           latched by v35_regram at ce_b); the request port's level (req_v, its address and
-//           width: registers); the stall inputs (opr_rdy, rq_busy, wr_hold: registers)
+//           width: registers); the stall inputs (opr_rdy, rq_busy: registers)
 //   tick B  the RAM's data (this word's reads), the sources, the ALU (SIGMA and the flags),
 //           the EA step, the moves, the write port (written at ce_a), the request's next state
 // Everything a word does lands at ce_a when it executed (ex_b).
@@ -23,9 +23,10 @@
 // until req_done. The address is the segment + the address register as the posting word
 // leaves it; the write datum is OPRW as the posting word leaves it (rq_d, taken at the post). A read's datum is latched at
 // req_done (an odd word's first half's byte at its own end); the F word takes it (opr_rdy).
-// A memory write holds the routine's F and E until its end while RAMEN = 1 (PRC bit 6): with the
-// internal RAM mapped, a store may land in the register RAM the next words read ((step D) kept:
-// function-bearing, README "Step D"); an I/O write is posted and not waited for. (Step D) The
+// A memory write holds the routine's F until its end (wr_run); (WO31) the on-chip store's hold
+// of E is gone: the bus unit lands the store in its cycle's first clock (silicon, f4_oc_a: no
+// reader waits for a store into the bank in use), before the next instruction's first word can
+// read it (`+v35_chk` in v35_top); an I/O write is posted and not waited for. (Step D) The
 // reservation is gone; the bus unit latches a write's datum at its B2.
 //
 // Registered state (widths): psw 16, ds1 ps ss ds0 4x16, ta tb tc 3x16, sigma 16, scy 1,
@@ -86,15 +87,11 @@ module v35_eu
     input  wire        req_done,
     input  wire [15:0] done_data,
     input  wire        eu_dlv,          // an EU cycle's datum is delivered now (a pair's first half too)
-    input  wire        ramen,           // PRC.RAMEN
     // (MX5c) tick B: the next values of the stall inputs (the sequencer's registered stall
-    // outcome): from the request registers' next state, the bus unit's next req_done, the
-    // next RAMEN
+    // outcome): from the request registers' next state, the bus unit's next req_done
     input  wire        req_done_nx,
-    input  wire        ramen_nx,
     output wire        opr_rdy_nx,
     output wire        rq_busy_nx,
-    output wire        wr_hold_nx,
     output wire        req_v_nx,        // (qprobe rule 4b) the request port's level's next value
     // (qprobe round 6, D) tick B: a memory request posted and not yet granted on the next clock
     // (the boundary's E_PEND)
@@ -105,7 +102,6 @@ module v35_eu
     // to the sequencer (registers; rb_lo tick B)
     output wire        opr_rdy,
     output wire        rq_busy,
-    output wire        wr_hold,
     output wire        c_sgn,
     output wire        c_dtrap,
     output wire        c_xc,            // (MX2) the transfer's condition (registers)
@@ -247,9 +243,6 @@ module v35_eu
     reg        f1 = 1'b0;
     reg        rq_v = 1'b0, rq_word = 1'b0, rq_pair = 1'b0, rq_out = 1'b0, rq_rd = 1'b0;
     reg        rq_wr = 1'b0, rq_io = 1'b0, opr_v = 1'b0;
-    // (qprobe rule 7) the request's address is on the chip (the page IDB:E00-FFF, or FFFFFh:
-    // the internal RAM and the SFRs, the bus unit's on-chip cycle): the RAMEN hold's (below)
-    reg        rq_oc = 1'b0;
     // (qprobe rule 11) the request posted while HALT was released: the port's level held low
     // on the clock after the post (the grant a clock later)
     reg        rq_hd = 1'b0;
@@ -403,8 +396,12 @@ module v35_eu
     wire [15:0] vb = lane(rb_data, lb_b);
     assign rb_lo = vb[7:0];
     wire [15:0] imm = fmt.immw ? {ih, il} : (fmt.sx ? {{8{il[7]}}, il} : {8'd0, il});
-    // the bus datum: latched, or arriving now (an odd word's first byte from its own end)
-    wire [15:0] dnow = rq_pair ? {done_data[7:0], plo}
+    // the bus datum: latched, or arriving now (an odd word's first byte from its own end).
+    // (WO31) A pair's bytes come on the lanes of their own addresses: an odd pair's first (low)
+    // byte on the high lane, its second on the low; an even pair's (an SFR-page word) on the low
+    // then the high lane. After the first half's grant the request's address is the second
+    // byte's (lin2): odd there for an even pair (`rq_addr[0]`, a register)
+    wire [15:0] dnow = rq_pair ? (rq_addr[0] ? {done_data[15:8], plo} : {done_data[7:0], plo})
                      : !rq_word ? (rq_addr[0] ? {8'd0, done_data[15:8]} : {8'd0, done_data[7:0]})
                      : done_data;
     wire [15:0] oprv = opr_v ? opr : dnow;
@@ -476,7 +473,7 @@ module v35_eu
     // (qprobe round 6, timing) the two ports' early data as registers (captured at ce_b with
     // x_b / y_b, the same argument: the early read is the ce_b read's data through tick B) for
     // the request's address alone: the RAM's clock-to-out is not on the path through the
-    // segment add to the on-chip compare (rq_oc_nx -> wr_hold_nx -> the registered stall).
+    // segment add to the on-chip compare (then rq_oc_nx -> wr_hold_nx -> the registered stall; WO31: the hold is gone).
     // `+v35_chk` compares the address formed on them with the one formed on va / vb at every
     // post (the only clock the address is read)
     // (consol) and the address itself: the choice below formed in tick A on the early read
@@ -811,7 +808,7 @@ module v35_eu
     // SS for a BP mode) formed in tick A from ce_a registers alone (the word, the segment flops,
     // TA, IDB, the prefix, ea_ss) and captured at ce_b (`segv_b`, as aq_b), so the linear
     // address's add starts from registers: the segment select was 7 LUT levels in front of the
-    // add -> the on-chip compare -> rq_oc_nx -> the registered stall -> ex. segv_b is segv
+    // add -> the on-chip compare -> rq_oc_nx (WO31: gone) -> the registered stall -> ex. segv_b is segv
     // through tick B (`+v35_chk` compares them every clock)
     wire [15:0] segv_e = word.seg == SG_ZERO ? 16'd0 : word.seg == SG_IDB ? {idb, 8'h00}
                      : word.seg == SG_TA ? ta
@@ -859,12 +856,14 @@ module v35_eu
     // (MX1) the slot frees on the cycle's end (req_done): a post on that clock stands from the
     // next, the book check's machine (uasm.length: a post waits for the last request's end)
     assign rq_busy = rq_v || (rq_out && !req_done);
-    // (qprobe rule 7) the hold is the on-chip store's only: an external write is waited for
-    // by the boundary alone (the sequencer's: the dispatch until the cycle's last clock), not
-    // here; a store into the on-chip page (the register banks are the internal RAM) still
-    // holds E and an F word until the clock after its end (its datum lands a clock later)
+    // (qprobe rule 7) an external write is waited for by the boundary alone (the sequencer's:
+    // the dispatch until the cycle's last clock). (WO31) The on-chip store's hold of E (wr_hold,
+    // the RAMEN hold) is gone: the store lands in its cycle's first clock. `oc_hit`: the post's
+    // linear address on the chip (IDB:E00-FFF, FFFFFh): such a store is armed at its post
     wire        oc_hit = (lin[19:12] == idb && lin[11:9] == 3'b111) || lin == 20'hFFFFF;
-    assign wr_hold = rq_out && rq_wr && !rq_io && ramen && rq_oc && !req_done;
+    // (WO31) a word in the SFR page (IDB:F00-FFF) is the bus unit's pair (two byte cycles, low
+    // address first: silicon f4_oc_v / f4_oc_s), as a word at an odd address is
+    wire        sfr_pg = lin[19:12] == idb && lin[11:8] == 4'hF;
     // (MX5c) the same three on the request registers' next values (the ce_a block below)
     wire        rq_v_nx = post ? 1'b1 : ack_b ? 1'b0 : rq_v;
     // (qprobe round 16, timing) the port level's next value reads the unarmed state without the
@@ -874,14 +873,12 @@ module v35_eu
     // value on every clock (`+v35_chk`: a MEMWD post with the next word not K is reported)
     wire        rq_unv_nx = post ? (word.bus == BQ_MEMWD) : (ex_b && k_cur) ? 1'b0 : rq_un;
     assign req_v_nx = rq_v_nx && !(post && hp_b) && !(rq_unv_nx && !k_nx);
-    wire        rq_oc_nx = post ? (oc_hit && !b_io) : rq_oc;
     wire        rq_out_nx = post ? 1'b1 : (req_done && rq_out) ? 1'b0 : rq_out;
     wire        rq_rd_nx = post ? b_rd : rq_rd;
     wire        rq_wr_nx = post ? (b_mw || word.bus == BQ_IOW) : rq_wr;
     wire        rq_io_nx = post ? b_io : rq_io;
     assign rqm_nx = rq_v_nx && !rq_io_nx;
     wire        opr_v_nx = (ex_b && word.f) ? 1'b0 : (req_done && rq_out && rq_rd) ? 1'b1 : opr_v;
-    assign wr_hold_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && ramen_nx && rq_oc_nx && !req_done_nx;
     wire        wr_run_nx = rq_out_nx && rq_wr_nx && !rq_io_nx && !req_done_nx;
     assign opr_rdy_nx = rq_wr_nx ? !wr_run_nx
                       : (opr_v_nx || (req_done_nx && rq_out_nx && rq_rd_nx));
@@ -930,7 +927,6 @@ module v35_eu
             rq_rs <= 1'b0;
             rq_out <= 1'b0;
             rq_rd <= 1'b0;
-            rq_oc <= 1'b0;
             rq_hd <= 1'b0;
             rq_wr <= 1'b0;
             rq_io <= 1'b0;
@@ -1048,7 +1044,6 @@ module v35_eu
                     pfx_v <= 1'b0;
             end
             // the request
-            rq_oc <= rq_oc_nx;
             rq_hd <= post && hp_b;
             // (round 18, A1) the announcement: from the reserving word to the post
             if (rsv_w)
@@ -1062,7 +1057,7 @@ module v35_eu
                 rq_word <= weff;
                 // (F5b) a word at an odd I/O port is the pair too (silicon, f5r io / strio: the
                 // port on the high lane, then port + 1 on the low)
-                rq_pair <= weff && (b_io ? addr_q[0] : lin[0]);
+                rq_pair <= weff && (b_io ? addr_q[0] : (lin[0] || sfr_pg));
                 rq_addr <= b_io ? {4'd0, addr_q} : lin;
                 rq_off <= addr_q;
                 rq_out <= 1'b1;
@@ -1091,7 +1086,7 @@ module v35_eu
                 if (req_done && rq_out)
                     rq_out <= 1'b0;
                 else if (eu_dlv && rq_out && rq_pair)
-                    plo <= done_data[15:8];
+                    plo <= rq_addr[0] ? done_data[7:0] : done_data[15:8];
             end
             // (MX1) a read's datum latched at its end, also when the clock posts the next
             // request (the slot is free on the end's clock: rq_busy)

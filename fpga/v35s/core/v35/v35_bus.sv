@@ -145,13 +145,12 @@ module v35_bus
     input  v35_sf_t    sf_nx,
     output wire        ph_nx,
 
-    // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write at its
-    // cycle's end: the enable at ce_a, its condition, the address, width and lane-placed datum;
-    // the read: (step C) the same address and width, a read cycle's strobe) and the internal
-    // RAM's write port (the register RAM's port C: written at the coming ce_b; the EU's segment
-    // flops read it too)
+    // (F1, step B) the on-chip cycle (below): the SFR page's access port (a store's write: the
+    // enable at ce_a, the address, width and lane-placed datum; (WO31) in the cycle's first
+    // clock, a timer register's as its wait ends; the read: (step C) the same address and width,
+    // a read cycle's strobe) and the internal RAM's write port (the register RAM's port C: written
+    // at the coming ce_b; the EU's segment flops read it too)
     output wire        sfr_wr,
-    output wire        sfr_wat,
     output reg  [19:0] sfr_a,
     output reg  [1:0]  sfr_w,
     output wire [15:0] sfr_d,
@@ -195,6 +194,9 @@ module v35_bus
     reg         c_rdy = 1'b0;           // (F4d) the cycle waits for READY (WTC field 3, PMC1 bit 7)
     reg         g_rdy_b = 1'b0;         // (F4d) ... granted now (the ce_b register)
     reg         rdy_q = 1'b1;           // (F4d) READY at the pins' last edge (a ce_b register)
+    reg         c_tmw = 1'b0;           // (WO31) the cycle is a timer register's (it waits for the grid)
+    reg         g_tmw_b = 1'b0;         // (WO31) ... granted now (the ce_b register)
+    reg  [2:0]  gph = 3'd0;             // (WO31) the free-running divide-by-six (ce_a, from reset)
     reg         hold = 1'b0;            // (F4d) the bus held: no grant (a ce_a register)
     reg         hold_e = 1'b0;          // (F4d) the hold bit at the pins' last edge (the state
                                         //   boundary that enters the hold)
@@ -219,8 +221,14 @@ module v35_bus
     // ------------------------------------------------ S4: the grant (one priority)
     wire [2:0]  rq_kind = req_cyc == RQ_MEMR ? K_READ : req_cyc == RQ_MEMW ? K_WRITE
                         : req_cyc == RQ_IOR ? K_IO_READ : K_IO_WRITE;
-    // the pair: hi, then lo; (F5b) a word at an odd I/O port too (silicon: two byte cycles)
-    wire        rq_two = req_width && req_addr[0];
+    // the pair: (F5b) a word at an odd I/O port too (silicon: two byte cycles); (WO31) a word in
+    // the SFR page at any address (silicon, f4_oc_v / f4_oc_s: every even offset is two byte
+    // cycles, low address first, 3 clocks each: a byte-wide path). `rq_spg`: the request
+    // register's address in IDB:F00-FFF (rq_sfr's compare's terms with bit 8; FFFFF is odd
+    // already). Each half's lane is its own byte's address (an odd pair high then low, an even
+    // pair low then high): the EU loads the second byte's address at the first half's grant
+    wire        rq_spg = req_addr[19:12] == idb && req_addr[11:8] == 4'hF;
+    wire        rq_two = req_width && (req_addr[0] || rq_spg);
     wire        g_second = free && p2_v;
     // (F4d) the grants but the pair's second half need the bus not held (one registered term)
     wire        free_h = free && !hold;
@@ -284,6 +292,14 @@ module v35_bus
     // the grant, joining it at the length's select as the old SFR compare did
     wire rq_sfr = (req_addr[19:12] == idb && req_addr[11:9] == 3'b111 && (req_addr[8] || ramen))
                   || req_addr == 20'hFFFFF;
+    // (WO31) the timer unit's registers (TM0 MD0 TM1 MD1 TMC0 TMC1: offsets 80h-83h, 88h-8Bh,
+    // 90h, 91h; silicon f4_oc_t / f4_oc_v: no other offset waits): a byte cycle there ends on
+    // the free-running divide-by-six (the timer's count clock), the first grid point at least 4
+    // clocks after its start. Granted 4 clocks (3 and the one wait every such cycle has), the
+    // wait held on the grid (`tm_hold`, below) as READY's is: the length's select reads one more
+    // per-source fact from the request register (an 8-bit compare beside rq_sfr's)
+    wire rq_tmr = rq_spg && ((req_addr[7:4] == 4'h8 && !req_addr[2]) || req_addr[7:1] == 7'h48);
+    wire [2:0] bl_sfr = rq_tmr ? 3'(BUS_BASE) + 3'd1 : 3'(BUS_BASE);
     // req_ia with req_v: on a memory write the write is not armed (its datum loaded by the EU's
     // current word, K); with req_v low (qprobe round 18, spec 13 A1 / Q69): a request announced
     // by its reserving word and not yet posted (`rsv`: its address not formed, it may not start)
@@ -308,15 +324,17 @@ module v35_bus
         eu = g_second || gnt_f.ack;         // an EU cycle issued now (either half of a pair)
         gnt_f.start = eu || gnt_f.fetch;
         gnt_f.kind = gnt_f.fetch ? K_FETCH : g_second ? c_kind : rq_kind;
-        gnt_f.width = !eu ? BW_WORD : g_second ? BW_LO : rq_two ? BW_HI
-                    : req_width ? BW_WORD
+        // (WO31) a pair's halves by their own byte's address (req_addr: the second byte's on
+        // the second half)
+        gnt_f.width = !eu ? BW_WORD : (req_width && !g_second && !rq_two) ? BW_WORD
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_f.half = g_second ? 2'd2 : (gnt_f.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_f.sfr = (gnt_f.kind == K_WRITE || gnt_f.kind == K_READ) && rq_sfr;
         // (WO30) the source's length: the fetch's field, an I/O cycle's field 7, an on-chip
-        // cycle 3, an EU memory cycle its request address's field
+        // cycle 3 ((WO31) a timer register's 4, its wait held on the grid), an EU memory cycle
+        // its request address's field
         gnt_f.blen = gnt_f.fetch ? bl_fetch : k_io(gnt_f.kind) ? bl_io
-                   : gnt_f.sfr ? 3'(BUS_BASE) : bl_req;
+                   : gnt_f.sfr ? bl_sfr : bl_req;
         gnt_f.rdy = gnt_f.fetch ? rdy_fetch : k_io(gnt_f.kind) ? rdy_io : !gnt_f.sfr && rdy_req;
     endfunction
     v35_gnt_t gn1, gn0, gn;
@@ -359,6 +377,7 @@ module v35_bus
             g_ia_b <= g_ia;     // (F3b) the EU's cycle granted is an acknowledge (req_ia on a read)
             g_dk_b <= gn.ack && req_dk;     // (F4c) ... a DMA transfer's
             g_rdy_b <= gn.rdy;              // (F4d) the cycle granted waits for READY
+            g_tmw_b <= gn.sfr && rq_tmr;    // (WO31) ... is a timer register's (waits for the grid)
             rdy_q <= rdy_lv;                // (F4d) READY at the pins' edge
             fetch_req_b <= fr;
             g_kind_b <= g_kind;
@@ -373,6 +392,14 @@ module v35_bus
     // (F4d) READY's wait: the cycle's first wait (pos 2) repeats while READY was low at the pins'
     // edge that began it (registers only: c_rdy, the position, rdy_q)
     wire        rdy_hold = c_rdy && pos_now == 3'd2 && !rdy_q;
+    // (WO31) a timer register's byte cycle: its wait (pos 2) repeats until the clock before its
+    // last is the grid's G_REL (the cycle then ends on the grid point: its last clock is the
+    // next, the following cycle starts on the grid). Registers only (c_tmw, the position, gph).
+    // G_REL: the grid's phase against reset, a property of the silicon (README "Work order 31":
+    // read from the f4_oc_t / f4_oc_e receipts, one value for every window)
+    localparam logic [2:0] G_REL = 3'd0;
+    wire        tm_hold = c_tmw && pos_now == 3'd2 && gph != G_REL;
+    wire        pos_hold = rdy_hold || tm_hold;     // the cycle's first wait repeats
     // (MX5c) the next values the always block below loads (the delivery's)
     wire        d_v_nx = busy && pos_now == c_len - 3'd1;
     assign dlv_fetch_nx = d_v_nx && c_kind == K_FETCH;
@@ -382,7 +409,7 @@ module v35_bus
     // a cycle of any kind runs then, not on its last clock (cb_nx)
     wire        cv_nx = g_start_b || busy;
     wire [2:0]  ck_nx = g_start_b ? g_kind_b : c_kind;
-    wire [2:0]  cp_nx = g_start_b ? 3'd0 : rdy_hold ? c_pos : pos_now;
+    wire [2:0]  cp_nx = g_start_b ? 3'd0 : pos_hold ? c_pos : pos_now;
     wire [2:0]  cl_nx = g_start_b ? grant_len_b : c_len;
     wire        bz_nx = cv_nx && cp_nx != cl_nx - 3'd1;
     wire        fb_nx = bz_nx && ck_nx == K_FETCH;
@@ -814,6 +841,8 @@ module v35_bus
             c_ia <= 1'b0;
             c_dk <= 1'b0;
             c_rdy <= 1'b0;
+            c_tmw <= 1'b0;
+            gph <= 3'd0;
             hold <= 1'b0;
             d_v <= 1'b0;
             // (S7b) the reset complete: the cycle's fields, the delivery's
@@ -837,19 +866,22 @@ module v35_bus
                 c_ia <= g_ia_b;
                 c_dk <= g_dk_b;
                 c_rdy <= g_rdy_b;
+                c_tmw <= g_tmw_b;
                 c_addr <= g_addr_b;
                 c_width <= g_width_b;
                 c_half <= g_half_b;
                 p2_v <= g_half_b == 2'd1;
             end else begin
                 if (busy)
-                    c_pos <= rdy_hold ? c_pos : pos_now;
+                    c_pos <= pos_hold ? c_pos : pos_now;
                 else
                     c_valid <= 1'b0;
             end
             // (F4d) the hold bit: HLDRQ, or /HLDAK still low (the bus is taken back a clock
             // after /HLDAK rises)
             hold <= hrq || !hlda_n;
+            // (WO31) the divide-by-six runs from reset, every CPU clock
+            gph <= gph == 3'd5 ? 3'd0 : gph + 3'd1;
         end
     end
 
@@ -1074,22 +1106,39 @@ module v35_bus
     // on its own ce_b copy of the grant: the same value at every ce_a, IDB and PRC being written
     // at ce_a only) An on-chip memory cycle is captured at its start: its offset (the SFR read's
     // and the register RAM's port C address: both read at every ce_b, this unit latching the
-    // datum at the cycle's last clock) and its target. A store is written at its cycle's end
-    // with the EU's datum then (a store_imm takes its immediate after the store issued): the SFR
-    // page at that ce_a (as the SFR store always was); the internal RAM at the next ce_b (the
-    // register RAM's ce_a belongs to the EU's write port), and a write to the current bank's
-    // DS0 / SS / DS1 slot updates the segment's flop at the ce_a after (the EU's decode)
+    // datum at the cycle's last clock) and its target.
+    // (WO31) A store lands in its cycle's first clock (silicon, f4_oc_e: P1's pin half a clock
+    // after the cycle's start; a WTC byte store governs the fetch that starts on the clock its
+    // cycle ends): at the ce_a one clock after the capture (`oc_first`), the SFR page at that
+    // ce_a, the internal RAM at the next ce_b (the register RAM's ce_a belongs to the EU's write
+    // port), and a write to the current bank's DS0 / SS / DS1 slot updates the segment's flop at
+    // the ce_a after (the EU's decode). A timer register's store lands as its wait ends (the
+    // clock before its last: the timer unit takes it on its own clock, the grid; f4_oc_e: TOUT
+    // at the start falls 1.5 clocks before the stretched cycle's end whatever its wait). The
+    // datum is the request's own register (`rq_d`, from the post to the cycle's end: an on-chip
+    // store is armed at its post), as at the old landing (`+v35_chk` below)
     wire        g_top = g_addr_b == 20'hFFFFF;
     wire        g_ocmem = g_start_b && g_sfr_b;
-    reg         sfr_open = 1'b0;
+    reg         sfr_open = 1'b0;        // a store captured, not yet landed
+    reg         oc_first = 1'b0;        // (WO31) the on-chip cycle's first clock (a ce_a register)
     reg         oc_ram = 1'b0;          // the cycle's target: the internal RAM (else the SFRs)
     reg         oc_rdgo = 1'b0;         // (F4b) an on-chip read cycle started at the last ce_a
+    // (WO31) the datum's lanes: a byte cycle of an odd pair carries its low byte on the high lane
+    // (the first, odd address) and its high byte on the low lane (the second), as this unit
+    // places them on the pins; an even pair's (the SFR page's words) carry each byte on its own
+    // lane, the datum unswapped. From the grant's registers at the capture
+    reg         oc_sw = 1'b0;
     // (step C) one capture: the read's offset and word bit were registers beside sfr_a / sfr_w,
     // loaded at the same ce_a from the same grant fields (oc_off = FFFFF ? FFh : the address's
     // low byte, which is FFh there too: always sfr_a[7:0]; oc_word = sfr_w == WORD). The SFR
     // page and the register RAM's port C read sfr_a / sfr_w. sfr_w starts at BW_LO so that the
     // word bit reads 0 before the first capture as oc_word did; sfr_w's own readers (the lane
-    // swap, the write's byte enables, the SFR store) act only on a captured cycle
+    // swap, the write's byte enables, the SFR store) act only on a captured cycle.
+    // (WO31) An SFR-page word's two byte cycles (an even pair) carry the word bit (sfr_w =
+    // BW_WORD), each at its own byte's address: v35_sfr writes and reads each byte at its own
+    // cycle and the 16-bit registers (TM0 MD0 TM1 MD1) whole at the high byte's, the request's
+    // datum holding both bytes through the pair (the EU's rq_d); an odd pair's halves stay byte
+    // cycles (BW_HI / BW_LO, as before)
     initial begin
         sfr_a = 20'd0;
         sfr_w = BW_LO;
@@ -1098,24 +1147,23 @@ module v35_bus
         oc_be = 2'b00;
         oc_wd = 16'd0;
     end
-    assign sfr_wr = ce_a && sfr_open && eu_dlv && !oc_ram;
-    assign sfr_wat = sfr_open && eu_dlv && !oc_ram;
+    wire        oc_land = sfr_open && (c_tmw ? (pos_now == 3'd2 && !tm_hold) : oc_first);
+    assign sfr_wr = ce_a && oc_land && !oc_ram;
     assign sfr_rdgo = oc_rdgo && !oc_ram;
-    // the datum by lane: an odd word's halves (a byte cycle of a word request) carry its low
-    // byte on the high lane (the first, odd address) and its high byte on the low lane (the
-    // second), as this unit places them on the pins (the request's width: the EU port's
-    // req_width as it stands at the store's end, as before)
-    assign sfr_d = (sfr_w != BW_WORD && req_width) ? {req_data[7:0], req_data[15:8]} : req_data;
+    assign sfr_d = oc_sw ? {req_data[7:0], req_data[15:8]} : req_data;
+    wire        g_even2 = (g_half_b == 2'd1 && !g_addr_b[0]) || (g_half_b == 2'd2 && g_addr_b[0]);
     always @(posedge clock) begin
         if (!reset_n) begin
             sfr_open <= 1'b0;
+            oc_first <= 1'b0;
             oc_we <= 1'b0;
         end else if (ce_a) begin
             oc_we <= 1'b0;
             oc_rdgo <= 1'b0;
-            // a cycle's end and the next cycle's start can share the clock (an odd word's
-            // halves): the end reads the captured cycle, the start captures the new one
-            if (sfr_open && eu_dlv) begin
+            oc_first <= g_ocmem;
+            // a store lands before its cycle ends; the next cycle's capture (a pair's second
+            // half) comes at the end
+            if (oc_land) begin
                 sfr_open <= 1'b0;
                 if (oc_ram) begin
                     oc_we <= 1'b1;
@@ -1128,7 +1176,8 @@ module v35_bus
                 sfr_open <= g_kind_b == K_WRITE;
                 oc_rdgo <= g_kind_b == K_READ;
                 sfr_a <= g_addr_b;
-                sfr_w <= g_width_b;
+                sfr_w <= g_even2 ? BW_WORD : g_width_b;
+                oc_sw <= (g_half_b == 2'd1 && g_addr_b[0]) || (g_half_b == 2'd2 && !g_addr_b[0]);
                 oc_ram <= !g_addr_b[8] && !g_top;
             end
         end
@@ -1164,13 +1213,12 @@ module v35_bus
         x_eu = g_second || gnt_x.ack;
         gnt_x.start = x_eu || gnt_x.fetch;
         gnt_x.kind = gnt_x.fetch ? K_FETCH : g_second ? c_kind : rq_kind;
-        gnt_x.width = !x_eu ? BW_WORD : g_second ? BW_LO : rq_two ? BW_HI
-                    : req_width ? BW_WORD
+        gnt_x.width = !x_eu ? BW_WORD : (req_width && !g_second && !rq_two) ? BW_WORD
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_x.half = g_second ? 2'd2 : (gnt_x.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_x.sfr = (gnt_x.kind == K_WRITE || gnt_x.kind == K_READ) && rq_sfr;
         gnt_x.blen = gnt_x.fetch ? bl_fetch : k_io(gnt_x.kind) ? bl_io
-                   : gnt_x.sfr ? 3'(BUS_BASE) : bl_req;
+                   : gnt_x.sfr ? bl_sfr : bl_req;
         gnt_x.rdy = gnt_x.fetch ? rdy_fetch : k_io(gnt_x.kind) ? rdy_io : !gnt_x.sfr && rdy_req;
     end
     // the pins' update from the selected per-group values (what the registers load at ce_e)
@@ -1193,17 +1241,45 @@ module v35_bus
     // (consol) the request datum where the B2 latch was read: the pair's second half's drive
     // and an on-chip store's write
     always @(posedge clock) begin
-        if (chk_on && reset_n && ce_a && ((dp_v && dp_half == 2'd2 && req_data[15:8] !== wd_r[15:8])
-                                          || (sfr_open && eu_dlv && (req_data !== wd_r || req_width !== wd_w)))) begin
+        if (chk_on && reset_n && ce_a && dp_v && dp_half == 2'd2 && req_data[15:8] !== wd_r[15:8]) begin
             chk_n = chk_n + 1;
             if (chk_n <= 20)
                 $display("v35 chk: bus: the request datum differs from its B2 capture at %0t", $time);
         end
     end
+    // (WO31) an on-chip store's datum: the request's at its landing (the cycle's first clock, or
+    // a timer register's wait's end) is the request's at the cycle's delivery (where it landed
+    // before: the datum stands from the post to the cycle's end) and the B2 capture's; no single-cycle word
+    // reaches the SFR page (its words are pairs)
+    reg  [15:0] ld_d = 16'd0;
+    reg         ld_w = 1'b0, ld_v = 1'b0;
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_a) begin
+            if (ld_v && eu_dlv) begin
+                ld_v <= 1'b0;
+                if (req_data !== ld_d || req_width !== ld_w || ld_d !== wd_r || ld_w !== wd_w) begin
+                    chk_n = chk_n + 1;
+                    if (chk_n <= 20)
+                        $display("v35 chk: bus: an on-chip store's datum changed between its landing and its delivery at %0t", $time);
+                end
+            end
+            if (oc_land) begin
+                ld_d <= req_data;
+                ld_w <= req_width;
+                ld_v <= 1'b1;
+                if ((ld_v && !eu_dlv) || (!oc_ram && sfr_w == BW_WORD && sfr_a[0] == 1'b0 && sfr_a != 20'hFFFFF
+                             && req_addr != sfr_a + 20'd1)) begin
+                    chk_n = chk_n + 1;
+                    if (chk_n <= 20)
+                        $display("v35 chk: bus: an on-chip store landed out of order or an SFR word in one cycle at %0t", $time);
+                end
+            end
+        end
+    end
     // (WO30) the granted cycle's length and READY fact against the direct reading of its own
     // address (g_addr: the fetch's, the request's, the pair's second byte's): the per-source
     // select is the cycle's own field
-    wire [2:0]  x_blen = gn.sfr ? 3'(BUS_BASE) : k_io(gn.kind) ? bl_io : wlen(wfld(wtc, wblk(g_addr[19:17])));
+    wire [2:0]  x_blen = gn.sfr ? bl_sfr : k_io(gn.kind) ? bl_io : wlen(wfld(wtc, wblk(g_addr[19:17])));
     wire        x_rdy = !gn.sfr && rdy_en && (k_io(gn.kind) ? wf_io : wfld(wtc, wblk(g_addr[19:17]))) == 2'd3;
     always @(posedge clock) begin
         if (chk_on && reset_n && ce_b && gn.start && (gn.blen !== x_blen || gn.rdy !== x_rdy)) begin

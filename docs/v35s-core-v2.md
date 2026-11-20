@@ -3752,3 +3752,31 @@ question, decided from S8's routed numbers with the user.
   at odd addresses 1 clock short. Inferred, not measured: the internal cause. Not
   measured: RAMEN = 0, a relocated IDB, on-chip accesses by DMA / interrupt frames /
   macro service, a word at an odd SFR offset, the /12 and /128 count-out phases.
+- **2026-11-19, work order 31: on-chip accesses timed as the silicon's (full gate).**
+  (A) An on-chip store lands in its cycle's first clock and the EU's hold after it is
+  gone (`wr_hold`, `wr_hold_nx`, the sequencer's `st_hld`, `prc_at`); a new checker
+  reports any dispatch while an on-chip store is unlanded (silent; the ordering is
+  checked, not proved by construction). (B) A word in the SFR page is the bus unit's
+  pair: two byte cycles, low address first, lanes by the byte's address; each half
+  writes its byte, the 16-bit timer registers take the word at the high byte's cycle;
+  internal RAM words stay one cycle. Macro service's word-mode SFR transfer is the one
+  microcode path that gets longer (not timed on silicon). (C) Timer-register byte cycles
+  are granted 4 clocks and hold their wait until a modulo-6 counter of the CPU clock
+  from reset (bus unit) reaches its release phase. **The release phase is offset by the
+  33 clocks the silicon's prelude spends on refresh and the core does not** (one
+  constant for every window; it becomes the silicon's from-reset value when refresh is
+  built). Port budget lowered: eu out 38 to 36, useq in 30 to 28, eu to useq 14 to 12.
+  onchip_t windows equal: a 215/239, s 163/187, k 51/55, t 520/552, v 1154/1154,
+  e 74/118 (none lost; the rest are external-memory differences, chiefly MOV byte
+  m,imm8 3 clocks long, a store behind NOPs at 2 waits 1 clock long, and the silicon's
+  half-clock pin phase). wtc 8 of 8 by window and the first WTC store now takes effect
+  at silicon's fetch (whole-trace first differences are the fetch / CALL-push order).
+  Corpus 30,181 at both spacings, no run changed, write data unchanged, checker silent;
+  pin records: every run the last landing's records with time shifts only, three
+  classes by WTC family (elapsed -200 / +48 / +80 ticks: the prelude's three on-chip
+  stores). Program and fuzz sets, f4_hwd, vectors, lint, 75 tests, SST as the last
+  landing; periph 2 equal 2 differ (tout_os 829 against 855; tm1_i6 589/611 against
+  599/615; tm0_os and tout_alv1 now within tolerance); secure 15 as predicted; wtc_ps
+  pass. 17 ns: +2.997 / +3.424 / +3.402; 9,397 LUT4, 2,628 FF, 36 RAM_5K. Not measured
+  on silicon: word reads of a running timer (two byte reads 6 clocks apart), words at
+  odd SFR offsets, the /12 and /128 count-out phases.

@@ -16,8 +16,8 @@
 //   f     F: the requested datum has not arrived (the datapath's opr_rdy: req_done or the
 //         datum latched)
 //   slot  the word posts a request while the EU's one request is still outstanding
-//   hold  E while a memory write is outstanding with RAMEN = 1 ((step D) kept: function-bearing,
-//         a store into the register RAM read by the next words, README "Step D")
+//   (hold: E while an on-chip store was outstanding with RAMEN = 1; (WO31) gone: the store
+//         lands in its cycle's first clock, before the next instruction's words read it)
 //   halt  halted
 // (step D) Nothing else: the rule-only stalls (the bus wait, the unit hold, the write-back
 // waits, the take sync, the dispatch law, SUSP's and the decide's fetch wait, the refill wait)
@@ -102,7 +102,6 @@ module v35_useq
     // the datapath (tick A: registers; rb_lo: tick B)
     input  wire        opr_rdy,         // F's datum is here
     input  wire        rq_busy,         // the request slot is taken
-    input  wire        wr_hold,         // an outstanding write holds E (RAMEN)
     input  wire        c_sgn,           // SIGMA's sign
     input  wire        c_dtrap,         // the divide error
     input  wire        c_xc,            // (MX2) the transfer's condition (the datapath's, by the format)
@@ -121,7 +120,6 @@ module v35_useq
     input  wire        q_stall_nx,
     input  wire        opr_rdy_nx,
     input  wire        rq_busy_nx,
-    input  wire        wr_hold_nx,
     // (consol) the pace: the next word's kind (tick B, to the bus unit) and the bus unit's hold
     // for the next clock (tick B, ph_nx: the D of the registered fact)
     output v35_wk_t    wk_nx,
@@ -332,8 +330,8 @@ module v35_useq
     // is stall_f(si_now) on every clock (`+v35_chk`), and tick A starts from a registered stall
     // outcome. README "MX5" round 3
     typedef struct packed {
-        logic       halted, f, e, post;
-        logic       q_stall, opr_rdy, rq_busy, wr_hold;
+        logic       halted, f, post;
+        logic       q_stall, opr_rdy, rq_busy;
         logic       disp;               // (qprobe) the word is the dispatch (the boundary)
         logic       ph;                 // (consol) the bus unit's pace holds the word
     } v35_sin_t;
@@ -343,18 +341,19 @@ module v35_useq
                             //   5 halt, (qprobe) 6 the boundary's, 7 a B word's
     } v35_stl_t;
     function automatic v35_stl_t stall_f(input v35_sin_t f);
-        logic st_q, st_f, st_slt, st_hld, st_pc;
+        logic st_q, st_f, st_slt, st_pc;
         st_q   = f.q_stall;                 // the queue: a pop finds no byte
         st_f   = f.f && !f.opr_rdy;         // the bus cycle: F's datum not here
         st_slt = f.post && f.rq_busy;       // the one request slot taken
-        st_hld = f.e && f.wr_hold;          // a memory write outstanding with RAMEN = 1 ((qprobe rule 7) into the on-chip page)
+        // ((WO31) the on-chip store's hold of E, 4, is gone: the store lands in its cycle's first
+        // clock)
         // (consol) the pace: the measured front-end waits (the boundary's, the bus-wait kinds'),
         // the bus unit's (ph_nx)
         st_pc  = f.ph;
-        stall_f.ex = !f.halted && !st_q && !st_f && !st_slt && !st_hld && !st_pc;
+        stall_f.ex = !f.halted && !st_q && !st_f && !st_slt && !st_pc;
         // (the boundary's, 6, or a bus-wait kind's, 7: the dispatch word has no bus-wait kind)
         stall_f.why = f.halted ? 5'd5 : st_q ? 5'd1 : st_f ? 5'd2 : st_slt ? 5'd3
-                    : st_hld ? 5'd4 : (st_pc && f.disp) ? 5'd6 : st_pc ? 5'd7 : 5'd0;
+                    : (st_pc && f.disp) ? 5'd6 : st_pc ? 5'd7 : 5'd0;
     endfunction
     // (qprobe) the facts of rules 4 and 5 as they stand: ce_a registers of their next values
     // (in reset none: no cycle runs, nothing is delivered)
@@ -364,12 +363,10 @@ module v35_useq
     always_comb begin
         si_now.halted = halted;
         si_now.f = word.f;
-        si_now.e = word.e;
         si_now.post = pd.post;
         si_now.q_stall = q_stall;
         si_now.opr_rdy = opr_rdy;
         si_now.rq_busy = rq_busy;
-        si_now.wr_hold = wr_hold;
         si_now.disp = pd.disp;
         si_now.ph = ph;
     end
@@ -472,12 +469,10 @@ module v35_useq
     always_comb begin
         si_nx.halted = (halted || (ex_b && word.halt)) && !wake;     // (F3) the release
         si_nx.f = word_nx.f;
-        si_nx.e = word_nx.e;
         si_nx.post = pd_nx.post;
         si_nx.q_stall = q_stall_nx;
         si_nx.opr_rdy = opr_rdy_nx;
         si_nx.rq_busy = rq_busy_nx;
-        si_nx.wr_hold = wr_hold_nx;
         si_nx.disp = pd_nx.disp;
         si_nx.ph = ph_nx;
     end

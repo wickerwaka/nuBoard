@@ -9161,3 +9161,264 @@ The core read field 0 for every memory cycle and gave on-chip cycles field 7's w
   599 / 615); not investigated further (the intervals are handler-to-handler, through the timer's
   prescaler phase and HALT's wake). intr f5_si_edge DIFFERs with the base binary (26546de) as well: the committed sim
   receipt that gates EQUAL was made by an earlier build.
+
+## Work order 31: on-chip accesses timed as the silicon times them (the store's landing, SFR words as two byte cycles, the timer unit's grid)
+
+Silicon (validation/v35s/onchip_t.py, programs f4_oc_{a,s,k,t,v,e}, two socket captures equal
+window for window):
+
+- An on-chip access is a bus cycle of 3 clocks with no strobes, and no fetch runs during it.
+- A store lands in its cycle's first clock.
+- A word in the SFR page is two byte cycles, low address first.
+- A byte cycle on a timer-unit register (FF80h-83h, 88h-8Bh, 90h, 91h) ends on a free-running
+  divide-by-six of the CPU clock: at the first grid point at least 4 clocks after its start.
+
+Before this work order the core differed in four ways:
+
+- it held the EU's E word while an on-chip store was outstanding (2 to 2.5 clocks a store);
+- it wrote the store at the cycle's end;
+- it ran an SFR word as one cycle;
+- it gave the timer registers no wait.
+
+No port was added, no microcode changed, and no per-opcode compare was added.
+
+### A. The store lands in its cycle's first clock; the EU's hold is gone
+
+- **v35_bus.** `oc_first` is a new ce_a register: the clock after the on-chip cycle's capture.
+  A store lands at that ce_a (`oc_land`):
+  - the SFR page at that ce_a (`sfr_wr`);
+  - the internal RAM at the next ce_b (`oc_we`, as before);
+  - the current bank's DS0 / SS / DS1 flop at the ce_a after that (the EU's decode, as before).
+
+  A timer register's store lands when its wait ends (item C).
+- **The datum** is the request's own register (`rq_d`). An on-chip store is armed at its post,
+  and the EU posts nothing new before the cycle's end, so the datum at the landing is the datum
+  at the old landing point. `+v35_chk` compares it at the landing, at the cycle's delivery and
+  against the B2 capture. It also reports an SFR-page word that arrives as one cycle.
+- **Removed.**
+  - v35_eu: `wr_hold`, `wr_hold_nx`, `rq_oc`, and the inputs `ramen` / `ramen_nx`.
+  - v35_useq: the `st_hld` stall (the trace's W reason 4) and its two inputs.
+  - v35_sfr: `wr_at` / `prc_at`. The registered stall's RAMEN after a PRC store had no other
+    reader.
+  - v35_bus: `sfr_wat`.
+- **The struct test's budget is lowered.** eu outputs 38 -> 36, useq inputs 30 -> 28,
+  eu -> useq 14 -> 12. `wr_hold_nx` leaves the next-value set.
+
+The consequences:
+
+- **Readers after the store.** The F word still waits for its own write's end (`wr_run`). The
+  next instruction's words read the register RAM from the ce_a that ends the dispatch's clock
+  (the early read, then the ce_b read). A new `+v35_chk` in v35_top checks the ordering: at the
+  ce_a of every dispatch executed, no on-chip store may be captured, or granted, and not yet
+  landed.
+  - It is silent in every run listed below.
+  - The ordering is checked in these runs, not proved by construction.
+  - The check discriminates: a throwaway build with the landing put back at the cycle's
+    delivery and no hold makes f3_bins FAIL, and the check fires 80 times in the banks set.
+- **A store to the bank in use's DS0 / SS / DS1 slot.** The segment flop loads at the ce_a
+  after the RAM write. That is before the next instruction's first word forms an address (the
+  same check).
+  - Silicon has no reader wait.
+  - f4_oc_a's store-then-use windows (MOV m,AW; MOV BP,IY; PUSH BP on IY's slot) are equal to
+    silicon, pushed datum included.
+- **RAMEN after a PRC store** (`prc_at`). Its only reader was the hold. The bus unit's on-chip
+  decision (`rq_sfr`) reads PRC itself, and no later cycle is granted before the store's last
+  clock, which comes after the landing.
+- **The FLAG store's PSW bits** are written in the same ce_a block, after the word's own PSW
+  write, as before. The landing falls inside the storing routine, never in the next
+  instruction's words (the check above), and the stores' words after their post write no PSW.
+- **IDB** moves at the landing. The next request is granted after it.
+- Not built: silicon's half-clock pin phase. The RTL's port pin changes 1.03 clocks after the
+  cycle's start; silicon's changes 0.5 after it.
+
+### B. A word in the SFR page is two byte cycles
+
+- **v35_eu.**
+  - `rq_pair` is set for a word whose linear address is odd **or** in IDB:F00-FFF (`sfr_pg`:
+    oc_hit's terms with bit 8). The post's compare sits beside oc_hit's.
+  - The pair's datum is assembled by the second byte's address. After the first half's grant
+    the request's address is lin2, which is odd for an even pair (`rq_addr[0]`, a register).
+    The two parities:
+    - an odd pair: `plo` takes the high lane, then the low lane completes the word (as before);
+    - an even pair: `plo` takes the low lane, then the high lane completes the word.
+- **v35_bus.**
+  - `rq_two = req_width && (req_addr[0] || rq_spg)`. `rq_spg` is the request register's address
+    in IDB:F00-FFF, a compare beside `rq_sfr`'s.
+  - Each half's lane is the byte's own address (`req_addr[0] ? BW_HI : BW_LO`; the EU loads
+    lin2 at the first half's grant).
+  - The two halves run back to back, 3 clocks each, as an odd pair's do (`g_second`).
+  - On capture, an even pair's halves carry the word bit (`sfr_w = BW_WORD`, at the byte's own
+    address). An odd pair's halves stay byte cycles.
+  - The store's lane swap is a capture register (`oc_sw`: an odd pair's halves) in place of
+    `sfr_w != WORD && req_width`.
+- **v35_sfr: the word bit, not a held byte.** Every store is one byte at its own offset, low
+  first, and the word bit travels with each half.
+  - The 16-bit registers (TM0, MD0, TM1, MD1) take the word whole at the high byte's cycle. The
+    request's datum still holds both bytes there (the EU's `rq_d` stands to the pair's end), so
+    no byte needs holding anywhere. A lone byte store to them is ignored, as before.
+  - Reads use the same bit. The high byte's cycle of a word read returns TM0's (or MD0's ...)
+    high byte. A byte read of the high offset reads the residue, as before.
+  - Why the word bit rather than assembling: assembling would land the low byte with the high
+    one. Silicon writes the low byte in the first cycle (TOUT falls in the first byte cycle of a
+    word store to TMC0 / TMC1, f4_oc_e w112-w117), and that holds for every 8-bit SFR pair.
+  - The 16-bit registers must still take a whole word: silicon ignores their byte stores, and
+    the word's high byte returns their high byte.
+  - The SFR store logic loses its "a word writes the next offset" terms (the IC registers' high
+    hit, PRC / RFM / WTC's high bytes, SCM's word BRG restart, TMC1 by word, DMAM by word): the
+    second byte comes in its own cycle.
+  - v35_timer takes its lanes raw (`w_lo` = data[7:0], `w_hi` = data[15:8]: TMC0 / TMC1 by the
+    offset's lane). v35_dma loses `w_word` / `w_hi`.
+- **Internal RAM words stay one cycle.** An even word in IDB:E00-EFF is not a pair, as on
+  silicon.
+- **Microcode paths that touch SFR-page words.** Macro service's word-mode SFR transfer only
+  (ms.uasm: `post the SFR's write` / `post the SFR's read` with wid=WORD). The channel blocks,
+  the DMA registers and the register banks are internal RAM (IDB:E00), so the interrupt
+  frames, bank switching, DMA and macro service's control words keep one cycle per word. No
+  previously EQUAL set changed (serial f4_ms included).
+
+### C. The timer unit's registers wait for the grid
+
+- **The counter.** `gph` (3 FF) is a modulo-6 counter of the CPU clock (ce_a) from reset.
+- **The cycle.** `rq_tmr` compares the request register's low byte (offsets 80h-83h, 88h-8Bh,
+  90h, 91h, with `rq_spg`).
+  - Such a cycle is granted 4 clocks (`bl_sfr`, joining the length's select where the on-chip
+    3 stood).
+  - A new grant register `g_tmw_b` and a new cycle register `c_tmw` hold the fact.
+  - The wait (position 2) repeats while `gph != G_REL` (`tm_hold`, beside READY's `rdy_hold`
+    in `pos_hold`). The cycle's last clock then falls on the grid, and the next cycle starts on
+    the grid point: 1 to 6 waits.
+  - `grant_len` and every port are unchanged (v35_trace's g_len shows 4 for these cycles).
+- **The landing.** A timer register's store lands at the ce_a that ends its wait (the clock
+  before its last).
+  - Silicon's TOUT at the start falls 1.5 clocks before the stretched cycle's end, whatever
+    the wait (f4_oc_e). The RTL's falls 2 clocks before it: the same half-clock pin phase as
+    the ports'.
+  - The timer's count arithmetic is unchanged (the restart at the store, SD = 4). Every store
+    to it now lands on the grid's fixed phase, so its count edges lie on silicon's: f4_oc_e's
+    count-out edges 112 / 142 / 172 / 202 / 232 / 262 clocks after the window's start equal
+    silicon's, but for the half-clock.
+  - The timer has no copy of the counter. None is needed.
+- **The constant G_REL = 0, read from the receipts.**
+  - `sync_origin` (onchip_t) places silicon's grid points E, in both captures of f4_oc_t and of
+    f4_oc_v, at FFFF0h's fetch start + 5 (mod 6 clocks). The same holds for the first window's
+    marker + 5.
+  - The RTL runs no refresh cycles. Silicon's prelude carries them until the RFM store, which
+    puts silicon's window timeline 33 clocks behind the RTL's (FFFF0h -> fetch 120h: 171
+    against 138 clocks; equal after it).
+  - The RTL's grid must therefore sit at FFFF0h's fetch + 5 - 33 = + 2 (mod 6). With the
+    counter from reset that is `gph == 0` on the wait's last clock. That is G_REL = 0.
+  - Checked: the simulation's sync origin is FFFF0h + 2 and the first marker + 5 in both
+    f4_oc_t and f4_oc_v, every sweep step of every kind follows the one law, and f4_oc_v is
+    1,154 of 1,154 equal.
+  - With refresh built (not in scope), the constant would be silicon's from-reset value
+    (FFFF0h + 5).
+  - f4_wtc_x keeps refresh on and has its own prelude, so its MD0 column lands at other grid
+    phases (below).
+
+### Measured (simulation against the socket; `+v35_chk` silent in every run)
+
+onchip_t gate, windows equal (records the same, ticks within 1, pins within 4):
+
+| program | base | now | of |
+| --- | --- | --- | --- |
+| f4_oc_a | 155 | 215 | 239 |
+| f4_oc_s | 99 | 163 | 187 |
+| f4_oc_k | 49 | 51 | 55 |
+| f4_oc_t | 291 | 520 | 552 |
+| f4_oc_v | 873 | 1,154 | 1,154 |
+| f4_oc_e | 41 | 74 | 118 |
+
+No window equal at the base differs now. Each on-chip window still differing has a named cause:
+
+- **Twin-alike external differences**, outside this work order. The on-chip window and its twin
+  differ alike:
+  - `MOV byte m,imm8` (C6 06, plain and with DS1:), in a, s and t's imb sweeps (+3 clocks);
+  - the raw prefixed read `26 A0`, in a (+3 / +7);
+  - REP MOVBKW at odd addresses, in k (-1);
+  - the C7 sleds' fetch order, f4_oc_e w1 / w5;
+  - a store behind NOPs at 2 waits (+1 clock on the twin):
+    - f4_oc_e w62 / w63;
+    - f4_oc_t's `tmc0 2w lead2` twins. Their on-chip windows n2 / n5 are +6, because the
+      twin's +1 moves the access across a grid point.
+
+  All of these differed the same way at the base.
+- **The grid phase moved by an earlier out-of-scope window.** f4_oc_t w72 (`ADD m,BL` on TMC0,
+  step 0, +3 clocks; its twin equal) follows the C6 06 sweep, whose windows run 3 clocks long
+  in the RTL. The grid's phase at w72's entry is therefore 3 clocks off silicon's. The windows
+  after it realign: two +3 windows make 6.
+- **Silicon's half-clock pin phase** (out of scope). f4_oc_e's P1 windows (10) are equal but
+  for the pin record: 58.03 against 57.50 clocks.
+- **TOUT windows** (30, no twin). The count-out edges are equal but for the half clock. The
+  window's closing `MOV byte [TMC0],00h` is the C6 06 form, +3 clocks, or +6 when that moves
+  the stop's own wait across a grid point.
+
+Other gates:
+
+- **wtc (sim, then gate).** All eight are EQUAL by window. The whole-trace first difference at
+  cycle 33 (fetch 00132h's waits, the prelude's WTC store) is gone in all eight. d, f, k, x
+  and w now first differ at a window opening's CALL push against a fetch, and m at its DMA's
+  first read, both as at the base; r stays at cycle 42 (READY); r0 moves 2032 -> 2577.
+- **f4_wtc_x marker intervals (ticks), WTC 0000h, columns iRAM rd, iRAM wr, SFR rd, MD0 wr,
+  FFFFFh rd, NOPs, P0 wr, setup, REP MOVBK.**
+  - Silicon: 4000, 3360, 4000, 4383, 3999, 4480, 3360, 1439, 19616.
+  - Now: 4223, 3359, 4223, 4351, 4223, 4479, 3359, 1439, 19615.
+  - WO30 (RESULTS section 6): 4223 in the first five columns, 4479, 4223.
+  - The stores (iRAM wr, P0 wr) are silicon's, and so are the NOPs, the setup and REP MOVBK.
+  - The reads (iRAM, SFR, FFFFFh) keep +7 clocks: the prefixed read `26 A0` in a run after an
+    OUT, out of scope.
+  - The MD0 column follows the grid. Its windows take 4255 to 4351 (133 to 136 clocks;
+    silicon 4255 to 4416, 133 to 138). Which grid phase a window enters at follows the
+    timeline before it, and that timeline differs by the out-of-scope reads and by silicon's
+    refresh cycles.
+- **wtc_ps:** 4 PASS. **secure bench:** all 15 as predicted, chk 0.
+- **Corpus sample** (F3 F5 F9 F12 F19 F24 F31 F32 F34 F39, `+v35_chk --diag`):
+  - RTL-exact 8,313 of 8,502 (unchanged), pre exact 8,502, 0 FAIL, chk 0, per-run rows 0
+    differ.
+  - Pin records: every run has the same records. Against pinref-t2 they fall into three
+    classes of 2,834 runs, one per family file (its WTC):
+    - nothing moves before the first fetch after the prelude's WTC store;
+    - the prelude's last fetches move by store-dependent amounts;
+    - every record from the chain's first on moves by one constant: -264, -16 and +16 ticks
+      for w0, w1 and w2 (WO30's was -64 for all).
+  - The cause is the prelude's three on-chip stores:
+    - `MOV word [FFE8h],wtc` is now two byte cycles, and the fetch after them takes the new
+      waits (silicon's order, f4_oc_*'s prelude: fetch 122h 11 clocks and 124h 15 clocks
+      after 120h);
+    - `MOV byte [FFE1h]` and `MOV byte [FFEBh]` each lose the hold.
+
+    The net shift depends on the class's waits.
+- **Program gates.** Base results are from WO30 (the same binary as this base).
+  - banks 5, dma 7, onchip 6, traps 6 (usim rc 0, traps_undef 101/101), prio 4, pfxtake 10,
+    serial 4: all EQUAL.
+  - f4_hwd EQUAL.
+  - intr: 14 EQUAL; f5_si_edge DIFFERs as at the base (the same first difference, 08144
+    04AD / 04AE).
+- **periph:** f4_port, f4_tb EQUAL; f4_tm, f4_tout DIFFER, as at the base. Periods in clocks,
+  silicon / base / now:
+  - tm0_os 855 / 829 / 845, now inside the 16-clock tolerance;
+  - tm1_i6 599 599 599 599 615 / 603 597 ... / 589 611 ..., now outside;
+  - tout_alv1 599 599 615 599 / 589 611 ... / 605 595 ..., now inside;
+  - tout_os 855 / 829 / 829;
+  - tm01 still outside;
+  - tm0_i6, tm0_i128, tm1_i128, tb0 and tb1 unchanged.
+
+  Not tuned. The periods are handler-to-handler intervals through HALT's wake.
+
+### Timing (Efinity, T120F484, 17 ns, no exception; work order 30 v2 in brackets)
+
+- Top: seed 1 +2.997 (+3.133), seed 2 +3.424 (+3.208), seed 3 +3.402 (+2.979).
+  - Resources: 9,397 LUT4 (9,611), 2,628 FF (2,617), 36 RAM_5K.
+  - No seed falls under +2.8.
+  - The worst paths: useq xtab -> c_snz, and useq ytab -> eu ds0 / ds1 CE.
+  - Seed 3's fourth worst is the pace (queue discard -> useq ph, 16 levels, +3.511). That is
+    the path `pos_hold` joins through `cp_nx`.
+- Modules alone: bus +4.855 (WO30 +5.021; d_kind -> the wrapper's output register); eu +4.856.
+- Paths touched:
+  - tick A's grant gains `rq_spg` (in `rq_two`: the width and half) and `rq_tmr` (the length's
+    select), both compares of the request register;
+  - the ce_b registers gain `g_tmw_b`;
+  - tick B's `cp_nx` gains `tm_hold` (registers: c_tmw, the position, gph);
+  - `sfr_wr` reads `oc_land` (registers);
+  - the EU's post gains the `sfr_pg` compare into `rq_pair`, and `dnow` / `plo` a lane select by
+    `rq_addr[0]`;
+  - the sequencer's registered stall loses a term.

@@ -83,8 +83,6 @@ module v35_top
     wire [19:0] sfr_a;
     wire [1:0] sfr_w;
     wire [15:0] sfr_d;
-    wire        sfr_wat;                // (MX5c) the store's write at the coming ce_a
-    wire [7:0]  prc_at;                 // ... PRC after it (the registered stall's RAMEN)
     // (F1) the on-chip read (the SFR page reads the cycle's offset and width from its access
     // port: (step C) the bus unit's sfr_a / sfr_w, its oc_off / oc_word before) and FLAG
     wire [15:0] sfr_rd;
@@ -115,7 +113,7 @@ module v35_top
     // (F4d) bus hold and READY (v35_sfr's registers to the bus unit, /HLDAK back to the pins)
     wire        b_hrq, b_hlda_n, b_rdy_en, b_rdy_lv;
     v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
-                 .prc, .wtc, .rfm, .idb, .wr_at(sfr_wat), .prc_at,
+                 .prc, .wtc, .rfm, .idb,
                  .ce_rd(ce_b), .rd_data(sfr_rd),
                  .rd_go(sfr_rdgo), .psw_f,
                  .input_levels, .flag_we, .flag_d, .poll_p14,
@@ -249,7 +247,7 @@ module v35_top
     wire [2:0]  q_st_nx;
     wire        q_od_nx, q_dc_nx;
     wire        l_qs_nx;
-    wire        e_ordy_nx, e_rqb_nx, e_wrh_nx;
+    wire        e_ordy_nx, e_rqb_nx;
     // (consol) the pace (the bus unit's): the next word's kind (the sequencer's), the hold back;
     // the EU's request standing and memory request standing next; the queue's count compares;
     // the loader's stream facts; the loader's releases (to the queue), HALT's request delay (to
@@ -301,7 +299,7 @@ module v35_top
     // the take's IVEC word, FINT
     wire        x_disp, x_tki, x_end, x_nb, x_nbi, x_flush, w_stop, x_stop, x_ivec, x_fint;
     // (MX0) the datapath
-    wire        opr_rdy, rq_busy, wr_hold, c_sgn, c_dtrap;
+    wire        opr_rdy, rq_busy, c_sgn, c_dtrap;
     wire        c_xc, c_snz, c_f1, c_dn, q_susp;    // (MX2) the transfer's conditions; prefetch suspended
     wire [15:0] ld_ip;                  // (MX2) the instruction pointer
     wire [15:0] ld_ins_ip;              // (F2b) the instruction's start (its first prefix's)
@@ -351,7 +349,7 @@ module v35_top
         .dlv_fetch_nx, .eu_done_nx(b_done_nx),
         .wk_nx(s_wk_nx), .ex, .eu_rq_nx(e_rqv_nx), .rqm_nx(e_rqm_nx), .lv_q(q_lv), .lv_nx(q_lv_nx),
         .sf_nx(l_sf_nx), .ph_nx(b_ph_nx),
-        .sfr_wr, .sfr_wat, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
+        .sfr_wr, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
         .oc_we, .oc_wa, .oc_be, .oc_wd,
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
         .data_out(c_data_out), .mreq_n(c_mreq_n), .mstb_n(c_mstb_n), .iostb_n(c_iostb_n),
@@ -407,8 +405,8 @@ module v35_top
     v35_useq useq (
         .clock, .reset_n(core_reset_n), .ce_a, .ce_b,
         .q_stall, .dent, .dcall, .dret, .dec2, .ec_reg, .ec_call, .ec_head, .len(ld_len), .il(ld_il), .fmt_w(fmt.w),
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
-        .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx),
+        .opr_rdy, .rq_busy, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
+        .q_stall_nx(l_qs_nx), .opr_rdy_nx(e_ordy_nx), .rq_busy_nx(e_rqb_nx),
         .wk_nx(s_wk_nx), .ph_nx(b_ph_nx), .w_disp(s_wdisp), .w_disp_nx(s_wdisp_nx),
         .wake(h_wake), .igo, .sgo,
         .word, .word_nx, .w_dispm, .w_dispm_nx, .w_erep, .w_erep_nx, .ex, .ex_b, .q_susp, .halted,
@@ -427,10 +425,10 @@ module v35_top
         .tk_dm, .dm_in, .dm_out, .dm_w, .dm_ps, .dm_pd, .dm_tend, .dm_tlast, .dm_last, .req_dk,
         .ra_next, .rb_next, .ra_data, .rb_data, .wa_en, .wa_addr, .wa_be, .wa_data,
         .req_v, .req_cyc, .req_addr, .req_width, .req_data, .req_ack, .req_done,
-        .done_data(b_done_data), .eu_dlv(b_eu_dlv), .ramen,
-        .req_done_nx(b_done_nx), .ramen_nx(prc_at[6]), .opr_rdy_nx(e_ordy_nx),
-        .rq_busy_nx(e_rqb_nx), .wr_hold_nx(e_wrh_nx), .req_v_nx(e_rqv_nx), .rqm_nx(e_rqm_nx), .hp_b(l_hp_b),
-        .opr_rdy, .rq_busy, .wr_hold, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
+        .done_data(b_done_data), .eu_dlv(b_eu_dlv),
+        .req_done_nx(b_done_nx), .opr_rdy_nx(e_ordy_nx),
+        .rq_busy_nx(e_rqb_nx), .req_v_nx(e_rqv_nx), .rqm_nx(e_rqm_nx), .hp_b(l_hp_b),
+        .opr_rdy, .rq_busy, .c_sgn, .c_dtrap, .c_xc, .c_snz, .c_f1, .c_dn, .rb_lo, .sig_lo,
         .flush_off, .ps_base,
         .psw_f, .flag_we, .flag_d,
         .oc_we, .oc_wa, .oc_be, .oc_wd
@@ -527,6 +525,23 @@ module v35_top
     end
     final if (chk_ob && chk_ttn != 0)
         $display("v35 chk: top: %0d staging loads off the translation rule", chk_ttn);
+    // (WO31) `+v35_chk`: the on-chip store's hold of E is gone, so every on-chip store must land
+    // before the instruction after it reads anything: at the ce_a ending the clock the dispatch
+    // executes (the next routine's first word reads the register RAM from this ce_a on: the
+    // early read, then its ce_b read; the segment flops from this ce_a), no store captured or
+    // granted to an on-chip target may still be waiting to land (the internal RAM's write lands
+    // at the ce_b after the landing ce_a, the SFR page's at it)
+    integer chk_oln = 0;
+    always @(posedge clock) begin
+        if (chk_ob && core_reset_n && ce_a && x_disp
+            && (bus.sfr_open || (bus.g_ocmem && bus.g_kind_b == K_WRITE))) begin
+            chk_oln = chk_oln + 1;
+            if (chk_oln <= 20)
+                $display("v35 chk: top: the dispatch executes before an on-chip store landed at %0t", $time);
+        end
+    end
+    final if (chk_ob && chk_oln != 0)
+        $display("v35 chk: top: %0d dispatches before an on-chip store landed", chk_oln);
     /* verilator lint_on BLKSEQ */
 
     // ---------------------------------------------------------------- observation (simulation)
@@ -602,6 +617,5 @@ module v35_top
 `endif
 
     wire unused = &{1'b0, ready, ce, x_fall, prc[7], prc[5:2],
-                    rf_pending, rf_load, rf_value, rf_state_r, rf_state_e,
-                    prc_at[7], prc_at[5:0]};
+                    rf_pending, rf_load, rf_value, rf_state_r, rf_state_e};
 endmodule

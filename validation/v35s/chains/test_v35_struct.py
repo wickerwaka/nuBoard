@@ -396,12 +396,15 @@ CORE_INSTANCES = {
 # three ports: bus -> queue dlv_nx, queue -> loader tq, eu -> loader psw_md (queue 15/10 ->
 # 16/11, loader in 34 -> 36, eu out 37 -> 38; bus -> queue 3 -> 4, queue -> loader 11 -> 12,
 # eu -> loader 1 -> 2)
+# (work order 31) lowered: the on-chip store's hold of E went (the EU's wr_hold / wr_hold_nx into
+# the sequencer): eu out 38 -> 36, useq in 30 -> 28, eu -> useq 14 -> 12; wr_hold_nx leaves the
+# next-value outputs
 BUDGET_MODULE = {
     "bus": {"out": 17, "in": 17},
     "queue": {"out": 16, "in": 11},
     "loader": {"out": 28, "in": 36},
-    "useq": {"out": 23, "in": 30},
-    "eu": {"out": 38, "in": 38},
+    "useq": {"out": 23, "in": 28},
+    "eu": {"out": 36, "in": 38},
     "regram": {"out": 3, "in": 13},
     "intc": {"out": 13, "in": 14},
 }
@@ -409,7 +412,7 @@ BUDGET_PAIR = {
     ("bus", "eu"): 9, ("bus", "intc"): 1, ("bus", "loader"): 4, ("bus", "queue"): 4,
     ("bus", "regram"): 5,
     ("eu", "bus"): 9, ("eu", "intc"): 3, ("eu", "loader"): 2, ("eu", "queue"): 2,
-    ("eu", "regram"): 8, ("eu", "useq"): 14, ("bus", "useq"): 1, ("useq", "bus"): 2,
+    ("eu", "regram"): 8, ("eu", "useq"): 12, ("bus", "useq"): 1, ("useq", "bus"): 2,
     ("intc", "eu"): 10, ("intc", "useq"): 3,
     ("loader", "bus"): 1, ("loader", "eu"): 14, ("loader", "queue"): 3, ("loader", "useq"): 12,
     ("queue", "bus"): 4, ("queue", "loader"): 12,
@@ -441,7 +444,7 @@ NX_OUTPUTS = {
     "queue": {"discard_nx", "odd_nx", "stored_nx", "lv_nx"},
     "loader": {"fmt_nx", "modrm_nx", "opc_nx", "q_stall_nx", "sf_nx"},
     "useq": {"w_dispm_nx", "w_erep_nx", "word_nx", "w_disp_nx", "wk_nx"},
-    "eu": {"opr_rdy_nx", "rq_busy_nx", "wr_hold_nx", "req_v_nx", "rqm_nx"},
+    "eu": {"opr_rdy_nx", "rq_busy_nx", "req_v_nx", "rqm_nx"},
 }
 # (step D) the removed rule-only terms: no identifier of these may reappear in the core's RTL
 # (comments and strings stripped), nor any FIT_ integer

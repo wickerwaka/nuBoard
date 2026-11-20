@@ -4,9 +4,12 @@
 // the F1 measurements on the socket (validation/v35s/onchip.py; receipts
 // validation/v35s/receipts/f1-f1_sfr_*-socket*.json; README "F1").
 //
-// Written by the core's on-chip store at its cycle's end (`wr`: the internal cycle, 3 + the I/O
-// waits, no pins; the address, width and datum as issued). A word store at an even offset
-// writes the offset and the next; a byte store writes its lane (an odd address the high one).
+// Written by the core's on-chip store (`wr`: (WO31) in the internal cycle's first clock, a
+// timer register's as its wait ends; no pins; the address, width and datum as issued). (WO31)
+// Every store is one byte at its own offset (an odd address the high lane): a word in the page
+// is two byte cycles, low address first (silicon, f4_oc_v), each carrying the word bit (width
+// BW_WORD at the byte's own address) and the request's whole datum; the 16-bit registers (TM0,
+// MD0, TM1, MD1) take the word whole at its high byte's cycle, a lone byte store ignored.
 // Read by the on-chip read: `rd_off` (the cycle's offset: (step C) the access port's address,
 // the bus unit's register, captured at the cycle's start) -> `rd_data` registered at `ce_rd`,
 // {the byte at offset | 1, the byte at offset & ~1}; the 16-bit registers (TM0, MD0, TM1, MD1)
@@ -44,10 +47,6 @@ module v35_sfr (
     input  wire [1:0]  width,
     input  wire [15:0] data,
     output reg  [7:0]  prc,
-    // (MX5c, the core v2's registered stall) PRC as it stands after a write of the cycle that
-    // `wr_at` says ends at the coming write enable (wr_at: wr's condition without its enable)
-    input  wire        wr_at,
-    output wire [7:0]  prc_at,
     output reg  [15:0] wtc,
     output reg  [7:0]  rfm,
     output reg  [7:0]  idb,
@@ -234,12 +233,14 @@ module v35_sfr (
     function automatic logic byte_ok(input logic [7:0] o, input logic is_word);
         byte_ok = wmask(o) != 8'h00 && (is_word || kind(o) != K_W16);
     endfunction
+    // (WO31) the store is one byte at its offset; `w_word`: it is a byte of a word (the bus
+    // unit's even pair); its byte on the lane of its address (a byte store has it on both)
     wire        w_word = width == BW_WORD && !top;
-    wire [7:0]  w_lo = width == BW_HI ? data[15:8] : data[7:0];
+    wire [7:0]  w_lo = (width == BW_HI || (width == BW_WORD && addr[0])) ? data[15:8] : data[7:0];
     // (timing repair 1) the store's decode registered at ce_b (ce_rd): the address, width and
     // IDB are ce_a registers, so at ce_b they hold the values the coming ce_a's store reads; every
     // store reader below is enabled by `wr` (ce_a) and reads these (`+v35_chk`: against the direct
-    // decode at every store). prc_at (tick B, without the enable) keeps the direct decode
+    // decode at every store)
     reg         ip_b = 1'b0, tp_b = 1'b0, ww_b = 1'b0;
     reg  [7:0]  wo_b = 8'h00;
     always @(posedge clock) begin
@@ -274,24 +275,17 @@ module v35_sfr (
             rfm <= RFM_RESET;
             idb <= IDB_RESET;
         end else if (wr && (tp_b || ip_b)) begin
+            // (WO31) one byte at its own offset (a word's high byte comes in its own cycle)
             if (byte_ok(wo_b, ww_b))
                 st[wo_b] <= w_lo & wmask(wo_b);
-            if (ww_b && byte_ok(wo_b | 8'd1, 1'b1))
-                st[wo_b | 8'd1] <= data[15:8] & wmask(wo_b | 8'd1);
             if (wo_b == 8'hEB)
                 prc <= w_lo & 8'h4F;
-            if (ww_b && (wo_b | 8'd1) == 8'hEB)
-                prc <= data[15:8] & 8'h4F;
             if (wo_b == 8'hE1)
                 rfm <= w_lo;
-            if (ww_b && (wo_b | 8'd1) == 8'hE1)
-                rfm <= data[15:8];
             if (wo_b == 8'hE8)
                 wtc[7:0] <= w_lo;
             if (wo_b == 8'hE9)
                 wtc[15:8] <= w_lo;
-            if (ww_b && (wo_b | 8'd1) == 8'hE9)
-                wtc[15:8] <= data[15:8];
             if (wo_b == 8'hFF)
                 idb <= w_lo;
         end
@@ -321,10 +315,8 @@ module v35_sfr (
         for (gi = 0; gi < 15; gi++) begin : g_ic
             localparam logic [7:0] O = IC_OFF[8*gi +: 8];
             assign ic_b[8*gi +: 8] = st[O];
-            wire lo_hit = wo_b == O;
-            wire hi_hit = ww_b && (wo_b | 8'd1) == O;
-            assign ic_we[gi] = wr && ip_b && !tp_b && (lo_hit || hi_hit);
-            assign ic_wd[gi] = lo_hit ? w_lo[7] : data[15];
+            assign ic_we[gi] = wr && ip_b && !tp_b && wo_b == O;
+            assign ic_wd[gi] = w_lo[7];
         end
     endgenerate
     assign intm = st[8'h40];
@@ -341,7 +333,7 @@ module v35_sfr (
     wire        tout;
     wire [2:0]  tf;
     wire        tbf;
-    v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_word(ww_b), .w_lo,
+    v35_timer timer (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_word(ww_b), .w_lo(data[7:0]),
                      .w_hi(data[15:8]), .tm0, .md0, .tm1, .md1, .tmc0, .tmc1, .tout, .tf);
     v35_tbc tbc (.clock, .reset_n, .ce_a, .tb(prc[3:2]), .tbf);
     // (F4b) the serial channels (channel 0 with the I/O interface mode): SCM / SCC / BRG in the
@@ -352,7 +344,7 @@ module v35_sfr (
     v35_serial #(.IO_MODE(1'b1)) ser0 (
         .clock, .reset_n, .ce_a, .s_scm(p_we && wo_b == 8'h68), .v_scm(w_lo),
         .s_txb(p_we && wo_b == 8'h62), .v_txb(w_lo),
-        .s_bg(p_we && (wo_b == 8'h69 || wo_b == 8'h6A || (ww_b && wo_b == 8'h68))),
+        .s_bg(p_we && (wo_b == 8'h69 || wo_b == 8'h6A)),
         .scm(st[8'h68]), .scc(st[8'h69]),
         .brg(st[8'h6A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h30), .rxd_in(input_levels[9]),
         .cts_in(input_levels[11]), .rxb(rxb0), .sce(sce0), .txd(txd0), .sck(sck0), .rsck(rsck0),
@@ -360,7 +352,7 @@ module v35_sfr (
     v35_serial #(.IO_MODE(1'b0)) ser1 (
         .clock, .reset_n, .ce_a, .s_scm(p_we && wo_b == 8'h78), .v_scm(w_lo),
         .s_txb(p_we && wo_b == 8'h72), .v_txb(w_lo),
-        .s_bg(p_we && (wo_b == 8'h79 || wo_b == 8'h7A || (ww_b && wo_b == 8'h78))),
+        .s_bg(p_we && (wo_b == 8'h79 || wo_b == 8'h7A)),
         .scm(st[8'h78]), .scc(st[8'h79]),
         .brg(st[8'h7A]), .rd_rxb(rd_go && rd_off[7:1] == 7'h38), .rxd_in(input_levels[10]),
         .cts_in(input_levels[12]), .rxb(rxb1), .sce(sce1), .txd(txd1), .sck(sck1), .rsck(rsck1),
@@ -368,7 +360,7 @@ module v35_sfr (
     // (F4c) DMA: DMAM's mode, W and EDMA live in v35_dma (read back from it); DMAC in the storage
     wire [7:0] dmam0, dmam1;
     wire [1:0] dic;
-    v35_dma dma (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_word(ww_b), .w_lo, .w_hi(data[15:8]),
+    v35_dma dma (.clock, .reset_n, .ce_a, .we(p_we), .w_off(wo_b), .w_lo,
                  .dmac0(st[8'hA0]), .dmac1(st[8'hA2]), .dmarq(input_levels[7:6]),
                  .take(dm_take), .tend(dm_tend), .tlast(dm_tlast), .rs(dm_rs), .smp(dm_smp), .dmam0, .dmam1,
                  .dm_v, .dm_go, .tk_ch(dm_ch), .tk_in(dm_in), .tk_out(dm_out), .tk_w(dm_w),
@@ -491,14 +483,6 @@ module v35_sfr (
             rd_data <= {r_hi, r_lo};
     end
 
-    function automatic logic [7:0] prc_put(input logic [7:0] p, input logic [7:0] offset,
-                                           input logic [7:0] value);
-        prc_put = offset == 8'hEB ? (value & 8'h4F) : p;
-    endfunction
-    assign prc_at = (!wr_at || top || !in_page) ? prc
-                  : width == BW_WORD ? prc_put(prc_put(prc, addr[7:0], data[7:0]),
-                                               addr[7:0] | 8'd1, data[15:8])
-                  : prc_put(prc, addr[7:0], width == BW_HI ? data[15:8] : data[7:0]);
 
     initial poll_p14 = 1'b0;
     always_ff @(posedge clock)
@@ -1118,9 +1102,9 @@ module v35_timer (
     input  wire        ce_a,
     input  wire        we,              // an SFR store at this ce_a (v35_sfr's decode) ...
     input  wire [7:0]  w_off,           // ... its offset, width, bytes
-    input  wire        w_word,
-    input  wire [7:0]  w_lo,
-    input  wire [7:0]  w_hi,
+    input  wire        w_word,          // ((WO31) a byte of a word: the pair's)
+    input  wire [7:0]  w_lo,            // ((WO31) the datum's lanes: the byte at an even offset is
+    input  wire [7:0]  w_hi,            //   w_lo, at an odd offset w_hi; a word's both at its high byte)
     output reg  [15:0] tm0,
     output reg  [15:0] md0,
     output reg  [15:0] tm1,
@@ -1144,10 +1128,10 @@ module v35_timer (
     reg  [2:0] s0 = 3'd0, s1 = 3'd0;
     reg        q = 1'b1;
     assign tout = tmc0[3] ? q ^ tmc0[2] : !tmc0[2];
-    // a store's bytes at an offset (a word store writes the offset and the next)
+    // a store's byte at its offset ((WO31) a word is two byte stores, low offset first)
     wire        s_tmc0 = we && (w_off == O_TMC0);
-    wire        s_tmc1 = we && (w_off == O_TMC1 || (w_word && w_off == O_TMC0));
-    wire [7:0]  v_tmc1 = w_off == O_TMC1 ? w_lo : w_hi;
+    wire        s_tmc1 = we && (w_off == O_TMC1);
+    wire [7:0]  v_tmc1 = w_hi;
     initial begin
         tm0 = 16'hFFFF; md0 = 16'hFFFF; tm1 = 16'hFFFF; md1 = 16'hFFFF;
         tmc0 = 8'd0; tmc1 = 8'd0; tf = 3'd0;
@@ -1201,14 +1185,15 @@ module v35_timer (
                         tm1 <= tm1 - 16'd1;
                 end
             end
-            // ---- the stores (after the counts: a store wins)
-            if (we && w_word && w_off == O_TM0)
+            // ---- the stores (after the counts: a store wins); (WO31) a 16-bit register whole at
+            // its word's high byte (the second byte cycle), a lone byte ignored
+            if (we && w_word && w_off == (O_TM0 | 8'd1))
                 tm0 <= {w_hi, w_lo};
-            if (we && w_word && w_off == O_MD0)
+            if (we && w_word && w_off == (O_MD0 | 8'd1))
                 md0 <= {w_hi, w_lo};
-            if (we && w_word && w_off == O_TM1)
+            if (we && w_word && w_off == (O_TM1 | 8'd1))
                 tm1 <= {w_hi, w_lo};
-            if (we && w_word && w_off == O_MD1)
+            if (we && w_word && w_off == (O_MD1 | 8'd1))
                 md1 <= {w_hi, w_lo};
             if (s_tmc0) begin
                 tmc0 <= w_lo & 8'hFD;
@@ -1572,10 +1557,8 @@ module v35_dma (
     input  wire        reset_n,
     input  wire        ce_a,
     input  wire        we,              // an SFR store (v35_sfr's p_we) ...
-    input  wire [7:0]  w_off,           // ... its offset, width, bytes
-    input  wire        w_word,
+    input  wire [7:0]  w_off,           // ... its offset and byte ((WO31) a word is two byte stores)
     input  wire [7:0]  w_lo,
-    input  wire [7:0]  w_hi,
     input  wire [7:0]  dmac0,           // DMAC0 / DMAC1 (v35_sfr's storage): PD 5:4, PS 1:0
     input  wire [7:0]  dmac1,
     input  wire [1:0]  dmarq,           // the DMARQ0/1 levels (the input levels 6, 7)
@@ -1618,10 +1601,9 @@ module v35_dma (
     end
     assign dmam0 = {md0, w[0], edma[0], 3'b000};
     assign dmam1 = {md1, w[1], edma[1], 3'b000};
-    wire [1:0] s_m = {we && (w_off == 8'hA3 || (w_word && w_off == 8'hA2)),
-                      we && (w_off == 8'hA1 || (w_word && w_off == 8'hA0))};
-    wire [7:0] v_m0 = w_off == 8'hA1 ? w_lo : w_hi;
-    wire [7:0] v_m1 = w_off == 8'hA3 ? w_lo : w_hi;
+    wire [1:0] s_m = {we && w_off == 8'hA3, we && w_off == 8'hA1};
+    wire [7:0] v_m0 = w_lo;
+    wire [7:0] v_m1 = w_lo;
     function automatic logic m2m(input logic [2:0] m);
         m2m = m[1:0] == 2'b00;
     endfunction
