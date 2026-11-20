@@ -4,9 +4,10 @@
 // B §1 "Bus unit (BIU)"; (A1) docs/v35s-arbiter-strategy.md §2). One cycle at a time: B1, B2,
 // waits, B3. A cycle granted on CPU clock s with w waits occupies s .. s+2+w (bus.py); its last
 // clock is B3 and its datum is delivered on the next clock (data_ready=0), from the delivery
-// registers written at the edge that ends the cycle. Memory cycles and fetches take WTC field
-// 0's waits, I/O cycles and the on-chip SFR store field 7's (sfr_cycle=io: 3 + the I/O waits,
-// never on the pins).
+// registers written at the edge that ends the cycle. (WO30) A memory cycle or fetch takes the
+// waits of the WTC field of its own address's block (A19-A17, the top two blocks one field: 6),
+// an I/O cycle field 7's, an on-chip cycle none (3 clocks, never on the pins); READY lengthens
+// only a cycle whose field is 3 (PMC1 bit 7). validation/v35s/wtc.py, the f4_wtc_* receipts.
 //
 // The pin timing and the read latch are v35_biu.sv's (lines 290-350), verbatim: a cycle granted
 // on clock s shows B1 on the pins in the CPU state after s's `ce_a`; /MREQ (or /REFRQ) falls
@@ -233,18 +234,53 @@ module v35_bus
         logic [2:0] kind, blen;
         logic [1:0] width, half;
     } v35_gnt_t;
-    // lengths: bus.length(kind), the SFR store's I/O waits. (F4d) A field of 3 is 2 waits, and
-    // READY's with PMC1 bit 7 (f4_rdy rd_off: WTC FFFFh, 5-clock cycles as field 2's)
-    wire [1:0] waits_mem = wtc[WTC_MEM_LSB +: 2] == 2'd3 ? 2'd2 : wtc[WTC_MEM_LSB +: 2];
-    wire [1:0] waits_io = wtc[WTC_IO_LSB +: 2] == 2'd3 ? 2'd2 : wtc[WTC_IO_LSB +: 2];
-    wire       rdy_mem = rdy_en && wtc[WTC_MEM_LSB +: 2] == 2'd3;
-    wire       rdy_io = rdy_en && wtc[WTC_IO_LSB +: 2] == 2'd3;
+    // lengths: bus.length(kind). (F4d) A field of 3 is 2 waits, and READY's with PMC1 bit 7
+    // (f4_rdy rd_off: WTC FFFFh, 5-clock cycles as field 2's)
+    // (WO30) The field per cycle, by its own address (silicon: f4_wtc_d / f / k / m / r / w, every
+    // measured cycle): field n = A19-A17, the top two blocks one field (C0000h-FFFFFh: 6);
+    // field 7 every I/O cycle (both halves of an odd port's word); an on-chip cycle (IDB page,
+    // FFFFFh) no field at all (f4_wtc_x: 3 clocks under every WTC). One length and one READY fact
+    // per source, each from the address the grant itself drives and the WTC register (an 8:1
+    // select beside the grant, as rq_sfr's compare), joining the grant at the length's select by
+    // the terms it had:
+    //   the fetch:  fetch_addr[19:17] read directly (the queue's PS base + pfp, the address
+    //               g_addr takes for a fetch: the field cannot disagree with the cycle's address
+    //               on any clock). (WO30 v2) Not a register: fetch_addr also moves without a
+    //               flush (MOV PS,r/m: the queue is not redirected, a fetch at the new PS is
+    //               granted in the tick after the PS load; the secure bench A_nc_modrm), and the
+    //               bus unit sees neither PS's load nor pfp's;
+    //   the EU's:   the request register's own address (req_addr: posted at ce_a and grantable
+    //               in the tick after, so read directly, not through a register of its own); a
+    //               pair's second half reads it too, the EU having loaded the second byte's
+    //               address at the first half's grant (lin2: the block of address + 1); a DMA
+    //               cycle is an EU request;
+    //   I/O:        field 7.
+    // WTC and PMC1 are read as they stand (no register between: a store takes effect on the
+    // grant after its cycle's delivery, as before)
+    function automatic logic [2:0] wblk(input logic [2:0] a);      // the field of A19-A17
+        wblk = (a[2] && a[1]) ? 3'd6 : a;
+    endfunction
+    function automatic logic [1:0] wfld(input logic [15:0] w, input logic [2:0] n);
+        wfld = w[{n, 1'b0} +: 2];
+    endfunction
+    function automatic logic [2:0] wlen(input logic [1:0] f);     // 3 + the field's waits
+        wlen = f == 2'd3 ? 3'(BUS_BASE) + 3'd2 : 3'(BUS_BASE) + {1'b0, f};
+    endfunction
+    wire [1:0] wf_fetch = wfld(wtc, wblk(fetch_addr[19:17]));
+    wire [1:0] wf_req = wfld(wtc, wblk(req_addr[19:17]));
+    wire [1:0] wf_io = wtc[WTC_IO_LSB +: 2];
+    wire [2:0] bl_fetch = wlen(wf_fetch);
+    wire [2:0] bl_req = wlen(wf_req);
+    wire [2:0] bl_io = wlen(wf_io);
+    wire       rdy_fetch = rdy_en && wf_fetch == 2'd3;
+    wire       rdy_req = rdy_en && wf_req == 2'd3;
+    wire       rdy_io = rdy_en && wf_io == 2'd3;
     // (MX5) a write's address is the request's (a write is never a fetch: g_kind K_WRITE implies
     // g_addr = req_addr), so the SFR page's compare reads the request register, not the grant
     // (F1) an on-chip memory cycle: the request's address in the page IDB:E00-FFF (E00-EFF the
     // internal RAM while RAMEN = 1, F00-FFF the SFRs) or FFFFF (IDB at any IDB): read or write,
-    // no pins, 3 + the I/O waits (the SFR store's cycle, now every on-chip access's; timing is
-    // not F1's). From registers only (the request register, IDB, PRC): an 8-bit compare beside
+    // no pins, (WO30) 3 clocks under every WTC (f4_wtc_x: no field lengthens an on-chip access;
+    // it took field 7's waits before). From registers only (the request register, IDB, PRC): an 8-bit compare beside
     // the grant, joining it at the length's select as the old SFR compare did
     wire rq_sfr = (req_addr[19:12] == idb && req_addr[11:9] == 3'b111 && (req_addr[8] || ramen))
                   || req_addr == 20'hFFFFF;
@@ -277,9 +313,11 @@ module v35_bus
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_f.half = g_second ? 2'd2 : (gnt_f.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_f.sfr = (gnt_f.kind == K_WRITE || gnt_f.kind == K_READ) && rq_sfr;
-        gnt_f.blen = (k_io(gnt_f.kind) || gnt_f.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
-                    3'(BUS_BASE) + 3'(waits_mem);
-        gnt_f.rdy = !gnt_f.sfr && (k_io(gnt_f.kind) ? rdy_io : rdy_mem);
+        // (WO30) the source's length: the fetch's field, an I/O cycle's field 7, an on-chip
+        // cycle 3, an EU memory cycle its request address's field
+        gnt_f.blen = gnt_f.fetch ? bl_fetch : k_io(gnt_f.kind) ? bl_io
+                   : gnt_f.sfr ? 3'(BUS_BASE) : bl_req;
+        gnt_f.rdy = gnt_f.fetch ? rdy_fetch : k_io(gnt_f.kind) ? rdy_io : !gnt_f.sfr && rdy_req;
     endfunction
     v35_gnt_t gn1, gn0, gn;
     assign gn1 = gnt_f(1'b1);
@@ -718,7 +756,9 @@ module v35_bus
     wire        c3_nx = fb_nx && lg_b && !fe_b;
     wire        c3s_nx = !rm_nx[3] && (rm_nx >= 4'd3 || (rm_nx == 4'd1 && lv.cf) || (rm_nx == 4'd0 && nl_b));
     wire        cbw_nx = c3_nx ? c3s_nx : bp_nx;
-    wire        c3n_nx = lg_b && waits_mem == 2'd0;
+    // (WO30) the waits are the fetch's that starts next (back to back: at fetch_addr as it stands
+    // in tick B, its field read directly)
+    wire        c3n_nx = lg_b && wf_fetch == 2'd0;
     wire        kst = wk_nx.flush && wk_nx.alt && wk_nx.bi;     // the strict word ((r24) flush with alt and no bi: wkbn's code)
     assign ph_nx = (wk_nx.disp && !wk_nx.bi && bnd_w) || (wk_nx.bi && !wk_nx.rlx && !wk_nx.alt && (bp_nx || (kbp && (b4w_nx || lcw_nx))))
                    || (kst && (bp_nx || b2s_nx))
@@ -1129,9 +1169,9 @@ module v35_bus
                     : (req_addr[0] ? BW_HI : BW_LO);
         gnt_x.half = g_second ? 2'd2 : (gnt_x.ack && rq_two) ? 2'd1 : 2'd0;
         gnt_x.sfr = (gnt_x.kind == K_WRITE || gnt_x.kind == K_READ) && rq_sfr;
-        gnt_x.blen = (k_io(gnt_x.kind) || gnt_x.sfr) ? 3'(BUS_BASE) + 3'(waits_io) :
-                    3'(BUS_BASE) + 3'(waits_mem);
-        gnt_x.rdy = !gnt_x.sfr && (k_io(gnt_x.kind) ? rdy_io : rdy_mem);
+        gnt_x.blen = gnt_x.fetch ? bl_fetch : k_io(gnt_x.kind) ? bl_io
+                   : gnt_x.sfr ? 3'(BUS_BASE) : bl_req;
+        gnt_x.rdy = gnt_x.fetch ? rdy_fetch : k_io(gnt_x.kind) ? rdy_io : !gnt_x.sfr && rdy_req;
     end
     // the pins' update from the selected per-group values (what the registers load at ce_e)
     v35_pin_t   pn_x;
@@ -1158,6 +1198,19 @@ module v35_bus
             chk_n = chk_n + 1;
             if (chk_n <= 20)
                 $display("v35 chk: bus: the request datum differs from its B2 capture at %0t", $time);
+        end
+    end
+    // (WO30) the granted cycle's length and READY fact against the direct reading of its own
+    // address (g_addr: the fetch's, the request's, the pair's second byte's): the per-source
+    // select is the cycle's own field
+    wire [2:0]  x_blen = gn.sfr ? 3'(BUS_BASE) : k_io(gn.kind) ? bl_io : wlen(wfld(wtc, wblk(g_addr[19:17])));
+    wire        x_rdy = !gn.sfr && rdy_en && (k_io(gn.kind) ? wf_io : wfld(wtc, wblk(g_addr[19:17]))) == 2'd3;
+    always @(posedge clock) begin
+        if (chk_on && reset_n && ce_b && gn.start && (gn.blen !== x_blen || gn.rdy !== x_rdy)) begin
+            chk_n = chk_n + 1;
+            if (chk_n <= 20)
+                $display("v35 chk: bus: the granted cycle's waits differ from its address's field at %0t (fetch %0d addr %h len %0d/%0d)",
+                         $time, gn.fetch, g_addr, gn.blen, x_blen);
         end
     end
     // (step D) the pins' B2 (dp_v at ce_a, not the pair's second half) is a latch capture
@@ -1259,5 +1312,5 @@ module v35_bus
     end
 `endif
 
-    wire unused = &{1'b0, ce_b, wtc[13:2], n_addr, n_width, fetch_req_b};   // (fetch_req_b: the chk's)
+    wire unused = &{1'b0, ce_b, n_addr, n_width, fetch_req_b};   // (fetch_req_b: the chk's)
 endmodule

@@ -2590,7 +2590,8 @@ MD kept); FLAG was not linked to the PSW; the segment flops changed only through
   8-bit compare beside the grant, joining it at the length's select as the old constant compare
   did. An odd word is two byte cycles, each decided by its own address (silicon: a word at xxDFF is
   an external byte and an internal byte; at xxEFF RAM and SFR). The cycle is the SFR store's:
-  3 + the I/O waits, no pins (timing is not F1's; M8's costs are not built).
+  3 + the I/O waits, no pins (timing is not F1's; M8's costs are not built). (WO30: 3 clocks under
+  every WTC, no field's waits: f4_wtc_x.)
 - **Read datum**: `v35_top` captures the cycle's offset at its start (`oc_off`, `oc_ram`); the
   register RAM's new port C (`v35_regram`: a third copy of the 256 bytes, read at every ce_b at
   `oc_off[7:1]`) and the SFR page's read (`v35_sfr.rd_data`, registered at every ce_b) both read
@@ -3452,7 +3453,8 @@ which set SBF before any STOP).
   at the pins' edge: `hold_e` (the hold bit at the last edge), `hk` (held and idle: `hold_e &&
   hold && hrq && !busy && !p2_v`), /HLDAK low from the edge after `hk`, high at the first edge
   with HLDRQ low; the hold stays a ce_a after the rise (the next B1 1.5 clocks after it).
-- **READY:** WTC field 3 is 2 waits (`waits_mem` / `waits_io`), and with PMC1 bit 7 the cycle is
+- **READY:** WTC field 3 is 2 waits (`waits_mem` / `waits_io`; (WO30) now the cycle's own field:
+  `bl_fetch` / `bl_req` / `bl_io`, "Work order 30"), and with PMC1 bit 7 the cycle is
   READY's (`gn.rdy` -> `g_rdy_b` -> `c_rdy`; not an on-chip cycle). READY's level is sampled at
   the pins' edge (`rdy_q`, ce_b); `rdy_hold = c_rdy && pos_now == 2 && !rdy_q` holds the cycle's
   position at its first wait (`c_pos` and `c_pos_nx`): a read's or I/O cycle's strobe is down by
@@ -3539,7 +3541,7 @@ silicon's the vector read first; the NMI entry's order is F3's, the write sequen
   14 against 10). Not built here.
 - h_w's hold timing (above); the release's first record (fetch first on the RTL).
 - WTC's per-block fields (memory blocks 1-6): the bus unit reads field 0 for all memory, as
-  before (the programs set all fields alike).
+  before (the programs set all fields alike). (Built in work order 30.)
 - STBC's SBF is the FPGA model's register: it is cleared by configuration, not by the socket's
   power; the board's model lane keeps it across sessions.
 - READY on a write (the harness cannot delay it): built as the mechanism implies (a write's
@@ -9093,3 +9095,69 @@ FLUSH before the next E word. That leaves no case of MD changing under a staged 
 - Seven negative controls DIFFER, as registered beforehand: the 0F second byte encoded,
   ModR/M encoded, operands encoded, prefixes plain, the byte behind a segment prefix plain,
   behind REP plain, behind BUSLOCK plain.
+
+## Work order 30: the WTC field per bus cycle (per block), READY per block, the on-chip cycle's length
+
+Silicon (validation/v35s/wtc.py, the f4_wtc_* receipts, 95,082 of 95,082 cycles): a memory
+cycle or fetch takes the waits of the WTC field of its own address's 128K block (field index
+A19-A17, 7 read as 6: C0000h-FFFFFh is one field); every I/O cycle field 7; an odd word's two
+byte cycles each their own byte's block; stack, string, vector, read-modify-write and DMA
+cycles by their own addresses; READY lengthens only a cycle whose field is 3 (with PMC1 bit 7),
+a field of 3 without it is 2 waits; an on-chip access (IDB page, FFFFFh) takes no field's waits.
+The core read field 0 for every memory cycle and gave on-chip cycles field 7's waits.
+
+### Built (v35_bus only; no port, no microcode)
+
+- `wblk(a[19:17])`: the field of an address (`a[19] && a[18] ? 6 : a[19:17]`); `wfld(wtc, n)` the
+  field; `wlen(f)`: 3 + (f == 3 ? 2 : f).
+- One length and one READY fact per source, joining the grant's length select by the terms it
+  had (`gn.fetch`, the kind's I/O bit, `gn.sfr`):
+  - the fetch: the field of `fetch_addr[19:17]` read directly (the queue's PS base + pfp, the
+    address the grant drives for a fetch, g_addr): the field is a function of the cycle's own
+    address on every clock and cannot lag it. (Work order 30's first form registered it at
+    ce_b, `fb_r`: the secure bench A_nc_modrm's runaway reached MOV PS,r16, which loads PS
+    without redirecting the queue, and the next fetch was granted at the new PS in the tick
+    after the load with the old block's field; `+v35_chk` caught it. validation/v35s/wtc_ps.py
+    is the directed sim bench: MOV PS,AW from block 0 to 7F00h under four WTC values whose
+    fields differ, every fetch row against its block's field, chk silent.) `bl_fetch` /
+    `rdy_fetch` from it and WTC / PMC1 as they stand.
+  - the EU's request (data, stack, string, vector, DMA cycles; the pair's second half): the
+    request register's own address, read directly (`wblk(req_addr)`). A request is grantable
+    in the tick after its post (the address loaded at that ce_a), so a register of its own
+    would lag; req_addr is itself a ce_a register, and the EU loads the second byte's address
+    (lin2: address + 1) at the first half's grant, so the second half's field is its own block.
+  - I/O: field 7 (`bl_io` / `rdy_io`); an on-chip cycle: 3 clocks, no READY.
+- `gnt.blen = fetch ? bl_fetch : io ? bl_io : sfr ? 3 : bl_req`; `gnt.rdy` likewise. WTC and
+  PMC1 are read as they stand (a WTC store takes effect on the grant after its delivery clock,
+  as before).
+- `c3n_nx` (the pace's third-last-clock exception) reads the starting back-to-back fetch's
+  field (fetch_addr's: in tick B it is that fetch's address).
+- `+v35_chk`: every grant's length and READY fact against the direct reading of `g_addr`.
+- v35_front_pkg: `WTC_MEM_LSB` removed; `wtc[13:2]` leaves the unused list. The chain model's
+  `waits_of` keeps field 0 (the corpus's WTC is uniform over the blocks it touches).
+- READY on memory writes (not measurable on the lane): as before, now per block: a write in a
+  field-3 block with PMC1 bit 7 carries `c_rdy` and holds its first wait while READY was low at
+  the pins' edge; the lane's READY falls after the column strobe, which for a write comes after
+  that sample, so writes are not extended.
+
+### Measured
+
+- `wtc gate`: all eight programs EQUAL by window (d 22, f 22, k 11, m 10, r 28, r0 28, x 27,
+  w 6); `report --ref sim` rule "by block" 100% in all eight. f4_wtc_x's on-chip REP MOVBK x32:
+  19,615 ticks under every field but the code's (19,807 with field 1 = 2: its 3 fetches), as
+  silicon (19,616 / 19,808).
+- Corpus (refresh off, the ten-family sample): RTL-exact unchanged, rows 0 differ, pre exact
+  unchanged; every run's records are the same records, those after the prelude's WTC store
+  2 clocks earlier (the store at reset WTC FFFFh is an on-chip cycle: 5 clocks before, 3 now).
+- Remaining whole-trace differences in the f4_wtc set (not the field selection; present at the
+  base): the first fetch after the prelude's WTC store (00132h) is granted on the store's
+  delivery clock, before WTC is written, 3 clocks after the previous fetch's end (base 5);
+  silicon fetches it 6 clocks after, under the new WTC (the SFR-store instructions' timing, F4d
+  "not built"); the window openings' order of a fetch and CALL's push; f4_wtc_m's DMA
+  placement; one fetch around a far CALL in f4_wtc_r / r0 (w2 and the walks).
+- Program gates at reset WTC FFFFh move through the on-chip cycles only (2 clocks shorter each):
+  periph f4_tm's one-shot tm0_os interval 829 clocks (base 845, silicon 855; outside the
+  16-clock tolerance now) while tm0_i6 / tm1_i6 come inside it (605 / 595 against silicon's
+  599 / 615); not investigated further (the intervals are handler-to-handler, through the timer's
+  prescaler phase and HALT's wake). intr f5_si_edge DIFFERs with the base binary (26546de) as well: the committed sim
+  receipt that gates EQUAL was made by an earlier build.

@@ -3712,3 +3712,22 @@ question, decided from S8's routed numbers with the user.
   Also found: the core gives on-chip accesses field 7's waits (the silicon none). Not
   measured: READY on memory writes (the harness lane cannot place it), the interrupt
   acknowledge, DMA with an I/O side. The fix is the next work order.
+- **2026-11-19, work order 30: the wait field per bus cycle (v35_bus only; no port, no
+  microcode).** A memory cycle or fetch takes the WTC field of its own address's block
+  (A19-A17, the top two blocks one field), an I/O cycle field 7, an on-chip cycle none
+  (3 clocks, no READY; it took field 7's waits). The fetch's field is read straight from
+  the fetch address at the grant, an EU or DMA request's from the request register. A
+  first version registered the fetch's field at ce_b; the full gate's secure negative
+  control A_nc_modrm (a runaway that executes MOV PS,r16, which does not redirect the
+  queue) granted a fetch at the new PS with the old block's field, caught by the new
+  checker; the register was removed. validation/v35s/wtc_ps.py is the directed sim bench
+  for that sequence (four WTC values; fails on the first version). All eight f4_wtc
+  programs equal their socket receipts by window. Committed on the gate so far (the
+  program sets still running): corpus 30,181 at both spacings, no run changed, write
+  data unchanged, checker silent; pin records: 30,532 runs are the last landing's with
+  one step of -64 ticks after the prelude's WTC store (its on-chip cycle 5 clocks to 3),
+  the four F0w runs with field 7 at 2 lose 2 clocks at each later on-chip store too;
+  lint, vectors, 75 tests, SST clean. 17 ns: +3.133 / +3.208 / +2.979; 9,611 LUT4,
+  2,617 FF, 36 RAM_5K. Remaining against silicon (the next work order, measured by
+  validation/v35s/onchip_t.py): the first WTC store takes effect one fetch late (an SFR
+  word is two byte cycles on silicon); periph's one-shot period 829 against 855.

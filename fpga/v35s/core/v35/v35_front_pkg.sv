@@ -40,8 +40,9 @@ package v35_front_pkg;
     // ------------------------------------------------------------ fixed structure
     localparam int QUEUE_BYTES = 6;             // queue.QUEUE_BYTES
     localparam int BUS_BASE = 3;                // bus.BASE: B1 B2 B3
-    localparam int WTC_MEM_LSB = 0;             // machine.waits_of: WTC field 0 (memory, fetch)
-    localparam int WTC_IO_LSB = 14;             // ... field 7 (I/O, the SFR store)
+    // (WO30) a memory cycle's WTC field is its address's block (v35_bus wblk; the chain model's
+    // machine.waits_of keeps field 0, the corpus's WTC being uniform)
+    localparam int WTC_IO_LSB = 14;             // field 7: every I/O cycle
     // (MX5c) the bits the queue stores beside each byte (the loader's byte tag: written with the
     // byte, opaque to the queue)
     localparam int QTAG_W = 6;
