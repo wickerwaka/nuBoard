@@ -3822,3 +3822,23 @@ question, decided from S8's routed numbers with the user.
   +2.718 / +3.199 (seeds 4, 5: +3.589 / +3.296; seed 2's worst path is in the loader,
   untouched); 9,404 LUT4, 2,606 FF, 36 RAM_5K. User ruling of the same day: the grid constant
   goes to silicon's 3 in the next build.
+- **2026-11-20, the take lattice measured (validation/v35s/lattice.py, 27 programs f5_la_*,
+  983 windows, every capture twice, all repeat-equal).** The lattice of a request's take is
+  the level scan's 16-clock round, locked to the scan's last restart and nothing else. The
+  scan is restarted by IE rising through any instruction (EI, POP PSW, RETI) and by a store
+  to any request control register; not by the timer's start, a count-out, the request, the
+  take, FINT, DI, a PSW load with IE already 1, other SFR or RAM stores, or HALT. A periodic
+  source's takes are therefore re-locked by each handler's RETI: take to take is K + 16 m
+  with K the handler's and return path's constant (periph's 599 599 615 599 is K = 599). The
+  earlier reading (locked to the timer) is withdrawn: f5_ph_t had K = 0 mod 16. One counter
+  serves TM0, TM1 and INTP0; level L is examined 2 L clocks after the restart. **The 18 is
+  16 plus an offer slot:** with IE 0 each level holding an unmasked request adds two clocks
+  to the round (18, 20, 22, 24 for one to four levels); HALT with IE 0 is released at a slot;
+  IE rising in a slot's first clock takes that slot's request at once, in its second clock
+  does not restart, anywhere else restarts. **The pin has one delay** (3 to 5.4 clocks to the
+  flag read, 3.1 to 4.6 to the take); the core's INTP_DLY 11 hides that it accepts an internal
+  request 7 to 8 clocks late for a lattice point. Trial (not landed): any IE rise restarting
+  the scan re-locks at RETI but 9 clocks late after a PSW pop; the restart belongs at the PSW
+  word's read. Unexplained: four windows where EI lands in the second clock of one level's
+  slot beside another pending level. Not measured: a request blocked by the in-service level,
+  macro service, NMI and INT, the time base as a source, a control store inside a slot.
