@@ -3907,3 +3907,24 @@ question, decided from S8's routed numbers with the user.
   it: an INT edge against a level-0 slot, IE cleared inside the passage, FINT releasing a
   blocked request. Not measured: register-bank response, macro service, INTP0 against a
   boundary. "Boundary" here is the vector read less 16.
+- **2026-11-20, the passage's three deciding tests (passage.py programs2, f5_pb_*, 20 programs,
+  609 windows, every capture twice, all repeat-equal).** The eight clocks are a fixed delay
+  behind a held request bit and stay without a mechanism. **The input is a flip-flop:** an INT
+  pulse two clocks wide is taken (18 clocks after INT fell), one clock wide is not; raise,
+  drop, raise takes at the first raise's boundary. **IE gates both ends and clears it:** INT
+  pulsed with IE 0 leaves nothing; a request DI or POP PSW overtakes is never taken with IE 0
+  at any of 25 clock positions (INT and controller); a caught pulse, DI, EI: no take (25 of
+  25). No commit point. **INT and the controller share the one bit, first come:** INT beside a
+  TM0 request wins only when its edge is 3 clocks or more ahead of the request's slot, at
+  level 7 as at level 0; the choice is made at the slot (about 14 clocks before the boundary),
+  the loser is served afterwards. **Not the scan:** INT and NMI latencies are constant over 32
+  single clocks and 4-tick steps with the scan's phase fixed; no lattice of 8 or 16. **New
+  scan rule:** with level P in service the round is 2(P+1) clocks (8 at P = 3, 12 at P = 5),
+  set by the in-service level; after FINT the count runs on upward and the release enters at
+  the scan. NMI: a 16-tick pulse is caught, 12 is not. Ruled out for the eight clocks: the
+  scan or half a round, a shift of the pin's level, a level that must stand for 8 clocks, an
+  EU-only stage, a commit point, priority resolution. A shift register and a counter behind
+  the bit cannot be told apart. The core (both trees) needs INT to stand 14 clocks, keeps a
+  16-clock round with a level in service, and with a 13-clock INT pulse reads a vector at
+  0006xh no request has (not examined). Not measured: a one-clock pulse at other phases, NMI
+  beside INT, a mask store or ISPR clearing inside the delay; the bus hold's rule.

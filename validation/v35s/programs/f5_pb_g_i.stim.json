@@ -1,0 +1,202 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 1532,
+   "hold": 64,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 22,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 2,
+   "delay": 1532,
+   "hold": 64,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 54,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 3,
+   "delay": 1532,
+   "hold": 64,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 118,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 4,
+   "delay": 1532,
+   "hold": 128,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 22,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 5,
+   "delay": 1532,
+   "hold": 128,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 54,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 6,
+   "delay": 1532,
+   "hold": 128,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 118,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 7,
+   "delay": 1532,
+   "hold": 192,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 22,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 8,
+   "delay": 1532,
+   "hold": 192,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 54,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 9,
+   "delay": 1532,
+   "hold": 192,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 118,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 10,
+   "delay": 1532,
+   "hold": 256,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 22,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 11,
+   "delay": 1532,
+   "hold": 256,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 54,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 12,
+   "delay": 1532,
+   "hold": 256,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": null,
+   "delay": 118,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  }
+ ],
+ "pins": [
+  "P13",
+  "P15"
+ ],
+ "intak_vector": 11,
+ "int_release": true
+}

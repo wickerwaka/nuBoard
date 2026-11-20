@@ -1,0 +1,136 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 1532,
+   "hold": 4,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 2,
+   "delay": 1532,
+   "hold": 8,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 3,
+   "delay": 1532,
+   "hold": 12,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 4,
+   "delay": 1532,
+   "hold": 16,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 5,
+   "delay": 1532,
+   "hold": 20,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 6,
+   "delay": 1532,
+   "hold": 24,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 7,
+   "delay": 1532,
+   "hold": 28,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 8,
+   "delay": 1532,
+   "hold": 32,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 9,
+   "delay": 1532,
+   "hold": 40,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 10,
+   "delay": 1532,
+   "hold": 48,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 11,
+   "delay": 1532,
+   "hold": 64,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 12,
+   "delay": 1532,
+   "hold": 96,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 13,
+   "delay": 1532,
+   "hold": 128,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 14,
+   "delay": 1532,
+   "hold": 192,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 15,
+   "delay": 1532,
+   "hold": 256,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 16,
+   "delay": 1532,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  }
+ ],
+ "pins": [
+  "P13",
+  "P15"
+ ]
+}

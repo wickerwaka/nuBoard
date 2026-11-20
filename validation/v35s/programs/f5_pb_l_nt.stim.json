@@ -1,0 +1,264 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 1852,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 2,
+   "delay": 1856,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 3,
+   "delay": 1860,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 4,
+   "delay": 1864,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 5,
+   "delay": 1868,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 6,
+   "delay": 1872,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 7,
+   "delay": 1876,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 8,
+   "delay": 1880,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 9,
+   "delay": 1884,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 10,
+   "delay": 1888,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 11,
+   "delay": 1892,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 12,
+   "delay": 1896,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 13,
+   "delay": 1900,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 14,
+   "delay": 1904,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 15,
+   "delay": 1908,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 16,
+   "delay": 1912,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 17,
+   "delay": 1916,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 18,
+   "delay": 1920,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 19,
+   "delay": 1924,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 20,
+   "delay": 1928,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 21,
+   "delay": 1932,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 22,
+   "delay": 1936,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 23,
+   "delay": 1940,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 24,
+   "delay": 1944,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 25,
+   "delay": 1948,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 26,
+   "delay": 1952,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 27,
+   "delay": 1956,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 28,
+   "delay": 1960,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 29,
+   "delay": 1964,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 30,
+   "delay": 1968,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 31,
+   "delay": 1972,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  },
+  {
+   "event": 32,
+   "delay": 1976,
+   "hold": 600,
+   "levels": {
+    "NMI": 0
+   }
+  }
+ ],
+ "pins": [
+  "P13",
+  "P15"
+ ]
+}

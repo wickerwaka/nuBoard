@@ -314,6 +314,186 @@ def programs():
     return {p.name: p for p in progs}
 
 
+# ------------------------------------------------------------------ the second set (what the line is)
+PSW0 = 0xF002                       # IE 0
+E2M1 = 18                           # mark 1's write after the event's record (clocks; the n series)
+
+
+def ent_int(ev, clocks, ticks=0, hold=0):
+    return dict(event=ev, delay=clocks * 32 - 4 + ticks, hold=hold, levels={"INT": 1})
+
+
+def set_v(lv, n=32):
+    """Test 1: TM0's request (level lv) in the scan round a TMIC1 store started, an INC train; INT's
+    edge swept a clock a window across the request's clock."""
+    out, ent = [], []
+    for j in range(n):
+        ops = (("ei",), ("ev", j + 1), START, ("mark", 0), ("fil", 2), ("mark", 1), ("st", 0xFF9D, 0x47),
+               ("dw0",), ("x", "inc", 60))
+        out.append(window("v", j, ops, md0=23, hand={"tm0": H_STOP}, ic={"tm0": lv}, lv=lv))
+        ent.append(ent_int(j + 1, V_BASE + j))
+    return out, ent
+
+
+V_BASE = 158                        # the edge after the event (pilot: mark 1 is 129 behind the event)
+
+
+def set_d(src, how, n=32):
+    """Test 2: IE cleared (DI, or POP PSW with IE 0) behind the sled, the request's clock fixed: INT's
+    edge (src i) or TM0's count-out into its slot (src c). Then mark 2, mark 3, EI, six NOP (a
+    request that was held is taken there)."""
+    out, ent = [], []
+    clr = (("di",),) if how == "di" else (("popf",),)
+    tail = clr + (("mark", 2), ("mark", 3), ("ei",), ("nop", 6))
+    pv = (("pushv", PSW0),) if how == "pf" else ()
+    for s in range(n):
+        if src == "i":
+            ops = pv + (("ev", s + 1), ("mark", 1), ("dw0",), ("sl", s)) + tail
+            out.append(window("d", s, ops, pre=(("ei",),), odd=s & 1, how=how, src=src))
+            ent.append(ent_int(s + 1, E2M1 + 44))
+        else:
+            ops = pv + (("ei",), START, ("mark", 0), ("fil", 2), ("mark", 1), ("st", 0xFF9D, 0x47),
+                        ("dw0",), ("sl", s)) + tail
+            out.append(window("d", s, ops, odd=s & 1, md0=23, hand={"tm0": H_STOP}, ic={"tm0": 0},
+                              how=how, src=src))
+    return out, ent
+
+
+H_RETI = (("reti",),)               # no FINT: the level stays in service
+
+
+def set_f(isp=3, rq=3, n=40):
+    """Test 3: level 3 in service (INTP0's request taken in the setup, its handler RETI alone);
+    TM0's IF stored 1 at level 3 (blocked), a sled of x clocks, mark 1, FINT, 40 INC AW; FINT again
+    at the end."""
+    out = []
+    for x in range(n):
+        ops = (("st", 0xFF9C, 0x80 | rq), ("sled", x), ("mark", 1), ("fint",), ("inc", 40), ("fint",))
+        out.append(window("f", x, ops, pre=(("ei",), ("st", 0xFF4C, 0x80 | isp), ("nop", 12)), odd=x & 1,
+                          hand={"p0": H_RETI}, how="fint", lv=rq))
+    return out
+
+
+def set_pw(pin, widths):
+    """(i) a pulse of the pin `w` ticks wide against an INC train (sled 16)."""
+    out, ent = [], []
+    for j, w in enumerate(widths):
+        ops = (("ev", j + 1), ("mark", 1), ("dw0",), ("sl", 16), ("x", "inc", 40))
+        out.append(window("w", j, ops, pre=(("ei",),), w=w))
+        ent.append(dict(event=j + 1, delay=(E2M1 + 30) * 32 - 4, hold=w,
+                        levels={"INT": 1} if pin == "INT" else {"NMI": 0}))
+    return out, ent
+
+
+GAPS = [(a, g) for a in (2, 4, 6, 8) for g in (1, 2, 4)]
+
+
+def set_gap():
+    """(i) INT high for a clocks, low for g, then high for good (a chained entry), an INC train."""
+    out, ent = [], []
+    for j, (a, g) in enumerate(GAPS):
+        ops = (("ev", j + 1), ("mark", 1), ("dw0",), ("sl", 16), ("x", "inc", 40))
+        out.append(window("g", j, ops, pre=(("ei",),), a=a, g=g))
+        ent.append(dict(event=j + 1, delay=(E2M1 + 30) * 32 - 4, hold=a * 32, levels={"INT": 1}))
+        ent.append(dict(event=None, delay=g * 32 - 10, hold=0, levels={"INT": 1}))
+    return out, ent
+
+
+def set_lat(pin, step, n=32):
+    """(ii) the scan's phase fixed by a TMIC1 store; the pin's edge swept `step` ticks a window into
+    a standing HALT."""
+    out, ent = [], []
+    for j in range(n):
+        ops = (("st", 0xFF9D, 0x47), ("ev", j + 1), ("mark", 1), ("x", "halt", 1), ("mark", 2))
+        out.append(window("l", j, ops, pre=(("ei",),), step=step))
+        ent.append(dict(event=j + 1, delay=(E2M1 + 40) * 32 - 4 + step * j, hold=0 if pin == "INT" else 600,
+                        levels={"INT": 1} if pin == "INT" else {"NMI": 0}))
+    return out, ent
+
+
+def set_k(n=32):
+    """An INT pulse 4 clocks wide at the d series' clock, DI behind the sled, marks, EI, eight NOP:
+    is the request DI stopped still there after EI."""
+    out, ent = [], []
+    for j in range(n):
+        ops = (("ev", j + 1), ("mark", 1), ("dw0",), ("sl", j), ("di",), ("mark", 2), ("mark", 3), ("ei",), ("nop", 8))
+        out.append(window("k", j, ops, pre=(("ei",),), odd=j & 1))
+        ent.append(ent_int(j + 1, E2M1 + 44, hold=128))
+    return out, ent
+
+
+def set_z():
+    """IE 0: an INT pulse of w clocks 20 clocks behind mark 1, two fillers, EI, eight NOP."""
+    out, ent = [], []
+    for j, w in enumerate((2, 4, 8, 16, 1000)):
+        ops = (("ev", j + 1), ("mark", 1), ("fil", 2), ("mark", 2), ("ei",), ("nop", 8))
+        out.append(window("z", j, ops, w=w * 32))
+        ent.append(ent_int(j + 1, E2M1 + 20, hold=0 if w == 1000 else w * 32))
+    return out, ent
+
+
+def programs2():
+    progs = []
+    for lv in (0, 7):
+        wins, ent = set_v(lv)
+        progs.append(prog(f"f5_pb_v{lv}", wins, f"INT's edge swept across TM0's request at level {lv}",
+                          entries=ent, intak=True))
+    for src in "ic":
+        for how in ("di", "pf"):
+            wins, ent = set_d(src, how)
+            progs.append(prog(f"f5_pb_d_{src}_{how}", wins, f"IE cleared by {how} inside the passage ({src})",
+                              entries=ent, intak=True))
+    progs.append(prog("f5_pb_f", set_f(), "FINT releasing a request blocked by the level in service"))
+    for isp, rq in ((5, 5), (3, 7), (1, 1), (0, 7)):
+        progs.append(prog(f"f5_pb_f_{isp}{rq}", set_f(isp, rq), f"FINT: level {isp} in service, the request at level {rq}"))
+    wins, ent = set_k()
+    progs.append(prog("f5_pb_k_i", wins, "an INT pulse of 4 clocks, then DI behind the sled, then EI", entries=ent, intak=True))
+    wins, ent = set_z()
+    progs.append(prog("f5_pb_z_i", wins, "an INT pulse with IE 0, EI 80 clocks later", entries=ent, intak=True))
+    wins, ent = set_pw("INT", [32 * k for k in range(1, 25)])
+    progs.append(prog("f5_pb_w_i", wins, "an INT pulse of 1 to 24 clocks", entries=ent, intak=True))
+    wins, ent = set_pw("NMI", [4, 8, 12, 16, 20, 24, 28, 32, 40, 48, 64, 96, 128, 192, 256, 600])
+    progs.append(prog("f5_pb_w_n", wins, "an NMI pulse of 4 to 600 ticks", entries=ent))
+    wins, ent = set_gap()
+    p = prog("f5_pb_g_i", wins, "INT raised, dropped and raised again", entries=ent, intak=True)
+    progs.append(p)
+    for pin in ("INT", "NMI"):
+        for step, sfx in ((32, ""), (4, "t")):
+            wins, ent = set_lat(pin, step)
+            progs.append(prog(f"f5_pb_l_{pin[0].lower()}{sfx}", wins,
+                              f"the {pin} edge into a standing HALT, {step} ticks a window, the scan's phase fixed",
+                              entries=ent, intak=pin == "INT"))
+    return {p.name: p for p in progs}
+
+
+def rows2(name, backend, progs):
+    """Per window: n, the take's source, the instruction not executed, the pushed PSW, the first
+    activity and the vector read after mark 1, the edge and TOUT's count-out after mark 1, the first
+    activity after the edge."""
+    prog = progs[name]
+    c = cl(prog)
+    rec = ph.load(name, backend)
+    ev = events(rec, prog)
+    print(f"{name} [{backend}] {'PASS' if rec['passed'] else 'FAIL'} total {rec['total']} {len(ev)}/{len(prog.windows)} windows")
+    for k in sorted(ev):
+        e, m = ev[k], ev[k]["meta"]
+        m1 = e["marks"].get(1)
+        extra = " ".join(f"{x}={m[x]}" for x in ("w", "a", "g", "how", "src", "lv", "step") if x in m)
+        if m1 is None:
+            print(f"  n{m['n']:2d} {extra}: no mark 1")
+            continue
+        f = lambda t: "-" if t is None else ph.fmt((t - m1) / c)
+        tk = e["take"]
+        C = e["tout"][1] if len(e["tout"]) > 1 else None
+        m2 = e["marks"].get(2)
+        print(f"  n{m['n']:2d} {extra}: " + ("no take" if not tk else
+              f"{tk[0]} in front of {lt(e['lab'])[:26]:26s} psw {e['psw'] if e['psw'] is None else format(e['psw'], '04X')} "
+              f"first {f(tk[3])} V {f(tk[1])}")
+              + f" | edge {f(e['edge'])} C {f(C)} m2 {f(m2)}"
+              + (f" | first-edge {ph.fmt((tk[3] - e['edge']) / c)}" if tk and e["edge"] is not None else "")
+              + (f" | takes {e['ntake']}" if e["ntake"] != 1 else ""))
+
+
 # ------------------------------------------------------------------ reading
 def events(rec, prog):
     """Per window: t0, T, marks {j: tick}, tout [tick of each P15 change], intak [tick of each
@@ -322,12 +502,12 @@ def events(rec, prog):
     pushed PC names: its index from X, its text), wr {address: tick} of X's stores, meta."""
     wins, _ = oc.windows(rec, prog)
     inv = {v: k for k, v in VEC.items()}
-    ent = {e["event"]: e for e in (rec.get("stim") or {}).get("entries") or []}
+    ent = {e["event"]: e for e in (rec.get("stim") or {}).get("entries") or [] if e.get("event") is not None}
     out = {}
     for k, w in wins.items():
         m = prog.windows[k].meta
         e = dict(t0=w["t0"], T=w["T"], marks={}, tout=[], intak=[], edge=None, take=None, lab=None, wr={},
-                 meta=m, rd=[])
+                 meta=m, rd=[], psw=None, ntake=0)
         pv = None
         rows = w["rows"]
         for i, (kind, r) in enumerate(rows):
@@ -346,7 +526,10 @@ def events(rec, prog):
                 e["marks"].setdefault((r[1] - MARK) // 2, r[0])
             elif kind == "mw" and MARK + 32 <= r[1] < 0xE00:
                 e["wr"].setdefault(r[1], r[0])
+            elif kind == "mr" and r[1] in inv and e["take"] is not None:
+                e["ntake"] += 1
             elif kind == "mr" and r[1] in inv and e["take"] is None:
+                e["ntake"] += 1
                 pushes = [x for kd, x in rows[i + 1:i + 8] if kd == "mw"][:3]
                 pc = pushes[2][2] if len(pushes) > 2 else None
                 src = inv[r[1]]
@@ -354,9 +537,10 @@ def events(rec, prog):
                 if src == "int":
                     first = max([x for x in e["intak"] if x < r[0]][-2:-1] or [r[0]])
                 e["take"] = (src, r[0], pc, first)
+                e["psw"] = pushes[0][2] if pushes else None
             elif kind == "mr" and 0xE00 <= r[1] < STACK_TOP:
                 e["rd"].append((r[1], r[0]))
-            elif r[3] & 0x100 and r[2] & 0xFF in ent:
+            elif r[3] & 0x100 and r[2] & 0xFF in ent and e["edge"] is None:
                 e["edge"] = r[4] + ent[r[2] & 0xFF]["delay"] + 4
         if e["take"] and e["take"][2] is not None:
             e["lab"] = label(m, e["take"][2])
@@ -623,7 +807,7 @@ def emit(progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "summary", "cut", "hold", "repeat", "gate", "takes", "emit", "list"))
+    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
@@ -632,15 +816,19 @@ def main():
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args()
     progs = programs()
+    progs.update(programs2())
     names = []
     for n in a.names or list(progs):
-        names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n)]
+        names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]
     if a.action == "socket":
         if not a.socket_fitted:
             p.error("the socket action needs --socket-fitted")
         ph.run_set(names, "socket", a.tag, progs)
     elif a.action == "sim":
         ph.run_set(names, "sim", a.tag, progs)
+    elif a.action == "rows":
+        for n in names:
+            rows2(n, a.ref + a.tag, progs)
     elif a.action == "summary":
         for n in names:
             summary(n, a.ref + a.tag, progs, a.verbose)
