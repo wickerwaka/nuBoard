@@ -3736,3 +3736,19 @@ question, decided from S8's routed numbers with the user.
   equal; periph 2 equal 2 differ, the differing periods moved: the one-shot 829 clocks
   against silicon's 855), the fuzz sets unchanged, f4_hwd equal; wtc 8 of 8 equal by
   window; secure.py's 15 benches as predicted; wtc_ps 4 pass. Sim receipts refreshed.
+- **2026-11-19, on-chip access timing measured (validation/v35s/onchip_t.py, programs
+  f4_oc_{a,s,k,t,v,e}; two captures, 2,305 of 2,305 windows equal).** On silicon an
+  on-chip access is timed as an external cycle at 0 waits (21 instruction forms and three
+  REP strings equal their external twins to the tick; the prefetcher blocked as during an
+  external data cycle). A word in the SFR page is two byte cycles, low address first
+  (+3 clocks; internal RAM words one cycle). The timer unit's registers (FF80h-83h,
+  88h-8Bh, 90h, 91h) stretch each byte cycle 1 to 6 clocks to end on a free-running
+  6-clock grid (the MD0 variation in f4_wtc_x). A store takes effect early in its cycle
+  (a port pin half a clock after the start). The core: reads equal; stores 2 to 2.5
+  clocks long (the EU's hold); SFR words one cycle; no timer wait. Windows equal in
+  simulation at this commit: a 155/239, s 99/187, k 49/55, t 291/552, v 873/1154,
+  e 41/118. Also seen on external memory (not pursued): MOV byte m,imm8 12 clocks
+  against 9 to 10.5; a prefixed accumulator read after an OUT 1 clock long; REP MOVBKW
+  at odd addresses 1 clock short. Inferred, not measured: the internal cause. Not
+  measured: RAMEN = 0, a relocated IDB, on-chip accesses by DMA / interrupt frames /
+  macro service, a word at an odd SFR offset, the /12 and /128 count-out phases.
