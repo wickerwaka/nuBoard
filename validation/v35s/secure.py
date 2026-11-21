@@ -1,7 +1,7 @@
 """(work order 29) The V35S secure mode's translation table: bench-side tables and the secure benches.
 
 The core v2 holds the table in two block RAMs in v35_queue, loaded through v35_top's load port
-(`tt_we tt_a tt_d`; the harness's register C2h, runner.Harness.load_table). The core never
+(`tt_we tt_a tt_d`; the harness's register C8h, runner.Harness.load_table). The core never
 initialises it: the 1:1 table below is test stimulus only, loaded by the bench.
 
 Entry k of a table is the opcode the encoded byte k decodes to (the book's "encrypted opcode ...

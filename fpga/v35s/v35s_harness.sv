@@ -42,7 +42,8 @@
 //   b8 last events {model, socket}
 //   ba/bc live socket pin vector low/high (unmasked)
 //   be/c0 live input levels: socket, model
-//   c2 (core v2 builds, write) the secure mode's translation table: {address 15:8, byte 7:0},
+//   c8 (core v2 builds, write) the secure mode's translation table (C2h until version 3
+//      took C2h for READY): {address 15:8, byte 7:0},
 //      one entry a write, refused while busy; the core never initialises it (256 writes load
 //      it). Model lane only: the socket's table is its mask's
 //   Pin vector: 7:0 P0, 11 P13//INTAK, 12 P14, 13 P15/TOUT, 14 P16//SCK0,
@@ -234,7 +235,7 @@ module v35s_harness #(
     );
 
 `ifdef V35S_CORE_V35
-    // (work order 29) register c2: one write a table entry, a one-clock tt_we
+    // (work order 29) register c8: one write a table entry, a one-clock tt_we
     reg model_tt_we = 1'b0;
     reg [7:0] model_tt_a = 8'd0, model_tt_d = 8'd0;
 `endif
@@ -298,11 +299,20 @@ module v35s_harness #(
     //   [15:0] data bus, [24:16] multiplexed address pins, 25 A18//UBE,
     //   26 A19, 27 A0, 28 R//W, 29 /MREQ, 30 /MSTB, 31 /IOSTB, 32 /REFRQ,
     //   33 X1, 34 /RESET, 35 READY, 36 data driven by the harness,
-    //   39:37 lane state, 47:40 P0 (P07 = CLKOUT), 51:48 R2 pins (socket) or
+    //   39:37 lane state, 47:40 P0 (P07 = CLKOUT; the core v2's P0 too: work
+    //   order 34, below), 51:48 R2 pins (socket) or
     //   zero (model). Socket data is the actual FPGA input path.
     wire [15:0] model_bus_data = model_data_drive ? model_data_in : model_data_out;
+`ifdef V35S_CORE_V35
+    // (work order 34) the core v2's P0 as the socket's scope field sees it: the core's pins
+    // while the lane's T2 is CPU-driven (D), the host's levels while host-driven (H), else 0
+    wire [7:0] model_scope_p0 = model_port_mode[1:0] == 2'd2 ? model_core_pins[7:0]
+                              : model_port_mode[1:0] == 2'd0 ? p0_levels : 8'd0;
+`else
+    wire [7:0] model_scope_p0 = 8'd0;
+`endif
     wire [51:0] model_signals = {
-        4'd0, 8'd0, model_lane_state, model_data_drive, model_ready,
+        4'd0, model_scope_p0, model_lane_state, model_data_drive, model_ready,
         executing && mode[0], x1, model_refrq_n, model_iostb_n, model_mstb_n,
         model_mreq_n, model_read_write, model_a0, model_a19, model_a18_ube,
         model_mux_address, model_bus_data
@@ -616,7 +626,7 @@ module v35s_harness #(
                             8'hac: pin_record_mask[15:0] <= saved_data;
                             8'hae: pin_record_mask[31:16] <= saved_data;
 `ifdef V35S_CORE_V35
-                            8'hc2: begin
+                            8'hc8: begin
                                 model_tt_we <= 1'b1;
                                 model_tt_a <= saved_data[15:8];
                                 model_tt_d <= saved_data[7:0];

@@ -43,6 +43,7 @@ module v35_sfr (
     input  wire        clock,
     input  wire        reset_n,
     input  wire        wr,              // an SFR store's cycle ends ...
+    input  wire        wr_pend,         // (work order 37) a store captured, landing at the coming ce_a
     input  wire [19:0] addr,            // ... its address (IDB:Fxx or FFFFF), width (V35_BW_*), datum
     input  wire [1:0]  width,
     input  wire [15:0] data,
@@ -388,8 +389,72 @@ module v35_sfr (
     // the output pins: a port bit in output mode drives its latch; P13 /INTAK and P15 TOUT by
     // PMC1. A pin the CPU does not drive keeps the level it last carried (the board's bus
     // keepers: f4_tout, P13 stays high after PMC1 bit 3 is cleared). (F4b) TxD0/1; SCK0 on P16 by
-    // PMC1 bit 6; RSCK0 on /CTS0's pin while channel 0's I/O mode drives it (f4_sio). CLKOUT is
-    // not built
+    // PMC1 bit 6; RSCK0 on /CTS0's pin while channel 0's I/O mode drives it (f4_sio).
+    // (work order 34) CLKOUT on P07 while PMC0 bit 7 is 1 (the data book's PMC0: PMC07 selects
+    // the function, PM07 and the latch are not read for it). `ck` is the CPU clock's level: 1
+    // from the CPU clock's edge (ce_rd: ce_b, the divider's state start, where B1's address and
+    // the write's R/W move), 0 from its middle (ce_a, where /MREQ, the strobes and /REFRQ move,
+    // and where READY is sampled). Silicon (validation/v35s/clkout.py; the rdy_s* / rdy_ms*
+    // scope receipts at fX/8, /4, /2): CLKOUT falls 1 scope tick before /MREQ, the strobes and
+    // /REFRQ fall, rises 1 tick before a write's R/W falls, 50 % duty at each PCK; the core
+    // moves the pin on the same fabric tick as those pins (that tick is silicon's output delay
+    // difference, under a 30 ns tick). The pin's register loads `ck`'s next value, so the pin
+    // and `ck` are one register's copy: no gate on a clock net, no derived clock
+    reg        ck = 1'b0;
+    wire       ck_d = ce_rd || (ck && !ce_a);
+    always_ff @(posedge clock)
+        ck <= ck_d;
+    // (work order 36) the port pins take an SFR store at the CPU clock's edge. Silicon
+    // (build/overseer/wo34s/RESULTS.md section 1; clk_en8 / clk_en2, both sessions, fX/8 and
+    // fX/2): a P0 latch store, a PMC0 select and a PMC0 deselect all show on P07 one scope tick
+    // after a CLKOUT rise, never at the clock's middle, 2.5 clocks before the next fetch's /MREQ
+    // fall. So the bytes the output pins are made of (the latches P0-P2, PM0-2, PMC0-2) are
+    // copied at ce_rd (the CPU clock's edge, where CLKOUT rises) and the pins register reads the
+    // copies, the pin moving the tick after CLKOUT's rise (the pins register is one tick behind
+    // the copy, as silicon's pin is one tick behind its CLKOUT rise). (work order 37) The edge
+    // is the one before the store's landing ce_a: while the bus unit holds a store captured and
+    // landing at the coming ce_a (`wr_pend`, its registers only), the copy of the store's offset
+    // takes the store's byte (w_lo; each store is one byte, these offsets' write masks are FFh)
+    // instead of the page's; at the later edges the page holds it. Work order 36 took the edge
+    // after the landing, 1 clock late against the next fetch. This is the pins' update rule for
+    // every port bit, not for P07 alone; the
+    // port reads (p0 / p1 / p2 below), the input functions (INT, POLL, HLDRQ, READY, /INTAK's
+    // read) and the peripherals read the page itself, as before. What it gives at P07 (as
+    // silicon): a select with the latch 1 makes no edge before the regular fall, with the
+    // latch 0 (or the pin released) the first high phase starts one tick after CLKOUT's rise;
+    // a deselect with the latch 1 makes no runt, with the latch 0 a one-tick high runt; a
+    // deselect with PM07 = 1 releases the pin while it is high
+    reg  [7:0] op0l, opm0, opmc0, op1l, opm1, opmc1, op2l, opm2, opmc2;
+    initial begin
+        op0l = rst(8'h00); opm0 = rst(8'h01); opmc0 = rst(8'h02);
+        op1l = rst(8'h08); opm1 = rst(8'h09); opmc1 = rst(8'h0A);
+        op2l = rst(8'h10); opm2 = rst(8'h11); opmc2 = rst(8'h12);
+    end
+    always_ff @(posedge clock) begin
+        if (!reset_n) begin
+            op0l <= rst(8'h00); opm0 <= rst(8'h01); opmc0 <= rst(8'h02);
+            op1l <= rst(8'h08); opm1 <= rst(8'h09); opmc1 <= rst(8'h0A);
+            op2l <= rst(8'h10); opm2 <= rst(8'h11); opmc2 <= rst(8'h12);
+        end else if (ce_rd) begin
+            op0l <= st[8'h00]; opm0 <= st[8'h01]; opmc0 <= st[8'h02];
+            op1l <= st[8'h08]; opm1 <= st[8'h09]; opmc1 <= st[8'h0A];
+            op2l <= st[8'h10]; opm2 <= st[8'h11]; opmc2 <= st[8'h12];
+            if (wr_pend && in_page && !top)
+                case (w_off)
+                    8'h00: op0l <= w_lo;
+                    8'h01: opm0 <= w_lo;
+                    8'h02: opmc0 <= w_lo;
+                    8'h08: op1l <= w_lo;
+                    8'h09: opm1 <= w_lo;
+                    8'h0A: opmc1 <= w_lo;
+                    8'h10: op2l <= w_lo;
+                    8'h11: opm2 <= w_lo;
+                    8'h12: opmc2 <= w_lo;
+                    default: ;
+                endcase
+        end
+    end
+    wire [7:0] opm1f = opm1 | 8'h0F;      // the output side's PM1 (bits 3:0 fixed 1, as pm1's)
     // (F4c) PMC2 bits 1, 2, 4, 5: DMAAK0, TC0, DMAAK1, TC1 (f4_dma: DMAAK low through the
     // transfer's cycle in the I/O modes only, TC low inside the last transfer's cycle, every mode)
     wire [7:0] pmc2 = st[8'h12];
@@ -398,13 +463,15 @@ module v35_sfr (
     // (F4d) PMC2 bit 6: /HLDAK (the bus unit's register); bit 7: HLDRQ's input (hrq)
     wire [7:0] p2f = {1'b0, hlda_n, !(tc_l && dm_ch), !(dk_io && dm_ch), 1'b0, !(tc_l && !dm_ch),
                       !(dk_io && !dm_ch), 1'b0};
-    wire [7:0] p2v = (pmc2 & p2f) | (~pmc2 & ~pm2 & p2l);
-    wire [7:0] p2d = pmc2 | ~pm2;
+    wire [7:0] p2v = (opmc2 & p2f) | (~opmc2 & ~opm2 & op2l);
+    wire [7:0] p2d = opmc2 | ~opm2;
     wire [31:0] pv = {5'd0, rsck0, txd1, txd0, 1'b0, p2v[6:4], 1'b0,
-                      p2v[2:1], 1'b0, ~pm1[7] & p1l[7], pmc1[6] ? sck0 : p1l[6],
-                      pmc1[5] ? tout : p1l[5], ~pm1[4] & p1l[4], intak_n, 3'd0, ~pm0 & p0l};
-    wire [31:0] pd = {5'h1F, rsck_oe0, 2'b11, 1'b1, p2d[6:4], 1'b1, p2d[2:1], 1'b1, ~pm1[7],
-                      pmc1[6] || !pm1[6], pmc1[5] || !pm1[5], ~pm1[4], pmc1[3], 3'b111, ~pm0};
+                      p2v[2:1], 1'b0, ~opm1f[7] & op1l[7], opmc1[6] ? sck0 : op1l[6],
+                      opmc1[5] ? tout : op1l[5], ~opm1f[4] & op1l[4], intak_n, 3'd0,
+                      opmc0[7] ? ck_d : ~opm0[7] & op0l[7], ~opm0[6:0] & op0l[6:0]};
+    wire [31:0] pd = {5'h1F, rsck_oe0, 2'b11, 1'b1, p2d[6:4], 1'b1, p2d[2:1], 1'b1, ~opm1f[7],
+                      opmc1[6] || !opm1f[6], opmc1[5] || !opm1f[5], ~opm1f[4], opmc1[3], 3'b111,
+                      opmc0[7] || !opm0[7], ~opm0[6:0]};
     initial pins = 32'h0300_0000;
     always_ff @(posedge clock)
         pins <= (pd & pv) | (~pd & pins);

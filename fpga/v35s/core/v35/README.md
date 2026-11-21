@@ -9597,3 +9597,155 @@ added, the struct test's budget is unchanged.
 - Paths touched: the scan counter's next value gains the request control store's strobe (an OR
   of ic_we with wr: v35_sfr's store decode); the passage and the samplers read `sc[0]`; the timer's
   strobes are compares of its own registers.
+## Work order 34: CLKOUT on P07
+
+The user asked for the CLKOUT pin. Silicon's facts, the build and what is not established are in the hand-back's
+`rtl.md`; this section is the record.
+
+**Silicon** (no new socket run; the receipts on file):
+- *CLKOUT against the bus pins.* Sources: the READY scope receipts `rdy_s8` / `rdy_s2` / `rdy_ms8` / `rdy_ms4` /
+  `rdy_ms2`, two sessions, 5,690 probe cycles each, at fX/8, /4 and /2. At every PCK and in every cycle:
+  - CLKOUT falls 1 scope tick before /MREQ falls, and before every /MSTB and /IOSTB fall;
+  - it rises 1 tick before a write's R/W falls;
+  - the duty is 50 % (16 / 8 / 4 ticks high of 32 / 16 / 8).
+- */REFRQ and the rising edges.* From `captures/clocks.json` (build 1) and characterize's tables: every /MREQ, strobe
+  and /REFRQ edge follows a CLKOUT fall; R/W follows a rise.
+- *Standby.* From `stop_probe.json`: CLKOUT runs in HALT. In STOP it stops high, at the rise 12 clocks after the last
+  fetch's B2 starts.
+
+**Built** (`v35_sfr.sv`, the port pins):
+- `ck` is the CPU clock's level. It is 1 from `ce_rd` (v35_top's `ce_b`: the divider's state start, the bus unit's pin
+  edge) and 0 from `ce_a` (the divider's middle, where /MREQ, the strobes and /REFRQ move and READY is sampled).
+- While PMC0 bit 7 is 1, P07 in the existing `pins` register loads `ck`'s next value. PM07 and the latch are not read
+  then.
+- So CLKOUT moves on the fabric tick the bus pins move on, 50 % at every PCK: two ticks a CPU clock at the target's
+  fX/2. Silicon's one-tick lead is its output delays under a 30 ns sample, not a clock.
+- No port was added. No module output was added. No per-opcode logic was added. test_v35_struct is unchanged.
+- PCK changes take effect with the divider's existing rule (the next state start).
+
+**Harness** (`v35s_harness.sv`, `V35S_CORE_V35` only): the model lane's scope field P0 (47:40) carries the core's P0
+while its T2 is CPU-driven. It was 0. This is what lets the scope compare CLKOUT.
+
+**Gate** (`validation/v35s/clkout.py`):
+- `sim` runs three parts:
+  - A: every run of the five scope programs, on the model lane;
+  - B: stop_probe's HALT and STOP;
+  - C: new programs `clk_en8`, `clk_en2` (the PMC0 stores), `clk_pck` (the six PCK changes), `clk_halt` and
+    `clk_stop`. These are simulated and **awaiting a socket capture** (`clkout socket --socket-fitted`).
+- `gate` checks, per probe cycle, CLKOUT's edges = the socket's + 1 tick.
+- Results:
+  - A: 10 / 10 receipt sets EQUAL (11,380 probe cycles);
+  - B: HALT EQUAL, STOP DIFFER (not built);
+  - C: awaiting.
+
+**Not built:** CLKOUT stopping in STOP. It needs v35_intc's STOP state in v35_sfr, which is a new port between modules,
+so it is left for the user's ruling. In a simulation-only trial the core's STOP state starts about 12 clocks before
+silicon's stop, which would also need a mechanism.
+
+**Not established on silicon:** the select and deselect stores (the core: the pin follows one fabric tick after the
+store's `ce_a`; a one-tick runt at deselect with the latch at 1), the PCK change's clock, leaving HALT and STOP. The
+programs above measure them.
+
+**Measured:**
+- lint clean in the four configurations;
+- test_uasm, test_v35_struct, test_chain_lane, test_rtl_vectors: 75 OK (2 skipped);
+- corpus sample (F3 F5 F9 F12 F19 F24 F31 F32 F34 F39, `+v35_chk --diag`): 8,313 of 8,502 exact as the base, chk 0,
+  8,502 runs identical record for record to the base binary's replay (the corpus records no pins);
+- onchip (compare and gate), wtc (gate, by window 8 of 8 EQUAL) and ready (gate, gate `--edge-ticks 2`): every
+  log identical to the base binary's run of the same gate (ready DIFFERs at the base by the known READY sampling
+  point, unchanged);
+- Efinity top, 17 ns, no exception (base in brackets): seed 1 +3.493 (+3.239), seed 2 +3.658 (+2.718), seed 3 +3.599
+  (+3.199). 9,417 LUT4 (9,404), 2,606 FF (2,606), 569 ADD, 36 RAM_5K. No path of `ck` or P07 is among the 2,000
+  reported endpoints of any seed.
+
+## Work order 36: the port pins take an SFR store at the clock's edge; PCK changes at the X1/8 wrap
+
+Silicon: `build/overseer/wo34s/RESULTS.md` sections 1 and 2 (clk_en8, clk_en2, clk_pck and the part-D single-change
+runs `clk_pk<a><b>_<s>`, two sessions each).
+
+### A. The port pins (v35_sfr)
+
+- The bytes the output pins are made of (P0-P2, PM0-2, PMC0-2) are copied from the page at `ce_rd` (the CPU clock's
+  edge, where CLKOUT rises) into `op*` registers. The `pins` register reads the copies, so the pin moves one fabric tick
+  after CLKOUT's rise. The rule is the pins' update for every port bit (P0 to P2, TOUT, SCK0, /INTAK's enable, DMAAK /
+  TC, /HLDAK), not for P07 alone. The port reads, the input functions (INT, POLL, HLDRQ, READY, P13's read) and the
+  peripherals still read the page itself.
+- What this gives at P07, as on silicon: a select with the latch 1 makes no edge before the regular fall; with the
+  latch 0 (or the pin released) the first high phase starts one tick after CLKOUT's rise (one tick short); a deselect
+  with the latch 1 makes no runt; with the latch 0 a one-tick high runt; a deselect with PM07 = 1 releases the pin while
+  it is high.
+- The store is written into the page at its `ce_a` as before, so the copy takes it at the **next** edge: half a clock
+  later than before. Against the next fetch the pin now moves 1.5 clocks before its /MREQ fall; silicon moves it 2.5
+  clocks before (the base core: 2.0). Taking the store at the edge **before** its landing `ce_a` (silicon's place)
+  needs the bus unit's "a store is captured and lands at the coming ce_a" in v35_sfr, a new port: built in work order
+  37 (below), which supersedes this bullet's edge.
+- The copies are flip-flops loaded at `ce_rd` from the page's registers (no new combinational depth in front of
+  `pins`).
+
+### B. The PCK divider (v35_top)
+
+- `x_count` is a free-running X1/8 count from reset: it counts every X1 rise and wraps at 8 whatever the PCK. The CPU
+  clock's edge is where the count's PCK-dependent low bits (`x_last`: 1, 3, 7) are 0, its middle where they equal
+  `x_mid`. A PRC store never reloads or re-phases it; the new PCK is taken only at the count's wrap (x_count 0), the
+  first wrap after the store lands. At the target (an X1 rise every fabric tick) fX/2 is still two ticks a CPU clock.
+- Silicon's bus upset on a change from fX/2 to fX/4 is not reproduced (a chip malfunction).
+
+### Measured (simulation; build/overseer/wo36/rtl.md has the tables)
+
+- clk_en8 / clk_en2: every anchor's P07 shape is silicon's (the irregular phases above, at both PCKs); the place is 4
+  clocks after silicon's against the anchor (3 the known SFR-store excess, 1 the copy's edge) and 1 clock against the
+  next fetch.
+- Part D, 98 runs: every PCK change in every run sits at one phase of the X1/8 period (silicon's: one phase; the base
+  core: phases 0, 8, 16 and 24 of 32); the change is a rise with a whole first phase and every later bus cycle keeps the
+  no-change run's clock count. Runs changing from fX/8 and the STOP / NMI runs are record-identical to the base.
+- clkout gate: A 10 / 10 EQUAL, HALT EQUAL, clk_halt EQUAL (unchanged); clk_en8 / clk_en2 / clk_pck / clk_stop DIFFER
+  (the store's excess; STOP not built).
+- Corpus sample (10 families, 8,502 runs, `+v35_chk --diag`): record-identical to the base, 8,313 RTL-exact, chk 0.
+- periph, onchip, onchip_t, serial, wtc, ready (gate and `--edge-ticks 2`), intr, dma gates: logs identical to the
+  base's. Pin records of a port store move 16 ticks later (half a clock at fX/8) in f4_port, f4_tout, f4_ms, f4_sio
+  and f4_oc_e; no bus record moves. Lost against the socket: f4_tout's timer-edge-to-PMC1-deselect interval, exact
+  at the base in 4 places (6432 x3, 14176), is 16 ticks long; clk_pk28_7 / clk_pk24_7's change clock (34.5 at the
+  base, by coincidence) is 36.5. Gained: f4_port's last P1 store to the next record (4050). Both items need the
+  store's place against the bus (the port above) and the SFR-store excess removed before the remaining rows can be
+  equal.
+
+## Work order 37: the port pins take a store at the edge before it lands (`sfr_pend`)
+
+Silicon: `build/overseer/wo34s/RESULTS.md` section 1 (clk_en8 / clk_en2, two sessions each): a store shows on the port
+pins one scope tick after a CLKOUT rise, 2.5 clocks before the next fetch's /MREQ fall. Work order 36's copies took the
+store at the edge **after** its landing `ce_a` (1.5 clocks before that fall).
+
+### Built
+- **One new port, allowed by the user 2026-11-20:** v35_bus output `sfr_pend = sfr_open && oc_first && !c_tmw &&
+  !oc_ram`, into v35_sfr input `wr_pend` (wired in v35_top). It is registers only: an SFR store captured at the last
+  `ce_a`, landing at the coming one; not a timer register's store (it lands as its wait ends), not an internal RAM
+  store. v35_sfr is not one of test_v35_struct's budgeted instances, so the port budget's counts do not change.
+- At `ce_rd` (the CPU clock's edge, where CLKOUT rises) each of the nine port-pin copies (`op0l opm0 opmc0 op1l opm1
+  opmc1 op2l opm2 opmc2`) loads the page byte as before, except the copy at the pending store's offset (`w_off`, in
+  the page, not FFFFF), which takes the store's byte (`w_lo`; each store is one byte cycle, and these offsets' write
+  masks are FFh). At the later edges the page holds the stored byte. The rule covers every output port bit (P0-P2
+  latches, PM0-2, PMC0-2 functions), not P07 alone. The page is written at its `ce_a` as before. Port reads, input
+  functions and peripherals still read the page.
+- The copies' D input now also decodes `addr` / `idb` / `w_lo` (`ce_a` registers) at `ce_b`. That is one decode and a
+  byte mux in front of 72 flip-flops, and nothing joins tick A's delivery chain.
+
+### Measured (simulation; build/overseer/wo37/rtl.md has the tables)
+- clk_en8 / clk_en2: every anchor's distance from the pin's move to the next fetch's /MREQ fall is now silicon's:
+  2.47 / 2.5 / 2.47 clocks at fX/8 and 2.375 / 2.5 / 2.375 at fX/2 (work order 36: 1.47 / 1.5 / 1.47, 1.375 / 1.5 /
+  1.375). The shapes are unchanged (silicon's). Against the anchor the pin is 3 clocks late, which is the recorded
+  SFR-store excess alone. The clkout gate's C windows are still 6 of 9 equal at both PCKs. Anchors 3, 4 and 6 differ
+  by the excess, now 96 ticks instead of 128.
+- PCK (part D, clk_pck, clk_halt, clk_stop, the rdy_* probes): record-identical to work order 36.
+- f4_tout: the PMC1-deselect to next-marker interval is 2418 at all 8 deselects (silicon 2418 / 2419). It was 2402 at
+  ccefdde and 2386 in work order 36. The timer-edge to deselect interval is 16 ticks shorter than ccefdde's: 6432 x3
+  (exact at ccefdde) is now 6416. That is the store excess seen from the timer side.
+- f4_oc_e: 84 of 118 windows equal (ccefdde and work order 36: 74). Every other moved pin record (f4_port, f4_ms,
+  f4_sio) is 32 ticks earlier than in work order 36 (16 ticks earlier than at ccefdde). No bus record moves.
+- Corpus sample (10 families, 8,502 runs, `+v35_chk --diag`): record-identical to work order 36, 8,313 RTL-exact,
+  chk 0. Every program-set gate log other than clkout C and onchip_t's f4_oc_e window count is identical. Secure
+  bench: all as predicted.
+- Efinity top, 17 ns, no exception: seed 1 +3.053, seed 2 +3.400, seed 3 +3.144. 9,465 LUT4, 2,646 FF, 569 ADD,
+  36 RAM_5K. The copies' worst path (from the IDB byte into `opmc1`) is +5.371 on seed 1, far from the worst.
+- Work order 36's numbers above were taken on a tree that also held work order 35 (the interrupt rebuild), which this
+  batch does not. Without it, f4_tout's timer-edge to deselect interval at its 44th record is 14368 at ccefdde, not
+  14176, so that place was never exact in this batch.

@@ -80,6 +80,7 @@ module v35_top
     wire [15:0] wtc;
     // (F1) the SFR page's access port (the bus unit's on-chip cycle)
     wire sfr_wr;                        // ((S7b) at ce_a itself: tick A sees the new value)
+    wire sfr_pend;                      // (work order 37) a store captured, landing at the coming ce_a
     wire [19:0] sfr_a;
     wire [1:0] sfr_w;
     wire [15:0] sfr_d;
@@ -112,7 +113,7 @@ module v35_top
     wire        tk_dm;                  // the last take is a DMA transfer's (v35_intc)
     // (F4d) bus hold and READY (v35_sfr's registers to the bus unit, /HLDAK back to the pins)
     wire        b_hrq, b_hlda_n, b_rdy_en, b_rdy_lv;
-    v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
+    v35_sfr sfr (.clock, .reset_n, .wr(sfr_wr), .wr_pend(sfr_pend), .addr(sfr_a), .width(sfr_w), .data(sfr_d),
                  .prc, .wtc, .rfm, .idb,
                  .ce_rd(ce_b), .rd_data(sfr_rd),
                  .rd_go(sfr_rdgo), .psw_f,
@@ -125,21 +126,29 @@ module v35_top
                  .hrq(b_hrq), .hlda_n(b_hlda_n), .rdy_en(b_rdy_en), .rdy_lv(b_rdy_lv));
 
     // ---------------------------------------------------------------- CPU clock
+    // (work order 36) the divider is a free-running X1/8 count from reset: `x_count` counts every
+    // X1 rise and wraps at 8 whatever the PCK; a CPU clock is the count's low PCK-dependent bits
+    // (`x_last`, the mask: 1 at fX/2, 3 at fX/4, 7 at fX/8): its edge where they are 0, its middle
+    // where they equal `x_mid`. A PRC store never reloads or re-phases the count, and the new
+    // PCK is taken only at the count's wrap (x_count 0, a state start at every PCK): the first
+    // wrap after the store lands. Silicon (build/overseer/wo34s/RESULTS.md section 2, 59 of 59
+    // changes a session, x_half 2, 3 and 4): the new period starts on a CLKOUT rise that is
+    // always the X1/8 boundary counted from reset, with a whole first phase; from fX/4 the change
+    // waits up to 1 CPU clock, from fX/2 up to 3; the CPU clock stays on the reset grid. (Its
+    // bus upset on a change from fX/2 to fX/4 is a chip malfunction, not built.) At the target
+    // (an X1 rise every fabric tick) fX/2 is still two ticks a CPU clock
     reg [2:0] x_count = 3'd0;
     reg [1:0] pck = 2'd2;
     wire [2:0] x_last = pck == 2'd0 ? 3'd1 : pck == 2'd1 ? 3'd3 : 3'd7;
     wire [2:0] x_mid = pck == 2'd0 ? 3'd1 : pck == 2'd1 ? 3'd2 : 3'd4;
-    wire state_start = reset_n && x_rise && x_count == 3'd0;
-    wire state_mid = reset_n && x_rise && x_count == x_mid;
+    wire state_start = reset_n && x_rise && (x_count & x_last) == 3'd0;
+    wire state_mid = reset_n && x_rise && (x_count & x_last) == x_mid;
     always @(posedge clock) begin
         if (!reset_n) begin
             x_count <= 3'd0;
             pck <= 2'd2;
         end else if (x_rise) begin
-            if (x_count == x_last)
-                x_count <= 3'd0;
-            else
-                x_count <= x_count + 1'b1;
+            x_count <= x_count + 1'b1;
             if (x_count == 3'd0)
                 pck <= prc[1:0];
         end
@@ -349,7 +358,7 @@ module v35_top
         .dlv_fetch_nx, .eu_done_nx(b_done_nx),
         .wk_nx(s_wk_nx), .ex, .eu_rq_nx(e_rqv_nx), .rqm_nx(e_rqm_nx), .lv_q(q_lv), .lv_nx(q_lv_nx),
         .sf_nx(l_sf_nx), .ph_nx(b_ph_nx),
-        .sfr_wr, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
+        .sfr_wr, .sfr_pend, .sfr_a, .sfr_w, .sfr_d, .sfr_rdgo,
         .oc_we, .oc_wa, .oc_be, .oc_wd,
         .a0(c_a0), .a19(c_a19), .a18_ube(c_a18_ube), .mux_address(c_mux_address),
         .data_out(c_data_out), .mreq_n(c_mreq_n), .mstb_n(c_mstb_n), .iostb_n(c_iostb_n),

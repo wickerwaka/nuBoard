@@ -323,7 +323,7 @@ class Harness:
 
     def load_table(self, table: bytes):
         """(work order 29) Load the core v2's secure-mode translation table (256 bytes, entry
-        k = the opcode the encoded byte k decodes to) through register C2h, one entry a write.
+        k = the opcode the encoded byte k decodes to) through register C8h, one entry a write.
         The core never initialises it; load it between runs (a write while busy is refused).
         Simulation (model lane) only: the socket's table is in its mask."""
         if self.board:
@@ -332,7 +332,7 @@ class Harness:
         if len(table) != 256:
             raise ValueError("the translation table is 256 bytes")
         for address, value in enumerate(table):
-            self.debug.write16(0xC2, address << 8 | value)
+            self.debug.write16(0xC8, address << 8 | value)
 
     def _check_levels(self, mode):
         """(work order 29, the user's ruling 2026-11-19) N/S low (secure mode from reset, register

@@ -96,7 +96,7 @@ module v35_bus
     output reg         hlda_n,
     // (F4d) READY: PMC1 bit 7 and the pin's level (v35_sfr's second flop). A memory or I/O
     // cycle on the pins whose WTC field is 3 (2 waits) with PMC1 bit 7 holds its first wait
-    // while READY, sampled at the pins' edge (`rdy_q`), is low (f4_rdy rd_on: 160 ticks of the
+    // while READY (`rdy_lv`, v35_sfr's pin flop) is low (f4_rdy rd_on: 160 ticks of the
     // harness's hold after the column strobe add 5 clocks to a read or an I/O cycle, none to a
     // write, whose strobe falls after the first wait's samples)
     input  wire        rdy_en,
@@ -151,6 +151,11 @@ module v35_bus
     // a read cycle's strobe) and the internal RAM's write port (the register RAM's port C: written
     // at the coming ce_b; the EU's segment flops read it too)
     output wire        sfr_wr,
+    // (work order 37; sfr_pend: allowed by the user 2026-11-20) an SFR store is captured and lands
+    // at the coming ce_a (not a timer register's, which lands as its wait ends; not the internal
+    // RAM's): registers only. v35_sfr's port-pin copies take its byte at the ce_b before (the CPU
+    // clock's edge), as silicon's pins do
+    output wire        sfr_pend,
     output reg  [19:0] sfr_a,
     output reg  [1:0]  sfr_w,
     output wire [15:0] sfr_d,
@@ -193,7 +198,6 @@ module v35_bus
     reg         g_dk_b = 1'b0;          // (F4c) ... granted now (the ce_b register)
     reg         c_rdy = 1'b0;           // (F4d) the cycle waits for READY (WTC field 3, PMC1 bit 7)
     reg         g_rdy_b = 1'b0;         // (F4d) ... granted now (the ce_b register)
-    reg         rdy_q = 1'b1;           // (F4d) READY at the pins' last edge (a ce_b register)
     reg         c_tmw = 1'b0;           // (WO31) the cycle is a timer register's (it waits for the grid)
     reg         g_tmw_b = 1'b0;         // (WO31) ... granted now (the ce_b register)
     reg  [2:0]  gph = 3'd0;             // (WO31) the free-running divide-by-six (ce_a, from reset)
@@ -378,7 +382,6 @@ module v35_bus
             g_dk_b <= gn.ack && req_dk;     // (F4c) ... a DMA transfer's
             g_rdy_b <= gn.rdy;              // (F4d) the cycle granted waits for READY
             g_tmw_b <= gn.sfr && rq_tmr;    // (WO31) ... is a timer register's (waits for the grid)
-            rdy_q <= rdy_lv;                // (F4d) READY at the pins' edge
             fetch_req_b <= fr;
             g_kind_b <= g_kind;
             grant_len_b <= g_ia ? IA_LEN : grant_len;
@@ -389,9 +392,9 @@ module v35_bus
     end
 
     // ------------------------------------------------ the end of the clock (S6)
-    // (F4d) READY's wait: the cycle's first wait (pos 2) repeats while READY was low at the pins'
-    // edge that began it (registers only: c_rdy, the position, rdy_q)
-    wire        rdy_hold = c_rdy && pos_now == 3'd2 && !rdy_q;
+    // (F4d) READY's wait: the cycle's first wait (pos 2) repeats while READY is low at the
+    // clock's middle (registers only: c_rdy, the position, v35_sfr's pin flop rdy_lv; work order 33)
+    wire        rdy_hold = c_rdy && pos_now == 3'd2 && !rdy_lv;
     // (WO31) a timer register's byte cycle: its wait (pos 2) repeats until the clock before its
     // last is the grid's G_REL (the cycle then ends on the grid point: its last clock is the
     // next, the following cycle starts on the grid). Registers only (c_tmw, the position, gph).
@@ -1148,6 +1151,7 @@ module v35_bus
     end
     wire        oc_land = sfr_open && (c_tmw ? (pos_now == 3'd2 && !tm_hold) : oc_first);
     assign sfr_wr = ce_a && oc_land && !oc_ram;
+    assign sfr_pend = sfr_open && oc_first && !c_tmw && !oc_ram;
     assign sfr_rdgo = oc_rdgo && !oc_ram;
     assign sfr_d = oc_sw ? {req_data[7:0], req_data[15:8]} : req_data;
     wire        g_even2 = (g_half_b == 2'd1 && !g_addr_b[0]) || (g_half_b == 2'd2 && g_addr_b[0]);

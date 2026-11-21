@@ -3979,3 +3979,40 @@ EQUAL):** measurement only, no RTL. **The controller's extra clocks:** from the 
   write starting early); the fetches behind the store 3 clocks late on NMI's last four taking
   edges. Not measured: the DMA flag against a strobe with waits, single-step and demand
   transfers, channel 1, a word store to a grid register, TM0 / TM1 count registers.
+
+**2026-11-21, landing of work orders 34, 36, 37 and the READY sample fix (the interrupt rebuild,
+work orders 35 / 38, is not in it):**
+  - **CLKOUT on P07** (`v35_sfr.sv`): with PMC0 bit 7 the pin's register loads the CPU clock's
+    level (1 from the clock's edge, 0 from its middle); 50 % duty at every PCK, no gated or
+    derived clock. Against the socket (`validation/v35s/clkout.py`): the ten scope receipt sets
+    and HALT EQUAL with silicon's one-tick lead declared; PM07 = 1 does not block it.
+  - **Port pins take an SFR store at the clock's edge before it lands** (new port `sfr_pend`,
+    v35_bus to v35_sfr, registers only, allowed by the user 2026-11-20): select and deselect
+    shapes are silicon's (no runt with the latch at 1, a high runt with it at 0, the released
+    pin high) and the pin is at silicon's 2.47 / 2.5 clocks (fX/8) and 2.375 / 2.5 (fX/2) from
+    the next fetch; f4_tout's deselect to marker 2418 (silicon 2418 / 2419). The rule is for
+    every output port bit.
+  - **PCK changes only at the X1/8 divider's wrap** (`v35_top.sv`): the divider runs free from
+    reset and a PRC store's PCK is taken at its first wrap, so the clock stays on the reset
+    grid (silicon: every change at one X1/8 phase, a rise, a whole first phase).
+  - **READY is sampled at the cycle's position 2 directly** (`v35_bus.sv`, `rdy_q` deleted):
+    `ready gate --edge-ticks 2` 8 EQUAL (0 before). The pin is to have a single flip-flop
+    (user's ruling).
+  - **Harness:** version 3 had put READY's delay register on C2h, the simulation-only secure
+    table load's address, so the secure bench failed from 56f00ac on; the table load is now
+    C8h and the bench reads as predicted. The model lane's scope field P0 carries the core's.
+  - **Silicon facts recorded, not built:** in STOP CLKOUT stops high at the rise 10 CPU clocks
+    after the clock STOP starts in, at every PCK, no bus cycle in them, mechanism not found
+    (user's ruling: left unbuilt; needs a port from the interrupt controller); it restarts
+    with a fall aligned to X1, runs through the 2^19-clock settling count. Changing fX/2 to
+    fX/4 upsets silicon's bus unit in 9 of 9 alignments (stalls, malformed cycles, runs that
+    never end) with CLKOUT clean: a chip malfunction, not built. HALT's release vector read is
+    37 clocks after the NMI on silicon, 34 in the core.
+  - **Gate (land37):** corpus at both spacings RTL-exact 30,181 of 30,536, lost 0, gained 0,
+    0 pin records differ; every program and fuzz set as the baseline but ready (8 equal);
+    secure bench as predicted; three seeds at 17 ns +3.053 / +3.400 / +3.144; 9,465 LUT4,
+    2,646 FF, 36 RAM_5K.
+  - **Losses accepted by the user, all from the 3-clock SFR-store excess:** f4_tout's timer
+    edge to deselect 6432 (exact) now 6416 in three places; f4_ms and f4_sio pin records 16
+    ticks farther from the socket; clkout part C windows 6 of 9 equal (7); clk_pk28_7 and
+    clk_pk24_7 change clock 36.5 (silicon 34.5; 34.5 before by coincidence).
