@@ -12,6 +12,7 @@ frame through phase.py: windows between the markers, receipts, stitching, compar
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage gate [NAME ...] [--cand sim]
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage takes [NAME ...] [--cand sim]
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage emit
+    PYTHONPATH=host/src:. python3 -m validation.v35s.passage pe [pe_] [--ref sim] [-v]   (the fifth set: f5_pe_*)
 
 Series (one program a kind of instruction X; `_r` the twin in which nothing is taken: the
 request masked or the pin not pulsed; `_b` the twin with BRK 3 behind X: a boundary whose
@@ -30,6 +31,9 @@ vector read is on the pins):
     e_*     INT standing with IE 0; EI, POP PSW or RETI, then X: the instructions run before
             the acknowledge
     *_k4, *_k2   the processor clock at fX/4 and fX/2 (PRC)
+    pe_HOWwb     (the fifth set) q with two requests pending, the worse level w on TM0 and the better b
+            on INTP0: IE's rise swept across both slots of the round of 20 (which vector, at which clock)
+    pe_h1 .. h4  four levels pending; a real handler (FINT in it), its RETI swept across the slots
 
 Time marks: the stores of `mark` (00D80h + 2j), TOUT on P15, /INTAK on P13, the vector reads,
 the pushes (the third is the PC: it names the boundary), the scheduled edge (the event's record
@@ -1248,6 +1252,111 @@ def programs4():
     return {p.name: p for p in progs}
 
 
+# ------------------------------------------------------------------ the fifth set (IE's rise in a worse level's slot)
+PE_SRC = {"tm0": 0xFF9C, "p0": 0xFF4C, "se0": 0xFF6C, "se1": 0xFF7C}
+PE_PAIRS = ((6, 3), (7, 0), (3, 2))
+PE_H = (("st", 0xFF6C, 0x80), ("st", 0xFF7C, 0x83), ("st", 0xFF4C, 0x85), ("st", 0xFF9C, 0x86))
+
+
+def set_pe(how, w, b, swap=False, n=40):
+    """IE 0: two requests stored (B's first, then W's: the worse level W on TM0, the better B on INTP0;
+    swap: the sources exchanged), a sled of x clocks, IE raised (RAISE: EI, POP PSW or RETI behind
+    mark 1), 60 INC AW. The round is 20 clocks (two slots): the sled covers two."""
+    sw, sb = ("p0", "tm0") if swap else ("tm0", "p0")
+    pend = (("st", PE_SRC[sb], 0x80 | b), ("st", PE_SRC[sw], 0x80 | w))
+    return [window("pe", x, pend + (("sled", x),) + RAISE[how] + (("inc", 60),), odd=x & 1, how=how, w=w, b=b,
+                   sw=sw, sb=sb) for x in range(n)]
+
+
+def set_peh(late, lead=None, n=40):
+    """f3_prio grp_levels' shape: IE 0, four requests stored (SER0 0, SER1 3, INTP0 5, TM0 6), mark 1,
+    EI, an INC train. SER0's handler: a sled of d clocks, FINT, RETI (h1, h3) or FINT, the sled, RETI
+    (h2, h4). h3 / h4 (lead 6: a sled of six clocks in front of mark 1): EI rises outside every slot,
+    SER0 is taken first and its handler's RETI raises IE with levels 3, 5 and 6 pending, swept against
+    their slots. h1 / h2 (no lead): EI rises in level 5's slot, INTP0 is taken first, then SER1, then
+    SER0: the swept RETI has TM0 (level 6) alone behind it."""
+    out = []
+    for d in range(n):
+        h = ((("fint",), ("sled", d), ("reti",)) if late else (("sled", d), ("fint",), ("reti",)))
+        out.append(window("peh", d, PE_H + ((("sled", lead),) if lead is not None else ()) + (("mark", 1), ("ei",), ("inc", 100)),
+                          odd=d & 1, hand={"se0": h}, late=int(late)))
+    return out
+
+
+def programs5():
+    progs = []
+    for w, b in PE_PAIRS:
+        for how in RAISE:
+            progs.append(prog(f"f5_pe_{how}{w}{b}", set_pe(how, w, b),
+                              f"IE 0, TM0 at level {w} and INTP0 at level {b} pending: IE raised by {how}, the sled swept"))
+    progs.append(prog("f5_pe_reti63s", set_pe("reti", 6, 3, swap=True),
+                      "the same with the sources exchanged (INTP0 at level 6, TM0 at level 3): RETI"))
+    progs.append(prog("f5_pe_h1", set_peh(False), "four levels pending, SER0's handler: a sled, FINT, RETI"))
+    progs.append(prog("f5_pe_h2", set_peh(True), "four levels pending, SER0's handler: FINT, a sled, RETI"))
+    progs.append(prog("f5_pe_h3", set_peh(False, lead=6), "the same, SER0 taken first: its handler a sled, FINT, RETI"))
+    progs.append(prog("f5_pe_h4", set_peh(True, lead=6), "the same, SER0 taken first: its handler FINT, a sled, RETI"))
+    progs.append(prog("f5_pe_pop32s", set_pe("pop", 3, 2, swap=True),
+                      "pop32 with the sources exchanged (INTP0 at level 3, TM0 at level 2)"))
+    return {p.name: p for p in progs}
+
+
+def events5(rec, prog):
+    """Per window: marks {j: tick}, takes [(source, the vector read's tick, pushed PC, the last stack
+    read in front of it or None)], meta."""
+    wins, _ = oc.windows(rec, prog)
+    inv = {v: k for k, v in VEC_RD.items()}
+    out = {}
+    for k, w in wins.items():
+        e = dict(t0=w["t0"], marks={}, takes=[], meta=prog.windows[k].meta)
+        rows, rd = w["rows"], None
+        for i, (kind, r) in enumerate(rows):
+            if kind == "mw" and MARK <= r[1] < MARK + 32:
+                e["marks"].setdefault((r[1] - MARK) // 2, r[0])
+            elif kind == "mr" and r[1] in inv:
+                pushes = [x for kd, x in rows[i + 1:i + 8] if kd == "mw"][:3]
+                e["takes"].append((inv[r[1]], r[0], pushes[2][2] if len(pushes) > 2 else None, rd))
+            elif kind == "mr" and 0xE00 <= r[1] < STACK_TOP:
+                rd = r[0]
+        out[k] = e
+    return out
+
+
+def pe_cells(e, c=32):
+    """A window's takes as text. pe: source:vector read less mark 1/INCs run[/less the PSW word's read
+    for the first]. peh: the first as pe; the later ones source:vector read less the PSW word's read
+    of the RETI in front of it/INCs run."""
+    m, m1, cells = e["meta"], e["marks"].get(1), []
+    for i, (src, t, pc, rd) in enumerate(e["takes"]):
+        n = "?" if pc is None else pc - m["first"]
+        if i == 0 or m["series"] == "pe":
+            s = f"{src}:{ph.fmt((t - m1) / c)}/n{n}"
+            if i == 0 and rd is not None and rd > m1 - 40 * c and m["series"] == "pe" and m["how"] != "ei":
+                s += f"/{ph.fmt((t - rd) / c)}"
+        else:
+            s = f"{src}:{ph.fmt((t - rd) / c)}/n{n}"
+        cells.append(s)
+    return " ".join(cells) or "no take"
+
+
+def pe_rows(name, backend, progs, verbose=False):
+    """The fifth set: the takes' signature and the sled lengths that give it; -v: every window."""
+    prog = progs[name]
+    rec = ph.load(name, backend)
+    ok = rec["program_sha256"] == hashlib.sha256(prog.build()["text"]).hexdigest()
+    ev = events5(rec, prog)
+    print(f"{name} [{backend}] {'PASS' if rec['passed'] else 'FAIL'} total {rec['total']} "
+          f"{len(ev)}/{len(prog.windows)} windows" + ("" if ok else "  (THE RECEIPT IS OF ANOTHER VERSION)"))
+    by = collections.OrderedDict()
+    for k in sorted(ev):
+        e = ev[k]
+        e2 = dict(e, takes=e["takes"][:2 if e["meta"]["series"] == "pe" else None])
+        by.setdefault(pe_cells(e2), []).append(e["meta"]["n"])
+        if verbose:
+            print(f"    x {e['meta']['n']:2d}: {pe_cells(e)}")
+    for sig, xs in sorted(by.items(), key=lambda kv: -len(kv[1])):
+        print(f"  {sig:44s} x {' '.join(map(str, xs)) if len(xs) < 14 else f'{len(xs)} windows: ' + rng(xs)}")
+
+
 def pilot4(backend, progs):
     """PD_M2 from the pilot's receipt, and per kind the clocks from mark 1's write to mark 2's by phase."""
     prog = progs["f5_pd_t"]
@@ -1372,7 +1481,7 @@ def emit(progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco", "pilot4", "pilote", "pdx", "pd"))
+    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco", "pilot4", "pilote", "pdx", "pd", "pe"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
@@ -1384,6 +1493,7 @@ def main():
     progs.update(programs2())
     progs.update(programs3())
     progs.update(programs4())
+    progs.update(programs5())
     names = []
     for n in a.names or list(progs):
         names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]
@@ -1426,6 +1536,10 @@ def main():
         for n in names:
             if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] in ("d", "dl"):
                 pd_rows(n, a.ref + a.tag, progs)
+    elif a.action == "pe":
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] in ("pe", "peh"):
+                pe_rows(n, a.ref + a.tag, progs, a.verbose)
     elif a.action == "pco":
         pc_o("f5_pc_o", a.ref + a.tag, progs)
     elif a.action == "pcb":

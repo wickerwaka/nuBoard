@@ -4016,3 +4016,19 @@ work orders 35 / 38, is not in it):**
     edge to deselect 6432 (exact) now 6416 in three places; f4_ms and f4_sio pin records 16
     ticks farther from the socket; clkout part C windows 6 of 9 equal (7); clk_pk28_7 and
     clk_pk24_7 change clock 36.5 (silicon 34.5; 34.5 before by coincidence).
+
+**2026-11-21, request-passage probe, fifth set (`validation/v35s/passage.py` action `pe`,
+programs `f5_pe_*`, 15 programs, 600 windows, two power-ups, 15 of 15 EQUAL):** measurement
+  only. **IE rising in the first clock of a slot takes that slot's request at once, whatever
+  better level is also pending** (EI, POP PSW, RETI; pairs 6/3, 7/0, 3/2 and sources
+  exchanged; a real handler FINT ; sled ; RETI with levels 3, 5, 6 pending): the worse
+  level's vector is read at the first boundary (EI 34 clocks after mark 1, POP PSW 35 after
+  the PSW word's read, RETI 44), the better level after its handler. A rise in the slot's
+  second clock gives the better level at its next slot. Work order 38's `sl_ie` (such a slot
+  does not claim when a better level requests) is not silicon's rule; f3_prio's grp_levels
+  read DIC0 on silicon because its RETI did not rise in level 6's first clock: the core's
+  handler RETI is at least one clock off against a scan re-phased at FINT. With level 0 in
+  service a sled in front of FINT moves the RETI against nothing; a sled behind FINT sweeps
+  the slots (the slots sit at a fixed distance from FINT). Not explained, not to be built: in
+  3/2 a rise in the better level's second clock gives it again at the worse level's slot
+  time. Not measured: f3_prio's own handler tail on the socket.
