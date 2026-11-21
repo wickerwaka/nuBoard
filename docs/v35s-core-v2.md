@@ -3958,3 +3958,24 @@ EQUAL):** measurement only, no RTL. **The controller's extra clocks:** from the 
   the set through a request control store, and its `e_pend` makes the INT sample follow the
   dispatch (1 to 3 clocks late behind stores, OUT, CVTBW, NOP, XCH). Boundaries equal over
   1,704 windows: base 971, work order 35 1,451.
+
+**2026-11-20, request-passage probe, fourth set (`validation/v35s/passage.py`, programs
+`f5_pd_*`, 62 programs, 2,106 windows, two power-ups, 62 of 62 EQUAL):** measurement only.
+  **A store to a six-clock-grid register looks at the same fixed clock from its dispatch as
+  any other store; the grid wait sits behind the look as wait states do.** Latest INT edge at
+  the store's dispatch D + 0 (NMI D - 4.5) for a P0 latch store, DMAM0, an external store and
+  for TMC1 / MD1 at all six grid phases (wait w = 1..6, never 0): 11 + w clocks to the next
+  dispatch. TM0 and a DMA end as sources agree. Only the timer unit's registers wait on the
+  grid; DMAM0, DMAC0 and the channel block are 11 clocks at every phase. **f4_dma's `dic`
+  take:** the store there is a PS-prefixed external store at two waits, not a grid store;
+  DIC0's request is raised in the last transfer, about half a clock before its write strobe
+  starts (not at the end of the DMA service), then runs the level scan and the usual 14
+  clocks; the store behind the burst writes 22 clocks after the burst's last write ends and
+  8 of 16 scan phases take there (6 of 16 with no waits). The core's burst tail is 21 to 24
+  clocks longer than silicon's (last write end to the next store's write 37 / 46 against 16 /
+  22 at 0 / 2 waits) and its request later by about as much, which is why a sample held open
+  to the dispatch (`e_pend`) was needed to pass; no store kind has an open look. Not
+  explained: NMI's cut-off 4 clocks earlier in the two-wait, queue-not-full frame (2 are the
+  write starting early); the fetches behind the store 3 clocks late on NMI's last four taking
+  edges. Not measured: the DMA flag against a strobe with waits, single-step and demand
+  transfers, channel 1, a word store to a grid register, TM0 / TM1 count registers.

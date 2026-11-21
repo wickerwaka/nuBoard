@@ -55,6 +55,7 @@ VEC = dict(la.VEC, nmi=0x08, brk=0x0C, int=0x2C)
 IC = la.IC
 P13, P15 = 1 << 11, 1 << 13
 INT_VEC = 0x0B
+VEC_RD = dict(VEC, dma0=0x50)           # the reading side: DIC0's vector (20) too (the fourth set)
 LDS_AT = 0x0D00
 PRC = {8: 0x4E, 4: 0x4D, 2: 0x4C}       # RAMEN 1, the time base as at reset, PCK fX/8, /4, /2
 
@@ -84,6 +85,20 @@ KINDS = {
 }
 for _k, _b in (("ws1", "ws"), ("ws2", "ws"), ("out2", "out")):
     KINDS[_k] = KINDS[_b]
+# the fourth set: stores of one form (a prefixed MOV byte m, imm8) to the timer unit's registers (the
+# six-clock grid), the DMA registers, internal RAM, and to external memory (`wi`: f4_dma's `cw`)
+KINDS.update({
+    "tmc": lambda i: oc.form("pimb", 0xFF91, 0),        # TMC1
+    "tmc0": lambda i: oc.form("pimb", 0xFF90, 0),       # TMC0
+    "md": lambda i: oc.form("pimb", 0xFF8A, 0x63),      # MD1's low byte
+    "md0": lambda i: oc.form("pimb", 0xFF82, 0x63),     # MD0's low byte
+    "mdw": lambda i: oc.form("pimw", 0xFF8A, 0x0063),   # MD1, a word: two byte cycles
+    "dmam": lambda i: oc.form("pimb", 0xFFA1, 0),       # DMAM0
+    "dmac": lambda i: oc.form("pimb", 0xFFA0, 0x11),    # DMAC0
+    "dblk": lambda i: oc.form("pimb", 0xFE0C, 0),       # channel 1's block (internal RAM)
+    "wi": lambda i: ([0x36, 0xC6, 0x06, (MARK + 32 + 2 * i) & 0xFF, (MARK + 32 + 2 * i) >> 8, 0x00],
+                     f"MOV byte SS:[{MARK + 32 + 2 * i:04X}h], 00h"),
+})
 
 
 def emit_ops(a, ops, meta=None):
@@ -225,7 +240,7 @@ NS = 36
 # of the scan round whose level-0 slot is about 14 clocks in front of X's end at the middle of the
 # sweep (the request control store's restart is about 12 clocks after mark 1's write; pilot run)
 C_MD = dict(inc=23, nop=23, cbw=23, halt=23, wr=25, push=25, rd=25, lds=25, mul=28, shcl=28, div=31, repl=39, jsh=25,
-            out=25, out2=25)
+            out=25, out2=25, tmc=25, sfr=25, wi=25)
 # n / i: the edge's delay after the event's record in clocks, by kind: the edge 16 clocks in front
 # of where mark 2 is written at the middle of the sweep (pilot run: mark 1 is 18 clocks behind the
 # event's record, mark 2 at the sled's s = 16 is 57 / 66 / 88 / 91 / 149 behind mark 1)
@@ -521,7 +536,7 @@ def events(rec, prog):
     PC, the first acknowledge activity's tick: /INTAK's fall for INT), lab (the instruction the
     pushed PC names: its index from X, its text), wr {address: tick} of X's stores, meta."""
     wins, _ = oc.windows(rec, prog)
-    inv = {v: k for k, v in VEC.items()}
+    inv = {v: k for k, v in VEC_RD.items()}
     ent = {e["event"]: e for e in (rec.get("stim") or {}).get("entries") or [] if e.get("event") is not None}
     out = {}
     for k, w in wins.items():
@@ -976,7 +991,7 @@ def events3(rec, prog):
     (the marks and the pushes of a take left out)."""
     ev = events(rec, prog)
     wins, _ = oc.windows(rec, prog)
-    inv = {v: k for k, v in VEC.items()}
+    inv = {v: k for k, v in VEC_RD.items()}
     for k, e in ev.items():
         rows = wins[k]["rows"]
         m1 = e["marks"].get(1, 0)
@@ -1087,6 +1102,265 @@ def pc_rows(name, backend, progs):
               f" m2 {f(e['marks'].get(2))} m3 {f(e['marks'].get(3))}")
 
 
+
+# ------------------------------------------------------------------ the fourth set (f5_pd_*)
+# Where the look is for a store to a register on the timer unit's six-clock grid (its on-chip cycle
+# ends on a free-running grid: 0 to 5 clocks of wait by the store's phase), and what a DMA end is as
+# a source. Every window starts with a store to TMC1 (`SYNC`: its cycle ends on the grid, so the
+# window's phase on the grid is the sled's length alone, in every program).
+SYNC = ("st", 0xFF91, 0x00)
+P_KINDS = ("sfr", "wi", "tmc", "tmc0", "md", "md0", "mdw", "dmam", "dmac", "dblk")       # the pilot's
+P_NP = 12
+G_KINDS = (("sfr", range(6)), ("tmc", range(6)), ("md", range(6)), ("wi", (0, 3)), ("dmam", (0, 3)))
+PD_BACK = (32, 36)                  # INT, NMI: the sweep's start in clocks in front of the twin's mark 2
+PD_M2 = {'sfr:0': 2688, 'sfr:1': 2720, 'sfr:2': 2752, 'sfr:3': 2784, 'sfr:4': 2816, 'sfr:5': 2848, 'wi:0': 2688,
+         'wi:1': 2720, 'wi:2': 2752, 'wi:3': 2784, 'wi:4': 2816, 'wi:5': 2848, 'tmc:0': 2784, 'tmc:1': 2784, 'tmc:2':
+         2784, 'tmc:3': 2976, 'tmc:4': 2976, 'tmc:5': 2976, 'md:0': 2784, 'md:1': 2784, 'md:2': 2784, 'md:3': 2976,
+         'md:4': 2976, 'md:5': 2976, 'dmam:0': 2688, 'dmam:1': 2720, 'dmam:2': 2752, 'dmam:3': 2784, 'dmam:4': 2816,
+         'dmam:5': 2848}      # the socket's pilot (f5_pd_t): kind:phase -> ticks from the event to mark 2
+DMA_PAGE = 0x40                     # SARH / DARH: the page 40000h (Program3 maps it)
+D_PRE = (("stw", 0xFE00, 0x0100), ("stw", 0xFE02, 0x0200), ("st", 0xFE05, DMA_PAGE), ("st", 0xFE04, DMA_PAGE),
+         ("stw", 0xFE06, 2), ("st", 0xFFA0, 0x11))
+D_END = (("st", 0xFFA1, 0x00), ("st", 0xFFAC, 0x47))
+D_KINDS = ("wi", "wi2", "tmc")       # wi2: every cycle of block 0 at two waits, as f4_dma runs
+KINDS["wi2"] = KINDS["wi"]
+KW["wi2"] = dict(wt=2)
+
+
+def x4_ops(kind, ev, p):
+    return (SYNC, ("ev", ev), ("mark", 1), ("dw0",), ("sl", 16 + p)) + train(kind)
+
+
+def set_t4():
+    """The pilot: the twin (no edge) of every kind at twelve sled lengths (two turns of the grid)."""
+    return [window("x", j, x4_ops(kind, j + 1, p), pre=(("ei",),), odd=p & 1, kind=kind, p=p, twin=True)
+            for j, (kind, p) in enumerate((k, p) for k in P_KINDS for p in range(P_NP))]
+
+
+def set_x4(pin, kind, p, n=32):
+    """set_x behind the grid's synchronising store with the sled 16 + p: the edge half a clock a
+    window over 16 clocks from PD_BACK clocks in front of the twin's mark 2; the last is the twin."""
+    out, ent = [], []
+    back = PD_BACK[pin == "NMI"]
+    for j in range(n + 1):
+        out.append(window("x", j, x4_ops(kind, j + 1, p), pre=(("ei",),), odd=p & 1, kind=kind, p=p, twin=j == n))
+        if j < n:
+            d = PD_M2.get(f"{kind}:{p}", 90 * 32) - back * 32 + PC_STEP * j - 4
+            ent.append(dict(event=j + 1, delay=d, hold=600, levels={"NMI": 0}) if pin == "NMI" else
+                       dict(event=j + 1, delay=d, hold=0, levels={"INT": 1}))
+    return out, ent
+
+
+def set_c4(kind, masked=False, ns=NS):
+    """set_c (TM0's count-out into its slot, the sled swept) behind the synchronising store."""
+    out = []
+    for s in range(ns):
+        ops = ((SYNC, ("ei",), START, ("mark", 0), ("fil", 2), ("mark", 1), ("st", 0xFF9D, 0x47), ("dw0",),
+                ("sl", s)) + train(kind))
+        out.append(window("c", s, ops, odd=s & 1, md0=C_MD[kind], hand={"tm0": H_STOP},
+                          ic={"tm0": 0x40 if masked else 0}, kind=kind, lv=0))
+    return out
+
+
+def set_dd(kind, lv=0, masked=False, ns=32):
+    """A DMA end as the source, in f4_dma dic's frame: DIC0's store at level lv (the scan's restart),
+    the sled, mark 1, the DMAM0 store (TDMA: channel 0, a burst of two bytes inside the page 40000h),
+    X twice (dic's cw 0 and cw 1), mark 2, mark 3, an INC train. The sled moves the scan's slots
+    against the transfer, a clock a window over two rounds."""
+    out = []
+    for s in range(ns):
+        ops = ((SYNC, ("ei",), ("st", 0xFFAC, (0x40 if masked else 0) | lv), ("sl", s), ("mark", 1),
+                ("st", 0xFFA1, 0x8C), ("x", kind, 2), ("mark", 2), ("mark", 3), ("inc", 16)) + D_END)
+        out.append(window("d", s, ops, pre=D_PRE, odd=s & 1, kind=kind, lv=lv, **KW.get(kind, {})))
+    return out
+
+
+PE_BACK = (36, 40)                  # INT, NMI
+PE_M2 = {'wi': 4096, 'wi2': 5344}      # the socket's pilot (f5_pd_u): kind -> ticks from the event to mark 2
+
+
+def e4_ops(kind, ev):
+    return ((SYNC, ("ei",), ("st", 0xFFAC, 0x40), ("ev", ev), ("sl", 0), ("mark", 1), ("st", 0xFFA1, 0x8C), ("x", kind, 2),
+             ("mark", 2), ("mark", 3), ("inc", 16)) + D_END)
+
+
+def set_e4(pin, kind, n=32):
+    """The d series' twin (DIC0 masked: the burst runs, nothing is requested) with a pin's edge swept
+    half a clock a window across the second X's end: where the store behind the burst looks, in the
+    bus conditions of f4_dma dic (wi2) and with no wait (wi). The last window is the twin."""
+    out, ent = [], []
+    back = PE_BACK[pin == "NMI"]
+    for j in range(n + 1):
+        out.append(window("e4", j, e4_ops(kind, j + 1), pre=D_PRE, kind=kind, twin=j == n, **KW.get(kind, {})))
+        if j < n:
+            d = PE_M2.get(kind, 110 * 32) - back * 32 + PC_STEP * j - 4
+            ent.append(dict(event=j + 1, delay=d, hold=600, levels={"NMI": 0}) if pin == "NMI" else
+                       dict(event=j + 1, delay=d, hold=0, levels={"INT": 1}))
+    return out, ent
+
+
+def pilot_e(backend, progs):
+    """PE_M2 from the pilot's receipt (f5_pd_u)."""
+    prog = progs["f5_pd_u"]
+    wins, _ = oc.windows(ph.load("f5_pd_u", backend), prog)
+    out = {}
+    for k, w in sorted(wins.items()):
+        evr = next(r for kind, r in w["rows"] if r[3] & 0x100)
+        m1 = next(r for kind, r in w["rows"] if kind == "mw" and r[1] == MARK + 2)
+        m2 = next(r for kind, r in w["rows"] if kind == "mw" and r[1] == MARK + 4)
+        out[prog.windows[k].meta["kind"]] = m2[0] - evr[4]
+        print(f"  {prog.windows[k].meta['kind']}: mark 1 {q(m1[0] - evr[4])} after the event, mark 2 {q(m2[0] - m1[0])} after mark 1")
+    print("PE_M2 =", out)
+
+
+def set_dl(lv, n=32):
+    """The DMA end against the scan: the sled between DIC0's store (the restart) and the DMAM0 store
+    swept a clock a window, an INC train behind it."""
+    return [window("dl", r, (SYNC, ("ei",), ("st", 0xFFAC, lv), ("sl", r), ("mark", 1), ("st", 0xFFA1, 0x8C),
+                             ("inc", 60)) + D_END, pre=D_PRE, odd=r & 1, lv=lv) for r in range(n)]
+
+
+def programs4():
+    progs = [prog3("f5_pd_t", set_t4(), "the pilot: the twin of every kind at twelve phases of the grid")]
+    for pin in ("INT", "NMI"):
+        for kind, phases in G_KINDS:
+            for p in phases:
+                wins, ent = set_x4(pin, kind, p)
+                progs.append(prog3(f"f5_pd_{pin[0].lower()}_{kind}_p{p}", wins,
+                                   f"the {pin} edge swept half a clock a window across {kind}'s end, the sled 16 + {p}",
+                                   entries=ent, intak=pin == "INT"))
+    for kind in ("tmc", "sfr"):
+        progs.append(prog3(f"f5_pd_c_{kind}", set_c4(kind), f"TM0's request against {kind}'s boundary, the sled swept"))
+        progs.append(prog3(f"f5_pd_c_{kind}_r", set_c4(kind, masked=True), "the twin: the request masked"))
+    for kind in D_KINDS:
+        progs.append(prog3(f"f5_pd_d_{kind}", set_dd(kind), f"a DMA end's request against {kind}'s boundary, the sled swept"))
+        progs.append(prog3(f"f5_pd_d_{kind}_r", set_dd(kind, masked=True), "the twin: DIC0 masked"))
+    for lv in (0, 7):
+        progs.append(prog3(f"f5_pd_dl{lv}", set_dl(lv), f"a DMA end at level {lv} against the scan: its start swept"))
+    progs.append(prog3("f5_pd_u", [window("e4", j, e4_ops(kind, j + 1), pre=D_PRE, kind=kind, twin=True, **KW.get(kind, {}))
+                                   for j, kind in enumerate(("wi", "wi2"))], "the e series' pilot"))
+    for pin in ("INT", "NMI"):
+        for kind in ("wi", "wi2"):
+            wins, ent = set_e4(pin, kind)
+            progs.append(prog3(f"f5_pd_e_{pin[0].lower()}_{kind}", wins,
+                               f"the {pin} edge swept across the store behind a DMA burst ({kind})",
+                               entries=ent, intak=pin == "INT"))
+    return {p.name: p for p in progs}
+
+
+def pilot4(backend, progs):
+    """PD_M2 from the pilot's receipt, and per kind the clocks from mark 1's write to mark 2's by phase."""
+    prog = progs["f5_pd_t"]
+    wins, _ = oc.windows(ph.load("f5_pd_t", backend), prog)
+    out, tab = {}, collections.OrderedDict()
+    for k, w in sorted(wins.items()):
+        m = prog.windows[k].meta
+        evr = next(r for kind, r in w["rows"] if r[3] & 0x100)
+        m1 = next(r for kind, r in w["rows"] if kind == "mw" and r[1] == MARK + 2)
+        m2 = next(r for kind, r in w["rows"] if kind == "mw" and r[1] == MARK + 4)
+        out[f"{m['kind']}:{m['p']}"] = m2[0] - evr[4]
+        tab.setdefault(m["kind"], []).append(((m2[0] - m1[0]) / 32, (m1[0] - evr[4]) / 32))
+    print("PD_M2 =", out)
+    print("  kind: mark 2 less mark 1 by phase 0..11 (clocks) | mark 1 less the event")
+    for kind, v in tab.items():
+        print(f"  {kind:5s}: " + " ".join(f"{ph.fmt(a):>5s}" for a, _ in v) + " | " + " ".join(sorted({ph.fmt(b) for _, b in v})))
+
+
+def x_cuts(name, backend, progs):
+    """An x program's twin and cut-offs in ticks after mark 1: (M2, X's write (start, end) or None,
+    {boundary index: (the earliest edge, the latest edge, the first activity less the latest edge,
+    the vector read less it)}, the sweep's first and last edge)."""
+    prog = progs[name]
+    ev = events3(ph.load(name, backend), prog)
+    tk = max(ev)
+    tw = ev[tk]
+    tm1 = tw["marks"][1]
+    M2 = tw["marks"][2] - tm1
+    xw = [d for d in tw["dw"] if d[2] - tm1 < M2]
+    by, edges = {}, []
+    for k in sorted(ev):
+        e = ev[k]
+        if k == tk or e["edge"] is None or 1 not in e["marks"]:
+            continue
+        m1 = e["marks"][1]
+        t = e["takes"][0] if e["takes"] else None
+        lab = label(e["meta"], t[2])[0] if t and t[2] is not None else None
+        edges.append(e["edge"] - m1)
+        by.setdefault(lab, []).append((e["edge"] - m1, None if not t else t[3] - e["edge"], None if not t else t[1] - e["edge"]))
+    cuts = {lab: (min(v)[0], max(v)[0], max(v)[1], max(v)[2]) for lab, v in by.items()}
+    return M2, (xw[-1][2] - tm1, xw[-1][3] - tm1) if xw else None, cuts, (min(edges), max(edges)) if edges else None
+
+
+def pd_x(backend, progs):
+    """The fourth set's x programs in one table. Per pin, kind and phase p: L = X's length (the
+    control's 11 + this twin's mark 2 less the control's at the same p: 11 + the grid's wait); the
+    latest edge taken at X's end (E1) against the twin's mark 2, against X's dispatch D (the control's
+    mark 2 less 21) and against the next dispatch B (mark 2 less 10); the latest edge taken in front
+    of X (E0) against D where the sweep reaches it. '>': the cut-off is at the sweep's end."""
+    f = lambda v: "-" if v is None else q(v)
+    for pin in "in":
+        ctl = {}
+        for p in range(6):
+            n = f"f5_pd_{pin}_sfr_p{p}"
+            if ph.receipt_path(n, backend).exists():
+                ctl[p] = x_cuts(n, backend, progs)[0]
+        print(f"[{backend}] {'INT' if pin == 'i' else 'NMI'}: kind p | twin M2-m1 | L | E1-M2 | E1-D | B-E1 | E0-D | "
+              "first-E1 V-E1 | the sweep (edge-M2); the edges by the boundary taken")
+        for kind, phases in G_KINDS:
+            for p in phases:
+                n = f"f5_pd_{pin}_{kind}_p{p}"
+                if not ph.receipt_path(n, backend).exists():
+                    continue
+                M2, xw, cuts, sw = x_cuts(n, backend, progs)
+                if sw is None:
+                    print(f"  {kind:5s} {p} | {q(M2):>5s} | no edge recorded")
+                    continue
+                D = None if p not in ctl else ctl[p] - 21 * 32
+                L = None if D is None else (M2 - 10 * 32 - D)
+                c1, c0 = cuts.get(1), cuts.get(0)
+                flag = ">" if c1 and c1[1] == sw[1] else ""
+                print(f"  {kind:5s} {p} | {q(M2):>5s} | {f(L):>4s} | {f(c1 and c1[1] - M2):>6s}{flag:1s} | "
+                      f"{f(None if not c1 or D is None else c1[1] - D):>5s} | {f(c1 and M2 - 320 - c1[1]):>5s} | "
+                      f"{f(None if not c0 or D is None else c0[1] - D):>5s} | {f(c1 and c1[2]):>5s} {f(c1 and c1[3]):>5s} | "
+                      f"{q(sw[0] - M2)}..{q(sw[1] - M2)}; "
+                      + " ".join(f"{'none' if lab is None else 'X%+d' % lab}:{q(v[0] - M2)}..{q(v[1] - M2)}"
+                                 for lab, v in sorted(cuts.items(), key=lambda kv: kv[1][0]))
+                      + (f" | X write {q(xw[0])}..{q(xw[1])}" if xw else ""))
+
+
+def pd_rows(name, backend, progs):
+    """A d / dl program by window: the sweep's value, the DMA's last write (start..end), the takes
+    (source@vector read: the instruction not executed), the vector read less the DMA's end, the
+    window's own X write and mark 2, the twin's (the `_r` program's same window); clocks after
+    mark 1's write."""
+    prog = progs[name]
+    ev = events3(ph.load(name, backend), prog)
+    tn = name + "_r"
+    tw = events3(ph.load(tn, backend), progs[tn]) if tn in progs and ph.receipt_path(tn, backend).exists() else {}
+    print(f"{name} [{backend}]")
+    for k in sorted(ev):
+        e, m = ev[k], ev[k]["meta"]
+        m1 = e["marks"].get(1)
+        if m1 is None:
+            print(f"  n{m['n']}: no mark 1")
+            continue
+        f = lambda t: "-" if t is None else q(t - m1)
+        dma = [d for d in e["dw"] if d[1] >= 0x40000]
+        de = dma[-1][3] if dma else None
+        xw = [d for d in e["dw"] if d[1] < 0x40000]
+        tk = " ".join(f"{s}@{f(v)}:{lt(label(m, pc))[:24] if pc is not None else '?'}" for s, v, pc, _ in e["takes"][:2])
+        line = (f"  n{m['n']:2d} | DMA {f(dma[-1][2]) if dma else '-'}..{f(de)} ({len(dma)}) | {tk or 'no take':44s} | "
+                f"V-DMA {q(e['takes'][0][1] - de) if e['takes'] and de else '-':>5s} | own X {f(xw[0][2]) if xw else '-'} m2 {f(e['marks'].get(2))}")
+        t = tw.get(k)
+        if t and 1 in t["marks"]:
+            g_ = lambda x: "-" if x is None else q(x - t["marks"][1])
+            txw = [d for d in t["dw"] if d[1] < 0x40000]
+            tdma = [d for d in t["dw"] if d[1] >= 0x40000]
+            line += (f" | twin: DMA ..{g_(tdma[-1][3]) if tdma else '-'} X {g_(txw[0][2]) if txw else '-'} M2 {g_(t['marks'].get(2))}"
+                     + (f" | V-M2 {q(e['takes'][0][1] - m1 - (t['marks'][2] - t['marks'][1]))}" if e["takes"] and 2 in t["marks"] else ""))
+        print(line)
+
+
 def emit(progs):
     for name, p in progs.items():
         (ph.PROGRAMS_DIR / f"{name}.s").write_text(p.source())
@@ -1098,7 +1372,7 @@ def emit(progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco"))
+    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco", "pilot4", "pilote", "pdx", "pd"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
@@ -1109,6 +1383,7 @@ def main():
     progs = programs()
     progs.update(programs2())
     progs.update(programs3())
+    progs.update(programs4())
     names = []
     for n in a.names or list(progs):
         names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]
@@ -1141,6 +1416,16 @@ def main():
         return 0 if ok else 1
     elif a.action == "pilot":
         pilot(a.ref + a.tag, progs)
+    elif a.action == "pilot4":
+        pilot4(a.ref + a.tag, progs)
+    elif a.action == "pilote":
+        pilot_e(a.ref + a.tag, progs)
+    elif a.action == "pdx":
+        pd_x(a.ref + a.tag, progs)
+    elif a.action == "pd":
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] in ("d", "dl"):
+                pd_rows(n, a.ref + a.tag, progs)
     elif a.action == "pco":
         pc_o("f5_pc_o", a.ref + a.tag, progs)
     elif a.action == "pcb":

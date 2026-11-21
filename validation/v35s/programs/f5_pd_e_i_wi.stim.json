@@ -1,0 +1,266 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 2940,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 2,
+   "delay": 2956,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 3,
+   "delay": 2972,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 4,
+   "delay": 2988,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 5,
+   "delay": 3004,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 6,
+   "delay": 3020,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 7,
+   "delay": 3036,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 8,
+   "delay": 3052,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 9,
+   "delay": 3068,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 10,
+   "delay": 3084,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 11,
+   "delay": 3100,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 12,
+   "delay": 3116,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 13,
+   "delay": 3132,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 14,
+   "delay": 3148,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 15,
+   "delay": 3164,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 16,
+   "delay": 3180,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 17,
+   "delay": 3196,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 18,
+   "delay": 3212,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 19,
+   "delay": 3228,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 20,
+   "delay": 3244,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 21,
+   "delay": 3260,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 22,
+   "delay": 3276,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 23,
+   "delay": 3292,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 24,
+   "delay": 3308,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 25,
+   "delay": 3324,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 26,
+   "delay": 3340,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 27,
+   "delay": 3356,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 28,
+   "delay": 3372,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 29,
+   "delay": 3388,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 30,
+   "delay": 3404,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 31,
+   "delay": 3420,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  },
+  {
+   "event": 32,
+   "delay": 3436,
+   "hold": 0,
+   "levels": {
+    "INT": 1
+   }
+  }
+ ],
+ "pins": [
+  "P13",
+  "P15"
+ ],
+ "intak_vector": 11,
+ "int_release": true
+}
