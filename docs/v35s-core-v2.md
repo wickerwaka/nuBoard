@@ -4032,3 +4032,21 @@ programs `f5_pe_*`, 15 programs, 600 windows, two power-ups, 15 of 15 EQUAL):** 
   the slots (the slots sit at a fixed distance from FINT). Not explained, not to be built: in
   3/2 a rise in the better level's second clock gives it again at the worse level's slot
   time. Not measured: f3_prio's own handler tail on the socket.
+
+**2026-11-21, request-passage probe, sixth set (`validation/v35s/passage.py` action `pf`,
+programs `f5_pf_a` / `b` / `c` / `x`; f3_prio traced on the socket, with and without refresh;
+two sessions, all EQUAL):** measurement only. **FINT is 6 clocks on silicon with a level in
+  service (5 with none, one window) and 3 in the core**: the only instruction of f3_prio's
+  handler tail (CALL push, FINT, RET, DEC, five POPs, POP PSW, RETI) off silicon's clock; RET,
+  DEC, the POPs, POP PSW, RETI, NOP, DI, ROL are exact over 244 clocks. f3_prio's grp_levels
+  tail from FINT's fetch to the RETI's PSW word read is 238 clocks as the gate runs it, 33 of
+  them 15 refresh cycles the core does not serve; 205 with refresh off (the core 201), and
+  silicon reads DIC0 either way: IE rises outside every first clock and the scan restarts.
+  **The scan's phase holds exactly over 300 clocks behind FINT**: with levels 3, 5, 6 pending
+  and nothing in service the round is 22 clocks (16 plus 2 a requesting level); level 6's
+  first clock is met with the PSW word's read 199 + 22k clocks behind FINT's fetch (FINT
+  behind a CALL), 90 + 22k behind the interrupt entry (f5_pe_h4). Work order 39's `FINT_RUN`
+  switch is exact in f5_pe_h4 by two errors cancelling and 2 clocks late in every long-tail
+  window; to be judged again with FINT at 6 clocks. Not separable on the pins: where in
+  FINT's clocks ISPR is cleared. Behind the RETI silicon's second return fetch comes 7 clocks
+  after the first, the core's 5.

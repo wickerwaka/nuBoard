@@ -128,6 +128,20 @@ def emit_ops(a, ops, meta=None):
             a.op([0x9D], "POP PSW")
         elif k == "fil":
             oc.fil(a, op[1])
+        elif k == "pushes":             # (passage.py's sixth set) f3_prio's handler frame
+            for b, r in ((0x9C, "PSW"), (0x50, "AW"), (0x53, "BW"), (0x55, "BP"), (0x56, "IX"), (0x1E, "DS1")):
+                a.op([b], f"PUSH {r}")
+        elif k == "pops":
+            for b, r in ((0x07, "DS1"), (0x5E, "IX"), (0x5D, "BP"), (0x5B, "BW"), (0x58, "AW")):
+                a.op([b], f"POP {r}")
+        elif k == "popf":
+            a.op([0x9D], "POP PSW")
+        elif k == "calli":
+            a.op([0x36, 0xFF, 0x16, op[1] & 0xFF, op[1] >> 8], f"CALL word SS:[{op[1]:04X}h]")
+        elif k == "decb":
+            a.op([0x36, 0xFE, 0x0E, op[1] & 0xFF, op[1] >> 8], f"DEC byte SS:[{op[1]:04X}h]")
+        elif k == "ret":
+            a.op([0xC3], "RET")
         else:
             raise ValueError(op)
 

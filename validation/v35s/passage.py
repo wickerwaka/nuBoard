@@ -13,6 +13,7 @@ frame through phase.py: windows between the markers, receipts, stitching, compar
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage takes [NAME ...] [--cand sim]
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage emit
     PYTHONPATH=host/src:. python3 -m validation.v35s.passage pe [pe_] [--ref sim] [-v]   (the fifth set: f5_pe_*)
+    PYTHONPATH=host/src:. python3 -m validation.v35s.passage pf [pf_ | pe_h4] [--ref sim] [-v]   (the sixth set: f5_pf_*)
 
 Series (one program a kind of instruction X; `_r` the twin in which nothing is taken: the
 request masked or the pin not pulsed; `_b` the twin with BRK 3 behind X: a boundary whose
@@ -34,6 +35,9 @@ vector read is on the pins):
     pe_HOWwb     (the fifth set) q with two requests pending, the worse level w on TM0 and the better b
             on INTP0: IE's rise swept across both slots of the round of 20 (which vector, at which clock)
     pe_h1 .. h4  four levels pending; a real handler (FINT in it), its RETI swept across the slots
+    pf_a .. c    (the sixth set) pe_h4 with f3_prio's handler tail (FINT ; RET ; DEC ; five POPs ; POP PSW ;
+            RETI, about 200 clocks) between FINT and the RETI's rise: the sled behind FINT (a), in front of
+            FINT (b), in front of POP PSW (c)
 
 Time marks: the stores of `mark` (00D80h + 2j), TOUT on P15, /INTAK on P13, the vector reads,
 the pushes (the third is the PC: it names the boundary), the scheduled edge (the event's record
@@ -1357,6 +1361,160 @@ def pe_rows(name, backend, progs, verbose=False):
         print(f"  {sig:44s} x {' '.join(map(str, xs)) if len(xs) < 14 else f'{len(xs)} windows: ' + rng(xs)}")
 
 
+# ------------------------------------------------------------------ the sixth set: a long tail behind FINT
+PF_BYTE, PF_PTR, PF_PTR2 = 0x0DF0, 0x0DF4, 0x0DF8      # the DEC's byte, the routines' addresses (SS 0)
+# f3_prio's handler from its CALL on (intr.py HANDLER_SRC): the routine (FINT ; RET) called through a
+# word, DEC byte, five POPs, POP PSW (IE 0 in the pushed word), RETI. Every routine is of an even
+# length (the fillers), so FINT is fetched at an even address behind the CALL, as f3_prio's
+PF_TAIL = (("pushes",), ("calli", PF_PTR), ("decb", PF_BYTE), ("pops",), ("popf",), ("reti",), ("nop", 1))
+PF_TAIL_C = (("pushes",), ("calli", PF_PTR), ("decb", PF_BYTE), ("pops",), ("calli", PF_PTR2), ("popf",), ("reti",))
+PF_ROUND = 22                       # the round with levels 3, 5 and 6 requesting, IE 0, nothing in service
+
+
+def set_pf(kind, n=40):
+    """f5_pe_h4's frame (SER0 0, SER1 3, INTP0 5, TM0 6 stored, a sled of 6, mark 1, EI, 100 INC AW; SER0
+    taken first) with f3_prio's handler tail in SER0's handler: PUSH PSW and five registers, CALL word
+    (the routine), DEC byte, five POPs, POP PSW, RETI. The routine, per window (the sled of d clocks):
+    a  FINT ; sled d ; RET        the whole tail behind the sled: the RETI's rise about 200 clocks behind FINT
+    b  sled d ; FINT ; RET        the control (pe_h3's): the sled in front of FINT
+    c  FINT ; RET, and a second routine (sled d ; RET) called in front of POP PSW: the sled at the tail's end
+    The handler is one copy; the windows' setups store their routines' addresses."""
+    out = []
+    for d in range(n):
+        if kind == "a":
+            hand = {"se0": PF_TAIL, "act": (("fint",), ("sled", d), ("ret",))}
+        elif kind == "b":
+            hand = {"se0": PF_TAIL, "act": (("sled", d), ("fint",), ("ret",))}
+        else:
+            hand = {"se0": PF_TAIL_C, "act": (("fint",), ("ret",), ("nop", 1)), "act2": (("sled", d), ("ret",))}
+        out.append(pf_win(d, hand, d & 1, kind=kind))
+    return out
+
+
+def pf_win(n, hand, odd, **kw):
+    win = window("pf", n, PE_H + (("sled", 6), ("mark", 1), ("ei",), ("inc", 100)), odd=odd, hand=hand, **kw)
+
+    def setup(a, s0=win.setup):
+        s0(a)
+        for ptr, key in ((PF_PTR, "act"), (PF_PTR2, "act2")):
+            if key in win.hand:
+                at = win.addr[win.hand[key]]
+                a.op([0x36, 0xC7, 0x06, ptr & 0xFF, ptr >> 8, at & 0xFF, at >> 8],
+                     f"MOV word SS:[{ptr:04X}h], {at:04X}h   ; the handler's routine")
+        if "act2" not in win.hand:
+            a.nop()                 # the body at pe_h4's parity
+    win.setup = setup
+    return win
+
+
+# f5_pf_x: the routine's content swept instead of a sled (X ; RET at the CALL's target), the handler's
+# own FINT behind the CALL: the clocks from the routine's first fetch to RET's stack read with X = FINT
+# (level 0 in service: f3_prio's routine) against instructions of known length
+PF_TAIL_X = (("pushes",), ("calli", PF_PTR), ("fint",), ("decb", PF_BYTE), ("pops",), ("popf",), ("reti",), ("nop", 1))
+PF_X = (("fint", (("fint",),)), ("nop2", (("nop", 2),)), ("di2", (("di",), ("di",))), ("rol1", (("rol", 1),)),
+        ("rol2", (("rol", 2),)), ("fint2", (("fint",), ("fint",))), ("nopfint", (("nop", 2), ("fint",))),
+        ("fintnop", (("fint",), ("nop", 2))), ("none", ()), ("nop1", (("nop", 1),)), ("nop3", (("nop", 3),)),
+        ("nop4", (("nop", 4),)), ("nop4fint", (("nop", 4), ("fint",))), ("fintnop4", (("fint",), ("nop", 4))))
+
+
+def set_pfx():
+    out = []
+    for i, (name, x) in enumerate(PF_X):
+        a = Asm(0)
+        la.emit_ops(a, x + (("ret",),))
+        act = x + (("ret",),) + ((("nop", 1),) if len(a.finish()) & 1 else ())
+        out.append(pf_win(i, {"se0": PF_TAIL_X, "act": act}, 0, kind="x", x=name))
+    return out
+
+
+def programs6():
+    progs = [prog("f5_pf_a", set_pf("a"), "pe_h4 with f3_prio's handler tail behind FINT: FINT ; sled ; RET ; DEC ; POPs ; RETI"),
+             prog("f5_pf_b", set_pf("b"), "the same, the sled in front of FINT (the control)"),
+             prog("f5_pf_c", set_pf("c"), "the same, the sled at the tail's end (in front of POP PSW ; RETI)"),
+             prog("f5_pf_x", set_pfx(), "the same, the routine X ; RET: FINT against instructions of known length")]
+    return {p.name: p for p in progs}
+
+
+def pf_fint(win):
+    """The address of the first word of SER0's handler's routine in a pf window (FINT's word in a, c and
+    x fint; the sled's in b), of SER0's handler in a peh window (FINT's word in pe_h2 / h4)."""
+    return win.addr[win.hand["act" if win.meta["series"] == "pf" else "se0"]]
+
+
+def events6(rec, prog):
+    """events5 with `fint`: the start of the first fetch at pf_fint's address behind the first take;
+    `ret`: the first stack read behind it (RET's in the pf programs, the RETI's first in pe_h*); `psw`:
+    the PSW word's read of SER0's RETI (the last stack read in front of the second take); `bus`: the
+    window's bus records (kind, row)."""
+    wins, _ = oc.windows(rec, prog)
+    ev = events5(rec, prog)
+    for k, e in ev.items():
+        fa, t1 = pf_fint(prog.windows[k]), e["takes"][0][1] if e["takes"] else None
+        rows = wins[k]["rows"]
+        e["fint"] = next((r[0] for kind, r in rows if kind == "fetch" and r[1] == fa and t1 is not None and r[0] > t1), None)
+        e["ret"] = next((r[0] for kind, r in rows if kind == "mr" and 0xE00 <= r[1] < STACK_TOP
+                         and e["fint"] is not None and r[0] > e["fint"]), None)
+        e["psw"] = e["takes"][1][3] if len(e["takes"]) > 1 else None
+        e["bus"] = [(kind, r) for kind, r in rows if kind not in ("pin", "idle")]
+    return ev
+
+
+def pf_cells(e, c=32):
+    """A window's takes behind the first: (D, R, text). D: the PSW word's read of SER0's RETI less the
+    routine's first fetch, R: less RET's stack read, in clocks; text: source:vector read less the PSW
+    word's read in front of it/INCs run."""
+    cells = []
+    for i, (src, t, pc, rd) in enumerate(e["takes"]):
+        n = "?" if pc is None else pc - e["meta"]["first"]
+        if i:
+            cells.append(f"{src}:{ph.fmt((t - rd) / c)}/n{n}")
+    dd = None if e["fint"] is None or e["psw"] is None else (e["psw"] - e["fint"]) / c
+    rr = None if e["ret"] is None or e["psw"] is None else (e["psw"] - e["ret"]) / c
+    return dd, rr, " ".join(cells) or "no take"
+
+
+def pf_rows(name, backend, progs, verbose=False):
+    """The sixth set (and pe_h1 .. h4): per window the distance D from the routine's first fetch (FINT's)
+    to the RETI's PSW word read and the takes behind it; then the takes' signature by D modulo the round
+    (PF_ROUND). f5_pf_x: per X the clocks from the routine's first fetch to RET's stack read."""
+    prog = progs[name]
+    rec = ph.load(name, backend)
+    ok = rec["program_sha256"] == hashlib.sha256(prog.build()["text"]).hexdigest()
+    ev = events6(rec, prog)
+    print(f"{name} [{backend}] {'PASS' if rec['passed'] else 'FAIL'} total {rec['total']} "
+          f"{len(ev)}/{len(prog.windows)} windows" + ("" if ok else "  (THE RECEIPT IS OF ANOTHER VERSION)"))
+    f = lambda v: "-" if v is None else ph.fmt(v)
+    if prog.windows[0].meta.get("kind") == "x":
+        for k in sorted(ev):
+            e = ev[k]
+            dd, rr, sig = pf_cells(e)
+            print(f"    {e['meta']['x']:9s} fetch to RET's read {f(None if dd is None or rr is None else dd - rr):>3s}, "
+                  f"RET's read to the PSW word's {f(rr):>4s}, D {f(dd):>4s}  {sig}")
+        return
+    by, bym = collections.OrderedDict(), {}
+    for k in sorted(ev):
+        e = ev[k]
+        dd, rr, sig = pf_cells(e)
+        by.setdefault(sig, []).append((e["meta"]["n"], dd))
+        if dd is not None:
+            bym.setdefault(dd % PF_ROUND, []).append((e["meta"]["n"], dd, sig))
+        if verbose:
+            print(f"    d {e['meta']['n']:2d}: D {f(dd):>4s} R {f(rr):>4s}  {sig}")
+    for sig, xs in sorted(by.items(), key=lambda kv: -len(kv[1])):
+        ds = sorted({x[1] for x in xs if x[1] is not None})
+        print(f"  {sig:44s} d {rng([x[0] for x in xs])}: D "
+              + (" ".join(ph.fmt(x) for x in ds) if len(ds) < 12 else ph.fmt(ds[0]) + " .. " + ph.fmt(ds[-1])))
+    print(f"  by D mod {PF_ROUND} (the windows not of the first signature):")
+    first = max(by.items(), key=lambda kv: len(kv[1]))[0]
+    for m in sorted(bym):
+        sigs = collections.OrderedDict()
+        for n, dd, sig in bym[m]:
+            if sig != first:
+                sigs.setdefault(sig, []).append(ph.fmt(dd))
+        if sigs:
+            print(f"    {ph.fmt(m):>5s}: " + "; ".join(f"{sg} (D {' '.join(v)})" for sg, v in sigs.items()))
+
+
 def pilot4(backend, progs):
     """PD_M2 from the pilot's receipt, and per kind the clocks from mark 1's write to mark 2's by phase."""
     prog = progs["f5_pd_t"]
@@ -1481,7 +1639,7 @@ def emit(progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco", "pilot4", "pilote", "pdx", "pd", "pe"))
+    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco", "pilot4", "pilote", "pdx", "pd", "pe", "pf"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
@@ -1494,6 +1652,7 @@ def main():
     progs.update(programs3())
     progs.update(programs4())
     progs.update(programs5())
+    progs.update(programs6())
     names = []
     for n in a.names or list(progs):
         names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]
@@ -1540,6 +1699,10 @@ def main():
         for n in names:
             if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] in ("pe", "peh"):
                 pe_rows(n, a.ref + a.tag, progs, a.verbose)
+    elif a.action == "pf":
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] in ("pf", "peh"):
+                pf_rows(n, a.ref + a.tag, progs, a.verbose)
     elif a.action == "pco":
         pc_o("f5_pc_o", a.ref + a.tag, progs)
     elif a.action == "pcb":
