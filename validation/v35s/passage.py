@@ -74,7 +74,16 @@ KINDS = {
     "repl": lambda i: ([0x36, 0xF3, 0xAD], "REP LDMW SS:   ; CW elements"),
     "brk": lambda i: ([0xCC], "BRK 3"),
     "halt": lambda i: ([0xF4], "HALT"),
+    # the third set: a store into block 2 (DS1 4000h: its waits are WTC's field 2), an OUT (the I/O
+    # field), XCH AW,BW (NOP's routine with another register), BR $+2 alone
+    "ws": lambda i: ([0x26, 0xA3, 0x00, 0x0D], "MOV DS1:[0D00h], AW   ; DS1 4000h: block 2"),
+    "out": lambda i: ([0xE7, 0x80], "OUT 80h, AW"),
+    "xch": lambda i: ([0x93], "XCH AW, BW"),
+    "br": lambda i: ([0xEB, 0x00], "BR $+2"),
+    "sfr": lambda i: oc.form("pimb", 0xFF00, 0),      # an on-chip store (P0's latch)
 }
+for _k, _b in (("ws1", "ws"), ("ws2", "ws"), ("out2", "out")):
+    KINDS[_k] = KINDS[_b]
 
 
 def emit_ops(a, ops, meta=None):
@@ -95,11 +104,19 @@ def emit_ops(a, ops, meta=None):
                     a.op([0xEB, 0x00], "BR $+2   ; the queue emptied: the fetches run through the shift")
                     a.op([0xD3, 0xC5], "ROL BP, CL")
                     continue
+                if op[1] == "jwr":
+                    a.op([0xEB, 0x00], "BR $+2   ; the queue emptied: the store's bytes arrive as it runs")
+                    a.op(*KINDS["wr"](i))
+                    continue
                 a.op(*KINDS[op[1]](i))
                 if op[1] == "halt":
                     a.op([0x90], "NOP")
         elif k == "dw0":
             a.op([0x33, 0xD2], "XOR DW, DW")
+        elif k == "ds1":
+            a.mov_r("AW", op[1])
+            a.mov_sr("DS1")
+            a.mov_r("AW", 1)
         elif k == "cw":
             a.mov_r("CW", op[1])
         elif k == "pushv":
@@ -126,9 +143,10 @@ H_PLAIN = la.H_PLAIN
 H_STOP = (("st", 0xFF90, 0x00), ("fint",), ("reti",))       # TM0 stopped: one request a window
 
 
-def window(series, n, ops, pre=(), odd=0, md0=66, hand=None, ic=None, ix=1, cw=0, clk=8, note="", **kw):
+def window(series, n, ops, pre=(), odd=0, md0=66, hand=None, ic=None, ix=1, cw=0, clk=8, wt=0, note="", **kw):
     """lattice.window with IX, CW and the processor clock (PRC) set in the setup, DW and PRC put
-    back at the end; meta["ins"]: the body's instructions (offset, text)."""
+    back at the end; wt: more WTC fields (block 1's is the sled's); meta["ins"]: the body's
+    instructions (offset, text)."""
     meta = dict(series=series, form=note or series, target=f"md0 {md0}", seg="-", shape="pa", n=n)
     meta.update(kw)
     hand = dict(hand or {})
@@ -154,7 +172,7 @@ def window(series, n, ops, pre=(), odd=0, md0=66, hand=None, ic=None, ix=1, cw=0
                  f"MOV word SS:[{VEC[src]:04X}h], {at:04X}h   ; {src}'s handler")
         for src, v in ic.items():
             oc.es_store(a, IC[src], v)
-        ph.wtc1(a, odd)
+        oc.es_store(a, 0xFFE8, odd << 2 | wt, word=True)
         if clk != 8:
             oc.es_store(a, 0xFFEB, PRC[clk])
         emit_ops(a, pre)
@@ -200,12 +218,14 @@ def prog(name, wins, note, entries=None, intak=False, clk=8):
 START = la.START
 LONG = ("mul", "div", "shcl", "repl")
 # per kind: the instruction's operands (window keywords)
-KW = {"shcl": dict(cw=12), "jsh": dict(cw=20), "repl": dict(cw=6, ix=LDS_AT), "lds": dict(ix=LDS_AT)}
+KW = {"shcl": dict(cw=12), "jsh": dict(cw=20), "repl": dict(cw=6, ix=LDS_AT), "lds": dict(ix=LDS_AT),
+      "ws1": dict(wt=1 << 4), "ws2": dict(wt=2 << 4), "out2": dict(wt=2 << 14)}
 NS = 36
 # c: TM0's count (MD0) by kind: the count-out (TOUT) falls in the middle of the 16 clocks in front
 # of the scan round whose level-0 slot is about 14 clocks in front of X's end at the middle of the
 # sweep (the request control store's restart is about 12 clocks after mark 1's write; pilot run)
-C_MD = dict(inc=23, nop=23, cbw=23, halt=23, wr=25, push=25, rd=25, lds=25, mul=28, shcl=28, div=31, repl=39, jsh=25)
+C_MD = dict(inc=23, nop=23, cbw=23, halt=23, wr=25, push=25, rd=25, lds=25, mul=28, shcl=28, div=31, repl=39, jsh=25,
+            out=25, out2=25)
 # n / i: the edge's delay after the event's record in clocks, by kind: the edge 16 clocks in front
 # of where mark 2 is written at the middle of the sweep (pilot run: mark 1 is 18 clocks behind the
 # event's record, mark 2 at the sled's s = 16 is 57 / 66 / 88 / 91 / 149 behind mark 1)
@@ -796,6 +816,277 @@ def hold(name, backend, progs, lo=-16):
             print(f"  {'':40s} twin: {f(B)}")
 
 
+# ------------------------------------------------------------------ the third set (f5_pc_*)
+# Q1: what the controller's clocks behind a slot are; Q2: where an instruction samples the request.
+WS_SEG = 0x4000
+ON = oc.ON
+# x: per kind (INT back, NMI back): the sweep starts that many clocks in front of the twin's mark 2
+# write (the pilot f5_pc_t: PC_M2, ticks from the event's record to that write) and runs 16 clocks
+X_KINDS = ("inc", "nop", "cbw", "xch", "mul", "push", "wr", "ws", "ws1", "ws2", "out", "out2", "br", "jwr",
+           "div", "shcl", "rd", "sfr")
+X_BACK = {"br": (24, 28)}
+PC_M2 = {'inc': 2400, 'nop': 2464, 'cbw': 2432, 'xch': 2464, 'mul': 3392, 'push': 2624, 'wr': 2688, 'ws': 2688, 'ws1': 2720,
+         'ws2': 2752, 'out': 2752, 'out2': 2784, 'br': 3040, 'jwr': 3424, 'div': 3648, 'shcl': 3488, 'rd': 2752, 'sfr': 2688}      # the socket's pilot (f5_pc_t)
+PC_STEP = 16
+
+
+class Program3(la.Program):
+    """lattice.Program with the page at 40000h mapped (the block-2 store's target)."""
+
+    def build(self):
+        if self._built:
+            return self._built
+        b = super().build()
+        b["segments"].setdefault(WS_SEG << 4, bytes(0x1000))
+        return b
+
+
+def prog3(name, wins, note, entries=None, intak=False):
+    p = Program3(name, wins, note, init=init, fini=oc.ports_off, pins=["P13", "P15"], entries=entries)
+    if intak:
+        p.stim["intak_vector"] = INT_VEC
+        p.stim["int_release"] = True
+    p.clk = 8
+    return p
+
+
+def x_ops(kind, ev):
+    ds = kind.startswith("ws")
+    return (((("ds1", WS_SEG),) if ds else ()) + (("ev", ev), ("mark", 1), ("dw0",), ("sl", 16)) + train(kind)
+            + ((("ds1", ON),) if ds else ()))
+
+
+def set_x(pin, kind, n=32):
+    """The event, mark 1, a sled of 16, X, mark 2, mark 3, an INC train: the pin's edge swept half a
+    clock a window across X's boundaries; the last window is the twin (no edge)."""
+    out, ent = [], []
+    back = X_BACK.get(kind, (28, 32))[pin == "NMI"]
+    for j in range(n + 1):
+        out.append(window("x", j, x_ops(kind, j + 1), pre=(("ei",),), kind=kind, twin=j == n, **KW.get(kind, {})))
+        if j < n:
+            d = PC_M2.get(kind, 84 * 32) - back * 32 + PC_STEP * j - 4
+            ent.append(dict(event=j + 1, delay=d, hold=600, levels={"NMI": 0}) if pin == "NMI" else
+                       dict(event=j + 1, delay=d, hold=0, levels={"INT": 1}))
+    return out, ent
+
+
+def set_t():
+    """The pilot: the twins of every x kind (no edge)."""
+    return [window("x", j, x_ops(kind, j + 1), pre=(("ei",),), kind=kind, twin=True, **KW.get(kind, {}))
+            for j, kind in enumerate(X_KINDS)]
+
+
+H_BASE = 162
+
+
+def set_h(lt, lp, n=32):
+    """TM0's request at level lt in the round a TMIC1 store started (f5_pb_v's frame), an INC train;
+    INTP0's falling edge (level lp) swept a clock a window across TM0's slot and its clocks."""
+    out, ent = [], []
+    for j in range(n):
+        ops = (("ei",), ("ev", j + 1), START, ("mark", 0), ("fil", 2), ("mark", 1), ("st", 0xFF9D, 0x47),
+               ("dw0",), ("x", "inc", 60))
+        out.append(window("h", j, ops, md0=23, hand={"tm0": H_STOP}, ic={"tm0": lt, "p0": lp}, lv=lt, lp=lp))
+        ent.append(dict(event=j + 1, delay=(H_BASE + j) * 32 - 4, hold=600, levels={"INTP0": 0}))
+    return out, ent
+
+
+def set_m(val, lv=0, n=36):
+    """TM0's request (level lv) found in its slot (f5_pa_c_wr's frame, the count 25); behind the sled
+    a store of `val` to TMIC0 (the mask set, the flag cleared, or the request as it stands), two
+    marks, an INC train."""
+    out = []
+    for s in range(n):
+        ops = (("ei",), START, ("mark", 0), ("fil", 2), ("mark", 1), ("st", 0xFF9D, 0x47), ("dw0",), ("sl", s),
+               ("st", 0xFF9C, val), ("mark", 2), ("mark", 3), ("inc", 12))
+        out.append(window("m", s, ops, odd=s & 1, md0=25, hand={"tm0": H_STOP}, ic={"tm0": lv}, lv=lv, val=val))
+    return out
+
+
+S_GROUPS = (("a", (0xFF9D, 0x47), False), ("b", (0xFF9D, 0x47), True), ("c", (0xFF4C, 0x85), False),
+            ("d", (0xFF4C, 0xC5), False))
+
+
+def set_s(lv=2, lo=8, hi=32):
+    """f5_pa_c_inc at level 2, by group: a plain; b level 5 in service (INTP0's request taken in the
+    setup, its handler RETI alone); c the restart store sets INTP0's request at level 5 (a second
+    level pending); d the same masked."""
+    out = []
+    for g, rst, isp in S_GROUPS:
+        for s in range(lo, hi):
+            ops = ((("ei",), START, ("mark", 0), ("fil", 2), ("mark", 1), ("st",) + rst, ("dw0",), ("sl", s))
+                   + train("inc") + ((("fint",),) if isp else ()))
+            pre = (("ei",), ("st", 0xFF4C, 0x85), ("nop", 12)) if isp else ()
+            out.append(window("s", s, ops, pre=pre, odd=s & 1, md0=23,
+                              hand={"tm0": H_STOP, **({"p0": H_RETI} if isp else {})}, ic={"tm0": lv}, lv=lv, g=g))
+    return out
+
+
+def set_o(n=18):
+    """IE 0: TMIC0's IF stored 1 at level 0 (a slot every 18 clocks; nothing can be taken), a sled of
+    x clocks, mark 1, 60 INC AW (a fetch chain); the second half the same with the request masked:
+    does the controller's bus hold come with every slot or only with a request on its way."""
+    return [window("o", x, (("st", 0xFF9C, v), ("sled", x), ("mark", 1), ("inc", 60)), odd=x & 1, val=v)
+            for v in (0x80, 0xC0) for x in range(n)]
+
+
+def pc_o(name, backend, progs):
+    """Per sled length: the fetches of the INC train (clocks after mark 1) where the pending half
+    differs from the masked half."""
+    prog = progs[name]
+    wins, _ = oc.windows(ph.load(name, backend), prog)
+    n = len(prog.windows) // 2
+    print(f"{name} [{backend}]")
+    for x in range(n):
+        f = []
+        for k in (x, x + n):
+            rows = wins[k]["rows"]
+            m1 = next(r[0] for kind, r in rows if kind == "mw" and r[1] == MARK + 2)
+            f.append([(r[0] - m1) // 32 for kind, r in rows if kind == "fetch" and r[0] > m1])
+        d = [(a, b) for a, b in zip(*f) if a != b]
+        print(f"  x{x:2d}: {len(f[0])} / {len(f[1])} fetches; " + ("equal" if not d and len(f[0]) == len(f[1]) else
+              "pending/masked " + " ".join(f"{a}/{b}" for a, b in d[:12])) + f" | end {(wins[x]['T'] - wins[x + n]['T']) / 32:+.0f}")
+
+
+def programs3():
+    progs = [prog3("f5_pc_t", set_t(), "the pilot: the twin of every x kind")]
+    for pin in ("INT", "NMI"):
+        for kind in X_KINDS:
+            wins, ent = set_x(pin, kind)
+            progs.append(prog3(f"f5_pc_{pin[0].lower()}_{kind}", wins,
+                               f"the {pin} edge swept half a clock a window across {kind}'s boundaries",
+                               entries=ent, intak=pin == "INT"))
+    for kind in ("out", "out2"):
+        progs.append(prog3(f"f5_pc_c_{kind}", set_c(kind), f"TM0's request against {kind}'s boundary, the sled swept"))
+        progs.append(prog3(f"f5_pc_c_{kind}_r", set_c(kind, masked=True), "the twin: the request masked"))
+    for lt_, lp in ((7, 0), (0, 7), (7, 3)):
+        wins, ent = set_h(lt_, lp)
+        progs.append(prog3(f"f5_pc_h{lt_}{lp}", wins, f"TM0's request at level {lt_} in its slot, INTP0's edge "
+                           f"(level {lp}) swept across it", entries=ent))
+    for name, val in (("mk", 0xC0), ("if", 0x00), ("id", 0x80), ("pr", 0x87)):
+        progs.append(prog3(f"f5_pc_m_{name}", set_m(val), f"a store of {val:02X}h to TMIC0 swept across its request's clocks"))
+    progs.append(prog3("f5_pc_o", set_o(), "IE 0, a request pending or masked: the fetch chain of an INC train"))
+    progs.append(prog3("f5_pc_s", set_s(), "TM0 at level 2: plain, level 5 in service, a second level pending, the same masked"))
+    return {p.name: p for p in progs}
+
+
+def events3(rec, prog):
+    """events() with, per window: takes [(source, the vector read's tick, pushed PC, the first
+    acknowledge activity's tick)], dw [(kind, address, start, end)] of the data writes behind mark 1
+    (the marks and the pushes of a take left out)."""
+    ev = events(rec, prog)
+    wins, _ = oc.windows(rec, prog)
+    inv = {v: k for k, v in VEC.items()}
+    for k, e in ev.items():
+        rows = wins[k]["rows"]
+        m1 = e["marks"].get(1, 0)
+        takes, dw, skip = [], [], set()
+        for i, (kind, r) in enumerate(rows):
+            if kind == "mr" and r[1] in inv:
+                ps = [(j, x) for j, (kd, x) in enumerate(rows[i + 1:i + 8], i + 1) if kd == "mw"][:3]
+                skip.update(j for j, _ in ps)
+                first = r[0]
+                if inv[r[1]] == "int":
+                    first = max([x for x in e["intak"] if x < r[0]][-2:-1] or [r[0]])
+                takes.append((inv[r[1]], r[0], ps[2][1][2] if len(ps) > 2 else None, first))
+        for i, (kind, r) in enumerate(rows):
+            if kind in ("mw", "iow") and r[0] > m1 and i not in skip and not MARK <= r[1] < MARK + 32 \
+                    and not r[3] & 0x100:
+                dw.append((kind, r[1], r[0], r[4]))
+        e["takes"], e["dw"] = takes, dw
+    return ev
+
+
+def pilot(backend, progs):
+    """PC_M2 from the pilot's receipt: per kind the ticks from the event's record to mark 2's write."""
+    prog = progs["f5_pc_t"]
+    rec = ph.load("f5_pc_t", backend)
+    wins, _ = oc.windows(rec, prog)
+    out = {}
+    for k, w in wins.items():
+        evr = next(r for kind, r in w["rows"] if r[3] & 0x100)
+        m2 = next(r for kind, r in w["rows"] if kind == "mw" and r[1] == MARK + 4)
+        out[prog.windows[k].meta["kind"]] = m2[0] - evr[4]
+    print("PC_M2 =", out)
+    print("  clocks:", {k: v / 32 for k, v in out.items()})
+
+
+def q(t):
+    return ph.fmt(t / 32)
+
+
+def pc_x(name, backend, progs, brief=False):
+    """An x program (brief: one line, per boundary the latest edge against M2 and We and the first
+    activity less it): the twin's X write (start, end) and mark 2 write after mark 1; per boundary
+    taken (the instruction not executed): the edges that take there (after mark 1), the latest
+    against the twin's mark 2 write (M2) and against X's write's end (We), the first acknowledge
+    activity and the vector read less that edge, the vector read less M2; '!': the bus cycles in
+    front of the take are not where the twin has them."""
+    prog = progs[name]
+    rec = ph.load(name, backend)
+    ev = events3(rec, prog)
+    wins, _ = oc.windows(rec, prog)
+    tk = max(ev)
+    tw = ev[tk]
+    tm1 = tw["marks"][1]
+    M2 = tw["marks"][2] - tm1
+    xw = [d for d in tw["dw"] if d[2] - tm1 < M2]
+    We = xw[-1][3] - tm1 if xw else None
+    tf = [(kind, r[0] - tm1) for kind, r in wins[tk]["rows"] if kind != "pin" and r[0] > tm1]
+    if not brief:
+        print(f"{name[6:]:10s} [{backend}] twin: X write " + (f"{q(xw[-1][2] - tm1)}..{q(We)}" if xw else "-")
+              + f", M2 {q(M2)}, M3 {q(tw['marks'][3] - tm1)} after mark 1" + ("; the twin takes!" if tw["takes"] else ""))
+    by = collections.OrderedDict()
+    for k in sorted(ev):
+        e = ev[k]
+        if k == tk or e["edge"] is None:
+            continue
+        m1 = e["marks"][1]
+        t = e["takes"][0] if e["takes"] else None
+        lab = lt(label(e["meta"], t[2])) if t and t[2] is not None else "no take"
+        own = [(kind, r[0] - m1) for kind, r in wins[k]["rows"] if kind != "pin" and r[0] > m1
+               and (t is None or r[0] < t[3] - 6 * 32)]
+        dis = own != tf[:len(own)]
+        by.setdefault(lab, []).append((e["edge"] - m1, None if not t else t[3] - e["edge"],
+                                       None if not t else t[1] - e["edge"], None if not t else t[1] - m1, dis,
+                                       len(e["takes"])))
+    if brief:
+        last = max(x[0] for v in by.values() for x in v)
+        cells = [f"{lab.split(' ')[0] if lab[0] == 'X' else lab[:8]}: M2{q(max(v)[0] - M2)}"
+                 + (f" We{q(max(v)[0] - We)}" if We is not None else "")
+                 + (f" F{q(max(v)[1])}" if max(v)[1] is not None else "")
+                 + ("" if max(v)[0] < last else " (the sweep's end)") for lab, v in by.items()]
+        print(f"{name[6:]:10s} [{backend:11s}] X write " + (f"{q(xw[-1][2] - tm1)}..{q(We)}" if xw else "-")
+              + f" M2 {q(M2)} | " + " | ".join(cells))
+        return
+    for lab, v in by.items():
+        E, F, V, Vm, dis, nt = max(v)
+        line = (f"    {lab[:30]:30s} edges {q(min(v)[0])}..{q(E)} ({len(v)}) | latest: M2{q(E - M2)}"
+                + (f" We{q(E - We):>6s}" if We is not None else ""))
+        if F is not None:
+            line += f" | first-edge {q(F)} V-edge {q(V)} V-M2 {q(Vm - M2)}"
+        nd = sum(1 for x in v if x[4])
+        print(line + (f" | ! {nd} differ from the twin" if nd else "") + (" | takes " + str(sorted({x[5] for x in v}))))
+
+
+def pc_rows(name, backend, progs):
+    """Per window: the sweep's value, the takes (source@vector read less mark 1: the instruction not
+    executed), the edge, TOUT's count-out and the window's own marks 2 and 3 less mark 1."""
+    prog = progs[name]
+    ev = events3(ph.load(name, backend), prog)
+    print(f"{name} [{backend}]")
+    for k in sorted(ev):
+        e, m = ev[k], ev[k]["meta"]
+        m1 = e["marks"].get(1)
+        if m1 is None:
+            print(f"  n{m['n']}: no mark 1")
+            continue
+        f = lambda t: "-" if t is None else q(t - m1)
+        tk = " ".join(f"{s}@{f(v)}:{lt(label(m, pc))[:22] if pc is not None else '?'}" for s, v, pc, _ in e["takes"][:3])
+        print(f"  {m.get('g', '')}n{m['n']:2d} | {tk or 'no take':60s} | edge {f(e['edge'])} C {f(e['tout'][1] if len(e['tout']) > 1 else None)}"
+              f" m2 {f(e['marks'].get(2))} m3 {f(e['marks'].get(3))}")
+
+
 def emit(progs):
     for name, p in progs.items():
         (ph.PROGRAMS_DIR / f"{name}.s").write_text(p.source())
@@ -807,7 +1098,7 @@ def emit(progs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list"))
+    p.add_argument("action", choices=("socket", "sim", "summary", "rows", "cut", "hold", "repeat", "gate", "takes", "emit", "list", "pilot", "pc", "pcrows", "pcb", "pco"))
     p.add_argument("names", nargs="*")
     p.add_argument("--tag", default="")
     p.add_argument("--ref", default="socket")
@@ -817,6 +1108,7 @@ def main():
     a = p.parse_args()
     progs = programs()
     progs.update(programs2())
+    progs.update(programs3())
     names = []
     for n in a.names or list(progs):
         names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]
@@ -847,6 +1139,19 @@ def main():
         for n in names:
             ok &= takes(n, a.ref, a.cand, progs)
         return 0 if ok else 1
+    elif a.action == "pilot":
+        pilot(a.ref + a.tag, progs)
+    elif a.action == "pco":
+        pc_o("f5_pc_o", a.ref + a.tag, progs)
+    elif a.action == "pcb":
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists() and progs[n].windows[0].meta["series"] == "x" \
+                    and len(progs[n].windows) > 20:
+                pc_x(n, a.ref + a.tag, progs, brief=True)
+    elif a.action in ("pc", "pcrows"):
+        for n in names:
+            if ph.receipt_path(n, a.ref + a.tag).exists():
+                (pc_x if a.action == "pc" else pc_rows)(n, a.ref + a.tag, progs)
     elif a.action == "list":
         for n in names:
             print(n, len(progs[n].windows), progs[n].note)

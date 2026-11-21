@@ -3928,3 +3928,33 @@ question, decided from S8's routed numbers with the user.
   16-clock round with a level in service, and with a 13-clock INT pulse reads a vector at
   0006xh no request has (not examined). Not measured: a one-clock pulse at other phases, NMI
   beside INT, a mask store or ISPR clearing inside the delay; the bus hold's rule.
+
+**2026-11-20, request-passage probe, third set (`validation/v35s/passage.py` actions `pc`, `pcb`,
+`pcrows`, `pco`; programs `f5_pc_*`, 50 programs, 1,722 windows, two socket sessions, 50 of 50
+EQUAL):** measurement only, no RTL. **The controller's extra clocks:** from the clock a slot
+  (or NMI's catch) sets the request bit to the instruction's look is 14 clocks against INT's 8:
+  6 more set to set (the earlier "4" is pin to pin, work order 35's "5" is the 6 less the set's
+  own clock). They are 6 silent clocks in which the request can be withdrawn without a trace,
+  the two-clock on-chip cycle that holds the bus unit, then 6 silent clocks. Independent of
+  level, source (TM0, INTP0, stored flag, NMI), a level in service and other pending or masked
+  requests. **The vector is fixed at the set:** a better level arriving afterwards changes
+  neither vector nor clock. **Cancellable up to the look:** a mask store, a flag clear or any
+  request control store cancels the take; a store rewriting the register as it stands drops
+  the bit and the request is found again with its 14 clocks. The two-clock cycle is not run
+  when the mask is written within about 4 clocks of the set and never with IE 0. When the
+  request vanishes in the looking instruction, 10 clocks pass with no bus cycle and no take.
+  Not explained: what the cycle carries and why it sits 6 clocks after the set; the onset of
+  the dropped entry. **The look is one fixed clock of the instruction's own routine, not held
+  open to the dispatch:** a store with 0, 1, 2 waits has the same latest edge to the tick (INT
+  9 clocks before the write's start, NMI 13.5), OUT with 0 and 2 I/O waits likewise. INT's
+  latest edge to the next dispatch: 10 (INC, MULU, DIVU, shift by CL, memory read, BR), 11
+  (CVTBW, store, PUSH, on-chip store), 12 / 13 (store with 1 / 2 waits), 11 / 13 (OUT with 0 /
+  2 waits), 12 (NOP, XCH): NOP, XCH and CVTBW look 2 clocks after dispatch as INC does, with
+  2, 2 and 1 clocks behind the look. Not explained: MULU's look 2 clocks earlier for NMI and
+  TM0 than for INT; the vector read 3 clocks later behind BR and the on-chip store for NMI.
+  Not measured: a DMA end as source, strings, a store to a six-clock-grid register (the f4_dma
+  case), serial sources, macro service. Work order 35's tree against this: the count is right;
+  it resolves priority after the set, takes a masked request at the mask store's end, keeps
+  the set through a request control store, and its `e_pend` makes the INT sample follow the
+  dispatch (1 to 3 clocks late behind stores, OUT, CVTBW, NOP, XCH). Boundaries equal over
+  1,704 windows: base 971, work order 35 1,451.

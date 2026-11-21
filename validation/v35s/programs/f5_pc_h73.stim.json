@@ -1,0 +1,264 @@
+{
+ "entries": [
+  {
+   "event": 1,
+   "delay": 5180,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 2,
+   "delay": 5212,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 3,
+   "delay": 5244,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 4,
+   "delay": 5276,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 5,
+   "delay": 5308,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 6,
+   "delay": 5340,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 7,
+   "delay": 5372,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 8,
+   "delay": 5404,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 9,
+   "delay": 5436,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 10,
+   "delay": 5468,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 11,
+   "delay": 5500,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 12,
+   "delay": 5532,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 13,
+   "delay": 5564,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 14,
+   "delay": 5596,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 15,
+   "delay": 5628,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 16,
+   "delay": 5660,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 17,
+   "delay": 5692,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 18,
+   "delay": 5724,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 19,
+   "delay": 5756,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 20,
+   "delay": 5788,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 21,
+   "delay": 5820,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 22,
+   "delay": 5852,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 23,
+   "delay": 5884,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 24,
+   "delay": 5916,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 25,
+   "delay": 5948,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 26,
+   "delay": 5980,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 27,
+   "delay": 6012,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 28,
+   "delay": 6044,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 29,
+   "delay": 6076,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 30,
+   "delay": 6108,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 31,
+   "delay": 6140,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  },
+  {
+   "event": 32,
+   "delay": 6172,
+   "hold": 600,
+   "levels": {
+    "INTP0": 0
+   }
+  }
+ ],
+ "pins": [
+  "P13",
+  "P15"
+ ]
+}
