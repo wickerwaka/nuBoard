@@ -4050,3 +4050,24 @@ two sessions, all EQUAL):** measurement only. **FINT is 6 clocks on silicon with
   window; to be judged again with FINT at 6 clocks. Not separable on the pins: where in
   FINT's clocks ISPR is cleared. Behind the RETI silicon's second return fetch comes 7 clocks
   after the first, the core's 5.
+
+**2026-11-21, dispatch-pacing analysis and passage probe, seventh set (`validation/v35s/passage.py`,
+programs `f5_pg_a` .. `d`, 100 windows, two sessions EQUAL):** measurement only. The one clock
+  by which the core's dispatch trails silicon's behind DIVU, MULU, ROL by CL, a memory read
+  and BR in the passage frames is **not at the dispatch**: silicon holds the dispatch word
+  behind a fetch started on an instruction's last clock as the core does. It is inside the
+  instruction that follows in those frames, the mark's store: **the bus cycle of MOV dmem,acc
+  and MOV acc,dmem (st_dir, ld_dir) starts on the routine's fifth clock when no fetch has
+  started inside the routine, the core always on the sixth; with a fetch started on the
+  routine's fourth clock both start it on the sixth, behind that fetch.** The deciding
+  variable is the queue's fill at the routine's start (7 held: no fetch). Passage window
+  bodies, 65 programs: 615 instances without the fetch are one clock early on silicon, 0 in
+  step; 2,630 with it are in step, 0 early; the untaken twins show it in 32 of 32 windows, so
+  it is not an interrupt effect. All 936 corpus instances have the fetch in the way, which is
+  why the corpus is exact. Refuted: "dispatch not held behind a prefix" (loses 109 of 960 F2 /
+  F3 runs), "not held for any word" (breaks the INC trains). A naive trial posting the cycle
+  one word earlier gains passage (boundary and clock 941 to 1,264 of 1,904) but loses 16
+  corpus runs at 1 and 2 waits, where silicon still lets a fetch chained on the routine's
+  third or fourth clock go first. Not explained: whether the request is due a clock sooner or
+  a leading word is a wait that a full queue satisfies; MOV byte [d16],imm8 2 to 3 clocks
+  early on silicon in the same frames; 26 early segments without the signature.

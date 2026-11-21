@@ -136,6 +136,8 @@ def emit_ops(a, ops, meta=None):
                     a.op([0x90], "NOP")
         elif k == "dw0":
             a.op([0x33, 0xD2], "XOR DW, DW")
+        elif k == "raw":
+            a.op(list(op[1]), op[2])
         elif k == "ds1":
             a.mov_r("AW", op[1])
             a.mov_sr("DS1")
@@ -1435,6 +1437,51 @@ def programs6():
     return {p.name: p for p in progs}
 
 
+# ------------------------------------------------------------------ the seventh set (f5_pg_*)
+# The dispatch behind a fetch started on an instruction's last clock (build/overseer/pace): no request at
+# all. mark 1 ; XOR DW,DW ; the sled ; MULU IX (the queue full: its last word's release starts a fetch) ;
+# P (one clock: its last word executes on the clock the next fetch starts back to back, five held) ; Y ;
+# mark 2 ; mark 3. P and Y by window; `al`: a NOP in front of XOR DW,DW (the other alignment).
+PG_P = (("none", None, ""), ("ss", 0x36, "SS:"), ("ds", 0x3E, "DS0:"), ("nop", 0x90, "NOP"), ("inc", 0x40, "INC AW"))
+PG_Y = ("sd", "ld", "sb", "lb", "pu", "im", "rr", "ou", "wi", "nop")
+
+
+def pg_y(y, p):
+    """Y's bytes and text behind P: a direct address in SS is MARK + 32 (the wr kind's), in DS0 0F810h
+    (the sled's page)."""
+    at = MARK + 32 if p == 0x36 else 0xF810
+    lo, hi = at & 0xFF, at >> 8
+    return {"sd": ([0xA3, lo, hi], f"MOV [{at:04X}h], AW"), "ld": ([0xA1, lo, hi], f"MOV AW, [{at:04X}h]"),
+            "sb": ([0x89, 0x07], "MOV [BW], AW"), "lb": ([0x8B, 0x07], "MOV AW, [BW]"),
+            "pu": ([0x50], "PUSH AW"), "im": ([0xB8, 0x34, 0x12], "MOV AW, 1234h"),
+            "rr": ([0x8B, 0xC2], "MOV AW, DW"), "ou": ([0xE7, 0x80], "OUT 80h, AW"),
+            "wi": ([0xC6, 0x06, lo, hi, 0x00], f"MOV byte [{at:04X}h], 00h"), "nop": ([0x90], "NOP")}[y]
+
+
+def set_pg(ps, al):
+    out = []
+    for pn, pb, pt in PG_P:
+        if pn not in ps:
+            continue
+        for y in PG_Y:
+            yb, yt = pg_y(y, pb)
+            ops = ((("mark", 1),) + ((("raw", [0x90], "NOP   ; the other alignment"),) if al else ())
+                   + (("dw0",), ("sl", 0), ("x", "mul", 1))
+                   + ((("raw", [pb], pt + "   ; P"),) if pb is not None else ())
+                   + (("raw", yb, yt + "   ; Y"), ("mark", 2), ("mark", 3), ("inc", 12)))
+            out.append(window("g", len(out), ops, pre=(("ei",),), kind="mul", pg_p=pn, pg_y=y, pg_al=al))
+    return out
+
+
+def programs7():
+    progs = []
+    for sfx, ps, al in (("a", ("none", "ss", "ds"), 0), ("b", ("nop", "inc"), 0),
+                        ("c", ("none", "ss", "ds"), 1), ("d", ("nop", "inc"), 1)):
+        progs.append(prog(f"f5_pg_{sfx}", set_pg(ps, al),
+                          f"MULU ; P ; Y ; marks: P in {'/'.join(ps)}, alignment {al}, no request"))
+    return {p.name: p for p in progs}
+
+
 def pf_fint(win):
     """The address of the first word of SER0's handler's routine in a pf window (FINT's word in a, c and
     x fint; the sled's in b), of SER0's handler in a peh window (FINT's word in pe_h2 / h4)."""
@@ -1653,6 +1700,7 @@ def main():
     progs.update(programs4())
     progs.update(programs5())
     progs.update(programs6())
+    progs.update(programs7())
     names = []
     for n in a.names or list(progs):
         names += [x for x in progs if x == n or x == "f5_pa_" + n] or [x for x in progs if x.startswith("f5_pa_" + n) or x.startswith("f5_" + n)]
